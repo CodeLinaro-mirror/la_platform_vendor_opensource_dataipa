@@ -746,7 +746,7 @@ static int ipa_wdi_set_perf_profile_internal(struct ipa_wdi_perf_profile *profil
 
 void ipa_wdi3_register(void)
 {
-	struct ipa_wdi3_data funcs;
+	struct ipa_wdi3_data funcs = {0};
 
 	funcs.ipa_wdi_bw_monitor = ipa_uc_bw_monitor;
 	funcs.ipa_wdi_cleanup = ipa_wdi_cleanup_internal;

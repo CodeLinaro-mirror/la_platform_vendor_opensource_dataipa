@@ -2290,7 +2290,7 @@ int ipa_mhi_is_using_dma(bool *flag)
 
 void ipa_mhi_register(void)
 {
-	struct ipa_mhi_data funcs;
+	struct ipa_mhi_data funcs = {0};
 
 	funcs.ipa_mhi_init = ipa_mhi_init_internal;
 	funcs.ipa_mhi_start = ipa_mhi_start_internal;

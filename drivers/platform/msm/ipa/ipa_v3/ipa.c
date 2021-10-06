@@ -689,6 +689,7 @@ static void ipa3_active_clients_log_destroy(void)
 	kfree(active_clients_table_buf);
 	active_clients_table_buf = NULL;
 	kfree(ipa3_ctx->ipa3_active_clients_logging.log_buffer[0]);
+	ipa3_ctx->ipa3_active_clients_logging.log_buffer[0] = NULL;
 	ipa3_ctx->ipa3_active_clients_logging.log_head = 0;
 	ipa3_ctx->ipa3_active_clients_logging.log_tail =
 			IPA3_ACTIVE_CLIENTS_LOG_BUFFER_SIZE_LINES - 1;
@@ -6229,7 +6230,7 @@ static inline void ipa3_enable_napi_lan_rx(void)
 
 static inline void ipa3_register_to_fmwk(void)
 {
-	struct ipa_core_data data;
+	struct ipa_core_data data = {0};
 
 	data.ipa_tx_dp = ipa3_tx_dp;
 	data.ipa_get_hw_type = ipa_get_hw_type_internal;
@@ -7779,13 +7780,16 @@ fail_bus_reg:
 fail_init_mem_partition:
 fail_bind:
 	kfree(ipa3_ctx->ctrl);
+	ipa3_ctx->ctrl = NULL;
 fail_mem_ctrl:
 	kfree(ipa3_ctx->ipa_tz_unlock_reg);
+	ipa3_ctx->ipa_tz_unlock_reg = NULL;
 fail_tz_unlock_reg:
 	if (ipa3_ctx->logbuf)
 		ipc_log_context_destroy(ipa3_ctx->logbuf);
 fail_uc_file_alloc:
 	kfree(ipa3_ctx->gsi_fw_file_name);
+	ipa3_ctx->gsi_fw_file_name = NULL;
 fail_gsi_file_alloc:
 fail_mem_ctx:
 	return result;
@@ -8465,6 +8469,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 			IPAERR("failed to read register addresses\n");
 			kfree(ipa_tz_unlock_reg);
 			kfree(ipa_drv_res->ipa_tz_unlock_reg);
+			ipa_drv_res->ipa_tz_unlock_reg = NULL;
 			return -EFAULT;
 		}
 
