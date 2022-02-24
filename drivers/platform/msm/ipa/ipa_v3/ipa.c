@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -782,6 +784,7 @@ struct ipa_smmu_cb_ctx *ipa3_get_smmu_ctx(enum ipa_smmu_cb_type cb_type)
 {
 	return &smmu_cb[cb_type];
 }
+EXPORT_SYMBOL(ipa3_get_smmu_ctx);
 
 static int ipa3_open(struct inode *inode, struct file *filp)
 {
@@ -6932,7 +6935,8 @@ void ipa3_suspend_handler(enum ipa_irq_type interrupt,
 			pipe_bitmask |= bmsk;
 		bmsk = bmsk << 1;
 
-		if ((i % IPA_EP_PER_REG) == (ep_per_reg - 1)) {
+		if ((i % IPA_EP_PER_REG) == (ep_per_reg - 1)
+			|| (i == ipa3_ctx->ipa_num_pipes - 1)) {
 			IPADBG("interrupt data: %u\n", suspend_data[j]);
 			res = ipa_pm_handle_suspend(pipe_bitmask, j);
 			if (res) {
@@ -8551,6 +8555,25 @@ static u32 get_tx_wrapper_cache_size(u32 cache_size)
 	return IPA_TX_WRAPPER_CACHE_MAX_THRESHOLD;
 }
 
+static u32 get_ipa_gen_rx_cmn_page_pool_size(u32 rx_cmn_page_pool_size)
+{
+        if (!rx_cmn_page_pool_size)
+                return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+        if (rx_cmn_page_pool_size <= IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR)
+                return rx_cmn_page_pool_size;
+        return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+}
+
+
+static u32 get_ipa_gen_rx_cmn_temp_pool_size(u32 rx_cmn_temp_pool_size)
+{
+        if (!rx_cmn_temp_pool_size)
+                return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+        if (rx_cmn_temp_pool_size <= IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR)
+                return rx_cmn_temp_pool_size;
+        return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+}
+
 /**
  * ipa3_pre_init() - Initialize the IPA Driver.
  * This part contains all initialization which doesn't require IPA HW, such
@@ -8658,6 +8681,11 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->stats.page_recycle_stats[1].tmp_alloc = 0;
 	memset(ipa3_ctx->stats.page_recycle_cnt, 0,
 		sizeof(ipa3_ctx->stats.page_recycle_cnt));
+	ipa3_ctx->stats.num_sort_tasklet_sched[0] = 0;
+	ipa3_ctx->stats.num_sort_tasklet_sched[1] = 0;
+	ipa3_ctx->stats.num_sort_tasklet_sched[2] = 0;
+	ipa3_ctx->stats.num_of_times_wq_reschd = 0;
+	ipa3_ctx->stats.page_recycle_cnt_in_tasklet = 0;
 	ipa3_ctx->skip_uc_pipe_reset = resource_p->skip_uc_pipe_reset;
 	ipa3_ctx->tethered_flow_control = resource_p->tethered_flow_control;
 	ipa3_ctx->ee = resource_p->ee;
@@ -8687,6 +8715,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->rmnet_ll_enable = resource_p->rmnet_ll_enable;
 	ipa3_ctx->tx_wrapper_cache_max_size = get_tx_wrapper_cache_size(
 			resource_p->tx_wrapper_cache_max_size);
+	ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor = get_ipa_gen_rx_cmn_page_pool_size(
+                        resource_p->ipa_gen_rx_cmn_page_pool_sz_factor);
+        ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor = get_ipa_gen_rx_cmn_temp_pool_size(
+                        resource_p->ipa_gen_rx_cmn_temp_pool_sz_factor);
 	ipa3_ctx->ipa_config_is_auto = resource_p->ipa_config_is_auto;
 	ipa3_ctx->ipa_mhi_proxy = resource_p->ipa_mhi_proxy;
 	ipa3_ctx->max_num_smmu_cb = resource_p->max_num_smmu_cb;
@@ -8868,6 +8900,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 
 	/* Initialize Page poll threshold. */
 	ipa3_ctx->page_poll_threshold = IPA_PAGE_POLL_DEFAULT_THRESHOLD;
+
+	/*Initialize number napi without prealloc buff*/
+	ipa3_ctx->ipa_max_napi_sort_page_thrshld = IPA_MAX_NAPI_SORT_PAGE_THRSHLD;
+	ipa3_ctx->page_wq_reschd_time = IPA_MAX_PAGE_WQ_RESCHED_TIME;
 
 	/* Use common page pool for Def/Coal pipe. */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_1)
@@ -9287,7 +9323,10 @@ fail_init_active_client:
 	ipa3_clk = NULL;
 fail_bus_reg:
 	for (i = 0; i < ipa3_ctx->icc_num_paths; i++)
-		if (ipa3_ctx->ctrl->icc_path[i]) {
+		if (IS_ERR_OR_NULL(ipa3_ctx->ctrl->icc_path[i])) {
+			ipa3_ctx->ctrl->icc_path[i] = NULL;
+			break;
+		} else {
 			icc_put(ipa3_ctx->ctrl->icc_path[i]);
 			ipa3_ctx->ctrl->icc_path[i] = NULL;
 		}
@@ -9299,8 +9338,10 @@ fail_mem_ctrl:
 	kfree(ipa3_ctx->ipa_tz_unlock_reg);
 	ipa3_ctx->ipa_tz_unlock_reg = NULL;
 fail_tz_unlock_reg:
-	if (ipa3_ctx->logbuf)
+	if (ipa3_ctx->logbuf) {
 		ipc_log_context_destroy(ipa3_ctx->logbuf);
+		ipa3_ctx->logbuf = NULL;
+	}
 fail_uc_file_alloc:
 	kfree(ipa3_ctx->gsi_fw_file_name);
 	ipa3_ctx->gsi_fw_file_name = NULL;
@@ -9491,6 +9532,40 @@ static void get_dts_tx_wrapper_cache_size(struct platform_device *pdev,
 
 	IPADBG("tx_wrapper_cache_max_size is set to %d",
 		ipa_drv_res->tx_wrapper_cache_max_size);
+}
+
+
+static void get_dts_ipa_gen_rx_cmn_page_pool_sz_factor(struct platform_device *pdev,
+                struct ipa3_plat_drv_res *ipa_drv_res)
+{
+        int result;
+
+        result = of_property_read_u32 (
+                pdev->dev.of_node,
+                "qcom,ipa-gen-rx-cmn-page-pool-sz-factor",
+                &ipa_drv_res->ipa_gen_rx_cmn_page_pool_sz_factor);
+        if (result)
+                ipa_drv_res->ipa_gen_rx_cmn_page_pool_sz_factor = 0;
+
+        IPADBG("ipa_gen_rx_cmn_page_pool_sz_factor is set to %d",
+                ipa_drv_res->ipa_gen_rx_cmn_page_pool_sz_factor);
+}
+
+
+static void get_dts_ipa_gen_rx_cmn_temp_pool_sz_factor(struct platform_device *pdev,
+                struct ipa3_plat_drv_res *ipa_drv_res)
+{
+        int result;
+
+        result = of_property_read_u32 (
+                pdev->dev.of_node,
+                "qcom,ipa-gen-rx-cmn-temp-pool-sz-factor",
+                &ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor);
+        if (result)
+                ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor = 0;
+
+        IPADBG("ipa_gen_rx_cmn_temp_pool_sz_factor is set to %d",
+                ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor);
 }
 
 static void ipa_dts_get_ulso_data(struct platform_device *pdev,
@@ -10214,6 +10289,10 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 
 	get_dts_tx_wrapper_cache_size(pdev, ipa_drv_res);
 
+	get_dts_ipa_gen_rx_cmn_page_pool_sz_factor(pdev, ipa_drv_res);
+
+        get_dts_ipa_gen_rx_cmn_temp_pool_sz_factor(pdev, ipa_drv_res);
+
 	ipa_dts_get_ulso_data(pdev, ipa_drv_res);
 
 	result = of_property_read_u32(pdev->dev.of_node,
@@ -10600,6 +10679,19 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 		ipa3_iommu_map(cb->iommu_domain,
 				iova_p, pa_p, size_p,
 				IOMMU_READ | IOMMU_WRITE);
+
+		ipa3_ctx->per_stats_smem_pa = iova;
+		ipa3_ctx->per_stats_smem_va = smem_addr;
+
+		/**
+		 * Force type casting to perpheral stats structure.
+		 * First 2kB of the FILTER_TABLE SMEM is allocated for
+		 * Peripheral stats design. If there is a need to
+		 * use rest of FILTER_TABLE_SMEM it should be used from
+		 * smem_addr + 2KB offset
+		 */
+		ret = ipa3_peripheral_stats_init((union ipa_peripheral_stats *) smem_addr);
+		if(ret)	IPAERR("IPA Peripheral stats init failure = %d ", ret);
 	}
 
 	smmu_info.present[IPA_SMMU_CB_AP] = true;
@@ -10705,6 +10797,8 @@ static int ipa3_attach_to_smmu(void)
 			}
 		}
 	} else {
+		ipa3_ctx->pdev = &ipa3_ctx->master_pdev->dev;
+		ipa3_ctx->uc_pdev = &ipa3_ctx->master_pdev->dev;
 		IPADBG("smmu is disabled\n");
 	}
 	return 0;
@@ -10996,7 +11090,17 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 				return -EOPNOTSUPP;
 			}
 		}
+		/* Below update of pre init for non smmu device, As
+		 * existing flow initialzies only for smmu
+		 * enabled node.*/
+
+		result = ipa3_pre_init(&ipa3_res, pdev_p);
+		if (result) {
+			IPAERR("ipa3_init failed\n");
+			return result;
+		}
 		ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_SMMU_DONE);
+		goto skip_repeat_pre_init;
 	}
 
 	/* Proceed to real initialization */
@@ -11006,6 +11110,7 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		return result;
 	}
 
+skip_repeat_pre_init:
 	result = of_platform_populate(pdev_p->dev.of_node,
 		ipa_plat_drv_match, NULL, &pdev_p->dev);
 	if (result) {
@@ -11180,6 +11285,7 @@ int ipa3_iommu_map(struct iommu_domain *domain,
 
 	return iommu_map(domain, iova, paddr, size, prot);
 }
+EXPORT_SYMBOL(ipa3_iommu_map);
 
 /**
  * ipa3_get_smmu_params()- Return the ipa3 smmu related params.
