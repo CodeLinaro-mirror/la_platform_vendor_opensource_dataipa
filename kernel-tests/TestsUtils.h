@@ -828,6 +828,82 @@ struct ipa3_hw_pkt_status_hw_v5_0 {
 	uint64_t ucp : 1;
 };
 
+struct ipa3_hw_pkt_status_hw_v5_5 {
+	uint64_t status_opcode:8;
+	uint64_t exception:8;
+	uint64_t status_mask:16;
+	uint64_t pkt_len:16;
+	uint64_t endp_src_idx:8;
+	uint64_t reserved_1:3;
+	uint64_t rt_local:1;
+	uint64_t rt_hash:1;
+	uint64_t reserved_2:3;
+	uint64_t metadata:32;
+	uint64_t flt_local:1;
+	uint64_t flt_hash:1;
+	uint64_t flt_global:1;
+	uint64_t flt_ret_hdr:1;
+	uint64_t flt_rule_id:10;
+	uint64_t rt_tbl_idx:8;
+	uint64_t rt_rule_id:10;
+	uint64_t nat_hit:1;
+	uint64_t nat_entry_idx:13;
+	uint64_t nat_type:2;
+	uint64_t tag_info:36;
+	uint64_t egress_tc:6;
+	uint64_t ingress_tc:6;
+	uint64_t seq_num:8;
+	uint64_t time_of_day_ctr:24;
+	uint64_t hdr_local:1;
+	uint64_t hdr_offset:10;
+	uint64_t frag_hit:1;
+	uint64_t frag_rule:4;
+	uint64_t endp_dest_idx:8;
+	uint64_t hw_specific:4;
+	uint64_t nat_exc_suppress:1;
+	uint64_t tsp:1;
+	uint64_t ttl_dec:1;
+	uint64_t ucp:1;
+};
+
+struct ipa3_hw_pkt_status_hw_v6_0 {
+        uint64_t status_opcode:8;
+        uint64_t exception:8;
+        uint64_t status_mask:16;
+        uint64_t pkt_len:16;
+        uint64_t endp_src_idx:8;
+        uint64_t pure_ack:1;
+        uint64_t syn:1;
+        uint64_t fin_rst:1;
+        uint64_t rt_local:1;
+        uint64_t rt_hash:1;
+        uint64_t protocol_encoding:3;
+        uint64_t metadata:32;
+        uint64_t flt_local:1;
+        uint64_t flt_hash:1;
+        uint64_t flt_global:1;
+        uint64_t flt_ret_hdr:1;
+        uint64_t flt_rule_id:10;
+        uint64_t rt_tbl_idx:8;
+        uint64_t rt_rule_id:10;
+        uint64_t nat_hit:1;
+        uint64_t nat_entry_idx:13;
+        uint64_t nat_type:2;
+        uint64_t tag_info:48;
+        uint64_t seq_num:8;
+        uint64_t time_of_day_ctr:24;
+        uint64_t hdr_local:1;
+        uint64_t hdr_offset:10;
+        uint64_t frag_hit:1;
+        uint64_t frag_rule:4;
+        uint64_t endp_dest_idx:8;
+        uint64_t reserved:3;
+        uint64_t tag_msb_indicator:2;
+        uint64_t nat_exc_suppress:1;
+        uint64_t ttl_dec:1;
+        uint64_t ucp:1;
+};
+
 static inline uint8_t* Addr_AsStr(
 	void*       addr,
 	uint32_t    addr_len,
@@ -1167,43 +1243,5 @@ union ipa_ip_params
 		uint32_t dst_addr[4];
 		uint32_t dst_addr_mask[4];
 	} v6;
-};
-
-struct ipa3_hw_pkt_status_hw_v5_5 {
-	uint64_t status_opcode:8;
-	uint64_t exception:8;
-	uint64_t status_mask:16;
-	uint64_t pkt_len:16;
-	uint64_t endp_src_idx:8;
-	uint64_t reserved_1:3;
-	uint64_t rt_local:1;
-	uint64_t rt_hash:1;
-	uint64_t reserved_2:3;
-	uint64_t metadata:32;
-	uint64_t flt_local:1;
-	uint64_t flt_hash:1;
-	uint64_t flt_global:1;
-	uint64_t flt_ret_hdr:1;
-	uint64_t flt_rule_id:10;
-	uint64_t rt_tbl_idx:8;
-	uint64_t rt_rule_id:10;
-	uint64_t nat_hit:1;
-	uint64_t nat_entry_idx:13;
-	uint64_t nat_type:2;
-	uint64_t tag_info:36;
-	uint64_t egress_tc:6;
-	uint64_t ingress_tc:6;
-	uint64_t seq_num:8;
-	uint64_t time_of_day_ctr:24;
-	uint64_t hdr_local:1;
-	uint64_t hdr_offset:10;
-	uint64_t frag_hit:1;
-	uint64_t frag_rule:4;
-	uint64_t endp_dest_idx:8;
-	uint64_t hw_specific:4;
-	uint64_t nat_exc_suppress:1;
-	uint64_t tsp:1;
-	uint64_t ttl_dec:1;
-	uint64_t ucp:1;
 };
 #endif

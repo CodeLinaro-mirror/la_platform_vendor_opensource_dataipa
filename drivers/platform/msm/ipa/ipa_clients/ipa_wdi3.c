@@ -571,7 +571,7 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 	IPA_WDI_DBG("number of sys pipe %d\n", in->num_sys_pipe_needed);
 	ipa_ep_idx_tx1 = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS1);
 	if ((ipa_ep_idx_tx1 != IPA_EP_NOT_ALLOCATED) &&
-		(ipa_ep_idx_tx1 < IPA3_MAX_NUM_PIPES) &&
+		(ipa_ep_idx_tx1 < IPA_MAX_NUM_PIPES) &&
 		ipa3_ctx->is_wdi3_tx1_needed) {
 		ipa_wdi_ctx_list[in->hdl]->is_tx1_used = in->is_tx1_used;
 	} else

@@ -348,6 +348,34 @@ public:
 		return false;
 	}
 
+	bool IsSuppressionHit(void *buff)
+	{
+		switch (TestManager::GetInstance()->GetIPAHwType()) {
+		case IPA_HW_v6_0:
+		{
+			struct ipa3_hw_pkt_status_hw_v6_0 *status_v6_0 =
+				(struct ipa3_hw_pkt_status_hw_v6_0 *)buff;
+
+			if (status_v6_0->nat_exc_suppress)
+				return true;
+			break;
+		}
+		case IPA_HW_v5_5:
+		{
+			struct ipa3_hw_pkt_status_hw_v5_5 *status_v5_5 =
+				(struct ipa3_hw_pkt_status_hw_v5_5 *)buff;
+
+			if (status_v5_5->nat_exc_suppress)
+				return true;
+			break;
+		}
+		default:
+			LOG_MSG_ERROR("NAT Suppression is not supported in current IPA version \n");
+		}
+
+		return false;
+	}
+
 	bool CompareResultVsGoldenNat(Byte *goldenBuffer, unsigned int goldenSize,
 		Byte *receivedBuffer, unsigned int receivedSize, int private_ip, int public_ip,
 		int private_port, int public_port, bool src_nat, int IPv4_offset = 0, bool with_status = false)
@@ -955,7 +983,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 
 		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
 		if (ret) {
@@ -1156,7 +1184,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		uint32_t pub_ip_add = m_public_ip;
 
 		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
@@ -1387,7 +1415,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		uint32_t pub_ip_add = m_public_ip;
 		ipa_nat_pdn_entry pdn_info;
 
@@ -1711,7 +1739,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		uint32_t pub_ip_add = m_public_ip;
 		ipa_nat_pdn_entry pdn_info;
 
@@ -2010,7 +2038,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		ipa_nat_pdn_entry pdn_info;
 
 		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
@@ -2228,7 +2256,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		ipa_nat_pdn_entry pdn_info;
 
 		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
@@ -2454,7 +2482,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 
 		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
 		if (ret) {
@@ -2735,7 +2763,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		uint32_t pub_ip_add = m_public_ip;
 		ipa_nat_pdn_entry pdn_info;
 
@@ -3207,7 +3235,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		ipa_nat_pdn_entry pdn_info;
 
 		// first create the NAT table
@@ -3681,7 +3709,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		uint32_t pub_ip_add = m_public_ip;
 
 		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
@@ -4370,7 +4398,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 
 		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
 		if (ret) {
@@ -4578,7 +4606,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 
 		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
 		if (ret) {
@@ -4651,7 +4679,6 @@ public:
 	{
 		size_t receivedSize = 0;
 		bool isSuccess = true;
-		struct ipa3_hw_pkt_status_hw_v5_5 *status = NULL;
 
 		// Receive results
 		Byte *rxBuff1 = new Byte[0x400];
@@ -4672,8 +4699,7 @@ public:
 			isSuccess = false;
 		}
 
-		status = (struct ipa3_hw_pkt_status_hw_v5_5 *)rxBuff1;
-		if (!status->nat_exc_suppress)
+		if (!IsSuppressionHit(rxBuff1))
 		{
 			printf("NAT Suppression not hit!\n");
 			isSuccess = false;
@@ -4795,7 +4821,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		uint32_t pub_ip_add = m_public_ip;
 
 		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
@@ -5008,7 +5034,7 @@ public:
 		//NAT table and rules creation
 		int total_entries = 20;
 		int ret;
-		ipa_nat_ipv4_rule ipv4_rule;
+		ipa_nat_ipv4_rule ipv4_rule = {0};
 		uint32_t pub_ip_add = m_public_ip;
 
 		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
@@ -5085,7 +5111,6 @@ public:
 	{
 		size_t receivedSize = 0;
 		bool isSuccess = true;
-		struct ipa3_hw_pkt_status_hw_v5_5 *status = NULL;
 
 		// Receive results
 		Byte *rxBuff1 = new Byte[0x400];
@@ -5106,8 +5131,7 @@ public:
 			isSuccess = false;
 		}
 
-		status = (struct ipa3_hw_pkt_status_hw_v5_5 *)rxBuff1;
-		if (!status->nat_exc_suppress)
+		if (!IsSuppressionHit(rxBuff1))
 		{
 			printf("NAT Suppression not hit!\n");
 			isSuccess = false;

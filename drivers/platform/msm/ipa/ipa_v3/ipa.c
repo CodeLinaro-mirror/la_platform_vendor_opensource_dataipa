@@ -5787,16 +5787,23 @@ int _ipa_init_sram_v3(void)
 			IPA_MEM_PART(stats_fnr_ofst));
 	}
 
-	if (ipa_get_hw_type_internal() >= IPA_HW_v5_0) {
+	if (ipa_get_hw_type_internal() >= IPA_HW_v5_0 && ipa_get_hw_type_internal() < IPA_HW_v6_0) {
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			IPA_MEM_PART(pdn_config_ofst - 4));
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			IPA_MEM_PART(pdn_config_ofst));
-	} else {
+	} else if (ipa_get_hw_type_internal() < IPA_HW_v5_0) {
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			(ipa_get_hw_type_internal() >= IPA_HW_v3_5) ?
 			IPA_MEM_PART(uc_descriptor_ram_ofst) :
 			IPA_MEM_PART(end_ofst));
+	}
+
+	if (ipa_get_hw_type_internal() >= IPA_HW_v6_0) {
+		ipa3_sram_set_canary(ipa_sram_mmio,
+				IPA_MEM_PART(apps_v4_flt_nhash_ofst) - 4);
+		ipa3_sram_set_canary(ipa_sram_mmio,
+				IPA_MEM_PART(apps_v4_flt_nhash_ofst));
 	}
 
 	iounmap(ipa_sram_mmio);
@@ -7766,6 +7773,9 @@ static enum gsi_ver ipa3_get_gsi_ver(enum ipa_hw_type ipa_hw_type)
 	case IPA_HW_v5_5:
 		gsi_ver = GSI_VER_5_5;
 		break;
+	case IPA_HW_v6_0:
+		gsi_ver = GSI_VER_6_0;
+		break;
 	default:
 		IPAERR("No GSI version for ipa type %d\n", ipa_hw_type);
 		WARN_ON(1);
@@ -7952,6 +7962,20 @@ static void ipa_gsi_map_unmap_gsi_msi_addr(bool map)
 	}
 }
 
+static inline void ipa_trigger_mhi_ready_cbs(void)
+{
+	struct ipa_ready_cb_mhi_data *info;
+	struct ipa_ready_cb_mhi_data *next;
+
+	/* Call all the CBs */
+	list_for_each_entry_safe(info, next,
+		&ipa3_ctx->ipa_ready_cb_list, link) {
+		if (info->ready_cb)
+			info->ready_cb(info->user_data);
+		list_del(&info->link);
+		kfree(info);
+	}
+}
 
 /**
  * ipa3_post_init() - Initialize the IPA Driver (Part II).
@@ -8035,9 +8059,9 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 	ipa3_ctx->ipa_num_pipes = ipa3_get_num_pipes();
 	IPADBG("IPA Pipes num %u\n", ipa3_ctx->ipa_num_pipes);
-	if (ipa3_ctx->ipa_num_pipes > IPA5_MAX_NUM_PIPES) {
+	if (ipa3_ctx->ipa_num_pipes > IPA_MAX_NUM_PIPES) {
 		IPAERR("IPA has more pipes then supported has %d, max %d\n",
-			ipa3_ctx->ipa_num_pipes, IPA5_MAX_NUM_PIPES);
+			ipa3_ctx->ipa_num_pipes, IPA_MAX_NUM_PIPES);
 		result = -ENODEV;
 		goto fail_init_hw;
 	}
@@ -8339,10 +8363,10 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		reg = true;
 	mutex_unlock(&ipa3_ctx->lock);
 	ipa3_enable_napi_lan_rx();
-	if (reg) {
+	//if (reg) {           // Just for the kbdev, ipa3_register_to_fmwk() need to be called.
 		IPADBG("register to fmwk\n");
 		ipa3_register_to_fmwk();
-	}
+	//}
 
 	/* init uc-activation tbl*/
 	ipa3_setup_uc_act_tbl();
@@ -8354,6 +8378,8 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	ipa_ut_module_init();
+
+	ipa_trigger_mhi_ready_cbs();
 
 	/* Query MSI address. */
 	gsi_query_device_msi_addr(&ipa3_ctx->gsi_msi_addr);
@@ -8471,7 +8497,7 @@ static int ipa3_manual_load_ipa_fws(void)
 	return 0;
 }
 
-#if IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
+#if 0 //IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
 static int ipa_firmware_load(const char *sub_sys)
 {
 	const struct firmware *fw;
@@ -8616,7 +8642,7 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
 		 * using different signing images, adding support to
 		 * load specific FW image to based on dt entry.
 		 */
-#if IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
+#if 0 //IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
 		if (ipa3_ctx->gsi_fw_file_name)
 			result = ipa3_mdt_load_ipa_fws(
 						ipa3_ctx->gsi_fw_file_name);
@@ -8665,7 +8691,7 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
 		/* Unvoting will happen when uC loaded event received. */
 		ipa3_proxy_clk_vote(false);
 
-#if IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
+#if 0 //IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
 		if (ipa3_ctx->uc_fw_file_name)
 			result = ipa3_mdt_load_ipa_fws(
 						ipa3_ctx->uc_fw_file_name);
@@ -10027,7 +10053,8 @@ static int get_ipa_dts_pm_info(struct platform_device *pdev,
 	if (!of_find_property(pdev->dev.of_node,
 			"interconnects", NULL)) {
 		IPAERR("No interconnect info\n");
-		return -EFAULT;
+		/* Temp disable, needs to bring back when interconnect will be supported in device tree */
+		//return -EFAULT;
 	}
 
 	result = of_property_read_u32(pdev->dev.of_node,

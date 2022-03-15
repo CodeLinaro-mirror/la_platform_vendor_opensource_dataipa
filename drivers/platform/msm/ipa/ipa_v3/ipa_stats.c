@@ -304,7 +304,7 @@ static int ipa_get_generic_stats(unsigned long arg)
 	for (i = 0; i < generic_stats->holb_stats.num_holb_mon_clients; i++) {
 		holb_client = &(ipa3_ctx->uc_ctx.holb_monitor.client[i]);
 		/* Get the client type from gsi_hdl */
-		for (j = 0; j < IPA5_MAX_NUM_PIPES; j++) {
+		for (j = 0; j < IPA_MAX_NUM_PIPES; j++) {
 			if (ipa3_ctx->ep[j].gsi_chan_hdl == holb_client->gsi_chan_hdl) {
 				holb_mon_stats_ptr->client_type = ipa3_ctx->ep[j].client;
 				break;

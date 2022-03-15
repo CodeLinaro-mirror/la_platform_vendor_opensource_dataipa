@@ -13,6 +13,7 @@
 #include <linux/ipa.h>
 #include <linux/msm_gsi.h>
 #include <linux/ipa_mhi.h>
+#include <linux/mhi_dma.h>
 #include "gsi.h"
 #include "ipa_common_i.h"
 #include "ipa_pm.h"
@@ -63,6 +64,16 @@
 
 #define IPA_MHI_MAX_UL_CHANNELS 3  //3 out channels below
 #define IPA_MHI_MAX_DL_CHANNELS 6  //4 in channels + QDSS + COAL
+
+#define IPA_MHI_TOTAL_CLIENTS 6
+static enum ipa_client_type mhi_clients[IPA_MHI_TOTAL_CLIENTS] =
+		{IPA_CLIENT_MHI_PROD,
+		IPA_CLIENT_MHI_CONS,
+		IPA_CLIENT_MHI_LOW_LAT_PROD,
+		IPA_CLIENT_MHI_LOW_LAT_CONS,
+		IPA_CLIENT_MHI_QDSS_CONS,
+		IPA_CLIENT_MHI_DPL_CONS};
+
 
 /* bit #40 in address should be asserted for MHI transfers over pcie */
 #define IPA_MHI_CLIENT_HOST_ADDR_COND(addr) \
@@ -553,6 +564,26 @@ static void ipa_mhi_notify_ready(void)
 	IPA_MHI_FUNC_ENTRY();
 	queue_work(ipa_mhi_client_ctx->wq, &ipa_mhi_notify_ready_work);
 	IPA_MHI_FUNC_EXIT();
+}
+
+/**
+ * ipa_mhi_get_ch_bitmap() - Get MHI channels numbers in bitmap.
+ *
+ * @ch_bitmap: the bitmap to fill with the MHI clients channels
+ *           numbers.
+ */
+static void ipa_mhi_get_ch_bitmap(u32 *ch_bitmap)
+{
+	int i;
+	const struct ipa_gsi_ep_config *gsi_ep_config;
+
+	*ch_bitmap = 0;
+
+	for (i = 0; i < IPA_MHI_TOTAL_CLIENTS; i++) {
+		gsi_ep_config = ipa3_get_gsi_ep_info(mhi_clients[i]);
+		if (gsi_ep_config)
+			*ch_bitmap |= 1 << gsi_ep_config->ipa_gsi_chan_num;
+	}
 }
 
 /**
@@ -1615,8 +1646,10 @@ static int ipa_mhi_resume_channels(bool LPTransitionRejected,
 			is_switch_to_dbmode = false;
 			break;
 		case IPA_MHI_STATE_M0:
-			IPA_MHI_ERR("Resume in M0 - not expected\n");
-			res = -EINVAL;
+			if (ipa_mhi_client_ctx->state != IPA_MHI_STATE_SUSPEND_IN_PROGRESS) {
+				IPA_MHI_ERR("Resume in M0 - not expected\n");
+				res = -EINVAL;
+			}
 			break;
 		case IPA_MHI_STATE_M_MAX:
 			IPA_MHI_ERR("No knowledge of M state\n");
@@ -2483,6 +2516,128 @@ void ipa_mhi_register(void)
 }
 EXPORT_SYMBOL(ipa_mhi_register);
 
+/* New mhi API implementation for mhi_dma.h */
+
+int mhi_dma_register_ready_cb(void (*mhi_ready_cb)(void *user_data),
+		void *user_data)
+{
+	struct ipa_ready_cb_mhi_data *cb_info = NULL;
+
+	if (!ipa3_ctx) {
+		IPA_MHI_ERR("Can't register ready CB, ipa3_ctx hasn't been \
+			initialized yet");
+		return -EPERM;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	if (ipa3_ctx->ipa_initialization_complete) {
+		IPA_MHI_DBG("IPA driver finished initialization already\n");
+		mutex_unlock(&ipa3_ctx->lock);
+		return -EEXIST;
+	}
+
+	cb_info = kmalloc(sizeof(struct ipa_ready_cb_mhi_data), GFP_KERNEL);
+	if (!cb_info) {
+		mutex_unlock(&ipa3_ctx->lock);
+		return -ENOMEM;
+	}
+
+	cb_info->ready_cb = mhi_ready_cb;
+	cb_info->user_data = user_data;
+
+	list_add_tail(&cb_info->link, &ipa3_ctx->ipa_ready_cb_list);
+	mutex_unlock(&ipa3_ctx->lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(mhi_dma_register_ready_cb);
+
+int mhi_dma_init(struct mhi_dma_function_params function,
+                struct mhi_dma_init_params *params,
+                struct mhi_dma_init_out *out)
+{
+	int gsi_res;
+
+	if (!out) {
+		IPA_MHI_ERR("null out arg\n");
+		return -EINVAL;
+	}
+
+	gsi_res = gsi_get_channel_event_db_base_addr(&out->ch_db_fwd_base,
+		&out->ev_db_fwd_base);
+	if (gsi_res != GSI_STATUS_SUCCESS) {
+		IPA_MHI_ERR("Error getting DB base addresses: %d\n", gsi_res);
+		return -EFAULT;
+	}
+
+	ipa_mhi_get_ch_bitmap(&out->ch_db_fwd_msk);
+	out->ev_db_fwd_msk = out->ch_db_fwd_msk;
+
+	return ipa_mhi_init_internal((struct ipa_mhi_init_params *)params);;
+}
+EXPORT_SYMBOL(mhi_dma_init);
+
+int mhi_dma_start(struct mhi_dma_function_params function,
+		struct mhi_dma_start_params *params)
+{
+	return ipa_mhi_start_internal((struct ipa_mhi_start_params *)params);
+}
+EXPORT_SYMBOL(mhi_dma_start);
+
+int mhi_dma_connect_endp(struct mhi_dma_function_params function,
+		struct mhi_dma_connect_params *in, u32 *clnt_hdl)
+{
+	struct ipa_mhi_connect_params connect_params = {0};
+
+	/* struct mhi_dma_function_params is not the same as struct ipa_mhi_connect_params.
+	  Casting needs to be done explictly.*/
+	connect_params.channel_id = in->channel_id;
+	connect_params.sys.desc_fifo_sz = in->desc_fifo_sz;
+	connect_params.sys.priv = in->priv;
+	connect_params.sys.notify = (ipa_notify_cb)in->notify;
+	connect_params.sys.int_modt = in->int_modt;
+	connect_params.sys.int_modc = in->int_modc;
+	connect_params.sys.buff_size = in->buff_size;
+
+	connect_params.sys.skip_ep_cfg = true;
+
+	return ipa_mhi_connect_pipe_internal(&connect_params, clnt_hdl);
+}
+EXPORT_SYMBOL(mhi_dma_connect_endp);
+
+int mhi_dma_disconnect_endp(struct mhi_dma_function_params function,
+                struct mhi_dma_disconnect_params *in)
+{
+	return ipa_mhi_disconnect_pipe_internal(in->clnt_hdl);
+}
+EXPORT_SYMBOL(mhi_dma_disconnect_endp);
+
+int mhi_dma_suspend(struct mhi_dma_function_params function, bool force)
+{
+	return ipa_mhi_suspend_internal(force);
+}
+EXPORT_SYMBOL(mhi_dma_suspend);
+
+int mhi_dma_resume(struct mhi_dma_function_params function)
+{
+	return ipa_mhi_resume_internal();
+}
+EXPORT_SYMBOL(mhi_dma_resume);
+
+int mhi_dma_update_mstate(struct mhi_dma_function_params function,
+		enum mhi_dma_mstate mstate_info)
+{
+	return ipa_mhi_update_mstate_internal((enum ipa_mhi_mstate)mstate_info);
+}
+EXPORT_SYMBOL(mhi_dma_update_mstate);
+
+void mhi_dma_destroy(struct mhi_dma_function_params function)
+{
+	ipa_mhi_destroy_internal();
+}
+EXPORT_SYMBOL(mhi_dma_destroy);
+
+/* End of the new mhi API */
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("IPA MHI client driver");

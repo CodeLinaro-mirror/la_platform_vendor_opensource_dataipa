@@ -1279,6 +1279,8 @@ bool CompareResultVsGolden(Byte *goldenBuffer,   unsigned int goldenSize,
 size_t GetPacketStatusSize(void)
 {
 		switch (TestManager::GetInstance()->GetIPAHwType()) {
+				case IPA_HW_v6_0:
+						return sizeof(struct ipa3_hw_pkt_status_hw_v6_0);
 				case IPA_HW_v5_5:
 						return sizeof(struct ipa3_hw_pkt_status_hw_v5_5);
 				case IPA_HW_v5_0:
@@ -1295,6 +1297,9 @@ bool CompareResultVsGolden_w_Status(Byte *goldenBuffer,   unsigned int goldenSiz
 	size_t stts_size = sizeof(struct ipa3_hw_pkt_status);
 
 	switch (TestManager::GetInstance()->GetIPAHwType()) {
+		case IPA_HW_v6_0:
+				stts_size = sizeof(struct ipa3_hw_pkt_status_hw_v6_0);
+				break;
 		case IPA_HW_v5_5:
 				stts_size = sizeof(struct ipa3_hw_pkt_status_hw_v5_5);
 				break;

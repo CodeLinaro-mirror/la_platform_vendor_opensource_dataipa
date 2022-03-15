@@ -524,12 +524,12 @@ public:
 			return false;
 		}
 
-		if(!((bool)pStatus->ttl_dec)){
-			printf ("%s::cache miss!! \n",__FUNCTION__);
+		if((bool)pStatus->ttl_dec) {
+			printf ("%s::TTL Updated!! \n",__FUNCTION__);
 			return true;
 		}
 
-		printf ("%s::cache hit!! \n",__FUNCTION__);
+		printf ("%s::TTL not updated!! \n",__FUNCTION__);
 		return false;
 	}
 
@@ -4980,7 +4980,7 @@ public:
 /*---------------------------------------------------------------------------*/
 /* Test100: Cache LRU behavior test  */
 /*---------------------------------------------------------------------------*/
-#define CHACHE_ENTRIES 64
+#define CHACHE_ENTRIES 128
 #define CHACHE_PLUS_ONE (CHACHE_ENTRIES +1)
 class IpaRoutingBlockTest040 : public IpaRoutingBlockTestFixture
 {
@@ -5168,11 +5168,6 @@ public:
 		m_IpaIPType = IPA_IP_v4;
 		m_minIPAHwType = IPA_HW_v5_5;
 		Register(*this);
-	}
-
-	bool Setup()
-	{
-		return IpaRoutingBlockTestFixture:: Setup(true);
 	}
 
 	bool AddRules()

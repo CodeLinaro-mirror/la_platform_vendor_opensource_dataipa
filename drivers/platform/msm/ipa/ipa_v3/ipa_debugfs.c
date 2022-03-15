@@ -1737,6 +1737,7 @@ static ssize_t ipa3_read_lan_coal_stats(
 		ipa3_ctx->stats.coal.coal_udp_bytes,
 		buf);
 
+
 	cnt += nbytes;
 
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);

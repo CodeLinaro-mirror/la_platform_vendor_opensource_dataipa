@@ -149,7 +149,7 @@ static int ipahal_parse_stats_quota_v5_0(void *init_params, void *raw_stats,
 
 	memset(out, 0, sizeof(*out));
 	IPAHAL_DBG_LOW("\n");
-	for (i = 0; i < IPAHAL_IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
 		reg_idx = ipahal_get_ep_reg_idx(i);
 		if (init->enabled_bitmask[reg_idx] & ipahal_get_ep_bit(i)) {
 			IPAHAL_DBG_LOW("pipe %d stat_idx %d\n", i, stat_idx);
@@ -243,7 +243,7 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v5_0(
 
 	IPAHAL_DBG_LOW("prod entries = %d\n", hdr_entries);
 	reg_idx = 0;
-	for (i = 0; i < IPAHAL_IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
 		if (i > 0 && !(i % IPAHAL_MAX_PIPES_PER_REG)) {
 			reg_idx++;
 		}
@@ -291,7 +291,7 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v5_0(
 		/ 8;
 
 	reg_idx = 0;
-	for (i = 0; i < IPAHAL_IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
 
 		if (i > 0 && !(i % IPAHAL_MAX_PIPES_PER_REG)) {
 			reg_idx++;
@@ -366,7 +366,7 @@ static int ipahal_get_offset_tethering_v5_0(void *params,
 	int entries = 0;
 	int i, j, reg_idx;
 
-	for (i = 0; i < IPAHAL_IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
 		reg_idx = ipahal_get_ep_reg_idx(i);
 
 		if (in->init.prod_bitmask[reg_idx] & ipahal_get_ep_bit(i)) {
@@ -457,9 +457,9 @@ static int ipahal_parse_stats_tethering_v5_0(void *init_params, void *raw_stats,
 
 	memset(out, 0, sizeof(*out));
 	IPAHAL_DBG_LOW("\n");
-	for (i = 0; i < IPAHAL_IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
 		prod_idx = ipahal_get_ep_reg_idx(i);
-		for (j = 0; j < IPAHAL_IPA5_PIPES_NUM; j++) {
+		for (j = 0; j < IPAHAL_IPA6_PIPES_NUM; j++) {
 			cons_idx = ipahal_get_ep_reg_idx(j);
 			if ((init->prod_bitmask[prod_idx] &
 				ipahal_get_ep_bit(i)) &&
@@ -805,7 +805,7 @@ static int ipahal_parse_stats_drop_v5_0(void *init_params, void *raw_stats,
 
 	memset(out, 0, sizeof(*out));
 	IPAHAL_DBG_LOW("\n");
-	for (i = 0; i < IPAHAL_IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
 		reg_idx = ipahal_get_ep_reg_idx(i);
 		if (init->enabled_bitmask[reg_idx] & ipahal_get_ep_bit(i)) {
 			out->stats[i].drop_byte_cnt =

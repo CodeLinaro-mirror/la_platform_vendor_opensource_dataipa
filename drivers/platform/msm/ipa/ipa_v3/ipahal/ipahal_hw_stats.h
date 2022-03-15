@@ -11,6 +11,7 @@
 #define IPAHAL_MAX_PIPES 32
 #define IPAHAL_MAX_PIPES_PER_REG 32
 #define IPAHAL_IPA5_PIPES_NUM 36
+#define IPAHAL_IPA6_PIPES_NUM 50
 #define IPAHAL_IPA5_PIPE_REG_NUM 2
 #define IPAHAL_IPA5_PRODUCER_PIPE_NUM 16
 #define IPAHAL_MAX_RULE_ID_32 (1024 / 32) /* 10 bits of rule id */
@@ -79,7 +80,7 @@ struct ipahal_stats_quota {
  * @stats: array of statistics per pipe
  */
 struct ipahal_stats_quota_all {
-	struct ipahal_stats_quota stats[IPAHAL_IPA5_PIPES_NUM];
+	struct ipahal_stats_quota stats[IPAHAL_IPA6_PIPES_NUM];
 };
 
 /*
@@ -89,7 +90,7 @@ struct ipahal_stats_quota_all {
  */
 struct ipahal_stats_init_tethering {
 	u32 prod_bitmask[IPAHAL_IPA5_PIPE_REG_NUM];
-	u32 cons_bitmask[IPAHAL_IPA5_PIPES_NUM][IPAHAL_IPA5_PIPE_REG_NUM];
+	u32 cons_bitmask[IPAHAL_IPA6_PIPES_NUM][IPAHAL_IPA5_PIPE_REG_NUM];
 };
 
 /*
@@ -121,7 +122,7 @@ struct ipahal_stats_tethering {
  */
 struct ipahal_stats_tethering_all {
 	struct ipahal_stats_tethering
-		stats[IPAHAL_IPA5_PIPES_NUM][IPAHAL_IPA5_PIPES_NUM];
+		stats[IPAHAL_IPA6_PIPES_NUM][IPAHAL_IPA6_PIPES_NUM];
 };
 
 /*
@@ -208,7 +209,7 @@ struct ipahal_stats_drop {
  * @stats: array of statistics per pipes
  */
 struct ipahal_stats_drop_all {
-	struct ipahal_stats_drop stats[IPAHAL_IPA5_PIPES_NUM];
+	struct ipahal_stats_drop stats[IPAHAL_IPA6_PIPES_NUM];
 };
 
 /*

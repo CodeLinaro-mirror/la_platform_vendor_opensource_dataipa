@@ -40,6 +40,7 @@
 
 #define AGGREGATION_LOOP 4
 #define IPV4_DST_ADDR_OFFSET (16)
+#define IPV4_TOTAL_LENGTH_OFFSET (2)
 
 /////////////////////////////////////////////////////////////////////////////////
 //							MBIM Aggregation scenarios                         //
@@ -674,6 +675,7 @@ bool MBIMAggregationScenarios::MBIMAggregationTimeLimitTest(
 	//Size of aggregated packet
 	int nTotalPacketsSize = 24;
 	uint32_t nIPv4DSTAddr;
+	uint16_t ipv4TotalLength;
 	size_t pIpPacketsSizes[1];
 
 	//initialize the packets
@@ -713,6 +715,12 @@ bool MBIMAggregationScenarios::MBIMAggregationTimeLimitTest(
 	{
 		LOG_MSG_DEBUG("Sending packet %d into the USB pipe(%d bytes)\n", i,
 				pPacketsSizes[i]);
+
+		/* Updating ipv4 packet length */
+		ipv4TotalLength = htons(pPacketsSizes[i]);
+		memcpy(&pPackets[i][IPV4_TOTAL_LENGTH_OFFSET], &ipv4TotalLength,
+				sizeof(ipv4TotalLength));
+
 		int nBytesSent = input->Send(pPackets[i], pPacketsSizes[i]);
 		if (pPacketsSizes[i] != nBytesSent)
 		{
@@ -1248,6 +1256,7 @@ bool MBIMAggregationScenarios::MBIMAggregationTimeLimitLoopTest(
 	//Size of aggregated packet
 	int nTotalPacketsSize = 24;
 	uint32_t nIPv4DSTAddr;
+	uint16_t ipv4TotalLength;
 	size_t pIpPacketsSizes[NUM_PACKETS];
 
 	//initialize the packets
@@ -1289,6 +1298,12 @@ bool MBIMAggregationScenarios::MBIMAggregationTimeLimitLoopTest(
 		{
 			LOG_MSG_DEBUG("Sending packet %d into the USB pipe(%d bytes)\n", i,
 					pPacketsSizes[i]);
+
+			/* Updating ipv4 packet length */
+			ipv4TotalLength = htons(pPacketsSizes[i]);
+			memcpy(&pPackets[i][IPV4_TOTAL_LENGTH_OFFSET], &ipv4TotalLength,
+					sizeof(ipv4TotalLength));
+
 			int nBytesSent = input->Send(pPackets[i], pPacketsSizes[i]);
 			if (pPacketsSizes[i] != nBytesSent)
 			{
@@ -1340,6 +1355,7 @@ bool MBIMAggregationScenarios::MBIMAggregation0LimitsTest(
 	//The expected aggregated packets sizes
 	int pAggragatedPacketsSizes[NUM_PACKETS] = {0};
 	uint32_t nIPv4DSTAddr;
+	uint16_t ipv4TotalLength;
 	size_t pIpPacketsSizes[NUM_PACKETS];
 
 	//initialize the packets
@@ -1379,6 +1395,12 @@ bool MBIMAggregationScenarios::MBIMAggregation0LimitsTest(
 	{
 		LOG_MSG_DEBUG("Sending packet %d into the USB pipe(%d bytes)\n", i,
 				pPacketsSizes[i]);
+
+		/* Updating ipv4 packet length */
+		ipv4TotalLength = htons(pPacketsSizes[i]);
+		memcpy(&pPackets[i][IPV4_TOTAL_LENGTH_OFFSET], &ipv4TotalLength,
+				sizeof(ipv4TotalLength));
+
 		int nBytesSent = input->Send(pPackets[i], pPacketsSizes[i]);
 		if (pPacketsSizes[i] != nBytesSent)
 		{
@@ -1435,6 +1457,7 @@ bool MBIMAggregationScenarios::MBIMAggregationMultiplePacketsTest(
 	//Buffer for the packet that will be received
 	Byte pReceivedPacket[2*MAX_PACKET_SIZE];
 	uint32_t nIPv4DSTAddr;
+	uint16_t ipv4TotalLength;
 	size_t pIpPacketsSizes[MAX_PACKETS_IN_NDP + 1];
 	//Total size of all sent packets (this is the max size of the aggregated packet
 	//minus the size of the header and the 2 NDPs)
@@ -1476,6 +1499,12 @@ bool MBIMAggregationScenarios::MBIMAggregationMultiplePacketsTest(
 	{
 		LOG_MSG_DEBUG("Sending packet %d into the USB pipe(%d bytes)\n", i,
 					pPacketsSizes[i]);
+
+		/* Updating ipv4 packet length */
+		ipv4TotalLength = htons(pPacketsSizes[i]);
+		memcpy(&pPackets[i][IPV4_TOTAL_LENGTH_OFFSET], &ipv4TotalLength,
+					sizeof(ipv4TotalLength));
+
 		int nBytesSent = input->Send(pPackets[i], pPacketsSizes[i]);
 
 		if (pPacketsSizes[i] != nBytesSent)

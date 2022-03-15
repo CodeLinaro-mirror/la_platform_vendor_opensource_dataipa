@@ -173,6 +173,37 @@ public:
 		return retval;
 	}
 
+	bool Setup()
+	{
+		bool bRetVal = true;
+
+		if (SetupKernelModule() != true)
+			return bRetVal;
+
+		m_producer.Open(INTERFACE0_TO_IPA_DATA_PATH, INTERFACE0_FROM_IPA_DATA_PATH);
+
+		m_consumer.Open(INTERFACE1_TO_IPA_DATA_PATH, INTERFACE1_FROM_IPA_DATA_PATH);
+		m_consumer2.Open(INTERFACE2_TO_IPA_DATA_PATH, INTERFACE2_FROM_IPA_DATA_PATH);
+		m_defaultConsumer.Open(INTERFACE3_TO_IPA_DATA_PATH, INTERFACE3_FROM_IPA_DATA_PATH);
+
+		if (!m_routing.DeviceNodeIsOpened())
+		{
+			printf("Routing block is not ready for immediate commands!\n");
+			return false;
+		}
+
+		if (!m_filtering.DeviceNodeIsOpened())
+		{
+			printf("Filtering block is not ready for immediate commands!\n");
+			return false;
+		}
+
+		m_routing.Reset(IPA_IP_v4); // This will issue a Reset command to the Filtering as well
+		m_routing.Reset(IPA_IP_v6); // This will issue a Reset command to the Filtering as well
+		return true;
+	} // Setup()
+
+
 	bool Setup(bool en_status = false, bool ct_suppress = false)
 	{
 		bool bRetVal = true;
@@ -635,6 +666,34 @@ public:
 		printf("Leaving %s, %s()\n", __FUNCTION__, __FILE__);
 		return true;
 	}// AddRoutingFilteringRules()
+
+	bool IsSuppressionHit(void *buff)
+	{
+		switch (TestManager::GetInstance()->GetIPAHwType()) {
+		case IPA_HW_v6_0:
+		{
+			struct ipa3_hw_pkt_status_hw_v6_0 *status_v6_0 =
+				(struct ipa3_hw_pkt_status_hw_v6_0 *)buff;
+
+			if (status_v6_0->nat_exc_suppress)
+				return true;
+			break;
+		}
+		case IPA_HW_v5_5:
+		{
+			struct ipa3_hw_pkt_status_hw_v5_5 *status_v5_5 =
+				(struct ipa3_hw_pkt_status_hw_v5_5 *)buff;
+
+			if (status_v5_5->nat_exc_suppress)
+				return true;
+			break;
+		}
+		default:
+			LOG_MSG_ERROR("NAT Suppression is not supported in current IPA version \n");
+		}
+
+		return false;
+	}
 
 	virtual bool ReceivePacketsAndCompare(bool packetPassExpected)
 	{
@@ -2121,7 +2180,6 @@ public:
 		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
 
 		// Receive results		
-		struct ipa3_hw_pkt_status_hw_v5_5 *status = NULL;
 		Byte rxBuff1[0x400];
 		size_t receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
 		printf("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
@@ -2145,8 +2203,7 @@ public:
 			}
 		}
 
-		status = (struct ipa3_hw_pkt_status_hw_v5_5 *)rxBuff1;
-		if (!status->nat_exc_suppress)
+		if (!IsSuppressionHit(rxBuff1))
 		{
 			printf("NAT Suppression not hit!\n");
 			isSuccess = false;
@@ -2311,7 +2368,6 @@ public:
 		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
 
 		// Receive results		
-		struct ipa3_hw_pkt_status_hw_v5_5 *status = NULL;
 		Byte rxBuff1[0x400];
 		size_t receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
 		printf("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
@@ -2335,8 +2391,7 @@ public:
 			}
 		}
 
-		status = (struct ipa3_hw_pkt_status_hw_v5_5 *)rxBuff1;
-		if (!status->nat_exc_suppress)
+		if (!IsSuppressionHit(rxBuff1))
 		{
 			printf("NAT Suppression not hit!\n");
 			isSuccess = false;

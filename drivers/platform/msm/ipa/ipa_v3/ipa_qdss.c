@@ -84,7 +84,7 @@ int ipa3_conn_qdss_pipes(struct ipa_qdss_conn_in_params *in,
 
 	ipa_ep_idx_rx = ipa3_get_ep_mapping(IPA_CLIENT_QDSS_PROD);
 	if ((ipa_ep_idx_rx == -1) ||
-		(ipa_ep_idx_rx >= IPA3_MAX_NUM_PIPES)) {
+		(ipa_ep_idx_rx >= IPA_MAX_NUM_PIPES)) {
 		IPA_QDSS_ERR("out of range ipa_ep_idx_rx = %d\n",
 			ipa_ep_idx_rx);
 		return -IPA_QDSS_PIPE_CONN_FAILURE;
@@ -217,7 +217,7 @@ int ipa3_disconn_qdss_pipes(void)
 		return -IPA_QDSS_PIPE_DISCONN_FAILURE;
 	}
 
-	if (ipa_ep_idx_rx >= IPA3_MAX_NUM_PIPES) {
+	if (ipa_ep_idx_rx >= IPA_MAX_NUM_PIPES) {
 		IPA_QDSS_ERR("ep out of range.\n");
 		return -IPA_QDSS_PIPE_DISCONN_FAILURE;
 	}

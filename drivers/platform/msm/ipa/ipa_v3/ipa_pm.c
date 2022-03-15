@@ -169,7 +169,7 @@ struct ipa_pm_client {
  */
 struct ipa_pm_ctx {
 	struct ipa_pm_client *clients[IPA_PM_MAX_CLIENTS];
-	struct ipa_pm_client *clients_by_pipe[IPA5_PIPES_NUM];
+	struct ipa_pm_client *clients_by_pipe[IPA6_PIPES_NUM];
 	struct workqueue_struct *wq;
 	struct clk_scaling_db clk_scaling;
 	struct mutex client_mutex;

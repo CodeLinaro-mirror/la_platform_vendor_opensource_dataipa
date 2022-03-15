@@ -607,14 +607,14 @@ int ipa3_tear_down_uc_offload_pipes(int ipa_ep_idx_ul,
 	IPADBG("ep_dl = %d\n", ipa_ep_idx_dl);
 
 	if (ipa_ep_idx_ul == IPA_EP_NOT_ALLOCATED ||
-		ipa_ep_idx_ul >= IPA3_MAX_NUM_PIPES) {
+		ipa_ep_idx_ul >= IPA_MAX_NUM_PIPES) {
 		IPAERR("ipa_ep_idx_ul %d invalid\n",
 			ipa_ep_idx_ul);
 		return -EFAULT;
 	}
 
 	if (ipa_ep_idx_dl == IPA_EP_NOT_ALLOCATED ||
-		ipa_ep_idx_dl >= IPA3_MAX_NUM_PIPES) {
+		ipa_ep_idx_dl >= IPA_MAX_NUM_PIPES) {
 		IPAERR("ep ipa_ep_idx_dl %d invalid\n",
 			ipa_ep_idx_dl);
 		return -EFAULT;

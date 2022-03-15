@@ -13,6 +13,8 @@
 #include "ipahal_i.h"
 #include "ipa_common_i.h"
 
+#define MAX_IS_FRAG_ENCODING 0x3
+
 /* SRAM OFFSET for empty table */
 #define IPA_EMPTY_SRAM_OFFSET (0x1000)
 #define IPA_MAC_FLT_BITS (IPA_FLT_MAC_DST_ADDR_ETHER_II | \
@@ -1850,8 +1852,17 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		ihl_ofst_rng16++;
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_FRAGMENT)
+	if (attrib->attrib_mask & IPA_FLT_FRAGMENT) {
+		/* IS-FRAG equation enhancement change since IPA6.0 */
+		if (attrib->is_frag_encoding > MAX_IS_FRAG_ENCODING) {
+			IPAHAL_ERR("Invalid is_frag_encoding:%d, setting \
+				default value 0\n", attrib->is_frag_encoding);
+			extra = ipa_write_8(0, extra);
+		} else {
+			extra = ipa_write_8(attrib->is_frag_encoding, extra);
+		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_FRAG);
+	}
 
 	if (attrib->attrib_mask & IPA_FLT_TOS && !tos_done) {
 		IPAHAL_ERR("could not find equation for tos\n");
@@ -2375,8 +2386,17 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 			rest);
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_FRAGMENT)
+	if (attrib->attrib_mask & IPA_FLT_FRAGMENT) {
+		/* IS-FRAG equation enhancement change since IPA6.0 */
+		if (attrib->is_frag_encoding > MAX_IS_FRAG_ENCODING) {
+			IPAHAL_ERR("Invalid is_frag_encoding:%d, setting \
+				default value 0\n", attrib->is_frag_encoding);
+			extra = ipa_write_8(0, extra);
+		} else {
+			extra = ipa_write_8(attrib->is_frag_encoding, extra);
+		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_FRAG);
+	}
 
 	goto done;
 
@@ -3447,6 +3467,13 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_FRAGMENT) {
+		if (attrib->is_frag_encoding > MAX_IS_FRAG_ENCODING) {
+			IPAHAL_ERR("Invalid is_frag_encoding:%d, setting \
+				default value 0\n", attrib->is_frag_encoding);
+			eq_atrb->is_frag_encoding = 0;
+		} else {
+			eq_atrb->is_frag_encoding = attrib->is_frag_encoding;
+		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_FRAG);
 		eq_atrb->ipv4_frag_eq_present = 1;
 	}
@@ -3915,6 +3942,13 @@ static int ipa_flt_generate_eq_ip6(enum ipa_ip_type ip,
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_FRAGMENT) {
+		if (attrib->is_frag_encoding > MAX_IS_FRAG_ENCODING) {
+			IPAHAL_ERR("Invalid is_frag_encoding:%d, setting \
+				default value 0\n", attrib->is_frag_encoding);
+			eq_atrb->is_frag_encoding = 0;
+		} else {
+			eq_atrb->is_frag_encoding = attrib->is_frag_encoding;
+		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			IPA_IS_FRAG);
 		eq_atrb->ipv4_frag_eq_present = 1;

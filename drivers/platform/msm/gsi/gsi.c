@@ -52,6 +52,16 @@
 #define GSI_MSB(num) ((u32)((num & GSI_MSB_MASK) >> 32))
 #define GSI_LSB(num) ((u32)(num & GSI_LSB_MASK))
 
+#define GSI_INST_RAM_FW_VER_OFFSET			(0)
+#define GSI_INST_RAM_FW_VER_GSI_3_0_OFFSET	(64)
+#define GSI_INST_RAM_FW_VER_GSI_5_5_OFFSET	(66)
+#define GSI_INST_RAM_FW_VER_HW_MASK			(0xFC00)
+#define GSI_INST_RAM_FW_VER_HW_SHIFT		(10)
+#define GSI_INST_RAM_FW_VER_FLAVOR_MASK		(0x380)
+#define GSI_INST_RAM_FW_VER_FLAVOR_SHIFT	(7)
+#define GSI_INST_RAM_FW_VER_FW_MASK			(0x7f)
+#define GSI_INST_RAM_FW_VER_FW_SHIFT		(0)
+
 #define GSI_FC_NUM_WORDS_PER_CHNL_SHRAM		(20)
 #define GSI_FC_STATE_INDEX_SHRAM			(7)
 #define GSI_FC_PENDING_MASK					(0x00080000)
@@ -1242,6 +1252,7 @@ static uint32_t gsi_get_max_event_rings(enum gsi_ver ver)
 	case GSI_VER_3_0:
 	case GSI_VER_5_2:
 	case GSI_VER_5_5:
+	case GSI_VER_6_0:
 		gsihal_read_reg_n_fields(GSI_EE_n_GSI_HW_PARAM_4,
 			gsi_ctx->per.ee, &hw_param4);
 		max_ev = hw_param4.gsi_num_ev_per_ee;
@@ -3373,6 +3384,29 @@ int gsi_query_channel_db_addr(unsigned long chan_hdl,
 }
 EXPORT_SYMBOL(gsi_query_channel_db_addr);
 
+int gsi_get_channel_event_db_base_addr(uint64_t *ch_db_base_addr,
+		uint64_t *ev_db_base_addr)
+{
+        if (!gsi_ctx) {
+                pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
+                return -GSI_STATUS_NODEV;
+        }
+
+        if (!ch_db_base_addr || !ev_db_base_addr) {
+                GSIERR("bad params ch_db=%pK ev_db=%pK\n", ch_db_base_addr,
+                                ev_db_base_addr);
+                return -GSI_STATUS_INVALID_PARAMS;
+        }
+
+        *ch_db_base_addr = gsi_ctx->per.phys_addr +
+                gsihal_get_reg_nk_ofst(GSI_EE_n_GSI_CH_k_DOORBELL_0, 0, 0);
+        *ev_db_base_addr = gsi_ctx->per.phys_addr +
+                gsihal_get_reg_nk_ofst(GSI_EE_n_EV_CH_k_DOORBELL_0, 0, 0);
+
+        return GSI_STATUS_SUCCESS;
+}
+EXPORT_SYMBOL(gsi_get_channel_event_db_base_addr);
+
 int gsi_pending_irq_type(void)
 {
 	int ee = gsi_ctx->per.ee;
@@ -3428,6 +3462,20 @@ int gsi_start_channel(unsigned long chan_hdl)
 	gsi_channel_state_change_wait(chan_hdl,
 		ctx,
 		GSI_START_CMD_TIMEOUT_MS, op);
+
+	if (ctx->state == GSI_CHAN_STATE_UNSUPPORTED) {
+		/*
+		 * MDM tiering feature
+		 * Hardware returned state unsupported status,
+		 * no need to crash, just log the error.
+		 */
+		GSIERR("chan=%lu state unsupported due to tiering\n",
+			chan_hdl);
+		gsi_dump_ch_info(chan_hdl);
+		mutex_unlock(&gsi_ctx->mlock);
+
+		return -GSI_STATUS_UNSUPPORTED_OP;
+	}
 
 	if (ctx->state != GSI_CHAN_STATE_STARTED &&
 		ctx->state != GSI_CHAN_STATE_FLOW_CONTROL) {
@@ -4845,7 +4893,7 @@ void gsi_get_inst_ram_offset_and_size(unsigned long *base_offset,
 		*size = gsihal_get_inst_ram_size();
 
 	if (base_offset) {
-		*base_offset = gsihal_get_reg_n_ofst(GSI_GSI_INST_RAM_n, 0);
+		*base_offset = gsihal_get_reg_n_ofst(GSI_GSI_INST_RAM_0, 0);
 	}
 }
 EXPORT_SYMBOL(gsi_get_inst_ram_offset_and_size);
@@ -5160,9 +5208,15 @@ int gsi_flow_control_ee(unsigned int chan_idx, int ep_id, unsigned int ee,
 		GSI_EE_n_GSI_EE_GENERIC_CMD, gsi_ctx->per.ee, &cmd);
 
 wait_again:
-	fc_pending = gsihal_read_reg_n(GSI_GSI_SHRAM_n,
-		(ep_id * GSI_FC_NUM_WORDS_PER_CHNL_SHRAM) + GSI_FC_STATE_INDEX_SHRAM) &
-		GSI_FC_PENDING_MASK;
+	if (gsi_ctx->per.ver >= GSI_VER_6_0) {
+		fc_pending = gsihal_read_reg_n(GSI_GSI_SHRAM_0,
+                (ep_id * GSI_FC_NUM_WORDS_PER_CHNL_SHRAM) + GSI_FC_STATE_INDEX_SHRAM) &
+                GSI_FC_PENDING_MASK;
+	} else {
+		fc_pending = gsihal_read_reg_n(GSI_GSI_SHRAM_n,
+                (ep_id * GSI_FC_NUM_WORDS_PER_CHNL_SHRAM) + GSI_FC_STATE_INDEX_SHRAM) &
+                GSI_FC_PENDING_MASK;
+	}
 	res = wait_for_completion_timeout(&gsi_ctx->gen_ee_cmd_compl,
 		msecs_to_jiffies(GSI_FC_CMD_TIMEOUT));
 	if (res == 0) {
@@ -5391,7 +5445,11 @@ int gsi_ntn3_client_stats_get(unsigned ep_id, int scratch_id, unsigned chan_hdl)
 {
 	switch (scratch_id) {
 	case -1:
-		return gsihal_read_reg_n(GSI_GSI_SHRAM_n, GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id));
+		if (gsi_ctx->per.ver >= GSI_VER_6_0) {
+			return gsihal_read_reg_n(GSI_GSI_SHRAM_0, GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id));
+		} else {
+			return gsihal_read_reg_n(GSI_GSI_SHRAM_n, GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id));
+		}
 	case 4:
 		return (gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_4, gsi_ctx->per.ee,
 			chan_hdl) >> GSI_NTN3_PENDING_DB_AFTER_RB_MASK) &
@@ -5479,9 +5537,15 @@ int gsi_get_drop_stats(unsigned long ep_id, int scratch_id,
 			 * additional 28/4 = 7 to get to scratch 5 of the
 			 * required channel.
 			 */
-			return gsihal_read_reg_n(
-				GSI_GSI_SHRAM_n,
-				ep_id * 12 + 7) & GSI_RTK_ERR_STATS_MASK;
+			if (gsi_ctx->per.ver >= GSI_VER_6_0) {
+				return gsihal_read_reg_n(
+                                        GSI_GSI_SHRAM_0,
+                                        ep_id * 12 + 7) & GSI_RTK_ERR_STATS_MASK;
+			} else {
+				return gsihal_read_reg_n(
+					GSI_GSI_SHRAM_n,
+					ep_id * 12 + 7) & GSI_RTK_ERR_STATS_MASK;
+			}
 		}
 	}
 	return 0;
@@ -5820,11 +5884,14 @@ int gsi_get_fw_version(struct gsi_fw_version *ver)
 	}
 
 	if (gsi_ctx->per.ver < GSI_VER_3_0)
-		raw = gsihal_read_reg_n(GSI_GSI_INST_RAM_n,
+		raw = gsihal_read_reg_n(GSI_GSI_INST_RAM_0,
 			GSI_INST_RAM_FW_VER_OFFSET);
-	else
-		raw = gsihal_read_reg_n(GSI_GSI_INST_RAM_n,
+	else if (gsi_ctx->per.ver >= GSI_VER_3_0 && gsi_ctx->per.ver < GSI_VER_5_5)
+		raw = gsihal_read_reg_n(GSI_GSI_INST_RAM_0,
 			GSI_INST_RAM_FW_VER_GSI_3_0_OFFSET);
+	else if (gsi_ctx->per.ver >= GSI_VER_5_5)
+		raw = gsihal_read_reg_n(GSI_GSI_INST_RAM_0,
+			GSI_INST_RAM_FW_VER_GSI_5_5_OFFSET);
 
 	ver->hw = (raw & GSI_INST_RAM_FW_VER_HW_MASK) >>
 				GSI_INST_RAM_FW_VER_HW_SHIFT;

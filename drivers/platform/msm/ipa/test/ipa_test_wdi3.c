@@ -1518,10 +1518,13 @@ static int ipa_wdi3_test_reg_intf(bool is_tx1_used)
 	u8 hdr_content = 1;
 
 	memset(&in, 0, sizeof(in));
-	if (is_tx1_used)
+	if (is_tx1_used) {
 		snprintf(netdev_name, sizeof(netdev_name), "wdi3_test_2g");
-	else
+		ipa3_ctx->is_wdi3_tx1_needed = true;
+	} else {
 		snprintf(netdev_name, sizeof(netdev_name), "wdi3_test");
+	}
+
 	in.netdev_name = netdev_name;
 	in.is_meta_data_valid = 0;
 	in.hdr_info[0].hdr = &hdr_content;

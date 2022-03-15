@@ -67,8 +67,11 @@
 #define IPA_EP_NOT_ALLOCATED (-1)
 #define IPA3_MAX_NUM_PIPES 31
 #define IPA5_PIPES_NUM 36
+#define IPA6_PIPES_NUM 50
 #define IPA5_PIPE_REG_NUM 2
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
+#define IPA6_MAX_NUM_PIPES (IPA6_PIPES_NUM)
+#define IPA_MAX_NUM_PIPES IPA6_MAX_NUM_PIPES
 #define IPA_SYS_DESC_FIFO_SZ 0x800
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ 0x1000
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ_8K 0x2000
@@ -89,7 +92,7 @@
 #define IPA_HOLB_TMR_DIS 0x0
 #define IPA_HOLB_TMR_EN 0x1
 #define IPA_HOLB_TMR_VAL_4_5 31
-#define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA5_MAX_NUM_PIPES + 1)
+#define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
 
 #define IPA_Q6_FNR_START_IDX (128)
 #define IPA_Q6_FNR_IDX_CNT (52)
@@ -151,7 +154,7 @@ enum {
 
 #define IPADBG(fmt, args...) \
 	do { \
-		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+		pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
 		if (ipa3_ctx) { \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf, \
 				DRV_NAME " %s:%d " fmt, ## args); \
@@ -162,7 +165,7 @@ enum {
 
 #define IPADBG_LOW(fmt, args...) \
 	do { \
-		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+		pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
 		if (ipa3_ctx) \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
@@ -2225,6 +2228,18 @@ enum ipa_per_usb_enum_type_e {
 };
 
 /**
+ * struct ipa_ready_cb_mhi_data - List node for ipa ready CBs
+ * @link: List member
+ * @ready_cb: callback to be called when ipa is ready
+ * @userdata: userdata for ipa ready cb
+ */
+struct ipa_ready_cb_mhi_data {
+	struct list_head link;
+	ipa_ready_cb ready_cb;
+	void *user_data;
+};
+
+/**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
  * @ep: list of all end points
@@ -2352,12 +2367,12 @@ enum ipa_per_usb_enum_type_e {
 struct ipa3_context {
 	bool coal_stopped;
 	struct ipa3_char_device_context cdev;
-	struct ipa3_ep_context ep[IPA5_MAX_NUM_PIPES];
-	bool skip_ep_cfg_shadow[IPA5_MAX_NUM_PIPES];
+	struct ipa3_ep_context ep[IPA_MAX_NUM_PIPES];
+	bool skip_ep_cfg_shadow[IPA_MAX_NUM_PIPES];
 	u64 ep_flt_bitmap;
 	u32 ep_flt_num;
 	bool resume_on_connect[IPA_CLIENT_MAX];
-	struct ipa3_flt_tbl flt_tbl[IPA5_MAX_NUM_PIPES][IPA_IP_MAX];
+	struct ipa3_flt_tbl flt_tbl[IPA_MAX_NUM_PIPES][IPA_IP_MAX];
 	struct idr flt_rule_ids[IPA_IP_MAX];
 	void __iomem *mmio;
 	u32 ipa_wrapper_base;
@@ -2380,7 +2395,7 @@ struct ipa3_context {
 	struct kmem_cache *rx_pkt_wrapper_cache;
 	unsigned long rt_idx_bitmap[IPA_IP_MAX];
 	struct mutex lock;
-	u16 smem_sz;
+	u32 smem_sz;
 	u16 smem_restricted_bytes;
 	u16 smem_reqd_sz;
 	struct ipa3_nat_mem nat_mem;
@@ -2456,7 +2471,7 @@ struct ipa3_context {
 	struct mutex q6_proxy_clk_vote_mutex;
 	u32 q6_proxy_clk_vote_cnt;
 	u32 ipa_num_pipes;
-	dma_addr_t pkt_init_imm[IPA5_MAX_NUM_PIPES];
+	dma_addr_t pkt_init_imm[IPA_MAX_NUM_PIPES];
 	u32 pkt_init_imm_opcode;
 
 	struct ipa3_wlan_comm_memb wc_memb;
@@ -2486,7 +2501,7 @@ struct ipa3_context {
 	/* RMNET_IOCTL_INGRESS_FORMAT_AGG_DATA */
 	bool ipa_client_apps_wan_cons_agg_gro;
 	/* M-release support to know client pipes */
-	struct ipa3cm_client_info ipacm_client[IPA5_MAX_NUM_PIPES];
+	struct ipa3cm_client_info ipacm_client[IPA_MAX_NUM_PIPES];
 	bool tethered_flow_control;
 	bool ipa_initialization_complete;
 	struct list_head ipa_ready_cb_list;
@@ -2801,6 +2816,8 @@ struct ipa3_plat_drv_res {
  * +-------------------------+
  * | QUOTA STATS             |
  * +-------------------------+
+ * | PERIPHERAL STATS (IPA6.0)|
+ * +-------------------------+
  * | TETH STATS              |
  * +-------------------------+
  * | FnR STATS               |
@@ -2813,12 +2830,17 @@ struct ipa3_plat_drv_res {
  * +-------------------------+
  * | MODEM MEM               |
  * +-------------------------+
- * |    Dummy (IPA4.5)       |
+ * | NAT TABLE               |
  * +-------------------------+
- * |    CANARY (IPA4.5)      |
+ * | CANARY                  |
  * +-------------------------+
- * | UC DESC RAM (IPA3.5)    |
+ * | CANARY                  |
  * +-------------------------+
+ * | PDN CONFIG              |
+ * +-------------------------+
+ * | SA CONTEXTS (IPA6.0)    |
+ * +-------------------------+
+
  */
 struct ipa3_mem_partition {
 	u32 ofst_start;
@@ -2899,6 +2921,8 @@ struct ipa3_mem_partition {
 	u32 stats_quota_q6_size;
 	u32 stats_quota_ap_ofst;
 	u32 stats_quota_ap_size;
+	u32 stats_peripheral_prod_ofst;
+	u32 stats_peripheral_prod_size;
 	u32 stats_tethering_ofst;
 	u32 stats_tethering_size;
 	u32 stats_fnr_ofst;
@@ -2915,11 +2939,14 @@ struct ipa3_mem_partition {
 	u32 stats_rt_v4_size;
 	u32 stats_rt_v6_ofst;
 	u32 stats_rt_v6_size;
+	/* End of Irrelevant */
 
 	u32 stats_drop_ofst;
 	u32 stats_drop_size;
 	u32 q6_stats_drop_ofst;
 	u32 q6_stats_drop_size;
+	u32 sa_contexts_ofst;
+	u32 sa_contexts_size;
 };
 
 struct ipa3_controller {
@@ -3585,7 +3612,7 @@ int ipa3_wigig_init_i(void);
 
 struct ipa_teth_stats_endpoints {
 	u32 prod_mask[IPA5_PIPE_REG_NUM];
-	u32 dst_ep_mask[IPA5_PIPES_NUM][IPA5_PIPE_REG_NUM];
+	u32 dst_ep_mask[IPA6_PIPES_NUM][IPA5_PIPE_REG_NUM];
 };
 
 int ipa_hw_stats_init(void);

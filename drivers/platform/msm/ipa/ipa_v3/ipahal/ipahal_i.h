@@ -593,6 +593,31 @@ struct ipa_imm_cmd_hw_dma_shared_mem_v_4_0 {
 };
 
 /*
+ * struct ipa_imm_cmd_hw_dma_shared_mem - DMA_SHARED_MEM command payload
+ *  in H/W format.
+ * Perform mem copy into or out of the SW area of IPA local mem
+ * @sw_rsvd: Ignored by H/W. My be used by S/W
+ * @size: Size in bytes of data to copy. Expected size is up to 2K bytes
+ * @clear_after_read: Clear local memory at the end of a read operation allows
+ *  atomic read and clear if HPS is clear. Ignore for writes.
+ * @local_addr: Address in IPA local memory
+ * @direction: Read or write?
+ *	0: IPA write, Write to local address from system address
+ *	1: IPA read, Read from local address to system address
+ * @rsvd: reserved - should be set to zero
+ * @system_addr: Address in system memory
+ */
+struct ipa_imm_cmd_hw_dma_shared_mem_v_6_0 {
+	u64 sw_rsvd:15;
+	u64 clear_after_read:1;
+	u64 size:16;
+	u64 local_addr:20;
+	u64 direction:1;
+	u64 rsvd:11;
+	u64 system_addr:64;
+};
+
+/*
  * struct ipa_imm_cmd_hw_ip_packet_tag_status -
  *  IP_PACKET_TAG_STATUS command payload in H/W format.
  * This cmd is used for to allow SW to track HW processing by setting a TAG
@@ -1104,6 +1129,110 @@ struct ipa_frag_pkt_status_hw_v5_5 {
 	u64 hdr_local:1;
 } __packed;
 
+/*
+ * struct ipa_status_pkt_hw_v6_0 - IPA v6.0 status packet payload in H/W format.
+ *  This structure describes the status packet H/W structure for the
+ *   following statuses: IPA_STATUS_PACKET, IPA_STATUS_DROPPED_PACKET,
+ *   IPA_STATUS_SUSPENDED_PACKET.
+ *  Other statuses types has different status packet structure.
+ * @status_opcode: The Type of the status (Opcode).
+ * @exception: (not bitmask) - the first exception that took place.
+ *  In case of exception, src endp and pkt len are always valid.
+ * @status_mask: Bit mask specifying on which H/W blocks the pkt was processed.
+ * @pkt_len: Pkt pyld len including hdr, include retained hdr if used. Does
+ *  not include padding or checksum trailer len.
+ * @endp_src_idx: Source end point index.
+ * @pure_ack: Indicates pure ack TCP packet.
+ * @syn: Indicates TCP syn packet.
+ * @fin_rst: Indicates TCP fin/rst packet.
+ * @rt_local: Route table location flag: Does matching rt rule belongs to
+ *  rt tbl that resides in lcl memory? (if not, then system mem)
+ * @rt_hash: Route hash hit flag: Does matching rt rule was in hash tbl?
+ *  Not valid in case of exception
+ * @protocol_encoding: Defines the packet protocol:
+ * 	0 – None (protocol encoding is not set)
+ * 	1 – TCP
+ * 	2 – UDP
+ * 	3 – ICMP/ IPv6-ICMP (note that Status Mask already has an IPv4/IPv6 bit)
+ * @metadata: meta data value used by packet
+ * @flt_local: Filter table location flag: Does matching flt rule belongs to
+ *  flt tbl that resides in lcl memory? (if not, then system mem)
+ * @flt_hash: Filter hash hit flag: Does matching flt rule was in hash tbl?
+ * @flt_global: Global filter rule flag: Does matching flt rule belongs to
+ *  the global flt tbl? (if not, then the per endp tables)
+ * @flt_ret_hdr: Retain header in filter rule flag: Does matching flt rule
+ *  specifies to retain header?
+ *  Starting IPA4.5, this will be true only if packet has L2 header.
+ * @flt_rule_id: The ID of the matching filter rule. This info can be combined
+ *  with endp_src_idx to locate the exact rule. ID=0x3FF reserved to specify
+ *  flt miss. In case of miss, all flt info to be ignored
+ * @rt_tbl_idx: Index of rt tbl that contains the rule on which was a match
+ * @rt_rule_id: The ID of the matching rt rule. This info can be combined
+ *  with rt_tbl_idx to locate the exact rule. ID=0x3FF reserved to specify
+ *  rt miss. In case of miss, all rt info to be ignored
+ * @nat_hit: NAT hit flag: Was their NAT hit?
+ * @nat_entry_idx: Index of the NAT entry used of NAT processing
+ * @nat_type: Defines the type of the NAT operation:
+ *	00: No NAT
+ *	01: Source NAT
+ *	10: Destination NAT
+ *	11: Reserved
+ * @tag_info: S/W defined value provided via immediate command
+ * @seq_num: Per source endp unique packet sequence number
+ * @time_of_day_ctr: running counter from IPA clock
+ * @hdr_local: Header table location flag: In header insertion, was the header
+ *  taken from the table resides in local memory? (If no, then system mem)
+ * @hdr_offset: Offset of used header in the header table
+ * @frag_hit: Frag hit flag: Was their frag rule hit in H/W frag table?
+ * @frag_rule: Frag rule index in H/W frag table in case of frag hit
+ * @endp_dest_idx: Destination end point index.
+ * @tag_msb_indicator: Indicate MSB of TAG allocation.
+ *      00: legacy for TAG
+ *      01: Traffic Shaping/Policing traffic class
+ *      10: Filter Table Index
+ *      11: Reserved
+ * @nat_exc_suppress: nat exception supress flag, indicates whether
+ * nat exception is suppressed.
+ * @ttl_dec: ttl update flag, indicates whether ttl is updated.
+ * @ucp: UC Processing flag.
+ */
+struct ipa_gen_pkt_status_hw_v6_0 {
+	u64 status_opcode:8;
+	u64 exception:8;
+	u64 status_mask:16;
+	u64 pkt_len:16;
+	u64 endp_src_idx:8;
+	u64 pure_ack:1;
+	u64 syn:1;
+	u64 fin_rst:1;
+	u64 rt_local:1;
+	u64 rt_hash:1;
+	u64 protocol_encoding:3;
+	u64 metadata:32;
+	u64 flt_local:1;
+	u64 flt_hash:1;
+	u64 flt_global:1;
+	u64 flt_ret_hdr:1;
+	u64 flt_rule_id:10;
+	u64 rt_tbl_idx:8;
+	u64 rt_rule_id:10;
+	u64 nat_hit:1;
+	u64 nat_entry_idx:13;
+	u64 nat_type:2;
+	u64 tag_info:48;
+	u64 seq_num:8;
+	u64 time_of_day_ctr:24;
+	u64 hdr_local:1;
+	u64 hdr_offset:10;
+	u64 frag_hit:1;
+	u64 frag_rule:4;
+	u64 endp_dest_idx:8;
+	u64 reserved:3;
+	u64 tag_msb_indicator:2;
+	u64 nat_exc_suppress:1;
+	u64 ttl_dec:1;
+	u64 ucp:1;
+} __packed;
 
 union ipa_pkt_status_hw {
 	struct ipa_gen_pkt_status_hw ipa_pkt;
@@ -1118,6 +1247,11 @@ union ipa_pkt_status_hw_v5_0 {
 union ipa_pkt_status_hw_v5_5 {
 	struct ipa_gen_pkt_status_hw_v5_5 ipa_pkt;
 	struct ipa_frag_pkt_status_hw_v5_5 frag_pkt;
+} __packed;
+
+union ipa_pkt_status_hw_v6_0 {
+	struct ipa_gen_pkt_status_hw_v6_0 ipa_pkt;
+	struct ipa_frag_pkt_status_hw_v5_5 frag_pkt; //frag_pkt_status didn't changed in IPA6.0
 } __packed;
 
 /* Size of H/W Packet Status */

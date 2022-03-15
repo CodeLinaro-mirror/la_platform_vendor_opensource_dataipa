@@ -12,6 +12,7 @@
 #include <linux/mutex.h>
 #include <linux/ipa.h>
 #include <linux/msm_gsi.h>
+#include <linux/mhi_dma.h>
 #include <linux/dmapool.h>
 #include "ipa_i.h"
 #include "gsi.h"
@@ -1118,6 +1119,49 @@ void ipa3_dma_async_memcpy_notify_cb(void *priv
 
 	IPADMA_FUNC_EXIT();
 }
+
+/* New dma API implementation for mhi_dma.h */
+
+int mhi_dma_memcpy_init(struct mhi_dma_function_params function)
+{
+	return ipa3_dma_init();
+}
+EXPORT_SYMBOL(mhi_dma_memcpy_init);
+
+void mhi_dma_memcpy_destroy(struct mhi_dma_function_params function)
+{
+	ipa3_dma_destroy();
+}
+EXPORT_SYMBOL(mhi_dma_memcpy_destroy);
+
+int mhi_dma_memcpy_enable(struct mhi_dma_function_params function)
+{
+	return ipa3_dma_enable();
+}
+EXPORT_SYMBOL(mhi_dma_memcpy_enable);
+
+int mhi_dma_memcpy_disable(struct mhi_dma_function_params function)
+{
+	return ipa3_dma_disable();
+}
+EXPORT_SYMBOL(mhi_dma_memcpy_disable);
+
+int mhi_dma_sync_memcpy(u64 dest, u64 src, int len,
+		struct mhi_dma_function_params function)
+{
+	return ipa3_dma_sync_memcpy(dest, src, len);
+}
+EXPORT_SYMBOL(mhi_dma_sync_memcpy);
+
+int mhi_dma_async_memcpy(u64 dest, u64 src, int len,
+		struct mhi_dma_function_params function,
+		void (*user_cb)(void *user1), void *user_param)
+{
+	return ipa3_dma_async_memcpy(dest, src, len, user_cb, user_param);
+}
+EXPORT_SYMBOL(mhi_dma_async_memcpy);
+
+/* End of the new dma API */
 
 #ifdef CONFIG_DEBUG_FS
 static struct dentry *dent;

@@ -29,8 +29,8 @@
 #define GSI_ASSERT() \
 	BUG()
 
-#define GSI_CHAN_MAX      36
-#define GSI_EVT_RING_MAX  31
+#define GSI_CHAN_MAX      50
+#define GSI_EVT_RING_MAX  44
 #define GSI_NO_EVT_ERINDEX 255
 #define GSI_ISR_CACHE_MAX 20
 #define MAX_CHANNELS_SHARING_EVENT_RING 2
@@ -104,6 +104,7 @@ enum gsi_ver {
 	GSI_VER_3_0 = 10,
 	GSI_VER_5_2 = 11,
 	GSI_VER_5_5 = 12,
+	GSI_VER_6_0 = 13,
 	GSI_VER_MAX,
 };
 
@@ -1348,6 +1349,7 @@ enum gsi_chan_state {
 	GSI_CHAN_STATE_STOPPED = 0x3,
 	GSI_CHAN_STATE_STOP_IN_PROC = 0x4,
 	GSI_CHAN_STATE_FLOW_CONTROL = 0x5,
+	GSI_CHAN_STATE_UNSUPPORTED = 0xe,
 	GSI_CHAN_STATE_ERROR = 0xf
 };
 
@@ -2159,6 +2161,17 @@ int gsi_stop_db_channel(unsigned long chan_hdl);
 int gsi_query_channel_db_addr(unsigned long chan_hdl,
 		uint32_t *db_addr_wp_lsb, uint32_t *db_addr_wp_msb);
 
+/**
+ * gsi_get_channel_event_db_base_addr - Get the physical base addresses of
+ * gsi channel doorbell and event channel doorbell
+ *
+ * @ch_db_base_addr: Physical base address of gsi channel doorbell register
+ * @ev_db_base_addr: Physical base address of event channel doorbell register
+ *
+ * @Return gsi_status
+ */
+int gsi_get_channel_event_db_base_addr(uint64_t *ch_db_base_addr,
+		uint64_t *ev_db_base_addr);
 /**
  * gsi_query_channel_info - Peripheral can call this function to query the
  * channel and associated event ring (if any) status.

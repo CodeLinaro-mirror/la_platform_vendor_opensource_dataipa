@@ -911,7 +911,7 @@ int ipa3_eth_connect(
 #endif
 
 	ep_idx = ipa_get_ep_mapping(client_type);
-	if (ep_idx == -1 || ep_idx >= IPA3_MAX_NUM_PIPES) {
+	if (ep_idx == -1 || ep_idx >= IPA_MAX_NUM_PIPES) {
 		IPAERR("undefined client_type\n");
 		return -EFAULT;
 	}
@@ -1310,7 +1310,7 @@ int ipa3_eth_disconnect(
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	ep_idx = ipa_get_ep_mapping(client_type);
-	if (ep_idx == -1 || ep_idx >= IPA3_MAX_NUM_PIPES) {
+	if (ep_idx == -1 || ep_idx >= IPA_MAX_NUM_PIPES) {
 		IPAERR("undefined client_type\n");
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		return -EFAULT;

@@ -198,6 +198,8 @@ struct ipa_test_mem_partition {
 	unsigned stats_quota_q6_size;
 	unsigned stats_quota_ap_ofst;
 	unsigned stats_quota_ap_size;
+	unsigned stats_peripheral_prod_ofst;
+	unsigned stats_peripheral_prod_size;
 	unsigned stats_tethering_ofst;
 	unsigned stats_tethering_size;
 	unsigned stats_fnr_ofst;
@@ -214,10 +216,13 @@ struct ipa_test_mem_partition {
 	unsigned stats_rt_v4_size;
 	unsigned stats_rt_v6_ofst;
 	unsigned stats_rt_v6_size;
+	/* END of Irrelevant */
 
 	unsigned stats_drop_ofst;
 	unsigned stats_drop_size;
 	unsigned q6_stats_drop_ofst;
 	unsigned q6_stats_drop_size;
+	unsigned sa_contexts_ofst;
+	unsigned sa_contexts_size;
 };
 #endif /* _IPA_TEST_MODULE_H_ */

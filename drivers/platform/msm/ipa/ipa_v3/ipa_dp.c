@@ -1868,7 +1868,7 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 		usleep_range(95, 105);
 	} while (atomic_read(&ep->sys->curr_polling_state));
 
-	if (IPA_CLIENT_IS_CONS(ep->client))
+	if (IPA_CLIENT_IS_CONS(ep->client) && !IPA_CLIENT_IS_MEMCPY_DMA_CONS(ep->client))
 		cancel_delayed_work_sync(&ep->sys->replenish_rx_work);
 	flush_workqueue(ep->sys->wq);
 	if (IPA_CLIENT_IS_PROD(ep->client))

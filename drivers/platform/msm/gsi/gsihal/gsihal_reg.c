@@ -146,6 +146,7 @@ static const char *gsireg_name_to_str[GSI_REG_MAX] = {
 	__stringify(GSI_EE_n_GSI_CH_k_RE_FETCH_READ_PTR),
 	__stringify(GSI_EE_n_GSI_CH_k_RE_FETCH_WRITE_PTR),
 	__stringify(GSI_GSI_INST_RAM_n),
+	__stringify(GSI_GSI_INST_RAM_0),
 	__stringify(GSI_GSI_IRAM_PTR_MSI_DB),
 	__stringify(GSI_GSI_IRAM_PTR_INT_NOTIFY_MCS),
 	__stringify(GSI_EE_n_CNTXT_SRC_GSI_CH_IRQ_k),
@@ -162,6 +163,7 @@ static const char *gsireg_name_to_str[GSI_REG_MAX] = {
 	__stringify(GSI_INTER_EE_n_SRC_EV_CH_IRQ_k),
 	__stringify(GSI_INTER_EE_n_SRC_EV_CH_IRQ_CLR_k),
 	__stringify(GSI_GSI_SHRAM_n),
+	__stringify(GSI_GSI_SHRAM_0),
 	__stringify(GSI_GSI_MCS_PROFILING_BP_CNT_LSB),
 	__stringify(GSI_GSI_MCS_PROFILING_BP_CNT_MSB),
 	__stringify(GSI_GSI_MCS_PROFILING_BP_AND_PENDING_CNT_LSB),
@@ -1994,6 +1996,419 @@ static struct gsihal_reg_obj gsihal_reg_objs[GSI_VER_MAX][GSI_REG_MAX] = {
 	[GSI_VER_3_0][GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_MSB] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
 	0x00001a78, 0, 0 },
+
+	/* GSIv6_0 */
+	[GSI_VER_6_0][GSI_GSI_IRAM_PTR_INT_NOTIFY_MCS] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00004470, 0, 0 },
+	[GSI_VER_6_0][GSI_GSI_INST_RAM_n] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	-1, 0, 0},
+	[GSI_VER_6_0][GSI_GSI_SHRAM_n] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        -1, 0, 0},
+	[GSI_VER_6_0][GSI_GSI_INST_RAM_0] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x000a8000, GSI_GSI_INST_RAM_n_WORD_SZ, 0},
+	[GSI_VER_6_0][GSI_GSI_SHRAM_0] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00006000, GSI_GSI_SHRAM_n_WORD_SZ, 0},
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_CNTXT_0] = {
+	gsireg_construct_ch_k_cntxt_0_v3_0, gsireg_parse_ch_k_cntxt_0_v3_0,
+	0x00018000, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_CNTXT_1] = {
+	gsireg_construct_ch_k_cntxt_1_v3_0, gsireg_parse_ch_k_cntxt_1_v3_0,
+	0x00018004, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_CNTXT_2] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018008, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_CNTXT_3] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0001800c, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_CNTXT_4] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018010, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_CNTXT_5] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018014, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_CNTXT_6] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018018, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_CNTXT_7] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0001801c, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_CNTXT_8] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018020, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_CH_k_CH_ALMST_EMPTY_THRSHOLD] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018028, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_RE_FETCH_READ_PTR] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018040, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_RE_FETCH_WRITE_PTR] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018044, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_QOS] = {
+	gsireg_construct_ee_n_gsi_ch_k_qos_v3_0, gsireg_parse_dummy,
+	0x00018048, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_0] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0001804c, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_1] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018050, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_2] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018054, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_3] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018058, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_4] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0001805c, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_5] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018060, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_6] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018064, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_7] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018068, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_8] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0001806c, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_SCRATCH_9] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00018070, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_0] = {
+	gsireg_construct_ev_ch_k_cntxt_0_v3_0, gsireg_parse_ev_ch_k_cntxt_0_v3_0,
+	0x00020000, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_1] = {
+	gsireg_construct_ev_ch_k_cntxt_1_v3_0, gsireg_parse_dummy,
+	0x00020004, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_2] = {
+	gsireg_construct_ev_ch_k_cntxt_2, gsireg_parse_dummy,
+	0x00020008, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_3] = {
+	gsireg_construct_ev_ch_k_cntxt_3, gsireg_parse_dummy,
+	0x0002000c, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_4] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00020010, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_5] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00020014, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_6] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00020018, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_7] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0002001c, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_8] = {
+	gsireg_construct_ev_ch_k_cntxt_8, gsireg_parse_dummy,
+	0x00020020, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_9] = {
+	gsireg_construct_ev_ch_k_cntxt_9, gsireg_parse_dummy,
+	0x00020024, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_10] = {
+	gsireg_construct_ev_ch_k_cntxt_10, gsireg_parse_dummy,
+	0x00020028, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_11] = {
+	gsireg_construct_ev_ch_k_cntxt_11, gsireg_parse_dummy,
+	0x0002002c, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_12] = {
+	gsireg_construct_ev_ch_k_cntxt_12, gsireg_parse_dummy,
+	0x00020030, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_CNTXT_13] = {
+	gsireg_construct_ev_ch_k_cntxt_13, gsireg_parse_dummy,
+	0x00020034, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_SCRATCH_0] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00020048, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_SCRATCH_1] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0002004c, 0x12000, 0x80 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_DOORBELL_0] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00028000, 0x12000, 0x8 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_k_DOORBELL_1] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00028004, 0x12000, 0x8 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_DOORBELL_0] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00028800, 0x12000, 0x8 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_k_DOORBELL_1] = {
+	gsireg_construct_ev_ch_k_doorbell_1, gsireg_parse_dummy,
+	0x00028804, 0x12000, 0x8 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_STATUS] = {
+	gsireg_construct_dummy, gsireg_parse_gsi_status,
+	0x00029000, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_CH_CMD] = {
+	gsireg_construct_ee_n_gsi_ch_cmd, gsireg_parse_dummy,
+	0x00029008, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_EV_CH_CMD] = {
+	gsireg_construct_ee_n_ev_ch_cmd, gsireg_parse_dummy,
+	0x00029010, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_EE_GENERIC_CMD] = {
+	gsireg_construct_gsi_ee_generic_cmd_v3_0, gsireg_parse_dummy,
+	0x00029018, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_HW_PARAM_2] = {
+	gsireg_construct_dummy, gsireg_parse_hw_param2_v3_0,
+	0x00029040, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_HW_PARAM_4] = {
+	gsireg_construct_dummy, gsireg_parse_hw_param4_v3_0,
+	0x00029050, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_GSI_SW_VERSION] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029044, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_TYPE_IRQ] = {
+	gsireg_construct_dummy, gsireg_parse_ctx_type_irq,
+	0x00029080, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_TYPE_IRQ_MSK] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029088, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SRC_GSI_CH_IRQ_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029090, 0x12000, 0x24 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SRC_GSI_CH_IRQ_MSK_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029094, 0x12000, 0x24 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SRC_GSI_CH_IRQ_CLR_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029098, 0x12000, 0x24 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SRC_EV_CH_IRQ_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0002909c, 0x12000, 0x24 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SRC_EV_CH_IRQ_MSK_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x000290a0, 0x12000, 0x24 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SRC_EV_CH_IRQ_CLR_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x000290a4, 0x12000, 0x24 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SRC_IEOB_IRQ_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x000290a8, 0x12000, 0x24 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SRC_IEOB_IRQ_MSK_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x000290ac, 0x12000, 0x24 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SRC_IEOB_IRQ_CLR_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x000290b0, 0x12000, 0x24 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_GLOB_IRQ_STTS] = {
+	gsireg_construct_dummy, gsireg_parse_cntxt_glob_irq_stts,
+	0x00029200, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_GLOB_IRQ_EN] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029204, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_GLOB_IRQ_CLR] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029208, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_GSI_IRQ_STTS] = {
+	gsireg_construct_dummy, gsireg_parse_cntxt_gsi_irq_stts,
+	0x0002920c, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_GSI_IRQ_EN] = {
+	gsireg_construct_cntxt_gsi_irq_en, gsireg_parse_dummy,
+	0x00029210, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_GSI_IRQ_CLR] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029214, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_MSI_BASE_LSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029230, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_MSI_BASE_MSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029234, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_INTSET] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029220, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_ERROR_LOG] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029240, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_ERROR_LOG_CLR] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029244, 0x12000, 0 },
+	[GSI_VER_6_0][GSI_EE_n_CNTXT_SCRATCH_0] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00029400, 0x12000, 0},
+	[GSI_VER_6_0][GSI_INTER_EE_n_SRC_GSI_CH_IRQ_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00010018, 0x1000, 0x18 },
+	[GSI_VER_6_0][GSI_INTER_EE_n_SRC_GSI_CH_IRQ_CLR_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00010020, 0x1000, 0x18 },
+	[GSI_VER_6_0][GSI_INTER_EE_n_SRC_EV_CH_IRQ_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00010024, 0x1000, 0x18 },
+	[GSI_VER_6_0][GSI_INTER_EE_n_SRC_EV_CH_IRQ_CLR_k] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0001002c, 0x1000, 0x18 },
+	[GSI_VER_6_0][GSI_MAP_EE_n_CH_k_VP_TABLE] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x0000d000, 0x400, 0x4 },
+	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_BP_CNT_LSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00005a5c, 0, 0 },
+	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_BP_CNT_MSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00005a60, 0, 0 },
+	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_BP_AND_PENDING_CNT_LSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00005a64, 0, 0 },
+	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_BP_AND_PENDING_CNT_MSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00005a68, 0, 0 },
+	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_MCS_BUSY_CNT_LSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00005a6c, 0, 0 },
+	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_MCS_BUSY_CNT_MSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00005a70, 0, 0 },
+	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_LSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00005a74, 0, 0 },
+	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_MSB] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00005a78, 0, 0 },
+        [GSI_VER_6_0][GSI_GSI_PERIPH_BASE_ADDR_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x0000401c, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_PERIPH_BASE_ADDR_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004018, 0, 0},
+	[GSI_VER_6_0][GSI_GSI_CFG] = {
+        gsireg_construct_gsi_cfg, gsireg_parse_dummy,
+        0x00004000, 0, 0},
+	[GSI_VER_6_0][GSI_IC_UCONTROLLER_GPR_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040f0, 0, 0},
+        [GSI_VER_6_0][GSI_IC_UCONTROLLER_GPR_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040f4, 0, 0},
+	[GSI_VER_6_0][GSI_IC_DISABLE_CHNL_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040a0, 0, 0},
+        [GSI_VER_6_0][GSI_IC_DISABLE_CHNL_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040a4, 0, 0},
+        [GSI_VER_6_0][GSI_IC_GEN_EVNT_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040a8, 0, 0},
+        [GSI_VER_6_0][GSI_IC_GEN_EVNT_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040ac, 0, 0},
+        [GSI_VER_6_0][GSI_IC_GEN_INT_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040b0, 0, 0},
+        [GSI_VER_6_0][GSI_IC_GEN_INT_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040b4, 0, 0},
+        [GSI_VER_6_0][GSI_IC_STOP_INT_MOD_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040b8, 0, 0 },
+        [GSI_VER_6_0][GSI_IC_STOP_INT_MOD_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040bc, 0, 0},
+        [GSI_VER_6_0][GSI_IC_PROCESS_DESC_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040c0, 0, 0},
+        [GSI_VER_6_0][GSI_IC_PROCESS_DESC_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040c4, 0, 0},
+        [GSI_VER_6_0][GSI_IC_TLV_STOP_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040c8, 0, 0},
+	[GSI_VER_6_0][GSI_IC_TLV_STOP_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040cc, 0, 0},
+        [GSI_VER_6_0][GSI_IC_TLV_RESET_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040d0, 0, 0},
+        [GSI_VER_6_0][GSI_IC_TLV_RESET_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040d4, 0, 0},
+        [GSI_VER_6_0][GSI_IC_RGSTR_TIMER_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040d8, 0, 0},
+        [GSI_VER_6_0][GSI_IC_RGSTR_TIMER_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040dc, 0, 0},
+        [GSI_VER_6_0][GSI_IC_READ_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040e0, 0, 0},
+        [GSI_VER_6_0][GSI_IC_READ_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040e4, 0, 0},
+        [GSI_VER_6_0][GSI_IC_WRITE_BCK_PRS_LSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040e8, 0, 0},
+        [GSI_VER_6_0][GSI_IC_WRITE_BCK_PRS_MSB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x000040ec, 0, 0},
+	[GSI_VER_6_0][GSI_EE_n_GSI_DEBUG_PC_FOR_DEBUG] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00005048, 0, 0},
+	[GSI_VER_6_0][GSI_EE_n_GSI_DEBUG_BUSY_REG] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00005010, 0, 0},
+	[GSI_VER_6_0][GSI_GSI_IRAM_PTR_CH_CMD] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004400, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_CH_DB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004418, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_CH_DIS_COMP] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004424, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_CH_EMPTY] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004428, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_EE_GENERIC_CMD] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004404, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_EVENT_GEN_COMP] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x0000442c, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_INT_MOD_STOPPED] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x0000444c, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_PERIPH_IF_TLV_IN_0] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004430, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_PERIPH_IF_TLV_IN_2] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004434, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_PERIPH_IF_TLV_IN_1] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004438, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_NEW_RE] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004420, 0, 0},
+	[GSI_VER_6_0][GSI_GSI_IRAM_PTR_MSI_DB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004414, 0, 0 },
+	[GSI_VER_6_0][GSI_GSI_MCS_CFG] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x0000f000, 0, 0},
+	[GSI_VER_6_0][GSI_GSI_IRAM_PTR_TLV_CH_NOT_FULL] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004408, 0, 0},
+	[GSI_VER_6_0][GSI_GSI_IRAM_PTR_WRITE_ENG_COMP] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004440, 0, 0},
+	[GSI_VER_6_0][GSI_GSI_IRAM_PTR_READ_ENG_COMP] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004444, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_TIMER_EXPIRED] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x0000443c, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_EV_DB] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x0000441c, 0, 0},
+        [GSI_VER_6_0][GSI_GSI_IRAM_PTR_UC_GP_INT] = {
+        gsireg_construct_dummy, gsireg_parse_dummy,
+        0x00004448, 0, 0},
 };
 
 /*
@@ -2424,6 +2839,9 @@ unsigned long gsihal_get_inst_ram_size(void)
         case GSI_VER_5_2:
                 maxn = GSI_V5_2_GSI_INST_RAM_n_MAXn;
                 break;
+	case GSI_VER_6_0:
+		maxn = GSI_V6_0_GSI_INST_RAM_n_MAXn;
+		break;
 	case GSI_VER_ERR:
 	case GSI_VER_MAX:
 	default:

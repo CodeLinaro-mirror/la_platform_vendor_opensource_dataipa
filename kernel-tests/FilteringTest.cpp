@@ -8011,7 +8011,7 @@ public:
 /*---------------------------------------------------------------------------*/
 /* Test100: Cache LRU behavior test  */
 /*---------------------------------------------------------------------------*/
-#define CHACHE_ENTRIES 64
+#define CHACHE_ENTRIES 128
 #define CHACHE_PLUS_ONE (CHACHE_ENTRIES +1)
 class IpaFilteringBlockTest100 : public IpaFilteringBlockTestFixture
 {
@@ -9733,9 +9733,9 @@ public:
 		pkt1_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
 			IsTTLUpdated_v5_5(m_sendSize, receivedSize, rxBuff1) : true;
 		pkt2_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5(m_sendSize2, receivedSize2, rxBuff2) : true;
+			!IsTTLUpdated_v5_5(m_sendSize2, receivedSize2, rxBuff2) : true;
 		pkt3_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			!IsTTLUpdated_v5_5(m_sendSize3, receivedSize3, rxBuff3) : true;
+			IsTTLUpdated_v5_5(m_sendSize3, receivedSize3, rxBuff3) : true;
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
@@ -10733,6 +10733,496 @@ public:
 	} // Teardown()
 };
 
+/*-------------------------------------------------------------------------------------*/
+/* Test118: Filtering Based on IPv4 IS-FRAG equation enhancement  */
+/*-------------------------------------------------------------------------------------*/
+class IpaFilteringBlockTest118 : public IpaFilteringBlockTestFixture
+{
+public:
+	IpaFilteringBlockTest118()
+	{
+		m_name = "IpaFilteringBlockTest118";
+		m_description =
+				"Filtering block test 118 - Filtering Based on fragment extension(IPv4 IS-FRAG equation enhancement)\
+		1. Generate and commit three routing tables. \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit 3 filtering rules: \
+			Primary fragmented packets (Contains L4 header) goes to routing table 0: \
+			Packets with MF flag set to 1 and fragment offset field is zero \
+			Secondary fragmented packets goes to routing table 1.\
+			All other packets(not fragmented) goes to routing table 2.";
+		m_minIPAHwType = IPA_HW_v6_0;
+		Register(*this);
+	}
+
+	virtual bool AddRules()
+	{
+		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0,routing_table1,routing_table2;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			printf("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		printf("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			printf("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		routing_table1.ip = IPA_IP_v4;
+		strlcpy(routing_table1.name, bypass1, sizeof(routing_table1.name));
+		if (!m_routing.GetRoutingTable(&routing_table1))
+		{
+			printf("m_routing.GetRoutingTable(&routing_table1=0x%p) Failed.\n", &routing_table1);
+			return false;
+		}
+
+		routing_table2.ip = IPA_IP_v4;
+		strlcpy(routing_table2.name, bypass2, sizeof(routing_table2.name));
+		if (!m_routing.GetRoutingTable(&routing_table2))
+		{
+			printf("m_routing.GetRoutingTable(&routing_table2=0x%p) Failed.\n", &routing_table2);
+			return false;
+		}
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry = {0};
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 3);
+
+		// Configuring Filtering Rule No.0
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl=-1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl;
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
+		flt_rule_entry.rule.attrib.is_frag_encoding = 0x1; // Primary fragmented packets
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			printf ("%s::Error Adding Rule to Filter Table, aborting...\n", __FUNCTION__);
+			return false;
+		}
+
+		// Configuring Filtering Rule No.1
+		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl;
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
+		flt_rule_entry.rule.attrib.is_frag_encoding = 0x2; // Secondary fragmented packets
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			printf ("%s::Error Adding Rule to Filter Table, aborting...\n", __FUNCTION__);
+			return false;
+		}
+
+		// Configuring Filtering Rule No.2
+		flt_rule_entry.rule.rt_tbl_hdl=routing_table2.hdl;
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
+		flt_rule_entry.rule.attrib.is_frag_encoding = 0x3; // Not fragmented packets
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			printf ("%s::Error Adding Rule to Filter Table, aborting...\n", __FUNCTION__);
+			return false;
+		}
+
+		if (!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable()))
+		{
+			printf ("%s::Error Adding Filter Rule Table, aborting...\n", __FUNCTION__);
+			return false;
+		}
+
+		printf("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl,FilterTable0.ReadRuleFromTable(0)->status);
+		printf("flt rule hdl1=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(1)->flt_rule_hdl,FilterTable0.ReadRuleFromTable(1)->status);
+
+		printf("Leaving %s, %s()\n",__FUNCTION__, __FILE__);
+		return true;
+	}// AddRules()
+
+	bool ReceiveAndCompare(InterfaceAbstraction& cons, Byte* sendBuff, size_t sendSize)
+	{
+		size_t receivedSize = 0;
+		bool isSuccess = false;
+		Byte *rxBuff1 = new Byte[0x400];
+
+		if (NULL == rxBuff1)
+		{
+			printf("Memory allocation error.\n");
+			return false;
+		}
+
+		receivedSize = cons.ReceiveData(rxBuff1, 0x400);
+		printf("Received %zu bytes on %s.\n", receivedSize, cons.m_fromChannelName.c_str());
+
+		size_t recievedBufferSize = receivedSize * 3;
+		size_t sentBufferSize = sendSize * 3;
+		char *recievedBuffer = new char[recievedBufferSize];
+		char *sentBuffer = new char[sentBufferSize];
+		memset(recievedBuffer, 0, recievedBufferSize);
+		memset(sentBuffer, 0, sentBufferSize);
+
+		print_packets(receivedSize, sendSize, recievedBufferSize - 1, sentBufferSize - 1, rxBuff1, sendBuff, recievedBuffer, sentBuffer);
+
+		isSuccess = CompareResultVsGolden(m_sendBuffer, m_sendSize, rxBuff1, receivedSize);
+
+		delete[] rxBuff1;
+		delete[] recievedBuffer;
+		delete[] sentBuffer;
+
+		return isSuccess;
+	}// ReceiveAndCompare ()
+
+	virtual bool ModifyPackets()
+	{
+		return true;
+	}// ModifyPacktes ()
+
+	bool Run()
+	{
+		bool res = false;
+
+		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
+
+		// Add the relevant filtering rules
+		res = AddRules();
+		if (false == res) {
+			printf("Failed adding filtering rules.\n");
+			return false;
+		}
+
+		// Load input data (IP packet) from file
+		res = LoadFiles(m_IpaIPType);
+		if (false == res) {
+			printf("Failed loading files.\n");
+			return false;
+		}
+
+		//Modify first packet - "Primary" fragmented packet
+		m_sendBuffer[IPV4_FRAGMENT_FLAGS_OFFSET] = 0x20;// MF=1
+		m_sendBuffer[IPV4_FRAGMENT_FLAGS_OFFSET + 1] = 0x0;// frag_offset = 0
+
+		// Send first packet
+		if (!m_producer.SendData(m_sendBuffer, m_sendSize))
+		{
+			printf("SendData failure.\n");
+			return false;
+		}
+
+		if(!ReceiveAndCompare(m_consumer, m_sendBuffer, m_sendSize))
+		{
+			printf("Fail in ReceiveAndCompare for the first packet. [Func:%s, Line:%d].\n", __FUNCTION__, __LINE__);
+			return false;
+		}
+
+		//Modify second packet - "Secondary" fragmented packet
+		m_sendBuffer[IPV4_FRAGMENT_FLAGS_OFFSET] = 0x20;// MF=1
+		m_sendBuffer[IPV4_FRAGMENT_FLAGS_OFFSET + 1] = 0x3e;// frag_offset = 60
+
+		// Send second packet
+		if (!m_producer.SendData(m_sendBuffer, m_sendSize))
+		{
+			printf("SendData failure. [Func:%s, Line:%d]\n", __FUNCTION__, __LINE__);
+			return false;
+		}
+
+		if(!ReceiveAndCompare(m_consumer2, m_sendBuffer, m_sendSize))
+		{
+			printf("Fail in ReceiveAndCompare for the second packet. [Func:%s, Line:%d].\n",__FUNCTION__, __LINE__);
+			return false;
+		}
+
+		//Modify third packet - "Secondary" fragmented packet
+		m_sendBuffer[IPV4_FRAGMENT_FLAGS_OFFSET] = 0x20;// MF=0
+		m_sendBuffer[IPV4_FRAGMENT_FLAGS_OFFSET + 1] = 0x78;// frag_offset = 120
+
+		// Send third packet
+		if (!m_producer.SendData(m_sendBuffer, m_sendSize))
+		{
+			printf("SendData failure.\n");
+			return false;
+		}
+
+		if(!ReceiveAndCompare(m_consumer2, m_sendBuffer, m_sendSize))
+		{
+			printf("Fail in ReceiveAndCompare for the third packet. [Func:%s, Line:%d].\n",__FUNCTION__, __LINE__);
+			return false;
+		}
+
+		//Modify fourth packet - non fragmented packet
+		m_sendBuffer[IPV4_FRAGMENT_FLAGS_OFFSET] = 0x0;// MF=0
+		m_sendBuffer[IPV4_FRAGMENT_FLAGS_OFFSET + 1] = 0x0;// frag_offset = 0
+
+		// Send fourth packet
+		if (!m_producer.SendData(m_sendBuffer, m_sendSize))
+		{
+			printf("SendData failure.\n");
+			return false;
+		}
+
+		if(!ReceiveAndCompare(m_defaultConsumer, m_sendBuffer, m_sendSize))
+		{
+			printf("Fail in ReceiveAndCompare for the fourth packet. [Func:%s, Line:%d].\n",__FUNCTION__, __LINE__);
+			return false;
+		}
+
+
+		printf("Leaving %s, %s(), Returning true\n", __FUNCTION__, __FILE__);
+
+		return true;
+	} // Run()
+};
+
+/*-------------------------------------------------------------------------------------*/
+/* Test119: Filtering Based on IPv6 IS-FRAG equation enhancement  */
+/*-------------------------------------------------------------------------------------*/
+class IpaFilteringBlockTest119 : public IpaFilteringBlockTestFixture
+{
+public:
+	IpaFilteringBlockTest119()
+	{
+		m_name = "IpaFilteringBlockTest119";
+		m_description =
+				"Filtering block test 119 - Filtering Based on fragment extension(IPv6 IS-FRAG equation enhancement)\
+		1. Generate and commit three routing tables. \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit 3 filtering rules: \
+			Primary fragmented packets (Contains L4 header) goes to routing table 0: \
+			Packets with MF flag set to 1 and fragment offset field is zero \
+			Secondary fragmented packets goes to routing table 1.\
+			All other packets(not fragmented) goes to routing table 2.";
+		m_IpaIPType = IPA_IP_v6;
+		m_extHdrType = FRAGMENT;
+		m_minIPAHwType = IPA_HW_v6_0;
+		Register(*this);
+	}
+
+	virtual bool AddRules()
+	{
+		printf("Entering %s, %s()\n",__FUNCTION__, __FILE__);
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0,routing_table1,routing_table2;
+
+		if (!CreateThreeIPv6BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			printf("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		printf("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v6;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			printf("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		routing_table1.ip = IPA_IP_v6;
+		strlcpy(routing_table1.name, bypass1, sizeof(routing_table1.name));
+		if (!m_routing.GetRoutingTable(&routing_table1))
+		{
+			printf("m_routing.GetRoutingTable(&routing_table1=0x%p) Failed.\n", &routing_table1);
+			return false;
+		}
+
+		routing_table2.ip = IPA_IP_v6;
+		strlcpy(routing_table2.name, bypass2, sizeof(routing_table2.name));
+		if (!m_routing.GetRoutingTable(&routing_table2))
+		{
+			printf("m_routing.GetRoutingTable(&routing_table2=0x%p) Failed.\n", &routing_table2);
+			return false;
+		}
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry = {0};
+		FilterTable0.Init(IPA_IP_v6, IPA_CLIENT_TEST_PROD, false, 3);
+
+		// Configuring Filtering Rule No.0
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl=-1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl;
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
+		flt_rule_entry.rule.attrib.is_frag_encoding = 0x1; // Primary fragmented packets
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
+			return false;
+		}
+
+		// Configuring Filtering Rule No.1
+		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl;
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
+		flt_rule_entry.rule.attrib.is_frag_encoding = 0x2; // Secondary fragmented packets
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
+			return false;
+		}
+
+		// Configuring Filtering Rule No.2
+		flt_rule_entry.rule.rt_tbl_hdl=routing_table2.hdl;
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
+		flt_rule_entry.rule.attrib.is_frag_encoding = 0x3; // Not fragmented packets
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
+			return false;
+		}
+
+		if (!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable()))
+		{
+			printf ("%s::Error Adding Filter Rule Table, aborting...\n",__FUNCTION__);
+			return false;
+		}
+
+		printf("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl,FilterTable0.ReadRuleFromTable(0)->status);
+		printf("flt rule hdl1=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(1)->flt_rule_hdl,FilterTable0.ReadRuleFromTable(1)->status);
+
+		printf("Leaving %s, %s()\n",__FUNCTION__, __FILE__);
+		return true;
+	}// AddRules()
+
+	bool ReceiveAndCompare(InterfaceAbstraction& cons, Byte* sendBuff, size_t sendSize)
+	{
+		size_t receivedSize = 0;
+		bool isSuccess = false;
+		Byte *rxBuff1 = new Byte[0x400];
+
+		if (NULL == rxBuff1)
+		{
+			printf("Memory allocation error.\n");
+			return false;
+		}
+
+		receivedSize = cons.ReceiveData(rxBuff1, 0x400);
+		printf("Received %zu bytes on %s.\n", receivedSize, cons.m_fromChannelName.c_str());
+
+		size_t recievedBufferSize = receivedSize * 3;
+		size_t sentBufferSize = sendSize * 3;
+		char *recievedBuffer = new char[recievedBufferSize];
+		char *sentBuffer = new char[sentBufferSize];
+		memset(recievedBuffer, 0, recievedBufferSize);
+		memset(sentBuffer, 0, sentBufferSize);
+
+		print_packets(receivedSize, sendSize, recievedBufferSize - 1, sentBufferSize - 1, rxBuff1, sendBuff, recievedBuffer, sentBuffer);
+
+		isSuccess = CompareResultVsGolden(m_sendBuffer, m_sendSize, rxBuff1, receivedSize);
+
+		delete[] rxBuff1;
+		delete[] recievedBuffer;
+		delete[] sentBuffer;
+
+		return isSuccess;
+	}// ReceiveAndCompare ()
+
+	virtual bool ModifyPackets()
+	{
+		return true;
+	}// ModifyPacktes ()
+
+	bool Run()
+	{
+		bool res = false;
+
+		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
+
+		// Add the relevant filtering rules
+		res = AddRules();
+		if (false == res) {
+			printf("Failed adding filtering rules.\n");
+			return false;
+		}
+
+		// Load input data (IP packet) from file
+		res = LoadFiles(m_IpaIPType);
+		if (false == res) {
+			printf("Failed loading files.\n");
+			return false;
+		}
+
+		//Modify first packet - "Primary" fragmented packet
+		m_sendBuffer[IPV6_FRAGMENT_FLAGS_OFFSET] = 0x00;// frag_offset = 0
+		m_sendBuffer[IPV6_FRAGMENT_FLAGS_OFFSET + 1] = 0x1;// MF=1
+
+		// Send first packet
+		if (!m_producer.SendData(m_sendBuffer, m_sendSize))
+		{
+			printf("SendData failure.\n");
+			return false;
+		}
+
+		if(!ReceiveAndCompare(m_consumer, m_sendBuffer, m_sendSize))
+		{
+			printf("Fail in ReceiveAndCompare for the first packet. [Func:%s, Line:%d].\n", __FUNCTION__, __LINE__);
+			return false;
+		}
+
+		//Modify second packet - "Secondary" fragmented packet
+		m_sendBuffer[IPV6_FRAGMENT_FLAGS_OFFSET] = 0x1;// frag_offset = 60
+		m_sendBuffer[IPV6_FRAGMENT_FLAGS_OFFSET + 1] = 0xE1;// MF=1
+
+		// Send second packet
+		if (!m_producer.SendData(m_sendBuffer, m_sendSize))
+		{
+			printf("SendData failure. [Func:%s, Line:%d]\n", __FUNCTION__, __LINE__);
+			return false;
+		}
+
+		if(!ReceiveAndCompare(m_consumer2, m_sendBuffer, m_sendSize))
+		{
+			printf("Fail in ReceiveAndCompare for the second packet. [Func:%s, Line:%d].\n",__FUNCTION__, __LINE__);
+			return false;
+		}
+
+		//Modify third packet - "Secondary" fragmented packet
+		m_sendBuffer[IPV6_FRAGMENT_FLAGS_OFFSET] = 0x3;// frag_offset = 120
+		m_sendBuffer[IPV6_FRAGMENT_FLAGS_OFFSET + 1] = 0xC0;// MF=0
+
+		// Send third packet
+		if (!m_producer.SendData(m_sendBuffer, m_sendSize))
+		{
+			printf("SendData failure.\n");
+			return false;
+		}
+
+		if(!ReceiveAndCompare(m_consumer2, m_sendBuffer, m_sendSize))
+		{
+			printf("Fail in ReceiveAndCompare for the third packet. [Func:%s, Line:%d].\n",__FUNCTION__, __LINE__);
+			return false;
+		}
+
+		//Modify fourth packet - non fragmented packet
+		m_sendBuffer[IPV6_FRAGMENT_FLAGS_OFFSET] = 0x0;// MF=0
+		m_sendBuffer[IPV6_FRAGMENT_FLAGS_OFFSET + 1] = 0x0;// frag_offset = 0
+
+		// Send fourth packet
+		if (!m_producer.SendData(m_sendBuffer, m_sendSize))
+		{
+			printf("SendData failure.\n");
+			return false;
+		}
+
+		if(!ReceiveAndCompare(m_defaultConsumer, m_sendBuffer, m_sendSize))
+		{
+			printf("Fail in ReceiveAndCompare for the fourth packet. [Func:%s, Line:%d].\n",__FUNCTION__, __LINE__);
+			return false;
+		}
+
+
+		printf("Leaving %s, %s(), Returning true\n", __FUNCTION__, __FILE__);
+
+		return true;
+	} // Run()
+};
+
 
 static class IpaFilteringBlockTest001 ipaFilteringBlockTest001;//Global Filtering Test
 static class IpaFilteringBlockTest002 ipaFilteringBlockTest002;//Global Filtering Test
@@ -10801,3 +11291,5 @@ static class IpaFilteringBlockTest114 ipaFilteringBlockTest114; // IPv4 TTL exce
 static class IpaFilteringBlockTest115 ipaFilteringBlockTest115; // IPv6 TTL exception test, TTL=1
 static class IpaFilteringBlockTest116 ipaFilteringBlockTest116; // IPv4 TTL exception test, TTL=0
 static class IpaFilteringBlockTest117 ipaFilteringBlockTest117; // IPv6 TTL exception test, TTL=0
+static class IpaFilteringBlockTest118 ipaFilteringBlockTest118; // IPv4 IS-FRAG equation enhancement
+static class IpaFilteringBlockTest119 ipaFilteringBlockTest119; // IPv6 IS-FRAG equation enhancement

@@ -413,7 +413,7 @@ public:
 		m_pCurrentConsumer = &m_defaultConsumer;
 		m_currConsumerPipeNum = IPA_CLIENT_TEST2_CONS;
 		m_minIPAHwType = IPA_HW_v2_5;
-		m_maxIPAHwType = IPA_HW_MAX;
+		m_maxIPAHwType = IPA_HW_v5_0;
 		m_runInRegression = false;
 		Register(*this);
 	}
@@ -680,8 +680,6 @@ public:
 
 	virtual bool GenerateExpectedPackets()
 	{
-		size_t len;
-
 		m_expectedBufferSize1 = m_sendSize1 - ETH8021Q_8021Q_TAG_LEN;
 
 		// copy the ETH2 header to expected buffer
@@ -693,13 +691,10 @@ public:
 			m_sendBuffer1 + ETH8021Q_ETH_TYPE_OFFSET,
 			ETH2_ETH_TYPE_LEN);
 
-		len = m_BUFF_MAX_SIZE - ETH_HLEN;
-		if (!LoadDefaultPacket(IPA_IP_v4,
-			m_expectedBuffer1 + ETH_HLEN,
-			len)) {
-			LOG_MSG_ERROR("Failed default Packet\n");
-			return false;
-		}
+		//fill ip header + payload
+		memcpy(m_expectedBuffer1 + ETH_HLEN,
+			m_sendBuffer1 + ETH_HLEN + ETH8021Q_8021Q_TAG_LEN,
+			m_expectedBufferSize1 - ETH_HLEN);
 
 		return true;
 	} // GenerateExpectedPackets()

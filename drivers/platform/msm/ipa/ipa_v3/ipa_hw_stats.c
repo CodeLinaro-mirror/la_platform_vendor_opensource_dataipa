@@ -879,7 +879,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	}
 
 	reg_idx = 0;
-	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < IPA6_PIPES_NUM; i++) {
 		if (i > 0 && !(i % IPA_STATS_MAX_PIPE_BIT)) {
 			reg_idx++;
 		}

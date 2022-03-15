@@ -544,6 +544,7 @@ enum ipahal_pkt_status_exception {
 	IPAHAL_PKT_STATUS_EXCEPTION_PACKET_THRESHOLD,
 	IPAHAL_PKT_STATUS_EXCEPTION_TTL,
 	IPAHAL_PKT_STATUS_EXCEPTION_FRAG_RULE_MISS,
+	IPAHAL_PKT_STATUS_EXCEPTION_IPV4_CHECKSUM,
 	IPAHAL_PKT_STATUS_EXCEPTION_SW_FILT,
 	/*
 	 * NAT and IPv6CT have the same value at HW.
@@ -554,6 +555,8 @@ enum ipahal_pkt_status_exception {
 	IPAHAL_PKT_STATUS_EXCEPTION_UCP,
 	IPAHAL_PKT_STATUS_EXCEPTION_INVALID_PIPE,
 	IPAHAL_PKT_STATUS_EXCEPTION_RQOS,
+	IPAHAL_PKT_STATUS_EXCEPTION_DECAPS,
+	IPAHAL_PKT_STATUS_EXCEPTION_EXCEED_MTU,
 	IPAHAL_PKT_STATUS_EXCEPTION_HDRI,
 	IPAHAL_PKT_STATUS_EXCEPTION_CSUM,
 	IPAHAL_PKT_STATUS_EXCEPTION_MAX,
@@ -676,6 +679,7 @@ enum ipahal_pkt_status_nat_type {
  * @endp_src_idx: Source end point index.
  * @endp_dest_idx: Destination end point index.
  *  Not valid in case of exception
+ * @flt_tbl_idx: Index of flt tbl that contains the rule on which was a match
  * @rt_tbl_idx: Index of rt tbl that contains the rule on which was a match
  * @seq_num: Per source endp unique packet sequence number
  * @frag_rule: Frag rule index in H/W frag table in case of frag hit
@@ -698,6 +702,14 @@ enum ipahal_pkt_status_nat_type {
  * @ingress_tc: Ingress traffic class index.
  * @egress_tc: Egress traffic class index.
  * @pd: router disabled ingress policer.
+ * @pure_ack: Indicates pure ack TCP packet.
+ * @syn: Indicates TCP syn packet.
+ * @fin_rst: Indicates TCP fin/rst packet.
+ * @protocol_encoding: Defines the packet protocol:
+ * 	0 – None (protocol encoding is not set)
+ * 	1 – TCP
+ * 	2 – UDP
+ * 	3 – ICMP/ IPv6-ICMP (note that Status Mask already has an IPv4/IPv6 bit)
  */
 struct ipahal_pkt_status {
 	u64 tag_info;
@@ -726,6 +738,7 @@ struct ipahal_pkt_status {
 	u16 hdr_offset;
 	u8 endp_src_idx;
 	u8 endp_dest_idx;
+	u8 flt_tbl_idx;
 	u8 rt_tbl_idx;
 	u8 seq_num;
 	u8 frag_rule;
@@ -745,6 +758,10 @@ struct ipahal_pkt_status {
 	u8 ingress_tc;
 	u8 egress_tc;
 	bool pd;
+	bool pure_ack;
+	bool syn;
+	bool fin_rst;
+	u8 protocol_encoding;
 };
 
 /*

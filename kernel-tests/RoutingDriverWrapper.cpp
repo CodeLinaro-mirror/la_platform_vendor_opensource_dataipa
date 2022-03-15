@@ -93,6 +93,8 @@ bool RoutingDriverWrapper::AddRoutingRule(struct ipa_ioc_add_rt_rule_v2 *ruleTab
 	if (!DeviceNodeIsOpened())
 		return false;
 
+	ruleTable_v2->rule_add_size = sizeof(struct ipa_rt_rule_add_v2);
+
 	retval = ioctl(m_fd, IPA_IOC_ADD_RT_RULE_V2, ruleTable_v2);
 	if (retval) {
 		printf("%s(), failed adding routing rule table %p\n", __FUNCTION__, ruleTable_v2);

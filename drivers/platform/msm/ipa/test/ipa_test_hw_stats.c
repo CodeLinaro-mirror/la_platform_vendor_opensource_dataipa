@@ -956,7 +956,7 @@ static int ipa_test_hw_stats_set_uc_event_ring(void *priv)
 			!ipa3_ctx->uc_ctx.uc_event_ring_valid) {
 			if (ipa3_uc_setup_event_ring()) {
 				IPA_UT_ERR("failed to set uc_event ring\n");
-				ret = -EFAULT;
+				return -EFAULT;
 			}
 		} else
 			IPA_UT_ERR("uc-loaded %d, ring-valid %d",
