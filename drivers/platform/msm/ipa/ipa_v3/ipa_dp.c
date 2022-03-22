@@ -1866,6 +1866,12 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 	}
 	if (ep->sys->repl_wq)
 		flush_workqueue(ep->sys->repl_wq);
+
+	if(ep->sys->common_sys) {
+		cancel_delayed_work_sync(&ep->sys->common_sys->freepage_work);
+		tasklet_kill(&ep->sys->common_sys->tasklet_find_freepage);
+	}
+
 	if (IPA_CLIENT_IS_CONS(ep->client) && !ep->sys->common_buff_pool)
 		ipa3_cleanup_rx(ep->sys);
 
@@ -2287,9 +2293,11 @@ static void ipa3_wq_handle_rx(struct work_struct *work)
 	IPA_ACTIVE_CLIENTS_INC_EP(client_type);
 	if (ipa_net_initialized && sys->napi_obj) {
 		napi_schedule(sys->napi_obj);
+		IPA_STATS_INC_CNT(sys->napi_sch_cnt);
 	} else if (ipa_net_initialized &&
 		sys->ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
 		napi_schedule(&sys->napi_rx);
+		IPA_STATS_INC_CNT(sys->napi_sch_cnt);
 	} else if (IPA_CLIENT_IS_LOW_LAT_CONS(sys->ep->client)) {
 		tasklet_schedule(&sys->tasklet);
 	} else
@@ -2402,6 +2410,9 @@ static struct ipa3_rx_pkt_wrapper *ipa3_alloc_rx_pkt_page(
 		return NULL;
 
 	rx_pkt->page_data.page_order = sys->page_order;
+	/* For temporary allocations, avoid triggering OOM Killer. */
+	if (is_tmp_alloc)
+		flag |= __GFP_RETRY_MAYFAIL | __GFP_NOWARN;
 	/* Try a lower order page for order 3 pages in case allocation fails. */
 	rx_pkt->page_data.page = ipa3_alloc_page(flag,
 				&rx_pkt->page_data.page_order,
@@ -5279,14 +5290,18 @@ void __ipa_gsi_irq_rx_scedule_poll(struct ipa3_sys_context *sys)
 	if (!clk_off && ipa_net_initialized && sys->napi_obj) {
 		trace_ipa3_napi_schedule(sys->ep->client);
 		napi_schedule(sys->napi_obj);
+		IPA_STATS_INC_CNT(sys->napi_sch_cnt);
 	} else if (!clk_off &&
 		(sys->ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS)) {
 		napi_schedule(&sys->napi_rx);
+		IPA_STATS_INC_CNT(sys->napi_sch_cnt);
 	} else if (!clk_off &&
 		IPA_CLIENT_IS_LOW_LAT_CONS(sys->ep->client)) {
 		tasklet_schedule(&sys->tasklet);
-	} else
+	} else {
 		queue_work(sys->wq, &sys->work);
+	}
+
 }
 
 static void ipa_gsi_irq_rx_notify_cb(struct gsi_chan_xfer_notify *notify)
@@ -5945,6 +5960,7 @@ start_poll:
 	cnt += weight - remain_aggr_weight * IPA_LAN_AGGR_PKT_CNT;
 	if (cnt < weight) {
 		napi_complete(ep->sys->napi_obj);
+		IPA_STATS_INC_CNT(ep->sys->napi_comp_cnt);
 		ret = ipa3_rx_switch_to_intr_mode(ep->sys);
 		if (ret == -GSI_STATUS_PENDING_IRQ &&
 				napi_reschedule(ep->sys->napi_obj))
@@ -6046,6 +6062,7 @@ start_poll:
 	if (cnt < weight && ep->sys->len > IPA_DEFAULT_SYS_YELLOW_WM &&
 		wan_def_sys->len > IPA_DEFAULT_SYS_YELLOW_WM) {
 		napi_complete(ep->sys->napi_obj);
+		IPA_STATS_INC_CNT(ep->sys->napi_comp_cnt);
 		ret = ipa3_rx_switch_to_intr_mode(ep->sys);
 		if (ret == -GSI_STATUS_PENDING_IRQ &&
 				napi_reschedule(ep->sys->napi_obj))
@@ -6268,6 +6285,7 @@ start_poll:
 	 */
 	if (cnt < budget && (sys->len > IPA_DEFAULT_SYS_YELLOW_WM)) {
 		napi_complete(napi_rx);
+		IPA_STATS_INC_CNT(sys->napi_comp_cnt);
 		ret = ipa3_rx_switch_to_intr_mode(sys);
 		if (ret == -GSI_STATUS_PENDING_IRQ &&
 				napi_reschedule(napi_rx))

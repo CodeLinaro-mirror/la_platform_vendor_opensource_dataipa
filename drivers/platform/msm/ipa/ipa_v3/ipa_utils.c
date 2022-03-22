@@ -5168,6 +5168,8 @@ static struct ipa3_mem_partition ipa_3_0_mem_part = {
 	.stats_rt_v6_size = 0x0,
 	.stats_drop_ofst = 0x2000,
 	.stats_drop_size = 0x0,
+	.q6_stats_drop_ofst = 0,
+	.q6_stats_drop_size = 0,
 };
 
 static struct ipa3_mem_partition ipa_4_1_mem_part = {
@@ -5261,6 +5263,8 @@ static struct ipa3_mem_partition ipa_4_1_mem_part = {
 	.stats_rt_v6_size		= 0x180,
 	.stats_drop_ofst		= 0x13d0,
 	.stats_drop_size		= 0x20,
+	.q6_stats_drop_ofst 	= 0,
+	.q6_stats_drop_size 	= 0,
 };
 
 static struct ipa3_mem_partition ipa_4_2_mem_part = {
@@ -5354,6 +5358,8 @@ static struct ipa3_mem_partition ipa_4_2_mem_part = {
 	.stats_rt_v6_size		= 0x0,
 	.stats_drop_ofst		= 0xbf0,
 	.stats_drop_size		= 0x0,
+	.q6_stats_drop_ofst 	= 0,
+	.q6_stats_drop_size 	= 0,
 };
 
 static struct ipa3_mem_partition ipa_4_5_mem_part = {
@@ -5450,6 +5456,8 @@ static struct ipa3_mem_partition ipa_4_5_mem_part = {
 	.uc_descriptor_ram_size	= 0x1000,
 	.pdn_config_ofst	= 0x4800,
 	.pdn_config_size	= 0x50,
+	.q6_stats_drop_ofst 	= 0,
+	.q6_stats_drop_size 	= 0,
 	.end_ofst		= 0x4850,
 };
 
@@ -5547,6 +5555,8 @@ static struct ipa3_mem_partition ipa_4_7_mem_part = {
 	.apps_v6_rt_nhash_size	= 0x0,
 	.uc_descriptor_ram_ofst	= 0x3000,
 	.uc_descriptor_ram_size	= 0x0000,
+	.q6_stats_drop_ofst 	= 0,
+	.q6_stats_drop_size 	= 0,
 	.end_ofst		= 0x3000,
 };
 
@@ -5644,6 +5654,8 @@ static struct ipa3_mem_partition ipa_4_9_mem_part = {
 	.uc_descriptor_ram_size	= 0x1000,
 	.pdn_config_ofst	= 0x4800,
 	.pdn_config_size	= 0x50,
+	.q6_stats_drop_ofst 	= 0,
+	.q6_stats_drop_size 	= 0,
 	.end_ofst		= 0x4850,
 };
 
@@ -5741,6 +5753,8 @@ static struct ipa3_mem_partition ipa_4_11_mem_part = {
         .apps_v6_rt_nhash_size  = 0x0,
         .uc_descriptor_ram_ofst = 0x3000,
         .uc_descriptor_ram_size = 0x0000,
+        .q6_stats_drop_ofst 	= 0,
+        .q6_stats_drop_size 	= 0,
         .end_ofst               = 0x3000,
 };
 
@@ -5838,7 +5852,9 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.apps_v6_rt_nhash_size = 0x0,
 	.pdn_config_ofst = 0x4ee8,
 	.pdn_config_size = 0x100,
-	.end_ofst = 0x4fe8,
+	.q6_stats_drop_ofst = 0x4fe8,
+	.q6_stats_drop_size = 0x18,
+	.end_ofst = 0x5000,
 };
 
 static struct ipa3_mem_partition ipa_5_1_mem_part = {
@@ -5935,7 +5951,9 @@ static struct ipa3_mem_partition ipa_5_1_mem_part = {
 	.apps_v6_rt_nhash_size = 0x0,
 	.pdn_config_ofst = 0x4ee8,
 	.pdn_config_size = 0x100,
-	.end_ofst = 0x4fe8,
+	.q6_stats_drop_ofst = 0x4fe8,
+	.q6_stats_drop_size = 0x18,
+	.end_ofst = 0x5000,
 };
 
 const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
@@ -8391,19 +8409,23 @@ int ipa3_cfg_ep_holb(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ep_holb)
 
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
-	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n, clnt_hdl,
-		ep_holb);
-
-	/* For targets > IPA_4.0 issue requires HOLB_EN to be written twice */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+	if (ep_holb->en == IPA_HOLB_TMR_DIS) {
 		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
 			clnt_hdl, ep_holb);
+		goto success;
+	}
+
+	/* Follow HPG sequence to DIS_HOLB, Configure Timer, and HOLB_EN */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+		ipa3_ctx->ep[clnt_hdl].holb.en = IPA_HOLB_TMR_DIS;
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			clnt_hdl, ep_holb);
+	}
 
 	/* Configure timer */
 	if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_2) {
 		ipa3_cal_ep_holb_scale_base_val(ep_holb->tmr_val,
-				&ipa3_ctx->ep[clnt_hdl].holb);
-		goto success;
+			&ipa3_ctx->ep[clnt_hdl].holb);
 	}
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
 		int res;
@@ -8419,9 +8441,19 @@ int ipa3_cfg_ep_holb(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ep_holb)
 		}
 	}
 
-success:
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n,
 		clnt_hdl, &ipa3_ctx->ep[clnt_hdl].holb);
+
+	/* Enable HOLB */
+	ipa3_ctx->ep[clnt_hdl].holb.en = IPA_HOLB_TMR_EN;
+	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+		clnt_hdl, ep_holb);
+	/* IPA4.5 issue requires HOLB_EN to be written twice */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			clnt_hdl, ep_holb);
+
+success:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 	IPADBG("cfg holb %u ep=%d tmr=%d\n", ep_holb->en, clnt_hdl,
 		ep_holb->tmr_val);
@@ -11170,6 +11202,16 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 			ipa_assert();
 		}
 	} else {
+		if (IPA_CLIENT_IS_APPS_PROD(client) ||
+				(client == IPA_CLIENT_APPS_WAN_CONS &&
+				 coal_ep_idx != IPA_EP_NOT_ALLOCATED))
+			goto chan_statrt;
+		if (!atomic_read(&ep->sys->curr_polling_state)) {
+			IPADBG("switch ch %ld to callback\n", ep->gsi_chan_hdl);
+			gsi_config_channel_mode(ep->gsi_chan_hdl,
+					GSI_CHAN_MODE_CALLBACK);
+		}
+chan_statrt:
 		res = gsi_start_channel(ep->gsi_chan_hdl);
 		if (res) {
 			IPAERR("failed to start LAN channel\n");
@@ -11196,10 +11238,6 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 		gsi_config_channel_mode(ep->gsi_chan_hdl, GSI_CHAN_MODE_POLL);
 		if (!ipa3_gsi_channel_is_quite(ep))
 			return -EAGAIN;
-	} else if (!atomic_read(&ep->sys->curr_polling_state)) {
-		IPADBG("switch ch %ld to callback\n", ep->gsi_chan_hdl);
-		gsi_config_channel_mode(ep->gsi_chan_hdl,
-			GSI_CHAN_MODE_CALLBACK);
 	}
 
 	return 0;

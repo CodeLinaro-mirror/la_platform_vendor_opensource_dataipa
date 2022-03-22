@@ -108,6 +108,8 @@ enum {
 
 #define QMAP_HDR_LEN 8
 
+#define IPA_HOLB_TMR_DIS 0x0
+#define IPA_HOLB_TMR_EN 0x1
 /*
  * The transport descriptor size was changed to GSI_CHAN_RE_SIZE_16B, but
  * IPA users still use sps_iovec size as FIFO element size.
@@ -1214,7 +1216,6 @@ struct ipa3_sys_context {
 	struct ipa3_sys_context *common_sys;
 	struct tasklet_struct tasklet_find_freepage;
 	atomic_t page_avilable;
-	struct delayed_work freepage_work;
 	u32 napi_sort_page_thrshld_cnt;
 
 	/* ordering is important - mutable fields go above */
@@ -1230,6 +1231,9 @@ struct ipa3_sys_context {
 	struct ipa3_status_stats *status_stat;
 	u32 pm_hdl;
 	struct workqueue_struct *freepage_wq;
+	unsigned int napi_sch_cnt;
+	unsigned int napi_comp_cnt;
+	struct delayed_work freepage_work;
 	/* ordering is important - other immutable fields go below */
 };
 
@@ -2795,6 +2799,8 @@ struct ipa3_mem_partition {
 
 	u32 stats_drop_ofst;
 	u32 stats_drop_size;
+	u32 q6_stats_drop_ofst;
+	u32 q6_stats_drop_size;
 };
 
 struct ipa3_controller {
