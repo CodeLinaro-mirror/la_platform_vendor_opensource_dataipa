@@ -1222,6 +1222,8 @@ static void ipa3_tasklet_find_freepage(unsigned long data)
 
 	sys = (struct ipa3_sys_context *)data;
 
+	if(sys->page_recycle_repl == NULL)
+		return;
 	INIT_LIST_HEAD(&temp_head);
 	spin_lock_bh(&sys->common_sys->spinlock);
 	list_for_each_entry_safe(rx_pkt, tmp,
@@ -1691,7 +1693,8 @@ fail_napi:
 fail_gen2:
 	ipa_pm_deregister(ep->sys->pm_hdl);
 fail_pm:
-	destroy_workqueue(ep->sys->freepage_wq);
+	if (ep->sys->freepage_wq)
+		destroy_workqueue(ep->sys->freepage_wq);
 fail_wq3:
 	destroy_workqueue(ep->sys->repl_wq);
 fail_wq2:
