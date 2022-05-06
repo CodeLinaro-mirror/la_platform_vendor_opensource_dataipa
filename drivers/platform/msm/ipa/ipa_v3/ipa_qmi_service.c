@@ -31,7 +31,7 @@
 #define IPA_PER_STATS_SMEM_SIZE (2*1024)
 
 #define QMI_SEND_STATS_REQ_TIMEOUT_MS 5000
-#define QMI_SEND_REQ_TIMEOUT_MS 60000
+#define QMI_SEND_REQ_TIMEOUT_MS 10000
 #define QMI_MHI_SEND_REQ_TIMEOUT_MS 1000
 
 #define QMI_IPA_FORCE_CLEAR_DATAPATH_TIMEOUT_MS 1000
@@ -552,16 +552,22 @@ static int ipa3_qmi_send_req_wait(struct qmi_handle *client_handle,
 	struct qmi_txn txn;
 	int ret;
 
-	if (!client_handle)
+	mutex_lock(&ipa3_qmi_lock);
+
+	if (!client_handle) {
+
+		mutex_unlock(&ipa3_qmi_lock);
 		return -EINVAL;
+	}
+
 	ret = qmi_txn_init(client_handle, &txn, resp_desc->ei_array, resp);
 
 	if (ret < 0) {
 		IPAWANERR("QMI txn init failed, ret= %d\n", ret);
+		mutex_unlock(&ipa3_qmi_lock);
 		return ret;
 	}
 
-	mutex_lock(&ipa3_qmi_lock);
 	ret = qmi_send_request(client_handle,
 		&ipa3_qmi_ctx->server_sq,
 		&txn,
@@ -570,19 +576,16 @@ static int ipa3_qmi_send_req_wait(struct qmi_handle *client_handle,
 		req_desc->ei_array,
 		req);
 
-	if (unlikely(!ipa_q6_clnt)) {
-		mutex_unlock(&ipa3_qmi_lock);
-		return -EINVAL;
-	}
 
-	mutex_unlock(&ipa3_qmi_lock);
 
 	if (ret < 0) {
 		qmi_txn_cancel(&txn);
+		mutex_unlock(&ipa3_qmi_lock);
 		return ret;
 	}
-	ret = qmi_txn_wait(&txn, msecs_to_jiffies(timeout_ms));
 
+	ret = qmi_txn_wait(&txn, msecs_to_jiffies(timeout_ms));
+	mutex_unlock(&ipa3_qmi_lock);
 	return ret;
 }
 
@@ -691,10 +694,10 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 
 	req.hw_drop_stats_base_addr_valid = true;
 	req.hw_drop_stats_base_addr =
-		IPA_MEM_PART(stats_drop_ofst) + smem_restr_bytes;
+		IPA_MEM_PART(q6_stats_drop_ofst) + smem_restr_bytes;
 
 	req.hw_drop_stats_table_size_valid = true;
-	req.hw_drop_stats_table_size = IPA_MEM_PART(stats_drop_size);
+	req.hw_drop_stats_table_size = IPA_MEM_PART(q6_stats_drop_size);
 
 	if (ipa3_ctx->platform_type != IPA_PLAT_TYPE_APQ) {
 		req.per_stats_smem_info_valid = true;

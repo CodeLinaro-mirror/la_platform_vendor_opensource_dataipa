@@ -360,6 +360,11 @@ int __ipa_commit_hdr_v3_0(void)
 		ipa3_ctx->hdr_sys_mem = hdr_mem[HDR_TBL_SYS];
 	}
 
+	else {
+		dma_free_coherent(ipa3_ctx->pdev, hdr_mem[HDR_TBL_SYS].size,
+		hdr_mem[HDR_TBL_SYS].base,hdr_mem[HDR_TBL_SYS].phys_base);
+        }
+
 	if (ipa3_ctx->hdr_proc_ctx_tbl_lcl) {
 		dma_free_coherent(ipa3_ctx->pdev, ctx_mem.size, ctx_mem.base,
 			ctx_mem.phys_base);
@@ -371,6 +376,10 @@ int __ipa_commit_hdr_v3_0(void)
 					ipa3_ctx->hdr_proc_ctx_mem.base,
 					ipa3_ctx->hdr_proc_ctx_mem.phys_base);
 			ipa3_ctx->hdr_proc_ctx_mem = ctx_mem;
+		}
+		else {
+			dma_free_coherent(ipa3_ctx->pdev, ctx_mem.size,
+			ctx_mem.base,ctx_mem.phys_base);
 		}
 	}
 	goto end;
@@ -587,13 +596,16 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 
 			/* return if adding the same name */
 			if (!strcmp(entry_t->name, entry->name) && (user == true)) {
-				IPAERR("IPACM Trying to add hdr %s len=%d, duplicate entry, return old one\n",
-					entry->name, entry->hdr_len);
+				IPAERR_RL("IPACM Trying to add duplicate hdr %s\n",
+					entry_t->name);
 
 				/* return the original entry */
-				if (entry_out)
+				if (entry_out) {
+					IPAERR_RL("return old entry len=%d hdl=%d\n",
+						entry_t->hdr_len, entry_t->id);
+					hdr->hdr_hdl = entry_t->id;
 					*entry_out = entry_t;
-
+				}
 				kmem_cache_free(ipa3_ctx->hdr_cache, entry);
 				return 0;
 			}
