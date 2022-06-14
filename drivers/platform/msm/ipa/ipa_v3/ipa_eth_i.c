@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -204,8 +206,12 @@ static int ipa3_eth_config_uc(bool init,
 			cmd_data->SetupCh_params.rtk_params.dir = dir;
 			cmd_data->SetupCh_params.rtk_params.gsi_ch = gsi_ch;
 			break;
+		case IPA_HW_PROTOCOL_IEMAC:
+			cmd_data->SetupCh_params.iemac_params.direction = dir;
+			cmd_data->SetupCh_params.iemac_params.gsi_channel = gsi_ch;
+			break;
 		default:
-			IPAERR("Unsupported protocol%d\n", protocol);
+			IPAERR("Unsupported protocol %d\n", protocol);
 		}
 		command = IPA_CPU_2_HW_CMD_OFFLOAD_CHANNEL_SET_UP;
 
@@ -230,8 +236,11 @@ static int ipa3_eth_config_uc(bool init,
 		case IPA_HW_PROTOCOL_RTK:
 			cmd_data->CommonCh_params.rtk_params.gsi_ch = gsi_ch;
 			break;
+		case IPA_HW_PROTOCOL_IEMAC:
+			cmd_data->CommonCh_params.iemac_params.gsi_channel = gsi_ch;
+			break;
 		default:
-			IPAERR("Unsupported protocol%d\n", protocol);
+			IPAERR("Unsupported protocol %d\n", protocol);
 		}
 		cmd_data->CommonCh_params.rtk_params.gsi_ch = gsi_ch;
 		command = IPA_CPU_2_HW_CMD_OFFLOAD_CHANNEL_TEAR_DOWN;
@@ -881,6 +890,9 @@ static int ipa3_eth_get_prot(struct ipa_eth_client_pipe_info *pipe,
 	case IPA_ETH_CLIENT_EMAC:
 		*prot = IPA_HW_PROTOCOL_ETH;
 		break;
+	case IPA_ETH_CLIENT_IEMAC:
+		*prot = IPA_HW_PROTOCOL_IEMAC;
+		break;
 	default:
 		IPAERR("invalid client type%d\n",
 			pipe->client_info->client_type);
@@ -889,6 +901,14 @@ static int ipa3_eth_get_prot(struct ipa_eth_client_pipe_info *pipe,
 	}
 
 	return ret;
+}
+
+static bool hw_support_protocol(enum ipa4_hw_protocol protocol)
+{
+	if (protocol == IPA_HW_PROTOCOL_IEMAC)
+		return ipa3_ctx->iemac_exist;
+
+	return true;
 }
 
 int ipa3_eth_connect(
@@ -911,7 +931,7 @@ int ipa3_eth_connect(
 #endif
 
 	ep_idx = ipa_get_ep_mapping(client_type);
-	if (ep_idx == -1 || ep_idx >= IPA_MAX_NUM_PIPES) {
+	if (ep_idx == IPA_EP_NOT_ALLOCATED) {
 		IPAERR("undefined client_type\n");
 		return -EFAULT;
 	}
@@ -965,6 +985,11 @@ int ipa3_eth_connect(
 	if (result) {
 		IPAERR("Could not determine protocol\n");
 		return result;
+	}
+	if (!hw_support_protocol(prot)) {
+		IPAERR("Invalid ipa-hw-type, protocol combination: %d, %d\n", ipa3_ctx->ipa_hw_type,
+		       prot);
+		return -EINVAL;
 	}
 
 	result = ipa3_smmu_map_eth_pipes(pipe, client_type, true);
@@ -1022,6 +1047,7 @@ int ipa3_eth_connect(
 		result = ipa_eth_setup_aqc_gsi_channel(pipe, ep);
 		break;
 	case IPA_HW_PROTOCOL_NTN3:
+	case IPA_HW_PROTOCOL_IEMAC:
 		result = ipa_eth_setup_ntn_gsi_channel(pipe, ep);
 		break;
 	default:
@@ -1088,6 +1114,7 @@ int ipa3_eth_connect(
 			}
 			break;
 		case IPA_HW_PROTOCOL_NTN3:
+		case IPA_HW_PROTOCOL_IEMAC:
 			if (gsi_query_msi_addr(ep->gsi_chan_hdl, &pipe->info.db_pa)) {
 				result = -EFAULT;
 				goto query_msi_fail;
@@ -1215,7 +1242,8 @@ int ipa3_eth_connect(
 	id = (pipe->dir == IPA_ETH_PIPE_DIR_TX) ? 1 : 0;
 
 	/* start uC gsi dbg stats monitor */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
+		&& prot != IPA_HW_PROTOCOL_IEMAC) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= ep->gsi_chan_hdl;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1249,12 +1277,10 @@ int ipa3_eth_connect(
 
 	ipa3_eth_save_client_mapping(pipe, client_type,
 		id, ep_idx, ep->gsi_chan_hdl);
-	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
-		(prot == IPA_HW_PROTOCOL_RTK)) {
-		result = ipa3_eth_config_uc(true,
-			prot,
-			(pipe->dir == IPA_ETH_PIPE_DIR_TX)
-			? IPA_ETH_TX : IPA_ETH_RX,
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_RTK)
+	    || prot == IPA_HW_PROTOCOL_IEMAC) {
+		result = ipa3_eth_config_uc(true, prot,
+			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, ch);
 		if (result) {
 			IPAERR("failed to config uc\n");
@@ -1267,7 +1293,8 @@ int ipa3_eth_connect(
 
 config_uc_fail:
 	/* stop uC gsi dbg stats monitor */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
+		&& prot != IPA_HW_PROTOCOL_IEMAC) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1310,7 +1337,7 @@ int ipa3_eth_disconnect(
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	ep_idx = ipa_get_ep_mapping(client_type);
-	if (ep_idx == -1 || ep_idx >= IPA_MAX_NUM_PIPES) {
+	if (ep_idx == IPA_EP_NOT_ALLOCATED) {
 		IPAERR("undefined client_type\n");
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		return -EFAULT;
@@ -1327,7 +1354,8 @@ int ipa3_eth_disconnect(
 
 	id = (pipe->dir == IPA_ETH_PIPE_DIR_TX) ? 1 : 0;
 	/* stop uC gsi dbg stats monitor */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
+		&& prot != IPA_HW_PROTOCOL_IEMAC) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1344,12 +1372,10 @@ int ipa3_eth_disconnect(
 		goto fail;
 	}
 
-	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
-		(prot == IPA_HW_PROTOCOL_RTK)) {
-		result = ipa3_eth_config_uc(false,
-			prot,
-			(pipe->dir == IPA_ETH_PIPE_DIR_TX)
-			? IPA_ETH_TX : IPA_ETH_RX,
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_RTK)
+	    || prot == IPA_HW_PROTOCOL_IEMAC) {
+		result = ipa3_eth_config_uc(false, prot,
+			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, 0);
 		if (result)
 			IPAERR("failed to config uc\n");
@@ -1377,7 +1403,8 @@ int ipa3_eth_disconnect(
 	memset(ep, 0, sizeof(struct ipa3_ep_context));
 	IPADBG("client (ep: %d) disconnected\n", ep_idx);
 
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2)
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
+		&& prot != IPA_HW_PROTOCOL_IEMAC)
 		ipa3_uc_debug_stats_dealloc(prot);
 	if (IPA_CLIENT_IS_PROD(client_type))
 		ipa3_delete_dflt_flt_rules(ep_idx);

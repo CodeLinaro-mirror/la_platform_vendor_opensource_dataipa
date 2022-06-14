@@ -9406,6 +9406,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->uc_act_tbl_total = 0;
 	ipa3_ctx->uc_act_tbl_next_index = 0;
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
+	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =
@@ -10292,6 +10293,13 @@ static void ipa_dts_get_ulso_data(struct platform_device *pdev,
 		ipa_drv_res->ulso_ip_id_max);
 }
 
+static void ipa_dts_get_iemac_data(struct platform_device *pdev,
+		struct ipa3_plat_drv_res *ipa_drv_res)
+{
+	ipa_drv_res->iemac_exist = of_property_read_bool(pdev->dev.of_node, "qcom,ipa-iemac");
+	IPADBG("iemac_exist = %d", ipa_drv_res->iemac_exist);
+}
+
 static int get_ipa_dts_configuration(struct platform_device *pdev,
 		struct ipa3_plat_drv_res *ipa_drv_res)
 {
@@ -11017,6 +11025,8 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	IPADBG(": coal-ipv4-id-ignore = %s\n",
 			ipa_drv_res->coal_ipv4_id_ignore
 			? "True" : "False");
+
+	ipa_dts_get_iemac_data(pdev, ipa_drv_res);
 
 	return 0;
 }

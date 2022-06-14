@@ -2641,6 +2641,7 @@ struct ipa3_context {
 	u32 ipa_smem_size;
 	bool cesta_enable;
 	struct mutex ssr_lock;
+	bool iemac_exist;
 };
 
 struct ipa3_plat_drv_res {
@@ -2726,6 +2727,7 @@ struct ipa3_plat_drv_res {
 	bool is_dual_pine_config;
 	u8 coal_ipv4_id_ignore;
 	bool cesta_enable;
+	bool iemac_exist;
 };
 
 /**

@@ -97,6 +97,7 @@ enum ipa4_hw_protocol {
 	IPA_HW_PROTOCOL_ETH = 0x5,
 	IPA_HW_PROTOCOL_MHIP = 0x6,
 	IPA_HW_PROTOCOL_USB = 0x7,
+	IPA_HW_PROTOCOL_IEMAC = 0x8,
 	IPA_HW_PROTOCOL_RTK = 0x9,
 	IPA_HW_PROTOCOL_NTN3 = 0xA,
 	IPA_HW_PROTOCOL_MAX
@@ -588,6 +589,19 @@ struct uc_channel_teardown_cmd_hw_11ad {
 	u16 reserved_1;
 } __packed;
 
+
+/**
+ * IEMAC cahnnel tear down command data
+ * @gsi_channel: GSI channel index
+ * @reserved_0: Padding
+ * @reserved_1: Padding
+ */
+struct uc_channel_teardown_cmd_hw_iemac {
+	u8 gsi_channel;
+	u8 reserved_0;
+	u16 reserved_1;
+} __packed;
+
 /**
  * struct IpaHw11adInitCmdData_t - 11ad peripheral init command data
  * @periph_baddr_lsb: Peripheral Base Address LSB (pa/IOVA)
@@ -679,6 +693,19 @@ struct uc_channel_teardown_cmd_hw_aqc {
 } __packed;
 
 /**
+ * IEMAC cahnnel setup command data
+ * @direction: tx/rx
+ * @gsi_channel: GSI channel index
+ * @reserved: Padding
+ *
+ */
+struct uc_channel_setup_cmd_hw_iemac {
+	u8 direction;
+	u8 gsi_channel;
+	u16 reserved;
+} __packed;
+
+/**
  * struct uc_channel_setup_cmd_hw  - Structure holding the
  * parameters for IPA_CPU_2_HW_CMD_OFFLOAD_CHANNEL_SET_UP
  *
@@ -689,6 +716,7 @@ union uc_channel_setup_cmd_hw {
 	struct uc_channel_setup_cmd_hw_aqc aqc_params;
 	struct uc_channel_setup_cmd_hw_11ad w11ad_params;
 	struct uc_channel_setup_cmd_hw_rtk rtk_params;
+	struct uc_channel_setup_cmd_hw_iemac iemac_params;
 } __packed;
 
 struct IpaHwOffloadSetUpCmdData_t {
@@ -754,6 +782,7 @@ union uc_channel_teardown_cmd_hw {
 	struct uc_channel_teardown_cmd_hw_aqc aqc_params;
 	struct uc_channel_teardown_cmd_hw_rtk rtk_params;
 	struct uc_channel_teardown_cmd_hw_11ad w11ad_params;
+	struct uc_channel_teardown_cmd_hw_iemac iemac_params;
 } __packed;
 
 struct IpaHwOffloadCommonChCmdData_t {
