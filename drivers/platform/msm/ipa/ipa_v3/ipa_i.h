@@ -590,6 +590,7 @@ enum ipa_icc_path {
 	IPA_ICC_LLCC_TO_EBIL,
 	IPA_ICC_IPA_TO_IMEM,
 	IPA_ICC_APSS_TO_IPA,
+	IPA_ICC_IPACOREMASTER_TO_IPACORESLAVE,
 	IPA_ICC_PATH_MAX,
 };
 
@@ -2533,6 +2534,7 @@ struct ipa3_context {
 	u32 ipa_max_napi_sort_page_thrshld;
 	u32 page_wq_reschd_time;
 	struct list_head minidump_list_head;
+	bool is_dual_pine_config;
 };
 
 struct ipa3_plat_drv_res {
@@ -2615,6 +2617,7 @@ struct ipa3_plat_drv_res {
 	bool use_pm_wrapper;
 	bool use_tput_est_ep;
 	bool ulso_wa;
+	bool is_dual_pine_config;
 };
 
 /**
