@@ -2278,7 +2278,9 @@ struct ipa_minidump_data {
  * @eth_info: ethernet client mapping
  * @max_num_smmu_cb: number of smmu s1 cb supported
  * @non_hash_flt_lcl_sys_switch: number of times non-hash flt table moved
- * mhi_ctrl_state: state of mhi ctrl pipes
+ * @mhi_ctrl_state: state of mhi ctrl pipes
+ * @is_mhi_coal_set: indicate if mhi coal pipe is connected/set
+ * @mhi_lock: lock to protect above mhi states
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  */
@@ -2523,6 +2525,8 @@ struct ipa3_context {
 	bool buff_below_thresh_for_def_pipe_notified;
 	bool buff_below_thresh_for_coal_pipe_notified;
 	u8 mhi_ctrl_state;
+	bool is_mhi_coal_set;
+	struct mutex mhi_lock;
 	struct ipa_mem_buffer uc_act_tbl;
 	bool uc_act_tbl_valid;
 	struct mutex act_tbl_lock;
@@ -2534,6 +2538,7 @@ struct ipa3_context {
 	u32 ipa_max_napi_sort_page_thrshld;
 	u32 page_wq_reschd_time;
 	struct list_head minidump_list_head;
+	bool is_dual_pine_config;
 };
 
 struct ipa3_plat_drv_res {
@@ -2616,6 +2621,7 @@ struct ipa3_plat_drv_res {
 	bool use_pm_wrapper;
 	bool use_tput_est_ep;
 	bool ulso_wa;
+	bool is_dual_pine_config;
 };
 
 /**
@@ -3770,8 +3776,12 @@ int ipa3_send_eogre_info(
 
 /* update mhi ctrl pipe state */
 void ipa3_update_mhi_ctrl_state(u8 state, bool set);
-/* Send MHI endpoint info to modem using QMI indication message */
-int ipa_send_mhi_endp_ind_to_modem(void);
+/* Send ctrl MHI endpoint info to modem using QMI indication message */
+int ipa_send_mhi_ctrl_endp_ind_to_modem(void);
+#ifdef IPA_CLIENT_MHI_COAL_CONS
+/* Send coal MHI endpoint info to modem using QMI indication message */
+int ipa_send_mhi_coal_endp_ind_to_modem(void);
+#endif
 
 /*
  * To pass macsec mapping to the IPACM
