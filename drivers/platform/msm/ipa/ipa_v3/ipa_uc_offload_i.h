@@ -2,13 +2,13 @@
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_UC_OFFLOAD_I_H_
 #define _IPA_UC_OFFLOAD_I_H_
 
-#include <linux/ipa.h>
+#include "ipa.h"
 #include "ipa_i.h"
 
 /*

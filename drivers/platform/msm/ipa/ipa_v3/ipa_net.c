@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -18,9 +19,10 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include "ipa_i.h"
 #include "ipa_qmi_service.h"
+#include "rndis_ipa.h"
 
 static int __init ipa_late_init(void)
 {
@@ -35,6 +37,13 @@ static int __init ipa_late_init(void)
 		ipa3_wwan_cleanup();
 	}
 
+	rc = rndis_ipa_init_module();
+	if (rc) {
+		IPAERR("rndis_ipa_init_module failed: %d\n",
+			   rc);
+		rndis_ipa_cleanup_module();
+	}
+
 	return rc;
 }
 fs_initcall(ipa_late_init);
@@ -43,6 +52,7 @@ static void __exit ipa_late_exit(void)
 {
 	IPADBG("IPA late exit\n");
 	ipa3_wwan_cleanup();
+	rndis_ipa_cleanup_module();
 }
 module_exit(ipa_late_exit);
 

@@ -32,7 +32,7 @@
 #include <linux/remoteproc/qcom_rproc.h>
 #include "ipa_qmi_service.h"
 #include <linux/rmnet_ipa_fd_ioctl.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <uapi/linux/ip.h>
 #include <uapi/linux/msm_rmnet.h>
 #include <net/ipv6.h>
@@ -318,7 +318,7 @@ static int ipa3_setup_a7_qmap_hdr(void)
 	} else
 		hdr_entry->hdr_len = IPA_QMAP_HEADER_LENGTH; /* 4 bytes */
 
-	if (ipa3_add_hdr(hdr)) {
+	if (ipa_add_hdr(hdr)) {
 		IPAWANERR("fail to add IPA_A7_QMAP hdr\n");
 		ret = -EPERM;
 		goto bail;
@@ -363,9 +363,9 @@ static void ipa3_del_a7_qmap_hdr(void)
 	hdl_entry = &del_hdr->hdl[0];
 	hdl_entry->hdl = rmnet_ipa3_ctx->qmap_hdr_hdl;
 
-	ret = ipa3_del_hdr(del_hdr);
+	ret = ipa_del_hdr(del_hdr);
 	if (ret || hdl_entry->status)
-		IPAWANERR("ipa3_del_hdr failed\n");
+		IPAWANERR("ipa_del_hdr failed\n");
 	else
 		IPAWANDBG("hdrs deletion done\n");
 
@@ -398,9 +398,9 @@ static void ipa3_del_qmap_hdr(uint32_t hdr_hdl)
 	hdl_entry = &del_hdr->hdl[0];
 	hdl_entry->hdl = hdr_hdl;
 
-	ret = ipa3_del_hdr(del_hdr);
+	ret = ipa_del_hdr(del_hdr);
 	if (ret || hdl_entry->status)
-		IPAWANERR("ipa3_del_hdr failed\n");
+		IPAWANERR("ipa_del_hdr failed\n");
 	else
 		IPAWANDBG("header deletion done\n");
 
@@ -475,7 +475,7 @@ static int ipa3_add_qmap_hdr(uint32_t mux_id, uint32_t *hdr_hdl)
 	IPAWANDBG("header (%s) with mux-id: (%d)\n",
 		hdr_name,
 		hdr_entry->hdr[1]);
-	if (ipa3_add_hdr(hdr)) {
+	if (ipa_add_hdr(hdr)) {
 		IPAWANERR("fail to add IPA_QMAP hdr\n");
 		ret = -EPERM;
 		goto bail;
@@ -641,7 +641,7 @@ static int ipa3_setup_low_lat_rt_rules(void)
 		IPA_FLT_META_DATA;
 	/* Low lat routing is based on metadata */
 	rt_rule_entry[WAN_RT_COMMON].rule.attrib.meta_data =
-		ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS);
+		ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS);
 	rt_rule_entry[WAN_RT_COMMON].rule.attrib.meta_data_mask =
 		0xFF;
 
@@ -653,7 +653,7 @@ static int ipa3_setup_low_lat_rt_rules(void)
 	rt_rule_entry[WAN_RT_ICMP].rule.attrib.attrib_mask =
 		IPA_FLT_META_DATA;
 	rt_rule_entry[WAN_RT_ICMP].rule.attrib.meta_data =
-		ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS);
+		ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS);
 	rt_rule_entry[WAN_RT_ICMP].rule.attrib.meta_data_mask =
 		0xFF;
 	rt_rule_entry[WAN_RT_ICMP].rule.attrib.attrib_mask |=
@@ -1367,7 +1367,7 @@ static void ipa3_cleanup_deregister_intf(void)
 		v_name = rmnet_ipa3_ctx->mux_channel[i].vchannel_name;
 
 		if (rmnet_ipa3_ctx->mux_channel[i].ul_flt_reg) {
-			ret = ipa3_deregister_intf(v_name);
+			ret = ipa_deregister_intf(v_name);
 			if (ret < 0) {
 				IPAWANERR("de-register device %s(%d) failed\n",
 					v_name,
@@ -1432,9 +1432,9 @@ static int __ipa_wwan_close(struct net_device *dev)
 		 * remote side to hang if tried to open again
 		 */
 		reinit_completion(&wwan_ptr->resource_granted_completion);
-		rc = ipa3_deregister_intf(dev->name);
+		rc = ipa_deregister_intf(dev->name);
 		if (rc) {
-			IPAWANERR("[%s]: ipa3_deregister_intf failed %d\n",
+			IPAWANERR("[%s]: ipa_deregister_intf failed %d\n",
 			       dev->name, rc);
 			return rc;
 		}
@@ -1781,11 +1781,11 @@ send:
 	}
 #endif
 	if (unlikely(!eth_check) && unlikely(!v2x_check))
-		ret = ipa3_tx_dp(dst_ipa_client, skb, NULL);
+		ret = ipa_tx_dp(dst_ipa_client, skb, NULL);
 	else if (unlikely(!v2x_check))
-		ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_ETH_PROD, skb, NULL);
+		ret = ipa_tx_dp(IPA_CLIENT_APPS_WAN_ETH_PROD, skb, NULL);
 	else
-	  ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_V2X_PROD, skb, NULL);
+	  ret = ipa_tx_dp(IPA_CLIENT_APPS_WAN_V2X_PROD, skb, NULL);
 #ifdef CONFIG_IPA_IPSEC
 count:
 #endif
@@ -2375,7 +2375,7 @@ static int ipa_send_wan_pipe_ind_to_modem(int ingress_eps_mask)
 		req.num_eps_valid = true;
 		req.num_eps++;
 		ep_info = &req.ep_info[req.ep_info_len - 1];
-		ep_info->ep_id = ipa3_get_ep_mapping(
+		ep_info->ep_id = ipa_get_ep_mapping(
 			IPA_CLIENT_APPS_WAN_LOW_LAT_CONS);
 		ep_info->ic_type = DATA_IC_TYPE_AP_V01;
 		ep_info->ep_type = DATA_EP_DESC_TYPE_EMB_FLOW_CTL_PROD_V01;
@@ -2383,7 +2383,7 @@ static int ipa_send_wan_pipe_ind_to_modem(int ingress_eps_mask)
 		req.ep_info_len++;
 		req.num_eps++;
 		ep_info = &req.ep_info[req.ep_info_len - 1];
-		ep_info->ep_id = ipa3_get_ep_mapping(
+		ep_info->ep_id = ipa_get_ep_mapping(
 			IPA_CLIENT_APPS_WAN_LOW_LAT_PROD);
 		ep_info->ic_type = DATA_IC_TYPE_AP_V01;
 		ep_info->ep_type = DATA_EP_DESC_TYPE_EMB_FLOW_CTL_CONS_V01;
@@ -5196,7 +5196,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 
 	pr_info("rmnet_ipa3 started initialization\n");
 
-	if (!ipa3_is_ready()) {
+	if (!ipa_is_ready()) {
 		IPAWANDBG("IPA driver not ready, registering callback\n");
 		ret = ipa_register_ipa_ready_cb(ipa3_ready_cb, (void *)pdev);
 
@@ -5506,12 +5506,12 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 		if (ret < 0)
 			IPAWANERR("Failed to teardown IPA->APPS LL pipe\n");
 	}
-	ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->ipa3_to_apps_hdl);
+	ret = ipa_teardown_sys_pipe(rmnet_ipa3_ctx->ipa3_to_apps_hdl);
 	if (ret < 0)
 		IPAWANERR("Failed to teardown IPA->APPS pipe\n");
 	else
 		rmnet_ipa3_ctx->ipa3_to_apps_hdl = -1;
-	ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_hdl);
+	ret = ipa_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_hdl);
 	if (ret < 0)
 		IPAWANERR("Failed to teardown APPS->IPA pipe\n");
 	else

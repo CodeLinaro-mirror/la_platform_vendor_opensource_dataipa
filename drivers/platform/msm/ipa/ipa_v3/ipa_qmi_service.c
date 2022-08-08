@@ -12,7 +12,7 @@
 #include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/uaccess.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <linux/vmalloc.h>
 
 #include "ipa_qmi_service.h"

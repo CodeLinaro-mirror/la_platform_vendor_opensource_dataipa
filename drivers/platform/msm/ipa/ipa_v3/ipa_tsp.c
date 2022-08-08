@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/bits.h>
@@ -192,7 +192,7 @@ int ipa_tsp_get_egr_ep(u8 index, struct ipa_ioc_tsp_egress_prod_params *output)
 	output->client = ipa3_ctx->tsp.egr_ep_config[index];
 
 	regval = ipahal_read_reg_n_fields(IPA_ENDP_INIT_PROD_CFG_n,
-		ipa3_get_ep_mapping(output->client), (void *)&prod_cfg);
+		ipa_get_ep_mapping(output->client), (void *)&prod_cfg);
 
 	output->max_out_bytes = prod_cfg.max_output_size << 6; // max_output_size*64
 	output->policing_by_max_out = prod_cfg.max_output_size_drop_enable;
@@ -231,7 +231,7 @@ int ipa_tsp_set_egr_ep(u8 index, const struct ipa_ioc_tsp_egress_prod_params *in
 	ep_tc_mask = GENMASK(input->tc_hi, input->tc_lo);
 	new_tc_range_mask = ipa3_ctx->tsp.egr_tc_range_mask;
 
-	ep_index = ipa3_get_ep_mapping(ipa3_ctx->tsp.egr_ep_config[index]);
+	ep_index = ipa_get_ep_mapping(ipa3_ctx->tsp.egr_ep_config[index]);
 	regval = ipahal_read_reg_n_fields(
 		IPA_ENDP_INIT_PROD_CFG_n, ep_index, (void *)&prod_cfg);
 
@@ -263,7 +263,7 @@ int ipa_tsp_set_egr_ep(u8 index, const struct ipa_ioc_tsp_egress_prod_params *in
 	prod_cfg.max_output_size_drop_enable = input->policing_by_max_out;
 	prod_cfg.egress_tc_lowest = input->tc_lo;
 	prod_cfg.egress_tc_highest = input->tc_hi;
-	if (ipa3_cfg_ep_prod_cfg(ipa3_get_ep_mapping(input->client), &prod_cfg) != 0) {
+	if (ipa3_cfg_ep_prod_cfg(ipa_get_ep_mapping(input->client), &prod_cfg) != 0) {
 		IPAERR("Failed configuring the producer EP.\n");
 		return -EFAULT;
 	}
@@ -344,7 +344,7 @@ int ipa_tsp_reset(void)
 
 	for (i = 0;
 	      i < ipa3_ctx->tsp.egr_ep_max && ipa3_ctx->tsp.egr_ep_config[i] < IPA_CLIENT_MAX; i++)
-		ipa3_cfg_ep_prod_cfg(ipa3_get_ep_mapping(ipa3_ctx->tsp.egr_ep_config[i]),
+		ipa3_cfg_ep_prod_cfg(ipa_get_ep_mapping(ipa3_ctx->tsp.egr_ep_config[i]),
 		      &prod_cfg);
 
 	if (ipa3_ctx->tsp.ingr_tc_tbl.base)

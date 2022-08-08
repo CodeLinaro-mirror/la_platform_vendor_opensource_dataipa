@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_RM_DEPENDENCY_GRAPH_H_
 #define _IPA_RM_DEPENDENCY_GRAPH_H_
 
 #include <linux/list.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include "ipa_rm_resource.h"
 
 struct ipa_rm_dep_graph {

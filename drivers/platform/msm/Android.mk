@@ -27,6 +27,8 @@ LOCAL_SRC_FILES   := $(wildcard $(LOCAL_PATH)/**/*) $(wildcard $(LOCAL_PATH)/*)
 LOCAL_MODULE              := ipam.ko
 LOCAL_MODULE_KBUILD_NAME  := ipa/ipam.ko
 LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_EXPORT_KO_INCLUDE_DIRS    := $(LOCAL_PATH)/include
+LOCAL_EXPORT_KO_INCLUDE_DIRS    += $(LOCAL_PATH)/include/uapi
 LOCAL_MODULE_PATH := $(KERNEL_MODULES_OUT)
 $(warning $(DLKM_DIR))
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
@@ -36,16 +38,6 @@ KBUILD_OPTIONS += MODNAME=ipanetm
 LOCAL_SRC_FILES   := $(wildcard $(LOCAL_PATH)/**/*) $(wildcard $(LOCAL_PATH)/*)
 LOCAL_MODULE              := ipanetm.ko
 LOCAL_MODULE_KBUILD_NAME  := ipa/ipanetm.ko
-LOCAL_MODULE_DEBUG_ENABLE := true
-LOCAL_MODULE_PATH := $(KERNEL_MODULES_OUT)
-$(warning $(DLKM_DIR))
-include $(DLKM_DIR)/Build_external_kernelmodule.mk
-
-include $(CLEAR_VARS)
-KBUILD_OPTIONS += MODNAME=rndisipam
-LOCAL_SRC_FILES   := $(wildcard $(LOCAL_PATH)/**/*) $(wildcard $(LOCAL_PATH)/*)
-LOCAL_MODULE              := rndisipam.ko
-LOCAL_MODULE_KBUILD_NAME  := ipa/ipa_clients/rndisipam.ko
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH := $(KERNEL_MODULES_OUT)
 $(warning $(DLKM_DIR))

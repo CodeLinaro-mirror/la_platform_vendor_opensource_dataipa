@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_ut_framework.h"
-#include <linux/ipa_wdi3.h>
-#include <linux/ipa.h>
+#include "ipa_wdi3.h"
+#include "ipa.h"
 #include <linux/delay.h>
 #include "ipa_i.h"
 

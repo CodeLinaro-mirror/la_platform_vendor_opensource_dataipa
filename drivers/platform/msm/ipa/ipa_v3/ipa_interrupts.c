@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/interrupt.h>
@@ -424,7 +424,7 @@ irq_handler_t ipa3_get_isr(void)
 }
 
 /**
- * ipa3_add_interrupt_handler() - Adds handler to an interrupt type
+ * ipa_add_interrupt_handler() - Adds handler to an interrupt type
  * @interrupt:		Interrupt type
  * @handler:		The handler to be added
  * @deferred_flag:	whether the handler processing should be deferred in
@@ -434,7 +434,7 @@ irq_handler_t ipa3_get_isr(void)
  * Adds handler to an interrupt type and enable the specific bit
  * in IRQ_EN register, associated interrupt in IRQ_STTS register will be enabled
  */
-int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
+int ipa_add_interrupt_handler(enum ipa_irq_type interrupt,
 		ipa_irq_handler_t handler,
 		bool deferred_flag,
 		void *private_data)
@@ -482,7 +482,7 @@ int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
 			for (client_idx = 0;
 				client_idx < IPA_CLIENT_MAX;
 				client_idx++) {
-				ep_idx = ipa3_get_ep_mapping(client_idx);
+				ep_idx = ipa_get_ep_mapping(client_idx);
 			/* In case of CESTA enable mode, don't register TX_SUSPEND_IRQ,
 			* for MHI clients as it is taken care by IPA uC. */
 				if ((ep_idx != IPA_EP_NOT_ALLOCATED) &&
@@ -509,7 +509,7 @@ int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
 				client_idx++) {
 				if (IPA_CLIENT_IS_Q6_CONS(client_idx) ||
 					IPA_CLIENT_IS_Q6_PROD(client_idx)) {
-					ep_idx = ipa3_get_ep_mapping(client_idx);
+					ep_idx = ipa_get_ep_mapping(client_idx);
 					IPADBG(
 						"modem ep_idx(%d) client_idx = %d\n"
 						, ep_idx, client_idx);
@@ -526,6 +526,7 @@ int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
 	}
 	return 0;
 }
+EXPORT_SYMBOL(ipa_add_interrupt_handler);
 
 /**
  * ipa3_remove_interrupt_handler() - Removes handler to an interrupt type

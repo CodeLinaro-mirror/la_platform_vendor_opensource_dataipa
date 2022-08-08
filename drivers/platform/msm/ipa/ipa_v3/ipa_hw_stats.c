@@ -18,7 +18,7 @@ static char dbg_buff[IPA_MAX_MSG_LEN];
 static inline u32 ipa_hw_stats_get_ep_bit_n_idx(enum ipa_client_type client,
 	u32 *reg_idx)
 {
-	int ep = ipa3_get_ep_mapping(client);
+	int ep = ipa_get_ep_mapping(client);
 
 	if (ep == IPA_EP_NOT_ALLOCATED)
 		return 0;
@@ -87,7 +87,7 @@ int ipa_hw_stats_init(void)
 		if (ipa_hw_stats_get_ep_bit_n_idx(
 			IPA_CLIENT_MHI_PRIME_TETH_PROD,
 			&reg_idx)) {
-			ep_index = ipa3_get_ep_mapping(
+			ep_index = ipa_get_ep_mapping(
 				IPA_CLIENT_MHI_PRIME_TETH_PROD);
 			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
@@ -418,7 +418,7 @@ int ipa_hw_stats_init(void)
 		if (ipa_hw_stats_get_ep_bit_n_idx(
 			IPA_CLIENT_Q6_WAN_PROD,
 			&reg_idx)) {
-			ep_index = ipa3_get_ep_mapping(IPA_CLIENT_Q6_WAN_PROD);
+			ep_index = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_PROD);
 			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
 				ret = -EINVAL;
@@ -465,7 +465,7 @@ int ipa_hw_stats_init(void)
 		if (ipa_hw_stats_get_ep_bit_n_idx(
 			IPA_CLIENT_Q6_DL_NLO_DATA_PROD,
 			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)) {
-			ep_index = ipa3_get_ep_mapping(
+			ep_index = ipa_get_ep_mapping(
 				IPA_CLIENT_Q6_DL_NLO_DATA_PROD);
 			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
@@ -512,7 +512,7 @@ int ipa_hw_stats_init(void)
 		if (ipa_hw_stats_get_ep_bit_n_idx(
 			IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD,
 			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)) {
-			ep_index = ipa3_get_ep_mapping(
+			ep_index = ipa_get_ep_mapping(
 					IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD);
 			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
@@ -560,7 +560,7 @@ int ipa_hw_stats_init(void)
 	if (ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_USB_PROD,
 		&reg_idx)) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_USB_PROD);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -589,7 +589,7 @@ int ipa_hw_stats_init(void)
 	if (ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_WLAN1_PROD,
 		&reg_idx)) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -618,7 +618,7 @@ int ipa_hw_stats_init(void)
 	if (ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_WLAN2_PROD,
 		&reg_idx)) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -647,7 +647,7 @@ int ipa_hw_stats_init(void)
 	if (ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_WIGIG_PROD,
 		&reg_idx)) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_WIGIG_PROD);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_WIGIG_PROD);
 		if (ep_index == -1) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -812,7 +812,7 @@ static void ipa_close_coal_frame(struct ipahal_imm_cmd_pyld **coal_cmd_pyld)
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
 	u32 offset = 0;
 
-	i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+	i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 	reg_write_coal_close.skip_pipeline_clear = false;
 	reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -905,7 +905,7 @@ int ipa_init_quota_stats(u32 *pipe_bitmask)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	ipa_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 	if (ipa_ep_idx != IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		ipa_close_coal_frame(&coal_cmd_pyld);
 		if (!coal_cmd_pyld) {
@@ -1076,7 +1076,7 @@ int ipa_get_quota_stats(struct ipa_quota_stats_all *out)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
 		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		ipa_close_coal_frame(&cmd_pyld[num_cmd]);
 		if (!cmd_pyld[num_cmd]) {
@@ -1131,7 +1131,7 @@ int ipa_get_quota_stats(struct ipa_quota_stats_all *out)
 	 * hardware stats are 0 now
 	 */
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa3_get_ep_mapping(i);
+		int ep_idx = ipa_get_ep_mapping(i);
 
 		if (ep_idx == IPA_EP_NOT_ALLOCATED || ep_idx >= ipa3_get_max_num_pipes())
 			continue;
@@ -1306,7 +1306,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
 		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		ipa_close_coal_frame(&coal_cmd_pyld);
 		if (!coal_cmd_pyld) {
@@ -1490,7 +1490,7 @@ int ipa_get_teth_stats(void)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
 		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		ipa_close_coal_frame(&cmd_pyld[num_cmd]);
 		if (!cmd_pyld[num_cmd]) {
@@ -1553,8 +1553,8 @@ int ipa_get_teth_stats(void)
 	 */
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
 		for (j = 0; j < IPA_CLIENT_MAX; j++) {
-			int prod_idx = ipa3_get_ep_mapping(i);
-			int cons_idx = ipa3_get_ep_mapping(j);
+			int prod_idx = ipa_get_ep_mapping(i);
+			int cons_idx = ipa_get_ep_mapping(j);
 
 			if (prod_idx == IPA_EP_NOT_ALLOCATED ||
 				prod_idx >= ipa3_get_max_num_pipes())
@@ -1633,7 +1633,7 @@ int ipa_query_teth_stats(enum ipa_client_type prod,
 		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
 
-	if (!IPA_CLIENT_IS_PROD(prod) || ipa3_get_ep_mapping(prod) == -1) {
+	if (!IPA_CLIENT_IS_PROD(prod) || ipa_get_ep_mapping(prod) == -1) {
 		IPAERR("invalid prod %d\n", prod);
 		return -EINVAL;
 	}
@@ -1802,7 +1802,7 @@ int ipa_reset_all_teth_stats(void)
 
 	/* reading stats will reset them in hardware */
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		if (IPA_CLIENT_IS_PROD(i) && ipa3_get_ep_mapping(i) != -1) {
+		if (IPA_CLIENT_IS_PROD(i) && ipa_get_ep_mapping(i) != -1) {
 			ret = ipa_get_teth_stats();
 			if (ret) {
 				IPAERR("ipa_get_teth_stats failed %d\n", ret);
@@ -1875,7 +1875,7 @@ int ipa_init_flt_rt_stats(void)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
 		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		ipa_close_coal_frame(&coal_cmd_pyld);
 		if (!coal_cmd_pyld) {
@@ -2074,7 +2074,7 @@ static int __ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
 		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		ipa_close_coal_frame(&cmd_pyld[num_cmd]);
 		if (!cmd_pyld[num_cmd]) {
@@ -2463,7 +2463,7 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
 		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		ipa_close_coal_frame(&coal_cmd_pyld);
 		if (!coal_cmd_pyld) {
@@ -2637,7 +2637,7 @@ int ipa_get_drop_stats(struct ipa_drop_stats_all *out)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
 		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		ipa_close_coal_frame(&cmd_pyld[num_cmd]);
 		if (!cmd_pyld[num_cmd]) {
@@ -2692,7 +2692,7 @@ int ipa_get_drop_stats(struct ipa_drop_stats_all *out)
 	 * hardware stats are 0 now
 	 */
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa3_get_ep_mapping(i);
+		int ep_idx = ipa_get_ep_mapping(i);
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			continue;
@@ -3368,7 +3368,7 @@ static ssize_t ipa_debugfs_print_quota_stats(struct file *file,
 		return res;
 	}
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa3_get_ep_mapping(i);
+		int ep_idx = ipa_get_ep_mapping(i);
 
 		if (ep_idx == -1)
 			continue;
@@ -3461,7 +3461,7 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 	}
 
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa3_get_ep_mapping(i);
+		int ep_idx = ipa_get_ep_mapping(i);
 
 		if (ep_idx == IPA_EP_NOT_ALLOCATED)
 			continue;
@@ -3485,7 +3485,7 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 		}
 
 		for (j = 0; j < IPA_CLIENT_MAX; j++) {
-			int cons_idx = ipa3_get_ep_mapping(j);
+			int cons_idx = ipa_get_ep_mapping(j);
 
 			if (cons_idx == IPA_EP_NOT_ALLOCATED)
 				continue;
@@ -3690,7 +3690,7 @@ static ssize_t ipa_debugfs_print_drop_stats(struct file *file,
 	}
 
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa3_get_ep_mapping(i);
+		int ep_idx = ipa_get_ep_mapping(i);
 
 		if (ep_idx == IPA_EP_NOT_ALLOCATED)
 			continue;

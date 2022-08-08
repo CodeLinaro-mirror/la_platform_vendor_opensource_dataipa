@@ -1,7 +1,7 @@
 ﻿// SPDX-License-Identifier: GPL-2.0-only
 /*
 * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
-* Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+* Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
 */
 
 #include <linux/types.h>	/* u32 */
@@ -18,7 +18,7 @@
 #include <linux/dma-mapping.h>	/* dma_alloc_coherent() */
 #include <linux/io.h>
 #include <linux/uaccess.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <linux/sched.h>
 #include <linux/skbuff.h>	/* sk_buff */
 #include <linux/kfifo.h>  /* Kernel FIFO Implementation */

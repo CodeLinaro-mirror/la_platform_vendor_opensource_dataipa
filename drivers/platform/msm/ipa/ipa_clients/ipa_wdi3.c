@@ -4,7 +4,7 @@
  * Copyright (c) 2022, 2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
-#include <linux/ipa_wdi3.h>
+#include "ipa_wdi3.h"
 #include <linux/msm_ipa.h>
 #include <linux/string.h>
 #include "ipa_common_i.h"
@@ -119,7 +119,7 @@ static int assign_hdl_for_inst(int inst_id)
 	return hdl;
 }
 
-static int ipa_get_wdi_version_internal(void)
+int ipa_get_wdi_version(void)
 {
 	if (ipa_wdi_ctx_list[0])
 		return ipa_wdi_ctx_list[0]->wdi_version;
@@ -131,13 +131,15 @@ static int ipa_get_wdi_version_internal(void)
 		/* default version is IPA_WDI_1 */
 		return IPA_WDI_1;
 }
+EXPORT_SYMBOL(ipa_get_wdi_version);
 
-static bool ipa_wdi_is_tx1_used_internal(void)
+bool ipa_wdi_is_tx1_used(void)
 {
 	if (ipa_wdi_ctx_list[0])
 		return ipa_wdi_ctx_list[0]->is_tx1_used;
 	return 0;
 }
+EXPORT_SYMBOL(ipa_wdi_is_tx1_used);
 
 static void ipa_wdi_pm_cb(void *p, enum ipa_pm_cb_event event)
 {
@@ -180,7 +182,7 @@ static int ipa_wdi_commit_partial_hdr(
 		hdr->hdr[i].eth2_ofst = hdr_info[i].dst_mac_addr_offset;
 	}
 
-	if (ipa3_add_hdr(hdr)) {
+	if (ipa_add_hdr(hdr)) {
 		IPA_WDI_ERR("fail to add partial headers\n");
 		return -EFAULT;
 	}
@@ -196,7 +198,7 @@ static int ipa_wdi_commit_partial_hdr(
  *
  * @Return 0 on success, negative on failure
  */
-static int ipa_wdi_get_capabilities_internal(
+int ipa_wdi_get_capabilities(
 	struct ipa_wdi_capabilities_out_params *out)
 {
 	if (out == NULL) {
@@ -208,6 +210,7 @@ static int ipa_wdi_get_capabilities_internal(
 	IPA_WDI_DBG("Wdi Capability: %d\n", out->num_of_instances);
 	return 0;
 }
+EXPORT_SYMBOL(ipa_wdi_get_capabilities);
 
 /**
  * function to init WDI IPA offload data path
@@ -217,7 +220,7 @@ static int ipa_wdi_get_capabilities_internal(
  *
  * @Return 0 on success, negative on failure
  */
-static int ipa_wdi_init_per_inst_internal(struct ipa_wdi_init_in_params *in,
+int ipa_wdi_init_per_inst(struct ipa_wdi_init_in_params *in,
 	struct ipa_wdi_init_out_params *out)
 {
 	struct ipa_wdi_uc_ready_params uc_ready_params;
@@ -283,7 +286,7 @@ static int ipa_wdi_init_per_inst_internal(struct ipa_wdi_init_in_params *in,
 		return -EFAULT;
 
 
-	if (ipa3_get_smmu_params(&smmu_in, &smmu_out))
+	if (ipa_get_smmu_params(&smmu_in, &smmu_out))
 		out->is_smmu_enabled = false;
 	else
 		out->is_smmu_enabled = smmu_out.smmu_enable;
@@ -299,6 +302,7 @@ static int ipa_wdi_init_per_inst_internal(struct ipa_wdi_init_in_params *in,
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_wdi_init_per_inst);
 
 /**
  * function to register interface
@@ -307,7 +311,7 @@ static int ipa_wdi_init_per_inst_internal(struct ipa_wdi_init_in_params *in,
  *
  * @Return 0 on success, negative on failure
  */
-static int ipa_wdi_reg_intf_per_inst_internal(
+int ipa_wdi_reg_intf_per_inst(
 	struct ipa_wdi_reg_intf_in_params *in)
 {
 	struct ipa_ioc_add_hdr *hdr;
@@ -488,7 +492,7 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 				sizeof(tx_prop[3].hdr_name));
 	}
 
-	if (ipa3_register_intf(in->netdev_name, &tx, &rx)) {
+	if (ipa_register_intf(in->netdev_name, &tx, &rx)) {
 		IPA_WDI_ERR("fail to add interface prop\n");
 		ret = -EFAULT;
 	}
@@ -507,6 +511,7 @@ fail_alloc_hdr:
 	mutex_unlock(&ipa_wdi_ctx_list[in->hdl]->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa_wdi_reg_intf_per_inst);
 
 /**
  * function to connect pipes
@@ -518,7 +523,7 @@ fail_alloc_hdr:
  *
  * @Return 0 on success, negative on failure
  */
-static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *in,
+int ipa_wdi_conn_pipes_per_inst(struct ipa_wdi_conn_in_params *in,
 	struct ipa_wdi_conn_out_params *out)
 {
 	int i, j, ret = 0;
@@ -649,7 +654,7 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 				in->u_rx.rx.is_txr_rn_db_pcie_addr;
 			in_rx.u.ul.is_evt_rn_db_pcie_addr =
 				in->u_rx.rx.is_evt_rn_db_pcie_addr;
-			if (ipa3_connect_wdi_pipe(&in_rx, &out_rx)) {
+			if (ipa_connect_wdi_pipe(&in_rx, &out_rx)) {
 				IPA_WDI_ERR("fail to setup rx pipe\n");
 				ret = -EFAULT;
 				goto fail_connect_pipe;
@@ -678,7 +683,7 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 				in->u_tx.tx.is_txr_rn_db_pcie_addr;
 			in_tx.u.dl.is_evt_rn_db_pcie_addr =
 				in->u_tx.tx.is_evt_rn_db_pcie_addr;
-			if (ipa3_connect_wdi_pipe(&in_tx, &out_tx)) {
+			if (ipa_connect_wdi_pipe(&in_tx, &out_tx)) {
 				IPA_WDI_ERR("fail to setup tx pipe\n");
 				ret = -EFAULT;
 				goto fail;
@@ -709,7 +714,7 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 				in->u_rx.rx_smmu.is_txr_rn_db_pcie_addr;
 			in_rx.u.ul_smmu.is_evt_rn_db_pcie_addr =
 				in->u_rx.rx_smmu.is_evt_rn_db_pcie_addr;
-			if (ipa3_connect_wdi_pipe(&in_rx, &out_rx)) {
+			if (ipa_connect_wdi_pipe(&in_rx, &out_rx)) {
 				IPA_WDI_ERR("fail to setup rx pipe\n");
 				ret = -EFAULT;
 				goto fail_connect_pipe;
@@ -738,7 +743,7 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 				in->u_tx.tx_smmu.is_txr_rn_db_pcie_addr;
 			in_tx.u.dl_smmu.is_evt_rn_db_pcie_addr =
 				in->u_tx.tx_smmu.is_evt_rn_db_pcie_addr;
-			if (ipa3_connect_wdi_pipe(&in_tx, &out_tx)) {
+			if (ipa_connect_wdi_pipe(&in_tx, &out_tx)) {
 				IPA_WDI_ERR("fail to setup tx pipe\n");
 				ret = -EFAULT;
 				goto fail;
@@ -759,7 +764,7 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 	return 0;
 
 fail:
-	ipa3_disconnect_wdi_pipe(ipa_wdi_ctx_list[in->hdl]->rx_pipe_hdl);
+	ipa_disconnect_wdi_pipe(ipa_wdi_ctx_list[in->hdl]->rx_pipe_hdl);
 fail_connect_pipe:
 	ipa_pm_deregister(ipa_wdi_ctx_list[in->hdl]->ipa_pm_hdl);
 
@@ -768,6 +773,7 @@ fail_setup_sys_pipe:
 		ipa_teardown_sys_pipe(ipa_wdi_ctx_list[in->hdl]->sys_pipe_hdl[j]);
 	return ret;
 }
+EXPORT_SYMBOL(ipa_wdi_conn_pipes_per_inst);
 
 /**
  * function to enable IPA offload data path
@@ -777,7 +783,7 @@ fail_setup_sys_pipe:
  *
  * Returns: 0 on success, negative on failure
  */
-static int ipa_wdi_enable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
+int ipa_wdi_enable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 {
 	int ret;
 	int ipa_ep_idx_tx, ipa_ep_idx_rx;
@@ -831,19 +837,19 @@ static int ipa_wdi_enable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 			IPA_WDI_ERR("pipe handle not valid\n");
 			return -EFAULT;
 		}
-		if (ipa3_enable_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
+		if (ipa_enable_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to enable wdi tx pipe\n");
 			return -EFAULT;
 		}
-		if (ipa3_resume_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
+		if (ipa_resume_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to resume wdi tx pipe\n");
 			return -EFAULT;
 		}
-		if (ipa3_enable_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
+		if (ipa_enable_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to enable wdi rx pipe\n");
 			return -EFAULT;
 		}
-		if (ipa3_resume_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
+		if (ipa_resume_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to resume wdi rx pipe\n");
 			return -EFAULT;
 		}
@@ -851,6 +857,7 @@ static int ipa_wdi_enable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_wdi_enable_pipes_per_inst);
 
 /**
  * set IPA clock bandwidth based on data rates
@@ -860,7 +867,7 @@ static int ipa_wdi_enable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
  *
  * Returns: 0 on success, negative on failure
  */
-static int ipa_wdi_set_perf_profile_per_inst_internal(ipa_wdi_hdl_t hdl,
+int ipa_wdi_set_perf_profile_per_inst(ipa_wdi_hdl_t hdl,
 	struct ipa_wdi_perf_profile *profile)
 {
 	int res = 0;
@@ -896,6 +903,7 @@ static int ipa_wdi_set_perf_profile_per_inst_internal(ipa_wdi_hdl_t hdl,
 
 	return res;
 }
+EXPORT_SYMBOL(ipa_wdi_set_perf_profile_per_inst);
 
 /**
  * function to create smmu mapping
@@ -904,7 +912,7 @@ static int ipa_wdi_set_perf_profile_per_inst_internal(ipa_wdi_hdl_t hdl,
  * @num_buffers: number of buffers
  * @info: wdi buffer info
  */
-static int ipa_wdi_create_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
+int ipa_wdi_create_smmu_mapping_per_inst(ipa_wdi_hdl_t hdl,
 	u32 num_buffers,
 	struct ipa_wdi_buffer_info *info)
 {
@@ -961,6 +969,7 @@ static int ipa_wdi_create_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
 
 	return ret;
 }
+EXPORT_SYMBOL(ipa_wdi_create_smmu_mapping_per_inst);
 
 
 /**
@@ -971,7 +980,7 @@ static int ipa_wdi_create_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
  *
  * @info: wdi buffer info
  */
-static int ipa_wdi_release_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
+int ipa_wdi_release_smmu_mapping_per_inst(ipa_wdi_hdl_t hdl,
 	u32 num_buffers,
 	struct ipa_wdi_buffer_info *info)
 {
@@ -1016,6 +1025,7 @@ static int ipa_wdi_release_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
 
 	return ret;
 }
+EXPORT_SYMBOL(ipa_wdi_release_smmu_mapping_per_inst);
 
 /**
  * clean up WDI IPA offload data path
@@ -1024,7 +1034,7 @@ static int ipa_wdi_release_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
  *
  * @Return 0 on success, negative on failure
  */
-static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
+int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 {
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
@@ -1058,13 +1068,14 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 	ipa_wdi_ctx_list[hdl] = NULL;
 	return 0;
 }
+EXPORT_SYMBOL(ipa_wdi_cleanup_per_inst);
 
 /**
  * function to deregister before unload and after disconnect
  *
  * @Return 0 on success, negative on failure
  */
-static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_hdl_t hdl)
+int ipa_wdi_dereg_intf_per_inst(const char *netdev_name,ipa_wdi_hdl_t hdl)
 {
 	int len, ret = 0;
 	struct ipa_ioc_del_hdr *hdr = NULL;
@@ -1114,13 +1125,13 @@ static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_
 			IPA_WDI_DBG("IPv4 hdr hdl: %d IPv6 hdr hdl: %d\n",
 				hdr->hdl[0].hdl, hdr->hdl[1].hdl);
 
-			if (ipa3_del_hdr(hdr)) {
+			if (ipa_del_hdr(hdr)) {
 				IPA_WDI_ERR("fail to delete partial header\n");
 				ret = -EFAULT;
 				goto fail;
 			}
 
-			if (ipa3_deregister_intf(entry->netdev_name)) {
+			if (ipa_deregister_intf(entry->netdev_name)) {
 				IPA_WDI_ERR("fail to del interface props\n");
 				ret = -EFAULT;
 				goto fail;
@@ -1137,6 +1148,7 @@ fail:
 	mutex_unlock(&ipa_wdi_ctx_list[hdl]->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa_wdi_dereg_intf_per_inst);
 
 /**
  * function to disconnect pipes
@@ -1146,7 +1158,7 @@ fail:
  *
  * Returns: 0 on success, negative on failure
  */
-static int ipa_wdi_disconn_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
+int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl)
 {
 	int i, ipa_ep_idx_rx, ipa_ep_idx_tx;
 	int ipa_ep_idx_tx1 = IPA_EP_NOT_ALLOCATED;
@@ -1193,11 +1205,11 @@ static int ipa_wdi_disconn_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 			return -EFAULT;
 		}
 	} else {
-		if (ipa3_disconnect_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
+		if (ipa_disconnect_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to tear down wdi tx pipes\n");
 			return -EFAULT;
 		}
-		if (ipa3_disconnect_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
+		if (ipa_disconnect_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to tear down wdi rx pipes\n");
 			return -EFAULT;
 		}
@@ -1210,6 +1222,7 @@ static int ipa_wdi_disconn_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_wdi_disconn_pipes_per_inst);
 
 /**
  * function to disable IPA offload data path
@@ -1219,7 +1232,7 @@ static int ipa_wdi_disconn_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
  *
  * Returns: 0 on success, negative on failure
  */
-static int ipa_wdi_disable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
+int ipa_wdi_disable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 {
 	int ret;
 	int ipa_ep_idx_tx, ipa_ep_idx_rx;
@@ -1260,19 +1273,19 @@ static int ipa_wdi_disable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 			return -EFAULT;
 		}
 	} else {
-		if (ipa3_suspend_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
+		if (ipa_suspend_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to suspend wdi tx pipe\n");
 			return -EFAULT;
 		}
-		if (ipa3_disable_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
+		if (ipa_disable_wdi_pipe(ipa_wdi_ctx_list[hdl]->tx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to disable wdi tx pipe\n");
 			return -EFAULT;
 		}
-		if (ipa3_suspend_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
+		if (ipa_suspend_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to suspend wdi rx pipe\n");
 			return -EFAULT;
 		}
-		if (ipa3_disable_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
+		if (ipa_disable_wdi_pipe(ipa_wdi_ctx_list[hdl]->rx_pipe_hdl)) {
 			IPA_WDI_ERR("fail to disable wdi rx pipe\n");
 			return -EFAULT;
 		}
@@ -1286,8 +1299,9 @@ static int ipa_wdi_disable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_wdi_disable_pipes_per_inst);
 
-static int ipa_wdi_init_internal(struct ipa_wdi_init_in_params *in,
+int ipa_wdi_init(struct ipa_wdi_init_in_params *in,
 	struct ipa_wdi_init_out_params *out)
 {
 	if (in == NULL) {
@@ -1300,30 +1314,34 @@ static int ipa_wdi_init_internal(struct ipa_wdi_init_in_params *in,
 	 * for latest chipsets wlan directly calls "ipa_wdi_init_per_inst_internal.
 	 */
 	in->inst_id = DEFAULT_INSTANCE_ID;
-	return ipa_wdi_init_per_inst_internal(in, out);
+	return ipa_wdi_init_per_inst(in, out);
 }
+EXPORT_SYMBOL(ipa_wdi_init);
 
-static int ipa_wdi_cleanup_internal(void)
+int ipa_wdi_cleanup(void)
 {
-	return ipa_wdi_cleanup_per_inst_internal(0);
+	return ipa_wdi_cleanup_per_inst(0);
 }
+EXPORT_SYMBOL(ipa_wdi_cleanup);
 
-static int ipa_wdi_reg_intf_internal(struct ipa_wdi_reg_intf_in_params *in)
+int ipa_wdi_reg_intf(struct ipa_wdi_reg_intf_in_params *in)
 {
 	if (in == NULL) {
 		IPA_WDI_ERR("invalid params in=%pK\n", in);
 		return -EINVAL;
 	}
 	in->hdl = 0;
-	return ipa_wdi_reg_intf_per_inst_internal(in);
+	return ipa_wdi_reg_intf_per_inst(in);
 }
+EXPORT_SYMBOL(ipa_wdi_reg_intf);
 
-static int ipa_wdi_dereg_intf_internal(const char *netdev_name)
+int ipa_wdi_dereg_intf(const char *netdev_name)
 {
-	return ipa_wdi_dereg_intf_per_inst_internal(netdev_name, 0);
+	return ipa_wdi_dereg_intf_per_inst(netdev_name, 0);
 }
+EXPORT_SYMBOL(ipa_wdi_dereg_intf);
 
-static int ipa_wdi_conn_pipes_internal(struct ipa_wdi_conn_in_params *in,
+int ipa_wdi_conn_pipes(struct ipa_wdi_conn_in_params *in,
 			struct ipa_wdi_conn_out_params *out)
 {
 	if (!(in && out)) {
@@ -1332,67 +1350,36 @@ static int ipa_wdi_conn_pipes_internal(struct ipa_wdi_conn_in_params *in,
 	}
 
 	in->hdl = 0;
-	return ipa_wdi_conn_pipes_per_inst_internal(in, out);
+	return ipa_wdi_conn_pipes_per_inst(in, out);
 }
+EXPORT_SYMBOL(ipa_wdi_conn_pipes);
 
-static int ipa_wdi_disconn_pipes_internal(void)
+int ipa_wdi_disconn_pipes(void)
 {
-	return ipa_wdi_disconn_pipes_per_inst_internal(0);
+	return ipa_wdi_disconn_pipes_per_inst(0);
 }
+EXPORT_SYMBOL(ipa_wdi_disconn_pipes);
 
-static int ipa_wdi_enable_pipes_internal(void)
+int ipa_wdi_enable_pipes(void)
 {
-	return ipa_wdi_enable_pipes_per_inst_internal(0);
+	return ipa_wdi_enable_pipes_per_inst(0);
 }
+EXPORT_SYMBOL(ipa_wdi_enable_pipes);
 
-static int ipa_wdi_disable_pipes_internal(void)
+int ipa_wdi_disable_pipes(void)
 {
-	return ipa_wdi_disable_pipes_per_inst_internal(0);
+	return ipa_wdi_disable_pipes_per_inst(0);
 }
+EXPORT_SYMBOL(ipa_wdi_disable_pipes);
 
-static int ipa_wdi_set_perf_profile_internal(struct ipa_wdi_perf_profile *profile)
+int ipa_wdi_set_perf_profile(struct ipa_wdi_perf_profile *profile)
 {
 	if (profile == NULL) {
 		IPA_WDI_ERR("Invalid input\n");
 		return -EINVAL;
 	}
 
-	return ipa_wdi_set_perf_profile_per_inst_internal(0, profile);
+	return ipa_wdi_set_perf_profile_per_inst(0, profile);
 }
+EXPORT_SYMBOL(ipa_wdi_set_perf_profile);
 
-void ipa_wdi3_register(void)
-{
-	struct ipa_wdi3_data funcs;
-
-	funcs.ipa_wdi_bw_monitor = ipa_uc_bw_monitor;
-	funcs.ipa_wdi_cleanup = ipa_wdi_cleanup_internal;
-	funcs.ipa_wdi_conn_pipes = ipa_wdi_conn_pipes_internal;
-	funcs.ipa_wdi_create_smmu_mapping = ipa3_create_wdi_mapping;
-	funcs.ipa_wdi_dereg_intf = ipa_wdi_dereg_intf_internal;
-	funcs.ipa_wdi_disable_pipes = ipa_wdi_disable_pipes_internal;
-	funcs.ipa_wdi_disconn_pipes = ipa_wdi_disconn_pipes_internal;
-	funcs.ipa_wdi_enable_pipes = ipa_wdi_enable_pipes_internal;
-	funcs.ipa_wdi_get_stats = ipa_get_wdi_stats;
-	funcs.ipa_wdi_init = ipa_wdi_init_internal;
-	funcs.ipa_wdi_reg_intf = ipa_wdi_reg_intf_internal;
-	funcs.ipa_wdi_release_smmu_mapping = ipa3_release_wdi_mapping;
-	funcs.ipa_wdi_set_perf_profile = ipa_wdi_set_perf_profile_internal;
-	funcs.ipa_wdi_sw_stats = ipa3_set_wlan_tx_info;
-	funcs.ipa_get_wdi_version = ipa_get_wdi_version_internal;
-	funcs.ipa_wdi_is_tx1_used = ipa_wdi_is_tx1_used_internal;
-	funcs.ipa_wdi_get_capabilities = ipa_wdi_get_capabilities_internal;
-	funcs.ipa_wdi_init_per_inst = ipa_wdi_init_per_inst_internal;
-	funcs.ipa_wdi_cleanup_per_inst = ipa_wdi_cleanup_per_inst_internal;
-	funcs.ipa_wdi_reg_intf_per_inst = ipa_wdi_reg_intf_per_inst_internal;
-	funcs.ipa_wdi_dereg_intf_per_inst = ipa_wdi_dereg_intf_per_inst_internal;
-	funcs.ipa_wdi_conn_pipes_per_inst = ipa_wdi_conn_pipes_per_inst_internal;
-	funcs.ipa_wdi_disconn_pipes_per_inst = ipa_wdi_disconn_pipes_per_inst_internal;
-	funcs.ipa_wdi_enable_pipes_per_inst = ipa_wdi_enable_pipes_per_inst_internal;
-	funcs.ipa_wdi_disable_pipes_per_inst = ipa_wdi_disable_pipes_per_inst_internal;
-	funcs.ipa_wdi_set_perf_profile_per_inst = ipa_wdi_set_perf_profile_per_inst_internal;
-	funcs.ipa_wdi_create_smmu_mapping_per_inst = ipa_wdi_create_smmu_mapping_per_inst_internal;
-	funcs.ipa_wdi_release_smmu_mapping_per_inst = ipa_wdi_release_smmu_mapping_per_inst_internal;
-
-	if (ipa_fmwk_register_ipa_wdi3(&funcs))
-		pr_err("failed to register ipa_wdi3 APIs\n");
-}

@@ -5,7 +5,7 @@
  */
 
 #include "ipa_i.h"
-#include <linux/ipa_wdi3.h>
+#include "ipa_wdi3.h"
 
 #define UPDATE_RP_MODERATION_CONFIG 1
 #define UPDATE_RP_MODERATION_THRESHOLD 8
@@ -247,7 +247,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	else
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 
-	gsi_ep_info = ipa3_get_gsi_ep_info(ep->client);
+	gsi_ep_info = ipa_get_gsi_ep_info(ep->client);
 	if (!gsi_ep_info) {
 		IPAERR("Failed getting GSI EP info for client=%d\n",
 		       ep->client);
@@ -1920,7 +1920,7 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	}
 
 	/* stop gsi rx channel */
-	result = ipa3_stop_gsi_channel(ipa_ep_idx_rx);
+	result = ipa_stop_gsi_channel(ipa_ep_idx_rx);
 	if (result) {
 		IPAERR("failed to stop gsi rx channel\n");
 		result = -EFAULT;
@@ -1939,7 +1939,7 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 
 
 	/* stop gsi tx channel */
-	result = ipa3_stop_gsi_channel(ipa_ep_idx_tx);
+	result = ipa_stop_gsi_channel(ipa_ep_idx_tx);
 	if (result) {
 		IPAERR("failed to stop gsi tx channel\n");
 		result = -EFAULT;
@@ -1947,7 +1947,7 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	}
 	/* stop gsi tx1 channel */
 	if (ipa_ep_idx_tx1 >= 0) {
-		result = ipa3_stop_gsi_channel(ipa_ep_idx_tx1);
+		result = ipa_stop_gsi_channel(ipa_ep_idx_tx1);
 		if (result) {
 			IPAERR("failed to stop gsi tx1 channel\n");
 			result = -EFAULT;

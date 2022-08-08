@@ -136,6 +136,21 @@ struct tz_smmu_ipa_protect_region_s {
 	u32 size_bytes;
 } __packed;
 
+/**
+ * struct ipa_ready_cb_info - A list of all the registrations
+ *  for an indication of IPA driver readiness
+ *
+ * @link: linked list link
+ * @ready_cb: callback
+ * @user_data: User data
+ *
+ */
+struct ipa_ready_cb_info {
+	struct list_head link;
+	ipa_ready_cb ready_cb;
+	void *user_data;
+};
+
 static void ipa3_start_tag_process(struct work_struct *work);
 static DECLARE_WORK(ipa3_tag_work, ipa3_start_tag_process);
 
@@ -215,13 +230,14 @@ int ipa3_pci_drv_probe(struct pci_dev *pci_dev,
  *
  * Return value: enum ipa_hw_type
  */
-enum ipa_hw_type ipa_get_hw_type_internal(void)
+enum ipa_hw_type ipa_get_hw_type(void)
 {
 	if (ipa3_ctx == NULL)
 		return IPA_HW_None;
 
 	return ipa3_ctx->ipa_hw_type;
 }
+EXPORT_SYMBOL(ipa_get_hw_type);
 
 /**
  * ipa_is_test_prod_flt_in_sram_internal() - Return true if test prod FLT tbl is in SRAM
@@ -236,7 +252,7 @@ bool ipa_is_test_prod_flt_in_sram_internal(enum ipa_ip_type ip)
 	if (ipa3_ctx == NULL)
 		return false;
 
-	gsi_ep_info_cfg = ipa3_get_gsi_ep_info(IPA_CLIENT_TEST_PROD);
+	gsi_ep_info_cfg = ipa_get_gsi_ep_info(IPA_CLIENT_TEST_PROD);
 	if(gsi_ep_info_cfg == NULL)
 		return false;
 
@@ -1093,9 +1109,9 @@ static int ipa3_send_wan_msg(unsigned long usr_param,
 	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
 	msg_meta.msg_type = msg_type;
 	msg_meta.msg_len = sizeof(struct ipa_wan_msg);
-	retval = ipa3_send_msg(&msg_meta, wan_msg, ipa3_wan_msg_free_cb);
+	retval = ipa_send_msg(&msg_meta, wan_msg, ipa3_wan_msg_free_cb);
 	if (retval) {
-		IPAERR_RL("ipa3_send_msg failed: %d\n", retval);
+		IPAERR_RL("ipa_send_msg failed: %d\n", retval);
 		kfree(wan_msg);
 		return retval;
 	}
@@ -1201,10 +1217,10 @@ static int ipa3_send_pdn_config_msg(unsigned long usr_param)
 			pdn_info->u.passthrough_cfg.client_mac_addr[5]);
 	}
 
-	retval = ipa3_send_msg(&msg_meta, buff,
+	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_pdn_config_msg_free_cb);
 	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
 			retval,
 			msg_meta.msg_type);
 		kfree(buff);
@@ -1285,10 +1301,10 @@ static int ipa3_send_vlan_l2tp_msg(unsigned long usr_param, uint8_t msg_type)
 		return -EFAULT;
 	}
 
-	retval = ipa3_send_msg(&msg_meta, buff,
+	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_vlan_l2tp_msg_free_cb);
 	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
 			retval,
 			msg_type);
 		kfree(buff);
@@ -1378,11 +1394,11 @@ static void ipa3_get_usb_ep_info(
 		pair_info[i].ep_id = -1;
 	}
 
-	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB2_PROD);
+	ep_index = ipa_get_ep_mapping(IPA_CLIENT_USB2_PROD);
 
 	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
 		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB2_CONS);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_USB2_CONS);
 		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
 			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
@@ -1405,11 +1421,11 @@ static void ipa3_get_usb_ep_info(
 		}
 	}
 
-	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD);
+	ep_index = ipa_get_ep_mapping(IPA_CLIENT_USB_PROD);
 
 	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
 		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_CONS);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_USB_CONS);
 		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
 			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
@@ -1451,11 +1467,11 @@ static void ipa3_get_pcie_ep_info(
 	 * Legacy codes for ipa4.X version
 	 */
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI2_PROD);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_MHI2_PROD);
 
 		if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
 			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
-			ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI2_CONS);
+			ep_index = ipa_get_ep_mapping(IPA_CLIENT_MHI2_CONS);
 			if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
 				pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
@@ -1479,11 +1495,11 @@ static void ipa3_get_pcie_ep_info(
 		}
 	}
 
-	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI_PROD);
+	ep_index = ipa_get_ep_mapping(IPA_CLIENT_MHI_PROD);
 
 	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
 		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_MHI_CONS);
 		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
 			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
@@ -1525,11 +1541,11 @@ static void ipa3_get_eth_ep_info(
 		pair_info[i].ep_id = -1;
 	}
 
-	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD);
+	ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD);
 
 	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
 		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS);
 		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
 			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
@@ -1551,11 +1567,11 @@ static void ipa3_get_eth_ep_info(
 		}
 	}
 
-	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
+	ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
 
 	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
 		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
 		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
 			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
@@ -1641,10 +1657,10 @@ static int ipa3_send_gsb_msg(unsigned long usr_param, uint8_t msg_type)
 		return -EFAULT;
 	}
 
-	retval = ipa3_send_msg(&msg_meta, buff,
+	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_gsb_msg_free_cb);
 	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
 			retval,
 			msg_type);
 		kfree(buff);
@@ -3248,10 +3264,10 @@ static int ipa3_send_mac_flt_list(unsigned long usr_param)
 		((struct ipa_ioc_mac_client_list_type *)buff)->num_of_clients,
 		((struct ipa_ioc_mac_client_list_type *)buff)->flt_state);
 
-	retval = ipa3_send_msg(&msg_meta, buff,
+	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_general_free_cb);
 	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
 		retval,
 		msg_meta.msg_type);
 		kfree(buff);
@@ -3312,10 +3328,10 @@ static int ipa3_send_pkt_threshold(unsigned long usr_param)
 		((struct ipa_set_pkt_threshold *)buff2)->pkt_threshold_enable,
 		((struct ipa_set_pkt_threshold *)buff2)->pkt_threshold);
 
-	retval = ipa3_send_msg(&msg_meta, buff2,
+	retval = ipa_send_msg(&msg_meta, buff2,
 		ipa3_general_free_cb);
 	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
 		retval,
 		msg_meta.msg_type);
 		kfree(buff1);
@@ -3376,10 +3392,10 @@ static int ipa3_send_sw_flt_list(unsigned long usr_param)
 		((struct ipa_sw_flt_list_type *)buff)->num_of_iface,
 		((struct ipa_sw_flt_list_type *)buff)->iface_enable);
 
-	retval = ipa3_send_msg(&msg_meta, buff,
+	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_general_free_cb);
 	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
 		retval,
 		msg_meta.msg_type);
 		kfree(buff);
@@ -3435,10 +3451,10 @@ static int ipa3_send_ippt_sw_flt_list(unsigned long usr_param)
 		((struct ipa_ippt_sw_flt_list_type *)buff)->num_of_port,
 		((struct ipa_ippt_sw_flt_list_type *)buff)->port_enable);
 
-	retval = ipa3_send_msg(&msg_meta, buff,
+	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_general_free_cb);
 	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
 		retval,
 		msg_meta.msg_type);
 		kfree(buff);
@@ -3475,10 +3491,10 @@ int ipa3_send_macsec_info(enum ipa_macsec_event event_type, struct ipa_macsec_ma
 	/*
 	 * Post event to ipacm
 	 */
-	res = ipa3_send_msg(&msg_meta, map, ipa3_general_free_cb);
+	res = ipa_send_msg(&msg_meta, map, ipa3_general_free_cb);
 
 	if (res) {
-		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		IPAERR_RL("ipa_send_msg failed: %d\n", res);
 		kfree(map);
 		goto done;
 	}
@@ -3632,7 +3648,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	if (_IOC_TYPE(cmd) != IPA_IOC_MAGIC)
 		return -ENOTTY;
 
-	if (!ipa3_is_ready()) {
+	if (!ipa_is_ready()) {
 		IPAERR("IPA not ready, waiting for init completion\n");
 		wait_for_completion(&ipa3_ctx->init_completion_obj);
 	}
@@ -4253,7 +4269,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 	case IPA_IOC_PUT_RT_TBL:
-		retval = ipa3_put_rt_tbl(arg);
+		retval = ipa_put_rt_tbl(arg);
 		break;
 	case IPA_IOC_GET_HDR:
 		if (copy_from_user(header, (const void __user *)arg,
@@ -4261,7 +4277,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
-		if (ipa3_get_hdr((struct ipa_ioc_get_hdr *)header)) {
+		if (ipa_get_hdr((struct ipa_ioc_get_hdr *)header)) {
 			retval = -EFAULT;
 			break;
 		}
@@ -4504,7 +4520,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 	case IPA_IOC_QUERY_EP_MAPPING:
 		{
-			retval = ipa3_get_ep_mapping(arg);
+			retval = ipa_get_ep_mapping(arg);
 			break;
 		}
 	case IPA_IOC_QUERY_RT_TBL_INDEX:
@@ -4653,7 +4669,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
-		retval = ipa3_is_vlan_mode(
+		retval = ipa_is_vlan_mode(
 			vlan_mode.iface,
 			&is_vlan_mode);
 		if (retval)
@@ -5489,7 +5505,7 @@ int ipa3_setup_dflt_rt_tables(void)
 	rt_rule_entry->rule.hdr_hdl = ipa3_ctx->excp_hdr_hdl;
 	rt_rule_entry->rule.retain_hdr = 1;
 
-	if (ipa3_add_rt_rule(rt_rule)) {
+	if (ipa_add_rt_rule(rt_rule)) {
 		IPAERR("fail to add dflt v4 rule\n");
 		kfree(rt_rule);
 		return -EPERM;
@@ -5521,7 +5537,7 @@ int ipa3_setup_dflt_rt_tables(void)
 		rt_rule_entry->rule.attrib.u.v6.next_hdr = (uint8_t)IPPROTO_UDP;
 	}
 
-	if (ipa3_add_rt_rule(rt_rule)) {
+	if (ipa_add_rt_rule(rt_rule)) {
 		IPAERR("fail to add dflt v6 rule\n");
 		kfree(rt_rule);
 		return -EPERM;
@@ -5577,7 +5593,7 @@ static int ipa3_setup_exception_path(void)
 		strlcpy(hdr_entry->name, IPA_LAN_RX_HDR_NAME, IPA_RESOURCE_NAME_MAX);
 		hdr_entry->hdr_len = IPA_LAN_RX_HEADER_LENGTH;
 
-		if (ipa3_add_hdr(hdr)) {
+		if (ipa_add_hdr(hdr)) {
 			IPAERR("fail to add exception hdr\n");
 			ret = -EPERM;
 			goto bail;
@@ -5599,8 +5615,8 @@ static int ipa3_setup_exception_path(void)
 		ipa3_ctx->excp_hdr_hdl = hdr_entry->hdr_hdl;
 
 		/* set the route register to pass exception packets to Apps */
-		route.route_def_pipe = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
-		route.route_frag_def_pipe = ipa3_get_ep_mapping(
+		route.route_def_pipe = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+		route.route_frag_def_pipe = ipa_get_ep_mapping(
 			IPA_CLIENT_APPS_LAN_CONS);
 		route.route_def_hdr_table = !hdr_entry_internal->is_lcl;
 		route.route_def_retain_hdr = 1;
@@ -5734,10 +5750,10 @@ static void ipa3_q6_pipe_flow_control(bool delay)
 
 	for (client_idx = 0; client_idx < IPA_CLIENT_MAX; client_idx++) {
 		if (IPA_CLIENT_IS_Q6_PROD(client_idx)) {
-			ep_idx = ipa3_get_ep_mapping(client_idx);
+			ep_idx = ipa_get_ep_mapping(client_idx);
 			if (ep_idx == -1)
 				continue;
-			gsi_ep_cfg = ipa3_get_gsi_ep_info(client_idx);
+			gsi_ep_cfg = ipa_get_gsi_ep_info(client_idx);
 			if (!gsi_ep_cfg) {
 				IPAERR("failed to get GSI config\n");
 				ipa_assert();
@@ -5770,7 +5786,7 @@ static void ipa3_q6_pipe_delay(bool delay)
 
 	for (client_idx = 0; client_idx < IPA_CLIENT_MAX; client_idx++) {
 		if (IPA_CLIENT_IS_Q6_PROD(client_idx)) {
-			ep_idx = ipa3_get_ep_mapping(client_idx);
+			ep_idx = ipa_get_ep_mapping(client_idx);
 			if (ep_idx == -1)
 				continue;
 
@@ -5799,7 +5815,7 @@ static void ipa3_q6_avoid_holb(void)
 
 	for (client_idx = 0; client_idx < IPA_CLIENT_MAX; client_idx++) {
 		if (IPA_CLIENT_IS_Q6_CONS(client_idx)) {
-			ep_idx = ipa3_get_ep_mapping(client_idx);
+			ep_idx = ipa_get_ep_mapping(client_idx);
 			if (ep_idx == -1)
 				continue;
 
@@ -5847,11 +5863,11 @@ static void ipa3_halt_q6_gsi_channels(bool prod)
 	for (client_idx = 0; client_idx < IPA_CLIENT_MAX; client_idx++) {
 		if (IPA_CLIENT_IS_Q6_CONS(client_idx)
 			|| (IPA_CLIENT_IS_Q6_PROD(client_idx) && prod)) {
-			ep_idx = ipa3_get_ep_mapping(client_idx);
+			ep_idx = ipa_get_ep_mapping(client_idx);
 			if (ep_idx == -1)
 				continue;
 
-			gsi_ep_cfg = ipa3_get_gsi_ep_info(client_idx);
+			gsi_ep_cfg = ipa_get_gsi_ep_info(client_idx);
 			if (!gsi_ep_cfg) {
 				IPAERR("failed to get GSI config\n");
 				ipa_assert();
@@ -5960,7 +5976,7 @@ static int ipa3_q6_clean_q6_flt_tbls(enum ipa_ip_type ip,
 		goto free_cmd_pyld;
 	}
 
-	coal_ep = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+	coal_ep = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
 	if (coal_ep != IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
@@ -6130,11 +6146,11 @@ static int ipa3_q6_clean_q6_rt_tbls(enum ipa_ip_type ip,
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -6261,11 +6277,11 @@ static int ipa3_q6_clean_q6_tables(void)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -6362,11 +6378,11 @@ static int ipa3_q6_set_ex_path_to_apps(void)
 		return -ENOMEM;
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -6395,7 +6411,7 @@ static int ipa3_q6_set_ex_path_to_apps(void)
 
 	/* Set the exception path to AP */
 	for (client_idx = 0; client_idx < IPA_CLIENT_MAX; client_idx++) {
-		ep_idx = ipa3_get_ep_mapping(client_idx);
+		ep_idx = ipa_get_ep_mapping(client_idx);
 		if (ep_idx == -1 || (ep_idx >= ipa3_get_max_num_pipes()))
 			continue;
 
@@ -6580,7 +6596,7 @@ void ipa3_q6_post_shutdown_cleanup(void)
 
 	for (client_idx = 0; client_idx < IPA_CLIENT_MAX; client_idx++)
 		if (IPA_CLIENT_IS_Q6_PROD(client_idx)) {
-			ep_idx = ipa3_get_ep_mapping(client_idx);
+			ep_idx = ipa_get_ep_mapping(client_idx);
 			if (ep_idx == -1)
 				continue;
 
@@ -6917,15 +6933,15 @@ int _ipa_init_sram_v3(void)
 		IPA_MEM_PART(modem_hdr_proc_ctx_ofst) - 4);
 	ipa3_sram_set_canary(ipa_sram_mmio,
 		IPA_MEM_PART(modem_hdr_proc_ctx_ofst));
-	if (ipa_get_hw_type_internal() >= IPA_HW_v4_5
-		&& ipa_get_hw_type_internal() < IPA_HW_v5_0) {
+	if (ipa_get_hw_type() >= IPA_HW_v4_5
+		&& ipa_get_hw_type() < IPA_HW_v5_0) {
 		/* 4.5, 4.7, 4.9, 4.11 */
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			IPA_MEM_PART(nat_tbl_ofst) - 12);
 	}
 
-	if (ipa_get_hw_type_internal() >= IPA_HW_v4_0) {
-		if (ipa_get_hw_type_internal() < IPA_HW_v4_5) {
+	if (ipa_get_hw_type() >= IPA_HW_v4_0) {
+		if (ipa_get_hw_type() < IPA_HW_v4_5) {
 			/* 4.0, 4.1, 4.2 */
 			ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(pdn_config_ofst) - 4);
@@ -6935,7 +6951,7 @@ int _ipa_init_sram_v3(void)
 				IPA_MEM_PART(stats_quota_q6_ofst) - 4);
 			ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(stats_quota_q6_ofst));
-		} else if (ipa_get_hw_type_internal() < IPA_HW_v5_0) {
+		} else if (ipa_get_hw_type() < IPA_HW_v5_0) {
 			/* 4.5, 4.7, 4.11 */
 			ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(stats_quota_q6_ofst) - 12);
@@ -6949,14 +6965,14 @@ int _ipa_init_sram_v3(void)
 	}
 
 	/* all excluding 3.5.1, 4.0, 4.1, 4.2 */
-	if (ipa_get_hw_type_internal() <= IPA_HW_v3_5 ||
-		ipa_get_hw_type_internal() >= IPA_HW_v4_5) {
+	if (ipa_get_hw_type() <= IPA_HW_v3_5 ||
+		ipa_get_hw_type() >= IPA_HW_v4_5) {
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			IPA_MEM_PART(modem_ofst) - 4);
 		ipa3_sram_set_canary(ipa_sram_mmio, IPA_MEM_PART(modem_ofst));
 	}
 
-	if (ipa_get_hw_type_internal() == IPA_HW_v5_0) {
+	if (ipa_get_hw_type() == IPA_HW_v5_0) {
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			IPA_MEM_PART(apps_v4_flt_nhash_ofst) - 4);
 		ipa3_sram_set_canary(ipa_sram_mmio,
@@ -6967,19 +6983,19 @@ int _ipa_init_sram_v3(void)
 			IPA_MEM_PART(stats_fnr_ofst));
 	}
 
-	if (ipa_get_hw_type_internal() >= IPA_HW_v5_0 && ipa_get_hw_type_internal() < IPA_HW_v6_0) {
+	if (ipa_get_hw_type() >= IPA_HW_v5_0 && ipa_get_hw_type() < IPA_HW_v6_0) {
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			IPA_MEM_PART(pdn_config_ofst - 4));
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			IPA_MEM_PART(pdn_config_ofst));
-	} else if (ipa_get_hw_type_internal() < IPA_HW_v5_0) {
+	} else if (ipa_get_hw_type() < IPA_HW_v5_0) {
 		ipa3_sram_set_canary(ipa_sram_mmio,
-			(ipa_get_hw_type_internal() >= IPA_HW_v3_5) ?
+			(ipa_get_hw_type() >= IPA_HW_v3_5) ?
 			IPA_MEM_PART(uc_descriptor_ram_ofst) :
 			IPA_MEM_PART(end_ofst));
 	}
 
-	if (ipa_get_hw_type_internal() >= IPA_HW_v6_0) {
+	if (ipa_get_hw_type() >= IPA_HW_v6_0) {
 		ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst) - 4);
 		ipa3_sram_set_canary(ipa_sram_mmio,
@@ -7070,11 +7086,11 @@ int _ipa_init_hdr_v3_0(void)
 	dma_free_coherent(ipa3_ctx->pdev, mem.size, mem.base, mem.phys_base);
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -7521,7 +7537,7 @@ static int ipa3_setup_apps_pipes(void)
 	sys_in.desc_fifo_sz = IPA_SYS_DESC_FIFO_SZ;
 	sys_in.ipa_ep_cfg.mode.mode = IPA_DMA;
 	sys_in.ipa_ep_cfg.mode.dst = IPA_CLIENT_APPS_LAN_CONS;
-	if (ipa3_setup_sys_pipe(&sys_in, &ipa3_ctx->clnt_hdl_cmd)) {
+	if (ipa_setup_sys_pipe(&sys_in, &ipa3_ctx->clnt_hdl_cmd)) {
 		IPAERR(":setup sys pipe (APPS_CMD_PROD) failed.\n");
 		result = -EPERM;
 		goto fail_ch20_wa;
@@ -7615,7 +7631,7 @@ static int ipa3_setup_apps_pipes(void)
 		 * source EP call-back
 		 */
 		spin_lock_init(&ipa3_ctx->disconnect_lock);
-		if (ipa3_setup_sys_pipe(&sys_in, &ipa3_ctx->clnt_hdl_data_in)) {
+		if (ipa_setup_sys_pipe(&sys_in, &ipa3_ctx->clnt_hdl_data_in)) {
 			IPAERR(":setup sys pipe (LAN_COAL_CONS) failed.\n");
 			result = -EPERM;
 			goto fail_flt_hash_tuple;
@@ -7649,7 +7665,7 @@ static int ipa3_setup_apps_pipes(void)
 		 * This lock intended to protect the access to the source EP call-back
 		 */
 		spin_lock_init(&ipa3_ctx->disconnect_lock);
-		if (ipa3_setup_sys_pipe(&sys_in, &ipa3_ctx->clnt_hdl_data_in)) {
+		if (ipa_setup_sys_pipe(&sys_in, &ipa3_ctx->clnt_hdl_data_in)) {
 			IPAERR(":setup sys pipe (LAN_CONS) failed.\n");
 			result = -EPERM;
 			goto fail_flt_hash_tuple;
@@ -7671,7 +7687,7 @@ static int ipa3_setup_apps_pipes(void)
 			sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove_valid = true;
 			sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove = QMAP_HDR_LEN;
 		}
-		if (ipa3_setup_sys_pipe(&sys_in,
+		if (ipa_setup_sys_pipe(&sys_in,
 			&ipa3_ctx->clnt_hdl_data_out)) {
 			IPAERR(":setup sys pipe (LAN_PROD) failed.\n");
 			result = -EPERM;
@@ -7683,7 +7699,7 @@ static int ipa3_setup_apps_pipes(void)
 
 fail_lan_data_out:
 	if ( ipa3_ctx->clnt_hdl_data_in )
-		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
+		ipa_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
 fail_flt_hash_tuple:
 	if (ipa3_ctx->dflt_v6_rt_rule_hdl)
 		__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
@@ -7701,7 +7717,7 @@ fail_flt_hash_tuple:
 	}
 	if (ipa3_ctx->excp_hdr_hdl)
 		__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
-	ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
+	ipa_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
 fail_ch20_wa:
 	return result;
 }
@@ -7709,9 +7725,9 @@ fail_ch20_wa:
 static void ipa3_teardown_apps_pipes(void)
 {
 	if (!ipa3_ctx->ipa_config_is_mhi)
-		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_out);
+		ipa_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_out);
 	if ( ipa3_ctx->clnt_hdl_data_in )
-		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
+		ipa_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
 	if (ipa3_ctx->dflt_v6_rt_rule_hdl)
 		__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
 	if (ipa3_ctx->dflt_v4_rt_rule_hdl)
@@ -7727,7 +7743,7 @@ static void ipa3_teardown_apps_pipes(void)
 			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl);
 	}
 	__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
-	ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
+	ipa_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
 	ipa3_dealloc_common_event_ring();
 }
 
@@ -9205,13 +9221,13 @@ void ipa3_suspend_handler(enum ipa_irq_type interrupt,
 }
 
 /**
- * ipa3_restore_suspend_handler() - restores the original suspend IRQ handler
+ * ipa_restore_suspend_handler() - restores the original suspend IRQ handler
  * as it was registered in the IPA init sequence.
  * Return codes:
  * 0: success
  * -EPERM: failed to remove current handler or failed to add original handler
  */
-int ipa3_restore_suspend_handler(void)
+int ipa_restore_suspend_handler(void)
 {
 	int result = 0;
 
@@ -9221,7 +9237,7 @@ int ipa3_restore_suspend_handler(void)
 		return -EPERM;
 	}
 
-	result = ipa3_add_interrupt_handler(IPA_TX_SUSPEND_IRQ,
+	result = ipa_add_interrupt_handler(IPA_TX_SUSPEND_IRQ,
 			ipa3_suspend_handler, false, NULL);
 	if (result) {
 		IPAERR("register handler for suspend interrupt failed\n");
@@ -9232,6 +9248,7 @@ int ipa3_restore_suspend_handler(void)
 
 	return result;
 }
+EXPORT_SYMBOL(ipa_restore_suspend_handler);
 
 static void ipa3_transport_release_resource(struct work_struct *work)
 {
@@ -9269,7 +9286,7 @@ int ipa3_init_interrupts(void)
 	}
 
 	/*add handler for suspend interrupt*/
-	result = ipa3_add_interrupt_handler(IPA_TX_SUSPEND_IRQ,
+	result = ipa_add_interrupt_handler(IPA_TX_SUSPEND_IRQ,
 			ipa3_suspend_handler, false, NULL);
 	if (result) {
 		IPAERR("register handler for suspend interrupt failed\n");
@@ -9530,7 +9547,7 @@ static int ipa3_alloc_gsi_channel(void)
 
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		type = ipa3_get_client_by_pipe(i);
-		gsi_ep_cfg = ipa3_get_gsi_ep_info(type);
+		gsi_ep_cfg = ipa_get_gsi_ep_info(type);
 		IPADBG("for ep %d client is %d\n", i, type);
 		if (!gsi_ep_cfg)
 			continue;
@@ -9565,94 +9582,60 @@ static inline void ipa3_disable_napi_lan_rx(void)
 		napi_disable(&ipa3_ctx->napi_lan_rx);
 }
 
-static inline void ipa3_register_to_fmwk(void)
+static inline void ipa_trigger_ipa_ready_cbs(void)
 {
-	struct ipa_core_data data;
+	struct ipa_ready_cb_info *info;
+	struct ipa_ready_cb_info *next;
 
-	data.ipa_tx_dp = ipa3_tx_dp;
-	data.ipa_get_hw_type = ipa_get_hw_type_internal;
-	data.ipa_is_vlan_mode = ipa3_is_vlan_mode;
-	data.ipa_get_smmu_params = ipa3_get_smmu_params;
-	data.ipa_get_lan_rx_napi = ipa3_get_lan_rx_napi;
-	data.ipa_dma_init = ipa3_dma_init;
-	data.ipa_dma_enable = ipa3_dma_enable;
-	data.ipa_dma_disable = ipa3_dma_disable;
-	data.ipa_dma_sync_memcpy = ipa3_dma_sync_memcpy;
-	data.ipa_dma_async_memcpy = ipa3_dma_async_memcpy;
-	data.ipa_dma_destroy = ipa3_dma_destroy;
-	data.ipa_get_ep_mapping = ipa3_get_ep_mapping;
-	data.ipa_send_msg = ipa3_send_msg;
-	data.ipa_free_skb = ipa3_free_skb;
-	data.ipa_setup_sys_pipe = ipa3_setup_sys_pipe;
-	data.ipa_teardown_sys_pipe = ipa3_teardown_sys_pipe;
-	data.ipa_get_wdi_stats = ipa3_get_wdi_stats;
-	data.ipa_uc_bw_monitor = ipa3_uc_bw_monitor;
-	data.ipa_broadcast_wdi_quota_reach_ind =
-		ipa3_broadcast_wdi_quota_reach_ind;
-	data.ipa_uc_wdi_get_dbpa = ipa3_uc_wdi_get_dbpa;
-	data.ipa_cfg_ep_ctrl = ipa3_cfg_ep_ctrl;
-	data.ipa_add_rt_rule = ipa3_add_rt_rule;
-	data.ipa_put_rt_tbl = ipa3_put_rt_tbl;
-	data.ipa_register_intf = ipa3_register_intf;
-	data.ipa_deregister_intf = ipa3_deregister_intf;
-	data.ipa_add_hdr = ipa3_add_hdr;
-	data.ipa_get_hdr = ipa3_get_hdr;
-	data.ipa_del_hdr = ipa3_del_hdr;
-	data.ipa_set_aggr_mode = ipa3_set_aggr_mode;
-	data.ipa_set_qcncm_ndp_sig = ipa3_set_qcncm_ndp_sig;
-	data.ipa_set_single_ndp_per_mbim = ipa3_set_single_ndp_per_mbim;
-	data.ipa_add_interrupt_handler = ipa3_add_interrupt_handler;
-	data.ipa_restore_suspend_handler = ipa3_restore_suspend_handler;
-	data.ipa_get_gsi_ep_info = ipa3_get_gsi_ep_info;
-	data.ipa_stop_gsi_channel = ipa3_stop_gsi_channel;
-	data.ipa_rmnet_ctl_xmit = ipa3_rmnet_ctl_xmit;
-	data.ipa_register_rmnet_ctl_cb = ipa3_register_rmnet_ctl_cb;
-	data.ipa_unregister_rmnet_ctl_cb = ipa3_unregister_rmnet_ctl_cb;
-	if (ipa3_ctx->use_pm_wrapper) {
-		data.ipa_enable_wdi_pipe = ipa_pm_wrapper_enable_wdi_pipe;
-		data.ipa_disable_wdi_pipe = ipa_pm_wrapper_disable_pipe;
-		data.ipa_connect_wdi_pipe = ipa_pm_wrapper_connect_wdi_pipe;
-		data.ipa_disconnect_wdi_pipe = ipa_pm_wrapper_disconnect_wdi_pipe;
-	}
-	else {
-		data.ipa_enable_wdi_pipe = ipa3_enable_wdi_pipe;
-		data.ipa_disable_wdi_pipe = ipa3_disable_wdi_pipe;
-		data.ipa_connect_wdi_pipe = ipa3_connect_wdi_pipe;
-		data.ipa_disconnect_wdi_pipe = ipa3_disconnect_wdi_pipe;
-	}
-	data.ipa_resume_wdi_pipe = ipa3_resume_wdi_pipe;
-	data.ipa_suspend_wdi_pipe = ipa3_suspend_wdi_pipe;
-	data.ipa_uc_reg_rdyCB = ipa3_uc_reg_rdyCB;
-	data.ipa_uc_dereg_rdyCB = ipa3_uc_dereg_rdyCB;
-	data.ipa_rmnet_ll_xmit = ipa3_rmnet_ll_xmit;
-	data.ipa_register_rmnet_ll_cb = ipa3_register_rmnet_ll_cb;
-	data.ipa_unregister_rmnet_ll_cb = ipa3_unregister_rmnet_ll_cb;
-	data.ipa_register_notifier =
-		ipa3_register_notifier;
-	data.ipa_unregister_notifier =
-		ipa3_unregister_notifier;
-	data.ipa_add_socksv5_conn = ipa3_add_socksv5_conn;
-	data.ipa_del_socksv5_conn = ipa3_del_socksv5_conn;
+	/* Call all the CBs */
+	list_for_each_entry_safe(info, next,
+		&ipa3_ctx->ipa_ready_cb_list, link) {
+		if (info->ready_cb)
+			info->ready_cb(info->user_data);
 
-	if (ipa_fmwk_register_ipa(&data)) {
-		IPAERR("couldn't register to IPA framework\n");
+		list_del(&info->link);
+		kfree(info);
 	}
 }
 
-void ipa3_notify_clients_registered(void)
+int ipa_register_ipa_ready_cb(void(*ipa_ready_cb)(void *user_data),
+	void *user_data)
 {
-	bool reg = false;
+	struct ipa_ready_cb_info *cb_info = NULL;
+
+	if (!ipa3_ctx) {
+		IPAERR("ipa framework hasn't been initialized yet\n");
+		return -EPERM;
+	}
 
 	mutex_lock(&ipa3_ctx->lock);
-	if (ipa3_ctx->ipa_initialization_complete)
-		reg = true;
-	ipa3_ctx->clients_registered = true;
+	if (ipa3_ctx->ipa_initialization_complete) {
+		IPADBG("IPA driver finished initialization already\n");
+		mutex_unlock(&ipa3_ctx->lock);
+		return -EEXIST;
+	}
+
+	cb_info = kmalloc(sizeof(struct ipa_ready_cb_info), GFP_KERNEL);
+	if (!cb_info) {
+		mutex_unlock(&ipa3_ctx->lock);
+		return -ENOMEM;
+	}
+
+	cb_info->ready_cb = ipa_ready_cb;
+	cb_info->user_data = user_data;
+
+	list_add_tail(&cb_info->link, &ipa3_ctx->ipa_ready_cb_list);
 	mutex_unlock(&ipa3_ctx->lock);
 
-	if (reg) {
-		IPADBG("register to fmwk\n");
-		ipa3_register_to_fmwk();
-	}
+	return 0;
+}
+EXPORT_SYMBOL(ipa_register_ipa_ready_cb);
+
+void ipa3_notify_clients_registered(void)
+{
+	mutex_lock(&ipa3_ctx->lock);
+	ipa3_ctx->clients_registered = true;
+	mutex_unlock(&ipa3_ctx->lock);
 }
 EXPORT_SYMBOL(ipa3_notify_clients_registered);
 
@@ -10119,7 +10102,6 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	struct ipa3_flt_tbl_nhash_lcl *lcl_tbl;
 	int i;
 	struct idr *idr;
-	bool reg = false;
 	enum ipa_ip_type ip;
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 	struct ipa_minidump_data *mini_dump;
@@ -10285,7 +10267,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 			if (ipa3_ctx->flt_tbl_nhash_lcl[ip] &&
 			    (IPA_CLIENT_IS_ETH_PROD(i) || IPA_IS_NXT_FLT(i) ||
 			     ((ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST) &&
-			      (i == ipa3_get_ep_mapping(IPA_CLIENT_TEST_PROD))))) {
+			      (i == ipa_get_ep_mapping(IPA_CLIENT_TEST_PROD))))) {
 				flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = false;
 				lcl_tbl = kcalloc(1, sizeof(struct ipa3_flt_tbl_nhash_lcl),
 						  GFP_KERNEL);
@@ -10497,22 +10479,18 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG(":mpm init init ok\n");
 
+	ipa3_usb_init();
+
 	mutex_lock(&ipa3_ctx->lock);
 	ipa3_ctx->ipa_initialization_complete = true;
-	if (ipa3_ctx->clients_registered)
-		reg = true;
 	mutex_unlock(&ipa3_ctx->lock);
 	ipa3_enable_napi_lan_rx();
-	if (reg) {
-		IPADBG("register to fmwk\n");
-		ipa3_register_to_fmwk();
-	}
-
 	/* init uc-activation tbl*/
 	ipa3_setup_uc_act_tbl();
+	ipa_trigger_ipa_ready_cbs();
 
 #if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
-	if (!ipa3_is_ready())
+	if (!ipa_is_ready())
 		ipa_fmwk_deepsleep_exit_ipa();
 #endif
 	complete_all(&ipa3_ctx->init_completion_obj);
@@ -11098,7 +11076,7 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 	}
 
 	/* Prevent consequent calls from trying to load the FW again. */
-	if (ipa3_is_ready())
+	if (ipa_is_ready())
 		return count;
 
 	ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_FWFILE_READY);
@@ -11340,7 +11318,7 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	if (!lookup)
 		return -EINVAL;
 
-	dst_ep_idx = ipa3_get_ep_mapping(lookup->ep);
+	dst_ep_idx = ipa_get_ep_mapping(lookup->ep);
 	IPADBG("dst_ep_idx=%d\n", dst_ep_idx);
 	if (-1 == dst_ep_idx) {
 		IPAERR("Client %u is not mapped\n", lookup->ep);
@@ -15427,10 +15405,11 @@ struct ipa3_context *ipa3_get_ctx(void)
 }
 EXPORT_SYMBOL(ipa3_get_ctx);
 
-bool ipa3_get_lan_rx_napi(void)
+bool ipa_get_lan_rx_napi(void)
 {
 	return ipa3_ctx->lan_rx_napi_enable;
 }
+EXPORT_SYMBOL(ipa_get_lan_rx_napi);
 
 
 #if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
@@ -15445,6 +15424,7 @@ static void ipa3_deepsleep_suspend(void)
 
 	/* To allow default routing table delection using this flag */
 	ipa3_ctx->deepsleep = true;
+	ipa3_usb_exit();
 	/*Disabling the LAN NAPI*/
 	ipa3_disable_napi_lan_rx();
 #if defined(CONFIG_IPA_IPSEC)
@@ -15619,9 +15599,9 @@ int ipa3_iommu_map(struct iommu_domain *domain,
 EXPORT_SYMBOL(ipa3_iommu_map);
 
 /**
- * ipa3_get_smmu_params()- Return the ipa3 smmu related params.
+ * ipa_get_smmu_params()- Return the ipa3 smmu related params.
  */
-int ipa3_get_smmu_params(struct ipa_smmu_in_params *in,
+int ipa_get_smmu_params(struct ipa_smmu_in_params *in,
 	struct ipa_smmu_out_params *out)
 {
 	bool is_smmu_enable = false;
@@ -15713,7 +15693,7 @@ int ipa3_get_smmu_params(struct ipa_smmu_in_params *in,
 
 	return 0;
 }
-EXPORT_SYMBOL(ipa3_get_smmu_params);
+EXPORT_SYMBOL(ipa_get_smmu_params);
 
 #define MAX_LEN 96
 

@@ -7,7 +7,7 @@ cc_binary {
         "-Wno-int-conversion",
     ],
 
-    header_libs: ["device_kernel_headers"]+["qti_kernel_headers"]+["qti_ipa_test_kernel_headers"],
+    header_libs: ["device_kernel_headers"]+["qti_kernel_headers"]+["qti_ipa_kernel_headers"]+["qti_ipa_test_kernel_headers"],
 
     srcs: [
         "DataPathTestFixture.cpp",
