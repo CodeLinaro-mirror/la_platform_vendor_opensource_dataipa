@@ -90,7 +90,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 			entry->type, entry->offset_entry->offset);
 
 		if (entry->l2tp_params.is_dst_pipe_valid) {
-			ep = ipa3_get_ep_mapping(entry->l2tp_params.dst_pipe);
+			ep = ipa_get_ep_mapping(entry->l2tp_params.dst_pipe);
 
 			if (ep >= 0) {
 				cfg_ptr = &ipa3_ctx->ep[ep].cfg;
@@ -264,11 +264,11 @@ int __ipa_commit_hdr_v3_0(void)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -1300,7 +1300,7 @@ int ipa3_del_hdr_hpc(struct ipa_ioc_del_hdr *hdrs)
 EXPORT_SYMBOL(ipa3_del_hdr_hpc);
 
 /**
- * ipa3_add_hdr() - add the specified headers to SW and optionally commit them
+ * ipa_add_hdr() - add the specified headers to SW and optionally commit them
  * to IPA HW
  * @hdrs:	[inout] set of headers to add
  *
@@ -1308,11 +1308,11 @@ EXPORT_SYMBOL(ipa3_del_hdr_hpc);
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_add_hdr(struct ipa_ioc_add_hdr *hdrs)
+int ipa_add_hdr(struct ipa_ioc_add_hdr *hdrs)
 {
 	return ipa3_add_hdr_usr(hdrs, false);
 }
-EXPORT_SYMBOL(ipa3_add_hdr);
+EXPORT_SYMBOL(ipa_add_hdr);
 
 /**
  * ipa3_add_hdr_usr() - add the specified headers to SW
@@ -1402,7 +1402,7 @@ bail:
 }
 
 /**
- * ipa3_del_hdr() - Remove the specified headers from SW
+ * ipa_del_hdr() - Remove the specified headers from SW
  * and optionally commit them to IPA HW
  * @hdls:	[inout] set of headers to delete
  *
@@ -1410,11 +1410,11 @@ bail:
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_del_hdr(struct ipa_ioc_del_hdr *hdls)
+int ipa_del_hdr(struct ipa_ioc_del_hdr *hdls)
 {
 	return ipa3_del_hdr_by_user(hdls, false);
 }
-EXPORT_SYMBOL(ipa3_del_hdr);
+EXPORT_SYMBOL(ipa_del_hdr);
 
 /**
  * ipa3_add_hdr_proc_ctx() - add the specified headers to SW
@@ -1521,6 +1521,7 @@ int ipa3_del_hdr_proc_ctx(struct ipa_ioc_del_hdr_proc_ctx *hdls)
 {
 	return ipa3_del_hdr_proc_ctx_by_user(hdls, false);
 }
+EXPORT_SYMBOL(ipa3_del_hdr_proc_ctx);
 
 /**
  * ipa3_commit_hdr() - commit to IPA HW the current header table in SW
@@ -1552,6 +1553,7 @@ bail:
 	mutex_unlock(&ipa3_ctx->lock);
 	return result;
 }
+EXPORT_SYMBOL(ipa3_commit_hdr);
 
 /**
  * ipa3_reset_hdr() - reset the current header table in SW (does not commit to
@@ -1727,6 +1729,7 @@ int ipa3_reset_hdr(bool user_only)
 	mutex_unlock(&ipa3_ctx->lock);
 	return 0;
 }
+EXPORT_SYMBOL(ipa3_reset_hdr);
 
 static struct ipa3_hdr_entry *__ipa_find_hdr(const char *name)
 {
@@ -1761,7 +1764,7 @@ static struct ipa3_hdr_proc_ctx_entry* __ipa_find_hdr_proc_ctx(const char *name)
 }
 
 /**
- * ipa3_get_hdr() - Lookup the specified header resource
+ * ipa_get_hdr() - Lookup the specified header resource
  * @lookup:	[inout] header to lookup and its handle
  *
  * lookup the specified header resource and return handle if it exists
@@ -1771,7 +1774,7 @@ static struct ipa3_hdr_proc_ctx_entry* __ipa_find_hdr_proc_ctx(const char *name)
  * Note:	Should not be called from atomic context
  *		Caller should call ipa3_put_hdr later if this function succeeds
  */
-int ipa3_get_hdr(struct ipa_ioc_get_hdr *lookup)
+int ipa_get_hdr(struct ipa_ioc_get_hdr *lookup)
 {
 	struct ipa3_hdr_entry *entry;
 	int result = -1;
@@ -1791,6 +1794,7 @@ int ipa3_get_hdr(struct ipa_ioc_get_hdr *lookup)
 
 	return result;
 }
+EXPORT_SYMBOL(ipa_get_hdr);
 
 /**
  * ipa3_get_hdr_offset() - Get the the offset of the specified header resource

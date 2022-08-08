@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_DEFS_H_
 #define _IPA_DEFS_H_
-#include <linux/ipa.h>
+#include "ipa.h"
 
 /**
  * struct ipa_rt_rule_i - attributes of a routing rule

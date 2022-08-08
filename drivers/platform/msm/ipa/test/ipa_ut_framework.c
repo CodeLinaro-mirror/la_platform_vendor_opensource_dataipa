@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/mutex.h>
 #include <linux/module.h>
 #include <linux/debugfs.h>
 #include <linux/device.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include "ipa_i.h"
 #include "ipa_ut_framework.h"
 #include "ipa_ut_suite_list.h"

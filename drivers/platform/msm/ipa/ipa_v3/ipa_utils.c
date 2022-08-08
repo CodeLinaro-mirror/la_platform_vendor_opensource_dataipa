@@ -9477,11 +9477,11 @@ int ipa3_get_clients_from_rm_resource(
 
 	switch (resource) {
 	case IPA_RM_RESOURCE_USB_CONS:
-		if (ipa3_get_ep_mapping(IPA_CLIENT_USB_CONS) != -1)
+		if (ipa_get_ep_mapping(IPA_CLIENT_USB_CONS) != -1)
 			clients->names[i++] = IPA_CLIENT_USB_CONS;
 		break;
 	case IPA_RM_RESOURCE_USB_DPL_CONS:
-		if (ipa3_get_ep_mapping(IPA_CLIENT_USB_DPL_CONS) != -1)
+		if (ipa_get_ep_mapping(IPA_CLIENT_USB_DPL_CONS) != -1)
 			clients->names[i++] = IPA_CLIENT_USB_DPL_CONS;
 		break;
 	case IPA_RM_RESOURCE_HSIC_CONS:
@@ -9505,7 +9505,7 @@ int ipa3_get_clients_from_rm_resource(
 		clients->names[i++] = IPA_CLIENT_ETHERNET_CONS;
 		break;
 	case IPA_RM_RESOURCE_USB_PROD:
-		if (ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) != -1)
+		if (ipa_get_ep_mapping(IPA_CLIENT_USB_PROD) != -1)
 			clients->names[i++] = IPA_CLIENT_USB_PROD;
 		break;
 	case IPA_RM_RESOURCE_HSIC_PROD:
@@ -9539,7 +9539,7 @@ bool ipa3_should_pipe_be_suspended(enum ipa_client_type client)
 	struct ipa3_ep_context *ep;
 	int ipa_ep_idx;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx == -1) {
 		IPAERR("Invalid client.\n");
 		WARN_ON(1);
@@ -9599,7 +9599,7 @@ static bool ipa3_should_pipe_channel_be_stopped(enum ipa_client_type client)
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0)
 		return false;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx == -1) {
 		IPAERR("Invalid client.\n");
 		WARN_ON(1);
@@ -9646,7 +9646,7 @@ int ipa3_suspend_resource_sync(enum ipa_rm_resource_name resource)
 
 	for (index = 0; index < clients.length; index++) {
 		client = clients.names[index];
-		ipa_ep_idx = ipa3_get_ep_mapping(client);
+		ipa_ep_idx = ipa_get_ep_mapping(client);
 		if (ipa_ep_idx == -1) {
 			IPAERR("Invalid client.\n");
 			res = -EINVAL;
@@ -9659,7 +9659,7 @@ int ipa3_suspend_resource_sync(enum ipa_rm_resource_name resource)
 				/* suspend endpoint */
 				memset(&suspend, 0, sizeof(suspend));
 				suspend.ipa_ep_suspend = true;
-				ipa3_cfg_ep_ctrl(ipa_ep_idx, &suspend);
+				ipa_cfg_ep_ctrl(ipa_ep_idx, &suspend);
 				pipe_suspended = true;
 			}
 		}
@@ -9668,7 +9668,7 @@ int ipa3_suspend_resource_sync(enum ipa_rm_resource_name resource)
 			ipa3_should_pipe_channel_be_stopped(client)) {
 			if (ipa3_ctx->ep[ipa_ep_idx].valid) {
 				/* Stop GSI channel */
-				res = ipa3_stop_gsi_channel(ipa_ep_idx);
+				res = ipa_stop_gsi_channel(ipa_ep_idx);
 				if (res) {
 					IPAERR("failed stop gsi ch %lu\n",
 					ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl);
@@ -9718,7 +9718,7 @@ int ipa3_suspend_resource_no_block(enum ipa_rm_resource_name resource)
 
 	for (index = 0; index < clients.length; index++) {
 		client = clients.names[index];
-		ipa_ep_idx = ipa3_get_ep_mapping(client);
+		ipa_ep_idx = ipa_get_ep_mapping(client);
 		if (ipa_ep_idx == -1) {
 			IPAERR("Invalid client.\n");
 			res = -EINVAL;
@@ -9731,7 +9731,7 @@ int ipa3_suspend_resource_no_block(enum ipa_rm_resource_name resource)
 				/* suspend endpoint */
 				memset(&suspend, 0, sizeof(suspend));
 				suspend.ipa_ep_suspend = true;
-				ipa3_cfg_ep_ctrl(ipa_ep_idx, &suspend);
+				ipa_cfg_ep_ctrl(ipa_ep_idx, &suspend);
 			}
 		}
 
@@ -9780,7 +9780,7 @@ int ipa3_resume_resource(enum ipa_rm_resource_name resource)
 
 	for (index = 0; index < clients.length; index++) {
 		client = clients.names[index];
-		ipa_ep_idx = ipa3_get_ep_mapping(client);
+		ipa_ep_idx = ipa_get_ep_mapping(client);
 		if (ipa_ep_idx == -1) {
 			IPAERR("Invalid client.\n");
 			res = -EINVAL;
@@ -9797,7 +9797,7 @@ int ipa3_resume_resource(enum ipa_rm_resource_name resource)
 			if (ipa3_ctx->ep[ipa_ep_idx].valid) {
 				memset(&suspend, 0, sizeof(suspend));
 				suspend.ipa_ep_suspend = false;
-				ipa3_cfg_ep_ctrl(ipa_ep_idx, &suspend);
+				ipa_cfg_ep_ctrl(ipa_ep_idx, &suspend);
 			}
 		}
 
@@ -10336,12 +10336,12 @@ int ipa3_init_hw(void)
 }
 
 /**
- * ipa3_get_ep_mapping() - provide endpoint mapping
+ * ipa_get_ep_mapping() - provide endpoint mapping
  * @client: client type
  *
  * Return value: endpoint mapping
  */
-int ipa3_get_ep_mapping(enum ipa_client_type client)
+int ipa_get_ep_mapping(enum ipa_client_type client)
 {
 	int ipa_ep_idx;
 	u8 hw_idx;
@@ -10364,14 +10364,15 @@ int ipa3_get_ep_mapping(enum ipa_client_type client)
 
 	return ipa_ep_idx;
 }
+EXPORT_SYMBOL(ipa_get_ep_mapping);
 
 /**
- * ipa3_get_ep_mapping_from_gsi() - provide endpoint mapping
+ * ipa_get_ep_mapping_from_gsi() - provide endpoint mapping
  * @ch_id: GSI Virt CH id
  *
  * Return value: endpoint mapping
  */
-int ipa3_get_ep_mapping_from_gsi(int ch_id)
+int ipa_get_ep_mapping_from_gsi(int ch_id)
 {
 	int ipa_ep_idx = IPA_EP_NOT_ALLOCATED;
 	u8 hw_idx;
@@ -10397,12 +10398,12 @@ int ipa3_get_ep_mapping_from_gsi(int ch_id)
 }
 
 /**
- * ipa3_get_gsi_ep_info() - provide gsi ep information
+ * ipa_get_gsi_ep_info() - provide gsi ep information
  * @client: IPA client value
  *
  * Return value: pointer to ipa_gsi_ep_info
  */
-const struct ipa_gsi_ep_config *ipa3_get_gsi_ep_info
+const struct ipa_gsi_ep_config *ipa_get_gsi_ep_info
 	(enum ipa_client_type client)
 {
 	int ep_idx;
@@ -10410,7 +10411,7 @@ const struct ipa_gsi_ep_config *ipa3_get_gsi_ep_info
 
 	hw_idx = ipa3_ctx->hw_type_index;
 
-	ep_idx = ipa3_get_ep_mapping(client);
+	ep_idx = ipa_get_ep_mapping(client);
 	if (ep_idx == IPA_EP_NOT_ALLOCATED)
 		return NULL;
 
@@ -10420,7 +10421,7 @@ const struct ipa_gsi_ep_config *ipa3_get_gsi_ep_info
 	return &(ipa3_ep_mapping[hw_idx]
 		[client].ipa_gsi_ep_info);
 }
-EXPORT_SYMBOL(ipa3_get_gsi_ep_info);
+EXPORT_SYMBOL(ipa_get_gsi_ep_info);
 
 /**
  * ipa_get_ep_group() - provide endpoint group by client
@@ -11413,13 +11414,13 @@ int ipa3_cfg_ep_ulso(u32 clnt_hdl, const struct ipa_ep_cfg_ulso *ep_ulso)
 }
 
 /**
- * ipa3_cfg_ep_ctrl() -  IPA end-point Control configuration
+ * ipa_cfg_ep_ctrl() -  IPA end-point Control configuration
  * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
  * @ipa_ep_cfg_ctrl:	[in] IPA end-point configuration params
  *
  * Returns:	0 on success, negative on failure
  */
-int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
+int ipa_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 {
 	int code = 0, result;
 	struct ipa3_ep_context *ep;
@@ -11491,6 +11492,7 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_cfg_ep_ctrl);
 
 const char *ipa3_get_mode_type_str(enum ipa_mode_type mode)
 {
@@ -11536,7 +11538,7 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 		return -EINVAL;
 	}
 
-	ep = ipa3_get_ep_mapping(ep_mode->dst);
+	ep = ipa_get_ep_mapping(ep_mode->dst);
 	if (ep == -1 && ep_mode->mode == IPA_DMA) {
 		IPAERR("dst %d does not exist in DMA mode\n", ep_mode->dst);
 		return -EINVAL;
@@ -11545,7 +11547,7 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 	WARN_ON(ep_mode->mode == IPA_DMA && IPA_CLIENT_IS_PROD(ep_mode->dst));
 
 	if (!IPA_CLIENT_IS_CONS(ep_mode->dst))
-		ep = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+		ep = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
 
 	IPADBG("pipe=%d mode=%d(%s), dst_client_number=%d\n",
 			clnt_hdl,
@@ -12197,7 +12199,7 @@ success:
 int ipa3_cfg_ep_holb_by_client(enum ipa_client_type client,
 				const struct ipa_ep_cfg_holb *ep_holb)
 {
-	return ipa3_cfg_ep_holb(ipa3_get_ep_mapping(client), ep_holb);
+	return ipa3_cfg_ep_holb(ipa_get_ep_mapping(client), ep_holb);
 }
 
 /**
@@ -12325,7 +12327,7 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		goto fail;
 	}
 
-	ipa_ep_idx = ipa3_get_ep_mapping(param_in->client);
+	ipa_ep_idx = ipa_get_ep_mapping(param_in->client);
 	if (ipa_ep_idx == -1) {
 		IPAERR_RL("Invalid client.\n");
 		goto fail;
@@ -12404,13 +12406,13 @@ void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size)
 }
 
 /**
- * ipa3_set_aggr_mode() - Set the aggregation mode which is a global setting
+ * ipa_set_aggr_mode() - Set the aggregation mode which is a global setting
  * @mode:	[in] the desired aggregation mode for e.g. straight MBIM, QCNCM,
  * etc
  *
  * Returns:	0 on success
  */
-int ipa3_set_aggr_mode(enum ipa_aggr_mode mode)
+int ipa_set_aggr_mode(enum ipa_aggr_mode mode)
 {
 	struct ipahal_reg_qcncm qcncm;
 
@@ -12429,9 +12431,10 @@ int ipa3_set_aggr_mode(enum ipa_aggr_mode mode)
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_set_aggr_mode);
 
 /**
- * ipa3_set_qcncm_ndp_sig() - Set the NDP signature used for QCNCM aggregation
+ * ipa_set_qcncm_ndp_sig() - Set the NDP signature used for QCNCM aggregation
  * mode
  * @sig:	[in] the first 3 bytes of QCNCM NDP signature (expected to be
  * "QND")
@@ -12441,7 +12444,7 @@ int ipa3_set_aggr_mode(enum ipa_aggr_mode mode)
  *
  * Returns:	0 on success, negative on failure
  */
-int ipa3_set_qcncm_ndp_sig(char sig[3])
+int ipa_set_qcncm_ndp_sig(char sig[3])
 {
 	struct ipahal_reg_qcncm qcncm;
 
@@ -12462,15 +12465,16 @@ int ipa3_set_qcncm_ndp_sig(char sig[3])
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_set_qcncm_ndp_sig);
 
 /**
- * ipa3_set_single_ndp_per_mbim() - Enable/disable single NDP per MBIM frame
+ * ipa_set_single_ndp_per_mbim() - Enable/disable single NDP per MBIM frame
  * configuration
  * @enable:	[in] true for single NDP/MBIM; false otherwise
  *
  * Returns:	0 on success
  */
-int ipa3_set_single_ndp_per_mbim(bool enable)
+int ipa_set_single_ndp_per_mbim(bool enable)
 {
 	struct ipahal_reg_single_ndp_mode mode;
 
@@ -12487,6 +12491,7 @@ int ipa3_set_single_ndp_per_mbim(bool enable)
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_set_single_ndp_per_mbim);
 
 /**
  * ipa3_straddle_boundary() - Checks whether a memory buffer straddles a
@@ -13366,7 +13371,7 @@ int ipa3_tag_process(struct ipa3_desc desc[],
 	 * by immediate command. So, REQUIRED_TAG_PROCESS_DESCRIPTORS
 	 * should be incremented by 1 to overcome buffer overflow.
 	 */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1)
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1)
 		req_num_tag_desc += 1;
 
 	/* Not enough room for the required descriptors for the tag process */
@@ -13377,7 +13382,7 @@ int ipa3_tag_process(struct ipa3_desc desc[],
 		return -ENOMEM;
 	}
 
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_CMD_PROD);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_CMD_PROD);
 	if (-1 == ep_idx) {
 		IPAERR("Client %u is not mapped\n",
 			IPA_CLIENT_APPS_CMD_PROD);
@@ -13403,8 +13408,8 @@ int ipa3_tag_process(struct ipa3_desc desc[],
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1) {
-		ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1) {
+		ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		if (ipa3_ctx->ulso_wa) {
 			reg_write_coal_close.pipeline_clear_options = IPAHAL_SRC_GRP_CLEAR;
@@ -13508,7 +13513,7 @@ int ipa3_tag_process(struct ipa3_desc desc[],
 
 	/* IP_PACKET_INIT IC for tag status to be sent to apps */
 	pktinit_cmd.destination_pipe_index =
-		ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+		ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
 	cmd_pyld = ipahal_construct_imm_cmd(
 		IPA_IMM_CMD_IP_PACKET_INIT, &pktinit_cmd, false);
 	if (!cmd_pyld) {
@@ -13667,7 +13672,7 @@ static int ipa3_tag_generate_force_close_desc(struct ipa3_desc desc[],
 			continue;
 		/* Skip Coalescing pipe when ulso wa is enabled. */
 		if (ipa3_ctx->ulso_wa &&
-			(i == ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS)))
+			(i == ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS)))
 			continue;
 		IPADBG("Force close ep: %d\n", i);
 		if (desc_idx + 1 > desc_size) {
@@ -13773,12 +13778,12 @@ fail_free_desc:
 }
 
 /**
- * ipa3_is_ready() - check if IPA module was initialized
+ * ipa_is_ready() - check if IPA module was initialized
  * successfully
  *
  * Return value: true for yes; false for no
  */
-bool ipa3_is_ready(void)
+bool ipa_is_ready(void)
 {
 	bool complete;
 
@@ -13789,6 +13794,7 @@ bool ipa3_is_ready(void)
 	mutex_unlock(&ipa3_ctx->lock);
 	return complete;
 }
+EXPORT_SYMBOL(ipa_is_ready);
 
 /**
  * ipa3_is_client_handle_valid() - check if IPA client handle is valid handle
@@ -13965,7 +13971,7 @@ void ipa3_set_tag_process_before_gating(bool val)
 EXPORT_SYMBOL(ipa3_set_tag_process_before_gating);
 
 /**
- * ipa3_is_vlan_mode - check if a LAN driver should load in VLAN mode
+ * ipa_is_vlan_mode - check if a LAN driver should load in VLAN mode
  * @iface - type of vlan capable device
  * @res - query result: true for vlan mode, false for non vlan mode
  *
@@ -13973,7 +13979,7 @@ EXPORT_SYMBOL(ipa3_set_tag_process_before_gating);
  *
  * Returns: 0 on success, negative on failure
  */
-int ipa3_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res)
+int ipa_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res)
 {
 	if (!res) {
 		IPAERR("NULL out param\n");
@@ -13985,7 +13991,7 @@ int ipa3_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res)
 		return -EINVAL;
 	}
 
-	if (!ipa3_is_ready()) {
+	if (!ipa_is_ready()) {
 		IPAERR("IPA is not ready yet\n");
 		return -ENODEV;
 	}
@@ -13995,7 +14001,7 @@ int ipa3_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res)
 	IPADBG("Driver %d vlan mode is %d\n", iface, *res);
 	return 0;
 }
-EXPORT_SYMBOL(ipa3_is_vlan_mode);
+EXPORT_SYMBOL(ipa_is_vlan_mode);
 
 /**
  * ipa3_is_spcl_iface - check if a LAN driver should load in
@@ -14052,7 +14058,7 @@ bool ipa_is_modem_pipe(int pipe_idx)
 		if (!IPA_CLIENT_IS_Q6_CONS(client_idx) &&
 			!IPA_CLIENT_IS_Q6_PROD(client_idx))
 			continue;
-		if (ipa3_get_ep_mapping(client_idx) == pipe_idx)
+		if (ipa_get_ep_mapping(client_idx) == pipe_idx)
 			return true;
 	}
 
@@ -14987,7 +14993,7 @@ static bool ipa3_gsi_channel_is_quite(struct ipa3_ep_context *ep)
 	return empty;
 }
 
-static int __ipa3_stop_gsi_channel(u32 clnt_hdl)
+static int __ipa_stop_gsi_channel(u32 clnt_hdl)
 {
 	struct ipa_mem_buffer mem;
 	int res = 0;
@@ -15104,7 +15110,7 @@ static int __ipa3_stop_gsi_channel(u32 clnt_hdl)
 }
 
 /**
- * ipa3_stop_gsi_channel()- Stops a GSI channel in IPA
+ * ipa_stop_gsi_channel()- Stops a GSI channel in IPA
  * @chan_hdl: GSI channel handle
  *
  * This function implements the sequence to stop a GSI channel
@@ -15112,17 +15118,17 @@ static int __ipa3_stop_gsi_channel(u32 clnt_hdl)
  *
  * Return value: 0 on success, negative otherwise
  */
-int ipa3_stop_gsi_channel(u32 clnt_hdl)
+int ipa_stop_gsi_channel(u32 clnt_hdl)
 {
 	int res;
 
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
-	res = __ipa3_stop_gsi_channel(clnt_hdl);
+	res = __ipa_stop_gsi_channel(clnt_hdl);
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	return res;
 }
-EXPORT_SYMBOL(ipa3_stop_gsi_channel);
+EXPORT_SYMBOL(ipa_stop_gsi_channel);
 
 static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 {
@@ -15131,7 +15137,7 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 	struct ipa3_ep_context *ep;
 	int res;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx < 0) {
 		IPADBG("client %d not configured\n", client);
 		return 0;
@@ -15148,7 +15154,7 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 			client == IPA_CLIENT_APPS_LAN_CONS) {
 			memset(&cfg, 0, sizeof(cfg));
 			cfg.ipa_ep_suspend = suspend;
-			ipa3_cfg_ep_ctrl(ipa_ep_idx, &cfg);
+			ipa_cfg_ep_ctrl(ipa_ep_idx, &cfg);
 			if (suspend)
 				ipa3_gsi_poll_after_suspend(ep);
 			else if (!atomic_read(&ep->sys->curr_polling_state))
@@ -15166,7 +15172,7 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 	 */
 
 	if (suspend) {
-		res = __ipa3_stop_gsi_channel(ipa_ep_idx);
+		res = __ipa_stop_gsi_channel(ipa_ep_idx);
 		if (res) {
 			IPAERR("failed to stop LAN channel\n");
 			ipa_assert();
@@ -15355,7 +15361,7 @@ int ipa3_suspend_apps_pipes(bool suspend)
 		goto undo_odl_cons;
 	}
 
-	odl_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ODL_DPL_CONS);
+	odl_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_ODL_DPL_CONS);
 	if (odl_ep_idx != IPA_EP_NOT_ALLOCATED && ipa3_ctx->ep[odl_ep_idx].valid) {
 		memset(&holb_cfg, 0, sizeof(holb_cfg));
 		if (suspend)
@@ -15389,7 +15395,7 @@ int ipa3_suspend_apps_pipes(bool suspend)
 		struct ipahal_reg_tx_wrapper tx;
 		int ep_idx;
 
-		ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		if (ep_idx == IPA_EP_NOT_ALLOCATED ||
 				(!ipa3_ctx->ep[ep_idx].valid))
 			goto do_prod;
@@ -16010,7 +16016,7 @@ static void ipa_gsi_setup_reg(void)
 
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		type = ipa3_get_client_by_pipe(i);
-		gsi_ep_info_cfg = ipa3_get_gsi_ep_info(type);
+		gsi_ep_info_cfg = ipa_get_gsi_ep_info(type);
 		IPAERR("for ep %d client is %d gsi_ep_info_cfg=%pK\n",
 			i, type, gsi_ep_info_cfg);
 		if (!gsi_ep_info_cfg)
@@ -16024,7 +16030,7 @@ static void ipa_gsi_setup_reg(void)
 	/* setup IPA_ENDP_GSI_CFG_AOS_n reg */
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		type = ipa3_get_client_by_pipe(i);
-		gsi_ep_info_cfg = ipa3_get_gsi_ep_info(type);
+		gsi_ep_info_cfg = ipa_get_gsi_ep_info(type);
 		if (!gsi_ep_info_cfg)
 			continue;
 		reg_val = ((gsi_ep_info_cfg->ipa_if_aos << 16) & 0x00FF0000);
@@ -16036,7 +16042,7 @@ static void ipa_gsi_setup_reg(void)
 	/* setup GSI_MAP_EE_n_CH_k_VP_TABLE reg */
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		type = ipa3_get_client_by_pipe(i);
-		gsi_ep_info_cfg = ipa3_get_gsi_ep_info(type);
+		gsi_ep_info_cfg = ipa_get_gsi_ep_info(type);
 		if (!gsi_ep_info_cfg)
 			continue;
 		reg_val = i & 0xFF;
@@ -16049,7 +16055,7 @@ static void ipa_gsi_setup_reg(void)
 	/* setup IPA_ENDP_GSI_CFG1_n reg */
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		type = ipa3_get_client_by_pipe(i);
-		gsi_ep_info_cfg = ipa3_get_gsi_ep_info(type);
+		gsi_ep_info_cfg = ipa_get_gsi_ep_info(type);
 		if (!gsi_ep_info_cfg)
 			continue;
 		reg_val = (1 << 31) + (1 << 16);
@@ -16567,7 +16573,7 @@ void __ipa_ntn3_prod_stats_get(struct ipa_ntn3_stats_rx *stats, enum ipa_client_
 	int ch_id, ipa_ep_idx;
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED)
 		return;
 	ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
@@ -16592,7 +16598,7 @@ void __ipa_ntn3_cons_stats_get(struct ipa_ntn3_stats_tx *stats, enum ipa_client_
 	int ch_id, ipa_ep_idx;
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED)
 		return;
 	ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
@@ -16653,7 +16659,7 @@ void ipa3_eth_get_status(u32 client, int scratch_id,
 	int ipa_ep_idx;
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED)
 		return;
 	ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
@@ -16775,7 +16781,7 @@ int ipa_hdrs_hpc_destroy(u32 hdr_hdl)
 
 	result = ipa3_del_hdr_hpc(del_wrapper);
 	if (result || hdr_del->status)
-		IPAERR("ipa3_del_hdr failed\n");
+		IPAERR("ipa_del_hdr failed\n");
 	kfree(del_wrapper);
 
     return result;
@@ -16982,10 +16988,10 @@ int ipa3_send_eogre_info(
 	/*
 	 * Post event to ipacm
 	 */
-	res = ipa3_send_msg(&msg_meta, eogre_info, ipa3_eogre_info_free_cb);
+	res = ipa_send_msg(&msg_meta, eogre_info, ipa3_eogre_info_free_cb);
 
 	if (res) {
-		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		IPAERR_RL("ipa_send_msg failed: %d\n", res);
 		kfree(eogre_info);
 		goto done;
 	}
@@ -17000,9 +17006,9 @@ int ipa_send_mhi_ctrl_endp_ind_to_modem(void)
 	struct ipa_endp_desc_indication_msg_v01 req;
 	struct ipa_ep_id_type_v01 *ep_info;
 	int ipa_mhi_prod_ep_idx =
-		ipa3_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_PROD);
+		ipa_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_PROD);
 	int ipa_mhi_cons_ep_idx =
-		ipa3_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_CONS);
+		ipa_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_CONS);
 
 	mutex_lock(&ipa3_ctx->mhi_lock);
 	/* only modem up and MHI ctrl pipes are ready, then send QMI*/
@@ -17405,13 +17411,13 @@ static int ipa3_get_free_socksv5_entry(void)
 }
 
 /**
- * ipa3_add_socksv5_conn() - IPA add socksv5_conn
+ * ipa_add_socksv5_conn() - IPA add socksv5_conn
  *
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
+int ipa_add_socksv5_conn(struct ipa_socksv5_info *info)
 {
 	int res = 0, index;
 	void *wp_va;
@@ -17513,9 +17519,9 @@ int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
 	msg_meta.msg_type = IPA_SOCKV5_ADD;
 	msg_meta.msg_len = sizeof(struct ipa_socksv5_msg);
 	/* post event to ipacm*/
-	res = ipa3_send_msg(&msg_meta, socksv5_msg, ipa3_socksv5_msg_free_cb);
+	res = ipa_send_msg(&msg_meta, socksv5_msg, ipa3_socksv5_msg_free_cb);
 	if (res) {
-		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		IPAERR_RL("ipa_send_msg failed: %d\n", res);
 		kfree(socksv5_msg);
 		goto error;
 	}
@@ -17681,13 +17687,13 @@ void ipa3_default_evict_register( void )
 }
 
 /**
- * ipa3_del_socksv5_conn() - IPA add socksv5_conn
+ * ipa_del_socksv5_conn() - IPA add socksv5_conn
  *
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_del_socksv5_conn(uint32_t handle)
+int ipa_del_socksv5_conn(uint32_t handle)
 {
 	int res = 0;
 	uint32_t *socksv5_handle;
@@ -17759,10 +17765,10 @@ int ipa3_del_socksv5_conn(uint32_t handle)
 	memcpy(socksv5_handle, &handle, sizeof(handle));
 	msg_meta.msg_type = IPA_SOCKV5_DEL;
 	msg_meta.msg_len = sizeof(uint32_t);
-	res = ipa3_send_msg(&msg_meta, socksv5_handle,
+	res = ipa_send_msg(&msg_meta, socksv5_handle,
 		ipa3_socksv5_msg_free_cb);
 	if (res) {
-		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		IPAERR_RL("ipa_send_msg failed: %d\n", res);
 		kfree(socksv5_handle);
 	}
 

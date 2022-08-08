@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -466,7 +466,7 @@ static bool ipa_flt_skip_pipe_config(int pipe)
 
 	ep = &ipa3_ctx->ep[pipe];
 
-	if ((ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD) == pipe
+	if ((ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD) == pipe
 		&& ipa3_ctx->modem_cfg_emb_pipe_flt)
 		&& ep->client == IPA_CLIENT_APPS_WAN_PROD) {
 		IPADBG_LOW("skip %d\n", pipe);
@@ -474,20 +474,20 @@ static bool ipa_flt_skip_pipe_config(int pipe)
 	}
 
 	/* In PVM+GVM scenario, V2X pipe is setup on GVM. */
-	if ((ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_V2X_PROD) == pipe
+	if ((ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_V2X_PROD) == pipe
 		&& ipa3_ctx->modem_cfg_emb_pipe_flt)) {
 		IPADBG_LOW("skip %d\n", pipe);
 		return true;
 	}
 
-	if ((ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_ETH_PROD) == pipe
+	if ((ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_ETH_PROD) == pipe
 		&& ipa3_ctx->modem_cfg_emb_pipe_flt)
 		&& ep->client == IPA_CLIENT_APPS_WAN_ETH_PROD) {
 		IPADBG_LOW("skip %d\n", pipe);
 		return true;
 	}
 
-	if ((ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) == pipe
+	if ((ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) == pipe
 		&& ipa3_ctx->modem_cfg_emb_pipe_flt)
 		&& ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) {
 		IPADBG_LOW("skip %d\n", pipe);
@@ -639,11 +639,11 @@ int __ipa_commit_flt_v3(enum ipa_ip_type ip)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -1251,7 +1251,7 @@ error:
 
 static int __ipa_add_flt_get_ep_idx(enum ipa_client_type ep, int *ipa_ep_idx)
 {
-	*ipa_ep_idx = ipa3_get_ep_mapping(ep);
+	*ipa_ep_idx = ipa_get_ep_mapping(ep);
 	if (*ipa_ep_idx < 0 || *ipa_ep_idx >= ipa3_get_max_num_pipes()) {
 		IPAERR_RL("ep not valid ep=%d\n", ep);
 		return -EINVAL;

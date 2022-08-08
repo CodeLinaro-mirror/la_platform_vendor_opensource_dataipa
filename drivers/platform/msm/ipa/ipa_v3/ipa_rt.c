@@ -65,7 +65,7 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 	if (entry->rule.dst == IPA_CLIENT_MAX) {
 		gen_params.dst_pipe_idx = (int)IPA_INVALID_PIPE_IDX;
 	} else {
-		gen_params.dst_pipe_idx = ipa3_get_ep_mapping(entry->rule.dst);
+		gen_params.dst_pipe_idx = ipa_get_ep_mapping(entry->rule.dst);
 		if (gen_params.dst_pipe_idx == -1) {
 			IPAERR_RL("Wrong destination pipe specified in RT rule\n");
 			WARN_ON_RATELIMIT_IPA(1);
@@ -603,11 +603,11 @@ int __ipa_commit_rt_v3(enum ipa_ip_type ip)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -1347,7 +1347,7 @@ static void __ipa_convert_rt_mdfy_out(struct ipa_rt_rule_mdfy_i rule_in,
 }
 
 /**
- * ipa3_add_rt_rule() - Add the specified routing rules to SW and optionally
+ * ipa_add_rt_rule() - Add the specified routing rules to SW and optionally
  * commit to IPA HW
  * @rules:	[inout] set of routing rules to add
  *
@@ -1356,10 +1356,11 @@ static void __ipa_convert_rt_mdfy_out(struct ipa_rt_rule_mdfy_i rule_in,
  * Note:	Should not be called from atomic context
  */
 
-int ipa3_add_rt_rule(struct ipa_ioc_add_rt_rule *rules)
+int ipa_add_rt_rule(struct ipa_ioc_add_rt_rule *rules)
 {
 	return ipa3_add_rt_rule_usr(rules, false);
 }
+EXPORT_SYMBOL(ipa_add_rt_rule);
 
 /**
  * ipa3_add_rt_rule_v2() - Add the specified routing rules to SW
@@ -1375,6 +1376,7 @@ int ipa3_add_rt_rule_v2(struct ipa_ioc_add_rt_rule_v2 *rules)
 {
 	return ipa3_add_rt_rule_usr_v2(rules, false);
 }
+EXPORT_SYMBOL(ipa3_add_rt_rule_v2);
 
 /**
  * ipa3_add_rt_rule_usr() - Add the specified routing rules to SW and optionally
@@ -1430,6 +1432,7 @@ bail:
 	mutex_unlock(&ipa3_ctx->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_add_rt_rule_usr);
 
 /**
  * ipa3_add_rt_rule_usr_v2() - Add the specified routing rules
@@ -1489,6 +1492,7 @@ bail:
 	mutex_unlock(&ipa3_ctx->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_add_rt_rule_usr_v2);
 
 
 /**
@@ -1542,6 +1546,7 @@ bail:
 	mutex_unlock(&ipa3_ctx->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_add_rt_rule_ext);
 
 /**
  * ipa3_add_rt_rule_ext_v2() - Add the specified routing rules
@@ -1599,6 +1604,7 @@ bail:
 	mutex_unlock(&ipa3_ctx->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_add_rt_rule_ext_v2);
 
 /**
  * ipa3_add_rt_rule_after() - Add the given routing rules after the
@@ -1708,6 +1714,7 @@ bail:
 	mutex_unlock(&ipa3_ctx->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_add_rt_rule_after);
 
 /**
  * ipa3_add_rt_rule_after_v2() - Add the given routing rules
@@ -1820,6 +1827,7 @@ bail:
 	mutex_unlock(&ipa3_ctx->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_add_rt_rule_after_v2);
 
 int __ipa3_del_rt_rule(u32 rule_hdl)
 {
@@ -2148,7 +2156,7 @@ int ipa3_reset_rt(enum ipa_ip_type ip, bool user_only)
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
- *	Caller should call ipa3_put_rt_tbl later if this function succeeds
+ *	Caller should call ipa_put_rt_tbl later if this function succeeds
  */
 int ipa3_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup)
 {
@@ -2185,14 +2193,14 @@ ret:
 EXPORT_SYMBOL(ipa3_get_rt_tbl);
 
 /**
- * ipa3_put_rt_tbl() - Release the specified routing table handle
+ * ipa_put_rt_tbl() - Release the specified routing table handle
  * @rt_tbl_hdl:	[in] the routing table handle to release
  *
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_put_rt_tbl(u32 rt_tbl_hdl)
+int ipa_put_rt_tbl(u32 rt_tbl_hdl)
 {
 	struct ipa3_rt_tbl *entry;
 	enum ipa_ip_type ip = IPA_IP_MAX;
@@ -2240,7 +2248,7 @@ ret:
 
 	return result;
 }
-
+EXPORT_SYMBOL(ipa_put_rt_tbl);
 
 static int __ipa_mdfy_rt_rule(struct ipa_rt_rule_mdfy_i *rtrule)
 {

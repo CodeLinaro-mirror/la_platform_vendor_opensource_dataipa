@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <asm/barrier.h>
@@ -115,7 +115,7 @@ int ipa3_enable_data_path(u32 clnt_hdl)
 		    !ipa3_should_pipe_be_suspended(ep->client))) {
 			memset(&ep_cfg_ctrl, 0, sizeof(ep_cfg_ctrl));
 			ep_cfg_ctrl.ipa_ep_suspend = false;
-			res = ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+			res = ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 		}
 	}
 
@@ -160,7 +160,7 @@ int ipa3_disable_data_path(u32 clnt_hdl)
 		if (IPA_CLIENT_IS_CONS(ep->client)) {
 			memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 			ep_cfg_ctrl.ipa_ep_suspend = true;
-			res = ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+			res = ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 		}
 
 		udelay(IPA_PKT_FLUSH_TO_US);
@@ -610,7 +610,7 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 		return -EINVAL;
 	}
 
-	ipa_ep_idx = ipa3_get_ep_mapping(params->client);
+	ipa_ep_idx = ipa_get_ep_mapping(params->client);
 	if (ipa_ep_idx == -1) {
 		IPAERR("fail to alloc EP.\n");
 		goto fail;
@@ -700,9 +700,9 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 		goto write_evt_scratch_fail;
 	}
 
-	gsi_ep_cfg_ptr = ipa3_get_gsi_ep_info(ep->client);
+	gsi_ep_cfg_ptr = ipa_get_gsi_ep_info(ep->client);
 	if (gsi_ep_cfg_ptr == NULL) {
-		IPAERR("Error ipa3_get_gsi_ep_info ret NULL\n");
+		IPAERR("Error ipa_get_gsi_ep_info ret NULL\n");
 		result = -EFAULT;
 		goto write_evt_scratch_fail;
 	}
@@ -894,7 +894,7 @@ int ipa3_xdci_connect(u32 clnt_hdl)
 	goto exit;
 
 stop_ch:
-	(void)ipa3_stop_gsi_channel(clnt_hdl);
+	(void)ipa_stop_gsi_channel(clnt_hdl);
 exit:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 	return result;
@@ -937,7 +937,7 @@ int ipa3_xdci_start(u32 clnt_hdl, u8 xferrscidx, bool xferrscidx_valid)
 		ep_cfg_ctrl.ipa_ep_delay = true;
 		ep->ep_delay_set = true;
 
-		result = ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+		result = ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 		if (result)
 			IPAERR("client (ep: %d) failed result=%d\n",
 			clnt_hdl, result);
@@ -1128,7 +1128,7 @@ static int ipa3_xdci_stop_gsi_channel(u32 clnt_hdl, bool *stop_in_proc)
 		return -EINVAL;
 	}
 
-	res = ipa3_stop_gsi_channel(clnt_hdl);
+	res = ipa_stop_gsi_channel(clnt_hdl);
 	if (res != 0 && res != -GSI_STATUS_AGAIN &&
 		res != -GSI_STATUS_TIMED_OUT) {
 		IPAERR("xDCI stop channel failed res=%d\n", res);
@@ -1201,7 +1201,7 @@ int ipa3_remove_secondary_flow_ctrl(int gsi_chan_hdl)
 	if (result == GSI_STATUS_SUCCESS) {
 		code = 0;
 		result = gsi_flow_control_ee(gsi_chan_hdl,
-			ipa3_get_ep_mapping_from_gsi(gsi_chan_hdl), 0, false, true, &code);
+			ipa_get_ep_mapping_from_gsi(gsi_chan_hdl), 0, false, true, &code);
 		if (result == GSI_STATUS_SUCCESS) {
 			IPADBG("flow control sussess ch %d code %d\n",
 					gsi_chan_hdl, code);
@@ -1252,7 +1252,7 @@ static int ipa3_stop_ul_chan_with_data_drain(u32 qmi_req_id,
 	if (remove_delay && ep->ep_delay_set == true && !stop_in_proc) {
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = false;
-		result = ipa3_cfg_ep_ctrl(clnt_hdl,
+		result = ipa_cfg_ep_ctrl(clnt_hdl,
 			&ep_cfg_ctrl);
 		if (result) {
 			IPAERR
@@ -1339,7 +1339,7 @@ exit:
 	if (remove_delay && ep->ep_delay_set == true && !stop_in_proc) {
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = false;
-		result = ipa3_cfg_ep_ctrl(clnt_hdl,
+		result = ipa_cfg_ep_ctrl(clnt_hdl,
 			&ep_cfg_ctrl);
 		if (result) {
 			IPAERR
@@ -1377,7 +1377,7 @@ int ipa3_set_reset_client_prod_pipe_delay(bool set_reset,
 		return -EINVAL;
 	}
 
-	pipe_idx = ipa3_get_ep_mapping(client);
+	pipe_idx = ipa_get_ep_mapping(client);
 
 	if (pipe_idx == IPA_EP_NOT_ALLOCATED) {
 		IPAERR("client (%d) not valid\n", client);
@@ -1390,7 +1390,7 @@ int ipa3_set_reset_client_prod_pipe_delay(bool set_reset,
 	client_lock_unlock_cb(client, true);
 	if (ep->valid && ep->skip_ep_cfg) {
 		ep->ep_delay_set = ep_ctrl.ipa_ep_delay;
-		result = ipa3_cfg_ep_ctrl(pipe_idx, &ep_ctrl);
+		result = ipa_cfg_ep_ctrl(pipe_idx, &ep_ctrl);
 		if (result)
 			IPAERR("client (ep: %d) failed result=%d\n",
 				pipe_idx, result);
@@ -1430,7 +1430,7 @@ int ipa3_start_stop_client_prod_gsi_chnl(enum ipa_client_type client,
 		return -EINVAL;
 	}
 
-	pipe_idx = ipa3_get_ep_mapping(client);
+	pipe_idx = ipa_get_ep_mapping(client);
 
 	if (pipe_idx == IPA_EP_NOT_ALLOCATED) {
 		IPAERR("client (%d) not valid\n", client);
@@ -1453,7 +1453,7 @@ int ipa3_start_stop_client_prod_gsi_chnl(enum ipa_client_type client,
 						ep->gsi_chan_hdl, code);
 			}
 		} else
-			result = ipa3_stop_gsi_channel(pipe_idx);
+			result = ipa_stop_gsi_channel(pipe_idx);
 	}
 	client_lock_unlock_cb(client, false);
 	return result;
@@ -1478,7 +1478,7 @@ int ipa3_set_reset_client_cons_pipe_sus_holb(bool set_reset,
 		return -EINVAL;
 	}
 
-	pipe_idx = ipa3_get_ep_mapping(client);
+	pipe_idx = ipa_get_ep_mapping(client);
 
 	if (pipe_idx == IPA_EP_NOT_ALLOCATED) {
 		IPAERR("client (%d) not valid\n", client);
@@ -1541,7 +1541,7 @@ void ipa3_xdci_ep_delay_rm(u32 clnt_hdl)
 			IPA_ACTIVE_CLIENTS_INC_EP
 				(ipa3_get_client_mapping(clnt_hdl));
 
-		result = ipa3_cfg_ep_ctrl(clnt_hdl,
+		result = ipa_cfg_ep_ctrl(clnt_hdl,
 			&ep_cfg_ctrl);
 
 		if (!ep->keep_ipa_awake)
@@ -1599,7 +1599,7 @@ int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id)
 	} else {
 		IPADBG("Stopping CONS channel - hdl=%d clnt=%d\n",
 			clnt_hdl, ep->client);
-		result = ipa3_stop_gsi_channel(clnt_hdl);
+		result = ipa_stop_gsi_channel(clnt_hdl);
 		if (result) {
 			IPAERR("Error stopping channel (CONS client): %d\n",
 				result);
@@ -1609,7 +1609,7 @@ int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id)
 			/* Unsuspend the pipe */
 			memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 			ep_cfg_ctrl.ipa_ep_suspend = false;
-			ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+			ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 		}
 	}
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
@@ -1776,7 +1776,7 @@ int ipa3_xdci_suspend(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 		/* Suspend the DL/DPL EP */
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_suspend = true;
-		ipa3_cfg_ep_ctrl(dl_clnt_hdl, &ep_cfg_ctrl);
+		ipa_cfg_ep_ctrl(dl_clnt_hdl, &ep_cfg_ctrl);
 	}
 
 	/*
@@ -1801,7 +1801,7 @@ int ipa3_xdci_suspend(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	}
 
 	/* Stop DL channel */
-	result = ipa3_stop_gsi_channel(dl_clnt_hdl);
+	result = ipa_stop_gsi_channel(dl_clnt_hdl);
 	if (result) {
 		IPAERR("Error stopping DL/DPL channel: %d\n", result);
 		result = -EFAULT;
@@ -1850,7 +1850,7 @@ unsuspend_dl_and_exit:
 		/* Unsuspend the DL EP */
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_suspend = false;
-		ipa3_cfg_ep_ctrl(dl_clnt_hdl, &ep_cfg_ctrl);
+		ipa_cfg_ep_ctrl(dl_clnt_hdl, &ep_cfg_ctrl);
 	}
 disable_clk_and_exit:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(dl_clnt_hdl));
@@ -1937,7 +1937,7 @@ int ipa3_xdci_resume(u32 ul_clnt_hdl, u32 dl_clnt_hdl, bool is_dpl)
 		/* Unsuspend the DL/DPL EP */
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_suspend = false;
-		ipa3_cfg_ep_ctrl(dl_clnt_hdl, &ep_cfg_ctrl);
+		ipa_cfg_ep_ctrl(dl_clnt_hdl, &ep_cfg_ctrl);
 	}
 
 	/* Start DL channel */
@@ -2041,7 +2041,7 @@ int ipa3_clear_endpoint_delay(u32 clnt_hdl)
 	/* If flow is disabled at this point, restore the ep state.*/
 	ep_ctrl.ipa_ep_delay = false;
 	ep_ctrl.ipa_ep_suspend = false;
-	ipa3_cfg_ep_ctrl(clnt_hdl, &ep_ctrl);
+	ipa_cfg_ep_ctrl(clnt_hdl, &ep_ctrl);
 
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 

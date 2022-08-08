@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/jiffies.h>
@@ -10,7 +11,7 @@
 #include <linux/timer.h>
 #include <linux/unistd.h>
 #include <linux/workqueue.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include "ipa_rm_i.h"
 
 #define MAX_WS_NAME 20

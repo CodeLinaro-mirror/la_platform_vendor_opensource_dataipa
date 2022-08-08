@@ -668,7 +668,7 @@ static void ipa3_event_ring_hdlr(void)
 			e_q->Protocol,
 			e_q->Value.quota_param.ThreasholdReached,
 			e_q->Value.quota_param.usage);
-			if (ipa3_broadcast_wdi_quota_reach_ind(0,
+			if (ipa_broadcast_wdi_quota_reach_ind(0,
 				e_q->Value.quota_param.usage))
 				IPAERR_RL("failed on quota_reach for %d\n",
 						e_q->Protocol);
@@ -1231,7 +1231,7 @@ int ipa3_uc_interface_init(void)
 	}
 
 	if (!ipa3_ctx->apply_rg10_wa) {
-		result = ipa3_add_interrupt_handler(IPA_UC_IRQ_0,
+		result = ipa_add_interrupt_handler(IPA_UC_IRQ_0,
 			ipa3_uc_event_handler, true,
 			ipa3_ctx);
 		if (result) {
@@ -1240,7 +1240,7 @@ int ipa3_uc_interface_init(void)
 			goto irq_fail0;
 		}
 
-		result = ipa3_add_interrupt_handler(IPA_UC_IRQ_1,
+		result = ipa_add_interrupt_handler(IPA_UC_IRQ_1,
 			ipa3_uc_response_hdlr, true,
 			ipa3_ctx);
 		if (result) {
@@ -1249,7 +1249,7 @@ int ipa3_uc_interface_init(void)
 			goto irq_fail1;
 		}
 
-		result = ipa3_add_interrupt_handler(IPA_UC_IRQ_2,
+		result = ipa_add_interrupt_handler(IPA_UC_IRQ_2,
 			ipa3_uc_wigig_misc_int_handler, true,
 			ipa3_ctx);
 		if (result) {
@@ -1328,7 +1328,7 @@ void ipa3_uc_load_notify(void)
 
 	ipa3_init_interrupts();
 
-	result = ipa3_add_interrupt_handler(IPA_UC_IRQ_0,
+	result = ipa_add_interrupt_handler(IPA_UC_IRQ_0,
 		ipa3_uc_event_handler, true,
 		ipa3_ctx);
 	if (result)
@@ -1410,7 +1410,7 @@ int ipa3_uc_is_gsi_channel_empty(enum ipa_client_type ipa_client)
 	union IpaHwChkChEmptyCmdData_t cmd;
 	int ret;
 
-	gsi_ep_info = ipa3_get_gsi_ep_info(ipa_client);
+	gsi_ep_info = ipa_get_gsi_ep_info(ipa_client);
 	if (!gsi_ep_info) {
 		IPAERR("Failed getting GSI EP info for client=%d\n",
 		       ipa_client);
@@ -1911,7 +1911,7 @@ free_cmd:
 	return res;
 }
 
-int ipa3_uc_bw_monitor(struct ipa_wdi_bw_info *info)
+int ipa_uc_bw_monitor(struct ipa_wdi_bw_info *info)
 {
 	int i, ind, res = 0;
 	struct ipa_mem_buffer cmd;
@@ -2008,6 +2008,7 @@ free_cmd:
 
 	return res;
 }
+EXPORT_SYMBOL(ipa_uc_bw_monitor);
 
 int ipa3_set_wlan_tx_info(struct ipa_wdi_tx_info *info)
 {

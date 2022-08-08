@@ -6,8 +6,8 @@
  */
 
 #include "ipa_ut_framework.h"
-#include <linux/ipa_eth.h>
-#include <linux/ipa.h>
+#include "ipa_eth.h"
+#include "ipa.h"
 #include <linux/delay.h>
 #include "ipa_i.h"
 
@@ -1297,7 +1297,7 @@ static int ipa_ntn_send_packet_burst(void)
 	 * ring full stats for RX
 	 */
 	ep_cfg_ctrl.ipa_ep_delay = true;
-	ret = ipa3_cfg_ep_ctrl(
+	ret = ipa_cfg_ep_ctrl(
 		ipa_get_ep_mapping(test_ntn_ctx->prod_client_type),
 		&ep_cfg_ctrl);
 	if (ret) {
@@ -1332,7 +1332,7 @@ static int ipa_ntn_send_packet_burst(void)
 	IPA_UT_DBG("sleep before removing delay\n");
 	msleep(20);
 	ep_cfg_ctrl.ipa_ep_delay = false;
-	ret = ipa3_cfg_ep_ctrl(
+	ret = ipa_cfg_ep_ctrl(
 		ipa_get_ep_mapping(test_ntn_ctx->prod_client_type),
 		&ep_cfg_ctrl);
 	if (ret) {

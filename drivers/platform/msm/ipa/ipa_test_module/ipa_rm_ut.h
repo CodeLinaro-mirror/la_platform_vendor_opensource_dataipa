@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
 * Copyright (c) 2017, The Linux Foundation. All rights reserved.
+* Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
 */
 
 #ifndef _IPA_RM_UT_H_
@@ -13,7 +14,7 @@
  */
 
 #include <linux/msm_ipa.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 
 int build_rmnet_bridge_use_case_graph(
 		int (*create_resource)(struct ipa_rm_create_params *create_params),

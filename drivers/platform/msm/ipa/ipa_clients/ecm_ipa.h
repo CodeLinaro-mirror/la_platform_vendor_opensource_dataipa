@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _ECM_IPA_H_
 #define _ECM_IPA_H_
 
-#include <linux/ipa.h>
+#include "ipa.h"
 
 /*
  * @priv: private data given upon ipa_connect

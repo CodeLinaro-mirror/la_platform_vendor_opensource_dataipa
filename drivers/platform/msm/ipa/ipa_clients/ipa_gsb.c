@@ -18,13 +18,12 @@
 #include <linux/types.h>
 #include <linux/ipv6.h>
 #include <net/addrconf.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <linux/cdev.h>
-#include <linux/ipa_odu_bridge.h>
+#include "ipa_odu_bridge.h"
 #include "ipa_common_i.h"
 #include "ipa_pm.h"
 #include "ipa_i.h"
-#include <linux/ipa_fmwk.h>
 
 #define IPA_GSB_DRV_NAME "ipa_gsb"
 #define IPA_GSB_MAX_MSG_LEN 512
@@ -392,7 +391,7 @@ static int ipa_gsb_commit_partial_hdr(struct ipa_gsb_iface_info *iface_info)
 				IPA_GSB_SKB_DUMMY_HEADER) = htons(ETH_P_IPV6);
 	}
 
-	if (ipa3_add_hdr(hdr)) {
+	if (ipa_add_hdr(hdr)) {
 		IPA_GSB_ERR("fail to add partial headers\n");
 		kfree(hdr);
 		return -EFAULT;
@@ -425,7 +424,7 @@ static void ipa_gsb_delete_partial_hdr(struct ipa_gsb_iface_info *iface_info)
 	del_hdr->hdl[IPA_IP_v4].hdl = iface_info->partial_hdr_hdl[IPA_IP_v4];
 	del_hdr->hdl[IPA_IP_v6].hdl = iface_info->partial_hdr_hdl[IPA_IP_v6];
 
-	if (ipa3_del_hdr(del_hdr) != 0)
+	if (ipa_del_hdr(del_hdr) != 0)
 		IPA_GSB_ERR("failed to delete partial hdr\n");
 
 	IPA_GSB_DBG("deleted partial hdr hdl for ipv4: %d\n",
@@ -479,7 +478,7 @@ static int ipa_gsb_reg_intf_props(struct ipa_gsb_iface_info *iface_info)
 	rx_prop[1].attrib.meta_data = iface_info->iface_hdl;
 	rx_prop[1].attrib.meta_data_mask = 0xFF;
 
-	if (ipa3_register_intf(iface_info->netdev_name, &tx, &rx)) {
+	if (ipa_register_intf(iface_info->netdev_name, &tx, &rx)) {
 		IPA_GSB_ERR("fail to add interface prop\n");
 		return -EFAULT;
 	}
@@ -489,7 +488,7 @@ static int ipa_gsb_reg_intf_props(struct ipa_gsb_iface_info *iface_info)
 
 static void ipa_gsb_dereg_intf_props(struct ipa_gsb_iface_info *iface_info)
 {
-	if (ipa3_deregister_intf(iface_info->netdev_name) != 0)
+	if (ipa_deregister_intf(iface_info->netdev_name) != 0)
 		IPA_GSB_ERR("fail to dereg intf props\n");
 
 	IPA_GSB_DBG("deregistered iface props for %s\n",
@@ -548,7 +547,7 @@ fail_pm_reg:
 	return ret;
 }
 
-static int ipa_bridge_init_internal(struct ipa_bridge_init_params *params, u32 *hdl)
+int ipa_bridge_init(struct ipa_bridge_init_params *params, u32 *hdl)
 {
 	int i, ret;
 	struct ipa_gsb_iface_info *new_intf;
@@ -665,6 +664,7 @@ fail_alloc_mem:
 	mutex_unlock(&ipa_gsb_ctx->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa_bridge_init);
 
 static void ipa_gsb_deregister_pm(void)
 {
@@ -674,7 +674,7 @@ static void ipa_gsb_deregister_pm(void)
 	ipa_gsb_ctx->pm_hdl = ~0;
 }
 
-static int ipa_bridge_cleanup_internal(u32 hdl)
+int ipa_bridge_cleanup(u32 hdl)
 {
 	int i;
 
@@ -733,6 +733,7 @@ static int ipa_bridge_cleanup_internal(u32 hdl)
 	mutex_unlock(&ipa_gsb_ctx->lock);
 	return 0;
 }
+EXPORT_SYMBOL(ipa_bridge_cleanup);
 
 static void ipa_gsb_cons_cb(void *priv, enum ipa_dp_evt_type evt,
 	unsigned long data)
@@ -908,7 +909,7 @@ fail_prod:
 	return res;
 }
 
-static int ipa_bridge_connect_internal(u32 hdl)
+int ipa_bridge_connect(u32 hdl)
 {
 	int ret;
 
@@ -969,6 +970,7 @@ static int ipa_bridge_connect_internal(u32 hdl)
 	mutex_unlock(&ipa_gsb_ctx->iface_lock[hdl]);
 	return 0;
 }
+EXPORT_SYMBOL(ipa_bridge_connect);
 
 static int ipa_gsb_disconnect_sys_pipe(void)
 {
@@ -994,7 +996,7 @@ static int ipa_gsb_disconnect_sys_pipe(void)
 	return 0;
 }
 
-static int ipa_bridge_disconnect_internal(u32 hdl)
+int ipa_bridge_disconnect(u32 hdl)
 {
 	int ret = 0;
 
@@ -1061,8 +1063,9 @@ fail:
 	mutex_unlock(&ipa_gsb_ctx->iface_lock[hdl]);
 	return ret;
 }
+EXPORT_SYMBOL(ipa_bridge_disconnect);
 
-static int ipa_bridge_resume_internal(u32 hdl)
+int ipa_bridge_resume(u32 hdl)
 {
 	int ret;
 
@@ -1128,8 +1131,9 @@ static int ipa_bridge_resume_internal(u32 hdl)
 	mutex_unlock(&ipa_gsb_ctx->iface_lock[hdl]);
 	return 0;
 }
+EXPORT_SYMBOL(ipa_bridge_resume);
 
-static int ipa_bridge_suspend_internal(u32 hdl)
+int ipa_bridge_suspend(u32 hdl)
 {
 	int ret;
 
@@ -1170,7 +1174,7 @@ static int ipa_bridge_suspend_internal(u32 hdl)
 
 	mutex_lock(&ipa_gsb_ctx->lock);
 	if (ipa_gsb_ctx->num_resumed_iface == 1) {
-		ret = ipa3_stop_gsi_channel(
+		ret = ipa_stop_gsi_channel(
 			ipa_gsb_ctx->cons_hdl);
 		if (ret) {
 			IPA_GSB_ERR(
@@ -1202,8 +1206,9 @@ static int ipa_bridge_suspend_internal(u32 hdl)
 	mutex_unlock(&ipa_gsb_ctx->iface_lock[hdl]);
 	return 0;
 }
+EXPORT_SYMBOL(ipa_bridge_suspend);
 
-static int ipa_bridge_set_perf_profile_internal(u32 hdl, u32 bandwidth)
+int ipa_bridge_set_perf_profile(u32 hdl, u32 bandwidth)
 {
 	int ret;
 
@@ -1229,8 +1234,9 @@ static int ipa_bridge_set_perf_profile_internal(u32 hdl, u32 bandwidth)
 	mutex_unlock(&ipa_gsb_ctx->iface_lock[hdl]);
 	return ret;
 }
+EXPORT_SYMBOL(ipa_bridge_set_perf_profile);
 
-static int ipa_bridge_tx_dp_internal(u32 hdl, struct sk_buff *skb,
+int ipa_bridge_tx_dp(u32 hdl, struct sk_buff *skb,
 	struct ipa_tx_meta *metadata)
 {
 	struct ipa_gsb_mux_hdr *mux_hdr;
@@ -1291,23 +1297,7 @@ static int ipa_bridge_tx_dp_internal(u32 hdl, struct sk_buff *skb,
 
 	return 0;
 }
-
-void ipa_gsb_register(void)
-{
-	struct ipa_gsb_data funcs;
-
-	funcs.ipa_bridge_init = ipa_bridge_init_internal;
-	funcs.ipa_bridge_connect = ipa_bridge_connect_internal;
-	funcs.ipa_bridge_set_perf_profile = ipa_bridge_set_perf_profile_internal;
-	funcs.ipa_bridge_disconnect = ipa_bridge_disconnect_internal;
-	funcs.ipa_bridge_suspend = ipa_bridge_suspend_internal;
-	funcs.ipa_bridge_resume = ipa_bridge_resume_internal;
-	funcs.ipa_bridge_tx_dp = ipa_bridge_tx_dp_internal;
-	funcs.ipa_bridge_cleanup = ipa_bridge_cleanup_internal;
-
-	if (ipa_fmwk_register_gsb(&funcs))
-		pr_err("failed to register ipa_gsb APIs\n");
-}
+EXPORT_SYMBOL(ipa_bridge_tx_dp);
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("ipa gsb driver");
