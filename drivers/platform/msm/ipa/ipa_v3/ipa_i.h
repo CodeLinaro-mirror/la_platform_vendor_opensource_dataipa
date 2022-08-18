@@ -336,10 +336,20 @@ enum {
 #define IPA_WDI_CE2_RING_RES           17
 #define IPA_WDI_CE2_DB_RES             18
 #define IPA_WDI_TX2_DB_RES             19
-#define IPA_WDI_MAX_RES                20
+#define IPA_WDI_RX3_RING_RES           20
+#define IPA_WDI_RX3_RING_RP_RES        21
+#define IPA_WDI_RX3_COMP_RING_RES      22
+#define IPA_WDI_RX3_COMP_RING_WP_RES   23
+#define IPA_WDI_RX4_RING_RES           24
+#define IPA_WDI_RX4_RING_RP_RES        25
+#define IPA_WDI_RX4_COMP_RING_RES      26
+#define IPA_WDI_RX4_COMP_RING_WP_RES   27
+#define IPA_WDI_MAX_RES                28
 
 #define IPA_WDI3_TX2_DIR 4
 #define IPA_WDI3_RX2_DIR 5
+#define IPA_WDI3_RX3_DIR 6
+#define IPA_WDI3_RX4_DIR 7
 
 /* use QMAP header reserved bit to identify tethered traffic */
 #define IPA_QMAP_TETH_BIT (1 << 30)
@@ -1112,6 +1122,8 @@ struct ipa3_ep_context {
 	u32 qmi_request_sent;
 	u32 eot_in_poll_err;
 	bool ep_delay_set;
+	bool ast_update;
+	void (*ast_notify)(void *client_priv, unsigned long data);
 
 	/* sys MUST be the last element of this struct */
 	struct ipa3_sys_context *sys;
@@ -2278,7 +2290,9 @@ struct ipa_minidump_data {
  * @eth_info: ethernet client mapping
  * @max_num_smmu_cb: number of smmu s1 cb supported
  * @non_hash_flt_lcl_sys_switch: number of times non-hash flt table moved
- * mhi_ctrl_state: state of mhi ctrl pipes
+ * @mhi_ctrl_state: state of mhi ctrl pipes
+ * @is_mhi_coal_set: indicate if mhi coal pipe is connected/set
+ * @mhi_lock: lock to protect above mhi states
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  */
@@ -2523,6 +2537,8 @@ struct ipa3_context {
 	bool buff_below_thresh_for_def_pipe_notified;
 	bool buff_below_thresh_for_coal_pipe_notified;
 	u8 mhi_ctrl_state;
+	bool is_mhi_coal_set;
+	struct mutex mhi_lock;
 	struct ipa_mem_buffer uc_act_tbl;
 	bool uc_act_tbl_valid;
 	struct mutex act_tbl_lock;
@@ -3772,8 +3788,12 @@ int ipa3_send_eogre_info(
 
 /* update mhi ctrl pipe state */
 void ipa3_update_mhi_ctrl_state(u8 state, bool set);
-/* Send MHI endpoint info to modem using QMI indication message */
-int ipa_send_mhi_endp_ind_to_modem(void);
+/* Send ctrl MHI endpoint info to modem using QMI indication message */
+int ipa_send_mhi_ctrl_endp_ind_to_modem(void);
+#ifdef IPA_CLIENT_MHI_COAL_CONS
+/* Send coal MHI endpoint info to modem using QMI indication message */
+int ipa_send_mhi_coal_endp_ind_to_modem(void);
+#endif
 
 /*
  * To pass macsec mapping to the IPACM
