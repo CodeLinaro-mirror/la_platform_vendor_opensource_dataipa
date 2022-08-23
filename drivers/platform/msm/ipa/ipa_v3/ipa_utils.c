@@ -4144,6 +4144,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 7 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+	[IPA_5_0][IPA_CLIENT_WLAN2_PROD1] = {
+			true,   IPA_v5_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 7 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_NA },
 	[IPA_5_0][IPA_CLIENT_ETHERNET_PROD] = {
 			true,   IPA_v5_0_GROUP_UL,
 			true,
@@ -4269,6 +4276,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
 			QMB_MASTER_SELECT_DDR,
 			{ 7, 17, 8, 16, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_NA },
+	[IPA_5_0][IPA_CLIENT_WLAN3_PROD1] = {
+			true,   IPA_v5_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 11 , 27, 13 , 20, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 
 	[IPA_5_0][IPA_CLIENT_APPS_LAN_CONS] = {
@@ -4576,13 +4590,15 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 16, 13, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_UL },
-	[IPA_5_0_MHI][IPA_CLIENT_APPS_WAN_COAL_CONS] = {
+#ifdef IPA_CLIENT_MHI_COAL_CONS
+	[IPA_5_0_MHI][IPA_CLIENT_MHI_COAL_CONS] = {
 			true,   IPA_v5_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
-			QMB_MASTER_SELECT_DDR,
+			QMB_MASTER_SELECT_PCIE,
 			{ 22, 4 , 8 , 11, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
+#endif
 	[IPA_5_0_MHI][IPA_CLIENT_APPS_WAN_CONS] = {
 			true,   IPA_v5_0_GROUP_DL,
 			false,
@@ -6103,7 +6119,7 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.modem_hdr_proc_ctx_size = 0xb20,
 	.apps_hdr_proc_ctx_ofst = 0x2660,
 	.apps_hdr_proc_ctx_size = 0x200,
-	.apps_hdr_proc_ctx_size_ddr = 0x0,
+	.apps_hdr_proc_ctx_size_ddr = 0x2000,
 	.stats_quota_q6_ofst = 0x2868,
 	.stats_quota_q6_size = 0x60,
 	.stats_quota_ap_ofst = 0x28C8,
@@ -6448,7 +6464,9 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_MHI_PRIME_RMNET_PROD),
 	__stringify(IPA_CLIENT_MHI_PRIME_RMNET_CONS),
 	__stringify(IPA_CLIENT_MHI_PRIME_DPL_PROD),
-	__stringify(RESERVERD_CONS_101),
+#ifdef IPA_CLIENT_MHI_COAL_CONS
+	__stringify(IPA_CLIENT_MHI_COAL_CONS),
+#endif
 	__stringify(IPA_CLIENT_AQC_ETHERNET_PROD),
 	__stringify(IPA_CLIENT_AQC_ETHERNET_CONS),
 	__stringify(IPA_CLIENT_APPS_WAN_LOW_LAT_PROD),
@@ -7024,7 +7042,13 @@ void _ipa_sram_settings_read_v3_0(void)
 	ipa3_ctx->smem_restricted_bytes *= 8;
 	ipa3_ctx->smem_sz *= 8;
 	ipa3_ctx->smem_reqd_sz = IPA_MEM_PART(end_ofst);
-	ipa3_ctx->hdr_proc_ctx_tbl_lcl = true;
+
+	if (ipa3_ctx->is_dual_pine_config) {
+		ipa3_ctx->hdr_proc_ctx_tbl_lcl = false;
+	}
+	else {
+		ipa3_ctx->hdr_proc_ctx_tbl_lcl = true;
+	}
 
 	/*
 	 * when proc ctx table is located in internal memory,
@@ -13263,7 +13287,7 @@ done:
 }
 
 /* Send MHI endpoint info to modem using QMI indication message */
-int ipa_send_mhi_endp_ind_to_modem(void)
+int ipa_send_mhi_ctrl_endp_ind_to_modem(void)
 {
 	struct ipa_endp_desc_indication_msg_v01 req;
 	struct ipa_ep_id_type_v01 *ep_info;
@@ -13272,16 +13296,16 @@ int ipa_send_mhi_endp_ind_to_modem(void)
 	int ipa_mhi_cons_ep_idx =
 		ipa3_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_CONS);
 
-	mutex_lock(&ipa3_ctx->lock);
+	mutex_lock(&ipa3_ctx->mhi_lock);
 	/* only modem up and MHI ctrl pipes are ready, then send QMI*/
 	if (!ipa3_ctx->is_modem_up ||
 		ipa3_ctx->mhi_ctrl_state != IPA_MHI_CTRL_SETUP_ALL) {
-		mutex_unlock(&ipa3_ctx->lock);
+		mutex_unlock(&ipa3_ctx->mhi_lock);
 		return 0;
 	}
-	mutex_unlock(&ipa3_ctx->lock);
+	mutex_unlock(&ipa3_ctx->mhi_lock);
 
-	IPADBG("Sending MHI end point indication to modem\n");
+	IPADBG("Sending MHI ctrl end point indication to modem\n");
 	memset(&req, 0, sizeof(struct ipa_endp_desc_indication_msg_v01));
 	req.ep_info_len = 2;
 	req.ep_info_valid = true;
@@ -13300,15 +13324,48 @@ int ipa_send_mhi_endp_ind_to_modem(void)
 	return ipa3_qmi_send_endp_desc_indication(&req);
 }
 
+#ifdef IPA_CLIENT_MHI_COAL_CONS
+int ipa_send_mhi_coal_endp_ind_to_modem(void) {
+	struct ipa_endp_desc_indication_msg_v01 req;
+	struct ipa_ep_id_type_v01 *ep_info;
+	int ipa_mhi_coal_ep_idx =
+		ipa3_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS);
+
+	mutex_lock(&ipa3_ctx->mhi_lock);
+	/* only modem up and coal pipe is ready, then send QMI*/
+	if (!ipa3_ctx->is_modem_up || !ipa3_ctx->is_mhi_coal_set) {
+		IPADBG("modem or coal not ready, is_modem_up = %d, mhi_coal_set =%d\n",
+			ipa3_ctx->is_modem_up, ipa3_ctx->is_mhi_coal_set);
+		mutex_unlock(&ipa3_ctx->mhi_lock);
+		return 0;
+	}
+	mutex_unlock(&ipa3_ctx->mhi_lock);
+
+	IPADBG("Sending MHI coal end point indication to modem\n");
+	memset(&req, 0, sizeof(struct ipa_endp_desc_indication_msg_v01));
+	req.ep_info_len = 1;
+	req.ep_info_valid = true;
+	req.num_eps_valid = true;
+	req.num_eps = 1;
+	ep_info = &req.ep_info[0];
+	ep_info->ep_id = ipa_mhi_coal_ep_idx;
+	ep_info->ic_type = DATA_IC_TYPE_MHI_V01;
+	ep_info->ep_type = DATA_EP_DESC_TYPE_RSC_PROD_V01;
+	ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+	return ipa3_qmi_send_endp_desc_indication(&req);
+}
+EXPORT_SYMBOL(ipa_send_mhi_coal_endp_ind_to_modem);
+#endif
+
 void ipa3_update_mhi_ctrl_state(u8 state, bool set)
 {
-	mutex_lock(&ipa3_ctx->lock);
+	mutex_lock(&ipa3_ctx->mhi_lock);
 	if (set)
 		ipa3_ctx->mhi_ctrl_state |= state;
 	else
 		ipa3_ctx->mhi_ctrl_state &= ~state;
-	mutex_unlock(&ipa3_ctx->lock);
-	ipa_send_mhi_endp_ind_to_modem();
+	mutex_unlock(&ipa3_ctx->mhi_lock);
+	ipa_send_mhi_ctrl_endp_ind_to_modem();
 }
 EXPORT_SYMBOL(ipa3_update_mhi_ctrl_state);
 /**
