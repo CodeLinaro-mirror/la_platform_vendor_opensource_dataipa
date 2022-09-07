@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -56,6 +58,8 @@
  *                                 monitor.
  * IPA_CPU_2_HW_CMD_DISABLE_HOLB_MONITOR: Command to disable HOLB monitoring.
  * IPA_CPU_2_HW_CMD_ADD_EOGRE_MAPPING: Command to create/update GRE mapping
+ * IPA_CPU_2_HW_CMD_SEND_MHI_PIPE: Command to update channel info to uC to
+ *			offload suspend/resume functionality in cesta mode.
  */
 enum ipa3_cpu_2_hw_commands {
 	IPA_CPU_2_HW_CMD_NO_OP                     =
@@ -100,6 +104,8 @@ enum ipa3_cpu_2_hw_commands {
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 20),
 	IPA_CPU_2_HW_CMD_ADD_EOGRE_MAPPING             =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 21),
+        IPA_CPU_2_HW_CMD_SEND_MHI_PIPE  =
+                FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 22),
 };
 
 /**
@@ -1984,6 +1990,92 @@ int ipa3_uc_send_update_flow_control(uint32_t bitmask,
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	return res;
 }
+
+/**
+ * This function updates the MHI channel info to uC mainly to offload
+ * suspend/resume functionality in case of cesta enable mode.
+ */
+
+int ipa3_uc_send_mhi_cesta_pipe_info(enum ipa_client_type clnt_type, bool connect)
+{
+	int ipa_ep_idx;
+	int result = 0;
+	u32 gsi_chan_num;
+	struct ipa_mem_buffer cmd;
+	struct IpaMhiCh_t *cmd_data, *ch_data;
+
+	if(!ipa3_uc_loaded_check()) {
+		IPAERR("In CESTA enable mode, IPA uC is not loaded yet.\n");
+		result = -EFAULT;
+		return result;
+	}
+
+	cmd.size = sizeof(*cmd_data);
+	cmd.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, cmd.size,
+			&cmd.phys_base, GFP_KERNEL);
+	if (cmd.base == NULL) {
+		IPAERR("failed to alloc DMA memory.\n");
+		return -ENOMEM;
+	}
+
+	cmd_data = (struct IpaMhiCh_t *)cmd.base;
+
+	ipa_ep_idx = ipa3_get_ep_mapping(clnt_type);
+	gsi_chan_num = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
+
+	/* get the address of cmd variable defined in uc_ctx & populate below info.*/
+	ch_data = &ipa3_ctx->uc_ctx.curr_cmd;
+
+	if(connect) {
+		ch_data->ipaMhiChInfo[gsi_chan_num].enabled = 1;
+		ch_data->numMhiCh++;
+		if(ipa_ep_idx < 32) {
+			ch_data->mhiEpBitMask0 |= (ipahal_get_ep_bit(ipa_ep_idx));
+		}
+		else {
+			ch_data->mhiEpBitMask1 |= (ipahal_get_ep_bit(ipa_ep_idx));
+		}
+	}
+
+	else {
+		ch_data->ipaMhiChInfo[gsi_chan_num].enabled = 0;
+		ch_data->numMhiCh--;
+		if(ipa_ep_idx < 32) {
+			ch_data->mhiEpBitMask0 &= (~(ipahal_get_ep_bit(ipa_ep_idx)));
+		}
+		else {
+			ch_data->mhiEpBitMask1 &= (~(ipahal_get_ep_bit(ipa_ep_idx)));
+		}
+	}
+
+	if(IPA_CLIENT_IS_MHI_PROD(clnt_type))
+		ch_data->ipaMhiChInfo[gsi_chan_num].chType = MHI_CHTYPE_OUTBOUND;
+	else if(IPA_CLIENT_IS_MHI_CONS(clnt_type))
+		ch_data->ipaMhiChInfo[gsi_chan_num].chType = MHI_CHTYPE_INBOUND;
+#ifdef IPA_CLIENT_MHI_COAL_CONS
+	else if(IPA_CLIENT_IS_MHI_COAL_CONS(clnt_type))
+		ch_data->ipaMhiChInfo[gsi_chan_num].chType = MHI_CHTYPE_INBOUND_COALESCED;
+#endif
+	else
+		ch_data->ipaMhiChInfo[gsi_chan_num].chType = MHI_CHTYPE_INVALID;
+
+
+	/* memcpy the above populated ch_data cmd to cmd_data for uC.*/
+	memcpy(cmd_data, ch_data, sizeof(struct IpaMhiCh_t));
+	result = ipa3_uc_send_cmd((u32)(cmd.phys_base),
+				IPA_CPU_2_HW_CMD_SEND_MHI_PIPE,
+				0,
+				false, 10*HZ);
+	if (result) {
+		IPAERR("uc send mhi cesta pipe info cmd failed\n");
+		result = -EFAULT;
+	}
+
+	dma_free_coherent(ipa3_ctx->uc_pdev, cmd.size, cmd.base, cmd.phys_base);
+	return result;
+}
+
+EXPORT_SYMBOL(ipa3_uc_send_mhi_cesta_pipe_info);
 
 /**
  * ipa3_add_dscp_vlan_pcp_map() - Feed "vlan/pcp to dscp" map into the IPA uC
