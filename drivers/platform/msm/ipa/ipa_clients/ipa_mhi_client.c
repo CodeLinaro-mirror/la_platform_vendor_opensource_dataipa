@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -134,6 +135,7 @@ struct ipa_mhi_client_ctx {
 	bool test_mode;
 	u32 pm_hdl;
 	u32 modem_pm_hdl;
+	enum ipa_mhi_mstate mhi_mstate;
 };
 
 static struct ipa_mhi_client_ctx *ipa_mhi_client_ctx;
@@ -1334,9 +1336,9 @@ static int ipa_mhi_connect_pipe_internal(struct ipa_mhi_connect_params *in, u32 
 
 	return 0;
 fail_connect_pipe:
-	mutex_unlock(&mhi_client_general_mutex);
 	ipa_mhi_reset_channel(channel, true);
 fail_start_channel:
+	mutex_unlock(&mhi_client_general_mutex);
 	IPA_ACTIVE_CLIENTS_DEC_EP(in->sys.client);
 	return -EPERM;
 }
@@ -1489,7 +1491,8 @@ static int ipa_mhi_resume_channels(bool LPTransitionRejected,
 		struct ipa_mhi_channel_ctx *channels, int max_channels)
 {
 	int i;
-	int res;
+	int res = 0;
+	bool is_switch_to_dbmode;
 	struct ipa_mhi_channel_ctx *channel;
 
 	IPA_MHI_FUNC_ENTRY();
@@ -1500,11 +1503,41 @@ static int ipa_mhi_resume_channels(bool LPTransitionRejected,
 		    !channels[i].stop_in_proc)
 			continue;
 		channel = &channels[i];
-		IPA_MHI_DBG("resuming channel %d\n", channel->id);
+		mutex_lock(&mhi_client_general_mutex);
+		IPA_MHI_DBG("resuming channel %d, mstate = %d\n",
+			channel->id, ipa_mhi_client_ctx->mhi_mstate);
+		switch (ipa_mhi_client_ctx->mhi_mstate) {
+		case IPA_MHI_STATE_M3:
+			is_switch_to_dbmode = true;
+			break;
+		case IPA_MHI_STATE_M2:
+		case IPA_MHI_STATE_M1:
+			is_switch_to_dbmode = false;
+			break;
+		case IPA_MHI_STATE_M0:
+			IPA_MHI_ERR("Resume in M0 - not expected\n");
+			res = -EINVAL;
+			break;
+		case IPA_MHI_STATE_M_MAX:
+			IPA_MHI_ERR("No knowledge of M state\n");
+			res = -EINVAL;
+			break;
+		default:
+			IPA_MHI_ERR("Unknown Mstart %d\n",
+				ipa_mhi_client_ctx->mhi_mstate);
+			res = -EINVAL;
+			break;
+		}
+		mutex_unlock(&mhi_client_general_mutex);
 
+		if (res)
+			return res;
+
+		IPA_MHI_DBG("is DB mode? %d\n", is_switch_to_dbmode);
 		res = ipa3_mhi_resume_channels_internal(channel->client,
 			LPTransitionRejected, channel->brstmode_enabled,
-			channel->ch_scratch, channel->index);
+			channel->ch_scratch, channel->index,
+			is_switch_to_dbmode);
 
 		if (res) {
 			IPA_MHI_ERR("failed to resume channel %d error %d\n",
@@ -2213,6 +2246,7 @@ static int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 	ipa_mhi_client_ctx->use_ipadma = true;
 	ipa_mhi_client_ctx->assert_bit40 = !!params->assert_bit40;
 	ipa_mhi_client_ctx->test_mode = params->test_mode;
+	ipa_mhi_client_ctx->mhi_mstate = IPA_MHI_STATE_M0;
 
 	ipa_mhi_client_ctx->wq = create_singlethread_workqueue("ipa_mhi_wq");
 	if (!ipa_mhi_client_ctx->wq) {
@@ -2288,6 +2322,41 @@ int ipa_mhi_is_using_dma(bool *flag)
 	return 0;
 }
 
+/**
+ * ipa_mhi_update_mstate() - Provides M state info
+ * @mstate_info:
+ *	state_m0:  in case of resume happening because of mhi going
+ *		into M0 state.
+ *	state_m2:  in case of suspend/resume happening because of mhi going
+ *		into M2 state.
+ *	state_m3:  in case of suspend/resume happening because of mhi going
+ *		into M3 state.
+ *
+ * This function is called by MHI client driver before MHI suspend/ resume.
+ * This function is called before MHI suspend or after MHI resume.
+ * When this function returns device can move to M1/M2/M3/D3cold state.
+ *
+ * Return codes: 0	  : success
+ *		 negative : error
+ */
+int ipa_mhi_update_mstate_internal(enum ipa_mhi_mstate mstate_info)
+{
+	IPA_MHI_FUNC_ENTRY();
+
+	if (!ipa_mhi_client_ctx) {
+		IPA_MHI_ERR("ipa_mhi_client_ctx not created yet %d mstate\n",
+			mstate_info);
+		return -EPERM;
+	}
+
+	IPA_MHI_DBG("Req update mstate to %d\n", mstate_info);
+	mutex_lock(&mhi_client_general_mutex);
+	ipa_mhi_client_ctx->mhi_mstate = mstate_info;
+	mutex_unlock(&mhi_client_general_mutex);
+	IPA_MHI_FUNC_EXIT();
+	return 0;
+}
+
 void ipa_mhi_register(void)
 {
 	struct ipa_mhi_data funcs;
@@ -2300,7 +2369,7 @@ void ipa_mhi_register(void)
 	funcs.ipa_mhi_resume = ipa_mhi_resume_internal;
 	funcs.ipa_mhi_destroy = ipa_mhi_destroy_internal;
 	funcs.ipa_mhi_handle_ipa_config_req = ipa_mhi_handle_ipa_config_req_cb;
-
+	funcs.ipa_mhi_update_mstate = ipa_mhi_update_mstate_internal;
 	if (ipa_fmwk_register_ipa_mhi(&funcs))
 		pr_err("failed to register ipa_mhi APIs\n");
 }
