@@ -242,9 +242,18 @@ struct ipahal_imm_cmd_ip_packet_init {
  * @cs_disable: true - disabled, false - enabled
  * @quota_tethering_stats_disable: true - disabled, false - enabled
  * fields @flt_rt_tbl_idx - @flt_retain_hdr are a logical software translation
- * of ipa5_0_flt_rule_hw_hdr.
+ * of ipa5_0_flt_rule_hw_hdr/ipa5_5_flt_rule_hw_hdr
  * fields @rt_pipe_dest_idx - @rt_system are a logical software translation
- * ipa5_0_rt_rule_hw_hdr
+ * ipa5_0_rt_rule_hw_hdr/ipa5_5_flt_rule_hw_hdr
+ * @dpl_disable: true - disabled, false - enabled, valid from IPAv5_5.
+ * @flt_ext_hdr: true - flt ext_hdr enabled, false - disabled. Note all fields of
+ * ext header are valid in immediate command irrespective of this flag.
+ * fields @flt_ttl - @flt_qos_class are a logical software translation
+ * of ipa5_5_flt_rule_hw_hdr_ext.
+ * @rt_ext_hdr: true - rt ext_hdr enabled, false - disabled. Note all fields of
+ * ext header are valid in immediate command irrespective of this flag.
+ * fields @rt_ttl - @rt_skip_ingress are a logical software translation
+ * ipa5_5_rt_rule_hw_hdr_ext
  */
 struct ipahal_imm_cmd_ip_packet_init_ex {
 	bool frag_disable;
@@ -270,6 +279,14 @@ struct ipahal_imm_cmd_ip_packet_init_ex {
 	bool rt_proc_ctx;
 	bool rt_retain_hdr;
 	bool rt_system;
+	bool dpl_disable;
+	bool flt_ext_hdr;
+	bool flt_ttl;
+	u8 flt_qos_class;
+	bool rt_ext_hdr;
+	bool rt_ttl;
+	u8 rt_qos_class;
+	bool rt_skip_ingress;
 };
 
 /*
@@ -525,6 +542,7 @@ enum ipahal_pkt_status_exception {
 	IPAHAL_PKT_STATUS_EXCEPTION_IPTYPE,
 	IPAHAL_PKT_STATUS_EXCEPTION_PACKET_LENGTH,
 	IPAHAL_PKT_STATUS_EXCEPTION_PACKET_THRESHOLD,
+	IPAHAL_PKT_STATUS_EXCEPTION_TTL,
 	IPAHAL_PKT_STATUS_EXCEPTION_FRAG_RULE_MISS,
 	IPAHAL_PKT_STATUS_EXCEPTION_SW_FILT,
 	/*
@@ -535,6 +553,7 @@ enum ipahal_pkt_status_exception {
 	IPAHAL_PKT_STATUS_EXCEPTION_IPV6CT,
 	IPAHAL_PKT_STATUS_EXCEPTION_UCP,
 	IPAHAL_PKT_STATUS_EXCEPTION_INVALID_PIPE,
+	IPAHAL_PKT_STATUS_EXCEPTION_RQOS,
 	IPAHAL_PKT_STATUS_EXCEPTION_HDRI,
 	IPAHAL_PKT_STATUS_EXCEPTION_CSUM,
 	IPAHAL_PKT_STATUS_EXCEPTION_MAX,
@@ -581,11 +600,17 @@ enum ipahal_pkt_status_mask {
 	IPAHAL_PKT_STATUS_MASK_CKSUM_PROCESS_SHFT,
 	IPAHAL_PKT_STATUS_MASK_AGGR_PROCESS_SHFT,
 	IPAHAL_PKT_STATUS_MASK_DEST_EOT_SHFT,
+	IPAHAL_PKT_STATUS_MASK_OPENED_FRAME_SHFT =
+		IPAHAL_PKT_STATUS_MASK_DEST_EOT_SHFT,
 	IPAHAL_PKT_STATUS_MASK_DEAGGR_PROCESS_SHFT,
 	IPAHAL_PKT_STATUS_MASK_DEAGG_FIRST_SHFT,
 	IPAHAL_PKT_STATUS_MASK_SRC_EOT_SHFT,
 	IPAHAL_PKT_STATUS_MASK_PREV_EOT_SHFT,
+	IPAHAL_PKT_STATUS_MASK_RQOS_NAS_SHFT =
+		IPAHAL_PKT_STATUS_MASK_PREV_EOT_SHFT,
 	IPAHAL_PKT_STATUS_MASK_BYTE_LIMIT_SHFT,
+	IPAHAL_PKT_STATUS_MASK_RQOS_AS_SHFT =
+		IPAHAL_PKT_STATUS_MASK_BYTE_LIMIT_SHFT,
 };
 
 /*
@@ -662,6 +687,17 @@ enum ipahal_pkt_status_nat_type {
  * @ip_id: IP packet IP ID number.
  * @tlated_ip_addr: IP address.
  * @ip_cksum_diff: IP packet checksum difference.
+ * @hdr_ret: l2 header retained flag, indicates whether l2 header is retained
+ * or not.
+ * @ll: low latency indication.
+ * @tsp: Traffic shaping policing flag, indicates traffic class info
+ * overwrites tag info.
+ * @ttl_dec: ttl update flag, indicates whether ttl is updated.
+ * @nat_exc_suppress: nat exception supress flag, indicates whether
+ * nat exception is suppressed.
+ * @ingress_tc: Ingress traffic class index.
+ * @egress_tc: Egress traffic class index.
+ * @pd: router disabled ingress policer.
  */
 struct ipahal_pkt_status {
 	u64 tag_info;
@@ -701,7 +737,14 @@ struct ipahal_pkt_status {
 	u16 ip_id;
 	u32 tlated_ip_addr;
 	u16 ip_cksum_diff;
-
+	bool hdr_ret;
+	bool ll;
+	bool tsp;
+	bool ttl_dec;
+	bool nat_exc_suppress;
+	u8 ingress_tc;
+	u8 egress_tc;
+	bool pd;
 };
 
 /*
@@ -810,5 +853,296 @@ u32 ipahal_get_ep_bit(u32 ep_num);
 * ipahal_get_ep_reg_idx() - get ep reg index according to ep num
 */
 u32 ipahal_get_ep_reg_idx(u32 ep_num);
+
+/*
+ * ***************************************************************
+ *
+ * To follow, a generalized qmap header manipulation API.
+ *
+ * ***************************************************************
+ */
+/**
+ * qmap_hdr_v4_5 -
+ *
+ * @cd -
+ * @qmap_next_hdr -
+ * @pad -
+ * @mux_id -
+ * @packet_len_with_pad -
+ * @hdr_type -
+ * @coal_next_hdr -
+ * @zero_checksum -
+ *
+ * The following bit layout is when the data are in host order.
+ *
+ * FIXME FINDME Need to be reordered properly to reflect network
+ *              ordering as seen by little endian host (qmap_hdr_v5_5
+ *              below proplerly done).
+ */
+struct qmap_hdr_v4_5 {
+	/*
+	 * 32 bits of qmap header to follow
+	 */
+	u64 cd: 1;
+	u64 qmap_next_hdr: 1;
+	u64 pad: 6;
+	u64 mux_id: 8;
+	u64 packet_len_with_pad: 16;
+	/*
+	 * 32 bits of coalescing frame header to follow
+	 */
+	u64 hdr_type: 7;
+	u64 coal_next_hdr: 1;
+	u64 zero_checksum: 1;
+	u64 rsrvd1: 7;
+	u64 rsrvd2: 16;
+} __packed;
+
+/**
+ * qmap_hdr_v5_0 -
+ *
+ * @cd -
+ * @qmap_next_hdr -
+ * @pad -
+ * @mux_id -
+ * @packet_len_with_pad -
+ * @hdr_type -
+ * @coal_next_hdr -
+ * @ip_id_cfg -
+ * @zero_checksum -
+ * @additional_hdr_size -
+ * @segment_size -
+ *
+ * The following bit layout is when the data are in host order.
+ *
+ * FIXME FINDME Need to be reordered properly to reflect network
+ *              ordering as seen by little endian host (qmap_hdr_v5_5
+ *              below proplerly done).
+ */
+struct qmap_hdr_v5_0 {
+	/*
+	 * 32 bits of qmap header to follow
+	 */
+	u64 cd: 1;
+	u64 qmap_next_hdr: 1;
+	u64 pad: 6;
+	u64 mux_id: 8;
+	u64 packet_len_with_pad: 16;
+	/*
+	 * 32 bits of coalescing frame header to follow
+	 */
+	u64 hdr_type: 7;
+	u64 coal_next_hdr: 1;
+	u64 ip_id_cfg: 1;
+	u64 zero_checksum: 1;
+	u64 rsrvd: 1;
+	u64 additional_hdr_size: 5;
+	u64 segment_size: 16;
+} __packed;
+
+/**
+ * qmap_hdr_v5_5 -
+ *
+ * @cd -
+ * @qmap_next_hdr -
+ * @pad -
+ * @mux_id -
+ * @packet_len_with_pad -
+ * @hdr_type -
+ * @coal_next_hdr -
+ * @chksum_valid -
+ * @num_nlos -
+ * @inc_ip_id -
+ * @rnd_ip_id -
+ * @close_value -
+ * @close_type -
+ * @vcid -
+ *
+ * NOTE:
+ *
+ *   The layout below is different when compared against
+ *   documentation, which shows the fields as they are in network byte
+ *   order - and network byte order is how we receive the data from
+ *   the IPA.  To avoid using cycles converting from network to host
+ *   order, we've defined the stucture below such that we can access
+ *   the correct fields while the data are still in network order.
+ */
+struct qmap_hdr_v5_5 {
+	/*
+	 * 32 bits of qmap header to follow
+	 */
+	u8 pad: 6;
+	u8 qmap_next_hdr: 1;
+	u8 cd: 1;
+	u8 mux_id;
+	u16 packet_len_with_pad;
+	/*
+	 * 32 bits of coalescing frame header to follow
+	 */
+	u8 coal_next_hdr: 1;
+	u8 hdr_type: 7;
+	u8 rsrvd1: 2;
+	u8 rnd_ip_id: 1;
+	u8 inc_ip_id: 1;
+	u8 num_nlos: 3;
+	u8 chksum_valid: 1;
+
+	u8 close_type: 4;
+	u8 close_value: 4;
+	u8 rsrvd2: 4;
+	u8 vcid: 4;
+} __packed;
+
+/**
+ * qmap_hdr_u -
+ *
+ * The following is a union of all of the qmap versions above.
+ *
+ * NOTE WELL: REMEMBER to keep it in sync with the bit strucure
+ *            definitions above.
+ */
+union qmap_hdr_u {
+	struct qmap_hdr_v4_5 qmap4_5;
+	struct qmap_hdr_v5_0 qmap5_0;
+	struct qmap_hdr_v5_5 qmap5_5;
+	u32                  words[2]; /* these used to flip from ntoh and hton */
+} __packed;
+
+/**
+ * qmap_hdr_data -
+ *
+ * The following is an aggregation of the qmap header bit structures
+ * above.
+ *
+ * NOTE WELL: REMEMBER to keep it in sync with the bit structure
+ *            definitions above.
+ */
+struct qmap_hdr_data {
+	/*
+	 * Data from qmap header to follow
+	 */
+	u8 cd;
+	u8 qmap_next_hdr;
+	u8 pad;
+	u8 mux_id;
+	u16 packet_len_with_pad;
+	/*
+	 * Data from coalescing frame header to follow
+	 */
+	u8 hdr_type;
+	u8 coal_next_hdr;
+	u8 ip_id_cfg;
+	u8 zero_checksum;
+	u8 additional_hdr_size;
+	u16 segment_size;
+	u8 chksum_valid;
+	u8 num_nlos;
+	u8 inc_ip_id;
+	u8 rnd_ip_id;
+	u8 close_value;
+	u8 close_type;
+	u8 vcid;
+};
+
+/**
+ * FUNCTION: ipahal_qmap_parse()
+ *
+ * The following function to be called when version specific qmap parsing is
+ * required.
+ *
+ * ARGUMENTS:
+ *
+ *   unparsed_qmap
+ *
+ *     The QMAP header off of a freshly recieved data packet.  As per
+ *     the architecture documentation, the data contained herein will
+ *     be in network order.
+ *
+ *   qmap_data_rslt
+ *
+ *     A location to store the parsed data from unparsed_qmap above.
+ */
+int ipahal_qmap_parse(
+	const void*           unparsed_qmap,
+	struct qmap_hdr_data* qmap_data_rslt);
+
+
+/**
+ * FUNCTION: ipahal_qmap_ntoh()
+ *
+ * The following function will take a QMAP header, which you know is
+ * in network order, and convert it to host order.
+ *
+ * NOTE WELL: Once in host order, the data will align with the bit
+ *            descriptions in the headers above.
+ *
+ * ARGUMENTS:
+ *
+ *   src_data_from_packet
+ *
+ *     The QMAP header off of a freshly recieved data packet.  As per
+ *     the architecture documentation, the data contained herein will
+ *     be in network order.
+ *
+ *  dst_result
+ *
+ *    A location to where the original data will be copied, then
+ *    converted to host order.
+ */
+static inline void ipahal_qmap_ntoh(
+	const void*       src_data_from_packet,
+	union qmap_hdr_u* dst_result)
+{
+	/*
+	 * Nothing to do, since we define the bit fields in the
+	 * structure, such that we can access them correctly while
+	 * keeping the data in network order...
+	 */
+	if (src_data_from_packet && dst_result) {
+		memcpy(
+			dst_result,
+			src_data_from_packet,
+			sizeof(union qmap_hdr_u));
+	}
+}
+
+/**
+ * FUNCTION: ipahal_qmap_hton()
+ *
+ * The following function will take QMAP data, that you've assembled
+ * in host otder (ie. via using the bit structures definitions above),
+ * and convert it to network order.
+ *
+ * This function is to be used for QMAP data destined for network
+ * transmission.
+ *
+ * ARGUMENTS:
+ *
+ *   src_data_from_host
+ *
+ *     QMAP data in host order.
+ *
+ *  dst_result
+ *
+ *    A location to where the host ordered data above will be copied,
+ *    then converted to network order.
+ */
+static inline void ipahal_qmap_hton(
+	union qmap_hdr_u* src_data_from_host,
+	void*             dst_result)
+{
+	if (src_data_from_host && dst_result) {
+		memcpy(
+			dst_result,
+			src_data_from_host,
+			sizeof(union qmap_hdr_u));
+		/*
+		 * Reusing variable below to do the host to network swap...
+		 */
+		src_data_from_host = (union qmap_hdr_u*) dst_result;
+		src_data_from_host->words[0] = htonl(src_data_from_host->words[0]);
+		src_data_from_host->words[1] = htonl(src_data_from_host->words[1]);
+	}
+}
 
 #endif /* _IPAHAL_H_ */

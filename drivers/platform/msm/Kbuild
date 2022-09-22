@@ -35,7 +35,27 @@ DATAIPADRVTOP = $(srctree)/../../vendor/qcom/opensource/dataipa/drivers/platform
 LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_vendor.h
 include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI.conf
 ifeq ($(CONFIG_LOCALVERSION), "-gki-consolidate")
-include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_debug.conf
+include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI_consolidate.conf
+LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_debug.h
+endif
+endif
+
+ifeq ($(CONFIG_ARCH_KALAMA), y)
+DATAIPADRVTOP = $(srctree)/../../vendor/qcom/opensource/dataipa/drivers/platform/msm
+LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_vendor.h
+include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI.conf
+ifeq ($(CONFIG_LOCALVERSION), "-gki-consolidate")
+include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI_consolidate.conf
+LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_debug.h
+endif
+endif
+
+ifeq ($(CONFIG_ARCH_KHAJE), y)
+DATAIPADRVTOP = $(srctree)/../../vendor/qcom/opensource/dataipa/drivers/platform/msm
+LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_vendor_ipav4.h
+include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI_ipav4.conf
+ifeq ($(CONFIG_LOCALVERSION), "-gki-consolidate")
+include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI_consolidate.conf
 LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_debug.h
 endif
 endif
@@ -108,6 +128,10 @@ endif
 
 ifneq (,$(filter $(CONFIG_IPA3_REGDUMP_IPA_5_0),y m))
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3/dump/ipa5.0
+endif
+
+ifneq (,$(filter $(CONFIG_IPA3_REGDUMP_IPA_5_5),y m))
+LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3/dump/ipa5.5
 endif
 
 

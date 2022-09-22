@@ -12,7 +12,6 @@
 #include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/uaccess.h>
-#include <soc/qcom/subsystem_restart.h>
 #include <linux/ipa.h>
 #include <linux/vmalloc.h>
 
@@ -705,6 +704,12 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 		req.per_stats_smem_info.block_start_addr = ipa3_ctx->per_stats_smem_pa;
 	}
 
+	if (ipa3_ctx->platform_type != IPA_PLAT_TYPE_APQ) {
+		req.per_stats_smem_info_valid = true;
+		req.per_stats_smem_info.size = IPA_PER_STATS_SMEM_SIZE;
+		req.per_stats_smem_info.block_start_addr = ipa3_ctx->per_stats_smem_pa;
+	}
+
 	if (!ipa3_uc_loaded_check()) {  /* First time boot */
 		req.is_ssr_bootup_valid = false;
 		req.is_ssr_bootup = 0;
@@ -719,6 +724,10 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 	req.hw_filter_stats_info.hw_filter_stats_size = IPA_Q6_FNR_STATS_SIZE;
 	req.hw_filter_stats_info.hw_filter_stats_start_index = IPA_Q6_FNR_START_IDX;
 	req.hw_filter_stats_info.hw_filter_stats_end_index = IPA_Q6_FNR_END_IDX;
+
+	req.smem_info_valid = true;
+	req.smem_info.size = ipa3_ctx->ipa_smem_size;
+
 	IPAWANDBG("hw_flt stats: hw_filter_start_address = %u", req.hw_filter_stats_info.hw_filter_stats_start_addr);
 	IPAWANDBG("hw_flt stats: hw_filter_stats_size = %u", req.hw_filter_stats_info.hw_filter_stats_size);
 	IPAWANDBG("hw_flt stats: hw_filter_stats_start_index  = %u", req.hw_filter_stats_info.hw_filter_stats_start_index);
@@ -759,6 +768,8 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 		req.v4_hash_filter_tbl_start_addr);
 	IPAWANDBG("v6_hash_filter_tbl_start_addr %d\n",
 		req.v6_hash_filter_tbl_start_addr);
+	IPAWANDBG("ipa_smem_info.size %d\n",
+			req.smem_info.size);
 
 	req_desc.max_msg_len = QMI_IPA_INIT_MODEM_DRIVER_REQ_MAX_MSG_LEN_V01;
 	req_desc.msg_id = QMI_IPA_INIT_MODEM_DRIVER_REQ_V01;
@@ -987,9 +998,6 @@ int ipa3_qmi_filter_request_ex_send(
 			QMI_IPA_IP_TYPE_V6_V01))
 			return -EINVAL;
 		if (req->filter_spec_ex_list[i].is_mux_id_valid == false)
-			return -EINVAL;
-		if (req->filter_spec_ex_list[i].is_routing_table_index_valid
-			== false)
 			return -EINVAL;
 		if ((req->filter_spec_ex_list[i].filter_action <=
 			QMI_IPA_FILTER_ACTION_INVALID_V01) ||
@@ -1781,7 +1789,8 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 	/* Initialize modem IPA-driver */
 	IPAWANDBG("send ipa3_qmi_init_modem_send_sync_msg to modem\n");
 	rc = ipa3_qmi_init_modem_send_sync_msg();
-	if ((rc == -ENETRESET) || (rc == -ENODEV) || (rc == -ECONNRESET)) {
+	if ((rc == -ENETRESET) || (rc == -ENODEV) || (rc == -ECONNRESET) ||
+		atomic_read(&ipa3_ctx->is_ssr)) {
 		IPAWANERR(
 		"ipa3_qmi_init_modem_send_sync_msg failed due to SSR!\n");
 		/* Cleanup when ipa3_wwan_remove is called */
@@ -2619,6 +2628,7 @@ int ipa3_qmi_send_endp_desc_indication(
 void ipa3_qmi_init(void)
 {
 	mutex_init(&ipa3_qmi_lock);
+	nat_move_qmi_disabled = true;
 }
 
 void ipa3_qmi_cleanup(void)

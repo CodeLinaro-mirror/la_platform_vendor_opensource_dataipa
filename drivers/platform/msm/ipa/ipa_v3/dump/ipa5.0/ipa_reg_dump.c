@@ -1321,7 +1321,7 @@ void ipa_save_registers(void)
 		if (io->read == act_read) {
 			for (i = 0; i < IPA_HW_PKT_CTNTX_MAX; i++) {
 				memcpy((void *)(&(ipa_reg_save.pkt_ctntx[i])),
-				   (void*)(ipa3_ctx->reg_collection_base + HWIO_IPA_CTX_ID_m_CTX_NUM_n_ADDR(i, 0)),
+					(void*)(ipa3_ctx->reg_collection_base + HWIO_IPA_CTX_ID_m_CTX_NUM_n_ADDR(i, 0)),
 					sizeof(ipa_reg_save.pkt_ctntx[0]));
 			}
 

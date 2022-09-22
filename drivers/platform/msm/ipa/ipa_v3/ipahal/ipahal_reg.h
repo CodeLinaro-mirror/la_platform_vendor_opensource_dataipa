@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPAHAL_REG_H_
@@ -43,6 +44,7 @@ enum ipahal_reg_name {
 	IPA_STATE,
 	IPA_STATE_RX_ACTIVE,
 	IPA_STATE_TX0,
+	IPA_STATE_TSP,
 	IPA_STATE_AGGR_ACTIVE,
 	IPA_COUNTER_CFG,
 	IPA_STATE_GSI_TLV,
@@ -145,6 +147,7 @@ enum ipahal_reg_name {
 	IPA_COAL_EVICT_LRU,
 	IPA_COAL_QMAP_CFG,
 	IPA_FLAVOR_0,
+	IPA_FLAVOR_9,
 	IPA_STATE_AGGR_ACTIVE_n,
 	IPA_AGGR_FORCE_CLOSE_n,
 	IPA_STAT_QUOTA_MASK_EE_n_REG_k,
@@ -165,6 +168,20 @@ enum ipahal_reg_name {
 	IPA_ULSO_CFG_IP_ID_MIN_VALUE_n,
 	IPA_ULSO_CFG_IP_ID_MAX_VALUE_n,
 	IPA_ENDP_INIT_ULSO_CFG_n,
+	IPA_ENDP_INIT_NAT_EXC_SUPPRESS_n,
+	IPA_TSP_QM_EXTERNAL_BADDR_LSB,
+	IPA_TSP_QM_EXTERNAL_BADDR_MSB,
+	IPA_TSP_QM_EXTERNAL_SIZE,
+	IPA_TSP_INGRESS_POLICING_CFG,
+	IPA_TSP_EGRESS_POLICING_CFG,
+	IPA_STAT_TSP_DROP_BASE,
+	IPA_STATE_QMNGR_QUEUE_NONEMPTY,
+	IPA_RAM_INGRESS_POLICER_DB_BASE_ADDR,
+	IPA_RAM_EGRESS_SHAPING_PROD_DB_BASE_ADDR,
+	IPA_RAM_EGRESS_SHAPING_TC_DB_BASE_ADDR,
+	IPA_COAL_MASTER_CFG,
+	IPA_IPV4_NAT_EXC_SUPPRESS_ROUT_TABLE_INDX,
+	IPA_IPV6_CONN_TRACK_EXC_SUPPRESS_ROUT_TABLE_INDX,
 	IPA_REG_MAX,
 };
 
@@ -752,12 +769,32 @@ struct ipahal_reg_state_coal_master {
 /*
  * struct ipahal_reg_coal_evict_lru - IPA_COAL_EVICT_LRU register
  * @coal_vp_lru_thrshld: Connection that is opened below  this val
- *			 will not get evicted
+ *			 will not get evicted. valid till v5_2.
  * @coal_eviction_en: Enable eviction
+ * @coal_vp_lru_gran_sel: select the appropiate granularity out of 4 options
+ * Valid from v5_5.
+ * @coal_vp_lru_udp_thrshld: Coalescing eviction threshold. LRU VP
+ * stickness/inactivity defined by this threshold fot UDP connectiom.
+ * 0 mean all UDP's non sticky. Valid from v5_5.
+ * @coal_vp_lru_tcp_thrshld: Coalescing eviction threshold. LRU VP
+ * stickness/inactivity defined by this threshold fot TCP connection.
+ * 0 mean all TCP's non sticky. Valid from v5_5.
+ * @coal_vp_lru_udp_thrshld_en: Coalescing eviction enable for UDP connections
+ * when UDP pacjet arrived. 0-disable these evictions. Valid from v5_5.
+ * @coal_vp_lru_tcp_thrshld_en: Coalescing eviction enable for TCP connections
+ * when TCP pacjet arrived. 0-disable these evictions. Valid from v5_5.
+ * @coal_vp_lru_tcp_num: configured TCP NUM value , SW define when TCP/UDP will
+ * treat as exceed during eviction process. Valid from v5_5.
  */
 struct ipahal_reg_coal_evict_lru {
 	u32 coal_vp_lru_thrshld;
 	bool coal_eviction_en;
+	u8 coal_vp_lru_gran_sel;
+	u8 coal_vp_lru_udp_thrshld;
+	u8 coal_vp_lru_tcp_thrshld;
+	bool coal_vp_lru_udp_thrshld_en;
+	bool coal_vp_lru_tcp_thrshld_en;
+	bool coal_vp_lru_tcp_num;
 };
 
 /*
@@ -772,6 +809,24 @@ struct ipahal_reg_coal_qmap_cfg {
 };
 
 /*
+ * struct ipahal_reg_coal_master_cfg - IPA_COAL_MASTER_CFG register
+ * @coal_ipv4_id_ignore: 1 - global ignore IPV4 ID checks regardles DF,
+ * val 0 -keep checks according to DF/MF  conditions.
+ * @coal_enhanced_ipv4_id_en: 1 - if (DF == 1 && MF == 0 && frag_offset == 0)
+ * Coalescingwill ignore IPv4 identification field, else legacy behaviour
+ * is used.
+ * 0 - Coalescing will use original legacy IPv4 identification field check.
+ * @coal_force_to_default: 1 - force any new packet that arrives to coal master
+ * to default pipe, and close any open frames with the same tuple
+ * 0 - regular coalescing activity.
+ */
+struct ipahal_reg_coal_master_cfg {
+	bool coal_ipv4_id_ignore;
+	bool coal_enhanced_ipv4_id_en;
+	bool coal_force_to_default;
+};
+
+/*
  * struct ipahal_ipa_flavor_0 - IPA_FLAVOR_0 register
  * @ipa_pipes: Number of supported pipes
  * @ipa_cons_pipes: Number of consumer pipes
@@ -783,6 +838,42 @@ struct ipahal_ipa_flavor_0 {
 	u8 ipa_cons_pipes;
 	u8 ipa_prod_pipes;
 	u8 ipa_prod_lowest;
+};
+
+/*
+ * struct ipahal_ipa_flavor_9 - IPA_FLAVOR_9 register
+ * @ipa_tsp_max_ingr_tc: Maximal number of ingress (consumer-based) traffic-classes.
+ *                       Does not include invalid traffic-class 0x00.
+ * @ipa_tsp_max_egr_tc: Maximal number of egress (producer-based) traffic-classes.
+ *                      Does not include invalid traffic-class 0x00.
+ * @ipa_tsp_max_prod: Maximal number of TSP-enabled producers.
+ * @reserved: Reserved
+ */
+struct ipahal_ipa_flavor_9 {
+	u8 ipa_tsp_max_ingr_tc;
+	u8 ipa_tsp_max_egr_tc;
+	u8 ipa_tsp_max_prod;
+	u8 reserved;
+};
+
+/*
+ * struct ipahal_ipa_state_tsp - TSP engine state register
+ * @traffic_shaper_idle: Traffic-Shaper module IDLE indication
+ * @traffic_shaper_fifo_empty: Traffic-Shaper FIFO empty indication
+ * @queue_mngr_idle: QMNGR overall IDLE indication
+ * @queue_mngr_head_idle: QMNGR head module IDLE indication
+ * @queue_mngr_shared_idle: QMNGR shared module IDLE indication
+ * @queue_mngr_tail_idle: QMNGR tail module IDLE indication
+ * @queue_mngr_block_ctrl_idle: Block control module IDLE indication
+ */
+struct ipahal_ipa_state_tsp {
+	bool traffic_shaper_idle;
+	bool traffic_shaper_fifo_empty;
+	bool queue_mngr_idle;
+	bool queue_mngr_head_idle;
+	bool queue_mngr_shared_idle;
+	bool queue_mngr_tail_idle;
+	bool queue_mngr_block_ctrl_idle;
 };
 
 /*
@@ -938,6 +1029,17 @@ static inline void ipahal_write_reg(enum ipahal_reg_name reg,
 	u32 val)
 {
 	ipahal_write_reg_mn(reg, 0, 0, val);
+}
+
+/*
+ * ipahal_write_reg_mask() - Overwrite a masked raw value in reg
+ */
+static inline void ipahal_write_reg_mask(enum ipahal_reg_name reg, u32 val, u32 mask)
+{
+	u32 new_val = ipahal_read_reg(reg);
+	new_val &= !mask;
+	new_val &= (val & mask);
+	ipahal_write_reg(reg, val);
 }
 
 /*

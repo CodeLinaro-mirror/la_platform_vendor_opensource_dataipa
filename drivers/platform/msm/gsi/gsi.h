@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef GSI_H
@@ -36,6 +38,7 @@
 
 #define GSI_INST_RAM_FW_VER_OFFSET                      (0)
 #define GSI_INST_RAM_FW_VER_GSI_3_0_OFFSET      (64)
+#define GSI_INST_RAM_FW_VER_GSI_5_5_OFFSET      (66)
 #define GSI_INST_RAM_FW_VER_HW_MASK                     (0xFC00)
 #define GSI_INST_RAM_FW_VER_HW_SHIFT            (10)
 #define GSI_INST_RAM_FW_VER_FLAVOR_MASK         (0x380)
@@ -100,6 +103,7 @@ enum gsi_ver {
 	GSI_VER_2_11 = 9,
 	GSI_VER_3_0 = 10,
 	GSI_VER_5_2 = 11,
+	GSI_VER_5_5 = 12,
 	GSI_VER_MAX,
 };
 
@@ -337,6 +341,8 @@ struct gsi_per_props {
 	void *user_data;
 	int (*clk_status_cb)(void);
 	void (*enable_clk_bug_on)(void);
+	void (*vote_clk_cb)(void);
+	void (*unvote_clk_cb)(void);
 	bool skip_ieob_mask_wa;
 	bool tx_poll;
 };
@@ -356,17 +362,41 @@ enum gsi_chan_evt {
 /**
  * gsi_chan_xfer_veid - Virtual Channel ID
  *
- * @GSI_VEID_0: transfer completed for VEID 0
- * @GSI_VEID_1: transfer completed for VEID 1
- * @GSI_VEID_2: transfer completed for VEID 2
- * @GSI_VEID_3: transfer completed for VEID 3
+ * @GSI_VEID_0:  transfer completed for VEID 0
+ * @GSI_VEID_1:  transfer completed for VEID 1
+ * @GSI_VEID_2:  transfer completed for VEID 2
+ * @GSI_VEID_3:  transfer completed for VEID 3
+ * @GSI_VEID_4:  transfer completed for VEID 4
+ * @GSI_VEID_5:  transfer completed for VEID 5
+ * @GSI_VEID_6:  transfer completed for VEID 6
+ * @GSI_VEID_7:  transfer completed for VEID 7
+ * @GSI_VEID_8:  transfer completed for VEID 8
+ * @GSI_VEID_9:  transfer completed for VEID 9
+ * @GSI_VEID_10: transfer completed for VEID 10
+ * @GSI_VEID_11: transfer completed for VEID 11
+ * @GSI_VEID_12: transfer completed for VEID 12
+ * @GSI_VEID_13: transfer completed for VEID 13
+ * @GSI_VEID_14: transfer completed for VEID 14
+ * @GSI_VEID_15: transfer completed for VEID 15
  * @GSI_VEID_DEFAULT: used when veid is invalid
  */
 enum gsi_chan_xfer_veid {
-	GSI_VEID_0 = 0,
-	GSI_VEID_1 = 1,
-	GSI_VEID_2 = 2,
-	GSI_VEID_3 = 3,
+	GSI_VEID_0  =  0,
+	GSI_VEID_1  =  1,
+	GSI_VEID_2  =  2,
+	GSI_VEID_3  =  3,
+	GSI_VEID_4  =  4,
+	GSI_VEID_5  =  5,
+	GSI_VEID_6  =  6,
+	GSI_VEID_7  =  7,
+	GSI_VEID_8  =  8,
+	GSI_VEID_9  =  9,
+	GSI_VEID_10 = 10,
+	GSI_VEID_11 = 11,
+	GSI_VEID_12 = 12,
+	GSI_VEID_13 = 13,
+	GSI_VEID_14 = 14,
+	GSI_VEID_15 = 15,
 	GSI_VEID_DEFAULT,
 	GSI_VEID_MAX
 };

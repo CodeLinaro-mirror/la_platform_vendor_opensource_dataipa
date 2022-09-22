@@ -1020,7 +1020,6 @@ int ipa_create_gsi_smmu_mapping(int res_idx, bool wlan_smmu_en,
 		case IPA_WDI_RX3_COMP_RING_WP_RES:
 		case IPA_WDI_RX4_RING_RP_RES:
 		case IPA_WDI_RX4_COMP_RING_WP_RES:
-
 			if (ipa_create_ap_smmu_mapping_pa(pa, len,
 				((res_idx == IPA_WDI_CE_DB_RES) ||
 				(res_idx == IPA_WDI_CE2_DB_RES)) ? true : false,
@@ -1045,7 +1044,6 @@ int ipa_create_gsi_smmu_mapping(int res_idx, bool wlan_smmu_en,
 		case IPA_WDI_RX3_COMP_RING_RES:
 		case IPA_WDI_RX4_RING_RES:
 		case IPA_WDI_RX4_COMP_RING_RES:
-
 			if (ipa_create_ap_smmu_mapping_sgt(sgt, iova)) {
 				IPAERR("Fail to create mapping res %d\n",
 						res_idx);

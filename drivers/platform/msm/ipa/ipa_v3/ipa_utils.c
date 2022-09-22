@@ -211,7 +211,19 @@
 #define IPA_v5_2_SRC_GROUP_MAX		(3)
 #define IPA_v5_2_DST_GROUP_MAX		(4)
 
-#define IPA_GROUP_MAX IPA_v5_0_GROUP_MAX
+#define IPA_v5_5_GROUP_UL			(0)
+#define IPA_v5_5_GROUP_DL			(1)
+#define IPA_v5_5_GROUP_DMA			(2)
+#define IPA_v5_5_GROUP_QDSS			(3)
+#define IPA_v5_5_GROUP_URLLC		(4)
+#define IPA_v5_5_GROUP_CV2X			(4)
+#define IPA_v5_5_GROUP_UC			(5)
+#define IPA_v5_5_GROUP_DRB_IP		(6)
+#define IPA_v5_5_SRC_GROUP_MAX		(6)
+#define IPA_v5_5_DST_GROUP_MAX		(7)
+#define IPA_v5_5_GROUP_MAX			(7)
+
+#define IPA_GROUP_MAX IPA_v5_5_GROUP_MAX
 
 enum ipa_rsrc_grp_type_src {
 	IPA_v3_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS,
@@ -318,6 +330,7 @@ enum ipa_ver {
 	IPA_5_1,
 	IPA_5_1_APQ,
 	IPA_5_2,
+	IPA_5_5,
 	IPA_VER_MAX,
 };
 
@@ -607,6 +620,19 @@ static const struct rsrc_min_max ipa3_rsrc_src_grp_config
 		{15, 15}, {15, 15}, {12, 12}, {0, 0}, {0, 0}, {0, 0}, {0, 0}  },
 	},
 
+	[IPA_5_5] = {
+		/* UL  DL  unused  unused  URLLC UC_RX_Q N/A */
+		[IPA_v5_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
+		{3, 9}, {4, 10}, {0, 0}, {0, 0}, {1, 63}, {0, 63}, {0, 0},  },
+		[IPA_v5_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_LISTS] = {
+		{9, 9}, {12, 12}, {0, 0}, {0, 0}, {10, 10}, {0, 0}, {0, 0},  },
+		[IPA_v5_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
+		{9, 9}, {24, 24}, {0, 0}, {0, 0}, {20, 20}, {0, 0}, {0, 0},  },
+		[IPA_v5_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
+		{0, 63}, {0, 63}, {0, 63}, {0, 63}, {1, 63}, {0, 63}, {0, 0},  },
+		[IPA_v5_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
+		{22, 22}, {16, 16}, {0, 0}, {0, 0}, {16, 16}, {0, 0}, {0, 0},  },
+	},
 };
 
 static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
@@ -771,6 +797,15 @@ static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
 		{1, 63}, {1, 63}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},  },
 	},
 
+	[IPA_5_5] = {
+		/* UL  DL  unused  unused unused  UC_RX_Q DRBIP N/A */
+		[IPA_v5_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
+		{6, 6}, {5, 5}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {39, 39},  },
+		[IPA_v5_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
+		{0, 3}, {0, 3}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},  },
+		[IPA_v5_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
+		{0, 0x3f}, {0, 0x3f}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},  },
+	},
 };
 
 static const struct rsrc_min_max ipa3_rsrc_rx_grp_config
@@ -884,6 +919,11 @@ static const struct rsrc_min_max ipa3_rsrc_rx_grp_config
 	},
 
 
+	[IPA_5_5] = {
+		/* UL  DL  unused  unused  URLLC UC_RX_Q */
+		[IPA_RSRC_GRP_TYPE_RX_HPS_CMDQ] = {
+		{3, 3}, {3, 3}, {0, 0}, {0, 0}, {3, 3}, {0, 0}  },
+	},
 };
 
 static const u32 ipa3_rsrc_rx_grp_hps_weight_config
@@ -1002,6 +1042,8 @@ static const struct ipa_qmb_outstanding ipa3_qmb_outstanding
 	[IPA_5_0][IPA_QMB_INSTANCE_DDR]		= {12, 12, 0},
 	[IPA_5_0][IPA_QMB_INSTANCE_PCIE]	= {0, 0, 0},
 	[IPA_5_2][IPA_QMB_INSTANCE_DDR] = {13, 13, 0},
+	[IPA_5_5][IPA_QMB_INSTANCE_DDR]		= {16, 12, 0},
+	[IPA_5_5][IPA_QMB_INSTANCE_PCIE]	= {16, 8, 0},
 };
 
 enum ipa_tx_instance {
@@ -5146,7 +5188,6 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 36, 36, 8, 8, IPA_EE_AP }, IPA_TX_INSTANCE_NA },
 
 
-
 	[IPA_5_2][IPA_CLIENT_USB_PROD] = {
 			true, IPA_v5_2_GROUP_UL,
 			true,
@@ -5387,6 +5428,335 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR, //UPDATE AS DDR
 			{ 20, 11, 5, 5, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_UL },
 
+	/* IPA_5_5 */
+	[IPA_5_5][IPA_CLIENT_USB_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 1, 0, 8, 16, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0	},
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_APPS_WAN_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 2, 11, 25, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_APPS_WAN_LOW_LAT_PROD] = {
+			true, IPA_v5_5_GROUP_URLLC,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			QMB_MASTER_SELECT_DDR,
+			{ 4, 9, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_WLAN2_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 6, 16, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2	},
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_WIGIG_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 7, 17, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2	},
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_APPS_LAN_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 9, 19, 26, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 4	},
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD] = {
+			true, IPA_v5_5_GROUP_URLLC,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 10, 5, 10, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_APPS_CMD_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			QMB_MASTER_SELECT_DDR,
+			{ 14, 12, 20, 24, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0	},
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_Q6_WAN_PROD]         = {
+			true, IPA_v5_5_GROUP_DL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 12, 0, 16, 28, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 2 },
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_Q6_CMD_PROD]	  = {
+			true, IPA_v5_5_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 13, 1, 20, 24, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_Q6_DL_NLO_DATA_PROD] = {
+			true, IPA_v5_5_GROUP_DL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 15, 2, 28, 32, IPA_EE_Q6, GSI_FREE_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD] = {
+			true, IPA_v5_5_GROUP_URLLC,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 5, 8, 28, 32, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_APPS_LAN_COAL_CONS] = {
+			true, IPA_v5_5_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 16, 13, 8, 23, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_UL },
+
+	[IPA_5_5][IPA_CLIENT_APPS_LAN_CONS] = {
+			true, IPA_v5_5_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 17, 14, 9, 9, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0	},
+			IPA_TX_INSTANCE_UL },
+
+	[IPA_5_5][IPA_CLIENT_APPS_WAN_COAL_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 23, 4, 8, 23, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_APPS_WAN_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 24, 1, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_USB_DPL_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 25, 20, 5, 5, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_ODL_DPL_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 26, 2, 5, 5, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_WIGIG1_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 27, 21, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_WLAN2_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 28, 3, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_WLAN2_CONS1] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 29, 22, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_USB_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 30, 23, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_APPS_WAN_LOW_LAT_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 32, 8, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 33, 10, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_WIGIG2_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 34, 6, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_WIGIG3_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 35, 25, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_Q6_LAN_CONS]         = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 18, 3, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_Q6_QBAP_STATUS_CONS] = {
+			true, IPA_v5_5_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 19, 4, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
+			IPA_TX_INSTANCE_UL },
+
+	[IPA_5_5][IPA_CLIENT_Q6_UL_NLO_DATA_CONS] = {
+			true, IPA_v5_5_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 20, 5, 5, 5, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 2 },
+			IPA_TX_INSTANCE_UL },
+
+	[IPA_5_5][IPA_CLIENT_Q6_UL_NLO_ACK_CONS]  = {
+			true, IPA_v5_5_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 21, 6, 5, 5, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 2 },
+			IPA_TX_INSTANCE_UL },
+
+	[IPA_5_5][IPA_CLIENT_Q6_WAN_CONS]         = {
+			true, IPA_v5_5_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 22, 7, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
+			IPA_TX_INSTANCE_UL },
+
+	/*For test purposes only*/
+	[IPA_5_5][IPA_CLIENT_TEST_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_NO_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 0, 15, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_TEST1_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 3, 7, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_TEST2_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 1, 0, 8, 16, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0 },
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_TEST3_PROD] = {
+			true, IPA_v5_5_GROUP_URLLC,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 10, 5, 10, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_TEST4_PROD] = {
+			true, IPA_v5_5_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 2, 11, 25, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_5][IPA_CLIENT_TEST_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 32, 8, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_TEST1_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 26, 2, 5, 5, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0 },
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_TEST2_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 33, 10, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_TEST3_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 30, 23, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_5][IPA_CLIENT_TEST4_CONS] = {
+			true, IPA_v5_5_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 24, 1, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_DL },
 };
 
 static struct ipa3_mem_partition ipa_3_0_mem_part = {
@@ -6363,6 +6733,102 @@ static struct ipa3_mem_partition ipa_5_2_mem_part = {
 	.end_ofst = 0x3fe8,
 };
 
+static struct ipa3_mem_partition ipa_5_5_mem_part = {
+	.uc_descriptor_ram_ofst = 0x0,
+	.uc_descriptor_ram_size = 0x1000,
+	.uc_ofst = 0x1000,
+	.uc_size = 0x80,
+	.uc_info_ofst = 0x1080,
+	.uc_info_size = 0x200,
+	.ofst_start = 0x1280,
+	.v4_flt_hash_ofst = 0x1288,
+	.v4_flt_hash_size = 0x78,
+	.v4_flt_hash_size_ddr = 0x4000,
+	.v4_flt_nhash_ofst = 0x1308,
+	.v4_flt_nhash_size = 0x78,
+	.v4_flt_nhash_size_ddr = 0x4000,
+	.v6_flt_hash_ofst = 0x1388,
+	.v6_flt_hash_size = 0x78,
+	.v6_flt_hash_size_ddr = 0x4000,
+	.v6_flt_nhash_ofst = 0x1408,
+	.v6_flt_nhash_size = 0x78,
+	.v6_flt_nhash_size_ddr = 0x4000,
+	.v4_rt_num_index = 0x13,
+	.v4_modem_rt_index_lo = 0x0,
+	.v4_modem_rt_index_hi = 0xa,
+	.v4_apps_rt_index_lo = 0xb,
+	.v4_apps_rt_index_hi = 0x12,
+	.v4_rt_hash_ofst = 0x1488,
+	.v4_rt_hash_size = 0x98,
+	.v4_rt_hash_size_ddr = 0x4000,
+	.v4_rt_nhash_ofst = 0x1528,
+	.v4_rt_nhash_size = 0x98,
+	.v4_rt_nhash_size_ddr = 0x4000,
+	.v6_rt_num_index = 0x13,
+	.v6_modem_rt_index_lo = 0x0,
+	.v6_modem_rt_index_hi = 0xa,
+	.v6_apps_rt_index_lo = 0xb,
+	.v6_apps_rt_index_hi = 0x12,
+	.v6_rt_hash_ofst = 0x15c8,
+	.v6_rt_hash_size = 0x98,
+	.v6_rt_hash_size_ddr = 0x4000,
+	.v6_rt_nhash_ofst = 0x1668,
+	.v6_rt_nhash_size = 0x098,
+	.v6_rt_nhash_size_ddr = 0x4000,
+	.modem_hdr_ofst = 0x1708,
+	.modem_hdr_size = 0x240,
+	.apps_hdr_ofst = 0x1948,
+	.apps_hdr_size = 0x1e0,
+	.apps_hdr_size_ddr = 0x800,
+	.modem_hdr_proc_ctx_ofst = 0x1b40,
+	.modem_hdr_proc_ctx_size = 0xb20,
+	.apps_hdr_proc_ctx_ofst = 0x2660,
+	.apps_hdr_proc_ctx_size = 0x200,
+	.apps_hdr_proc_ctx_size_ddr = 0x0,
+	.stats_quota_q6_ofst = 0x2868,
+	.stats_quota_q6_size = 0x60,
+	.stats_quota_ap_ofst = 0x28C8,
+	.stats_quota_ap_size = 0x48,
+	.stats_tethering_ofst = 0x2910,
+	.stats_tethering_size = 0x3c0,
+	.stats_flt_v4_ofst = 0,
+	.stats_flt_v4_size = 0,
+	.stats_flt_v6_ofst = 0,
+	.stats_flt_v6_size = 0,
+	.stats_rt_v4_ofst = 0,
+	.stats_rt_v4_size = 0,
+	.stats_rt_v6_ofst = 0,
+	.stats_rt_v6_size = 0,
+	.stats_fnr_ofst = 0x2cd0,
+	.stats_fnr_size = 0xba0,
+	.stats_drop_ofst = 0x3870,
+	.stats_drop_size = 0x20,
+	.modem_comp_decomp_ofst = 0x0,
+	.modem_comp_decomp_size = 0x0,
+	.modem_ofst = 0x3898,
+	.modem_size = 0xd48,
+	.nat_tbl_ofst = 0x45e0,
+	.nat_tbl_size = 0x900,
+	.apps_v4_flt_hash_ofst = 0x2718,
+	.apps_v4_flt_hash_size = 0x0,
+	.apps_v4_flt_nhash_ofst = 0x2718,
+	.apps_v4_flt_nhash_size = 0x0,
+	.apps_v6_flt_hash_ofst = 0x2718,
+	.apps_v6_flt_hash_size = 0x0,
+	.apps_v6_flt_nhash_ofst = 0x2718,
+	.apps_v6_flt_nhash_size = 0x0,
+	.apps_v4_rt_hash_ofst = 0x2718,
+	.apps_v4_rt_hash_size = 0x0,
+	.apps_v4_rt_nhash_ofst = 0x2718,
+	.apps_v4_rt_nhash_size = 0x0,
+	.apps_v6_rt_hash_ofst = 0x2718,
+	.apps_v6_rt_hash_size = 0x0,
+	.apps_v6_rt_nhash_ofst = 0x2718,
+	.apps_v6_rt_nhash_size = 0x0,
+	.pdn_config_ofst = 0x4ee8,
+	.pdn_config_size = 0x100,
+	.end_ofst = 0x4fe8,
+};
 
 const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_HSIC1_PROD),
@@ -6493,8 +6959,93 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(RESERVERD_CONS_123),
 	__stringify(RESERVERD_PROD_124),
 	__stringify(IPA_CLIENT_TPUT_CONS),
+	__stringify(RESERVERD_PROD_126),
+	__stringify(IPA_CLIENT_APPS_LAN_COAL_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
+
+static void _set_coalescing_disposition(
+	bool force_to_default )
+{
+	if ( ipa3_ctx->ipa_initialization_complete
+		 &&
+		 ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5 ) {
+
+		struct ipahal_reg_coal_master_cfg master_cfg;
+
+		memset(&master_cfg, 0, sizeof(master_cfg));
+
+		ipahal_read_reg_fields(IPA_COAL_MASTER_CFG, &master_cfg);
+
+		master_cfg.coal_force_to_default = force_to_default;
+
+		ipahal_write_reg_fields(IPA_COAL_MASTER_CFG, &master_cfg);
+	}
+}
+
+void start_coalescing()
+{
+	if ( ipa3_ctx->coal_stopped ) {
+		_set_coalescing_disposition(false);
+		ipa3_ctx->coal_stopped = false;
+	}
+}
+
+void stop_coalescing()
+{
+	if ( ! ipa3_ctx->coal_stopped ) {
+		_set_coalescing_disposition(true);
+		ipa3_ctx->coal_stopped = true;
+	}
+}
+
+bool lan_coal_enabled()
+{
+	if ( ipa3_ctx->ipa_initialization_complete ) {
+		int ep_idx;
+		if ( IPA_CLIENT_IS_MAPPED_VALID(IPA_CLIENT_APPS_LAN_COAL_CONS, ep_idx) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+int ipa3_set_evict_policy(
+	struct ipa_ioc_coal_evict_policy *evict_pol)
+{
+	if (!evict_pol) {
+		IPAERR_RL("Bad arg evict_pol(%p)\n", evict_pol);
+		return -1;
+	}
+
+	if ( ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 )
+	{
+		struct ipahal_reg_coal_evict_lru evict_lru_reg;
+
+		memset(&evict_lru_reg, 0, sizeof(evict_lru_reg));
+
+		evict_lru_reg.coal_vp_lru_thrshld =
+			evict_pol->coal_vp_thrshld;
+		evict_lru_reg.coal_eviction_en =
+			evict_pol->coal_eviction_en;
+		evict_lru_reg.coal_vp_lru_gran_sel =
+			evict_pol->coal_vp_gran_sel;
+		evict_lru_reg.coal_vp_lru_udp_thrshld =
+			evict_pol->coal_vp_udp_thrshld;
+		evict_lru_reg.coal_vp_lru_tcp_thrshld =
+			evict_pol->coal_vp_tcp_thrshld;
+		evict_lru_reg.coal_vp_lru_udp_thrshld_en =
+			evict_pol->coal_vp_udp_thrshld_en;
+		evict_lru_reg.coal_vp_lru_tcp_thrshld_en =
+			evict_pol->coal_vp_tcp_thrshld_en;
+		evict_lru_reg.coal_vp_lru_tcp_num =
+			evict_pol->coal_vp_tcp_num;
+
+		ipahal_write_reg_fields(IPA_COAL_EVICT_LRU, &evict_lru_reg);
+	}
+
+	return 0;
+}
 
 /**
  * ipa_get_version_string() - Get string representation of IPA version
@@ -6563,8 +7114,13 @@ const char *ipa_get_version_string(enum ipa_hw_type ver)
 		break;
 	case IPA_HW_v5_1:
 		str = "5.1";
+		break;
 	case IPA_HW_v5_2:
 		str = "5.2";
+		break;
+	case IPA_HW_v5_5:
+		str = "5.5";
+		break;
 	default:
 		str = "Invalid version";
 		break;
@@ -7014,7 +7570,9 @@ u8 ipa3_get_hw_type_index(void)
 	case IPA_HW_v5_2:
 		hw_type_index = IPA_5_2;
 		break;
-
+	case IPA_HW_v5_5:
+		hw_type_index = IPA_5_5;
+		break;
 	default:
 		IPAERR("Incorrect IPA version %d\n", ipa3_ctx->ipa_hw_type);
 		hw_type_index = IPA_3_0;
@@ -7346,6 +7904,7 @@ int ipa3_init_hw(void)
 {
 	u32 ipa_version = 0;
 	struct ipahal_reg_counter_cfg cnt_cfg;
+	struct ipahal_reg_coal_master_cfg master_cfg;
 
 	/* Read IPA version and make sure we have access to the registers */
 	ipa_version = ipahal_read_reg(IPA_VERSION);
@@ -7411,6 +7970,19 @@ int ipa3_init_hw(void)
 			ipa3_ctx->ulso_ip_id_min);
 		ipahal_write_reg_n(IPA_ULSO_CFG_IP_ID_MAX_VALUE_n, 0,
 		ipa3_ctx->ulso_ip_id_max);
+	}
+
+	/* Configure COAL_MASTER_CFG */
+	if(ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+		memset(&master_cfg, 0, sizeof(master_cfg));
+		ipahal_read_reg_fields(IPA_COAL_MASTER_CFG, &master_cfg);
+		master_cfg.coal_ipv4_id_ignore = ipa3_ctx->coal_ipv4_id_ignore;
+		ipahal_write_reg_fields(IPA_COAL_MASTER_CFG, &master_cfg);
+
+		IPADBG(
+			": coal-ipv4-id-ignore = %s\n",
+			master_cfg.coal_ipv4_id_ignore ?
+			"True" : "False");
 	}
 
 	ipa_comp_cfg();
@@ -7925,6 +8497,12 @@ int ipa3_cfg_ep(u32 clnt_hdl, const struct ipa_ep_cfg *ipa_ep_cfg)
 				&ipa_ep_cfg->metadata_mask);
 		if (result)
 			return result;
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+			result = ipa3_cfg_ep_prod_cfg(clnt_hdl, &ipa_ep_cfg->prod_cfg);
+			if (result)
+				return result;
+		}
 	}
 
 	return 0;
@@ -7981,10 +8559,11 @@ int ipa3_cfg_ep_nat(u32 clnt_hdl, const struct ipa_ep_cfg_nat *ep_nat)
 		return -EINVAL;
 	}
 
-	IPADBG("pipe=%d, nat_en=%d(%s)\n",
+	IPADBG("pipe=%d, nat_en=%d(%s), nat_exc_suppress=%d\n",
 			clnt_hdl,
 			ep_nat->nat_en,
-			ipa3_get_nat_en_str(ep_nat->nat_en));
+			ipa3_get_nat_en_str(ep_nat->nat_en),
+			ep_nat->nat_exc_suppress);
 
 	/* copy over EP cfg */
 	ipa3_ctx->ep[clnt_hdl].cfg.nat = *ep_nat;
@@ -7992,6 +8571,11 @@ int ipa3_cfg_ep_nat(u32 clnt_hdl, const struct ipa_ep_cfg_nat *ep_nat)
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_NAT_n, clnt_hdl, ep_nat);
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_NAT_EXC_SUPPRESS_n,
+			clnt_hdl, ep_nat);
+	}
 
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
@@ -8081,6 +8665,51 @@ int ipa3_cfg_ep_status(u32 clnt_hdl,
 }
 
 /**
+ * ipa3_cfg_ep_cfg_pipe_replicate() - IPA end-point cfg
+ * pipe replication
+ * @clnt_hdl:   [in] opaque client handle assigned by IPA to client
+ *
+ * Return value: none
+ */
+void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
+{
+	/* Enable ADPL v6 Feature for certain IPA clients */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+		switch (ipa3_get_client_mapping(clnt_hdl)) {
+		case IPA_CLIENT_USB_PROD:
+		case IPA_CLIENT_APPS_WAN_PROD:
+		case IPA_CLIENT_WLAN2_PROD:
+		case IPA_CLIENT_WIGIG_PROD:
+		case IPA_CLIENT_APPS_LAN_PROD:
+		case IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD:
+		case IPA_CLIENT_APPS_LAN_COAL_CONS:
+		case IPA_CLIENT_APPS_LAN_CONS:
+		case IPA_CLIENT_APPS_WAN_COAL_CONS:
+		case IPA_CLIENT_APPS_WAN_CONS:
+		case IPA_CLIENT_WIGIG1_CONS:
+		case IPA_CLIENT_WLAN2_CONS:
+		case IPA_CLIENT_WLAN2_CONS1:
+		case IPA_CLIENT_USB_CONS:
+		case IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS:
+		case IPA_CLIENT_WIGIG2_CONS:
+		case IPA_CLIENT_WIGIG3_CONS:
+		case IPA_CLIENT_WLAN3_PROD:
+		case IPA_CLIENT_ETHERNET2_PROD:
+		case IPA_CLIENT_USB2_PROD:
+		case IPA_CLIENT_ETHERNET_PROD:
+		case IPA_CLIENT_ETHERNET_CONS:
+		case IPA_CLIENT_ETHERNET2_CONS:
+		case IPA_CLIENT_USB2_CONS:
+		case IPA_CLIENT_WLAN4_CONS:
+			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en = 1;
+			break;
+		default:
+			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en = 0;
+		}
+	}
+}
+
+/**
  * ipa3_cfg_ep_cfg() - IPA end-point cfg configuration
  * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
  * @ipa_ep_cfg:	[in] IPA end-point configuration params
@@ -8105,16 +8734,20 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 	/* copy over EP cfg */
 	ipa3_ctx->ep[clnt_hdl].cfg.cfg = *cfg;
 
+	ipa3_cfg_ep_cfg_pipe_replicate(clnt_hdl);
+
 	/* Override QMB master selection */
 	qmb_master_sel = ipa3_get_qmb_master_sel(ipa3_ctx->ep[clnt_hdl].client);
 	ipa3_ctx->ep[clnt_hdl].cfg.cfg.gen_qmb_master_sel = qmb_master_sel;
 	IPADBG(
-	       "pipe=%d, frag_ofld_en=%d cs_ofld_en=%d mdata_hdr_ofst=%d gen_qmb_master_sel=%d\n",
+	       "pipe=%d, frag_ofld_en=%d cs_ofld_en=%d mdata_hdr_ofst=%d "
+	       "gen_qmb_master_sel=%d pipe_replicate_en=%d\n",
 			clnt_hdl,
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.frag_offload_en,
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.cs_offload_en,
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.cs_metadata_hdr_offset,
-			ipa3_ctx->ep[clnt_hdl].cfg.cfg.gen_qmb_master_sel);
+			ipa3_ctx->ep[clnt_hdl].cfg.cfg.gen_qmb_master_sel,
+			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en);
 
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
@@ -8139,6 +8772,53 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 
 	return 0;
 }
+
+/**
+ * ipa3_cfg_ep_prod_cfg() - IPA Producer end-point configuration
+ * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
+ * @prod_cfg:	[in] Producer specific configuration
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
+int ipa3_cfg_ep_prod_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_prod_cfg *prod_cfg)
+{
+	u8 tx_instance;
+
+	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
+	    ipa3_ctx->ep[clnt_hdl].valid == 0 ||
+	    IPA_CLIENT_IS_PROD(ipa3_ctx->ep[clnt_hdl].client) ||
+	    prod_cfg == NULL) {
+		IPAERR("bad parm, clnt_hdl = %d , ep_valid = %d\n",
+					clnt_hdl,
+					ipa3_ctx->ep[clnt_hdl].valid);
+		return -EINVAL;
+	}
+
+	/* copy over EP cfg */
+	ipa3_ctx->ep[clnt_hdl].cfg.prod_cfg = *prod_cfg;
+
+	tx_instance = ipa3_get_tx_instance(ipa3_ctx->ep[clnt_hdl].client);
+	if (tx_instance == -EINVAL) {
+		IPAERR("bad parm, clnt_hdl = %d , ep_valid = %d\n",
+			clnt_hdl,
+			ipa3_ctx->ep[clnt_hdl].valid);
+		return -EINVAL;
+	}
+	ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance = tx_instance;
+	ipa3_ctx->ep[clnt_hdl].cfg.prod_cfg.tx_instance = tx_instance;
+
+	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
+
+	ipahal_write_reg_n_fields(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
+		&ipa3_ctx->ep[clnt_hdl].cfg.prod_cfg);
+
+	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
+
+	return 0;
+}
+
 
 /**
  * ipa3_cfg_ep_metadata_mask() - IPA end-point meta-data mask configuration
@@ -9313,6 +9993,9 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		break;
 	case IPA_HW_v5_2:
 		ipa3_ctx->ctrl->mem_partition = &ipa_5_2_mem_part;
+		break;
+	case IPA_HW_v5_5:
+		ipa3_ctx->ctrl->mem_partition = &ipa_5_5_mem_part;
 		break;
 	case IPA_HW_None:
 	case IPA_HW_v1_0:
@@ -11191,6 +11874,67 @@ static void ipa3_write_rsrc_grp_type_reg(int group_index,
 		}
 		break;
 
+	case IPA_5_5:
+		if (src) {
+			switch (group_index) {
+			case IPA_v5_5_GROUP_UL:
+			case IPA_v5_5_GROUP_DL:
+				ipahal_write_reg_n_fields(
+					IPA_SRC_RSRC_GRP_01_RSRC_TYPE_n,
+					n, val);
+				break;
+			case IPA_v5_5_GROUP_DMA:
+			case IPA_v5_5_GROUP_QDSS:
+				ipahal_write_reg_n_fields(
+					IPA_SRC_RSRC_GRP_23_RSRC_TYPE_n,
+					n, val);
+				break;
+			case IPA_v5_5_GROUP_URLLC:
+			case IPA_v5_5_GROUP_UC:
+				ipahal_write_reg_n_fields(
+					IPA_SRC_RSRC_GRP_45_RSRC_TYPE_n,
+					n, val);
+				break;
+			default:
+				IPAERR(
+				" Invalid source resource group,index #%d\n",
+				group_index);
+				break;
+			}
+		} else {
+			switch (group_index) {
+			case IPA_v5_5_GROUP_UL:
+			case IPA_v5_5_GROUP_DL:
+				ipahal_write_reg_n_fields(
+					IPA_DST_RSRC_GRP_01_RSRC_TYPE_n,
+					n, val);
+				break;
+			case IPA_v5_5_GROUP_DMA:
+			case IPA_v5_5_GROUP_QDSS:
+				ipahal_write_reg_n_fields(
+					IPA_DST_RSRC_GRP_23_RSRC_TYPE_n,
+					n, val);
+				break;
+			case IPA_v5_5_GROUP_URLLC:
+			case IPA_v5_5_GROUP_UC:
+				ipahal_write_reg_n_fields(
+					IPA_DST_RSRC_GRP_45_RSRC_TYPE_n,
+					n, val);
+				break;
+			case IPA_v5_5_GROUP_DRB_IP:
+				ipahal_write_reg_n_fields(
+					IPA_DST_RSRC_GRP_67_RSRC_TYPE_n,
+					n, val);
+				break;
+			default:
+				IPAERR(
+				" Invalid destination resource group,index #%d\n",
+				group_index);
+				break;
+			}
+		}
+		break;
+
 	default:
 		IPAERR("invalid hw type\n");
 		WARN_ON(1);
@@ -11383,7 +12127,12 @@ void ipa3_set_resorce_groups_min_max_limits(void)
 		src_grp_idx_max = IPA_v5_2_SRC_GROUP_MAX;
 		dst_grp_idx_max = IPA_v5_2_DST_GROUP_MAX;
 		break;
-
+	case IPA_5_5:
+		src_rsrc_type_max = IPA_v5_0_RSRC_GRP_TYPE_SRC_MAX;
+		dst_rsrc_type_max = IPA_v5_0_RSRC_GRP_TYPE_DST_MAX;
+		src_grp_idx_max = IPA_v5_5_SRC_GROUP_MAX;
+		dst_grp_idx_max = IPA_v5_5_DST_GROUP_MAX;
+		break;
 	default:
 		IPAERR("invalid hw type index\n");
 		WARN_ON(1);
@@ -11632,7 +12381,7 @@ EXPORT_SYMBOL(ipa3_stop_gsi_channel);
 static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 {
 	struct ipa_ep_cfg_ctrl cfg;
-	int ipa_ep_idx, coal_ep_idx;
+	int ipa_ep_idx, wan_coal_ep_idx, lan_coal_ep_idx;
 	struct ipa3_ep_context *ep;
 	int res;
 
@@ -11662,8 +12411,6 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 		}
 		return 0;
 	}
-
-	coal_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 
 	/*
 	 * Configure the callback mode only one time after starting the channel
@@ -11699,7 +12446,7 @@ chan_statrt:
 	/* Apps prod pipes use common event ring so cannot configure mode*/
 
 	/*
-	 * Skipping to configure mode for default wan pipe,
+	 * Skipping to configure mode for default [w|l]an pipe,
 	 * as both pipes using commong event ring. if both pipes
 	 * configure same event ring observing race condition in
 	 * updating current polling state.
@@ -11707,7 +12454,9 @@ chan_statrt:
 
 	if (IPA_CLIENT_IS_APPS_PROD(client) ||
 		(client == IPA_CLIENT_APPS_WAN_CONS &&
-			coal_ep_idx != IPA_EP_NOT_ALLOCATED))
+		 IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_WAN_COAL_CONS, wan_coal_ep_idx)) ||
+		(client == IPA_CLIENT_APPS_LAN_CONS &&
+		 IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_LAN_COAL_CONS, lan_coal_ep_idx)))
 		return 0;
 
 	if (suspend) {
@@ -11720,24 +12469,57 @@ chan_statrt:
 	return 0;
 }
 
-void ipa3_force_close_coal(void)
+void ipa3_force_close_coal(
+	bool close_wan,
+	bool close_lan )
 {
-	struct ipa3_desc desc[2];
+	struct ipa3_desc desc[ MAX_CCP_SUB ];
+
 	int ep_idx, num_desc = 0;
 
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
-	if (ep_idx == IPA_EP_NOT_ALLOCATED || (!ipa3_ctx->ep[ep_idx].valid))
-		return;
+	if ( close_wan
+		 &&
+		 IPA_CLIENT_IS_MAPPED_VALID(IPA_CLIENT_APPS_WAN_COAL_CONS, ep_idx)
+		 &&
+		 ipa3_ctx->coal_cmd_pyld[WAN_COAL_SUB] ) {
 
-	ipa3_init_imm_cmd_desc(&desc[0], ipa3_ctx->coal_cmd_pyld[0]);
-	num_desc++;
-	if (ipa3_ctx->ulso_wa) {
-		ipa3_init_imm_cmd_desc(&desc[1], ipa3_ctx->coal_cmd_pyld[1]);
+		ipa3_init_imm_cmd_desc(
+			&desc[num_desc],
+			ipa3_ctx->coal_cmd_pyld[WAN_COAL_SUB]);
+
 		num_desc++;
 	}
-	IPADBG("Sending %d descriptor for coal force close\n", num_desc);
-	if (ipa3_send_cmd(num_desc, desc))
-		IPADBG("ipa3_send_cmd timedout\n");
+
+	if ( close_lan
+		 &&
+		 IPA_CLIENT_IS_MAPPED_VALID(IPA_CLIENT_APPS_LAN_COAL_CONS, ep_idx)
+		 &&
+		 ipa3_ctx->coal_cmd_pyld[LAN_COAL_SUB] ) {
+
+		ipa3_init_imm_cmd_desc(
+			&desc[num_desc],
+			ipa3_ctx->coal_cmd_pyld[LAN_COAL_SUB]);
+
+		num_desc++;
+	}
+
+	if (ipa3_ctx->ulso_wa && ipa3_ctx->coal_cmd_pyld[ULSO_COAL_SUB] ) {
+		ipa3_init_imm_cmd_desc(
+			&desc[num_desc],
+			ipa3_ctx->coal_cmd_pyld[ULSO_COAL_SUB]);
+
+		num_desc++;
+	}
+
+	if ( num_desc ) {
+		IPADBG("Sending %d descriptor(s) for coal force close\n", num_desc);
+		if ( ipa3_send_cmd_timeout(
+				 num_desc,
+				 desc,
+				 IPA_COAL_CLOSE_FRAME_CMD_TIMEOUT_MSEC) ) {
+			IPADBG("ipa3_send_cmd_timeout timedout\n");
+		}
+	}
 }
 
 int ipa3_suspend_apps_pipes(bool suspend)
@@ -11746,25 +12528,45 @@ int ipa3_suspend_apps_pipes(bool suspend)
 	struct ipa_ep_cfg_holb holb_cfg;
 	int odl_ep_idx;
 
+	if (suspend) {
+		stop_coalescing();
+		ipa3_force_close_coal(true, true);
+	}
+
 	/* As per HPG first need start/stop coalescing channel
 	 * then default one. Coalescing client number was greater then
 	 * default one so starting the last client.
 	 */
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_COAL_CONS, suspend);
-	if (res == -EAGAIN)
+	if (res == -EAGAIN) {
+		if (suspend) start_coalescing();
 		goto undo_coal_cons;
+	}
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_CONS, suspend);
-	if (res == -EAGAIN)
+	if (res == -EAGAIN) {
+		if (suspend) start_coalescing();
 		goto undo_wan_cons;
+	}
+
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_LAN_COAL_CONS, suspend);
+	if (res == -EAGAIN) {
+		if (suspend) start_coalescing();
+		goto undo_lan_coal_cons;
+	}
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_LAN_CONS, suspend);
-	if (res == -EAGAIN)
+	if (res == -EAGAIN) {
+		if (suspend) start_coalescing();
 		goto undo_lan_cons;
+	}
+
+	if (suspend) start_coalescing();
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_ODL_DPL_CONS, suspend);
-	if (res == -EAGAIN)
+	if (res == -EAGAIN) {
 		goto undo_odl_cons;
+	}
 
 	odl_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ODL_DPL_CONS);
 	if (odl_ep_idx != IPA_EP_NOT_ALLOCATED && ipa3_ctx->ep[odl_ep_idx].valid) {
@@ -11786,13 +12588,15 @@ int ipa3_suspend_apps_pipes(bool suspend)
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_LOW_LAT_CONS,
 		suspend);
-	if (res == -EAGAIN)
+	if (res == -EAGAIN) {
 		goto undo_qmap_cons;
+	}
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS,
 		suspend);
-	if (res == -EAGAIN)
+	if (res == -EAGAIN) {
 		goto undo_low_lat_data_cons;
+	}
 
 	if (suspend) {
 		struct ipahal_reg_tx_wrapper tx;
@@ -11870,6 +12674,8 @@ undo_odl_cons:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_ODL_DPL_CONS, !suspend);
 undo_lan_cons:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_LAN_CONS, !suspend);
+undo_lan_coal_cons:
+	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_LAN_COAL_CONS, !suspend);
 undo_wan_cons:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_COAL_CONS, !suspend);
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_CONS, !suspend);
@@ -11931,57 +12737,98 @@ int ipa3_allocate_coal_close_frame(void)
 	struct ipahal_imm_cmd_register_write reg_write_cmd = { 0 };
 	struct ipahal_imm_cmd_register_read dummy_reg_read = { 0 };
 	struct ipahal_reg_valmask valmask;
-	int ep_idx;
 	u32 offset = 0;
+	int ep_idx, num_desc = 0;
 
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
-	if (ep_idx == IPA_EP_NOT_ALLOCATED)
-		return 0;
-	IPADBG("Allocate coal close frame cmd\n");
-	reg_write_cmd.skip_pipeline_clear = false;
-	if (ipa3_ctx->ulso_wa) {
-		reg_write_cmd.pipeline_clear_options = IPAHAL_SRC_GRP_CLEAR;
-	} else {
-		reg_write_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
-	}
-	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
-		offset = ipahal_get_reg_ofst(
-			IPA_AGGR_FORCE_CLOSE);
-	else
-		offset = ipahal_get_ep_reg_offset(
-			IPA_AGGR_FORCE_CLOSE_n, ep_idx);
-	reg_write_cmd.offset = offset;
-	ipahal_get_aggr_force_close_valmask(ep_idx, &valmask);
-	reg_write_cmd.value = valmask.val;
-	reg_write_cmd.value_mask = valmask.mask;
-	ipa3_ctx->coal_cmd_pyld[0] =
-		ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
-			&reg_write_cmd, false);
-	if (!ipa3_ctx->coal_cmd_pyld[0]) {
-		IPAERR("fail construct register_write imm cmd\n");
-		ipa_assert();
-		return 0;
+	if ( IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_WAN_COAL_CONS, ep_idx) ) {
+
+		IPADBG("Allocate wan coal close frame cmd\n");
+
+		reg_write_cmd.skip_pipeline_clear = false;
+		if (ipa3_ctx->ulso_wa) {
+			reg_write_cmd.pipeline_clear_options = IPAHAL_SRC_GRP_CLEAR;
+		} else {
+			reg_write_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
+		}
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
+			offset = ipahal_get_reg_ofst(
+				IPA_AGGR_FORCE_CLOSE);
+		else
+			offset = ipahal_get_ep_reg_offset(
+				IPA_AGGR_FORCE_CLOSE_n, ep_idx);
+		reg_write_cmd.offset = offset;
+		ipahal_get_aggr_force_close_valmask(ep_idx, &valmask);
+		reg_write_cmd.value = valmask.val;
+		reg_write_cmd.value_mask = valmask.mask;
+		ipa3_ctx->coal_cmd_pyld[WAN_COAL_SUB] =
+			ipahal_construct_imm_cmd(
+				IPA_IMM_CMD_REGISTER_WRITE,
+				&reg_write_cmd, false);
+		if (!ipa3_ctx->coal_cmd_pyld[WAN_COAL_SUB]) {
+			IPAERR("fail construct register_write imm cmd\n");
+			ipa_assert();
+			return 0;
+		}
+		num_desc++;
 	}
 
-	if (ipa3_ctx->ulso_wa) {
-		/* dummary regsiter read IC with HPS clear*/
+	if ( IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_LAN_COAL_CONS, ep_idx) ) {
+
+		IPADBG("Allocate lan coal close frame cmd\n");
+
+		reg_write_cmd.skip_pipeline_clear = false;
+		if (ipa3_ctx->ulso_wa) {
+			reg_write_cmd.pipeline_clear_options = IPAHAL_SRC_GRP_CLEAR;
+		} else {
+			reg_write_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
+		}
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
+			offset = ipahal_get_reg_ofst(
+				IPA_AGGR_FORCE_CLOSE);
+		else
+			offset = ipahal_get_ep_reg_offset(
+				IPA_AGGR_FORCE_CLOSE_n, ep_idx);
+		reg_write_cmd.offset = offset;
+		ipahal_get_aggr_force_close_valmask(ep_idx, &valmask);
+		reg_write_cmd.value = valmask.val;
+		reg_write_cmd.value_mask = valmask.mask;
+		ipa3_ctx->coal_cmd_pyld[LAN_COAL_SUB] =
+			ipahal_construct_imm_cmd(
+				IPA_IMM_CMD_REGISTER_WRITE,
+				&reg_write_cmd, false);
+		if (!ipa3_ctx->coal_cmd_pyld[LAN_COAL_SUB]) {
+			IPAERR("fail construct register_write imm cmd\n");
+			ipa_assert();
+			return 0;
+		}
+		num_desc++;
+	}
+
+	if ( ipa3_ctx->ulso_wa ) {
+		/*
+		 * Dummy regsiter read IC with HPS clear
+		 */
 		ipa3_ctx->ulso_wa_cmd.size = 4;
-		ipa3_ctx->ulso_wa_cmd.base = dma_alloc_coherent(ipa3_ctx->pdev,
-			ipa3_ctx->ulso_wa_cmd.size,
-			&ipa3_ctx->ulso_wa_cmd.phys_base, GFP_KERNEL);
+		ipa3_ctx->ulso_wa_cmd.base =
+			dma_alloc_coherent(
+				ipa3_ctx->pdev,
+				ipa3_ctx->ulso_wa_cmd.size,
+				&ipa3_ctx->ulso_wa_cmd.phys_base, GFP_KERNEL);
 		if (ipa3_ctx->ulso_wa_cmd.base == NULL) {
 			ipa_assert();
 		}
-		offset = ipahal_get_reg_n_ofst(IPA_STAT_QUOTA_BASE_n,
+		offset = ipahal_get_reg_n_ofst(
+			IPA_STAT_QUOTA_BASE_n,
 			ipa3_ctx->ee);
 		dummy_reg_read.skip_pipeline_clear = false;
 		dummy_reg_read.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		dummy_reg_read.offset = offset;
 		dummy_reg_read.sys_addr = ipa3_ctx->ulso_wa_cmd.phys_base;
-		ipa3_ctx->coal_cmd_pyld[1] = ipahal_construct_imm_cmd(
-			IPA_IMM_CMD_REGISTER_READ,
-			&dummy_reg_read, false);
-		if (!ipa3_ctx->coal_cmd_pyld[1]) {
+		ipa3_ctx->coal_cmd_pyld[ULSO_COAL_SUB] =
+			ipahal_construct_imm_cmd(
+				IPA_IMM_CMD_REGISTER_READ,
+				&dummy_reg_read, false);
+		if (!ipa3_ctx->coal_cmd_pyld[ULSO_COAL_SUB]) {
 			IPAERR("failed to construct DUMMY READ IC\n");
 			ipa_assert();
 		}
@@ -11992,15 +12839,27 @@ int ipa3_allocate_coal_close_frame(void)
 
 void ipa3_free_coal_close_frame(void)
 {
-	if (ipa3_ctx->coal_cmd_pyld[0])
-		ipahal_destroy_imm_cmd(ipa3_ctx->coal_cmd_pyld[0]);
+	if (ipa3_ctx->coal_cmd_pyld[WAN_COAL_SUB]) {
+		ipahal_destroy_imm_cmd(ipa3_ctx->coal_cmd_pyld[WAN_COAL_SUB]);
+	}
 
-	if (ipa3_ctx->coal_cmd_pyld[1]) {
-		ipahal_destroy_imm_cmd(ipa3_ctx->coal_cmd_pyld[1]);
-		dma_free_coherent(ipa3_ctx->pdev, ipa3_ctx->ulso_wa_cmd.size,
-			ipa3_ctx->ulso_wa_cmd.base, ipa3_ctx->ulso_wa_cmd.phys_base);
+	if (ipa3_ctx->coal_cmd_pyld[LAN_COAL_SUB]) {
+		ipahal_destroy_imm_cmd(ipa3_ctx->coal_cmd_pyld[LAN_COAL_SUB]);
+	}
+
+	if (ipa3_ctx->coal_cmd_pyld[ULSO_COAL_SUB]) {
+		ipahal_destroy_imm_cmd(ipa3_ctx->coal_cmd_pyld[ULSO_COAL_SUB]);
+	}
+
+	if ( ipa3_ctx->ulso_wa_cmd.base ) {
+		dma_free_coherent(
+			ipa3_ctx->pdev,
+			ipa3_ctx->ulso_wa_cmd.size,
+			ipa3_ctx->ulso_wa_cmd.base,
+			ipa3_ctx->ulso_wa_cmd.phys_base);
 	}
 }
+
 /**
  * ipa3_inject_dma_task_for_gsi()- Send DMA_TASK to IPA for GSI stop channel
  *
@@ -12553,6 +13412,7 @@ bool ipa3_is_msm_device(void)
 	case IPA_HW_v4_11:
 	case IPA_HW_v5_1:
 	case IPA_HW_v5_2:
+	case IPA_HW_v5_5:
 		return true;
 	default:
 		IPAERR("unknown HW type %d\n", ipa3_ctx->ipa_hw_type);
@@ -12640,6 +13500,7 @@ struct device *ipa3_get_pdev(void)
 
 	return ipa3_ctx->pdev;
 }
+EXPORT_SYMBOL(ipa3_get_pdev);
 
 /**
  * ipa3_enable_dcd() - enable dynamic clock division on IPA
@@ -13370,6 +14231,7 @@ void ipa3_update_mhi_ctrl_state(u8 state, bool set)
 	ipa_send_mhi_ctrl_endp_ind_to_modem();
 }
 EXPORT_SYMBOL(ipa3_update_mhi_ctrl_state);
+
 /**
  * ipa3_setup_uc_act_tbl() - IPA setup uc_act_tbl
  *
@@ -13590,6 +14452,24 @@ int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
 error:
 	mutex_unlock(&ipa3_ctx->act_tbl_lock);
 	return res;
+}
+
+void ipa3_default_evict_register( void )
+{
+	struct ipahal_reg_coal_evict_lru evict_lru;
+
+	if ( ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5
+		 &&
+		 ipa3_ctx->set_evict_reg == false )
+	{
+		ipa3_ctx->set_evict_reg = true;
+
+		IPADBG("Setting COAL eviction register with default values\n");
+
+		ipa3_get_default_evict_values(&evict_lru);
+
+		ipahal_write_reg_fields(IPA_COAL_EVICT_LRU, &evict_lru);
+	}
 }
 
 /**

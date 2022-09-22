@@ -1,5 +1,5 @@
 ifneq ($(TARGET_BOARD_PLATFORM),qssi)
-GSI_DLKM_PLATFORMS_LIST := taro parrot
+GSI_DLKM_PLATFORMS_LIST := taro parrot kalama bengal
 
 ifeq ($(call is-board-platform-in-list, $(GSI_DLKM_PLATFORMS_LIST)),true)
 #Make file to create GSI DLKM
@@ -57,6 +57,17 @@ LOCAL_SRC_FILES   := $(wildcard $(LOCAL_PATH)/**/*) $(wildcard $(LOCAL_PATH)/*)
 LOCAL_MODULE              := ipa_clientsm.ko
 LOCAL_MODULE_KBUILD_NAME  := ipa/ipa_clients/ipa_clientsm.ko
 LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH := $(KERNEL_MODULES_OUT)
+$(warning $(DLKM_DIR))
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+
+include $(CLEAR_VARS)
+KBUILD_OPTIONS += MODNAME=ipatestm
+LOCAL_SRC_FILES   := $(wildcard $(LOCAL_PATH)/**/*) $(wildcard $(LOCAL_PATH)/*)
+LOCAL_MODULE              := ipatestm.ko
+LOCAL_MODULE_KBUILD_NAME  := ipa/ipatestm.ko
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_HEADER_LIBRARIES    := ipa_test_kernel_headers
 LOCAL_MODULE_PATH := $(KERNEL_MODULES_OUT)
 $(warning $(DLKM_DIR))
 include $(DLKM_DIR)/Build_external_kernelmodule.mk

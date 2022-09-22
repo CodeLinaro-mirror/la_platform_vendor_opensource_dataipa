@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  *
@@ -926,7 +926,7 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 						IPA_CLIENT_AQC_ETHERNET_CONS;
 #if IPA_ETH_API_VER >= 2
 				/* Get the client pipe info[0] from the allocation info context only if it is NTN3 */
-				if ((instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3)) {
+				if (instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3) {
 						tx_instance_ptr_local->tx_client =
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
 							i].pipes_client_type[0];
@@ -1025,7 +1025,7 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 						IPA_CLIENT_AQC_ETHERNET_PROD;
 #if IPA_ETH_API_VER >= 2
 				/* Get the client pipe info[1] from the allocation info context only if it is NTN3 */
-				if ((instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3)) {
+				if (instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3) {
 						rx_instance_ptr_local->rx_client =
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
 							i].pipes_client_type[1];
@@ -1295,6 +1295,7 @@ success:
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_IPA3_MHI_PRIME_MANAGER)
 static int ipa_get_mhip_inst_stats(unsigned long arg)
 {
 	struct ipa_lnx_mhip_inst_stats *mhip_stats;
@@ -1469,6 +1470,7 @@ success:
 	kfree(mhip_stats);
 	return 0;
 }
+#endif
 
 static int ipa_stats_get_alloc_info(unsigned long arg)
 {
@@ -1690,13 +1692,14 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 			= IPA_CLIENT_MHI_PRIME_TETH_PROD;
 		ipa_lnx_agent_ctx.alloc_info.mhip_inst_info[0].rx_inst_client_type[1]
 			= IPA_CLIENT_MHI_PRIME_RMNET_PROD;
+
+success:
 #else
 		/* MHI Prime is not enabled */
 		ipa_lnx_agent_ctx.alloc_info.num_mhip_instances = 0;
 #endif
 	}
 
-success:
 	if(copy_to_user((u8 *)arg,
 		&ipa_lnx_agent_ctx,
 		sizeof(struct ipa_lnx_stats_spearhead_ctx))) {

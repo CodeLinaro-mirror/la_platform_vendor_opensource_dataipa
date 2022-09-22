@@ -1241,6 +1241,7 @@ static uint32_t gsi_get_max_event_rings(enum gsi_ver ver)
 		break;
 	case GSI_VER_3_0:
 	case GSI_VER_5_2:
+	case GSI_VER_5_5:
 		gsihal_read_reg_n_fields(GSI_EE_n_GSI_HW_PARAM_4,
 			gsi_ctx->per.ee, &hw_param4);
 		max_ev = hw_param4.gsi_num_ev_per_ee;
@@ -1658,7 +1659,7 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 		goto err_iounmap;
 	}
 
-	gsi_ctx->evt_bmap = ~((1 << gsi_ctx->max_ev) - 1);
+	gsi_ctx->evt_bmap = ~((((unsigned long)1) << gsi_ctx->max_ev) - 1);
 
 	/* exclude reserved mhi events */
 	if (props->mhi_er_id_limits_valid)

@@ -29,7 +29,6 @@
 #include <linux/hashtable.h>
 #include <linux/jhash.h>
 #include <linux/pci.h>
-#include <soc/qcom/subsystem_restart.h>
 #include <linux/soc/qcom/smem.h>
 #include <linux/qcom_scm.h>
 #include <asm/cacheflush.h>
@@ -39,6 +38,12 @@
 #include <linux/of_address.h>
 #include <linux/qcom_scm.h>
 #include <linux/soc/qcom/mdt_loader.h>
+#include <linux/version.h>
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0))
+#include <linux/panic_notifier.h>
+#else
+#include <soc/qcom/subsystem_restart.h>
+#endif
 #include "gsi.h"
 #include "ipa_stats.h"
 #include <linux/suspend.h>
@@ -58,6 +63,9 @@
 
 #include "ipa_i.h"
 #include "ipa_rm_i.h"
+#if defined(CONFIG_IPA_TSP)
+#include "ipa_tsp.h"
+#endif
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
 
@@ -499,7 +507,7 @@ static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 	switch (event) {
 		case PM_POST_SUSPEND:
 #ifdef CONFIG_DEEPSLEEP
-			if (mem_sleep_current == PM_SUSPEND_MEM && ipa3_ctx->deepsleep) {
+			if (pm_suspend_via_firmware() && ipa3_ctx->deepsleep) {
 				IPADBG("Enter deepsleep resume\n");
 				ipa3_deepsleep_resume();
 				IPADBG("Exit deepsleep resume\n");
@@ -539,6 +547,155 @@ static struct {
 } smmu_info;
 
 static char *active_clients_table_buf;
+
+void ipa3_get_default_evict_values(
+	struct ipahal_reg_coal_evict_lru *evict_lru )
+{
+	if (evict_lru) {
+
+		struct device *dev = &ipa3_ctx->master_pdev->dev;
+
+		u32 val;
+		int result;
+
+		memset(evict_lru, 0, sizeof(*evict_lru));
+
+		/*
+		 * Get coal_vp_lru_thrshld
+		 */
+		result =
+			of_property_read_u32(
+				dev->of_node,
+				"qcom,coal-vp-lru-thrshld",
+				&val);
+		if ( result == 0 ) {
+			evict_lru->coal_vp_lru_thrshld = val;
+		} else {
+			IPADBG(
+				"Error reading qcom,coal-vp-lru-thrshld...will use default\n");
+			evict_lru->coal_vp_lru_thrshld = IPA_COAL_VP_LRU_THRSHLD;
+		}
+		IPADBG(": coal_vp_lru_thrshld = %u", evict_lru->coal_vp_lru_thrshld);
+
+		/*
+		 * Get coal_eviction_en
+		 */
+		evict_lru->coal_eviction_en =
+			of_property_read_bool(
+				dev->of_node,
+				"qcom,coal-eviction-en");
+		if ( evict_lru->coal_eviction_en == false ) {
+			evict_lru->coal_eviction_en = IPA_COAL_EVICTION_EN;
+		}
+		IPADBG(": coal_eviction_en = %s",
+			   (evict_lru->coal_eviction_en) ? "true" : "false");
+
+		/*
+		 * Get coal_vp_lru_gran_sel
+		 */
+		result =
+			of_property_read_u32(
+				dev->of_node,
+				"qcom,coal_vp_lru_gran_sel",
+				&val);
+		if ( result == 0 ) {
+			evict_lru->coal_vp_lru_gran_sel = val;
+		} else {
+			IPADBG(
+				"Error reading qcom,coal_vp_lru_gran_sel...will use default\n");
+			evict_lru->coal_vp_lru_gran_sel = IPA_COAL_VP_LRU_GRAN_SEL;
+		}
+		IPADBG(": coal_vp_lru_gran_sel = %u\n",
+			   evict_lru->coal_vp_lru_gran_sel);
+
+		/*
+		 * Get coal_vp_lru_udp_thrshld
+		 */
+		result =
+			of_property_read_u32(
+				dev->of_node,
+				"qcom,coal-vp-lru-udp-thrshld",
+				&val);
+		if ( result == 0 ) {
+			evict_lru->coal_vp_lru_udp_thrshld = val;
+		} else {
+			IPADBG(
+				"Error reading qcom,coal-vp-lru-udp-thrshld...will use default\n");
+			evict_lru->coal_vp_lru_udp_thrshld = IPA_COAL_VP_LRU_UDP_THRSHLD;
+		}
+		IPADBG(": coal_vp_lru_udp_thrshld = %u", evict_lru->coal_vp_lru_udp_thrshld);
+
+		/*
+		 * Get coal_vp_lru_tcp_thrshld
+		 */
+		result =
+			of_property_read_u32(
+				dev->of_node,
+				"qcom,coal-vp-lru-tcp-thrshld",
+				&val);
+		if ( result == 0 ) {
+			evict_lru->coal_vp_lru_tcp_thrshld = val;
+		} else {
+			IPADBG(
+				"Error reading qcom,coal-vp-lru-tcp-thrshld...will use default\n");
+			evict_lru->coal_vp_lru_tcp_thrshld = IPA_COAL_VP_LRU_TCP_THRSHLD;
+		}
+		IPADBG(": coal_vp_lru_tcp_thrshld = %u", evict_lru->coal_vp_lru_tcp_thrshld);
+
+		/*
+		 * Get coal_vp_lru_udp_thrshld_en
+		 */
+		result =
+			of_property_read_u32(
+				dev->of_node,
+				"qcom,coal-vp-lru-udp-thrshld-en",
+				&val);
+		if ( result == 0 ) {
+			evict_lru->coal_vp_lru_udp_thrshld_en = val;
+		} else {
+			IPADBG(
+				"Error reading qcom,coal-vp-lru-udp-thrshld-en...will use default\n");
+			evict_lru->coal_vp_lru_udp_thrshld_en = IPA_COAL_VP_LRU_UDP_THRSHLD_EN;
+		}
+		IPADBG(": coal_vp_lru_udp_thrshld_en = %u",
+			   evict_lru->coal_vp_lru_udp_thrshld_en);
+
+		/*
+		 * Get coal_vp_lru_tcp_thrshld_en
+		 */
+		result =
+			of_property_read_u32(
+				dev->of_node,
+				"qcom,coal-vp-lru-tcp-thrshld-en",
+				&val);
+		if ( result == 0 ) {
+			evict_lru->coal_vp_lru_tcp_thrshld_en = val;
+		} else {
+			IPADBG(
+				"Error reading qcom,coal-vp-lru-tcp-thrshld-en...will use default\n");
+			evict_lru->coal_vp_lru_tcp_thrshld_en = IPA_COAL_VP_LRU_TCP_THRSHLD_EN;
+		}
+		IPADBG(": coal_vp_lru_tcp_thrshld_en = %u",
+			   evict_lru->coal_vp_lru_tcp_thrshld_en);
+
+		/*
+		 * Get coal_vp_lru_tcp_num
+		 */
+		result =
+			of_property_read_u32(
+				dev->of_node,
+				"qcom,coal-vp-lru-tcp-num",
+				&val);
+		if ( result == 0 ) {
+			evict_lru->coal_vp_lru_tcp_num = val;
+		} else {
+			IPADBG(
+				"Error reading qcom,coal-vp-lru-tcp-num...will use default\n");
+			evict_lru->coal_vp_lru_tcp_num = IPA_COAL_VP_LRU_TCP_NUM;
+		}
+		IPADBG(": coal_vp_lru_tcp_num = %u", evict_lru->coal_vp_lru_tcp_num);
+	}
+}
 
 int ipa3_active_clients_log_print_buffer(char *buf, int size)
 {
@@ -2705,6 +2862,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	u8 header[256] = { 0 };
 	u8 *param = NULL;
 	bool is_vlan_mode;
+	struct ipa_ioc_coal_evict_policy evict_pol;
 	struct ipa_ioc_nat_alloc_mem nat_mem;
 	struct ipa_ioc_nat_ipv6ct_table_alloc table_alloc;
 	struct ipa_ioc_v4_nat_init nat_init;
@@ -2720,6 +2878,15 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_macsec_map *macsec_map;
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	struct ipa_ioc_ext_router_info *ext_router_info;
+#endif
+#if defined(CONFIG_IPA_TSP)
+	struct ipa_ioc_tsp_ingress_class_get ingr_tc_get;
+	struct ipa_ioc_tsp_egress_class_get egr_tc_get;
+	struct ipa_ioc_tsp_egress_prod_get egr_ep_get;
+	struct ipa_ioc_tsp_ingress_class_set ingr_tc_set;
+	struct ipa_ioc_tsp_egress_class_set egr_tc_set;
+	struct ipa_ioc_tsp_egress_prod_set egr_ep_set;
+	u32 u32temp;
 #endif
 	bool send2uC, send2ipacm;
 	size_t sz;
@@ -2741,6 +2908,17 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	switch (cmd) {
+	case IPA_IOC_COAL_EVICT_POLICY:
+		if (copy_from_user(
+				&evict_pol,
+				(const void __user *) arg,
+				sizeof(struct ipa_ioc_coal_evict_policy))) {
+			IPAERR_RL("copy_from_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+		retval = ipa3_set_evict_policy(&evict_pol);
+		break;
 	case IPA_IOC_ALLOC_NAT_MEM:
 		if (copy_from_user(&nat_mem, (const void __user *)arg,
 			sizeof(struct ipa_ioc_nat_alloc_mem))) {
@@ -4174,6 +4352,168 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 #endif
+	case IPA_IOC_SET_NAT_EXC_RT_TBL_IDX:
+		retval = ipa3_set_nat_conn_track_exc_rt_tbl(arg, IPA_IP_v4);
+		break;
+
+	case IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX:
+		retval = ipa3_set_nat_conn_track_exc_rt_tbl(arg, IPA_IP_v6);
+		break;
+#if defined(CONFIG_IPA_TSP)
+	case IPA_IOC_TSP_GET_INGR_TC_NUM:
+		u32temp = (u32)ipa3_ctx->tsp.ingr_tc_max;
+		goto send;
+	case IPA_IOC_TSP_GET_EGR_EP_NUM:
+		u32temp = (u32)ipa3_ctx->tsp.egr_ep_max;
+		goto send;
+	case IPA_IOC_TSP_GET_EGR_TC_NUM:
+		u32temp = (u32)ipa3_ctx->tsp.egr_tc_max;
+send:
+		if (copy_to_user((void __user *)arg, &u32temp, sizeof(u32temp))) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case IPA_IOC_TSP_GET_INGR_TC:
+		if (copy_from_user(&ingr_tc_get, (const void __user *)arg,
+			sizeof(struct ipa_ioc_tsp_ingress_class_get))) {
+			retval = -EFAULT;
+			break;
+		}
+
+		if (ingr_tc_get.index == 0 || ingr_tc_get.index > (u32)ipa3_ctx->tsp.ingr_tc_max) {
+			retval = -EINVAL;
+			break;
+		}
+
+		retval = ipa_tsp_get_ingr_tc(ingr_tc_get.index, &(ingr_tc_get.params));
+		if (retval != 0)
+			break;
+
+		if (copy_to_user((void __user *)arg, &ingr_tc_get,
+			sizeof(struct ipa_ioc_tsp_ingress_class_get))) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case IPA_IOC_TSP_GET_EGR_EP:
+		if (copy_from_user(&egr_ep_get, (const void __user *)arg,
+			sizeof(struct ipa_ioc_tsp_egress_prod_get))) {
+			retval = -EFAULT;
+			break;
+		}
+
+		if (egr_ep_get.index >= (u32)ipa3_ctx->tsp.egr_ep_max) {
+			retval = -EINVAL;
+			break;
+		}
+
+		retval = ipa_tsp_get_egr_ep(egr_ep_get.index, &(egr_ep_get.params));
+		if (retval != 0)
+			break;
+
+		if (copy_to_user((void __user *)arg, &egr_ep_get,
+			sizeof(struct ipa_ioc_tsp_egress_prod_get))) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case IPA_IOC_TSP_GET_EGR_TC:
+		if (copy_from_user(&egr_tc_get, (const void __user *)arg,
+			sizeof(struct ipa_ioc_tsp_egress_class_get))) {
+			retval = -EFAULT;
+			break;
+		}
+
+		if (egr_tc_get.index == 0 || egr_tc_get.index > (u32)ipa3_ctx->tsp.egr_tc_max) {
+			retval = -EINVAL;
+			break;
+		}
+
+		retval = ipa_tsp_get_egr_tc(egr_tc_get.index, &(egr_tc_get.params));
+		if (retval != 0)
+			break;
+
+		if (copy_to_user((void __user *)arg, &egr_tc_get,
+			sizeof(struct ipa_ioc_tsp_egress_class_get))) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case IPA_IOC_TSP_SET_INGR_TC:
+		if (copy_from_user(&ingr_tc_set, (const void __user *)arg,
+			sizeof(struct ipa_ioc_tsp_ingress_class_set))) {
+			retval = -EFAULT;
+			break;
+		}
+
+		if (ingr_tc_set.index == 0 || ingr_tc_set.index > (u32)ipa3_ctx->tsp.ingr_tc_max) {
+			retval = -EINVAL;
+			break;
+		}
+
+		retval = ipa_tsp_set_ingr_tc(ingr_tc_set.index, &(ingr_tc_set.params));
+		if (retval != 0)
+			break;
+
+		if (ingr_tc_set.commit)
+			retval = ipa_tsp_commit();
+
+		break;
+
+	case IPA_IOC_TSP_SET_EGR_EP:
+		if (copy_from_user(&egr_ep_set, (const void __user *)arg,
+			sizeof(struct ipa_ioc_tsp_egress_prod_set))) {
+			retval = -EFAULT;
+			break;
+		}
+
+		if (egr_ep_set.index >= (u32)ipa3_ctx->tsp.egr_ep_max) {
+			retval = -EINVAL;
+			break;
+		}
+
+		retval = ipa_tsp_set_egr_ep(egr_ep_set.index, &(egr_ep_set.params));
+		if (retval != 0)
+			break;
+
+		if (egr_ep_set.commit)
+			retval = ipa_tsp_commit();
+		break;
+
+	case IPA_IOC_TSP_SET_EGR_TC:
+		if (copy_from_user(&egr_tc_set, (const void __user *)arg,
+			sizeof(struct ipa_ioc_tsp_egress_class_set))) {
+			retval = -EFAULT;
+			break;
+		}
+
+		if (egr_tc_set.index == 0 || egr_tc_set.index > (u32)ipa3_ctx->tsp.egr_tc_max) {
+			retval = -EINVAL;
+			break;
+		}
+
+		retval = ipa_tsp_set_egr_tc(egr_tc_set.index, &(egr_tc_set.params));
+		if (retval != 0)
+			break;
+
+		if (egr_tc_set.commit)
+			retval = ipa_tsp_commit();
+
+		break;
+
+	case IPA_IOC_TSP_COMMIT:
+		retval = ipa_tsp_commit();
+		break;
+
+	case IPA_IOC_TSP_RESET:
+		retval = ipa_tsp_reset();
+		break;
+#endif
 
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
@@ -4249,62 +4589,65 @@ int ipa3_setup_dflt_rt_tables(void)
 
 static int ipa3_setup_exception_path(void)
 {
-	struct ipa_ioc_add_hdr *hdr;
-	struct ipa_hdr_add *hdr_entry;
-	struct ipahal_reg_route route = { 0 };
-	struct ipa3_hdr_entry *hdr_entry_internal;
-	int ret;
+	struct ipa_ioc_add_hdr *hdr = NULL;
+	int ret = 0;
 
-	/* install the basic exception header */
-	hdr = kzalloc(sizeof(struct ipa_ioc_add_hdr) + 1 *
-		sizeof(struct ipa_hdr_add), GFP_KERNEL);
-	if (!hdr)
-		return -ENOMEM;
+	if ( ! lan_coal_enabled() ) {
 
-	hdr->num_hdrs = 1;
-	hdr->commit = 1;
-	hdr_entry = &hdr->hdr[0];
+		struct ipa_hdr_add *hdr_entry;
+		struct ipahal_reg_route route = { 0 };
+		struct ipa3_hdr_entry *hdr_entry_internal;
 
-	strlcpy(hdr_entry->name, IPA_LAN_RX_HDR_NAME, IPA_RESOURCE_NAME_MAX);
-	hdr_entry->hdr_len = IPA_LAN_RX_HEADER_LENGTH;
+		/* install the basic exception header */
+		hdr = kzalloc(sizeof(struct ipa_ioc_add_hdr) + 1 *
+					  sizeof(struct ipa_hdr_add), GFP_KERNEL);
+		if (!hdr)
+			return -ENOMEM;
 
-	if (ipa3_add_hdr(hdr)) {
-		IPAERR("fail to add exception hdr\n");
-		ret = -EPERM;
-		goto bail;
+		hdr->num_hdrs = 1;
+		hdr->commit = 1;
+		hdr_entry = &hdr->hdr[0];
+
+		strlcpy(hdr_entry->name, IPA_LAN_RX_HDR_NAME, IPA_RESOURCE_NAME_MAX);
+		hdr_entry->hdr_len = IPA_LAN_RX_HEADER_LENGTH;
+
+		if (ipa3_add_hdr(hdr)) {
+			IPAERR("fail to add exception hdr\n");
+			ret = -EPERM;
+			goto bail;
+		}
+
+		if (hdr_entry->status) {
+			IPAERR("fail to add exception hdr\n");
+			ret = -EPERM;
+			goto bail;
+		}
+
+		hdr_entry_internal = ipa3_id_find(hdr_entry->hdr_hdl);
+		if (unlikely(!hdr_entry_internal)) {
+			IPAERR("fail to find internal hdr structure\n");
+			ret = -EPERM;
+			goto bail;
+		}
+
+		ipa3_ctx->excp_hdr_hdl = hdr_entry->hdr_hdl;
+
+		/* set the route register to pass exception packets to Apps */
+		route.route_def_pipe = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+		route.route_frag_def_pipe = ipa3_get_ep_mapping(
+			IPA_CLIENT_APPS_LAN_CONS);
+		route.route_def_hdr_table = !hdr_entry_internal->is_lcl;
+		route.route_def_retain_hdr = 1;
+
+		if (ipa3_cfg_route(&route)) {
+			IPAERR("fail to add exception hdr\n");
+			ret = -EPERM;
+			goto bail;
+		}
 	}
 
-	if (hdr_entry->status) {
-		IPAERR("fail to add exception hdr\n");
-		ret = -EPERM;
-		goto bail;
-	}
-
-	hdr_entry_internal = ipa3_id_find(hdr_entry->hdr_hdl);
-	if (unlikely(!hdr_entry_internal)) {
-		IPAERR("fail to find internal hdr structure\n");
-		ret = -EPERM;
-		goto bail;
-	}
-
-	ipa3_ctx->excp_hdr_hdl = hdr_entry->hdr_hdl;
-
-	/* set the route register to pass exception packets to Apps */
-	route.route_def_pipe = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
-	route.route_frag_def_pipe = ipa3_get_ep_mapping(
-		IPA_CLIENT_APPS_LAN_CONS);
-	route.route_def_hdr_table = !hdr_entry_internal->is_lcl;
-	route.route_def_retain_hdr = 1;
-
-	if (ipa3_cfg_route(&route)) {
-		IPAERR("fail to add exception hdr\n");
-		ret = -EPERM;
-		goto bail;
-	}
-
-	ret = 0;
 bail:
-	kfree(hdr);
+	if ( hdr ) kfree(hdr);
 	return ret;
 }
 
@@ -6019,35 +6362,75 @@ static int ipa3_setup_apps_pipes(void)
 	}
 	IPADBG("default routing was set\n");
 
-	/* LAN IN (IPA->AP) */
-	memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
-	sys_in.client = IPA_CLIENT_APPS_LAN_CONS;
-	sys_in.desc_fifo_sz = IPA_SYS_DESC_FIFO_SZ;
-	sys_in.notify = ipa3_lan_rx_cb;
-	sys_in.priv = NULL;
-	if (ipa3_ctx->lan_rx_napi_enable)
-		sys_in.napi_obj = &ipa3_ctx->napi_lan_rx;
-	sys_in.ipa_ep_cfg.hdr.hdr_len = IPA_LAN_RX_HEADER_LENGTH;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_little_endian = false;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_valid = true;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad = IPA_HDR_PAD;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_payload_len_inc_padding = false;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_offset = 0;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_pad_to_alignment = 2;
-	sys_in.ipa_ep_cfg.cfg.cs_offload_en = IPA_DISABLE_CS_OFFLOAD;
+	ipa3_ctx->clnt_hdl_data_in = 0;
 
-	/**
-	 * ipa_lan_rx_cb() intended to notify the source EP about packet
-	 * being received on the LAN_CONS via calling the source EP call-back.
-	 * There could be a race condition with calling this call-back. Other
-	 * thread may nullify it - e.g. on EP disconnect.
-	 * This lock intended to protect the access to the source EP call-back
-	 */
-	spin_lock_init(&ipa3_ctx->disconnect_lock);
-	if (ipa3_setup_sys_pipe(&sys_in, &ipa3_ctx->clnt_hdl_data_in)) {
-		IPAERR(":setup sys pipe (LAN_CONS) failed.\n");
-		result = -EPERM;
-		goto fail_flt_hash_tuple;
+	if ( ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5 ) {
+		/*
+		 * LAN_COAL IN (IPA->AP)
+		 */
+		memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
+		sys_in.client = IPA_CLIENT_APPS_LAN_COAL_CONS;
+		sys_in.desc_fifo_sz = IPA_SYS_DESC_FIFO_SZ;
+		sys_in.notify = ipa3_lan_coal_rx_cb;
+		sys_in.priv = NULL;
+		if (ipa3_ctx->lan_rx_napi_enable)
+			sys_in.napi_obj = &ipa3_ctx->napi_lan_rx;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_little_endian = false;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_valid = true;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad = IPA_HDR_PAD;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_payload_len_inc_padding = false;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_offset = 0;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_pad_to_alignment = 2;
+		sys_in.ipa_ep_cfg.cfg.cs_offload_en = IPA_DISABLE_CS_OFFLOAD;
+
+		/**
+		 * ipa3_lan_coal_rx_cb() intended to notify the source EP about
+		 * packet being received on the LAN_COAL_CONS via calling the
+		 * source EP call-back.  There could be a race condition with
+		 * calling this call-back. Other thread may nullify it - e.g. on
+		 * EP disconnect.  This lock intended to protect the access to the
+		 * source EP call-back
+		 */
+		spin_lock_init(&ipa3_ctx->disconnect_lock);
+		if (ipa3_setup_sys_pipe(&sys_in, &ipa3_ctx->clnt_hdl_data_in)) {
+			IPAERR(":setup sys pipe (LAN_COAL_CONS) failed.\n");
+			result = -EPERM;
+			goto fail_flt_hash_tuple;
+		}
+
+	} else { /* ipa3_ctx->ipa_hw_type < IPA_HW_v5_5 */
+		/*
+		 * LAN IN (IPA->AP)
+		 */
+		memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
+		sys_in.client = IPA_CLIENT_APPS_LAN_CONS;
+		sys_in.desc_fifo_sz = IPA_SYS_DESC_FIFO_SZ;
+		sys_in.notify = ipa3_lan_rx_cb;
+		sys_in.priv = NULL;
+		if (ipa3_ctx->lan_rx_napi_enable)
+			sys_in.napi_obj = &ipa3_ctx->napi_lan_rx;
+		sys_in.ipa_ep_cfg.hdr.hdr_len = IPA_LAN_RX_HEADER_LENGTH;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_little_endian = false;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_valid = true;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad = IPA_HDR_PAD;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_payload_len_inc_padding = false;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_offset = 0;
+		sys_in.ipa_ep_cfg.hdr_ext.hdr_pad_to_alignment = 2;
+		sys_in.ipa_ep_cfg.cfg.cs_offload_en = IPA_DISABLE_CS_OFFLOAD;
+
+		/**
+		 * ipa_lan_rx_cb() intended to notify the source EP about packet
+		 * being received on the LAN_CONS via calling the source EP call-back.
+		 * There could be a race condition with calling this call-back. Other
+		 * thread may nullify it - e.g. on EP disconnect.
+		 * This lock intended to protect the access to the source EP call-back
+		 */
+		spin_lock_init(&ipa3_ctx->disconnect_lock);
+		if (ipa3_setup_sys_pipe(&sys_in, &ipa3_ctx->clnt_hdl_data_in)) {
+			IPAERR(":setup sys pipe (LAN_CONS) failed.\n");
+			result = -EPERM;
+			goto fail_flt_hash_tuple;
+		}
 	}
 
 	/* LAN OUT (AP->IPA) */
@@ -6076,7 +6459,8 @@ static int ipa3_setup_apps_pipes(void)
 	return 0;
 
 fail_lan_data_out:
-	ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
+	if ( ipa3_ctx->clnt_hdl_data_in )
+		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
 fail_flt_hash_tuple:
 	if (ipa3_ctx->dflt_v6_rt_rule_hdl)
 		__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
@@ -6093,7 +6477,8 @@ static void ipa3_teardown_apps_pipes(void)
 {
 	if (!ipa3_ctx->ipa_config_is_mhi)
 		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_out);
-	ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
+	if ( ipa3_ctx->clnt_hdl_data_in )
+		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
 	__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
 	__ipa3_del_rt_rule(ipa3_ctx->dflt_v4_rt_rule_hdl);
 	__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
@@ -6271,6 +6656,12 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case IPA_IOC_DEL_EoGRE_MAPPING32:
 		cmd = IPA_IOC_DEL_EoGRE_MAPPING;
+		break;
+	case IPA_IOC_SET_NAT_EXC_RT_TBL_IDX32:
+		cmd = IPA_IOC_SET_NAT_EXC_RT_TBL_IDX;
+		break;
+	case IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX32:
+		cmd = IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX;
 		break;
 	case IPA_IOC_COMMIT_HDR:
 	case IPA_IOC_RESET_HDR:
@@ -6610,17 +7001,16 @@ void ipa3_active_clients_log_inc(struct ipa_active_client_logging_info *id,
 }
 
 /**
- * ipa3_inc_client_enable_clks() - Increase active clients counter, and
+ * ipa3_inc_client_enable_clks_no_log() - Increase active clients counter, and
  * enable ipa clocks if necessary
  *
  * Return codes:
  * None
  */
-void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
+static void ipa3_inc_client_enable_clks_no_log(void)
 {
 	int ret;
 
-	ipa3_active_clients_log_inc(id, false);
 	ret = atomic_inc_not_zero(&ipa3_ctx->ipa3_active_clients.cnt);
 	if (ret) {
 		IPADBG_LOW("active clients = %d\n",
@@ -6645,6 +7035,19 @@ void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
 	IPADBG_LOW("active clients = %d\n",
 		atomic_read(&ipa3_ctx->ipa3_active_clients.cnt));
 	mutex_unlock(&ipa3_ctx->ipa3_active_clients.mutex);
+}
+
+/**
+ * ipa3_inc_client_enable_clks() - Increase active clients counter and
+ * enable ipa clocks if necessary, log the caller
+ *
+ * Return codes:
+ * None
+ */
+void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
+{
+	ipa3_active_clients_log_inc(id, false);
+	ipa3_inc_client_enable_clks_no_log();
 }
 EXPORT_SYMBOL(ipa3_inc_client_enable_clks);
 
@@ -6707,7 +7110,7 @@ static void __ipa3_dec_client_disable_clks(void)
 	 */
 	if (atomic_read(&ipa3_ctx->ipa3_active_clients.cnt) == 1 &&
 		!ipa3_ctx->tag_process_before_gating) {
-		ipa3_force_close_coal();
+		ipa3_force_close_coal(true, true);
 		/* While sending force close command setting
 		 * tag process as true to make configure to
 		 * original state
@@ -6750,7 +7153,23 @@ bail:
 }
 
 /**
- * ipa3_dec_client_disable_clks() - Decrease active clients counter
+ * ipa3_dec_client_disable_clks_no_log() - Decrease active clients counter
+ *
+ * In case that there are no active clients this function also starts
+ * TAG process. When TAG progress ends ipa clocks will be gated.
+ * start_tag_process_again flag is set during this function to signal TAG
+ * process to start again as there was another client that may send data to ipa
+ *
+ * Return codes:
+ * None
+ */
+static void ipa3_dec_client_disable_clks_no_log(void)
+{
+	__ipa3_dec_client_disable_clks();
+}
+
+/**
+ * ipa3_dec_client_disable_clks() - Decrease active clients counter and log caller
  *
  * In case that there are no active clients this function also starts
  * TAG process. When TAG progress ends ipa clocks will be gated.
@@ -7344,6 +7763,9 @@ static enum gsi_ver ipa3_get_gsi_ver(enum ipa_hw_type ipa_hw_type)
 	case IPA_HW_v5_2:
 		gsi_ver = GSI_VER_5_2;
 		break;
+	case IPA_HW_v5_5:
+		gsi_ver = GSI_VER_5_5;
+		break;
 	default:
 		IPAERR("No GSI version for ipa type %d\n", ipa_hw_type);
 		WARN_ON(1);
@@ -7788,6 +8210,8 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	gsi_props.rel_clk_cb = NULL;
 	gsi_props.clk_status_cb = ipa3_active_clks_status;
 	gsi_props.enable_clk_bug_on = ipa3_handle_gsi_differ_irq;
+	gsi_props.vote_clk_cb = ipa3_inc_client_enable_clks_no_log;
+	gsi_props.unvote_clk_cb = ipa3_dec_client_disable_clks_no_log;
 
 	if (ipa3_ctx->ipa_config_is_mhi) {
 		gsi_props.mhi_er_id_limits_valid = true;
@@ -7870,6 +8294,13 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPAERR(":ntn init failed (%d)\n", -result);
 	else
 		IPADBG(":ntn init ok\n");
+#if defined(CONFIG_IPA_TSP)
+	result = ipa_tsp_init();
+	if (result)
+		IPAERR(":TSP init failed (%d)\n", -result);
+	else
+		IPADBG(":TSP init ok\n");
+#endif
 
 	result = ipa_hw_stats_init();
 	if (result)
@@ -8076,6 +8507,11 @@ static int ipa_firmware_load(const char *sub_sys)
 	scnprintf(fw_name, ARRAY_SIZE(fw_name), "%s.mdt", sub_sys);
 	ret = of_property_read_u32_index(dev->of_node, "pas-ids", index,
 					  &pas_id);
+	if(ret) {
+		dev_err(dev, "error %d getting \"pass-ids\" property\n",
+			ret);
+		return ret;
+	}
 
 	ret = request_firmware(&fw, fw_name, dev);
 	if (ret) {
@@ -8162,7 +8598,7 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
 	IPADBG("Entry\n");
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-	
+
 	result = ipa3_attach_to_smmu();
 	if (result) {
 		IPAERR("IPA attach to smmu failed %d\n", result);
@@ -8710,8 +9146,11 @@ static inline void ipa3_enable_napi_netdev(void)
 	if (ipa3_ctx->lan_rx_napi_enable || ipa3_ctx->tx_napi_enable) {
 		init_dummy_netdev(&ipa3_ctx->generic_ndev);
 		if(ipa3_ctx->lan_rx_napi_enable) {
-			netif_napi_add(&ipa3_ctx->generic_ndev, &ipa3_ctx->napi_lan_rx,
-					ipa3_lan_poll, NAPI_WEIGHT);
+			netif_napi_add(
+				&ipa3_ctx->generic_ndev,
+				&ipa3_ctx->napi_lan_rx,
+				ipa3_lan_poll,
+				NAPI_WEIGHT);
 		}
 	}
 }
@@ -8873,10 +9312,18 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->uc_ctx.holb_monitor.max_cnt_11ad =
 		resource_p->ipa_holb_monitor_max_cnt_11ad;
 	ipa3_ctx->ipa_wan_aggr_pkt_cnt = resource_p->ipa_wan_aggr_pkt_cnt;
-	ipa3_ctx->stats.page_recycle_stats[0].total_replenished = 0;
-	ipa3_ctx->stats.page_recycle_stats[0].tmp_alloc = 0;
-	ipa3_ctx->stats.page_recycle_stats[1].total_replenished = 0;
-	ipa3_ctx->stats.page_recycle_stats[1].tmp_alloc = 0;
+	memset(
+		ipa3_ctx->stats.page_recycle_stats,
+		0,
+		sizeof(ipa3_ctx->stats.page_recycle_stats));
+	memset(
+		ipa3_ctx->stats.cache_recycle_stats,
+		0,
+		sizeof(ipa3_ctx->stats.cache_recycle_stats));
+	memset(
+		&ipa3_ctx->stats.coal,
+		0,
+		sizeof(ipa3_ctx->stats.coal));
 	memset(ipa3_ctx->stats.page_recycle_cnt, 0,
 		sizeof(ipa3_ctx->stats.page_recycle_cnt));
 	ipa3_ctx->stats.num_sort_tasklet_sched[0] = 0;
@@ -8970,7 +9417,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			strlen(resource_p->uc_fw_file_name));
 	}
 
-	if (ipa3_ctx->secure_debug_check_action == USE_SCM) {
+	if (IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode) &&
+		ipa3_ctx->secure_debug_check_action == USE_SCM) {
 		if (ipa_is_mem_dump_allowed())
 			ipa3_ctx->sd_state = SD_ENABLED;
 		else
@@ -8994,6 +9442,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ipa_endp_delay_wa = resource_p->ipa_endp_delay_wa;
 	ipa3_ctx->ipa_endp_delay_wa_v2 = resource_p->ipa_endp_delay_wa_v2;
 	ipa3_ctx->ulso_wa = resource_p->ulso_wa;
+	ipa3_ctx->coal_ipv4_id_ignore = resource_p->coal_ipv4_id_ignore;
 
 	WARN(!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode),
 		"Non NORMAL IPA HW mode, is this emulation platform ?");
@@ -9456,6 +9905,9 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->buff_above_thresh_for_coal_pipe_notified = false;
 	ipa3_ctx->buff_below_thresh_for_def_pipe_notified = false;
 	ipa3_ctx->buff_below_thresh_for_coal_pipe_notified = false;
+	ipa3_ctx->buff_above_thresh_for_ll_pipe_notified = false;
+	ipa3_ctx->buff_below_thresh_for_ll_pipe_notified = false;
+	ipa3_ctx->free_page_task_scheduled = false;
 
 	mutex_init(&ipa3_ctx->app_clock_vote.mutex);
 	ipa3_ctx->is_modem_up = false;
@@ -9872,6 +10324,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->rmnet_ll_enable = 0;
 	ipa_drv_res->ulso_wa = false;
 	ipa_drv_res->is_dual_pine_config = false;
+	ipa_drv_res->coal_ipv4_id_ignore = true;
 
 	/* Get IPA HW Version */
 	result = of_property_read_u32(pdev->dev.of_node, "qcom,ipa-hw-ver",
@@ -10528,6 +10981,17 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 		ipa_drv_res->is_dual_pine_config
 		? "True" : "False");
 
+	result = of_property_read_u8(pdev->dev.of_node,
+					"qcom,coal-ipv4-id-ignore",
+					&ipa_drv_res->coal_ipv4_id_ignore);
+	if (result || ipa_drv_res->coal_ipv4_id_ignore > 1) {
+		IPADBG(":Resource not present for coal-ipv4-id-ignore, use def\n");
+		ipa_drv_res->coal_ipv4_id_ignore = true;
+	}
+	IPADBG(": coal-ipv4-id-ignore = %s\n",
+			ipa_drv_res->coal_ipv4_id_ignore
+			? "True" : "False");
+
 	return 0;
 }
 
@@ -10541,6 +11005,9 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	const u32 *add_map;
 	int i;
 	u32 iova_ap_mapping[2];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+	int mapping_config;
+#endif
 
 	IPADBG("CB %d PROBE dev=%pK\n", cb_type, dev);
 
@@ -10587,9 +11054,20 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	 * checks to see if they've been set in dtsi.  If so, the logic
 	 * further below acts accordingly...
 	 */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+
+	mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
+
+	if (mapping_config < 0) {
+		IPAERR("No Mapping configuration found for CB %d\n", cb_type);
+	} else {
+		bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
+		fast = (mapping_config & QCOM_IOMMU_MAPPING_CONF_FAST) ? 1 : 0;
+	}
+#else
 	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
 	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
-
+#endif
 	IPADBG(
 	  "CB %d PROBE dev=%pK DOMAIN ATTRS bypass=%d fast=%d\n",
 	  cb_type, dev, bypass, fast);
@@ -10641,6 +11119,9 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	int bypass = 0;
 	int fast = 0;
 	u32 iova_ap_mapping[2];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+	int mapping_config;
+#endif
 
 	IPADBG("UC CB PROBE dev=%pK\n", dev);
 
@@ -10702,9 +11183,20 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	 * checks to see if they've been set in dtsi.  If so, the logic
 	 * further below acts accordingly...
 	 */
-	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
-	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 
+        mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
+
+        if (mapping_config < 0) {
+                IPAERR("No Mapping configuration found for UC CB\n");
+        } else {
+                bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
+                fast = (mapping_config & QCOM_IOMMU_MAPPING_CONF_FAST) ? 1 : 0;
+        }
+#else
+        iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
+        iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
+#endif
 	IPADBG("UC CB PROBE dev=%pK DOMAIN ATTRS bypass=%d fast=%d\n",
 		   dev, bypass, fast);
 
@@ -10758,6 +11250,9 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	phys_addr_t iova;
 	phys_addr_t pa;
 	u32 iova_ap_mapping[2];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+	int mapping_config;
+#endif
 
 	IPADBG("AP CB PROBE dev=%pK\n", dev);
 
@@ -10819,9 +11314,20 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	 * checks to see if they've been set in dtsi.  If so, the logic
 	 * further below acts accordingly...
 	 */
-	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
-	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 
+        mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
+
+        if (mapping_config < 0) {
+                IPAERR("No Mapping configuration found for AP CB\n");
+        } else {
+                bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
+                fast = (mapping_config & QCOM_IOMMU_MAPPING_CONF_FAST) ? 1 : 0;
+        }
+#else
+        iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
+        iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
+#endif
 	IPADBG("AP CB PROBE dev=%pK DOMAIN ATTRS bypass=%d fast=%d\n",
 		   dev, bypass, fast);
 
@@ -10865,6 +11371,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 		IPADBG("ipa q6 smem size = %u\n", ipa_smem_size);
 	}
 
+	ipa3_ctx->ipa_smem_size = ipa_smem_size;
 	if (ipa3_ctx->platform_type != IPA_PLAT_TYPE_APQ) {
 		/* map SMEM memory for IPA table accesses */
 		ret = qcom_smem_alloc(SMEM_MODEM,
@@ -10931,6 +11438,9 @@ static int ipa_smmu_11ad_cb_probe(struct device *dev)
 	int bypass = 0;
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_11AD);
 	u32 iova_ap_mapping[2];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+	int mapping_config;
+#endif
 
 	IPADBG("11AD CB probe: dev=%pK\n", dev);
 
@@ -10960,9 +11470,18 @@ static int ipa_smmu_11ad_cb_probe(struct device *dev)
 
 	IPADBG("11AD CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 
-	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
+        mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
 
+        if (mapping_config < 0) {
+                IPAERR("No Mapping configuration found for 11AD CB\n");
+        } else {
+                bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
+        }
+#else
+        iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
+#endif
 	IPADBG("11AD CB PROBE dev=%pK DOMAIN ATTRS bypass=%d\n",
 		   dev, bypass);
 
@@ -11381,7 +11900,7 @@ int ipa3_ap_suspend(struct device *dev)
 	}
 
 #ifdef CONFIG_DEEPSLEEP
-	if (mem_sleep_current == PM_SUSPEND_MEM) {
+	if (pm_suspend_via_firmware()) {
 		IPADBG("Enter deepsleep suspend\n");
 		ipa3_deepsleep_suspend();
 		IPADBG("Exit deepsleep suspend\n");

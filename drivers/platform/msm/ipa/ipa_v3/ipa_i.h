@@ -441,6 +441,9 @@ enum {
 #define IPA_MEM_INIT_VAL 0xFFFFFFFF
 
 #ifdef CONFIG_COMPAT
+#define IPA_IOC_COAL_EVICT_POLICY32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_COAL_EVICT_POLICY, \
+					compat_uptr_t)
 #define IPA_IOC_ADD_HDR32 _IOWR(IPA_IOC_MAGIC, \
 					IPA_IOCTL_ADD_HDR, \
 					compat_uptr_t)
@@ -563,6 +566,12 @@ enum {
 				compat_uptr_t)
 #define IPA_IOC_DEL_EoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_DEL_EoGRE_MAPPING, \
+				compat_uptr_t)
+#define IPA_IOC_SET_NAT_EXC_RT_TBL_IDX32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_SET_NAT_EXC_RT_TBL_IDX, \
+				compat_uptr_t)
+#define IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_SET_CONN_TRACK_EXC_RT_TBL_IDX, \
 				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
@@ -1225,7 +1234,6 @@ struct ipa3_sys_context {
 	struct work_struct repl_work;
 	void (*repl_hdlr)(struct ipa3_sys_context *sys);
 	struct ipa3_repl_ctx *repl;
-	struct ipa3_page_repl_ctx *page_recycle_repl;
 	u32 pkt_sent;
 	struct napi_struct *napi_obj;
 	struct list_head pending_pkts[GSI_VEID_MAX];
@@ -1245,7 +1253,6 @@ struct ipa3_sys_context {
 	bool ext_ioctl_v2;
 	bool common_buff_pool;
 	struct ipa3_sys_context *common_sys;
-	struct tasklet_struct tasklet_find_freepage;
 	atomic_t page_avilable;
 	u32 napi_sort_page_thrshld_cnt;
 
@@ -1261,10 +1268,12 @@ struct ipa3_sys_context {
 	struct workqueue_struct *repl_wq;
 	struct ipa3_status_stats *status_stat;
 	u32 pm_hdl;
+	struct ipa3_page_repl_ctx *page_recycle_repl;
 	struct workqueue_struct *freepage_wq;
 	unsigned int napi_sch_cnt;
 	unsigned int napi_comp_cnt;
 	struct delayed_work freepage_work;
+	struct tasklet_struct tasklet_find_freepage;
 	/* ordering is important - other immutable fields go below */
 };
 
@@ -1581,6 +1590,30 @@ struct ipa3_page_recycle_stats {
 	u64 tmp_alloc;
 };
 
+struct ipa3_cache_recycle_stats {
+	u64 pkt_allocd;
+	u64 pkt_found;
+	u64 tot_pkt_replenished;
+};
+
+struct lan_coal_stats {
+	u64 coal_rx;
+	u64 coal_left_as_is;
+	u64 coal_reconstructed;
+	u64 coal_pkts;
+	u64 coal_hdr_qmap_err;
+	u64 coal_hdr_nlo_err;
+	u64 coal_hdr_pkt_err;
+	u64 coal_csum_err;
+	u64 coal_ip_invalid;
+	u64 coal_trans_invalid;
+	u64 coal_veid[GSI_VEID_MAX];
+	u64 coal_tcp;
+	u64 coal_tcp_bytes;
+	u64 coal_udp;
+	u64 coal_udp_bytes;
+};
+
 struct ipa3_stats {
 	u32 tx_sw_pkts;
 	u32 tx_hw_pkts;
@@ -1600,6 +1633,7 @@ struct ipa3_stats {
 	u32 rmnet_ll_rx_empty;
 	u32 rmnet_ll_repl_rx_empty;
 	u32 lan_rx_empty;
+	u32 lan_rx_empty_coal;
 	u32 lan_repl_rx_empty;
 	u32 low_lat_rx_empty;
 	u32 low_lat_repl_rx_empty;
@@ -1610,14 +1644,20 @@ struct ipa3_stats {
 	u64 lower_order;
 	u32 pipe_setup_fail_cnt;
 	struct ipa3_page_recycle_stats page_recycle_stats[3];
+	struct ipa3_cache_recycle_stats cache_recycle_stats[3];
 	u64 page_recycle_cnt[3][IPA_PAGE_POLL_THRESHOLD_MAX];
 	atomic_t num_buff_above_thresh_for_def_pipe_notified;
 	atomic_t num_buff_above_thresh_for_coal_pipe_notified;
 	atomic_t num_buff_below_thresh_for_def_pipe_notified;
 	atomic_t num_buff_below_thresh_for_coal_pipe_notified;
+	atomic_t num_buff_above_thresh_for_ll_pipe_notified;
+	atomic_t num_buff_below_thresh_for_ll_pipe_notified;
+	atomic_t num_free_page_task_scheduled;
+	struct lan_coal_stats coal;
 	u64 num_sort_tasklet_sched[3];
 	u64 num_of_times_wq_reschd;
 	u64 page_recycle_cnt_in_tasklet;
+	u32 ttl_cnt;
 };
 
 /* offset for each stats */
@@ -2085,6 +2125,26 @@ struct ipa_ntn3_client_stats {
 	struct ipa_ntn3_stats_rx rx_stats;
 	struct ipa_ntn3_stats_tx tx_stats;
 };
+#if defined(CONFIG_IPA_TSP)
+struct ipa3_tsp_ctx {
+	u8 ingr_tc_max;
+	u8 egr_ep_max;
+	u8 egr_tc_max;
+	enum ipa_client_type *egr_ep_config;
+	u32 egr_tc_range_mask;
+	struct ipa_mem_buffer ingr_tc_tbl;
+	struct ipa_mem_buffer egr_ep_tbl;
+	struct ipa_mem_buffer egr_tc_tbl;
+	struct ipa_mem_buffer qm_tlv_mem;
+};
+#endif
+
+#if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
+struct ipa_minidump_data {
+	struct list_head entry;
+	struct va_md_entry data;
+};
+#endif
 
 /* Peripheral stats for Q6, should be in the same order, defined by Q6 */
 enum ipa_per_stats_type_e {
@@ -2163,13 +2223,6 @@ enum ipa_per_usb_enum_type_e {
 	IPA_PER_USB_ENUM_TYPE_SS_GEN_2x2,
 	IPA_PER_USB_ENUM_TYPE_MAX
 };
-
-#if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
-struct ipa_minidump_data {
-	struct list_head entry;
-	struct va_md_entry data;
-};
-#endif
 
 /**
  * struct ipa3_context - IPA context
@@ -2297,6 +2350,7 @@ struct ipa_minidump_data {
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  */
 struct ipa3_context {
+	bool coal_stopped;
 	struct ipa3_char_device_context cdev;
 	struct ipa3_ep_context ep[IPA5_MAX_NUM_PIPES];
 	bool skip_ep_cfg_shadow[IPA5_MAX_NUM_PIPES];
@@ -2309,6 +2363,7 @@ struct ipa3_context {
 	u32 ipa_wrapper_base;
 	u32 ipa_wrapper_size;
 	u32 ipa_cfg_offset;
+	bool set_evict_reg;
 	struct ipa3_hdr_tbl hdr_tbl[HDR_TBLS_TOTAL];
 	struct ipa3_hdr_proc_ctx_tbl hdr_proc_ctx_tbl;
 	struct ipa3_rt_tbl_set rt_tbl_set[IPA_IP_MAX];
@@ -2465,6 +2520,9 @@ struct ipa3_context {
 	struct ipa3_aqc_ctx aqc_ctx;
 	struct ipa3_rtk_ctx rtk_ctx;
 	struct ipa3_ntn_ctx ntn_ctx;
+#if defined(CONFIG_IPA_TSP)
+	struct ipa3_tsp_ctx tsp;
+#endif
 	atomic_t ipa_clk_vote;
 
 	int (*client_lock_unlock[IPA_MAX_CLNT])(bool is_lock);
@@ -2489,7 +2547,11 @@ struct ipa3_context {
 	u32 icc_num_cases;
 	u32 icc_num_paths;
 	u32 icc_clk[IPA_ICC_LVL_MAX][IPA_ICC_PATH_MAX][IPA_ICC_TYPE_MAX];
-	struct ipahal_imm_cmd_pyld *coal_cmd_pyld[2];
+#define WAN_COAL_SUB  0
+#define LAN_COAL_SUB  1
+#define ULSO_COAL_SUB 2
+#define MAX_CCP_SUB (ULSO_COAL_SUB + 1)
+	struct ipahal_imm_cmd_pyld *coal_cmd_pyld[MAX_CCP_SUB];
 	struct ipa_mem_buffer ulso_wa_cmd;
 	u32 tx_wrapper_cache_max_size;
 	u32 ipa_gen_rx_cmn_page_pool_sz_factor;
@@ -2534,8 +2596,11 @@ struct ipa3_context {
 	bool ipa_rmnet_notifier_enabled;
 	bool buff_above_thresh_for_def_pipe_notified;
 	bool buff_above_thresh_for_coal_pipe_notified;
+	bool buff_above_thresh_for_ll_pipe_notified;
 	bool buff_below_thresh_for_def_pipe_notified;
 	bool buff_below_thresh_for_coal_pipe_notified;
+	bool buff_below_thresh_for_ll_pipe_notified;
+	bool free_page_task_scheduled;
 	u8 mhi_ctrl_state;
 	bool is_mhi_coal_set;
 	struct mutex mhi_lock;
@@ -2545,12 +2610,14 @@ struct ipa3_context {
 	int uc_act_tbl_total;
 	int uc_act_tbl_next_index;
 	int ipa_pil_load;
-	phys_addr_t per_stats_smem_pa;
-	void *per_stats_smem_va;
+	bool is_dual_pine_config;
 	u32 ipa_max_napi_sort_page_thrshld;
 	u32 page_wq_reschd_time;
+	bool coal_ipv4_id_ignore;
 	struct list_head minidump_list_head;
-	bool is_dual_pine_config;
+	phys_addr_t per_stats_smem_pa;
+	void *per_stats_smem_va;
+	u32 ipa_smem_size;
 };
 
 struct ipa3_plat_drv_res {
@@ -2634,6 +2701,7 @@ struct ipa3_plat_drv_res {
 	bool use_tput_est_ep;
 	bool ulso_wa;
 	bool is_dual_pine_config;
+	u8 coal_ipv4_id_ignore;
 };
 
 /**
@@ -2881,6 +2949,36 @@ struct ipa3_controller {
 	struct icc_path *icc_path[IPA_ICC_PATH_MAX];
 };
 
+/*
+ * When data arrives on IPA_CLIENT_APPS_LAN_COAL_CONS, said data will
+ * contain a qmap header followed by an array of the following.  The
+ * number of them in the array is always MAX_COAL_PACKET_STATUS_INFO
+ * (see below); however, only "num_nlos" (a field in the cmap heeader)
+ * will be valid.  The rest are to be ignored.
+ */
+struct coal_packet_status_info {
+	u16 pkt_len;
+	u8  pkt_cksum_errs;
+	u8  num_pkts;
+} __aligned(1);
+/*
+ * This is the number of the struct coal_packet_status_info that
+ * follow the qmap header.  As above, only "num_nlos" are valid.  The
+ * rest are to be ignored.
+ */
+#define MAX_COAL_PACKET_STATUS_INFO (6)
+#define VALID_NLS(nls) \
+	((nls) > 0 && (nls) <= MAX_COAL_PACKET_STATUS_INFO)
+/*
+ * The following is the total number of bits in all the pkt_cksum_errs
+ * in each of the struct coal_packet_status_info(s) that follow the
+ * qmap header.  Each bit is meant to tell us if a packet is good or
+ * bad, relative to a checksum. Given this, the max number of bits
+ * dictates the max number of packets that can be in a buffer from the
+ * IPA.
+ */
+#define MAX_COAL_PACKETS            (48)
+
 extern struct ipa3_context *ipa3_ctx;
 extern bool ipa_net_initialized;
 
@@ -2953,6 +3051,8 @@ void ipa3_cal_ep_holb_scale_base_val(u32 tmr_val,
 
 int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *ipa_ep_cfg);
 
+int ipa3_cfg_ep_prod_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_prod_cfg *prod_cfg);
+
 int ipa3_force_cfg_ep_holb(u32 clnt_hdl, struct ipa_ep_cfg_holb *ipa_ep_cfg);
 
 int ipa3_cfg_ep_metadata_mask(u32 clnt_hdl,
@@ -3023,6 +3123,8 @@ int ipa3_mdfy_rt_rule(struct ipa_ioc_mdfy_rt_rule *rules);
 
 int ipa3_mdfy_rt_rule_v2(struct ipa_ioc_mdfy_rt_rule_v2 *rules);
 
+int ipa3_set_nat_conn_track_exc_rt_tbl(u32 rt_tbl_hdl, enum ipa_ip_type ip);
+
 /*
  * Filtering
  */
@@ -3065,6 +3167,14 @@ int ipa3_allocate_ipv6ct_table(
 int ipa3_nat_cleanup_cmd(void);
 int ipa3_nat_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
 int ipa3_app_clk_vote(enum ipa_app_clock_vote_type vote_type);
+void ipa3_get_default_evict_values(
+	struct ipahal_reg_coal_evict_lru *evict_lru);
+void ipa3_default_evict_register( void );
+int ipa3_set_evict_policy(
+	struct ipa_ioc_coal_evict_policy *evict_pol);
+void start_coalescing( void );
+void stop_coalescing( void );
+bool lan_coal_enabled( void );
 
 /*
  * Messaging
@@ -3368,6 +3478,10 @@ void wwan_cleanup(void);
 
 int ipa3_teth_bridge_driver_init(void);
 void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
+void ipa3_lan_coal_rx_cb(
+	void                *priv,
+	enum ipa_dp_evt_type evt,
+	unsigned long        data);
 
 int _ipa_init_sram_v3(void);
 int _ipa_init_hdr_v3_0(void);
@@ -3541,7 +3655,9 @@ int ipa3_set_rt_tuple_mask(int tbl_idx, struct ipahal_reg_hash_tuple *tuple);
 void ipa3_set_resorce_groups_min_max_limits(void);
 void ipa3_set_resorce_groups_config(void);
 int ipa3_suspend_apps_pipes(bool suspend);
-void ipa3_force_close_coal(void);
+void ipa3_force_close_coal(
+	bool close_wan,
+	bool close_lan );
 int ipa3_flt_read_tbl_from_hw(u32 pipe_idx,
 	enum ipa_ip_type ip_type,
 	bool hashable,
@@ -3744,6 +3860,29 @@ static inline void *alloc_and_init(u32 size, u32 init_val)
 
 	return ptr;
 }
+
+/**
+ * The following used as defaults for struct ipa_ioc_coal_evict_policy.
+ */
+#define IPA_COAL_VP_LRU_THRSHLD        0
+#define IPA_COAL_EVICTION_EN           true
+#define IPA_COAL_VP_LRU_GRAN_SEL       0
+#define IPA_COAL_VP_LRU_UDP_THRSHLD    0
+#define IPA_COAL_VP_LRU_TCP_THRSHLD    0
+#define IPA_COAL_VP_LRU_UDP_THRSHLD_EN 1
+#define IPA_COAL_VP_LRU_TCP_THRSHLD_EN 1
+#define IPA_COAL_VP_LRU_TCP_NUM        0
+
+/**
+ * enum ipa_evict_time_gran_type - Time granularity to be used with
+ * eviction timers.
+ */
+enum ipa_evict_time_gran_type {
+	IPA_EVICT_TIME_GRAN_0,
+	IPA_EVICT_TIME_GRAN_1,
+	IPA_EVICT_TIME_GRAN_2,
+	IPA_EVICT_TIME_GRAN_3,
+};
 
 /* query ipa APQ mode*/
 bool ipa3_is_apq(void);
