@@ -4109,9 +4109,9 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
  *  | fw_desc | vdev_id | qmap mux id | Resv |
  *  ------------------------------------------
  */
-#define IPA_WDI_FW_DESC_MSK 0x2000
-	cb_value = ((metadata & IPA_WDI_FW_DESC_MSK) << 9) |
-		(metadata >> 24);
+#define IPA_WDI_FW_DESC_MSK 0x2000 /* BIT#13 */
+	cb_value = (((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9) |
+		(metadata >> 24); /* FW_DESC at BIT#9 and VDEV#8 bits */
 
 	*(u16 *)skb->cb = cb_value;
 	*(u8 *)(skb->cb + 4) = ucp;
@@ -4167,6 +4167,9 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 				ast_notify(client_priv, (unsigned long)&ast_info);
 			}
 		}
+		IPADBG_LOW("ast update meta_data: 0x%x cb: 0x%x for client 0x%x\n",
+				metadata, *(u32 *)rx_skb->cb, ep->client);
+		IPADBG_LOW("ast update ucp: %d for client 0x%x\n", *(u8 *)(rx_skb->cb + 4), ep->client);
 	} else {
 		/* Metadata Info
 		 *  ------------------------------------------

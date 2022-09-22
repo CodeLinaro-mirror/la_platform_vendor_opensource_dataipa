@@ -782,7 +782,16 @@ static struct ipa_mhi_channel_ctx *ipa_mhi_get_channel_context(
 
 	channels[ch_idx].valid = true;
 	channels[ch_idx].id = channel_id;
-	channels[ch_idx].index = ipa_mhi_client_ctx->total_channels++;
+#ifdef IPA_CLIENT_MHI_COAL_CONS
+	/* For COAL CONS and default consumer pipe using same event ring
+	 * so not required to increment the event ring count.
+	 */
+	if (client == IPA_CLIENT_MHI_COAL_CONS)
+		channels[ch_idx].index = ipa_mhi_client_ctx->total_channels;
+	else
+#endif
+		channels[ch_idx].index = ipa_mhi_client_ctx->total_channels++;
+
 	channels[ch_idx].client = client;
 	channels[ch_idx].state = IPA_HW_MHI_CHANNEL_STATE_INVALID;
 
@@ -1511,7 +1520,7 @@ static int ipa_mhi_suspend_channels(struct ipa_mhi_channel_ctx *channels,
 
 	IPA_MHI_FUNC_ENTRY();
 	/* have to suspend channel backwards for coalescing channel */
-	for (i = max_channels - 1; i <= 0; i--) {
+	for (i = max_channels - 1; i >= 0; i--) {
 		if (!channels[i].valid)
 			continue;
 		if (channels[i].state !=
