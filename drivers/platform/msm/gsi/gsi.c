@@ -52,15 +52,6 @@
 #define GSI_MSB(num) ((u32)((num & GSI_MSB_MASK) >> 32))
 #define GSI_LSB(num) ((u32)(num & GSI_LSB_MASK))
 
-#define GSI_INST_RAM_FW_VER_OFFSET			(0)
-#define GSI_INST_RAM_FW_VER_GSI_3_0_OFFSET	(64)
-#define GSI_INST_RAM_FW_VER_HW_MASK			(0xFC00)
-#define GSI_INST_RAM_FW_VER_HW_SHIFT		(10)
-#define GSI_INST_RAM_FW_VER_FLAVOR_MASK		(0x380)
-#define GSI_INST_RAM_FW_VER_FLAVOR_SHIFT	(7)
-#define GSI_INST_RAM_FW_VER_FW_MASK			(0x7f)
-#define GSI_INST_RAM_FW_VER_FW_SHIFT		(0)
-
 #define GSI_FC_NUM_WORDS_PER_CHNL_SHRAM		(20)
 #define GSI_FC_STATE_INDEX_SHRAM			(7)
 #define GSI_FC_PENDING_MASK					(0x00080000)
@@ -2747,6 +2738,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_RTK:
 	case GSI_CHAN_PROT_QDSS:
 	case GSI_CHAN_PROT_NTN:
+	case GSI_CHAN_PROT_WDI3M:
 		ch_k_cntxt_0.chtype_protocol_msb = 1;
 		break;
 	default:
@@ -3016,8 +3008,7 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 	ctx->stats.dp.last_timestamp = jiffies_to_msecs(jiffies);
 	atomic_inc(&gsi_ctx->num_chan);
 
-	if (props->prot == GSI_CHAN_PROT_GCI ||
-		props->prot ==  GSI_CHAN_PROT_MHIC) {
+	if (props->prot == GSI_CHAN_PROT_GCI) {
 		gsi_ctx->coal_info.ch_id = props->ch_id;
 		gsi_ctx->coal_info.evchid = props->evt_ring_hdl;
 		GSIDBG("GSI coal ch = %d, ev id %d\n",

@@ -34,6 +34,15 @@
 #define MAX_CHANNELS_SHARING_EVENT_RING 2
 #define MINIDUMP_MASK 0x10000
 
+#define GSI_INST_RAM_FW_VER_OFFSET                      (0)
+#define GSI_INST_RAM_FW_VER_GSI_3_0_OFFSET      (64)
+#define GSI_INST_RAM_FW_VER_HW_MASK                     (0xFC00)
+#define GSI_INST_RAM_FW_VER_HW_SHIFT            (10)
+#define GSI_INST_RAM_FW_VER_FLAVOR_MASK         (0x380)
+#define GSI_INST_RAM_FW_VER_FLAVOR_SHIFT        (7)
+#define GSI_INST_RAM_FW_VER_FW_MASK                     (0x7f)
+#define GSI_INST_RAM_FW_VER_FW_SHIFT            (0)
+
 #define GSI_IPC_LOGGING(buf, fmt, args...) \
 	do { \
 		if (buf) \
@@ -150,6 +159,7 @@ enum gsi_evt_chtype {
 	GSI_EVT_CHTYPE_11AD_EV = 0x9,
 	GSI_EVT_CHTYPE_RTK_EV = 0xC,
 	GSI_EVT_CHTYPE_NTN_EV = 0xD,
+	GSI_EVT_CHTYPE_WDI3M_EV = 0xE,
 };
 
 enum gsi_evt_ring_elem_size {
@@ -239,6 +249,7 @@ enum gsi_chan_prot {
 	GSI_CHAN_PROT_QDSS = 0xB,
 	GSI_CHAN_PROT_RTK = 0xC,
 	GSI_CHAN_PROT_NTN = 0xD,
+	GSI_CHAN_PROT_WDI3M = 0xE,
 };
 
 enum gsi_max_prefetch {
