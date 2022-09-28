@@ -4,13 +4,12 @@
  */
 
 #include <linux/delay.h>
-#include <linux/ipa_mhi.h>
-#include <linux/mhi_dma.h>
 #include <linux/ipa.h>
 #include "ipa_i.h"
 #include "gsi.h"
 #include "gsihal.h"
 #include "ipa_ut_framework.h"
+#include <linux/ipa_mhi.h>
 
 #define IPA_MHI_TEST_NUM_CHANNELS		8
 #define IPA_MHI_TEST_NUM_EVENT_RINGS		8
@@ -341,7 +340,7 @@ struct ipa_test_mhi_context {
 static struct ipa_test_mhi_context *test_mhi_ctx;
 
 static void ipa_mhi_test_cb(void *priv,
-	enum mhi_dma_event_type event, unsigned long data)
+	enum ipa_mhi_event_type event, unsigned long data)
 {
 	IPA_UT_DBG("Entry\n");
 
@@ -865,51 +864,6 @@ static int ipa_test_mhi_suite_teardown(void *priv)
 }
 
 /**
- * compare_db_phy_address() - Calculte the phy address base of
- * channel and event DB and compare with the paramters.
- *
- * @ch_db_base_addr: phy address base of channel DB
- * @ev_db_base_addr: phy address base of event DB
- *
- */
-static int compare_db_phy_address(u64 ch_db_base_addr, u64 ev_db_base_addr)
-{
-#if 0 //TODO fix later
-	u64 phy_address_ch_db_base, phy_address_ev_db_base;
-
-	if (!gsi_ctx) {
-		IPA_UT_ERR("GSI not yet initialized\n");
-		return -ENOMEM;
-	}
-
-	if (!ch_db_base_addr || !ev_db_base_addr) {
-		IPA_UT_ERR("bad params ch_db=%pK ev_db=%pK\n", ch_db_base_addr,
-				ev_db_base_addr);
-		return -EINVAL;
-	}
-	phy_address_ch_db_base = gsi_ctx->per.phys_addr +
-		gsihal_get_reg_nk_ofst(GSI_EE_n_GSI_CH_k_DOORBELL_0, 0, 0);
-
-	phy_address_ev_db_base = gsi_ctx->per.phys_addr +
-		gsihal_get_reg_nk_ofst(GSI_EE_n_EV_CH_k_DOORBELL_0, 0, 0);
-
-	if (phy_address_ch_db_base != ch_db_base_addr) {
-		IPA_UT_ERR("gsi channel DB base addresses missmatch,\
-			   phy_address_ch_db_base 0x%x, ch_db_base_addr 0x%x\n",
-			phy_address_ch_db_base, ch_db_base_addr);
-		return -EFAULT;
-	}
-	if (phy_address_ev_db_base != ev_db_base_addr) {
-		IPA_UT_ERR("event channel DB base addresses missmatch,\
-			   phy_address_ev_db_base 0x%x, ev_db_base_addr 0x%x\n",
-			phy_address_ev_db_base, ev_db_base_addr);
-		return -EFAULT;
-	}
-#endif
-	return 0;
-}
-
-/**
  * ipa_mhi_test_initialize_driver() - MHI init and possibly start and connect
  *
  * To be run during tests
@@ -919,16 +873,12 @@ static int compare_db_phy_address(u64 ch_db_base_addr, u64 ev_db_base_addr)
 static int ipa_mhi_test_initialize_driver(bool skip_start_and_conn)
 {
 	int rc = 0;
-	//struct mhi_dma_function_params function_params = {0};
-	struct mhi_dma_init_params init_params;
+	struct ipa_mhi_init_params init_params;
 	struct ipa_mhi_start_params start_params;
-	struct mhi_dma_connect_params prod_params = {0};
-	struct mhi_dma_connect_params cons_params = {0};
+	struct ipa_mhi_connect_params prod_params;
+	struct ipa_mhi_connect_params cons_params;
 	struct ipa_mhi_mmio_register_set *p_mmio;
 	struct ipa_mhi_channel_context_array *p_ch_ctx_array;
-	struct ipa_ep_cfg ipa_ep_cfg = {0};
-	struct ipa_ep_cfg_ctrl ipa_ep_cfg_ctrl = {0};
-	struct mhi_dma_init_out out;
 	u64 phys_addr;
 
 	IPA_UT_LOG("Entry\n");
@@ -948,15 +898,9 @@ static int ipa_mhi_test_initialize_driver(bool skip_start_and_conn)
 	init_params.priv = NULL;
 	init_params.test_mode = true;
 
-	rc = 0; //TODO mhi_dma_init(function_params, &init_params, &out);
+	rc = ipa_mhi_init(&init_params);
 	if (rc) {
-		IPA_UT_LOG("mhi_dma_init failed %d\n", rc);
-		return rc;
-	}
-
-	rc = compare_db_phy_address(out.ch_db_fwd_base, out.ev_db_fwd_base);
-	if (rc) {
-		IPA_UT_LOG("fail to comapre DB adresses %d\n", rc);
+		IPA_UT_LOG("ipa_mhi_init failed %d\n", rc);
 		return rc;
 	}
 
@@ -990,36 +934,21 @@ static int ipa_mhi_test_initialize_driver(bool skip_start_and_conn)
 			p_ch_ctx_array, phys_addr,
 			MHI_STATE_STR(p_ch_ctx_array->chstate));
 
+		memset(&prod_params, 0, sizeof(prod_params));
+		prod_params.sys.client = IPA_CLIENT_MHI_PROD;
+		prod_params.sys.ipa_ep_cfg.mode.mode = IPA_DMA;
+		prod_params.sys.ipa_ep_cfg.mode.dst = IPA_CLIENT_MHI_CONS;
+		prod_params.sys.ipa_ep_cfg.seq.seq_type =
+			IPA_MHI_TEST_SEQ_TYPE_DMA;
+		prod_params.sys.ipa_ep_cfg.seq.set_dynamic = true;
 		prod_params.channel_id = IPA_MHI_TEST_FIRST_CHANNEL_ID;
-		IPA_UT_LOG("BEFORE connect_pipe (PROD): ch_id:%u\n",
-			 prod_params.channel_id);
-		rc = 0; //TODO mhi_dma_connect_endp(function_params, &prod_params,
-		//	&test_mhi_ctx->prod_hdl);
+		IPA_UT_LOG("BEFORE connect_pipe (PROD): client:%d ch_id:%u\n",
+			prod_params.sys.client, prod_params.channel_id);
+		rc = ipa_mhi_connect_pipe(&prod_params,
+			&test_mhi_ctx->prod_hdl);
 		if (rc) {
 			IPA_UT_LOG("mhi_connect_pipe failed %d\n", rc);
 			IPA_UT_TEST_FAIL_REPORT("fail connect PROD pipe");
-			return rc;
-		}
-
-		/* Set MHI PROD ep to dma mode.
-		 * Config the MHI PROD ep ctrl to disable flow control, the reason
-		 * for this is because in mhi_dma_connect_endp() we set skip_ep_cfg to true which
-		 * enable flow control for MHI PROD ep.
-		 * flow control should be disabled for the data to be transferred */
-		ipa_ep_cfg.mode.mode = IPA_DMA;
-		ipa_ep_cfg.mode.dst = IPA_CLIENT_MHI_CONS;
-		ipa_ep_cfg.seq.seq_type = IPA_MHI_TEST_SEQ_TYPE_DMA;
-		ipa_ep_cfg.seq.set_dynamic = true;
-		rc = ipa3_cfg_ep(test_mhi_ctx->prod_hdl, &ipa_ep_cfg);
-		if (rc) {
-			IPA_UT_LOG("ipa3_cfg_ep failed for mhi prod.\n");
-			IPA_UT_TEST_FAIL_REPORT("fail to setup cfg for PROD pipe");
-			return rc;
-		}
-		rc = ipa3_cfg_ep_ctrl(test_mhi_ctx->prod_hdl, &ipa_ep_cfg_ctrl);
-		if (rc) {
-			IPA_UT_LOG("ipa3_cfg_ep_ctrl failed for mhi prod.\n");
-			IPA_UT_TEST_FAIL_REPORT("fail to setup cfg ctrl for PROD pipe");
 			return rc;
 		}
 
@@ -1041,11 +970,14 @@ static int ipa_mhi_test_initialize_driver(bool skip_start_and_conn)
 			p_ch_ctx_array, phys_addr,
 			MHI_STATE_STR(p_ch_ctx_array->chstate));
 
+		memset(&cons_params, 0, sizeof(cons_params));
+		cons_params.sys.client = IPA_CLIENT_MHI_CONS;
+		cons_params.sys.skip_ep_cfg = true;
 		cons_params.channel_id = IPA_MHI_TEST_FIRST_CHANNEL_ID + 1;
-		IPA_UT_LOG("BEFORE connect_pipe (CONS): ch_id:%u\n",
-			cons_params.channel_id);
-		rc = 0; //TODO mhi_dma_connect_endp(function_params, &cons_params,
-			//&test_mhi_ctx->cons_hdl);
+		IPA_UT_LOG("BEFORE connect_pipe (CONS): client:%d ch_id:%u\n",
+			cons_params.sys.client, cons_params.channel_id);
+		rc = ipa_mhi_connect_pipe(&cons_params,
+			&test_mhi_ctx->cons_hdl);
 		if (rc) {
 			IPA_UT_LOG("mhi_connect_pipe failed %d\n", rc);
 			IPA_UT_TEST_FAIL_REPORT("fail connect CONS pipe");
@@ -1071,7 +1003,6 @@ static int ipa_mhi_test_initialize_driver(bool skip_start_and_conn)
  */
 static int ipa_mhi_test_destroy(struct ipa_test_mhi_context *ctx)
 {
-	//struct mhi_dma_function_params function_params= {0};
 	struct ipa_mhi_mmio_register_set *p_mmio;
 	u64 phys_addr;
 	struct ipa_mhi_channel_context_array *p_ch_ctx_array;
@@ -1105,7 +1036,7 @@ static int ipa_mhi_test_destroy(struct ipa_test_mhi_context *ctx)
 		MHI_STATE_STR(p_ch_ctx_array->chstate));
 
 	IPA_UT_LOG("MHI Destroy\n");
-	// TODO mhi_dma_destroy(function_params);
+	ipa_mhi_destroy();
 	IPA_UT_LOG("Post MHI Destroy\n");
 
 	ctx->prod_hdl = 0;
@@ -1200,23 +1131,17 @@ static int ipa_mhi_test_reset(struct ipa_test_mhi_context *ctx,
 static int ipa_mhi_test_channel_reset(void)
 {
 	int rc;
-	//struct mhi_dma_function_params function_params = {0};
-	struct mhi_dma_connect_params prod_params = {0};
-	struct mhi_dma_connect_params cons_params = {0};
+	struct ipa_mhi_connect_params prod_params;
+	struct ipa_mhi_connect_params cons_params;
 	struct ipa_mhi_mmio_register_set *p_mmio;
-	struct mhi_dma_disconnect_params disconnect_params;
 	struct ipa_mhi_channel_context_array *p_ch_ctx_array;
-	struct ipa_ep_cfg ipa_ep_cfg = {0};
-	struct ipa_ep_cfg_ctrl ipa_ep_cfg_ctrl = {0};
 	u64 phys_addr;
 
 	p_mmio = test_mhi_ctx->mmio_buf.base;
 
 	IPA_UT_LOG("Before pipe disconnect (CONS) client hdl=%u=\n",
 		test_mhi_ctx->cons_hdl);
-
-	disconnect_params.clnt_hdl = test_mhi_ctx->cons_hdl;
-	rc = 0;//TODO mhi_dma_disconnect_endp(function_params, &disconnect_params);
+	rc = ipa_mhi_disconnect_pipe(test_mhi_ctx->cons_hdl);
 	if (rc) {
 		IPA_UT_LOG("disconnect_pipe failed (CONS) %d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("CONS pipe disconnect fail");
@@ -1249,11 +1174,9 @@ static int ipa_mhi_test_channel_reset(void)
 		IPA_UT_TEST_FAIL_REPORT("fail config CONS channel context");
 		return -EFAULT;
 	}
-	IPA_UT_LOG("Before pipe disconnect (PROD) client hdl=%u=\n",
+	IPA_UT_LOG("Before pipe disconnect (CONS) client hdl=%u=\n",
 		test_mhi_ctx->prod_hdl);
-
-	disconnect_params.clnt_hdl = test_mhi_ctx->prod_hdl;
-	rc = 0;//TODO mhi_dma_disconnect_endp(function_params, &disconnect_params);
+	rc = ipa_mhi_disconnect_pipe(test_mhi_ctx->prod_hdl);
 	if (rc) {
 		IPA_UT_LOG("disconnect_pipe failed (PROD) %d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("PROD pipe disconnect fail");
@@ -1285,38 +1208,20 @@ static int ipa_mhi_test_channel_reset(void)
 		return -EFAULT;
 	}
 
+	memset(&prod_params, 0, sizeof(prod_params));
+	prod_params.sys.client = IPA_CLIENT_MHI_PROD;
+	prod_params.sys.ipa_ep_cfg.mode.mode = IPA_DMA;
+	prod_params.sys.ipa_ep_cfg.mode.dst = IPA_CLIENT_MHI_CONS;
+	prod_params.sys.ipa_ep_cfg.seq.seq_type = IPA_MHI_TEST_SEQ_TYPE_DMA;
+	prod_params.sys.ipa_ep_cfg.seq.set_dynamic = true;
 	prod_params.channel_id = IPA_MHI_TEST_FIRST_CHANNEL_ID;
 	IPA_UT_LOG("BEFORE connect PROD\n");
-	rc = 0;//mhi_dma_connect_endp(function_params, &prod_params,
-		//&test_mhi_ctx->prod_hdl);
+	rc = ipa_mhi_connect_pipe(&prod_params, &test_mhi_ctx->prod_hdl);
 	if (rc) {
-		IPA_UT_LOG("mhi_connect_pipe failed %d\n", rc);
+		IPA_UT_LOG("connect_pipe failed %d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail connect PROD pipe");
 		return rc;
 	}
-
-	/* Set MHI PROD ep to dma mode.
-	 * Config the MHI PROD ep ctrl to disable flow control, the reason
-	 * for this is because in mhi_dma_connect_endp() we set skip_ep_cfg to true which
-	 * enable flow control for MHI PROD ep.
-	 * flow control should be disabled for the data to be transferred */
-	ipa_ep_cfg.mode.mode = IPA_DMA;
-	ipa_ep_cfg.mode.dst = IPA_CLIENT_MHI_CONS;
-	ipa_ep_cfg.seq.seq_type = IPA_MHI_TEST_SEQ_TYPE_DMA;
-	ipa_ep_cfg.seq.set_dynamic = true;
-	rc = ipa3_cfg_ep(test_mhi_ctx->prod_hdl, &ipa_ep_cfg);
-	if (rc) {
-		IPA_UT_LOG("ipa3_cfg_ep failed for mhi prod.\n");
-		IPA_UT_TEST_FAIL_REPORT("fail to setup cfg for PROD pipe");
-		return rc;
-	}
-	rc = ipa3_cfg_ep_ctrl(test_mhi_ctx->prod_hdl, &ipa_ep_cfg_ctrl);
-	if (rc) {
-		IPA_UT_LOG("ipa3_cfg_ep_ctrl failed for mhi prod.\n");
-		IPA_UT_TEST_FAIL_REPORT("fail to setup cfg ctrl for PROD pipe");
-		return rc;
-	}
-
 
 	phys_addr = p_mmio->ccabap + ((IPA_MHI_TEST_FIRST_CHANNEL_ID) *
 		sizeof(struct ipa_mhi_channel_context_array));
@@ -1330,12 +1235,14 @@ static int ipa_mhi_test_channel_reset(void)
 		return -EFAULT;
 	}
 
+	memset(&cons_params, 0, sizeof(cons_params));
+	cons_params.sys.client = IPA_CLIENT_MHI_CONS;
+	cons_params.sys.skip_ep_cfg = true;
 	cons_params.channel_id = IPA_MHI_TEST_FIRST_CHANNEL_ID + 1;
 	IPA_UT_LOG("BEFORE connect CONS\n");
-	rc = 0; //TODO mhi_dma_connect_endp(function_params, &cons_params,
-	//	&test_mhi_ctx->cons_hdl);
+	rc = ipa_mhi_connect_pipe(&cons_params, &test_mhi_ctx->cons_hdl);
 	if (rc) {
-		IPA_UT_LOG("mhi_connect_pipe failed %d\n", rc);
+		IPA_UT_LOG("ipa_mhi_connect_pipe failed %d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail connect CONS pipe");
 		return rc;
 	}
@@ -1614,28 +1521,21 @@ static int ipa_mhi_test_loopback_data_transfer(void)
 static int ipa_mhi_test_suspend(bool force, bool should_success)
 {
 	int rc;
-	//struct mhi_dma_function_params function_params = {0};
 	struct ipa_mhi_mmio_register_set *p_mmio;
 	struct ipa_mhi_channel_context_array *p_ch_ctx_array;
 	u64 phys_addr;
 
 	IPA_UT_LOG("Entry\n");
 
-	rc = 0; //TODO mhi_dma_suspend(function_params, force);
+	rc = ipa_mhi_suspend(force);
 	if (should_success && rc != 0) {
-		IPA_UT_LOG("ipa mhi_dma_suspend failed %d\n", rc);
+		IPA_UT_LOG("ipa_mhi_suspend failed %d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("suspend failed");
 		return -EFAULT;
 	}
-/* TODO
-	if (mhi_dma_update_mstate(function_params, MHI_DMA_STATE_M2)) {
-		IPA_UT_LOG("ipa mhi_dma_update_mstate failed \n");
-		IPA_UT_TEST_FAIL_REPORT("update mstate to M2 failed");
-		return -EFAULT;
-	}
-*/
+
 	if (!should_success && rc != -EAGAIN) {
-		IPA_UT_LOG("ipa mhi_dma_suspend did not return -EAGAIN fail %d\n",
+		IPA_UT_LOG("ipa_mhi_suspend did not return -EAGAIN fail %d\n",
 			rc);
 		IPA_UT_TEST_FAIL_REPORT("suspend succeeded unexpectedly");
 		return -EFAULT;
@@ -1713,24 +1613,17 @@ static int ipa_mhi_test_suspend(bool force, bool should_success)
 static int ipa_test_mhi_resume(void)
 {
 	int rc;
-	//struct mhi_dma_function_params function_params ={0};
 	struct ipa_mhi_mmio_register_set *p_mmio;
 	struct ipa_mhi_channel_context_array *p_ch_ctx_array;
 	u64 phys_addr;
 
-	rc = 0;//TODO mhi_dma_resume(function_params);
+	rc = ipa_mhi_resume();
 	if (rc) {
 		IPA_UT_LOG("resume failed %d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("resume failed");
 		return -EFAULT;
 	}
-/* TODO
-	if (mhi_dma_update_mstate(function_params, MHI_DMA_STATE_M0)) {
-                IPA_UT_LOG("ipa mhi_dma_update_mstate failed \n");
-                IPA_UT_TEST_FAIL_REPORT("update mstate to M0 failed");
-                return -EFAULT;
-        }
-*/
+
 	p_mmio = test_mhi_ctx->mmio_buf.base;
 
 	phys_addr = p_mmio->ccabap + ((IPA_MHI_TEST_FIRST_CHANNEL_ID + 1) *
@@ -1838,7 +1731,7 @@ static int ipa_mhi_test_suspend_resume(void)
 	IPA_UT_LOG("BEFORE resume\n");
 	rc = ipa_test_mhi_resume();
 	if (rc) {
-		IPA_UT_LOG("ipa mhi_dma_resume failed %d\n", rc);
+		IPA_UT_LOG("ipa_mhi_resume failed %d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("resume fail");
 		return rc;
 	}
@@ -2246,7 +2139,7 @@ static int ipa_mhi_test_suspend_full_channel(bool force)
 	IPA_UT_LOG("BEFORE suspend\n");
 	rc = ipa_mhi_test_suspend(force, false);
 	if (rc) {
-		IPA_UT_LOG("ipa mhi_dma_suspend did not returned -EAGAIN. rc %d\n",
+		IPA_UT_LOG("ipa_mhi_suspend did not returned -EAGAIN. rc %d\n",
 			rc);
 		IPA_UT_TEST_FAIL_REPORT("test suspend fail");
 		return -EFAULT;

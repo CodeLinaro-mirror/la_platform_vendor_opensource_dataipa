@@ -4,7 +4,6 @@
  */
 
 #include <linux/ipa.h>
-#include <linux/mhi_dma.h>
 #include "ipa_i.h"
 #include "ipa_ut_framework.h"
 
@@ -48,7 +47,6 @@ struct ipa_test_dma_async_user_data {
 static int ipa_test_dma_setup(void **ppriv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_DBG("Start Setup\n");
 
@@ -57,11 +55,11 @@ static int ipa_test_dma_setup(void **ppriv)
 		return -EINVAL;
 	}
 
-	rc = mhi_dma_memcpy_init(function_param);
+	rc = ipa_dma_init();
 	if (rc)
 		IPA_UT_ERR("Fail to init ipa_dma - return code %d\n", rc);
 	else
-		IPA_UT_DBG("ipa mhi_dma_memcpy_init() Completed successfully!\n");
+		IPA_UT_DBG("ipa_dma_init() Completed successfully!\n");
 
 	*ppriv = NULL;
 
@@ -73,10 +71,8 @@ static int ipa_test_dma_setup(void **ppriv)
  */
 static int ipa_test_dma_teardown(void *priv)
 {
-	struct mhi_dma_function_params function_param = {0};
-
 	IPA_UT_DBG("Start Teardown\n");
-	mhi_dma_memcpy_destroy(function_param);
+	ipa_dma_destroy();
 	return 0;
 }
 
@@ -153,7 +149,6 @@ static int ipa_test_dma_memcpy_sync(int size, bool expect_fail)
 {
 	int rc = 0;
 	int i;
-	struct mhi_dma_function_params function_param = {0};
 	struct ipa_mem_buffer src_mem;
 	struct ipa_mem_buffer dest_mem;
 	u8 *src;
@@ -166,7 +161,7 @@ static int ipa_test_dma_memcpy_sync(int size, bool expect_fail)
 		return rc;
 	}
 
-	rc = mhi_dma_sync_memcpy(dest_mem.phys_base, src_mem.phys_base, size, function_param);
+	rc = ipa_dma_sync_memcpy(dest_mem.phys_base, src_mem.phys_base, size);
 	if (!expect_fail && rc) {
 		IPA_UT_LOG("fail to sync memcpy - rc = %d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("sync memcpy failed");
@@ -270,7 +265,6 @@ static int ipa_test_dma_memcpy_async(int size, bool expect_fail)
 {
 	int rc = 0;
 	int i;
-	struct mhi_dma_function_params function_param = {0};
 	struct ipa_mem_buffer src_mem;
 	struct ipa_mem_buffer dest_mem;
 	u8 *src;
@@ -285,8 +279,8 @@ static int ipa_test_dma_memcpy_async(int size, bool expect_fail)
 	}
 
 	init_completion(&xfer_done);
-	rc = mhi_dma_async_memcpy(dest_mem.phys_base, src_mem.phys_base, size,
-		function_param, ipa_test_dma_async_memcpy_cb, &xfer_done);
+	rc = ipa_dma_async_memcpy(dest_mem.phys_base, src_mem.phys_base, size,
+		ipa_test_dma_async_memcpy_cb, &xfer_done);
 	if (!expect_fail && rc) {
 		IPA_UT_LOG("fail to initiate async memcpy - rc=%d\n",
 			rc);
@@ -369,18 +363,17 @@ static int ipa_test_dma_sync_async_memcpy(int size)
 static int ipa_test_dma_enable_disable(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -400,33 +393,32 @@ static int ipa_test_dma_enable_disable(void *priv)
 static int ipa_test_dma_init_enbl_disable_destroy(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_init(function_param);
+	rc = ipa_dma_init();
 	if (rc) {
 		IPA_UT_LOG("DMA Init failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail init dma");
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
-		mhi_dma_memcpy_destroy(function_param);
+		ipa_dma_destroy();
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
 		return rc;
 	}
 
-	mhi_dma_memcpy_destroy(function_param);
+	ipa_dma_destroy();
 
 	return 0;
 }
@@ -441,34 +433,33 @@ static int ipa_test_dma_init_enbl_disable_destroy(void *priv)
 static int ipa_test_dma_enblx2_disablex2(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
-		mhi_dma_memcpy_destroy(function_param);
+		ipa_dma_destroy();
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
-		mhi_dma_memcpy_destroy(function_param);
+		ipa_dma_destroy();
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -517,11 +508,10 @@ static int ipa_test_dma_memcpy_before_enable(void *priv)
 static int ipa_test_dma_sync_memcpy(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -532,11 +522,11 @@ static int ipa_test_dma_sync_memcpy(void *priv)
 	if (rc) {
 		IPA_UT_LOG("sync memcpy failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("sync memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -557,11 +547,10 @@ static int ipa_test_dma_sync_memcpy(void *priv)
 static int ipa_test_dma_sync_memcpy_small(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -572,7 +561,7 @@ static int ipa_test_dma_sync_memcpy_small(void *priv)
 	if (rc) {
 		IPA_UT_LOG("sync memcpy failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("sync memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
@@ -580,11 +569,11 @@ static int ipa_test_dma_sync_memcpy_small(void *priv)
 	if (rc) {
 		IPA_UT_LOG("sync memcpy failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("sync memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -604,11 +593,10 @@ static int ipa_test_dma_sync_memcpy_small(void *priv)
 static int ipa_test_dma_async_memcpy(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -619,11 +607,11 @@ static int ipa_test_dma_async_memcpy(void *priv)
 	if (rc) {
 		IPA_UT_LOG("async memcpy failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("async memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -644,11 +632,10 @@ static int ipa_test_dma_async_memcpy(void *priv)
 static int ipa_test_dma_async_memcpy_small(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -659,7 +646,7 @@ static int ipa_test_dma_async_memcpy_small(void *priv)
 	if (rc) {
 		IPA_UT_LOG("async memcpy failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("async memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
@@ -667,11 +654,11 @@ static int ipa_test_dma_async_memcpy_small(void *priv)
 	if (rc) {
 		IPA_UT_LOG("async memcpy failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("async memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -691,11 +678,10 @@ static int ipa_test_dma_async_memcpy_small(void *priv)
 static int ipa_test_dma_sync_memcpy_in_loop(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -708,11 +694,11 @@ static int ipa_test_dma_sync_memcpy_in_loop(void *priv)
 	if (rc) {
 		IPA_UT_LOG("Iterations of sync memcpy failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("Iterations of sync memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -733,11 +719,10 @@ static int ipa_test_dma_sync_memcpy_in_loop(void *priv)
 static int ipa_test_dma_async_memcpy_in_loop(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -750,11 +735,11 @@ static int ipa_test_dma_async_memcpy_in_loop(void *priv)
 	if (rc) {
 		IPA_UT_LOG("Iterations of async memcpy failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("Iterations of async memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -774,11 +759,10 @@ static int ipa_test_dma_async_memcpy_in_loop(void *priv)
 static int ipa_test_dma_interleaved_sync_async_memcpy_in_loop(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -794,11 +778,11 @@ static int ipa_test_dma_interleaved_sync_async_memcpy_in_loop(void *priv)
 			, rc);
 		IPA_UT_TEST_FAIL_REPORT(
 			"Iterations of interleaved sync async memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -863,7 +847,6 @@ static int ipa_test_dma_mt_sync_async(void *priv)
 {
 	int rc;
 	int i;
-	struct mhi_dma_function_params function_param = {0};
 	static struct workqueue_struct *wq_sync[IPA_TEST_DMA_MT_TEST_NUM_WQ];
 	static struct workqueue_struct *wq_async[IPA_TEST_DMA_MT_TEST_NUM_WQ];
 	static struct one_memcpy_work async[IPA_TEST_DMA_MT_TEST_NUM_WQ];
@@ -875,7 +858,7 @@ static int ipa_test_dma_mt_sync_async(void *priv)
 	memset(async, 0, sizeof(async));
 	memset(sync, 0, sizeof(sync));
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -920,7 +903,7 @@ static int ipa_test_dma_mt_sync_async(void *priv)
 		destroy_workqueue(wq_async[i]);
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -940,7 +923,7 @@ static int ipa_test_dma_mt_sync_async(void *priv)
 	return 0;
 
 fail_create_wq:
-	(void)mhi_dma_memcpy_disable(function_param);
+	(void)ipa_dma_disable();
 	for (i = 0; i < IPA_TEST_DMA_MT_TEST_NUM_WQ; i++) {
 		if (wq_sync[i])
 			destroy_workqueue(wq_sync[i]);
@@ -963,7 +946,6 @@ fail_create_wq:
 static int ipa_test_dma_parallel_async_memcpy_in_loop(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 	struct ipa_test_dma_async_user_data *udata;
 	struct ipa_mem_buffer all_src_mem;
 	struct ipa_mem_buffer all_dest_mem;
@@ -972,7 +954,7 @@ static int ipa_test_dma_parallel_async_memcpy_in_loop(void *priv)
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -983,7 +965,7 @@ static int ipa_test_dma_parallel_async_memcpy_in_loop(void *priv)
 		sizeof(struct ipa_test_dma_async_user_data), GFP_KERNEL);
 	if (!udata) {
 		IPA_UT_ERR("fail allocate user_data array\n");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return -ENOMEM;
 	}
 
@@ -993,7 +975,7 @@ static int ipa_test_dma_parallel_async_memcpy_in_loop(void *priv)
 		IPA_UT_LOG("fail to alloc buffers\n");
 		IPA_UT_TEST_FAIL_REPORT("fail to alloc buffers");
 		kfree(udata);
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
@@ -1020,11 +1002,10 @@ static int ipa_test_dma_parallel_async_memcpy_in_loop(void *priv)
 
 		udata[i].call_serial_number = i + 1;
 		init_completion(&(udata[i].copy_done));
-		rc = mhi_dma_async_memcpy(udata[i].dest_mem.phys_base,
+		rc = ipa_dma_async_memcpy(udata[i].dest_mem.phys_base,
 			udata[i].src_mem.phys_base,
 			(IPA_TEST_DMA_MEMCPY_BUFF_SIZE /
 			IPA_DMA_TEST_ASYNC_PARALLEL_LOOP_NUM),
-			function_param,
 			ipa_test_dma_async_memcpy_cb_user_data, &udata[i]);
 		if (rc) {
 			IPA_UT_LOG("async memcpy initiation fail i=%d rc=%d\n",
@@ -1038,7 +1019,7 @@ static int ipa_test_dma_parallel_async_memcpy_in_loop(void *priv)
 
 	ipa_test_dma_destroy_buffs(&all_src_mem, &all_dest_mem);
 	kfree(udata);
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");
@@ -1064,11 +1045,10 @@ static int ipa_test_dma_parallel_async_memcpy_in_loop(void *priv)
 static int ipa_test_dma_sync_memcpy_max_pkt_size(void *priv)
 {
 	int rc;
-	struct mhi_dma_function_params function_param = {0};
 
 	IPA_UT_LOG("Test Start\n");
 
-	rc = mhi_dma_memcpy_enable(function_param);
+	rc = ipa_dma_enable();
 	if (rc) {
 		IPA_UT_LOG("DMA enable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail enable dma");
@@ -1079,11 +1059,11 @@ static int ipa_test_dma_sync_memcpy_max_pkt_size(void *priv)
 	if (rc) {
 		IPA_UT_LOG("sync memcpy failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("sync memcpy failed");
-		(void)mhi_dma_memcpy_disable(function_param);
+		(void)ipa_dma_disable();
 		return rc;
 	}
 
-	rc = mhi_dma_memcpy_disable(function_param);
+	rc = ipa_dma_disable();
 	if (rc) {
 		IPA_UT_LOG("DMA disable failed rc=%d\n", rc);
 		IPA_UT_TEST_FAIL_REPORT("fail disable dma");

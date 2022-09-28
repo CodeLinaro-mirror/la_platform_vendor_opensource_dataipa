@@ -41,6 +41,7 @@
 #include <linux/mailbox/qmp.h>
 #include <linux/rmnet_ipa_fd_ioctl.h>
 #include <linux/ipa_fmwk.h>
+#include <linux/mhi_dma.h>
 #include "ipa_uc_holb_monitor.h"
 #include <soc/qcom/minidump.h>
 
@@ -3352,9 +3353,53 @@ int ipa3_dma_uc_memcpy(phys_addr_t dest, phys_addr_t src, int len);
 
 void ipa3_dma_destroy(void);
 
+int ipa_mhi_dma_memcpy_init(struct mhi_dma_function_params function);
+
+void ipa_mhi_dma_memcpy_destroy(struct mhi_dma_function_params function);
+
+int ipa_mhi_dma_sync_memcpy(u64 dest, u64 src, int len,
+		struct mhi_dma_function_params function);
+
+int ipa_mhi_dma_async_memcpy(u64 dest, u64 src, int len,
+		 struct mhi_dma_function_params function,
+		 void (*user_cb)(void *user1), void *user_param);
+
+int ipa_mhi_dma_memcpy_enable(struct mhi_dma_function_params function);
+
+int ipa_mhi_dma_memcpy_disable(struct mhi_dma_function_params function);
+
+
+
 /*
  * MHI
  */
+
+int ipa_mhi_dma_register_ready_cb(void (*mhi_ready_cb)(void *user_data),
+		void *user_data);
+
+int ipa_mhi_dma_init(struct mhi_dma_function_params function,
+                struct mhi_dma_init_params *params,
+                struct mhi_dma_init_out *out);
+
+int ipa_mhi_dma_start(struct mhi_dma_function_params function,
+		struct mhi_dma_start_params *params);
+
+int ipa_mhi_dma_connect_endp(struct mhi_dma_function_params function,
+		struct mhi_dma_connect_params *in, u32 *clnt_hdl);
+
+int ipa_mhi_dma_disconnect_endp(struct mhi_dma_function_params function,
+                struct mhi_dma_disconnect_params *in);
+
+int ipa_mhi_dma_suspend(struct mhi_dma_function_params function, bool force);
+
+int ipa_mhi_dma_resume(struct mhi_dma_function_params function);
+
+int ipa_mhi_dma_update_mstate(struct mhi_dma_function_params function,
+		enum mhi_dma_mstate mstate_info);
+
+void ipa_mhi_dma_destroy(struct mhi_dma_function_params function);
+
+int ipa_dma_mhi_provide_ops(void);
 
 /*
  * mux id
