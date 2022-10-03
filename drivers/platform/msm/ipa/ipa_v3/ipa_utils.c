@@ -989,6 +989,8 @@ static const struct ipa_qmb_outstanding ipa3_qmb_outstanding
 	[IPA_4_7][IPA_QMB_INSTANCE_DDR]	        = {13, 12, 120},
 	[IPA_4_9][IPA_QMB_INSTANCE_DDR]	        = {16, 8, 120},
 	[IPA_4_11][IPA_QMB_INSTANCE_DDR] = {13, 12, 120},
+	[IPA_5_5][IPA_QMB_INSTANCE_DDR]		= {16, 12, 0},
+	[IPA_5_5][IPA_QMB_INSTANCE_PCIE]	= {16, 8, 0},
 };
 
 enum ipa_tx_instance {
@@ -4184,7 +4186,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_TX_INSTANCE_NA },
 	[IPA_5_0][IPA_CLIENT_WLAN3_PROD] = {
 			true,   IPA_v5_0_GROUP_UL,
-			false,
+			true,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 1 , 0, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2},
@@ -7531,15 +7533,17 @@ int ipa3_init_hw(void)
 	}
 
 	/* Configure COAL_MASTER_CFG */
-	memset(&master_cfg, 0, sizeof(master_cfg));
-	ipahal_read_reg_fields(IPA_COAL_MASTER_CFG, &master_cfg);
-	master_cfg.coal_ipv4_id_ignore = ipa3_ctx->coal_ipv4_id_ignore;
-	ipahal_write_reg_fields(IPA_COAL_MASTER_CFG, &master_cfg);
+	if(ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+		memset(&master_cfg, 0, sizeof(master_cfg));
+		ipahal_read_reg_fields(IPA_COAL_MASTER_CFG, &master_cfg);
+		master_cfg.coal_ipv4_id_ignore = ipa3_ctx->coal_ipv4_id_ignore;
+		ipahal_write_reg_fields(IPA_COAL_MASTER_CFG, &master_cfg);
 
-	IPADBG(
-		": coal-ipv4-id-ignore = %s\n",
-		master_cfg.coal_ipv4_id_ignore ?
-		"True" : "False");
+		IPADBG(
+			": coal-ipv4-id-ignore = %s\n",
+			master_cfg.coal_ipv4_id_ignore ?
+			"True" : "False");
+	}
 
 	ipa_comp_cfg();
 
@@ -9358,11 +9362,13 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD) {
 		result = ipa3_cfg_ep_metadata(ipa_ep_idx, &meta);
 	} else if (param_in->client == IPA_CLIENT_WLAN1_PROD ||
-			   param_in->client == IPA_CLIENT_WLAN2_PROD) {
+			   param_in->client == IPA_CLIENT_WLAN2_PROD ||
+				param_in->client == IPA_CLIENT_WLAN3_PROD) {
 		ipa3_ctx->ep[ipa_ep_idx].cfg.meta = meta;
-		if (param_in->client == IPA_CLIENT_WLAN2_PROD)
-			result = ipa3_write_qmapid_wdi3_gsi_pipe(
-				ipa_ep_idx, meta.qmap_id);
+		if (param_in->client == IPA_CLIENT_WLAN2_PROD ||
+			param_in->client == IPA_CLIENT_WLAN3_PROD)
+				result = ipa3_write_qmapid_wdi3_gsi_pipe(
+					ipa_ep_idx, meta.qmap_id);
 		else
 			result = ipa3_write_qmapid_wdi_pipe(
 				ipa_ep_idx, meta.qmap_id);

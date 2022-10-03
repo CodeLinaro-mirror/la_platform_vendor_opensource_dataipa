@@ -2590,29 +2590,29 @@ static int ipa_fltrt_generate_hw_rule_bdy_5_5(enum ipa_ip_type ipt,
 		rest_wrd_i = ipa_write_32(0, rest_wrd_i);   /* val */
 	}
 
-	IPAHAL_DBG("extra_word_1 0x%llx\n", *(u64 *)extra_wrd_start);
-	IPAHAL_DBG("extra_word_2 0x%llx\n",
+	IPAHAL_DBG_LOW("extra_word_1 0x%llx\n", *(u64 *)extra_wrd_start);
+	IPAHAL_DBG_LOW("extra_word_2 0x%llx\n",
 		*(u64 *)(extra_wrd_start + IPA3_0_HW_TBL_WIDTH));
 
 	if (ext_hdr) {
 		sz = extra_wrd_i - extra_wrd_start;
-		IPAHAL_DBG("extra words params sz %d, buf: 0x%llx, \n", sz, *buf);
+		IPAHAL_DBG_LOW("extra words params sz %d, buf: 0x%llx, \n", sz, *buf);
 		*buf = ipa_fltrt_copy_mem(extra_wrd_start, *buf, sz);
-		IPAHAL_DBG("After extra copy *buf 0x%llx\n", *buf);
+		IPAHAL_DBG_LOW("After extra copy *buf 0x%llx\n", *buf);
 		*buf = ipa_pad_to_64(*buf);
 	} else {
 		extra_wrd_i = ipa_pad_to_64(extra_wrd_i);
 		sz = extra_wrd_i - extra_wrd_start;
-		IPAHAL_DBG("extra words params sz %d, buf: 0x%llx, \n", sz, *buf);
+		IPAHAL_DBG_LOW("extra words params sz %d, buf: 0x%llx, \n", sz, *buf);
 		*buf = ipa_fltrt_copy_mem(extra_wrd_start, *buf, sz);	
 	}
-	IPAHAL_DBG("Updated *buf 0x%llx\n", *buf);
+	IPAHAL_DBG_LOW("Updated *buf 0x%llx\n", *buf);
 
 	rest_wrd_i = ipa_pad_to_64(rest_wrd_i);
 	sz = rest_wrd_i - rest_wrd_start;
-	IPAHAL_DBG("non extra words params sz %d\n", sz);
+	IPAHAL_DBG_LOW("non extra words params sz %d\n", sz);
 	*buf = ipa_fltrt_copy_mem(rest_wrd_start, *buf, sz);
-	IPAHAL_DBG("After rest copy *buf 0x%llx\n", *buf);
+	IPAHAL_DBG_LOW("After rest copy *buf 0x%llx\n", *buf);
 
 fail_err_check:
 	kfree(rest_wrd_buf);
@@ -4711,12 +4711,12 @@ int ipahal_fltrt_init(enum ipa_hw_type ipa_hw_type)
 		if (!IPA_IS_RULE_EQ_VALID(i))
 			continue;
 
-		if (eq_bits & IPA_GET_RULE_EQ_BIT_PTRN(eq_bitfield[i])) {
+		if (eq_bits & IPA_GET_RULE_EQ_BIT_PTRN(i)) {
 			IPAHAL_ERR("more than eq with same bit. eq=%d\n", i);
 			WARN_ON(1);
 			return -EFAULT;
 		}
-		eq_bits |= IPA_GET_RULE_EQ_BIT_PTRN(eq_bitfield[i]);
+		eq_bits |= IPA_GET_RULE_EQ_BIT_PTRN(i);
 	}
 
 	mem = &ipahal_ctx->empty_fltrt_tbl;
