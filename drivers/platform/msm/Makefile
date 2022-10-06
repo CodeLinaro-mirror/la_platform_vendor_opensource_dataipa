@@ -39,6 +39,19 @@ include $(srctree)/techpack/dataipa/config/dataipa_gsi_V1_GKI.conf
 endif
 endif
 
+ifeq ($(CONFIG_ARCH_SA8155), y)
+LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/sa8155_gsi_V1.h
+ifeq ($(CONFIG_QGKI),y)
+include $(srctree)/techpack/dataipa/config/sa8155_gsi_V1_QGKI.conf
+ifeq ($(CONFIG_LOCALVERSION), "-qgki-debug")
+include $(srctree)/techpack/dataipa/config/dataipa_debug.conf
+LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
+endif
+else
+include $(srctree)/techpack/dataipa/config/sa8155_gsi_V1_GKI.conf
+endif
+endif
+
 ifeq ($(CONFIG_ARCH_MONACO), y)
 LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_gsi_V1.h
 ifeq ($(CONFIG_QGKI),y)
