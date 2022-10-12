@@ -1597,8 +1597,7 @@ struct __packed gsi_log_err {
 	uint32_t arg2:4;
 	uint32_t arg1:4;
 	uint32_t code:4;
-	uint32_t resvd:3;
-	uint32_t virt_idx:5;
+	uint32_t virt_idx:8;
 	uint32_t err_type:4;
 	uint32_t ee:4;
 };
