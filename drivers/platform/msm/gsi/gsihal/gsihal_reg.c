@@ -2249,28 +2249,28 @@ static struct gsihal_reg_obj gsihal_reg_objs[GSI_VER_MAX][GSI_REG_MAX] = {
 	0x0000d000, 0x400, 0x4 },
 	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_BP_CNT_LSB] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x00005a5c, 0, 0 },
+	0x00005d5c, 0, 0 },
 	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_BP_CNT_MSB] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x00005a60, 0, 0 },
+	0x00005d60, 0, 0 },
 	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_BP_AND_PENDING_CNT_LSB] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x00005a64, 0, 0 },
+	0x00005d64, 0, 0 },
 	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_BP_AND_PENDING_CNT_MSB] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x00005a68, 0, 0 },
+	0x00005d68, 0, 0 },
 	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_MCS_BUSY_CNT_LSB] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x00005a6c, 0, 0 },
+	0x00005d6c, 0, 0 },
 	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_MCS_BUSY_CNT_MSB] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x00005a70, 0, 0 },
+	0x00005d70, 0, 0 },
 	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_LSB] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x00005a74, 0, 0 },
+	0x00005d74, 0, 0 },
 	[GSI_VER_6_0][GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_MSB] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x00005a78, 0, 0 },
+	0x00005d78, 0, 0 },
         [GSI_VER_6_0][GSI_GSI_PERIPH_BASE_ADDR_MSB] = {
         gsireg_construct_dummy, gsireg_parse_dummy,
         0x0000401c, 0, 0},

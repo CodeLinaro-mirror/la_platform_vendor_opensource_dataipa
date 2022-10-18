@@ -5649,18 +5649,18 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_ENDP_INIT_HDR_METADATA_MASK_n] = {
 		ipareg_construct_endp_init_hdr_metadata_mask_n,
 		ipareg_parse_dummy,
-		0x00002518, 0x100, 21, 48, 1, 0},
+		0x00002618, 0x100, 21, 48, 1, 0},
 	[IPA_HW_v6_0][IPA_ENDP_INIT_HOL_BLOCK_EN_n] = {
 		ipareg_construct_endp_init_hol_block_en_n,
 		ipareg_parse_dummy,
-		0x0000252c, 0x100, 21, 48, 1, 0},
+		0x0000262c, 0x100, 21, 48, 1, 0},
 	[IPA_HW_v6_0][IPA_ENDP_INIT_HOL_BLOCK_TIMER_n] = {
 		ipareg_construct_endp_init_hol_block_timer_n_v5_0,
 		ipareg_parse_dummy,
-		0x00002530, 0x100, 21, 48, 1, 0},
+		0x00002630, 0x100, 21, 48, 1, 0},
 	[IPA_HW_v6_0][IPA_ENDP_INIT_PROD_CFG_n] = {
 		ipareg_construct_endp_init_prod_cfg_n_v5_5, ipareg_parse_endp_init_prod_cfg_n_v5_5,
-		0x0000256C, 0x100, 21, 48, 1, 0},
+		0x0000266C, 0x100, 21, 48, 1, 0},
 	[IPA_HW_v6_0][IPA_COAL_EVICT_LRU] = {
 		ipareg_construct_coal_evict_lru_v5_5, ipareg_parse_coal_evict_lru_v5_5,
 		0x00000A18, 0, 0, 0, 0, 0},
@@ -5669,7 +5669,7 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		0x00000A14, 0, 0, 0, 0, 0},
 	[IPA_HW_v6_0][IPA_COAL_QMAP_CFG] = {
 		ipareg_construct_coal_qmap_cfg, ipareg_parse_coal_qmap_cfg,
-		0x00000A1c, 0, 0, 0, 0, 0},
+		-1, 0, 0, 0, 0, 0},
 	[IPA_HW_v6_0][IPA_ULSO_CFG_IP_ID_MIN_VALUE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00000A34, 0x4, 0, 0, 0, 0},
