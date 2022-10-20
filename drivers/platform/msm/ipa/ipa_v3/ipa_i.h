@@ -2638,6 +2638,7 @@ struct ipa3_context {
 	void *per_stats_smem_va;
 	u32 ipa_smem_size;
 	bool cesta_enable;
+	struct mutex ssr_lock;
 };
 
 struct ipa3_plat_drv_res {
