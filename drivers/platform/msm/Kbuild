@@ -106,6 +106,17 @@ LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
 endif
 endif
 
+
+ifeq ($(CONFIG_ARCH_SDXPINN), y)
+DATAIPADRVTOP = $(MODULE_OUT)/drivers/platform/msm
+LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa.h
+include $(MODULE_OUT)/config/dataipa_QGKI.conf
+ifneq ($(CONFIG_LOCALVERSION), "-perf")
+include $(MODULE_OUT)/config/dataipa_debug.conf
+LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa_debug.h
+endif
+endif
+
 ifneq (,$(filter $(CONFIG_IPA3) $(CONFIG_GSI),y m))
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/gsi
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/gsi/gsihal

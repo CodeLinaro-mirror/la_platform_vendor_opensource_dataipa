@@ -8497,7 +8497,7 @@ static int ipa3_manual_load_ipa_fws(void)
 	return 0;
 }
 
-#if 0 //IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
+#if IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
 static int ipa_firmware_load(const char *sub_sys)
 {
 	const struct firmware *fw;
@@ -8642,7 +8642,7 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
 		 * using different signing images, adding support to
 		 * load specific FW image to based on dt entry.
 		 */
-#if 0 //IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
+#if IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
 		if (ipa3_ctx->gsi_fw_file_name)
 			result = ipa3_mdt_load_ipa_fws(
 						ipa3_ctx->gsi_fw_file_name);
@@ -8691,7 +8691,7 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
 		/* Unvoting will happen when uC loaded event received. */
 		ipa3_proxy_clk_vote(false);
 
-#if 0 //IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
+#if IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
 		if (ipa3_ctx->uc_fw_file_name)
 			result = ipa3_mdt_load_ipa_fws(
 						ipa3_ctx->uc_fw_file_name);

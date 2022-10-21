@@ -396,6 +396,6 @@ TRACE_EVENT(
 #ifdef CONFIG_IPA_VENDOR_DLKM
 #define TRACE_INCLUDE_PATH ../../../../vendor/qcom/opensource/dataipa/drivers/platform/msm/ipa/ipa_v3
 #else
-#define TRACE_INCLUDE_PATH ../../techpack/dataipa/drivers/platform/msm/ipa/ipa_v3
+#define TRACE_INCLUDE_PATH ../ipa_v3
 #endif
 #include <trace/define_trace.h>

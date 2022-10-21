@@ -821,7 +821,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		}
 
 		/* setup RX gsi channel */
-		rx_dir = (rx1_client == IPA_CLIENT_WLAN2_PROD1) ?
+		rx_dir = (rx1_client == IPA_CLIENT_WLAN2_PROD) ?
 			IPA_WDI3_RX3_DIR : IPA_WDI3_RX4_DIR;
 
 		if (ipa3_setup_wdi3_gsi_channel(in->is_smmu_enabled,
@@ -1154,7 +1154,7 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 			IPAERR("failed to release gsi channel: %d\n", result);
 			goto exit;
 		}
-		if (rx_client == IPA_CLIENT_WLAN2_PROD1)
+		if (rx_client == IPA_CLIENT_WLAN2_PROD)
 			ipa3_release_wdi3_gsi_smmu_mappings(IPA_WDI3_RX3_DIR);
 		else
 			ipa3_release_wdi3_gsi_smmu_mappings(IPA_WDI3_RX4_DIR);
