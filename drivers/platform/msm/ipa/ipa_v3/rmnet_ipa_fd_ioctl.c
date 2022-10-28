@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/init.h>
@@ -93,28 +95,6 @@ static long ipa3_wan_ioctl(struct file *filp,
 	}
 
 	switch (cmd) {
-	case WAN_IOC_ADD_FLT_RULE:
-		IPAWANDBG("device %s got WAN_IOC_ADD_FLT_RULE :>>>\n",
-			DRIVER_NAME);
-		pyld_sz = sizeof(struct ipa_install_fltr_rule_req_msg_v01);
-		param = vmemdup_user((const void __user *)arg, pyld_sz);
-
-		if (IS_ERR(param)) {
-			retval = PTR_ERR(param);
-			break;
-		}
-		if (ipa3_qmi_filter_request_send(
-			(struct ipa_install_fltr_rule_req_msg_v01 *)param)) {
-			IPAWANDBG("IPACM->Q6 add filter rule failed\n");
-			retval = -EFAULT;
-			break;
-		}
-		if (copy_to_user((u8 *)arg, param, pyld_sz)) {
-			retval = -EFAULT;
-			break;
-		}
-		break;
-
 	case WAN_IOC_ADD_FLT_RULE_EX:
 		IPAWANDBG("device %s got WAN_IOC_ADD_FLT_RULE_EX :>>>\n",
 			DRIVER_NAME);
