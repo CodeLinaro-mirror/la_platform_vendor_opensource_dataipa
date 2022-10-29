@@ -8949,6 +8949,7 @@ const struct ipa_gsi_ep_config *ipa3_get_gsi_ep_info
 	return &(ipa3_ep_mapping[hw_idx]
 		[client].ipa_gsi_ep_info);
 }
+EXPORT_SYMBOL(ipa3_get_gsi_ep_info);
 
 /**
  * ipa_get_ep_group() - provide endpoint group by client
@@ -12300,6 +12301,7 @@ int ipa3_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res)
 	IPADBG("Driver %d vlan mode is %d\n", iface, *res);
 	return 0;
 }
+EXPORT_SYMBOL(ipa3_is_vlan_mode);
 
 /**
  * ipa_is_modem_pipe()- Checks if pipe is owned by the modem

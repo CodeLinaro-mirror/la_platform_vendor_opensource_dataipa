@@ -1402,12 +1402,8 @@ static void ecm_ipa_debugfs_init(struct ecm_ipa_dev *ecm_ipa_ctx)
 		goto fail_file;
 	}
 
-	file = debugfs_create_bool("is_vlan_mode", flags_read_only,
+	debugfs_create_bool("is_vlan_mode", flags_read_only,
 		ecm_ipa_ctx->directory, &ecm_ipa_ctx->is_vlan_mode);
-	if (!file) {
-		ECM_IPA_ERROR("could not create is_vlan_mode file\n");
-		goto fail_file;
-	}
 
 	ECM_IPA_DEBUG("debugfs entries were created\n");
 	ECM_IPA_LOG_EXIT();

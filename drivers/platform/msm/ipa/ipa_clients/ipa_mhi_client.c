@@ -74,7 +74,6 @@ static enum ipa_client_type mhi_clients[IPA_MHI_TOTAL_CLIENTS] =
 		IPA_CLIENT_MHI_QDSS_CONS,
 		IPA_CLIENT_MHI_DPL_CONS};
 
-
 /* bit #40 in address should be asserted for MHI transfers over pcie */
 #define IPA_MHI_CLIENT_HOST_ADDR_COND(addr) \
 	((ipa_mhi_client_ctx->assert_bit40)?(IPA_MHI_HOST_ADDR(addr)):(addr))
@@ -578,7 +577,6 @@ static void ipa_mhi_get_ch_bitmap(u32 *ch_bitmap)
 	const struct ipa_gsi_ep_config *gsi_ep_config;
 
 	*ch_bitmap = 0;
-
 	for (i = 0; i < IPA_MHI_TOTAL_CLIENTS; i++) {
 		gsi_ep_config = ipa3_get_gsi_ep_info(mhi_clients[i]);
 		if (gsi_ep_config)

@@ -8363,10 +8363,10 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		reg = true;
 	mutex_unlock(&ipa3_ctx->lock);
 	ipa3_enable_napi_lan_rx();
-	//if (reg) {           // Just for the kbdev, ipa3_register_to_fmwk() need to be called.
+	if (reg) {
 		IPADBG("register to fmwk\n");
 		ipa3_register_to_fmwk();
-	//}
+	}
 
 	/* init uc-activation tbl*/
 	ipa3_setup_uc_act_tbl();
