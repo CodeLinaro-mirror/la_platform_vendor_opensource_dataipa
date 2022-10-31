@@ -317,12 +317,6 @@ public:
 
 	inline bool VerifyStatusReceived_wo_status(size_t SendSize, size_t RecvSize)
 	{
-		size_t stts_size = sizeof(struct ipa3_hw_pkt_status);
-
-		if (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) {
-			stts_size = sizeof(struct ipa3_hw_pkt_status_hw_v5_0);
-		}
-
 		if ((RecvSize != SendSize)){
 			printf("received buffer size does not match! sent:receive [%zu]:[%zu]\n",SendSize,RecvSize);
 			return false;
@@ -5089,7 +5083,7 @@ public:
 
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ? 
+		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
 			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
 
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
@@ -5765,7 +5759,7 @@ public:
 
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ? 
+		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
 			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
 
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
@@ -6225,7 +6219,7 @@ public:
 
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ? 
+		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
 			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
 
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
@@ -9913,8 +9907,6 @@ public:
 
 	virtual bool ModifyPackets()
 	{
-		int address;
-
 		m_sendBuffer[IPV4_TTL_OFFSET] = 1;
 		m_sendBuffer2[IPV4_TTL_OFFSET] = 1;
 		m_sendBuffer3[IPV4_TTL_OFFSET] = 1;
@@ -10151,8 +10143,6 @@ public:
 
 	virtual bool ModifyPackets()
 	{
-		int address;
-
 		m_sendBuffer[HOP_LIMIT_OFFSET_IPV6] = 1;
 		m_sendBuffer2[HOP_LIMIT_OFFSET_IPV6] = 1;
 		m_sendBuffer3[HOP_LIMIT_OFFSET_IPV6] = 1;
@@ -10386,8 +10376,6 @@ public:
 
 	virtual bool ModifyPackets()
 	{
-		int address;
-
 		m_sendBuffer[IPV4_TTL_OFFSET] = 0;
 		m_sendBuffer2[IPV4_TTL_OFFSET] = 0;
 		m_sendBuffer3[IPV4_TTL_OFFSET] = 0;
@@ -10620,7 +10608,6 @@ public:
 
 	virtual bool ModifyPackets()
 	{
-		int address;
 		m_sendBuffer[HOP_LIMIT_OFFSET_IPV6] = 0;
 		m_sendBuffer2[HOP_LIMIT_OFFSET_IPV6] = 0;
 		m_sendBuffer3[HOP_LIMIT_OFFSET_IPV6] = 0;

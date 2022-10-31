@@ -70,6 +70,7 @@
 
 #include "Filtering.h"
 #include "Constants.h"
+#include "TestsUtils.h"
 
 bool Filtering::AddFilteringRule(struct ipa_ioc_add_flt_rule const * ruleTable)
 {
