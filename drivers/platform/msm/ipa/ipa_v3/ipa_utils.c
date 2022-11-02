@@ -9250,20 +9250,21 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 		return -EINVAL;
 	}
 
-	/*
-	 * Skip Configure sequencers type for test clients.
-	 * These are configured dynamically in ipa3_cfg_ep_mode
-	 */
-	if (IPA_CLIENT_IS_TEST(ipa3_ctx->ep[clnt_hdl].client)) {
-		IPADBG("Skip sequencers configuration for test clients\n");
-		return 0;
-	}
-
-	if (seq_cfg->set_dynamic)
+	if (seq_cfg->set_dynamic) {
 		type = seq_cfg->seq_type;
-	else
+	} else {
+		/*
+		 * Skip Configure sequencers type for test clients.
+		 * These are configured dynamically in ipa3_cfg_ep_mode
+		 */
+		if (IPA_CLIENT_IS_TEST(ipa3_ctx->ep[clnt_hdl].client)) {
+			IPADBG("Skip sequencers configuration for test clients\n");
+			return 0;
+		}
+
 		type = ipa3_ep_mapping[ipa3_ctx->hw_type_index]
 			[ipa3_ctx->ep[clnt_hdl].client].sequencer_type;
+	}
 
 	if (type != IPA_DPS_HPS_SEQ_TYPE_INVALID) {
 		if (ipa3_ctx->ep[clnt_hdl].cfg.mode.mode == IPA_DMA &&
@@ -9278,6 +9279,23 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 		IPADBG("set sequencers to sequence 0x%x, ep = %d\n", type,
 				clnt_hdl);
 		ipahal_write_reg_n(IPA_ENDP_INIT_SEQ_n, clnt_hdl, type);
+
+		switch (type) {
+		case IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP:
+		case IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP:
+		case IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP:
+		case IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP:
+			/*
+			 * DATA_SECTORS_FOR_IMM_CMD =
+			 *   round-up-to-next-integer(({maximal-packet-size-in-bytes}-256)/512) =
+			 *   roud_up ( (1520 - 256) / 512 ) = 3
+			 * RSRC_GRP_FOR_DRBIP_ACL = IPA_v6_0_GROUP_IPSEC_UL
+			 */
+			ipahal_write_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, clnt_hdl, 0x703);
+			break;
+		default:
+			break;
+		}
 
 		IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 	} else {
@@ -10007,6 +10025,17 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 
 	init_mode.dst_pipe_number = ipa3_ctx->ep[clnt_hdl].dst_pipe_index;
 	init_mode.ep_mode = *ep_mode;
+	switch (ipa3_ep_mapping[ipa3_ctx->hw_type_index]
+			[ipa3_ctx->ep[clnt_hdl].client].sequencer_type) {
+	case IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP:
+	case IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP:
+	case IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP:
+	case IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP:
+		init_mode.ep_mode.drbip_en = 1;
+		break;
+	default:
+		break;
+	}
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
 	 /* Configure sequencers type for test clients*/
