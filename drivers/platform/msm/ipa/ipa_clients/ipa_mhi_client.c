@@ -2516,7 +2516,7 @@ EXPORT_SYMBOL(ipa_mhi_register);
 
 /* New mhi API implementation for mhi_dma.h */
 
-int mhi_dma_register_ready_cb(void (*mhi_ready_cb)(void *user_data),
+int ipa_mhi_dma_register_ready_cb(void (*mhi_ready_cb)(void *user_data),
 		void *user_data)
 {
 	struct ipa_ready_cb_mhi_data *cb_info = NULL;
@@ -2548,9 +2548,9 @@ int mhi_dma_register_ready_cb(void (*mhi_ready_cb)(void *user_data),
 
 	return 0;
 }
-EXPORT_SYMBOL(mhi_dma_register_ready_cb);
+EXPORT_SYMBOL(ipa_mhi_dma_register_ready_cb);
 
-int mhi_dma_init(struct mhi_dma_function_params function,
+int ipa_mhi_dma_init(struct mhi_dma_function_params function,
                 struct mhi_dma_init_params *params,
                 struct mhi_dma_init_out *out)
 {
@@ -2573,16 +2573,16 @@ int mhi_dma_init(struct mhi_dma_function_params function,
 
 	return ipa_mhi_init_internal((struct ipa_mhi_init_params *)params);;
 }
-EXPORT_SYMBOL(mhi_dma_init);
+EXPORT_SYMBOL(ipa_mhi_dma_init);
 
-int mhi_dma_start(struct mhi_dma_function_params function,
+int ipa_mhi_dma_start(struct mhi_dma_function_params function,
 		struct mhi_dma_start_params *params)
 {
 	return ipa_mhi_start_internal((struct ipa_mhi_start_params *)params);
 }
-EXPORT_SYMBOL(mhi_dma_start);
+EXPORT_SYMBOL(ipa_mhi_dma_start);
 
-int mhi_dma_connect_endp(struct mhi_dma_function_params function,
+int ipa_mhi_dma_connect_endp(struct mhi_dma_function_params function,
 		struct mhi_dma_connect_params *in, u32 *clnt_hdl)
 {
 	struct ipa_mhi_connect_params connect_params = {0};
@@ -2601,40 +2601,104 @@ int mhi_dma_connect_endp(struct mhi_dma_function_params function,
 
 	return ipa_mhi_connect_pipe_internal(&connect_params, clnt_hdl);
 }
-EXPORT_SYMBOL(mhi_dma_connect_endp);
+EXPORT_SYMBOL(ipa_mhi_dma_connect_endp);
 
-int mhi_dma_disconnect_endp(struct mhi_dma_function_params function,
+int ipa_mhi_dma_disconnect_endp(struct mhi_dma_function_params function,
                 struct mhi_dma_disconnect_params *in)
 {
 	return ipa_mhi_disconnect_pipe_internal(in->clnt_hdl);
 }
-EXPORT_SYMBOL(mhi_dma_disconnect_endp);
+EXPORT_SYMBOL(ipa_mhi_dma_disconnect_endp);
 
-int mhi_dma_suspend(struct mhi_dma_function_params function, bool force)
+int ipa_mhi_dma_suspend(struct mhi_dma_function_params function, bool force)
 {
 	return ipa_mhi_suspend_internal(force);
 }
-EXPORT_SYMBOL(mhi_dma_suspend);
+EXPORT_SYMBOL(ipa_mhi_dma_suspend);
 
-int mhi_dma_resume(struct mhi_dma_function_params function)
+int ipa_mhi_dma_resume(struct mhi_dma_function_params function)
 {
 	return ipa_mhi_resume_internal();
 }
-EXPORT_SYMBOL(mhi_dma_resume);
+EXPORT_SYMBOL(ipa_mhi_dma_resume);
 
-int mhi_dma_update_mstate(struct mhi_dma_function_params function,
+int ipa_mhi_dma_update_mstate(struct mhi_dma_function_params function,
 		enum mhi_dma_mstate mstate_info)
 {
 	return ipa_mhi_update_mstate_internal((enum ipa_mhi_mstate)mstate_info);
 }
-EXPORT_SYMBOL(mhi_dma_update_mstate);
+EXPORT_SYMBOL(ipa_mhi_dma_update_mstate);
 
-void mhi_dma_destroy(struct mhi_dma_function_params function)
+void ipa_mhi_dma_destroy(struct mhi_dma_function_params function)
 {
 	ipa_mhi_destroy_internal();
 }
-EXPORT_SYMBOL(mhi_dma_destroy);
+EXPORT_SYMBOL(ipa_mhi_dma_destroy);
 
+static dma_addr_t ipa_mhi_dma_map_buffer(void* virt, size_t size,
+	enum dma_data_direction dir)
+{
+	dma_addr_t phys;
+	IPA_MHI_DBG("Begin\n");
+
+	phys = dma_map_single(ipa3_ctx->pdev, virt, size, dir);
+	if (dma_mapping_error(ipa3_ctx->pdev, phys)) {
+		IPA_MHI_ERR("failed to do dma map.\n");
+		ipa_assert();
+	}
+
+	return phys;
+}
+
+static void ipa_mhi_dma_unmap_buffer(dma_addr_t phys, size_t size,
+	enum dma_data_direction dir)
+{
+	IPA_MHI_DBG("Begin\n");
+	dma_unmap_single(ipa3_ctx->pdev, phys, size, dir);
+}
+
+static void *ipa_mhi_dma_alloc_buffer(size_t size,
+	dma_addr_t* phys, gfp_t gfp)
+{
+	IPA_MHI_DBG("Begin\n");
+	return  dma_alloc_coherent(ipa3_ctx->pdev, size, phys, gfp);
+}
+
+static void ipa_mhi_dma_free_buffer(size_t size, void* virt,
+	dma_addr_t phys)
+{
+	IPA_MHI_DBG("Begin\n");
+	dma_free_coherent(ipa3_ctx->pdev, size, virt, phys);
+}
+
+/* API exposed structure */
+const struct mhi_dma_ops ipa_dma_mhi_driver_ops = {
+	.mhi_dma_register_ready_cb = ipa_mhi_dma_register_ready_cb,
+	.mhi_dma_init = ipa_mhi_dma_init,
+	.mhi_dma_start = ipa_mhi_dma_start,
+	.mhi_dma_connect_endp = ipa_mhi_dma_connect_endp,
+	.mhi_dma_disconnect_endp = ipa_mhi_dma_disconnect_endp,
+	.mhi_dma_destroy = ipa_mhi_dma_destroy,
+	.mhi_dma_memcpy_init = ipa_mhi_dma_memcpy_init,
+	.mhi_dma_memcpy_destroy = ipa_mhi_dma_memcpy_destroy,
+	.mhi_dma_sync_memcpy = ipa_mhi_dma_sync_memcpy,
+	.mhi_dma_async_memcpy = ipa_mhi_dma_async_memcpy,
+	.mhi_dma_memcpy_enable = ipa_mhi_dma_memcpy_enable,
+	.mhi_dma_memcpy_disable = ipa_mhi_dma_memcpy_disable,
+	.mhi_dma_map_buffer = ipa_mhi_dma_map_buffer,
+	.mhi_dma_unmap_buffer = ipa_mhi_dma_unmap_buffer,
+	.mhi_dma_alloc_buffer = ipa_mhi_dma_alloc_buffer,
+	.mhi_dma_free_buffer = ipa_mhi_dma_free_buffer,
+	.mhi_dma_update_mstate = ipa_mhi_dma_update_mstate,
+	.mhi_dma_resume = ipa_mhi_dma_resume,
+	.mhi_dma_suspend = ipa_mhi_dma_suspend,
+};
+
+int ipa_dma_mhi_provide_ops()
+{
+	return mhi_dma_provide_ops(&ipa_dma_mhi_driver_ops);
+}
+EXPORT_SYMBOL(ipa_dma_mhi_provide_ops);
 /* End of the new mhi API */
 
 MODULE_LICENSE("GPL v2");

@@ -7962,21 +7962,6 @@ static void ipa_gsi_map_unmap_gsi_msi_addr(bool map)
 	}
 }
 
-static inline void ipa_trigger_mhi_ready_cbs(void)
-{
-	struct ipa_ready_cb_mhi_data *info;
-	struct ipa_ready_cb_mhi_data *next;
-
-	/* Call all the CBs */
-	list_for_each_entry_safe(info, next,
-		&ipa3_ctx->ipa_ready_cb_list, link) {
-		if (info->ready_cb)
-			info->ready_cb(info->user_data);
-		list_del(&info->link);
-		kfree(info);
-	}
-}
-
 /**
  * ipa3_post_init() - Initialize the IPA Driver (Part II).
  * This part contains all initialization which requires interaction with
@@ -8379,7 +8364,6 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 	ipa_ut_module_init();
 
-	ipa_trigger_mhi_ready_cbs();
 
 	/* Query MSI address. */
 	gsi_query_device_msi_addr(&ipa3_ctx->gsi_msi_addr);
