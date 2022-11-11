@@ -67,7 +67,7 @@ public:
 		const char* preamble) {
 
 		uint8_t bytes_in_line = 16;
-		uint i, j, num_lines;
+		unsigned int i, j, num_lines;
 		char str[1024];
 
 		num_lines = size / bytes_in_line;

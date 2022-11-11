@@ -1361,7 +1361,7 @@ Byte *LoadFileToMemory(const string &name, unsigned int *sizeLoaded)
 void print_buff(void *data, size_t size)
 {
 	uint8_t bytes_in_line = 16;
-	uint i, j, num_lines;
+	unsigned int i, j, num_lines;
 	char str[1024], tmp[4];
 
 	num_lines = size / bytes_in_line;

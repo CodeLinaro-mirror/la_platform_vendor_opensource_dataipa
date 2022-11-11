@@ -651,6 +651,8 @@ struct ipa_ep_cfg_hdr_ext {
 struct ipa_ep_cfg_mode {
 	enum ipa_mode_type mode;
 	enum ipa_client_type dst;
+	bool bearer_ctx_en;
+	bool drbip_en;
 };
 
 struct ipa_ep_cfg_aggr {
