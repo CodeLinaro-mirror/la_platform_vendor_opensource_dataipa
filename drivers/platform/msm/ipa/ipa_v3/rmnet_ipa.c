@@ -3539,7 +3539,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		}
 	}
 
-	wan_cons_ep = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
+	wan_cons_ep = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
 	ret = get_ipa_rmnet_dts_configuration(pdev, &ipa3_rmnet_res);
 	ipa3_rmnet_ctx.ipa_rmnet_ssr = ipa3_rmnet_res.ipa_rmnet_ssr;
 
