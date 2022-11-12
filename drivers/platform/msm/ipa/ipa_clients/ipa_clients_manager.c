@@ -22,8 +22,9 @@ static int __init ipa_clients_manager_init(void)
 
 	ipa_uc_offload_register();
 
+	ipa_mhi_register();
+
 	if (ipa3_ctx->ipa_config_is_mhi) {
-		ipa_mhi_register();
 		ipa_dma_mhi_provide_ops();
 	}
 
