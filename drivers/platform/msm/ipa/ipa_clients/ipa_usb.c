@@ -1010,7 +1010,13 @@ static bool ipa3_usb_check_chan_params(struct ipa_usb_xdci_chan_params *params)
 	}
 	switch (params->teth_prot) {
 	case IPA_USB_DIAG:
+		if (!IPA_CLIENT_IS_CONS(params->client)) {
+			IPA_USB_ERR("DPL supports only DL channel\n");
+			return false;
+		}
+		fallthrough;
 	case IPA_USB_RNDIS:
+		fallthrough;
 	case IPA_USB_ECM:
 		if (ipa3_usb_ctx->teth_prot_ctx[params->teth_prot].state ==
 			IPA_USB_TETH_PROT_INVALID) {
@@ -1021,7 +1027,9 @@ static bool ipa3_usb_check_chan_params(struct ipa_usb_xdci_chan_params *params)
 		}
 		break;
 	case IPA_USB_RMNET:
+		fallthrough;
 	case IPA_USB_RMNET_CV2X:
+		fallthrough;
 	case IPA_USB_MBIM:
 		if (ipa3_usb_ctx->teth_prot_ctx[params->teth_prot].state ==
 			IPA_USB_TETH_PROT_INVALID) {

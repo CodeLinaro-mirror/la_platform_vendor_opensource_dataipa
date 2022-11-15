@@ -5770,6 +5770,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_NO_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 8, 1, 20, 24, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_NA },
+	/*For test purposes only*/
+	[IPA_5_5][IPA_CLIENT_TEST_PROD] = {
+			true, IPA_v5_5_GROUP_URLLC,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 4, 9, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_NA },
 
 	[IPA_5_2_MDM][IPA_CLIENT_APPS_CMD_PROD] = {
 			true, IPA_v5_2_GROUP_UL,
@@ -14179,12 +14187,14 @@ static void ipa3_write_rsrc_grp_type_reg(int group_index,
 		if (src) {
 			switch (group_index) {
 			case IPA_v4_0_GROUP_LWA_DL:
+				fallthrough;
 			case IPA_v4_0_GROUP_UL_DL:
 				ipahal_write_reg_n_fields(
 					IPA_SRC_RSRC_GRP_01_RSRC_TYPE_n,
 					n, val);
 				break;
 			case IPA_v4_0_MHI_GROUP_DMA:
+				fallthrough;
 			case IPA_v4_0_GROUP_UC_RX_Q:
 				ipahal_write_reg_n_fields(
 					IPA_SRC_RSRC_GRP_23_RSRC_TYPE_n,
@@ -14199,6 +14209,7 @@ static void ipa3_write_rsrc_grp_type_reg(int group_index,
 		} else {
 			switch (group_index) {
 			case IPA_v4_0_GROUP_LWA_DL:
+				fallthrough;
 			case IPA_v4_0_GROUP_UL_DL:
 				ipahal_write_reg_n_fields(
 					IPA_DST_RSRC_GRP_01_RSRC_TYPE_n,
@@ -16674,6 +16685,7 @@ void ipa3_eth_get_status(u32 client, int scratch_id,
 	case IPA_CLIENT_RTK_ETHERNET_PROD:
 		stats->err = gsi_get_drop_stats(ipa_ep_idx, RTK_GSI_SCRATCH_ID,
 			ch_id);
+		fallthrough;
 	case IPA_CLIENT_RTK_ETHERNET_CONS:
 		stats->wp = gsi_get_refetch_reg(ch_id, false);
 		stats->rp = gsi_get_refetch_reg(ch_id, true);

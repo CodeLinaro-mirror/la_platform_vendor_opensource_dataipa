@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
 * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
+* Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
 */
 
 #include "gsihal_i.h"
@@ -2724,7 +2725,7 @@ EXPORT_SYMBOL(gsihal_get_reg_nk_ofst);
 *	array size according to the
 *	GSI version.
 */
-u32 gsihal_get_bit_map_array_size()
+u32 gsihal_get_bit_map_array_size(void)
 {
 	return GSI_CH_BIT_MAP_ARR_SIZE;
 }
@@ -2938,7 +2939,7 @@ bool gsihal_check_ring_length_valid(u32 r_len, u32 elem_size)
 /*
  * Get mask for GP_int1
  */
-u32 gsihal_get_glob_irq_en_gp_int1_mask()
+u32 gsihal_get_glob_irq_en_gp_int1_mask(void)
 {
 	return GSI_EE_n_CNTXT_GLOB_IRQ_EN_GP_INT1_BMSK;
 }

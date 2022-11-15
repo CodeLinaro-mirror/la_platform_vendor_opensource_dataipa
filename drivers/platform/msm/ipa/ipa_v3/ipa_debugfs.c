@@ -5178,11 +5178,14 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 
 	switch (client->client_type) {
 	case IPA_ETH_CLIENT_AQC107:
+		fallthrough;
 	case IPA_ETH_CLIENT_AQC113:
 		tx_ep = IPA_CLIENT_AQC_ETHERNET_CONS;
 		rx_ep = IPA_CLIENT_AQC_ETHERNET_PROD;
 		scratch_num = 7;
+		fallthrough;
 	case IPA_ETH_CLIENT_RTK8111K:
+		fallthrough;
 	case IPA_ETH_CLIENT_RTK8125B:
 		tx_ep = IPA_CLIENT_RTK_ETHERNET_CONS;
 		rx_ep = IPA_CLIENT_RTK_ETHERNET_PROD;
@@ -5224,6 +5227,7 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 						str_client_tx1);
 		goto done;
 #endif
+		fallthrough;
 	default:
 		IPAERR("Not supported\n");
 		return 0;

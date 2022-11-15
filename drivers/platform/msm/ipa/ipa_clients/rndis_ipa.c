@@ -717,7 +717,11 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 		rndis_ipa_ctx->netif_rx_function = netif_receive_skb;
 		RNDIS_IPA_DEBUG("LAN RX NAPI enabled = True");
 	} else {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0))
 		rndis_ipa_ctx->netif_rx_function = netif_rx_ni;
+#else
+		rndis_ipa_ctx->netif_rx_function = netif_rx;
+#endif
 		RNDIS_IPA_DEBUG("LAN RX NAPI enabled = False");
 	}
 
