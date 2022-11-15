@@ -26,6 +26,7 @@
 #include "ipa_trace.h"
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
+#include "ipa_stats.h"
 
 #define IPA_GSI_EVENT_RP_SIZE 8
 #define IPA_WAN_NAPI_MAX_FRAMES (NAPI_WEIGHT / IPA_WAN_AGGR_PKT_CNT)
@@ -154,6 +155,156 @@ static u32 ipa_adjust_ra_buff_base_sz(u32 aggr_byte_limit);
 static int ipa3_rmnet_ll_rx_poll(struct napi_struct *napi_rx, int budget);
 
 struct gsi_chan_xfer_notify g_lan_rx_notify[IPA_LAN_NAPI_MAX_FRAMES];
+
+static void ipa3_collect_default_coal_recycle_stats_wq(struct work_struct *work);
+static DECLARE_DELAYED_WORK(ipa3_collect_default_coal_recycle_stats_wq_work,
+	ipa3_collect_default_coal_recycle_stats_wq);
+
+static void ipa3_collect_low_lat_data_recycle_stats_wq(struct work_struct *work);
+static DECLARE_DELAYED_WORK(ipa3_collect_low_lat_data_recycle_stats_wq_work,
+	ipa3_collect_low_lat_data_recycle_stats_wq);
+
+static void ipa3_collect_default_coal_recycle_stats_wq(struct work_struct *work)
+{
+	struct ipa3_sys_context *sys;
+	int stat_interval_index;
+	int ep_idx = -1;
+
+	/* For targets which don't require coalescing pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+	if (ep_idx == -1)
+		ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
+
+	if (ep_idx == -1)
+		sys = NULL;
+	else
+		sys = ipa3_ctx->ep[ep_idx].sys;
+
+	mutex_lock(&ipa3_ctx->recycle_stats_collection_lock);
+	stat_interval_index = ipa3_ctx->recycle_stats.default_coal_stats_index;
+	ipa3_ctx->recycle_stats.interval_time_in_ms = IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_TIME;
+
+	/* Coalescing pipe page recycling stats */
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].total_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[0].total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].recycle_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[0].page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].temp_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[0].tmp_alloc;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].total_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].total_cumulative
+			- ipa3_ctx->prev_coal_recycle_stats.total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].recycle_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].recycle_cumulative
+			- ipa3_ctx->prev_coal_recycle_stats.page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].temp_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].temp_cumulative
+			- ipa3_ctx->prev_coal_recycle_stats.tmp_alloc;
+
+	ipa3_ctx->prev_coal_recycle_stats.total_replenished
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].total_cumulative;
+	ipa3_ctx->prev_coal_recycle_stats.page_recycled
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].recycle_cumulative;
+	ipa3_ctx->prev_coal_recycle_stats.tmp_alloc
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].temp_cumulative;
+
+	/* Default pipe page recycling stats */
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].total_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[1].total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].recycle_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[1].page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].temp_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[1].tmp_alloc;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].total_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].total_cumulative
+			- ipa3_ctx->prev_default_recycle_stats.total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].recycle_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].recycle_cumulative
+			- ipa3_ctx->prev_default_recycle_stats.page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].temp_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].temp_cumulative
+			- ipa3_ctx->prev_default_recycle_stats.tmp_alloc;
+
+	ipa3_ctx->prev_default_recycle_stats.total_replenished
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].total_cumulative;
+	ipa3_ctx->prev_default_recycle_stats.page_recycled
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].recycle_cumulative;
+	ipa3_ctx->prev_default_recycle_stats.tmp_alloc
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].temp_cumulative;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].valid = 1;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].valid = 1;
+
+	/* Single Indexing for coalescing and default pipe */
+	ipa3_ctx->recycle_stats.default_coal_stats_index =
+			(ipa3_ctx->recycle_stats.default_coal_stats_index + 1) % IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_COUNT;
+
+	if (sys && atomic_read(&sys->curr_polling_state))
+		queue_delayed_work(ipa3_ctx->collect_recycle_stats_wq,
+				&ipa3_collect_default_coal_recycle_stats_wq_work, msecs_to_jiffies(10));
+
+	mutex_unlock(&ipa3_ctx->recycle_stats_collection_lock);
+
+	return;
+
+}
+
+static void ipa3_collect_low_lat_data_recycle_stats_wq(struct work_struct *work)
+{
+	struct ipa3_sys_context *sys;
+	int stat_interval_index;
+	int ep_idx;
+
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS);
+	if (ep_idx == -1)
+		sys = NULL;
+	else
+		sys = ipa3_ctx->ep[ep_idx].sys;
+
+	mutex_lock(&ipa3_ctx->recycle_stats_collection_lock);
+	stat_interval_index = ipa3_ctx->recycle_stats.low_lat_stats_index;
+
+	/* Low latency data pipe page recycling stats */
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].total_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[2].total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].recycle_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[2].page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].temp_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[2].tmp_alloc;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].total_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].total_cumulative
+			- ipa3_ctx->prev_low_lat_data_recycle_stats.total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].recycle_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].recycle_cumulative
+			- ipa3_ctx->prev_low_lat_data_recycle_stats.page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].temp_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].temp_cumulative
+			- ipa3_ctx->prev_low_lat_data_recycle_stats.tmp_alloc;
+
+	ipa3_ctx->prev_low_lat_data_recycle_stats.total_replenished
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].total_cumulative;
+	ipa3_ctx->prev_low_lat_data_recycle_stats.page_recycled
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].recycle_cumulative;
+	ipa3_ctx->prev_low_lat_data_recycle_stats.tmp_alloc
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].temp_cumulative;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].valid = 1;
+
+	/* Indexing for low lat data stats pipe */
+	ipa3_ctx->recycle_stats.low_lat_stats_index =
+			(ipa3_ctx->recycle_stats.low_lat_stats_index + 1) % IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_COUNT;
+
+	if (sys && atomic_read(&sys->curr_polling_state))
+		queue_delayed_work(ipa3_ctx->collect_recycle_stats_wq,
+				&ipa3_collect_low_lat_data_recycle_stats_wq_work, msecs_to_jiffies(10));
+
+	mutex_unlock(&ipa3_ctx->recycle_stats_collection_lock);
+
+	return;
+}
 
 /**
  * ipa3_write_done_common() - this function is responsible on freeing
@@ -1303,7 +1454,10 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 		goto fail_gen;
 	}
 
-	*clnt_hdl = 0;
+	/*checking for clnt_hdl having any previously updated
+	value or not, if not then assigning 0 */
+	if(*clnt_hdl == -1)
+		*clnt_hdl = 0;
 
 	if (sys_in->client >= IPA_CLIENT_MAX || sys_in->desc_fifo_sz == 0) {
 		IPAERR("bad parm client:%d fifo_sz:%d\n",
@@ -1579,7 +1733,7 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 					sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
-							IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+							ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor;
 				else
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
@@ -1608,7 +1762,7 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 			if (ipa3_ctx->wan_common_page_pool &&
 				sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1) *
-				IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+				ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor;
 			else
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1);
 			IPADBG("Repl capacity for client:%d, value:%d\n",
@@ -2330,7 +2484,7 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		}
 		if (num_frags == 0) {
 			if (ipa3_send(sys, data_idx + 1, desc, true)) {
-				IPAERR("fail to send skb %pK HWP\n", skb);
+				IPAERR_RL("fail to send skb %pK HWP\n", skb);
 				goto fail_mem;
 			}
 		} else {
@@ -2350,7 +2504,7 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 
 			if (ipa3_send(sys, num_frags + data_idx + 1,
 				desc, true)) {
-				IPAERR("fail to send skb %pK num_frags %u\n",
+				IPAERR_RL("fail to send skb %pK num_frags %u\n",
 					skb, num_frags);
 				goto fail_mem;
 			}
@@ -5099,7 +5253,8 @@ static struct sk_buff *handle_skb_completion(
 
 	/* Check added for handling LAN consumer packet without EOT flag */
 	if (notify->evt_id == GSI_CHAN_EVT_EOT ||
-		sys->ep->client == IPA_CLIENT_APPS_LAN_CONS) {
+		sys->ep->client == IPA_CLIENT_APPS_LAN_CONS ||
+		sys->ep->client == IPA_CLIENT_APPS_LAN_COAL_CONS) {
 		/* go over the list backward to save computations on updating length */
 		list_for_each_entry_safe_reverse(rx_pkt, tmp, head, link) {
 			rx_skb = rx_pkt->data.skb;
@@ -5887,7 +6042,7 @@ int ipa3_tx_dp_mul(enum ipa_client_type src,
 
 		IPADBG_LOW("calling ipa3_send()\n");
 		if (ipa3_send(sys, 2, desc, true)) {
-			IPAERR("fail to send skb\n");
+			IPAERR_RL("fail to send skb\n");
 			sys->ep->wstats.rx_pkt_leak += (cnt-1);
 			sys->ep->wstats.rx_dp_fail++;
 			goto fail_send;
@@ -7003,6 +7158,9 @@ start_poll:
 	/* call repl_hdlr before napi_reschedule / napi_complete */
 	ep->sys->repl_hdlr(ep->sys);
 	wan_def_sys->repl_hdlr(wan_def_sys);
+	/* Scheduling WAN and COAL collect stats work wueue */
+	queue_delayed_work(ipa3_ctx->collect_recycle_stats_wq,
+		&ipa3_collect_default_coal_recycle_stats_wq_work, msecs_to_jiffies(10));
 	/* When not able to replenish enough descriptors, keep in polling
 	 * mode, wait for napi-poll and replenish again.
 	 */
@@ -7191,7 +7349,6 @@ static int ipa3_rmnet_ll_rx_poll(struct napi_struct *napi_rx, int budget)
 
 	IPA_ACTIVE_CLIENTS_PREP_SPECIAL(log, "NAPI_LL");
 
-
 	remain_aggr_weight = budget / ipa3_ctx->ipa_wan_aggr_pkt_cnt;
 	if (remain_aggr_weight > IPA_WAN_NAPI_MAX_FRAMES) {
 		IPAERR("NAPI weight is higher than expected\n");
@@ -7231,6 +7388,9 @@ start_poll:
 	cnt += budget - remain_aggr_weight * ipa3_ctx->ipa_wan_aggr_pkt_cnt;
 	/* call repl_hdlr before napi_reschedule / napi_complete */
 	sys->repl_hdlr(sys);
+	/* Scheduling RMNET LOW LAT DATA collect stats work queue */
+	queue_delayed_work(ipa3_ctx->collect_recycle_stats_wq,
+		&ipa3_collect_low_lat_data_recycle_stats_wq_work, msecs_to_jiffies(10));
 	/* When not able to replenish enough descriptors, keep in polling
 	 * mode, wait for napi-poll and replenish again.
 	 */
