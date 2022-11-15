@@ -1360,7 +1360,11 @@ static void __gsi_msi_write_msg(struct msi_desc *desc, struct msi_msg *msg)
 	if (IS_ERR_OR_NULL(desc) || IS_ERR_OR_NULL(msg) || IS_ERR_OR_NULL(gsi_ctx))
 		BUG();
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
+	msi = desc->msi_index;
+#else
 	msi = desc->platform.msi_index;
+#endif
 
 	/* MSI should be valid and unallocated */
 	if ((msi >= gsi_ctx->msi.num) || (test_bit(msi, gsi_ctx->msi.allocated)))
@@ -1434,6 +1438,12 @@ static int __gsi_allocate_msis(void)
 	/* Loop through the allocated MSIs and save the info, then
 	 * request the IRQ.
 	 */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
+	for (unsigned long msi = 0; msi < gsi_ctx->msi.num; msi++) {
+		/* Save IRQ */
+		gsi_ctx->msi.irq[msi] = msi_get_virq(gsi_ctx->dev, msi);
+		GSIDBG("desc->irq =%d\n", desc->irq);
+#else
 	for_each_msi_entry(desc, gsi_ctx->dev) {
 		unsigned long msi = desc->platform.msi_index;
 
@@ -1447,7 +1457,7 @@ static int __gsi_allocate_msis(void)
 		/* Save IRQ */
 		gsi_ctx->msi.irq[msi] = desc->irq;
 		GSIDBG("desc->irq =%d\n", desc->irq);
-
+#endif
 		/* Request the IRQ */
 		if (__gsi_request_msi_irq(msi)) {
 			GSIERR("error requesting IRQ for MSI %lu\n",
@@ -6364,7 +6374,9 @@ static int msm_gsi_probe(struct platform_device *pdev)
 		GSIERR("No MSIs configured\n");
 	else {
 		if (gsi_ctx->msi.num > GSI_MAX_NUM_MSI) {
-			GSIERR("Num MSIs %u larger than max %u, normalizing\n");
+			GSIERR("Num MSIs %u larger than max %u, normalizing\n",
+				gsi_ctx->msi.num,
+				GSI_MAX_NUM_MSI);
 			gsi_ctx->msi.num = GSI_MAX_NUM_MSI;
 		} else GSIDBG("Num MSIs=%u\n", gsi_ctx->msi.num);
 	}

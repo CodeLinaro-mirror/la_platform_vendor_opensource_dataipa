@@ -1004,9 +1004,12 @@ static int ipa_pm_activate_helper(struct ipa_pm_client *client, bool sync)
 
 	switch (client->state) {
 	case IPA_PM_ACTIVATED_PENDING_RESCHEDULE:
+		fallthrough;
 	case IPA_PM_ACTIVATED_PENDING_DEACTIVATION:
 		client->state = IPA_PM_ACTIVATED_TIMER_SET;
+		fallthrough;
 	case IPA_PM_ACTIVATED:
+		fallthrough;
 	case IPA_PM_ACTIVATED_TIMER_SET:
 		spin_unlock_irqrestore(&client->state_lock, flags);
 		return 0;
@@ -1132,6 +1135,7 @@ int ipa_pm_deferred_deactivate(u32 hdl)
 	switch (client->state) {
 	case IPA_PM_ACTIVATE_IN_PROGRESS:
 		client->state = IPA_PM_DEACTIVATE_IN_PROGRESS;
+		fallthrough;
 	case IPA_PM_DEACTIVATED:
 		IPA_PM_DBG_STATE(hdl, client->name, client->state);
 		spin_unlock_irqrestore(&client->state_lock, flags);
@@ -1147,12 +1151,16 @@ int ipa_pm_deferred_deactivate(u32 hdl)
 			msecs_to_jiffies(delay));
 		break;
 	case IPA_PM_ACTIVATED_TIMER_SET:
+		fallthrough;
 	case IPA_PM_ACTIVATED_PENDING_DEACTIVATION:
 		client->state = IPA_PM_ACTIVATED_PENDING_RESCHEDULE;
+		fallthrough;
 	case IPA_PM_DEACTIVATE_IN_PROGRESS:
+		fallthrough;
 	case IPA_PM_ACTIVATED_PENDING_RESCHEDULE:
 		break;
 	case IPA_PM_STATE_MAX:
+		fallthrough;
 	default:
 		IPA_PM_ERR("Bad State");
 		spin_unlock_irqrestore(&client->state_lock, flags);

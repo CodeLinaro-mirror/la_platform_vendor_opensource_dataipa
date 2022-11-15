@@ -675,7 +675,6 @@ static struct ipa_eth_client_pipe_info
 }
 #endif
 
-
 static int ipa_eth_client_connect_pipe(
 	struct ipa_eth_client_pipe_info *pipe,
 	int inst_id,
