@@ -5141,7 +5141,7 @@ static void ipa3_recycle_rx_page_wrapper(struct ipa3_rx_pkt_wrapper *rx_pkt)
 static struct sk_buff *handle_skb_completion(
 	struct gsi_chan_xfer_notify *notify,
 	bool                         update_truesize,
-	struct ipa3_rx_pkt_wrapper **rx_pkt_ptr )
+	struct ipa3_sys_context **pkt_sys)
 {
 	struct ipa3_rx_pkt_wrapper *rx_pkt, *tmp;
 	struct sk_buff *rx_skb, *next_skb = NULL;
@@ -5151,8 +5151,8 @@ static struct sk_buff *handle_skb_completion(
 	sys = (struct ipa3_sys_context *) notify->chan_user_data;
 	rx_pkt = (struct ipa3_rx_pkt_wrapper *) notify->xfer_user_data;
 
-	if ( rx_pkt_ptr ) {
-		*rx_pkt_ptr = rx_pkt;
+	if (pkt_sys) {
+		*pkt_sys = rx_pkt->sys;
 	}
 
 	spin_lock_bh(&rx_pkt->sys->spinlock);
@@ -5352,7 +5352,7 @@ static void ipa3_wq_rx_common(
 	struct ipa3_sys_context     *sys,
 	struct gsi_chan_xfer_notify *notify)
 {
-	struct ipa3_rx_pkt_wrapper *rx_pkt;
+	struct ipa3_sys_context *pkt_sys;
 	struct sk_buff             *rx_skb;
 
 	if (!notify) {
@@ -5360,11 +5360,11 @@ static void ipa3_wq_rx_common(
 		return;
 	}
 
-	rx_skb = handle_skb_completion(notify, true, &rx_pkt);
+	rx_skb = handle_skb_completion(notify, true, &pkt_sys);
 
 	if (rx_skb) {
-		rx_pkt->sys->pyld_hdlr(rx_skb, rx_pkt->sys);
-		rx_pkt->sys->repl_hdlr(rx_pkt->sys);
+		pkt_sys->pyld_hdlr(rx_skb, pkt_sys);
+		pkt_sys->repl_hdlr(pkt_sys);
 	}
 }
 

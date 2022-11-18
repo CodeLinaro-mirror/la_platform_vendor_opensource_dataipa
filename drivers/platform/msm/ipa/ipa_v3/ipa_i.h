@@ -155,7 +155,7 @@ enum {
 
 #define IPADBG(fmt, args...) \
 	do { \
-		pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
 		if (ipa3_ctx) { \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf, \
 				DRV_NAME " %s:%d " fmt, ## args); \
@@ -166,7 +166,7 @@ enum {
 
 #define IPADBG_LOW(fmt, args...) \
 	do { \
-		pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
 		if (ipa3_ctx) \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
