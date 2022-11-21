@@ -226,9 +226,11 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 #ifdef IPA_CLIENT_MHI_COAL_CONS
 	/* share default pipe event ring for MHI coal pipe */
 	if(client == IPA_CLIENT_MHI_COAL_CONS) {
-		ep_def = &ipa3_ctx->ep[ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS)];
-		ep->gsi_evt_ring_hdl = ep_def->gsi_evt_ring_hdl;
-		*params->cached_gsi_evt_ring_hdl = ep->gsi_evt_ring_hdl;
+		if(ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS) != IPA_EP_NOT_ALLOCATED ){
+			ep_def = &ipa3_ctx->ep[ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS)];
+			ep->gsi_evt_ring_hdl = ep_def->gsi_evt_ring_hdl;
+			*params->cached_gsi_evt_ring_hdl = ep->gsi_evt_ring_hdl;
+		}
 	} else {
 #endif
 		/* allocate event ring only for the first time pipe is connected */
@@ -404,6 +406,9 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 		ch_scratch1.mhi_v2.polling_mode = ch_scratch.mhi.polling_mode;
 		ch_scratch1.mhi_v2.oob_mod_threshold =
 			ch_scratch.mhi.oob_mod_threshold;
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0 &&
+			client == IPA_CLIENT_MHI_COAL_CONS)
+			ch_scratch1.mhi_v2.min_available_elements = GSI_VEID_MAX;
 		res = gsi_write_channel_scratch(ep->gsi_chan_hdl, ch_scratch1);
 	} else {
 		res = gsi_write_channel_scratch(ep->gsi_chan_hdl, ch_scratch);
@@ -507,6 +512,7 @@ int ipa3_mhi_init_engine(struct ipa_mhi_init_engine *params)
 	struct gsi_device_scratch gsi_scratch;
 	const struct ipa_gsi_ep_config *gsi_ep_info;
 	u32 ipa_mhi_max_ul_channels, ipa_mhi_max_dl_channels;
+	int ipa_ep_idx;
 
 	IPA_MHI_FUNC_ENTRY();
 
@@ -522,6 +528,13 @@ int ipa3_mhi_init_engine(struct ipa_mhi_init_engine *params)
 	if (ipa3_ctx->ipa_config_is_auto == true) {
 		ipa_mhi_max_ul_channels++;
 		ipa_mhi_max_dl_channels++;
+	}
+
+	/*If COAL pipe not defind not required extra DL increased as part #define*/
+	ipa_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS);
+	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
+		IPADBG("MHI COAL pipe not allocated reducing DL channels\n");
+		ipa_mhi_max_dl_channels--;
 	}
 
 	if ((ipa_mhi_max_ul_channels + ipa_mhi_max_dl_channels) >

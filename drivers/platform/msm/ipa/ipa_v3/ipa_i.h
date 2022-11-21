@@ -336,10 +336,20 @@ enum {
 #define IPA_WDI_CE2_RING_RES           17
 #define IPA_WDI_CE2_DB_RES             18
 #define IPA_WDI_TX2_DB_RES             19
-#define IPA_WDI_MAX_RES                20
+#define IPA_WDI_RX3_RING_RES           20
+#define IPA_WDI_RX3_RING_RP_RES        21
+#define IPA_WDI_RX3_COMP_RING_RES      22
+#define IPA_WDI_RX3_COMP_RING_WP_RES   23
+#define IPA_WDI_RX4_RING_RES           24
+#define IPA_WDI_RX4_RING_RP_RES        25
+#define IPA_WDI_RX4_COMP_RING_RES      26
+#define IPA_WDI_RX4_COMP_RING_WP_RES   27
+#define IPA_WDI_MAX_RES                28
 
 #define IPA_WDI3_TX2_DIR 4
 #define IPA_WDI3_RX2_DIR 5
+#define IPA_WDI3_RX3_DIR 6
+#define IPA_WDI3_RX4_DIR 7
 
 /* use QMAP header reserved bit to identify tethered traffic */
 #define IPA_QMAP_TETH_BIT (1 << 30)
@@ -2541,6 +2551,13 @@ struct ipa3_context {
 	u32 page_wq_reschd_time;
 	struct list_head minidump_list_head;
 	bool is_dual_pine_config;
+	struct workqueue_struct *collect_recycle_stats_wq;
+	struct ipa_lnx_pipe_page_recycling_stats recycle_stats;
+	struct ipa3_page_recycle_stats prev_coal_recycle_stats;
+	struct ipa3_page_recycle_stats prev_default_recycle_stats;
+	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
+	struct mutex recycle_stats_collection_lock;
+	struct mutex ssr_lock;
 };
 
 struct ipa3_plat_drv_res {
@@ -3782,7 +3799,7 @@ void ipa3_update_mhi_ctrl_state(u8 state, bool set);
 int ipa_send_mhi_ctrl_endp_ind_to_modem(void);
 #ifdef IPA_CLIENT_MHI_COAL_CONS
 /* Send coal MHI endpoint info to modem using QMI indication message */
-int ipa_send_mhi_coal_endp_ind_to_modem(void);
+int ipa_send_mhi_coal_endp_ind_to_modem(bool check_if_modem_is_up);
 #endif
 
 /*
