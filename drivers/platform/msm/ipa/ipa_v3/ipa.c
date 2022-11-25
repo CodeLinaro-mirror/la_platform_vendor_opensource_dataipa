@@ -4059,6 +4059,12 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 
 		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		if (retval == -EIO)
+		{
+			IPADBG("no work needs to be done but return success to caller");
+			retval = 0;
+			break;
+		}
 
 		ipa3_ctx->eogre_enabled = (retval == 0);
 
@@ -4089,6 +4095,12 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		memset(&eogre_info, 0, sizeof(eogre_info));
 
 		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		if (retval == -EIO)
+		{
+			IPADBG("no work needs to be done but return success to caller");
+			retval = 0;
+			break;
+		}
 
 		if (retval == 0 && send2uC == true) {
 			/*
@@ -4792,20 +4804,20 @@ static int ipa3_q6_clean_q6_rt_tbls(enum ipa_ip_type ip,
 		modem_rt_index_hi = IPA_MEM_PART(v4_modem_rt_index_hi);
 		if (rlt == IPA_RULE_HASHABLE) {
 			lcl_addr_mem_part = IPA_MEM_PART(v4_rt_hash_ofst);
-			lcl_hdr_sz =  IPA_MEM_PART(v4_flt_hash_size);
+			lcl_hdr_sz =  IPA_MEM_PART(v4_rt_hash_size);
 		} else {
 			lcl_addr_mem_part = IPA_MEM_PART(v4_rt_nhash_ofst);
-			lcl_hdr_sz = IPA_MEM_PART(v4_flt_nhash_size);
+			lcl_hdr_sz = IPA_MEM_PART(v4_rt_nhash_size);
 		}
 	} else {
 		modem_rt_index_lo = IPA_MEM_PART(v6_modem_rt_index_lo);
 		modem_rt_index_hi = IPA_MEM_PART(v6_modem_rt_index_hi);
 		if (rlt == IPA_RULE_HASHABLE) {
 			lcl_addr_mem_part = IPA_MEM_PART(v6_rt_hash_ofst);
-			lcl_hdr_sz =  IPA_MEM_PART(v6_flt_hash_size);
+			lcl_hdr_sz =  IPA_MEM_PART(v6_rt_hash_size);
 		} else {
 			lcl_addr_mem_part = IPA_MEM_PART(v6_rt_nhash_ofst);
-			lcl_hdr_sz = IPA_MEM_PART(v6_flt_nhash_size);
+			lcl_hdr_sz = IPA_MEM_PART(v6_rt_nhash_size);
 		}
 	}
 
@@ -4813,7 +4825,7 @@ static int ipa3_q6_clean_q6_rt_tbls(enum ipa_ip_type ip,
 		modem_rt_index_hi - modem_rt_index_lo + 1,
 		lcl_hdr_sz, lcl_hdr_sz, &mem, true);
 	if (retval) {
-		IPAERR("fail generate empty rt img\n");
+		IPAERR("fail generate empty rt img, size %d\n", lcl_hdr_sz);
 		return -ENOMEM;
 	}
 
@@ -9489,6 +9501,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->buff_below_thresh_for_coal_pipe_notified = false;
 
 	mutex_init(&ipa3_ctx->app_clock_vote.mutex);
+	mutex_init(&ipa3_ctx->ssr_lock);
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
