@@ -1782,6 +1782,7 @@ enum ipa3_hw_flags {
  * @uc_error_timestamp: tag timer sampled after uC crashed
  * @ipa_use_uc_holb_monitor: Indicates if uC HOLB feature is enabled
  * @ipa_holb_monitor: Struct with all info needed for uC HOLB feature
+ * @curr_cmd: If cesta_enable it has the last MHI channel info sent to uC.
  */
 struct ipa3_uc_ctx {
 	bool uc_inited;
@@ -1814,6 +1815,7 @@ struct ipa3_uc_ctx {
 	u32 ering_rp;
 	bool ipa_use_uc_holb_monitor;
 	struct ipa_holb_monitor holb_monitor;
+	struct IpaMhiCh_t curr_cmd;
 };
 
 /**
@@ -2364,6 +2366,7 @@ struct ipa_ready_cb_mhi_data {
  * @mhi_lock: lock to protect above mhi states
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
+ * @cesta_enable: flag which holds if cesta_enabled or not in DTSI
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2634,6 +2637,7 @@ struct ipa3_context {
 	phys_addr_t per_stats_smem_pa;
 	void *per_stats_smem_va;
 	u32 ipa_smem_size;
+	bool cesta_enable;
 };
 
 struct ipa3_plat_drv_res {
@@ -2718,6 +2722,7 @@ struct ipa3_plat_drv_res {
 	bool ulso_wa;
 	bool is_dual_pine_config;
 	u8 coal_ipv4_id_ignore;
+	bool cesta_enable;
 };
 
 /**
@@ -3619,6 +3624,7 @@ int ipa3_uc_register_ready_cb(struct notifier_block *nb);
 int ipa3_uc_unregister_ready_cb(struct notifier_block *nb);
 int ipa3_uc_send_cmd(u32 cmd, u32 opcode, u32 expected_status,
 		    bool polling_mode, unsigned long timeout_jiffies);
+int ipa3_uc_send_mhi_cesta_pipe_info(enum ipa_client_type clnt_type, bool connect);
 void ipa3_uc_register_handlers(enum ipa3_hw_features feature,
 			      struct ipa3_uc_hdlrs *hdlrs);
 int ipa3_uc_notify_clk_state(bool enabled);

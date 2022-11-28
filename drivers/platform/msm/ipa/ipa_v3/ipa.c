@@ -9365,6 +9365,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->lan_rx_napi_enable = resource_p->lan_rx_napi_enable;
 	ipa3_ctx->tx_napi_enable = resource_p->tx_napi_enable;
 	ipa3_ctx->tx_poll = resource_p->tx_poll;
+	ipa3_ctx->cesta_enable = resource_p->cesta_enable;
 	ipa3_ctx->ipa_gpi_event_rp_ddr = resource_p->ipa_gpi_event_rp_ddr;
 	ipa3_ctx->rmnet_ctl_enable = resource_p->rmnet_ctl_enable;
 	ipa3_ctx->rmnet_ll_enable = resource_p->rmnet_ll_enable;
@@ -10954,6 +10955,12 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	IPADBG(": secure-debug-check-action = %d\n",
 		   ipa_drv_res->secure_debug_check_action);
 
+	ipa_drv_res->cesta_enable =
+	    of_property_read_bool(pdev->dev.of_node,
+				  "qcom,cesta-enable");
+
+	IPADBG("CESTA Enabled = %d\n",
+		   ipa_drv_res->cesta_enable);
 
 	result = of_property_read_u32(
 		pdev->dev.of_node,

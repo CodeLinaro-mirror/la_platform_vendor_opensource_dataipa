@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_COMMON_I_H_
@@ -188,6 +190,24 @@ do {\
 	 (x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD)) || \
 	 (x == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD)) || \
 	 (x == ipa3_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD)))
+
+
+#define IPA_CLIENT_IS_MHI_PROD(x) \
+	((x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_PROD)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI2_PROD)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_PROD)))
+
+#define IPA_CLIENT_IS_MHI_CONS(x) \
+	((x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_DPL_CONS)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_QDSS_CONS)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI2_CONS)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_CONS)))
+
+#ifdef IPA_CLIENT_MHI_COAL_CONS
+#define IPA_CLIENT_IS_MHI_COAL_CONS(x) \
+	((x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS)))
+#endif
 
 #define IPA_GSI_CHANNEL_STOP_SLEEP_MIN_USEC (3000)
 #define IPA_GSI_CHANNEL_STOP_SLEEP_MAX_USEC (5000)

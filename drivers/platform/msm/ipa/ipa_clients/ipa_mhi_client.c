@@ -756,6 +756,11 @@ static int ipa_mhi_start_internal(struct ipa_mhi_start_params *params)
 		goto fail_init_engine;
 	}
 
+	if(ipa3_ctx->cesta_enable) {
+		ipa_pm_deactivate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
+		ipa_pm_activate_sync(ipa_mhi_client_ctx->pm_hdl);
+	}
+
 	IPA_MHI_FUNC_EXIT();
 	return 0;
 
@@ -1441,6 +1446,14 @@ static int ipa_mhi_connect_pipe_internal(struct ipa_mhi_connect_params *in, u32 
 	}
 #endif
 
+	if(ipa3_ctx->cesta_enable) {
+		res = ipa3_uc_send_mhi_cesta_pipe_info(in->sys.client, true);
+		if(res) {
+			IPA_MHI_ERR("send connected ch info to uC cmd failed in cesta mode\n");
+			goto fail_connect_pipe;
+		}
+	}
+
 	mutex_unlock(&mhi_client_general_mutex);
 
 	if (!in->sys.keep_ipa_awake)
@@ -1512,6 +1525,14 @@ static int ipa_mhi_disconnect_pipe_internal(u32 clnt_hdl)
 #endif
 
 	IPA_ACTIVE_CLIENTS_INC_EP(client);
+
+	if(ipa3_ctx->cesta_enable) {
+		res = ipa3_uc_send_mhi_cesta_pipe_info(client, false);
+		if(res) {
+			IPA_MHI_ERR("send disconnected ch info to uC cmd failed in cesta mode\n");
+			goto fail_reset_channel;
+		}
+	}
 
 	res = ipa_mhi_reset_channel(channel, false);
 	if (res) {
@@ -1947,6 +1968,11 @@ static int ipa_mhi_suspend_internal(bool force)
 
 	IPA_MHI_FUNC_ENTRY();
 
+	if(ipa3_ctx->cesta_enable) {
+		IPA_MHI_ERR("MHI should not call this if cesta enabled, so asserting\n");
+		ipa_assert();
+	}
+
 	res = ipa_mhi_set_state(IPA_MHI_STATE_SUSPEND_IN_PROGRESS);
 	if (res) {
 		IPA_MHI_ERR("ipa_mhi_set_state failed %d\n", res);
@@ -2045,6 +2071,11 @@ static int ipa_mhi_resume_internal(void)
 	int res;
 
 	IPA_MHI_FUNC_ENTRY();
+
+	if(ipa3_ctx->cesta_enable) {
+		IPA_MHI_ERR("MHI should not call this if cesta enabled, so asserting\n");
+		ipa_assert();
+	}
 
 	res = ipa_mhi_set_state(IPA_MHI_STATE_RESUME_IN_PROGRESS);
 	if (res) {
