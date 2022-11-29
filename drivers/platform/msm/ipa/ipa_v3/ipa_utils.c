@@ -4784,6 +4784,20 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 5, 8, 28, 32, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 3 },
 			IPA_TX_INSTANCE_UL },
+	[IPA_5_0][IPA_CLIENT_Q6_DL_NLO_ETH_DATA_PROD] = {
+			true, IPA_v5_0_GROUP_DL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_NO_DEC_2ND_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 5, 8, 28, 32, IPA_EE_Q6, GSI_FREE_PRE_FETCH , 3 },
+			IPA_TX_INSTANCE_NA },
+	[IPA_5_0][IPA_CLIENT_APPS_WAN_ETH_PROD] = {
+			true, IPA_v5_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 10, 5, 10, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH , 3 },
+			IPA_TX_INSTANCE_NA },
 	[IPA_5_0][IPA_CLIENT_TEST_PROD] = {
 			true, IPA_v5_0_GROUP_UL,
 			true,
@@ -7126,6 +7140,10 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(RESERVERD_CONS_123),
 	__stringify(RESERVERD_PROD_124),
 	__stringify(IPA_CLIENT_TPUT_CONS),
+	__stringify(IPA_CLIENT_Q6_DL_NLO_ETH_DATA_PROD),
+	__stringify(RESERVERD_CONS_127),
+	__stringify(IPA_CLIENT_APPS_WAN_ETH_PROD),
+	__stringify(RESERVERD_CONS_129),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 

@@ -1530,6 +1530,14 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 			}
 
 			pm_reg.name = ipa_clients_strings[sys_in->client];
+			if(!pm_reg.name) {
+				/* update the IPA clients stringify in ipa_utils.c to match
+				 * msm_ipa.h or kernel will crash during pm_register
+				 */
+				IPAERR("client name is null, return before crash \n");
+				result = -EFAULT;
+				goto fail_wq3;
+			}
 			pm_reg.callback = ipa_pm_sys_pipe_cb;
 			pm_reg.user_data = ep->sys;
 			pm_reg.group = IPA_PM_GROUP_APPS;
