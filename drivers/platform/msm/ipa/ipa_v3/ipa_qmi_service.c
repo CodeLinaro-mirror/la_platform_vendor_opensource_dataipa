@@ -126,7 +126,7 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 
 	/* check if need sending indication to modem */
 	if (ipa3_qmi_modem_init_fin)	{
-		IPAWANDBG("send indication to modem (%d)\n",
+		IPAWANDBG("send init complete indication to modem (%d)\n",
 		ipa3_qmi_modem_init_fin);
 		memset(&ind, 0, sizeof(struct
 				ipa_master_driver_init_complt_ind_msg_v01));
@@ -145,7 +145,13 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 			ipa3_qmi_indication_fin = false;
 		}
 	} else {
-		IPAWANERR("not send indication\n");
+		IPAWANDBG("modem init not complete, did not send indication\n");
+	}
+
+	/* check if need to send MHI RSC pipe to modem */
+	if (ipa3_ctx->is_mhi_coal_set) {
+		IPAWANDBG("Sending coalescing pipe indication to Q6\n");
+		ipa_send_mhi_coal_endp_ind_to_modem(false);
 	}
 }
 
@@ -554,8 +560,8 @@ static int ipa3_qmi_send_req_wait(struct qmi_handle *client_handle,
 
 	mutex_lock(&ipa3_qmi_lock);
 
-	if (client_handle != ipa_q6_clnt) {
-		IPADBG("Q6 QMI clinet pointer already freed\n");
+	if (!client_handle || client_handle != ipa_q6_clnt ) {
+		IPADBG("Q6 QMI client pointer already freed\n");
 		mutex_unlock(&ipa3_qmi_lock);
 		return -EINVAL;
 	}
