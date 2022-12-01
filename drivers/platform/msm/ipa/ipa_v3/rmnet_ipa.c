@@ -1653,8 +1653,6 @@ static void apps_ipa_packet_receive_notify(void *priv,
 
 		IPAWANDBG_LOW("Rx packet was received");
 		skb->dev = IPA_NETDEV();
-
-		skb_set_mac_header(skb, 0);
 		if (!rmnet_ipa3_ctx->no_qmap_config)
 			skb->protocol = htons(ETH_P_MAP);
 

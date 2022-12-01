@@ -5652,10 +5652,6 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 				IPA_GENERIC_RX_BUFF_BASE_SZ);
 			sys->get_skb = ipa3_get_skb_ipa_rx;
 			sys->free_skb = ipa3_free_skb_rx;
-			if (in->bypass_agg)
-				in->ipa_ep_cfg.aggr.aggr_en = IPA_BYPASS_AGGR;
-			else
-				in->ipa_ep_cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
 			if (IPA_CLIENT_IS_APPS_COAL_CONS(in->client))
 				in->ipa_ep_cfg.aggr.aggr = IPA_COALESCE;
 			else
@@ -5682,7 +5678,10 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 				}
 			} else if (IPA_CLIENT_IS_WAN_CONS(in->client) ||
 				in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
-				in->ipa_ep_cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
+				if (in->bypass_agg)
+					in->ipa_ep_cfg.aggr.aggr_en = IPA_BYPASS_AGGR;
+				else
+					in->ipa_ep_cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
 				if (!in->ext_ioctl_v2)
 					in->ipa_ep_cfg.aggr.aggr_time_limit =
 						IPA_GENERIC_AGGR_TIME_LIMIT;
