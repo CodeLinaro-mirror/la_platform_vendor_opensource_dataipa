@@ -801,10 +801,21 @@ struct iommu_domain *ipa3_get_eth1_smmu_domain(void)
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_ETH1);
 }
 
-
 struct iommu_domain *ipa3_get_11ad_smmu_domain(void)
 {
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_11AD);
+}
+
+struct device *ipa3_get_wlan_device(void)
+{
+	if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_5 &&
+		ipa_get_wdi_version() == IPA_WDI_1) {
+		if (smmu_cb[IPA_SMMU_CB_WLAN].valid)
+			return smmu_cb[IPA_SMMU_CB_WLAN].dev;
+		IPAERR("CB not valid\n");
+		return NULL;
+	}
+	return ipa3_ctx->pdev;
 }
 
 struct device *ipa3_get_dma_dev(void)
@@ -812,6 +823,7 @@ struct device *ipa3_get_dma_dev(void)
 	return ipa3_ctx->pdev;
 }
 EXPORT_SYMBOL(ipa3_get_dma_dev);
+
 
 /**
  * ipa3_get_smmu_ctx()- Return smmu context for the given cb_type
@@ -1103,67 +1115,76 @@ static void ipa3_get_usb_ep_info(
 		)
 {
 	int ep_index = -1, i;
+	int pair_id = 0;
 
-	ep_info->num_ep_pairs = 0;
 	for (i = 0; i < ep_info->max_ep_pairs; i++) {
 		pair_info[i].consumer_pipe_num = -1;
 		pair_info[i].producer_pipe_num = -1;
 		pair_info[i].ep_id = -1;
 	}
 
-	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB2_PROD);
+	if ((!ep_info->teth_prot_valid) || (ep_info->teth_prot_valid &&
+		ep_info->teth_prot == IPA_PROT_RMNET_CV2X)) {
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB2_PROD);
 
-	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
-		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB2_CONS);
-		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
-			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
-				ep_index;
-			pair_info[ep_info->num_ep_pairs].ep_id =
-				IPA_v4_USB1_EP_ID;
+		if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
+			pair_info[pair_id].consumer_pipe_num = ep_index;
+			ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB2_CONS);
 
-			IPADBG("ep_pair_info consumer_pipe_num %d",
-			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
-			IPADBG(" producer_pipe_num %d ep_id %d\n",
-			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
-				pair_info[ep_info->num_ep_pairs].ep_id);
-			ep_info->num_ep_pairs++;
-		} else {
-			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
-			IPADBG("ep_pair_info consumer_pipe_num %d",
-			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
-			IPADBG(" producer_pipe_num %d ep_id %d\n",
-			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
-				pair_info[ep_info->num_ep_pairs].ep_id);
+			if ((ep_index != -1) &&
+				(ipa3_ctx->ep[ep_index].valid)) {
+				pair_info[pair_id].producer_pipe_num = ep_index;
+				pair_info[pair_id].ep_id = IPA_USB1_EP_ID;
+
+				IPADBG("ep_pair_info consumer_pipe_num %d",
+					pair_info[pair_id].consumer_pipe_num);
+				IPADBG(" producer_pipe_num %d ep_id %d\n",
+					pair_info[pair_id].producer_pipe_num,
+					pair_info[pair_id].ep_id);
+				pair_id++;
+			} else {
+				pair_info[pair_id].consumer_pipe_num = -1;
+				IPADBG("ep_pair_info consumer_pipe_num %d",
+					pair_info[pair_id].consumer_pipe_num);
+				IPADBG(" producer_pipe_num %d ep_id %d\n",
+					pair_info[pair_id].producer_pipe_num,
+					pair_info[pair_id].ep_id);
+			}
 		}
 	}
 
-	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD);
 
-	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
-		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_CONS);
-		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
-			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
-				ep_index;
-			pair_info[ep_info->num_ep_pairs].ep_id =
-				IPA_v4_USB0_EP_ID;
+	if ((!ep_info->teth_prot_valid) || (ep_info->teth_prot_valid &&
+		ep_info->teth_prot == IPA_PROT_RMNET)) {
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD);
 
-			IPADBG("ep_pair_info consumer_pipe_num %d",
-			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
-			IPADBG(" producer_pipe_num %d ep_id %d\n",
-			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
-				pair_info[ep_info->num_ep_pairs].ep_id);
-			ep_info->num_ep_pairs++;
-		} else {
-			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
-			IPADBG("ep_pair_info consumer_pipe_num %d",
-			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
-			IPADBG(" producer_pipe_num %d ep_id %d\n",
-			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
-				pair_info[ep_info->num_ep_pairs].ep_id);
+		if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
+			pair_info[pair_id].consumer_pipe_num = ep_index;
+			ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_CONS);
+
+			if ((ep_index != -1) &&
+				(ipa3_ctx->ep[ep_index].valid)) {
+				pair_info[pair_id].producer_pipe_num = ep_index;
+				pair_info[pair_id].ep_id = IPA_USB0_EP_ID;
+
+				IPADBG("ep_pair_info consumer_pipe_num %d",
+					pair_info[pair_id].consumer_pipe_num);
+				IPADBG(" producer_pipe_num %d ep_id %d\n",
+					pair_info[pair_id].producer_pipe_num,
+					pair_info[pair_id].ep_id);
+				pair_id++;
+			} else {
+				pair_info[pair_id].consumer_pipe_num = -1;
+				IPADBG("ep_pair_info consumer_pipe_num %d",
+					pair_info[pair_id].consumer_pipe_num);
+				IPADBG(" producer_pipe_num %d ep_id %d\n",
+					pair_info[pair_id].producer_pipe_num,
+					pair_info[pair_id].ep_id);
+			}
 		}
 	}
+	ep_info->num_ep_pairs = pair_id;
+
 }
 
 static void ipa3_get_pcie_ep_info(
@@ -4050,6 +4071,12 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 
 		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		if (retval == -EIO)
+		{
+			IPADBG("no work needs to be done but return success to caller");
+			retval = 0;
+			break;
+		}
 
 		ipa3_ctx->eogre_enabled = (retval == 0);
 
@@ -4080,6 +4107,12 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		memset(&eogre_info, 0, sizeof(eogre_info));
 
 		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		if (retval == -EIO)
+		{
+			IPADBG("no work needs to be done but return success to caller");
+			retval = 0;
+			break;
+		}
 
 		if (retval == 0 && send2uC == true) {
 			/*
@@ -4783,20 +4816,20 @@ static int ipa3_q6_clean_q6_rt_tbls(enum ipa_ip_type ip,
 		modem_rt_index_hi = IPA_MEM_PART(v4_modem_rt_index_hi);
 		if (rlt == IPA_RULE_HASHABLE) {
 			lcl_addr_mem_part = IPA_MEM_PART(v4_rt_hash_ofst);
-			lcl_hdr_sz =  IPA_MEM_PART(v4_flt_hash_size);
+			lcl_hdr_sz =  IPA_MEM_PART(v4_rt_hash_size);
 		} else {
 			lcl_addr_mem_part = IPA_MEM_PART(v4_rt_nhash_ofst);
-			lcl_hdr_sz = IPA_MEM_PART(v4_flt_nhash_size);
+			lcl_hdr_sz = IPA_MEM_PART(v4_rt_nhash_size);
 		}
 	} else {
 		modem_rt_index_lo = IPA_MEM_PART(v6_modem_rt_index_lo);
 		modem_rt_index_hi = IPA_MEM_PART(v6_modem_rt_index_hi);
 		if (rlt == IPA_RULE_HASHABLE) {
 			lcl_addr_mem_part = IPA_MEM_PART(v6_rt_hash_ofst);
-			lcl_hdr_sz =  IPA_MEM_PART(v6_flt_hash_size);
+			lcl_hdr_sz =  IPA_MEM_PART(v6_rt_hash_size);
 		} else {
 			lcl_addr_mem_part = IPA_MEM_PART(v6_rt_nhash_ofst);
-			lcl_hdr_sz = IPA_MEM_PART(v6_flt_nhash_size);
+			lcl_hdr_sz = IPA_MEM_PART(v6_rt_nhash_size);
 		}
 	}
 
@@ -4804,7 +4837,7 @@ static int ipa3_q6_clean_q6_rt_tbls(enum ipa_ip_type ip,
 		modem_rt_index_hi - modem_rt_index_lo + 1,
 		lcl_hdr_sz, lcl_hdr_sz, &mem, true);
 	if (retval) {
-		IPAERR("fail generate empty rt img\n");
+		IPAERR("fail generate empty rt img, size %d\n", lcl_hdr_sz);
 		return -ENOMEM;
 	}
 
@@ -6774,8 +6807,13 @@ static void ipa_dec_clients_disable_clks_on_wq(struct work_struct *work)
 
 static void ipa_inc_clients_enable_clks_on_wq(struct work_struct *work)
 {
+	int type;
 	ipa3_enable_clks();
 	IPAERR("unexpected clk access, clock on IPA to save reg");
+	type = gsi_pending_irq_type();
+	if (type) {
+		IPAERR("unexpected gsi irq type: %d\n", type);
+        }
 	ipa_assert();
 }
 
@@ -9175,6 +9213,12 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		result = -ENOMEM;
 		goto fail_gsi_map;
 	}
+	mutex_init(&ipa3_ctx->recycle_stats_collection_lock);
+	memset(&ipa3_ctx->recycle_stats, 0, sizeof(struct ipa_lnx_pipe_page_recycling_stats));
+	memset(&ipa3_ctx->prev_coal_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
+	memset(&ipa3_ctx->prev_default_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
+	memset(&ipa3_ctx->prev_low_lat_data_recycle_stats, 0,
+		sizeof(struct ipa3_page_recycle_stats));
 
 	ipa3_ctx->transport_power_mgmt_wq =
 		create_singlethread_workqueue("transport_power_mgmt");
@@ -9183,6 +9227,17 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		result = -ENOMEM;
 		goto fail_create_transport_wq;
 	}
+
+	/* Create workqueue for recycle stats collection */
+	ipa3_ctx->collect_recycle_stats_wq =
+			create_singlethread_workqueue("page_recycle_stats_collection");
+	if (!ipa3_ctx->collect_recycle_stats_wq) {
+		IPAERR("failed to create page recycling stats collection wq\n");
+		result = -ENOMEM;
+		goto fail_create_recycle_stats_wq;
+	}
+	memset(&ipa3_ctx->recycle_stats, 0,
+		   sizeof(ipa3_ctx->recycle_stats));
 
 	mutex_init(&ipa3_ctx->transport_pm.transport_pm_mutex);
 
@@ -9458,6 +9513,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->buff_below_thresh_for_coal_pipe_notified = false;
 
 	mutex_init(&ipa3_ctx->app_clock_vote.mutex);
+	mutex_init(&ipa3_ctx->ssr_lock);
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
@@ -9521,6 +9577,8 @@ fail_hdr_cache:
 fail_rt_rule_cache:
 	kmem_cache_destroy(ipa3_ctx->flt_rule_cache);
 fail_flt_rule_cache:
+	destroy_workqueue(ipa3_ctx->collect_recycle_stats_wq);
+fail_create_recycle_stats_wq:
 	destroy_workqueue(ipa3_ctx->transport_power_mgmt_wq);
 fail_create_transport_wq:
 	destroy_workqueue(ipa3_ctx->power_mgmt_wq);

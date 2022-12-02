@@ -263,10 +263,14 @@ static int ipa_wdi_init_per_inst_internal(struct ipa_wdi_init_in_params *in,
 
 	ipa_wdi_ctx_list[hdl]->is_smmu_enabled = out->is_smmu_enabled;
 
+	/* ipa over gsi support is only for wdi_3 and wdi_2. */
 	if (IPA_WDI2_OVER_GSI() || (in->wdi_version == IPA_WDI_3))
 		out->is_over_gsi = true;
 	else
 		out->is_over_gsi = false;
+
+	if (in->wdi_version == IPA_WDI_1)
+		ipa3_ctx->ipa_wdi2 = false;
 
 	out->hdl = hdl;
 
@@ -332,7 +336,7 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 			return 0;
 		}
 
-	if (ipa3_ctx->ipa_wdi3_over_gsi &&
+	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_3 &&
 		in->is_tx1_used && !ipa3_ctx->is_wdi3_tx1_needed) {
 		IPA_WDI_DBG(
 			"tx1 reg intr not sprtd, adng it to default pipe\n");
@@ -376,77 +380,79 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 		hdr->hdr[IPA_IP_v4_VLAN].hdr_hdl, hdr->hdr[IPA_IP_v6_VLAN].hdr_hdl);
 
 	/* populate tx prop */
+
+	IPA_WDI_DBG("Setting tx/rx props\n");
 	tx.num_props = in->is_rx1_used ? 4 : 2;
 	tx.prop = tx_prop;
-	IPA_WDI_DBG("Setting tx/rx props\n");
 	memset(tx_prop, 0, sizeof(tx_prop));
-	tx_prop[0].ip = IPA_IP_v4;
-	if (ipa3_get_ctx()->ipa_wdi3_over_gsi) {
-		if (in->is_tx1_used && ipa3_ctx->is_wdi3_tx1_needed)
+ 	tx_prop[0].ip = IPA_IP_v4;
+ 	tx_prop[1].ip = IPA_IP_v6;
+
+	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_3) {
+ 		if (in->is_tx1_used && ipa3_ctx->is_wdi3_tx1_needed) {
                         tx_prop[0].dst_pipe = IPA_CLIENT_WLAN2_CONS1;
-		else if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id))
-			tx_prop[0].dst_pipe = IPA_CLIENT_WLAN2_CONS;
-		else
-			tx_prop[0].dst_pipe = IPA_CLIENT_WLAN4_CONS;
-	}
-	else
-		tx_prop[0].dst_pipe = IPA_CLIENT_WLAN1_CONS;
-	tx_prop[0].alt_dst_pipe = in->alt_dst_pipe;
-	tx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
-	strlcpy(tx_prop[0].hdr_name, hdr->hdr[IPA_IP_v4].name,
-		sizeof(tx_prop[0].hdr_name));
-
-	tx_prop[1].ip = IPA_IP_v6;
-	if (ipa3_get_ctx()->ipa_wdi3_over_gsi) {
-		if (in->is_tx1_used && ipa3_ctx->is_wdi3_tx1_needed)
 			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN2_CONS1;
-		else if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id))
+		} else if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id)) {
+ 			tx_prop[0].dst_pipe = IPA_CLIENT_WLAN2_CONS;
 			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN2_CONS;
-		else
+		} else {
+ 			tx_prop[0].dst_pipe = IPA_CLIENT_WLAN4_CONS;
 			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN4_CONS;
-	}
-	else
+		}
+ 	} else if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_2) {
+		tx_prop[0].dst_pipe = IPA_CLIENT_WLAN1_CONS;
 		tx_prop[1].dst_pipe = IPA_CLIENT_WLAN1_CONS;
-	tx_prop[1].alt_dst_pipe = in->alt_dst_pipe;
-	tx_prop[1].hdr_l2_type = in->hdr_info[1].hdr_type;
-	strlcpy(tx_prop[1].hdr_name, hdr->hdr[IPA_IP_v6].name,
-		sizeof(tx_prop[1].hdr_name));
-
-	/* populate rx prop */
-	rx.num_props = in->is_rx1_used ? 4 : 2;
-	rx.prop = rx_prop;
-	memset(rx_prop, 0, sizeof(rx_prop));
-	rx_prop[0].ip = IPA_IP_v4;
-	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_3) {
-		if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id))
-			rx_prop[0].src_pipe = IPA_CLIENT_WLAN2_PROD;
-		else
-			rx_prop[0].src_pipe = IPA_CLIENT_WLAN3_PROD;
-	} else {
-		rx_prop[0].src_pipe = IPA_CLIENT_WLAN1_PROD;
-	}
-	rx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
-	if (in->is_meta_data_valid) {
-		rx_prop[0].attrib.attrib_mask |= IPA_FLT_META_DATA;
-		rx_prop[0].attrib.meta_data = in->meta_data;
-		rx_prop[0].attrib.meta_data_mask = in->meta_data_mask;
+	} else if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_1) {
+ 		tx_prop[0].dst_pipe = IPA_CLIENT_WLAN3_CONS;
+		tx_prop[1].dst_pipe = IPA_CLIENT_WLAN3_CONS;
 	}
 
-	rx_prop[1].ip = IPA_IP_v6;
-	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_3) {
-		if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id))
+ 	tx_prop[0].alt_dst_pipe = in->alt_dst_pipe;
+ 	tx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
+ 	strlcpy(tx_prop[0].hdr_name, hdr->hdr[IPA_IP_v4].name,
+ 		sizeof(tx_prop[0].hdr_name));
+
+ 	tx_prop[1].alt_dst_pipe = in->alt_dst_pipe;
+ 	tx_prop[1].hdr_l2_type = in->hdr_info[1].hdr_type;
+ 	strlcpy(tx_prop[1].hdr_name, hdr->hdr[IPA_IP_v6].name,
+ 		sizeof(tx_prop[1].hdr_name));
+
+ 	/* populate rx prop */
+ 	rx.num_props = in->is_rx1_used ? 4 : 2;
+ 	rx.prop = rx_prop;
+ 	memset(rx_prop, 0, sizeof(rx_prop));
+ 	rx_prop[0].ip = IPA_IP_v4;
+
+ 	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_3) {
+ 		if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id)) {
+ 			rx_prop[0].src_pipe = IPA_CLIENT_WLAN2_PROD;
 			rx_prop[1].src_pipe = IPA_CLIENT_WLAN2_PROD;
-		else
+		} else {
+ 			rx_prop[0].src_pipe = IPA_CLIENT_WLAN3_PROD;
 			rx_prop[1].src_pipe = IPA_CLIENT_WLAN3_PROD;
-	} else {
+		}
+ 	} else if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_2){
+		rx_prop[0].src_pipe = IPA_CLIENT_WLAN1_PROD;
 		rx_prop[1].src_pipe = IPA_CLIENT_WLAN1_PROD;
-	}
-	rx_prop[1].hdr_l2_type = in->hdr_info[1].hdr_type;
-	if (in->is_meta_data_valid) {
-		rx_prop[1].attrib.attrib_mask |= IPA_FLT_META_DATA;
-		rx_prop[1].attrib.meta_data = in->meta_data;
-		rx_prop[1].attrib.meta_data_mask = in->meta_data_mask;
-	}
+	} else if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_1) {
+		rx_prop[0].src_pipe = IPA_CLIENT_WLAN3_PROD;
+		rx_prop[1].src_pipe = IPA_CLIENT_WLAN3_PROD;
+ 	}
+
+ 	rx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
+ 	if (in->is_meta_data_valid) {
+ 		rx_prop[0].attrib.attrib_mask |= IPA_FLT_META_DATA;
+ 		rx_prop[0].attrib.meta_data = in->meta_data;
+ 		rx_prop[0].attrib.meta_data_mask = in->meta_data_mask;
+ 	}
+
+ 	rx_prop[1].ip = IPA_IP_v6;
+ 	rx_prop[1].hdr_l2_type = in->hdr_info[1].hdr_type;
+ 	if (in->is_meta_data_valid) {
+ 		rx_prop[1].attrib.attrib_mask |= IPA_FLT_META_DATA;
+ 		rx_prop[1].attrib.meta_data = in->meta_data;
+ 		rx_prop[1].attrib.meta_data_mask = in->meta_data_mask;
+ 	}
 
 	if (in->is_rx1_used) {
 		rx_prop[2].ip = IPA_IP_v4;
@@ -806,7 +812,8 @@ static int ipa_wdi_enable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		return -EPERM;
 	}
 
-	if (ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_3) {
+	switch (ipa_wdi_ctx_list[hdl]->wdi_version) {
+	case IPA_WDI_3:
 		if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id)) {
 			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
 			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
@@ -814,21 +821,31 @@ static int ipa_wdi_enable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
 			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN4_CONS);
 		}
-		if (ipa_wdi_ctx_list[hdl]->is_tx1_used)
+		if (ipa_wdi_ctx_list[hdl]->is_tx1_used) {
 			ipa_ep_idx_tx1 =
 				ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS1);
+		}
 		if (ipa_wdi_ctx_list[hdl]->is_rx1_used) {
 			if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
 				ipa_ep_idx_rx1 = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1);
 			else
 				ipa_ep_idx_rx1 = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1);
 		}
-	} else {
+		break;
+	case IPA_WDI_2:
 		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
 		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		break;
+	case IPA_WDI_1:
+		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
+		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_CONS);
+		break;
+	default:
+		IPAERR("Invalid WDI version");
+		return -EINVAL;
 	}
 
-	if (ipa_ep_idx_tx <= 0 || ipa_ep_idx_rx <= 0)
+	if (ipa_ep_idx_tx < 0 || ipa_ep_idx_rx < 0)
 		return -EFAULT;
 	ret = ipa_pm_activate_sync(ipa_wdi_ctx_list[hdl]->ipa_pm_hdl);
 	if (ret) {
@@ -905,7 +922,7 @@ static int ipa_wdi_set_perf_profile_per_inst_internal(ipa_wdi_hdl_t hdl,
 		res = ipa_pm_wrapper_wdi_set_perf_profile_internal(profile);
 	} else {
 		res = ipa_pm_set_throughput(ipa_wdi_ctx_list[hdl]->ipa_pm_hdl,
-			profile->max_supported_bw_mbps);
+				profile->max_supported_bw_mbps);
 	}
 
 	if (res) {
@@ -1068,7 +1085,7 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
  */
 static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_hdl_t hdl)
 {
-	int len, ret = 0;
+	int len, num_hdrs, ret = 0;
 	struct ipa_ioc_del_hdr *hdr = NULL;
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
@@ -1100,8 +1117,9 @@ static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_
 	list_for_each_entry_safe(entry, next, &ipa_wdi_ctx_list[hdl]->head_intf_list,
 		link)
 		if (strcmp(entry->netdev_name, netdev_name) == 0) {
+			num_hdrs = ipa_wdi_ctx_list[hdl]->is_rx1_used ? 4 : 2;
 			len = sizeof(struct ipa_ioc_del_hdr) +
-				2 * sizeof(struct ipa_hdr_del);
+				num_hdrs * sizeof(struct ipa_hdr_del);
 			hdr = kzalloc(len, GFP_KERNEL);
 			if (hdr == NULL) {
 				IPA_WDI_ERR("fail to alloc %d bytes\n", len);
@@ -1110,11 +1128,18 @@ static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_
 			}
 
 			hdr->commit = 1;
-			hdr->num_hdls = 2;
+			hdr->num_hdls = num_hdrs;
 			hdr->hdl[0].hdl = entry->partial_hdr_hdl[0];
 			hdr->hdl[1].hdl = entry->partial_hdr_hdl[1];
 			IPA_WDI_DBG("IPv4 hdr hdl: %d IPv6 hdr hdl: %d\n",
 				hdr->hdl[0].hdl, hdr->hdl[1].hdl);
+
+			if (num_hdrs == 4) {
+				hdr->hdl[2].hdl = entry->partial_hdr_hdl[2];
+				hdr->hdl[3].hdl = entry->partial_hdr_hdl[3];
+				IPA_WDI_DBG("IPv4 vlan hdr hdl: %d IPv6 vlan hdr hdl: %d\n",
+				hdr->hdl[2].hdl, hdr->hdl[3].hdl);
+			}
 
 			if (ipa3_del_hdr(hdr)) {
 				IPA_WDI_ERR("fail to delete partial header\n");
@@ -1180,7 +1205,8 @@ static int ipa_wdi_disconn_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		}
 	}
 
-	if (ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_3) {
+	switch (ipa_wdi_ctx_list[hdl]->wdi_version) {
+	case IPA_WDI_3:
 		if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id)) {
 			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
 			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
@@ -1199,9 +1225,18 @@ static int ipa_wdi_disconn_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 			else
 				ipa_ep_idx_rx1 = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1);
 		}
-	} else {
+		break;
+	case IPA_WDI_2:
 		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
 		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		break;
+	case IPA_WDI_1:
+		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
+		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_CONS);
+		break;
+	default:
+		IPAERR("Invalid WDI version");
+		return -EINVAL;
 	}
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_3) {
@@ -1263,15 +1298,15 @@ static int ipa_wdi_disable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		return -EPERM;
 	}
 
-	if (ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_3) {
+	switch (ipa_wdi_ctx_list[hdl]->wdi_version) {
+	case IPA_WDI_3:
 		if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id)) {
 			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
 			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
 		} else {
 			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
-                        ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN4_CONS);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN4_CONS);
 		}
-
 		if (ipa_wdi_ctx_list[hdl]->is_tx1_used)
 			ipa_ep_idx_tx1 =
 				ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS1);
@@ -1281,9 +1316,18 @@ static int ipa_wdi_disable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 			else
 				ipa_ep_idx_rx1 = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1);
 		}
-	} else {
+		break;
+	case IPA_WDI_2:
 		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
 		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		break;
+	case IPA_WDI_1:
+		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
+		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_CONS);
+		break;
+	default:
+		IPAERR("Invalid WDI version");
+		return -EINVAL;
 	}
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_3) {

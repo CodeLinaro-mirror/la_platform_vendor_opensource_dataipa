@@ -2551,6 +2551,13 @@ struct ipa3_context {
 	u32 page_wq_reschd_time;
 	struct list_head minidump_list_head;
 	bool is_dual_pine_config;
+	struct workqueue_struct *collect_recycle_stats_wq;
+	struct ipa_lnx_pipe_page_recycling_stats recycle_stats;
+	struct ipa3_page_recycle_stats prev_coal_recycle_stats;
+	struct ipa3_page_recycle_stats prev_default_recycle_stats;
+	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
+	struct mutex recycle_stats_collection_lock;
+	struct mutex ssr_lock;
 };
 
 struct ipa3_plat_drv_res {
@@ -3523,6 +3530,7 @@ struct ipa_smmu_cb_ctx *ipa3_get_smmu_ctx(enum ipa_smmu_cb_type);
 struct iommu_domain *ipa3_get_smmu_domain(void);
 struct iommu_domain *ipa3_get_uc_smmu_domain(void);
 struct iommu_domain *ipa3_get_wlan_smmu_domain(void);
+struct device *ipa3_get_wlan_device(void);
 struct iommu_domain *ipa3_get_wlan1_smmu_domain(void);
 struct iommu_domain *ipa3_get_eth_smmu_domain(void);
 struct iommu_domain *ipa3_get_eth1_smmu_domain(void);
@@ -3792,7 +3800,7 @@ void ipa3_update_mhi_ctrl_state(u8 state, bool set);
 int ipa_send_mhi_ctrl_endp_ind_to_modem(void);
 #ifdef IPA_CLIENT_MHI_COAL_CONS
 /* Send coal MHI endpoint info to modem using QMI indication message */
-int ipa_send_mhi_coal_endp_ind_to_modem(void);
+int ipa_send_mhi_coal_endp_ind_to_modem(bool check_if_modem_is_up);
 #endif
 
 /*

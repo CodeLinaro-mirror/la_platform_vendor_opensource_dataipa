@@ -22,6 +22,7 @@
 #include "ipa_trace.h"
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
+#include "ipa_stats.h"
 
 #define IPA_GSI_EVENT_RP_SIZE 8
 #define IPA_WAN_NAPI_MAX_FRAMES (NAPI_WEIGHT / IPA_WAN_AGGR_PKT_CNT)
@@ -97,6 +98,8 @@
 
 #define IPA_QMAP_ID_BYTE 0
 
+#define IPA_MEM_ALLOC_RETRY 5
+
 static int ipa3_tx_switch_to_intr_mode(struct ipa3_sys_context *sys);
 static int ipa3_rx_switch_to_intr_mode(struct ipa3_sys_context *sys);
 static struct sk_buff *ipa3_get_skb_ipa_rx(unsigned int len, gfp_t flags);
@@ -150,6 +153,156 @@ static u32 ipa_adjust_ra_buff_base_sz(u32 aggr_byte_limit);
 static int ipa3_rmnet_ll_rx_poll(struct napi_struct *napi_rx, int budget);
 
 struct gsi_chan_xfer_notify g_lan_rx_notify[IPA_LAN_NAPI_MAX_FRAMES];
+
+static void ipa3_collect_default_coal_recycle_stats_wq(struct work_struct *work);
+static DECLARE_DELAYED_WORK(ipa3_collect_default_coal_recycle_stats_wq_work,
+	ipa3_collect_default_coal_recycle_stats_wq);
+
+static void ipa3_collect_low_lat_data_recycle_stats_wq(struct work_struct *work);
+static DECLARE_DELAYED_WORK(ipa3_collect_low_lat_data_recycle_stats_wq_work,
+	ipa3_collect_low_lat_data_recycle_stats_wq);
+
+static void ipa3_collect_default_coal_recycle_stats_wq(struct work_struct *work)
+{
+	struct ipa3_sys_context *sys;
+	int stat_interval_index;
+	int ep_idx = -1;
+
+	/* For targets which don't require coalescing pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+	if (ep_idx == -1)
+		ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
+
+	if (ep_idx == -1)
+		sys = NULL;
+	else
+		sys = ipa3_ctx->ep[ep_idx].sys;
+
+	mutex_lock(&ipa3_ctx->recycle_stats_collection_lock);
+	stat_interval_index = ipa3_ctx->recycle_stats.default_coal_stats_index;
+	ipa3_ctx->recycle_stats.interval_time_in_ms = IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_TIME;
+
+	/* Coalescing pipe page recycling stats */
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].total_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[0].total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].recycle_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[0].page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].temp_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[0].tmp_alloc;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].total_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].total_cumulative
+			- ipa3_ctx->prev_coal_recycle_stats.total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].recycle_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].recycle_cumulative
+			- ipa3_ctx->prev_coal_recycle_stats.page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].temp_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].temp_cumulative
+			- ipa3_ctx->prev_coal_recycle_stats.tmp_alloc;
+
+	ipa3_ctx->prev_coal_recycle_stats.total_replenished
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].total_cumulative;
+	ipa3_ctx->prev_coal_recycle_stats.page_recycled
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].recycle_cumulative;
+	ipa3_ctx->prev_coal_recycle_stats.tmp_alloc
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].temp_cumulative;
+
+	/* Default pipe page recycling stats */
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].total_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[1].total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].recycle_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[1].page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].temp_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[1].tmp_alloc;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].total_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].total_cumulative
+			- ipa3_ctx->prev_default_recycle_stats.total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].recycle_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].recycle_cumulative
+			- ipa3_ctx->prev_default_recycle_stats.page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].temp_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].temp_cumulative
+			- ipa3_ctx->prev_default_recycle_stats.tmp_alloc;
+
+	ipa3_ctx->prev_default_recycle_stats.total_replenished
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].total_cumulative;
+	ipa3_ctx->prev_default_recycle_stats.page_recycled
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].recycle_cumulative;
+	ipa3_ctx->prev_default_recycle_stats.tmp_alloc
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].temp_cumulative;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_COALESCING][stat_interval_index].valid = 1;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_DEFAULT][stat_interval_index].valid = 1;
+
+	/* Single Indexing for coalescing and default pipe */
+	ipa3_ctx->recycle_stats.default_coal_stats_index =
+			(ipa3_ctx->recycle_stats.default_coal_stats_index + 1) % IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_COUNT;
+
+	if (sys && atomic_read(&sys->curr_polling_state))
+		queue_delayed_work(ipa3_ctx->collect_recycle_stats_wq,
+				&ipa3_collect_default_coal_recycle_stats_wq_work, msecs_to_jiffies(10));
+
+	mutex_unlock(&ipa3_ctx->recycle_stats_collection_lock);
+
+	return;
+
+}
+
+static void ipa3_collect_low_lat_data_recycle_stats_wq(struct work_struct *work)
+{
+	struct ipa3_sys_context *sys;
+	int stat_interval_index;
+	int ep_idx;
+
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS);
+	if (ep_idx == -1)
+		sys = NULL;
+	else
+		sys = ipa3_ctx->ep[ep_idx].sys;
+
+	mutex_lock(&ipa3_ctx->recycle_stats_collection_lock);
+	stat_interval_index = ipa3_ctx->recycle_stats.low_lat_stats_index;
+
+	/* Low latency data pipe page recycling stats */
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].total_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[2].total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].recycle_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[2].page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].temp_cumulative
+			= ipa3_ctx->stats.page_recycle_stats[2].tmp_alloc;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].total_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].total_cumulative
+			- ipa3_ctx->prev_low_lat_data_recycle_stats.total_replenished;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].recycle_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].recycle_cumulative
+			- ipa3_ctx->prev_low_lat_data_recycle_stats.page_recycled;
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].temp_diff
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].temp_cumulative
+			- ipa3_ctx->prev_low_lat_data_recycle_stats.tmp_alloc;
+
+	ipa3_ctx->prev_low_lat_data_recycle_stats.total_replenished
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].total_cumulative;
+	ipa3_ctx->prev_low_lat_data_recycle_stats.page_recycled
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].recycle_cumulative;
+	ipa3_ctx->prev_low_lat_data_recycle_stats.tmp_alloc
+			= ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].temp_cumulative;
+
+	ipa3_ctx->recycle_stats.rx_channel[RX_WAN_LOW_LAT_DATA][stat_interval_index].valid = 1;
+
+	/* Indexing for low lat data stats pipe */
+	ipa3_ctx->recycle_stats.low_lat_stats_index =
+			(ipa3_ctx->recycle_stats.low_lat_stats_index + 1) % IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_COUNT;
+
+	if (sys && atomic_read(&sys->curr_polling_state))
+		queue_delayed_work(ipa3_ctx->collect_recycle_stats_wq,
+				&ipa3_collect_low_lat_data_recycle_stats_wq_work, msecs_to_jiffies(10));
+
+	mutex_unlock(&ipa3_ctx->recycle_stats_collection_lock);
+
+	return;
+}
 
 /**
  * ipa3_write_done_common() - this function is responsible on freeing
@@ -2494,8 +2647,8 @@ begin:
 			goto fail_kmem_cache_alloc;
 		rx_pkt = ipa3_alloc_rx_pkt_page(GFP_KERNEL, true, sys);
 		if (unlikely(!rx_pkt)) {
-			IPAERR("ipa3_alloc_rx_pkt_page fails\n");
-			break;
+			IPAERR_RL("ipa3_alloc_rx_pkt_page fails\n");
+			goto fail_kmem_cache_alloc;
 		}
 		rx_pkt->sys = sys;
 		sys->repl->cache[curr] = rx_pkt;
@@ -2857,13 +3010,19 @@ static void ipa3_cleanup_wlan_rx_common_cache(void)
 {
 	struct ipa3_rx_pkt_wrapper *rx_pkt;
 	struct ipa3_rx_pkt_wrapper *tmp;
+	struct device *dev;
 
 	spin_lock_bh(&ipa3_ctx->wc_memb.wlan_spinlock);
 
+	dev = ipa3_get_wlan_device();
+	if (dev == NULL) {
+		IPAERR("Unable to get device information");
+		return;
+	}
 	list_for_each_entry_safe(rx_pkt, tmp,
 		&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
 		list_del(&rx_pkt->link);
-		dma_unmap_single(ipa3_ctx->pdev, rx_pkt->data.dma_addr,
+		dma_unmap_single(dev, rx_pkt->data.dma_addr,
 				IPA_WLAN_RX_BUFF_SZ, DMA_FROM_DEVICE);
 		dev_kfree_skb_any(rx_pkt->data.skb);
 		kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
@@ -2887,11 +3046,18 @@ static void ipa3_cleanup_wlan_rx_common_cache(void)
 static void ipa3_alloc_wlan_rx_common_cache(u32 size)
 {
 	void *ptr;
+	struct device *dev;
 	struct ipa3_rx_pkt_wrapper *rx_pkt;
 	int rx_len_cached = 0;
 	gfp_t flag = GFP_NOWAIT | __GFP_NOWARN;
 
 	rx_len_cached = ipa3_ctx->wc_memb.wlan_comm_total_cnt;
+
+	dev = ipa3_get_wlan_device();
+	if (dev == NULL) {
+		IPAERR("Unable to get device information");
+		return;
+	}
 	while (rx_len_cached < size) {
 		rx_pkt = kmem_cache_zalloc(ipa3_ctx->rx_pkt_wrapper_cache,
 					   flag);
@@ -2909,9 +3075,9 @@ static void ipa3_alloc_wlan_rx_common_cache(u32 size)
 			goto fail_skb_alloc;
 		}
 		ptr = skb_put(rx_pkt->data.skb, IPA_WLAN_RX_BUFF_SZ);
-		rx_pkt->data.dma_addr = dma_map_single(ipa3_ctx->pdev, ptr,
+		rx_pkt->data.dma_addr = dma_map_single(dev, ptr,
 				IPA_WLAN_RX_BUFF_SZ, DMA_FROM_DEVICE);
-		if (dma_mapping_error(ipa3_ctx->pdev, rx_pkt->data.dma_addr)) {
+		if (dma_mapping_error(dev, rx_pkt->data.dma_addr)) {
 			IPAERR("dma_map_single failure %pK for %pK\n",
 			       (void *)rx_pkt->data.dma_addr, ptr);
 			goto fail_dma_mapping;
@@ -2959,12 +3125,21 @@ static void ipa3_first_replenish_rx_cache(struct ipa3_sys_context *sys)
 	int rx_len_cached = 0;
 	struct gsi_xfer_elem gsi_xfer_elem_array[IPA_REPL_XFER_MAX];
 	gfp_t flag = GFP_NOWAIT | __GFP_NOWARN;
+	struct device *dev;
 
 	rx_len_cached = sys->len;
 
 	/* start replenish only when buffers go lower than the threshold */
 	if (sys->rx_pool_sz - sys->len < IPA_REPL_XFER_THRESH)
 		return;
+
+	dev = ipa3_ctx->pdev;
+	if (IPA_CLIENT_IS_WLAN_CONS(sys->ep->client))
+			dev = ipa3_get_wlan_device();
+	if (dev == NULL) {
+			IPAERR("Unable to get device information");
+			return;
+	}
 
 	while (rx_len_cached < sys->rx_pool_sz) {
 		rx_pkt = kmem_cache_zalloc(ipa3_ctx->rx_pkt_wrapper_cache,
@@ -2983,10 +3158,10 @@ static void ipa3_first_replenish_rx_cache(struct ipa3_sys_context *sys)
 			goto fail_skb_alloc;
 		}
 		ptr = skb_put(rx_pkt->data.skb, sys->rx_buff_sz);
-		rx_pkt->data.dma_addr = dma_map_single(ipa3_ctx->pdev, ptr,
+		rx_pkt->data.dma_addr = dma_map_single(dev, ptr,
 						     sys->rx_buff_sz,
 						     DMA_FROM_DEVICE);
-		if (dma_mapping_error(ipa3_ctx->pdev, rx_pkt->data.dma_addr)) {
+		if (dma_mapping_error(dev, rx_pkt->data.dma_addr)) {
 			IPAERR("dma_map_single failure %pK for %pK\n",
 			       (void *)rx_pkt->data.dma_addr, ptr);
 			goto fail_dma_mapping;
@@ -3065,6 +3240,7 @@ static void ipa3_replenish_rx_cache(struct ipa3_sys_context *sys)
 	int rx_len_cached = 0;
 	struct gsi_xfer_elem gsi_xfer_elem_array[IPA_REPL_XFER_MAX];
 	gfp_t flag = GFP_NOWAIT | __GFP_NOWARN;
+	struct device *dev;
 
 	rx_len_cached = sys->len;
 
@@ -3072,6 +3248,13 @@ static void ipa3_replenish_rx_cache(struct ipa3_sys_context *sys)
 	if (sys->rx_pool_sz - sys->len < IPA_REPL_XFER_THRESH)
 		return;
 
+	dev = ipa3_ctx->pdev;
+	if (IPA_CLIENT_IS_WLAN_CONS(sys->ep->client))
+		dev = ipa3_get_wlan_device();
+	if (dev == NULL) {
+		IPAERR("Unable to get device information");
+		return;
+	}
 
 	while (rx_len_cached < sys->rx_pool_sz) {
 		rx_pkt = kmem_cache_zalloc(ipa3_ctx->rx_pkt_wrapper_cache,
@@ -3088,10 +3271,10 @@ static void ipa3_replenish_rx_cache(struct ipa3_sys_context *sys)
 			goto fail_skb_alloc;
 		}
 		ptr = skb_put(rx_pkt->data.skb, sys->rx_buff_sz);
-		rx_pkt->data.dma_addr = dma_map_single(ipa3_ctx->pdev, ptr,
+		rx_pkt->data.dma_addr = dma_map_single(dev, ptr,
 						     sys->rx_buff_sz,
 						     DMA_FROM_DEVICE);
-		if (dma_mapping_error(ipa3_ctx->pdev, rx_pkt->data.dma_addr)) {
+		if (dma_mapping_error(dev, rx_pkt->data.dma_addr)) {
 			IPAERR("dma_map_single failure %pK for %pK\n",
 			       (void *)rx_pkt->data.dma_addr, ptr);
 			goto fail_dma_mapping;
@@ -3365,8 +3548,17 @@ static void free_rx_pkt(void *chan_user_data, void *xfer_user_data)
 		xfer_user_data;
 	struct ipa3_sys_context *sys = (struct ipa3_sys_context *)
 		chan_user_data;
+	struct device *dev;
 
-	dma_unmap_single(ipa3_ctx->pdev, rx_pkt->data.dma_addr,
+	dev = ipa3_ctx->pdev;
+	if (IPA_CLIENT_IS_WLAN_CONS(sys->ep->client))
+		dev = ipa3_get_wlan_device();
+	if (dev == NULL) {
+		IPAERR("Unable to get the device information");
+		return;
+	}
+
+	dma_unmap_single(dev, rx_pkt->data.dma_addr,
 		sys->rx_buff_sz, DMA_FROM_DEVICE);
 	sys->free_skb(rx_pkt->data.skb);
 	kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
@@ -3404,18 +3596,26 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 	struct ipa3_rx_pkt_wrapper *r;
 	u32 head;
 	u32 tail;
+	struct device *dev;
 
 	/*
 	 * buffers not consumed by gsi are cleaned up using cleanup callback
 	 * provided to gsi
 	 */
 
+	dev = ipa3_ctx->pdev;
+	if (IPA_CLIENT_IS_WLAN_CONS(sys->ep->client))
+		dev = ipa3_get_wlan_device();
+	if (dev == NULL) {
+		IPAERR("Unable to get the device information");
+		return;
+	}
 	spin_lock_bh(&sys->spinlock);
 	list_for_each_entry_safe(rx_pkt, r,
 				 &sys->rcycl_list, link) {
 		list_del(&rx_pkt->link);
 		if (rx_pkt->data.dma_addr)
-			dma_unmap_single(ipa3_ctx->pdev, rx_pkt->data.dma_addr,
+			dma_unmap_single(dev, rx_pkt->data.dma_addr,
 				sys->rx_buff_sz, DMA_FROM_DEVICE);
 		else
 			IPADBG("DMA address already freed\n");
@@ -3430,13 +3630,13 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 		while (head != tail) {
 			rx_pkt = sys->repl->cache[head];
 			if (sys->repl_hdlr != ipa3_replenish_rx_page_recycle) {
-				dma_unmap_single(ipa3_ctx->pdev,
+				dma_unmap_single(dev,
 					rx_pkt->data.dma_addr,
 					sys->rx_buff_sz,
 					DMA_FROM_DEVICE);
 				sys->free_skb(rx_pkt->data.skb);
 			} else {
-				dma_unmap_page(ipa3_ctx->pdev,
+				dma_unmap_page(dev,
 					rx_pkt->page_data.dma_addr,
 					rx_pkt->len,
 					DMA_FROM_DEVICE);
@@ -3455,7 +3655,7 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 		list_for_each_entry_safe(rx_pkt, r,
 		&sys->page_recycle_repl->page_repl_head, link) {
 			list_del(&rx_pkt->link);
-			dma_unmap_page(ipa3_ctx->pdev,
+			dma_unmap_page(dev,
 				rx_pkt->page_data.dma_addr,
 				rx_pkt->len,
 				DMA_FROM_DEVICE);
@@ -5658,6 +5858,33 @@ fail_setup_event_ring:
 	return result;
 }
 
+static void *ipa3_ring_alloc(struct device *dev, size_t size,
+	dma_addr_t *dma_handle, gfp_t gfp)
+{
+	void *va_addr;
+	int retry_cnt = 0;
+
+alloc:
+	va_addr = dma_alloc_coherent(dev, size, dma_handle, gfp);
+	if (!va_addr) {
+		if (retry_cnt < IPA_MEM_ALLOC_RETRY) {
+			IPADBG("Fail to dma alloc retry cnt = %d\n",
+				retry_cnt);
+			retry_cnt++;
+			goto alloc;
+		}
+
+		if (gfp == GFP_ATOMIC) {
+			gfp = GFP_KERNEL;
+			goto alloc;
+		}
+		IPAERR("fail to dma alloc %u bytes\n", size);
+		ipa_assert();
+	}
+
+	return va_addr;
+}
+
 static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 	u32 ring_size, gfp_t mem_flag)
 {
@@ -5678,13 +5905,8 @@ static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 	gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
 	gsi_evt_ring_props.ring_len = ring_size;
 	gsi_evt_ring_props.ring_base_vaddr =
-		dma_alloc_coherent(ipa3_ctx->pdev, gsi_evt_ring_props.ring_len,
+		ipa3_ring_alloc(ipa3_ctx->pdev, gsi_evt_ring_props.ring_len,
 		&evt_dma_addr, mem_flag);
-	if (!gsi_evt_ring_props.ring_base_vaddr) {
-		IPAERR("fail to dma alloc %u bytes\n",
-			gsi_evt_ring_props.ring_len);
-		return -ENOMEM;
-	}
 	gsi_evt_ring_props.ring_base_addr = evt_dma_addr;
 
 	/* copy mem info */
@@ -5811,14 +6033,8 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 	gsi_channel_props.ring_len = ring_size;
 
 	gsi_channel_props.ring_base_vaddr =
-		dma_alloc_coherent(ipa3_ctx->pdev, gsi_channel_props.ring_len,
+		ipa3_ring_alloc(ipa3_ctx->pdev, gsi_channel_props.ring_len,
 			&dma_addr, mem_flag);
-	if (!gsi_channel_props.ring_base_vaddr) {
-		IPAERR("fail to dma alloc %u bytes\n",
-			gsi_channel_props.ring_len);
-		result = -ENOMEM;
-		goto fail_alloc_channel_ring;
-	}
 	gsi_channel_props.ring_base_addr = dma_addr;
 
 	/* copy mem info */
@@ -5901,7 +6117,6 @@ fail_alloc_channel:
 	dma_free_coherent(ipa3_ctx->pdev, ep->gsi_mem_info.chan_ring_len,
 			ep->gsi_mem_info.chan_ring_base_vaddr,
 			ep->gsi_mem_info.chan_ring_base_addr);
-fail_alloc_channel_ring:
 fail_get_gsi_ep_info:
 	if (ep->gsi_evt_ring_hdl != ~0) {
 		gsi_dealloc_evt_ring(ep->gsi_evt_ring_hdl);
@@ -6186,6 +6401,9 @@ start_poll:
 	/* call repl_hdlr before napi_reschedule / napi_complete */
 	ep->sys->repl_hdlr(ep->sys);
 	wan_def_sys->repl_hdlr(wan_def_sys);
+	/* Scheduling WAN and COAL collect stats work wueue */
+	queue_delayed_work(ipa3_ctx->collect_recycle_stats_wq,
+		&ipa3_collect_default_coal_recycle_stats_wq_work, msecs_to_jiffies(10));
 	/* When not able to replenish enough descriptors, keep in polling
 	 * mode, wait for napi-poll and replenish again.
 	 */
@@ -6410,6 +6628,9 @@ start_poll:
 	cnt += budget - remain_aggr_weight * ipa3_ctx->ipa_wan_aggr_pkt_cnt;
 	/* call repl_hdlr before napi_reschedule / napi_complete */
 	sys->repl_hdlr(sys);
+	/* Scheduling RMNET LOW LAT DATA collect stats work queue */
+	queue_delayed_work(ipa3_ctx->collect_recycle_stats_wq,
+		&ipa3_collect_low_lat_data_recycle_stats_wq_work, msecs_to_jiffies(10));
 	/* When not able to replenish enough descriptors, keep in polling
 	 * mode, wait for napi-poll and replenish again.
 	 */
