@@ -14510,3 +14510,26 @@ void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan)
 	ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled = enable;
 	ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode = vlan;
 }
+
+void ipa3_notify_ipacm_eth_pdu_enable()
+{
+	struct ipa_msg_meta msg_meta;
+	int res = 0;
+
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = IPA_ENABLE_ETH_PDU_MODE_EVENT;
+	msg_meta.msg_len  = 0;
+
+	IPADBG("Sending ETH PDU ENABLE to IPACM\n");
+
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, NULL, NULL);
+
+	if (res)
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+}
