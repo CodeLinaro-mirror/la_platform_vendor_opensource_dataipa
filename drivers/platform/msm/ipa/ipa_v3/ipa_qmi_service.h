@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef IPA_QMI_SERVICE_H
@@ -28,6 +30,7 @@
 #define SUBSYS_LOCAL_MODEM "modem"
 #endif
 #define SUBSYS_REMOTE_MODEM "esoc0"
+#define MAX_NUM_OF_MUX_CHANNEL  15 /* max mux channels */
 
 
 #define IPAWANDBG(fmt, args...) \
@@ -225,17 +228,24 @@ extern struct qmi_elem_info ipa_bw_change_ind_msg_v01_ei[];
 extern struct qmi_elem_info ipa_move_nat_req_msg_v01_ei[];
 extern struct qmi_elem_info ipa_move_nat_resp_msg_v01_ei[];
 extern struct qmi_elem_info ipa_move_nat_table_complt_ind_msg_v01_ei[];
+extern struct qmi_elem_info ipa_eth_backhaul_info_req_msg_v01_e1[];
+extern struct qmi_elem_info ipa_eth_backhaul_info_resp_msg_v01_e1[];
+extern struct qmi_elem_info ipa_rmnet_eth_info_indication_msg_v01_ei[];
 
 /**
  * struct ipa3_rmnet_context - IPA rmnet context
  * @ipa_rmnet_ssr: support modem SSR
  * @polling_interval: Requested interval for polling tethered statistics
  * @metered_mux_id: The mux ID on which quota has been set
+ * @num_mux_channel_eth: the num of below mux channel info
+ * @mux_channel_eth: info for eth pdu mux channels
  */
 struct ipa3_rmnet_context {
 	bool ipa_rmnet_ssr;
 	u64 polling_interval;
 	u32 metered_mux_id;
+	int num_mux_channel_eth;
+	struct ipa3_rmnet_mux_val mux_channel_eth[MAX_NUM_OF_MUX_CHANNEL];
 };
 
 extern struct ipa3_rmnet_context ipa3_rmnet_ctx;
@@ -361,6 +371,9 @@ int ipa3_qmi_send_mhi_ready_indication(
 
 int ipa3_qmi_send_endp_desc_indication(
 	struct ipa_endp_desc_indication_msg_v01 *req);
+
+int ipa3_qmi_send_rmnet_eth_indication(
+	struct ipa_rmnet_eth_info_indication_msg_v01 *req);
 
 int ipa3_qmi_send_mhi_cleanup_request(struct ipa_mhi_cleanup_req_msg_v01 *req);
 
@@ -521,6 +534,12 @@ static inline int ipa3_qmi_send_mhi_ready_indication(
 
 static inline int ipa3_qmi_send_endp_desc_indication(
 	struct ipa_endp_desc_indication_msg_v01 *req)
+{
+	return -EPERM;
+}
+
+static inline int ipa3_qmi_send_rmnet_eth_indication(
+	struct ipa_rmnet_eth_info_indication_msg_v01 *req)
 {
 	return -EPERM;
 }
