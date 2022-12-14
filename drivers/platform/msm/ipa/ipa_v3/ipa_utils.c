@@ -6743,7 +6743,7 @@ static struct ipa3_mem_partition ipa_4_2_mem_part = {
 	.modem_hdr_size			= 0x140,
 	.apps_hdr_ofst			= 0x5E8,
 	.apps_hdr_size			= 0x0,
-	.apps_hdr_size_ddr		= 0x800,
+	.apps_hdr_size_ddr		= 0x7FF,
 	.modem_hdr_proc_ctx_ofst	= 0x5F0,
 	.modem_hdr_proc_ctx_size	= 0x200,
 	.apps_hdr_proc_ctx_ofst		= 0x7F0,
@@ -7624,23 +7624,25 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.v6_rt_nhash_ofst = 0x18a8,
 	.v6_rt_nhash_size = 0xf8,
 	.v6_rt_nhash_size_ddr = 0x4000,
-	.modem_hdr_ofst = 0x19a8,
+	.pdn_config_ofst = 0x19a8,
+	.pdn_config_size = 0x100,
+	.modem_hdr_ofst = 0x1aa8,
 	.modem_hdr_size = 0x240,
-	.apps_hdr_ofst = 0x1be8,
+	.apps_hdr_ofst = 0x1ce8,
 	.apps_hdr_size = 0x7ff,
 	.apps_hdr_size_ddr = 0x7ff,
-	.modem_hdr_proc_ctx_ofst = 0x3520,
+	.modem_hdr_proc_ctx_ofst = 0x3600,
 	.modem_hdr_proc_ctx_size = 0xb20,
-	.apps_hdr_proc_ctx_ofst = 0x4040,
+	.apps_hdr_proc_ctx_ofst = 0x4120,
 	.apps_hdr_proc_ctx_size = 0x22c0,
 	.apps_hdr_proc_ctx_size_ddr = 0x0,
-	.stats_quota_q6_ofst = 0x6308,
+	.stats_quota_q6_ofst = 0x63e8,
 	.stats_quota_q6_size = 0x60,
-	.stats_quota_ap_ofst = 0x6368,
-	.stats_quota_ap_size = 0x48,
-	.stats_peripheral_prod_ofst = 0x63b0,
+	.stats_quota_ap_ofst = 0x6448,
+	.stats_quota_ap_size = 0x60,
+	.stats_peripheral_prod_ofst = 0x64a8,
 	.stats_peripheral_prod_size = 0x90,
-	.stats_tethering_ofst = 0x6440,
+	.stats_tethering_ofst = 0x6538,
 	.stats_tethering_size = 0x7b0,
 	.stats_flt_v4_ofst = 0,
 	.stats_flt_v4_size = 0,
@@ -7650,34 +7652,32 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_rt_v4_size = 0,
 	.stats_rt_v6_ofst = 0,
 	.stats_rt_v6_size = 0,
-	.stats_fnr_ofst = 0x6bf0,
+	.stats_fnr_ofst = 0x6ce8,
 	.stats_fnr_size = 0x2680,
-	.stats_drop_ofst = 0x9270,
+	.stats_drop_ofst = 0x9768,
 	.stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
-	.modem_ofst = 0x9298,
+	.modem_ofst = 0x9398,
 	.modem_size = 0xd48,
-	.nat_tbl_ofst = 0x9fe0,
+	.nat_tbl_ofst = 0xa0e0,
 	.nat_tbl_size = 0x8700,
 	.apps_v4_flt_hash_ofst = 0x0,
 	.apps_v4_flt_hash_size = 0x0,
-	.apps_v4_flt_nhash_ofst = 0x126e8,
+	.apps_v4_flt_nhash_ofst = 0x127e8,
 	.apps_v4_flt_nhash_size = 0x300,
 	.apps_v6_flt_hash_ofst = 0x0,
 	.apps_v6_flt_hash_size = 0x0,
-	.apps_v6_flt_nhash_ofst = 0x129e8,
+	.apps_v6_flt_nhash_ofst = 0x12ae8,
 	.apps_v6_flt_nhash_size = 0x300,
 	.apps_v4_rt_hash_ofst = 0x0,
 	.apps_v4_rt_hash_size = 0x0,
-	.apps_v4_rt_nhash_ofst = 0x12ce8,
+	.apps_v4_rt_nhash_ofst = 0x12de8,
 	.apps_v4_rt_nhash_size = 0x300,
 	.apps_v6_rt_hash_ofst = 0x0,
 	.apps_v6_rt_hash_size = 0x0,
-	.apps_v6_rt_nhash_ofst = 0x12fe8,
+	.apps_v6_rt_nhash_ofst = 0x130e8,
 	.apps_v6_rt_nhash_size = 0x300,
-	.pdn_config_ofst = 0x132e8,
-	.pdn_config_size = 0x100,
 	.sa_contexts_ofst = 0x133e8,
 	.sa_contexts_size = 0x18c0,
 	.end_ofst = 0x14ca8,
@@ -10699,11 +10699,16 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD) {
 		result = ipa3_cfg_ep_metadata(ipa_ep_idx, &meta);
 	} else if (param_in->client == IPA_CLIENT_WLAN1_PROD ||
-			   param_in->client == IPA_CLIENT_WLAN2_PROD ||
-				param_in->client == IPA_CLIENT_WLAN3_PROD) {
+			param_in->client == IPA_CLIENT_WLAN2_PROD ||
+			param_in->client == IPA_CLIENT_WLAN3_PROD ||
+			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
+			param_in->client == IPA_CLIENT_WLAN3_PROD1) {
 		ipa3_ctx->ep[ipa_ep_idx].cfg.meta = meta;
-		if (param_in->client == IPA_CLIENT_WLAN2_PROD ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD)
+		if (ipa_get_wdi_version() == IPA_WDI_3 &&
+			(param_in->client == IPA_CLIENT_WLAN2_PROD ||
+			param_in->client == IPA_CLIENT_WLAN3_PROD ||
+			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
+			param_in->client == IPA_CLIENT_WLAN3_PROD1))
 				result = ipa3_write_qmapid_wdi3_gsi_pipe(
 					ipa_ep_idx, meta.qmap_id);
 		else

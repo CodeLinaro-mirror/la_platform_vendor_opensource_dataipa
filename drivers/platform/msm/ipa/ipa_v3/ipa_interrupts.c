@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/interrupt.h>
@@ -481,9 +483,13 @@ int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
 				client_idx < IPA_CLIENT_MAX;
 				client_idx++) {
 				ep_idx = ipa3_get_ep_mapping(client_idx);
+			/* In case of CESTA enable mode, don't register TX_SUSPEND_IRQ,
+			* for MHI clients as it is taken care by IPA uC. */
 				if ((ep_idx != IPA_EP_NOT_ALLOCATED) &&
 					!(IPA_CLIENT_IS_Q6_CONS(client_idx) ||
-					IPA_CLIENT_IS_Q6_PROD(client_idx))) {
+					IPA_CLIENT_IS_Q6_PROD(client_idx)) &&
+					!(ipa3_ctx->cesta_enable &&
+					IPA_CLIENT_IS_MHI(client_idx))) {
 				pipe_bmsk[ipahal_get_ep_reg_idx(ep_idx)] |=
 					ipahal_get_ep_bit(ep_idx);
 				}

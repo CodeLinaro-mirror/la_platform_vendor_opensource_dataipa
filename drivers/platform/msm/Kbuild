@@ -88,6 +88,16 @@ LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
 endif
 endif
 
+ifeq ($(CONFIG_ARCH_SA410M), y)
+DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/auto_dataipa.h
+include $(srctree)/../../../dataipa/config/auto_dataipa_QGKI.conf
+ifneq ($(CONFIG_LOCALVERSION), "-perf")
+include $(srctree)/../../../dataipa/config/dataipa_debug.conf
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
+endif
+endif
+
 ifeq ($(CONFIG_ARCH_SA515M), y)
 LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/auto_dataipa.h
 include $(srctree)/techpack/dataipa/config/auto_dataipa_QGKI.conf
@@ -106,7 +116,6 @@ LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
 endif
 endif
 
-
 ifeq ($(CONFIG_ARCH_SDXPINN), y)
 DATAIPADRVTOP = $(MODULE_OUT)/drivers/platform/msm
 LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa.h
@@ -114,6 +123,16 @@ include $(MODULE_OUT)/config/dataipa_QGKI.conf
 ifneq ($(CONFIG_LOCALVERSION), "-perf")
 include $(MODULE_OUT)/config/dataipa_debug.conf
 LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa_debug.h
+endif
+endif
+
+ifeq ($(CONFIG_ARCH_SA525), y)
+DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/auto_dataipa.h
+include $(srctree)/../../../dataipa/config/auto_dataipa_QGKI.conf
+ifneq ($(CONFIG_LOCALVERSION), "-perf")
+include $(srctree)/../../../dataipa/config/dataipa_debug.conf
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
 endif
 endif
 

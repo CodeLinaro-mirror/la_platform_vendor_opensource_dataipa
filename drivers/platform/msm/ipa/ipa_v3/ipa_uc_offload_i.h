@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_UC_OFFLOAD_I_H_
@@ -855,5 +857,39 @@ struct IpaHwPeripheralDeinitCmdData_t {
 	union IpaHwPeripheralDeinitCmd PeripheralDeinit_params;
 
 } __packed;
+
+/**
+ * struct IpaMhiCh_t - Structure holding the parameters for
+ * IPA_CPU_2_HW_CMD_SEND_MHI_PIPE.
+ * @params
+ * chType - indicates whether the ch is INBOUND or OUTBOUND.
+ * enabled - indicates whether the channel is enabled or not.
+ * numMhiCh - no. of MHI channels that uC needs to suspend/resume.
+ * mhiEpBitMask - Bit mask of MHI pipe that uC needs to suspend/resume.
+ */
+
+struct IpaMhiChInfo_t
+{
+	u32 chType: 8;
+	u32 enabled: 1;
+	u32 reserved: 23;
+}__packed;
+
+struct IpaMhiCh_t
+{
+	struct IpaMhiChInfo_t ipaMhiChInfo[8];
+	u32 numMhiCh;
+	u32 mhiEpBitMask0;
+	u32 mhiEpBitMask1;
+}__packed;
+
+enum mhi_chan_type {
+	MHI_CHTYPE_INVALID =  0,
+	MHI_CHTYPE_OUTBOUND =  1, /* host to device */
+	MHI_CHTYPE_INBOUND =  2, /* device to host */
+	MHI_CHTYPE_INBOUND_COALESCED =  3, /* coalesced device to host */
+	MHI_CHTYPE_OUTBOUND_PRIME =  4, /* host to device */
+	MHI_CHTYPE_INBOUND_PRIME =  5, /* device to host */
+};
 
 #endif /* _IPA_UC_OFFLOAD_I_H_ */
