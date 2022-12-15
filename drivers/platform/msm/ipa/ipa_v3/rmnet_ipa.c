@@ -240,7 +240,7 @@ struct rmnet_ipa3_context {
 	bool wan_rt_table_setup;
 	bool no_qmap_config;
 	bool eth_wan_set;
-	bool eth_vlan;
+	enum ipa_eth_hw_config_enum_v01 eth_vlan;
 	u32 apps_to_ipa3_v2x_hdl;
 	u32 ipa3_v2x_to_apps_hdl;
 	bool ipa_v2x_set;
