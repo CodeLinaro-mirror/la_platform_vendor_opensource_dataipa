@@ -215,7 +215,7 @@ static int ipa_wdi_init_per_inst_internal(struct ipa_wdi_init_in_params *in,
 		return -EINVAL;
 	}
 
-	if (in->wdi_version > IPA_WDI_3_V2 || in->wdi_version < IPA_WDI_1) {
+	if (in->wdi_version > IPA_WDI_4 || in->wdi_version < IPA_WDI_1) {
 		IPA_WDI_ERR("wrong wdi version: %d\n", in->wdi_version);
 		return -EFAULT;
 	}
