@@ -205,7 +205,7 @@ struct rmnet_ipa3_context {
 	int ingress_eps_mask;
 	bool wan_rt_table_setup;
 	bool eth_wan_set;
-	bool eth_vlan;
+	enum ipa_eth_hw_config_enum_v01 eth_vlan;
 };
 
 static struct rmnet_ipa3_context *rmnet_ipa3_ctx;
