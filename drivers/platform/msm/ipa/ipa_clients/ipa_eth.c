@@ -713,32 +713,35 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 			ipa_assert();
 		}
 
-		//populate the QMI
-		ipa_client = ipa_eth_get_ipa_client_type_from_pipe(pipe);
-		ep_idx = ipa_get_ep_mapping(ipa_client);
+		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
+		{
+			//populate the QMI
+			ipa_client = ipa_eth_get_ipa_client_type_from_pipe(pipe);
+			ep_idx = ipa_get_ep_mapping(ipa_client);
 
-		/* NOTEL Only support single NIC for eth_pdu */
-		if ((IPA_CLIENT_IS_PROD(ipa_client) && tx_idx) && (IPA_CLIENT_IS_CONS(ipa_client) && rx_idx)) {
-			IPAERR("QMI already set for ETH PDU tx id:%d rx id:%d\n",tx_idx, rx_idx);
-			continue;
-		}
-		req.ep_info_len++;
-		req.ep_info_valid = true;
-		req.num_eps_valid = true;
-		req.num_eps++;
-		ep_info = &req.ep_info[req.ep_info_len - 1];
-		ep_info->ep_id = ep_idx;
-		ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+			/* NOTEL Only support single NIC for eth_pdu */
+			if ((IPA_CLIENT_IS_PROD(ipa_client) && tx_idx) && (IPA_CLIENT_IS_CONS(ipa_client) && rx_idx)) {
+				IPAERR("QMI already set for ETH PDU tx id:%d rx id:%d\n",tx_idx, rx_idx);
+				continue;
+			}
+			req.ep_info_len++;
+			req.ep_info_valid = true;
+			req.num_eps_valid = true;
+			req.num_eps++;
+			ep_info = &req.ep_info[req.ep_info_len - 1];
+			ep_info->ep_id = ep_idx;
+			ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
 
-		if (IPA_CLIENT_IS_PROD(ipa_client)) {
-			ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
-			tx_idx = ep_idx;
+			if (IPA_CLIENT_IS_PROD(ipa_client)) {
+				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
+				tx_idx = ep_idx;
+			}
+			else if (IPA_CLIENT_IS_CONS(ipa_client)) {
+				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
+				rx_idx = ep_idx;
+			}
+			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
 		}
-		else if (IPA_CLIENT_IS_CONS(ipa_client)) {
-			ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
-			rx_idx = ep_idx;
-		}
-		ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
 	}
 	if (!ipa_eth_ctx->client[client_type][inst_id].existed) {
 #ifdef CONFIG_DEBUG_FS
@@ -746,12 +749,16 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 #endif
 		ipa_eth_ctx->client[client_type][inst_id].existed = true;
 	}
-	ipa3_update_eth_pdu_ep_index(rx_idx, tx_idx);
 
-	IPADBG("Sending ETH PDU endpoint QMI for client\n");
-	if (req.ep_info_len > 0)
-		if (ipa3_qmi_send_endp_desc_indication(&req))
-			IPAERR("Failed to send eth pipe endp desc QMI\n");
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
+	{
+		ipa3_update_eth_pdu_ep_index(rx_idx, tx_idx);
+
+		IPADBG("Sending ETH PDU endpoint QMI for client\n");
+		if (req.ep_info_len > 0)
+			if (ipa3_qmi_send_endp_desc_indication(&req))
+				IPAERR("Failed to send eth pipe endp desc QMI\n");
+	}
 
 	mutex_unlock(&ipa_eth_ctx->lock);
 	return 0;
