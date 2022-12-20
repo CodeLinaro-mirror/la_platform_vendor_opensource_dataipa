@@ -1636,9 +1636,16 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 	if (IPA_CLIENT_IS_PROD(sys_in->client) &&
 		ipa3_ctx->tx_napi_enable) {
 		if (sys_in->client == IPA_CLIENT_APPS_LAN_PROD) {
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 14))
+			netif_napi_add_tx_weight(&ipa3_ctx->generic_ndev,
+			&ep->sys->napi_tx, tx_completion_func,
+			NAPI_TX_WEIGHT);
+#else
 			netif_tx_napi_add(&ipa3_ctx->generic_ndev,
 			&ep->sys->napi_tx, tx_completion_func,
 			NAPI_TX_WEIGHT);
+
+#endif
 			ep->sys->napi_tx_enable = ipa3_ctx->tx_napi_enable;
 			ep->sys->tx_poll = ipa3_ctx->tx_poll;
 		} else if(sys_in->client == IPA_CLIENT_APPS_WAN_PROD ||
@@ -1646,9 +1653,15 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 			sys_in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD||
 			sys_in->client == IPA_CLIENT_IPSEC_ENCAP_PROD ||
 			sys_in->client == IPA_CLIENT_IPSEC_DECAP_PROD) {
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 14))
+			netif_napi_add_tx_weight((struct net_device *)sys_in->priv,
+			&ep->sys->napi_tx, tx_completion_func,
+			NAPI_TX_WEIGHT);
+#else
 			netif_tx_napi_add((struct net_device *)sys_in->priv,
 			&ep->sys->napi_tx, tx_completion_func,
 			NAPI_TX_WEIGHT);
+#endif
 			ep->sys->napi_tx_enable = ipa3_ctx->tx_napi_enable;
 			ep->sys->tx_poll = ipa3_ctx->tx_poll;
 		} else {
@@ -1664,8 +1677,13 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 	}
 
 	if (sys_in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 14))
+		netif_napi_add((struct net_device *)sys_in->priv,
+			&ep->sys->napi_rx, ipa3_rmnet_ll_rx_poll);
+#else
 		netif_napi_add((struct net_device *)sys_in->priv,
 			&ep->sys->napi_rx, ipa3_rmnet_ll_rx_poll, NAPI_WEIGHT);
+#endif
 		napi_enable(&ep->sys->napi_rx);
 	}
 
