@@ -10874,6 +10874,11 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 		cb->geometry_start = geometry_ap_mapping[0];
 		cb->geometry_end  = geometry_ap_mapping[1];
 	}
+	else {
+		IPADBG("AP CB PROBE Geometry not defined using max!\n");
+		cb->geometry_start = 0;
+		cb->geometry_end = 0xF0000000;
+	}
 
 	IPADBG("AP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
 		   dev, cb->geometry_start, cb->geometry_end);
