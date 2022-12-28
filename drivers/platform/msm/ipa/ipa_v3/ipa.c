@@ -997,8 +997,6 @@ struct iommu_domain *ipa3_get_smmu_domain_by_type(enum ipa_smmu_cb_type cb_type)
 	if (VALID_IPA_SMMU_CB_TYPE(cb_type) && smmu_cb[cb_type].valid)
 		return smmu_cb[cb_type].iommu_domain;
 
-	IPAERR("cb_type(%d) not valid\n", cb_type);
-
 	return NULL;
 }
 
