@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef IPA_QMI_SERVICE_H
@@ -91,19 +93,15 @@ struct ipa_offload_connection_val {
 struct ipa3_qmi_context {
 	struct ipa_ioc_ext_intf_prop q6_ul_filter_rule[MAX_NUM_Q6_RULE];
 	u32 q6_ul_filter_rule_hdl[MAX_NUM_Q6_RULE];
-	int num_ipa_install_fltr_rule_req_msg;
-	struct ipa_install_fltr_rule_req_msg_v01
-		ipa_install_fltr_rule_req_msg_cache[MAX_NUM_QMI_RULE_CACHE];
 	int num_ipa_install_fltr_rule_req_ex_msg;
 	struct ipa_install_fltr_rule_req_ex_msg_v01
-		ipa_install_fltr_rule_req_ex_msg_cache[MAX_NUM_QMI_RULE_CACHE];
+		*ipa_install_fltr_rule_req_ex_msg_cache_ptr[MAX_NUM_QMI_RULE_CACHE];
 	int num_ipa_fltr_installed_notif_req_msg;
 	struct ipa_fltr_installed_notif_req_msg_v01
 		ipa_fltr_installed_notif_req_msg_cache[MAX_NUM_QMI_RULE_CACHE];
 	int num_ipa_configure_ul_firewall_rules_req_msg;
 	struct ipa_configure_ul_firewall_rules_req_msg_v01
-		ipa_configure_ul_firewall_rules_req_msg_cache
-			[MAX_NUM_QMI_RULE_CACHE];
+		*ipa_configure_ul_firewall_rules_req_msg_cache_ptr[MAX_NUM_QMI_RULE_CACHE];
 	struct ipa_mhi_prime_aggr_info_req_msg_v01
 		ipa_mhi_prime_aggr_info_req_msg_cache
 			[MAX_NUM_QMI_MPM_AGGR_CACHE];
