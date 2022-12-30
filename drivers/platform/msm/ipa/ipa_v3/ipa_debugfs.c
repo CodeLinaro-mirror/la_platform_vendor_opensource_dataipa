@@ -49,6 +49,7 @@ static const char * const ipa_eth_clients_strings[] = {
 	__stringify(NTN),
 	__stringify(NTN3),
 	__stringify(EMAC),
+	__stringify(IEMAC),
 };
 
 const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
@@ -1611,6 +1612,11 @@ static ssize_t ipa3_read_odlstats(struct file *file, char __user *ubuf,
 {
 	int nbytes;
 	int cnt = 0;
+
+	if (!ipa3_odl_ctx) {
+                IPADBG("ODL stats not supported\n");
+                return 0;
+	}
 
 	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 			"ODL received pkt =%u\n"

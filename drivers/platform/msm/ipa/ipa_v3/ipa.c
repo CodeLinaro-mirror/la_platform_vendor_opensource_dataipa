@@ -2816,7 +2816,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int retval = 0;
 	u32 pyld_sz;
-	u8 header[256] = { 0 };
+	u8 header[512] = { 0 };
 	u8 *param = NULL;
 	bool is_vlan_mode;
 	struct ipa_ioc_coal_evict_policy evict_pol;
@@ -8282,8 +8282,8 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	if (ipa3_ctx->gsi_msi_addr)
 		ipa_gsi_map_unmap_gsi_msi_addr(true);
 
-	if(!ipa_spearhead_stats_init())
-		IPADBG("Fail to init spearhead ipa lnx module");
+	if(!ipa_tlpd_stats_init())
+		IPADBG("Fail to init tlpd ipa lnx module");
 
 	pr_info("IPA driver initialization was successful.\n");
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
@@ -9109,6 +9109,25 @@ static struct notifier_block qcom_va_md_ipa_notif_blk = {
 };
 #endif
 
+static u32 get_ipa_gen_rx_cmn_page_pool_size(u32 rx_cmn_page_pool_size)
+{
+        if (!rx_cmn_page_pool_size)
+                return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+        if (rx_cmn_page_pool_size <= IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR)
+                return rx_cmn_page_pool_size;
+        return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+}
+
+
+static u32 get_ipa_gen_rx_cmn_temp_pool_size(u32 rx_cmn_temp_pool_size)
+{
+        if (!rx_cmn_temp_pool_size)
+                return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+        if (rx_cmn_temp_pool_size <= IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR)
+                return rx_cmn_temp_pool_size;
+        return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+}
+
 /**
  * ipa3_pre_init() - Initialize the IPA Driver.
  * This part contains all initialization which doesn't require IPA HW, such
@@ -9262,6 +9281,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->rmnet_ll_enable = resource_p->rmnet_ll_enable;
 	ipa3_ctx->tx_wrapper_cache_max_size = get_tx_wrapper_cache_size(
 			resource_p->tx_wrapper_cache_max_size);
+	ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor = get_ipa_gen_rx_cmn_page_pool_size(
+                        resource_p->ipa_gen_rx_cmn_page_pool_sz_factor);
+        ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor = get_ipa_gen_rx_cmn_temp_pool_size(
+                        resource_p->ipa_gen_rx_cmn_temp_pool_sz_factor);
 	ipa3_ctx->ipa_config_is_auto = resource_p->ipa_config_is_auto;
 	ipa3_ctx->ipa_mhi_proxy = resource_p->ipa_mhi_proxy;
 	ipa3_ctx->max_num_smmu_cb = resource_p->max_num_smmu_cb;
@@ -9521,6 +9544,11 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		result = -ENOMEM;
 		goto fail_gsi_map;
 	}
+	mutex_init(&ipa3_ctx->recycle_stats_collection_lock);
+	memset(&ipa3_ctx->recycle_stats, 0, sizeof(struct ipa_lnx_pipe_page_recycling_stats));
+	memset(&ipa3_ctx->prev_coal_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
+	memset(&ipa3_ctx->prev_default_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
+	memset(&ipa3_ctx->prev_low_lat_data_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
 
 	ipa3_ctx->transport_power_mgmt_wq =
 		create_singlethread_workqueue("transport_power_mgmt");
@@ -9529,6 +9557,17 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		result = -ENOMEM;
 		goto fail_create_transport_wq;
 	}
+
+	/* Create workqueue for recycle stats collection */
+	ipa3_ctx->collect_recycle_stats_wq =
+			create_singlethread_workqueue("page_recycle_stats_collection");
+	if (!ipa3_ctx->collect_recycle_stats_wq) {
+		IPAERR("failed to create page recycling stats collection wq\n");
+		result = -ENOMEM;
+		goto fail_create_recycle_stats_wq;
+	}
+	memset(&ipa3_ctx->recycle_stats, 0,
+		   sizeof(ipa3_ctx->recycle_stats));
 
 	mutex_init(&ipa3_ctx->transport_pm.transport_pm_mutex);
 
@@ -9802,6 +9841,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->free_page_task_scheduled = false;
 
 	mutex_init(&ipa3_ctx->app_clock_vote.mutex);
+	mutex_init(&ipa3_ctx->ssr_lock);
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 
@@ -9864,6 +9904,8 @@ fail_hdr_cache:
 fail_rt_rule_cache:
 	kmem_cache_destroy(ipa3_ctx->flt_rule_cache);
 fail_flt_rule_cache:
+	destroy_workqueue(ipa3_ctx->collect_recycle_stats_wq);
+fail_create_recycle_stats_wq:
 	destroy_workqueue(ipa3_ctx->transport_power_mgmt_wq);
 fail_create_transport_wq:
 	destroy_workqueue(ipa3_ctx->power_mgmt_wq);
@@ -10090,6 +10132,40 @@ static void get_dts_tx_wrapper_cache_size(struct platform_device *pdev,
 
 	IPADBG("tx_wrapper_cache_max_size is set to %d",
 		ipa_drv_res->tx_wrapper_cache_max_size);
+}
+
+
+static void get_dts_ipa_gen_rx_cmn_page_pool_sz_factor(struct platform_device *pdev,
+                struct ipa3_plat_drv_res *ipa_drv_res)
+{
+        int result;
+
+        result = of_property_read_u32 (
+                pdev->dev.of_node,
+                "qcom,ipa-gen-rx-cmn-page-pool-sz-factor",
+                &ipa_drv_res->ipa_gen_rx_cmn_page_pool_sz_factor);
+        if (result)
+                ipa_drv_res->ipa_gen_rx_cmn_page_pool_sz_factor = 0;
+
+        IPADBG("ipa_gen_rx_cmn_page_pool_sz_factor is set to %d",
+                ipa_drv_res->ipa_gen_rx_cmn_page_pool_sz_factor);
+}
+
+
+static void get_dts_ipa_gen_rx_cmn_temp_pool_sz_factor(struct platform_device *pdev,
+                struct ipa3_plat_drv_res *ipa_drv_res)
+{
+        int result;
+
+        result = of_property_read_u32 (
+                pdev->dev.of_node,
+                "qcom,ipa-gen-rx-cmn-temp-pool-sz-factor",
+                &ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor);
+        if (result)
+                ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor = 0;
+
+        IPADBG("ipa_gen_rx_cmn_temp_pool_sz_factor is set to %d",
+                ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor);
 }
 
 static void ipa_dts_get_ulso_data(struct platform_device *pdev,
@@ -10813,6 +10889,10 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->ipa_wan_aggr_pkt_cnt = ipa_wan_aggr_pkt_cnt;
 
 	get_dts_tx_wrapper_cache_size(pdev, ipa_drv_res);
+
+	get_dts_ipa_gen_rx_cmn_page_pool_sz_factor(pdev, ipa_drv_res);
+
+        get_dts_ipa_gen_rx_cmn_temp_pool_sz_factor(pdev, ipa_drv_res);
 
 	ipa_dts_get_ulso_data(pdev, ipa_drv_res);
 
@@ -11957,7 +12037,7 @@ int ipa3_get_smmu_params(struct ipa_smmu_in_params *in,
 
 	switch (in->smmu_client) {
 	case IPA_SMMU_WLAN_CLIENT:
-		if (ipa_get_wdi_version() == IPA_WDI_3 ||
+		if (ipa_get_wdi_version() >= IPA_WDI_3 ||
 			IPA_WDI2_OVER_GSI())
 			is_smmu_enable =
 				!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
