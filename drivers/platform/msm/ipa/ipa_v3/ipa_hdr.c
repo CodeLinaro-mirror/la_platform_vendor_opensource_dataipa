@@ -603,9 +603,9 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 				if (entry_out) {
 					IPAERR_RL("return old entry len=%d hdl=%d\n",
 						entry_t->hdr_len, entry_t->id);
-					hdr->hdr_hdl = entry_t->id;
 					*entry_out = entry_t;
 				}
+				hdr->hdr_hdl = entry_t->id;
 				kmem_cache_free(ipa3_ctx->hdr_cache, entry);
 				return 0;
 			}
