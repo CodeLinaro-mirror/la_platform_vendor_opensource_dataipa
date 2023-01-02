@@ -909,6 +909,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	enum ipa_hdr_proc_type type;
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
+	struct ipa_gre_hdr_proc_ctx_params gre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
@@ -2540,6 +2541,7 @@ struct ipa3_context {
 	bool use_tput_est_ep;
 	struct ipa_ioc_eogre_info eogre_cache;
 	bool eogre_enabled;
+	bool gre_enabled;
 	bool is_device_crashed;
 	bool ulso_wa;
 	u64 gsi_msi_addr;
