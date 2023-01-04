@@ -662,6 +662,8 @@ struct ipa_smmu_cb_ctx {
 	u32 va_start;
 	u32 va_size;
 	u32 va_end;
+	u32 geometry_start;
+	u32 geometry_end;
 	bool shared;
 	bool is_cache_coherent;
 	bool done;
@@ -2171,6 +2173,14 @@ struct ipa_minidump_data {
 };
 #endif
 
+/* ctx for ETH PDU mode*/
+struct ipa3_eth_pdu_ctx {
+	bool eth_pdu_mode_enabled;
+	enum ipa_eth_hw_config_enum_v01 eth_pdu_vlan_mode;
+	int eth_pdu_tx_ep_id;
+	int eth_pdu_rx_ep_id;
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2296,6 +2306,7 @@ struct ipa_minidump_data {
  * @mhi_lock: lock to protect above mhi states
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
+ * @eth_pdu_ctx: ETH PDU ctx
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2553,6 +2564,7 @@ struct ipa3_context {
 	u32 page_wq_reschd_time;
 	struct list_head minidump_list_head;
 	bool is_dual_pine_config;
+	struct ipa3_eth_pdu_ctx eth_pdu_ctx;
 	struct workqueue_struct *collect_recycle_stats_wq;
 	struct ipa_lnx_pipe_page_recycling_stats recycle_stats;
 	struct ipa3_page_recycle_stats prev_coal_recycle_stats;
@@ -3820,5 +3832,10 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
+
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
+void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
+void ipa3_notify_ipacm_eth_pdu_enable(void);
+
 
 #endif /* _IPA3_I_H_ */

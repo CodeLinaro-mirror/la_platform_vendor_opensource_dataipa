@@ -2676,7 +2676,6 @@ done:
 	return res;
 }
 
-#ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 /**
  * ipa3_send_ext_router_info() - Pass ext_router_info to the IPACM
  * @info: pointer to the ext router info
@@ -2717,7 +2716,6 @@ int ipa3_send_ext_router_info(struct ipa_ioc_ext_router_info *info)
 done:
 	return res;
 }
-#endif
 
 static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -2739,9 +2737,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_eogre_info eogre_info;
 	struct ipa_ioc_macsec_info macsec_info;
 	struct ipa_macsec_map *macsec_map;
-#ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	struct ipa_ioc_ext_router_info *ext_router_info;
-#endif
 	bool send2uC, send2ipacm;
 	size_t sz;
 	int pre_entry;
@@ -4182,7 +4178,6 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			macsec_map);
 		break;
 
-#ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
 
@@ -4206,7 +4201,6 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 		}
 		break;
-#endif
 
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
@@ -10825,6 +10819,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	phys_addr_t iova;
 	phys_addr_t pa;
 	u32 iova_ap_mapping[2];
+	u32 geometry_ap_mapping[2];
 
 	IPADBG("AP CB PROBE dev=%pK\n", dev);
 
@@ -10873,6 +10868,20 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 
 	IPADBG("AP CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,iommu-geometry",
+			geometry_ap_mapping, 2) == 0) {
+		cb->geometry_start = geometry_ap_mapping[0];
+		cb->geometry_end  = geometry_ap_mapping[1];
+	}
+	else {
+		IPADBG("AP CB PROBE Geometry not defined using max!\n");
+		cb->geometry_start = 0;
+		cb->geometry_end = 0xF0000000;
+	}
+
+	IPADBG("AP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
+		   dev, cb->geometry_start, cb->geometry_end);
 
 	/*
 	 * Prior to these calls to iommu_domain_get_attr(), these
