@@ -1050,6 +1050,31 @@ struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex {
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_ex -
+ * HW structure of IPA processing context - add generic header
+ * @tlv: IPA processing context TLV
+ * @params: generic eth2 to eth2 parameters
+ */
+struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_ex {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_wwan_to_eth_II_ex_procparams params;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_cmd_seq_ex -
+ * IPA processing context header - process command sequence
+ * @hdr_add: add header command
+ * @params: params for header generic header v2 add(for wwan_ethII)
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_cmd_seq_ex {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_ex hdr_add_ex;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
 /**
  * struct ipa_hw_hdr_proc_ctx_remove_l2tp_udp_hdr_cmd_seq -
  * IPA processing context header - process command sequence
