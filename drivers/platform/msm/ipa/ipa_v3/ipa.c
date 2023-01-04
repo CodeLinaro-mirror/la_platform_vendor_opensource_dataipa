@@ -2737,6 +2737,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_eogre_info eogre_info;
 	struct ipa_ioc_macsec_info macsec_info;
 	struct ipa_macsec_map *macsec_map;
+	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 	struct ipa_ioc_ext_router_info *ext_router_info;
 	bool send2uC, send2ipacm;
 	size_t sz;
@@ -4177,7 +4178,31 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPA_MACSEC_ADD_EVENT : IPA_MACSEC_DEL_EVENT,
 			macsec_map);
 		break;
+	case IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING:
+		IPADBG("Got IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING\n");
 
+		memset(&dscp_pcp_map_info, 0, sizeof(dscp_pcp_map_info));
+
+		if (copy_from_user(&dscp_pcp_map_info, (const void __user *) arg,
+			sizeof(struct ipa_ioc_dscp_pcp_map_info))) {
+			IPAERR_RL("copy_from_user for dscp_pcp_map_info fails\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		IPADBG("DSCP<->PCP map %s \n",(dscp_pcp_map_info.add)?"addition":"deletion");
+
+		if(ipa3_add_remove_dscp_pcp_map(&dscp_pcp_map_info.dscp_pcp_map[0],
+			dscp_pcp_map_info.add)) {
+			IPAERR_RL("DSCP<->PCP map %s failed\n",
+				(dscp_pcp_map_info.add)?"addition":"deletion");
+			retval = -EFAULT;
+			break;
+		}
+		/* Caching Mapping if succesful */
+		memcpy(&ipa3_ctx->dscp_pcp_map_info_cache, &dscp_pcp_map_info, sizeof(dscp_pcp_map_info));
+
+		break;
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
 
