@@ -2676,7 +2676,6 @@ done:
 	return res;
 }
 
-#ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 /**
  * ipa3_send_ext_router_info() - Pass ext_router_info to the IPACM
  * @info: pointer to the ext router info
@@ -2717,7 +2716,6 @@ int ipa3_send_ext_router_info(struct ipa_ioc_ext_router_info *info)
 done:
 	return res;
 }
-#endif
 
 static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -2739,9 +2737,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_eogre_info eogre_info;
 	struct ipa_ioc_macsec_info macsec_info;
 	struct ipa_macsec_map *macsec_map;
-#ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	struct ipa_ioc_ext_router_info *ext_router_info;
-#endif
 	bool send2uC, send2ipacm;
 	size_t sz;
 	int pre_entry;
@@ -4182,7 +4178,6 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			macsec_map);
 		break;
 
-#ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
 
@@ -4206,7 +4201,6 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 		}
 		break;
-#endif
 
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
@@ -6467,7 +6461,13 @@ void ipa3_disable_clks(void)
 		return;
 	}
 
-	IPADBG("disabling IPA clocks and bus voting\n");
+	IPADBG("Disabling IPA clocks and bus voting\n");
+
+	if (atomic_read(&ipa3_ctx->ipa_clk_vote) == 0)
+	{
+		IPAERR("IPA clock already disabled\n");
+		return;
+	}
 
 	/*
 	 * We see a NoC error on GSI on this flag sequence.
@@ -8379,10 +8379,15 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 	/* Check MHI configuration on MDM devices */
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
 
+		/* todo in future: change vlan_mode_iface from bool to enum
+		 * and support double vlan for all ifaces
+		 */
+		if (strnstr(dbg_buff, "double-vlan", strlen(dbg_buff)))
+			ipa3_ctx->is_eth_double_vlan_mode = true;
+
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
 			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] =
-				true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] = true;
 #if IPA_ETH_API_VER >= 2
 			/* In Dual NIC mode we get "vlan: eth [eth0|eth1] [eth0|eth1]?" while device name is
 			   "eth0" in legacy so, we set it to false to diffrentiate Dual NIC from legacy */
@@ -8396,11 +8401,9 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			}
 #endif
 			if (strnstr(dbg_buff, STR_RNDIS_IFACE, strlen(dbg_buff)))
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS] =
-				true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS] = true;
 			if (strnstr(dbg_buff, STR_ECM_IFACE, strlen(dbg_buff)))
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] =
-				true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] = true;
 
 			/*
 			 * when vlan mode is passed to our dev we expect
@@ -10816,6 +10819,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	phys_addr_t iova;
 	phys_addr_t pa;
 	u32 iova_ap_mapping[2];
+	u32 geometry_ap_mapping[2];
 
 	IPADBG("AP CB PROBE dev=%pK\n", dev);
 
@@ -10864,6 +10868,20 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 
 	IPADBG("AP CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,iommu-geometry",
+			geometry_ap_mapping, 2) == 0) {
+		cb->geometry_start = geometry_ap_mapping[0];
+		cb->geometry_end  = geometry_ap_mapping[1];
+	}
+	else {
+		IPADBG("AP CB PROBE Geometry not defined using max!\n");
+		cb->geometry_start = 0;
+		cb->geometry_end = 0xF0000000;
+	}
+
+	IPADBG("AP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
+		   dev, cb->geometry_start, cb->geometry_end);
 
 	/*
 	 * Prior to these calls to iommu_domain_get_attr(), these

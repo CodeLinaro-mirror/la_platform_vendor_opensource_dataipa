@@ -723,6 +723,11 @@ int ipa_set_perf_profile_internal(struct ipa_perf_profile *profile)
 		return -EINVAL;
 	}
 
+	if (!ipa_uc_offload_ctx[IPA_UC_NTN]) {
+		IPA_UC_OFFLOAD_ERR("uC offload context is NULL\n");
+		 return -EINVAL;
+	}
+
 	IPA_UC_OFFLOAD_DBG("setting throughput to %d\n",
 		profile->max_supported_bw_mbps);
 
