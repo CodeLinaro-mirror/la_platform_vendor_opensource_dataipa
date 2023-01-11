@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_UC_OFFLOAD_I_H_
@@ -860,27 +860,22 @@ struct IpaHwPeripheralDeinitCmdData_t {
 
 /**
  * struct IpaMhiCh_t - Structure holding the parameters for
- * IPA_CPU_2_HW_CMD_SEND_MHI_PIPE.
+ * IPA_CPU_2_HW_CMD_MHI_CESTA_CHANNEL_LIST.
  * @params
- * chType - indicates whether the ch is INBOUND or OUTBOUND.
- * enabled - indicates whether the channel is enabled or not.
- * numMhiCh - no. of MHI channels that uC needs to suspend/resume.
- * mhiEpBitMask - Bit mask of MHI pipe that uC needs to suspend/resume.
+ * chDir - indicates whether the ch is INBOUND or OUTBOUND.
+ * pipeNum - end point num that uC needs to suspend/resume.
+ * chNo - channel num that uC needs to suspend/resume.
+ * monitored - indicates whether the channel is enabled or not.
  */
 
 struct IpaMhiChInfo_t
 {
-	u32 chType: 8;
-	u32 enabled: 1;
-	u32 reserved: 23;
-}__packed;
-
-struct IpaMhiCh_t
-{
-	struct IpaMhiChInfo_t ipaMhiChInfo[8];
-	u32 numMhiCh;
-	u32 mhiEpBitMask0;
-	u32 mhiEpBitMask1;
+	u32 chDir: 5;
+	u32 reserved0: 3;
+	u32 pipeNum: 8;
+	u32 chNo: 8;
+	u32 monitored: 1;
+	u32 reserved1: 7;
 }__packed;
 
 enum mhi_chan_type {
