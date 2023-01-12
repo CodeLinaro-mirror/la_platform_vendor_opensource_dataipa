@@ -5860,7 +5860,6 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_TX_INSTANCE_DL },
 
 	/* IPA_6_0 */
-	//ADD Test clients, verify with sivan again, different params for tests clients
 
 	[IPA_6_0][IPA_CLIENT_USB_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
@@ -5869,12 +5868,12 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 0 , 14 , 8, 16, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_NA },
-	[IPA_6_0][IPA_CLIENT_WLAN1_PROD] = {
+	[IPA_6_0][IPA_CLIENT_WLAN2_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
-			false,
+			true,
 			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
 			QMB_MASTER_SELECT_DDR,
-			{ 1 , 0, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2},
+			{ 1 , 0, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_APPS_WAN_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
@@ -5904,7 +5903,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 5, 9, 28, 32, IPA_EE_Q6, GSI_FREE_PRE_FETCH, 3 },
 			IPA_TX_INSTANCE_NA },
-	[IPA_6_0][IPA_CLIENT_WLAN2_PROD] ={
+	[IPA_6_0][IPA_CLIENT_WLAN3_PROD] ={
 			true,   IPA_v6_0_GROUP_UL,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
@@ -5912,13 +5911,6 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 6 , 15, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_USB2_PROD] = {
-			true,   IPA_v6_0_GROUP_UL,
-			true,
-			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_UCP,
-			QMB_MASTER_SELECT_DDR,
-			{ 7 , 16, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_NA },
-	[IPA_6_0][IPA_CLIENT_WLAN2_PROD1] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_UCP,
@@ -5960,13 +5952,22 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 9 , 18, 25, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 4},
 			IPA_TX_INSTANCE_NA },
-	[IPA_6_0][IPA_CLIENT_WLAN3_PROD] ={
+	[IPA_6_0][IPA_CLIENT_WLAN2_PROD1] ={
 			true,   IPA_v6_0_GROUP_UL,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
 			QMB_MASTER_SELECT_DDR,
-			{ 10 , 5, 10 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			{ 10 , 5, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+
+	[IPA_6_0][IPA_CLIENT_WLAN3_PROD1] = {
+			true, IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			QMB_MASTER_SELECT_DDR,
+			{ 11, 37, 28, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_NA },
+
 	[IPA_6_0][IPA_CLIENT_IPSEC_DECAP_PROD] ={
 			true,   IPA_v6_0_GROUP_DL,
 			true,
@@ -6121,7 +6122,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 34, 3 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0][IPA_CLIENT_WLAN2_CONS1] = {
+	[IPA_6_0][IPA_CLIENT_WLAN3_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
