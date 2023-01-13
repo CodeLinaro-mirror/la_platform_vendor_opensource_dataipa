@@ -131,6 +131,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_SET_DSCP),
 	__stringify(IPA_HDR_PROC_EoGRE_HEADER_ADD),
 	__stringify(IPA_HDR_PROC_EoGRE_HEADER_REMOVE),
+	__stringify(IPA_HDR_PROC_WWAN_TO_ETHII_EX),
 };
 
 static struct dentry *dent;
@@ -1297,6 +1298,27 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 			entry->id,
 			ipa3_hdr_proc_type_name[entry->type],
 			ofst_words);
+		if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
+			nbytes += scnprintf(dbg_buff + nbytes,
+				IPA_MAX_MSG_LEN - nbytes,
+				"input_ethhdr_negative_offset:%u\n"
+				"output_ethhdr_negative_offset:%u\n"
+				"output_dscp_pcp_update:%u\n",
+				entry->generic_params.input_ethhdr_negative_offset,
+				entry->generic_params.output_ethhdr_negative_offset,
+				entry->generic_params.output_dscp_pcp_update);
+		} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
+			nbytes += scnprintf(dbg_buff + nbytes,
+				IPA_MAX_MSG_LEN - nbytes,
+				"input_ethhdr_negative_offset:%u\n"
+				"output_ethhdr_negative_offset:%u\n"
+				"output_dscp_pcp_update:%u\n"
+				"input_ethhdr_valid:%u\n",
+				entry->generic_params_v2.input_ethhdr_negative_offset,
+				entry->generic_params_v2.output_ethhdr_negative_offset,
+				entry->generic_params_v2.output_dscp_pcp_update,
+				entry->generic_params_v2.input_ethhdr_valid);
+		}
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"hdr[words]:%u\n",
@@ -3224,6 +3246,32 @@ static ssize_t ipa3_read_ipa_max_napi_sort_page_thrshld(struct file *file,
 
 }
 
+static ssize_t ipa3_read_ipa_dscp_pcp_mapping_cache(struct file *file,
+	char __user *buf, size_t count, loff_t *ppos) {
+
+	int nbytes, i;
+	int cnt = 0;
+
+	if (ipa3_ctx->dscp_pcp_map_info_cache.add) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"DSCP PCP Mapping present in uc\n |DSCP| - |PCP|\n");
+		cnt += nbytes;
+
+		for (i = 0; i < IPA_UC_MAX_DSCP_VAL; i++) {
+			nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN - cnt,
+				"%3d   -   %d\n", i, ipa3_ctx->dscp_pcp_map_info_cache.dscp_pcp_map[i]);
+			cnt += nbytes;
+		}
+	} else {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"DSCP PCP Mapping not present in uc\n");
+		cnt += nbytes;
+	}
+
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, cnt);
+
+}
+
 static ssize_t ipa3_write_ipa_max_napi_sort_page_thrshld(struct file *file,
 	const char __user *buf, size_t count, loff_t *ppos) {
 
@@ -3692,6 +3740,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		"ipa_max_napi_sort_page_thrshld", IPA_READ_WRITE_MODE, NULL, {
 			.read = ipa3_read_ipa_max_napi_sort_page_thrshld,
 			.write = ipa3_write_ipa_max_napi_sort_page_thrshld,
+		}
+	}, {
+		"ipa_dscp_pcp_mapping_cache", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_ipa_dscp_pcp_mapping_cache,
 		}
 #if defined(CONFIG_IPA_TSP)
 	}, {
