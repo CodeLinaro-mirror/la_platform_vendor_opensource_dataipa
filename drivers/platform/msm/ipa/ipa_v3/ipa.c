@@ -11237,6 +11237,7 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 
 	ipa3_ctx->uc_pdev = dev;
 	cb->done = true;
+	cb->next_addr = cb->va_end;
 	return 0;
 }
 
