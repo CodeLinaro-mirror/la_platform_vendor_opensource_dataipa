@@ -1,7 +1,7 @@
 ﻿// SPDX-License-Identifier: GPL-2.0-only
 /*
 * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
-* Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+* Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
 */
 
 #include <linux/types.h>	/* u32 */
@@ -3291,6 +3291,173 @@ fail:
 	return res;
 }
 
+/*Configuration used for Header Insertion IPAv6.0 Tests*/
+int configure_system_21(void)
+{
+	int res = 0;
+	struct ipa_ep_cfg ipa_ep_cfg;
+
+	struct ipa_sys_connect_params sys_in;
+	unsigned long ipa_gsi_hdl;
+	u32 ipa_pipe_num;
+
+	memset(&ipa_ep_cfg, 0, sizeof(ipa_ep_cfg));
+
+	/* configure header Insertion on Tx */
+
+
+	/* Connect IPA -> first Rx GSI */
+	memset(&ipa_ep_cfg, 0, sizeof(ipa_ep_cfg));
+
+	/* ETH_HLEN(14) + VLAN_HLEN(4) = 18 */
+	ipa_ep_cfg.hdr.hdr_len =
+			ETH_HLEN + VLAN_HLEN;
+	/* Length of Header to add / to remove */
+	ipa_ep_cfg.hdr.hdr_additional_const_len
+		= IPA_TEST_HDI_802_ADD_CONST_LENGTH;
+	/* constant length that should be added
+	 * to the payload length
+	   or IPA to update correctly the
+	   length field within the header */
+	ipa_ep_cfg.hdr.hdr_ofst_pkt_size_valid
+		= IPA_TEST_HDI_802_LENGTH_FIELD_OFFSET_VALID;
+	/*0: Hdr_Ofst_Pkt_Size  value is invalid, i.e.,
+	 no length field within the inserted header
+	 1: Hdr_Ofst_Pkt_Size  value is valid, i.e.
+	  a packet length field resides within the header*/
+	ipa_ep_cfg.hdr.hdr_ofst_pkt_size
+		= IPA_TEST_HDI_802_LENGTH_FIELD_OFFSET;
+	/* Offset within header in which packet size reside.
+	   Upon Header Insertion, IPA will update this field
+	   within the header with the packet length.
+	   Assumption is that header length field size is constant
+	   and is 2Bytes */
+		/* Connect second Rx IPA --> APPS MEM */
+
+	/* Connect first Rx IPA --> APPS MEM */
+	memset(&sys_in, 0, sizeof(sys_in));
+	sys_in.client = IPA_CLIENT_TEST2_CONS;
+	sys_in.ipa_ep_cfg = ipa_ep_cfg;
+	if (ipa3_sys_setup(&sys_in, &ipa_gsi_hdl, &ipa_pipe_num,
+			&from_ipa_devs[0]->ipa_client_hdl, false))
+		goto fail;
+
+	res = connect_ipa_to_apps(&from_ipa_devs[0]->ep,
+				  IPA_CLIENT_TEST2_CONS,
+				  ipa_pipe_num,
+				  ipa_gsi_hdl);
+	if (res)
+		goto fail;
+
+	memset(&ipa_ep_cfg, 0, sizeof(ipa_ep_cfg));
+	/* ETH_HLEN(14) + VLAN_HLEN(4) = 18 */
+	ipa_ep_cfg.hdr.hdr_len = ETH_HLEN + VLAN_HLEN;
+	/*Length of Header to add / to remove*/
+	ipa_ep_cfg.hdr.hdr_additional_const_len
+		= IPA_TEST_HDI_802_ADD_CONST_LENGTH;
+	/* constant length that should be added
+	 * to the payload length
+	   or IPA to update correctly the
+	   length field within the header */
+	ipa_ep_cfg.hdr.hdr_ofst_pkt_size_valid
+		= IPA_TEST_HDI_802_LENGTH_FIELD_OFFSET_VALID;
+	/*0: Hdr_Ofst_Pkt_Size  value is invalid, i.e.,
+	 no length field within the inserted header
+	 1: Hdr_Ofst_Pkt_Size  value is valid, i.e.
+	  a packet length field resides within the header*/
+	ipa_ep_cfg.hdr.hdr_ofst_pkt_size
+		= IPA_TEST_HDI_802_LENGTH_FIELD_OFFSET;
+	/* Offset within header in which packet size reside.
+	   Upon Header Insertion, IPA will update this field
+	   within the header with the packet length.
+	   Assumption is that header length field size is constant
+	   and is 2Bytes */
+		/* Connect second Rx IPA --> APPS MEM */
+	memset(&sys_in, 0, sizeof(sys_in));
+	sys_in.client = IPA_CLIENT_TEST3_CONS;
+	sys_in.ipa_ep_cfg = ipa_ep_cfg;
+	if (ipa3_sys_setup(&sys_in, &ipa_gsi_hdl,
+				&ipa_pipe_num,
+				&from_ipa_devs[1]->ipa_client_hdl,
+				false))
+		goto fail;
+
+	res = connect_ipa_to_apps(&from_ipa_devs[1]->ep,
+				  IPA_CLIENT_TEST3_CONS,
+				  ipa_pipe_num,
+				  ipa_gsi_hdl);
+	if (res)
+		goto fail;
+
+	/* Connect IPA -> third (default) Rx GSI */
+	memset(&ipa_ep_cfg, 0, sizeof(ipa_ep_cfg));
+	/* ETH_HLEN(14) + VLAN_HLEN(4) = 18 */
+	ipa_ep_cfg.hdr.hdr_len
+		= ETH_HLEN + VLAN_HLEN;
+	/* Length of Header to add / to remove */
+	ipa_ep_cfg.hdr.hdr_additional_const_len
+		= IPA_TEST_HDI_802_ADD_CONST_LENGTH+1;
+	/*  constant length that should be
+	 *  added to the payload length
+		or IPA to update correctly the length
+		field within the header */
+	ipa_ep_cfg.hdr.hdr_ofst_pkt_size_valid
+		= IPA_TEST_HDI_802_LENGTH_FIELD_OFFSET_VALID;
+	/* 0: Hdr_Ofst_Pkt_Size  value is invalid, i.e.,
+	   no length field within the inserted header
+	   1: Hdr_Ofst_Pkt_Size  value is valid, i.e.,
+	   a packet length field resides within the header */
+	ipa_ep_cfg.hdr.hdr_ofst_pkt_size
+		= IPA_TEST_HDI_802_LENGTH_FIELD_OFFSET;
+	/* Offset within header in which packet size reside.
+	 * Upon Header Insertion, IPA will update this field
+	 * within the header with the packet length .
+	 * Assumption is that header length field size is constant
+	 * and is 2Bytes */
+	/* Connect third (Default) Rx IPA --> APPS MEM */
+	memset(&sys_in, 0, sizeof(sys_in));
+	sys_in.client = IPA_CLIENT_TEST4_CONS;
+	sys_in.ipa_ep_cfg = ipa_ep_cfg;
+	if (ipa3_sys_setup(&sys_in, &ipa_gsi_hdl,
+			&ipa_pipe_num, &from_ipa_devs[2]->ipa_client_hdl, false))
+		goto fail;
+
+	res = connect_ipa_to_apps(&from_ipa_devs[2]->ep,
+				  IPA_CLIENT_TEST4_CONS,
+				  ipa_pipe_num,
+				  ipa_gsi_hdl);
+
+	if (res)
+		goto fail;
+
+	/* Connect Tx GSI -> IPA */
+	/* Prepare an endpoint configuration structure */
+	res = configure_ipa_endpoint(&ipa_ep_cfg, IPA_BASIC);
+	if (res)
+		goto fail;
+
+	memset(&sys_in, 0, sizeof(sys_in));
+	sys_in.client = IPA_CLIENT_TEST_PROD;
+	sys_in.ipa_ep_cfg = ipa_ep_cfg;
+	if (ipa3_sys_setup(&sys_in, &ipa_gsi_hdl, &ipa_pipe_num,
+			&to_ipa_devs[0]->ipa_client_hdl, false))
+		goto fail;
+
+	/* Connect APPS MEM --> Tx IPA */
+	res = connect_apps_to_ipa(&to_ipa_devs[0]->ep,
+				  IPA_CLIENT_TEST_PROD,
+				  ipa_pipe_num,
+				  &to_ipa_devs[0]->mem,
+				  ipa_gsi_hdl);
+
+	if (res)
+		goto fail;
+
+fail:
+	/* cleanup and tear down goes here */
+	return res;
+}
+
 static char **str_split(char *str, const char *delim)
 {
 	char **res = NULL;
@@ -4074,6 +4241,66 @@ ssize_t ipa_test_write(struct file *filp, const char __user *buf,
 			from_ipa_devs[index];
 
 		ret = configure_system_20();
+		if (ret) {
+			IPATEST_ERR("System configuration failed.");
+			ret = -ENODEV;
+			goto bail;
+		}
+		break;
+
+		case 21:
+		index = 0;
+		ret = create_channel_device(index, "to_ipa",
+						&to_ipa_devs[index],
+					    TX_SZ);
+		if (ret) {
+			IPATEST_ERR("Channel device creation error.\n");
+			ret = -ENODEV;
+			goto bail;
+		}
+		ipa_test->
+				tx_channels[ipa_test->num_tx_channels++] =
+						to_ipa_devs[index];
+
+		ret = create_channel_device(index, "from_ipa",
+						&from_ipa_devs[index],
+					    RX_SZ);
+		if (ret) {
+			IPATEST_ERR("Channel device creation error.\n");
+			ret = -ENODEV;
+			goto bail;
+		}
+		ipa_test->
+				rx_channels[ipa_test->num_rx_channels++] =
+						from_ipa_devs[index];
+
+		index++;
+		ret = create_channel_device(index, "from_ipa",
+						&from_ipa_devs[index],
+					    RX_SZ);
+		if (ret) {
+			IPATEST_ERR("Channel device creation error.\n");
+			ret = -ENODEV;
+			goto bail;
+		}
+		ipa_test->
+				rx_channels[ipa_test->num_rx_channels++] =
+						from_ipa_devs[index];
+
+		index++;
+		ret = create_channel_device(index, "from_ipa",
+						&from_ipa_devs[index],
+					    RX_SZ);
+		if (ret) {
+			IPATEST_ERR("Channel device creation error.\n");
+			ret = -ENODEV;
+			goto bail;
+		}
+		ipa_test->
+				rx_channels[ipa_test->num_rx_channels++] =
+						from_ipa_devs[index];
+
+		ret = configure_system_21();
 		if (ret) {
 			IPATEST_ERR("System configuration failed.");
 			ret = -ENODEV;

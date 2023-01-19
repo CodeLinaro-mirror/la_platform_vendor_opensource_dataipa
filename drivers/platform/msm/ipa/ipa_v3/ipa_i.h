@@ -261,10 +261,12 @@ enum {
 #define IPA_HDR_BIN3 3
 #define IPA_HDR_BIN4 4
 #define IPA_HDR_BIN5 5
-#define IPA_HDR_BIN_MAX 6
+#define IPA_HDR_BIN6 6
+#define IPA_HDR_BIN_MAX 7
 
 enum hdr_tbl_storage {
 	HDR_TBL_LCL,
+	HDR_TBL_LCL_EXT,
 	HDR_TBL_SYS,
 	HDR_TBLS_TOTAL,
 };
@@ -859,6 +861,7 @@ struct ipa3_rt_tbl {
  * @user_deleted: is the header deleted by the user?
  * @ipacm_installed: indicate if installed by ipacm
  * @is_lcl: is the entry in the SRAM?
+ * @in_apps_headers_ext: header is in headers extension section in SRAM?
  */
 struct ipa3_hdr_entry {
 	struct list_head link;
@@ -877,6 +880,7 @@ struct ipa3_hdr_entry {
 	bool user_deleted;
 	bool ipacm_installed;
 	bool is_lcl;
+	bool in_apps_headers_ext;
 };
 
 /**
@@ -2809,6 +2813,8 @@ struct ipa3_plat_drv_res {
  * +-------------------------+
  * |  APPS HDR (IPA4.5)      |
  * +-------------------------+
+ * |  APPS HDR Ext(IPA6.0)   |
+ * +-------------------------+
  * |    CANARY               |
  * +-------------------------+
  * |    CANARY               |
@@ -2906,6 +2912,8 @@ struct ipa3_mem_partition {
 	u32 apps_hdr_ofst;
 	u32 apps_hdr_size;
 	u32 apps_hdr_size_ddr;
+	u32 apps_hdr_ext_ofst;
+	u32 apps_hdr_ext_size;
 	u32 modem_hdr_proc_ctx_ofst;
 	u32 modem_hdr_proc_ctx_size;
 	u32 apps_hdr_proc_ctx_ofst;

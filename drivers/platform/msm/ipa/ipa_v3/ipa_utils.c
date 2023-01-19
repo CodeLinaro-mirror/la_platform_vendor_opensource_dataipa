@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <net/ip.h>
@@ -8798,8 +8798,10 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.modem_hdr_ofst = 0x1aa8,
 	.modem_hdr_size = 0x240,
 	.apps_hdr_ofst = 0x1ce8,
-	.apps_hdr_size = 0x7ff,
+	.apps_hdr_size = 0x5bf,
 	.apps_hdr_size_ddr = 0x7ff,
+	.apps_hdr_ext_ofst = 0x22a8,
+	.apps_hdr_ext_size = 0x1354,
 	.modem_hdr_proc_ctx_ofst = 0x3600,
 	.modem_hdr_proc_ctx_size = 0xb20,
 	.apps_hdr_proc_ctx_ofst = 0x4120,
@@ -12256,13 +12258,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 	 * The calculation:
 	 * The hdr_offset field in the routing rule hw is 9 bits,
 	 * The offsets are in 4 bytes jump so 2^9 * 2^2 = 2^11 */
-	if (IPA_MEM_PART(apps_hdr_size) > 0x7FF) {
-		IPAERR("APPS HDR SIZE 0x%x is too big\n",
-			IPA_MEM_PART(apps_hdr_size));
-		return -ENODEV;
-	}
-
-	if (IPA_MEM_PART(apps_hdr_size_ddr) > 0x7FF) {
+	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (IPA_MEM_PART(apps_hdr_size_ddr) > 0x7FF)) {
 		IPAERR("APPS HDR DDR SIZE 0x%x is too big\n",
 			IPA_MEM_PART(apps_hdr_size_ddr));
 		return -ENODEV;
@@ -12272,17 +12268,11 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		IPA_MEM_PART(apps_hdr_ofst), IPA_MEM_PART(apps_hdr_size),
 		IPA_MEM_PART(apps_hdr_size_ddr));
 
-	/* Max size supported of header table is 2^14 Bytes.
+	/* Max size supported of HPC table is 2^14 Bytes.
 	 * The calculation:
 	 * The hdr_offset field in the routing rule hw is 9 bits,
 	 * The offsets are in 32 bytes jump so 2^9 * 2^5 = 2^14 */
-	if (IPA_MEM_PART(apps_hdr_proc_ctx_size) > 0x3FFF) {
-		IPAERR("APPS HDR PROC CTX SIZE 0x%x is too big\n",
-			IPA_MEM_PART(apps_hdr_proc_ctx_size));
-		return -ENODEV;
-	}
-
-	if (IPA_MEM_PART(apps_hdr_proc_ctx_size_ddr) > 0x3FFF) {
+	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (IPA_MEM_PART(apps_hdr_proc_ctx_size_ddr) > 0x3FFF)) {
 		IPAERR("APPS HDR PROC CTX DDR SIZE 0x%x is too big\n",
 			IPA_MEM_PART(apps_hdr_proc_ctx_size_ddr));
 		return -ENODEV;

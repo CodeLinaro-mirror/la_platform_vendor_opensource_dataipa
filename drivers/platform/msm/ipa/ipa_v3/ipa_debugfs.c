@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -747,6 +747,8 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 	for (hdr_tbl = HDR_TBL_LCL; hdr_tbl < HDR_TBLS_TOTAL; hdr_tbl++) {
 		if (hdr_tbl == HDR_TBL_LCL)
 			pr_err("Table on local memory:\n");
+		else if (ipa3_ctx->ipa_hw_type == IPA_HW_v6_0 && hdr_tbl == HDR_TBL_LCL_EXT)
+			pr_err("Extesion table header in local memory:\n");
 		else
 			pr_err("Table on system (ddr) memory:\n");
 
@@ -1125,9 +1127,10 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 					i, entry->rule.dst,
 					ipa3_get_ep_mapping(entry->rule.dst),
 					!(entry->hdr && entry->hdr->is_lcl));
-				pr_err("hdr_ofst[words]:%u attrib_mask:%08x ",
+				pr_err("hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u",
 					ofst >> 2,
-					entry->rule.attrib.attrib_mask);
+					entry->rule.attrib.attrib_mask,
+					(entry->hdr && entry->hdr->in_apps_headers_ext));
 			}
 			pr_err("rule_id:%u max_prio:%u prio:%u ",
 				entry->rule_id, entry->rule.max_prio,

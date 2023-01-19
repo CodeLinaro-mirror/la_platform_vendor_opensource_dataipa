@@ -5907,6 +5907,15 @@ int _ipa_init_hdr_v3_0(void)
 	int i;
 
 	mem.size = IPA_MEM_PART(modem_hdr_size) + IPA_MEM_PART(apps_hdr_size);
+	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (mem.size > 0x7FF)) {
+	/* Max size supported of header table for is 2^11 Bytes.
+	 * The calculation:
+	 * The hdr_offset field in the routing rule hw is 9 bits,
+	 * The offsets are in 4 bytes jump so 2^9 * 2^2 = 2^11 */
+		IPAERR("HDR Table SIZE SRAM 0x%x is too big\n", mem.size);
+		return -ENOMEM;
+	}
+
 	mem.base = dma_alloc_coherent(ipa3_ctx->pdev, mem.size, &mem.phys_base,
 		GFP_KERNEL);
 	if (!mem.base) {
@@ -5974,6 +5983,15 @@ int _ipa_init_hdr_v3_0(void)
 
 	mem.size = IPA_MEM_PART(modem_hdr_proc_ctx_size) +
 		IPA_MEM_PART(apps_hdr_proc_ctx_size);
+	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (mem.size > 0x3FFF)) {
+	/* Max size supported of HPC table is 2^14 Bytes.
+	 * The calculation:
+	 * The hdr_offset field in the routing rule hw is 9 bits,
+	 * The offsets are in 32 bytes jump so 2^9 * 2^5 = 2^14 */
+		IPAERR("HPC Table SIZE SRAM 0x%x is too big\n", mem.size);
+		return -ENOMEM;
+	}
+
 	mem.base = dma_alloc_coherent(ipa3_ctx->pdev, mem.size, &mem.phys_base,
 		GFP_KERNEL);
 	if (!mem.base) {
@@ -6397,7 +6415,11 @@ static int ipa3_setup_apps_pipes(void)
 	IPADBG("SRAM initialized\n");
 
 	IPADBG("Will initialize HDR\n");
-	ipa3_ctx->ctrl->ipa_init_hdr();
+	result = ipa3_ctx->ctrl->ipa_init_hdr();
+	if (result) {
+		IPAERR("failed to initialize HDR.\n");
+		goto fail_ch20_wa;
+	}
 	IPADBG("HDR initialized\n");
 
 	IPADBG("Will initialize V4 RT\n");
