@@ -56,10 +56,6 @@
  *                                 monitor.
  * IPA_CPU_2_HW_CMD_DISABLE_HOLB_MONITOR: Command to disable HOLB monitoring.
  * IPA_CPU_2_HW_CMD_ADD_EOGRE_MAPPING: Command to create/update GRE mapping
- * IPA_CPU_2_HW_CMD_ADD_DSCP_PCP_MAPPING: Command to Add DSCP PCP mapping for
- *                                  easymesh service prioritization.
- * IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING: Command to Delete DSCP PCP mapping for
- *                                  easymesh service prioritization.
  */
 enum ipa3_cpu_2_hw_commands {
 	IPA_CPU_2_HW_CMD_NO_OP                     =
@@ -104,10 +100,6 @@ enum ipa3_cpu_2_hw_commands {
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 20),
 	IPA_CPU_2_HW_CMD_ADD_EOGRE_MAPPING             =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 21),
-	IPA_CPU_2_HW_CMD_ADD_DSCP_PCP_MAPPING       =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 22),
-	IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING       =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 23),
 };
 
 /**
@@ -231,18 +223,6 @@ union IpaSetupEventRingCmdData_t {
 struct IpaHwDbAddrInfo_t {
 	u32 remoteIPAAddr;
 	uint32_t mboxN;
-} __packed;
-
-
-/**
- * Structure holding the parameters for IPA_CPU_2_HW_CMD_ADD_DSCP_PCP_MAPPING
- * and IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING command.
- * @dscp_pcp_map: DSCP <6 bits> and PCP <3 bits>.
- *                Only 3 bits are valid(0-7) for PCP.
- *                DSCP is used as index (0-63).
- */
-struct IpaDscpPcpMap_t {
-	uint8_t dscp_pcp_map[IPA_UC_MAX_DSCP_VAL];
 } __packed;
 
 /**
@@ -2064,66 +2044,6 @@ int ipa3_add_dscp_vlan_pcp_map(
 
 free_coherent:
 	dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
-
-	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-
-	return res;
-}
-
-/**
- * ipa3_add_dscp_pcp_map() - Feed "DSCP <-> PCP" mapping into the IPA uC
- * @map: The mapping data destined for the uC
- *
- * Returns: 0 on success, negative on failure
- */
-int ipa3_add_remove_dscp_pcp_map(
-	uint8_t *map, bool AddMapping )
-{
-	struct ipa_mem_buffer mem;
-	struct IpaDscpPcpMap_t *cmd;
-	int res;
-
-	if (!map) {
-		IPAERR("null argument (ie. map) passed\n");
-		return -EINVAL;
-	}
-
-	IPADBG("DSCP <-> PCP %s attempt\n", (AddMapping)?"Add":"Delete");
-
-	if (AddMapping) {
-		mem.size = sizeof(struct IpaDscpPcpMap_t);
-
-		mem.base = dma_alloc_coherent(
-		ipa3_ctx->uc_pdev, mem.size,
-		&mem.phys_base, GFP_KERNEL);
-
-		if (!mem.base) {
-			IPAERR("Fail to alloc DMA buff of size %d\n", mem.size);
-			return -ENOMEM;
-		}
-
-		cmd = (struct IpaDscpPcpMap_t *) mem.base;
-
-		memcpy(cmd, map, sizeof(struct IpaDscpPcpMap_t));
-
-		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-		res = ipa3_uc_send_cmd(
-			(u32) mem.phys_base,
-			IPA_CPU_2_HW_CMD_ADD_DSCP_PCP_MAPPING,
-			0, true, 10 * HZ);
-
-		dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
-	} else {
-		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-		res = ipa3_uc_send_cmd(
-			0, IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING,
-			0, true, 10 * HZ);
-	}
-
-	if (res)
-		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
-	else
-		IPADBG("DSCP <-> PCP %s Success\n", (AddMapping)?"Add":"Delete");
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
