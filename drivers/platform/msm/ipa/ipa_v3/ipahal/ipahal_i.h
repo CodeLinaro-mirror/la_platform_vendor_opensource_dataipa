@@ -912,7 +912,6 @@ union ipa_pkt_status_hw_v5_0 {
 #define IPA_HDR_UCP_EoGRE_HEADER_REMOVE    18
 #define IPA_HDR_UCP_MPLSoGRE_HEADER_ADD    19
 #define IPA_HDR_UCP_MPLSoGRE_HEADER_REMOVE 20
-#define IPA_HDR_UCP_WWAN_TO_ETHII_EX       26
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0
@@ -1047,31 +1046,6 @@ struct ipa_hw_hdr_proc_ctx_add_hdr_ex {
 struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hw_hdr_proc_ctx_add_hdr_ex hdr_add_ex;
-	struct ipa_hw_hdr_proc_ctx_tlv end;
-};
-
-
-/**
- * struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_ex -
- * HW structure of IPA processing context - add generic header
- * @tlv: IPA processing context TLV
- * @params: generic eth2 to eth2 parameters
- */
-struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_ex {
-	struct ipa_hw_hdr_proc_ctx_tlv tlv;
-	struct ipa_wwan_to_eth_II_ex_procparams params;
-};
-
-/**
- * struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_cmd_seq_ex -
- * IPA processing context header - process command sequence
- * @hdr_add: add header command
- * @params: params for header generic header v2 add(for wwan_ethII)
- * @end: tlv end command (cmd.type must be 0)
- */
-struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_cmd_seq_ex {
-	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
-	struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_ex hdr_add_ex;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 
