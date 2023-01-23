@@ -780,13 +780,13 @@ int ipa_get_quota_stats(struct ipa_quota_stats_all *out)
 		if (ipa3_ctx->ep[ep_idx].client != i)
 			continue;
 
-		ipa3_ctx->hw_stats->quota.stats.client[i].num_ipv4_bytes +=
+		ipa3_ctx->hw_stats->quota.stats.client[ep_idx].num_ipv4_bytes +=
 			stats->stats[ep_idx].num_ipv4_bytes;
-		ipa3_ctx->hw_stats->quota.stats.client[i].num_ipv4_pkts +=
+		ipa3_ctx->hw_stats->quota.stats.client[ep_idx].num_ipv4_pkts +=
 			stats->stats[ep_idx].num_ipv4_pkts;
-		ipa3_ctx->hw_stats->quota.stats.client[i].num_ipv6_bytes +=
+		ipa3_ctx->hw_stats->quota.stats.client[ep_idx].num_ipv6_bytes +=
 			stats->stats[ep_idx].num_ipv6_bytes;
-		ipa3_ctx->hw_stats->quota.stats.client[i].num_ipv6_pkts +=
+		ipa3_ctx->hw_stats->quota.stats.client[ep_idx].num_ipv6_pkts +=
 			stats->stats[ep_idx].num_ipv6_pkts;
 	}
 
@@ -809,6 +809,7 @@ int ipa_reset_quota_stats(enum ipa_client_type client)
 {
 	int ret;
 	struct ipa_quota_stats *stats;
+	int ep_idx;
 
 	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
 		return 0;
@@ -825,8 +826,9 @@ int ipa_reset_quota_stats(enum ipa_client_type client)
 		return ret;
 	}
 
+	ep_idx = ipa3_get_ep_mapping(client);
 	/* reset driver's cache */
-	stats = &ipa3_ctx->hw_stats->quota.stats.client[client];
+	stats = &ipa3_ctx->hw_stats->quota.stats.client[ep_idx];
 	memset(stats, 0, sizeof(*stats));
 	return 0;
 }
@@ -903,7 +905,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	/* reset driver's cache */
 	memset(&ipa3_ctx->hw_stats->teth.init, 0,
 		sizeof(ipa3_ctx->hw_stats->teth.init));
-	for (i = 0; i < IPA_CLIENT_MAX; i++) {
+	for (i = 0; i < IPA5_PIPES_NUM; i++) {
 		memset(&ipa3_ctx->hw_stats->teth.prod_stats_sum[i], 0,
 			sizeof(ipa3_ctx->hw_stats->teth.prod_stats_sum[i]));
 		memset(&ipa3_ctx->hw_stats->teth.prod_stats[i], 0,
@@ -1176,7 +1178,7 @@ int ipa_get_teth_stats(void)
 	}
 
 	/* reset prod_stats cache */
-	for (i = 0; i < IPA_CLIENT_MAX; i++) {
+	for (i = 0; i < IPA5_PIPES_NUM; i++) {
 		memset(&ipa3_ctx->hw_stats->teth.prod_stats[i], 0,
 			sizeof(ipa3_ctx->hw_stats->teth.prod_stats[i]));
 	}
@@ -1221,7 +1223,7 @@ int ipa_get_teth_stats(void)
 
 				/* update stats*/
 				quota_stats =
-					&sw_stats->prod_stats[i].client[j];
+					&sw_stats->prod_stats[prod_idx].client[cons_idx];
 				quota_stats->num_ipv4_bytes =
 					stats->num_ipv4_bytes;
 				quota_stats->num_ipv4_pkts =
@@ -1233,7 +1235,7 @@ int ipa_get_teth_stats(void)
 
 				/* Accumulated stats */
 				quota_stats =
-					&sw_stats->prod_stats_sum[i].client[j];
+					&sw_stats->prod_stats_sum[prod_idx].client[cons_idx];
 				quota_stats->num_ipv4_bytes +=
 					stats->num_ipv4_bytes;
 				quota_stats->num_ipv4_pkts +=
@@ -1262,6 +1264,8 @@ free_dma_mem:
 int ipa_query_teth_stats(enum ipa_client_type prod,
 	struct ipa_quota_stats_all *out, bool reset)
 {
+	int ipa_ep_idx;
+
 	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
 		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
@@ -1271,11 +1275,12 @@ int ipa_query_teth_stats(enum ipa_client_type prod,
 		return -EINVAL;
 	}
 
+	ipa_ep_idx = ipa3_get_ep_mapping(prod);
 	/* copy results to out parameter */
 	if (reset)
-		*out = ipa3_ctx->hw_stats->teth.prod_stats[prod];
+		*out = ipa3_ctx->hw_stats->teth.prod_stats[ipa_ep_idx];
 	else
-		*out = ipa3_ctx->hw_stats->teth.prod_stats_sum[prod];
+		*out = ipa3_ctx->hw_stats->teth.prod_stats_sum[ipa_ep_idx];
 	return 0;
 }
 
@@ -1283,6 +1288,7 @@ int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons)
 {
 	int ret;
 	struct ipa_quota_stats *stats;
+	int prod_ep_idx, cons_ep_idx;
 
 	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
 		ipa3_ctx->hw_stats->teth_stats_enabled))
@@ -1293,6 +1299,8 @@ int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons)
 		return -EINVAL;
 	}
 
+	prod_ep_idx = ipa3_get_ep_mapping(prod);
+	cons_ep_idx = ipa3_get_ep_mapping(cons);
 	/* reading stats will reset them in hardware */
 	ret = ipa_get_teth_stats();
 	if (ret) {
@@ -1301,7 +1309,7 @@ int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons)
 	}
 
 	/* reset driver's cache */
-	stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[prod].client[cons];
+	stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[prod_ep_idx].client[cons_ep_idx];
 	memset(stats, 0, sizeof(*stats));
 	return 0;
 }
@@ -1311,6 +1319,7 @@ int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod)
 	int ret;
 	int i;
 	struct ipa_quota_stats *stats;
+	int ipa_ep_idx;
 
 	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
 		ipa3_ctx->hw_stats->teth_stats_enabled))
@@ -1321,6 +1330,7 @@ int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod)
 		return -EINVAL;
 	}
 
+	ipa_ep_idx = ipa3_get_ep_mapping(prod);
 	/* reading stats will reset them in hardware */
 	ret = ipa_get_teth_stats();
 	if (ret) {
@@ -1329,8 +1339,8 @@ int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod)
 	}
 
 	/* reset driver's cache */
-	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[prod].client[i];
+	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[ipa_ep_idx].client[i];
 		memset(stats, 0, sizeof(*stats));
 	}
 
@@ -1361,7 +1371,7 @@ int ipa_reset_all_teth_stats(void)
 	}
 
 	/* reset driver's cache */
-	for (i = 0; i < IPA_CLIENT_MAX; i++) {
+	for (i = 0; i < IPA5_PIPES_NUM; i++) {
 		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[i];
 		memset(stats, 0, sizeof(*stats));
 	}
@@ -2337,19 +2347,19 @@ static ssize_t ipa_debugfs_print_quota_stats(struct file *file,
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"num_ipv4_bytes=%llu\n",
-			out->client[i].num_ipv4_bytes);
+			out->client[ep_idx].num_ipv4_bytes);
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"num_ipv6_bytes=%llu\n",
-			out->client[i].num_ipv6_bytes);
+			out->client[ep_idx].num_ipv6_bytes);
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"num_ipv4_pkts=%u\n",
-			out->client[i].num_ipv4_pkts);
+			out->client[ep_idx].num_ipv4_pkts);
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"num_ipv6_pkts=%u\n",
-			out->client[i].num_ipv6_pkts);
+			out->client[ep_idx].num_ipv6_pkts);
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"\n");
@@ -2456,19 +2466,19 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"num_ipv4_bytes=%llu\n",
-				out->client[j].num_ipv4_bytes);
+				out->client[cons_idx].num_ipv4_bytes);
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"num_ipv6_bytes=%llu\n",
-				out->client[j].num_ipv6_bytes);
+				out->client[cons_idx].num_ipv6_bytes);
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"num_ipv4_pkts=%u\n",
-				out->client[j].num_ipv4_pkts);
+				out->client[cons_idx].num_ipv4_pkts);
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"num_ipv6_pkts=%u\n",
-				out->client[j].num_ipv6_pkts);
+				out->client[cons_idx].num_ipv6_pkts);
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"\n");
