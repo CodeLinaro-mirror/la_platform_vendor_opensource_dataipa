@@ -9119,9 +9119,14 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 
 	init_mode.dst_pipe_number = ipa3_ctx->ep[clnt_hdl].dst_pipe_index;
 	init_mode.ep_mode = *ep_mode;
-	if (IPA_CLIENT_IS_ETH_PROD(ep_mode->dst) ||
-		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD)
+
+	/* Enabling HW replication for eth clients */
+	if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
+		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
 		init_mode.replication_en = 1;
+		IPADBG("Enabling HW replication on pipe=%d\n",
+			clnt_hdl);
+	}
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
 	 /* Configure sequencers type for test clients*/
@@ -14532,4 +14537,33 @@ void ipa3_notify_ipacm_eth_pdu_enable()
 
 	if (res)
 		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+}
+
+void ipa3_set_eth_pdu_ep_status()
+{
+	struct ipa3_ep_context *ep;
+
+	if (!ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
+	{
+		IPAERR("ETH PDU pipe is not connected yet\n");
+		return;
+	}
+
+	IPADBG("Enabling status for ETH_PDU RX pipe\n");
+	/*
+	 * enable source notification status for exception packets
+	 * (i.e. QMAP commands) to be routed to modem.
+	 */
+	ep->status.status_en = true;
+	ep->status.status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+	/* Enable status supression to disable sending status for
+	 * every packet.
+	 */
+	ep->status.status_pkt_suppress = true;
+
+	if (ipa3_cfg_ep_status(ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id,
+		&ep->status)) {
+		IPAERR("fail to configure status of EP.\n");
+		return;
+	}
 }

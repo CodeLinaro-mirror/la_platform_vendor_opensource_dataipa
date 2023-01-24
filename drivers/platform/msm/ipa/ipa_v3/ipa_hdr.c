@@ -109,6 +109,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(struct ipa_mem_buffer *mem,
 				&entry->l2tp_params,
 				&entry->eogre_params,
 				&entry->generic_params,
+				&entry->generic_params_v2,
 				ipa3_ctx->use_64_bit_dma_mask);
 		if (ret)
 			return ret;
@@ -460,6 +461,7 @@ static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
 	entry->l2tp_params = proc_ctx->l2tp_params;
 	entry->eogre_params = proc_ctx->eogre_params;
 	entry->generic_params = proc_ctx->generic_params;
+	entry->generic_params_v2 = proc_ctx->generic_params_v2;
 	if (add_ref_hdr)
 		hdr_entry->ref_cnt++;
 	entry->cookie = IPA_PROC_HDR_COOKIE;
@@ -603,9 +605,9 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 				if (entry_out) {
 					IPAERR_RL("return old entry len=%d hdl=%d\n",
 						entry_t->hdr_len, entry_t->id);
-					hdr->hdr_hdl = entry_t->id;
 					*entry_out = entry_t;
 				}
+				hdr->hdr_hdl = entry_t->id;
 				kmem_cache_free(ipa3_ctx->hdr_cache, entry);
 				return 0;
 			}

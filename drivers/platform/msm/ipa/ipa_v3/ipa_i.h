@@ -910,6 +910,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
+	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -2549,6 +2550,7 @@ struct ipa3_context {
 	bool buff_above_thresh_for_coal_pipe_notified;
 	bool buff_below_thresh_for_def_pipe_notified;
 	bool buff_below_thresh_for_coal_pipe_notified;
+	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info_cache;
 	u8 mhi_ctrl_state;
 	bool is_mhi_coal_set;
 	struct mutex mhi_lock;
@@ -3821,6 +3823,11 @@ int ipa_send_mhi_coal_endp_ind_to_modem(bool check_if_modem_is_up);
  * To pass macsec mapping to the IPACM
  */
 int ipa3_send_macsec_info(enum ipa_macsec_event event_type, struct ipa_macsec_map *map);
+/*
+ * To send map information to uC
+ */
+int ipa3_add_remove_dscp_pcp_map(
+	uint8_t *map, bool AddMapping );
 
 /* Peripheral stats APIs */
 /* Non periodic/Event based stats update */
@@ -3836,6 +3843,6 @@ int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t dat
 void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
-
+void ipa3_set_eth_pdu_ep_status(void);
 
 #endif /* _IPA3_I_H_ */

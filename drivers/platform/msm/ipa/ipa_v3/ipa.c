@@ -766,8 +766,6 @@ struct iommu_domain *ipa3_get_smmu_domain_by_type(enum ipa_smmu_cb_type cb_type)
 	if (VALID_IPA_SMMU_CB_TYPE(cb_type) && smmu_cb[cb_type].valid)
 		return smmu_cb[cb_type].iommu_domain;
 
-	IPAERR("cb_type(%d) not valid\n", cb_type);
-
 	return NULL;
 }
 
@@ -2737,6 +2735,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_eogre_info eogre_info;
 	struct ipa_ioc_macsec_info macsec_info;
 	struct ipa_macsec_map *macsec_map;
+	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 	struct ipa_ioc_ext_router_info *ext_router_info;
 	bool send2uC, send2ipacm;
 	size_t sz;
@@ -4177,7 +4176,31 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPA_MACSEC_ADD_EVENT : IPA_MACSEC_DEL_EVENT,
 			macsec_map);
 		break;
+	case IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING:
+		IPADBG("Got IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING\n");
 
+		memset(&dscp_pcp_map_info, 0, sizeof(dscp_pcp_map_info));
+
+		if (copy_from_user(&dscp_pcp_map_info, (const void __user *) arg,
+			sizeof(struct ipa_ioc_dscp_pcp_map_info))) {
+			IPAERR_RL("copy_from_user for dscp_pcp_map_info fails\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		IPADBG("DSCP<->PCP map %s \n",(dscp_pcp_map_info.add)?"addition":"deletion");
+
+		if(ipa3_add_remove_dscp_pcp_map(&dscp_pcp_map_info.dscp_pcp_map[0],
+			dscp_pcp_map_info.add)) {
+			IPAERR_RL("DSCP<->PCP map %s failed\n",
+				(dscp_pcp_map_info.add)?"addition":"deletion");
+			retval = -EFAULT;
+			break;
+		}
+		/* Caching Mapping if succesful */
+		memcpy(&ipa3_ctx->dscp_pcp_map_info_cache, &dscp_pcp_map_info, sizeof(dscp_pcp_map_info));
+
+		break;
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
 
@@ -6643,17 +6666,16 @@ void ipa3_active_clients_log_inc(struct ipa_active_client_logging_info *id,
 }
 
 /**
- * ipa3_inc_client_enable_clks() - Increase active clients counter, and
+ * ipa3_inc_client_enable_clks_no_log() - Increase active clients counter, and
  * enable ipa clocks if necessary
  *
  * Return codes:
  * None
  */
-void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
+static void ipa3_inc_client_enable_clks_no_log(void)
 {
 	int ret;
 
-	ipa3_active_clients_log_inc(id, false);
 	ret = atomic_inc_not_zero(&ipa3_ctx->ipa3_active_clients.cnt);
 	if (ret) {
 		IPADBG_LOW("active clients = %d\n",
@@ -6678,6 +6700,19 @@ void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
 	IPADBG_LOW("active clients = %d\n",
 		atomic_read(&ipa3_ctx->ipa3_active_clients.cnt));
 	mutex_unlock(&ipa3_ctx->ipa3_active_clients.mutex);
+}
+
+/**
+ * ipa3_inc_client_enable_clks() - Increase active clients counter and
+ * enable ipa clocks if necessary, log the caller
+ *
+ * Return codes:
+ * None
+ */
+void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
+{
+	ipa3_active_clients_log_inc(id, false);
+	ipa3_inc_client_enable_clks_no_log();
 }
 EXPORT_SYMBOL(ipa3_inc_client_enable_clks);
 
@@ -6783,7 +6818,23 @@ bail:
 }
 
 /**
- * ipa3_dec_client_disable_clks() - Decrease active clients counter
+ * ipa3_dec_client_disable_clks_no_log() - Decrease active clients counter
+ *
+ * In case that there are no active clients this function also starts
+ * TAG process. When TAG progress ends ipa clocks will be gated.
+ * start_tag_process_again flag is set during this function to signal TAG
+ * process to start again as there was another client that may send data to ipa
+ *
+ * Return codes:
+ * None
+ */
+static void ipa3_dec_client_disable_clks_no_log(void)
+{
+	__ipa3_dec_client_disable_clks();
+}
+
+/**
+ * ipa3_dec_client_disable_clks() - Decrease active clients counter and log caller
  *
  * In case that there are no active clients this function also starts
  * TAG process. When TAG progress ends ipa clocks will be gated.
@@ -7826,6 +7877,8 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	gsi_props.rel_clk_cb = NULL;
 	gsi_props.clk_status_cb = ipa3_active_clks_status;
 	gsi_props.enable_clk_bug_on = ipa3_handle_gsi_differ_irq;
+	gsi_props.vote_clk_cb = ipa3_inc_client_enable_clks_no_log;
+	gsi_props.unvote_clk_cb = ipa3_dec_client_disable_clks_no_log;
 
 	if (ipa3_ctx->ipa_config_is_mhi) {
 		gsi_props.mhi_er_id_limits_valid = true;
