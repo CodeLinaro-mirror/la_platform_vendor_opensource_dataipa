@@ -661,8 +661,9 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 	} else {
 		IPADBG("Skipping endpoint configuration.\n");
 		if (IPA_CLIENT_IS_PROD(ipa3_ctx->ep[ipa_ep_idx].client) &&
-			ipa3_ctx->ep[ipa_ep_idx].client == IPA_CLIENT_USB_PROD
-			&& !ipa3_is_mhip_offload_enabled()) {
+				ipa3_ctx->ep[ipa_ep_idx].client == 
+				(IPA_CLIENT_USB_PROD || IPA_CLIENT_USB2_PROD)
+				&& !ipa3_is_mhip_offload_enabled()) {
 			if (ipa3_cfg_ep_seq(ipa_ep_idx,
 						&params->ipa_ep_cfg.seq)) {
 				IPAERR("fail to configure USB pipe seq\n");
