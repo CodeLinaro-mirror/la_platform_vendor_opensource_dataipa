@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -1816,7 +1816,7 @@ struct ipa3_uc_ctx {
 	u32 ering_rp;
 	bool ipa_use_uc_holb_monitor;
 	struct ipa_holb_monitor holb_monitor;
-	struct IpaMhiCh_t curr_cmd;
+	struct IpaMhiChInfo_t curr_cmd;
 };
 
 /**
