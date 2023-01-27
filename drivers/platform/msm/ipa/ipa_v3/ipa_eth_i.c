@@ -746,11 +746,14 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		return -EFAULT;
 	}
 
-	/* don't assert bit 40 in test mode as we emulate regs on DDR not
-	 * on PICE address space */
-	bar_addr = pipe->client_info->test ?
-		pipe->info.client_info.ntn.bar_addr :
-		IPA_ETH_PCIE_SET(pipe->info.client_info.ntn.bar_addr);
+	/* Bit 40 means the address is in PCIe address space. Non-IEMAC clients' address is in
+	 * PCIe address space. IEMAC clients' address is not in PCIe address space. In test mode
+	 * we emulate regs on DDR not on PICE address space.
+	 */
+	if (!pipe->client_info->test && pipe->client_info->client_type != IPA_ETH_CLIENT_IEMAC)
+			bar_addr = IPA_ETH_PCIE_SET(pipe->info.client_info.ntn.bar_addr);
+	else
+		bar_addr = pipe->info.client_info.ntn.bar_addr;
 
 	/* setup event ring */
 	memset(&gsi_evt_ring_props, 0, sizeof(gsi_evt_ring_props));
