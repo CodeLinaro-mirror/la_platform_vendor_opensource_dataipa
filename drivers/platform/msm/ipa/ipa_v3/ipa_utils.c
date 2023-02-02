@@ -6640,7 +6640,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 28, 24, 16 , 20, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_UL },
-	[IPA_6_0_MHI][IPA_CLIENT_APPS_WAN_COAL_CONS] = {
+	[IPA_6_0_MHI][IPA_CLIENT_MHI_COAL_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
