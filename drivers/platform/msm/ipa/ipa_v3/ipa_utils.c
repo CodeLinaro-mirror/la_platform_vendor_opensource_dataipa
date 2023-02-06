@@ -4784,6 +4784,20 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 5, 8, 28, 32, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 3 },
 			IPA_TX_INSTANCE_UL },
+	[IPA_5_0][IPA_CLIENT_Q6_DL_NLO_ETH_DATA_PROD] = {
+			true, IPA_v5_0_GROUP_DL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_NO_DEC_2ND_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 5, 8, 28, 32, IPA_EE_Q6, GSI_FREE_PRE_FETCH , 3 },
+			IPA_TX_INSTANCE_NA },
+	[IPA_5_0][IPA_CLIENT_APPS_WAN_ETH_PROD] = {
+			true, IPA_v5_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 10, 5, 10, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH , 3 },
+			IPA_TX_INSTANCE_NA },
 	[IPA_5_0][IPA_CLIENT_TEST_PROD] = {
 			true, IPA_v5_0_GROUP_UL,
 			true,
@@ -7126,6 +7140,10 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(RESERVERD_CONS_123),
 	__stringify(RESERVERD_PROD_124),
 	__stringify(IPA_CLIENT_TPUT_CONS),
+	__stringify(IPA_CLIENT_Q6_DL_NLO_ETH_DATA_PROD),
+	__stringify(RESERVERD_CONS_127),
+	__stringify(IPA_CLIENT_APPS_WAN_ETH_PROD),
+	__stringify(RESERVERD_CONS_129),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -9101,6 +9119,14 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 
 	init_mode.dst_pipe_number = ipa3_ctx->ep[clnt_hdl].dst_pipe_index;
 	init_mode.ep_mode = *ep_mode;
+
+	/* Enabling HW replication for eth clients */
+	if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
+		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
+		init_mode.replication_en = 1;
+		IPADBG("Enabling HW replication on pipe=%d\n",
+			clnt_hdl);
+	}
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
 	 /* Configure sequencers type for test clients*/
@@ -14477,3 +14503,67 @@ ipa_fld_wid_off_t* get_mpls_v6_outer(enum ipa_data_flow_type flow, enum ipa_ip_t
 	return &(mpls_v6_outer[flow][ip][ex]);
 }
 #endif
+
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id = rx_idx;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id = tx_idx;
+}
+
+void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled = enable;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode = vlan;
+}
+
+void ipa3_notify_ipacm_eth_pdu_enable()
+{
+	struct ipa_msg_meta msg_meta;
+	int res = 0;
+
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = IPA_ENABLE_ETH_PDU_MODE_EVENT;
+	msg_meta.msg_len  = 0;
+
+	IPADBG("Sending ETH PDU ENABLE to IPACM\n");
+
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, NULL, NULL);
+
+	if (res)
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+}
+
+void ipa3_set_eth_pdu_ep_status()
+{
+	struct ipa3_ep_context *ep;
+
+	if (!ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
+	{
+		IPAERR("ETH PDU pipe is not connected yet\n");
+		return;
+	}
+
+	IPADBG("Enabling status for ETH_PDU RX pipe\n");
+	/*
+	 * enable source notification status for exception packets
+	 * (i.e. QMAP commands) to be routed to modem.
+	 */
+	ep->status.status_en = true;
+	ep->status.status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+	/* Enable status supression to disable sending status for
+	 * every packet.
+	 */
+	ep->status.status_pkt_suppress = true;
+
+	if (ipa3_cfg_ep_status(ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id,
+		&ep->status)) {
+		IPAERR("fail to configure status of EP.\n");
+		return;
+	}
+}

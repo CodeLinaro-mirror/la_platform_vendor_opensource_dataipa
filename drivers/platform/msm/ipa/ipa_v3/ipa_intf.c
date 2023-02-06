@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/fs.h>
@@ -474,6 +474,7 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 						sizeof(mac)) == 0) {
 						IPADBG("clean %d\n", total);
 						list_del(&entry->link);
+						entry->callback(entry->buff, entry->meta.msg_len, entry->meta.msg_type);
 						kfree(entry);
 						break;
 					}
@@ -553,6 +554,7 @@ static int lan_msg_process(struct ipa_msg_meta *meta, void *buff)
 				IPADBG("Delete event for iface index: %d\n",
 				iface_index);
 				list_del(&entry->link);
+				entry->callback(entry->buff, entry->meta.msg_len, entry->meta.msg_type);
 				kfree(entry);
 			}
 		}
@@ -916,7 +918,13 @@ ssize_t ipa3_read(struct file *filp, char __user *buf, size_t count,
 			mutex_unlock(&ipa3_ctx->msg_lock);
 			if (copy_to_user(buf, &msg->meta,
 					  sizeof(struct ipa_msg_meta))) {
+				IPAERR_RL("Failed to copy the data to user space\n");
+
 				ret = -EFAULT;
+				if(msg->buff) {
+					msg->callback(msg->buff, msg->meta.msg_len,
+						msg->meta.msg_type);
+				}
 				kfree(msg);
 				msg = NULL;
 				break;
@@ -926,6 +934,11 @@ ssize_t ipa3_read(struct file *filp, char __user *buf, size_t count,
 			if (msg->buff) {
 				if (copy_to_user(buf, msg->buff,
 						  msg->meta.msg_len)) {
+					IPAERR_RL("Failed to copy the data to user space\n");
+					if(msg->buff) {
+						msg->callback(msg->buff, msg->meta.msg_len,
+							msg->meta.msg_type);
+					}
 					ret = -EFAULT;
 					kfree(msg);
 					msg = NULL;
