@@ -1128,6 +1128,7 @@ static irqreturn_t gsi_isr(int irq, void *ctxt)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
 static irqreturn_t gsi_msi_isr(int irq, void *ctxt)
 {
 	int ee = gsi_ctx->per.ee;
@@ -1195,6 +1196,7 @@ check_again:
 	spin_unlock_irqrestore(&evt_ctxt->ring.slock, flags);
 	return IRQ_HANDLED;
 }
+#endif
 
 static uint32_t gsi_get_max_channels(enum gsi_ver ver)
 {
@@ -1350,6 +1352,7 @@ int gsi_unmap_base(void)
 }
 EXPORT_SYMBOL(gsi_unmap_base);
 
+#ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
 static void __gsi_msi_write_msg(struct msi_desc *desc, struct msi_msg *msg)
 {
 	u16 msi = 0;
@@ -1409,6 +1412,7 @@ static int __gsi_request_msi_irq(unsigned long msi)
 	set_bit(msi, gsi_ctx->msi.allocated);
 	return result;
 }
+#endif
 
 static int __gsi_allocate_msis(void)
 {
