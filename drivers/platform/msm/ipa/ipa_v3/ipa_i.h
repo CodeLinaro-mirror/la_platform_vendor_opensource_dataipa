@@ -103,6 +103,8 @@
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
 
+#define IPA_AP_CB_WLAN_END_MAPPING 0x20000000
+
 /* ULSO Constants */
 enum {
 	ENDP_INIT_ULSO_CFG_IP_ID_MIN_MAX_VAL_IDX_LINUX,
@@ -676,6 +678,12 @@ struct ipa3_client_names {
 	int length;
 };
 
+struct ipa_smmu_cb_mapping {
+	phys_addr_t m_pa;
+	unsigned long m_iova;
+	size_t m_size;
+};
+
 struct ipa_smmu_cb_ctx {
 	bool valid;
 	struct device *dev;
@@ -689,6 +697,10 @@ struct ipa_smmu_cb_ctx {
 	bool shared;
 	bool is_cache_coherent;
 	bool done;
+	/**
+	 * todo: make this a list.
+	 */
+	struct ipa_smmu_cb_mapping m_map[IPA_ETH_INST_ID_MAX][IPA_ETH_PIPE_DIR_MAX];
 };
 
 /**

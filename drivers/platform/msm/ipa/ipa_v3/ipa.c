@@ -11447,6 +11447,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 						"dma-coherent");
 	cb->dev   = dev;
 	cb->valid = true;
+	memset(&cb->m_map, 0, sizeof(cb->m_map));
 
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
@@ -11463,11 +11464,11 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 			dev->of_node, "qcom,iommu-geometry",
 			geometry_ap_mapping, 2) == 0) {
 		cb->geometry_start = geometry_ap_mapping[0];
-		cb->geometry_end  = geometry_ap_mapping[1];
+		cb->geometry_end  = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
 	} else {
 		IPADBG("AP CB PROBE Geometry not defined using max!\n");
 		cb->geometry_start = 0;
-		cb->geometry_end = 0xF0000000;
+		cb->geometry_end = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
 	}
 
 	IPADBG("AP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
