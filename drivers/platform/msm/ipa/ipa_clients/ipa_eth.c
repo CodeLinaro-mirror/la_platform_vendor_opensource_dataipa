@@ -721,11 +721,11 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 
 			if (IPA_CLIENT_IS_PROD(ipa_client)) {
 				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
-				tx_idx = ep_idx;
+				rx_idx = ep_idx;
 			}
 			else if (IPA_CLIENT_IS_CONS(ipa_client)) {
 				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
-				rx_idx = ep_idx;
+				tx_idx = ep_idx;
 			}
 			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
 		}
