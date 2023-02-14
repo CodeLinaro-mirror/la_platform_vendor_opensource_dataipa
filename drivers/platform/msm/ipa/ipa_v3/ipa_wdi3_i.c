@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 - 2023  Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -1155,7 +1155,7 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 			IPAERR("failed to release gsi channel: %d\n", result);
 			goto exit;
 		}
-		if (rx_client == IPA_CLIENT_WLAN2_PROD1)
+		if (rx_client == IPA_CLIENT_WLAN2_PROD)
 			ipa3_release_wdi3_gsi_smmu_mappings(IPA_WDI3_RX3_DIR);
 		else
 			ipa3_release_wdi3_gsi_smmu_mappings(IPA_WDI3_RX4_DIR);
