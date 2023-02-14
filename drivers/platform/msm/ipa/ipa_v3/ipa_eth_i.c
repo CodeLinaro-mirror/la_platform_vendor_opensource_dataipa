@@ -728,6 +728,39 @@ fail_get_gsi_ep_info:
 	return result;
 }
 
+static int ipa_eth_create_ap_smmu_mapping_pa(phys_addr_t pa, size_t len,
+		bool device, unsigned long *iova)
+{
+	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_AP);
+	unsigned long va = roundup(cb->next_addr, PAGE_SIZE);
+	int prot = IOMMU_READ | IOMMU_WRITE;
+	size_t true_len = roundup(len + pa - rounddown(pa, PAGE_SIZE),
+			PAGE_SIZE);
+	int ret;
+
+	if (!cb->valid) {
+		IPAERR("No SMMU CB setup\n");
+		return -EINVAL;
+	}
+
+	if (len > PAGE_SIZE)
+		va = roundup(cb->next_addr, len);
+
+	ret = ipa3_iommu_map(cb->iommu_domain, va, rounddown(pa, PAGE_SIZE),
+			true_len,
+			device ? (prot | IOMMU_MMIO) : prot);
+	if (ret) {
+		IPAERR("iommu map failed for pa=%pa len=%zu\n", &pa, true_len);
+		return -EINVAL;
+	}
+
+	ipa3_ctx->eth_map_cnt++;
+	cb->next_addr = va + true_len;
+	*iova = va + pa - rounddown(pa, PAGE_SIZE);
+	return 0;
+}
+
+
 static int ipa_eth_setup_ntn_gsi_channel(
 	struct ipa_eth_client_pipe_info *pipe,
 	struct ipa3_ep_context *ep)
@@ -739,6 +772,7 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	const struct ipa_gsi_ep_config *gsi_ep_info;
 	int result, len;
 	u64 bar_addr;
+	unsigned long iova;
 
 	if (unlikely(!pipe->info.is_transfer_ring_valid)) {
 		IPAERR("NTN transfer ring invalid\n");
@@ -771,6 +805,16 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	gsi_evt_ring_props.msi_addr =
 		bar_addr +
 		pipe->info.client_info.ntn.tail_ptr_offs;
+	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC) {
+		result = ipa_eth_create_ap_smmu_mapping_pa(gsi_evt_ring_props.msi_addr, 8,
+					true, &iova);
+		if (result) {
+			IPAERR("Failed to map IEMAC regs %d\n", result);
+			ipa_assert();
+			return result;
+		 }
+		gsi_evt_ring_props.msi_addr = iova;
+	}
 	gsi_evt_ring_props.ring_len = len;
 	gsi_evt_ring_props.ring_base_addr =
 		(u64)pipe->info.transfer_ring_base;
