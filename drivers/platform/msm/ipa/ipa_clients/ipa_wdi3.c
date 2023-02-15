@@ -400,11 +400,21 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN4_CONS;
 		}
  	} else if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_2) {
-		tx_prop[0].dst_pipe = IPA_CLIENT_WLAN1_CONS;
-		tx_prop[1].dst_pipe = IPA_CLIENT_WLAN1_CONS;
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+			tx_prop[0].dst_pipe = IPA_CLIENT_WLAN4_CONS;
+			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN4_CONS;
+		} else {
+			tx_prop[0].dst_pipe = IPA_CLIENT_WLAN1_CONS;
+			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN1_CONS;
+		}
 	} else if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_1) {
- 		tx_prop[0].dst_pipe = IPA_CLIENT_WLAN3_CONS;
-		tx_prop[1].dst_pipe = IPA_CLIENT_WLAN3_CONS;
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+			tx_prop[0].dst_pipe = IPA_CLIENT_WLAN1_CONS;
+			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN1_CONS;
+		} else {
+			tx_prop[0].dst_pipe = IPA_CLIENT_WLAN3_CONS;
+			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN3_CONS;
+		}
 	}
 
  	tx_prop[0].alt_dst_pipe = in->alt_dst_pipe;
@@ -432,11 +442,21 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 			rx_prop[1].src_pipe = IPA_CLIENT_WLAN3_PROD;
 		}
  	} else if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_2){
-		rx_prop[0].src_pipe = IPA_CLIENT_WLAN1_PROD;
-		rx_prop[1].src_pipe = IPA_CLIENT_WLAN1_PROD;
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+                        rx_prop[0].src_pipe = IPA_CLIENT_WLAN2_PROD1;
+                        rx_prop[1].src_pipe = IPA_CLIENT_WLAN2_PROD1;
+		} else {
+			rx_prop[0].src_pipe = IPA_CLIENT_WLAN1_PROD;
+			rx_prop[1].src_pipe = IPA_CLIENT_WLAN1_PROD;
+		}
 	} else if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_1) {
-		rx_prop[0].src_pipe = IPA_CLIENT_WLAN3_PROD;
-		rx_prop[1].src_pipe = IPA_CLIENT_WLAN3_PROD;
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+			rx_prop[0].src_pipe = IPA_CLIENT_WLAN1_PROD;
+			rx_prop[1].src_pipe = IPA_CLIENT_WLAN1_PROD;
+		} else {
+			rx_prop[0].src_pipe = IPA_CLIENT_WLAN3_PROD;
+			rx_prop[1].src_pipe = IPA_CLIENT_WLAN3_PROD;
+		}
  	}
 
  	rx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
@@ -833,12 +853,22 @@ static int ipa_wdi_enable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		}
 		break;
 	case IPA_WDI_2:
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN4_CONS);
+		} else {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		}
 		break;
 	case IPA_WDI_1:
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_CONS);
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		} else {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_CONS);
+		}
 		break;
 	default:
 		IPAERR("Invalid WDI version");
@@ -1227,12 +1257,22 @@ static int ipa_wdi_disconn_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		}
 		break;
 	case IPA_WDI_2:
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN4_CONS);
+		} else {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		}
 		break;
 	case IPA_WDI_1:
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_CONS);
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		} else {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_CONS);
+		}
 		break;
 	default:
 		IPAERR("Invalid WDI version");
@@ -1318,12 +1358,22 @@ static int ipa_wdi_disable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		}
 		break;
 	case IPA_WDI_2:
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN4_CONS);
+		} else {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		}
 		break;
 	case IPA_WDI_1:
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_CONS);
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_0) {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		} else {
+			ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
+			ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_CONS);
+		}
 		break;
 	default:
 		IPAERR("Invalid WDI version");

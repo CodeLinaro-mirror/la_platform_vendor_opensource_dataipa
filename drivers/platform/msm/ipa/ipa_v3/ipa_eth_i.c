@@ -847,8 +847,15 @@ static int ipa_eth_setup_ntn_gsi_channel(
 			(u32)((u64)(pipe->info.data_buff_list[0].iova) >> 32);
 	}
 
-	if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
-		ch_scratch.ntn.ioc_mod_threshold = IPA_ETH_NTN_MODT;
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		if (pipe->info.client_info.ntn.ioc_mod_threshold &&
+		    pipe->info.client_info.ntn.ioc_mod_threshold < len / GSI_EVT_RING_RE_SIZE_16B) {
+			ch_scratch.ntn.ioc_mod_threshold =
+				pipe->info.client_info.ntn.ioc_mod_threshold;
+		} else {
+			ch_scratch.ntn.ioc_mod_threshold = IPA_ETH_NTN_MODT;
+		}
+	}
 
 	result = gsi_write_channel_scratch(ep->gsi_chan_hdl, ch_scratch);
 	if (result != GSI_STATUS_SUCCESS) {
@@ -995,6 +1002,9 @@ int ipa3_eth_connect(
 	ep->cfg.nat.nat_en = IPA_CLIENT_IS_PROD(client_type) ?
 		IPA_SRC_NAT : IPA_BYPASS_NAT;
 	ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+	/* add support for double-vlan eth pdu */
+	if (vlan_mode && ipa3_ctx->is_eth_double_vlan_mode)
+		ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN + VLAN_HLEN; /* 22 if double vlan */
 	ep->cfg.mode.mode = IPA_BASIC;
 	if (IPA_CLIENT_IS_CONS(client_type)) {
 		ep->cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
@@ -1012,10 +1022,46 @@ int ipa3_eth_connect(
 			ep->cfg.hdr.hdr_metadata_reg_valid = false;
 		}
 	}
+
+	/* ETH PDU configuration */
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) {
+		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
+			IPA_QMI_ETH_HW_VLAN_IP_V01)
+			ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
+		else if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
+			IPA_QMI_ETH_HW_NON_VLAN_IP_V01)
+			ep->cfg.hdr.hdr_len = ETH_HLEN;
+		else
+			IPAERR("invalid vlan mode: %d\n",
+				ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode);
+
+		ep->skip_ep_cfg = true;
+
+		/* only need to route exception for IPA client producer */
+		if (IPA_CLIENT_IS_PROD(client_type)) {
+			/*
+			 * enable source notification status for exception packets
+			 * (i.e. QMAP commands) to be routed to modem.
+			 */
+			ep->status.status_en = true;
+			ep->status.status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+			/* Enable status supression to disable sending status for
+			 * every packet.
+			 */
+			ep->status.status_pkt_suppress = true;
+
+			if (ipa3_cfg_ep_status(ep_idx, &ep->status)) {
+				IPAERR("fail to configure status of EP.\n");
+				goto cfg_ep_fail;
+			}
+		}
+	}
+
 	if (ipa3_cfg_ep(ep_idx, &ep->cfg)) {
 		IPAERR("fail to setup rx pipe cfg\n");
 		goto cfg_ep_fail;
 	}
+
 	if (IPA_CLIENT_IS_PROD(client_type))
 		ipa3_install_dflt_flt_rules(ep_idx);
 	IPADBG("client %d (ep: %d) connected\n", client_type,
@@ -1388,6 +1434,7 @@ int ipa3_eth_disconnect(
 		ipa3_uc_debug_stats_dealloc(prot);
 	if (IPA_CLIENT_IS_PROD(client_type))
 		ipa3_delete_dflt_flt_rules(ep_idx);
+
 	/* unmap th pipe */
 	result = ipa3_smmu_map_eth_pipes(pipe, client_type, false);
 	if (result)

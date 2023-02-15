@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -765,8 +765,6 @@ struct iommu_domain *ipa3_get_smmu_domain_by_type(enum ipa_smmu_cb_type cb_type)
 {
 	if (VALID_IPA_SMMU_CB_TYPE(cb_type) && smmu_cb[cb_type].valid)
 		return smmu_cb[cb_type].iommu_domain;
-
-	IPAERR("cb_type(%d) not valid\n", cb_type);
 
 	return NULL;
 }
@@ -2676,7 +2674,6 @@ done:
 	return res;
 }
 
-#ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 /**
  * ipa3_send_ext_router_info() - Pass ext_router_info to the IPACM
  * @info: pointer to the ext router info
@@ -2717,7 +2714,6 @@ int ipa3_send_ext_router_info(struct ipa_ioc_ext_router_info *info)
 done:
 	return res;
 }
-#endif
 
 static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -2739,9 +2735,8 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_eogre_info eogre_info;
 	struct ipa_ioc_macsec_info macsec_info;
 	struct ipa_macsec_map *macsec_map;
-#ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
+	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 	struct ipa_ioc_ext_router_info *ext_router_info;
-#endif
 	bool send2uC, send2ipacm;
 	size_t sz;
 	int pre_entry;
@@ -4071,6 +4066,12 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 
 		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		if (retval == -EIO)
+		{
+			IPADBG("no work needs to be done but return success to caller");
+			retval = 0;
+			break;
+		}
 
 		ipa3_ctx->eogre_enabled = (retval == 0);
 
@@ -4101,6 +4102,12 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		memset(&eogre_info, 0, sizeof(eogre_info));
 
 		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		if (retval == -EIO)
+		{
+			IPADBG("no work needs to be done but return success to caller");
+			retval = 0;
+			break;
+		}
 
 		if (retval == 0 && send2uC == true) {
 			/*
@@ -4169,8 +4176,31 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPA_MACSEC_ADD_EVENT : IPA_MACSEC_DEL_EVENT,
 			macsec_map);
 		break;
+	case IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING:
+		IPADBG("Got IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING\n");
 
-#ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
+		memset(&dscp_pcp_map_info, 0, sizeof(dscp_pcp_map_info));
+
+		if (copy_from_user(&dscp_pcp_map_info, (const void __user *) arg,
+			sizeof(struct ipa_ioc_dscp_pcp_map_info))) {
+			IPAERR_RL("copy_from_user for dscp_pcp_map_info fails\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		IPADBG("DSCP<->PCP map %s \n",(dscp_pcp_map_info.add)?"addition":"deletion");
+
+		if(ipa3_add_remove_dscp_pcp_map(&dscp_pcp_map_info.dscp_pcp_map[0],
+			dscp_pcp_map_info.add)) {
+			IPAERR_RL("DSCP<->PCP map %s failed\n",
+				(dscp_pcp_map_info.add)?"addition":"deletion");
+			retval = -EFAULT;
+			break;
+		}
+		/* Caching Mapping if succesful */
+		memcpy(&ipa3_ctx->dscp_pcp_map_info_cache, &dscp_pcp_map_info, sizeof(dscp_pcp_map_info));
+
+		break;
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
 
@@ -4194,7 +4224,6 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 		}
 		break;
-#endif
 
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
@@ -4804,20 +4833,20 @@ static int ipa3_q6_clean_q6_rt_tbls(enum ipa_ip_type ip,
 		modem_rt_index_hi = IPA_MEM_PART(v4_modem_rt_index_hi);
 		if (rlt == IPA_RULE_HASHABLE) {
 			lcl_addr_mem_part = IPA_MEM_PART(v4_rt_hash_ofst);
-			lcl_hdr_sz =  IPA_MEM_PART(v4_flt_hash_size);
+			lcl_hdr_sz =  IPA_MEM_PART(v4_rt_hash_size);
 		} else {
 			lcl_addr_mem_part = IPA_MEM_PART(v4_rt_nhash_ofst);
-			lcl_hdr_sz = IPA_MEM_PART(v4_flt_nhash_size);
+			lcl_hdr_sz = IPA_MEM_PART(v4_rt_nhash_size);
 		}
 	} else {
 		modem_rt_index_lo = IPA_MEM_PART(v6_modem_rt_index_lo);
 		modem_rt_index_hi = IPA_MEM_PART(v6_modem_rt_index_hi);
 		if (rlt == IPA_RULE_HASHABLE) {
 			lcl_addr_mem_part = IPA_MEM_PART(v6_rt_hash_ofst);
-			lcl_hdr_sz =  IPA_MEM_PART(v6_flt_hash_size);
+			lcl_hdr_sz =  IPA_MEM_PART(v6_rt_hash_size);
 		} else {
 			lcl_addr_mem_part = IPA_MEM_PART(v6_rt_nhash_ofst);
-			lcl_hdr_sz = IPA_MEM_PART(v6_flt_nhash_size);
+			lcl_hdr_sz = IPA_MEM_PART(v6_rt_nhash_size);
 		}
 	}
 
@@ -4825,7 +4854,7 @@ static int ipa3_q6_clean_q6_rt_tbls(enum ipa_ip_type ip,
 		modem_rt_index_hi - modem_rt_index_lo + 1,
 		lcl_hdr_sz, lcl_hdr_sz, &mem, true);
 	if (retval) {
-		IPAERR("fail generate empty rt img\n");
+		IPAERR("fail generate empty rt img, size %d\n", lcl_hdr_sz);
 		return -ENOMEM;
 	}
 
@@ -6455,7 +6484,13 @@ void ipa3_disable_clks(void)
 		return;
 	}
 
-	IPADBG("disabling IPA clocks and bus voting\n");
+	IPADBG("Disabling IPA clocks and bus voting\n");
+
+	if (atomic_read(&ipa3_ctx->ipa_clk_vote) == 0)
+	{
+		IPAERR("IPA clock already disabled\n");
+		return;
+	}
 
 	/*
 	 * We see a NoC error on GSI on this flag sequence.
@@ -6631,17 +6666,16 @@ void ipa3_active_clients_log_inc(struct ipa_active_client_logging_info *id,
 }
 
 /**
- * ipa3_inc_client_enable_clks() - Increase active clients counter, and
+ * ipa3_inc_client_enable_clks_no_log() - Increase active clients counter, and
  * enable ipa clocks if necessary
  *
  * Return codes:
  * None
  */
-void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
+static void ipa3_inc_client_enable_clks_no_log(void)
 {
 	int ret;
 
-	ipa3_active_clients_log_inc(id, false);
 	ret = atomic_inc_not_zero(&ipa3_ctx->ipa3_active_clients.cnt);
 	if (ret) {
 		IPADBG_LOW("active clients = %d\n",
@@ -6666,6 +6700,19 @@ void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
 	IPADBG_LOW("active clients = %d\n",
 		atomic_read(&ipa3_ctx->ipa3_active_clients.cnt));
 	mutex_unlock(&ipa3_ctx->ipa3_active_clients.mutex);
+}
+
+/**
+ * ipa3_inc_client_enable_clks() - Increase active clients counter and
+ * enable ipa clocks if necessary, log the caller
+ *
+ * Return codes:
+ * None
+ */
+void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id)
+{
+	ipa3_active_clients_log_inc(id, false);
+	ipa3_inc_client_enable_clks_no_log();
 }
 EXPORT_SYMBOL(ipa3_inc_client_enable_clks);
 
@@ -6771,7 +6818,23 @@ bail:
 }
 
 /**
- * ipa3_dec_client_disable_clks() - Decrease active clients counter
+ * ipa3_dec_client_disable_clks_no_log() - Decrease active clients counter
+ *
+ * In case that there are no active clients this function also starts
+ * TAG process. When TAG progress ends ipa clocks will be gated.
+ * start_tag_process_again flag is set during this function to signal TAG
+ * process to start again as there was another client that may send data to ipa
+ *
+ * Return codes:
+ * None
+ */
+static void ipa3_dec_client_disable_clks_no_log(void)
+{
+	__ipa3_dec_client_disable_clks();
+}
+
+/**
+ * ipa3_dec_client_disable_clks() - Decrease active clients counter and log caller
  *
  * In case that there are no active clients this function also starts
  * TAG process. When TAG progress ends ipa clocks will be gated.
@@ -7814,6 +7877,8 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	gsi_props.rel_clk_cb = NULL;
 	gsi_props.clk_status_cb = ipa3_active_clks_status;
 	gsi_props.enable_clk_bug_on = ipa3_handle_gsi_differ_irq;
+	gsi_props.vote_clk_cb = ipa3_inc_client_enable_clks_no_log;
+	gsi_props.unvote_clk_cb = ipa3_dec_client_disable_clks_no_log;
 
 	if (ipa3_ctx->ipa_config_is_mhi) {
 		gsi_props.mhi_er_id_limits_valid = true;
@@ -8366,11 +8431,18 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	/* Check MHI configuration on MDM devices */
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
+		/* todo in future: change vlan_mode_iface from bool to enum
+		 * and support double vlan for all ifaces
+		 */
+		if (strnstr(dbg_buff, "double-vlan", strlen(dbg_buff)))
+			ipa3_ctx->is_eth_double_vlan_mode = true;
 
+		/* reset ecm default as non-vlan mode */
+		if (!ipa3_ctx->vlan_mode_set && ipa3_ctx->ipa_config_is_auto)
+			ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] = false;
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
 			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] =
-				true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] = true;
 #if IPA_ETH_API_VER >= 2
 			/* In Dual NIC mode we get "vlan: eth [eth0|eth1] [eth0|eth1]?" while device name is
 			   "eth0" in legacy so, we set it to false to diffrentiate Dual NIC from legacy */
@@ -8384,16 +8456,21 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			}
 #endif
 			if (strnstr(dbg_buff, STR_RNDIS_IFACE, strlen(dbg_buff)))
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS] =
-				true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS] = true;
 			if (strnstr(dbg_buff, STR_ECM_IFACE, strlen(dbg_buff)))
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] =
-				true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] = true;
 
 			/*
 			 * when vlan mode is passed to our dev we expect
 			 * another write
 			 */
+			ipa3_ctx->vlan_mode_set = true;
+			IPAERR("emac vlan(%d)\n",
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC]);
+			IPAERR("rndis vlan(%d)\n",
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS]);
+			IPAERR("ecm vlan(%d)\n",
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM]);
 			return count;
 		}
 
@@ -9502,6 +9579,9 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 
 	mutex_init(&ipa3_ctx->app_clock_vote.mutex);
 	mutex_init(&ipa3_ctx->ssr_lock);
+	/* put ecm default as vlan mode */
+	if (ipa3_ctx->ipa_config_is_auto)
+		ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] = true;
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
@@ -10758,6 +10838,7 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 
 	ipa3_ctx->uc_pdev = dev;
 	cb->done = true;
+	cb->next_addr = cb->va_end;
 	return 0;
 }
 
@@ -10804,6 +10885,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	phys_addr_t iova;
 	phys_addr_t pa;
 	u32 iova_ap_mapping[2];
+	u32 geometry_ap_mapping[2];
 
 	IPADBG("AP CB PROBE dev=%pK\n", dev);
 
@@ -10852,6 +10934,20 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 
 	IPADBG("AP CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,iommu-geometry",
+			geometry_ap_mapping, 2) == 0) {
+		cb->geometry_start = geometry_ap_mapping[0];
+		cb->geometry_end  = geometry_ap_mapping[1];
+	}
+	else {
+		IPADBG("AP CB PROBE Geometry not defined using max!\n");
+		cb->geometry_start = 0;
+		cb->geometry_end = 0xF0000000;
+	}
+
+	IPADBG("AP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
+		   dev, cb->geometry_start, cb->geometry_end);
 
 	/*
 	 * Prior to these calls to iommu_domain_get_attr(), these

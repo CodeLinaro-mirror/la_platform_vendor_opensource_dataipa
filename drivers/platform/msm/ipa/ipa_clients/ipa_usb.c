@@ -191,6 +191,7 @@ struct ipa3_usb_context {
 	struct dentry *dent;
 	struct ipa3_usb_smmu_reg_map smmu_reg_map;
 	struct ipa3_usb_teth_type_switch prev_teth;
+	struct ipa3_usb_smmu_reg_map smmu_reg_map_dummy;
 };
 
 enum ipa3_usb_op {
@@ -1037,6 +1038,102 @@ static bool ipa3_usb_check_chan_params(struct ipa_usb_xdci_chan_params *params)
 	return true;
 }
 
+/*
+ * ipa3_usb_smmu_map_dummy: Does the same job of ipa3_usb_smmu_map_xdci_channel.
+ * API to map geventcount dummy addr, which will be provided
+ * to GSI from USB to handle sw path. Where USB driver will take
+ * care of replenishing desc to ipa hw. This dummy gevntcount addr
+ * cannot be in same page as other, since other are actual usb hw addr.
+ * We map this dummy addr to AP smmu context, so that there will
+ * not be any NOC issue when IPA/GSI tries to access it.
+ */
+static int ipa3_usb_smmu_map_dummy(
+			struct ipa_usb_xdci_chan_params *params,
+			bool map
+			)
+{
+	int result = 0;
+	u32 gevntcount_r = rounddown(params->gevntcount_low_addr, PAGE_SIZE);
+	u32 xfer_scratch_r =
+		rounddown(params->xfer_scratch.depcmd_low_addr, PAGE_SIZE);
+
+	if ((ipa3_usb_ctx->smmu_reg_map.addr != xfer_scratch_r) &&
+		(ipa3_usb_ctx->smmu_reg_map.cnt != 0)) {
+		IPA_USB_ERR("No support more than 1 page map for USB regs");
+		WARN_ON(1);
+		return -EINVAL;
+	}
+
+	if (map) {
+		if (ipa3_usb_ctx->smmu_reg_map_dummy.cnt == 0) {
+			ipa3_usb_ctx->smmu_reg_map_dummy.addr = gevntcount_r;
+			result = ipa3_smmu_map_peer_reg(
+				ipa3_usb_ctx->smmu_reg_map_dummy.addr, true,
+				IPA_SMMU_CB_AP);
+			if (result) {
+				IPA_USB_ERR("failed to map USB regs %d\n",
+					result);
+				return result;
+			}
+
+			if (ipa3_usb_ctx->smmu_reg_map.cnt == 0) {
+				ipa3_usb_ctx->smmu_reg_map.addr =
+					xfer_scratch_r;
+				result = ipa3_smmu_map_peer_reg(
+					ipa3_usb_ctx->smmu_reg_map.addr, true,
+					IPA_SMMU_CB_AP);
+				if (result) {
+					IPA_USB_ERR(
+						"failed to map USB regs %d\n",
+						result);
+					return result;
+				}
+			}
+			ipa3_usb_ctx->smmu_reg_map.cnt++;
+			ipa3_usb_ctx->smmu_reg_map_dummy.cnt++;
+		}
+	} else {
+		if (gevntcount_r != ipa3_usb_ctx->smmu_reg_map_dummy.addr) {
+			IPA_USB_ERR(
+				"No support for unmap different reg\n");
+			return -EINVAL;
+		}
+
+		if (ipa3_usb_ctx->smmu_reg_map_dummy.cnt == 1) {
+			result = ipa3_smmu_map_peer_reg(
+				ipa3_usb_ctx->smmu_reg_map_dummy.addr, false,
+				IPA_SMMU_CB_AP);
+			if (result) {
+				IPA_USB_ERR("failed to unmap USB regs %d\n",
+					result);
+				return result;
+			}
+
+			if (ipa3_usb_ctx->smmu_reg_map.cnt == 1) {
+				if (xfer_scratch_r !=
+					ipa3_usb_ctx->smmu_reg_map.addr) {
+					IPA_USB_ERR(
+						"No support for un map different reg\n");
+					return -EINVAL;
+				}
+
+				result = ipa3_smmu_map_peer_reg(
+					ipa3_usb_ctx->smmu_reg_map.addr, false,
+					IPA_SMMU_CB_AP);
+				if (result) {
+					IPA_USB_ERR(
+						"failed to unmap USB regs %d\n",
+						result);
+					return result;
+				}
+			}
+			ipa3_usb_ctx->smmu_reg_map.cnt--;
+			ipa3_usb_ctx->smmu_reg_map_dummy.cnt--;
+		}
+	}
+	return result;
+}
+
 static int ipa3_usb_smmu_map_xdci_channel(
 	struct ipa_usb_xdci_chan_params *params, bool map)
 {
@@ -1045,13 +1142,22 @@ static int ipa3_usb_smmu_map_xdci_channel(
 	u32 xfer_scratch_r =
 		rounddown(params->xfer_scratch.depcmd_low_addr, PAGE_SIZE);
 
-	if (gevntcount_r != xfer_scratch_r) {
+	if ((gevntcount_r != xfer_scratch_r) &&
+		(params->is_sw_path == false)) {
 		IPA_USB_ERR("No support more than 1 page map for USB regs\n");
 		WARN_ON(1);
 		return -EINVAL;
 	}
 
-	if (map) {
+	if (params->is_sw_path == true) {
+		result = ipa3_usb_smmu_map_dummy(params, map);
+		if (result) {
+			IPA_USB_ERR("failed to %s USB regs %d\n",
+				(map == true)?"map":"unmap",
+				result);
+			return result;
+		}
+	} else if (map) {
 		if (ipa3_usb_ctx->smmu_reg_map.cnt == 0) {
 			ipa3_usb_ctx->smmu_reg_map.addr = gevntcount_r;
 			result = ipa3_smmu_map_peer_reg(

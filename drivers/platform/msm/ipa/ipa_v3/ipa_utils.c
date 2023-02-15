@@ -18,6 +18,12 @@
 #include "ipahal_hw_stats.h"
 #include "ipa_rm_i.h"
 #include "gsi.h"
+#include <linux/ip.h>
+#include <linux/ipv6.h>
+#include <linux/tcp.h>
+#include <linux/udp.h>
+#include <linux/if_ether.h>
+#include <stddef.h>
 
 /*
  * The following for adding code (ie. for EMULATION) not found on x86.
@@ -4778,6 +4784,20 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 5, 8, 28, 32, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 3 },
 			IPA_TX_INSTANCE_UL },
+	[IPA_5_0][IPA_CLIENT_Q6_DL_NLO_ETH_DATA_PROD] = {
+			true, IPA_v5_0_GROUP_DL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_NO_DEC_2ND_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 5, 8, 28, 32, IPA_EE_Q6, GSI_FREE_PRE_FETCH , 3 },
+			IPA_TX_INSTANCE_NA },
+	[IPA_5_0][IPA_CLIENT_APPS_WAN_ETH_PROD] = {
+			true, IPA_v5_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 10, 5, 10, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH , 3 },
+			IPA_TX_INSTANCE_NA },
 	[IPA_5_0][IPA_CLIENT_TEST_PROD] = {
 			true, IPA_v5_0_GROUP_UL,
 			true,
@@ -6719,45 +6739,45 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.v6_flt_nhash_size_ddr = 0x4000,
 	.v4_rt_num_index = 0x13,
 	.v4_modem_rt_index_lo = 0x0,
-	.v4_modem_rt_index_hi = 0xa,
-	.v4_apps_rt_index_lo = 0xb,
-	.v4_apps_rt_index_hi = 0x12,
+	.v4_modem_rt_index_hi = 0xf,
+	.v4_apps_rt_index_lo = 0x10,
+	.v4_apps_rt_index_hi = 0x17,
 	.v4_rt_hash_ofst = 0x1488,
-	.v4_rt_hash_size = 0x98,
+	.v4_rt_hash_size = 0xc0,
 	.v4_rt_hash_size_ddr = 0x10000,
-	.v4_rt_nhash_ofst = 0x1528,
-	.v4_rt_nhash_size = 0x98,
+	.v4_rt_nhash_ofst = 0x1550,
+	.v4_rt_nhash_size = 0xc0,
 	.v4_rt_nhash_size_ddr = 0x4000,
 	.v6_rt_num_index = 0x13,
 	.v6_modem_rt_index_lo = 0x0,
-	.v6_modem_rt_index_hi = 0xa,
-	.v6_apps_rt_index_lo = 0xb,
-	.v6_apps_rt_index_hi = 0x12,
-	.v6_rt_hash_ofst = 0x15c8,
-	.v6_rt_hash_size = 0x98,
+	.v6_modem_rt_index_hi = 0xf,
+	.v6_apps_rt_index_lo = 0x10,
+	.v6_apps_rt_index_hi = 0x17,
+	.v6_rt_hash_ofst = 0x1618,
+	.v6_rt_hash_size = 0xc0,
 	.v6_rt_hash_size_ddr = 0x10000,
-	.v6_rt_nhash_ofst = 0x1668,
-	.v6_rt_nhash_size = 0x098,
+	.v6_rt_nhash_ofst = 0x16e0,
+	.v6_rt_nhash_size = 0xc0,
 	.v6_rt_nhash_size_ddr = 0x4000,
-	.modem_hdr_ofst = 0x1708,
+	.modem_hdr_ofst = 0x17a8,
 	.modem_hdr_size = 0x240,
-	.apps_hdr_ofst = 0x1948,
+	.apps_hdr_ofst = 0x19e8,
 	.apps_hdr_size = 0x1e0,
 	.apps_hdr_size_ddr = 0x2000,
-	.modem_hdr_proc_ctx_ofst = 0x1b40,
+	.modem_hdr_proc_ctx_ofst = 0x1be0,
 	.modem_hdr_proc_ctx_size = 0xb20,
-	.apps_hdr_proc_ctx_ofst = 0x2660,
+	.apps_hdr_proc_ctx_ofst = 0x2700,
 	.apps_hdr_proc_ctx_size = 0x200,
 	.apps_hdr_proc_ctx_size_ddr = 0x2000,
-	.stats_quota_q6_ofst = 0x2868,
+	.stats_quota_q6_ofst = 0x2908,
 	.stats_quota_q6_size = 0x60,
-	.stats_quota_ap_ofst = 0x28C8,
+	.stats_quota_ap_ofst = 0x2968,
 	.stats_quota_ap_size = 0x48,
-	.stats_tethering_ofst = 0x2910,
+	.stats_tethering_ofst = 0x29b0,
 	.stats_tethering_size = 0x0,
-	.apps_v4_flt_nhash_ofst = 0x2918,
+	.apps_v4_flt_nhash_ofst = 0x29b8,
 	.apps_v4_flt_nhash_size = 0x188,
-	.apps_v6_flt_nhash_ofst = 0x2aa0,
+	.apps_v6_flt_nhash_ofst = 0x2B40,
 	.apps_v6_flt_nhash_size = 0x228,
 	.stats_flt_v4_ofst = 0,
 	.stats_flt_v4_size = 0,
@@ -6767,16 +6787,16 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.stats_rt_v4_size = 0,
 	.stats_rt_v6_ofst = 0,
 	.stats_rt_v6_size = 0,
-	.stats_fnr_ofst = 0x2cd0,
+	.stats_fnr_ofst = 0x2d70,
 	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3870,
+	.stats_drop_ofst = 0x3910,
 	.stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
-	.modem_ofst = 0x3898,
+	.modem_ofst = 0x3938,
 	.modem_size = 0xd48,
-	.nat_tbl_ofst = 0x45e0,
-	.nat_tbl_size = 0x900,
+	.nat_tbl_ofst = 0x4680,
+	.nat_tbl_size = 0x860,
 	.apps_v4_flt_hash_ofst = 0x2718,
 	.apps_v4_flt_hash_size = 0x0,
 	.apps_v6_flt_hash_ofst = 0x2718,
@@ -7120,6 +7140,10 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(RESERVERD_CONS_123),
 	__stringify(RESERVERD_PROD_124),
 	__stringify(IPA_CLIENT_TPUT_CONS),
+	__stringify(IPA_CLIENT_Q6_DL_NLO_ETH_DATA_PROD),
+	__stringify(RESERVERD_CONS_127),
+	__stringify(IPA_CLIENT_APPS_WAN_ETH_PROD),
+	__stringify(RESERVERD_CONS_129),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -9095,6 +9119,14 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 
 	init_mode.dst_pipe_number = ipa3_ctx->ep[clnt_hdl].dst_pipe_index;
 	init_mode.ep_mode = *ep_mode;
+
+	/* Enabling HW replication for eth clients */
+	if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
+		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
+		init_mode.replication_en = 1;
+		IPADBG("Enabling HW replication on pipe=%d\n",
+			clnt_hdl);
+	}
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
 	 /* Configure sequencers type for test clients*/
@@ -9758,11 +9790,15 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		result = ipa3_cfg_ep_metadata(ipa_ep_idx, &meta);
 	} else if (param_in->client == IPA_CLIENT_WLAN1_PROD ||
 			param_in->client == IPA_CLIENT_WLAN2_PROD ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD) {
+			param_in->client == IPA_CLIENT_WLAN3_PROD ||
+			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
+			param_in->client == IPA_CLIENT_WLAN3_PROD1) {
 		ipa3_ctx->ep[ipa_ep_idx].cfg.meta = meta;
 		if (ipa_get_wdi_version() == IPA_WDI_3 &&
 			(param_in->client == IPA_CLIENT_WLAN2_PROD ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD))
+			param_in->client == IPA_CLIENT_WLAN3_PROD ||
+			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
+			param_in->client == IPA_CLIENT_WLAN3_PROD1))
 				result = ipa3_write_qmapid_wdi3_gsi_pipe(
 					ipa_ep_idx, meta.qmap_id);
 		else
@@ -14330,4 +14366,211 @@ int ipa3_del_socksv5_conn(uint32_t handle)
 error:
 	mutex_unlock(&ipa3_ctx->act_tbl_lock);
 	return res;
+}
+
+#ifdef IPA_FLT_EXT_MPLS_GRE_GENERAL
+/*
+ * *** IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT ***
+ *
+ * NOTE WELL:
+ *
+ * The three dimensions below line up with the enums:
+ *
+ *             enum ipa_data_flow_type
+ *             enum ipa_ip_type
+ *             enum ipa_exception_type
+ *
+ * respectively.  When additions and/or subtractions are made to the
+ * enum values, please make sure to re-align the array below to
+ * reflect the new ordering
+ *
+ * *** IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT ***
+ */
+static ipa_fld_wid_off_t mpls_v4_outer[FLOW_MAX][IPA_IP_MAX][FIELD_MAX] = {
+	/* FLOW_UPLINK */
+	{
+		/* IPA_IP_v4 */
+		{
+			/* FIELD_IP_PROTOCOL */ { ONE_BYTE, MPLS_UL_OETH_I4_IP_PROTOCOL_OFFSET },
+			/* FIELD_TCP_SRC_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I4_TCP_SRC_PORT_OFFSET },
+			/* FIELD_TCP_DST_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I4_TCP_DST_PORT_OFFSET },
+			/* FIELD_UDP_SRC_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I4_UDP_SRC_PORT_OFFSET },
+			/* FIELD_UDP_DST_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I4_UDP_DST_PORT_OFFSET },
+			/* FIELD_ETHER_TYPE  */ { TWO_BYTE, MPLS_UL_OETH_I4_ETHER_TYPE_OFFSET },
+		},
+		/* IPA_IP_v6 */
+		{
+			/* FIELD_IP_PROTOCOL */ { ONE_BYTE, MPLS_UL_OETH_I6_IP_PROTOCOL_OFFSET },
+			/* FIELD_TCP_SRC_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I6_TCP_SRC_PORT_OFFSET },
+			/* FIELD_TCP_DST_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I6_TCP_DST_PORT_OFFSET },
+			/* FIELD_UDP_SRC_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I6_UDP_SRC_PORT_OFFSET },
+			/* FIELD_UDP_DST_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I6_UDP_DST_PORT_OFFSET },
+			/* FIELD_ETHER_TYPE  */ { TWO_BYTE, MPLS_UL_OETH_I6_ETHER_TYPE_OFFSET },
+		},
+	},
+	/* FLOW_DOWNLINK */
+	{
+		/* IPA_IP_v4 */
+		{
+			/* FIELD_IP_PROTOCOL */ { ONE_BYTE, MPLS_DL_O4_I4_IP_PROTOCOL_OFFSET },
+			/* FIELD_TCP_SRC_PORT*/ { TWO_BYTE, MPLS_DL_O4_I4_TCP_SRC_PORT_OFFSET },
+			/* FIELD_TCP_DST_PORT*/ { TWO_BYTE, MPLS_DL_O4_I4_TCP_DST_PORT_OFFSET },
+			/* FIELD_UDP_SRC_PORT*/ { TWO_BYTE, MPLS_DL_O4_I4_UDP_SRC_PORT_OFFSET },
+			/* FIELD_UDP_DST_PORT*/ { TWO_BYTE, MPLS_DL_O4_I4_UDP_DST_PORT_OFFSET },
+			/* FIELD_ETHER_TYPE  */ { TWO_BYTE, MPLS_DL_O4_I4_ETHER_TYPE_OFFSET },
+		},
+		/* IPA_IP_v6 */
+		{
+			/* FIELD_IP_PROTOCOL */ { ONE_BYTE, MPLS_DL_O4_I6_IP_PROTOCOL_OFFSET },
+			/* FIELD_TCP_SRC_PORT*/ { TWO_BYTE, MPLS_DL_O4_I6_TCP_SRC_PORT_OFFSET },
+			/* FIELD_TCP_DST_PORT*/ { TWO_BYTE, MPLS_DL_O4_I6_TCP_DST_PORT_OFFSET },
+			/* FIELD_UDP_SRC_PORT*/ { TWO_BYTE, MPLS_DL_O4_I6_UDP_SRC_PORT_OFFSET },
+			/* FIELD_UDP_DST_PORT*/ { TWO_BYTE, MPLS_DL_O4_I6_UDP_DST_PORT_OFFSET },
+			/* FIELD_ETHER_TYPE  */ { TWO_BYTE, MPLS_DL_O4_I6_ETHER_TYPE_OFFSET },
+		},
+	},
+};
+
+/*
+ * *** IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT ***
+ *
+ * NOTE WELL:
+ *
+ * The three dimensions below line up with the enums:
+ *
+ *             enum ipa_data_flow_type
+ *             enum ipa_ip_type
+ *             enum ipa_exception_type
+ *
+ * respectively.  When additions and/or subtractions are made to the
+ * enum values, please make sure to re-align the array below to
+ * reflect the new ordering
+ *
+ * *** IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT ***
+ */
+static ipa_fld_wid_off_t mpls_v6_outer[FLOW_MAX][IPA_IP_MAX][FIELD_MAX] = {
+	/* FLOW_UPLINK */
+	{
+		/* IPA_IP_v4 */
+		{
+			/* FIELD_IP_PROTOCOL */ { ONE_BYTE, MPLS_UL_OETH_I4_IP_PROTOCOL_OFFSET },
+			/* FIELD_TCP_SRC_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I4_TCP_SRC_PORT_OFFSET },
+			/* FIELD_TCP_DST_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I4_TCP_DST_PORT_OFFSET },
+			/* FIELD_UDP_SRC_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I4_UDP_SRC_PORT_OFFSET },
+			/* FIELD_UDP_DST_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I4_UDP_DST_PORT_OFFSET },
+			/* FIELD_ETHER_TYPE  */ { TWO_BYTE, MPLS_UL_OETH_I4_ETHER_TYPE_OFFSET },
+		},
+		/* IPA_IP_v6 */
+		{
+			/* FIELD_IP_PROTOCOL */ { ONE_BYTE, MPLS_UL_OETH_I6_IP_PROTOCOL_OFFSET },
+			/* FIELD_TCP_SRC_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I6_TCP_SRC_PORT_OFFSET },
+			/* FIELD_TCP_DST_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I6_TCP_DST_PORT_OFFSET },
+			/* FIELD_UDP_SRC_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I6_UDP_SRC_PORT_OFFSET },
+			/* FIELD_UDP_DST_PORT*/ { TWO_BYTE, MPLS_UL_OETH_I6_UDP_DST_PORT_OFFSET },
+			/* FIELD_ETHER_TYPE  */ { TWO_BYTE, MPLS_UL_OETH_I6_ETHER_TYPE_OFFSET },
+		},
+	},
+	/* FLOW_DOWNLINK */
+	{
+		/* IPA_IP_v4 */
+		{
+			/* FIELD_IP_PROTOCOL */ { ONE_BYTE, MPLS_DL_O6_I4_IP_PROTOCOL_OFFSET },
+			/* FIELD_TCP_SRC_PORT*/ { TWO_BYTE, MPLS_DL_O6_I4_TCP_SRC_PORT_OFFSET },
+			/* FIELD_TCP_DST_PORT*/ { TWO_BYTE, MPLS_DL_O6_I4_TCP_DST_PORT_OFFSET },
+			/* FIELD_UDP_SRC_PORT*/ { TWO_BYTE, MPLS_DL_O6_I4_UDP_SRC_PORT_OFFSET },
+			/* FIELD_UDP_DST_PORT*/ { TWO_BYTE, MPLS_DL_O6_I4_UDP_DST_PORT_OFFSET },
+			/* FIELD_ETHER_TYPE  */ { TWO_BYTE, MPLS_DL_O6_I4_ETHER_TYPE_OFFSET },
+		},
+		/* IPA_IP_v6 */
+		{
+			/* FIELD_IP_PROTOCOL */ { ONE_BYTE, MPLS_DL_O6_I6_IP_PROTOCOL_OFFSET },
+			/* FIELD_TCP_SRC_PORT*/ { TWO_BYTE, MPLS_DL_O6_I6_TCP_SRC_PORT_OFFSET },
+			/* FIELD_TCP_DST_PORT*/ { TWO_BYTE, MPLS_DL_O6_I6_TCP_DST_PORT_OFFSET },
+			/* FIELD_UDP_SRC_PORT*/ { TWO_BYTE, MPLS_DL_O6_I6_UDP_SRC_PORT_OFFSET },
+			/* FIELD_UDP_DST_PORT*/ { TWO_BYTE, MPLS_DL_O6_I6_UDP_DST_PORT_OFFSET },
+			/* FIELD_ETHER_TYPE  */ { TWO_BYTE, MPLS_DL_O6_I6_ETHER_TYPE_OFFSET },
+		},
+	},
+};
+
+ipa_fld_wid_off_t* get_mpls_v4_outer(enum ipa_data_flow_type flow, enum ipa_ip_type ip, enum ipa_exception_type ex)
+{
+	return &(mpls_v4_outer[flow][ip][ex]);
+}
+
+ipa_fld_wid_off_t* get_mpls_v6_outer(enum ipa_data_flow_type flow, enum ipa_ip_type ip, enum ipa_exception_type ex)
+{
+	return &(mpls_v6_outer[flow][ip][ex]);
+}
+#endif
+
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id = rx_idx;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id = tx_idx;
+}
+
+void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled = enable;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode = vlan;
+}
+
+void ipa3_notify_ipacm_eth_pdu_enable()
+{
+	struct ipa_msg_meta msg_meta;
+	int res = 0;
+
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = IPA_ENABLE_ETH_PDU_MODE_EVENT;
+	msg_meta.msg_len  = 0;
+
+	IPADBG("Sending ETH PDU ENABLE to IPACM\n");
+
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, NULL, NULL);
+
+	if (res)
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+}
+
+void ipa3_set_eth_pdu_ep_status()
+{
+	struct ipa3_ep_context *ep;
+
+	if (!ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
+	{
+		IPAERR("ETH PDU pipe is not connected yet\n");
+		return;
+	}
+
+	ep = &ipa3_ctx->ep[ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id];
+	if (!ep->valid)
+	{
+		IPAERR("ETH PDU pipe is not valid \n");
+		return;
+	}
+
+	IPADBG("Enabling status for ETH_PDU RX pipe\n");
+	/*
+	 * enable source notification status for exception packets
+	 * (i.e. QMAP commands) to be routed to modem.
+	 */
+	ep->status.status_en = true;
+	ep->status.status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+	/* Enable status supression to disable sending status for
+	 * every packet.
+	 */
+	ep->status.status_pkt_suppress = true;
+
+	if (ipa3_cfg_ep_status(ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id,
+		&ep->status)) {
+		IPAERR("fail to configure status of EP.\n");
+		return;
+	}
 }

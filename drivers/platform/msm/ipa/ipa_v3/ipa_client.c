@@ -89,6 +89,10 @@ int ipa3_enable_data_path(u32 clnt_hdl)
 				(ep->client == IPA_CLIENT_USB_CONS)) {
 			holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
 			holb_cfg.en = IPA_HOLB_TMR_EN;
+		} else if ((ipa3_ctx->ipa_hw_type == IPA_HW_v5_0) &&
+				(ep->client == IPA_CLIENT_USB_CONS)) {
+			holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+			holb_cfg.en = IPA_HOLB_TMR_EN;
 		} else if ((ipa3_ctx->ipa_hw_type >= IPA_HW_v5_2) &&
 				(ep->client == IPA_CLIENT_USB_CONS)) {
 			holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
@@ -657,8 +661,9 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 	} else {
 		IPADBG("Skipping endpoint configuration.\n");
 		if (IPA_CLIENT_IS_PROD(ipa3_ctx->ep[ipa_ep_idx].client) &&
-			ipa3_ctx->ep[ipa_ep_idx].client == IPA_CLIENT_USB_PROD
-			&& !ipa3_is_mhip_offload_enabled()) {
+				ipa3_ctx->ep[ipa_ep_idx].client == 
+				(IPA_CLIENT_USB_PROD || IPA_CLIENT_USB2_PROD)
+				&& !ipa3_is_mhip_offload_enabled()) {
 			if (ipa3_cfg_ep_seq(ipa_ep_idx,
 						&params->ipa_ep_cfg.seq)) {
 				IPAERR("fail to configure USB pipe seq\n");
@@ -2136,14 +2141,44 @@ int ipa3_get_rtk_gsi_stats(struct ipa_uc_dbg_ring_stats *stats)
 {
 	int i;
 	u64 low, high;
-
+	struct IpaHwRingStats_t *ring = NULL;
+	struct ipa3_uc_dbg_stats *ctx_stats = NULL;
 	if (!ipa3_ctx->rtk_ctx.dbg_stats.uc_dbg_stats_mmio)
 		return -EINVAL;
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	ctx_stats = &ipa3_ctx->rtk_ctx.dbg_stats;
 	for (i = 0; i < MAX_RTK_CHANNELS; i++) {
-		ipa3_get_gsi_ring_stats(&stats->u.rtk[i].commStats,
-			&ipa3_ctx->rtk_ctx.dbg_stats, i);
+
+		ring = &stats->u.rtk[i].commStats;
+
+		ring->ringFull = ioread32(
+			ctx_stats->uc_dbg_stats_mmio
+			+ i * IPA3_UC_DEBUG_STATS_RTK_OFF +
+			IPA3_UC_DEBUG_STATS_RINGFULL_OFF);
+
+		ring->ringEmpty = ioread32(
+			ctx_stats->uc_dbg_stats_mmio
+			+ i * IPA3_UC_DEBUG_STATS_RTK_OFF +
+			IPA3_UC_DEBUG_STATS_RINGEMPTY_OFF);
+
+		ring->ringUsageHigh = ioread32(
+			ctx_stats->uc_dbg_stats_mmio
+			+ i * IPA3_UC_DEBUG_STATS_RTK_OFF +
+			IPA3_UC_DEBUG_STATS_RINGUSAGEHIGH_OFF);
+
+		ring->ringUsageLow = ioread32(
+			ctx_stats->uc_dbg_stats_mmio
+			+ i * IPA3_UC_DEBUG_STATS_RTK_OFF +
+			IPA3_UC_DEBUG_STATS_RINGUSAGELOW_OFF);
+
+		ring->RingUtilCount = ioread32(
+			ctx_stats->uc_dbg_stats_mmio
+			+ i * IPA3_UC_DEBUG_STATS_RTK_OFF +
+			IPA3_UC_DEBUG_STATS_RINGUTILCOUNT_OFF);
+
+
 		stats->u.rtk[i].trCount = ioread32(
 			ipa3_ctx->rtk_ctx.dbg_stats.uc_dbg_stats_mmio
 			+ i * IPA3_UC_DEBUG_STATS_RTK_OFF +
