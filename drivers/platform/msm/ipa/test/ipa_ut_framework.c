@@ -900,6 +900,7 @@ static ssize_t ipa_ut_dbgfs_enable_read(struct file *file, char __user *ubuf,
 		status, strlen(status));
 }
 
+#ifdef CONFIG_IPA_UT
 /**
  * ipa_ut_framework_init() - Unit-tests framework initialization
  *
@@ -1108,4 +1109,4 @@ void ipa_ut_module_exit(void)
 	kfree(ipa_ut_ctx);
 	ipa_ut_ctx = NULL;
 }
-
+#endif

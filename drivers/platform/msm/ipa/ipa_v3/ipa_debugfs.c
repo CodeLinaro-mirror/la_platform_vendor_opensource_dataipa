@@ -4,7 +4,6 @@
  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
-#ifdef CONFIG_DEBUG_FS
 
 #include <linux/debugfs.h>
 #include <linux/kernel.h>
@@ -15,6 +14,7 @@
 #include "ipahal_nat.h"
 #include "ipa_odl.h"
 #include "ipa_qmi_service.h"
+#ifdef CONFIG_DEBUG_FS
 #if defined(CONFIG_IPA_TSP)
 /* The following line should be removed once TSP feature is POR */
 #include "ipa_test_module_tsp.h"
@@ -4277,5 +4277,5 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 	return INVALID_NO_OF_CHAR;
 }
 void ipa3_eth_debugfs_init(void) {}
-void ipa3_eth_debugfs_add(struct ipa_eth_client *client) {}
+void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client) {}
 #endif
