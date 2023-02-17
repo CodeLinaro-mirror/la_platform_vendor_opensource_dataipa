@@ -14549,6 +14549,13 @@ void ipa3_set_eth_pdu_ep_status()
 		return;
 	}
 
+	ep = &ipa3_ctx->ep[ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id];
+	if (!ep->valid)
+	{
+		IPAERR("ETH PDU pipe is not valid \n");
+		return;
+	}
+
 	IPADBG("Enabling status for ETH_PDU RX pipe\n");
 	/*
 	 * enable source notification status for exception packets

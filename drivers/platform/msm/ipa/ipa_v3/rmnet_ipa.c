@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -2409,6 +2409,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 		sizeof(struct rmnet_ingress_param) *
 			ingress_ioctl_v2_data.number_of_eps)) {
 		IPAWANERR("Ingress copy to user failed\n");
+		mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 		return -EFAULT;
 	}
 
@@ -2670,6 +2671,7 @@ static int handle3_egress_format_v2(struct net_device *dev,
 
 			if (rc == -EFAULT) {
 				IPAWANERR("Failed to setup wan prod pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 				return rc;
 			}
 
@@ -4321,11 +4323,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		atomic_set(&rmnet_ipa3_ctx->is_ssr, 1);
 		ipa3_q6_pre_shutdown_cleanup();
 		if (IPA_NETDEV())
-		{
-			netif_tx_stop_queue(netdev_get_tx_queue(IPA_NETDEV(), 0));
-			if (rmnet_ipa3_ctx->eth_wan_set)
-				netif_tx_stop_queue(netdev_get_tx_queue(IPA_NETDEV(), 1));
-		}
+			netif_device_detach(IPA_NETDEV());
 		ipa3_qmi_stop_workqueues();
 		ipa3_wan_ioctl_stop_qmi_messages();
 		ipa_stop_polling_stats();
@@ -4401,8 +4399,12 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			ipa3_qmi_service_exit();
 			ipa3_q6_pre_powerup_cleanup();
 		}
-		/* hold a proxy vote for the modem. */
-		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
+		/* hold a proxy vote for the modem.
+		 * for IPA 4.0 offline charge is not needed and proxy vote
+		 * is already held.
+		 */
+		if (ipa3_ctx->ipa_hw_type != IPA_HW_v4_0)
+			ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("IPA BEFORE_POWERUP handling is complete\n");
 		break;

@@ -798,7 +798,8 @@ static int __ipa_add_hpc_hdr_insertion(struct ipa_hdr_add *hdr, bool user)
 	}
 	entry->proc_ctx = (struct ipa3_hdr_proc_ctx_entry *)ipa3_id_find(proc_ctx.proc_ctx_hdl);
 	WARN_ON_RATELIMIT_IPA(!entry->proc_ctx);
-	entry->proc_ctx->ref_cnt++;
+	if(entry->proc_ctx != NULL)
+		entry->proc_ctx->ref_cnt++;
 
 	return 0;
 

@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -2460,6 +2460,7 @@ struct ipa3_context {
 	struct ipa_cne_evt ipa_cne_evt_req_cache[IPA_MAX_NUM_REQ_CACHE];
 	int num_ipa_cne_evt_req;
 	struct mutex ipa_cne_evt_lock;
+	bool vlan_mode_set;
 	bool vlan_mode_iface[IPA_VLAN_IF_MAX];
 	bool is_eth_double_vlan_mode;
 	bool wdi_over_pcie;
