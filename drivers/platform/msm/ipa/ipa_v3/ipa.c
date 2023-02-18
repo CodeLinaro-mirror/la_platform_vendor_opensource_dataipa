@@ -775,38 +775,21 @@ int ipa3_active_clients_log_print_table(char *buf, int size)
 
 static int ipa3_clean_modem_rule(void)
 {
-	struct ipa_install_fltr_rule_req_msg_v01 *req;
 	struct ipa_install_fltr_rule_req_ex_msg_v01 *req_ex;
 	int val = 0;
 
-	if (ipa3_ctx->ipa_hw_type < IPA_HW_v3_0) {
-		req = kzalloc(
-			sizeof(struct ipa_install_fltr_rule_req_msg_v01),
-			GFP_KERNEL);
-		if (!req) {
-			IPAERR("mem allocated failed!\n");
-			return -ENOMEM;
-		}
-		req->filter_spec_list_valid = false;
-		req->filter_spec_list_len = 0;
-		req->source_pipe_index_valid = 0;
-		val = ipa3_qmi_filter_request_send(req);
-		kfree(req);
-	} else {
-		req_ex = kzalloc(
-			sizeof(struct ipa_install_fltr_rule_req_ex_msg_v01),
-			GFP_KERNEL);
-		if (!req_ex) {
-			IPAERR("mem allocated failed!\n");
-			return -ENOMEM;
-		}
-		req_ex->filter_spec_ex_list_valid = false;
-		req_ex->filter_spec_ex_list_len = 0;
-		req_ex->source_pipe_index_valid = 0;
-		val = ipa3_qmi_filter_request_ex_send(req_ex);
-		kfree(req_ex);
+	req_ex = kzalloc(
+		sizeof(struct ipa_install_fltr_rule_req_ex_msg_v01),
+		GFP_KERNEL);
+	if (!req_ex) {
+		IPAERR("mem allocated failed!\n");
+		return -ENOMEM;
 	}
-
+	req_ex->filter_spec_ex_list_valid = false;
+	req_ex->filter_spec_ex_list_len = 0;
+	req_ex->source_pipe_index_valid = 0;
+	val = ipa3_qmi_filter_request_ex_send(req_ex);
+	kfree(req_ex);
 	return val;
 }
 
@@ -2879,6 +2862,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	struct ipa_ioc_ext_router_info *ext_router_info;
 #endif
+	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 #if defined(CONFIG_IPA_TSP)
 	struct ipa_ioc_tsp_ingress_class_get ingr_tc_get;
 	struct ipa_ioc_tsp_egress_class_get egr_tc_get;
@@ -4326,7 +4310,30 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPA_MACSEC_ADD_EVENT : IPA_MACSEC_DEL_EVENT,
 			macsec_map);
 		break;
+	case IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING:
+		IPADBG("Got IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING\n");
+		memset(&dscp_pcp_map_info, 0, sizeof(dscp_pcp_map_info));
 
+		if (copy_from_user(&dscp_pcp_map_info, (const void __user *) arg,
+			sizeof(struct ipa_ioc_dscp_pcp_map_info))) {
+			IPAERR_RL("copy_from_user for dscp_pcp_map_info fails\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		IPADBG("DSCP<->PCP map %s \n",(dscp_pcp_map_info.add)?"addition":"deletion");
+
+		if(ipa3_add_remove_dscp_pcp_map(&dscp_pcp_map_info.dscp_pcp_map[0],
+			dscp_pcp_map_info.add)) {
+			IPAERR_RL("DSCP<->PCP map %s failed\n",
+				(dscp_pcp_map_info.add)?"addition":"deletion");
+			retval = -EFAULT;
+			break;
+		}
+		/* Caching Mapping if succesful */
+		memcpy(&ipa3_ctx->dscp_pcp_map_info_cache, &dscp_pcp_map_info, sizeof(dscp_pcp_map_info));
+
+		break;
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
@@ -9399,6 +9406,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->uc_act_tbl_total = 0;
 	ipa3_ctx->uc_act_tbl_next_index = 0;
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
+	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =
@@ -9921,6 +9929,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->free_page_task_scheduled = false;
 
 	mutex_init(&ipa3_ctx->app_clock_vote.mutex);
+	mutex_init(&ipa3_ctx->ssr_lock);
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
@@ -10282,6 +10291,13 @@ static void ipa_dts_get_ulso_data(struct platform_device *pdev,
 	}
 	IPADBG("ulso_ip_id_max is set to %d",
 		ipa_drv_res->ulso_ip_id_max);
+}
+
+static void ipa_dts_get_iemac_data(struct platform_device *pdev,
+		struct ipa3_plat_drv_res *ipa_drv_res)
+{
+	ipa_drv_res->iemac_exist = of_property_read_bool(pdev->dev.of_node, "qcom,ipa-iemac");
+	IPADBG("iemac_exist = %d", ipa_drv_res->iemac_exist);
 }
 
 static int get_ipa_dts_configuration(struct platform_device *pdev,
@@ -11009,6 +11025,8 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	IPADBG(": coal-ipv4-id-ignore = %s\n",
 			ipa_drv_res->coal_ipv4_id_ignore
 			? "True" : "False");
+
+	ipa_dts_get_iemac_data(pdev, ipa_drv_res);
 
 	return 0;
 }
@@ -12110,7 +12128,7 @@ int ipa3_iommu_map(struct iommu_domain *domain,
 	if (cb->is_cache_coherent)
 		prot |= IOMMU_CACHE;
 
-	return iommu_map(domain, iova, paddr, size, prot);
+	return iommu_map_atomic(domain, iova, paddr, size, prot);
 }
 EXPORT_SYMBOL(ipa3_iommu_map);
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/msm_ipa.h>
@@ -405,6 +407,7 @@ static enum ipa_client_type
 		break;
 #if IPA_ETH_API_VER >= 2
 	case IPA_ETH_CLIENT_NTN3:
+	case IPA_ETH_CLIENT_IEMAC:
 		if (client->traffic_type == IPA_ETH_PIPE_BEST_EFFORT) {
 			if (client->inst_id == 0) {
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
@@ -429,7 +432,7 @@ static enum ipa_client_type
 	return ipa_client_type;
 }
 
-#if  IPA_ETH_API_VER < 2
+#if IPA_ETH_API_VER < 2
 static struct ipa_eth_client_pipe_info
 	*ipa_eth_get_pipe_from_hdl(ipa_eth_hdl_t hdl)
 {
@@ -1227,6 +1230,7 @@ enum ipa_client_type ipa_eth_get_ipa_client_type_from_eth_type_internal(
 	case IPA_ETH_CLIENT_EMAC:
 #if IPA_ETH_API_VER >= 2
 	case IPA_ETH_CLIENT_NTN3:
+	case IPA_ETH_CLIENT_IEMAC:
 #endif
 			if (dir == IPA_ETH_PIPE_DIR_TX) {
 				ipa_client_type =
