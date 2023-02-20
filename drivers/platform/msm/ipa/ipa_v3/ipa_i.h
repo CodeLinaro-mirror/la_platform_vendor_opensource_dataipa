@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -662,6 +662,8 @@ struct ipa_smmu_cb_ctx {
 	u32 va_start;
 	u32 va_size;
 	u32 va_end;
+	u32 geometry_start;
+	u32 geometry_end;
 	bool shared;
 	bool is_cache_coherent;
 	bool done;
@@ -908,6 +910,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
+	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -2171,6 +2174,14 @@ struct ipa_minidump_data {
 };
 #endif
 
+/* ctx for ETH PDU mode*/
+struct ipa3_eth_pdu_ctx {
+	bool eth_pdu_mode_enabled;
+	enum ipa_eth_hw_config_enum_v01 eth_pdu_vlan_mode;
+	int eth_pdu_tx_ep_id;
+	int eth_pdu_rx_ep_id;
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2296,6 +2307,7 @@ struct ipa_minidump_data {
  * @mhi_lock: lock to protect above mhi states
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
+ * @eth_pdu_ctx: ETH PDU ctx
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2448,6 +2460,7 @@ struct ipa3_context {
 	struct ipa_cne_evt ipa_cne_evt_req_cache[IPA_MAX_NUM_REQ_CACHE];
 	int num_ipa_cne_evt_req;
 	struct mutex ipa_cne_evt_lock;
+	bool vlan_mode_set;
 	bool vlan_mode_iface[IPA_VLAN_IF_MAX];
 	bool is_eth_double_vlan_mode;
 	bool wdi_over_pcie;
@@ -2538,6 +2551,7 @@ struct ipa3_context {
 	bool buff_above_thresh_for_coal_pipe_notified;
 	bool buff_below_thresh_for_def_pipe_notified;
 	bool buff_below_thresh_for_coal_pipe_notified;
+	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info_cache;
 	u8 mhi_ctrl_state;
 	bool is_mhi_coal_set;
 	struct mutex mhi_lock;
@@ -2553,6 +2567,7 @@ struct ipa3_context {
 	u32 page_wq_reschd_time;
 	struct list_head minidump_list_head;
 	bool is_dual_pine_config;
+	struct ipa3_eth_pdu_ctx eth_pdu_ctx;
 	struct workqueue_struct *collect_recycle_stats_wq;
 	struct ipa_lnx_pipe_page_recycling_stats recycle_stats;
 	struct ipa3_page_recycle_stats prev_coal_recycle_stats;
@@ -3809,6 +3824,11 @@ int ipa_send_mhi_coal_endp_ind_to_modem(bool check_if_modem_is_up);
  * To pass macsec mapping to the IPACM
  */
 int ipa3_send_macsec_info(enum ipa_macsec_event event_type, struct ipa_macsec_map *map);
+/*
+ * To send map information to uC
+ */
+int ipa3_add_remove_dscp_pcp_map(
+	uint8_t *map, bool AddMapping );
 
 /* Peripheral stats APIs */
 /* Non periodic/Event based stats update */
@@ -3820,5 +3840,10 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
+
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
+void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
+void ipa3_notify_ipacm_eth_pdu_enable(void);
+void ipa3_set_eth_pdu_ep_status(void);
 
 #endif /* _IPA3_I_H_ */
