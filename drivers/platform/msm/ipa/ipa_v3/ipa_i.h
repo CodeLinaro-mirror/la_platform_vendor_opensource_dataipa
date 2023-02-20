@@ -675,6 +675,8 @@ struct ipa_smmu_cb_ctx {
 	u32 va_start;
 	u32 va_size;
 	u32 va_end;
+	u32 geometry_start;
+	u32 geometry_end;
 	bool shared;
 	bool is_cache_coherent;
 	bool done;
@@ -2501,6 +2503,7 @@ struct ipa3_context {
 	bool gsi_ch20_wa;
 	bool s1_bypass_arr[IPA_SMMU_CB_MAX];
 	u32 wdi_map_cnt;
+	u32 eth_map_cnt;
 	struct wakeup_source *w_lock;
 	struct ipa3_wakelock_ref_cnt wakelock_ref_cnt;
 	/* RMNET_IOCTL_INGRESS_FORMAT_AGG_DATA */
