@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -918,11 +918,17 @@ int ipa3_qmi_filter_request_ex_send(
 				= vmalloc(
 				  sizeof(struct ipa_install_fltr_rule_req_ex_msg_v01));
 		}
-		memcpy((ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr[
-			ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg]),
-			req,
-			sizeof(struct ipa_install_fltr_rule_req_ex_msg_v01));
-		ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg++;
+		if(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
+				[ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg] == NULL){
+			IPAWANERR(" Memory Allocation failed \n");
+		 }
+		else {
+			memcpy((ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr[
+				ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg]),
+				req,
+				sizeof(struct ipa_install_fltr_rule_req_ex_msg_v01));
+			ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg++;
+		}
 		if ( ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg == MAX_NUM_QMI_RULE_CACHE )
 		       cache_filter_max_flag = true;
 		ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg %= 10;
@@ -1237,13 +1243,19 @@ int ipa3_qmi_ul_filter_request_send(
 				= vmalloc(
 				sizeof(struct ipa_configure_ul_firewall_rules_req_msg_v01));
 		}
-		memcpy(
-		(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr[
-		ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg]),
-		req,
-		sizeof(struct
-		ipa_configure_ul_firewall_rules_req_msg_v01));
-		ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg++;
+		if(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
+			[ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg] == NULL){
+			IPAWANERR(" Memory Allocation  failed \n");
+		     }
+		else{
+			memcpy(
+				(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr[
+				ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg]),
+				req,
+				sizeof(struct
+				ipa_configure_ul_firewall_rules_req_msg_v01));
+			ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg++;
+		}
 		if( ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg == MAX_NUM_QMI_RULE_CACHE )
 			cache_max_flag = true;
 		ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg %=
