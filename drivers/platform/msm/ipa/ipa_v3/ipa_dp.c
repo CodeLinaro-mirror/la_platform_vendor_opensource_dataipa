@@ -5678,7 +5678,10 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 				}
 			} else if (IPA_CLIENT_IS_WAN_CONS(in->client) ||
 				in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
-				in->ipa_ep_cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
+				if (in->bypass_agg)
+					in->ipa_ep_cfg.aggr.aggr_en = IPA_BYPASS_AGGR;
+				else
+					in->ipa_ep_cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
 				if (!in->ext_ioctl_v2)
 					in->ipa_ep_cfg.aggr.aggr_time_limit =
 						IPA_GENERIC_AGGR_TIME_LIMIT;

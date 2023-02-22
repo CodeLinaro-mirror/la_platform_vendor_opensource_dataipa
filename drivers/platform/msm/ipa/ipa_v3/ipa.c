@@ -2862,6 +2862,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	struct ipa_ioc_ext_router_info *ext_router_info;
 #endif
+	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 #if defined(CONFIG_IPA_TSP)
 	struct ipa_ioc_tsp_ingress_class_get ingr_tc_get;
 	struct ipa_ioc_tsp_egress_class_get egr_tc_get;
@@ -4309,7 +4310,30 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPA_MACSEC_ADD_EVENT : IPA_MACSEC_DEL_EVENT,
 			macsec_map);
 		break;
+	case IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING:
+		IPADBG("Got IPA_IOC_ADD_DEL_DSCP_PCP_MAPPING\n");
+		memset(&dscp_pcp_map_info, 0, sizeof(dscp_pcp_map_info));
 
+		if (copy_from_user(&dscp_pcp_map_info, (const void __user *) arg,
+			sizeof(struct ipa_ioc_dscp_pcp_map_info))) {
+			IPAERR_RL("copy_from_user for dscp_pcp_map_info fails\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		IPADBG("DSCP<->PCP map %s \n",(dscp_pcp_map_info.add)?"addition":"deletion");
+
+		if(ipa3_add_remove_dscp_pcp_map(&dscp_pcp_map_info.dscp_pcp_map[0],
+			dscp_pcp_map_info.add)) {
+			IPAERR_RL("DSCP<->PCP map %s failed\n",
+				(dscp_pcp_map_info.add)?"addition":"deletion");
+			retval = -EFAULT;
+			break;
+		}
+		/* Caching Mapping if succesful */
+		memcpy(&ipa3_ctx->dscp_pcp_map_info_cache, &dscp_pcp_map_info, sizeof(dscp_pcp_map_info));
+
+		break;
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
@@ -9382,6 +9406,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->uc_act_tbl_total = 0;
 	ipa3_ctx->uc_act_tbl_next_index = 0;
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
+	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =
@@ -10268,6 +10293,13 @@ static void ipa_dts_get_ulso_data(struct platform_device *pdev,
 		ipa_drv_res->ulso_ip_id_max);
 }
 
+static void ipa_dts_get_iemac_data(struct platform_device *pdev,
+		struct ipa3_plat_drv_res *ipa_drv_res)
+{
+	ipa_drv_res->iemac_exist = of_property_read_bool(pdev->dev.of_node, "qcom,ipa-iemac");
+	IPADBG("iemac_exist = %d", ipa_drv_res->iemac_exist);
+}
+
 static int get_ipa_dts_configuration(struct platform_device *pdev,
 		struct ipa3_plat_drv_res *ipa_drv_res)
 {
@@ -10994,6 +11026,8 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 			ipa_drv_res->coal_ipv4_id_ignore
 			? "True" : "False");
 
+	ipa_dts_get_iemac_data(pdev, ipa_drv_res);
+
 	return 0;
 }
 
@@ -11255,6 +11289,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
 #endif
+	u32 geometry_ap_mapping[2];
 
 	IPADBG("AP CB PROBE dev=%pK\n", dev);
 
@@ -11303,6 +11338,19 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 
 	IPADBG("AP CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,iommu-geometry",
+			geometry_ap_mapping, 2) == 0) {
+		cb->geometry_start = geometry_ap_mapping[0];
+		cb->geometry_end  = geometry_ap_mapping[1];
+	} else {
+		IPADBG("AP CB PROBE Geometry not defined using max!\n");
+		cb->geometry_start = 0;
+		cb->geometry_end = 0xF0000000;
+	}
+
+	IPADBG("AP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
+		   dev, cb->geometry_start, cb->geometry_end);
 
 	/*
 	 * Prior to these calls to iommu_domain_get_attr(), these

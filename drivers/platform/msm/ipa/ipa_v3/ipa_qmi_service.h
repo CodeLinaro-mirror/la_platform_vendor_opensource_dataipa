@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef IPA_QMI_SERVICE_H
@@ -529,7 +529,7 @@ static inline int ipa3_qmi_send_mhi_cleanup_request(
 
 static int rmnet_ipa3_notify_nat_move_res(bool success)
 {
-	return -EPERM
+	return -EPERM;
 }
 
 static inline int ipa3_wwan_set_modem_perf_profile(

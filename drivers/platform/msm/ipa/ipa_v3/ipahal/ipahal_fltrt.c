@@ -1388,7 +1388,7 @@ static inline void ipa_fltrt_get_mac_data(const struct ipa_rule_attrib *attrib,
 	}
 
 	if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q) {
-		*offset = -10;
+		*offset = -12;
 		*mac_addr = attrib->src_mac_addr;
 		*mac_addr_mask = attrib->src_mac_addr_mask;
 		return;

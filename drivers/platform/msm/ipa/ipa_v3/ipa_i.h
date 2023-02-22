@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -675,6 +675,8 @@ struct ipa_smmu_cb_ctx {
 	u32 va_start;
 	u32 va_size;
 	u32 va_end;
+	u32 geometry_start;
+	u32 geometry_end;
 	bool shared;
 	bool is_cache_coherent;
 	bool done;
@@ -921,6 +923,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
+	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -1815,7 +1818,7 @@ struct ipa3_uc_ctx {
 	u32 ering_rp;
 	bool ipa_use_uc_holb_monitor;
 	struct ipa_holb_monitor holb_monitor;
-	struct IpaMhiCh_t curr_cmd;
+	struct IpaMhiChInfo_t curr_cmd;
 };
 
 /**
@@ -2500,6 +2503,7 @@ struct ipa3_context {
 	bool gsi_ch20_wa;
 	bool s1_bypass_arr[IPA_SMMU_CB_MAX];
 	u32 wdi_map_cnt;
+	u32 eth_map_cnt;
 	struct wakeup_source *w_lock;
 	struct ipa3_wakelock_ref_cnt wakelock_ref_cnt;
 	/* RMNET_IOCTL_INGRESS_FORMAT_AGG_DATA */
@@ -2620,6 +2624,7 @@ struct ipa3_context {
 	bool buff_below_thresh_for_coal_pipe_notified;
 	bool buff_below_thresh_for_ll_pipe_notified;
 	bool free_page_task_scheduled;
+	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info_cache;
 	u8 mhi_ctrl_state;
 	bool is_mhi_coal_set;
 	struct mutex mhi_lock;
@@ -2639,6 +2644,7 @@ struct ipa3_context {
 	u32 ipa_smem_size;
 	bool cesta_enable;
 	struct mutex ssr_lock;
+	bool iemac_exist;
 };
 
 struct ipa3_plat_drv_res {
@@ -2724,6 +2730,7 @@ struct ipa3_plat_drv_res {
 	bool is_dual_pine_config;
 	u8 coal_ipv4_id_ignore;
 	bool cesta_enable;
+	bool iemac_exist;
 };
 
 /**
@@ -4017,6 +4024,11 @@ int ipa_send_mhi_coal_endp_ind_to_modem(void);
  * To pass macsec mapping to the IPACM
  */
 int ipa3_send_macsec_info(enum ipa_macsec_event event_type, struct ipa_macsec_map *map);
+/*
+ * To send map information to uC
+ */
+int ipa3_add_remove_dscp_pcp_map(
+	uint8_t *map, bool AddMapping );
 
 /* Peripheral stats APIs */
 /* Non periodic/Event based stats update */
