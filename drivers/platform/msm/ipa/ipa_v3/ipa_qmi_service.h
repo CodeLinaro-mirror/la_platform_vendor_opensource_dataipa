@@ -125,6 +125,8 @@ struct ipa3_rmnet_mux_val {
 	uint32_t  hdr_hdl;
 	uint16_t mtu_v4;
 	uint16_t mtu_v6;
+	uint8_t mac[MAC_ADDR_SIZE];
+	bool q6_qmi_send;
 };
 
 extern struct qmi_elem_info

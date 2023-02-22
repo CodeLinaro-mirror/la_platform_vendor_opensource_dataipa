@@ -1318,6 +1318,8 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 		goto fail_gen;
 	}
 
+	IPADBG("EP %d allocated.\n", ipa_ep_idx);
+
 	ep = &ipa3_ctx->ep[ipa_ep_idx];
 	if (ep->valid == 1) {
 		IPAERR("EP %d already allocated.\n", ipa_ep_idx);
@@ -1466,6 +1468,7 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 			ep->sys->napi_tx_enable = ipa3_ctx->tx_napi_enable;
 			ep->sys->tx_poll = ipa3_ctx->tx_poll;
 		} else if(sys_in->client == IPA_CLIENT_APPS_WAN_PROD ||
+			sys_in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
 			sys_in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) {
 			netif_tx_napi_add((struct net_device *)sys_in->priv,
 			&ep->sys->napi_tx, tx_completion_func,
@@ -1661,6 +1664,7 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 	if (!ep->skip_ep_cfg && IPA_CLIENT_IS_PROD(sys_in->client)) {
 		if (ipa3_ctx->modem_cfg_emb_pipe_flt &&
 			(sys_in->client == IPA_CLIENT_APPS_WAN_PROD ||
+			sys_in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
 				sys_in->client ==
 				IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD))
 			IPADBG("modem cfg emb pipe flt\n");
@@ -1984,6 +1988,7 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 	if (!ep->skip_ep_cfg && IPA_CLIENT_IS_PROD(ep->client)) {
 		if (ipa3_ctx->modem_cfg_emb_pipe_flt &&
 			(ep->client == IPA_CLIENT_APPS_WAN_PROD ||
+				ep->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
 				ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD))
 			IPADBG("modem cfg emb pipe flt\n");
 		else
@@ -5627,6 +5632,7 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 	}
 
 	if (in->client == IPA_CLIENT_APPS_WAN_PROD ||
+		in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) {
 		sys->policy = IPA_POLICY_INTR_MODE;
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
@@ -6538,6 +6544,7 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
+		in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_PROD)
 		mem_flag = GFP_ATOMIC;
 
@@ -6667,6 +6674,7 @@ static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 
 	if ((ep->sys && ep->sys->ext_ioctl_v2) &&
 		((ep->client == IPA_CLIENT_APPS_WAN_PROD) ||
+		(ep->client == IPA_CLIENT_APPS_WAN_ETH_PROD) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_CONS) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD) ||
@@ -6748,6 +6756,7 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 	if (IPA_CLIENT_IS_PROD(ep->client)) {
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 		if(ep->client == IPA_CLIENT_APPS_WAN_PROD ||
+		   ep->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
 		   ep->client == IPA_CLIENT_APPS_LAN_PROD ||
 		   ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD)
 			gsi_channel_props.tx_poll = ipa3_ctx->tx_poll;
