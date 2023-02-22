@@ -3692,9 +3692,8 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 		case RMNET_IOCTL_SET_ETH_VLAN:
 			IPAWANDBG("get ioctl: RMNET_IOCTL_SET_ETH_VLAN vlan %d\n", ext_ioctl_data.u.data);
 			rmnet_ipa3_ctx->eth_vlan = ext_ioctl_data.u.data;
-
 			ipa3_set_eth_pdu_mode(true, rmnet_ipa3_ctx->eth_vlan);
-
+			ipa3_notify_ipacm_eth_pdu_enable();
 			break;
 		default:
 			IPAWANERR("[%s] unsupported extended cmd[%d]",
