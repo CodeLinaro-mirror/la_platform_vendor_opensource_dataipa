@@ -345,6 +345,7 @@ void ipa_table_delete_entry(
 	ipa_table_iterator* iterator,
 	uint8_t             is_prev_empty)
 {
+	int i = 0;
 	IPADBG("In\n");
 
 	if ( VALID_INDEX(iterator->next_index) )
@@ -375,7 +376,10 @@ void ipa_table_delete_entry(
 			IPADBG("deleting the dead node %d for %s\n",
 				   iterator->prev_index, table->name);
 
-			memset(iterator->prev_entry, 0, table->entry_size);
+			for( i=0;i<table->entry_size;i++)
+			{
+					memset(((char *)iterator->prev_entry + i), 0, 1);
+			}
 
 			--table->cur_tbl_cnt;
 		}
@@ -390,13 +394,17 @@ void ipa_table_erase_entry(
 	ipa_table* table,
 	uint16_t   index)
 {
+	int i = 0;
 	void* entry = GOTO_REC(table, index);
 
 	IPADBG("In\n");
 
 	IPADBG("table(%p) index(%u)\n", table, index);
 
-	memset(entry, 0, table->entry_size);
+	for (i=0;i< table->entry_size;i++)
+	{
+			memset((char *)(entry + i), 0, 1);
+	}
 
 	if ( index < table->table_entries )
 	{
