@@ -1294,14 +1294,6 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		result = ipa3_cfg_ep_holb(ipa_ep_idx_tx, &holb_cfg);
 		IPADBG("Configured HOLB for clnt=%d, timer=%d, return = %d\n",
 				ipa_ep_idx_tx, holb_cfg.tmr_val, result);
-	} else if (ipa_ep_idx_tx >= 0) {
-		/* configure HOLB with 31ms timer with 1 WLAN pipe passed */
-		memset(&holb_cfg, 0, sizeof(holb_cfg));
-		holb_cfg.en = IPA_HOLB_TMR_EN;
-		holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
-		result = ipa3_cfg_ep_holb(ipa_ep_idx_tx, &holb_cfg);
-		IPADBG("Configured HOLB for clnt=%d, timer=%d, return = %d\n",
-				ipa_ep_idx_tx, holb_cfg.tmr_val, result);
 	}
 
 	/* start gsi tx channel */
