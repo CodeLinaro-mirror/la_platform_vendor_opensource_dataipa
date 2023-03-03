@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_ut_framework.h"
@@ -409,7 +411,11 @@ static int ipa_test_ntn_suite_setup(void **priv)
 		return -ENOMEM;
 	}
 
-	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+	if (ipa3_ctx->iemac_exist)
+		ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+			IPA_ETH_CLIENT_IEMAC);
+	else
+		ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
 			IPA_ETH_CLIENT_NTN3);
 
 	init_completion(&test_ntn_ctx->init_completion_obj);
@@ -450,6 +456,10 @@ static void ipa_ntn_test_print_stats()
 	int tx_ep, rx_ep;
 	struct ipa3_eth_error_stats tx_stats;
 	struct ipa3_eth_error_stats rx_stats;
+
+	if (test_ntn_ctx->client.client_type == IPA_ETH_CLIENT_IEMAC)
+		return;
+
 
 	/* first get uC stats */
 	ret = ipa3_get_ntn_gsi_stats(&stats);
@@ -1484,6 +1494,63 @@ static int ipa_ntn_test_eth1_multi_transfer_burst(void *priv)
 
 	return ret;
 }
+
+static int ipa_iemac_test_single_transfer(void *priv)
+{
+	int ret;
+
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+		IPA_ETH_CLIENT_IEMAC);
+	ret = ipa_ntn_test_single_transfer(priv);
+
+	return ret;
+}
+
+static int ipa_iemac_test_multi_transfer(void *priv)
+{
+	int ret;
+
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+		IPA_ETH_CLIENT_IEMAC);
+	ret = ipa_ntn_test_multi_transfer(priv);
+
+	return ret;
+}
+
+static int ipa_iemac_test_multi_transfer_wrap_around(void *priv)
+{
+	int ret;
+
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+		IPA_ETH_CLIENT_IEMAC);
+	ret = ipa_ntn_test_multi_transfer_wrap_around(priv);
+
+	return ret;
+}
+
+static int ipa_iemac_test_multi_transfer_burst(void *priv)
+{
+	int ret;
+
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+		IPA_ETH_CLIENT_IEMAC);
+	ret = ipa_ntn_test_multi_transfer_burst(priv);
+
+	return ret;
+}
+
+static int ipa_iemac_test_eth1_multi_transfer_burst(void *priv)
+{
+	int ret;
+
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET2_CONS, IPA_CLIENT_ETHERNET2_PROD, 1,
+		IPA_ETH_CLIENT_IEMAC);
+	ret = ipa_ntn_test_multi_transfer_burst(priv);
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+		IPA_ETH_CLIENT_NTN3);
+
+	return ret;
+}
 #endif
 
 /* Suite definition block */
@@ -1520,6 +1587,31 @@ IPA_UT_DEFINE_SUITE_START(ntn, "NTN3 tests",
 			"eth1: send entire ring in one shot",
 			ipa_ntn_test_eth1_multi_transfer_burst,
 			true, IPA_HW_v5_0, IPA_HW_MAX),
+
+	IPA_UT_ADD_TEST(iemac_single_transfer,
+		"iemac: single data transfer",
+		ipa_iemac_test_single_transfer,
+		true, IPA_HW_v6_0, IPA_HW_MAX),
+
+	IPA_UT_ADD_TEST(iemac_multi_transfer,
+		"iemac: multi data transfer without wrap around",
+		ipa_iemac_test_multi_transfer,
+		true, IPA_HW_v6_0, IPA_HW_MAX),
+
+	IPA_UT_ADD_TEST(iemac_multi_transfer_w_wrap,
+		"iemac: multi data transfer with wrap around",
+		ipa_iemac_test_multi_transfer_wrap_around,
+		true, IPA_HW_v6_0, IPA_HW_MAX),
+
+	IPA_UT_ADD_TEST(iemac_multi_transfer_burst,
+			"iemac: send entire ring in one shot",
+			ipa_iemac_test_multi_transfer_burst,
+			true, IPA_HW_v6_0, IPA_HW_MAX),
+
+	IPA_UT_ADD_TEST(iemac_eth1_multi_transfer_burst,
+			"iemac-eth1: send entire ring in one shot",
+			ipa_iemac_test_eth1_multi_transfer_burst,
+			true, IPA_HW_v6_0, IPA_HW_MAX),
 #endif
 } IPA_UT_DEFINE_SUITE_END(ntn);
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of.h>
@@ -840,8 +840,10 @@ static void gsi_handle_ieob(int ee)
 			if (trace_gsi_qtimer_enabled())
 			{
 				uint64_t qtimer = 0;
+#ifdef CONFIG_ARM64
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 				qtimer = arch_timer_read_cntpct_el0();
+#endif
 #endif
 				trace_gsi_qtimer(qtimer, false, 0, ch, msk);
 			}
@@ -1126,6 +1128,7 @@ static irqreturn_t gsi_isr(int irq, void *ctxt)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
 static irqreturn_t gsi_msi_isr(int irq, void *ctxt)
 {
 	int ee = gsi_ctx->per.ee;
@@ -1149,8 +1152,10 @@ static irqreturn_t gsi_msi_isr(int irq, void *ctxt)
 
 	if (trace_gsi_qtimer_enabled()) {
 		uint64_t qtimer = 0;
+#ifdef CONFIG_ARM64
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 		qtimer = arch_timer_read_cntpct_el0();
+#endif
 #endif
 		trace_gsi_qtimer(qtimer, true, evt, 0, 0);
 	}
@@ -1191,6 +1196,7 @@ check_again:
 	spin_unlock_irqrestore(&evt_ctxt->ring.slock, flags);
 	return IRQ_HANDLED;
 }
+#endif
 
 static uint32_t gsi_get_max_channels(enum gsi_ver ver)
 {
@@ -1346,6 +1352,7 @@ int gsi_unmap_base(void)
 }
 EXPORT_SYMBOL(gsi_unmap_base);
 
+#ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
 static void __gsi_msi_write_msg(struct msi_desc *desc, struct msi_msg *msg)
 {
 	u16 msi = 0;
@@ -1405,6 +1412,7 @@ static int __gsi_request_msi_irq(unsigned long msi)
 	set_bit(msi, gsi_ctx->msi.allocated);
 	return result;
 }
+#endif
 
 static int __gsi_allocate_msis(void)
 {

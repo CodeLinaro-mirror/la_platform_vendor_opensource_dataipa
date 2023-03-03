@@ -800,103 +800,6 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 		resp.resp.error, "ipa_init_modem_driver_resp_msg_v01");
 }
 
-/* sending filter-install-request to modem*/
-int ipa3_qmi_filter_request_send(struct ipa_install_fltr_rule_req_msg_v01 *req)
-{
-	struct ipa_install_fltr_rule_resp_msg_v01 resp;
-	struct ipa_msg_desc req_desc, resp_desc;
-	int rc;
-	int i;
-
-	/* check if modem up */
-	if (!ipa3_qmi_indication_fin ||
-		!ipa3_qmi_modem_init_fin ||
-		!ipa_q6_clnt) {
-		IPAWANDBG("modem QMI haven't up yet\n");
-		return -EINVAL;
-	}
-
-	/* check if the filter rules from IPACM is valid */
-	if (req->filter_spec_list_len == 0) {
-		IPAWANDBG("IPACM pass zero rules to Q6\n");
-	} else {
-		IPAWANDBG("IPACM pass %u rules to Q6\n",
-		req->filter_spec_list_len);
-	}
-
-	if (req->filter_spec_list_len >= QMI_IPA_MAX_FILTERS_V01) {
-		IPAWANDBG(
-		"IPACM passes the number of filtering rules exceed limit\n");
-		return -EINVAL;
-	} else if (req->source_pipe_index_valid != 0) {
-		IPAWANDBG(
-		"IPACM passes source_pipe_index_valid not zero 0 != %d\n",
-			req->source_pipe_index_valid);
-		return -EINVAL;
-	} else if (req->source_pipe_index >= ipa3_ctx_get_num_pipes()) {
-		IPAWANDBG(
-		"IPACM passes source pipe index not valid ID = %d\n",
-		req->source_pipe_index);
-		return -EINVAL;
-	}
-	for (i = 0; i < req->filter_spec_list_len; i++) {
-		if ((req->filter_spec_list[i].ip_type !=
-			QMI_IPA_IP_TYPE_V4_V01) &&
-			(req->filter_spec_list[i].ip_type !=
-			QMI_IPA_IP_TYPE_V6_V01))
-			return -EINVAL;
-		if (req->filter_spec_list[i].is_mux_id_valid == false)
-			return -EINVAL;
-		if (req->filter_spec_list[i].is_routing_table_index_valid
-			== false)
-			return -EINVAL;
-		if ((req->filter_spec_list[i].filter_action <=
-			QMI_IPA_FILTER_ACTION_INVALID_V01) ||
-			(req->filter_spec_list[i].filter_action >
-			QMI_IPA_FILTER_ACTION_EXCEPTION_V01))
-			return -EINVAL;
-	}
-
-	mutex_lock(&ipa3_qmi_lock);
-	if (ipa3_qmi_ctx != NULL) {
-		/* cache the qmi_filter_request */
-		memcpy(&(ipa3_qmi_ctx->ipa_install_fltr_rule_req_msg_cache[
-			ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_msg]),
-			req,
-			sizeof(struct ipa_install_fltr_rule_req_msg_v01));
-		ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_msg++;
-		ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_msg %= 10;
-	}
-	mutex_unlock(&ipa3_qmi_lock);
-
-	req_desc.max_msg_len = QMI_IPA_INSTALL_FILTER_RULE_REQ_MAX_MSG_LEN_V01;
-	req_desc.msg_id = QMI_IPA_INSTALL_FILTER_RULE_REQ_V01;
-	req_desc.ei_array = ipa3_install_fltr_rule_req_msg_data_v01_ei;
-
-	memset(&resp, 0, sizeof(struct ipa_install_fltr_rule_resp_msg_v01));
-	resp_desc.max_msg_len =
-		QMI_IPA_INSTALL_FILTER_RULE_RESP_MAX_MSG_LEN_V01;
-	resp_desc.msg_id = QMI_IPA_INSTALL_FILTER_RULE_RESP_V01;
-	resp_desc.ei_array = ipa3_install_fltr_rule_resp_msg_data_v01_ei;
-
-	if (unlikely(!ipa_q6_clnt))
-		return -ETIMEDOUT;
-	rc = ipa3_qmi_send_req_wait(ipa_q6_clnt,
-		&req_desc, req,
-		&resp_desc, &resp,
-		QMI_SEND_REQ_TIMEOUT_MS);
-
-	if (rc < 0) {
-		IPAWANERR("QMI send Req %d failed, rc= %d\n",
-			QMI_IPA_INSTALL_FILTER_RULE_REQ_V01,
-			rc);
-		return rc;
-	}
-
-	return ipa3_check_qmi_response(rc,
-		QMI_IPA_INSTALL_FILTER_RULE_REQ_V01, resp.resp.result,
-		resp.resp.error, "ipa_install_filter");
-}
 
 static int ipa3_qmi_filter_request_ex_calc_length(
 	struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
@@ -944,6 +847,7 @@ int ipa3_qmi_filter_request_ex_send(
 	struct ipa_msg_desc req_desc, resp_desc;
 	int rc;
 	int i;
+	static bool cache_filter_max_flag = false;
 
 	/* check if modem up */
 	if (!ipa3_qmi_indication_fin ||
@@ -1008,11 +912,19 @@ int ipa3_qmi_filter_request_ex_send(
 	mutex_lock(&ipa3_qmi_lock);
 	if (ipa3_qmi_ctx != NULL) {
 		/* cache the qmi_filter_request */
-		memcpy(&(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache[
+		if( cache_filter_max_flag != true ) {
+			ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
+				[ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg]
+				= vmalloc(
+				  sizeof(struct ipa_install_fltr_rule_req_ex_msg_v01));
+		}
+		memcpy((ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr[
 			ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg]),
 			req,
 			sizeof(struct ipa_install_fltr_rule_req_ex_msg_v01));
 		ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg++;
+		if ( ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg == MAX_NUM_QMI_RULE_CACHE )
+		       cache_filter_max_flag = true;
 		ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg %= 10;
 	}
 	mutex_unlock(&ipa3_qmi_lock);
@@ -1311,6 +1223,7 @@ int ipa3_qmi_ul_filter_request_send(
 	struct ipa_configure_ul_firewall_rules_resp_msg_v01 resp;
 	struct ipa_msg_desc req_desc, resp_desc;
 	int rc, i;
+	static bool cache_max_flag = false;
 
 	IPAWANDBG("IPACM pass %u rules to Q6\n",
 		req->firewall_rules_list_len);
@@ -1318,13 +1231,21 @@ int ipa3_qmi_ul_filter_request_send(
 	mutex_lock(&ipa3_qmi_lock);
 	if (ipa3_qmi_ctx != NULL) {
 		/* cache the qmi_filter_request */
+		if( cache_max_flag != true ) {
+			ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
+			[ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg]
+				= vmalloc(
+				sizeof(struct ipa_configure_ul_firewall_rules_req_msg_v01));
+		}
 		memcpy(
-		&(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache[
+		(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr[
 		ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg]),
 		req,
 		sizeof(struct
 		ipa_configure_ul_firewall_rules_req_msg_v01));
 		ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg++;
+		if( ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg == MAX_NUM_QMI_RULE_CACHE )
+			cache_max_flag = true;
 		ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg %=
 			MAX_NUM_QMI_RULE_CACHE;
 	}
