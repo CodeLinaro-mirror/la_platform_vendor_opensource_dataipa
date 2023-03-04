@@ -9895,8 +9895,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 	IPADBG("IPA power manager initialized\n");
 
-	INIT_LIST_HEAD(&ipa3_ctx->ipa_ready_cb_list);
-
 	init_completion(&ipa3_ctx->init_completion_obj);
 	init_completion(&ipa3_ctx->uc_loaded_completion_obj);
 
@@ -12585,6 +12583,7 @@ static int __init ipa_module_init(void)
 		return -ENOMEM;
 	}
 	mutex_init(&ipa3_ctx->lock);
+	INIT_LIST_HEAD(&ipa3_ctx->ipa_ready_cb_list);
 
 	if (running_emulation) {
 		/* Register as a PCI device driver */
