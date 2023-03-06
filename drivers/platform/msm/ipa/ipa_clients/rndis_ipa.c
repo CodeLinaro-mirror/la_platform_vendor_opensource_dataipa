@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/atomic.h>
@@ -313,7 +315,7 @@ static int rndis_ipa_ep_registers_cfg
 	bool deaggr_enable,
 	bool is_vlan_mode);
 static int rndis_ipa_set_device_ethernet_addr
-	(u8 *dev_ethaddr,
+	(struct net_device *net,
 	u8 device_ethaddr[]);
 static enum rndis_ipa_state rndis_ipa_next_state
 	(enum rndis_ipa_state current_state,
@@ -641,7 +643,7 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 	rndis_ipa_debugfs_init(rndis_ipa_ctx);
 
 	result = rndis_ipa_set_device_ethernet_addr
-		(net->dev_addr, rndis_ipa_ctx->device_ethaddr);
+		(net, rndis_ipa_ctx->device_ethaddr);
 	if (result) {
 		RNDIS_IPA_ERROR("set device MAC failed\n");
 		goto fail_set_device_ethernet;
@@ -2216,12 +2218,18 @@ static int rndis_ipa_ep_registers_cfg(
  * Returns 0 for success, negative otherwise
  */
 static int rndis_ipa_set_device_ethernet_addr(
-	u8 *dev_ethaddr,
+	struct net_device *net,
 	u8 device_ethaddr[])
 {
 	if (!is_valid_ether_addr(device_ethaddr))
 		return -EINVAL;
-	memcpy(dev_ethaddr, device_ethaddr, ETH_ALEN);
+
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 15, 0))
+	net->addr_len = ETH_ALEN;
+	dev_addr_set(net, device_ethaddr);
+#else
+	memcpy((u8 *)net->dev_addr, device_ethaddr, ETH_ALEN);
+#endif
 
 	return 0;
 }

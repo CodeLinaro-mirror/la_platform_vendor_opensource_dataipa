@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -235,7 +237,7 @@ static void ecm_ipa_debugfs_destroy(struct ecm_ipa_dev *ecm_ipa_ctx);
 static int ecm_ipa_ep_registers_cfg(u32 usb_to_ipa_hdl, u32 ipa_to_usb_hdl,
 	bool is_vlan_mode);
 static int ecm_ipa_set_device_ethernet_addr
-	(u8 *dev_ethaddr, u8 device_ethaddr[]);
+	(struct net_device *net, u8 device_ethaddr[]);
 static enum ecm_ipa_state ecm_ipa_next_state
 	(enum ecm_ipa_state current_state, enum ecm_ipa_operation operation);
 static const char *ecm_ipa_state_string(enum ecm_ipa_state state);
@@ -342,7 +344,7 @@ int ecm_ipa_init(struct ecm_ipa_params *params)
 	ecm_ipa_debugfs_init(ecm_ipa_ctx);
 
 	result = ecm_ipa_set_device_ethernet_addr
-		(net->dev_addr, params->device_ethaddr);
+		(net, params->device_ethaddr);
 	if (result) {
 		ECM_IPA_ERROR("set device MAC failed\n");
 		goto fail_set_device_ethernet;
@@ -1503,12 +1505,18 @@ out:
  * Returns 0 for success, negative otherwise
  */
 static int ecm_ipa_set_device_ethernet_addr
-	(u8 *dev_ethaddr, u8 device_ethaddr[])
+	(struct net_device *net, u8 device_ethaddr[])
 {
 	if (!is_valid_ether_addr(device_ethaddr))
 		return -EINVAL;
-	memcpy(dev_ethaddr, device_ethaddr, ETH_ALEN);
-	ECM_IPA_DEBUG("device ethernet address: %pM\n", dev_ethaddr);
+
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 15, 0))
+	net->addr_len = ETH_ALEN;
+	dev_addr_set(net, device_ethaddr);
+#else
+	memcpy((u8 *)net->dev_addr, device_ethaddr, ETH_ALEN);
+	ECM_IPA_DEBUG("device ethernet address: %pM\n", (u8 *)net->dev_addr);
+#endif
 	return 0;
 }
 
