@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/init.h>
@@ -197,6 +197,8 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_COAL_MASTER_CFG),
 	__stringify(IPA_IPV4_NAT_EXC_SUPPRESS_ROUT_TABLE_INDX),
 	__stringify(IPA_IPV6_CONN_TRACK_EXC_SUPPRESS_ROUT_TABLE_INDX),
+	__stringify(IPA_TIERING_CFG),
+	__stringify(IPA_TIERING_CFG_WR_ONCE_INDICATION),
 };
 
 static void ipareg_construct_dummy(enum ipahal_reg_name reg,
@@ -5769,6 +5771,12 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_RAM_EGRESS_SHAPING_TC_DB_BASE_ADDR] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x000135E4, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_TIERING_CFG] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00013788, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_TIERING_CFG_WR_ONCE_INDICATION] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0001378C, 0, 0, 0, 0, 0},
 	[IPA_HW_v6_0][IPA_ENDP_GSI_CFG1_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00013800, 0x4, 0, 48, 0, 0},

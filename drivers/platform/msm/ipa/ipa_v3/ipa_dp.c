@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -2101,6 +2101,28 @@ void ipa3_tx_cmd_comp(void *user1, int user2)
 	ipahal_destroy_imm_cmd(user1);
 }
 
+static inline int validate_client_ipa_tiering(enum ipa_client_type dst)
+{
+	u32 tiering_value = ipa3_ctx->ipa_tiering_value;
+
+	if (tiering_value & IPA_TIERING_DISABLE_ETH) {
+		if (dst == IPA_CLIENT_ETHERNET_CONS ||
+			dst == IPA_CLIENT_AQC_ETHERNET_CONS ||
+			dst == IPA_CLIENT_RTK_ETHERNET_CONS ||
+			dst == IPA_CLIENT_ETHERNET2_CONS) {
+				return -EINVAL;
+			}
+	}
+
+	if ((tiering_value & IPA_TIERING_DISABLE_WIFI) && IPA_CLIENT_IS_WLAN_CONS(dst))
+		return -EINVAL;
+
+	if ((tiering_value & IPA_TIERING_DISABLE_USB) && IPA_CLIENT_IS_USB_CONS(dst))
+		return -EINVAL;
+
+	return 0;
+}
+
 /**
  * ipa3_tx_dp() - Data-path tx handler
  * @dst:	[in] which IPA destination to route tx packets to
@@ -2145,6 +2167,11 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 
 	if (skb->len == 0) {
 		IPAERR("packet size is 0\n");
+		return -EINVAL;
+	}
+
+	if (validate_client_ipa_tiering(dst)) {
+		IPAERR("Client %d is disabled by IPA Tiering\n", dst);
 		return -EINVAL;
 	}
 

@@ -1268,6 +1268,10 @@ struct ipa_gen_regs_s {
 	  ipa_state_qmngr_queue_nonempty;
 	struct ipa_hwio_def_ipa_state_prod_dpl_fifo_s
 	  ipa_state_prod_dpl_fifo;
+	struct ipa_hwio_def_ipa_tiering_cfg_s
+	  ipa_tiering_cfg;
+	struct ipa_hwio_def_ipa_tiering_cfg_wr_once_indication_s
+	  ipa_tiering_cfg_wr_once_indication;
 };
 
 /*
