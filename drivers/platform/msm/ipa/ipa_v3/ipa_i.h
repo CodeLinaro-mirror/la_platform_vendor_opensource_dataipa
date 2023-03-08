@@ -355,6 +355,13 @@ enum {
 #define IPA_WDI3_RX3_DIR 6
 #define IPA_WDI3_RX4_DIR 7
 
+/* ipa_tiering_mode - Enable/Disable IPA HW features. */
+#define	IPA_TIERING_DISABLE_NAT 	(1)
+#define	IPA_TIERING_DISABLE_IPSEC 	(1 << 1)
+#define	IPA_TIERING_DISABLE_WIFI 	(1 << 2)
+#define	IPA_TIERING_DISABLE_ETH 	(1 << 3)
+#define	IPA_TIERING_DISABLE_USB 	(1 << 4)
+
 /* use QMAP header reserved bit to identify tethered traffic */
 #define IPA_QMAP_TETH_BIT (1 << 30)
 
@@ -2370,6 +2377,7 @@ struct ipa_ready_cb_mhi_data {
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  * @cesta_enable: flag which holds if cesta_enabled or not in DTSI
+ * @ipa_tiering_value: IPA tiering value to support multiple SKUs
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2644,6 +2652,7 @@ struct ipa3_context {
 	bool cesta_enable;
 	struct mutex ssr_lock;
 	bool iemac_exist;
+	u32 ipa_tiering_value;
 };
 
 struct ipa3_plat_drv_res {

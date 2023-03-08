@@ -335,6 +335,12 @@ static struct map_src_dst_addr_s ipa_regs_to_save_array[] = {
 	GEN_SRC_DST_ADDR_MAP(IPA_STATE_PROD_DPL_FIFO,
 			     ipa.gen,
 			     ipa_state_prod_dpl_fifo),
+	GEN_SRC_DST_ADDR_MAP(IPA_TIERING_CFG,
+			     ipa.gen,
+			     ipa_tiering_cfg),
+	GEN_SRC_DST_ADDR_MAP(IPA_TIERING_CFG_WR_ONCE_INDICATION,
+			     ipa.gen,
+			     ipa_tiering_cfg_wr_once_indication),
 
 	/* Debug Registers */
 	GEN_SRC_DST_ADDR_MAP(IPA_DEBUG_DATA,

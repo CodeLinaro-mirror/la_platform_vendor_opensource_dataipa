@@ -9881,6 +9881,13 @@ int ipa3_cfg_ep_nat(u32 clnt_hdl, const struct ipa_ep_cfg_nat *ep_nat)
 		return -EINVAL;
 	}
 
+	if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_NAT) {
+		if (ep_nat->nat_en || ep_nat->nat_exc_suppress) {
+			IPADBG("NAT disabled by IPA Tiering, NAT for EP %d is not configured\n", clnt_hdl);
+			return 0;
+		}
+	}
+
 	IPADBG("pipe=%d, nat_en=%d(%s), nat_exc_suppress=%d\n",
 			clnt_hdl,
 			ep_nat->nat_en,
