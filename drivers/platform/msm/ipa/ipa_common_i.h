@@ -389,6 +389,7 @@ struct start_gsi_channel {
 	struct gsi_mhi_channel_scratch *mhi;
 	unsigned long *cached_gsi_evt_ring_hdl;
 	uint8_t evchid;
+	bool disable_msi;
 };
 
 struct start_uc_channel {

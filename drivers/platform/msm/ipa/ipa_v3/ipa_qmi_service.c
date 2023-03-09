@@ -173,14 +173,14 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 		endp_ind.num_eps++;
 		ep_info = &endp_ind.ep_info[endp_ind.ep_info_len - 1];
 		ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
-		ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id;
+		ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id;
 		ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
 		ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
 		endp_ind.ep_info_len++;
 		endp_ind.num_eps++;
 		ep_info = &endp_ind.ep_info[endp_ind.ep_info_len - 1];
 		ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
-		ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id;
+		ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id;
 		ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
 		ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
 
@@ -1850,7 +1850,8 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 	/* Initialize modem IPA-driver */
 	IPAWANDBG("send ipa3_qmi_init_modem_send_sync_msg to modem\n");
 	rc = ipa3_qmi_init_modem_send_sync_msg();
-	if ((rc == -ENETRESET) || (rc == -ENODEV) || (rc == -ECONNRESET)) {
+	if ((rc == -ENETRESET) || (rc == -ENODEV) || (rc == -ECONNRESET) ||
+		atomic_read(&ipa3_ctx->is_ssr)) {
 		IPAWANERR(
 		"ipa3_qmi_init_modem_send_sync_msg failed due to SSR!\n");
 		/* Cleanup when ipa3_wwan_remove is called */
