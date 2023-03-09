@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -60,6 +61,8 @@
  *                                  easymesh service prioritization.
  * IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING: Command to Delete DSCP PCP mapping for
  *                                  easymesh service prioritization.
+ * IPA_CPU_2_HW_CMD_TTL_DECR_CACHE_VLAN_IDS: Command to send the TTL decrement specific
+ *                                           Vlan Id's to uC
  */
 enum ipa3_cpu_2_hw_commands {
 	IPA_CPU_2_HW_CMD_NO_OP                     =
@@ -108,6 +111,8 @@ enum ipa3_cpu_2_hw_commands {
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 22),
 	IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING       =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 23),
+	IPA_CPU_2_HW_CMD_TTL_DECR_CACHE_VLAN_IDS   =
+		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 24),
 };
 
 /**
@@ -2127,5 +2132,61 @@ int ipa3_add_remove_dscp_pcp_map(
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
+	return res;
+}
+
+int ipa3_add_ttl_vlan_map(
+	struct ipa_ttl_vlan_ids *map )
+{
+	struct ipa_mem_buffer  mem;
+	struct ipa_ttl_vlan_ids *cmd;
+	int res;
+
+	if (!map) {
+		IPAERR("null argument (ie. map) passed\n");
+		return -EINVAL;
+	}
+	IPADBG("map add attempt. num_vlan: %u\n", map->num_vlanids);
+
+	for(int i=0; i < IPA_TTL_MAX_VLAN; i++)
+	{
+		IPADBG("Vlan id's %d\n", map->vlans[i]);
+	}
+
+	mem.size = sizeof(struct ipa_ttl_vlan_ids);
+
+	mem.base = dma_alloc_coherent(
+		ipa3_ctx->uc_pdev, mem.size,
+		&mem.phys_base, GFP_KERNEL);
+
+	if (!mem.base) {
+		IPAERR("Fail to alloc DMA buff of size %d\n", mem.size);
+		return -ENOMEM;
+	}
+
+	cmd = (struct ipa_ttl_vlan_ids *) mem.base;
+
+	memcpy(cmd, map, sizeof(struct ipa_ttl_vlan_ids));
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	res = ipa3_uc_send_cmd(
+		(u32) mem.phys_base,
+		IPA_CPU_2_HW_CMD_TTL_DECR_CACHE_VLAN_IDS,
+		0, true, 10 * HZ);
+
+	if (res) {
+		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
+		goto free_coherent;
+	}
+
+	IPADBG("map add success\n");
+
+	res = 0;
+
+free_coherent:
+	dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	return res;
 }

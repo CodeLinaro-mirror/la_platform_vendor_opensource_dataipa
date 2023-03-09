@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/ipa.h>
@@ -1603,6 +1604,19 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		goto err;
 	}
 
+	if (attrib->ext_attrib_mask & IPA_FLT_EXT_TTL_FIELD) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
+			IPAHAL_ERR("ran out of meq32 eq\n");
+			goto err;
+		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ofst_meq32[ofst_meq32]);
+		/* offset of ttl ip in v4 header */
+		extra = ipa_write_8(8, extra);
+		rest = ipa_write_32(0xFF << 24, rest);
+		rest = ipa_write_32(attrib->ttl_value  << 24, rest);
+		ofst_meq32++;
+	}
 	goto done;
 
 err:
@@ -2123,6 +2137,19 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 	if (attrib->attrib_mask & IPA_FLT_FRAGMENT)
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_FRAG);
 
+	if (attrib->ext_attrib_mask & IPA_FLT_EXT_TTL_FIELD) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
+			IPAHAL_ERR("ran out of meq32 eq\n");
+			goto err;
+		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ofst_meq32[ofst_meq32]);
+		/* offset of hop limit in v6 header */
+		extra = ipa_write_8(7, extra);
+		rest = ipa_write_32(0xFF << 24, rest);
+		rest = ipa_write_32(attrib->ttl_value << 24, rest);
+		ofst_meq32++;
+	}
 	goto done;
 
 err:
@@ -2219,7 +2246,7 @@ static int ipa_fltrt_generate_hw_rule_bdy(enum ipa_ip_type ipt,
 	 * default "rule" means no attributes set -> map to
 	 * OFFSET_MEQ32_0 with mask of 0 and val of 0 and offset 0
 	 */
-	if (attrib->attrib_mask == 0) {
+	if (attrib->attrib_mask == 0 && attrib->ext_attrib_mask == 0) {
 		IPAHAL_DBG_LOW("building default rule\n");
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(ipa3_0_ofst_meq32[0]);
 		extra_wrd_i = ipa_write_8(0, extra_wrd_i);  /* offset */

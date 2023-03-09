@@ -3845,5 +3845,7 @@ void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
 void ipa3_set_eth_pdu_ep_status(void);
+int ipa3_add_ttl_vlan_map(
+	struct ipa_ttl_vlan_ids *map );
 
 #endif /* _IPA3_I_H_ */
