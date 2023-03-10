@@ -8835,8 +8835,6 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		 */
 		if (!strcasecmp(dbg_buff, "MHI")) {
 			ipa3_ctx->ipa_config_is_mhi = true;
-		} else if(!strcmp(dbg_buff, "DBS")) {
-			ipa3_ctx->is_wdi3_tx1_needed = true;
 		} else if (strcmp(dbg_buff, "1")) {
 			IPAERR("got invalid string %s not loading FW\n",
 				dbg_buff);
@@ -9390,7 +9388,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		resource_p->ipa_wdi3_2g_holb_timeout;
 	ipa3_ctx->ipa_wdi3_5g_holb_timeout =
 		resource_p->ipa_wdi3_5g_holb_timeout;
-	ipa3_ctx->is_wdi3_tx1_needed = false;
 	ipa3_ctx->ulso_supported = resource_p->ulso_supported;
 	ipa3_ctx->ulso_ip_id_min = resource_p->ulso_ip_id_min;
 	ipa3_ctx->ulso_ip_id_max = resource_p->ulso_ip_id_max;

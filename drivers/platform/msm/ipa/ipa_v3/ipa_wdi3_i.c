@@ -749,8 +749,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	memset(ep_rx, 0, offsetof(struct ipa3_ep_context, sys));
 	memset(ep_tx, 0, offsetof(struct ipa3_ep_context, sys));
 
-	if (in->is_tx1_used &&
-		ipa3_ctx->is_wdi3_tx1_needed) {
+	if (in->is_tx1_used) {
 		tx1_client = (in->is_smmu_enabled) ?
 			in->u_tx1.tx_smmu.client : in->u_tx1.tx.client;
 		ipa_ep_idx_tx1 = ipa_get_ep_mapping(tx1_client);
@@ -1034,7 +1033,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 
 	/* setup tx1 ep cfg */
 	if (in->is_tx1_used &&
-		ipa3_ctx->is_wdi3_tx1_needed && (ipa_ep_idx_tx1 !=
+		(ipa_ep_idx_tx1 !=
 		IPA_EP_NOT_ALLOCATED) && (ipa_ep_idx_tx1 <
 		IPA_MAX_NUM_PIPES)) {
 		ep_tx1->valid = 1;
