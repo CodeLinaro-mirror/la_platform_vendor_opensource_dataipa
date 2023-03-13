@@ -306,6 +306,7 @@ static const struct of_device_id ipa_plat_drv_match[] = {
 	{ .compatible = "qcom,ipa-smmu-eth-cb", },
 	{ .compatible = "qcom,ipa-smmu-eth1-cb", },
 	{ .compatible = "qcom,ipa-smmu-wlan1-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan2-cb", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-in", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-out", },
 	{}
@@ -929,6 +930,11 @@ struct iommu_domain *ipa3_get_wlan_smmu_domain(void)
 struct iommu_domain *ipa3_get_wlan1_smmu_domain(void)
 {
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_WLAN1);
+}
+
+struct iommu_domain *ipa3_get_wlan2_smmu_domain(void)
+{
+	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_WLAN2);
 }
 
 struct iommu_domain *ipa3_get_eth_smmu_domain(void)
@@ -11556,6 +11562,7 @@ static int ipa_smmu_cb_probe(struct device *dev, enum ipa_smmu_cb_type cb_type)
 		return ipa_smmu_ap_cb_probe(dev);
 	case IPA_SMMU_CB_WLAN:
 	case IPA_SMMU_CB_WLAN1:
+	case IPA_SMMU_CB_WLAN2:
 	case IPA_SMMU_CB_ETH:
 	case IPA_SMMU_CB_ETH1:
 		return ipa_smmu_perph_cb_probe(dev, cb_type);
@@ -11774,6 +11781,18 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_WLAN1] = true;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
+	}
+
+	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-wlan2-cb")) {
+		if (ipa3_ctx == NULL) {
+			IPAERR("ipa3_ctx was not initialized\n");
+			return -EPROBE_DEFER;
+		}
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN2);
+		cb->dev = dev;
+		smmu_info.present[IPA_SMMU_CB_WLAN2] = true;
 		ipa3_ctx->num_smmu_cb_probed++;
 		return ipa_smmu_update_fw_loader();
 	}
@@ -12105,6 +12124,9 @@ int ipa3_iommu_map(struct iommu_domain *domain,
 	} else if (domain == ipa3_get_wlan1_smmu_domain()) {
 		/* wlan1 is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
+	} else if (domain == ipa3_get_wlan2_smmu_domain()) {
+		/* wlan1 is one time map */
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN2);
 	} else if (domain == ipa3_get_eth_smmu_domain()) {
 		/* eth is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH);
