@@ -46,6 +46,8 @@ static bool ipa3_modem_init_cmplt;
 static bool first_time_handshake;
 static bool send_qmi_init_q6;
 static bool nat_move_qmi_disabled;
+static bool cache_max_flag = false;
+static bool cache_filter_max_flag = false;
 struct mutex ipa3_qmi_lock;
 struct ipa_msg_desc {
 	uint16_t msg_id;
@@ -847,7 +849,6 @@ int ipa3_qmi_filter_request_ex_send(
 	struct ipa_msg_desc req_desc, resp_desc;
 	int rc;
 	int i;
-	static bool cache_filter_max_flag = false;
 
 	/* check if modem up */
 	if (!ipa3_qmi_indication_fin ||
@@ -1229,7 +1230,6 @@ int ipa3_qmi_ul_filter_request_send(
 	struct ipa_configure_ul_firewall_rules_resp_msg_v01 resp;
 	struct ipa_msg_desc req_desc, resp_desc;
 	int rc, i;
-	static bool cache_max_flag = false;
 
 	IPAWANDBG("IPACM pass %u rules to Q6\n",
 		req->firewall_rules_list_len);
@@ -2085,6 +2085,7 @@ int ipa3_qmi_service_init(uint32_t wan_platform_type)
 void ipa3_qmi_service_exit(void)
 {
 
+	int i;
 	workqueues_stopped = true;
 
 	IPADBG("Entry\n");
@@ -2111,6 +2112,27 @@ void ipa3_qmi_service_exit(void)
 
 	/* clean the QMI msg cache */
 	if (ipa3_qmi_ctx != NULL) {
+		for (i=0;i<ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg;i++){
+			if(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
+				[ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg] != NULL){
+				vfree(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
+					[ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg]);
+				ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
+					[ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg] = NULL;
+			}
+		}
+		for (i=0;i<ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg;i++)
+		{
+			if(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
+				[ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg] != NULL){
+				vfree(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
+					[ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg]);
+				ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
+				[ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg] = NULL;
+			}
+		}
+		cache_filter_max_flag = false;
+		cache_max_flag = false;
 		vfree(ipa3_qmi_ctx);
 		ipa3_qmi_ctx = NULL;
 	}
