@@ -6543,7 +6543,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 34, 3 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0][IPA_CLIENT_WLAN3_CONS] = {
+	[IPA_6_0][IPA_CLIENT_WLAN4_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -6592,7 +6592,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 41, 8, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 4},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0][IPA_CLIENT_WLAN4_CONS] = {
+	[IPA_6_0][IPA_CLIENT_WLAN3_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
