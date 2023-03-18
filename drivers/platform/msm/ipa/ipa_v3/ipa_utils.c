@@ -6717,7 +6717,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_MHI][IPA_CLIENT_MHI_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
-			false,
+			true,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 1 , 0, 16, 24, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
