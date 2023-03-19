@@ -39,6 +39,7 @@
 #include <linux/qcom_scm.h>
 #include <linux/soc/qcom/mdt_loader.h>
 #include <linux/version.h>
+#include <linux/nvmem-consumer.h>
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0))
 #include <linux/panic_notifier.h>
 #else
@@ -309,6 +310,18 @@ static const struct of_device_id ipa_plat_drv_match[] = {
 	{ .compatible = "qcom,ipa-smmu-wlan2-cb", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-in", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-out", },
+	{}
+};
+
+static const struct of_device_id ipa_plat_smmu_match[] = {
+	{ .compatible = "qcom,ipa-smmu-ap-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan-cb", },
+	{ .compatible = "qcom,ipa-smmu-uc-cb", },
+	{ .compatible = "qcom,ipa-smmu-11ad-cb", },
+	{ .compatible = "qcom,ipa-smmu-eth-cb", },
+	{ .compatible = "qcom,ipa-smmu-eth1-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan1-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan2-cb", },
 	{}
 };
 
@@ -11788,6 +11801,264 @@ static int ipa_smmu_update_fw_loader(void)
 	return 0;
 }
 
+/**
+ * Determine if device HW is of PCIe endpoint flavor based on HW
+ * embedded information.
+ *
+ * @param dev    device to check flavor of
+ *
+ * @return bool true if device HW is of PCIe endpoint falvor,
+ *         false otherwise
+ */
+static bool is_pcie_ep_falvor(struct device *dev)
+{
+	struct nvmem_cell *cell = NULL;
+	struct device_node *n = dev->of_node;
+	u32 *buf, fast_boot, host_bypass, fast_boot_mask = 0, host_bypass_mask = 0;
+	int res = 0, num_fast_boot_values = 0, i;
+	u32 fast_boot_values[16];
+
+	if (!of_find_property(n, "nvmem-cells", NULL)) {
+		pr_err("nvmem-cells property is not defined in %s node\n", n->name);
+		of_node_put(n);
+		return false;
+	}
+	res = of_property_read_u32(n, "qcom,fast-boot-mask", &fast_boot_mask);
+	if (res) {
+		pr_err("qcom,fast-boot-mask property is not defined in %s node\n", n->name);
+		return false;
+	}
+	res = of_property_read_u32(n, "qcom,host-bypass-mask", &host_bypass_mask);
+	if (res) {
+		pr_err("qcom,host-bypass-mask property is not defined in %s node\n", n->name);
+		return false;
+	}
+	num_fast_boot_values = of_property_count_elems_of_size(n, "qcom,fast-boot-values",
+		sizeof(u32));
+	if (num_fast_boot_values < 0 || num_fast_boot_values > 16) {
+		pr_err("qcom,fast-boot-values number of values invalid\n");
+		return false;
+	}
+	pr_debug("num_fast_boot_values = %d\n", num_fast_boot_values);
+	res = of_property_read_u32_array(n, "qcom,fast-boot-values", fast_boot_values,
+		num_fast_boot_values);
+	if (res) {
+		pr_err("qcom,fast-boot-values array unexpected failure\n");
+		return false;
+	}
+	cell = nvmem_cell_get(dev, "boot_conf");
+	if (IS_ERR(cell)) {
+		pr_err("nvmem_cell_get failed on boot_conf\n");
+		return false;
+	}
+	buf = nvmem_cell_read(cell, NULL);
+	if (IS_ERR(buf)) {
+		pr_err("nvmem_cell_read failed on boot_conf\n");
+		nvmem_cell_put(cell);
+		return false;
+	}
+	fast_boot = (((*buf) & fast_boot_mask) >> ((ffs(fast_boot_mask)) - 1));
+	host_bypass = ((*buf) & host_bypass_mask);
+	pr_debug("boot_conf = %x, fast_boot = %x, host_bypass = %x\n", *buf, fast_boot,
+		 host_bypass);
+	kfree(buf);
+	nvmem_cell_put(cell);
+	if (host_bypass)
+		return false;
+	for (i = 0; i < num_fast_boot_values; i++) {
+		if (fast_boot == fast_boot_values[i])
+			return true;
+	}
+
+	return false;
+}
+
+/**
+ * struct property destructor
+ *
+ * @param p      Property to destroy
+ */
+static void dt_node_property_destroy(struct property *p)
+{
+	if (!p)
+		return;
+	if (p->name) {
+		kfree(p->name);
+		p->name = NULL;
+	}
+	if (p->value) {
+		kfree(p->value);
+		p->value = NULL;
+	}
+}
+
+/**
+ * struct property constructor.
+ *
+ * @param name   Property name
+ * @param value  Property value
+ *
+ * @return struct property* Newly created property
+ */
+static struct property *dt_node_property_create(const char *name, u8 *value)
+{
+	struct property *p = kzalloc(sizeof(*p), GFP_KERNEL);
+
+	if (!p) {
+		pr_err("kzalloc failed\n");
+		return NULL;
+	}
+	p->name = kstrdup(name, GFP_KERNEL);
+	if (!p->name) {
+		pr_err("kstrdup failed\n");
+		dt_node_property_destroy(p);
+		return NULL;
+	}
+	if (!value)
+		return p;
+	p->value = kstrdup(value, GFP_KERNEL);
+	if (!p->value) {
+		pr_err("kstrdup failed\n");
+		dt_node_property_destroy(p);
+		return NULL;
+	}
+	p->length = strnlen(p->value, 32) + 1;
+
+	return p;
+}
+
+/**
+ * Create and add a property to a node.
+ *
+ * @param n      Device to add property to
+ * @param name   Property name to add
+ * @param value  Property value
+ *
+ * @return int 0 on success, a negative error value in case of
+ *         an error.
+ */
+static int ipa_dt_node_add_property(struct device_node *n, const char *name, u8 *value)
+{
+	struct property *p = NULL;
+
+	p = dt_node_property_create(name, value);
+	if (!p) {
+		pr_err("dt_node_property_create failed\n");
+		return -EINVAL;
+	}
+	if (of_add_property(n, p)) {
+		pr_err("of_add_property failed. name=%s\n", p->name);
+		dt_node_property_destroy(p);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+/**
+ * Set device tree properties to those of SMMU bypass mode. This
+ * relies on IPA driver logic.
+ *
+ * @param n Pointer to a device tree node
+ *
+ * @return int 0 on success, a negative error value in case of
+ *         an error.
+ */
+static int ipa_dt_node_set_bypass_mode(struct device_node *n)
+{
+	struct property *p = NULL;
+
+	p = of_find_property(n, "dma-coherent", NULL);
+	if (p) {
+		if (of_remove_property(n, p)) {
+			pr_err("of_remove_property failed. name=%s\n", p->name);
+			return -EINVAL;
+		}
+	}
+	p = of_find_property(n, "qcom,iommu-dma", NULL);
+	if (p) {
+		pr_info("%s found in device tree under %s\n", p->name, n->name);
+		if (of_remove_property(n, p)) {
+			pr_err("of_remove_property failed. name=%s\n", p->name);
+			return -EINVAL;
+		}
+		if (ipa_dt_node_add_property(n, "qcom,iommu-dma", "bypass")) {
+			pr_err("ipa_dt_node_add_property failed\n");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Find node by compatible property. In case there is a phandle
+ * referencing another node in "qcom,iommu-group" property, find
+ * that reference.
+ *
+ * @param from    The node to start searching from
+ * @param compatible The name string to match against
+ *
+ * @return struct device_node* A node pointer with refcount
+ *         incremented, use of_node_put() on it when done.
+ */
+static struct device_node* ipa_dt_find_node_and_phandle(struct device_node *from,
+	const char *compatible, const char *ph_name)
+{
+	struct device_node *n = NULL, *np = NULL;
+
+	n = of_find_compatible_node(from, NULL, compatible);
+	if (n) {
+		pr_info("%s found in device tree under %s\n", n->name, from->name);
+		np = of_parse_phandle(n, ph_name, 0);
+		if (np) {
+			pr_info("%s found in device tree under %s\n", np->name, n->name);
+			of_node_put(n);
+			n = np;
+		}
+	}
+
+	return n;
+}
+
+/**
+ * Handle SMMU configuration at run-time according to HW flavor.
+ *
+ * @param dev    Device to set SMMU configuration on
+ *
+ * @return int 0 on success, a negative error value in case of
+ *         an error.
+ */
+static int handle_smmu_dynamic_cfg(struct device *dev)
+{
+	struct device_node *n = NULL;
+	size_t i;
+	int res = 0;
+
+	if (!is_pcie_ep_falvor(dev))
+		return 0;
+	for (i = 0; i < ARRAY_SIZE(ipa_plat_smmu_match); i++) {
+		n = ipa_dt_find_node_and_phandle(dev->of_node, ipa_plat_smmu_match[i].compatible,
+			"qcom,iommu-group");
+		if (n) {
+			pr_info("%s found in device tree under %s\n", n->name, dev->of_node->name);
+			res = ipa_dt_node_set_bypass_mode(n);
+			of_node_put(n);
+			if (res) {
+				pr_err("ipa_dt_node_set_bypass_mode failed\n");
+				return res;
+			}
+		}
+	}
+	res = ipa_dt_node_add_property(dev->of_node, "qcom,use-ipa-in-mhi-mode", NULL);
+	if (res) {
+		pr_err("ipa_dt_node_add_property failed\n");
+		return res;
+	}
+
+	return 0;
+}
+
 int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 {
 	int result;
@@ -11941,6 +12212,12 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	if (of_device_is_compatible(dev->of_node,
 	    "qcom,smp2p-map-ipa-1-in"))
 		return ipa3_smp2p_probe(dev);
+
+	result = handle_smmu_dynamic_cfg(dev);
+	if (result) {
+		IPAERR("handle_smmu_dynamic_cfg failed\n");
+		return result;
+	}
 
 	result = get_ipa_dts_configuration(pdev_p, &ipa3_res);
 	if (result) {
