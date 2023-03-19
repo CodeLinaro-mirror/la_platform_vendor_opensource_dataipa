@@ -4165,6 +4165,7 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 		scratch_num = 6;
 #if IPA_ETH_API_VER >= 2
 	case IPA_ETH_CLIENT_NTN3:
+	case IPA_ETH_CLIENT_IEMAC:
 
 		memset(&ntn3_stats, 0, sizeof(ntn3_stats));
 		if (strstr(file->f_path.dentry->d_name.name, "0_status")) {
