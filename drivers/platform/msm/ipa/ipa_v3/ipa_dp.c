@@ -1158,6 +1158,11 @@ static void ipa_pm_sys_pipe_cb(void *p, enum ipa_pm_cb_event event)
 			usleep_range(SUSPEND_MIN_SLEEP_RX,
 				SUSPEND_MAX_SLEEP_RX);
 			IPA_ACTIVE_CLIENTS_DEC_SPECIAL("PIPE_SUSPEND_LOW_LAT_DATA");
+		} else if (sys->ep->client == IPA_CLIENT_APPS_WAN_V2X_CONS) {
+			IPA_ACTIVE_CLIENTS_INC_SPECIAL("PIPE_SUSPEND_WAN_V2X");
+			usleep_range(SUSPEND_MIN_SLEEP_RX,
+				SUSPEND_MAX_SLEEP_RX);
+			IPA_ACTIVE_CLIENTS_DEC_SPECIAL("PIPE_SUSPEND_WAN_V2X");
 		} else
 			IPAERR("Unexpected event %d\n for client %d\n",
 				event, sys->ep->client);
@@ -1666,7 +1671,8 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 			(sys_in->client == IPA_CLIENT_APPS_WAN_PROD ||
 			sys_in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
 				sys_in->client ==
-				IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD))
+				IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
+				sys_in->client == IPA_CLIENT_APPS_WAN_V2X_PROD))
 			IPADBG("modem cfg emb pipe flt\n");
 		else
 			ipa3_install_dflt_flt_rules(ipa_ep_idx);
@@ -1989,7 +1995,8 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 		if (ipa3_ctx->modem_cfg_emb_pipe_flt &&
 			(ep->client == IPA_CLIENT_APPS_WAN_PROD ||
 				ep->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
-				ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD))
+				ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
+				ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD))
 			IPADBG("modem cfg emb pipe flt\n");
 		else
 			ipa3_delete_dflt_flt_rules(clnt_hdl);
@@ -5205,7 +5212,8 @@ static struct sk_buff *handle_skb_completion(
 	/*Drop packets when WAN consumer channel receive EOB event*/
 	if ((notify->evt_id == GSI_CHAN_EVT_EOB ||
 		sys->skip_eot) &&
-		sys->ep->client == IPA_CLIENT_APPS_WAN_CONS) {
+		(sys->ep->client == IPA_CLIENT_APPS_WAN_CONS ||
+		sys->ep->client == IPA_CLIENT_APPS_WAN_V2X_CONS)) {
 		dma_unmap_single(ipa3_ctx->pdev, rx_pkt->data.dma_addr,
 			sys->rx_buff_sz, DMA_FROM_DEVICE);
 		sys->free_skb(rx_pkt->data.skb);
@@ -5633,7 +5641,8 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 
 	if (in->client == IPA_CLIENT_APPS_WAN_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
-		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) {
+		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
+		in->client == IPA_CLIENT_APPS_WAN_V2X_PROD) {
 		sys->policy = IPA_POLICY_INTR_MODE;
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
 			sys->use_comm_evt_ring = false;
@@ -6545,7 +6554,8 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
-		in->client == IPA_CLIENT_APPS_WAN_PROD)
+		in->client == IPA_CLIENT_APPS_WAN_PROD ||
+		in->client == IPA_CLIENT_APPS_WAN_V2X_PROD)
 		mem_flag = GFP_ATOMIC;
 
 	if (!ep) {
@@ -6680,7 +6690,9 @@ static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) ||
-		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS))) {
+		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) ||
+		(ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD) ||
+		(ep->client == IPA_CLIENT_APPS_WAN_V2X_CONS))) {
 		gsi_evt_ring_props.int_modt = ep->sys->int_modt;
 		gsi_evt_ring_props.int_modc = ep->sys->int_modc;
 	}
@@ -6758,7 +6770,8 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 		if(ep->client == IPA_CLIENT_APPS_WAN_PROD ||
 		   ep->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
 		   ep->client == IPA_CLIENT_APPS_LAN_PROD ||
-		   ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD)
+		   ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
+		   ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD)
 			gsi_channel_props.tx_poll = ipa3_ctx->tx_poll;
 		else
 			gsi_channel_props.tx_poll = false;
