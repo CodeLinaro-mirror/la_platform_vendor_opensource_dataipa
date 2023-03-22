@@ -2,11 +2,6 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  */
-/*
- *
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
- *
- */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -446,11 +441,6 @@ static long ipa3_wan_ioctl(struct file *filp,
 
 		if (IS_ERR(param)) {
 			retval = PTR_ERR(param);
-			break;
-		}
-		/*per client stats handled using FnR at AP side for ipa_hw version >= 4.5*/
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)
-		{
 			break;
 		}
 		if (rmnet_ipa3_enable_per_client_stats(
