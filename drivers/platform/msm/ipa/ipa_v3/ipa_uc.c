@@ -394,8 +394,29 @@ const char *ipa_hw_error_str(enum ipa3_hw_errors err_type)
 	case IPA_HW_GSI_CH_NOT_EMPTY_FAILURE:
 		str = "IPA_HW_GSI_CH_NOT_EMPTY_FAILURE";
 		break;
+	case IPA_HW_CONS_STOP_FAILURE:
+		str = "IPA_HW_CONS_STOP_FAILURE";
+		break;
+	case IPA_HW_PROD_STOP_FAILURE:
+		str = "IPA_HW_PROD_STOP_FAILURE";
+		break;
+	case IPA_HW_INVALID_QUEUE_OVERFLOW:
+		str = "IPA_HW_INVALID_QUEUE_OVERFLOW";
+		break;
+	case IPA_HW_DMA_COMP_ERROR:
+		str = "IPA_HW_DMA_COMP_ERROR";
+		break;
+	case IPA_HW_DMA_SYNC_PENDING_ERROR:
+		str = "IPA_HW_DMA_SYNC_PENDING_ERROR";
+		break;
+	case IPA_HW_DMA_INVALID_PARAMS:
+		str = "IPA_HW_DMA_INVALID_PARAMS";
+		break;
+	case IPA_HW_POLLING_PERIOD_NOT_SET:
+		str = "IPA_HW_POLLING_PERIOD_NOT_SET";
+		break;
 	default:
-		str = "INVALID ipa_hw_errors type";
+		str = "INVALID ipa_hw_error type";
 	}
 
 	return str;
