@@ -9355,14 +9355,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa3_ctx->fw_load_data.state = IPA_FW_LOAD_STATE_INIT;
 	mutex_init(&ipa3_ctx->fw_load_data.lock);
 
-	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
-	if (ipa3_ctx->logbuf == NULL)
-		IPADBG("failed to create IPC log, continue...\n");
-
-	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
-	if (ipa3_ctx->logbuf_clk == NULL)
-		IPADBG("failed to create IPC ipa_clk log, continue...\n");
-
 	/* ipa3_ctx->pdev and ipa3_ctx->uc_pdev will be set in the smmu probes*/
 	ipa3_ctx->master_pdev = ipa_pdev;
 	for (i = 0; i < IPA_SMMU_CB_MAX; i++)
@@ -10101,10 +10093,6 @@ fail_mem_ctrl:
 	kfree(ipa3_ctx->ipa_tz_unlock_reg);
 	ipa3_ctx->ipa_tz_unlock_reg = NULL;
 fail_tz_unlock_reg:
-	if (ipa3_ctx->logbuf) {
-		ipc_log_context_destroy(ipa3_ctx->logbuf);
-		ipa3_ctx->logbuf = NULL;
-	}
 fail_uc_file_alloc:
 	kfree(ipa3_ctx->gsi_fw_file_name);
 	ipa3_ctx->gsi_fw_file_name = NULL;
@@ -11798,6 +11786,14 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		return -EPROBE_DEFER;
 	}
 
+	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
+	if (ipa3_ctx->logbuf == NULL)
+		pr_err("failed to create IPC ipa log, continue...\n");
+
+	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
+	if (ipa3_ctx->logbuf_clk == NULL)
+		pr_err("failed to create IPC ipa_clk log, continue...\n");
+
 	if (ipa3_ctx->ipa_hw_type == 0) {
 
 		/* Get IPA HW Version */
@@ -12399,6 +12395,14 @@ int ipa3_pci_drv_probe(struct pci_dev *pci_dev, const struct pci_device_id *ent)
 		IPAERR("ipa3_ctx was not initialized\n");
 		return -EPROBE_DEFER;
 	}
+
+	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
+	if (ipa3_ctx->logbuf == NULL)
+		pr_err("failed to create IPC log, continue...\n");
+
+	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
+	if (ipa3_ctx->logbuf_clk == NULL)
+		pr_err("failed to create IPC ipa_clk log, continue...\n");
 
 	if (ipa3_ctx->ipa_hw_type == 0) {
 		/* Get IPA HW Version */
