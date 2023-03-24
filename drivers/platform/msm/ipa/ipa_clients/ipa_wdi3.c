@@ -333,7 +333,7 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 		}
 
 	if (ipa3_ctx->ipa_wdi3_over_gsi &&
-		in->is_tx1_used && !ipa3_ctx->is_wdi3_tx1_needed) {
+		!in->is_tx1_used) {
 		IPA_WDI_DBG(
 			"tx1 reg intr not sprtd, adng it to default pipe\n");
 	}
@@ -382,7 +382,7 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 	memset(tx_prop, 0, sizeof(tx_prop));
 	tx_prop[0].ip = IPA_IP_v4;
 	if (ipa3_get_ctx()->ipa_wdi3_over_gsi) {
-		if (in->is_tx1_used && ipa3_ctx->is_wdi3_tx1_needed)
+		if (in->is_tx1_used)
                         tx_prop[0].dst_pipe = IPA_CLIENT_WLAN2_CONS1;
 		else if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id))
 			tx_prop[0].dst_pipe = IPA_CLIENT_WLAN2_CONS;
@@ -398,7 +398,7 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 
 	tx_prop[1].ip = IPA_IP_v6;
 	if (ipa3_get_ctx()->ipa_wdi3_over_gsi) {
-		if (in->is_tx1_used && ipa3_ctx->is_wdi3_tx1_needed)
+		if (in->is_tx1_used)
 			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN2_CONS1;
 		else if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id))
 			tx_prop[1].dst_pipe = IPA_CLIENT_WLAN2_CONS;
@@ -571,8 +571,7 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 	IPA_WDI_DBG("number of sys pipe %d\n", in->num_sys_pipe_needed);
 	ipa_ep_idx_tx1 = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS1);
 	if ((ipa_ep_idx_tx1 != IPA_EP_NOT_ALLOCATED) &&
-		(ipa_ep_idx_tx1 < IPA_MAX_NUM_PIPES) &&
-		ipa3_ctx->is_wdi3_tx1_needed) {
+		(ipa_ep_idx_tx1 < IPA_MAX_NUM_PIPES)) {
 		ipa_wdi_ctx_list[in->hdl]->is_tx1_used = in->is_tx1_used;
 	} else
 		ipa_wdi_ctx_list[in->hdl]->is_tx1_used = false;
@@ -585,10 +584,9 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 		ipa_wdi_ctx_list[in->hdl]->is_rx1_used = in->is_rx1_used;
 	} else
 		ipa_wdi_ctx_list[in->hdl]->is_rx1_used = false;
-	IPA_WDI_DBG("number of sys pipe %d,Tx1 asked=%d,Tx1 supported=%d,"
+	IPA_WDI_DBG("number of sys pipe %d,Tx1 asked=%d,"
 		"Rx1 asked=%d,Rx1 supported=%d\n",
 		in->num_sys_pipe_needed, in->is_tx1_used,
-		ipa3_ctx->is_wdi3_tx1_needed,
 		in->is_rx1_used, ipa_wdi_ctx_list[in->hdl]->is_rx1_used);
 
 	/* setup sys pipe when needed */
