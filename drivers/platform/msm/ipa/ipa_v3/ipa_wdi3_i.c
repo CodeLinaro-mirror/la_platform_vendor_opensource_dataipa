@@ -14,6 +14,8 @@
 
 #define IPA_WDI3_GSI_EVT_RING_INT_MODT 32
 #define IPA_WDI3_MAX_VALUE_OF_BANK_ID 63
+#define IPA_WDI4_MAX_VALUE_OF_VDEV_ID 255
+#define IPA_WDI4_MAX_VALUE_OF_PMAC_ID 3
 
 static void ipa3_wdi3_gsi_evt_ring_err_cb(struct gsi_evt_err_notify *notify)
 {
@@ -88,6 +90,10 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	if(ipa_get_wdi_version() == IPA_WDI_3_V2) {
 		gsi_channel_props.prot = GSI_CHAN_PROT_WDI3_V2;
 		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3_V2_EV;
+	}
+	else if(ipa_get_wdi_version() == IPA_WDI_4){
+		gsi_channel_props.prot = GSI_CHAN_PROT_WDI4;
+		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI4_EV;
 	}
 	else if (ast_update){
 		gsi_channel_props.prot = GSI_CHAN_PROT_WDI3M;
@@ -226,7 +232,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 			(dir == IPA_WDI3_TX2_DIR))
 			gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
 		else {
-			if (gsi_channel_props.prot == GSI_CHAN_PROT_WDI3_V2)
+			if (gsi_channel_props.prot == GSI_CHAN_PROT_WDI3_V2 || gsi_channel_props.prot == GSI_CHAN_PROT_WDI4 )
 				gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
 			else 
 				gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_64B;
@@ -468,14 +474,27 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 		UPDATE_RP_MODERATION_THRESHOLD;
 	if ((dir == IPA_WDI3_RX_DIR) || (dir == IPA_WDI3_RX2_DIR)
 		|| (dir == IPA_WDI3_RX3_DIR) || (dir == IPA_WDI3_RX4_DIR)) {
-		if (!is_smmu_enabled)
-			ch_scratch.wdi3.rx_pkt_offset = info->pkt_offset;
-		else
-			ch_scratch.wdi3.rx_pkt_offset = info_smmu->pkt_offset;
-		/* this metadata reg offset need to be in words */
-		ch_scratch.wdi3.endp_metadata_reg_offset =
-			ipahal_get_reg_mn_ofst(IPA_ENDP_INIT_HDR_METADATA_n, 0,
-				gsi_ep_info->ipa_ep_num) / 4;
+
+		if(ipa_get_wdi_version() == IPA_WDI_4){
+			if (!is_smmu_enabled)
+				ch_scratch.wdi4.rx_pkt_offset = info->pkt_offset;
+			else
+				ch_scratch.wdi4.rx_pkt_offset = info_smmu->pkt_offset;
+			/* this metadata reg offset need to be in words */
+			ch_scratch.wdi4.endp_metadata_reg_offset =
+				ipahal_get_reg_mn_ofst(IPA_ENDP_INIT_HDR_METADATA_n, 0,
+					gsi_ep_info->ipa_ep_num) / 4;
+		}
+		else{
+			if (!is_smmu_enabled)
+				ch_scratch.wdi3.rx_pkt_offset = info->pkt_offset;
+			else
+				ch_scratch.wdi3.rx_pkt_offset = info_smmu->pkt_offset;
+			/* this metadata reg offset need to be in words */
+			ch_scratch.wdi3.endp_metadata_reg_offset =
+				ipahal_get_reg_mn_ofst(IPA_ENDP_INIT_HDR_METADATA_n, 0,
+					gsi_ep_info->ipa_ep_num) / 4;
+		}
 	}
 
 	if (!is_smmu_enabled) {
@@ -661,12 +680,57 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 		ch_scratch.wdi3_v2.reserved1 = 0;
 		ch_scratch.wdi3_v2.reserved2 = 0;
 	}
+	else if(ipa_get_wdi_version() == IPA_WDI_4){
+
+		ch_scratch.wdi4.wifi_rp_address_high =
+			ch_scratch.wdi3.wifi_rp_address_high;
+
+		ch_scratch.wdi4.wifi_rp_address_low =
+			ch_scratch.wdi3.wifi_rp_address_low;
+
+		ch_scratch.wdi4.update_rp_moderation_threshold =
+			ch_scratch.wdi3.update_rp_moderation_threshold;
+
+		if ( ( dir == IPA_WDI3_TX2_DIR) || ( dir == IPA_WDI3_TX_DIR) || ( dir == IPA_WDI3_TX1_DIR))
+			{
+				if(is_smmu_enabled) {
+					ch_scratch.wdi4.vdev_id = 0;
+					if(info_smmu->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
+						IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n", info_smmu->rx_bank_id);
+						goto fail_write_scratch;
+					}
+					ch_scratch.wdi4.bank_id = info_smmu->rx_bank_id;
+					if(info_smmu->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID){
+						IPAERR("Incorrect pmac id value %d Exceeding the 2bit range\n", info_smmu->rx_pmac_id);
+						goto fail_write_scratch;
+					}
+					ch_scratch.wdi4.pmac_id = info_smmu->rx_pmac_id;
+				}
+				else {
+					ch_scratch.wdi4.vdev_id = 0;
+					if(info->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
+						IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n", info->rx_bank_id);
+						goto fail_write_scratch;
+					}
+					ch_scratch.wdi4.bank_id = info->rx_bank_id;
+					if(info->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID){
+					IPAERR("Incorrect pmac id value %d Exceeding the 2bit range\n", info->rx_pmac_id);
+					goto fail_write_scratch;
+					}
+					ch_scratch.wdi4.pmac_id = info->rx_pmac_id;
+				}
+			}
+		ch_scratch.wdi4.qmap_id = 0;
+		ch_scratch.wdi4.reserved1 = 0;
+	}
 
 	result = gsi_write_channel_scratch(ep->gsi_chan_hdl, ch_scratch);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("failed to write evt ring scratch\n");
 		goto fail_write_scratch;
 	}
+	memcpy(&ep->chan_scratch, &ch_scratch,
+                sizeof(union __packed gsi_channel_scratch));
 	return 0;
 
 fail_write_scratch:
@@ -749,8 +813,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	memset(ep_rx, 0, offsetof(struct ipa3_ep_context, sys));
 	memset(ep_tx, 0, offsetof(struct ipa3_ep_context, sys));
 
-	if (in->is_tx1_used &&
-		ipa3_ctx->is_wdi3_tx1_needed) {
+	if (in->is_tx1_used) {
 		tx1_client = (in->is_smmu_enabled) ?
 			in->u_tx1.tx_smmu.client : in->u_tx1.tx.client;
 		ipa_ep_idx_tx1 = ipa_get_ep_mapping(tx1_client);
@@ -1034,7 +1097,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 
 	/* setup tx1 ep cfg */
 	if (in->is_tx1_used &&
-		ipa3_ctx->is_wdi3_tx1_needed && (ipa_ep_idx_tx1 !=
+		(ipa_ep_idx_tx1 !=
 		IPA_EP_NOT_ALLOCATED) && (ipa_ep_idx_tx1 <
 		IPA_MAX_NUM_PIPES)) {
 		ep_tx1->valid = 1;

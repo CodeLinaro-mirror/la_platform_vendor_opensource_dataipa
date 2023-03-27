@@ -306,6 +306,7 @@ static const struct of_device_id ipa_plat_drv_match[] = {
 	{ .compatible = "qcom,ipa-smmu-eth-cb", },
 	{ .compatible = "qcom,ipa-smmu-eth1-cb", },
 	{ .compatible = "qcom,ipa-smmu-wlan1-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan2-cb", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-in", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-out", },
 	{}
@@ -929,6 +930,11 @@ struct iommu_domain *ipa3_get_wlan_smmu_domain(void)
 struct iommu_domain *ipa3_get_wlan1_smmu_domain(void)
 {
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_WLAN1);
+}
+
+struct iommu_domain *ipa3_get_wlan2_smmu_domain(void)
+{
+	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_WLAN2);
 }
 
 struct iommu_domain *ipa3_get_eth_smmu_domain(void)
@@ -8835,8 +8841,6 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		 */
 		if (!strcasecmp(dbg_buff, "MHI")) {
 			ipa3_ctx->ipa_config_is_mhi = true;
-		} else if(!strcmp(dbg_buff, "DBS")) {
-			ipa3_ctx->is_wdi3_tx1_needed = true;
 		} else if (strcmp(dbg_buff, "1")) {
 			IPAERR("got invalid string %s not loading FW\n",
 				dbg_buff);
@@ -9390,7 +9394,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		resource_p->ipa_wdi3_2g_holb_timeout;
 	ipa3_ctx->ipa_wdi3_5g_holb_timeout =
 		resource_p->ipa_wdi3_5g_holb_timeout;
-	ipa3_ctx->is_wdi3_tx1_needed = false;
 	ipa3_ctx->ulso_supported = resource_p->ulso_supported;
 	ipa3_ctx->ulso_ip_id_min = resource_p->ulso_ip_id_min;
 	ipa3_ctx->ulso_ip_id_max = resource_p->ulso_ip_id_max;
@@ -11559,6 +11562,7 @@ static int ipa_smmu_cb_probe(struct device *dev, enum ipa_smmu_cb_type cb_type)
 		return ipa_smmu_ap_cb_probe(dev);
 	case IPA_SMMU_CB_WLAN:
 	case IPA_SMMU_CB_WLAN1:
+	case IPA_SMMU_CB_WLAN2:
 	case IPA_SMMU_CB_ETH:
 	case IPA_SMMU_CB_ETH1:
 		return ipa_smmu_perph_cb_probe(dev, cb_type);
@@ -11777,6 +11781,18 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_WLAN1] = true;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
+	}
+
+	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-wlan2-cb")) {
+		if (ipa3_ctx == NULL) {
+			IPAERR("ipa3_ctx was not initialized\n");
+			return -EPROBE_DEFER;
+		}
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN2);
+		cb->dev = dev;
+		smmu_info.present[IPA_SMMU_CB_WLAN2] = true;
 		ipa3_ctx->num_smmu_cb_probed++;
 		return ipa_smmu_update_fw_loader();
 	}
@@ -12108,6 +12124,9 @@ int ipa3_iommu_map(struct iommu_domain *domain,
 	} else if (domain == ipa3_get_wlan1_smmu_domain()) {
 		/* wlan1 is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
+	} else if (domain == ipa3_get_wlan2_smmu_domain()) {
+		/* wlan1 is one time map */
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN2);
 	} else if (domain == ipa3_get_eth_smmu_domain()) {
 		/* eth is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH);

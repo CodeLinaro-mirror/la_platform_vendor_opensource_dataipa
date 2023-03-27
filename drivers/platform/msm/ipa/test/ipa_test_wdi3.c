@@ -1520,7 +1520,6 @@ static int ipa_wdi3_test_reg_intf(bool is_tx1_used)
 	memset(&in, 0, sizeof(in));
 	if (is_tx1_used) {
 		snprintf(netdev_name, sizeof(netdev_name), "wdi3_test_2g");
-		ipa3_ctx->is_wdi3_tx1_needed = true;
 	} else {
 		snprintf(netdev_name, sizeof(netdev_name), "wdi3_test");
 	}
