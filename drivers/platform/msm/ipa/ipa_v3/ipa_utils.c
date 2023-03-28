@@ -6550,7 +6550,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 34, 3 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0][IPA_CLIENT_WLAN3_CONS] = {
+	[IPA_6_0][IPA_CLIENT_WLAN4_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -6599,7 +6599,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 41, 8, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 4},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0][IPA_CLIENT_WLAN4_CONS] = {
+	[IPA_6_0][IPA_CLIENT_WLAN3_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -9886,6 +9886,13 @@ int ipa3_cfg_ep_nat(u32 clnt_hdl, const struct ipa_ep_cfg_nat *ep_nat)
 	if (IPA_CLIENT_IS_CONS(ipa3_ctx->ep[clnt_hdl].client)) {
 		IPAERR("NAT does not apply to IPA out EP %d\n", clnt_hdl);
 		return -EINVAL;
+	}
+
+	if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_NAT) {
+		if (ep_nat->nat_en || ep_nat->nat_exc_suppress) {
+			IPADBG("NAT disabled by IPA Tiering, NAT for EP %d is not configured\n", clnt_hdl);
+			return 0;
+		}
 	}
 
 	IPADBG("pipe=%d, nat_en=%d(%s), nat_exc_suppress=%d\n",

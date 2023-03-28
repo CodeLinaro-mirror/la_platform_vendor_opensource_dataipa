@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -8057,6 +8057,16 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		result = -ENODEV;
 		goto fail_init_hw;
 	}
+
+	/*
+	 * IPA_TIERING_CFG_WR_ONCE_INDICATION set to 1 give us the indication
+	 * that IPA_TIERING_CFG has been configured by the TZ.
+	 */
+	if (1 == ipahal_read_reg(IPA_TIERING_CFG_WR_ONCE_INDICATION))
+		ipa3_ctx->ipa_tiering_value = ipahal_read_reg(IPA_TIERING_CFG);
+	else
+		ipa3_ctx->ipa_tiering_value = 0;
+	IPADBG("IPA Tiering value: 0x%x\n", ipa3_ctx->ipa_tiering_value);
 
 	ipa3_ctx->ctrl->ipa_sram_read_settings();
 	IPADBG("SRAM, size: 0x%x, restricted bytes: 0x%x\n",

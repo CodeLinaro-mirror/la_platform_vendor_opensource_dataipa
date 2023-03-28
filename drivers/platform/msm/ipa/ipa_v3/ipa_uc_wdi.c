@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -3202,6 +3202,12 @@ int ipa3_uc_reg_rdyCB(
 	if (inout == NULL) {
 		IPAERR("bad parm. inout=%pK ", inout);
 		return -EINVAL;
+	}
+
+	if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_WIFI) {
+			IPAERR("WLAN offload is disabled by IPA Tiering\n");
+			inout->is_uC_ready = false;
+			return 0;
 	}
 
 	result = ipa3_uc_state_check();
