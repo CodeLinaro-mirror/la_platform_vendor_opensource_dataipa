@@ -1212,7 +1212,7 @@ int ipa_nati_alloc_pdn(
 			return 0;
 		}
 
-		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)))
+		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry))&& (i != 0))
 		{
 			IPADBG("found an empty pdn in index %d\n", i);
 			break;
@@ -1226,7 +1226,11 @@ int ipa_nati_alloc_pdn(
 		return -EIO;
 	}
 
-	pdn_data.pdn_index    = i;
+	if(pdn_info->is_sta == true)
+		pdn_data.pdn_index    = 0;
+	else
+		pdn_data.pdn_index    = i;
+
 	pdn_data.public_ip    = pdn_info->public_ip;
 	pdn_data.src_metadata = pdn_info->src_metadata;
 	pdn_data.dst_metadata = pdn_info->dst_metadata;
@@ -1235,7 +1239,10 @@ int ipa_nati_alloc_pdn(
 	if(!ret)
 	{
 		num_pdns++;
-		*pdn_index = i;
+		if(pdn_info->is_sta == true)
+			*pdn_index = 0;
+		else
+			*pdn_index = i;
 		IPADBG("modify num_pdns (%d)\n", num_pdns);
 	}
 
