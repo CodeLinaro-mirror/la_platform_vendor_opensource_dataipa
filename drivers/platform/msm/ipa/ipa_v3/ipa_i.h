@@ -2594,7 +2594,6 @@ struct ipa3_context {
 	u32 max_num_smmu_cb;
 	u32 ipa_wdi3_2g_holb_timeout;
 	u32 ipa_wdi3_5g_holb_timeout;
-	bool is_wdi3_tx1_needed;
 	bool ipa_endp_delay_wa_v2;
 	u32 pkt_init_ex_imm_opcode;
 	struct ipa_mem_buffer pkt_init_mem;
