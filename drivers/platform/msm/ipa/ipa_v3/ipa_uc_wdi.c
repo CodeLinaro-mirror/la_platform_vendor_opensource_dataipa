@@ -1295,6 +1295,7 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 
 	if (IPA_CLIENT_IS_CONS(in->sys.client)) {
 		if (in->smmu_enabled) {
+			IPADBG("smmu enabled\n");
 			IPADBG("comp_ring_size=%d\n",
 				in->u.dl_smmu.comp_ring_size);
 			IPADBG("ce_ring_size=%d\n", in->u.dl_smmu.ce_ring_size);
@@ -1303,6 +1304,7 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 			IPADBG("num_tx_buffers=%d\n",
 				in->u.dl_smmu.num_tx_buffers);
 		} else {
+			IPADBG("smmu disabled\n");
 			IPADBG("comp_ring_base_pa=0x%pa\n",
 					&in->u.dl.comp_ring_base_pa);
 			IPADBG("comp_ring_size=%d\n", in->u.dl.comp_ring_size);
@@ -1315,6 +1317,7 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 		}
 	} else {
 		if (in->smmu_enabled) {
+			IPADBG("smmu enabled\n");
 			IPADBG("rx_ring_size=%d\n",
 				in->u.ul_smmu.rdy_ring_size);
 			IPADBG("rx_ring_rp_pa=0x%pa\n",
@@ -1332,6 +1335,7 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 			ipa3_ctx->wdi2_ctx.rdy_comp_ring_size =
 				in->u.ul_smmu.rdy_comp_ring_size;
 		} else {
+			IPADBG("smmu disabled\n");
 			IPADBG("rx_ring_base_pa=0x%pa\n",
 				&in->u.ul.rdy_ring_base_pa);
 			IPADBG("rx_ring_size=%d\n",
@@ -1520,9 +1524,19 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 	if (result)
 		goto fail_alloc_evt_ring;
 
-	is_evt_rn_db_pcie_addr = IPA_CLIENT_IS_CONS(in->sys.client) ?
-		in->u.dl.is_evt_rn_db_pcie_addr :
-		in->u.ul.is_evt_rn_db_pcie_addr;
+	if (in->smmu_enabled) {
+		/* gsi_evt_ring_props.rp_update_addr has virtual addresses */
+		addr_low = (u32)gsi_evt_ring_props.rp_update_addr;
+		addr_high = (u32)((u64)gsi_evt_ring_props.rp_update_addr >> 32);
+	} else {
+		if (IPA_CLIENT_IS_CONS(in->sys.client)) {
+			addr_low = (u32)in->u.dl.ce_door_bell_pa;
+			addr_high = (u32)((u64)in->u.dl.ce_door_bell_pa >> 32);
+		} else {
+                        addr_low = (u32)in->u.ul.rdy_comp_ring_wp_pa;
+                        addr_high = (u32)((u64)in->u.ul.rdy_comp_ring_wp_pa >> 32);
+		}
+	}
 
 	if (IPA_CLIENT_IS_CONS(in->sys.client)) {
 		is_evt_rn_db_pcie_addr = in->smmu_enabled ?
@@ -1539,43 +1553,6 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 			in->u.ul_smmu.rdy_comp_ring_wp_pa :
 			in->u.ul.rdy_comp_ring_wp_pa;
 	}
-	if (!in->smmu_enabled) {
-		IPADBG("smmu disabled\n");
-		if (is_evt_rn_db_pcie_addr == true)
-			IPADBG("is_evt_rn_db_pcie_addr is PCIE addr\n");
-		else
-			IPADBG("is_evt_rn_db_pcie_addr is DDR addr\n");
-
-		addr_low = (u32)gsi_evt_ring_props.rp_update_addr;
-		addr_high = (u32)((u64)gsi_evt_ring_props.rp_update_addr >> 32);
-	} else {
-		IPADBG("smmu enabled\n");
-		if (is_evt_rn_db_pcie_addr == true)
-			IPADBG("is_evt_rn_db_pcie_addr is PCIE addr\n");
-		else
-			IPADBG("is_evt_rn_db_pcie_addr is DDR addr\n");
-
-		if (IPA_CLIENT_IS_CONS(in->sys.client)) {
-			if (ipa_create_gsi_smmu_mapping(IPA_WDI_CE_DB_RES,
-				true, gsi_evt_ring_props.rp_update_addr,
-				NULL, 4, true, &va)) {
-					IPAERR("failed to get smmu mapping\n");
-					result = -EFAULT;
-					goto fail_alloc_evt_ring;
-			}
-		} else {
-			if (ipa_create_gsi_smmu_mapping(
-				IPA_WDI_RX_COMP_RING_WP_RES,
-				true, gsi_evt_ring_props.rp_update_addr,
-				NULL, 4, true, &va)) {
-				IPAERR("failed to get smmu mapping\n");
-				result = -EFAULT;
-				goto fail_alloc_evt_ring;
-			}
-		}
-		addr_low = (u32)va;
-		addr_high = (u32)((u64)va >> 32);
-	}
 
 	/*
 	* Arch specific:
@@ -1584,14 +1561,14 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 	* assert bit 40 to indicate it is pcie addr
 	* WDI-3.0, MSM --> pcie via smmu
 	* WDI-3.0, MDM --> pcie not via smmu + dual port
-	* assert bit 40 in case
+	* assert bit 40 in this case
+	* At this point, if smmu is enabled,
+	* addr_low and addr_high has va and
+	* gsi_evt_ring_props.rp_update_addr has pa
+	* if smmu is disabled, both has pa.
 	*/
 	if (!ipa3_is_msm_device() &&
 		in->smmu_enabled) {
-		/*
-		* Ir-respective of smmu enabled don't use IOVA addr
-		* since pcie not via smmu in MDM's
-		*/
 		if (is_evt_rn_db_pcie_addr == true) {
 			addr_low = (u32)gsi_evt_ring_props.rp_update_addr;
 			addr_high =
@@ -1677,9 +1654,9 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 					gsi_scratch.wdi2_new.wifi_rx_ri_addr_low
 						= in->u.ul_smmu.rdy_ring_rp_pa
 							& 0xFFFFFFFF;
-				gsi_scratch.wdi2_new.wifi_rx_ri_addr_high =
-					(in->u.ul_smmu.rdy_ring_rp_pa &
-						0xFFFFF00000000) >> 32;
+					gsi_scratch.wdi2_new.wifi_rx_ri_addr_high
+						= (in->u.ul_smmu.rdy_ring_rp_pa &
+							0xFFFFF00000000) >> 32;
 				}
 			}
 
