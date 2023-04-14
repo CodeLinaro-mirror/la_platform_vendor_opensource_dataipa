@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifdef CONFIG_DEBUG_FS
@@ -824,6 +824,9 @@ static int ipa3_attrib_dump(struct ipa_rule_attrib *attrib,
 		pr_cont("tos_value:%d ", attrib->tos_value);
 		pr_cont("tos_mask:%d ", attrib->tos_mask);
 	}
+
+	if (attrib->ext_attrib_mask & IPA_FLT_EXT_TTL_FIELD)
+		pr_cont("ttl:%d ", attrib->ttl_value);
 
 	if (attrib->attrib_mask & IPA_FLT_PROTOCOL)
 		pr_cont("protocol:%d ", attrib->u.v4.protocol);

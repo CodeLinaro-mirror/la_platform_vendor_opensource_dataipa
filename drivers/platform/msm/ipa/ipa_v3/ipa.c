@@ -2737,6 +2737,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_macsec_map *macsec_map;
 	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 	struct ipa_ioc_ext_router_info *ext_router_info;
+	struct ipa_ttl_vlan_ids ttl_vlan_ids;
 	bool send2uC, send2ipacm;
 	size_t sz;
 	int pre_entry;
@@ -3811,6 +3812,26 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (ipa3_send_vlan_l2tp_msg(arg, DEL_L2TP_VLAN_MAPPING)) {
 			retval = -EFAULT;
 			break;
+		}
+		break;
+
+	case IPA_IOC_TTL_VLAN_MAPPING:
+		IPADBG("Got IPA_IOC_TTL_VLAN_MAPPING\n");
+		if (copy_from_user(
+				&ttl_vlan_ids,
+				(const void __user *) arg,
+				sizeof(struct ipa_ttl_vlan_ids))) {
+			IPAERR_RL("copy_from_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+		if(ttl_vlan_ids.num_vlanids != 0)
+		{
+			retval = ipa3_add_ttl_vlan_map(&ttl_vlan_ids);
+		}
+		else {
+			IPAERR_RL("Vlan id's size is empty\n");
+			retval = -EFAULT;
 		}
 		break;
 
