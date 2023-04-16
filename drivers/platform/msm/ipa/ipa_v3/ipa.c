@@ -12090,8 +12090,11 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	struct ipa_smmu_cb_ctx *cb;
 
 	/*
-	 * IPA probe function can be called for multiple times as the same probe
-	 * function handles multiple compatibilities
+	 * Linux platform core matches devices with their drivers by matching the DT device node's
+	 * "compatible" property against one of the strings in the string array field
+	 * of_match_table of struct dvice_driver. For each DT device node with "compatible"
+	 * property == one of struct dvice_driver.of_match_table strings struct dvice_driver.probe
+	 * will be called.
 	 */
 	pr_debug("ipa: IPA driver probing started for %s\n",
 		pdev_p->dev.of_node->name);
