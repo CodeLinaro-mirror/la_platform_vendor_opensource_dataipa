@@ -75,9 +75,12 @@ ipatestm-$(CONFIG_IPA_KERNEL_TESTS_MODULE) += \
 
 ipanetm-y += ipa_v3/ipa_net.o
 
+ipaipsecm-y += ipa_v3/ipa_ipsec.o
+
 obj-$(CONFIG_IPA3) += ipam.o
 obj-$(CONFIG_IPA3) += ipanetm.o
 obj-$(CONFIG_IPA_KERNEL_TESTS_MODULE) += ipatestm.o
+obj-$(CONFIG_IPA_IPSEC) += ipaipsecm.o
 
 obj-y += ipa_v3/ ipa_clients/
 

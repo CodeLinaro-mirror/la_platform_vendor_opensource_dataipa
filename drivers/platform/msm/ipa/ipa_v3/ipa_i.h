@@ -2589,6 +2589,7 @@ struct ipa3_context {
 	struct ipa3_uc_wdi_ctx uc_wdi_ctx;
 	struct ipa3_uc_ntn_ctx uc_ntn_ctx;
 	struct ipa3_uc_wigig_ctx uc_wigig_ctx;
+	struct ipa_ipsec_ctx *ipsec;
 	u32 wan_rx_ring_size;
 	u32 lan_rx_ring_size;
 	bool skip_uc_pipe_reset;
