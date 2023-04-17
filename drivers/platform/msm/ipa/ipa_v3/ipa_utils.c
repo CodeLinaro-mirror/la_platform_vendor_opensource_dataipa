@@ -17013,3 +17013,17 @@ error:
 	mutex_unlock(&ipa3_ctx->act_tbl_lock);
 	return res;
 }
+
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id = rx_idx;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id = tx_idx;
+}
+EXPORT_SYMBOL(ipa3_update_eth_pdu_ep_index);
+
+void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled = enable;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode = vlan;
+}
+EXPORT_SYMBOL(ipa3_set_eth_pdu_mode);
