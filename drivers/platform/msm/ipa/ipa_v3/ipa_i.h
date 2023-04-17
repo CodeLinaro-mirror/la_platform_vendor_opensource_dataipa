@@ -967,6 +967,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	enum ipa_hdr_proc_type type;
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
+	struct ipa_ipsec_params ipsec_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
