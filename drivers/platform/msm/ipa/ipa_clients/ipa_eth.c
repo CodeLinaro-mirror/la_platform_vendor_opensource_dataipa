@@ -677,6 +677,12 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 		return -EFAULT;
 	}
 
+	if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_ETH) {
+			IPA_ETH_ERR("ETH offload is disabled by IPA Tiering, client %d\n",
+				client->client_type);
+			return -EFAULT;
+	}
+
 	if (!ipa_eth_ctx->is_eth_ready) {
 		IPA_ETH_ERR("conn called before IPA eth ready\n");
 		return -EFAULT;

@@ -909,6 +909,14 @@ int ipa3_qmi_filter_request_ex_send(
 			(req->filter_spec_ex_list[i].filter_action >
 			QMI_IPA_FILTER_ACTION_EXCEPTION_V01))
 			return -EINVAL;
+
+		if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_NAT) {
+			if ((req->filter_spec_ex_list[i].filter_action == QMI_IPA_FILTER_ACTION_SRC_NAT_V01) ||
+				(req->filter_spec_ex_list[i].filter_action == QMI_IPA_FILTER_ACTION_DST_NAT_V01)) {
+			IPAWANDBG("rules with NAT action are disabled by IPA Tiering\n");
+			return -EINVAL;
+			}
+		}
 	}
 	mutex_lock(&ipa3_qmi_lock);
 	if (ipa3_qmi_ctx != NULL) {
@@ -1026,6 +1034,14 @@ int ipa3_qmi_add_offload_request_send(
 			(req->filter_spec_ex2_list[i].filter_action >
 			QMI_IPA_FILTER_ACTION_EXCEPTION_V01))
 			return -EINVAL;
+
+		if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_NAT) {
+			if ((req->filter_spec_ex2_list[i].filter_action == QMI_IPA_FILTER_ACTION_SRC_NAT_V01) ||
+				(req->filter_spec_ex2_list[i].filter_action == QMI_IPA_FILTER_ACTION_DST_NAT_V01)) {
+			IPAWANDBG("rules with NAT action are disabled by IPA Tiering\n");
+			return -EINVAL;
+			}
+		}
 	}
 
 	req_desc.max_msg_len =
