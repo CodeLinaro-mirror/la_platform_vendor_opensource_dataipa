@@ -973,7 +973,10 @@ void ipa3_release_wdi3_gsi_smmu_mappings(u8 dir)
 	} else if (dir == IPA_WDI3_TX2_DIR) {
 		start = IPA_WDI_TX2_RING_RES;
 		end = IPA_WDI_TX2_DB_RES;
-	} else if (dir == IPA_WDI3_RX_DIR) {
+	} else if (dir == IPA_WDI3_TX3_DIR) {
+		start = IPA_WDI_TX3_RING_RES;
+		end = IPA_WDI_TX3_DB_RES;
+	}else if (dir == IPA_WDI3_RX_DIR) {
 		start = IPA_WDI_RX_RING_RES;
                 end = IPA_WDI_RX_COMP_RING_WP_RES;
 	} else if (dir == IPA_WDI3_RX2_DIR) {
@@ -982,9 +985,18 @@ void ipa3_release_wdi3_gsi_smmu_mappings(u8 dir)
 	} else if (dir == IPA_WDI3_RX3_DIR) {
 		start = IPA_WDI_RX3_RING_RES;
                 end = IPA_WDI_RX3_COMP_RING_WP_RES;
-	} else {
+	} else if (dir == IPA_WDI3_RX4_DIR) {
 		 start = IPA_WDI_RX4_RING_RES;
                 end = IPA_WDI_RX4_COMP_RING_WP_RES;
+	} else if (dir == IPA_WDI3_RX5_DIR) {
+		 start = IPA_WDI_RX5_RING_RES;
+                end = IPA_WDI_RX5_COMP_RING_WP_RES;
+	} else if (dir == IPA_WDI3_RX6_DIR) {
+		 start = IPA_WDI_RX6_RING_RES;
+                end = IPA_WDI_RX6_COMP_RING_WP_RES;
+	} else {
+		IPAERR("Invalid direction\n");
+		return;
 	}
 
 	for (i = start; i <= end; i++) {
@@ -1051,6 +1063,12 @@ int ipa_create_gsi_smmu_mapping(int res_idx, bool wlan_smmu_en,
 		case IPA_WDI_RX3_COMP_RING_WP_RES:
 		case IPA_WDI_RX4_RING_RP_RES:
 		case IPA_WDI_RX4_COMP_RING_WP_RES:
+		case IPA_WDI_CE3_DB_RES:
+		case IPA_WDI_RX5_COMP_RING_WP_RES:
+		case IPA_WDI_TX3_DB_RES:
+		case IPA_WDI_RX5_RING_RP_RES:
+		case IPA_WDI_RX6_COMP_RING_WP_RES:
+		case IPA_WDI_RX6_RING_RP_RES:
 			if (ipa_create_ap_smmu_mapping_pa(pa, len,
 				((res_idx == IPA_WDI_CE_DB_RES) ||
 				(res_idx == IPA_WDI_CE2_DB_RES)) ? true : false,
@@ -1075,6 +1093,12 @@ int ipa_create_gsi_smmu_mapping(int res_idx, bool wlan_smmu_en,
 		case IPA_WDI_RX3_COMP_RING_RES:
 		case IPA_WDI_RX4_RING_RES:
 		case IPA_WDI_RX4_COMP_RING_RES:
+		case IPA_WDI_CE3_RING_RES:
+		case IPA_WDI_RX5_COMP_RING_RES:
+		case IPA_WDI_RX6_COMP_RING_RES:
+		case IPA_WDI_TX3_RING_RES:
+		case IPA_WDI_RX5_RING_RES:
+		case IPA_WDI_RX6_RING_RES:
 			if (ipa_create_ap_smmu_mapping_sgt(sgt, iova)) {
 				IPAERR("Fail to create mapping res %d\n",
 						res_idx);
