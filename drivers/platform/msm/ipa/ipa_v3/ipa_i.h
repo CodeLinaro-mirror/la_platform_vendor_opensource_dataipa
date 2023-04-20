@@ -261,10 +261,12 @@ enum {
 #define IPA_HDR_BIN3 3
 #define IPA_HDR_BIN4 4
 #define IPA_HDR_BIN5 5
-#define IPA_HDR_BIN_MAX 6
+#define IPA_HDR_BIN6 6
+#define IPA_HDR_BIN_MAX 7
 
 enum hdr_tbl_storage {
 	HDR_TBL_LCL,
+	HDR_TBL_LCL_EXT,
 	HDR_TBL_SYS,
 	HDR_TBLS_TOTAL,
 };
@@ -859,6 +861,7 @@ struct ipa3_rt_tbl {
  * @user_deleted: is the header deleted by the user?
  * @ipacm_installed: indicate if installed by ipacm
  * @is_lcl: is the entry in the SRAM?
+ * @in_apps_headers_ext: header is in headers extension section in SRAM?
  */
 struct ipa3_hdr_entry {
 	struct list_head link;
@@ -877,6 +880,7 @@ struct ipa3_hdr_entry {
 	bool user_deleted;
 	bool ipacm_installed;
 	bool is_lcl;
+	bool in_apps_headers_ext;
 };
 
 /**
@@ -2465,6 +2469,7 @@ struct ipa3_context {
 	bool ipa_wdi2_over_gsi;
 	bool ipa_wdi3_over_gsi;
 	bool ipa_endp_delay_wa;
+	bool lan_coal_enable;
 	bool ipa_fltrt_not_hashable;
 	bool use_xbl_boot;
 	bool use_64_bit_dma_mask;
@@ -2714,6 +2719,7 @@ struct ipa3_plat_drv_res {
 	bool ipa_gpi_event_rp_ddr;
 	bool rmnet_ctl_enable;
 	bool rmnet_ll_enable;
+	bool lan_coal_enable;
 	bool ipa_use_uc_holb_monitor;
 	u32 ipa_holb_monitor_poll_period;
 	u32 ipa_holb_monitor_max_cnt_wlan;
@@ -2808,6 +2814,8 @@ struct ipa3_plat_drv_res {
  * |  MODEM HDR              |
  * +-------------------------+
  * |  APPS HDR (IPA4.5)      |
+ * +-------------------------+
+ * |  APPS HDR Ext(IPA6.0)   |
  * +-------------------------+
  * |    CANARY               |
  * +-------------------------+
@@ -2906,6 +2914,8 @@ struct ipa3_mem_partition {
 	u32 apps_hdr_ofst;
 	u32 apps_hdr_size;
 	u32 apps_hdr_size_ddr;
+	u32 apps_hdr_ext_ofst;
+	u32 apps_hdr_ext_size;
 	u32 modem_hdr_proc_ctx_ofst;
 	u32 modem_hdr_proc_ctx_size;
 	u32 apps_hdr_proc_ctx_ofst;
@@ -3740,6 +3750,7 @@ struct iommu_domain *ipa3_get_smmu_domain_by_type
 int ipa3_iommu_map(struct iommu_domain *domain, unsigned long iova,
 	phys_addr_t paddr, size_t size, int prot);
 int ipa3_ap_suspend(struct device *dev);
+int ipa3_ap_freeze(struct device *dev);
 int ipa3_ap_resume(struct device *dev);
 int ipa3_init_interrupts(void);
 struct iommu_domain *ipa3_get_smmu_domain(void);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/bitops.h>
@@ -49,6 +49,7 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 	struct ipa3_hdr_entry *hdr_entry;
 	struct ipa3_hdr_proc_ctx_entry *hdr_proc_entry;
 	int res = 0;
+	bool in_apps_headers_ext = false;
 
 	memset(&gen_params, 0, sizeof(gen_params));
 
@@ -85,6 +86,7 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 			IPAERR_RL("Header entry already deleted\n");
 			return -EPERM;
 		}
+		in_apps_headers_ext = hdr_entry->in_apps_headers_ext;
 	} else if (entry->proc_ctx) {
 		hdr_proc_entry = ipa3_id_find(entry->rule.hdr_proc_ctx_hdl);
 		if (!hdr_proc_entry ||
@@ -95,10 +97,16 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 		}
 	}
 
-	if (entry->proc_ctx) {
+	if (entry->proc_ctx || in_apps_headers_ext) {
 		struct ipa3_hdr_proc_ctx_entry *proc_ctx;
 
 		proc_ctx = (entry->proc_ctx) ? : entry->hdr->proc_ctx;
+
+		/* header in APPS header extension section in SRAM
+			must have HPC to access the extension area */
+		if (in_apps_headers_ext)
+			proc_ctx = entry->hdr->proc_ctx;
+
 		if ((proc_ctx == NULL) ||
 			ipa3_check_idr_if_freed(proc_ctx) ||
 			(proc_ctx->cookie != IPA_PROC_HDR_COOKIE)) {

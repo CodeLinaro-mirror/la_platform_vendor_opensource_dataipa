@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <net/ip.h>
@@ -121,6 +121,10 @@
 #define IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_2ND_UCP_DMAP 0x0000080a
 /* 3 Packet Processing + no decipher + 2 uCP + HPS REP DMA Parser */
 #define IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_NO_DEC_2ND_UCP_DMAP 0x0000080c
+/* 1 Packet Processing + DRBIP */
+#define IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_DRBIP 0x0000000f
+/* 2 Packet Processing + DRBIP */
+#define IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_DRBIP 0x00000010
 /* 2 Packet Processing + 2 uCP + Encaps + DRBIP */
 #define IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP 0x00000019
 /* 3 Packet Processing + 2 uCP + Decaps + DRBIP */
@@ -6810,7 +6814,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0_MHI][IPA_CLIENT_APPS_WAN_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 2 , 11, 25, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -6852,7 +6856,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0_MHI][IPA_CLIENT_Q6_WAN_PROD]  = {
 			true, IPA_v6_0_GROUP_DL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 17, 0, 16, 28, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 2 },
 			IPA_TX_INSTANCE_NA },
@@ -6873,16 +6877,9 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0_MHI][IPA_CLIENT_Q6_DL_NLO_DATA_PROD]  = {
 			true, IPA_v6_0_GROUP_DL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 20, 2, 28, 32, IPA_EE_Q6, GSI_FREE_PRE_FETCH, 3 },
-			IPA_TX_INSTANCE_NA },
-	[IPA_6_0_MHI][IPA_CLIENT_Q6_DL_NLO_DATA_XLAT_PROD]  = {
-			true, IPA_v6_0_GROUP_DL,
-			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP,
-			QMB_MASTER_SELECT_DDR,
-			{ 21, 3, 28, 32, IPA_EE_Q6, GSI_FREE_PRE_FETCH, 3 },
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_MHI][IPA_CLIENT_APPS_LAN_CONS] = {
 			true,   IPA_v6_0_GROUP_UL,
@@ -8798,8 +8795,10 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.modem_hdr_ofst = 0x1aa8,
 	.modem_hdr_size = 0x240,
 	.apps_hdr_ofst = 0x1ce8,
-	.apps_hdr_size = 0x7ff,
+	.apps_hdr_size = 0x5bf,
 	.apps_hdr_size_ddr = 0x7ff,
+	.apps_hdr_ext_ofst = 0x22a8,
+	.apps_hdr_ext_size = 0x1354,
 	.modem_hdr_proc_ctx_ofst = 0x3600,
 	.modem_hdr_proc_ctx_size = 0xb20,
 	.apps_hdr_proc_ctx_ofst = 0x4120,
@@ -9029,7 +9028,7 @@ void stop_coalescing()
 
 bool lan_coal_enabled()
 {
-	if ( ipa3_ctx->ipa_initialization_complete ) {
+	if ( ipa3_ctx->ipa_initialization_complete && ipa3_ctx->lan_coal_enable) {
 		int ep_idx;
 		if ( IPA_CLIENT_IS_MAPPED_VALID(IPA_CLIENT_APPS_LAN_COAL_CONS, ep_idx) ) {
 			return true;
@@ -12256,13 +12255,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 	 * The calculation:
 	 * The hdr_offset field in the routing rule hw is 9 bits,
 	 * The offsets are in 4 bytes jump so 2^9 * 2^2 = 2^11 */
-	if (IPA_MEM_PART(apps_hdr_size) > 0x7FF) {
-		IPAERR("APPS HDR SIZE 0x%x is too big\n",
-			IPA_MEM_PART(apps_hdr_size));
-		return -ENODEV;
-	}
-
-	if (IPA_MEM_PART(apps_hdr_size_ddr) > 0x7FF) {
+	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (IPA_MEM_PART(apps_hdr_size_ddr) > 0x7FF)) {
 		IPAERR("APPS HDR DDR SIZE 0x%x is too big\n",
 			IPA_MEM_PART(apps_hdr_size_ddr));
 		return -ENODEV;
@@ -12272,17 +12265,11 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		IPA_MEM_PART(apps_hdr_ofst), IPA_MEM_PART(apps_hdr_size),
 		IPA_MEM_PART(apps_hdr_size_ddr));
 
-	/* Max size supported of header table is 2^14 Bytes.
+	/* Max size supported of HPC table is 2^14 Bytes.
 	 * The calculation:
 	 * The hdr_offset field in the routing rule hw is 9 bits,
 	 * The offsets are in 32 bytes jump so 2^9 * 2^5 = 2^14 */
-	if (IPA_MEM_PART(apps_hdr_proc_ctx_size) > 0x3FFF) {
-		IPAERR("APPS HDR PROC CTX SIZE 0x%x is too big\n",
-			IPA_MEM_PART(apps_hdr_proc_ctx_size));
-		return -ENODEV;
-	}
-
-	if (IPA_MEM_PART(apps_hdr_proc_ctx_size_ddr) > 0x3FFF) {
+	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (IPA_MEM_PART(apps_hdr_proc_ctx_size_ddr) > 0x3FFF)) {
 		IPAERR("APPS HDR PROC CTX DDR SIZE 0x%x is too big\n",
 			IPA_MEM_PART(apps_hdr_proc_ctx_size_ddr));
 		return -ENODEV;
@@ -12738,7 +12725,7 @@ void ipa3_counter_remove_hdl(int hdl)
 	offset = counter->hw_counter.start_id - 1;
 	if (offset >= 0 && (offset + counter->hw_counter.num_counters)
 		< IPA_FLT_RT_HW_COUNTER) {
-		memset(&ipa3_ctx->flt_rt_counters.used_hw + offset,
+		memset(&ipa3_ctx->flt_rt_counters.used_hw[offset],
 			   0, counter->hw_counter.num_counters * sizeof(bool));
 	} else {
 		IPAERR_RL("unexpected hdl %d\n", hdl);
@@ -12747,7 +12734,7 @@ void ipa3_counter_remove_hdl(int hdl)
 	offset = counter->sw_counter.start_id - 1 - IPA_FLT_RT_HW_COUNTER;
 	if (offset >= 0 && (offset + counter->sw_counter.num_counters)
 		< IPA_FLT_RT_SW_COUNTER) {
-		memset(&ipa3_ctx->flt_rt_counters.used_sw + offset,
+		memset(&ipa3_ctx->flt_rt_counters.used_sw[offset],
 		   0, counter->sw_counter.num_counters * sizeof(bool));
 	} else {
 		IPAERR_RL("unexpected hdl %d\n", hdl);

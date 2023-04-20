@@ -197,7 +197,7 @@ public:
 
 protected:
 	static const size_t BUFF_MAX_SIZE = 1024;
-	static const uint8_t MAX_HEADER_SIZE = 64; // 64Bytes - Max Header Length
+	static const uint8_t MAX_HEADER_SIZE = 128; // 128Bytes - Max Header Length
 	enum ipa_ip_type m_eIP;
 	uint8_t m_aBuffer[BUFF_MAX_SIZE]; // Input file \ IP packet
 	size_t m_uBufferSize;
@@ -932,7 +932,9 @@ public:
 		m_name = "IPAHeaderInsertionTest006";
 		m_description =
 		"Header Insertion Test 006 - Test header distriburion between SRAM and DDR\
-			- fill SRAM and some DDR, use DDR header";
+			- fill SRAM and some DDR, use DDR header\
+			*For IPAv6.0 will Test header distriburion between HDR_TBL_LCL(SRAM) and\
+			HDR_TBL_LCL_EXT(SRAM)";
 		this->m_runInRegression = true;
 		Register(*this);
 		uint8_t aRMNetHeader[6] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
@@ -1163,7 +1165,9 @@ public:
 		m_name = "IPAHeaderInsertionTest007";
 		m_description =
 		"Header Insertion Test 007 - Test header distriburion between SRAM and DDR\
-			- fill SRAM and some DDR, free some SRAM, use DDR header";
+			- fill SRAM and some DDR, free some SRAM, use DDR header\
+			*For IPAv6.0 will Test header distriburion between HDR_TBL_LCL(SRAM) and\
+			HDR_TBL_LCL_EXT(SRAM)";
 		// We will delete half of the headers in the SRAM,
 		// which is quarter of the total initial headers number
 		m_HeadersNumToDelete = m_InitialHeadersNum / 4;
@@ -1178,7 +1182,9 @@ public:
 		m_description =
 		"Header Insertion Test 008 - Test header distriburion between SRAM and DDR\
 			- fill SRAM and some DDR, free some SRAM, add few new SRAM headers, \
-			use last SRAM header";
+			use last SRAM header\
+			*For IPAv6.0 will Test header distriburion between HDR_TBL_LCL(SRAM) and\
+			HDR_TBL_LCL_EXT(SRAM)";
 		// We will delete half of the headers in the SRAM,
 		// which is quarter of the total initial headers number
 		m_HeadersNumToDelete = m_InitialHeadersNum / 4;
@@ -1195,7 +1201,9 @@ public:
 		"Header Insertion Test 009 - Test header distriburion between SRAM and DDR \
 			- fill SRAM and some DDR, free some SRAM and DDR, \
 			add new SRAM and DDR headers, \
-			use last added DDR header";
+			use last added DDR header \
+			*For IPAv6.0 will Test header distriburion between HDR_TBL_LCL(SRAM) and\
+			HDR_TBL_LCL_EXT(SRAM)";
 		// We will delete all the headers in SRAM and half of the headers in the DDR,
 		// which is 3/4 of the total initial headers number
 		m_HeadersNumToDelete = m_InitialHeadersNum - (m_InitialHeadersNum / 4);
@@ -1214,7 +1222,9 @@ public:
 		m_name = "IPAHeaderInsertionTest010";
 		m_description =
 		"Header Insertion Test 010 - Test header distriburion between SRAM and DDR\
-			- fill SRAM and some DDR, use one SRAM and one DDR header";
+			- fill SRAM and some DDR, use one SRAM and one DDR header.\
+			*For IPAv6.0 will Test header distriburion between HDR_TBL_LCL(SRAM) and\
+			HDR_TBL_LCL_EXT(SRAM)";
 		m_minIPAHwType = IPA_HW_v5_0;
 
 		Register(*this);
@@ -1229,7 +1239,7 @@ public:
 		m_nHeadertoAddSize2 = sizeof(aIEEE802_3Header2);
 		memcpy(m_aHeadertoAdd2, aIEEE802_3Header2, m_nHeadertoAddSize2);
 
-		// The packet size is 22, therefore the bin size is 24
+		// The header size is 22, therefore the bin size is 24
 		// We are going to add number of headers to occupy twice the size of the SRAM buffer
 		m_InitialHeadersNum = GetHdrSramSize() / 24 * 2;
 	}
@@ -1450,6 +1460,992 @@ private:
 	int ret;
 };
 
+/*
+   --------------------------------------------------------------------------------------------
+				*IPAv6.0 Header Inseration with Extension section in SRAM - TESTS*
+   --------------------------------------------------------------------------------------------
+*/
+class IPAHeaderInsertionTest011: public IPAHeaderInsertionTestFixture {
+public:
+	IPAHeaderInsertionTest011() :
+	m_aExpectedBufSize(BUFF_MAX_SIZE),
+	m_nHeadertoAddSize1(0),
+	m_nHeadertoAddSize2(0)
+	{
+		m_name = "IPAHeaderInsertionTest011";
+		m_description =
+		"Header Insertion Test 011 - Test header distriburion between HDR_TBL_LCL and\
+			HDR_TBL_LCL_EXT  -Fill HDR_TBL_LCL in SRAM and add some headers in \
+			HDR_TBL_LCL_EXT. use one header in HDR_TBL_LCL and one header in HDR_TBL_LCL_EXT";
+		m_minIPAHwType = IPA_HW_v6_0;
+		m_maxIPAHwType = IPA_HW_v6_0;
+
+		Register(*this);
+		uint8_t aIEEE802_3Header1[18] = { 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6,
+				0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0x00, 0x46, 0xAE, 0xAF, 0xB0,
+				0xB1, 0xB2};
+		uint8_t aIEEE802_3Header2[18] = { 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6,
+				0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0x00, 0x47, 0xAE, 0xAF, 0xB0,
+				0xB1, 0xB2};
+		m_nHeadertoAddSize1 = sizeof(aIEEE802_3Header1);
+		memcpy(m_aHeadertoAdd1, aIEEE802_3Header1, m_nHeadertoAddSize1);
+		m_nHeadertoAddSize2 = sizeof(aIEEE802_3Header2);
+		memcpy(m_aHeadertoAdd2, aIEEE802_3Header2, m_nHeadertoAddSize2);
+
+		// We are going to add 256 headers to SRAM (IPAv6.0 Peak throughput support CPE for 128 clients - ipv4/6 256 headers) 
+		m_InitialHeadersNum = 256;
+	}
+
+	bool Setup()
+	{
+		ConfigureScenario(PHASE_TWENTY_ONE_TEST_CONFIGURATION);
+
+		m_producer.Open(INTERFACE0_TO_IPA_DATA_PATH,
+				INTERFACE0_FROM_IPA_DATA_PATH);
+		m_Consumer1.Open(INTERFACE1_TO_IPA_DATA_PATH,
+				INTERFACE1_FROM_IPA_DATA_PATH);
+		m_Consumer2.Open(INTERFACE2_TO_IPA_DATA_PATH,
+				INTERFACE2_FROM_IPA_DATA_PATH);
+		m_Consumer3.Open(INTERFACE3_TO_IPA_DATA_PATH,
+				INTERFACE3_FROM_IPA_DATA_PATH);
+
+		if (!m_Routing.DeviceNodeIsOpened()) {
+			LOG_MSG_ERROR(
+					"Routing block is not ready for immediate commands!\n");
+			return false;
+		}
+		if (!m_Filtering.DeviceNodeIsOpened()) {
+			LOG_MSG_ERROR(
+					"Filtering block is not ready for immediate commands!\n");
+			return false;
+		}
+		if (!m_HeaderInsertion.DeviceNodeIsOpened())
+		{
+			LOG_MSG_ERROR("Header Insertion block is not ready for immediate commands!\n");
+			return false;
+		}
+		m_HeaderInsertion.Reset();// resetting this component will reset both Routing and Filtering tables.
+
+		return true;
+	} // Setup()
+
+	virtual bool AddRules() {
+		m_eIP = IPA_IP_v4;
+		const char aBypass1[20] = "Bypass1";
+		const char aBypass2[20] = "Bypass2";
+		uint32_t nTableHdl01, nTableHdl02;
+		bool bRetVal = true;
+		IPAFilteringTable cFilterTable0;
+		struct ipa_flt_rule_add sFilterRuleEntry;
+		struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
+
+		LOG_MSG_STACK("Entering Function");
+
+		if (m_InitialHeadersNum <= 0)
+		{
+			LOG_MSG_ERROR("Initial headers number is set to 0!\n");
+			bRetVal = false;
+			goto bail;
+		}
+
+		memset(&sFilterRuleEntry, 0, sizeof(sFilterRuleEntry));
+		memset(&m_RetHeader1, 0, sizeof(m_RetHeader1));
+		memset(&m_RetHeader2, 0, sizeof(m_RetHeader2));
+
+		pHeaderDescriptor = (struct ipa_ioc_add_hdr *) calloc(1,
+			sizeof(struct ipa_ioc_add_hdr) + 1 * sizeof(struct ipa_hdr_add));
+		if (!pHeaderDescriptor)
+		{
+			LOG_MSG_ERROR("calloc failed to allocate ipa_ioc_add_hdr");
+			bRetVal = false;
+			goto bail;
+		}
+
+		fflush(stderr);
+		fflush(stdout);
+		system("cat /sys/kernel/debug/ipa/hdr");
+
+		// Add one header to HDR_TBL_LCL
+		pHeaderDescriptor->commit = true;
+		pHeaderDescriptor->num_hdrs = 1;
+		pHeaderDescriptor->hdr[0].status = -1; // Return Parameter
+		pHeaderDescriptor->hdr[0].hdr_hdl = -1; //Return Value
+		pHeaderDescriptor->hdr[0].is_partial = false;
+
+		memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd1, m_nHeadertoAddSize1);
+		pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize1;
+		strlcpy(pHeaderDescriptor->hdr[0].name, "IEEE802_3_HDR_TBL_LCL", sizeof(pHeaderDescriptor->hdr[0].name));
+		strlcpy(m_RetHeader1.name, pHeaderDescriptor->hdr[0].name, sizeof(m_RetHeader1.name));
+		if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
+		{
+			LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+
+		// Fill HDR_TBL_LCL and insert bunch of headers HDR_TBL_LCL_EXT
+		for (int i = 1; i < m_InitialHeadersNum; i++)
+		{
+			LOG_MSG_DEBUG("%s::%s iter=%d\n", typeid(this).name(), __func__, i);
+			memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd2, m_nHeadertoAddSize2);
+			pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize2;
+			snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name),
+				"IEEE802_3_%03d", i);
+			if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
+			{
+				LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed on %d iteration.\n", i);
+				bRetVal = false;
+				goto bail;
+			}
+		}
+
+		//Save header name from HDR_TBL_LCL_EXT to retreive later
+		strlcpy(m_RetHeader2.name, pHeaderDescriptor->hdr[0].name, sizeof(m_RetHeader2.name));
+
+		system("cat /sys/kernel/debug/ipa/hdr");
+		system("cat /sys/kernel/debug/ipa/proc_ctx");
+
+		if (!m_HeaderInsertion.GetHeaderHandle(&m_RetHeader1))
+		{
+			LOG_MSG_ERROR(" Failed");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_DEBUG("Received Header1 Handle = 0x%x", m_RetHeader1.hdl);
+
+		if (!m_HeaderInsertion.GetHeaderHandle(&m_RetHeader2))
+		{
+			LOG_MSG_ERROR(" Failed");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_DEBUG("Received Header2 Handle = 0x%x", m_RetHeader2.hdl);
+
+		if (!CreateBypassRoutingTable(&m_Routing, m_eIP, aBypass1, IPA_CLIENT_TEST3_CONS,
+				m_RetHeader1.hdl, &nTableHdl01)) {
+			LOG_MSG_ERROR("CreateBypassRoutingTable Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+		if (!CreateBypassRoutingTable(&m_Routing, m_eIP, aBypass2, IPA_CLIENT_TEST4_CONS,
+				m_RetHeader2.hdl, &nTableHdl02)) {
+			LOG_MSG_ERROR("CreateBypassRoutingTable Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_INFO("Creation of two bypass routing tables completed successfully TblHdl1=0x%x, TblHdl2=0x%x",
+				nTableHdl01, nTableHdl02);
+
+		// Creating Filtering Rules
+		cFilterTable0.Init(m_eIP, IPA_CLIENT_TEST_PROD, false, 2);
+		LOG_MSG_INFO("Creation of filtering table completed successfully");
+
+		// Configuring common Filtering fields
+		cFilterTable0.GeneratePresetRule(1, sFilterRuleEntry);
+		sFilterRuleEntry.at_rear = true;
+		sFilterRuleEntry.rule.action = IPA_PASS_TO_ROUTING;
+		sFilterRuleEntry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR; // Destination IP Based Filtering
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr_mask = 0xFF0000FF; // Mask
+
+		// Configuring Filtering Rule No.1
+		sFilterRuleEntry.flt_rule_hdl = -1; // return Value
+		sFilterRuleEntry.status = -1; // return Value
+		sFilterRuleEntry.rule.rt_tbl_hdl = nTableHdl01; //put here the handle corresponding to Routing Rule 1
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr = 0xC0A80101; // Filter DST_IP == 192.168.1.1.
+		if ((uint8_t)-1 == cFilterTable0.AddRuleToTable(sFilterRuleEntry))
+		{
+			LOG_MSG_ERROR ("Adding Rule(1) to Filtering table Failed.");
+			bRetVal = false;
+			goto bail;
+		}
+
+		// Configuring Filtering Rule No.2
+		sFilterRuleEntry.flt_rule_hdl = -1; // return Value
+		sFilterRuleEntry.status = -1; // return value
+		sFilterRuleEntry.rule.rt_tbl_hdl = nTableHdl02; //put here the handle corresponding to Routing Rule 2
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
+		if ((uint8_t)-1 == cFilterTable0.AddRuleToTable(sFilterRuleEntry))
+		{
+			LOG_MSG_ERROR ("Adding Rule(2) to Filtering table Failed.");
+			bRetVal = false;
+			goto bail;
+		}
+
+		if (!m_Filtering.AddFilteringRule(cFilterTable0.GetFilteringTable())) {
+			LOG_MSG_ERROR ("Failed to commit Filtering rules");
+			bRetVal = false;
+			goto bail;
+		}
+
+		LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n",
+			cFilterTable0.ReadRuleFromTable(0)->flt_rule_hdl,
+			cFilterTable0.ReadRuleFromTable(0)->status);
+		LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n",
+			cFilterTable0.ReadRuleFromTable(1)->flt_rule_hdl,
+			cFilterTable0.ReadRuleFromTable(1)->status);
+
+		system("cat /sys/kernel/debug/ipa/ip4_rt");
+
+	bail:
+		Free(pHeaderDescriptor);
+		LOG_MSG_STACK("Leaving Function (Returning %s)", bRetVal ? "True" : "False");
+		return bRetVal;
+	} // AddRules()
+
+	virtual bool ModifyPackets() {
+		// This test doesn't modify the original IP Packet.
+		return true;
+	} // ModifyPacktes ()
+
+	virtual bool TestLogic() {
+		bool bRetVal = true;
+		m_aExpectedBufSize = 0;
+		uint32_t nIPv4DSTAddr;
+
+		LOG_MSG_STACK("Entering Function");
+
+		//Packet No. 1
+		memset(m_aExpectedBuffer, 0, sizeof(m_aExpectedBuffer));
+		nIPv4DSTAddr = ntohl(0xC0A80101); //192.168.1.1
+		memcpy(&m_aBuffer[IPV4_DST_ADDR_OFFSET], &nIPv4DSTAddr, sizeof(nIPv4DSTAddr));
+		memcpy(m_aExpectedBuffer, m_aHeadertoAdd1, m_nHeadertoAddSize1);
+		memcpy(m_aExpectedBuffer+m_nHeadertoAddSize1,m_aBuffer,m_uBufferSize);
+		m_aExpectedBufSize = m_nHeadertoAddSize1 + m_uBufferSize;
+		if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
+				&m_Consumer2, m_aExpectedBuffer, m_aExpectedBufSize))
+		{
+			LOG_MSG_ERROR("SendReceiveAndCompare failed.");
+			bRetVal=false;
+		}
+
+		//Packet No. 2
+		memset(m_aExpectedBuffer, 0, sizeof(m_aExpectedBuffer));
+		nIPv4DSTAddr = ntohl(0xC0A80102); //192.168.1.2
+		memcpy (&m_aBuffer[IPV4_DST_ADDR_OFFSET], &nIPv4DSTAddr, sizeof(nIPv4DSTAddr));
+		memcpy(m_aExpectedBuffer, m_aHeadertoAdd2, m_nHeadertoAddSize2);
+		memcpy(m_aExpectedBuffer+m_nHeadertoAddSize2, m_aBuffer, m_uBufferSize);
+		m_aExpectedBufSize = m_nHeadertoAddSize2 + m_uBufferSize;
+		if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
+				&m_Consumer3, m_aExpectedBuffer, m_aExpectedBufSize))
+		{
+			LOG_MSG_ERROR("SendReceiveAndCompare failed.");
+			bRetVal=false;
+		}
+
+		LOG_MSG_STACK("Leaving Function (Returning %s)",bRetVal?"True":"False");
+		return bRetVal;
+	}
+
+protected:
+	struct ipa_ioc_get_hdr m_RetHeader1, m_RetHeader2;
+	int m_InitialHeadersNum;
+
+private:
+	uint8_t m_aExpectedBuffer[BUFF_MAX_SIZE]; // Input file / IP packet
+	size_t m_aExpectedBufSize;
+	uint8_t m_aHeadertoAdd1[MAX_HEADER_SIZE], m_aHeadertoAdd2[MAX_HEADER_SIZE];
+	size_t m_nHeadertoAddSize1, m_nHeadertoAddSize2;
+	int ret;
+};
+
+class IPAHeaderInsertionTest012: public IPAHeaderInsertionTestFixture {
+public:
+	IPAHeaderInsertionTest012() :
+	m_aExpectedBufSize(BUFF_MAX_SIZE),
+	m_nHeadertoAddSize1(0),
+	m_nHeadertoAddSize2(0),
+	m_nHeadertoAddSize3(0)
+	{
+		m_name = "IPAHeaderInsertionTest012";
+		m_description =
+		"Header Insertion Test 012 - Test header distriburion between HDR_TBL_LCL and \
+			HDR_TBL_LCL_EXT and HDR_TBL_SYS -Fill HDR_TBL_LCL and HDR_TBL_LCL_EXT in SRAM\
+				and add some headers in HDR_TBL_SYS(DDR), use one header in HDR_TBL_LCL,\
+				one header in HDR_TBL_LCL_EXT and one in HDR_TBL_SYS(DDR) header ";
+		m_minIPAHwType = IPA_HW_v6_0;
+		m_maxIPAHwType = IPA_HW_v6_0;
+
+		Register(*this);
+		uint8_t aIEEE802_3Header1[18] = { 0xA1, 0xA2, 0xD5, 0xA4, 0xA5, 0xA6,
+				0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0x00, 0x46, 0xAE, 0xAF, 0xB0,
+				0xB1, 0xB2};
+		uint8_t aIEEE802_3Header2[18] = { 0xA1, 0xA2, 0xD6, 0xA4, 0xA5, 0xA6,
+				0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0x00, 0x46, 0xAE, 0xAF, 0xB0,
+				0xB1, 0xB2};
+		uint8_t aIEEE802_3Header3[18] = { 0xA1, 0xA2, 0xD7, 0xA4, 0xA5, 0xA6,
+				0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0x00, 0x47, 0xAE, 0xAF, 0xB0,
+				0xB1, 0xB2};
+		m_nHeadertoAddSize1 = sizeof(aIEEE802_3Header1);
+		memcpy(m_aHeadertoAdd1, aIEEE802_3Header1, m_nHeadertoAddSize1);
+		m_nHeadertoAddSize2 = sizeof(aIEEE802_3Header2);
+		memcpy(m_aHeadertoAdd2, aIEEE802_3Header2, m_nHeadertoAddSize2);
+		m_nHeadertoAddSize3 = sizeof(aIEEE802_3Header3);
+		memcpy(m_aHeadertoAdd3, aIEEE802_3Header3, m_nHeadertoAddSize3);
+
+		/*
+		The header size is 18, therefore the bin size is 20
+		We are going to Fill HDR_TBL_LCL and HDR_TBL_LCL_EXT, insert bunch of headers to HDR_TBL_SYS
+		HDR_TBL_LCL size 1472B / 20 = 73 headers to fill
+		HDR_TBL_LCL_EXT size 4948B / 20 = 247 headers to fill
+
+		73 (HDR_TBL_LCL) + 247 (HDR_TBL_LCL_EXT) + 13(HDR_TBL_SYS) = 333 headers to add
+		*/
+		m_InitialHeadersNum = 333;
+	}
+
+	bool Setup()
+	{
+		ConfigureScenario(PHASE_TWENTY_ONE_TEST_CONFIGURATION);
+
+		m_producer.Open(INTERFACE0_TO_IPA_DATA_PATH,
+				INTERFACE0_FROM_IPA_DATA_PATH);
+		m_Consumer1.Open(INTERFACE1_TO_IPA_DATA_PATH,
+				INTERFACE1_FROM_IPA_DATA_PATH);
+		m_Consumer2.Open(INTERFACE2_TO_IPA_DATA_PATH,
+				INTERFACE2_FROM_IPA_DATA_PATH);
+		m_Consumer3.Open(INTERFACE3_TO_IPA_DATA_PATH,
+				INTERFACE3_FROM_IPA_DATA_PATH);
+
+		if (!m_Routing.DeviceNodeIsOpened()) {
+			LOG_MSG_ERROR(
+					"Routing block is not ready for immediate commands!\n");
+			return false;
+		}
+		if (!m_Filtering.DeviceNodeIsOpened()) {
+			LOG_MSG_ERROR(
+					"Filtering block is not ready for immediate commands!\n");
+			return false;
+		}
+		if (!m_HeaderInsertion.DeviceNodeIsOpened())
+		{
+			LOG_MSG_ERROR("Header Insertion block is not ready for immediate commands!\n");
+			return false;
+		}
+		m_HeaderInsertion.Reset();// resetting this component will reset both Routing and Filtering tables.
+
+		return true;
+	} // Setup()
+
+	virtual bool AddRules() {
+		m_eIP = IPA_IP_v4;
+		const char aBypass1[20] = "Bypass1";
+		const char aBypass2[20] = "Bypass2";
+		const char aBypass3[20] = "Bypass3";
+		uint32_t nTableHdl01, nTableHdl02, nTableHdl03;
+		bool bRetVal = true;
+		IPAFilteringTable cFilterTable0;
+		struct ipa_flt_rule_add sFilterRuleEntry;
+		struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
+
+		LOG_MSG_STACK("Entering Function");
+
+		if (m_InitialHeadersNum <= 0)
+		{
+			LOG_MSG_ERROR("Initial headers number is set to 0!\n");
+			bRetVal = false;
+			goto bail;
+		}
+
+		memset(&sFilterRuleEntry, 0, sizeof(sFilterRuleEntry));
+		memset(&m_RetHeader1, 0, sizeof(m_RetHeader1));
+		memset(&m_RetHeader2, 0, sizeof(m_RetHeader2));
+		memset(&m_RetHeader3, 0, sizeof(m_RetHeader3));
+
+		pHeaderDescriptor = (struct ipa_ioc_add_hdr *) calloc(1,
+			sizeof(struct ipa_ioc_add_hdr) + 1 * sizeof(struct ipa_hdr_add));
+		if (!pHeaderDescriptor)
+		{
+			LOG_MSG_ERROR("calloc failed to allocate ipa_ioc_add_hdr");
+			bRetVal = false;
+			goto bail;
+		}
+
+		fflush(stderr);
+		fflush(stdout);
+		ret = system("cat /sys/kernel/debug/ipa/hdr");
+
+		// Add one header to HDR_TBL_LCL
+		pHeaderDescriptor->commit = true;
+		pHeaderDescriptor->num_hdrs = 1;
+		pHeaderDescriptor->hdr[0].status = -1; // Return Parameter
+		pHeaderDescriptor->hdr[0].hdr_hdl = -1; //Return Value
+		pHeaderDescriptor->hdr[0].is_partial = false;
+
+		memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd1, m_nHeadertoAddSize1);
+		pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize1;
+		strlcpy(pHeaderDescriptor->hdr[0].name, "IEEE802_3_HDR_TBL_LCL", sizeof(pHeaderDescriptor->hdr[0].name));
+		strlcpy(m_RetHeader1.name, pHeaderDescriptor->hdr[0].name, sizeof(m_RetHeader1.name));
+		if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
+		{
+			LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+
+		// Fill HDR_TBL_LCL and HDR_TBL_LCL_EXT, insert bunch of headers to HDR_TBL_SYS
+		for (int i = 1; i < m_InitialHeadersNum; i++)
+		{
+			LOG_MSG_DEBUG("%s::%s iter=%d\n", typeid(this).name(), __func__, i);
+
+			if(i < 73) { //HDR_TBL_LCL
+				memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd1, m_nHeadertoAddSize1);
+				pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize1;
+			} else if (i < 320) { //HDR_TBL_LCL_EXT
+				memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd2, m_nHeadertoAddSize2);
+				pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize2;
+			} else { // HDR_TBL_SYS (DDR)
+				memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd3, m_nHeadertoAddSize3);
+				pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize2;
+			}
+
+			snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name),
+				"IEEE802_3_%03d", i);
+			if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
+			{
+				LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed on %d iteration.\n", i);
+				bRetVal = false;
+				goto bail;
+			}
+
+			//Save header name from HDR_TBL_LCL_EXT to retreive later
+			if (i == 250)
+				strlcpy(m_RetHeader2.name, pHeaderDescriptor->hdr[0].name, sizeof(m_RetHeader2.name));
+		}
+
+		//Save header name from HDR_TBL_SYS to retreive later
+		strlcpy(m_RetHeader3.name, pHeaderDescriptor->hdr[0].name, sizeof(m_RetHeader3.name));
+
+		system("cat /sys/kernel/debug/ipa/hdr");
+		system("cat /sys/kernel/debug/ipa/proc_ctx");
+
+		if (!m_HeaderInsertion.GetHeaderHandle(&m_RetHeader1))
+		{
+			LOG_MSG_ERROR(" Failed");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_DEBUG("Received Header1 Handle = 0x%x", m_RetHeader1.hdl);
+
+		if (!m_HeaderInsertion.GetHeaderHandle(&m_RetHeader2))
+		{
+			LOG_MSG_ERROR(" Failed");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_DEBUG("Received Header2 Handle = 0x%x", m_RetHeader2.hdl);
+
+		if (!m_HeaderInsertion.GetHeaderHandle(&m_RetHeader3))
+		{
+			LOG_MSG_ERROR(" Failed");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_DEBUG("Received Header3 Handle = 0x%x", m_RetHeader3.hdl);
+
+		if (!CreateBypassRoutingTable(&m_Routing, m_eIP, aBypass1, IPA_CLIENT_TEST2_CONS,
+				m_RetHeader1.hdl, &nTableHdl01)) {
+			LOG_MSG_ERROR("CreateBypassRoutingTable Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+		if (!CreateBypassRoutingTable(&m_Routing, m_eIP, aBypass2, IPA_CLIENT_TEST3_CONS,
+				m_RetHeader2.hdl, &nTableHdl02)) {
+			LOG_MSG_ERROR("CreateBypassRoutingTable Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+		if (!CreateBypassRoutingTable(&m_Routing, m_eIP, aBypass3, IPA_CLIENT_TEST4_CONS,
+				m_RetHeader3.hdl, &nTableHdl03)) {
+			LOG_MSG_ERROR("CreateBypassRoutingTable Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_INFO("Creation of three bypass routing tables completed successfully TblHdl1=0x%x, TblHdl2=0x%x, TblHdl3=0x%x",
+				nTableHdl01, nTableHdl02, nTableHdl03);
+
+		// Creating Filtering Rules
+		cFilterTable0.Init(m_eIP, IPA_CLIENT_TEST_PROD, false, 3);
+		LOG_MSG_INFO("Creation of filtering table completed successfully");
+
+		// Configuring common Filtering fields
+		cFilterTable0.GeneratePresetRule(1, sFilterRuleEntry);
+		sFilterRuleEntry.at_rear = true;
+		sFilterRuleEntry.rule.action = IPA_PASS_TO_ROUTING;
+		sFilterRuleEntry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR; // Destination IP Based Filtering
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr_mask = 0xFF0000FF; // Mask
+
+		// Configuring Filtering Rule No.1
+		sFilterRuleEntry.flt_rule_hdl = -1; // return Value
+		sFilterRuleEntry.status = -1; // return Value
+		sFilterRuleEntry.rule.rt_tbl_hdl = nTableHdl01; //put here the handle corresponding to Routing Rule 1
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr = 0xC0A80101; // Filter DST_IP == 192.168.1.1.
+		if ((uint8_t)-1 == cFilterTable0.AddRuleToTable(sFilterRuleEntry))
+		{
+			LOG_MSG_ERROR ("Adding Rule(1) to Filtering table Failed.");
+			bRetVal = false;
+			goto bail;
+		}
+
+		// Configuring Filtering Rule No.2
+		sFilterRuleEntry.flt_rule_hdl = -1; // return Value
+		sFilterRuleEntry.status = -1; // return value
+		sFilterRuleEntry.rule.rt_tbl_hdl = nTableHdl02; //put here the handle corresponding to Routing Rule 2
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
+		if ((uint8_t)-1 == cFilterTable0.AddRuleToTable(sFilterRuleEntry))
+		{
+			LOG_MSG_ERROR ("Adding Rule(2) to Filtering table Failed.");
+			bRetVal = false;
+			goto bail;
+		}
+
+		// Configuring Filtering Rule No.3
+		sFilterRuleEntry.flt_rule_hdl = -1; // return Value
+		sFilterRuleEntry.status = -1; // return value
+		sFilterRuleEntry.rule.rt_tbl_hdl = nTableHdl03; //put here the handle corresponding to Routing Rule 3
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr = 0xC0A80103; // Filter DST_IP == 192.168.1.3.
+		if ((uint8_t)-1 == cFilterTable0.AddRuleToTable(sFilterRuleEntry))
+		{
+			LOG_MSG_ERROR ("Adding Rule(3) to Filtering table Failed.");
+			bRetVal = false;
+			goto bail;
+		}
+
+		if (!m_Filtering.AddFilteringRule(cFilterTable0.GetFilteringTable())) {
+			LOG_MSG_ERROR ("Failed to commit Filtering rules");
+			bRetVal = false;
+			goto bail;
+		}
+
+		LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n",
+			cFilterTable0.ReadRuleFromTable(0)->flt_rule_hdl,
+			cFilterTable0.ReadRuleFromTable(0)->status);
+		LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n",
+			cFilterTable0.ReadRuleFromTable(1)->flt_rule_hdl,
+			cFilterTable0.ReadRuleFromTable(1)->status);
+		LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n",
+			cFilterTable0.ReadRuleFromTable(2)->flt_rule_hdl,
+			cFilterTable0.ReadRuleFromTable(2)->status);
+
+		system("cat /sys/kernel/debug/ipa/ip4_rt");
+
+	bail:
+		Free(pHeaderDescriptor);
+		LOG_MSG_STACK("Leaving Function (Returning %s)", bRetVal ? "True" : "False");
+		return bRetVal;
+	} // AddRules()
+
+	virtual bool ModifyPackets() {
+		// This test doesn't modify the original IP Packet.
+		return true;
+	} // ModifyPacktes ()
+
+	virtual bool TestLogic() {
+		bool bRetVal = true;
+		m_aExpectedBufSize = 0;
+		uint32_t nIPv4DSTAddr;
+
+		LOG_MSG_STACK("Entering Function");
+
+		//Packet No. 1
+		memset(m_aExpectedBuffer, 0, sizeof(m_aExpectedBuffer));
+		nIPv4DSTAddr = ntohl(0xC0A80101); //192.168.1.1
+		memcpy(&m_aBuffer[IPV4_DST_ADDR_OFFSET], &nIPv4DSTAddr, sizeof(nIPv4DSTAddr));
+		memcpy(m_aExpectedBuffer, m_aHeadertoAdd1, m_nHeadertoAddSize1);
+		memcpy(m_aExpectedBuffer+m_nHeadertoAddSize1,m_aBuffer,m_uBufferSize);
+		m_aExpectedBufSize = m_nHeadertoAddSize1 + m_uBufferSize;
+		if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
+				&m_Consumer1, m_aExpectedBuffer, m_aExpectedBufSize))
+		{
+			LOG_MSG_ERROR("SendReceiveAndCompare failed.");
+			bRetVal=false;
+		}
+
+		//Packet No. 2
+		memset(m_aExpectedBuffer, 0, sizeof(m_aExpectedBuffer));
+		nIPv4DSTAddr = ntohl(0xC0A80102); //192.168.1.2
+		memcpy (&m_aBuffer[IPV4_DST_ADDR_OFFSET], &nIPv4DSTAddr, sizeof(nIPv4DSTAddr));
+		memcpy(m_aExpectedBuffer, m_aHeadertoAdd2, m_nHeadertoAddSize2);
+		memcpy(m_aExpectedBuffer+m_nHeadertoAddSize2, m_aBuffer, m_uBufferSize);
+		m_aExpectedBufSize = m_nHeadertoAddSize2 + m_uBufferSize;
+		if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
+				&m_Consumer2, m_aExpectedBuffer, m_aExpectedBufSize))
+		{
+			LOG_MSG_ERROR("SendReceiveAndCompare failed.");
+			bRetVal=false;
+		}
+
+		//Packet No. 3
+		memset(m_aExpectedBuffer, 0, sizeof(m_aExpectedBuffer));
+		nIPv4DSTAddr = ntohl(0xC0A80103); //192.168.1.3
+		memcpy (&m_aBuffer[IPV4_DST_ADDR_OFFSET], &nIPv4DSTAddr, sizeof(nIPv4DSTAddr));
+		memcpy(m_aExpectedBuffer, m_aHeadertoAdd3, m_nHeadertoAddSize3);
+		memcpy(m_aExpectedBuffer+m_nHeadertoAddSize3, m_aBuffer, m_uBufferSize);
+		m_aExpectedBufSize = m_nHeadertoAddSize3 + m_uBufferSize;
+		if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
+				&m_Consumer3, m_aExpectedBuffer, m_aExpectedBufSize))
+		{
+			LOG_MSG_ERROR("SendReceiveAndCompare failed.");
+			bRetVal=false;
+		}
+
+		LOG_MSG_STACK("Leaving Function (Returning %s)",bRetVal?"True":"False");
+		return bRetVal;
+	}
+
+protected:
+	struct ipa_ioc_get_hdr m_RetHeader1, m_RetHeader2, m_RetHeader3;
+	int m_InitialHeadersNum;
+
+private:
+	uint8_t m_aExpectedBuffer[BUFF_MAX_SIZE]; // Input file / IP packet
+	size_t m_aExpectedBufSize;
+	uint8_t m_aHeadertoAdd1[MAX_HEADER_SIZE], m_aHeadertoAdd2[MAX_HEADER_SIZE], m_aHeadertoAdd3[MAX_HEADER_SIZE];
+	size_t m_nHeadertoAddSize1, m_nHeadertoAddSize2, m_nHeadertoAddSize3;
+	int ret;
+};
+
+class IPAHeaderInsertionTest013: public IPAHeaderInsertionTestFixture {
+public:
+	IPAHeaderInsertionTest013() :
+	m_aExpectedBufSize(BUFF_MAX_SIZE),
+	m_nHeadertoAddSize1(0),
+	m_nHeadertoAddSize2(0)
+	{
+		m_name = "IPAHeaderInsertionTest013";
+		m_description =
+		"Header Insertion Test 013 - Fill HPC table, Test header distriburion\
+		between HDR_TBL_LCL and HDR_TBL_LCL_SYS  -Fill HPC table so HDR_TBL_LCL_EXT\
+		will not be used. Fill HDR_TBL_LCL in SRAM and add some headers in\
+		HDR_TBL_SYS. use one header in HDR_TBL_LCL and one header in HDR_TBL_SYS ";
+		m_minIPAHwType = IPA_HW_v6_0;
+		m_maxIPAHwType = IPA_HW_v6_0;
+
+		Register(*this);
+		uint8_t aIEEE802_3Header1[18] = { 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6,
+				0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0x00, 0x46, 0xAE, 0xAF, 0xB0,
+				0xB1, 0xB2};
+		uint8_t aIEEE802_3Header2[18] = { 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6,
+				0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0x00, 0x47, 0xAE, 0xAF, 0xB0,
+				0xB1, 0xB2};
+		m_nHeadertoAddSize1 = sizeof(aIEEE802_3Header1);
+		memcpy(m_aHeadertoAdd1, aIEEE802_3Header1, m_nHeadertoAddSize1);
+		m_nHeadertoAddSize2 = sizeof(aIEEE802_3Header2);
+		memcpy(m_aHeadertoAdd2, aIEEE802_3Header2, m_nHeadertoAddSize2);
+
+		/*
+		The header size is 18, therefore the bin size is 20
+		We are going to Fill HDR_TBL_LCL and insert bunch of headers to HDR_TBL_SYS
+		HDR_TBL_LCL size 1472B / 20 = 73 headers to fill
+
+		73 (HDR_TBL_LCL)  + 10(HDR_TBL_SYS) = 83 headers to add
+		*/
+		m_InitialHeadersNum = 83;
+	}
+
+	bool Setup()
+	{
+		ConfigureScenario(PHASE_TWENTY_ONE_TEST_CONFIGURATION);
+
+		m_producer.Open(INTERFACE0_TO_IPA_DATA_PATH,
+				INTERFACE0_FROM_IPA_DATA_PATH);
+		m_Consumer1.Open(INTERFACE1_TO_IPA_DATA_PATH,
+				INTERFACE1_FROM_IPA_DATA_PATH);
+		m_Consumer2.Open(INTERFACE2_TO_IPA_DATA_PATH,
+				INTERFACE2_FROM_IPA_DATA_PATH);
+		m_Consumer3.Open(INTERFACE3_TO_IPA_DATA_PATH,
+				INTERFACE3_FROM_IPA_DATA_PATH);
+
+		if (!m_Routing.DeviceNodeIsOpened()) {
+			LOG_MSG_ERROR(
+					"Routing block is not ready for immediate commands!\n");
+			return false;
+		}
+		if (!m_Filtering.DeviceNodeIsOpened()) {
+			LOG_MSG_ERROR(
+					"Filtering block is not ready for immediate commands!\n");
+			return false;
+		}
+		if (!m_HeaderInsertion.DeviceNodeIsOpened())
+		{
+			LOG_MSG_ERROR("Header Insertion block is not ready for immediate commands!\n");
+			return false;
+		}
+		m_HeaderInsertion.Reset();// resetting this component will reset both Routing and Filtering tables.
+
+		return true;
+	} // Setup()
+
+	virtual bool AddRules() {
+		m_eIP = IPA_IP_v4;
+		const char aBypass1[20] = "Bypass1";
+		const char aBypass2[20] = "Bypass2";
+		uint32_t nTableHdl01, nTableHdl02;
+		bool bRetVal = true;
+		IPAFilteringTable cFilterTable0;
+		struct ipa_flt_rule_add sFilterRuleEntry;
+		struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
+		struct ipa_ioc_add_hdr_proc_ctx *procCtxTable = NULL;
+		struct ipa_hdr_proc_ctx_add *procCtx = NULL;
+
+		// apps_hdr_proc_ctx_size is 8896 Bytes, to fill it 8896 / 32(HPC size) = 278
+		int max_hpc_to_add = 278;
+
+
+
+
+		LOG_MSG_STACK("Entering Function");
+
+		if (m_InitialHeadersNum <= 0)
+		{
+			LOG_MSG_ERROR("Initial headers number is set to 0!\n");
+			bRetVal = false;
+			goto bail;
+		}
+
+		memset(&sFilterRuleEntry, 0, sizeof(sFilterRuleEntry));
+		memset(&m_RetHeader1, 0, sizeof(m_RetHeader1));
+		memset(&m_RetHeader2, 0, sizeof(m_RetHeader2));
+
+		pHeaderDescriptor = (struct ipa_ioc_add_hdr *) calloc(1,
+			sizeof(struct ipa_ioc_add_hdr) + 1 * sizeof(struct ipa_hdr_add));
+		if (!pHeaderDescriptor)
+		{
+			LOG_MSG_ERROR("calloc failed to allocate ipa_ioc_add_hdr");
+			bRetVal = false;
+			goto bail;
+		}
+
+		procCtxTable = (struct ipa_ioc_add_hdr_proc_ctx *) calloc(1,
+		sizeof(struct ipa_ioc_add_hdr_proc_ctx) + (1 * sizeof(struct ipa_hdr_proc_ctx_add)));
+		if (!procCtxTable)
+		{
+			LOG_MSG_ERROR("calloc failed to allocate ipa_ioc_add_hdr_proc_ctx");
+			bRetVal = false;
+			goto bail;
+		}
+
+
+
+		fflush(stderr);
+		fflush(stdout);
+		system("cat /sys/kernel/debug/ipa/hdr");
+
+		// Add one header to HDR_TBL_LCL
+		pHeaderDescriptor->commit = true;
+		pHeaderDescriptor->num_hdrs = 1;
+		pHeaderDescriptor->hdr[0].status = -1; // Return Parameter
+		pHeaderDescriptor->hdr[0].hdr_hdl = -1; //Return Value
+		pHeaderDescriptor->hdr[0].is_partial = false;
+
+		memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd1, m_nHeadertoAddSize1);
+		pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize1;
+		strlcpy(pHeaderDescriptor->hdr[0].name, "IEEE802_3_HDR_TBL_LCL", sizeof(pHeaderDescriptor->hdr[0].name));
+		strlcpy(m_RetHeader1.name, pHeaderDescriptor->hdr[0].name, sizeof(m_RetHeader1.name));
+		if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
+		{
+			LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+
+		if (!m_HeaderInsertion.GetHeaderHandle(&m_RetHeader1))
+		{
+			LOG_MSG_ERROR(" Failed");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_DEBUG("Received Header1 Handle = 0x%x", m_RetHeader1.hdl);
+
+		system("cat /sys/kernel/debug/ipa/proc_ctx");
+
+		LOG_MSG_DEBUG("Filling HPC table to maximum capacity\n");
+
+		// init proc ctx table
+		procCtxTable->commit        = false;
+		procCtxTable->num_proc_ctxs = 1;
+		// init proc_ctx common fields
+		procCtx               = &procCtxTable->proc_ctx[0];
+		procCtx->proc_ctx_hdl = -1; // return value
+		procCtx->status       = -1; // Return parameter
+		procCtx->type = IPA_HDR_PROC_NONE;
+		procCtx->hdr_hdl = m_RetHeader1.hdl;
+
+		// Fill HPC table
+		for (int hpc_counter = 0; hpc_counter < max_hpc_to_add; hpc_counter++)
+		{
+			if(!m_HeaderInsertion.AddProcCtx(procCtxTable)) {
+				LOG_MSG_ERROR("m_HeaderInsertion.AddProcCtx(procCtxTable) failed.");
+				bRetVal = false;
+				goto bail;
+			}
+			LOG_MSG_DEBUG("Adding HPC number: %d\n", hpc_counter);
+		}
+
+		system("cat /sys/kernel/debug/ipa/proc_ctx");
+
+		// Fill HDR_TBL_LCL and insert bunch of headers HDR_TBL_SYS
+		for (int i = 1; i < m_InitialHeadersNum; i++)
+		{
+			LOG_MSG_DEBUG("%s::%s iter=%d\n", typeid(this).name(), __func__, i);
+			memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd2, m_nHeadertoAddSize2);
+			pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize2;
+			snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name),
+				"IEEE802_3_%03d", i);
+			if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
+			{
+				LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed on %d iteration.\n", i);
+				bRetVal = false;
+				goto bail;
+			}
+		}
+
+		//Save header name from HDR_TBL_SYS to retreive later
+		strlcpy(m_RetHeader2.name, pHeaderDescriptor->hdr[0].name, sizeof(m_RetHeader2.name));
+
+		system("cat /sys/kernel/debug/ipa/hdr");
+		system("cat /sys/kernel/debug/ipa/proc_ctx");
+
+		if (!m_HeaderInsertion.GetHeaderHandle(&m_RetHeader2))
+		{
+			LOG_MSG_ERROR(" Failed");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_DEBUG("Received Header2 Handle = 0x%x", m_RetHeader2.hdl);
+
+		if (!CreateBypassRoutingTable(&m_Routing, m_eIP, aBypass1, IPA_CLIENT_TEST3_CONS,
+				m_RetHeader1.hdl, &nTableHdl01)) {
+			LOG_MSG_ERROR("CreateBypassRoutingTable Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+		if (!CreateBypassRoutingTable(&m_Routing, m_eIP, aBypass2, IPA_CLIENT_TEST4_CONS,
+				m_RetHeader2.hdl, &nTableHdl02)) {
+			LOG_MSG_ERROR("CreateBypassRoutingTable Failed\n");
+			bRetVal = false;
+			goto bail;
+		}
+		LOG_MSG_INFO("Creation of two bypass routing tables completed successfully TblHdl1=0x%x, TblHdl2=0x%x",
+				nTableHdl01, nTableHdl02);
+
+		// Creating Filtering Rules
+		cFilterTable0.Init(m_eIP, IPA_CLIENT_TEST_PROD, false, 2);
+		LOG_MSG_INFO("Creation of filtering table completed successfully");
+
+		// Configuring common Filtering fields
+		cFilterTable0.GeneratePresetRule(1, sFilterRuleEntry);
+		sFilterRuleEntry.at_rear = true;
+		sFilterRuleEntry.rule.action = IPA_PASS_TO_ROUTING;
+		sFilterRuleEntry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR; // Destination IP Based Filtering
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr_mask = 0xFF0000FF; // Mask
+
+		// Configuring Filtering Rule No.1
+		sFilterRuleEntry.flt_rule_hdl = -1; // return Value
+		sFilterRuleEntry.status = -1; // return Value
+		sFilterRuleEntry.rule.rt_tbl_hdl = nTableHdl01; //put here the handle corresponding to Routing Rule 1
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr = 0xC0A80101; // Filter DST_IP == 192.168.1.1.
+		if ((uint8_t)-1 == cFilterTable0.AddRuleToTable(sFilterRuleEntry))
+		{
+			LOG_MSG_ERROR ("Adding Rule(1) to Filtering table Failed.");
+			bRetVal = false;
+			goto bail;
+		}
+
+		// Configuring Filtering Rule No.2
+		sFilterRuleEntry.flt_rule_hdl = -1; // return Value
+		sFilterRuleEntry.status = -1; // return value
+		sFilterRuleEntry.rule.rt_tbl_hdl = nTableHdl02; //put here the handle corresponding to Routing Rule 2
+		sFilterRuleEntry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
+		if ((uint8_t)-1 == cFilterTable0.AddRuleToTable(sFilterRuleEntry))
+		{
+			LOG_MSG_ERROR ("Adding Rule(2) to Filtering table Failed.");
+			bRetVal = false;
+			goto bail;
+		}
+
+		if (!m_Filtering.AddFilteringRule(cFilterTable0.GetFilteringTable())) {
+			LOG_MSG_ERROR ("Failed to commit Filtering rules");
+			bRetVal = false;
+			goto bail;
+		}
+
+		LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n",
+			cFilterTable0.ReadRuleFromTable(0)->flt_rule_hdl,
+			cFilterTable0.ReadRuleFromTable(0)->status);
+		LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n",
+			cFilterTable0.ReadRuleFromTable(1)->flt_rule_hdl,
+			cFilterTable0.ReadRuleFromTable(1)->status);
+
+		system("cat /sys/kernel/debug/ipa/ip4_rt");
+
+	bail:
+		Free(procCtxTable);
+		Free(pHeaderDescriptor);
+		LOG_MSG_STACK("Leaving Function (Returning %s)", bRetVal ? "True" : "False");
+		return bRetVal;
+	} // AddRules()
+
+	virtual bool ModifyPackets() {
+		// This test doesn't modify the original IP Packet.
+		return true;
+	} // ModifyPacktes ()
+
+	virtual bool TestLogic() {
+		bool bRetVal = true;
+		m_aExpectedBufSize = 0;
+		uint32_t nIPv4DSTAddr;
+
+		LOG_MSG_STACK("Entering Function");
+
+		//Packet No. 1
+		memset(m_aExpectedBuffer, 0, sizeof(m_aExpectedBuffer));
+		nIPv4DSTAddr = ntohl(0xC0A80101); //192.168.1.1
+		memcpy(&m_aBuffer[IPV4_DST_ADDR_OFFSET], &nIPv4DSTAddr, sizeof(nIPv4DSTAddr));
+		memcpy(m_aExpectedBuffer, m_aHeadertoAdd1, m_nHeadertoAddSize1);
+		memcpy(m_aExpectedBuffer+m_nHeadertoAddSize1,m_aBuffer,m_uBufferSize);
+		m_aExpectedBufSize = m_nHeadertoAddSize1 + m_uBufferSize;
+		if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
+				&m_Consumer2, m_aExpectedBuffer, m_aExpectedBufSize))
+		{
+			LOG_MSG_ERROR("SendReceiveAndCompare failed.");
+			bRetVal=false;
+		}
+
+		//Packet No. 2
+		memset(m_aExpectedBuffer, 0, sizeof(m_aExpectedBuffer));
+		nIPv4DSTAddr = ntohl(0xC0A80102); //192.168.1.2
+		memcpy (&m_aBuffer[IPV4_DST_ADDR_OFFSET], &nIPv4DSTAddr, sizeof(nIPv4DSTAddr));
+		memcpy(m_aExpectedBuffer, m_aHeadertoAdd2, m_nHeadertoAddSize2);
+		memcpy(m_aExpectedBuffer+m_nHeadertoAddSize2, m_aBuffer, m_uBufferSize);
+		m_aExpectedBufSize = m_nHeadertoAddSize2 + m_uBufferSize;
+		if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
+				&m_Consumer3, m_aExpectedBuffer, m_aExpectedBufSize))
+		{
+			LOG_MSG_ERROR("SendReceiveAndCompare failed.");
+			bRetVal=false;
+		}
+
+		LOG_MSG_STACK("Leaving Function (Returning %s)",bRetVal?"True":"False");
+		return bRetVal;
+	}
+
+protected:
+	struct ipa_ioc_get_hdr m_RetHeader1, m_RetHeader2;
+	int m_InitialHeadersNum;
+
+private:
+	uint8_t m_aExpectedBuffer[BUFF_MAX_SIZE]; // Input file / IP packet
+	size_t m_aExpectedBufSize;
+	uint8_t m_aHeadertoAdd1[MAX_HEADER_SIZE], m_aHeadertoAdd2[MAX_HEADER_SIZE];
+	size_t m_nHeadertoAddSize1, m_nHeadertoAddSize2;
+	int ret;
+};
+/*
+   --------------------------------------------------------------------------------------------
+			*End of IPAv6.0 Header Inseration with Extension section in SRAM - TESTS*
+   --------------------------------------------------------------------------------------------
+*/
+
 static IPAHeaderInsertionTest001 ipaHeaderInsertionTest001;
 static IPAHeaderInsertionTest002 ipaHeaderInsertionTest002;
 static IPAHeaderInsertionTest003 ipaHeaderInsertionTest003;
@@ -1460,4 +2456,7 @@ static IPAHeaderInsertionTest007 ipaHeaderInsertionTest007;
 static IPAHeaderInsertionTest008 ipaHeaderInsertionTest008;
 static IPAHeaderInsertionTest009 ipaHeaderInsertionTest009;
 static IPAHeaderInsertionTest010 ipaHeaderInsertionTest010;
+static IPAHeaderInsertionTest011 ipaHeaderInsertionTest011;
+static IPAHeaderInsertionTest012 ipaHeaderInsertionTest012;
+static IPAHeaderInsertionTest013 ipaHeaderInsertionTest013;
 
