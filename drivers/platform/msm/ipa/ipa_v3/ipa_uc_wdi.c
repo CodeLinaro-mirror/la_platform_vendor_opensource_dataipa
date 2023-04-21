@@ -2627,39 +2627,6 @@ int ipa3_disable_wdi_pipe(u32 clnt_hdl)
 		goto uc_timeout;
 	}
 
-	/**
-	 * To avoid data stall during continuous SAP on/off before
-	 * setting delay to IPA Consumer pipe (Client Producer),
-	 * remove delay and enable holb on IPA Producer pipe
-	 */
-	if (IPA_CLIENT_IS_PROD(ep->client)) {
-		IPADBG("Stopping PROD channel - hdl=%d clnt=%d\n",
-			clnt_hdl, ep->client);
-		/* remove delay on wlan-prod pipe*/
-		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
-		ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
-
-		cons_hdl = ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
-		if (cons_hdl == IPA_EP_NOT_ALLOCATED) {
-			IPAERR("Client %u is not mapped\n",
-				IPA_CLIENT_WLAN1_CONS);
-			goto uc_timeout;
-		}
-		if (ipa3_ctx->ep[cons_hdl].valid == 1) {
-			result = ipa3_disable_data_path(cons_hdl);
-			if (result) {
-				IPAERR("disable data path failed\n");
-				IPAERR("res=%d clnt=%d\n",
-					result, cons_hdl);
-				result = -EPERM;
-				goto uc_timeout;
-			}
-		}
-		usleep_range(IPA_UC_POLL_SLEEP_USEC * IPA_UC_POLL_SLEEP_USEC,
-			IPA_UC_POLL_SLEEP_USEC * IPA_UC_POLL_SLEEP_USEC);
-
-	}
-
 	disable.params.ipa_pipe_number = clnt_hdl;
 	result = ipa3_uc_send_cmd(disable.raw32b,
 		IPA_CPU_2_HW_CMD_WDI_CH_DISABLE,
