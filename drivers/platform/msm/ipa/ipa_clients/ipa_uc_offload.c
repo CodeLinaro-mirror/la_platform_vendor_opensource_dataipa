@@ -723,7 +723,12 @@ int ipa_set_perf_profile_internal(struct ipa_perf_profile *profile)
 		return -EINVAL;
 	}
 
-	if (!ipa_uc_offload_ctx[IPA_UC_NTN]) {
+ 	if((profile->proto != IPA_UC_NTN) && (profile->proto != IPA_UC_NTN_V2X)) {
+		IPA_UC_OFFLOAD_ERR("Invalid protocol\n");
+		return -EINVAL;
+	}
+
+	if (!ipa_uc_offload_ctx[profile->proto]) {
 		IPA_UC_OFFLOAD_ERR("uC offload context is NULL\n");
 		 return -EINVAL;
 	}
@@ -732,7 +737,7 @@ int ipa_set_perf_profile_internal(struct ipa_perf_profile *profile)
 		profile->max_supported_bw_mbps);
 
 	return ipa_pm_set_throughput(
-		ipa_uc_offload_ctx[IPA_UC_NTN]->pm_hdl,
+		ipa_uc_offload_ctx[profile->proto]->pm_hdl,
 		profile->max_supported_bw_mbps);
 }
 

@@ -6737,7 +6737,7 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.v6_flt_nhash_ofst = 0x1408,
 	.v6_flt_nhash_size = 0x78,
 	.v6_flt_nhash_size_ddr = 0x4000,
-	.v4_rt_num_index = 0x13,
+	.v4_rt_num_index = 0x18,
 	.v4_modem_rt_index_lo = 0x0,
 	.v4_modem_rt_index_hi = 0xf,
 	.v4_apps_rt_index_lo = 0x10,
@@ -6748,7 +6748,7 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.v4_rt_nhash_ofst = 0x1550,
 	.v4_rt_nhash_size = 0xc0,
 	.v4_rt_nhash_size_ddr = 0x4000,
-	.v6_rt_num_index = 0x13,
+	.v6_rt_num_index = 0x18,
 	.v6_modem_rt_index_lo = 0x0,
 	.v6_modem_rt_index_hi = 0xf,
 	.v6_apps_rt_index_lo = 0x10,
@@ -10603,7 +10603,7 @@ void ipa3_counter_remove_hdl(int hdl)
 	offset = counter->hw_counter.start_id - 1;
 	if (offset >= 0 && (offset + counter->hw_counter.num_counters)
 		< IPA_FLT_RT_HW_COUNTER) {
-		memset(&ipa3_ctx->flt_rt_counters.used_hw + offset,
+		memset(&ipa3_ctx->flt_rt_counters.used_hw[offset],
 			   0, counter->hw_counter.num_counters * sizeof(bool));
 	} else {
 		IPAERR_RL("unexpected hdl %d\n", hdl);
@@ -10612,7 +10612,7 @@ void ipa3_counter_remove_hdl(int hdl)
 	offset = counter->sw_counter.start_id - 1 - IPA_FLT_RT_HW_COUNTER;
 	if (offset >= 0 && (offset + counter->sw_counter.num_counters)
 		< IPA_FLT_RT_SW_COUNTER) {
-		memset(&ipa3_ctx->flt_rt_counters.used_sw + offset,
+		memset(&ipa3_ctx->flt_rt_counters.used_sw[offset],
 		   0, counter->sw_counter.num_counters * sizeof(bool));
 	} else {
 		IPAERR_RL("unexpected hdl %d\n", hdl);
@@ -14546,6 +14546,13 @@ void ipa3_set_eth_pdu_ep_status()
 	if (!ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
 	{
 		IPAERR("ETH PDU pipe is not connected yet\n");
+		return;
+	}
+
+	ep = &ipa3_ctx->ep[ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id];
+	if (!ep->valid)
+	{
+		IPAERR("ETH PDU pipe is not valid \n");
 		return;
 	}
 
