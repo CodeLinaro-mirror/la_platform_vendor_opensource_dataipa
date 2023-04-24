@@ -152,6 +152,7 @@ struct ipa_mhi_client_ctx {
 	u32 use_ipadma;
 	bool assert_bit40;
 	bool test_mode;
+	bool disable_msi;
 	u32 pm_hdl;
 	u32 modem_pm_hdl;
 	enum ipa_mhi_mstate mhi_mstate;
@@ -1375,6 +1376,7 @@ static int ipa_mhi_connect_pipe_internal(struct ipa_mhi_connect_params *in, u32 
 	internal.start.gsi.cached_gsi_evt_ring_hdl =
 			&channel->cached_gsi_evt_ring_hdl;
 	internal.start.gsi.evchid = channel->index;
+	internal.start.gsi.disable_msi = ipa_mhi_client_ctx->disable_msi;
 
 	res = ipa3_connect_mhi_pipe(&internal, clnt_hdl);
 	if (res) {
@@ -2354,6 +2356,7 @@ static int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 	ipa_mhi_client_ctx->use_ipadma = true;
 	ipa_mhi_client_ctx->assert_bit40 = !!params->assert_bit40;
 	ipa_mhi_client_ctx->test_mode = params->test_mode;
+	ipa_mhi_client_ctx->disable_msi = params->disable_msi;
 	ipa_mhi_client_ctx->mhi_mstate = IPA_MHI_STATE_M0;
 
 	ipa_mhi_client_ctx->wq = create_singlethread_workqueue("ipa_mhi_wq");

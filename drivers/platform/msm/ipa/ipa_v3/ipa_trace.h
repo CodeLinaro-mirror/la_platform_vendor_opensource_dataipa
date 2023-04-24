@@ -138,7 +138,7 @@ TRACE_EVENT(
 	),
 
 	TP_fast_assign(
-		strlcpy((char *)trace_rmnet_ipa_netif_rcv_skb3, skb->dev->name, sizeof(skb->dev->name));
+		strlcpy(__get_str(name), skb->dev->name, sizeof(skb->dev->name));
 		__entry->skbaddr = skb;
 		__entry->protocol = ntohs(skb->protocol);
 		__entry->len = skb->len;
@@ -263,7 +263,7 @@ TRACE_EVENT(
 	),
 
 	TP_fast_assign(
-		strlcpy((char *)ipa3_tx_dp, skb->dev->name, sizeof(skb->dev->name));
+		strlcpy(__get_str(name), skb->dev->name, sizeof(skb->dev->name));
 		__entry->skbaddr = skb;
 		__entry->protocol = ntohs(skb->protocol);
 		__entry->len = skb->len;

@@ -148,6 +148,9 @@ extern struct qmi_elem_info ipa3_install_fltr_rule_req_msg_data_v01_ei[];
 extern struct qmi_elem_info ipa3_install_fltr_rule_resp_msg_data_v01_ei[];
 extern struct qmi_elem_info ipa3_fltr_installed_notif_req_msg_data_v01_ei[];
 
+extern struct qmi_elem_info ipa3_eth_backhaul_info_req_msg_v01_ei[];
+extern struct qmi_elem_info ipa3_eth_backhaul_info_resp_msg_v01_ei[];
+
 extern struct qmi_elem_info
 	ipa3_fltr_installed_notif_resp_msg_data_v01_ei[];
 extern struct qmi_elem_info
@@ -275,6 +278,8 @@ int ipa3_qmi_ul_filter_request_send(
 /* sending filter-installed-notify-request to modem*/
 int ipa3_qmi_filter_notify_send(struct ipa_fltr_installed_notif_req_msg_v01
 		*req);
+/* Sending ETH backhaul details to Modem for dual backhaul */
+int ipa3_qmi_eth_backhaul_info_send(struct ipa_eth_backhaul_info_req_msg_v01 *req);
 
 /* voting for bus BW to ipa_rm*/
 int ipa3_vote_for_bus_bw(uint32_t *bw_mbps);

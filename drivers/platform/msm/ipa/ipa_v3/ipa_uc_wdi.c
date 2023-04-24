@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -53,6 +53,8 @@ struct ipa_wdi_res {
 	struct ipa_wdi_buffer_info *res;
 	unsigned int nents;
 	bool valid;
+	unsigned int map_cnt;
+	unsigned int unmap_cnt;
 };
 
 static struct ipa_wdi_res wdi_res[IPA_WDI_MAX_RES];
@@ -580,6 +582,9 @@ static int ipa_create_ap_smmu_mapping_pa(phys_addr_t pa, size_t len,
 	if (len > PAGE_SIZE)
 		va = roundup(cb->next_addr, len);
 
+	if (cb->next_addr + len  >= cb->geometry_end)
+		cb->next_addr = cb->va_end;
+
 	ret = ipa3_iommu_map(cb->iommu_domain, va, rounddown(pa, PAGE_SIZE),
 			true_len,
 			device ? (prot | IOMMU_MMIO) : prot);
@@ -651,6 +656,9 @@ static int ipa_create_ap_smmu_mapping_sgt(struct sg_table *sgt,
 		/* directly get sg_tbl PA from wlan-driver */
 		len += PAGE_ALIGN(sg->offset + sg->length);
 	}
+
+	if (cb->next_addr + len  >= cb->geometry_end)
+		cb->next_addr = cb->va_end;
 
 	if (len > PAGE_SIZE) {
 		va = roundup(cb->next_addr,
@@ -771,6 +779,7 @@ static void ipa_release_ap_smmu_mappings(enum ipa_client_type client)
 			kfree(wdi_res[i].res);
 			wdi_res[i].res = NULL;
 			wdi_res[i].valid = false;
+			wdi_res[i].unmap_cnt++;
 		}
 	}
 
@@ -827,12 +836,19 @@ static void ipa_save_uc_smmu_mapping_pa(int res_idx, phys_addr_t pa,
 		WARN_ON(1);
 		return;
 	}
+
+	if(wdi_res[res_idx].valid == true)
+	{
+		IPAERR("res_idx = %d was already mapped\n", res_idx);
+		ipa_assert();
+	}
 	wdi_res[res_idx].nents = 1;
 	wdi_res[res_idx].valid = true;
 	wdi_res[res_idx].res->pa = rounddown(pa, PAGE_SIZE);
 	wdi_res[res_idx].res->iova = rounddown(iova, PAGE_SIZE);
 	wdi_res[res_idx].res->size = roundup(len + pa - rounddown(pa,
 				PAGE_SIZE), PAGE_SIZE);
+	wdi_res[res_idx].map_cnt++;
 	IPADBG("res_idx=%d pa=0x%pa iova=0x%lx sz=0x%zx\n", res_idx,
 			&wdi_res[res_idx].res->pa, wdi_res[res_idx].res->iova,
 			wdi_res[res_idx].res->size);
@@ -857,8 +873,15 @@ static void ipa_save_uc_smmu_mapping_sgt(int res_idx, struct sg_table *sgt,
 		WARN_ON(1);
 		return;
 	}
+	if(wdi_res[res_idx].valid == true)
+	{
+		IPAERR("res_idx = %d was already mapped\n", res_idx);
+		ipa_assert();
+	}
+
 	wdi_res[res_idx].nents = sgt->nents;
 	wdi_res[res_idx].valid = true;
+	wdi_res[res_idx].map_cnt++;
 	for_each_sg(sgt->sgl, sg, sgt->nents, i) {
 		/* directly get sg_tbl PA from wlan */
 		wdi_res[res_idx].res[i].pa = sg->dma_address;
@@ -975,6 +998,7 @@ void ipa3_release_wdi3_gsi_smmu_mappings(u8 dir)
 			kfree(wdi_res[i].res);
 			wdi_res[i].res = NULL;
 			wdi_res[i].valid = false;
+			wdi_res[i].unmap_cnt++;
 		}
 	}
 
@@ -3151,7 +3175,7 @@ int ipa3_write_qmapid_wdi_pipe(u32 clnt_hdl, u8 qmap_id)
 		IPAERR_RL("bad parm, %d\n", clnt_hdl);
 		return -EINVAL;
 	}
-	if (ipa3_ctx->ipa_wdi2_over_gsi)
+	if (IPA_WDI2_OVER_GSI())
 		return ipa3_write_qmapid_gsi_wdi_pipe(clnt_hdl, qmap_id);
 
 	result = ipa3_uc_state_check();

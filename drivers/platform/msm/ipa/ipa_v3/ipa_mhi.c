@@ -237,7 +237,7 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 		if (params->state == IPA_HW_MHI_CHANNEL_STATE_INVALID) {
 			memset(&ev_props, 0, sizeof(ev_props));
 			ev_props.intf = GSI_EVT_CHTYPE_MHI_EV;
-			ev_props.intr = GSI_INTR_MSI;
+			ev_props.intr = (params->disable_msi) ? GSI_INTR_IRQ : GSI_INTR_MSI;
 			ev_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
 			ev_props.ring_len = params->ev_ctx_host->rlen;
 			ev_props.ring_base_addr = IPA_MHI_HOST_ADDR_COND(
@@ -245,10 +245,12 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 			ev_props.int_modt = params->ev_ctx_host->intmodt *
 					IPA_SLEEP_CLK_RATE_KHZ;
 			ev_props.int_modc = params->ev_ctx_host->intmodc;
-			ev_props.intvec = ((msi->data & ~msi->mask) |
-					(params->ev_ctx_host->msivec & msi->mask));
-			ev_props.msi_addr = IPA_MHI_HOST_ADDR_COND(
-					(((u64)msi->addr_hi << 32) | msi->addr_low));
+			if (!params->disable_msi) {
+				ev_props.intvec = ((msi->data & ~msi->mask) |
+						(params->ev_ctx_host->msivec & msi->mask));
+				ev_props.msi_addr = IPA_MHI_HOST_ADDR_COND(
+						(((u64)msi->addr_hi << 32) | msi->addr_low));
+			}
 			ev_props.rp_update_addr = IPA_MHI_HOST_ADDR_COND(
 					params->event_context_addr +
 					offsetof(struct ipa_mhi_ev_ctx, rp));
