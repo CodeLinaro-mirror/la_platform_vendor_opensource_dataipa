@@ -12632,6 +12632,11 @@ int ipa3_get_smmu_params(struct ipa_smmu_in_params *in,
 			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
 			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN1]);
 		break;
+	case IPA_SMMU_WLAN2_CLIENT:
+		is_smmu_enable =
+			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
+			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN2]);
+		break;
 	case IPA_SMMU_ETH_CLIENT:
 		is_smmu_enable =
 			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||

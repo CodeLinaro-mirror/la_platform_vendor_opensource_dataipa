@@ -44,6 +44,9 @@
 	(inst_id == 0 || inst_id == -1)
 #define IPA_CLIENT_IS_WLAN1_INSTANCE(inst_id) \
 	(inst_id == 1)
+#define IPA_CLIENT_IS_WLAN2_INSTANCE(inst_id) \
+	(inst_id == 2)
+
 #define DEFAULT_INSTANCE_ID (-1)
 #define INVALID_INSTANCE_ID (-2)
 
@@ -263,8 +266,13 @@ static int ipa_wdi_init_per_inst_internal(struct ipa_wdi_init_in_params *in,
 
 	if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
 		smmu_in.smmu_client = IPA_SMMU_WLAN_CLIENT;
-	else
+	else if(IPA_CLIENT_IS_WLAN1_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
 		smmu_in.smmu_client = IPA_SMMU_WLAN1_CLIENT;
+	else if(IPA_CLIENT_IS_WLAN2_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
+		smmu_in.smmu_client = IPA_SMMU_WLAN2_CLIENT;
+	else
+		return -EFAULT;
+
 
 	if (ipa3_get_smmu_params(&smmu_in, &smmu_out))
 		out->is_smmu_enabled = false;
@@ -576,8 +584,13 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 	memset(&pm_params, 0, sizeof(pm_params));
 	if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id))
 		pm_params.name = "wdi";
-	else
+	else if (IPA_CLIENT_IS_WLAN1_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id))
 		pm_params.name = "wdi1";
+	else if (IPA_CLIENT_IS_WLAN2_INSTANCE(ipa_wdi_ctx_list[in->hdl]->inst_id))
+		pm_params.name = "wdi2";
+	else
+		IPA_WDI_ERR("Unsupported instance id value received %d\n", ipa_wdi_ctx_list[in->hdl]->inst_id);
+
 	pm_params.callback = ipa_wdi_pm_cb;
 	pm_params.user_data = NULL;
 	pm_params.group = IPA_PM_GROUP_DEFAULT;
@@ -901,9 +914,14 @@ static int ipa_wdi_create_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
 
 	if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN);
-	else
+	else if(IPA_CLIENT_IS_WLAN1_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
-
+	else if(IPA_CLIENT_IS_WLAN2_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN2);
+	else {
+		IPA_WDI_ERR("Unsupported instanace id %d\n", ipa_wdi_ctx_list[hdl]->inst_id);
+		return -EFAULT;
+	}
 	if (!cb->valid) {
 		IPA_WDI_ERR("No SMMU CB setup\n");
 		return -EINVAL;
@@ -912,7 +930,9 @@ static int ipa_wdi_create_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
 	if ((IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id) &&
 			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN]) ||
 		(IPA_CLIENT_IS_WLAN1_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id) &&
-			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN1])) {
+			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN1]) ||
+		(IPA_CLIENT_IS_WLAN2_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id) &&
+			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN2])) {
 			IPA_WDI_ERR("IPA SMMU not enabled\n");
 			return -EINVAL;
 	}
@@ -960,8 +980,14 @@ static int ipa_wdi_release_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
 
 	if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN);
-	else
+	else if (IPA_CLIENT_IS_WLAN1_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
+	else if (IPA_CLIENT_IS_WLAN2_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN2);
+	else {
+		IPA_WDI_ERR("Unsupported instance id value %d\n", ipa_wdi_ctx_list[hdl]->inst_id);
+		return -EFAULT;
+	}
 
 	if (!cb->valid) {
 		IPA_WDI_ERR("No SMMU CB setup\n");
@@ -1253,7 +1279,11 @@ static int ipa_wdi_init_internal(struct ipa_wdi_init_in_params *in,
 		IPA_WDI_ERR("invalid params in=%pK\n", in);
 		return -EINVAL;
 	}
-
+	/*
+	 * As part of previous chipset(ex:- HSP) instance id wont be
+	 * passed and "ipa_wdi_init_internal" would be called.
+	 * for latest chipsets wlan directly calls "ipa_wdi_init_per_inst_internal.
+	 */
 	in->inst_id = DEFAULT_INSTANCE_ID;
 	return ipa_wdi_init_per_inst_internal(in, out);
 }
