@@ -2950,7 +2950,9 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 
 	/* For IPA offloaded WDI channels not required user_data pointer */
 	if (props->prot != GSI_CHAN_PROT_WDI2 &&
-		props->prot != GSI_CHAN_PROT_WDI3 && props->prot != GSI_CHAN_PROT_WDI4)
+		props->prot != GSI_CHAN_PROT_WDI3 &&
+		props->prot != GSI_CHAN_PROT_WDI3_V2 &&
+		props->prot != GSI_CHAN_PROT_WDI4)
 		user_data_size = props->ring_len / props->re_size;
 	else
 		user_data_size = props->re_size;
