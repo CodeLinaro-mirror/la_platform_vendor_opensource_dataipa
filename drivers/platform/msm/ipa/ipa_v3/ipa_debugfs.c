@@ -1091,6 +1091,7 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
 	u32 ofst;
 	u32 ofst_words;
+	bool is_lcl;
 
 	set = &ipa3_ctx->rt_tbl_set[ip];
 
@@ -1112,17 +1113,17 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 			pr_err("tbl_idx:%d tbl_name:%s tbl_ref:%u ",
 				entry->tbl->idx, entry->tbl->name,
 				entry->tbl->ref_cnt);
+			is_lcl = entry->proc_ctx->is_lcl;
 			if (entry->proc_ctx &&
 				(!ipa3_check_idr_if_freed(entry->proc_ctx))) {
 				ofst = entry->proc_ctx->offset_entry->offset;
-				ofst_words =
-					(ofst +
-					ipa3_ctx->hdr_proc_ctx_tbl.start_offset)
-					>> 5;
+				ofst_words = is_lcl ?
+					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset) >> 5 :
+					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset) >> 5;
 				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
 					i, entry->rule.dst,
 					ipa3_get_ep_mapping(entry->rule.dst),
-					!ipa3_ctx->hdr_proc_ctx_tbl_lcl);
+					is_lcl);
 				pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
 					ofst_words,
 					entry->rule.attrib.attrib_mask);
@@ -1286,23 +1287,27 @@ bail:
 static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
-	int nbytes = 0;
+	int nbytes;
 	struct ipa3_hdr_proc_ctx_tbl *tbl;
 	struct ipa3_hdr_proc_ctx_entry *entry;
 	u32 ofst_words;
+	enum hpc_tbl_storage hpc_tbl;
+	int res = 0;
 
-	tbl = &ipa3_ctx->hdr_proc_ctx_tbl;
+	for (hpc_tbl = HPC_TBL_LCL; hpc_tbl < HPC_TBLS_TOTAL; hpc_tbl++) {
+		nbytes = 0;
+		memset(dbg_buff, '\0', sizeof(dbg_buff));
+		tbl = &ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl];
+		mutex_lock(&ipa3_ctx->lock);
 
-	mutex_lock(&ipa3_ctx->lock);
-
-	if (ipa3_ctx->hdr_proc_ctx_tbl_lcl)
-		pr_info("Table resides on local memory\n");
-	else
-		pr_info("Table resides on system(ddr) memory\n");
+		if (hpc_tbl == HPC_TBL_LCL)
+			pr_info("Table resides on local memory\n");
+		else
+			pr_info("Table resides on system(ddr) memory\n");
 
 	list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
 		ofst_words = (entry->offset_entry->offset +
-			ipa3_ctx->hdr_proc_ctx_tbl.start_offset)
+			ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
 			>> 5;
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
@@ -1335,10 +1340,12 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 			IPA_MAX_MSG_LEN - nbytes,
 			"hdr[words]:%u\n",
 			entry->hdr->offset_entry->offset >> 2);
+		}
+		mutex_unlock(&ipa3_ctx->lock);
+		pr_err("%s", dbg_buff);
 	}
-	mutex_unlock(&ipa3_ctx->lock);
 
-	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+	return res;
 }
 
 static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,

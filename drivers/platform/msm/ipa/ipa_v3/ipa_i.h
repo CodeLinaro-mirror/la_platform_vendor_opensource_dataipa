@@ -284,6 +284,12 @@ enum hdr_tbl_storage {
 	HDR_TBLS_TOTAL,
 };
 
+enum hpc_tbl_storage {
+	HPC_TBL_LCL,
+	HPC_TBL_SYS,
+	HPC_TBLS_TOTAL,
+};
+
 #define IPA_HDR_TO_DDR_PATTERN 0x2DDA
 
 #define IPA_HDR_PROC_CTX_BIN0 0
@@ -978,6 +984,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	int id;
 	bool user_deleted;
 	bool ipacm_installed;
+	bool is_lcl;
 };
 
 /**
@@ -2387,7 +2394,6 @@ struct ipa3_eth_pdu_ctx {
  * @aggregation_type: aggregation type used on USB client endpoint
  * @aggregation_byte_limit: aggregation byte limit used on USB client endpoint
  * @aggregation_time_limit: aggregation time limit used on USB client endpoint
- * @hdr_proc_ctx_tbl_lcl: where proc_ctx tbl resides true-local, false-system
  * @hdr_mem: header memory
  * @hdr_proc_ctx_mem: processing context memory
  * @ip4_rt_tbl_lcl: where ip4 rt tables reside 1-local; 0-system
@@ -2490,7 +2496,7 @@ struct ipa3_context {
 	u32 ipa_cfg_offset;
 	bool set_evict_reg;
 	struct ipa3_hdr_tbl hdr_tbl[HDR_TBLS_TOTAL];
-	struct ipa3_hdr_proc_ctx_tbl hdr_proc_ctx_tbl;
+	struct ipa3_hdr_proc_ctx_tbl hdr_proc_ctx_tbl[HPC_TBLS_TOTAL];
 	struct ipa3_rt_tbl_set rt_tbl_set[IPA_IP_MAX];
 	struct ipa3_rt_tbl_set reap_rt_tbl_set[IPA_IP_MAX];
 	struct kmem_cache *flt_rule_cache;
@@ -2516,9 +2522,8 @@ struct ipa3_context {
 	uint aggregation_type;
 	uint aggregation_byte_limit;
 	uint aggregation_time_limit;
-	bool hdr_proc_ctx_tbl_lcl;
 	struct ipa_mem_buffer hdr_sys_mem;
-	struct ipa_mem_buffer hdr_proc_ctx_mem;
+	struct ipa_mem_buffer hdr_proc_ctx_sys_mem;
 	bool rt_tbl_hash_lcl[IPA_IP_MAX];
 	bool rt_tbl_nhash_lcl[IPA_IP_MAX];
 	bool flt_tbl_hash_lcl[IPA_IP_MAX];
