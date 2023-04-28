@@ -2272,17 +2272,6 @@ enum ipa_per_usb_enum_type_e {
 	IPA_PER_USB_ENUM_TYPE_MAX
 };
 
-/**
- * struct ipa_ready_cb_mhi_data - List node for ipa ready CBs
- * @link: List member
- * @ready_cb: callback to be called when ipa is ready
- * @userdata: userdata for ipa ready cb
- */
-struct ipa_ready_cb_mhi_data {
-	struct list_head link;
-	ipa_ready_cb ready_cb;
-	void *user_data;
-};
 
 /**
  * struct ipa3_context - IPA context
