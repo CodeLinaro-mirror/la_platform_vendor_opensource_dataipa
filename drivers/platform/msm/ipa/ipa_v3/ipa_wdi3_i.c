@@ -1652,8 +1652,6 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 				[2].dir = DIR_CONSUMER;
 
 		}
-	}
-	if (ipa_get_wdi_version() >= IPA_WDI_4) {
 		if (ep_tx->client == IPA_CLIENT_WLAN1_CONS &&
 			ep_rx->client == IPA_CLIENT_WLAN1_PROD) {
 			ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3].ch_id_info
@@ -1666,9 +1664,9 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 				[5].dir = DIR_CONSUMER;
 		}
 
+		ipa3_uc_debug_stats_alloc(
+				ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3]);
 	}
-	ipa3_uc_debug_stats_alloc(
-					ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3]);
 
 	goto exit;
 
