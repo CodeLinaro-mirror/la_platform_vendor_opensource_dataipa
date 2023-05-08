@@ -761,7 +761,7 @@ static void ipa_release_ap_smmu_mappings(enum ipa_client_type client)
 			end = IPA_WDI_CE_DB_RES;
 	} else {
 		start = IPA_WDI_RX_RING_RES;
-		if (ipa3_ctx->ipa_wdi2 ||
+		if ((ipa_get_wdi_version() == IPA_WDI_2) ||
 			(ipa_get_wdi_version() == IPA_WDI_3))
 			end = IPA_WDI_RX_COMP_RING_WP_RES;
 		else
@@ -2378,6 +2378,7 @@ int ipa3_disconnect_gsi_wdi_pipe(u32 clnt_hdl)
 	if (!ep->keep_ipa_awake)
 		IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
+	ipa_release_ap_smmu_mappings(ipa3_get_client_mapping(clnt_hdl));
 	ipa3_reset_gsi_channel(clnt_hdl);
 	ipa3_reset_gsi_event_ring(clnt_hdl);
 
@@ -2390,7 +2391,6 @@ int ipa3_disconnect_gsi_wdi_pipe(u32 clnt_hdl)
 				result);
 		goto fail_dealloc_channel;
 	}
-	ipa_release_ap_smmu_mappings(clnt_hdl);
 
 	/* for AP+STA stats update */
 	if (ipa3_ctx->uc_wdi_ctx.stats_notify)
