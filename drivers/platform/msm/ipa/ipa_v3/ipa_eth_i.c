@@ -59,6 +59,100 @@ enum ipa_eth_dir {
 	IPA_ETH_TX = 1,
 };
 
+static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys_addr_t pa,
+	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir)
+{
+	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(cb_type);
+
+	cb->m_map[instance_id][dir].m_pa = pa;
+	cb->m_map[instance_id][dir].m_iova = iova;
+	cb->m_map[instance_id][dir].m_size = len;
+}
+
+static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_addr_t pa, size_t len,
+	bool device, unsigned long *iova, int instance_id, enum ipa_eth_pipe_direction dir)
+{
+	struct ipa_smmu_cb_ctx *cb;
+	unsigned long va, eth_next_addr;
+	int prot = IOMMU_READ | IOMMU_WRITE;
+	size_t true_len = roundup(len + pa - rounddown(pa, PAGE_SIZE), PAGE_SIZE);
+	int ret;
+	u32 eth_offset = IPA_AP_CB_WLAN_END_MAPPING;
+
+	if (len == 0) {
+		IPAERR("Invalid SMMU CB mapping size: %llu\n", len);
+		return -EINVAL;
+	}
+	if (instance_id >= IPA_ETH_INST_ID_MAX) {
+                IPAERR("Invalid ETH instance ID\n");
+                return -EINVAL;
+        }
+	if (dir == IPA_ETH_PIPE_DIR_MAX) {
+		IPAERR("Invalid pipe direction: %d\n", dir);
+		return -EINVAL;
+	}
+	if (cb_type == IPA_SMMU_CB_MAX) {
+		IPAERR("Invalid SMMU CB: %d\n", cb_type);
+		return -EINVAL;
+	}
+	cb = ipa3_get_smmu_ctx(cb_type);
+	if (!cb->valid) {
+		IPAERR("No SMMU CB setup\n");
+		return -EINVAL;
+	}
+	/**
+	 * Assuming each IEMAC client does maximum of 1 mapping with
+	 * constant size per direction.
+	 */
+	eth_next_addr = cb->va_end + eth_offset + PAGE_SIZE * (2 * instance_id + dir);
+	va = roundup(eth_next_addr, PAGE_SIZE);
+	if (len > PAGE_SIZE)
+		va = roundup(eth_next_addr, len);
+	ret = ipa3_iommu_map(cb->iommu_domain, va, rounddown(pa, PAGE_SIZE), true_len,
+		device ? (prot | IOMMU_MMIO) : prot);
+	if (ret) {
+		IPAERR("IOMMU map failed for pa=%pa len=%zu\n", &pa, true_len);
+		return -EINVAL;
+	}
+	*iova = va + pa - rounddown(pa, PAGE_SIZE);
+	ipa_iemac_smmu_cb_save_mapping_i(cb_type, pa, *iova, true_len, instance_id, dir);
+
+	return 0;
+}
+
+static int ipa_iemac_smmu_cb_reset_mapping(enum ipa_smmu_cb_type cb_type, int instance_id,
+	enum ipa_eth_pipe_direction dir)
+{
+	struct ipa_smmu_cb_ctx *cb;
+
+	if (instance_id >= IPA_ETH_INST_ID_MAX) {
+                IPAERR("Invalid ETH instance ID\n");
+                return -EINVAL;
+        }
+	if (dir == IPA_ETH_PIPE_DIR_MAX) {
+                IPAERR("Invalid pipe direction: %d\n", dir);
+                return -EINVAL;
+        }
+	if (cb_type == IPA_SMMU_CB_MAX) {
+		IPAERR("Invalid SMMU CB: %d\n", cb_type);
+		return -EINVAL;
+	}
+	cb = ipa3_get_smmu_ctx(cb_type);
+	if (!cb->valid) {
+		IPAERR("No SMMU CB setup\n");
+		return -EINVAL;
+	}
+	if (cb->m_map[instance_id][dir].m_size != 0) {
+		iommu_unmap(cb->iommu_domain, cb->m_map[instance_id][dir].m_iova,
+			cb->m_map[instance_id][dir].m_size);
+		cb->m_map[instance_id][dir].m_pa = 0;
+		cb->m_map[instance_id][dir].m_iova = 0;
+		cb->m_map[instance_id][dir].m_size = 0;
+	}
+
+	return 0;
+}
+
 static void ipa3_eth_save_client_mapping(
 	struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type type, int id,
@@ -728,39 +822,6 @@ fail_get_gsi_ep_info:
 	return result;
 }
 
-static int ipa_eth_create_ap_smmu_mapping_pa(phys_addr_t pa, size_t len,
-		bool device, unsigned long *iova)
-{
-	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_AP);
-	unsigned long va = roundup(cb->next_addr, PAGE_SIZE);
-	int prot = IOMMU_READ | IOMMU_WRITE;
-	size_t true_len = roundup(len + pa - rounddown(pa, PAGE_SIZE),
-			PAGE_SIZE);
-	int ret;
-
-	if (!cb->valid) {
-		IPAERR("No SMMU CB setup\n");
-		return -EINVAL;
-	}
-
-	if (len > PAGE_SIZE)
-		va = roundup(cb->next_addr, len);
-
-	ret = ipa3_iommu_map(cb->iommu_domain, va, rounddown(pa, PAGE_SIZE),
-			true_len,
-			device ? (prot | IOMMU_MMIO) : prot);
-	if (ret) {
-		IPAERR("iommu map failed for pa=%pa len=%zu\n", &pa, true_len);
-		return -EINVAL;
-	}
-
-	ipa3_ctx->eth_map_cnt++;
-	cb->next_addr = va + true_len;
-	*iova = va + pa - rounddown(pa, PAGE_SIZE);
-	return 0;
-}
-
-
 static int ipa_eth_setup_ntn_gsi_channel(
 	struct ipa_eth_client_pipe_info *pipe,
 	struct ipa3_ep_context *ep)
@@ -806,13 +867,13 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		bar_addr +
 		pipe->info.client_info.ntn.tail_ptr_offs;
 	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC) {
-		result = ipa_eth_create_ap_smmu_mapping_pa(gsi_evt_ring_props.msi_addr, 8,
-					true, &iova);
+		result = ipa_iemac_smmu_cb_add_mapping_pa(IPA_SMMU_CB_AP,
+			gsi_evt_ring_props.msi_addr, 8, true, &iova, pipe->client_info->inst_id,
+			pipe->dir);
 		if (result) {
 			IPAERR("Failed to map IEMAC regs %d\n", result);
-			ipa_assert();
 			return result;
-		 }
+		}
 		gsi_evt_ring_props.msi_addr = iova;
 	}
 	gsi_evt_ring_props.ring_len = len;
@@ -911,6 +972,9 @@ fail_write_scratch:
 fail_get_gsi_ep_info:
 	gsi_dealloc_evt_ring(ep->gsi_evt_ring_hdl);
 	ep->gsi_evt_ring_hdl = ~0;
+	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC)
+		ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id,
+			pipe->dir);
 	return result;
 }
 
@@ -1479,6 +1543,7 @@ int ipa3_eth_disconnect(
 			}
 		}
 	}
+	ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id, pipe->dir);
 fail:
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	return result;

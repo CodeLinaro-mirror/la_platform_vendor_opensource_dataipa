@@ -66,7 +66,7 @@
 #define MTU_BYTE 1500
 
 #define IPA_EP_NOT_ALLOCATED (-1)
-#define IPA3_MAX_NUM_PIPES 31
+#define IPA3_MAX_NUM_PIPES 46
 #define IPA5_PIPES_NUM 36
 #define IPA6_PIPES_NUM 50
 #define IPA5_PIPE_REG_NUM 2
@@ -102,6 +102,8 @@
 #define IPA_MPM_MAX_RING_LEN 64
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
+
+#define IPA_AP_CB_WLAN_END_MAPPING 0x20000000
 
 /* ULSO Constants */
 enum {
@@ -261,10 +263,12 @@ enum {
 #define IPA_HDR_BIN3 3
 #define IPA_HDR_BIN4 4
 #define IPA_HDR_BIN5 5
-#define IPA_HDR_BIN_MAX 6
+#define IPA_HDR_BIN6 6
+#define IPA_HDR_BIN_MAX 7
 
 enum hdr_tbl_storage {
 	HDR_TBL_LCL,
+	HDR_TBL_LCL_EXT,
 	HDR_TBL_SYS,
 	HDR_TBLS_TOTAL,
 };
@@ -348,12 +352,34 @@ enum {
 #define IPA_WDI_RX4_RING_RP_RES        25
 #define IPA_WDI_RX4_COMP_RING_RES      26
 #define IPA_WDI_RX4_COMP_RING_WP_RES   27
-#define IPA_WDI_MAX_RES                28
+#define IPA_WDI_TX3_RING_RES           28
+#define IPA_WDI_CE3_RING_RES           29
+#define IPA_WDI_CE3_DB_RES             30
+#define IPA_WDI_TX3_DB_RES             31
+#define IPA_WDI_RX5_RING_RES           32
+#define IPA_WDI_RX5_RING_RP_RES        33
+#define IPA_WDI_RX5_COMP_RING_RES      34
+#define IPA_WDI_RX5_COMP_RING_WP_RES   35
+#define IPA_WDI_RX6_RING_RES           36
+#define IPA_WDI_RX6_RING_RP_RES        37
+#define IPA_WDI_RX6_COMP_RING_RES      38
+#define IPA_WDI_RX6_COMP_RING_WP_RES   39
+#define IPA_WDI_MAX_RES                40
 
-#define IPA_WDI3_TX2_DIR 4
-#define IPA_WDI3_RX2_DIR 5
-#define IPA_WDI3_RX3_DIR 6
-#define IPA_WDI3_RX4_DIR 7
+#define IPA_WDI3_TX2_DIR	4
+#define IPA_WDI3_TX3_DIR	5
+#define IPA_WDI3_RX2_DIR	6
+#define IPA_WDI3_RX3_DIR	7
+#define IPA_WDI3_RX4_DIR	8
+#define IPA_WDI3_RX5_DIR	9
+#define IPA_WDI3_RX6_DIR	10
+
+/* ipa_tiering_mode - Enable/Disable IPA HW features. */
+#define	IPA_TIERING_DISABLE_NAT 	(1)
+#define	IPA_TIERING_DISABLE_IPSEC 	(1 << 1)
+#define	IPA_TIERING_DISABLE_WIFI 	(1 << 2)
+#define	IPA_TIERING_DISABLE_ETH 	(1 << 3)
+#define	IPA_TIERING_DISABLE_USB 	(1 << 4)
 
 /* use QMAP header reserved bit to identify tethered traffic */
 #define IPA_QMAP_TETH_BIT (1 << 30)
@@ -667,6 +693,12 @@ struct ipa3_client_names {
 	int length;
 };
 
+struct ipa_smmu_cb_mapping {
+	phys_addr_t m_pa;
+	unsigned long m_iova;
+	size_t m_size;
+};
+
 struct ipa_smmu_cb_ctx {
 	bool valid;
 	struct device *dev;
@@ -680,6 +712,10 @@ struct ipa_smmu_cb_ctx {
 	bool shared;
 	bool is_cache_coherent;
 	bool done;
+	/**
+	 * todo: make this a list.
+	 */
+	struct ipa_smmu_cb_mapping m_map[IPA_ETH_INST_ID_MAX][IPA_ETH_PIPE_DIR_MAX];
 };
 
 /**
@@ -852,6 +888,7 @@ struct ipa3_rt_tbl {
  * @user_deleted: is the header deleted by the user?
  * @ipacm_installed: indicate if installed by ipacm
  * @is_lcl: is the entry in the SRAM?
+ * @in_apps_headers_ext: header is in headers extension section in SRAM?
  */
 struct ipa3_hdr_entry {
 	struct list_head link;
@@ -870,6 +907,7 @@ struct ipa3_hdr_entry {
 	bool user_deleted;
 	bool ipacm_installed;
 	bool is_lcl;
+	bool in_apps_headers_ext;
 };
 
 /**
@@ -2015,6 +2053,7 @@ enum ipa_smmu_cb_type {
 	IPA_SMMU_CB_AP,
 	IPA_SMMU_CB_WLAN,
 	IPA_SMMU_CB_WLAN1,
+	IPA_SMMU_CB_WLAN2,
 	IPA_SMMU_CB_UC,
 	IPA_SMMU_CB_11AD,
 	IPA_SMMU_CB_ETH,
@@ -2233,17 +2272,6 @@ enum ipa_per_usb_enum_type_e {
 	IPA_PER_USB_ENUM_TYPE_MAX
 };
 
-/**
- * struct ipa_ready_cb_mhi_data - List node for ipa ready CBs
- * @link: List member
- * @ready_cb: callback to be called when ipa is ready
- * @userdata: userdata for ipa ready cb
- */
-struct ipa_ready_cb_mhi_data {
-	struct list_head link;
-	ipa_ready_cb ready_cb;
-	void *user_data;
-};
 
 /**
  * struct ipa3_context - IPA context
@@ -2370,6 +2398,7 @@ struct ipa_ready_cb_mhi_data {
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  * @cesta_enable: flag which holds if cesta_enabled or not in DTSI
+ * @ipa_tiering_value: IPA tiering value to support multiple SKUs
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2456,6 +2485,7 @@ struct ipa3_context {
 	bool ipa_wdi2_over_gsi;
 	bool ipa_wdi3_over_gsi;
 	bool ipa_endp_delay_wa;
+	bool lan_coal_enable;
 	bool ipa_fltrt_not_hashable;
 	bool use_xbl_boot;
 	bool use_64_bit_dma_mask;
@@ -2644,6 +2674,7 @@ struct ipa3_context {
 	bool cesta_enable;
 	struct mutex ssr_lock;
 	bool iemac_exist;
+	u32 ipa_tiering_value;
 };
 
 struct ipa3_plat_drv_res {
@@ -2704,6 +2735,7 @@ struct ipa3_plat_drv_res {
 	bool ipa_gpi_event_rp_ddr;
 	bool rmnet_ctl_enable;
 	bool rmnet_ll_enable;
+	bool lan_coal_enable;
 	bool ipa_use_uc_holb_monitor;
 	u32 ipa_holb_monitor_poll_period;
 	u32 ipa_holb_monitor_max_cnt_wlan;
@@ -2798,6 +2830,8 @@ struct ipa3_plat_drv_res {
  * |  MODEM HDR              |
  * +-------------------------+
  * |  APPS HDR (IPA4.5)      |
+ * +-------------------------+
+ * |  APPS HDR Ext(IPA6.0)   |
  * +-------------------------+
  * |    CANARY               |
  * +-------------------------+
@@ -2896,6 +2930,8 @@ struct ipa3_mem_partition {
 	u32 apps_hdr_ofst;
 	u32 apps_hdr_size;
 	u32 apps_hdr_size_ddr;
+	u32 apps_hdr_ext_ofst;
+	u32 apps_hdr_ext_size;
 	u32 modem_hdr_proc_ctx_ofst;
 	u32 modem_hdr_proc_ctx_size;
 	u32 apps_hdr_proc_ctx_ofst;
@@ -3730,6 +3766,7 @@ struct iommu_domain *ipa3_get_smmu_domain_by_type
 int ipa3_iommu_map(struct iommu_domain *domain, unsigned long iova,
 	phys_addr_t paddr, size_t size, int prot);
 int ipa3_ap_suspend(struct device *dev);
+int ipa3_ap_freeze(struct device *dev);
 int ipa3_ap_resume(struct device *dev);
 int ipa3_init_interrupts(void);
 struct iommu_domain *ipa3_get_smmu_domain(void);

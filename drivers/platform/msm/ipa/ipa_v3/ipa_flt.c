@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -876,6 +877,13 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 		struct ipa3_rt_tbl **rt_tbl, enum ipa_ip_type ip)
 {
 	int index;
+
+	if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_NAT) {
+		if (rule->action == IPA_PASS_TO_SRC_NAT || rule->action == IPA_PASS_TO_DST_NAT) {
+			IPADBG("rules with NAT action are disabled by IPA Tiering\n");
+			goto error;
+		}
+	}
 
 	if (rule->action != IPA_PASS_TO_EXCEPTION) {
 		if (!rule->eq_attrib_type) {

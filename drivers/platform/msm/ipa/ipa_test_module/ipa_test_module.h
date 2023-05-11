@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note
 /*
 * Copyright (c) 2017-2018,2020-2021, The Linux Foundation. All rights reserved.
-* Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+* Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
 */
 
 #ifndef _IPA_TEST_MODULE_H_
@@ -160,6 +160,8 @@ struct ipa_test_mem_partition {
 	unsigned apps_hdr_ofst;
 	unsigned apps_hdr_size;
 	unsigned apps_hdr_size_ddr;
+	unsigned apps_hdr_ext_ofst;
+	unsigned apps_hdr_ext_size;
 	unsigned modem_hdr_proc_ctx_ofst;
 	unsigned modem_hdr_proc_ctx_size;
 	unsigned apps_hdr_proc_ctx_ofst;

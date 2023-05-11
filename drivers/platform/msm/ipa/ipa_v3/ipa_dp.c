@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -1406,6 +1406,14 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 			}
 
 			pm_reg.name = ipa_clients_strings[sys_in->client];
+			if(!pm_reg.name) {
+				/* update the IPA clients stringify in ipa_utils.c to match
+				 * msm_ipa.h or kernel will crash during pm_register
+				 */
+				IPAERR("client name is null, return before crash \n");
+				result = -EFAULT;
+				goto fail_wq3;
+			}
 			pm_reg.callback = ipa_pm_sys_pipe_cb;
 			pm_reg.user_data = ep->sys;
 			pm_reg.group = IPA_PM_GROUP_APPS;
@@ -2101,6 +2109,28 @@ void ipa3_tx_cmd_comp(void *user1, int user2)
 	ipahal_destroy_imm_cmd(user1);
 }
 
+static inline int validate_client_ipa_tiering(enum ipa_client_type dst)
+{
+	u32 tiering_value = ipa3_ctx->ipa_tiering_value;
+
+	if (tiering_value & IPA_TIERING_DISABLE_ETH) {
+		if (dst == IPA_CLIENT_ETHERNET_CONS ||
+			dst == IPA_CLIENT_AQC_ETHERNET_CONS ||
+			dst == IPA_CLIENT_RTK_ETHERNET_CONS ||
+			dst == IPA_CLIENT_ETHERNET2_CONS) {
+				return -EINVAL;
+			}
+	}
+
+	if ((tiering_value & IPA_TIERING_DISABLE_WIFI) && IPA_CLIENT_IS_WLAN_CONS(dst))
+		return -EINVAL;
+
+	if ((tiering_value & IPA_TIERING_DISABLE_USB) && IPA_CLIENT_IS_USB_CONS(dst))
+		return -EINVAL;
+
+	return 0;
+}
+
 /**
  * ipa3_tx_dp() - Data-path tx handler
  * @dst:	[in] which IPA destination to route tx packets to
@@ -2145,6 +2175,11 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 
 	if (skb->len == 0) {
 		IPAERR("packet size is 0\n");
+		return -EINVAL;
+	}
+
+	if (validate_client_ipa_tiering(dst)) {
+		IPAERR("Client %d is disabled by IPA Tiering\n", dst);
 		return -EINVAL;
 	}
 

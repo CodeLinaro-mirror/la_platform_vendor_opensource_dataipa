@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/mutex.h>
@@ -1919,6 +1921,11 @@ static int ipa_usb_xdci_connect_internal(struct ipa_usb_xdci_chan_params *ul_cha
 {
 	int result = -EFAULT;
 	struct ipa_usb_xdci_connect_params_internal conn_params;
+
+	if(ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_USB) {
+		IPA_USB_ERR("USB offload is disabled by IPA Tiering\n");
+		return -EFAULT;
+	}
 
 	mutex_lock(&ipa3_usb_ctx->general_mutex);
 	IPA_USB_DBG_LOW("entry\n");

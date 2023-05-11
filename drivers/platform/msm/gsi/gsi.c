@@ -2767,6 +2767,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_GCI:
 	case GSI_CHAN_PROT_MHIP:
 	case GSI_CHAN_PROT_WDI3_V2:
+	case GSI_CHAN_PROT_WDI4:
 		ch_k_cntxt_0.chtype_protocol_msb = 0;
 		break;
 	case GSI_CHAN_PROT_AQC:
@@ -2949,7 +2950,9 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 
 	/* For IPA offloaded WDI channels not required user_data pointer */
 	if (props->prot != GSI_CHAN_PROT_WDI2 &&
-		props->prot != GSI_CHAN_PROT_WDI3)
+		props->prot != GSI_CHAN_PROT_WDI3 &&
+		props->prot != GSI_CHAN_PROT_WDI3_V2 &&
+		props->prot != GSI_CHAN_PROT_WDI4)
 		user_data_size = props->ring_len / props->re_size;
 	else
 		user_data_size = props->re_size;

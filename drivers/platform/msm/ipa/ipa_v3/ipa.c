@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -39,6 +39,7 @@
 #include <linux/qcom_scm.h>
 #include <linux/soc/qcom/mdt_loader.h>
 #include <linux/version.h>
+#include <linux/nvmem-consumer.h>
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0))
 #include <linux/panic_notifier.h>
 #else
@@ -143,7 +144,7 @@ static int ipa_alloc_pkt_init_ex(void);
 static void ipa3_free_pkt_init(void);
 static void ipa3_free_pkt_init_ex(void);
 
-#ifdef CONFIG_DEEPSLEEP
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 static void ipa3_deepsleep_resume(void);
 static void ipa3_deepsleep_suspend(void);
 #endif
@@ -306,8 +307,21 @@ static const struct of_device_id ipa_plat_drv_match[] = {
 	{ .compatible = "qcom,ipa-smmu-eth-cb", },
 	{ .compatible = "qcom,ipa-smmu-eth1-cb", },
 	{ .compatible = "qcom,ipa-smmu-wlan1-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan2-cb", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-in", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-out", },
+	{}
+};
+
+static const struct of_device_id ipa_plat_smmu_match[] = {
+	{ .compatible = "qcom,ipa-smmu-ap-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan-cb", },
+	{ .compatible = "qcom,ipa-smmu-uc-cb", },
+	{ .compatible = "qcom,ipa-smmu-11ad-cb", },
+	{ .compatible = "qcom,ipa-smmu-eth-cb", },
+	{ .compatible = "qcom,ipa-smmu-eth1-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan1-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan2-cb", },
 	{}
 };
 
@@ -503,19 +517,27 @@ EXPORT_SYMBOL(ipa_smmu_free_sgt);
 
 static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 {
-	IPAERR("Entry\n");
+	IPADBG("Entry\n");
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 	switch (event) {
 		case PM_POST_SUSPEND:
-#ifdef CONFIG_DEEPSLEEP
 			if (pm_suspend_via_firmware() && ipa3_ctx->deepsleep) {
 				IPADBG("Enter deepsleep resume\n");
 				ipa3_deepsleep_resume();
 				IPADBG("Exit deepsleep resume\n");
 			}
-#endif
+			break;
+		case PM_POST_HIBERNATION:
+			/*Using the same deepsleep flag to check if freeze happened or not.*/
+			if (ipa3_ctx->deepsleep) {
+				IPADBG("Enter hibernate restore\n");
+				ipa3_deepsleep_resume();
+				IPADBG("Exit hibernate restore\n");
+			}
 			break;
 	}
-	IPAERR("Exit\n");
+#endif
+	IPADBG("Exit\n");
 	return NOTIFY_DONE;
 }
 
@@ -526,7 +548,11 @@ static struct notifier_block ipa_pm_notifier = {
 
 static const struct dev_pm_ops ipa_pm_ops = {
 	.suspend_late = ipa3_ap_suspend,
+#if IS_ENABLED(CONFIG_HIBERNATION)
+	.freeze_late = ipa3_ap_freeze,
+#endif
 	.resume_early = ipa3_ap_resume,
+	.restore_early = ipa3_ap_resume,
 };
 
 static struct platform_driver ipa_plat_drv = {
@@ -931,6 +957,11 @@ struct iommu_domain *ipa3_get_wlan1_smmu_domain(void)
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_WLAN1);
 }
 
+struct iommu_domain *ipa3_get_wlan2_smmu_domain(void)
+{
+	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_WLAN2);
+}
+
 struct iommu_domain *ipa3_get_eth_smmu_domain(void)
 {
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_ETH);
@@ -1133,6 +1164,57 @@ static int ipa3_send_pdn_config_msg(unsigned long usr_param)
 
 	return 0;
 }
+
+#ifdef IPA_IOCTL_ADD_VLAN_PRIORITY
+static void ipa3_vlan_priority_msg_free_cb(void *buff, u32 len, u32 type)
+{
+	if (!buff) {
+		IPAERR("Null buffer\n");
+		return;
+	}
+
+	kfree(buff);
+}
+
+static int ipa3_send_vlan_priority_msg(unsigned long usr_param)
+{
+	int retval;
+	struct ipa_ioc_vlan_priority *vlan_priority;
+	struct ipa_msg_meta msg_meta = {0};
+	void *buff = NULL;
+
+	IPADBG("entry\n");
+
+	vlan_priority = kzalloc(sizeof(struct ipa_ioc_vlan_priority),
+		GFP_KERNEL);
+	if (NULL == vlan_priority)
+		return -ENOMEM;
+
+	if (copy_from_user((u8 *)vlan_priority, (void __user *)usr_param,
+		sizeof(struct ipa_ioc_vlan_priority))) {
+		kfree(vlan_priority);
+		return -EFAULT;
+	}
+
+	msg_meta.msg_len = sizeof(struct ipa_ioc_vlan_priority);
+	buff = vlan_priority;
+
+	msg_meta.msg_type = IPA_VLAN_PRIORITY_UPDATE_EVENT;
+
+	retval = ipa3_send_msg(&msg_meta, buff,
+		ipa3_vlan_priority_msg_free_cb);
+	if (retval) {
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+			retval,
+			msg_meta.msg_type);
+		kfree(buff);
+		return retval;
+	}
+	IPADBG("exit\n");
+
+	return 0;
+}
+#endif
 
 static int ipa3_send_vlan_l2tp_msg(unsigned long usr_param, uint8_t msg_type)
 {
@@ -4334,6 +4416,18 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		memcpy(&ipa3_ctx->dscp_pcp_map_info_cache, &dscp_pcp_map_info, sizeof(dscp_pcp_map_info));
 
 		break;
+
+#ifdef IPA_IOCTL_ADD_VLAN_PRIORITY
+	case IPA_IOC_ADD_VLAN_PRIORITY:
+		IPADBG("Got IPA_IOC_ADD_VLAN_PRIORITY\n");
+		retval = ipa3_send_vlan_priority_msg(arg);
+		if(retval)  {
+			IPADBG("Processing IPA_IOC_ADD_VLAN_PRIORITY failed!\n");
+			retval = -EFAULT;
+		}
+		break;
+#endif
+
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
@@ -5838,6 +5932,15 @@ int _ipa_init_hdr_v3_0(void)
 	int i;
 
 	mem.size = IPA_MEM_PART(modem_hdr_size) + IPA_MEM_PART(apps_hdr_size);
+	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (mem.size > 0x7FF)) {
+	/* Max size supported of header table for is 2^11 Bytes.
+	 * The calculation:
+	 * The hdr_offset field in the routing rule hw is 9 bits,
+	 * The offsets are in 4 bytes jump so 2^9 * 2^2 = 2^11 */
+		IPAERR("HDR Table SIZE SRAM 0x%x is too big\n", mem.size);
+		return -ENOMEM;
+	}
+
 	mem.base = dma_alloc_coherent(ipa3_ctx->pdev, mem.size, &mem.phys_base,
 		GFP_KERNEL);
 	if (!mem.base) {
@@ -5905,6 +6008,15 @@ int _ipa_init_hdr_v3_0(void)
 
 	mem.size = IPA_MEM_PART(modem_hdr_proc_ctx_size) +
 		IPA_MEM_PART(apps_hdr_proc_ctx_size);
+	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (mem.size > 0x3FFF)) {
+	/* Max size supported of HPC table is 2^14 Bytes.
+	 * The calculation:
+	 * The hdr_offset field in the routing rule hw is 9 bits,
+	 * The offsets are in 32 bytes jump so 2^9 * 2^5 = 2^14 */
+		IPAERR("HPC Table SIZE SRAM 0x%x is too big\n", mem.size);
+		return -ENOMEM;
+	}
+
 	mem.base = dma_alloc_coherent(ipa3_ctx->pdev, mem.size, &mem.phys_base,
 		GFP_KERNEL);
 	if (!mem.base) {
@@ -6328,7 +6440,11 @@ static int ipa3_setup_apps_pipes(void)
 	IPADBG("SRAM initialized\n");
 
 	IPADBG("Will initialize HDR\n");
-	ipa3_ctx->ctrl->ipa_init_hdr();
+	result = ipa3_ctx->ctrl->ipa_init_hdr();
+	if (result) {
+		IPAERR("failed to initialize HDR.\n");
+		goto fail_ch20_wa;
+	}
 	IPADBG("HDR initialized\n");
 
 	IPADBG("Will initialize V4 RT\n");
@@ -6378,7 +6494,7 @@ static int ipa3_setup_apps_pipes(void)
 
 	ipa3_ctx->clnt_hdl_data_in = 0;
 
-	if ( ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5 ) {
+	if ( ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5 && ipa3_ctx->lan_coal_enable) {
 		/*
 		 * LAN_COAL IN (IPA->AP)
 		 */
@@ -8058,6 +8174,16 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_init_hw;
 	}
 
+	/*
+	 * IPA_TIERING_CFG_WR_ONCE_INDICATION set to 1 give us the indication
+	 * that IPA_TIERING_CFG has been configured by the TZ.
+	 */
+	if (1 == ipahal_read_reg(IPA_TIERING_CFG_WR_ONCE_INDICATION))
+		ipa3_ctx->ipa_tiering_value = ipahal_read_reg(IPA_TIERING_CFG);
+	else
+		ipa3_ctx->ipa_tiering_value = 0;
+	IPADBG("IPA Tiering value: 0x%x\n", ipa3_ctx->ipa_tiering_value);
+
 	ipa3_ctx->ctrl->ipa_sram_read_settings();
 	IPADBG("SRAM, size: 0x%x, restricted bytes: 0x%x\n",
 		ipa3_ctx->smem_sz, ipa3_ctx->smem_restricted_bytes);
@@ -8363,7 +8489,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	/* init uc-activation tbl*/
 	ipa3_setup_uc_act_tbl();
 
-#ifdef CONFIG_DEEPSLEEP
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 	if (!ipa3_is_ready())
 		ipa_fmwk_deepsleep_exit_ipa();
 #endif
@@ -8594,16 +8720,18 @@ static int ipa3_pil_load_ipa_fws(const char *sub_sys)
 }
 #endif /* IS_ENABLED(CONFIG_QCOM_MDT_LOADER) */
 
-#ifdef CONFIG_DEEPSLEEP
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 static int ipa3_pil_unload_ipa_fws(void)
 {
 
+#if !IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
 	IPADBG("PIL FW unloading process initiated sub_sys\n");
 
 	if (ipa3_ctx->subsystem_get_retval)
 		subsystem_put(ipa3_ctx->subsystem_get_retval);
 
 	IPADBG("PIL FW unloading process is complete sub_sys\n");
+#endif
 	return 0;
 }
 #endif
@@ -9276,14 +9404,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa3_ctx->fw_load_data.state = IPA_FW_LOAD_STATE_INIT;
 	mutex_init(&ipa3_ctx->fw_load_data.lock);
 
-	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
-	if (ipa3_ctx->logbuf == NULL)
-		IPADBG("failed to create IPC log, continue...\n");
-
-	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
-	if (ipa3_ctx->logbuf_clk == NULL)
-		IPADBG("failed to create IPC ipa_clk log, continue...\n");
-
 	/* ipa3_ctx->pdev and ipa3_ctx->uc_pdev will be set in the smmu probes*/
 	ipa3_ctx->master_pdev = ipa_pdev;
 	for (i = 0; i < IPA_SMMU_CB_MAX; i++)
@@ -9373,6 +9493,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->cesta_enable = resource_p->cesta_enable;
 	ipa3_ctx->ipa_gpi_event_rp_ddr = resource_p->ipa_gpi_event_rp_ddr;
 	ipa3_ctx->rmnet_ctl_enable = resource_p->rmnet_ctl_enable;
+	ipa3_ctx->lan_coal_enable = resource_p->lan_coal_enable;
 	ipa3_ctx->rmnet_ll_enable = resource_p->rmnet_ll_enable;
 	ipa3_ctx->tx_wrapper_cache_max_size = get_tx_wrapper_cache_size(
 			resource_p->tx_wrapper_cache_max_size);
@@ -9824,8 +9945,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 	IPADBG("IPA power manager initialized\n");
 
-	INIT_LIST_HEAD(&ipa3_ctx->ipa_ready_cb_list);
-
 	init_completion(&ipa3_ctx->init_completion_obj);
 	init_completion(&ipa3_ctx->uc_loaded_completion_obj);
 
@@ -10022,10 +10141,6 @@ fail_mem_ctrl:
 	kfree(ipa3_ctx->ipa_tz_unlock_reg);
 	ipa3_ctx->ipa_tz_unlock_reg = NULL;
 fail_tz_unlock_reg:
-	if (ipa3_ctx->logbuf) {
-		ipc_log_context_destroy(ipa3_ctx->logbuf);
-		ipa3_ctx->logbuf = NULL;
-	}
 fail_uc_file_alloc:
 	kfree(ipa3_ctx->gsi_fw_file_name);
 	ipa3_ctx->gsi_fw_file_name = NULL;
@@ -10651,6 +10766,14 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 			ipa_drv_res->rmnet_ll_enable
 			? "True" : "False");
 	}
+	ipa_drv_res->lan_coal_enable =
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,lan-coal-enable");
+	IPADBG(": Enable lan coal = %s\n",
+		ipa_drv_res->lan_coal_enable
+		? "True" : "False");
+
+
 
 	result = of_property_read_string(pdev->dev.of_node,
 			"qcom,use-gsi-ipa-fw", &ipa_drv_res->gsi_fw_file_name);
@@ -11237,6 +11360,7 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 
 	ipa3_ctx->uc_pdev = dev;
 	cb->done = true;
+	cb->next_addr = cb->va_end;
 	return 0;
 }
 
@@ -11323,6 +11447,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 						"dma-coherent");
 	cb->dev   = dev;
 	cb->valid = true;
+	memset(&cb->m_map, 0, sizeof(cb->m_map));
 
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
@@ -11339,11 +11464,11 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 			dev->of_node, "qcom,iommu-geometry",
 			geometry_ap_mapping, 2) == 0) {
 		cb->geometry_start = geometry_ap_mapping[0];
-		cb->geometry_end  = geometry_ap_mapping[1];
+		cb->geometry_end  = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
 	} else {
 		IPADBG("AP CB PROBE Geometry not defined using max!\n");
 		cb->geometry_start = 0;
-		cb->geometry_end = 0xF0000000;
+		cb->geometry_end = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
 	}
 
 	IPADBG("AP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
@@ -11556,6 +11681,7 @@ static int ipa_smmu_cb_probe(struct device *dev, enum ipa_smmu_cb_type cb_type)
 		return ipa_smmu_ap_cb_probe(dev);
 	case IPA_SMMU_CB_WLAN:
 	case IPA_SMMU_CB_WLAN1:
+	case IPA_SMMU_CB_WLAN2:
 	case IPA_SMMU_CB_ETH:
 	case IPA_SMMU_CB_ETH1:
 		return ipa_smmu_perph_cb_probe(dev, cb_type);
@@ -11699,6 +11825,264 @@ static int ipa_smmu_update_fw_loader(void)
 	return 0;
 }
 
+/**
+ * Determine if device HW is of PCIe endpoint flavor based on HW
+ * embedded information.
+ *
+ * @param dev    device to check flavor of
+ *
+ * @return bool true if device HW is of PCIe endpoint falvor,
+ *         false otherwise
+ */
+static bool is_pcie_ep_falvor(struct device *dev)
+{
+	struct nvmem_cell *cell = NULL;
+	struct device_node *n = dev->of_node;
+	u32 *buf, fast_boot, host_bypass, fast_boot_mask = 0, host_bypass_mask = 0;
+	int res = 0, num_fast_boot_values = 0, i;
+	u32 fast_boot_values[16];
+
+	if (!of_find_property(n, "nvmem-cells", NULL)) {
+		pr_err("nvmem-cells property is not defined in %s node\n", n->name);
+		of_node_put(n);
+		return false;
+	}
+	res = of_property_read_u32(n, "qcom,fast-boot-mask", &fast_boot_mask);
+	if (res) {
+		pr_err("qcom,fast-boot-mask property is not defined in %s node\n", n->name);
+		return false;
+	}
+	res = of_property_read_u32(n, "qcom,host-bypass-mask", &host_bypass_mask);
+	if (res) {
+		pr_err("qcom,host-bypass-mask property is not defined in %s node\n", n->name);
+		return false;
+	}
+	num_fast_boot_values = of_property_count_elems_of_size(n, "qcom,fast-boot-values",
+		sizeof(u32));
+	if (num_fast_boot_values < 0 || num_fast_boot_values > 16) {
+		pr_err("qcom,fast-boot-values number of values invalid\n");
+		return false;
+	}
+	pr_debug("num_fast_boot_values = %d\n", num_fast_boot_values);
+	res = of_property_read_u32_array(n, "qcom,fast-boot-values", fast_boot_values,
+		num_fast_boot_values);
+	if (res) {
+		pr_err("qcom,fast-boot-values array unexpected failure\n");
+		return false;
+	}
+	cell = nvmem_cell_get(dev, "boot_conf");
+	if (IS_ERR(cell)) {
+		pr_err("nvmem_cell_get failed on boot_conf\n");
+		return false;
+	}
+	buf = nvmem_cell_read(cell, NULL);
+	if (IS_ERR(buf)) {
+		pr_err("nvmem_cell_read failed on boot_conf\n");
+		nvmem_cell_put(cell);
+		return false;
+	}
+	fast_boot = (((*buf) & fast_boot_mask) >> ((ffs(fast_boot_mask)) - 1));
+	host_bypass = ((*buf) & host_bypass_mask);
+	pr_debug("boot_conf = %x, fast_boot = %x, host_bypass = %x\n", *buf, fast_boot,
+		 host_bypass);
+	kfree(buf);
+	nvmem_cell_put(cell);
+	if (host_bypass)
+		return false;
+	for (i = 0; i < num_fast_boot_values; i++) {
+		if (fast_boot == fast_boot_values[i])
+			return true;
+	}
+
+	return false;
+}
+
+/**
+ * struct property destructor
+ *
+ * @param p      Property to destroy
+ */
+static void dt_node_property_destroy(struct property *p)
+{
+	if (!p)
+		return;
+	if (p->name) {
+		kfree(p->name);
+		p->name = NULL;
+	}
+	if (p->value) {
+		kfree(p->value);
+		p->value = NULL;
+	}
+}
+
+/**
+ * struct property constructor.
+ *
+ * @param name   Property name
+ * @param value  Property value
+ *
+ * @return struct property* Newly created property
+ */
+static struct property *dt_node_property_create(const char *name, u8 *value)
+{
+	struct property *p = kzalloc(sizeof(*p), GFP_KERNEL);
+
+	if (!p) {
+		pr_err("kzalloc failed\n");
+		return NULL;
+	}
+	p->name = kstrdup(name, GFP_KERNEL);
+	if (!p->name) {
+		pr_err("kstrdup failed\n");
+		dt_node_property_destroy(p);
+		return NULL;
+	}
+	if (!value)
+		return p;
+	p->value = kstrdup(value, GFP_KERNEL);
+	if (!p->value) {
+		pr_err("kstrdup failed\n");
+		dt_node_property_destroy(p);
+		return NULL;
+	}
+	p->length = strnlen(p->value, 32) + 1;
+
+	return p;
+}
+
+/**
+ * Create and add a property to a node.
+ *
+ * @param n      Device to add property to
+ * @param name   Property name to add
+ * @param value  Property value
+ *
+ * @return int 0 on success, a negative error value in case of
+ *         an error.
+ */
+static int ipa_dt_node_add_property(struct device_node *n, const char *name, u8 *value)
+{
+	struct property *p = NULL;
+
+	p = dt_node_property_create(name, value);
+	if (!p) {
+		pr_err("dt_node_property_create failed\n");
+		return -EINVAL;
+	}
+	if (of_add_property(n, p)) {
+		pr_err("of_add_property failed. name=%s\n", p->name);
+		dt_node_property_destroy(p);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+/**
+ * Set device tree properties to those of SMMU bypass mode. This
+ * relies on IPA driver logic.
+ *
+ * @param n Pointer to a device tree node
+ *
+ * @return int 0 on success, a negative error value in case of
+ *         an error.
+ */
+static int ipa_dt_node_set_bypass_mode(struct device_node *n)
+{
+	struct property *p = NULL;
+
+	p = of_find_property(n, "dma-coherent", NULL);
+	if (p) {
+		if (of_remove_property(n, p)) {
+			pr_err("of_remove_property failed. name=%s\n", p->name);
+			return -EINVAL;
+		}
+	}
+	p = of_find_property(n, "qcom,iommu-dma", NULL);
+	if (p) {
+		pr_info("%s found in device tree under %s\n", p->name, n->name);
+		if (of_remove_property(n, p)) {
+			pr_err("of_remove_property failed. name=%s\n", p->name);
+			return -EINVAL;
+		}
+		if (ipa_dt_node_add_property(n, "qcom,iommu-dma", "bypass")) {
+			pr_err("ipa_dt_node_add_property failed\n");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Find node by compatible property. In case there is a phandle
+ * referencing another node in "qcom,iommu-group" property, find
+ * that reference.
+ *
+ * @param from    The node to start searching from
+ * @param compatible The name string to match against
+ *
+ * @return struct device_node* A node pointer with refcount
+ *         incremented, use of_node_put() on it when done.
+ */
+static struct device_node* ipa_dt_find_node_and_phandle(struct device_node *from,
+	const char *compatible, const char *ph_name)
+{
+	struct device_node *n = NULL, *np = NULL;
+
+	n = of_find_compatible_node(from, NULL, compatible);
+	if (n) {
+		pr_info("%s found in device tree under %s\n", n->name, from->name);
+		np = of_parse_phandle(n, ph_name, 0);
+		if (np) {
+			pr_info("%s found in device tree under %s\n", np->name, n->name);
+			of_node_put(n);
+			n = np;
+		}
+	}
+
+	return n;
+}
+
+/**
+ * Handle SMMU configuration at run-time according to HW flavor.
+ *
+ * @param dev    Device to set SMMU configuration on
+ *
+ * @return int 0 on success, a negative error value in case of
+ *         an error.
+ */
+static int handle_smmu_dynamic_cfg(struct device *dev)
+{
+	struct device_node *n = NULL;
+	size_t i;
+	int res = 0;
+
+	if (!is_pcie_ep_falvor(dev))
+		return 0;
+	for (i = 0; i < ARRAY_SIZE(ipa_plat_smmu_match); i++) {
+		n = ipa_dt_find_node_and_phandle(dev->of_node, ipa_plat_smmu_match[i].compatible,
+			"qcom,iommu-group");
+		if (n) {
+			pr_info("%s found in device tree under %s\n", n->name, dev->of_node->name);
+			res = ipa_dt_node_set_bypass_mode(n);
+			of_node_put(n);
+			if (res) {
+				pr_err("ipa_dt_node_set_bypass_mode failed\n");
+				return res;
+			}
+		}
+	}
+	res = ipa_dt_node_add_property(dev->of_node, "qcom,use-ipa-in-mhi-mode", NULL);
+	if (res) {
+		pr_err("ipa_dt_node_add_property failed\n");
+		return res;
+	}
+
+	return 0;
+}
+
 int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 {
 	int result;
@@ -11716,6 +12100,14 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		IPAERR("ipa3_ctx was not initialized\n");
 		return -EPROBE_DEFER;
 	}
+
+	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
+	if (ipa3_ctx->logbuf == NULL)
+		pr_err("failed to create IPC ipa log, continue...\n");
+
+	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
+	if (ipa3_ctx->logbuf_clk == NULL)
+		pr_err("failed to create IPC ipa_clk log, continue...\n");
 
 	if (ipa3_ctx->ipa_hw_type == 0) {
 
@@ -11778,6 +12170,18 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		return ipa_smmu_update_fw_loader();
 	}
 
+	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-wlan2-cb")) {
+		if (ipa3_ctx == NULL) {
+			IPAERR("ipa3_ctx was not initialized\n");
+			return -EPROBE_DEFER;
+		}
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN2);
+		cb->dev = dev;
+		smmu_info.present[IPA_SMMU_CB_WLAN2] = true;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
+	}
+
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-eth-cb")) {
 		if (ipa3_ctx == NULL) {
 			IPAERR("ipa3_ctx was not initialized\n");
@@ -11832,6 +12236,12 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	if (of_device_is_compatible(dev->of_node,
 	    "qcom,smp2p-map-ipa-1-in"))
 		return ipa3_smp2p_probe(dev);
+
+	result = handle_smmu_dynamic_cfg(dev);
+	if (result) {
+		IPAERR("handle_smmu_dynamic_cfg failed\n");
+		return result;
+	}
 
 	result = get_ipa_dts_configuration(pdev_p, &ipa3_res);
 	if (result) {
@@ -11946,7 +12356,7 @@ int ipa3_ap_suspend(struct device *dev)
 		}
 	}
 
-#ifdef CONFIG_DEEPSLEEP
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
 	if (pm_suspend_via_firmware()) {
 		IPADBG("Enter deepsleep suspend\n");
 		ipa3_deepsleep_suspend();
@@ -11959,6 +12369,46 @@ int ipa3_ap_suspend(struct device *dev)
 
 	return 0;
 }
+
+#if IS_ENABLED(CONFIG_HIBERNATION)
+/**
+ * ipa3_ap_freeze() - hibernate freeze callback for runtime_pm
+ * @dev: pointer to device
+ *
+ * This callback will be invoked by the runtime_pm framework when an AP
+ * hibernate freeze operation is invoked, usually by pressing a hibernate button.
+ *
+ * Returns -EAGAIN to runtime_pm framework in case IPA is in use by AP.
+ * This will postpone the suspend/freeze operation until IPA is no longer used by AP.
+ */
+int ipa3_ap_freeze(struct device *dev)
+{
+	int i;
+
+	IPADBG("Enter\n");
+
+	if (!of_device_is_compatible(dev->of_node,"qcom,ipa"))
+		return 0;
+	/* In case there is a tx/rx handler in polling mode fail to suspend */
+	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
+		if (ipa3_ctx->ep[i].sys &&
+			atomic_read(&ipa3_ctx->ep[i].sys->curr_polling_state)) {
+			IPAERR("EP %d is in polling state, do not suspend\n",
+				i);
+			return -EAGAIN;
+		}
+	}
+
+	IPADBG("Enter hibernate freeze\n");
+	ipa3_deepsleep_suspend();
+	IPADBG("Exit hibernate freeze\n");
+
+	ipa_pm_deactivate_all_deferred();
+
+	IPADBG("Exit\n");
+	return 0;
+}
+#endif
 
 /**
  * ipa3_ap_resume() - resume callback for runtime_pm
@@ -11986,7 +12436,7 @@ bool ipa3_get_lan_rx_napi(void)
 }
 
 
-#ifdef CONFIG_DEEPSLEEP
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 static void ipa3_deepsleep_suspend(void)
 {
 	IPADBG("Entry\n");
@@ -12105,6 +12555,9 @@ int ipa3_iommu_map(struct iommu_domain *domain,
 	} else if (domain == ipa3_get_wlan1_smmu_domain()) {
 		/* wlan1 is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
+	} else if (domain == ipa3_get_wlan2_smmu_domain()) {
+		/* wlan1 is one time map */
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN2);
 	} else if (domain == ipa3_get_eth_smmu_domain()) {
 		/* eth is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH);
@@ -12179,6 +12632,11 @@ int ipa3_get_smmu_params(struct ipa_smmu_in_params *in,
 		is_smmu_enable =
 			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
 			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN1]);
+		break;
+	case IPA_SMMU_WLAN2_CLIENT:
+		is_smmu_enable =
+			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
+			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN2]);
 		break;
 	case IPA_SMMU_ETH_CLIENT:
 		is_smmu_enable =
@@ -12303,6 +12761,14 @@ int ipa3_pci_drv_probe(struct pci_dev *pci_dev, const struct pci_device_id *ent)
 		IPAERR("ipa3_ctx was not initialized\n");
 		return -EPROBE_DEFER;
 	}
+
+	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
+	if (ipa3_ctx->logbuf == NULL)
+		pr_err("failed to create IPC log, continue...\n");
+
+	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
+	if (ipa3_ctx->logbuf_clk == NULL)
+		pr_err("failed to create IPC ipa_clk log, continue...\n");
 
 	if (ipa3_ctx->ipa_hw_type == 0) {
 		/* Get IPA HW Version */
@@ -12485,6 +12951,7 @@ static int __init ipa_module_init(void)
 		return -ENOMEM;
 	}
 	mutex_init(&ipa3_ctx->lock);
+	INIT_LIST_HEAD(&ipa3_ctx->ipa_ready_cb_list);
 
 	if (running_emulation) {
 		/* Register as a PCI device driver */
