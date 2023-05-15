@@ -2206,6 +2206,83 @@ struct qmi_elem_info ipa3_install_fltr_rule_resp_msg_data_v01_ei[] = {
 	},
 };
 
+struct qmi_elem_info ipa3_eth_backhaul_info_req_msg_v01_ei[] ={
+	{
+		.data_type	= QMI_UNSIGNED_1_BYTE,
+		.elem_len	= QMI_IPA_MAX_MAC_ADDR_LEN_V01,
+		.elem_size	= sizeof(uint8_t),
+		.array_type	= STATIC_ARRAY,
+		.tlv_type	= 0x01,
+		.offset		= offsetof(
+			struct ipa_eth_backhaul_info_req_msg_v01,
+			src_mac_addr),
+	},
+	{
+		.data_type	= QMI_UNSIGNED_1_BYTE,
+		.elem_len	= QMI_IPA_MAX_MAC_ADDR_LEN_V01,
+		.elem_size	= sizeof(uint8_t),
+		.array_type	= STATIC_ARRAY,
+		.tlv_type	= 0x02,
+		.offset		= offsetof(
+			struct ipa_eth_backhaul_info_req_msg_v01,
+			dst_mac_addr),
+	},
+	{
+		.data_type      = QMI_UNSIGNED_4_BYTE,
+		.elem_len       = QMI_IPA_MAX_IPV4_ADDR_LEN_V01,
+		.elem_size      = sizeof(uint32_t),
+		.array_type       = STATIC_ARRAY,
+		.tlv_type       = 0x03,
+		.offset         = offsetof(
+			struct ipa_eth_backhaul_info_req_msg_v01,
+			ipv4_addr_eth0),
+	},
+	{
+		.data_type	= QMI_UNSIGNED_1_BYTE,
+		.elem_len	= 1,
+		.elem_size	= sizeof(uint8_t),
+		.array_type	= NO_ARRAY,
+		.tlv_type	= 0x04,
+		.offset		= offsetof(
+			struct ipa_eth_backhaul_info_req_msg_v01,
+			eth_pipe),
+	},
+	{
+		.data_type	= QMI_UNSIGNED_1_BYTE,
+		.elem_len	= 1,
+		.elem_size	= sizeof(uint8_t),
+		.array_type	= NO_ARRAY,
+		.tlv_type	= 0x05,
+		.offset		= offsetof(
+			struct ipa_eth_backhaul_info_req_msg_v01,
+			enable),
+	},
+	{
+		.data_type      = QMI_EOTI,
+		.array_type       = NO_ARRAY,
+		.tlv_type       = QMI_COMMON_TLV_TYPE,
+	},
+};
+
+struct qmi_elem_info ipa3_eth_backhaul_info_resp_msg_v01_ei[] ={
+	{
+		.data_type	= QMI_STRUCT,
+		.elem_len	= 1,
+		.elem_size	= sizeof(struct qmi_response_type_v01),
+		.array_type	= NO_ARRAY,
+		.tlv_type	= 0x02,
+		.offset		= offsetof(
+			struct ipa_eth_backhaul_info_resp_msg_v01,
+			resp),
+		.ei_array       = qmi_response_type_v01_ei,
+	},
+	{
+		.data_type      = QMI_EOTI,
+		.array_type       = NO_ARRAY,
+		.tlv_type       = QMI_COMMON_TLV_TYPE,
+	},
+};
+
 struct qmi_elem_info ipa3_fltr_installed_notif_req_msg_data_v01_ei[] = {
 	{
 		.data_type	= QMI_UNSIGNED_4_BYTE,

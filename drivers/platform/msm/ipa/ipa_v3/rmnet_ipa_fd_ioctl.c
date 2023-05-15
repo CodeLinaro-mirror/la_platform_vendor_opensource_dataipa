@@ -2,6 +2,11 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  */
+/*
+ *
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
+ */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -105,6 +110,28 @@ static long ipa3_wan_ioctl(struct file *filp,
 		if (ipa3_qmi_filter_request_send(
 			(struct ipa_install_fltr_rule_req_msg_v01 *)param)) {
 			IPAWANDBG("IPACM->Q6 add filter rule failed\n");
+			retval = -EFAULT;
+			break;
+		}
+		if (copy_to_user((u8 *)arg, param, pyld_sz)) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case WAN_IOC_NOTIFY_DUAL_BACKHAUL_INFO:
+		IPAWANDBG("device %s got WAN_IOC_NOTIFY_DUAL_BACKHAUL_INFO :>>>\n",
+			DRIVER_NAME);
+		pyld_sz = sizeof(struct ipa_eth_backhaul_info_req_msg_v01);
+		param = vmemdup_user((const void __user *)arg, pyld_sz);
+
+		if (IS_ERR(param)) {
+			retval = PTR_ERR(param);
+			break;
+		}
+		if (ipa3_qmi_eth_backhaul_info_send(
+			(struct ipa_eth_backhaul_info_req_msg_v01 *)param)) {
+			IPAWANDBG("IPACM->Q6 add Second backhaul failed\n");
 			retval = -EFAULT;
 			break;
 		}
@@ -441,6 +468,11 @@ static long ipa3_wan_ioctl(struct file *filp,
 
 		if (IS_ERR(param)) {
 			retval = PTR_ERR(param);
+			break;
+		}
+		/*per client stats handled using FnR at AP side for ipa_hw version >= 4.5*/
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)
+		{
 			break;
 		}
 		if (rmnet_ipa3_enable_per_client_stats(
