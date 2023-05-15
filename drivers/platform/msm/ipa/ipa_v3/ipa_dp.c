@@ -1352,7 +1352,8 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 		snprintf(buff, IPA_RESOURCE_NAME_MAX, "ipawq%d",
 				sys_in->client);
 		ep->sys->wq = alloc_workqueue(buff,
-				WQ_MEM_RECLAIM | WQ_UNBOUND | WQ_SYSFS, 1);
+				WQ_MEM_RECLAIM | WQ_UNBOUND | WQ_SYSFS | WQ_HIGHPRI,
+			       	1);
 
 		if (!ep->sys->wq) {
 			IPAERR("failed to create wq for client %d\n",
