@@ -1388,13 +1388,14 @@ int ipa3_eth_connect(
 
 	ipa3_eth_save_client_mapping(pipe, client_type,
 		id, ep_idx, ep->gsi_chan_hdl);
-	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_RTK)
-	    || prot == IPA_HW_PROTOCOL_IEMAC) {
+	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_IEMAC)) {
 		result = ipa3_eth_config_uc(true, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, ch);
 		if (result) {
 			IPAERR("failed to config uc\n");
+			ipa_assert();
 			goto config_uc_fail;
 		}
 	}
@@ -1483,8 +1484,8 @@ int ipa3_eth_disconnect(
 		goto fail;
 	}
 
-	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_RTK)
-	    || prot == IPA_HW_PROTOCOL_IEMAC) {
+	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_IEMAC)) {
 		result = ipa3_eth_config_uc(false, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, 0);
