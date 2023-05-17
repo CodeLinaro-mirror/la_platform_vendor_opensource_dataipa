@@ -5888,7 +5888,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
-			{ 0, 5, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 0}, IPA_TX_INSTANCE_NA },
+			{ 0, 9, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 0}, IPA_TX_INSTANCE_NA },
 
 	[IPA_5_2_MHI][IPA_CLIENT_MHI_PROD] = {
 			true, IPA_v5_2_GROUP_UL,
@@ -5902,7 +5902,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
 			QMB_MASTER_SELECT_DDR,
-			{ 3, 9, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_NA },
+			{ 3, 5, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_NA },
 
 	[IPA_5_2_MHI][IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD] = {
 			true, IPA_v5_2_GROUP_URLLC,
@@ -6014,7 +6014,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
-			{ 20, 6, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_DL },
+			{ 20, 10, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_DL },
 
 	[IPA_5_2_MHI][IPA_CLIENT_MEMCPY_DMA_SYNC_CONS] = {
 			true, IPA_v5_2_GROUP_DST_DMA,
@@ -6042,7 +6042,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_PCIE,
-			{ 24, 10, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_DL },
+			{ 24, 6, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_DL },
 
 
 	/* IPA_5_5 */
@@ -6468,6 +6468,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+	[IPA_6_0][IPA_CLIENT_WLAN1_PROD] = {
+			true, IPA_v6_0_GROUP_DL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			QMB_MASTER_SELECT_DDR,
+			{ 15, 22, 10, 16, IPA_EE_AP, GSI_FREE_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_APPS_LAN_PROD] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
@@ -6708,7 +6715,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 41, 8, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 4},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0][IPA_CLIENT_WLAN3_CONS] = {
+	[IPA_6_0][IPA_CLIENT_WLAN1_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -9229,6 +9236,7 @@ int ipa3_get_clients_from_rm_resource(
 		clients->names[i++] = IPA_CLIENT_WLAN1_CONS;
 		clients->names[i++] = IPA_CLIENT_WLAN2_CONS;
 		clients->names[i++] = IPA_CLIENT_WLAN3_CONS;
+		clients->names[i++] = IPA_CLIENT_WLAN4_CONS;
 		clients->names[i++] = IPA_CLIENT_WLAN2_CONS1;
 		break;
 	case IPA_RM_RESOURCE_MHI_CONS:
@@ -10803,6 +10811,7 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_ETHERNET2_CONS:
 		case IPA_CLIENT_USB2_CONS:
 		case IPA_CLIENT_WLAN4_CONS:
+		case IPA_CLIENT_WLAN1_PROD:
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en = 1;
 			break;
 		default:
@@ -11918,6 +11927,7 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 			param_in->client == IPA_CLIENT_WLAN2_PROD ||
 			param_in->client == IPA_CLIENT_WLAN3_PROD ||
 			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
+			param_in->client == IPA_CLIENT_WLAN1_PROD1 ||
 			param_in->client == IPA_CLIENT_WLAN3_PROD1) {
 		ipa3_ctx->ep[ipa_ep_idx].cfg.meta = meta;
 		if ((ipa_get_wdi_version() == IPA_WDI_3 ||
@@ -11925,7 +11935,9 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 			ipa_get_wdi_version() == IPA_WDI_4) &&
 			(param_in->client == IPA_CLIENT_WLAN2_PROD ||
 			param_in->client == IPA_CLIENT_WLAN3_PROD ||
+			param_in->client == IPA_CLIENT_WLAN1_PROD ||
 			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
+			param_in->client == IPA_CLIENT_WLAN1_PROD1 ||
 			param_in->client == IPA_CLIENT_WLAN3_PROD1))
 				result = ipa3_write_qmapid_wdi3_gsi_pipe(
 					ipa_ep_idx, meta.qmap_id);

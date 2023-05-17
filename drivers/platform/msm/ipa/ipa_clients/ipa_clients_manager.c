@@ -24,15 +24,15 @@ static int __init ipa_clients_manager_init(void)
 
 	ipa_mhi_register();
 
-	if (ipa3_ctx->ipa_config_is_mhi) {
-		ipa_dma_mhi_provide_ops();
-	}
-
 	ipa_wigig_register();
 
 	ipa_eth_register();
 
 	ipa3_notify_clients_registered();
+
+	if (ipa3_ctx->ipa_config_is_mhi) {
+		ipa_dma_mhi_provide_ops();
+	}
 
 	ipa3_qdss_register();
 
