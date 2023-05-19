@@ -2235,11 +2235,12 @@ int gsi_query_channel_db_addr(unsigned long chan_hdl,
  *
  * @ch_db_base_addr: Physical base address of gsi channel doorbell register
  * @ev_db_base_addr: Physical base address of event channel doorbell register
- *
+ * @start_chan_id:   First channel index.
+ * @start_evtr_id:   First event ring index.
  * @Return gsi_status
  */
 int gsi_get_channel_event_db_base_addr(uint64_t *ch_db_base_addr,
-		uint64_t *ev_db_base_addr);
+		uint64_t *ev_db_base_addr, uint32_t start_chan_id, uint32_t start_evtr_id);
 /**
  * gsi_query_channel_info - Peripheral can call this function to query the
  * channel and associated event ring (if any) status.
