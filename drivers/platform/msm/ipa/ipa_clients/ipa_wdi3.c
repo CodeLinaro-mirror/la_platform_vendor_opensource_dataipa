@@ -401,9 +401,13 @@ static int ipa_wdi_reg_intf_per_inst_internal(
  	tx_prop[0].ip = IPA_IP_v4;
  	tx_prop[1].ip = IPA_IP_v6;
 
-	tx_prop[0].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
-	tx_prop[1].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
-
+	if (in->is_tx1_used) {
+		tx_prop[0].dst_pipe =  ipa_wdi_ctx_list[in->hdl]->tx1_client;
+		tx_prop[1].dst_pipe =  ipa_wdi_ctx_list[in->hdl]->tx1_client;
+	} else {
+		tx_prop[0].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
+		tx_prop[1].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
+	}
  	tx_prop[0].alt_dst_pipe = in->alt_dst_pipe;
  	tx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
  	strlcpy(tx_prop[0].hdr_name, hdr->hdr[IPA_IP_v4].name,
