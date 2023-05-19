@@ -3413,7 +3413,7 @@ int gsi_query_channel_db_addr(unsigned long chan_hdl,
 EXPORT_SYMBOL(gsi_query_channel_db_addr);
 
 int gsi_get_channel_event_db_base_addr(uint64_t *ch_db_base_addr,
-		uint64_t *ev_db_base_addr)
+		uint64_t *ev_db_base_addr, uint32_t start_chan_id, uint32_t start_evtr_id)
 {
         if (!gsi_ctx) {
                 pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
@@ -3426,10 +3426,20 @@ int gsi_get_channel_event_db_base_addr(uint64_t *ch_db_base_addr,
                 return -GSI_STATUS_INVALID_PARAMS;
         }
 
+		if (start_chan_id >= gsi_ctx->max_ch) {
+			GSIERR("bad params chan_hdl=%lu\n", start_chan_id);
+			return -GSI_STATUS_INVALID_PARAMS;
+		}
+
+		if (start_evtr_id >= gsi_ctx->max_ev) {
+			GSIERR("bad params evt_ring_hdl=%lu\n", start_evtr_id);
+			return -GSI_STATUS_INVALID_PARAMS;
+		}
+
         *ch_db_base_addr = gsi_ctx->per.phys_addr +
-                gsihal_get_reg_nk_ofst(GSI_EE_n_GSI_CH_k_DOORBELL_0, 0, 0);
+                gsihal_get_reg_nk_ofst(GSI_EE_n_GSI_CH_k_DOORBELL_0, 0, start_chan_id);
         *ev_db_base_addr = gsi_ctx->per.phys_addr +
-                gsihal_get_reg_nk_ofst(GSI_EE_n_EV_CH_k_DOORBELL_0, 0, 0);
+                gsihal_get_reg_nk_ofst(GSI_EE_n_EV_CH_k_DOORBELL_0, 0, start_evtr_id);
 
         return GSI_STATUS_SUCCESS;
 }

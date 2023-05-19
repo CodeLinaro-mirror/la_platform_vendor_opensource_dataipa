@@ -2568,7 +2568,7 @@ int ipa_mhi_dma_init(struct mhi_dma_function_params function,
 	}
 
 	gsi_res = gsi_get_channel_event_db_base_addr(&out->ch_db_fwd_base,
-		&out->ev_db_fwd_base);
+		&out->ev_db_fwd_base, 0, ipa3_ctx->mhi_evid_limits[0]);
 	if (gsi_res != GSI_STATUS_SUCCESS) {
 		IPA_MHI_ERR("Error getting DB base addresses: %d\n", gsi_res);
 		return -EFAULT;
