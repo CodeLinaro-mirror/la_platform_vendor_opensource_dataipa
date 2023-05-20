@@ -238,16 +238,30 @@ static int calculate_throughput(void)
 {
 	int client_tput[IPA_PM_MAX_CLIENTS] = { 0 };
 	bool group_voted[IPA_PM_GROUP_MAX] = { false };
-	int i, n;
-	int max, second_max, aggregated_tput;
+	bool exception_voted[IPA_PM_MAX_CLIENTS] = { false };
+	int i, n, k, len;
+	int max, second_max, aggregated_tput = 0;
 	struct ipa_pm_client *client;
+	struct ipa_pm_exception_list *exception;
 
 	/* Create a basic array to hold throughputs*/
 	for (i = 1, n = 0; i < IPA_PM_MAX_CLIENTS; i++) {
 		client = ipa_pm_ctx->clients[i];
 		if (client != NULL && IPA_PM_STATE_ACTIVE(client->state)) {
+			/*Adding exception client BW value to aggeragted tput directly*/
+			len = strlen(client->name);
+			for (k = 0; k < ipa_pm_ctx->clk_scaling.exception_size; k++) {
+				exception = &ipa_pm_ctx->clk_scaling.exception_list[k];
+				if (strnstr(exception->clients, client->name, len) &&
+						(strlen(exception->clients) == len)) {
+					aggregated_tput += client->throughput;
+					exception_voted[i] = true;
+				}
+			}
 			/* default case */
-			if (client->group == IPA_PM_GROUP_DEFAULT) {
+			if (exception_voted[i]) {
+				client_tput[n++] = 0;
+			} else if (client->group == IPA_PM_GROUP_DEFAULT) {
 				client_tput[n++] = client->throughput;
 			} else if (!group_voted[client->group]) {
 				client_tput[n++] = ipa_pm_ctx->group_tput
@@ -257,8 +271,6 @@ static int calculate_throughput(void)
 		}
 	}
 	/*the array will only use n+1 spots. n will be the last index used*/
-
-	aggregated_tput = 0;
 
 	/**
 	 * throughput algorithm:
