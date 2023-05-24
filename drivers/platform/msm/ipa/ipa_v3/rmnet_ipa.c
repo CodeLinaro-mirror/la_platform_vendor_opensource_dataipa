@@ -4277,6 +4277,9 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	case QCOM_SSR_BEFORE_SHUTDOWN:
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	case QCOM_SSR_BEFORE_DS_ENTER:
+#endif
 #else
 	case SUBSYS_BEFORE_SHUTDOWN:
 #endif
@@ -4323,6 +4326,9 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	case QCOM_SSR_AFTER_SHUTDOWN:
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	case QCOM_SSR_AFTER_DS_ENTER:
+#endif
 #else
 	case SUBSYS_AFTER_SHUTDOWN:
 #endif
@@ -4367,6 +4373,9 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	case QCOM_SSR_BEFORE_POWERUP:
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	case QCOM_SSR_BEFORE_DS_EXIT:
+#endif
 #else
 	case SUBSYS_BEFORE_POWERUP:
 #endif
@@ -4390,6 +4399,9 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	case QCOM_SSR_AFTER_POWERUP:
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	case QCOM_SSR_AFTER_DS_EXIT:
+#endif
 #else
 	case SUBSYS_AFTER_POWERUP:
 #endif

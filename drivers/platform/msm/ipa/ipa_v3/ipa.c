@@ -151,6 +151,10 @@ static void ipa3_deepsleep_suspend(void);
 
 static void ipa3_load_ipa_fw(struct work_struct *work);
 static DECLARE_WORK(ipa3_fw_loading_work, ipa3_load_ipa_fw);
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+static void ipa3_xbl_ipa_init(struct work_struct *work);
+static DECLARE_WORK(ipa3_xbl_init_work, ipa3_xbl_ipa_init);
+#endif
 static DECLARE_DELAYED_WORK(ipa3_fw_load_failure_handle, ipa3_load_ipa_fw);
 
 static void ipa_dec_clients_disable_clks_on_wq(struct work_struct *work);
@@ -544,6 +548,9 @@ static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 
 static struct notifier_block ipa_pm_notifier = {
 	.notifier_call = ipa_pm_notify,
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+	.priority = INT_MAX,
+#endif
 };
 
 static const struct dev_pm_ops ipa_pm_ops = {
@@ -8736,6 +8743,29 @@ static int ipa3_pil_unload_ipa_fws(void)
 }
 #endif
 
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+static void ipa3_xbl_ipa_init(struct work_struct *work)
+{
+	int result;
+
+	IPAERR("Using XBL boot load for IPA FW\n");
+
+	result = ipa3_attach_to_smmu();
+	if (result) {
+		IPAERR("IPA attach to smmu failed %d\n",
+				result);
+		return;
+	}
+
+	result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+	if (result) {
+		IPAERR("IPA post init failed %d\n", result);
+		return;
+
+	}
+}
+#endif
+
 static void ipa3_load_ipa_fw(struct work_struct *work)
 {
 	int result;
@@ -12443,6 +12473,10 @@ bool ipa3_get_lan_rx_napi(void)
 static void ipa3_deepsleep_suspend(void)
 {
 	IPADBG("Entry\n");
+	if (ipa3_ctx->deepsleep) {
+		IPAERR("Already in deepsleep mode\n");
+		return;
+	}
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	/* To allow default routing table delection using this flag */
@@ -12485,8 +12519,13 @@ static void ipa3_deepsleep_resume(void)
 	/*After deeplseep exit we shouldn't allow delete the default routing table*/
 	ipa3_ctx->deepsleep = false;
 	/*Scheduling WQ to load IPA FW*/
-	queue_work(ipa3_ctx->transport_power_mgmt_wq,
-		&ipa3_fw_loading_work);
+	if (ipa3_ctx->use_xbl_boot) {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_xbl_init_work);
+	} else {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_fw_loading_work);
+	}
 	IPADBG("Exit\n");
 }
 #endif
