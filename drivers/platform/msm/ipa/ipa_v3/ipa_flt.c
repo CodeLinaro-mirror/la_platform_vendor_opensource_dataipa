@@ -949,11 +949,11 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 	}
 
 	if (rule->rule_id) {
-		if ((rule->rule_id < ipahal_get_rule_id_hi_bit()) ||
-		(rule->rule_id >= ((ipahal_get_rule_id_hi_bit()<<1)-1))) {
+		if ((rule->rule_id < ipa3_ctx->filter_start_id) ||
+		(rule->rule_id >= ((IPA_Q6_FLT_START_ID)<<1)-1)) {
 			IPAERR_RL("invalid rule_id provided 0x%x\n"
 				"rule_id with bit 0x%x are auto generated\n",
-				rule->rule_id, ipahal_get_rule_id_hi_bit());
+				rule->rule_id, ipa3_ctx->filter_start_id);
 			goto error;
 		}
 	}
@@ -1031,7 +1031,7 @@ static int __ipa_finish_flt_rule_add(struct ipa3_flt_tbl *tbl,
 {
 	int id;
 
-	if (tbl->rule_cnt < IPA_RULE_CNT_MAX)
+	if (tbl->rule_cnt < ipa3_ctx->filter_start_id)
 		tbl->rule_cnt++;
 	else
 		return -EINVAL;
@@ -1085,7 +1085,7 @@ static int __ipa_add_flt_rule(struct ipa3_flt_tbl *tbl, enum ipa_ip_type ip,
 ipa_insert_failed:
 	list_del(&entry->link);
 	/* if rule id was allocated from idr, remove it */
-	if ((entry->rule_id < ipahal_get_rule_id_hi_bit()) &&
+	if ((entry->rule_id < ipa3_ctx->filter_start_id) &&
 		(entry->rule_id >= ipahal_get_low_rule_id()))
 		idr_remove(entry->tbl->rule_ids, entry->rule_id);
 	kmem_cache_free(ipa3_ctx->flt_rule_cache, entry);
@@ -1133,7 +1133,7 @@ static int __ipa_add_flt_rule_after(struct ipa3_flt_tbl *tbl,
 ipa_insert_failed:
 	list_del(&entry->link);
 	/* if rule id was allocated from idr, remove it */
-	if ((entry->rule_id < ipahal_get_rule_id_hi_bit()) &&
+	if ((entry->rule_id < ipa3_ctx->filter_start_id) &&
 		(entry->rule_id >= ipahal_get_low_rule_id()))
 		idr_remove(entry->tbl->rule_ids, entry->rule_id);
 	kmem_cache_free(ipa3_ctx->flt_rule_cache, entry);
@@ -1168,7 +1168,7 @@ static int __ipa_del_flt_rule(u32 rule_hdl)
 		entry->tbl->rule_cnt, entry->rule_id);
 	entry->cookie = 0;
 	/* if rule id was allocated from idr, remove it */
-	if ((entry->rule_id < ipahal_get_rule_id_hi_bit()) &&
+	if ((entry->rule_id < ipa3_ctx->filter_start_id) &&
 		(entry->rule_id >= ipahal_get_low_rule_id()))
 		idr_remove(entry->tbl->rule_ids, entry->rule_id);
 
@@ -1948,7 +1948,7 @@ int ipa3_reset_flt(enum ipa_ip_type ip, bool user_only)
 				/* if rule id was allocated from idr, remove */
 				rule_id = entry->rule_id;
 				id = entry->id;
-				if ((rule_id < ipahal_get_rule_id_hi_bit()) &&
+				if ((rule_id < ipa3_ctx->filter_start_id) &&
 					(rule_id >= ipahal_get_low_rule_id()))
 					idr_remove(entry->tbl->rule_ids,
 						rule_id);

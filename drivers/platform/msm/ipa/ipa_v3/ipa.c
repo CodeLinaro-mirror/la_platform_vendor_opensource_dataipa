@@ -10059,6 +10059,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ipa_endp_delay_wa_v2 = resource_p->ipa_endp_delay_wa_v2;
 	ipa3_ctx->ulso_wa = resource_p->ulso_wa;
 	ipa3_ctx->coal_ipv4_id_ignore = resource_p->coal_ipv4_id_ignore;
+	if(resource_p->filter_start_id > IPA_Q6_FLT_START_ID)
+		ipa3_ctx->filter_start_id = resource_p->filter_start_id;
+	else
+		ipa3_ctx->filter_start_id = IPA_Q6_FLT_START_ID;
 
 	WARN(!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode),
 		"Non NORMAL IPA HW mode, is this emulation platform ?");
@@ -11511,6 +11515,19 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	if (result) {
 		IPAERR("No gunyah-label info\n");
 		ipa_drv_res->gunyah_label = 0;
+	}
+	ipa_drv_res->filter_start_id = 0;
+
+	/*QMI Support for filter rule start id*/
+	result = of_property_read_u32(pdev->dev.of_node,"qcom,filter-start-id", &ipa_drv_res->filter_start_id);
+	if(result)
+	{
+		ipa_drv_res->filter_start_id = IPA_Q6_FLT_START_ID;
+		IPADBG("Default: qcom,filter-start-id = %d\n", ipa_drv_res->filter_start_id);
+	}
+	else
+	{
+		IPADBG("Found:qcom,filter-start-id = %d\n", ipa_drv_res->filter_start_id);
 	}
 
 	/* Get IPA HW Version */

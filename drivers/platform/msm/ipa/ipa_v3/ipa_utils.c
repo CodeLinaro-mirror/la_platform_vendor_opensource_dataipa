@@ -12767,7 +12767,7 @@ int ipa3_alloc_rule_id(struct idr *rule_ids)
 	 */
 	return idr_alloc(rule_ids, NULL,
 		ipahal_get_low_rule_id(),
-		ipahal_get_rule_id_hi_bit(),
+		ipa3_ctx->filter_start_id,
 		GFP_KERNEL);
 }
 
