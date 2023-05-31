@@ -10751,6 +10751,14 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	IPADBG(": Enable tx polling = %s\n", ipa_drv_res->tx_poll
 		? "True" : "False");
 
+	/* disable napi related flags in auto */
+	if (ipa_drv_res->ipa_config_is_auto) {
+		IPADBG(" disalbe wan_skb_page/tx_napi/tx_poll on auto\n");
+		ipa_drv_res->ipa_wan_skb_page = false;
+		ipa_drv_res->tx_napi_enable = false;
+		ipa_drv_res->tx_poll = false;
+	}
+
 	if (ipa_drv_res->platform_type != IPA_PLAT_TYPE_APQ) {
 		ipa_drv_res->rmnet_ctl_enable =
 			of_property_read_bool(pdev->dev.of_node,
