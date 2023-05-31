@@ -11846,7 +11846,8 @@ static bool is_pcie_ep_falvor(struct device *dev)
 {
 	struct nvmem_cell *cell = NULL;
 	struct device_node *n = dev->of_node;
-	u32 *buf, fast_boot, host_bypass, fast_boot_mask = 0, host_bypass_mask = 0;
+	u32 fast_boot, host_bypass, fast_boot_mask = 0, host_bypass_mask = 0;
+	u8 *buf;
 	int res = 0, num_fast_boot_values = 0, i;
 	u32 fast_boot_values[16];
 
