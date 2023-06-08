@@ -117,12 +117,12 @@ endif
 endif
 
 ifeq ($(CONFIG_ARCH_SDXPINN), y)
-DATAIPADRVTOP = $(MODULE_OUT)/drivers/platform/msm
-LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa.h
-include $(MODULE_OUT)/config/dataipa_QGKI.conf
+DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa.h
+include $(srctree)/../../../dataipa/config/dataipa_QGKI.conf
 ifneq ($(CONFIG_LOCALVERSION), "-perf")
-include $(MODULE_OUT)/config/dataipa_debug.conf
-LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa_debug.h
+include $(srctree)/../../../dataipa/config/dataipa_debug.conf
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
 endif
 endif
 
