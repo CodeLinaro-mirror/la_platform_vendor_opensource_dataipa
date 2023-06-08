@@ -2907,6 +2907,49 @@ static ssize_t ipa3_read_wdi3_gsi_stats(struct file *file,
 				stats.u.ring[0].ringUsageLow,
 				stats.u.ring[0].RingUtilCount);
 			cnt += nbytes;
+			if(ipa_get_wdi_version() == IPA_WDI_4)
+			{
+				/*SPLIT PHY CASE: 3 tx 2 rx pipes*/
+				if(ipa_wdi_is_tx1_used() != 1)
+				{
+					nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN - cnt,
+						"RX1 ringFull=%u\n"
+						"RX1 ringEmpty=%u\n"
+						"RX1 ringUsageHigh=%u\n"
+						"RX1 ringUsageLow=%u\n"
+						"RX1 RingUtilCount=%u\n",
+						stats.u.ring[3].ringFull,
+						stats.u.ring[3].ringEmpty,
+						stats.u.ring[3].ringUsageHigh,
+						stats.u.ring[3].ringUsageLow,
+						stats.u.ring[3].RingUtilCount);
+					cnt += nbytes;
+				}
+				nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN - cnt,
+					"RX2 ringFull=%u\n"
+					"RX2 ringEmpty=%u\n"
+					"RX2 ringUsageHigh=%u\n"
+					"RX2 ringUsageLow=%u\n"
+					"RX2 RingUtilCount=%u\n",
+					stats.u.ring[4].ringFull,
+					stats.u.ring[4].ringEmpty,
+					stats.u.ring[4].ringUsageHigh,
+					stats.u.ring[4].ringUsageLow,
+					stats.u.ring[4].RingUtilCount);
+				cnt += nbytes;
+				nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN - cnt,
+					"TX2 ringFull=%u\n"
+					"TX2 ringEmpty=%u\n"
+					"TX2 ringUsageHigh=%u\n"
+					"TX2 ringUsageLow=%u\n"
+					"TX2 RingUtilCount=%u\n",
+					stats.u.ring[5].ringFull,
+					stats.u.ring[5].ringEmpty,
+					stats.u.ring[5].ringUsageHigh,
+					stats.u.ring[5].ringUsageLow,
+					stats.u.ring[5].RingUtilCount);
+				cnt += nbytes;
+			}
 		}
 	} else {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,

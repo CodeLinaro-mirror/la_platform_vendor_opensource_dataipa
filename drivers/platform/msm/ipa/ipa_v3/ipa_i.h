@@ -103,6 +103,8 @@
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
 
+#define IPA_AP_CB_WLAN_END_MAPPING 0x20000000
+
 /* ULSO Constants */
 enum {
 	ENDP_INIT_ULSO_CFG_IP_ID_MIN_MAX_VAL_IDX_LINUX,
@@ -350,12 +352,27 @@ enum {
 #define IPA_WDI_RX4_RING_RP_RES        25
 #define IPA_WDI_RX4_COMP_RING_RES      26
 #define IPA_WDI_RX4_COMP_RING_WP_RES   27
-#define IPA_WDI_MAX_RES                28
+#define IPA_WDI_TX3_RING_RES           28
+#define IPA_WDI_CE3_RING_RES           29
+#define IPA_WDI_CE3_DB_RES             30
+#define IPA_WDI_TX3_DB_RES             31
+#define IPA_WDI_RX5_RING_RES           32
+#define IPA_WDI_RX5_RING_RP_RES        33
+#define IPA_WDI_RX5_COMP_RING_RES      34
+#define IPA_WDI_RX5_COMP_RING_WP_RES   35
+#define IPA_WDI_RX6_RING_RES           36
+#define IPA_WDI_RX6_RING_RP_RES        37
+#define IPA_WDI_RX6_COMP_RING_RES      38
+#define IPA_WDI_RX6_COMP_RING_WP_RES   39
+#define IPA_WDI_MAX_RES                40
 
-#define IPA_WDI3_TX2_DIR 4
-#define IPA_WDI3_RX2_DIR 5
-#define IPA_WDI3_RX3_DIR 6
-#define IPA_WDI3_RX4_DIR 7
+#define IPA_WDI3_TX2_DIR	4
+#define IPA_WDI3_TX3_DIR	5
+#define IPA_WDI3_RX2_DIR	6
+#define IPA_WDI3_RX3_DIR	7
+#define IPA_WDI3_RX4_DIR	8
+#define IPA_WDI3_RX5_DIR	9
+#define IPA_WDI3_RX6_DIR	10
 
 /* ipa_tiering_mode - Enable/Disable IPA HW features. */
 #define	IPA_TIERING_DISABLE_NAT 	(1)
@@ -676,6 +693,12 @@ struct ipa3_client_names {
 	int length;
 };
 
+struct ipa_smmu_cb_mapping {
+	phys_addr_t m_pa;
+	unsigned long m_iova;
+	size_t m_size;
+};
+
 struct ipa_smmu_cb_ctx {
 	bool valid;
 	struct device *dev;
@@ -689,6 +712,10 @@ struct ipa_smmu_cb_ctx {
 	bool shared;
 	bool is_cache_coherent;
 	bool done;
+	/**
+	 * todo: make this a list.
+	 */
+	struct ipa_smmu_cb_mapping m_map[IPA_ETH_INST_ID_MAX][IPA_ETH_PIPE_DIR_MAX];
 };
 
 /**
@@ -2245,17 +2272,6 @@ enum ipa_per_usb_enum_type_e {
 	IPA_PER_USB_ENUM_TYPE_MAX
 };
 
-/**
- * struct ipa_ready_cb_mhi_data - List node for ipa ready CBs
- * @link: List member
- * @ready_cb: callback to be called when ipa is ready
- * @userdata: userdata for ipa ready cb
- */
-struct ipa_ready_cb_mhi_data {
-	struct list_head link;
-	ipa_ready_cb ready_cb;
-	void *user_data;
-};
 
 /**
  * struct ipa3_context - IPA context

@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -2550,34 +2550,9 @@ EXPORT_SYMBOL(ipa_mhi_register);
 int ipa_mhi_dma_register_ready_cb(void (*mhi_ready_cb)(void *user_data),
 		void *user_data)
 {
-	struct ipa_ready_cb_mhi_data *cb_info = NULL;
-
-	if (!ipa3_ctx) {
-		IPA_MHI_ERR("Can't register ready CB, ipa3_ctx hasn't been \
-			initialized yet");
-		return -EPERM;
-	}
-
-	mutex_lock(&ipa3_ctx->lock);
-	if (ipa3_ctx->ipa_initialization_complete) {
-		IPA_MHI_DBG("IPA driver finished initialization already\n");
-		mutex_unlock(&ipa3_ctx->lock);
-		return -EEXIST;
-	}
-
-	cb_info = kmalloc(sizeof(struct ipa_ready_cb_mhi_data), GFP_KERNEL);
-	if (!cb_info) {
-		mutex_unlock(&ipa3_ctx->lock);
-		return -ENOMEM;
-	}
-
-	cb_info->ready_cb = mhi_ready_cb;
-	cb_info->user_data = user_data;
-
-	list_add_tail(&cb_info->link, &ipa3_ctx->ipa_ready_cb_list);
-	mutex_unlock(&ipa3_ctx->lock);
-
-	return 0;
+	IPA_MHI_DBG("Begin\n");
+	return ipa_register_ipa_ready_cb(mhi_ready_cb,user_data);
+	IPA_MHI_DBG("End\n");
 }
 EXPORT_SYMBOL(ipa_mhi_dma_register_ready_cb);
 

@@ -948,24 +948,22 @@ static int ipa_flt_gen_hw_rule_ipav5_5(
 
 int ipa_flt_gen_hw_frag_rule_extra(u16 *en_rule,
 	const struct ipa_rule_attrib *attrib,
-	u8 **extra_wrds)
+	u8 **extra)
 {
 	return 0;
 }
 
 int ipa_flt_gen_hw_frag_rule_extra_ipav6_0(u16 *en_rule,
 	const struct ipa_rule_attrib *attrib,
-	u8 **extra_wrds)
+	u8 **extra)
 {
-	u8 *extra = *extra_wrds;
-
 	/* IS-FRAG equation enhancement change since IPA6.0 */
 	if (attrib->is_frag_encoding > MAX_IS_FRAG_ENCODING) {
 		IPAHAL_ERR("Invalid is_frag_encoding:%d, setting \
 					default value 0\n", attrib->is_frag_encoding);
-		extra = ipa_write_8(0, extra);
+		*extra = ipa_write_8(0, *extra);
 	} else {
-		extra = ipa_write_8(attrib->is_frag_encoding, extra);
+		*extra = ipa_write_8(attrib->is_frag_encoding, *extra);
 	}
 
 	return 0;
@@ -1367,6 +1365,7 @@ static struct ipahal_fltrt_obj ipahal_fltrt_objs[IPA_HW_MAX] = {
 				[IPA_IS_FRAG] = 15,
 				[IPA_IS_PURE_ACK] = 0,
 			},
+			IPA3_0_HW_RULE_PREFETCH_BUF_SIZE,
 	},
 
 };
@@ -1946,7 +1945,7 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_FRAGMENT) {
-		ipa_fltrt_generate_hw_rule_bdy_frag(en_rule, attrib, extra_wrds);
+		ipa_fltrt_generate_hw_rule_bdy_frag(en_rule, attrib, &extra);
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_FRAG);
 	}
 
@@ -2473,7 +2472,7 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_FRAGMENT) {
-		ipa_fltrt_generate_hw_rule_bdy_frag(en_rule, attrib, extra_wrds);
+		ipa_fltrt_generate_hw_rule_bdy_frag(en_rule, attrib, &extra);
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_FRAG);
 	}
 

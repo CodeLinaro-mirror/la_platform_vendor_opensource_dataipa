@@ -11447,6 +11447,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 						"dma-coherent");
 	cb->dev   = dev;
 	cb->valid = true;
+	memset(&cb->m_map, 0, sizeof(cb->m_map));
 
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
@@ -11463,11 +11464,11 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 			dev->of_node, "qcom,iommu-geometry",
 			geometry_ap_mapping, 2) == 0) {
 		cb->geometry_start = geometry_ap_mapping[0];
-		cb->geometry_end  = geometry_ap_mapping[1];
+		cb->geometry_end  = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
 	} else {
 		IPADBG("AP CB PROBE Geometry not defined using max!\n");
 		cb->geometry_start = 0;
-		cb->geometry_end = 0xF0000000;
+		cb->geometry_end = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
 	}
 
 	IPADBG("AP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
@@ -12089,8 +12090,11 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	struct ipa_smmu_cb_ctx *cb;
 
 	/*
-	 * IPA probe function can be called for multiple times as the same probe
-	 * function handles multiple compatibilities
+	 * Linux platform core matches devices with their drivers by matching the DT device node's
+	 * "compatible" property against one of the strings in the string array field
+	 * of_match_table of struct dvice_driver. For each DT device node with "compatible"
+	 * property == one of struct dvice_driver.of_match_table strings struct dvice_driver.probe
+	 * will be called.
 	 */
 	pr_debug("ipa: IPA driver probing started for %s\n",
 		pdev_p->dev.of_node->name);
@@ -12631,6 +12635,11 @@ int ipa3_get_smmu_params(struct ipa_smmu_in_params *in,
 		is_smmu_enable =
 			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
 			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN1]);
+		break;
+	case IPA_SMMU_WLAN2_CLIENT:
+		is_smmu_enable =
+			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
+			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN2]);
 		break;
 	case IPA_SMMU_ETH_CLIENT:
 		is_smmu_enable =
