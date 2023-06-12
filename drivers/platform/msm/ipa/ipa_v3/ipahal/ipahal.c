@@ -248,8 +248,8 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_dma_shared_mem_v_6_0(
 		WARN_ON(1);
 		return NULL;
 	}
-	if (unlikely(mem_params->local_addr & ~0xFFFFF)) {
-		IPAHAL_ERR("Local addr is bigger than 20bit width 0x%x\n",
+	if (unlikely(mem_params->local_addr & ~0xFFFF)) {
+		IPAHAL_ERR("Local addr is bigger than 16bit width 0x%x\n",
 			mem_params->local_addr);
 		WARN_ON(1);
 		return NULL;
