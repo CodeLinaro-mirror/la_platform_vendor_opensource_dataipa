@@ -289,8 +289,8 @@ static int ipa_translate_flt_tbl_to_hw_fmt(enum ipa_ip_type ip,
 			 * tables are order back-to-back
 			 */
 			body_i += ipahal_get_lcl_tbl_addr_alignment();
-			body_i = (u8 *)((long)body_i &
-				~ipahal_get_lcl_tbl_addr_alignment());
+			body_i = (u8 *)((uintptr_t)body_i &
+				~(uintptr_t)ipahal_get_lcl_tbl_addr_alignment());
 		}
 		hdr_idx++;
 	}

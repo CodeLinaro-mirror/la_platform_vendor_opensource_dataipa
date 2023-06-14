@@ -9854,13 +9854,19 @@ void _ipa_sram_settings_read_v3_0(void)
 	ipa3_ctx->flt_tbl_hash_lcl[IPA_IP_v4] = false;
 	ipa3_ctx->flt_tbl_hash_lcl[IPA_IP_v6] = false;
 
-	if (ipa3_ctx->ipa_hw_type == IPA_HW_v5_0) {
+	/*
+	 * Non-hashable filter tables in SRAM supported if the
+	 * size of the tables are defined in ipa3_mem_partition.
+	 */
+	if (IPA_MEM_PART(apps_v4_flt_nhash_size))
 		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v4] = true;
-		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v6] = true;
-	} else {
+	else
 		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v4] = false;
+
+	if (IPA_MEM_PART(apps_v6_flt_nhash_size))
+		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v6] = true;
+	else
 		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v6] = false;
-	}
 }
 
 /**
