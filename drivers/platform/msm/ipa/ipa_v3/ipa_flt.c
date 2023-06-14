@@ -461,6 +461,13 @@ static bool ipa_flt_skip_pipe_config(int pipe)
 		return true;
 	}
 
+	if ((ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_V2X_PROD) == pipe
+		&& ipa3_ctx->modem_cfg_emb_pipe_flt)
+		&& ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD) {
+		IPADBG_LOW("skip %d\n", pipe);
+		return true;
+	}
+
 	if ((ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_ETH_PROD) == pipe
 		&& ipa3_ctx->modem_cfg_emb_pipe_flt)
 		&& ep->client == IPA_CLIENT_APPS_WAN_ETH_PROD) {
