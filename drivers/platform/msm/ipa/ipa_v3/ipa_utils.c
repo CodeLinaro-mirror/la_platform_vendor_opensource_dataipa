@@ -11420,6 +11420,10 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 	default:
 		break;
 	}
+
+	if (IPA_CLIENT_IS_ETH_PROD(ep_mode->dst) ||
+		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD)
+		init_mode.replication_en = 1;
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
 	 /* Configure sequencers type for test clients*/
