@@ -47,6 +47,8 @@
 #endif
 #include "gsi.h"
 #include "ipa_stats.h"
+#include "ipa_sysfs.h"
+
 #include <linux/suspend.h>
 
 #ifdef CONFIG_ARM64
@@ -555,12 +557,19 @@ static const struct dev_pm_ops ipa_pm_ops = {
 	.restore_early = ipa3_ap_resume,
 };
 
+static const struct attribute_group *ipa_group[] = {
+	&ipa_feature_attribute_group,
+	&ipa_modem_attribute_group,
+	NULL,
+};
+
 static struct platform_driver ipa_plat_drv = {
 	.probe = ipa3_plat_drv_probe,
 	.driver = {
 		.name = DRV_NAME,
 		.pm = &ipa_pm_ops,
 		.of_match_table = ipa_plat_drv_match,
+		.dev_groups = ipa_group,
 	},
 };
 
@@ -8955,6 +8964,13 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		/* trim ending newline character if any */
 		if (count && (dbg_buff[count - 1] == '\n'))
 			dbg_buff[count - 1] = '\0';
+
+		if (strnstr(dbg_buff, "rdkb", strlen(dbg_buff)))
+		{
+			IPADBG("Platform type is RDKB\n");
+			ipa3_ctx->ipa_config_is_rdkb = true;
+			return count;
+		}
 
 		/*
 		 * This logic enforeces MHI mode based on userspace input.
