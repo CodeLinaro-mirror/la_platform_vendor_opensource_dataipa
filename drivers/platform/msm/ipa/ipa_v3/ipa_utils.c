@@ -7177,7 +7177,11 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_NO_UCP,
 			QMB_MASTER_SELECT_DDR,
+#ifdef CONFIG_ARCH_QTI_VM
+			{ 10, 5, 8, 16, IPA_EE_V2X, GSI_SMART_PRE_FETCH, 3},
+#else
 			{ 10, 5, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+#endif
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_Q6_V2X_UNICAST_PROD] = {
 			true,IPA_v6_0_GROUP_CV2X,
@@ -7387,7 +7391,11 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
+#ifdef CONFIG_ARCH_QTI_VM
+			{ 40, 6, 9, 9, IPA_EE_V2X, GSI_SMART_PRE_FETCH, 3},
+#else
 			{ 40, 6, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+#endif
 			IPA_TX_INSTANCE_DL },
 	[IPA_6_0_AUTO][IPA_CLIENT_USB2_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
@@ -14889,8 +14897,12 @@ void ipa3_force_close_coal(
 	bool close_lan )
 {
 	struct ipa3_desc desc[ MAX_CCP_SUB ];
-
 	int ep_idx, num_desc = 0;
+
+	if (ipa3_ctx->ipa_v2x_vm) {
+		IPADBG(" Not supported in GVM \n");
+		return;
+	}
 
 	if ( close_wan
 		 &&
@@ -14942,6 +14954,23 @@ int ipa3_suspend_apps_pipes(bool suspend)
 	int res, i;
 	struct ipa_ep_cfg_holb holb_cfg;
 	int odl_ep_idx;
+
+	/* Suspend/resume v2x pipes first, applicable for PVM only and GVM. */
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, suspend);
+	if (res == -EAGAIN) {
+		return res;
+	}
+
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, suspend);
+	if (res == -EAGAIN) {
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
+		return res;
+	}
+
+	if (ipa3_ctx->ipa_v2x_vm) {
+		IPADBG("in GVM, only need to suspend/resume v2x-pipes \n");
+		return res;
+	}
 
 	if (suspend) {
 		stop_coalescing();

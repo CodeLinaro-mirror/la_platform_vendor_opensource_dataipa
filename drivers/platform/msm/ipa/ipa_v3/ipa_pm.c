@@ -615,6 +615,38 @@ static int remove_client_from_exception_list(u32 hdl)
 }
 
 /**
+ * ipa_pm_v2x_init() - initialize IPA PM Components
+ * @ipa_pm_init_params: parameters needed to fill exceptions and thresholds
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_pm_v2x_init(struct ipa_pm_init_params *params)
+{
+	if (params == NULL) {
+		IPA_PM_ERR("Invalid Params\n");
+		return -EINVAL;
+	}
+
+	ipa_pm_ctx = kzalloc(sizeof(*ipa_pm_ctx), GFP_KERNEL);
+	if (!ipa_pm_ctx) {
+		IPA_PM_ERR(":kzalloc err.\n");
+		return -ENOMEM;
+	}
+
+	ipa_pm_ctx->wq = create_singlethread_workqueue("ipa_pm_activate");
+	if (!ipa_pm_ctx->wq) {
+		IPA_PM_ERR("create workqueue failed\n");
+		kfree(ipa_pm_ctx);
+		ipa_pm_ctx = NULL;
+		return -ENOMEM;
+	}
+
+	mutex_init(&ipa_pm_ctx->client_mutex);
+
+	return 0;
+}
+
+/**
  * ipa_pm_init() - initialize  IPA PM Components
  * @ipa_pm_init_params: parameters needed to fill exceptions and thresholds
  *
