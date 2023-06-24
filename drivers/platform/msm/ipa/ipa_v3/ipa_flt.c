@@ -289,8 +289,8 @@ static int ipa_translate_flt_tbl_to_hw_fmt(enum ipa_ip_type ip,
 			 * tables are order back-to-back
 			 */
 			body_i += ipahal_get_lcl_tbl_addr_alignment();
-			body_i = (u8 *)((long)body_i &
-				~ipahal_get_lcl_tbl_addr_alignment());
+			body_i = (u8 *)((uintptr_t)body_i &
+				~(uintptr_t)ipahal_get_lcl_tbl_addr_alignment());
 		}
 		hdr_idx++;
 	}
@@ -457,6 +457,13 @@ static bool ipa_flt_skip_pipe_config(int pipe)
 	if ((ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD) == pipe
 		&& ipa3_ctx->modem_cfg_emb_pipe_flt)
 		&& ep->client == IPA_CLIENT_APPS_WAN_PROD) {
+		IPADBG_LOW("skip %d\n", pipe);
+		return true;
+	}
+
+	if ((ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_V2X_PROD) == pipe
+		&& ipa3_ctx->modem_cfg_emb_pipe_flt)
+		&& ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD) {
 		IPADBG_LOW("skip %d\n", pipe);
 		return true;
 	}

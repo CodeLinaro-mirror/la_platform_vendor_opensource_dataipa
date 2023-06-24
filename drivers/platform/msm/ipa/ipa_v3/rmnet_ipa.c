@@ -32,7 +32,7 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <net/pkt_sched.h>
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)) || !IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/subsystem_notif.h>
 #endif
@@ -2222,6 +2222,11 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	else{
 		ipa_wan_ep_cfg = &rmnet_ipa3_ctx->ipa_v2x_to_apps_ep_cfg;
 		ipa_wan_ep_cfg->bypass_agg = true;
+
+		/* v2x-only need to disable deaggregation */
+		ipa3_disable_apps_wan_cons_deaggr(
+			ingress_param->agg_byte_limit,
+			ingress_param->agg_pkt_limit);
 	}
 
 	if (!v2x_check && !ipa3_disable_apps_wan_cons_deaggr(
@@ -3886,13 +3891,15 @@ static int ipa3_q6_register_pm(void)
 		return result;
 	}
 
-	pm_reg.name = "TETH MODEM";
-	pm_reg.group = IPA_PM_GROUP_MODEM;
-	pm_reg.skip_clk_vote = true;
-	result = ipa_pm_register(&pm_reg, &rmnet_ipa3_ctx->q6_teth_pm_hdl);
-	if (result) {
-		IPAERR("failed to create IPA PM client %d\n", result);
-		return result;
+	if (!ipa3_ctx->ipa_v2x_vm) {
+		pm_reg.name = "TETH MODEM";
+		pm_reg.group = IPA_PM_GROUP_MODEM;
+		pm_reg.skip_clk_vote = true;
+		result = ipa_pm_register(&pm_reg, &rmnet_ipa3_ctx->q6_teth_pm_hdl);
+		if (result) {
+			IPAERR("failed to create IPA PM client %d\n", result);
+			return result;
+		}
 	}
 
 	return 0;
@@ -4118,10 +4125,12 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	rmnet_ipa3_ctx->ipa_config_is_apq
 		= ipa3_is_apq();
 
-	ret = ipa3_init_q6_smem();
-	if (ret) {
-		IPAWANERR("ipa3_init_q6_smem failed\n");
-		return ret;
+	if (!ipa3_ctx->ipa_v2x_vm) {
+		ret = ipa3_init_q6_smem();
+		if (ret) {
+			IPAWANERR("ipa3_init_q6_smem failed\n");
+			return ret;
+		}
 	}
 
 	/* initialize tx/rx endpoint setup */
@@ -4157,17 +4166,19 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 				sizeof(struct ipa3_rmnet_mux_val));
 	}
 
-	/* start A7 QMI service/client */
-	if (ipa3_ctx_get_type(PLATFORM_TYPE) == IPA_PLAT_TYPE_MSM ||
-		ipa3_ctx_get_type(PLATFORM_TYPE) == IPA_PLAT_TYPE_APQ)
-		/* Android platform loads uC */
-		ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_MSM_ANDROID_V01);
-	else if (ipa3_ctx_get_flag(IPA_MHI_EN))
-		/* LE MHI platform */
-		ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_LE_MHI_V01);
-	else
-		/* LE platform not loads uC */
-		ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_LE_V01);
+	if (!ipa3_ctx->ipa_v2x_vm) {
+		/* start A7 QMI service/client */
+		if (ipa3_ctx_get_type(PLATFORM_TYPE) == IPA_PLAT_TYPE_MSM ||
+			ipa3_ctx_get_type(PLATFORM_TYPE) == IPA_PLAT_TYPE_APQ)
+			/* Android platform loads uC */
+			ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_MSM_ANDROID_V01);
+		else if (ipa3_ctx_get_flag(IPA_MHI_EN))
+			/* LE MHI platform */
+			ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_LE_MHI_V01);
+		else
+			/* LE platform not loads uC */
+			ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_LE_V01);
+	}
 
 	if (!atomic_read(&rmnet_ipa3_ctx->is_ssr)) {
 		/* Start transport-driver fd ioctl for ipacm for first init */
@@ -4292,7 +4303,8 @@ q6_init_err:
 alloc_netdev_err:
 	ipa3_wan_ioctl_deinit();
 wan_ioctl_init_err:
-	ipa3_qmi_service_exit();
+	if (!ipa3_ctx->ipa_v2x_vm)
+		ipa3_qmi_service_exit();
 	atomic_set(&rmnet_ipa3_ctx->is_ssr, 0);
 	return ret;
 }
@@ -4583,9 +4595,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		atomic_set(&rmnet_ipa3_ctx->is_ssr, 1);
 		ipa3_q6_pre_shutdown_cleanup();
 		if (IPA_NETDEV())
-		{
-			netif_tx_stop_all_queues(IPA_NETDEV());
-		}
+			netif_device_detach(IPA_NETDEV());
 		ipa3_qmi_stop_workqueues();
 		ipa3_wan_ioctl_stop_qmi_messages();
 		ipa_stop_polling_stats();
@@ -6386,6 +6396,8 @@ void ipa3_q6_handshake_complete(bool ssr_bootup)
 	ipa3_set_modem_up(true);
 	if (ipa3_ctx->ipa_config_is_mhi)
 		ipa_send_mhi_ctrl_endp_ind_to_modem();
+
+	IPAWANDBG("Q6 handshake complete\n");
 }
 
 static inline bool rmnet_ipa3_check_any_client_inited
