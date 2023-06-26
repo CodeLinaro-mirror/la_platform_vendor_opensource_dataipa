@@ -2325,6 +2325,14 @@ struct ipa_msgq_desc {
 };
 #endif /* CONFIG_GH_MSGQ */
 
+/* ctx for ETH PDU mode*/
+struct ipa3_eth_pdu_ctx {
+	bool eth_pdu_mode_enabled;
+	enum ipa_eth_hw_config_enum_v01 eth_pdu_vlan_mode;
+	int eth_pdu_tx_ep_id;
+	int eth_pdu_rx_ep_id;
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2450,6 +2458,7 @@ struct ipa_msgq_desc {
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  * @cesta_enable: flag which holds if cesta_enabled or not in DTSI
+ * @eth_pdu_ctx: ETH PDU ctx
  * @ipa_tiering_value: IPA tiering value to support multiple SKUs
  */
 struct ipa3_context {
@@ -2724,6 +2733,7 @@ struct ipa3_context {
 	void *per_stats_smem_va;
 	u32 ipa_smem_size;
 	bool cesta_enable;
+	struct ipa3_eth_pdu_ctx eth_pdu_ctx;
 	struct mutex ssr_lock;
 	bool iemac_exist;
 	u32 ipa_tiering_value;
@@ -4135,5 +4145,8 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
+
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
+void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 
 #endif /* _IPA3_I_H_ */
