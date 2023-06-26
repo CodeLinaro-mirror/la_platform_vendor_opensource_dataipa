@@ -1717,6 +1717,10 @@ struct ipa3_stats {
 	u64 num_of_times_wq_reschd;
 	u64 page_recycle_cnt_in_tasklet;
 	u32 ttl_cnt;
+#if defined(CONFIG_IPA_IPSEC)
+	atomic_t ipsec_enacp_excp;
+	atomic_t ipsec_decap_excp;
+#endif
 };
 
 /* offset for each stats */

@@ -1674,7 +1674,12 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		"num_buff_below_thresh_for_ll_pipe_notified=%u\n"
 		"num_free_page_task_scheduled=%u\n"
 		"pipe_setup_fail_cnt=%u\n"
-		"ttl_count=%u\n",
+		"ttl_count=%u\n"
+	#if defined(CONFIG_IPA_IPSEC)
+		"ipsec_enacp_excp=%u\n"
+		"ipsec_decap_excp=%u\n"
+	#endif
+		,
 		ipa3_ctx->stats.tx_sw_pkts,
 		ipa3_ctx->stats.tx_hw_pkts,
 		ipa3_ctx->stats.tx_non_linear,
@@ -1706,6 +1711,11 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		atomic_read(&ipa3_ctx->stats.num_free_page_task_scheduled),
 		ipa3_ctx->stats.pipe_setup_fail_cnt,
 		ipa3_ctx->stats.ttl_cnt
+	#if defined(CONFIG_IPA_IPSEC)
+		,
+		atomic_read(&ipa3_ctx->stats.ipsec_enacp_excp),
+		atomic_read(&ipa3_ctx->stats.ipsec_decap_excp)
+	#endif
 		);
 	cnt += nbytes;
 
@@ -3653,6 +3663,308 @@ static ssize_t ipa3_write_tsp(struct file *file, const char __user *buf,
 	return count;
 }
 #endif
+
+#if defined(CONFIG_IPA_IPSEC)
+/* We can't directly read unaligned values from SRAM, therefore we will copy the whole struct */
+static struct ipa_ipsec_sa_encap esa;
+static struct ipa_ipsec_sa_decap dsa;
+static u8 sa_idx;
+
+static int ipsec_read_sa_stats(enum ipa_ipsec_sa_type sa_type,
+	u8 sa_idx, int nbytes)
+{
+	struct ipa_ipsec_encap_stats encap_stats;
+	struct ipa_ipsec_decap_stats decap_stats;
+
+	if (sa_type == IPA_IPSEC_ENCAP) {
+		encap_stats = ipa3_ctx->ipsec->stats.encap_stats[sa_idx];
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"---Encap SA index %d Stats---\n",
+				sa_idx);
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"Encap *General(not related to SA)* encap_error_code_discard_rule = %u\n",
+			atomic_read(&ipa3_ctx->ipsec->stats.encap_error_code_discard_rule));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"ipsec_enacp_xmit = %u\n",
+			atomic_read(&encap_stats.ipsec_encap_xmit));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_encap_sa_disabled = %u\n",
+				atomic_read(&encap_stats.error_code_encap_sa_disabled));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_seq_num_overflow = %u\n\n",
+			atomic_read(&encap_stats.error_code_seq_num_overflow));
+	}
+
+	if (sa_type == IPA_IPSEC_DECAP) {
+		decap_stats = ipa3_ctx->ipsec->stats.decap_stats[sa_idx];
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"---Decap SA index %d Stats---\n",
+				sa_idx);
+
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"ipsec_decap_xmit = %u\n",
+			atomic_read(&decap_stats.ipsec_decap_xmit));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"ipsec_decap_rcv = %u\n",
+				atomic_read(&decap_stats.ipsec_decap_rcv));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_dup_seq_number = %u\n",
+			atomic_read(&decap_stats.error_code_dup_seq_number));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_out_of_window = %u\n",
+				atomic_read(&decap_stats.error_code_out_of_window));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_auth_error = %u\n",
+			atomic_read(&decap_stats.error_code_auth_error));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_incorrect_padding = %u\n",
+				atomic_read(&decap_stats.error_code_incorrect_padding));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_incorrect_esp_next_hdr_proto = %u\n",
+			atomic_read(&decap_stats.error_code_incorrect_esp_next_hdr_proto));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_ecn_error = %u\n",
+				atomic_read(&decap_stats.error_code_ecn_error));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_post_decap_nat = %u\n",
+			atomic_read(&decap_stats.error_code_post_decap_nat));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_inner_pkt_excp = %u\n",
+				atomic_read(&decap_stats.error_code_inner_pkt_excp));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_inner_pkt_flt_excp = %u\n",
+			atomic_read(&decap_stats.error_code_inner_pkt_flt_excp));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_decap_sa_disabled = %u\n",
+				atomic_read(&decap_stats.error_code_decap_sa_disabled));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_sw_handling = %u\n",
+			atomic_read(&decap_stats.error_code_sw_handling));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_inner_pkt_validation = %u\n",
+				atomic_read(&decap_stats.error_code_inner_pkt_validation));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"error_code_inner_pkt_sa_mismatch = %u\n\n",
+				atomic_read(&decap_stats.error_code_inner_pkt_sa_mismatch));
+	}
+
+	return nbytes;
+}
+
+
+static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
+	char __user *buf, size_t count, loff_t *ppos)
+{
+	int j, nbytes = 0;
+	struct ipa_ipsec_ctx *ipsec = ipa3_ctx->ipsec;
+
+	if (!ipsec) {
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"The IPsec is not initialyzed\n");
+		return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+	}
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	/* Encap info*/
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"-----------------------Encap SA index %u----------------------------\n",
+		sa_idx);
+
+	memcpy_fromio(&esa, (void __iomem *)(ipsec->encap + sa_idx),
+			sizeof(struct ipa_ipsec_sa_encap));
+	if (ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x)
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"--- XFRM state ID %d\n", ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x->id);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, "IV: ");
+	for (j = 0; j < 4; j++) {
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"%08X ", esa.intr.iv[j]);
+	}
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, "\n");
+
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"salt_val = %08X\n", esa.shar.salt_val);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"encr_algo = %d\n", esa.shar.encr_algo);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"encrkey_len = %d\n", esa.shar.encrkey_len);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"salt_needed = %d\n", esa.shar.salt_needed);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"iv_sz = %d\n", esa.shar.iv_sz);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"auth_algo = %d\n", esa.shar.auth_algo);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"authkey_len = %d\n", esa.shar.authkey_len);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"esn_en = %d\n", esa.shar.esn_en);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"icv_sz = %d\n", esa.shar.icv_sz);
+
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"is_stopped = %d\n", esa.dyna.is_stopped);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"send_to_sw = %d\n", esa.dyna.send_to_sw);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"ipv4_id = %d\n", esa.dyna.ipv4_id);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"seq_overflow = %d\n", esa.dyna.seq_overflow);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"seq_num = %llu\n", esa.dyna.seq_num);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"volume_bytes = %llu\n", esa.dyna.volume_bytes);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"last_pkt_timestamp = %llu\n", esa.dyna.last_pkt_timestamp);
+
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"nat_t = %d\n", esa.stat.nat_t);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"copy_df = %d\n", esa.stat.copy_df);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"copy_dscp = %d\n", esa.stat.copy_dscp);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"copy_ecn = %d\n", esa.stat.copy_ecn);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"copy_flow_lbl = %d\n", esa.stat.copy_flow_lbl);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"path_mtu = %d\n", esa.stat.path_mtu);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"sa_life_bytes_wm = %llu\n", esa.stat.sa_life_bytes_wm);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"sa_life_bytes = %llu\n", esa.stat.sa_life_bytes);
+
+	nbytes = ipsec_read_sa_stats(IPA_IPSEC_ENCAP, sa_idx, nbytes);
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+}
+
+static ssize_t ipa3_read_ipsec_decap_sa_info(struct file *file,
+	char __user *buf, size_t count, loff_t *ppos)
+{
+	int j, nbytes = 0;
+	struct ipa_ipsec_ctx *ipsec = ipa3_ctx->ipsec;
+
+	if (!ipsec) {
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"The IPsec is not initialyzed\n");
+		return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+	}
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	/* Decap info*/
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"\n\n-----------------------Decap SA index %u----------------------------\n",
+		sa_idx);
+
+	memcpy_fromio(&dsa, (void __iomem *)(ipsec->decap + sa_idx),
+			sizeof(struct ipa_ipsec_sa_decap));
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"Decap SA %d:\n", sa_idx);
+	if (ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x)
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"--- XFRM state ID %d\n", ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x->id); // TBD
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"intgr_fail = %d\n", dsa.intr.intgr_fail);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"pad_fail = %d\n", dsa.intr.pad_fail);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"antirep_fail = %d\n", dsa.intr.antirep_fail);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"cons_intgr_fail = %llu\n", dsa.intr.cons_intgr_fail);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"out_win_fail = %d\n", dsa.intr.out_win_fail);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"dummy_pkts = %d\n", dsa.intr.dummy_pkts);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"antirep_top = %llX\n", dsa.intr.antirep_top);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"antirep_bottom = %llX\n", dsa.intr.antirep_bottom);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"Antireplay Window:\n");
+	for (j = 0; j < 4; j++) {
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"%016llX\n", dsa.intr.antirep_win[j]);
+	}
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"antirep_win_sz = %d\n", dsa.shar.antirep_win_sz);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"salt_val = %08X\n", dsa.shar.salt_val);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"encr_algo = %d\n", dsa.shar.encr_algo);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"encrkey_len = %d\n", dsa.shar.encrkey_len);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"salt_needed = %d\n", dsa.shar.salt_needed);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"no_pad_chk = %d\n", dsa.shar.no_pad_chk);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"iv_sz = %d\n", dsa.shar.iv_sz);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"auth_algo = %d\n", dsa.shar.auth_algo);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"authkey_len = %d\n", dsa.shar.authkey_len);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"esn_en = %d\n", dsa.shar.esn_en);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"icv_sz = %d\n", dsa.shar.icv_sz);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"ecn_fld_lut = %08X\n", dsa.shar.ecn_fld_lut);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"ecn_expt_lut = %04X\n", dsa.shar.ecn_expt_lut);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"ecn_upd = %d\n", dsa.shar.ecn_upd);
+
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"is_stopped = %d\n", dsa.dyna.is_stopped);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"send_to_sw = %d\n", dsa.dyna.send_to_sw);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"volume_bytes = %llu\n", dsa.dyna.volume_bytes);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"last_pkt_timestamp = %llu\n", dsa.dyna.last_pkt_timestamp);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"last_prim_frag_seq_num = %d\n", dsa.dyna.last_prim_frag_seq_num);
+
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"nat_t = %d\n", dsa.stat.nat_t);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"sa_life_bytes_wm = %llu\n", dsa.stat.sa_life_bytes_wm);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"sa_life_bytes = %llu\n", dsa.stat.sa_life_bytes);
+
+	nbytes = ipsec_read_sa_stats(IPA_IPSEC_DECAP, sa_idx, nbytes);
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+}
+
+static ssize_t ipa3_write_ipsec_sa_index(struct file *file,
+	const char __user *buf, size_t count, loff_t *ppos)
+{
+	u8 option;
+	int ret;
+
+	ret = kstrtou8_from_user(buf, count, 0, &option);
+	if (ret)
+		return ret;
+
+	if (option >= IPA_IPSEC_MAX_SA_NUM) {
+		IPAERR("Invalid SA index %u\n", option);
+		return count;
+	}
+
+	sa_idx = option;
+
+	return count;
+}
+
+#endif
+
 static const struct ipa3_debugfs_file debugfs_files[] = {
 	{
 		"gen_reg", IPA_READ_ONLY_MODE, NULL, {
@@ -3886,6 +4198,20 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		"tsp", IPA_READ_WRITE_MODE, NULL, {
 			.read = ipa3_read_tsp,
 			.write = ipa3_write_tsp,
+		}
+#endif
+#if defined(CONFIG_IPA_IPSEC)
+	}, {
+		"ipsec_set_sa_info_index", IPA_WRITE_ONLY_MODE, NULL,{
+			.write = ipa3_write_ipsec_sa_index,
+		}
+	}, {
+		"ipsec_sa_info_encap", IPA_READ_ONLY_MODE, NULL,{
+			.read = ipa3_read_ipsec_encap_sa_info,
+		}
+	}, {
+		"ipsec_sa_info_decap", IPA_READ_ONLY_MODE, NULL,{
+			.read = ipa3_read_ipsec_decap_sa_info,
 		}
 #endif
 	},
