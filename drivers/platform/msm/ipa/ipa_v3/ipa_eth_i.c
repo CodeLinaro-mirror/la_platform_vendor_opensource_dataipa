@@ -114,8 +114,8 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 		IPAERR("IOMMU map failed for pa=%pa len=%zu\n", &pa, true_len);
 		return -EINVAL;
 	}
-	*iova = va;
-	ipa_iemac_smmu_cb_save_mapping_i(cb_type, pa, *iova, true_len, instance_id, dir);
+	*iova = va + pa - rounddown(pa, PAGE_SIZE);
+	ipa_iemac_smmu_cb_save_mapping_i(cb_type, pa, va, true_len, instance_id, dir);
 
 	return 0;
 }
