@@ -2933,7 +2933,7 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 	if ( attrib->ext_attrib_mask & IPA_FLT_EXT_MPLS_GRE_GENERAL ) {
 		ipa_fld_wid_off_t* fwo;
 		int32_t            offset, oo, rmndr;
-		uint32_t           row, mask, cmp_wid, shift, value;
+		uint32_t           mask, cmp_wid, shift, value;
 
 		value = attrib->fld_val_eq.value;
 
@@ -3525,7 +3525,7 @@ static int ipa_flt_generate_eq_ip6(enum ipa_ip_type ip,
 	if ( attrib->ext_attrib_mask & IPA_FLT_EXT_MPLS_GRE_GENERAL ) {
 		ipa_fld_wid_off_t* fwo;
 		int32_t            offset, oo, rmndr;
-		uint32_t           row, mask, cmp_wid, shift, value;
+		uint32_t           mask, cmp_wid, shift, value;
 
 		value = attrib->fld_val_eq.value;
 

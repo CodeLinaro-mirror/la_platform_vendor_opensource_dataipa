@@ -2782,7 +2782,6 @@ int ipa3_send_eth_pdu_to_q6_ipa(int rmnet_index)
 	struct ipa3_rmnet_mux_val *mux_channel;
 	struct ipa3_rmnet_mux_val *mux_channel2;
 	struct ipa_rmnet_eth_info_indication_msg_v01 req;
-	struct ipa_rmnet_eth_info_type_v01 *rmnet_eth_info;
 
 	mux_channel = rmnet_ipa3_ctx->mux_channel_eth;
 	mux_channel2 = ipa3_rmnet_ctx.mux_channel_eth; //cache for QMI

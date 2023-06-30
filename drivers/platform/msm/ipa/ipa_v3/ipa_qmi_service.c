@@ -101,7 +101,6 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 	struct ipa_endp_desc_indication_msg_v01 endp_ind;
 	struct ipa_ep_id_type_v01 *ep_info;
 	struct ipa_rmnet_eth_info_indication_msg_v01 rmnet_eth_ind;
-	struct ipa_rmnet_eth_info_type_v01 *rmnet_eth_info;
 	int i;
 	int rc;
 
