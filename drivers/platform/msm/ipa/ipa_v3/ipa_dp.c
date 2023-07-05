@@ -5612,7 +5612,7 @@ static void ipa3_set_aggr_limit(struct ipa_sys_connect_params *in,
 	u32 *aggr_byte_limit = &in->ipa_ep_cfg.aggr.aggr_byte_limit;
 	u32 adjusted_sz;
 
-	if (ipa3_ctx->ipa_wan_skb_page) {
+	if (ipa3_ctx->ipa_wan_skb_page || in->client == IPA_CLIENT_APPS_WAN_V2X_CONS) {
 		IPAERR("set rx_buff_sz config from netmngr %lu\n", (unsigned long)
 			sys->buff_size);
 		sys->rx_buff_sz = IPA_GENERIC_RX_BUFF_SZ(sys->buff_size);
