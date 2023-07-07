@@ -1562,6 +1562,27 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		}
 	}
 
+	/* Flow control for WAN V2X pkts */
+	if (v2x_check) {
+		if (netif_tx_queue_stopped(netdev_get_tx_queue(dev, 1))) {
+				spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+				return NETDEV_TX_BUSY;
+		}
+		/* checking High WM hit for wan v2x traffic only */
+		if (atomic_read(&wwan_ptr->outstanding_pkts_v2x) >=
+			rmnet_ipa3_ctx->outstanding_high) {
+			IPAWANDBG_LOW("pending(%d)/(%d)- stop(%d)\n",
+				atomic_read(&wwan_ptr->outstanding_pkts_v2x),
+				rmnet_ipa3_ctx->outstanding_high,
+				netif_tx_queue_stopped(netdev_get_tx_queue(dev, 1)));
+			IPAWANDBG_LOW("qmap_chk(%d)\n", qmap_check);
+			netif_tx_stop_queue(netdev_get_tx_queue(dev, 1));
+			spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+			return NETDEV_TX_BUSY;
+		}
+	}
+
+
 send:
 	/* IPA_PM checking start */
 	/* activate the modem pm for clock scaling */
@@ -1724,6 +1745,15 @@ static void apps_ipa_tx_complete_notify(void *priv,
 	} else {
 		atomic_dec(&wwan_ptr->outstanding_pkts_v2x);
 		__netif_tx_lock_bh(netdev_get_tx_queue(dev, 1));
+		/* flow control only for WAN V2X pkts */
+		if (!atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
+			(netif_tx_queue_stopped(netdev_get_tx_queue(wwan_ptr->net, 1))) &&
+			atomic_read(&wwan_ptr->outstanding_pkts_v2x) <
+				rmnet_ipa3_ctx->outstanding_low) {
+			IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
+					rmnet_ipa3_ctx->outstanding_low);
+			netif_tx_wake_queue(netdev_get_tx_queue(wwan_ptr->net, 1));
+		}
 	}
 
 	if ((atomic_read(&wwan_ptr->outstanding_pkts) == 0) &&
