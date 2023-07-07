@@ -99,6 +99,10 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 	struct ipa_indication_reg_req_msg_v01 *indication_req;
 	struct ipa_indication_reg_resp_msg_v01 resp;
 	struct ipa_master_driver_init_complt_ind_msg_v01 ind;
+	struct ipa_endp_desc_indication_msg_v01 endp_ind;
+	struct ipa_ep_id_type_v01 *ep_info;
+	struct ipa_rmnet_eth_info_indication_msg_v01 rmnet_eth_ind;
+	int i;
 	int rc;
 
 	indication_req = (struct ipa_indication_reg_req_msg_v01 *)decoded_msg;
@@ -127,7 +131,7 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 
 	/* check if need sending indication to modem */
 	if (ipa3_qmi_modem_init_fin)	{
-		IPAWANDBG("send indication to modem (%d)\n",
+		IPAWANDBG("send init complete indication to modem (%d)\n",
 		ipa3_qmi_modem_init_fin);
 		memset(&ind, 0, sizeof(struct
 				ipa_master_driver_init_complt_ind_msg_v01));
@@ -146,7 +150,71 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 			ipa3_qmi_indication_fin = false;
 		}
 	} else {
-		IPAWANERR("not send indication\n");
+		IPAWANDBG("modem init not complete, did not send indication\n");
+	}
+
+	/* check if need to send MHI RSC pipe to modem */
+	if (ipa3_ctx->is_mhi_coal_set) {
+		IPAWANDBG("Sending coalescing pipe indication to Q6\n");
+		ipa_send_mhi_coal_endp_ind_to_modem(false);
+	}
+
+
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id &&
+		ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
+	{
+		/* if eth is connected before qmim need to send QMI for eth endpoint */
+		IPAWANDBG("Sending ETH PDU endpoint QMI\n");
+
+		memset(&endp_ind, 0, sizeof(struct ipa_endp_desc_indication_msg_v01));
+		endp_ind.ep_info_len++;
+		endp_ind.ep_info_valid = true;
+		endp_ind.num_eps_valid = true;
+		endp_ind.num_eps++;
+		ep_info = &endp_ind.ep_info[endp_ind.ep_info_len - 1];
+		ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
+		ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id;
+		ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+		ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+		endp_ind.ep_info_len++;
+		endp_ind.num_eps++;
+		ep_info = &endp_ind.ep_info[endp_ind.ep_info_len - 1];
+		ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
+		ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id;
+		ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+		ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+
+		if (ipa3_qmi_send_endp_desc_indication(&endp_ind))
+			IPAWANERR("Failed to send eth pipe endp desc QMI\n");
+	}
+	if(ipa3_rmnet_ctx.num_mux_channel_eth)
+	{
+		/* if rmnet_info comes before qmi, send all the cached info using QMI */
+		IPAWANDBG("Sending Rmnet_eth_info QMI\n");
+
+		memset(&rmnet_eth_ind, 0, sizeof(struct ipa_rmnet_eth_info_indication_msg_v01));
+		rmnet_eth_ind.rmnet_eth_info_valid = true;
+
+		for(i = 0; i < ipa3_rmnet_ctx.num_mux_channel_eth; i++)
+		{
+			rmnet_eth_ind.rmnet_eth_info_len++;
+			memcpy(rmnet_eth_ind.rmnet_eth_info[i].mac_addr,
+				ipa3_rmnet_ctx.mux_channel_eth[i].mac,
+				sizeof(rmnet_eth_ind.rmnet_eth_info[i].mac_addr));
+			rmnet_eth_ind.rmnet_eth_info[i].mux_id = ipa3_rmnet_ctx.mux_channel_eth[i].mux_id;
+
+			IPAWANDBG("mac: %02x:%02x:%02x:%02x:%02x:%02x mux_id=%d\n",
+				rmnet_eth_ind.rmnet_eth_info[i].mac_addr[0],
+				rmnet_eth_ind.rmnet_eth_info[i].mac_addr[1],
+				rmnet_eth_ind.rmnet_eth_info[i].mac_addr[2],
+				rmnet_eth_ind.rmnet_eth_info[i].mac_addr[3],
+				rmnet_eth_ind.rmnet_eth_info[i].mac_addr[4],
+				rmnet_eth_ind.rmnet_eth_info[i].mac_addr[5],
+				rmnet_eth_ind.rmnet_eth_info[i].mux_id);
+		}
+
+		if(ipa3_qmi_send_rmnet_eth_indication(&rmnet_eth_ind))
+			IPAWANERR("Failed to send rmnet_eth_info QMI\n");
 	}
 }
 
@@ -2593,6 +2661,23 @@ int ipa3_qmi_send_endp_desc_indication(
 		QMI_IPA_ENDP_DESC_INDICATION_V01,
 		IPA_ENDP_DESC_INDICATION_MSG_V01_MAX_MSG_LEN,
 		ipa_endp_desc_indication_msg_v01_ei,
+		req);
+}
+EXPORT_SYMBOL(ipa3_qmi_send_endp_desc_indication);
+
+int ipa3_qmi_send_rmnet_eth_indication(
+	struct ipa_rmnet_eth_info_indication_msg_v01 *req)
+{
+	IPAWANDBG("Sending QMI_IPA_RMNET_ETH_INFO_INDICATION_V01\n");
+
+	if (unlikely(!ipa3_svc_handle))
+		return -ETIMEDOUT;
+
+	return qmi_send_indication(ipa3_svc_handle,
+		&ipa3_qmi_ctx->client_sq,
+		QMI_IPA_RMNET_ETH_INFO_INDICATION_V01,
+		IPA_RMNET_ETH_INFO_INDICATION_MSG_V01_MAX_MSG_LEN,
+		ipa_rmnet_eth_info_indication_msg_v01_ei,
 		req);
 }
 

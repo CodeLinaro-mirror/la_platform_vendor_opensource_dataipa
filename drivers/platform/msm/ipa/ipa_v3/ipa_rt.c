@@ -245,8 +245,8 @@ static int ipa_translate_rt_tbl_to_hw_fmt(enum ipa_ip_type ip,
 			 * are order back-to-back
 			 */
 			body_i += ipahal_get_lcl_tbl_addr_alignment();
-			body_i = (u8 *)((long)body_i &
-				~ipahal_get_lcl_tbl_addr_alignment());
+			body_i = (u8 *)((uintptr_t)body_i &
+				~(uintptr_t)ipahal_get_lcl_tbl_addr_alignment());
 		}
 	}
 

@@ -5743,6 +5743,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 5, 3, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2}, IPA_TX_INSTANCE_NA },
 
+	[IPA_5_2_MDM][IPA_CLIENT_WLAN1_PROD] = {
+			true, IPA_v5_2_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 5, 0, 8, 16, IPA_EE_UC, GSI_SMART_PRE_FETCH, 2}, IPA_TX_INSTANCE_NA },
+
 	[IPA_5_2_MDM][IPA_CLIENT_APPS_LAN_PROD] = {
 			true, IPA_v5_2_GROUP_UL,
 			false,
@@ -5855,7 +5862,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 21, 7, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_DL },
 
+	[IPA_5_2_MDM][IPA_CLIENT_WLAN1_CONS] = {
+			true, IPA_v5_2_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 21, 1, 8, 14, IPA_EE_UC, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_DL },
+
 	[IPA_5_2_MDM][IPA_CLIENT_WLAN2_CONS1] = {
+			true, IPA_v5_2_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 22, 8, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_DL },
+
+	[IPA_5_2_MDM][IPA_CLIENT_WLAN4_CONS] = {
 			true, IPA_v5_2_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -7156,7 +7177,11 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_NO_UCP,
 			QMB_MASTER_SELECT_DDR,
+#ifdef CONFIG_ARCH_QTI_VM
+			{ 10, 5, 8, 16, IPA_EE_V2X, GSI_SMART_PRE_FETCH, 3},
+#else
 			{ 10, 5, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+#endif
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_Q6_V2X_UNICAST_PROD] = {
 			true,IPA_v6_0_GROUP_CV2X,
@@ -7366,7 +7391,11 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
+#ifdef CONFIG_ARCH_QTI_VM
+			{ 40, 6, 9, 9, IPA_EE_V2X, GSI_SMART_PRE_FETCH, 3},
+#else
 			{ 40, 6, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+#endif
 			IPA_TX_INSTANCE_DL },
 	[IPA_6_0_AUTO][IPA_CLIENT_USB2_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
@@ -8705,6 +8734,103 @@ static struct ipa3_mem_partition ipa_5_2_mem_part = {
 	.end_ofst = 0x3fe8,
 };
 
+static struct ipa3_mem_partition ipa_5_2_mdm_mem_part = {
+	.uc_descriptor_ram_ofst = 0x0,
+	.uc_descriptor_ram_size = 0x600,
+	.uc_ofst = 0x600,
+	.uc_size = 0x80,
+	.uc_info_ofst = 0x680,
+	.uc_info_size = 0x200,
+	.ofst_start = 0x880,
+	.v4_flt_hash_ofst = 0x888,
+	.v4_flt_hash_size = 0x78,
+	.v4_flt_hash_size_ddr = 0x4000,
+	.v4_flt_nhash_ofst = 0x908,
+	.v4_flt_nhash_size = 0x78,
+	.v4_flt_nhash_size_ddr = 0x4000,
+	.v6_flt_hash_ofst = 0x988,
+	.v6_flt_hash_size = 0x78,
+	.v6_flt_hash_size_ddr = 0x4000,
+	.v6_flt_nhash_ofst = 0xA08,
+	.v6_flt_nhash_size = 0x78,
+	.v6_flt_nhash_size_ddr = 0x4000,
+	.v4_rt_num_index = 0x13,
+	.v4_modem_rt_index_lo = 0x0,
+	.v4_modem_rt_index_hi = 0xa,
+	.v4_apps_rt_index_lo = 0xb,
+	.v4_apps_rt_index_hi = 0x12,
+	.v4_rt_hash_ofst = 0xA88,
+	.v4_rt_hash_size = 0x98,
+	.v4_rt_hash_size_ddr = 0x4000,
+	.v4_rt_nhash_ofst = 0xB28,
+	.v4_rt_nhash_size = 0x98,
+	.v4_rt_nhash_size_ddr = 0x4000,
+	.v6_rt_num_index = 0x13,
+	.v6_modem_rt_index_lo = 0x0,
+	.v6_modem_rt_index_hi = 0xa,
+	.v6_apps_rt_index_lo = 0xb,
+	.v6_apps_rt_index_hi = 0x12,
+	.v6_rt_hash_ofst = 0xBc8,
+	.v6_rt_hash_size = 0x98,
+	.v6_rt_hash_size_ddr = 0x4000,
+	.v6_rt_nhash_ofst = 0xc68,
+	.v6_rt_nhash_size = 0x098,
+	.v6_rt_nhash_size_ddr = 0x4000,
+	.modem_hdr_ofst = 0xD08,
+	.modem_hdr_size = 0x240,
+	.apps_hdr_ofst = 0xF48,
+	.apps_hdr_size = 0x1e0,
+	.apps_hdr_size_ddr = 0x7ff,
+	.modem_hdr_proc_ctx_ofst = 0x1140,
+	.modem_hdr_proc_ctx_size = 0xb20,
+	.apps_hdr_proc_ctx_ofst = 0x1C60,
+	.apps_hdr_proc_ctx_size = 0x200,
+	.apps_hdr_proc_ctx_size_ddr = 0x0,
+	.stats_quota_q6_ofst = 0x1E68,
+	.stats_quota_q6_size = 0x60,
+	.stats_quota_ap_ofst = 0x1EC8,
+	.stats_quota_ap_size = 0x48,
+	.stats_tethering_ofst = 0x1F10,
+	.stats_tethering_size = 0x3c0,
+	.stats_flt_v4_ofst = 0,
+	.stats_flt_v4_size = 0,
+	.stats_flt_v6_ofst = 0,
+	.stats_flt_v6_size = 0,
+	.stats_rt_v4_ofst = 0,
+	.stats_rt_v4_size = 0,
+	.stats_rt_v6_ofst = 0,
+	.stats_rt_v6_size = 0,
+	.stats_fnr_ofst = 0x22d0,
+	.stats_fnr_size = 0x880,
+	.stats_drop_ofst = 0x2B50,
+	.stats_drop_size = 0x20,
+	.modem_comp_decomp_ofst = 0x0,
+	.modem_comp_decomp_size = 0x0,
+	.modem_ofst = 0x2B78,
+	.modem_size = 0xd48,
+	.nat_tbl_ofst = 0x38c0,
+	.nat_tbl_size = 0x900,
+	.apps_v4_flt_nhash_ofst = 0x2B50,
+	.apps_v4_flt_nhash_size = 0x0,
+	.apps_v6_flt_nhash_ofst = 0x2B50,
+	.apps_v6_flt_nhash_size = 0x0,
+	.apps_v4_flt_hash_ofst = 0x2B50,
+	.apps_v4_flt_hash_size = 0x0,
+	.apps_v6_flt_hash_ofst = 0x2B50,
+	.apps_v6_flt_hash_size = 0x0,
+	.apps_v4_rt_hash_ofst = 0x2B50,
+	.apps_v4_rt_hash_size = 0x0,
+	.apps_v4_rt_nhash_ofst = 0x2B50,
+	.apps_v4_rt_nhash_size = 0x0,
+	.apps_v6_rt_hash_ofst = 0x2B50,
+	.apps_v6_rt_hash_size = 0x0,
+	.apps_v6_rt_nhash_ofst = 0x2B50,
+	.apps_v6_rt_nhash_size = 0x0,
+	.pdn_config_ofst = 0x41C8,
+	.pdn_config_size = 0x100,
+	.end_ofst = 0x42C8,
+};
+
 static struct ipa3_mem_partition ipa_5_5_mem_part = {
 	.uc_descriptor_ram_ofst = 0x0,
 	.uc_descriptor_ram_size = 0x1000,
@@ -8876,7 +9002,7 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x6ce8,
 	.stats_fnr_size = 0x2680,
-	.stats_drop_ofst = 0x9768,
+	.stats_drop_ofst = 0x9368,
 	.stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
@@ -9736,13 +9862,19 @@ void _ipa_sram_settings_read_v3_0(void)
 	ipa3_ctx->flt_tbl_hash_lcl[IPA_IP_v4] = false;
 	ipa3_ctx->flt_tbl_hash_lcl[IPA_IP_v6] = false;
 
-	if (ipa3_ctx->ipa_hw_type == IPA_HW_v5_0) {
+	/*
+	 * Non-hashable filter tables in SRAM supported if the
+	 * size of the tables are defined in ipa3_mem_partition.
+	 */
+	if (IPA_MEM_PART(apps_v4_flt_nhash_size))
 		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v4] = true;
-		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v6] = true;
-	} else {
+	else
 		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v4] = false;
+
+	if (IPA_MEM_PART(apps_v6_flt_nhash_size))
+		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v6] = true;
+	else
 		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v6] = false;
-	}
 }
 
 /**
@@ -12150,7 +12282,10 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		ipa3_ctx->ctrl->mem_partition = &ipa_5_1_mem_part;
 		break;
 	case IPA_HW_v5_2:
-		ipa3_ctx->ctrl->mem_partition = &ipa_5_2_mem_part;
+		if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM)
+			ipa3_ctx->ctrl->mem_partition = &ipa_5_2_mdm_mem_part;
+		else
+			ipa3_ctx->ctrl->mem_partition = &ipa_5_2_mem_part;
 		break;
 	case IPA_HW_v5_5:
 		ipa3_ctx->ctrl->mem_partition = &ipa_5_5_mem_part;
@@ -14762,8 +14897,12 @@ void ipa3_force_close_coal(
 	bool close_lan )
 {
 	struct ipa3_desc desc[ MAX_CCP_SUB ];
-
 	int ep_idx, num_desc = 0;
+
+	if (ipa3_ctx->ipa_v2x_vm) {
+		IPADBG(" Not supported in GVM \n");
+		return;
+	}
 
 	if ( close_wan
 		 &&
@@ -14815,6 +14954,23 @@ int ipa3_suspend_apps_pipes(bool suspend)
 	int res, i;
 	struct ipa_ep_cfg_holb holb_cfg;
 	int odl_ep_idx;
+
+	/* Suspend/resume v2x pipes first, applicable for PVM only and GVM. */
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, suspend);
+	if (res == -EAGAIN) {
+		return res;
+	}
+
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, suspend);
+	if (res == -EAGAIN) {
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
+		return res;
+	}
+
+	if (ipa3_ctx->ipa_v2x_vm) {
+		IPADBG("in GVM, only need to suspend/resume v2x-pipes \n");
+		return res;
+	}
 
 	if (suspend) {
 		stop_coalescing();
@@ -16476,17 +16632,25 @@ int ipa_send_mhi_ctrl_endp_ind_to_modem(void)
 }
 
 #ifdef IPA_CLIENT_MHI_COAL_CONS
-int ipa_send_mhi_coal_endp_ind_to_modem(void) {
+int ipa_send_mhi_coal_endp_ind_to_modem(bool check_if_modem_is_up) {
 	struct ipa_endp_desc_indication_msg_v01 req;
 	struct ipa_ep_id_type_v01 *ep_info;
 	int ipa_mhi_coal_ep_idx =
 		ipa3_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS);
 
 	mutex_lock(&ipa3_ctx->mhi_lock);
-	/* only modem up and coal pipe is ready, then send QMI*/
-	if (!ipa3_ctx->is_modem_up || !ipa3_ctx->is_mhi_coal_set) {
-		IPADBG("modem or coal not ready, is_modem_up = %d, mhi_coal_set =%d\n",
-			ipa3_ctx->is_modem_up, ipa3_ctx->is_mhi_coal_set);
+
+	/* check if modem is up if needed. Todo: change to check indication mask*/
+	if (check_if_modem_is_up && !ipa3_ctx->is_modem_up) {
+		IPADBG("modem not ready, is_modem_up = %d\n", ipa3_ctx->is_modem_up);
+		mutex_unlock(&ipa3_ctx->mhi_lock);
+		return 0;
+	}
+
+	/* check if coal pipe is ready, then send QMI*/
+	if (!ipa3_ctx->is_mhi_coal_set) {
+		IPADBG("coal pipe not ready, mhi_coal_set =%d\n",
+			ipa3_ctx->is_mhi_coal_set);
 		mutex_unlock(&ipa3_ctx->mhi_lock);
 		return 0;
 	}
@@ -16849,3 +17013,17 @@ error:
 	mutex_unlock(&ipa3_ctx->act_tbl_lock);
 	return res;
 }
+
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id = rx_idx;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id = tx_idx;
+}
+EXPORT_SYMBOL(ipa3_update_eth_pdu_ep_index);
+
+void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled = enable;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode = vlan;
+}
+EXPORT_SYMBOL(ipa3_set_eth_pdu_mode);

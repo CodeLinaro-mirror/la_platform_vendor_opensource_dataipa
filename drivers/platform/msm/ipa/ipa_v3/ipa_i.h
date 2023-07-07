@@ -1754,6 +1754,7 @@ enum ipa_ees {
 	IPA_EE_AP = 0,
 	IPA_EE_Q6 = 1,
 	IPA_EE_UC = 2,
+	IPA_EE_V2X = 4,
 };
 
 /**
@@ -2058,6 +2059,7 @@ enum ipa_smmu_cb_type {
 	IPA_SMMU_CB_11AD,
 	IPA_SMMU_CB_ETH,
 	IPA_SMMU_CB_ETH1,
+	IPA_SMMU_CB_V2X,
 	IPA_SMMU_CB_MAX
 };
 
@@ -2272,6 +2274,64 @@ enum ipa_per_usb_enum_type_e {
 	IPA_PER_USB_ENUM_TYPE_MAX
 };
 
+#ifdef CONFIG_GH_MSGQ
+/**
+ * enum ipa_msg_type_e - mesage types
+ */
+enum ipa_msg_type_e {
+	IPA_MSG_TYPE_CLK_VOTE_REQ,
+	IPA_MSG_TYPE_CLK_VOTE_RESP,
+	IPA_MSG_TYPE_CLK_DEVOTE_REQ,
+	IPA_MSG_TYPE_CLK_DEVOTE_RESP,
+	IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ,
+	IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_RESP,
+	IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ,
+	IPA_MSG_TYPE_SSR_AFTER_POWERUP_RESP,
+	IPA_MSG_TYPE_MAX,
+};
+
+/**
+ * struct ipa_msg_hdr: The header for all IPA VM messages
+ * @msg_type: The type of message.
+ * @msg_size: The size of message.
+ */
+struct ipa_msg_hdr {
+	u32 msg_type;
+	u32 msg_size;
+} __packed;
+
+/**
+ * struct ipa_msg:
+ * @msg_hdr: message header
+ * @data: user data
+ */
+struct ipa_msg {
+	struct ipa_msg_hdr msg_hdr;
+	int data;
+};
+
+/**
+ * struct ipa_msgq_desc - inter-VM communication
+ * @gunyah_label: gh_msgq label
+ * @msgq_hdl: gh_msgq handle
+ * @recv_thread: receive thread
+ * @req_complete: request complete
+ */
+struct ipa_msgq_desc {
+	u32 gunyah_label;
+	void *msgq_hdl;
+	struct task_struct *recv_thread;
+	struct completion req_complete;
+};
+#endif /* CONFIG_GH_MSGQ */
+
+/* ctx for ETH PDU mode*/
+struct ipa3_eth_pdu_ctx {
+	bool eth_pdu_mode_enabled;
+	enum ipa_eth_hw_config_enum_v01 eth_pdu_vlan_mode;
+	int eth_pdu_tx_ep_id;
+	int eth_pdu_rx_ep_id;
+};
 
 /**
  * struct ipa3_context - IPA context
@@ -2398,6 +2458,7 @@ enum ipa_per_usb_enum_type_e {
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  * @cesta_enable: flag which holds if cesta_enabled or not in DTSI
+ * @eth_pdu_ctx: ETH PDU ctx
  * @ipa_tiering_value: IPA tiering value to support multiple SKUs
  */
 struct ipa3_context {
@@ -2672,9 +2733,15 @@ struct ipa3_context {
 	void *per_stats_smem_va;
 	u32 ipa_smem_size;
 	bool cesta_enable;
+	struct ipa3_eth_pdu_ctx eth_pdu_ctx;
 	struct mutex ssr_lock;
 	bool iemac_exist;
 	u32 ipa_tiering_value;
+	bool ipa_v2x_vm;
+	u32 pvm_v2x_pm_hdl;
+#ifdef CONFIG_GH_MSGQ
+	struct ipa_msgq_desc msgq_desc;
+#endif
 };
 
 struct ipa3_plat_drv_res {
@@ -2762,6 +2829,8 @@ struct ipa3_plat_drv_res {
 	u8 coal_ipv4_id_ignore;
 	bool cesta_enable;
 	bool iemac_exist;
+	bool ipa_v2x_vm;
+	u32 gunyah_label;
 };
 
 /**
@@ -4053,7 +4122,7 @@ void ipa3_update_mhi_ctrl_state(u8 state, bool set);
 int ipa_send_mhi_ctrl_endp_ind_to_modem(void);
 #ifdef IPA_CLIENT_MHI_COAL_CONS
 /* Send coal MHI endpoint info to modem using QMI indication message */
-int ipa_send_mhi_coal_endp_ind_to_modem(void);
+int ipa_send_mhi_coal_endp_ind_to_modem(bool check_if_modem_is_up);
 #endif
 
 /*
@@ -4076,5 +4145,8 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
+
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
+void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 
 #endif /* _IPA3_I_H_ */

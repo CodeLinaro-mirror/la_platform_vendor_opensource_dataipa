@@ -114,7 +114,7 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 		IPAERR("IOMMU map failed for pa=%pa len=%zu\n", &pa, true_len);
 		return -EINVAL;
 	}
-	*iova = va + pa - rounddown(pa, PAGE_SIZE);
+	*iova = va;
 	ipa_iemac_smmu_cb_save_mapping_i(cb_type, pa, *iova, true_len, instance_id, dir);
 
 	return 0;
@@ -1141,10 +1141,46 @@ int ipa3_eth_connect(
 			ep->cfg.hdr.hdr_metadata_reg_valid = false;
 		}
 	}
+
+	/* ETH PDU configuration */
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) {
+		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
+			IPA_QMI_ETH_HW_VLAN_IP_V01)
+			ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
+		else if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
+			IPA_QMI_ETH_HW_NON_VLAN_IP_V01)
+			ep->cfg.hdr.hdr_len = ETH_HLEN;
+		else
+			IPAERR("invalid vlan mode: %d\n",
+				ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode);
+
+		ep->skip_ep_cfg = true;
+
+		/* only need to route exception for IPA client producer */
+		if (IPA_CLIENT_IS_PROD(client_type)) {
+			/*
+			 * enable source notification status for exception packets
+			 * (i.e. QMAP commands) to be routed to modem.
+			 */
+			ep->status.status_en = true;
+			ep->status.status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+			/* Enable status supression to disable sending status for
+			 * every packet.
+			 */
+			ep->status.status_pkt_suppress = true;
+
+			if (ipa3_cfg_ep_status(ep_idx, &ep->status)) {
+				IPAERR("fail to configure status of EP.\n");
+				goto cfg_ep_fail;
+			}
+		}
+	}
+
 	if (ipa3_cfg_ep(ep_idx, &ep->cfg)) {
 		IPAERR("fail to setup rx pipe cfg\n");
 		goto cfg_ep_fail;
 	}
+
 	if (IPA_CLIENT_IS_PROD(client_type))
 		ipa3_install_dflt_flt_rules(ep_idx);
 	IPADBG("client %d (ep: %d) connected\n", client_type,
@@ -1388,13 +1424,14 @@ int ipa3_eth_connect(
 
 	ipa3_eth_save_client_mapping(pipe, client_type,
 		id, ep_idx, ep->gsi_chan_hdl);
-	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_RTK)
-	    || prot == IPA_HW_PROTOCOL_IEMAC) {
+	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_IEMAC)) {
 		result = ipa3_eth_config_uc(true, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, ch);
 		if (result) {
 			IPAERR("failed to config uc\n");
+			ipa_assert();
 			goto config_uc_fail;
 		}
 	}
@@ -1483,8 +1520,8 @@ int ipa3_eth_disconnect(
 		goto fail;
 	}
 
-	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_RTK)
-	    || prot == IPA_HW_PROTOCOL_IEMAC) {
+	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || (prot == IPA_HW_PROTOCOL_IEMAC)) {
 		result = ipa3_eth_config_uc(false, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, 0);
@@ -1519,6 +1556,7 @@ int ipa3_eth_disconnect(
 		ipa3_uc_debug_stats_dealloc(prot);
 	if (IPA_CLIENT_IS_PROD(client_type))
 		ipa3_delete_dflt_flt_rules(ep_idx);
+
 	/* unmap th pipe */
 	result = ipa3_smmu_map_eth_pipes(pipe, client_type, false);
 	if (result)

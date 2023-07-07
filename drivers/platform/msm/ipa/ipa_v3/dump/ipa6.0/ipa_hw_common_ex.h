@@ -213,6 +213,20 @@ enum ipa_hw_pipe_id_e {
 	IPA_HW_PIPE_ID_33,
 	IPA_HW_PIPE_ID_34,
 	IPA_HW_PIPE_ID_35,
+	IPA_HW_PIPE_ID_36,
+	IPA_HW_PIPE_ID_37,
+	IPA_HW_PIPE_ID_38,
+	IPA_HW_PIPE_ID_39,
+	IPA_HW_PIPE_ID_40,
+	IPA_HW_PIPE_ID_41,
+	IPA_HW_PIPE_ID_42,
+	IPA_HW_PIPE_ID_43,
+	IPA_HW_PIPE_ID_44,
+	IPA_HW_PIPE_ID_45,
+	IPA_HW_PIPE_ID_46,
+	IPA_HW_PIPE_ID_47,
+	IPA_HW_PIPE_ID_48,
+	IPA_HW_PIPE_ID_49,
 	IPA_HW_PIPE_ID_MAX
 };
 
@@ -634,6 +648,48 @@ enum ipa_hw_irq_srcs_e {
 		GEN_REG_ATTR(reg_name) }, \
 	{ GEN_1xVECTOR_REG_OFST(reg_name, 35), \
 		(u32 *)&ipa_reg_save.ipa.pipes[35].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 36), \
+		(u32 *)&ipa_reg_save.ipa.pipes[36].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 37), \
+		(u32 *)&ipa_reg_save.ipa.pipes[37].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 38), \
+		(u32 *)&ipa_reg_save.ipa.pipes[38].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 39), \
+		(u32 *)&ipa_reg_save.ipa.pipes[39].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 40), \
+		(u32 *)&ipa_reg_save.ipa.pipes[40].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 41), \
+		(u32 *)&ipa_reg_save.ipa.pipes[41].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 42), \
+		(u32 *)&ipa_reg_save.ipa.pipes[42].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 43), \
+		(u32 *)&ipa_reg_save.ipa.pipes[43].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 44), \
+		(u32 *)&ipa_reg_save.ipa.pipes[44].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 45), \
+		(u32 *)&ipa_reg_save.ipa.pipes[45].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 46), \
+		(u32 *)&ipa_reg_save.ipa.pipes[46].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 47), \
+		(u32 *)&ipa_reg_save.ipa.pipes[47].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 48), \
+		(u32 *)&ipa_reg_save.ipa.pipes[48].endp.var_name, \
+		GEN_REG_ATTR(reg_name) }, \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, 49), \
+		(u32 *)&ipa_reg_save.ipa.pipes[49].endp.var_name, \
 		GEN_REG_ATTR(reg_name) }
 
 /*

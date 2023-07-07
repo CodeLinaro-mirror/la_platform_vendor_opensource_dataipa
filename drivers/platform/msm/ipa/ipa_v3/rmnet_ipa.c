@@ -1,16 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -32,7 +24,7 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <net/pkt_sched.h>
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)) || !IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/subsystem_notif.h>
 #endif
@@ -2222,6 +2214,11 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	else{
 		ipa_wan_ep_cfg = &rmnet_ipa3_ctx->ipa_v2x_to_apps_ep_cfg;
 		ipa_wan_ep_cfg->bypass_agg = true;
+
+		/* v2x-only need to disable deaggregation */
+		ipa3_disable_apps_wan_cons_deaggr(
+			ingress_param->agg_byte_limit,
+			ingress_param->agg_pkt_limit);
 	}
 
 	if (!v2x_check && !ipa3_disable_apps_wan_cons_deaggr(
@@ -3005,6 +3002,44 @@ static int handle3_egress_format_v2(struct net_device *dev,
 	return 0;
 }
 
+int ipa3_send_eth_pdu_to_q6_ipa(int rmnet_index)
+{
+	struct ipa3_rmnet_mux_val *mux_channel;
+	struct ipa3_rmnet_mux_val *mux_channel2;
+	struct ipa_rmnet_eth_info_indication_msg_v01 req;
+
+	mux_channel = rmnet_ipa3_ctx->mux_channel_eth;
+	mux_channel2 = ipa3_rmnet_ctx.mux_channel_eth; //cache for QMI
+
+	memset(&req, 0, sizeof(struct ipa_rmnet_eth_info_indication_msg_v01));
+	req.rmnet_eth_info_valid = true;
+	req.rmnet_eth_info_len++;
+	memcpy(req.rmnet_eth_info[0].mac_addr, mux_channel[rmnet_index].mac,
+		sizeof(req.rmnet_eth_info[0].mac_addr));
+	req.rmnet_eth_info[0].mux_id = mux_channel[rmnet_index].mux_id;
+
+	IPAWANDBG("mac: %02x:%02x:%02x:%02x:%02x:%02x mux_id=%d\n",
+				req.rmnet_eth_info[0].mac_addr[0],
+				req.rmnet_eth_info[0].mac_addr[1],
+				req.rmnet_eth_info[0].mac_addr[2],
+				req.rmnet_eth_info[0].mac_addr[3],
+				req.rmnet_eth_info[0].mac_addr[4],
+				req.rmnet_eth_info[0].mac_addr[5],
+				req.rmnet_eth_info[0].mux_id);
+
+	if(ipa3_qmi_send_rmnet_eth_indication(&req))
+		IPAWANDBG("QMI not ready, cache info and send later\n");
+
+	memcpy(mux_channel2[ipa3_rmnet_ctx.num_mux_channel_eth].mac,
+				mux_channel[rmnet_index].mac,
+				sizeof(mux_channel2[ipa3_rmnet_ctx.num_mux_channel_eth].mac));
+	mux_channel2[ipa3_rmnet_ctx.num_mux_channel_eth].mux_id =
+		mux_channel[rmnet_index].mux_id;
+	ipa3_rmnet_ctx.num_mux_channel_eth++;
+
+	return 0;
+}
+
 /**
  * ipa3_wwan_ioctl() - I/O control for wwan network driver.
  *
@@ -3480,8 +3515,25 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 				mux_mutex_ptr =
 					&rmnet_ipa3_ctx->add_mux_channel_lock;
 
-				IPAWANERR_RL("dev(%s) send QMI to Q6-IPA\n",
+				IPAWANDBG("dev(%s) send QMI to Q6-IPA\n",
 					v_name);
+
+				/* send eth pdu endpoint to Q6 using QMI */
+				rc = ipa3_send_eth_pdu_to_q6_ipa(
+						rmnet_ipa3_ctx->rmnet_index_eth);
+				if (rc < 0) {
+					IPAWANERR("device %s send to Q6-IPA failed\n",
+						v_name);
+					mutex_unlock(mux_mutex_ptr);
+					return -ENODEV;
+				}
+				mux_channel[rmnet_index].q6_qmi_send =
+					true;
+			} else {
+				IPAWANDBG("dev(%s) haven't sent to Q6-IPA\n",
+					v_name);
+				mux_channel[rmnet_index].q6_qmi_send =
+					false;
 			}
 			rmnet_ipa3_ctx->rmnet_index_eth++;
 			mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
@@ -3640,6 +3692,9 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 		case RMNET_IOCTL_SET_ETH_VLAN:
 			IPAWANDBG("get ioctl: RMNET_IOCTL_SET_ETH_VLAN vlan %d\n", ext_ioctl_data.u.data);
 			rmnet_ipa3_ctx->eth_vlan = ext_ioctl_data.u.data;
+
+			ipa3_set_eth_pdu_mode(true, rmnet_ipa3_ctx->eth_vlan);
+
 			break;
 		default:
 			IPAWANERR("[%s] unsupported extended cmd[%d]",
@@ -3886,13 +3941,15 @@ static int ipa3_q6_register_pm(void)
 		return result;
 	}
 
-	pm_reg.name = "TETH MODEM";
-	pm_reg.group = IPA_PM_GROUP_MODEM;
-	pm_reg.skip_clk_vote = true;
-	result = ipa_pm_register(&pm_reg, &rmnet_ipa3_ctx->q6_teth_pm_hdl);
-	if (result) {
-		IPAERR("failed to create IPA PM client %d\n", result);
-		return result;
+	if (!ipa3_ctx->ipa_v2x_vm) {
+		pm_reg.name = "TETH MODEM";
+		pm_reg.group = IPA_PM_GROUP_MODEM;
+		pm_reg.skip_clk_vote = true;
+		result = ipa_pm_register(&pm_reg, &rmnet_ipa3_ctx->q6_teth_pm_hdl);
+		if (result) {
+			IPAERR("failed to create IPA PM client %d\n", result);
+			return result;
+		}
 	}
 
 	return 0;
@@ -4118,10 +4175,12 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	rmnet_ipa3_ctx->ipa_config_is_apq
 		= ipa3_is_apq();
 
-	ret = ipa3_init_q6_smem();
-	if (ret) {
-		IPAWANERR("ipa3_init_q6_smem failed\n");
-		return ret;
+	if (!ipa3_ctx->ipa_v2x_vm) {
+		ret = ipa3_init_q6_smem();
+		if (ret) {
+			IPAWANERR("ipa3_init_q6_smem failed\n");
+			return ret;
+		}
 	}
 
 	/* initialize tx/rx endpoint setup */
@@ -4157,17 +4216,19 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 				sizeof(struct ipa3_rmnet_mux_val));
 	}
 
-	/* start A7 QMI service/client */
-	if (ipa3_ctx_get_type(PLATFORM_TYPE) == IPA_PLAT_TYPE_MSM ||
-		ipa3_ctx_get_type(PLATFORM_TYPE) == IPA_PLAT_TYPE_APQ)
-		/* Android platform loads uC */
-		ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_MSM_ANDROID_V01);
-	else if (ipa3_ctx_get_flag(IPA_MHI_EN))
-		/* LE MHI platform */
-		ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_LE_MHI_V01);
-	else
-		/* LE platform not loads uC */
-		ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_LE_V01);
+	if (!ipa3_ctx->ipa_v2x_vm) {
+		/* start A7 QMI service/client */
+		if (ipa3_ctx_get_type(PLATFORM_TYPE) == IPA_PLAT_TYPE_MSM ||
+			ipa3_ctx_get_type(PLATFORM_TYPE) == IPA_PLAT_TYPE_APQ)
+			/* Android platform loads uC */
+			ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_MSM_ANDROID_V01);
+		else if (ipa3_ctx_get_flag(IPA_MHI_EN))
+			/* LE MHI platform */
+			ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_LE_MHI_V01);
+		else
+			/* LE platform not loads uC */
+			ipa3_qmi_service_init(QMI_IPA_PLATFORM_TYPE_LE_V01);
+	}
 
 	if (!atomic_read(&rmnet_ipa3_ctx->is_ssr)) {
 		/* Start transport-driver fd ioctl for ipacm for first init */
@@ -4292,7 +4353,8 @@ q6_init_err:
 alloc_netdev_err:
 	ipa3_wan_ioctl_deinit();
 wan_ioctl_init_err:
-	ipa3_qmi_service_exit();
+	if (!ipa3_ctx->ipa_v2x_vm)
+		ipa3_qmi_service_exit();
 	atomic_set(&rmnet_ipa3_ctx->is_ssr, 0);
 	return ret;
 }
@@ -4324,7 +4386,7 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 	else
 		rmnet_ipa3_ctx->apps_to_ipa3_hdl = -1;
 
-	/* clean eth pdu pipe: change global if needed */
+	/* clean eth pdu pipe. Change to global if needed */
 	if (rmnet_ipa3_ctx->apps_to_ipa3_eth_hdl > 0)
 	{
 		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_eth_hdl);
@@ -4583,9 +4645,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		atomic_set(&rmnet_ipa3_ctx->is_ssr, 1);
 		ipa3_q6_pre_shutdown_cleanup();
 		if (IPA_NETDEV())
-		{
-			netif_tx_stop_all_queues(IPA_NETDEV());
-		}
+			netif_device_detach(IPA_NETDEV());
 		ipa3_qmi_stop_workqueues();
 		ipa3_wan_ioctl_stop_qmi_messages();
 		ipa_stop_polling_stats();
@@ -6386,6 +6446,8 @@ void ipa3_q6_handshake_complete(bool ssr_bootup)
 	ipa3_set_modem_up(true);
 	if (ipa3_ctx->ipa_config_is_mhi)
 		ipa_send_mhi_ctrl_endp_ind_to_modem();
+
+	IPAWANDBG("Q6 handshake complete\n");
 }
 
 static inline bool rmnet_ipa3_check_any_client_inited

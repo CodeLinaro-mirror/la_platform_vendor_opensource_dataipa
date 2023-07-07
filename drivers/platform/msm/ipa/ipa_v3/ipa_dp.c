@@ -773,6 +773,12 @@ int ipa3_send_cmd(u16 num_desc, struct ipa3_desc *descr)
 	struct ipa3_sys_context *sys;
 	int ep_idx;
 
+	/* No command pipe on GVM, ignore. */
+	if (ipa3_ctx->ipa_v2x_vm) {
+		IPADBG("not sending imm cmd on GVM\n");
+		return 0;
+	}
+
 	for (i = 0; i < num_desc; i++)
 		IPADBG("sending imm cmd %d\n", descr[i].opcode);
 
@@ -842,6 +848,12 @@ int ipa3_send_cmd_timeout(u16 num_desc, struct ipa3_desc *descr, u32 timeout)
 	int ep_idx;
 	int completed;
 	struct ipa3_tag_completion *comp;
+
+	/* No command pipe on GVM, ignore. */
+	if (ipa3_ctx->ipa_v2x_vm) {
+		IPADBG("not sending imm cmd on GVM\n");
+		return 0;
+	}
 
 	for (i = 0; i < num_desc; i++)
 		IPADBG("sending imm cmd %d\n", descr[i].opcode);
