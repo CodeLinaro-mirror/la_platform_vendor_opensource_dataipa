@@ -12,6 +12,7 @@
 #define _IPA_TRACE_H
 
 #include <linux/tracepoint.h>
+#include <linux/string.h>
 
 TRACE_EVENT(
 	intr_to_poll3,
@@ -138,7 +139,7 @@ TRACE_EVENT(
 	),
 
 	TP_fast_assign(
-		__assign_str(name, skb->dev->name);
+		strlcpy(__get_str(name), skb->dev->name, sizeof(skb->dev->name));
 		__entry->skbaddr = skb;
 		__entry->protocol = ntohs(skb->protocol);
 		__entry->len = skb->len;
@@ -271,7 +272,7 @@ TRACE_EVENT(
 	),
 
 	TP_fast_assign(
-		__assign_str(name, skb->dev->name);
+		strlcpy(__get_str(name), skb->dev->name, sizeof(skb->dev->name));
 		__entry->skbaddr = skb;
 		__entry->protocol = ntohs(skb->protocol);
 		__entry->len = skb->len;

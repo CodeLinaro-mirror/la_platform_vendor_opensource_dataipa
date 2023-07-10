@@ -665,7 +665,7 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 {
 	struct ipa_eth_client_pipe_info *pipe;
 	int rc;
-	int client_type, inst_id, traff_type, ep_idx, rx_idx, tx_idx;
+	int client_type, inst_id, traff_type, ep_idx, rx_idx = 0, tx_idx = 0;
 	struct ipa_endp_desc_indication_msg_v01 req;
 	struct ipa_ep_id_type_v01 *ep_info;
 	enum ipa_client_type ipa_client;

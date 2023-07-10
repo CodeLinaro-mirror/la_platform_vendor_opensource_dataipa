@@ -1642,7 +1642,7 @@ static int ipa_mhi_resume_channels(bool LPTransitionRejected,
 {
 	int i;
 	int res = 0;
-	bool is_switch_to_dbmode;
+	bool is_switch_to_dbmode = false;
 	struct ipa_mhi_channel_ctx *channel;
 
 	IPA_MHI_FUNC_ENTRY();
