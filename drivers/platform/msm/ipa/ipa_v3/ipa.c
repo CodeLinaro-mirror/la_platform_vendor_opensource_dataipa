@@ -12796,6 +12796,7 @@ static int ipa_smmu_cb_probe(struct device *dev, enum ipa_smmu_cb_type cb_type)
 			ipa3_ctx->pdev = &ipa3_ctx->master_pdev->dev;
 			return ipa_smmu_v2x_cb_probe(dev);
 		}
+                break;
 	case IPA_SMMU_CB_MAX:
 		IPAERR("Invalid cb_type\n");
 	}
