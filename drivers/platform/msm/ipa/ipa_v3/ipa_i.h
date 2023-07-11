@@ -4149,6 +4149,6 @@ int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t dat
 void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
-
+void ipa3_set_eth_pdu_ep_status(void);
 
 #endif /* _IPA3_I_H_ */
