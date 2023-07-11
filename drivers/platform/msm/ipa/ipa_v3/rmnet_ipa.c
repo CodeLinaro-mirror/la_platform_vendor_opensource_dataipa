@@ -3694,6 +3694,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			rmnet_ipa3_ctx->eth_vlan = ext_ioctl_data.u.data;
 			ipa3_set_eth_pdu_mode(true, rmnet_ipa3_ctx->eth_vlan);
 			ipa3_notify_ipacm_eth_pdu_enable();
+			ipa3_set_eth_pdu_ep_status();
 			break;
 		default:
 			IPAWANERR("[%s] unsupported extended cmd[%d]",
