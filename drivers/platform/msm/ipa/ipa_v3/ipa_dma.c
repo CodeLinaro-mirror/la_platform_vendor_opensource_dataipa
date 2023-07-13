@@ -54,6 +54,16 @@
 			IPADMA_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
+#define IPADMA_ERR_RL(fmt, args...) \
+	do { \
+		pr_err_ratelimited_ipa(IPADMA_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
+			IPADMA_DRV_NAME " %s:%d " fmt, ## args); \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
+			IPADMA_DRV_NAME " %s:%d " fmt, ## args); \
+	} while (0)
+
 #define IPADMA_FUNC_ENTRY() \
 	IPADMA_DBG_LOW("ENTRY\n")
 
@@ -417,7 +427,7 @@ int ipa3_dma_enable(void)
 	}
 	mutex_lock(&ipa3_dma_ctx->enable_lock);
 	if (ipa3_dma_ctx->enable_ref_cnt > 0) {
-		IPADMA_ERR("Already enabled refcnt=%d\n",
+		IPADMA_ERR_RL("Already enabled refcnt=%d\n",
 			ipa3_dma_ctx->enable_ref_cnt);
 		ipa3_dma_ctx->enable_ref_cnt++;
 		mutex_unlock(&ipa3_dma_ctx->enable_lock);
