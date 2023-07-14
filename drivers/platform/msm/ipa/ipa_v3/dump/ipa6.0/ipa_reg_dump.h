@@ -1136,6 +1136,12 @@ struct ipa_gen_regs_s {
 		ipa_log_buf_hw_cmd_noc_master_sel;
 	struct ipa_hwio_def_ipa_state_acl_s
 		ipa_state_acl;
+	struct ipa_hwio_def_ipa_state_acl_1_s
+		ipa_state_acl_1;
+	struct ipa_hwio_def_ipa_state_encaps_s
+		ipa_state_encaps;
+	struct ipa_hwio_def_ipa_state_decaps_s
+		ipa_state_decaps;
 	struct ipa_hwio_def_ipa_sys_pkt_proc_cntxt_base_s
 		ipa_sys_pkt_proc_cntxt_base;
 	struct ipa_hwio_def_ipa_sys_pkt_proc_cntxt_base_msb_s
@@ -1369,6 +1375,12 @@ struct ipa_reg_save_pipe_endp_s {
 		ipa_router_cache_cfg_n;
 	struct ipa_hwio_def_ipa_endp_init_nat_exc_suppress_n_s
 		ipa_endp_init_nat_exc_suppress_n;
+	struct ipa_hwio_def_ipa_endp_init_prod_cfg_n_s
+		ipa_endp_init_prod_cfg_n;
+	struct ipa_hwio_def_ipa_endp_init_ipsec_cfg_n_s
+		ipa_endp_init_ipsec_cfg_n;
+	struct ipa_hwio_def_ipa_endp_init_drbip_cfg_n_s
+		ipa_endp_init_drbip_cfg_n;
 };
 
 /*

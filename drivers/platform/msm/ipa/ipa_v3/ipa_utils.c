@@ -5911,12 +5911,19 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 0, 9, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 0}, IPA_TX_INSTANCE_NA },
 
+	[IPA_5_2_MHI][IPA_CLIENT_APPS_WAN_PROD] = {
+			true, IPA_v5_2_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 1 , 15, 25, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_NA },
+
 	[IPA_5_2_MHI][IPA_CLIENT_MHI_PROD] = {
 			true, IPA_v5_2_GROUP_UL,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
-			{ 2, 0, 16, 24, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_NA },
+			{ 2, 0, 25, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7}, IPA_TX_INSTANCE_NA },
 
 	[IPA_5_2_MHI][IPA_CLIENT_MHI_LOW_LAT_PROD] = {
 			true, IPA_v5_2_GROUP_URLLC,
@@ -6065,6 +6072,12 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_PCIE,
 			{ 24, 6, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_DL },
 
+	[IPA_5_2_MHI][IPA_CLIENT_APPS_WAN_CONS] = {
+			true, IPA_v5_2_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 25, 12, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_DL },
 
 	/* IPA_5_5 */
 	[IPA_5_5][IPA_CLIENT_USB_PROD] = {
@@ -8950,9 +8963,9 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.v6_flt_nhash_size_ddr = 0x4000,
 	.v4_rt_num_index = 0x1f,
 	.v4_modem_rt_index_lo = 0x0,
-	.v4_modem_rt_index_hi = 0xa,
-	.v4_apps_rt_index_lo = 0xb,
-	.v4_apps_rt_index_hi = 0x12,
+	.v4_modem_rt_index_hi = 0xf,
+	.v4_apps_rt_index_lo = 0x10,
+	.v4_apps_rt_index_hi = 0x1e,
 	.v4_rt_hash_ofst = 0x15a8,
 	.v4_rt_hash_size = 0xf8,
 	.v4_rt_hash_size_ddr = 0x10000,
@@ -8961,9 +8974,9 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.v4_rt_nhash_size_ddr = 0x4000,
 	.v6_rt_num_index = 0x1f,
 	.v6_modem_rt_index_lo = 0x0,
-	.v6_modem_rt_index_hi = 0xa,
-	.v6_apps_rt_index_lo = 0xb,
-	.v6_apps_rt_index_hi = 0x12,
+	.v6_modem_rt_index_hi = 0xf,
+	.v6_apps_rt_index_lo = 0x10,
+	.v6_apps_rt_index_hi = 0x1e,
 	.v6_rt_hash_ofst = 0x17a8,
 	.v6_rt_hash_size = 0xf8,
 	.v6_rt_hash_size_ddr = 0x10000,
@@ -9002,7 +9015,7 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x6ce8,
 	.stats_fnr_size = 0x2680,
-	.stats_drop_ofst = 0x9768,
+	.stats_drop_ofst = 0x9368,
 	.stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
@@ -11419,6 +11432,14 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 		break;
 	default:
 		break;
+	}
+
+	/* Enabling HW replication for eth clients */
+	if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
+		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
+		init_mode.replication_en = 1;
+		IPADBG("Enabling HW replication on pipe=%d\n",
+			clnt_hdl);
 	}
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
@@ -17012,4 +17033,41 @@ int ipa3_del_socksv5_conn(uint32_t handle)
 error:
 	mutex_unlock(&ipa3_ctx->act_tbl_lock);
 	return res;
+}
+
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id = rx_idx;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id = tx_idx;
+}
+EXPORT_SYMBOL(ipa3_update_eth_pdu_ep_index);
+
+void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan)
+{
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled = enable;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode = vlan;
+}
+EXPORT_SYMBOL(ipa3_set_eth_pdu_mode);
+
+void ipa3_notify_ipacm_eth_pdu_enable()
+{
+	struct ipa_msg_meta msg_meta;
+	int res = 0;
+
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = IPA_ENABLE_ETH_PDU_MODE_EVENT;
+	msg_meta.msg_len  = 0;
+
+	IPADBG("Sending ETH PDU ENABLE to IPACM\n");
+
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, NULL, NULL);
+
+	if (res)
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
 }

@@ -1,16 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -3010,6 +3002,44 @@ static int handle3_egress_format_v2(struct net_device *dev,
 	return 0;
 }
 
+int ipa3_send_eth_pdu_to_q6_ipa(int rmnet_index)
+{
+	struct ipa3_rmnet_mux_val *mux_channel;
+	struct ipa3_rmnet_mux_val *mux_channel2;
+	struct ipa_rmnet_eth_info_indication_msg_v01 req;
+
+	mux_channel = rmnet_ipa3_ctx->mux_channel_eth;
+	mux_channel2 = ipa3_rmnet_ctx.mux_channel_eth; //cache for QMI
+
+	memset(&req, 0, sizeof(struct ipa_rmnet_eth_info_indication_msg_v01));
+	req.rmnet_eth_info_valid = true;
+	req.rmnet_eth_info_len++;
+	memcpy(req.rmnet_eth_info[0].mac_addr, mux_channel[rmnet_index].mac,
+		sizeof(req.rmnet_eth_info[0].mac_addr));
+	req.rmnet_eth_info[0].mux_id = mux_channel[rmnet_index].mux_id;
+
+	IPAWANDBG("mac: %02x:%02x:%02x:%02x:%02x:%02x mux_id=%d\n",
+				req.rmnet_eth_info[0].mac_addr[0],
+				req.rmnet_eth_info[0].mac_addr[1],
+				req.rmnet_eth_info[0].mac_addr[2],
+				req.rmnet_eth_info[0].mac_addr[3],
+				req.rmnet_eth_info[0].mac_addr[4],
+				req.rmnet_eth_info[0].mac_addr[5],
+				req.rmnet_eth_info[0].mux_id);
+
+	if(ipa3_qmi_send_rmnet_eth_indication(&req))
+		IPAWANDBG("QMI not ready, cache info and send later\n");
+
+	memcpy(mux_channel2[ipa3_rmnet_ctx.num_mux_channel_eth].mac,
+				mux_channel[rmnet_index].mac,
+				sizeof(mux_channel2[ipa3_rmnet_ctx.num_mux_channel_eth].mac));
+	mux_channel2[ipa3_rmnet_ctx.num_mux_channel_eth].mux_id =
+		mux_channel[rmnet_index].mux_id;
+	ipa3_rmnet_ctx.num_mux_channel_eth++;
+
+	return 0;
+}
+
 /**
  * ipa3_wwan_ioctl() - I/O control for wwan network driver.
  *
@@ -3485,8 +3515,25 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 				mux_mutex_ptr =
 					&rmnet_ipa3_ctx->add_mux_channel_lock;
 
-				IPAWANERR_RL("dev(%s) send QMI to Q6-IPA\n",
+				IPAWANDBG("dev(%s) send QMI to Q6-IPA\n",
 					v_name);
+
+				/* send eth pdu endpoint to Q6 using QMI */
+				rc = ipa3_send_eth_pdu_to_q6_ipa(
+						rmnet_ipa3_ctx->rmnet_index_eth);
+				if (rc < 0) {
+					IPAWANERR("device %s send to Q6-IPA failed\n",
+						v_name);
+					mutex_unlock(mux_mutex_ptr);
+					return -ENODEV;
+				}
+				mux_channel[rmnet_index].q6_qmi_send =
+					true;
+			} else {
+				IPAWANDBG("dev(%s) haven't sent to Q6-IPA\n",
+					v_name);
+				mux_channel[rmnet_index].q6_qmi_send =
+					false;
 			}
 			rmnet_ipa3_ctx->rmnet_index_eth++;
 			mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
@@ -3645,6 +3692,8 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 		case RMNET_IOCTL_SET_ETH_VLAN:
 			IPAWANDBG("get ioctl: RMNET_IOCTL_SET_ETH_VLAN vlan %d\n", ext_ioctl_data.u.data);
 			rmnet_ipa3_ctx->eth_vlan = ext_ioctl_data.u.data;
+			ipa3_set_eth_pdu_mode(true, rmnet_ipa3_ctx->eth_vlan);
+			ipa3_notify_ipacm_eth_pdu_enable();
 			break;
 		default:
 			IPAWANERR("[%s] unsupported extended cmd[%d]",
@@ -4336,7 +4385,7 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 	else
 		rmnet_ipa3_ctx->apps_to_ipa3_hdl = -1;
 
-	/* clean eth pdu pipe: change global if needed */
+	/* clean eth pdu pipe. Change to global if needed */
 	if (rmnet_ipa3_ctx->apps_to_ipa3_eth_hdl > 0)
 	{
 		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_eth_hdl);
