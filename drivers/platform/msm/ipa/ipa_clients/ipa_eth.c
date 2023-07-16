@@ -719,7 +719,7 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 			ipa_client = ipa_eth_get_ipa_client_type_from_pipe(pipe);
 			ep_idx = ipa_get_ep_mapping(ipa_client);
 
-			/* NOTEL Only support single NIC for eth_pdu */
+			/* NOTE: Only support single NIC for eth_pdu */
 			if ((IPA_CLIENT_IS_PROD(ipa_client) && tx_idx) && (IPA_CLIENT_IS_CONS(ipa_client) && rx_idx)) {
 				IPAERR("QMI already set for ETH PDU tx id:%d rx id:%d\n",tx_idx, rx_idx);
 				continue;
@@ -734,11 +734,11 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 
 			if (IPA_CLIENT_IS_PROD(ipa_client)) {
 				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
-				tx_idx = ep_idx;
+				rx_idx = ep_idx;
 			}
 			else if (IPA_CLIENT_IS_CONS(ipa_client)) {
 				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
-				rx_idx = ep_idx;
+				tx_idx = ep_idx;
 			}
 			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
 		}
@@ -818,6 +818,10 @@ static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 		mutex_unlock(&ipa_eth_ctx->lock);
 		return -EFAULT;
 	}
+
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
+		ipa3_update_eth_pdu_ep_index(0, 0);
+
 	mutex_unlock(&ipa_eth_ctx->lock);
 	return 0;
 }

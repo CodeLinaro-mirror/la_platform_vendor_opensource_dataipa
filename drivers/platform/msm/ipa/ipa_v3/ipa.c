@@ -8914,8 +8914,8 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	if (ipa3_ctx->gsi_msi_addr)
 		ipa_gsi_map_unmap_gsi_msi_addr(true);
 
-	if(!ipa_spearhead_stats_init())
-		IPADBG("Fail to init spearhead ipa lnx module");
+	if(!ipa_tlpd_stats_init())
+		IPADBG("Fail to init tlpd ipa lnx module");
 
 #ifdef CONFIG_ARCH_SA525_HOSTVM
 	/*
@@ -10201,6 +10201,23 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 
 	mutex_init(&ipa3_ctx->transport_pm.transport_pm_mutex);
 
+	mutex_init(&ipa3_ctx->recycle_stats_collection_lock);
+	memset(&ipa3_ctx->recycle_stats, 0, sizeof(struct ipa_lnx_pipe_page_recycling_stats));
+	memset(&ipa3_ctx->prev_coal_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
+	memset(&ipa3_ctx->prev_default_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
+	memset(&ipa3_ctx->prev_low_lat_data_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
+
+	/* Create workqueue for recycle stats collection */
+	ipa3_ctx->collect_recycle_stats_wq =
+					create_singlethread_workqueue("page_recycle_stats_collection");
+	if (!ipa3_ctx->collect_recycle_stats_wq) {
+			IPAERR("failed to create page recycling stats collection wq\n");
+			result = -ENOMEM;
+			goto fail_create_recycle_stats_wq;
+	}
+	memset(&ipa3_ctx->recycle_stats, 0,
+			   sizeof(ipa3_ctx->recycle_stats));
+
 	/* init the lookaside cache */
 	ipa3_ctx->flt_rule_cache = kmem_cache_create("IPA_FLT",
 			sizeof(struct ipa3_flt_entry), 0, 0, NULL);
@@ -10538,6 +10555,8 @@ fail_hdr_cache:
 fail_rt_rule_cache:
 	kmem_cache_destroy(ipa3_ctx->flt_rule_cache);
 fail_flt_rule_cache:
+	destroy_workqueue(ipa3_ctx->collect_recycle_stats_wq);
+fail_create_recycle_stats_wq:
 	destroy_workqueue(ipa3_ctx->transport_power_mgmt_wq);
 fail_create_transport_wq:
 	destroy_workqueue(ipa3_ctx->power_mgmt_wq);
@@ -12796,6 +12815,7 @@ static int ipa_smmu_cb_probe(struct device *dev, enum ipa_smmu_cb_type cb_type)
 			ipa3_ctx->pdev = &ipa3_ctx->master_pdev->dev;
 			return ipa_smmu_v2x_cb_probe(dev);
 		}
+                break;
 	case IPA_SMMU_CB_MAX:
 		IPAERR("Invalid cb_type\n");
 	}

@@ -2742,6 +2742,12 @@ struct ipa3_context {
 #ifdef CONFIG_GH_MSGQ
 	struct ipa_msgq_desc msgq_desc;
 #endif
+	struct workqueue_struct *collect_recycle_stats_wq;
+	struct ipa_lnx_pipe_page_recycling_stats recycle_stats;
+	struct ipa3_page_recycle_stats prev_coal_recycle_stats;
+	struct ipa3_page_recycle_stats prev_default_recycle_stats;
+	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
+	struct mutex recycle_stats_collection_lock;
 };
 
 struct ipa3_plat_drv_res {
@@ -4149,6 +4155,6 @@ int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t dat
 void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
-
+void ipa3_set_eth_pdu_ep_status(void);
 
 #endif /* _IPA3_I_H_ */

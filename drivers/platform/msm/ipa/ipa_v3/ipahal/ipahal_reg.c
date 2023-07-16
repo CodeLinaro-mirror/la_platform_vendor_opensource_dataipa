@@ -68,6 +68,7 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_ENDP_INIT_MODE_n),
 	__stringify(IPA_ENDP_INIT_NAT_n),
 	__stringify(IPA_ENDP_INIT_CONN_TRACK_n),
+	__stringify(IPA_ENDP_INIT_DRBIP_CFG_n),
 	__stringify(IPA_ENDP_INIT_CTRL_n),
 	__stringify(IPA_ENDP_INIT_CTRL_SCND_n),
 	__stringify(IPA_ENDP_INIT_CTRL_STATUS_n),

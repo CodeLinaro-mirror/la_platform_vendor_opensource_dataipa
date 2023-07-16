@@ -17071,3 +17071,39 @@ void ipa3_notify_ipacm_eth_pdu_enable()
 	if (res)
 		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
 }
+
+void ipa3_set_eth_pdu_ep_status()
+{
+	struct ipa3_ep_context *ep = NULL;
+
+	if (!ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
+	{
+		IPAERR("ETH PDU pipe is not connected yet\n");
+		return;
+	}
+
+	ep = &ipa3_ctx->ep[ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id];
+	if (!ep->valid)
+	{
+		IPAERR("ETH PDU pipe is not valid \n");
+		return;
+	}
+
+	IPADBG("Enabling status for ETH_PDU RX pipe\n");
+	/*
+	 * enable source notification status for exception packets
+	 * (i.e. QMAP commands) to be routed to modem.
+	 */
+	ep->status.status_en = true;
+	ep->status.status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+	/* Enable status supression to disable sending status for
+	 * every packet.
+	 */
+	ep->status.status_pkt_suppress = true;
+
+	if (ipa3_cfg_ep_status(ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id,
+		&ep->status)) {
+		IPAERR("fail to configure status of EP.\n");
+		return;
+	}
+}

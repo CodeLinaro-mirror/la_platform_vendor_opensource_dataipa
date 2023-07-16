@@ -1268,7 +1268,7 @@ int ipa3_eth_connect(
 			}
 			pipe->info.db_val = 0;
 
-			if (IPA_CLIENT_IS_CONS(client_type)) {
+			if (IPA_CLIENT_IS_CONS(client_type) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2)) {
 				db_addr = ioremap((phys_addr_t)(pipe->info.db_pa), 4);
 				if (!db_addr) {
 					IPAERR("ioremap failed\n");
@@ -1278,7 +1278,25 @@ int ipa3_eth_connect(
 				/* Any value is good to write here, so writing as is */
 				iowrite32(db_val, db_addr);
 				iounmap(db_addr);
+
+			} else if (IPA_CLIENT_IS_CONS(client_type)){
+				pipe->info.db_pa = gsi_db_addr_low;
+				pipe->info.db_val = 0;
+				/* only 32 bit lsb is used */
+				db_addr = ioremap((phys_addr_t)(gsi_db_addr_low), 4);
+				if (!db_addr) {
+					IPAERR("ioremap failed\n");
+					result = -EFAULT;
+					goto ioremap_fail;
+				}
+				/* TX: Initialize to end of ring */
+				db_val = (u32)ep->gsi_mem_info.chan_ring_base_addr;
+				db_val += (u32)ep->gsi_mem_info.chan_ring_len;
+				iowrite32(db_val, db_addr);
+				iounmap(db_addr);
+
 			}
+
 			break;
 		default:
 			/* we can't really get here as we checked prot before */
