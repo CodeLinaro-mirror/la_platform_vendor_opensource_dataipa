@@ -2373,6 +2373,10 @@ static void ipareg_construct_endp_init_mode_n_v5_0(enum ipahal_reg_name reg,
 		IPA_ENDP_INIT_MODE_n_MODE_SHFT_V4_5,
 		IPA_ENDP_INIT_MODE_n_MODE_BMSK_V4_5);
 
+	IPA_SETFIELD_IN_REG(*val, init_mode->replication_en,
+		IPA_ENDP_INIT_MODE_n_PIPE_REPLICATION_EN_SHFT_V4_5,
+		IPA_ENDP_INIT_MODE_n_PIPE_REPLICATION_EN_BMSK_V4_5);
+
 	IPA_SETFIELD_IN_REG(*val, init_mode->dst_pipe_number,
 		IPA_ENDP_INIT_MODE_n_DEST_PIPE_INDEX_SHFT_V5_0,
 		IPA_ENDP_INIT_MODE_n_DEST_PIPE_INDEX_BMSK_V5_0);
@@ -2387,6 +2391,10 @@ static void ipareg_construct_endp_init_mode_n_v6_0(enum ipahal_reg_name reg,
 	IPA_SETFIELD_IN_REG(*val, init_mode->ep_mode.mode,
 		IPA_ENDP_INIT_MODE_n_MODE_SHFT_V4_5,
 		IPA_ENDP_INIT_MODE_n_MODE_BMSK_V4_5);
+
+	IPA_SETFIELD_IN_REG(*val, init_mode->replication_en,
+		IPA_ENDP_INIT_MODE_n_PIPE_REPLICATION_EN_SHFT_V4_5,
+		IPA_ENDP_INIT_MODE_n_PIPE_REPLICATION_EN_BMSK_V4_5);
 
 	IPA_SETFIELD_IN_REG(*val, init_mode->dst_pipe_number,
 		IPA_ENDP_INIT_MODE_n_DEST_PIPE_INDEX_SHFT_V5_0,
