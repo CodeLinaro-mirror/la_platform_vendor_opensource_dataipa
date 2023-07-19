@@ -8372,6 +8372,9 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 	if (ipa3_ctx->ipa_initialization_complete)
 		return 0;
 
+	/* enable IPA clocks explicitly to allow the initialization */
+	ipa3_enable_clks();
+
 	/*
 	 * IPA version 3.0 IPAHAL initialized at pre_init as there is no SMMU.
 	 * In normal mode need to wait until SMMU is attached and
@@ -8483,6 +8486,7 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa_fmwk_deepsleep_exit_ipa();
 #endif
 	complete_all(&ipa3_ctx->init_completion_obj);
+	ipa3_disable_clks();
 
 	pr_info("IPA driver initialization was successful.\n");
 
@@ -8499,8 +8503,8 @@ fail_alloc_pkt_init:
 fail_dma_task:
 fail_init_hw:
 	ipahal_destroy();
-
 fail_ipahal:
+	ipa3_disable_clks();
 	return result;
 }
 
@@ -11115,7 +11119,6 @@ fail_gsi_map:
 		iounmap(ipa3_ctx->reg_collection_base);
 	iounmap(ipa3_ctx->mmio);
 fail_remap:
-	ipa3_disable_clks();
 	ipa3_active_clients_log_destroy();
 	gsi_unmap_base();
 fail_init_active_client:
