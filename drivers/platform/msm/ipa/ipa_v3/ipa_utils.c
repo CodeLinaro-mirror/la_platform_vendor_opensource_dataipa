@@ -14978,13 +14978,15 @@ int ipa3_suspend_apps_pipes(bool suspend)
 
 	/* Suspend/resume v2x pipes first, applicable for PVM only and GVM. */
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, suspend);
-	if (res == -EAGAIN) {
+	if (res == -EAGAIN) {		
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
 		return res;
 	}
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, suspend);
 	if (res == -EAGAIN) {
-		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);		
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, !suspend);
 		return res;
 	}
 
