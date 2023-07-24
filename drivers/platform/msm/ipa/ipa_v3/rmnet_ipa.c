@@ -71,6 +71,25 @@ enum ipa_ap_ingress_ep_enum {
 	IPA_AP_INGRESS_EP_V2X_DATA = 1 << 4
 };
 
+static const struct rmnet_ingress_param rmnet_ingress_cfg ={
+	.ingress_ep_type = 1,
+	.cs_offload_en = 1,
+	.buff_size = 4096,
+	.agg_byte_limit = 8192,
+	.agg_time_limit = 500,
+	.agg_pkt_limit = 63,
+	.int_modt = 16,
+	.int_modc = 20,};
+
+static const struct rmnet_egress_param rmnet_egress_cfg ={
+	.egress_ep_type = 0,
+	.cs_offload_en = 1,
+	.aggr_en = 1,
+	.ulso_en = 0,
+	.ipid_min_max_idx = 0,
+	.int_modt = 16,
+	.int_modc = 20,};
+
 #define IPA_WWAN_RX_SOFTIRQ_THRESH 16
 
 #define INVALID_MUX_ID 0xFF
@@ -2607,6 +2626,223 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 }
 
 /**
+ * handle3_ingress_format_internal() - Ingress data format configuration
+ *
+ * Setup IPA Ingress system pipes and Configure them:
+ *
+ * @ingress_cfg: Ingress pipes' config info
+ */
+static int handle3_ingress_format_internal(const struct rmnet_ingress_param ingress_cfg)
+{
+	struct rmnet_ingress_param ingress_param[RMNET_INGRESS_MAX];
+	int i, j;
+	bool rmnet_config;
+	int rc = 0;
+
+	memcpy(&ingress_param, &ingress_cfg, sizeof(struct rmnet_ingress_param));
+
+	mutex_lock(&rmnet_ipa3_ctx->pipe_handle_guard);
+
+	for (i = 0; i < 1; i++) {
+		ingress_param[i].pipe_setup_status = IPA_PIPE_SETUP_FAILURE;
+		IPAWANDBG("pipe ep_type = %d cs_offload_en = %d buff_size =%d\n",
+				ingress_param[i].ingress_ep_type,
+				ingress_param[i].cs_offload_en,
+				ingress_param[i].buff_size);
+		IPAWANDBG("agg_limit byte =%d time =%d pkt =%d\n",
+				ingress_param[i].agg_byte_limit,
+				ingress_param[i].agg_time_limit,
+				ingress_param[i].agg_pkt_limit);
+		IPAWANDBG("int_modt = %d int_modc = %d\n",
+				ingress_param[i].int_modt, ingress_param[i].int_modc);
+		if (ingress_param[i].ingress_ep_type == RMNET_INGRESS_DEFAULT ||
+			ingress_param[i].ingress_ep_type == RMNET_INGRESS_COALS) {
+
+			memset(&rmnet_ipa3_ctx->ipa_to_apps_ep_cfg, 0,
+				sizeof(struct ipa_sys_connect_params));
+
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_INGRESS_MAX; j++) {
+				if (ingress_param[i].ingress_ep_type ==
+					RMNET_INGRESS_DEFAULT &&
+					ingress_pipe_status[j].ep_type ==
+					RMNET_INGRESS_DEFAULT &&
+					ingress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					ingress_param[i].pipe_setup_status =
+						IPA_PIPE_SETUP_EXISTS;
+					IPAWANERR("Receiving ingress wan default ioctl again\n");
+					break;
+				}
+			}
+
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_INGRESS_MAX; j++) {
+				if (ingress_param[i].ingress_ep_type == RMNET_INGRESS_COALS &&
+					ingress_pipe_status[j].ep_type == RMNET_INGRESS_COALS &&
+					ingress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					ingress_param[i].pipe_setup_status =
+					IPA_PIPE_SETUP_EXISTS;
+					IPAWANERR("Receiving ingress coal ioctl again\n");
+					break;
+				}
+			}
+
+			rc = ipa3_setup_apps_wan_cons_pipes(&ingress_param[i],
+				&ingress_pipe_status[i],
+				&rmnet_ipa3_ctx->ingress_eps_mask,
+				IPA_NETDEV());
+
+			if (rc == -EFAULT) {
+				IPAWANERR("Failed to setup wan/coal cons pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
+				return rc;
+			}
+
+		} else if (ingress_param[i].ingress_ep_type ==
+			RMNET_INGRESS_LOW_LAT_CTRL) {
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_INGRESS_MAX; j++) {
+				if (ingress_pipe_status[j].ep_type ==
+					RMNET_INGRESS_LOW_LAT_CTRL &&
+					ingress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					ingress_param[i].pipe_setup_status
+						= IPA_PIPE_SETUP_EXISTS;
+					IPAWANERR("Receiving ingress low lat ctrl ioctl again");
+					break;
+				}
+			}
+
+			if (ipa3_ctx->rmnet_ctl_enable &&
+				(ingress_param[i].pipe_setup_status == IPA_PIPE_SETUP_EXISTS))
+				continue;
+
+			ingress_pipe_status[i].ep_type = RMNET_INGRESS_LOW_LAT_CTRL;
+			rmnet_config = true;
+			rc = ipa3_setup_apps_low_lat_cons_pipe(rmnet_config,
+					&ingress_param[i]);
+			if (rc) {
+				IPAWANERR("failed to setup ingress low lat endpoint\n");
+				ingress_pipe_status[i].status = IPA_PIPE_SETUP_FAILURE;
+				continue;
+			}
+			rmnet_ipa3_ctx->ingress_eps_mask |= IPA_AP_INGRESS_EP_LOW_LAT;
+			IPAWANDBG("Ingress LOW LAT CTRL pipe setup successfully\n");
+			ingress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
+			/* caching the success status of the pipe */
+			ingress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+
+		} else if (ingress_param[i].ingress_ep_type ==
+			RMNET_INGRESS_LOW_LAT_DATA) {
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_INGRESS_MAX; j++) {
+				if (ingress_pipe_status[j].ep_type ==
+					RMNET_INGRESS_LOW_LAT_DATA &&
+					ingress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					ingress_param[i].pipe_setup_status
+						= IPA_PIPE_SETUP_EXISTS;
+					IPAWANERR("Receiving ingress low lat data ioctl again");
+					break;
+				}
+			}
+
+			if (ipa3_ctx->rmnet_ll_enable &&
+				(ingress_param[i].pipe_setup_status == IPA_PIPE_SETUP_EXISTS))
+				continue;
+
+			ingress_pipe_status[i].ep_type = RMNET_INGRESS_LOW_LAT_DATA;
+			rc = ipa3_setup_apps_low_lat_data_cons_pipe(
+					&ingress_param[i], IPA_NETDEV());
+			if (rc) {
+				IPAWANERR("failed to setup ingress low lat data endpoint\n");
+				ingress_pipe_status[i].status = IPA_PIPE_SETUP_FAILURE;
+				continue;
+			}
+			rmnet_ipa3_ctx->ingress_eps_mask |= IPA_AP_INGRESS_EP_LOW_LAT_DATA;
+			IPAWANDBG("Ingress LOW LAT DATA pipe setup successfully\n");
+			ingress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
+			/* caching the success status of the pipe */
+			ingress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+
+		} else if (ingress_param[i].ingress_ep_type ==
+			RMNET_INGRESS_V2X_DATA) {
+			/* Not support in non-auto target */
+			if (!ipa3_ctx->ipa_config_is_auto) {
+					IPAWANERR("v2x_ingress is not supported on non-auto target!\n");
+					continue;
+			}
+
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_INGRESS_MAX; j++) {
+				if (ingress_pipe_status[j].ep_type ==
+					RMNET_INGRESS_V2X_DATA &&
+					ingress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					ingress_param[i].pipe_setup_status
+						= IPA_PIPE_SETUP_EXISTS;
+					IPAWANERR("Receiving ingress v2x data ioctl again");
+					break;
+				}
+			}
+
+			if(ingress_param[i].pipe_setup_status == IPA_PIPE_SETUP_EXISTS)
+				continue;
+
+			ingress_pipe_status[i].ep_type = RMNET_INGRESS_V2X_DATA;
+			rc = ipa3_setup_apps_wan_cons_pipes(&ingress_param[i],
+					&ingress_pipe_status[i],
+					&rmnet_ipa3_ctx->ingress_eps_mask,
+					IPA_NETDEV());
+			if (rc) {
+				IPAWANERR("failed to setup ingress v2x data endpoint\n");
+				ingress_pipe_status[i].status = IPA_PIPE_SETUP_FAILURE;
+				continue;
+			}
+			rmnet_ipa3_ctx->ipa_v2x_set = true;
+			rmnet_ipa3_ctx->ingress_eps_mask |= RMNET_INGRESS_V2X_DATA;
+			IPAWANDBG("Ingress V2X pipe setup successfully\n");
+			ingress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
+			/* caching the success status of the pipe */
+			ingress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+		} else {
+			IPAWANERR("Ingress ep_type not defined\n");
+		}
+	}
+
+	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
+
+	if ((IPA_NETDEV()->features & NETIF_F_GRO_HW) ? (rmnet_ipa3_ctx->ingress_eps_mask &
+		(IPA_AP_INGRESS_EP_DEFAULT | IPA_AP_INGRESS_EP_COALS)) : (
+		rmnet_ipa3_ctx->ingress_eps_mask & IPA_AP_INGRESS_EP_DEFAULT)) {
+		if (rmnet_ipa3_ctx->wan_rt_table_setup) {
+			IPAWANERR("WAN rt table already exists\n");
+			return -EPERM;
+		}
+		/* construct default WAN RT tbl for IPACM */
+		rc = ipa3_setup_a7_qmap_hdr();
+		if (rc) {
+			IPAWANERR("A7 QMAP header setup failed\n");
+			return -EFAULT;
+		}
+
+		rc = ipa3_setup_dflt_wan_rt_tables();
+		if (rc) {
+			ipa3_del_a7_qmap_hdr();
+			return rc;
+		}
+
+		if(ipa3_ctx->rmnet_ll_enable) {
+			rc = ipa3_setup_low_lat_rt_rules();
+			if (rc)
+				IPAWANERR("low lat rt rule add failed = %d\n", rc);
+		}
+		/* Sending QMI indication message share RSC/QMAP pipe details*/
+		IPAWANDBG("ingress_ep_mask = %d\n", rmnet_ipa3_ctx->ingress_eps_mask);
+		ipa_send_wan_pipe_ind_to_modem(rmnet_ipa3_ctx->ingress_eps_mask);
+		rmnet_ipa3_ctx->wan_rt_table_setup = true;
+	}
+	return 0;
+}
+
+/**
  * ipa3_setup_apps_wan_prod_pipes() - wan prod pipe config
  *
  * Setup IPA egress wan pipes and Configure them:
@@ -2654,7 +2890,8 @@ static int ipa3_setup_apps_wan_prod_pipes(
 	if (v2x_check && rmnet_ipa3_ctx->no_qmap_config)
 		ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 0;
 	else if (egress_param->cs_offload_en &&
-		(dev->features & RMNET_IPA_ULCS_FEATURE)) {
+		((ipa3_ctx->ipa_config_is_rdkb) ||
+		(dev->features & RMNET_IPA_ULCS_FEATURE))) {
 		IPAWANDBG("UL Chksum set ip_pdu(%d)\n", ip_pdu);
 		ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 8;
 		ipa_wan_ep_cfg->ipa_ep_cfg.cfg.cs_offload_en
@@ -3000,6 +3237,285 @@ static int handle3_egress_format_v2(struct net_device *dev,
 	rmnet_ipa3_ctx->egress_set = true;
 
 	return 0;
+}
+
+/**
+ * handle3_egress_format_internal() - Egress data format configuration
+ *
+ * Setup IPA egress system pipes and Configure them:
+ *
+ * @egress_cfg: Egress pipes' config info
+ */
+static int handle3_egress_format_internal(const struct rmnet_egress_param egress_cfg)
+{
+	struct rmnet_egress_param egress_param[RMNET_EGRESS_MAX];
+	int i, j;
+	int rc = 0;
+	bool rmnet_config;
+
+	memcpy(&egress_param, &egress_cfg, sizeof(struct rmnet_egress_param));
+
+	mutex_lock(&rmnet_ipa3_ctx->pipe_handle_guard);
+
+	for (i = 0; i < 1; i++) {
+		egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_FAILURE;
+		IPAWANDBG("cs_offload_en = %d, aggr_en = %d, ulso_en = %d,  type %d\n",
+			egress_param[i].cs_offload_en,
+			egress_param[i].aggr_en,
+			egress_param[i].ulso_en,
+			egress_param[i].egress_ep_type);
+		IPAWANDBG("ipid_min_max_idx = %d, int_modt = %d, int_modc = %d\n",
+			egress_param[i].ipid_min_max_idx,
+			egress_param[i].int_modt,
+			egress_param[i].int_modc);
+		if (egress_param[i].egress_ep_type == RMNET_EGRESS_DEFAULT) {
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_EGRESS_MAX; j++) {
+				if (egress_pipe_status[j].ep_type == RMNET_EGRESS_DEFAULT &&
+					egress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					IPAWANERR("Receiving egress default ioctl again");
+					egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_EXISTS;
+					break;
+				}
+			}
+
+			rc = ipa3_setup_apps_wan_prod_pipes(&egress_param[i],
+					&egress_pipe_status[i],
+					IPA_NETDEV(),
+					true);
+
+			if (rc == -EFAULT) {
+				IPAWANERR("Failed to setup wan prod pipes\n");
+				return rc;
+			}
+
+		} else if (egress_param[i].egress_ep_type == RMNET_EGRESS_ETH_DATA) {
+			/* Not support in auto target */
+			if (ipa3_ctx->ipa_config_is_auto) {
+					IPAWANERR("eth_egress is not supported on auto target!\n");
+					continue;
+			}
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_EGRESS_MAX; j++) {
+				if (egress_pipe_status[j].ep_type == RMNET_EGRESS_ETH_DATA &&
+					egress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					IPAWANERR("Receiving egress default ioctl again");
+					egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_EXISTS;
+					break;
+				}
+			}
+			/* setup ETH PDU */
+			rc = ipa3_setup_apps_wan_prod_pipes(&egress_param[i],
+					&egress_pipe_status[i],
+					IPA_NETDEV(),
+					false);
+
+			if (rc == -EFAULT) {
+				IPAWANERR("Failed to setup wan_eth prod pipes\n");
+				return rc;
+			}
+			/* indicate eth-wan enabled */
+			rmnet_ipa3_ctx->eth_wan_set = true;
+		} else if (egress_param[i].egress_ep_type ==
+			RMNET_EGRESS_LOW_LAT_CTRL) {
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_EGRESS_MAX; j++) {
+				if (egress_pipe_status[j].ep_type ==
+					RMNET_EGRESS_LOW_LAT_CTRL &&
+					egress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_EXISTS;
+					IPAWANERR("Receiving egress low lat ioctl again");
+					break;
+				}
+			}
+
+			if (ipa3_ctx->rmnet_ctl_enable &&
+				(egress_param[i].pipe_setup_status == IPA_PIPE_SETUP_EXISTS))
+				continue;
+
+			egress_pipe_status[i].ep_type = RMNET_EGRESS_LOW_LAT_CTRL;
+
+			rmnet_config = true;
+			rc = ipa3_setup_apps_low_lat_prod_pipe(
+					rmnet_config, &egress_param[i]);
+			if (rc) {
+				IPAWANERR("failed to setup egress low lat endpoint\n");
+				egress_pipe_status[i].status = IPA_PIPE_SETUP_FAILURE;
+				continue;
+			}
+			IPAWANDBG("Egress LOW LAT CTRL pipe setup successfully\n");
+			egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
+			/* caching the success status of the pipe */
+			egress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+
+		} else if (egress_param[i].egress_ep_type ==
+			RMNET_EGRESS_LOW_LAT_DATA) {
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_EGRESS_MAX; j++) {
+				if (egress_pipe_status[j].ep_type ==
+					RMNET_EGRESS_LOW_LAT_DATA &&
+					egress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_EXISTS;
+					IPAWANERR("Receiving egress low lat data ioctl again");
+					break;
+				}
+			}
+
+			if (ipa3_ctx->rmnet_ll_enable &&
+				(egress_param[i].pipe_setup_status == IPA_PIPE_SETUP_EXISTS))
+				continue;
+
+			egress_pipe_status[i].ep_type = RMNET_EGRESS_LOW_LAT_DATA;
+
+			rc = ipa3_setup_apps_low_lat_data_prod_pipe(
+					&egress_param[i], IPA_NETDEV());
+			if (rc) {
+				IPAWANERR("failed to setup egress low lat data endpoint\n");
+				egress_pipe_status[i].status = IPA_PIPE_SETUP_FAILURE;
+				continue;
+			}
+			IPAWANDBG("Egress LOW LAT DATA pipe setup successfully\n");
+			egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
+			/* caching the success status of the pipe */
+			egress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+
+		} else if (egress_param[i].egress_ep_type ==
+			RMNET_EGRESS_V2X_DATA) {
+			/* Not support in non-auto target */
+			if (!ipa3_ctx->ipa_config_is_auto) {
+					IPAWANERR("v2x_egress is not supported on non-auto target!\n");
+					continue;
+			}
+
+			/* Searching through the static table, if pipe exists already */
+			for (j = 0; j < RMNET_EGRESS_MAX; j++) {
+				if (egress_pipe_status[j].ep_type ==
+					RMNET_EGRESS_V2X_DATA &&
+					egress_pipe_status[j].status == IPA_PIPE_SETUP_EXISTS) {
+					egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_EXISTS;
+					IPAWANERR("Receiving egress v2x data ioctl again");
+					break;
+				}
+			}
+
+			if(egress_param[i].pipe_setup_status == IPA_PIPE_SETUP_EXISTS)
+				continue;
+
+			egress_pipe_status[i].ep_type = RMNET_EGRESS_V2X_DATA;
+
+			rc = ipa3_setup_apps_wan_prod_pipes(&egress_param[i],
+					&egress_pipe_status[i],
+					IPA_NETDEV(),
+					false);
+			if (rc) {
+				IPAWANERR("failed to setup egress v2x data endpoint\n");
+				egress_pipe_status[i].status = IPA_PIPE_SETUP_FAILURE;
+				continue;
+			}
+			IPAWANDBG("Egress V2X DATA pipe setup successfully\n");
+			egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
+			/* caching the success status of the pipe */
+			egress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+		} else {
+			IPAWANERR("Egress ep type not defined");
+		}
+	}
+
+	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
+	rmnet_ipa3_ctx->egress_set = true;
+
+	return 0;
+}
+
+/**
+ * rmnet_mux_init() - RMNET mux config
+ *
+ * Configure mux id for RMNET interfaces
+ *
+ */
+static int rmnet_mux_init(void)
+{
+	uint32_t mux_id;
+	int mux_index;
+	int id;
+	char channel_name[IFNAMSIZ];
+	struct ipa3_rmnet_mux_val *mux_channel;
+	int rc = 0;
+	int rmnet_index;
+	int8_t *v_name;
+	struct mutex *mux_mutex_ptr;
+
+	for(id = 1; id <= MAX_NUM_OF_MUX_CHANNEL; id++)
+	{
+		snprintf(channel_name, IFNAMSIZ, "rmnet_data%d",id-1);
+		mux_id = id;
+		mux_index = ipa3_find_mux_channel_index(
+						id, true);
+		if (mux_index < MAX_NUM_OF_MUX_CHANNEL) {
+			IPAWANDBG("already setup mux(%d)\n", mux_id);
+			return rc;
+		}
+		mutex_lock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+		if (rmnet_ipa3_ctx->rmnet_index
+			>= MAX_NUM_OF_MUX_CHANNEL) {
+				IPAWANERR("Exceed mux_channel limit(%d)\n",
+					rmnet_ipa3_ctx->rmnet_index);
+				mutex_unlock(
+					&rmnet_ipa3_ctx->add_mux_channel_lock);
+				return -EFAULT;
+		}
+		channel_name[IFNAMSIZ-1] = '\0';
+		IPAWANDBG("ADD_MUX_CHANNEL(%d, name: %s)\n",
+			id,
+			channel_name);
+			/* cache the mux name and id */
+			mux_channel = rmnet_ipa3_ctx->mux_channel;
+			rmnet_index = rmnet_ipa3_ctx->rmnet_index;
+
+			mux_channel[rmnet_index].mux_id = id;
+			memcpy(mux_channel[rmnet_index].vchannel_name,
+				channel_name,
+				sizeof(mux_channel[rmnet_index]
+					.vchannel_name));
+			mux_channel[rmnet_index].vchannel_name[
+				IFNAMSIZ - 1] = '\0';
+
+			IPAWANDBG("cashe device[%s:%d] in IPA_wan[%d]\n",
+				mux_channel[rmnet_index].vchannel_name,
+				mux_channel[rmnet_index].mux_id,
+				rmnet_index);
+			/* check if UL filter rules coming*/
+			v_name = channel_name;
+			if (rmnet_ipa3_ctx->num_q6_rules != 0 ||
+				(rmnet_ipa3_ctx->ipa_config_is_apq)) {
+					mux_mutex_ptr =
+						&rmnet_ipa3_ctx->add_mux_channel_lock;
+					IPAWANERR_RL("dev(%s) register to IPA\n",
+						v_name);
+					rc = ipa3_wwan_register_to_ipa(
+							rmnet_ipa3_ctx->rmnet_index);
+					if (rc < 0) {
+						IPAWANERR("device %s reg IPA failed\n",
+							v_name);
+						mutex_unlock(mux_mutex_ptr);
+						return -ENODEV;
+					}
+					mux_channel[rmnet_index].mux_channel_set =
+						true;
+					mux_channel[rmnet_index].ul_flt_reg =
+						true;
+			} else {
+					IPAWANDBG("dev(%s) haven't registered to IPA\n",
+						v_name);
+					mux_channel[rmnet_index].mux_channel_set =
+						true;
+					mux_channel[rmnet_index].ul_flt_reg =
+						false;
+			}
+			rmnet_ipa3_ctx->rmnet_index++;
+			mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+	}
+	return rc;
 }
 
 int ipa3_send_eth_pdu_to_q6_ipa(int rmnet_index)
@@ -4291,6 +4807,9 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	if (ipa3_rmnet_res.ipa_napi_enable)
 		netif_napi_add(dev, &(rmnet_ipa3_ctx->wwan_priv->napi),
 		       ipa3_rmnet_poll, NAPI_WEIGHT);
+
+	SET_NETDEV_DEV(dev, &ipa3_ctx->master_pdev->dev);
+
 	ret = register_netdev(dev);
 	if (ret) {
 		IPAWANERR("unable to register ipa_netdev %d rc=%d\n",
@@ -4750,6 +5269,16 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		       atomic_read(&rmnet_ipa3_ctx->is_ssr))
 			platform_driver_register(&rmnet_ipa_driver);
 		ipa3_odl_pipe_open();
+
+		if(ipa3_ctx->ipa_config_is_rdkb)
+		{
+			handle3_egress_format_internal(rmnet_egress_cfg);
+
+			handle3_ingress_format_internal(rmnet_ingress_cfg);
+
+			rmnet_mux_init();
+		}
+
 		IPAWANINFO("IPA AFTER_POWERUP handling is complete\n");
 		break;
 	default:

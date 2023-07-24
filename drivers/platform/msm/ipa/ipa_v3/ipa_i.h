@@ -2393,6 +2393,7 @@ struct ipa3_eth_pdu_ctx {
  * @ipa_hw_type_index: index of IPA HW type (e.g. IPA_4_0, IPA_4_0_MHI etc')
  * @ipa3_hw_mode: mode of IPA HW mode (e.g. Normal, Virtual or over PCIe)
  * @gsi_ver: version of GSI
+ * @ipa_config_is_rdkb: is this RDKB platform
  * @use_ipa_teth_bridge: use tethering bridge driver
  * @modem_cfg_emb_pipe_flt: modem configure embedded pipe filtering rules
  * @logbuf: ipc log buffer for high priority messages
@@ -2539,6 +2540,7 @@ struct ipa3_context {
 	enum gsi_ver gsi_ver;
 	enum ipa3_platform_type platform_type;
 	bool ipa_config_is_mhi;
+	bool ipa_config_is_rdkb;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
