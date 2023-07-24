@@ -827,6 +827,10 @@ int ipa_reset_quota_stats(enum ipa_client_type client)
 	}
 
 	ep_idx = ipa3_get_ep_mapping(client);
+	if(ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset quota stats\n");
+		return -EFAULT;
+	}
 	/* reset driver's cache */
 	stats = &ipa3_ctx->hw_stats->quota.stats.client[ep_idx];
 	memset(stats, 0, sizeof(*stats));
@@ -1276,6 +1280,10 @@ int ipa_query_teth_stats(enum ipa_client_type prod,
 	}
 
 	ipa_ep_idx = ipa3_get_ep_mapping(prod);
+	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset prod stats\n");
+		return -EFAULT;
+	}
 	/* copy results to out parameter */
 	if (reset)
 		*out = ipa3_ctx->hw_stats->teth.prod_stats[ipa_ep_idx];
@@ -1300,7 +1308,15 @@ int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons)
 	}
 
 	prod_ep_idx = ipa3_get_ep_mapping(prod);
+	if(prod_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset prod stats sum\n");
+		return -EFAULT;
+	}
 	cons_ep_idx = ipa3_get_ep_mapping(cons);
+	if(cons_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset prod stats sum\n");
+		return -EFAULT;
+	}
 	/* reading stats will reset them in hardware */
 	ret = ipa_get_teth_stats();
 	if (ret) {
@@ -1331,6 +1347,10 @@ int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod)
 	}
 
 	ipa_ep_idx = ipa3_get_ep_mapping(prod);
+	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset prod stats sum\n");
+		return -EFAULT;
+	}
 	/* reading stats will reset them in hardware */
 	ret = ipa_get_teth_stats();
 	if (ret) {
