@@ -10983,6 +10983,7 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_USB2_CONS:
 		case IPA_CLIENT_WLAN4_CONS:
 		case IPA_CLIENT_WLAN1_PROD:
+		case IPA_CLIENT_APPS_WAN_ETH_PROD:
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en = 1;
 			break;
 		default:
@@ -11435,11 +11436,13 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 	}
 
 	/* Enabling HW replication for eth clients */
-	if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
-		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
-		init_mode.replication_en = 1;
-		IPADBG("Enabling HW replication on pipe=%d\n",
-			clnt_hdl);
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_5) {
+		if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
+			ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
+			init_mode.replication_en = 1;
+			IPADBG("Enabling HW replication on pipe=%d\n",
+				clnt_hdl);
+		}
 	}
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
