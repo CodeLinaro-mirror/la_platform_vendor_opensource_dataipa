@@ -107,6 +107,7 @@
 #define IPA_HOLB_TMR_VAL_4_5 31
 #define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
 
+#define IPA_Q6_RT_START_ID 768
 #define IPA_Q6_FLT_START_ID 512
 #define IPA_Q6_FNR_START_IDX (128)
 #define IPA_Q6_FNR_IDX_CNT (52)
@@ -115,6 +116,7 @@
 #define IPA_MPM_MAX_RING_LEN 64
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
+#define IPA_MAX_RT_RULE_ID 1023
 
 #define IPA_AP_CB_WLAN_END_MAPPING 0x20000000
 
@@ -3740,6 +3742,7 @@ int ipa3_enable_data_path(u32 clnt_hdl);
 int ipa3_disable_data_path(u32 clnt_hdl);
 int ipa3_disable_gsi_data_path(u32 clnt_hdl);
 int ipa3_alloc_rule_id(struct idr *rule_ids);
+int ipa3_alloc_rt_rule_id(struct idr *rule_ids);
 int ipa3_alloc_counter_id(struct ipa_ioc_flt_rt_counter_alloc *counter);
 void ipa3_counter_remove_hdl(int hdl);
 void ipa3_counter_id_remove_all(void);

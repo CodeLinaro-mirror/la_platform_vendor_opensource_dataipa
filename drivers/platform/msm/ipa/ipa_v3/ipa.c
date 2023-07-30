@@ -8061,6 +8061,7 @@ static void ipa3_destroy_flt_tbl_idrs(void)
 {
 	int i;
 	struct ipa3_flt_tbl *flt_tbl;
+	struct idr *idr;
 
 	idr_destroy(&ipa3_ctx->flt_rule_ids[IPA_IP_v4]);
 	idr_destroy(&ipa3_ctx->flt_rule_ids[IPA_IP_v6]);
@@ -8070,9 +8071,23 @@ static void ipa3_destroy_flt_tbl_idrs(void)
 			continue;
 
 		flt_tbl = &ipa3_ctx->flt_tbl[i][IPA_IP_v4];
+		idr = flt_tbl->rule_ids;
+		idr_destroy(flt_tbl->rule_ids);
+		if(idr)
+		{
+			kfree(idr);
+		}
 		flt_tbl->rule_ids = NULL;
+
 		flt_tbl = &ipa3_ctx->flt_tbl[i][IPA_IP_v6];
+		idr = flt_tbl->rule_ids;
+		idr_destroy(flt_tbl->rule_ids);
+		if(idr)
+		{
+			kfree(idr);
+		}
 		flt_tbl->rule_ids = NULL;
+
 	}
 }
 
@@ -9046,8 +9061,17 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 			/* Init force sys to false */
 			flt_tbl->force_sys[IPA_RULE_HASHABLE] = false;
 			flt_tbl->force_sys[IPA_RULE_NON_HASHABLE] = false;
-
-			flt_tbl->rule_ids = &ipa3_ctx->flt_rule_ids[ip];
+			idr = kzalloc(sizeof(struct idr), GFP_KERNEL);
+			if(idr)
+			{
+				idr_init(idr);
+				flt_tbl->rule_ids = idr;
+			}
+			else
+			{
+				IPAERR("failed to allocate the seperate rule id counter for each pipe\n");
+				return -ENODEV;
+			}
 		}
 	}
 
