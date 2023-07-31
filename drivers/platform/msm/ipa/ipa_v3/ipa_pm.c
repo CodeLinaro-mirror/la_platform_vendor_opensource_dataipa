@@ -622,6 +622,8 @@ static int remove_client_from_exception_list(u32 hdl)
  */
 int ipa_pm_v2x_init(struct ipa_pm_init_params *params)
 {
+	struct clk_scaling_db *clk_scaling;
+
 	if (params == NULL) {
 		IPA_PM_ERR("Invalid Params\n");
 		return -EINVAL;
@@ -640,8 +642,12 @@ int ipa_pm_v2x_init(struct ipa_pm_init_params *params)
 		ipa_pm_ctx = NULL;
 		return -ENOMEM;
 	}
-
 	mutex_init(&ipa_pm_ctx->client_mutex);
+
+	/* Populate and init locks in clk_scaling_db */
+	clk_scaling = &ipa_pm_ctx->clk_scaling;
+	spin_lock_init(&clk_scaling->lock);
+	INIT_WORK(&clk_scaling->work, clock_scaling_func);
 
 	return 0;
 }

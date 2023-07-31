@@ -10880,8 +10880,8 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	if (result)
 		goto fail_init_active_client;
 
-	/* Enable ipa3_ctx->enable_clock_scaling */
-	ipa3_ctx->enable_clock_scaling = 1;
+	/* Need to change if GVM is to support multiple clients in the future */
+	ipa3_ctx->enable_clock_scaling = 0;
 	/* vote for svs2 on bootup */
 	ipa3_ctx->curr_ipa_clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_svs2;
 
