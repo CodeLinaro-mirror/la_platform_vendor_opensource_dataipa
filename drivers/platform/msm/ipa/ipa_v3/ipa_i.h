@@ -3971,6 +3971,7 @@ irq_handler_t ipa3_get_isr(void);
 void ipa_pc_qmp_enable(void);
 u32 ipa3_get_r_rev_version(void);
 void ipa3_notify_clients_registered(void);
+void ipa3_lcl_mdm_reboot_cb(void);
 #if defined(CONFIG_IPA3_REGDUMP)
 int ipa_reg_save_init(u32 value);
 void ipa_save_registers(void);
