@@ -208,6 +208,8 @@ struct rmnet_ipa3_context {
 	bool a7_ul_flt_set;
 	atomic_t is_initialized;
 	atomic_t is_ssr;
+	struct mutex is_ssr_lock;
+	atomic_t is_reboot;
 	void *lcl_mdm_subsys_notify_handle;
 	void *rmt_mdm_subsys_notify_handle;
 	u32 apps_to_ipa3_hdl;
@@ -5224,6 +5226,63 @@ static void rmnet_ipa_send_ssr_notification(bool ssr_done)
 	}
 }
 
+void ipa3_lcl_mdm_reboot_cb ( )
+{
+	struct ipa3_ep_context *ep;
+	int ep_idx;
+	int res=0;
+	struct ipa_ep_cfg_holb holb_cfg;
+	memset(&holb_cfg, 0, sizeof(holb_cfg));
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_2) {
+		holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+		holb_cfg.en = IPA_HOLB_TMR_EN;
+	}
+	IPAWANERR("Reboot cb \n");
+	atomic_set(&rmnet_ipa3_ctx->is_reboot, 1);
+	mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
+	/* Stopping IPA_CLIENT_APPS_LAN_CONS pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+	res = ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
+	if(res < 0)
+		pr_info("holb enablement is failed on LAN CONS\n");
+	ep = &ipa3_ctx->ep[ep_idx];
+	ipa3_enable_clks();
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR("IPA_CLIENT_APPS_LAN_CONS stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	/* Stopping IPA_CLIENT_APPS_LAN_COAL_CONS pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	IPAWANERR("IPA_CLIENT_APPS_LAN_COAL_CONS stopped \n");
+	/* Stopping IPA_CLIENT_APPS_LAN_PROD pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_PROD);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR("IPA_CLIENT_APPS_LAN_PROD stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR("IPA_CLIENT_ETH_PROD stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR("IPA_CLIENT_ETH_CONS stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	/* Stopping IPA_CLIENT_APPS_CMD_PROD pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_CMD_PROD);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR(" IPA_CLIENT_APPS_CMD_PROD stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
+	IPAWANERR(" Exit \n");
+
+}
+
 static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			   unsigned long code,
 			   void *data)
@@ -5259,6 +5318,11 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 	case SUBSYS_BEFORE_SHUTDOWN:
 #endif
 		IPAWANINFO("IPA received MPSS BEFORE_SHUTDOWN\n");
+		if (atomic_read(&rmnet_ipa3_ctx->is_reboot)){
+			IPAWANERR(" IPA received REBOOT \n");
+			break;
+		}
+		mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
 		/* send SSR before-shutdown notification to IPACM */
@@ -5284,6 +5348,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		if (ipa3_ctx->v2x_vm_ready)
 			ipa3_msgq_send(IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ, 0);
 #endif
+		mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
 		IPAWANINFO("IPA BEFORE_SHUTDOWN handling is complete\n");
 		break;
 
@@ -5309,6 +5374,11 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 	case SUBSYS_AFTER_SHUTDOWN:
 #endif
 		IPAWANINFO("IPA Received MPSS AFTER_SHUTDOWN\n");
+		if (atomic_read(&rmnet_ipa3_ctx->is_reboot)){
+			IPAWANERR(" IPA received REBOOT \n");
+			break;
+		}
+		mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
 		ipa3_proxy_clk_unvote();
 		/* Clean up netdev resources in AFTER_SHUTDOWN for remoteproc
 		 * enabled targets. */
@@ -5327,6 +5397,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 		if (ipa3_ctx_get_flag(IPA_ENDP_DELAY_WA_EN))
 			ipa3_client_prod_post_shutdown_cleanup();
+		mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
 		IPAWANINFO("IPA AFTER_SHUTDOWN handling is complete\n");
 		break;
 
@@ -8066,11 +8137,13 @@ int ipa3_wwan_init(void)
 
 	atomic_set(&rmnet_ipa3_ctx->is_initialized, 0);
 	atomic_set(&rmnet_ipa3_ctx->is_ssr, 0);
+	atomic_set(&rmnet_ipa3_ctx->is_reboot, 0);
 	rmnet_ipa3_ctx->clock_vote.cnt = 0;
 
 	mutex_init(&rmnet_ipa3_ctx->pipe_handle_guard);
 	mutex_init(&rmnet_ipa3_ctx->add_mux_channel_lock);
 	mutex_init(&rmnet_ipa3_ctx->per_client_stats_guard);
+	mutex_init(&rmnet_ipa3_ctx->is_ssr_lock);
 	mutex_init(&rmnet_ipa3_ctx->clock_vote.mutex);
 	/* Reset the Lan Stats. */
 	for (i = 0; i < IPACM_MAX_CLIENT_DEVICE_TYPES; i++) {
@@ -8190,6 +8263,7 @@ void ipa3_wwan_cleanup(void)
 	mutex_destroy(&rmnet_ipa3_ctx->per_client_stats_guard);
 	mutex_destroy(&rmnet_ipa3_ctx->add_mux_channel_lock);
 	mutex_destroy(&rmnet_ipa3_ctx->pipe_handle_guard);
+	mutex_destroy(&rmnet_ipa3_ctx->is_ssr_lock);
 	kfree(rmnet_ipa3_ctx);
 	rmnet_ipa3_ctx = NULL;
 }
