@@ -784,6 +784,7 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 	struct ipa_lnx_gsi_rx_debug_stats *rx_instance_ptr_local = NULL;
 	struct eth_instance_info *instance_ptr = NULL;
 	struct ipa_uc_dbg_ring_stats stats;
+	struct ipa_ntn3_client_stats ntn3_stats;
 
 	alloc_size = sizeof(struct ipa_lnx_eth_inst_stats) +
 			(ipa_lnx_agent_ctx.alloc_info.num_eth_instances *
@@ -949,7 +950,43 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				tx_instance_ptr_local->gsi_debug2 = 0;
 				tx_instance_ptr_local->gsi_debug3 = 0;
 				tx_instance_ptr_local->gsi_debug4 = 0;
-			} else IPA_STATS_ERR("Eth tx client type not found");
+			} else if(instance_ptr->eth_mode == IPA_ETH_CLIENT_IEMAC){
+#if IPA_ETH_API_VER >= 2
+				/* Get the client pipe info[0] from the allocation info context only if it is IEMAC */
+						tx_instance_ptr_local->tx_client =
+							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
+							i].pipes_client_type[0];
+#endif
+				IPA_STATS_ERR("IEMAC client\n");
+				client_type = tx_instance_ptr_local->tx_client;
+				instance_ptr->pm_bandwidth =
+					ipa_pm_get_pm_clnt_throughput(client_type);
+				tx_instance_ptr_local->num_tx_ring_100_perc_with_cred =
+					stats.u.ring[1].ringFull;
+				tx_instance_ptr_local->num_tx_ring_0_perc_with_cred =
+					stats.u.ring[1].ringEmpty;
+				tx_instance_ptr_local->num_tx_ring_above_75_perc_cred =
+					stats.u.ring[1].ringUsageHigh;
+				tx_instance_ptr_local->num_tx_ring_above_25_perc_cred =
+					stats.u.ring[1].ringUsageLow;
+				tx_instance_ptr_local->num_tx_ring_stats_polled =
+					stats.u.ring[1].RingUtilCount;
+				ipa_lnx_calculate_gsi_ring_summay(
+					tx_instance_ptr_local, NULL, client_type);
+				memset(&(ntn3_stats.tx_stats), 0, sizeof(ntn3_stats.tx_stats));
+				// ipa_eth_ntn3_get_status(&ntn3_stats, i);
+				__ipa_ntn3_cons_stats_get(&(ntn3_stats.tx_stats), tx_instance_ptr_local->tx_client);
+				IPA_STATS_ERR("Got the stats for tx client:%d\n",tx_instance_ptr_local->tx_client);
+				/* Currently reserved until GSI needs anything in future */
+				tx_instance_ptr_local->num_tx_oob = ntn3_stats.tx_stats.oob_cnt;
+				tx_instance_ptr_local->num_tx_oob_time = 0;
+				tx_instance_ptr_local->num_tx_ring_stats_polled = ntn3_stats.tx_stats.pending_db_after_rollback;
+				tx_instance_ptr_local->gsi_debug1 = ntn3_stats.tx_stats.msi_db_idx;
+				tx_instance_ptr_local->gsi_debug2 = ntn3_stats.tx_stats.tres_handled;
+				tx_instance_ptr_local->gsi_debug3 = ntn3_stats.tx_stats.rollbacks_cnt;
+				tx_instance_ptr_local->gsi_debug4 = ntn3_stats.tx_stats.msi_db_cnt;
+			}
+			else IPA_STATS_ERR("Eth tx client type not found. ETH client: %d",instance_ptr->eth_mode);
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *)((
@@ -1030,7 +1067,38 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				rx_instance_ptr_local->gsi_debug2 = 0;
 				rx_instance_ptr_local->gsi_debug3 = 0;
 				rx_instance_ptr_local->gsi_debug4 = 0;
-			} else IPA_STATS_ERR("Eth rx client type not found");
+			} else if(instance_ptr->eth_mode == IPA_ETH_CLIENT_IEMAC){
+#if IPA_ETH_API_VER >= 2
+				/* Get the client pipe info[0] from the allocation info context only if it is IEMAC */
+						rx_instance_ptr_local->rx_client =
+							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
+							i].pipes_client_type[1];
+#endif
+				IPA_STATS_ERR("IEMAC client Rx\n");
+				client_type = rx_instance_ptr_local->rx_client;
+				rx_instance_ptr_local->num_rx_ring_100_perc_with_pack =
+					stats.u.ring[0].ringFull;
+				rx_instance_ptr_local->num_rx_ring_0_perc_with_pack =
+					stats.u.ring[0].ringEmpty;
+				rx_instance_ptr_local->num_rx_ring_above_75_perc_pack =
+					stats.u.ring[0].ringUsageHigh;
+				rx_instance_ptr_local->num_rx_ring_above_25_perc_pack =
+					stats.u.ring[0].ringUsageLow;
+				rx_instance_ptr_local->num_rx_ring_stats_polled =
+					stats.u.ring[0].RingUtilCount;
+				ipa_lnx_calculate_gsi_ring_summay(
+					NULL, rx_instance_ptr_local, client_type);
+
+				memset(&(ntn3_stats.rx_stats), 0, sizeof(ntn3_stats.rx_stats));
+				__ipa_ntn3_prod_stats_get(&(ntn3_stats.rx_stats), rx_instance_ptr_local->rx_client);
+				IPA_STATS_ERR("Got the stats for Rx client:%d\n",rx_instance_ptr_local->rx_client);
+				rx_instance_ptr_local->num_rx_ring_stats_polled = ntn3_stats.rx_stats.pending_db_after_rollback;
+				rx_instance_ptr_local->num_rx_drop_stats = ntn3_stats.rx_stats.err_cnt;
+				rx_instance_ptr_local->gsi_debug1 = ntn3_stats.rx_stats.msi_db_idx;
+				rx_instance_ptr_local->gsi_debug2 = ntn3_stats.rx_stats.tres_handled;
+				rx_instance_ptr_local->gsi_debug3 = ntn3_stats.rx_stats.rollbacks_cnt;
+				rx_instance_ptr_local->gsi_debug4 = ntn3_stats.rx_stats.msi_db_cnt;
+			}  else IPA_STATS_ERR("Eth rx client type not found. ETH client: %d",instance_ptr->eth_mode);
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +
@@ -1573,7 +1641,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 						IPA_STATS_ERR("Eth tx client type not found");
 #if IPA_ETH_API_VER >= 2
 					/* Overwrite client type if it is NTN3 and 2nd instance */
-					if ((j == IPA_ETH_CLIENT_NTN3) && (i == 1))
+					if (((j == IPA_ETH_CLIENT_NTN3) || (j == IPA_ETH_CLIENT_IEMAC)) && (i == 1))
 						ipa_client_type = IPA_CLIENT_ETHERNET2_CONS;
 #endif
 					ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
@@ -1585,7 +1653,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 						IPA_STATS_ERR("Eth rx client type not found");
 #if IPA_ETH_API_VER >= 2
 					/* Overwrite client type if it is NTN3 and 2nd instance */
-					if ((j == IPA_ETH_CLIENT_NTN3) && (i == 1))
+					if (((j == IPA_ETH_CLIENT_NTN3) || (j == IPA_ETH_CLIENT_IEMAC)) && (i == 1))
 						ipa_client_type = IPA_CLIENT_ETHERNET2_PROD;
 #endif
 					ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
