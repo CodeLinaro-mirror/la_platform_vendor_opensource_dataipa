@@ -1081,6 +1081,7 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 {
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
+	int ret;
 
 	IPA_WDI_DBG("client hdl = %d, Instance = %d\n", hdl,ipa_wdi_ctx_list[hdl]->inst_id);
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
@@ -1103,6 +1104,11 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 		kfree(entry);
 	}
 	mutex_destroy(&ipa_wdi_ctx_list[hdl]->lock);
+	ret = ipa3_uc_dereg_rdyCB();
+	if (ret) {
+			IPA_WDI_ERR("uc callback dereg failed\n");
+	}
+
 	kfree(ipa_wdi_ctx_list[hdl]);
 	ipa_wdi_ctx_list[hdl] = NULL;
 	return 0;
