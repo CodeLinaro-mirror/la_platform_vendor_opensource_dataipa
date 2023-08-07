@@ -1195,7 +1195,8 @@ void ipa_save_registers(void)
 			IPA_READ_1xVECTOR_REG(
 				GSI_SHRAM_0,
 				n + IPA_GSI_OFFSET_WORDS_SCRATCH_FOR_SEQ_HIGH);
-		ipa_reg_save.gsi.ch_cntxt.uc[
+
+		ipa_reg_save.gsi.ch_cntxt.q6[
 			i].fc_stats_state.value = IPA_READ_1xVECTOR_REG(
 				GSI_SHRAM_0,
 				n + IPA_REG_SAVE_FC_STATE_OFFSET);

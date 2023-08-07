@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -827,6 +827,10 @@ int ipa_reset_quota_stats(enum ipa_client_type client)
 	}
 
 	ep_idx = ipa3_get_ep_mapping(client);
+	if(ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset quota stats\n");
+		return -EFAULT;
+	}
 	/* reset driver's cache */
 	stats = &ipa3_ctx->hw_stats->quota.stats.client[ep_idx];
 	memset(stats, 0, sizeof(*stats));
@@ -1276,6 +1280,10 @@ int ipa_query_teth_stats(enum ipa_client_type prod,
 	}
 
 	ipa_ep_idx = ipa3_get_ep_mapping(prod);
+	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset prod stats\n");
+		return -EFAULT;
+	}
 	/* copy results to out parameter */
 	if (reset)
 		*out = ipa3_ctx->hw_stats->teth.prod_stats[ipa_ep_idx];
@@ -1300,7 +1308,15 @@ int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons)
 	}
 
 	prod_ep_idx = ipa3_get_ep_mapping(prod);
+	if(prod_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset prod stats sum\n");
+		return -EFAULT;
+	}
 	cons_ep_idx = ipa3_get_ep_mapping(cons);
+	if(cons_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset prod stats sum\n");
+		return -EFAULT;
+	}
 	/* reading stats will reset them in hardware */
 	ret = ipa_get_teth_stats();
 	if (ret) {
@@ -1331,6 +1347,10 @@ int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod)
 	}
 
 	ipa_ep_idx = ipa3_get_ep_mapping(prod);
+	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to reset prod stats sum\n");
+		return -EFAULT;
+	}
 	/* reading stats will reset them in hardware */
 	ret = ipa_get_teth_stats();
 	if (ret) {
@@ -1880,6 +1900,19 @@ int ipa_drop_stats_init(void)
 
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
 				IPA_CLIENT_ODL_DPL_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+		}
+
+		/* Add drop stats for WAN & WAN_COAL if IPA_HW >=5.5 */
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_APPS_WAN_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_APPS_WAN_COAL_CONS,
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
 		}
