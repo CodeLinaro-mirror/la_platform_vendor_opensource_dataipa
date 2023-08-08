@@ -2326,6 +2326,15 @@ static int ipa_mhi_register_pm(void)
 		goto fail_pm_cons;
 	}
 
+#ifdef IPA_CLIENT_MHI_COAL_CONS
+	res = ipa_pm_associate_ipa_cons_to_client(ipa_mhi_client_ctx->pm_hdl,
+		IPA_CLIENT_MHI_COAL_CONS);
+	if (res) {
+		IPA_MHI_ERR("fail to associate low_lat_cons with PM %d\n", res);
+		goto fail_pm_cons;
+	}
+
+#endif
 	res = ipa_pm_set_throughput(ipa_mhi_client_ctx->pm_hdl, 1000);
 	if (res) {
 		IPA_MHI_ERR("fail to set perf profile to PM %d\n", res);
