@@ -8718,7 +8718,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 				flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = false;
 				lcl_tbl = kcalloc(1, sizeof(struct ipa3_flt_tbl_nhash_lcl),
 						  GFP_KERNEL);
-				WARN_ON(lcl_tbl);
+				WARN_ON((lcl_tbl == NULL));
 				if (likely(lcl_tbl)) {
 					lcl_tbl->tbl = flt_tbl;
 					/* Add to the head of the list, to be pulled first */
