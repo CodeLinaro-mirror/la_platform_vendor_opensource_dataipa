@@ -309,6 +309,7 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 	struct ipa_ioc_tx_intf_prop tx_prop[4];
 	struct ipa_ioc_rx_intf_prop rx_prop[4];
 	u32 len;
+	int i = 0;
 	int ret = 0;
 	int num_hdr = 0;
 
@@ -385,13 +386,10 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 		goto fail_commit_hdr;
 	}
 
-	new_intf->partial_hdr_hdl[IPA_IP_v4] = hdr->hdr[IPA_IP_v4].hdr_hdl;
-	new_intf->partial_hdr_hdl[IPA_IP_v6] = hdr->hdr[IPA_IP_v6].hdr_hdl;
-	new_intf->partial_hdr_hdl[IPA_IP_v4_VLAN] = hdr->hdr[IPA_IP_v4_VLAN].hdr_hdl;
-	new_intf->partial_hdr_hdl[IPA_IP_v6_VLAN] = hdr->hdr[IPA_IP_v6_VLAN].hdr_hdl;
-	IPA_WDI_DBG("IPv4 hdr hdl: %d IPv6 hdr hdl: %d IPv4 VLAN hdr hdl: %d IPv6 VLAN hdr hdl: %d\n",
-		hdr->hdr[IPA_IP_v4].hdr_hdl, hdr->hdr[IPA_IP_v6].hdr_hdl,
-		hdr->hdr[IPA_IP_v4_VLAN].hdr_hdl, hdr->hdr[IPA_IP_v6_VLAN].hdr_hdl);
+	for (i = 0; i < hdr->num_hdrs; i++) {
+		new_intf->partial_hdr_hdl[i] = hdr->hdr[i].hdr_hdl;
+		IPA_WDI_DBG("enum ipa_ip_type: %d hdr hdl: %d \n", i, hdr->hdr[i].hdr_hdl);
+	}
 
 	/* populate tx prop */
 	tx.num_props = in->is_rx1_used ? 4 : 2;

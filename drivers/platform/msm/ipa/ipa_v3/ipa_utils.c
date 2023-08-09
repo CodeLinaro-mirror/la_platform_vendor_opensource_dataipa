@@ -8963,9 +8963,9 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.v6_flt_nhash_size_ddr = 0x4000,
 	.v4_rt_num_index = 0x1f,
 	.v4_modem_rt_index_lo = 0x0,
-	.v4_modem_rt_index_hi = 0xa,
-	.v4_apps_rt_index_lo = 0xb,
-	.v4_apps_rt_index_hi = 0x12,
+	.v4_modem_rt_index_hi = 0xf,
+	.v4_apps_rt_index_lo = 0x10,
+	.v4_apps_rt_index_hi = 0x1e,
 	.v4_rt_hash_ofst = 0x15a8,
 	.v4_rt_hash_size = 0xf8,
 	.v4_rt_hash_size_ddr = 0x10000,
@@ -8974,9 +8974,9 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.v4_rt_nhash_size_ddr = 0x4000,
 	.v6_rt_num_index = 0x1f,
 	.v6_modem_rt_index_lo = 0x0,
-	.v6_modem_rt_index_hi = 0xa,
-	.v6_apps_rt_index_lo = 0xb,
-	.v6_apps_rt_index_hi = 0x12,
+	.v6_modem_rt_index_hi = 0xf,
+	.v6_apps_rt_index_lo = 0x10,
+	.v6_apps_rt_index_hi = 0x1e,
 	.v6_rt_hash_ofst = 0x17a8,
 	.v6_rt_hash_size = 0xf8,
 	.v6_rt_hash_size_ddr = 0x10000,
@@ -11432,6 +11432,14 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 		break;
 	default:
 		break;
+	}
+
+	/* Enabling HW replication for eth clients */
+	if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
+		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
+		init_mode.replication_en = 1;
+		IPADBG("Enabling HW replication on pipe=%d\n",
+			clnt_hdl);
 	}
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
@@ -17040,3 +17048,62 @@ void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan)
 	ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode = vlan;
 }
 EXPORT_SYMBOL(ipa3_set_eth_pdu_mode);
+
+void ipa3_notify_ipacm_eth_pdu_enable()
+{
+	struct ipa_msg_meta msg_meta;
+	int res = 0;
+
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = IPA_ENABLE_ETH_PDU_MODE_EVENT;
+	msg_meta.msg_len  = 0;
+
+	IPADBG("Sending ETH PDU ENABLE to IPACM\n");
+
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, NULL, NULL);
+
+	if (res)
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+}
+
+void ipa3_set_eth_pdu_ep_status()
+{
+	struct ipa3_ep_context *ep = NULL;
+
+	if (!ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
+	{
+		IPAERR("ETH PDU pipe is not connected yet\n");
+		return;
+	}
+
+	ep = &ipa3_ctx->ep[ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id];
+	if (!ep->valid)
+	{
+		IPAERR("ETH PDU pipe is not valid \n");
+		return;
+	}
+
+	IPADBG("Enabling status for ETH_PDU RX pipe\n");
+	/*
+	 * enable source notification status for exception packets
+	 * (i.e. QMAP commands) to be routed to modem.
+	 */
+	ep->status.status_en = true;
+	ep->status.status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+	/* Enable status supression to disable sending status for
+	 * every packet.
+	 */
+	ep->status.status_pkt_suppress = true;
+
+	if (ipa3_cfg_ep_status(ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id,
+		&ep->status)) {
+		IPAERR("fail to configure status of EP.\n");
+		return;
+	}
+}

@@ -256,6 +256,7 @@ struct ipahal_reg_endp_init_rsrc_grp {
 struct ipahal_reg_endp_init_mode {
 	u32 dst_pipe_number;
 	struct ipa_ep_cfg_mode ep_mode;
+	u32 replication_en;
 };
 
 /*
