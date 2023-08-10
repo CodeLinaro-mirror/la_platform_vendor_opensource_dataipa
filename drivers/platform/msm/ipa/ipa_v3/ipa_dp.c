@@ -4580,7 +4580,19 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		IPADBG_LOW("ast update meta_data: 0x%x cb: 0x%x for client 0x%x\n",
 				metadata, *(u32 *)rx_skb->cb, ep->client);
 		IPADBG_LOW("ast update ucp: %d for client 0x%x\n", *(u8 *)(rx_skb->cb + 4), ep->client);
-	} else {
+	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
+
+		metadata = ntohl(metadata);
+		*(u16 *)rx_skb->cb = ((metadata >> 24) & 0xFF);//updating the vdev id
+		*(u8 *)(rx_skb->cb + 4) = ucp; //updating the ucp
+		*(u16 *)(rx_skb->cb + 5) = metadata & 0xFFF; //updating the  ta peer id
+		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
+				metadata, *(u32 *)rx_skb->cb);
+		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
+
+		IPADBG_LOW("ta peer id %d\n", *(u16 *)(rx_skb->cb + 5));
+
+	}else {
 		/* Metadata Info
 		 *  ------------------------------------------
 		 *  |   3     |   2     |    1        |  0   |

@@ -839,6 +839,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 				}
 			}
 		ch_scratch.wdi4.qmap_id = 0;
+		ch_scratch.wdi4.wds_ext_enable = 1;
 		ch_scratch.wdi4.reserved1 = 0;
 	}
 
