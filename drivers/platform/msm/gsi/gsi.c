@@ -1879,6 +1879,17 @@ static void gsi_program_evt_ring_ctx(struct gsi_evt_ring_props *props,
 	struct gsihal_reg_ev_ch_k_cntxt_12 ev_ch_k_cntxt_12;
 	struct gsihal_reg_ev_ch_k_cntxt_13 ev_ch_k_cntxt_13;
 
+	memset(&ev_ch_k_cntxt_0, 0, sizeof(ev_ch_k_cntxt_0));
+	memset(&ev_ch_k_cntxt_1, 0, sizeof(ev_ch_k_cntxt_1));
+	memset(&ev_ch_k_cntxt_2, 0, sizeof(ev_ch_k_cntxt_2));
+	memset(&ev_ch_k_cntxt_3, 0, sizeof(ev_ch_k_cntxt_3));
+	memset(&ev_ch_k_cntxt_8, 0, sizeof(ev_ch_k_cntxt_8));
+	memset(&ev_ch_k_cntxt_9, 0, sizeof(ev_ch_k_cntxt_9));
+	memset(&ev_ch_k_cntxt_10, 0, sizeof(ev_ch_k_cntxt_10));
+	memset(&ev_ch_k_cntxt_11, 0, sizeof(ev_ch_k_cntxt_11));
+	memset(&ev_ch_k_cntxt_12, 0, sizeof(ev_ch_k_cntxt_12));
+	memset(&ev_ch_k_cntxt_13, 0, sizeof(ev_ch_k_cntxt_13));
+
 	GSIDBG("intf=%u intr=%u re=%u\n", props->intf, props->intr,
 			props->re_size);
 	ev_ch_k_cntxt_0.chtype = props->intf;
@@ -2736,6 +2747,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_11AD:
 	case GSI_CHAN_PROT_MHIC:
 	case GSI_CHAN_PROT_RTK:
+	case GSI_CHAN_PROT_RTK3:
 	case GSI_CHAN_PROT_QDSS:
 	case GSI_CHAN_PROT_NTN:
 	case GSI_CHAN_PROT_WDI3M:
@@ -2910,9 +2922,9 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 	}
 	memset(ctx, 0, sizeof(*ctx));
 
-	/* For IPA offloaded WDI channels not required user_data pointer */
-	if (props->prot != GSI_CHAN_PROT_WDI2 &&
-		props->prot != GSI_CHAN_PROT_WDI3)
+	/* For IPA offloaded WDI/RTK/XDCI channels not required user_data pointer */
+	if (props->prot == GSI_CHAN_PROT_GPI ||
+		props->prot == GSI_CHAN_PROT_GCI)
 		user_data_size = props->ring_len / props->re_size;
 	else
 		user_data_size = props->re_size;
