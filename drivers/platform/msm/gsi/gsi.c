@@ -4271,6 +4271,11 @@ int __gsi_populate_tre(struct gsi_chan_ctx *ctx,
 	memset(&tre, 0, sizeof(tre));
 	tre.buffer_ptr = xfer->addr;
 	tre.buf_len = xfer->len;
+	if (xfer->len == 0 && xfer->type == GSI_XFER_ELEM_DATA) {
+		GSIERR("xfer->len == 0 && xfer->type == GSI_XFER_ELEM_DATA\n");
+		BUG();
+		return -EINVAL;
+	}
 	if (xfer->type == GSI_XFER_ELEM_DATA) {
 		tre.re_type = GSI_RE_XFER;
 	} else if (xfer->type == GSI_XFER_ELEM_IMME_CMD) {
