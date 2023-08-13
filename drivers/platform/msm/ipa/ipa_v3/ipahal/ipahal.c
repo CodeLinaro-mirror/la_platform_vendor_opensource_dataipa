@@ -1935,6 +1935,12 @@ static inline enum ipahal_pkt_status_opcode ipa_hw_opcode_to_opcode(
 	case 0x40:
 		opcode = IPAHAL_PKT_STATUS_OPCODE_PACKET_2ND_PASS;
 		break;
+	case 0x60:
+		opcode = IPAHAL_PKT_STATUS_OPCODE_PACKET_3RD_PASS;
+		break;
+	case 0x80:
+		opcode = IPAHAL_PKT_STATUS_OPCODE_PACKET_4TH_PASS;
+		break;
 	default:
 		IPAHAL_ERR_RL("unsupported Status Opcode 0x%x\n", hw_opcode);
 	}

@@ -33,6 +33,7 @@
  * @ttl_update: bool to indicate whether TTL update is needed or not.
  * @qos_class: QOS classification value.
  * @skip_ingress: bool to skip ingress policing.
+ * @esp_after_udp: bool for ESP after UDP (NAT-T) rules
  */
 struct ipa_rt_rule_i {
 	enum ipa_client_type dst;
@@ -49,6 +50,7 @@ struct ipa_rt_rule_i {
 	u8 ttl_update;
 	u8 qos_class;
 	u8 skip_ingress;
+	u8 esp_after_udp;
 };
 
 /**
@@ -85,6 +87,7 @@ struct ipa_rt_rule_i {
  *  interrupt moderation
  * @ttl_update: bool to indicate whether TTL update is needed or not.
  * @qos_class: QOS classification value.
+ * @esp_after_udp: bool for ESP after UDP (NAT-T) rules
  */
 struct ipa_flt_rule_i {
 	u8 retain_hdr;
@@ -105,6 +108,7 @@ struct ipa_flt_rule_i {
 	u8 close_aggr_irq_mod;
 	u8 ttl_update;
 	u8 qos_class;
+	u8 esp_after_udp;
 };
 
 #endif /* _IPA_DEFS_H_ */
