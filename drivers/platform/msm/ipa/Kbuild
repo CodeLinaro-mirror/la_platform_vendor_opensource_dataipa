@@ -39,6 +39,8 @@ ipam-y += \
 ipam-$(CONFIG_IPA_TSP) += ipa_v3/ipa_tsp.o \
 	ipa_v3/ipahal/ipahal_tsp.o \
 
+ipam-$(CONFIG_IPA_IPSEC) += ipa_v3/ipa_ipsec.o \
+
 ipam-$(CONFIG_RMNET_IPA3) += ipa_v3/rmnet_ipa.o ipa_v3/ipa_qmi_service_v01.o \
 	ipa_v3/ipa_qmi_service.o ipa_v3/rmnet_ctl_ipa.o \
 	ipa_v3/rmnet_ipa_fd_ioctl.o ipa_v3/rmnet_ll_ipa.o
@@ -74,8 +76,6 @@ ipatestm-$(CONFIG_IPA_KERNEL_TESTS_MODULE) += \
 	ipa_test_module/ipa_rm_ut.o
 
 ipanetm-y += ipa_v3/ipa_net.o
-
-ipaipsecm-y += ipa_v3/ipa_ipsec.o
 
 obj-$(CONFIG_IPA3) += ipam.o
 obj-$(CONFIG_IPA3) += ipanetm.o

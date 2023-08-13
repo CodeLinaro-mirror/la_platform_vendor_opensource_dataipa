@@ -37,6 +37,9 @@
 #include "ipa_uc_offload_i.h"
 #include "ipa_pm.h"
 #include "ipa_defs.h"
+#if defined(CONFIG_IPA_IPSEC)
+#include "ipa_ipsec.h"
+#endif
 #include <linux/mailbox_client.h>
 #include <linux/mailbox/qmp.h>
 #include <linux/rmnet_ipa_fd_ioctl.h>
@@ -2589,7 +2592,9 @@ struct ipa3_context {
 	struct ipa3_uc_wdi_ctx uc_wdi_ctx;
 	struct ipa3_uc_ntn_ctx uc_ntn_ctx;
 	struct ipa3_uc_wigig_ctx uc_wigig_ctx;
+#if defined(CONFIG_IPA_IPSEC)
 	struct ipa_ipsec_ctx *ipsec;
+#endif
 	u32 wan_rx_ring_size;
 	u32 lan_rx_ring_size;
 	bool skip_uc_pipe_reset;

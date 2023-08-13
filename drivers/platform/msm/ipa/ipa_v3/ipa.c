@@ -8876,6 +8876,13 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG(":TSP init ok\n");
 #endif
+#if defined(CONFIG_IPA_IPSEC)
+	result = ipa_ipsec_init();
+	if (result)
+		IPAERR(":IPSEC init failed (%d)\n", -result);
+	else
+		IPADBG(":IPSEC init ok\n");
+#endif
 
 	result = ipa_hw_stats_init();
 	if (result)

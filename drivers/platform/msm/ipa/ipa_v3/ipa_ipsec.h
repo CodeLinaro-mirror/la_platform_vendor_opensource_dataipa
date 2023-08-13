@@ -214,9 +214,10 @@ struct ipa_ipsec_ctx {
 };
 #pragma pack(pop)
 
-int ipa_ipsec_install_key(u8 idx, enum ipa_ipsec_key_type type, enum ipa_ipsec_key_len, void *key);
-int ipa_ipsec_install_encap_sa(u8 idx, struct ipa_ipsec_sa_encap *sa);
-int ipa_ipsec_install_decap_sa(u8 idx, struct ipa_ipsec_sa_decap *sa);
-int ipa_ipsec_stop_sa(u8 idx, enum ipa_ipsec_sa_type sa_type);
+#ifdef CONFIG_IPA_IPSEC
+int ipa_ipsec_init(void);
+#else
+inline int ipa_ipsec_init(void) {return 0;}
+#endif
 
 #endif /* _IPA_IPSEC_H_ */
