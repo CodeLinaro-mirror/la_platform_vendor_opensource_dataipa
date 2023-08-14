@@ -2198,21 +2198,21 @@ void ipa3_qmi_service_exit(void)
 	if (ipa3_qmi_ctx != NULL) {
 		for (i=0;i<ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg;i++){
 			if(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
-				[ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg] != NULL){
+				[i] != NULL){
 				vfree(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
-					[ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg]);
+					[i]);
 				ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
-					[ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg] = NULL;
+					[i] = NULL;
 			}
 		}
 		for (i=0;i<ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg;i++)
 		{
 			if(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
-				[ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg] != NULL){
+				[i] != NULL){
 				vfree(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
-					[ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg]);
+					[i]);
 				ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
-				[ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg] = NULL;
+				[i] = NULL;
 			}
 		}
 		cache_filter_max_flag = false;
