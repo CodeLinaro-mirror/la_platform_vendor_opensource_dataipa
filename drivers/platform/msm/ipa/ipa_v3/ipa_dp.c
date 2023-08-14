@@ -1638,7 +1638,9 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 			ep->sys->tx_poll = ipa3_ctx->tx_poll;
 		} else if(sys_in->client == IPA_CLIENT_APPS_WAN_PROD ||
 			sys_in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
-			sys_in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) {
+			sys_in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD||
+			sys_in->client == IPA_CLIENT_IPSEC_ENCAP_PROD ||
+			sys_in->client == IPA_CLIENT_IPSEC_DECAP_PROD) {
 			netif_tx_napi_add((struct net_device *)sys_in->priv,
 			&ep->sys->napi_tx, tx_completion_func,
 			NAPI_TX_WEIGHT);
@@ -2752,6 +2754,8 @@ fail_kmem_cache_alloc:
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.low_lat_repl_rx_empty);
 		else if (sys->ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS)
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.rmnet_ll_repl_rx_empty);
+		else if (IPA_CLIENT_IS_IPSEC_WAN_CONS(sys->ep->client))
+			IPA_STATS_INC_CNT(ipa3_ctx->stats.wan_repl_rx_empty_ipsec);
 		pr_err_ratelimited("%s sys=%pK repl ring empty\n",
 				__func__, sys);
 		goto begin;
@@ -3031,6 +3035,18 @@ int ipa3_unregister_notifier(void *fn_ptr)
 			break;
 		case IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS:
 			stats_i = 2;
+			break;
+		case IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS:
+			stats_i = 3;
+			break;
+		case IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS:
+			stats_i = 4;
+			break;
+		case IPA_CLIENT_IPSEC_ENCAP_ERR_CONS:
+			stats_i = 5;
+			break;
+		case IPA_CLIENT_IPSEC_APPS_WAN_CONS:
+			stats_i = 6;
 			break;
 		default:
 			IPAERR_RL("Unexpected client%d\n", sys->ep->client);
@@ -3745,6 +3761,8 @@ static void ipa3_fast_replenish_rx_cache(struct ipa3_sys_context *sys)
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.low_lat_rx_empty);
 		else if (sys->ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS)
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.rmnet_ll_rx_empty);
+		else if (IPA_CLIENT_IS_IPSEC_WAN_CONS(sys->ep->client))
+			IPA_STATS_INC_CNT(ipa3_ctx->stats.wan_rx_empty_ipsec);
 		else
 			WARN_ON_RATELIMIT_IPA(1);
 		queue_delayed_work(sys->wq, &sys->replenish_rx_work,
@@ -5846,8 +5864,9 @@ static void ipa3_set_aggr_limit(struct ipa_sys_connect_params *in,
 		IPA_ADJUST_AGGR_BYTE_LIMIT(*aggr_byte_limit);
 	}
 
-	/* disable ipa_status */
-	sys->ep->status.status_en = false;
+	/* disable ipa_status, except IPsec consumers */
+	if (!IPA_CLIENT_IS_IPSEC_WAN_CONS(in->client))
+		sys->ep->status.status_en = false;
 
 	if (in->client == IPA_CLIENT_APPS_WAN_COAL_CONS ||
 		(in->client == IPA_CLIENT_APPS_WAN_CONS &&
@@ -5873,7 +5892,9 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 	if (in->client == IPA_CLIENT_APPS_WAN_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
-		in->client == IPA_CLIENT_APPS_WAN_V2X_PROD) {
+		in->client == IPA_CLIENT_APPS_WAN_V2X_PROD ||
+		in->client == IPA_CLIENT_IPSEC_ENCAP_PROD ||
+		in->client == IPA_CLIENT_IPSEC_DECAP_PROD) {
 		sys->policy = IPA_POLICY_INTR_MODE;
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
 			sys->use_comm_evt_ring = false;
@@ -5919,6 +5940,7 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 	} else {
 		if (IPA_CLIENT_IS_LAN_CONS(in->client) ||
 		    IPA_CLIENT_IS_WAN_CONS(in->client) ||
+		    IPA_CLIENT_IS_IPSEC_WAN_CONS(in->client) ||
 		    in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS ||
 		    in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
 			sys->ep->status.status_en = true;
@@ -6779,12 +6801,15 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 	u32 wan_coal_ep_id, lan_coal_ep_id;
 
 	if (IPA_CLIENT_IS_WAN_CONS(in->client) ||
+	    IPA_CLIENT_IS_IPSEC_WAN_CONS(in->client) ||
 		IPA_CLIENT_IS_LAN_CONS(in->client) ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
+		in->client == IPA_CLIENT_IPSEC_ENCAP_PROD ||
+		in->client == IPA_CLIENT_IPSEC_DECAP_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_V2X_PROD)
 		mem_flag = GFP_ATOMIC;
@@ -6915,6 +6940,8 @@ static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 
 	if ((ep->sys && ep->sys->ext_ioctl_v2) &&
 		((ep->client == IPA_CLIENT_APPS_WAN_PROD) ||
+		(ep->client == IPA_CLIENT_IPSEC_ENCAP_PROD) ||
+		(ep->client == IPA_CLIENT_IPSEC_DECAP_PROD) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_ETH_PROD) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_CONS) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS) ||
@@ -6922,6 +6949,10 @@ static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) ||
+		(ep->client == IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS) ||
+		(ep->client == IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS) ||
+		(ep->client == IPA_CLIENT_IPSEC_ENCAP_ERR_CONS) ||
+		(ep->client == IPA_CLIENT_IPSEC_APPS_WAN_CONS) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_V2X_CONS))) {
 		gsi_evt_ring_props.int_modt = ep->sys->int_modt;
@@ -7000,6 +7031,8 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 		if(ep->client == IPA_CLIENT_APPS_WAN_PROD ||
 		   ep->client == IPA_CLIENT_APPS_WAN_ETH_PROD ||
+		   ep->client == IPA_CLIENT_IPSEC_ENCAP_PROD ||
+		   ep->client == IPA_CLIENT_IPSEC_DECAP_PROD ||
 		   ep->client == IPA_CLIENT_APPS_LAN_PROD ||
 		   ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
 		   ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD)

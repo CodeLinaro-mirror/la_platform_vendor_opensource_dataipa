@@ -386,6 +386,9 @@ int ipa3_wwan_init(void);
 
 void ipa3_wwan_cleanup(void);
 
+void apps_ipa_tx_complete_notify(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
+void apps_ipa_packet_receive_notify(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
+
 void ipa3_disable_move_nat_resp(void);
 
 void ipa3_mdm_ssr_before_shutdown_v2x_proc(void);
@@ -618,6 +621,14 @@ static inline void ipa3_mdm_ssr_before_shutdown_v2x_proc(void)
 static inline void ipa3_mdm_ssr_after_powerup_v2x_proc(void)
 {
 
+}
+
+inline void apps_ipa_tx_complete_notify(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
+{
+}
+
+inline void apps_ipa_packet_receive_notify(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
+{
 }
 #endif /* IS_ENABLED(CONFIG_RMNET_IPA3) */
 

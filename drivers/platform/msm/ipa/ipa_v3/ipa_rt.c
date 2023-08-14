@@ -61,18 +61,23 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 	}
 
 	gen_params.ipt = ip;
-	gen_params.dst_pipe_idx = ipa3_get_ep_mapping(entry->rule.dst);
-	if (gen_params.dst_pipe_idx == -1) {
-		IPAERR_RL("Wrong destination pipe specified in RT rule\n");
-		WARN_ON_RATELIMIT_IPA(1);
-		return -EPERM;
-	}
-	if (!IPA_CLIENT_IS_CONS(entry->rule.dst)) {
-		IPAERR_RL("No RT rule on IPA_client_producer pipe.\n");
-		IPAERR_RL("pipe_idx: %d dst_pipe: %d\n",
-				gen_params.dst_pipe_idx, entry->rule.dst);
-		WARN_ON_RATELIMIT_IPA(1);
-		return -EPERM;
+	/* For rules with next round HPC we have to pass "invalid pipe" as the destination */
+	if (entry->rule.dst == IPA_CLIENT_MAX) {
+		gen_params.dst_pipe_idx = (int)IPA_INVALID_PIPE_IDX;
+	} else {
+		gen_params.dst_pipe_idx = ipa3_get_ep_mapping(entry->rule.dst);
+		if (gen_params.dst_pipe_idx == -1) {
+			IPAERR_RL("Wrong destination pipe specified in RT rule\n");
+			WARN_ON_RATELIMIT_IPA(1);
+			return -EPERM;
+		}
+		if (!IPA_CLIENT_IS_CONS(entry->rule.dst)) {
+			IPAERR_RL("No RT rule on IPA_client_producer pipe.\n");
+			IPAERR_RL("pipe_idx: %d dst_pipe: %d\n",
+					gen_params.dst_pipe_idx, entry->rule.dst);
+			WARN_ON_RATELIMIT_IPA(1);
+			return -EPERM;
+		}
 	}
 
 	/* Adding check to confirm still

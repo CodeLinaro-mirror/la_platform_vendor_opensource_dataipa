@@ -70,6 +70,7 @@
 
 #define IPA_EP_NOT_ALLOCATED (-1)
 #define IPA3_MAX_NUM_PIPES 46
+#define IPA_INVALID_PIPE_IDX 0xFF
 #define IPA5_PIPES_NUM 36
 #define IPA6_PIPES_NUM 50
 #define IPA6_PROD_PIPES_NUM 22
@@ -77,6 +78,7 @@
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
 #define IPA6_MAX_NUM_PIPES (IPA6_PIPES_NUM)
 #define IPA_MAX_NUM_PIPES IPA6_MAX_NUM_PIPES
+#define IPA_APPS_IN_PIPES_NUM 7 // number of pipes from IPA to APPs
 #define IPA6_NXT_FLT_TBL_Q6_NUM 1
 #define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
 #define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
@@ -1683,8 +1685,10 @@ struct ipa3_stats {
 	u32 aggr_close;
 	u32 wan_aggr_close;
 	u32 wan_rx_empty;
+	u32 wan_rx_empty_ipsec;
 	u32 wan_rx_empty_coal;
 	u32 wan_repl_rx_empty;
+	u32 wan_repl_rx_empty_ipsec;
 	u32 rmnet_ll_rx_empty;
 	u32 rmnet_ll_repl_rx_empty;
 	u32 lan_rx_empty;
@@ -1700,7 +1704,7 @@ struct ipa3_stats {
 	u32 pipe_setup_fail_cnt;
 	struct ipa3_page_recycle_stats page_recycle_stats[3];
 	struct ipa3_cache_recycle_stats cache_recycle_stats[3];
-	u64 page_recycle_cnt[3][IPA_PAGE_POLL_THRESHOLD_MAX];
+	u64 page_recycle_cnt[IPA_APPS_IN_PIPES_NUM][IPA_PAGE_POLL_THRESHOLD_MAX];
 	atomic_t num_buff_above_thresh_for_def_pipe_notified;
 	atomic_t num_buff_above_thresh_for_coal_pipe_notified;
 	atomic_t num_buff_below_thresh_for_def_pipe_notified;
@@ -1709,7 +1713,7 @@ struct ipa3_stats {
 	atomic_t num_buff_below_thresh_for_ll_pipe_notified;
 	atomic_t num_free_page_task_scheduled;
 	struct lan_coal_stats coal;
-	u64 num_sort_tasklet_sched[3];
+	u64 num_sort_tasklet_sched[IPA_APPS_IN_PIPES_NUM];
 	u64 num_of_times_wq_reschd;
 	u64 page_recycle_cnt_in_tasklet;
 	u32 ttl_cnt;

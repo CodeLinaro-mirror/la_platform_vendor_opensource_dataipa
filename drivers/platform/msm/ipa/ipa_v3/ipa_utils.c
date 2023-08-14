@@ -6535,7 +6535,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0][IPA_CLIENT_IPSEC_DECAP_PROD] ={
 			true,   IPA_v6_0_GROUP_DL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 12 , 19, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -6784,6 +6784,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 46, 34, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_UL },
+	[IPA_6_0][IPA_CLIENT_IPSEC_APPS_WAN_CONS] = {
+			true, IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 49, 36, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_DL },
 
 	/*For test purposes only*/
 	[IPA_6_0][IPA_CLIENT_TEST_PROD] = {
@@ -9182,7 +9189,7 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_Q6_DL_NLO_DATA_XLAT_PROD),
 	__stringify(IPA_CLIENT_IPSEC_ENCAP_ERR_CONS),
 	__stringify(IPA_CLIENT_Q6_DL_NLO_ETH_DATA_PROD),
-	__stringify(RESERVERD_CONS_135),
+	__stringify(IPA_CLIENT_IPSEC_APPS_WAN_CONS),
 	__stringify(IPA_CLIENT_APPS_WAN_ETH_PROD),
 	__stringify(RESERVERD_CONS_137),
 	__stringify(IPA_CLIENT_APPS_WAN_V2X_PROD),
@@ -15041,6 +15048,30 @@ int ipa3_suspend_apps_pipes(bool suspend)
 		goto undo_wan_cons;
 	}
 
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS, suspend);
+	if (res == -EAGAIN) {
+		if (suspend) start_coalescing();
+		goto undo_ipsec_nonrec_decap_err_cons;
+	}
+
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS, suspend);
+	if (res == -EAGAIN) {
+		if (suspend) start_coalescing();
+		goto undo_ipsec_rec_decap_err_cons;
+	}
+
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_ENCAP_ERR_CONS, suspend);
+	if (res == -EAGAIN) {
+		if (suspend) start_coalescing();
+		goto undo_ipsec_encap_err_cons;
+	}
+
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_APPS_WAN_CONS, suspend);
+	if (res == -EAGAIN) {
+		if (suspend) start_coalescing();
+		goto undo_ipsec_wan_cons;
+	}
+
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_LAN_COAL_CONS, suspend);
 	if (res == -EAGAIN) {
 		if (suspend) start_coalescing();
@@ -15141,6 +15172,12 @@ do_prod:
 		suspend);
 	if (res == -EAGAIN)
 		goto undo_low_lat_data_prod;
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_DECAP_PROD, suspend);
+	if (res == -EAGAIN)
+		goto undo_encap_prod;
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_ENCAP_PROD, suspend);
+	if (res == -EAGAIN)
+		goto undo_decap_prod;
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_PROD, suspend);
 	if (res == -EAGAIN)
 		goto undo_wan_prod;
@@ -15148,6 +15185,10 @@ do_prod:
 
 undo_wan_prod:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_PROD, !suspend);
+undo_decap_prod:
+	_ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_DECAP_PROD, !suspend);
+undo_encap_prod:
+	_ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_ENCAP_PROD, !suspend);
 undo_low_lat_data_prod:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD,
 		!suspend);
@@ -15168,6 +15209,14 @@ undo_lan_cons:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_LAN_CONS, !suspend);
 undo_lan_coal_cons:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_LAN_COAL_CONS, !suspend);
+undo_ipsec_wan_cons:
+	_ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_APPS_WAN_CONS, !suspend);
+undo_ipsec_encap_err_cons:
+	_ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_ENCAP_ERR_CONS, !suspend);
+undo_ipsec_rec_decap_err_cons:
+	_ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS, !suspend);
+undo_ipsec_nonrec_decap_err_cons:
+	_ipa_suspend_resume_pipe(IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS, !suspend);
 undo_wan_cons:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_COAL_CONS, !suspend);
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_CONS, !suspend);
