@@ -2956,6 +2956,59 @@ done:
 }
 #endif
 
+/**
+ * ipa3_send_general() - Pass general event to the IPACM
+ * @event_type: Type of the event
+ * @param: pointer to the parameter struct
+ * @size: size of the parameter struct
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_send_general(uint8_t event_type, void *param, size_t size)
+{
+	struct ipa_msg_meta msg_meta;
+	int res = 0;
+
+	if (!param) {
+		IPAERR("Bad arg: param is NULL\n");
+		res = -EIO;
+		goto done;
+	}
+
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = event_type;
+	msg_meta.msg_len  = size;
+
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, param, ipa3_general_free_cb);
+
+	if (res != 0) {
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		kfree(param);
+		goto done;
+	}
+
+done:
+	return res;
+}
+
+/**
+ * ipa3_send_ipsec_ul_flt() - Pass IPsec UL FLT attrib to the IPACM
+ * @event_type: Type of the event - ADD or DEL
+ * @uf: pointer to IPsec UL FLT attrib structure
+ *
+ * Returns: 0 on success, negative on failure
+ */
+inline int ipa3_send_ipsec_ul_flt(enum ipa_ipsec_ul_flt_evt event_type,
+	struct ipa_ioc_ipsec_ul_flt_attr *uf) {
+	return ipa3_send_general(event_type, uf, sizeof(struct ipa_ioc_ipsec_ul_flt_attr));
+}
+
 static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int retval = 0;
@@ -13966,6 +14019,10 @@ static void ipa3_deepsleep_suspend(void)
 	ipa3_ctx->deepsleep = true;
 	/*Disabling the LAN NAPI*/
 	ipa3_disable_napi_lan_rx();
+#if defined(CONFIG_IPA_IPSEC)
+	/* Clean up IPsec */
+	ipa_ipsec_cleanup();
+#endif
 	/*NOt allow uC related operations until uC load again*/
 	ipa3_ctx->uc_ctx.uc_loaded = false;
 	/*Disconnecting LAN PROD/LAN CONS/CMD PROD apps pipes*/
@@ -14522,6 +14579,10 @@ static void __exit ipa_module_exit(void)
 		ipa3_ctx->hw_stats = NULL;
 	}
 	unregister_pm_notifier(&ipa_pm_notifier);
+#if defined(CONFIG_IPA_IPSEC)
+	/* Clean up IPsec */
+	ipa_ipsec_cleanup();
+#endif
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
 }
