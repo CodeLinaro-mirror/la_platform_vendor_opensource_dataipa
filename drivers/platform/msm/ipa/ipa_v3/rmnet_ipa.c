@@ -2602,7 +2602,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 				continue;
 			}
 			rmnet_ipa3_ctx->ipa_v2x_set = true;
-			rmnet_ipa3_ctx->ingress_eps_mask |= RMNET_INGRESS_V2X_DATA;
+			rmnet_ipa3_ctx->ingress_eps_mask |= IPA_AP_INGRESS_EP_V2X_DATA;
 			IPAWANDBG("Ingress V2X pipe setup successfully\n");
 			ingress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 			/* caching the success status of the pipe */
