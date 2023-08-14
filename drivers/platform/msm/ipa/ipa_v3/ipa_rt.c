@@ -921,6 +921,11 @@ static struct ipa3_rt_tbl *__ipa_add_rt_tbl(enum ipa_ip_type ip,
 			goto ipa_insert_failed;
 		}
 		entry->id = id;
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled())
+			if (!!ipa_ipsec_handle_lan_up_down(ip, entry, true))
+				IPAERR("failed to redirect IPsec policy rules\n");
+#endif
 	}
 
 	return entry;
@@ -978,6 +983,12 @@ static int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry)
 			entry->idx, entry->set->tbl_cnt, ip);
 		kmem_cache_free(ipa3_ctx->rt_tbl_cache, entry);
 	}
+
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled())
+			if (!!ipa_ipsec_handle_lan_up_down(ip, entry, false))
+				IPAERR("failed to redirect IPsec policy rules to default\n");
+#endif
 
 	/* remove the handle from the database */
 	ipa3_id_remove(id);
