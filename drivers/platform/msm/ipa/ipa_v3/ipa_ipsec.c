@@ -1497,6 +1497,11 @@ bool ipa_ipsec_xdo_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 		return false;
 	}
 
+	/* Set skb cb for the datapath use */
+	IPA_IPSEC_SKB_CB(skb)->magic = IPA_IPSEC_SKB_MAGIC;
+	IPA_IPSEC_SKB_CB(skb)->sa_idx = idx;
+	IPA_IPSEC_SKB_CB(skb)->sa_dir = x->xso.dir;
+
 	IPADBG_LOW("success\n");
 	return true;
 }
@@ -1951,6 +1956,61 @@ int ipa_ipsec_ep_init_cons(void)
 	return 0;
 }
 EXPORT_SYMBOL(ipa_ipsec_ep_init_cons);
+
+/* Fill sec_path skb member to make network stack accept the HW decapsulated packet
+ * Use SA index from the metadata, filled by uC */
+int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata)
+{
+	int idx;
+	struct xfrm_state *x;
+	struct xfrm_offload *xo;
+	struct sec_path *sp;
+
+	if (!(metadata & META_IS_IPSEC)) {
+		IPADBG_LOW("No META_IS_IPSEC\n");
+		return 0;
+	}
+
+	idx = (metadata & META_SA_MASK) >> META_SA_SHIFT;
+
+	IPADBG_LOW("META_IS_IPSEC, idx = %d\n", idx);
+
+	if (unlikely(idx >= IPA_IPSEC_MAX_SA_NUM)) {
+		IPAERR_RL("Invalid IPsec info in the metadata (0x%X) \n", metadata);
+		return -EINVAL;
+	}
+
+	x = ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x;
+	if (unlikely(!x)) {
+		IPAERR_RL("Decap SA%02d has no XFRM state pointer (0x%X) \n", idx, x);
+		return -EINVAL;
+	}
+
+	sp = secpath_set(skb);
+	if (unlikely(!sp)) {
+		IPAERR_RL("Failed setting the sec_path\n");
+		return -EFAULT;
+	}
+
+	xfrm_state_hold(x);
+
+	sp->xvec[sp->len++] = x;
+	sp->olen++;
+
+	xo = xfrm_offload(skb);
+	if (unlikely(!xo)) {
+		IPAERR_RL("skb is missing xfrm_offload pointer\n");
+		return -EINVAL;
+	}
+	xo->flags = CRYPTO_DONE;
+	xo->status = CRYPTO_SUCCESS;
+
+	/* Record queue IPA_RMNET_RX_QUEUE_IPSEC for DL IPsec offloaded traffic */
+	skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_IPSEC);
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_ipsec_rx_update_sec_path);
 
 /* Install static IKE and IPsec FnR */
 static int ipa_ipsec_fnr_init(void)
