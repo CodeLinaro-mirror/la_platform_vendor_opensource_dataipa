@@ -1863,6 +1863,178 @@ end:
 }
 EXPORT_SYMBOL(ipa_ipsec_install_dl_pol_flt);
 
+#define IPA_QMI_IPSEC_FLT_NUM 8
+int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
+{
+	int pos, rc, temp;
+	u32 mux_id;
+	enum ipa_ip_type ip;
+	struct ipa3_rt_tbl *rt_tbl;
+	struct ipa_rule_attrib attrib;
+	struct ipa_ipfltri_rule_eq eq_atrb;
+
+	IPADBG("Start\n");
+
+	if (req->filter_spec_ex_list_len + IPA_QMI_IPSEC_FLT_NUM > QMI_IPA_MAX_FILTERS_EX_V01) {
+		IPAERR("Not enough memory in the QMI buffer\n");
+		return -ENOMEM;
+	}
+
+	/* Stealing the MUX ID from the first rule. TBD: support MPDN */
+	mux_id = req->filter_spec_ex_list[0].mux_id;
+
+	temp = req->filter_spec_ex_list_len - 1;
+	req->filter_spec_ex_list_len += IPA_QMI_IPSEC_FLT_NUM;
+	req->filter_spec_ex_list_valid = 1;
+	while (temp >= 0) {
+		memcpy(&req->filter_spec_ex_list[temp + IPA_QMI_IPSEC_FLT_NUM],
+			&req->filter_spec_ex_list[temp],
+			sizeof(struct ipa_filter_spec_ex_type_v01));
+		temp--;
+	}
+
+	pos = 0;
+	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
+		/* IKE rules */
+
+		memset(&attrib, 0, sizeof(attrib));
+		memset(&eq_atrb, 0, sizeof(eq_atrb));
+
+		mutex_lock(&ipa3_ctx->lock);
+		rt_tbl = __ipa3_find_rt_tbl(ip, __ipa_ipsec_s.default_rt);
+		mutex_unlock(&ipa3_ctx->lock);
+		if (!rt_tbl) {
+			IPAERR("__ipa3_find_rt_tbl returned null\n");
+			return -EFAULT;
+		}
+
+		ipa3_ctx->ipsec->default_rt = rt_tbl;
+
+		req->filter_spec_ex_list[pos].rule_id = QMI_IPA_IKE_FLT_ID_PREFIX + pos;
+		req->filter_spec_ex_list[pos].filter_action = QMI_IPA_FILTER_ACTION_ROUTING_V01;
+		req->filter_spec_ex_list[pos].is_mux_id_valid = true;
+		req->filter_spec_ex_list[pos].mux_id = mux_id;
+		req->filter_spec_ex_list[pos].is_rule_hashable = true;
+		req->filter_spec_ex_list[pos].is_routing_table_index_valid = true;
+		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
+		if (ip == IPA_IP_v4) {
+			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
+			attrib.attrib_mask = IPA_FLT_PROTOCOL | IPA_FLT_DST_PORT;
+			attrib.u.v4.protocol = IPPROTO_UDP;
+		} else {
+			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
+			attrib.attrib_mask = IPA_FLT_NEXT_HDR | IPA_FLT_DST_PORT;
+			attrib.u.v6.next_hdr = IPPROTO_UDP;
+		}
+		attrib.dst_port = 500;
+		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
+		if (!!rc)
+			return rc;
+		IPADBG_LOW("pos = %d, copy %u bytes from %08X to %08X", pos,
+			sizeof(struct ipa_filter_rule_type_v01),
+			&eq_atrb, &req->filter_spec_ex_list[pos].filter_rule);
+		memcpy(&req->filter_spec_ex_list[pos].filter_rule, &eq_atrb,
+			sizeof(struct ipa_filter_rule_type_v01));
+		pos++;
+
+		memset(&attrib, 0, sizeof(attrib));
+		memset(&eq_atrb, 0, sizeof(eq_atrb));
+
+		req->filter_spec_ex_list[pos].rule_id = QMI_IPA_IKE_FLT_ID_PREFIX + pos;
+		req->filter_spec_ex_list[pos].filter_action = QMI_IPA_FILTER_ACTION_ROUTING_V01;
+		req->filter_spec_ex_list[pos].ip_type = (ip == IPA_IP_v4) ?
+			QMI_IPA_IP_TYPE_V4_V01 : QMI_IPA_IP_TYPE_V6_V01;
+		req->filter_spec_ex_list[pos].is_mux_id_valid = true;
+		req->filter_spec_ex_list[pos].mux_id = mux_id;
+		req->filter_spec_ex_list[pos].is_rule_hashable = true;
+		req->filter_spec_ex_list[pos].is_routing_table_index_valid = true;
+		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
+		if (ip == IPA_IP_v4) {
+			attrib.attrib_mask = IPA_FLT_PROTOCOL | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT | IPA_FLT_SPI;
+			attrib.u.v4.protocol = IPPROTO_UDP;
+		} else {
+			attrib.attrib_mask = IPA_FLT_NEXT_HDR | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT | IPA_FLT_SPI;
+			attrib.u.v6.next_hdr = IPPROTO_UDP;
+		}
+		attrib.src_port = 4500;
+		attrib.dst_port = 4500;
+		attrib.spi = 0;
+		attrib.ext_attrib_mask = IPA_FLT_EXT_NAT_T;
+		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
+		if (!!rc)
+			return rc;
+		memcpy(&req->filter_spec_ex_list[pos].filter_rule, &eq_atrb,
+			sizeof(struct ipa_filter_rule_type_v01));
+		pos++;
+
+		/* IPsec catch all rules
+		   - must be after IKE rules,
+		     because NAT-T UDP 4500 is a superset of the IKE UDP 4500 */
+		rt_tbl = ipa3_id_find(ipa3_ctx->ipsec->decap_rt[ip]);
+		if (!rt_tbl) {
+			IPAERR("The IPsec encap RT is not created\n");
+			return -EFAULT;
+		}
+
+		memset(&attrib, 0, sizeof(attrib));
+		memset(&eq_atrb, 0, sizeof(eq_atrb));
+
+		req->filter_spec_ex_list[pos].rule_id = QMI_IPA_IPSEC_FLT_ID_PREFIX + pos;
+		req->filter_spec_ex_list[pos].filter_action = QMI_IPA_FILTER_ACTION_ROUTING_V01;
+		req->filter_spec_ex_list[pos].is_mux_id_valid = true;
+		req->filter_spec_ex_list[pos].mux_id = mux_id;
+		req->filter_spec_ex_list[pos].is_rule_hashable = true;
+		req->filter_spec_ex_list[pos].is_routing_table_index_valid = true;
+		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
+		attrib.ext_attrib_mask = 0;
+		if (ip == IPA_IP_v4) {
+			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
+			attrib.attrib_mask = IPA_FLT_PROTOCOL;
+			attrib.u.v4.protocol = IPPROTO_ESP;
+		} else {
+			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
+			attrib.attrib_mask = IPA_FLT_NEXT_HDR;
+			attrib.u.v6.next_hdr = IPPROTO_ESP;
+		}
+		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
+		if (!!rc)
+			return rc;
+		memcpy(&req->filter_spec_ex_list[pos].filter_rule, &eq_atrb,
+			sizeof(struct ipa_filter_rule_type_v01));
+		pos++;
+
+		memset(&attrib, 0, sizeof(attrib));
+		memset(&eq_atrb, 0, sizeof(eq_atrb));
+
+		req->filter_spec_ex_list[pos].rule_id = QMI_IPA_IPSEC_FLT_ID_PREFIX + pos;
+		req->filter_spec_ex_list[pos].filter_action = QMI_IPA_FILTER_ACTION_ROUTING_V01;
+		req->filter_spec_ex_list[pos].is_mux_id_valid = true;
+		req->filter_spec_ex_list[pos].mux_id = mux_id;
+		req->filter_spec_ex_list[pos].is_rule_hashable = true;
+		req->filter_spec_ex_list[pos].is_routing_table_index_valid = true;
+		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
+		if (ip == IPA_IP_v4) {
+			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
+			attrib.attrib_mask = IPA_FLT_PROTOCOL | IPA_FLT_DST_PORT;
+			attrib.u.v4.protocol = IPPROTO_UDP;
+		} else {
+			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
+			attrib.attrib_mask = IPA_FLT_NEXT_HDR | IPA_FLT_DST_PORT;
+			attrib.u.v6.next_hdr = IPPROTO_UDP;
+		}
+		attrib.dst_port = 4500;
+		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
+		if (!!rc)
+			return rc;
+		memcpy(&req->filter_spec_ex_list[pos].filter_rule, &eq_atrb,
+			sizeof(struct ipa_filter_rule_type_v01));
+		pos++;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_ipsec_install_qmi_flt);
+
 int ipa_ipsec_ep_init_prod(void)
 {
 	u32 clnt_hdl;

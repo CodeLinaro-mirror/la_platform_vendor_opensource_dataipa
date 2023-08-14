@@ -9,6 +9,7 @@
 #include <linux/types.h>
 #include <linux/pfkeyv2.h>
 #include <net/xfrm.h>
+#include <linux/ipa_qmi_service_v01.h>
 
 #define IPA_IPSEC_MAX_SA_NUM 11
 #define IPA_IPSEC_MAX_ENACAP_KEY_NUM 16
@@ -306,6 +307,7 @@ bool ipa_ipsec_enabled(void);
 int ipa_ipsec_init(void);
 void ipa_ipsec_cleanup(void);
 int ipa_ipsec_install_dl_pol_flt(void);
+int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req);
 int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *entry, bool up);
 int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata);
 int ipa_ipsec_ep_init_prod(void);
@@ -315,6 +317,7 @@ inline bool ipa_ipsec_enabled(void) {return false;}
 inline int ipa_ipsec_init(void) {return 0;}
 inline void ipa_ipsec_cleanup(void) {}
 inline int ipa_ipsec_install_dl_pol_flt(void) {return 0;}
+inline int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req) {return 0;}
 inline int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *entry, bool up)
 {return 0;}
 inline int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata) {return 0;}
