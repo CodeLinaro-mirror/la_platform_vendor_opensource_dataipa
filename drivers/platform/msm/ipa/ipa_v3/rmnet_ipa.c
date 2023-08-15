@@ -2317,7 +2317,8 @@ static int ipa3_setup_apps_wan_cons_pipes(
 
 	if (ingress_param->ingress_ep_type == RMNET_INGRESS_DEFAULT) {
 		/* Reject the whole ioctl if coal pipe is not setup first */
-		if (dev->features & NETIF_F_GRO_HW) {
+		/*In MHI mode COAL pipe was not supported, so avoid configuring*/
+		if ((dev->features & NETIF_F_GRO_HW) && (!ipa3_ctx->ipa_config_is_mhi)) {
 			if (coal_ep_idx == IPA_EP_NOT_ALLOCATED) {
 				IPAWANERR("Trying to setup def WAN before coals");
 				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
@@ -2336,7 +2337,8 @@ static int ipa3_setup_apps_wan_cons_pipes(
 		pipe_status->ep_type = RMNET_INGRESS_DEFAULT;
 		*ingress_eps_mask |= IPA_AP_INGRESS_EP_DEFAULT;
 	} else if (ingress_param->ingress_ep_type ==
-		RMNET_INGRESS_COALS && (dev->features & NETIF_F_GRO_HW)) {
+		RMNET_INGRESS_COALS && (dev->features & NETIF_F_GRO_HW) &&
+		(!ipa3_ctx->ipa_config_is_mhi)) {
 		/* Setup coalescing pipes */
 		IPAWANDBG("Setting up coalescing pipe\n");
 		ipa_wan_ep_cfg->client = IPA_CLIENT_APPS_WAN_COAL_CONS;
