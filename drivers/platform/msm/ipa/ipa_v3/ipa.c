@@ -8834,9 +8834,9 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 	result = ipa3_uc_interface_init();
 	if (result)
-		IPAERR(":ipa Uc interface init failed (%d)\n", -result);
+		IPAERR("IPA Uc interface init failed (%d)\n", -result);
 	else
-		IPADBG(":ipa Uc interface init ok\n");
+		IPADBG("IPA Uc interface init ok\n");
 	uc_hdlrs.ipa_uc_loaded_hdlr = ipa3_uc_is_loaded;
 	uc_hdlrs.ipa_uc_holb_enabled_hdlr = ipa3_uc_holb_client_handler;
 	ipa3_uc_register_handlers(IPA_HW_FEATURE_COMMON, &uc_hdlrs);
