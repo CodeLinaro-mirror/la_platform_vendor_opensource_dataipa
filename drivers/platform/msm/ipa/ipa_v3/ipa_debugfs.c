@@ -1361,7 +1361,7 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 	else
 		pr_err("Non-Hashable table resides on system (ddr) memory\n");
 
-	for (j = 0; j < ipa3_ctx->ipa_num_pipes; j++) {
+	for (j = 0; j < IPA_MAX_FLT_TBLS; j++) {
 		if (!ipa_is_ep_support_flt(j))
 			continue;
 		tbl = &ipa3_ctx->flt_tbl[j][ip];
@@ -1442,7 +1442,7 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 	u32 bitmap;
 	int res = 0;
 
-	IPADBG("Tring to parse %d H/W filtering tables - IP=%d\n",
+	IPADBG("Trying to parse %d H/W filtering tables - IP=%d\n",
 		ipa3_ctx->ep_flt_num, ip);
 
 	rules = kzalloc(sizeof(*rules) * IPA_DBG_MAX_RULE_IN_TBL, GFP_KERNEL);
@@ -1461,7 +1461,7 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 	else
 		pr_err("Non-Hashable table resides on system (ddr) memory\n");
 
-	for (pipe = 0; pipe < ipa3_ctx->ipa_num_pipes; pipe++) {
+	for (pipe = 0; pipe < IPA_MAX_FLT_TBLS; pipe++) {
 		if (!ipa_is_ep_support_flt(pipe))
 			continue;
 		pr_err("=== Filtering Table ep:%d = Hashable Rules ===\n",

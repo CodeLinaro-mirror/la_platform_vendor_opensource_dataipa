@@ -8700,8 +8700,11 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v4]);
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v6]);
 
-	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
-		if (!ipa_is_ep_support_flt(i))
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
+		if ((i < ipa3_ctx->ipa_num_pipes && !ipa_is_ep_support_flt(i)) ||
+		    (i >= ipa3_ctx->ipa_num_pipes &&
+		     !(i >= IPA6_Q6_NXT_FLT_TBL_START && i <= IPA6_Q6_NXT_FLT_TBL_END) &&
+		     !(i >= IPA6_NXT_FLT_TBL_START && i <= IPA6_NXT_FLT_TBL_END)))
 			continue;
 
 		for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
