@@ -7452,7 +7452,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 46, 34, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_UL },
-	[IPA_6_0_AUTO][IPA_CLIENT_Q6_CV2X_CONS] = {
+	[IPA_6_0_AUTO][IPA_CLIENT_Q6_CV2X_DECIPHER_CONS] = {
 			true, IPA_v6_0_GROUP_CV2X,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -9190,6 +9190,9 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_Q6_V2X_BROADCAST_PROD),
 	__stringify(RESERVERD_CONS_141),
 	__stringify(IPA_CLIENT_Q6_V2X_UNICAST_PROD),
+	__stringify(RESERVERD_CONS_143),
+	__stringify(RESERVERD_PROD_144),
+	__stringify(IPA_CLIENT_Q6_CV2X_DECIPHER_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 

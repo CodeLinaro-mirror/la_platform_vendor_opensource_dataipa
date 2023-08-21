@@ -2279,6 +2279,7 @@ enum ipa_per_usb_enum_type_e {
  * enum ipa_msg_type_e - mesage types
  */
 enum ipa_msg_type_e {
+	IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND,
 	IPA_MSG_TYPE_CLK_VOTE_REQ,
 	IPA_MSG_TYPE_CLK_VOTE_RESP,
 	IPA_MSG_TYPE_CLK_DEVOTE_REQ,
@@ -2322,6 +2323,7 @@ struct ipa_msgq_desc {
 	void *msgq_hdl;
 	struct task_struct *recv_thread;
 	struct completion req_complete;
+	struct workqueue_struct *msgq_wq;
 };
 #endif /* CONFIG_GH_MSGQ */
 
@@ -2741,6 +2743,7 @@ struct ipa3_context {
 	u32 ipa_tiering_value;
 	bool ipa_v2x_vm;
 	u32 pvm_v2x_pm_hdl;
+	bool v2x_vm_ready;
 #ifdef CONFIG_GH_MSGQ
 	struct ipa_msgq_desc msgq_desc;
 #endif
@@ -4153,10 +4156,11 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
-
 void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
 void ipa3_set_eth_pdu_ep_status(void);
-
+#ifdef CONFIG_GH_MSGQ
+int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data);
+#endif
 #endif /* _IPA3_I_H_ */
