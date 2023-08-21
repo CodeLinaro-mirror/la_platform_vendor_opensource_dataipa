@@ -651,6 +651,8 @@ static int _ipa_add_hpc_for_hdr_in_ext(struct ipa3_hdr_entry *hdr_entry, bool us
 
 	hdr_entry->proc_ctx = (struct ipa3_hdr_proc_ctx_entry *)ipa3_id_find(proc_ctx.proc_ctx_hdl);
 	WARN_ON_RATELIMIT_IPA(!hdr_entry->proc_ctx);
+	if(hdr_entry->proc_ctx == NULL)
+		return -EPERM;
 	hdr_entry->proc_ctx->ref_cnt++;
 
 	return 0;
@@ -944,6 +946,8 @@ static int __ipa_add_hpc_hdr_insertion(struct ipa_hdr_add *hdr, bool user)
 
 	entry->proc_ctx = (struct ipa3_hdr_proc_ctx_entry *)ipa3_id_find(proc_ctx.proc_ctx_hdl);
 	WARN_ON_RATELIMIT_IPA(!entry->proc_ctx);
+	if(entry->proc_ctx == NULL)
+		return -EPERM;
 	entry->proc_ctx->ref_cnt++;
 
 	return 0;

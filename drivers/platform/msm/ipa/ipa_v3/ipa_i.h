@@ -69,10 +69,17 @@
 #define IPA3_MAX_NUM_PIPES 46
 #define IPA5_PIPES_NUM 36
 #define IPA6_PIPES_NUM 50
+#define IPA6_PROD_PIPES_NUM 22
 #define IPA5_PIPE_REG_NUM 2
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
 #define IPA6_MAX_NUM_PIPES (IPA6_PIPES_NUM)
 #define IPA_MAX_NUM_PIPES IPA6_MAX_NUM_PIPES
+#define IPA6_NXT_FLT_TBL_Q6_NUM 1
+#define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
+#define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
+#define IPA6_Q6_NXT_FLT_TBL_START (47) // we want to include it in the above
+#define IPA6_Q6_NXT_FLT_TBL_END (47) // we want to include it in the above
+#define IPA_MAX_FLT_TBLS 64
 #define IPA_SYS_DESC_FIFO_SZ 0x800
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ 0x1000
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ_8K 0x2000
@@ -2393,6 +2400,7 @@ struct ipa3_eth_pdu_ctx {
  * @ipa_hw_type_index: index of IPA HW type (e.g. IPA_4_0, IPA_4_0_MHI etc')
  * @ipa3_hw_mode: mode of IPA HW mode (e.g. Normal, Virtual or over PCIe)
  * @gsi_ver: version of GSI
+ * @ipa_config_is_rdkb: is this RDKB platform
  * @use_ipa_teth_bridge: use tethering bridge driver
  * @modem_cfg_emb_pipe_flt: modem configure embedded pipe filtering rules
  * @logbuf: ipc log buffer for high priority messages
@@ -2469,7 +2477,7 @@ struct ipa3_context {
 	u64 ep_flt_bitmap;
 	u32 ep_flt_num;
 	bool resume_on_connect[IPA_CLIENT_MAX];
-	struct ipa3_flt_tbl flt_tbl[IPA_MAX_NUM_PIPES][IPA_IP_MAX];
+	struct ipa3_flt_tbl flt_tbl[IPA_MAX_FLT_TBLS][IPA_IP_MAX];
 	struct idr flt_rule_ids[IPA_IP_MAX];
 	void __iomem *mmio;
 	u32 ipa_wrapper_base;
@@ -2539,6 +2547,7 @@ struct ipa3_context {
 	enum gsi_ver gsi_ver;
 	enum ipa3_platform_type platform_type;
 	bool ipa_config_is_mhi;
+	bool ipa_config_is_rdkb;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
@@ -3304,6 +3313,8 @@ int ipa3_reset_flt(enum ipa_ip_type ip, bool user_only);
 
 int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client);
 
+int ipa_flt_get_nxt_rnd_idx(u32 tbl_id);
+
 /*
  * NAT
  */
@@ -3976,6 +3987,8 @@ int ipa3_eth_client_conn_evt(struct ipa_ecm_msg *msg);
 int ipa3_eth_client_disconn_evt(struct ipa_ecm_msg *msg);
 #endif
 void ipa_eth_ntn3_get_status(struct ipa_ntn3_client_stats *s, unsigned inst_id);
+void __ipa_ntn3_cons_stats_get(struct ipa_ntn3_stats_tx *stats, enum ipa_client_type client);
+void __ipa_ntn3_prod_stats_get(struct ipa_ntn3_stats_rx *stats, enum ipa_client_type client);
 void ipa3_eth_get_status(u32 client, int scratch_id,
 	struct ipa3_eth_error_stats *stats);
 int ipa3_get_gsi_chan_info(struct gsi_chan_info *gsi_chan_info,

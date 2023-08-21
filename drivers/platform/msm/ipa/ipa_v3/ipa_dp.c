@@ -1866,13 +1866,14 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 
 		const char* str = "";
 
+		/* IPA_COAL_QMAP_CFG register is not present for ipa hardware 6.0 version.*/
 		if (sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS) {
 
 			str = "wan";
-
-			qmap_cfg.mux_id_byte_sel = IPA_QMAP_ID_BYTE;
-
-			ipahal_write_reg_fields(IPA_COAL_QMAP_CFG, &qmap_cfg);
+			if (ipa3_ctx->ipa_hw_type < IPA_HW_v6_0) {
+					qmap_cfg.mux_id_byte_sel = IPA_QMAP_ID_BYTE;
+					ipahal_write_reg_fields(IPA_COAL_QMAP_CFG, &qmap_cfg);
+			}
 
 			if (!sys_in->ext_ioctl_v2) {
 				sys_in->client = IPA_CLIENT_APPS_WAN_CONS;
