@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
+#include "ipa_i.h"
 #include "ipahal.h"
 #include "ipahal_i.h"
 #include "ipahal_reg_i.h"
@@ -2402,6 +2403,7 @@ static void ipahal_cp_hdr_to_hw_buff_v3(void *const base, u32 offset,
  * @offset_entry: offset from hdr_base_addr in table
  * @l2tp_params: l2tp parameters
  * @eogre_params: eogre parameters
+ * @ipsec_params: IPsec params
  * @generic_params: generic proc_ctx params
  * @generic_params_v2: generic proc_ctx params for wwan_ethII
  * @is_64: Indicates whether header base address/dma base address is 64 bit.
@@ -2412,6 +2414,7 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 		struct ipa_hdr_offset_entry *offset_entry,
 		struct ipa_l2tp_hdr_proc_ctx_params *l2tp_params,
 		struct ipa_eogre_hdr_proc_ctx_params *eogre_params,
+		struct ipa_ipsec_params *ipsec_params,
 		struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
 		struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
 		bool is_64)
@@ -2680,6 +2683,126 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
 		ctx->end.length = 0;
 		ctx->end.value = 0;
+	} else if (type == IPA_HDR_PROC_NXT_RND) {
+		struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq *ctx =
+			(struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq *)
+			(base + offset);
+
+		ctx->nxt_rnd.type = IPA_PROC_CTX_TLV_TYPE_NXT_RND;
+		ctx->nxt_rnd.length = 0;
+		ctx->nxt_rnd.flt_idx = ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id);
+		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
+		ctx->end.length = 0;
+		ctx->end.value = 0;
+	} else if (type == IPA_HDR_PROC_XLAT_NXT_RND) {
+		struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_proc_cmd_seq *ctx =
+			(struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_proc_cmd_seq *)
+			(base + offset);
+		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
+		ctx->hdr_add.tlv.length = 2;
+		ctx->hdr_add.tlv.value = hdr_len;
+		hdr_addr = hdr_base_addr + offset_entry->offset;
+		IPAHAL_DBG("header address 0x%llx\n",
+			hdr_addr);
+		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
+			ctx->hdr_add.hdr_addr_hi, hdr_addr);
+		if (!is_64)
+			ctx->hdr_add.hdr_addr_hi = 0;
+		ctx->nxt_rnd.type = IPA_PROC_CTX_TLV_TYPE_NXT_RND;
+		ctx->nxt_rnd.length = 0;
+		ctx->nxt_rnd.flt_idx = ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id);
+		ctx->cmd.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
+		ctx->cmd.value = 0; //<TBD>;
+		ctx->cmd.length = 0;
+		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
+		ctx->end.length = 0;
+		ctx->end.value = 0;
+	} else if (type == IPA_HDR_PROC_IPSEC_ENCAP) {
+		struct ipa_hw_hdr_proc_ctx_add_ipsec_proc_cmd_seq *ctx =
+			(struct ipa_hw_hdr_proc_ctx_add_ipsec_proc_cmd_seq *)
+			(base + offset);
+		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
+		ctx->hdr_add.tlv.length = 2;
+		ctx->hdr_add.tlv.value = hdr_len;
+		hdr_addr = hdr_base_addr + offset_entry->offset;
+		IPAHAL_DBG("header address 0x%llx\n",
+			hdr_addr);
+		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
+			ctx->hdr_add.hdr_addr_hi, hdr_addr);
+		if (!is_64)
+			ctx->hdr_add.hdr_addr_hi = 0;
+		ctx->ipsec.type = IPA_PROC_CTX_TLV_TYPE_IPSEC;
+		ctx->ipsec.length = 0;
+		ctx->ipsec.sa_action = ipsec_params->action;
+		ctx->ipsec.sa_index = ipsec_params->sa_idx;
+		ctx->cmd.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
+		ctx->cmd.tlv.value = IPA_HDR_UCP_IPSEC_PRE_ENCAP;
+		ctx->cmd.tlv.length = 1;
+		ctx->cmd.pre_params = ipsec_params->pre_params;
+		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
+		ctx->end.length = 0;
+		ctx->end.value = 0;
+	} else if (type == IPA_HDR_PROC_IPSEC_DECAP) {
+		struct ipa_hw_hdr_proc_ctx_ipsec_proc_cmd_seq *ctx =
+			(struct ipa_hw_hdr_proc_ctx_ipsec_proc_cmd_seq *)
+			(base + offset);
+		ctx->ipsec.type = IPA_PROC_CTX_TLV_TYPE_IPSEC;
+		ctx->ipsec.length = 0;
+		ctx->ipsec.sa_action = ipsec_params->action;
+		ctx->ipsec.sa_index = ipsec_params->sa_idx;
+		ctx->cmd.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
+		ctx->cmd.tlv.value = IPA_HDR_UCP_IPSEC_PRE_DECAP;
+		ctx->cmd.tlv.length = 1;
+		ctx->cmd.pre_params = ipsec_params->pre_params;
+		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
+		ctx->end.length = 0;
+		ctx->end.value = 0;
+	} else if (type == IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND) {
+		struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq *ctx =
+			(struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq *)
+			(base + offset);
+		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
+		ctx->hdr_add.tlv.length = 2;
+		ctx->hdr_add.tlv.value = hdr_len;
+		hdr_addr = hdr_base_addr + offset_entry->offset;
+		IPAHAL_DBG("header address 0x%llx\n",
+			hdr_addr);
+		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
+			ctx->hdr_add.hdr_addr_hi, hdr_addr);
+		if (!is_64)
+			ctx->hdr_add.hdr_addr_hi = 0;
+		ctx->nxt_rnd.type = IPA_PROC_CTX_TLV_TYPE_NXT_RND;
+		ctx->nxt_rnd.length = 0;
+		ctx->nxt_rnd.flt_idx = ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id);
+		ctx->ipsec.type = IPA_PROC_CTX_TLV_TYPE_IPSEC;
+		ctx->ipsec.length = 0;
+		ctx->ipsec.sa_action = ipsec_params->action;
+		ctx->ipsec.sa_index = ipsec_params->sa_idx;
+		ctx->cmd.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
+		ctx->cmd.tlv.value = IPA_HDR_UCP_IPSEC_PRE_ENCAP;
+		ctx->cmd.tlv.length = 1;
+		ctx->cmd.pre_params = ipsec_params->pre_params;
+		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
+		ctx->end.length = 0;
+		ctx->end.value = 0;
+	} else if (type == IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
+		struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq *ctx =
+			(struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq *)
+			(base + offset);
+		ctx->nxt_rnd.type = IPA_PROC_CTX_TLV_TYPE_NXT_RND;
+		ctx->nxt_rnd.length = 0;
+		ctx->nxt_rnd.flt_idx = ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id);
+		ctx->ipsec.type = IPA_PROC_CTX_TLV_TYPE_IPSEC;
+		ctx->ipsec.length = 0;
+		ctx->ipsec.sa_action = ipsec_params->action;
+		ctx->ipsec.sa_index = ipsec_params->sa_idx;
+		ctx->cmd.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
+		ctx->cmd.tlv.value = IPA_HDR_UCP_IPSEC_PRE_DECAP;
+		ctx->cmd.tlv.length = 1;
+		ctx->cmd.pre_params = ipsec_params->pre_params;
+		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
+		ctx->end.length = 0;
+		ctx->end.value = 0;
 	} else {
 		struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq *ctx;
 
@@ -2775,6 +2898,30 @@ static int ipahal_get_proc_ctx_needed_len_v3(enum ipa_hdr_proc_type type)
 		ret =
 		sizeof(struct ipa_hw_hdr_proc_ctx_remove_eogre_hdr_cmd_seq);
 		break;
+	case IPA_HDR_PROC_NXT_RND:
+		ret =
+		sizeof(struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq);
+		break;
+	case IPA_HDR_PROC_XLAT_NXT_RND:
+		ret =
+		sizeof(struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_proc_cmd_seq);
+		break;
+	case IPA_HDR_PROC_IPSEC_ENCAP:
+		ret =
+		sizeof(struct ipa_hw_hdr_proc_ctx_add_ipsec_proc_cmd_seq);
+		break;
+	case IPA_HDR_PROC_IPSEC_DECAP:
+		ret =
+		sizeof(struct ipa_hw_hdr_proc_ctx_ipsec_proc_cmd_seq);
+		break;
+	case IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND:
+		ret =
+		sizeof(struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq);
+		break;
+	case IPA_HDR_PROC_IPSEC_DECAP_NXT_RND:
+		ret =
+		sizeof(struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq);
+		break;
 	default:
 		/* invalid value to make sure failure */
 		IPAHAL_ERR_RL("invalid ipa_hdr_proc_type %d\n", type);
@@ -2799,6 +2946,7 @@ struct ipahal_hdr_funcs {
 			struct ipa_hdr_offset_entry *offset_entry,
 			struct ipa_l2tp_hdr_proc_ctx_params *l2tp_params,
 			struct ipa_eogre_hdr_proc_ctx_params *eogre_params,
+			struct ipa_ipsec_params *ipsec_params,
 			struct ipa_eth_II_to_eth_II_ex_procparams
 			*generic_params,
 			struct ipa_wwan_to_eth_II_ex_procparams
@@ -2876,6 +3024,7 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 		u64 hdr_base_addr, struct ipa_hdr_offset_entry *offset_entry,
 		struct ipa_l2tp_hdr_proc_ctx_params *l2tp_params,
 		struct ipa_eogre_hdr_proc_ctx_params *eogre_params,
+		struct ipa_ipsec_params *ipsec_params,
 		struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
 		struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
 		bool is_64)
@@ -2893,7 +3042,7 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 
 	return hdr_funcs.ipahal_cp_proc_ctx_to_hw_buff(type, base, offset,
 			hdr_len, hdr_base_addr, offset_entry, l2tp_params,
-			eogre_params, generic_params, generic_params_v2, is_64);
+			eogre_params, ipsec_params, generic_params, generic_params_v2, is_64);
 }
 
 /*

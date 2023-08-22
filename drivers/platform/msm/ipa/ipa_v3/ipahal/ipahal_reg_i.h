@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPAHAL_REG_I_H_
@@ -925,5 +925,16 @@ int ipahal_reg_init(enum ipa_hw_type ipa_hw_type);
 /* IPA_ENDP_INIT_NAT_EXC_SUPPRESS_n register */
 #define IPA_ENDP_INIT_NAT_EXC_SUPPRESS_n_EN_BMSK 0x1
 #define IPA_ENDP_INIT_NAT_EXC_SUPPRESS_n_EN_SHFT 0x0
+
+/* IPA 6.0 */
+/* IPA_ENDP_INIT_IPSEC_CFG register */
+#define IPA_ENDP_INIT_IPSEC_CFG_n_DECAP_NXT_HDR_CHK_DDIS_BMSK 0x1000000
+#define IPA_ENDP_INIT_IPSEC_CFG_n_DECAP_NXT_HDR_CHK_DDIS_SHFT 24
+#define IPA_ENDP_INIT_IPSEC_CFG_n_EXCEP_ENDP_IPSEC_POST_ENCAP_BMSK 0xFF0000
+#define IPA_ENDP_INIT_IPSEC_CFG_n_EXCEP_ENDP_IPSEC_POST_ENCAP_SHFT 16
+#define IPA_ENDP_INIT_IPSEC_CFG_n_EXCEP_ENDP_IPSEC_POST_DECAP_BMSK 0xFF00
+#define IPA_ENDP_INIT_IPSEC_CFG_n_EXCEP_ENDP_IPSEC_POST_DECAP_SHFT 8
+#define IPA_ENDP_INIT_IPSEC_CFG_n_EXCEP_ENDP_IPSEC_DECAP_BMSK 0xFF
+#define IPA_ENDP_INIT_IPSEC_CFG_n_EXCEP_ENDP_IPSEC_DECAP_SHFT 0
 
 #endif /* _IPAHAL_REG_I_H_ */
