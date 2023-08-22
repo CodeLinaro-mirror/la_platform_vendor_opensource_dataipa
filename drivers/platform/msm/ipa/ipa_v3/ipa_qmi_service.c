@@ -280,6 +280,11 @@ static void ipa3_handle_install_filter_rule_req(struct qmi_handle *qmi_handle,
 		IPAWANERR("install filter rules failed\n");
 	else
 		IPAWANDBG("Replied to install filter request\n");
+
+	if(resp.resp.result == IPA_QMI_RESULT_SUCCESS_V01 && ipa3_ctx->ipa_config_is_rdkb)
+	{
+		rmnet_mux_init();
+	}
 }
 
 static void ipa3_handle_filter_installed_notify_req(
