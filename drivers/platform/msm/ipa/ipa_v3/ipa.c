@@ -47,6 +47,8 @@
 #endif
 #include "gsi.h"
 #include "ipa_stats.h"
+#include "ipa_sysfs.h"
+
 #include <linux/suspend.h>
 #ifdef CONFIG_GH_MSGQ
 #include <linux/gunyah/gh_msgq.h>
@@ -155,6 +157,10 @@ static void ipa3_deepsleep_suspend(void);
 
 static void ipa3_load_ipa_fw(struct work_struct *work);
 static DECLARE_WORK(ipa3_fw_loading_work, ipa3_load_ipa_fw);
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+static void ipa3_xbl_ipa_init(struct work_struct *work);
+static DECLARE_WORK(ipa3_xbl_init_work, ipa3_xbl_ipa_init);
+#endif
 static DECLARE_DELAYED_WORK(ipa3_fw_load_failure_handle, ipa3_load_ipa_fw);
 
 static void ipa_dec_clients_disable_clks_on_wq(struct work_struct *work);
@@ -553,6 +559,9 @@ static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 
 static struct notifier_block ipa_pm_notifier = {
 	.notifier_call = ipa_pm_notify,
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+	.priority = INT_MAX,
+#endif
 };
 
 static const struct dev_pm_ops ipa_pm_ops = {
@@ -564,12 +573,19 @@ static const struct dev_pm_ops ipa_pm_ops = {
 	.restore_early = ipa3_ap_resume,
 };
 
+static const struct attribute_group *ipa_group[] = {
+	&ipa_feature_attribute_group,
+	&ipa_modem_attribute_group,
+	NULL,
+};
+
 static struct platform_driver ipa_plat_drv = {
 	.probe = ipa3_plat_drv_probe,
 	.driver = {
 		.name = DRV_NAME,
 		.pm = &ipa_pm_ops,
 		.of_match_table = ipa_plat_drv_match,
+		.dev_groups = ipa_group,
 	},
 };
 
@@ -8363,6 +8379,9 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 	if (ipa3_ctx->ipa_initialization_complete)
 		return 0;
 
+	/* enable IPA clocks explicitly to allow the initialization */
+	ipa3_enable_clks();
+
 	/*
 	 * IPA version 3.0 IPAHAL initialized at pre_init as there is no SMMU.
 	 * In normal mode need to wait until SMMU is attached and
@@ -8474,6 +8493,7 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa_fmwk_deepsleep_exit_ipa();
 #endif
 	complete_all(&ipa3_ctx->init_completion_obj);
+	ipa3_disable_clks();
 
 	pr_info("IPA driver initialization was successful.\n");
 
@@ -8490,8 +8510,8 @@ fail_alloc_pkt_init:
 fail_dma_task:
 fail_init_hw:
 	ipahal_destroy();
-
 fail_ipahal:
+	ipa3_disable_clks();
 	return result;
 }
 
@@ -8698,7 +8718,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 				flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = false;
 				lcl_tbl = kcalloc(1, sizeof(struct ipa3_flt_tbl_nhash_lcl),
 						  GFP_KERNEL);
-				WARN_ON(lcl_tbl);
+				WARN_ON((lcl_tbl == NULL));
 				if (likely(lcl_tbl)) {
 					lcl_tbl->tbl = flt_tbl;
 					/* Add to the head of the list, to be pulled first */
@@ -9162,6 +9182,29 @@ static int ipa3_pil_unload_ipa_fws(void)
 }
 #endif
 
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+static void ipa3_xbl_ipa_init(struct work_struct *work)
+{
+	int result;
+
+	IPAERR("Using XBL boot load for IPA FW\n");
+
+	result = ipa3_attach_to_smmu();
+	if (result) {
+		IPAERR("IPA attach to smmu failed %d\n",
+				result);
+		return;
+	}
+
+	result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+	if (result) {
+		IPAERR("IPA post init failed %d\n", result);
+		return;
+
+	}
+}
+#endif
+
 static void ipa3_load_ipa_fw(struct work_struct *work)
 {
 	int result;
@@ -9381,6 +9424,13 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		/* trim ending newline character if any */
 		if (count && (dbg_buff[count - 1] == '\n'))
 			dbg_buff[count - 1] = '\0';
+
+		if (strnstr(dbg_buff, "rdkb", strlen(dbg_buff)))
+		{
+			IPADBG("Platform type is RDKB\n");
+			ipa3_ctx->ipa_config_is_rdkb = true;
+			return count;
+		}
 
 		/*
 		 * This logic enforeces MHI mode based on userspace input.
@@ -10864,8 +10914,8 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	if (result)
 		goto fail_init_active_client;
 
-	/* Enable ipa3_ctx->enable_clock_scaling */
-	ipa3_ctx->enable_clock_scaling = 1;
+	/* Need to change if GVM is to support multiple clients in the future */
+	ipa3_ctx->enable_clock_scaling = 0;
 	/* vote for svs2 on bootup */
 	ipa3_ctx->curr_ipa_clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_svs2;
 
@@ -11099,7 +11149,6 @@ fail_gsi_map:
 		iounmap(ipa3_ctx->reg_collection_base);
 	iounmap(ipa3_ctx->mmio);
 fail_remap:
-	ipa3_disable_clks();
 	ipa3_active_clients_log_destroy();
 	gsi_unmap_base();
 fail_init_active_client:
@@ -13597,6 +13646,10 @@ bool ipa3_get_lan_rx_napi(void)
 static void ipa3_deepsleep_suspend(void)
 {
 	IPADBG("Entry\n");
+	if (ipa3_ctx->deepsleep) {
+		IPAERR("Already in deepsleep mode\n");
+		return;
+	}
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	/* To allow default routing table delection using this flag */
@@ -13639,8 +13692,13 @@ static void ipa3_deepsleep_resume(void)
 	/*After deeplseep exit we shouldn't allow delete the default routing table*/
 	ipa3_ctx->deepsleep = false;
 	/*Scheduling WQ to load IPA FW*/
-	queue_work(ipa3_ctx->transport_power_mgmt_wq,
-		&ipa3_fw_loading_work);
+	if (ipa3_ctx->use_xbl_boot) {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_xbl_init_work);
+	} else {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_fw_loading_work);
+	}
 	IPADBG("Exit\n");
 }
 #endif

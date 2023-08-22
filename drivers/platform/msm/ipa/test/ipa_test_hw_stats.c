@@ -800,7 +800,7 @@ static int ipa_test_hw_stats_query_teth_stats(void *priv)
        for (i = 0; i < IPA_CLIENT_MAX; i++) {
                int ep_idx = ipa3_get_ep_mapping(i);
 
-               if (ep_idx == -1)
+               if (ep_idx == IPA_EP_NOT_ALLOCATED)
                        continue;
 
                if (!IPA_CLIENT_IS_PROD(i))
@@ -823,7 +823,7 @@ static int ipa_test_hw_stats_query_teth_stats(void *priv)
                for (j = 0; j < IPA_CLIENT_MAX; j++) {
                        int cons_idx = ipa3_get_ep_mapping(j);
 
-                       if (cons_idx == -1)
+                       if (cons_idx == IPA_EP_NOT_ALLOCATED)
                                continue;
 
                        if (IPA_CLIENT_IS_TEST(j))
@@ -837,14 +837,16 @@ static int ipa_test_hw_stats_query_teth_stats(void *priv)
 
                        IPA_UT_INFO("%s->%s:\n", ipa_clients_strings[i],
                                ipa_clients_strings[j]);
-                       IPA_UT_INFO("num_ipv4_bytes=%llu\n",
+		       if(j < ipa3_get_max_num_pipes()){
+                       	IPA_UT_INFO("num_ipv4_bytes=%llu\n",
                                                stats->client[j].num_ipv4_bytes);
-                       IPA_UT_INFO("num_ipv6_bytes=%llu\n",
+                       	IPA_UT_INFO("num_ipv6_bytes=%llu\n",
                                                stats->client[j].num_ipv6_bytes);
-                       IPA_UT_INFO("num_ipv4_pkts=%u\n",
+                       	IPA_UT_INFO("num_ipv4_pkts=%u\n",
                                                stats->client[j].num_ipv4_pkts);
-                       IPA_UT_INFO("num_ipv6_pkts=%u\n",
+                       	IPA_UT_INFO("num_ipv6_pkts=%u\n",
                                                stats->client[j].num_ipv6_pkts);
+		       }
                }
        }
 
@@ -900,7 +902,7 @@ static int ipa_test_hw_stats_query_quota_stats(void *priv)
        for (i = 0; i < IPA_CLIENT_MAX; i++) {
                ep_idx = ipa3_get_ep_mapping(i);
 
-               if (ep_idx == -1)
+               if (ep_idx == IPA_EP_NOT_ALLOCATED)
                        continue;
 
                if (IPA_CLIENT_IS_TEST(i))
@@ -912,10 +914,12 @@ static int ipa_test_hw_stats_query_quota_stats(void *priv)
                        continue;
 
                IPA_UT_INFO("%s:\n", ipa_clients_strings[i]);
-               IPA_UT_INFO("num_ipv4_bytes=%llu\n", out->client[i].num_ipv4_bytes);
-               IPA_UT_INFO("num_ipv6_bytes=%llu\n", out->client[i].num_ipv6_bytes);
-               IPA_UT_INFO("num_ipv4_pkts=%u\n", out->client[i].num_ipv4_pkts);
-               IPA_UT_INFO("num_ipv6_pkts=%u\n", out->client[i].num_ipv6_pkts);
+	       if(i < ipa3_get_max_num_pipes()){
+               	IPA_UT_INFO("num_ipv4_bytes=%llu\n", out->client[i].num_ipv4_bytes);
+               	IPA_UT_INFO("num_ipv6_bytes=%llu\n", out->client[i].num_ipv6_bytes);
+               	IPA_UT_INFO("num_ipv4_pkts=%u\n", out->client[i].num_ipv4_pkts);
+               	IPA_UT_INFO("num_ipv6_pkts=%u\n", out->client[i].num_ipv6_pkts);
+	       }
 
        }
 

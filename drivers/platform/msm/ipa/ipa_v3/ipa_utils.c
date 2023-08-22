@@ -5834,7 +5834,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 17, 1, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3}, IPA_TX_INSTANCE_DL },
 
-	[IPA_5_2_MDM][IPA_CLIENT_ODU_EMB_CONS] = {
+	[IPA_5_2_MDM][IPA_CLIENT_WLAN3_CONS] = {
 			true, IPA_v5_2_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -10983,6 +10983,7 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_USB2_CONS:
 		case IPA_CLIENT_WLAN4_CONS:
 		case IPA_CLIENT_WLAN1_PROD:
+		case IPA_CLIENT_APPS_WAN_ETH_PROD:
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en = 1;
 			break;
 		default:
@@ -11435,11 +11436,13 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 	}
 
 	/* Enabling HW replication for eth clients */
-	if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
-		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
-		init_mode.replication_en = 1;
-		IPADBG("Enabling HW replication on pipe=%d\n",
-			clnt_hdl);
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_5) {
+		if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
+			ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
+			init_mode.replication_en = 1;
+			IPADBG("Enabling HW replication on pipe=%d\n",
+				clnt_hdl);
+		}
 	}
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 

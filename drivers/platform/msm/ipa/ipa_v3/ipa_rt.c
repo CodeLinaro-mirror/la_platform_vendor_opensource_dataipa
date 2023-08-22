@@ -2504,8 +2504,8 @@ int ipa3_rt_read_tbl_from_hw(u32 tbl_idx, enum ipa_ip_type ip_type,
 	IPADBG_LOW("rt tbl %d: tbl_addr=0x%llx is_sys=%d\n",
 		tbl_idx, tbl_addr, is_sys);
 	if (!tbl_addr) {
-		IPAERR("invalid rt tbl addr\n");
-		res = -EFAULT;
+		/* The Routing table index not initialized */
+		*num_entry = 0;
 		goto bail;
 	}
 
