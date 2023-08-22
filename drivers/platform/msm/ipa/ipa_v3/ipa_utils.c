@@ -9040,8 +9040,8 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.apps_v6_rt_nhash_ofst = 0x130e8,
 	.apps_v6_rt_nhash_size = 0x300,
 	.sa_contexts_ofst = 0x133e8,
-	.sa_contexts_size = 0x18c0,
-	.end_ofst = 0x14ca8,
+	.sa_contexts_size = 0x1C30, // (IPA_SA_DB_SIZE)
+	.end_ofst = 0x15018,
 };
 
 const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
