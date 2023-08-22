@@ -285,6 +285,7 @@ struct ipa_ipsec_key_store {
 	union ipa_ipsec_enc_key enc[IPA_IPSEC_MAX_KEY_NUM];
 	union ipa_ipsec_auth_key auth[IPA_IPSEC_MAX_KEY_NUM];
 };
+#pragma pack(pop)
 
 /**
  * struct ipa_ipsec_policy - IPA IPsec policy list member
@@ -380,7 +381,11 @@ struct ipa_ipsec_ctx {
 	struct ipa_ipsec_stats stats;
 	u32 sa_mismatch_qmap_hdr_hdl;
 };
-#pragma pack(pop)
+
+struct ipa_ipsec_work_wrap {
+	struct work_struct work;
+	struct xfrm_state *x;
+};
 
 void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
 
@@ -394,6 +399,7 @@ int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *entry,
 int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata);
 int ipa_ipsec_ep_init_prod(void);
 int ipa_ipsec_ep_init_cons(void);
+void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_sa_type type);
 #else
 inline bool ipa_ipsec_enabled(void) {return false;}
 inline int ipa_ipsec_init(void) {return 0;}
@@ -405,6 +411,7 @@ inline int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl 
 inline int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata) {return 0;}
 inline int ipa_ipsec_ep_init_prod(void) {return 0;}
 inline int ipa_ipsec_ep_init_cons(void) {return 0;}
+inline void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_sa_type type) {return;}
 #endif
 
 #endif /* _IPA_IPSEC_H_ */

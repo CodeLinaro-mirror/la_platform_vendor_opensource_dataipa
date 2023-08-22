@@ -62,6 +62,8 @@ static struct ipa_ipsec_algo _aead_map[] = {
 	{ .name = NULL,			.algo.e = IPA_IPSEC_ENC_MAX},
 };
 
+static struct workqueue_struct *ipa_ipsec_wq;
+
 bool ipa_ipsec_enabled(void)
 {
 	return !!ipa3_ctx->ipsec;
@@ -1664,6 +1666,42 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 	xp->xdo.offload_handle = (unsigned long)pol;
 
 	return 0;
+}
+
+/* Bottom half of the SA threshold uC event handler */
+static void ipa_ipsec_handle_sa_thresh_bottom(struct work_struct *work)
+{
+	struct ipa_ipsec_work_wrap *data = container_of(work, struct ipa_ipsec_work_wrap, work);
+	xfrm_state_check_expire(data->x);
+}
+
+/* Top half of the SA threshold uC event handler */
+void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_sa_type sa_type)
+{
+	struct xfrm_state *x;
+	struct ipa_ipsec_work_wrap *work_data;
+
+	if (idx >= IPA_IPSEC_MAX_SA_NUM || sa_type >= IPA_IPSEC_TYPE_MAX) {
+		IPAERR_RL("Received event with wrong params: idx = %d, sa_type = %d\n",
+			 idx, sa_type);
+		return;
+	}
+
+	x = ipa3_ctx->ipsec->sa_db[sa_type][idx].x;
+	if (unlikely(!x)) {
+		IPAERR("%s SA%02d has no XFRM state pointer (0x%X) \n",
+			(sa_type == IPA_IPSEC_ENCAP) ? "Encap" : "Decap", idx, x);
+		return;
+	}
+
+	work_data = kzalloc(sizeof(struct ipa_ipsec_work_wrap), GFP_ATOMIC);
+	if (!work_data) {
+		IPAERR("failed allocating ipa_ipsec_work_wrap\n");
+		return;
+	}
+	INIT_WORK(&work_data->work, ipa_ipsec_handle_sa_thresh_bottom);
+	work_data->x = x;
+	queue_work(ipa_ipsec_wq, &work_data->work);
 }
 
 /* The DL (LAN) RT tables are being deleted on LAN down and recreated on LAN up.

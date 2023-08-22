@@ -609,6 +609,9 @@ static void ipa3_event_ring_hdlr(void)
 	struct ipa_inform_wlan_bw bw_info;
 	struct eventElement_t *e_b = NULL, *e_q = NULL, *e_h = NULL;
 	int mul = 0;
+#if defined(CONFIG_IPA_IPSEC)
+	union EventParamFormat_t *val;
+#endif
 
 	ering_rp = ipahal_read_reg_mn(IPA_UC_MAILBOX_m_n,
 		IPA_UC_ERING_m, IPA_UC_ERING_n_r);
@@ -670,12 +673,14 @@ static void ipa3_event_ring_hdlr(void)
 				false,
 				e_h->Value.holb_notify_param.qTimerLSB,
 				e_h->Value.holb_notify_param.qTimerMSB);
+#if defined(CONFIG_IPA_IPSEC)
 		} else if (((struct eventElement_t *) rp_va)->Opcode
-				== IPSEC_HARD_THRESH_NOTIFY) {
-			/* Disable SA */
-		} else if (((struct eventElement_t *) rp_va)->Opcode
-				== IPSEC_SOFT_THRESH_NOTIFY) {
-			/* Notify XFRM */
+				== IPSEC_THRESH_NOTIFY) {
+			val = &((struct eventElement_t *)rp_va)->Value;
+			ipa_ipsec_handle_sa_thresh(
+				(u8)(val->ipsec_threshold_param.sa_idx),
+				(enum ipa_ipsec_sa_type)(val->ipsec_threshold_param.sa_action));
+#endif
 		}
 		ipa3_ctx->uc_ctx.ering_rp_local += offset;
 		ipa3_ctx->uc_ctx.ering_rp_local %=
