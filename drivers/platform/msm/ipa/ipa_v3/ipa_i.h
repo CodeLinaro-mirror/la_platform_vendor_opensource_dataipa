@@ -69,10 +69,17 @@
 #define IPA3_MAX_NUM_PIPES 46
 #define IPA5_PIPES_NUM 36
 #define IPA6_PIPES_NUM 50
+#define IPA6_PROD_PIPES_NUM 22
 #define IPA5_PIPE_REG_NUM 2
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
 #define IPA6_MAX_NUM_PIPES (IPA6_PIPES_NUM)
 #define IPA_MAX_NUM_PIPES IPA6_MAX_NUM_PIPES
+#define IPA6_NXT_FLT_TBL_Q6_NUM 1
+#define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
+#define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
+#define IPA6_Q6_NXT_FLT_TBL_START (47) // we want to include it in the above
+#define IPA6_Q6_NXT_FLT_TBL_END (47) // we want to include it in the above
+#define IPA_MAX_FLT_TBLS 64
 #define IPA_SYS_DESC_FIFO_SZ 0x800
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ 0x1000
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ_8K 0x2000
@@ -2470,7 +2477,7 @@ struct ipa3_context {
 	u64 ep_flt_bitmap;
 	u32 ep_flt_num;
 	bool resume_on_connect[IPA_CLIENT_MAX];
-	struct ipa3_flt_tbl flt_tbl[IPA_MAX_NUM_PIPES][IPA_IP_MAX];
+	struct ipa3_flt_tbl flt_tbl[IPA_MAX_FLT_TBLS][IPA_IP_MAX];
 	struct idr flt_rule_ids[IPA_IP_MAX];
 	void __iomem *mmio;
 	u32 ipa_wrapper_base;
@@ -3305,6 +3312,8 @@ int ipa3_commit_flt(enum ipa_ip_type ip);
 int ipa3_reset_flt(enum ipa_ip_type ip, bool user_only);
 
 int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client);
+
+int ipa_flt_get_nxt_rnd_idx(u32 tbl_id);
 
 /*
  * NAT

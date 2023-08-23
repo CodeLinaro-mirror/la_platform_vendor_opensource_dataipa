@@ -8700,8 +8700,11 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v4]);
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v6]);
 
-	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
-		if (!ipa_is_ep_support_flt(i))
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
+		if ((i < ipa3_ctx->ipa_num_pipes && !ipa_is_ep_support_flt(i)) ||
+		    (i >= ipa3_ctx->ipa_num_pipes &&
+		     !(i >= IPA6_Q6_NXT_FLT_TBL_START && i <= IPA6_Q6_NXT_FLT_TBL_END) &&
+		     !(i >= IPA6_NXT_FLT_TBL_START && i <= IPA6_NXT_FLT_TBL_END)))
 			continue;
 
 		for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
@@ -8834,9 +8837,9 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 	result = ipa3_uc_interface_init();
 	if (result)
-		IPAERR(":ipa Uc interface init failed (%d)\n", -result);
+		IPAERR("IPA Uc interface init failed (%d)\n", -result);
 	else
-		IPADBG(":ipa Uc interface init ok\n");
+		IPADBG("IPA Uc interface init ok\n");
 	uc_hdlrs.ipa_uc_loaded_hdlr = ipa3_uc_is_loaded;
 	uc_hdlrs.ipa_uc_holb_enabled_hdlr = ipa3_uc_holb_client_handler;
 	ipa3_uc_register_handlers(IPA_HW_FEATURE_COMMON, &uc_hdlrs);

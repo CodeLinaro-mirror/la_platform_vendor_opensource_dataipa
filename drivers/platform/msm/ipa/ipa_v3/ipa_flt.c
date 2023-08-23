@@ -92,7 +92,7 @@ static void __ipa_reap_sys_flt_tbls(enum ipa_ip_type ip, enum ipa_rule_type rlt)
 
 	IPADBG_LOW("reaping sys flt tbls ip=%d rlt=%d\n", ip, rlt);
 
-	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
 		if (!ipa_is_ep_support_flt(i))
 			continue;
 
@@ -212,7 +212,7 @@ static int ipa_translate_flt_tbl_to_hw_fmt(enum ipa_ip_type ip,
 	int hdr_idx = 0;
 
 	body_i = base;
-	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
 		if (!ipa_is_ep_support_flt(i))
 			continue;
 		tbl = &ipa3_ctx->flt_tbl[i][ip];
@@ -548,7 +548,7 @@ int __ipa_commit_flt_v3(enum ipa_ip_type ip)
 		lcl_nhash = ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v6];
 	}
 
-	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
 		if (!ipa_is_ep_support_flt(i))
 			continue;
 		tbl = &ipa3_ctx->flt_tbl[i][ip];
@@ -702,13 +702,14 @@ int __ipa_commit_flt_v3(enum ipa_ip_type ip)
 	}
 
 	hdr_idx = 0;
-	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
 		if (!ipa_is_ep_support_flt(i)) {
 			IPADBG_LOW("skip %d - not filtering pipe\n", i);
 			continue;
 		}
 
-		if (ipa_flt_skip_pipe_config(i)) {
+		if ((i < ipa3_ctx->ipa_num_pipes && ipa_flt_skip_pipe_config(i)) ||
+		    (i >= IPA6_Q6_NXT_FLT_TBL_START && i <= IPA6_Q6_NXT_FLT_TBL_END)) {
 			hdr_idx++;
 			continue;
 		}
@@ -1265,6 +1266,45 @@ static int __ipa_add_ep_flt_rule(enum ipa_ip_type ip, enum ipa_client_type ep,
 	return __ipa_add_flt_rule(tbl, ip, rule, add_rear, rule_hdl, user);
 }
 
+int ipa_flt_get_nxt_rnd_idx(u32 tbl_id)
+{
+	int tbl_idx;
+
+	if (tbl_id < IPA_CLIENT_MAX)
+		return ipa3_get_ep_mapping(tbl_id);
+
+	tbl_idx = tbl_id - IPA_CLIENT_MAX + IPA6_NXT_FLT_TBL_START;
+	if (tbl_idx > IPA6_NXT_FLT_TBL_END) {
+		IPAERR_RL("bad param tbl_id=%d\n", tbl_id);
+		return -EINVAL;
+	}
+
+	return tbl_idx;
+}
+
+static int __ipa_add_nxt_rnd_flt_rule(enum ipa_ip_type ip, u32 tbl_id,
+				 const struct ipa_flt_rule_i *rule, u8 add_rear,
+				 u32 *rule_hdl, bool user)
+{
+	struct ipa3_flt_tbl *tbl;
+	int tbl_idx;
+
+	if (rule == NULL || rule_hdl == NULL || tbl_id < IPA_CLIENT_MAX) {
+		IPAERR_RL("bad parms rule=%pK rule_hdl=%pK tbl_id=%d\n", rule, rule_hdl, tbl_id);
+		return -EINVAL;
+	}
+
+	tbl_idx = ipa_flt_get_nxt_rnd_idx(tbl_id);
+	if (!tbl_idx)
+		return -EINVAL;
+
+
+	tbl = &ipa3_ctx->flt_tbl[tbl_idx][ip];
+	IPADBG_LOW("add next round flt rule ip=%d ep=%d\n", ip, tbl_id);
+
+	return __ipa_add_flt_rule(tbl, ip, rule, add_rear, rule_hdl, user);
+}
+
 static void __ipa_convert_flt_rule_in(struct ipa_flt_rule rule_in,
 	struct ipa_flt_rule_i *rule_out)
 {
@@ -1455,15 +1495,27 @@ int ipa3_add_flt_rule_usr_v2(struct ipa_ioc_add_flt_rule_v2
 			if (ipa3_ctx->ipa_fltrt_not_hashable)
 				((struct ipa_flt_rule_add_i *)
 				rules->rules)[i].rule.hashable = false;
-			result = __ipa_add_ep_flt_rule(rules->ip,
-					rules->ep,
-					&(((struct ipa_flt_rule_add_i *)
-					rules->rules)[i].rule),
-					((struct ipa_flt_rule_add_i *)
-					rules->rules)[i].at_rear,
-					&(((struct ipa_flt_rule_add_i *)
-					rules->rules)[i].flt_rule_hdl),
-					user_only);
+			if (rules->ep < IPA_CLIENT_MAX) {
+				result = __ipa_add_ep_flt_rule(rules->ip,
+						rules->ep,
+						&(((struct ipa_flt_rule_add_i *)
+						rules->rules)[i].rule),
+						((struct ipa_flt_rule_add_i *)
+						rules->rules)[i].at_rear,
+						&(((struct ipa_flt_rule_add_i *)
+						rules->rules)[i].flt_rule_hdl),
+						user_only);
+			} else {
+				result = __ipa_add_nxt_rnd_flt_rule(rules->ip,
+						rules->ep,
+						&(((struct ipa_flt_rule_add_i *)
+						rules->rules)[i].rule),
+						((struct ipa_flt_rule_add_i *)
+						rules->rules)[i].at_rear,
+						&(((struct ipa_flt_rule_add_i *)
+						rules->rules)[i].flt_rule_hdl),
+						user_only);
+			}
 		} else
 			result = -1;
 
@@ -1924,7 +1976,7 @@ int ipa3_reset_flt(enum ipa_ip_type ip, bool user_only)
 	}
 
 	mutex_lock(&ipa3_ctx->lock);
-	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
 		if (!ipa_is_ep_support_flt(i))
 			continue;
 
@@ -2136,9 +2188,7 @@ int ipa3_flt_read_tbl_from_hw(u32 pipe_idx, enum ipa_ip_type ip_type,
 		return 0;
 	}
 
-	if (pipe_idx >= ipa3_ctx->ipa_num_pipes ||
-		pipe_idx >= ipa3_get_max_num_pipes() || ip_type >= IPA_IP_MAX ||
-		!entry || !num_entry) {
+	if (pipe_idx >= IPA_MAX_FLT_TBLS || ip_type >= IPA_IP_MAX || !entry || !num_entry) {
 		IPAERR_RL("Invalid pipe_idx=%u\n", pipe_idx);
 		return -EFAULT;
 	}

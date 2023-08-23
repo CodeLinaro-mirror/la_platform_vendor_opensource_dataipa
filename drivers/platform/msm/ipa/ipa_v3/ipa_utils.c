@@ -10595,6 +10595,25 @@ void ipa_init_ep_flt_bitmap(void)
 			}
 		}
 	}
+
+	/* Take care of EP independent FLT tables */
+	for (pipe_num = IPA6_NXT_FLT_TBL_START; pipe_num <= IPA6_NXT_FLT_TBL_END; pipe_num++) {
+		bitmap |= (1ULL << pipe_num);
+		if (bitmap != ipa3_ctx->ep_flt_bitmap) {
+			ipa3_ctx->ep_flt_bitmap = bitmap;
+			ipa3_ctx->ep_flt_num++;
+		}
+	}
+
+	/* Q6 EP independent FLT tables */
+	for (pipe_num = IPA6_Q6_NXT_FLT_TBL_START;
+	     pipe_num <= IPA6_Q6_NXT_FLT_TBL_END; pipe_num++) {
+		bitmap |= (1ULL << pipe_num);
+		if (bitmap != ipa3_ctx->ep_flt_bitmap) {
+			ipa3_ctx->ep_flt_bitmap = bitmap;
+			ipa3_ctx->ep_flt_num++;
+		}
+	}
 }
 
 /**
@@ -10608,7 +10627,7 @@ void ipa_init_ep_flt_bitmap(void)
  */
 bool ipa_is_ep_support_flt(int pipe_idx)
 {
-	if (pipe_idx >= ipa3_ctx->ipa_num_pipes || pipe_idx < 0) {
+	if (pipe_idx >= IPA_MAX_FLT_TBLS || pipe_idx < 0) {
 		IPAERR("Bad pipe index!\n");
 		return false;
 	}
