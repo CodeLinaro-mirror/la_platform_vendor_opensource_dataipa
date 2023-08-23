@@ -1490,7 +1490,7 @@ static u16 ipa3_wwan_select_queue(struct net_device *dev, struct sk_buff *skb, s
 static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	int ret = 0;
-	bool qmap_check, eth_check = false, v2x_check = false;
+	bool qmap_check = false, eth_check = false, v2x_check = false;
 	struct ipa3_wwan_private *wwan_ptr = netdev_priv(dev);
 	unsigned long flags;
 
@@ -2236,7 +2236,7 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	int wan_hdl;
 	bool v2x_check = false;
 
-	if (ingress_param->pipe_setup_status == IPA_PIPE_SETUP_EXISTS)
+	if (!ingress_param || ingress_param->pipe_setup_status == IPA_PIPE_SETUP_EXISTS || dev == NULL)
 		return rc;
 
 	if(ingress_param->ingress_ep_type == RMNET_INGRESS_V2X_DATA){
@@ -2841,7 +2841,7 @@ static int handle3_ingress_format_internal(const struct rmnet_ingress_param ingr
 
 	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 
-	if ((IPA_NETDEV()->features & NETIF_F_GRO_HW) ? (rmnet_ipa3_ctx->ingress_eps_mask &
+	if (IPA_NETDEV() && (IPA_NETDEV()->features & NETIF_F_GRO_HW) ? (rmnet_ipa3_ctx->ingress_eps_mask &
 		(IPA_AP_INGRESS_EP_DEFAULT | IPA_AP_INGRESS_EP_COALS)) : (
 		rmnet_ipa3_ctx->ingress_eps_mask & IPA_AP_INGRESS_EP_DEFAULT)) {
 		if (rmnet_ipa3_ctx->wan_rt_table_setup) {
@@ -2890,7 +2890,7 @@ static int ipa3_setup_apps_wan_prod_pipes(
 	int rc = 0;
 	bool v2x_check = false;
 
-	if(egress_param->pipe_setup_status == IPA_PIPE_SETUP_EXISTS)
+	if(!egress_param || egress_param->pipe_setup_status == IPA_PIPE_SETUP_EXISTS || dev == NULL)
 		return rc;
 
 	if (ip_pdu) {

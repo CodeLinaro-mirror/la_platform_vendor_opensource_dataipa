@@ -43,7 +43,11 @@ const struct attribute_group ipa_feature_attribute_group = {
 
 static ssize_t ipa_endpoint_id_show(char *buf, enum ipa_client_type client)
 {
-	u32 endpoint_id = ipa3_get_gsi_ep_info(client)->ipa_ep_num;
+	u32 endpoint_id = 0;
+	const struct ipa_gsi_ep_config *gsi_ep_info = ipa3_get_gsi_ep_info(client);
+	if(!gsi_ep_info)
+		return -EFAULT;
+	endpoint_id = gsi_ep_info->ipa_ep_num;
 
 	return scnprintf(buf, PAGE_SIZE, "%u\n", endpoint_id);
 }
