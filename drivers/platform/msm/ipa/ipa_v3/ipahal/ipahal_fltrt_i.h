@@ -246,6 +246,29 @@ struct ipa5_5_rt_rule_hw_hdr_ext {
 	} u;
 };
 
+/**
+ * struct ipa6_0_rt_rule_hw_hdr_ext - HW header of IPA routing rule
+ * extention
+ * @word: routing rule extention header properties
+ * @ttl: enable ttl decrement.
+ * @qos_class: qos classification value.
+ * @skip_ingress: Skip ingress policing.
+ * @esp_after_udp: ESP after UDP (NAT-T)
+ * @rsvd: Reserved bits
+ */
+struct ipa6_0_rt_rule_hw_hdr_ext {
+	union {
+		u16 word;
+		struct {
+			u16 ttl : 1;
+			u16 qos_class : 6;
+			u16 skip_ingress : 1;
+			u16 esp_after_udp : 1;
+			u16 rsvd : 7;
+		} hdr;
+	} u;
+};
+
 
 /**
  * struct ipa3_0_flt_rule_hw_hdr - HW header of IPA filter rule
@@ -455,6 +478,29 @@ struct ipa5_5_flt_rule_hw_hdr_ext {
 			u16 ttl : 1;
 			u16 qos_class : 6;
 			u16 rsvd : 9;
+		} hdr;
+	} u;
+};
+
+/**
+ * struct ipa6_0_flt_rule_hw_hdr_ext - HW header of IPA filter rule
+ * extention
+ * @word: filtering rule extention header properties
+ * @ttl: enable ttl decrement.
+ * @qos_class: qos classification value.
+ * @rsvd1: Reserved bit
+ * @esp_after_udp: ESP after UDP (NAT-T)
+ * @rsvd2: Reserved bits
+ */
+struct ipa6_0_flt_rule_hw_hdr_ext {
+	union {
+		u16 word;
+		struct {
+			u16 ttl : 1;
+			u16 qos_class : 6;
+			u16 rsvd1 : 1;
+			u16 esp_after_udp : 1;
+			u16 rsvd2 : 7;
 		} hdr;
 	} u;
 };
