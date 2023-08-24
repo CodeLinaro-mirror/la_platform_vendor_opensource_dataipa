@@ -1295,7 +1295,7 @@ static int __ipa_add_nxt_rnd_flt_rule(enum ipa_ip_type ip, u32 tbl_id,
 	}
 
 	tbl_idx = ipa_flt_get_nxt_rnd_idx(tbl_id);
-	if (!tbl_idx)
+	if (tbl_idx <= 0)
 		return -EINVAL;
 
 

@@ -871,19 +871,19 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	enum ipa_client_type rx1_client;
 	enum ipa_client_type tx_client;
 	enum ipa_client_type tx1_client;
-	struct ipa3_ep_context *ep_rx;
-	struct ipa3_ep_context *ep_rx1;
-	struct ipa3_ep_context *ep_tx;
-	struct ipa3_ep_context *ep_tx1;
-	int ipa_ep_idx_rx;
+	struct ipa3_ep_context *ep_rx = NULL;
+	struct ipa3_ep_context *ep_rx1 = NULL;
+	struct ipa3_ep_context *ep_tx = NULL;
+	struct ipa3_ep_context *ep_tx1 = NULL;
+	int ipa_ep_idx_rx = 0;
 	int ipa_ep_idx_rx1 = IPA_EP_NOT_ALLOCATED;
-	int ipa_ep_idx_tx;
+	int ipa_ep_idx_tx = 0;
 	int ipa_ep_idx_tx1 = IPA_EP_NOT_ALLOCATED;
 	int result = 0;
-	u32 gsi_db_addr_low, gsi_db_addr_high;
-	void __iomem *db_addr;
+	u32 gsi_db_addr_low = 0, gsi_db_addr_high = 0;
+	void __iomem *db_addr = NULL;
 	u32 evt_ring_db_addr_low, evt_ring_db_addr_high, db_val = 0;
-	u8 rx_dir, tx_dir;
+	u8 rx_dir =0, tx_dir =0;
 
 	/* wdi3 only support over gsi */
 	if (ipa_get_wdi_version() < IPA_WDI_3) {

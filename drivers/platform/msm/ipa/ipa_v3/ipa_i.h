@@ -2009,7 +2009,7 @@ struct ipa_quota_stats {
 };
 
 struct ipa_quota_stats_all {
-	struct ipa_quota_stats client[IPA5_PIPES_NUM];
+	struct ipa_quota_stats client[IPA_MAX_NUM_PIPES];
 };
 
 struct ipa_drop_stats {
@@ -2028,8 +2028,8 @@ struct ipa_hw_stats_quota {
 
 struct ipa_hw_stats_teth {
 	struct ipahal_stats_init_tethering init;
-	struct ipa_quota_stats_all prod_stats_sum[IPA5_PIPES_NUM];
-	struct ipa_quota_stats_all prod_stats[IPA5_PIPES_NUM];
+	struct ipa_quota_stats_all prod_stats_sum[IPA_MAX_NUM_PIPES];
+	struct ipa_quota_stats_all prod_stats[IPA_MAX_NUM_PIPES];
 };
 
 struct ipa_hw_stats_flt_rt {
