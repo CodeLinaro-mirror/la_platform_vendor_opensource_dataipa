@@ -4910,9 +4910,77 @@ wan_ioctl_init_err:
 	return ret;
 }
 
+static int ipa3_wwan_remove_v2x(struct platform_device *pdev)
+{
+	int ret, j;
+
+	IPAWANINFO("gvm rmnet_ipa started deinitialization\n");
+	mutex_lock(&rmnet_ipa3_ctx->pipe_handle_guard);
+
+	/* clean v2x pipe */
+	if (rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl > 0) {
+		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl);
+		if (ret < 0)
+			IPAWANERR("Failed to teardown IPA V2X->APPS pipe\n");
+		else
+			rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl = -1;
+	}
+
+	if (rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl > 0) {
+		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl);
+		if (ret < 0)
+			IPAWANERR("Failed to teardown APPS->IPA V2X pipe\n");
+		else
+			rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl = -1;
+	}
+
+	/* Clear pipe setup info */
+	for (j = 0; j < RMNET_INGRESS_MAX; j++) {
+		ingress_pipe_status[j].ep_type = 0;
+		ingress_pipe_status[j].status = 0;
+	}
+	for (j = 0; j < RMNET_EGRESS_MAX; j++) {
+		egress_pipe_status[j].ep_type = 0;
+		egress_pipe_status[j].status = 0;
+	}
+
+	rmnet_ipa3_ctx->ingress_eps_mask = IPA_AP_INGRESS_NONE;
+	rmnet_ipa3_ctx->wan_rt_table_setup = false;
+	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
+	/* Clean up netdev resources in BEFORE_SHUTDOWN for non remoteproc
+	 * targets. */
+#if !IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	IPAWANINFO("rmnet_ipa unregister_netdev\n");
+	if (IPA_NETDEV())
+		unregister_netdev(IPA_NETDEV());
+	ipa3_wwan_deregister_netdev_pm_client();
+#endif
+	cancel_work_sync(&ipa3_tx_wakequeue_work);
+	cancel_delayed_work(&ipa_tether_stats_poll_wakequeue_work);
+#if !IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	if (IPA_NETDEV())
+		free_netdev(IPA_NETDEV());
+	rmnet_ipa3_ctx->wwan_priv = NULL;
+#endif
+	/* No need to remove wwan_ioctl during SSR */
+	if (!atomic_read(&rmnet_ipa3_ctx->is_ssr))
+		ipa3_wan_ioctl_deinit();
+
+	ipa3_cleanup_deregister_intf();
+	/* reset dl_csum_offload_enabled */
+	rmnet_ipa3_ctx->dl_csum_offload_enabled = false;
+	atomic_set(&rmnet_ipa3_ctx->is_initialized, 0);
+	IPAWANINFO("rmnet_ipa completed deinitialization\n");
+	return 0;
+}
+
 static int ipa3_wwan_remove(struct platform_device *pdev)
 {
 	int ret, j;
+
+	/* Modem SSR v2x handling in GVM */
+	if(ipa3_ctx->ipa_v2x_vm)
+		return ipa3_wwan_remove_v2x(pdev);
 
 	IPAWANINFO("rmnet_ipa started deinitialization\n");
 	mutex_lock(&rmnet_ipa3_ctx->pipe_handle_guard);
@@ -5211,6 +5279,11 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_0)
 			ipa3_q6_post_shutdown_cleanup();
 		ipa3_odl_pipe_cleanup(true);
+
+#if IS_ENABLED(CONFIG_ARCH_SA525_HOSTVM) && IS_ENABLED(CONFIG_GH_MSGQ)
+		if (ipa3_ctx->v2x_vm_ready)
+			ipa3_msgq_send(IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ, 0);
+#endif
 		IPAWANINFO("IPA BEFORE_SHUTDOWN handling is complete\n");
 		break;
 
@@ -5324,6 +5397,10 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		}
 
 		IPAWANINFO("IPA AFTER_POWERUP handling is complete\n");
+#if IS_ENABLED(CONFIG_ARCH_SA525_HOSTVM) && IS_ENABLED(CONFIG_GH_MSGQ)
+		if (ipa3_ctx->v2x_vm_ready)
+			ipa3_msgq_send(IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ, 0);
+#endif
 		break;
 	default:
 		IPAWANDBG("Unsupported subsys notification, IPA received: %lu",
@@ -5384,6 +5461,46 @@ static int ipa3_rmt_mdm_ssr_notifier_cb(struct notifier_block *this,
 		break;
 	}
 	return NOTIFY_DONE;
+}
+
+
+void ipa3_mdm_ssr_before_shutdown_v2x_proc(void)
+{
+	if (!ipa3_rmnet_ctx.ipa_rmnet_ssr) {
+		IPAWANERR("ipa_rmnet_ssr not enabled\n");
+		return;
+	}
+
+	if (!ipa3_ctx) {
+		IPAWANERR("ipa3_ctx was not initialized\n");
+		return;
+	}
+
+	ipa3_set_modem_up(false);
+	atomic_set(&rmnet_ipa3_ctx->is_ssr, 1);
+	if (atomic_read(&rmnet_ipa3_ctx->is_initialized))
+		platform_driver_unregister(&rmnet_ipa_driver);
+
+	IPAWANINFO("IPA BEFORE_SHUTDOWN handling is complete\n");
+}
+
+
+void ipa3_mdm_ssr_after_powerup_v2x_proc(void)
+{
+	if (!ipa3_rmnet_ctx.ipa_rmnet_ssr) {
+		IPAWANERR("ipa_rmnet_ssr not enabled\n");
+		return;
+	}
+
+	if (!ipa3_ctx) {
+		IPAWANERR("ipa3_ctx was not initialized\n");
+		return;
+	}
+
+	if (!atomic_read(&rmnet_ipa3_ctx->is_initialized) && atomic_read(&rmnet_ipa3_ctx->is_ssr))
+		platform_driver_register(&rmnet_ipa_driver);
+
+	IPAWANINFO("IPA AFTER_POWERUP handling is complete\n");
 }
 
 /**
