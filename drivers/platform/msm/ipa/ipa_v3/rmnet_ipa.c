@@ -40,6 +40,10 @@
 #else
 #include <net/rmnet_config.h>
 #endif
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+#include <linux/gunyah/gh_vm.h>
+#include <linux/gunyah/gh_rm_drv.h>
+#endif
 #include "ipa_mhi_proxy.h"
 
 #include "ipa_trace.h"
@@ -4566,6 +4570,16 @@ static struct notifier_block ipa3_rmt_mdm_ssr_notifier = {
 	.notifier_call = ipa3_rmt_mdm_ssr_notifier_cb,
 };
 
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+static int ipa3_v2x_vm_ssr_notifier_cb(struct notifier_block *this,
+			   unsigned long code,
+			   void *data);
+
+static struct notifier_block ipa3_v2x_vm_ssr_notifier = {
+	.notifier_call = ipa3_v2x_vm_ssr_notifier_cb,
+};
+#endif
+
 static int get_ipa_rmnet_dts_configuration(struct platform_device *pdev,
 		struct ipa3_rmnet_plat_drv_res *ipa_rmnet_drv_res)
 {
@@ -5281,7 +5295,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		ipa3_odl_pipe_cleanup(true);
 
 #if IS_ENABLED(CONFIG_ARCH_SA525_HOSTVM) && IS_ENABLED(CONFIG_GH_MSGQ)
-		if (ipa3_ctx->v2x_vm_ready)
+		if (atomic_read(&ipa3_ctx->v2x_vm_ready))
 			ipa3_msgq_send(IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ, 0);
 #endif
 		IPAWANINFO("IPA BEFORE_SHUTDOWN handling is complete\n");
@@ -5398,7 +5412,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 		IPAWANINFO("IPA AFTER_POWERUP handling is complete\n");
 #if IS_ENABLED(CONFIG_ARCH_SA525_HOSTVM) && IS_ENABLED(CONFIG_GH_MSGQ)
-		if (ipa3_ctx->v2x_vm_ready)
+		if (atomic_read(&ipa3_ctx->v2x_vm_ready))
 			ipa3_msgq_send(IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ, 0);
 #endif
 		break;
@@ -5502,6 +5516,41 @@ void ipa3_mdm_ssr_after_powerup_v2x_proc(void)
 
 	IPAWANINFO("IPA AFTER_POWERUP handling is complete\n");
 }
+
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+static int ipa3_v2x_vm_ssr_notifier_cb(struct notifier_block *this,
+			   unsigned long code,
+			   void *data)
+{
+	int result;
+	gh_vmid_t v2x_vm_id;
+	gh_vmid_t cb_vm_id = *(gh_vmid_t*)data;
+
+	result = gh_rm_get_vmid(GH_TELE_VM, &v2x_vm_id);
+	if (result) {
+		IPAWANERR("gh_rm_get_vmid() failed %d", result);
+		return NOTIFY_DONE;
+	}
+
+	if (cb_vm_id != v2x_vm_id) {
+		IPAWANERR("vm id mismatch, ignoring callback cb_vm_id %u v2x_vm_id %u code %u",
+			cb_vm_id, v2x_vm_id, code);
+		return NOTIFY_DONE;
+	}
+
+	switch (code) {
+		case GH_VM_EARLY_POWEROFF:
+			IPAWANINFO("IPA received GH_VM_EARLY_POWEROFF vm_id %u \n", cb_vm_id);
+			ipa3_v2x_vm_shutdown_cleanup();
+			break;
+		default:
+			IPAWANINFO("IPA received unsupported vm ssr notification code %u vm_id %u\n", code, cb_vm_id);
+			break;
+	}
+
+	return NOTIFY_DONE;
+}
+#endif
 
 /**
  * rmnet_ipa_free_msg() - Free the msg sent to user space via ipa_send_msg
@@ -8127,6 +8176,11 @@ int ipa3_wwan_init(void)
 		}
 		rmnet_ipa3_ctx->rmt_mdm_subsys_notify_handle = ssr_hdl;
 	}
+
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+	/* Register for GVM SSR */
+	gh_register_vm_notifier(&ipa3_v2x_vm_ssr_notifier);
+#endif
 
 	/* The platform driver register is done later in the ipa_late_init */
 

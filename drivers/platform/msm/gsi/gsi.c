@@ -5778,6 +5778,45 @@ enum gsi_chan_state gsi_get_chan_state(int chan_hdl)
 }
 EXPORT_SYMBOL(gsi_get_chan_state);
 
+enum gsi_chan_state gsi_read_chan_state(unsigned long chan_hdl, unsigned int ee)
+{
+	struct gsihal_reg_ch_k_cntxt_0 ch_k_cntxt_0;
+
+	gsihal_read_reg_nk_fields(GSI_EE_n_GSI_CH_k_CNTXT_0,
+		ee, chan_hdl, &ch_k_cntxt_0);
+
+	return ch_k_cntxt_0.chstate;
+}
+EXPORT_SYMBOL(gsi_read_chan_state);
+
+uint32_t gsi_read_chan_evt_ring_idx(unsigned long chan_hdl, unsigned int ee)
+{
+	struct gsihal_reg_ch_k_cntxt_0 ch_k_cntxt_0;
+	struct gsihal_reg_ch_k_cntxt_1 ch_k_cntxt_1;
+
+	if (gsi_ctx->per.ver >= GSI_VER_3_0) {
+		gsihal_read_reg_nk_fields(GSI_EE_n_GSI_CH_k_CNTXT_1,
+			ee, chan_hdl, &ch_k_cntxt_1);
+		return ch_k_cntxt_1.erindex;
+	} else {
+		gsihal_read_reg_nk_fields(GSI_EE_n_GSI_CH_k_CNTXT_0,
+			ee, chan_hdl, &ch_k_cntxt_0);
+		return ch_k_cntxt_0.erindex;
+	}
+}
+EXPORT_SYMBOL(gsi_read_chan_evt_ring_idx);
+
+enum gsi_evt_ring_state gsi_read_evt_ring_state(unsigned long chan_hdl, unsigned int ee)
+{
+	struct gsihal_reg_ev_ch_k_cntxt_0 ev_ch_k_cntxt_0;
+
+	gsihal_read_reg_nk_fields(GSI_EE_n_EV_CH_k_CNTXT_0,
+		ee, chan_hdl, &ev_ch_k_cntxt_0);
+
+	return ev_ch_k_cntxt_0.chstate;
+}
+EXPORT_SYMBOL(gsi_read_evt_ring_state);
+
 int gsi_get_chan_poll_mode(int chan_hdl)
 {
 	return atomic_read(&gsi_ctx->chan[chan_hdl].poll_mode);
@@ -5938,6 +5977,238 @@ int gsi_get_fw_version(struct gsi_fw_version *ver)
 
 	return 0;
 }
+
+/**
+ * gsi_cleanup_channel - resets and deallocates channel without context
+ *
+ * @chan_hdl: channel id
+ * @Return 0 if success, else failure
+ *
+ * Some scenarios may require a deallocation of GSI channels that
+ * are still active but software context is lost, e.g. GVM SSR.
+ */
+int gsi_cleanup_channel(unsigned long chan_hdl)
+{
+	enum gsi_ch_cmd_opcode op = GSI_CH_RESET;
+	int res;
+	struct gsihal_reg_ee_n_gsi_ch_cmd ch_cmd;
+	struct gsi_chan_ctx *ctx;
+	enum gsi_chan_state chan_state;
+	uint32_t retry_cnt = 0;
+
+	/* Dummy structures to clean GSI state. */
+	struct gsi_chan_props props = {0};
+	union __packed gsi_channel_scratch scratch = {0};
+
+	if (!gsi_ctx) {
+		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
+		return -GSI_STATUS_NODEV;
+	}
+
+	if (chan_hdl >= gsi_ctx->max_ch) {
+		GSIERR("bad params chan_hdl=%lu\n", chan_hdl);
+		return -GSI_STATUS_INVALID_PARAMS;
+	}
+
+	ctx = &gsi_ctx->chan[chan_hdl];
+	chan_state = gsi_read_chan_state(chan_hdl, gsi_ctx->per.ee);
+	/*
+	 * In WDI3 case, if SAP enabled but no client connected,
+	 * GSI will be in allocated state. When SAP disabled,
+	 * gsi_reset_channel will be called and reset is needed.
+	 */
+	if (chan_state != GSI_CHAN_STATE_STOPPED &&
+		chan_state != GSI_CHAN_STATE_ALLOCATED) {
+		GSIERR("bad state %d\n", chan_state);
+		return -GSI_STATUS_UNSUPPORTED_OP;
+	}
+
+	mutex_lock(&gsi_ctx->mlock);
+
+	/* Use completion struct even though rest of context is empty,
+	   it will still be updated in ISR context. */
+	init_completion(&ctx->compl);
+	gsi_ctx->ch_dbg[chan_hdl].ch_reset++;
+	ch_cmd.chid = chan_hdl;
+	ch_cmd.opcode = op;
+	gsihal_write_reg_n_fields(GSI_EE_n_GSI_CH_CMD,
+		gsi_ctx->per.ee, &ch_cmd);
+	res = wait_for_completion_timeout(&ctx->compl, GSI_CMD_TIMEOUT);
+	if (res == 0) {
+		GSIERR("chan_hdl=%lu timed out\n", chan_hdl);
+		mutex_unlock(&gsi_ctx->mlock);
+		return -GSI_STATUS_TIMED_OUT;
+	}
+
+revrfy_chnlstate:
+	chan_state = gsi_read_chan_state(chan_hdl, gsi_ctx->per.ee);
+	if (chan_state != GSI_CHAN_STATE_ALLOCATED) {
+		GSIERR("chan_hdl=%lu unexpected state=%u\n", chan_hdl,
+				chan_state);
+		/* GSI register update state not sync with gsi channel
+		 * context state not sync, need to wait for 1ms to sync.
+		 */
+		retry_cnt++;
+		if (retry_cnt <= GSI_CHNL_STATE_MAX_RETRYCNT) {
+			usleep_range(GSI_RESET_WA_MIN_SLEEP,
+				GSI_RESET_WA_MAX_SLEEP);
+			goto revrfy_chnlstate;
+		}
+		/*
+		 * Hardware returned incorrect state, unexpected
+		 * hardware state.
+		 */
+		GSI_ASSERT();
+	}
+
+	gsi_program_chan_ctx(&props, gsi_ctx->per.ee, GSI_NO_EVT_ERINDEX);
+
+	/* restore scratch */
+	__gsi_write_channel_scratch(chan_hdl, scratch);
+
+	/* Deallocate channel */
+	op = GSI_CH_DE_ALLOC;
+
+	/*In GSI_VER_2_2 version deallocation channel not supported*/
+	if (gsi_ctx->per.ver != GSI_VER_2_2) {
+		init_completion(&ctx->compl);
+		gsi_ctx->ch_dbg[chan_hdl].ch_de_alloc++;
+		ch_cmd.chid = chan_hdl;
+		ch_cmd.opcode = op;
+		gsihal_write_reg_n_fields(GSI_EE_n_GSI_CH_CMD,
+			gsi_ctx->per.ee, &ch_cmd);
+		res = wait_for_completion_timeout(&ctx->compl, GSI_CMD_TIMEOUT);
+		if (res == 0) {
+			GSIERR("chan_hdl=%lu timed out\n", chan_hdl);
+			mutex_unlock(&gsi_ctx->mlock);
+			return -GSI_STATUS_TIMED_OUT;
+		}
+
+		chan_state = gsi_read_chan_state(chan_hdl, gsi_ctx->per.ee);
+
+		if (chan_state != GSI_CHAN_STATE_NOT_ALLOCATED) {
+			GSIERR("chan_hdl=%lu unexpected state=%u\n", chan_hdl,
+					chan_state);
+			/* Hardware returned incorrect value */
+			GSI_ASSERT();
+		}
+	} else {
+		GSIDBG("In GSI_VER_2_2 channel deallocation not supported\n");
+		GSIDBG("chan_hdl=%lu Channel state = %u\n", chan_hdl,
+								chan_state);
+	}
+
+	mutex_unlock(&gsi_ctx->mlock);
+	ctx->allocated = false;
+	return GSI_STATUS_SUCCESS;
+}
+EXPORT_SYMBOL(gsi_cleanup_channel);
+
+/**
+ * gsi_cleanup_evt_ring - resets and deallocates channel without context
+ *
+ * @evt_ring_hdl: event ring index
+ * @Return 0 if success, else failure
+ *
+ * Some scenarios may require a deallocation of GSI event rings that
+ * are still active but software context is lost, e.g. GVM SSR.
+ */
+int gsi_cleanup_evt_ring(unsigned long evt_ring_hdl)
+{
+	struct gsihal_reg_ee_n_ev_ch_cmd ev_ch_cmd;
+	enum gsi_evt_ch_cmd_opcode op = GSI_EVT_RESET;
+	struct gsi_evt_ctx *ctx;
+	enum gsi_evt_ring_state evt_ring_state;
+	int res;
+
+	/* Dummy structures to clean GSI state. */
+	struct gsi_evt_ring_props props = {0};
+	union __packed gsi_evt_scratch scratch = {0};
+
+	if (!gsi_ctx) {
+		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
+		return -GSI_STATUS_NODEV;
+	}
+
+	if (evt_ring_hdl >= gsi_ctx->max_ev) {
+		GSIERR("bad params evt_ring_hdl=%lu\n", evt_ring_hdl);
+		return -GSI_STATUS_INVALID_PARAMS;
+	}
+
+	ctx = &gsi_ctx->evtr[evt_ring_hdl];
+	evt_ring_state = gsi_read_evt_ring_state(evt_ring_hdl, gsi_ctx->per.ee);
+
+	if (evt_ring_state != GSI_EVT_RING_STATE_ALLOCATED) {
+		GSIERR("bad state %d\n", evt_ring_state);
+		return -GSI_STATUS_UNSUPPORTED_OP;
+	}
+
+	mutex_lock(&gsi_ctx->mlock);
+
+	/* Use completion struct even though rest of context is empty,
+	   it will still be updated in ISR context. */
+	init_completion(&ctx->compl);
+	ev_ch_cmd.chid = evt_ring_hdl;
+	ev_ch_cmd.opcode = op;
+	gsihal_write_reg_n_fields(GSI_EE_n_EV_CH_CMD,
+		gsi_ctx->per.ee, &ev_ch_cmd);
+	res = wait_for_completion_timeout(&ctx->compl, GSI_CMD_TIMEOUT);
+	if (res == 0) {
+		GSIERR("evt_id=%lu timed out\n", evt_ring_hdl);
+		mutex_unlock(&gsi_ctx->mlock);
+		return -GSI_STATUS_TIMED_OUT;
+	}
+
+	evt_ring_state = gsi_read_evt_ring_state(evt_ring_hdl, gsi_ctx->per.ee);
+
+	if (evt_ring_state != GSI_EVT_RING_STATE_ALLOCATED) {
+		GSIERR("evt_id=%lu unexpected state=%u\n", evt_ring_hdl,
+				evt_ring_state);
+		/*
+		 * IPA Hardware returned GSI RING not allocated, which is
+		 * unexpected. Indicates hardware instability.
+		 */
+		GSI_ASSERT();
+	}
+
+	gsi_program_evt_ring_ctx(&props, evt_ring_hdl, gsi_ctx->per.ee);
+	gsi_init_evt_ring(&props, &ctx->ring);
+
+	/* restore scratch */
+	__gsi_write_evt_ring_scratch(evt_ring_hdl, scratch);
+
+	/* Dealloc event ring */
+	op = GSI_EVT_DE_ALLOC;
+
+	init_completion(&ctx->compl);
+
+	ev_ch_cmd.chid = evt_ring_hdl;
+	ev_ch_cmd.opcode = op;
+	gsihal_write_reg_n_fields(GSI_EE_n_EV_CH_CMD,
+		gsi_ctx->per.ee, &ev_ch_cmd);
+	res = wait_for_completion_timeout(&ctx->compl, GSI_CMD_TIMEOUT);
+	if (res == 0) {
+		GSIERR("evt_id=%lu timed out\n", evt_ring_hdl);
+		mutex_unlock(&gsi_ctx->mlock);
+		return -GSI_STATUS_TIMED_OUT;
+	}
+
+	evt_ring_state = gsi_read_evt_ring_state(evt_ring_hdl, gsi_ctx->per.ee);
+
+	if (evt_ring_state != GSI_EVT_RING_STATE_NOT_ALLOCATED) {
+		GSIERR("evt_id=%lu unexpected state=%u\n", evt_ring_hdl,
+				evt_ring_state);
+		/*
+		 * IPA Hardware returned GSI RING not allocated, which is
+		 * unexpected hardware state.
+		 */
+		GSI_ASSERT();
+	}
+
+	mutex_unlock(&gsi_ctx->mlock);
+	return GSI_STATUS_SUCCESS;
+}
+EXPORT_SYMBOL(gsi_cleanup_evt_ring);
 
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 static int qcom_va_md_gsi_notif_handler(struct notifier_block *this,

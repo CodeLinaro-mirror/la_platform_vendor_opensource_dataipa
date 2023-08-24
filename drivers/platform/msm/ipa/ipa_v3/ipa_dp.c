@@ -2260,6 +2260,69 @@ static int ipa3_teardown_pipe(u32 clnt_hdl)
 }
 
 /**
+ * ipa3_v2x_vm_ssr_teardown_sys_pipe() - Teardown the GSI pipes post SSR
+ * @client:	[in] client idx
+ *
+ * Reset and deallocate GSI pipes on GVM bootup
+ * Checks the state before attempting teardown
+ *
+ */
+void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client)
+{
+	const struct ipa_gsi_ep_config *gsi_ep_cfg;
+	unsigned long gsi_evt_ring_hdl;
+	int result;
+
+	if (client >= IPA_CLIENT_MAX || client < 0) {
+		IPAERR("bad parm client: %d", client);
+		return;
+	}
+
+	gsi_ep_cfg = ipa3_get_gsi_ep_info(client);
+
+	if (!gsi_ep_cfg) {
+		IPAERR("failed to get GSI config\n");
+		ipa_assert();
+	}
+
+	IPA_ACTIVE_CLIENTS_INC_EP(client);
+
+	if (gsi_read_chan_state(gsi_ep_cfg->ipa_gsi_chan_num, ipa3_ctx->ee) ==
+		GSI_CHAN_STATE_STOPPED) {
+		/* Save the event ring idx first. */
+		gsi_evt_ring_hdl = gsi_read_chan_evt_ring_idx(
+			gsi_ep_cfg->ipa_gsi_chan_num, ipa3_ctx->ee);
+
+		IPADBG("gsi chan %d in stopped state, evt ring idx: %d\n",
+			gsi_ep_cfg->ipa_gsi_chan_num, gsi_evt_ring_hdl);
+		IPADBG("cleanup gsi chan: %d\n", gsi_ep_cfg->ipa_gsi_chan_num);
+
+		result = gsi_cleanup_channel(gsi_ep_cfg->ipa_gsi_chan_num);
+		if (result != GSI_STATUS_SUCCESS) {
+			IPAERR("Failed to cleanup chan: %d.\n", result);
+			ipa_assert();
+		}
+
+		if (gsi_read_evt_ring_state(gsi_evt_ring_hdl, ipa3_ctx->ee) ==
+			GSI_EVT_RING_STATE_ALLOCATED) {
+
+			IPADBG("cleanup gsi evt ring: %d\n", gsi_evt_ring_hdl);
+			result = gsi_cleanup_evt_ring(gsi_evt_ring_hdl);
+
+			if (result != GSI_STATUS_SUCCESS) {
+				IPAERR("Failed to cleanup evt ring: %d\n", result);
+				ipa_assert();
+			}
+		}
+		IPADBG("client %d forced disconnected\n", client);
+	} else {
+		IPADBG("client %d not connected before, skip\n", client);
+	}
+
+	IPA_ACTIVE_CLIENTS_DEC_EP(client);
+}
+
+/**
  * ipa3_tx_comp_usr_notify_release() - Callback function which will call the
  * user supplied callback function to release the skb, or release it on
  * its own if no callback function was supplied.
