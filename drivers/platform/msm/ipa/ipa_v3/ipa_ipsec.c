@@ -14,7 +14,6 @@
 #include <linux/ipa.h>
 #include <net/xfrm.h>
 #include "ipa_i.h"
-#include "ipa_ipsec.h"
 
 /*
  * ipa_ipsec_install_key()
@@ -146,7 +145,7 @@ int ipa_ipsec_stop_sa(u8 idx, enum ipa_ipsec_sa_type sa_type)
 /*
  * ipa_ipsec_init()
  */
-static int __init ipa_ipsec_init(void)
+int ipa_ipsec_init(void)
 {
 	int ret, n;
 	u32 keys_phys_base, sa_phys_base, ipsec_ep_cfg;
@@ -257,7 +256,6 @@ static int __init ipa_ipsec_init(void)
 
 	return 0;
 
-//unmap_sa:
 	iounmap(sa_mmio);
 unmap_keys:
 	iounmap(key_mmio);
@@ -267,22 +265,4 @@ free_ctx:
 
 	return ret;
 }
-fs_initcall(ipa_ipsec_init);
-
-static void __exit ipa_ipsec_exit(void)
-{
-	IPADBG("IPA IPsec exit\n");
-
-	if (!ipa3_ctx->ipsec)
-		return;
-
-	iounmap(ipa3_ctx->ipsec->keys);
-	iounmap(ipa3_ctx->ipsec->decap);
-	kfree(ipa3_ctx->ipsec);
-	ipa3_ctx->ipsec = NULL;
-}
-module_exit(ipa_ipsec_exit);
-
-MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("IPA IPsec module");
 
