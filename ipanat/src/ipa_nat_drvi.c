@@ -1246,7 +1246,7 @@ int ipa_nati_alloc_pdn(
 			return 0;
 		}
 
-		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)))
+		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)) && (i != 0))
 		{
 			IPADBG("found an empty pdn in index %d\n", i);
 			break;
