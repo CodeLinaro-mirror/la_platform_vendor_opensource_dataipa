@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_ut_framework.h"
@@ -441,7 +442,7 @@ fail_alloc_mmio:
 	return ret;
 }
 
-static void ipa_ntn_test_print_stats()
+static void ipa_ntn_test_print_stats(void)
 {
 	struct ipa_uc_dbg_ring_stats stats;
 	int ret;
@@ -532,7 +533,7 @@ static int ipa_ntn_test_ready_cb(void *priv)
 	return 0;
 }
 
-static void ipa_ntn_test_del_client_list()
+static void ipa_ntn_test_del_client_list(void)
 {
 	struct ipa_eth_client *eth_client = &test_ntn_ctx->client;
 	struct ipa_eth_client_pipe_info *pipe_info, *tmp;

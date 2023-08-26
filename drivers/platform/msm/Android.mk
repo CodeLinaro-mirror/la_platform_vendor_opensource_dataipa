@@ -7,7 +7,9 @@ LOCAL_MODULE_DDK_BUILD := true
 LOCAL_MODULE_KO_DIRS := gsi/gsim.ko
 LOCAL_MODULE_KO_DIRS += ipa/ipam.ko
 LOCAL_MODULE_KO_DIRS += ipa/ipanetm.ko
+ifeq ($(CONFIG_LOCALVERSION), "-gki-consolidate")
 LOCAL_MODULE_KO_DIRS += ipa/ipatestm.ko
+endif
 
 ifeq ($(call is-board-platform-in-list, $(GSI_DLKM_PLATFORMS_LIST)),true)
 #Make file to create GSI DLKM
@@ -51,6 +53,7 @@ LOCAL_MODULE_PATH := $(KERNEL_MODULES_OUT)
 $(warning $(DLKM_DIR))
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
 
+ifeq ($(CONFIG_LOCALVERSION), "-gki-consolidate")
 include $(CLEAR_VARS)
 KBUILD_OPTIONS += MODNAME=ipatestm
 LOCAL_SRC_FILES   := $(wildcard $(LOCAL_PATH)/**/*) $(wildcard $(LOCAL_PATH)/*)
@@ -61,6 +64,7 @@ LOCAL_HEADER_LIBRARIES    := ipa_test_kernel_headers
 LOCAL_MODULE_PATH := $(KERNEL_MODULES_OUT)
 $(warning $(DLKM_DIR))
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
+endif
 
 endif #End of Check for target
 endif #End of Check for qssi target
