@@ -5810,6 +5810,214 @@ void ipa3_client_prod_post_shutdown_cleanup(void)
 	IPADBG_LOW("Exit with success\n");
 }
 
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+static void ipa3_v2x_vm_pipe_flow_control(bool delay)
+{
+	int client_id = IPA_CLIENT_APPS_WAN_V2X_PROD;
+	unsigned int ee = IPA_EE_V2X;
+	int ep_idx;
+	int code = 0, result;
+	const struct ipa_gsi_ep_config *gsi_ep_cfg;
+
+	ep_idx = ipa3_get_ep_mapping(client_id);
+	if (ep_idx == -1)
+		return;
+	gsi_ep_cfg = ipa3_get_gsi_ep_info(client_id);
+	if (!gsi_ep_cfg) {
+		IPAERR("failed to get GSI config\n");
+		ipa_assert();
+		return;
+	}
+	IPADBG("pipe setting V2 flow control\n");
+	/* Configuring primary flow control on v2x pipes*/
+	result = gsi_flow_control_ee(
+			gsi_ep_cfg->ipa_gsi_chan_num, ep_idx,
+			ee, delay, false, &code);
+	if (result == GSI_STATUS_SUCCESS) {
+		IPADBG("success gsi ch %d with code %d\n",
+			gsi_ep_cfg->ipa_gsi_chan_num, code);
+	} else {
+		IPADBG("failed  gsi ch %d code %d\n",
+			gsi_ep_cfg->ipa_gsi_chan_num, code);
+	}
+}
+
+static void ipa3_v2x_vm_pipe_delay(bool delay)
+{
+	int client_id = IPA_CLIENT_APPS_WAN_V2X_PROD;
+	int ep_idx;
+	struct ipa_ep_cfg_ctrl ep_ctrl;
+
+	memset(&ep_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
+	ep_ctrl.ipa_ep_delay = delay;
+
+	ep_idx = ipa3_get_ep_mapping(client_id);
+	if (ep_idx == -1)
+		return;
+
+	ipahal_write_reg_n_fields(IPA_ENDP_INIT_CTRL_n,
+		ep_idx, &ep_ctrl);
+}
+
+static void ipa3_v2x_vm_avoid_holb(void)
+{
+	int client_id = IPA_CLIENT_APPS_WAN_V2X_CONS;
+	int ep_idx;
+	struct ipa_ep_cfg_ctrl ep_suspend;
+	struct ipa_ep_cfg_holb ep_holb;
+
+	memset(&ep_suspend, 0, sizeof(ep_suspend));
+	memset(&ep_holb, 0, sizeof(ep_holb));
+
+	ep_suspend.ipa_ep_suspend = true;
+	ep_holb.tmr_val = 0;
+	ep_holb.en = 1;
+
+	if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_2)
+		ipa3_cal_ep_holb_scale_base_val(ep_holb.tmr_val, &ep_holb);
+
+	ep_idx = ipa3_get_ep_mapping(client_id);
+	if (ep_idx == -1)
+		return;
+
+	/* from IPA 4.0 pipe suspend is not supported */
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0)
+		ipahal_write_reg_n_fields(
+		IPA_ENDP_INIT_CTRL_n,
+		ep_idx, &ep_suspend);
+
+	/*
+	 * ipa3_cfg_ep_holb is not used here because we are
+	 * setting HOLB on Q6 pipes, and from APPS perspective
+	 * they are not valid, therefore, the above function
+	 * will fail.
+	 * Also don't reset the HOLB timer to 0 for Q6 pipes.
+	 */
+	ipahal_write_reg_n_fields(
+		IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+		ep_idx, &ep_holb);
+
+	/* For targets > IPA_4.0 issue requires HOLB_EN to
+	 * be written twice.
+	 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+		ipahal_write_reg_n_fields(
+			IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			ep_idx, &ep_holb);
+}
+
+static void ipa3_halt_v2x_vm_gsi_channels(bool prod)
+{
+	int ep_idx;
+	int client_idx;
+	int client_id;
+	const struct ipa_gsi_ep_config *gsi_ep_cfg;
+	int i;
+	int ret;
+	int code = 0;
+	int num_clients = 2;
+	int clients[2] = {IPA_CLIENT_APPS_WAN_V2X_PROD,
+			  IPA_CLIENT_APPS_WAN_V2X_CONS};
+	unsigned int ee = IPA_EE_V2X;
+
+	/* if prod flag is true, then we halt the producer channels also */
+	for (client_idx = 0; client_idx < num_clients; client_idx++) {
+		client_id = clients[client_idx];
+		if ((client_id == IPA_CLIENT_APPS_WAN_V2X_CONS) ||
+			((client_id == IPA_CLIENT_APPS_WAN_V2X_PROD) && prod)) {
+			ep_idx = ipa3_get_ep_mapping(client_id);
+			if (ep_idx == -1)
+				continue;
+
+			gsi_ep_cfg = ipa3_get_gsi_ep_info(client_id);
+			if (!gsi_ep_cfg) {
+				IPAERR("failed to get GSI config\n");
+				ipa_assert();
+				return;
+			}
+
+			ret = gsi_halt_channel_ee(
+				gsi_ep_cfg->ipa_gsi_chan_num, ee,
+				&code);
+			for (i = 0; i < IPA_GSI_CHANNEL_STOP_MAX_RETRY &&
+				ret == -GSI_STATUS_AGAIN; i++) {
+				IPADBG(
+				"ch %d ee %d with code %d\n is busy try again",
+					gsi_ep_cfg->ipa_gsi_chan_num,
+					ee,
+					code);
+				usleep_range(IPA_GSI_CHANNEL_HALT_MIN_SLEEP,
+					IPA_GSI_CHANNEL_HALT_MAX_SLEEP);
+				ret = gsi_halt_channel_ee(
+					gsi_ep_cfg->ipa_gsi_chan_num,
+					ee, &code);
+			}
+			if (ret == GSI_STATUS_SUCCESS)
+				IPADBG("halted gsi ch %d ee %d with code %d\n",
+				gsi_ep_cfg->ipa_gsi_chan_num,
+				ee,
+				code);
+			else
+				IPAERR("failed to halt ch %d ee %d code %d\n",
+				gsi_ep_cfg->ipa_gsi_chan_num,
+				ee,
+				code);
+		}
+	}
+}
+
+/*
+ * ipa3_v2x_vm_shutdown_cleanup() - A cleanup for all v2x related configuration
+ * in IPA HW. This is performed in case of GVM SSR.
+ */
+void ipa3_v2x_vm_shutdown_cleanup(void)
+{
+	bool prod = false;
+
+	IPADBG_LOW("ENTER\n");
+
+	if (!atomic_read(&ipa3_ctx->v2x_vm_ready)) {
+		return;
+	}
+
+	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	if (ipa3_ctx->ipa_endp_delay_wa_v2)
+		ipa3_v2x_vm_pipe_flow_control(true);
+	else if (!ipa3_ctx->ipa_endp_delay_wa)
+		ipa3_v2x_vm_pipe_delay(true);
+
+	ipa3_v2x_vm_avoid_holb();
+
+	/* Remove delay from PRODs to avoid pending descriptors
+	 * on pipe reset procedure
+	 */
+	if (ipa3_ctx->ipa_endp_delay_wa_v2) {
+		ipa3_v2x_vm_pipe_flow_control(false);
+	} else if (!ipa3_ctx->ipa_endp_delay_wa) {
+		ipa3_v2x_vm_pipe_delay(false);
+	}
+
+	/* Halt both prod and cons channels starting at IPAv4 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0) {
+		prod = true;
+		ipa3_halt_v2x_vm_gsi_channels(prod);
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+		IPADBG("Exit without consumer check\n");
+		return;
+	}
+
+	ipa3_halt_v2x_vm_gsi_channels(prod);
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	/* Force devote for GVM client. */
+	ipa_pm_deactivate_sync(ipa3_ctx->pvm_v2x_pm_hdl);
+
+	IPADBG_LOW("Exit with success\n");
+}
+#endif /* CONFIG_ARCH_SA525_HOSTVM */
+
 static inline void ipa3_sram_set_canary(u32 *sram_mmio, int offset)
 {
 	/* Set 4 bytes of CANARY before the offset */
@@ -8169,6 +8377,7 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 	struct ipa_msg msg;
 	int ret;
 
+	memset(&msg, 0, sizeof(msg));
 	msg.msg_hdr.msg_size = sizeof(msg);
 	msg.msg_hdr.msg_type = msg_type;
 	msg.data = data;
@@ -8228,7 +8437,7 @@ static int ipa3_msgq_proc(struct ipa_msg_hdr *msg)
 		switch (msg->msg_type) {
 			case IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND:
 				IPADBG("Received IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND");
-				ipa3_ctx->v2x_vm_ready = true;
+				atomic_set(&ipa3_ctx->v2x_vm_ready, 1);
 				break;
 
 			case IPA_MSG_TYPE_CLK_VOTE_REQ:
@@ -10052,7 +10261,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
-	ipa3_ctx->v2x_vm_ready = false;
+	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
 #ifdef CONFIG_GH_MSGQ
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;
 #endif
@@ -13039,6 +13248,9 @@ static int ipa_smmu_update_fw_loader(void)
 #ifdef CONFIG_GH_MSGQ
 					ipa3_msgq_send(IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND, 0);
 #endif
+					/* Check if GVM SSR handling is required after GVM reset */
+					ipa3_v2x_vm_ssr_teardown_sys_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD);
+					ipa3_v2x_vm_ssr_teardown_sys_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS);
 				} else {
 					result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
 				}

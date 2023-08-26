@@ -2757,7 +2757,7 @@ struct ipa3_context {
 	u32 ipa_tiering_value;
 	bool ipa_v2x_vm;
 	u32 pvm_v2x_pm_hdl;
-	bool v2x_vm_ready;
+	atomic_t v2x_vm_ready;
 #ifdef CONFIG_GH_MSGQ
 	struct ipa_msgq_desc msgq_desc;
 #endif
@@ -3402,6 +3402,8 @@ int ipa3_setup_tput_pipe(void);
 int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl);
 
 int ipa3_teardown_sys_pipe(u32 clnt_hdl);
+
+void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client);
 
 int ipa3_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 		struct ipa_wdi_out_params *out);
@@ -4180,5 +4182,8 @@ void ipa3_notify_ipacm_eth_pdu_enable(void);
 void ipa3_set_eth_pdu_ep_status(void);
 #ifdef CONFIG_GH_MSGQ
 int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data);
+#endif
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+void ipa3_v2x_vm_shutdown_cleanup(void);
 #endif
 #endif /* _IPA3_I_H_ */
