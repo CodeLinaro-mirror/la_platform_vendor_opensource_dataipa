@@ -13,7 +13,7 @@
 *		This is taken from the k range
 *		of each bit map register.
 */
-#define GSI_CH_BIT_MAP_ARR_SIZE			(1)
+#define GSI_CH_BIT_MAP_ARR_SIZE			(2)
 
 /* Utility macros to use with bit map arrays*/
 #define GSI_CH_BIT_MAP_CELL_NUM(num)	((num) >> 5)
