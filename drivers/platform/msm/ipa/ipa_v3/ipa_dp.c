@@ -2167,13 +2167,16 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 			ipa3_delete_dflt_flt_rules(clnt_hdl);
 	}
 
+	/* WLAN related cleanup */
 	if (IPA_CLIENT_IS_WLAN_CONS(ep->client))
+	{
 		atomic_dec(&ipa3_ctx->wc_memb.active_clnt_cnt);
 
-	memset(&ep->wstats, 0, sizeof(struct ipa3_wlan_stats));
+		memset(&ep->wstats, 0, sizeof(struct ipa3_wlan_stats));
 
-	if (!atomic_read(&ipa3_ctx->wc_memb.active_clnt_cnt))
-		ipa3_cleanup_wlan_rx_common_cache();
+		if (!atomic_read(&ipa3_ctx->wc_memb.active_clnt_cnt))
+			ipa3_cleanup_wlan_rx_common_cache();
+	}
 
 	ep->valid = 0;
 

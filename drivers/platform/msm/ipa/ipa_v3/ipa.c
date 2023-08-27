@@ -173,6 +173,15 @@ static void ipa_inc_clients_enable_clks_on_wq(struct work_struct *work);
 static DECLARE_WORK(ipa_inc_clients_enable_clks_on_wq_work,
 	ipa_inc_clients_enable_clks_on_wq);
 
+#ifdef CONFIG_GH_MSGQ
+static void ipa3_msgq_ssr_before_shutdown_delay(struct work_struct *work);
+static DECLARE_WORK(ipa3_msgq_ssr_before_shutdown_work,
+	ipa3_msgq_ssr_before_shutdown_delay);
+static void ipa3_msgq_ssr_after_powerup_delay(struct work_struct *work);
+static DECLARE_WORK(ipa3_msgq_ssr_after_powerup_work,
+	ipa3_msgq_ssr_after_powerup_delay);
+#endif
+
 static int ipa3_ioctl_add_rt_rule_v2(unsigned long arg);
 static int ipa3_ioctl_add_rt_rule_ext_v2(unsigned long arg);
 static int ipa3_ioctl_add_rt_rule_after_v2(unsigned long arg);
@@ -183,10 +192,6 @@ static int ipa3_ioctl_mdfy_flt_rule_v2(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_alloc(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_query(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_set(unsigned long arg);
-#ifdef CONFIG_GH_MSGQ
-static int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data);
-#endif
-
 static struct ipa3_plat_drv_res ipa3_res = {0, };
 
 static struct clk *ipa3_clk;
@@ -8158,7 +8163,7 @@ static void ipa_gsi_map_unmap_gsi_msi_addr(bool map)
 }
 
 #ifdef CONFIG_GH_MSGQ
-static int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
+int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 {
 	struct ipa_msgq_desc *msgq_desc = &ipa3_ctx->msgq_desc;
 	struct ipa_msg msg;
@@ -8201,11 +8206,16 @@ static int ipa3_msgq_proc(struct ipa_msg_hdr *msg)
 				break;
 
 			case IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ:
-				IPADBG("Received IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ\n");
+				IPADBG("Received IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ on GVM\n");
+				/* Before shutdown sequence triggers vote request which is a blocking operation waiting
+				   on a response message from PVM. We need to queue it so we can exit this function and
+				   start a new receive loop */
+				queue_work(msgq_desc->msgq_wq, &ipa3_msgq_ssr_before_shutdown_work);
 				break;
 
 			case IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ:
-				IPADBG("Received IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ\n");
+				IPADBG("Received IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ on GVM\n");
+				queue_work(msgq_desc->msgq_wq, &ipa3_msgq_ssr_after_powerup_work);
 				break;
 
 			default:
@@ -8216,6 +8226,11 @@ static int ipa3_msgq_proc(struct ipa_msg_hdr *msg)
 	} else {
 		/* Messages PVM receives */
 		switch (msg->msg_type) {
+			case IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND:
+				IPADBG("Received IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND");
+				ipa3_ctx->v2x_vm_ready = true;
+				break;
+
 			case IPA_MSG_TYPE_CLK_VOTE_REQ:
 				IPADBG("Received IPA_MSG_TYPE_CLK_VOTE_REQ");
 				ret = ipa_pm_activate_sync(ipa3_ctx->pvm_v2x_pm_hdl);
@@ -8303,7 +8318,18 @@ static int ipa3_msgq_init(void)
 		goto err_thr_create;
 	}
 
+	msgq_desc->msgq_wq = create_singlethread_workqueue("msgq_wq");
+
+	if (!msgq_desc->msgq_wq) {
+		IPAERR("failed to create msgq wq\n");
+		ret = -ENOMEM;
+		goto err_wq_create;
+	}
+
 	return 0;
+
+err_wq_create:
+	kthread_stop(msgq_desc->recv_thread);
 err_thr_create:
 	gh_msgq_unregister(msgq_desc->msgq_hdl);
 	return ret;
@@ -8317,9 +8343,23 @@ static void ipa3_msgq_deinit(void)
 	if (msgq_desc->gunyah_label == 0)
 		return;
 
+	destroy_workqueue(msgq_desc->msgq_wq);
 	kthread_stop(msgq_desc->recv_thread);
 	gh_msgq_unregister(msgq_desc->msgq_hdl);
 }
+
+static void ipa3_msgq_ssr_before_shutdown_delay(struct work_struct *work)
+{
+	ipa3_mdm_ssr_before_shutdown_v2x_proc();
+	ipa3_msgq_send(IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_RESP, 0);
+}
+
+static void ipa3_msgq_ssr_after_powerup_delay(struct work_struct *work)
+{
+	ipa3_mdm_ssr_after_powerup_v2x_proc();
+	ipa3_msgq_send(IPA_MSG_TYPE_SSR_AFTER_POWERUP_RESP, 0);
+}
+
 #endif /* CONFIG_GH_MSGQ */
 
 #ifdef CONFIG_ARCH_SA525_HOSTVM
@@ -10005,6 +10045,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
+	ipa3_ctx->v2x_vm_ready = false;
 #ifdef CONFIG_GH_MSGQ
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;
 #endif
@@ -12988,6 +13029,9 @@ static int ipa_smmu_update_fw_loader(void)
 
 				if (ipa3_ctx->ipa_v2x_vm) {
 					result = ipa3_v2x_vm_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+#ifdef CONFIG_GH_MSGQ
+					ipa3_msgq_send(IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND, 0);
+#endif
 				} else {
 					result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
 				}
