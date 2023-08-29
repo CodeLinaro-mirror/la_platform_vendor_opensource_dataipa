@@ -13308,6 +13308,11 @@ static bool is_pcie_ep_falvor(struct device *dev)
 	int res = 0, num_fast_boot_values = 0, i;
 	u32 fast_boot_values[16];
 
+        if(ipa3_ctx->ipa_config_is_mhi) {
+                pr_debug("IPA configured in MHI AUTO already\n");
+                return true;
+        }
+
 	if (!of_find_property(n, "nvmem-cells", NULL)) {
 		pr_err("nvmem-cells property is not defined in %s node\n", n->name);
 		of_node_put(n);
@@ -13540,11 +13545,13 @@ static int handle_smmu_dynamic_cfg(struct device *dev)
 			}
 		}
 	}
-	res = ipa_dt_node_add_property(dev->of_node, "qcom,use-ipa-in-mhi-mode", NULL);
-	if (res) {
-		pr_err("ipa_dt_node_add_property failed\n");
-		return res;
-	}
+        if (!ipa3_ctx->ipa_config_is_mhi) {
+                res = ipa_dt_node_add_property(dev->of_node, "qcom,use-ipa-in-mhi-mode", NULL);
+                if (res) {
+                        pr_err("ipa_dt_node_add_property failed\n");
+                        return res;
+                }
+        }
 
 	return 0;
 }
@@ -13717,6 +13724,13 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	if (of_device_is_compatible(dev->of_node,
 	    "qcom,smp2p-map-ipa-1-in"))
 		return ipa3_smp2p_probe(dev);
+        
+        ipa3_ctx->ipa_config_is_mhi =
+			of_property_read_bool(dev->of_node,
+			"qcom,use-ipa-in-mhi-mode");
+	IPADBG(": ipa_mhi_dynamic_config (%s)\n",
+		ipa3_ctx->ipa_config_is_mhi
+		? "True" : "False");
 
 	result = handle_smmu_dynamic_cfg(dev);
 	if (result) {
