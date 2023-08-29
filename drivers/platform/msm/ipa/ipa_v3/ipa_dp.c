@@ -5639,7 +5639,7 @@ static void ipa3_wq_rx_common(
 		return;
 	}
 
-	rx_skb = handle_skb_completion(notify, true, &pkt_sys);
+	rx_skb = handle_skb_completion(notify, false, &pkt_sys);
 
 	if (rx_skb) {
 		pkt_sys->pyld_hdlr(rx_skb, pkt_sys);
