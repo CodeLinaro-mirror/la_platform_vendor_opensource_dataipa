@@ -4156,7 +4156,9 @@ static void __ipa_ntn3_client_stats_read(int *cnt, struct ipa_ntn3_client_stats 
 		"%s_ntn_pending_db_after_rollback:%u\n"
 		"%s_msi_db_idx_val:%u\n"
 		"%s_ntn_rx_chain_counter:%u\n"
-		"%s_ntn_rx_err_counter:%u\n"
+		"%s_ntn_rx_err_cnt:%u\n"
+		"%s_ntn_rx_err_crc_counter:%u\n"
+		"%s_ntn_rx_bmap_err:%09x\n"
 		"%s_ntn_accumulated_tres_handled:%u\n"
 		"%s_ntn_rollbacks_counter:%u\n"
 		"%s_ntn_msi_db_count:%u\n",
@@ -4165,7 +4167,9 @@ static void __ipa_ntn3_client_stats_read(int *cnt, struct ipa_ntn3_client_stats 
 		str_client_rx, s->rx_stats.pending_db_after_rollback,
 		str_client_rx, s->rx_stats.msi_db_idx,
 		str_client_rx, s->rx_stats.chain_cnt,
-		str_client_rx, s->rx_stats.err_cnt,
+		str_client_rx, (s->rx_stats.err_cnt & 0x3FFF),
+		str_client_rx, (s->rx_stats.err_cnt & 0x7FC000)>>14,
+		str_client_rx, (s->rx_stats.err_cnt & 0xFF800000)>>23,
 		str_client_rx, s->rx_stats.tres_handled,
 		str_client_rx, s->rx_stats.rollbacks_cnt,
 		str_client_rx, s->rx_stats.msi_db_cnt);
