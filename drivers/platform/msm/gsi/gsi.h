@@ -1205,6 +1205,29 @@ union __packed gsi_channel_scratch {
 };
 
 /**
+ * gsi_wdi_channel_scratch9 - WDI protocol SW config area of
+ * channel scratch9
+ * @chip_id: used for identifing the soc id in mlo only for wdi4.
+ */
+
+struct __packed gsi_wdi_channel_scratch9 {
+	uint32_t chip_id:3;
+	uint32_t reserved2:29;
+};
+
+/**
+ * gsi_wdi_channel_scratch3_reg - channel scratch3 SW config area
+ *
+ */
+
+union __packed gsi_wdi_channel_scratch9_reg {
+	struct __packed gsi_wdi_channel_scratch9 wdi;
+	struct __packed {
+		uint32_t word1;
+	} data;
+};
+
+/**
  * gsi_wdi_channel_scratch3 - WDI protocol SW config area of
  * channel scratch3
  */
@@ -2097,6 +2120,19 @@ int gsi_set_evt_ring_cfg(unsigned long evt_ring_hdl,
  */
 int gsi_write_channel_scratch(unsigned long chan_hdl,
 		union __packed gsi_channel_scratch val);
+
+/**
+ * gsi_write_channel_scratch9_reg - Peripheral should call this function to
+ * write to the scratch9 reg area of the channel context
+ *
+ * @chan_hdl:  Client handle previously obtained from
+ *             gsi_alloc_channel
+ * @val:       Value to write
+ *
+ * @Return gsi_status
+ */
+int gsi_write_channel_scratch9_reg(unsigned long chan_hdl,
+		union __packed gsi_wdi_channel_scratch9_reg val);
 
 /**
  * gsi_write_channel_scratch3_reg - Peripheral should call this function to
