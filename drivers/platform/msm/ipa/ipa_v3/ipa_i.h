@@ -105,6 +105,7 @@
 #define IPA_HOLB_TMR_VAL_4_5 31
 #define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
 
+#define IPA_Q6_FLT_START_ID 512
 #define IPA_Q6_FNR_START_IDX (128)
 #define IPA_Q6_FNR_IDX_CNT (52)
 #define IPA_Q6_FNR_END_IDX (IPA_Q6_FNR_START_IDX+IPA_Q6_FNR_IDX_CNT-1)
@@ -618,8 +619,6 @@ enum {
 #define IPA_TZ_UNLOCK_ATTRIBUTE 0x0C0311
 
 #define MBOX_TOUT_MS 100
-
-#define IPA_RULE_CNT_MAX 512
 
 /* miscellaneous for rmnet_ipa and qmi_service */
 enum ipa_type_mode {
@@ -2767,6 +2766,7 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_default_recycle_stats;
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
+	u16 filter_start_id;
 };
 
 struct ipa3_plat_drv_res {
@@ -2856,6 +2856,7 @@ struct ipa3_plat_drv_res {
 	bool iemac_exist;
 	bool ipa_v2x_vm;
 	u32 gunyah_label;
+	u32 filter_start_id;
 };
 
 /**

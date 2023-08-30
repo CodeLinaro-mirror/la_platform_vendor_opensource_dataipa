@@ -795,9 +795,15 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 	req.hw_filter_stats_info.hw_filter_stats_start_index = IPA_Q6_FNR_START_IDX;
 	req.hw_filter_stats_info.hw_filter_stats_end_index = IPA_Q6_FNR_END_IDX;
 
+	/* Filter id start id information*/
+	req.filter_start_id_valid = 1;
+	req.filter_start_id = ipa3_ctx->filter_start_id;
+
 	req.smem_info_valid = true;
 	req.smem_info.size = ipa3_ctx->ipa_smem_size;
 
+	IPAWANDBG("filter_start_id_valid %d\n",req.filter_start_id_valid);
+	IPAWANDBG("filter_start_id %d\n",req.filter_start_id);
 	IPAWANDBG("hw_flt stats: hw_filter_start_address = %u", req.hw_filter_stats_info.hw_filter_stats_start_addr);
 	IPAWANDBG("hw_flt stats: hw_filter_stats_size = %u", req.hw_filter_stats_info.hw_filter_stats_size);
 	IPAWANDBG("hw_flt stats: hw_filter_stats_start_index  = %u", req.hw_filter_stats_info.hw_filter_stats_start_index);
@@ -864,7 +870,15 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 		return rc;
 	}
 
-	pr_info("QMI_IPA_INIT_MODEM_DRIVER_REQ_V01 response received\n");
+	IPAWANDBG("QMI_IPA_INIT_MODEM_DRIVER_REQ_V01 response received filter_start_id = %d \n", resp.filter_start_id);
+	if(resp.filter_start_id_valid == 1)
+	{
+		ipa3_ctx->filter_start_id = resp.filter_start_id;
+	}
+	else
+	{
+		ipa3_ctx->filter_start_id = IPA_Q6_FLT_START_ID;
+	}
 	return ipa3_check_qmi_response(rc,
 		QMI_IPA_INIT_MODEM_DRIVER_REQ_V01, resp.resp.result,
 		resp.resp.error, "ipa_init_modem_driver_resp_msg_v01");

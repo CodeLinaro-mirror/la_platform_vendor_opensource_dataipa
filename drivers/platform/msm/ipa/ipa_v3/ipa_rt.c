@@ -984,8 +984,8 @@ static int __ipa_rt_validate_rule_id(u16 rule_id)
 	if (!rule_id)
 		return 0;
 
-	if ((rule_id < ipahal_get_rule_id_hi_bit()) ||
-		(rule_id >= ((ipahal_get_rule_id_hi_bit()<<1)-1))) {
+	if ((rule_id < ipa3_ctx->filter_start_id) ||
+		(rule_id >= ipa3_ctx->filter_start_id)) {
 		IPAERR_RL("Invalid rule_id provided 0x%x\n",
 			rule_id);
 		return -EPERM;
@@ -1115,7 +1115,7 @@ static int __ipa_finish_rt_rule_add(struct ipa3_rt_entry *entry, u32 *rule_hdl,
 {
 	int id;
 
-	if (tbl->rule_cnt < IPA_RULE_CNT_MAX)
+	if (tbl->rule_cnt < ipa3_ctx->filter_start_id)
 		tbl->rule_cnt++;
 	else
 		return -EINVAL;
