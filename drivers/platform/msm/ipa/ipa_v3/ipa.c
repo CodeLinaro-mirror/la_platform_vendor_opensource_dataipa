@@ -204,7 +204,6 @@ struct ipa3_context *ipa3_ctx = NULL;
 EXPORT_SYMBOL(ipa3_ctx);
 
 int ipa3_plat_drv_probe(struct platform_device *pdev_p);
-void ipa3_plat_drv_shutdown(struct platform_device *pdev_p);
 int ipa3_pci_drv_probe(struct pci_dev *pci_dev,
 	const struct pci_device_id *ent);
 
@@ -593,7 +592,6 @@ static struct platform_driver ipa_plat_drv = {
 		.of_match_table = ipa_plat_drv_match,
 		.dev_groups = ipa_group,
 	},
-	.shutdown = ipa3_plat_drv_shutdown,
 };
 
 static struct {
@@ -13832,15 +13830,6 @@ err_check:
 	}
 
 	return result;
-}
-
-void  ipa3_plat_drv_shutdown (struct platform_device *pdev_p)
-{
-	if(&(pdev_p->dev) != ipa3_ctx->pdev)
-		return;
-	IPAERR("IPA shutdown call \n");
-	ipa3_lcl_mdm_reboot_cb();
-	IPAERR("Exit \n");
 }
 
 /**
