@@ -102,14 +102,14 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 		}
 	}
 
-	if (entry->proc_ctx || in_apps_headers_ext) {
+	if (entry->proc_ctx || in_apps_headers_ext || (entry->hdr && entry->hdr->is_hdr_proc_ctx)) {
 		struct ipa3_hdr_proc_ctx_entry *proc_ctx;
 
 		proc_ctx = (entry->proc_ctx) ? : entry->hdr->proc_ctx;
 
 		/* header in APPS header extension section in SRAM
 			must have HPC to access the extension area */
-		if (in_apps_headers_ext)
+		if (in_apps_headers_ext || (entry->hdr && entry->hdr->is_hdr_proc_ctx))
 			proc_ctx = entry->hdr->proc_ctx;
 
 		if ((proc_ctx == NULL) ||
