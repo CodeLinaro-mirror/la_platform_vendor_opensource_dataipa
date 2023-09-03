@@ -207,17 +207,31 @@ struct ipa_ipsec_key_store {
 	union ipa_ipsec_auth_key auth[IPA_IPSEC_MAX_KEY_NUM];
 };
 
+/**
+ * struct ipa_ipsec_ctx - IPA IPsec context
+ * @dev: netdev pointer
+ * @keys: SRAM mapped to the keys storage (32 * 32 + 32 * 64 = 3072 bytes)
+ * @decap: SRAM mapped to the decap SAs area (11 * 88 = 968 bytes)
+ * @encap: SRAM mapped to the encap SAs area (11 * 256 = 2816 bytes)
+ */
 struct ipa_ipsec_ctx {
-	struct ipa_ipsec_key_store *keys;
-	struct ipa_ipsec_sa_decap *decap;
-	struct ipa_ipsec_sa_encap *encap;
+	struct net_device *dev;
+	struct ipa_ipsec_key_store __iomem *keys;
+	struct ipa_ipsec_sa_decap __iomem *decap;
+	struct ipa_ipsec_sa_encap __iomem *encap;
 };
 #pragma pack(pop)
 
 #ifdef CONFIG_IPA_IPSEC
+bool ipa_ipsec_enabled(void);
 int ipa_ipsec_init(void);
+int ipa_ipsec_ep_init_prod(void);
+int ipa_ipsec_ep_init_cons(void);
 #else
+inline bool ipa_ipsec_enabled(void) {return false;}
 inline int ipa_ipsec_init(void) {return 0;}
+inline int ipa_ipsec_ep_init_prod(void) {return 0;}
+inline int ipa_ipsec_ep_init_cons(void) {return 0;}
 #endif
 
 #endif /* _IPA_IPSEC_H_ */

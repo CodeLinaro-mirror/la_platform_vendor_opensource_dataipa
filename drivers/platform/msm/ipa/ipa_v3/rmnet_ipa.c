@@ -48,7 +48,7 @@
 
 #include "ipa_trace.h"
 #include "ipa_odl.h"
-
+#include "ipa_ipsec.h"
 
 #define OUTSTANDING_HIGH_DEFAULT 256
 #define OUTSTANDING_HIGH_CTL_DEFAULT (OUTSTANDING_HIGH_DEFAULT + 32)
@@ -1717,7 +1717,7 @@ static void ipa3_wwan_tx_timeout(struct net_device *dev)
  * Check that the packet is the one we sent and release it
  * This function will be called in defered context in IPA wq.
  */
-static void apps_ipa_tx_complete_notify(void *priv,
+void apps_ipa_tx_complete_notify(void *priv,
 		enum ipa_dp_evt_type evt,
 		unsigned long data)
 {
@@ -1792,6 +1792,7 @@ static void apps_ipa_tx_complete_notify(void *priv,
 		__netif_tx_unlock_bh(netdev_get_tx_queue(dev, 1));
 	dev_kfree_skb_any(skb);
 }
+EXPORT_SYMBOL(apps_ipa_tx_complete_notify);
 
 /**
  * apps_ipa_packet_receive_notify() - Rx notify
@@ -1802,7 +1803,7 @@ static void apps_ipa_tx_complete_notify(void *priv,
  *
  * IPA will pass a packet to the Linux network stack with skb->data
  */
-static void apps_ipa_packet_receive_notify(void *priv,
+void apps_ipa_packet_receive_notify(void *priv,
 		enum ipa_dp_evt_type evt,
 		unsigned long data)
 {
@@ -1846,6 +1847,7 @@ static void apps_ipa_packet_receive_notify(void *priv,
 		IPAWANERR("Invalid evt %d received in wan_ipa_receive\n", evt);
 	}
 }
+EXPORT_SYMBOL(apps_ipa_packet_receive_notify);
 
 /**
  * apps_ipa_v2x_packet_receive_notify() - Rx notify
@@ -2402,6 +2404,12 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	ingress_param->pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 	/* caching the success status of the pipe */
 	pipe_status->status = IPA_PIPE_SETUP_EXISTS;
+
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		rc = ipa_ipsec_ep_init_cons();
+	}
+#endif
 
 	return rc;
 }
@@ -3045,6 +3053,12 @@ static int ipa3_setup_apps_wan_prod_pipes(
 	egress_param->pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 	/* caching the success status of the pipe */
 	pipe_status->status = IPA_PIPE_SETUP_EXISTS;
+
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		rc = ipa_ipsec_ep_init_prod();
+	}
+#endif
 
 	return rc;
 }
@@ -4850,6 +4864,11 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		dev->gso_max_size = RMNET_IPA_ULSO_SIZE_LIMIT;
 	}
 
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		ipa3_ctx->ipsec->dev = dev;
+	}
+#endif
 	if (ipa3_rmnet_res.ipa_napi_enable)
 		netif_napi_add(dev, &(rmnet_ipa3_ctx->wwan_priv->napi),
 		       ipa3_rmnet_poll, NAPI_WEIGHT);
