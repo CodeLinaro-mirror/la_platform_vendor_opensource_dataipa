@@ -2661,6 +2661,13 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 			if (rc)
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled()) {
+			rc = ipa_ipsec_install_dl_pol_flt();
+			if (rc)
+				IPAWANERR("IPsec DL policy FLT init failed = %d\n", rc);
+		}
+#endif
 		/* Sending QMI indication message share RSC/QMAP pipe details*/
 		IPAWANDBG("ingress_ep_mask = %d\n", rmnet_ipa3_ctx->ingress_eps_mask);
 		ipa_send_wan_pipe_ind_to_modem(rmnet_ipa3_ctx->ingress_eps_mask);
@@ -4866,6 +4873,10 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_enabled()) {
+		IPAWANDBG("IPsec offload is enabled\n");
+		dev->xfrmdev_ops = ipa3_ctx->ipsec->xfrmdev_ops;
+		dev->features |= NETIF_F_HW_ESP;
+		dev->hw_enc_features |= NETIF_F_HW_ESP;
 		ipa3_ctx->ipsec->dev = dev;
 	}
 #endif

@@ -7,11 +7,15 @@
 #define _IPA_IPSEC_H_
 
 #include <linux/types.h>
+#include <linux/pfkeyv2.h>
+#include <net/xfrm.h>
 
 #define IPA_IPSEC_MAX_SA_NUM 11
 #define IPA_IPSEC_MAX_ENACAP_KEY_NUM 16
 #define IPA_IPSEC_MAX_DEACAP_KEY_NUM 16
 #define IPA_IPSEC_MAX_KEY_NUM (IPA_IPSEC_MAX_ENACAP_KEY_NUM + IPA_IPSEC_MAX_DEACAP_KEY_NUM)
+#define XFRM_ALG_NAME_MAX 64
+#define IPA_IPSEC_DL_FLT_PER_POL 2
 
 enum ipa_ipsec_key_type {
 	IPA_IPSEC_KEY_ENC,
@@ -20,17 +24,51 @@ enum ipa_ipsec_key_type {
 };
 
 enum ipa_ipsec_key_len {
-	IPA_IPSEC_KEY_128 = 1,
+	IPA_IPSEC_KEY_0 = 0,
+	IPA_IPSEC_KEY_128,
 	IPA_IPSEC_KEY_256,
 	IPA_IPSEC_KEY_512,
 	IPA_IPSEC_KEY_160,
 	IPA_IPSEC_KEY_384,
+	IPA_IPSEC_KEY_LEN_MAX,
 };
 
 enum ipa_ipsec_sa_type {
 	IPA_IPSEC_ENCAP,
 	IPA_IPSEC_DECAP,
 	IPA_IPSEC_TYPE_MAX,
+};
+
+enum ipa_ipsec_hpc_action {
+	IPA_IPSEC_HPC_DISABLE = 0,
+	IPA_IPSEC_HPC_ENCAP = 1,
+	IPA_IPSEC_HPC_DECAP = 2,
+	IPA_IPSEC_HPC_RESERVED = 3,
+	IPA_IPSEC_HPC_MAX,
+};
+
+enum ipa_ipsec_sa_auth {
+	IPA_IPSEC_AUTH_NONE = 0,
+	IPA_IPSEC_AUTH_HMAC_SHA1 = 2,
+	IPA_IPSEC_AUTH_HMAC_SHA2_256 = 12,
+	IPA_IPSEC_AUTH_HMAC_SHA2_384 = 13,
+	IPA_IPSEC_AUTH_HMAC_SHA2_512 = 14,
+	IPA_IPSEC_AUTH_MAX,
+};
+
+enum ipa_ipsec_sa_enc {
+	IPA_IPSEC_ENC_NULL = SADB_EALG_NULL,
+	IPA_IPSEC_ENC_AES_CBC = SADB_X_EALG_AESCBC,
+	IPA_IPSEC_ENC_AES_GCM_16 = SADB_X_EALG_AES_GCM_ICV16,
+	IPA_IPSEC_ENC_MAX = SADB_EALG_MAX,
+};
+
+struct ipa_ipsec_algo {
+	char *name;
+	union {
+		enum ipa_ipsec_sa_auth a;
+		enum ipa_ipsec_sa_enc e;
+	} algo;
 };
 
 #pragma pack(push, 4)
@@ -208,28 +246,73 @@ struct ipa_ipsec_key_store {
 };
 
 /**
+ * struct ipa_ipsec_policy - IPA IPsec policy list member
+ * @l: kernel list sub struct
+ * @xp: XFRM policy pointer
+ * @flt: Filtering rules, if applicable
+ * @rt: Routing rule, if applicable
+ */
+struct ipa_ipsec_policy {
+	struct list_head l;
+	struct xfrm_policy *xp;
+	u32 flt[IPA_IPSEC_DL_FLT_PER_POL];
+	u32 rt;
+};
+
+/**
  * struct ipa_ipsec_ctx - IPA IPsec context
  * @dev: netdev pointer
  * @keys: SRAM mapped to the keys storage (32 * 32 + 32 * 64 = 3072 bytes)
  * @decap: SRAM mapped to the decap SAs area (11 * 88 = 968 bytes)
  * @encap: SRAM mapped to the encap SAs area (11 * 256 = 2816 bytes)
+ * @xfrmdev_ops: Pointer to XFRM callbacks struct
+ * @sa_db: Per SA handlers: x, hdr, hpc, rt
+ * @x: Pointer to the XFRM state
+ * @hdr: Header template handle (only for encap)
+ * @hpc: HPC handle
+ * @rt: RT rule handle
+ * @pol_list: List head for offloaded XFRM policies
+ * @ul_hpc: next-round HPC for encap catch all and IKE RT rules
+ * @dl_hpc: next-round HPC for decap RT rules
+ * @dl_pol_flt: ID (IPA_CLIENT_MAX + n) of the EP independent FLT table for DL policy rules
+ * @encap_rt: Encap RT table handle
+ * @decap_rt: Decap RT table handle
+ * @default_rt: Default route table pointer
  */
 struct ipa_ipsec_ctx {
 	struct net_device *dev;
 	struct ipa_ipsec_key_store __iomem *keys;
 	struct ipa_ipsec_sa_decap __iomem *decap;
 	struct ipa_ipsec_sa_encap __iomem *encap;
+	struct xfrmdev_ops *xfrmdev_ops;
+	struct {
+		struct xfrm_state *x;
+		u32 hdr;
+		u32 hpc;
+		u32 rt;
+	} sa_db[IPA_IPSEC_TYPE_MAX][IPA_IPSEC_MAX_SA_NUM];
+	struct list_head pol_list;
+	u32 ul_hpc;
+	u32 dl_hpc;
+	u32 dl_pol_flt[IPA_IP_MAX];
+	u32 encap_rt[IPA_IP_MAX];
+	u32 decap_rt[IPA_IP_MAX];
+	struct ipa3_rt_tbl *default_rt;
 };
 #pragma pack(pop)
 
 #ifdef CONFIG_IPA_IPSEC
 bool ipa_ipsec_enabled(void);
 int ipa_ipsec_init(void);
+void ipa_ipsec_cleanup(void);
+int ipa_ipsec_install_dl_pol_flt(void);
 int ipa_ipsec_ep_init_prod(void);
 int ipa_ipsec_ep_init_cons(void);
 #else
 inline bool ipa_ipsec_enabled(void) {return false;}
 inline int ipa_ipsec_init(void) {return 0;}
+inline void ipa_ipsec_cleanup(void) {}
+inline int ipa_ipsec_install_dl_pol_flt(void) {return 0;}
 inline int ipa_ipsec_ep_init_prod(void) {return 0;}
 inline int ipa_ipsec_ep_init_cons(void) {return 0;}
 #endif
