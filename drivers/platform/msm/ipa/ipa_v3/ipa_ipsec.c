@@ -1659,6 +1659,63 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 	return 0;
 }
 
+/* The DL (LAN) RT tables are being deleted on LAN down and recreated on LAN up.
+ * Redirecting the IPsec policy FLT rules accordingly.
+ */
+int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *rt_tbl, bool up)
+{
+	int i;
+	struct ipa_ipsec_policy *pol;
+	struct ipa3_flt_entry *flt_rule;
+	bool commit = false;
+
+	IPADBG("IPv%d, %s %s\n", ip == IPA_IP_v4 ? 4 : 6, rt_tbl->name, up ? "added" : "deleted");
+
+	if (strncmp(rt_tbl->name, __ipa_ipsec_s.dl_rt[ip], IPA_RESOURCE_NAME_MAX) != 0)
+		/* We only take care of relevant RT tables */
+		return 0;
+
+	IPADBG("Will update DL policies\n");
+
+	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
+		if (pol->xp->xdo.dir == XFRM_DEV_OFFLOAD_IN &&
+		    ((ip == IPA_IP_v4 && pol->xp->family == AF_INET) ||
+		     (ip == IPA_IP_v6 && pol->xp->family == AF_INET6))) {
+			for (i = 0; i < IPA_IPSEC_DL_FLT_PER_POL; i++) {
+
+				IPADBG("pol->flt[%d] = %d\n", i, pol->flt[i]);
+
+				flt_rule = ipa3_id_find(pol->flt[i]);
+				if (unlikely(flt_rule == NULL)) {
+					IPAERR("FLT tbl not found\n");
+					return -EFAULT;
+				}
+
+				/*  this function called under mutex_lock(&ipa3_ctx->lock),
+				    so touching ref_cnt is safe */
+				if (flt_rule->rt_tbl)
+					flt_rule->rt_tbl->ref_cnt--;
+
+				flt_rule->rt_tbl = up ? rt_tbl : ipa3_ctx->ipsec->default_rt;
+				flt_rule->rule.rt_tbl_hdl =
+					up ? rt_tbl->id : ipa3_ctx->ipsec->default_rt->id;
+				flt_rule->rule.rt_tbl_idx =
+					up ? rt_tbl->idx : ipa3_ctx->ipsec->default_rt->idx;
+
+				flt_rule->rt_tbl->ref_cnt++;
+			}
+			commit = true;
+		}
+	}
+
+	if (commit)
+		return ipa3_commit_flt(ip);
+
+	IPADBG_LOW("Done\n");
+
+	return 0;
+}
+
 /* Placeholder - no real driver action is needed */
 void ipa_ipsec_xdo_policy_delete(struct xfrm_policy *xp)
 {
