@@ -72,7 +72,8 @@ enum ipa_ap_ingress_ep_enum {
 	IPA_AP_INGRESS_EP_COALS = 1 << 1,
 	IPA_AP_INGRESS_EP_LOW_LAT = 1 << 2,
 	IPA_AP_INGRESS_EP_LOW_LAT_DATA = 1 << 3,
-	IPA_AP_INGRESS_EP_V2X_DATA = 1 << 4
+	IPA_AP_INGRESS_EP_V2X_DATA = 1 << 4,
+	IPA_AP_INGRESS_EP_IPSEC = 1 << 5,
 };
 
 static const struct rmnet_ingress_param rmnet_ingress_cfg ={
@@ -1460,6 +1461,11 @@ static int ipa3_wwan_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
+static inline enum ipa_rmnet_tx_queue ipa_wwan_get_tx_queue(struct sk_buff *skb)
+{
+	return (enum ipa_rmnet_tx_queue)skb_get_queue_mapping(skb);
+}
+
 /**
  * ipa3_wwan_select_queue() - select tx-queue.
  *
@@ -1473,11 +1479,7 @@ static int ipa3_wwan_change_mtu(struct net_device *dev, int new_mtu)
 static u16 ipa3_wwan_select_queue(struct net_device *dev, struct sk_buff *skb, struct net_device *sb_dev)
 {
 	/*queue_mapping =0 WWAN IP traffic, 1 for eth or v2x traffic */
-	if (skb->queue_mapping == 1) {
-		IPAWANDBG(" got query (debug)\n");
-		return 1;
-	} else
-		return 0;
+	return ipa_wwan_get_tx_queue(skb);
 }
 /**
  * ipa3_wwan_xmit() - Transmits an skb.
@@ -1497,6 +1499,7 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	bool qmap_check = false, eth_check = false, v2x_check = false;
 	struct ipa3_wwan_private *wwan_ptr = netdev_priv(dev);
 	unsigned long flags;
+	enum ipa_client_type dst_ipa_client = IPA_CLIENT_APPS_WAN_PROD;
 
 	if (rmnet_ipa3_ctx->ipa_config_is_apq) {
 		IPAWANERR_RL("IPA embedded data on APQ platform\n");
@@ -1516,7 +1519,7 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	/*queue_mapping =0 WWAN IP traffic, 1 for eth/v2x traffic */
-	if (skb->queue_mapping == 1)
+	if (ipa_wwan_get_tx_queue(skb) == IPA_RMNET_TX_QUEUE_V2X)
 	{
 		if (ipa3_ctx->ipa_config_is_auto){
 			/* in AUTO config, 1 for v2x traffic */
@@ -1528,7 +1531,7 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 			eth_check = true;
 		}
 	} else {
-		/* regular IP traffic */
+		/* regular IP traffic or IPsec traffic */
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0))
 		qmap_check = RMNET_MAP_GET_CD_BIT(skb);
 #else
@@ -1646,8 +1649,19 @@ send:
 	 * both data packets and command will be routed to
 	 * IPA_CLIENT_Q6_WAN_CONS based on status configuration
 	 */
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		if (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC) {
+			dst_ipa_client =
+			(IPA_IPSEC_SKB_CB(skb)->sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
+			IPA_CLIENT_IPSEC_ENCAP_PROD : IPA_CLIENT_IPSEC_DECAP_PROD;
+			IPAWANDBG("[%s]: xmit to %s\n",
+				dev->name, ipa_clients_strings[dst_ipa_client]);
+		}
+	}
+#endif
 	if (unlikely(!eth_check) && unlikely(!v2x_check))
-	  ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_PROD, skb, NULL);
+		ret = ipa3_tx_dp(dst_ipa_client, skb, NULL);
 	else if (unlikely(!v2x_check))
 		ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_ETH_PROD, skb, NULL);
 	else
@@ -1741,7 +1755,7 @@ void apps_ipa_tx_complete_notify(void *priv,
 	}
 
     /* queue_mapping = 0 WWAN IP traffic,1  for v2x/eth pdu traffic */
-	if (skb->queue_mapping == 1) {
+	if (ipa_wwan_get_tx_queue(skb) == IPA_RMNET_TX_QUEUE_V2X) {
 		/* in AUTO config, 1 for v2x traffic */
 		if (ipa3_ctx->ipa_config_is_auto)
 			v2x_check = true;
@@ -1820,8 +1834,11 @@ void apps_ipa_packet_receive_notify(void *priv,
 			skb->protocol = htons(ETH_P_MAP);
 
 		skb_set_mac_header(skb, 0);
-		/* default traffic uses rx-0 queue. */
-		skb_record_rx_queue(skb, 0);
+		/* default traffic uses IPA_RMNET_RX_QUEUE_DEFAULT queue. */
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled() && !skb_rx_queue_recorded(skb))
+#endif
+			skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_DEFAULT);
 		if (ipa3_rmnet_res.ipa_napi_enable) {
 			trace_rmnet_ipa_netif_rcv_skb3(skb, dev->stats.rx_packets);
 			result = netif_receive_skb(skb);
@@ -1875,8 +1892,8 @@ static void apps_ipa_v2x_packet_receive_notify(void *priv,
 			skb->protocol = htons(ETH_P_MAP);
 
 		skb_set_mac_header(skb, 0);
-		/* v2x traffic uses rx-1 queue. */
-		skb_record_rx_queue(skb, 1);
+		/* v2x traffic uses IPA_RMNET_RX_QUEUE_V2X queue. */
+		skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_V2X);
 		if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH == 0) {
 			trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
 			result = netif_rx_ni(skb);
@@ -8239,6 +8256,8 @@ void ipa3_wwan_cleanup(void)
 	int ret;
 
 	platform_driver_unregister(&rmnet_ipa_driver);
+	if (!rmnet_ipa3_ctx)
+		return;
 	if (rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle) {
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 		ret = qcom_unregister_ssr_notifier(

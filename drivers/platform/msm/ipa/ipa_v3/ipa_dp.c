@@ -3075,6 +3075,11 @@ int ipa3_unregister_notifier(void *fn_ptr)
 		}
 		rx_pkt->sys = sys;
 
+		if (rx_pkt->len == 0) {
+			IPAERR("Zero length packet!\n");
+			BUG();
+		}
+
 		trace_ipa3_replenish_rx_page_recycle(
 			stats_i,
 			rx_pkt->page_data.page,
@@ -4295,7 +4300,7 @@ bail:
 	return 0;
 }
 
-static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
+static int ipa3_wan_rx_pyld_status_hdlr(struct sk_buff *skb,
 		struct ipa3_sys_context *sys)
 {
 	struct ipahal_pkt_status status;
@@ -4304,24 +4309,12 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 	struct sk_buff *skb2;
 	u16 pkt_len_with_pad;
 	u32 qmap_hdr;
-	int checksum_trailer_exists;
 	int frame_len;
-	int ep_idx;
+	enum ipa_client_type client;
 	unsigned int used = *(unsigned int *)skb->cb;
 	unsigned int used_align = ALIGN(used, 32);
 	unsigned long unused = IPA_GENERIC_RX_BUFF_BASE_SZ - used;
 
-	IPA_DUMP_BUFF(skb->data, 0, skb->len);
-	if (skb->len == 0) {
-		IPAERR("ZLT\n");
-		goto bail;
-	}
-
-	if (ipa3_ctx->ipa_client_apps_wan_cons_agg_gro) {
-		sys->ep->client_notify(sys->ep->priv,
-			IPA_RECEIVE, (unsigned long)(skb));
-		return 0;
-	}
 	if (sys->repl_hdlr == ipa3_replenish_rx_cache_recycle) {
 		IPAERR("Recycle should enable only with GRO Aggr\n");
 		ipa_assert();
@@ -4342,11 +4335,12 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 			WARN_ON(1);
 			goto bail;
 		}
+
 		ipahal_pkt_status_parse(skb->data, &status);
 		skb_data = skb->data;
-		IPADBG_LOW("STATUS opcode=%d src=%d dst=%d len=%d ttl_dec=%d\n",
-			status.status_opcode, status.endp_src_idx, status.endp_dest_idx,
-			status.pkt_len, status.ttl_dec);
+		IPADBG_LOW("STATUS opcode=%d exception=%s src=%d dst=%d len=%d ttl_dec=%d\n",
+			status.status_opcode, ipahal_pkt_status_exception_str(status.exception),
+			status.endp_src_idx, status.endp_dest_idx, status.pkt_len, status.ttl_dec);
 
 		if (sys->status_stat) {
 			sys->status_stat->status[sys->status_stat->curr] =
@@ -4356,14 +4350,14 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 				sys->status_stat->curr = 0;
 		}
 
-		if ((status.status_opcode !=
-			IPAHAL_PKT_STATUS_OPCODE_DROPPED_PACKET) &&
-			(status.status_opcode !=
-			IPAHAL_PKT_STATUS_OPCODE_PACKET) &&
-			(status.status_opcode !=
-			IPAHAL_PKT_STATUS_OPCODE_PACKET_2ND_PASS)) {
-			IPAERR("unsupported opcode(%d)\n",
-				status.status_opcode);
+		switch (status.status_opcode) {
+		case IPAHAL_PKT_STATUS_OPCODE_PACKET:
+		case IPAHAL_PKT_STATUS_OPCODE_DROPPED_PACKET:
+		case IPAHAL_PKT_STATUS_OPCODE_PACKET_2ND_PASS:
+		case IPAHAL_PKT_STATUS_OPCODE_PACKET_3RD_PASS:
+			break;
+		default:
+			IPAERR("unsupported opcode(%d)\n", status.status_opcode);
 			skb_pull(skb, pkt_status_sz);
 			continue;
 		}
@@ -4377,6 +4371,7 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 			WARN_ON(1);
 			goto bail;
 		}
+
 		if (status.pkt_len == 0) {
 			IPADBG_LOW("Skip aggr close status\n");
 			skb_pull(skb, pkt_status_sz);
@@ -4384,13 +4379,15 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.wan_aggr_close);
 			continue;
 		}
-		ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
-		if (status.endp_dest_idx != ep_idx) {
-			IPAERR("expected endp_dest_idx %d received %d\n",
-					ep_idx, status.endp_dest_idx);
+
+		client = ipa3_get_client_mapping((int)(status.endp_dest_idx));
+		if (!(IPA_CLIENT_IS_WAN_CONS(client) || IPA_CLIENT_IS_IPSEC_WAN_CONS(client))) {
+
+			IPAERR("expected WAN_CONS received EP%d, client %d\n", status.endp_dest_idx, client);
 			WARN_ON(1);
 			goto bail;
 		}
+
 		/* RX data */
 		if (skb->len == pkt_status_sz) {
 			IPAERR("Ins header in next buffer\n");
@@ -4399,23 +4396,14 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 		}
 		qmap_hdr = *(u32 *)(skb_data + pkt_status_sz);
 		/*
-		 * Take the pkt_len_with_pad from the last 2 bytes of the QMAP
-		 * header
+		 * Take the pkt_len_with_pad from the last 4 bytes of the QMAP header
 		 */
 
-		/*QMAP is BE: convert the pkt_len field from BE to LE*/
+		/* QMAP is BE: convert the pkt_len field from BE to LE */
 		pkt_len_with_pad = ntohs((qmap_hdr>>16) & 0xffff);
 		IPADBG_LOW("pkt_len with pad %d\n", pkt_len_with_pad);
-		/*get the CHECKSUM_PROCESS bit*/
-		checksum_trailer_exists = IPAHAL_PKT_STATUS_MASK_FLAG_VAL(
-			IPAHAL_PKT_STATUS_MASK_CKSUM_PROCESS_SHFT, &status);
-		IPADBG_LOW("checksum_trailer_exists %d\n",
-				checksum_trailer_exists);
 
-		frame_len = pkt_status_sz + IPA_QMAP_HEADER_LENGTH +
-			    pkt_len_with_pad;
-		if (checksum_trailer_exists)
-			frame_len += IPA_DL_CHECKSUM_LENGTH;
+		frame_len = pkt_status_sz + IPA_DL_CHECKSUM_LENGTH + pkt_len_with_pad;
 		IPADBG_LOW("frame_len %d\n", frame_len);
 
 		skb2 = skb_clone(skb, GFP_KERNEL);
@@ -4425,15 +4413,13 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 			 * payload split across 2 buff
 			 */
 			if (skb->len < frame_len) {
-				IPADBG_LOW("SPL skb len %d len %d\n",
-						skb->len, frame_len);
+				IPADBG_LOW("SPL skb len %d len %d\n", skb->len, frame_len);
 				sys->prev_skb = skb2;
 				sys->len_rem = frame_len - skb->len;
 				skb_pull(skb, skb->len);
 			} else {
 				skb_trim(skb2, frame_len);
-				IPADBG_LOW("rx avail for %d\n",
-						status.endp_dest_idx);
+				IPADBG_LOW("rx avail for %d\n", status.endp_dest_idx);
 				IPADBG_LOW(
 					"removing Status element from skb and sending to WAN client");
 				skb_pull(skb2, pkt_status_sz);
@@ -4441,9 +4427,21 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 					sizeof(struct sk_buff) +
 					(ALIGN(frame_len, 32) *
 					 unused / used_align);
+#ifdef CONFIG_IPA_IPSEC
+				if (ipa_ipsec_enabled()) {
+					IPADBG_LOW(
+						"Calling ipa_ipsec_rx_update_sec_path with metadata: 0x%08X\n",
+						status.metadata);
+					ipa_ipsec_rx_update_sec_path(skb2, htonl(status.metadata));
+				}
+#endif
 				sys->ep->client_notify(sys->ep->priv,
 					IPA_RECEIVE, (unsigned long)(skb2));
-				skb_pull(skb, frame_len);
+				if (skb->len - frame_len >= skb->data_len)
+					skb_pull(skb, frame_len);
+				else
+					goto bail;
+
 			}
 		} else {
 			IPAERR("fail to clone\n");
@@ -4459,6 +4457,24 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 bail:
 	sys->free_skb(skb);
 	return 0;
+}
+
+static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
+	struct ipa3_sys_context *sys) {
+
+	IPA_DUMP_BUFF(skb->data, 0, skb->len);
+	if (skb->len == 0) {
+		IPAERR("ZLT\n");
+		return 0;
+	}
+
+	if (ipa3_ctx->ipa_client_apps_wan_cons_agg_gro) {
+		sys->ep->client_notify(sys->ep->priv,
+			IPA_RECEIVE, (unsigned long)(skb));
+		return 0;
+	}
+
+	return ipa3_wan_rx_pyld_status_hdlr(skb, sys);
 }
 
 static struct sk_buff *ipa3_get_skb_ipa_rx(unsigned int len, gfp_t flags)
@@ -5046,7 +5062,7 @@ void ipa3_lan_coal_rx_cb(
 
 	int               ret;
 
-	IPA_DUMP_BUFF(skb->data, 0, skb->len);
+	IPA_DUMP_BUFF(rx_skb->data, 0, rx_skb->len);
 
 	ipa3_ctx->stats.coal.coal_rx++;
 
@@ -6029,6 +6045,19 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 					in->ipa_ep_cfg.aggr.aggr_pkt_limit
 						= IPA_GENERIC_AGGR_PKT_LIMIT;
 				}
+			} else if (IPA_CLIENT_IS_IPSEC_WAN_CONS(in->client)) {
+				in->ipa_ep_cfg.aggr.aggr_en = IPA_BYPASS_AGGR;
+				INIT_WORK(&sys->repl_work, ipa3_wq_repl_rx);
+				sys->pyld_hdlr = (in->client == IPA_CLIENT_IPSEC_APPS_WAN_CONS) ?
+					ipa3_wan_rx_pyld_status_hdlr:ipa3_wan_rx_pyld_hdlr;
+				sys->free_rx_wrapper = ipa3_free_rx_wrapper;
+				sys->rx_pool_sz = ipa3_ctx->wan_rx_ring_size;
+				if (nr_cpu_ids > 1) {
+					sys->repl_hdlr = ipa3_fast_replenish_rx_cache;
+				} else {
+					sys->repl_hdlr = ipa3_replenish_rx_cache;
+				}
+				sys->ep->status.status_en = true;
 			} else if (in->client ==
 				IPA_CLIENT_APPS_WAN_LOW_LAT_CONS) {
 				INIT_WORK(&sys->repl_work, ipa3_wq_repl_rx);

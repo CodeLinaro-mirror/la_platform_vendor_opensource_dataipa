@@ -306,6 +306,7 @@ bool ipa_ipsec_enabled(void);
 int ipa_ipsec_init(void);
 void ipa_ipsec_cleanup(void);
 int ipa_ipsec_install_dl_pol_flt(void);
+int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata);
 int ipa_ipsec_ep_init_prod(void);
 int ipa_ipsec_ep_init_cons(void);
 #else
@@ -313,6 +314,7 @@ inline bool ipa_ipsec_enabled(void) {return false;}
 inline int ipa_ipsec_init(void) {return 0;}
 inline void ipa_ipsec_cleanup(void) {}
 inline int ipa_ipsec_install_dl_pol_flt(void) {return 0;}
+inline int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata) {return 0;}
 inline int ipa_ipsec_ep_init_prod(void) {return 0;}
 inline int ipa_ipsec_ep_init_cons(void) {return 0;}
 #endif
