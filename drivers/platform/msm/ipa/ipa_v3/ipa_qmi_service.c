@@ -17,6 +17,9 @@
 
 #include "ipa_qmi_service.h"
 #include "ipa_mhi_proxy.h"
+#ifdef CONFIG_IPA_IPSEC
+#include "ipa_ipsec.h"
+#endif
 
 #define IPA_Q6_SVC_VERS 1
 #define IPA_A5_SVC_VERS 1
@@ -345,6 +348,10 @@ static void ipa3_handle_modem_init_cmplt_req(struct qmi_handle *qmi_handle,
 {
 	struct ipa_init_modem_driver_cmplt_req_msg_v01 *cmplt_req;
 	struct ipa_init_modem_driver_cmplt_resp_msg_v01 resp;
+#ifdef CONFIG_IPA_IPSEC
+	struct ipa_endp_desc_indication_msg_v01 req;
+	struct ipa_ep_id_type_v01 *ep_info;
+#endif
 	int rc;
 
 	IPAWANDBG("Received QMI_IPA_INIT_MODEM_DRIVER_CMPLT_REQ_V01\n");
@@ -376,6 +383,26 @@ static void ipa3_handle_modem_init_cmplt_req(struct qmi_handle *qmi_handle,
 		IPAWANERR("QMI_IPA_INIT_MODEM_DRIVER_CMPLT_RESP_V01 failed\n");
 	else
 		IPAWANDBG("Sent QMI_IPA_INIT_MODEM_DRIVER_CMPLT_RESP_V01\n");
+
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		memset(&req, 0, sizeof(struct ipa_endp_desc_indication_msg_v01));
+		req.ep_info_len = 1;
+		req.ep_info_valid = true;
+		req.num_eps_valid = true;
+		req.num_eps = 1;
+		ep_info = &req.ep_info[0];
+		ep_info->ep_id = ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_ENCAP_PROD);
+		ep_info->ic_type = DATA_IC_TYPE_AP_V01;
+		ep_info->ep_type = DATA_EP_DESC_TYPE_EMB_CONS_V01;
+		ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+		rc = ipa3_qmi_send_endp_desc_indication(&req);
+		if (!!rc)
+			IPAWANERR("ipa_send_wan_pipe_ind_to_modem for IPsec failed\n");
+		else
+			IPAWANDBG("Sent ipa_send_wan_pipe_ind_to_modem for IPsec\n");
+	}
+#endif
 }
 
 static void ipa3_handle_mhi_alloc_channel_req(struct qmi_handle *qmi_handle,
@@ -1000,6 +1027,21 @@ int ipa3_qmi_filter_request_ex_send(
 			}
 		}
 	}
+
+#ifdef CONFIG_IPA_IPSEC
+	/*
+	 * Shift the IPACM rules IPA_QMI_IPSEC_FLT_NUM positions to the bottom,
+	 * and insert IKE and IPsec catch all rules
+	 */
+	if (ipa_ipsec_enabled()) {
+		rc = ipa_ipsec_install_qmi_flt(req);
+		if (!!rc) {
+			IPAWANERR("ipa_ipsec_install_qmi_flt failed\n");
+			return rc;
+		}
+	}
+#endif
+
 	mutex_lock(&ipa3_qmi_lock);
 	if (ipa3_qmi_ctx != NULL) {
 		/* cache the qmi_filter_request */
