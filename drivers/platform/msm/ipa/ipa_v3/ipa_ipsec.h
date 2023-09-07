@@ -266,6 +266,7 @@ struct ipa_ipsec_policy {
  * @keys: SRAM mapped to the keys storage (32 * 32 + 32 * 64 = 3072 bytes)
  * @decap: SRAM mapped to the decap SAs area (11 * 88 = 968 bytes)
  * @encap: SRAM mapped to the encap SAs area (11 * 256 = 2816 bytes)
+ * @uc_smmu_iova: uC SMMU VA for cleanup
  * @xfrmdev_ops: Pointer to XFRM callbacks struct
  * @sa_db: Per SA handlers: x, hdr, hpc, rt
  * @x: Pointer to the XFRM state
@@ -285,6 +286,7 @@ struct ipa_ipsec_ctx {
 	struct ipa_ipsec_key_store __iomem *keys;
 	struct ipa_ipsec_sa_decap __iomem *decap;
 	struct ipa_ipsec_sa_encap __iomem *encap;
+	unsigned long uc_smmu_iova;
 	struct xfrmdev_ops *xfrmdev_ops;
 	struct {
 		struct xfrm_state *x;

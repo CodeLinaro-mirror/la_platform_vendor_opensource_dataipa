@@ -2449,6 +2449,39 @@ end:
 	return ret;
 }
 
+/* Map uC SMMU for encap SAs. To be used by uC for NextIV WA */
+static int ipa_ipsec_map_uc_smmu(phys_addr_t pa, unsigned long *iova)
+{
+	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_UC);
+	unsigned long va = roundup(cb->next_addr, PAGE_SIZE);
+	size_t len = roundup(IPA_ENCAP_DB_SIZE + pa - rounddown(pa, PAGE_SIZE), PAGE_SIZE);
+	int ret;
+
+	if (!cb->valid) {
+		IPAERR("The uC SMMU is not set up\n");
+		return -EINVAL;
+	}
+
+	ret = ipa3_iommu_map(cb->iommu_domain, va, rounddown(pa, PAGE_SIZE), len,
+		IOMMU_READ|IOMMU_WRITE|IOMMU_MMIO);
+	if (ret) {
+		IPAERR("iommu map failed for pa=%pa len=%zu\n", &pa, IPA_ENCAP_DB_SIZE);
+		return -EINVAL;
+	}
+
+	cb->next_addr = va + len;
+	*iova = va + pa - rounddown(pa, PAGE_SIZE);
+	return 0;
+}
+
+/* Unmap uC SMMU for encap SAs */
+static void ipa_ipsec_unmap_uc_smmu(phys_addr_t pa, unsigned long iova)
+{
+	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_UC);
+
+	iommu_unmap(cb->iommu_domain, rounddown(iova, PAGE_SIZE),
+		roundup(IPA_ENCAP_DB_SIZE + pa - rounddown(pa, PAGE_SIZE), PAGE_SIZE));
+}
 
 /*
  * ipa_ipsec_init()
@@ -2458,6 +2491,7 @@ int ipa_ipsec_init(void)
 	int ret, n;
 	u32 keys_phys_base, sa_phys_base, ipsec_ep_cfg;
 	void __iomem *key_mmio, __iomem *sa_mmio;
+	unsigned long uc_smmu_iova;
 
 	IPADBG("IPA IPsec entry\n");
 
@@ -2535,6 +2569,13 @@ int ipa_ipsec_init(void)
 		goto unmap_keys;
 	}
 
+	ret = ipa_ipsec_map_uc_smmu(sa_phys_base + IPA_DECAP_DB_SIZE, &uc_smmu_iova);
+	if (ret != 0) {
+		IPAERR("Failed to map encap SA SMMU for uC\n");
+		goto unmap_sa;
+	}
+	ipa3_ctx->ipsec->uc_smmu_iova = uc_smmu_iova;
+
 	/* Zero the SA SRAM */
 	memset_io(sa_mmio, 0, IPA_SA_DB_SIZE);
 
@@ -2583,11 +2624,13 @@ int ipa_ipsec_init(void)
 	ret = ipa_ipsec_fnr_init();
 	if (ret != 0) {
 		IPAERR("Failed to init IPsec FnR\n");
-		goto unmap_sa;
+		goto unmap_uc_smmu;
 	}
 
 	return 0;
 
+unmap_uc_smmu:
+	ipa_ipsec_unmap_uc_smmu(sa_phys_base + IPA_DECAP_DB_SIZE, uc_smmu_iova);
 unmap_sa:
 	iounmap(sa_mmio);
 unmap_keys:
@@ -2604,9 +2647,24 @@ free_ctx:
 /* Clean up all IPsec allocations. To be called in case of the IPA driver unload. */
 void ipa_ipsec_cleanup(void)
 {
+	u32 sa_phys_base;
+
 	/* Not initialized or already cleaned */
 	if (!ipa3_ctx->ipsec)
 		return;
+
+	/* Zero the SA and keys SRAM to avoid IPsec HW execution and for better security */
+	memset_io(ipa3_ctx->ipsec->decap, 0, IPA_SA_DB_SIZE);
+	memset_io(ipa3_ctx->ipsec->keys, 0, sizeof(struct ipa_ipsec_key_store));
+
+	sa_phys_base = ipa3_ctx->ipa_wrapper_base +
+		ipa3_ctx->ctrl->ipa_reg_base_ofst +
+		ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n,
+			ipa3_ctx->smem_restricted_bytes / 4) +
+		IPA_MEM_PART(sa_contexts_ofst);
+
+	/* Unmap uC SMMU */
+	ipa_ipsec_unmap_uc_smmu(sa_phys_base + IPA_DECAP_DB_SIZE, ipa3_ctx->ipsec->uc_smmu_iova);
 
 	/* Unmap SA and keys SRAM */
 	iounmap(ipa3_ctx->ipsec->decap);
