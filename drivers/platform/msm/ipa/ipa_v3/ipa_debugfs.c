@@ -111,6 +111,8 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_DONE_RESTORE_EVENT),
 	__stringify(IPA_SET_EXT_ROUTER_MODE_EVENT),
 	__stringify(IPA_ENABLE_ETH_PDU_MODE_EVENT),
+	__stringify(IPA_IPSEC_UL_FLT_ADD_EVENT),
+	__stringify(IPA_IPSEC_UL_FLT_DEL_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
@@ -164,22 +166,28 @@ static ssize_t ipa3_read_gen_reg(struct file *file, char __user *ubuf,
 
 	ipahal_read_reg_fields(IPA_SHARED_MEM_SIZE, &smem_sz);
 	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
-			"IPA_VERSION=0x%x\n"
-			"IPA_COMP_HW_VERSION=0x%x\n"
-			"IPA_ROUTE=0x%x\n"
-			"IPA_SHARED_MEM_RESTRICTED=0x%x\n"
-			"IPA_SHARED_MEM_SIZE=0x%x\n"
-			"IPA_QTIME_TIMESTAMP_CFG=0x%x\n"
-			"IPA_TIMERS_PULSE_GRAN_CFG=0x%x\n"
-			"IPA_TIMERS_XO_CLK_DIV_CFG=0x%x\n",
-			ipahal_read_reg(IPA_VERSION),
-			ipahal_read_reg(IPA_COMP_HW_VERSION),
-			ipahal_read_reg(IPA_ROUTE),
-			smem_sz.shared_mem_baddr,
-			smem_sz.shared_mem_sz,
-			ipahal_read_reg(IPA_QTIME_TIMESTAMP_CFG),
-			ipahal_read_reg(IPA_TIMERS_PULSE_GRAN_CFG),
-			ipahal_read_reg(IPA_TIMERS_XO_CLK_DIV_CFG));
+		"IPA_VERSION=0x%x\n"
+		"IPA_COMP_HW_VERSION=0x%x\n"
+		"IPA_ROUTE=0x%x\n"
+		"IPA_SHARED_MEM_RESTRICTED=0x%x\n"
+		"IPA_SHARED_MEM_SIZE=0x%x\n"
+		"IPA_QTIME_TIMESTAMP_CFG=0x%x\n"
+		"IPA_TIMERS_PULSE_GRAN_CFG=0x%x\n"
+		"IPA_TIMERS_XO_CLK_DIV_CFG=0x%x\n"
+		"IPA_STATE_ENCAPS=0x%x\n"
+		"IPA_STATE_DECAPS=0x%x\n"
+		"IPA_STATE=0x%x\n",
+		ipahal_read_reg(IPA_VERSION),
+		ipahal_read_reg(IPA_COMP_HW_VERSION),
+		ipahal_read_reg(IPA_ROUTE),
+		smem_sz.shared_mem_baddr,
+		smem_sz.shared_mem_sz,
+		ipahal_read_reg(IPA_QTIME_TIMESTAMP_CFG),
+		ipahal_read_reg(IPA_TIMERS_PULSE_GRAN_CFG),
+		ipahal_read_reg(IPA_TIMERS_XO_CLK_DIV_CFG),
+		ipahal_read_reg(IPA_STATE_ENCAPS),
+		ipahal_read_reg(IPA_STATE_DECAPS),
+		ipahal_read_reg(IPA_STATE));
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
@@ -419,7 +427,9 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		"IPA_ENDP_INIT_HOL_EN_%u=0x%x\n"
 		"IPA_ENDP_INIT_HOL_TIMER_%u=0x%x\n"
 		"IPA_ENDP_INIT_DEAGGR_%u=0x%x\n"
-		"IPA_ENDP_INIT_CFG_%u=0x%x\n",
+		"IPA_ENDP_INIT_CFG_%u=0x%x\n"
+		"IPA_ENDP_INIT_IPSEC_CFG_%u=0x%x\n"
+		"IPA_ENDP_INIT_DRBIP_CFG_%u=0x%x\n",
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_NAT_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CONN_TRACK_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HDR_n, pipe),
@@ -430,7 +440,9 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HOL_BLOCK_EN_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DEAGGR_n, pipe),
-		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CFG_n, pipe));
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CFG_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, pipe));
 }
 
 static ssize_t ipa3_read_ep_reg(struct file *file, char __user *ubuf,
@@ -964,6 +976,9 @@ static int ipa3_attrib_dump(struct ipa_rule_attrib *attrib,
 		pr_cont("dst_addr:%pI4 dst_addr_mask:%pI4 ", addr, mask);
 	}
 
+	if (attrib->ext_attrib_mask & IPA_FLT_EXT_NAT_T)
+		pr_cont("NAT-T ");
+
 	pr_err("\n");
 	return 0;
 }
@@ -1121,6 +1136,7 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 					>> 5;
 				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
 					i, entry->rule.dst,
+					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
 					ipa3_get_ep_mapping(entry->rule.dst),
 					!ipa3_ctx->hdr_proc_ctx_tbl_lcl);
 				pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
@@ -1133,6 +1149,7 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 					ofst = 0;
 				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
 					i, entry->rule.dst,
+					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
 					ipa3_get_ep_mapping(entry->rule.dst),
 					!(entry->hdr && entry->hdr->is_lcl));
 				pr_err("hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u",
@@ -1150,11 +1167,17 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 				entry->rule.hashable,
 				entry->rule.retain_hdr);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod: %u\n",
+				pr_err("close_aggr_irq_mod: %u ",
 					entry->rule.close_aggr_irq_mod);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5)
-				pr_err("ttl_update: %u\n", entry->rule.ttl_update);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+				pr_err("ttl_update: %u ", entry->rule.ttl_update);
+				pr_err("qos_class: %u ", entry->rule.qos_class);
+				pr_err("skip_ingress: %u ", entry->rule.skip_ingress);
+			}
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+				pr_err("esp_after_udp: %u ", entry->rule.esp_after_udp);
 
+			pr_err("\n");
 			ipa3_attrib_dump(&entry->rule.attrib, ip);
 			i++;
 		}
@@ -1220,6 +1243,14 @@ static ssize_t ipa3_read_rt_hw(struct file *file, char __user *ubuf,
 				pr_err("close_aggr_irq_mod: %u ",
 					rules[rl].close_aggr_irq_mod);
 
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+				pr_err("ttl_update: %u\n", rules[rl].ttl_update);
+				pr_err("qos_class: %u\n", rules[rl].qos_class);
+				pr_err("skip_ingress: %u\n", rules[rl].skip_ingress);
+			}
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+				pr_err("esp_after_udp: %u\n", rules[rl].esp_after_udp);
+
 			if (rules[rl].hdr_type == IPAHAL_RT_RULE_HDR_PROC_CTX)
 				pr_err("proc_ctx:%u attrib_mask:%08x ",
 					rules[rl].hdr_ofst,
@@ -1254,6 +1285,18 @@ static ssize_t ipa3_read_rt_hw(struct file *file, char __user *ubuf,
 		for (rl = 0 ; rl < rules_num ; rl++) {
 			pr_err("rule_idx:%d dst ep:%d L:%u ",
 				rl, rules[rl].dst_pipe_idx, rules[rl].hdr_lcl);
+
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
+				pr_err("close_aggr_irq_mod: %u ",
+					rules[rl].close_aggr_irq_mod);
+
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+				pr_err("ttl_update: %u ", rules[rl].ttl_update);
+				pr_err("qos_class: %u ", rules[rl].qos_class);
+				pr_err("skip_ingress: %u ", rules[rl].skip_ingress);
+			}
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+				pr_err("esp_after_udp: %u ", rules[rl].esp_after_udp);
 
 			if (rules[rl].hdr_type == IPAHAL_RT_RULE_HDR_PROC_CTX)
 				pr_err("proc_ctx:%u attrib_mask:%08x ",
@@ -1310,7 +1353,22 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 			entry->id,
 			ipa3_hdr_proc_type_name[entry->type],
 			ofst_words);
-		if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
+		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP) {
+			nbytes += scnprintf(dbg_buff + nbytes,
+				IPA_MAX_MSG_LEN - nbytes,
+				"\naction:%u\n"
+				"sa_idx:%u\n"
+				"flt_tbl_id:%u\n"
+				"input_ip_version:%u\n"
+				"output_ip_version:%u\n"
+				"retain_l2_header:%u\n",
+				entry->ipsec_params.action,
+				entry->ipsec_params.sa_idx,
+				entry->ipsec_params.flt_tbl_id,
+				entry->ipsec_params.pre_params.encap.input_ip_version,
+				entry->ipsec_params.pre_params.encap.output_ip_version,
+				entry->ipsec_params.pre_params.encap.retain_l2_header);
+		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"input_ethhdr_negative_offset:%u\n"
@@ -1414,6 +1472,15 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
 				pr_err("close_aggr_irq_mod %u ",
 					entry->rule.close_aggr_irq_mod);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+				pr_err("ttl_update %u ", entry->rule.ttl_update);
+				pr_err("qos_class %u ", entry->rule.qos_class);
+			}
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+				pr_err("esp_after_udp %u ", entry->rule.esp_after_udp);
+
+			pr_err("\n");
+
 			if (eq) {
 				res = ipa3_attrib_dump_eq(
 						&entry->rule.eq_attrib);
@@ -1425,8 +1492,6 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 				ipa3_attrib_dump(
 					&entry->rule.attrib, ip);
 			i++;
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5)
-				pr_err("ttl_update %u ", entry->rule.ttl_update);
 		}
 	}
 bail:
@@ -1500,6 +1565,14 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 				pr_err("pdn: %u, set_metadata: %u ",
 					rules[rl].rule.pdn_idx,
 					rules[rl].rule.set_metadata);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+				pr_err("ttl_update %u ", rules[rl].rule.ttl_update);
+				pr_err("qos_class %u ", rules[rl].rule.qos_class);
+			}
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+				pr_err("esp_after_udp %u ", rules[rl].rule.esp_after_udp);
+
+			pr_err("\n");
 			res = ipa3_attrib_dump_eq(&rules[rl].rule.eq_attrib);
 			if (res) {
 				IPAERR_RL("failed read attrib eq\n");
@@ -1535,6 +1608,14 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 				pr_err("pdn: %u, set_metadata: %u ",
 					rules[rl].rule.pdn_idx,
 					rules[rl].rule.set_metadata);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+				pr_err("ttl_update %u ", rules[rl].rule.ttl_update);
+				pr_err("qos_class %u ", rules[rl].rule.qos_class);
+			}
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+				pr_err("esp_after_udp %u ", rules[rl].rule.esp_after_udp);
+
+			pr_err("\n");
 			res = ipa3_attrib_dump_eq(&rules[rl].rule.eq_attrib);
 			if (res) {
 				IPAERR_RL("failed read attrib eq\n");
