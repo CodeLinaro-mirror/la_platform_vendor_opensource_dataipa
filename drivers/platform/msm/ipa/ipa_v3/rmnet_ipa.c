@@ -1652,11 +1652,19 @@ send:
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_enabled()) {
 		if (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC) {
+			u8 sa_idx;
+
 			dst_ipa_client =
 			(IPA_IPSEC_SKB_CB(skb)->sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
 			IPA_CLIENT_IPSEC_ENCAP_PROD : IPA_CLIENT_IPSEC_DECAP_PROD;
 			IPAWANDBG("[%s]: xmit to %s\n",
 				dev->name, ipa_clients_strings[dst_ipa_client]);
+
+			sa_idx = (u8)(IPA_IPSEC_SKB_CB(skb)->sa_idx);
+			if (dst_ipa_client == IPA_CLIENT_IPSEC_ENCAP_PROD)
+				atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_encap_xmit);
+			if (dst_ipa_client == IPA_CLIENT_IPSEC_DECAP_PROD)
+				atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].ipsec_decap_xmit);
 		}
 	}
 #endif
@@ -1865,6 +1873,230 @@ void apps_ipa_packet_receive_notify(void *priv,
 	}
 }
 EXPORT_SYMBOL(apps_ipa_packet_receive_notify);
+
+#ifdef CONFIG_IPA_IPSEC
+/**
+ * apps_ipa_ipsec_err_pkt_rcv_ntfy() - handler for APPS IPSEC errors.
+ *
+ * @priv: driver context
+ * @evt: event type
+ * @data: data provided with event
+ *
+ * IPA will pass a packet to the Linux network stack with skb->data
+ */
+void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
+		enum ipa_dp_evt_type evt,
+		unsigned long data)
+{
+	struct sk_buff *skb = (struct sk_buff *)data;
+	struct net_device *dev = (struct net_device *)priv;
+	struct error_qmap_hdr ipsec_err_qmap;
+	struct ipahal_pkt_status pkt_status;
+	u8 sa_idx;
+	enum ipa_ipsec_sa_type sa_type = IPA_IPSEC_TYPE_MAX;
+	enum ipa_ipsec_error_action act = IPA_IPSEC_ERROR_DROP_ACTION;
+	struct xfrm_state *x = NULL;
+	struct sec_path *sp;
+	struct xfrm_offload *xo;
+	u32 xo_status;
+	int result;
+
+	if (evt != IPA_RECEIVE) {
+		IPAWANERR("Invalid evt %d received in ipa_ipsec_err_pkt_rcv\n", evt);
+		return;
+	}
+
+	skb->dev = IPA_NETDEV();
+
+	/* get packet status and remove it from skb */
+	ipahal_pkt_status_parse(skb->data, &pkt_status);
+	skb_pull(skb, ipahal_pkt_status_get_size());
+
+	/* get err qmap header from skb */
+	memcpy(&ipsec_err_qmap, skb->data, sizeof(struct error_qmap_hdr));
+
+	/* Set skb network header after the qmap header*/
+	skb_set_network_header(skb, sizeof(struct error_qmap_hdr));
+
+	sa_idx = ipsec_err_qmap.sa_idx;
+	if (unlikely(sa_idx >= IPA_IPSEC_MAX_SA_NUM)) {
+		IPAERR("Invalid IPsec SA in QMAP header(%12phN) \n", &ipsec_err_qmap);
+		kfree_skb(skb);
+		return;
+	}
+
+	IPADBG("QMAP header: %12phN\n", &ipsec_err_qmap);
+	skb_dump(KERN_DEBUG, skb, false);
+
+	switch (ipsec_err_qmap.error_type) {
+	case IPA_IPSEC_ERROR_TYPE_ENCAP:
+		sa_type = IPA_IPSEC_ENCAP;
+		x = ipa3_ctx->ipsec->sa_db[sa_type][sa_idx].x;
+		if (x)
+			XFRM_INC_STATS(xs_net(x), LINUX_MIB_XFRMOUTERROR);
+
+		atomic_inc(&ipa3_ctx->stats.ipsec_enacp_excp);
+
+		/* Encap errors - drop the packet */
+		act = IPA_IPSEC_ERROR_DROP_ACTION;
+
+		switch (ipsec_err_qmap.error_code) {
+		case IPA_IPSEC_ERROR_CODE_DISCARD_RULE:
+			atomic_inc(&ipa3_ctx->ipsec->stats.encap_error_code_discard_rule);
+			break;
+		case IPA_IPSEC_ERROR_CODE_ENCAP_SA_DISABLED:
+			atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].error_code_encap_sa_disabled);
+			break;
+		case IPA_IPSEC_ERROR_CODE_SEQ_NUM_OVERFLOW:
+			atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].error_code_seq_num_overflow);
+			break;
+		default:
+			IPAWANERR("unknown Encap IPSEC error code %d\n",
+					ipsec_err_qmap.error_code);
+			break;
+		}
+		break;
+
+	case IPA_IPSEC_ERROR_TYPE_DECAP:
+		sa_type = IPA_IPSEC_DECAP;
+		atomic_inc(&ipa3_ctx->stats.ipsec_decap_excp);
+
+		switch (ipsec_err_qmap.error_code) {
+		case IPA_IPSEC_ERROR_CODE_DUP_SEQ_NUMBER:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_dup_seq_number);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_OUT_OF_WINDOW:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_out_of_window);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_AUTH_ERROR:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_auth_error);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INCORRECT_PADDING:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_incorrect_padding);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INCORRECT_ESP_NEXT_HDR_PROTO:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_incorrect_esp_next_hdr_proto);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_INVALID_PACKET_SYNTAX;
+			break;
+		case IPA_IPSEC_ERROR_CODE_ECN_ERROR:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_ecn_error);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_INVALID_PACKET_SYNTAX;
+			break;
+		case IPA_IPSEC_ERROR_CODE_POST_DECAP_NAT:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_post_decap_nat);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_GENERIC_ERROR;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INNER_PKT_EXCP:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_inner_pkt_excp);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_GENERIC_ERROR;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INNER_PKT_FLT_EXCP:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_inner_pkt_flt_excp);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_GENERIC_ERROR;
+			break;
+		case IPA_IPSEC_ERROR_CODE_DECAP_SA_DISABLED:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_decap_sa_disabled);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_SW_HANDLING:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_sw_handling);
+			act = IPA_IPSEC_ERROR_SW_HANDLING_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INNER_PKT_VALIDATION:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_inner_pkt_validation);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INNER_PKT_SA_MISMATCH:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_inner_pkt_sa_mismatch);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		default:
+			IPAWANERR("unknown Decap IPSEC error code %d\n",
+					ipsec_err_qmap.error_code);
+			break;
+		}
+		break;
+	default:
+		IPAWANERR("unknown IPSEC error type %d\n",
+				ipsec_err_qmap.error_type);
+		break;
+	}
+
+	IPAWANDBG_LOW("received error IPSEC packet type:%d, code:%d, action: %d\n",
+			ipsec_err_qmap.error_type, ipsec_err_qmap.error_code, act);
+
+	if (act == IPA_IPSEC_ERROR_TO_NS_ACTION) {
+		if (!rmnet_ipa3_ctx->no_qmap_config)
+			skb->protocol = htons(ETH_P_MAP);
+
+		skb_set_mac_header(skb, 0);
+		/* Record a special RX queue IPA_RMNET_RX_QUEUE_IPSEC for IPSEC error. */
+		skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_IPSEC_ERROR);
+
+		x = ipa3_ctx->ipsec->sa_db[sa_type][sa_idx].x;
+		if (unlikely(!x)) {
+			IPAERR("SA%02d has no XFRM state pointer (0x%X) \n", sa_idx, x);
+			BUG();
+		}
+
+		sp = secpath_set(skb);
+		if (sp) {
+			sp->xvec[sp->len++] = x;
+			sp->olen++;
+			xfrm_state_hold(x);
+			xo = xfrm_offload(skb);
+			if (xo) {
+				xo->flags = CRYPTO_DONE;
+				xo->status = xo_status;
+			} else {
+				pr_err_ratelimited(DEV_NAME " %s:%d fail at xfrm_offload\n",
+				__func__, __LINE__);
+			}
+		} else {
+			pr_err_ratelimited(DEV_NAME " %s:%d fail at secpath_set\n",
+				__func__, __LINE__);
+		}
+
+		if (ipa3_rmnet_res.ipa_napi_enable) {
+			trace_rmnet_ipa_netif_rcv_skb3(skb, dev->stats.rx_packets);
+			result = netif_receive_skb(skb);
+		} else {
+			if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH
+					== 0) {
+				trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
+				result = netif_rx_ni(skb);
+			} else {
+				trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
+				result = netif_rx(skb);
+			}
+		}
+
+		if (result)	{
+			pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_receive_skb\n",
+				__func__, __LINE__);
+			dev->stats.rx_dropped++;
+		}
+
+	} else if (act == IPA_IPSEC_ERROR_SW_HANDLING_ACTION) {
+		/* TODO IPsec Frag handle, for now drop all frags*/
+		kfree_skb(skb);
+		dev->stats.rx_dropped++;
+	} else if (act == IPA_IPSEC_ERROR_DROP_ACTION) {
+		kfree_skb(skb);
+		dev->stats.rx_dropped++;
+	}
+}
+EXPORT_SYMBOL(apps_ipa_ipsec_err_pkt_rcv_ntfy);
+#endif //CONFIG_IPA_IPSEC
 
 /**
  * apps_ipa_v2x_packet_receive_notify() - Rx notify

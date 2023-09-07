@@ -18,6 +18,10 @@
 #define XFRM_ALG_NAME_MAX 64
 #define IPA_IPSEC_DL_FLT_PER_POL 2
 
+#define IPA_IPSEC_OFFLOAD_MAGIC 0x01BA0000
+
+#define IPA_IPSEC_SA_MISMATCH_ERR_QMAP_HDR_NAME "ipsec_sa_mismatch_err_qmap_hdr"
+
 enum ipa_ipsec_key_type {
 	IPA_IPSEC_KEY_ENC,
 	IPA_IPSEC_KEY_AUTH,
@@ -46,6 +50,42 @@ enum ipa_ipsec_hpc_action {
 	IPA_IPSEC_HPC_DECAP = 2,
 	IPA_IPSEC_HPC_RESERVED = 3,
 	IPA_IPSEC_HPC_MAX,
+};
+
+enum ipa_ipsec_error_type {
+	IPA_IPSEC_ERROR_TYPE_ENCAP = 1,
+	IPA_IPSEC_ERROR_TYPE_DECAP = 2,
+};
+
+enum ipa_ipsec_error_encap_code {
+	IPA_IPSEC_ERROR_CODE_DISCARD_RULE = 64,
+	IPA_IPSEC_ERROR_CODE_ENCAP_SA_DISABLED = 65,
+	IPA_IPSEC_ERROR_CODE_SEQ_NUM_OVERFLOW = 66,
+};
+
+enum ipa_ipsec_error_decap_code {
+	IPA_IPSEC_ERROR_CODE_DUP_SEQ_NUMBER = 1,
+	IPA_IPSEC_ERROR_CODE_OUT_OF_WINDOW = 2,
+	IPA_IPSEC_ERROR_CODE_AUTH_ERROR = 3,
+	IPA_IPSEC_ERROR_CODE_INCORRECT_PADDING = 4,
+	IPA_IPSEC_ERROR_CODE_INCORRECT_ESP_NEXT_HDR_PROTO = 5,
+	IPA_IPSEC_ERROR_CODE_ECN_ERROR = 6,
+	IPA_IPSEC_ERROR_CODE_POST_DECAP_NAT = 7,
+	IPA_IPSEC_ERROR_CODE_INNER_PKT_EXCP = 8,
+	IPA_IPSEC_ERROR_CODE_INNER_PKT_FLT_EXCP = 9,
+
+	IPA_IPSEC_ERROR_CODE_DECAP_SA_DISABLED = 32,
+	IPA_IPSEC_ERROR_CODE_SW_HANDLING = 33,
+	IPA_IPSEC_ERROR_CODE_INNER_PKT_VALIDATION = 34,
+	IPA_IPSEC_ERROR_CODE_INNER_PKT_SA_MISMATCH = 35,
+	IPA_IPSEC_ERROR_CODE_FRAG = 36,
+};
+
+enum ipa_ipsec_error_action {
+	IPA_IPSEC_ERROR_NO_ACTION = 0,
+	IPA_IPSEC_ERROR_TO_NS_ACTION = 1,
+	IPA_IPSEC_ERROR_SW_HANDLING_ACTION = 2,
+	IPA_IPSEC_ERROR_DROP_ACTION = 3,
 };
 
 enum ipa_ipsec_sa_auth {
@@ -260,6 +300,38 @@ struct ipa_ipsec_policy {
 	u32 rt;
 };
 
+struct ipa_ipsec_encap_stats {
+	atomic_t ipsec_encap_xmit;
+	atomic_t error_code_encap_sa_disabled;
+	atomic_t error_code_seq_num_overflow;
+};
+
+struct ipa_ipsec_decap_stats {
+	atomic_t ipsec_decap_xmit;
+	atomic_t ipsec_decap_rcv;
+	atomic_t error_code_dup_seq_number;
+	atomic_t error_code_out_of_window;
+	atomic_t error_code_auth_error;
+	atomic_t error_code_incorrect_padding;
+	atomic_t error_code_incorrect_esp_next_hdr_proto;
+	atomic_t error_code_ecn_error;
+	atomic_t error_code_post_decap_nat;
+	atomic_t error_code_inner_pkt_excp;
+	atomic_t error_code_inner_pkt_flt_excp;
+	atomic_t error_code_decap_sa_disabled;
+	atomic_t error_code_sw_handling;
+	atomic_t error_code_inner_pkt_validation;
+	atomic_t error_code_inner_pkt_sa_mismatch;
+};
+
+struct ipa_ipsec_stats {
+	struct ipa_ipsec_encap_stats encap_stats[IPA_IPSEC_MAX_SA_NUM];
+	struct ipa_ipsec_decap_stats decap_stats[IPA_IPSEC_MAX_SA_NUM];
+
+	/* error_code_discard_rule come without SA */
+	atomic_t encap_error_code_discard_rule;
+};
+
 /**
  * struct ipa_ipsec_ctx - IPA IPsec context
  * @dev: netdev pointer
@@ -279,7 +351,10 @@ struct ipa_ipsec_policy {
  * @dl_pol_flt: ID (IPA_CLIENT_MAX + n) of the EP independent FLT table for DL policy rules
  * @encap_rt: Encap RT table handle
  * @decap_rt: Decap RT table handle
+ * @decap_no_policy_rt: RT table for decapsulated packets with no policy hit handle
  * @default_rt: Default route table pointer
+ * @stats: IPsec stats struct
+ * @sa_mismatch_qmap_hdr_hdl: IPsec error QMAP header hdl for "no-policy" RT rule
  */
 struct ipa_ipsec_ctx {
 	struct net_device *dev;
@@ -300,9 +375,14 @@ struct ipa_ipsec_ctx {
 	u32 dl_pol_flt[IPA_IP_MAX];
 	u32 encap_rt[IPA_IP_MAX];
 	u32 decap_rt[IPA_IP_MAX];
+	u32 decap_no_policy_rt[IPA_IP_MAX];
 	struct ipa3_rt_tbl *default_rt;
+	struct ipa_ipsec_stats stats;
+	u32 sa_mismatch_qmap_hdr_hdl;
 };
 #pragma pack(pop)
+
+void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
 
 #ifdef CONFIG_IPA_IPSEC
 bool ipa_ipsec_enabled(void);
