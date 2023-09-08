@@ -708,15 +708,15 @@ static const struct rsrc_min_max ipa3_rsrc_src_grp_config
 	[IPA_6_0] = {
 		/* UL  DL  unused  unused  URLLC UC_RX_Q N/A */
 		[IPA_v6_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
-		{3, 13}, {4, 14}, {0, 0}, {0, 0}, {1, 63}, {0, 63}, {0, 0},  },
+		{3, 13}, {4, 14}, {0, 0}, {0, 0}, {2, 63}, {1, 1}, {0, 0},  },
 		[IPA_v6_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_LISTS] = {
-		{9, 9}, {12, 12}, {0, 0}, {0, 0}, {10, 10}, {0, 0}, {0, 0},  },
+		{9, 9}, {12, 12}, {0, 0}, {0, 0}, {10, 10}, {1, 1}, {0, 0},  },
 		[IPA_v6_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
-		{9, 9}, {24, 24}, {0, 0}, {0, 0}, {20, 20}, {0, 0}, {0, 0},  },
+		{9, 9}, {24, 24}, {0, 0}, {0, 0}, {20, 20}, {1, 1}, {0, 0},  },
 		[IPA_v6_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
 		{0, 63}, {0, 63}, {0, 63}, {0, 63}, {1, 63}, {0, 63}, {0, 0},  },
 		[IPA_v6_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
-		{22, 22}, {16, 16}, {0, 0}, {0, 0}, {16, 16}, {0, 0}, {0, 0},  },
+		{22, 22}, {16, 16}, {0, 0}, {0, 0}, {16, 16}, {1, 1}, {0, 0},  },
 	},
 	[IPA_6_0_MHI] = {
 		/* UL  DL  unused  unused  URLLC UC_RX_Q N/A */
@@ -1118,7 +1118,7 @@ static const struct rsrc_min_max ipa3_rsrc_rx_grp_config
 	[IPA_6_0] = {
 		/* UL  DL  unused  unused  URLLC UC_RX_Q */
 		[IPA_RSRC_GRP_TYPE_RX_HPS_CMDQ] = {
-		{3, 3}, {3, 3}, {0, 0}, {0, 0}, {3, 3}, {0, 0}  },
+		{3, 3}, {3, 3}, {0, 0}, {0, 0}, {3, 3}, {3, 3}  },
 	},
 	[IPA_6_0_MHI] = {
 		/* UL  DL  unused  unused  URLLC UC_RX_Q */
