@@ -85,8 +85,9 @@ enum ipa3_hw_features {
  * @IPA_HW_PROTOCOL_ETH : protocol related to ETH operation in IPA HW
  * @IPA_HW_PROTOCOL_MHIP: protocol related to MHIP operation in IPA HW
  * @IPA_HW_PROTOCOL_USB : protocol related to USB operation in IPA HW
- * @IPA_HW_PROTOCOL_RTK : protocol related to RTK operation in IPA HW
+ * @IPA_HW_PROTOCOL_RTK : protocol related to RTK8125B operation in IPA HW
  * @IPA_HW_PROTOCOL_NTN3 : protocol related to NTN3 operation in IPA HW
+ * @IPA_HW_PROTOCOL_RTK3 : protocol related to RTK111K operation in IPA HW
  */
 enum ipa4_hw_protocol {
 	IPA_HW_PROTOCOL_COMMON = 0x0,
@@ -100,6 +101,7 @@ enum ipa4_hw_protocol {
 	IPA_HW_PROTOCOL_IEMAC = 0x8,
 	IPA_HW_PROTOCOL_RTK = 0x9,
 	IPA_HW_PROTOCOL_NTN3 = 0xA,
+	IPA_HW_PROTOCOL_RTK3 = 0x11,
 	IPA_HW_PROTOCOL_MAX
 };
 
