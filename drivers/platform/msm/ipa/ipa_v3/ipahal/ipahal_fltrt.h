@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPAHAL_FLTRT_H_
@@ -86,6 +87,7 @@ struct ipahal_rt_rule_gen_params {
  * @ttl_update: bool to indicate whether TTL update is needed or not.
  * @qos_class: QOS classification value.
  * @skip_ingress: bool to skip ingress policing.
+ * @esp_after_udp: bool to handle ESP fater UDP rules
  * @eq_attrib: Equations and their params in the rule
  * @rule_size: Rule size in memory
  */
@@ -102,6 +104,7 @@ struct ipahal_rt_rule_entry {
 	u8 ttl_update;
 	u8 qos_class;
 	u8 skip_ingress;
+	u8 esp_after_udp;
 	struct ipa_ipfltri_rule_eq eq_attrib;
 	u32 rule_size;
 };

@@ -40,6 +40,10 @@
 #else
 #include <net/rmnet_config.h>
 #endif
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+#include <linux/gunyah/gh_vm.h>
+#include <linux/gunyah/gh_rm_drv.h>
+#endif
 #include "ipa_mhi_proxy.h"
 
 #include "ipa_trace.h"
@@ -208,6 +212,8 @@ struct rmnet_ipa3_context {
 	bool a7_ul_flt_set;
 	atomic_t is_initialized;
 	atomic_t is_ssr;
+	struct mutex is_ssr_lock;
+	atomic_t is_reboot;
 	void *lcl_mdm_subsys_notify_handle;
 	void *rmt_mdm_subsys_notify_handle;
 	u32 apps_to_ipa3_hdl;
@@ -1490,7 +1496,7 @@ static u16 ipa3_wwan_select_queue(struct net_device *dev, struct sk_buff *skb, s
 static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	int ret = 0;
-	bool qmap_check, eth_check = false, v2x_check = false;
+	bool qmap_check = false, eth_check = false, v2x_check = false;
 	struct ipa3_wwan_private *wwan_ptr = netdev_priv(dev);
 	unsigned long flags;
 
@@ -1580,6 +1586,27 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 			}
 		}
 	}
+
+	/* Flow control for WAN V2X pkts */
+	if (v2x_check) {
+		if (netif_tx_queue_stopped(netdev_get_tx_queue(dev, 1))) {
+				spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+				return NETDEV_TX_BUSY;
+		}
+		/* checking High WM hit for wan v2x traffic only */
+		if (atomic_read(&wwan_ptr->outstanding_pkts_v2x) >=
+			rmnet_ipa3_ctx->outstanding_high) {
+			IPAWANDBG_LOW("pending(%d)/(%d)- stop(%d)\n",
+				atomic_read(&wwan_ptr->outstanding_pkts_v2x),
+				rmnet_ipa3_ctx->outstanding_high,
+				netif_tx_queue_stopped(netdev_get_tx_queue(dev, 1)));
+			IPAWANDBG_LOW("qmap_chk(%d)\n", qmap_check);
+			netif_tx_stop_queue(netdev_get_tx_queue(dev, 1));
+			spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+			return NETDEV_TX_BUSY;
+		}
+	}
+
 
 send:
 	/* IPA_PM checking start */
@@ -1743,6 +1770,15 @@ static void apps_ipa_tx_complete_notify(void *priv,
 	} else {
 		atomic_dec(&wwan_ptr->outstanding_pkts_v2x);
 		__netif_tx_lock_bh(netdev_get_tx_queue(dev, 1));
+		/* flow control only for WAN V2X pkts */
+		if (!atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
+			(netif_tx_queue_stopped(netdev_get_tx_queue(wwan_ptr->net, 1))) &&
+			atomic_read(&wwan_ptr->outstanding_pkts_v2x) <
+				rmnet_ipa3_ctx->outstanding_low) {
+			IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
+					rmnet_ipa3_ctx->outstanding_low);
+			netif_tx_wake_queue(netdev_get_tx_queue(wwan_ptr->net, 1));
+		}
 	}
 
 	if ((atomic_read(&wwan_ptr->outstanding_pkts) == 0) &&
@@ -2206,7 +2242,7 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	int wan_hdl;
 	bool v2x_check = false;
 
-	if (ingress_param->pipe_setup_status == IPA_PIPE_SETUP_EXISTS)
+	if (!ingress_param || ingress_param->pipe_setup_status == IPA_PIPE_SETUP_EXISTS || dev == NULL)
 		return rc;
 
 	if(ingress_param->ingress_ep_type == RMNET_INGRESS_V2X_DATA){
@@ -2287,7 +2323,8 @@ static int ipa3_setup_apps_wan_cons_pipes(
 
 	if (ingress_param->ingress_ep_type == RMNET_INGRESS_DEFAULT) {
 		/* Reject the whole ioctl if coal pipe is not setup first */
-		if (dev->features & NETIF_F_GRO_HW) {
+		/*In MHI mode COAL pipe was not supported, so avoid configuring*/
+		if ((dev->features & NETIF_F_GRO_HW) && (!ipa3_ctx->ipa_config_is_mhi)) {
 			if (coal_ep_idx == IPA_EP_NOT_ALLOCATED) {
 				IPAWANERR("Trying to setup def WAN before coals");
 				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
@@ -2306,7 +2343,8 @@ static int ipa3_setup_apps_wan_cons_pipes(
 		pipe_status->ep_type = RMNET_INGRESS_DEFAULT;
 		*ingress_eps_mask |= IPA_AP_INGRESS_EP_DEFAULT;
 	} else if (ingress_param->ingress_ep_type ==
-		RMNET_INGRESS_COALS && (dev->features & NETIF_F_GRO_HW)) {
+		RMNET_INGRESS_COALS && (dev->features & NETIF_F_GRO_HW) &&
+		(!ipa3_ctx->ipa_config_is_mhi)) {
 		/* Setup coalescing pipes */
 		IPAWANDBG("Setting up coalescing pipe\n");
 		ipa_wan_ep_cfg->client = IPA_CLIENT_APPS_WAN_COAL_CONS;
@@ -2572,7 +2610,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 				continue;
 			}
 			rmnet_ipa3_ctx->ipa_v2x_set = true;
-			rmnet_ipa3_ctx->ingress_eps_mask |= RMNET_INGRESS_V2X_DATA;
+			rmnet_ipa3_ctx->ingress_eps_mask |= IPA_AP_INGRESS_EP_V2X_DATA;
 			IPAWANDBG("Ingress V2X pipe setup successfully\n");
 			ingress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 			/* caching the success status of the pipe */
@@ -2809,7 +2847,7 @@ static int handle3_ingress_format_internal(const struct rmnet_ingress_param ingr
 
 	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 
-	if ((IPA_NETDEV()->features & NETIF_F_GRO_HW) ? (rmnet_ipa3_ctx->ingress_eps_mask &
+	if (IPA_NETDEV() && (IPA_NETDEV()->features & NETIF_F_GRO_HW) ? (rmnet_ipa3_ctx->ingress_eps_mask &
 		(IPA_AP_INGRESS_EP_DEFAULT | IPA_AP_INGRESS_EP_COALS)) : (
 		rmnet_ipa3_ctx->ingress_eps_mask & IPA_AP_INGRESS_EP_DEFAULT)) {
 		if (rmnet_ipa3_ctx->wan_rt_table_setup) {
@@ -2858,7 +2896,7 @@ static int ipa3_setup_apps_wan_prod_pipes(
 	int rc = 0;
 	bool v2x_check = false;
 
-	if(egress_param->pipe_setup_status == IPA_PIPE_SETUP_EXISTS)
+	if(!egress_param || egress_param->pipe_setup_status == IPA_PIPE_SETUP_EXISTS || dev == NULL)
 		return rc;
 
 	if (ip_pdu) {
@@ -4534,6 +4572,16 @@ static struct notifier_block ipa3_rmt_mdm_ssr_notifier = {
 	.notifier_call = ipa3_rmt_mdm_ssr_notifier_cb,
 };
 
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+static int ipa3_v2x_vm_ssr_notifier_cb(struct notifier_block *this,
+			   unsigned long code,
+			   void *data);
+
+static struct notifier_block ipa3_v2x_vm_ssr_notifier = {
+	.notifier_call = ipa3_v2x_vm_ssr_notifier_cb,
+};
+#endif
+
 static int get_ipa_rmnet_dts_configuration(struct platform_device *pdev,
 		struct ipa3_rmnet_plat_drv_res *ipa_rmnet_drv_res)
 {
@@ -4878,9 +4926,77 @@ wan_ioctl_init_err:
 	return ret;
 }
 
+static int ipa3_wwan_remove_v2x(struct platform_device *pdev)
+{
+	int ret, j;
+
+	IPAWANINFO("gvm rmnet_ipa started deinitialization\n");
+	mutex_lock(&rmnet_ipa3_ctx->pipe_handle_guard);
+
+	/* clean v2x pipe */
+	if (rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl > 0) {
+		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl);
+		if (ret < 0)
+			IPAWANERR("Failed to teardown IPA V2X->APPS pipe\n");
+		else
+			rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl = -1;
+	}
+
+	if (rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl > 0) {
+		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl);
+		if (ret < 0)
+			IPAWANERR("Failed to teardown APPS->IPA V2X pipe\n");
+		else
+			rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl = -1;
+	}
+
+	/* Clear pipe setup info */
+	for (j = 0; j < RMNET_INGRESS_MAX; j++) {
+		ingress_pipe_status[j].ep_type = 0;
+		ingress_pipe_status[j].status = 0;
+	}
+	for (j = 0; j < RMNET_EGRESS_MAX; j++) {
+		egress_pipe_status[j].ep_type = 0;
+		egress_pipe_status[j].status = 0;
+	}
+
+	rmnet_ipa3_ctx->ingress_eps_mask = IPA_AP_INGRESS_NONE;
+	rmnet_ipa3_ctx->wan_rt_table_setup = false;
+	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
+	/* Clean up netdev resources in BEFORE_SHUTDOWN for non remoteproc
+	 * targets. */
+#if !IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	IPAWANINFO("rmnet_ipa unregister_netdev\n");
+	if (IPA_NETDEV())
+		unregister_netdev(IPA_NETDEV());
+	ipa3_wwan_deregister_netdev_pm_client();
+#endif
+	cancel_work_sync(&ipa3_tx_wakequeue_work);
+	cancel_delayed_work(&ipa_tether_stats_poll_wakequeue_work);
+#if !IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	if (IPA_NETDEV())
+		free_netdev(IPA_NETDEV());
+	rmnet_ipa3_ctx->wwan_priv = NULL;
+#endif
+	/* No need to remove wwan_ioctl during SSR */
+	if (!atomic_read(&rmnet_ipa3_ctx->is_ssr))
+		ipa3_wan_ioctl_deinit();
+
+	ipa3_cleanup_deregister_intf();
+	/* reset dl_csum_offload_enabled */
+	rmnet_ipa3_ctx->dl_csum_offload_enabled = false;
+	atomic_set(&rmnet_ipa3_ctx->is_initialized, 0);
+	IPAWANINFO("rmnet_ipa completed deinitialization\n");
+	return 0;
+}
+
 static int ipa3_wwan_remove(struct platform_device *pdev)
 {
 	int ret, j;
+
+	/* Modem SSR v2x handling in GVM */
+	if(ipa3_ctx->ipa_v2x_vm)
+		return ipa3_wwan_remove_v2x(pdev);
 
 	IPAWANINFO("rmnet_ipa started deinitialization\n");
 	mutex_lock(&rmnet_ipa3_ctx->pipe_handle_guard);
@@ -5124,6 +5240,63 @@ static void rmnet_ipa_send_ssr_notification(bool ssr_done)
 	}
 }
 
+void ipa3_lcl_mdm_reboot_cb ( )
+{
+	struct ipa3_ep_context *ep;
+	int ep_idx;
+	int res=0;
+	struct ipa_ep_cfg_holb holb_cfg;
+	memset(&holb_cfg, 0, sizeof(holb_cfg));
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_2) {
+		holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+		holb_cfg.en = IPA_HOLB_TMR_EN;
+	}
+	IPAWANERR("Reboot cb \n");
+	atomic_set(&rmnet_ipa3_ctx->is_reboot, 1);
+	mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
+	/* Stopping IPA_CLIENT_APPS_LAN_CONS pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+	res = ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
+	if(res < 0)
+		pr_info("holb enablement is failed on LAN CONS\n");
+	ep = &ipa3_ctx->ep[ep_idx];
+	ipa3_enable_clks();
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR("IPA_CLIENT_APPS_LAN_CONS stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	/* Stopping IPA_CLIENT_APPS_LAN_COAL_CONS pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	IPAWANERR("IPA_CLIENT_APPS_LAN_COAL_CONS stopped \n");
+	/* Stopping IPA_CLIENT_APPS_LAN_PROD pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_PROD);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR("IPA_CLIENT_APPS_LAN_PROD stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR("IPA_CLIENT_ETH_PROD stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR("IPA_CLIENT_ETH_CONS stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	/* Stopping IPA_CLIENT_APPS_CMD_PROD pipe */
+	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_CMD_PROD);
+	ep = &ipa3_ctx->ep[ep_idx];
+	gsi_stop_channel(ep->gsi_chan_hdl);
+	IPAWANERR(" IPA_CLIENT_APPS_CMD_PROD stopped \n");
+	memset(ep,0,sizeof(struct ipa3_ep_context));
+	mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
+	IPAWANERR(" Exit \n");
+
+}
+
 static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			   unsigned long code,
 			   void *data)
@@ -5152,10 +5325,18 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	case QCOM_SSR_BEFORE_SHUTDOWN:
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	case QCOM_SSR_BEFORE_DS_ENTER:
+#endif
 #else
 	case SUBSYS_BEFORE_SHUTDOWN:
 #endif
 		IPAWANINFO("IPA received MPSS BEFORE_SHUTDOWN\n");
+		if (atomic_read(&rmnet_ipa3_ctx->is_reboot)){
+			IPAWANERR(" IPA received REBOOT \n");
+			break;
+		}
+		mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
 		/* send SSR before-shutdown notification to IPACM */
@@ -5176,6 +5357,12 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_0)
 			ipa3_q6_post_shutdown_cleanup();
 		ipa3_odl_pipe_cleanup(true);
+
+#if IS_ENABLED(CONFIG_ARCH_SA525_HOSTVM) && IS_ENABLED(CONFIG_GH_MSGQ)
+		if (atomic_read(&ipa3_ctx->v2x_vm_ready))
+			ipa3_msgq_send(IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ, 0);
+#endif
+		mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
 		IPAWANINFO("IPA BEFORE_SHUTDOWN handling is complete\n");
 		break;
 
@@ -5194,10 +5381,18 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	case QCOM_SSR_AFTER_SHUTDOWN:
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	case QCOM_SSR_AFTER_DS_ENTER:
+#endif
 #else
 	case SUBSYS_AFTER_SHUTDOWN:
 #endif
 		IPAWANINFO("IPA Received MPSS AFTER_SHUTDOWN\n");
+		if (atomic_read(&rmnet_ipa3_ctx->is_reboot)){
+			IPAWANERR(" IPA received REBOOT \n");
+			break;
+		}
+		mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
 		ipa3_proxy_clk_unvote();
 		/* Clean up netdev resources in AFTER_SHUTDOWN for remoteproc
 		 * enabled targets. */
@@ -5216,6 +5411,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 		if (ipa3_ctx_get_flag(IPA_ENDP_DELAY_WA_EN))
 			ipa3_client_prod_post_shutdown_cleanup();
+		mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
 		IPAWANINFO("IPA AFTER_SHUTDOWN handling is complete\n");
 		break;
 
@@ -5238,6 +5434,9 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	case QCOM_SSR_BEFORE_POWERUP:
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	case QCOM_SSR_BEFORE_DS_EXIT:
+#endif
 #else
 	case SUBSYS_BEFORE_POWERUP:
 #endif
@@ -5261,6 +5460,9 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	case QCOM_SSR_AFTER_POWERUP:
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	case QCOM_SSR_AFTER_DS_EXIT:
+#endif
 #else
 	case SUBSYS_AFTER_POWERUP:
 #endif
@@ -5280,6 +5482,10 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		}
 
 		IPAWANINFO("IPA AFTER_POWERUP handling is complete\n");
+#if IS_ENABLED(CONFIG_ARCH_SA525_HOSTVM) && IS_ENABLED(CONFIG_GH_MSGQ)
+		if (atomic_read(&ipa3_ctx->v2x_vm_ready))
+			ipa3_msgq_send(IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ, 0);
+#endif
 		break;
 	default:
 		IPAWANDBG("Unsupported subsys notification, IPA received: %lu",
@@ -5341,6 +5547,81 @@ static int ipa3_rmt_mdm_ssr_notifier_cb(struct notifier_block *this,
 	}
 	return NOTIFY_DONE;
 }
+
+
+void ipa3_mdm_ssr_before_shutdown_v2x_proc(void)
+{
+	if (!ipa3_rmnet_ctx.ipa_rmnet_ssr) {
+		IPAWANERR("ipa_rmnet_ssr not enabled\n");
+		return;
+	}
+
+	if (!ipa3_ctx) {
+		IPAWANERR("ipa3_ctx was not initialized\n");
+		return;
+	}
+
+	ipa3_set_modem_up(false);
+	atomic_set(&rmnet_ipa3_ctx->is_ssr, 1);
+	if (atomic_read(&rmnet_ipa3_ctx->is_initialized))
+		platform_driver_unregister(&rmnet_ipa_driver);
+
+	IPAWANINFO("IPA BEFORE_SHUTDOWN handling is complete\n");
+}
+
+
+void ipa3_mdm_ssr_after_powerup_v2x_proc(void)
+{
+	if (!ipa3_rmnet_ctx.ipa_rmnet_ssr) {
+		IPAWANERR("ipa_rmnet_ssr not enabled\n");
+		return;
+	}
+
+	if (!ipa3_ctx) {
+		IPAWANERR("ipa3_ctx was not initialized\n");
+		return;
+	}
+
+	if (!atomic_read(&rmnet_ipa3_ctx->is_initialized) && atomic_read(&rmnet_ipa3_ctx->is_ssr))
+		platform_driver_register(&rmnet_ipa_driver);
+
+	IPAWANINFO("IPA AFTER_POWERUP handling is complete\n");
+}
+
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+static int ipa3_v2x_vm_ssr_notifier_cb(struct notifier_block *this,
+			   unsigned long code,
+			   void *data)
+{
+	int result;
+	gh_vmid_t v2x_vm_id;
+	gh_vmid_t cb_vm_id = *(gh_vmid_t*)data;
+
+	result = gh_rm_get_vmid(GH_TELE_VM, &v2x_vm_id);
+	if (result) {
+		IPAWANERR("gh_rm_get_vmid() failed %d", result);
+		return NOTIFY_DONE;
+	}
+
+	if (cb_vm_id != v2x_vm_id) {
+		IPAWANERR("vm id mismatch, ignoring callback cb_vm_id %u v2x_vm_id %u code %u",
+			cb_vm_id, v2x_vm_id, code);
+		return NOTIFY_DONE;
+	}
+
+	switch (code) {
+		case GH_VM_EARLY_POWEROFF:
+			IPAWANINFO("IPA received GH_VM_EARLY_POWEROFF vm_id %u \n", cb_vm_id);
+			ipa3_v2x_vm_shutdown_cleanup();
+			break;
+		default:
+			IPAWANINFO("IPA received unsupported vm ssr notification code %u vm_id %u\n", code, cb_vm_id);
+			break;
+	}
+
+	return NOTIFY_DONE;
+}
+#endif
 
 /**
  * rmnet_ipa_free_msg() - Free the msg sent to user space via ipa_send_msg
@@ -7905,11 +8186,13 @@ int ipa3_wwan_init(void)
 
 	atomic_set(&rmnet_ipa3_ctx->is_initialized, 0);
 	atomic_set(&rmnet_ipa3_ctx->is_ssr, 0);
+	atomic_set(&rmnet_ipa3_ctx->is_reboot, 0);
 	rmnet_ipa3_ctx->clock_vote.cnt = 0;
 
 	mutex_init(&rmnet_ipa3_ctx->pipe_handle_guard);
 	mutex_init(&rmnet_ipa3_ctx->add_mux_channel_lock);
 	mutex_init(&rmnet_ipa3_ctx->per_client_stats_guard);
+	mutex_init(&rmnet_ipa3_ctx->is_ssr_lock);
 	mutex_init(&rmnet_ipa3_ctx->clock_vote.mutex);
 	/* Reset the Lan Stats. */
 	for (i = 0; i < IPACM_MAX_CLIENT_DEVICE_TYPES; i++) {
@@ -7966,6 +8249,11 @@ int ipa3_wwan_init(void)
 		}
 		rmnet_ipa3_ctx->rmt_mdm_subsys_notify_handle = ssr_hdl;
 	}
+
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+	/* Register for GVM SSR */
+	gh_register_vm_notifier(&ipa3_v2x_vm_ssr_notifier);
+#endif
 
 	/* The platform driver register is done later in the ipa_late_init */
 
@@ -8029,6 +8317,7 @@ void ipa3_wwan_cleanup(void)
 	mutex_destroy(&rmnet_ipa3_ctx->per_client_stats_guard);
 	mutex_destroy(&rmnet_ipa3_ctx->add_mux_channel_lock);
 	mutex_destroy(&rmnet_ipa3_ctx->pipe_handle_guard);
+	mutex_destroy(&rmnet_ipa3_ctx->is_ssr_lock);
 	kfree(rmnet_ipa3_ctx);
 	rmnet_ipa3_ctx = NULL;
 }

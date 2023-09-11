@@ -37,6 +37,9 @@
 #include "ipa_uc_offload_i.h"
 #include "ipa_pm.h"
 #include "ipa_defs.h"
+#if defined(CONFIG_IPA_IPSEC)
+#include "ipa_ipsec.h"
+#endif
 #include <linux/mailbox_client.h>
 #include <linux/mailbox/qmp.h>
 #include <linux/rmnet_ipa_fd_ioctl.h>
@@ -69,10 +72,17 @@
 #define IPA3_MAX_NUM_PIPES 46
 #define IPA5_PIPES_NUM 36
 #define IPA6_PIPES_NUM 50
+#define IPA6_PROD_PIPES_NUM 22
 #define IPA5_PIPE_REG_NUM 2
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
 #define IPA6_MAX_NUM_PIPES (IPA6_PIPES_NUM)
 #define IPA_MAX_NUM_PIPES IPA6_MAX_NUM_PIPES
+#define IPA6_NXT_FLT_TBL_Q6_NUM 1
+#define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
+#define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
+#define IPA6_Q6_NXT_FLT_TBL_START (47) // we want to include it in the above
+#define IPA6_Q6_NXT_FLT_TBL_END (47) // we want to include it in the above
+#define IPA_MAX_FLT_TBLS 64
 #define IPA_SYS_DESC_FIFO_SZ 0x800
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ 0x1000
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ_8K 0x2000
@@ -95,6 +105,7 @@
 #define IPA_HOLB_TMR_VAL_4_5 31
 #define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
 
+#define IPA_Q6_FLT_START_ID 512
 #define IPA_Q6_FNR_START_IDX (128)
 #define IPA_Q6_FNR_IDX_CNT (52)
 #define IPA_Q6_FNR_END_IDX (IPA_Q6_FNR_START_IDX+IPA_Q6_FNR_IDX_CNT-1)
@@ -609,8 +620,6 @@ enum {
 
 #define MBOX_TOUT_MS 100
 
-#define IPA_RULE_CNT_MAX 512
-
 /* miscellaneous for rmnet_ipa and qmi_service */
 enum ipa_type_mode {
 	IPA_HW_TYPE,
@@ -960,6 +969,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	enum ipa_hdr_proc_type type;
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
+	struct ipa_ipsec_params ipsec_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
@@ -2279,6 +2289,7 @@ enum ipa_per_usb_enum_type_e {
  * enum ipa_msg_type_e - mesage types
  */
 enum ipa_msg_type_e {
+	IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND,
 	IPA_MSG_TYPE_CLK_VOTE_REQ,
 	IPA_MSG_TYPE_CLK_VOTE_RESP,
 	IPA_MSG_TYPE_CLK_DEVOTE_REQ,
@@ -2322,6 +2333,7 @@ struct ipa_msgq_desc {
 	void *msgq_hdl;
 	struct task_struct *recv_thread;
 	struct completion req_complete;
+	struct workqueue_struct *msgq_wq;
 };
 #endif /* CONFIG_GH_MSGQ */
 
@@ -2470,7 +2482,7 @@ struct ipa3_context {
 	u64 ep_flt_bitmap;
 	u32 ep_flt_num;
 	bool resume_on_connect[IPA_CLIENT_MAX];
-	struct ipa3_flt_tbl flt_tbl[IPA_MAX_NUM_PIPES][IPA_IP_MAX];
+	struct ipa3_flt_tbl flt_tbl[IPA_MAX_FLT_TBLS][IPA_IP_MAX];
 	struct idr flt_rule_ids[IPA_IP_MAX];
 	void __iomem *mmio;
 	u32 ipa_wrapper_base;
@@ -2581,6 +2593,9 @@ struct ipa3_context {
 	struct ipa3_uc_wdi_ctx uc_wdi_ctx;
 	struct ipa3_uc_ntn_ctx uc_ntn_ctx;
 	struct ipa3_uc_wigig_ctx uc_wigig_ctx;
+#if defined(CONFIG_IPA_IPSEC)
+	struct ipa_ipsec_ctx *ipsec;
+#endif
 	u32 wan_rx_ring_size;
 	u32 lan_rx_ring_size;
 	bool skip_uc_pipe_reset;
@@ -2741,6 +2756,7 @@ struct ipa3_context {
 	u32 ipa_tiering_value;
 	bool ipa_v2x_vm;
 	u32 pvm_v2x_pm_hdl;
+	atomic_t v2x_vm_ready;
 #ifdef CONFIG_GH_MSGQ
 	struct ipa_msgq_desc msgq_desc;
 #endif
@@ -2750,6 +2766,7 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_default_recycle_stats;
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
+	u16 filter_start_id;
 };
 
 struct ipa3_plat_drv_res {
@@ -2839,6 +2856,7 @@ struct ipa3_plat_drv_res {
 	bool iemac_exist;
 	bool ipa_v2x_vm;
 	u32 gunyah_label;
+	u32 filter_start_id;
 };
 
 /**
@@ -3306,6 +3324,8 @@ int ipa3_reset_flt(enum ipa_ip_type ip, bool user_only);
 
 int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client);
 
+int ipa_flt_get_nxt_rnd_idx(u32 tbl_id);
+
 /*
  * NAT
  */
@@ -3383,6 +3403,8 @@ int ipa3_setup_tput_pipe(void);
 int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl);
 
 int ipa3_teardown_sys_pipe(u32 clnt_hdl);
+
+void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client);
 
 int ipa3_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 		struct ipa_wdi_out_params *out);
@@ -3949,6 +3971,7 @@ irq_handler_t ipa3_get_isr(void);
 void ipa_pc_qmp_enable(void);
 u32 ipa3_get_r_rev_version(void);
 void ipa3_notify_clients_registered(void);
+void ipa3_lcl_mdm_reboot_cb(void);
 #if defined(CONFIG_IPA3_REGDUMP)
 int ipa_reg_save_init(u32 value);
 void ipa_save_registers(void);
@@ -3978,6 +4001,8 @@ int ipa3_eth_client_conn_evt(struct ipa_ecm_msg *msg);
 int ipa3_eth_client_disconn_evt(struct ipa_ecm_msg *msg);
 #endif
 void ipa_eth_ntn3_get_status(struct ipa_ntn3_client_stats *s, unsigned inst_id);
+void __ipa_ntn3_cons_stats_get(struct ipa_ntn3_stats_tx *stats, enum ipa_client_type client);
+void __ipa_ntn3_prod_stats_get(struct ipa_ntn3_stats_rx *stats, enum ipa_client_type client);
 void ipa3_eth_get_status(u32 client, int scratch_id,
 	struct ipa3_eth_error_stats *stats);
 int ipa3_get_gsi_chan_info(struct gsi_chan_info *gsi_chan_info,
@@ -4153,10 +4178,14 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
-
 void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
 void ipa3_set_eth_pdu_ep_status(void);
-
+#ifdef CONFIG_GH_MSGQ
+int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data);
+#endif
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+void ipa3_v2x_vm_shutdown_cleanup(void);
+#endif
 #endif /* _IPA3_I_H_ */

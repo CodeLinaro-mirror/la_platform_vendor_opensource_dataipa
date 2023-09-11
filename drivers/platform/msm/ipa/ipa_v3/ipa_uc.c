@@ -670,6 +670,12 @@ static void ipa3_event_ring_hdlr(void)
 				false,
 				e_h->Value.holb_notify_param.qTimerLSB,
 				e_h->Value.holb_notify_param.qTimerMSB);
+		} else if (((struct eventElement_t *) rp_va)->Opcode
+				== IPSEC_HARD_THRESH_NOTIFY) {
+			/* Disable SA */
+		} else if (((struct eventElement_t *) rp_va)->Opcode
+				== IPSEC_SOFT_THRESH_NOTIFY) {
+			/* Notify XFRM */
 		}
 		ipa3_ctx->uc_ctx.ering_rp_local += offset;
 		ipa3_ctx->uc_ctx.ering_rp_local %=

@@ -7387,7 +7387,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_TX_INSTANCE_DL },
 	[IPA_6_0_AUTO][IPA_CLIENT_Q6_CV2X_CONS] = {
 			true, IPA_v6_0_GROUP_CV2X,
-			true,
+			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 38, 11, 9, 9, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 3},
@@ -7452,7 +7452,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 46, 34, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_UL },
-	[IPA_6_0_AUTO][IPA_CLIENT_Q6_CV2X_CONS] = {
+	[IPA_6_0_AUTO][IPA_CLIENT_Q6_CV2X_DECIPHER_CONS] = {
 			true, IPA_v6_0_GROUP_CV2X,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -9190,6 +9190,9 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_Q6_V2X_BROADCAST_PROD),
 	__stringify(RESERVERD_CONS_141),
 	__stringify(IPA_CLIENT_Q6_V2X_UNICAST_PROD),
+	__stringify(RESERVERD_CONS_143),
+	__stringify(RESERVERD_PROD_144),
+	__stringify(IPA_CLIENT_Q6_CV2X_DECIPHER_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -10595,6 +10598,25 @@ void ipa_init_ep_flt_bitmap(void)
 			}
 		}
 	}
+
+	/* Take care of EP independent FLT tables */
+	for (pipe_num = IPA6_NXT_FLT_TBL_START; pipe_num <= IPA6_NXT_FLT_TBL_END; pipe_num++) {
+		bitmap |= (1ULL << pipe_num);
+		if (bitmap != ipa3_ctx->ep_flt_bitmap) {
+			ipa3_ctx->ep_flt_bitmap = bitmap;
+			ipa3_ctx->ep_flt_num++;
+		}
+	}
+
+	/* Q6 EP independent FLT tables */
+	for (pipe_num = IPA6_Q6_NXT_FLT_TBL_START;
+	     pipe_num <= IPA6_Q6_NXT_FLT_TBL_END; pipe_num++) {
+		bitmap |= (1ULL << pipe_num);
+		if (bitmap != ipa3_ctx->ep_flt_bitmap) {
+			ipa3_ctx->ep_flt_bitmap = bitmap;
+			ipa3_ctx->ep_flt_num++;
+		}
+	}
 }
 
 /**
@@ -10608,7 +10630,7 @@ void ipa_init_ep_flt_bitmap(void)
  */
 bool ipa_is_ep_support_flt(int pipe_idx)
 {
-	if (pipe_idx >= ipa3_ctx->ipa_num_pipes || pipe_idx < 0) {
+	if (pipe_idx >= IPA_MAX_FLT_TBLS || pipe_idx < 0) {
 		IPAERR("Bad pipe index!\n");
 		return false;
 	}
@@ -10983,6 +11005,7 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_USB2_CONS:
 		case IPA_CLIENT_WLAN4_CONS:
 		case IPA_CLIENT_WLAN1_PROD:
+		case IPA_CLIENT_APPS_WAN_ETH_PROD:
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en = 1;
 			break;
 		default:
@@ -11435,11 +11458,13 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 	}
 
 	/* Enabling HW replication for eth clients */
-	if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
-		ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
-		init_mode.replication_en = 1;
-		IPADBG("Enabling HW replication on pipe=%d\n",
-			clnt_hdl);
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_5) {
+		if (IPA_CLIENT_IS_ETH_PROD(clnt_hdl) ||
+			ep_mode->dst == IPA_CLIENT_APPS_WAN_ETH_PROD) {
+			init_mode.replication_en = 1;
+			IPADBG("Enabling HW replication on pipe=%d\n",
+				clnt_hdl);
+		}
 	}
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
@@ -12764,7 +12789,7 @@ int ipa3_alloc_rule_id(struct idr *rule_ids)
 	 */
 	return idr_alloc(rule_ids, NULL,
 		ipahal_get_low_rule_id(),
-		ipahal_get_rule_id_hi_bit(),
+		ipa3_ctx->filter_start_id,
 		GFP_KERNEL);
 }
 
@@ -14978,13 +15003,15 @@ int ipa3_suspend_apps_pipes(bool suspend)
 
 	/* Suspend/resume v2x pipes first, applicable for PVM only and GVM. */
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, suspend);
-	if (res == -EAGAIN) {
+	if (res == -EAGAIN) {		
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
 		return res;
 	}
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, suspend);
 	if (res == -EAGAIN) {
-		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);		
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, !suspend);
 		return res;
 	}
 

@@ -113,6 +113,7 @@ typedef struct {
 	uint32_t public_ip;
 	uint32_t src_metadata;
 	uint32_t dst_metadata;
+	bool is_sta;
 } ipa_nat_pdn_entry;
 
 /**

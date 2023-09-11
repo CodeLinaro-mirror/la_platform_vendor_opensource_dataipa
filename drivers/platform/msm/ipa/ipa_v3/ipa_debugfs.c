@@ -135,6 +135,12 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_EoGRE_HEADER_ADD),
 	__stringify(IPA_HDR_PROC_EoGRE_HEADER_REMOVE),
 	__stringify(IPA_HDR_PROC_WWAN_TO_ETHII_EX),
+	__stringify(IPA_HDR_PROC_NXT_RND),
+	__stringify(IPA_HDR_PROC_XLAT_NXT_RND),
+	__stringify(IPA_HDR_PROC_IPSEC_ENCAP),
+	__stringify(IPA_HDR_PROC_IPSEC_DECAP),
+	__stringify(IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND),
+	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
 };
 
 static struct dentry *dent;
@@ -1361,7 +1367,7 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 	else
 		pr_err("Non-Hashable table resides on system (ddr) memory\n");
 
-	for (j = 0; j < ipa3_ctx->ipa_num_pipes; j++) {
+	for (j = 0; j < IPA_MAX_FLT_TBLS; j++) {
 		if (!ipa_is_ep_support_flt(j))
 			continue;
 		tbl = &ipa3_ctx->flt_tbl[j][ip];
@@ -1442,7 +1448,7 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 	u32 bitmap;
 	int res = 0;
 
-	IPADBG("Tring to parse %d H/W filtering tables - IP=%d\n",
+	IPADBG("Trying to parse %d H/W filtering tables - IP=%d\n",
 		ipa3_ctx->ep_flt_num, ip);
 
 	rules = kzalloc(sizeof(*rules) * IPA_DBG_MAX_RULE_IN_TBL, GFP_KERNEL);
@@ -1461,7 +1467,7 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 	else
 		pr_err("Non-Hashable table resides on system (ddr) memory\n");
 
-	for (pipe = 0; pipe < ipa3_ctx->ipa_num_pipes; pipe++) {
+	for (pipe = 0; pipe < IPA_MAX_FLT_TBLS; pipe++) {
 		if (!ipa_is_ep_support_flt(pipe))
 			continue;
 		pr_err("=== Filtering Table ep:%d = Hashable Rules ===\n",

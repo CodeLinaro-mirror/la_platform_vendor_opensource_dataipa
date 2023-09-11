@@ -2618,4 +2618,14 @@ int gsi_get_peripheral_ee(void);
 
 uint32_t gsi_get_chan_stop_stm(int chan_id, int ee);
 
+enum gsi_chan_state gsi_read_chan_state(unsigned long chan_hdl, unsigned int ee);
+
+uint32_t gsi_read_chan_evt_ring_idx(unsigned long chan_hdl, unsigned int ee);
+
+enum gsi_evt_ring_state gsi_read_evt_ring_state(unsigned long chan_hdl, unsigned int ee);
+
+int gsi_cleanup_channel(unsigned long chan_hdl);
+
+int gsi_cleanup_evt_ring(unsigned long evt_ring_hdl);
+
 #endif

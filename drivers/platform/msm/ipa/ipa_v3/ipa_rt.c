@@ -984,8 +984,8 @@ static int __ipa_rt_validate_rule_id(u16 rule_id)
 	if (!rule_id)
 		return 0;
 
-	if ((rule_id < ipahal_get_rule_id_hi_bit()) ||
-		(rule_id >= ((ipahal_get_rule_id_hi_bit()<<1)-1))) {
+	if ((rule_id < ipa3_ctx->filter_start_id) ||
+		(rule_id >= ipa3_ctx->filter_start_id)) {
 		IPAERR_RL("Invalid rule_id provided 0x%x\n",
 			rule_id);
 		return -EPERM;
@@ -1115,7 +1115,7 @@ static int __ipa_finish_rt_rule_add(struct ipa3_rt_entry *entry, u32 *rule_hdl,
 {
 	int id;
 
-	if (tbl->rule_cnt < IPA_RULE_CNT_MAX)
+	if (tbl->rule_cnt < ipa3_ctx->filter_start_id)
 		tbl->rule_cnt++;
 	else
 		return -EINVAL;
@@ -2504,8 +2504,8 @@ int ipa3_rt_read_tbl_from_hw(u32 tbl_idx, enum ipa_ip_type ip_type,
 	IPADBG_LOW("rt tbl %d: tbl_addr=0x%llx is_sys=%d\n",
 		tbl_idx, tbl_addr, is_sys);
 	if (!tbl_addr) {
-		IPAERR("invalid rt tbl addr\n");
-		res = -EFAULT;
+		/* The Routing table index not initialized */
+		*num_entry = 0;
 		goto bail;
 	}
 

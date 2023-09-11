@@ -157,6 +157,10 @@ static void ipa3_deepsleep_suspend(void);
 
 static void ipa3_load_ipa_fw(struct work_struct *work);
 static DECLARE_WORK(ipa3_fw_loading_work, ipa3_load_ipa_fw);
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+static void ipa3_xbl_ipa_init(struct work_struct *work);
+static DECLARE_WORK(ipa3_xbl_init_work, ipa3_xbl_ipa_init);
+#endif
 static DECLARE_DELAYED_WORK(ipa3_fw_load_failure_handle, ipa3_load_ipa_fw);
 
 static void ipa_dec_clients_disable_clks_on_wq(struct work_struct *work);
@@ -169,6 +173,15 @@ static void ipa_inc_clients_enable_clks_on_wq(struct work_struct *work);
 static DECLARE_WORK(ipa_inc_clients_enable_clks_on_wq_work,
 	ipa_inc_clients_enable_clks_on_wq);
 
+#ifdef CONFIG_GH_MSGQ
+static void ipa3_msgq_ssr_before_shutdown_delay(struct work_struct *work);
+static DECLARE_WORK(ipa3_msgq_ssr_before_shutdown_work,
+	ipa3_msgq_ssr_before_shutdown_delay);
+static void ipa3_msgq_ssr_after_powerup_delay(struct work_struct *work);
+static DECLARE_WORK(ipa3_msgq_ssr_after_powerup_work,
+	ipa3_msgq_ssr_after_powerup_delay);
+#endif
+
 static int ipa3_ioctl_add_rt_rule_v2(unsigned long arg);
 static int ipa3_ioctl_add_rt_rule_ext_v2(unsigned long arg);
 static int ipa3_ioctl_add_rt_rule_after_v2(unsigned long arg);
@@ -179,10 +192,6 @@ static int ipa3_ioctl_mdfy_flt_rule_v2(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_alloc(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_query(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_set(unsigned long arg);
-#ifdef CONFIG_GH_MSGQ
-static int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data);
-#endif
-
 static struct ipa3_plat_drv_res ipa3_res = {0, };
 
 static struct clk *ipa3_clk;
@@ -195,6 +204,7 @@ struct ipa3_context *ipa3_ctx = NULL;
 EXPORT_SYMBOL(ipa3_ctx);
 
 int ipa3_plat_drv_probe(struct platform_device *pdev_p);
+void ipa3_plat_drv_shutdown(struct platform_device *pdev_p);
 int ipa3_pci_drv_probe(struct pci_dev *pci_dev,
 	const struct pci_device_id *ent);
 
@@ -555,6 +565,9 @@ static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 
 static struct notifier_block ipa_pm_notifier = {
 	.notifier_call = ipa_pm_notify,
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+	.priority = INT_MAX,
+#endif
 };
 
 static const struct dev_pm_ops ipa_pm_ops = {
@@ -580,6 +593,7 @@ static struct platform_driver ipa_plat_drv = {
 		.of_match_table = ipa_plat_drv_match,
 		.dev_groups = ipa_group,
 	},
+	.shutdown = ipa3_plat_drv_shutdown,
 };
 
 static struct {
@@ -5798,6 +5812,214 @@ void ipa3_client_prod_post_shutdown_cleanup(void)
 	IPADBG_LOW("Exit with success\n");
 }
 
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+static void ipa3_v2x_vm_pipe_flow_control(bool delay)
+{
+	int client_id = IPA_CLIENT_APPS_WAN_V2X_PROD;
+	unsigned int ee = IPA_EE_V2X;
+	int ep_idx;
+	int code = 0, result;
+	const struct ipa_gsi_ep_config *gsi_ep_cfg;
+
+	ep_idx = ipa3_get_ep_mapping(client_id);
+	if (ep_idx == -1)
+		return;
+	gsi_ep_cfg = ipa3_get_gsi_ep_info(client_id);
+	if (!gsi_ep_cfg) {
+		IPAERR("failed to get GSI config\n");
+		ipa_assert();
+		return;
+	}
+	IPADBG("pipe setting V2 flow control\n");
+	/* Configuring primary flow control on v2x pipes*/
+	result = gsi_flow_control_ee(
+			gsi_ep_cfg->ipa_gsi_chan_num, ep_idx,
+			ee, delay, false, &code);
+	if (result == GSI_STATUS_SUCCESS) {
+		IPADBG("success gsi ch %d with code %d\n",
+			gsi_ep_cfg->ipa_gsi_chan_num, code);
+	} else {
+		IPADBG("failed  gsi ch %d code %d\n",
+			gsi_ep_cfg->ipa_gsi_chan_num, code);
+	}
+}
+
+static void ipa3_v2x_vm_pipe_delay(bool delay)
+{
+	int client_id = IPA_CLIENT_APPS_WAN_V2X_PROD;
+	int ep_idx;
+	struct ipa_ep_cfg_ctrl ep_ctrl;
+
+	memset(&ep_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
+	ep_ctrl.ipa_ep_delay = delay;
+
+	ep_idx = ipa3_get_ep_mapping(client_id);
+	if (ep_idx == -1)
+		return;
+
+	ipahal_write_reg_n_fields(IPA_ENDP_INIT_CTRL_n,
+		ep_idx, &ep_ctrl);
+}
+
+static void ipa3_v2x_vm_avoid_holb(void)
+{
+	int client_id = IPA_CLIENT_APPS_WAN_V2X_CONS;
+	int ep_idx;
+	struct ipa_ep_cfg_ctrl ep_suspend;
+	struct ipa_ep_cfg_holb ep_holb;
+
+	memset(&ep_suspend, 0, sizeof(ep_suspend));
+	memset(&ep_holb, 0, sizeof(ep_holb));
+
+	ep_suspend.ipa_ep_suspend = true;
+	ep_holb.tmr_val = 0;
+	ep_holb.en = 1;
+
+	if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_2)
+		ipa3_cal_ep_holb_scale_base_val(ep_holb.tmr_val, &ep_holb);
+
+	ep_idx = ipa3_get_ep_mapping(client_id);
+	if (ep_idx == -1)
+		return;
+
+	/* from IPA 4.0 pipe suspend is not supported */
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0)
+		ipahal_write_reg_n_fields(
+		IPA_ENDP_INIT_CTRL_n,
+		ep_idx, &ep_suspend);
+
+	/*
+	 * ipa3_cfg_ep_holb is not used here because we are
+	 * setting HOLB on Q6 pipes, and from APPS perspective
+	 * they are not valid, therefore, the above function
+	 * will fail.
+	 * Also don't reset the HOLB timer to 0 for Q6 pipes.
+	 */
+	ipahal_write_reg_n_fields(
+		IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+		ep_idx, &ep_holb);
+
+	/* For targets > IPA_4.0 issue requires HOLB_EN to
+	 * be written twice.
+	 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+		ipahal_write_reg_n_fields(
+			IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			ep_idx, &ep_holb);
+}
+
+static void ipa3_halt_v2x_vm_gsi_channels(bool prod)
+{
+	int ep_idx;
+	int client_idx;
+	int client_id;
+	const struct ipa_gsi_ep_config *gsi_ep_cfg;
+	int i;
+	int ret;
+	int code = 0;
+	int num_clients = 2;
+	int clients[2] = {IPA_CLIENT_APPS_WAN_V2X_PROD,
+			  IPA_CLIENT_APPS_WAN_V2X_CONS};
+	unsigned int ee = IPA_EE_V2X;
+
+	/* if prod flag is true, then we halt the producer channels also */
+	for (client_idx = 0; client_idx < num_clients; client_idx++) {
+		client_id = clients[client_idx];
+		if ((client_id == IPA_CLIENT_APPS_WAN_V2X_CONS) ||
+			((client_id == IPA_CLIENT_APPS_WAN_V2X_PROD) && prod)) {
+			ep_idx = ipa3_get_ep_mapping(client_id);
+			if (ep_idx == -1)
+				continue;
+
+			gsi_ep_cfg = ipa3_get_gsi_ep_info(client_id);
+			if (!gsi_ep_cfg) {
+				IPAERR("failed to get GSI config\n");
+				ipa_assert();
+				return;
+			}
+
+			ret = gsi_halt_channel_ee(
+				gsi_ep_cfg->ipa_gsi_chan_num, ee,
+				&code);
+			for (i = 0; i < IPA_GSI_CHANNEL_STOP_MAX_RETRY &&
+				ret == -GSI_STATUS_AGAIN; i++) {
+				IPADBG(
+				"ch %d ee %d with code %d\n is busy try again",
+					gsi_ep_cfg->ipa_gsi_chan_num,
+					ee,
+					code);
+				usleep_range(IPA_GSI_CHANNEL_HALT_MIN_SLEEP,
+					IPA_GSI_CHANNEL_HALT_MAX_SLEEP);
+				ret = gsi_halt_channel_ee(
+					gsi_ep_cfg->ipa_gsi_chan_num,
+					ee, &code);
+			}
+			if (ret == GSI_STATUS_SUCCESS)
+				IPADBG("halted gsi ch %d ee %d with code %d\n",
+				gsi_ep_cfg->ipa_gsi_chan_num,
+				ee,
+				code);
+			else
+				IPAERR("failed to halt ch %d ee %d code %d\n",
+				gsi_ep_cfg->ipa_gsi_chan_num,
+				ee,
+				code);
+		}
+	}
+}
+
+/*
+ * ipa3_v2x_vm_shutdown_cleanup() - A cleanup for all v2x related configuration
+ * in IPA HW. This is performed in case of GVM SSR.
+ */
+void ipa3_v2x_vm_shutdown_cleanup(void)
+{
+	bool prod = false;
+
+	IPADBG_LOW("ENTER\n");
+
+	if (!atomic_read(&ipa3_ctx->v2x_vm_ready)) {
+		return;
+	}
+
+	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	if (ipa3_ctx->ipa_endp_delay_wa_v2)
+		ipa3_v2x_vm_pipe_flow_control(true);
+	else if (!ipa3_ctx->ipa_endp_delay_wa)
+		ipa3_v2x_vm_pipe_delay(true);
+
+	ipa3_v2x_vm_avoid_holb();
+
+	/* Remove delay from PRODs to avoid pending descriptors
+	 * on pipe reset procedure
+	 */
+	if (ipa3_ctx->ipa_endp_delay_wa_v2) {
+		ipa3_v2x_vm_pipe_flow_control(false);
+	} else if (!ipa3_ctx->ipa_endp_delay_wa) {
+		ipa3_v2x_vm_pipe_delay(false);
+	}
+
+	/* Halt both prod and cons channels starting at IPAv4 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0) {
+		prod = true;
+		ipa3_halt_v2x_vm_gsi_channels(prod);
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+		IPADBG("Exit without consumer check\n");
+		return;
+	}
+
+	ipa3_halt_v2x_vm_gsi_channels(prod);
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	/* Force devote for GVM client. */
+	ipa_pm_deactivate_sync(ipa3_ctx->pvm_v2x_pm_hdl);
+
+	IPADBG_LOW("Exit with success\n");
+}
+#endif /* CONFIG_ARCH_SA525_HOSTVM */
+
 static inline void ipa3_sram_set_canary(u32 *sram_mmio, int offset)
 {
 	/* Set 4 bytes of CANARY before the offset */
@@ -8151,12 +8373,13 @@ static void ipa_gsi_map_unmap_gsi_msi_addr(bool map)
 }
 
 #ifdef CONFIG_GH_MSGQ
-static int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
+int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 {
 	struct ipa_msgq_desc *msgq_desc = &ipa3_ctx->msgq_desc;
 	struct ipa_msg msg;
 	int ret;
 
+	memset(&msg, 0, sizeof(msg));
 	msg.msg_hdr.msg_size = sizeof(msg);
 	msg.msg_hdr.msg_type = msg_type;
 	msg.data = data;
@@ -8194,11 +8417,16 @@ static int ipa3_msgq_proc(struct ipa_msg_hdr *msg)
 				break;
 
 			case IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ:
-				IPADBG("Received IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ\n");
+				IPADBG("Received IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ on GVM\n");
+				/* Before shutdown sequence triggers vote request which is a blocking operation waiting
+				   on a response message from PVM. We need to queue it so we can exit this function and
+				   start a new receive loop */
+				queue_work(msgq_desc->msgq_wq, &ipa3_msgq_ssr_before_shutdown_work);
 				break;
 
 			case IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ:
-				IPADBG("Received IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ\n");
+				IPADBG("Received IPA_MSG_TYPE_SSR_AFTER_POWERUP_REQ on GVM\n");
+				queue_work(msgq_desc->msgq_wq, &ipa3_msgq_ssr_after_powerup_work);
 				break;
 
 			default:
@@ -8209,6 +8437,11 @@ static int ipa3_msgq_proc(struct ipa_msg_hdr *msg)
 	} else {
 		/* Messages PVM receives */
 		switch (msg->msg_type) {
+			case IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND:
+				IPADBG("Received IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND");
+				atomic_set(&ipa3_ctx->v2x_vm_ready, 1);
+				break;
+
 			case IPA_MSG_TYPE_CLK_VOTE_REQ:
 				IPADBG("Received IPA_MSG_TYPE_CLK_VOTE_REQ");
 				ret = ipa_pm_activate_sync(ipa3_ctx->pvm_v2x_pm_hdl);
@@ -8296,7 +8529,18 @@ static int ipa3_msgq_init(void)
 		goto err_thr_create;
 	}
 
+	msgq_desc->msgq_wq = create_singlethread_workqueue("msgq_wq");
+
+	if (!msgq_desc->msgq_wq) {
+		IPAERR("failed to create msgq wq\n");
+		ret = -ENOMEM;
+		goto err_wq_create;
+	}
+
 	return 0;
+
+err_wq_create:
+	kthread_stop(msgq_desc->recv_thread);
 err_thr_create:
 	gh_msgq_unregister(msgq_desc->msgq_hdl);
 	return ret;
@@ -8310,9 +8554,23 @@ static void ipa3_msgq_deinit(void)
 	if (msgq_desc->gunyah_label == 0)
 		return;
 
+	destroy_workqueue(msgq_desc->msgq_wq);
 	kthread_stop(msgq_desc->recv_thread);
 	gh_msgq_unregister(msgq_desc->msgq_hdl);
 }
+
+static void ipa3_msgq_ssr_before_shutdown_delay(struct work_struct *work)
+{
+	ipa3_mdm_ssr_before_shutdown_v2x_proc();
+	ipa3_msgq_send(IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_RESP, 0);
+}
+
+static void ipa3_msgq_ssr_after_powerup_delay(struct work_struct *work)
+{
+	ipa3_mdm_ssr_after_powerup_v2x_proc();
+	ipa3_msgq_send(IPA_MSG_TYPE_SSR_AFTER_POWERUP_RESP, 0);
+}
+
 #endif /* CONFIG_GH_MSGQ */
 
 #ifdef CONFIG_ARCH_SA525_HOSTVM
@@ -8371,6 +8629,9 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 	/* Prevent consequent calls from trying to load the FW again. */
 	if (ipa3_ctx->ipa_initialization_complete)
 		return 0;
+
+	/* enable IPA clocks explicitly to allow the initialization */
+	ipa3_enable_clks();
 
 	/*
 	 * IPA version 3.0 IPAHAL initialized at pre_init as there is no SMMU.
@@ -8483,6 +8744,7 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa_fmwk_deepsleep_exit_ipa();
 #endif
 	complete_all(&ipa3_ctx->init_completion_obj);
+	ipa3_disable_clks();
 
 	pr_info("IPA driver initialization was successful.\n");
 
@@ -8499,8 +8761,8 @@ fail_alloc_pkt_init:
 fail_dma_task:
 fail_init_hw:
 	ipahal_destroy();
-
 fail_ipahal:
+	ipa3_disable_clks();
 	return result;
 }
 
@@ -8689,8 +8951,11 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v4]);
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v6]);
 
-	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
-		if (!ipa_is_ep_support_flt(i))
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
+		if ((i < ipa3_ctx->ipa_num_pipes && !ipa_is_ep_support_flt(i)) ||
+		    (i >= ipa3_ctx->ipa_num_pipes &&
+		     !(i >= IPA6_Q6_NXT_FLT_TBL_START && i <= IPA6_Q6_NXT_FLT_TBL_END) &&
+		     !(i >= IPA6_NXT_FLT_TBL_START && i <= IPA6_NXT_FLT_TBL_END)))
 			continue;
 
 		for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
@@ -8707,7 +8972,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 				flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = false;
 				lcl_tbl = kcalloc(1, sizeof(struct ipa3_flt_tbl_nhash_lcl),
 						  GFP_KERNEL);
-				WARN_ON(lcl_tbl);
+				WARN_ON((lcl_tbl == NULL));
 				if (likely(lcl_tbl)) {
 					lcl_tbl->tbl = flt_tbl;
 					/* Add to the head of the list, to be pulled first */
@@ -8823,9 +9088,9 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 	result = ipa3_uc_interface_init();
 	if (result)
-		IPAERR(":ipa Uc interface init failed (%d)\n", -result);
+		IPAERR("IPA Uc interface init failed (%d)\n", -result);
 	else
-		IPADBG(":ipa Uc interface init ok\n");
+		IPADBG("IPA Uc interface init ok\n");
 	uc_hdlrs.ipa_uc_loaded_hdlr = ipa3_uc_is_loaded;
 	uc_hdlrs.ipa_uc_holb_enabled_hdlr = ipa3_uc_holb_client_handler;
 	ipa3_uc_register_handlers(IPA_HW_FEATURE_COMMON, &uc_hdlrs);
@@ -8861,6 +9126,13 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPAERR(":TSP init failed (%d)\n", -result);
 	else
 		IPADBG(":TSP init ok\n");
+#endif
+#if defined(CONFIG_IPA_IPSEC)
+	result = ipa_ipsec_init();
+	if (result)
+		IPAERR(":IPSEC init failed (%d)\n", -result);
+	else
+		IPADBG(":IPSEC init ok\n");
 #endif
 
 	result = ipa_hw_stats_init();
@@ -9168,6 +9440,29 @@ static int ipa3_pil_unload_ipa_fws(void)
 	IPADBG("PIL FW unloading process is complete sub_sys\n");
 #endif
 	return 0;
+}
+#endif
+
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+static void ipa3_xbl_ipa_init(struct work_struct *work)
+{
+	int result;
+
+	IPAERR("Using XBL boot load for IPA FW\n");
+
+	result = ipa3_attach_to_smmu();
+	if (result) {
+		IPAERR("IPA attach to smmu failed %d\n",
+				result);
+		return;
+	}
+
+	result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+	if (result) {
+		IPAERR("IPA post init failed %d\n", result);
+		return;
+
+	}
 }
 #endif
 
@@ -9968,6 +10263,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
+	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
 #ifdef CONFIG_GH_MSGQ
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;
 #endif
@@ -10025,6 +10321,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ipa_endp_delay_wa_v2 = resource_p->ipa_endp_delay_wa_v2;
 	ipa3_ctx->ulso_wa = resource_p->ulso_wa;
 	ipa3_ctx->coal_ipv4_id_ignore = resource_p->coal_ipv4_id_ignore;
+	if(resource_p->filter_start_id > IPA_Q6_FLT_START_ID)
+		ipa3_ctx->filter_start_id = resource_p->filter_start_id;
+	else
+		ipa3_ctx->filter_start_id = IPA_Q6_FLT_START_ID;
 
 	WARN(!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode),
 		"Non NORMAL IPA HW mode, is this emulation platform ?");
@@ -10880,8 +11180,8 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	if (result)
 		goto fail_init_active_client;
 
-	/* Enable ipa3_ctx->enable_clock_scaling */
-	ipa3_ctx->enable_clock_scaling = 1;
+	/* Need to change if GVM is to support multiple clients in the future */
+	ipa3_ctx->enable_clock_scaling = 0;
 	/* vote for svs2 on bootup */
 	ipa3_ctx->curr_ipa_clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_svs2;
 
@@ -11115,7 +11415,6 @@ fail_gsi_map:
 		iounmap(ipa3_ctx->reg_collection_base);
 	iounmap(ipa3_ctx->mmio);
 fail_remap:
-	ipa3_disable_clks();
 	ipa3_active_clients_log_destroy();
 	gsi_unmap_base();
 fail_init_active_client:
@@ -11478,6 +11777,19 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	if (result) {
 		IPAERR("No gunyah-label info\n");
 		ipa_drv_res->gunyah_label = 0;
+	}
+	ipa_drv_res->filter_start_id = 0;
+
+	/*QMI Support for filter rule start id*/
+	result = of_property_read_u32(pdev->dev.of_node,"qcom,filter-start-id", &ipa_drv_res->filter_start_id);
+	if(result)
+	{
+		ipa_drv_res->filter_start_id = IPA_Q6_FLT_START_ID;
+		IPADBG("Default: qcom,filter-start-id = %d\n", ipa_drv_res->filter_start_id);
+	}
+	else
+	{
+		IPADBG("Found:qcom,filter-start-id = %d\n", ipa_drv_res->filter_start_id);
 	}
 
 	/* Get IPA HW Version */
@@ -12952,6 +13264,12 @@ static int ipa_smmu_update_fw_loader(void)
 
 				if (ipa3_ctx->ipa_v2x_vm) {
 					result = ipa3_v2x_vm_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+#ifdef CONFIG_GH_MSGQ
+					ipa3_msgq_send(IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND, 0);
+#endif
+					/* Check if GVM SSR handling is required after GVM reset */
+					ipa3_v2x_vm_ssr_teardown_sys_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD);
+					ipa3_v2x_vm_ssr_teardown_sys_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS);
 				} else {
 					result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
 				}
@@ -12989,6 +13307,11 @@ static bool is_pcie_ep_falvor(struct device *dev)
 	u8 *buf;
 	int res = 0, num_fast_boot_values = 0, i;
 	u32 fast_boot_values[16];
+
+        if(ipa3_ctx->ipa_config_is_mhi) {
+                pr_debug("IPA configured in MHI AUTO already\n");
+                return true;
+        }
 
 	if (!of_find_property(n, "nvmem-cells", NULL)) {
 		pr_err("nvmem-cells property is not defined in %s node\n", n->name);
@@ -13222,11 +13545,13 @@ static int handle_smmu_dynamic_cfg(struct device *dev)
 			}
 		}
 	}
-	res = ipa_dt_node_add_property(dev->of_node, "qcom,use-ipa-in-mhi-mode", NULL);
-	if (res) {
-		pr_err("ipa_dt_node_add_property failed\n");
-		return res;
-	}
+        if (!ipa3_ctx->ipa_config_is_mhi) {
+                res = ipa_dt_node_add_property(dev->of_node, "qcom,use-ipa-in-mhi-mode", NULL);
+                if (res) {
+                        pr_err("ipa_dt_node_add_property failed\n");
+                        return res;
+                }
+        }
 
 	return 0;
 }
@@ -13399,6 +13724,13 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	if (of_device_is_compatible(dev->of_node,
 	    "qcom,smp2p-map-ipa-1-in"))
 		return ipa3_smp2p_probe(dev);
+        
+        ipa3_ctx->ipa_config_is_mhi =
+			of_property_read_bool(dev->of_node,
+			"qcom,use-ipa-in-mhi-mode");
+	IPADBG(": ipa_mhi_dynamic_config (%s)\n",
+		ipa3_ctx->ipa_config_is_mhi
+		? "True" : "False");
 
 	result = handle_smmu_dynamic_cfg(dev);
 	if (result) {
@@ -13500,6 +13832,15 @@ err_check:
 	}
 
 	return result;
+}
+
+void  ipa3_plat_drv_shutdown (struct platform_device *pdev_p)
+{
+	if(&(pdev_p->dev) != ipa3_ctx->pdev)
+		return;
+	IPAERR("IPA shutdown call \n");
+	ipa3_lcl_mdm_reboot_cb();
+	IPAERR("Exit \n");
 }
 
 /**
@@ -13613,6 +13954,10 @@ bool ipa3_get_lan_rx_napi(void)
 static void ipa3_deepsleep_suspend(void)
 {
 	IPADBG("Entry\n");
+	if (ipa3_ctx->deepsleep) {
+		IPAERR("Already in deepsleep mode\n");
+		return;
+	}
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	/* To allow default routing table delection using this flag */
@@ -13655,8 +14000,13 @@ static void ipa3_deepsleep_resume(void)
 	/*After deeplseep exit we shouldn't allow delete the default routing table*/
 	ipa3_ctx->deepsleep = false;
 	/*Scheduling WQ to load IPA FW*/
-	queue_work(ipa3_ctx->transport_power_mgmt_wq,
-		&ipa3_fw_loading_work);
+	if (ipa3_ctx->use_xbl_boot) {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_xbl_init_work);
+	} else {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_fw_loading_work);
+	}
 	IPADBG("Exit\n");
 }
 #endif

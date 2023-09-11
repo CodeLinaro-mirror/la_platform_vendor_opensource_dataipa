@@ -1569,6 +1569,9 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		IPADBG("Configured HOLB for clnt=%d, timer=%d, return = %d\n",
 				ipa_ep_idx_tx, holb_cfg.tmr_val, result);
 	} else if (ipa_get_wdi_version () >= IPA_WDI_4) {
+			
+			memset(&holb_cfg, 0, sizeof(holb_cfg));
+			holb_cfg.en = IPA_HOLB_TMR_EN;
 			if (ep_tx->client == IPA_CLIENT_WLAN4_CONS)
 					holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_2g_holb_timeout;
 			else if (ep_tx->client == IPA_CLIENT_WLAN1_CONS) {
@@ -1576,6 +1579,10 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 			}
 			else if (ep_tx->client == IPA_CLIENT_WLAN2_CONS)
 					holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_5g_holb_timeout;
+
+			result = ipa3_cfg_ep_holb(ipa_ep_idx_tx, &holb_cfg);
+			IPADBG("Configured HOLB for clnt=%d, timer=%d, return = %d\n",
+							ipa_ep_idx_tx, holb_cfg.tmr_val, result);
 	}
 
 
