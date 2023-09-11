@@ -356,6 +356,7 @@ struct ipa_ipsec_stats {
  * @default_rt: Default route table pointer
  * @stats: IPsec stats struct
  * @sa_mismatch_qmap_hdr_hdl: IPsec error QMAP header hdl for "no-policy" RT rule
+ * @enabled: Boolean to indicate the whole IPsec feature readiness
  */
 struct ipa_ipsec_ctx {
 	struct net_device *dev;
@@ -380,6 +381,7 @@ struct ipa_ipsec_ctx {
 	struct ipa3_rt_tbl *default_rt;
 	struct ipa_ipsec_stats stats;
 	u32 sa_mismatch_qmap_hdr_hdl;
+	bool enabled;
 };
 
 struct ipa_ipsec_work_wrap {

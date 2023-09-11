@@ -66,7 +66,7 @@ static struct workqueue_struct *ipa_ipsec_wq;
 
 bool ipa_ipsec_enabled(void)
 {
-	return !!ipa3_ctx->ipsec;
+	return !!ipa3_ctx->ipsec && ipa3_ctx->ipsec->enabled;
 }
 
 /*
@@ -2795,6 +2795,7 @@ int ipa_ipsec_init(void)
 		goto unmap_uc_smmu;
 	}
 
+	ipa3_ctx->ipsec->enabled = true;
 	return 0;
 
 unmap_uc_smmu:
