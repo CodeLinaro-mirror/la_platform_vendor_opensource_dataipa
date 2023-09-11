@@ -39,7 +39,7 @@ static struct {
 	.decap_rt = {"IPSEC_DECAP_v4", "IPSEC_DECAP_v6"},
 	.decap_no_policy_rt = {"IPSEC_DECAP_NO_POLICY_v4", "IPSEC_DECAP_NO_POLICY_v6"},
 	.default_rt = IPA_DFLT_WAN_RT_TBL_NAME,
-	.dl_rt = {"COMRTBLLANv4", "COMRTBLv6"},
+	.dl_rt = {"COMRTBLLANv4", "WANRTBLv6"},
 };
 
 static struct ipa_ipsec_algo _aalg_map[] = {
