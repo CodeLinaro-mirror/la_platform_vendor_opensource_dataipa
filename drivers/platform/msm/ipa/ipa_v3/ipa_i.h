@@ -1923,6 +1923,7 @@ enum ipa3_hw_flags {
  * @ipa_use_uc_holb_monitor: Indicates if uC HOLB feature is enabled
  * @ipa_holb_monitor: Struct with all info needed for uC HOLB feature
  * @curr_cmd: If cesta_enable it has the last MHI channel info sent to uC.
+ * @ipsec_next_iv_wa_ready: Boolean to indicate the NextIV uC readiness
  */
 struct ipa3_uc_ctx {
 	bool uc_inited;
@@ -1956,6 +1957,7 @@ struct ipa3_uc_ctx {
 	bool ipa_use_uc_holb_monitor;
 	struct ipa_holb_monitor holb_monitor;
 	struct IpaMhiChInfo_t curr_cmd;
+	bool ipsec_next_iv_wa_ready;
 };
 
 /**

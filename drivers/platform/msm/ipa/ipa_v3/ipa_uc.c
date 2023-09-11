@@ -630,10 +630,10 @@ static void ipa3_event_ring_hdlr(void)
 	void *rp_va;
 	struct ipa_inform_wlan_bw bw_info;
 	struct eventElement_t *e_b = NULL, *e_q = NULL, *e_h = NULL;
+	int mul = 0;
 #if defined(CONFIG_IPA_IPSEC)
 	struct eventElement_t *e_t = NULL;
 #endif
-	int mul = 0;
 
 	ering_rp = ipahal_read_reg_mn(IPA_UC_MAILBOX_m_n,
 		IPA_UC_ERING_m, IPA_UC_ERING_n_r);
@@ -644,7 +644,8 @@ static void ipa3_event_ring_hdlr(void)
 		rp_va = ipa3_ctx->uc_ctx.event_ring.base +
 			ipa3_ctx->uc_ctx.ering_rp_local;
 
-		if (((struct eventElement_t *) rp_va)->Opcode == BW_NOTIFY) {
+		switch (((struct eventElement_t *) rp_va)->Opcode) {
+		case BW_NOTIFY:
 			e_b = ((struct eventElement_t *) rp_va);
 			IPADBG("prot(%d), index (%d) throughput (%lu)\n",
 			e_b->Protocol,
@@ -660,8 +661,8 @@ static void ipa3_event_ring_hdlr(void)
 			if (ipa3_inform_wlan_bw(&bw_info))
 				IPAERR_RL("failed on index %d to wlan\n",
 				bw_info.index);
-		} else if (((struct eventElement_t *) rp_va)->Opcode
-			== QUOTA_NOTIFY) {
+			break;
+		case QUOTA_NOTIFY:
 			e_q = ((struct eventElement_t *) rp_va);
 			IPADBG("got quota-notify %d reach(%d) usage (%lu)\n",
 			e_q->Protocol,
@@ -671,8 +672,8 @@ static void ipa3_event_ring_hdlr(void)
 				e_q->Value.quota_param.usage))
 				IPAERR_RL("failed on quota_reach for %d\n",
 						e_q->Protocol);
-		} else if (((struct eventElement_t *) rp_va)->Opcode
-				== IPA_HOLB_BAD_PERIPHERAL_EVENT) {
+			break;
+		case IPA_HOLB_BAD_PERIPHERAL_EVENT:
 			e_h = ((struct eventElement_t *) rp_va);
 			IPAERR("Bad Periph for Chan %d QTimer %u %u\n",
 				e_h->Value.holb_notify_param.ipaProdGsiChid,
@@ -683,8 +684,8 @@ static void ipa3_event_ring_hdlr(void)
 				true,
 				e_h->Value.holb_notify_param.qTimerLSB,
 				e_h->Value.holb_notify_param.qTimerMSB);
-		} else if (((struct eventElement_t *) rp_va)->Opcode
-				== IPA_HOLB_PERIPHERAL_RECOVERED_EVENT) {
+			break;
+		case IPA_HOLB_PERIPHERAL_RECOVERED_EVENT:
 			e_h = ((struct eventElement_t *) rp_va);
 			IPAERR("Recovered Periph Chan %d QTimer %u %u\n",
 				e_h->Value.holb_notify_param.ipaProdGsiChid,
@@ -695,20 +696,30 @@ static void ipa3_event_ring_hdlr(void)
 				false,
 				e_h->Value.holb_notify_param.qTimerLSB,
 				e_h->Value.holb_notify_param.qTimerMSB);
+			break;
 #if defined(CONFIG_IPA_IPSEC)
-		} else if (((struct eventElement_t *) rp_va)->Opcode == IPSEC_THRESH_NOTIFY) {
-			e_t = ((struct eventElement_t *) rp_va);
-			IPADBG("Got IPsec threshold sa_idx (%d), sa_action (%d), type (%d)\n",
-				e_t->Value.ipsec_threshold_param.sa_idx,
-				e_t->Value.ipsec_threshold_param.sa_action,
-				e_t->Value.ipsec_threshold_param.type);
-			ipa_ipsec_handle_sa_thresh(
-				(u8)(e_t->Value.ipsec_threshold_param.sa_idx),
-				(enum ipa_ipsec_uc_sa_action)
-				(e_t->Value.ipsec_threshold_param.sa_action),
-				(enum ipa_ipsec_uc_thresh_type)
-				(e_t->Value.ipsec_threshold_param.type));
+		case IPSEC_THRESH_NOTIFY:
+			if (ipa_ipsec_enabled()) {
+				IPADBG("Got IPsec threshold sa_idx (%d), sa_action (%d), type (%d)\n",
+					e_t->Value.ipsec_threshold_param.sa_idx,
+					e_t->Value.ipsec_threshold_param.sa_action,
+					e_t->Value.ipsec_threshold_param.type);
+				ipa_ipsec_handle_sa_thresh(
+					(u8)(e_t->Value.ipsec_threshold_param.sa_idx),
+					(enum ipa_ipsec_uc_sa_action)
+					(e_t->Value.ipsec_threshold_param.sa_action),
+					(enum ipa_ipsec_uc_thresh_type)
+					(e_t->Value.ipsec_threshold_param.type));
+			}
+		case IPSEC_NEXT_IV_READY_NOTIFY:
+			if (ipa_ipsec_enabled())
+				ipa3_ctx->uc_ctx.ipsec_next_iv_wa_ready = true;
+			break;
 #endif
+		default:
+			IPAERR("Unidentified uC event %d\n",
+				((struct eventElement_t *) rp_va)->Opcode);
+			break;
 		}
 		ipa3_ctx->uc_ctx.ering_rp_local += offset;
 		ipa3_ctx->uc_ctx.ering_rp_local %=

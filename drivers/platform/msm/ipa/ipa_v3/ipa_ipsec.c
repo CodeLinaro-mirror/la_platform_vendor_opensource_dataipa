@@ -1268,6 +1268,12 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 	IPADBG("x->xso.dir = %u", x->xso.dir);
 	switch (x->xso.dir) {
 	case XFRM_DEV_OFFLOAD_OUT:
+		/* We can use HW offloaded AES CBC SAs only once the uC completed NextIV WA init */
+		if (ealg == IPA_IPSEC_ENC_AES_CBC && !ipa3_ctx->uc_ctx.ipsec_next_iv_wa_ready) {
+			IPAERR("Next IV uC workaround is not yet ready.\n");
+			return -EINVAL;
+		}
+
 		/* find a free index */
 		idx = _ipa_ipsec_next_free_sa(IPA_IPSEC_ENCAP);
 		if (idx >= IPA_IPSEC_MAX_SA_NUM) {
