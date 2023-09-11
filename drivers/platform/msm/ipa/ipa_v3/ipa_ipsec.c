@@ -236,6 +236,41 @@ static u32 _ipa_ipsec_xfrm_sa_enc_get(struct xfrm_state *x)
 	return IPA_IPSEC_ENC_MAX;
 }
 
+/* Translate ipa_ipsec_sa_auth enum to name */
+const char * ipa_ipsec_get_auth_algo_name(enum ipa_ipsec_sa_auth auth_algo)
+{
+	int i = 0;
+
+	while(_aalg_map[i].name) {
+		if(_aalg_map[i].algo.a == auth_algo)
+			return _aalg_map[i].name;
+		i++;
+	}
+
+	return NULL;
+}
+
+/* Translate ipa_ipsec_sa_enc enum to name */
+const char * ipa_ipsec_get_encr_algo_name(enum ipa_ipsec_sa_enc encr_algo)
+{
+	int i = 0;
+
+	while(_aead_map[i].name) {
+		if(_aead_map[i].algo.e == encr_algo)
+			return _aead_map[i].name;
+		i++;
+	}
+
+	i = 0;
+	while(_ealg_map[i].name) {
+		if(_ealg_map[i].algo.e == encr_algo)
+			return _ealg_map[i].name;
+		i++;
+	}
+
+	return NULL;
+}
+
 /* Translate XFRM aalg name into IPA auth algo ID */
 static u32 _ipa_ipsec_xfrm_sa_auth_get(struct xfrm_state *x)
 {

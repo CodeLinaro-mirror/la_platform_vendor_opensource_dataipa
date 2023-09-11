@@ -400,6 +400,8 @@ int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata);
 int ipa_ipsec_ep_init_prod(void);
 int ipa_ipsec_ep_init_cons(void);
 void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_sa_type type);
+const char * ipa_ipsec_get_auth_algo_name(enum ipa_ipsec_sa_auth auth_algo);
+const char * ipa_ipsec_get_encr_algo_name(enum ipa_ipsec_sa_enc encr_algo);
 #else
 inline bool ipa_ipsec_enabled(void) {return false;}
 inline int ipa_ipsec_init(void) {return 0;}
@@ -412,6 +414,8 @@ inline int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata) {retu
 inline int ipa_ipsec_ep_init_prod(void) {return 0;}
 inline int ipa_ipsec_ep_init_cons(void) {return 0;}
 inline void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_sa_type type) {return;}
+inline const char * ipa_ipsec_get_auth_algo_name(enum ipa_ipsec_sa_auth auth_algo) {return NULL;}
+inline const char * ipa_ipsec_get_encr_algo_name(enum ipa_ipsec_sa_enc encr_algo) {return NULL;}
 #endif
 
 #endif /* _IPA_IPSEC_H_ */
