@@ -1702,8 +1702,8 @@ struct ipa3_stats {
 	u32 rx_page_drop_cnt;
 	u64 lower_order;
 	u32 pipe_setup_fail_cnt;
-	struct ipa3_page_recycle_stats page_recycle_stats[3];
-	struct ipa3_cache_recycle_stats cache_recycle_stats[3];
+	struct ipa3_page_recycle_stats page_recycle_stats[IPA_APPS_IN_PIPES_NUM];
+	struct ipa3_cache_recycle_stats cache_recycle_stats[IPA_APPS_IN_PIPES_NUM];
 	u64 page_recycle_cnt[IPA_APPS_IN_PIPES_NUM][IPA_PAGE_POLL_THRESHOLD_MAX];
 	atomic_t num_buff_above_thresh_for_def_pipe_notified;
 	atomic_t num_buff_above_thresh_for_coal_pipe_notified;
