@@ -465,14 +465,14 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 
 		/* set up tx2 and tx3 properties for vlan as well*/
 		tx_prop[2].ip = IPA_IP_v4;
-		tx_prop[2].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx1_client;
+		tx_prop[2].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
 		tx_prop[2].alt_dst_pipe = in->alt_dst_pipe;
 		tx_prop[2].hdr_l2_type = in->hdr_info[2].hdr_type;
 		strlcpy(tx_prop[2].hdr_name, hdr->hdr[IPA_IP_v4_VLAN].name,
 				sizeof(tx_prop[2].hdr_name));
 
 		tx_prop[3].ip = IPA_IP_v6;
-		tx_prop[3].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx1_client;
+		tx_prop[3].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
 		tx_prop[3].alt_dst_pipe = in->alt_dst_pipe;
 		tx_prop[3].hdr_l2_type = in->hdr_info[3].hdr_type;
 		strlcpy(tx_prop[3].hdr_name, hdr->hdr[IPA_IP_v6_VLAN].name,
