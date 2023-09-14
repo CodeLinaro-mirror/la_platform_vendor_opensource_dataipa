@@ -250,7 +250,7 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 	ipa_ipv6ct_table* ipv6ct_table;
 	uint16_t new_entry_index;
 	uint32_t new_entry_handle;
-	uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
+	const uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
 		(IPA_MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_nat_dma_one));
 	char cmd_buf[cmd_sz];
 	struct ipa_ioc_nat_dma_cmd* cmd;
@@ -335,11 +335,11 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 	ipa_ipv6ct_table* ipv6ct_table;
 	ipa_table_iterator table_iterator;
 	ipa_ipv6ct_hw_entry* entry;
-	uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
+	const uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
 		(IPA_MAX_DMA_ENTRIES_FOR_DEL * sizeof(struct ipa_ioc_nat_dma_one));
 	char cmd_buf[cmd_sz];
 	struct ipa_ioc_nat_dma_cmd* cmd;
-	uint16_t index;
+	uint16_t idx;
 	int ret;
 
 	IPADBG("\n");
@@ -372,7 +372,7 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 		goto unlock;
 	}
 
-	ret = ipa_table_get_entry(&ipv6ct_table->table, rule_handle, (void**)&entry, &index);
+	ret = ipa_table_get_entry(&ipv6ct_table->table, rule_handle, (void**)&entry, &idx);
 	if (ret)
 	{
 		IPAERR("unable to retrive the entry with handle=%d in IPV6CT table with handle=%d\n",
@@ -380,11 +380,11 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 		goto unlock;
 	}
 
-	ret = ipa_table_iterator_init(&table_iterator, &ipv6ct_table->table, entry, index);
+	ret = ipa_table_iterator_init(&table_iterator, &ipv6ct_table->table, entry, idx);
 	if (ret)
 	{
 		IPAERR("unable to create iterator which points to the entry index=%d in IPV6CT table with handle=%d\n",
-			index, table_handle);
+			idx, table_handle);
 		goto unlock;
 	}
 
@@ -917,17 +917,17 @@ int ipa_ipv6ct_add_uc_act_entry(union ipa_ioc_uc_activation_entry *u)
  *
  * Returns:	0  On Success, negative on failure
  */
-int ipa_ipv6ct_del_uc_act_entry(uint16_t index)
+int ipa_ipv6ct_del_uc_act_entry(uint16_t idx)
 {
 	IPADBG("\n");
 
-	if(ioctl(ipv6ct.ipa_desc->fd, IPA_IOC_DEL_UC_ACT_ENTRY, index))
+	if(ioctl(ipv6ct.ipa_desc->fd, IPA_IOC_DEL_UC_ACT_ENTRY, idx))
 	{
 		IPAERR("ioctl (IPA_IOC_DEL_UC_ACT_ENTRY) on fd %d has failed\n",
 			ipv6ct.ipa_desc->fd);
 		return -EIO;
 	}
 	IPADBG("posted IPA_IOC_DEL_UC_ACT_ENTRY to kernel successfully, index %d\n",
-		index);
+		idx);
 	return 0;
 }

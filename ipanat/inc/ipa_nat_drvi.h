@@ -213,6 +213,7 @@ static inline const char *ipa3_nat_mem_in_as_str(
 		return "IPA_NAT_MEM_IN_DDR";
 	case IPA_NAT_MEM_IN_SRAM:
 		return "IPA_NAT_MEM_IN_SRAM";
+	/* Default case */
 	default:
 		break;
 	}
@@ -283,7 +284,7 @@ int ipa_nati_add_ipv4_tbl(
 	uint32_t    public_ip_addr,
 	const char *mem_type_ptr,
 	uint16_t    number_of_entries,
-	uint32_t   *table_hanle);
+	uint32_t   *tbl_hdl);
 
 int ipa_nati_del_ipv4_table(uint32_t tbl_hdl);
 
@@ -401,4 +402,4 @@ int ipa_NATI_del_ipv4_rule(
 int ipa_NATI_post_ipv4_init_cmd(
 	uint32_t tbl_hdl );
 
-#endif /* #ifndef IPA_NAT_DRVI_H */
+#endif/* if not defined IPA_NAT_DRVI_H */

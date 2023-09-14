@@ -106,7 +106,7 @@ extern pthread_mutex_t nat_mutex;
 
 static ipa_nat_pdn_entry pdns[IPA_MAX_PDN_NUM];
 static int num_pdns = 0;
-static int Hash_token = 69;
+
 /*
  * ----------------------------------------------------------------------------
  * Private helpers for manipulating regular tables
@@ -534,6 +534,10 @@ static void index_table_entry_set_prev_index(
 		IPAERR("Base table entry %u can't has prev entry %u, but only %u",
 			   entry_index, prev_index, IPA_TABLE_INVALID_ENTRY);
 	}
+	else
+	{
+		IPAERR("Invalid entry index");
+	}
 
 	IPADBG("Out\n");
 }
@@ -955,7 +959,7 @@ static void ipa_nati_copy_second_index_entry_to_head(
 	ipa_table_iterator* index_table_iterator,
 	struct ipa_ioc_nat_dma_cmd* cmd)
 {
-	uint16_t index;
+	uint16_t idx;
 	struct ipa_nat_rule* table;
 	struct ipa_nat_indx_tbl_rule* index_table_rule =
 		(struct ipa_nat_indx_tbl_rule*)index_table_iterator->next_entry;
@@ -976,14 +980,14 @@ static void ipa_nati_copy_second_index_entry_to_head(
 
 	/* Change the indx_tbl_entry field in the related table rule */
 	if (index_table_rule->tbl_entry < nat_table->table.table_entries) {
-		index = index_table_rule->tbl_entry;
+		idx = index_table_rule->tbl_entry;
 		table = (struct ipa_nat_rule*)nat_table->table.table_addr;
 	} else {
-		index = index_table_rule->tbl_entry - nat_table->table.table_entries;
+		idx = index_table_rule->tbl_entry - nat_table->table.table_entries;
 		table = (struct ipa_nat_rule*)nat_table->table.expn_table_addr;
 	}
 
-	table[index].indx_tbl_entry = index_table_iterator->curr_index;
+	table[idx].indx_tbl_entry = index_table_iterator->curr_index;
 
 	IPADBG("Out\n");
 }
@@ -1421,6 +1425,7 @@ int ipa_NATI_add_ipv4_tbl(
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	int ret = 0;
+	uint32_t _nmi;
 
 	IPADBG("In\n");
 
@@ -1504,7 +1509,8 @@ int ipa_NATI_add_ipv4_tbl(
 	/*
 	 * Return table handle
 	 */
-	*tbl_hdl = MAKE_TBL_HDL(nat_cache_ptr->table_cnt, nmi);
+	_nmi = nmi;
+	*tbl_hdl = MAKE_TBL_HDL(nat_cache_ptr->table_cnt, _nmi);
 
 	IPADBG("tbl_hdl value(0x%08X) num_pdns (%d)\n", *tbl_hdl, num_pdns);
 
@@ -1669,7 +1675,7 @@ int ipa_NATI_add_ipv4_rule(
 	const ipa_nat_ipv4_rule* clnt_rule,
 	uint32_t*                rule_hdl)
 {
-	uint32_t cmd_sz =
+	const uint32_t cmd_sz =
 		sizeof(struct ipa_ioc_nat_dma_cmd) +
 		(MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_nat_dma_one));
 	char cmd_buf[cmd_sz];
@@ -1680,6 +1686,7 @@ int ipa_NATI_add_ipv4_rule(
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	struct ipa_nat_rule*            rule;
+	static int Hash_token = 69;
 
 	uint16_t new_entry_index;
 	uint16_t new_index_tbl_entry_index;
@@ -1887,7 +1894,7 @@ int ipa_NATI_del_ipv4_rule(
 	uint32_t tbl_hdl,
 	uint32_t rule_hdl )
 {
-	uint32_t cmd_sz =
+	const uint32_t cmd_sz =
 		sizeof(struct ipa_ioc_nat_dma_cmd) +
 		(MAX_DMA_ENTRIES_FOR_DEL * sizeof(struct ipa_ioc_nat_dma_one));
 	char cmd_buf[cmd_sz];
@@ -1903,7 +1910,7 @@ int ipa_NATI_del_ipv4_rule(
 	ipa_table_iterator table_iterator;
 	ipa_table_iterator index_table_iterator;
 
-	uint16_t index;
+	uint16_t idx;
 	char     buf[1024];
 	int      ret = 0;
 
@@ -1943,7 +1950,7 @@ int ipa_NATI_del_ipv4_rule(
 		&nat_table->table,
 		rule_hdl,
 		(void**) &table_rule,
-		&index);
+		&idx);
 
 	if (ret) {
 		IPAERR("Unable to retrive the entry with rule_hdl=%u\n", rule_hdl);
@@ -1958,24 +1965,24 @@ int ipa_NATI_del_ipv4_rule(
 		&table_iterator,
 		&nat_table->table,
 		table_rule,
-		index);
+		idx);
 
 	if (ret) {
 		IPAERR("Unable to create iterator which points to the "
 			   "entry %u in NAT table with handle=0x%08X\n",
-			   index, tbl_hdl);
+			   idx, tbl_hdl);
 		goto unlock;
 	}
 
-	index = table_rule->indx_tbl_entry;
+	idx = table_rule->indx_tbl_entry;
 
 	index_table_rule = (struct ipa_nat_indx_tbl_rule*)
-		ipa_table_get_entry_by_index(&nat_table->index_table, index);
+		ipa_table_get_entry_by_index(&nat_table->index_table, idx);
 
 	if (index_table_rule == NULL) {
 		IPAERR("Unable to retrieve the entry in index %u "
 			   "in NAT index table with handle=0x%08X\n",
-			   index, tbl_hdl);
+			   idx, tbl_hdl);
 		ret = -EPERM;
 		goto unlock;
 	}
@@ -1984,12 +1991,12 @@ int ipa_NATI_del_ipv4_rule(
 		&index_table_iterator,
 		&nat_table->index_table,
 		index_table_rule,
-		index);
+		idx);
 
 	if (ret) {
 		IPAERR("Unable to create iterator which points to the "
 			   "entry %u in NAT index table with handle=0x%08X\n",
-			   index, tbl_hdl);
+			   idx, tbl_hdl);
 		goto unlock;
 	}
 
@@ -2011,7 +2018,7 @@ int ipa_NATI_del_ipv4_rule(
 		if (ret) {
 			IPAERR("Unable to move the iterator to the next entry "
 				   "(points to the entry %u in NAT index table)\n",
-				   index);
+				   idx);
 			goto unlock;
 		}
 	}
