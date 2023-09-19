@@ -7455,7 +7455,8 @@ void ipa3_q6_handshake_complete(bool ssr_bootup)
 		 * It is required to recover the network stats after
 		 * SSR recovery
 		 */
-		rmnet_ipa_get_network_stats_and_update();
+		if(!ipa3_ctx->ipa_config_is_auto)
+			rmnet_ipa_get_network_stats_and_update();
 	}
 
 	if (ipa3_ctx->ipa_mhi_proxy)
