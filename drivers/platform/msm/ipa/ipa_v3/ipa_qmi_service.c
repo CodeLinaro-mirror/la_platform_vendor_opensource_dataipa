@@ -17,6 +17,9 @@
 
 #include "ipa_qmi_service.h"
 #include "ipa_mhi_proxy.h"
+#ifdef CONFIG_IPA_IPSEC
+#include "ipa_ipsec.h"
+#endif
 
 #define IPA_Q6_SVC_VERS 1
 #define IPA_A5_SVC_VERS 1
@@ -345,6 +348,10 @@ static void ipa3_handle_modem_init_cmplt_req(struct qmi_handle *qmi_handle,
 {
 	struct ipa_init_modem_driver_cmplt_req_msg_v01 *cmplt_req;
 	struct ipa_init_modem_driver_cmplt_resp_msg_v01 resp;
+#ifdef CONFIG_IPA_IPSEC
+	struct ipa_endp_desc_indication_msg_v01 req;
+	struct ipa_ep_id_type_v01 *ep_info;
+#endif
 	int rc;
 
 	IPAWANDBG("Received QMI_IPA_INIT_MODEM_DRIVER_CMPLT_REQ_V01\n");
@@ -376,6 +383,26 @@ static void ipa3_handle_modem_init_cmplt_req(struct qmi_handle *qmi_handle,
 		IPAWANERR("QMI_IPA_INIT_MODEM_DRIVER_CMPLT_RESP_V01 failed\n");
 	else
 		IPAWANDBG("Sent QMI_IPA_INIT_MODEM_DRIVER_CMPLT_RESP_V01\n");
+
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		memset(&req, 0, sizeof(struct ipa_endp_desc_indication_msg_v01));
+		req.ep_info_len = 1;
+		req.ep_info_valid = true;
+		req.num_eps_valid = true;
+		req.num_eps = 1;
+		ep_info = &req.ep_info[0];
+		ep_info->ep_id = ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_ENCAP_PROD);
+		ep_info->ic_type = DATA_IC_TYPE_AP_V01;
+		ep_info->ep_type = DATA_EP_DESC_TYPE_EMB_CONS_V01;
+		ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+		rc = ipa3_qmi_send_endp_desc_indication(&req);
+		if (!!rc)
+			IPAWANERR("ipa_send_wan_pipe_ind_to_modem for IPsec failed\n");
+		else
+			IPAWANDBG("Sent ipa_send_wan_pipe_ind_to_modem for IPsec\n");
+	}
+#endif
 }
 
 static void ipa3_handle_mhi_alloc_channel_req(struct qmi_handle *qmi_handle,
@@ -795,9 +822,15 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 	req.hw_filter_stats_info.hw_filter_stats_start_index = IPA_Q6_FNR_START_IDX;
 	req.hw_filter_stats_info.hw_filter_stats_end_index = IPA_Q6_FNR_END_IDX;
 
+	/* Filter id start id information*/
+	req.filter_start_id_valid = 1;
+	req.filter_start_id = ipa3_ctx->filter_start_id;
+
 	req.smem_info_valid = true;
 	req.smem_info.size = ipa3_ctx->ipa_smem_size;
 
+	IPAWANDBG("filter_start_id_valid %d\n",req.filter_start_id_valid);
+	IPAWANDBG("filter_start_id %d\n",req.filter_start_id);
 	IPAWANDBG("hw_flt stats: hw_filter_start_address = %u", req.hw_filter_stats_info.hw_filter_stats_start_addr);
 	IPAWANDBG("hw_flt stats: hw_filter_stats_size = %u", req.hw_filter_stats_info.hw_filter_stats_size);
 	IPAWANDBG("hw_flt stats: hw_filter_stats_start_index  = %u", req.hw_filter_stats_info.hw_filter_stats_start_index);
@@ -864,7 +897,15 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 		return rc;
 	}
 
-	pr_info("QMI_IPA_INIT_MODEM_DRIVER_REQ_V01 response received\n");
+	IPAWANDBG("QMI_IPA_INIT_MODEM_DRIVER_REQ_V01 response received filter_start_id = %d \n", resp.filter_start_id);
+	if(resp.filter_start_id_valid == 1)
+	{
+		ipa3_ctx->filter_start_id = resp.filter_start_id;
+	}
+	else
+	{
+		ipa3_ctx->filter_start_id = IPA_Q6_FLT_START_ID;
+	}
 	return ipa3_check_qmi_response(rc,
 		QMI_IPA_INIT_MODEM_DRIVER_REQ_V01, resp.resp.result,
 		resp.resp.error, "ipa_init_modem_driver_resp_msg_v01");
@@ -986,6 +1027,21 @@ int ipa3_qmi_filter_request_ex_send(
 			}
 		}
 	}
+
+#ifdef CONFIG_IPA_IPSEC
+	/*
+	 * Shift the IPACM rules IPA_QMI_IPSEC_FLT_NUM positions to the bottom,
+	 * and insert IKE and IPsec catch all rules
+	 */
+	if (ipa_ipsec_enabled()) {
+		rc = ipa_ipsec_install_qmi_flt(req);
+		if (!!rc) {
+			IPAWANERR("ipa_ipsec_install_qmi_flt failed\n");
+			return rc;
+		}
+	}
+#endif
+
 	mutex_lock(&ipa3_qmi_lock);
 	if (ipa3_qmi_ctx != NULL) {
 		/* cache the qmi_filter_request */

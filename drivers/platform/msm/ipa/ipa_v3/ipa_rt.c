@@ -61,18 +61,23 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 	}
 
 	gen_params.ipt = ip;
-	gen_params.dst_pipe_idx = ipa3_get_ep_mapping(entry->rule.dst);
-	if (gen_params.dst_pipe_idx == -1) {
-		IPAERR_RL("Wrong destination pipe specified in RT rule\n");
-		WARN_ON_RATELIMIT_IPA(1);
-		return -EPERM;
-	}
-	if (!IPA_CLIENT_IS_CONS(entry->rule.dst)) {
-		IPAERR_RL("No RT rule on IPA_client_producer pipe.\n");
-		IPAERR_RL("pipe_idx: %d dst_pipe: %d\n",
-				gen_params.dst_pipe_idx, entry->rule.dst);
-		WARN_ON_RATELIMIT_IPA(1);
-		return -EPERM;
+	/* For rules with next round HPC we have to pass "invalid pipe" as the destination */
+	if (entry->rule.dst == IPA_CLIENT_MAX) {
+		gen_params.dst_pipe_idx = (int)IPA_INVALID_PIPE_IDX;
+	} else {
+		gen_params.dst_pipe_idx = ipa3_get_ep_mapping(entry->rule.dst);
+		if (gen_params.dst_pipe_idx == -1) {
+			IPAERR_RL("Wrong destination pipe specified in RT rule\n");
+			WARN_ON_RATELIMIT_IPA(1);
+			return -EPERM;
+		}
+		if (!IPA_CLIENT_IS_CONS(entry->rule.dst)) {
+			IPAERR_RL("No RT rule on IPA_client_producer pipe.\n");
+			IPAERR_RL("pipe_idx: %d dst_pipe: %d\n",
+					gen_params.dst_pipe_idx, entry->rule.dst);
+			WARN_ON_RATELIMIT_IPA(1);
+			return -EPERM;
+		}
 	}
 
 	/* Adding check to confirm still
@@ -916,6 +921,11 @@ static struct ipa3_rt_tbl *__ipa_add_rt_tbl(enum ipa_ip_type ip,
 			goto ipa_insert_failed;
 		}
 		entry->id = id;
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled())
+			if (!!ipa_ipsec_handle_lan_up_down(ip, entry, true))
+				IPAERR("failed to redirect IPsec policy rules\n");
+#endif
 	}
 
 	return entry;
@@ -974,6 +984,12 @@ static int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry)
 		kmem_cache_free(ipa3_ctx->rt_tbl_cache, entry);
 	}
 
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled())
+			if (!!ipa_ipsec_handle_lan_up_down(ip, entry, false))
+				IPAERR("failed to redirect IPsec policy rules to default\n");
+#endif
+
 	/* remove the handle from the database */
 	ipa3_id_remove(id);
 	return 0;
@@ -984,8 +1000,8 @@ static int __ipa_rt_validate_rule_id(u16 rule_id)
 	if (!rule_id)
 		return 0;
 
-	if ((rule_id < ipahal_get_rule_id_hi_bit()) ||
-		(rule_id >= ((ipahal_get_rule_id_hi_bit()<<1)-1))) {
+	if ((rule_id < ipa3_ctx->filter_start_id) ||
+		(rule_id >= ipa3_ctx->filter_start_id)) {
 		IPAERR_RL("Invalid rule_id provided 0x%x\n",
 			rule_id);
 		return -EPERM;
@@ -1115,7 +1131,7 @@ static int __ipa_finish_rt_rule_add(struct ipa3_rt_entry *entry, u32 *rule_hdl,
 {
 	int id;
 
-	if (tbl->rule_cnt < IPA_RULE_CNT_MAX)
+	if (tbl->rule_cnt < ipa3_ctx->filter_start_id)
 		tbl->rule_cnt++;
 	else
 		return -EINVAL;

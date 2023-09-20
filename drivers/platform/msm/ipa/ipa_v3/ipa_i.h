@@ -37,6 +37,9 @@
 #include "ipa_uc_offload_i.h"
 #include "ipa_pm.h"
 #include "ipa_defs.h"
+#if defined(CONFIG_IPA_IPSEC)
+#include "ipa_ipsec.h"
+#endif
 #include <linux/mailbox_client.h>
 #include <linux/mailbox/qmp.h>
 #include <linux/rmnet_ipa_fd_ioctl.h>
@@ -67,6 +70,7 @@
 
 #define IPA_EP_NOT_ALLOCATED (-1)
 #define IPA3_MAX_NUM_PIPES 46
+#define IPA_INVALID_PIPE_IDX 0xFF
 #define IPA5_PIPES_NUM 36
 #define IPA6_PIPES_NUM 50
 #define IPA6_PROD_PIPES_NUM 22
@@ -74,6 +78,7 @@
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
 #define IPA6_MAX_NUM_PIPES (IPA6_PIPES_NUM)
 #define IPA_MAX_NUM_PIPES IPA6_MAX_NUM_PIPES
+#define IPA_APPS_IN_PIPES_NUM 7 // number of pipes from IPA to APPs
 #define IPA6_NXT_FLT_TBL_Q6_NUM 1
 #define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
 #define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
@@ -102,6 +107,7 @@
 #define IPA_HOLB_TMR_VAL_4_5 31
 #define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
 
+#define IPA_Q6_FLT_START_ID 512
 #define IPA_Q6_FNR_START_IDX (128)
 #define IPA_Q6_FNR_IDX_CNT (52)
 #define IPA_Q6_FNR_END_IDX (IPA_Q6_FNR_START_IDX+IPA_Q6_FNR_IDX_CNT-1)
@@ -616,8 +622,6 @@ enum {
 
 #define MBOX_TOUT_MS 100
 
-#define IPA_RULE_CNT_MAX 512
-
 /* miscellaneous for rmnet_ipa and qmi_service */
 enum ipa_type_mode {
 	IPA_HW_TYPE,
@@ -967,6 +971,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	enum ipa_hdr_proc_type type;
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
+	struct ipa_ipsec_params ipsec_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
@@ -1680,8 +1685,10 @@ struct ipa3_stats {
 	u32 aggr_close;
 	u32 wan_aggr_close;
 	u32 wan_rx_empty;
+	u32 wan_rx_empty_ipsec;
 	u32 wan_rx_empty_coal;
 	u32 wan_repl_rx_empty;
+	u32 wan_repl_rx_empty_ipsec;
 	u32 rmnet_ll_rx_empty;
 	u32 rmnet_ll_repl_rx_empty;
 	u32 lan_rx_empty;
@@ -1695,9 +1702,9 @@ struct ipa3_stats {
 	u32 rx_page_drop_cnt;
 	u64 lower_order;
 	u32 pipe_setup_fail_cnt;
-	struct ipa3_page_recycle_stats page_recycle_stats[3];
-	struct ipa3_cache_recycle_stats cache_recycle_stats[3];
-	u64 page_recycle_cnt[3][IPA_PAGE_POLL_THRESHOLD_MAX];
+	struct ipa3_page_recycle_stats page_recycle_stats[IPA_APPS_IN_PIPES_NUM];
+	struct ipa3_cache_recycle_stats cache_recycle_stats[IPA_APPS_IN_PIPES_NUM];
+	u64 page_recycle_cnt[IPA_APPS_IN_PIPES_NUM][IPA_PAGE_POLL_THRESHOLD_MAX];
 	atomic_t num_buff_above_thresh_for_def_pipe_notified;
 	atomic_t num_buff_above_thresh_for_coal_pipe_notified;
 	atomic_t num_buff_below_thresh_for_def_pipe_notified;
@@ -1706,10 +1713,14 @@ struct ipa3_stats {
 	atomic_t num_buff_below_thresh_for_ll_pipe_notified;
 	atomic_t num_free_page_task_scheduled;
 	struct lan_coal_stats coal;
-	u64 num_sort_tasklet_sched[3];
+	u64 num_sort_tasklet_sched[IPA_APPS_IN_PIPES_NUM];
 	u64 num_of_times_wq_reschd;
 	u64 page_recycle_cnt_in_tasklet;
 	u32 ttl_cnt;
+#if defined(CONFIG_IPA_IPSEC)
+	atomic_t ipsec_enacp_excp;
+	atomic_t ipsec_decap_excp;
+#endif
 };
 
 /* offset for each stats */
@@ -2008,7 +2019,7 @@ struct ipa_quota_stats {
 };
 
 struct ipa_quota_stats_all {
-	struct ipa_quota_stats client[IPA5_PIPES_NUM];
+	struct ipa_quota_stats client[IPA_MAX_NUM_PIPES];
 };
 
 struct ipa_drop_stats {
@@ -2027,8 +2038,8 @@ struct ipa_hw_stats_quota {
 
 struct ipa_hw_stats_teth {
 	struct ipahal_stats_init_tethering init;
-	struct ipa_quota_stats_all prod_stats_sum[IPA5_PIPES_NUM];
-	struct ipa_quota_stats_all prod_stats[IPA5_PIPES_NUM];
+	struct ipa_quota_stats_all prod_stats_sum[IPA_MAX_NUM_PIPES];
+	struct ipa_quota_stats_all prod_stats[IPA_MAX_NUM_PIPES];
 };
 
 struct ipa_hw_stats_flt_rt {
@@ -2590,6 +2601,9 @@ struct ipa3_context {
 	struct ipa3_uc_wdi_ctx uc_wdi_ctx;
 	struct ipa3_uc_ntn_ctx uc_ntn_ctx;
 	struct ipa3_uc_wigig_ctx uc_wigig_ctx;
+#if defined(CONFIG_IPA_IPSEC)
+	struct ipa_ipsec_ctx *ipsec;
+#endif
 	u32 wan_rx_ring_size;
 	u32 lan_rx_ring_size;
 	bool skip_uc_pipe_reset;
@@ -2750,7 +2764,7 @@ struct ipa3_context {
 	u32 ipa_tiering_value;
 	bool ipa_v2x_vm;
 	u32 pvm_v2x_pm_hdl;
-	bool v2x_vm_ready;
+	atomic_t v2x_vm_ready;
 #ifdef CONFIG_GH_MSGQ
 	struct ipa_msgq_desc msgq_desc;
 #endif
@@ -2760,6 +2774,7 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_default_recycle_stats;
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
+	u16 filter_start_id;
 };
 
 struct ipa3_plat_drv_res {
@@ -2849,6 +2864,7 @@ struct ipa3_plat_drv_res {
 	bool iemac_exist;
 	bool ipa_v2x_vm;
 	u32 gunyah_label;
+	u32 filter_start_id;
 };
 
 /**
@@ -3396,6 +3412,8 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl);
 
 int ipa3_teardown_sys_pipe(u32 clnt_hdl);
 
+void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client);
+
 int ipa3_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 		struct ipa_wdi_out_params *out);
 int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
@@ -3659,6 +3677,7 @@ void ipa3_active_clients_log_clear(void);
 int ipa3_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev);
 void ipa3_interrupts_destroy(u32 ipa_irq, struct device *ipa_dev);
 int __ipa3_del_rt_rule(u32 rule_hdl);
+int __ipa_del_flt_rule(u32 rule_hdl);
 int __ipa3_del_hdr(u32 hdr_hdl, bool by_user);
 int __ipa3_release_hdr(u32 hdr_hdl);
 int __ipa3_release_hdr_proc_ctx(u32 proc_ctx_hdl);
@@ -4174,4 +4193,11 @@ void ipa3_set_eth_pdu_ep_status(void);
 #ifdef CONFIG_GH_MSGQ
 int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data);
 #endif
+#ifdef CONFIG_ARCH_SA525_HOSTVM
+void ipa3_v2x_vm_shutdown_cleanup(void);
+#endif
+
+/* Send IPsec UL flt to IPACM */
+int ipa3_send_ipsec_ul_flt(enum ipa_ipsec_ul_flt_evt event_type,
+	struct ipa_ioc_ipsec_ul_flt_attr *uf);
 #endif /* _IPA3_I_H_ */

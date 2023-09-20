@@ -85,6 +85,7 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_ENDP_INIT_RSRC_GRP_n),
 	__stringify(IPA_SHARED_MEM_SIZE),
 	__stringify(IPA_SW_AREA_RAM_DIRECT_ACCESS_n),
+	__stringify(IPA_IPSEC_AREA_RAM_DIRECT_ACCESS_n),
 	__stringify(IPA_DEBUG_CNT_CTRL_n),
 	__stringify(IPA_UC_MAILBOX_m_n),
 	__stringify(IPA_FILT_ROUT_HASH_FLUSH),
@@ -183,6 +184,7 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_ULSO_CFG_IP_ID_MIN_VALUE_n),
 	__stringify(IPA_ULSO_CFG_IP_ID_MAX_VALUE_n),
 	__stringify(IPA_ENDP_INIT_ULSO_CFG_n),
+	__stringify(IPA_ENDP_INIT_NAT_EXC_SUPPRESS_n),
 	__stringify(IPA_TSP_QM_EXTERNAL_BADDR_LSB),
 	__stringify(IPA_TSP_QM_EXTERNAL_BADDR_MSB),
 	__stringify(IPA_TSP_QM_EXTERNAL_SIZE),
@@ -198,8 +200,22 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_COAL_MASTER_CFG),
 	__stringify(IPA_IPV4_NAT_EXC_SUPPRESS_ROUT_TABLE_INDX),
 	__stringify(IPA_IPV6_CONN_TRACK_EXC_SUPPRESS_ROUT_TABLE_INDX),
+	__stringify(IPA_STATE_ENCAPS),
+	__stringify(IPA_STATE_ACL_1),
+	__stringify(IPA_STATE_DECAPS),
+	__stringify(IPA_IPSEC_DECAPS_UC_DRAM_SECTOR_BASE_ADDR),
+	__stringify(IPA_IPSEC_ENCAPSULATION_RESUME),
+	__stringify(IPA_IPSEC_ENCAPSULATION_WA_IRQ_DATA),
+	__stringify(IPA_IPSEC_DECAPS_UC_WORKAROUND),
+	__stringify(IPA_IPSEC_DECAPS_ANTI_REPLAY_RESULT),
+	__stringify(IPA_ENDP_INIT_IPSEC_CFG_n),
+	__stringify(IPA_UC_IRAM_START),
+	__stringify(IPA_UC_DRAM_START),
 	__stringify(IPA_TIERING_CFG),
 	__stringify(IPA_TIERING_CFG_WR_ONCE_INDICATION),
+	__stringify(IPA_UCP_RESUME),
+	__stringify(IPA_UCP_RESUME_METADATA),
+	__stringify(IPA_STATE_TX_HOLB_MASK_DPS_TX_1),
 };
 
 static void ipareg_construct_dummy(enum ipahal_reg_name reg,
@@ -2106,6 +2122,70 @@ static void ipareg_parse_endp_init_prod_cfg_n_v5_5(enum ipahal_reg_name reg,
 	cfg->tsp_idx =
 		((val & IPA_ENDP_INIT_PROD_CFG_n_TSP_INDEX_BMASK) >>
 		IPA_ENDP_INIT_PROD_CFG_n_TSP_INDEX_SHIFT);
+	cfg->max_output_size =
+		((val & IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_BMASK) >>
+		IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_SHIFT);
+	cfg->egress_tc_lowest =
+		((val & IPA_ENDP_INIT_PROD_CFG_n_EGRESS_TC_LOWEST_BMASK) >>
+		IPA_ENDP_INIT_PROD_CFG_n_EGRESS_TC_LOWEST_SHIFT);
+	cfg->egress_tc_highest =
+		((val & IPA_ENDP_INIT_PROD_CFG_n_EGRESS_TC_HIGHEST_BMASK) >>
+		IPA_ENDP_INIT_PROD_CFG_n_EGRESS_TC_HIGHEST_SHIFT);
+}
+
+static void ipareg_construct_endp_init_prod_cfg_n_v6_0(
+	enum ipahal_reg_name reg, const void *fields, u32 *val)
+{
+	struct ipa_ep_cfg_prod_cfg *cfg =
+		(struct ipa_ep_cfg_prod_cfg *)fields;
+
+	IPA_SETFIELD_IN_REG(*val, cfg->tx_instance ? 1 : 0,
+			IPA_ENDP_INIT_PROD_CFG_n_TX_SEL_SHIFT,
+			IPA_ENDP_INIT_PROD_CFG_n_TX_SEL_BMASK);
+	IPA_SETFIELD_IN_REG(*val, cfg->tsp_enable ? 1 : 0,
+			IPA_ENDP_INIT_PROD_CFG_n_TSP_ENABLE_SHIFT,
+			IPA_ENDP_INIT_PROD_CFG_n_TSP_ENABLE_BMASK);
+	IPA_SETFIELD_IN_REG(*val, cfg->max_output_size_drop_enable ? 1 : 0,
+			IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_DROP_ENABLE_SHIFT,
+			IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_DROP_ENABLE_BMASK);
+	IPA_SETFIELD_IN_REG(*val, cfg->tsp_idx,
+			IPA_ENDP_INIT_PROD_CFG_n_TSP_INDEX_SHIFT,
+			IPA_ENDP_INIT_PROD_CFG_n_TSP_INDEX_BMASK);
+	IPA_SETFIELD_IN_REG(*val, cfg->error_qmap_en,
+			IPA_ENDP_INIT_PROD_CFG_n_ERROR_QMAP_EN_SHIFT,
+			IPA_ENDP_INIT_PROD_CFG_n_ERROR_QMAP_EN_BMASK);
+	IPA_SETFIELD_IN_REG(*val, cfg->max_output_size,
+			IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_SHIFT,
+			IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_BMASK);
+	IPA_SETFIELD_IN_REG(*val, cfg->egress_tc_lowest,
+			IPA_ENDP_INIT_PROD_CFG_n_EGRESS_TC_LOWEST_SHIFT,
+			IPA_ENDP_INIT_PROD_CFG_n_EGRESS_TC_LOWEST_BMASK);
+	IPA_SETFIELD_IN_REG(*val, cfg->egress_tc_highest,
+			IPA_ENDP_INIT_PROD_CFG_n_EGRESS_TC_HIGHEST_SHIFT,
+			IPA_ENDP_INIT_PROD_CFG_n_EGRESS_TC_HIGHEST_BMASK);
+}
+
+static void ipareg_parse_endp_init_prod_cfg_n_v6_0(enum ipahal_reg_name reg,
+	void *fields, u32 val)
+{
+	struct ipa_ep_cfg_prod_cfg *cfg =
+		(struct ipa_ep_cfg_prod_cfg *)fields;
+
+	cfg->tx_instance =
+		((val & IPA_ENDP_INIT_PROD_CFG_n_TX_SEL_BMASK) >>
+		IPA_ENDP_INIT_PROD_CFG_n_TX_SEL_SHIFT);
+	cfg->tsp_enable =
+		((val & IPA_ENDP_INIT_PROD_CFG_n_TSP_ENABLE_BMASK) >>
+		IPA_ENDP_INIT_PROD_CFG_n_TSP_ENABLE_SHIFT);
+	cfg->max_output_size_drop_enable =
+		((val & IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_DROP_ENABLE_BMASK) >>
+		IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_DROP_ENABLE_SHIFT);
+	cfg->tsp_idx =
+		((val & IPA_ENDP_INIT_PROD_CFG_n_TSP_INDEX_BMASK) >>
+		IPA_ENDP_INIT_PROD_CFG_n_TSP_INDEX_SHIFT);
+	cfg->error_qmap_en =
+		((val & IPA_ENDP_INIT_PROD_CFG_n_ERROR_QMAP_EN_BMASK) >>
+		IPA_ENDP_INIT_PROD_CFG_n_ERROR_QMAP_EN_SHIFT);
 	cfg->max_output_size =
 		((val & IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_BMASK) >>
 		IPA_ENDP_INIT_PROD_CFG_n_MAX_OUTPUT_SIZE_SHIFT);
@@ -5453,6 +5533,15 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_QSB_MAX_READS] = {
 		ipareg_construct_qsb_max_reads_v4_0, ipareg_parse_qsb_max_reads,
 		0x00000074, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_STATE_ENCAPS] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0x00000090, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_STATE_ACL_1] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0x00000094, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_STATE_DECAPS] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0x00000098, 0, 0, 0, 0, 0},
 	[IPA_HW_v6_0][IPA_STATE_TX1] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0, 0, 0, 1, 0},
@@ -5477,6 +5566,9 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_STATE_TX0] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0, 0, 0, 1, 0},
+	[IPA_HW_v6_0][IPA_STATE_TX_HOLB_MASK_DPS_TX_1] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0x00000110, 0, 0, 0, 0, 0},
 	[IPA_HW_v6_0][IPA_STATE_TSP] = {
 		ipareg_construct_dummy, ipareg_parse_state_tsp,
 		0x0000011C, 0, 0, 0, 1, 0},
@@ -5707,7 +5799,7 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		ipareg_parse_dummy,
 		0x00001030, 0x100, 21, 48, 1, 0},
 	[IPA_HW_v6_0][IPA_ENDP_INIT_PROD_CFG_n] = {
-		ipareg_construct_endp_init_prod_cfg_n_v5_5, ipareg_parse_endp_init_prod_cfg_n_v5_5,
+		ipareg_construct_endp_init_prod_cfg_n_v6_0, ipareg_parse_endp_init_prod_cfg_n_v6_0,
 		0x0000106C, 0x100, 21, 48, 1, 0},
 	[IPA_HW_v6_0][IPA_COAL_EVICT_LRU] = {
 		ipareg_construct_coal_evict_lru_v5_5, ipareg_parse_coal_evict_lru_v5_5,
@@ -5754,6 +5846,9 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_ENDP_INIT_NAT_EXC_SUPPRESS_n] = {
 		ipareg_construct_endp_init_nat_exc_suppress_n, ipareg_parse_dummy,
 		0x00001078, 0x100, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_ENDP_INIT_IPSEC_CFG_n] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0x0000107C, 0x100, 0, 0, 0, 0},
 
 	/* IPA_DEBUG */
 	[IPA_HW_v6_0][IPA_RX_HPS_CLIENTS_MIN_DEPTH_1] = {
@@ -5859,6 +5954,12 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_FEC_ATTR_EE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0, 0, 0, 0, 0},
+        [IPA_HW_v6_0][IPA_UCP_RESUME] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0x0001B0E0, 0, 0, 0, 0, 0},
+        [IPA_HW_v6_0][IPA_UCP_RESUME_METADATA] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0x0001B0E4, 0, 0, 0, 0, 0},
 	[IPA_HW_v6_0][IPA_IPSEC_DECAPS_UC_DRAM_SECTOR_BASE_ADDR] = {
                 ipareg_construct_dummy, ipareg_parse_dummy,
                 0x0001b0fc, 0, 0, 0, 0, 0},
@@ -5880,6 +5981,9 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_SW_AREA_RAM_DIRECT_ACCESS_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x0002c000, 0x4, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_IPSEC_AREA_RAM_DIRECT_ACCESS_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00007f000, 0x4, 0, 0, 0, 0},
 
 	/* IPA_UC */
 

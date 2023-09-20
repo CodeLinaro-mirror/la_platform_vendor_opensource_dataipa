@@ -126,6 +126,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(struct ipa_mem_buffer *mem,
 				entry->hdr->offset_entry,
 				&entry->l2tp_params,
 				&entry->eogre_params,
+				&entry->ipsec_params,
 				&entry->generic_params,
 				&entry->generic_params_v2,
 				ipa3_ctx->use_64_bit_dma_mask);
@@ -535,6 +536,7 @@ static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
 	entry->hdr = hdr_entry;
 	entry->l2tp_params = proc_ctx->l2tp_params;
 	entry->eogre_params = proc_ctx->eogre_params;
+	entry->ipsec_params = proc_ctx->ipsec_params;
 	entry->generic_params = proc_ctx->generic_params;
 	entry->generic_params_v2 = proc_ctx->generic_params_v2;
 	if (add_ref_hdr)
