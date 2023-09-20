@@ -957,7 +957,6 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
 							i].pipes_client_type[0];
 #endif
-				IPA_STATS_ERR("IEMAC client\n");
 				client_type = tx_instance_ptr_local->tx_client;
 				instance_ptr->pm_bandwidth =
 					ipa_pm_get_pm_clnt_throughput(client_type);
@@ -976,7 +975,6 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				memset(&(ntn3_stats.tx_stats), 0, sizeof(ntn3_stats.tx_stats));
 				// ipa_eth_ntn3_get_status(&ntn3_stats, i);
 				__ipa_ntn3_cons_stats_get(&(ntn3_stats.tx_stats), tx_instance_ptr_local->tx_client);
-				IPA_STATS_ERR("Got the stats for tx client:%d\n",tx_instance_ptr_local->tx_client);
 				/* Currently reserved until GSI needs anything in future */
 				tx_instance_ptr_local->num_tx_oob = ntn3_stats.tx_stats.oob_cnt;
 				tx_instance_ptr_local->num_tx_oob_time = 0;
@@ -1074,7 +1072,6 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
 							i].pipes_client_type[1];
 #endif
-				IPA_STATS_ERR("IEMAC client Rx\n");
 				client_type = rx_instance_ptr_local->rx_client;
 				rx_instance_ptr_local->num_rx_ring_100_perc_with_pack =
 					stats.u.ring[0].ringFull;
@@ -1091,7 +1088,6 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 
 				memset(&(ntn3_stats.rx_stats), 0, sizeof(ntn3_stats.rx_stats));
 				__ipa_ntn3_prod_stats_get(&(ntn3_stats.rx_stats), rx_instance_ptr_local->rx_client);
-				IPA_STATS_ERR("Got the stats for Rx client:%d\n",rx_instance_ptr_local->rx_client);
 				rx_instance_ptr_local->num_rx_ring_stats_polled = ntn3_stats.rx_stats.pending_db_after_rollback;
 				rx_instance_ptr_local->num_rx_drop_stats = ntn3_stats.rx_stats.err_cnt;
 				rx_instance_ptr_local->gsi_debug1 = ntn3_stats.rx_stats.msi_db_idx;
