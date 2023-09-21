@@ -3963,6 +3963,54 @@ static ssize_t ipa3_write_ipsec_sa_index(struct file *file,
 	return count;
 }
 
+
+static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
+	char __user *buf, size_t count, loff_t *ppos)
+{
+	int nbytes = 0;
+	u8 sa_idx;
+	struct ipa_ipsec_ctx *ipsec = ipa3_ctx->ipsec;
+
+	if (!ipsec) {
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"The IPsec is not initialyzed\n");
+		return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+	}
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	for (sa_idx = 0; sa_idx < IPA_IPSEC_MAX_SA_NUM; sa_idx++) {
+		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x &&
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x) {
+			memcpy_fromio(&esa, (void __iomem *)(ipsec->encap + sa_idx),
+				sizeof(struct ipa_ipsec_sa_encap));
+			memcpy_fromio(&dsa, (void __iomem *)(ipsec->decap + sa_idx),
+				sizeof(struct ipa_ipsec_sa_decap));
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"\n\n-----------------------SA index %u is Active----------------------------\n",
+				sa_idx);
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"encap_volume_bytes = %llu\n", esa.dyna.volume_bytes);
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"decap_volume_bytes = %llu\n", dsa.dyna.volume_bytes);
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"nat_t = %d\n", dsa.stat.nat_t);
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"encap auth name = %s , encr name = %s\n",
+				ipa_ipsec_get_auth_algo_name(esa.shar.auth_algo),
+				ipa_ipsec_get_encr_algo_name(esa.shar.encr_algo));
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"decap auth name = %s , encr name = %s\n",
+				ipa_ipsec_get_auth_algo_name(dsa.shar.auth_algo),
+				ipa_ipsec_get_encr_algo_name(dsa.shar.encr_algo));
+			}
+	}
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+}
+
 #endif
 
 static const struct ipa3_debugfs_file debugfs_files[] = {
@@ -4206,12 +4254,16 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.write = ipa3_write_ipsec_sa_index,
 		}
 	}, {
-		"ipsec_sa_info_encap", IPA_READ_ONLY_MODE, NULL,{
+		"ipsec_encap_sa_info", IPA_READ_ONLY_MODE, NULL,{
 			.read = ipa3_read_ipsec_encap_sa_info,
 		}
 	}, {
-		"ipsec_sa_info_decap", IPA_READ_ONLY_MODE, NULL,{
+		"ipsec_decap_sa_info", IPA_READ_ONLY_MODE, NULL,{
 			.read = ipa3_read_ipsec_decap_sa_info,
+		}
+	}, {
+		"ipsec_active_sa", IPA_READ_ONLY_MODE, NULL,{
+			.read = ipa3_read_ipsec_active_sa,
 		}
 #endif
 	},
