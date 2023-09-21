@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/dma-mapping.h>
@@ -360,8 +361,9 @@ static void __map_smmu_info(struct device *dev,
 
 			IMP_DBG("mapping 0x%lx to 0x%pa size %d\n",
 				iova_p, &pa_p, size_p);
-			iommu_map(domain,
-				iova_p, pa_p, size_p, prot);
+
+			iommu_map(domain, iova_p, pa_p, size_p, prot, GFP_KERNEL);
+			
 		} else {
 			IMP_DBG("unmapping 0x%lx to 0x%pa size %d\n",
 				iova_p, &pa_p, size_p);
@@ -821,7 +823,7 @@ static int imp_mhi_probe_cb(struct mhi_device *mhi_dev,
 		return -EINVAL;
 	}
 
-	IMP_DBG("chdb-base=0x%x\n", imp_ctx->dev_info.chdb_base);
+	IMP_DBG("chdb-base=0x%llx\n", imp_ctx->dev_info.chdb_base);
 
 	ret = mhi_get_event_ring_db_base(mhi_dev, &imp_ctx->dev_info.erdb_base);
 	if (ret) {
@@ -829,7 +831,7 @@ static int imp_mhi_probe_cb(struct mhi_device *mhi_dev,
 		return -EINVAL;
 	}
 
-	IMP_DBG("erdb-base=0x%x\n", imp_ctx->dev_info.erdb_base);
+	IMP_DBG("erdb-base=0x%llx\n", imp_ctx->dev_info.erdb_base);
 #endif
 
 	/* vote for IPA clock. IPA clock will be devoted when MHI enters LPM */
@@ -1022,14 +1024,14 @@ static int imp_probe(struct platform_device *pdev)
 		IMP_ERR("failed to read of_node %s\n", "qcom,mhi-chdb-base");
 		return -EINVAL;
 	}
-	IMP_DBG("chdb-base=0x%x\n", imp_ctx->dev_info.chdb_base);
+	IMP_DBG("chdb-base=0x%llx\n", imp_ctx->dev_info.chdb_base);
 
 	if (of_property_read_u32(pdev->dev.of_node, "qcom,mhi-erdb-base",
 		&imp_ctx->dev_info.erdb_base)) {
 		IMP_ERR("failed to read of_node %s\n", "qcom,mhi-erdb-base");
 		return -EINVAL;
 	}
-	IMP_DBG("erdb-base=0x%x\n", imp_ctx->dev_info.erdb_base);
+	IMP_DBG("erdb-base=0x%llx\n", imp_ctx->dev_info.erdb_base);
 #endif
 
 	imp_ctx->state = IMP_PROBED;

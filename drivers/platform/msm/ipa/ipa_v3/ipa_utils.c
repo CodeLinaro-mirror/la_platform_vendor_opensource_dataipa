@@ -11476,10 +11476,10 @@ int ipa_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 				gsi_ep_cfg->ee,
 				ep_ctrl->ipa_ep_delay, primary_secondry, &code);
 		if (result == GSI_STATUS_SUCCESS) {
-			IPADBG("flow control sussess gsi ch %d with code %d\n",
+			IPADBG("flow control sussess gsi ch %lu with code %d\n",
 					ep->gsi_chan_hdl, code);
 		} else {
-			IPADBG("failed to flow control gsi ch %d code %d\n",
+			IPADBG("failed to flow control gsi ch %lu code %d\n",
 					ep->gsi_chan_hdl, code);
 		}
 		return 0;
@@ -15019,7 +15019,7 @@ static int __ipa_stop_gsi_channel(u32 clnt_hdl)
 		res = ipa3_uc_client_del_holb_monitor(ep->gsi_chan_hdl,
 							IPA_EE_AP);
 		if (res)
-			IPAERR("Delete HOLB monitor failed for ch %d\n",
+			IPAERR("Delete HOLB monitor failed for ch %lu\n",
 					ep->gsi_chan_hdl);
 		/* Set HOLB back if it was set previously.
 		 * There is a possibility that uC will reset as part of HOLB
