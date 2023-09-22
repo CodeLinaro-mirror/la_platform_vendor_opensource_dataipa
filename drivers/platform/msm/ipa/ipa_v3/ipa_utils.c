@@ -9003,7 +9003,7 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.modem_hdr_proc_ctx_size = 0xb20,
 	.apps_hdr_proc_ctx_ofst = 0x4120,
 	.apps_hdr_proc_ctx_size = 0x22c0,
-	.apps_hdr_proc_ctx_size_ddr = 0x0,
+	.apps_hdr_proc_ctx_size_ddr = 0x3fe0,
 	.stats_quota_q6_ofst = 0x63e8,
 	.stats_quota_q6_size = 0x60,
 	.stats_quota_ap_ofst = 0x6448,
@@ -9862,21 +9862,13 @@ void _ipa_sram_settings_read_v3_0(void)
 	ipa3_ctx->smem_sz *= 8;
 	ipa3_ctx->smem_reqd_sz = IPA_MEM_PART(end_ofst);
 
-	if (ipa3_ctx->is_dual_pine_config) {
-		ipa3_ctx->hdr_proc_ctx_tbl_lcl = false;
-	}
-	else {
-		ipa3_ctx->hdr_proc_ctx_tbl_lcl = true;
-	}
-
 	/*
 	 * when proc ctx table is located in internal memory,
 	 * modem entries resides first.
 	 */
-	if (ipa3_ctx->hdr_proc_ctx_tbl_lcl) {
-		ipa3_ctx->hdr_proc_ctx_tbl.start_offset =
+	ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset =
 			IPA_MEM_PART(modem_hdr_proc_ctx_size);
-	}
+	ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset = 0;
 
 	ipa3_ctx->rt_tbl_hash_lcl[IPA_IP_v4] = false;
 	ipa3_ctx->rt_tbl_nhash_lcl[IPA_IP_v4] = false;
