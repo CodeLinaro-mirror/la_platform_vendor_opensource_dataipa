@@ -3739,7 +3739,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
  * Configure mux id for RMNET interfaces
  *
  */
-static int rmnet_mux_init(void)
+int rmnet_mux_init(void)
 {
 	uint32_t mux_id;
 	int mux_index;
@@ -3753,7 +3753,7 @@ static int rmnet_mux_init(void)
 
 	for(id = 1; id <= MAX_NUM_OF_MUX_CHANNEL; id++)
 	{
-		snprintf(channel_name, IFNAMSIZ, "rmnet_data%d",id-1);
+		snprintf(channel_name, IFNAMSIZ, "qmapmuxX.%d",id-1);
 		mux_id = id;
 		mux_index = ipa3_find_mux_channel_index(
 						id, true);
@@ -5685,8 +5685,6 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			handle3_egress_format_internal(rmnet_egress_cfg);
 
 			handle3_ingress_format_internal(rmnet_ingress_cfg);
-
-			rmnet_mux_init();
 		}
 
 		IPAWANINFO("IPA AFTER_POWERUP handling is complete\n");
