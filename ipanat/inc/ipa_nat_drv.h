@@ -121,7 +121,7 @@ typedef struct {
  * @public_ip_addr: [in] public ipv4 address
  * @mem_type_ptr: [in] type of memory table is to reside in
  * @number_of_entries: [in]  number of nat entries
- * @table_handle: [out] Handle of new ipv4 nat table
+ * @tbl_hdl: [out] Handle of new ipv4 nat table
  *
  * To create new ipv4 nat table
  *
@@ -131,21 +131,21 @@ int ipa_nat_add_ipv4_tbl(
 	uint32_t public_ip_addr,
 	const char *mem_type_ptr,
 	uint16_t number_of_entries,
-	uint32_t *table_handle);
+	uint32_t *tbl_hdl);
 
 /**
  * ipa_nat_del_ipv4_tbl() - delete ipv4 table
- * @table_handle: [in] Handle of ipv4 nat table
+ * @tbl_hdl: [in] Handle of ipv4 nat table
  *
  * To delete given ipv4 nat table
  *
  * Returns:	0  On Success, negative on failure
  */
-int ipa_nat_del_ipv4_tbl(uint32_t table_handle);
+int ipa_nat_del_ipv4_tbl(uint32_t tbl_hdl);
 
 /**
  * ipa_nat_add_ipv4_rule() - to insert new ipv4 rule
- * @table_handle: [in] handle of ipv4 nat table
+ * @tbl_hdl: [in] handle of ipv4 nat table
  * @rule: [in]  Pointer to new rule
  * @rule_handle: [out] Return the handle to rule
  *
@@ -153,26 +153,26 @@ int ipa_nat_del_ipv4_tbl(uint32_t table_handle);
  *
  * Returns:	0  On Success, negative on failure
  */
-int ipa_nat_add_ipv4_rule(uint32_t table_handle,
+int ipa_nat_add_ipv4_rule(uint32_t tbl_hdl,
 				const ipa_nat_ipv4_rule * rule,
 				uint32_t *rule_handle);
 
 /**
  * ipa_nat_del_ipv4_rule() - to delete ipv4 nat rule
- * @table_handle: [in] handle of ipv4 nat table
+ * @tbl_hdl: [in] handle of ipv4 nat table
  * @rule_handle: [in] ipv4 nat rule handle
  *
  * To insert new ipv4 nat rule into ipv4 nat table
  *
  * Returns:	0  On Success, negative on failure
  */
-int ipa_nat_del_ipv4_rule(uint32_t table_handle,
+int ipa_nat_del_ipv4_rule(uint32_t tbl_hdl,
 				uint32_t rule_handle);
 
 
 /**
  * ipa_nat_query_timestamp() - to query timestamp
- * @table_handle: [in] handle of ipv4 nat table
+ * @tbl_hdl: [in] handle of ipv4 nat table
  * @rule_handle: [in] ipv4 nat rule handle
  * @time_stamp: [out] time stamp of rule
  *
@@ -181,7 +181,7 @@ int ipa_nat_del_ipv4_rule(uint32_t table_handle,
  *
  * Returns:	0  On Success, negative on failure
  */
-int ipa_nat_query_timestamp(uint32_t  table_handle,
+int ipa_nat_query_timestamp(uint32_t  tbl_hdl,
 				uint32_t  rule_handle,
 				uint32_t  *time_stamp);
 
