@@ -1,3 +1,4 @@
+ifeq ($(TARGET_DATAIPA_DLKM_ENABLE), true)
 ifneq ($(TARGET_BOARD_PLATFORM),qssi)
 
 GSI_DLKM_PLATFORMS_LIST := taro kalama bengal monaco pineapple blair holi
@@ -13,6 +14,7 @@ endif
 
 ifeq ($(call is-board-platform-in-list, $(GSI_DLKM_PLATFORMS_LIST)),true)
 #Make file to create GSI DLKM
+
 DLKM_DIR := $(TOP)/device/qcom/common/dlkm
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
@@ -68,3 +70,4 @@ endif
 
 endif #End of Check for target
 endif #End of Check for qssi target
+endif #DLKM
