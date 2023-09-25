@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPAHAL_I_H_
@@ -1272,12 +1273,23 @@ union ipa_pkt_status_hw_v6_0 {
 #define IPA_HDR_UCP_SET_DSCP               16
 #define IPA_HDR_UCP_EoGRE_HEADER_ADD       17
 #define IPA_HDR_UCP_EoGRE_HEADER_REMOVE    18
+#define IPA_HDR_UCP_IPSEC_PRE_ENCAP        21
+#define IPA_HDR_UCP_IPSEC_PRE_DECAP        22
 #define IPA_HDR_UCP_WWAN_TO_ETHII_EX       26
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0
 #define IPA_PROC_CTX_TLV_TYPE_HDR_ADD 1
 #define IPA_PROC_CTX_TLV_TYPE_PROC_CMD 3
+#define IPA_PROC_CTX_TLV_TYPE_UL_NLO 4
+#define IPA_PROC_CTX_TLV_TYPE_TRLR_ADD 5
+#define IPA_PROC_CTX_TLV_TYPE_IPSEC 6
+#define IPA_PROC_CTX_TLV_TYPE_NXT_RND 7
+
+/* uC IPsec activate actions */
+#define IPA_UC_IPSEC_ACT_DISABLE 0
+#define IPA_UC_IPSEC_ACT_ENCAP 0
+#define IPA_UC_IPSEC_ACT_DECAP 0
 
 /**
  * struct ipa_hw_hdr_proc_ctx_tlv -
@@ -1285,16 +1297,31 @@ union ipa_pkt_status_hw_v6_0 {
  * @type: 0 - end type
  *        1 - header addition type
  *        3 - processing command type
+ *        4 - UL-NLO type
+ *        5 - Trailer-addition type
+ *        6 - IPsec activate
+ *        7 - Next-Round rules
  * @length: number of bytes after tlv
  *        for type:
  *        0 - needs to be 0
  *        1 - header addition length
  *        3 - number of 32B including type and length.
+ *        4 - TBD
+ *        5 - TBD
+ *        6 - TBD
+ *        7 - TBD
  * @value: specific value for type
  *        for type:
  *        0 - needs to be 0
  *        1 - header length
  *        3 - command ID (see IPA_HDR_UCP_* definitions)
+ *        4 - TBD
+ *        5 - TBD
+ *        6 - 16..17 - SA action (0 = disable, 1 = encap, 2 = decap, 3 = reserved)
+ *            18..23 - reserved
+ *            24..31 - SA index
+ *        7 - 16..23 - FLT table index
+ *            24..31 - reserved
  */
 struct ipa_hw_hdr_proc_ctx_tlv {
 	u32 type:8;
@@ -1491,6 +1518,174 @@ struct ipa_hw_hdr_proc_ctx_add_eogre_hdr_cmd_seq {
 struct ipa_hw_hdr_proc_ctx_remove_eogre_hdr_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hw_hdr_proc_ctx_eogre_remove_hdr eogre_params;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_tlv_ipsec -
+ * HW structure of IPA processing context header - TLV part (IPsec special)
+ * @type: 6 - IPsec activate
+ * @length: number of bytes after tlv
+ * @sa_action: SA action (0 = disable, 1 = encap, 2 = decap, 3 = reserved)
+ * @reserved: reserved
+ * @sa_index: SA index
+ */
+struct ipa_hw_hdr_proc_ctx_tlv_ipsec {
+	u32 type:8;
+	u32 length:8;
+	u32 sa_action:2;
+	u32 reserved:6;
+	u32 sa_index:8;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd -
+ * HW structure of IPA processing context header - TLV part (Next Round special)
+ * @type: 7 - Next-Round rules
+ * @length: number of bytes after tlv
+ * @flt_idx: FLT table index
+ * @reserved: reserved
+ */
+struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd {
+	u32 type:8;
+	u32 length:8;
+	u32 flt_idx:8;
+	u32 reserved:8;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec -
+ * HW structure of IPA processing context - ipsec pre-encap/pre-decap tlv
+ * @tlv: IPA processing context TLV
+ * @pre_params: pre-encap/pre-decap parameters
+ */
+struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	union ipa_ipsec_pre_procparams pre_params;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_hdr_add_nxt_rnd_cmd_seq -
+ * IPA processing context add hdr + next round sequence
+ * @hdr_add: add header command
+ * @nxt_rnd: tlv Next round rules
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_hdr_add_nxt_rnd_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_ipsec_decap_cmd_seq -
+ * IPA processing context next round + command sequence
+ * @nxt_rnd: tlv Next round rules
+ * @cmd: tlv processing command
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_nxt_rnd_proc_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
+	struct ipa_hw_hdr_proc_ctx_tlv cmd;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq -
+ * IPA processing context next round sequence
+ * @nxt_rnd: tlv Next round rules
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_ipsec_proc_cmd_seq -
+ * IPA processing context next round + IPsec + command sequence
+ * @ipsec: tlv IPsec activation
+ * @cmd: tlv uC processing command
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_ipsec_proc_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec cmd;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq -
+ * IPA processing context next round + IPsec + command sequence
+ * @nxt_rnd: tlv Next round rules
+ * @ipsec: tlv IPsec activation
+ * @cmd: tlv uC processing command
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
+	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec cmd;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_proc_cmd_seq -
+ * IPA processing context hdr add + next round + command sequence
+ * @hdr_add: add header command
+ * @nxt_rnd: tlv Next round rules
+ * @cmd: tlv uC processing command
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_proc_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
+	struct ipa_hw_hdr_proc_ctx_tlv cmd;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_ipsec_seq -
+ * IPA processing context add + IPsec
+ * @hdr_add: add header command
+ * @ipsec: tlv IPsec activation
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_ipsec_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_ipsec_proc_cmd_seq -
+ * IPA processing context add + IPsec + command sequence
+ * @hdr_add: add header command
+ * @ipsec: tlv IPsec activation
+ * @cmd: tlv uC processing command
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_ipsec_proc_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec cmd;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq -
+ * IPA processing context IPsec command sequence
+ * @hdr_add: add header command
+ * @nxt_rnd: tlv Next round rules
+ * @ipsec: tlv IPsec activation
+ * @cmd: tlv uC processing command
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
+	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec cmd;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 

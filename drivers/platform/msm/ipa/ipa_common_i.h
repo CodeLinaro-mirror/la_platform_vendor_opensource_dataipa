@@ -248,6 +248,71 @@ struct qmap_hdr {
 } __packed;
 
 /**
+ * ipsec_icv_error - IPsec ICV Failure
+ * @cic_failure: Consecutive Integrity Check Failures
+*/
+struct ipsec_icv_error {
+	u16 cic_failure: 16;
+	u8 reserved1;
+}__packed;
+
+/**
+ * ipsec_esp_error - IPsec Incorrect ESP trailer
+ * @esp_next_hdr_protocol: ESP next hdr Protocol
+*/
+struct ipsec_esp_error {
+	u16 esp_next_hdr_protocol: 8;
+	u16 reserved1: 8;
+	u8 reserved2;
+}__packed;
+
+/**
+ * ipsec_outer_error - Additional info in case of “ECN Error”,
+ * “Post Decap NAT”, “Inner packet exception”,
+ * “Inner packet filtering exception”
+ * @outer_hdr_ecn: outer_hdr_ecn
+*/
+struct ipsec_outer_error {
+	u16 outer_hdr_ecn: 2;
+	u16 reserved1: 14;
+	u8 reserved2;
+}__packed;
+
+/**
+ * error_qmap_hdr -
+ * @cd: 0 - data, 1 - command
+ * @next_hdr: 1 - there is a qmap extension header, 0 - opposite
+ * @mux_id: mux id
+ * @packet_len_with_pad: length excluding qmap header
+ * @hdr_type: type of extension header
+ * @ext_next_hdr: always zero
+ * @cksum_valid: 1 - checksum valid
+ * @error_type: 1-ipsec encap, 2- ipsec decap
+ * @error_code: QMAP error code
+ * @error_info: QMAP error Additional info
+ * @sa_idx: SA index
+ */
+struct error_qmap_hdr {
+	u32 cd: 1;
+	u32 next_hdr: 1;
+	u32 pad: 6;
+	u32 mux_id: 8;
+	u32 packet_len_with_pad: 16;
+	u32 hdr_type: 7;
+	u32 ext_next_hdr: 1;
+	u32 cksum_valid: 1;
+	u32 reserved: 7;
+	u32 error_type: 8;
+	u32 error_code: 8;
+	u32 sa_idx: 8;
+    union{
+		struct ipsec_icv_error icv_error;
+		struct ipsec_esp_error esp_error;
+		struct ipsec_outer_error outer_error;
+	} error_info;
+} __packed;
+
+/**
  * struct ipa_pkt_init_ex_hdr_ofst_set - header entry lookup parameters, if
  * lookup was successful than the ep's pkt_init_ex offset will be set.
  * @name: name of the header resource

@@ -89,7 +89,7 @@ int ipa_hw_stats_init(void)
 			&reg_idx)) {
 			ep_index = ipa3_get_ep_mapping(
 				IPA_CLIENT_MHI_PRIME_TETH_PROD);
-			if (ep_index == -1) {
+			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
 				ret = -EINVAL;
 				goto fail_free_stats_ctx;
@@ -174,7 +174,7 @@ int ipa_hw_stats_init(void)
 			IPA_CLIENT_Q6_WAN_PROD,
 			&reg_idx)) {
 			ep_index = ipa3_get_ep_mapping(IPA_CLIENT_Q6_WAN_PROD);
-			if (ep_index == -1) {
+			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
 				ret = -EINVAL;
 				goto fail_free_stats_ctx;
@@ -222,7 +222,7 @@ int ipa_hw_stats_init(void)
 			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)) {
 			ep_index = ipa3_get_ep_mapping(
 				IPA_CLIENT_Q6_DL_NLO_DATA_PROD);
-			if (ep_index == -1) {
+			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
 				ret = -EINVAL;
 				goto fail_free_stats_ctx;
@@ -269,7 +269,7 @@ int ipa_hw_stats_init(void)
 			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)) {
 			ep_index = ipa3_get_ep_mapping(
 					IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD);
-			if (ep_index == -1) {
+			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
 				ret = -EINVAL;
 				goto fail_free_stats_ctx;
@@ -316,7 +316,7 @@ int ipa_hw_stats_init(void)
 		IPA_CLIENT_USB_PROD,
 		&reg_idx)) {
 		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD);
-		if (ep_index == -1) {
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
 			goto fail_free_stats_ctx;
@@ -345,7 +345,7 @@ int ipa_hw_stats_init(void)
 		IPA_CLIENT_WLAN1_PROD,
 		&reg_idx)) {
 		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
-		if (ep_index == -1) {
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
 			goto fail_free_stats_ctx;
@@ -374,7 +374,7 @@ int ipa_hw_stats_init(void)
 		IPA_CLIENT_WLAN2_PROD,
 		&reg_idx)) {
 		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
-		if (ep_index == -1) {
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
 			goto fail_free_stats_ctx;
@@ -774,7 +774,7 @@ int ipa_get_quota_stats(struct ipa_quota_stats_all *out)
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
 		int ep_idx = ipa3_get_ep_mapping(i);
 
-		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
+		if (ep_idx == IPA_EP_NOT_ALLOCATED || ep_idx >= ipa3_get_max_num_pipes())
 			continue;
 
 		if (ipa3_ctx->ep[ep_idx].client != i)
@@ -1197,11 +1197,11 @@ int ipa_get_teth_stats(void)
 			int prod_idx = ipa3_get_ep_mapping(i);
 			int cons_idx = ipa3_get_ep_mapping(j);
 
-			if (prod_idx == -1 ||
+			if (prod_idx == IPA_EP_NOT_ALLOCATED ||
 				prod_idx >= ipa3_get_max_num_pipes())
 				continue;
 
-			if (cons_idx == -1 ||
+			if (cons_idx == IPA_EP_NOT_ALLOCATED ||
 				cons_idx >= ipa3_get_max_num_pipes())
 				continue;
 
@@ -2455,7 +2455,7 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
 		int ep_idx = ipa3_get_ep_mapping(i);
 
-		if (ep_idx == -1)
+		if (ep_idx == IPA_EP_NOT_ALLOCATED)
 			continue;
 
 		if (!IPA_CLIENT_IS_PROD(i))
@@ -2479,7 +2479,7 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 		for (j = 0; j < IPA_CLIENT_MAX; j++) {
 			int cons_idx = ipa3_get_ep_mapping(j);
 
-			if (cons_idx == -1)
+			if (cons_idx == IPA_EP_NOT_ALLOCATED)
 				continue;
 
 			if (IPA_CLIENT_IS_TEST(j))
@@ -2684,7 +2684,7 @@ static ssize_t ipa_debugfs_print_drop_stats(struct file *file,
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
 		int ep_idx = ipa3_get_ep_mapping(i);
 
-		if (ep_idx == -1)
+		if (ep_idx == IPA_EP_NOT_ALLOCATED)
 			continue;
 
 		if (!IPA_CLIENT_IS_CONS(i))

@@ -892,6 +892,9 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 		struct ipa3_rt_tbl **rt_tbl, enum ipa_ip_type ip)
 {
 	int index;
+#ifdef CONFIG_IPA_IPSEC
+	struct ipa3_rt_tbl *encap_rt_tbl = NULL;
+#endif
 
 	if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_NAT) {
 		if (rule->action == IPA_PASS_TO_SRC_NAT || rule->action == IPA_PASS_TO_DST_NAT) {
@@ -918,10 +921,23 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 				goto error;
 			}
 		} else {
+#ifdef CONFIG_IPA_IPSEC
+			/* eq_attrib_type rules are valid, if point to a modem RT table
+			   or IPsec encap RT table */
+			if (ipa_ipsec_enabled()) {
+				encap_rt_tbl = ipa3_id_find(ipa3_ctx->ipsec->encap_rt[ip]);
+				IPADBG_LOW("Encap RT tbl. idx = %d\n",
+					encap_rt_tbl ? encap_rt_tbl->idx : -1);
+			}
+			if (encap_rt_tbl && rule->rt_tbl_idx == encap_rt_tbl->idx)
+				*rt_tbl = encap_rt_tbl;
+			else if (rule->rt_tbl_idx > ((ip == IPA_IP_v4) ?
+#else
 			if (rule->rt_tbl_idx > ((ip == IPA_IP_v4) ?
+#endif
 				IPA_MEM_PART(v4_modem_rt_index_hi) :
 				IPA_MEM_PART(v6_modem_rt_index_hi))) {
-				IPAERR_RL("invalid RT tbl\n");
+				IPAERR_RL("invalid RT tbl. idx = %d\n", rule->rt_tbl_idx);
 				goto error;
 			}
 		}
@@ -950,11 +966,11 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 	}
 
 	if (rule->rule_id) {
-		if ((rule->rule_id < ipahal_get_rule_id_hi_bit()) ||
-		(rule->rule_id >= ((ipahal_get_rule_id_hi_bit()<<1)-1))) {
+		if ((rule->rule_id < ipa3_ctx->filter_start_id) ||
+		(rule->rule_id >= ((IPA_Q6_FLT_START_ID)<<1)-1)) {
 			IPAERR_RL("invalid rule_id provided 0x%x\n"
 				"rule_id with bit 0x%x are auto generated\n",
-				rule->rule_id, ipahal_get_rule_id_hi_bit());
+				rule->rule_id, ipa3_ctx->filter_start_id);
 			goto error;
 		}
 	}
@@ -1032,7 +1048,7 @@ static int __ipa_finish_flt_rule_add(struct ipa3_flt_tbl *tbl,
 {
 	int id;
 
-	if (tbl->rule_cnt < IPA_RULE_CNT_MAX)
+	if (tbl->rule_cnt < ipa3_ctx->filter_start_id)
 		tbl->rule_cnt++;
 	else
 		return -EINVAL;
@@ -1086,7 +1102,7 @@ static int __ipa_add_flt_rule(struct ipa3_flt_tbl *tbl, enum ipa_ip_type ip,
 ipa_insert_failed:
 	list_del(&entry->link);
 	/* if rule id was allocated from idr, remove it */
-	if ((entry->rule_id < ipahal_get_rule_id_hi_bit()) &&
+	if ((entry->rule_id < ipa3_ctx->filter_start_id) &&
 		(entry->rule_id >= ipahal_get_low_rule_id()))
 		idr_remove(entry->tbl->rule_ids, entry->rule_id);
 	kmem_cache_free(ipa3_ctx->flt_rule_cache, entry);
@@ -1134,7 +1150,7 @@ static int __ipa_add_flt_rule_after(struct ipa3_flt_tbl *tbl,
 ipa_insert_failed:
 	list_del(&entry->link);
 	/* if rule id was allocated from idr, remove it */
-	if ((entry->rule_id < ipahal_get_rule_id_hi_bit()) &&
+	if ((entry->rule_id < ipa3_ctx->filter_start_id) &&
 		(entry->rule_id >= ipahal_get_low_rule_id()))
 		idr_remove(entry->tbl->rule_ids, entry->rule_id);
 	kmem_cache_free(ipa3_ctx->flt_rule_cache, entry);
@@ -1144,7 +1160,7 @@ error:
 	return -EPERM;
 }
 
-static int __ipa_del_flt_rule(u32 rule_hdl)
+int __ipa_del_flt_rule(u32 rule_hdl)
 {
 	struct ipa3_flt_entry *entry;
 	int id;
@@ -1169,7 +1185,7 @@ static int __ipa_del_flt_rule(u32 rule_hdl)
 		entry->tbl->rule_cnt, entry->rule_id);
 	entry->cookie = 0;
 	/* if rule id was allocated from idr, remove it */
-	if ((entry->rule_id < ipahal_get_rule_id_hi_bit()) &&
+	if ((entry->rule_id < ipa3_ctx->filter_start_id) &&
 		(entry->rule_id >= ipahal_get_low_rule_id()))
 		idr_remove(entry->tbl->rule_ids, entry->rule_id);
 
@@ -1295,7 +1311,7 @@ static int __ipa_add_nxt_rnd_flt_rule(enum ipa_ip_type ip, u32 tbl_id,
 	}
 
 	tbl_idx = ipa_flt_get_nxt_rnd_idx(tbl_id);
-	if (!tbl_idx)
+	if (tbl_idx <= 0)
 		return -EINVAL;
 
 
@@ -2000,7 +2016,7 @@ int ipa3_reset_flt(enum ipa_ip_type ip, bool user_only)
 				/* if rule id was allocated from idr, remove */
 				rule_id = entry->rule_id;
 				id = entry->id;
-				if ((rule_id < ipahal_get_rule_id_hi_bit()) &&
+				if ((rule_id < ipa3_ctx->filter_start_id) &&
 					(rule_id >= ipahal_get_low_rule_id()))
 					idr_remove(entry->tbl->rule_ids,
 						rule_id);
