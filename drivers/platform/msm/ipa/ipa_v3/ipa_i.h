@@ -1902,6 +1902,8 @@ struct ipa3_uc_wdi_ctx {
 #ifdef IPA_WAN_MSG_IPv6_ADDR_GW_LEN
 	ipa_wdi_meter_notifier_cb stats_notify;
 #endif
+	struct list_head ready_cb_list;
+	struct mutex lock;
 };
 
 /**
