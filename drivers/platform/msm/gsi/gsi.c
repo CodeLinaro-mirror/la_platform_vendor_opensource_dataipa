@@ -2747,6 +2747,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_11AD:
 	case GSI_CHAN_PROT_MHIC:
 	case GSI_CHAN_PROT_RTK:
+	case GSI_CHAN_PROT_RTK3:
 	case GSI_CHAN_PROT_QDSS:
 	case GSI_CHAN_PROT_NTN:
 	case GSI_CHAN_PROT_WDI3M:

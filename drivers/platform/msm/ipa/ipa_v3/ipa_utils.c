@@ -13401,6 +13401,7 @@ void ipa3_get_gsi_stats(int prot_id,
 		ipa3_get_aqc_gsi_stats(stats);
 		break;
 	case IPA_HW_PROTOCOL_RTK:
+	case IPA_HW_PROTOCOL_RTK3:
 		stats->num_ch = MAX_RTK_CHANNELS;
 		ipa3_get_rtk_gsi_stats(stats);
 		break;
@@ -13864,9 +13865,8 @@ int ipa3_check_eogre(
 	if (cache_is_null) {
 
 		if (eogre_is_null) {
-			IPAERR(
-				"Attempting to disable EoGRE. EoGRE is "
-				"already disabled. No work needs to be done.\n");
+			IPAERR("Receiving Invalid eogre info from user."
+					" No work needs to be done.\n");
 			ret = -EIO;
 			goto done;
 		}

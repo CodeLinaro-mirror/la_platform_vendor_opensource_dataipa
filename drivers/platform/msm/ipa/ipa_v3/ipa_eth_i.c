@@ -205,6 +205,7 @@ static int ipa3_eth_config_uc(bool init,
 				peripheral_ch;
 			break;
 		case IPA_HW_PROTOCOL_RTK:
+		case IPA_HW_PROTOCOL_RTK3:
 			cmd_data->SetupCh_params.RtkSetupCh_params.dir =
 				dir;
 			cmd_data->SetupCh_params.RtkSetupCh_params.gsi_ch =
@@ -236,6 +237,7 @@ static int ipa3_eth_config_uc(bool init,
 				gsi_ch;
 			break;
 		case IPA_HW_PROTOCOL_RTK:
+		case IPA_HW_PROTOCOL_RTK3:
 			cmd_data->CommonCh_params.RtkCommonCh_params.gsi_ch =
 				gsi_ch;
 			break;
@@ -339,9 +341,29 @@ static int ipa_eth_setup_rtk_gsi_channel(
 	bar_addr =
 		IPA_ETH_PCIE_SET(pipe->info.client_info.rtk.bar_addr);
 	memset(&gsi_evt_ring_props, 0, sizeof(gsi_evt_ring_props));
-	gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_RTK_EV;
+	/*Setting up EV for RTK8111K*/
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_RTK3_EV;
+	else
+		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_RTK_EV;
+
 	gsi_evt_ring_props.intr = GSI_INTR_MSI;
-	gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+
+	/*Setting up ring element size for RTK8111K, Element size = 16B for RTK CONS
+	 * and 32B for RTK PROD  */
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+	{
+		if(pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
+		}
+		else {
+			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+		}
+	}
+	else {
+		gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+	}
+
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 		gsi_evt_ring_props.int_modt = IPA_ETH_RTK_MODT;
 		gsi_evt_ring_props.int_modc = IPA_ETH_RTK_MODC;
@@ -370,7 +392,13 @@ static int ipa_eth_setup_rtk_gsi_channel(
 
 	/* setup channel ring */
 	memset(&gsi_channel_props, 0, sizeof(gsi_channel_props));
-	gsi_channel_props.prot = GSI_CHAN_PROT_RTK;
+
+	/*Setting up Channel ring for RTK8111K*/
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+		gsi_channel_props.prot = GSI_CHAN_PROT_RTK3;
+	else
+		gsi_channel_props.prot = GSI_CHAN_PROT_RTK;
+
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
 	else
@@ -384,7 +412,20 @@ static int ipa_eth_setup_rtk_gsi_channel(
 	} else
 		gsi_channel_props.ch_id = gsi_ep_info->ipa_gsi_chan_num;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
-	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
+
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+	{
+		if(pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
+		}
+		else {
+			gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
+		}
+	}
+	else {
+		gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
+	}
+
 	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
 	gsi_channel_props.db_in_bytes = 1;
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
@@ -428,6 +469,10 @@ static int ipa_eth_setup_rtk_gsi_channel(
 		(pipe->dir == IPA_ETH_PIPE_DIR_RX) ?
 		pipe->info.client_info.rtk.queue_number :
 		(queue_number == 0) ? 16 : 18;
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K) {
+		ch_scratch.rtk.num_queues_enabled =
+			pipe->info.client_info.rtk.num_queues_enabled;
+	}
 	ch_scratch.rtk.fix_buff_size =
 		ilog2(pipe->info.fix_buffer_size);
 	ch_scratch.rtk.rtk_buff_addr_low =
@@ -883,6 +928,8 @@ static int ipa3_eth_get_prot(struct ipa_eth_client_pipe_info *pipe,
 		*prot = IPA_HW_PROTOCOL_AQC;
 		break;
 	case IPA_ETH_CLIENT_RTK8111K:
+		*prot = IPA_HW_PROTOCOL_RTK3;
+		break;
 	case IPA_ETH_CLIENT_RTK8125B:
 		*prot = IPA_HW_PROTOCOL_RTK;
 		break;
@@ -1069,6 +1116,7 @@ int ipa3_eth_connect(
 
 	switch (prot) {
 	case IPA_HW_PROTOCOL_RTK:
+	case IPA_HW_PROTOCOL_RTK3:
 		result = ipa_eth_setup_rtk_gsi_channel(pipe, ep);
 		break;
 	case IPA_HW_PROTOCOL_AQC:
@@ -1121,6 +1169,7 @@ int ipa3_eth_connect(
 			}
 			break;
 		case IPA_HW_PROTOCOL_RTK:
+		case IPA_HW_PROTOCOL_RTK3:
 			if (gsi_query_msi_addr(ep->gsi_chan_hdl,
 					&pipe->info.db_pa)) {
 				result = -EFAULT;
@@ -1166,7 +1215,8 @@ int ipa3_eth_connect(
 	} else {
 		if (IPA_CLIENT_IS_PROD(client_type)) {
 			/* RX mailbox */
-			if (prot == IPA_HW_PROTOCOL_RTK) {
+			if (prot == IPA_HW_PROTOCOL_RTK || prot ==
+					IPA_HW_PROTOCOL_RTK3) {
 				pipe->info.db_pa = ipa3_ctx->ipa_wrapper_base +
 					ipahal_get_reg_base() +
 					ipahal_get_reg_mn_ofst(IPA_UC_MAILBOX_m_n,
@@ -1194,7 +1244,8 @@ int ipa3_eth_connect(
 			iounmap(db_addr);
 		} else {
 			/* TX mailbox */
-			if (prot == IPA_HW_PROTOCOL_RTK) {
+			if (prot == IPA_HW_PROTOCOL_RTK || prot ==
+					IPA_HW_PROTOCOL_RTK3) {
 				pipe->info.db_pa = ipa3_ctx->ipa_wrapper_base +
 					ipahal_get_reg_base() +
 					ipahal_get_reg_mn_ofst(IPA_UC_MAILBOX_m_n,
@@ -1303,7 +1354,7 @@ int ipa3_eth_connect(
 	ipa3_eth_save_client_mapping(pipe, client_type,
 		id, ep_idx, ep->gsi_chan_hdl);
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
-		(prot == IPA_HW_PROTOCOL_RTK)) {
+		(prot == IPA_HW_PROTOCOL_RTK || prot == IPA_HW_PROTOCOL_RTK3)) {
 		result = ipa3_eth_config_uc(true,
 			prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX)
@@ -1398,7 +1449,7 @@ int ipa3_eth_disconnect(
 	}
 
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
-		(prot == IPA_HW_PROTOCOL_RTK)) {
+		(prot == IPA_HW_PROTOCOL_RTK || prot == IPA_HW_PROTOCOL_RTK3)) {
 		result = ipa3_eth_config_uc(false,
 			prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX)
