@@ -1083,8 +1083,10 @@ static int ipa3_attrib_dump_eq(struct ipa_ipfltri_rule_eq *attrib)
 	if (attrib->fl_eq_present)
 		pr_err("flow_label:%d ", attrib->fl_eq);
 
+	/*The IS-FRAG equation enhancement change since IPA6.0 values:
+	IS-FRAG-0(Primary & Secondary), Is-Primary-1, Is-Secondary-2, Not-Frag-3 */
 	if (attrib->ipv4_frag_eq_present)
-		pr_err("frag ");
+		pr_err("is_frag_encoding %d", attrib->is_frag_encoding);
 
 	pr_err("\n");
 	return 0;
