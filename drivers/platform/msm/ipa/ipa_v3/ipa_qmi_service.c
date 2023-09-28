@@ -2257,7 +2257,7 @@ void ipa3_qmi_service_exit(void)
 
 	/* clean the QMI msg cache */
 	if (ipa3_qmi_ctx != NULL) {
-		for (i=0;i<ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg;i++){
+		for (i=0;i<MAX_NUM_QMI_RULE_CACHE;i++){
 			if(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
 				[i] != NULL){
 				vfree(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
@@ -2266,7 +2266,7 @@ void ipa3_qmi_service_exit(void)
 					[i] = NULL;
 			}
 		}
-		for (i=0;i<ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg;i++)
+		for (i=0;i<MAX_NUM_QMI_RULE_CACHE;i++)
 		{
 			if(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
 				[i] != NULL){
