@@ -5848,6 +5848,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 19, 2, 5, 5, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_DL },
 
+	[IPA_5_2_MDM][IPA_CLIENT_ODL_DPL_CONS] = {
+			true, IPA_v5_2_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 19, 2, 5, 5, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_DL },
+
 	[IPA_5_2_MDM][IPA_CLIENT_ETHERNET_CONS] = {
 			true, IPA_v5_2_GROUP_DL,
 			false,
@@ -14929,7 +14936,7 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 	}
 
 	ep = &ipa3_ctx->ep[ipa_ep_idx];
-	if (!ep->valid)
+	if (!ep->valid || !ep->sys )
 		return 0;
 
 	IPADBG("%s pipe %d\n", suspend ? "suspend" : "unsuspend", ipa_ep_idx);
