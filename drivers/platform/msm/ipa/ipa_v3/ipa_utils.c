@@ -5275,6 +5275,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 36, 36, 8, 8, IPA_EE_AP }, IPA_TX_INSTANCE_NA },
 
+	[IPA_5_0_MHI][IPA_CLIENT_TPUT_CONS] 		   = {
+			true, IPA_v5_0_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 35, 26, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_DL },
+
 	/* IPA_5_1 */
 	[IPA_5_1][IPA_CLIENT_USB_PROD] = {
 			true, IPA_v5_0_GROUP_UL,
