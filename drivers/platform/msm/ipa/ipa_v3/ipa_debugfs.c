@@ -1130,10 +1130,10 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 			pr_err("tbl_idx:%d tbl_name:%s tbl_ref:%u ",
 				entry->tbl->idx, entry->tbl->name,
 				entry->tbl->ref_cnt);
-			is_lcl = entry->proc_ctx->is_lcl;
 			if (entry->proc_ctx &&
 				(!ipa3_check_idr_if_freed(entry->proc_ctx))) {
 				ofst = entry->proc_ctx->offset_entry->offset;
+				is_lcl = entry->proc_ctx->is_lcl;
 				ofst_words = is_lcl ?
 					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset) >> 5 :
 					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset) >> 5;
