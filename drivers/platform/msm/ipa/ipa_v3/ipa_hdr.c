@@ -117,6 +117,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 		if (entry->hdr) {
 
 			if (unlikely((!entry->hdr->offset_entry && !entry->hdr->is_hdr_proc_ctx) ||
+				!entry->offset_entry ||
 				     entry->hdr->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1]))
 				return -EINVAL;
 
