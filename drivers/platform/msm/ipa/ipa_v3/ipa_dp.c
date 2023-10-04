@@ -7118,7 +7118,9 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 	gsi_channel_props.db_in_bytes = 1;
 	/* Configure Low Latency Mode. */
 	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
-		ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS)
+		ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS ||
+		ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD ||
+		ep->client == IPA_CLIENT_APPS_WAN_V2X_CONS)
 		gsi_channel_props.low_latency_en = 1;
 	gsi_channel_props.prefetch_mode = gsi_ep_info->prefetch_mode;
 	gsi_channel_props.empty_lvl_threshold = gsi_ep_info->prefetch_threshold;
