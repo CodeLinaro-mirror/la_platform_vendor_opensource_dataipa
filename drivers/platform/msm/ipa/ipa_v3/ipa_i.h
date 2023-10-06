@@ -2417,6 +2417,7 @@ struct ipa3_context {
 	u32 ipa_num_pipes;
 	dma_addr_t pkt_init_imm[IPA5_MAX_NUM_PIPES];
 	u32 pkt_init_imm_opcode;
+	u32 wkup_enable;
 
 	struct ipa3_wlan_comm_memb wc_memb;
 

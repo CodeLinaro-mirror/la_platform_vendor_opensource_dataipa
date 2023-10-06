@@ -3292,6 +3292,26 @@ static ssize_t ipa3_write_nat_table_move(struct file *file,
 	return count;
 }
 
+static ssize_t enable_wkup_logs(struct file *file,
+	const char __user *buf, size_t count, loff_t *ppos)
+{
+	s8 flg=0;
+	int ret;
+
+	ret = kstrtos8_from_user(buf, count, 0, &flg);
+
+	if(ret)
+		return ret;
+
+	if(flg){
+		ipa3_ctx->wkup_enable=1;
+	}
+	else{
+		ipa3_ctx->wkup_enable=0;
+	}
+
+	return count;
+}
 
 static const struct ipa3_debugfs_file debugfs_files[] = {
 	{
@@ -3513,7 +3533,11 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		"ipa_dscp_pcp_mapping_cache", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_ipa_dscp_pcp_mapping_cache,
 		}
-	},
+	}, {
+		"enable_wkup_log", IPA_WRITE_ONLY_MODE,NULL, {
+			.write = enable_wkup_logs,
+		}
+	}
 };
 
 void ipa3_debugfs_init(void)
