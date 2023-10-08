@@ -6086,6 +6086,7 @@ static inline void ipa3_sram_set_canary(u32 *sram_mmio, int offset)
  */
 int _ipa_init_sram_v3(void)
 {
+	int offset;
 	u32 *ipa_sram_mmio;
 	unsigned long phys_addr;
 
@@ -6202,6 +6203,11 @@ int _ipa_init_sram_v3(void)
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst) - 4);
 		ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst));
+
+		/* Set CANARY on whole pre_sa_contexts_canary */
+		for (offset = IPA_MEM_PART(pre_sa_contexts_canary_ofst) / 4;
+			offset < IPA_MEM_PART(sa_contexts_ofst) / 4; offset++)
+			ipa_sram_mmio[offset] = IPA_MEM_CANARY_VAL;
 	}
 
 	iounmap(ipa_sram_mmio);
