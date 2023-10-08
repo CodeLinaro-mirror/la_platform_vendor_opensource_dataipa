@@ -100,6 +100,12 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 		IPAERR("No SMMU CB setup\n");
 		return -EINVAL;
 	}
+
+	if (ipa3_ctx->s1_bypass_arr[cb_type]) {
+		IPADBG("SMMU is set to s1 bypass\n");
+		*iova = pa;
+		return 0;
+	}
 	/**
 	 * Assuming each IEMAC client does maximum of 1 mapping with
 	 * constant size per direction.
