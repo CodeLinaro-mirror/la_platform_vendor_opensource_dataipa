@@ -136,7 +136,7 @@ int ipa_table_calculate_entries_num(
 	table_entries      = Get2PowerTightUpperBound(number_of_entries * btp);
 	expn_table_entries = GetEvenTightUpperBound(number_of_entries * etp);
 
-	table->tot_tbl_ents = table_entries + expn_table_entries;
+	table->tot_tbl_ents = (uint32_t) (table_entries + expn_table_entries);
 
 	if ( table->tot_tbl_ents > IPA_TABLE_MAX_ENTRIES )
 	{
@@ -209,13 +209,15 @@ void ipa_table_reset(
 
 	IPADBG("memset %s table to 0, %pK\n", table->name, table->table_addr);
 	tot = table->entry_size * table->table_entries;
-	for (i = 0; i < tot; i++)
+	for (i = 0; i < tot; i++){
 		table->table_addr[i] = '\0';
+	}
 
 	IPADBG("memset %s expn table to 0, %pK\n", table->name, table->expn_table_addr);
 	tot = table->entry_size * table->expn_table_entries;
-	for (i = 0; i < tot; i++)
+	for (i = 0; i < tot; i++){
 		table->expn_table_addr[i] = '\0';
+	}
 
 	IPADBG("Out\n");
 }
@@ -384,6 +386,10 @@ void ipa_table_delete_entry(
 			--table->cur_tbl_cnt;
 		}
 	}
+	else
+	{
+		IPADBG("Invalid iterator\n");
+	}
 
 	ipa_table_erase_entry(table, iterator->curr_index);
 
@@ -392,21 +398,21 @@ void ipa_table_delete_entry(
 
 void ipa_table_erase_entry(
 	ipa_table* table,
-	uint16_t   index)
+	uint16_t   idx)
 {
 	int i = 0;
-	void* entry = GOTO_REC(table, index);
+	void* entry = GOTO_REC(table, idx);
 
 	IPADBG("In\n");
 
-	IPADBG("table(%p) index(%u)\n", table, index);
+	IPADBG("table(%p) index(%u)\n", table, idx);
 
 	for (i=0;i< table->entry_size;i++)
 	{
 			memset((char *)(entry + i), 0, 1);
 	}
 
-	if ( index < table->table_entries )
+	if ( idx < table->table_entries )
 	{
 		--table->cur_tbl_cnt;
 	}
@@ -949,6 +955,7 @@ static uint16_t MakeEntryHdl(
 	uint16_t   tbl_entry )
 {
 	uint16_t entry_hdl = 0;
+	enum ipa3_nat_mem_in tbl_nmi = tbl->nmi;
 
 	IPADBG("In\n");
 
@@ -973,7 +980,7 @@ static uint16_t MakeEntryHdl(
 	/*
 	 * Set memory type bit.
 	 */
-	entry_hdl = entry_hdl | (tbl->nmi << IPA_TABLE_TYPE_MEM_SHIFT);
+	entry_hdl = entry_hdl | (tbl_nmi << IPA_TABLE_TYPE_MEM_SHIFT);
 
 	IPADBG("In: tbl_entry(%u) Out: entry_hdl(%u)\n", tbl_entry, entry_hdl);
 
@@ -1027,7 +1034,7 @@ static int FindExpnTblFreeEntry(
 	 * The following will start walk at expansion slots
 	 * (ie. just after table->table_entries)...
 	 */
-	ret = ipa_table_walk(table, table->table_entries, WHEN_SLOT_EMPTY, mt_slot, 0);
+	ret = ipa_table_walk(table, table->table_entries, WHEN_SLOT_EMPTY, mt_slot, NULL);
 
 	if ( ret > 0 )
 	{
@@ -1107,7 +1114,7 @@ static int GetEvenTightUpperBound(uint16_t num)
 	if (num == 0)
 		return 2;
 
-	return (num % 2) ? num + 1 : num;
+	return (num % 2) ? num + (uint16_t)1 : num;
 }
 
 int ipa_calc_num_sram_table_entries(
@@ -1204,9 +1211,9 @@ int ipa_table_walk(
 		goto bail;
 	}
 
-	tot =
-		ipa_tbl_ptr->table_entries +
-		ipa_tbl_ptr->expn_table_entries;
+	tot = (uint32_t)
+		(ipa_tbl_ptr->table_entries +
+		ipa_tbl_ptr->expn_table_entries);
 
 	if ( start_index >= tot )
 	{
@@ -1218,9 +1225,8 @@ int ipa_table_walk(
 	/*
 	 * Go through table...
 	 */
-	for ( i = start_index, rec_ptr = GOTO_REC(ipa_tbl_ptr, start_index);
-		  i < tot;
-		  i++,             rec_ptr += ipa_tbl_ptr->entry_size )
+	rec_ptr = GOTO_REC(ipa_tbl_ptr, start_index);
+	for ( i = start_index; i < tot; i++)
 	{
 		bool call_back;
 
@@ -1270,6 +1276,7 @@ int ipa_table_walk(
 				goto bail;
 			}
 		}
+		rec_ptr += ipa_tbl_ptr->entry_size;
 	}
 
 bail:
@@ -1311,9 +1318,9 @@ int ipa_table_add_dma_cmd(
 		goto bail;
 	}
 
-	tab_sz =
-		tbl_ptr->table_entries +
-		tbl_ptr->expn_table_entries;
+	tab_sz = (uint32_t)
+		(tbl_ptr->table_entries +
+		tbl_ptr->expn_table_entries);
 
 	if ( rec_index >= tab_sz )
 	{

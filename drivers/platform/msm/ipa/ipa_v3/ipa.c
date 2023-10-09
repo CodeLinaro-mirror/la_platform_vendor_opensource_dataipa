@@ -10181,6 +10181,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	struct ipa_active_client_logging_info log_info;
 	struct cdev *cdev;
 	enum hdr_tbl_storage hdr_tbl;
+	enum hpc_tbl_storage hpc_tbl;
 
 	IPADBG("IPA Driver initialization started\n");
 
@@ -10671,13 +10672,18 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			INIT_LIST_HEAD(&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i]);
 		}
 	}
-	INIT_LIST_HEAD(&ipa3_ctx->hdr_proc_ctx_tbl.head_proc_ctx_entry_list);
-	for (i = 0; i < IPA_HDR_PROC_CTX_BIN_MAX; i++) {
-		INIT_LIST_HEAD(
-			&ipa3_ctx->hdr_proc_ctx_tbl.head_offset_list[i]);
-		INIT_LIST_HEAD(
-			&ipa3_ctx->hdr_proc_ctx_tbl.head_free_offset_list[i]);
+
+	/* Init the various list heads for both SRAM/DDR */
+	for (hpc_tbl = HPC_TBL_LCL; hpc_tbl < HPC_TBLS_TOTAL; hpc_tbl++) {
+		INIT_LIST_HEAD(&ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].head_proc_ctx_entry_list);
+		for (i = 0; i < IPA_HDR_PROC_CTX_BIN_MAX; i++) {
+			INIT_LIST_HEAD(
+				&ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].head_offset_list[i]);
+			INIT_LIST_HEAD(
+				&ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].head_free_offset_list[i]);
+		}
 	}
+
 	INIT_LIST_HEAD(&ipa3_ctx->rt_tbl_set[IPA_IP_v4].head_rt_tbl_list);
 	idr_init(&ipa3_ctx->rt_tbl_set[IPA_IP_v4].rule_ids);
 	INIT_LIST_HEAD(&ipa3_ctx->rt_tbl_set[IPA_IP_v6].head_rt_tbl_list);

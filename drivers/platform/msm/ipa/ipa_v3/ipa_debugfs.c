@@ -1083,8 +1083,10 @@ static int ipa3_attrib_dump_eq(struct ipa_ipfltri_rule_eq *attrib)
 	if (attrib->fl_eq_present)
 		pr_err("flow_label:%d ", attrib->fl_eq);
 
+	/*The IS-FRAG equation enhancement change since IPA6.0 values:
+	IS-FRAG-0(Primary & Secondary), Is-Primary-1, Is-Secondary-2, Not-Frag-3 */
 	if (attrib->ipv4_frag_eq_present)
-		pr_err("frag ");
+		pr_err("is_frag_encoding %d", attrib->is_frag_encoding);
 
 	pr_err("\n");
 	return 0;
@@ -1106,6 +1108,7 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
 	u32 ofst;
 	u32 ofst_words;
+	bool is_lcl;
 
 	set = &ipa3_ctx->rt_tbl_set[ip];
 
@@ -1127,18 +1130,18 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 			pr_err("tbl_idx:%d tbl_name:%s tbl_ref:%u ",
 				entry->tbl->idx, entry->tbl->name,
 				entry->tbl->ref_cnt);
+			is_lcl = entry->proc_ctx->is_lcl;
 			if (entry->proc_ctx &&
 				(!ipa3_check_idr_if_freed(entry->proc_ctx))) {
 				ofst = entry->proc_ctx->offset_entry->offset;
-				ofst_words =
-					(ofst +
-					ipa3_ctx->hdr_proc_ctx_tbl.start_offset)
-					>> 5;
+				ofst_words = is_lcl ?
+					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset) >> 5 :
+					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset) >> 5;
 				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
 					i, entry->rule.dst,
 					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
 					ipa3_get_ep_mapping(entry->rule.dst),
-					!ipa3_ctx->hdr_proc_ctx_tbl_lcl);
+					is_lcl);
 				pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
 					ofst_words,
 					entry->rule.attrib.attrib_mask);
@@ -1329,23 +1332,27 @@ bail:
 static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
-	int nbytes = 0;
+	int nbytes;
 	struct ipa3_hdr_proc_ctx_tbl *tbl;
 	struct ipa3_hdr_proc_ctx_entry *entry;
 	u32 ofst_words;
+	enum hpc_tbl_storage hpc_tbl;
+	int res = 0;
 
-	tbl = &ipa3_ctx->hdr_proc_ctx_tbl;
+	for (hpc_tbl = HPC_TBL_LCL; hpc_tbl < HPC_TBLS_TOTAL; hpc_tbl++) {
+		nbytes = 0;
+		memset(dbg_buff, '\0', sizeof(dbg_buff));
+		tbl = &ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl];
+		mutex_lock(&ipa3_ctx->lock);
 
-	mutex_lock(&ipa3_ctx->lock);
-
-	if (ipa3_ctx->hdr_proc_ctx_tbl_lcl)
-		pr_info("Table resides on local memory\n");
-	else
-		pr_info("Table resides on system(ddr) memory\n");
+		if (hpc_tbl == HPC_TBL_LCL)
+			pr_info("Table resides on local memory\n");
+		else
+			pr_info("Table resides on system(ddr) memory\n");
 
 	list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
 		ofst_words = (entry->offset_entry->offset +
-			ipa3_ctx->hdr_proc_ctx_tbl.start_offset)
+			ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
 			>> 5;
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
@@ -1393,10 +1400,12 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 			IPA_MAX_MSG_LEN - nbytes,
 			"hdr[words]:%u\n",
 			entry->hdr->offset_entry->offset >> 2);
+		}
+		mutex_unlock(&ipa3_ctx->lock);
+		pr_err("%s", dbg_buff);
 	}
-	mutex_unlock(&ipa3_ctx->lock);
 
-	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+	return res;
 }
 
 static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
@@ -3963,6 +3972,54 @@ static ssize_t ipa3_write_ipsec_sa_index(struct file *file,
 	return count;
 }
 
+
+static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
+	char __user *buf, size_t count, loff_t *ppos)
+{
+	int nbytes = 0;
+	u8 sa_idx;
+	struct ipa_ipsec_ctx *ipsec = ipa3_ctx->ipsec;
+
+	if (!ipsec) {
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"The IPsec is not initialyzed\n");
+		return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+	}
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	for (sa_idx = 0; sa_idx < IPA_IPSEC_MAX_SA_NUM; sa_idx++) {
+		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x &&
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x) {
+			memcpy_fromio(&esa, (void __iomem *)(ipsec->encap + sa_idx),
+				sizeof(struct ipa_ipsec_sa_encap));
+			memcpy_fromio(&dsa, (void __iomem *)(ipsec->decap + sa_idx),
+				sizeof(struct ipa_ipsec_sa_decap));
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"\n\n-----------------------SA index %u is Active----------------------------\n",
+				sa_idx);
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"encap_volume_bytes = %llu\n", esa.dyna.volume_bytes);
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"decap_volume_bytes = %llu\n", dsa.dyna.volume_bytes);
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"nat_t = %d\n", dsa.stat.nat_t);
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"encap auth name = %s , encr name = %s\n",
+				ipa_ipsec_get_auth_algo_name(esa.shar.auth_algo),
+				ipa_ipsec_get_encr_algo_name(esa.shar.encr_algo));
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"decap auth name = %s , encr name = %s\n",
+				ipa_ipsec_get_auth_algo_name(dsa.shar.auth_algo),
+				ipa_ipsec_get_encr_algo_name(dsa.shar.encr_algo));
+			}
+	}
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+}
+
 #endif
 
 static const struct ipa3_debugfs_file debugfs_files[] = {
@@ -4206,12 +4263,16 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.write = ipa3_write_ipsec_sa_index,
 		}
 	}, {
-		"ipsec_sa_info_encap", IPA_READ_ONLY_MODE, NULL,{
+		"ipsec_encap_sa_info", IPA_READ_ONLY_MODE, NULL,{
 			.read = ipa3_read_ipsec_encap_sa_info,
 		}
 	}, {
-		"ipsec_sa_info_decap", IPA_READ_ONLY_MODE, NULL,{
+		"ipsec_decap_sa_info", IPA_READ_ONLY_MODE, NULL,{
 			.read = ipa3_read_ipsec_decap_sa_info,
+		}
+	}, {
+		"ipsec_active_sa", IPA_READ_ONLY_MODE, NULL,{
+			.read = ipa3_read_ipsec_active_sa,
 		}
 #endif
 	},

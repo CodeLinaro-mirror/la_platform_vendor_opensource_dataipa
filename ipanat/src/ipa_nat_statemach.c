@@ -172,6 +172,10 @@ static ipa_nati_obj nati_obj = {
 	.sw_stats = { {0, 0}, {0, 0} },
 };
 
+/* Declarations */
+static int take_mutex(void);
+static int give_mutex(void);
+
 /*
  * The following needed to protect nati_obj above, as well as a number
  * of data stuctures within the file ipa_nat_drvi.c
@@ -228,13 +232,8 @@ bail:
 static int take_mutex()
 {
 	int ret;
-
-	if ( nat_mutex_init )
-	{
-again:
-		ret = pthread_mutex_lock(&nat_mutex);
-	}
-	else
+	
+	if ( !nat_mutex_init )
 	{
 		ret = mutex_init();
 
@@ -242,6 +241,11 @@ again:
 		{
 			goto again;
 		}
+	}
+	else
+	{
+again:
+		ret = pthread_mutex_lock(&nat_mutex);
 	}
 
 	if ( ret != 0 )
@@ -517,7 +521,7 @@ int ipa_nat_switch_to(
 
 		if ( COMPATIBLE_NMI_4SWITCH(nmi) )
 		{
-			ret = ipa_nati_statemach(&nati_obj, NATI_TRIG_TBL_SWITCH, 0);
+			ret = ipa_nati_statemach(&nati_obj, NATI_TRIG_TBL_SWITCH, NULL);
 		}
 
 		if ( ret == 0 )
@@ -675,7 +679,7 @@ static int migrate_rule(
 	void*           arb_data_ptr )
 {
 	struct ipa_nat_rule* nat_rule_ptr = (struct ipa_nat_rule*) record_ptr;
-	uint32_t             dst_tbl_hdl  = (uint32_t) arb_data_ptr;
+	uint32_t            dst_tbl_hdl  = (uint32_t)((uint32_t *) arb_data_ptr);
 
 	ipa_nat_ipv4_rule    v4_rule;
 
@@ -1155,7 +1159,7 @@ static int _smAddSramAndDdrTbl(
 				 * The following will tell the IPA to change focus to
 				 * SRAM...
 				 */
-				ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_GOTO_SRAM, 0);
+				ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_GOTO_SRAM, NULL);
 			}
 		}
 	}
@@ -1333,9 +1337,9 @@ static int _smClrTblHybrid(
 	uint32_t tbl_hdl = (uint32_t) args[0];
 
 	arb_t*   new_args[] = {
-		(arb_t*)(arb_t)(nati_obj_ptr->curr_state == NATI_STATE_HYBRID) ?
+		(arb_t*)(arb_t)((nati_obj_ptr->curr_state == NATI_STATE_HYBRID) ?
 		         tbl_hdl :
-		         nati_obj_ptr->ddr_tbl_hdl,
+		         nati_obj_ptr->ddr_tbl_hdl),
 	};
 
 	int ret;
@@ -1757,7 +1761,7 @@ static int _smAddRuleHybrid(
 			 */
 			IPAINFO("Add of rule failed...attempting table switch\n");
 
-			ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_TBL_SWITCH, 0);
+			ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_TBL_SWITCH, NULL);
 
 			if ( ret == 0 )
 			{
@@ -1887,7 +1891,7 @@ static int _smDelRuleHybrid(
 						*cnt_ptr,
 						nati_obj_ptr->back_to_sram_thresh);
 
-				ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_TBL_SWITCH, 0);
+				ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_TBL_SWITCH, NULL);
 
 				if ( ret == 0 )
 				{
@@ -2048,7 +2052,7 @@ static int _smSwitchFromDdrToSram(
 	/*
 	 * First, switch focus to SRAM...
 	 */
-	ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_GOTO_SRAM, 0);
+	ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_GOTO_SRAM, NULL);
 
 	if ( ret == 0 )
 	{
@@ -2218,7 +2222,7 @@ static int _smSwitchFromSramToDdr(
 	/*
 	 * First, switch focus to DDR...
 	 */
-	ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_GOTO_DDR, 0);
+	ret = ipa_nati_statemach(nati_obj_ptr, NATI_TRIG_GOTO_DDR, NULL);
 
 	if ( ret == 0 )
 	{

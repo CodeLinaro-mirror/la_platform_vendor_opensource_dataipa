@@ -104,6 +104,8 @@ static int ipa_fltrt_generate_hw_rule_bdy_from_eq(
 		const struct ipa_ipfltri_rule_eq *attrib, u8 **buf);
 static int ipa_fltrt_generate_hw_rule_bdy_from_eq_5_5(
 		const struct ipa_ipfltri_rule_eq *attrib, u8 **buf, bool ext_hdr);
+static int ipa_fltrt_generate_hw_rule_bdy_from_eq_6_0(
+		const struct ipa_ipfltri_rule_eq *attrib, u8 **buf, bool ext_hdr);
 static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 		const struct ipa_rule_attrib *attrib,
 		struct ipa_ipfltri_rule_eq *eq_atrb);
@@ -1112,7 +1114,7 @@ static int ipa_flt_gen_hw_rule_ipav6_0(
 	}
 
 	if (params->rule->eq_attrib_type) {
-		if (ipa_fltrt_generate_hw_rule_bdy_from_eq_5_5(
+		if (ipa_fltrt_generate_hw_rule_bdy_from_eq_6_0(
 			&params->rule->eq_attrib, &buf, rule_hdr->u.hdr.ext_hdr)) {
 			IPAHAL_ERR("fail to generate hw rule from eq\n");
 			return -EPERM;
@@ -2946,6 +2948,8 @@ static int ipa_fltrt_calc_extra_wrd_bytes(
 		num++;
 	if (attrib->ihl_offset_eq_16_present)
 		num++;
+	if (ipahal_ctx->hw_type >= IPA_HW_v6_0 && attrib->ipv4_frag_eq_present)
+		num++;
 
 	IPAHAL_DBG_LOW("extra bytes number %d\n", num);
 
@@ -3289,6 +3293,188 @@ static int ipa_fltrt_generate_hw_rule_bdy_from_eq_5_5(
 
 	if (attrib->fl_eq_present)
 		rest = ipa_write_32(attrib->fl_eq & 0xFFFFF, rest);
+
+	if (extra)
+		extra = ipa_pad_to_64(extra);
+	rest = ipa_pad_to_64(rest);
+	*buf = rest;
+
+	return 0;
+}
+
+/**
+ * The code is same as ipa_fltrt_generate_hw_rule_bdy_from_eq_5_5, the only difference is the
+ * addition of "is_frag_encoding" extra word in IPAv6.0.
+ */
+static int ipa_fltrt_generate_hw_rule_bdy_from_eq_6_0(
+		const struct ipa_ipfltri_rule_eq *attrib, u8 **buf, bool ext_hdr)
+{
+	uint8_t num_offset_meq_32 = attrib->num_offset_meq_32;
+	uint8_t num_ihl_offset_range_16 = attrib->num_ihl_offset_range_16;
+	uint8_t num_ihl_offset_meq_32 = attrib->num_ihl_offset_meq_32;
+	uint8_t num_offset_meq_128 = attrib->num_offset_meq_128;
+	int i;
+	int extra_bytes;
+	u8 *extra;
+	u8 *rest;
+
+	extra_bytes = ipa_fltrt_calc_extra_wrd_bytes(attrib);
+	/* only 3 eq does not have extra word param, 13 out of 16 is the number
+	 * of equations that needs extra word param
+	 */
+	if (extra_bytes > 13) {
+		IPAHAL_ERR_RL("too much extra bytes\n");
+		return -EPERM;
+	} else if (extra_bytes > IPA3_0_HW_TBL_HDR_WIDTH) {
+		/* two extra words */
+		extra = *buf;
+		rest = *buf + IPA3_0_HW_TBL_HDR_WIDTH * 2 - ext_hdr * 2;
+	} else if (extra_bytes > 0) {
+		/* single exra word */
+		extra = *buf;
+		/* With ext_hdr, 2 bytes are already occupied. */
+		if (ext_hdr && extra_bytes > (IPA3_0_HW_TBL_HDR_WIDTH - 2))
+			rest = *buf + IPA3_0_HW_TBL_HDR_WIDTH * 2 - ext_hdr * 2;
+		else
+			rest = *buf + IPA3_0_HW_TBL_HDR_WIDTH - ext_hdr * 2;
+	} else {
+		/* no extra words */
+		extra = ext_hdr ? *buf : NULL;
+		rest = *buf - ext_hdr * 2 + ext_hdr * IPA3_0_HW_TBL_HDR_WIDTH;
+	}
+
+	/*
+	 * tos_eq_present field has two meanings:
+	 * tos equation for IPA ver < 4.5 (as the field name reveals)
+	 * pure_ack equation for IPA ver >= 4.5
+	 * In both cases it needs one extra word.
+	 */
+	if (attrib->tos_eq_present) {
+		if (IPA_IS_RULE_EQ_VALID(IPA_IS_PURE_ACK)) {
+			extra = ipa_write_8(0, extra);
+		} else if (IPA_IS_RULE_EQ_VALID(IPA_TOS_EQ)) {
+			extra = ipa_write_8(attrib->tos_eq, extra);
+		} else {
+			IPAHAL_ERR("no support for pure_ack and tos eqs\n");
+			return -EPERM;
+		}
+	}
+
+	if (attrib->protocol_eq_present)
+		extra = ipa_write_8(attrib->protocol_eq, extra);
+
+	if (attrib->tc_eq_present)
+		extra = ipa_write_8(attrib->tc_eq, extra);
+
+	if (num_offset_meq_128) {
+		extra = ipa_write_8(attrib->offset_meq_128[0].offset, extra);
+		for (i = 0; i < 8; i++)
+			rest = ipa_write_8(attrib->offset_meq_128[0].mask[i],
+				rest);
+		for (i = 0; i < 8; i++)
+			rest = ipa_write_8(attrib->offset_meq_128[0].value[i],
+				rest);
+		for (i = 8; i < 16; i++)
+			rest = ipa_write_8(attrib->offset_meq_128[0].mask[i],
+				rest);
+		for (i = 8; i < 16; i++)
+			rest = ipa_write_8(attrib->offset_meq_128[0].value[i],
+				rest);
+		num_offset_meq_128--;
+	}
+
+	if (num_offset_meq_128) {
+		extra = ipa_write_8(attrib->offset_meq_128[1].offset, extra);
+		for (i = 0; i < 8; i++)
+			rest = ipa_write_8(attrib->offset_meq_128[1].mask[i],
+				rest);
+		for (i = 0; i < 8; i++)
+			rest = ipa_write_8(attrib->offset_meq_128[1].value[i],
+				rest);
+		for (i = 8; i < 16; i++)
+			rest = ipa_write_8(attrib->offset_meq_128[1].mask[i],
+				rest);
+		for (i = 8; i < 16; i++)
+			rest = ipa_write_8(attrib->offset_meq_128[1].value[i],
+				rest);
+		num_offset_meq_128--;
+	}
+
+	if (num_offset_meq_32) {
+		extra = ipa_write_8(attrib->offset_meq_32[0].offset, extra);
+		rest = ipa_write_32(attrib->offset_meq_32[0].mask, rest);
+		rest = ipa_write_32(attrib->offset_meq_32[0].value, rest);
+		num_offset_meq_32--;
+	}
+
+	if (num_offset_meq_32) {
+		extra = ipa_write_8(attrib->offset_meq_32[1].offset, extra);
+		rest = ipa_write_32(attrib->offset_meq_32[1].mask, rest);
+		rest = ipa_write_32(attrib->offset_meq_32[1].value, rest);
+		num_offset_meq_32--;
+	}
+
+	if (num_ihl_offset_meq_32) {
+		extra = ipa_write_8(attrib->ihl_offset_meq_32[0].offset,
+		extra);
+
+		rest = ipa_write_32(attrib->ihl_offset_meq_32[0].mask, rest);
+		rest = ipa_write_32(attrib->ihl_offset_meq_32[0].value, rest);
+		num_ihl_offset_meq_32--;
+	}
+
+	if (num_ihl_offset_meq_32) {
+		extra = ipa_write_8(attrib->ihl_offset_meq_32[1].offset,
+		extra);
+
+		rest = ipa_write_32(attrib->ihl_offset_meq_32[1].mask, rest);
+		rest = ipa_write_32(attrib->ihl_offset_meq_32[1].value, rest);
+		num_ihl_offset_meq_32--;
+	}
+
+	if (attrib->metadata_meq32_present) {
+		rest = ipa_write_32(attrib->metadata_meq32.mask, rest);
+		rest = ipa_write_32(attrib->metadata_meq32.value, rest);
+	}
+
+	if (num_ihl_offset_range_16) {
+		extra = ipa_write_8(attrib->ihl_offset_range_16[0].offset,
+		extra);
+
+		rest = ipa_write_16(attrib->ihl_offset_range_16[0].range_high,
+				rest);
+		rest = ipa_write_16(attrib->ihl_offset_range_16[0].range_low,
+				rest);
+		num_ihl_offset_range_16--;
+	}
+
+	if (num_ihl_offset_range_16) {
+		extra = ipa_write_8(attrib->ihl_offset_range_16[1].offset,
+		extra);
+
+		rest = ipa_write_16(attrib->ihl_offset_range_16[1].range_high,
+				rest);
+		rest = ipa_write_16(attrib->ihl_offset_range_16[1].range_low,
+				rest);
+		num_ihl_offset_range_16--;
+	}
+
+	if (attrib->ihl_offset_eq_32_present) {
+		extra = ipa_write_8(attrib->ihl_offset_eq_32.offset, extra);
+		rest = ipa_write_32(attrib->ihl_offset_eq_32.value, rest);
+	}
+
+	if (attrib->ihl_offset_eq_16_present) {
+		extra = ipa_write_8(attrib->ihl_offset_eq_16.offset, extra);
+		rest = ipa_write_16(attrib->ihl_offset_eq_16.value, rest);
+		rest = ipa_write_16(0, rest);
+	}
+
+	if (attrib->fl_eq_present)
+		rest = ipa_write_32(attrib->fl_eq & 0xFFFFF, rest);
+
+	if (attrib->ipv4_frag_eq_present)
+		extra = ipa_write_8(attrib->is_frag_encoding, extra);
 
 	if (extra)
 		extra = ipa_pad_to_64(extra);
@@ -4432,6 +4618,9 @@ static int ipa_fltrt_parse_hw_rule_eq(u8 *addr, u32 hdr_sz,
 		atrb->fl_eq &= 0xfffff;
 		rest += 4;
 	}
+
+	if (ipahal_ctx->hw_type >= IPA_HW_v6_0 && atrb->ipv4_frag_eq_present)
+		atrb->is_frag_encoding = *extra++;
 
 	IPAHAL_DBG_LOW("before rule alignment rest=0x%pK\n", rest);
 	rest = (u8 *)(((unsigned long)rest + IPA3_0_HW_RULE_START_ALIGNMENT) &

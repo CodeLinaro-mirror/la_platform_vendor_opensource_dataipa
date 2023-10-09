@@ -118,10 +118,16 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 			gen_params.hdr_type = IPAHAL_RT_RULE_HDR_NONE;
 			gen_params.hdr_ofst = 0;
 		} else {
-			gen_params.hdr_lcl = ipa3_ctx->hdr_proc_ctx_tbl_lcl;
 			gen_params.hdr_type = IPAHAL_RT_RULE_HDR_PROC_CTX;
-			gen_params.hdr_ofst = proc_ctx->offset_entry->offset +
-				ipa3_ctx->hdr_proc_ctx_tbl.start_offset;
+			if (proc_ctx->is_lcl) {
+				gen_params.hdr_ofst = proc_ctx->offset_entry->offset +
+				ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset;
+			}
+			else{
+				gen_params.hdr_ofst = proc_ctx->offset_entry->offset +
+					ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset;
+			}
+			gen_params.hdr_lcl = proc_ctx->is_lcl;
 		}
 	} else if ((entry->hdr != NULL) &&
 		(entry->hdr->cookie == IPA_HDR_COOKIE)) {

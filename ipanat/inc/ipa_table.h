@@ -218,7 +218,7 @@ void ipa_table_reset(
 int ipa_table_add_entry(
 	ipa_table*                  table,
 	void*                       user_data,
-	uint16_t*                   index,
+	uint16_t*                   rec_index_ptr,
 	uint32_t*                   rule_hdl,
 	struct ipa_ioc_nat_dma_cmd* cmd);
 
@@ -234,7 +234,7 @@ void ipa_table_delete_entry(
 
 void ipa_table_erase_entry(
 	ipa_table* table,
-	uint16_t   index);
+	uint16_t   idx);
 
 int ipa_table_get_entry(
 	ipa_table* table,
@@ -244,7 +244,7 @@ int ipa_table_get_entry(
 
 void* ipa_table_get_entry_by_index(
 	ipa_table* table,
-	uint16_t   index);
+	uint16_t   rec_index);
 
 void ipa_table_dma_cmd_helper_init(
 	ipa_table_dma_cmd_helper* dma_cmd_helper,
@@ -272,9 +272,9 @@ int ipa_table_iterator_next(
 
 int ipa_table_iterator_end(
 	ipa_table_iterator* iterator,
-	ipa_table*          table,
-	uint16_t            head_index,
-	void*               head);
+	ipa_table*          table_ptr,
+	uint16_t            rec_index,
+	void*               rec_ptr);
 
 int ipa_table_iterator_is_head_with_tail(
 	ipa_table_iterator* iterator);
@@ -306,9 +306,9 @@ typedef enum
 	( (w) >= WHEN_SLOT_EMPTY && (w) < WHEN_SLOT_MAX )
 
 int ipa_table_walk(
-	ipa_table*        table,
+	ipa_table*        ipa_tbl_ptr,
 	uint16_t          start_index,
-	When2Callback     when,
+	When2Callback     when2cb,
 	ipa_table_walk_cb walk_cb,
 	void*             arb_data_ptr );
 
