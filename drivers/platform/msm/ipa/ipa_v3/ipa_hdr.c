@@ -1780,8 +1780,8 @@ int ipa3_get_hdr_proc_ctx_offset(char* name, u32* offset)
 	name[IPA_RESOURCE_NAME_MAX-1] = '\0';
 	entry = __ipa_find_hdr_proc_ctx(name);
 
-	storage = entry->is_lcl ? HPC_TBL_LCL : HPC_TBL_SYS;
 	if (entry && entry->offset_entry) {
+		storage = entry->is_lcl ? HPC_TBL_LCL : HPC_TBL_SYS;
 		/* offset is in 32 Bytes chunks */
 		*offset = (entry->offset_entry->offset +
 		ipa3_ctx->hdr_proc_ctx_tbl[storage].start_offset) >> 5;
