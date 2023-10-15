@@ -224,6 +224,8 @@ struct ipa_test_mem_partition {
 	unsigned stats_drop_size;
 	unsigned q6_stats_drop_ofst;
 	unsigned q6_stats_drop_size;
+	unsigned pre_sa_contexts_canary_ofst;
+	unsigned pre_sa_contexts_canary_size;
 	unsigned sa_contexts_ofst;
 	unsigned sa_contexts_size;
 };
