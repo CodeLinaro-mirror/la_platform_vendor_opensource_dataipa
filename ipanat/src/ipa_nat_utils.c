@@ -74,7 +74,7 @@ ipa_descriptor* ipa_descriptor_open(void)
 	if (desc_ptr->fd < 0)
 	{
 		IPAERR("Unable to open ipa device\n");
-		goto free;
+		goto hndl_fail;
 	}
 
 	res = ioctl(desc_ptr->fd, IPA_IOC_GET_HW_VERSION, &desc_ptr->ver);
@@ -91,7 +91,7 @@ ipa_descriptor* ipa_descriptor_open(void)
 
 	goto bail;
 
-free:
+hndl_fail:
 	free(desc_ptr);
 	desc_ptr = NULL;
 
@@ -137,21 +137,13 @@ void ipa_read_debug_info(
 		if (!result)
 			break;
 
-		if (result < IPA_MAX_MSG_LEN)
+		if (ferror(debug_file))
 		{
-			if (ferror(debug_file))
-			{
-				printf("Failed to read from %s\n", debug_file_path);
-				break;
-			}
-
-			dbg_buff[result] = '\0';
-		}
-		else
-		{
-			dbg_buff[IPA_MAX_MSG_LEN - 1] = '\0';
+			printf("Failed to read from %s\n", debug_file_path);
+			break;
 		}
 
+		dbg_buff[(result < IPA_MAX_MSG_LEN) ? result : (IPA_MAX_MSG_LEN - 1)] = '\0';
 
 		printf("%s", dbg_buff);
 
@@ -159,11 +151,6 @@ void ipa_read_debug_info(
 			break;
 	}
 	fclose(debug_file);
-}
-
-void log_nat_message(char *msg)
-{
-	 return;
 }
 
 int currTimeAs(
@@ -207,6 +194,9 @@ int currTimeAs(
 		*valPtr =
 			(uint64_t) (SECS2MilSECS((uint64_t) timeSpec.tv_sec) +
 						((uint64_t) timeSpec.tv_nsec / 1000000));
+		break;
+	default:
+		IPAERR("Invalid timeAs\n" );
 		break;
 	}
 

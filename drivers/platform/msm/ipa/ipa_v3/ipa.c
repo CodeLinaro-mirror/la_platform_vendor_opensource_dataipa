@@ -204,7 +204,6 @@ struct ipa3_context *ipa3_ctx = NULL;
 EXPORT_SYMBOL(ipa3_ctx);
 
 int ipa3_plat_drv_probe(struct platform_device *pdev_p);
-void ipa3_plat_drv_shutdown(struct platform_device *pdev_p);
 int ipa3_pci_drv_probe(struct pci_dev *pci_dev,
 	const struct pci_device_id *ent);
 
@@ -593,7 +592,6 @@ static struct platform_driver ipa_plat_drv = {
 		.of_match_table = ipa_plat_drv_match,
 		.dev_groups = ipa_group,
 	},
-	.shutdown = ipa3_plat_drv_shutdown,
 };
 
 static struct {
@@ -2955,6 +2953,59 @@ done:
 	return res;
 }
 #endif
+
+/**
+ * ipa3_send_general() - Pass general event to the IPACM
+ * @event_type: Type of the event
+ * @param: pointer to the parameter struct
+ * @size: size of the parameter struct
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_send_general(uint8_t event_type, void *param, size_t size)
+{
+	struct ipa_msg_meta msg_meta;
+	int res = 0;
+
+	if (!param) {
+		IPAERR("Bad arg: param is NULL\n");
+		res = -EIO;
+		goto done;
+	}
+
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = event_type;
+	msg_meta.msg_len  = size;
+
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, param, ipa3_general_free_cb);
+
+	if (res != 0) {
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		kfree(param);
+		goto done;
+	}
+
+done:
+	return res;
+}
+
+/**
+ * ipa3_send_ipsec_ul_flt() - Pass IPsec UL FLT attrib to the IPACM
+ * @event_type: Type of the event - ADD or DEL
+ * @uf: pointer to IPsec UL FLT attrib structure
+ *
+ * Returns: 0 on success, negative on failure
+ */
+inline int ipa3_send_ipsec_ul_flt(enum ipa_ipsec_ul_flt_evt event_type,
+	struct ipa_ioc_ipsec_ul_flt_attr *uf) {
+	return ipa3_send_general(event_type, uf, sizeof(struct ipa_ioc_ipsec_ul_flt_attr));
+}
 
 static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -5576,6 +5627,8 @@ static int ipa3_q6_set_ex_path_to_apps(void)
 			(IPA_CLIENT_IS_PROD(client_idx) &&
 			ipa3_ctx->ep[ep_idx].valid &&
 			ipa3_ctx->ep[ep_idx].skip_ep_cfg) ||
+			ipa3_ctx->ep[ep_idx].client == IPA_CLIENT_IPSEC_ENCAP_PROD ||
+			ipa3_ctx->ep[ep_idx].client == IPA_CLIENT_IPSEC_DECAP_PROD ||
 			(ipa3_ctx->ep[ep_idx].client == IPA_CLIENT_APPS_WAN_PROD
 			&& ipa3_ctx->modem_cfg_emb_pipe_flt))) {
 			ipa_assert_on(num_descs >= ipa3_ctx->ipa_num_pipes);
@@ -10128,6 +10181,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	struct ipa_active_client_logging_info log_info;
 	struct cdev *cdev;
 	enum hdr_tbl_storage hdr_tbl;
+	enum hpc_tbl_storage hpc_tbl;
 
 	IPADBG("IPA Driver initialization started\n");
 
@@ -10618,13 +10672,18 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			INIT_LIST_HEAD(&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i]);
 		}
 	}
-	INIT_LIST_HEAD(&ipa3_ctx->hdr_proc_ctx_tbl.head_proc_ctx_entry_list);
-	for (i = 0; i < IPA_HDR_PROC_CTX_BIN_MAX; i++) {
-		INIT_LIST_HEAD(
-			&ipa3_ctx->hdr_proc_ctx_tbl.head_offset_list[i]);
-		INIT_LIST_HEAD(
-			&ipa3_ctx->hdr_proc_ctx_tbl.head_free_offset_list[i]);
+
+	/* Init the various list heads for both SRAM/DDR */
+	for (hpc_tbl = HPC_TBL_LCL; hpc_tbl < HPC_TBLS_TOTAL; hpc_tbl++) {
+		INIT_LIST_HEAD(&ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].head_proc_ctx_entry_list);
+		for (i = 0; i < IPA_HDR_PROC_CTX_BIN_MAX; i++) {
+			INIT_LIST_HEAD(
+				&ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].head_offset_list[i]);
+			INIT_LIST_HEAD(
+				&ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].head_free_offset_list[i]);
+		}
 	}
+
 	INIT_LIST_HEAD(&ipa3_ctx->rt_tbl_set[IPA_IP_v4].head_rt_tbl_list);
 	idr_init(&ipa3_ctx->rt_tbl_set[IPA_IP_v4].rule_ids);
 	INIT_LIST_HEAD(&ipa3_ctx->rt_tbl_set[IPA_IP_v6].head_rt_tbl_list);
@@ -13834,15 +13893,6 @@ err_check:
 	return result;
 }
 
-void  ipa3_plat_drv_shutdown (struct platform_device *pdev_p)
-{
-	if(&(pdev_p->dev) != ipa3_ctx->pdev)
-		return;
-	IPAERR("IPA shutdown call \n");
-	ipa3_lcl_mdm_reboot_cb();
-	IPAERR("Exit \n");
-}
-
 /**
  * ipa3_ap_suspend() - suspend callback for runtime_pm
  * @dev: pointer to device
@@ -13964,6 +14014,10 @@ static void ipa3_deepsleep_suspend(void)
 	ipa3_ctx->deepsleep = true;
 	/*Disabling the LAN NAPI*/
 	ipa3_disable_napi_lan_rx();
+#if defined(CONFIG_IPA_IPSEC)
+	/* Clean up IPsec */
+	ipa_ipsec_cleanup();
+#endif
 	/*NOt allow uC related operations until uC load again*/
 	ipa3_ctx->uc_ctx.uc_loaded = false;
 	/*Disconnecting LAN PROD/LAN CONS/CMD PROD apps pipes*/
@@ -14520,6 +14574,10 @@ static void __exit ipa_module_exit(void)
 		ipa3_ctx->hw_stats = NULL;
 	}
 	unregister_pm_notifier(&ipa_pm_notifier);
+#if defined(CONFIG_IPA_IPSEC)
+	/* Clean up IPsec */
+	ipa_ipsec_cleanup();
+#endif
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
 }

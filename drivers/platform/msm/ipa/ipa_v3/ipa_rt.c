@@ -61,18 +61,23 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 	}
 
 	gen_params.ipt = ip;
-	gen_params.dst_pipe_idx = ipa3_get_ep_mapping(entry->rule.dst);
-	if (gen_params.dst_pipe_idx == -1) {
-		IPAERR_RL("Wrong destination pipe specified in RT rule\n");
-		WARN_ON_RATELIMIT_IPA(1);
-		return -EPERM;
-	}
-	if (!IPA_CLIENT_IS_CONS(entry->rule.dst)) {
-		IPAERR_RL("No RT rule on IPA_client_producer pipe.\n");
-		IPAERR_RL("pipe_idx: %d dst_pipe: %d\n",
-				gen_params.dst_pipe_idx, entry->rule.dst);
-		WARN_ON_RATELIMIT_IPA(1);
-		return -EPERM;
+	/* For rules with next round HPC we have to pass "invalid pipe" as the destination */
+	if (entry->rule.dst == IPA_CLIENT_MAX) {
+		gen_params.dst_pipe_idx = (int)IPA_INVALID_PIPE_IDX;
+	} else {
+		gen_params.dst_pipe_idx = ipa3_get_ep_mapping(entry->rule.dst);
+		if (gen_params.dst_pipe_idx == -1) {
+			IPAERR_RL("Wrong destination pipe specified in RT rule\n");
+			WARN_ON_RATELIMIT_IPA(1);
+			return -EPERM;
+		}
+		if (!IPA_CLIENT_IS_CONS(entry->rule.dst)) {
+			IPAERR_RL("No RT rule on IPA_client_producer pipe.\n");
+			IPAERR_RL("pipe_idx: %d dst_pipe: %d\n",
+					gen_params.dst_pipe_idx, entry->rule.dst);
+			WARN_ON_RATELIMIT_IPA(1);
+			return -EPERM;
+		}
 	}
 
 	/* Adding check to confirm still
@@ -113,10 +118,16 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 			gen_params.hdr_type = IPAHAL_RT_RULE_HDR_NONE;
 			gen_params.hdr_ofst = 0;
 		} else {
-			gen_params.hdr_lcl = ipa3_ctx->hdr_proc_ctx_tbl_lcl;
 			gen_params.hdr_type = IPAHAL_RT_RULE_HDR_PROC_CTX;
-			gen_params.hdr_ofst = proc_ctx->offset_entry->offset +
-				ipa3_ctx->hdr_proc_ctx_tbl.start_offset;
+			if (proc_ctx->is_lcl) {
+				gen_params.hdr_ofst = proc_ctx->offset_entry->offset +
+				ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset;
+			}
+			else{
+				gen_params.hdr_ofst = proc_ctx->offset_entry->offset +
+					ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset;
+			}
+			gen_params.hdr_lcl = proc_ctx->is_lcl;
 		}
 	} else if ((entry->hdr != NULL) &&
 		(entry->hdr->cookie == IPA_HDR_COOKIE)) {
@@ -916,6 +927,11 @@ static struct ipa3_rt_tbl *__ipa_add_rt_tbl(enum ipa_ip_type ip,
 			goto ipa_insert_failed;
 		}
 		entry->id = id;
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled())
+			if (!!ipa_ipsec_handle_lan_up_down(ip, entry, true))
+				IPAERR("failed to redirect IPsec policy rules\n");
+#endif
 	}
 
 	return entry;
@@ -973,6 +989,12 @@ static int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry)
 			entry->idx, entry->set->tbl_cnt, ip);
 		kmem_cache_free(ipa3_ctx->rt_tbl_cache, entry);
 	}
+
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled())
+			if (!!ipa_ipsec_handle_lan_up_down(ip, entry, false))
+				IPAERR("failed to redirect IPsec policy rules to default\n");
+#endif
 
 	/* remove the handle from the database */
 	ipa3_id_remove(id);

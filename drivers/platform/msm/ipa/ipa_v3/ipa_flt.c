@@ -892,6 +892,9 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 		struct ipa3_rt_tbl **rt_tbl, enum ipa_ip_type ip)
 {
 	int index;
+#ifdef CONFIG_IPA_IPSEC
+	struct ipa3_rt_tbl *encap_rt_tbl = NULL;
+#endif
 
 	if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_NAT) {
 		if (rule->action == IPA_PASS_TO_SRC_NAT || rule->action == IPA_PASS_TO_DST_NAT) {
@@ -918,10 +921,23 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 				goto error;
 			}
 		} else {
+#ifdef CONFIG_IPA_IPSEC
+			/* eq_attrib_type rules are valid, if point to a modem RT table
+			   or IPsec encap RT table */
+			if (ipa_ipsec_enabled()) {
+				encap_rt_tbl = ipa3_id_find(ipa3_ctx->ipsec->encap_rt[ip]);
+				IPADBG_LOW("Encap RT tbl. idx = %d\n",
+					encap_rt_tbl ? encap_rt_tbl->idx : -1);
+			}
+			if (encap_rt_tbl && rule->rt_tbl_idx == encap_rt_tbl->idx)
+				*rt_tbl = encap_rt_tbl;
+			else if (rule->rt_tbl_idx > ((ip == IPA_IP_v4) ?
+#else
 			if (rule->rt_tbl_idx > ((ip == IPA_IP_v4) ?
+#endif
 				IPA_MEM_PART(v4_modem_rt_index_hi) :
 				IPA_MEM_PART(v6_modem_rt_index_hi))) {
-				IPAERR_RL("invalid RT tbl\n");
+				IPAERR_RL("invalid RT tbl. idx = %d\n", rule->rt_tbl_idx);
 				goto error;
 			}
 		}
@@ -1144,7 +1160,7 @@ error:
 	return -EPERM;
 }
 
-static int __ipa_del_flt_rule(u32 rule_hdl)
+int __ipa_del_flt_rule(u32 rule_hdl)
 {
 	struct ipa3_flt_entry *entry;
 	int id;
@@ -1295,7 +1311,7 @@ static int __ipa_add_nxt_rnd_flt_rule(enum ipa_ip_type ip, u32 tbl_id,
 	}
 
 	tbl_idx = ipa_flt_get_nxt_rnd_idx(tbl_id);
-	if (!tbl_idx)
+	if (tbl_idx <= 0)
 		return -EINVAL;
 
 

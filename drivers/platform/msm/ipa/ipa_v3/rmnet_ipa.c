@@ -48,7 +48,7 @@
 
 #include "ipa_trace.h"
 #include "ipa_odl.h"
-
+#include "ipa_ipsec.h"
 
 #define OUTSTANDING_HIGH_DEFAULT 256
 #define OUTSTANDING_HIGH_CTL_DEFAULT (OUTSTANDING_HIGH_DEFAULT + 32)
@@ -72,7 +72,8 @@ enum ipa_ap_ingress_ep_enum {
 	IPA_AP_INGRESS_EP_COALS = 1 << 1,
 	IPA_AP_INGRESS_EP_LOW_LAT = 1 << 2,
 	IPA_AP_INGRESS_EP_LOW_LAT_DATA = 1 << 3,
-	IPA_AP_INGRESS_EP_V2X_DATA = 1 << 4
+	IPA_AP_INGRESS_EP_V2X_DATA = 1 << 4,
+	IPA_AP_INGRESS_EP_IPSEC = 1 << 5,
 };
 
 static const struct rmnet_ingress_param rmnet_ingress_cfg ={
@@ -212,8 +213,6 @@ struct rmnet_ipa3_context {
 	bool a7_ul_flt_set;
 	atomic_t is_initialized;
 	atomic_t is_ssr;
-	struct mutex is_ssr_lock;
-	atomic_t is_reboot;
 	void *lcl_mdm_subsys_notify_handle;
 	void *rmt_mdm_subsys_notify_handle;
 	u32 apps_to_ipa3_hdl;
@@ -241,7 +240,7 @@ struct rmnet_ipa3_context {
 	bool wan_rt_table_setup;
 	bool no_qmap_config;
 	bool eth_wan_set;
-	bool eth_vlan;
+	enum ipa_eth_hw_config_enum_v01 eth_vlan;
 	u32 apps_to_ipa3_v2x_hdl;
 	u32 ipa3_v2x_to_apps_hdl;
 	bool ipa_v2x_set;
@@ -1462,6 +1461,11 @@ static int ipa3_wwan_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
+static inline enum ipa_rmnet_tx_queue ipa_wwan_get_tx_queue(struct sk_buff *skb)
+{
+	return (enum ipa_rmnet_tx_queue)skb_get_queue_mapping(skb);
+}
+
 /**
  * ipa3_wwan_select_queue() - select tx-queue.
  *
@@ -1475,11 +1479,7 @@ static int ipa3_wwan_change_mtu(struct net_device *dev, int new_mtu)
 static u16 ipa3_wwan_select_queue(struct net_device *dev, struct sk_buff *skb, struct net_device *sb_dev)
 {
 	/*queue_mapping =0 WWAN IP traffic, 1 for eth or v2x traffic */
-	if (skb->queue_mapping == 1) {
-		IPAWANDBG(" got query (debug)\n");
-		return 1;
-	} else
-		return 0;
+	return ipa_wwan_get_tx_queue(skb);
 }
 /**
  * ipa3_wwan_xmit() - Transmits an skb.
@@ -1499,6 +1499,7 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	bool qmap_check = false, eth_check = false, v2x_check = false;
 	struct ipa3_wwan_private *wwan_ptr = netdev_priv(dev);
 	unsigned long flags;
+	enum ipa_client_type dst_ipa_client = IPA_CLIENT_APPS_WAN_PROD;
 
 	if (rmnet_ipa3_ctx->ipa_config_is_apq) {
 		IPAWANERR_RL("IPA embedded data on APQ platform\n");
@@ -1518,7 +1519,7 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	/*queue_mapping =0 WWAN IP traffic, 1 for eth/v2x traffic */
-	if (skb->queue_mapping == 1)
+	if (ipa_wwan_get_tx_queue(skb) == IPA_RMNET_TX_QUEUE_V2X)
 	{
 		if (ipa3_ctx->ipa_config_is_auto){
 			/* in AUTO config, 1 for v2x traffic */
@@ -1530,7 +1531,7 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 			eth_check = true;
 		}
 	} else {
-		/* regular IP traffic */
+		/* regular IP traffic or IPsec traffic */
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0))
 		qmap_check = RMNET_MAP_GET_CD_BIT(skb);
 #else
@@ -1648,8 +1649,27 @@ send:
 	 * both data packets and command will be routed to
 	 * IPA_CLIENT_Q6_WAN_CONS based on status configuration
 	 */
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		if (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC) {
+			u8 sa_idx;
+
+			dst_ipa_client =
+			(IPA_IPSEC_SKB_CB(skb)->sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
+			IPA_CLIENT_IPSEC_ENCAP_PROD : IPA_CLIENT_IPSEC_DECAP_PROD;
+			IPAWANDBG("[%s]: xmit to %s\n",
+				dev->name, ipa_clients_strings[dst_ipa_client]);
+
+			sa_idx = (u8)(IPA_IPSEC_SKB_CB(skb)->sa_idx);
+			if (dst_ipa_client == IPA_CLIENT_IPSEC_ENCAP_PROD)
+				atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_encap_xmit);
+			if (dst_ipa_client == IPA_CLIENT_IPSEC_DECAP_PROD)
+				atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].ipsec_decap_xmit);
+		}
+	}
+#endif
 	if (unlikely(!eth_check) && unlikely(!v2x_check))
-	  ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_PROD, skb, NULL);
+		ret = ipa3_tx_dp(dst_ipa_client, skb, NULL);
 	else if (unlikely(!v2x_check))
 		ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_ETH_PROD, skb, NULL);
 	else
@@ -1719,7 +1739,7 @@ static void ipa3_wwan_tx_timeout(struct net_device *dev)
  * Check that the packet is the one we sent and release it
  * This function will be called in defered context in IPA wq.
  */
-static void apps_ipa_tx_complete_notify(void *priv,
+void apps_ipa_tx_complete_notify(void *priv,
 		enum ipa_dp_evt_type evt,
 		unsigned long data)
 {
@@ -1743,7 +1763,7 @@ static void apps_ipa_tx_complete_notify(void *priv,
 	}
 
     /* queue_mapping = 0 WWAN IP traffic,1  for v2x/eth pdu traffic */
-	if (skb->queue_mapping == 1) {
+	if (ipa_wwan_get_tx_queue(skb) == IPA_RMNET_TX_QUEUE_V2X) {
 		/* in AUTO config, 1 for v2x traffic */
 		if (ipa3_ctx->ipa_config_is_auto)
 			v2x_check = true;
@@ -1794,6 +1814,7 @@ static void apps_ipa_tx_complete_notify(void *priv,
 		__netif_tx_unlock_bh(netdev_get_tx_queue(dev, 1));
 	dev_kfree_skb_any(skb);
 }
+EXPORT_SYMBOL(apps_ipa_tx_complete_notify);
 
 /**
  * apps_ipa_packet_receive_notify() - Rx notify
@@ -1804,7 +1825,7 @@ static void apps_ipa_tx_complete_notify(void *priv,
  *
  * IPA will pass a packet to the Linux network stack with skb->data
  */
-static void apps_ipa_packet_receive_notify(void *priv,
+void apps_ipa_packet_receive_notify(void *priv,
 		enum ipa_dp_evt_type evt,
 		unsigned long data)
 {
@@ -1821,8 +1842,11 @@ static void apps_ipa_packet_receive_notify(void *priv,
 			skb->protocol = htons(ETH_P_MAP);
 
 		skb_set_mac_header(skb, 0);
-		/* default traffic uses rx-0 queue. */
-		skb_record_rx_queue(skb, 0);
+		/* default traffic uses IPA_RMNET_RX_QUEUE_DEFAULT queue. */
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled() && !skb_rx_queue_recorded(skb))
+#endif
+			skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_DEFAULT);
 		if (ipa3_rmnet_res.ipa_napi_enable) {
 			trace_rmnet_ipa_netif_rcv_skb3(skb, dev->stats.rx_packets);
 			result = netif_receive_skb(skb);
@@ -1848,6 +1872,231 @@ static void apps_ipa_packet_receive_notify(void *priv,
 		IPAWANERR("Invalid evt %d received in wan_ipa_receive\n", evt);
 	}
 }
+EXPORT_SYMBOL(apps_ipa_packet_receive_notify);
+
+#ifdef CONFIG_IPA_IPSEC
+/**
+ * apps_ipa_ipsec_err_pkt_rcv_ntfy() - handler for APPS IPSEC errors.
+ *
+ * @priv: driver context
+ * @evt: event type
+ * @data: data provided with event
+ *
+ * IPA will pass a packet to the Linux network stack with skb->data
+ */
+void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
+		enum ipa_dp_evt_type evt,
+		unsigned long data)
+{
+	struct sk_buff *skb = (struct sk_buff *)data;
+	struct net_device *dev = (struct net_device *)priv;
+	struct error_qmap_hdr ipsec_err_qmap;
+	struct ipahal_pkt_status pkt_status;
+	u8 sa_idx;
+	enum ipa_ipsec_sa_type sa_type = IPA_IPSEC_TYPE_MAX;
+	enum ipa_ipsec_error_action act = IPA_IPSEC_ERROR_DROP_ACTION;
+	struct xfrm_state *x = NULL;
+	struct sec_path *sp;
+	struct xfrm_offload *xo;
+	u32 xo_status;
+	int result;
+
+	if (evt != IPA_RECEIVE) {
+		IPAWANERR("Invalid evt %d received in ipa_ipsec_err_pkt_rcv\n", evt);
+		return;
+	}
+
+	skb->dev = IPA_NETDEV();
+
+	/* get packet status and remove it from skb */
+	ipahal_pkt_status_parse(skb->data, &pkt_status);
+	skb_pull(skb, ipahal_pkt_status_get_size());
+
+	/* get err qmap header from skb */
+	memcpy(&ipsec_err_qmap, skb->data, sizeof(struct error_qmap_hdr));
+
+	/* Set skb network header after the qmap header*/
+	skb_set_network_header(skb, sizeof(struct error_qmap_hdr));
+
+	sa_idx = ipsec_err_qmap.sa_idx;
+	if (unlikely(sa_idx >= IPA_IPSEC_MAX_SA_NUM)) {
+		IPAERR("Invalid IPsec SA in QMAP header(%12phN) \n", &ipsec_err_qmap);
+		kfree_skb(skb);
+		return;
+	}
+
+	IPADBG("QMAP header: %12phN\n", &ipsec_err_qmap);
+	skb_dump(KERN_DEBUG, skb, false);
+
+	switch (ipsec_err_qmap.error_type) {
+	case IPA_IPSEC_ERROR_TYPE_ENCAP:
+		sa_type = IPA_IPSEC_ENCAP;
+		x = ipa3_ctx->ipsec->sa_db[sa_type][sa_idx].x;
+		if (x)
+			XFRM_INC_STATS(xs_net(x), LINUX_MIB_XFRMOUTERROR);
+
+		atomic_inc(&ipa3_ctx->stats.ipsec_enacp_excp);
+
+		/* Encap errors - drop the packet */
+		act = IPA_IPSEC_ERROR_DROP_ACTION;
+
+		switch (ipsec_err_qmap.error_code) {
+		case IPA_IPSEC_ERROR_CODE_DISCARD_RULE:
+			atomic_inc(&ipa3_ctx->ipsec->stats.encap_error_code_discard_rule);
+			break;
+		case IPA_IPSEC_ERROR_CODE_ENCAP_SA_DISABLED:
+			atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].error_code_encap_sa_disabled);
+			break;
+		case IPA_IPSEC_ERROR_CODE_SEQ_NUM_OVERFLOW:
+			atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].error_code_seq_num_overflow);
+			break;
+		default:
+			IPAWANERR("unknown Encap IPSEC error code %d\n",
+					ipsec_err_qmap.error_code);
+			break;
+		}
+		break;
+
+	case IPA_IPSEC_ERROR_TYPE_DECAP:
+		sa_type = IPA_IPSEC_DECAP;
+		atomic_inc(&ipa3_ctx->stats.ipsec_decap_excp);
+
+		switch (ipsec_err_qmap.error_code) {
+		case IPA_IPSEC_ERROR_CODE_DUP_SEQ_NUMBER:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_dup_seq_number);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_OUT_OF_WINDOW:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_out_of_window);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_AUTH_ERROR:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_auth_error);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INCORRECT_PADDING:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_incorrect_padding);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INCORRECT_ESP_NEXT_HDR_PROTO:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_incorrect_esp_next_hdr_proto);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_INVALID_PACKET_SYNTAX;
+			break;
+		case IPA_IPSEC_ERROR_CODE_ECN_ERROR:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_ecn_error);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_INVALID_PACKET_SYNTAX;
+			break;
+		case IPA_IPSEC_ERROR_CODE_POST_DECAP_NAT:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_post_decap_nat);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_GENERIC_ERROR;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INNER_PKT_EXCP:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_inner_pkt_excp);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_GENERIC_ERROR;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INNER_PKT_FLT_EXCP:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_inner_pkt_flt_excp);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			xo_status = CRYPTO_GENERIC_ERROR;
+			break;
+		case IPA_IPSEC_ERROR_CODE_DECAP_SA_DISABLED:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_decap_sa_disabled);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_SW_HANDLING:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_sw_handling);
+			act = IPA_IPSEC_ERROR_SW_HANDLING_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INNER_PKT_VALIDATION:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_inner_pkt_validation);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			break;
+		case IPA_IPSEC_ERROR_CODE_INNER_PKT_SA_MISMATCH:
+			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_inner_pkt_sa_mismatch);
+			act = IPA_IPSEC_ERROR_DROP_ACTION;
+			break;
+		default:
+			IPAWANERR("unknown Decap IPSEC error code %d\n",
+					ipsec_err_qmap.error_code);
+			break;
+		}
+		break;
+	default:
+		IPAWANERR("unknown IPSEC error type %d\n",
+				ipsec_err_qmap.error_type);
+		break;
+	}
+
+	IPAWANDBG_LOW("received error IPSEC packet type:%d, code:%d, action: %d\n",
+			ipsec_err_qmap.error_type, ipsec_err_qmap.error_code, act);
+
+	if (act == IPA_IPSEC_ERROR_TO_NS_ACTION) {
+		if (!rmnet_ipa3_ctx->no_qmap_config)
+			skb->protocol = htons(ETH_P_MAP);
+
+		skb_set_mac_header(skb, 0);
+		/* Record a special RX queue IPA_RMNET_RX_QUEUE_IPSEC for IPSEC error. */
+		skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_IPSEC_ERROR);
+
+		x = ipa3_ctx->ipsec->sa_db[sa_type][sa_idx].x;
+		if (unlikely(!x)) {
+			IPAERR("SA%02d has no XFRM state pointer (0x%X) \n", sa_idx, x);
+			BUG();
+		}
+
+		sp = secpath_set(skb);
+		if (sp) {
+			sp->xvec[sp->len++] = x;
+			sp->olen++;
+			xfrm_state_hold(x);
+			xo = xfrm_offload(skb);
+			if (xo) {
+				xo->flags = CRYPTO_DONE;
+				xo->status = xo_status;
+			} else {
+				pr_err_ratelimited(DEV_NAME " %s:%d fail at xfrm_offload\n",
+				__func__, __LINE__);
+			}
+		} else {
+			pr_err_ratelimited(DEV_NAME " %s:%d fail at secpath_set\n",
+				__func__, __LINE__);
+		}
+
+		if (ipa3_rmnet_res.ipa_napi_enable) {
+			trace_rmnet_ipa_netif_rcv_skb3(skb, dev->stats.rx_packets);
+			result = netif_receive_skb(skb);
+		} else {
+			if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH
+					== 0) {
+				trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
+				result = netif_rx_ni(skb);
+			} else {
+				trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
+				result = netif_rx(skb);
+			}
+		}
+
+		if (result)	{
+			pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_receive_skb\n",
+				__func__, __LINE__);
+			dev->stats.rx_dropped++;
+		}
+
+	} else if (act == IPA_IPSEC_ERROR_SW_HANDLING_ACTION) {
+		/* TODO IPsec Frag handle, for now drop all frags*/
+		kfree_skb(skb);
+		dev->stats.rx_dropped++;
+	} else if (act == IPA_IPSEC_ERROR_DROP_ACTION) {
+		kfree_skb(skb);
+		dev->stats.rx_dropped++;
+	}
+}
+EXPORT_SYMBOL(apps_ipa_ipsec_err_pkt_rcv_ntfy);
+#endif //CONFIG_IPA_IPSEC
 
 /**
  * apps_ipa_v2x_packet_receive_notify() - Rx notify
@@ -1875,8 +2124,8 @@ static void apps_ipa_v2x_packet_receive_notify(void *priv,
 			skb->protocol = htons(ETH_P_MAP);
 
 		skb_set_mac_header(skb, 0);
-		/* v2x traffic uses rx-1 queue. */
-		skb_record_rx_queue(skb, 1);
+		/* v2x traffic uses IPA_RMNET_RX_QUEUE_V2X queue. */
+		skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_V2X);
 		if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH == 0) {
 			trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
 			result = netif_rx_ni(skb);
@@ -2405,6 +2654,12 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	/* caching the success status of the pipe */
 	pipe_status->status = IPA_PIPE_SETUP_EXISTS;
 
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		rc = ipa_ipsec_ep_init_cons();
+	}
+#endif
+
 	return rc;
 }
 
@@ -2655,6 +2910,13 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 			if (rc)
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
+#ifdef CONFIG_IPA_IPSEC
+		if (ipa_ipsec_enabled()) {
+			rc = ipa_ipsec_install_dl_pol_flt();
+			if (rc)
+				IPAWANERR("IPsec DL policy FLT init failed = %d\n", rc);
+		}
+#endif
 		/* Sending QMI indication message share RSC/QMAP pipe details*/
 		IPAWANDBG("ingress_ep_mask = %d\n", rmnet_ipa3_ctx->ingress_eps_mask);
 		ipa_send_wan_pipe_ind_to_modem(rmnet_ipa3_ctx->ingress_eps_mask);
@@ -3047,6 +3309,12 @@ static int ipa3_setup_apps_wan_prod_pipes(
 	egress_param->pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 	/* caching the success status of the pipe */
 	pipe_status->status = IPA_PIPE_SETUP_EXISTS;
+
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		rc = ipa_ipsec_ep_init_prod();
+	}
+#endif
 
 	return rc;
 }
@@ -3471,7 +3739,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
  * Configure mux id for RMNET interfaces
  *
  */
-static int rmnet_mux_init(void)
+int rmnet_mux_init(void)
 {
 	uint32_t mux_id;
 	int mux_index;
@@ -3485,7 +3753,7 @@ static int rmnet_mux_init(void)
 
 	for(id = 1; id <= MAX_NUM_OF_MUX_CHANNEL; id++)
 	{
-		snprintf(channel_name, IFNAMSIZ, "rmnet_data%d",id-1);
+		snprintf(channel_name, IFNAMSIZ, "qmapmuxX.%d",id-1);
 		mux_id = id;
 		mux_index = ipa3_find_mux_channel_index(
 						id, true);
@@ -4852,6 +5120,15 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		dev->gso_max_size = RMNET_IPA_ULSO_SIZE_LIMIT;
 	}
 
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		IPAWANDBG("IPsec offload is enabled\n");
+		dev->xfrmdev_ops = ipa3_ctx->ipsec->xfrmdev_ops;
+		dev->features |= NETIF_F_HW_ESP;
+		dev->hw_enc_features |= NETIF_F_HW_ESP;
+		ipa3_ctx->ipsec->dev = dev;
+	}
+#endif
 	if (ipa3_rmnet_res.ipa_napi_enable)
 		netif_napi_add(dev, &(rmnet_ipa3_ctx->wwan_priv->napi),
 		       ipa3_rmnet_poll, NAPI_WEIGHT);
@@ -5240,63 +5517,6 @@ static void rmnet_ipa_send_ssr_notification(bool ssr_done)
 	}
 }
 
-void ipa3_lcl_mdm_reboot_cb ( )
-{
-	struct ipa3_ep_context *ep;
-	int ep_idx;
-	int res=0;
-	struct ipa_ep_cfg_holb holb_cfg;
-	memset(&holb_cfg, 0, sizeof(holb_cfg));
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_2) {
-		holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
-		holb_cfg.en = IPA_HOLB_TMR_EN;
-	}
-	IPAWANERR("Reboot cb \n");
-	atomic_set(&rmnet_ipa3_ctx->is_reboot, 1);
-	mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
-	/* Stopping IPA_CLIENT_APPS_LAN_CONS pipe */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
-	res = ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
-	if(res < 0)
-		pr_info("holb enablement is failed on LAN CONS\n");
-	ep = &ipa3_ctx->ep[ep_idx];
-	ipa3_enable_clks();
-	gsi_stop_channel(ep->gsi_chan_hdl);
-	IPAWANERR("IPA_CLIENT_APPS_LAN_CONS stopped \n");
-	memset(ep,0,sizeof(struct ipa3_ep_context));
-	/* Stopping IPA_CLIENT_APPS_LAN_COAL_CONS pipe */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS);
-	ep = &ipa3_ctx->ep[ep_idx];
-	gsi_stop_channel(ep->gsi_chan_hdl);
-	memset(ep,0,sizeof(struct ipa3_ep_context));
-	IPAWANERR("IPA_CLIENT_APPS_LAN_COAL_CONS stopped \n");
-	/* Stopping IPA_CLIENT_APPS_LAN_PROD pipe */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_PROD);
-	ep = &ipa3_ctx->ep[ep_idx];
-	gsi_stop_channel(ep->gsi_chan_hdl);
-	IPAWANERR("IPA_CLIENT_APPS_LAN_PROD stopped \n");
-	memset(ep,0,sizeof(struct ipa3_ep_context));
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
-	ep = &ipa3_ctx->ep[ep_idx];
-	gsi_stop_channel(ep->gsi_chan_hdl);
-	IPAWANERR("IPA_CLIENT_ETH_PROD stopped \n");
-	memset(ep,0,sizeof(struct ipa3_ep_context));
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
-	ep = &ipa3_ctx->ep[ep_idx];
-	gsi_stop_channel(ep->gsi_chan_hdl);
-	IPAWANERR("IPA_CLIENT_ETH_CONS stopped \n");
-	memset(ep,0,sizeof(struct ipa3_ep_context));
-	/* Stopping IPA_CLIENT_APPS_CMD_PROD pipe */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_CMD_PROD);
-	ep = &ipa3_ctx->ep[ep_idx];
-	gsi_stop_channel(ep->gsi_chan_hdl);
-	IPAWANERR(" IPA_CLIENT_APPS_CMD_PROD stopped \n");
-	memset(ep,0,sizeof(struct ipa3_ep_context));
-	mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
-	IPAWANERR(" Exit \n");
-
-}
-
 static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			   unsigned long code,
 			   void *data)
@@ -5332,11 +5552,6 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 	case SUBSYS_BEFORE_SHUTDOWN:
 #endif
 		IPAWANINFO("IPA received MPSS BEFORE_SHUTDOWN\n");
-		if (atomic_read(&rmnet_ipa3_ctx->is_reboot)){
-			IPAWANERR(" IPA received REBOOT \n");
-			break;
-		}
-		mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
 		/* send SSR before-shutdown notification to IPACM */
@@ -5362,7 +5577,6 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		if (atomic_read(&ipa3_ctx->v2x_vm_ready))
 			ipa3_msgq_send(IPA_MSG_TYPE_SSR_BEFORE_SHUTDOWN_REQ, 0);
 #endif
-		mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
 		IPAWANINFO("IPA BEFORE_SHUTDOWN handling is complete\n");
 		break;
 
@@ -5388,11 +5602,6 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 	case SUBSYS_AFTER_SHUTDOWN:
 #endif
 		IPAWANINFO("IPA Received MPSS AFTER_SHUTDOWN\n");
-		if (atomic_read(&rmnet_ipa3_ctx->is_reboot)){
-			IPAWANERR(" IPA received REBOOT \n");
-			break;
-		}
-		mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
 		ipa3_proxy_clk_unvote();
 		/* Clean up netdev resources in AFTER_SHUTDOWN for remoteproc
 		 * enabled targets. */
@@ -5411,7 +5620,6 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 		if (ipa3_ctx_get_flag(IPA_ENDP_DELAY_WA_EN))
 			ipa3_client_prod_post_shutdown_cleanup();
-		mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
 		IPAWANINFO("IPA AFTER_SHUTDOWN handling is complete\n");
 		break;
 
@@ -5477,8 +5685,6 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			handle3_egress_format_internal(rmnet_egress_cfg);
 
 			handle3_ingress_format_internal(rmnet_ingress_cfg);
-
-			rmnet_mux_init();
 		}
 
 		IPAWANINFO("IPA AFTER_POWERUP handling is complete\n");
@@ -7247,7 +7453,8 @@ void ipa3_q6_handshake_complete(bool ssr_bootup)
 		 * It is required to recover the network stats after
 		 * SSR recovery
 		 */
-		rmnet_ipa_get_network_stats_and_update();
+		if(!ipa3_ctx->ipa_config_is_auto)
+			rmnet_ipa_get_network_stats_and_update();
 	}
 
 	if (ipa3_ctx->ipa_mhi_proxy)
@@ -8186,13 +8393,11 @@ int ipa3_wwan_init(void)
 
 	atomic_set(&rmnet_ipa3_ctx->is_initialized, 0);
 	atomic_set(&rmnet_ipa3_ctx->is_ssr, 0);
-	atomic_set(&rmnet_ipa3_ctx->is_reboot, 0);
 	rmnet_ipa3_ctx->clock_vote.cnt = 0;
 
 	mutex_init(&rmnet_ipa3_ctx->pipe_handle_guard);
 	mutex_init(&rmnet_ipa3_ctx->add_mux_channel_lock);
 	mutex_init(&rmnet_ipa3_ctx->per_client_stats_guard);
-	mutex_init(&rmnet_ipa3_ctx->is_ssr_lock);
 	mutex_init(&rmnet_ipa3_ctx->clock_vote.mutex);
 	/* Reset the Lan Stats. */
 	for (i = 0; i < IPACM_MAX_CLIENT_DEVICE_TYPES; i++) {
@@ -8282,6 +8487,8 @@ void ipa3_wwan_cleanup(void)
 	int ret;
 
 	platform_driver_unregister(&rmnet_ipa_driver);
+	if (!rmnet_ipa3_ctx)
+		return;
 	if (rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle) {
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 		ret = qcom_unregister_ssr_notifier(
@@ -8317,7 +8524,6 @@ void ipa3_wwan_cleanup(void)
 	mutex_destroy(&rmnet_ipa3_ctx->per_client_stats_guard);
 	mutex_destroy(&rmnet_ipa3_ctx->add_mux_channel_lock);
 	mutex_destroy(&rmnet_ipa3_ctx->pipe_handle_guard);
-	mutex_destroy(&rmnet_ipa3_ctx->is_ssr_lock);
 	kfree(rmnet_ipa3_ctx);
 	rmnet_ipa3_ctx = NULL;
 }

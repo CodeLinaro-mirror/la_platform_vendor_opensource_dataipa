@@ -70,6 +70,7 @@
 
 #define IPA_EP_NOT_ALLOCATED (-1)
 #define IPA3_MAX_NUM_PIPES 46
+#define IPA_INVALID_PIPE_IDX 0xFF
 #define IPA5_PIPES_NUM 36
 #define IPA6_PIPES_NUM 50
 #define IPA6_PROD_PIPES_NUM 22
@@ -77,6 +78,7 @@
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
 #define IPA6_MAX_NUM_PIPES (IPA6_PIPES_NUM)
 #define IPA_MAX_NUM_PIPES IPA6_MAX_NUM_PIPES
+#define IPA_APPS_IN_PIPES_NUM 7 // number of pipes from IPA to APPs
 #define IPA6_NXT_FLT_TBL_Q6_NUM 1
 #define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
 #define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
@@ -282,6 +284,12 @@ enum hdr_tbl_storage {
 	HDR_TBL_LCL_EXT,
 	HDR_TBL_SYS,
 	HDR_TBLS_TOTAL,
+};
+
+enum hpc_tbl_storage {
+	HPC_TBL_LCL,
+	HPC_TBL_SYS,
+	HPC_TBLS_TOTAL,
 };
 
 #define IPA_HDR_TO_DDR_PATTERN 0x2DDA
@@ -978,6 +986,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	int id;
 	bool user_deleted;
 	bool ipacm_installed;
+	bool is_lcl;
 };
 
 /**
@@ -1683,8 +1692,10 @@ struct ipa3_stats {
 	u32 aggr_close;
 	u32 wan_aggr_close;
 	u32 wan_rx_empty;
+	u32 wan_rx_empty_ipsec;
 	u32 wan_rx_empty_coal;
 	u32 wan_repl_rx_empty;
+	u32 wan_repl_rx_empty_ipsec;
 	u32 rmnet_ll_rx_empty;
 	u32 rmnet_ll_repl_rx_empty;
 	u32 lan_rx_empty;
@@ -1698,9 +1709,9 @@ struct ipa3_stats {
 	u32 rx_page_drop_cnt;
 	u64 lower_order;
 	u32 pipe_setup_fail_cnt;
-	struct ipa3_page_recycle_stats page_recycle_stats[3];
-	struct ipa3_cache_recycle_stats cache_recycle_stats[3];
-	u64 page_recycle_cnt[3][IPA_PAGE_POLL_THRESHOLD_MAX];
+	struct ipa3_page_recycle_stats page_recycle_stats[IPA_APPS_IN_PIPES_NUM];
+	struct ipa3_cache_recycle_stats cache_recycle_stats[IPA_APPS_IN_PIPES_NUM];
+	u64 page_recycle_cnt[IPA_APPS_IN_PIPES_NUM][IPA_PAGE_POLL_THRESHOLD_MAX];
 	atomic_t num_buff_above_thresh_for_def_pipe_notified;
 	atomic_t num_buff_above_thresh_for_coal_pipe_notified;
 	atomic_t num_buff_below_thresh_for_def_pipe_notified;
@@ -1709,10 +1720,14 @@ struct ipa3_stats {
 	atomic_t num_buff_below_thresh_for_ll_pipe_notified;
 	atomic_t num_free_page_task_scheduled;
 	struct lan_coal_stats coal;
-	u64 num_sort_tasklet_sched[3];
+	u64 num_sort_tasklet_sched[IPA_APPS_IN_PIPES_NUM];
 	u64 num_of_times_wq_reschd;
 	u64 page_recycle_cnt_in_tasklet;
 	u32 ttl_cnt;
+#if defined(CONFIG_IPA_IPSEC)
+	atomic_t ipsec_enacp_excp;
+	atomic_t ipsec_decap_excp;
+#endif
 };
 
 /* offset for each stats */
@@ -2011,7 +2026,7 @@ struct ipa_quota_stats {
 };
 
 struct ipa_quota_stats_all {
-	struct ipa_quota_stats client[IPA5_PIPES_NUM];
+	struct ipa_quota_stats client[IPA_MAX_NUM_PIPES];
 };
 
 struct ipa_drop_stats {
@@ -2030,8 +2045,8 @@ struct ipa_hw_stats_quota {
 
 struct ipa_hw_stats_teth {
 	struct ipahal_stats_init_tethering init;
-	struct ipa_quota_stats_all prod_stats_sum[IPA5_PIPES_NUM];
-	struct ipa_quota_stats_all prod_stats[IPA5_PIPES_NUM];
+	struct ipa_quota_stats_all prod_stats_sum[IPA_MAX_NUM_PIPES];
+	struct ipa_quota_stats_all prod_stats[IPA_MAX_NUM_PIPES];
 };
 
 struct ipa_hw_stats_flt_rt {
@@ -2387,7 +2402,6 @@ struct ipa3_eth_pdu_ctx {
  * @aggregation_type: aggregation type used on USB client endpoint
  * @aggregation_byte_limit: aggregation byte limit used on USB client endpoint
  * @aggregation_time_limit: aggregation time limit used on USB client endpoint
- * @hdr_proc_ctx_tbl_lcl: where proc_ctx tbl resides true-local, false-system
  * @hdr_mem: header memory
  * @hdr_proc_ctx_mem: processing context memory
  * @ip4_rt_tbl_lcl: where ip4 rt tables reside 1-local; 0-system
@@ -2490,7 +2504,7 @@ struct ipa3_context {
 	u32 ipa_cfg_offset;
 	bool set_evict_reg;
 	struct ipa3_hdr_tbl hdr_tbl[HDR_TBLS_TOTAL];
-	struct ipa3_hdr_proc_ctx_tbl hdr_proc_ctx_tbl;
+	struct ipa3_hdr_proc_ctx_tbl hdr_proc_ctx_tbl[HPC_TBLS_TOTAL];
 	struct ipa3_rt_tbl_set rt_tbl_set[IPA_IP_MAX];
 	struct ipa3_rt_tbl_set reap_rt_tbl_set[IPA_IP_MAX];
 	struct kmem_cache *flt_rule_cache;
@@ -2516,9 +2530,8 @@ struct ipa3_context {
 	uint aggregation_type;
 	uint aggregation_byte_limit;
 	uint aggregation_time_limit;
-	bool hdr_proc_ctx_tbl_lcl;
 	struct ipa_mem_buffer hdr_sys_mem;
-	struct ipa_mem_buffer hdr_proc_ctx_mem;
+	struct ipa_mem_buffer hdr_proc_ctx_sys_mem;
 	bool rt_tbl_hash_lcl[IPA_IP_MAX];
 	bool rt_tbl_nhash_lcl[IPA_IP_MAX];
 	bool flt_tbl_hash_lcl[IPA_IP_MAX];
@@ -3669,6 +3682,7 @@ void ipa3_active_clients_log_clear(void);
 int ipa3_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev);
 void ipa3_interrupts_destroy(u32 ipa_irq, struct device *ipa_dev);
 int __ipa3_del_rt_rule(u32 rule_hdl);
+int __ipa_del_flt_rule(u32 rule_hdl);
 int __ipa3_del_hdr(u32 hdr_hdl, bool by_user);
 int __ipa3_release_hdr(u32 hdr_hdl);
 int __ipa3_release_hdr_proc_ctx(u32 proc_ctx_hdl);
@@ -3971,7 +3985,6 @@ irq_handler_t ipa3_get_isr(void);
 void ipa_pc_qmp_enable(void);
 u32 ipa3_get_r_rev_version(void);
 void ipa3_notify_clients_registered(void);
-void ipa3_lcl_mdm_reboot_cb(void);
 #if defined(CONFIG_IPA3_REGDUMP)
 int ipa_reg_save_init(u32 value);
 void ipa_save_registers(void);
@@ -4188,4 +4201,8 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data);
 #ifdef CONFIG_ARCH_SA525_HOSTVM
 void ipa3_v2x_vm_shutdown_cleanup(void);
 #endif
+
+/* Send IPsec UL flt to IPACM */
+int ipa3_send_ipsec_ul_flt(enum ipa_ipsec_ul_flt_evt event_type,
+	struct ipa_ioc_ipsec_ul_flt_attr *uf);
 #endif /* _IPA3_I_H_ */

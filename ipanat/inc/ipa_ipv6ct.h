@@ -137,7 +137,7 @@ int ipa_ipv6ct_query_timestamp(uint32_t table_handle, uint32_t rule_handle, uint
  * ipa_ipv6ct_dump_table() - dumps IPv6CT table
  * @table_handle: [in] handle of IPv6CT table
  */
-void ipa_ipv6ct_dump_table(uint32_t tbl_hdl);
+void ipa_ipv6ct_dump_table(uint32_t table_handle);
 
 /**
  * ipa_ipv6ct_add_uc_act_entry() - add uc activation entry
@@ -153,7 +153,7 @@ int ipa_ipv6ct_add_uc_act_entry(union ipa_ioc_uc_activation_entry *u);
  *
  * Returns:	0  On Success, negative on failure
  */
-int ipa_ipv6ct_del_uc_act_entry(uint16_t index);
+int ipa_ipv6ct_del_uc_act_entry(uint16_t idx);
 
 #endif
 

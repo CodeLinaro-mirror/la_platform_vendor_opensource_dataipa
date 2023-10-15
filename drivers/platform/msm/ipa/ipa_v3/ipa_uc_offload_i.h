@@ -805,8 +805,9 @@ enum EVENT_2_CPU_OPCODE {
 	QUOTA_NOTIFY = 0x1,
 	IPA_HOLB_BAD_PERIPHERAL_EVENT = 0x2,
 	IPA_HOLB_PERIPHERAL_RECOVERED_EVENT = 0x3,
-	IPSEC_HARD_THRESH_NOTIFY = 0x4,
-	IPSEC_SOFT_THRESH_NOTIFY = 0x5,
+	IPSEC_THRESH_NOTIFY = 0x4,
+	IPSEC_NEXT_IV_READY_NOTIFY = 0x5,
+	EVENT_2_CPU_OPCODE_MAX,
 };
 
 struct EventStructureBwMonitoring_t {
@@ -837,10 +838,28 @@ struct EventStructureHolbMonitoring_t {
 	uint32_t qTimerMSB;
 } __packed;
 
+/**
+ * struct EventStructureIpsecThreshold_t  - Structure holding the
+ * parameters for IPSEC_THRESH_NOTIFY
+ * @sa_idx: SA index
+ * @sa_action: SA action (1 - encap, 2 - decap)
+ * @type: Threshold type (soft/hard)
+ */
+struct EventStructureIpsecThreshold_t {
+	uint32_t sa_idx		:8;
+	uint32_t sa_action	:2;
+	uint32_t type		:1;
+	uint32_t reserved1	:21;
+
+	uint32_t reserved2;
+	uint32_t reserved3;
+} __packed;
+
 union EventParamFormat_t {
 	struct EventStructureBwMonitoring_t bw_param;
 	struct EventStructureQuotaMonitoring_t quota_param;
 	struct EventStructureHolbMonitoring_t holb_notify_param;
+	struct EventStructureIpsecThreshold_t ipsec_threshold_param;
 } __packed;
 
 /* EVT RING STRUCTURE
