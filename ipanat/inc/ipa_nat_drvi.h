@@ -213,8 +213,8 @@ static inline const char *ipa3_nat_mem_in_as_str(
 		return "IPA_NAT_MEM_IN_DDR";
 	case IPA_NAT_MEM_IN_SRAM:
 		return "IPA_NAT_MEM_IN_SRAM";
-	/* Default case */
 	default:
+		/* Default case */
 		break;
 	}
 	return "???";

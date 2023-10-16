@@ -172,7 +172,7 @@ int ipa_nat_del_ipv4_rule(
 /**
  * ipa_nat_query_timestamp() - to query timestamp
  * @table_handle: [in] handle of ipv4 nat table
- * @rule_handle: [in] ipv4 nat rule handle
+ * @rule_hdl: [in] ipv4 nat rule handle
  * @time_stamp: [out] time stamp of rule
  *
  * To retrieve the timestamp that lastly the
