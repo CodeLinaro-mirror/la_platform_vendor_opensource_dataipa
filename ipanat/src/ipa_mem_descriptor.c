@@ -298,7 +298,7 @@ void ipa_mem_descriptor_init(
 	IPADBG("Out\n");
 }
 
-int ipa_mem_descriptor_allocate_memory(
+int ipa_mem_desc_alloc_memory(
 	ipa_mem_descriptor* desc,
 	int ipa_fd)
 {
