@@ -1722,12 +1722,12 @@ static int ipa3_usb_xdci_connect_internal(
 state_change_connected_fail:
 	ipa3_usb_disconnect_teth_prot(params->teth_prot);
 connect_teth_prot_fail:
-	ipa3_xdci_disconnect(params->ipa_to_usb_clnt_hdl, false, -1);
+	ipa3_xdci_disconnect(params->ipa_to_usb_clnt_hdl, false, -1, true);
 	ipa3_reset_gsi_channel(params->ipa_to_usb_clnt_hdl);
 	ipa3_reset_gsi_event_ring(params->ipa_to_usb_clnt_hdl);
 connect_dl_fail:
 	if (params->teth_prot != IPA_USB_DIAG) {
-		ipa3_xdci_disconnect(params->usb_to_ipa_clnt_hdl, false, -1);
+		ipa3_xdci_disconnect(params->usb_to_ipa_clnt_hdl, false, -1, true);
 		ipa3_reset_gsi_channel(params->usb_to_ipa_clnt_hdl);
 		ipa3_reset_gsi_event_ring(params->usb_to_ipa_clnt_hdl);
 	}
@@ -2124,7 +2124,7 @@ static int ipa_usb_xdci_disconnect_internal(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	if (ipa3_usb_ctx->ttype_ctx[ttype].state != IPA_USB_SUSPENDED) {
 		spin_unlock_irqrestore(&ipa3_usb_ctx->state_lock, flags);
 		/* Stop DL/DPL channel */
-		result = ipa3_xdci_disconnect(dl_clnt_hdl, false, -1);
+		result = ipa3_xdci_disconnect(dl_clnt_hdl, false, -1, true);
 		if (result) {
 			IPA_USB_ERR("failed to disconnect DL/DPL channel\n");
 			goto bad_params;
@@ -2146,7 +2146,7 @@ static int ipa_usb_xdci_disconnect_internal(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 			/* Stop UL channel */
 			result = ipa3_xdci_disconnect(ul_clnt_hdl,
 				true,
-				ipa3_usb_ctx->qmi_req_id);
+				ipa3_usb_ctx->qmi_req_id, true);
 			if (result) {
 				IPA_USB_ERR("failed disconnect UL channel\n");
 				goto bad_params;
@@ -2342,7 +2342,7 @@ static int ipa3_usb_suspend_no_remote_wakeup(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	}
 
 	/* Stop DL/DPL channel */
-	result = ipa3_xdci_disconnect(dl_clnt_hdl, false, -1);
+	result = ipa3_xdci_disconnect(dl_clnt_hdl, false, -1, false);
 	if (result) {
 		IPA_USB_ERR("failed to disconnect DL/DPL channel\n");
 		goto fail_exit;
@@ -2351,7 +2351,7 @@ static int ipa3_usb_suspend_no_remote_wakeup(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	if (!IPA3_USB_IS_TTYPE_DPL(ttype)) {
 		/* Stop UL channel */
 		result = ipa3_xdci_disconnect(ul_clnt_hdl, true,
-			ipa3_usb_ctx->qmi_req_id);
+			ipa3_usb_ctx->qmi_req_id, false);
 		if (result) {
 			IPA_USB_ERR("failed disconnect UL channel\n");
 			goto start_dl;
@@ -2543,11 +2543,11 @@ stop_mhip:
 	if (ipa3_is_mhip_offload_enabled())
 		(void)ipa_mpm_mhip_xdci_pipe_disable(teth_prot);
 stop_dl:
-	(void)ipa3_xdci_disconnect(dl_clnt_hdl, false, -1);
+	(void)ipa3_xdci_disconnect(dl_clnt_hdl, false, -1, true);
 stop_ul:
 	if (!IPA3_USB_IS_TTYPE_DPL(ttype)) {
 		(void)ipa3_xdci_disconnect(ul_clnt_hdl, true,
-			ipa3_usb_ctx->qmi_req_id);
+			ipa3_usb_ctx->qmi_req_id, true);
 		ipa3_usb_ctx->qmi_req_id++;
 	}
 disconn_teth:
