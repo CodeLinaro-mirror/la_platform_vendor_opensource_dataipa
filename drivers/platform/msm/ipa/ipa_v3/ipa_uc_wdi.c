@@ -3212,10 +3212,13 @@ int ipa3_uc_reg_rdyCB(
 
 	result = ipa3_uc_state_check();
 	if (result) {
-
-		mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
 		callback = kmalloc(sizeof(struct ipa_wdi_ready_cb_wrapper),
 						GFP_KERNEL);
+		if (!callback) {
+			IPAERR("failed to allocate mem for ipa_wdi_ready_cb_wrapper\n");
+			return -ENOMEM;
+		}
+		mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
 		callback->info.notify = inout->notify;
 		callback->info.user_data = inout->priv;
 		inout->is_uC_ready = false;
@@ -3298,12 +3301,10 @@ static void ipa3_uc_wdi_loaded_handler(void)
 
 	mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
 	list_for_each_entry_safe (entry, next,
-					&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {
-			if(entry) {
-					entry->info.notify(entry->info.user_data);
-			}
-			list_del(&entry->link);
-			kfree(entry);
+			&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {
+		entry->info.notify(entry->info.user_data);
+		list_del(&entry->link);
+		kfree(entry);
 	}
 	mutex_unlock(&ipa3_ctx->uc_wdi_ctx.lock);
 }
