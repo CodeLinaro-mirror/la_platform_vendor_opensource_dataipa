@@ -1900,7 +1900,7 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 	struct xfrm_state *x = NULL;
 	struct sec_path *sp;
 	struct xfrm_offload *xo;
-	u32 xo_status;
+	u32 xo_status = CRYPTO_GENERIC_ERROR;
 	int result;
 
 	if (evt != IPA_RECEIVE) {
