@@ -5078,7 +5078,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	dev = alloc_netdev_mqs(sizeof(struct ipa3_wwan_private),
 			   IPA_WWAN_DEV_NAME,
 			   NET_NAME_UNKNOWN,
-			   ipa3_wwan_setup, 2, 2);
+			   ipa3_wwan_setup, 4, 4);
 
 	if (!dev) {
 		IPAWANERR("no memory for netdev\n");
