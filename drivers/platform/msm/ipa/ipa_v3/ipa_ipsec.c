@@ -1118,28 +1118,31 @@ static int ipa_ipsec_delete_orphan_ul_fnr(u8 idx)
 			ul_flt->ip = pol->xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 			ipa_ipsec_xfrm_sp_to_ipa_attrib(pol->xp, &ul_flt->attr, IPA_IPSEC_MAX_SA_NUM);
 
-			/* Delete RT rule */
-			ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
-				sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
-			if (!ioc_del_rt) {
-				IPAERR("Failed to allocate ipa_ioc_del_rt_rule\n");
-				kfree(ul_flt);
-				return -EFAULT;
+			/* RT rule may be previously deleted by e.g. table deletion */
+			if (pol->rt != -1) {
+				/* Delete RT rule */
+				ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
+					sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
+				if (!ioc_del_rt) {
+					IPAERR("Failed to allocate ipa_ioc_del_rt_rule\n");
+					kfree(ul_flt);
+					return -EFAULT;
+				}
+				ioc_del_rt->commit = 1;
+				ioc_del_rt->ip = ul_flt->ip;
+				ioc_del_rt->num_hdls = 1;
+				rt_rule_del = &ioc_del_rt->hdl[0];
+				rt_rule_del->status = -1;
+				rt_rule_del->hdl = pol->rt;
+				if (ipa3_del_rt_rule(ioc_del_rt) || !!rt_rule_del->status) {
+					IPAERR("Failed deleting RT hdl %d.\n", pol->rt);
+					kfree(ul_flt);
+					rc = -EFAULT;
+				}
+				IPADBG("deleted RT rule %d\n", rt_rule_del->hdl);
+				kfree(ioc_del_rt);
+				pol->rt = -1;
 			}
-			ioc_del_rt->commit = 1;
-			ioc_del_rt->ip = ul_flt->ip;
-			ioc_del_rt->num_hdls = 1;
-			rt_rule_del = &ioc_del_rt->hdl[0];
-			rt_rule_del->status = -1;
-			rt_rule_del->hdl = pol->rt;
-			if (ipa3_del_rt_rule(ioc_del_rt) || !!rt_rule_del->status) {
-				IPAERR("Failed deleting RT hdl %d.\n", pol->rt);
-				kfree(ul_flt);
-				rc = -EFAULT;
-			}
-			IPADBG("deleted RT rule %d\n", rt_rule_del->hdl);
-			kfree(ioc_del_rt);
-			pol->rt = -1;
 
 			/* Send FLT deletion event to IPACM */
 			if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt) != 0)
