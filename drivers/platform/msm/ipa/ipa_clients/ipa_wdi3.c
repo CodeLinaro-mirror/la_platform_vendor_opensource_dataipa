@@ -123,8 +123,8 @@ static int ipa_get_wdi_version_internal(void)
 {
 	if (ipa_wdi_ctx_list[0])
 		return ipa_wdi_ctx_list[0]->wdi_version;
-	/* default version is IPA_WDI_3 */
-	return IPA_WDI_3;
+	/* default version is IPA_WDI_1 */
+	return IPA_WDI_1;
 }
 
 static bool ipa_wdi_is_tx1_used_internal(void)
