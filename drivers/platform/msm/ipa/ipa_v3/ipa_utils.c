@@ -16119,6 +16119,7 @@ void ipa3_get_gsi_stats(int prot_id,
 		ipa3_get_aqc_gsi_stats(stats);
 		break;
 	case IPA_HW_PROTOCOL_RTK:
+	case IPA_HW_PROTOCOL_RTK3:
 		stats->num_ch = MAX_RTK_CHANNELS;
 		ipa3_get_rtk_gsi_stats(stats);
 		break;
