@@ -1664,3 +1664,38 @@ fail:
 	return result;
 }
 EXPORT_SYMBOL(ipa3_eth_disconnect);
+
+int ipa3_eth_tx_ring_db()
+{
+	int ch_id, ipa_ep_idx, result = 0, i = 0;
+	phys_addr_t db_pa;
+	void __iomem *db_addr;
+
+	ipa_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS);
+	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
+		IPADBG("IPA_CLIENT_ETHERNET2_CONS not mapped\n");
+		return 0;
+	}
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	if (ipa3_ctx->ep[ipa_ep_idx].valid) {
+		ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
+		gsi_query_msi_addr(ch_id, &db_pa);
+
+		db_addr = ioremap((phys_addr_t)(db_pa), 4);
+		if (!db_addr) {
+			IPAERR("ioremap failed\n");
+			result = -EFAULT;
+			goto fail;
+		}
+		/* Any value is good to write here, so writing as is */
+		for (i = 0; i < 5; i++) {
+			iowrite32(100, db_addr);
+			usleep_range(1000, 2000);
+		}
+		iounmap(db_addr);
+	}
+fail:
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return result;
+}
+EXPORT_SYMBOL(ipa3_eth_tx_ring_db);
