@@ -4029,6 +4029,7 @@ enum ipa_client_type ipa_eth_get_ipa_client_type_from_eth_type(
 	enum ipa_eth_client_type eth_client_type, enum ipa_eth_pipe_direction dir);
 
 bool ipa_eth_client_exist(enum ipa_eth_client_type eth_client_type, int inst_id);
+int ipa3_eth_tx_ring_db(void);
 
 int ipa3_disable_apps_wan_cons_deaggr(uint32_t agg_size, uint32_t agg_count);
 

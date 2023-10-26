@@ -5844,7 +5844,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		       atomic_read(&rmnet_ipa3_ctx->is_ssr))
 			platform_driver_register(&rmnet_ipa_driver);
 		ipa3_odl_pipe_open();
-
+		ipa3_eth_tx_ring_db();
 		if(ipa3_ctx->ipa_config_is_rdkb)
 		{
 			handle3_egress_format_internal(rmnet_egress_cfg);
