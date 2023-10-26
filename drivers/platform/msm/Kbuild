@@ -120,6 +120,10 @@ ifeq ($(CONFIG_ARCH_SDXPINN), y)
 DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
 LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa.h
 include $(srctree)/../../../dataipa/config/dataipa_QGKI.conf
+ifeq ($(KERNEL_PLATFORM_TARGET), $(filter $(KERNEL_PLATFORM_TARGET), sdxpinn sdxpinn-cpe-wkk))
+include $(srctree)/../../../dataipa/config/dataipa_ipsec.conf
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_ipsec.h
+endif
 ifneq ($(CONFIG_LOCALVERSION), "-perf")
 include $(srctree)/../../../dataipa/config/dataipa_debug.conf
 LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h

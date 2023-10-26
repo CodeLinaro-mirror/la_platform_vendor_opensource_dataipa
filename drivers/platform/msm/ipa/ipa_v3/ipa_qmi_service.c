@@ -280,6 +280,11 @@ static void ipa3_handle_install_filter_rule_req(struct qmi_handle *qmi_handle,
 		IPAWANERR("install filter rules failed\n");
 	else
 		IPAWANDBG("Replied to install filter request\n");
+
+	if(resp.resp.result == IPA_QMI_RESULT_SUCCESS_V01 && ipa3_ctx->ipa_config_is_rdkb)
+	{
+		rmnet_mux_init();
+	}
 }
 
 static void ipa3_handle_filter_installed_notify_req(
@@ -1862,8 +1867,9 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 	/* Initialize modem IPA-driver */
 	IPAWANDBG("send ipa3_qmi_init_modem_send_sync_msg to modem\n");
 	rc = ipa3_qmi_init_modem_send_sync_msg();
+	IPAWANERR("send ipa3_qmi_init_modem_send_sync_msg to modem rc:%d\n", rc);
 	if ((rc == -ENETRESET) || (rc == -ENODEV) || (rc == -ECONNRESET) ||
-		atomic_read(&ipa3_ctx->is_ssr)) {
+		((rc != 0) && (atomic_read(&ipa3_ctx->is_ssr)))) {
 		IPAWANERR(
 		"ipa3_qmi_init_modem_send_sync_msg failed due to SSR!\n");
 		/* Cleanup when ipa3_wwan_remove is called */
@@ -2252,7 +2258,7 @@ void ipa3_qmi_service_exit(void)
 
 	/* clean the QMI msg cache */
 	if (ipa3_qmi_ctx != NULL) {
-		for (i=0;i<ipa3_qmi_ctx->num_ipa_install_fltr_rule_req_ex_msg;i++){
+		for (i=0;i<MAX_NUM_QMI_RULE_CACHE;i++){
 			if(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
 				[i] != NULL){
 				vfree(ipa3_qmi_ctx->ipa_install_fltr_rule_req_ex_msg_cache_ptr
@@ -2261,7 +2267,7 @@ void ipa3_qmi_service_exit(void)
 					[i] = NULL;
 			}
 		}
-		for (i=0;i<ipa3_qmi_ctx->num_ipa_configure_ul_firewall_rules_req_msg;i++)
+		for (i=0;i<MAX_NUM_QMI_RULE_CACHE;i++)
 		{
 			if(ipa3_qmi_ctx->ipa_configure_ul_firewall_rules_req_msg_cache_ptr
 				[i] != NULL){

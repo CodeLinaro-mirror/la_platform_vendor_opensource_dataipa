@@ -204,6 +204,7 @@ struct ipa3_context *ipa3_ctx = NULL;
 EXPORT_SYMBOL(ipa3_ctx);
 
 int ipa3_plat_drv_probe(struct platform_device *pdev_p);
+void ipa3_plat_drv_shutdown(struct platform_device *pdev_p);
 int ipa3_pci_drv_probe(struct pci_dev *pci_dev,
 	const struct pci_device_id *ent);
 
@@ -592,6 +593,7 @@ static struct platform_driver ipa_plat_drv = {
 		.of_match_table = ipa_plat_drv_match,
 		.dev_groups = ipa_group,
 	},
+	.shutdown = ipa3_plat_drv_shutdown,
 };
 
 static struct {
@@ -6086,6 +6088,7 @@ static inline void ipa3_sram_set_canary(u32 *sram_mmio, int offset)
  */
 int _ipa_init_sram_v3(void)
 {
+	int offset;
 	u32 *ipa_sram_mmio;
 	unsigned long phys_addr;
 
@@ -6202,6 +6205,11 @@ int _ipa_init_sram_v3(void)
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst) - 4);
 		ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst));
+
+		/* Set CANARY on whole pre_sa_contexts_canary */
+		for (offset = IPA_MEM_PART(pre_sa_contexts_canary_ofst) / 4;
+			offset < IPA_MEM_PART(sa_contexts_ofst) / 4; offset++)
+			ipa_sram_mmio[offset] = IPA_MEM_CANARY_VAL;
 	}
 
 	iounmap(ipa_sram_mmio);
@@ -10181,6 +10189,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	struct ipa_active_client_logging_info log_info;
 	struct cdev *cdev;
 	enum hdr_tbl_storage hdr_tbl;
+	enum hpc_tbl_storage hpc_tbl;
 
 	IPADBG("IPA Driver initialization started\n");
 
@@ -10671,13 +10680,18 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			INIT_LIST_HEAD(&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i]);
 		}
 	}
-	INIT_LIST_HEAD(&ipa3_ctx->hdr_proc_ctx_tbl.head_proc_ctx_entry_list);
-	for (i = 0; i < IPA_HDR_PROC_CTX_BIN_MAX; i++) {
-		INIT_LIST_HEAD(
-			&ipa3_ctx->hdr_proc_ctx_tbl.head_offset_list[i]);
-		INIT_LIST_HEAD(
-			&ipa3_ctx->hdr_proc_ctx_tbl.head_free_offset_list[i]);
+
+	/* Init the various list heads for both SRAM/DDR */
+	for (hpc_tbl = HPC_TBL_LCL; hpc_tbl < HPC_TBLS_TOTAL; hpc_tbl++) {
+		INIT_LIST_HEAD(&ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].head_proc_ctx_entry_list);
+		for (i = 0; i < IPA_HDR_PROC_CTX_BIN_MAX; i++) {
+			INIT_LIST_HEAD(
+				&ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].head_offset_list[i]);
+			INIT_LIST_HEAD(
+				&ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].head_free_offset_list[i]);
+		}
 	}
+
 	INIT_LIST_HEAD(&ipa3_ctx->rt_tbl_set[IPA_IP_v4].head_rt_tbl_list);
 	idr_init(&ipa3_ctx->rt_tbl_set[IPA_IP_v4].rule_ids);
 	INIT_LIST_HEAD(&ipa3_ctx->rt_tbl_set[IPA_IP_v6].head_rt_tbl_list);
@@ -13885,6 +13899,20 @@ err_check:
 	}
 
 	return result;
+}
+
+void  ipa3_plat_drv_shutdown (struct platform_device *pdev_p)
+{
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v5_2) &&
+		(ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM)){
+
+	if(&(pdev_p->dev) != ipa3_ctx->pdev)
+		return;
+	IPAERR("IPA shutdown call \n");
+	ipa3_lcl_mdm_reboot_cb();
+	IPAERR("Exit \n");
+	}
+	return;
 }
 
 /**
