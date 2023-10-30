@@ -1506,6 +1506,9 @@ static enum ipahal_pkt_status_exception pkt_status_parse_exception(
 	case 8:
 		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_PACKET_LENGTH;
 		break;
+	case 9:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_PACKET_THRESHOLD;
+		break;
 	case 10:
 		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_TTL;
 		break;
