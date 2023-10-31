@@ -283,6 +283,7 @@ enum hdr_tbl_storage {
 	HDR_TBL_LCL,
 	HDR_TBL_LCL_EXT,
 	HDR_TBL_SYS,
+	HDR_TBL_PROC,
 	HDR_TBLS_TOTAL,
 };
 
@@ -915,6 +916,8 @@ struct ipa3_hdr_entry {
 	char name[IPA_RESOURCE_NAME_MAX];
 	enum ipa_hdr_l2_type type;
 	u8 is_partial;
+	bool is_hdr_proc_ctx;
+	dma_addr_t phys_base;
 	struct ipa3_hdr_proc_ctx_entry *proc_ctx;
 	struct ipa_hdr_offset_entry *offset_entry;
 	u32 ref_cnt;
