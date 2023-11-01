@@ -1260,7 +1260,7 @@ union ipa_pkt_status_hw_v6_0 {
 
 /* Headers and processing context H/W structures and definitions */
 
-/* uCP command numbers */
+/* uCP command numbers (0-5 is for Q6 XLAT) */
 #define IPA_HDR_UCP_802_3_TO_802_3          6
 #define IPA_HDR_UCP_802_3_TO_ETHII          7
 #define IPA_HDR_UCP_ETHII_TO_802_3          8
@@ -1270,12 +1270,22 @@ union ipa_pkt_status_hw_v6_0 {
 #define IPA_HDR_UCP_L2TP_UDP_HEADER_ADD    12
 #define IPA_HDR_UCP_L2TP_UDP_HEADER_REMOVE 13
 #define IPA_HDR_UCP_ETHII_TO_ETHII_EX      14
+#define IPA_HDR_UCP_SOCKSV5                15
 #define IPA_HDR_UCP_SET_DSCP               16
 #define IPA_HDR_UCP_EoGRE_HEADER_ADD       17
 #define IPA_HDR_UCP_EoGRE_HEADER_REMOVE    18
+#define IPA_HDR_UCP_MPLSoGRE_HEADER_ADD    19
+#define IPA_HDR_UCP_MPLSoGRE_HEADER_REMOVE 20
 #define IPA_HDR_UCP_IPSEC_PRE_ENCAP        21
 #define IPA_HDR_UCP_IPSEC_PRE_DECAP        22
+#define IPA_Q6_ETH_PDU_UL                  23
+#define IPA_Q6_ETH_PDU_DL_14_BYTES         24
+#define IPA_Q6_ETH_PDU_DL_18_BYTES         25
 #define IPA_HDR_UCP_WWAN_TO_ETHII_EX       26
+#define IPA_HDR_UCP_PMIPV6_HEADER_ADD      27
+#define IPA_HDR_UCP_PMIPV6_HEADER_REMOVE   28
+#define IPA_Q6_IPSEC_BANK_REFILL           29
+#define IPA_HDR_UCP_2ND_PASS               30
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0

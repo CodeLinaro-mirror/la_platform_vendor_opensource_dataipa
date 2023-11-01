@@ -143,6 +143,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP),
 	__stringify(IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
+	__stringify(IPA_HDR_PROC_2ND_PASS),
 };
 
 static struct dentry *dent;
@@ -1384,7 +1385,8 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 			entry->id,
 			ipa3_hdr_proc_type_name[entry->type],
 			ofst_words);
-		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP) {
+		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
+			entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"\naction:%u\n"

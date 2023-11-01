@@ -2843,8 +2843,12 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 		case IPA_HDR_PROC_SET_DSCP:
 			ctx->cmd.value = IPA_HDR_UCP_SET_DSCP;
 			break;
+		case IPA_HDR_PROC_2ND_PASS:
+			ctx->cmd.value = IPA_HDR_UCP_2ND_PASS;
+			ctx->hdr_add.tlv.value = 0;
+			break;
 		default:
-			IPAHAL_ERR("unknown ipa_hdr_proc_type %d", type);
+			IPAHAL_ERR("unknown ipa_hdr_proc_type %d\n", type);
 			WARN_ON(1);
 			return -EINVAL;
 		}
@@ -2876,6 +2880,7 @@ static int ipahal_get_proc_ctx_needed_len_v3(enum ipa_hdr_proc_type type)
 	case IPA_HDR_PROC_ETHII_TO_802_3:
 	case IPA_HDR_PROC_802_3_TO_ETHII:
 	case IPA_HDR_PROC_802_3_TO_802_3:
+	case IPA_HDR_PROC_2ND_PASS:
 		ret = sizeof(struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq);
 		break;
 	case IPA_HDR_PROC_L2TP_HEADER_ADD:
