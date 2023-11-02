@@ -250,7 +250,7 @@ int __ipa_commit_hdr_v3_0(void)
 			if (ipa3_generate_hdr_hw_tbl(hdr_table, &hdr_mem[hdr_table])) {
 				IPAERR("fail to generate %s HDR HW TBL\n",
 				       hdr_tbl_to_str[hdr_table]);
-				goto end;
+				goto failure_hdr;
 			}
 
 			if (hdr_mem[hdr_table].size > hdr_tbl_size) {
@@ -368,7 +368,7 @@ int __ipa_commit_hdr_v3_0(void)
 					      &aligned_ctx_mem[loc])) {
 				IPAERR("fail to generate %s HDR PROC CTX HW TBL\n",
 					   loc == HPC_TBL_LCL ? "SRAM" : "DDR");
-				goto end;
+				goto failure_hdr_proc;
 			}
 
 			if (aligned_ctx_mem[loc].size > proc_ctx_size) {
@@ -489,6 +489,11 @@ end:
 				  hdr_mem[HDR_TBL_LCL].phys_base);
 	}
 
+	if (ctx_mem[HPC_TBL_LCL].base) {
+                 dma_free_coherent(ipa3_ctx->pdev, ctx_mem[HPC_TBL_LCL].size,
+                 ctx_mem[HPC_TBL_LCL].base,ctx_mem[HPC_TBL_LCL].phys_base);
+        }
+
 	if (coal_cmd_pyld)
 		ipahal_destroy_imm_cmd(coal_cmd_pyld);
 
@@ -508,6 +513,31 @@ end:
 		ipahal_destroy_imm_cmd(hdr_cmd_pyld[HDR_TBL_LCL]);
 
 	return rc;
+failure_hdr_proc:
+
+	if (ctx_mem[HPC_TBL_SYS].base) {
+		dma_free_coherent(ipa3_ctx->pdev, ctx_mem[HPC_TBL_SYS].size,
+		ctx_mem[HPC_TBL_SYS].base,ctx_mem[HPC_TBL_SYS].phys_base);
+   	}
+
+
+	if (ctx_mem[HPC_TBL_LCL].base) {
+		dma_free_coherent(ipa3_ctx->pdev, ctx_mem[HPC_TBL_LCL].size,
+				ctx_mem[HPC_TBL_LCL].base,ctx_mem[HPC_TBL_LCL].phys_base);
+	}
+
+failure_hdr:
+	for (hdr_table = HDR_TBL_LCL; hdr_table < HDR_TBL_PROC; hdr_table++) {
+		if (hdr_mem[hdr_table].base) {
+		dma_free_coherent(ipa3_ctx->pdev,
+				hdr_mem[hdr_table].size,
+				hdr_mem[hdr_table].base,
+				hdr_mem[hdr_table].phys_base);
+		}
+	}
+
+	return rc;
+
 }
 
 static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
