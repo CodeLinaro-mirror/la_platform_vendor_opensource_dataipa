@@ -737,7 +737,7 @@ struct ipa_smmu_cb_ctx {
 	/**
 	 * todo: make this a list.
 	 */
-	struct ipa_smmu_cb_mapping m_map[IPA_ETH_INST_ID_MAX][IPA_ETH_PIPE_DIR_MAX];
+	struct ipa_smmu_cb_mapping m_map[IPA_ETH_INST_ID_MAX][IPA_ETH_PIPE_DIR_MAX][IPA_ETH_PIPE_TRAFFIC_TYPE_MAX];
 };
 
 /**
@@ -2656,6 +2656,7 @@ struct ipa3_context {
 	int num_ipa_cne_evt_req;
 	struct mutex ipa_cne_evt_lock;
 	bool vlan_mode_iface[IPA_VLAN_IF_MAX];
+	bool spcl_iface[IPA_VLAN_IF_MAX];
 	bool wdi_over_pcie;
 	u32 entire_ipa_block_size;
 	bool do_register_collection_on_crash;
@@ -3989,6 +3990,7 @@ void __ipa_gsi_irq_rx_scedule_poll(struct ipa3_sys_context *sys);
 void ipa3_init_imm_cmd_desc(struct ipa3_desc *desc,
 	struct ipahal_imm_cmd_pyld *cmd_pyld);
 int ipa3_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res);
+int ipa3_is_spcl_iface(enum ipa_vlan_ifaces iface, bool *res);
 uint ipa3_get_emulation_type(void);
 int ipa3_get_transport_info(
 	phys_addr_t *phys_addr_ptr,
@@ -4018,7 +4020,8 @@ static inline void ipa_eth_exit(void) { }
 void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client);
 int ipa3_eth_connect(
 	struct ipa_eth_client_pipe_info *pipe,
-	enum ipa_client_type client_type);
+	enum ipa_client_type client_type,
+	int inst_id);
 int ipa3_eth_disconnect(
 	struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type client_type);

@@ -9701,6 +9701,16 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			 */
 			return count;
 		}
+#if IPA_ETH_API_VER >= 3
+		else if (strnstr(dbg_buff, "ezmesh", strlen(dbg_buff))) {
+			/* Enable ezmesh only for Single NIC */
+			if (strnstr(dbg_buff, STR_ETH0_IFACE, strlen(dbg_buff))) {
+				ipa3_ctx->spcl_iface[IPA_VLAN_IF_ETH0] = true;
+			}
+			return count;
+		}
+#endif
+
 
 		/* trim ending newline character if any */
 		if (count && (dbg_buff[count - 1] == '\n'))
