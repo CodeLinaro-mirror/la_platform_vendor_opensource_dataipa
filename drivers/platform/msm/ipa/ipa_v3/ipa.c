@@ -1201,57 +1201,6 @@ static int ipa3_send_pdn_config_msg(unsigned long usr_param)
 	return 0;
 }
 
-#ifdef IPA_IOCTL_ADD_VLAN_PRIORITY
-static void ipa3_vlan_priority_msg_free_cb(void *buff, u32 len, u32 type)
-{
-	if (!buff) {
-		IPAERR("Null buffer\n");
-		return;
-	}
-
-	kfree(buff);
-}
-
-static int ipa3_send_vlan_priority_msg(unsigned long usr_param)
-{
-	int retval;
-	struct ipa_ioc_vlan_priority *vlan_priority;
-	struct ipa_msg_meta msg_meta = {0};
-	void *buff = NULL;
-
-	IPADBG("entry\n");
-
-	vlan_priority = kzalloc(sizeof(struct ipa_ioc_vlan_priority),
-		GFP_KERNEL);
-	if (NULL == vlan_priority)
-		return -ENOMEM;
-
-	if (copy_from_user((u8 *)vlan_priority, (void __user *)usr_param,
-		sizeof(struct ipa_ioc_vlan_priority))) {
-		kfree(vlan_priority);
-		return -EFAULT;
-	}
-
-	msg_meta.msg_len = sizeof(struct ipa_ioc_vlan_priority);
-	buff = vlan_priority;
-
-	msg_meta.msg_type = IPA_VLAN_PRIORITY_UPDATE_EVENT;
-
-	retval = ipa3_send_msg(&msg_meta, buff,
-		ipa3_vlan_priority_msg_free_cb);
-	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
-			retval,
-			msg_meta.msg_type);
-		kfree(buff);
-		return retval;
-	}
-	IPADBG("exit\n");
-
-	return 0;
-}
-#endif
-
 static int ipa3_send_vlan_l2tp_msg(unsigned long usr_param, uint8_t msg_type)
 {
 	int retval;
@@ -4505,18 +4454,6 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		memcpy(&ipa3_ctx->dscp_pcp_map_info_cache, &dscp_pcp_map_info, sizeof(dscp_pcp_map_info));
 
 		break;
-
-#ifdef IPA_IOCTL_ADD_VLAN_PRIORITY
-	case IPA_IOC_ADD_VLAN_PRIORITY:
-		IPADBG("Got IPA_IOC_ADD_VLAN_PRIORITY\n");
-		retval = ipa3_send_vlan_priority_msg(arg);
-		if(retval)  {
-			IPADBG("Processing IPA_IOC_ADD_VLAN_PRIORITY failed!\n");
-			retval = -EFAULT;
-		}
-		break;
-#endif
-
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
