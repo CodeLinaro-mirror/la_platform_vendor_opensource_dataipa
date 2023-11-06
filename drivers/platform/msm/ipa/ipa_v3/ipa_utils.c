@@ -12794,6 +12794,17 @@ int ipa3_alloc_rule_id(struct idr *rule_ids)
 		GFP_KERNEL);
 }
 
+int ipa3_alloc_rt_rule_id(struct idr *rule_ids)
+{
+	/* There is two groups of rule-Ids, Modem ones and Apps ones.
+	 * Distinction by high bit: Modem Ids are high bit asserted.
+	 */
+	return idr_alloc(rule_ids, NULL,
+		ipahal_get_low_rule_id(),
+		IPA_Q6_RT_START_ID,
+		GFP_KERNEL);
+}
+
 static int __ipa3_alloc_counter_hdl
 	(struct ipa_ioc_flt_rt_counter_alloc *counter)
 {

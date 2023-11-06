@@ -5431,9 +5431,7 @@ int ipahal_rule_decrease_priority(int *prio)
 	*prio += 1;
 
 	if (*prio > obj->rule_min_prio) {
-		IPAHAL_ERR("Cannot decrease priority. Already on min\n");
 		*prio -= 1;
-		return -EFAULT;
 	}
 
 	return 0;
