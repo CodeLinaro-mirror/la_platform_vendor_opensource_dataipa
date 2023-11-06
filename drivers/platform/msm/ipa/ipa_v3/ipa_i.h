@@ -82,8 +82,10 @@
 #define IPA6_NXT_FLT_TBL_Q6_NUM 1
 #define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
 #define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
+#define IPA_IS_NXT_FLT(x) (x >= IPA6_NXT_FLT_TBL_START && x <= IPA6_NXT_FLT_TBL_END)
 #define IPA6_Q6_NXT_FLT_TBL_START (47) // we want to include it in the above
 #define IPA6_Q6_NXT_FLT_TBL_END (47) // we want to include it in the above
+#define IPA_IS_Q6_NXT_FLT(x) (x >= IPA6_Q6_NXT_FLT_TBL_START && x <= IPA6_Q6_NXT_FLT_TBL_END)
 #define IPA_MAX_FLT_TBLS 64
 #define IPA_SYS_DESC_FIFO_SZ 0x800
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ 0x1000

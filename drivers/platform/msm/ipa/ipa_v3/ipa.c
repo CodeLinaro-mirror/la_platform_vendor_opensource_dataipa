@@ -8966,9 +8966,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
 		if ((i < ipa3_ctx->ipa_num_pipes && !ipa_is_ep_support_flt(i)) ||
-		    (i >= ipa3_ctx->ipa_num_pipes &&
-		     !(i >= IPA6_Q6_NXT_FLT_TBL_START && i <= IPA6_Q6_NXT_FLT_TBL_END) &&
-		     !(i >= IPA6_NXT_FLT_TBL_START && i <= IPA6_NXT_FLT_TBL_END)))
+		    (i >= ipa3_ctx->ipa_num_pipes && !IPA_IS_Q6_NXT_FLT(i) && !IPA_IS_NXT_FLT(i)))
 			continue;
 
 		for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
@@ -8979,7 +8977,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 			/*	For ETH client place Non-Hash FLT table in SRAM if allowed, for
 				all other EPs always place the table in DDR */
 			if (ipa3_ctx->flt_tbl_nhash_lcl[ip] &&
-			    (IPA_CLIENT_IS_ETH_PROD(i) ||
+			    (IPA_CLIENT_IS_ETH_PROD(i) || IPA_IS_NXT_FLT(i) ||
 			     ((ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST) &&
 			      (i == ipa3_get_ep_mapping(IPA_CLIENT_TEST_PROD))))) {
 				flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = false;
