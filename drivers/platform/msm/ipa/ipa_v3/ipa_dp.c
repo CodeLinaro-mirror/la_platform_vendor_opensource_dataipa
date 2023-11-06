@@ -1103,9 +1103,10 @@ static int ipa3_handle_rx_core(struct ipa3_sys_context *sys, bool process_all,
 			ipa3_dma_memcpy_notify(sys);
 		else if (IPA_CLIENT_IS_WLAN_CONS(sys->ep->client))
 			ipa3_wlan_wq_rx_common(sys, &notify);
-		else
+		else {
+			trace_ipa_handle_rx_core(cnt);
 			ipa3_wq_rx_common(sys, &notify);
-
+		}
 		++cnt;
 	}
 	return cnt;
