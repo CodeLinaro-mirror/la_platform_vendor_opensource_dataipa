@@ -1113,6 +1113,14 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 		/* move the offset entry to appropriate free list */
 		list_move(&entry->offset_entry->link,
 			&htbl->head_free_offset_list[entry->offset_entry->bin]);
+
+	if(entry->in_apps_headers_ext)
+	{
+		htbl = &ipa3_ctx->hdr_tbl[HDR_TBL_LCL_EXT];
+		list_move(&entry->offset_entry->link,
+			&htbl->head_free_offset_list[entry->offset_entry->bin]);
+	}
+
 	list_del(&entry->link);
 	htbl->hdr_cnt--;
 	entry->cookie = 0;
