@@ -116,6 +116,26 @@ TRACE_EVENT(
 );
 
 TRACE_EVENT(
+	ipa_handle_rx_core,
+
+	TP_PROTO(unsigned long rx_pkt_cnt),
+
+	TP_ARGS(rx_pkt_cnt),
+
+	TP_STRUCT__entry(
+		__field(unsigned long,	rx_pkt_cnt)
+		__field(u64,	qtime)
+	),
+
+	TP_fast_assign(
+		__entry->rx_pkt_cnt = rx_pkt_cnt;
+		__entry->qtime = ktime_get_real();
+	),
+
+	TP_printk("rx_pkt_cnt=%lu UTC time %lld", __entry->rx_pkt_cnt, __entry->qtime)
+);
+
+TRACE_EVENT(
 	rmnet_ipa_netifrx3,
 
 	TP_PROTO(unsigned long rx_pkt_cnt),

@@ -2128,13 +2128,10 @@ static void apps_ipa_v2x_packet_receive_notify(void *priv,
 		skb_set_mac_header(skb, 0);
 		/* v2x traffic uses IPA_RMNET_RX_QUEUE_V2X queue. */
 		skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_V2X);
-		if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH == 0) {
-			trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
-			result = netif_rx_ni(skb);
-		} else {
-			trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
-			result = netif_rx(skb);
-		}
+
+		/* for low latency, use netif_rx_ni always */
+		trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
+		result = netif_rx_ni(skb);
 
 		if (result)	{
 			pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_receive_skb\n",
