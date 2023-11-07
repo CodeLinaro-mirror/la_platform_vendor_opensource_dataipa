@@ -1130,10 +1130,10 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 			pr_err("tbl_idx:%d tbl_name:%s tbl_ref:%u ",
 				entry->tbl->idx, entry->tbl->name,
 				entry->tbl->ref_cnt);
-			is_lcl = entry->proc_ctx->is_lcl;
 			if (entry->proc_ctx &&
 				(!ipa3_check_idr_if_freed(entry->proc_ctx))) {
 				ofst = entry->proc_ctx->offset_entry->offset;
+				is_lcl = entry->proc_ctx->is_lcl;
 				ofst_words = is_lcl ?
 					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset) >> 5 :
 					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset) >> 5;
@@ -3989,30 +3989,34 @@ static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	for (sa_idx = 0; sa_idx < IPA_IPSEC_MAX_SA_NUM; sa_idx++) {
-		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x &&
-			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x) {
+		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x) {
 			memcpy_fromio(&esa, (void __iomem *)(ipsec->encap + sa_idx),
 				sizeof(struct ipa_ipsec_sa_encap));
-			memcpy_fromio(&dsa, (void __iomem *)(ipsec->decap + sa_idx),
-				sizeof(struct ipa_ipsec_sa_decap));
 			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-				"\n\n-----------------------SA index %u is Active----------------------------\n",
+				"\n-----------------------Encap SA index %u is Active----------------------------\n",
 				sa_idx);
 			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 				"encap_volume_bytes = %llu\n", esa.dyna.volume_bytes);
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"encap auth name = %s , encr name = %s\n",
+				ipa_ipsec_get_auth_algo_name(esa.shar.auth_algo),
+				ipa_ipsec_get_encr_algo_name(esa.shar.encr_algo));
+		}
+		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x) {
+			memcpy_fromio(&dsa, (void __iomem *)(ipsec->decap + sa_idx),
+				sizeof(struct ipa_ipsec_sa_decap));
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"\n-----------------------Decap SA index %u is Active----------------------------\n",
+				sa_idx);
 			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 				"decap_volume_bytes = %llu\n", dsa.dyna.volume_bytes);
 			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 				"nat_t = %d\n", dsa.stat.nat_t);
 			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-				"encap auth name = %s , encr name = %s\n",
-				ipa_ipsec_get_auth_algo_name(esa.shar.auth_algo),
-				ipa_ipsec_get_encr_algo_name(esa.shar.encr_algo));
-			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 				"decap auth name = %s , encr name = %s\n",
 				ipa_ipsec_get_auth_algo_name(dsa.shar.auth_algo),
 				ipa_ipsec_get_encr_algo_name(dsa.shar.encr_algo));
-			}
+		}
 	}
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();

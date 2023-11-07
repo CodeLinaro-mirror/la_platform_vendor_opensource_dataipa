@@ -1900,7 +1900,7 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 	struct xfrm_state *x = NULL;
 	struct sec_path *sp;
 	struct xfrm_offload *xo;
-	u32 xo_status;
+	u32 xo_status = CRYPTO_GENERIC_ERROR;
 	int result;
 
 	if (evt != IPA_RECEIVE) {
@@ -5078,7 +5078,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	dev = alloc_netdev_mqs(sizeof(struct ipa3_wwan_private),
 			   IPA_WWAN_DEV_NAME,
 			   NET_NAME_UNKNOWN,
-			   ipa3_wwan_setup, 2, 2);
+			   ipa3_wwan_setup, 4, 4);
 
 	if (!dev) {
 		IPAWANERR("no memory for netdev\n");
@@ -5844,7 +5844,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		       atomic_read(&rmnet_ipa3_ctx->is_ssr))
 			platform_driver_register(&rmnet_ipa_driver);
 		ipa3_odl_pipe_open();
-
+		ipa3_eth_tx_ring_db();
 		if(ipa3_ctx->ipa_config_is_rdkb)
 		{
 			handle3_egress_format_internal(rmnet_egress_cfg);

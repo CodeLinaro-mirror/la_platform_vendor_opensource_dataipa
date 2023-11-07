@@ -4614,7 +4614,19 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		IPADBG_LOW("ast update meta_data: 0x%x cb: 0x%x for client 0x%x\n",
 				metadata, *(u32 *)rx_skb->cb, ep->client);
 		IPADBG_LOW("ast update ucp: %d for client 0x%x\n", *(u8 *)(rx_skb->cb + 4), ep->client);
-	} else {
+	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
+
+		metadata = ntohl(metadata);
+		*(u16 *)rx_skb->cb = ((metadata >> 24) & 0xFF);//updating the vdev id
+		*(u8 *)(rx_skb->cb + 4) = ucp; //updating the ucp
+		*(u16 *)(rx_skb->cb + 5) = metadata & 0xFFF; //updating the  ta peer id
+		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
+				metadata, *(u32 *)rx_skb->cb);
+		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
+
+		IPADBG_LOW("ta peer id %d\n", *(u16 *)(rx_skb->cb + 5));
+
+	}else {
 		/* Metadata Info
 		 *  ------------------------------------------
 		 *  |   3     |   2     |    1        |  0   |
@@ -7118,7 +7130,9 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 	gsi_channel_props.db_in_bytes = 1;
 	/* Configure Low Latency Mode. */
 	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
-		ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS)
+		ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS ||
+		ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD ||
+		ep->client == IPA_CLIENT_APPS_WAN_V2X_CONS)
 		gsi_channel_props.low_latency_en = 1;
 	gsi_channel_props.prefetch_mode = gsi_ep_info->prefetch_mode;
 	gsi_channel_props.empty_lvl_threshold = gsi_ep_info->prefetch_threshold;

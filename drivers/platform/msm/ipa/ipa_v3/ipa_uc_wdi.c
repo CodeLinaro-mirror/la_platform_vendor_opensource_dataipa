@@ -56,6 +56,14 @@ struct ipa_wdi_res {
 	unsigned int map_cnt;
 	unsigned int unmap_cnt;
 };
+struct ipa_wdi_callback_info {
+		void *user_data;
+		ipa_uc_ready_cb notify;
+};
+struct ipa_wdi_ready_cb_wrapper {
+		struct list_head link;
+		struct ipa_wdi_callback_info info;
+};
 
 static struct ipa_wdi_res wdi_res[IPA_WDI_MAX_RES];
 
@@ -560,7 +568,8 @@ int ipa3_wdi_init(void)
 		ipa3_uc_wdi_loaded_handler;
 
 	ipa3_uc_register_handlers(IPA_HW_FEATURE_WDI, &uc_wdi_cbs);
-
+	INIT_LIST_HEAD(&ipa3_ctx->uc_wdi_ctx.ready_cb_list);
+	mutex_init(&ipa3_ctx->uc_wdi_ctx.lock);
 	return 0;
 }
 
@@ -3189,7 +3198,7 @@ int ipa3_uc_reg_rdyCB(
 	struct ipa_wdi_uc_ready_params *inout)
 {
 	int result = 0;
-
+	struct ipa_wdi_ready_cb_wrapper *callback;
 	if (inout == NULL) {
 		IPAERR("bad parm. inout=%pK ", inout);
 		return -EINVAL;
@@ -3203,9 +3212,18 @@ int ipa3_uc_reg_rdyCB(
 
 	result = ipa3_uc_state_check();
 	if (result) {
+		callback = kmalloc(sizeof(struct ipa_wdi_ready_cb_wrapper),
+						GFP_KERNEL);
+		if (!callback) {
+			IPAERR("failed to allocate mem for ipa_wdi_ready_cb_wrapper\n");
+			return -ENOMEM;
+		}
+		mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
+		callback->info.notify = inout->notify;
+		callback->info.user_data = inout->priv;
 		inout->is_uC_ready = false;
-		ipa3_ctx->uc_wdi_ctx.uc_ready_cb = inout->notify;
-		ipa3_ctx->uc_wdi_ctx.priv = inout->priv;
+		list_add_tail(&callback->link, &ipa3_ctx->uc_wdi_ctx.ready_cb_list);
+		mutex_unlock(&ipa3_ctx->uc_wdi_ctx.lock);
 	} else {
 		inout->is_uC_ready = true;
 	}
@@ -3222,8 +3240,15 @@ EXPORT_SYMBOL(ipa3_uc_reg_rdyCB);
  */
 int ipa3_uc_dereg_rdyCB(void)
 {
-	ipa3_ctx->uc_wdi_ctx.uc_ready_cb = NULL;
-	ipa3_ctx->uc_wdi_ctx.priv = NULL;
+	struct ipa_wdi_ready_cb_wrapper *entry;
+	struct ipa_wdi_ready_cb_wrapper *next;
+	mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
+	list_for_each_entry_safe (entry, next,
+					&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {
+			list_del(&entry->link);
+			kfree(entry);
+	}
+	mutex_unlock(&ipa3_ctx->uc_wdi_ctx.lock);
 
 	return 0;
 }
@@ -3267,19 +3292,21 @@ int ipa3_uc_wdi_get_dbpa(
 
 static void ipa3_uc_wdi_loaded_handler(void)
 {
+	struct ipa_wdi_ready_cb_wrapper *entry;
+	struct ipa_wdi_ready_cb_wrapper *next;
 	if (!ipa3_ctx) {
 		IPAERR("IPA ctx is null\n");
 		return;
 	}
 
-	if (ipa3_ctx->uc_wdi_ctx.uc_ready_cb) {
-		ipa3_ctx->uc_wdi_ctx.uc_ready_cb(
-			ipa3_ctx->uc_wdi_ctx.priv);
-
-		ipa3_ctx->uc_wdi_ctx.uc_ready_cb =
-			NULL;
-		ipa3_ctx->uc_wdi_ctx.priv = NULL;
+	mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
+	list_for_each_entry_safe (entry, next,
+			&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {
+		entry->info.notify(entry->info.user_data);
+		list_del(&entry->link);
+		kfree(entry);
 	}
+	mutex_unlock(&ipa3_ctx->uc_wdi_ctx.lock);
 }
 
 int ipa3_create_wdi_mapping(u32 num_buffers, struct ipa_wdi_buffer_info *info)

@@ -531,7 +531,7 @@ static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx)
 	int i, ret = 0;
 	struct ipa_ioc_add_hdr *hdrs;
 	struct ipa_hdr_add *hdr_add;
-	struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs;
+	struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs = NULL;
 	struct ipa_hdr_proc_ctx_add *proc_ctx_add;
 	u8 *hdr;
 	struct iphdr *iph;
@@ -737,7 +737,7 @@ static int ipa_ipsec_install_decap_rt(const struct xfrm_state *x, u8 idx)
 	if (!rt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_rt_rule_v2\n");
 		ret = -ENOMEM;
-		goto end;
+		return ret;
 	}
 	rt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
 	if (!rt_tbl->rules) {
@@ -857,7 +857,7 @@ static int ipa_ipsec_install_encap_rt(struct xfrm_policy *xp, u8 idx)
 	if (!rt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_rt_rule_v2\n");
 		ret = -ENOMEM;
-		goto end;
+		return ret;
 	}
 	rt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
 	if (!rt_tbl->rules) {
@@ -918,7 +918,7 @@ static int ipa_ipsec_install_decap_flt(struct xfrm_policy *xp, u8 idx)
 	if (!flt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_flt_rule_v2\n");
 		ret = -ENOMEM;
-		goto end;
+		return ret;
 	}
 	flt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
 	if (!flt_tbl->rules) {
@@ -1011,6 +1011,11 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 			if (pol->rt != -1) {
 				ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
 					sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
+				if (!ioc_del_rt) {
+					IPAERR("failed to allocate mem for ioc_del_rt\n");
+					kfree(ul_flt);
+					return -ENOMEM;
+				}
 				ioc_del_rt->commit = 1;
 				ioc_del_rt->ip = ul_flt->ip;
 				ioc_del_rt->num_hdls = 1;
@@ -1113,28 +1118,31 @@ static int ipa_ipsec_delete_orphan_ul_fnr(u8 idx)
 			ul_flt->ip = pol->xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 			ipa_ipsec_xfrm_sp_to_ipa_attrib(pol->xp, &ul_flt->attr, IPA_IPSEC_MAX_SA_NUM);
 
-			/* Delete RT rule */
-			ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
-				sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
-			if (!ioc_del_rt) {
-				IPAERR("Failed to allocate ipa_ioc_del_rt_rule\n");
-				kfree(ul_flt);
-				return -EFAULT;
+			/* RT rule may be previously deleted by e.g. table deletion */
+			if (pol->rt != -1) {
+				/* Delete RT rule */
+				ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
+					sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
+				if (!ioc_del_rt) {
+					IPAERR("Failed to allocate ipa_ioc_del_rt_rule\n");
+					kfree(ul_flt);
+					return -EFAULT;
+				}
+				ioc_del_rt->commit = 1;
+				ioc_del_rt->ip = ul_flt->ip;
+				ioc_del_rt->num_hdls = 1;
+				rt_rule_del = &ioc_del_rt->hdl[0];
+				rt_rule_del->status = -1;
+				rt_rule_del->hdl = pol->rt;
+				if (ipa3_del_rt_rule(ioc_del_rt) || !!rt_rule_del->status) {
+					IPAERR("Failed deleting RT hdl %d.\n", pol->rt);
+					kfree(ul_flt);
+					rc = -EFAULT;
+				}
+				IPADBG("deleted RT rule %d\n", rt_rule_del->hdl);
+				kfree(ioc_del_rt);
+				pol->rt = -1;
 			}
-			ioc_del_rt->commit = 1;
-			ioc_del_rt->ip = ul_flt->ip;
-			ioc_del_rt->num_hdls = 1;
-			rt_rule_del = &ioc_del_rt->hdl[0];
-			rt_rule_del->status = -1;
-			rt_rule_del->hdl = pol->rt;
-			if (ipa3_del_rt_rule(ioc_del_rt) || !!rt_rule_del->status) {
-				IPAERR("Failed deleting RT hdl %d.\n", pol->rt);
-				kfree(ul_flt);
-				rc = -EFAULT;
-			}
-			IPADBG("deleted RT rule %d\n", rt_rule_del->hdl);
-			kfree(ioc_del_rt);
-			pol->rt = -1;
 
 			/* Send FLT deletion event to IPACM */
 			if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt) != 0)
@@ -1222,6 +1230,10 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 	switch (ealg = _ipa_ipsec_xfrm_sa_enc_get(x)) {
 	case IPA_IPSEC_ENC_NULL:
 	case IPA_IPSEC_ENC_AES_CBC:
+		if (!x->ealg || !x->aalg) {
+			IPAERR("%s authentication algo is NULL\n", (!x->ealg) ? "ealg" : "aalg");
+			return -EINVAL;
+		}
 		if ((aalg = _ipa_ipsec_xfrm_sa_auth_get(x)) == IPA_IPSEC_AUTH_MAX) {
 			IPAERR("Unsupported authentication algo\n");
 			return -EINVAL;
@@ -1234,6 +1246,10 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		icvlen = x->aalg->alg_trunc_len / BITS_PER_BYTE;
 		break;
 	case IPA_IPSEC_ENC_AES_GCM_16:
+		if (!x->aead) {
+			IPAERR("aead authentication algo is NULL\n");
+			return -EINVAL;
+		}
 		icvlen = x->aead->alg_icv_len / BITS_PER_BYTE;
 		if (icvlen != 16) {
 			IPAERR("Only 16 byte ICV is supported in AES GCM\n");
@@ -1478,6 +1494,10 @@ void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
 
 			ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
 				sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
+			if (!ioc_del_rt) {
+				IPAERR("failed to allocate mem for ioc_del_rt\n");
+				return;
+			}
 			ioc_del_rt->commit = 1;
 			ioc_del_rt->ip = ip;
 			ioc_del_rt->num_hdls = 1;
@@ -1841,6 +1861,10 @@ void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
 	if (pol->rt != -1) {
 		ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
 			sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
+		if (!ioc_del_rt) {
+			IPAERR("failed to allocate mem for ioc_del_rt\n");
+			return;
+		}
 		ioc_del_rt->commit = 1;
 		ioc_del_rt->ip = ip;
 		ioc_del_rt->num_hdls = 1;
@@ -1883,14 +1907,15 @@ int ipa_ipsec_install_dl_pol_flt(void)
 
 	if (!ipa3_ctx->ipsec) {
 		IPAERR("IPsec is not initialized\n");
-		goto end;
+		ret = -EINVAL;
+		return ret;
 	}
 
 	flt_tbl = kzalloc(sizeof(*flt_tbl), GFP_KERNEL);
 	if (!flt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_flt_rule_v2\n");
 		ret = -ENOMEM;
-		goto end;
+		return ret;
 	}
 	flt_tbl->rules = (uint64_t)kzalloc(3 *
 		sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
@@ -2426,7 +2451,7 @@ static int ipa_ipsec_fnr_init(void)
 	if (!proc_ctxs) {
 		IPAERR("Failed to allocate ipa_ioc_add_hdr_proc_ctx\n");
 		ret = -ENOMEM;
-		goto end;
+		return ret;
 	}
 	proc_ctxs->commit = 1;
 	proc_ctxs->num_proc_ctxs = 1;
@@ -2438,13 +2463,13 @@ static int ipa_ipsec_fnr_init(void)
 	if (!flt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_flt_rule_v2\n");
 		ret = -ENOMEM;
-		goto end;
+		goto fail_flt;
 	}
 	flt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
 	if (!flt_tbl->rules) {
 		IPAERR("Failed to allocate ipa_flt_rule_add_v2\n");
 		ret = -ENOMEM;
-		goto end;
+		goto fail_flt_rules;
 	}
 	flt_tbl->commit = 1;
 	flt_tbl->num_rules = 1;
@@ -2454,13 +2479,13 @@ static int ipa_ipsec_fnr_init(void)
 	if (!rt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_rt_rule_v2\n");
 		ret = -ENOMEM;
-		goto end;
+		goto fail_rt;
 	}
 	rt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
 	if (!rt_tbl->rules) {
 		IPAERR("Failed to allocate ipa_rt_rule_add_v2\n");
 		ret = -ENOMEM;
-		goto end;
+		goto fail_rt_rules;
 	}
 	rt_tbl->commit = 1;
 	rt_tbl->rule_add_size = sizeof(struct ipa_rt_rule_add_v2);
@@ -2639,10 +2664,14 @@ static int ipa_ipsec_fnr_init(void)
 	ipa3_ctx->ipsec->default_rt = NULL;
 
 end:
-	kfree((void *)flt_tbl->rules);
-	kfree(flt_tbl);
 	kfree((void *)rt_tbl->rules);
+fail_rt_rules:
 	kfree(rt_tbl);
+fail_rt:
+	kfree((void *)flt_tbl->rules);
+fail_flt_rules:
+	kfree(flt_tbl);
+fail_flt:
 	kfree(proc_ctxs);
 
 	IPADBG_LOW("ret = %d\n", ret);

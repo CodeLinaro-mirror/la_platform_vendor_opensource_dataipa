@@ -9046,9 +9046,11 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.apps_v6_rt_hash_size = 0x0,
 	.apps_v6_rt_nhash_ofst = 0x130e8,
 	.apps_v6_rt_nhash_size = 0x300,
-	.sa_contexts_ofst = 0x133e8,
-	.sa_contexts_size = 0x1C30, // (IPA_SA_DB_SIZE)
-	.end_ofst = 0x15018,
+	.pre_sa_contexts_canary_ofst = 0x133e8,
+	.pre_sa_contexts_canary_size = 0x290,
+	.sa_contexts_ofst = 0x13678,
+	.sa_contexts_size = 0xE18, // (IPA_SA_DB_SIZE)
+	.end_ofst = 0x14490,
 };
 
 const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
@@ -16117,6 +16119,7 @@ void ipa3_get_gsi_stats(int prot_id,
 		ipa3_get_aqc_gsi_stats(stats);
 		break;
 	case IPA_HW_PROTOCOL_RTK:
+	case IPA_HW_PROTOCOL_RTK3:
 		stats->num_ch = MAX_RTK_CHANNELS;
 		ipa3_get_rtk_gsi_stats(stats);
 		break;

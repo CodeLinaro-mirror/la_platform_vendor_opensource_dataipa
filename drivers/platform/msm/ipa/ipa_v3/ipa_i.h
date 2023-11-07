@@ -1902,6 +1902,8 @@ struct ipa3_uc_wdi_ctx {
 #ifdef IPA_WAN_MSG_IPv6_ADDR_GW_LEN
 	ipa_wdi_meter_notifier_cb stats_notify;
 #endif
+	struct list_head ready_cb_list;
+	struct mutex lock;
 };
 
 /**
@@ -3102,6 +3104,8 @@ struct ipa3_mem_partition {
 	u32 stats_drop_size;
 	u32 q6_stats_drop_ofst;
 	u32 q6_stats_drop_size;
+	u32 pre_sa_contexts_canary_ofst;
+	u32 pre_sa_contexts_canary_size;
 	u32 sa_contexts_ofst;
 	u32 sa_contexts_size;
 };
@@ -4025,6 +4029,7 @@ enum ipa_client_type ipa_eth_get_ipa_client_type_from_eth_type(
 	enum ipa_eth_client_type eth_client_type, enum ipa_eth_pipe_direction dir);
 
 bool ipa_eth_client_exist(enum ipa_eth_client_type eth_client_type, int inst_id);
+int ipa3_eth_tx_ring_db(void);
 
 int ipa3_disable_apps_wan_cons_deaggr(uint32_t agg_size, uint32_t agg_count);
 

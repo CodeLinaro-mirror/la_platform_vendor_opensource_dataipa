@@ -167,6 +167,7 @@ enum gsi_evt_chtype {
 	GSI_EVT_CHTYPE_WDI3M_EV = 0xE,
 	GSI_EVT_CHTYPE_WDI3_V2_EV = 0XF,
 	GSI_EVT_CHTYPE_WDI4_EV = 0X10,
+	GSI_EVT_CHTYPE_RTK3_EV = 0x11,
 };
 
 enum gsi_evt_ring_elem_size {
@@ -259,6 +260,7 @@ enum gsi_chan_prot {
 	GSI_CHAN_PROT_WDI3M = 0xE,
 	GSI_CHAN_PROT_WDI3_V2 = 0XF,
 	GSI_CHAN_PROT_WDI4 = 0X10,
+	GSI_CHAN_PROT_RTK3 = 0x11,
 };
 
 enum gsi_max_prefetch {
@@ -976,7 +978,8 @@ struct __packed gsi_wdi4_channel_scratch {
 	uint32_t wifi_rp_address_high;
 	uint32_t update_rp_moderation_threshold : 5;
 	uint32_t qmap_id : 8;
-	uint32_t reserved1 : 3;
+	uint32_t wds_ext_enable : 1;
+	uint32_t reserved1 : 2;
 	uint32_t endp_metadata_reg_offset : 16;
 	uint32_t rx_pkt_offset : 16;
 	uint32_t bank_id : 6;
@@ -1116,6 +1119,7 @@ union __packed gsi_wdi3_channel_scratch2_reg {
  * @rtk_bar_high: Realtek bar address MSB
  * @queue_number: dma channel number in rtk
  * @fix_buff_size: buff size in KB
+ * @num_queues_enabled: Total numbet of queue to be enabled
  * @rtk_buff_addr_high: buffer addr where TRE points to
  * @rtk_buff_addr_low: buffer addr where TRE points to
  *			the descriptor
@@ -1125,7 +1129,7 @@ union __packed gsi_wdi3_channel_scratch2_reg {
 	uint32_t rtk_bar_high : 9;
 	uint32_t queue_number : 5;
 	uint32_t fix_buff_size : 4;
-	uint32_t reserved1 : 6;
+	uint32_t num_queues_enabled : 6;
 	uint32_t rtk_buff_addr_high : 8;
 	uint32_t rtk_buff_addr_low;
 	uint32_t reserved2;
