@@ -100,6 +100,12 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 		IPAERR("No SMMU CB setup\n");
 		return -EINVAL;
 	}
+
+	if (ipa3_ctx->s1_bypass_arr[cb_type]) {
+		IPADBG("SMMU is set to s1 bypass\n");
+		*iova = pa;
+		return 0;
+	}
 	/**
 	 * Assuming each IEMAC client does maximum of 1 mapping with
 	 * constant size per direction.
@@ -297,6 +303,7 @@ static int ipa3_eth_config_uc(bool init,
 			cmd_data->SetupCh_params.aqc_params.aqc_ch = peripheral_ch;
 			break;
 		case IPA_HW_PROTOCOL_RTK:
+		case IPA_HW_PROTOCOL_RTK3:
 			cmd_data->SetupCh_params.rtk_params.dir = dir;
 			cmd_data->SetupCh_params.rtk_params.gsi_ch = gsi_ch;
 			break;
@@ -328,6 +335,7 @@ static int ipa3_eth_config_uc(bool init,
 			cmd_data->CommonCh_params.aqc_params.gsi_ch = gsi_ch;
 			break;
 		case IPA_HW_PROTOCOL_RTK:
+		case IPA_HW_PROTOCOL_RTK3:
 			cmd_data->CommonCh_params.rtk_params.gsi_ch = gsi_ch;
 			break;
 		case IPA_HW_PROTOCOL_IEMAC:
@@ -428,9 +436,28 @@ static int ipa_eth_setup_rtk_gsi_channel(
 	bar_addr =
 		IPA_ETH_PCIE_SET(pipe->info.client_info.rtk.bar_addr);
 	memset(&gsi_evt_ring_props, 0, sizeof(gsi_evt_ring_props));
-	gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_RTK_EV;
+	/*Setting up EV for RTK8111K*/
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_RTK3_EV;
+	else
+		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_RTK_EV;
 	gsi_evt_ring_props.intr = GSI_INTR_MSI;
-	gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+	
+	/*Setting up ring element size for RTK8111K, Element size = 16B for RTK
+	 * CONS and 32B for RTK PROD  */
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+	{
+		if(pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
+		}
+		else {
+			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+		}
+	}
+	else {
+		gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+	}
+
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 		gsi_evt_ring_props.int_modt = IPA_ETH_RTK_MODT;
 		gsi_evt_ring_props.int_modc = IPA_ETH_RTK_MODC;
@@ -459,7 +486,13 @@ static int ipa_eth_setup_rtk_gsi_channel(
 
 	/* setup channel ring */
 	memset(&gsi_channel_props, 0, sizeof(gsi_channel_props));
-	gsi_channel_props.prot = GSI_CHAN_PROT_RTK;
+
+	/*Setting up Channel ring for RTK8111K*/
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+		gsi_channel_props.prot = GSI_CHAN_PROT_RTK3;
+	else
+		gsi_channel_props.prot = GSI_CHAN_PROT_RTK;
+
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
 	else
@@ -473,7 +506,20 @@ static int ipa_eth_setup_rtk_gsi_channel(
 	} else
 		gsi_channel_props.ch_id = gsi_ep_info->ipa_gsi_chan_num;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
-	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
+
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+	{
+		if(pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
+		}
+		else {
+			gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
+		}
+	}
+	else {
+		gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
+	}
+
 	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
 	gsi_channel_props.db_in_bytes = 1;
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
@@ -517,6 +563,11 @@ static int ipa_eth_setup_rtk_gsi_channel(
 		(pipe->dir == IPA_ETH_PIPE_DIR_RX) ?
 		pipe->info.client_info.rtk.queue_number :
 		(queue_number == 0) ? 16 : 18;
+
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K) {
+		ch_scratch.rtk.num_queues_enabled =
+			pipe->info.client_info.rtk.num_queues_enabled;
+	}
 	ch_scratch.rtk.fix_buff_size =
 		ilog2(pipe->info.fix_buffer_size);
 	ch_scratch.rtk.rtk_buff_addr_low =
@@ -989,6 +1040,8 @@ static int ipa3_eth_get_prot(struct ipa_eth_client_pipe_info *pipe,
 		*prot = IPA_HW_PROTOCOL_AQC;
 		break;
 	case IPA_ETH_CLIENT_RTK8111K:
+		*prot = IPA_HW_PROTOCOL_RTK3;
+		break;
 	case IPA_ETH_CLIENT_RTK8125B:
 		*prot = IPA_HW_PROTOCOL_RTK;
 		break;
@@ -1188,6 +1241,7 @@ int ipa3_eth_connect(
 
 	switch (prot) {
 	case IPA_HW_PROTOCOL_RTK:
+	case IPA_HW_PROTOCOL_RTK3:
 		result = ipa_eth_setup_rtk_gsi_channel(pipe, ep);
 		break;
 	case IPA_HW_PROTOCOL_AQC:
@@ -1241,6 +1295,7 @@ int ipa3_eth_connect(
 			}
 			break;
 		case IPA_HW_PROTOCOL_RTK:
+		case IPA_HW_PROTOCOL_RTK3:
 			if (gsi_query_msi_addr(ep->gsi_chan_hdl,
 					&pipe->info.db_pa)) {
 				result = -EFAULT;
@@ -1305,7 +1360,8 @@ int ipa3_eth_connect(
 	} else {
 		if (IPA_CLIENT_IS_PROD(client_type)) {
 			/* RX mailbox */
-			if (prot == IPA_HW_PROTOCOL_RTK) {
+			if (prot == IPA_HW_PROTOCOL_RTK || prot ==
+					IPA_HW_PROTOCOL_RTK3) {
 				pipe->info.db_pa = ipa3_ctx->ipa_wrapper_base +
 					ipahal_get_reg_base() +
 					ipahal_get_reg_mn_ofst(IPA_UC_MAILBOX_m_n,
@@ -1333,7 +1389,8 @@ int ipa3_eth_connect(
 			iounmap(db_addr);
 		} else {
 			/* TX mailbox */
-			if (prot == IPA_HW_PROTOCOL_RTK) {
+			if (prot == IPA_HW_PROTOCOL_RTK || prot ==
+					IPA_HW_PROTOCOL_RTK3) {
 				pipe->info.db_pa = ipa3_ctx->ipa_wrapper_base +
 					ipahal_get_reg_base() +
 					ipahal_get_reg_mn_ofst(IPA_UC_MAILBOX_m_n,
@@ -1607,3 +1664,38 @@ fail:
 	return result;
 }
 EXPORT_SYMBOL(ipa3_eth_disconnect);
+
+int ipa3_eth_tx_ring_db()
+{
+	int ch_id, ipa_ep_idx, result = 0, i = 0;
+	phys_addr_t db_pa;
+	void __iomem *db_addr;
+
+	ipa_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS);
+	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
+		IPADBG("IPA_CLIENT_ETHERNET2_CONS not mapped\n");
+		return 0;
+	}
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	if (ipa3_ctx->ep[ipa_ep_idx].valid) {
+		ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
+		gsi_query_msi_addr(ch_id, &db_pa);
+
+		db_addr = ioremap((phys_addr_t)(db_pa), 4);
+		if (!db_addr) {
+			IPAERR("ioremap failed\n");
+			result = -EFAULT;
+			goto fail;
+		}
+		/* Any value is good to write here, so writing as is */
+		for (i = 0; i < 5; i++) {
+			iowrite32(100, db_addr);
+			usleep_range(1000, 2000);
+		}
+		iounmap(db_addr);
+	}
+fail:
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return result;
+}
+EXPORT_SYMBOL(ipa3_eth_tx_ring_db);

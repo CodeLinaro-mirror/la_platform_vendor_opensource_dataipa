@@ -186,7 +186,7 @@ static int MapMemory(
 	 */
 	desc->mmap_size =
 		( desc->sram_to_be_used )                      ?
-		desc->nat_sram_info.best_nat_in_sram_size_rqst :
+		(int)(desc->nat_sram_info.best_nat_in_sram_size_rqst) :
 		desc->orig_rqst_size;
 
 	desc->mmap_addr = desc->base_addr =
@@ -213,7 +213,7 @@ static int MapMemory(
 	{
 		IPAERR("Unable to mmap the memory for %s\n", desc->name);
 		ret = -EINVAL;
-		goto close;
+		goto hndl_close;
 	}
 
 	if ( desc->sram_to_be_used )
@@ -228,7 +228,7 @@ static int MapMemory(
 		   (long unsigned int) desc->mmap_addr,
 		   (long unsigned int) desc->base_addr);
 
-close:
+hndl_close:
 	if (close(device_fd))
 	{
 		IPAERR("unable to close the file descriptor for %s\n", desc->name);

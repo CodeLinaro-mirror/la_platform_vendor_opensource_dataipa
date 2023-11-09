@@ -107,6 +107,7 @@
 #define IPA_HOLB_TMR_VAL_4_5 31
 #define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
 
+#define IPA_Q6_RT_START_ID 768
 #define IPA_Q6_FLT_START_ID 512
 #define IPA_Q6_FNR_START_IDX (128)
 #define IPA_Q6_FNR_IDX_CNT (52)
@@ -115,6 +116,7 @@
 #define IPA_MPM_MAX_RING_LEN 64
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
+#define IPA_MAX_RT_RULE_ID 1023
 
 #define IPA_AP_CB_WLAN_END_MAPPING 0x20000000
 
@@ -283,7 +285,14 @@ enum hdr_tbl_storage {
 	HDR_TBL_LCL,
 	HDR_TBL_LCL_EXT,
 	HDR_TBL_SYS,
+	HDR_TBL_PROC,
 	HDR_TBLS_TOTAL,
+};
+
+enum hpc_tbl_storage {
+	HPC_TBL_LCL,
+	HPC_TBL_SYS,
+	HPC_TBLS_TOTAL,
 };
 
 #define IPA_HDR_TO_DDR_PATTERN 0x2DDA
@@ -909,6 +918,8 @@ struct ipa3_hdr_entry {
 	char name[IPA_RESOURCE_NAME_MAX];
 	enum ipa_hdr_l2_type type;
 	u8 is_partial;
+	bool is_hdr_proc_ctx;
+	dma_addr_t phys_base;
 	struct ipa3_hdr_proc_ctx_entry *proc_ctx;
 	struct ipa_hdr_offset_entry *offset_entry;
 	u32 ref_cnt;
@@ -980,6 +991,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	int id;
 	bool user_deleted;
 	bool ipacm_installed;
+	bool is_lcl;
 };
 
 /**
@@ -1895,6 +1907,8 @@ struct ipa3_uc_wdi_ctx {
 #ifdef IPA_WAN_MSG_IPv6_ADDR_GW_LEN
 	ipa_wdi_meter_notifier_cb stats_notify;
 #endif
+	struct list_head ready_cb_list;
+	struct mutex lock;
 };
 
 /**
@@ -2395,7 +2409,6 @@ struct ipa3_eth_pdu_ctx {
  * @aggregation_type: aggregation type used on USB client endpoint
  * @aggregation_byte_limit: aggregation byte limit used on USB client endpoint
  * @aggregation_time_limit: aggregation time limit used on USB client endpoint
- * @hdr_proc_ctx_tbl_lcl: where proc_ctx tbl resides true-local, false-system
  * @hdr_mem: header memory
  * @hdr_proc_ctx_mem: processing context memory
  * @ip4_rt_tbl_lcl: where ip4 rt tables reside 1-local; 0-system
@@ -2498,7 +2511,7 @@ struct ipa3_context {
 	u32 ipa_cfg_offset;
 	bool set_evict_reg;
 	struct ipa3_hdr_tbl hdr_tbl[HDR_TBLS_TOTAL];
-	struct ipa3_hdr_proc_ctx_tbl hdr_proc_ctx_tbl;
+	struct ipa3_hdr_proc_ctx_tbl hdr_proc_ctx_tbl[HPC_TBLS_TOTAL];
 	struct ipa3_rt_tbl_set rt_tbl_set[IPA_IP_MAX];
 	struct ipa3_rt_tbl_set reap_rt_tbl_set[IPA_IP_MAX];
 	struct kmem_cache *flt_rule_cache;
@@ -2524,9 +2537,8 @@ struct ipa3_context {
 	uint aggregation_type;
 	uint aggregation_byte_limit;
 	uint aggregation_time_limit;
-	bool hdr_proc_ctx_tbl_lcl;
 	struct ipa_mem_buffer hdr_sys_mem;
-	struct ipa_mem_buffer hdr_proc_ctx_mem;
+	struct ipa_mem_buffer hdr_proc_ctx_sys_mem;
 	bool rt_tbl_hash_lcl[IPA_IP_MAX];
 	bool rt_tbl_nhash_lcl[IPA_IP_MAX];
 	bool flt_tbl_hash_lcl[IPA_IP_MAX];
@@ -3097,6 +3109,8 @@ struct ipa3_mem_partition {
 	u32 stats_drop_size;
 	u32 q6_stats_drop_ofst;
 	u32 q6_stats_drop_size;
+	u32 pre_sa_contexts_canary_ofst;
+	u32 pre_sa_contexts_canary_size;
 	u32 sa_contexts_ofst;
 	u32 sa_contexts_size;
 };
@@ -3731,6 +3745,7 @@ int ipa3_enable_data_path(u32 clnt_hdl);
 int ipa3_disable_data_path(u32 clnt_hdl);
 int ipa3_disable_gsi_data_path(u32 clnt_hdl);
 int ipa3_alloc_rule_id(struct idr *rule_ids);
+int ipa3_alloc_rt_rule_id(struct idr *rule_ids);
 int ipa3_alloc_counter_id(struct ipa_ioc_flt_rt_counter_alloc *counter);
 void ipa3_counter_remove_hdl(int hdl);
 void ipa3_counter_id_remove_all(void);
@@ -3980,6 +3995,7 @@ irq_handler_t ipa3_get_isr(void);
 void ipa_pc_qmp_enable(void);
 u32 ipa3_get_r_rev_version(void);
 void ipa3_notify_clients_registered(void);
+void ipa3_lcl_mdm_reboot_cb(void);
 #if defined(CONFIG_IPA3_REGDUMP)
 int ipa_reg_save_init(u32 value);
 void ipa_save_registers(void);
@@ -4019,6 +4035,7 @@ enum ipa_client_type ipa_eth_get_ipa_client_type_from_eth_type(
 	enum ipa_eth_client_type eth_client_type, enum ipa_eth_pipe_direction dir);
 
 bool ipa_eth_client_exist(enum ipa_eth_client_type eth_client_type, int inst_id);
+int ipa3_eth_tx_ring_db(void);
 
 int ipa3_disable_apps_wan_cons_deaggr(uint32_t agg_size, uint32_t agg_count);
 

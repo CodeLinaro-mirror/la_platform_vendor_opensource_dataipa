@@ -294,4 +294,4 @@ int ipa_nati_statemach(
 	ipa_nati_trigger trigger,
 	arb_t*           arb_data_ptr );
 
-#endif /* #if !defined(_IPA_NAT_STATEMACH_H_) */
+#endif /* if not defined (_IPA_NAT_STATEMACH_H_) */

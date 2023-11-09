@@ -632,4 +632,6 @@ inline void apps_ipa_packet_receive_notify(void *priv, enum ipa_dp_evt_type evt,
 }
 #endif /* IS_ENABLED(CONFIG_RMNET_IPA3) */
 
+int rmnet_mux_init(void);
+
 #endif /* IPA_QMI_SERVICE_H */
