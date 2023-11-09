@@ -224,7 +224,7 @@ int ipa_nat_modify_pdn(
 		return -EINVAL;
 	}
 
-	if (pdn_index > IPA_MAX_PDN_NUM) {
+	if (pdn_index >= IPA_MAX_PDN_NUM) {
 		IPAERR(
 			"PDN index %d is out of range maximum %d",
 			pdn_index, IPA_MAX_PDN_NUM);
@@ -322,7 +322,7 @@ int ipa_nat_get_pdn_count(
 int ipa_nat_dealloc_pdn(
 	uint8_t pdn_index)
 {
-	if(pdn_index > IPA_MAX_PDN_NUM) {
+	if(pdn_index >= IPA_MAX_PDN_NUM) {
 		IPAERR("PDN index is out of range %d", pdn_index);
 		return -EINVAL;
 	}
