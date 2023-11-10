@@ -4631,7 +4631,7 @@ done:
 
 #if IPA_ETH_API_VER >= 2
 static void __ipa_ntn3_client_stats_read(int *cnt, struct ipa_ntn3_client_stats *s,
-	const char *str_client_tx, const char *str_client_rx)
+	const char *str_client_tx, const char *str_client_rx, const char *str_client_rx1)
 {
 	int nbytes;
 
@@ -4679,6 +4679,30 @@ static void __ipa_ntn3_client_stats_read(int *cnt, struct ipa_ntn3_client_stats 
 		str_client_rx, s->rx_stats.rollbacks_cnt,
 		str_client_rx, s->rx_stats.msi_db_cnt);
 	*cnt += nbytes;
+	nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
+		"%s_RP=0x%x\n"
+		"%s_WP=0x%x\n"
+		"%s_ntn_pending_db_after_rollback:%u\n"
+		"%s_msi_db_idx_val:%u\n"
+		"%s_ntn_rx_chain_counter:%u\n"
+		"%s_ntn_rx_err_cnt:%u\n"
+		"%s_ntn_rx_err_crc_counter:%u\n"
+		"%s_ntn_rx_bmap_err:%09x\n"
+		"%s_ntn_accumulated_tres_handled:%u\n"
+		"%s_ntn_rollbacks_counter:%u\n"
+		"%s_ntn_msi_db_count:%u\n",
+		str_client_rx1, s->rx1_stats.rp,
+		str_client_rx1, s->rx1_stats.wp,
+		str_client_rx1, s->rx1_stats.pending_db_after_rollback,
+		str_client_rx1, s->rx1_stats.msi_db_idx,
+		str_client_rx1, s->rx1_stats.chain_cnt,
+		str_client_rx1, (s->rx1_stats.err_cnt & 0x3FFF),
+		str_client_rx1, (s->rx1_stats.err_cnt & 0x7FC000)>>14,
+		str_client_rx1, (s->rx1_stats.err_cnt & 0xFF800000)>>23,
+		str_client_rx1, s->rx1_stats.tres_handled,
+		str_client_rx1, s->rx1_stats.rollbacks_cnt,
+		str_client_rx1, s->rx1_stats.msi_db_cnt);
+	*cnt += nbytes;
 }
 #endif
 
@@ -4694,7 +4718,7 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 	int scratch_num;
 #if IPA_ETH_API_VER >= 2
 	struct ipa_ntn3_client_stats ntn3_stats;
-	const char *str_client_tx, *str_client_rx;
+	const char *str_client_tx, *str_client_rx, *str_client_rx1;
 #endif
 
 	memset(&tx_stats, 0, sizeof(struct ipa3_eth_error_stats));
@@ -4735,12 +4759,14 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 			ipa_eth_ntn3_get_status(&ntn3_stats, 0);
 			str_client_tx = ipa_clients_strings[IPA_CLIENT_ETHERNET_CONS];
 			str_client_rx = ipa_clients_strings[IPA_CLIENT_ETHERNET_PROD];
+			str_client_rx1 = ipa_clients_strings[IPA_CLIENT_ETHERNET_PROD1];
 		} else {
 			ipa_eth_ntn3_get_status(&ntn3_stats, 1);
 			str_client_tx = ipa_clients_strings[IPA_CLIENT_ETHERNET2_CONS];
 			str_client_rx = ipa_clients_strings[IPA_CLIENT_ETHERNET2_PROD];
 		}
-		__ipa_ntn3_client_stats_read(&cnt, &ntn3_stats, str_client_tx, str_client_rx);
+		__ipa_ntn3_client_stats_read(&cnt, &ntn3_stats, str_client_tx, str_client_rx,
+									 str_client_rx1);
 		goto done;
 #endif
 	default:
