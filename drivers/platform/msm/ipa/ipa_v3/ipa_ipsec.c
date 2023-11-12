@@ -1731,16 +1731,20 @@ static void ipa_ipsec_handle_sa_thresh_bottom(struct work_struct *work)
 }
 
 /* Top half of the SA threshold uC event handler */
-void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_sa_type sa_type)
+void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action)
 {
+	enum ipa_ipsec_sa_type sa_type;
 	struct xfrm_state *x;
 	struct ipa_ipsec_work_wrap *work_data;
 
-	if (idx >= IPA_IPSEC_MAX_SA_NUM || sa_type >= IPA_IPSEC_TYPE_MAX) {
-		IPAERR_RL("Received event with wrong params: idx = %d, sa_type = %d\n",
-			 idx, sa_type);
+	if (idx >= IPA_IPSEC_MAX_SA_NUM ||
+	    action == IPA_IPSEC_UC_SA_ACT_NONE || action >= IPA_IPSEC_UC_SA_ACT_MAX) {
+		IPAERR("Received uC event with wrong params: idx = %d, action = %d\n",
+			 idx, action);
 		return;
 	}
+
+	sa_type = (action == IPA_IPSEC_UC_SA_ACT_ENCAP) ? IPA_IPSEC_ENCAP : IPA_IPSEC_DECAP;
 
 	x = ipa3_ctx->ipsec->sa_db[sa_type][idx].x;
 	if (unlikely(!x)) {
