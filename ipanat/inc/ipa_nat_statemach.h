@@ -62,6 +62,7 @@ static inline const char* ipa_nati_state_as_str(
 		MAKE_AS_STR_CASE(NATI_STATE_LAST);
 
 	default:
+		/* Default case */
 		break;
 	}
 

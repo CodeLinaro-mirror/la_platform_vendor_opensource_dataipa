@@ -232,19 +232,14 @@ bail:
 static int take_mutex()
 {
 	int ret;
-	
+
 	if ( !nat_mutex_init )
 	{
 		ret = mutex_init();
-
-		if ( ret == 0 )
-		{
-			goto again;
-		}
 	}
-	else
+
+	if (nat_mutex_init || ret == 0)
 	{
-again:
 		ret = pthread_mutex_lock(&nat_mutex);
 	}
 

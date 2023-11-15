@@ -401,7 +401,7 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 		goto unlock;
 	}
 
-	if (!ipa_table_iterator_is_head_with_tail(&table_iterator))
+	if (!ipa_table_itr_valid_check(&table_iterator))
 	{
 		/* The entry can be deleted */
 		uint8_t is_prev_empty = (table_iterator.prev_entry != NULL &&
@@ -719,7 +719,7 @@ static int ipa_ipv6ct_create_table(ipa_ipv6ct_table* ipv6ct_table, uint16_t numb
 		IPA_IOC_DEL_IPV6CT_TABLE,
 		false); /* false here means don't consider using sram */
 
-	ret = ipa_mem_descriptor_allocate_memory(
+	ret = ipa_mem_desc_alloc_memory(
 		&ipv6ct_table->mem_desc,
 		ipv6ct.ipa_desc->fd);
 
