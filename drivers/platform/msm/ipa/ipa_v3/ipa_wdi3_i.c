@@ -558,7 +558,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	ch_scratch.wdi3.update_rp_moderation_threshold =
 		UPDATE_RP_MODERATION_THRESHOLD;
 	if ((dir == IPA_WDI3_RX_DIR) || (dir == IPA_WDI3_RX2_DIR)
-		|| (dir == IPA_WDI3_RX3_DIR) || (dir == IPA_WDI3_RX4_DIR) || (dir == IPA_WDI3_RX5_DIR) || (dir == IPA_WDI3_RX5_DIR)) {
+		|| (dir == IPA_WDI3_RX3_DIR) || (dir == IPA_WDI3_RX4_DIR) || (dir == IPA_WDI3_RX6_DIR) || (dir == IPA_WDI3_RX5_DIR)) {
 
 		if(ipa_get_wdi_version() == IPA_WDI_4){
 			if (!is_smmu_enabled)
