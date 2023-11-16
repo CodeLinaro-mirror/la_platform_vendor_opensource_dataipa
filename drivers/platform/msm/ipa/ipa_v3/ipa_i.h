@@ -2932,7 +2932,7 @@ int ipa3_xdci_start(u32 clnt_hdl, u8 xferrscidx, bool xferrscidx_valid);
 
 int ipa3_xdci_connect(u32 clnt_hdl);
 
-int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id);
+int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id, bool remove_delay);
 
 void ipa3_xdci_ep_delay_rm(u32 clnt_hdl);
 int ipa3_set_reset_client_prod_pipe_delay(bool set_reset,

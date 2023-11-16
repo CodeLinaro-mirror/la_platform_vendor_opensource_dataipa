@@ -1559,7 +1559,7 @@ void ipa3_xdci_ep_delay_rm(u32 clnt_hdl)
 }
 EXPORT_SYMBOL(ipa3_xdci_ep_delay_rm);
 
-int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id)
+int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id, bool remove_delay)
 {
 	struct ipa3_ep_context *ep;
 	struct ipa_ep_cfg_ctrl ep_cfg_ctrl;
@@ -1588,7 +1588,7 @@ int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id)
 		source_pipe_reg_idx = ipahal_get_ep_reg_idx(clnt_hdl);
 		result = ipa3_stop_ul_chan_with_data_drain(qmi_req_id,
 			source_pipe_bitmask, source_pipe_reg_idx,
-			should_force_clear, clnt_hdl, true);
+			should_force_clear, clnt_hdl, remove_delay);
 		if (result) {
 			IPAERR("Fail to stop UL channel with data drain\n");
 			WARN_ON(1);
