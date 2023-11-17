@@ -4383,6 +4383,8 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		}
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
+		if (ipa3_ctx->ipa_config_is_mhi)
+			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_CONS);
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("BEFORE DEEPSLEEP EXIT handling is complete\n");
 		break;
@@ -4405,6 +4407,8 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		 */
 		if (ipa3_ctx->ipa_hw_type != IPA_HW_v4_0)
 			ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
+		if (ipa3_ctx->ipa_config_is_mhi)
+			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_CONS);
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("IPA BEFORE_POWERUP handling is complete\n");
 		break;
