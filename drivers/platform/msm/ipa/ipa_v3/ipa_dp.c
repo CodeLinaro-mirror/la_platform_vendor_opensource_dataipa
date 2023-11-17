@@ -1216,9 +1216,9 @@ start_poll:
 		else
 			inactive_cycles = 0;
 
-		trace_idle_sleep_enter3(sys->ep->client);
+		trace_ipa_idle_sleep_enter3(sys->ep->client);
 		usleep_range(POLLING_MIN_SLEEP_RX, POLLING_MAX_SLEEP_RX);
-		trace_idle_sleep_exit3(sys->ep->client);
+		trace_ipa_idle_sleep_exit3(sys->ep->client);
 
 		/*
 		 * if pipe is out of buffers there is no point polling for
@@ -1230,7 +1230,7 @@ start_poll:
 
 	} while (inactive_cycles <= POLLING_INACTIVITY_RX);
 
-	trace_poll_to_intr3(sys->ep->client);
+	trace_ipa_poll_to_intr3(sys->ep->client);
 	ret = ipa3_rx_switch_to_intr_mode(sys);
 	if (ret == -GSI_STATUS_PENDING_IRQ)
 		goto start_poll;

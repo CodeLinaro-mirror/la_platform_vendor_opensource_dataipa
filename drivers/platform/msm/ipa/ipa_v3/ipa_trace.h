@@ -7,6 +7,7 @@
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM ipa
 #define TRACE_INCLUDE_FILE ipa_trace
+#include <linux/timekeeping.h>
 
 #if !defined(_IPA_TRACE_H) || defined(TRACE_HEADER_MULTI_READ)
 #define _IPA_TRACE_H
@@ -15,7 +16,7 @@
 #include <linux/string.h>
 
 TRACE_EVENT(
-	intr_to_poll3,
+	ipa_intr_to_poll3,
 
 	TP_PROTO(unsigned long client),
 
@@ -23,17 +24,19 @@ TRACE_EVENT(
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	client)
+		__field(u64,	qtime)
 	),
 
 	TP_fast_assign(
 		__entry->client = client;
+		__entry->qtime = ktime_get_real();
 	),
 
-	TP_printk("client=%lu", __entry->client)
+	TP_printk("client=%lu UTC time %lld", __entry->client, __entry->qtime)
 );
 
 TRACE_EVENT(
-	poll_to_intr3,
+	ipa_poll_to_intr3,
 
 	TP_PROTO(unsigned long client),
 
@@ -41,17 +44,19 @@ TRACE_EVENT(
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	client)
+		__field(u64,	qtime)
 	),
 
 	TP_fast_assign(
 		__entry->client = client;
+		__entry->qtime = ktime_get_real();
 	),
 
-	TP_printk("client=%lu", __entry->client)
+	TP_printk("client=%lu UTC time %lld", __entry->client, __entry->qtime)
 );
 
 TRACE_EVENT(
-	idle_sleep_enter3,
+	ipa_idle_sleep_enter3,
 
 	TP_PROTO(unsigned long client),
 
@@ -59,17 +64,19 @@ TRACE_EVENT(
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	client)
+		__field(u64,	qtime)
 	),
 
 	TP_fast_assign(
 		__entry->client = client;
+		__entry->qtime = ktime_get_real();
 	),
 
-	TP_printk("client=%lu", __entry->client)
+	TP_printk("client=%lu UTC time %lld", __entry->client, __entry->qtime)
 );
 
 TRACE_EVENT(
-	idle_sleep_exit3,
+	ipa_idle_sleep_exit3,
 
 	TP_PROTO(unsigned long client),
 
@@ -77,13 +84,15 @@ TRACE_EVENT(
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	client)
+		__field(u64,	qtime)
 	),
 
 	TP_fast_assign(
 		__entry->client = client;
+		__entry->qtime = ktime_get_real();
 	),
 
-	TP_printk("client=%lu", __entry->client)
+	TP_printk("client=%lu UTC time %lld", __entry->client, __entry->qtime)
 );
 
 TRACE_EVENT(
@@ -95,13 +104,15 @@ TRACE_EVENT(
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	rx_pkt_cnt)
+		__field(u64,	qtime)
 	),
 
 	TP_fast_assign(
 		__entry->rx_pkt_cnt = rx_pkt_cnt;
+		__entry->qtime = ktime_get_real();
 	),
 
-	TP_printk("rx_pkt_cnt=%lu", __entry->rx_pkt_cnt)
+	TP_printk("rx_pkt_cnt=%lu UTC time %lld", __entry->rx_pkt_cnt, __entry->qtime)
 );
 
 TRACE_EVENT(
@@ -113,13 +124,15 @@ TRACE_EVENT(
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	rx_pkt_cnt)
+		__field(u64,	qtime)
 	),
 
 	TP_fast_assign(
 		__entry->rx_pkt_cnt = rx_pkt_cnt;
+		__entry->qtime = ktime_get_real();
 	),
 
-	TP_printk("rx_pkt_cnt=%lu", __entry->rx_pkt_cnt)
+	TP_printk("rx_pkt_cnt=%lu UTC time %lld", __entry->rx_pkt_cnt, __entry->qtime)
 );
 
 TRACE_EVENT(
@@ -136,6 +149,7 @@ TRACE_EVENT(
 		__field(unsigned int,	len)
 		__field(unsigned int,	data_len)
 		__field(unsigned long,	rx_pkt_cnt)
+		__field(u64,	qtime)
 	),
 
 	TP_fast_assign(
@@ -145,15 +159,17 @@ TRACE_EVENT(
 		__entry->len = skb->len;
 		__entry->data_len = skb->data_len;
 		__entry->rx_pkt_cnt = rx_pkt_cnt;
+		__entry->qtime = ktime_get_real();
 	),
 
-	TP_printk("dev=%s skbaddr=%p protocol=0x%04x len=%u data_len=%u rx_pkt_cnt=%lu",
+	TP_printk("dev=%s skbaddr=%p protocol=0x%04x len=%u data_len=%u rx_pkt_cnt=%lu UTC time %lld",
 		__get_str(name),
 		__entry->skbaddr,
 		__entry->protocol,
 		__entry->len,
 		__entry->data_len,
-		__entry->rx_pkt_cnt)
+		__entry->rx_pkt_cnt,
+		__entry->qtime)
 );
 
 TRACE_EVENT(
