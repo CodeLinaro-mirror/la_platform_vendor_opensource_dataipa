@@ -2716,6 +2716,7 @@ struct ipa3_context {
 	bool ipa_gpi_event_rp_ddr;
 	bool rmnet_ctl_enable;
 	bool rmnet_ll_enable;
+	bool is_reboot_complete;
 	char *gsi_fw_file_name;
 	char *uc_fw_file_name;
 	struct ipa3_eth_info

@@ -5663,6 +5663,7 @@ void ipa3_lcl_mdm_reboot_cb ( )
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	}
 	mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
+	ipa3_ctx->is_reboot_complete = true;
 	IPAWANDBG(" Exit \n");
 
 }
