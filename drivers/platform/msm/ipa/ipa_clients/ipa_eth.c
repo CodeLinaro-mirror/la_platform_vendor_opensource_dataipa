@@ -1166,7 +1166,7 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 #if IPA_ETH_API_VER >= 3
 		traffic_type = pipe->traffic_type;
 #else
-		traffic_type = client->traffic_type;
+		traffic_type = intf->client->traffic_type;
 #endif
 		if (ezmesh) {
 			if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
