@@ -2207,6 +2207,7 @@ struct ipa_ntn3_stats_tx {
 
 struct ipa_ntn3_client_stats {
 	struct ipa_ntn3_stats_rx rx_stats;
+	struct ipa_ntn3_stats_rx rx1_stats;
 	struct ipa_ntn3_stats_tx tx_stats;
 };
 #if defined(CONFIG_IPA_TSP)
