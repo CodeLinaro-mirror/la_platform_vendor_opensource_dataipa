@@ -1,7 +1,7 @@
 ifeq ($(TARGET_DATAIPA_DLKM_ENABLE), true)
 ifneq ($(TARGET_BOARD_PLATFORM),qssi)
 
-GSI_DLKM_PLATFORMS_LIST := taro kalama bengal pineapple blair holi cliffs
+GSI_DLKM_PLATFORMS_LIST := taro kalama bengal monaco pineapple blair holi cliffs
 
 #Enabling BAZEL
 LOCAL_MODULE_DDK_BUILD := true

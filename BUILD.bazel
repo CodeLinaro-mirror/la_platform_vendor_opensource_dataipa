@@ -9,6 +9,10 @@ define_modules("blair", "consolidate")
 
 define_modules("blair", "gki")
 
+define_modules("monaco", "consolidate")
+
+define_modules("monaco", "gki")
+
 package(
     default_visibility = [
         "//visibility:public",
