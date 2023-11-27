@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -63,6 +63,7 @@
 #define IPA_WWAN_DEV_NAME "rmnet_ipa%d"
 #define IPA_UPSTEAM_WLAN_IFACE_NAME "wlan0"
 #define IPA_UPSTEAM_WLAN1_IFACE_NAME "wlan1"
+static char dbg_buff[4096];
 
 enum ipa_ap_ingress_ep_enum {
 	IPA_AP_INGRESS_NONE = 0,
@@ -134,7 +135,13 @@ static int rmnet_ipa_send_coalesce_notification(uint8_t qmap_id, bool enable,
 
 static int rmnet_ipa_send_set_mtu_notification(char *if_name,
 					uint16_t mtu_v4, uint16_t mtu_v6, enum ipa_ip_type ip);
-
+#ifdef CONFIG_DEBUG_FS
+static void rmnet_ipa_debugfs_init(void);
+static void rmnet_ipa_debugfs_remove(void);
+#else
+static int rmnet_ipa_sysfs_init(void);
+static void rmnet_ipa_sysfs_destroy(void);
+#endif
 
 enum ipa3_wwan_device_status {
 	WWAN_DEVICE_INACTIVE = 0,
@@ -8261,9 +8268,8 @@ int rmnet_ipa3_get_wan_mtu(
 
 	return 0;
 }
-#ifdef CONFIG_DEBUG_FS
-static char dbg_buff[4096];
 
+#ifdef CONFIG_DEBUG_FS
 static ssize_t rmnet_ipa_set_mtu(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -8380,9 +8386,122 @@ static void rmnet_ipa_debugfs_remove(void)
 	debugfs_remove_recursive(rmnet_ipa3_ctx->dbgfs.dent);
 	memset(&rmnet_ipa3_ctx->dbgfs, 0, sizeof(struct rmnet_ipa_debugfs));
 }
-#else /* CONFIG_DEBUG_FS */
-static void rmnet_ipa_debugfs_init(void){}
-static void rmnet_ipa_debugfs_remove(void){}
+#else /* !CONFIG_DEBUG_FS */
+static ssize_t outstanding_low_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou32(ubuf, 0, &rmnet_ipa3_ctx->outstanding_low);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_low_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rmnet_ipa3_ctx->outstanding_low);
+    return sizeof(uint32_t);
+}
+
+static ssize_t outstanding_high_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou32(ubuf, 0, &rmnet_ipa3_ctx->outstanding_high);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_high_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint32_t),"%d",rmnet_ipa3_ctx->outstanding_high);
+    return sizeof(uint32_t);
+}
+
+static ssize_t outstanding_high_ctl_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou32(ubuf, 0, &rmnet_ipa3_ctx->outstanding_high_ctl);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_high_ctl_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rmnet_ipa3_ctx->outstanding_high_ctl);
+    return sizeof(uint32_t);
+}
+
+static ssize_t set_mtu_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	__s8    if_name[IFNAMSIZ];
+	uint16_t mtu_v4 = 0, mtu_v6 = 0;
+	char *sptr, *token;
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+	memcpy(dbg_buff, ubuf, count);
+
+	dbg_buff[count] = '\0';
+
+	sptr = dbg_buff;
+
+	memset(if_name, 0, IFNAMSIZ);
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	strlcpy(if_name, token, IFNAMSIZ);
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou16(token, 0, &mtu_v4))
+		return -EINVAL;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou16(token, 0, &mtu_v6))
+		return -EINVAL;
+
+	rmnet_ipa_send_set_mtu_notification(
+		if_name,
+		mtu_v4,
+		mtu_v6, IPA_IP_MAX);
+
+	return count;
+}
+static DEVICE_ATTR_WO(set_mtu);
+static DEVICE_ATTR_RW(outstanding_low);
+static DEVICE_ATTR_RW(outstanding_high);
+static DEVICE_ATTR_RW(outstanding_high_ctl);
+
+static struct attribute *ipa_rmnet_attrs[] = {
+	&dev_attr_set_mtu.attr,
+	&dev_attr_outstanding_low.attr,
+	&dev_attr_outstanding_high.attr,
+	&dev_attr_outstanding_high_ctl.attr,
+	NULL
+};
+
+const struct attribute_group ipa_rmnet_attr_group = {
+	.name		= "rmnet_ipa",
+	.attrs		= ipa_rmnet_attrs,
+};
+static int rmnet_ipa_sysfs_init(void)
+{
+	int ret = -1;
+	ret = sysfs_create_group(kernel_kobj, &ipa_rmnet_attr_group);
+	if (ret != 0) {
+		pr_err("Fail to create IPA syfs attribute\n");
+	}
+	return ret;
+}
+static void rmnet_ipa_sysfs_fini(void)
+{
+		sysfs_remove_group(kernel_kobj, &ipa_rmnet_attr_group);
+}
 #endif /* CONFIG_DEBUG_FS */
 
 int ipa3_wwan_platform_driver_register(void)
@@ -8589,8 +8708,11 @@ int ipa3_wwan_init(void)
 	rmnet_ipa3_ctx->outstanding_high_ctl = OUTSTANDING_HIGH_CTL_DEFAULT;
 	rmnet_ipa3_ctx->outstanding_low = OUTSTANDING_LOW_DEFAULT;
 
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ipa_debugfs_init();
-
+#else
+	rmnet_ipa_sysfs_init();
+#endif
 	/* Register for Local Modem SSR */
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	ssr_hdl = qcom_register_ssr_notifier(SUBSYS_LOCAL_MODEM,
@@ -8648,7 +8770,11 @@ fail_unreg_lcl_mdm_ssr:
 		rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle = NULL;
 	}
 fail_dbgfs_rm:
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ipa_debugfs_remove();
+#else
+	rmnet_ipa_sysfs_destroy();
+#endif
 	return rc;
 }
 
@@ -8689,7 +8815,11 @@ void ipa3_wwan_cleanup(void)
 			"Failed to unregister subsys %s notifier ret=%d\n",
 			SUBSYS_REMOTE_MODEM, ret);
 	}
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ipa_debugfs_remove();
+#else
+	rmnet_ipa_sysfs_init();
+#endif
 	ipa3_qmi_cleanup();
 	mutex_destroy(&rmnet_ipa3_ctx->per_client_stats_guard);
 	mutex_destroy(&rmnet_ipa3_ctx->add_mux_channel_lock);
