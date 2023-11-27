@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
-#ifdef CONFIG_DEBUG_FS
+#ifndef CONFIG_DEBUG_FS
 #include <linux/completion.h>
-#include <linux/debugfs.h>
 #include <linux/dma-mapping.h>
+#include <linux/sysfs.h>
 #include <linux/random.h>
 #include <linux/uaccess.h>
 #include <linux/msm_gsi.h>
@@ -22,7 +21,6 @@
 #define PRT_STAT(fmt, args...) \
 		pr_err(fmt, ## args)
 
-static struct dentry *dent;
 static char dbg_buff[GSI_MAX_MSG_LEN];
 static void *gsi_ipc_logbuf_low;
 
@@ -31,12 +29,10 @@ static DECLARE_DELAYED_WORK(gsi_print_dp_stats_work, gsi_wq_print_dp_stats);
 static void gsi_wq_update_dp_stats(struct work_struct *work);
 static DECLARE_DELAYED_WORK(gsi_update_dp_stats_work, gsi_wq_update_dp_stats);
 
-static ssize_t gsi_dump_evt(struct file *file,
-		const char __user *buf, size_t count, loff_t *ppos)
+static ssize_t ev_dump_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
 	u32 arg1;
 	u32 arg2;
-	unsigned long missing;
 	char *sptr, *token;
 	uint32_t val;
 	struct gsi_evt_ctx *ctx;
@@ -45,9 +41,7 @@ static ssize_t gsi_dump_evt(struct file *file,
 	if (count >= sizeof(dbg_buff))
 		return -EINVAL;
 
-	missing = copy_from_user(dbg_buff, buf, count);
-	if (missing)
-		return -EFAULT;
+	memcpy(dbg_buff, ubuf, count);
 
 	dbg_buff[count] = '\0';
 
@@ -148,12 +142,10 @@ static ssize_t gsi_dump_evt(struct file *file,
 	return count;
 }
 
-static ssize_t gsi_dump_ch(struct file *file,
-		const char __user *buf, size_t count, loff_t *ppos)
+static ssize_t ch_dump_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
 	u32 arg1;
 	u32 arg2;
-	unsigned long missing;
 	char *sptr, *token;
 	struct gsi_chan_ctx *ctx;
 	uint16_t i;
@@ -161,9 +153,7 @@ static ssize_t gsi_dump_ch(struct file *file,
 	if (count >= sizeof(dbg_buff))
 		return -EINVAL;
 
-	missing = copy_from_user(dbg_buff, buf, count);
-	if (missing)
-		return -EFAULT;
+	memcpy(dbg_buff, ubuf, count);
 
 	dbg_buff[count] = '\0';
 
@@ -244,13 +234,12 @@ static void gsi_dump_ch_stats(struct gsi_chan_ctx *ctx)
 	PRT_STAT("\n");
 }
 
-static ssize_t gsi_dump_stats(struct file *file,
-		const char __user *buf, size_t count, loff_t *ppos)
+static ssize_t gsi_stats_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
 	int ch_id;
 	int min, max, ret;
 
-	ret = kstrtos32_from_user(buf, count, 0, &ch_id);
+	ret = kstrtos32(ubuf, 0, &ch_id);
 	if (ret)
 		return ret;
 
@@ -295,8 +284,7 @@ static void gsi_dbg_destroy_stats_wq(void)
 	gsi_ctx->dp_stat_wq = NULL;
 }
 
-static ssize_t gsi_enable_dp_stats(struct file *file,
-	const char __user *buf, size_t count, loff_t *ppos)
+static ssize_t enable_dp_stats_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
 	int ch_id;
 	bool enable;
@@ -305,7 +293,7 @@ static ssize_t gsi_enable_dp_stats(struct file *file,
 	if (count >= sizeof(dbg_buff))
 		goto error;
 
-	if (copy_from_user(dbg_buff, buf, count))
+	if (memcpy(dbg_buff, ubuf, count))
 		goto error;
 
 	dbg_buff[count] = '\0';
@@ -353,20 +341,16 @@ error:
 	return -EINVAL;
 }
 
-static ssize_t gsi_set_max_elem_dp_stats(struct file *file,
-		const char __user *buf, size_t count, loff_t *ppos)
+static ssize_t max_elem_dp_stats_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
 	u32 ch_id;
 	u32 max_elem;
-	unsigned long missing;
 	char *sptr, *token;
 
 	if (count >= sizeof(dbg_buff))
 		goto error;
 
-	missing = copy_from_user(dbg_buff, buf, count);
-	if (missing)
-		goto error;
+	memcpy(dbg_buff, ubuf, count);
 
 	dbg_buff[count] = '\0';
 
@@ -479,13 +463,12 @@ static void gsi_wq_update_dp_stats(struct work_struct *work)
 }
 
 
-static ssize_t gsi_rst_stats(struct file *file,
-		const char __user *buf, size_t count, loff_t *ppos)
+static ssize_t rst_stats_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
 	int ch_id;
 	int min, max, ret;
 
-	ret = kstrtos32_from_user(buf, count, 0, &ch_id);
+	ret = kstrtos32(ubuf, 0, &ch_id);
 	if (ret)
 		return ret;
 
@@ -510,8 +493,7 @@ error:
 	return -EINVAL;
 }
 
-static ssize_t gsi_print_dp_stats(struct file *file,
-	const char __user *buf, size_t count, loff_t *ppos)
+static ssize_t print_dp_stats_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
 	int ch_id;
 	bool enable;
@@ -520,8 +502,7 @@ static ssize_t gsi_print_dp_stats(struct file *file,
 	if (count >= sizeof(dbg_buff))
 		goto error;
 
-	if (copy_from_user(dbg_buff, buf, count))
-		goto error;
+	memcpy(dbg_buff, ubuf, count);
 
 	dbg_buff[count] = '\0';
 
@@ -568,13 +549,12 @@ error:
 	return -EINVAL;
 }
 
-static ssize_t gsi_enable_ipc_low(struct file *file,
-	const char __user *ubuf, size_t count, loff_t *ppos)
+static ssize_t ipc_low_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
 	s8 option = 0;
 	int ret;
 
-	ret = kstrtos8_from_user(ubuf, count, 0, &option);
+	ret = kstrtos8(ubuf, 0, &option);
 	if (ret)
 		return ret;
 
@@ -596,8 +576,7 @@ static ssize_t gsi_enable_ipc_low(struct file *file,
 	return count;
 }
 
-static ssize_t gsi_read_gsi_hw_profiling_stats(struct file *file,
-	char __user *buf, size_t count, loff_t *ppos)
+static ssize_t gsi_hw_profiling_stats_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
 	struct gsi_hw_profiling_data stats;
 	int ret, nbytes, cnt = 0;
@@ -644,11 +623,11 @@ static ssize_t gsi_read_gsi_hw_profiling_stats(struct file *file,
 		cnt += nbytes;
 	}
 done:
-	return simple_read_from_buffer(buf, count, ppos, dbg_buff, cnt);
+	memcpy(ubuf, dbg_buff, cnt);
+	return cnt;
 }
 
-static ssize_t gsi_read_gsi_fw_version(struct file *file,
-	char __user *buf, size_t count, loff_t *ppos)
+static ssize_t gsi_fw_version_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
 	struct gsi_fw_version ver;
 	int ret, nbytes, cnt = 0;
@@ -677,134 +656,55 @@ static ssize_t gsi_read_gsi_fw_version(struct file *file,
 		cnt += nbytes;
 	}
 done:
-	return simple_read_from_buffer(buf, count, ppos, dbg_buff, cnt);
+	memcpy(ubuf, dbg_buff, cnt);
+	return cnt;
 }
 
-static const struct file_operations gsi_ev_dump_ops = {
-	.write = gsi_dump_evt,
+static DEVICE_ATTR_WO(ev_dump);
+static DEVICE_ATTR_WO(ch_dump);
+static DEVICE_ATTR_WO(gsi_stats);
+static DEVICE_ATTR_WO(enable_dp_stats);
+static DEVICE_ATTR_WO(max_elem_dp_stats);
+static DEVICE_ATTR_WO(rst_stats);
+static DEVICE_ATTR_WO(print_dp_stats);
+static DEVICE_ATTR_WO(ipc_low);
+static DEVICE_ATTR_RO(gsi_hw_profiling_stats);
+static DEVICE_ATTR_RO(gsi_fw_version);
+
+static struct attribute *ipa_gsi_attrs[] = {
+	&dev_attr_ev_dump.attr,
+	&dev_attr_ch_dump.attr,
+	&dev_attr_gsi_stats.attr,
+	&dev_attr_enable_dp_stats.attr,
+	&dev_attr_max_elem_dp_stats.attr,
+	&dev_attr_rst_stats.attr,
+	&dev_attr_print_dp_stats.attr,
+	&dev_attr_ipc_low.attr,
+	&dev_attr_gsi_hw_profiling_stats.attr,
+	&dev_attr_gsi_fw_version.attr,
+	NULL
 };
 
-static const struct file_operations gsi_ch_dump_ops = {
-	.write = gsi_dump_ch,
+const struct attribute_group ipa_gsi_attr_group = {
+	.name		= "gsi",
+	.attrs		= ipa_gsi_attrs,
 };
 
-static const struct file_operations gsi_stats_ops = {
-	.write = gsi_dump_stats,
-};
-
-static const struct file_operations gsi_enable_dp_stats_ops = {
-	.write = gsi_enable_dp_stats,
-};
-
-static const struct file_operations gsi_max_elem_dp_stats_ops = {
-	.write = gsi_set_max_elem_dp_stats,
-};
-
-static const struct file_operations gsi_rst_stats_ops = {
-	.write = gsi_rst_stats,
-};
-
-static const struct file_operations gsi_print_dp_stats_ops = {
-	.write = gsi_print_dp_stats,
-};
-
-static const struct file_operations gsi_ipc_low_ops = {
-	.write = gsi_enable_ipc_low,
-};
-
-static const struct file_operations gsi_hw_profiling_ops = {
-	.read = gsi_read_gsi_hw_profiling_stats,
-};
-
-static const struct file_operations gsi_ver_ops = {
-	.read = gsi_read_gsi_fw_version,
-};
-
-void gsi_debugfs_init(void)
+int gsi_sysfs_init(void)
 {
-	static struct dentry *dfile;
-	const mode_t write_only_mode = 0220;
-	const mode_t read_only_mode = 0440;
+	int ret = -1;
 
-	dent = debugfs_create_dir("gsi", 0);
-	if (IS_ERR(dent)) {
-		TERR("fail to create dir\n");
-		return;
+	/* Create directory in /sys/kernel/gsi/ */
+	
+	ret = sysfs_create_group(kernel_kobj, &ipa_gsi_attr_group);
+	if (ret != 0) {
+		pr_err("Fail to create GSI syfs attribute\n");
 	}
-
-	dfile = debugfs_create_file("ev_dump", write_only_mode,
-			dent, 0, &gsi_ev_dump_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("fail to create ev_dump file\n");
-		goto fail;
-	}
-
-	dfile = debugfs_create_file("ch_dump", write_only_mode,
-			dent, 0, &gsi_ch_dump_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("fail to create ch_dump file\n");
-		goto fail;
-	}
-
-	dfile = debugfs_create_file("stats", write_only_mode, dent,
-			0, &gsi_stats_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("fail to create stats file\n");
-		goto fail;
-	}
-
-	dfile = debugfs_create_file("enable_dp_stats", write_only_mode, dent,
-			0, &gsi_enable_dp_stats_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("fail to create stats file\n");
-		goto fail;
-	}
-
-	dfile = debugfs_create_file("max_elem_dp_stats", write_only_mode,
-		dent, 0, &gsi_max_elem_dp_stats_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("fail to create stats file\n");
-		goto fail;
-	}
-
-	dfile = debugfs_create_file("rst_stats", write_only_mode,
-		dent, 0, &gsi_rst_stats_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("fail to create stats file\n");
-		goto fail;
-	}
-
-	dfile = debugfs_create_file("print_dp_stats",
-		write_only_mode, dent, 0, &gsi_print_dp_stats_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("fail to create stats file\n");
-		goto fail;
-	}
-
-	dfile = debugfs_create_file("ipc_low", write_only_mode,
-		dent, 0, &gsi_ipc_low_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("could not create ipc_low\n");
-		goto fail;
-	}
-
-	dfile = debugfs_create_file("gsi_hw_profiling_stats", read_only_mode,
-				    dent, 0, &gsi_hw_profiling_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("could not create gsi_hw_profiling_stats\n");
-		goto fail;
-	}
-
-	dfile = debugfs_create_file("gsi_fw_version", read_only_mode, dent, 0,
-				    &gsi_ver_ops);
-	if (!dfile || IS_ERR(dfile)) {
-		TERR("could not create gsi_fw_version\n");
-		goto fail;
-	}
-
-	return;
-
-fail:
-	debugfs_remove_recursive(dent);
+	return ret;
 }
-#endif
+
+void gsi_sysfs_destroy(void)
+{
+	sysfs_remove_group(kernel_kobj, &ipa_gsi_attr_group);
+}
+#endif // In case debugfs is disabled

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved..
  */
 
 #include "ipa_i.h"
@@ -1955,7 +1956,97 @@ int ipa_wigig_send_msg(int msg_type,
 EXPORT_SYMBOL(ipa_wigig_send_msg);
 
 #ifndef CONFIG_DEBUG_FS
-int ipa3_wigig_init_debugfs_i(struct dentry *parent) { return 0; }
+static ssize_t modc_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtos8(ubuf, 0, &int_modc);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t modc_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint8_t),"%d", int_modc);
+	return sizeof(uint8_t);
+}
+
+static ssize_t modt_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtos16(ubuf, 0, &int_modt);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t modt_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint16_t),"%d", int_modt);
+	return sizeof(uint16_t);
+}
+
+static ssize_t rx_mod_th_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtos8(ubuf, 0, &rx_hwtail_mod_threshold);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t rx_mod_th_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint8_t),"%d", rx_hwtail_mod_threshold);
+	return sizeof(uint8_t);
+}
+
+static ssize_t tx_mod_th_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou8(ubuf, 0, &tx_hwtail_mod_threshold);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t tx_mod_th_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint8_t),"%d", tx_hwtail_mod_threshold);
+	return sizeof(uint8_t);
+}
+
+static DEVICE_ATTR_RW(modc);
+static DEVICE_ATTR_RW(modt);
+static DEVICE_ATTR_RW(rx_mod_th);
+static DEVICE_ATTR_RW(tx_mod_th);
+
+static struct attribute *ipa_wigig_attrs[] = {
+	&dev_attr_modc.attr,
+	&dev_attr_modt.attr,
+	&dev_attr_rx_mod_th.attr,
+	&dev_attr_tx_mod_th.attr,
+	NULL
+};
+
+const struct attribute_group ipa_wigig_attr_group = {
+	.name		= "ipa_wigig",
+	.attrs		= ipa_wigig_attrs,
+};
+int ipa3_wigig_init_sysfs_i()
+{ 
+	int ret = -1;
+	
+	ret = sysfs_create_group(kernel_kobj, &ipa_wigig_attr_group);
+	if (ret != 0) {
+		pr_err("Fail to create IPA syfs attribute\n");
+	}
+	return ret;
+}
+void ipa3_wigig_fini_sysfs_i()
+{
+	sysfs_remove_group(kernel_kobj, &ipa_wigig_attr_group);
+}
 #else
 int ipa3_wigig_init_debugfs_i(struct dentry *parent)
 {

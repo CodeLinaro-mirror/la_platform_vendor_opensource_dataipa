@@ -70,14 +70,14 @@
 #define IPADMA_FUNC_EXIT() \
 	IPADMA_DBG_LOW("EXIT\n")
 
-#ifdef CONFIG_DEBUG_FS
 #define IPADMA_MAX_MSG_LEN 1024
 static char dbg_buff[IPADMA_MAX_MSG_LEN];
+#ifdef CONFIG_DEBUG_FS
 static void ipa3_dma_debugfs_init(void);
 static void ipa3_dma_debugfs_destroy(void);
 #else
-static void ipa3_dma_debugfs_init(void) {}
-static void ipa3_dma_debugfs_destroy(void) {}
+static int ipa3_dma_sysfs_init(void);
+static void ipa3_dma_sysfs_destroy(void);
 #endif
 
 /**
@@ -380,7 +380,11 @@ int ipa3_dma_init(void)
 		res = -EPERM;
 		goto fail_async_cons;
 	}
+#ifdef CONFIG_DEBUG_FS
 	ipa3_dma_debugfs_init();
+#else
+	ipa3_dma_sysfs_init();
+#endif
 	ipa3_dma_ctx = ipa_dma_ctx_t;
 	ipa3_dma_init_refcnt_ctrl->ref_cnt = 1;
 	IPADMA_DBG("ASYNC MEMCPY pipes are connected\n");
@@ -1069,8 +1073,11 @@ void ipa3_dma_destroy(void)
 	if (res)
 		IPADMA_ERR("teardown IPADMA SYNC PROD failed\n");
 	ipa3_dma_ctx->ipa_dma_sync_prod_hdl = 0;
-
+#ifdef CONFIG_DEBUG_FS
 	ipa3_dma_debugfs_destroy();
+#else
+	ipa3_dma_sysfs_destroy();
+#endif
 	kmem_cache_destroy(ipa3_dma_ctx->ipa_dma_xfer_wrapper_cache);
 	dma_free_coherent(ipa3_ctx->pdev, IPA_DMA_DUMMY_BUFF_SZ * 4,
 		ipa3_dma_ctx->ipa_dma_dummy_src_sync.base,
@@ -1296,4 +1303,119 @@ static void ipa3_dma_debugfs_destroy(void)
 	debugfs_remove_recursive(dent);
 }
 
-#endif /* !CONFIG_DEBUG_FS */
+#else /* !CONFIG_DEBUG_FS */
+
+static ssize_t dma_info_show(struct device *dev, 
+			struct device_attribute *attr, 
+			char *ubuf)
+{
+	int nbytes = 0;
+
+	if (!ipa3_dma_init_refcnt_ctrl) {
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"Setup was not done\n");
+		goto completed;
+
+	}
+
+	if (!ipa3_dma_ctx) {
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"Status:\n	Not initialized (ref_cnt=%d)\n",
+			ipa3_dma_init_refcnt_ctrl->ref_cnt);
+	} else {
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"Status:\n	Initialized (ref_cnt=%d)\n",
+			ipa3_dma_init_refcnt_ctrl->ref_cnt);
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"	%s (ref_cnt=%d)\n",
+			(ipa3_dma_ctx->enable_ref_cnt > 0) ?
+			"Enabled" : "Disabled",
+			ipa3_dma_ctx->enable_ref_cnt);
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"Statistics:\n	total sync memcpy: %d\n	",
+			atomic_read(&ipa3_dma_ctx->total_sync_memcpy));
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"total async memcpy: %d\n	",
+			atomic_read(&ipa3_dma_ctx->total_async_memcpy));
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"total uc memcpy: %d\n	",
+			atomic_read(&ipa3_dma_ctx->total_uc_memcpy));
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"pending sync memcpy jobs: %d\n	",
+			atomic_read(&ipa3_dma_ctx->sync_memcpy_pending_cnt));
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"pending async memcpy jobs: %d\n	",
+			atomic_read(&ipa3_dma_ctx->async_memcpy_pending_cnt));
+		nbytes += scnprintf(&dbg_buff[nbytes],
+			IPADMA_MAX_MSG_LEN - nbytes,
+			"pending uc memcpy jobs: %d\n",
+			atomic_read(&ipa3_dma_ctx->uc_memcpy_pending_cnt));
+	}
+
+completed:
+	memcpy(ubuf, dbg_buff, nbytes);
+	return nbytes;
+}
+
+static ssize_t dma_info_store(struct device *dev,
+			struct device_attribute *attr,
+			const char *ubuf, size_t count)
+{
+	s8 in_num = 0;
+	int ret;
+
+	ret = kstrtos8(ubuf, 0, &in_num);
+	if(ret != 0)
+		return ret;
+
+	switch (in_num) {
+	case 0:
+		if (ipa3_dma_work_pending())
+			IPADMA_ERR("Note, there are pending memcpy\n");
+
+		atomic_set(&ipa3_dma_ctx->total_async_memcpy, 0);
+		atomic_set(&ipa3_dma_ctx->total_sync_memcpy, 0);
+		break;
+	default:
+		IPADMA_ERR("invalid argument: To reset statistics echo 0\n");
+		break;
+	}
+	return count;
+}
+
+
+static DEVICE_ATTR_RW(dma_info);
+
+static struct attribute *ipa_dma_attrs[] = {
+	&dev_attr_dma_info.attr,
+	NULL
+};
+
+const struct attribute_group ipa_dma_attr_group = {
+	.name		= "ipa_dma",
+	.attrs		= ipa_dma_attrs,
+};
+
+static int ipa3_dma_sysfs_init(void)
+{
+	int ret = -1;
+	ret = sysfs_create_group(kernel_kobj, &ipa_dma_attr_group);
+	if (ret != 0) {
+		pr_err("Fail to create IPA - DMA sysfs attribute\n");
+	}
+	return ret;		
+}
+static void ipa3_dma_sysfs_destroy(void)
+{
+	sysfs_remove_group(kernel_kobj, &ipa_dma_attr_group);
+}
+#endif
