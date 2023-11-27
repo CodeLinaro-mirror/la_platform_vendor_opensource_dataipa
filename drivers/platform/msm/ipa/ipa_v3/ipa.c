@@ -10486,8 +10486,11 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	/* 1st ipa3_panic_notifier*/
 	ipa3_register_panic_hdlr();
 
+#ifndef CONFIG_DEBUG_FS
+	ipa_sysfs_init();
+#else
 	ipa3_debugfs_init();
-
+#endif
 	result = ipa_mpm_init();
 	if (result)
 		IPAERR("fail to init mpm %d\n", result);
@@ -15450,6 +15453,9 @@ static void ipa3_deepsleep_suspend(void)
 	ipahal_destroy();
 	ipa3_ctx->ipa_initialization_complete = false;
 	ipa3_debugfs_remove();
+#ifndef CONFIG_DEBUG_FS
+	ipa_sysfs_deinit();
+#endif
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
 	/*Calling framework API to reset IPA ready flag to false*/
@@ -15973,6 +15979,9 @@ static void __exit ipa_module_exit(void)
 {
 #ifdef CONFIG_GH_MSGQ
 	ipa3_msgq_deinit();
+#endif
+#ifndef CONFIG_DEBUG_FS
+	rmnet_ll_ipa3_sysfs_destroy();
 #endif
 #ifdef CONFIG_ARCH_SA525_HOSTVM
 	/* Only required in PVM + GVM mode. */
