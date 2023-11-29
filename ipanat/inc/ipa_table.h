@@ -276,7 +276,7 @@ int ipa_table_iterator_end(
 	uint16_t            rec_index,
 	void*               rec_ptr);
 
-int ipa_table_iterator_is_head_with_tail(
+int ipa_table_itr_valid_check(
 	ipa_table_iterator* iterator);
 
 int ipa_calc_num_sram_table_entries(

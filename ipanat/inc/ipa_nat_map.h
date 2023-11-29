@@ -73,6 +73,7 @@ static inline const char* ipa_which_map_as_str(
 
 		MAKE_AS_STR_CASE(MAP_NUM_99);
 	default:
+		/* Default case */
 		break;
 	}
 

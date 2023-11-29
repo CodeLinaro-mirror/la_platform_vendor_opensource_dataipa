@@ -60,7 +60,7 @@ void ipa_mem_descriptor_init(
 	unsigned long delete_ioctl_num,
 	bool consider_using_sram );
 
-int ipa_mem_descriptor_allocate_memory(
+int ipa_mem_desc_alloc_memory(
 	ipa_mem_descriptor* desc,
 	int ipa_fd);
 
