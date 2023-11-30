@@ -57,6 +57,13 @@ enum ipa_ipsec_error_type {
 	IPA_IPSEC_ERROR_TYPE_DECAP = 2,
 };
 
+enum ipa_ipsec_uc_sa_action {
+	IPA_IPSEC_UC_SA_ACT_NONE = 0,
+	IPA_IPSEC_UC_SA_ACT_ENCAP = 1,
+	IPA_IPSEC_UC_SA_ACT_DECAP = 2,
+	IPA_IPSEC_UC_SA_ACT_MAX,
+};
+
 enum ipa_ipsec_error_encap_code {
 	IPA_IPSEC_ERROR_CODE_DISCARD_RULE = 64,
 	IPA_IPSEC_ERROR_CODE_ENCAP_SA_DISABLED = 65,
@@ -401,7 +408,7 @@ int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *entry,
 int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata);
 int ipa_ipsec_ep_init_prod(void);
 int ipa_ipsec_ep_init_cons(void);
-void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_sa_type type);
+void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action);
 const char * ipa_ipsec_get_auth_algo_name(enum ipa_ipsec_sa_auth auth_algo);
 const char * ipa_ipsec_get_encr_algo_name(enum ipa_ipsec_sa_enc encr_algo);
 #else
@@ -415,7 +422,7 @@ inline int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl 
 inline int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata) {return 0;}
 inline int ipa_ipsec_ep_init_prod(void) {return 0;}
 inline int ipa_ipsec_ep_init_cons(void) {return 0;}
-inline void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_sa_type type) {return;}
+inline void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action) {return;}
 inline const char * ipa_ipsec_get_auth_algo_name(enum ipa_ipsec_sa_auth auth_algo) {return NULL;}
 inline const char * ipa_ipsec_get_encr_algo_name(enum ipa_ipsec_sa_enc encr_algo) {return NULL;}
 #endif

@@ -21,6 +21,7 @@
 #define META_IS_IPSEC 0x10
 #define META_SA_MASK  0xF
 #define META_SA_SHIFT 0
+#define IPSEC_WORKQUEUE_NAME "ipa_ipsec_wq"
 
 /* Static system storage for SA construction and mirroring, to avoid unaligned SRAM access */
 static struct ipa_ipsec_sa_encap esa;
@@ -1731,16 +1732,20 @@ static void ipa_ipsec_handle_sa_thresh_bottom(struct work_struct *work)
 }
 
 /* Top half of the SA threshold uC event handler */
-void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_sa_type sa_type)
+void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action)
 {
+	enum ipa_ipsec_sa_type sa_type;
 	struct xfrm_state *x;
 	struct ipa_ipsec_work_wrap *work_data;
 
-	if (idx >= IPA_IPSEC_MAX_SA_NUM || sa_type >= IPA_IPSEC_TYPE_MAX) {
-		IPAERR_RL("Received event with wrong params: idx = %d, sa_type = %d\n",
-			 idx, sa_type);
+	if (idx >= IPA_IPSEC_MAX_SA_NUM ||
+	    action == IPA_IPSEC_UC_SA_ACT_NONE || action >= IPA_IPSEC_UC_SA_ACT_MAX) {
+		IPAERR("Received uC event with wrong params: idx = %d, action = %d\n",
+			 idx, action);
 		return;
 	}
+
+	sa_type = (action == IPA_IPSEC_UC_SA_ACT_ENCAP) ? IPA_IPSEC_ENCAP : IPA_IPSEC_DECAP;
 
 	x = ipa3_ctx->ipsec->sa_db[sa_type][idx].x;
 	if (unlikely(!x)) {
@@ -2768,6 +2773,14 @@ int ipa_ipsec_init(void)
 
 	INIT_LIST_HEAD(&ipa3_ctx->ipsec->pol_list);
 
+	/* Init SA threshold workqueue */
+	ipa_ipsec_wq = create_singlethread_workqueue(IPSEC_WORKQUEUE_NAME);
+	if (!ipa_ipsec_wq) {
+		IPAERR("IPsec SA threshold workqueue creation failed\n");
+		ret = -ENOMEM;
+		goto free_xfrmdev_ops;
+	}
+
 	/* Map IPA IPsec Key SRAM */
 	keys_phys_base = ipa3_ctx->ipa_wrapper_base + ipa3_ctx->ctrl->ipa_reg_base_ofst +
 		ipahal_get_reg_n_ofst(IPA_IPSEC_AREA_RAM_DIRECT_ACCESS_n, 0);
@@ -2776,7 +2789,7 @@ int ipa_ipsec_init(void)
 	if (!key_mmio) {
 		IPAERR("Failed mapping IPsec key SRAM.\n");
 		ret = -ENOMEM;
-		goto free_xfrmdev_ops;
+		goto free_wq;
 	}
 
 	IPADBG_LOW("keys_phys_base 0x%08X key_mmio=0x%X\n", keys_phys_base, key_mmio);
@@ -2868,6 +2881,9 @@ unmap_sa:
 	iounmap(sa_mmio);
 unmap_keys:
 	iounmap(key_mmio);
+free_wq:
+	destroy_workqueue(ipa_ipsec_wq);
+	ipa_ipsec_wq = NULL;
 free_xfrmdev_ops:
 	kfree(ipa3_ctx->ipsec->xfrmdev_ops);
 free_ctx:
@@ -2904,6 +2920,8 @@ void ipa_ipsec_cleanup(void)
 	iounmap(ipa3_ctx->ipsec->keys);
 
 	/* Free allocated RAM */
+	destroy_workqueue(ipa_ipsec_wq);
+	ipa_ipsec_wq = NULL;
 	kfree(ipa3_ctx->ipsec->xfrmdev_ops);
 	kfree(ipa3_ctx->ipsec);
 	ipa3_ctx->ipsec = NULL;

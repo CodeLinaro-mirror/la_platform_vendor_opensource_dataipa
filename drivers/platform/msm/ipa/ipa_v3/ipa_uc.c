@@ -680,7 +680,7 @@ static void ipa3_event_ring_hdlr(void)
 			val = &((struct eventElement_t *)rp_va)->Value;
 			ipa_ipsec_handle_sa_thresh(
 				(u8)(val->ipsec_threshold_param.sa_idx),
-				(enum ipa_ipsec_sa_type)(val->ipsec_threshold_param.sa_action));
+				(enum ipa_ipsec_uc_sa_action)(val->ipsec_threshold_param.sa_action));
 #endif
 		}
 		ipa3_ctx->uc_ctx.ering_rp_local += offset;

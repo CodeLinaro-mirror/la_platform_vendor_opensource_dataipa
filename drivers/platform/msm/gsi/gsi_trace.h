@@ -6,6 +6,8 @@
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM gsi
 #define TRACE_INCLUDE_FILE gsi_trace
+#include <linux/timekeeping.h>
+
 
 #if !defined(_GSI_TRACE_H) || defined(TRACE_HEADER_MULTI_READ)
 #define _GSI_TRACE_H
@@ -26,6 +28,7 @@ TRACE_EVENT(
 		__field(uint8_t,	evt)
 		__field(uint32_t,	ch)
 		__field(uint32_t,	msk)
+		__field(u64,	qtime)
 	),
 
 	TP_fast_assign(
@@ -34,14 +37,16 @@ TRACE_EVENT(
 		__entry->evt = evt;
 		__entry->ch = ch;
 		__entry->msk = msk;
+		__entry->qtime = ktime_get_real();
 	),
 
-	TP_printk("qtimer=%llu is_ll=%s, evt=%u, ch=0x%x, msk=0x%x",
+	TP_printk("qtimer=%llu is_ll=%s, evt=%u, ch=0x%x, msk=0x%x UTC time %lld",
 		__entry->qtimer,
 		__entry->is_ll ? "true" : "false",
 		__entry->evt,
 		__entry->ch,
-		__entry->msk)
+		__entry->msk,
+		__entry->qtime)
 );
 
 #endif /* _GSI_TRACE_H */

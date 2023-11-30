@@ -82,8 +82,10 @@
 #define IPA6_NXT_FLT_TBL_Q6_NUM 1
 #define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
 #define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
+#define IPA_IS_NXT_FLT(x) (x >= IPA6_NXT_FLT_TBL_START && x <= IPA6_NXT_FLT_TBL_END)
 #define IPA6_Q6_NXT_FLT_TBL_START (47) // we want to include it in the above
 #define IPA6_Q6_NXT_FLT_TBL_END (47) // we want to include it in the above
+#define IPA_IS_Q6_NXT_FLT(x) (x >= IPA6_Q6_NXT_FLT_TBL_START && x <= IPA6_Q6_NXT_FLT_TBL_END)
 #define IPA_MAX_FLT_TBLS 64
 #define IPA_SYS_DESC_FIFO_SZ 0x800
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ 0x1000
@@ -107,6 +109,7 @@
 #define IPA_HOLB_TMR_VAL_4_5 31
 #define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
 
+#define IPA_Q6_RT_START_ID 768
 #define IPA_Q6_FLT_START_ID 512
 #define IPA_Q6_FNR_START_IDX (128)
 #define IPA_Q6_FNR_IDX_CNT (52)
@@ -115,6 +118,7 @@
 #define IPA_MPM_MAX_RING_LEN 64
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
+#define IPA_MAX_RT_RULE_ID 1023
 
 #define IPA_AP_CB_WLAN_END_MAPPING 0x20000000
 
@@ -283,6 +287,7 @@ enum hdr_tbl_storage {
 	HDR_TBL_LCL,
 	HDR_TBL_LCL_EXT,
 	HDR_TBL_SYS,
+	HDR_TBL_PROC,
 	HDR_TBLS_TOTAL,
 };
 
@@ -732,7 +737,7 @@ struct ipa_smmu_cb_ctx {
 	/**
 	 * todo: make this a list.
 	 */
-	struct ipa_smmu_cb_mapping m_map[IPA_ETH_INST_ID_MAX][IPA_ETH_PIPE_DIR_MAX];
+	struct ipa_smmu_cb_mapping m_map[IPA_ETH_INST_ID_MAX][IPA_ETH_PIPE_DIR_MAX][IPA_ETH_PIPE_TRAFFIC_TYPE_MAX];
 };
 
 /**
@@ -915,6 +920,8 @@ struct ipa3_hdr_entry {
 	char name[IPA_RESOURCE_NAME_MAX];
 	enum ipa_hdr_l2_type type;
 	u8 is_partial;
+	bool is_hdr_proc_ctx;
+	dma_addr_t phys_base;
 	struct ipa3_hdr_proc_ctx_entry *proc_ctx;
 	struct ipa_hdr_offset_entry *offset_entry;
 	u32 ref_cnt;
@@ -2200,6 +2207,7 @@ struct ipa_ntn3_stats_tx {
 
 struct ipa_ntn3_client_stats {
 	struct ipa_ntn3_stats_rx rx_stats;
+	struct ipa_ntn3_stats_rx rx1_stats;
 	struct ipa_ntn3_stats_tx tx_stats;
 };
 #if defined(CONFIG_IPA_TSP)
@@ -2649,6 +2657,7 @@ struct ipa3_context {
 	int num_ipa_cne_evt_req;
 	struct mutex ipa_cne_evt_lock;
 	bool vlan_mode_iface[IPA_VLAN_IF_MAX];
+	bool spcl_iface[IPA_VLAN_IF_MAX];
 	bool wdi_over_pcie;
 	u32 entire_ipa_block_size;
 	bool do_register_collection_on_crash;
@@ -3740,6 +3749,7 @@ int ipa3_enable_data_path(u32 clnt_hdl);
 int ipa3_disable_data_path(u32 clnt_hdl);
 int ipa3_disable_gsi_data_path(u32 clnt_hdl);
 int ipa3_alloc_rule_id(struct idr *rule_ids);
+int ipa3_alloc_rt_rule_id(struct idr *rule_ids);
 int ipa3_alloc_counter_id(struct ipa_ioc_flt_rt_counter_alloc *counter);
 void ipa3_counter_remove_hdl(int hdl);
 void ipa3_counter_id_remove_all(void);
@@ -3981,6 +3991,7 @@ void __ipa_gsi_irq_rx_scedule_poll(struct ipa3_sys_context *sys);
 void ipa3_init_imm_cmd_desc(struct ipa3_desc *desc,
 	struct ipahal_imm_cmd_pyld *cmd_pyld);
 int ipa3_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res);
+int ipa3_is_spcl_iface(enum ipa_vlan_ifaces iface, bool *res);
 uint ipa3_get_emulation_type(void);
 int ipa3_get_transport_info(
 	phys_addr_t *phys_addr_ptr,
@@ -4010,7 +4021,8 @@ static inline void ipa_eth_exit(void) { }
 void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client);
 int ipa3_eth_connect(
 	struct ipa_eth_client_pipe_info *pipe,
-	enum ipa_client_type client_type);
+	enum ipa_client_type client_type,
+	int inst_id);
 int ipa3_eth_disconnect(
 	struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type client_type);
