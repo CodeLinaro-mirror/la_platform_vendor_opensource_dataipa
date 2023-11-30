@@ -4618,7 +4618,7 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
 
 		metadata = ntohl(metadata);
-		*(u16 *)rx_skb->cb = ((metadata >> 24) & 0xFF);//updating the vdev id
+		*(u16 *)rx_skb->cb = (((metadata >> 24) & 0xFF) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);//updating the vdev id and da_is_mcbc
 		*(u8 *)(rx_skb->cb + 4) = ucp; //updating the ucp
 		*(u16 *)(rx_skb->cb + 5) = metadata & 0xFFF; //updating the  ta peer id
 		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
