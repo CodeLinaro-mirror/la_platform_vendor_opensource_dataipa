@@ -1137,7 +1137,7 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 		IPADBG("hdr_hdl %x ref_cnt %d\n", hdr_hdl, entry->ref_cnt);
 		return 0;
 	}
-	if (entry->proc_ctx || entry->is_hdr_proc_ctx)
+	if (entry->proc_ctx && entry->is_hdr_proc_ctx)
 		__ipa3_del_hdr_proc_ctx(entry->proc_ctx->id, false, false);
 	else
 		/* move the offset entry to appropriate free list */
