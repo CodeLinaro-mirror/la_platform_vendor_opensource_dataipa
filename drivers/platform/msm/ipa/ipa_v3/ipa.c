@@ -10291,6 +10291,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->mpm_teth_aggr_size = DEFAULT_MPM_TETH_AGGR_SIZE;
 	ipa3_ctx->mpm_uc_thresh = DEFAULT_MPM_UC_THRESH_SIZE;
 	ipa3_ctx->uc_act_tbl_valid = false;
+	ipa3_ctx->is_reboot_complete = false;
 	ipa3_ctx->uc_act_tbl_total = 0;
 	ipa3_ctx->uc_act_tbl_next_index = 0;
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;

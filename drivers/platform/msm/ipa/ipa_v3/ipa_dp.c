@@ -627,6 +627,12 @@ int ipa3_send(struct ipa3_sys_context *sys,
 	if (unlikely(!in_atomic))
 		mem_flag = GFP_KERNEL;
 
+
+	if (ipa3_ctx-> is_reboot_complete ){
+		IPADBG_LOW(" trying to send after reboot \n");
+		return 0;
+	}
+
 	gsi_ep_cfg = ipa3_get_gsi_ep_info(sys->ep->client);
 	if (unlikely(!gsi_ep_cfg)) {
 		IPAERR("failed to get gsi EP config for client=%d\n",
