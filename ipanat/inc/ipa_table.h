@@ -78,9 +78,8 @@ typedef enum
 #define IPA_TABLE_TYPE_MEM_SHIFT 15
 
 #undef BREAK_RULE_HDL
-#define BREAK_RULE_HDL(tbl, hdl, mt, iet, indx) \
+#define BREAK_RULE_HDL(tbl, hdl, iet, indx) \
 	do { \
-		mt    = ((hdl) >> IPA_TABLE_TYPE_MEM_SHIFT) & IPA_TABLE_TYPE_MASK; \
 		iet   =  (hdl)                              & IPA_TABLE_TYPE_MASK; \
 		indx  = ((hdl) >> IPA_TABLE_TYPE_BITS)      & IPA_TABLE_INDX_MASK; \
 		indx += (iet) ? tbl->table_entries : 0; \
@@ -276,7 +275,7 @@ int ipa_table_iterator_end(
 	uint16_t            rec_index,
 	void*               rec_ptr);
 
-int ipa_table_iterator_is_head_with_tail(
+int ipa_table_itr_valid_check(
 	ipa_table_iterator* iterator);
 
 int ipa_calc_num_sram_table_entries(

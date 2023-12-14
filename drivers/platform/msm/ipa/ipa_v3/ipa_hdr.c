@@ -105,9 +105,8 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 					0 : 1;
 			}
 		}
-
 		/* Check the pointer and header length to avoid dangerous overflow in HW */
-		if (unlikely(!entry->hdr || !entry->hdr->offset_entry ||
+		if (unlikely(!entry->hdr || ((!entry->hdr->offset_entry) &&(!entry->hdr->is_hdr_proc_ctx)) ||
 			entry->hdr->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1]))
 			return -EINVAL;
 
@@ -118,10 +117,11 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 		} else {
 			hdr_tbl_base_addr = hdr_sys_addr;
 		}
-
 		ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
 				entry->offset_entry->offset,
 				entry->hdr->hdr_len,
+				entry->hdr->is_hdr_proc_ctx,
+				entry->hdr->phys_base,
 				hdr_tbl_base_addr,
 				entry->hdr->offset_entry,
 				&entry->l2tp_params,
@@ -131,7 +131,9 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 				&entry->generic_params_v2,
 				ipa3_ctx->use_64_bit_dma_mask);
 		if (ret)
+		{
 			return ret;
+		}
 	}
 
 	return 0;
@@ -197,10 +199,14 @@ static inline int get_hdr_table_size(enum hdr_tbl_storage hdr_table)
 		/* HDR ext table in SRAM is relevant for IPAv6.0
 		and when the HPC table reside in local memory*/
 		if (ipa3_ctx->ipa_hw_type != IPA_HW_v6_0 || (IPA_MEM_PART(apps_hdr_proc_ctx_size) == 0))
+		{
 			return 0;
+		}
 		return IPA_MEM_PART(apps_hdr_ext_size);
 	case HDR_TBL_SYS:
 		return IPA_MEM_PART(apps_hdr_size_ddr);
+	case HDR_TBL_PROC:
+		return IPA_MEM_PART(apps_hdr_proc_ctx_size_ddr);
 	default:
 		IPAERR("Invalid HDR Table type: %d\n", hdr_table);
 		return 0;
@@ -237,14 +243,14 @@ int __ipa_commit_hdr_v3_0(void)
 	enum hdr_tbl_storage hdr_table;
 
 	/* Generate structures for both SRAM and DDR header tables */
-	for (hdr_table = HDR_TBL_LCL; hdr_table < HDR_TBLS_TOTAL; hdr_table++) {
+	for (hdr_table = HDR_TBL_LCL; hdr_table < HDR_TBL_PROC; hdr_table++) {
 		hdr_tbl_size = get_hdr_table_size(hdr_table);
 
 		if (hdr_tbl_size) {
 			if (ipa3_generate_hdr_hw_tbl(hdr_table, &hdr_mem[hdr_table])) {
 				IPAERR("fail to generate %s HDR HW TBL\n",
 				       hdr_tbl_to_str[hdr_table]);
-				goto end;
+				goto failure_hdr;
 			}
 
 			if (hdr_mem[hdr_table].size > hdr_tbl_size) {
@@ -362,7 +368,7 @@ int __ipa_commit_hdr_v3_0(void)
 					      &aligned_ctx_mem[loc])) {
 				IPAERR("fail to generate %s HDR PROC CTX HW TBL\n",
 					   loc == HPC_TBL_LCL ? "SRAM" : "DDR");
-				goto end;
+				goto failure_hdr_proc;
 			}
 
 			if (aligned_ctx_mem[loc].size > proc_ctx_size) {
@@ -483,6 +489,11 @@ end:
 				  hdr_mem[HDR_TBL_LCL].phys_base);
 	}
 
+	if (ctx_mem[HPC_TBL_LCL].base) {
+                 dma_free_coherent(ipa3_ctx->pdev, ctx_mem[HPC_TBL_LCL].size,
+                 ctx_mem[HPC_TBL_LCL].base,ctx_mem[HPC_TBL_LCL].phys_base);
+        }
+
 	if (coal_cmd_pyld)
 		ipahal_destroy_imm_cmd(coal_cmd_pyld);
 
@@ -502,6 +513,31 @@ end:
 		ipahal_destroy_imm_cmd(hdr_cmd_pyld[HDR_TBL_LCL]);
 
 	return rc;
+failure_hdr_proc:
+
+	if (ctx_mem[HPC_TBL_SYS].base) {
+		dma_free_coherent(ipa3_ctx->pdev, ctx_mem[HPC_TBL_SYS].size,
+		ctx_mem[HPC_TBL_SYS].base,ctx_mem[HPC_TBL_SYS].phys_base);
+   	}
+
+
+	if (ctx_mem[HPC_TBL_LCL].base) {
+		dma_free_coherent(ipa3_ctx->pdev, ctx_mem[HPC_TBL_LCL].size,
+				ctx_mem[HPC_TBL_LCL].base,ctx_mem[HPC_TBL_LCL].phys_base);
+	}
+
+failure_hdr:
+	for (hdr_table = HDR_TBL_LCL; hdr_table < HDR_TBL_PROC; hdr_table++) {
+		if (hdr_mem[hdr_table].base) {
+		dma_free_coherent(ipa3_ctx->pdev,
+				hdr_mem[hdr_table].size,
+				hdr_mem[hdr_table].base,
+				hdr_mem[hdr_table].phys_base);
+		}
+	}
+
+	return rc;
+
 }
 
 static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
@@ -727,6 +763,7 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 {
 	struct ipa3_hdr_entry *entry, *entry_t, *next;
 	struct ipa_hdr_offset_entry *offset = NULL;
+	struct ipa_hdr_proc_ctx_add proc_ctx;
 	u32 bin;
 	struct ipa3_hdr_tbl *htbl;
 	int id;
@@ -816,6 +853,8 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 		if (hdr_table_size == 0)
 			continue;
 
+		entry->is_hdr_proc_ctx = false;
+
 		if (list_empty(&htbl->head_free_offset_list[bin])) {
 			if (htbl->end + ipa_hdr_bin_sz[bin] > hdr_table_size) {
 				/*
@@ -826,13 +865,25 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 				 * Try to add the header to the next table - System apps header table.
 				 * If the System(DDR) table is out of space, header insertion fails.
 		 		*/
-				if (hdr_table == HDR_TBL_SYS) {
+				if (hdr_table == HDR_TBL_PROC) {
 					IPAERR("No space in DDR header buffer! Requested: %d Left: %d name %s, end %d\n",
 						ipa_hdr_bin_sz[bin], hdr_table_size - htbl->end, entry->name, htbl->end);
 					goto bad_hdr_len;
 				}
 			} else { /* Table has enough space for the header size*/
 				/* check HPC table is not full before adding to the extension table*/
+				if(hdr_table == HDR_TBL_PROC)
+				{
+					entry->is_hdr_proc_ctx = true;
+					entry->phys_base = dma_map_single(ipa3_ctx->pdev,entry->hdr,entry->hdr_len,DMA_TO_DEVICE);
+					if (dma_mapping_error(ipa3_ctx->pdev,
+						entry->phys_base)) {
+  						IPAERR("dma_map_single failure for entry\n");
+  						goto fail_dma_mapping;
+					}
+					break;
+				}
+
 				if (hdr_table == HDR_TBL_LCL_EXT && is_hpc_sram_table_full_bin0())
 					continue;
 
@@ -856,6 +907,17 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 				break;
 			}
 		} else {
+				if(hdr_table == HDR_TBL_PROC)
+				{
+					entry->is_hdr_proc_ctx = true;
+					entry->phys_base = dma_map_single(ipa3_ctx->pdev,entry->hdr,entry->hdr_len,DMA_TO_DEVICE);
+					if (dma_mapping_error(ipa3_ctx->pdev,
+						entry->phys_base)) {
+  						IPAERR("dma_map_single failure for entry\n");
+  						goto fail_dma_mapping;
+					}
+				}
+
 			/* check HPC table is not full before adding to the extension table*/
 			if (hdr_table == HDR_TBL_LCL_EXT && is_hpc_sram_table_full_bin0())
 					continue;
@@ -872,11 +934,17 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 
 	list_add(&entry->link, &htbl->head_hdr_entry_list);
 	htbl->hdr_cnt++;
-	IPADBG("add hdr of sz=%d hdr_cnt=%d ofst=%d to %s table\n",
-			hdr->hdr_len,
-			htbl->hdr_cnt,
-			entry->offset_entry->offset,
-			hdr_tbl_to_str[hdr_table]);
+	if (entry->is_hdr_proc_ctx)
+	{
+		IPADBG("add hdr of sz=%d hdr_cnt=%d phys_base=%pa\n",
+		hdr->hdr_len, htbl->hdr_cnt, &entry->phys_base);
+	}
+	else
+		IPADBG("add hdr of sz=%d hdr_cnt=%d ofst=%d to %s table\n",
+				hdr->hdr_len,
+				htbl->hdr_cnt,
+				entry->offset_entry->offset,
+				hdr_tbl_to_str[hdr_table]);
 
 	id = ipa3_id_alloc(entry);
 	if (id < 0) {
@@ -887,6 +955,16 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 	entry->id = id;
 	hdr->hdr_hdl = id;
 	entry->ref_cnt++;
+	if (entry->is_hdr_proc_ctx) {
+		IPADBG("adding processing context for header %s\n", hdr->name);
+		proc_ctx.type = IPA_HDR_PROC_NONE;
+		proc_ctx.hdr_hdl = id;
+ 		if (__ipa_add_hdr_proc_ctx(&proc_ctx, false, user)) {
+  			IPAERR("failed to add hdr proc ctx\n");
+  			goto fail_add_proc_ctx;
+  		}
+  		entry->proc_ctx = ipa3_id_find(proc_ctx.proc_ctx_hdl);
+  	}
 	if (entry_out)
 		*entry_out = entry;
 
@@ -907,14 +985,24 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 
 	return 0;
 
+fail_add_proc_ctx:
+  	entry->ref_cnt--;
+  	hdr->hdr_hdl = 0;
+  	ipa3_id_remove(id);
 ipa_insert_failed:
-	if (offset)
-		list_move(&offset->link,
-			  &htbl->head_free_offset_list[offset->bin]);
-	entry->offset_entry = NULL;
-	htbl->hdr_cnt--;
-	list_del(&entry->link);
-
+  	if (entry->is_hdr_proc_ctx) {
+  		dma_unmap_single(ipa3_ctx->pdev, entry->phys_base,
+  			entry->hdr_len, DMA_TO_DEVICE);
+  	} else {
+		if (offset)
+			list_move(&offset->link,
+				  &htbl->head_free_offset_list[offset->bin]);
+		entry->offset_entry = NULL;
+		htbl->hdr_cnt--;
+		list_del(&entry->link);
+	}
+fail_dma_mapping:
+  	entry->is_hdr_proc_ctx = false;
 bad_hdr_len:
 	entry->cookie = 0;
 	kmem_cache_free(ipa3_ctx->hdr_cache, entry);
@@ -1020,16 +1108,19 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 	}
 
 	htbl = entry->is_lcl ? &ipa3_ctx->hdr_tbl[HDR_TBL_LCL] : &ipa3_ctx->hdr_tbl[HDR_TBL_SYS];
-
-	IPADBG("del hdr of len=%d hdr_cnt=%d ofst=%d\n", entry->hdr_len, htbl->hdr_cnt,
-		entry->offset_entry->offset);
+	if(entry->proc_ctx ||  entry->is_hdr_proc_ctx)
+		IPADBG("del hdr of len=%d hdr_cnt=%d ofst=%d\n", entry->hdr_len, htbl->hdr_cnt,
+			entry->phys_base);
+	else
+		IPADBG("del hdr of len=%d hdr_cnt=%d ofst=%d\n", entry->hdr_len, htbl->hdr_cnt,
+			entry->offset_entry->offset);
 
 	if (by_user && entry->user_deleted) {
 		IPAERR_RL("proc_ctx already deleted by user\n");
 		return -EINVAL;
 	}
 
-	if (by_user) {
+	if (by_user && !entry->is_hdr_proc_ctx) {
 		if (!strcmp(entry->name, IPA_LAN_RX_HDR_NAME)) {
 			IPADBG("Trying to delete hdr %s offset=%u\n",
 				entry->name, entry->offset_entry->offset);
@@ -1046,13 +1137,20 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 		IPADBG("hdr_hdl %x ref_cnt %d\n", hdr_hdl, entry->ref_cnt);
 		return 0;
 	}
-
-	if (entry->proc_ctx)
+	if (entry->proc_ctx && entry->is_hdr_proc_ctx)
 		__ipa3_del_hdr_proc_ctx(entry->proc_ctx->id, false, false);
 	else
 		/* move the offset entry to appropriate free list */
 		list_move(&entry->offset_entry->link,
 			&htbl->head_free_offset_list[entry->offset_entry->bin]);
+
+	if(entry->in_apps_headers_ext)
+	{
+		htbl = &ipa3_ctx->hdr_tbl[HDR_TBL_LCL_EXT];
+		list_move(&entry->offset_entry->link,
+			&htbl->head_free_offset_list[entry->offset_entry->bin]);
+	}
+
 	list_del(&entry->link);
 	htbl->hdr_cnt--;
 	entry->cookie = 0;

@@ -48,7 +48,8 @@
 	(client) == IPA_CLIENT_RTK_ETHERNET_PROD || \
 	(client) == IPA_CLIENT_RTK_ETHERNET_CONS || \
 	(client) == IPA_CLIENT_ETHERNET_PROD || \
-	(client) == IPA_CLIENT_ETHERNET_CONS)
+	(client) == IPA_CLIENT_ETHERNET_CONS || \
+	(client) == IPA_CLIENT_ETHERNET_PROD1 )
 
 #define IPA_CLIENT_IS_SMMU_ETH1_INSTANCE(client) \
 	((client) == IPA_CLIENT_ETHERNET2_PROD || \
@@ -60,17 +61,18 @@ enum ipa_eth_dir {
 };
 
 static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys_addr_t pa,
-	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir)
+	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir,
+	enum ipa_eth_pipe_traffic_type traffic_type)
 {
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(cb_type);
 
-	cb->m_map[instance_id][dir].m_pa = pa;
-	cb->m_map[instance_id][dir].m_iova = iova;
-	cb->m_map[instance_id][dir].m_size = len;
+	cb->m_map[instance_id][dir][traffic_type].m_pa = pa;
+	cb->m_map[instance_id][dir][traffic_type].m_iova = iova;
+	cb->m_map[instance_id][dir][traffic_type].m_size = len;
 }
 
 static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_addr_t pa, size_t len,
-	bool device, unsigned long *iova, int instance_id, enum ipa_eth_pipe_direction dir)
+	bool device, unsigned long *iova, int instance_id, enum ipa_eth_pipe_direction dir, enum ipa_eth_pipe_traffic_type traffic_type)
 {
 	struct ipa_smmu_cb_ctx *cb;
 	unsigned long va, eth_next_addr;
@@ -110,7 +112,7 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 	 * Assuming each IEMAC client does maximum of 1 mapping with
 	 * constant size per direction.
 	 */
-	eth_next_addr = cb->va_end + eth_offset + PAGE_SIZE * (2 * instance_id + dir);
+	eth_next_addr = cb->va_end + eth_offset + PAGE_SIZE * (2 * instance_id + dir + traffic_type);
 	va = roundup(eth_next_addr, PAGE_SIZE);
 	if (len > PAGE_SIZE)
 		va = roundup(eth_next_addr, len);
@@ -121,13 +123,13 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 		return -EINVAL;
 	}
 	*iova = va + pa - rounddown(pa, PAGE_SIZE);
-	ipa_iemac_smmu_cb_save_mapping_i(cb_type, pa, va, true_len, instance_id, dir);
+	ipa_iemac_smmu_cb_save_mapping_i(cb_type, pa, va, true_len, instance_id, dir, traffic_type);
 
 	return 0;
 }
 
 static int ipa_iemac_smmu_cb_reset_mapping(enum ipa_smmu_cb_type cb_type, int instance_id,
-	enum ipa_eth_pipe_direction dir)
+	enum ipa_eth_pipe_direction dir, enum ipa_eth_pipe_traffic_type traffic_type)
 {
 	struct ipa_smmu_cb_ctx *cb;
 
@@ -148,12 +150,12 @@ static int ipa_iemac_smmu_cb_reset_mapping(enum ipa_smmu_cb_type cb_type, int in
 		IPAERR("No SMMU CB setup\n");
 		return -EINVAL;
 	}
-	if (cb->m_map[instance_id][dir].m_size != 0) {
-		iommu_unmap(cb->iommu_domain, cb->m_map[instance_id][dir].m_iova,
-			cb->m_map[instance_id][dir].m_size);
-		cb->m_map[instance_id][dir].m_pa = 0;
-		cb->m_map[instance_id][dir].m_iova = 0;
-		cb->m_map[instance_id][dir].m_size = 0;
+	if (cb->m_map[instance_id][dir][traffic_type].m_size != 0) {
+		iommu_unmap(cb->iommu_domain, cb->m_map[instance_id][dir][traffic_type].m_iova,
+			cb->m_map[instance_id][dir][traffic_type].m_size);
+		cb->m_map[instance_id][dir][traffic_type].m_pa = 0;
+		cb->m_map[instance_id][dir][traffic_type].m_iova = 0;
+		cb->m_map[instance_id][dir][traffic_type].m_size = 0;
 	}
 
 	return 0;
@@ -303,6 +305,7 @@ static int ipa3_eth_config_uc(bool init,
 			cmd_data->SetupCh_params.aqc_params.aqc_ch = peripheral_ch;
 			break;
 		case IPA_HW_PROTOCOL_RTK:
+		case IPA_HW_PROTOCOL_RTK3:
 			cmd_data->SetupCh_params.rtk_params.dir = dir;
 			cmd_data->SetupCh_params.rtk_params.gsi_ch = gsi_ch;
 			break;
@@ -334,6 +337,7 @@ static int ipa3_eth_config_uc(bool init,
 			cmd_data->CommonCh_params.aqc_params.gsi_ch = gsi_ch;
 			break;
 		case IPA_HW_PROTOCOL_RTK:
+		case IPA_HW_PROTOCOL_RTK3:
 			cmd_data->CommonCh_params.rtk_params.gsi_ch = gsi_ch;
 			break;
 		case IPA_HW_PROTOCOL_IEMAC:
@@ -434,9 +438,28 @@ static int ipa_eth_setup_rtk_gsi_channel(
 	bar_addr =
 		IPA_ETH_PCIE_SET(pipe->info.client_info.rtk.bar_addr);
 	memset(&gsi_evt_ring_props, 0, sizeof(gsi_evt_ring_props));
-	gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_RTK_EV;
+	/*Setting up EV for RTK8111K*/
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_RTK3_EV;
+	else
+		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_RTK_EV;
 	gsi_evt_ring_props.intr = GSI_INTR_MSI;
-	gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+	
+	/*Setting up ring element size for RTK8111K, Element size = 16B for RTK
+	 * CONS and 32B for RTK PROD  */
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+	{
+		if(pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
+		}
+		else {
+			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+		}
+	}
+	else {
+		gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+	}
+
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 		gsi_evt_ring_props.int_modt = IPA_ETH_RTK_MODT;
 		gsi_evt_ring_props.int_modc = IPA_ETH_RTK_MODC;
@@ -465,7 +488,13 @@ static int ipa_eth_setup_rtk_gsi_channel(
 
 	/* setup channel ring */
 	memset(&gsi_channel_props, 0, sizeof(gsi_channel_props));
-	gsi_channel_props.prot = GSI_CHAN_PROT_RTK;
+
+	/*Setting up Channel ring for RTK8111K*/
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+		gsi_channel_props.prot = GSI_CHAN_PROT_RTK3;
+	else
+		gsi_channel_props.prot = GSI_CHAN_PROT_RTK;
+
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
 	else
@@ -479,7 +508,20 @@ static int ipa_eth_setup_rtk_gsi_channel(
 	} else
 		gsi_channel_props.ch_id = gsi_ep_info->ipa_gsi_chan_num;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
-	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
+
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
+	{
+		if(pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
+		}
+		else {
+			gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
+		}
+	}
+	else {
+		gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
+	}
+
 	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
 	gsi_channel_props.db_in_bytes = 1;
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
@@ -523,6 +565,11 @@ static int ipa_eth_setup_rtk_gsi_channel(
 		(pipe->dir == IPA_ETH_PIPE_DIR_RX) ?
 		pipe->info.client_info.rtk.queue_number :
 		(queue_number == 0) ? 16 : 18;
+
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K) {
+		ch_scratch.rtk.num_queues_enabled =
+			pipe->info.client_info.rtk.num_queues_enabled;
+	}
 	ch_scratch.rtk.fix_buff_size =
 		ilog2(pipe->info.fix_buffer_size);
 	ch_scratch.rtk.rtk_buff_addr_low =
@@ -840,6 +887,7 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	int result, len;
 	u64 bar_addr;
 	unsigned long iova;
+	enum ipa_eth_pipe_traffic_type traffic_type = 0;
 
 	if (unlikely(!pipe->info.is_transfer_ring_valid)) {
 		IPAERR("NTN transfer ring invalid\n");
@@ -872,16 +920,20 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	gsi_evt_ring_props.msi_addr =
 		bar_addr +
 		pipe->info.client_info.ntn.tail_ptr_offs;
+
+#if IPA_ETH_API_VER >= 3
+	traffic_type = pipe->traffic_type;
+#endif
 	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC) {
 		result = ipa_iemac_smmu_cb_add_mapping_pa(IPA_SMMU_CB_AP,
-			gsi_evt_ring_props.msi_addr, 8, true, &iova, pipe->client_info->inst_id,
-			pipe->dir);
+			gsi_evt_ring_props.msi_addr, 8, true, &iova, pipe->client_info->inst_id, pipe->dir, traffic_type);
 		if (result) {
 			IPAERR("Failed to map IEMAC regs %d\n", result);
 			return result;
 		}
 		gsi_evt_ring_props.msi_addr = iova;
 	}
+
 	gsi_evt_ring_props.ring_len = len;
 	gsi_evt_ring_props.ring_base_addr =
 		(u64)pipe->info.transfer_ring_base;
@@ -956,14 +1008,12 @@ static int ipa_eth_setup_ntn_gsi_channel(
 			(u32)((u64)(pipe->info.data_buff_list[0].iova) >> 32);
 	}
 
-	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-		if (pipe->info.client_info.ntn.ioc_mod_threshold &&
-		    pipe->info.client_info.ntn.ioc_mod_threshold < len / GSI_EVT_RING_RE_SIZE_16B) {
-			ch_scratch.ntn.ioc_mod_threshold =
-				pipe->info.client_info.ntn.ioc_mod_threshold;
-		} else {
-			ch_scratch.ntn.ioc_mod_threshold = IPA_ETH_NTN_MODT;
-		}
+	if (pipe->info.client_info.ntn.ioc_mod_threshold &&
+		pipe->info.client_info.ntn.ioc_mod_threshold < len / GSI_EVT_RING_RE_SIZE_16B) {
+		ch_scratch.ntn.ioc_mod_threshold =
+			pipe->info.client_info.ntn.ioc_mod_threshold;
+	} else {
+		ch_scratch.ntn.ioc_mod_threshold = IPA_ETH_NTN_MODT;
 	}
 
 	result = gsi_write_channel_scratch(ep->gsi_chan_hdl, ch_scratch);
@@ -980,7 +1030,7 @@ fail_get_gsi_ep_info:
 	ep->gsi_evt_ring_hdl = ~0;
 	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC)
 		ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id,
-			pipe->dir);
+			pipe->dir, traffic_type);
 	return result;
 }
 
@@ -995,6 +1045,8 @@ static int ipa3_eth_get_prot(struct ipa_eth_client_pipe_info *pipe,
 		*prot = IPA_HW_PROTOCOL_AQC;
 		break;
 	case IPA_ETH_CLIENT_RTK8111K:
+		*prot = IPA_HW_PROTOCOL_RTK3;
+		break;
 	case IPA_ETH_CLIENT_RTK8125B:
 		*prot = IPA_HW_PROTOCOL_RTK;
 		break;
@@ -1030,7 +1082,8 @@ static bool hw_support_protocol(enum ipa4_hw_protocol protocol)
 
 int ipa3_eth_connect(
 	struct ipa_eth_client_pipe_info *pipe,
-	enum ipa_client_type client_type)
+	enum ipa_client_type client_type,
+	int inst_id)
 {
 	struct ipa3_ep_context *ep;
 	int ep_idx;
@@ -1097,6 +1150,17 @@ int ipa3_eth_connect(
 		return result;
 	}
 #endif
+
+#if IPA_ETH_API_VER >= 3
+	if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN && inst_id == 0) {
+		result = ipa3_is_spcl_iface(IPA_VLAN_IF_ETH0, &vlan_mode);
+			if (result) {
+				IPAERR("Could not determine IPA ezmesh mode\n");
+				return result;
+		}
+	}
+#endif
+	IPADBG("Vlan mode %d\n", vlan_mode);
 
 	result = ipa3_eth_get_prot(pipe, &prot);
 	if (result) {
@@ -1194,6 +1258,7 @@ int ipa3_eth_connect(
 
 	switch (prot) {
 	case IPA_HW_PROTOCOL_RTK:
+	case IPA_HW_PROTOCOL_RTK3:
 		result = ipa_eth_setup_rtk_gsi_channel(pipe, ep);
 		break;
 	case IPA_HW_PROTOCOL_AQC:
@@ -1247,6 +1312,7 @@ int ipa3_eth_connect(
 			}
 			break;
 		case IPA_HW_PROTOCOL_RTK:
+		case IPA_HW_PROTOCOL_RTK3:
 			if (gsi_query_msi_addr(ep->gsi_chan_hdl,
 					&pipe->info.db_pa)) {
 				result = -EFAULT;
@@ -1311,7 +1377,8 @@ int ipa3_eth_connect(
 	} else {
 		if (IPA_CLIENT_IS_PROD(client_type)) {
 			/* RX mailbox */
-			if (prot == IPA_HW_PROTOCOL_RTK) {
+			if (prot == IPA_HW_PROTOCOL_RTK || prot ==
+					IPA_HW_PROTOCOL_RTK3) {
 				pipe->info.db_pa = ipa3_ctx->ipa_wrapper_base +
 					ipahal_get_reg_base() +
 					ipahal_get_reg_mn_ofst(IPA_UC_MAILBOX_m_n,
@@ -1339,7 +1406,8 @@ int ipa3_eth_connect(
 			iounmap(db_addr);
 		} else {
 			/* TX mailbox */
-			if (prot == IPA_HW_PROTOCOL_RTK) {
+			if (prot == IPA_HW_PROTOCOL_RTK || prot ==
+					IPA_HW_PROTOCOL_RTK3) {
 				pipe->info.db_pa = ipa3_ctx->ipa_wrapper_base +
 					ipahal_get_reg_base() +
 					ipahal_get_reg_mn_ofst(IPA_UC_MAILBOX_m_n,
@@ -1501,6 +1569,11 @@ int ipa3_eth_disconnect(
 	int ep_idx;
 	int id;
 	enum ipa4_hw_protocol prot;
+	enum ipa_eth_pipe_traffic_type traffic_type = 0;
+
+#if IPA_ETH_API_VER >= 3
+	traffic_type = pipe->traffic_type;
+#endif
 
 	result = ipa3_eth_get_prot(pipe, &prot);
 	if (result) {
@@ -1607,9 +1680,44 @@ int ipa3_eth_disconnect(
 			}
 		}
 	}
-	ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id, pipe->dir);
+	ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id, pipe->dir, traffic_type);
 fail:
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	return result;
 }
 EXPORT_SYMBOL(ipa3_eth_disconnect);
+
+int ipa3_eth_tx_ring_db()
+{
+	int ch_id, ipa_ep_idx, result = 0, i = 0;
+	phys_addr_t db_pa;
+	void __iomem *db_addr;
+
+	ipa_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS);
+	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
+		IPADBG("IPA_CLIENT_ETHERNET2_CONS not mapped\n");
+		return 0;
+	}
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	if (ipa3_ctx->ep[ipa_ep_idx].valid) {
+		ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
+		gsi_query_msi_addr(ch_id, &db_pa);
+
+		db_addr = ioremap((phys_addr_t)(db_pa), 4);
+		if (!db_addr) {
+			IPAERR("ioremap failed\n");
+			result = -EFAULT;
+			goto fail;
+		}
+		/* Any value is good to write here, so writing as is */
+		for (i = 0; i < 5; i++) {
+			iowrite32(100, db_addr);
+			usleep_range(1000, 2000);
+		}
+		iounmap(db_addr);
+	}
+fail:
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return result;
+}
+EXPORT_SYMBOL(ipa3_eth_tx_ring_db);

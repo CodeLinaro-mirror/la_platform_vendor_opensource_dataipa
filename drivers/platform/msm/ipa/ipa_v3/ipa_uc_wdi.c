@@ -2600,9 +2600,11 @@ int ipa3_enable_wdi_pipe(u32 clnt_hdl)
 
 	if (IPA_CLIENT_IS_CONS(ep->client)) {
 		memset(&holb_cfg, 0, sizeof(holb_cfg));
-		holb_cfg.en = IPA_HOLB_TMR_DIS;
-		holb_cfg.tmr_val = 0;
+		holb_cfg.en = IPA_HOLB_TMR_EN;
+		holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_5g_holb_timeout;
 		result = ipa3_cfg_ep_holb(clnt_hdl, &holb_cfg);
+		IPADBG("Configured HOLB for clnt=%d, timer=%d, return = %d\n",
+			clnt_hdl, holb_cfg.tmr_val, result);
 	}
 
 	ep->uc_offload_state |= IPA_WDI_ENABLED;

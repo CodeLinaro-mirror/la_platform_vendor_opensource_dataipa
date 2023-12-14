@@ -480,6 +480,7 @@ static void ipa3_uc_save_dbg_stats(u32 size)
 			goto unmap;
 		break;
 	case IPA_HW_PROTOCOL_RTK:
+	case IPA_HW_PROTOCOL_RTK3:
 		if (!ipa3_ctx->rtk_ctx.dbg_stats.uc_dbg_stats_mmio) {
 			ipa3_ctx->rtk_ctx.dbg_stats.uc_dbg_stats_size =
 				size;
@@ -679,7 +680,7 @@ static void ipa3_event_ring_hdlr(void)
 			val = &((struct eventElement_t *)rp_va)->Value;
 			ipa_ipsec_handle_sa_thresh(
 				(u8)(val->ipsec_threshold_param.sa_idx),
-				(enum ipa_ipsec_sa_type)(val->ipsec_threshold_param.sa_action));
+				(enum ipa_ipsec_uc_sa_action)(val->ipsec_threshold_param.sa_action));
 #endif
 		}
 		ipa3_ctx->uc_ctx.ering_rp_local += offset;
@@ -1696,6 +1697,7 @@ int ipa3_uc_debug_stats_dealloc(uint32_t prot_id)
 		ipa3_ctx->aqc_ctx.dbg_stats.uc_dbg_stats_mmio = NULL;
 		break;
 	case IPA_HW_PROTOCOL_RTK:
+	case IPA_HW_PROTOCOL_RTK3:
 		iounmap(ipa3_ctx->rtk_ctx.dbg_stats.uc_dbg_stats_mmio);
 		ipa3_ctx->rtk_ctx.dbg_stats.uc_dbg_stats_mmio = NULL;
 		break;

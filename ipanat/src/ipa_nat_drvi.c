@@ -815,7 +815,7 @@ static int ipa_nati_create_table(
 		IPA_IOC_DEL_NAT_TABLE,
 		true);  /* true here means do consider using sram */
 
-	ret = ipa_mem_descriptor_allocate_memory(
+	ret = ipa_mem_desc_alloc_memory(
 		&nat_table->mem_desc,
 		nat_cache_ptr->ipa_desc->fd);
 
@@ -1205,7 +1205,7 @@ int ipa_nati_get_pdn_index(
 {
 	int i = 0;
 
-	for(i = 0; i < (IPA_MAX_PDN_NUM - 1); i++) {
+	for(i = 0; i < IPA_MAX_PDN_NUM; i++) {
 		if(pdns[i].public_ip == public_ip) {
 			IPADBG("ip 0x%X matches PDN index %d\n", public_ip, i);
 			*pdn_index = i;
@@ -1230,12 +1230,12 @@ int ipa_nati_alloc_pdn(
 
 	memset(&zero_test, 0, sizeof(zero_test));
 
-	if(num_pdns >= (IPA_MAX_PDN_NUM - 1)) {
+	if(num_pdns >= IPA_MAX_PDN_NUM) {
 		IPAERR("exceeded max num of PDNs, num_pdns %d\n", num_pdns);
 		return -EIO;
 	}
 
-	for(i = 0; i < (IPA_MAX_PDN_NUM - 1); i++) {
+	for(i = 0; i < IPA_MAX_PDN_NUM; i++) {
 		if(pdns[i].public_ip == pdn_info->public_ip)
 		{
 			IPADBG("found the same pdn in index %d\n", i);
@@ -1250,24 +1250,36 @@ int ipa_nati_alloc_pdn(
 			return 0;
 		}
 
-		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)) && (i != 0))
+		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)))
 		{
-			IPADBG("found an empty pdn in index %d\n", i);
+			/* Reserving 0 for STA */
+			if(pdn_info->is_sta == true)
+			{
+				if (i != 0)
+				{
+					continue;
+				}
+			}
+			else
+			{
+				if (i == 0)
+				{
+					continue;
+				}
+			}
+			IPADBG("found an empty pdn in index %d PDN IP: %x is_sta: %d\n", i, pdn_info->public_ip, pdn_info->is_sta);
 			break;
 		}
 	}
 
-	if(i >= (IPA_MAX_PDN_NUM - 1))
+	if(i >= IPA_MAX_PDN_NUM)
 	{
 		IPAERR("couldn't find an empty entry while num is %d\n",
 			   num_pdns);
 		return -EIO;
 	}
 
-	if(pdn_info->is_sta == true)
-		pdn_data.pdn_index    = 0;
-	else
-		pdn_data.pdn_index    = i;
+	pdn_data.pdn_index    = i;
 	pdn_data.public_ip    = pdn_info->public_ip;
 	pdn_data.src_metadata = pdn_info->src_metadata;
 	pdn_data.dst_metadata = pdn_info->dst_metadata;
@@ -1276,10 +1288,7 @@ int ipa_nati_alloc_pdn(
 	if(!ret)
 	{
 		num_pdns++;
-		if(pdn_info->is_sta == true)
-			*pdn_index = 0;
-		else
-			*pdn_index = i;
+		*pdn_index = i;
 		IPADBG("modify num_pdns (%d)\n", num_pdns);
 	}
 
@@ -1308,7 +1317,7 @@ int ipa_nati_dealloc_pdn(
 
 	memset(&zero_test, 0, sizeof(zero_test));
 
-	if(!memcmp((pdns + pdn_index), &zero_test, sizeof(ipa_nat_pdn_entry)))
+	if(!memcmp((pdns + pdn_index), &zero_test, sizeof(pdns[pdn_index])))
 	{
 		IPAERR("pdn entry is a zero entry\n");
 		return -EIO;
@@ -2005,7 +2014,7 @@ int ipa_NATI_del_ipv4_rule(
 		cmd,
 		&index_table_iterator);
 
-	if (ipa_table_iterator_is_head_with_tail(&index_table_iterator)) {
+	if (ipa_table_itr_valid_check(&index_table_iterator)) {
 
 		ipa_nati_copy_second_index_entry_to_head(
 			nat_table, &index_table_iterator, cmd);
@@ -2035,7 +2044,7 @@ int ipa_NATI_del_ipv4_rule(
 		goto unlock;
 	}
 
-	if (! ipa_table_iterator_is_head_with_tail(&table_iterator)) {
+	if (! ipa_table_itr_valid_check(&table_iterator)) {
 		/* The entry can be deleted */
 		uint8_t is_prev_empty =
 			(table_iterator.prev_entry != NULL &&
@@ -2143,7 +2152,6 @@ static int print_nat_rule(
 	uint16_t        meta_record_index,
 	void*           arb_data_ptr )
 {
-	enum ipa3_nat_mem_in nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 
@@ -2157,7 +2165,7 @@ static int print_nat_rule(
 		goto bail;
 	}
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
 	printf("  %s %s (0x%04X) (0x%08X) -> %s\n",
 		   (table_ptr->nmi == IPA_NAT_MEM_IN_DDR) ? "DDR" : "SRAM",
@@ -2189,11 +2197,10 @@ static int print_meta_data(
 	struct ipa_nat_indx_tbl_meta_info* mi_ptr =
 		(struct ipa_nat_indx_tbl_meta_info*) meta_record_ptr;
 
-	enum ipa3_nat_mem_in nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
 	if ( mi_ptr )
 	{
@@ -2477,13 +2484,12 @@ static int gen_chain_stats(
 {
 	chain_stat_help* csh_ptr = (chain_stat_help*) arb_data_ptr;
 
-	enum ipa3_nat_mem_in nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 
 	uint32_t             chain_len = 0;
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
 	if ( is_expn_tbl )
 	{

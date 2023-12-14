@@ -441,7 +441,6 @@ int ipa_table_get_entry(
 	void**     entry,
 	uint16_t*  entry_index )
 {
-	enum ipa3_nat_mem_in nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rec_index;
 
@@ -455,7 +454,7 @@ int ipa_table_get_entry(
 	/*
 	 * Retrieve the memory and table type as well as the index
 	 */
-	BREAK_RULE_HDL(table, entry_handle, nmi, is_expn_tbl, rec_index);
+	BREAK_RULE_HDL(table, entry_handle, is_expn_tbl, rec_index);
 
 	if ( is_expn_tbl )
 	{
@@ -770,7 +769,7 @@ bail:
 	return ret;
 }
 
-int ipa_table_iterator_is_head_with_tail(
+int ipa_table_itr_valid_check(
 	ipa_table_iterator* iterator)
 {
 	int ret = 0;
@@ -955,7 +954,7 @@ static uint16_t MakeEntryHdl(
 	uint16_t   tbl_entry )
 {
 	uint16_t entry_hdl = 0;
-	enum ipa3_nat_mem_in tbl_nmi = tbl->nmi;
+	uint16_t tbl_nmi = (uint16_t)tbl->nmi;
 
 	IPADBG("In\n");
 
@@ -1189,7 +1188,7 @@ int ipa_table_walk(
 	void*             arb_data_ptr )
 {
 	uint16_t i;
-	uint32_t tot;
+	uint16_t tot;
 	uint8_t* rec_ptr;
 	void*    meta_record_ptr;
 	uint16_t meta_record_index;
@@ -1211,7 +1210,7 @@ int ipa_table_walk(
 		goto bail;
 	}
 
-	tot = (uint32_t)
+	tot = (uint16_t)
 		(ipa_tbl_ptr->table_entries +
 		ipa_tbl_ptr->expn_table_entries);
 
@@ -1293,9 +1292,9 @@ int ipa_table_add_dma_cmd(
 	uint16_t                    data_for_entry,
 	struct ipa_ioc_nat_dma_cmd* cmd_ptr )
 {
-	ipa_table_dma_cmd_helper* help_ptr;
 
-	uint32_t tab_sz, entry_offset;
+	uint16_t tab_sz;
+       	uint32_t entry_offset;
 
 	uint8_t is_expn;
 
@@ -1318,7 +1317,7 @@ int ipa_table_add_dma_cmd(
 		goto bail;
 	}
 
-	tab_sz = (uint32_t)
+	tab_sz = (uint16_t)
 		(tbl_ptr->table_entries +
 		tbl_ptr->expn_table_entries);
 

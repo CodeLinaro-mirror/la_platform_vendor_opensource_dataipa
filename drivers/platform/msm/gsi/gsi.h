@@ -167,6 +167,7 @@ enum gsi_evt_chtype {
 	GSI_EVT_CHTYPE_WDI3M_EV = 0xE,
 	GSI_EVT_CHTYPE_WDI3_V2_EV = 0XF,
 	GSI_EVT_CHTYPE_WDI4_EV = 0X10,
+	GSI_EVT_CHTYPE_RTK3_EV = 0x11,
 };
 
 enum gsi_evt_ring_elem_size {
@@ -259,6 +260,7 @@ enum gsi_chan_prot {
 	GSI_CHAN_PROT_WDI3M = 0xE,
 	GSI_CHAN_PROT_WDI3_V2 = 0XF,
 	GSI_CHAN_PROT_WDI4 = 0X10,
+	GSI_CHAN_PROT_RTK3 = 0x11,
 };
 
 enum gsi_max_prefetch {
@@ -976,7 +978,8 @@ struct __packed gsi_wdi4_channel_scratch {
 	uint32_t wifi_rp_address_high;
 	uint32_t update_rp_moderation_threshold : 5;
 	uint32_t qmap_id : 8;
-	uint32_t reserved1 : 3;
+	uint32_t wds_ext_enable : 1;
+	uint32_t reserved1 : 2;
 	uint32_t endp_metadata_reg_offset : 16;
 	uint32_t rx_pkt_offset : 16;
 	uint32_t bank_id : 6;
@@ -1116,6 +1119,7 @@ union __packed gsi_wdi3_channel_scratch2_reg {
  * @rtk_bar_high: Realtek bar address MSB
  * @queue_number: dma channel number in rtk
  * @fix_buff_size: buff size in KB
+ * @num_queues_enabled: Total numbet of queue to be enabled
  * @rtk_buff_addr_high: buffer addr where TRE points to
  * @rtk_buff_addr_low: buffer addr where TRE points to
  *			the descriptor
@@ -1125,7 +1129,7 @@ union __packed gsi_wdi3_channel_scratch2_reg {
 	uint32_t rtk_bar_high : 9;
 	uint32_t queue_number : 5;
 	uint32_t fix_buff_size : 4;
-	uint32_t reserved1 : 6;
+	uint32_t num_queues_enabled : 6;
 	uint32_t rtk_buff_addr_high : 8;
 	uint32_t rtk_buff_addr_low;
 	uint32_t reserved2;
@@ -1197,6 +1201,29 @@ union __packed gsi_channel_scratch {
 		uint32_t word2;
 		uint32_t word3;
 		uint32_t word4;
+	} data;
+};
+
+/**
+ * gsi_wdi_channel_scratch9 - WDI protocol SW config area of
+ * channel scratch9
+ * @chip_id: used for identifing the soc id in mlo only for wdi4.
+ */
+
+struct __packed gsi_wdi_channel_scratch9 {
+	uint32_t chip_id:3;
+	uint32_t reserved2:29;
+};
+
+/**
+ * gsi_wdi_channel_scratch3_reg - channel scratch3 SW config area
+ *
+ */
+
+union __packed gsi_wdi_channel_scratch9_reg {
+	struct __packed gsi_wdi_channel_scratch9 wdi;
+	struct __packed {
+		uint32_t word1;
 	} data;
 };
 
@@ -2093,6 +2120,19 @@ int gsi_set_evt_ring_cfg(unsigned long evt_ring_hdl,
  */
 int gsi_write_channel_scratch(unsigned long chan_hdl,
 		union __packed gsi_channel_scratch val);
+
+/**
+ * gsi_write_channel_scratch9_reg - Peripheral should call this function to
+ * write to the scratch9 reg area of the channel context
+ *
+ * @chan_hdl:  Client handle previously obtained from
+ *             gsi_alloc_channel
+ * @val:       Value to write
+ *
+ * @Return gsi_status
+ */
+int gsi_write_channel_scratch9_reg(unsigned long chan_hdl,
+		union __packed gsi_wdi_channel_scratch9_reg val);
 
 /**
  * gsi_write_channel_scratch3_reg - Peripheral should call this function to

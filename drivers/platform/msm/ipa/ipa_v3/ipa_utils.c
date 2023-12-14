@@ -6488,6 +6488,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+	[IPA_6_0][IPA_CLIENT_ETHERNET_PROD1] = {
+			true,   IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			QMB_MASTER_SELECT_DDR,
+			{ 6 , 15, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2},
+			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_AQC_ETHERNET_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
@@ -6523,7 +6530,6 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 10 , 5, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
-
 	[IPA_6_0][IPA_CLIENT_WLAN3_PROD1] = {
 			true, IPA_v6_0_GROUP_UL,
 			true,
@@ -6531,7 +6537,6 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 11, 37, 28, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
-
 	[IPA_6_0][IPA_CLIENT_IPSEC_DECAP_PROD] ={
 			true,   IPA_v6_0_GROUP_DL,
 			true,
@@ -6545,6 +6550,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 13 , 20, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_NA },
+	[IPA_6_0][IPA_CLIENT_WLAN1_PROD1] = {
+			true, IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			QMB_MASTER_SELECT_DDR,
+			{ 16, 23, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_Q6_WAN_PROD]  = {
 			true, IPA_v6_0_GROUP_DL,
@@ -7183,7 +7195,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
 			QMB_MASTER_SELECT_DDR,
-			{ 1 , 0, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			{ 6 , 15, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_WLAN3_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
@@ -9202,6 +9214,7 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(RESERVERD_CONS_143),
 	__stringify(RESERVERD_PROD_144),
 	__stringify(IPA_CLIENT_Q6_CV2X_DECIPHER_CONS),
+	__stringify(IPA_CLIENT_ETHERNET_PROD1),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -12124,6 +12137,7 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 	    param_in->client == IPA_CLIENT_ODU_PROD ||
 	    param_in->client == IPA_CLIENT_ETHERNET_PROD ||
 	    param_in->client == IPA_CLIENT_ETHERNET2_PROD ||
+		param_in->client == IPA_CLIENT_ETHERNET_PROD1 ||
 		param_in->client == IPA_CLIENT_WIGIG_PROD ||
 		param_in->client == IPA_CLIENT_AQC_ETHERNET_PROD ||
 		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD) {
@@ -12791,6 +12805,17 @@ int ipa3_alloc_rule_id(struct idr *rule_ids)
 	return idr_alloc(rule_ids, NULL,
 		ipahal_get_low_rule_id(),
 		ipa3_ctx->filter_start_id,
+		GFP_KERNEL);
+}
+
+int ipa3_alloc_rt_rule_id(struct idr *rule_ids)
+{
+	/* There is two groups of rule-Ids, Modem ones and Apps ones.
+	 * Distinction by high bit: Modem Ids are high bit asserted.
+	 */
+	return idr_alloc(rule_ids, NULL,
+		ipahal_get_low_rule_id(),
+		IPA_Q6_RT_START_ID,
 		GFP_KERNEL);
 }
 
@@ -13762,6 +13787,42 @@ int ipa3_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res)
 	return 0;
 }
 EXPORT_SYMBOL(ipa3_is_vlan_mode);
+
+/**
+ * ipa3_is_spcl_iface - check if a LAN driver should load in
+ * ezmesh mode
+ * @iface - type of ezmesh capable device
+ * @res - query result: true for ezmesh mode, false for non vlan
+ *  	mode
+ *
+ * API must be called after ipa_is_ready() returns true,
+ * otherwise it will fail
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_is_spcl_iface(enum ipa_vlan_ifaces iface, bool *res)
+{
+	if (!res) {
+		IPAERR("NULL out param\n");
+		return -EINVAL;
+	}
+
+	if (iface < 0 || iface >= IPA_VLAN_IF_MAX) {
+		IPAERR("invalid iface %d\n", iface);
+		return -EINVAL;
+	}
+
+	if (!ipa3_is_ready()) {
+		IPAERR("IPA is not ready yet\n");
+		return -ENODEV;
+	}
+
+	*res = ipa3_ctx->spcl_iface[iface];
+
+	IPADBG("Eth Iface %s ezmesh mode is %d\n", iface, *res);
+	return 0;
+}
+EXPORT_SYMBOL(ipa3_is_spcl_iface);
 
 /**
  * ipa_is_modem_pipe()- Checks if pipe is owned by the modem
@@ -16119,6 +16180,7 @@ void ipa3_get_gsi_stats(int prot_id,
 		ipa3_get_aqc_gsi_stats(stats);
 		break;
 	case IPA_HW_PROTOCOL_RTK:
+	case IPA_HW_PROTOCOL_RTK3:
 		stats->num_ch = MAX_RTK_CHANNELS;
 		ipa3_get_rtk_gsi_stats(stats);
 		break;
@@ -16272,6 +16334,7 @@ int ipa3_get_prot_id(enum ipa_client_type client)
 	case IPA_CLIENT_ETHERNET2_CONS:
 	case IPA_CLIENT_ETHERNET_PROD:
 	case IPA_CLIENT_ETHERNET_CONS:
+	case IPA_CLIENT_ETHERNET_PROD1:
 		prot_id = IPA_HW_PROTOCOL_ETH;
 		break;
 	case IPA_CLIENT_WIGIG_PROD:
@@ -16341,9 +16404,22 @@ void __ipa_ntn3_cons_stats_get(struct ipa_ntn3_stats_tx *stats, enum ipa_client_
 
 void ipa_eth_ntn3_get_status(struct ipa_ntn3_client_stats *s, unsigned inst_id)
 {
+	bool ezmesh = false;
+	int ret = 0;
+
 	if (inst_id == 0) {
 		__ipa_ntn3_cons_stats_get(&s->tx_stats, IPA_CLIENT_ETHERNET_CONS);
 		__ipa_ntn3_prod_stats_get(&s->rx_stats, IPA_CLIENT_ETHERNET_PROD);
+
+#if IPA_ETH_API_VER >= 3
+		ret = ipa3_is_spcl_iface(IPA_VLAN_IF_ETH0, &ezmesh);
+		if (ret) {
+			IPAERR("Could not determine IPA ezmesh mode\n");
+			return;
+		}
+		if (ezmesh)
+			__ipa_ntn3_prod_stats_get(&s->rx1_stats, IPA_CLIENT_ETHERNET_PROD1);
+#endif
 	} else {
 		__ipa_ntn3_cons_stats_get(&s->tx_stats, IPA_CLIENT_ETHERNET2_CONS);
 		__ipa_ntn3_prod_stats_get(&s->rx_stats, IPA_CLIENT_ETHERNET2_PROD);

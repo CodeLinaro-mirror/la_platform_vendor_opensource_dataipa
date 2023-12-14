@@ -811,14 +811,26 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 			nbytes = scnprintf(
 				dbg_buff,
 				IPA_MAX_MSG_LEN,
-				"name:%s len=%d ref=%d partial=%d type=%s ofst=%u ",
+				"name:%s len=%d ref=%d partial=%d type=%s table = %d  ",
 				entry->name,
 				entry->hdr_len,
 				entry->ref_cnt,
 				entry->is_partial,
-				ipa3_hdr_l2_type_name[entry->type],
-				entry->offset_entry->offset >> 2);
+				ipa3_hdr_l2_type_name[entry->type], hdr_tbl);
 
+  		if (entry->is_hdr_proc_ctx) {
+  			nbytes += scnprintf(
+  				dbg_buff + nbytes,
+  				IPA_MAX_MSG_LEN - nbytes,
+  				"phys_base=0x%pa ",
+  				&entry->phys_base);
+  		} else {
+  			nbytes += scnprintf(
+  				dbg_buff + nbytes,
+  				IPA_MAX_MSG_LEN - nbytes,
+  				"ofst=%u ",
+				entry->offset_entry->offset >> 2);
+  		}
 			for (i = 0; i < entry->hdr_len; i++) {
 				scnprintf(dbg_buff + nbytes + i * 2,
 					  IPA_MAX_MSG_LEN - nbytes - i * 2,
@@ -1146,15 +1158,27 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 					ofst_words,
 					entry->rule.attrib.attrib_mask);
 			} else {
-				if (entry->hdr)
+				if (entry->hdr && !entry->hdr->is_hdr_proc_ctx)
+				{
 					ofst = entry->hdr->offset_entry->offset;
+				}
 				else
+				{
 					ofst = 0;
+				}
 				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
 					i, entry->rule.dst,
 					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
 					ipa3_get_ep_mapping(entry->rule.dst),
 					!(entry->hdr && entry->hdr->is_lcl));
+				if(entry->hdr && entry->hdr->is_hdr_proc_ctx)
+					pr_err("phys_base=0x%pa attrib_mask:%08x hdr_in_ext %u",
+					&entry->hdr->phys_base,
+					entry->rule.attrib.attrib_mask,
+					(entry->hdr->is_hdr_proc_ctx));
+
+				else
+
 				pr_err("hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u",
 					ofst >> 2,
 					entry->rule.attrib.attrib_mask,
@@ -1396,10 +1420,19 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 				entry->generic_params_v2.output_dscp_pcp_update,
 				entry->generic_params_v2.input_ethhdr_valid);
 		}
-		nbytes += scnprintf(dbg_buff + nbytes,
-			IPA_MAX_MSG_LEN - nbytes,
-			"hdr[words]:%u\n",
-			entry->hdr->offset_entry->offset >> 2);
+		if (entry->hdr->is_hdr_proc_ctx) {
+			nbytes += scnprintf(dbg_buff + nbytes,
+				IPA_MAX_MSG_LEN - nbytes,
+				"hdr_phys_base:0x%pa\n",
+				&entry->hdr->phys_base);
+		}
+		else
+		{
+			nbytes += scnprintf(dbg_buff + nbytes,
+				IPA_MAX_MSG_LEN - nbytes,
+				"hdr[words]:%u\n",
+				entry->hdr->offset_entry->offset >> 2);
+		}
 		}
 		mutex_unlock(&ipa3_ctx->lock);
 		pr_err("%s", dbg_buff);
@@ -4598,7 +4631,7 @@ done:
 
 #if IPA_ETH_API_VER >= 2
 static void __ipa_ntn3_client_stats_read(int *cnt, struct ipa_ntn3_client_stats *s,
-	const char *str_client_tx, const char *str_client_rx)
+	const char *str_client_tx, const char *str_client_rx, const char *str_client_rx1)
 {
 	int nbytes;
 
@@ -4646,6 +4679,32 @@ static void __ipa_ntn3_client_stats_read(int *cnt, struct ipa_ntn3_client_stats 
 		str_client_rx, s->rx_stats.rollbacks_cnt,
 		str_client_rx, s->rx_stats.msi_db_cnt);
 	*cnt += nbytes;
+	if (str_client_rx1) {
+		nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
+			"%s_RP=0x%x\n"
+			"%s_WP=0x%x\n"
+			"%s_ntn_pending_db_after_rollback:%u\n"
+			"%s_msi_db_idx_val:%u\n"
+			"%s_ntn_rx_chain_counter:%u\n"
+			"%s_ntn_rx_err_cnt:%u\n"
+			"%s_ntn_rx_err_crc_counter:%u\n"
+			"%s_ntn_rx_bmap_err:%09x\n"
+			"%s_ntn_accumulated_tres_handled:%u\n"
+			"%s_ntn_rollbacks_counter:%u\n"
+			"%s_ntn_msi_db_count:%u\n",
+			str_client_rx1, s->rx1_stats.rp,
+			str_client_rx1, s->rx1_stats.wp,
+			str_client_rx1, s->rx1_stats.pending_db_after_rollback,
+			str_client_rx1, s->rx1_stats.msi_db_idx,
+			str_client_rx1, s->rx1_stats.chain_cnt,
+			str_client_rx1, (s->rx1_stats.err_cnt & 0x3FFF),
+			str_client_rx1, (s->rx1_stats.err_cnt & 0x7FC000) >> 14,
+			str_client_rx1, (s->rx1_stats.err_cnt & 0xFF800000) >> 23,
+			str_client_rx1, s->rx1_stats.tres_handled,
+			str_client_rx1, s->rx1_stats.rollbacks_cnt,
+			str_client_rx1, s->rx1_stats.msi_db_cnt);
+		*cnt += nbytes;
+	}
 }
 #endif
 
@@ -4661,7 +4720,7 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 	int scratch_num;
 #if IPA_ETH_API_VER >= 2
 	struct ipa_ntn3_client_stats ntn3_stats;
-	const char *str_client_tx, *str_client_rx;
+	const char *str_client_tx, *str_client_rx, *str_client_rx1;
 #endif
 
 	memset(&tx_stats, 0, sizeof(struct ipa3_eth_error_stats));
@@ -4702,12 +4761,15 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 			ipa_eth_ntn3_get_status(&ntn3_stats, 0);
 			str_client_tx = ipa_clients_strings[IPA_CLIENT_ETHERNET_CONS];
 			str_client_rx = ipa_clients_strings[IPA_CLIENT_ETHERNET_PROD];
+			str_client_rx1 = ipa_clients_strings[IPA_CLIENT_ETHERNET_PROD1];
 		} else {
 			ipa_eth_ntn3_get_status(&ntn3_stats, 1);
 			str_client_tx = ipa_clients_strings[IPA_CLIENT_ETHERNET2_CONS];
 			str_client_rx = ipa_clients_strings[IPA_CLIENT_ETHERNET2_PROD];
+			str_client_rx1 = NULL;
 		}
-		__ipa_ntn3_client_stats_read(&cnt, &ntn3_stats, str_client_tx, str_client_rx);
+		__ipa_ntn3_client_stats_read(&cnt, &ntn3_stats, str_client_tx, str_client_rx,
+									 str_client_rx1);
 		goto done;
 #endif
 	default:

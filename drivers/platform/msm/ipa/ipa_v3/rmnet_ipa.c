@@ -2128,13 +2128,10 @@ static void apps_ipa_v2x_packet_receive_notify(void *priv,
 		skb_set_mac_header(skb, 0);
 		/* v2x traffic uses IPA_RMNET_RX_QUEUE_V2X queue. */
 		skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_V2X);
-		if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH == 0) {
-			trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
-			result = netif_rx_ni(skb);
-		} else {
-			trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
-			result = netif_rx(skb);
-		}
+
+		/* for low latency, use netif_rx_ni always */
+		trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
+		result = netif_rx_ni(skb);
 
 		if (result)	{
 			pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_receive_skb\n",
@@ -5666,6 +5663,7 @@ void ipa3_lcl_mdm_reboot_cb ( )
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	}
 	mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
+	ipa3_ctx->is_reboot_complete = true;
 	IPAWANDBG(" Exit \n");
 
 }
@@ -5799,6 +5797,8 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		}
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
+		if (ipa3_ctx->ipa_config_is_mhi)
+			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_CONS);
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("BEFORE DEEPSLEEP EXIT handling is complete\n");
 		break;
@@ -5821,6 +5821,8 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		}
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
+		if (ipa3_ctx->ipa_config_is_mhi)
+			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_CONS);
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("IPA BEFORE_POWERUP handling is complete\n");
 		break;
@@ -5844,7 +5846,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		       atomic_read(&rmnet_ipa3_ctx->is_ssr))
 			platform_driver_register(&rmnet_ipa_driver);
 		ipa3_odl_pipe_open();
-
+		ipa3_eth_tx_ring_db();
 		if(ipa3_ctx->ipa_config_is_rdkb)
 		{
 			handle3_egress_format_internal(rmnet_egress_cfg);
