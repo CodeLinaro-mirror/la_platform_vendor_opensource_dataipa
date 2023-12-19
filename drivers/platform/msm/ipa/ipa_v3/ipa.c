@@ -10567,6 +10567,12 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 #endif
 
+	result = ipa3_eogre_stats_init();
+	if(result)
+		IPAERR(":eogre stats init failed (%d)\n", -result);
+	else
+		IPADBG(":eogre stats init ok\n");
+
 	result = ipa_hw_stats_init();
 	if (result)
 		IPAERR("fail to init stats %d\n", result);
