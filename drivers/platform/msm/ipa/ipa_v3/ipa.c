@@ -1014,6 +1014,18 @@ struct iommu_domain *ipa3_get_11ad_smmu_domain(void)
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_11AD);
 }
 
+struct device *ipa3_get_wlan_device(void)
+{
+	if(ipa3_ctx->ipa_config_is_auto &&
+		ipa3_ctx->ipa_hw_type == IPA_HW_v6_0 &&
+		ipa_get_wdi_version() == IPA_WDI_1) {
+		if(smmu_cb[IPA_SMMU_CB_WLAN2].valid)
+			return smmu_cb[IPA_SMMU_CB_WLAN2].dev;
+		return ipa3_ctx->pdev;
+	}
+	return ipa3_ctx->pdev;
+}
+
 struct device *ipa3_get_dma_dev(void)
 {
 	return ipa3_ctx->pdev;
