@@ -5652,6 +5652,9 @@ void ipa3_q6_pre_shutdown_cleanup(void)
 	if (ipa3_ctx->ipa_config_is_mhi) {
 		ipa3_set_reset_client_cons_pipe_sus_holb(true,
 		IPA_CLIENT_MHI_CONS);
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5)
+			ipa3_set_reset_client_cons_pipe_sus_holb(true, IPA_CLIENT_MHI_COAL_CONS);
+		ipa3_set_reset_client_cons_pipe_sus_holb(true, IPA_CLIENT_MHI_LOW_LAT_CONS);
 		if (ipa3_ctx->ipa_config_is_auto)
 			ipa3_set_reset_client_cons_pipe_sus_holb(true,
 				IPA_CLIENT_MHI2_CONS);
