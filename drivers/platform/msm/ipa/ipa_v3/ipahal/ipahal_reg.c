@@ -5608,6 +5608,30 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_TX_CFG] = {
 		ipareg_construct_tx_cfg_v5_0, ipareg_parse_tx_cfg_v5_0,
 		0x00000488, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_NAT_UC_EXTERNAL_CFG] = {
+		ipareg_construct_nat_uc_external_cfg,
+		ipareg_parse_nat_uc_external_cfg,
+		0x0000048C, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_NAT_UC_LOCAL_CFG] = {
+		ipareg_construct_nat_uc_local_cfg,
+		ipareg_parse_nat_uc_local_cfg,
+		0x00000490, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_NAT_UC_SHARED_CFG] = {
+		ipareg_construct_nat_uc_shared_cfg,
+		ipareg_parse_nat_uc_shared_cfg,
+		0x00000494, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_CONN_TRACK_UC_EXTERNAL_CFG] = {
+		ipareg_construct_conn_track_uc_external_cfg,
+		ipareg_parse_conn_track_uc_external_cfg,
+		0x0000049C, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_CONN_TRACK_UC_LOCAL_CFG] = {
+		ipareg_construct_conn_track_uc_local_cfg,
+		ipareg_parse_conn_track_uc_local_cfg,
+		0x000004A0, 0, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_CONN_TRACK_UC_SHARED_CFG] = {
+		ipareg_construct_conn_track_uc_shared_cfg,
+		ipareg_parse_conn_track_uc_shared_cfg,
+		0x000004A4, 0, 0, 0, 0, 0},
 	[IPA_HW_v6_0][IPA_IDLE_INDICATION_CFG] = {
 		ipareg_construct_idle_indication_cfg, ipareg_parse_dummy,
 		0x000004A8, 0, 0, 0, 0, 0},
