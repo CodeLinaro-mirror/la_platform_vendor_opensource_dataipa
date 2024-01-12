@@ -11337,6 +11337,7 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 	int code = 0, result;
 	struct ipa3_ep_context *ep;
 	bool primary_secondry;
+	const struct ipa_gsi_ep_config *gsi_ep_cfg;
 
 	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes || ep_ctrl == NULL) {
 		IPAERR("bad parm, clnt_hdl = %d\n", clnt_hdl);
@@ -11359,6 +11360,12 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 		ep_ctrl->ipa_ep_suspend,
 		ep_ctrl->ipa_ep_delay);
 	ep = &ipa3_ctx->ep[clnt_hdl];
+	gsi_ep_cfg = ipa3_get_gsi_ep_info(ep->client);
+
+	if (!gsi_ep_cfg) {
+		IPAERR("failed to get GSI config\n");
+		return -EINVAL;
+	}
 
 	if (ipa3_ctx->ipa_endp_delay_wa_v2 &&
 		IPA_CLIENT_IS_PROD(ep->client)) {
@@ -11376,7 +11383,8 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 		else
 			primary_secondry = false;
 
-		result = gsi_flow_control_ee(ep->gsi_chan_hdl, clnt_hdl, 0,
+		result = gsi_flow_control_ee(ep->gsi_chan_hdl, clnt_hdl,
+				gsi_ep_cfg->ee,
 				ep_ctrl->ipa_ep_delay, primary_secondry, &code);
 		if (result == GSI_STATUS_SUCCESS) {
 			IPADBG("flow control sussess gsi ch %d with code %d\n",
