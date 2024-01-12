@@ -17,6 +17,7 @@
 #define IPA_WDI3_MAX_VALUE_OF_BANK_ID 63
 #define IPA_WDI4_MAX_VALUE_OF_VDEV_ID 255
 #define IPA_WDI4_MAX_VALUE_OF_PMAC_ID 3
+#define IPA_WDI4_MAX_VALUE_OF_CHIP_ID 0x7
 
 static void ipa3_wdi3_gsi_evt_ring_err_cb(struct gsi_evt_err_notify *notify)
 {
@@ -75,6 +76,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	struct gsi_evt_ring_props gsi_evt_ring_props;
 	struct gsi_chan_props gsi_channel_props;
 	union __packed gsi_channel_scratch ch_scratch;
+	union __packed gsi_wdi_channel_scratch9_reg gsi_scratch9;
 	union __packed gsi_evt_scratch evt_scratch;
 	const struct ipa_gsi_ep_config *gsi_ep_info;
 	int result, len;
@@ -818,24 +820,50 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 						goto fail_write_scratch;
 					}
 					ch_scratch.wdi4.bank_id = info_smmu->rx_bank_id;
-					if(info_smmu->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID){
+					if(info_smmu->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID) {
 						IPAERR("Incorrect pmac id value %d Exceeding the 2bit range\n", info_smmu->rx_pmac_id);
 						goto fail_write_scratch;
 					}
 					ch_scratch.wdi4.pmac_id = info_smmu->rx_pmac_id;
-				}
-				else {
+				} else {
 					ch_scratch.wdi4.vdev_id = 0;
 					if(info->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
 						IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n", info->rx_bank_id);
 						goto fail_write_scratch;
 					}
 					ch_scratch.wdi4.bank_id = info->rx_bank_id;
-					if(info->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID){
+					if(info->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID) {
 					IPAERR("Incorrect pmac id value %d Exceeding the 2bit range\n", info->rx_pmac_id);
 					goto fail_write_scratch;
 					}
 					ch_scratch.wdi4.pmac_id = info->rx_pmac_id;
+				}
+			} else { /*rx dir writing sratch specific to wdi4*/
+				memset(&gsi_scratch9, 0, sizeof(gsi_scratch9));
+				gsi_scratch9.wdi.chip_id = 0x7;
+				if (is_smmu_enabled) {
+					if (info_smmu->mlo_chip_id == 0xFF) {
+						gsi_scratch9.wdi.chip_id = 0x7;
+					} else if (info_smmu->mlo_chip_id > IPA_WDI4_MAX_VALUE_OF_CHIP_ID) {
+						IPAERR("Incorrect chip id value %d Exceeding the 4bit range\n", info_smmu->mlo_chip_id);
+						goto fail_write_scratch;
+					} else {
+						gsi_scratch9.wdi.chip_id = info_smmu->mlo_chip_id;
+					}
+				} else {
+					if (info->mlo_chip_id == 0xFF) {
+						gsi_scratch9.wdi.chip_id = 0x7;
+					} else if (info->mlo_chip_id > IPA_WDI4_MAX_VALUE_OF_CHIP_ID) {
+						IPAERR("Incorrect chip id value %d Exceeding the 4bit range\n", info->mlo_chip_id);
+						goto fail_write_scratch;
+					} else {
+						gsi_scratch9.wdi.chip_id = info->mlo_chip_id;
+					}
+				}
+				result = gsi_write_channel_scratch9_reg(ep->gsi_chan_hdl,gsi_scratch9);
+				if (result != GSI_STATUS_SUCCESS) {
+					IPAERR("failed to write evt ring scratch\n");
+					goto fail_write_scratch;
 				}
 			}
 		ch_scratch.wdi4.qmap_id = 0;
@@ -1552,11 +1580,13 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		memset(&holb_cfg, 0, sizeof(holb_cfg));
 		holb_cfg.en = IPA_HOLB_TMR_EN;
 		holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_5g_holb_timeout;
+		result = ipa3_cfg_ep_holb(ipa_ep_idx_tx, &holb_cfg);
 		IPADBG("Configuring HOLB TO on tx return = %d\n",
-			ipa3_cfg_ep_holb(ipa_ep_idx_tx, &holb_cfg));
+			result);
 		holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_2g_holb_timeout;
+		result = ipa3_cfg_ep_holb(ipa_ep_idx_tx1, &holb_cfg);
 		IPADBG("Configuring HOLB TO on tx1 return = %d\n",
-			ipa3_cfg_ep_holb(ipa_ep_idx_tx1, &holb_cfg));
+			result);
 	} else if (ipa3_ctx->is_dual_pine_config) {
 		/* dual pine case, 5g/2g will use its own tx pipe instead of tx1 */
 		memset(&holb_cfg, 0, sizeof(holb_cfg));

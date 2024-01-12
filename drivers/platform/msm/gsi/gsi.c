@@ -3127,6 +3127,30 @@ static void __gsi_write_wdi3_channel_scratch2_reg(unsigned long chan_hdl,
 		gsi_ctx->per.ee, chan_hdl, val.data.word1);
 }
 
+int gsi_write_channel_scratch9_reg(unsigned long chan_hdl,
+		union __packed gsi_wdi_channel_scratch9_reg val)
+{
+	struct gsi_chan_ctx *ctx;
+
+	if (!gsi_ctx) {
+		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
+		return -GSI_STATUS_NODEV;
+	}
+
+	if (chan_hdl >= gsi_ctx->max_ch) {
+		GSIERR("bad params chan_hdl=%lu\n", chan_hdl);
+		return -GSI_STATUS_INVALID_PARAMS;
+	}
+
+	ctx = &gsi_ctx->chan[chan_hdl];
+
+	mutex_lock(&ctx->mlock);
+	gsihal_write_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9,
+		gsi_ctx->per.ee, chan_hdl, val.data.word1);
+	mutex_unlock(&ctx->mlock);
+	return GSI_STATUS_SUCCESS;
+}
+EXPORT_SYMBOL(gsi_write_channel_scratch9_reg);
 
 int gsi_write_channel_scratch3_reg(unsigned long chan_hdl,
 		union __packed gsi_wdi_channel_scratch3_reg val)

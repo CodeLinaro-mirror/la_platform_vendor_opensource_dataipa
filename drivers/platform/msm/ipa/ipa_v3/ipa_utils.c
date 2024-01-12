@@ -5848,6 +5848,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 19, 2, 5, 5, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_DL },
 
+	[IPA_5_2_MDM][IPA_CLIENT_ODL_DPL_CONS] = {
+			true, IPA_v5_2_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 19, 2, 5, 5, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_DL },
+
 	[IPA_5_2_MDM][IPA_CLIENT_ETHERNET_CONS] = {
 			true, IPA_v5_2_GROUP_DL,
 			false,
@@ -11330,6 +11337,7 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 	int code = 0, result;
 	struct ipa3_ep_context *ep;
 	bool primary_secondry;
+	const struct ipa_gsi_ep_config *gsi_ep_cfg;
 
 	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes || ep_ctrl == NULL) {
 		IPAERR("bad parm, clnt_hdl = %d\n", clnt_hdl);
@@ -11352,6 +11360,12 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 		ep_ctrl->ipa_ep_suspend,
 		ep_ctrl->ipa_ep_delay);
 	ep = &ipa3_ctx->ep[clnt_hdl];
+	gsi_ep_cfg = ipa3_get_gsi_ep_info(ep->client);
+
+	if (!gsi_ep_cfg) {
+		IPAERR("failed to get GSI config\n");
+		return -EINVAL;
+	}
 
 	if (ipa3_ctx->ipa_endp_delay_wa_v2 &&
 		IPA_CLIENT_IS_PROD(ep->client)) {
@@ -11369,7 +11383,8 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 		else
 			primary_secondry = false;
 
-		result = gsi_flow_control_ee(ep->gsi_chan_hdl, clnt_hdl, 0,
+		result = gsi_flow_control_ee(ep->gsi_chan_hdl, clnt_hdl,
+				gsi_ep_cfg->ee,
 				ep_ctrl->ipa_ep_delay, primary_secondry, &code);
 		if (result == GSI_STATUS_SUCCESS) {
 			IPADBG("flow control sussess gsi ch %d with code %d\n",
@@ -14929,7 +14944,7 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 	}
 
 	ep = &ipa3_ctx->ep[ipa_ep_idx];
-	if (!ep->valid)
+	if (!ep->valid || !ep->sys )
 		return 0;
 
 	IPADBG("%s pipe %d\n", suspend ? "suspend" : "unsuspend", ipa_ep_idx);
