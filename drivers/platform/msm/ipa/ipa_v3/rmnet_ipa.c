@@ -2653,12 +2653,6 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	/* caching the success status of the pipe */
 	pipe_status->status = IPA_PIPE_SETUP_EXISTS;
 
-#ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled()) {
-		rc = ipa_ipsec_ep_init_cons();
-	}
-#endif
-
 	return rc;
 }
 
@@ -5663,6 +5657,7 @@ void ipa3_lcl_mdm_reboot_cb ( )
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	}
 	mutex_unlock(&rmnet_ipa3_ctx->is_ssr_lock);
+	ipa3_ctx->is_reboot_complete = true;
 	IPAWANDBG(" Exit \n");
 
 }
@@ -5796,8 +5791,12 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		}
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
-		if (ipa3_ctx->ipa_config_is_mhi)
+		if (ipa3_ctx->ipa_config_is_mhi) {
 			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_CONS);
+			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_LOW_LAT_CONS);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5)
+				ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_COAL_CONS);
+		}
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("BEFORE DEEPSLEEP EXIT handling is complete\n");
 		break;
@@ -5820,8 +5819,12 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		}
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
-		if (ipa3_ctx->ipa_config_is_mhi)
+		if (ipa3_ctx->ipa_config_is_mhi) {
 			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_CONS);
+			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_LOW_LAT_CONS);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5)
+				ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_COAL_CONS);
+		}
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("IPA BEFORE_POWERUP handling is complete\n");
 		break;
@@ -8240,6 +8243,10 @@ int rmnet_ipa3_get_wan_mtu(
 	int rmnet_index;
 
 	mux_channel = rmnet_ipa3_ctx->mux_channel;
+
+	/* prevent string buffer overflows */
+	data->if_name[IPA_RESOURCE_NAME_MAX-1] = '\0';
+
 	rmnet_index =
 		find_vchannel_name_index(data->if_name);
 

@@ -627,6 +627,12 @@ int ipa3_send(struct ipa3_sys_context *sys,
 	if (unlikely(!in_atomic))
 		mem_flag = GFP_KERNEL;
 
+
+	if (ipa3_ctx-> is_reboot_complete ){
+		IPADBG_LOW(" trying to send after reboot \n");
+		return 0;
+	}
+
 	gsi_ep_cfg = ipa3_get_gsi_ep_info(sys->ep->client);
 	if (unlikely(!gsi_ep_cfg)) {
 		IPAERR("failed to get gsi EP config for client=%d\n",
@@ -4618,7 +4624,7 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
 
 		metadata = ntohl(metadata);
-		*(u16 *)rx_skb->cb = ((metadata >> 24) & 0xFF);//updating the vdev id
+		*(u16 *)rx_skb->cb = (((metadata >> 24) & 0xFF) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);//updating the vdev id and da_is_mcbc
 		*(u8 *)(rx_skb->cb + 4) = ucp; //updating the ucp
 		*(u16 *)(rx_skb->cb + 5) = metadata & 0xFFF; //updating the  ta peer id
 		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",

@@ -5652,6 +5652,9 @@ void ipa3_q6_pre_shutdown_cleanup(void)
 	if (ipa3_ctx->ipa_config_is_mhi) {
 		ipa3_set_reset_client_cons_pipe_sus_holb(true,
 		IPA_CLIENT_MHI_CONS);
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5)
+			ipa3_set_reset_client_cons_pipe_sus_holb(true, IPA_CLIENT_MHI_COAL_CONS);
+		ipa3_set_reset_client_cons_pipe_sus_holb(true, IPA_CLIENT_MHI_LOW_LAT_CONS);
 		if (ipa3_ctx->ipa_config_is_auto)
 			ipa3_set_reset_client_cons_pipe_sus_holb(true,
 				IPA_CLIENT_MHI2_CONS);
@@ -7648,8 +7651,10 @@ void ipa3_dec_client_disable_clks_delay_wq(
 	ipa3_active_clients_log_dec(id, true);
 
 	if (!queue_delayed_work(ipa3_ctx->power_mgmt_wq,
-		&ipa_dec_clients_disable_clks_on_suspend_irq_wq_work, delay))
-		IPAERR("Scheduling delayed work failed\n");
+		&ipa_dec_clients_disable_clks_on_suspend_irq_wq_work, delay)) {
+		IPAERR("Scheduling delayed work failed, disable clk\n");
+		__ipa3_dec_client_disable_clks();
+	}
 }
 /**
  * ipa3_inc_acquire_wakelock() - Increase active clients counter, and
@@ -10289,6 +10294,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->mpm_teth_aggr_size = DEFAULT_MPM_TETH_AGGR_SIZE;
 	ipa3_ctx->mpm_uc_thresh = DEFAULT_MPM_UC_THRESH_SIZE;
 	ipa3_ctx->uc_act_tbl_valid = false;
+	ipa3_ctx->is_reboot_complete = false;
 	ipa3_ctx->uc_act_tbl_total = 0;
 	ipa3_ctx->uc_act_tbl_next_index = 0;
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;

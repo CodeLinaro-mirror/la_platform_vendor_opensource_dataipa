@@ -407,10 +407,12 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req);
 int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *entry, bool up);
 int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata);
 int ipa_ipsec_ep_init_prod(void);
-int ipa_ipsec_ep_init_cons(void);
+void ipa_ipsec_ep_init_cons(struct work_struct *work);
 void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action);
 const char * ipa_ipsec_get_auth_algo_name(enum ipa_ipsec_sa_auth auth_algo);
 const char * ipa_ipsec_get_encr_algo_name(enum ipa_ipsec_sa_enc encr_algo);
+#define IPA_UC_IPSEC_WORKQUEUE_NAME "ipa_uc_ipsec_wq"
+static struct workqueue_struct *ipa_uc_ipsec_wq;
 #else
 inline bool ipa_ipsec_enabled(void) {return false;}
 inline int ipa_ipsec_init(void) {return 0;}
