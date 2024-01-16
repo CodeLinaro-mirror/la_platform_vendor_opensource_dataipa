@@ -158,7 +158,7 @@ static int ipa_alloc_pkt_init_ex(void);
 static void ipa3_free_pkt_init(void);
 static void ipa3_free_pkt_init_ex(void);
 
-#ifdef CONFIG_DEEPSLEEP
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 static void ipa3_deepsleep_resume(void);
 static void ipa3_deepsleep_suspend(void);
 #endif
@@ -519,19 +519,29 @@ EXPORT_SYMBOL(ipa_smmu_free_sgt);
 
 static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 {
-	IPAERR("Entry\n");
+	IPADBG("Entry\n");
 	switch (event) {
-		case PM_POST_SUSPEND:
-#ifdef CONFIG_DEEPSLEEP
-			if (mem_sleep_current == PM_SUSPEND_MEM && ipa3_ctx->deepsleep) {
-				IPADBG("Enter deepsleep resume\n");
-				ipa3_deepsleep_resume();
-				IPADBG("Exit deepsleep resume\n");
-			}
+	case PM_POST_SUSPEND:
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+		if (pm_suspend_via_firmware() && ipa3_ctx->deepsleep) {
+			IPADBG("Enter deepsleep resume\n");
+			ipa3_deepsleep_resume();
+			IPADBG("Exit deepsleep resume\n");
+		}
 #endif
-			break;
+		break;
+	case PM_POST_HIBERNATION:
+#if IS_ENABLED(CONFIG_HIBERNATION)
+		/*Using the same deepsleep flag to check if freeze happened or not.*/
+		if (ipa3_ctx->deepsleep) {
+			IPADBG("Enter hibernate restore\n");
+			ipa3_deepsleep_resume();
+			IPADBG("Exit hibernate restore\n");
+		}
+#endif
+		break;
 	}
-	IPAERR("Exit\n");
+	IPADBG("Exit\n");
 	return NOTIFY_DONE;
 }
 
@@ -542,7 +552,11 @@ static struct notifier_block ipa_pm_notifier = {
 
 static const struct dev_pm_ops ipa_pm_ops = {
 	.suspend_late = ipa3_ap_suspend,
+#if IS_ENABLED(CONFIG_HIBERNATION)
+	.freeze_late = ipa3_ap_freeze,
+#endif
 	.resume_early = ipa3_ap_resume,
+	.restore_early = ipa3_ap_resume,
 };
 
 static struct platform_driver ipa_plat_drv = {
@@ -6771,10 +6785,11 @@ void ipa3_disable_clks(void)
 	 */
 	if (!ipa3_ctx->ipa_config_is_mhi) {
 		type = gsi_pending_irq_type();
-		if (type) {
+		if (type != -EPERM && type) {
 			IPAERR("unexpected gsi irq type: %d\n", type);
 			/* increase ipa3_active_clients for smp2p response */
 			atomic_inc(&ipa3_ctx->ipa3_active_clients.cnt);
+			atomic_set(&ipa3_ctx->ipa_clk_vote, 1);
 			ipa_assert();
 		}
 	}
@@ -7168,8 +7183,10 @@ void ipa3_dec_client_disable_clks_delay_wq(
 	ipa3_active_clients_log_dec(id, true);
 
 	if (!queue_delayed_work(ipa3_ctx->power_mgmt_wq,
-		&ipa_dec_clients_disable_clks_on_suspend_irq_wq_work, delay))
-		IPAERR("Scheduling delayed work failed\n");
+		&ipa_dec_clients_disable_clks_on_suspend_irq_wq_work, delay)) {
+		IPAERR("Scheduling delayed work failed, disable clk\n");
+		__ipa3_dec_client_disable_clks();
+	}
 }
 /**
  * ipa3_inc_acquire_wakelock() - Increase active clients counter, and
@@ -8237,10 +8254,6 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_setup_uc_act_tbl();
 	ipa_trigger_ipa_ready_cbs();
 
-#ifdef CONFIG_DEEPSLEEP
-	if (!ipa_is_ready())
-		ipa_fmwk_deepsleep_exit_ipa();
-#endif
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	ipa_ut_module_init();
@@ -8467,16 +8480,17 @@ static int ipa3_pil_load_ipa_fws(const char *sub_sys)
 }
 #endif /* IS_ENABLED(CONFIG_QCOM_MDT_LOADER) */
 
-#ifdef CONFIG_DEEPSLEEP
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 static int ipa3_pil_unload_ipa_fws(void)
 {
-
+#if !IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
 	IPADBG("PIL FW unloading process initiated sub_sys\n");
 
 	if (ipa3_ctx->subsystem_get_retval)
 		subsystem_put(ipa3_ctx->subsystem_get_retval);
 
 	IPADBG("PIL FW unloading process is complete sub_sys\n");
+#endif
 	return 0;
 }
 #endif
@@ -10635,6 +10649,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 
 	/* Get IPA GSI IRQ number */
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0))
+	irq = 0;
 	resource = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
 			"gsi-irq");
 	if (!resource) {
@@ -11867,8 +11882,9 @@ int ipa3_ap_suspend(struct device *dev)
 		}
 	}
 
-#ifdef CONFIG_DEEPSLEEP
-	if (mem_sleep_current == PM_SUSPEND_MEM) {
+
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	if (pm_suspend_via_firmware()) {
 		IPADBG("Enter deepsleep suspend\n");
 		ipa3_deepsleep_suspend();
 		IPADBG("Exit deepsleep suspend\n");
@@ -11880,6 +11896,46 @@ int ipa3_ap_suspend(struct device *dev)
 
 	return 0;
 }
+
+#if IS_ENABLED(CONFIG_HIBERNATION)
+/**
+ * ipa3_ap_freeze() - hibernate freeze callback for runtime_pm
+ * @dev: pointer to device
+ *
+ * This callback will be invoked by the runtime_pm framework when an AP
+ * hibernate freeze operation is invoked, usually by pressing a hibernate button.
+ *
+ * Returns -EAGAIN to runtime_pm framework in case IPA is in use by AP.
+ * This will postpone the suspend/freeze operation until IPA is no longer used by AP.
+ */
+int ipa3_ap_freeze(struct device *dev)
+{
+	int i;
+
+	IPADBG("Enter\n");
+
+	if (!of_device_is_compatible(dev->of_node, "qcom,ipa"))
+		return 0;
+	/* In case there is a tx/rx handler in polling mode fail to suspend */
+	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
+		if (ipa3_ctx->ep[i].sys &&
+			atomic_read(&ipa3_ctx->ep[i].sys->curr_polling_state)) {
+			IPAERR("EP %d is in polling state, do not suspend\n",
+				i);
+			return -EAGAIN;
+		}
+	}
+
+	IPADBG("Enter hibernate freeze\n");
+	ipa3_deepsleep_suspend();
+	IPADBG("Exit hibernate freeze\n");
+
+	ipa_pm_deactivate_all_deferred();
+
+	IPADBG("Exit\n");
+	return 0;
+}
+#endif
 
 /**
  * ipa3_ap_resume() - resume callback for runtime_pm
@@ -11908,7 +11964,7 @@ bool ipa_get_lan_rx_napi(void)
 EXPORT_SYMBOL(ipa_get_lan_rx_napi);
 
 
-#ifdef CONFIG_DEEPSLEEP
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 static void ipa3_deepsleep_suspend(void)
 {
 	IPADBG("Entry\n");
@@ -11942,8 +11998,6 @@ static void ipa3_deepsleep_suspend(void)
 	ipa3_debugfs_remove();
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
-	/*Calling framework API to reset IPA ready flag to false*/
-	ipa_fmwk_deepsleep_entry_ipa();
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	IPADBG("Exit\n");
 }
