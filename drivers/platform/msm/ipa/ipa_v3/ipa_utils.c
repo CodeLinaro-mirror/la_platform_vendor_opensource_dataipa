@@ -13832,9 +13832,9 @@ int ipa3_is_spcl_iface(enum ipa_vlan_ifaces iface, bool *res)
 		return -ENODEV;
 	}
 
-	*res = ipa3_ctx->spcl_iface[iface];
+	*res = ipa3_ctx->spcl_iface[iface] && ipa3_ctx->is_dual_wkk_config;
 
-	IPADBG("Eth Iface %s ezmesh mode is %d\n", iface, *res);
+	IPADBG("Eth Iface %d ezmesh mode: %d, special iface: %d \n", iface, *res, ipa3_ctx->spcl_iface[iface]);
 	return 0;
 }
 EXPORT_SYMBOL(ipa3_is_spcl_iface);
