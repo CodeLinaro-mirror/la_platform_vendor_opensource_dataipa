@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 
@@ -476,6 +476,7 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		"IPA_ENDP_INIT_HOL_TIMER_%u=0x%x\n"
 		"IPA_ENDP_INIT_DEAGGR_%u=0x%x\n"
 		"IPA_ENDP_INIT_CFG_%u=0x%x\n"
+		"IPA_ENDP_INIT_SEQ_%u=0x%x\n"
 		"IPA_ENDP_INIT_IPSEC_CFG_%u=0x%x\n"
 		"IPA_ENDP_INIT_DRBIP_CFG_%u=0x%x\n",
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_NAT_n, pipe),
@@ -489,6 +490,7 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DEAGGR_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CFG_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_SEQ_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, pipe));
 }

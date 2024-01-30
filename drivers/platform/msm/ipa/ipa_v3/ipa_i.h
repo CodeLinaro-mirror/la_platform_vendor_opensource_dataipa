@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA3_I_H_
@@ -2588,6 +2588,7 @@ struct ipa3_context {
 	enum ipa3_platform_type platform_type;
 	bool ipa_config_is_mhi;
 	bool ipa_config_is_rdkb;
+	bool ipa_config_is_ipsec;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
