@@ -5562,14 +5562,12 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_USB_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_WLAN1_PROD stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_WLAN2_CONS */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
@@ -5580,7 +5578,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_WLAN2_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_WLAN2_CONS1 */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_CONS1);
@@ -5591,7 +5588,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_WLAN2_CONS1 stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
 	if (ep_idx >= 0) {
@@ -5601,14 +5597,12 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_WAN_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_WAN_PROD stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_APPS_LAN_CONS pipe */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
@@ -5619,7 +5613,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_LAN_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_APPS_LAN_COAL_CONS pipe */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS);
@@ -5627,7 +5620,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_LAN_COAL_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_APPS_LAN_PROD pipe */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_PROD);
@@ -5635,14 +5627,12 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_LAN_PROD stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_ETH_PROD stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
 	if (ep_idx >= 0) {
@@ -5652,7 +5642,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_ETH_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	}
