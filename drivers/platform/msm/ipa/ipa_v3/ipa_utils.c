@@ -7115,7 +7115,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 35, 24 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
-
+	[IPA_6_0_MHI][IPA_CLIENT_TPUT_CONS] = {
+			true, IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 43, 31, 0, 0, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_DL },
 	/* IPA_6_0_AUTO */
 	/* WDI 1.0 uses WLAN3_PROD, WLAN3_CONS uC HW pipes */
 	/* And WLAN4_CONS as MCC pipe */
