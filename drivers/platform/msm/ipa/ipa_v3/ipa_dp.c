@@ -4553,10 +4553,26 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 	u16 cb_value = 0;
 
 /*
- * RX TLV headers.
+ * Pine RX TLV headers.
  * <28 bytes of rx_msdu_end_tlv> + <16 bytes of attn_tlv> +
  * <48 bytes of rx_msdu_start tlv>.
+ *
+ * HMT RX TLV headers.
+ *
+ * 1st TLV
+ * <1 [15:0] Sa_sw_peer_id> + <1 [23] Sa_is_valid> +
+ * <2 [15:0] Sa_index>
+ *
+ * 2nd TLV
+ * <11	[5]	Mac_addr_ad4_valid>
+ *
+ * GSI will send us 12 byte of TLV with the above fields
  */
+
+	if (ipa_get_wdi_version() == IPA_WDI_3_V2) {
+		/* Incremental offset for sa_peer_id. */
+		ast_info->sa_peer_id = *((u16 *)buff);
+	}
 
 /* Incremental offset for sa_vlid bit. */
 #define IPA_WDI_AST_SA_VALID_INC_OFFST 2
@@ -4575,16 +4591,21 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 
 /* Incremental offset for sa_peer_id. */
 #define IPA_WDI_AST_SA_PEER_ID_INC_OFFST 14
-
-	buff += IPA_WDI_AST_SA_PEER_ID_INC_OFFST;
-
-	ast_info->sa_peer_id = *((u16 *)buff);
+	/* Pine offset */
+	if (ipa_get_wdi_version() == IPA_WDI_3) {
+		buff += IPA_WDI_AST_SA_PEER_ID_INC_OFFST;
+		ast_info->sa_peer_id = *((u16 *)buff);
+	}
 
 /* Incremental offset for mac_addr4_valid bit. */
-#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST 74
+#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT 8
+#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_PINE 74
 #define IPA_WDI_AST_MAC_ADDR4_VALID_MSK 0x20
 
-	buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST;
+	if (ipa_get_wdi_version() == IPA_WDI_3_V2)
+		buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT;
+	else
+		buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_PINE;
 
 	ast_info->mac_addr_ad4_valid =
 		*((u32 *)buff) & IPA_WDI_AST_MAC_ADDR4_VALID_MSK;
@@ -4602,7 +4623,13 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 #define IPA_WDI_AST_FIRST_MSDU_MSK 0x1000
 	ast_info->first_msdu_in_mpdu_flag = metadata & IPA_WDI_AST_FIRST_MSDU_MSK;
 
-	skb_pull(skb, IPA_WDI_RX_TLV_SIZE);
+#define IPA_WDI_RX_TLV_SIZE_HMT 12
+#define IPA_WDI_RX_TLV_SIZE_PINE 96
+
+	if (ipa_get_wdi_version() == IPA_WDI_3_V2)
+		skb_pull(skb, IPA_WDI_RX_TLV_SIZE_HMT);
+	else
+		skb_pull(skb, IPA_WDI_RX_TLV_SIZE_PINE);
 
 /* Update CB with previous metadata format. */
 /* Old Metadata Format
