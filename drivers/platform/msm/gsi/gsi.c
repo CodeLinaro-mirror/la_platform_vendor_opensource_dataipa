@@ -351,6 +351,7 @@ static void gsi_handle_ch_ctrl(int ee)
 			GSIDBG("ch %x\n", ch);
 			for (i = 0; i < GSI_STTS_REG_BITS; i++) {
 				if ((1 << i) & ch) {
+					/* return once find ch in one of max_k */
 					ch_hdl = i + (GSI_STTS_REG_BITS * k);
 					if (ch_hdl >= gsi_ctx->max_ch ||
 						ch_hdl >= GSI_CHAN_MAX) {
@@ -368,6 +369,7 @@ static void gsi_handle_ch_ctrl(int ee)
 						ch_hdl, ctx->state);
 					complete(&ctx->compl);
 					gsi_ctx->ch_dbg[ch_hdl].cmd_completed++;
+					return;
 				}
 			}
 		}
