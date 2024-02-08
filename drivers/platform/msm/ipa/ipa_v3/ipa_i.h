@@ -2767,6 +2767,7 @@ struct ipa3_context {
 	int uc_act_tbl_next_index;
 	int ipa_pil_load;
 	bool is_dual_pine_config;
+	bool is_dual_wkk_config;
 	u32 ipa_max_napi_sort_page_thrshld;
 	u32 page_wq_reschd_time;
 	bool coal_ipv4_id_ignore;
@@ -2876,6 +2877,7 @@ struct ipa3_plat_drv_res {
 	bool use_tput_est_ep;
 	bool ulso_wa;
 	bool is_dual_pine_config;
+	bool is_dual_wkk_config;
 	u8 coal_ipv4_id_ignore;
 	bool cesta_enable;
 	bool iemac_exist;
@@ -3891,6 +3893,7 @@ struct iommu_domain *ipa3_get_eth_smmu_domain(void);
 struct iommu_domain *ipa3_get_eth1_smmu_domain(void);
 struct iommu_domain *ipa3_get_smmu_domain_by_type
 	(enum ipa_smmu_cb_type cb_type);
+struct device *ipa3_get_wlan_device(void);
 int ipa3_iommu_map(struct iommu_domain *domain, unsigned long iova,
 	phys_addr_t paddr, size_t size, int prot);
 int ipa3_ap_suspend(struct device *dev);
