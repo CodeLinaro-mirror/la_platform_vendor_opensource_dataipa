@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 - 2023  Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 - 2024  Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -67,7 +67,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	struct ipa_wdi_pipe_setup_info *info,
 	struct ipa_wdi_pipe_setup_info_smmu *info_smmu, u8 dir,
 	struct ipa3_ep_context *ep,
-	bool ast_update)
+	bool ast_update, bool is_hsp)
 {
 	struct gsi_evt_ring_props gsi_evt_ring_props;
 	struct gsi_chan_props gsi_channel_props;
@@ -446,6 +446,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 
 	/* write channel scratch */
 	memset(&ch_scratch, 0, sizeof(ch_scratch));
+	ch_scratch.wdi3.is_hsp = is_hsp;
 	ch_scratch.wdi3.update_rp_moderation_threshold =
 		UPDATE_RP_MODERATION_THRESHOLD;
 	if ((dir == IPA_WDI3_RX_DIR) || (dir == IPA_WDI3_RX2_DIR)
@@ -623,7 +624,7 @@ fail_smmu_mapping:
 int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	struct ipa_wdi_conn_out_params *out,
 	ipa_wdi_meter_notifier_cb wdi_notify,
-	bool ast_update)
+	bool ast_update, bool is_hsp)
 {
 	enum ipa_client_type rx_client;
 	enum ipa_client_type rx1_client;
@@ -751,6 +752,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	}
 	ep_rx->client_notify = in->notify;
 	ep_rx->ast_update = ast_update;
+	ep_rx->is_hsp = is_hsp;
 	ep_rx->ast_notify = in->ast_notify;
 	ep_rx->priv = in->priv;
 
@@ -773,7 +775,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 
 	if (ipa3_setup_wdi3_gsi_channel(in->is_smmu_enabled,
 		&in->u_rx.rx, &in->u_rx.rx_smmu, rx_dir,
-		ep_rx, ast_update)) {
+		ep_rx, ast_update, is_hsp)) {
 		IPAERR("fail to setup wdi3 gsi rx channel\n");
 		result = -EFAULT;
 		goto fail;
@@ -807,6 +809,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		}
 		ep_rx1->client_notify = in->notify;
 		ep_rx1->ast_update = ast_update;
+		ep_rx1->is_hsp = is_hsp;
 		ep_rx1->ast_notify = in->ast_notify;
 		ep_rx1->priv = in->priv;
 
@@ -826,14 +829,14 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 			IPA_WDI3_RX3_DIR : IPA_WDI3_RX4_DIR;
 
 		if (ipa3_setup_wdi3_gsi_channel(in->is_smmu_enabled,
-										&in->u_rx1.rx, &in->u_rx1.rx_smmu, rx_dir,
-										ep_rx1, ast_update)) {
+			&in->u_rx1.rx, &in->u_rx1.rx_smmu, rx_dir,
+			ep_rx1, ast_update, is_hsp)) {
 			IPAERR("fail to setup wdi3 gsi rx1 channel\n");
 			result = -EFAULT;
 			goto fail;
 		}
 		if (gsi_query_channel_db_addr(ep_rx1->gsi_chan_hdl,
-									  &gsi_db_addr_low, &gsi_db_addr_high)) {
+			&gsi_db_addr_low, &gsi_db_addr_high)) {
 			IPAERR("failed to query gsi rx1 db addr\n");
 			result = -EFAULT;
 			goto fail;
@@ -907,7 +910,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 
 	if (ipa3_setup_wdi3_gsi_channel(in->is_smmu_enabled,
 		&in->u_tx.tx, &in->u_tx.tx_smmu, tx_dir,
-		ep_tx, ast_update)) {
+		ep_tx, ast_update, is_hsp)) {
 		IPAERR("fail to setup wdi3 gsi tx channel\n");
 		result = -EFAULT;
 		goto fail;
@@ -1008,7 +1011,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		/* setup TX1 gsi channel */
 		if (ipa3_setup_wdi3_gsi_channel(in->is_smmu_enabled,
 			&in->u_tx1.tx, &in->u_tx1.tx_smmu, IPA_WDI3_TX1_DIR,
-			ep_tx1, ast_update)) {
+			ep_tx1, ast_update, is_hsp)) {
 			IPAERR("fail to setup wdi3 gsi tx1 channel\n");
 			result = -EFAULT;
 			goto fail;

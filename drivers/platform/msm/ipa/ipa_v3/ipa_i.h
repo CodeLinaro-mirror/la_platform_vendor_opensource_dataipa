@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -1128,7 +1128,7 @@ struct ipa3_ep_context {
 	bool ep_delay_set;
 	bool ast_update;
 	void (*ast_notify)(void *client_priv, unsigned long data);
-
+	bool is_hsp;
 	/* sys MUST be the last element of this struct */
 	struct ipa3_sys_context *sys;
 };
