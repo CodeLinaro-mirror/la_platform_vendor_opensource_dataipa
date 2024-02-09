@@ -235,6 +235,7 @@ static void gsi_dump_ch_stats(struct gsi_chan_ctx *ctx)
 		PRT_STAT("compl_evt=%lu\n",
 			ctx->evtr->stats.completed);
 	PRT_STAT("userdata_in_use=%lu\n", ctx->stats.userdata_in_use);
+	PRT_STAT("packet queue failed=%lu\n", ctx->stats.pkt_queue_fail);
 
 	PRT_STAT("ch_below_lo=%lu\n", ctx->stats.dp.ch_below_lo);
 	PRT_STAT("ch_below_hi=%lu\n", ctx->stats.dp.ch_below_hi);
