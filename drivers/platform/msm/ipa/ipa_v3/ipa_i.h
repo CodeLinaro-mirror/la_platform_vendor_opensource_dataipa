@@ -1688,6 +1688,7 @@ struct lan_coal_stats {
 struct ipa3_stats {
 	u32 tx_sw_pkts;
 	u32 tx_hw_pkts;
+	u32 tx_queue_fail_pkts;
 	u32 rx_pkts;
 	u32 rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_MAX];
 	u32 rx_repl_repost;
