@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <net/ip.h>
@@ -10409,12 +10409,16 @@ int ipa3_controller_static_bind(struct ipa3_controller *ctrl,
 void ipa3_skb_recycle(struct sk_buff *skb)
 {
 	struct skb_shared_info *shinfo;
-
+	u8 head_frag, pfmemalloc;
+	
 	shinfo = skb_shinfo(skb);
-	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
 	atomic_set(&shinfo->dataref, 1);
-
+	head_frag = skb->head_frag;
+	pfmemalloc = skb->pfmemalloc;
 	memset(skb, 0, offsetof(struct sk_buff, tail));
+	skb->head_frag = head_frag;
+	skb->pfmemalloc = pfmemalloc;
+
 	skb->data = skb->head + NET_SKB_PAD;
 	skb_reset_tail_pointer(skb);
 }
