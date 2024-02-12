@@ -2328,6 +2328,8 @@ struct ipa3_eth_pdu_ctx {
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  * @eth_pdu_ctx: ETH PDU ctx
+ * @private_ip_forward_eth_iface: Will store 1(eth0) or 2(eth1) if Feature is enabled. Else will store 0.
+ * @private_ip_forward_ep_index: int value to store which ep will the forward be enabled on
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2598,6 +2600,8 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
 	struct mutex ssr_lock;
+	u8 private_ip_forward_eth_iface;
+	int private_ip_forward_ep_index;
 };
 
 struct ipa3_plat_drv_res {
@@ -3856,7 +3860,8 @@ int ipa3_send_macsec_info(enum ipa_macsec_event event_type, struct ipa_macsec_ma
  */
 int ipa3_add_remove_dscp_pcp_map(
 	uint8_t *map, bool AddMapping );
-
+int ipa3_send_mux_vlan_map(
+	struct ipa_ioc_mux_mapping_table *map );
 /* Peripheral stats APIs */
 /* Non periodic/Event based stats update */
 int ipa3_update_usb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);

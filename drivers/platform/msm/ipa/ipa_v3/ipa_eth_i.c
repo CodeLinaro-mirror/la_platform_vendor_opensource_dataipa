@@ -1082,18 +1082,33 @@ int ipa3_eth_connect(
 	/* multiple attach support */
 	if (strnstr(net_dev->name, STR_ETH0_IFACE, strlen(net_dev->name))) {
 		result = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH0, &vlan_mode);
+		if(ipa3_ctx->private_ip_forward_eth_iface == 1 && IPA_CLIENT_IS_PROD(client_type)){
+			/* Private IP forwarding enabled on ETH0*/
+			ipa3_ctx->private_ip_forward_ep_index = ep_idx;
+			IPADBG("PIF ETH0 ep:%d\n",ep_idx);
+		}
 		if (result) {
 			IPAERR("Could not determine IPA VLAN mode\n");
 			return result;
 		}
 	} else if (strnstr(net_dev->name, STR_ETH1_IFACE, strlen(net_dev->name))) {
 		result = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH1, &vlan_mode);
+		if(ipa3_ctx->private_ip_forward_eth_iface == 2 && IPA_CLIENT_IS_PROD(client_type)){
+			/* Private IP forwarding enabled on ETH1*/
+			ipa3_ctx->private_ip_forward_ep_index = ep_idx;
+			IPADBG("PIF ETH1 ep:%d\n",ep_idx);
+		}
 		if (result) {
 			IPAERR("Could not determine IPA VLAN mode\n");
 			return result;
 		}
 	} else {
 		result = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH, &vlan_mode);
+		if(ipa3_ctx->private_ip_forward_eth_iface && IPA_CLIENT_IS_PROD(client_type)){
+			/* Private IP forwarding enabled*/
+			ipa3_ctx->private_ip_forward_ep_index = ep_idx;
+			IPADBG("PIF ETH ep:%d\n",ep_idx);
+		}
 		if (result) {
 			IPAERR("Could not determine IPA VLAN mode\n");
 			return result;
