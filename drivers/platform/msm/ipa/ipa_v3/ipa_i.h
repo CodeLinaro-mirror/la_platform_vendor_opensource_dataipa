@@ -2330,6 +2330,10 @@ struct ipa3_eth_pdu_ctx {
  * @eth_pdu_ctx: ETH PDU ctx
  * @private_ip_forward_eth_iface: Will store 1(eth0) or 2(eth1) if Feature is enabled. Else will store 0.
  * @private_ip_forward_ep_index: int value to store which ep will the forward be enabled on
+ * @client_hps_eth_index: value to store for which eth ep to update hps sequence
+ * @eogre_tunnel_pppoe: set as true if pppoe tunnel is set,otherwise false
+ * @eogre_tunnel_tagged: set as true if tagged tunnel active,otherwise false
+ * @eogre_tunnel_feature: Will store the EoGRE tunnel feature configured.
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2602,6 +2606,10 @@ struct ipa3_context {
 	struct mutex ssr_lock;
 	u8 private_ip_forward_eth_iface;
 	int private_ip_forward_ep_index;
+	u8 client_hps_eth_index;
+	bool eogre_tunnel_pppoe;
+	bool eogre_tunnel_tagged;
+	u8 eogre_tunnel_feature;
 };
 
 struct ipa3_plat_drv_res {
@@ -3877,5 +3885,8 @@ void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
 void ipa3_set_eth_pdu_ep_status(void);
+
+/* Send Tunnel Template to uC*/
+int ipa3_write_template_to_uC(struct ipa_ioc_tunnel_template_info *map);
 
 #endif /* _IPA3_I_H_ */

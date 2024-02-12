@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -1121,7 +1123,14 @@ int ipa3_eth_connect(
 		return result;
 	}
 #endif
-
+	if (IPA_CLIENT_IS_PROD(client_type) &&
+		(ipa3_ctx->is_eth_double_vlan_mode == true ||
+		ipa3_ctx->eogre_tunnel_pppoe == true ||
+		ipa3_ctx->eogre_tunnel_tagged == true ))
+	{
+		ipa3_ctx->client_hps_eth_index = ep_idx;
+	}
+	IPADBG("Client_hps_eth_index:%d \n", ipa3_ctx->client_hps_eth_index);
 	result = ipa3_eth_get_prot(pipe, &prot);
 	if (result) {
 		IPAERR("Could not determine protocol\n");
