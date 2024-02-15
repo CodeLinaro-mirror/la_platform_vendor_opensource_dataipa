@@ -1548,7 +1548,9 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	 * return from here itself.
 	 */
 	if (atomic_read(&rmnet_ipa3_ctx->ap_suspend)) {
-		netif_tx_stop_all_queues(dev);
+		netif_tx_stop_queue(netdev_get_tx_queue(dev, 0));
+		if (rmnet_ipa3_ctx->eth_wan_set || rmnet_ipa3_ctx->ipa_v2x_set)
+			netif_tx_stop_queue(netdev_get_tx_queue(dev, 1));
 		spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 		return NETDEV_TX_BUSY;
 	}
@@ -1618,7 +1620,9 @@ send:
 	ret = ipa_pm_activate(rmnet_ipa3_ctx->pm_hdl);
 
 	if (ret == -EINPROGRESS) {
-		netif_tx_stop_all_queues(dev);
+		netif_tx_stop_queue(netdev_get_tx_queue(dev, 0));
+		if (rmnet_ipa3_ctx->eth_wan_set || rmnet_ipa3_ctx->ipa_v2x_set)
+			netif_tx_stop_queue(netdev_get_tx_queue(dev, 1));
 		spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 		return NETDEV_TX_BUSY;
 	}
