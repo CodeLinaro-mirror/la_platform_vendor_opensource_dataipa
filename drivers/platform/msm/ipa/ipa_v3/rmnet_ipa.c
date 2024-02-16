@@ -2908,7 +2908,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
 #ifdef CONFIG_IPA_IPSEC
-		if (ipa_ipsec_enabled()) {
+		if (ipa_ipsec_initialized()) {
 			rc = ipa_ipsec_install_dl_pol_flt();
 			if (rc)
 				IPAWANERR("IPsec DL policy FLT init failed = %d\n", rc);
@@ -3183,7 +3183,7 @@ static int ipa3_setup_apps_wan_prod_pipes(
 		pipe_status->status = IPA_PIPE_SETUP_FAILURE;
 		return rc;
 	}
-	
+
 	if (v2x_check && rmnet_ipa3_ctx->no_qmap_config)
 		ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 0;
 	else if (egress_param->cs_offload_en &&
@@ -3308,7 +3308,7 @@ static int ipa3_setup_apps_wan_prod_pipes(
 	pipe_status->status = IPA_PIPE_SETUP_EXISTS;
 
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled()) {
+	if (ipa_ipsec_initialized()) {
 		rc = ipa_ipsec_ep_init_prod();
 	}
 #endif
@@ -5118,11 +5118,9 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	}
 
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled()) {
-		IPAWANDBG("IPsec offload is enabled\n");
+	if (ipa_ipsec_initialized()) {
+		IPAWANDBG("IPsec offload is initialized\n");
 		dev->xfrmdev_ops = ipa3_ctx->ipsec->xfrmdev_ops;
-		dev->features |= NETIF_F_HW_ESP;
-		dev->hw_enc_features |= NETIF_F_HW_ESP;
 		ipa3_ctx->ipsec->dev = dev;
 	}
 #endif

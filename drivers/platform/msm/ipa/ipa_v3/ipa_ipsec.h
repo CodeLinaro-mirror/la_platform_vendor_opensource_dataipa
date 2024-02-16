@@ -388,6 +388,7 @@ struct ipa_ipsec_ctx {
 	struct ipa3_rt_tbl *default_rt;
 	struct ipa_ipsec_stats stats;
 	u32 sa_mismatch_qmap_hdr_hdl;
+	bool initialized;
 	bool enabled;
 };
 
@@ -399,8 +400,10 @@ struct ipa_ipsec_work_wrap {
 void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
 
 #ifdef CONFIG_IPA_IPSEC
+bool ipa_ipsec_initialized(void);
 bool ipa_ipsec_enabled(void);
 int ipa_ipsec_init(void);
+int ipa_ipsec_enable(void);
 void ipa_ipsec_cleanup(void);
 int ipa_ipsec_install_dl_pol_flt(void);
 int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req);
@@ -414,8 +417,10 @@ const char * ipa_ipsec_get_encr_algo_name(enum ipa_ipsec_sa_enc encr_algo);
 #define IPA_UC_IPSEC_WORKQUEUE_NAME "ipa_uc_ipsec_wq"
 static struct workqueue_struct *ipa_uc_ipsec_wq;
 #else
+inline bool ipa_ipsec_initialized(void) {return false;}
 inline bool ipa_ipsec_enabled(void) {return false;}
 inline int ipa_ipsec_init(void) {return 0;}
+inline int ipa_ipsec_enable(void) {return 0;}
 inline void ipa_ipsec_cleanup(void) {}
 inline int ipa_ipsec_install_dl_pol_flt(void) {return 0;}
 inline int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req) {return 0;}
