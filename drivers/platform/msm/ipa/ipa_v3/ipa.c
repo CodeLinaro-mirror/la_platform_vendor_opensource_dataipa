@@ -9658,7 +9658,10 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 	unsigned long missing;
 
 	char dbg_buff[32] = { 0 };
-	int res, i = 0;
+	int i = 0;
+#if defined(CONFIG_IPA_IPSEC)
+	int res;
+#endif
 
 	if (count >= sizeof(dbg_buff))
 		return -EFAULT;
