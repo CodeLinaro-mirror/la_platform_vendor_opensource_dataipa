@@ -441,8 +441,6 @@ int ipa_table_get_entry(
 	void**     entry,
 	uint16_t*  entry_index )
 {
-	enum ipa3_nat_mem_in nmi;
-	uint32_t _nmi = nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rec_index;
 
@@ -456,7 +454,7 @@ int ipa_table_get_entry(
 	/*
 	 * Retrieve the memory and table type as well as the index
 	 */
-	BREAK_RULE_HDL(table, entry_handle, _nmi, is_expn_tbl, rec_index);
+	BREAK_RULE_HDL(table, entry_handle, is_expn_tbl, rec_index);
 
 	if ( is_expn_tbl )
 	{

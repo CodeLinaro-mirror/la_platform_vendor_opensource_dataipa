@@ -6,6 +6,9 @@
  */
 
 #include "ipa_i.h"
+#if defined(CONFIG_IPA_IPSEC)
+#include "ipa_ipsec.h"
+#endif
 #include <linux/delay.h>
 
 #define IPA_HW_INTERFACE_VERSION     0x2000
@@ -30,7 +33,9 @@
 #define IPA_UC_ERING_n_w 0
 #define IPA_UC_MON_INTERVAL 5
 #define IPA_UC_HOLB_WORKQUEUE_NAME "ipa_uc_holb_wq"
-
+#if defined(CONFIG_IPA_IPSEC)
+DECLARE_WORK(ipa3_ipsec_enabled_work, ipa_ipsec_ep_init_cons);
+#endif
 /**
  * enum ipa3_cpu_2_hw_commands - Values that represent the commands from the CPU
  * IPA_CPU_2_HW_CMD_NO_OP : No operation is required.
@@ -940,6 +945,12 @@ static void ipa3_uc_response_hdlr(enum ipa_irq_type interrupt,
 		if (ipa3_ctx->uc_ctx.ipa_use_uc_holb_monitor)
 			queue_work(ipa_uc_holb_wq, &ipa3_holb_enabled_work);
 
+#if defined(CONFIG_IPA_IPSEC)
+		if (ipa_ipsec_enabled() && ipa_uc_ipsec_wq != NULL) {
+			queue_work(ipa_uc_ipsec_wq, &ipa3_ipsec_enabled_work);
+		}
+#endif
+
 		(void) blocking_notifier_call_chain(&uc_loaded_notifier, true,
 			ipa3_ctx);
 
@@ -1223,13 +1234,27 @@ int ipa3_uc_interface_init(void)
 				goto irq_fail3;
 			}
 		}
+#if defined(CONFIG_IPA_IPSEC)
+		ipa_uc_ipsec_wq = alloc_workqueue(IPA_UC_IPSEC_WORKQUEUE_NAME,
+			WQ_MEM_RECLAIM | WQ_UNBOUND | WQ_SYSFS, 1);
+
+		if (!ipa_uc_ipsec_wq) {
+			IPAERR("Failed to create ipa_uc_ipsec_wq\n");
+			result = -EFAULT;
+			goto wq_fail;
+		}
+#endif
 	}
 
 	ipa3_ctx->uc_ctx.uc_inited = true;
 
 	IPADBG("IPA uC interface is initialized\n");
 	return 0;
-
+#if defined(CONFIG_IPA_IPSEC)
+wq_fail:
+	destroy_workqueue(ipa_uc_holb_wq);
+	ipa_uc_holb_wq = NULL;
+#endif
 irq_fail3:
 	ipa3_remove_interrupt_handler(IPA_UC_IRQ_2);
 irq_fail2:

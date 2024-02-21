@@ -2238,7 +2238,7 @@ int ipa_ipsec_ep_init_prod(void)
 }
 EXPORT_SYMBOL(ipa_ipsec_ep_init_prod);
 
-int ipa_ipsec_ep_init_cons(void)
+void ipa_ipsec_ep_init_cons(struct work_struct *work)
 {
 	u32 clnt_hdl;
 	static bool allocated = false;
@@ -2248,12 +2248,12 @@ int ipa_ipsec_ep_init_cons(void)
 
 	/* This may be called number of times from rmnet_ipa */
 	if (allocated)
-		return 0;
+		return;
 
 	WARN_ON(!ipa3_ctx->uc_ctx.uc_loaded);
 	if (!ipa3_ctx->uc_ctx.uc_event_ring_valid && ipa3_uc_setup_event_ring()) {
 		IPAERR("failed to set uc_event ring\n");
-		return -EFAULT;
+		return;
 	}
 
 	memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
@@ -2282,21 +2282,21 @@ int ipa_ipsec_ep_init_cons(void)
 	sys_in.ipa_ep_cfg.prod_cfg.error_qmap_en = true;
 	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
-		return -EPERM;
+		return;
 	}
 
 	/* IPsec decap non-recoverable error (IPA->AP) */
 	sys_in.client = IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS;
 	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
-		return -EPERM;
+		return;
 	}
 
 	/* IPsec encap error (IPA->AP) */
 	sys_in.client = IPA_CLIENT_IPSEC_ENCAP_ERR_CONS;
 	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
-		return -EPERM;
+		return;
 	}
 
 	/* IPsec embedded RX (IPA->AP) */
@@ -2323,11 +2323,11 @@ int ipa_ipsec_ep_init_cons(void)
 	sys_in.ipa_ep_cfg.metadata_mask.metadata_mask = 0xFF000000;
 	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
-		return -EPERM;
+		return;
 	}
 
 	allocated = true;
-	return 0;
+	return;
 }
 EXPORT_SYMBOL(ipa_ipsec_ep_init_cons);
 
@@ -2922,6 +2922,8 @@ void ipa_ipsec_cleanup(void)
 	/* Free allocated RAM */
 	destroy_workqueue(ipa_ipsec_wq);
 	ipa_ipsec_wq = NULL;
+	destroy_workqueue(ipa_uc_ipsec_wq);
+	ipa_uc_ipsec_wq = NULL;
 	kfree(ipa3_ctx->ipsec->xfrmdev_ops);
 	kfree(ipa3_ctx->ipsec);
 	ipa3_ctx->ipsec = NULL;

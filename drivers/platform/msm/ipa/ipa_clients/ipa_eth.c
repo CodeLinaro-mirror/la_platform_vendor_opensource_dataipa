@@ -1485,7 +1485,7 @@ static int ipa_eth_get_config_type_internal(
 
 	if (!eth_config) {
 		IPA_ETH_ERR("Invalid parameter\n");
-		ret = -EFAULT;
+		return -EFAULT;
 	}
 
 	IPA_ETH_DBG("Config type requested for client %d, inst_id %d\n", client_type, inst_id);
