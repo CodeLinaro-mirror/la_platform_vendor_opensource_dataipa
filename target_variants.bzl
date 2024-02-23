@@ -5,6 +5,7 @@ targets = [
     "gen3auto",
     "lahaina",
     "monaco",
+    "seraph",
     "sun",
     "vienna",
 ]
