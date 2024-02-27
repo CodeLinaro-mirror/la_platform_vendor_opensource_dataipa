@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -2409,9 +2409,10 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 	int dst_ep_idx;
 	struct ipa3_sys_context *sys;
 	int src_ep_idx;
-	int num_frags, f;
+	int num_frags, f, fixed_desc = 2;
 	const struct ipa_gsi_ep_config *gsi_ep;
 	int data_idx;
+	int skb_idx;
 	unsigned int max_desc;
 
 	if (unlikely(!ipa3_ctx)) {
@@ -2467,6 +2468,7 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 
 	trace_ipa3_tx_dp(skb,sys->ep->client);
 	num_frags = skb_shinfo(skb)->nr_frags;
+	fixed_desc += skb_headlen(skb) ? 1 : 0;
 	/*
 	 * make sure TLV FIFO supports the needed frags.
 	 * 2 descriptors are needed for IP_PACKET_INIT and TAG_STATUS.
@@ -2481,7 +2483,7 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 	if (gsi_ep->prefetch_mode == GSI_SMART_PRE_FETCH ||
 		gsi_ep->prefetch_mode == GSI_FREE_PRE_FETCH)
 		max_desc -= gsi_ep->prefetch_threshold;
-	if (num_frags + 3 > max_desc) {
+	if (num_frags + fixed_desc > max_desc) {
 		if (skb_linearize(skb)) {
 			IPAERR("Failed to linear skb with %d frags\n",
 				num_frags);
@@ -2495,19 +2497,18 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		 * 1 desc may be needed for the PACKET_INIT;
 		 * 1 desc for each frag
 		 */
-		desc = kzalloc(sizeof(*desc) * (num_frags + 3), GFP_ATOMIC);
+		desc = kzalloc(sizeof(*desc) * (num_frags + fixed_desc), GFP_ATOMIC);
 		if (!desc) {
 			IPAERR("failed to alloc desc array\n");
 			goto fail_gen;
 		}
 	} else {
-		memset(_desc, 0, 3 * sizeof(struct ipa3_desc));
+		memset(_desc, 0, fixed_desc * sizeof(struct ipa3_desc));
 		desc = &_desc[0];
 	}
 
 	if (dst_ep_idx != -1) {
 		/* SW data path */
-		int skb_idx;
 		struct iphdr *network_header;
 
 		network_header = (struct iphdr *)(skb_network_header(skb));
@@ -2548,24 +2549,26 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		desc[data_idx].dma_address_valid = true;
 		desc[data_idx].type = IPA_IMM_CMD_DESC;
 		desc[data_idx].callback = NULL;
-		data_idx++;
-		desc[data_idx].pyld = skb->data;
-		desc[data_idx].len = skb_headlen(skb);
-		desc[data_idx].type = IPA_DATA_DESC_SKB;
-		desc[data_idx].callback = ipa3_tx_comp_usr_notify_release;
-		desc[data_idx].user1 = skb;
-		desc[data_idx].user2 = (meta && meta->pkt_init_dst_ep_valid &&
-				meta->pkt_init_dst_ep_remote) ?
-				src_ep_idx :
-				dst_ep_idx;
-		if (meta && meta->dma_address_valid) {
-			desc[data_idx].dma_address_valid = true;
-			desc[data_idx].dma_address = meta->dma_address;
-		}
-
 		skb_idx = data_idx;
 		data_idx++;
+		if (skb_headlen(skb)) {
+			desc[data_idx].pyld = skb->data;
+			desc[data_idx].len = skb_headlen(skb);
+			desc[data_idx].type = IPA_DATA_DESC_SKB;
+			desc[data_idx].callback = ipa3_tx_comp_usr_notify_release;
+			desc[data_idx].user1 = skb;
+			desc[data_idx].user2 = (meta && meta->pkt_init_dst_ep_valid &&
+					meta->pkt_init_dst_ep_remote) ?
+					src_ep_idx :
+					dst_ep_idx;
+			if (meta && meta->dma_address_valid) {
+				desc[data_idx].dma_address_valid = true;
+				desc[data_idx].dma_address = meta->dma_address;
+			}
 
+			skb_idx = data_idx;
+			data_idx++;
+		}
 		for (f = 0; f < num_frags; f++) {
 			desc[data_idx + f].frag = &skb_shinfo(skb)->frags[f];
 			desc[data_idx + f].type = IPA_DATA_DESC_SKB_PAGED;
@@ -2575,9 +2578,15 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		/* don't free skb till frag mappings are released */
 		if (num_frags) {
 			desc[data_idx + f - 1].callback =
-				desc[skb_idx].callback;
-			desc[data_idx + f - 1].user1 = desc[skb_idx].user1;
-			desc[data_idx + f - 1].user2 = desc[skb_idx].user2;
+				skb_headlen(skb) ? desc[skb_idx].callback :
+				ipa3_tx_comp_usr_notify_release;
+			desc[data_idx + f - 1].user1 = skb_headlen(skb) ? desc[skb_idx].user1 :
+				skb;
+			desc[data_idx + f - 1].user2 = skb_headlen(skb) ? desc[skb_idx].user2 :
+				(meta && meta->pkt_init_dst_ep_valid &&
+					meta->pkt_init_dst_ep_remote) ?
+					src_ep_idx :
+					dst_ep_idx;
 			desc[skb_idx].callback = NULL;
 		}
 
@@ -2598,40 +2607,49 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 			 * tag info as a result of the TAG STATUS command.
 			 */
 			desc[data_idx].is_tag_status = true;
+			skb_idx = data_idx;
 			data_idx++;
 		}
-		desc[data_idx].pyld = skb->data;
-		desc[data_idx].len = skb_headlen(skb);
-		desc[data_idx].type = IPA_DATA_DESC_SKB;
-		desc[data_idx].callback = ipa3_tx_comp_usr_notify_release;
-		desc[data_idx].user1 = skb;
-		desc[data_idx].user2 = src_ep_idx;
+		if (skb_headlen(skb)) {
+			desc[data_idx].pyld = skb->data;
+			desc[data_idx].len = skb_headlen(skb);
+			desc[data_idx].type = IPA_DATA_DESC_SKB;
+			desc[data_idx].callback = ipa3_tx_comp_usr_notify_release;
+			desc[data_idx].user1 = skb;
+			desc[data_idx].user2 = src_ep_idx;
 
-		if (meta && meta->dma_address_valid) {
-			desc[data_idx].dma_address_valid = true;
-			desc[data_idx].dma_address = meta->dma_address;
+			if (meta && meta->dma_address_valid) {
+				desc[data_idx].dma_address_valid = true;
+				desc[data_idx].dma_address = meta->dma_address;
+			}
+			skb_idx = data_idx;
+			data_idx++;
 		}
 		if (num_frags == 0) {
-			if (ipa3_send(sys, data_idx + 1, desc, true)) {
+			if (ipa3_send(sys, data_idx, desc, true)) {
 				IPAERR("fail to send skb %pK HWP\n", skb);
 				goto fail_mem;
 			}
 		} else {
 			for (f = 0; f < num_frags; f++) {
-				desc[data_idx+f+1].frag =
+				desc[data_idx+f].frag =
 					&skb_shinfo(skb)->frags[f];
-				desc[data_idx+f+1].type =
+				desc[data_idx+f].type =
 					IPA_DATA_DESC_SKB_PAGED;
-				desc[data_idx+f+1].len =
-					skb_frag_size(desc[data_idx+f+1].frag);
+				desc[data_idx+f].len =
+					skb_frag_size(desc[data_idx+f].frag);
 			}
 			/* don't free skb till frag mappings are released */
-			desc[data_idx+f].callback = desc[data_idx].callback;
-			desc[data_idx+f].user1 = desc[data_idx].user1;
-			desc[data_idx+f].user2 = desc[data_idx].user2;
-			desc[data_idx].callback = NULL;
+			desc[data_idx+f-1].callback = skb_headlen(skb) ? desc[skb_idx].callback :
+				ipa3_tx_comp_usr_notify_release;
+			desc[data_idx+f-1].user1 = skb_headlen(skb) ? desc[skb_idx].user1 :
+				skb;
+			desc[data_idx+f-1].user2 = skb_headlen(skb) ? desc[skb_idx].user2 :
+				src_ep_idx;
+			if (skb_idx != data_idx)
+				desc[skb_idx].callback = NULL;
 
-			if (ipa3_send(sys, num_frags + data_idx + 1,
+			if (ipa3_send(sys, num_frags + data_idx,
 				desc, true)) {
 				IPAERR("fail to send skb %pK num_frags %u\n",
 					skb, num_frags);
