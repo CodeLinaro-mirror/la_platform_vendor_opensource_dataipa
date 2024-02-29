@@ -13,6 +13,10 @@ define_modules("monaco", "consolidate")
 
 define_modules("monaco", "gki")
 
+define_modules("pitti", "consolidate")
+
+define_modules("pitti", "gki")
+
 package(
     default_visibility = [
         "//visibility:public",
