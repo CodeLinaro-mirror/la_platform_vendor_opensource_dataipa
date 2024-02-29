@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <net/ip.h>
@@ -9062,28 +9062,30 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.modem_ofst = 0x9398,
 	.modem_size = 0xd48,
 	.nat_tbl_ofst = 0xa0e0,
-	.nat_tbl_size = 0x8700,
+	.nat_tbl_size = 0x33d8,
+	.ct_tbl_ofst = 0xd4c0,
+	.ct_tbl_size = 0x2e00,
 	.apps_v4_flt_hash_ofst = 0x0,
 	.apps_v4_flt_hash_size = 0x0,
-	.apps_v4_flt_nhash_ofst = 0x127e8,
+	.apps_v4_flt_nhash_ofst = 0x102c8,
 	.apps_v4_flt_nhash_size = 0x300,
 	.apps_v6_flt_hash_ofst = 0x0,
 	.apps_v6_flt_hash_size = 0x0,
-	.apps_v6_flt_nhash_ofst = 0x12ae8,
+	.apps_v6_flt_nhash_ofst = 0x105d0,
 	.apps_v6_flt_nhash_size = 0x300,
 	.apps_v4_rt_hash_ofst = 0x0,
 	.apps_v4_rt_hash_size = 0x0,
-	.apps_v4_rt_nhash_ofst = 0x12de8,
+	.apps_v4_rt_nhash_ofst = 0x108d8,
 	.apps_v4_rt_nhash_size = 0x300,
 	.apps_v6_rt_hash_ofst = 0x0,
 	.apps_v6_rt_hash_size = 0x0,
-	.apps_v6_rt_nhash_ofst = 0x130e8,
+	.apps_v6_rt_nhash_ofst = 0x10be0,
 	.apps_v6_rt_nhash_size = 0x300,
-	.pre_sa_contexts_canary_ofst = 0x133e8,
+	.pre_sa_contexts_canary_ofst = 0x10ee0,
 	.pre_sa_contexts_canary_size = 0x290,
-	.sa_contexts_ofst = 0x13678,
-	.sa_contexts_size = 0xE18, // (IPA_SA_DB_SIZE)
-	.end_ofst = 0x14490,
+	.sa_contexts_ofst = 0x11170,
+	.sa_contexts_size = 0xe18, // (IPA_SA_DB_SIZE)
+	.end_ofst = 0x11f88,
 };
 
 const char *ipa_clients_strings[IPA_CLIENT_MAX] = {

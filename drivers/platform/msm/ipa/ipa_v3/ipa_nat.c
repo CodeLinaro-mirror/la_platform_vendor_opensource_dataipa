@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/device.h>
@@ -31,7 +31,7 @@
 #define IPA_NAT_PHYS_MEM_OFFSET IPA_MEM_PART(nat_tbl_ofst)
 #define IPA_NAT_PHYS_MEM_SIZE  IPA_RAM_NAT_SIZE
 
-#define IPA_IPV6CT_PHYS_MEM_OFFSET  0
+#define IPA_IPV6CT_PHYS_MEM_OFFSET  IPA_MEM_PART(ct_tbl_ofst)
 #define IPA_IPV6CT_PHYS_MEM_SIZE  IPA_RAM_IPV6CT_SIZE
 
 #define IPA_NAT_IPV6CT_TEMP_MEM_SIZE 128
@@ -60,6 +60,7 @@ enum ipa_nat_ipv6ct_table_type {
 };
 
 static bool sram_compatible;
+static bool ct_sram_compatible;
 
 static vm_fault_t ipa3_nat_ipv6ct_vma_fault_remap(struct vm_fault *vmf)
 {
@@ -133,6 +134,8 @@ static int ipa3_nat_ipv6ct_mmap(
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_AP);
 	struct ipa3_nat_mem          *nm_ptr;
 	struct ipa3_nat_mem_loc_data *mld_ptr;
+	struct ipa3_ipv6ct_mem       *ctm_ptr;
+	struct ipa3_ct_mem_loc_data  *ct_mld_ptr;
 	enum ipa3_nat_mem_in          nmi;
 
 	int result = 0;
@@ -237,6 +240,8 @@ static int ipa3_nat_ipv6ct_mmap(
 			result = vm_iomap_memory(
 				vma, mld_ptr->phys_addr, dev->phys_mem_size);
 
+			IPADBG("NAT phys_addr : %llu", mld_ptr->phys_addr);
+
 			if (result) {
 				IPAERR("vm_iomap_memory failed. Err:%d\n",
 					   result);
@@ -250,7 +255,18 @@ static int ipa3_nat_ipv6ct_mmap(
 
 	} else { /* dev->is_ipv6ct_mem */
 
-		if (!dev->vaddr) {
+		ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+		nmi     = ctm_ptr->last_alloc_loc;
+
+		if (!IPA_VALID_NAT_MEM_IN(nmi)) {
+			IPAERR_RL("Bad ipa3_nat_mem_in type\n");
+			result = -EPERM;
+			goto unlock;
+		}
+
+		ct_mld_ptr = &ctm_ptr->mem_loc[nmi];
+
+		if (!ct_mld_ptr->vaddr) {
 			IPAERR_RL(
 			 "Attempt to mmap %s before the memory allocation\n",
 			 dev->name);
@@ -258,38 +274,75 @@ static int ipa3_nat_ipv6ct_mmap(
 			goto unlock;
 		}
 
-		if (dev->is_mapped) {
+		if (ct_mld_ptr->is_mapped) {
 			IPAERR("%s already mapped, only 1 mapping supported\n",
 				   dev->name);
 			result = -EINVAL;
 			goto unlock;
 		}
 
-		dev->base_address = NULL;
-
-		IPADBG("Mapping V6 CT: %s\n",
-			   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_DDR));
-
-		IPADBG("map sz=0x%zx -> vma size=0x%08x\n",
-			   dev->table_alloc_size,
-			   vsize);
-
-		result =
-			dma_mmap_coherent(
-				ipa3_ctx->pdev,
-				vma,
-				dev->vaddr,
-				dev->dma_handle,
-				dev->table_alloc_size);
-
-		if (result) {
-			IPAERR("dma_mmap_coherent failed. Err:%d\n", result);
-			goto unlock;
+		if (nmi == IPA_NAT_MEM_IN_SRAM) {
+			if (dev->phys_mem_size == 0 ||
+				dev->phys_mem_size > vsize) {
+				IPAERR_RL(
+				 "%s err vsize(0x%X) phys_mem_size(0x%X)\n",
+				 dev->name, vsize, dev->phys_mem_size);
+				result = -EINVAL;
+				goto unlock;
+			}
 		}
 
-		dev->base_address = dev->vaddr;
+		ct_mld_ptr->base_address = NULL;
 
-		dev->is_mapped = true;
+		IPADBG("Mapping V6 CT: %s\n",
+			   ipa3_nat_mem_in_as_str(nmi));
+
+		if (nmi == IPA_NAT_MEM_IN_DDR) {
+
+			IPADBG("map sz=0x%zx -> vma size=0x%08x\n",
+				   ct_mld_ptr->table_alloc_size,
+				   vsize);
+
+			result =
+				dma_mmap_coherent(
+					ipa3_ctx->pdev,
+					vma,
+					ct_mld_ptr->vaddr,
+					ct_mld_ptr->dma_handle,
+					ct_mld_ptr->table_alloc_size);
+
+			if (result) {
+				IPAERR(
+				 "dma_mmap_coherent failed. Err:%d\n",
+				 result);
+				goto unlock;
+			}
+
+			ct_mld_ptr->base_address = ct_mld_ptr->vaddr;
+
+		} else { /* nmi == IPA_NAT_MEM_IN_SRAM */
+
+			IPADBG("map phys_mem_size(0x%08X) -> vma sz(0x%08X)\n",
+				   dev->phys_mem_size, vsize);
+
+			vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+			IPADBG("CT phys_addr : %llu", ct_mld_ptr->phys_addr);
+
+			result = vm_iomap_memory(
+				vma, ct_mld_ptr->phys_addr, dev->phys_mem_size);
+
+			if (result) {
+				IPAERR("vm_iomap_memory failed. Err:%d\n",
+					   result);
+				goto unlock;
+			}
+
+			ct_mld_ptr->base_address = ct_mld_ptr->vaddr;
+		}
+
+		ct_mld_ptr->is_mapped = true;
+
 	}
 
 	vma->vm_ops = &ipa3_nat_ipv6ct_remap_vm_ops;
@@ -547,6 +600,9 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 
 	struct ipa3_nat_mem *nm_ptr;
 	struct ipa3_nat_mem_loc_data *mld_ptr;
+	struct ipa3_ipv6ct_mem *ctm_ptr;
+	struct ipa3_ct_mem_loc_data *ct_mld_ptr;
+
 	uintptr_t tmp_ptr;
 
 	int    result = 0;
@@ -617,6 +673,8 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 					0) +
 				IPA_NAT_PHYS_MEM_OFFSET;
 
+			IPADBG("NAT phys_addr : %llu", mld_ptr->phys_addr);
+
 			mld_ptr->io_vaddr = ioremap(
 				mld_ptr->phys_addr, IPA_NAT_PHYS_MEM_SIZE);
 
@@ -671,23 +729,87 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 	} else {
 		if (nat_type == IPAHAL_NAT_IPV6CT) {
 
-			IPADBG("V6 CT with size 0x%08X will reside in: %s\n",
-				   table_alloc->size,
-				   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_DDR));
+			ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
 
-			dev->table_alloc_size = table_alloc->size;
+			if (ct_sram_compatible && table_alloc->size <= IPA_IPV6CT_PHYS_MEM_SIZE) {
+				//
+				// CAN fit in SRAM, hence we'll use SRAM...
+				// And SRAM allowed
+				//
+				IPADBG("V6 CT with size 0x%08X will reside in: %s\n",
+						table_alloc->size,
+						ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_SRAM));
 
-			dev->vaddr =
-				dma_alloc_coherent(
-					ipa3_ctx->pdev,
-					dev->table_alloc_size,
-					&dev->dma_handle,
-					gfp_flags);
+				if (ctm_ptr->sram_in_use) {
+					IPAERR("Memory already allocated\n");
+					result = -EPERM;
+					goto bail;
+				}
 
-			if (dev->vaddr == NULL) {
-				IPAERR("memory alloc failed\n");
-				result = -ENOMEM;
-				goto bail;
+				ct_mld_ptr = &ctm_ptr->mem_loc[IPA_NAT_MEM_IN_SRAM];
+
+				ct_mld_ptr->table_alloc_size = table_alloc->size;
+
+				ct_mld_ptr->phys_addr =
+					ipa3_ctx->ipa_wrapper_base +
+					ipa3_ctx->ctrl->ipa_reg_base_ofst +
+					ipahal_get_reg_n_ofst(
+						IPA_SW_AREA_RAM_DIRECT_ACCESS_n,
+						0) +
+						IPA_IPV6CT_PHYS_MEM_OFFSET;
+
+				IPADBG("CT phys_addr : %llu", ct_mld_ptr->phys_addr);
+
+				ct_mld_ptr->io_vaddr = ioremap(
+					ct_mld_ptr->phys_addr, IPA_IPV6CT_PHYS_MEM_SIZE);
+
+				if (ct_mld_ptr->io_vaddr == NULL) {
+					IPAERR("ioremap failed\n");
+					result = -ENOMEM;
+					goto bail;
+				}
+
+				tmp_ptr = (uintptr_t) ct_mld_ptr->io_vaddr;
+
+				ct_mld_ptr->vaddr = (void *) tmp_ptr;
+
+				ctm_ptr->sram_in_use    = true;
+				ctm_ptr->last_alloc_loc = IPA_NAT_MEM_IN_SRAM;
+
+			} else {
+
+				//
+				// CAN NOT fit in SRAM OR SRAM not allowed, hence we'll allocate DDR...
+				//
+				IPADBG("V6 CT with size 0x%08X will reside in: %s\n",
+					   table_alloc->size,
+					   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_DDR));
+
+				if (ctm_ptr->ddr_in_use) {
+					IPAERR("Memory already allocated\n");
+					result = -EPERM;
+					goto bail;
+				}
+
+				ct_mld_ptr = &ctm_ptr->mem_loc[IPA_NAT_MEM_IN_DDR];
+
+				ct_mld_ptr->table_alloc_size = table_alloc->size;
+
+				ct_mld_ptr->vaddr =
+					dma_alloc_coherent(
+						ipa3_ctx->pdev,
+						ct_mld_ptr->table_alloc_size,
+						&ct_mld_ptr->dma_handle,
+						gfp_flags);
+
+				if (ct_mld_ptr->vaddr == NULL) {
+					IPAERR("memory alloc failed\n");
+					result = -ENOMEM;
+					goto bail;
+				}
+
+				ctm_ptr->ddr_in_use     = true;
+				ctm_ptr->last_alloc_loc = IPA_NAT_MEM_IN_DDR;
 			}
 		}
 	}
@@ -875,6 +997,8 @@ static int ipa3_nat_ipv6ct_check_table_params(
 
 	struct ipa3_nat_mem *nm_ptr;
 	struct ipa3_nat_mem_loc_data *mld_ptr;
+	struct ipa3_ipv6ct_mem *ctm_ptr;
+	struct ipa3_ct_mem_loc_data *ct_mld_ptr;
 
 	int ret = 0;
 
@@ -891,14 +1015,19 @@ static int ipa3_nat_ipv6ct_check_table_params(
 
 	if (dev->is_ipv6ct_mem) {
 
-		orig_alloc_size = dev->table_alloc_size;
+		ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
 
-		if (offset > UINT_MAX - dev->dma_handle) {
-			IPAERR_RL("Failed due to integer overflow\n");
-			IPAERR_RL("%s dma_handle: 0x%pa offset: 0x%x\n",
-					  dev->name, &dev->dma_handle, offset);
-			ret = -EPERM;
-			goto bail;
+		ct_mld_ptr         = &ctm_ptr->mem_loc[nmi];
+		orig_alloc_size    = ct_mld_ptr->table_alloc_size;
+
+		if (nmi == IPA_NAT_MEM_IN_DDR) {
+			if (offset > UINT_MAX - ct_mld_ptr->dma_handle) {
+				IPAERR_RL("Failed due to integer overflow\n");
+				IPAERR_RL("%s dma_handle: 0x%pa offset: 0x%x\n",
+				  dev->name, &ct_mld_ptr->dma_handle, offset);
+				ret = -EPERM;
+				goto bail;
+			}
 		}
 
 	} else { /* dev->is_nat_mem */
@@ -1022,29 +1151,58 @@ static inline int ipa3_nat_ipv6ct_init_device_structure(
 
 	if (dev->is_ipv6ct_mem) {
 
+		struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+		struct ipa3_ct_mem_loc_data *ct_mld_p =
+			&ctm_ptr->mem_loc[nmi];
+
 		IPADBG("v6\n");
 
-		dev->base_table_addr =
-			(char *) dev->base_address + base_table_offset;
+		ctm_ptr->active_table = nmi;
+
+		ct_mld_p->base_table_addr =
+			(char *) ct_mld_p->base_address + base_table_offset;
 
 		IPADBG("%s base_table_addr: 0x%pK\n",
-			   dev->name, dev->base_table_addr);
+				  dev->name, ct_mld_p->base_table_addr);
 
-		dev->expansion_table_addr =
-			(char *) dev->base_address + expn_table_offset;
+		ct_mld_p->expansion_table_addr =
+			(char *) ct_mld_p->base_address + expn_table_offset;
 
 		IPADBG("%s expansion_table_addr: 0x%pK\n",
-			   dev->name, dev->expansion_table_addr);
+				  dev->name, ct_mld_p->expansion_table_addr);
 
 		IPADBG("%s table_entries: %d\n",
-			   dev->name, table_entries);
+				  dev->name, table_entries);
 
-		dev->table_entries = table_entries;
+		ct_mld_p->table_entries = table_entries;
 
 		IPADBG("%s expn_table_entries: %d\n",
-			   dev->name, expn_table_entries);
+				  dev->name, expn_table_entries);
 
-		dev->expn_table_entries = expn_table_entries;
+		ct_mld_p->expn_table_entries = expn_table_entries;
+
+		if (nmi == IPA_NAT_MEM_IN_DDR) {
+			if (focus_change)
+				ctm_ptr->switch2ddr_cnt++;
+		} else {
+			/*
+			 * The IPA wants certain SRAM addresses
+			 * to have particular low order bits to
+			 * be zero.  We test here to ensure...
+			 */
+			if (!chk_sram_offset_alignment(
+				 (uintptr_t) ct_mld_p->base_table_addr,
+				 63) ||
+				!chk_sram_offset_alignment(
+				 (uintptr_t) ct_mld_p->expansion_table_addr,
+				 63)) {
+				ret = -ENODEV;
+				goto done;
+			}
+
+			if (focus_change)
+				ctm_ptr->switch2sram_cnt++;
+		}
 
 	} else if (dev->is_nat_mem) {
 
@@ -1598,12 +1756,30 @@ int ipa3_ipv6ct_init_cmd(
 	struct ipa_ioc_ipv6ct_init *init)
 {
 	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->ipv6ct_mem.dev;
-
+	struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+	enum ipa3_nat_mem_in nmi;
+	struct ipa3_ct_mem_loc_data *ct_mld_ptr;
 	struct ipahal_imm_cmd_ip_v6_ct_init cmd;
 
 	int result;
 
 	IPADBG("In\n");
+
+	IPADBG("nmi(%s) %d\n", init->mem_type, ct_sram_compatible);
+
+	if (!ct_sram_compatible) {
+		init->mem_type     = 0;
+		init->focus_change = 0;
+		IPADBG("nmi(%s) %d\n", init->mem_type, ct_sram_compatible);
+	}
+
+	nmi = init->mem_type;
+
+	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
+
+	IPADBG("tbl_index(%d) table_entries(%u)\n",
+			  init->tbl_index,
+			  init->table_entries);
 
 	memset(&cmd, 0, sizeof(cmd));
 
@@ -1622,14 +1798,16 @@ int ipa3_ipv6ct_init_cmd(
 		return -EPERM;
 	}
 
-	if (!dev->is_mapped) {
+	ct_mld_ptr = &ctm_ptr->mem_loc[nmi];
+
+	if (!ct_mld_ptr->is_mapped) {
 		IPAERR_RL("attempt to init %s before mmap\n",
 				  dev->name);
 		return -EPERM;
 	}
 
 	result = ipa3_nat_ipv6ct_check_table_params(
-		dev, IPA_NAT_MEM_IN_DDR,
+		dev, nmi,
 		init->base_table_offset,
 		init->table_entries + 1,
 		IPAHAL_NAT_IPV6CT);
@@ -1640,7 +1818,7 @@ int ipa3_ipv6ct_init_cmd(
 	}
 
 	result = ipa3_nat_ipv6ct_check_table_params(
-		dev, IPA_NAT_MEM_IN_DDR,
+		dev, nmi,
 		init->expn_table_offset,
 		init->expn_table_entries,
 		IPAHAL_NAT_IPV6CT);
@@ -1651,18 +1829,31 @@ int ipa3_ipv6ct_init_cmd(
 	}
 
 	IPADBG("Will install v6 NAT in: %s\n",
-		   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_DDR));
+		   ipa3_nat_mem_in_as_str(nmi));
 
-	ipa3_nat_ipv6ct_create_init_cmd(
+	if (nmi == IPA_NAT_MEM_IN_DDR) {
+		ipa3_nat_ipv6ct_create_init_cmd(
 		&cmd.table_init,
 		false,
-		dev->dma_handle,
+		ct_mld_ptr->dma_handle,
 		init->tbl_index,
 		init->base_table_offset,
 		init->expn_table_offset,
 		init->table_entries,
 		init->expn_table_entries,
 		dev->name);
+	} else {
+		ipa3_nat_ipv6ct_create_init_cmd(
+		&cmd.table_init,
+		true,
+		IPA_RAM_IPV6CT_OFST,
+		init->tbl_index,
+		init->base_table_offset,
+		init->expn_table_offset,
+		init->table_entries,
+		init->expn_table_entries,
+		dev->name);
+	}
 
 	IPADBG("posting ip_v6_ct_init imm command\n");
 
@@ -1675,12 +1866,12 @@ int ipa3_ipv6ct_init_cmd(
 
 	ipa3_nat_ipv6ct_init_device_structure(
 		dev,
-		IPA_NAT_MEM_IN_DDR,
+		nmi,
 		init->base_table_offset,
 		init->expn_table_offset,
 		init->table_entries,
 		init->expn_table_entries,
-		0, 0, 0);
+		0, 0, init->focus_change);
 
 	dev->is_hw_init = true;
 
@@ -1827,6 +2018,7 @@ static uint32_t ipa3_nat_ipv6ct_calculate_table_size(
 	u32 num_entries;
 	enum ipahal_nat_type nat_type;
 	struct ipa3_nat_mem_loc_data *mld_ptr = &ipa3_ctx->nat_mem.mem_loc[nmi];
+	struct ipa3_ct_mem_loc_data *ct_mld_ptr = &ipa3_ctx->ipv6ct_mem.mem_loc[nmi];
 
 	switch (base_addr) {
 	case IPA_NAT_BASE_TBL:
@@ -1846,12 +2038,14 @@ static uint32_t ipa3_nat_ipv6ct_calculate_table_size(
 		nat_type = IPAHAL_NAT_IPV4_INDEX;
 		break;
 	case IPA_IPV6CT_BASE_TBL:
-		num_entries = ipa3_ctx->ipv6ct_mem.dev.table_entries + 1;
+		num_entries = ct_mld_ptr->table_entries + 1;
 		nat_type = IPAHAL_NAT_IPV6CT;
+		IPADBG("ipv6ct base num_ent : %d\n", num_entries);
 		break;
 	case IPA_IPV6CT_EXPN_TBL:
-		num_entries = ipa3_ctx->ipv6ct_mem.dev.expn_table_entries;
+		num_entries = ct_mld_ptr->expn_table_entries;
 		nat_type = IPAHAL_NAT_IPV6CT;
+		IPADBG("ipv6ct expan num_ent : %d\n", num_entries);
 		break;
 	default:
 		IPAERR_RL("Invalid base_addr %d for table DMA command\n",
@@ -1861,6 +2055,7 @@ static uint32_t ipa3_nat_ipv6ct_calculate_table_size(
 
 	ipahal_nat_entry_size(nat_type, &entry_size);
 
+	IPADBG("ipv6ct num_ent : %d entry size %d\n", num_entries, entry_size);
 	return entry_size * num_entries;
 }
 
@@ -2114,31 +2309,71 @@ static void ipa3_nat_ipv6ct_free_mem(
 	struct ipa3_nat_mem *nm_ptr;
 	struct ipa3_nat_mem_loc_data *mld_ptr;
 
+	struct ipa3_ipv6ct_mem *ctm_ptr;
+	struct ipa3_ct_mem_loc_data *ct_mld_ptr;
+
 	if (dev->is_ipv6ct_mem) {
 
 		IPADBG("In: v6\n");
 
-		if (dev->vaddr) {
-			IPADBG("Freeing dma memory for %s\n", dev->name);
+		ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
 
-			dma_free_coherent(
-				ipa3_ctx->pdev,
-				dev->table_alloc_size,
-				dev->vaddr,
-				dev->dma_handle);
+		if (ctm_ptr->ddr_in_use) {
+
+			ctm_ptr->ddr_in_use = false;
+
+			ct_mld_ptr = &ctm_ptr->mem_loc[IPA_NAT_MEM_IN_DDR];
+
+			if (ct_mld_ptr->vaddr) {
+				IPADBG("Freeing dma memory for %s\n",
+						   dev->name);
+
+				dma_free_coherent(
+					ipa3_ctx->pdev,
+					ct_mld_ptr->table_alloc_size,
+					ct_mld_ptr->vaddr,
+					ct_mld_ptr->dma_handle);
+			}
+
+			ct_mld_ptr->vaddr                      = NULL;
+			ct_mld_ptr->dma_handle                 = 0;
+			ct_mld_ptr->table_alloc_size           = 0;
+			ct_mld_ptr->table_entries              = 0;
+			ct_mld_ptr->expn_table_entries         = 0;
+			ct_mld_ptr->base_table_addr            = NULL;
+			ct_mld_ptr->expansion_table_addr       = NULL;
+
 		}
 
-		dev->vaddr                = NULL;
-		dev->dma_handle           = 0;
-		dev->table_alloc_size     = 0;
-		dev->base_table_addr      = NULL;
-		dev->expansion_table_addr = NULL;
-		dev->table_entries        = 0;
-		dev->expn_table_entries   = 0;
+		if (ctm_ptr->sram_in_use) {
 
+			ctm_ptr->sram_in_use = false;
+
+			ct_mld_ptr = &ctm_ptr->mem_loc[IPA_NAT_MEM_IN_SRAM];
+
+			if (ct_mld_ptr->io_vaddr) {
+					IPADBG("Unmappung sram memory for %s\n",
+						   dev->name);
+					iounmap(ct_mld_ptr->io_vaddr);
+			}
+
+			ct_mld_ptr->io_vaddr                   = NULL;
+			ct_mld_ptr->vaddr                      = NULL;
+			ct_mld_ptr->dma_handle                 = 0;
+			ct_mld_ptr->table_alloc_size           = 0;
+			ct_mld_ptr->table_entries              = 0;
+			ct_mld_ptr->expn_table_entries         = 0;
+			ct_mld_ptr->base_table_addr            = NULL;
+			ct_mld_ptr->expansion_table_addr       = NULL;
+		}
 		dev->is_hw_init           = false;
 		dev->is_mapped            = false;
-	} else {
+
+		memset(ctm_ptr->mem_loc, 0, sizeof(ctm_ptr->mem_loc));
+
+	}
+	else
+	{
 		if (dev->is_nat_mem) {
 
 			IPADBG("In: v4\n");
@@ -2348,7 +2583,9 @@ int ipa3_nat_del_cmd(struct ipa_ioc_v4_nat_del *del)
 int ipa3_nat_cleanup_cmd(void)
 {
 	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->nat_mem.dev;
+	struct ipa3_nat_ipv6ct_common_mem *ct_dev = &ipa3_ctx->ipv6ct_mem.dev;
 	struct ipa3_nat_mem *nm_ptr;
+	struct ipa3_ipv6ct_mem *ctm_ptr;
 	struct ipa_ioc_nat_ipv6ct_table_del del;
 
 	int result = 0;
@@ -2357,6 +2594,11 @@ int ipa3_nat_cleanup_cmd(void)
 
 	if (!dev->is_dev_init) {
 		IPAERR("NAT hasn't been initialized\n");
+		result = -EPERM;
+		goto bail;
+	}
+	if (!ct_dev->is_dev_init) {
+		IPAERR("CT hasn't been initialized\n");
 		result = -EPERM;
 		goto bail;
 	}
@@ -2374,8 +2616,17 @@ int ipa3_nat_cleanup_cmd(void)
 		}
 	}
 	if (dev->is_ipv6ct_mem) {
-		memset(&del, 0, sizeof(del));
-		ipa3_del_nat_table(&del);
+		ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+		if (ctm_ptr->sram_in_use) {
+			memset(&del, 0, sizeof(del));
+			del.mem_type = IPA_NAT_MEM_IN_SRAM;
+			ipa3_del_nat_table(&del);
+		}
+		if (ctm_ptr->ddr_in_use) {
+			memset(&del, 0, sizeof(del));
+			del.mem_type = IPA_NAT_MEM_IN_DDR;
+			ipa3_del_nat_table(&del);
+		}
 	}
 
 bail:
@@ -2489,6 +2740,9 @@ int ipa3_del_ipv6ct_table(
 	struct ipa_ioc_nat_ipv6ct_table_del *del)
 {
 	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->ipv6ct_mem.dev;
+	enum ipa3_nat_mem_in nmi;
+	struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+	struct ipa3_ct_mem_loc_data *ct_mld_ptr;
 
 	int result = 0;
 
@@ -2496,6 +2750,8 @@ int ipa3_del_ipv6ct_table(
 
 	if (!sram_compatible)
 		del->mem_type = 0;
+
+	nmi = del->mem_type;
 
 	if (!dev->is_dev_init) {
 		IPAERR("IPv6 connection tracking hasn't been initialized\n");
@@ -2508,6 +2764,10 @@ int ipa3_del_ipv6ct_table(
 		result = -EPERM;
 		goto bail;
 	}
+
+	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
+
+	ct_mld_ptr = &ctm_ptr->mem_loc[nmi];
 
 	mutex_lock(&dev->lock);
 
@@ -2587,6 +2847,70 @@ int ipa3_nat_get_sram_info(
 		roundup(
 			info_ptr->nat_table_offset_into_mmap +
 			IPA_RAM_NAT_SIZE,
+			PAGE_SIZE);
+
+bail:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+int ipa3_ct_get_sram_info(
+	struct ipa_nat_in_sram_info *info_ptr)
+{
+	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->ipv6ct_mem.dev;
+
+	int ret = 0;
+
+	IPADBG("In\n");
+
+	if (!info_ptr) {
+		IPAERR("Bad argument passed\n");
+		ret = -EINVAL;
+		goto bail;
+	}
+
+	if (!dev->is_dev_init) {
+		IPAERR_RL("CT hasn't been initialized\n");
+		ret = -EPERM;
+		goto bail;
+	}
+
+	ct_sram_compatible = true;
+
+	memset(info_ptr,
+		   0,
+		   sizeof(struct ipa_nat_in_sram_info));
+
+	/*
+	 * Size of SRAM set aside for the CT table.
+	 */
+	info_ptr->sram_mem_available_for_nat = IPA_RAM_IPV6CT_SIZE;
+
+	/*
+	 * If table's phys addr in SRAM is not page aligned, it will be
+	 * offset into the mmap'd VM by the amount calculated below.  This
+	 * value can be used by the app, so that it can know where the
+	 * table actually lives in the mmap'd VM...
+	 */
+	info_ptr->nat_table_offset_into_mmap =
+		(ipa3_ctx->ipa_wrapper_base +
+		 ipa3_ctx->ctrl->ipa_reg_base_ofst +
+		 ipahal_get_reg_n_ofst(
+			 IPA_SW_AREA_RAM_DIRECT_ACCESS_n,
+			 0) +
+		 IPA_RAM_IPV6CT_OFST) & ~PAGE_MASK;
+
+	/*
+	 * If the offset above plus the size of the CT table causes the
+	 * table to extend beyond the next page boundary, the app needs to
+	 * know it, so that it can increase the size used in the mmap
+	 * request...
+	 */
+	info_ptr->best_nat_in_sram_size_rqst =
+		roundup(
+			info_ptr->nat_table_offset_into_mmap +
+			IPA_RAM_IPV6CT_SIZE,
 			PAGE_SIZE);
 
 bail:
