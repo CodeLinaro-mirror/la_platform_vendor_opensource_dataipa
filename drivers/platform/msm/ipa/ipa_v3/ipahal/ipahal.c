@@ -2758,7 +2758,7 @@ static int ipahal_qmap_init(
 
 	memset(&zero_obj, 0, sizeof(zero_obj));
 
-	for (i = IPA_HW_v4_5; i < ipa_hw_type; i++) {
+	for (i = IPA_HW_v4_5; i < (IPA_HW_MAX - 1); i++) {
 
 		if (memcmp(&ipahal_qmap_parse_tbl[i+1],
 				   &zero_obj,

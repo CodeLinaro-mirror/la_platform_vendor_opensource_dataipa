@@ -8,7 +8,7 @@
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <linux/msm_gsi.h>
 #include <linux/ipa_mhi.h>
 #include "gsi.h"
@@ -76,7 +76,7 @@ bool ipa3_mhi_stop_gsi_channel(enum ipa_client_type client)
 	struct ipa3_ep_context *ep;
 
 	IPA_MHI_FUNC_ENTRY();
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx == -1) {
 		IPA_MHI_ERR("Invalid client.\n");
 		return -EINVAL;
@@ -111,7 +111,7 @@ static int ipa3_mhi_reset_gsi_channel(enum ipa_client_type client)
 
 	IPA_MHI_FUNC_ENTRY();
 
-	clnt_hdl = ipa3_get_ep_mapping(client);
+	clnt_hdl = ipa_get_ep_mapping(client);
 	if (clnt_hdl < 0)
 		return -EFAULT;
 
@@ -138,7 +138,7 @@ int ipa3_mhi_reset_channel_internal(enum ipa_client_type client)
 		return res;
 	}
 
-	res = ipa3_disable_data_path(ipa3_get_ep_mapping(client));
+	res = ipa3_disable_data_path(ipa_get_ep_mapping(client));
 	if (res) {
 		IPA_MHI_ERR("ipa3_disable_data_path failed %d\n", res);
 		return res;
@@ -156,7 +156,7 @@ int ipa3_mhi_start_channel_internal(enum ipa_client_type client)
 
 	IPA_MHI_FUNC_ENTRY();
 
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx < 0) {
 		IPA_MHI_ERR("Invalid client %d\n", client);
 		return -EINVAL;
@@ -212,7 +212,7 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 	ep = &ipa3_ctx->ep[ipa_ep_idx];
 
 	msi = params->msi;
-	ep_cfg = ipa3_get_gsi_ep_info(client);
+	ep_cfg = ipa_get_gsi_ep_info(client);
 	if (!ep_cfg) {
 		IPA_MHI_ERR("Wrong parameter, ep_cfg is NULL\n");
 		return -EPERM;
@@ -417,7 +417,7 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = true;
 		ep->ep_delay_set = true;
-		res = ipa3_cfg_ep_ctrl(ipa_ep_idx, &ep_cfg_ctrl);
+		res = ipa_cfg_ep_ctrl(ipa_ep_idx, &ep_cfg_ctrl);
 		if (res)
 			IPA_MHI_ERR("client (ep: %d) failed result=%d\n",
 			ipa_ep_idx, res);
@@ -499,7 +499,7 @@ int ipa3_mhi_init_engine(struct ipa_mhi_init_engine *params)
 	}
 
 	/* Initialize IPA MHI engine */
-	gsi_ep_info = ipa3_get_gsi_ep_info(IPA_CLIENT_MHI_PROD);
+	gsi_ep_info = ipa_get_gsi_ep_info(IPA_CLIENT_MHI_PROD);
 	if (!gsi_ep_info) {
 		IPAERR("MHI PROD has no ep allocated\n");
 		ipa_assert();
@@ -553,7 +553,7 @@ int ipa3_connect_mhi_pipe(struct ipa_mhi_connect_params_internal *in,
 	in->start.gsi.evchid += ipa3_ctx->mhi_evid_limits[0];
 
 	client = in->sys->client;
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx == -1) {
 		IPA_MHI_ERR("Invalid client.\n");
 		return -EINVAL;
@@ -633,7 +633,7 @@ int ipa3_disconnect_mhi_pipe(u32 clnt_hdl)
 	if (ep->ep_delay_set) {
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = false;
-		res = ipa3_cfg_ep_ctrl(clnt_hdl,
+		res = ipa_cfg_ep_ctrl(clnt_hdl,
 			&ep_cfg_ctrl);
 		if (res) {
 			IPAERR
@@ -676,7 +676,7 @@ int ipa3_mhi_resume_channels_internal(enum ipa_client_type client,
 
 	IPA_MHI_FUNC_ENTRY();
 
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx < 0) {
 		IPA_MHI_ERR("Invalid client %d\n", client);
 		return -EINVAL;
@@ -754,7 +754,7 @@ int ipa3_mhi_query_ch_info(enum ipa_client_type client,
 
 	IPA_MHI_FUNC_ENTRY();
 
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx < 0) {
 		IPA_MHI_ERR("Invalid client %d\n", client);
 		return -EINVAL;
@@ -804,7 +804,7 @@ int ipa3_mhi_destroy_channel(enum ipa_client_type client)
 	int ipa_ep_idx;
 	struct ipa3_ep_context *ep;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx < 0) {
 		IPA_MHI_ERR("Invalid client %d\n", client);
 		return -EINVAL;

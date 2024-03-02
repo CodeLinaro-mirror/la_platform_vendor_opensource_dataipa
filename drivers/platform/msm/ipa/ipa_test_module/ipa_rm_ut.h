@@ -13,7 +13,7 @@
  */
 
 #include <linux/msm_ipa.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 
 int build_rmnet_bridge_use_case_graph(
 		int (*create_resource)(struct ipa_rm_create_params *create_params),

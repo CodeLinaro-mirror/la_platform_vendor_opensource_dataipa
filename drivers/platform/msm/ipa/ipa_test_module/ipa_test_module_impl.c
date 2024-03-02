@@ -18,7 +18,7 @@
 #include <linux/dma-mapping.h>	/* dma_alloc_coherent() */
 #include <linux/io.h>
 #include <linux/uaccess.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <linux/sched.h>
 #include <linux/skbuff.h>	/* sk_buff */
 #include <linux/kfifo.h>  /* Kernel FIFO Implementation */
@@ -87,7 +87,6 @@
 #define EXCEPTION_KFIFO_SIZE (8)
 #define EXCEPTION_KFIFO_SLEEP_MS (EXCEPTION_KFIFO_SLEEP_MS)
 #define EXCEPTION_KFIFO_DEBUG_VERBOSE 1
-#define SAVE_HEADER 1
 
 #define IPATEST_DBG(fmt, args...) \
 	do { \
@@ -2388,7 +2387,7 @@ void suspend_handler(enum ipa_irq_type interrupt,
 	gsi_chan_hdl =
 		((struct ipa_tx_suspend_private_data *)private_data)->gsi_chan_hdl;
 
-	IPATEST_DBG("in suspend handler: interrupt=%d, private_data=%d, interrupt_data=",
+	IPATEST_DBG("in suspend handler: interrupt=%d, clnt_hdl=%d, private_data=%d, interrupt_data=%d",
 			 interrupt, clnt_hdl, suspend_data[0], suspend_data[1]);
 	for (i = 0; i < IPA_EP_ARR_SIZE; i++)
 		IPATEST_DBG("%d", suspend_data[i]);
@@ -2625,13 +2624,8 @@ void notify_upon_exception(void *priv,
 		return;
 	}
 
-#if (SAVE_HEADER)
-	data_len = p_sk_buff->len + 8; /* store len */
-	p_data = (p_sk_buff->data) - 8; /* store pointer to the data */
-#else
 	data_len = p_sk_buff->len; /* store len */
 	p_data = p_sk_buff->data; /* store pointer to the data */
-#endif
 
 #if (EXCEPTION_KFIFO_DEBUG_VERBOSE)
 		IPATEST_DBG("Exception packet length = %zu,Packet content:\n",

@@ -3,7 +3,7 @@ cc_binary {
 
     cflags: ["-Wno-missing-field-initializers"] + ["-Wno-int-to-pointer-cast"] + ["-Wno-int-conversion"],
 
-    header_libs: ["device_kernel_headers"]+["qti_kernel_headers"]+["qti_ipa_test_kernel_headers"],
+    header_libs: ["device_kernel_headers"]+["qti_kernel_headers"]+["qti_ipa_kernel_headers"]+["qti_ipa_test_kernel_headers"],
 
     srcs: [
         "DataPathTestFixture.cpp",
@@ -47,7 +47,6 @@ cc_binary {
         "TLPAggregationTests.cpp",
     ],
 
-    clang: true,
     vendor: true,
     rtti: true,
 

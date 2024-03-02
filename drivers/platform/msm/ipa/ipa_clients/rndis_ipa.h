@@ -6,7 +6,7 @@
 #ifndef _RNDIS_IPA_H_
 #define _RNDIS_IPA_H_
 
-#include <linux/ipa.h>
+#include "ipa.h"
 
 /*
  * @priv: private data given upon ipa_connect
@@ -63,6 +63,9 @@ int rndis_ipa_pipe_connect_notify(u32 usb_to_ipa_hdl,
 int rndis_ipa_pipe_disconnect_notify(void *private);
 
 void rndis_ipa_cleanup(void *private);
+
+int rndis_ipa_init_module(void);
+void rndis_ipa_cleanup_module(void);
 
 #else /* IS_ENABLED(CONFIG_RNDIS_IPA) */
 

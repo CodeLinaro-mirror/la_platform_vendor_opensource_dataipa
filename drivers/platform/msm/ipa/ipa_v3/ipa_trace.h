@@ -255,7 +255,7 @@ TRACE_EVENT(
 );
 
 TRACE_EVENT(
-	ipa3_tx_dp,
+	ipa_tx_dp,
 
 	TP_PROTO(const struct sk_buff *skb, unsigned long client),
 
@@ -392,12 +392,13 @@ TRACE_EVENT(
 #endif /* _IPA_TRACE_H */
 
 /* This part must be outside protection */
-#undef TRACE_INCLUDE_PATH
+#ifndef IPA_TRACE_INCLUDE_PATH
 #ifdef CONFIG_IPA_VENDOR_DLKM
-#define TRACE_INCLUDE_PATH ../../../../vendor/qcom/opensource/dataipa/drivers/platform/msm/ipa/ipa_v3
-#elif CONFIG_KALAMA_IPA_LE
-#define TRACE_INCLUDE_PATH ../ipa/ipa_v3
+#define IPA_TRACE_INCLUDE_PATH ../../../../vendor/qcom/opensource/dataipa/drivers/platform/msm/ipa/ipa_v3
 #else
-#define TRACE_INCLUDE_PATH ../../techpack/dataipa/drivers/platform/msm/ipa/ipa_v3
+#define IPA_TRACE_INCLUDE_PATH ../../techpack/dataipa/drivers/platform/msm/ipa/ipa_v3
 #endif
+#endif
+
+#define TRACE_INCLUDE_PATH IPA_TRACE_INCLUDE_PATH
 #include <trace/define_trace.h>

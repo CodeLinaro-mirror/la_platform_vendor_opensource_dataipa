@@ -7,7 +7,7 @@
 #include <linux/string.h>
 #include <linux/skbuff.h>
 #include <linux/workqueue.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <uapi/linux/msm_rmnet.h>
 #include "ipa_i.h"
 
@@ -240,8 +240,8 @@ int ipa3_rmnet_ll_init(void)
 		return -EINVAL;
 	}
 
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) == -1 ||
-		ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) == -1)
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) == -1 ||
+		ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) == -1)
 	{
 		IPAERR("invalid low lat data endpoints\n");
 		return -EINVAL;
@@ -275,7 +275,7 @@ int ipa3_rmnet_ll_init(void)
 	return 0;
 }
 
-int ipa3_register_rmnet_ll_cb(
+int ipa_register_rmnet_ll_cb(
 	void (*ipa_rmnet_ll_ready_cb)(void *user_data1),
 	void *user_data1,
 	void (*ipa_rmnet_ll_stop_cb)(void *user_data2),
@@ -303,7 +303,7 @@ int ipa3_register_rmnet_ll_cb(
 	mutex_lock(&rmnet_ll_ipa3_ctx->lock);
 	if (rmnet_ll_ipa3_ctx->state != IPA_RMNET_LL_NOT_REG &&
 		rmnet_ll_ipa3_ctx->state != IPA_RMNET_LL_PIPE_READY) {
-		IPADBG("rmnet_ll registered already\n", __func__);
+		IPADBG("rmnet_ll registered already\n");
 		mutex_unlock(&rmnet_ll_ipa3_ctx->lock);
 		return -EEXIST;
 	}
@@ -324,8 +324,9 @@ int ipa3_register_rmnet_ll_cb(
 	IPADBG("rmnet_ll registered successfually\n");
 	return 0;
 }
+EXPORT_SYMBOL(ipa_register_rmnet_ll_cb);
 
-int ipa3_unregister_rmnet_ll_cb(void)
+int ipa_unregister_rmnet_ll_cb(void)
 {
 	/* check ipa3_ctx existed or not */
 	if (!ipa3_ctx) {
@@ -346,7 +347,7 @@ int ipa3_unregister_rmnet_ll_cb(void)
 	mutex_lock(&rmnet_ll_ipa3_ctx->lock);
 	if (rmnet_ll_ipa3_ctx->state != IPA_RMNET_LL_REGD &&
 		rmnet_ll_ipa3_ctx->state != IPA_RMNET_LL_START) {
-		IPADBG("rmnet_ll unregistered already\n", __func__);
+		IPADBG("rmnet_ll unregistered already\n");
 		mutex_unlock(&rmnet_ll_ipa3_ctx->lock);
 		return 0;
 	}
@@ -367,6 +368,7 @@ int ipa3_unregister_rmnet_ll_cb(void)
 	IPADBG("rmnet_ll unregistered successfually\n");
 	return 0;
 }
+EXPORT_SYMBOL(ipa_unregister_rmnet_ll_cb);
 
 int ipa3_setup_apps_low_lat_data_cons_pipe(
 	struct rmnet_ingress_param *ingress_param,
@@ -605,7 +607,7 @@ int ipa3_teardown_apps_low_lat_data_pipes(void)
 			rmnet_ll_ipa3_ctx->state = IPA_RMNET_LL_REGD;
 	}
 	if (rmnet_ll_ipa3_ctx->pipe_state & IPA_RMNET_LL_PIPE_RX_READY) {
-		ret = ipa3_teardown_sys_pipe(
+		ret = ipa_teardown_sys_pipe(
 			rmnet_ll_ipa3_ctx->ipa3_to_apps_low_lat_data_hdl);
 		if (ret < 0) {
 			IPAERR("Failed to teardown APPS->IPA low lat data pipe\n");
@@ -616,7 +618,7 @@ int ipa3_teardown_apps_low_lat_data_pipes(void)
 	}
 
 	if (rmnet_ll_ipa3_ctx->pipe_state & IPA_RMNET_LL_PIPE_TX_READY) {
-		ret = ipa3_teardown_sys_pipe(
+		ret = ipa_teardown_sys_pipe(
 			rmnet_ll_ipa3_ctx->apps_to_ipa3_low_lat_data_hdl);
 		if (ret < 0) {
 			return ret;
@@ -628,7 +630,7 @@ int ipa3_teardown_apps_low_lat_data_pipes(void)
 	return ret;
 }
 
-int ipa3_rmnet_ll_xmit(struct sk_buff *skb)
+int ipa_rmnet_ll_xmit(struct sk_buff *skb)
 {
 	int ret;
 	int len, free_desc = 0;
@@ -718,7 +720,7 @@ int ipa3_rmnet_ll_xmit(struct sk_buff *skb)
 	 * both data packets and command will be routed to
 	 * IPA_CLIENT_Q6_WAN_CONS based on DMA settings
 	 */
-	ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD, skb, NULL);
+	ret = ipa_tx_dp(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD, skb, NULL);
 	if (ret) {
 		if (ret == -EPIPE) {
 			IPAERR("Low lat data fatal: pipe is not valid\n");
@@ -757,6 +759,7 @@ out:
 	spin_unlock_irqrestore(&rmnet_ll_ipa3_ctx->tx_lock, flags);
 	return (free_desc > 0) ? free_desc : 0;
 }
+EXPORT_SYMBOL(ipa_rmnet_ll_xmit);
 
 static void rmnet_ll_wakeup_ipa(struct work_struct *work)
 {
@@ -788,7 +791,7 @@ static void rmnet_ll_wakeup_ipa(struct work_struct *work)
 		 * both data packets and command will be routed to
 		 * IPA_CLIENT_Q6_WAN_CONS based on DMA settings
 		 */
-		ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD, skb, NULL);
+		ret = ipa_tx_dp(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD, skb, NULL);
 		if (ret) {
 			if (ret == -EPIPE) {
 				/* try to drain skb from queue if pipe teardown */

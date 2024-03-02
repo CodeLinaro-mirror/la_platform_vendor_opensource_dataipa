@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/atomic.h>
@@ -18,7 +20,7 @@
 #include <linux/netdevice.h>
 #include <linux/skbuff.h>
 #include <linux/sched.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <linux/random.h>
 #include <linux/workqueue.h>
 #include <linux/version.h>
@@ -229,7 +231,7 @@ struct rndis_ipa_dev {
 	u32 outstanding_low;
 	u32 error_msec_sleep_time;
 	enum rndis_ipa_state state;
-	u8 host_ethaddr[ETH_ALEN];
+	u8  host_ethaddr[ETH_ALEN];
 	u8 device_ethaddr[ETH_ALEN];
 	void (*device_ready_notify)(void);
 	struct delayed_work xmit_error_delayed_work;
@@ -313,7 +315,7 @@ static int rndis_ipa_ep_registers_cfg
 	bool deaggr_enable,
 	bool is_vlan_mode);
 static int rndis_ipa_set_device_ethernet_addr
-	(u8 *dev_ethaddr,
+	(struct net_device *net,
 	u8 device_ethaddr[]);
 static enum rndis_ipa_state rndis_ipa_next_state
 	(enum rndis_ipa_state current_state,
@@ -641,7 +643,7 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 	rndis_ipa_debugfs_init(rndis_ipa_ctx);
 
 	result = rndis_ipa_set_device_ethernet_addr
-		(net->dev_addr, rndis_ipa_ctx->device_ethaddr);
+		(net, rndis_ipa_ctx->device_ethaddr);
 	if (result) {
 		RNDIS_IPA_ERROR("set device MAC failed\n");
 		goto fail_set_device_ethernet;
@@ -708,7 +710,11 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 		rndis_ipa_ctx->netif_rx_function = netif_receive_skb;
 		RNDIS_IPA_DEBUG("LAN RX NAPI enabled = True");
 	} else {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0))
 		rndis_ipa_ctx->netif_rx_function = netif_rx_ni;
+#else
+		rndis_ipa_ctx->netif_rx_function = netif_rx;
+#endif
 		RNDIS_IPA_DEBUG("LAN RX NAPI enabled = False");
 	}
 
@@ -1631,7 +1637,7 @@ static void rndis_ipa_xmit_error_aftercare_wq(struct work_struct *work)
  *  for IPA driver
  * eth_type: the Ethernet type for this header-insertion header
  * hdr_name: string that shall represent this header in IPA data base
- * add_hdr: output for caller to be used with ipa3_add_hdr() to configure
+ * add_hdr: output for caller to be used with ipa_add_hdr() to configure
  *  the IPA core
  * dst_mac: tethered PC MAC (Ethernet) address to be added to packets
  *  for IPA->USB pipe
@@ -1784,7 +1790,7 @@ static int rndis_ipa_hdrs_cfg(
 
 	hdrs->num_hdrs = 2;
 	hdrs->commit = 1;
-	result = ipa3_add_hdr(hdrs);
+	result = ipa_add_hdr(hdrs);
 	if (result) {
 		RNDIS_IPA_ERROR("Fail on Header-Insertion(%d)\n", result);
 		goto fail_add_hdr;
@@ -1839,9 +1845,9 @@ static int rndis_ipa_hdrs_destroy(struct rndis_ipa_dev *rndis_ipa_ctx)
 	ipv6 = &del_hdr->hdl[1];
 	ipv6->hdl = rndis_ipa_ctx->eth_ipv6_hdr_hdl;
 
-	result = ipa3_del_hdr(del_hdr);
+	result = ipa_del_hdr(del_hdr);
 	if (result || ipv4->status || ipv6->status)
-		RNDIS_IPA_ERROR("ipa3_del_hdr failed\n");
+		RNDIS_IPA_ERROR("ipa_del_hdr failed\n");
 	else
 		RNDIS_IPA_DEBUG("hdrs deletion done\n");
 
@@ -1925,7 +1931,7 @@ static int rndis_ipa_register_properties(char *netdev_name, bool is_vlan_mode)
 	rx_ipv6_property->hdr_l2_type = hdr_l2_type;
 	rx_properties.num_props = 2;
 
-	result = ipa3_register_intf("rndis0", &tx_properties, &rx_properties);
+	result = ipa_register_intf("rndis0", &tx_properties, &rx_properties);
 	if (result)
 		RNDIS_IPA_ERROR("fail on Tx/Rx properties registration\n");
 	else
@@ -1948,7 +1954,7 @@ static int  rndis_ipa_deregister_properties(char *netdev_name)
 
 	RNDIS_IPA_LOG_ENTRY();
 
-	result = ipa3_deregister_intf(netdev_name);
+	result = ipa_deregister_intf(netdev_name);
 	if (result) {
 		RNDIS_IPA_DEBUG("Fail on Tx prop deregister\n");
 		return result;
@@ -2216,12 +2222,18 @@ static int rndis_ipa_ep_registers_cfg(
  * Returns 0 for success, negative otherwise
  */
 static int rndis_ipa_set_device_ethernet_addr(
-	u8 *dev_ethaddr,
+	struct net_device *net,
 	u8 device_ethaddr[])
 {
 	if (!is_valid_ether_addr(device_ethaddr))
 		return -EINVAL;
-	memcpy(dev_ethaddr, device_ethaddr, ETH_ALEN);
+
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 15, 0))
+	net->addr_len = ETH_ALEN;
+	dev_addr_set(net, device_ethaddr);
+#else
+	memcpy((u8 *)net->dev_addr, device_ethaddr, ETH_ALEN);
+#endif
 
 	return 0;
 }
@@ -2555,7 +2567,7 @@ static ssize_t rndis_ipa_debugfs_atomic_read
 	return simple_read_from_buffer(ubuf, count, ppos, atomic_str, nbytes);
 }
 
-static int __init rndis_ipa_init_module(void)
+int rndis_ipa_init_module(void)
 {
 	ipa_rndis_logbuf = ipc_log_context_create(IPA_RNDIS_IPC_LOG_PAGES,
 		"ipa_rndis", MINIDUMP_MASK);
@@ -2565,8 +2577,9 @@ static int __init rndis_ipa_init_module(void)
 	pr_info("RNDIS_IPA module is loaded.\n");
 	return 0;
 }
+EXPORT_SYMBOL(rndis_ipa_init_module);
 
-static void __exit rndis_ipa_cleanup_module(void)
+void rndis_ipa_cleanup_module(void)
 {
 	if (ipa_rndis_logbuf)
 		ipc_log_context_destroy(ipa_rndis_logbuf);
@@ -2574,9 +2587,10 @@ static void __exit rndis_ipa_cleanup_module(void)
 
 	pr_info("RNDIS_IPA module is unloaded.\n");
 }
+EXPORT_SYMBOL(rndis_ipa_cleanup_module);
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("RNDIS_IPA network interface");
 
-late_initcall(rndis_ipa_init_module);
-module_exit(rndis_ipa_cleanup_module);
+//late_initcall(rndis_ipa_init_module);
+//module_exit(rndis_ipa_cleanup_module);

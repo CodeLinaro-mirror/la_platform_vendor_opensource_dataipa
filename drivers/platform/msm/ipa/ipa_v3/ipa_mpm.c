@@ -508,10 +508,10 @@ static int ipa_mpm_set_dma_mode(enum ipa_client_type src_pipe,
 	memset(cmd_pyld, 0, sizeof(cmd_pyld));
 
 	/* First step is to clear IPA Pipeline before changing DMA mode */
-	if (ipa3_get_ep_mapping(src_pipe) != IPA_EP_NOT_ALLOCATED) {
+	if (ipa_get_ep_mapping(src_pipe) != IPA_EP_NOT_ALLOCATED) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(src_pipe);
+		i = ipa_get_ep_mapping(src_pipe);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -935,7 +935,7 @@ static int ipa_mpm_connect_mhip_gsi_pipe(enum ipa_client_type mhip_client,
 		(mhi_idx >= IPA_MPM_MHIP_CH_ID_MAX))
 		goto fail_gen;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(mhip_client);
+	ipa_ep_idx = ipa_get_ep_mapping(mhip_client);
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
 		IPA_MPM_ERR("fail to find channel EP.\n");
 		goto fail_gen;
@@ -1213,7 +1213,7 @@ static int ipa_mpm_connect_mhip_gsi_pipe(enum ipa_client_type mhip_client,
 
 fail_start_channel:
 	ipa3_disable_data_path(ipa_ep_idx);
-	ipa3_stop_gsi_channel(ipa_ep_idx);
+	ipa_stop_gsi_channel(ipa_ep_idx);
 fail_alloc_channel:
 	ipa3_release_gsi_channel(ipa_ep_idx);
 fail_smmu_map_db:
@@ -1247,7 +1247,7 @@ static void ipa_mpm_clean_mhip_chan(int mhi_idx,
 	dir = IPA_CLIENT_IS_PROD(mhip_client) ?
 		DMA_TO_HIPA : DMA_FROM_HIPA;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(mhip_client);
+	ipa_ep_idx = ipa_get_ep_mapping(mhip_client);
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
 		IPA_MPM_ERR("fail to find channel EP.\n");
 		return;
@@ -1258,7 +1258,7 @@ static void ipa_mpm_clean_mhip_chan(int mhi_idx,
 		ipa3_disable_data_path(ipa_ep_idx);
 
 	/* Release channel */
-	result = ipa3_stop_gsi_channel(ipa_ep_idx);
+	result = ipa_stop_gsi_channel(ipa_ep_idx);
 	if (result) {
 		IPA_MPM_ERR("Stop channel for MHIP_Client =  %d failed\n",
 					mhip_client);
@@ -1735,12 +1735,12 @@ static enum mhip_status_type ipa_mpm_start_stop_mhip_chan(
 	get_ipa3_client(probe_id, &ul_chan, &dl_chan);
 
 	if (mhip_chan == IPA_MPM_MHIP_CHAN_UL) {
-		ipa_ep_idx = ipa3_get_ep_mapping(ul_chan);
+		ipa_ep_idx = ipa_get_ep_mapping(ul_chan);
 	} else if (mhip_chan == IPA_MPM_MHIP_CHAN_DL) {
-		ipa_ep_idx = ipa3_get_ep_mapping(dl_chan);
+		ipa_ep_idx = ipa_get_ep_mapping(dl_chan);
 	} else if (mhip_chan == IPA_MPM_MHIP_CHAN_BOTH) {
-		ipa_ep_idx = ipa3_get_ep_mapping(ul_chan);
-		ipa_ep_idx = ipa3_get_ep_mapping(dl_chan);
+		ipa_ep_idx = ipa_get_ep_mapping(ul_chan);
+		ipa_ep_idx = ipa_get_ep_mapping(dl_chan);
 	}
 
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
@@ -1833,7 +1833,7 @@ static enum mhip_status_type ipa_mpm_start_stop_mhip_chan(
 
 		if (mhip_chan == IPA_MPM_MHIP_CHAN_UL) {
 			/* First Stop UL GSI channel before unvote PCIe clock */
-			result = ipa3_stop_gsi_channel(ipa_ep_idx);
+			result = ipa_stop_gsi_channel(ipa_ep_idx);
 
 			if (result) {
 				IPA_MPM_ERR("UL chan stop failed\n");
@@ -1845,7 +1845,7 @@ static enum mhip_status_type ipa_mpm_start_stop_mhip_chan(
 		}
 
 		if (mhip_chan == IPA_MPM_MHIP_CHAN_DL) {
-			result = ipa3_stop_gsi_channel(ipa_ep_idx);
+			result = ipa_stop_gsi_channel(ipa_ep_idx);
 			if (result) {
 				IPA_MPM_ERR("Fail to stop DL channel\n");
 				goto gsi_chan_fail;
@@ -1937,7 +1937,7 @@ int ipa_mpm_notify_wan_state(struct wan_ioctl_notify_wan_state *state)
 		  * This info will be used to set delay on the end points upon
 		  * hitting RED water mark.
 		  */
-		ep_cfg = ipa3_get_gsi_ep_info(IPA_CLIENT_WLAN2_PROD);
+		ep_cfg = ipa_get_gsi_ep_info(IPA_CLIENT_WLAN2_PROD);
 
 		if (!ep_cfg)
 			IPA_MPM_ERR("ep = %d not allocated yet\n",
@@ -1945,7 +1945,7 @@ int ipa_mpm_notify_wan_state(struct wan_ioctl_notify_wan_state *state)
 		else
 			flow_ctrl_mask |= 1 << (ep_cfg->ipa_gsi_chan_num);
 
-		ep_cfg = ipa3_get_gsi_ep_info(IPA_CLIENT_USB_PROD);
+		ep_cfg = ipa_get_gsi_ep_info(IPA_CLIENT_USB_PROD);
 
 		if (!ep_cfg)
 			IPA_MPM_ERR("ep = %d not allocated yet\n",
@@ -2153,7 +2153,7 @@ static void ipa_mpm_read_channel(enum ipa_client_type chan)
 	struct ipa3_ep_context *ep;
 	int res;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(chan);
+	ipa_ep_idx = ipa_get_ep_mapping(chan);
 
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
 		IPAERR("failed to get idx");
@@ -2439,7 +2439,7 @@ static int ipa_mpm_mhi_probe_cb(struct mhi_device *mhi_dev,
 		 * Ring the event DB to a value outside the
 		 * ring range such that rp and wp never meet.
 		 */
-		ipa_ep_idx = ipa3_get_ep_mapping(ul_prod);
+		ipa_ep_idx = ipa_get_ep_mapping(ul_prod);
 
 		if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
 			IPA_MPM_ERR("fail to alloc EP.\n");
@@ -2517,7 +2517,7 @@ static int ipa_mpm_mhi_probe_cb(struct mhi_device *mhi_dev,
 		iounmap(db_addr);
 
 		/* Ring DL EVENT RING CONSUMER (DEVICE IPA CONSUMER) Doorbell */
-		ipa_ep_idx = ipa3_get_ep_mapping(dl_cons);
+		ipa_ep_idx = ipa_get_ep_mapping(dl_cons);
 
 		if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
 			IPA_MPM_ERR("fail to alloc EP.\n");
@@ -2564,12 +2564,12 @@ static int ipa_mpm_mhi_probe_cb(struct mhi_device *mhi_dev,
 		}
 		if (ul_prod != IPA_CLIENT_MAX) {
 			/* No teth started yet, disable UL channel */
-			ipa_ep_idx = ipa3_get_ep_mapping(ul_prod);
+			ipa_ep_idx = ipa_get_ep_mapping(ul_prod);
 			if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
 				IPA_MPM_ERR("fail to alloc EP.\n");
 				goto fail_stop_channel;
 			}
-			ret = ipa3_stop_gsi_channel(ipa_ep_idx);
+			ret = ipa_stop_gsi_channel(ipa_ep_idx);
 			if (ret) {
 				IPA_MPM_ERR("MHIP Stop channel err = %d\n",
 					ret);
@@ -2590,7 +2590,7 @@ static int ipa_mpm_mhi_probe_cb(struct mhi_device *mhi_dev,
 
 		/* Lift the delay for rmnet USB prod pipe */
 		if (probe_id == IPA_MPM_MHIP_CH_ID_1) {
-			pipe_idx = ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD);
+			pipe_idx = ipa_get_ep_mapping(IPA_CLIENT_USB_PROD);
 			ipa3_xdci_ep_delay_rm(pipe_idx);
 			/* Register for BW indication from Q6*/
 			if (!ipa3_qmi_reg_dereg_for_bw(true))
@@ -2624,7 +2624,7 @@ static int ipa_mpm_mhi_probe_cb(struct mhi_device *mhi_dev,
 	mutex_unlock(&ipa_mpm_ctx->md[probe_id].mhi_mutex);
 	/* Update Flow control Monitoring, only for the teth UL Prod pipes */
 	if (probe_id == IPA_MPM_MHIP_CH_ID_0) {
-		ipa_ep_idx = ipa3_get_ep_mapping(ul_prod);
+		ipa_ep_idx = ipa_get_ep_mapping(ul_prod);
 		ep = &ipa3_ctx->ep[ipa_ep_idx];
 		ret = ipa3_uc_send_enable_flow_control(ep->gsi_chan_hdl,
 			ipa3_ctx->mpm_uc_thresh);
@@ -2959,7 +2959,7 @@ int ipa_mpm_mhip_xdci_pipe_enable(enum ipa_usb_teth_prot xdci_teth_prot)
 		if (!ipa3_qmi_reg_dereg_for_bw(true))
 			IPA_MPM_DBG("Fail regst QMI BW Indctn,might be SSR");
 
-		pipe_idx = ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD);
+		pipe_idx = ipa_get_ep_mapping(IPA_CLIENT_USB_PROD);
 
 		/* Lift the delay for rmnet USB prod pipe */
 		ipa3_xdci_ep_delay_rm(pipe_idx);
@@ -3152,7 +3152,7 @@ static int ipa_mpm_populate_smmu_info(struct platform_device *pdev)
 
 	/* get IPA SMMU enabled status */
 	smmu_in.smmu_client = IPA_SMMU_AP_CLIENT;
-	if (ipa3_get_smmu_params(&smmu_in, &smmu_out))
+	if (ipa_get_smmu_params(&smmu_in, &smmu_out))
 		ipa_mpm_ctx->dev_info.ipa_smmu_enabled = false;
 	else
 		ipa_mpm_ctx->dev_info.ipa_smmu_enabled =

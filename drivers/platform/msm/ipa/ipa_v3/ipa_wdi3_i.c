@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
-#include <linux/ipa_wdi3.h>
+#include "ipa_wdi3.h"
 
 #define UPDATE_RP_MODERATION_CONFIG 1
 #define UPDATE_RP_MODERATION_THRESHOLD 8
+#define UPDATE_RP_MODERATION_THRESHOLD_OPT_DP 1
+
 
 #define IPA_WLAN_AGGR_PKT_LIMIT 1
 #define IPA_WLAN_AGGR_BYTE_LIMIT 2 /*2 Kbytes Agger hard byte limit*/
@@ -184,7 +188,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	else
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 
-	gsi_ep_info = ipa3_get_gsi_ep_info(ep->client);
+	gsi_ep_info = ipa_get_gsi_ep_info(ep->client);
 	if (!gsi_ep_info) {
 		IPAERR("Failed getting GSI EP info for client=%d\n",
 		       ep->client);
@@ -403,6 +407,8 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	/* write channel scratch */
 	memset(&ch_scratch, 0, sizeof(ch_scratch));
 	ch_scratch.wdi3.update_rp_moderation_threshold =
+		(ipa3_ctx->ipa_wdi_opt_dpath) ?
+		UPDATE_RP_MODERATION_THRESHOLD_OPT_DP :
 		UPDATE_RP_MODERATION_THRESHOLD;
 	if ((dir == IPA_WDI3_RX_DIR) || (dir == IPA_WDI3_RX2_DIR)) {
 		if (!is_smmu_enabled)
@@ -708,9 +714,22 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		memcpy(&ep_rx->cfg, &in->u_rx.rx_smmu.ipa_ep_cfg,
 			sizeof(ep_rx->cfg));
 
+	if (ipa3_ctx->ipa_wdi_opt_dpath) {
+		ep_rx->cfg.cfg.frag_offload_en = true;
+		ep_rx->status.status_en = true;
+		ep_rx->status.status_ep =
+			ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+		ep_rx->status.status_pkt_suppress = true;
+	}
+
 	if (ipa3_cfg_ep(ipa_ep_idx_rx, &ep_rx->cfg)) {
 		IPAERR("fail to setup rx pipe cfg\n");
 		result = -EFAULT;
+		goto fail;
+	}
+
+	if (ipa3_cfg_ep_status(ipa_ep_idx_rx, &ep_rx->status)) {
+		IPAERR("fail to configure status of EP.\n");
 		goto fail;
 	}
 
@@ -1024,8 +1043,12 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	else
 		ipa3_release_wdi3_gsi_smmu_mappings(IPA_WDI3_RX2_DIR);
 
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2)
 		ipa3_uc_debug_stats_dealloc(IPA_HW_PROTOCOL_WDI3);
+
+	if (ipa3_ctx->ipa_wdi_opt_dpath)
+		ipa3_disable_wdi3_opt_dpath(ipa_ep_idx_rx, ipa_ep_idx_tx);
+
 	ipa3_delete_dflt_flt_rules(ipa_ep_idx_rx);
 	memset(ep_rx, 0, sizeof(struct ipa3_ep_context));
 	IPADBG("rx client (ep: %d) disconnected\n", ipa_ep_idx_rx);
@@ -1064,7 +1087,7 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(ipa_ep_idx_tx));
 
 	/* start uC event ring */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
 		if (ipa3_ctx->uc_ctx.uc_loaded &&
 			!ipa3_ctx->uc_ctx.uc_event_ring_valid) {
 			if (ipa3_uc_setup_event_ring())	{
@@ -1140,7 +1163,7 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		goto fail_start_channel3;
 	}
 	/* start uC gsi dbg stats monitor */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
 		ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3].ch_id_info[0].ch_id
 			= ep_rx->gsi_chan_hdl;
 		ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3].ch_id_info[0].dir
@@ -1261,7 +1284,7 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	}
 
 	/* stop gsi rx channel */
-	result = ipa3_stop_gsi_channel(ipa_ep_idx_rx);
+	result = ipa_stop_gsi_channel(ipa_ep_idx_rx);
 	if (result) {
 		IPAERR("failed to stop gsi rx channel\n");
 		result = -EFAULT;
@@ -1269,7 +1292,7 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	}
 
 	/* stop gsi tx channel */
-	result = ipa3_stop_gsi_channel(ipa_ep_idx_tx);
+	result = ipa_stop_gsi_channel(ipa_ep_idx_tx);
 	if (result) {
 		IPAERR("failed to stop gsi tx channel\n");
 		result = -EFAULT;
@@ -1277,7 +1300,7 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	}
 	/* stop gsi tx1 channel */
 	if (ipa_ep_idx_tx1 >= 0) {
-		result = ipa3_stop_gsi_channel(ipa_ep_idx_tx1);
+		result = ipa_stop_gsi_channel(ipa_ep_idx_tx1);
 		if (result) {
 			IPAERR("failed to stop gsi tx1 channel\n");
 			result = -EFAULT;
@@ -1285,7 +1308,7 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		}
 	}
 	/* stop uC gsi dbg stats monitor */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
 		ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3].ch_id_info[0].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3].ch_id_info[0].dir
@@ -1393,3 +1416,83 @@ int ipa3_get_wdi3_gsi_stats(struct ipa_uc_dbg_ring_stats *stats)
 
 	return 0;
 }
+
+int ipa3_enable_wdi3_opt_dpath(int ipa_ep_idx_rx, int ipa_ep_idx_tx,
+	u32 rt_tbl_idx)
+{
+	int result = 0;
+	struct ipa3_ep_context *ep_tx = NULL;
+
+	/* wdi3 only support over gsi */
+	if (ipa_get_wdi_version() < IPA_WDI_3) {
+		IPADBG("wdi3 over uc offload not supported");
+		return -EFAULT;
+	}
+
+	IPADBG("ep_rx = %d, ep_tx = %d\n", ipa_ep_idx_rx, ipa_ep_idx_tx);
+	IPADBG("rt_tbl_idx = %d\n", rt_tbl_idx);
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	/* Install default filter rules.*/
+	ipa3_install_dl_opt_wdi_dpath_flt_rules(ipa_ep_idx_rx, rt_tbl_idx);
+
+	result = ipa3_enable_data_path(ipa_ep_idx_tx);
+	if (result) {
+		IPADBG("enable data path failed res=%d clnt=%d\n", result,
+			ipa_ep_idx_tx);
+	}
+
+	ep_tx = &ipa3_ctx->ep[ipa_ep_idx_tx];
+	/* start gsi tx channel */
+	result = gsi_start_channel(ep_tx->gsi_chan_hdl);
+	if (result) {
+		IPADBG("failed to start gsi tx channel\n");
+	}
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return result;
+}
+EXPORT_SYMBOL(ipa3_enable_wdi3_opt_dpath);
+
+int ipa3_disable_wdi3_opt_dpath(int ipa_ep_idx_rx, int ipa_ep_idx_tx)
+{
+	int result = 0;
+
+	/* wdi3 only support over gsi */
+	if (ipa_get_wdi_version() < IPA_WDI_3) {
+		IPADBG("wdi3 over uc offload not supported");
+		return -EFAULT;
+	}
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	IPADBG("ep_rx = %d, ep_tx = %d\n", ipa_ep_idx_rx, ipa_ep_idx_tx);
+
+	/* Install default filter rules.*/
+	ipa3_delete_dl_opt_wdi_dpath_flt_rules(ipa_ep_idx_rx);
+
+	/* disable tx data path */
+	result = ipa3_disable_data_path(ipa_ep_idx_tx);
+	if (result) {
+		IPADBG("disable data path failed res=%d clnt=%d.\n", result,
+			ipa_ep_idx_tx);
+		result = -EFAULT;
+		goto fail;
+	}
+
+	/* stop gsi tx channel */
+	result = ipa_stop_gsi_channel(ipa_ep_idx_tx);
+	if (result) {
+		IPADBG("failed to stop gsi tx channel\n");
+		result = -EFAULT;
+		goto fail;
+	}
+
+fail:
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return result;
+}
+EXPORT_SYMBOL(ipa3_disable_wdi3_opt_dpath);
+

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of.h>
@@ -1240,6 +1240,7 @@ static uint32_t gsi_get_max_event_rings(enum gsi_ver ver)
 		max_ev = hw_param.gsi_ev_ch_num;
 		break;
 	case GSI_VER_3_0:
+	case GSI_VER_5_2:
 	case GSI_VER_5_5:
 		gsihal_read_reg_n_fields(GSI_EE_n_GSI_HW_PARAM_4,
 			gsi_ctx->per.ee, &hw_param4);
@@ -1339,7 +1340,11 @@ static void __gsi_msi_write_msg(struct msi_desc *desc, struct msi_msg *msg)
 	if (IS_ERR_OR_NULL(desc) || IS_ERR_OR_NULL(msg) || IS_ERR_OR_NULL(gsi_ctx))
 		BUG();
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
+	msi = desc->msi_index;
+#else
 	msi = desc->platform.msi_index;
+#endif
 
 	/* MSI should be valid and unallocated */
 	if ((msi >= gsi_ctx->msi.num) || (test_bit(msi, gsi_ctx->msi.allocated)))
@@ -1395,7 +1400,9 @@ static int __gsi_request_msi_irq(unsigned long msi)
 static int __gsi_allocate_msis(void)
 {
 	int result = 0;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0))
 	struct msi_desc *desc = NULL;
+#endif
 	size_t size = 0;
 
 	/* Allocate all MSIs */
@@ -1411,6 +1418,11 @@ static int __gsi_allocate_msis(void)
 	/* Loop through the allocated MSIs and save the info, then
 	 * request the IRQ.
 	 */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
+	for (unsigned long msi = 0; msi < gsi_ctx->msi.num; msi++) {
+		/* Save IRQ */
+		gsi_ctx->msi.irq[msi] = msi_get_virq(gsi_ctx->dev, msi);
+#else
 	for_each_msi_entry(desc, gsi_ctx->dev) {
 		unsigned long msi = desc->platform.msi_index;
 
@@ -1424,7 +1436,7 @@ static int __gsi_allocate_msis(void)
 		/* Save IRQ */
 		gsi_ctx->msi.irq[msi] = desc->irq;
 		GSIDBG("desc->irq =%d\n", desc->irq);
-
+#endif
 		/* Request the IRQ */
 		if (__gsi_request_msi_irq(msi)) {
 			GSIERR("error requesting IRQ for MSI %lu\n",
@@ -2916,9 +2928,10 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 	}
 	memset(ctx, 0, sizeof(*ctx));
 
-	/* For IPA offloaded WDI/RTK/XDCI channels not required user_data pointer */
-	if (props->prot == GSI_CHAN_PROT_GPI ||
-		props->prot == GSI_CHAN_PROT_GCI)
+	/* For IPA offloaded WDI channels not required user_data pointer */
+	if (props->prot != GSI_CHAN_PROT_WDI2 &&
+		props->prot != GSI_CHAN_PROT_WDI3 &&
+		props->prot != GSI_CHAN_PROT_WDI3_V2)
 		user_data_size = props->ring_len / props->re_size;
 	else
 		user_data_size = props->re_size;
@@ -3377,29 +3390,6 @@ int gsi_query_channel_db_addr(unsigned long chan_hdl,
 }
 EXPORT_SYMBOL(gsi_query_channel_db_addr);
 
-int gsi_get_channel_event_db_base_addr(uint64_t *ch_db_base_addr,
-		uint64_t *ev_db_base_addr)
-{
-        if (!gsi_ctx) {
-                pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
-                return -GSI_STATUS_NODEV;
-        }
-
-        if (!ch_db_base_addr || !ev_db_base_addr) {
-                GSIERR("bad params ch_db=%pK ev_db=%pK\n", ch_db_base_addr,
-                                ev_db_base_addr);
-                return -GSI_STATUS_INVALID_PARAMS;
-        }
-
-        *ch_db_base_addr = gsi_ctx->per.phys_addr +
-                gsihal_get_reg_nk_ofst(GSI_EE_n_GSI_CH_k_DOORBELL_0, 0, 0);
-        *ev_db_base_addr = gsi_ctx->per.phys_addr +
-                gsihal_get_reg_nk_ofst(GSI_EE_n_EV_CH_k_DOORBELL_0, 0, 0);
-
-        return GSI_STATUS_SUCCESS;
-}
-EXPORT_SYMBOL(gsi_get_channel_event_db_base_addr);
-
 int gsi_pending_irq_type(void)
 {
 	int ee = gsi_ctx->per.ee;
@@ -3426,6 +3416,11 @@ int gsi_start_channel(unsigned long chan_hdl)
 	}
 
 	ctx = &gsi_ctx->chan[chan_hdl];
+
+	if (ctx->state == GSI_CHAN_STATE_STARTED) {
+		GSIDBG("chan_hdl=%lu already in started state\n", chan_hdl);
+		return GSI_STATUS_SUCCESS;
+	}
 
 	if (ctx->state != GSI_CHAN_STATE_ALLOCATED &&
 		ctx->state != GSI_CHAN_STATE_STOP_IN_PROC &&
@@ -3635,7 +3630,7 @@ int gsi_stop_channel(unsigned long chan_hdl)
 	}
 
 	if (ctx->state == GSI_CHAN_STATE_STOP_IN_PROC) {
-		GSIDBG("chan=%lu busy try again\n", chan_hdl);
+		GSIERR("chan=%lu busy try again\n", chan_hdl);
 		res = -GSI_STATUS_AGAIN;
 		goto free_lock;
 	}
@@ -5903,7 +5898,9 @@ static int msm_gsi_probe(struct platform_device *pdev)
 		GSIERR("No MSIs configured\n");
 	else {
 		if (gsi_ctx->msi.num > GSI_MAX_NUM_MSI) {
-			GSIERR("Num MSIs %u larger than max %u, normalizing\n");
+			GSIERR("Num MSIs %u larger than max %u, normalizing\n",
+				gsi_ctx->msi.num,
+				GSI_MAX_NUM_MSI);
 			gsi_ctx->msi.num = GSI_MAX_NUM_MSI;
 		} else GSIDBG("Num MSIs=%u\n", gsi_ctx->msi.num);
 	}

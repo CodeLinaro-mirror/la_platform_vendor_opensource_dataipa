@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/fs.h>
@@ -47,12 +49,12 @@ struct ipa3_pull_msg {
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_register_intf(const char *name, const struct ipa_tx_intf *tx,
+int ipa_register_intf(const char *name, const struct ipa_tx_intf *tx,
 		       const struct ipa_rx_intf *rx)
 {
 	return ipa3_register_intf_ext(name, tx, rx, NULL);
 }
-EXPORT_SYMBOL(ipa3_register_intf);
+EXPORT_SYMBOL(ipa_register_intf);
 
 /**
  * ipa3_register_intf_ext() - register "logical" interface which has only
@@ -155,7 +157,7 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 }
 
 /**
- * ipa3_deregister_intf() - de-register previously registered logical interface
+ * ipa_deregister_intf() - de-register previously registered logical interface
  * @name: [in] interface name
  *
  * De-register a previously registered interface
@@ -164,7 +166,7 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_deregister_intf(const char *name)
+int ipa_deregister_intf(const char *name)
 {
 	struct ipa3_intf *entry;
 	struct ipa3_intf *next;
@@ -192,7 +194,7 @@ int ipa3_deregister_intf(const char *name)
 
 	return result;
 }
-EXPORT_SYMBOL(ipa3_deregister_intf);
+EXPORT_SYMBOL(ipa_deregister_intf);
 
 /**
  * ipa3_query_intf() - query logical interface properties
@@ -376,7 +378,7 @@ int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext)
 	return result;
 }
 
-static void ipa3_send_msg_free(void *buff, u32 len, u32 type)
+static void ipa_send_msg_free(void *buff, u32 len, u32 type)
 {
 	kfree(buff);
 }
@@ -429,7 +431,7 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 			}
 			memcpy(data_dup, buff, meta->msg_len);
 			msg_dup->buff = data_dup;
-			msg_dup->callback = ipa3_send_msg_free;
+			msg_dup->callback = ipa_send_msg_free;
 		} else {
 			IPAERR("msg_len %d\n", meta->msg_len);
 			kfree(msg_dup);
@@ -483,7 +485,7 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 }
 
 /**
- * ipa3_send_msg() - Send "message" from kernel client to IPA driver
+ * ipa_send_msg() - Send "message" from kernel client to IPA driver
  * @meta: [in] message meta-data
  * @buff: [in] the payload for message
  * @callback: [in] free callback
@@ -497,7 +499,7 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_send_msg(struct ipa_msg_meta *meta, void *buff,
+int ipa_send_msg(struct ipa_msg_meta *meta, void *buff,
 		  ipa_msg_free_fn callback)
 {
 	struct ipa3_push_msg *msg;
@@ -515,6 +517,14 @@ int ipa3_send_msg(struct ipa_msg_meta *meta, void *buff,
 		return -EINVAL;
 	}
 
+	if (ipa3_ctx->ipa_wdi_opt_dpath && WLAN_IPA_EVENT(meta->msg_type)) {
+		IPAERR_RL("Opt data path enabled, ignore message type %d\n",
+			meta->msg_type);
+		if (buff)
+			callback(buff, meta->msg_len, meta->msg_type);
+		return 0;
+	}
+
 	msg = kzalloc(sizeof(struct ipa3_push_msg), GFP_KERNEL);
 	if (msg == NULL)
 		return -ENOMEM;
@@ -527,7 +537,7 @@ int ipa3_send_msg(struct ipa_msg_meta *meta, void *buff,
 			return -ENOMEM;
 		}
 		msg->buff = data;
-		msg->callback = ipa3_send_msg_free;
+		msg->callback = ipa_send_msg_free;
 	}
 
 	mutex_lock(&ipa3_ctx->msg_lock);
@@ -546,6 +556,7 @@ int ipa3_send_msg(struct ipa_msg_meta *meta, void *buff,
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_send_msg);
 
 /**
  * ipa3_resend_wlan_msg() - Resend cached "message" to IPACM
@@ -593,7 +604,7 @@ int ipa3_resend_wlan_msg(void)
 			return -ENOMEM;
 		}
 		msg->buff = data;
-		msg->callback = ipa3_send_msg_free;
+		msg->callback = ipa_send_msg_free;
 		mutex_lock(&ipa3_ctx->msg_lock);
 		list_add_tail(&msg->link, &ipa3_ctx->msg_list);
 		mutex_unlock(&ipa3_ctx->msg_lock);

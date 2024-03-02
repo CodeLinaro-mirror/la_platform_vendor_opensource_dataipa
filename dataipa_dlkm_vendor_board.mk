@@ -9,14 +9,12 @@ else
 endif
 
 ifeq ($(TARGET_DATAIPA_DLKM_ENABLE), true)
-DATA_DLKM_BOARD_PLATFORMS_LIST := taro kalama bengal monaco crow $(TRINKET)
+DATA_DLKM_BOARD_PLATFORMS_LIST := taro kalama bengal monaco pineapple blair holi cliffs pitti
 ifneq ($(TARGET_BOARD_AUTO),true)
 ifeq ($(call is-board-platform-in-list,$(DATA_DLKM_BOARD_PLATFORMS_LIST)),true)
 BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/gsim.ko
 BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/ipam.ko
 BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/ipanetm.ko
-BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/rndisipam.ko
-BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/ipa_clientsm.ko
 ifeq ($(CONFIG_LOCALVERSION), "-gki-consolidate")
 BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/ipatestm.ko
 endif

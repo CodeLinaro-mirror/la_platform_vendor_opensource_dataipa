@@ -6,7 +6,7 @@
 #ifndef _IPAHAL_HW_STATS_H_
 #define _IPAHAL_HW_STATS_H_
 
-#include <linux/ipa.h>
+#include "ipa.h"
 
 #define IPAHAL_MAX_PIPES 32
 #define IPAHAL_MAX_PIPES_PER_REG 32

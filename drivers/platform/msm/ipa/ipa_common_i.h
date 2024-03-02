@@ -1,20 +1,22 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_COMMON_I_H_
 #define _IPA_COMMON_I_H_
-#include <linux/ipa_mhi.h>
 #include <linux/ipa_qmi_service_v01.h>
 #include <linux/errno.h>
 #include <linux/ipc_logging.h>
-#include <linux/ipa.h>
-#include <linux/ipa_uc_offload.h>
-#include <linux/ipa_wdi3.h>
-#include <linux/ipa_wigig.h>
-#include <linux/ipa_eth.h>
+#include "ipa.h"
+#include "ipa_uc_offload.h"
+#include "ipa_wdi3.h"
+#include "ipa_wigig.h"
+#include "ipa_eth.h"
 #include <linux/ipa_usb.h>
+#include <linux/ipa_mhi.h>
 #include <linux/ratelimit.h>
 #include "ipa_stats.h"
 #include "gsi.h"
@@ -133,7 +135,7 @@
  * Printing one warning message in 5 seconds if multiple warning messages
  * are coming back to back.
  */
-#ifdef CONFIG_IPA_DEBUG
+
 #define WARN_ON_RATELIMIT_IPA(condition)				\
 ({								\
 	static DEFINE_RATELIMIT_STATE(_rs,			\
@@ -144,9 +146,6 @@
 	if (unlikely(rtn && __ratelimit(&_rs)))			\
 		WARN_ON(rtn);					\
 })
-#else
-#define WARN_ON_RATELIMIT_IPA(condition)
-#endif
 
 /*
  * Printing one error message in 5 seconds if multiple error messages
@@ -179,7 +178,7 @@ do {\
  *   2) It assigns a value to index idx
  */
 #define IPA_CLIENT_IS_MAPPED(x, idx) \
-	((idx = ipa3_get_ep_mapping(x)) != IPA_EP_NOT_ALLOCATED)
+	((idx = ipa_get_ep_mapping(x)) != IPA_EP_NOT_ALLOCATED)
 /*
  * Same behavior as the macro above; but in addition, determines if
  * the client is valid as well.
@@ -187,10 +186,10 @@ do {\
 #define IPA_CLIENT_IS_MAPPED_VALID(x, idx) \
 	(IPA_CLIENT_IS_MAPPED(x, idx) && ipa3_ctx->ep[idx].valid == 1)
 #define IPA_CLIENT_IS_ETH_PROD(x) \
-	((x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD)) || \
-	 (x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD)) || \
-	 (x == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD)) || \
-	 (x == ipa3_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD)))
+	((x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD)))
 
 #define IPA_GSI_CHANNEL_STOP_SLEEP_MIN_USEC (1000)
 #define IPA_GSI_CHANNEL_STOP_SLEEP_MAX_USEC (2000)
@@ -631,6 +630,10 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	int ipa_ep_idx_tx1);
 
+int ipa3_enable_wdi3_opt_dpath(int ipa_ep_idx_rx, int ipa_ep_idx_tx,
+	u32 rt_tbl_idx);
+int ipa3_disable_wdi3_opt_dpath(int ipa_ep_idx_rx, int ipa_ep_idx_tx);
+
 const char *ipa_get_version_string(enum ipa_hw_type ver);
 int ipa3_start_gsi_channel(u32 clnt_hdl);
 
@@ -734,15 +737,9 @@ int ipa3_add_hdr_hpc_usr(struct ipa_ioc_add_hdr *hdrs, bool user_only);
 
 int ipa3_del_hdr_hpc(struct ipa_ioc_del_hdr *hdrs);
 
-int ipa3_add_hdr(struct ipa_ioc_add_hdr *hdrs);
-
-int ipa3_del_hdr(struct ipa_ioc_del_hdr *hdls);
-
 int ipa3_add_hdr_usr(struct ipa_ioc_add_hdr *hdrs, bool user_only);
 
 int ipa3_reset_hdr(bool user_only);
-
-int ipa3_get_hdr(struct ipa_ioc_get_hdr *lookup);
 
 /*
 * Header Processing Context
@@ -849,12 +846,9 @@ int ipa3_remove_interrupt_handler(enum ipa_irq_type interrupt);
 /*
 * Interface
 */
-int ipa3_register_intf(const char *name, const struct ipa_tx_intf *tx,
-	const struct ipa_rx_intf *rx);
 int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 	const struct ipa_rx_intf *rx,
 	const struct ipa_ext_intf *ext);
-int ipa3_deregister_intf(const char *name);
 
 /*
 * Miscellaneous
@@ -866,9 +860,6 @@ int ipa3_uc_debug_stats_dealloc(uint32_t protocol);
 void ipa3_get_gsi_stats(int prot_id,
 	struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_prot_id(enum ipa_client_type client);
-bool ipa_is_client_handle_valid(u32 clnt_hdl);
-int ipa3_get_smmu_params(struct ipa_smmu_in_params *in,
-	struct ipa_smmu_out_params *out);
 
 /**
 * ipa_tz_unlock_reg - Unlocks memory regions so that they become accessible

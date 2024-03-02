@@ -7,7 +7,7 @@
 #include "../ipa_common_i.h"
 #include "../ipa_v3/ipa_pm.h"
 #include "../ipa_v3/ipa_i.h"
-#include <linux/ipa_eth.h>
+#include "ipa_eth.h"
 
 #define OFFLOAD_DRV_NAME "ipa_eth"
 #define IPA_ETH_DBG(fmt, args...) \
@@ -213,7 +213,7 @@ static void ipa_eth_ready_notify_work(struct work_struct *work)
 	mutex_unlock(&ipa_eth_ctx->lock);
 }
 
-static int ipa_eth_register_ready_cb_internal(struct ipa_eth_ready *ready_info)
+int ipa_eth_register_ready_cb(struct ipa_eth_ready *ready_info)
 {
 	int rc;
 	struct ipa_eth_ready_cb_wrapper *ready_cb;
@@ -278,8 +278,9 @@ err_uc:
 	ipa_eth_cleanup_internal();
 	return rc;
 }
+EXPORT_SYMBOL(ipa_eth_register_ready_cb);
 
-static int ipa_eth_unregister_ready_cb_internal(struct ipa_eth_ready *ready_info)
+int ipa_eth_unregister_ready_cb(struct ipa_eth_ready *ready_info)
 {
 	struct ipa_eth_ready_cb_wrapper *entry;
 	bool find_ready_info = false;
@@ -322,6 +323,7 @@ static int ipa_eth_unregister_ready_cb_internal(struct ipa_eth_ready *ready_info
 	mutex_unlock(&ipa_eth_ctx->lock);
 	return 0;
 }
+EXPORT_SYMBOL(ipa_eth_unregister_ready_cb);
 
 static u32 ipa_eth_pipe_hdl_alloc(void *ptr)
 {
@@ -429,7 +431,6 @@ static enum ipa_client_type
 	return ipa_client_type;
 }
 
-#if  IPA_ETH_API_VER < 2
 static struct ipa_eth_client_pipe_info
 	*ipa_eth_get_pipe_from_hdl(ipa_eth_hdl_t hdl)
 {
@@ -441,7 +442,6 @@ static struct ipa_eth_client_pipe_info
 
 	return pipe;
 }
-#endif
 
 
 static int ipa_eth_client_connect_pipe(
@@ -550,7 +550,7 @@ static int ipa_eth_commit_partial_hdr(
 		hdr->hdr[i].eth2_ofst = hdr_info[i].dst_mac_addr_offset;
 	}
 
-	if (ipa3_add_hdr(hdr)) {
+	if (ipa_add_hdr(hdr)) {
 		IPA_ETH_ERR("fail to add partial headers\n");
 		return -EFAULT;
 	}
@@ -656,7 +656,7 @@ static int ipa_eth_pm_deregister(struct ipa_eth_client *client)
 	return 0;
 }
 
-static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
+int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 {
 	struct ipa_eth_client_pipe_info *pipe;
 	int rc;
@@ -704,8 +704,9 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 	mutex_unlock(&ipa_eth_ctx->lock);
 	return 0;
 }
+EXPORT_SYMBOL(ipa_eth_client_conn_pipes);
 
-static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
+int ipa_eth_client_disconn_pipes(struct ipa_eth_client *client)
 {
 	int rc;
 	struct ipa_eth_client_pipe_info *pipe;
@@ -762,13 +763,14 @@ static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 	mutex_unlock(&ipa_eth_ctx->lock);
 	return 0;
 }
+EXPORT_SYMBOL(ipa_eth_client_disconn_pipes);
 
 static void ipa_eth_msg_free_cb(void *buff, u32 len, u32 type)
 {
 	kfree(buff);
 }
 
-static int ipa_eth_client_conn_evt_internal(struct ipa_ecm_msg *msg)
+int ipa_eth_client_conn_evt(struct ipa_ecm_msg *msg)
 {
 	struct ipa_msg_meta msg_meta;
 	struct ipa_ecm_msg *eth_msg;
@@ -791,8 +793,9 @@ static int ipa_eth_client_conn_evt_internal(struct ipa_ecm_msg *msg)
 
 	return ret;
 }
+EXPORT_SYMBOL(ipa_eth_client_conn_evt);
 
-static int ipa_eth_client_disconn_evt_internal(struct ipa_ecm_msg *msg)
+int ipa_eth_client_disconn_evt(struct ipa_ecm_msg *msg)
 {
 	struct ipa_msg_meta msg_meta;
 	struct ipa_ecm_msg *eth_msg;
@@ -815,8 +818,9 @@ static int ipa_eth_client_disconn_evt_internal(struct ipa_ecm_msg *msg)
 
 	return ret;
 }
+EXPORT_SYMBOL(ipa_eth_client_disconn_evt);
 
-static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
+int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 {
 	struct ipa_eth_intf *new_intf;
 	struct ipa_eth_intf *entry;
@@ -1090,8 +1094,9 @@ fail_alloc_hdr:
 	mutex_unlock(&ipa_eth_ctx->lock);
 	return ret;
 }
+EXPORT_SYMBOL(ipa_eth_client_reg_intf);
 
-static int ipa_eth_client_unreg_intf_internal(struct ipa_eth_intf_info *intf)
+int ipa_eth_client_unreg_intf(struct ipa_eth_intf_info *intf)
 {
 	int len, ret = 0;
 	struct ipa_ioc_del_hdr *hdr = NULL;
@@ -1143,13 +1148,13 @@ static int ipa_eth_client_unreg_intf_internal(struct ipa_eth_intf_info *intf)
 			IPA_ETH_DBG("IPv4 hdr hdl: %d IPv6 hdr hdl: %d\n",
 				hdr->hdl[0].hdl, hdr->hdl[1].hdl);
 
-			if (ipa3_del_hdr(hdr)) {
+			if (ipa_del_hdr(hdr)) {
 				IPA_ETH_ERR("fail to delete partial header\n");
 				ret = -EFAULT;
 				goto fail;
 			}
 
-			if (ipa3_deregister_intf(entry->netdev_name)) {
+			if (ipa_deregister_intf(entry->netdev_name)) {
 				IPA_ETH_ERR("fail to del interface props\n");
 				ret = -EFAULT;
 				goto fail;
@@ -1173,8 +1178,9 @@ fail:
 	return ret;
 
 }
+EXPORT_SYMBOL(ipa_eth_client_unreg_intf);
 
-static int ipa_eth_client_set_perf_profile_internal(struct ipa_eth_client *client,
+int ipa_eth_client_set_perf_profile(struct ipa_eth_client *client,
 	struct ipa_eth_perf_profile *profile)
 {
 	int client_type, inst_id;
@@ -1196,8 +1202,9 @@ static int ipa_eth_client_set_perf_profile_internal(struct ipa_eth_client *clien
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_eth_client_set_perf_profile);
 
-enum ipa_client_type ipa_eth_get_ipa_client_type_from_eth_type_internal(
+enum ipa_client_type ipa_eth_get_ipa_client_type_from_eth_type(
 	enum ipa_eth_client_type eth_client_type, enum ipa_eth_pipe_direction dir)
 {
 	int ipa_client_type = IPA_CLIENT_MAX;
@@ -1242,36 +1249,12 @@ enum ipa_client_type ipa_eth_get_ipa_client_type_from_eth_type_internal(
 	}
 	return ipa_client_type;
 }
+EXPORT_SYMBOL(ipa_eth_get_ipa_client_type_from_eth_type);
 
-bool ipa_eth_client_exist_internal(enum ipa_eth_client_type eth_client_type, int inst_id)
+bool ipa_eth_client_exist(enum ipa_eth_client_type eth_client_type, int inst_id)
 {
 	if (ipa_eth_ctx)
 		return ipa_eth_ctx->client[eth_client_type][inst_id].existed;
 	else return false;
 }
-
-void ipa_eth_register(void)
-{
-	struct ipa_eth_data funcs;
-
-	funcs.ipa_eth_register_ready_cb = ipa_eth_register_ready_cb_internal;
-	funcs.ipa_eth_unregister_ready_cb =
-		ipa_eth_unregister_ready_cb_internal;
-	funcs.ipa_eth_client_conn_pipes = ipa_eth_client_conn_pipes_internal;
-	funcs.ipa_eth_client_disconn_pipes =
-		ipa_eth_client_disconn_pipes_internal;
-	funcs.ipa_eth_client_reg_intf = ipa_eth_client_reg_intf_internal;
-	funcs.ipa_eth_client_unreg_intf = ipa_eth_client_unreg_intf_internal;
-	funcs.ipa_eth_client_set_perf_profile =
-		ipa_eth_client_set_perf_profile_internal;
-#if IPA_ETH_API_VER < 2
-	funcs.ipa_eth_client_conn_evt = ipa_eth_client_conn_evt_internal;
-	funcs.ipa_eth_client_disconn_evt = ipa_eth_client_disconn_evt_internal;
-#endif
-	funcs.ipa_eth_get_ipa_client_type_from_eth_type =
-		ipa_eth_get_ipa_client_type_from_eth_type_internal;
-	funcs.ipa_eth_client_exist = ipa_eth_client_exist_internal;
-
-	if (ipa_fmwk_register_ipa_eth(&funcs))
-		pr_err("failed to register ipa_eth APIs\n");
-}
+EXPORT_SYMBOL(ipa_eth_client_exist);

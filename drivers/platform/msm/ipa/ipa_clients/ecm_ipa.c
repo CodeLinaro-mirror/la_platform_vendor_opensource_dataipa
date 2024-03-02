@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -235,7 +237,7 @@ static void ecm_ipa_debugfs_destroy(struct ecm_ipa_dev *ecm_ipa_ctx);
 static int ecm_ipa_ep_registers_cfg(u32 usb_to_ipa_hdl, u32 ipa_to_usb_hdl,
 	bool is_vlan_mode);
 static int ecm_ipa_set_device_ethernet_addr
-	(u8 *dev_ethaddr, u8 device_ethaddr[]);
+	(struct net_device *net, u8 device_ethaddr[]);
 static enum ecm_ipa_state ecm_ipa_next_state
 	(enum ecm_ipa_state current_state, enum ecm_ipa_operation operation);
 static const char *ecm_ipa_state_string(enum ecm_ipa_state state);
@@ -330,7 +332,11 @@ int ecm_ipa_init(struct ecm_ipa_params *params)
 		ecm_ipa_ctx->netif_rx_function = netif_receive_skb;
 		ECM_IPA_DEBUG("LAN RX NAPI enabled = True");
 	} else {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0))
 		ecm_ipa_ctx->netif_rx_function = netif_rx_ni;
+#else
+                ecm_ipa_ctx->netif_rx_function = netif_rx;
+#endif
 		ECM_IPA_DEBUG("LAN RX NAPI enabled = False");
 	}
 	ECM_IPA_DEBUG("internal data structures were initialized\n");
@@ -342,7 +348,7 @@ int ecm_ipa_init(struct ecm_ipa_params *params)
 	ecm_ipa_debugfs_init(ecm_ipa_ctx);
 
 	result = ecm_ipa_set_device_ethernet_addr
-		(net->dev_addr, params->device_ethaddr);
+		(net, params->device_ethaddr);
 	if (result) {
 		ECM_IPA_ERROR("set device MAC failed\n");
 		goto fail_set_device_ethernet;
@@ -1061,7 +1067,7 @@ static int ecm_ipa_rules_cfg(struct ecm_ipa_dev *ecm_ipa_ctx,
 
 	hdrs->commit = 1;
 	hdrs->num_hdrs = 2;
-	result = ipa3_add_hdr(hdrs);
+	result = ipa_add_hdr(hdrs);
 	if (result) {
 		ECM_IPA_ERROR("Fail on Header-Insertion(%d)\n", result);
 		goto out_free_mem;
@@ -1114,9 +1120,9 @@ static void ecm_ipa_rules_destroy(struct ecm_ipa_dev *ecm_ipa_ctx)
 	ipv6 = &del_hdr->hdl[1];
 	ipv6->hdl = ecm_ipa_ctx->eth_ipv6_hdr_hdl;
 
-	result = ipa3_del_hdr(del_hdr);
+	result = ipa_del_hdr(del_hdr);
 	if (result || ipv4->status || ipv6->status)
-		ECM_IPA_ERROR("ipa3_del_hdr failed\n");
+		ECM_IPA_ERROR("ipa_del_hdr failed\n");
 	kfree(del_hdr);
 }
 
@@ -1177,7 +1183,7 @@ static int ecm_ipa_register_properties(struct ecm_ipa_dev *ecm_ipa_ctx)
 	rx_ipv6_property->hdr_l2_type = hdr_l2_type;
 	rx_properties.num_props = 2;
 
-	result = ipa3_register_intf("ecm0", &tx_properties, &rx_properties);
+	result = ipa_register_intf("ecm0", &tx_properties, &rx_properties);
 	if (result)
 		ECM_IPA_ERROR("fail on Tx/Rx properties registration\n");
 
@@ -1191,7 +1197,7 @@ static void ecm_ipa_deregister_properties(void)
 	int result;
 
 	ECM_IPA_LOG_ENTRY();
-	result = ipa3_deregister_intf("ecm0");
+	result = ipa_deregister_intf("ecm0");
 	if (result)
 		ECM_IPA_DEBUG("Fail on Tx prop deregister\n");
 	ECM_IPA_LOG_EXIT();
@@ -1507,12 +1513,18 @@ out:
  * Returns 0 for success, negative otherwise
  */
 static int ecm_ipa_set_device_ethernet_addr
-	(u8 *dev_ethaddr, u8 device_ethaddr[])
+	(struct net_device *net, u8 device_ethaddr[])
 {
 	if (!is_valid_ether_addr(device_ethaddr))
 		return -EINVAL;
-	memcpy(dev_ethaddr, device_ethaddr, ETH_ALEN);
-	ECM_IPA_DEBUG("device ethernet address: %pM\n", dev_ethaddr);
+
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 15, 0))
+	net->addr_len = ETH_ALEN;
+	dev_addr_set(net, device_ethaddr);
+#else
+	memcpy((u8 *)net->dev_addr, device_ethaddr, ETH_ALEN);
+	ECM_IPA_DEBUG("device ethernet address: %pM\n", (u8 *)net->dev_addr);
+#endif
 	return 0;
 }
 

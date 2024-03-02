@@ -2,7 +2,7 @@
 DATAIPADRVTOP = $(srctree)/techpack/dataipa/drivers/platform/msm
 
 #MSMs - GKI
-ifeq ($(filter $(CONFIG_ARCH_LAHAINA) $(CONFIG_ARCH_HOLI), y),y)
+ifeq ($(CONFIG_ARCH_LAHAINA), y)
 LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa.h
 ifeq ($(CONFIG_QGKI),y)
 include $(srctree)/techpack/dataipa/config/dataipa_QGKI.conf
@@ -16,7 +16,7 @@ endif
 endif
 
 #MSM - Vendor SI
-ifeq ($(CONFIG_ARCH_WAIPIO), y)
+ifeq ($(filter $(CONFIG_ARCH_WAIPIO) $(CONFIG_ARCH_KALAMA) $(CONFIG_ARCH_PINEAPPLE) $(CONFIG_ARCH_CLIFFS) $(CONFIG_ARCH_PITTI), y),y)
 DATAIPADRVTOP = $(srctree)/../../vendor/qcom/opensource/dataipa/drivers/platform/msm
 LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_vendor.h
 include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI.conf
@@ -26,38 +26,13 @@ LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/conf
 endif
 endif
 
-ifeq ($(filter $(CONFIG_ARCH_KALAMA) $(CONFIG_ARCH_CROW), y), y)
-ifneq ($(CONFIG_KALAMA_IPA_LE), y)
-DATAIPADRVTOP = $(srctree)/../../vendor/qcom/opensource/dataipa/drivers/platform/msm
-LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_vendor.h
-include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI.conf
-ifeq ($(CONFIG_LOCALVERSION), "-gki-consolidate")
-include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI_consolidate.conf
-LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_debug.h
-endif
-endif
-endif
-
-ifeq ($(filter $(CONFIG_ARCH_KHAJE) $(CONFIG_ARCH_MONACO) $(CONFIG_ARCH_TRINKET), y), y)
+ifeq ($(filter $(CONFIG_ARCH_KHAJE) $(CONFIG_ARCH_BLAIR) $(CONFIG_ARCH_HOLI) $(CONFIG_ARCH_MONACO), y), y)
 DATAIPADRVTOP = $(srctree)/../../vendor/qcom/opensource/dataipa/drivers/platform/msm
 LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_vendor_ipav4.h
 include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI_ipav4.conf
 ifeq ($(CONFIG_LOCALVERSION), "-gki-consolidate")
 include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_GKI_consolidate.conf
 LINUXINCLUDE    += -include $(srctree)/../../vendor/qcom/opensource/dataipa/config/dataipa_debug.h
-endif
-endif
-
-#APQS-LE
-ifeq ($(CONFIG_ARCH_KALAMA),y)
-ifeq ($(CONFIG_KALAMA_IPA_LE),y)
-DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
-LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_le.h
-include $(srctree)/../../../dataipa/config/dataipa_GKI.conf
-ifeq ($(CONFIG_LOCALVERSION), "-gki-consolidate")
-include $(srctree)/../../../dataipa/config/dataipa_GKI_consolidate.conf
-LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
-endif
 endif
 endif
 
@@ -90,6 +65,9 @@ endif
 endif
 
 ifneq (,$(filter $(CONFIG_IPA3) $(CONFIG_GSI),y m))
+LINUXINCLUDE += -I$(DATAIPADRVTOP)/include
+LINUXINCLUDE += -I$(DATAIPADRVTOP)/include/linux
+LINUXINCLUDE += -I$(DATAIPADRVTOP)/include/uapi
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/gsi
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/gsi/gsihal
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa

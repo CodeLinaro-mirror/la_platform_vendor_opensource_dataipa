@@ -138,7 +138,7 @@ static int ipa_get_generic_stats(unsigned long arg)
 	struct holb_discard_stats *holb_disc_stats_ptr;
 	struct holb_monitor_stats *holb_mon_stats_ptr;
 
-	if(!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_GENERIC_STATS)) {
+	if (!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_GENERIC_STATS)) {
 		IPA_STATS_ERR("Log type GENERIC mask not set\n");
 		return -EFAULT;
 	}
@@ -234,47 +234,51 @@ static int ipa_get_generic_stats(unsigned long arg)
 		return res;
 	}
 
-	/* HOLB Discard stats */
-	holb_disc_stats_ptr = &generic_stats->holb_stats.holb_disc_stats[0];
-	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa3_get_ep_mapping(i);
+	if(ipa_lnx_agent_ctx.alloc_info.num_holb_drop_stats_clients != 0 ) {
+		/* HOLB Discard stats */
+		holb_disc_stats_ptr = &generic_stats->holb_stats.holb_disc_stats[0];
+		for (i = 0; i < IPA_CLIENT_MAX; i++) {
+			int ep_idx = ipa_get_ep_mapping(i);
 
-		if ((ep_idx == -1) || (!IPA_CLIENT_IS_CONS(i)) ||
-			(IPA_CLIENT_IS_TEST(i)))
-			continue;
+			if ((ep_idx == -1) || (!IPA_CLIENT_IS_CONS(i)) ||
+				(IPA_CLIENT_IS_TEST(i)))
+				continue;
 
-		reg_idx = ipahal_get_ep_reg_idx(ep_idx);
-		if (!(ipa3_ctx->hw_stats &&
-			(ipa3_ctx->hw_stats->drop.init.enabled_bitmask[reg_idx] &
-			ipahal_get_ep_bit(ep_idx))))
-			continue;
+			reg_idx = ipahal_get_ep_reg_idx(ep_idx);
+			if (!(ipa3_ctx->hw_stats &&
+				(ipa3_ctx->hw_stats->drop.init.enabled_bitmask[reg_idx] &
+				ipahal_get_ep_bit(ep_idx))))
+				continue;
 
-		holb_disc_stats_ptr->client_type = i;
-		holb_disc_stats_ptr->num_drp_cnt = out->client[i].drop_packet_cnt;
-		holb_disc_stats_ptr->num_drp_bytes = out->client[i].drop_byte_cnt;
-		holb_disc_stats_ptr = (struct holb_discard_stats *)((
-			uint64_t)holb_disc_stats_ptr + sizeof(struct holb_discard_stats));
+			holb_disc_stats_ptr->client_type = i;
+			holb_disc_stats_ptr->num_drp_cnt = out->client[i].drop_packet_cnt;
+			holb_disc_stats_ptr->num_drp_bytes = out->client[i].drop_byte_cnt;
+			holb_disc_stats_ptr = (struct holb_discard_stats *)((
+				uint64_t)holb_disc_stats_ptr + sizeof(struct holb_discard_stats));
+		}
 	}
 
-	/* HOLB Monitor stats */
-	holb_mon_stats_ptr = (struct holb_monitor_stats *)(
-		(uint64_t)&generic_stats->holb_stats.holb_disc_stats[0] +
-		(ipa_lnx_agent_ctx.alloc_info.num_holb_drop_stats_clients *
-		sizeof(struct holb_discard_stats)));
-	for (i = 0; i < generic_stats->holb_stats.num_holb_mon_clients; i++) {
-		holb_client = &(ipa3_ctx->uc_ctx.holb_monitor.client[i]);
-		/* Get the client type from gsi_hdl */
-		for (j = 0; j < IPA5_MAX_NUM_PIPES; j++) {
-			if (ipa3_ctx->ep[j].gsi_chan_hdl == holb_client->gsi_chan_hdl) {
-				holb_mon_stats_ptr->client_type = ipa3_ctx->ep[j].client;
-				break;
+	if(ipa_lnx_agent_ctx.alloc_info.num_holb_mon_stats_clients != 0 ) {
+		/* HOLB Monitor stats */
+		holb_mon_stats_ptr = (struct holb_monitor_stats *)(
+			(uint64_t)&generic_stats->holb_stats.holb_disc_stats[0] +
+			(ipa_lnx_agent_ctx.alloc_info.num_holb_drop_stats_clients *
+			sizeof(struct holb_discard_stats)));
+		for (i = 0; i < generic_stats->holb_stats.num_holb_mon_clients; i++) {
+			holb_client = &(ipa3_ctx->uc_ctx.holb_monitor.client[i]);
+			/* Get the client type from gsi_hdl */
+			for (j = 0; j < IPA5_MAX_NUM_PIPES; j++) {
+				if (ipa3_ctx->ep[j].gsi_chan_hdl == holb_client->gsi_chan_hdl) {
+					holb_mon_stats_ptr->client_type = ipa3_ctx->ep[j].client;
+					break;
+				}
 			}
+			holb_mon_stats_ptr->curr_index = holb_client->current_idx;
+			holb_mon_stats_ptr->num_en_cnt = holb_client->enable_cnt;
+			holb_mon_stats_ptr->num_dis_cnt = holb_client->disable_cnt;
+			holb_mon_stats_ptr = (struct holb_monitor_stats *)((
+				uint64_t)holb_mon_stats_ptr + sizeof(struct holb_monitor_stats));
 		}
-		holb_mon_stats_ptr->curr_index = holb_client->current_idx;
-		holb_mon_stats_ptr->num_en_cnt = holb_client->enable_cnt;
-		holb_mon_stats_ptr->num_dis_cnt = holb_client->disable_cnt;
-		holb_mon_stats_ptr = (struct holb_monitor_stats *)((
-			uint64_t)holb_mon_stats_ptr + sizeof(struct holb_monitor_stats));
 	}
 
 	if(copy_to_user((void __user *)arg,
@@ -298,7 +302,7 @@ static int ipa_get_clock_stats(unsigned long arg)
 	int alloc_size;
 	struct pm_client_stats *pm_stats_ptr;
 
-	if(!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_CLOCK_STATS)) {
+	if (!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_CLOCK_STATS)) {
 		IPA_STATS_ERR("Log type CLOCK mask not set\n");
 		return -EFAULT;
 	}
@@ -380,7 +384,7 @@ static void ipa_get_gsi_pipe_info(
 	pipe_info_ptr_local->gsi_chan_ring_wp =
 		gsi_read_chan_ring_wp(ep->gsi_chan_hdl, gsi_get_peripheral_ee());
 
-	gsi_ep_info = ipa3_get_gsi_ep_info(ep->client);
+	gsi_ep_info = ipa_get_gsi_ep_info(ep->client);
 	pipe_info_ptr_local->gsi_ipa_if_tlv =
 		gsi_ep_info ? gsi_ep_info->ipa_if_tlv : 0;
 	pipe_info_ptr_local->gsi_ipa_if_aos =
@@ -615,7 +619,7 @@ static int ipa_get_wlan_inst_stats(unsigned long arg)
 	struct wlan_instance_info *instance_ptr = NULL;
 	struct ipa_uc_dbg_ring_stats stats;
 
-	if(!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_WLAN_STATS)) {
+	if (!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_WLAN_STATS)) {
 		IPA_STATS_ERR("Log type WLAN mask not set\n");
 		return -EFAULT;
 	}
@@ -755,7 +759,7 @@ static int ipa_get_wlan_inst_stats(unsigned long arg)
 				uint64_t)pipe_info_ptr +
 				(j * sizeof(struct ipa_lnx_pipe_info)));
 
-			ep_idx = ipa3_get_ep_mapping(
+			ep_idx = ipa_get_ep_mapping(
 				ipa_lnx_agent_ctx.alloc_info.wlan_inst_info[
 				i].pipes_client_type[j]);
 			if (ep_idx == -1) {
@@ -800,7 +804,7 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 	struct eth_instance_info *instance_ptr = NULL;
 	struct ipa_uc_dbg_ring_stats stats;
 
-	if(!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_ETH_STATS)) {
+	if (!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_ETH_STATS)) {
 		IPA_STATS_ERR("Log type ETH mask not set\n");
 		return -EFAULT;
 	}
@@ -901,7 +905,7 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 						IPA_CLIENT_AQC_ETHERNET_CONS;
 #if IPA_ETH_API_VER >= 2
 				/* Get the client pipe info[0] from the allocation info context only if it is NTN3 */
-				if (instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3) {
+				if ((instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3)) {
 						tx_instance_ptr_local->tx_client =
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
 							i].pipes_client_type[0];
@@ -1000,7 +1004,7 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 						IPA_CLIENT_AQC_ETHERNET_PROD;
 #if IPA_ETH_API_VER >= 2
 				/* Get the client pipe info[1] from the allocation info context only if it is NTN3 */
-				if (instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3) {
+				if ((instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3)) {
 						rx_instance_ptr_local->rx_client =
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
 							i].pipes_client_type[1];
@@ -1065,7 +1069,7 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				uint64_t)pipe_info_ptr + (j *
 				sizeof(struct ipa_lnx_pipe_info)));
 
-			ep_idx = ipa3_get_ep_mapping(
+			ep_idx = ipa_get_ep_mapping(
 				ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
 					i].pipes_client_type[j]);
 			if (ep_idx == -1) {
@@ -1112,7 +1116,7 @@ static int ipa_get_usb_inst_stats(unsigned long arg)
 	struct usb_instance_info *instance_ptr = NULL;
 	struct ipa_uc_dbg_ring_stats stats;
 
-	if(!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_USB_STATS)) {
+	if (!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_USB_STATS)) {
 		IPA_STATS_ERR("Log type USB mask not set\n");
 		return -EFAULT;
 	}
@@ -1246,7 +1250,7 @@ static int ipa_get_usb_inst_stats(unsigned long arg)
 				uint64_t)pipe_info_ptr + (j *
 				sizeof(struct ipa_lnx_pipe_info)));
 
-			ep_idx = ipa3_get_ep_mapping(
+			ep_idx = ipa_get_ep_mapping(
 				ipa_lnx_agent_ctx.alloc_info.usb_inst_info[
 					i].pipes_client_type[j]);
 			if (ep_idx == -1) {
@@ -1292,7 +1296,7 @@ static int ipa_get_mhip_inst_stats(unsigned long arg)
 	struct mhip_instance_info *instance_ptr = NULL;
 	struct ipa_uc_dbg_ring_stats stats;
 
-	if(!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_MHIP_STATS)) {
+	if (!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_MHIP_STATS)) {
 		IPA_STATS_ERR("Log type MHIP mask not set\n");
 		return -EFAULT;
 	}
@@ -1428,7 +1432,7 @@ static int ipa_get_mhip_inst_stats(unsigned long arg)
 			pipe_info_ptr_local = (struct ipa_lnx_pipe_info *)((uint64_t)
 				pipe_info_ptr + (j * sizeof(struct ipa_lnx_pipe_info)));
 
-			ep_idx = ipa3_get_ep_mapping(
+			ep_idx = ipa_get_ep_mapping(
 				ipa_lnx_agent_ctx.alloc_info.mhip_inst_info[
 					i].pipes_client_type[j]);
 			if (ep_idx == -1) {
@@ -1514,7 +1518,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 	if (ipa_lnx_agent_ctx.log_type_mask &
 		TLPD_IPA_LOG_TYPE_GENERIC_STATS) {
 		for (i = 0; i < IPA_CLIENT_MAX; i++) {
-			int ep_idx = ipa3_get_ep_mapping(i);
+			int ep_idx = ipa_get_ep_mapping(i);
 
 			if ((ep_idx == -1) || (!IPA_CLIENT_IS_CONS(i)) ||
 				(IPA_CLIENT_IS_TEST(i)))
@@ -1541,8 +1545,8 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 
 	/* For WLAN instance */
 	if (ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_WLAN_STATS) {
-		ipa_ep_idx_tx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
-		ipa_ep_idx_rx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
+		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
+		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
 		if ((ipa_ep_idx_tx == -1) || (ipa_ep_idx_rx == -1) ||
 			!ipa3_ctx->ep[ipa_ep_idx_tx].valid ||
 			!ipa3_ctx->ep[ipa_ep_idx_rx].valid) {
@@ -1915,7 +1919,7 @@ dev_alloc_err:
 	return -ENODEV;
 }
 
-int ipa_tlpd_stats_init()
+int ipa_tlpd_stats_init(void)
 {
 	int ret;
 

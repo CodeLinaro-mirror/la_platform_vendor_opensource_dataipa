@@ -1,7 +1,7 @@
 cc_library_shared {
     name: "libipanat",
 
-    header_libs: ["device_kernel_headers"]+["qti_kernel_headers"],
+    header_libs: ["device_kernel_headers"]+["qti_kernel_headers"]+["qti_ipa_kernel_headers"],
 
     srcs: [
         "src/ipa_nat_map.cpp",
@@ -22,7 +22,6 @@ cc_library_shared {
     ],
     export_include_dirs: ["inc"],
     vendor: true,
-    clang: true,
 
     cflags: ["-DDEBUG"] + ["-DFEATURE_IPA_ANDROID"] + ["-Wno-int-conversion"],
 

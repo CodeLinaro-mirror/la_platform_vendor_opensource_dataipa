@@ -4,12 +4,12 @@
  */
 
 #include <linux/delay.h>
-#include <linux/ipa_mhi.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include "ipa_i.h"
 #include "gsi.h"
 #include "gsihal.h"
 #include "ipa_ut_framework.h"
+#include <linux/ipa_mhi.h>
 
 #define IPA_MHI_TEST_NUM_CHANNELS		8
 #define IPA_MHI_TEST_NUM_EVENT_RINGS		8

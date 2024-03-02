@@ -4,7 +4,7 @@
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
-#include <linux/ipa_eth.h>
+#include "ipa_eth.h"
 #include <linux/log2.h>
 
 #define IPA_ETH_RTK_MODT (32)
@@ -361,7 +361,7 @@ static int ipa_eth_setup_rtk_gsi_channel(
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
 	else
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
-	gsi_ep_info = ipa3_get_gsi_ep_info(ep->client);
+	gsi_ep_info = ipa_get_gsi_ep_info(ep->client);
 	if (!gsi_ep_info) {
 		IPAERR("Failed getting GSI EP info for client=%d\n",
 		       ep->client);
@@ -651,7 +651,7 @@ static int ipa_eth_setup_aqc_gsi_channel(
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
 	else
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
-	gsi_ep_info = ipa3_get_gsi_ep_info(ep->client);
+	gsi_ep_info = ipa_get_gsi_ep_info(ep->client);
 	if (!gsi_ep_info) {
 		IPAERR("Failed getting GSI EP info for client=%d\n",
 		       ep->client);
@@ -782,7 +782,7 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
 	else
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
-	gsi_ep_info = ipa3_get_gsi_ep_info(ep->client);
+	gsi_ep_info = ipa_get_gsi_ep_info(ep->client);
 	if (!gsi_ep_info) {
 		IPAERR("Failed getting GSI EP info for client=%d\n",
 			ep->client);
@@ -935,26 +935,26 @@ int ipa3_eth_connect(
 
 	/* multiple attach support */
 	if (strnstr(net_dev->name, STR_ETH0_IFACE, strlen(net_dev->name))) {
-		result = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH0, &vlan_mode);
+		result = ipa_is_vlan_mode(IPA_VLAN_IF_ETH0, &vlan_mode);
 		if (result) {
 			IPAERR("Could not determine IPA VLAN mode\n");
 			return result;
 		}
 	} else if (strnstr(net_dev->name, STR_ETH1_IFACE, strlen(net_dev->name))) {
-		result = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH1, &vlan_mode);
+		result = ipa_is_vlan_mode(IPA_VLAN_IF_ETH1, &vlan_mode);
 		if (result) {
 			IPAERR("Could not determine IPA VLAN mode\n");
 			return result;
 		}
 	} else {
-		result = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH, &vlan_mode);
+		result = ipa_is_vlan_mode(IPA_VLAN_IF_ETH, &vlan_mode);
 		if (result) {
 			IPAERR("Could not determine IPA VLAN mode\n");
 			return result;
 		}
 	}
 #else
-	result = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH, &vlan_mode);
+	result = ipa_is_vlan_mode(IPA_VLAN_IF_ETH, &vlan_mode);
 	if (result) {
 		IPAERR("Could not determine IPA VLAN mode\n");
 		return result;
@@ -1215,7 +1215,7 @@ int ipa3_eth_connect(
 	id = (pipe->dir == IPA_ETH_PIPE_DIR_TX) ? 1 : 0;
 
 	/* start uC gsi dbg stats monitor */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= ep->gsi_chan_hdl;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1267,7 +1267,7 @@ int ipa3_eth_connect(
 
 config_uc_fail:
 	/* stop uC gsi dbg stats monitor */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1276,7 +1276,7 @@ config_uc_fail:
 			ipa3_ctx->gsi_info[prot]);
 	}
 uc_init_peripheral_fail:
-	ipa3_stop_gsi_channel(ep->gsi_chan_hdl);
+	ipa_stop_gsi_channel(ep->gsi_chan_hdl);
 start_channel_fail:
 	ipa3_disable_data_path(ep_idx);
 enable_data_path_fail:
@@ -1327,7 +1327,7 @@ int ipa3_eth_disconnect(
 
 	id = (pipe->dir == IPA_ETH_PIPE_DIR_TX) ? 1 : 0;
 	/* stop uC gsi dbg stats monitor */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1336,7 +1336,7 @@ int ipa3_eth_disconnect(
 			ipa3_ctx->gsi_info[prot]);
 	}
 	/* stop gsi channel */
-	result = ipa3_stop_gsi_channel(ep_idx);
+	result = ipa_stop_gsi_channel(ep_idx);
 	if (result) {
 		IPAERR("failed to stop gsi channel %d\n", ep_idx);
 		result = -EFAULT;
@@ -1377,7 +1377,7 @@ int ipa3_eth_disconnect(
 	memset(ep, 0, sizeof(struct ipa3_ep_context));
 	IPADBG("client (ep: %d) disconnected\n", ep_idx);
 
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2)
 		ipa3_uc_debug_stats_dealloc(prot);
 	if (IPA_CLIENT_IS_PROD(client_type))
 		ipa3_delete_dflt_flt_rules(ep_idx);

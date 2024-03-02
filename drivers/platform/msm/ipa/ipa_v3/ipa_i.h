@@ -19,8 +19,9 @@
 #include <linux/notifier.h>
 #include <linux/interrupt.h>
 #include <linux/netdevice.h>
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <linux/ipa_usb.h>
+#include "ipa_qdss.h"
 #include <linux/iommu.h>
 #include <linux/version.h>
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0))
@@ -40,8 +41,6 @@
 #include <linux/mailbox_client.h>
 #include <linux/mailbox/qmp.h>
 #include <linux/rmnet_ipa_fd_ioctl.h>
-#include <linux/ipa_fmwk.h>
-#include <linux/mhi_dma.h>
 #include "ipa_uc_holb_monitor.h"
 #include <soc/qcom/minidump.h>
 
@@ -140,6 +139,14 @@ enum {
 
 #define IPA_WDI2_OVER_GSI() (ipa3_ctx->ipa_wdi2_over_gsi \
 		&& (ipa_get_wdi_version() == IPA_WDI_2))
+
+#define WLAN_IPA_EVENT(m) (m == WLAN_STA_CONNECT || \
+		m == WLAN_AP_CONNECT || \
+		m == WLAN_CLIENT_CONNECT_EX || \
+		m == WLAN_CLIENT_CONNECT || \
+		m == WLAN_STA_DISCONNECT || \
+		m == WLAN_AP_DISCONNECT || \
+		m == WLAN_CLIENT_DISCONNECT)
 
 #define IPADBG(fmt, args...) \
 	do { \
@@ -1105,6 +1112,8 @@ struct ipa3_ep_context {
 	atomic_t avail_fifo_desc;
 	u32 dflt_flt4_rule_hdl;
 	u32 dflt_flt6_rule_hdl;
+	u32 dl_flt4_rule_hdl;
+	u32 dl_flt6_rule_hdl;
 	bool skip_ep_cfg;
 	bool keep_ipa_awake;
 	struct ipa3_wlan_stats wstats;
@@ -1220,7 +1229,6 @@ struct ipa3_sys_context {
 	struct list_head pending_pkts[GSI_VEID_MAX];
 	atomic_t xmit_eot_cnt;
 	struct tasklet_struct tasklet;
-	struct work_struct tasklet_work;
 	bool skip_eot;
 	u32 eob_drop_cnt;
 	struct napi_struct napi_tx;
@@ -1254,7 +1262,6 @@ struct ipa3_sys_context {
 	struct workqueue_struct *freepage_wq;
 	struct delayed_work freepage_work;
 	struct tasklet_struct tasklet_find_freepage;
-	struct workqueue_struct *tasklet_wq;
 	/* ordering is important - other immutable fields go below */
 };
 
@@ -1934,7 +1941,7 @@ struct ipa_quota_stats {
 };
 
 struct ipa_quota_stats_all {
-	struct ipa_quota_stats client[IPA_CLIENT_MAX];
+	struct ipa_quota_stats client[IPA5_PIPES_NUM];
 };
 
 struct ipa_drop_stats {
@@ -1953,8 +1960,8 @@ struct ipa_hw_stats_quota {
 
 struct ipa_hw_stats_teth {
 	struct ipahal_stats_init_tethering init;
-	struct ipa_quota_stats_all prod_stats_sum[IPA_CLIENT_MAX];
-	struct ipa_quota_stats_all prod_stats[IPA_CLIENT_MAX];
+	struct ipa_quota_stats_all prod_stats_sum[IPA5_PIPES_NUM];
+	struct ipa_quota_stats_all prod_stats[IPA5_PIPES_NUM];
 };
 
 struct ipa_hw_stats_flt_rt {
@@ -2127,6 +2134,11 @@ struct ipa_minidump_data {
 };
 #endif
 
+struct ipa_notifier_block_data {
+	struct list_head entry;
+	struct notifier_block ipa_rmnet_notifier;
+};
+
 /* Peripheral stats for Q6, should be in the same order, defined by Q6 */
 enum ipa_per_stats_type_e {
 	IPA_PER_STATS_TYPE_NUM_PERS,
@@ -2272,8 +2284,6 @@ enum ipa_per_usb_enum_type_e {
  * @logbuf_clk: ipc log buffer for ipa clock messages
  * @ipa_wdi2: using wdi-2.0
  * @ipa_config_is_auto: is this AUTO use case
- * @ipa_config_is_apq_dma: this is for APQ DMA use case
- * @ipa_config_is_apq_no_uc_load: flag which configures to load uC or not in APQ
  * @ipa_fltrt_not_hashable: filter/route rules not hashable
  * @use_xbl_boot: use xbl loading for IPA FW
  * @use_64_bit_dma_mask: using 64bits dma mask
@@ -2410,10 +2420,9 @@ struct ipa3_context {
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
 	bool ipa_config_is_auto;
-	bool ipa_config_is_apq_dma;
-	bool ipa_config_is_apq_no_uc_load;
 	bool ipa_wdi2_over_gsi;
 	bool ipa_wdi3_over_gsi;
+	bool ipa_wdi_opt_dpath;
 	bool ipa_endp_delay_wa;
 	bool lan_coal_enable;
 	bool ipa_fltrt_not_hashable;
@@ -2537,7 +2546,8 @@ struct ipa3_context {
 	struct ipa_mem_buffer ulso_wa_cmd;
 	u32 tx_wrapper_cache_max_size;
 	u32 ipa_gen_rx_cmn_page_pool_sz_factor;
-        u32 ipa_gen_rx_cmn_temp_pool_sz_factor;
+	u32 ipa_gen_rx_cmn_temp_pool_sz_factor;
+	u32 ipa_gen_rx_ll_pool_sz_factor;
 	struct ipa3_app_clock_vote app_clock_vote;
 	bool clients_registered;
 	bool ipa_gpi_event_rp_ddr;
@@ -2574,7 +2584,7 @@ struct ipa3_context {
 	u64 gsi_msi_addr;
 	spinlock_t notifier_lock;
 	struct raw_notifier_head *ipa_rmnet_notifier_list_internal;
-	struct notifier_block ipa_rmnet_notifier;
+	struct list_head notifier_block_list_head;
 	bool ipa_rmnet_notifier_enabled;
 	bool buff_above_thresh_for_def_pipe_notified;
 	bool buff_above_thresh_for_coal_pipe_notified;
@@ -2604,7 +2614,6 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_default_recycle_stats;
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
-	struct mutex ssr_lock;
 };
 
 struct ipa3_plat_drv_res {
@@ -2628,8 +2637,6 @@ struct ipa3_plat_drv_res {
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
 	bool ipa_config_is_auto;
-	bool ipa_config_is_apq_dma;
-	bool ipa_config_is_apq_no_uc_load;
 	bool ipa_wdi2_over_gsi;
 	bool ipa_wdi3_over_gsi;
 	bool ipa_fltrt_not_hashable;
@@ -2677,7 +2684,8 @@ struct ipa3_plat_drv_res {
 	const char *uc_fw_file_name;
 	u32 tx_wrapper_cache_max_size;
 	u32 ipa_gen_rx_cmn_page_pool_sz_factor;
-        u32 ipa_gen_rx_cmn_temp_pool_sz_factor;
+	u32 ipa_gen_rx_cmn_temp_pool_sz_factor;
+	u32 ipa_gen_rx_ll_pool_sz_factor;
 	u32 ipa_wan_aggr_pkt_cnt;
 	bool ipa_mhi_proxy;
 	u32 max_num_smmu_cb;
@@ -2690,6 +2698,7 @@ struct ipa3_plat_drv_res {
 	bool use_pm_wrapper;
 	bool use_tput_est_ep;
 	bool ulso_wa;
+	bool ipa_wdi_opt_dpath;
 	u8 coal_ipv4_id_ignore;
 };
 
@@ -2976,8 +2985,6 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 
 int ipa3_release_gsi_channel(u32 clnt_hdl);
 
-int ipa3_stop_gsi_channel(u32 clnt_hdl);
-
 int ipa3_reset_gsi_channel(u32 clnt_hdl);
 
 int ipa3_reset_gsi_event_ring(u32 clnt_hdl);
@@ -3048,15 +3055,9 @@ int ipa3_cfg_ep_metadata_mask(u32 clnt_hdl,
 int ipa3_cfg_ep_holb_by_client(enum ipa_client_type client,
 				const struct ipa_ep_cfg_holb *ipa_ep_cfg);
 
-int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl);
-
 int ipa3_cfg_ep_ulso(u32 clnt_hdl, const struct ipa_ep_cfg_ulso *ep_ulso);
 
 int ipa3_setup_uc_act_tbl(void);
-
-int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info);
-
-int ipa3_del_socksv5_conn(uint32_t handle);
 
 /*
  * Header removal / addition
@@ -3088,8 +3089,6 @@ int ipa3_del_hdr_proc_ctx_by_user(struct ipa_ioc_del_hdr_proc_ctx *hdls,
 /*
  * Routing
  */
-int ipa3_add_rt_rule(struct ipa_ioc_add_rt_rule *rules);
-
 int ipa3_add_rt_rule_ext(struct ipa_ioc_add_rt_rule_ext *rules);
 
 int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules,
@@ -3101,8 +3100,6 @@ int ipa3_add_rt_rule_after_v2(struct ipa_ioc_add_rt_rule_after_v2
 	*rules);
 
 int ipa3_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup);
-
-int ipa3_put_rt_tbl(u32 rt_tbl_hdl);
 
 int ipa3_query_rt_index(struct ipa_ioc_get_rt_tbl_indx *in);
 
@@ -3165,8 +3162,6 @@ bool lan_coal_enabled( void );
 /*
  * Messaging
  */
-int ipa3_send_msg(struct ipa_msg_meta *meta, void *buff,
-		  ipa_msg_free_fn callback);
 int ipa3_resend_wlan_msg(void);
 int ipa3_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback);
 int ipa3_deregister_pull_msg(struct ipa_msg_meta *meta);
@@ -3174,27 +3169,9 @@ int ipa3_deregister_pull_msg(struct ipa_msg_meta *meta);
 /*
  * Interface
  */
-int ipa3_register_intf(const char *name, const struct ipa_tx_intf *tx,
-		       const struct ipa_rx_intf *rx);
 int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 		       const struct ipa_rx_intf *rx,
 		       const struct ipa_ext_intf *ext);
-int ipa3_deregister_intf(const char *name);
-
-/*
- * Aggregation
- */
-int ipa3_set_aggr_mode(enum ipa_aggr_mode mode);
-
-int ipa3_set_qcncm_ndp_sig(char sig[3]);
-
-int ipa3_set_single_ndp_per_mbim(bool enable);
-
-/*
- * Data path
- */
-int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
-		struct ipa_tx_meta *metadata);
 
 /*
  * To transfer multiple data packets
@@ -3204,24 +3181,10 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 int ipa3_tx_dp_mul(enum ipa_client_type dst,
 			struct ipa_tx_data_desc *data_desc);
 
-void ipa3_free_skb(struct ipa_rx_data *data);
-
 /*
  * System pipes
  */
 int ipa3_setup_tput_pipe(void);
-
-int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl);
-
-int ipa3_teardown_sys_pipe(u32 clnt_hdl);
-
-int ipa3_connect_wdi_pipe(struct ipa_wdi_in_params *in,
-		struct ipa_wdi_out_params *out);
-int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
-		struct ipa_wdi_out_params *out);
-
-int ipa3_disconnect_wdi_pipe(u32 clnt_hdl);
-int ipa3_enable_wdi_pipe(u32 clnt_hdl);
 int ipa_pm_wrapper_wdi_set_perf_profile_internal(struct ipa_wdi_perf_profile *profile);
 int ipa_pm_wrapper_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 			struct ipa_wdi_out_params *out);
@@ -3229,12 +3192,9 @@ int ipa_pm_wrapper_disconnect_wdi_pipe(u32 clnt_hdl);
 int ipa_pm_wrapper_enable_wdi_pipe(u32 clnt_hdl);
 int ipa_pm_wrapper_disable_pipe(u32 clnt_hdl);
 int ipa3_enable_gsi_wdi_pipe(u32 clnt_hdl);
-int ipa3_disable_wdi_pipe(u32 clnt_hdl);
 int ipa3_disable_gsi_wdi_pipe(u32 clnt_hdl);
 int ipa3_disconnect_gsi_wdi_pipe(u32 clnt_hdl);
-int ipa3_resume_wdi_pipe(u32 clnt_hdl);
 int ipa3_resume_gsi_wdi_pipe(u32 clnt_hdl);
-int ipa3_suspend_wdi_pipe(u32 clnt_hdl);
 int ipa3_get_wdi_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_wdi3_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_usb_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
@@ -3242,17 +3202,9 @@ bool ipa_usb_is_teth_prot_connected(enum ipa_usb_teth_prot usb_teth_prot);
 int ipa3_get_aqc_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_rtk_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_ntn_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
-int ipa3_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats);
 u16 ipa3_get_smem_restr_bytes(void);
-int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
 int ipa3_wigig_init_debugfs_i(struct dentry *dent);
-
-/*
- * To retrieve doorbell physical address of
- * wlan pipes
- */
-int ipa3_uc_wdi_get_dbpa(struct ipa_wdi_db_params *out);
 
 /*
  * To register uC ready callback if uC not ready
@@ -3294,88 +3246,12 @@ int ipa3_inform_wlan_bw(struct ipa_inform_wlan_bw *wdi_bw);
 /*
  * IPADMA
  */
-int ipa3_dma_init(void);
-
-int ipa3_dma_enable(void);
-
-int ipa3_dma_disable(void);
-
-int ipa3_dma_sync_memcpy(u64 dest, u64 src, int len);
-
-int ipa3_dma_async_memcpy(u64 dest, u64 src, int len,
-			void (*user_cb)(void *user1), void *user_param);
-
 int ipa3_dma_uc_memcpy(phys_addr_t dest, phys_addr_t src, int len);
-
-void ipa3_dma_destroy(void);
-
-int ipa_mhi_dma_memcpy_init(struct mhi_dma_function_params function);
-
-void ipa_mhi_dma_memcpy_destroy(struct mhi_dma_function_params function);
-
-int ipa_mhi_dma_sync_memcpy(u64 dest, u64 src, int len,
-		struct mhi_dma_function_params function);
-
-int ipa_mhi_dma_async_memcpy(u64 dest, u64 src, int len,
-		 struct mhi_dma_function_params function,
-		 void (*user_cb)(void *user1), void *user_param);
-
-int ipa_mhi_dma_memcpy_enable(struct mhi_dma_function_params function);
-
-int ipa_mhi_dma_memcpy_disable(struct mhi_dma_function_params function);
-
-
-
-/*
- * MHI
- */
-
-int ipa_mhi_dma_register_ready_cb(void (*mhi_ready_cb)(void *user_data),
-		void *user_data);
-
-int ipa_mhi_dma_init(struct mhi_dma_function_params function,
-                struct mhi_dma_init_params *params,
-                struct mhi_dma_init_out *out);
-
-int ipa_mhi_dma_start(struct mhi_dma_function_params function,
-		struct mhi_dma_start_params *params);
-
-int ipa_mhi_dma_connect_endp(struct mhi_dma_function_params function,
-		struct mhi_dma_connect_params *in, u32 *clnt_hdl);
-
-int ipa_mhi_dma_disconnect_endp(struct mhi_dma_function_params function,
-                struct mhi_dma_disconnect_params *in);
-
-int ipa_mhi_dma_suspend(struct mhi_dma_function_params function, bool force);
-
-int ipa_mhi_dma_resume(struct mhi_dma_function_params function);
-
-int ipa_mhi_dma_update_mstate(struct mhi_dma_function_params function,
-		enum mhi_dma_mstate mstate_info);
-
-void ipa_mhi_dma_destroy(struct mhi_dma_function_params function);
-
-int ipa_dma_mhi_provide_ops(void);
-
-/*
- * mux id
- */
-
-/*
- * interrupts
- */
-int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
-		ipa_irq_handler_t handler,
-		bool deferred_flag,
-		void *private_data);
 
 /*
  * Miscellaneous
  */
-int ipa3_get_ep_mapping(enum ipa_client_type client);
-int ipa3_get_ep_mapping_from_gsi(int ch_id);
-
-bool ipa3_is_ready(void);
+int ipa_get_ep_mapping_from_gsi(int ch_id);
 
 int ipa3_ctx_get_type(enum ipa_type_mode type);
 bool ipa3_ctx_get_flag(enum ipa_flag flag);
@@ -3399,8 +3275,6 @@ u8 ipa3_get_qmb_master_sel(enum ipa_client_type client);
 
 u8 ipa3_get_tx_instance(enum ipa_client_type client);
 
-bool ipa3_get_lan_rx_napi(void);
-
 bool ipa3_get_qmap_pipe_enable(void);
 
 struct device *ipa3_get_pdev(void);
@@ -3423,7 +3297,7 @@ int ipa3_send(struct ipa3_sys_context *sys,
 		u32 num_desc,
 		struct ipa3_desc *desc,
 		bool in_atomic);
-int ipa3_get_ep_mapping(enum ipa_client_type client);
+int ipa_get_ep_mapping(enum ipa_client_type client);
 int ipa_get_ep_group(enum ipa_client_type client);
 
 int ipa3_generate_hw_rule(enum ipa_ip_type ip,
@@ -3432,7 +3306,7 @@ int ipa3_generate_hw_rule(enum ipa_ip_type ip,
 			 u16 *en_rule);
 int ipa3_init_hw(void);
 struct ipa3_rt_tbl *__ipa3_find_rt_tbl(enum ipa_ip_type ip, const char *name);
-int ipa3_set_single_ndp_per_mbim(bool enable);
+int ipa_set_single_ndp_per_mbim(bool enable);
 void ipa3_debugfs_init(void);
 void ipa3_debugfs_remove(void);
 void ipa3_eth_debugfs_init(void);
@@ -3525,6 +3399,8 @@ int __ipa_commit_hdr_v3_0(void);
 void ipa3_skb_recycle(struct sk_buff *skb);
 void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx);
 void ipa3_delete_dflt_flt_rules(u32 ipa_ep_idx);
+void ipa3_install_dl_opt_wdi_dpath_flt_rules(u32 ipa_ep_idx, u32 rt_tbl_idx);
+void ipa3_delete_dl_opt_wdi_dpath_flt_rules(u32 ipa_ep_idx);
 
 int ipa3_remove_secondary_flow_ctrl(int gsi_chan_hdl);
 int ipa3_enable_data_path(u32 clnt_hdl);
@@ -3557,6 +3433,9 @@ int ipa3_write_qmapid_wdi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_write_qmapid_wdi3_gsi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_tag_process(struct ipa3_desc *desc, int num_descs,
 		    unsigned long timeout);
+
+int ipa3_usb_init(void);
+void ipa3_usb_exit(void);
 
 void ipa3_q6_pre_shutdown_cleanup(void);
 void ipa3_q6_post_shutdown_cleanup(void);
@@ -3597,11 +3476,8 @@ int ipa3_uc_add_holb_monitor(uint16_t gsi_ch, uint32_t action_mask,
 	uint32_t max_stuck_count, uint8_t ee);
 int ipa3_uc_del_holb_monitor(uint16_t gsi_ch, uint8_t ee);
 int ipa3_uc_disable_holb_monitor(void);
-int ipa3_uc_bw_monitor(struct ipa_wdi_bw_info *info);
 int ipa3_uc_setup_event_ring(void);
 void ipa3_tag_destroy_imm(void *user1, int user2);
-const struct ipa_gsi_ep_config *ipa3_get_gsi_ep_info
-	(enum ipa_client_type client);
 void ipa3_uc_rg10_write_reg(enum ipahal_reg_name reg, u32 n, u32 val);
 
 int ipa3_wigig_init_i(void);
@@ -3696,7 +3572,6 @@ int ipa3_rt_read_tbl_from_hw(u32 tbl_idx,
 	bool hashable,
 	struct ipahal_rt_rule_entry entry[],
 	int *num_entry);
-int ipa3_restore_suspend_handler(void);
 int ipa3_inject_dma_task_for_gsi(void);
 int ipa3_uc_panic_notifier(struct notifier_block *this,
 	unsigned long event, void *ptr);
@@ -3710,34 +3585,12 @@ int emulator_load_fws(
 	u32 transport_mem_size,
 	enum gsi_ver);
 int ipa3_rmnet_ctl_init(void);
-int ipa3_register_rmnet_ctl_cb(
-	void (*ipa_rmnet_ctl_ready_cb)(void *user_data1),
-	void *user_data1,
-	void (*ipa_rmnet_ctl_stop_cb)(void *user_data2),
-	void *user_data2,
-	void (*ipa_rmnet_ctl_rx_notify_cb)(
-	void *user_data3, void *rx_data),
-	void *user_data3);
-int ipa3_unregister_rmnet_ctl_cb(void);
-int ipa3_rmnet_ctl_xmit(struct sk_buff *skb);
 int ipa3_setup_apps_low_lat_prod_pipe(bool rmnet_config,
 	struct rmnet_egress_param *egress_param);
 int ipa3_setup_apps_low_lat_cons_pipe(bool rmnet_config,
 	struct rmnet_ingress_param *ingress_param);
 int ipa3_teardown_apps_low_lat_pipes(void);
 int ipa3_rmnet_ll_init(void);
-int ipa3_register_rmnet_ll_cb(
-	void (*ipa_rmnet_ll_ready_cb)(void *user_data1),
-	void *user_data1,
-	void (*ipa_rmnet_ll_stop_cb)(void *user_data2),
-	void *user_data2,
-	void (*ipa_rmnet_ll_rx_notify_cb)(
-	void *user_data3, void *rx_data),
-	void *user_data3);
-int ipa3_unregister_rmnet_ll_cb(void);
-int ipa3_rmnet_ll_xmit(struct sk_buff *skb);
-int ipa3_register_notifier(void *fn_ptr);
-int ipa3_unregister_notifier(void *fn_ptr);
 int ipa3_setup_apps_low_lat_data_prod_pipe(
 	struct rmnet_egress_param *egress_param,
 	struct net_device *dev);
@@ -3769,7 +3622,6 @@ int ipa3_set_clock_plan_from_pm(int idx);
 void __ipa_gsi_irq_rx_scedule_poll(struct ipa3_sys_context *sys);
 void ipa3_init_imm_cmd_desc(struct ipa3_desc *desc,
 	struct ipahal_imm_cmd_pyld *cmd_pyld);
-int ipa3_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res);
 uint ipa3_get_emulation_type(void);
 int ipa3_get_transport_info(
 	phys_addr_t *phys_addr_ptr,
@@ -3923,7 +3775,6 @@ int ipa3_uc_send_disable_flow_control(void);
 int ipa3_uc_send_update_flow_control(uint32_t bitmask,
 	uint8_t  add_delete);
 
-enum ipa_hw_type ipa_get_hw_type_internal(void);
 bool ipa_is_test_prod_flt_in_sram_internal(enum ipa_ip_type ip);
 /* check if modem is up */
 bool ipa3_is_modem_up(void);

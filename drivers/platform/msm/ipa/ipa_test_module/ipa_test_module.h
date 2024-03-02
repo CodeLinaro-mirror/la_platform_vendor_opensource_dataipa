@@ -7,11 +7,11 @@
 #ifndef _IPA_TEST_MODULE_H_
 #define _IPA_TEST_MODULE_H_
 
-#include <stddef.h>
+#include <linux/stddef.h>
 #include <linux/msm_ipa.h>
 #include <linux/ioctl.h>
 #ifdef _KERNEL_
-#include <linux/ipa.h>
+#include "ipa.h"
 #endif
 
 #define IPA_TEST_IOC_MAGIC 0xA5

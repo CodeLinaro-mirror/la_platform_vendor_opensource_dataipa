@@ -1215,11 +1215,11 @@ static int ipa3_nat_send_init_cmd(struct ipahal_imm_cmd_ip_v4_nat_init *cmd,
 	memset(cmd_pyld, 0, sizeof(cmd_pyld));
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -1326,10 +1326,10 @@ static int ipa3_ipv6ct_send_init_cmd(struct ipahal_imm_cmd_ip_v6_ct_init *cmd)
 	memset(cmd_pyld, 0, sizeof(cmd_pyld));
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
@@ -1984,7 +1984,7 @@ int ipa3_table_dma_cmd(
 	 * IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC - 1 to overcome
 	 * buffer overflow of ipa3_desc array.
 	 */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1)
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1)
 		max_dma_table_cmds -= 1;
 
 	if (!dma->entries || dma->entries > (max_dma_table_cmds - 1)) {
@@ -2007,11 +2007,11 @@ int ipa3_table_dma_cmd(
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
 		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
-		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 		reg_write_coal_close.skip_pipeline_clear = false;
 		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)

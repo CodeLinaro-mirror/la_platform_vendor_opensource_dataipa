@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef IPA_QMI_SERVICE_H
 #define IPA_QMI_SERVICE_H
 
-#include <linux/ipa.h>
+#include "ipa.h"
 #include <linux/ipa_qmi_service_v01.h>
 #include <uapi/linux/msm_rmnet.h>
 #include <linux/soc/qcom/qmi.h>
@@ -91,19 +93,15 @@ struct ipa_offload_connection_val {
 struct ipa3_qmi_context {
 	struct ipa_ioc_ext_intf_prop q6_ul_filter_rule[MAX_NUM_Q6_RULE];
 	u32 q6_ul_filter_rule_hdl[MAX_NUM_Q6_RULE];
-	int num_ipa_install_fltr_rule_req_msg;
-	struct ipa_install_fltr_rule_req_msg_v01
-		ipa_install_fltr_rule_req_msg_cache[MAX_NUM_QMI_RULE_CACHE];
 	int num_ipa_install_fltr_rule_req_ex_msg;
 	struct ipa_install_fltr_rule_req_ex_msg_v01
-		ipa_install_fltr_rule_req_ex_msg_cache[MAX_NUM_QMI_RULE_CACHE];
+		*ipa_install_fltr_rule_req_ex_msg_cache_ptr[MAX_NUM_QMI_RULE_CACHE];
 	int num_ipa_fltr_installed_notif_req_msg;
 	struct ipa_fltr_installed_notif_req_msg_v01
 		ipa_fltr_installed_notif_req_msg_cache[MAX_NUM_QMI_RULE_CACHE];
 	int num_ipa_configure_ul_firewall_rules_req_msg;
 	struct ipa_configure_ul_firewall_rules_req_msg_v01
-		ipa_configure_ul_firewall_rules_req_msg_cache
-			[MAX_NUM_QMI_RULE_CACHE];
+		*ipa_configure_ul_firewall_rules_req_msg_cache_ptr[MAX_NUM_QMI_RULE_CACHE];
 	struct ipa_mhi_prime_aggr_info_req_msg_v01
 		ipa_mhi_prime_aggr_info_req_msg_cache
 			[MAX_NUM_QMI_MPM_AGGR_CACHE];
@@ -223,7 +221,20 @@ extern struct qmi_elem_info ipa_bw_change_ind_msg_v01_ei[];
 extern struct qmi_elem_info ipa_move_nat_req_msg_v01_ei[];
 extern struct qmi_elem_info ipa_move_nat_resp_msg_v01_ei[];
 extern struct qmi_elem_info ipa_move_nat_table_complt_ind_msg_v01_ei[];
-
+extern struct qmi_elem_info ipa_wlan_opt_dp_rsrv_filter_req_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_rsrv_filter_resp_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_rsrv_filter_complt_ind_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_add_filter_req_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_add_filter_resp_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_add_filter_complt_ind_msg_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_remove_filter_req_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_remove_filter_resp_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_remove_filter_complt_ind_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_remove_all_filter_req_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_remove_all_filter_resp_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_remove_all_filter_complt_ind_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_set_wlan_per_info_req_msg_data_v01_ei[];
+extern struct qmi_elem_info ipa_wlan_opt_dp_set_wlan_per_info_resp_msg_data_v01[];
 /**
  * struct ipa3_rmnet_context - IPA rmnet context
  * @ipa_rmnet_ssr: support modem SSR
@@ -356,6 +367,15 @@ int ipa3_qmi_get_per_client_packet_stats(
 
 int ipa3_qmi_send_mhi_ready_indication(
 	struct ipa_mhi_ready_indication_msg_v01 *req);
+
+int ipa3_qmi_send_wdi_opt_dpath_rsrv_flt_ind(
+	struct ipa_wlan_opt_dp_rsrv_filter_complt_ind_msg_v01 *ind);
+
+int ipa3_qmi_send_wdi_opt_dpath_rmv_all_flt_ind(
+	struct ipa_wlan_opt_dp_remove_all_filter_complt_ind_msg_v01 *ind);
+
+int ipa3_qmi_send_wdi_opt_dpath_ep_info(
+	struct ipa_wlan_opt_dp_set_wlan_per_info_req_msg_v01 *req);
 
 int ipa3_qmi_send_endp_desc_indication(
 	struct ipa_endp_desc_indication_msg_v01 *req);
@@ -513,6 +533,24 @@ static inline void ipa3_q6_handshake_complete(bool ssr_bootup) { }
 
 static inline int ipa3_qmi_send_mhi_ready_indication(
 	struct ipa_mhi_ready_indication_msg_v01 *req)
+{
+	return -EPERM;
+}
+
+static int ipa3_qmi_send_wdi_opt_dpath_rsrv_flt_ind(
+	struct ipa_wlan_opt_dp_remove_all_filter_complt_ind_msg_v01 *ind)
+{
+	return -EPERM;
+}
+
+static int ipa3_qmi_send_wdi_opt_dpath_rmv_all_flt_ind(
+	struct ipa_wlan_opt_dp_remove_all_filter_complt_ind_msg_v01 *ind)
+{
+	return -EPERM;
+}
+
+static int ipa3_qmi_send_wdi_opt_dpath_ep_info(
+	struct ipa_wlan_opt_dp_set_wlan_per_info_req_msg_v01 *req)
 {
 	return -EPERM;
 }

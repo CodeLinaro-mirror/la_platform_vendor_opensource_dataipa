@@ -476,7 +476,7 @@ int ipa3_get_wdi_gsi_stats(struct ipa_uc_dbg_ring_stats *stats)
 }
 
 /**
- * ipa3_get_wdi_stats() - Query WDI statistics from uc
+ * ipa_get_wdi_stats() - Query WDI statistics from uc
  * @stats:	[inout] stats blob from client populated by driver
  *
  * Returns:	0 on success, negative on failure
@@ -484,7 +484,7 @@ int ipa3_get_wdi_gsi_stats(struct ipa_uc_dbg_ring_stats *stats)
  * @note Cannot be called from atomic context
  *
  */
-int ipa3_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats)
+int ipa_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats)
 {
 #define TX_STATS(y) stats->tx_ch_stats.y = \
 	ipa3_ctx->uc_wdi_ctx.wdi_uc_stats_mmio->tx_ch_stats.y
@@ -546,6 +546,7 @@ int ipa3_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats)
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_get_wdi_stats);
 
 int ipa3_wdi_init(void)
 {
@@ -1162,7 +1163,7 @@ static int ipa3_wdi2_gsi_alloc_channel_ring(
 	int result = -EFAULT;
 	const struct ipa_gsi_ep_config *ep_cfg;
 
-	ep_cfg = ipa3_get_gsi_ep_info(client);
+	ep_cfg = ipa_get_gsi_ep_info(client);
 	if (!ep_cfg) {
 		IPAERR("Failed getting GSI EP info for client=%d\n",
 				client);
@@ -1233,7 +1234,7 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 	uint32_t addr_low, addr_high;
 	bool is_evt_rn_db_pcie_addr, is_txr_rn_db_pcie_addr;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(in->sys.client);
+	ipa_ep_idx = ipa_get_ep_mapping(in->sys.client);
 	if (ipa_ep_idx == -1) {
 		IPAERR("fail to alloc EP.\n");
 		goto fail;
@@ -1589,7 +1590,7 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 	if (IPA_CLIENT_IS_PROD(in->sys.client)) {
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = true;
-		ipa3_cfg_ep_ctrl(ipa_ep_idx, &ep_cfg_ctrl);
+		ipa_cfg_ep_ctrl(ipa_ep_idx, &ep_cfg_ctrl);
 	}
 
 	ep->gsi_mem_info.chan_ring_len = gsi_channel_props.ring_len;
@@ -1742,7 +1743,7 @@ fail:
 }
 
 /**
- * ipa3_connect_wdi_pipe() - WDI client connect
+ * ipa_connect_wdi_pipe() - WDI client connect
  * @in:	[in] input parameters from client
  * @out: [out] output params to client
  *
@@ -1750,7 +1751,7 @@ fail:
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_connect_wdi_pipe(struct ipa_wdi_in_params *in,
+int ipa_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 		struct ipa_wdi_out_params *out)
 {
 	int ipa_ep_idx;
@@ -1766,6 +1767,9 @@ int ipa3_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 	unsigned long va;
 	phys_addr_t pa;
 	u32 len;
+
+	if (ipa3_ctx->use_pm_wrapper)
+		return ipa_pm_wrapper_connect_wdi_pipe(in, out);
 
 	if (in == NULL || out == NULL || in->sys.client >= IPA_CLIENT_MAX) {
 		IPAERR("bad parm. in=%pK out=%pK\n", in, out);
@@ -1799,7 +1803,7 @@ int ipa3_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 	if (result)
 		return result;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(in->sys.client);
+	ipa_ep_idx = ipa_get_ep_mapping(in->sys.client);
 	if (ipa_ep_idx == -1) {
 		IPAERR("fail to alloc EP.\n");
 		goto fail;
@@ -2206,7 +2210,7 @@ int ipa3_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 	if (IPA_CLIENT_IS_PROD(in->sys.client)) {
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = true;
-		ipa3_cfg_ep_ctrl(ipa_ep_idx, &ep_cfg_ctrl);
+		ipa_cfg_ep_ctrl(ipa_ep_idx, &ep_cfg_ctrl);
 	}
 
 	result = ipa3_uc_send_cmd((u32)(cmd.phys_base),
@@ -2276,7 +2280,7 @@ dma_alloc_fail:
 fail:
 	return result;
 }
-EXPORT_SYMBOL(ipa3_connect_wdi_pipe);
+EXPORT_SYMBOL(ipa_connect_wdi_pipe);
 
 int ipa3_disconnect_gsi_wdi_pipe(u32 clnt_hdl)
 {
@@ -2314,7 +2318,8 @@ int ipa3_disconnect_gsi_wdi_pipe(u32 clnt_hdl)
 		IPADBG("uc_wdi_ctx.stats_notify already null\n");
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
-		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11)
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v5_2)
 		ipa3_uc_debug_stats_dealloc(IPA_HW_PROTOCOL_WDI);
 	IPADBG("client (ep: %d) disconnected\n", clnt_hdl);
 
@@ -2323,18 +2328,21 @@ fail_dealloc_channel:
 }
 
 /**
- * ipa3_disconnect_wdi_pipe() - WDI client disconnect
+ * ipa_disconnect_wdi_pipe() - WDI client disconnect
  * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
  *
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_disconnect_wdi_pipe(u32 clnt_hdl)
+int ipa_disconnect_wdi_pipe(u32 clnt_hdl)
 {
 	int result = 0;
 	struct ipa3_ep_context *ep;
 	union IpaHwWdiCommonChCmdData_t tear;
+
+	if (ipa3_ctx->use_pm_wrapper)
+		return ipa_pm_wrapper_disconnect_wdi_pipe(clnt_hdl);
 
 	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
 	    ipa3_ctx->ep[clnt_hdl].valid == 0) {
@@ -2390,7 +2398,7 @@ uc_timeout:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 	return result;
 }
-EXPORT_SYMBOL(ipa3_disconnect_wdi_pipe);
+EXPORT_SYMBOL(ipa_disconnect_wdi_pipe);
 
 int ipa3_enable_gsi_wdi_pipe(u32 clnt_hdl)
 {
@@ -2408,7 +2416,7 @@ int ipa3_enable_gsi_wdi_pipe(u32 clnt_hdl)
 		return -EFAULT;
 	}
 
-	ipa_ep_idx = ipa3_get_ep_mapping(ipa3_get_client_mapping(clnt_hdl));
+	ipa_ep_idx = ipa_get_ep_mapping(ipa3_get_client_mapping(clnt_hdl));
 	if (ipa_ep_idx == -1) {
 		IPAERR("fail to alloc EP.\n");
 		return -EPERM;
@@ -2417,7 +2425,7 @@ int ipa3_enable_gsi_wdi_pipe(u32 clnt_hdl)
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
-	ipa3_cfg_ep_ctrl(ipa_ep_idx, &ep_cfg_ctrl);
+	ipa_cfg_ep_ctrl(ipa_ep_idx, &ep_cfg_ctrl);
 
 	if (IPA_CLIENT_IS_CONS(ep->client)) {
 		memset(&holb_cfg, 0, sizeof(holb_cfg));
@@ -2467,9 +2475,9 @@ int ipa3_disable_gsi_wdi_pipe(u32 clnt_hdl)
 			clnt_hdl, ep->client);
 		/* remove delay on wlan-prod pipe*/
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
-		ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+		ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 
-		cons_hdl = ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		cons_hdl = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
 		if (cons_hdl == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Client %u is not mapped\n",
 				IPA_CLIENT_WLAN1_CONS);
@@ -2493,7 +2501,7 @@ int ipa3_disable_gsi_wdi_pipe(u32 clnt_hdl)
 	if (IPA_CLIENT_IS_PROD(ep->client)) {
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = true;
-		ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+		ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 	}
 	ep->gsi_offload_state &= ~IPA_WDI_ENABLED;
 	IPADBG("client (ep: %d) disabled\n", clnt_hdl);
@@ -2503,19 +2511,22 @@ gsi_timeout:
 	return result;
 }
 /**
- * ipa3_enable_wdi_pipe() - WDI client enable
+ * ipa_enable_wdi_pipe() - WDI client enable
  * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
  *
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_enable_wdi_pipe(u32 clnt_hdl)
+int ipa_enable_wdi_pipe(u32 clnt_hdl)
 {
 	int result = 0;
 	struct ipa3_ep_context *ep;
 	union IpaHwWdiCommonChCmdData_t enable;
 	struct ipa_ep_cfg_holb holb_cfg;
+
+	if (ipa3_ctx->use_pm_wrapper)
+		return ipa_pm_wrapper_enable_wdi_pipe(clnt_hdl);
 
 	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
 	    ipa3_ctx->ep[clnt_hdl].valid == 0) {
@@ -2565,23 +2576,26 @@ uc_timeout:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 	return result;
 }
-EXPORT_SYMBOL(ipa3_enable_wdi_pipe);
+EXPORT_SYMBOL(ipa_enable_wdi_pipe);
 
 /**
- * ipa3_disable_wdi_pipe() - WDI client disable
+ * ipa_disable_wdi_pipe() - WDI client disable
  * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
  *
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_disable_wdi_pipe(u32 clnt_hdl)
+int ipa_disable_wdi_pipe(u32 clnt_hdl)
 {
 	int result = 0;
 	struct ipa3_ep_context *ep;
 	union IpaHwWdiCommonChCmdData_t disable;
 	struct ipa_ep_cfg_ctrl ep_cfg_ctrl;
 	u32 cons_hdl;
+
+	if (ipa3_ctx->use_pm_wrapper)
+		return ipa_pm_wrapper_disable_pipe(clnt_hdl);
 
 	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
 	    ipa3_ctx->ep[clnt_hdl].valid == 0) {
@@ -2624,9 +2638,9 @@ int ipa3_disable_wdi_pipe(u32 clnt_hdl)
 			clnt_hdl, ep->client);
 		/* remove delay on wlan-prod pipe*/
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
-		ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+		ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 
-		cons_hdl = ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
+		cons_hdl = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
 		if (cons_hdl == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Client %u is not mapped\n",
 				IPA_CLIENT_WLAN1_CONS);
@@ -2662,7 +2676,7 @@ int ipa3_disable_wdi_pipe(u32 clnt_hdl)
 	if (IPA_CLIENT_IS_PROD(ep->client)) {
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = true;
-		ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+		ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 	}
 	ep->uc_offload_state &= ~IPA_WDI_ENABLED;
 	IPADBG("client (ep: %d) disabled\n", clnt_hdl);
@@ -2672,7 +2686,7 @@ uc_timeout:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 	return result;
 }
-EXPORT_SYMBOL(ipa3_disable_wdi_pipe);
+EXPORT_SYMBOL(ipa_disable_wdi_pipe);
 
 int ipa3_resume_gsi_wdi_pipe(u32 clnt_hdl)
 {
@@ -2695,7 +2709,7 @@ int ipa3_resume_gsi_wdi_pipe(u32 clnt_hdl)
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
-	result = ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+	result = ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 	if (result)
 		IPAERR("client (ep: %d) fail un-susp/delay result=%d\n",
 				clnt_hdl, result);
@@ -2719,7 +2733,8 @@ int ipa3_resume_gsi_wdi_pipe(u32 clnt_hdl)
 	/* start uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
-		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11) {
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
 		if (IPA_CLIENT_IS_PROD(ep->client)) {
 			pcmd_t->ch_id_info[0].ch_id
 				= ep->gsi_chan_hdl;
@@ -2753,14 +2768,14 @@ int ipa3_resume_gsi_wdi_pipe(u32 clnt_hdl)
 }
 
 /**
- * ipa3_resume_wdi_pipe() - WDI client resume
+ * ipa_resume_wdi_pipe() - WDI client resume
  * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
  *
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_resume_wdi_pipe(u32 clnt_hdl)
+int ipa_resume_wdi_pipe(u32 clnt_hdl)
 {
 	int result = 0;
 	struct ipa3_ep_context *ep;
@@ -2803,7 +2818,7 @@ int ipa3_resume_wdi_pipe(u32 clnt_hdl)
 	}
 
 	memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
-	result = ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+	result = ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 	if (result)
 		IPAERR("client (ep: %d) fail un-susp/delay result=%d\n",
 				clnt_hdl, result);
@@ -2816,7 +2831,7 @@ int ipa3_resume_wdi_pipe(u32 clnt_hdl)
 uc_timeout:
 	return result;
 }
-EXPORT_SYMBOL(ipa3_resume_wdi_pipe);
+EXPORT_SYMBOL(ipa_resume_wdi_pipe);
 
 int ipa3_suspend_gsi_wdi_pipe(u32 clnt_hdl)
 {
@@ -2832,7 +2847,7 @@ int ipa3_suspend_gsi_wdi_pipe(u32 clnt_hdl)
 	union __packed gsi_channel_scratch gsi_scratch;
 	struct IpaHwOffloadStatsAllocCmdData_t *pcmd_t = NULL;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(ipa3_get_client_mapping(clnt_hdl));
+	ipa_ep_idx = ipa_get_ep_mapping(ipa3_get_client_mapping(clnt_hdl));
 	if (ipa_ep_idx < 0) {
 		IPAERR("IPA client mapping failed\n");
 		return -EPERM;
@@ -2874,7 +2889,7 @@ int ipa3_suspend_gsi_wdi_pipe(u32 clnt_hdl)
 			}
 		}
 retry_gsi_stop:
-		res = ipa3_stop_gsi_channel(ipa_ep_idx);
+		res = ipa_stop_gsi_channel(ipa_ep_idx);
 		if (res != 0 && res != -GSI_STATUS_AGAIN &&
 				res != -GSI_STATUS_TIMED_OUT) {
 			IPAERR("failed to stop channel res = %d\n", res);
@@ -2908,7 +2923,8 @@ retry_gsi_stop:
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
-		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11) {
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
 		if (IPA_CLIENT_IS_PROD(ep->client)) {
 			pcmd_t->ch_id_info[0].ch_id
 				= 0xff;
@@ -2934,14 +2950,14 @@ fail_stop_channel:
 }
 
 /**
- * ipa3_suspend_wdi_pipe() - WDI client suspend
+ * ipa_suspend_wdi_pipe() - WDI client suspend
  * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
  *
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_suspend_wdi_pipe(u32 clnt_hdl)
+int ipa_suspend_wdi_pipe(u32 clnt_hdl)
 {
 	int result = 0;
 	struct ipa3_ep_context *ep;
@@ -3025,7 +3041,7 @@ int ipa3_suspend_wdi_pipe(u32 clnt_hdl)
 	if (IPA_CLIENT_IS_CONS(ep->client)) {
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0) {
 			ep_cfg_ctrl.ipa_ep_suspend = true;
-			result = ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+			result = ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 			if (result)
 				IPAERR("(ep: %d) failed to suspend result=%d\n",
 						clnt_hdl, result);
@@ -3034,7 +3050,7 @@ int ipa3_suspend_wdi_pipe(u32 clnt_hdl)
 		}
 	} else {
 		ep_cfg_ctrl.ipa_ep_delay = true;
-		result = ipa3_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
+		result = ipa_cfg_ep_ctrl(clnt_hdl, &ep_cfg_ctrl);
 		if (result)
 			IPAERR("client (ep: %d) failed to delay result=%d\n",
 					clnt_hdl, result);
@@ -3065,7 +3081,7 @@ int ipa3_suspend_wdi_pipe(u32 clnt_hdl)
 uc_timeout:
 	return result;
 }
-EXPORT_SYMBOL(ipa3_suspend_wdi_pipe);
+EXPORT_SYMBOL(ipa_suspend_wdi_pipe);
 
 /**
  * ipa_broadcast_wdi_quota_reach_ind() - quota reach
@@ -3074,7 +3090,7 @@ EXPORT_SYMBOL(ipa3_suspend_wdi_pipe);
  *
  * Returns:	0 on success, negative on failure
  */
-int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid,
+int ipa_broadcast_wdi_quota_reach_ind(uint32_t fid,
 	uint64_t num_bytes)
 {
 	IPAERR_RL("Quota reached indication on fid(%d) Mbytes(%lu)\n",
@@ -3082,6 +3098,7 @@ int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid,
 	ipa3_broadcast_quota_reach_ind(0, IPA_UPSTEAM_WLAN, false);
 	return 0;
 }
+EXPORT_SYMBOL(ipa_broadcast_wdi_quota_reach_ind);
 
 int ipa3_write_qmapid_gsi_wdi_pipe(u32 clnt_hdl, u8 qmap_id)
 {
@@ -3218,7 +3235,7 @@ int ipa3_uc_dereg_rdyCB(void)
 
 
 /**
- * ipa3_uc_wdi_get_dbpa() - To retrieve
+ * ipa_uc_wdi_get_dbpa() - To retrieve
  * doorbell physical address of wlan pipes
  * @param:  [in/out] input/output parameters
  *          from/to client
@@ -3226,7 +3243,7 @@ int ipa3_uc_dereg_rdyCB(void)
  * Returns:	0 on success, negative on failure
  *
  */
-int ipa3_uc_wdi_get_dbpa(
+int ipa_uc_wdi_get_dbpa(
 	struct ipa_wdi_db_params *param)
 {
 	if (param == NULL || param->client >= IPA_CLIENT_MAX) {
@@ -3252,6 +3269,7 @@ int ipa3_uc_wdi_get_dbpa(
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa_uc_wdi_get_dbpa);
 
 static void ipa3_uc_wdi_loaded_handler(void)
 {
@@ -3391,7 +3409,7 @@ int ipa_pm_wrapper_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 		ipa_pm_wdi_ctx.curr_pm_state = IPA_PM_WDI_PM_REGISTERED;
 	}
 
-	if (ipa3_connect_wdi_pipe(in,out)) {
+	if (ipa_connect_wdi_pipe(in,out)) {
 		IPAERR("fail to setup pipe\n");
 		ret = -EFAULT;
 		return ret;
@@ -3409,7 +3427,7 @@ int ipa_pm_wrapper_disconnect_wdi_pipe(u32 clnt_hdl)
 		IPAERR("Unexpected current ipa pm state\n");
 		return -EFAULT;
 	}
-	if (ipa3_disconnect_wdi_pipe(clnt_hdl)) {
+	if (ipa_disconnect_wdi_pipe(clnt_hdl)) {
 		IPAERR("fail to tear down pipe\n");
 		return -EFAULT;
 	}
@@ -3447,7 +3465,7 @@ int ipa_pm_wrapper_enable_wdi_pipe(u32 clnt_hdl)
 		ipa_pm_wdi_ctx.curr_pm_state = IPA_PM_WDI_PM_ACTIVATE;
 	}
 
-	if (ipa3_enable_wdi_pipe(clnt_hdl)) {
+	if (ipa_enable_wdi_pipe(clnt_hdl)) {
 		IPAERR("fail to enable wdi pipe\n");
 		return -EFAULT;
 	}
@@ -3465,7 +3483,7 @@ int ipa_pm_wrapper_disable_pipe(u32 clnt_hdl)
 		return -EFAULT;
 	}
 
-	if (ipa3_disable_wdi_pipe(clnt_hdl)) {
+	if (ipa_disable_wdi_pipe(clnt_hdl)) {
 		IPAERR("fail to disable wdi pipe\n");
 		return -EFAULT;
 	}
