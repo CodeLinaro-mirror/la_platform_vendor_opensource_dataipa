@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -7709,6 +7709,9 @@ static enum gsi_ver ipa3_get_gsi_ver(enum ipa_hw_type ipa_hw_type)
 	case IPA_HW_v5_1:
 		gsi_ver = GSI_VER_3_0;
 		break;
+	case IPA_HW_v5_2:
+		gsi_ver = GSI_VER_5_2;
+		break;
 	case IPA_HW_v5_5:
 		gsi_ver = GSI_VER_5_5;
 		break;
@@ -9101,21 +9104,17 @@ static struct notifier_block qcom_va_md_ipa_notif_blk = {
 
 static u32 get_ipa_gen_rx_cmn_page_pool_size(u32 rx_cmn_page_pool_size)
 {
-        if (!rx_cmn_page_pool_size)
-                return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
-        if (rx_cmn_page_pool_size <= IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR)
-                return rx_cmn_page_pool_size;
-        return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+	if (!rx_cmn_page_pool_size)
+		return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+	return rx_cmn_page_pool_size;
 }
 
 
 static u32 get_ipa_gen_rx_cmn_temp_pool_size(u32 rx_cmn_temp_pool_size)
 {
-        if (!rx_cmn_temp_pool_size)
-                return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
-        if (rx_cmn_temp_pool_size <= IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR)
-                return rx_cmn_temp_pool_size;
-        return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+	if (!rx_cmn_temp_pool_size)
+		return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+	return rx_cmn_temp_pool_size;
 }
 
 static u32 get_ipa_gen_rx_ll_pool_size(u32 rx_ll_pool_sz_factor)
