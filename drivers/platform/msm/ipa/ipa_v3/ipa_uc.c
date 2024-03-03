@@ -70,6 +70,10 @@ DECLARE_WORK(ipa3_ipsec_enabled_work, ipa_ipsec_ep_init_cons);
  * IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING: Command to Delete DSCP PCP mapping for
  *                                  easymesh service prioritization.
  * IPA_CPU_2_HW_CMD_TSN_ENABLE: command to notify uc of enablement of tsn mode
+ * IPA_CPU_2_HW_CMD_ADD_PDN_DSCP_MAPPING: Command to Add PDN DSCP mapping for
+ *                                  DL traffic prioritization.
+ * IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING: Command to Delete PDN DSCP mapping for
+ *                                  DL traffic prioritization.
  */
 enum ipa3_cpu_2_hw_commands {
 	IPA_CPU_2_HW_CMD_NO_OP = FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 0),
@@ -117,6 +121,10 @@ enum ipa3_cpu_2_hw_commands {
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 24),
 	IPA_CPU_2_HW_CMD_TSN_ENABLE =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 25),
+	IPA_CPU_2_HW_CMD_ADD_PDN_DSCP_MAPPING =
+		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 26),
+	IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING =
+		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 27),
 };
 
 /**
@@ -252,6 +260,16 @@ struct IpaHwDbAddrInfo_t {
  */
 struct IpaDscpPcpMap_t {
 	uint8_t dscp_pcp_map[IPA_UC_MAX_DSCP_VAL];
+} __packed;
+
+/**
+ * Structure holding the parameters for IPA_CPU_2_HW_CMD_ADD_PDN_DSCP_MAPPING
+ * and IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING command.
+ * @dscp_pcp_map: DSCP <6 bits>.
+ *                PDN(mux_id) is used as index (0-15).
+ */
+struct IpaPdnDscpMap_t {
+	uint8_t pdn_dscp_map[IPA_UC_MAX_PDN_DSCP_VAL];
 } __packed;
 
 /**
@@ -2278,3 +2296,63 @@ int ipa3_notify_uc_tsn_enable(void)
 	return result;
 }
 EXPORT_SYMBOL(ipa3_notify_uc_tsn_enable);
+
+/**
+ * ipa3_add_remove_pdn_dscp_map() - Feed "PDN <-> DSCP" mapping into the IPA uC
+ * @map: The mapping data destined for the uC
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_add_remove_pdn_dscp_map(
+	uint8_t *map, bool AddMapping)
+{
+	struct ipa_mem_buffer mem;
+	struct IpaPdnDscpMap_t *cmd;
+	int res;
+
+	if (!map) {
+		IPAERR("null argument (ie. map) passed\n");
+		return -EINVAL;
+	}
+
+	IPADBG("PDN <-> DSCP %s attempt\n", (AddMapping)?"Add":"Delete");
+
+	if (AddMapping) {
+		mem.size = sizeof(struct IpaPdnDscpMap_t);
+
+		mem.base = dma_alloc_coherent(
+		ipa3_ctx->uc_pdev, mem.size,
+		&mem.phys_base, GFP_KERNEL);
+
+		if (!mem.base) {
+			IPAERR("Fail to alloc DMA buff of size %d\n", mem.size);
+			return -ENOMEM;
+		}
+
+		cmd = (struct IpaPdnDscpMap_t *) mem.base;
+
+		memcpy(cmd, map, sizeof(struct IpaPdnDscpMap_t));
+
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+		res = ipa3_uc_send_cmd(
+			(u32) mem.phys_base,
+			IPA_CPU_2_HW_CMD_ADD_PDN_DSCP_MAPPING,
+			0, true, 10 * HZ);
+
+		dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
+	} else {
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+		res = ipa3_uc_send_cmd(
+			0, IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING,
+			0, true, 10 * HZ);
+	}
+
+	if (res)
+		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
+	else
+		IPADBG("DSCP <-> PDN %s Success\n", (AddMapping)?"Add":"Delete");
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return res;
+}

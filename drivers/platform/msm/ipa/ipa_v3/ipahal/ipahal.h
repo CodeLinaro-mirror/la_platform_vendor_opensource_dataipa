@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPAHAL_H_
@@ -846,6 +846,7 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 		struct ipa_ipsec_params *ipsec_params,
 		struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
 		struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
+		struct ipa_pdn_dscp_procparams *pdn_dscp_params,
 		bool is_64);
 
 /*

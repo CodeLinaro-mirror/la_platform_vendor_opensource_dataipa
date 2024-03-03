@@ -144,6 +144,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_2ND_PASS),
+	__stringify(IPA_HDR_PROC_MARK_DSCP),
 };
 
 static struct dentry *dent;
@@ -1423,6 +1424,13 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 				entry->generic_params_v2.output_ethhdr_negative_offset,
 				entry->generic_params_v2.output_dscp_pcp_update,
 				entry->generic_params_v2.input_ethhdr_valid);
+		} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
+			nbytes += scnprintf(dbg_buff + nbytes,
+				IPA_MAX_MSG_LEN - nbytes,
+				"input_valid:%u\n"
+				"input_dscp_val:%u\n",
+				entry->pdn_dscp_params.valid,
+				entry->pdn_dscp_params.dscp_val);
 		}
 		if (entry->hdr->is_hdr_proc_ctx) {
 			nbytes += scnprintf(dbg_buff + nbytes,
@@ -3647,6 +3655,32 @@ static ssize_t ipa3_read_ipa_dscp_pcp_mapping_cache(struct file *file,
 
 }
 
+static ssize_t ipa3_read_ipa_pdn_dscp_mapping_cache(struct file *file,
+	char __user *buf, size_t count, loff_t *ppos) {
+
+	int nbytes, i;
+	int cnt = 0;
+
+	if (ipa3_ctx->pdn_dscp_map_info_cache.add) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"PDN DSCP Mapping present in uc\n |PDN| - |DSCP|\n");
+		cnt += nbytes;
+
+		for (i = 0; i < IPA_UC_MAX_PDN_DSCP_VAL; i++) {
+			nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN - cnt,
+			"%3d   -   %d\n", i, ipa3_ctx->pdn_dscp_map_info_cache.pdn_dscp_map[i]);
+			cnt += nbytes;
+		}
+	} else {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"PDN DSCP Mapping not present in uc\n");
+		cnt += nbytes;
+	}
+
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, cnt);
+
+}
+
 static ssize_t ipa3_write_ipa_max_napi_sort_page_thrshld(struct file *file,
 	const char __user *buf, size_t count, loff_t *ppos) {
 
@@ -4494,6 +4528,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"ipa_dscp_pcp_mapping_cache", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_ipa_dscp_pcp_mapping_cache,
+		}
+	}, {
+		"ipa_pdn_dscp_mapping_cache", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_ipa_pdn_dscp_mapping_cache,
 		}
 #if defined(CONFIG_IPA_TSP)
 	}, {

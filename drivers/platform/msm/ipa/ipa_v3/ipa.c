@@ -203,6 +203,8 @@ struct ipa3_context *ipa3_ctx = NULL;
 */
 EXPORT_SYMBOL(ipa3_ctx);
 
+struct ipa_ioc_pdn_dscp_map_info ipa_pdn_dscp_map = {0, {[0 ... 15] = 255}};
+
 int ipa3_plat_drv_probe(struct platform_device *pdev_p);
 void ipa3_plat_drv_shutdown(struct platform_device *pdev_p);
 int ipa3_pci_drv_probe(struct pci_dev *pci_dev,
@@ -1294,6 +1296,52 @@ static int ipa3_send_vlan_l2tp_msg(unsigned long usr_param, uint8_t msg_type)
 	}
 	IPADBG("exit\n");
 
+	return 0;
+}
+
+static int ipa3_send_pdn_dscp_msg(unsigned long usr_param)
+{
+	int retval;
+	struct ipa_ioc_pdn_dscp_map_info *pdn_dscp_info;
+	struct ipa_msg_meta msg_meta;
+	void *buff;
+
+	memset(&msg_meta, 0, sizeof(msg_meta));
+
+	pdn_dscp_info = kzalloc(sizeof(struct ipa_ioc_pdn_dscp_map_info),
+		GFP_KERNEL);
+	if (!pdn_dscp_info)
+		return -ENOMEM;
+
+	if (copy_from_user((u8 *)pdn_dscp_info, (void __user *)usr_param,
+		sizeof(struct ipa_ioc_pdn_dscp_map_info))) {
+		kfree(pdn_dscp_info);
+		return -EFAULT;
+	}
+
+	msg_meta.msg_len = sizeof(struct ipa_ioc_pdn_dscp_map_info);
+	buff = pdn_dscp_info;
+
+	if(pdn_dscp_info->add) {
+		msg_meta.msg_type = IPA_PDN_DSCP_ADD_EVENT;
+	}
+	else {
+		msg_meta.msg_type = IPA_PDN_DSCP_DEL_EVENT;
+	}
+
+	IPADBG("type %d, add:%d\n", msg_meta.msg_type,
+		pdn_dscp_info->add);
+
+	retval = ipa3_send_msg(&msg_meta, buff,
+		ipa3_pdn_config_msg_free_cb);
+	if (retval) {
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+			retval,
+			msg_meta.msg_type);
+		kfree(buff);
+		return retval;
+	}
+	IPADBG("exit\n");
 	return 0;
 }
 
@@ -3012,6 +3060,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_ext_router_info *ext_router_info;
 #endif
 	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
+	struct ipa_ioc_pdn_dscp_map_info *pdn_dscp_map_info;
 #if defined(CONFIG_IPA_TSP)
 	struct ipa_ioc_tsp_ingress_class_get ingr_tc_get;
 	struct ipa_ioc_tsp_egress_class_get egr_tc_get;
@@ -3028,6 +3077,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	unsigned long uptr = 0;
 	struct ipa_ioc_get_ep_info ep_info;
 	union ipa_ioc_uc_activation_entry uc_act;
+	int i = 0;
 
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
 
@@ -4488,6 +4538,86 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		memcpy(&ipa3_ctx->dscp_pcp_map_info_cache, &dscp_pcp_map_info, sizeof(dscp_pcp_map_info));
 
 		break;
+
+	case IPA_IOC_ADD_DEL_PDN_DSCP_MAPPING:
+		IPADBG("Got IPA_IOC_ADD_DEL_PDN_DSCP_MAPPING\n");
+
+		pdn_dscp_map_info = kzalloc(sizeof(struct ipa_ioc_pdn_dscp_map_info), GFP_KERNEL);
+		if (!pdn_dscp_map_info) {
+			IPAERR("pdn_dscp_map_info memory allocation failed !\n");
+			retval = -ENOMEM;
+			break;
+		}
+
+		if (copy_from_user(pdn_dscp_map_info, (const void __user *) arg,
+			sizeof(struct ipa_ioc_pdn_dscp_map_info))) {
+			IPAERR_RL("copy_from_user for pdn_dscp_map_info fails\n");
+			retval = -EFAULT;
+			kfree(pdn_dscp_map_info);
+			break;
+		}
+
+		IPADBG("PDN<->DSCP map %s \n",(pdn_dscp_map_info->add) ? "addition" : "deletion");
+
+		if (ipa3_send_pdn_dscp_msg(arg)) {
+			retval = -EFAULT;
+		}
+		kfree(pdn_dscp_map_info);
+		break;
+
+	case IPA_IOC_UPDATE_PDN_DSCP_MAPPING:
+		IPADBG("Got IPA_IOC_UPDATE_PDN_DSCP_MAPPING\n");
+
+		pdn_dscp_map_info = kzalloc(sizeof(struct ipa_ioc_pdn_dscp_map_info), GFP_KERNEL);
+		if (!pdn_dscp_map_info) {
+			IPAERR("pdn_dscp_map_info memory allocation failed !\n");
+			retval = -ENOMEM;
+			break;
+		}
+
+		if (copy_from_user(pdn_dscp_map_info, (const void __user *) arg,
+			sizeof(struct ipa_ioc_pdn_dscp_map_info))) {
+			IPAERR_RL("copy_from_user for pdn_dscp_map_info fails\n");
+			retval = -EFAULT;
+			kfree(pdn_dscp_map_info);
+			break;
+		}
+
+		IPADBG("PDN<->DSCP map %s \n",(pdn_dscp_map_info->add) ? "addition" : "deletion");
+
+		//uc will only accept add and not del.
+		ipa_pdn_dscp_map.add = 1;
+
+		if(pdn_dscp_map_info->add) {
+			for(i = 0; i < IPA_UC_MAX_PDN_DSCP_VAL; i++) {
+				if(pdn_dscp_map_info->pdn_dscp_map[i] != 255) {
+					ipa_pdn_dscp_map.pdn_dscp_map[i] =
+						pdn_dscp_map_info->pdn_dscp_map[i];
+					break;
+				}
+			}
+		} else {
+			for(i = 0; i < IPA_UC_MAX_PDN_DSCP_VAL; i++) {
+				if(pdn_dscp_map_info->pdn_dscp_map[i] == 255) {
+					ipa_pdn_dscp_map.pdn_dscp_map[i] = 255;
+					break;
+				}
+			}
+		}
+
+		if(ipa3_add_remove_pdn_dscp_map(&ipa_pdn_dscp_map.pdn_dscp_map[0],
+			pdn_dscp_map_info->add)) {
+			IPAERR_RL("PDN<->DSCP map %s failed\n",
+				(pdn_dscp_map_info->add)?"addition":"deletion");
+			retval = -EFAULT;
+		} else {
+			// Caching Mapping if successful
+			memcpy(&ipa3_ctx->pdn_dscp_map_info_cache, &ipa_pdn_dscp_map,
+				sizeof(struct ipa_ioc_pdn_dscp_map_info));
+		}
+		kfree(pdn_dscp_map_info);
+		break;
+
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
 	case IPA_IOC_SET_EXT_ROUTER_MODE:
 		IPADBG("Got IPA_IOC_SET_EXT_ROUTER_MODE\n");
