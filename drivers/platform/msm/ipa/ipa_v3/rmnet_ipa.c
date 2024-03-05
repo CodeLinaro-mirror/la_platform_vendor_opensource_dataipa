@@ -2908,7 +2908,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
 #ifdef CONFIG_IPA_IPSEC
-		if (ipa_ipsec_initialized()) {
+		if (ipa_ipsec_enabled()) {
 			rc = ipa_ipsec_install_dl_pol_flt();
 			if (rc)
 				IPAWANERR("IPsec DL policy FLT init failed = %d\n", rc);
