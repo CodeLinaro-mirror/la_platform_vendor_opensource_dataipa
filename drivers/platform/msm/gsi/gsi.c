@@ -2938,7 +2938,7 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 
 	user_data = devm_kzalloc(gsi_ctx->dev,
 		user_data_size * sizeof(*user_data),
-		GFP_KERNEL);
+		GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (user_data == NULL) {
 		GSIERR("context not allocated\n");
 		return -GSI_STATUS_RES_ALLOC_FAILURE;

@@ -168,6 +168,7 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_ULSO_CFG_IP_ID_MIN_VALUE_n),
 	__stringify(IPA_ULSO_CFG_IP_ID_MAX_VALUE_n),
 	__stringify(IPA_ENDP_INIT_ULSO_CFG_n),
+	__stringify(IPA_ENDP_INIT_UCP_CFG_n),
 };
 
 static void ipareg_construct_dummy(enum ipahal_reg_name reg,
@@ -2098,6 +2099,21 @@ static void ipareg_construct_endp_init_hol_block_timer_n_v5_0(
 	IPA_SETFIELD_IN_REG(*val, ep_holb->pulse_generator,
 		IPA_ENDP_INIT_HOL_BLOCK_TIMER_n_GRAN_SEL_SHFT_V5_0,
 		IPA_ENDP_INIT_HOL_BLOCK_TIMER_n_GRAN_SEL_BMSK_V5_0);
+}
+
+static void ipareg_construct_endp_init_ucp_cfg_n_v5_0(
+	enum ipahal_reg_name reg, const void *fields, u32 *val)
+{
+	struct ipa_ep_cfg_ucp *ep_ucp =
+		(struct ipa_ep_cfg_ucp *)fields;
+
+	IPA_SETFIELD_IN_REG(*val, ep_ucp->command,
+		IPA_ENDP_INIT_UCP_CFG_n_COMMAND_SHFT_V5_0,
+		IPA_ENDP_INIT_UCP_CFG_n_COMMAND_BMSK_V5_0);
+
+	IPA_SETFIELD_IN_REG(*val, ep_ucp->enable,
+		IPA_ENDP_INIT_UCP_CFG_n_EN_SHFT_V5_0,
+		IPA_ENDP_INIT_UCP_CFG_n_EN_BMSK_V5_0);
 }
 
 static void ipareg_construct_endp_init_ctrl_n(enum ipahal_reg_name reg,
@@ -4544,6 +4560,9 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v5_0][IPA_ENDP_INIT_ULSO_CFG_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x0000106c, 0x80, 0, 0, 0, 0},
+	[IPA_HW_v5_0][IPA_ENDP_INIT_UCP_CFG_n] = {
+		ipareg_construct_endp_init_ucp_cfg_n_v5_0, ipareg_parse_dummy,
+		0x00001074, 0x80, 0, 15, 1, 0},
 
 	/* IPA_DEBUG */
 	[IPA_HW_v5_0][IPA_RX_HPS_CLIENTS_MIN_DEPTH_1] = { //TODO contstruct not matching previous version
