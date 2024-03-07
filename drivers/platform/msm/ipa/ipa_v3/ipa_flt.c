@@ -924,7 +924,7 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 #ifdef CONFIG_IPA_IPSEC
 			/* eq_attrib_type rules are valid, if point to a modem RT table
 			   or IPsec encap RT table */
-			if (ipa_ipsec_enabled()) {
+			if (ipa_ipsec_initialized()) {
 				encap_rt_tbl = ipa3_id_find(ipa3_ctx->ipsec->encap_rt[ip]);
 				IPADBG_LOW("Encap RT tbl. idx = %d\n",
 					encap_rt_tbl ? encap_rt_tbl->idx : -1);

@@ -65,9 +65,14 @@ static struct ipa_ipsec_algo _aead_map[] = {
 
 static struct workqueue_struct *ipa_ipsec_wq;
 
+bool ipa_ipsec_initialized(void)
+{
+	return ipa3_ctx->ipsec && ipa3_ctx->ipsec->initialized;
+}
+
 bool ipa_ipsec_enabled(void)
 {
-	return !!ipa3_ctx->ipsec && ipa3_ctx->ipsec->enabled;
+	return ipa3_ctx->ipsec && ipa3_ctx->ipsec->enabled;
 }
 
 /*
@@ -2872,7 +2877,8 @@ int ipa_ipsec_init(void)
 		goto unmap_uc_smmu;
 	}
 
-	ipa3_ctx->ipsec->enabled = true;
+	ipa3_ctx->ipsec->initialized = true;
+
 	return 0;
 
 unmap_uc_smmu:
@@ -2891,6 +2897,24 @@ free_ctx:
 	ipa3_ctx->ipsec = NULL;
 
 	return ret;
+}
+
+int ipa_ipsec_enable(void)
+{
+	if (!ipa3_ctx->ipa_config_is_ipsec) {
+		IPADBG("IPsec offload is not enabled from ipa_config.txt\n");
+		return -ENXIO;
+	}
+
+	/* Update RMNET netdev */
+	if (ipa3_ctx->ipsec->dev) {
+		ipa3_ctx->ipsec->dev->features |= NETIF_F_HW_ESP;
+		ipa3_ctx->ipsec->dev->hw_enc_features |= NETIF_F_HW_ESP;
+		netdev_update_features(ipa3_ctx->ipsec->dev);
+	}
+
+	ipa3_ctx->ipsec->enabled = true;
+	return 0;
 }
 
 /* Clean up all IPsec allocations. To be called in case of the IPA driver unload. */

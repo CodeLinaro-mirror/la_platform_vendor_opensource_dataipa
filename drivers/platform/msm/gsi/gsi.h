@@ -1481,6 +1481,7 @@ struct gsi_chan_stats {
 	unsigned long poll_ok;
 	unsigned long poll_empty;
 	unsigned long userdata_in_use;
+	unsigned long pkt_queue_fail;
 	struct gsi_chan_dp_stats dp;
 };
 

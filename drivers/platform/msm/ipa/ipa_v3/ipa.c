@@ -9659,6 +9659,9 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	char dbg_buff[32] = { 0 };
 	int i = 0;
+#if defined(CONFIG_IPA_IPSEC)
+	int res;
+#endif
 
 	if (count >= sizeof(dbg_buff))
 		return -EFAULT;
@@ -9739,6 +9742,20 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			ipa3_ctx->ipa_config_is_rdkb = true;
 			return count;
 		}
+
+#if defined(CONFIG_IPA_IPSEC)
+		if (strnstr(dbg_buff, "ipsec", strlen(dbg_buff)))
+		{
+			IPADBG("IPsec HW offload is configured.\n");
+			ipa3_ctx->ipa_config_is_ipsec = true;
+			res = ipa_ipsec_enable();
+			if (res)
+				IPAERR(":IPSEC enable failed (%d)\n", -res);
+			else
+				IPADBG(":IPSEC enable ok\n");
+			return count;
+		}
+#endif
 
 		/*
 		 * This logic enforeces MHI mode based on userspace input.
@@ -11434,6 +11451,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
+	ipa3_ctx->wkup_enable=0;
 
 	return 0;
 
