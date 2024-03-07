@@ -9165,11 +9165,13 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPADBG(":TSP init ok\n");
 #endif
 #if defined(CONFIG_IPA_IPSEC)
-	result = ipa_ipsec_init();
-	if (result)
-		IPAERR(":IPSEC init failed (%d)\n", -result);
-	else
-		IPADBG(":IPSEC init ok\n");
+	if (!ipa3_ctx->ipa_config_is_mhi) {
+		result = ipa_ipsec_init();
+		if (result)
+			IPAERR(":IPSEC init failed (%d)\n", -result);
+		else
+			IPADBG(":IPSEC init ok\n");
+	}
 #endif
 
 	result = ipa_hw_stats_init();
@@ -9746,6 +9748,10 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 #if defined(CONFIG_IPA_IPSEC)
 		if (strnstr(dbg_buff, "ipsec", strlen(dbg_buff)))
 		{
+			if (ipa3_ctx->ipa_config_is_mhi) {
+				IPADBG("In MHI mode IPSEC enable not required\n");
+				return count;
+			}
 			IPADBG("IPsec HW offload is configured.\n");
 			ipa3_ctx->ipa_config_is_ipsec = true;
 			res = ipa_ipsec_enable();

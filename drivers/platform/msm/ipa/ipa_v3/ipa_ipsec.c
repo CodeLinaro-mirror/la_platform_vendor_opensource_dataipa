@@ -2906,6 +2906,10 @@ int ipa_ipsec_enable(void)
 		return -ENXIO;
 	}
 
+	if (!ipa3_ctx->ipsec) {
+		IPADBG("IPSEC not initialized\n");
+		return -ENXIO;
+	}
 	/* Update RMNET netdev */
 	if (ipa3_ctx->ipsec->dev) {
 		ipa3_ctx->ipsec->dev->features |= NETIF_F_HW_ESP;
