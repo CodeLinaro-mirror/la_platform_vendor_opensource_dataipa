@@ -936,8 +936,7 @@ struct __packed gsi_11ad_tx_channel_scratch {
  *                                  be updated.
  * @qmap_id: Rx only, used for setting metadata register in IPA. Read only field
  *           for MCS. Write for SW.
- * @is_hsp : bit to know if the atatch is pine or hsp for pine is_hsp = 0 and
- *           for hsp is hsp = 1
+ * @rx_tlv_format : bit to know the rx_tlv_format for pine 0 and for hsp 1
  * @resv: reserved bits.
  * @endp_metadata_reg_offset: Rx only, the offset of
  *                 IPA_ENDP_INIT_HDR_METADATA_n of the
@@ -952,7 +951,7 @@ struct __packed gsi_wdi3_channel_scratch {
 	uint32_t wifi_rp_address_high;
 	uint32_t update_rp_moderation_threshold : 5;
 	uint32_t qmap_id : 8;
-	uint32_t is_hsp : 1;
+	uint32_t rx_tlv_format : 1;
 	uint32_t reserved1 : 2;
 	uint32_t endp_metadata_reg_offset : 16;
 	uint32_t rx_pkt_offset : 16;

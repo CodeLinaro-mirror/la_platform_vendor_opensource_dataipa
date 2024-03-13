@@ -4258,7 +4258,7 @@ static void ipa3_free_skb_rx(struct sk_buff *skb)
 }
 
 static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
-	u8 ucp, struct ipa_ast_info_type *ast_info, bool is_hsp)
+	u8 ucp, struct ipa_ast_info_type *ast_info, u8 rx_tlv_format)
 {
 	u8 *buff = (u8 *)skb->data;
 	u16 cb_value = 0;
@@ -4301,7 +4301,7 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 #define IPA_WDI_AST_MAC_ADDR4_VALID_MSK 0x20
 
 	buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST;
-	if (is_hsp) {
+	if (rx_tlv_format == IPA_TLV_HSP) {
 		buff += IPA_WDI_HSP_OFFSET_ADJUSTMENT_BYTES;
 	}
 	ast_info->mac_addr_ad4_valid =
@@ -4320,12 +4320,11 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 #define IPA_WDI_AST_FIRST_MSDU_MSK 0x1000
 	ast_info->first_msdu_in_mpdu_flag = metadata & IPA_WDI_AST_FIRST_MSDU_MSK;
 
-	if (is_hsp) {
+	if (rx_tlv_format == IPA_TLV_HSP) {
 		skb_pull(skb, IPA_WDI_RX_TLV_SIZE + IPA_WDI_HSP_OFFSET_ADJUSTMENT_BYTES);
 	} else {
 		skb_pull(skb, IPA_WDI_RX_TLV_SIZE);
 	}
-	
 
 /* Update CB with previous metadata format. */
 /* Old Metadata Format
@@ -4377,7 +4376,7 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		skb_pull(rx_skb, ipahal_pkt_status_get_size());
 
 	if (ep->ast_update) {
-		ipa3_wdi_extact_ast_info(rx_skb, ntohl(metadata), ucp, &ast_info,ep->is_hsp);
+		ipa3_wdi_extact_ast_info(rx_skb, ntohl(metadata), ucp, &ast_info,ep->rx_tlv_format);
 		/* Check if AST call back needs to be called. */
 		/* If sa_valid is 0, learning scenario, cb is called. */
 		/* if sa_peer_id != ta_peer_id, roaming scenario, cb is called. */
