@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023  Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 - 2024,  Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -910,6 +910,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	int ipa_ep_idx_tx1 = IPA_EP_NOT_ALLOCATED;
 	int result = 0;
 	u32 gsi_db_addr_low = 0, gsi_db_addr_high = 0;
+	phys_addr_t gsi_db_addr_pa = 0;
 	void __iomem *db_addr = NULL;
 	u32 evt_ring_db_addr_low, evt_ring_db_addr_high, db_val = 0;
 	u8 rx_dir =0, tx_dir =0;
@@ -1058,14 +1059,26 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		result = -EFAULT;
 		goto fail;
 	}
-	if (gsi_query_channel_db_addr(ep_rx->gsi_chan_hdl,
-		&gsi_db_addr_low, &gsi_db_addr_high)) {
-		IPAERR("failed to query gsi rx db addr\n");
-		result = -EFAULT;
-		goto fail;
+
+	if (ipa_get_wdi_version() == IPA_WDI_4) {
+		if (gsi_query_msi_addr(ep_rx->gsi_chan_hdl,
+			&gsi_db_addr_pa)) {
+			IPAERR("failed to query msi rx db addr\n");
+			result = -EFAULT;
+			goto fail;
+		}
+		out->rx_uc_db_pa = gsi_db_addr_pa;
+	} else {
+		if (gsi_query_channel_db_addr(ep_rx->gsi_chan_hdl,
+			&gsi_db_addr_low, &gsi_db_addr_high)) {
+			IPAERR("failed to query gsi rx db addr\n");
+			result = -EFAULT;
+			goto fail;
+		/* only 32 bit lsb is used */
+		out->rx_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
+		}
 	}
-	/* only 32 bit lsb is used */
-	out->rx_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
+
 	IPADBG("out->rx_uc_db_pa %llu\n", out->rx_uc_db_pa);
 
 	ipa3_install_dflt_flt_rules(ipa_ep_idx_rx);
@@ -1118,14 +1131,26 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 			result = -EFAULT;
 			goto fail;
 		}
-		if (gsi_query_channel_db_addr(ep_rx1->gsi_chan_hdl,
-									  &gsi_db_addr_low, &gsi_db_addr_high)) {
-			IPAERR("failed to query gsi rx1 db addr\n");
-			result = -EFAULT;
-			goto fail;
+
+		if (ipa_get_wdi_version() == IPA_WDI_4) {
+			if (gsi_query_msi_addr(ep_rx1->gsi_chan_hdl,
+				&gsi_db_addr_pa)) {
+				IPAERR("failed to query msi rx1 db addr\n");
+				result = -EFAULT;
+				goto fail;
+			}
+			out->rx1_uc_db_pa = gsi_db_addr_pa;
+		} else {
+			if (gsi_query_channel_db_addr(ep_rx1->gsi_chan_hdl,
+				&gsi_db_addr_low, &gsi_db_addr_high)) {
+				IPAERR("failed to query gsi rx1 db addr\n");
+				result = -EFAULT;
+				goto fail;
+			}
+			/* only 32 bit lsb is used */
+			out->rx1_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
 		}
-		/* only 32 bit lsb is used */
-		out->rx1_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
+
 		IPADBG("out->rx1_uc_db_pa %llu\n", out->rx1_uc_db_pa);
 
 		ipa3_install_dflt_flt_rules(ipa_ep_idx_rx1);
@@ -1207,14 +1232,26 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		result = -EFAULT;
 		goto fail;
 	}
-	if (gsi_query_channel_db_addr(ep_tx->gsi_chan_hdl,
-		&gsi_db_addr_low, &gsi_db_addr_high)) {
-		IPAERR("failed to query gsi tx db addr\n");
-		result = -EFAULT;
-		goto fail;
+
+	if (ipa_get_wdi_version() == IPA_WDI_4) {
+		if (gsi_query_msi_addr(ep_tx->gsi_chan_hdl,
+			&gsi_db_addr_pa)) {
+			IPAERR("failed to query msi tx db addr\n");
+			result = -EFAULT;
+			goto fail;
+		}
+		out->tx_uc_db_pa = gsi_db_addr_pa;
+	} else {
+		if (gsi_query_channel_db_addr(ep_tx->gsi_chan_hdl,
+			&gsi_db_addr_low, &gsi_db_addr_high)) {
+			IPAERR("failed to query gsi tx db addr\n");
+			result = -EFAULT;
+			goto fail;
+		}
+		/* only 32 bit lsb is used */
+		out->tx_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
 	}
-	/* only 32 bit lsb is used */
-	out->tx_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
+
 	IPADBG("out->tx_uc_db_pa %llu\n", out->tx_uc_db_pa);
 	IPADBG("client %d (ep: %d) connected\n", tx_client,
 		ipa_ep_idx_tx);
@@ -1309,15 +1346,25 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 			goto fail;
 		}
 
-		if (gsi_query_channel_db_addr(ep_tx1->gsi_chan_hdl,
-			&gsi_db_addr_low, &gsi_db_addr_high)) {
-			IPAERR("failed to query gsi tx1 db addr\n");
-			result = -EFAULT;
-			goto fail;
+		if (ipa_get_wdi_version() == IPA_WDI_4) {
+			if (gsi_query_msi_addr(ep_tx1->gsi_chan_hdl,
+				&gsi_db_addr_pa)) {
+				IPAERR("failed to query msi tx1 db addr\n");
+				result = -EFAULT;
+				goto fail;
+			}
+			out->tx1_uc_db_pa = gsi_db_addr_pa;
+		} else {
+			if (gsi_query_channel_db_addr(ep_tx1->gsi_chan_hdl,
+				&gsi_db_addr_low, &gsi_db_addr_high)) {
+				IPAERR("failed to query gsi tx1 db addr\n");
+				result = -EFAULT;
+				goto fail;
+			}
+			/* only 32 bit lsb is used */
+			out->tx1_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
 		}
 
-		/* only 32 bit lsb is used */
-		out->tx1_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
 		IPADBG("out->tx1_uc_db_pa %llu\n", out->tx1_uc_db_pa);
 		IPADBG("client %d (ep: %d) connected\n", tx1_client,
 			ipa_ep_idx_tx1);
