@@ -316,7 +316,7 @@ static void ipa3_del_a7_qmap_hdr(void)
 	else
 		IPAWANDBG("hdrs deletion done\n");
 
-	rmnet_ipa3_ctx->qmap_hdr_hdl = 0;
+	rmnet_ipa3_ctx->qmap_hdr_hdl = -1;
 	kfree(del_hdr);
 }
 
@@ -351,7 +351,7 @@ static void ipa3_del_qmap_hdr(uint32_t hdr_hdl)
 	else
 		IPAWANDBG("header deletion done\n");
 
-	rmnet_ipa3_ctx->qmap_hdr_hdl = 0;
+	rmnet_ipa3_ctx->qmap_hdr_hdl = -1;
 	kfree(del_hdr);
 }
 
@@ -4383,6 +4383,8 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		}
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
+		if (ipa3_ctx->ipa_config_is_mhi)
+			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_CONS);
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("BEFORE DEEPSLEEP EXIT handling is complete\n");
 		break;
@@ -4405,6 +4407,8 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		 */
 		if (ipa3_ctx->ipa_hw_type != IPA_HW_v4_0)
 			ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
+		if (ipa3_ctx->ipa_config_is_mhi)
+			ipa3_set_reset_client_cons_pipe_sus_holb(false, IPA_CLIENT_MHI_CONS);
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("IPA BEFORE_POWERUP handling is complete\n");
 		break;
@@ -6650,6 +6654,10 @@ int rmnet_ipa3_get_wan_mtu(
 	int rmnet_index;
 
 	mux_channel = rmnet_ipa3_ctx->mux_channel;
+
+	/* prevent string buffer overflows */
+	data->if_name[IPA_RESOURCE_NAME_MAX-1] = '\0';
+
 	rmnet_index =
 		find_vchannel_name_index(data->if_name);
 

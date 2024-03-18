@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -4258,17 +4258,22 @@ static void ipa3_free_skb_rx(struct sk_buff *skb)
 }
 
 static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
-	u8 ucp, struct ipa_ast_info_type *ast_info)
+	u8 ucp, struct ipa_ast_info_type *ast_info, bool is_hsp)
 {
 	u8 *buff = (u8 *)skb->data;
 	u16 cb_value = 0;
-
 /*
- * RX TLV headers.
+ * RX TLV headers Pine.
  * <28 bytes of rx_msdu_end_tlv> + <16 bytes of attn_tlv> +
  * <48 bytes of rx_msdu_start tlv>.
  */
-
+/*
+ * RX TLV headers HSP.
+ * 8 bytes after sa_idx
+ * <28 + 8 bytes of rx_msdu_end_tlv> + <16 bytes of attn_tlv> +
+ * <48 bytes of rx_msdu_start tlv>.
+ */
+#define IPA_WDI_HSP_OFFSET_ADJUSTMENT_BYTES 8
 /* Incremental offset for sa_vlid bit. */
 #define IPA_WDI_AST_SA_VALID_INC_OFFST 2
 #define IPA_WDI_AST_SA_VALID_MSK 0x80
@@ -4296,7 +4301,9 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 #define IPA_WDI_AST_MAC_ADDR4_VALID_MSK 0x20
 
 	buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST;
-
+	if (is_hsp) {
+		buff += IPA_WDI_HSP_OFFSET_ADJUSTMENT_BYTES;
+	}
 	ast_info->mac_addr_ad4_valid =
 		*((u32 *)buff) & IPA_WDI_AST_MAC_ADDR4_VALID_MSK;
 
@@ -4313,7 +4320,12 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 #define IPA_WDI_AST_FIRST_MSDU_MSK 0x1000
 	ast_info->first_msdu_in_mpdu_flag = metadata & IPA_WDI_AST_FIRST_MSDU_MSK;
 
-	skb_pull(skb, IPA_WDI_RX_TLV_SIZE);
+	if (is_hsp) {
+		skb_pull(skb, IPA_WDI_RX_TLV_SIZE + IPA_WDI_HSP_OFFSET_ADJUSTMENT_BYTES);
+	} else {
+		skb_pull(skb, IPA_WDI_RX_TLV_SIZE);
+	}
+	
 
 /* Update CB with previous metadata format. */
 /* Old Metadata Format
@@ -4365,7 +4377,7 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		skb_pull(rx_skb, ipahal_pkt_status_get_size());
 
 	if (ep->ast_update) {
-		ipa3_wdi_extact_ast_info(rx_skb, ntohl(metadata), ucp, &ast_info);
+		ipa3_wdi_extact_ast_info(rx_skb, ntohl(metadata), ucp, &ast_info,ep->is_hsp);
 		/* Check if AST call back needs to be called. */
 		/* If sa_valid is 0, learning scenario, cb is called. */
 		/* if sa_peer_id != ta_peer_id, roaming scenario, cb is called. */

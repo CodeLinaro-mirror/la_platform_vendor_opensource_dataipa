@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -1128,7 +1128,7 @@ struct ipa3_ep_context {
 	bool ep_delay_set;
 	bool ast_update;
 	void (*ast_notify)(void *client_priv, unsigned long data);
-
+	bool is_hsp;
 	/* sys MUST be the last element of this struct */
 	struct ipa3_sys_context *sys;
 };
@@ -1777,6 +1777,25 @@ struct ipa3_uc_ctx {
 };
 
 /**
+ * struct ipa3_uc_eogre_ctx
+ * @eogre_uc_stats_ofst: EoGRE stats offset
+ * @eogre_uc_stats_mmio: EoGRE stats
+ */
+struct ipa3_uc_eogre_ctx{
+	u32 eogre_uc_stats_ofst;
+	struct Ipa3HwStatsEOGREInfoData_t *eogre_uc_stats_mmio;
+};
+
+/**
+ * eogre_header_add_id    : EoGRE header add stats
+ * eogre_header_remove_id : EoGRE header removal stats
+ */
+struct Ipa3HwStatsEOGREInfoData_t{
+	uint32_t eogre_header_add_id;
+	uint32_t eogre_header_remove_id;
+} __packed;
+
+/**
  * struct ipa3_uc_wdi_ctx
  * @wdi_uc_top_ofst:
  * @wdi_uc_top_mmio:
@@ -2309,6 +2328,8 @@ struct ipa3_eth_pdu_ctx {
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  * @eth_pdu_ctx: ETH PDU ctx
+ * @private_ip_forward_eth_iface: Will store 1(eth0) or 2(eth1) if Feature is enabled. Else will store 0.
+ * @private_ip_forward_ep_index: int value to store which ep will the forward be enabled on
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2425,6 +2446,7 @@ struct ipa3_context {
 
 	struct ipa3_uc_wdi_ctx uc_wdi_ctx;
 	struct ipa3_uc_ntn_ctx uc_ntn_ctx;
+	struct ipa3_uc_eogre_ctx uc_eogre_ctx;
 	struct ipa3_uc_wigig_ctx uc_wigig_ctx;
 	u32 wan_rx_ring_size;
 	u32 lan_rx_ring_size;
@@ -2578,6 +2600,8 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
 	struct mutex ssr_lock;
+	u8 private_ip_forward_eth_iface;
+	int private_ip_forward_ep_index;
 };
 
 struct ipa3_plat_drv_res {
@@ -2932,7 +2956,7 @@ int ipa3_xdci_start(u32 clnt_hdl, u8 xferrscidx, bool xferrscidx_valid);
 
 int ipa3_xdci_connect(u32 clnt_hdl);
 
-int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id);
+int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id, bool remove_delay);
 
 void ipa3_xdci_ep_delay_rm(u32 clnt_hdl);
 int ipa3_set_reset_client_prod_pipe_delay(bool set_reset,
@@ -3178,6 +3202,8 @@ int ipa3_get_ntn_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats);
 u16 ipa3_get_smem_restr_bytes(void);
 int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
+
+int ipa3_get_eogre_stats(struct Ipa3HwStatsEOGREInfoData_t *stats);
 
 int ipa3_wigig_init_debugfs_i(struct dentry *dent);
 
@@ -3442,6 +3468,8 @@ int ipa3_write_qmapid_wdi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_write_qmapid_wdi3_gsi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_tag_process(struct ipa3_desc *desc, int num_descs,
 		    unsigned long timeout);
+
+int ipa3_eogre_stats_init(void);
 
 void ipa3_q6_pre_shutdown_cleanup(void);
 void ipa3_q6_post_shutdown_cleanup(void);
@@ -3832,7 +3860,8 @@ int ipa3_send_macsec_info(enum ipa_macsec_event event_type, struct ipa_macsec_ma
  */
 int ipa3_add_remove_dscp_pcp_map(
 	uint8_t *map, bool AddMapping );
-
+int ipa3_send_mux_vlan_map(
+	struct ipa_ioc_mux_mapping_table *map );
 /* Peripheral stats APIs */
 /* Non periodic/Event based stats update */
 int ipa3_update_usb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);

@@ -1167,7 +1167,7 @@ int ipa_nati_get_pdn_index(
 {
 	int i = 0;
 
-	for(i = 0; i < (IPA_MAX_PDN_NUM - 1); i++) {
+	for(i = 0; i < IPA_MAX_PDN_NUM; i++) {
 		if(pdns[i].public_ip == public_ip) {
 			IPADBG("ip 0x%X matches PDN index %d\n", public_ip, i);
 			*pdn_index = i;
@@ -1192,12 +1192,12 @@ int ipa_nati_alloc_pdn(
 
 	memset(&zero_test, 0, sizeof(zero_test));
 
-	if(num_pdns >= (IPA_MAX_PDN_NUM - 1)) {
+	if(num_pdns >= IPA_MAX_PDN_NUM) {
 		IPAERR("exceeded max num of PDNs, num_pdns %d\n", num_pdns);
 		return -EIO;
 	}
 
-	for(i = 0; i < (IPA_MAX_PDN_NUM - 1); i++) {
+	for(i = 0; i < IPA_MAX_PDN_NUM; i++) {
 		if(pdns[i].public_ip == pdn_info->public_ip)
 		{
 			IPADBG("found the same pdn in index %d\n", i);
@@ -1219,7 +1219,7 @@ int ipa_nati_alloc_pdn(
 		}
 	}
 
-	if(i >= (IPA_MAX_PDN_NUM - 1))
+	if(i >= IPA_MAX_PDN_NUM)
 	{
 		IPAERR("couldn't find an empty entry while num is %d\n",
 			   num_pdns);

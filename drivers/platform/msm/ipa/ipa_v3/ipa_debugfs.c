@@ -395,6 +395,7 @@ int _ipa_read_ep_reg_v3_0(char *buf, int max_len, int pipe)
  */
 int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 {
+	IPADBG("ucp_cfg_%d value =%x max_len:%d, pipe:%d\n",pipe,ipahal_read_reg_n(IPA_ENDP_INIT_UCP_CFG_n, pipe),max_len,pipe);
 	return scnprintf(
 		dbg_buff, IPA_MAX_MSG_LEN,
 		"IPA_ENDP_INIT_NAT_%u=0x%x\n"
@@ -408,6 +409,7 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		"IPA_ENDP_INIT_HOL_TIMER_%u=0x%x\n"
 		"IPA_ENDP_INIT_DEAGGR_%u=0x%x\n"
 		"IPA_ENDP_INIT_CFG_%u=0x%x\n",
+		"IPA_ENDP_INIT_UCP_CFG_%u=0x%x\n",
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_NAT_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CONN_TRACK_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HDR_n, pipe),
@@ -418,7 +420,8 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HOL_BLOCK_EN_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DEAGGR_n, pipe),
-		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CFG_n, pipe));
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CFG_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_UCP_CFG_n, pipe));
 }
 
 static ssize_t ipa3_read_ep_reg(struct file *file, char __user *ubuf,
@@ -1939,6 +1942,30 @@ static ssize_t ipa3_read_ntn(struct file *file, char __user *ubuf,
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
 }
 
+static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
+		size_t count, loff_t *ppos)
+{
+	int nbytes;
+	int cnt = 0;
+	struct Ipa3HwStatsEOGREInfoData_t stats;
+
+	if (!ipa3_get_eogre_stats(&stats)) {
+
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"EoGRE UL Stats is %u\n"
+			"EoGRE DL stats is %u\n",
+			stats.eogre_header_add_id,
+			stats.eogre_header_remove_id);
+		cnt += nbytes;
+	} else {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"Fail to read EOGRE stats\n");
+		cnt += nbytes;
+	}
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
+}
+
 static ssize_t ipa3_read_wdi(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
@@ -3440,6 +3467,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"wdi", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_wdi,
+		}
+	}, {
+		"eogre_stats", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_eogre_stats,
 		}
 	}, {
 		"ntn", IPA_READ_ONLY_MODE, NULL, {
