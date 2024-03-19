@@ -1548,7 +1548,9 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	 * return from here itself.
 	 */
 	if (atomic_read(&rmnet_ipa3_ctx->ap_suspend)) {
-		netif_tx_stop_all_queues(dev);
+		netif_tx_stop_queue(netdev_get_tx_queue(dev, 0));
+		if (rmnet_ipa3_ctx->eth_wan_set || rmnet_ipa3_ctx->ipa_v2x_set)
+			netif_tx_stop_queue(netdev_get_tx_queue(dev, 1));
 		spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 		return NETDEV_TX_BUSY;
 	}
@@ -1618,7 +1620,9 @@ send:
 	ret = ipa_pm_activate(rmnet_ipa3_ctx->pm_hdl);
 
 	if (ret == -EINPROGRESS) {
-		netif_tx_stop_all_queues(dev);
+		netif_tx_stop_queue(netdev_get_tx_queue(dev, 0));
+		if (rmnet_ipa3_ctx->eth_wan_set || rmnet_ipa3_ctx->ipa_v2x_set)
+			netif_tx_stop_queue(netdev_get_tx_queue(dev, 1));
 		spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 		return NETDEV_TX_BUSY;
 	}
@@ -2904,7 +2908,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
 #ifdef CONFIG_IPA_IPSEC
-		if (ipa_ipsec_enabled()) {
+		if (ipa_ipsec_initialized()) {
 			rc = ipa_ipsec_install_dl_pol_flt();
 			if (rc)
 				IPAWANERR("IPsec DL policy FLT init failed = %d\n", rc);
@@ -3179,7 +3183,7 @@ static int ipa3_setup_apps_wan_prod_pipes(
 		pipe_status->status = IPA_PIPE_SETUP_FAILURE;
 		return rc;
 	}
-	
+
 	if (v2x_check && rmnet_ipa3_ctx->no_qmap_config)
 		ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 0;
 	else if (egress_param->cs_offload_en &&
@@ -3304,7 +3308,7 @@ static int ipa3_setup_apps_wan_prod_pipes(
 	pipe_status->status = IPA_PIPE_SETUP_EXISTS;
 
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled()) {
+	if (ipa_ipsec_initialized()) {
 		rc = ipa_ipsec_ep_init_prod();
 	}
 #endif
@@ -5114,11 +5118,9 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	}
 
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled()) {
-		IPAWANDBG("IPsec offload is enabled\n");
+	if (ipa_ipsec_initialized()) {
+		IPAWANDBG("IPsec offload is initialized\n");
 		dev->xfrmdev_ops = ipa3_ctx->ipsec->xfrmdev_ops;
-		dev->features |= NETIF_F_HW_ESP;
-		dev->hw_enc_features |= NETIF_F_HW_ESP;
 		ipa3_ctx->ipsec->dev = dev;
 	}
 #endif
@@ -5562,14 +5564,12 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_USB_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_WLAN1_PROD stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_WLAN2_CONS */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
@@ -5580,7 +5580,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_WLAN2_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_WLAN2_CONS1 */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_CONS1);
@@ -5591,7 +5590,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_WLAN2_CONS1 stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
 	if (ep_idx >= 0) {
@@ -5601,14 +5599,12 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_WAN_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_WAN_PROD stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_APPS_LAN_CONS pipe */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
@@ -5619,7 +5615,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_LAN_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_APPS_LAN_COAL_CONS pipe */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS);
@@ -5627,7 +5622,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_LAN_COAL_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_APPS_LAN_PROD pipe */
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_PROD);
@@ -5635,14 +5629,12 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_LAN_PROD stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_ETH_PROD stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
 	if (ep_idx >= 0) {
@@ -5652,7 +5644,6 @@ void ipa3_lcl_mdm_reboot_cb ( )
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_ETH_CONS stopped \n");
-		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	}
