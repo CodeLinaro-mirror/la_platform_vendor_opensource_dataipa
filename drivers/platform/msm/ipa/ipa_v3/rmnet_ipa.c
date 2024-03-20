@@ -1844,6 +1844,12 @@ void apps_ipa_packet_receive_notify(void *priv,
 
 		IPAWANDBG_LOW("Rx packet was received");
 		skb->dev = IPA_NETDEV();
+		if (skb->dev == NULL) {
+			IPAERR ("rmnet interface is down, packet cannot be forwarded to"
+				"network stack\n");
+			kfree_skb(skb);
+			return;
+		}
 		if (!rmnet_ipa3_ctx->no_qmap_config)
 			skb->protocol = htons(ETH_P_MAP);
 
