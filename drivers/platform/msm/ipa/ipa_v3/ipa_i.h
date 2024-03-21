@@ -1688,6 +1688,7 @@ struct lan_coal_stats {
 struct ipa3_stats {
 	u32 tx_sw_pkts;
 	u32 tx_hw_pkts;
+	u32 tx_queue_fail_pkts;
 	u32 rx_pkts;
 	u32 rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_MAX];
 	u32 rx_repl_repost;
@@ -2576,6 +2577,7 @@ struct ipa3_context {
 	enum ipa3_platform_type platform_type;
 	bool ipa_config_is_mhi;
 	bool ipa_config_is_rdkb;
+	bool ipa_config_is_ipsec;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
@@ -2608,6 +2610,8 @@ struct ipa3_context {
 	u32 ipa_num_pipes;
 	dma_addr_t pkt_init_imm[IPA_MAX_NUM_PIPES];
 	u32 pkt_init_imm_opcode;
+
+	u32 wkup_enable;
 
 	struct ipa3_wlan_comm_memb wc_memb;
 
@@ -2767,6 +2771,7 @@ struct ipa3_context {
 	int uc_act_tbl_next_index;
 	int ipa_pil_load;
 	bool is_dual_pine_config;
+	bool is_dual_wkk_config;
 	u32 ipa_max_napi_sort_page_thrshld;
 	u32 page_wq_reschd_time;
 	bool coal_ipv4_id_ignore;
@@ -2876,6 +2881,7 @@ struct ipa3_plat_drv_res {
 	bool use_tput_est_ep;
 	bool ulso_wa;
 	bool is_dual_pine_config;
+	bool is_dual_wkk_config;
 	u8 coal_ipv4_id_ignore;
 	bool cesta_enable;
 	bool iemac_exist;
@@ -3891,6 +3897,7 @@ struct iommu_domain *ipa3_get_eth_smmu_domain(void);
 struct iommu_domain *ipa3_get_eth1_smmu_domain(void);
 struct iommu_domain *ipa3_get_smmu_domain_by_type
 	(enum ipa_smmu_cb_type cb_type);
+struct device *ipa3_get_wlan_device(void);
 int ipa3_iommu_map(struct iommu_domain *domain, unsigned long iova,
 	phys_addr_t paddr, size_t size, int prot);
 int ipa3_ap_suspend(struct device *dev);

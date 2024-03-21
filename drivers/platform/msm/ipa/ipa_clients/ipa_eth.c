@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/msm_ipa.h>
@@ -1148,10 +1148,16 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 	IPA_ETH_DBG("IPv4 hdr hdl: %d IPv6 hdr hdl: %d\n",
 		hdr->hdr[IPA_IP_v4].hdr_hdl, hdr->hdr[IPA_IP_v6].hdr_hdl);
 #if IPA_ETH_API_VER >= 3
-	new_intf->partial_hdr_hdl[IPA_IP_v4_VLAN] = hdr->hdr[IPA_IP_v4_VLAN].hdr_hdl;
-	new_intf->partial_hdr_hdl[IPA_IP_v6_VLAN] = hdr->hdr[IPA_IP_v6_VLAN].hdr_hdl;
-	IPA_ETH_DBG("IPv4 vlan hdr hdl: %d IPv6 vlan hdr hdl: %d\n",
-		hdr->hdr[IPA_IP_v4_VLAN].hdr_hdl, hdr->hdr[IPA_IP_v6_VLAN].hdr_hdl);
+	if (hdr->num_hdrs > 2) {
+		new_intf->partial_hdr_hdl[IPA_IP_v4_VLAN] = hdr->hdr[IPA_IP_v4_VLAN].hdr_hdl;
+		new_intf->partial_hdr_hdl[IPA_IP_v6_VLAN] = hdr->hdr[IPA_IP_v6_VLAN].hdr_hdl;
+		IPA_ETH_DBG("IPv4 vlan hdr hdl: %d IPv6 vlan hdr hdl: %d\n",
+			hdr->hdr[IPA_IP_v4_VLAN].hdr_hdl, hdr->hdr[IPA_IP_v6_VLAN].hdr_hdl);
+	} else {
+		new_intf->partial_hdr_hdl[IPA_IP_v4_VLAN] = -1;
+		new_intf->partial_hdr_hdl[IPA_IP_v6_VLAN] = -1;
+		IPA_ETH_DBG("IPv4 vlan hdr hdl: -1 IPv6 vlan hdr hdl: -1\n");
+	}
 #endif
 
 	memset(&tx, 0, sizeof(struct ipa_tx_intf));

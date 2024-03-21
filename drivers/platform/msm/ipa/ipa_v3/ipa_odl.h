@@ -73,5 +73,6 @@ int ipa_odl_init(void);
 void ipa_odl_cleanup(void);
 void ipa3_odl_pipe_cleanup(bool is_ssr);
 int ipa3_odl_pipe_open(void);
-
+void ipa3_odl_pipe_open_from_ssr(void);
+void ipa3_odl_pipe_cleanup_from_ssr(void);
 #endif /* _IPA3_ODL_H_ */

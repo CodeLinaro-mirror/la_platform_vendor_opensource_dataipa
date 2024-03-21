@@ -1014,6 +1014,18 @@ struct iommu_domain *ipa3_get_11ad_smmu_domain(void)
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_11AD);
 }
 
+struct device *ipa3_get_wlan_device(void)
+{
+	if(ipa3_ctx->ipa_config_is_auto &&
+		ipa3_ctx->ipa_hw_type == IPA_HW_v6_0 &&
+		ipa_get_wdi_version() == IPA_WDI_1) {
+		if(smmu_cb[IPA_SMMU_CB_WLAN2].valid)
+			return smmu_cb[IPA_SMMU_CB_WLAN2].dev;
+		return ipa3_ctx->pdev;
+	}
+	return ipa3_ctx->pdev;
+}
+
 struct device *ipa3_get_dma_dev(void)
 {
 	return ipa3_ctx->pdev;
@@ -9153,11 +9165,13 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPADBG(":TSP init ok\n");
 #endif
 #if defined(CONFIG_IPA_IPSEC)
-	result = ipa_ipsec_init();
-	if (result)
-		IPAERR(":IPSEC init failed (%d)\n", -result);
-	else
-		IPADBG(":IPSEC init ok\n");
+	if (!ipa3_ctx->ipa_config_is_mhi) {
+		result = ipa_ipsec_init();
+		if (result)
+			IPAERR(":IPSEC init failed (%d)\n", -result);
+		else
+			IPADBG(":IPSEC init ok\n");
+	}
 #endif
 
 	result = ipa_hw_stats_init();
@@ -9647,6 +9661,9 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	char dbg_buff[32] = { 0 };
 	int i = 0;
+#if defined(CONFIG_IPA_IPSEC)
+	int res;
+#endif
 
 	if (count >= sizeof(dbg_buff))
 		return -EFAULT;
@@ -9727,6 +9744,24 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			ipa3_ctx->ipa_config_is_rdkb = true;
 			return count;
 		}
+
+#if defined(CONFIG_IPA_IPSEC)
+		if (strnstr(dbg_buff, "ipsec", strlen(dbg_buff)))
+		{
+			if (ipa3_ctx->ipa_config_is_mhi) {
+				IPADBG("In MHI mode IPSEC enable not required\n");
+				return count;
+			}
+			IPADBG("IPsec HW offload is configured.\n");
+			ipa3_ctx->ipa_config_is_ipsec = true;
+			res = ipa_ipsec_enable();
+			if (res)
+				IPAERR(":IPSEC enable failed (%d)\n", -res);
+			else
+				IPADBG(":IPSEC enable ok\n");
+			return count;
+		}
+#endif
 
 		/*
 		 * This logic enforeces MHI mode based on userspace input.
@@ -10298,6 +10333,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->uc_act_tbl_total = 0;
 	ipa3_ctx->uc_act_tbl_next_index = 0;
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
+	ipa3_ctx->is_dual_wkk_config = resource_p->is_dual_wkk_config;
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
 	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
@@ -11099,6 +11135,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->uc_act_tbl_total = 0;
 	ipa3_ctx->uc_act_tbl_next_index = 0;
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
+	ipa3_ctx->is_dual_wkk_config = resource_p->is_dual_wkk_config;
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	/* v2x vm related */
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
@@ -11420,6 +11457,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
+	ipa3_ctx->wkup_enable=0;
 
 	return 0;
 
@@ -11804,6 +11842,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->rmnet_ll_enable = 0;
 	ipa_drv_res->ulso_wa = false;
 	ipa_drv_res->is_dual_pine_config = false;
+	ipa_drv_res->is_dual_wkk_config = false;
 	ipa_drv_res->coal_ipv4_id_ignore = true;
 	ipa_drv_res->ipa_v2x_vm = false;
 
@@ -12511,6 +12550,13 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 		"qcom,use-dual-pine-config");
 	IPADBG(": Use dual pine config = %s\n",
 		ipa_drv_res->is_dual_pine_config
+		? "True" : "False");
+
+	ipa_drv_res->is_dual_wkk_config =
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,use-dual-wkk-config");
+	IPADBG(": Use dual wkk config = %s\n",
+		ipa_drv_res->is_dual_wkk_config
 		? "True" : "False");
 
 	result = of_property_read_u8(pdev->dev.of_node,
