@@ -1074,9 +1074,9 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 			IPAERR("failed to query gsi rx db addr\n");
 			result = -EFAULT;
 			goto fail;
+		}
 		/* only 32 bit lsb is used */
 		out->rx_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
-		}
 	}
 
 	IPADBG("out->rx_uc_db_pa %llu\n", out->rx_uc_db_pa);
