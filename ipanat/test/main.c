@@ -62,7 +62,6 @@ static int nat_rule_loop_check(
 	uint16_t        meta_record_index,
 	void*           arb_data_ptr )
 {
-	enum ipa3_nat_mem_in nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 	uint32_t             tbl_hdl = (uint32_t) arb_data_ptr;
@@ -70,7 +69,7 @@ static int nat_rule_loop_check(
 	struct ipa_nat_rule* rule_ptr =
 		(struct ipa_nat_rule*) record_ptr;
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
 	/*
 	 * By virtue of this function being called back by the walk, this
@@ -105,7 +104,6 @@ static int nat_rule_validity_check(
 	uint16_t        meta_record_index,
 	void*           arb_data_ptr )
 {
-	enum ipa3_nat_mem_in nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 	uint16_t             index;
@@ -113,7 +111,7 @@ static int nat_rule_validity_check(
 	struct ipa_nat_rule* rule_ptr =
 		(struct ipa_nat_rule*) record_ptr;
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
 	index = rule_ptr->next_index;
 
@@ -154,7 +152,6 @@ static int index_loop_check(
 	uint16_t        meta_record_index,
 	void*           arb_data_ptr )
 {
-	enum ipa3_nat_mem_in nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 	uint32_t             tbl_hdl = (uint32_t) arb_data_ptr;
@@ -162,7 +159,7 @@ static int index_loop_check(
 	struct ipa_nat_indx_tbl_rule* itr_ptr =
 		(struct ipa_nat_indx_tbl_rule*) record_ptr;
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl,  is_expn_tbl, rule_index);
 
 	/*
 	 * By virtue of this function being called back by the walk, this
@@ -197,7 +194,6 @@ static int index_validity_check(
 	uint16_t        meta_record_index,
 	void*           arb_data_ptr )
 {
-	enum ipa3_nat_mem_in nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 	uint16_t             index;
@@ -205,7 +201,7 @@ static int index_validity_check(
 	struct ipa_nat_indx_tbl_rule* itr_ptr =
 		(struct ipa_nat_indx_tbl_rule*) record_ptr;
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
 	index = itr_ptr->next_index;
 

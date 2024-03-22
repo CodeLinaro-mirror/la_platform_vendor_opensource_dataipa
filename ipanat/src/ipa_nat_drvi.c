@@ -2152,8 +2152,6 @@ static int print_nat_rule(
 	uint16_t        meta_record_index,
 	void*           arb_data_ptr )
 {
-	enum ipa3_nat_mem_in nmi;
-	uint32_t _nmi = nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 
@@ -2167,7 +2165,7 @@ static int print_nat_rule(
 		goto bail;
 	}
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, _nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
 	printf("  %s %s (0x%04X) (0x%08X) -> %s\n",
 		   (table_ptr->nmi == IPA_NAT_MEM_IN_DDR) ? "DDR" : "SRAM",
@@ -2199,12 +2197,10 @@ static int print_meta_data(
 	struct ipa_nat_indx_tbl_meta_info* mi_ptr =
 		(struct ipa_nat_indx_tbl_meta_info*) meta_record_ptr;
 
-	enum ipa3_nat_mem_in nmi;
-	uint32_t _nmi = nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, _nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
 	if ( mi_ptr )
 	{
@@ -2488,14 +2484,12 @@ static int gen_chain_stats(
 {
 	chain_stat_help* csh_ptr = (chain_stat_help*) arb_data_ptr;
 
-	enum ipa3_nat_mem_in nmi;
-	uint32_t _nmi = nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 
 	uint32_t             chain_len = 0;
 
-	BREAK_RULE_HDL(table_ptr, rule_hdl, _nmi, is_expn_tbl, rule_index);
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
 	if ( is_expn_tbl )
 	{
