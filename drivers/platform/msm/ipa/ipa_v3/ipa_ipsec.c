@@ -2921,7 +2921,13 @@ int ipa_ipsec_enable(void)
 	if (ipa3_ctx->ipsec->dev) {
 		ipa3_ctx->ipsec->dev->features |= NETIF_F_HW_ESP;
 		ipa3_ctx->ipsec->dev->hw_enc_features |= NETIF_F_HW_ESP;
-		netdev_update_features(ipa3_ctx->ipsec->dev);
+		if (rtnl_trylock()) {
+			netdev_update_features(ipa3_ctx->ipsec->dev);
+			rtnl_unlock();
+		}
+		else {
+			IPADBG("Unable to lock mutex to call netdev_update_features\n");
+		}
 	}
 
 	ipa3_ctx->ipsec->enabled = true;
