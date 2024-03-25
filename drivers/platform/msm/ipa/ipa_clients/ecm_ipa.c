@@ -1615,8 +1615,10 @@ static int __init ecm_ipa_init_module(void)
 	pr_info("ecm driver init\n");
 	ipa_ecm_logbuf = ipc_log_context_create(IPA_ECM_IPC_LOG_PAGES,
 			"ipa_ecm", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa_ecm_logbuf == NULL)
 		ECM_IPA_DEBUG("failed to create IPC log, continue...\n");
+#endif
 	ECM_IPA_LOG_EXIT();
 	return 0;
 }
