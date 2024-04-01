@@ -962,7 +962,7 @@ static void ipa3_uc_response_hdlr(enum ipa_irq_type interrupt,
 			queue_work(ipa_uc_holb_wq, &ipa3_holb_enabled_work);
 
 #if defined(CONFIG_IPA_IPSEC)
-		if (ipa_ipsec_enabled() && ipa_uc_ipsec_wq != NULL) {
+		if (ipa_ipsec_initialized() && ipa_uc_ipsec_wq != NULL) {
 			queue_work(ipa_uc_ipsec_wq, &ipa3_ipsec_enabled_work);
 		}
 #endif

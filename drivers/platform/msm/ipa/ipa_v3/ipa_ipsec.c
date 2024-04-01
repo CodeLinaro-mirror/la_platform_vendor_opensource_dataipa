@@ -2269,6 +2269,13 @@ void ipa_ipsec_ep_init_cons(struct work_struct *work)
 		return;
 	}
 
+	/* We want to set up the IPsec consumer pipes, only if the feature is enabled.
+	   Otherwise we only need the uC event ring, because uC will generate the IV ready event. */
+	if (!ipa_ipsec_enabled()) {
+		IPADBG("uc_event ring has been set up\n");
+		return;
+	}
+
 	memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
 
 	/* IPsec decap recoverable error (IPA->AP) */

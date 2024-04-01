@@ -3452,7 +3452,7 @@ static int ipa3_setup_apps_wan_prod_pipes(
 	pipe_status->status = IPA_PIPE_SETUP_EXISTS;
 
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_initialized()) {
+	if (ipa_ipsec_enabled()) {
 		rc = ipa_ipsec_ep_init_prod();
 	}
 #endif
