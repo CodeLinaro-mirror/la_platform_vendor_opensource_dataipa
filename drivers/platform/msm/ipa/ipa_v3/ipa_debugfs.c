@@ -143,6 +143,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP),
 	__stringify(IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
+	__stringify(IPA_HDR_PROC_2ND_PASS),
 };
 
 static struct dentry *dent;
@@ -428,6 +429,7 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		"IPA_ENDP_INIT_HOL_TIMER_%u=0x%x\n"
 		"IPA_ENDP_INIT_DEAGGR_%u=0x%x\n"
 		"IPA_ENDP_INIT_CFG_%u=0x%x\n"
+		"IPA_ENDP_INIT_SEQ_%u=0x%x\n"
 		"IPA_ENDP_INIT_IPSEC_CFG_%u=0x%x\n"
 		"IPA_ENDP_INIT_DRBIP_CFG_%u=0x%x\n",
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_NAT_n, pipe),
@@ -441,6 +443,7 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DEAGGR_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CFG_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_SEQ_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, pipe));
 }
@@ -1384,7 +1387,8 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 			entry->id,
 			ipa3_hdr_proc_type_name[entry->type],
 			ofst_words);
-		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP) {
+		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
+			entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"\naction:%u\n"
@@ -1688,6 +1692,7 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 		"sw_tx=%u\n"
 		"hw_tx=%u\n"
+		"tx_queue_fail=%u\n"
 		"tx_non_linear=%u\n"
 		"tx_compl=%u\n"
 		"wan_rx=%u\n"
@@ -1724,6 +1729,7 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		,
 		ipa3_ctx->stats.tx_sw_pkts,
 		ipa3_ctx->stats.tx_hw_pkts,
+		ipa3_ctx->stats.tx_queue_fail_pkts,
 		ipa3_ctx->stats.tx_non_linear,
 		ipa3_ctx->stats.tx_pkts_compl,
 		ipa3_ctx->stats.rx_pkts,
@@ -4059,6 +4065,27 @@ static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
 
 #endif
 
+static ssize_t enable_wkup_logs(struct file *file,
+			const char __user *buf, size_t count, loff_t *ppos)
+{
+	s8 flg=0;
+	int ret;
+
+	ret = kstrtos8_from_user(buf, count, 0, &flg);
+
+	if(ret)
+		return ret;
+
+	if(flg){
+		ipa3_ctx->wkup_enable=1;
+	}
+	else{
+		ipa3_ctx->wkup_enable=0;
+	}
+
+	return count;
+}
+
 static const struct ipa3_debugfs_file debugfs_files[] = {
 	{
 		"gen_reg", IPA_READ_ONLY_MODE, NULL, {
@@ -4312,6 +4339,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.read = ipa3_read_ipsec_active_sa,
 		}
 #endif
+	}, {
+		"enable_wkup_log", IPA_WRITE_ONLY_MODE,NULL, {
+			.write = enable_wkup_logs,
+		}
 	},
 };
 
