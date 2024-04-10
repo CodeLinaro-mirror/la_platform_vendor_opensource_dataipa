@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -2602,6 +2602,23 @@ static int proc_sram_info_rqst(
 	return 0;
 }
 
+static int proc_ct_sram_info_rqst(
+	unsigned long arg)
+{
+	struct ipa_nat_in_sram_info sram_info = { 0 };
+
+	if (ipa3_ct_get_sram_info(&sram_info))
+		return  -EFAULT;
+
+	if (copy_to_user(
+		(void __user *) arg,
+		&sram_info,
+		sizeof(struct ipa_nat_in_sram_info)))
+		return -EFAULT;
+
+	return 0;
+}
+
 static void ipa3_general_free_cb(void *buff, u32 len, u32 type)
 {
 	if (!buff) {
@@ -4227,6 +4244,10 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case IPA_IOC_GET_NAT_IN_SRAM_INFO:
 		retval = proc_sram_info_rqst(arg);
+		break;
+
+	case IPA_IOC_GET_CT_IN_SRAM_INFO:
+		retval = proc_ct_sram_info_rqst(arg);
 		break;
 
 	case IPA_IOC_APP_CLOCK_VOTE:
@@ -6157,6 +6178,10 @@ int _ipa_init_sram_v3(void)
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst) - 4);
 		ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst));
+		ipa3_sram_set_canary(ipa_sram_mmio,
+				IPA_MEM_PART(ct_tbl_ofst) - 4);
+		ipa3_sram_set_canary(ipa_sram_mmio,
+				IPA_MEM_PART(ct_tbl_ofst));
 
 		/* Set CANARY on whole pre_sa_contexts_canary */
 		for (offset = IPA_MEM_PART(pre_sa_contexts_canary_ofst) / 4;
@@ -7049,6 +7074,9 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX32:
 		cmd = IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX;
+		break;
+	case IPA_IOC_GET_CT_IN_SRAM_INFO32:
+		cmd = IPA_IOC_GET_CT_IN_SRAM_INFO;
 		break;
 	case IPA_IOC_COMMIT_HDR:
 	case IPA_IOC_RESET_HDR:
