@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <net/ip.h>
@@ -6459,13 +6459,6 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_NO_DEC_2ND_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 5, 9, 28, 32, IPA_EE_Q6, GSI_FREE_PRE_FETCH, 3 },
-			IPA_TX_INSTANCE_NA },
-	[IPA_6_0][IPA_CLIENT_WLAN2_PROD] = {
-			true,   IPA_v6_0_GROUP_UL,
-			true,
-			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
-			QMB_MASTER_SELECT_DDR,
-			{ 1 , 0, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_WLAN3_PROD] ={
 			true,   IPA_v6_0_GROUP_UL,
