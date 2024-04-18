@@ -1859,7 +1859,9 @@ void apps_ipa_packet_receive_notify(void *priv,
 		if (ipa_ipsec_enabled() && !skb_rx_queue_recorded(skb))
 #endif
 			skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_DEFAULT);
-		if (ipa3_rmnet_res.ipa_napi_enable) {
+		/* Napi is not used for IPsec WAN cons pipe. */
+		if (ipa3_rmnet_res.ipa_napi_enable &&
+			skb_get_rx_queue(skb) != IPA_RMNET_RX_QUEUE_IPSEC) {
 			trace_rmnet_ipa_netif_rcv_skb3(skb, dev->stats.rx_packets);
 			result = netif_receive_skb(skb);
 		} else {
