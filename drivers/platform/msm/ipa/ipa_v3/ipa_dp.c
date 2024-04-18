@@ -4669,6 +4669,8 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		*(u16 *)rx_skb->cb = (((metadata >> 24) & 0xFF) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);//updating the vdev id and da_is_mcbc
 		*(u8 *)(rx_skb->cb + 4) = ucp; //updating the ucp
 		*(u16 *)(rx_skb->cb + 5) = metadata & 0xFFF; //updating the  ta peer id
+		*(u8 *) (rx_skb->cb + 7) = ((metadata >> 14) & 0x3); //extract the destination chip id.
+		*(u8 *) (rx_skb->cb + 8) = ((metadata >> 12) & 0x1); // extract the pmac id.
 		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
 				metadata, *(u32 *)rx_skb->cb);
 		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));

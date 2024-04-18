@@ -470,6 +470,19 @@ static int ipa_adpl_release(struct inode *inode, struct file *filp)
 	return ret;
 }
 
+void ipa3_odl_pipe_open_from_ssr(void) {
+	mutex_lock(&ipa3_odl_ctx->pipe_lock);
+	ipa3_odl_pipe_open();
+	mutex_unlock(&ipa3_odl_ctx->pipe_lock);
+}
+
+void ipa3_odl_pipe_cleanup_from_ssr(void)
+{
+	mutex_lock(&ipa3_odl_ctx->pipe_lock);
+	ipa3_odl_pipe_cleanup(true);
+	mutex_unlock(&ipa3_odl_ctx->pipe_lock);
+}
+
 void ipa3_odl_pipe_cleanup(bool is_ssr)
 {
 	bool ipa_odl_opened = false;

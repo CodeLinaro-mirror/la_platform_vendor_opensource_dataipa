@@ -2908,7 +2908,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
 #ifdef CONFIG_IPA_IPSEC
-		if (ipa_ipsec_initialized()) {
+		if (ipa_ipsec_enabled()) {
 			rc = ipa_ipsec_install_dl_pol_flt();
 			if (rc)
 				IPAWANERR("IPsec DL policy FLT init failed = %d\n", rc);
@@ -5712,7 +5712,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		if (atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
 			ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_0)
 			ipa3_q6_post_shutdown_cleanup();
-		ipa3_odl_pipe_cleanup(true);
+		ipa3_odl_pipe_cleanup_from_ssr();
 
 #if IS_ENABLED(CONFIG_ARCH_SA525_HOSTVM) && IS_ENABLED(CONFIG_GH_MSGQ)
 		if (atomic_read(&ipa3_ctx->v2x_vm_ready))
@@ -5838,7 +5838,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		if (!atomic_read(&rmnet_ipa3_ctx->is_initialized) &&
 		       atomic_read(&rmnet_ipa3_ctx->is_ssr))
 			platform_driver_register(&rmnet_ipa_driver);
-		ipa3_odl_pipe_open();
+		ipa3_odl_pipe_open_from_ssr();
 		ipa3_eth_tx_ring_db();
 		if(ipa3_ctx->ipa_config_is_rdkb)
 		{

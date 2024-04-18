@@ -6277,9 +6277,10 @@ static int msm_gsi_probe(struct platform_device *pdev)
 
 	gsi_ctx->ipc_logbuf = ipc_log_context_create(GSI_IPC_LOG_PAGES,
 		"gsi", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (gsi_ctx->ipc_logbuf == NULL)
 		GSIERR("failed to create IPC log, continue...\n");
-
+#endif
 	result = of_property_read_u32(pdev->dev.of_node, "qcom,num-msi",
 			&gsi_ctx->msi.num);
 	if (result)

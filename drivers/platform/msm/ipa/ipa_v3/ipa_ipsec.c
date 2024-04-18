@@ -2727,8 +2727,8 @@ static void ipa_ipsec_unmap_uc_smmu(phys_addr_t pa, unsigned long iova)
  */
 int ipa_ipsec_init(void)
 {
-	int ret, n;
-	u32 keys_phys_base, sa_phys_base, ipsec_ep_cfg;
+	int ret;
+	u32 keys_phys_base, sa_phys_base;
 	void __iomem *key_mmio, __iomem *sa_mmio;
 	unsigned long uc_smmu_iova;
 
@@ -2848,41 +2848,10 @@ int ipa_ipsec_init(void)
 	 */
 	ipahal_write_reg(IPA_IPSEC_SA_ENCAPSULATION_BASE, IPA_MEM_PART(sa_contexts_ofst) + IPA_DECAP_DB_SIZE);
 
-	/*
-	 * Configure IPA_ENDP_INIT_IPSEC_CFG_%n%::EXCEPTION_ENDP_IPSEC_POST_ENCAPS
-	 * with post encapsulation exception pipe.
-	 * All packets that have been successfully encapsulated but received a HW Exception or
-	 * Packet error will be routed to the pipe, and reverted to the last snapshot.
-	 */
-
-	/*
-	 * Configure IPA_ENDP_INIT_IPSEC_CFG_%n%:
-	 *  - EXCEPTION_ENDP_IPSEC_DECAP field with exception producer to route IPsec packets
-	 *  that failed in side DECAPS acl.
-	 *  - EXCEPTION_ENDP_IPSEC_POST_DECAPS field with Indicates exception producer
-	 *  to route IPsec packets that have passed DECAPS acl.
-	 *  - DECAPS_NEXT_HDR_CHECK_DISABLE field with 1 to disable checking
-	 *  for Next-header errors for traffic from matching consumer.
-	 */
-	ipsec_ep_cfg = (u32)(ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS)) |
-		(u32)(ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS)) << 8 |
-		(u32)(ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_ENCAP_ERR_CONS)) << 16;
-	for (n = 0; n < IPA6_PROD_PIPES_NUM; n++) {
-		ipahal_write_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, n, ipsec_ep_cfg);
-	}
-
-	ret = ipa_ipsec_fnr_init();
-	if (ret != 0) {
-		IPAERR("Failed to init IPsec FnR\n");
-		goto unmap_uc_smmu;
-	}
-
 	ipa3_ctx->ipsec->initialized = true;
 
 	return 0;
 
-unmap_uc_smmu:
-	ipa_ipsec_unmap_uc_smmu(sa_phys_base + IPA_DECAP_DB_SIZE, uc_smmu_iova);
 unmap_sa:
 	iounmap(sa_mmio);
 unmap_keys:
@@ -2901,16 +2870,64 @@ free_ctx:
 
 int ipa_ipsec_enable(void)
 {
+	int n, ret;
+	u32 ipsec_ep_cfg;
+
 	if (!ipa3_ctx->ipa_config_is_ipsec) {
 		IPADBG("IPsec offload is not enabled from ipa_config.txt\n");
 		return -ENXIO;
+	}
+
+	if (!ipa3_ctx->ipsec) {
+		IPADBG("IPSEC not initialized\n");
+		return -ENXIO;
+	}
+
+	/*
+	 * Configure IPA_ENDP_INIT_IPSEC_CFG_%n%::EXCEPTION_ENDP_IPSEC_POST_ENCAPS
+	 * with post encapsulation exception pipe.
+	 * All packets that have been successfully encapsulated but received a HW Exception or
+	 * Packet error will be routed to the pipe, and reverted to the last snapshot.
+	 *
+	 * We do that in the ipa_ipsec_enable() to avoid potential packet routing to
+	 * an unconfigured pipe.
+	 */
+
+	/*
+	 * Configure IPA_ENDP_INIT_IPSEC_CFG_%n%:
+	 *  - EXCEPTION_ENDP_IPSEC_DECAP field with exception producer to route IPsec packets
+	 *  that failed in side DECAPS acl.
+	 *  - EXCEPTION_ENDP_IPSEC_POST_DECAPS field with Indicates exception producer
+	 *  to route IPsec packets that have passed DECAPS acl.
+	 *  - DECAPS_NEXT_HDR_CHECK_DISABLE field with 1 to disable checking
+	 *  for Next-header errors for traffic from matching consumer.
+	 */
+	ipsec_ep_cfg = (u32)(ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS)) |
+		(u32)(ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS)) << 8 |
+		(u32)(ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_ENCAP_ERR_CONS)) << 16;
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	for (n = 0; n < IPA6_PROD_PIPES_NUM; n++) {
+		ipahal_write_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, n, ipsec_ep_cfg);
+	}
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	ret = ipa_ipsec_fnr_init();
+	if (ret != 0) {
+		IPAERR("Failed to init IPsec FnR\n");
+		return ret;
 	}
 
 	/* Update RMNET netdev */
 	if (ipa3_ctx->ipsec->dev) {
 		ipa3_ctx->ipsec->dev->features |= NETIF_F_HW_ESP;
 		ipa3_ctx->ipsec->dev->hw_enc_features |= NETIF_F_HW_ESP;
-		netdev_update_features(ipa3_ctx->ipsec->dev);
+		if (rtnl_trylock()) {
+			netdev_update_features(ipa3_ctx->ipsec->dev);
+			rtnl_unlock();
+		}
+		else {
+			IPADBG("Unable to lock mutex to call netdev_update_features\n");
+		}
 	}
 
 	ipa3_ctx->ipsec->enabled = true;

@@ -9165,11 +9165,13 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPADBG(":TSP init ok\n");
 #endif
 #if defined(CONFIG_IPA_IPSEC)
-	result = ipa_ipsec_init();
-	if (result)
-		IPAERR(":IPSEC init failed (%d)\n", -result);
-	else
-		IPADBG(":IPSEC init ok\n");
+	if (!ipa3_ctx->ipa_config_is_mhi) {
+		result = ipa_ipsec_init();
+		if (result)
+			IPAERR(":IPSEC init failed (%d)\n", -result);
+		else
+			IPADBG(":IPSEC init ok\n");
+	}
 #endif
 
 	result = ipa_hw_stats_init();
@@ -9746,6 +9748,10 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 #if defined(CONFIG_IPA_IPSEC)
 		if (strnstr(dbg_buff, "ipsec", strlen(dbg_buff)))
 		{
+			if (ipa3_ctx->ipa_config_is_mhi) {
+				IPADBG("In MHI mode IPSEC enable not required\n");
+				return count;
+			}
 			IPADBG("IPsec HW offload is configured.\n");
 			ipa3_ctx->ipa_config_is_ipsec = true;
 			res = ipa_ipsec_enable();
@@ -11451,6 +11457,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
+	ipa3_ctx->wkup_enable=0;
 
 	return 0;
 
@@ -13659,13 +13666,15 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf == NULL)
 		pr_err("failed to create IPC ipa log, continue...\n");
-
+#endif
 	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf_clk == NULL)
 		pr_err("failed to create IPC ipa_clk log, continue...\n");
-
+#endif
 	if (ipa3_ctx->ipa_hw_type == 0) {
 
 		/* Get IPA HW Version */
@@ -14388,13 +14397,15 @@ int ipa3_pci_drv_probe(struct pci_dev *pci_dev, const struct pci_device_id *ent)
 	}
 
 	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf == NULL)
 		pr_err("failed to create IPC log, continue...\n");
-
+#endif
 	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf_clk == NULL)
 		pr_err("failed to create IPC ipa_clk log, continue...\n");
-
+#endif
 	if (ipa3_ctx->ipa_hw_type == 0) {
 		/* Get IPA HW Version */
 		result = of_property_read_u32(NULL,

@@ -280,9 +280,6 @@ struct map_src_dst_addr_s {
 		GEN_REG_ATTR(reg_name) }, \
 	{ GEN_1xVECTOR_REG_OFST(reg_name, IPA_HW_UC_EE), \
 		(u32 *)&ipa_reg_save.ipa.gen_ee[IPA_HW_UC_EE].var_name, \
-		GEN_REG_ATTR(reg_name) }, \
-	{ GEN_1xVECTOR_REG_OFST(reg_name, IPA_HW_HWP_EE), \
-		(u32 *)&ipa_reg_save.ipa.gen_ee[IPA_HW_HWP_EE].var_name, \
 		GEN_REG_ATTR(reg_name) }
 
 #define IPA_REG_SAVE_CFG_ENTRY_GSI_FIFO(reg_name, var_name, index) \
