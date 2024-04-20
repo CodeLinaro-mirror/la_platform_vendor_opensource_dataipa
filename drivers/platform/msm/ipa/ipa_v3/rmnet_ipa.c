@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -173,6 +173,8 @@ struct ipa3_wwan_private {
 	atomic_t outstanding_pkts;
 	atomic_t outstanding_pkts_eth;
 	atomic_t outstanding_pkts_v2x;
+	atomic_t outstanding_pkts_ipsec_encap;
+	atomic_t outstanding_pkts_ipsec_decap;
 	uint32_t ch_id;
 	spinlock_t lock;
 	struct completion resource_granted_completion;
@@ -1498,10 +1500,12 @@ static u16 ipa3_wwan_select_queue(struct net_device *dev, struct sk_buff *skb, s
 static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	int ret = 0;
-	bool qmap_check = false, eth_check = false, v2x_check = false;
+	bool qmap_check = false, eth_check = false, v2x_check = false,
+		ipsec_encap = false, ipsec_decap = false;
 	struct ipa3_wwan_private *wwan_ptr = netdev_priv(dev);
 	unsigned long flags;
 	enum ipa_client_type dst_ipa_client = IPA_CLIENT_APPS_WAN_PROD;
+	u8 sa_idx = 0;
 
 	if (rmnet_ipa3_ctx->ipa_config_is_apq) {
 		IPAWANERR_RL("IPA embedded data on APQ platform\n");
@@ -1519,6 +1523,25 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		dev->stats.tx_dropped++;
 		return NETDEV_TX_OK;
 	}
+
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled()) {
+		if (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC) {
+
+			dst_ipa_client =
+			(IPA_IPSEC_SKB_CB(skb)->sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
+			IPA_CLIENT_IPSEC_ENCAP_PROD : IPA_CLIENT_IPSEC_DECAP_PROD;
+
+			sa_idx = (u8)(IPA_IPSEC_SKB_CB(skb)->sa_idx);
+			if (dst_ipa_client == IPA_CLIENT_IPSEC_ENCAP_PROD) {
+				ipsec_encap = true;
+			}
+			if (dst_ipa_client == IPA_CLIENT_IPSEC_DECAP_PROD) {
+				ipsec_decap = true;
+			}
+		}
+	}
+#endif
 
 	/*queue_mapping =0 WWAN IP traffic, 1 for eth/v2x traffic */
 	if (ipa_wwan_get_tx_queue(skb) == IPA_RMNET_TX_QUEUE_V2X)
@@ -1548,15 +1571,24 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	 * return from here itself.
 	 */
 	if (atomic_read(&rmnet_ipa3_ctx->ap_suspend)) {
-		netif_tx_stop_queue(netdev_get_tx_queue(dev, 0));
+		netif_tx_stop_queue(netdev_get_tx_queue(dev,
+			IPA_RMNET_TX_QUEUE_DEFAULT));
 		if (rmnet_ipa3_ctx->eth_wan_set || rmnet_ipa3_ctx->ipa_v2x_set)
-			netif_tx_stop_queue(netdev_get_tx_queue(dev, 1));
+			netif_tx_stop_queue(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X));
+		if (ipa_ipsec_enabled()) {
+			netif_tx_stop_queue(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_IPSEC_ENCAP));
+			netif_tx_stop_queue(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_IPSEC_DECAP));
+		}
 		spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 		return NETDEV_TX_BUSY;
 	}
 
 	/* Flow control only for WAN IP pkts */
-	if (unlikely(!eth_check) && unlikely(!v2x_check)) {
+	if (unlikely(!eth_check) && unlikely(!v2x_check) &&
+		unlikely(!ipsec_encap) && unlikely(!ipsec_decap)) {
 		if (netif_queue_stopped(dev)) {
 			if (rmnet_ipa3_ctx->no_qmap_config) {
 				spin_unlock_irqrestore(&wwan_ptr->lock, flags);
@@ -1594,7 +1626,8 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	/* Flow control for WAN V2X pkts */
 	if (v2x_check) {
-		if (netif_tx_queue_stopped(netdev_get_tx_queue(dev, 1))) {
+		if (netif_tx_queue_stopped(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X))) {
 				spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 				return NETDEV_TX_BUSY;
 		}
@@ -1604,14 +1637,58 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 			IPAWANDBG_LOW("pending(%d)/(%d)- stop(%d)\n",
 				atomic_read(&wwan_ptr->outstanding_pkts_v2x),
 				rmnet_ipa3_ctx->outstanding_high,
-				netif_tx_queue_stopped(netdev_get_tx_queue(dev, 1)));
+				netif_tx_queue_stopped(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X)));
 			IPAWANDBG_LOW("qmap_chk(%d)\n", qmap_check);
-			netif_tx_stop_queue(netdev_get_tx_queue(dev, 1));
+			netif_tx_stop_queue(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X));
 			spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 			return NETDEV_TX_BUSY;
 		}
 	}
 
+/* Flow control for ipsec encap pkts */
+if (ipsec_encap) {
+	if (netif_tx_queue_stopped(
+		netdev_get_tx_queue(dev, IPA_RMNET_TX_QUEUE_IPSEC_ENCAP))) {
+			spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+			return NETDEV_TX_BUSY;
+	}
+	/* checking High WM hit for wan ipsec encap only */
+	if (atomic_read(&wwan_ptr->outstanding_pkts_ipsec_encap) >=
+		rmnet_ipa3_ctx->outstanding_high) {
+		IPAWANDBG_LOW("pending(%d)/(%d)- stop(%d)\n",
+			atomic_read(&wwan_ptr->outstanding_pkts_ipsec_encap),
+			rmnet_ipa3_ctx->outstanding_high,
+			netif_tx_queue_stopped(netdev_get_tx_queue(dev,
+			IPA_RMNET_TX_QUEUE_IPSEC_ENCAP)));
+		netif_tx_stop_queue(netdev_get_tx_queue(dev,
+			IPA_RMNET_TX_QUEUE_IPSEC_ENCAP));
+		spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+		return NETDEV_TX_BUSY;
+	}
+}
+
+if (ipsec_decap) {
+	if (netif_tx_queue_stopped(
+		netdev_get_tx_queue(dev, IPA_RMNET_TX_QUEUE_IPSEC_DECAP))) {
+			spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+			return NETDEV_TX_BUSY;
+	}
+	/* checking High WM hit for wan ipsec decap only */
+	if (atomic_read(&wwan_ptr->outstanding_pkts_ipsec_decap) >=
+		rmnet_ipa3_ctx->outstanding_high) {
+		IPAWANDBG_LOW("pending(%d)/(%d)- stop(%d)\n",
+			atomic_read(&wwan_ptr->outstanding_pkts_ipsec_decap),
+			rmnet_ipa3_ctx->outstanding_high,
+			netif_tx_queue_stopped(netdev_get_tx_queue(dev,
+			IPA_RMNET_TX_QUEUE_IPSEC_DECAP)));
+		netif_tx_stop_queue(netdev_get_tx_queue(dev,
+			IPA_RMNET_TX_QUEUE_IPSEC_DECAP));
+		spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+		return NETDEV_TX_BUSY;
+	}
+}
 
 send:
 	/* IPA_PM checking start */
@@ -1620,9 +1697,17 @@ send:
 	ret = ipa_pm_activate(rmnet_ipa3_ctx->pm_hdl);
 
 	if (ret == -EINPROGRESS) {
-		netif_tx_stop_queue(netdev_get_tx_queue(dev, 0));
+		netif_tx_stop_queue(netdev_get_tx_queue(dev,
+			IPA_RMNET_TX_QUEUE_DEFAULT));
 		if (rmnet_ipa3_ctx->eth_wan_set || rmnet_ipa3_ctx->ipa_v2x_set)
-			netif_tx_stop_queue(netdev_get_tx_queue(dev, 1));
+			netif_tx_stop_queue(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X));
+		if (ipa_ipsec_enabled()) {
+			netif_tx_stop_queue(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_IPSEC_ENCAP));
+			netif_tx_stop_queue(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_IPSEC_DECAP));
+		}
 		spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 		return NETDEV_TX_BUSY;
 	}
@@ -1641,13 +1726,21 @@ send:
 	 * to avoid suspend happens in parallel
 	 * after unlock
 	 */
-
-	if (unlikely(!eth_check) && unlikely(!v2x_check))
-		atomic_inc(&wwan_ptr->outstanding_pkts);
-	else if (unlikely(!v2x_check))
-		atomic_inc(&wwan_ptr->outstanding_pkts_eth);
-	else
+	if (ipsec_decap) {
+		atomic_inc(&wwan_ptr->outstanding_pkts_ipsec_decap);		
+		atomic_inc(
+			&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].ipsec_decap_xmit);
+	} else if (ipsec_encap) {
+		atomic_inc(&wwan_ptr->outstanding_pkts_ipsec_encap);
+		atomic_inc(
+			&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_encap_xmit);
+	} else if (v2x_check) {
 		atomic_inc(&wwan_ptr->outstanding_pkts_v2x);
+	} else if (eth_check) {
+		atomic_inc(&wwan_ptr->outstanding_pkts_eth);
+	} else {
+		atomic_inc(&wwan_ptr->outstanding_pkts);
+	}
 
 	spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 
@@ -1655,38 +1748,29 @@ send:
 	 * both data packets and command will be routed to
 	 * IPA_CLIENT_Q6_WAN_CONS based on status configuration
 	 */
-#ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled()) {
-		if (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC) {
-			u8 sa_idx;
-
-			dst_ipa_client =
-			(IPA_IPSEC_SKB_CB(skb)->sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
-			IPA_CLIENT_IPSEC_ENCAP_PROD : IPA_CLIENT_IPSEC_DECAP_PROD;
-			IPAWANDBG("[%s]: xmit to %s\n",
-				dev->name, ipa_clients_strings[dst_ipa_client]);
-
-			sa_idx = (u8)(IPA_IPSEC_SKB_CB(skb)->sa_idx);
-			if (dst_ipa_client == IPA_CLIENT_IPSEC_ENCAP_PROD)
-				atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_encap_xmit);
-			if (dst_ipa_client == IPA_CLIENT_IPSEC_DECAP_PROD)
-				atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].ipsec_decap_xmit);
-		}
-	}
-#endif
 	if (unlikely(!eth_check) && unlikely(!v2x_check))
 		ret = ipa3_tx_dp(dst_ipa_client, skb, NULL);
 	else if (unlikely(!v2x_check))
 		ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_ETH_PROD, skb, NULL);
 	else
 	  ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_V2X_PROD, skb, NULL);
+
 	if (ret) {
-		if (!eth_check && !v2x_check)
-		  atomic_dec(&wwan_ptr->outstanding_pkts);
-		else if (!v2x_check)
+		if (ipsec_decap) {
+			atomic_dec(&wwan_ptr->outstanding_pkts_ipsec_decap);
+			atomic_dec(
+				&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].ipsec_decap_xmit);
+		} else if (ipsec_encap) {
+			atomic_dec(&wwan_ptr->outstanding_pkts_ipsec_encap);
+			atomic_dec(
+				&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_encap_xmit);
+		} else if (v2x_check) {
+			atomic_dec(&wwan_ptr->outstanding_pkts_v2x);
+		} else if (eth_check) { 	
 			atomic_dec(&wwan_ptr->outstanding_pkts_eth);
-		else
-		  atomic_dec(&wwan_ptr->outstanding_pkts_v2x);
+		} else {
+			atomic_dec(&wwan_ptr->outstanding_pkts);
+		}
 
 		/* update the drop counts */
 		if (ret == -EPIPE) {
@@ -1704,9 +1788,11 @@ send:
 	dev->stats.tx_bytes += skb->len;
 	ret = NETDEV_TX_OK;
 out:
-	if (((atomic_read(&wwan_ptr->outstanding_pkts) == 0) &&
-		(atomic_read(&wwan_ptr->outstanding_pkts_eth) == 0)) &&
-		(atomic_read(&wwan_ptr->outstanding_pkts_v2x) == 0)) {
+	if ((atomic_read(&wwan_ptr->outstanding_pkts) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_eth) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_v2x) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_ipsec_encap) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_ipsec_decap) == 0)) {
 		ipa_pm_deferred_deactivate(rmnet_ipa3_ctx->pm_hdl);
 		ipa_pm_deferred_deactivate(rmnet_ipa3_ctx->q6_pm_hdl);
 
@@ -1754,6 +1840,8 @@ void apps_ipa_tx_complete_notify(void *priv,
 	struct ipa3_wwan_private *wwan_ptr;
 	bool eth_check = false;
 	bool v2x_check = false;
+	bool ipsec_encap = false;
+	bool ipsec_decap = false;
 
 	if (dev != IPA_NETDEV()) {
 		IPAWANDBG("Received pre-SSR packet completion\n");
@@ -1768,19 +1856,73 @@ void apps_ipa_tx_complete_notify(void *priv,
 		return;
 	}
 
-    /* queue_mapping = 0 WWAN IP traffic,1  for v2x/eth pdu traffic */
+	wwan_ptr = netdev_priv(dev);
+    /* queue_mapping = 0 WWAN IP traffic,1  for v2x/eth pdu traffic,
+	 * 2 for ipsec encap, 3 for ipsec decap.
+	 */
 	if (ipa_wwan_get_tx_queue(skb) == IPA_RMNET_TX_QUEUE_V2X) {
 		/* in AUTO config, 1 for v2x traffic */
-		if (ipa3_ctx->ipa_config_is_auto)
+		if (ipa3_ctx->ipa_config_is_auto) {
+			atomic_dec(&wwan_ptr->outstanding_pkts_v2x);
 			v2x_check = true;
-		else
-			eth_check = true;
+		} else {
+			atomic_dec(&wwan_ptr->outstanding_pkts_eth);
+			eth_check = true;			
+		}
+	} else if (ipa_wwan_get_tx_queue(skb) ==
+		IPA_RMNET_TX_QUEUE_IPSEC_ENCAP) {
+		atomic_dec(&wwan_ptr->outstanding_pkts_ipsec_encap);
+		ipsec_encap = true;
+	} else if (ipa_wwan_get_tx_queue(skb) ==
+		IPA_RMNET_TX_QUEUE_IPSEC_DECAP) {		
+		atomic_dec(&wwan_ptr->outstanding_pkts_ipsec_decap);
+		ipsec_decap = true;
+	} else {
+		atomic_dec(&wwan_ptr->outstanding_pkts);
 	}
 
-	wwan_ptr = netdev_priv(dev);
-	if (!eth_check && !v2x_check) {
-		atomic_dec(&wwan_ptr->outstanding_pkts);
-		__netif_tx_lock_bh(netdev_get_tx_queue(dev, 0));
+	__netif_tx_lock_bh(netdev_get_tx_queue(dev,
+		skb_get_queue_mapping(skb)));
+	if (ipsec_decap) {
+		/* flow control only for WAN IPSEC Decap pkts */
+		if (!atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
+			(netif_tx_queue_stopped(netdev_get_tx_queue(wwan_ptr->net,
+				IPA_RMNET_TX_QUEUE_IPSEC_DECAP))) &&
+				atomic_read(&wwan_ptr->outstanding_pkts_ipsec_decap) <
+				rmnet_ipa3_ctx->outstanding_low) {
+			IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
+					rmnet_ipa3_ctx->outstanding_low);
+			netif_tx_wake_queue(netdev_get_tx_queue(wwan_ptr->net,
+				IPA_RMNET_TX_QUEUE_IPSEC_DECAP));
+		}
+	} else if (ipsec_encap) {
+		/* flow control only for WAN IPSEC encap pkts */
+		if (!atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
+			(netif_tx_queue_stopped(netdev_get_tx_queue(wwan_ptr->net,
+				IPA_RMNET_TX_QUEUE_IPSEC_ENCAP))) &&
+				atomic_read(&wwan_ptr->outstanding_pkts_ipsec_encap) <
+				rmnet_ipa3_ctx->outstanding_low) {
+			IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
+					rmnet_ipa3_ctx->outstanding_low);
+			netif_tx_wake_queue(netdev_get_tx_queue(wwan_ptr->net,
+				IPA_RMNET_TX_QUEUE_IPSEC_ENCAP));
+		}
+	} else if (v2x_check) {
+		/* flow control only for WAN V2X pkts */
+		if (!atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
+			(netif_tx_queue_stopped(netdev_get_tx_queue(wwan_ptr->net,
+				IPA_RMNET_TX_QUEUE_V2X))) &&
+				atomic_read(&wwan_ptr->outstanding_pkts_v2x) <
+				rmnet_ipa3_ctx->outstanding_low) {
+			IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
+					rmnet_ipa3_ctx->outstanding_low);
+			netif_tx_wake_queue(netdev_get_tx_queue(wwan_ptr->net,
+				IPA_RMNET_TX_QUEUE_V2X));
+		}
+	} else if (eth_check) {
+		IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
+				rmnet_ipa3_ctx->outstanding_low);
+	} else {
 		/* flow control only for WAN IP pkts */
 		if (!atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
 			netif_queue_stopped(wwan_ptr->net) &&
@@ -1790,34 +1932,18 @@ void apps_ipa_tx_complete_notify(void *priv,
 					rmnet_ipa3_ctx->outstanding_low);
 			netif_wake_queue(wwan_ptr->net);
 		}
-	} else if (!v2x_check) {
-		atomic_dec(&wwan_ptr->outstanding_pkts_eth);
-		__netif_tx_lock_bh(netdev_get_tx_queue(dev, 1));
-	} else {
-		atomic_dec(&wwan_ptr->outstanding_pkts_v2x);
-		__netif_tx_lock_bh(netdev_get_tx_queue(dev, 1));
-		/* flow control only for WAN V2X pkts */
-		if (!atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
-			(netif_tx_queue_stopped(netdev_get_tx_queue(wwan_ptr->net, 1))) &&
-			atomic_read(&wwan_ptr->outstanding_pkts_v2x) <
-				rmnet_ipa3_ctx->outstanding_low) {
-			IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
-					rmnet_ipa3_ctx->outstanding_low);
-			netif_tx_wake_queue(netdev_get_tx_queue(wwan_ptr->net, 1));
-		}
 	}
-
 	if ((atomic_read(&wwan_ptr->outstanding_pkts) == 0) &&
 		(atomic_read(&wwan_ptr->outstanding_pkts_eth) == 0) &&
-		(atomic_read(&wwan_ptr->outstanding_pkts_v2x) == 0)) {
+		(atomic_read(&wwan_ptr->outstanding_pkts_v2x) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_ipsec_encap) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_ipsec_decap) == 0)) {
 		ipa_pm_deferred_deactivate(rmnet_ipa3_ctx->pm_hdl);
 		ipa_pm_deferred_deactivate(rmnet_ipa3_ctx->q6_pm_hdl);
 	}
 
-	if (!eth_check && !v2x_check)
-		__netif_tx_unlock_bh(netdev_get_tx_queue(dev, 0));
-	else
-		__netif_tx_unlock_bh(netdev_get_tx_queue(dev, 1));
+	__netif_tx_unlock_bh(netdev_get_tx_queue(dev,
+		skb_get_queue_mapping(skb)));
 	dev_kfree_skb_any(skb);
 }
 EXPORT_SYMBOL(apps_ipa_tx_complete_notify);
@@ -4803,12 +4929,22 @@ int ipa3_wwan_set_modem_perf_profile(int throughput)
 static void ipa3_wake_tx_queue(struct work_struct *work)
 {
 	if (IPA_NETDEV()) {
-		__netif_tx_lock_bh(netdev_get_tx_queue(IPA_NETDEV(), 0));
+		__netif_tx_lock_bh(netdev_get_tx_queue(IPA_NETDEV(),
+			IPA_RMNET_TX_QUEUE_DEFAULT));
 		IPAWANDBG("Waking up the workqueue.\n");
-		netif_tx_wake_queue(netdev_get_tx_queue(IPA_NETDEV(), 0));
+		netif_tx_wake_queue(netdev_get_tx_queue(IPA_NETDEV(),
+			IPA_RMNET_TX_QUEUE_DEFAULT));
 		if (rmnet_ipa3_ctx->eth_wan_set || rmnet_ipa3_ctx->ipa_v2x_set)
-			netif_tx_wake_queue(netdev_get_tx_queue(IPA_NETDEV(), 1));
-		__netif_tx_unlock_bh(netdev_get_tx_queue(IPA_NETDEV(), 0));
+			netif_tx_wake_queue(netdev_get_tx_queue(IPA_NETDEV(),
+				IPA_RMNET_TX_QUEUE_V2X));
+		if (ipa_ipsec_enabled()) {
+			netif_tx_wake_queue(netdev_get_tx_queue(IPA_NETDEV(),
+				IPA_RMNET_TX_QUEUE_IPSEC_ENCAP));
+			netif_tx_wake_queue(netdev_get_tx_queue(IPA_NETDEV(),
+				IPA_RMNET_TX_QUEUE_IPSEC_DECAP));
+		}
+		__netif_tx_unlock_bh(netdev_get_tx_queue(IPA_NETDEV(),
+			IPA_RMNET_TX_QUEUE_DEFAULT));
 	}
 }
 
@@ -5423,7 +5559,11 @@ static int rmnet_ipa_ap_suspend(struct device *dev)
 	atomic_set(&rmnet_ipa3_ctx->ap_suspend, 1);
 	spin_lock_irqsave(&wwan_ptr->lock, flags);
 	/* Do not allow A7 to suspend in case there are outstanding packets */
-	if (atomic_read(&wwan_ptr->outstanding_pkts) != 0) {
+	if (!((atomic_read(&wwan_ptr->outstanding_pkts) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_eth) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_v2x) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_ipsec_encap) == 0) &&
+		(atomic_read(&wwan_ptr->outstanding_pkts_ipsec_decap) == 0))) {
 		IPAWANDBG("Outstanding packets, postponing AP suspend.\n");
 		ret = -EAGAIN;
 		atomic_set(&rmnet_ipa3_ctx->ap_suspend, 0);
