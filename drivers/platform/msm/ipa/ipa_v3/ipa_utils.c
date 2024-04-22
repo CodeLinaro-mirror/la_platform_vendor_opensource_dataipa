@@ -6754,6 +6754,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 39, 10, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
+	[IPA_6_0][IPA_CLIENT_ETHERNET_LOW_LAT_CONS] = {
+			true,   IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 40, 6, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_DL },
 	[IPA_6_0][IPA_CLIENT_USB2_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
@@ -9238,6 +9245,9 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(RESERVERD_PROD_144),
 	__stringify(IPA_CLIENT_Q6_CV2X_DECIPHER_CONS),
 	__stringify(IPA_CLIENT_ETHERNET_PROD1),
+	__stringify(RESERVERD_CONS_147),
+	__stringify(RESERVERD_PROD_148),
+	__stringify(IPA_CLIENT_ETHERNET_LOW_LAT_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -9534,7 +9544,8 @@ bool ipa3_should_pipe_be_suspended(enum ipa_client_type client)
 		client == IPA_CLIENT_ODU_EMB_CONS ||
 		client == IPA_CLIENT_ODU_TETH_CONS ||
 		client == IPA_CLIENT_ETHERNET_CONS ||
-		client == IPA_CLIENT_ETHERNET2_CONS)
+		client == IPA_CLIENT_ETHERNET2_CONS ||
+		client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS)
 		return true;
 
 	return false;
@@ -11055,6 +11066,7 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_ETHERNET_PROD:
 		case IPA_CLIENT_ETHERNET_CONS:
 		case IPA_CLIENT_ETHERNET2_CONS:
+		case IPA_CLIENT_ETHERNET_LOW_LAT_CONS:
 		case IPA_CLIENT_USB2_CONS:
 		case IPA_CLIENT_WLAN4_CONS:
 		case IPA_CLIENT_WLAN1_PROD:
@@ -16402,6 +16414,7 @@ int ipa3_get_prot_id(enum ipa_client_type client)
 	case IPA_CLIENT_ETHERNET_PROD:
 	case IPA_CLIENT_ETHERNET_CONS:
 	case IPA_CLIENT_ETHERNET_PROD1:
+	case IPA_CLIENT_ETHERNET_LOW_LAT_CONS:
 		prot_id = IPA_HW_PROTOCOL_ETH;
 		break;
 	case IPA_CLIENT_WIGIG_PROD:
@@ -16486,6 +16499,11 @@ void ipa_eth_ntn3_get_status(struct ipa_ntn3_client_stats *s, unsigned inst_id)
 		}
 		if (ezmesh)
 			__ipa_ntn3_prod_stats_get(&s->rx1_stats, IPA_CLIENT_ETHERNET_PROD1);
+
+		if (ipa3_ctx->tsn_iface)
+			__ipa_ntn3_cons_stats_get(
+				&s->tx1_stats,
+				IPA_CLIENT_ETHERNET_LOW_LAT_CONS);
 #endif
 	} else {
 		__ipa_ntn3_cons_stats_get(&s->tx_stats, IPA_CLIENT_ETHERNET2_CONS);
@@ -17604,10 +17622,11 @@ error:
 	return res;
 }
 
-void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx)
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx[])
 {
 	ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id = rx_idx;
-	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id = tx_idx;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id[0] = tx_idx[0];
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id[1] = tx_idx[1];
 }
 EXPORT_SYMBOL(ipa3_update_eth_pdu_ep_index);
 

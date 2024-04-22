@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -49,7 +49,8 @@
 	(client) == IPA_CLIENT_RTK_ETHERNET_CONS || \
 	(client) == IPA_CLIENT_ETHERNET_PROD || \
 	(client) == IPA_CLIENT_ETHERNET_CONS || \
-	(client) == IPA_CLIENT_ETHERNET_PROD1 )
+	(client) == IPA_CLIENT_ETHERNET_PROD1 || \
+	(client) == IPA_CLIENT_ETHERNET_LOW_LAT_CONS)
 
 #define IPA_CLIENT_IS_SMMU_ETH1_INSTANCE(client) \
 	((client) == IPA_CLIENT_ETHERNET2_PROD || \
@@ -71,8 +72,10 @@ static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys
 	cb->m_map[instance_id][dir][traffic_type].m_size = len;
 }
 
-static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_addr_t pa, size_t len,
-	bool device, unsigned long *iova, int instance_id, enum ipa_eth_pipe_direction dir, enum ipa_eth_pipe_traffic_type traffic_type)
+static int ipa_iemac_smmu_cb_add_mapping_pa(
+	enum ipa_smmu_cb_type cb_type, phys_addr_t pa, size_t len, bool device,
+	unsigned long *iova, int instance_id, enum ipa_eth_pipe_direction dir,
+	enum ipa_eth_pipe_traffic_type traffic_type)
 {
 	struct ipa_smmu_cb_ctx *cb;
 	unsigned long va, eth_next_addr;
@@ -112,7 +115,8 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 	 * Assuming each IEMAC client does maximum of 1 mapping with
 	 * constant size per direction.
 	 */
-	eth_next_addr = cb->va_end + eth_offset + PAGE_SIZE * (2 * instance_id + dir + traffic_type);
+	eth_next_addr = cb->va_end + eth_offset +
+			PAGE_SIZE * (2 * instance_id + dir + 2 * traffic_type);
 	va = roundup(eth_next_addr, PAGE_SIZE);
 	if (len > PAGE_SIZE)
 		va = roundup(eth_next_addr, len);
@@ -965,6 +969,9 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		goto fail_get_gsi_ep_info;
 	} else
 		gsi_channel_props.ch_id = gsi_ep_info->ipa_gsi_chan_num;
+ 	if ((ipa3_ctx->tsn_iface == true ) &&
+		(ep->client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS))
+ 		gsi_channel_props.low_latency_en = 1;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
 	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
 	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;

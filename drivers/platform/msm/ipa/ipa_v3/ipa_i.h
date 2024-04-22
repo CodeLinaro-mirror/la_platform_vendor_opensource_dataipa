@@ -2271,6 +2271,7 @@ struct ipa_ntn3_client_stats {
 	struct ipa_ntn3_stats_rx rx_stats;
 	struct ipa_ntn3_stats_rx rx1_stats;
 	struct ipa_ntn3_stats_tx tx_stats;
+	struct ipa_ntn3_stats_tx tx1_stats;
 };
 #if defined(CONFIG_IPA_TSP)
 struct ipa3_tsp_ctx {
@@ -2428,8 +2429,9 @@ struct ipa_msgq_desc {
 struct ipa3_eth_pdu_ctx {
 	bool eth_pdu_mode_enabled;
 	enum ipa_eth_hw_config_enum_v01 eth_pdu_vlan_mode;
-	int eth_pdu_tx_ep_id;
-	int eth_pdu_rx_ep_id;
+	int eth_pdu_tx_ep_id[2]; /* best effort and low latency pipes */
+	int eth_pdu_rx_ep_id; /* best effort pipe only currently */
+
 };
 
 /**
@@ -2723,6 +2725,7 @@ struct ipa3_context {
 	struct mutex ipa_cne_evt_lock;
 	bool vlan_mode_iface[IPA_VLAN_IF_MAX];
 	bool spcl_iface[IPA_VLAN_IF_MAX];
+	bool tsn_iface;
 	bool wdi_over_pcie;
 	u32 entire_ipa_block_size;
 	bool do_register_collection_on_crash;
@@ -4283,7 +4286,10 @@ int ipa3_send_macsec_info(enum ipa_macsec_event event_type, struct ipa_macsec_ma
  */
 int ipa3_add_remove_dscp_pcp_map(
 	uint8_t *map, bool AddMapping );
-
+/*
+ * To send tsn enable notification to uC
+ */
+int ipa3_notify_uc_tsn_enable(void);
 /* Peripheral stats APIs */
 /* Non periodic/Event based stats update */
 int ipa3_update_usb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
@@ -4294,7 +4300,7 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
-void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx[]);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
 void ipa3_set_eth_pdu_ep_status(void);

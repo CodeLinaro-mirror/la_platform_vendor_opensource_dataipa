@@ -40,9 +40,10 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
-#define IPA_ETH_PIPES_NO 9
+#define IPA_ETH_PIPES_NO 10
 #define DMA_NUM_CHANNEL_EZMESH 4
 #define DMA_NUM_CHANNEL_DEFAULT 2
+#define DMA_NUM_CHANNEL_TSN 3
 
 struct ipa_eth_ready_cb_wrapper {
 	struct list_head link;
@@ -120,6 +121,9 @@ static u8 client_to_pipe_index(enum ipa_client_type client_type)
 		break;
 	case IPA_CLIENT_ETHERNET_PROD1:
 		return 8;
+		break;
+	case IPA_CLIENT_ETHERNET_LOW_LAT_CONS:
+		return 9;
 		break;
 	default:
 		IPAERR("invalid eth client_type\n");
@@ -429,24 +433,50 @@ static enum ipa_client_type
 		if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT) {
 			if (client->inst_id == 0) {
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-					ipa_client_type = IPA_CLIENT_ETHERNET_CONS;
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET_CONS;
 				} else {
-					ipa_client_type = IPA_CLIENT_ETHERNET_PROD;
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET_PROD;
 				}
 			} else if (client->inst_id == 1) {
+				if (ipa3_ctx->tsn_iface &&
+				    client->client_type ==
+					    IPA_ETH_CLIENT_IEMAC) {
+					IPA_ETH_ERR(
+						"TSN mode doesnot support inst1\n");
+					return IPA_CLIENT_MAX;
+				}
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-					ipa_client_type = IPA_CLIENT_ETHERNET2_CONS;
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET2_CONS;
 				} else {
-					ipa_client_type = IPA_CLIENT_ETHERNET2_PROD;
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET2_PROD;
+				}
+			}
+		} else if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN) {
+			if (client->inst_id == 0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET_CONS;
+				} else {
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET_PROD1;
 				}
 			}
 		}
-		else if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN) {
+		if ((ipa3_ctx->tsn_iface) &&
+		    (traffic_type == IPA_ETH_PIPE_LOW_LATENCY) &&
+		    (client->client_type == IPA_ETH_CLIENT_IEMAC)) {
 			if (client->inst_id == 0) {
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-					ipa_client_type = IPA_CLIENT_ETHERNET_CONS;
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET_LOW_LAT_CONS;
 				} else {
-					ipa_client_type = IPA_CLIENT_ETHERNET_PROD1;
+					IPA_ETH_ERR(
+						"TSN mode rx low lat pipe not supported\n");
+					ipa_client_type = IPA_CLIENT_MAX;
 				}
 			}
 		}
@@ -707,7 +737,8 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 {
 	struct ipa_eth_client_pipe_info *pipe;
 	int rc;
-	int client_type, inst_id, ep_idx, rx_idx = 0, tx_idx = 0;
+	int client_type, inst_id, traff_type, ep_idx, rx_idx = 0,
+						      tx_idx[2] = { 0 };
 	struct ipa_endp_desc_indication_msg_v01 req;
 	struct ipa_ep_id_type_v01 *ep_info;
 	enum ipa_client_type ipa_client;
@@ -737,8 +768,15 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 	ipa_eth_ctx->client_priv = client->priv;
 	client_type = client->client_type;
 	inst_id = client->inst_id;
-	IPA_ETH_DBG("ipa_eth conn client %d inst %d\n",
-		client_type, inst_id);
+
+#if IPA_ETH_API_VER >= 3
+	IPA_ETH_DBG("ipa_eth conn client %d inst %d\n", client_type, inst_id);
+#else
+	traff_type = client->traffic_type;
+	IPA_ETH_DBG("ipa_eth conn client %d inst %d, traffic %d\n",
+			client_type, inst_id, traff_type);
+#endif
+
 	mutex_lock(&ipa_eth_ctx->lock);
 	rc = ipa_eth_pm_register(client);
 	if (rc) {
@@ -748,9 +786,9 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 	}
 	list_for_each_entry(pipe, &client->pipe_list,
 		link) {
+#if IPA_ETH_API_VER >= 3
 		IPA_ETH_DBG("Eth connect pipe %p traffic_type %d dir %d\n",
 				pipe, pipe->traffic_type, pipe->dir);
-#if IPA_ETH_API_VER >= 3
 		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 			IPA_ETH_DBG("Vlan cons pipe..traffic_type %d dir %d continue... %d \n", pipe->traffic_type, pipe->dir);
 			continue;
@@ -762,15 +800,23 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 			ipa_assert();
 		}
 
-		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
-		{
-			//populate the QMI
-			ipa_client = ipa_eth_get_ipa_client_type_from_pipe(pipe);
+#if IPA_ETH_API_VER >= 3
+		traff_type = pipe->traffic_type;
+		IPA_ETH_DBG("ipa_eth conn traffic %d\n", traff_type);
+#endif
+
+		if ((ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) &&
+		    (traff_type == IPA_ETH_PIPE_BEST_EFFORT)) {
+			/* populate the QMI */
+			ipa_client =
+				ipa_eth_get_ipa_client_type_from_pipe(pipe);
 			ep_idx = ipa_get_ep_mapping(ipa_client);
 
 			/* NOTE: Only support single NIC for eth_pdu */
-			if ((IPA_CLIENT_IS_PROD(ipa_client) && tx_idx) && (IPA_CLIENT_IS_CONS(ipa_client) && rx_idx)) {
-				IPAERR("QMI already set for ETH PDU tx id:%d rx id:%d\n",tx_idx, rx_idx);
+			if ((IPA_CLIENT_IS_PROD(ipa_client) && tx_idx[0]) &&
+			    (IPA_CLIENT_IS_CONS(ipa_client) && rx_idx)) {
+				IPAERR("QMI already set for ETH PDU tx id:%d rx id:%d\n",
+				       tx_idx[0], rx_idx);
 				continue;
 			}
 			req.ep_info_len++;
@@ -782,12 +828,45 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 			ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
 
 			if (IPA_CLIENT_IS_PROD(ipa_client)) {
-				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
+				ep_info->ep_type =
+					DATA_EP_DESC_TYPE_TETH_CONS_V01;
 				rx_idx = ep_idx;
+			} else if (IPA_CLIENT_IS_CONS(ipa_client)) {
+				ep_info->ep_type =
+					DATA_EP_DESC_TYPE_TETH_PROD_V01;
+				tx_idx[0] = ep_idx;
 			}
-			else if (IPA_CLIENT_IS_CONS(ipa_client)) {
-				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
-				tx_idx = ep_idx;
+			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+		} else if ((ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) &&
+			   (traff_type == IPA_ETH_PIPE_LOW_LATENCY)) {
+			/* Populate the QMI */
+			ipa_client =
+				ipa_eth_get_ipa_client_type_from_pipe(pipe);
+			ep_idx = ipa_get_ep_mapping(ipa_client);
+
+			if (IPA_CLIENT_IS_PROD(ipa_client)) {
+				IPAERR("TSN rx not supported\n");
+				return -EFAULT;
+			}
+
+			/* NOTE: Only support single NIC for eth_pdu tsn*/
+			if (IPA_CLIENT_IS_CONS(ipa_client) && tx_idx[1]) {
+				IPAERR("QMI already set for ETH PDU tsn tx id:%d \n",
+				       tx_idx[1]);
+				continue;
+			}
+			req.ep_info_len++;
+			req.ep_info_valid = true;
+			req.num_eps_valid = true;
+			req.num_eps++;
+			ep_info = &req.ep_info[req.ep_info_len - 1];
+			ep_info->ep_id = ep_idx;
+			ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+
+			if (IPA_CLIENT_IS_CONS(ipa_client)) {
+				ep_info->ep_type =
+					DATA_EP_DESC_TYPE_TETH_LL_PROD_V01;
+				tx_idx[1] = ep_idx;
 			}
 			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
 		}
@@ -816,6 +895,7 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 {
 	int rc;
+	int rx_idx = 0,tx_idx[2] = {0};
 	struct ipa_eth_client_pipe_info *pipe;
 	struct ipa_ep_cfg_holb holb;
 
@@ -834,8 +914,16 @@ static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 		IPA_ETH_ERR("disconn called before IPA eth ready\n");
 		return -EFAULT;
 	}
+
+#if IPA_ETH_API_VER >= 3
 	IPA_ETH_DBG("ipa_eth disconn client %d inst %d\n",
 		client->client_type, client->inst_id);
+#else
+	IPA_ETH_DBG("ipa_eth disconn client %d inst %d, traffic %d\n",
+		client->client_type, client->inst_id,
+		client->traffic_type);
+#endif
+
 	mutex_lock(&ipa_eth_ctx->lock);
 
 	/* set holb on tx pipes first */
@@ -843,6 +931,10 @@ static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 		link) {
 		if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
 		{
+#if IPA_ETH_API_VER >= 3
+			IPA_ETH_DBG("ipa_eth disconn traffic %d\n",
+				    pipe->traffic_type);
+#endif
 			IPA_ETH_DBG("Set holb on pipe = %d, pipe->dir = %d \n",
 				ipa_get_ep_mapping(ipa_eth_get_ipa_client_type_from_pipe(pipe)),
 				pipe->dir);
@@ -874,7 +966,7 @@ static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 	}
 
 	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
-		ipa3_update_eth_pdu_ep_index(0, 0);
+		ipa3_update_eth_pdu_ep_index(rx_idx, tx_idx);
 
 	mutex_unlock(&ipa_eth_ctx->lock);
 	return 0;
@@ -1498,11 +1590,11 @@ static int ipa_eth_get_config_type_internal(
 
 	/* Check if the interface is an ezmesh iface */
 #if IPA_ETH_API_VER >= 3
-	if((IPA_ETH_CLIENT_IEMAC == client_type) &&
-	   (0 == inst_id)){
+	if ((IPA_ETH_CLIENT_IEMAC == client_type) && (0 == inst_id) &&
+		!ipa3_ctx->tsn_iface) {
 		ret = ipa3_is_spcl_iface(IPA_VLAN_IF_ETH0, &ezmesh);
 		if (ret) {
-			IPA_ETH_ERR("Could not determine IPA ezmesh mode\n");
+			IPA_ETH_ERR("Could not determine special iface\n");
 			return ret;
 		}
 	}
@@ -1525,8 +1617,28 @@ static int ipa_eth_get_config_type_internal(
 		eth_config->dma_config[3].traffic_type = IPA_ETH_PIPE_BEST_EFFORT_VLAN;
 
 		IPA_ETH_DBG("Ezmesh configuration for client %d, inst_id %d\n", client_type, inst_id);
-	}
-	else {
+	} else if (ipa3_ctx->tsn_iface) {
+		snprintf(eth_config->config, sizeof(eth_config->config), "tsn");
+		eth_config->num_dma_channel = DMA_NUM_CHANNEL_TSN;
+
+		ipa3_notify_uc_tsn_enable();
+
+		eth_config->dma_config[0].dir = IPA_ETH_PIPE_DIR_TX;
+		eth_config->dma_config[0].traffic_type =
+			IPA_ETH_PIPE_BEST_EFFORT;
+
+		eth_config->dma_config[1].dir = IPA_ETH_PIPE_DIR_RX;
+		eth_config->dma_config[1].traffic_type =
+			IPA_ETH_PIPE_BEST_EFFORT;
+
+		eth_config->dma_config[2].dir = IPA_ETH_PIPE_DIR_TX;
+		eth_config->dma_config[2].traffic_type =
+			IPA_ETH_PIPE_LOW_LATENCY;
+
+		IPA_ETH_DBG("TSN configuration for client %d, inst_id %d\n",
+			    client_type, inst_id);
+
+	} else {
 		snprintf(eth_config->config, sizeof(eth_config->config), "default");
 		eth_config->num_dma_channel = DMA_NUM_CHANNEL_DEFAULT;
 

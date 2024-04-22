@@ -163,7 +163,7 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 	}
 
 
-	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id &&
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id[0] &&
 		ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
 	{
 		/* if eth is connected before qmim need to send QMI for eth endpoint */
@@ -183,9 +183,20 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 		endp_ind.num_eps++;
 		ep_info = &endp_ind.ep_info[endp_ind.ep_info_len - 1];
 		ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
-		ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id;
+		ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id[0];
 		ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
 		ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+
+		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id[1]) {
+			endp_ind.ep_info_len++;
+			endp_ind.num_eps++;
+			ep_info = &endp_ind.ep_info[endp_ind.ep_info_len - 1];
+			ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_LL_PROD_V01;
+			ep_info->ep_id =
+				ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id[1];
+			ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+		}
 
 		if (ipa3_qmi_send_endp_desc_indication(&endp_ind))
 			IPAWANERR("Failed to send eth pipe endp desc QMI\n");

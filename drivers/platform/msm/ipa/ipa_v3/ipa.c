@@ -9793,9 +9793,13 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			}
 			return count;
 		}
+
+		else if (strnstr(dbg_buff, "tsn", strlen(dbg_buff))) {
+			/* Enable tsn mode. */
+			ipa3_ctx->tsn_iface = true;
+			return count;
+		}
 #endif
-
-
 		/* trim ending newline character if any */
 		if (count && (dbg_buff[count - 1] == '\n'))
 			dbg_buff[count - 1] = '\0';
