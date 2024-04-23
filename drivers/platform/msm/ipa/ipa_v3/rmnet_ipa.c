@@ -1844,6 +1844,12 @@ void apps_ipa_packet_receive_notify(void *priv,
 
 		IPAWANDBG_LOW("Rx packet was received");
 		skb->dev = IPA_NETDEV();
+		if (skb->dev == NULL) {
+			IPAERR ("rmnet interface is down, packet cannot be forwarded to"
+				"network stack\n");
+			kfree_skb(skb);
+			return;
+		}
 		if (!rmnet_ipa3_ctx->no_qmap_config)
 			skb->protocol = htons(ETH_P_MAP);
 
@@ -2908,7 +2914,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
 #ifdef CONFIG_IPA_IPSEC
-		if (ipa_ipsec_initialized()) {
+		if (ipa_ipsec_enabled()) {
 			rc = ipa_ipsec_install_dl_pol_flt();
 			if (rc)
 				IPAWANERR("IPsec DL policy FLT init failed = %d\n", rc);
