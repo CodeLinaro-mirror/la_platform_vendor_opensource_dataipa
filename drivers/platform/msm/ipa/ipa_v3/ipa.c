@@ -4708,6 +4708,9 @@ send:
 			break;
 		}
 		break;
+	case IPA_IOC_UPDATE_L2TP_CONFIG:
+		retval = ipa3_update_l2tp_config(arg);
+		break;
 
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();

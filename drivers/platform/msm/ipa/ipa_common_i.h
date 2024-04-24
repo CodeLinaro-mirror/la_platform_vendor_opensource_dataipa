@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_COMMON_I_H_
@@ -720,6 +720,8 @@ int ipa3_start_gsi_channel(u32 clnt_hdl);
 int ipa_smmu_store_sgt(struct sg_table **out_ch_ptr,
 		struct sg_table *in_sgt_ptr);
 int ipa_smmu_free_sgt(struct sg_table **out_sgt_ptr);
+
+int ipa3_update_l2tp_config(uint32_t client);
 
 #ifdef CONFIG_IPA_UT
 int ipa_ut_module_init(void);
