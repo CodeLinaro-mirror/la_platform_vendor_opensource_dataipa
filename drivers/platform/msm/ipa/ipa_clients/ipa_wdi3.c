@@ -58,7 +58,7 @@
 /**
  * No. of filters reserving at wlan for IPA-XR usecase.
  */
-#define NO_OF_FILTERS		4
+#define NO_OF_FILTERS		2
 
 static void ipa_xr_wdi_opt_dpath_rsrv_filter_wq_handler(struct work_struct *work);
 static struct workqueue_struct *wlan_flt_rsrv_wq = NULL;
