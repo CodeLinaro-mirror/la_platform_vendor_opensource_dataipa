@@ -465,12 +465,19 @@ static int ipa3_aux_napi_poll_tx_complete(struct napi_struct *napi_tx,
 	if (tx_done < budget) {
 		napi_complete(napi_tx);
 		ret = ipa3_tx_switch_to_intr_mode(sys);
-
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 		/* if we got an EOT while we marked NAPI as complete */
 		if (ret == -GSI_STATUS_PENDING_IRQ && napi_reschedule(napi_tx)) {
-			/* rescheduale will perform poll again, don't dec vote twice*/
+			/* reschedule will perform poll again, don't dec vote twice*/
 			napi_rescheduled = true;
 		}
+#else
+		/* if we got an EOT while we marked NAPI as complete */
+		if (ret == -GSI_STATUS_PENDING_IRQ && napi_schedule(napi_tx)) {
+			/* reschedule will perform poll again, don't dec vote twice*/
+			napi_rescheduled = true;
+		}
+#endif
 
 		if(!napi_rescheduled)
 			IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(sys->ep->client);
@@ -515,13 +522,21 @@ poll_tx:
 	if (tx_done < budget) {
 		napi_complete(napi_tx);
 		atomic_set(&sys->in_napi_context, 0);
-
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 		/*if we got an EOT while we marked NAPI as complete*/
 		if (atomic_read(&sys->xmit_eot_cnt) > 0 &&
 		    !atomic_cmpxchg(&sys->in_napi_context, 0, 1)
 		    && napi_reschedule(napi_tx)) {
 			goto poll_tx;
 		}
+#else
+		/*if we got an EOT while we marked NAPI as complete*/
+		if (atomic_read(&sys->xmit_eot_cnt) > 0 &&
+		    !atomic_cmpxchg(&sys->in_napi_context, 0, 1)
+		    && napi_schedule(napi_tx)) {
+			goto poll_tx;
+		}
+#endif
 	}
 	IPADBG_LOW("the number of tx completions is: %d", tx_done);
 	return min(tx_done, budget);
@@ -7590,10 +7605,15 @@ start_poll:
 		napi_complete(ep->sys->napi_obj);
 		IPA_STATS_INC_CNT(ep->sys->napi_comp_cnt);
 		ret = ipa3_rx_switch_to_intr_mode(ep->sys);
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 		if (ret == -GSI_STATUS_PENDING_IRQ &&
 				napi_reschedule(ep->sys->napi_obj))
 			goto start_poll;
-
+#else
+		if (ret == -GSI_STATUS_PENDING_IRQ &&
+				napi_schedule(ep->sys->napi_obj))
+			goto start_poll;
+#endif
 		IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(ep->client);
 	}
 
@@ -7695,9 +7715,15 @@ start_poll:
 		napi_complete(ep->sys->napi_obj);
 		IPA_STATS_INC_CNT(ep->sys->napi_comp_cnt);
 		ret = ipa3_rx_switch_to_intr_mode(ep->sys);
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 		if (ret == -GSI_STATUS_PENDING_IRQ &&
 				napi_reschedule(ep->sys->napi_obj))
 			goto start_poll;
+#else
+		if (ret == -GSI_STATUS_PENDING_IRQ &&
+				napi_schedule(ep->sys->napi_obj))
+			goto start_poll;
+#endif
 		IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(ep->client);
 	} else {
 		cnt = weight;
@@ -7924,9 +7950,15 @@ start_poll:
 		napi_complete(napi_rx);
 		IPA_STATS_INC_CNT(sys->napi_comp_cnt);
 		ret = ipa3_rx_switch_to_intr_mode(sys);
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 		if (ret == -GSI_STATUS_PENDING_IRQ &&
 				napi_reschedule(napi_rx))
 			goto start_poll;
+#else
+		if (ret == -GSI_STATUS_PENDING_IRQ &&
+				napi_schedule(napi_rx))
+			goto start_poll;
+#endif
 		IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(sys->ep->client);
 	} else {
 		cnt = budget;
