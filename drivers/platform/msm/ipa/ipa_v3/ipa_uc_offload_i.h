@@ -187,8 +187,12 @@ enum ipa3_hw_errors {
  * The shared memory is used for communication between IPA HW and CPU.
  */
 struct IpaHwSharedMemCommonMapping_t {
+#ifdef CONFIG_IPA_RTP
+	u16  cmdOp;
+#else
 	u8  cmdOp;
 	u8  reserved_01;
+#endif
 	u16 reserved_03_02;
 	u32 cmdParams;
 	u32 cmdParams_hi;

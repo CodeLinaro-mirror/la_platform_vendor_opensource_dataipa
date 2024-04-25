@@ -483,7 +483,7 @@ static int ipa3_uc_setup_prod_pipe_transfer_ring(
 	}
 
 	ring.size = sizeof(struct prod_pipe_tre) * IPA_UC_PROD_TRANSFER_RING_SIZE;
-	ring.base = dma_alloc_coherent(ipa3_ctx->pdev, ring.size,
+	ring.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, ring.size,
 		&ring.phys_base, GFP_KERNEL);
 	if (ring.base == NULL) {
 		IPAERR("dma alloc coherent failed.\n");
@@ -521,7 +521,7 @@ static int ipa3_uc_setup_prod_pipe_event_ring(
 	}
 
 	ring.size = sizeof(struct prod_pipe_tre) * IPA_UC_PROD_EVENT_RING_SIZE;
-	ring.base = dma_alloc_coherent(ipa3_ctx->pdev, ring.size,
+	ring.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, ring.size,
 		&ring.phys_base, GFP_KERNEL);
 	if (ring.base == NULL) {
 		IPAERR("dma alloc coherent failed.\n");
@@ -546,7 +546,7 @@ static int ipa3_uc_setup_con_pipe_transfer_ring(
 	}
 
 	ring.size = sizeof(struct con_pipe_tre) * IPA_UC_CON_TRANSFER_RING_SIZE;
-	ring.base = dma_alloc_coherent(ipa3_ctx->pdev, ring.size,
+	ring.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, ring.size,
 		&ring.phys_base, GFP_KERNEL);
 	if (ring.base == NULL) {
 		IPAERR("dma alloc coherent failed.\n");
@@ -566,20 +566,32 @@ void ipa3_free_uc_pipes_er_tr(void)
 
 	for (index = 0; index < er_tr_cpu_addresses.no_buffs; index++) {
 		if (index < MAX_UC_PROD_PIPES_TR_INDEX) {
-			dma_free_coherent(ipa3_ctx->pdev,
+			dma_free_coherent(ipa3_ctx->uc_pdev,
 			er_tr_cpu_addresses.rtp_tr_er.uc_prod_tr[index].temp_buff_size,
 			er_tr_cpu_addresses.cpu_address[index],
 			er_tr_cpu_addresses.rtp_tr_er.uc_prod_tr[index].temp_buff_pa);
-		} else if (index < MAX_UC_PROD_PIPES_ER_INDEX) {
-			dma_free_coherent(ipa3_ctx->pdev,
-			er_tr_cpu_addresses.rtp_tr_er.uc_prod_er[index].temp_buff_size,
+		} else if (index >= MAX_UC_PROD_PIPES_TR_INDEX &&
+				index < MAX_UC_PROD_PIPES_ER_INDEX) {
+			/* subtracting MAX_UC_PROD_TR_INDEX here because,
+			 * uc_prod_er[] is of size MAX_UC_PROD_PIPES only
+			 */
+			dma_free_coherent(ipa3_ctx->uc_pdev,
+			er_tr_cpu_addresses.rtp_tr_er.uc_prod_er[index
+					-MAX_UC_PROD_PIPES_TR_INDEX].temp_buff_size,
 			er_tr_cpu_addresses.cpu_address[index],
-			er_tr_cpu_addresses.rtp_tr_er.uc_prod_er[index].temp_buff_pa);
-		} else if (index < MAX_UC_CONS_PIPES_TR_INDEX) {
-			dma_free_coherent(ipa3_ctx->pdev,
-			er_tr_cpu_addresses.rtp_tr_er.uc_cons_tr[index].temp_buff_size,
+			er_tr_cpu_addresses.rtp_tr_er.uc_prod_er[index
+					-MAX_UC_PROD_PIPES_TR_INDEX].temp_buff_pa);
+		} else if (index >= MAX_UC_PROD_PIPES_ER_INDEX &&
+				index < MAX_UC_CONS_PIPES_TR_INDEX) {
+			/* subtracting MAX_UC_PROD_TR_INDEX here because,
+			 * uc_cons_tr[] is of size MAX_UC_CONS_PIPES only
+			 */
+			dma_free_coherent(ipa3_ctx->uc_pdev,
+			er_tr_cpu_addresses.rtp_tr_er.uc_cons_tr[index
+					-MAX_UC_PROD_PIPES_ER_INDEX].temp_buff_size,
 			er_tr_cpu_addresses.cpu_address[index],
-			er_tr_cpu_addresses.rtp_tr_er.uc_cons_tr[index].temp_buff_pa);
+			er_tr_cpu_addresses.rtp_tr_er.uc_cons_tr[index
+					-MAX_UC_PROD_PIPES_ER_INDEX].temp_buff_pa);
 		}
 	}
 }
