@@ -4367,6 +4367,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
 
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0) {
+			/*
+			 * Making false as we are auto learning
+			 * the tunnel info
+			 */
+			send2ipacm = false;
+		}
+
 		ipa3_ctx->eogre_enabled = (retval == 0);
 
 		if (retval == 0 && send2uC == true) {
@@ -4375,6 +4383,11 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			 */
 			retval = ipa3_add_dscp_vlan_pcp_map(
 				&eogre_info.map_info);
+			/*
+			 * send notification to ipacm to post eogre_down
+			 * and eogre_up to get proper qmap_id
+			 */
+			retval = ipa3_send_eogre_notify(IPA_EoGRE_NOTIFY_EVENT);
 		}
 
 		if (retval == 0 && send2ipacm == true) {
@@ -4396,6 +4409,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		memset(&eogre_info, 0, sizeof(eogre_info));
 
 		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0) {
+			/*
+			 * Making false as we are auto learning
+			 * the tunnel info
+			 */
+			send2ipacm = false;
+		}
 
 		if (retval == 0 && send2uC == true) {
 			/*

@@ -4267,6 +4267,11 @@ int ipa3_add_dscp_vlan_pcp_map(
 int ipa3_send_eogre_info(
 	enum ipa_eogre_event etype,
 	struct ipa_ioc_eogre_info *info );
+/*
+ * To send notification to ipacm to do eogre_down() and eogre_up()
+ */
+int ipa3_send_eogre_notify(
+		enum ipa_eogre_event etype);
 
 /* update mhi ctrl pipe state */
 void ipa3_update_mhi_ctrl_state(u8 state, bool set);
