@@ -600,6 +600,69 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_packet_init_ex_v5_5(
 	return pyld;
 }
 
+static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_packet_init_ex_v6_0(
+	enum ipahal_imm_cmd_name cmd, const void *params, bool is_atomic_ctx)
+{
+	struct ipahal_imm_cmd_pyld *pyld;
+	struct ipa_imm_cmd_hw_ip_packet_init_ex_v6_0 *data;
+	struct ipahal_imm_cmd_ip_packet_init_ex *packet_init_ex_params =
+		(struct ipahal_imm_cmd_ip_packet_init_ex *)params;
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
+	if (unlikely(!pyld)) {
+		IPAHAL_ERR("kzalloc err\n");
+		return pyld;
+	}
+	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
+	pyld->len = sizeof(*data);
+	data = (struct ipa_imm_cmd_hw_ip_packet_init_ex_v6_0 *)pyld->data;
+
+	data->frag_disable = packet_init_ex_params->frag_disable;
+	data->filter_disable = packet_init_ex_params->filter_disable;
+	data->nat_disable = packet_init_ex_params->nat_disable;
+	data->route_disable = packet_init_ex_params->route_disable;
+	data->hdr_removal_insertion_disable =
+	packet_init_ex_params->hdr_removal_insertion_disable;
+	data->cs_disable = packet_init_ex_params->cs_disable;
+	data->quota_tethering_stats_disable =
+	packet_init_ex_params->quota_tethering_stats_disable;
+	data->dpl_disable = packet_init_ex_params->dpl_disable;
+	data->flt_rt_tbl_idx = packet_init_ex_params->flt_rt_tbl_idx;
+	data->flt_stats_cnt_idx = packet_init_ex_params->flt_stats_cnt_idx;
+	data->flt_priority = packet_init_ex_params->flt_priority;
+	data->flt_ext_hdr = packet_init_ex_params->flt_ext_hdr;
+	data->flt_close_aggr_irq_mod =
+	packet_init_ex_params->flt_close_aggr_irq_mod;
+	/* rule id value of 0x3FF is required */
+	/*  (if not set correctly, filtering stats may be updated) */
+	data->flt_rule_id = 0x3FF;
+	data->flt_action = packet_init_ex_params->flt_action;
+	data->flt_pdn_idx = packet_init_ex_params->flt_pdn_idx;
+	data->flt_set_metadata = packet_init_ex_params->flt_set_metadata;
+	data->flt_retain_hdr = packet_init_ex_params->flt_retain_hdr;
+	data->flt_ttl = packet_init_ex_params->flt_ttl;
+	data->flt_qos_class = packet_init_ex_params->flt_qos_class;
+	data->flt_esp_after_udp = packet_init_ex_params->flt_esp_after_udp;
+	data->rt_pipe_dest_idx = packet_init_ex_params->rt_pipe_dest_idx;
+	data->rt_stats_cnt_idx = packet_init_ex_params->rt_stats_cnt_idx;
+	data->rt_priority = packet_init_ex_params->rt_priority;
+	data->rt_ext_hdr = packet_init_ex_params->rt_ext_hdr;
+	data->rt_close_aggr_irq_mod =
+		packet_init_ex_params->rt_close_aggr_irq_mod;
+	/* rule id value of 0x3FF is required */
+	/*  (if not set correctly, filtering stats may be updated) */
+	data->rt_rule_id = 0x3FF;
+	data->rt_hdr_offset = packet_init_ex_params->rt_hdr_offset;
+	data->rt_proc_ctx = packet_init_ex_params->rt_proc_ctx;
+	data->rt_retain_hdr = packet_init_ex_params->rt_retain_hdr;
+	data->rt_system = packet_init_ex_params->rt_system;
+	data->rt_ttl = packet_init_ex_params->rt_ttl;
+	data->rt_qos_class = packet_init_ex_params->rt_qos_class;
+	data->rt_skip_ingress = packet_init_ex_params->rt_skip_ingress;
+	data->rt_esp_after_udp = packet_init_ex_params->rt_esp_after_udp;
+	return pyld;
+}
+
 int ipa_imm_cmd_modify_ip_packet_init_ex(
 	enum ipahal_imm_cmd_name cmd,
 	const void *cmd_data,
@@ -684,6 +747,55 @@ static int ipa_imm_cmd_modify_ip_packet_init_ex_v5_5(
 	CHECK_SET_PARAM(rt_ttl, data, prms, mask);
 	CHECK_SET_PARAM(rt_qos_class, data, prms, mask);
 	CHECK_SET_PARAM(rt_skip_ingress, data, prms, mask);
+	return 0;
+}
+
+static int ipa_imm_cmd_modify_ip_packet_init_ex_v6_0(
+	enum ipahal_imm_cmd_name cmd,
+	const void *cmd_data,
+	const void *params,
+	const void *params_mask)
+{
+	struct ipa_imm_cmd_hw_ip_packet_init_ex_v6_0 *data =
+		(struct ipa_imm_cmd_hw_ip_packet_init_ex_v6_0 *)cmd_data;
+	struct ipahal_imm_cmd_ip_packet_init_ex *mask =
+		(struct ipahal_imm_cmd_ip_packet_init_ex *)params_mask;
+	struct ipahal_imm_cmd_ip_packet_init_ex *prms =
+		(struct ipahal_imm_cmd_ip_packet_init_ex *)params;
+
+	CHECK_SET_PARAM(frag_disable, data, prms, mask);
+	CHECK_SET_PARAM(filter_disable, data, prms, mask);
+	CHECK_SET_PARAM(nat_disable, data, prms, mask);
+	CHECK_SET_PARAM(route_disable, data, prms, mask);
+	CHECK_SET_PARAM(hdr_removal_insertion_disable, data, prms, mask);
+	CHECK_SET_PARAM(cs_disable, data, prms, mask);
+	CHECK_SET_PARAM(quota_tethering_stats_disable, data, prms, mask);
+	CHECK_SET_PARAM(dpl_disable, data, prms, mask);
+	CHECK_SET_PARAM(flt_rt_tbl_idx, data, prms, mask);
+	CHECK_SET_PARAM(flt_stats_cnt_idx, data, prms, mask);
+	CHECK_SET_PARAM(flt_priority, data, prms, mask);
+	CHECK_SET_PARAM(flt_close_aggr_irq_mod, data, prms, mask);
+	CHECK_SET_PARAM(flt_action, data, prms, mask);
+	CHECK_SET_PARAM(flt_pdn_idx, data, prms, mask);
+	CHECK_SET_PARAM(flt_set_metadata, data, prms, mask);
+	CHECK_SET_PARAM(flt_retain_hdr, data, prms, mask);
+	CHECK_SET_PARAM(rt_pipe_dest_idx, data, prms, mask);
+	CHECK_SET_PARAM(rt_stats_cnt_idx, data, prms, mask);
+	CHECK_SET_PARAM(rt_priority, data, prms, mask);
+	CHECK_SET_PARAM(rt_close_aggr_irq_mod, data, prms, mask);
+	CHECK_SET_PARAM(rt_hdr_offset, data, prms, mask);
+	CHECK_SET_PARAM(rt_proc_ctx, data, prms, mask);
+	CHECK_SET_PARAM(rt_retain_hdr, data, prms, mask);
+	CHECK_SET_PARAM(rt_system, data, prms, mask);
+	CHECK_SET_PARAM(flt_ext_hdr, data, prms, mask);
+	CHECK_SET_PARAM(flt_ttl, data, prms, mask);
+	CHECK_SET_PARAM(flt_qos_class, data, prms, mask);
+	CHECK_SET_PARAM(rt_ext_hdr, data, prms, mask);
+	CHECK_SET_PARAM(rt_ttl, data, prms, mask);
+	CHECK_SET_PARAM(rt_qos_class, data, prms, mask);
+	CHECK_SET_PARAM(rt_skip_ingress, data, prms, mask);
+	CHECK_SET_PARAM(flt_esp_after_udp, data, prms, mask);
+	CHECK_SET_PARAM(rt_esp_after_udp, data, prms, mask);
 	return 0;
 }
 
@@ -1271,8 +1383,12 @@ static struct ipahal_imm_cmd_obj
 		ipa_imm_cmd_construct_ip_packet_init_ex_v5_5,
 		ipa_imm_cmd_modify_ip_packet_init_ex_v5_5,
 		18},
-	/* IPAv6_0 */
 
+	/* IPAv6_0 */
+	[IPA_HW_v6_0][IPA_IMM_CMD_IP_PACKET_INIT_EX] = {
+		ipa_imm_cmd_construct_ip_packet_init_ex_v6_0,
+		ipa_imm_cmd_modify_ip_packet_init_ex_v6_0,
+		18},
 	[IPA_HW_v6_0][IPA_IMM_CMD_IP_V4_FILTER_INIT] = {
 		ipa_imm_cmd_construct_ip_v4_filter_init_v6_0,
 		ipa_imm_cmd_modify_dummy,

@@ -74,6 +74,7 @@ enum ipa_ipsec_error_encap_code {
 	IPA_IPSEC_ERROR_CODE_DISCARD_RULE = 64,
 	IPA_IPSEC_ERROR_CODE_ENCAP_SA_DISABLED = 65,
 	IPA_IPSEC_ERROR_CODE_SEQ_NUM_OVERFLOW = 66,
+	IPA_IPSEC_ERROR_CODE_SEQ_NUM_EXCEED_MTU = 135,
 };
 
 enum ipa_ipsec_error_decap_code {
@@ -320,6 +321,7 @@ struct ipa_ipsec_encap_stats {
 	atomic_t ipsec_encap_xmit;
 	atomic_t error_code_encap_sa_disabled;
 	atomic_t error_code_seq_num_overflow;
+	atomic_t ipsec_excp_exceed_mtu;
 };
 
 struct ipa_ipsec_decap_stats {
@@ -344,8 +346,9 @@ struct ipa_ipsec_stats {
 	struct ipa_ipsec_encap_stats encap_stats[IPA_IPSEC_MAX_SA_NUM];
 	struct ipa_ipsec_decap_stats decap_stats[IPA_IPSEC_MAX_SA_NUM];
 
-	/* error_code_discard_rule come without SA */
+	/* General IPsec error codes (not related to SA index) */
 	atomic_t encap_error_code_discard_rule;
+	atomic_t error_code_frag;
 };
 
 /**
