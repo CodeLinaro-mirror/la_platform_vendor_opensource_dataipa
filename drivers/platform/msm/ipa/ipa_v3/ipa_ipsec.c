@@ -1202,6 +1202,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 	u8 ealg, aalg, eklen, aklen, ivlen, icvlen;
 	char *ekey, *akey;
 	u32 *salt;
+	struct ipa_mtu_info mtu_info;
 
 	IPADBG("Start\n");
 
@@ -1231,6 +1232,13 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		x->xso.offload_handle =
 			(unsigned long)IPA_IPSEC_MAX_SA_NUM | IPA_IPSEC_OFFLOAD_MAGIC;
 		return 0;
+	}
+
+	strlcpy(mtu_info.if_name, x->xso.dev->name, IPA_RESOURCE_NAME_MAX);
+	mtu_info.ip_type = x->props.family == AF_INET ? IPA_IP_v4 : IPA_IP_v6;
+	if (rmnet_ipa3_get_wan_mtu(&mtu_info) !=0) {
+		IPAERR("rmnet_ipa3_get_wan_mtu returned error\n");
+		return -EINVAL;
 	}
 
 	switch (ealg = _ipa_ipsec_xfrm_sa_enc_get(x)) {
@@ -1309,7 +1317,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		esa.stat.copy_dscp = !(x->props.extra_flags & XFRM_SA_XFLAG_DONT_ENCAP_DSCP);
 		esa.stat.copy_ecn = !(x->props.flags & XFRM_STATE_NOECN);
 		esa.stat.copy_flow_lbl = 0;
-		esa.stat.path_mtu = 2048;
+		esa.stat.path_mtu = x->props.family == AF_INET ? mtu_info.mtu_v4 : mtu_info.mtu_v6;
 		esa.stat.sa_life_bytes_wm =
 			x->lft.soft_byte_limit ? x->lft.soft_byte_limit : XFRM_INF;
 		esa.stat.sa_life_bytes =
