@@ -1505,7 +1505,9 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct ipa3_wwan_private *wwan_ptr = netdev_priv(dev);
 	unsigned long flags;
 	enum ipa_client_type dst_ipa_client = IPA_CLIENT_APPS_WAN_PROD;
+#ifdef CONFIG_IPA_IPSEC
 	u8 sa_idx = 0;
+#endif
 
 	if (rmnet_ipa3_ctx->ipa_config_is_apq) {
 		IPAWANERR_RL("IPA embedded data on APQ platform\n");
@@ -1727,13 +1729,17 @@ send:
 	 * after unlock
 	 */
 	if (ipsec_decap) {
-		atomic_inc(&wwan_ptr->outstanding_pkts_ipsec_decap);		
+		atomic_inc(&wwan_ptr->outstanding_pkts_ipsec_decap);
+#ifdef CONFIG_IPA_IPSEC
 		atomic_inc(
 			&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].ipsec_decap_xmit);
+#endif
 	} else if (ipsec_encap) {
 		atomic_inc(&wwan_ptr->outstanding_pkts_ipsec_encap);
+#ifdef CONFIG_IPA_IPSEC
 		atomic_inc(
 			&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_encap_xmit);
+#endif
 	} else if (v2x_check) {
 		atomic_inc(&wwan_ptr->outstanding_pkts_v2x);
 	} else if (eth_check) {
@@ -1758,15 +1764,19 @@ send:
 	if (ret) {
 		if (ipsec_decap) {
 			atomic_dec(&wwan_ptr->outstanding_pkts_ipsec_decap);
+#ifdef CONFIG_IPA_IPSEC
 			atomic_dec(
 				&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].ipsec_decap_xmit);
+#endif
 		} else if (ipsec_encap) {
 			atomic_dec(&wwan_ptr->outstanding_pkts_ipsec_encap);
+#ifdef CONFIG_IPA_IPSEC
 			atomic_dec(
 				&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_encap_xmit);
+#endif
 		} else if (v2x_check) {
 			atomic_dec(&wwan_ptr->outstanding_pkts_v2x);
-		} else if (eth_check) { 	
+		} else if (eth_check) {
 			atomic_dec(&wwan_ptr->outstanding_pkts_eth);
 		} else {
 			atomic_dec(&wwan_ptr->outstanding_pkts);
