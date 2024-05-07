@@ -10,6 +10,7 @@
 #include "../ipa_v3/ipa_pm.h"
 #include "../ipa_v3/ipa_i.h"
 #include <linux/ipa_eth.h>
+#include <linux/sort.h>
 
 #define OFFLOAD_DRV_NAME "ipa_eth"
 #define IPA_ETH_DBG(fmt, args...) \
@@ -40,7 +41,7 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
-#define IPA_ETH_PIPES_NO 10
+#define IPA_ETH_PIPES_NO 16
 #define DMA_NUM_CHANNEL_EZMESH 4
 #define DMA_NUM_CHANNEL_DEFAULT 2
 #define DMA_NUM_CHANNEL_TSN 3
@@ -75,6 +76,10 @@ struct ipa_eth_context {
 	spinlock_t idr_lock;
 	struct list_head head_intf_list;
 	void *client_priv;
+	struct ipa_eth_qos_info tx_qos_info[IPA_ETH_INST_ID_MAX][IPA_ETH_MAX_TX_DMA_CHANNEL_QOS];
+	struct ipa_eth_qos_info rx_qos_info[IPA_ETH_INST_ID_MAX][IPA_ETH_MAX_RX_DMA_CHANNEL_QOS];
+	u8 rx_num_pipes[IPA_ETH_INST_ID_MAX];
+	u8 tx_num_pipes[IPA_ETH_INST_ID_MAX];
 };
 
 static struct ipa_eth_context *ipa_eth_ctx;
@@ -91,6 +96,40 @@ static struct notifier_block uc_rdy_cb = {
 static DECLARE_WORK(ipa_eth_ready_notify, ipa_eth_ready_notify_work);
 
 static bool pipe_connected[IPA_ETH_PIPES_NO];
+
+static int eth_qos_cmp(const void *a, const void *b) {
+	if (((struct ipa_eth_qos_info *)a)->tc_bmap <= ((struct ipa_eth_qos_info *)b)->tc_bmap)
+		return 1;
+	return 0;
+}
+
+static void eth_qos_swap(void *a, void *b, int size) {
+	struct ipa_eth_qos_info temp;
+
+	temp = *((struct ipa_eth_qos_info *)b);
+	*((struct ipa_eth_qos_info *)b) = *((struct ipa_eth_qos_info *)a);
+	*((struct ipa_eth_qos_info *)a) = temp;
+
+	return;
+}
+
+static u8 eth_qos_get_tx_priority(u8 pipe_idx, u8 inst_id) {
+	int i;
+	for (i = 0; i < ipa_eth_ctx->tx_num_pipes[inst_id]; i++)
+		if (ipa_eth_ctx->tx_qos_info[inst_id][i].pipe_idx == pipe_idx)
+			return ipa_eth_ctx->tx_qos_info[inst_id][i].priority;
+	/* Return default priority. */
+	return 0;
+}
+
+static u8 eth_qos_get_rx_priority(u8 pipe_idx, u8 inst_id) {
+	int i;
+	for (i = 0; i < ipa_eth_ctx->rx_num_pipes[inst_id]; i++)
+		if (ipa_eth_ctx->rx_qos_info[inst_id][i].pipe_idx == pipe_idx)
+			return ipa_eth_ctx->rx_qos_info[inst_id][i].priority;
+	/* Return default priority. */
+	return 0;
+}
 
 static u8 client_to_pipe_index(enum ipa_client_type client_type)
 {
@@ -124,6 +163,27 @@ static u8 client_to_pipe_index(enum ipa_client_type client_type)
 		break;
 	case IPA_CLIENT_ETHERNET_LOW_LAT_CONS:
 		return 9;
+		break;
+	case IPA_CLIENT_ETHERNET_CONS1:
+		return 10;
+		break;
+	case IPA_CLIENT_ETHERNET_PROD2:
+		return 11;
+		break;
+	case IPA_CLIENT_ETHERNET_CONS2:
+		return 12;
+		break;
+	case IPA_CLIENT_ETHERNET_PROD3:
+		return 13;
+		break;
+	case IPA_CLIENT_ETHERNET_CONS3:
+		return 14;
+		break;
+	case IPA_CLIENT_ETHERNET_PROD4:
+		return 15;
+		break;
+	case IPA_CLIENT_ETHERNET_CONS4:
+		return 16;
 		break;
 	default:
 		IPAERR("invalid eth client_type\n");
@@ -358,7 +418,9 @@ static void ipa_eth_pipe_hdl_remove(ipa_eth_hdl_t hdl)
 
 static enum ipa_client_type
 	ipa_eth_get_ipa_client_type_from_pipe(
-	struct ipa_eth_client_pipe_info *pipe)
+	struct ipa_eth_client_pipe_info *pipe,
+	u8 rx_pipe_idx,
+	u8 tx_pipe_idx)
 {
 	struct ipa_eth_client *client;
 	int ipa_client_type = IPA_CLIENT_MAX;
@@ -381,7 +443,7 @@ static enum ipa_client_type
 	traffic_type = client->traffic_type;
 #endif
 
-	IPA_ETH_DBG("ipa_client_type called with pipe %p traffic_type %d dir %d, client_type %d\n",
+	IPA_ETH_DBG("pipe %p traffic_type %d dir %d, client_type %d\n",
 				pipe, traffic_type, pipe->dir, client->client_type);
 
 	switch (client->client_type) {
@@ -479,6 +541,85 @@ static enum ipa_client_type
 					ipa_client_type = IPA_CLIENT_MAX;
 				}
 			}
+		} else if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN) {
+			if (client->inst_id == 0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					ipa_client_type = IPA_CLIENT_ETHERNET_CONS;
+				} else {
+					ipa_client_type = IPA_CLIENT_ETHERNET_PROD1;
+				}
+			}
+		} else if (traffic_type == IPA_ETH_PIPE_TRAFFIC_TYPE_QOS) {
+			if (ipa3_ctx->ipa_config_is_auto && client->inst_id == 0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					switch (tx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET_CONS;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET_CONS1;
+							break;
+						case 2:
+							ipa_client_type = IPA_CLIENT_ETHERNET_CONS2;
+							break;
+						case 3:
+							ipa_client_type = IPA_CLIENT_ETHERNET_CONS3;
+							break;
+						case 4:
+							ipa_client_type = IPA_CLIENT_ETHERNET_CONS4;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								tx_pipe_idx);
+							return ipa_client_type;
+					}
+				} else {
+					ipa_client_type = IPA_CLIENT_ETHERNET_PROD1;
+					switch (rx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD1;
+							break;
+						case 2:
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD2;
+							break;
+						case 3:
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD3;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								rx_pipe_idx);
+							return ipa_client_type;
+					}
+				}
+			} else {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					switch (tx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET_CONS;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET_LOW_LAT_CONS;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								tx_pipe_idx);
+							return ipa_client_type;
+					}
+				} else {
+					switch (rx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								rx_pipe_idx);
+							return ipa_client_type;
+					}
+				}
+			}
 		}
 		break;
 #endif
@@ -506,11 +647,14 @@ static struct ipa_eth_client_pipe_info
 
 static int ipa_eth_client_connect_pipe(
 	struct ipa_eth_client_pipe_info *pipe,
-	int inst_id)
+	int inst_id,
+	u8 rx_pipe_idx,
+	u8 tx_pipe_idx)
 {
 	enum ipa_client_type client_type;
 	struct ipa_eth_client *client;
 	int ret;
+	u8 priority = 0, pipe_idx = 0;
 
 	if (!pipe) {
 		IPA_ETH_ERR("invalid pipe\n");
@@ -522,7 +666,7 @@ static int ipa_eth_client_connect_pipe(
 		return -EFAULT;
 	}
 	client_type =
-		ipa_eth_get_ipa_client_type_from_pipe(pipe);
+		ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
 	if (client_type == IPA_CLIENT_MAX) {
 		IPA_ETH_ERR("invalid client type %d\n");
 		return -EFAULT;
@@ -535,7 +679,17 @@ static int ipa_eth_client_connect_pipe(
 
 	pipe->pipe_hdl = ipa_eth_pipe_hdl_alloc((void *)pipe);
 
-	ret = ipa3_eth_connect(pipe, client_type, inst_id);
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		priority = eth_qos_get_tx_priority(tx_pipe_idx, inst_id);
+		pipe_idx = tx_pipe_idx;
+	} else {
+		priority = eth_qos_get_rx_priority(rx_pipe_idx, inst_id);
+		pipe_idx = rx_pipe_idx;
+	}
+
+	IPADBG("Client_type: %d, Inst_id: %d, Priority: %d, Pipe_idx= %d",
+		client_type, inst_id, priority, pipe_idx);
+	ret = ipa3_eth_connect(pipe, client_type, inst_id, priority, pipe_idx);
 	if (!ret) {
 		pipe_connected[client_to_pipe_index(client_type)] = true;
 	}
@@ -544,11 +698,14 @@ static int ipa_eth_client_connect_pipe(
 }
 
 static int ipa_eth_client_disconnect_pipe(
-	struct ipa_eth_client_pipe_info *pipe)
+	struct ipa_eth_client_pipe_info *pipe,
+	u8 rx_pipe_idx,
+	u8 tx_pipe_idx)
 {
 	enum ipa_client_type client_type;
 	struct ipa_eth_client *client;
 	int result;
+	u8 pipe_idx;
 
 	if (!pipe) {
 		IPA_ETH_ERR("invalid pipe\n");
@@ -561,7 +718,7 @@ static int ipa_eth_client_disconnect_pipe(
 		return -EFAULT;
 	}
 	client_type =
-		ipa_eth_get_ipa_client_type_from_pipe(pipe);
+		ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
 	if (client_type == IPA_CLIENT_MAX) {
 		IPA_ETH_ERR("invalid client type\n");
 		return -EFAULT;
@@ -572,7 +729,12 @@ static int ipa_eth_client_disconnect_pipe(
 		return -EFAULT;
 	}
 
-	result = ipa3_eth_disconnect(pipe, client_type);
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
+		pipe_idx = tx_pipe_idx;
+	else
+		pipe_idx = rx_pipe_idx;
+
+	result = ipa3_eth_disconnect(pipe, client_type, pipe_idx);
 	if (result)
 		return result;
 
@@ -645,6 +807,7 @@ static int ipa_eth_pm_register(struct ipa_eth_client *client)
 	char name[IPA_RESOURCE_NAME_MAX];
 	struct ipa_eth_client_pipe_info *pipe;
 	int rc;
+	u8 rx_pipe_idx = 0, tx_pipe_idx = 0;
 
 	/* validate user input */
 	if (!client || (client->client_type >= IPA_ETH_CLIENT_MAX)) {
@@ -680,17 +843,20 @@ static int ipa_eth_pm_register(struct ipa_eth_client *client)
 add_pipe_list:
 	list_for_each_entry(pipe, &client->pipe_list,
 		link) {
-		IPA_ETH_DBG("ipa_eth_pm_register called with pipe %p traffic_type %d dir %d\n",
+#if IPA_ETH_API_VER >= 3
+		IPA_ETH_DBG("pipe %p traffic_type %d dir %d\n",
 				pipe, pipe->traffic_type, pipe->dir);
+#endif
 		if (pipe->dir == IPA_ETH_PIPE_DIR_RX
 #if IPA_ETH_API_VER >= 3
 			|| pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN
 #endif
-			)
-			continue;
+			) {
+				continue;
+			}
 		rc = ipa_pm_associate_ipa_cons_to_client(
 			ipa_eth_ctx->client[client_type][inst_id].pm_hdl,
-			ipa_eth_get_ipa_client_type_from_pipe(pipe));
+			ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx));
 		if (rc) {
 			IPA_ETH_ERR("fail to associate cons with PM %d\n", rc);
 			ipa_pm_deregister(
@@ -699,6 +865,10 @@ add_pipe_list:
 			ipa_assert();
 			return rc;
 		}
+		if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
+			tx_pipe_idx++;
+		if (pipe->dir == IPA_ETH_PIPE_DIR_RX)
+			rx_pipe_idx++;
 	}
 	atomic_inc(
 		&ipa_eth_ctx->client[client_type][inst_id].ref_cnt);
@@ -739,9 +909,10 @@ static int ipa_eth_pm_deregister(struct ipa_eth_client *client)
 static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 {
 	struct ipa_eth_client_pipe_info *pipe;
-	int rc;
+	int rc, i = 0, prio = 0;
 	int client_type, inst_id, traff_type, ep_idx, rx_idx = 0,
-						      tx_idx[2] = { 0 };
+						     tx_idx[2] = { 0 };
+	u8 rx_pipe_idx = 0, tx_pipe_idx = 0;
 	struct ipa_endp_desc_indication_msg_v01 req;
 	struct ipa_ep_id_type_v01 *ep_info;
 	enum ipa_client_type ipa_client;
@@ -787,17 +958,87 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 		mutex_unlock(&ipa_eth_ctx->lock);
 		return -EFAULT;
 	}
+
+	if (ipa3_ctx->eth_qos) {
+		ipa_eth_ctx->rx_num_pipes[inst_id] = 0;
+		ipa_eth_ctx->tx_num_pipes[inst_id] = 0;
+		memset(ipa_eth_ctx->rx_qos_info[inst_id], 0,
+			IPA_ETH_MAX_RX_DMA_CHANNEL_QOS * sizeof(struct ipa_eth_qos_info));
+		memset(ipa_eth_ctx->tx_qos_info[inst_id], 0,
+			IPA_ETH_MAX_TX_DMA_CHANNEL_QOS * sizeof(struct ipa_eth_qos_info));
+		list_for_each_entry(pipe, &client->pipe_list,
+			link) {
+			if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+				ipa_eth_ctx->tx_qos_info[inst_id][tx_pipe_idx].tc_bmap = pipe->tc_bmap;
+				ipa_eth_ctx->tx_qos_info[inst_id][tx_pipe_idx].pipe_idx =
+					tx_pipe_idx;
+				ipa_eth_ctx->tx_qos_info[inst_id][tx_pipe_idx].priority = 0;
+				tx_pipe_idx++;
+				ipa_eth_ctx->tx_num_pipes[inst_id]++;
+			}
+			if (pipe->dir == IPA_ETH_PIPE_DIR_RX) {
+				ipa_eth_ctx->rx_qos_info[inst_id][rx_pipe_idx].tc_bmap = pipe->tc_bmap;
+				ipa_eth_ctx->rx_qos_info[inst_id][rx_pipe_idx].pipe_idx =
+					rx_pipe_idx;
+				ipa_eth_ctx->rx_qos_info[inst_id][rx_pipe_idx].priority = 0;
+				rx_pipe_idx++;
+				ipa_eth_ctx->rx_num_pipes[inst_id]++;
+			}
+		}
+		/* Sort the elements based on tc_map. */
+		sort(ipa_eth_ctx->tx_qos_info[inst_id], ipa_eth_ctx->tx_num_pipes[inst_id],
+			sizeof(struct ipa_eth_qos_info), eth_qos_cmp, eth_qos_swap);
+		sort(ipa_eth_ctx->rx_qos_info[inst_id], ipa_eth_ctx->rx_num_pipes[inst_id],
+			sizeof(struct ipa_eth_qos_info), eth_qos_cmp, eth_qos_swap);
+		/* calculate relative priority. */
+		for (i = 0, prio = 0; i < ipa_eth_ctx->tx_num_pipes[inst_id] &&
+				i < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS; i++) {
+			if (ipa_eth_ctx->tx_qos_info[inst_id][i].tc_bmap == 0) {
+				/* Default is Max priority. */
+				ipa_eth_ctx->tx_qos_info[inst_id][i].priority =
+					ipa_eth_ctx->tx_num_pipes[inst_id]-1;
+			} else {
+				ipa_eth_ctx->tx_qos_info[inst_id][i].priority = prio;
+				prio++;
+			}
+			IPADBG("TX Index: %d, Pipe idx: %d, Tc_bmap: %d, Priority: %d", i,
+				ipa_eth_ctx->tx_qos_info[inst_id][i].pipe_idx,
+				ipa_eth_ctx->tx_qos_info[inst_id][i].tc_bmap,
+				ipa_eth_ctx->tx_qos_info[inst_id][i].priority);
+		}
+		for (i = 0, prio = 0; i < ipa_eth_ctx->rx_num_pipes[inst_id] &&
+				i < IPA_ETH_MAX_RX_DMA_CHANNEL_QOS; i++) {
+			if (ipa_eth_ctx->rx_qos_info[inst_id][i].tc_bmap == 0) {
+				/* Default is Max priority. */
+				ipa_eth_ctx->rx_qos_info[inst_id][i].priority =
+					ipa_eth_ctx->rx_num_pipes[inst_id]-1;
+			} else {
+				ipa_eth_ctx->rx_qos_info[inst_id][i].priority = prio;
+				prio++;
+			}
+			IPADBG("RX Index: %d, Pipe idx: %d, Tc_bmap: %d, Priority: %d", i,
+				ipa_eth_ctx->rx_qos_info[inst_id][i].pipe_idx,
+				ipa_eth_ctx->rx_qos_info[inst_id][i].tc_bmap,
+				ipa_eth_ctx->rx_qos_info[inst_id][i].priority);
+		}
+	}
+
+	rx_pipe_idx = 0;
+	tx_pipe_idx = 0;
 	list_for_each_entry(pipe, &client->pipe_list,
 		link) {
 #if IPA_ETH_API_VER >= 3
 		IPA_ETH_DBG("Eth connect pipe %p traffic_type %d dir %d\n",
 				pipe, pipe->traffic_type, pipe->dir);
-		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-			IPA_ETH_DBG("Vlan cons pipe..traffic_type %d dir %d continue... %d \n", pipe->traffic_type, pipe->dir);
+		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN &&
+			pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			IPA_ETH_DBG("traffic_type %d dir %d continue... %d \n",
+				pipe->traffic_type, pipe->dir);
+			tx_pipe_idx++;
 			continue;
 		}
 #endif
-		rc = ipa_eth_client_connect_pipe(pipe, inst_id);
+		rc = ipa_eth_client_connect_pipe(pipe, inst_id, rx_pipe_idx, tx_pipe_idx);
 		if (rc) {
 			IPA_ETH_ERR("pipe connect fails\n");
 			ipa_assert();
@@ -807,12 +1048,16 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 		traff_type = pipe->traffic_type;
 		IPA_ETH_DBG("ipa_eth conn traffic %d\n", traff_type);
 #endif
+		if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
+			tx_pipe_idx++;
+		if (pipe->dir == IPA_ETH_PIPE_DIR_RX)
+			rx_pipe_idx++;
 
 		if ((ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) &&
-		    (traff_type == IPA_ETH_PIPE_BEST_EFFORT)) {
+		    (traff_type != IPA_ETH_PIPE_LOW_LATENCY)) {
 			/* populate the QMI */
-			ipa_client =
-				ipa_eth_get_ipa_client_type_from_pipe(pipe);
+			ipa_client = ipa_eth_get_ipa_client_type_from_pipe(pipe,
+							rx_pipe_idx, tx_pipe_idx);
 			ep_idx = ipa_get_ep_mapping(ipa_client);
 
 			/* NOTE: Only support single NIC for eth_pdu */
@@ -843,8 +1088,8 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 		} else if ((ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) &&
 			   (traff_type == IPA_ETH_PIPE_LOW_LATENCY)) {
 			/* Populate the QMI */
-			ipa_client =
-				ipa_eth_get_ipa_client_type_from_pipe(pipe);
+			ipa_client = ipa_eth_get_ipa_client_type_from_pipe(pipe,
+							rx_pipe_idx, tx_pipe_idx);
 			ep_idx = ipa_get_ep_mapping(ipa_client);
 
 			if (IPA_CLIENT_IS_PROD(ipa_client)) {
@@ -901,6 +1146,7 @@ static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 	int rx_idx = 0,tx_idx[2] = {0};
 	struct ipa_eth_client_pipe_info *pipe;
 	struct ipa_ep_cfg_holb holb;
+	int  rx_pipe_idx = 0, tx_pipe_idx = 0;
 
 	/* validate user input */
 	if (!client) {
@@ -939,28 +1185,38 @@ static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 				    pipe->traffic_type);
 #endif
 			IPA_ETH_DBG("Set holb on pipe = %d, pipe->dir = %d \n",
-				ipa_get_ep_mapping(ipa_eth_get_ipa_client_type_from_pipe(pipe)),
+				ipa_get_ep_mapping(ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx)),
 				pipe->dir);
 			holb.en = 1;
 			holb.tmr_val = 0;
 			ipa3_cfg_ep_holb(ipa_get_ep_mapping(
-				ipa_eth_get_ipa_client_type_from_pipe(pipe)), &holb);
+				ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx)), &holb);
+			tx_pipe_idx++;
 		}
 	}
 
+	rx_pipe_idx = 0;
+	tx_pipe_idx = 0;
 	list_for_each_entry(pipe, &client->pipe_list,
 		link) {
 #if IPA_ETH_API_VER >= 3
-		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-			IPA_ETH_DBG("Vlan cons pipe..traffic_type %d dir %d continue... %d \n", pipe->traffic_type, pipe->dir);
+		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN
+			&& pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			IPA_ETH_DBG("traffic_type %d dir %d continue... %d \n",
+				pipe->traffic_type, pipe->dir);			
+			tx_pipe_idx++;
 			continue;
 		}
 #endif
-		rc = ipa_eth_client_disconnect_pipe(pipe);
+		rc = ipa_eth_client_disconnect_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
 		if (rc) {
 			IPA_ETH_ERR("pipe connect fails\n");
 			ipa_assert();
 		}
+		if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
+			tx_pipe_idx++;
+		if (pipe->dir == IPA_ETH_PIPE_DIR_RX)
+			rx_pipe_idx++;
 	}
 	if (ipa_eth_pm_deregister(client)) {
 		IPA_ETH_ERR("pm deregister failed\n");
@@ -1035,13 +1291,14 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 	struct ipa_ioc_add_hdr *hdr = NULL;
 	struct ipa_tx_intf tx;
 	struct ipa_rx_intf rx;
-	enum ipa_client_type tx_client[IPA_CLIENT_MAX] = {0};
-	enum ipa_client_type rx_client[IPA_CLIENT_MAX] = {0};
+	enum ipa_client_type tx_client[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {0};
+	enum ipa_client_type rx_client[IPA_ETH_MAX_RX_DMA_CHANNEL_QOS] = {0};
 	struct ipa_ioc_tx_intf_prop *tx_prop =  NULL;
 	struct ipa_ioc_rx_intf_prop *rx_prop = NULL;
 	struct ipa_eth_client_pipe_info *pipe;
 	u32 len = 0;
 	int ret = 0, i = 0;
+	int  rx_pipe_idx = 0, tx_pipe_idx = 0;
 #if IPA_ETH_API_VER >= 2
 	struct ipa_ecm_msg msg ;
 	bool vlan_mode = false;
@@ -1056,6 +1313,10 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 #endif
 	int num_hdrs = 0;
 	int traffic_type = 0;
+#if IPA_ETH_API_VER >= 4
+	u8 tx_tc[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {0};
+	u8 rx_tc[IPA_ETH_MAX_RX_DMA_CHANNEL_QOS] = {0};
+#endif
 
 	if (intf == NULL) {
 		IPA_ETH_ERR("invalid params intf=%pK\n", intf);
@@ -1273,21 +1534,25 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 			if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 				if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN) {
 					tx_client[1] =
-					ipa_eth_get_ipa_client_type_from_pipe(pipe);
+						ipa_eth_get_ipa_client_type_from_pipe(pipe,
+						rx_pipe_idx, tx_pipe_idx);
 				}
 				else {
 					tx_client[0] =
-						ipa_eth_get_ipa_client_type_from_pipe(pipe);
+						ipa_eth_get_ipa_client_type_from_pipe(pipe,
+						rx_pipe_idx, tx_pipe_idx);
 				}
 				tx.num_props++;
 			} else {
 				if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN) {
 					rx_client[1] =
-						ipa_eth_get_ipa_client_type_from_pipe(pipe);
+						ipa_eth_get_ipa_client_type_from_pipe(pipe,
+						rx_pipe_idx, tx_pipe_idx);
 				}
 				else {
 					rx_client[0] =
-						ipa_eth_get_ipa_client_type_from_pipe(pipe);
+						ipa_eth_get_ipa_client_type_from_pipe(pipe,
+						rx_pipe_idx, tx_pipe_idx);
 				}
 				rx.num_props++;
 			}
@@ -1295,16 +1560,26 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 		else {
 			if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 				tx_client[tx.num_props] =
-					ipa_eth_get_ipa_client_type_from_pipe(pipe);
+				ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
+#if IPA_ETH_API_VER >= 4
+				tx_tc[tx.num_props] = pipe->tc_bmap;
+#endif
 				tx.num_props++;
 			} else {
 				rx_client[rx.num_props] =
-					ipa_eth_get_ipa_client_type_from_pipe(pipe);
+				ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);				
+#if IPA_ETH_API_VER >= 4
+				rx_tc[rx.num_props] = pipe->tc_bmap;
+#endif
 				rx.num_props++;
 			}
+
+			if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
+				tx_pipe_idx++;
+			if (pipe->dir == IPA_ETH_PIPE_DIR_RX)
+				rx_pipe_idx++;
 		}
 	}
-
 
 	/* populate tx prop */
 	if (tx.num_props) {
@@ -1322,22 +1597,28 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 		for (i = 0; i < tx.num_props; i++) {
 			tx_prop[2*i].ip = IPA_IP_v4;
 			tx_prop[2 * i].dst_pipe = tx_client[i];
+#if IPA_ETH_API_VER >= 4
+			tx_prop[2 * i].tc_bmap = tx_tc[i];
+#endif
 #if IPA_ETH_API_VER >= 2
-			tx_prop[2*i].hdr_l2_type = intf_hdr[2*i].hdr_type;
+			tx_prop[2*i].hdr_l2_type = intf_hdr[(2*i)%num_hdrs].hdr_type;
 #else
 			tx_prop[2*i].hdr_l2_type = intf->hdr[2*i].hdr_type;
 #endif
-			strlcpy(tx_prop[2*i].hdr_name, hdr->hdr[2*i].name,
+			strlcpy(tx_prop[2*i].hdr_name, hdr->hdr[(2*i)%num_hdrs].name,
 				sizeof(tx_prop[i].hdr_name));
 
 			tx_prop[2*i+1].ip = IPA_IP_v6;
-			tx_prop[2 * i + 1].dst_pipe = tx_client[i];
+			tx_prop[2 * i + 1].dst_pipe = tx_client[i];	
+#if IPA_ETH_API_VER >= 4
+			tx_prop[2 * i+1].tc_bmap = tx_tc[i];
+#endif
 #if IPA_ETH_API_VER >= 2
-			tx_prop[2*i+1].hdr_l2_type = intf_hdr[2*i+1].hdr_type;
+			tx_prop[2*i+1].hdr_l2_type = intf_hdr[(2*i+1)%num_hdrs].hdr_type;
 #else
 			tx_prop[2*i+1].hdr_l2_type = intf->hdr[1].hdr_type;
 #endif
-			strlcpy(tx_prop[2*i+1].hdr_name, hdr->hdr[2*i+1].name,
+			strlcpy(tx_prop[2*i+1].hdr_name, hdr->hdr[(2*i+1)%num_hdrs].name,
 				sizeof(tx_prop[2*i+1].hdr_name));
 
 			IPA_ETH_DBG("tx_prop i %d dst pipe v4:%d v6:%d\n",i, tx_prop[2*i].dst_pipe, tx_prop[2*i + 1].dst_pipe);
@@ -1360,16 +1641,22 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 		for (i = 0; i < rx.num_props; i++) {
 			rx_prop[2*i].ip = IPA_IP_v4;
 			rx_prop[2 * i].src_pipe = rx_client[i];
-
+#if IPA_ETH_API_VER >= 4
+			rx_prop[2 * i].tc_bmap = rx_tc[i];
+#endif
 #if IPA_ETH_API_VER >= 2
-			rx_prop[2*i].hdr_l2_type = intf_hdr[2*i].hdr_type;
+			rx_prop[2*i].hdr_l2_type = intf_hdr[(2*i)%num_hdrs].hdr_type;
 #else
 			rx_prop[2*i].hdr_l2_type = intf->hdr[2*i].hdr_type;
 #endif
+
 			rx_prop[2*i+1].ip = IPA_IP_v6;
 			rx_prop[2 * i + 1].src_pipe = rx_client[i];
+#if IPA_ETH_API_VER >= 4
+			rx_prop[2 * i + 1].tc_bmap = rx_tc[i];
+#endif
 #if IPA_ETH_API_VER >= 2
-			rx_prop[2*i+1].hdr_l2_type = intf_hdr[2*i+1].hdr_type;
+			rx_prop[2*i+1].hdr_l2_type = intf_hdr[(2*i+1)%num_hdrs].hdr_type;
 #else
 			rx_prop[2*i+1].hdr_l2_type = intf->hdr[2*i+1].hdr_type;
 #endif
@@ -1640,8 +1927,28 @@ static int ipa_eth_get_config_type_internal(
 
 		IPA_ETH_DBG("TSN configuration for client %d, inst_id %d\n",
 			    client_type, inst_id);
+	}
+#if IPA_ETH_API_VER >= 4
+	else if (ipa3_ctx->eth_qos && inst_id == 0) {
+		int i = 0;
+		snprintf(eth_config->config, sizeof(eth_config->config), "qos");
 
-	} else {
+		eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS;
+
+		for (i = 0; i < eth_config->num_dma_channel; i++) {
+			eth_config->dma_config[i].dir = (i % 2) ? IPA_ETH_PIPE_DIR_RX :
+				IPA_ETH_PIPE_DIR_TX;
+			eth_config->dma_config[i].traffic_type =
+				IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+		}
+
+		IPA_ETH_DBG("QOS configuration for client %d, inst_id %d\n",
+			client_type, inst_id);
+		IPA_ETH_DBG("Max num DMA channels: %d\n",
+			eth_config->num_dma_channel);
+	}
+#endif
+	else {
 		snprintf(eth_config->config, sizeof(eth_config->config), "default");
 		eth_config->num_dma_channel = DMA_NUM_CHANNEL_DEFAULT;
 

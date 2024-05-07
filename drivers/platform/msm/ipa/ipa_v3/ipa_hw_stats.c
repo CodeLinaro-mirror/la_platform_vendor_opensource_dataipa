@@ -1922,8 +1922,41 @@ int ipa_drop_stats_init(void)
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
 
+			if (!ipa3_ctx->ipa_config_is_auto) {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_APPS_WAN_COAL_CONS,
+					&reg_idx);
+				pipe_bitmask[reg_idx] |= mask;
+			}
+		}
+	}
+
+	/* QOS Scenario. */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0) {
+		/* Auto Config. */
+		if (ipa3_ctx->ipa_config_is_auto) {
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
-				IPA_CLIENT_APPS_WAN_COAL_CONS,
+				IPA_CLIENT_ETHERNET_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS1,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+		
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS2,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS3,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS4,
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
 		}

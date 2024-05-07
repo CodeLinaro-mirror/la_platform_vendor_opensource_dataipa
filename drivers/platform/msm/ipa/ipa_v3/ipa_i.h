@@ -750,7 +750,9 @@ struct ipa_smmu_cb_ctx {
 	/**
 	 * todo: make this a list.
 	 */
-	struct ipa_smmu_cb_mapping m_map[IPA_ETH_INST_ID_MAX][IPA_ETH_PIPE_DIR_MAX][IPA_ETH_PIPE_TRAFFIC_TYPE_MAX];
+	struct ipa_smmu_cb_mapping
+		m_map[IPA_ETH_INST_ID_MAX]
+		[IPA_ETH_PIPE_DIR_MAX][IPA_ETH_MAX_TX_DMA_CHANNEL_QOS];
 };
 
 /**
@@ -2445,6 +2447,13 @@ struct ipa3_eth_pdu_ctx {
 
 };
 
+/* ETH QOS Type*/
+enum ipa_eth_qos_type_e {
+	IPA_ETH_QOS_DISABLE = 0,
+	IPA_ETH_QOS_ENABLE = 1,
+	IPA_ETH_QOS_MAX
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2745,6 +2754,7 @@ struct ipa3_context {
 	bool vlan_mode_iface[IPA_VLAN_IF_MAX];
 	bool spcl_iface[IPA_VLAN_IF_MAX];
 	bool tsn_iface;
+	enum ipa_eth_qos_type_e eth_qos;
 	bool wdi_over_pcie;
 	u32 entire_ipa_block_size;
 	bool do_register_collection_on_crash;
@@ -4140,10 +4150,13 @@ void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client);
 int ipa3_eth_connect(
 	struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type client_type,
-	int inst_id);
+	int inst_id,
+	u8 priority,
+	u8 pipe_idx);
 int ipa3_eth_disconnect(
 	struct ipa_eth_client_pipe_info *pipe,
-	enum ipa_client_type client_type);
+	enum ipa_client_type client_type,
+	u8 pipe_idx);
 #if IPA_ETH_API_VER < 2
 int ipa3_eth_client_conn_evt(struct ipa_ecm_msg *msg);
 int ipa3_eth_client_disconn_evt(struct ipa_ecm_msg *msg);

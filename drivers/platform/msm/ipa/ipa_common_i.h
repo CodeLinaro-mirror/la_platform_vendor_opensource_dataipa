@@ -30,6 +30,11 @@
 #define IPA_EP_ARR_SIZE 2
 #define IPA_EP_PER_REG 32
 
+/* QOS Definitions. */
+#define IPA_ETH_MAX_RX_DMA_CHANNEL_QOS 1
+#define IPA_ETH_MAX_TX_DMA_CHANNEL_QOS 2
+#define IPA_ETH_MAX_DMA_CHANNEL_QOS 3
+
 #define __FILENAME__ \
 	(strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
@@ -188,6 +193,10 @@ do {\
 #define IPA_CLIENT_IS_ETH_PROD(x) \
 	((x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD)) || \
 	 (x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD2)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD3)) || \
+	 (x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD4)) || \
 	 (x == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD)) || \
 	 (x == ipa3_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD)))
 
