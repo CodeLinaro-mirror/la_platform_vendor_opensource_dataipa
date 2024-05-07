@@ -991,11 +991,10 @@ end:
 /* Install FnR for UL policies installed before a matching state */
 static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 {
+	int rc = 0;
 	int rt = -1;
 	struct ipa_ipsec_policy *pol;
 	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt;
-	struct ipa_ioc_del_rt_rule *ioc_del_rt;
-	struct ipa_rt_rule_del *rt_rule_del;
 
 	IPADBG("Start\n");
 
@@ -1015,27 +1014,16 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 
 			/* If the policy is already mapped to an SA, we should cleanup first */
 			if (pol->rt != -1) {
-				ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
-					sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
-				if (!ioc_del_rt) {
-					IPAERR("failed to allocate mem for ioc_del_rt\n");
-					kfree(ul_flt);
-					return -ENOMEM;
-				}
-				ioc_del_rt->commit = 1;
-				ioc_del_rt->ip = ul_flt->ip;
-				ioc_del_rt->num_hdls = 1;
-				rt_rule_del = &ioc_del_rt->hdl[0];
-				rt_rule_del->status = -1;
-				rt_rule_del->hdl = pol->rt;
-				if (ipa3_del_rt_rule(ioc_del_rt) || !!rt_rule_del->status) {
+				mutex_lock(&ipa3_ctx->lock);
+				rc = __ipa3_del_rt_rule(pol->rt);
+				mutex_unlock(&ipa3_ctx->lock);
+
+				if (rc) {
 					IPAERR("Failed deleting RT hdl %d.\n", pol->rt);
-					kfree(ioc_del_rt);
-					kfree(ul_flt);
-					return -EFAULT;
+					rc = -EFAULT;
 				}
-				IPADBG("deleted RT rule %d\n", rt_rule_del->hdl);
-				kfree(ioc_del_rt);
+				IPADBG("deleted RT rule %d\n", pol->rt);
+
 				pol->rt = -1;
 
 				if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt) != 0)
@@ -1081,7 +1069,7 @@ static int ipa_ipsec_install_cached_dl_pols(u8 idx)
 			}
 
 			if (i == IPA_IPSEC_DL_FLT_PER_POL) {
-				IPAERR("The policy already has IPA_IPSEC_DL_FLT_PER_POL rules.\n");
+				IPAERR("The policy already has %d rules.\n", IPA_IPSEC_DL_FLT_PER_POL);
 				return -EFAULT;
 			}
 
@@ -1103,8 +1091,6 @@ static int ipa_ipsec_delete_orphan_ul_fnr(u8 idx)
 	int rc = 0;
 	struct ipa_ipsec_policy *pol;
 	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt;
-	struct ipa_ioc_del_rt_rule *ioc_del_rt;
-	struct ipa_rt_rule_del *rt_rule_del;
 
 	IPADBG("Start\n");
 
@@ -1127,26 +1113,18 @@ static int ipa_ipsec_delete_orphan_ul_fnr(u8 idx)
 			/* RT rule may be previously deleted by e.g. table deletion */
 			if (pol->rt != -1) {
 				/* Delete RT rule */
-				ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
-					sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
-				if (!ioc_del_rt) {
-					IPAERR("Failed to allocate ipa_ioc_del_rt_rule\n");
-					kfree(ul_flt);
-					return -EFAULT;
-				}
-				ioc_del_rt->commit = 1;
-				ioc_del_rt->ip = ul_flt->ip;
-				ioc_del_rt->num_hdls = 1;
-				rt_rule_del = &ioc_del_rt->hdl[0];
-				rt_rule_del->status = -1;
-				rt_rule_del->hdl = pol->rt;
-				if (ipa3_del_rt_rule(ioc_del_rt) || !!rt_rule_del->status) {
+				mutex_lock(&ipa3_ctx->lock);
+				rc = __ipa3_del_rt_rule(pol->rt);
+				mutex_unlock(&ipa3_ctx->lock);
+				if (rc) {
 					IPAERR("Failed deleting RT hdl %d.\n", pol->rt);
-					kfree(ul_flt);
 					rc = -EFAULT;
 				}
-				IPADBG("deleted RT rule %d\n", rt_rule_del->hdl);
-				kfree(ioc_del_rt);
+				if (ipa3_commit_rt(ul_flt->ip)) {
+					IPAERR("Failed commiting RT table.\n");
+					rc = -EFAULT;
+				}
+				IPADBG("deleted RT rule %d\n", pol->rt);
 				pol->rt = -1;
 			}
 
@@ -1334,19 +1312,19 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		if (eklen) IPADBG_LOW("ekey = %32phN", ekey);
 		ret = ipa_ipsec_install_key(idx, IPA_IPSEC_KEY_ENC, eklen, ekey);
 		if (!!ret)
-			goto state_end;
+			goto clean_sa;
 		IPADBG_LOW("e key = %32phN", ipa3_ctx->ipsec->keys->enc[idx].b256);
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
 		ret = ipa_ipsec_install_key(idx, IPA_IPSEC_KEY_AUTH, aklen, akey);
 		if (!!ret)
-			goto state_end;
+			goto zero_keys;
 		IPADBG_LOW("a key = %64phN", ipa3_ctx->ipsec->keys->auth[idx].b512);
 
 		/* Construct and install header template and HPC */
 		ret = ipa_ipsec_install_encap_hpc(x, idx);
 		if (!!ret) {
 			IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", ret);
-			goto state_end;
+			goto zero_keys;
 		}
 
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = x;
@@ -1355,6 +1333,8 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		/* Check existing UL policies and install RT if needed */
 		ret = ipa_ipsec_install_cached_ul_pols(idx);
 		if (!!ret)
+			goto free_idx;
+		else
 			goto state_end;
 
 		break;
@@ -1413,26 +1393,26 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		ret = ipa_ipsec_install_key(IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx,
 			IPA_IPSEC_KEY_ENC, eklen, ekey);
 		if (!!ret)
-			goto state_end;
+			goto clean_sa;
 		IPADBG_LOW("e key = %32ph",
 			ipa3_ctx->ipsec->keys->enc[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b256);
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
 		ret = ipa_ipsec_install_key(IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx,
 			IPA_IPSEC_KEY_AUTH, aklen, akey);
 		if (!!ret)
-			goto state_end;
+			goto zero_keys;
 		IPADBG_LOW("a key = %64ph",
 			ipa3_ctx->ipsec->keys->auth[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b512);
 
 		/* Construct and install HPC */
 		ret = ipa_ipsec_install_decap_hpc(x, idx);
 		if (!!ret)
-			goto state_end;
+			goto zero_keys;
 
 		/* Install RT rule */
 		ret = ipa_ipsec_install_decap_rt(x, idx);
 		if (!!ret)
-			goto state_end;
+			goto del_hpc;
 
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = x;
 		x->xso.offload_handle = (unsigned long)idx | IPA_IPSEC_OFFLOAD_MAGIC;
@@ -1440,8 +1420,9 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		ret = ipa_ipsec_install_cached_dl_pols(idx);
 		if (!!ret) {
 			IPAERR("Failed to update existing policies to allow the new state.\n");
+			goto free_idx;
+		} else
 			goto state_end;
-		}
 
 		break;
 
@@ -1450,6 +1431,50 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		return -EINVAL;
 	}
 
+free_idx:
+	ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = 0;
+	x->xso.offload_handle = 0;
+
+	if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt > 0) {
+
+		mutex_lock(&ipa3_ctx->lock);
+		BUG_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
+		mutex_unlock(&ipa3_ctx->lock);
+
+		BUG_ON(ipa3_commit_rt((x->props.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4));
+		IPADBG("deleted RT rule %d\n",
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt);
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = -1;
+	}
+
+del_hpc:
+	mutex_lock(&ipa3_ctx->lock);
+	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
+		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc)
+			BUG_ON(__ipa3_release_hdr_proc_ctx(
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
+		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr)
+			BUG_ON(__ipa3_release_hdr(
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
+	} else {
+		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc)
+			BUG_ON(__ipa3_release_hdr_proc_ctx(
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc));
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+zero_keys:
+	memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->enc[idx], 0, 32);
+	memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->auth[idx], 0, 64);
+
+clean_sa:
+	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
+		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
+	} else {
+		memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
+	}
 
 state_end:
 	IPADBG_LOW("ret = %d\n", ret);
@@ -1467,29 +1492,13 @@ void ipa_ipsec_xdo_state_delete(struct xfrm_state *x)
 	IPADBG("x->xso.offload_handle = %08X\n", x->xso.offload_handle);
 }
 
-void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
+void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 {
-	int idx = IPA_IPSEC_MAX_SA_NUM;
-	enum ipa_ip_type ip;
-	struct ipa_ioc_del_rt_rule *ioc_del_rt;
-	struct ipa_rt_rule_del *rt_rule_del;
+	struct ipa_ipsec_state_work_wrap *work_data =
+		container_of(work, struct ipa_ipsec_state_work_wrap, work);
+	u8 idx = work_data->idx;
 
-	IPADBG("Start\n");
-
-	if (!x || (x->xso.offload_handle & IPA_IPSEC_OFFLOAD_MAGIC) != IPA_IPSEC_OFFLOAD_MAGIC) {
-		IPADBG("Called for a non-offloaded state\n");
-		return;
-	}
-
-	IPADBG("x->xso.offload_handle = %08X\n", x->xso.offload_handle);
-
-	if ((idx = x->xso.offload_handle & 0xF) >= IPA_IPSEC_MAX_SA_NUM) {
-		IPADBG("Called for a dummy state\n");
-		return;
-	}
-
-	ip = (x->props.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4;
-	switch (x->xso.dir) {
+	switch (work_data->dir) {
 	case XFRM_DEV_OFFLOAD_OUT:
 		BUG_ON(ipa_ipsec_delete_orphan_ul_fnr(idx));
 		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
@@ -1504,23 +1513,16 @@ void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt) {
 			memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
 
-			ipa_ipsec_delete_orphan_dl_fnr(ip, idx);
+			ipa_ipsec_delete_orphan_dl_fnr(work_data->ip, idx);
 
-			ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
-				sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
-			if (!ioc_del_rt) {
-				IPAERR("failed to allocate mem for ioc_del_rt\n");
-				return;
-			}
-			ioc_del_rt->commit = 1;
-			ioc_del_rt->ip = ip;
-			ioc_del_rt->num_hdls = 1;
-			rt_rule_del = &ioc_del_rt->hdl[0];
-			rt_rule_del->status = -1;
-			rt_rule_del->hdl = ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt;
-			BUG_ON(ipa3_del_rt_rule(ioc_del_rt) || rt_rule_del->status);
-			IPADBG("deleted RT rule %d\n", rt_rule_del->hdl);
-			kfree(ioc_del_rt);
+			mutex_lock(&ipa3_ctx->lock);
+			BUG_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
+			mutex_unlock(&ipa3_ctx->lock);
+
+			BUG_ON(ipa3_commit_rt(work_data->ip));
+			IPADBG("deleted RT rule %d\n",
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt);
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = -1;
 		}
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc) {
 			mutex_lock(&ipa3_ctx->lock);
@@ -1542,6 +1544,38 @@ void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
 		sizeof(struct ipa_ipsec_decap_stats));
 	memset(&ipa3_ctx->ipsec->stats.encap_stats[idx], 0,
 		sizeof(struct ipa_ipsec_encap_stats));
+}
+
+void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
+{
+	int idx = IPA_IPSEC_MAX_SA_NUM;
+	struct ipa_ipsec_state_work_wrap *work_data;
+
+	IPADBG_LOW("Start\n");
+
+	if (!x || (x->xso.offload_handle & IPA_IPSEC_OFFLOAD_MAGIC) != IPA_IPSEC_OFFLOAD_MAGIC) {
+		IPADBG("Called for a non-offloaded state\n");
+		return;
+	}
+
+	IPADBG("x = 0x%08X, x->xso.offload_handle = %08X, x->xso.dir = %d\n",
+		x, x->xso.offload_handle, x->xso.dir);
+
+	if ((idx = x->xso.offload_handle & 0xF) >= IPA_IPSEC_MAX_SA_NUM) {
+		IPADBG("Called for a dummy state\n");
+		return;
+	}
+
+	work_data = kzalloc(sizeof(struct ipa_ipsec_state_work_wrap), GFP_ATOMIC);
+	if (!work_data) {
+		IPAERR("failed allocating ipa_ipsec_state_work_wrap\n");
+		BUG();
+	}
+	INIT_WORK(&work_data->work, ipa_ipsec_xdo_state_free_work);
+	work_data->ip = (x->props.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4;
+	work_data->idx = idx;
+	work_data->dir = x->xso.dir;
+	queue_work(ipa_ipsec_wq, &work_data->work);
 }
 
 bool ipa_ipsec_xdo_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
@@ -1737,19 +1771,15 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 	return 0;
 }
 
-/* Bottom half of the SA threshold uC event handler */
-static void ipa_ipsec_handle_sa_thresh_bottom(struct work_struct *work)
-{
-	struct ipa_ipsec_work_wrap *data = container_of(work, struct ipa_ipsec_work_wrap, work);
-	xfrm_state_check_expire(data->x);
-}
-
 /* Top half of the SA threshold uC event handler */
-void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action)
+void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action,
+	enum ipa_ipsec_uc_thresh_type thresh_type)
 {
 	enum ipa_ipsec_sa_type sa_type;
 	struct xfrm_state *x;
-	struct ipa_ipsec_work_wrap *work_data;
+
+	IPADBG("Received uC event with params: idx = %d, action = %d, thresh_type = %d\n",
+			 idx, action, thresh_type);
 
 	if (idx >= IPA_IPSEC_MAX_SA_NUM ||
 	    action == IPA_IPSEC_UC_SA_ACT_NONE || action >= IPA_IPSEC_UC_SA_ACT_MAX) {
@@ -1765,16 +1795,28 @@ void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action)
 		IPAERR("%s SA%02d has no XFRM state pointer (0x%X) \n",
 			(sa_type == IPA_IPSEC_ENCAP) ? "Encap" : "Decap", idx, x);
 		return;
+		//goto no_work;
 	}
 
-	work_data = kzalloc(sizeof(struct ipa_ipsec_work_wrap), GFP_ATOMIC);
-	if (!work_data) {
-		IPAERR("failed allocating ipa_ipsec_work_wrap\n");
-		return;
+	IPADBG("%s SA%02d XFRM state pointer (0x%X) \n",
+		(sa_type == IPA_IPSEC_ENCAP) ? "Encap" : "Decap", idx, x);
+
+	spin_lock_bh(&x->lock);
+	switch (thresh_type) {
+	case IPA_IPSEC_UC_THRESH_SOFT:
+		if (!x->km.dying) {
+			x->km.dying = 1;
+			km_state_expired(x, 0, 0);
+		}
+		break;
+	case IPA_IPSEC_UC_THRESH_HARD:
+		x->km.state = XFRM_STATE_EXPIRED;
+		hrtimer_start(&x->mtimer, 0, HRTIMER_MODE_REL_SOFT);
+		break;
+	default:
+		BUG();
 	}
-	INIT_WORK(&work_data->work, ipa_ipsec_handle_sa_thresh_bottom);
-	work_data->x = x;
-	queue_work(ipa_ipsec_wq, &work_data->work);
+	spin_unlock_bh(&x->lock);
 }
 
 /* The DL (LAN) RT tables are being deleted on LAN down and recreated on LAN up.
@@ -1845,14 +1887,56 @@ void ipa_ipsec_xdo_policy_delete(struct xfrm_policy *xp)
 	IPADBG("xp->xdo.offload_handle = %08X\n", xp->xdo.offload_handle);
 }
 
-void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
+void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 {
 	int i;
-	enum ipa_ip_type ip;
 	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt;
-	struct ipa_ipsec_policy *pol;
-	struct ipa_ioc_del_rt_rule *ioc_del_rt;
-	struct ipa_rt_rule_del *rt_rule_del;
+	struct ipa3_rt_entry *rt_entry;
+	struct ipa_ipsec_policy_work_wrap *work_data =
+		container_of(work, struct ipa_ipsec_policy_work_wrap, work);
+	struct ipa_ipsec_policy *pol = work_data->pol;
+
+	for (i = 0; i < IPA_IPSEC_DL_FLT_PER_POL; i++) {
+		if (pol->flt[i] != -1) {
+			mutex_lock(&ipa3_ctx->lock);
+			BUG_ON(__ipa_del_flt_rule(pol->flt[i]));
+			IPADBG("deleted FLT rule %d\n", pol->flt[i]);
+			mutex_unlock(&ipa3_ctx->lock);
+			pol->flt[i] = -1;
+		}
+	}
+	if (pol->rt != -1) {
+		mutex_lock(&ipa3_ctx->lock);
+		rt_entry = ipa3_id_find(pol->rt);
+
+		if (work_data->dir == XFRM_DEV_OFFLOAD_OUT) {
+			ul_flt = (struct ipa_ioc_ipsec_ul_flt_attr *)kzalloc(
+				sizeof(struct ipa_ioc_ipsec_ul_flt_attr), GFP_KERNEL);
+			BUG_ON(!ul_flt);
+			memcpy(&ul_flt->attr, &rt_entry->rule.attrib,
+				sizeof(struct ipa_rule_attrib));
+			ul_flt->ip = work_data->ip;
+		}
+		BUG_ON(__ipa3_del_rt_rule(pol->rt));
+		mutex_unlock(&ipa3_ctx->lock);
+
+		pol->rt = -1;
+		IPADBG("deleted RT rule %d\n", pol->rt);
+
+		if (ul_flt)
+			ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt);
+	}
+
+	/* This will commit flt as well */
+	BUG_ON(ipa3_commit_rt(work_data->ip));
+
+	list_del(&pol->l);
+	kfree(pol);
+}
+
+void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
+{
+	struct ipa_ipsec_policy_work_wrap *work_data;
 
 	IPADBG("Start\n");
 
@@ -1864,50 +1948,17 @@ void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
 
 	IPADBG("x->xso.offload_handle = %llX\n", xp->xdo.offload_handle);
 
-	ip = (xp->selector.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4;
-	pol = (struct ipa_ipsec_policy *)xp->xdo.offload_handle;
-	for (i = 0; i < IPA_IPSEC_DL_FLT_PER_POL; i++) {
-		if (pol->flt[i] != -1) {
-			mutex_lock(&ipa3_ctx->lock);
-			BUG_ON(__ipa_del_flt_rule(pol->flt[i]));
-			IPADBG("deleted FLT rule %d\n", pol->flt[i]);
-			mutex_unlock(&ipa3_ctx->lock);
-			BUG_ON(ipa3_commit_flt(ip));
-			pol->flt[i] = -1;
-		}
-	}
-	if (pol->rt != -1) {
-		ioc_del_rt = kzalloc(sizeof(struct ipa_ioc_del_rt_rule) +
-			sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
-		if (!ioc_del_rt) {
-			IPAERR("failed to allocate mem for ioc_del_rt\n");
-			return;
-		}
-		ioc_del_rt->commit = 1;
-		ioc_del_rt->ip = ip;
-		ioc_del_rt->num_hdls = 1;
-		rt_rule_del = &ioc_del_rt->hdl[0];
-		rt_rule_del->status = -1;
-		rt_rule_del->hdl = pol->rt;
-		BUG_ON(ipa3_del_rt_rule(ioc_del_rt) || rt_rule_del->status);
-		IPADBG("deleted RT rule %d\n", rt_rule_del->hdl);
-		kfree(ioc_del_rt);
-
-		if (xp->xdo.dir == XFRM_DEV_OFFLOAD_OUT) {
-			ul_flt = (struct ipa_ioc_ipsec_ul_flt_attr *)kzalloc(
-				sizeof(struct ipa_ioc_ipsec_ul_flt_attr), GFP_KERNEL);
-			BUG_ON(!ul_flt);
-			if (ul_flt) {
-				ipa_ipsec_xfrm_sp_to_ipa_attrib(xp, &ul_flt->attr,
-					IPA_IPSEC_MAX_SA_NUM);
-				ul_flt->ip = ip;
-				ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt);
-			}
-		}
+	work_data = kzalloc(sizeof(struct ipa_ipsec_policy_work_wrap), GFP_ATOMIC);
+	if (!work_data) {
+		IPAERR("failed allocating ipa_ipsec_policy_work_wrap\n");
+		return;
 	}
 
-	list_del(&pol->l);
-	kfree(pol);
+	INIT_WORK(&work_data->work, ipa_ipsec_xdo_policy_free_work);
+	work_data->ip = (xp->selector.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4;
+	work_data->pol = (struct ipa_ipsec_policy *)xp->xdo.offload_handle;
+	work_data->dir = xp->xdo.dir;
+	queue_work(ipa_ipsec_wq, &work_data->work);
 	xp->xdo.offload_handle = 0;
 }
 
@@ -2789,7 +2840,7 @@ int ipa_ipsec_init(void)
 	/* Init SA threshold workqueue */
 	ipa_ipsec_wq = create_singlethread_workqueue(IPSEC_WORKQUEUE_NAME);
 	if (!ipa_ipsec_wq) {
-		IPAERR("IPsec SA threshold workqueue creation failed\n");
+		IPAERR("IPA IPsec workqueue creation failed\n");
 		ret = -ENOMEM;
 		goto free_xfrmdev_ops;
 	}

@@ -16,7 +16,7 @@
 #define IPA_IPSEC_MAX_DEACAP_KEY_NUM 16
 #define IPA_IPSEC_MAX_KEY_NUM (IPA_IPSEC_MAX_ENACAP_KEY_NUM + IPA_IPSEC_MAX_DEACAP_KEY_NUM)
 #define XFRM_ALG_NAME_MAX 64
-#define IPA_IPSEC_DL_FLT_PER_POL 2
+#define IPA_IPSEC_DL_FLT_PER_POL 10
 
 #define IPA_IPSEC_OFFLOAD_MAGIC 0x01BA0000
 
@@ -55,6 +55,12 @@ enum ipa_ipsec_hpc_action {
 enum ipa_ipsec_error_type {
 	IPA_IPSEC_ERROR_TYPE_ENCAP = 1,
 	IPA_IPSEC_ERROR_TYPE_DECAP = 2,
+};
+
+enum ipa_ipsec_uc_thresh_type {
+	IPA_IPSEC_UC_THRESH_SOFT = 0,
+	IPA_IPSEC_UC_THRESH_HARD = 1,
+	IPA_IPSEC_UC_THRESH_MAX,
 };
 
 enum ipa_ipsec_uc_sa_action {
@@ -145,7 +151,8 @@ struct ipa_ipsec_sa_encap_shared {
 struct ipa_ipsec_sa_encap_dynamic {
 	u32 is_stopped		:1;
 	u32 send_to_sw		:1;
-	u32 reserved		:14;
+	u32 thresh_met		:1;
+	u32 reserved		:13;
 	u32 ipv4_id		:16;
 	u32 seq_overflow;
 	u64 seq_num;
@@ -224,7 +231,8 @@ struct ipa_ipsec_sa_decap_shared {
 struct ipa_ipsec_sa_decap_dynamic {
 	u32 is_stopped		:1;
 	u32 send_to_sw		:1;
-	u32 reserved		:30;
+	u32 thresh_met		:1;
+	u32 reserved		:29;
 
 	u64 volume_bytes;
 	u64 last_pkt_timestamp;
@@ -392,9 +400,18 @@ struct ipa_ipsec_ctx {
 	bool enabled;
 };
 
-struct ipa_ipsec_work_wrap {
+struct ipa_ipsec_state_work_wrap {
 	struct work_struct work;
-	struct xfrm_state *x;
+	enum ipa_ip_type ip;
+	u8 idx;
+	u8 dir;
+};
+
+struct ipa_ipsec_policy_work_wrap {
+	struct work_struct work;
+	struct ipa_ipsec_policy *pol;
+	enum ipa_ip_type ip;
+	u8 dir;
 };
 
 void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
@@ -411,7 +428,8 @@ int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *entry,
 int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata);
 int ipa_ipsec_ep_init_prod(void);
 void ipa_ipsec_ep_init_cons(struct work_struct *work);
-void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action);
+void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action,
+	enum ipa_ipsec_uc_thresh_type thresh_type);
 const char * ipa_ipsec_get_auth_algo_name(enum ipa_ipsec_sa_auth auth_algo);
 const char * ipa_ipsec_get_encr_algo_name(enum ipa_ipsec_sa_enc encr_algo);
 #define IPA_UC_IPSEC_WORKQUEUE_NAME "ipa_uc_ipsec_wq"
@@ -429,7 +447,8 @@ inline int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl 
 inline int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata) {return 0;}
 inline int ipa_ipsec_ep_init_prod(void) {return 0;}
 inline int ipa_ipsec_ep_init_cons(void) {return 0;}
-inline void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action) {return;}
+inline void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action,
+	enum ipa_ipsec_uc_thresh_type thresh_type) {return;}
 inline const char * ipa_ipsec_get_auth_algo_name(enum ipa_ipsec_sa_auth auth_algo) {return NULL;}
 inline const char * ipa_ipsec_get_encr_algo_name(enum ipa_ipsec_sa_enc encr_algo) {return NULL;}
 #endif

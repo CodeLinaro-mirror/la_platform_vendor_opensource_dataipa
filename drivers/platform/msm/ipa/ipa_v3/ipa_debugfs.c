@@ -3917,6 +3917,8 @@ static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"send_to_sw = %d\n", esa.dyna.send_to_sw);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"thresh_met = %d\n", esa.dyna.thresh_met);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"ipv4_id = %d\n", esa.dyna.ipv4_id);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"seq_overflow = %d\n", esa.dyna.seq_overflow);
@@ -4032,6 +4034,8 @@ static ssize_t ipa3_read_ipsec_decap_sa_info(struct file *file,
 		"is_stopped = %d\n", dsa.dyna.is_stopped);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"send_to_sw = %d\n", dsa.dyna.send_to_sw);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"thresh_met = %d\n", dsa.dyna.thresh_met);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"volume_bytes = %llu\n", dsa.dyna.volume_bytes);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,

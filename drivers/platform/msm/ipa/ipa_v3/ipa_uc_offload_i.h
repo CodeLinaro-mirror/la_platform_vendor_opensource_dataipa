@@ -845,7 +845,7 @@ struct EventStructureHolbMonitoring_t {
  * parameters for IPSEC_THRESH_NOTIFY
  * @sa_idx: SA index
  * @sa_action: SA action (1 - encap, 2 - decap)
- * @type: Threshold type (soft/hard)
+ * @type: Threshold type (0 - soft, 1 - hard)
  */
 struct EventStructureIpsecThreshold_t {
 	uint32_t sa_idx		:8;
