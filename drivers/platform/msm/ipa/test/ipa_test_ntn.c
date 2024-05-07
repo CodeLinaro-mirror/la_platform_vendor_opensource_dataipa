@@ -577,13 +577,18 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->client.client_type = IPA_ETH_CLIENT_NTN;
 	test_ntn_ctx->client.inst_id = 0;
 #endif
+#if IPA_ETH_API_VER == 2
 	test_ntn_ctx->client.traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
+#endif
 #if IPA_ETH_API_VER >= 2
 	test_ntn_ctx->client.net_dev = dummy_net_dev;
 #endif
 
 	/* RX pipe */
 	/* ring */
+#if IPA_ETH_API_VER >= 3
+	test_ntn_ctx->rx_pipe_info.traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
+#endif
 	test_ntn_ctx->rx_pipe_info.dir = IPA_ETH_PIPE_DIR_RX;
 	test_ntn_ctx->rx_pipe_info.client_info = &test_ntn_ctx->client;
 	test_ntn_ctx->rx_pipe_info.info.is_transfer_ring_valid = true;
@@ -635,6 +640,9 @@ static int ipa_ntn_test_setup_pipes(void)
 
 	/* TX pipe */
 	/* ring */
+#if IPA_ETH_API_VER >= 3
+	test_ntn_ctx->tx_pipe_info.traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
+#endif
 	test_ntn_ctx->tx_pipe_info.dir = IPA_ETH_PIPE_DIR_TX;
 	test_ntn_ctx->tx_pipe_info.client_info = &test_ntn_ctx->client;
 	test_ntn_ctx->tx_pipe_info.info.is_transfer_ring_valid = true;

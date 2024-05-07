@@ -706,13 +706,15 @@ struct uc_channel_teardown_cmd_hw_aqc {
  * IEMAC cahnnel setup command data
  * @direction: tx/rx
  * @gsi_channel: GSI channel index
- * @reserved: Padding
+ * @port_id: EMAC port number
+ * @priority: relative priority of the channel
  *
  */
 struct uc_channel_setup_cmd_hw_iemac {
 	u8 direction;
 	u8 gsi_channel;
-	u16 reserved;
+	u8 port_id;
+	u8 priority;
 } __packed;
 
 /**

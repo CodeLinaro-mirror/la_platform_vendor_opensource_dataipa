@@ -6488,6 +6488,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+	[IPA_6_0][IPA_CLIENT_ETHERNET_PROD1] = {
+			true,   IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			QMB_MASTER_SELECT_DDR,
+			{ 6 , 15, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2},
+			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_AQC_ETHERNET_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
@@ -7122,6 +7129,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 3 , 7, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_PROD1] = {
+			true,   IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			QMB_MASTER_SELECT_DDR,
+			{ 3 , 7, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_APPS_WAN_LOW_LAT_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			false,
@@ -7144,6 +7158,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 7 , 16, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_ODU_PROD] = {
+			true,   IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 7 , 16, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_NA },
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_PROD2] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_UCP,
@@ -7210,19 +7231,12 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 11, 10, 28, 32, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_DECAP_PROD] ={
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_PROD3] ={
 			true,   IPA_v6_0_GROUP_DL,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 12 , 19, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_NA },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_ENCAP_PROD] ={
-			true,   IPA_v6_0_GROUP_UL,
-			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
-			QMB_MASTER_SELECT_DDR,
-			{ 13 , 20, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_Q6_WAN_PROD]  = {
 			true, IPA_v6_0_GROUP_DL,
@@ -7392,6 +7406,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 37, 29, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_CONS1] = {
+			true,   IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 37, 29, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_DL },
 	[IPA_6_0_AUTO][IPA_CLIENT_Q6_CV2X_CONS] = {
 			true, IPA_v6_0_GROUP_CV2X,
 			false,
@@ -7438,21 +7459,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 43, 31, 0, 0, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS] = {
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_CONS2] = {
 			true, IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 44, 32, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS] = {
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_CONS3] = {
 			true, IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 45, 33, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_ENCAP_ERR_CONS] = {
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_CONS4] = {
 			true, IPA_v6_0_GROUP_UL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -9021,9 +9042,9 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_rt_v6_ofst = 0,
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x6ce8,
-	.stats_fnr_size = 0x2680,
-	.stats_drop_ofst = 0x9368,
-	.stats_drop_size = 0x20,
+	.stats_fnr_size = 0x2658,
+	.stats_drop_ofst = 0x9340,
+	.stats_drop_size = 0x48,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x9398,
@@ -9200,6 +9221,14 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(RESERVERD_CONS_143),
 	__stringify(RESERVERD_PROD_144),
 	__stringify(IPA_CLIENT_Q6_CV2X_DECIPHER_CONS),
+	__stringify(IPA_CLIENT_ETHERNET_PROD1),
+	__stringify(IPA_CLIENT_ETHERNET_CONS1),
+	__stringify(IPA_CLIENT_ETHERNET_PROD2),
+	__stringify(IPA_CLIENT_ETHERNET_CONS2),
+	__stringify(IPA_CLIENT_ETHERNET_PROD3),
+	__stringify(IPA_CLIENT_ETHERNET_CONS3),
+	__stringify(IPA_CLIENT_ETHERNET_PROD4),
+	__stringify(IPA_CLIENT_ETHERNET_CONS4),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -11005,6 +11034,14 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_WLAN4_CONS:
 		case IPA_CLIENT_WLAN1_PROD:
 		case IPA_CLIENT_APPS_WAN_ETH_PROD:
+		case IPA_CLIENT_ETHERNET_PROD1:
+		case IPA_CLIENT_ETHERNET_CONS1:
+		case IPA_CLIENT_ETHERNET_PROD2:
+		case IPA_CLIENT_ETHERNET_CONS2:
+		case IPA_CLIENT_ETHERNET_PROD3:
+		case IPA_CLIENT_ETHERNET_CONS3:
+		case IPA_CLIENT_ETHERNET_PROD4:
+		case IPA_CLIENT_ETHERNET_CONS4:
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en = 1;
 			break;
 		default:
@@ -12122,6 +12159,9 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 	    param_in->client == IPA_CLIENT_ODU_PROD ||
 	    param_in->client == IPA_CLIENT_ETHERNET_PROD ||
 	    param_in->client == IPA_CLIENT_ETHERNET2_PROD ||
+		param_in->client == IPA_CLIENT_ETHERNET_PROD1 ||
+		param_in->client == IPA_CLIENT_ETHERNET_PROD2 ||
+		param_in->client == IPA_CLIENT_ETHERNET_PROD3 ||
 		param_in->client == IPA_CLIENT_WIGIG_PROD ||
 		param_in->client == IPA_CLIENT_AQC_ETHERNET_PROD ||
 		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD) {
@@ -16270,6 +16310,7 @@ int ipa3_get_prot_id(enum ipa_client_type client)
 	case IPA_CLIENT_ETHERNET2_CONS:
 	case IPA_CLIENT_ETHERNET_PROD:
 	case IPA_CLIENT_ETHERNET_CONS:
+	case IPA_CLIENT_ETHERNET_PROD1:
 		prot_id = IPA_HW_PROTOCOL_ETH;
 		break;
 	case IPA_CLIENT_WIGIG_PROD:
