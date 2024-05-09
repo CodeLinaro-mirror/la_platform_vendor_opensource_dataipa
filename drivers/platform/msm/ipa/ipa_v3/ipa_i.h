@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -621,6 +621,9 @@ enum {
 				compat_uptr_t)
 #define IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX32 _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_SET_CONN_TRACK_EXC_RT_TBL_IDX, \
+				compat_uptr_t)
+#define IPA_IOC_QOS_PARAM32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_QOS_PARAM, \
 				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
