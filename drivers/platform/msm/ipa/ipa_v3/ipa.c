@@ -1655,6 +1655,65 @@ static int ipa3_send_gsb_msg(unsigned long usr_param, uint8_t msg_type)
 	return 0;
 }
 
+
+static void ipa3_qos_param_msg_free_cb(void *buff, u32 len, u32 type)
+{
+	if (!buff) {
+		IPAERR("Null buffer\n");
+		return;
+	}
+
+	kfree(buff);
+}
+
+static int ipa3_send_qos_param_msg(unsigned long usr_param)
+{
+	int retval;
+	struct ipa_ioc_qos_config *qos_param;
+	struct ipa_msg_meta msg_meta;
+	void *buff;
+
+	IPADBG("Received ioctl qos\n");
+	memset(&msg_meta, 0, sizeof(msg_meta));
+
+	qos_param = kzalloc(sizeof(struct ipa_ioc_qos_config),
+		GFP_KERNEL);
+	if (!qos_param)
+		return -ENOMEM;
+
+	if (copy_from_user((u8 *)qos_param, (void __user *)usr_param,
+		sizeof(struct ipa_ioc_qos_config))) {
+		kfree(qos_param);
+		return -EFAULT;
+	}
+
+	msg_meta.msg_len = sizeof(struct ipa_ioc_qos_config);
+	buff = qos_param;
+
+	msg_meta.msg_type = qos_param->qos_param_evt_type;
+	/* null terminate the string */
+	qos_param->dev_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+	if ((qos_param->qos_param_evt_type < IPA_QOS_PARAM_ADD_EVENT) ||
+			(qos_param->qos_param_evt_type >= IPA_QOS_PARAM_EVENT_MAX)) {
+		IPAERR_RL("invalid qos_param_evt_type =%d", qos_param->qos_param_evt_type);
+		kfree(qos_param);
+		return -EINVAL;
+	}
+
+	retval = ipa3_send_msg(&msg_meta, buff,
+		ipa3_qos_param_msg_free_cb);
+	if (retval) {
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+			retval,
+			msg_meta.msg_type);
+		kfree(buff);
+		return retval;
+	}
+	IPADBG("exit\n");
+
+	return 0;
+}
+
 static int ipa3_ioctl_add_rt_rule_v2(unsigned long arg)
 {
 	int retval = 0;
@@ -4308,6 +4367,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case IPA_IOC_PDN_CONFIG:
 		if (ipa3_send_pdn_config_msg(arg)) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case IPA_IOC_QOS_PARAM:
+		IPADBG("Got IPA_IOC_QOS_PARAM\n");
+		if (ipa3_send_qos_param_msg(arg)) {
 			retval = -EFAULT;
 			break;
 		}
@@ -7345,6 +7412,8 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case IPA_IOC_GET_CT_IN_SRAM_INFO32:
 		cmd = IPA_IOC_GET_CT_IN_SRAM_INFO;
+    case IPA_IOC_QOS_PARAM32:
+		cmd = IPA_IOC_QOS_PARAM;
 		break;
 	case IPA_IOC_COMMIT_HDR:
 	case IPA_IOC_RESET_HDR:

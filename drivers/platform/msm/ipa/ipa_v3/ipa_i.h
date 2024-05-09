@@ -637,6 +637,9 @@ enum {
 #define IPA_IOC_GET_CT_IN_SRAM_INFO32 _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_GET_CT_IN_SRAM_INFO, \
 				compat_uptr_t)
+#define IPA_IOC_QOS_PARAM32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_QOS_PARAM, \
+				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
 #define IPA_TZ_UNLOCK_ATTRIBUTE 0x0C0311
