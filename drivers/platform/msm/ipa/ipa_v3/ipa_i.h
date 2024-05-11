@@ -2829,6 +2829,8 @@ struct ipa3_context {
 	bool uc_act_tbl_valid;
 	struct mutex act_tbl_lock;
 	int uc_act_tbl_total;
+	int uc_act_tbl_socksv5_total;
+	int uc_act_tbl_ipv6_nat_total;
 	int uc_act_tbl_next_index;
 	int ipa_pil_load;
 	bool is_dual_pine_config;
@@ -3339,6 +3341,15 @@ int ipa3_setup_uc_act_tbl(void);
 int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info);
 
 int ipa3_del_socksv5_conn(uint32_t handle);
+
+int ipa3_add_socksv5_conn_usr(struct ipa_kernel_tests_socksv5_uc_tmpl *tmpl);
+
+int ipa3_add_ipv6_nat_uc_activation_entry(
+	struct ipa_ioc_ipv6_nat_uc_act_entry *entry);
+
+int ipa3_del_ipv6_nat_uc_activation_entry(uint16_t index);
+
+int ipa3_del_uc_act_entry(uint16_t index);
 
 /*
  * Header removal / addition

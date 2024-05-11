@@ -3027,6 +3027,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	int hdl;
 	unsigned long uptr = 0;
 	struct ipa_ioc_get_ep_info ep_info;
+	union ipa_ioc_uc_activation_entry uc_act;
 
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
 
@@ -4674,6 +4675,39 @@ send:
 		retval = ipa_tsp_reset();
 		break;
 #endif
+
+	case IPA_IOC_ADD_UC_ACT_ENTRY:
+		if (copy_from_user(&uc_act, (const void __user *)arg,
+			sizeof(union ipa_ioc_uc_activation_entry))) {
+			IPAERR_RL("copy_from_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		/* first field in both structs is cmd id */
+		if (uc_act.socks.cmd_id == IPA_SOCKSV5_ADD_COM_ID) {
+			retval = ipa3_add_socksv5_conn_usr(&uc_act.socks);
+		} else {
+			retval = ipa3_add_ipv6_nat_uc_activation_entry(
+				&uc_act.ipv6_nat);
+		}
+		if (retval) {
+			retval = -EFAULT;
+			break;
+		}
+		if (copy_to_user((void __user *)arg, &uc_act,
+			sizeof(union ipa_ioc_uc_activation_entry))) {
+			IPAERR_RL("copy_to_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+		break;
+	case IPA_IOC_DEL_UC_ACT_ENTRY:
+		if (ipa3_del_uc_act_entry((uint16_t)arg)) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
 
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
