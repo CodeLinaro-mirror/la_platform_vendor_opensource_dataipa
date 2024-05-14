@@ -72,7 +72,7 @@ struct ipa_wdi_context {
 #endif
 	bool ast_update;
 	bool is_rx1_used;
-	bool is_hsp;
+	u8 rx_tlv_format;
 };
 
 static struct ipa_wdi_context *ipa_wdi_ctx_list[IPA_WDI_INST_MAX];
@@ -240,7 +240,7 @@ static int ipa_wdi_init_per_inst_internal(struct ipa_wdi_init_in_params *in,
 	ipa_wdi_ctx_list[hdl]->inst_id = in->inst_id;
 	ipa_wdi_ctx_list[hdl]->wdi_version = in->wdi_version;
 	ipa_wdi_ctx_list[hdl]->ast_update = in->ast_update;
-	ipa_wdi_ctx_list[hdl]->is_hsp = in->is_hsp;
+	ipa_wdi_ctx_list[hdl]->rx_tlv_format = in->rx_tlv_format;
 	uc_ready_params.notify = in->notify;
 	uc_ready_params.priv = in->priv;
 
@@ -646,7 +646,8 @@ static int ipa_wdi_conn_pipes_per_inst_internal(struct ipa_wdi_conn_in_params *i
 	IPA_WDI_DBG("PM handle Registered\n");
 	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_3) {
 		if (ipa3_conn_wdi3_pipes(in, out, ipa_wdi_ctx_list[in->hdl]->wdi_notify,
-			ipa_wdi_ctx_list[in->hdl]->ast_update, ipa_wdi_ctx_list[in->hdl]->is_hsp)) {
+			ipa_wdi_ctx_list[in->hdl]->ast_update,
+			ipa_wdi_ctx_list[in->hdl]->rx_tlv_format)) {
 			IPA_WDI_ERR("fail to setup wdi pipes\n");
 			ret = -EFAULT;
 			goto fail_connect_pipe;

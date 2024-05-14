@@ -610,6 +610,11 @@ enum ipa_icc_type {
 	IPA_ICC_TYPE_MAX,
 };
 
+enum rx_tlv_format_type {
+	IPA_TLV_PINE,
+	IPA_TLV_HSP,
+};
+
 #define IPA_ICC_MAX (IPA_ICC_PATH_MAX*IPA_ICC_TYPE_MAX)
 
 
@@ -1128,7 +1133,7 @@ struct ipa3_ep_context {
 	bool ep_delay_set;
 	bool ast_update;
 	void (*ast_notify)(void *client_priv, unsigned long data);
-	bool is_hsp;
+	u8 rx_tlv_format;
 	/* sys MUST be the last element of this struct */
 	struct ipa3_sys_context *sys;
 };
