@@ -3045,6 +3045,7 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 	ctx->user_data = user_data;
 	*chan_hdl = props->ch_id;
 	ctx->allocated = true;
+	GSIDBG("Gsi chan %d allocated\n", props->ch_id);
 	ctx->stats.dp.last_timestamp = jiffies_to_msecs(jiffies);
 	atomic_inc(&gsi_ctx->num_chan);
 

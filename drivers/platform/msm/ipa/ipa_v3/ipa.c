@@ -9788,6 +9788,12 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 	/* Check MHI configuration on MDM devices */
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
 
+#if IPA_ETH_API_VER >= 4
+		if (strnstr(dbg_buff, "ethqos", strlen(dbg_buff))) {
+			ipa3_ctx->eth_qos = IPA_ETH_QOS_ENABLE;
+			IPADBG("ETH QOS enabled: %d\n", ipa3_ctx->eth_qos);
+		}
+#endif
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
 			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] =
@@ -9817,7 +9823,6 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			 */
 			return count;
 		}
-
 		/* trim ending newline character if any */
 		if (count && (dbg_buff[count - 1] == '\n'))
 			dbg_buff[count - 1] = '\0';
