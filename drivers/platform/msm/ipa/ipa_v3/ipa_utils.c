@@ -17695,3 +17695,49 @@ void ipa3_set_eth_pdu_ep_status()
 		return;
 	}
 }
+
+int ipa3_update_l2tp_config(uint32_t client)
+{
+	struct ipa3_ep_context *ep;
+	int ipa_ep_idx;
+	union __packed gsi_ntn_channel_scratch2_reg scratch2_reg;
+	int result = -EINVAL;
+
+	if (client  >= IPA_CLIENT_MAX) {
+		IPAERR_RL("bad parm client:%d\n", client);
+		return result;
+	}
+
+	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	if (ipa_ep_idx == -1) {
+		IPAERR_RL("Invalid client.\n");
+		return result;
+	}
+
+	ep = &ipa3_ctx->ep[ipa_ep_idx];
+	if (!ep->valid) {
+		IPAERR_RL("EP not allocated.\n");
+		return result;
+	}
+	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(ipa_ep_idx));
+	result = gsi_read_ntn_channel_scratch2_reg(ep->gsi_chan_hdl,
+			&scratch2_reg);
+	if (result != GSI_STATUS_SUCCESS) {
+		IPAERR("failed to read channel scratch2 reg %d\n", result);
+		goto exit;
+	}
+	IPADBG("updating l2tp config for client %d and gsi_handle %d\n",
+			client, ep->gsi_chan_hdl);
+	scratch2_reg.ntn.is_l2tp_config = 1;
+	result = gsi_write_ntn_channel_scratch2_reg(ep->gsi_chan_hdl,
+			scratch2_reg);
+	if (result != GSI_STATUS_SUCCESS) {
+		IPAERR("failed to write channel scratch2 reg %d\n", result);
+		goto exit;
+	}
+
+exit:
+	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(ipa_ep_idx));
+	return result;
+}
+

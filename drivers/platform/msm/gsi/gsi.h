@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef GSI_H
@@ -1174,6 +1174,30 @@ union __packed gsi_wdi3_channel_scratch2_reg {
 	 uint32_t reserved3;
 	 uint32_t reserved4;
  };
+
+/**
+ * gsi_ntn_channel_scratch2 - NTN protocol config area of
+ * channel scratch2
+ *
+ * @ioc_mod_threshold: the threshold for IOC moderation (TX)
+ * @is_l2tp_config: Indication to GSI for L2TP configuration
+ */
+ struct __packed gsi_ntn_channel_scratch2 {
+	 uint32_t ioc_mod_threshold : 16;
+	 uint32_t is_l2tp_config : 1;
+	 uint32_t reserved : 15;
+};
+
+/**
+ * gsi_ntn_channel_scratch2_reg - NTN channel config area of
+ * channel scratch2
+ */
+ union __packed gsi_ntn_channel_scratch2_reg {
+	 struct __packed gsi_ntn_channel_scratch2 ntn;
+	 struct __packed {
+		 uint32_t word1;
+	 } data;
+};
 
 /**
  * gsi_channel_scratch - channel scratch SW config area
@@ -2452,6 +2476,32 @@ int gsi_get_refetch_reg(unsigned long chan_hdl, bool is_rp);
  * @chan_hdl: gsi channel handle
  */
 int gsi_ntn3_client_stats_get(unsigned ep_id, int scratch_id, unsigned chan_hdl);
+
+/**
+ * gsi_write_ntn_channel_scratch2_reg -  Peripheral should call this function to
+ * write to the ntn scratch2 reg area of the channel context
+ *
+ * @chan_hdl:  Client handle previously obtained from
+ *			gsi_alloc_channel
+ * @val:       Value to write
+ *
+ * @Return gsi_status
+ */
+int gsi_write_ntn_channel_scratch2_reg(unsigned long chan_hdl,
+		union __packed gsi_ntn_channel_scratch2_reg val);
+
+/**
+ * gsi_read_ntn_channel_scratch2_reg - Peripheral should call this function to
+ * read to the ntn scratch 2 register area of the channel context
+ *
+ * @chan_hdl:  Client handle previously obtained from
+ * 			gsi_alloc_channel
+ * @val:       Read value
+ *
+ * @Return gsi_status
+ */
+int gsi_read_ntn_channel_scratch2_reg(unsigned long chan_hdl,
+		union __packed gsi_ntn_channel_scratch2_reg *val);
 
 /**
  * gsi_get_drop_stats - get drop stats by GSI
