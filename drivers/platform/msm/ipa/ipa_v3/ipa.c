@@ -7556,7 +7556,8 @@ static void ipa3_freeze_clock_vote_and_notify_modem(void)
 	int res;
 	struct ipa_active_client_logging_info log_info;
 
-	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_APQ) {
+	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_APQ ||
+		ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR) {
 		IPADBG("Ignore smp2p on APQ platform\n");
 		return;
 	}
@@ -8155,6 +8156,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		}
 	}
 
+	ipa3_enable_napi_lan_rx();
 	/* setup the AP-IPA pipes */
 	if (ipa3_setup_apps_pipes()) {
 		IPAERR(":failed to setup IPA-Apps pipes\n");
@@ -8252,7 +8254,6 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	mutex_lock(&ipa3_ctx->lock);
 	ipa3_ctx->ipa_initialization_complete = true;
 	mutex_unlock(&ipa3_ctx->lock);
-	ipa3_enable_napi_lan_rx();
 	/* init uc-activation tbl*/
 	ipa3_setup_uc_act_tbl();
 	ipa_trigger_ipa_ready_cbs();
@@ -8269,6 +8270,42 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 	if(!ipa_tlpd_stats_init())
 		IPADBG("Fail to init tlpd ipa lnx module");
+
+#ifdef CONFIG_IPA_RTP
+	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR) {
+		/* uC is getting loaded through XBL here */
+		ipa3_ctx->uc_ctx.uc_inited = true;
+		ipa3_ctx->uc_ctx.uc_loaded = true;
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+		result = ipa3_alloc_temp_buffs_to_uc(TEMP_BUFF_SIZE, NO_OF_BUFFS);
+		if (result) {
+			IPAERR("Temp buffer allocations for uC failed %d\n", result);
+			result = -ENODEV;
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+			goto fail_teth_bridge_driver_init;
+		}
+
+		result = ipa3_allocate_uc_pipes_er_tr_send_to_uc();
+		if (result) {
+			IPAERR("ER and TR allocations for uC pipes failed %d\n", result);
+			ipa3_free_uc_temp_buffs(NO_OF_BUFFS);
+			result = -ENODEV;
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+			goto fail_teth_bridge_driver_init;
+		}
+
+		result = ipa3_create_hfi_send_uc();
+		if (result) {
+			IPAERR("HFI Creation failed %d\n", result);
+			ipa3_free_uc_temp_buffs(NO_OF_BUFFS);
+			ipa3_free_uc_pipes_er_tr();
+			result = -ENODEV;
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+			goto fail_teth_bridge_driver_init;
+		}
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	}
+#endif
 
 	pr_info("IPA driver initialization was successful.\n");
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
@@ -9104,21 +9141,17 @@ static struct notifier_block qcom_va_md_ipa_notif_blk = {
 
 static u32 get_ipa_gen_rx_cmn_page_pool_size(u32 rx_cmn_page_pool_size)
 {
-        if (!rx_cmn_page_pool_size)
-                return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
-        if (rx_cmn_page_pool_size <= IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR)
-                return rx_cmn_page_pool_size;
-        return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+	if (!rx_cmn_page_pool_size)
+		return IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+	return rx_cmn_page_pool_size;
 }
 
 
 static u32 get_ipa_gen_rx_cmn_temp_pool_size(u32 rx_cmn_temp_pool_size)
 {
-        if (!rx_cmn_temp_pool_size)
-                return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
-        if (rx_cmn_temp_pool_size <= IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR)
-                return rx_cmn_temp_pool_size;
-        return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+	if (!rx_cmn_temp_pool_size)
+		return IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+	return rx_cmn_temp_pool_size;
 }
 
 static u32 get_ipa_gen_rx_ll_pool_size(u32 rx_ll_pool_sz_factor)
@@ -11097,6 +11130,15 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	int bypass = 0;
 	int fast = 0;
 	u32 iova_ap_mapping[2];
+	u32 iova = 0;
+	u32 pa = 0;
+	u32 size = 0;
+	unsigned long iova_p;
+	phys_addr_t pa_p;
+	u32 size_p;
+	u32 add_map_size;
+	const u32 *add_map;
+	int i = 0;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
 #endif
@@ -11181,6 +11223,33 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_UC] = (bypass != 0);
 
 	ipa3_ctx->uc_pdev = dev;
+
+	add_map = of_get_property(dev->of_node,
+		"qcom,ipcc-mapping", &add_map_size);
+	if (add_map) {
+		/* mapping size is an array of 3-tuple of u32 */
+		if (add_map_size % (3 * sizeof(u32))) {
+			IPAERR("wrong ipcc mapping format\n");
+			cb->valid = false;
+			return -EFAULT;
+		}
+
+		/* iterate of each entry of the ipcc mapping array */
+		for (i = 0; i < add_map_size / sizeof(u32); i += 3) {
+			iova = be32_to_cpu(add_map[i]);
+			pa = be32_to_cpu(add_map[i + 1]);
+			size = be32_to_cpu(add_map[i + 2]);
+
+			IPA_SMMU_ROUND_TO_PAGE(iova, pa, size,
+				iova_p, pa_p, size_p);
+			IPADBG_LOW("mapping 0x%lx to 0x%pa size %d\n",
+				iova_p, &pa_p, size_p);
+			ipa3_iommu_map(cb->iommu_domain,
+				iova_p, pa_p, size_p,
+				IOMMU_READ | IOMMU_WRITE | IOMMU_MMIO);
+		}
+	}
+
 	cb->done = true;
 	return 0;
 }
@@ -12470,6 +12539,9 @@ static int __init ipa_module_init(void)
 		/* Register as a PCI device driver */
 		return pci_register_driver(&ipa_pci_driver);
 	}
+#ifdef CONFIG_IPA_RTP
+	ipa_rtp_genl_init();
+#endif
 
 	register_pm_notifier(&ipa_pm_notifier);
 	/* Register as a platform device driver */
@@ -12486,6 +12558,9 @@ static void __exit ipa_module_exit(void)
 		kfree(ipa3_ctx->hw_stats);
 		ipa3_ctx->hw_stats = NULL;
 	}
+#ifdef CONFIG_IPA_RTP
+	ipa_rtp_genl_deinit();
+#endif
 	unregister_pm_notifier(&ipa_pm_notifier);
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
