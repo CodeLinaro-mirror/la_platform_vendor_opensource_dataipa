@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -79,10 +79,10 @@ enum ipa_ap_ingress_ep_enum {
 static const struct rmnet_ingress_param rmnet_ingress_cfg ={
 	.ingress_ep_type = 1,
 	.cs_offload_en = 1,
-	.buff_size = 4096,
-	.agg_byte_limit = 8192,
+	.buff_size = 8192,
+	.agg_byte_limit = 32000,
 	.agg_time_limit = 500,
-	.agg_pkt_limit = 63,
+	.agg_pkt_limit = 30,
 	.int_modt = 16,
 	.int_modc = 20,};
 
@@ -1844,6 +1844,12 @@ void apps_ipa_packet_receive_notify(void *priv,
 
 		IPAWANDBG_LOW("Rx packet was received");
 		skb->dev = IPA_NETDEV();
+		if (skb->dev == NULL) {
+			IPAERR ("rmnet interface is down, packet cannot be forwarded to"
+				"network stack\n");
+			kfree_skb(skb);
+			return;
+		}
 		if (!rmnet_ipa3_ctx->no_qmap_config)
 			skb->protocol = htons(ETH_P_MAP);
 
