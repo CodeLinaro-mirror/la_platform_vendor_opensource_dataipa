@@ -10592,6 +10592,7 @@ void ipa_init_ep_flt_bitmap(void)
 		}
 	}
 
+#ifdef CONFIG_IPA_IPSEC
 	/* Take care of EP independent FLT tables */
 	for (pipe_num = IPA6_NXT_FLT_TBL_START; pipe_num <= IPA6_NXT_FLT_TBL_END; pipe_num++) {
 		bitmap |= (1ULL << pipe_num);
@@ -10610,6 +10611,7 @@ void ipa_init_ep_flt_bitmap(void)
 			ipa3_ctx->ep_flt_num++;
 		}
 	}
+#endif
 }
 
 /**
