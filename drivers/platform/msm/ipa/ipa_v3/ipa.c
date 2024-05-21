@@ -7342,6 +7342,7 @@ void _ipa_enable_clks_v3_0(void)
 		if (ret == 0) {
 			wait_for_completion(&ipa3_ctx->msgq_desc.req_complete);
 		} else {
+			complete(&ipa3_ctx->msgq_desc.req_complete);
 			IPAERR("clock vote failed %d\n", ret);
 		}
 	} else
@@ -7436,6 +7437,7 @@ void _ipa_disable_clks_v3_0(void)
 		if (ret == 0) {
 			wait_for_completion(&ipa3_ctx->msgq_desc.req_complete);
 		} else {
+			complete(&ipa3_ctx->msgq_desc.req_complete);
 			IPAERR("clock vote failed %d\n", ret);
 		}
 	} else
@@ -8628,19 +8630,22 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 {
 	struct ipa_msgq_desc *msgq_desc = &ipa3_ctx->msgq_desc;
 	struct ipa_msg msg;
-	int ret;
+	int ret = -EINVAL;
 
 	memset(&msg, 0, sizeof(msg));
 	msg.msg_hdr.msg_size = sizeof(msg);
 	msg.msg_hdr.msg_type = msg_type;
 	msg.data = data;
 
-	ret = gh_msgq_send(msgq_desc->msgq_hdl, &msg, sizeof(msg), 0);
-
-	if (ret)
-		IPAERR("send msgq failed ret %d\n", ret);
-	else
-		IPADBG("send msgq success msg_type %d\n", msg_type);
+	if (!msgq_desc->msgq_hdl)
+		IPAERR("msgq_hdl is invalid %d for msg_type %d\n", msgq_desc->msgq_hdl, msg_type);
+	else {
+		ret = gh_msgq_send(msgq_desc->msgq_hdl, &msg, sizeof(msg), 0);
+		if (ret)
+			IPAERR("send msgq failed ret %d for msg_type %d\n", ret, msg_type);
+		else
+			IPADBG("send msgq success msg_type %d\n", msg_type);
+	}
 
 	return ret;
 }
@@ -8808,6 +8813,8 @@ static void ipa3_msgq_deinit(void)
 	destroy_workqueue(msgq_desc->msgq_wq);
 	kthread_stop(msgq_desc->recv_thread);
 	gh_msgq_unregister(msgq_desc->msgq_hdl);
+	/* memset msgq_desc */
+	memset(msgq_desc, 0, sizeof(struct ipa_msgq_desc));
 }
 
 static void ipa3_msgq_ssr_before_shutdown_delay(struct work_struct *work)
@@ -8880,9 +8887,6 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 	/* Prevent consequent calls from trying to load the FW again. */
 	if (ipa3_ctx->ipa_initialization_complete)
 		return 0;
-
-	/* enable IPA clocks explicitly to allow the initialization */
-	ipa3_enable_clks();
 
 	/*
 	 * IPA version 3.0 IPAHAL initialized at pre_init as there is no SMMU.
@@ -8995,9 +8999,8 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa_fmwk_deepsleep_exit_ipa();
 #endif
 	complete_all(&ipa3_ctx->init_completion_obj);
-	ipa3_disable_clks();
 
-	pr_info("IPA driver initialization was successful.\n");
+	IPAERR("IPA driver initialization was successful.\n");
 
 	return 0;
 
@@ -11365,6 +11368,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	/* v2x vm related */
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
 #ifdef CONFIG_GH_MSGQ
+	memset(&ipa3_ctx->msgq_desc, 0, sizeof(ipa3_ctx->msgq_desc));
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;
 #endif
 	if (resource_p->gsi_fw_file_name) {
@@ -11502,6 +11506,10 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	/* Use common page pool for Def/Coal pipe. */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_1)
 		ipa3_ctx->wan_common_page_pool = true;
+
+	/* enable IPA clocks explicitly to allow the initialization */
+	ipa3_enable_clks();
+	IPADBG("votes IPA clokd on v2x-pre_init\n");
 
 	/* setup IPA register access */
 	IPADBG("Mapping 0x%x\n", resource_p->ipa_mem_base +
@@ -11684,6 +11692,8 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_mhi_coal_set = false;
 	ipa3_ctx->wkup_enable=0;
 
+	ipa3_disable_clks();
+	IPADBG("IPA driver pre-init was successful.\n");
 	return 0;
 
 fail_wwan_init:
@@ -13576,13 +13586,17 @@ static int ipa_smmu_update_fw_loader(void)
 				}
 
 				if (ipa3_ctx->ipa_v2x_vm) {
+					IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 					result = ipa3_v2x_vm_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+					IPADBG("IPA post init done!");
 #ifdef CONFIG_GH_MSGQ
 					ipa3_msgq_send(IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND, 0);
 #endif
+					IPADBG("send IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND!");
 					/* Check if GVM SSR handling is required after GVM reset */
 					ipa3_v2x_vm_ssr_teardown_sys_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD);
 					ipa3_v2x_vm_ssr_teardown_sys_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS);
+					IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 				} else {
 					result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
 				}
@@ -13600,6 +13614,7 @@ static int ipa_smmu_update_fw_loader(void)
 		IPADBG("smmu is disabled\n");
 	}
 
+	IPADBG("ipa_smmu_update_fw_loader done !");
 	return 0;
 }
 
@@ -14119,15 +14134,15 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		result = ipa3_pre_init(&ipa3_res, pdev_p);
 	}
 
-#ifdef CONFIG_GH_MSGQ
-	/* Initialize msgq for PVM and SVM */
-	ipa3_msgq_init();
-#endif
-
 	if (result) {
 		IPAERR("ipa3_init failed\n");
 		goto err_check;
 	}
+
+#ifdef CONFIG_GH_MSGQ
+	/* Initialize msgq for PVM and SVM */
+	ipa3_msgq_init();
+#endif
 
 skip_repeat_pre_init:
 	result = of_platform_populate(pdev_p->dev.of_node,
