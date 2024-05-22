@@ -792,7 +792,7 @@ int ipa3_send(struct ipa3_sys_context *sys,
 	result = gsi_queue_xfer(sys->ep->gsi_chan_hdl, num_desc,
 			gsi_xfer, true);
 	if (result != GSI_STATUS_SUCCESS) {
-		IPAERR_RL("GSI xfer failed.\n");
+		IPADBG_LOW("GSI xfer failed.\n");
 		result = -EFAULT;
 		goto failure;
 	}
@@ -2619,7 +2619,8 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		}
 		if (num_frags == 0) {
 			if (ipa3_send(sys, data_idx + 1, desc, true)) {
-				IPAERR("fail to send skb %pK HWP\n", skb);
+				IPADBG_LOW("fail to send skb %pK HWP\n", skb);
+				IPA_STATS_INC_CNT(ipa3_ctx->stats.tx_queue_fail_pkts);
 				goto fail_mem;
 			}
 		} else {
@@ -2639,8 +2640,9 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 
 			if (ipa3_send(sys, num_frags + data_idx + 1,
 				desc, true)) {
-				IPAERR("fail to send skb %pK num_frags %u\n",
+				IPADBG_LOW("fail to send skb %pK num_frags %u\n",
 					skb, num_frags);
+				IPA_STATS_INC_CNT(ipa3_ctx->stats.tx_queue_fail_pkts);
 				goto fail_mem;
 			}
 		}
@@ -4667,6 +4669,8 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		*(u16 *)rx_skb->cb = (((metadata >> 24) & 0xFF) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);//updating the vdev id and da_is_mcbc
 		*(u8 *)(rx_skb->cb + 4) = ucp; //updating the ucp
 		*(u16 *)(rx_skb->cb + 5) = metadata & 0xFFF; //updating the  ta peer id
+		*(u8 *) (rx_skb->cb + 7) = ((metadata >> 14) & 0x3); //extract the destination chip id.
+		*(u8 *) (rx_skb->cb + 8) = ((metadata >> 12) & 0x1); // extract the pmac id.
 		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
 				metadata, *(u32 *)rx_skb->cb);
 		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
@@ -4681,7 +4685,15 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		 *  ------------------------------------------
 		 */
 		*(u16 *)rx_skb->cb = ((metadata >> 16) & 0xFFFF);
-		*(u8 *)(rx_skb->cb + 4) = ucp;
+		/* For IPA HW ver < 4.5, if ucp bit set means h/w has not
+		 * retained MAC hdr, so for those pkt sent to EMAC driver
+		 * with uCP bit set, EMAC driver will send to N/W stack as
+		 * IP packet. Starting from IPA HW ver >= 4.5, IPA h/w doesn't
+		 * have limitation and send pkt with retined MAC hdr.*/
+		if(ipa3_ctx->ipa_hw_type < IPA_HW_v4_5)
+		    *(u8 *)(rx_skb->cb + 4) = ucp;
+		else
+		    *(u8 *)(rx_skb->cb + 4) = 0;
 		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
 				metadata, *(u32 *)rx_skb->cb);
 		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));

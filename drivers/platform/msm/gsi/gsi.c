@@ -4393,8 +4393,9 @@ int gsi_queue_xfer(unsigned long chan_hdl, uint16_t num_xfers,
 	if (ctx->props.prot != GSI_CHAN_PROT_GCI) {
 		__gsi_query_channel_free_re(ctx, &free);
 		if (num_xfers > free) {
-			GSIERR("chan_hdl=%lu num_xfers=%u free=%u\n",
+			GSIDBG_LOW("chan_hdl=%lu num_xfers=%u free=%u\n",
 				chan_hdl, num_xfers, free);
+			ctx->stats.pkt_queue_fail++;
 			spin_unlock_irqrestore(slock, flags);
 			return -GSI_STATUS_RING_INSUFFICIENT_SPACE;
 		}
@@ -6276,9 +6277,10 @@ static int msm_gsi_probe(struct platform_device *pdev)
 
 	gsi_ctx->ipc_logbuf = ipc_log_context_create(GSI_IPC_LOG_PAGES,
 		"gsi", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (gsi_ctx->ipc_logbuf == NULL)
 		GSIERR("failed to create IPC log, continue...\n");
-
+#endif
 	result = of_property_read_u32(pdev->dev.of_node, "qcom,num-msi",
 			&gsi_ctx->msi.num);
 	if (result)

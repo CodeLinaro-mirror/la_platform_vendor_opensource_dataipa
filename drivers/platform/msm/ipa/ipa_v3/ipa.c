@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -2602,6 +2602,23 @@ static int proc_sram_info_rqst(
 	return 0;
 }
 
+static int proc_ct_sram_info_rqst(
+	unsigned long arg)
+{
+	struct ipa_nat_in_sram_info sram_info = { 0 };
+
+	if (ipa3_ct_get_sram_info(&sram_info))
+		return  -EFAULT;
+
+	if (copy_to_user(
+		(void __user *) arg,
+		&sram_info,
+		sizeof(struct ipa_nat_in_sram_info)))
+		return -EFAULT;
+
+	return 0;
+}
+
 static void ipa3_general_free_cb(void *buff, u32 len, u32 type)
 {
 	if (!buff) {
@@ -4227,6 +4244,10 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case IPA_IOC_GET_NAT_IN_SRAM_INFO:
 		retval = proc_sram_info_rqst(arg);
+		break;
+
+	case IPA_IOC_GET_CT_IN_SRAM_INFO:
+		retval = proc_ct_sram_info_rqst(arg);
 		break;
 
 	case IPA_IOC_APP_CLOCK_VOTE:
@@ -6157,6 +6178,10 @@ int _ipa_init_sram_v3(void)
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst) - 4);
 		ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst));
+		ipa3_sram_set_canary(ipa_sram_mmio,
+				IPA_MEM_PART(ct_tbl_ofst) - 4);
+		ipa3_sram_set_canary(ipa_sram_mmio,
+				IPA_MEM_PART(ct_tbl_ofst));
 
 		/* Set CANARY on whole pre_sa_contexts_canary */
 		for (offset = IPA_MEM_PART(pre_sa_contexts_canary_ofst) / 4;
@@ -7049,6 +7074,9 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX32:
 		cmd = IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX;
+		break;
+	case IPA_IOC_GET_CT_IN_SRAM_INFO32:
+		cmd = IPA_IOC_GET_CT_IN_SRAM_INFO;
 		break;
 	case IPA_IOC_COMMIT_HDR:
 	case IPA_IOC_RESET_HDR:
@@ -9165,11 +9193,13 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPADBG(":TSP init ok\n");
 #endif
 #if defined(CONFIG_IPA_IPSEC)
-	result = ipa_ipsec_init();
-	if (result)
-		IPAERR(":IPSEC init failed (%d)\n", -result);
-	else
-		IPADBG(":IPSEC init ok\n");
+	if (!ipa3_ctx->ipa_config_is_mhi) {
+		result = ipa_ipsec_init();
+		if (result)
+			IPAERR(":IPSEC init failed (%d)\n", -result);
+		else
+			IPADBG(":IPSEC init ok\n");
+	}
 #endif
 
 	result = ipa_hw_stats_init();
@@ -9659,6 +9689,9 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	char dbg_buff[32] = { 0 };
 	int i = 0;
+#if defined(CONFIG_IPA_IPSEC)
+	int res;
+#endif
 
 	if (count >= sizeof(dbg_buff))
 		return -EFAULT;
@@ -9739,6 +9772,24 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			ipa3_ctx->ipa_config_is_rdkb = true;
 			return count;
 		}
+
+#if defined(CONFIG_IPA_IPSEC)
+		if (strnstr(dbg_buff, "ipsec", strlen(dbg_buff)))
+		{
+			if (ipa3_ctx->ipa_config_is_mhi) {
+				IPADBG("In MHI mode IPSEC enable not required\n");
+				return count;
+			}
+			IPADBG("IPsec HW offload is configured.\n");
+			ipa3_ctx->ipa_config_is_ipsec = true;
+			res = ipa_ipsec_enable();
+			if (res)
+				IPAERR(":IPSEC enable failed (%d)\n", -res);
+			else
+				IPADBG(":IPSEC enable ok\n");
+			return count;
+		}
+#endif
 
 		/*
 		 * This logic enforeces MHI mode based on userspace input.
@@ -11434,6 +11485,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
+	ipa3_ctx->wkup_enable=0;
 
 	return 0;
 
@@ -13642,13 +13694,15 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf == NULL)
 		pr_err("failed to create IPC ipa log, continue...\n");
-
+#endif
 	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf_clk == NULL)
 		pr_err("failed to create IPC ipa_clk log, continue...\n");
-
+#endif
 	if (ipa3_ctx->ipa_hw_type == 0) {
 
 		/* Get IPA HW Version */
@@ -14371,13 +14425,15 @@ int ipa3_pci_drv_probe(struct pci_dev *pci_dev, const struct pci_device_id *ent)
 	}
 
 	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf == NULL)
 		pr_err("failed to create IPC log, continue...\n");
-
+#endif
 	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf_clk == NULL)
 		pr_err("failed to create IPC ipa_clk log, continue...\n");
-
+#endif
 	if (ipa3_ctx->ipa_hw_type == 0) {
 		/* Get IPA HW Version */
 		result = of_property_read_u32(NULL,

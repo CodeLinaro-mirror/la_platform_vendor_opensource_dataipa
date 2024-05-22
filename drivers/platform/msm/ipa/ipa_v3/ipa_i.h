@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -248,8 +248,10 @@ enum {
 	IPA_MEM_PART(nat_tbl_ofst)
 #define IPA_RAM_NAT_SIZE \
 	IPA_MEM_PART(nat_tbl_size)
-#define IPA_RAM_IPV6CT_OFST 0
-#define IPA_RAM_IPV6CT_SIZE 0
+#define IPA_RAM_IPV6CT_OFST \
+	IPA_MEM_PART(ct_tbl_ofst)
+#define IPA_RAM_IPV6CT_SIZE \
+	IPA_MEM_PART(ct_tbl_size)
 #define IPA_MEM_CANARY_VAL 0xdeadbeef
 
 #define IS_IPV6CT_MEM_DEV(d) \
@@ -626,6 +628,9 @@ enum {
 				compat_uptr_t)
 #define IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX32 _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_SET_CONN_TRACK_EXC_RT_TBL_IDX, \
+				compat_uptr_t)
+#define IPA_IOC_GET_CT_IN_SRAM_INFO32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_GET_CT_IN_SRAM_INFO, \
 				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
@@ -1577,6 +1582,41 @@ struct ipa3_nat_mem_loc_data {
 };
 
 /**
+ * struct ipa3_ct_mem_loc_data - memory specific info per table memory type
+ * @is_mapped: has the memory been mapped?
+ * @io_vaddr: the virtual address in the sram memory
+ * @vaddr: the virtual address in the system memory
+ * @dma_handle: the system memory DMA handle
+ * @phys_addr: physical sram memory location
+ * @table_alloc_size: size (bytes) of table
+ * @table_entries: number of entries in table
+ * @expn_table_entries: number of entries in expansion table
+ * @base_address: same as vaddr above
+ * @base_table_addr: base table address
+ * @expansion_table_addr: base table's expansion table address
+ */
+struct ipa3_ct_mem_loc_data {
+	bool          is_mapped;
+
+	void __iomem *io_vaddr;
+
+	void         *vaddr;
+	dma_addr_t    dma_handle;
+
+	unsigned long phys_addr;
+
+	size_t        table_alloc_size;
+
+	u32           table_entries;
+	u32           expn_table_entries;
+
+	void         *base_address;
+
+	char         *base_table_addr;
+	char         *expansion_table_addr;
+};
+
+/**
  * struct ipa3_nat_mem - IPA NAT memory description
  * @dev: the memory device structure
  * @public_ip_addr: ip address of nat table
@@ -1613,9 +1653,30 @@ struct ipa3_nat_mem {
 /**
  * struct ipa3_ipv6ct_mem - IPA IPv6 connection tracking memory description
  * @dev: the memory device structure
+ * @is_tmp_mem_allocated: indicate if tmp mem has been allocated
+ * @last_alloc_loc: last memory type allocated
+ * @active_table: which table memory type is currently active
+ * @switch2ddr_cnt: how many times we've switched focust to ddr
+ * @switch2sram_cnt: how many times we've switched focust to sram
+ * @ddr_in_use: is there table in ddr
+ * @sram_in_use: is there table in sram
+ * @mem_loc: memory specific info per table memory type
  */
 struct ipa3_ipv6ct_mem {
 	struct ipa3_nat_ipv6ct_common_mem dev; /* this item must be first */
+
+	bool                         is_tmp_mem_allocated;
+
+	enum ipa3_nat_mem_in         last_alloc_loc;
+
+	enum ipa3_nat_mem_in         active_table;
+	u32                          switch2ddr_cnt;
+	u32                          switch2sram_cnt;
+
+	bool                         ddr_in_use;
+	bool                         sram_in_use;
+
+	struct ipa3_ct_mem_loc_data mem_loc[IPA_NAT_MEM_IN_MAX];
 };
 
 /**
@@ -1688,6 +1749,7 @@ struct lan_coal_stats {
 struct ipa3_stats {
 	u32 tx_sw_pkts;
 	u32 tx_hw_pkts;
+	u32 tx_queue_fail_pkts;
 	u32 rx_pkts;
 	u32 rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_MAX];
 	u32 rx_repl_repost;
@@ -2576,6 +2638,7 @@ struct ipa3_context {
 	enum ipa3_platform_type platform_type;
 	bool ipa_config_is_mhi;
 	bool ipa_config_is_rdkb;
+	bool ipa_config_is_ipsec;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
@@ -2608,6 +2671,8 @@ struct ipa3_context {
 	u32 ipa_num_pipes;
 	dma_addr_t pkt_init_imm[IPA_MAX_NUM_PIPES];
 	u32 pkt_init_imm_opcode;
+
+	u32 wkup_enable;
 
 	struct ipa3_wlan_comm_memb wc_memb;
 
@@ -3003,6 +3068,8 @@ struct ipa3_plat_drv_res {
  * +-------------------------+
  * | CANARY                  |
  * +-------------------------+
+ * | CT TABLE  (IPA6.0)      |
+ * +-------------------------+
  * | CANARY                  |
  * +-------------------------+
  * | PDN CONFIG              |
@@ -3061,6 +3128,8 @@ struct ipa3_mem_partition {
 	u32 apps_hdr_proc_ctx_size_ddr;
 	u32 nat_tbl_ofst;
 	u32 nat_tbl_size;
+	u32 ct_tbl_ofst;
+	u32 ct_tbl_size;
 	u32 modem_comp_decomp_ofst;
 	u32 modem_comp_decomp_size;
 	u32 modem_ofst;
@@ -3377,6 +3446,7 @@ int ipa3_set_evict_policy(
 void start_coalescing( void );
 void stop_coalescing( void );
 bool lan_coal_enabled( void );
+int ipa3_ct_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
 
 /*
  * Messaging

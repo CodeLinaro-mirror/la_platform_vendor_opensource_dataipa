@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -916,6 +916,60 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 		resp.resp.error, "ipa_init_modem_driver_resp_msg_v01");
 }
 
+
+/* sending eth backhaul info to modem for dual backhaul*/
+int ipa3_qmi_eth_backhaul_info_send(struct ipa_eth_backhaul_info_req_msg_v01 *req)
+{
+	struct ipa_eth_backhaul_info_resp_msg_v01 resp;
+	struct ipa_msg_desc req_desc, resp_desc;
+	int rc = 0;
+	int pipe = -1;
+
+	/* check if modem up */
+	if (!ipa3_qmi_indication_fin ||
+		!ipa3_qmi_modem_init_fin ||
+		!ipa_q6_clnt) {
+		IPAWANDBG("modem QMI haven't up yet\n");
+		return -EINVAL;
+	}
+
+
+	req_desc.max_msg_len = IPA_ETH_BACKHAUL_INFO_REQ_MSG_V01_MAX_MSG_LEN;
+	req_desc.msg_id =  QMI_IPA_ETH_BACKHAUL_INFO_REQ_V01;
+	req_desc.ei_array = ipa3_eth_backhaul_info_req_msg_v01_ei;
+
+	memset(&resp, 0, sizeof(struct ipa_eth_backhaul_info_resp_msg_v01));
+	resp_desc.max_msg_len =IPA_ETH_BACKHAUL_INFO_RESP_MSG_V01_MAX_MSG_LEN;
+	resp_desc.msg_id = QMI_IPA_ETH_BACKHAUL_INFO_RESP_V01;
+	resp_desc.ei_array = ipa3_eth_backhaul_info_resp_msg_v01_ei;
+	pipe = ipa3_get_ep_mapping(req->eth_pipe);
+	if(pipe < 0){
+		IPAWANDBG("Invalid pipe %d\n", req->eth_pipe);
+	}
+	IPAWANDBG("Mapped %d to %d\n", req->eth_pipe,pipe);
+	req->eth_pipe=pipe;
+	IPAWANDBG("Sending ep: %d, ip: %x\n", req->eth_pipe, req->ipv4_addr_eth0[0]);
+
+	if (unlikely(!ipa_q6_clnt))
+		return -ETIMEDOUT;
+
+	rc = ipa3_qmi_send_req_wait(ipa_q6_clnt,
+		&req_desc, req,
+		&resp_desc, &resp,
+		QMI_SEND_REQ_TIMEOUT_MS);
+
+
+	if (rc < 0) {
+		IPAWANERR("QMI send Req %d failed, rc= %d\n",
+			QMI_IPA_ETH_BACKHAUL_INFO_REQ_V01,
+			rc);
+		return rc;
+	}
+
+	return ipa3_check_qmi_response(rc,
+		QMI_IPA_ETH_BACKHAUL_INFO_REQ_V01, resp.resp.result,
+		resp.resp.error, "ipa_eth_backhaul_info");
+}
 
 static int ipa3_qmi_filter_request_ex_calc_length(
 	struct ipa_install_fltr_rule_req_ex_msg_v01 *req)

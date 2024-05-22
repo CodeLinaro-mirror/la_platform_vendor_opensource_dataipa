@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <net/ip.h>
@@ -6421,14 +6421,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0][IPA_CLIENT_USB_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 0 , 14 , 8, 16, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_WLAN2_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 1 , 0, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -6442,7 +6442,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0][IPA_CLIENT_ETHERNET2_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 3 , 7, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -6463,14 +6463,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0][IPA_CLIENT_WLAN2_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 1 , 0, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_WLAN3_PROD] ={
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 6 , 15, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2},
 			IPA_TX_INSTANCE_NA },
@@ -6491,35 +6491,35 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0][IPA_CLIENT_ETHERNET_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_ETHERNET_PROD1] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 6 , 15, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 2},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_AQC_ETHERNET_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_RTK_ETHERNET_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_WLAN1_PROD] = {
 			true, IPA_v6_0_GROUP_DL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 15, 22, 10, 16, IPA_EE_AP, GSI_FREE_PRE_FETCH, 3 },
 			IPA_TX_INSTANCE_NA },
@@ -6533,14 +6533,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0][IPA_CLIENT_WLAN2_PROD1] ={
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 10 , 5, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_WLAN3_PROD1] = {
 			true, IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 11, 37, 28, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -6561,7 +6561,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0][IPA_CLIENT_WLAN1_PROD1] = {
 			true, IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 16, 23, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -7115,7 +7115,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 35, 24 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
-
+	[IPA_6_0_MHI][IPA_CLIENT_TPUT_CONS] = {
+			true, IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 43, 31, 0, 0, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_DL },
 	/* IPA_6_0_AUTO */
 	/* WDI 1.0 uses WLAN3_PROD, WLAN3_CONS uC HW pipes */
 	/* And WLAN4_CONS as MCC pipe */
@@ -7123,7 +7129,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0_AUTO][IPA_CLIENT_USB_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 0 , 14 , 8, 16, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_NA },
@@ -7137,7 +7143,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET2_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 3 , 7, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -7172,21 +7178,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_AQC_ETHERNET_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_RTK_ETHERNET_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -7200,14 +7206,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0_AUTO][IPA_CLIENT_WLAN2_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 6 , 15, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_WLAN3_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 1 , 0, 16, 24, IPA_EE_UC, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -7557,6 +7563,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 41, 8, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 4},
 			IPA_TX_INSTANCE_DL },
+	[IPA_6_0_AUTO][IPA_CLIENT_DUMMY_CONS] = {
+			true,   IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 50, 50, 8 , 8 , IPA_EE_AP },
+			IPA_TX_INSTANCE_NA },
+
 
 	/* IPA_6_0_MHI */
 	[IPA_6_0_AUTO_MHI][IPA_CLIENT_USB_PROD] = {
@@ -9048,28 +9062,30 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.modem_ofst = 0x9398,
 	.modem_size = 0xd48,
 	.nat_tbl_ofst = 0xa0e0,
-	.nat_tbl_size = 0x8700,
+	.nat_tbl_size = 0x33d8,
+	.ct_tbl_ofst = 0xd4c0,
+	.ct_tbl_size = 0x2e00,
 	.apps_v4_flt_hash_ofst = 0x0,
 	.apps_v4_flt_hash_size = 0x0,
-	.apps_v4_flt_nhash_ofst = 0x127e8,
+	.apps_v4_flt_nhash_ofst = 0x102c8,
 	.apps_v4_flt_nhash_size = 0x300,
 	.apps_v6_flt_hash_ofst = 0x0,
 	.apps_v6_flt_hash_size = 0x0,
-	.apps_v6_flt_nhash_ofst = 0x12ae8,
+	.apps_v6_flt_nhash_ofst = 0x105d0,
 	.apps_v6_flt_nhash_size = 0x300,
 	.apps_v4_rt_hash_ofst = 0x0,
 	.apps_v4_rt_hash_size = 0x0,
-	.apps_v4_rt_nhash_ofst = 0x12de8,
+	.apps_v4_rt_nhash_ofst = 0x108d8,
 	.apps_v4_rt_nhash_size = 0x300,
 	.apps_v6_rt_hash_ofst = 0x0,
 	.apps_v6_rt_hash_size = 0x0,
-	.apps_v6_rt_nhash_ofst = 0x130e8,
+	.apps_v6_rt_nhash_ofst = 0x10be0,
 	.apps_v6_rt_nhash_size = 0x300,
-	.pre_sa_contexts_canary_ofst = 0x133e8,
+	.pre_sa_contexts_canary_ofst = 0x10ee0,
 	.pre_sa_contexts_canary_size = 0x290,
-	.sa_contexts_ofst = 0x13678,
-	.sa_contexts_size = 0xE18, // (IPA_SA_DB_SIZE)
-	.end_ofst = 0x14490,
+	.sa_contexts_ofst = 0x11170,
+	.sa_contexts_size = 0xe18, // (IPA_SA_DB_SIZE)
+	.end_ofst = 0x11f88,
 };
 
 const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
@@ -10684,6 +10700,22 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 
 	if (seq_cfg->set_dynamic) {
 		type = seq_cfg->seq_type;
+#ifdef CONFIG_IPA_IPSEC
+	} else if (ipa_ipsec_enabled() &&
+		   (clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN3_PROD) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1) ||
+		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD1))) {
+		type = IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP;
+#endif
 	} else {
 		/*
 		 * Skip Configure sequencers type for test clients.
@@ -11474,8 +11506,28 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 
 	init_mode.dst_pipe_number = ipa3_ctx->ep[clnt_hdl].dst_pipe_index;
 	init_mode.ep_mode = *ep_mode;
-	switch (ipa3_ep_mapping[ipa3_ctx->hw_type_index]
-			[ipa3_ctx->ep[clnt_hdl].client].sequencer_type) {
+
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled() &&
+	   (clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN3_PROD) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1) ||
+	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD1)))
+		type = IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP;
+	else
+#endif
+		type = ipa3_ep_mapping[ipa3_ctx->hw_type_index]
+			[ipa3_ctx->ep[clnt_hdl].client].sequencer_type;
+
+	switch (type) {
 	case IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP:
 	case IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP:
 	case IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP:

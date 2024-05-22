@@ -17,7 +17,8 @@ c_sources   = ipa_nat_drv.c \
               ipa_table.c \
               ipa_mem_descriptor.c \
               ipa_ipv6ct.c \
-              ipa_nat_statemach.c
+              ipa_nat_statemach.c \
+              ipa_ct_statemach.c
 
 library_include_HEADERS = ../inc/ipa_nat_drvi.h \
                           ../inc/ipa_nat_drv.h \
@@ -26,7 +27,8 @@ library_include_HEADERS = ../inc/ipa_nat_drvi.h \
                           ../inc/ipa_mem_descriptor.h \
                           ../inc/ipa_ipv6ct.h \
                           ../inc/ipa_nat_statemach.h \
-                          ../inc/ipa_nat_map.h
+                          ../inc/ipa_nat_map.h \
+                          ../inc/ipa_ct_statemach.h
 
 lib_LTLIBRARIES = libipanat.la
 libipanat_la_C = @C@

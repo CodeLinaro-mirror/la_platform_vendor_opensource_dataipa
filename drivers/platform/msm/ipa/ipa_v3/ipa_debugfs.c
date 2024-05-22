@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -143,6 +143,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP),
 	__stringify(IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
+	__stringify(IPA_HDR_PROC_2ND_PASS),
 };
 
 static struct dentry *dent;
@@ -428,6 +429,7 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		"IPA_ENDP_INIT_HOL_TIMER_%u=0x%x\n"
 		"IPA_ENDP_INIT_DEAGGR_%u=0x%x\n"
 		"IPA_ENDP_INIT_CFG_%u=0x%x\n"
+		"IPA_ENDP_INIT_SEQ_%u=0x%x\n"
 		"IPA_ENDP_INIT_IPSEC_CFG_%u=0x%x\n"
 		"IPA_ENDP_INIT_DRBIP_CFG_%u=0x%x\n",
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_NAT_n, pipe),
@@ -441,6 +443,7 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DEAGGR_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CFG_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_SEQ_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, pipe),
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, pipe));
 }
@@ -1384,7 +1387,8 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 			entry->id,
 			ipa3_hdr_proc_type_name[entry->type],
 			ofst_words);
-		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP) {
+		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
+			entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"\naction:%u\n"
@@ -1688,6 +1692,7 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 		"sw_tx=%u\n"
 		"hw_tx=%u\n"
+		"tx_queue_fail=%u\n"
 		"tx_non_linear=%u\n"
 		"tx_compl=%u\n"
 		"wan_rx=%u\n"
@@ -1724,6 +1729,7 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		,
 		ipa3_ctx->stats.tx_sw_pkts,
 		ipa3_ctx->stats.tx_hw_pkts,
+		ipa3_ctx->stats.tx_queue_fail_pkts,
 		ipa3_ctx->stats.tx_non_linear,
 		ipa3_ctx->stats.tx_pkts_compl,
 		ipa3_ctx->stats.rx_pkts,
@@ -2490,8 +2496,28 @@ static void ipa3_start_read_memory_device(
 	u32 rule_id = 0;
 
 	if (dev->is_ipv6ct_mem) {
+		struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+		struct ipa3_ct_mem_loc_data *ct_mld_ptr = NULL;
+		u32 *num_ent_ptr;
+		const char *type_ptr;
 
 		IPADBG("In: v6\n");
+
+		if (ctm_ptr->active_table == IPA_NAT_MEM_IN_DDR &&
+			ctm_ptr->ddr_in_use) {
+
+			ct_mld_ptr = &ctm_ptr->mem_loc[IPA_NAT_MEM_IN_DDR];
+			num_ent_ptr = num_ddr_ent_ptr;
+			type_ptr = "DDR based table";
+		}
+
+		if (ctm_ptr->active_table == IPA_NAT_MEM_IN_SRAM &&
+			ctm_ptr->sram_in_use) {
+
+			ct_mld_ptr = &ctm_ptr->mem_loc[IPA_NAT_MEM_IN_SRAM];
+			num_ent_ptr = num_sram_ent_ptr;
+			type_ptr = "SRAM based table";
+		}
 
 		pr_err("%s_Table_Size=%d\n",
 			   dev->name, dev->table_entries + 1);
@@ -2499,25 +2525,41 @@ static void ipa3_start_read_memory_device(
 		pr_err("%s_Expansion_Table_Size=%d\n",
 			   dev->name, dev->expn_table_entries);
 
-		pr_err("\n%s Base Table:\n", dev->name);
+		if (ct_mld_ptr) {
+			pr_err("(%s) %s_Table_Size=%d\n",
+				   type_ptr,
+				   dev->name,
+				   ct_mld_ptr->table_entries + 1);
 
-		if (dev->base_table_addr)
-			ipa3_read_table(
-				dev->base_table_addr,
-				dev->table_entries + 1,
-				num_ddr_ent_ptr,
-				&rule_id,
-				nat_type);
+			pr_err("(%s) %s_Expansion_Table_Size=%d\n",
+				   type_ptr,
+				   dev->name,
+				   ct_mld_ptr->expn_table_entries);
 
-		pr_err("%s Expansion Table:\n", dev->name);
+			pr_err("\n(%s) %s_Base Table:\n",
+				   type_ptr,
+				   dev->name);
 
-		if (dev->expansion_table_addr)
-			ipa3_read_table(
-				dev->expansion_table_addr,
-				dev->expn_table_entries,
-				num_ddr_ent_ptr,
-				&rule_id,
-				nat_type);
+			if (ct_mld_ptr->base_table_addr)
+				ipa3_read_table(
+					ct_mld_ptr->base_table_addr,
+					ct_mld_ptr->table_entries + 1,
+					num_ent_ptr,
+					&rule_id,
+					nat_type);
+
+			pr_err("(%s) %s_Expansion Table:\n",
+				   type_ptr,
+				   dev->name);
+
+			if (ct_mld_ptr->expansion_table_addr)
+				ipa3_read_table(
+					ct_mld_ptr->expansion_table_addr,
+					ct_mld_ptr->expn_table_entries,
+					num_ent_ptr,
+					&rule_id,
+					nat_type);
+		}
 	}
 
 	if (dev->is_nat_mem) {
@@ -2592,9 +2634,23 @@ static void ipa3_finish_read_memory_device(
 	IPADBG("In\n");
 
 	if (dev->is_ipv6ct_mem) {
-		pr_err("Overall number %s entries: %u\n\n",
+
+		struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+
+		if (num_ddr_entries)
+			pr_err("%s: Overall number of DDR entries: %u\n\n",
+				   dev->name,
+				   num_ddr_entries);
+
+		if (num_sram_entries)
+			pr_err("%s: Overall number of SRAM entries: %u\n\n",
+				   dev->name,
+				   num_sram_entries);
+
+		pr_err("%s: Driver focus changes to DDR(%u) to SRAM(%u)\n",
 			   dev->name,
-			   num_ddr_entries);
+			   ctm_ptr->switch2ddr_cnt,
+			   ctm_ptr->switch2sram_cnt);
 	} else {
 		struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) dev;
 
@@ -2817,8 +2873,10 @@ static ssize_t ipa3_read_ipv6ct(
 	loff_t *ppos)
 {
 	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->ipv6ct_mem.dev;
+	struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
 
 	u32 num_ddr_ents, num_sram_ents;
+	bool any_table_active = (ctm_ptr->ddr_in_use || ctm_ptr->sram_in_use);
 
 	num_ddr_ents = num_sram_ents = 0;
 
@@ -2826,7 +2884,7 @@ static ssize_t ipa3_read_ipv6ct(
 
 	pr_err("\n");
 
-	if (!dev->is_dev_init) {
+	if (!dev->is_dev_init || !any_table_active) {
 		pr_err("IPv6 Conntrack not initialized or not supported\n");
 		goto bail;
 	}
@@ -2838,6 +2896,11 @@ static ssize_t ipa3_read_ipv6ct(
 
 	mutex_lock(&dev->lock);
 
+	if (ctm_ptr->sram_in_use) {
+		IPADBG("SRAM based table with client 0, enable clk\n");
+		IPA_ACTIVE_CLIENTS_INC_SPECIAL("SRAM");
+	}
+
 	ipa3_start_read_memory_device(
 		dev,
 		IPAHAL_NAT_IPV6CT,
@@ -2848,6 +2911,11 @@ static ssize_t ipa3_read_ipv6ct(
 		dev,
 		num_ddr_ents,
 		num_sram_ents);
+
+	if (ctm_ptr->sram_in_use) {
+		IPADBG("SRAM based table with client 0, disable clk\n");
+		IPA_ACTIVE_CLIENTS_DEC_SPECIAL("SRAM");
+	}
 
 	mutex_unlock(&dev->lock);
 
@@ -4059,6 +4127,27 @@ static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
 
 #endif
 
+static ssize_t enable_wkup_logs(struct file *file,
+			const char __user *buf, size_t count, loff_t *ppos)
+{
+	s8 flg=0;
+	int ret;
+
+	ret = kstrtos8_from_user(buf, count, 0, &flg);
+
+	if(ret)
+		return ret;
+
+	if(flg){
+		ipa3_ctx->wkup_enable=1;
+	}
+	else{
+		ipa3_ctx->wkup_enable=0;
+	}
+
+	return count;
+}
+
 static const struct ipa3_debugfs_file debugfs_files[] = {
 	{
 		"gen_reg", IPA_READ_ONLY_MODE, NULL, {
@@ -4312,6 +4401,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.read = ipa3_read_ipsec_active_sa,
 		}
 #endif
+	}, {
+		"enable_wkup_log", IPA_WRITE_ONLY_MODE,NULL, {
+			.write = enable_wkup_logs,
+		}
 	},
 };
 

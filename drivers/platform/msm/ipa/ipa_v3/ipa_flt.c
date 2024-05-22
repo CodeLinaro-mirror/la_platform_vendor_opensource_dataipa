@@ -924,7 +924,7 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 #ifdef CONFIG_IPA_IPSEC
 			/* eq_attrib_type rules are valid, if point to a modem RT table
 			   or IPsec encap RT table */
-			if (ipa_ipsec_enabled()) {
+			if (ipa_ipsec_initialized()) {
 				encap_rt_tbl = ipa3_id_find(ipa3_ctx->ipsec->encap_rt[ip]);
 				IPADBG_LOW("Encap RT tbl. idx = %d\n",
 					encap_rt_tbl ? encap_rt_tbl->idx : -1);
@@ -2190,6 +2190,7 @@ int ipa3_flt_read_tbl_from_hw(u32 pipe_idx, enum ipa_ip_type ip_type,
 	struct ipa_mem_buffer *sys_tbl_mem;
 	int rule_idx;
 	struct ipa3_flt_tbl *flt_tbl_ptr;
+	u32 curr_size = ipahal_get_hw_tbl_hdr_width(), table_size;
 
 	IPADBG("pipe_idx=%d ip=%d hashable=%d entry=0x%pK num_entry=0x%pK\n",
 		pipe_idx, ip_type, hashable, entry, num_entry);
@@ -2293,7 +2294,17 @@ int ipa3_flt_read_tbl_from_hw(u32 pipe_idx, enum ipa_ip_type ip_type,
 	}
 
 	rule_idx = 0;
-	while (rule_idx < *num_entry) {
+	if (hashable) {
+		table_size = flt_tbl_ptr->sz[IPA_RULE_HASHABLE];
+	} else if (IPA_RULE_TYPE_MAX == 2) {
+		table_size = flt_tbl_ptr->sz[IPA_RULE_NON_HASHABLE];
+	} else {
+		IPAERR("hashable bool flaged used when there are more than 2 rule types\n");
+		goto bail;
+	}
+	IPADBG("table_size=%zu\n", table_size);
+
+	while (rule_idx < *num_entry && curr_size < table_size) {
 		res = ipahal_flt_parse_hw_rule(rule_addr, &entry[rule_idx]);
 		if (res) {
 			IPAERR("failed parsing flt rule\n");
@@ -2306,6 +2317,7 @@ int ipa3_flt_read_tbl_from_hw(u32 pipe_idx, enum ipa_ip_type ip_type,
 
 		rule_addr += entry[rule_idx].rule_size;
 		rule_idx++;
+		curr_size += entry[rule_idx].rule_size;
 	}
 	*num_entry = rule_idx;
 bail:
