@@ -247,5 +247,3 @@ int ipa_ssr_driver_dump_unregister_region(char *region_name);
 int ipa_ssr_driver_dump_retrieve_regions(
 	struct elf_ssr_driver_dump_entry *input_array,
 	size_t *num_entries_loaded);
-
-
