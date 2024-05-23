@@ -54,8 +54,6 @@
 #define OUTSTANDING_HIGH_CTL_DEFAULT (OUTSTANDING_HIGH_DEFAULT + 32)
 #define OUTSTANDING_LOW_DEFAULT 128
 
-#define WWAN_METADATA_SHFT 24
-#define WWAN_METADATA_MASK 0xFF000000
 #define WWAN_DATA_LEN 9216
 #define HEADROOM_FOR_QMAP   8 /* for mux header */
 #define TAILROOM            0 /* for padding by mux layer */
