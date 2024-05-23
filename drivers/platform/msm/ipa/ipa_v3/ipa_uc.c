@@ -2266,12 +2266,14 @@ int ipa3_add_remove_dscp_pcp_map(
 int ipa3_notify_uc_tsn_enable(void)
 {
 	int result = 0;
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	result = ipa3_uc_send_cmd(0, IPA_CPU_2_HW_CMD_TSN_ENABLE, 0, false,
 				  10 * HZ);
 	if (result)
 		IPAERR("ipa3_uc_send_cmd failed %d\n", result);
 	else
 		IPADBG("UC TSN enable Success\n");
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
 	return result;
 }
