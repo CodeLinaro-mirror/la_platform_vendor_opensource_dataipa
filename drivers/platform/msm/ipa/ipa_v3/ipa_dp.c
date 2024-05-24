@@ -2404,16 +2404,16 @@ static inline int validate_client_ipa_tiering(enum ipa_client_type dst)
 int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		struct ipa_tx_meta *meta)
 {
-	struct ipa3_desc *desc;
+	struct ipa3_desc *desc = NULL;
 	struct ipa3_desc _desc[3];
-	int dst_ep_idx;
-	struct ipa3_sys_context *sys;
-	int src_ep_idx;
+	int dst_ep_idx = -1;
+	struct ipa3_sys_context *sys = NULL;
+	int src_ep_idx = -1;
 	int num_frags, f, fixed_desc = 2;
-	const struct ipa_gsi_ep_config *gsi_ep;
-	int data_idx;
-	int skb_idx;
-	unsigned int max_desc;
+	const struct ipa_gsi_ep_config *gsi_ep = NULL;
+	int data_idx = 0;
+	int skb_idx = 0;
+	unsigned int max_desc = 0;
 
 	if (unlikely(!ipa3_ctx)) {
 		IPAERR("IPA3 driver was not initialized\n");

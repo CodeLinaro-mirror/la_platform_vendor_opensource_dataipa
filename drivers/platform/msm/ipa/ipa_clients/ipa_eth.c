@@ -1169,9 +1169,9 @@ static int ipa_eth_client_disconn_evt_internal(struct ipa_ecm_msg *msg)
 
 static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 {
-	struct ipa_eth_intf *new_intf;
-	struct ipa_eth_intf *entry;
-	struct ipa_ioc_add_hdr *hdr;
+	struct ipa_eth_intf *new_intf = NULL;
+	struct ipa_eth_intf *entry = NULL;
+	struct ipa_ioc_add_hdr *hdr = NULL;
 	struct ipa_tx_intf tx;
 	struct ipa_rx_intf rx;
 	enum ipa_client_type tx_client[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {0};
@@ -1179,11 +1179,11 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 	struct ipa_ioc_tx_intf_prop *tx_prop =  NULL;
 	struct ipa_ioc_rx_intf_prop *rx_prop = NULL;
 	struct ipa_eth_client_pipe_info *pipe;
-	u32 len;
-	int ret = 0, i;
+	u32 len = 0;
+	int ret = 0, i ;
 	int  rx_pipe_idx = 0, tx_pipe_idx = 0;
 #if IPA_ETH_API_VER >= 2
-	struct ipa_ecm_msg msg;
+	struct ipa_ecm_msg msg ;
 	bool vlan_mode = false;
 #if IPA_ETH_API_VER >= 3
 	struct ipa_eth_hdr_info intf_hdr[IPA_IP_VLAN_MAX];
@@ -1307,12 +1307,12 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 	INIT_LIST_HEAD(&new_intf->link);
 #if IPA_ETH_API_VER >= 2
 	strlcpy(new_intf->netdev_name, intf->net_dev->name, sizeof(new_intf->netdev_name));
+	num_hdrs = 2;
 #else
 	strlcpy(new_intf->netdev_name, intf->netdev_name,
 		sizeof(new_intf->netdev_name));
+	num_hdrs = 4;
 #endif
-
-	num_hdrs = 2;
 	for (i = 0; i < num_hdrs; i++)
 	{
 		new_intf->hdr_len[i] = intf_hdr[i].hdr_len;

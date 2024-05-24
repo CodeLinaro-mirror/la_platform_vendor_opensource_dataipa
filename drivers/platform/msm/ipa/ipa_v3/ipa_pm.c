@@ -179,7 +179,7 @@ struct ipa_pm_ctx {
 
 static struct ipa_pm_ctx *ipa_pm_ctx;
 
-static const char *client_state_to_str[IPA_PM_STATE_MAX] = {
+static const char *client_state_to_str[] = {
 	__stringify(IPA_PM_DEACTIVATED),
 	__stringify(IPA_PM_DEACTIVATE_IN_PROGRESS),
 	__stringify(IPA_PM_ACTIVATE_IN_PROGRESS),
