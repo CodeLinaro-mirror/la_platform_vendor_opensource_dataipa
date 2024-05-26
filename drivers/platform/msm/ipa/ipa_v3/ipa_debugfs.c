@@ -1360,7 +1360,6 @@ bail:
 static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
-	int nbytes;
 	struct ipa3_hdr_proc_ctx_tbl *tbl;
 	struct ipa3_hdr_proc_ctx_entry *entry;
 	u32 ofst_words;
@@ -1368,8 +1367,6 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 	int res = 0;
 
 	for (hpc_tbl = HPC_TBL_LCL; hpc_tbl < HPC_TBLS_TOTAL; hpc_tbl++) {
-		nbytes = 0;
-		memset(dbg_buff, '\0', sizeof(dbg_buff));
 		tbl = &ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl];
 		mutex_lock(&ipa3_ctx->lock);
 
@@ -1382,17 +1379,13 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		ofst_words = (entry->offset_entry->offset +
 			ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
 			>> 5;
-		nbytes += scnprintf(dbg_buff + nbytes,
-			IPA_MAX_MSG_LEN - nbytes,
-			"id:%u hdr_proc_type:%s proc_ctx[32B]:%u ",
+		pr_err("id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
 			entry->id,
 			ipa3_hdr_proc_type_name[entry->type],
 			ofst_words);
 		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
 			entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"\naction:%u\n"
+			pr_err("\naction:%u\n"
 				"sa_idx:%u\n"
 				"flt_tbl_id:%u\n"
 				"input_ip_version:%u\n"
@@ -1405,18 +1398,14 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 				entry->ipsec_params.pre_params.encap.output_ip_version,
 				entry->ipsec_params.pre_params.encap.retain_l2_header);
 		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"input_ethhdr_negative_offset:%u\n"
+			pr_err("input_ethhdr_negative_offset:%u\n"
 				"output_ethhdr_negative_offset:%u\n"
 				"output_dscp_pcp_update:%u\n",
 				entry->generic_params.input_ethhdr_negative_offset,
 				entry->generic_params.output_ethhdr_negative_offset,
 				entry->generic_params.output_dscp_pcp_update);
 		} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"input_ethhdr_negative_offset:%u\n"
+			pr_err("input_ethhdr_negative_offset:%u\n"
 				"output_ethhdr_negative_offset:%u\n"
 				"output_dscp_pcp_update:%u\n"
 				"input_ethhdr_valid:%u\n",
@@ -1425,29 +1414,22 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 				entry->generic_params_v2.output_dscp_pcp_update,
 				entry->generic_params_v2.input_ethhdr_valid);
 		} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"input_valid:%u\n"
+			pr_err("input_valid:%u\n"
 				"input_dscp_val:%u\n",
 				entry->pdn_dscp_params.valid,
 				entry->pdn_dscp_params.dscp_val);
 		}
 		if (entry->hdr->is_hdr_proc_ctx) {
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"hdr_phys_base:0x%pa\n",
+			pr_err("hdr_phys_base:0x%pa\n",
 				&entry->hdr->phys_base);
 		}
 		else
 		{
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"hdr[words]:%u\n",
+			pr_err("hdr[words]:%u\n",
 				entry->hdr->offset_entry->offset >> 2);
 		}
 		}
 		mutex_unlock(&ipa3_ctx->lock);
-		pr_err("%s", dbg_buff);
 	}
 
 	return res;
