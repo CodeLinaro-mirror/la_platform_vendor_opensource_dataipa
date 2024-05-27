@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -1856,6 +1856,13 @@ int ipa_drop_stats_init(void)
 					IPA_CLIENT_WLAN2_CONS1;
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
 				client_type,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+		}
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v5_0) {
+			/* Enable Drop Stats for Eth0 instance */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS,
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
 		}
