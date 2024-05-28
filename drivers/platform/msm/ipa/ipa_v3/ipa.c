@@ -7556,7 +7556,8 @@ static void ipa3_freeze_clock_vote_and_notify_modem(void)
 	int res;
 	struct ipa_active_client_logging_info log_info;
 
-	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_APQ) {
+	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_APQ ||
+		ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR) {
 		IPADBG("Ignore smp2p on APQ platform\n");
 		return;
 	}
@@ -8155,6 +8156,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		}
 	}
 
+	ipa3_enable_napi_lan_rx();
 	/* setup the AP-IPA pipes */
 	if (ipa3_setup_apps_pipes()) {
 		IPAERR(":failed to setup IPA-Apps pipes\n");
@@ -8252,7 +8254,6 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	mutex_lock(&ipa3_ctx->lock);
 	ipa3_ctx->ipa_initialization_complete = true;
 	mutex_unlock(&ipa3_ctx->lock);
-	ipa3_enable_napi_lan_rx();
 	/* init uc-activation tbl*/
 	ipa3_setup_uc_act_tbl();
 	ipa_trigger_ipa_ready_cbs();
@@ -8275,10 +8276,12 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		/* uC is getting loaded through XBL here */
 		ipa3_ctx->uc_ctx.uc_inited = true;
 		ipa3_ctx->uc_ctx.uc_loaded = true;
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 		result = ipa3_alloc_temp_buffs_to_uc(TEMP_BUFF_SIZE, NO_OF_BUFFS);
 		if (result) {
 			IPAERR("Temp buffer allocations for uC failed %d\n", result);
 			result = -ENODEV;
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto fail_teth_bridge_driver_init;
 		}
 
@@ -8287,17 +8290,16 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 			IPAERR("ER and TR allocations for uC pipes failed %d\n", result);
 			ipa3_free_uc_temp_buffs(NO_OF_BUFFS);
 			result = -ENODEV;
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto fail_teth_bridge_driver_init;
 		}
 
-		result = ipa3_create_hfi_send_uc();
-		if (result) {
-			IPAERR("HFI Creation failed %d\n", result);
-			ipa3_free_uc_temp_buffs(NO_OF_BUFFS);
-			ipa3_free_uc_pipes_er_tr();
-			result = -ENODEV;
-			goto fail_teth_bridge_driver_init;
-		}
+		/*
+		 * Will enable synx_init API calls back when
+		 * hw-fence is enabled by default in builds.
+		 */
+
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	}
 #endif
 
