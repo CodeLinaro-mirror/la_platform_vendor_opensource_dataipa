@@ -639,6 +639,9 @@ enum {
 #define MBOX_TOUT_MS 100
 
 /* miscellaneous for rmnet_ipa and qmi_service */
+#define WWAN_METADATA_SHFT 24
+#define WWAN_METADATA_MASK 0xFF000000
+
 enum ipa_type_mode {
 	IPA_HW_TYPE,
 	PLATFORM_TYPE,
