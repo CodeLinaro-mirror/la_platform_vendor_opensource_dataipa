@@ -877,14 +877,14 @@ int ipa_wdi_enable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR) {
 		if (wlan_flt_rsrv_wq == NULL) {
 			wlan_flt_rsrv_wq = create_singlethread_workqueue("wlan_flt_rsrv_wq");
-			if (wlan_flt_rsrv_wq) {
+			if (!wlan_flt_rsrv_wq) {
 				IPA_WDI_ERR("failed to create wq\n");
 				return 0;
 			}
 
 			ret = queue_delayed_work(wlan_flt_rsrv_wq, &wlan_flt_rsrv_handle,
 				msecs_to_jiffies(QUEUE_DELAY_TIME));
-			if (ret) {
+			if (!ret) {
 				IPA_WDI_ERR("failed to queue delayed wq\n");
 				return 0;
 			}
