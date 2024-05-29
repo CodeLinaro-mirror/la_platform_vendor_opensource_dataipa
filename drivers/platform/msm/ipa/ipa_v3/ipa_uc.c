@@ -630,10 +630,10 @@ static void ipa3_event_ring_hdlr(void)
 	void *rp_va;
 	struct ipa_inform_wlan_bw bw_info;
 	struct eventElement_t *e_b = NULL, *e_q = NULL, *e_h = NULL;
-	int mul = 0;
 #if defined(CONFIG_IPA_IPSEC)
-	union EventParamFormat_t *val;
+	struct eventElement_t *e_t = NULL;
 #endif
+	int mul = 0;
 
 	ering_rp = ipahal_read_reg_mn(IPA_UC_MAILBOX_m_n,
 		IPA_UC_ERING_m, IPA_UC_ERING_n_r);
@@ -696,12 +696,18 @@ static void ipa3_event_ring_hdlr(void)
 				e_h->Value.holb_notify_param.qTimerLSB,
 				e_h->Value.holb_notify_param.qTimerMSB);
 #if defined(CONFIG_IPA_IPSEC)
-		} else if (((struct eventElement_t *) rp_va)->Opcode
-				== IPSEC_THRESH_NOTIFY) {
-			val = &((struct eventElement_t *)rp_va)->Value;
+		} else if (((struct eventElement_t *) rp_va)->Opcode == IPSEC_THRESH_NOTIFY) {
+			e_t = ((struct eventElement_t *) rp_va);
+			IPADBG("Got IPsec threshold sa_idx (%d), sa_action (%d), type (%d)\n",
+				e_t->Value.ipsec_threshold_param.sa_idx,
+				e_t->Value.ipsec_threshold_param.sa_action,
+				e_t->Value.ipsec_threshold_param.type);
 			ipa_ipsec_handle_sa_thresh(
-				(u8)(val->ipsec_threshold_param.sa_idx),
-				(enum ipa_ipsec_uc_sa_action)(val->ipsec_threshold_param.sa_action));
+				(u8)(e_t->Value.ipsec_threshold_param.sa_idx),
+				(enum ipa_ipsec_uc_sa_action)
+				(e_t->Value.ipsec_threshold_param.sa_action),
+				(enum ipa_ipsec_uc_thresh_type)
+				(e_t->Value.ipsec_threshold_param.type));
 #endif
 		}
 		ipa3_ctx->uc_ctx.ering_rp_local += offset;

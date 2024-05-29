@@ -2214,18 +2214,13 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 				__func__, __LINE__);
 		}
 
-		if (ipa3_rmnet_res.ipa_napi_enable) {
-			trace_rmnet_ipa_netif_rcv_skb3(skb, dev->stats.rx_packets);
-			result = netif_receive_skb(skb);
+		if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH
+				== 0) {
+			trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
+			result = netif_rx_ni(skb);
 		} else {
-			if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH
-					== 0) {
-				trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
-				result = netif_rx_ni(skb);
-			} else {
-				trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
-				result = netif_rx(skb);
-			}
+			trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
+			result = netif_rx(skb);
 		}
 
 		if (result)	{
