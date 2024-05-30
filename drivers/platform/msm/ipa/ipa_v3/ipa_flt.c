@@ -324,10 +324,22 @@ static int ipa_generate_flt_hw_tbl_img(enum ipa_ip_type ip,
 			IPA_MEM_PART(v4_flt_nhash_ofst);
 		hash_bdy_start_ofst = IPA_MEM_PART(apps_v4_flt_hash_ofst) -
 			IPA_MEM_PART(v4_flt_hash_ofst);
+		alloc_params->nhash_bdy_start_ofst =
+			IPA_MEM_PART(apps_fltrt_empty_tbl_ofst) -
+			IPA_MEM_PART(v4_flt_nhash_ofst);
+		alloc_params->hash_bdy_start_ofst =
+			IPA_MEM_PART(apps_fltrt_empty_tbl_ofst) -
+			IPA_MEM_PART(v4_flt_hash_ofst);
 	} else {
 		nhash_bdy_start_ofst = IPA_MEM_PART(apps_v6_flt_nhash_ofst) -
 			IPA_MEM_PART(v6_flt_nhash_ofst);
 		hash_bdy_start_ofst = IPA_MEM_PART(apps_v6_flt_hash_ofst) -
+			IPA_MEM_PART(v6_flt_hash_ofst);
+		alloc_params->nhash_bdy_start_ofst =
+			IPA_MEM_PART(apps_fltrt_empty_tbl_ofst) -
+			IPA_MEM_PART(v6_flt_nhash_ofst);
+		alloc_params->hash_bdy_start_ofst =
+			IPA_MEM_PART(apps_fltrt_empty_tbl_ofst) -
 			IPA_MEM_PART(v6_flt_hash_ofst);
 	}
 
@@ -2247,7 +2259,7 @@ int ipa3_flt_read_tbl_from_hw(u32 pipe_idx, enum ipa_ip_type ip_type,
 	/* calculate the index of the tbl entry */
 	tbl_entry_idx = 1; /* skip the bitmap */
 	for (i = 0; i < pipe_idx; i++)
-		if (ipa3_ctx->ep_flt_bitmap & (1 << i))
+		if (ipa3_ctx->ep_flt_bitmap & (1ULL << i))
 			tbl_entry_idx++;
 
 	IPADBG("hdr_base_ofst=0x%llx tbl_entry_idx=%d\n",

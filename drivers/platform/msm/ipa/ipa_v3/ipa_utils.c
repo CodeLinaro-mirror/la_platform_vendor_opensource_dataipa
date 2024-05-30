@@ -9057,8 +9057,11 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_quota_ap_size = 0x60,
 	.stats_peripheral_prod_ofst = 0x64a8,
 	.stats_peripheral_prod_size = 0x90,
-	.stats_tethering_ofst = 0x6538,
-	.stats_tethering_size = 0x7b0,
+	 /* Make sure empty table ofst is always > base table address. */
+	.apps_fltrt_empty_tbl_ofst = 0x6538,
+	.apps_fltrt_empty_tbl_size = 0x20,
+	.stats_tethering_ofst = 0x6558,
+	.stats_tethering_size = 0x790,
 	.stats_flt_v4_ofst = 0,
 	.stats_flt_v4_size = 0,
 	.stats_flt_v6_ofst = 0,
