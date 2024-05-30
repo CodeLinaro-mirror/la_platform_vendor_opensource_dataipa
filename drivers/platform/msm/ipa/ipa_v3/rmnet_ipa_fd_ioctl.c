@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/init.h>
@@ -18,48 +18,6 @@
 #include "ipa_i.h"
 
 #define DRIVER_NAME "wwan_ioctl"
-
-#ifdef CONFIG_COMPAT
-#define WAN_IOC_ADD_FLT_RULE32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_ADD_FLT_RULE, \
-		compat_uptr_t)
-#define WAN_IOC_ADD_FLT_RULE_INDEX32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_ADD_FLT_INDEX, \
-		compat_uptr_t)
-#define WAN_IOC_POLL_TETHERING_STATS32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_POLL_TETHERING_STATS, \
-		compat_uptr_t)
-#define WAN_IOC_SET_DATA_QUOTA32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_SET_DATA_QUOTA, \
-		compat_uptr_t)
-#define WAN_IOC_SET_TETHER_CLIENT_PIPE32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_SET_TETHER_CLIENT_PIPE, \
-		compat_uptr_t)
-#define WAN_IOC_QUERY_TETHER_STATS32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_QUERY_TETHER_STATS, \
-		compat_uptr_t)
-#define WAN_IOC_RESET_TETHER_STATS32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_RESET_TETHER_STATS, \
-		compat_uptr_t)
-#define WAN_IOC_QUERY_DL_FILTER_STATS32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_QUERY_DL_FILTER_STATS, \
-		compat_uptr_t)
-#define WAN_IOC_QUERY_TETHER_STATS_ALL32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_QUERY_TETHER_STATS_ALL, \
-		compat_uptr_t)
-#define WAN_IOC_NOTIFY_WAN_STATE32 _IOWR(WAN_IOC_MAGIC, \
-		WAN_IOCTL_NOTIFY_WAN_STATE, \
-		compat_uptr_t)
-#define WAN_IOCTL_ENABLE_PER_CLIENT_STATS32 _IOWR(WAN_IOC_MAGIC, \
-			WAN_IOCTL_ENABLE_PER_CLIENT_STATS, \
-			compat_uptr_t)
-#define WAN_IOCTL_QUERY_PER_CLIENT_STATS32 _IOWR(WAN_IOC_MAGIC, \
-			WAN_IOCTL_QUERY_PER_CLIENT_STATS, \
-			compat_uptr_t)
-#define WAN_IOCTL_SET_LAN_CLIENT_INFO32 _IOWR(WAN_IOC_MAGIC, \
-			WAN_IOCTL_SET_LAN_CLIENT_INFO, \
-			compat_uptr_t)
-#endif
 
 static unsigned int dev_num = 1;
 static struct cdev ipa3_wan_ioctl_cdev;
@@ -554,35 +512,135 @@ long ipa3_compat_wan_ioctl(struct file *file,
 		unsigned int cmd,
 		unsigned long arg)
 {
-	switch (cmd) {
-	case WAN_IOC_ADD_FLT_RULE32:
-		cmd = WAN_IOC_ADD_FLT_RULE;
-		break;
-	case WAN_IOC_ADD_FLT_RULE_INDEX32:
-		cmd = WAN_IOC_ADD_FLT_RULE_INDEX;
-		break;
-	case WAN_IOC_POLL_TETHERING_STATS32:
-		cmd = WAN_IOC_POLL_TETHERING_STATS;
-		break;
-	case WAN_IOC_SET_DATA_QUOTA32:
-		cmd = WAN_IOC_SET_DATA_QUOTA;
-		break;
-	case WAN_IOC_SET_TETHER_CLIENT_PIPE32:
-		cmd = WAN_IOC_SET_TETHER_CLIENT_PIPE;
-		break;
-	case WAN_IOC_QUERY_TETHER_STATS32:
-		cmd = WAN_IOC_QUERY_TETHER_STATS;
-		break;
-	case WAN_IOC_RESET_TETHER_STATS32:
-		cmd = WAN_IOC_RESET_TETHER_STATS;
-		break;
-	case WAN_IOC_QUERY_DL_FILTER_STATS32:
-		cmd = WAN_IOC_QUERY_DL_FILTER_STATS;
-		break;
+	long retval = 0;
+	IPAWANDBG("ipa3_compat_wan_ioctl cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
+
+	if (_IOC_TYPE(cmd) != WAN_IOC_MAGIC)
+		return -ENOTTY;
+
+	switch(_IOC_NR(cmd)) {
+		case WAN_IOCTL_ADD_FLT_RULE:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_ADD_FLT_RULE))
+				return -EPERM;
+			cmd = WAN_IOC_ADD_FLT_RULE;
+			break;
+		case WAN_IOCTL_ADD_FLT_INDEX:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_ADD_FLT_RULE_INDEX))
+				return -EPERM;
+			cmd = WAN_IOC_ADD_FLT_RULE_INDEX;
+			break;
+		case WAN_IOCTL_VOTE_FOR_BW_MBPS:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_VOTE_FOR_BW_MBPS))
+				return -EPERM;
+			cmd = WAN_IOC_VOTE_FOR_BW_MBPS;
+			break;
+		case WAN_IOCTL_POLL_TETHERING_STATS:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_POLL_TETHERING_STATS))
+				return -EPERM;
+			cmd = WAN_IOC_POLL_TETHERING_STATS;
+			break;
+		case WAN_IOCTL_SET_DATA_QUOTA:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SET_DATA_QUOTA))
+				return -EPERM;
+			cmd = WAN_IOC_SET_DATA_QUOTA;
+			break;
+		case WAN_IOCTL_SET_TETHER_CLIENT_PIPE:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SET_TETHER_CLIENT_PIPE))
+				return -EPERM;
+			cmd = WAN_IOC_SET_TETHER_CLIENT_PIPE;
+			break;
+		case WAN_IOCTL_QUERY_TETHER_STATS:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_QUERY_TETHER_STATS))
+				return -EPERM;
+			cmd = WAN_IOC_QUERY_TETHER_STATS;
+			break;
+		case WAN_IOCTL_RESET_TETHER_STATS:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_RESET_TETHER_STATS))
+				return -EPERM;
+			cmd = WAN_IOC_RESET_TETHER_STATS;
+			break;
+		case WAN_IOCTL_QUERY_DL_FILTER_STATS:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_QUERY_DL_FILTER_STATS))
+				return -EPERM;
+			cmd = WAN_IOC_QUERY_DL_FILTER_STATS;
+			break;
+		case WAN_IOCTL_ADD_FLT_RULE_EX:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_ADD_FLT_RULE_EX))
+				return -EPERM;
+			cmd = WAN_IOC_ADD_FLT_RULE_EX;
+			break;
+		case WAN_IOCTL_QUERY_TETHER_STATS_ALL:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_QUERY_TETHER_STATS_ALL))
+				return -EPERM;
+			cmd = WAN_IOC_QUERY_TETHER_STATS_ALL;
+			break;
+		case WAN_IOCTL_NOTIFY_WAN_STATE:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_NOTIFY_WAN_STATE))
+				return -EPERM;
+			cmd = WAN_IOC_NOTIFY_WAN_STATE;
+			break;
+		case WAN_IOCTL_ADD_UL_FLT_RULE:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_ADD_UL_FLT_RULE))
+				return -EPERM;
+			cmd = WAN_IOC_ADD_UL_FLT_RULE;
+			break;
+		case WAN_IOCTL_ENABLE_PER_CLIENT_STATS:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_ENABLE_PER_CLIENT_STATS))
+				return -EPERM;
+			cmd = WAN_IOC_ENABLE_PER_CLIENT_STATS;
+			break;
+		case WAN_IOCTL_QUERY_PER_CLIENT_STATS:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_QUERY_PER_CLIENT_STATS))
+				return -EPERM;
+			cmd = WAN_IOC_QUERY_PER_CLIENT_STATS;
+			break;
+		case WAN_IOCTL_SET_LAN_CLIENT_INFO:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SET_LAN_CLIENT_INFO))
+				return -EPERM;
+			cmd = WAN_IOC_SET_LAN_CLIENT_INFO;
+			break;
+		case WAN_IOCTL_SEND_LAN_CLIENT_MSG:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SEND_LAN_CLIENT_MSG))
+				return -EPERM;
+			cmd = WAN_IOC_SEND_LAN_CLIENT_MSG;
+			break;
+		case WAN_IOCTL_CLEAR_LAN_CLIENT_INFO:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_CLEAR_LAN_CLIENT_INFO))
+				return -EPERM;
+			cmd = WAN_IOC_CLEAR_LAN_CLIENT_INFO;
+			break;
+		case WAN_IOCTL_ADD_OFFLOAD_CONNECTION:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_ADD_OFFLOAD_CONNECTION))
+				return -EPERM;
+			cmd = WAN_IOC_ADD_OFFLOAD_CONNECTION;
+			break;
+		case WAN_IOCTL_RMV_OFFLOAD_CONNECTION:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_RMV_OFFLOAD_CONNECTION))
+				return -EPERM;
+			cmd = WAN_IOC_RMV_OFFLOAD_CONNECTION;
+			break;
+		case WAN_IOCTL_GET_WAN_MTU:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_GET_WAN_MTU))
+				return -EPERM;
+			cmd = WAN_IOC_GET_WAN_MTU;
+			break;
+#ifdef IPA_DATA_WARNING_QUOTA
+		case WAN_IOCTL_SET_DATA_QUOTA_WARNING:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SET_DATA_QUOTA_WARNING))
+				return -EPERM;
+			cmd = WAN_IOC_SET_DATA_QUOTA_WARNING;
+			break;
+#endif
+		case WAN_IOCTL_NOTIFY_NAT_MOVE_RES:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_NOTIFY_NAT_MOVE_RES))
+				return -EPERM;
+			cmd = WAN_IOC_NOTIFY_NAT_MOVE_RES;
+			break;
 	default:
 		return -ENOIOCTLCMD;
 	}
-	return ipa3_wan_ioctl(file, cmd, (unsigned long) compat_ptr(arg));
+	retval = ipa3_wan_ioctl(file, cmd, (unsigned long) compat_ptr(arg));
+	return retval;
 }
 #endif
 
