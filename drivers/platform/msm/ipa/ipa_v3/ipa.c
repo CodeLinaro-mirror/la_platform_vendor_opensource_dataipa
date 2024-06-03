@@ -2733,13 +2733,13 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_nat_dma_cmd *table_dma_cmd;
 	struct ipa_ioc_get_vlan_mode vlan_mode;
 	struct ipa_ioc_wigig_fst_switch fst_switch;
-	struct ipa_ioc_eogre_info eogre_info;
+	struct ipa_ioc_eogre_info *eogre_info = NULL;
 	struct ipa_ioc_macsec_info macsec_info;
 	struct ipa_macsec_map *macsec_map;
 	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 	struct ipa_ioc_mux_mapping_table vlan_muxid_map_info;
 	struct ipa_ioc_ext_router_info *ext_router_info;
-	struct ipa_ioc_tunnel_template_info template_info_to_uc;
+	struct ipa_ioc_tunnel_template_info *template_info_to_uc = NULL;
 	bool send2uC, send2ipacm;
 	size_t sz;
 	int pre_entry;
@@ -2842,20 +2842,27 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case IPA_IOC_SEND_TUNNEL_TEMPLATE_INFO:
 		IPADBG("Got IPA_IOC_SEND_TUNNEL_TEMPLATE_INFO\n");
-		memset(&template_info_to_uc, 0, sizeof(template_info_to_uc));
-		if (copy_from_user(&template_info_to_uc, (const void __user *) arg,
+		template_info_to_uc = 
+			kzalloc(sizeof(struct ipa_ioc_tunnel_template_info),GFP_KERNEL);
+		if(template_info_to_uc == NULL){
+			IPAERR_RL("fail to alloc\n");
+			return -ENOMEM;
+		}
+
+		if (copy_from_user(template_info_to_uc, (const void __user *) arg,
 			sizeof(struct ipa_ioc_tunnel_template_info))) {
 			IPAERR_RL("copy_from_user for template_info_to_uc fail\n");
 			retval = -EFAULT;
-			break;
+			goto free_mem;
 		}
-		if (ipa3_write_template_to_uC(&template_info_to_uc)) {
+		if (ipa3_write_template_to_uC(template_info_to_uc)) {
 			retval = -EFAULT;
 			IPAERR_RL("function fail\n");
-			break;
+			goto free_mem;
 		}
 		IPADBG("Sent Template type %x of length %d to uC\n",
-			template_info_to_uc.template_type,template_info_to_uc.template_len);
+			template_info_to_uc->template_type,template_info_to_uc->template_len);
+
 		break;
 
 	case IPA_IOC_INIT_IPV6CT_TABLE:
@@ -4087,21 +4094,27 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case IPA_IOC_ADD_EoGRE_MAPPING:
 		IPADBG("Got IPA_IOC_ADD_EoGRE_MAPPING\n");
+		eogre_info = kzalloc(sizeof(struct ipa_ioc_eogre_info), GFP_KERNEL);
+		if(eogre_info == NULL){
+			IPAERR_RL("fail to alloc\n");
+			return -ENOMEM;
+		}
+
 		if (copy_from_user(
-				&eogre_info,
+				eogre_info,
 				(const void __user *) arg,
 				sizeof(struct ipa_ioc_eogre_info))) {
 			IPAERR_RL("copy_from_user fails\n");
 			retval = -EFAULT;
-			break;
+			goto free_mem;
 		}
 
-		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		retval = ipa3_check_eogre(eogre_info, &send2uC, &send2ipacm);
 		if (retval == -EIO)
 		{
 			IPADBG("no work needs to be done but return success to caller");
 			retval = 0;
-			break;
+			goto free_mem;
 		}
 
 		ipa3_ctx->eogre_enabled = (retval == 0);
@@ -4111,14 +4124,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			 * Send map to uC...
 			 */
 			retval = ipa3_add_dscp_vlan_pcp_map(
-				&eogre_info.map_info);
+				&eogre_info->map_info);
 		}
 
 		if (retval == 0 && send2ipacm == true) {
 			/*
 			 * Send ip addrs to ipacm...
 			 */
-			retval = ipa3_send_eogre_info(IPA_EoGRE_UP_EVENT, &eogre_info);
+			retval = ipa3_send_eogre_info(IPA_EoGRE_UP_EVENT, eogre_info);
 		}
 
 		if (retval != 0) {
@@ -4130,14 +4143,20 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_DEL_EoGRE_MAPPING:
 		IPADBG("Got IPA_IOC_DEL_EoGRE_MAPPING\n");
 
-		memset(&eogre_info, 0, sizeof(eogre_info));
+		eogre_info = kzalloc(sizeof(struct ipa_ioc_eogre_info), GFP_KERNEL);
+		if(eogre_info == NULL){
+			IPAERR_RL("fail to alloc\n");
+			return -ENOMEM;
+		}
 
-		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		memset(eogre_info, 0, sizeof(eogre_info));
+
+		retval = ipa3_check_eogre(eogre_info, &send2uC, &send2ipacm);
 		if (retval == -EIO)
 		{
 			IPADBG("no work needs to be done but return success to caller");
 			retval = 0;
-			break;
+			goto free_mem;
 		}
 
 		if (retval == 0 && send2uC == true) {
@@ -4145,14 +4164,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			 * Send map clear to uC...
 			 */
 			retval = ipa3_add_dscp_vlan_pcp_map(
-				&eogre_info.map_info);
+				&eogre_info->map_info);
 		}
 
 		if (retval == 0 && send2ipacm == true) {
 			/*
 			 * Send null ip addrs to ipacm...
 			 */
-			retval = ipa3_send_eogre_info(IPA_EoGRE_DOWN_EVENT, &eogre_info);
+			retval = ipa3_send_eogre_info(IPA_EoGRE_DOWN_EVENT, eogre_info);
 		}
 
 		if (retval == 0) {
@@ -4278,6 +4297,12 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	if (!IS_ERR(param))
 		kfree(param);
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+free_mem:
+	if(eogre_info != NULL)
+		kfree(eogre_info);
+	if(template_info_to_uc != NULL)
+		kfree(template_info_to_uc);
 
 	return retval;
 }
