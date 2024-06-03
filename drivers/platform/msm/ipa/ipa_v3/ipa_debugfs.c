@@ -105,6 +105,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_MOVE_NAT_TABLE),
 	__stringify(IPA_EoGRE_UP_EVENT),
 	__stringify(IPA_EoGRE_DOWN_EVENT),
+	__stringify(IPA_EoGRE_NOTIFY_EVENT),
 	__stringify(IPA_IPPT_SW_FLT_EVENT),
 	__stringify(IPA_MACSEC_ADD_EVENT),
 	__stringify(IPA_MACSEC_DEL_EVENT),

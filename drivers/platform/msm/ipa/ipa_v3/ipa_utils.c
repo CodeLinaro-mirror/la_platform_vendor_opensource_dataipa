@@ -6817,6 +6817,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 49, 36, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
+	[IPA_6_0][IPA_CLIENT_DUMMY_CONS] = {
+			true, IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 50, 50, 9 , 9 , IPA_EE_AP},
+			IPA_TX_INSTANCE_NA },
 
 	/*For test purposes only*/
 	[IPA_6_0][IPA_CLIENT_TEST_PROD] = {
@@ -16785,6 +16792,25 @@ int ipa3_check_eogre(
 
 done:
 	return ret;
+}
+
+int ipa3_send_eogre_notify(enum ipa_eogre_event etype)
+{
+	struct ipa_msg_meta    msg_meta;
+	int res = 0;
+
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = etype;
+
+	IPADBG("sending eogre notify to ipacm\n");
+
+	res = ipa3_send_msg(&msg_meta, NULL, NULL);
+
+	if (res) {
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+	}
+
+	return res;
 }
 
 /**
