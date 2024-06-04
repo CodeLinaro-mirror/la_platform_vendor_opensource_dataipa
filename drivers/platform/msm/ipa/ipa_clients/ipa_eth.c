@@ -63,13 +63,6 @@ struct ipa_eth_intf {
 	u32 partial_hdr_hdl[IPA_IP_VLAN_MAX];
 };
 
-struct ipa_eth_qos_info {
-	u32 tc_bmap;
-	u8 pipe_idx;
-	u8 priority;
-	u16 rsrvd;
-};
-
 struct ipa_eth_context {
 	struct list_head ready_cb_list;
 	struct completion completion;
@@ -117,6 +110,35 @@ static void eth_qos_swap(void *a, void *b, int size) {
 	*((struct ipa_eth_qos_info *)a) = temp;
 
 	return;
+}
+
+static int ipa_eth_qos_get_num_pipes_internal
+(
+	u8 inst_id, u8 *num_pipes, enum ipa_eth_pipe_direction dir
+) {
+	if (!num_pipes)
+		return -1;
+	if (dir == IPA_ETH_PIPE_DIR_TX)
+		*num_pipes = ipa_eth_ctx->tx_num_pipes[inst_id];
+	else
+		*num_pipes = ipa_eth_ctx->rx_num_pipes[inst_id];
+	return 0;
+}
+
+static int ipa_eth_qos_get_qos_info_internal
+(
+	u8 inst_id,
+	u8 idx,
+	struct ipa_eth_qos_info *info,
+	enum ipa_eth_pipe_direction dir
+) {
+	if (!info)
+		return -1;
+	if (dir == IPA_ETH_PIPE_DIR_TX)
+ 		*info = ipa_eth_ctx->tx_qos_info[inst_id][idx];
+	else
+		*info = ipa_eth_ctx->rx_qos_info[inst_id][idx];
+	return -1;
 }
 
 static u8 eth_qos_get_tx_priority(u8 pipe_idx, u8 inst_id) {
@@ -909,6 +931,9 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 				ipa_eth_ctx->tx_qos_info[inst_id][tx_pipe_idx].pipe_idx =
 					tx_pipe_idx;
 				ipa_eth_ctx->tx_qos_info[inst_id][tx_pipe_idx].priority = 0;
+				ipa_eth_ctx->tx_qos_info[inst_id][tx_pipe_idx].client_type =
+					ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx,
+						tx_pipe_idx);
 				tx_pipe_idx++;
 				ipa_eth_ctx->tx_num_pipes[inst_id]++;
 			}
@@ -917,6 +942,9 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 				ipa_eth_ctx->rx_qos_info[inst_id][rx_pipe_idx].pipe_idx =
 					rx_pipe_idx;
 				ipa_eth_ctx->rx_qos_info[inst_id][rx_pipe_idx].priority = 0;
+				ipa_eth_ctx->rx_qos_info[inst_id][rx_pipe_idx].client_type =
+					ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx,
+						tx_pipe_idx);
 				rx_pipe_idx++;
 				ipa_eth_ctx->rx_num_pipes[inst_id]++;
 			}
@@ -1745,6 +1773,8 @@ void ipa_eth_register(void)
 		ipa_eth_get_ipa_client_type_from_eth_type_internal;
 	funcs.ipa_eth_client_exist = ipa_eth_client_exist_internal;
 	funcs.ipa_eth_get_config_type = ipa_eth_get_config_type_internal;
+	funcs.ipa_eth_qos_get_num_pipes = ipa_eth_qos_get_num_pipes_internal;
+	funcs.ipa_eth_qos_get_qos_info = ipa_eth_qos_get_qos_info_internal;
 
 	if (ipa_fmwk_register_ipa_eth(&funcs))
 		pr_err("failed to register ipa_eth APIs\n");
