@@ -122,7 +122,9 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 	 * Assuming each IEMAC client does maximum of 1 mapping with
 	 * constant size per direction.
 	 */
-	eth_next_addr = cb->va_end + eth_offset + PAGE_SIZE * (2 * instance_id + dir + pipe_idx);
+	eth_next_addr = cb->va_end + eth_offset +
+		PAGE_SIZE * ((instance_id * IPA_ETH_MAX_DMA_CHANNEL_QOS) +
+		(IPA_ETH_MAX_TX_DMA_CHANNEL_QOS * dir + pipe_idx));
 	va = roundup(eth_next_addr, PAGE_SIZE);
 	if (len > PAGE_SIZE)
 		va = roundup(eth_next_addr, len);
