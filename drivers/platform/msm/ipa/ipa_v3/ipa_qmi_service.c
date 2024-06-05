@@ -2270,8 +2270,10 @@ destroy_qmi_handle:
 	vfree(ipa3_qmi_ctx);
 destroy_ipa_A7_svc_wq:
 	if (!ipa3_is_apq()) {
-		vfree(ipa3_svc_handle);
-		ipa3_svc_handle = NULL;
+		if (ipa3_svc_handle != NULL) {
+			vfree(ipa3_svc_handle);
+			ipa3_svc_handle = NULL;
+		}
 	}
 	ipa3_qmi_ctx = NULL;
 }
