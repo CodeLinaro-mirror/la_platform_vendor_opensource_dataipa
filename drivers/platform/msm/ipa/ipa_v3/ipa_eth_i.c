@@ -1106,6 +1106,7 @@ int ipa3_eth_connect(
 #if IPA_ETH_API_VER >= 2
 	struct net_device *net_dev;
 #endif
+	struct ipa_ep_cfg_holb holb_cfg;
 
 	ep_idx = ipa_get_ep_mapping(client_type);
 	if (ep_idx == IPA_EP_NOT_ALLOCATED) {
@@ -1476,6 +1477,14 @@ int ipa3_eth_connect(
 		IPAERR("enable data path failed res=%d clnt=%d\n", result,
 			ep_idx);
 		goto enable_data_path_fail;
+	}
+
+	/* Enable default HOLB Timeout of 31ms. */
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		memset(&holb_cfg, 0, sizeof(holb_cfg));
+		holb_cfg.en = IPA_HOLB_TMR_EN;
+		holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+		ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
 	}
 
 	/* start gsi channel */
