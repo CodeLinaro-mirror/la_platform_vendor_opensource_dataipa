@@ -625,6 +625,9 @@ enum {
 #define IPA_IOC_QOS_PARAM32 _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_QOS_PARAM, \
 				compat_uptr_t)
+#define IPA_IOC_GET_QOS_PARAMS32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_GET_QOS_PARAMS, \
+				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
 #define IPA_TZ_UNLOCK_ATTRIBUTE 0x0C0311
@@ -2796,6 +2799,7 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
 	u16 filter_start_id;
+	struct ipa_ioc_get_qos_config get_qos_config;
 };
 
 struct ipa3_plat_drv_res {
