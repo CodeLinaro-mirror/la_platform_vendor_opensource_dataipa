@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -49,6 +49,8 @@
 #include "gsi.h"
 #include "ipa_stats.h"
 #include "ipa_sysfs.h"
+#include "ipa_elf_dump.h"
+
 
 #include <linux/suspend.h>
 #ifdef CONFIG_GH_MSGQ
@@ -10546,6 +10548,12 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_v2x_pm;
 	}
 #endif
+	ipa_ssr_driver_dump_init();
+	ipa_ssr_driver_dump_register_region("ipa_ctx", ipa3_ctx,
+	 sizeof(struct ipa3_context));
+	ipa_ssr_driver_dump_register_region("ipc_logs", ipa3_ctx->logbuf,
+	((struct ipc_log_context *)(ipa3_ctx->logbuf))->write_avail);
+	ipa_ssr_driver_dump_register_region("gsi_ctx",gsi_ctx,sizeof(struct gsi_ctx));
 
 	pr_info("IPA driver initialization was successful.\n");
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
@@ -16066,6 +16074,7 @@ static void __exit ipa_module_exit(void)
 	/* Clean up IPsec */
 	ipa_ipsec_cleanup();
 #endif
+	ipa_ssr_driver_dump_deinit();
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
 }
