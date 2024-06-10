@@ -1781,6 +1781,23 @@ struct ipa3_uc_ctx {
 	struct ipa_holb_monitor holb_monitor;
 };
 
+struct Ipa3HwStatsEOGRE{
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+} __packed;
+
+struct Ipa3HwStatsMPLS{
+	uint64_t pppoe_mpls_header_add_id;
+	uint64_t pppoe_mpls_header_remove_id;
+	uint64_t mpls_header_add_id;
+	uint64_t mpls_header_remove_id;
+} __packed;
+
+union Ipa3HwStatsEOGREInfoData_t{
+	struct Ipa3HwStatsEOGRE *eogre;
+	struct Ipa3HwStatsMPLS *mpls;
+};
+
 /**
  * struct ipa3_uc_eogre_ctx
  * @eogre_uc_stats_ofst: EoGRE stats offset
@@ -1788,17 +1805,8 @@ struct ipa3_uc_ctx {
  */
 struct ipa3_uc_eogre_ctx{
 	u32 eogre_uc_stats_ofst;
-	struct Ipa3HwStatsEOGREInfoData_t *eogre_uc_stats_mmio;
+	union Ipa3HwStatsEOGREInfoData_t eogre_uc_stats_mmio;
 };
-
-/**
- * eogre_header_add_id    : EoGRE header add stats
- * eogre_header_remove_id : EoGRE header removal stats
- */
-struct Ipa3HwStatsEOGREInfoData_t{
-	uint32_t eogre_header_add_id;
-	uint32_t eogre_header_remove_id;
-} __packed;
 
 /**
  * struct ipa3_uc_wdi_ctx
@@ -3216,7 +3224,8 @@ int ipa3_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats);
 u16 ipa3_get_smem_restr_bytes(void);
 int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
-int ipa3_get_eogre_stats(struct Ipa3HwStatsEOGREInfoData_t *stats);
+int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
+		struct Ipa3HwStatsEOGRE *eogre);
 
 int ipa3_wigig_init_debugfs_i(struct dentry *dent);
 
