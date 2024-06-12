@@ -21,6 +21,9 @@ define_modules("volcano", "consolidate")
 
 define_modules("volcano", "gki")
 
+define_modules("niobe", "consolidate")
+
+define_modules("niobe", "gki")
 package(
     default_visibility = [
         "//visibility:public",
