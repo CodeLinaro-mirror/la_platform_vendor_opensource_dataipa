@@ -2048,6 +2048,11 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			netif_napi_del(&ep->sys->napi_tx);
 	}
 
+	if (IPA_CLIENT_IS_WAN_CONS(ep->client)) {
+		napi_disable(ep->sys->napi_obj);
+		netif_napi_del(ep->sys->napi_obj);
+	}
+
 	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
 		napi_disable(&ep->sys->napi_rx);
 		netif_napi_del(&ep->sys->napi_rx);
@@ -2183,6 +2188,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 	if (ep->sys->repl_hdlr == ipa3_replenish_rx_page_recycle) {
 		cancel_delayed_work_sync(&ep->sys->common_sys->freepage_work);
+
+		if (ep->sys->freepage_wq)
+			flush_workqueue(ep->sys->freepage_wq);
+
 		tasklet_kill(&ep->sys->common_sys->tasklet_find_freepage);
 	}
 
@@ -4467,8 +4476,9 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	src_pipe = status.endp_src_idx;
 	metadata = status.metadata;
 	ucp = status.ucp;
-	/* Special handling for opt_dpath_ctrl traffic. */
-	if (ipa3_ctx->ipa_wdi_opt_dpath && ipa_wdi_opt_dpath_ctrl_enabled(0))
+	/* Special handling for opt_dpath_ctrl traffic when not in SSR. */
+	if (ipa3_ctx->ipa_wdi_opt_dpath && ipa_wdi_opt_dpath_ctrl_enabled(0) &&
+		!atomic_read(&ipa3_ctx->is_ssr))
 		if (src_pipe == ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_PROD))
 			src_pipe = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
 	ep = &ipa3_ctx->ep[src_pipe];

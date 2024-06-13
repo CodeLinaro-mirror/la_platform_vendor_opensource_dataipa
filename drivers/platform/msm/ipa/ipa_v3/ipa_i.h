@@ -1242,7 +1242,6 @@ struct ipa3_sys_context {
 	u32 page_order;
 	bool ext_ioctl_v2;
 	bool common_buff_pool;
-	struct ipa3_sys_context *common_sys;
 	atomic_t page_avilable;
 	u32 napi_sort_page_thrshld_cnt;
 
@@ -1262,6 +1261,7 @@ struct ipa3_sys_context {
 	struct workqueue_struct *freepage_wq;
 	struct delayed_work freepage_work;
 	struct tasklet_struct tasklet_find_freepage;
+	struct ipa3_sys_context *common_sys;
 	/* ordering is important - other immutable fields go below */
 };
 
@@ -2615,6 +2615,7 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_default_recycle_stats;
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
+	struct mutex ssr_lock;
 };
 
 struct ipa3_plat_drv_res {
