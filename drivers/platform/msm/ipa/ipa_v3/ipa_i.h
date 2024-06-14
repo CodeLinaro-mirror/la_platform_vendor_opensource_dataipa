@@ -2481,7 +2481,11 @@ struct ipa3_eth_pdu_ctx {
  * @ipv6ct_mem: IPv6CT memory
  * @excp_hdr_hdl: exception header handle
  * @dflt_v4_rt_rule_hdl: default v4 routing rule handle
+ * @dflt_lan_coal_v4_udp_rt_rule_hdl: default LAN Coalescing v4 UDP routing rule handle
+ * @dflt_lan_coal_v4_tcp_rt_rule_hdl: default LAN Coalescing v4 TCP routing rule handle
  * @dflt_v6_rt_rule_hdl: default v6 routing rule handle
+ * @dflt_lan_coal_v6_udp_rt_rule_hdl: default LAN Coalescing v6 UDP routing rule handle
+ * @dflt_lan_coal_v6_tcp_rt_rule_hdl: default LAN Coalescing v6 TCP routing rule handle
  * @aggregation_type: aggregation type used on USB client endpoint
  * @aggregation_byte_limit: aggregation byte limit used on USB client endpoint
  * @aggregation_time_limit: aggregation time limit used on USB client endpoint
@@ -2609,7 +2613,11 @@ struct ipa3_context {
 	struct ipa3_ipv6ct_mem ipv6ct_mem;
 	u32 excp_hdr_hdl;
 	u32 dflt_v4_rt_rule_hdl;
+	u32 dflt_lan_coal_v4_udp_rt_rule_hdl;
+	u32 dflt_lan_coal_v4_tcp_rt_rule_hdl;
 	u32 dflt_v6_rt_rule_hdl;
+	u32 dflt_lan_coal_v6_udp_rt_rule_hdl;
+	u32 dflt_lan_coal_v6_tcp_rt_rule_hdl;
 	uint aggregation_type;
 	uint aggregation_byte_limit;
 	uint aggregation_time_limit;
