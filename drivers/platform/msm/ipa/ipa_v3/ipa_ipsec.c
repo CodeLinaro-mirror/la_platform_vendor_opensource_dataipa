@@ -797,7 +797,7 @@ static int ipa_ipsec_install_decap_rt(const struct xfrm_state *x, u8 idx)
 	rt_tbl->num_rules = 1;
 	rt_tbl->ip = ip_type;
 	rt_tbl->rule_add_size = sizeof(struct ipa_rt_rule_add_v2);
-	strlcpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.decap_rt[ip_type], IPA_RESOURCE_NAME_MAX);
+	strscpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.decap_rt[ip_type], IPA_RESOURCE_NAME_MAX);
 
 	rt_rule = &(((struct ipa_rt_rule_add_v2 *)rt_tbl->rules)[0]);
 	rt_rule->at_rear = 0;
@@ -917,7 +917,7 @@ static int ipa_ipsec_install_encap_rt(struct xfrm_policy *xp, u8 idx)
 	rt_tbl->num_rules = 1;
 	rt_tbl->ip = ip_type;
 	rt_tbl->rule_add_size = sizeof(struct ipa_rt_rule_add_v2);
-	strlcpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.encap_rt[ip_type], IPA_RESOURCE_NAME_MAX);
+	strscpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.encap_rt[ip_type], IPA_RESOURCE_NAME_MAX);
 
 	rt_rule = &(((struct ipa_rt_rule_add_v2 *)rt_tbl->rules)[0]);
 	rt_rule->at_rear = 0;
@@ -985,13 +985,13 @@ static int ipa_ipsec_install_decap_flt(struct xfrm_policy *xp, u8 idx)
 	flt_rule->rule.action = IPA_PASS_TO_ROUTING;
 
 	rt_lookup.ip = ip_type;
-	strlcpy(rt_lookup.name, __ipa_ipsec_s.dl_rt[ip_type], IPA_RESOURCE_NAME_MAX);
+	strscpy(rt_lookup.name, __ipa_ipsec_s.dl_rt[ip_type], IPA_RESOURCE_NAME_MAX);
 	ret = ipa3_get_rt_tbl(&rt_lookup);
 	if (unlikely(!!ret)) {
 		IPADBG("%s is not installed redirecting to the default route\n",
 			__ipa_ipsec_s.dl_rt[ip_type]);
 
-		strlcpy(rt_lookup.name, __ipa_ipsec_s.default_rt, IPA_RESOURCE_NAME_MAX);
+		strscpy(rt_lookup.name, __ipa_ipsec_s.default_rt, IPA_RESOURCE_NAME_MAX);
 		ret = ipa3_get_rt_tbl(&rt_lookup);
 		if (unlikely(!!ret)) {
 			IPAERR("%s is not installed!\n",
@@ -2235,7 +2235,7 @@ int ipa_ipsec_install_dl_pol_flt(void)
 		flt_tbl->ip = ip;
 		rt_lookup.ip = ip;
 
-		strlcpy(rt_lookup.name, __ipa_ipsec_s.decap_no_policy_rt[ip], IPA_RESOURCE_NAME_MAX);
+		strscpy(rt_lookup.name, __ipa_ipsec_s.decap_no_policy_rt[ip], IPA_RESOURCE_NAME_MAX);
 		ret = ipa3_get_rt_tbl(&rt_lookup);
 		if (unlikely(!!ret)) {
 			IPAERR("%s is not installed\n", __ipa_ipsec_s.decap_no_policy_rt[ip]);
@@ -2243,7 +2243,7 @@ int ipa_ipsec_install_dl_pol_flt(void)
 		}
 		flt_rule_no_policy->rule.rt_tbl_hdl = rt_lookup.hdl;
 
-		strlcpy(rt_lookup.name, __ipa_ipsec_s.default_rt, IPA_RESOURCE_NAME_MAX);
+		strscpy(rt_lookup.name, __ipa_ipsec_s.default_rt, IPA_RESOURCE_NAME_MAX);
 		ret = ipa3_get_rt_tbl(&rt_lookup);
 		if (unlikely(!!ret)) {
 			IPAERR("%s is not installed\n", __ipa_ipsec_s.default_rt);
@@ -2640,7 +2640,7 @@ static int ipa_ipsec_setup_sa_mismatch_err_qmap_hdr(void)
 	hdr->commit = 1;
 	hdr_entry = &hdr->hdr[0];
 
-	strlcpy(hdr_entry->name, IPA_IPSEC_SA_MISMATCH_ERR_QMAP_HDR_NAME,
+	strscpy(hdr_entry->name, IPA_IPSEC_SA_MISMATCH_ERR_QMAP_HDR_NAME,
 				IPA_RESOURCE_NAME_MAX);
 
 	/* Fill Inner packet SA mismatch error QMAP header */
@@ -2743,7 +2743,7 @@ static int ipa_ipsec_fnr_init(void)
 	rt_tbl->num_rules = 1;
 	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
 		rt_tbl->ip = ip;
-		strlcpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.encap_rt[ip], IPA_RESOURCE_NAME_MAX);
+		strscpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.encap_rt[ip], IPA_RESOURCE_NAME_MAX);
 
 		/* Catch all */
 		rt_rule = &(((struct ipa_rt_rule_add_v2 *)rt_tbl->rules)[0]);
@@ -2766,7 +2766,7 @@ static int ipa_ipsec_fnr_init(void)
 		}
 
 		rt_lookup.ip = rt_tbl->ip;
-		strlcpy(rt_lookup.name, rt_tbl->rt_tbl_name, IPA_RESOURCE_NAME_MAX);
+		strscpy(rt_lookup.name, rt_tbl->rt_tbl_name, IPA_RESOURCE_NAME_MAX);
 		ret = ipa3_get_rt_tbl(&rt_lookup);
 		if (!!ret) {
 			IPAERR("ipa3_get_rt_tbl returned %d\n", ret);
@@ -2786,7 +2786,7 @@ static int ipa_ipsec_fnr_init(void)
 	memset((void *)(rt_tbl->rules), 0, 2 * sizeof(struct ipa_rt_rule_add_v2));
 	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
 		rt_tbl->ip = ip;
-		strlcpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.decap_rt[ip], IPA_RESOURCE_NAME_MAX);
+		strscpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.decap_rt[ip], IPA_RESOURCE_NAME_MAX);
 
 		/* UDP 4500 + ESP after UDP */
 		rt_rule = &(((struct ipa_rt_rule_add_v2 *)rt_tbl->rules)[0]);
@@ -2823,7 +2823,7 @@ static int ipa_ipsec_fnr_init(void)
 		}
 
 		rt_lookup.ip = rt_tbl->ip;
-		strlcpy(rt_lookup.name, rt_tbl->rt_tbl_name, IPA_RESOURCE_NAME_MAX);
+		strscpy(rt_lookup.name, rt_tbl->rt_tbl_name, IPA_RESOURCE_NAME_MAX);
 		ret = ipa3_get_rt_tbl(&rt_lookup);
 		if (!!ret) {
 			IPAERR("ipa3_get_rt_tbl returned %d\n", ret);
@@ -2849,7 +2849,7 @@ static int ipa_ipsec_fnr_init(void)
 	memset((void *)(rt_tbl->rules), 0, sizeof(struct ipa_rt_rule_add_v2));
 	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
 		rt_tbl->ip = ip;
-		strlcpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.decap_no_policy_rt[ip], IPA_RESOURCE_NAME_MAX);
+		strscpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.decap_no_policy_rt[ip], IPA_RESOURCE_NAME_MAX);
 
 		/* Catch all with SA mismatch error QMAP header */
 		rt_rule = &(((struct ipa_rt_rule_add_v2 *)rt_tbl->rules)[0]);
@@ -2865,7 +2865,7 @@ static int ipa_ipsec_fnr_init(void)
 			goto end;
 
 		rt_lookup.ip = rt_tbl->ip;
-		strlcpy(rt_lookup.name, rt_tbl->rt_tbl_name, IPA_RESOURCE_NAME_MAX);
+		strscpy(rt_lookup.name, rt_tbl->rt_tbl_name, IPA_RESOURCE_NAME_MAX);
 		ret = ipa3_get_rt_tbl(&rt_lookup);
 		if (!!ret)
 			goto end;

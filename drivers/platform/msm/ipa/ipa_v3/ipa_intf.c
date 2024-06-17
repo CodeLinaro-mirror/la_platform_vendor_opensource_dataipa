@@ -2,6 +2,8 @@
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ *
  */
 
 #include <linux/fs.h>
@@ -106,7 +108,7 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 	if (intf == NULL)
 		return -ENOMEM;
 
-	strlcpy(intf->name, name, IPA_RESOURCE_NAME_MAX);
+	strscpy(intf->name, name, IPA_RESOURCE_NAME_MAX);
 
 	if (tx) {
 		intf->num_tx_props = tx->num_props;

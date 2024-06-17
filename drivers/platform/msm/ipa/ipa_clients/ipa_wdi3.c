@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022, 2024-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_wdi3.h"
@@ -362,7 +363,7 @@ int ipa_wdi_reg_intf_per_inst(
 	}
 	else {
 		IPA_WDI_DBG("non-mlo iface\n");
-		strlcpy(iface_name, in->netdev_name, sizeof(iface_name));
+		strscpy(iface_name, in->netdev_name, sizeof(iface_name));
 	}
 	IPA_WDI_DBG("register interface for netdev %s %s\n",
 		in->netdev_name, iface_name);
@@ -394,7 +395,7 @@ int ipa_wdi_reg_intf_per_inst(
 	}
 
 	INIT_LIST_HEAD(&new_intf->link);
-	strlcpy(new_intf->netdev_name, iface_name,
+	strscpy(new_intf->netdev_name, in->netdev_name,
 		sizeof(new_intf->netdev_name));
 	new_intf->hdr_len = in->hdr_info[0].hdr_len;
 
@@ -436,12 +437,12 @@ int ipa_wdi_reg_intf_per_inst(
 	}
  	tx_prop[0].alt_dst_pipe = in->alt_dst_pipe;
  	tx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
- 	strlcpy(tx_prop[0].hdr_name, hdr->hdr[IPA_IP_v4].name,
+ 	strscpy(tx_prop[0].hdr_name, hdr->hdr[IPA_IP_v4].name,
  		sizeof(tx_prop[0].hdr_name));
 
  	tx_prop[1].alt_dst_pipe = in->alt_dst_pipe;
  	tx_prop[1].hdr_l2_type = in->hdr_info[1].hdr_type;
- 	strlcpy(tx_prop[1].hdr_name, hdr->hdr[IPA_IP_v6].name,
+ 	strscpy(tx_prop[1].hdr_name, hdr->hdr[IPA_IP_v6].name,
  		sizeof(tx_prop[1].hdr_name));
 
  	/* populate rx prop */
@@ -496,14 +497,14 @@ int ipa_wdi_reg_intf_per_inst(
 		tx_prop[2].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
 		tx_prop[2].alt_dst_pipe = in->alt_dst_pipe;
 		tx_prop[2].hdr_l2_type = in->hdr_info[2].hdr_type;
-		strlcpy(tx_prop[2].hdr_name, hdr->hdr[IPA_IP_v4_VLAN].name,
+		strscpy(tx_prop[2].hdr_name, hdr->hdr[IPA_IP_v4_VLAN].name,
 				sizeof(tx_prop[2].hdr_name));
 
 		tx_prop[3].ip = IPA_IP_v6;
 		tx_prop[3].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
 		tx_prop[3].alt_dst_pipe = in->alt_dst_pipe;
 		tx_prop[3].hdr_l2_type = in->hdr_info[3].hdr_type;
-		strlcpy(tx_prop[3].hdr_name, hdr->hdr[IPA_IP_v6_VLAN].name,
+		strscpy(tx_prop[3].hdr_name, hdr->hdr[IPA_IP_v6_VLAN].name,
 				sizeof(tx_prop[3].hdr_name));
 	}
 
@@ -1111,7 +1112,7 @@ int ipa_wdi_dereg_intf_per_inst_mlo(const char *netdev_name,
 	}
 	else {
 		IPA_WDI_DBG("non mlo iface\n");
-		strlcpy(iface_name, netdev_name, sizeof(iface_name));
+		strscpy(iface_name, netdev_name, sizeof(iface_name));
 	}
 	ret = ipa_wdi_dereg_intf_per_inst(iface_name, hdl);
 

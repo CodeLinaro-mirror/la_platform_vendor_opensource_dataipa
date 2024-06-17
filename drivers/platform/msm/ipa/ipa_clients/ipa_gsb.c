@@ -3,6 +3,7 @@
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -616,7 +617,7 @@ int ipa_bridge_init(struct ipa_bridge_init_params *params, u32 *hdl)
 		goto fail_alloc_mem;
 	}
 
-	strlcpy(new_intf->netdev_name, params->info.netdev_name,
+	strscpy(new_intf->netdev_name, params->info.netdev_name,
 		sizeof(new_intf->netdev_name));
 	new_intf->wakeup_request = params->wakeup_request;
 	new_intf->priv = params->info.priv;
