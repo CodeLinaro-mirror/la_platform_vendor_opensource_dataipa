@@ -18,6 +18,8 @@
  * @num_lcl_nhash_tbls: Number of local (sram) non-hashable tables
  * @total_sz_lcl_hash_tbls: Total size of local hashable tables
  * @total_sz_lcl_nhash_tbls: Total size of local non-hashable tables
+ * @hash_bdy_start_ofst: offset to start of hash table header.
+ * @nhash_bdy_start_ofst: offset to start of nhash table header.
  * @hash_hdr/nhash_hdr: OUT params for the header structures
  * @hash_bdy/nhash_bdy: OUT params for the local body structures
  */
@@ -28,6 +30,8 @@ struct ipahal_fltrt_alloc_imgs_params {
 	u32 num_lcl_nhash_tbls;
 	u32 total_sz_lcl_hash_tbls;
 	u32 total_sz_lcl_nhash_tbls;
+	u32 hash_bdy_start_ofst;
+	u32 nhash_bdy_start_ofst;
 
 	/* OUT PARAMS */
 	struct ipa_mem_buffer hash_hdr;

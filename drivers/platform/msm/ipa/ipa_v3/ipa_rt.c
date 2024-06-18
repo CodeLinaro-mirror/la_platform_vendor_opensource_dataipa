@@ -399,11 +399,23 @@ static int ipa_generate_rt_hw_tbl_img(enum ipa_ip_type ip,
 			IPA_MEM_PART(v4_rt_nhash_ofst);
 		hash_bdy_start_ofst = IPA_MEM_PART(apps_v4_rt_hash_ofst) -
 			IPA_MEM_PART(v4_rt_hash_ofst);
+		alloc_params->nhash_bdy_start_ofst =
+			IPA_MEM_PART(apps_fltrt_empty_tbl_ofst) -
+			IPA_MEM_PART(v4_rt_nhash_ofst);
+		alloc_params->hash_bdy_start_ofst =
+			IPA_MEM_PART(apps_fltrt_empty_tbl_ofst) -
+			IPA_MEM_PART(v4_rt_hash_ofst);
 		apps_start_idx = IPA_MEM_PART(v4_apps_rt_index_lo);
 	} else {
 		nhash_bdy_start_ofst = IPA_MEM_PART(apps_v6_rt_nhash_ofst) -
 			IPA_MEM_PART(v6_rt_nhash_ofst);
 		hash_bdy_start_ofst = IPA_MEM_PART(apps_v6_rt_hash_ofst) -
+			IPA_MEM_PART(v6_rt_hash_ofst);
+		alloc_params->nhash_bdy_start_ofst =
+			IPA_MEM_PART(apps_fltrt_empty_tbl_ofst) -
+			IPA_MEM_PART(v6_rt_nhash_ofst);
+		alloc_params->hash_bdy_start_ofst =
+			IPA_MEM_PART(apps_fltrt_empty_tbl_ofst) -
 			IPA_MEM_PART(v6_rt_hash_ofst);
 		apps_start_idx = IPA_MEM_PART(v6_apps_rt_index_lo);
 	}

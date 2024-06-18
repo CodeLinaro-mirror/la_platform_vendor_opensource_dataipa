@@ -3199,6 +3199,9 @@ struct ipa3_mem_partition {
 	u32 pre_sa_contexts_canary_size;
 	u32 sa_contexts_ofst;
 	u32 sa_contexts_size;
+
+	u32 apps_fltrt_empty_tbl_ofst;
+	u32 apps_fltrt_empty_tbl_size;
 };
 
 struct ipa3_controller {

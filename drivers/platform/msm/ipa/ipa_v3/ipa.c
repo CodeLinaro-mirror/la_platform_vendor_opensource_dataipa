@@ -6377,6 +6377,11 @@ int _ipa_init_sram_v3(void)
 			ipa_sram_mmio[offset] = IPA_MEM_CANARY_VAL;
 	}
 
+	/* Initialize empty flt/rt table.*/
+	if (IPA_MEM_PART(apps_fltrt_empty_tbl_size))
+		memset_io((u8*)ipa_sram_mmio + IPA_MEM_PART(apps_fltrt_empty_tbl_ofst),
+			0, IPA_MEM_PART(apps_fltrt_empty_tbl_size));
+
 	iounmap(ipa_sram_mmio);
 
 	return 0;
