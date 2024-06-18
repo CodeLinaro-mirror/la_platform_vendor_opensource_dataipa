@@ -8878,6 +8878,7 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 	struct ipa_msgq_desc *msgq_desc = &ipa3_ctx->msgq_desc;
 	struct ipa_msg msg;
 	int ret = -EINVAL;
+	int i;
 
 	memset(&msg, 0, sizeof(msg));
 	msg.msg_hdr.msg_size = sizeof(msg);
@@ -8885,14 +8886,21 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 	msg.data = data;
 
 	if (!msgq_desc->msgq_hdl)
-		IPAERR("msgq_hdl is invalid %d for msg_type %d\n", msgq_desc->msgq_hdl, msg_type);
+		IPAERR("msgq_hdl is invalid %d for msg_type %d assert!\n", msgq_desc->msgq_hdl, msg_type);
 	else {
-		ret = gh_msgq_send(msgq_desc->msgq_hdl, &msg, sizeof(msg), 0);
-		if (ret)
-			IPAERR("send msgq failed ret %d for msg_type %d\n", ret, msg_type);
-		else
-			IPADBG("send msgq success msg_type %d\n", msg_type);
+		for (i = 0; i < IPA_MSGQ_MAX_RETRY && ret; i++) {
+			usleep_range(IPA_MSGQ_MIN_SLEEP,
+					IPA_MSGQ_MAX_SLEEP);
+			ret = gh_msgq_send(msgq_desc->msgq_hdl, &msg, sizeof(msg), 0);
+			IPAERR("send msgq failed %d time ret %d for msg_type %d\n", i, ret, msg_type);
+		}
 	}
+
+	if (ret && ipa3_ctx->ipa_v2x_vm) {
+		IPAERR("send msgq failed ret %d for msg_type %d on v2x-vm\n", ret, msg_type);
+		ipa_assert();
+	} else
+		IPADBG("send msgq success msg_type %d\n", msg_type);
 
 	return ret;
 }
@@ -9018,7 +9026,8 @@ static int ipa3_msgq_init(void)
 
 	if (IS_ERR_OR_NULL(msgq_desc->msgq_hdl)) {
 		ret = PTR_ERR(msgq_desc->msgq_hdl);
-		IPAERR("failed to get gunyah msgq hdl %d\n", ret);
+		IPAERR("failed to get gunyah msgq hdl %d assert ! \n", ret);
+		ipa_assert();
 		return ret;
 	}
 
@@ -9263,7 +9272,6 @@ fail_dma_task:
 fail_init_hw:
 	ipahal_destroy();
 fail_ipahal:
-	ipa3_disable_clks();
 	return result;
 }
 
@@ -11898,7 +11906,6 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
 
-	ipa3_disable_clks();
 	IPADBG("IPA driver pre-init was successful.\n");
 	return 0;
 
