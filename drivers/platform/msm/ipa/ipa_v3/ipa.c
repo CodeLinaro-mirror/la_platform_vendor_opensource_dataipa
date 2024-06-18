@@ -2,7 +2,8 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  */
 
 #include <linux/clk.h>
@@ -2732,18 +2733,20 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_nat_dma_cmd *table_dma_cmd;
 	struct ipa_ioc_get_vlan_mode vlan_mode;
 	struct ipa_ioc_wigig_fst_switch fst_switch;
-	struct ipa_ioc_eogre_info eogre_info;
+	struct ipa_ioc_eogre_info *eogre_info = NULL;
 	struct ipa_ioc_macsec_info macsec_info;
 	struct ipa_macsec_map *macsec_map;
 	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 	struct ipa_ioc_mux_mapping_table vlan_muxid_map_info;
 	struct ipa_ioc_ext_router_info *ext_router_info;
+	struct ipa_ioc_tunnel_template_info *template_info_to_uc = NULL;
 	bool send2uC, send2ipacm;
 	size_t sz;
 	int pre_entry;
 	int hdl;
 	unsigned long uptr = 0;
 	struct ipa_ioc_get_ep_info ep_info;
+	uint8_t tunnel_feature = 0;
 
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
 
@@ -2826,6 +2829,40 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
+		break;
+
+	case IPA_IOC_QUERY_TUNNEL_FEATURE:
+		IPADBG("Got IPA_IOC_QUERY_TUNNEL_FEATURE\n");
+		tunnel_feature = ipa3_ctx->eogre_tunnel_feature;
+		if (copy_to_user((void __user *)arg, &tunnel_feature, sizeof(uint8_t))) {
+			retval = -EFAULT;
+		}
+		IPADBG("IPA_IOC_QUERY_TUNNEL_FEATURE successed :%x\n",tunnel_feature);
+		break;
+
+	case IPA_IOC_SEND_TUNNEL_TEMPLATE_INFO:
+		IPADBG("Got IPA_IOC_SEND_TUNNEL_TEMPLATE_INFO\n");
+		template_info_to_uc = 
+			kzalloc(sizeof(struct ipa_ioc_tunnel_template_info),GFP_KERNEL);
+		if(template_info_to_uc == NULL){
+			IPAERR_RL("fail to alloc\n");
+			return -ENOMEM;
+		}
+
+		if (copy_from_user(template_info_to_uc, (const void __user *) arg,
+			sizeof(struct ipa_ioc_tunnel_template_info))) {
+			IPAERR_RL("copy_from_user for template_info_to_uc fail\n");
+			retval = -EFAULT;
+			goto free_mem;
+		}
+		if (ipa3_write_template_to_uC(template_info_to_uc)) {
+			retval = -EFAULT;
+			IPAERR_RL("function fail\n");
+			goto free_mem;
+		}
+		IPADBG("Sent Template type %x of length %d to uC\n",
+			template_info_to_uc->template_type,template_info_to_uc->template_len);
+
 		break;
 
 	case IPA_IOC_INIT_IPV6CT_TABLE:
@@ -4057,21 +4094,27 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case IPA_IOC_ADD_EoGRE_MAPPING:
 		IPADBG("Got IPA_IOC_ADD_EoGRE_MAPPING\n");
+		eogre_info = kzalloc(sizeof(struct ipa_ioc_eogre_info), GFP_KERNEL);
+		if(eogre_info == NULL){
+			IPAERR_RL("fail to alloc\n");
+			return -ENOMEM;
+		}
+
 		if (copy_from_user(
-				&eogre_info,
+				eogre_info,
 				(const void __user *) arg,
 				sizeof(struct ipa_ioc_eogre_info))) {
 			IPAERR_RL("copy_from_user fails\n");
 			retval = -EFAULT;
-			break;
+			goto free_mem;
 		}
 
-		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		retval = ipa3_check_eogre(eogre_info, &send2uC, &send2ipacm);
 		if (retval == -EIO)
 		{
 			IPADBG("no work needs to be done but return success to caller");
 			retval = 0;
-			break;
+			goto free_mem;
 		}
 
 		ipa3_ctx->eogre_enabled = (retval == 0);
@@ -4081,14 +4124,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			 * Send map to uC...
 			 */
 			retval = ipa3_add_dscp_vlan_pcp_map(
-				&eogre_info.map_info);
+				&eogre_info->map_info);
 		}
 
 		if (retval == 0 && send2ipacm == true) {
 			/*
 			 * Send ip addrs to ipacm...
 			 */
-			retval = ipa3_send_eogre_info(IPA_EoGRE_UP_EVENT, &eogre_info);
+			retval = ipa3_send_eogre_info(IPA_EoGRE_UP_EVENT, eogre_info);
 		}
 
 		if (retval != 0) {
@@ -4100,14 +4143,20 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_DEL_EoGRE_MAPPING:
 		IPADBG("Got IPA_IOC_DEL_EoGRE_MAPPING\n");
 
-		memset(&eogre_info, 0, sizeof(eogre_info));
+		eogre_info = kzalloc(sizeof(struct ipa_ioc_eogre_info), GFP_KERNEL);
+		if(eogre_info == NULL){
+			IPAERR_RL("fail to alloc\n");
+			return -ENOMEM;
+		}
 
-		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+		memset(eogre_info, 0, sizeof(eogre_info));
+
+		retval = ipa3_check_eogre(eogre_info, &send2uC, &send2ipacm);
 		if (retval == -EIO)
 		{
 			IPADBG("no work needs to be done but return success to caller");
 			retval = 0;
-			break;
+			goto free_mem;
 		}
 
 		if (retval == 0 && send2uC == true) {
@@ -4115,14 +4164,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			 * Send map clear to uC...
 			 */
 			retval = ipa3_add_dscp_vlan_pcp_map(
-				&eogre_info.map_info);
+				&eogre_info->map_info);
 		}
 
 		if (retval == 0 && send2ipacm == true) {
 			/*
 			 * Send null ip addrs to ipacm...
 			 */
-			retval = ipa3_send_eogre_info(IPA_EoGRE_DOWN_EVENT, &eogre_info);
+			retval = ipa3_send_eogre_info(IPA_EoGRE_DOWN_EVENT, eogre_info);
 		}
 
 		if (retval == 0) {
@@ -4248,6 +4297,12 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	if (!IS_ERR(param))
 		kfree(param);
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+free_mem:
+	if(eogre_info != NULL)
+		kfree(eogre_info);
+	if(template_info_to_uc != NULL)
+		kfree(template_info_to_uc);
 
 	return retval;
 }
@@ -8473,8 +8528,37 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		/* todo in future: change vlan_mode_iface from bool to enum
 		 * and support double vlan for all ifaces
 		 */
-		if (strnstr(dbg_buff, "double-vlan", strlen(dbg_buff)))
-			ipa3_ctx->is_eth_double_vlan_mode = true;
+		 IPADBG("Read EoGRE Config\n");
+		 if (strnstr(dbg_buff, "eogre_tunnel", strlen(dbg_buff))){
+			 IPADBG("EoGRE tunnel active.\n");
+			 if(strnstr(dbg_buff, "legacy", strlen(dbg_buff))) {
+				 IPADBG("EoGRE tunnel for Legacy cache all\n");
+				 ipa3_ctx->eogre_tunnel_feature =
+					 DEFAULT_FEATURE;
+			 }
+			 if(strnstr(dbg_buff, "pppoe", strlen(dbg_buff))) {
+				 IPADBG("EoGRE tunnel active for PPPoE\n");
+				 ipa3_ctx->eogre_tunnel_pppoe = true;
+				 ipa3_ctx->eogre_tunnel_feature = UNTAG_FEATURE;
+			 }
+			 if(strnstr(dbg_buff, "tagged", strlen(dbg_buff))) {
+				 IPADBG("EoGRE tunnel active for Tagged\n");
+				 ipa3_ctx->eogre_tunnel_tagged = true;
+				 ipa3_ctx->eogre_tunnel_feature =
+					 SINGLE_TAG_FEATURE;
+			 }
+			 if(strnstr(dbg_buff, "untagged", strlen(dbg_buff))) {
+				 IPADBG("EoGRE tunnel active for unTagged\n");
+				 ipa3_ctx->eogre_tunnel_tagged = true;
+				 ipa3_ctx->eogre_tunnel_feature =
+					 SINGLE_TAG_FEATURE;
+			 }
+		 }
+		 if (strnstr(dbg_buff, "double-vlan", strlen(dbg_buff))) {
+			 IPADBG("tunnel active for Double-Tagged\n");
+			 ipa3_ctx->is_eth_double_vlan_mode = true;
+			 ipa3_ctx->eogre_tunnel_feature = DOUBLE_TAG_FEATURE;
+		 }
 
 		/* reset ecm default as non-vlan mode */
 		if (!ipa3_ctx->vlan_mode_set && ipa3_ctx->ipa_config_is_auto)
@@ -9087,6 +9171,11 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
 	ipa3_ctx->private_ip_forward_eth_iface = 0;
 	ipa3_ctx->private_ip_forward_ep_index = -1;
+	ipa3_ctx->client_hps_eth_index = -1;
+	ipa3_ctx->eogre_tunnel_feature = -1;
+	ipa3_ctx->eogre_tunnel_pppoe = false;
+	ipa3_ctx->eogre_tunnel_tagged = false;
+	ipa3_ctx->is_eth_double_vlan_mode = false;
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =

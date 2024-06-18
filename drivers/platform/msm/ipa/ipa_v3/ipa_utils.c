@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <net/ip.h>
@@ -101,6 +101,15 @@
 
 /*Config the ucp_cfg register with this command, when HPS sequence of DMA_ucP is set, to let uC process Private IP packets*/
 #define IPA_UCP_CMD_UCP_CFG_HANDLE_PRIVATE_IP_MAPPING 29
+/*Config the ucp_cfg register with this command, when HPS sequence of DMA_ucP is set, to let uC process pppoe traffic in mpls tunnel*/
+#define IPA_UCP_CMD_UCP_CFG_HANDLE_PPPOE_IN_TUNNEL 30
+/*Config the ucp_cfg register with this command, when HPS sequence of DMA_ucP is set, to let uC process pppoe untag traffic in eogre tunnel*/
+#define IPA_UCP_CMD_UCP_CFG_HANDLE_PPPOE_UNTAGGED_IN_TUNNEL 31
+/*Config the ucp_cfg register with this command, when HPS sequence of DMA_ucP is set, to let uC process tag traffic in eogre tunnel*/
+#define IPA_UCP_CMD_UCP_CFG_HANDLE_EOGRE_TAGGED_IN_TUNNEL 32
+
+
+
 
 /* HPS, DPS sequencers Types*/
 
@@ -8510,11 +8519,28 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 		}
 		IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 		/* Configure sequencers type*/
-		if(ipa3_ctx->private_ip_forward_eth_iface && clnt_hdl == ipa3_ctx->private_ip_forward_ep_index){
-			IPAERR("Setting ucp cfg, and sequence type UCP_DMA instead of default to enable private IP forwarding\n");
+		if((ipa3_ctx->client_hps_eth_index == clnt_hdl) ||
+				(clnt_hdl == ipa3_ctx->private_ip_forward_ep_index)) {
+			IPADBG("Setting ucp_cfg register HPS SEQ Update\n");
 			//set ucp_cfg register
 			ep_cfg_ucp.enable = true;
-			ep_cfg_ucp.command = IPA_UCP_CMD_UCP_CFG_HANDLE_PRIVATE_IP_MAPPING;
+			if(ipa3_ctx->private_ip_forward_eth_iface) {
+				ep_cfg_ucp.command =
+					IPA_UCP_CMD_UCP_CFG_HANDLE_PRIVATE_IP_MAPPING;
+			}
+			if(ipa3_ctx->is_eth_double_vlan_mode == true) {
+				ep_cfg_ucp.command =
+					IPA_UCP_CMD_UCP_CFG_HANDLE_PPPOE_IN_TUNNEL;
+			}
+			if(ipa3_ctx->eogre_tunnel_pppoe == true) {
+				ep_cfg_ucp.command =
+					IPA_UCP_CMD_UCP_CFG_HANDLE_PPPOE_UNTAGGED_IN_TUNNEL;
+			}
+			if(ipa3_ctx ->eogre_tunnel_tagged == true) {
+				ep_cfg_ucp.command =
+					IPA_UCP_CMD_UCP_CFG_HANDLE_EOGRE_TAGGED_IN_TUNNEL;
+			}
+
 			ipahal_write_reg_n_fields(IPA_ENDP_INIT_UCP_CFG_n,clnt_hdl,&ep_cfg_ucp);
 
 			//Now write to the HPS sequence register
@@ -8524,6 +8550,9 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 			IPADBG("set sequencers to sequence 0x%x, ep = %d\n", ep_cfg_seq.seq_type,
 				clnt_hdl);
 			ipahal_write_reg_n(IPA_ENDP_INIT_SEQ_n, clnt_hdl, ep_cfg_seq.seq_type);
+
+			IPADBG("Updated HPS sequence 0x%x for ep =%d\n",
+					ep_cfg_seq.seq_type,clnt_hdl);
 			return 0;
 		}
 		IPADBG("set sequencers to sequence 0x%x, ep = %d\n", type,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -110,6 +111,8 @@ enum ipa3_cpu_2_hw_commands {
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 23),
 	IPA_CPU_2_HW_CMD_ADD_MUX_VLAN_MAPPING       =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 24),
+	IPA_CPU_2_HW_CMD_SEND_TEMPLATE_TO_UC       =
+		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 27),
 	IPA_CPU_2_HW_CMD_UCP_CFG_HANDLE_PRIVATE_IP_MAPPING =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 29),
 };
@@ -2189,6 +2192,105 @@ int ipa3_send_mux_vlan_map(
 
 free_coherent:
 	dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return res;
+}
+
+/**
+ * ipa3_write_template_to_uC() - Send the Tunnel template info
+ * @map: The mapping data structure for each tunnel template
+ *
+ * Returns: 0 on success, negative on failure
+ */
+ int ipa3_write_template_to_uC(struct ipa_ioc_tunnel_template_info *map)
+{
+	struct ipa_mem_buffer mem;
+	struct ipa_mem_buffer t_mem;
+	uint8_t *t_addr;
+	int res;
+	struct tunnel_protocols_config_table_t *cmd;
+
+
+	if (!map) {
+		IPAERR("null argument (ie. map) passed\n");
+		return -EINVAL;
+	}
+
+	if(!(map->template_type == UNTAG_FEATURE ||
+			map->template_type == SINGLE_TAG_FEATURE ||
+			map->template_type == DOUBLE_TAG_FEATURE))
+	{
+		IPAERR("Invalide Template Type\n");
+		return -EINVAL;
+	}
+
+	if (!map->template_len) {
+		IPAERR("Zero length (ie. template) passed\n");
+		return -EINVAL;
+	}
+	IPADBG("Feature :%x Attempting to Send Template to uC of len :%d\n",
+			map->template_type,map->template_len);
+	t_mem.size = map->template_len;
+
+	t_mem.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, t_mem.size,
+			&t_mem.phys_base, GFP_KERNEL);
+	if (!t_mem.base) {
+		IPAERR("Fail to alloc DMA buff of size %d\n", t_mem.size);
+		return -ENOMEM;
+	}
+	t_addr = (uint8_t *) t_mem.base;
+	memcpy(t_addr, map->template_header, map->template_len);
+
+	/*Copy the tunnel template to DMA address pointer*/
+	if(map->template_type == UNTAG_FEATURE && ipa3_ctx->eogre_tunnel_pppoe){
+		map->tunnel_config.untagged_mapping_table.tunnel_template_addr =
+			(uint32_t *)t_mem.phys_base;
+	}
+	if(map->template_type == SINGLE_TAG_FEATURE &&
+			ipa3_ctx->eogre_tunnel_tagged){
+		map->tunnel_config.singletag_mux_mapping_table[0].tunnel_template_addr =
+			(uint32_t *)t_mem.phys_base;
+	}
+	if(map->template_type == DOUBLE_TAG_FEATURE &&
+			ipa3_ctx->is_eth_double_vlan_mode){
+		map->tunnel_config.doubletag_mux_mapping_table[0].tunnel_template_addr =
+			(uint32_t *)t_mem.phys_base;
+	}
+
+	mem.size = sizeof(struct tunnel_protocols_config_table_t);
+	mem.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, mem.size,
+			&mem.phys_base, GFP_KERNEL);
+
+	if (!mem.base) {
+		IPAERR("Fail to alloc DMA buff of size %d\n", mem.size);
+		dma_free_coherent(ipa3_ctx->uc_pdev, t_mem.size, t_mem.base, t_mem.phys_base);
+		return -ENOMEM;
+	}
+
+	cmd = (struct tunnel_protocols_config_table_t *) mem.base;
+	/*Copy the tunnel structure to uC cmd*/
+	memcpy(cmd,&map->tunnel_config, sizeof(struct tunnel_protocols_config_table_t));
+
+	IPADBG("To Send Template to uC with hw_cmd :[ %d ] with addr 0x%p \n",
+			IPA_CPU_2_HW_CMD_SEND_TEMPLATE_TO_UC,(u32) mem.phys_base);
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	res = ipa3_uc_send_cmd((u32) mem.phys_base,
+			IPA_CPU_2_HW_CMD_SEND_TEMPLATE_TO_UC, 0, true, 10 * HZ);
+	if (res) {
+		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
+		goto free_coherent;
+	}
+
+	IPADBG("Sent Template to uC Success with hw_cmd :[ %d ].\n",
+			IPA_CPU_2_HW_CMD_SEND_TEMPLATE_TO_UC);
+
+	res = 0;
+
+free_coherent:
+	dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
+	dma_free_coherent(ipa3_ctx->uc_pdev, t_mem.size, t_mem.base, t_mem.phys_base);
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 

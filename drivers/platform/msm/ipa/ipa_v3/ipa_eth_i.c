@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -176,24 +178,31 @@ struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 {
 	struct Ipa3HwEventInfoData_t *stats_ptr = &uc_event_top_mmio->statsInfo;
 
+	uint8_t feature;
+	if(ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE) {
+		feature = IPA_HW_FEATURE_EOGRE;
+	} else if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE) {
+		feature = IPA_HW_FEATURE_EOGRE_UNTAG;
+	}
+
 	if ((uc_event_top_mmio->protocolMask &
-		(1 << IPA_HW_FEATURE_EOGRE)) == 0) {
+		(1 << feature)) == 0) {
 		IPAERR("EOGRE protocol missing 0x%x\n",
 				uc_event_top_mmio->protocolMask);
 		return;
 	}
 
-	if (stats_ptr->featureInfo[IPA_HW_FEATURE_EOGRE].params.size !=
+	if (stats_ptr->featureInfo[feature].params.size !=
 		sizeof(struct Ipa3HwStatsEOGREInfoData_t)) {
 		IPAERR("eogre stats sz invalid exp=%zu is=%u\n",
 			sizeof(struct Ipa3HwStatsEOGREInfoData_t),
-			stats_ptr->featureInfo[IPA_HW_FEATURE_EOGRE].params.size);
+			stats_ptr->featureInfo[feature].params.size);
 		return;
 	}
 
 	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst =
 		stats_ptr->baseAddrOffset +
-		stats_ptr->featureInfo[IPA_HW_FEATURE_EOGRE].params.offset;
+		stats_ptr->featureInfo[feature].params.offset;
 	IPAERR("EOGRE stats ofst=0x%x\n", ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
 	if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
 		sizeof(struct Ipa3HwStatsEOGREInfoData_t) >=
@@ -1121,7 +1130,14 @@ int ipa3_eth_connect(
 		return result;
 	}
 #endif
-
+	if (IPA_CLIENT_IS_PROD(client_type) &&
+		(ipa3_ctx->is_eth_double_vlan_mode == true ||
+		ipa3_ctx->eogre_tunnel_pppoe == true ||
+		ipa3_ctx->eogre_tunnel_tagged == true ))
+	{
+		ipa3_ctx->client_hps_eth_index = ep_idx;
+	}
+	IPADBG("Client_hps_eth_index:%d \n", ipa3_ctx->client_hps_eth_index);
 	result = ipa3_eth_get_prot(pipe, &prot);
 	if (result) {
 		IPAERR("Could not determine protocol\n");
