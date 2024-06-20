@@ -590,21 +590,15 @@ int ipa3_remove_interrupt_handler(enum ipa_irq_type interrupt)
 }
 
 /**
- * ipa3_interrupts_init() - Initialize the IPA interrupts framework
- * @ipa_irq:	The interrupt number to allocate
+ * ipa3_interrupts_pre_init() - Initialize the IPA interrupts framework
  * @ee:		Execution environment
- * @ipa_dev:	The basic device structure representing the IPA driver
  *
  * - Initialize the ipa_interrupt_to_cb array
  * - Clear interrupts status
- * - Register the ipa interrupt handler - ipa3_isr
- * - Enable apps processor wakeup by IPA interrupts
  */
-int ipa3_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev)
+int ipa3_interrupts_pre_init(u32 ee)
 {
 	int idx;
-	int res = 0;
-
 	ipa_ee = ee;
 	for (idx = 0; idx < IPA_IRQ_NUM_MAX; idx++) {
 		ipa_interrupt_to_cb[idx].deferred_flag = false;
@@ -612,6 +606,21 @@ int ipa3_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev)
 		ipa_interrupt_to_cb[idx].private_data = NULL;
 		ipa_interrupt_to_cb[idx].interrupt = -1;
 	}
+
+	spin_lock_init(&suspend_wa_lock);
+	return 0;
+}
+/**
+ * ipa3_interrupts_init() - Initialize the IPA interrupts framework
+ * @ipa_irq:	The interrupt number to allocate
+ * @ipa_dev:	The basic device structure representing the IPA driver
+ *
+ * - Register the ipa interrupt handler - ipa3_isr
+ * - Enable apps processor wakeup by IPA interrupts
+ */
+int ipa3_interrupts_init(u32 ipa_irq, struct device *ipa_dev)
+{
+	int res = 0;
 
 	ipa_interrupt_wq = create_singlethread_workqueue(
 			INTERRUPT_WORKQUEUE_NAME);
@@ -651,7 +660,6 @@ int ipa3_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev)
 		else
 			IPADBG("IPA IRQ wakeup enabled irq=%d\n", ipa_irq);
 	}
-	spin_lock_init(&suspend_wa_lock);
 	return 0;
 }
 

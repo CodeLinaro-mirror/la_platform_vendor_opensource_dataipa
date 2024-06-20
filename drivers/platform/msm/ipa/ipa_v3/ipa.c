@@ -8465,11 +8465,10 @@ int ipa3_init_interrupts(void)
 {
 	int result;
 
-	/*register IPA IRQ handler*/
-	result = ipa3_interrupts_init(ipa3_res.ipa_irq, ipa3_ctx->ee,
-			&ipa3_ctx->master_pdev->dev);
+	/*IPA IRQ pre_init config*/
+	result = ipa3_interrupts_pre_init(ipa3_ctx->ee);
 	if (result) {
-		IPAERR("ipa interrupts initialization failed\n");
+		IPAERR("ipa interrupts pre initialization failed\n");
 		return -ENODEV;
 	}
 
@@ -8478,15 +8477,18 @@ int ipa3_init_interrupts(void)
 			ipa3_suspend_handler, false, NULL);
 	if (result) {
 		IPAERR("register handler for suspend interrupt failed\n");
-		result = -ENODEV;
-		goto fail_add_interrupt_handler;
+		return -ENODEV;
+	}
+
+	/*register IPA IRQ handler*/
+	result = ipa3_interrupts_init(ipa3_res.ipa_irq,
+			&ipa3_ctx->master_pdev->dev);
+	if (result) {
+		IPAERR("ipa interrupts initialization failed\n");
+		return -ENODEV;
 	}
 
 	return 0;
-
-fail_add_interrupt_handler:
-	ipa3_interrupts_destroy(ipa3_res.ipa_irq, &ipa3_ctx->master_pdev->dev);
-	return result;
 }
 
 /**
