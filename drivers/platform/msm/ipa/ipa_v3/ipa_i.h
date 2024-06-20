@@ -3787,7 +3787,8 @@ void ipa3_active_clients_log_inc(struct ipa_active_client_logging_info *id,
 int ipa3_active_clients_log_print_buffer(char *buf, int size);
 int ipa3_active_clients_log_print_table(char *buf, int size);
 void ipa3_active_clients_log_clear(void);
-int ipa3_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev);
+int ipa3_interrupts_pre_init(u32 ee);
+int ipa3_interrupts_init(u32 ipa_irq, struct device *ipa_dev);
 void ipa3_interrupts_destroy(u32 ipa_irq, struct device *ipa_dev);
 int __ipa3_del_rt_rule(u32 rule_hdl);
 int __ipa_del_flt_rule(u32 rule_hdl);
