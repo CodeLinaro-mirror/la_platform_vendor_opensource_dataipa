@@ -69,7 +69,7 @@ enum ipa_eth_dir {
 };
 
 /* HOLB timeout values for QOS. */
-u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {2, 0};
+u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {2000, 500};
 
 static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys_addr_t pa,
 	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir, u8 pipe_idx)
@@ -1503,12 +1503,19 @@ int ipa3_eth_connect(
 
 	/* Enable HOLB Timeout when QOS is enabled. */
 	if (ipa3_ctx->eth_qos && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-		memset(&holb_cfg, 0, sizeof(holb_cfg));
-		holb_cfg.en = IPA_HOLB_TMR_EN;
-		holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS) ?
-			qos_holb_tmr[priority] :
-			qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS - 1];
-		ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
+		if (!pipe->tc_bmap && !priority)
+		{
+			IPADBG("Only BE tx available, no need to set holb\n");
+		}
+		else
+		{
+			memset(&holb_cfg, 0, sizeof(holb_cfg));
+			holb_cfg.en = IPA_HOLB_TMR_EN;
+			holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS) ?
+				qos_holb_tmr[priority] :
+				qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS - 1];
+			ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
+		}
 	}
 
 	/* start gsi channel */

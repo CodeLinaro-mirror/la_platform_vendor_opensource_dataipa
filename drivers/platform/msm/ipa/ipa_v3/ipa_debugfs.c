@@ -244,6 +244,54 @@ static ssize_t ipa3_write_ep_holb(struct file *file,
 	return count;
 }
 
+static ssize_t ipa3_write_ep_holb_uS(struct file *file,
+		const char __user *buf, size_t count, loff_t *ppos)
+{
+	struct ipa_ep_cfg_holb holb;
+	u32 en;
+	u32 tmr_val;
+	u32 ep_idx;
+	unsigned long missing;
+	char *sptr, *token;
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+	missing = copy_from_user(dbg_buff, buf, count);
+	if (missing)
+		return -EFAULT;
+
+	dbg_buff[count] = '\0';
+
+	sptr = dbg_buff;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &ep_idx))
+		return -EINVAL;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &en))
+		return -EINVAL;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &tmr_val))
+		return -EINVAL;
+
+	holb.en = en;
+	holb.tmr_val = tmr_val;
+
+	ipa3_cfg_ep_holb_uS(ep_idx, &holb);
+
+	return count;
+}
+
+
 static ssize_t ipa3_write_holb_monitor_client(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -4340,6 +4388,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"holb", IPA_WRITE_ONLY_MODE, NULL, {
 			.write = ipa3_write_ep_holb,
+		}
+	}, {
+		"holb_uS", IPA_WRITE_ONLY_MODE, NULL, {
+			.write = ipa3_write_ep_holb_uS,
 		}
 	}, {
 		"holb_monitor_client_param", IPA_WRITE_ONLY_MODE, NULL, {
