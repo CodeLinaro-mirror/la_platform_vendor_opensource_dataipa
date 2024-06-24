@@ -317,6 +317,7 @@ static const struct of_device_id ipa_plat_drv_match[] = {
 	{ .compatible = "qcom,ipa", },
 	{ .compatible = "qcom,ipa-smmu-ap-cb", },
 	{ .compatible = "qcom,ipa-smmu-wlan-cb", },
+	{ .compatible = "qcom,ipa-smmu-rtp-cb", },
 	{ .compatible = "qcom,ipa-smmu-uc-cb", },
 	{ .compatible = "qcom,ipa-smmu-11ad-cb", },
 	{ .compatible = "qcom,ipa-smmu-eth-cb", },
@@ -954,6 +955,11 @@ struct iommu_domain *ipa3_get_uc_smmu_domain(void)
 struct iommu_domain *ipa3_get_wlan_smmu_domain(void)
 {
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_WLAN);
+}
+
+struct iommu_domain *ipa3_get_rtp_smmu_domain(void)
+{
+	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_RTP);
 }
 
 struct iommu_domain *ipa3_get_wlan1_smmu_domain(void)
@@ -9874,6 +9880,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->free_page_task_scheduled = false;
 
 	mutex_init(&ipa3_ctx->app_clock_vote.mutex);
+	mutex_init(&ipa3_ctx->ssr_lock);
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 
@@ -11011,6 +11018,12 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	u32 add_map_size;
 	const u32 *add_map;
 	int i;
+	u32 iova;
+	u32 pa;
+	u32 size;
+	unsigned long iova_p;
+	phys_addr_t pa_p;
+	u32 size_p;
 	u32 iova_ap_mapping[2];
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
@@ -11099,12 +11112,9 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 
 		/* iterate of each entry of the additional mapping array */
 		for (i = 0; i < add_map_size / sizeof(u32); i += 3) {
-			u32 iova = be32_to_cpu(add_map[i]);
-			u32 pa = be32_to_cpu(add_map[i + 1]);
-			u32 size = be32_to_cpu(add_map[i + 2]);
-			unsigned long iova_p;
-			phys_addr_t pa_p;
-			u32 size_p;
+			iova = be32_to_cpu(add_map[i]);
+			pa = be32_to_cpu(add_map[i + 1]);
+			size = be32_to_cpu(add_map[i + 2]);
 
 			IPA_SMMU_ROUND_TO_PAGE(iova, pa, size,
 				iova_p, pa_p, size_p);
@@ -11287,11 +11297,12 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	u32 ipa_smem_size = 0;
 	int ret;
 	int i;
+	u32 iova;
+	u32 pa;
+	u32 size;
 	unsigned long iova_p;
 	phys_addr_t pa_p;
 	u32 size_p;
-	phys_addr_t iova;
-	phys_addr_t pa;
 	u32 iova_ap_mapping[2];
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
@@ -11402,12 +11413,9 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 
 		/* iterate of each entry of the additional mapping array */
 		for (i = 0; i < add_map_size / sizeof(u32); i += 3) {
-			u32 iova = be32_to_cpu(add_map[i]);
-			u32 pa = be32_to_cpu(add_map[i + 1]);
-			u32 size = be32_to_cpu(add_map[i + 2]);
-			unsigned long iova_p;
-			phys_addr_t pa_p;
-			u32 size_p;
+			iova = be32_to_cpu(add_map[i]);
+			pa = be32_to_cpu(add_map[i + 1]);
+			size = be32_to_cpu(add_map[i + 2]);
 
 			IPA_SMMU_ROUND_TO_PAGE(iova, pa, size,
 				iova_p, pa_p, size_p);
@@ -11485,6 +11493,154 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 
 	cb->done = true;
 	ipa3_ctx->pdev = dev;
+	cb->next_addr = cb->va_end;
+
+	return 0;
+}
+
+
+static int ipa_smmu_rtp_cb_probe(struct device *dev)
+{
+	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_RTP);
+	int fast = 0;
+	int bypass = 0;
+	u32 add_map_size;
+	const u32 *add_map;
+	int i;
+	u32 iova;
+	u32 pa;
+	u32 size;
+	unsigned long iova_p;
+	phys_addr_t pa_p;
+	u32 size_p;
+	u32 iova_ap_mapping[2];
+#if (KERNEL_VERSION(5, 13, 0) <= LINUX_VERSION_CODE)
+	int mapping_config;
+#endif
+	u32 geometry_ap_mapping[2];
+
+	IPADBG("RTP CB PROBE dev=%pK\n", dev);
+
+	if (!smmu_info.present[IPA_SMMU_CB_RTP]) {
+		IPAERR("RTP SMMU is disabled\n");
+		return 0;
+	}
+
+	if (smmu_info.use_64_bit_dma_mask) {
+		if (dma_set_mask(dev, DMA_BIT_MASK(64)) ||
+			dma_set_coherent_mask(dev, DMA_BIT_MASK(64))) {
+			IPAERR("DMA set 64bit mask failed\n");
+			return -EOPNOTSUPP;
+		}
+	} else {
+		if (dma_set_mask(dev, DMA_BIT_MASK(32)) ||
+			dma_set_coherent_mask(dev, DMA_BIT_MASK(32))) {
+			IPAERR("DMA set 32bit mask failed\n");
+			return -EOPNOTSUPP;
+		}
+	}
+
+	IPADBG("RTP CB PROBE dev=%pK retrieving IOMMU mapping\n", dev);
+
+	cb->iommu_domain = iommu_get_domain_for_dev(dev);
+	if (IS_ERR_OR_NULL(cb->iommu_domain)) {
+		IPAERR("could not get iommu domain\n");
+		return -EINVAL;
+	}
+
+	IPADBG("RTP CB PROBE mapping retrieved\n");
+
+	cb->is_cache_coherent = of_property_read_bool(dev->of_node,
+						"dma-coherent");
+	cb->dev   = dev;
+	cb->valid = true;
+
+	cb->va_start = cb->va_end  = cb->va_size = 0;
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,iommu-dma-addr-pool",
+			iova_ap_mapping, 2) == 0) {
+		cb->va_start = iova_ap_mapping[0];
+		cb->va_size  = iova_ap_mapping[1];
+		cb->va_end   = cb->va_start + cb->va_size;
+	}
+
+	IPADBG("RTP CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
+		   dev, cb->va_start, cb->va_size);
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,iommu-geometry",
+			geometry_ap_mapping, 2) == 0) {
+		cb->geometry_start = geometry_ap_mapping[0];
+		cb->geometry_end  = geometry_ap_mapping[1];
+	} else {
+		IPADBG("RTP CB PROBE Geometry not defined using max!\n");
+		cb->geometry_start = 0;
+		cb->geometry_end = 0xF0000000;
+	}
+
+	IPADBG("RTP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
+		   dev, cb->geometry_start, cb->geometry_end);
+
+	/*
+	 * Prior to these calls to iommu_domain_get_attr(), these
+	 * attributes were set in this function relative to dtsi values
+	 * defined for this driver.  In other words, if corresponding ipa
+	 * driver owned values were found in the dtsi, they were read and
+	 * set here.
+	 *
+	 * In this new world, the developer will use iommu owned dtsi
+	 * settings to set them there.  This new logic below, simply
+	 * checks to see if they've been set in dtsi.  If so, the logic
+	 * further below acts accordingly...
+	 */
+#if (KERNEL_VERSION(5, 13, 0) <= LINUX_VERSION_CODE)
+
+	mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
+
+	if (mapping_config < 0) {
+		IPAERR("No Mapping configuration found for RTP CB\n");
+	} else {
+		bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
+		fast = (mapping_config & QCOM_IOMMU_MAPPING_CONF_FAST) ? 1 : 0;
+	}
+#else
+	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
+	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
+#endif
+	IPADBG("RTP CB PROBE dev=%pK DOMAIN ATTRS bypass=%d fast=%d\n",
+		   dev, bypass, fast);
+
+	ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_RTP] = (bypass != 0);
+
+	add_map = of_get_property(dev->of_node,
+		"qcom,additional-mapping", &add_map_size);
+	if (add_map) {
+		/* mapping size is an array of 3-tuple of u32 */
+		if (add_map_size % (3 * sizeof(u32))) {
+			IPAERR("wrong additional mapping format\n");
+			cb->valid = false;
+			return -EFAULT;
+		}
+
+		/* iterate of each entry of the additional mapping array */
+		for (i = 0; i < add_map_size / sizeof(u32); i += 3) {
+			iova = be32_to_cpu(add_map[i]);
+			pa = be32_to_cpu(add_map[i + 1]);
+			size = be32_to_cpu(add_map[i + 2]);
+
+			IPA_SMMU_ROUND_TO_PAGE(iova, pa, size,
+				iova_p, pa_p, size_p);
+			IPADBG_LOW("mapping 0x%lx to 0x%pa size %d\n",
+				iova_p, &pa_p, size_p);
+			ipa3_iommu_map(cb->iommu_domain,
+				iova_p, pa_p, size_p,
+				IOMMU_READ | IOMMU_WRITE | IOMMU_MMIO);
+		}
+	}
+
+	smmu_info.present[IPA_SMMU_CB_RTP] = true;
+
+	cb->done = true;
+	ipa3_ctx->rtp_pdev = dev;
 	cb->next_addr = cb->va_end;
 
 	return 0;
@@ -11572,6 +11728,9 @@ static int ipa_smmu_cb_probe(struct device *dev, enum ipa_smmu_cb_type cb_type)
 	case IPA_SMMU_CB_UC:
 		ipa3_ctx->uc_pdev = &ipa3_ctx->master_pdev->dev;
 		return ipa_smmu_uc_cb_probe(dev);
+	case IPA_SMMU_CB_RTP:
+		ipa3_ctx->rtp_pdev = &ipa3_ctx->master_pdev->dev;
+		return ipa_smmu_rtp_cb_probe(dev);
 	case IPA_SMMU_CB_11AD:
 		return ipa_smmu_11ad_cb_probe(dev);
 	case IPA_SMMU_CB_MAX:
@@ -11753,10 +11912,6 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	IPADBG("dev->of_node->name = %s\n", dev->of_node->name);
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-ap-cb")) {
-		if (ipa3_ctx == NULL) {
-			IPAERR("ipa3_ctx was not initialized\n");
-			return -EPROBE_DEFER;
-		}
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_AP);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_AP] = true;
@@ -11765,10 +11920,6 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-wlan-cb")) {
-		if (ipa3_ctx == NULL) {
-			IPAERR("ipa3_ctx was not initialized\n");
-			return -EPROBE_DEFER;
-		}
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_WLAN] = true;
@@ -11777,10 +11928,6 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-wlan1-cb")) {
-		if (ipa3_ctx == NULL) {
-			IPAERR("ipa3_ctx was not initialized\n");
-			return -EPROBE_DEFER;
-		}
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_WLAN1] = true;
@@ -11789,10 +11936,6 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-eth-cb")) {
-		if (ipa3_ctx == NULL) {
-			IPAERR("ipa3_ctx was not initialized\n");
-			return -EPROBE_DEFER;
-		}
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_ETH] = true;
@@ -11801,10 +11944,6 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-eth1-cb")) {
-		if (ipa3_ctx == NULL) {
-			IPAERR("ipa3_ctx was not initialized\n");
-			return -EPROBE_DEFER;
-		}
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH1);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_ETH1] = true;
@@ -11813,10 +11952,6 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-uc-cb")) {
-		if (ipa3_ctx == NULL) {
-			IPAERR("ipa3_ctx was not initialized\n");
-			return -EPROBE_DEFER;
-		}
 		cb =  ipa3_get_smmu_ctx(IPA_SMMU_CB_UC);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_UC] = true;
@@ -11825,13 +11960,17 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-11ad-cb")) {
-		if (ipa3_ctx == NULL) {
-			IPAERR("ipa3_ctx was not initialized\n");
-			return -EPROBE_DEFER;
-		}
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_11AD);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_11AD] = true;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
+	}
+
+	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-rtp-cb")) {
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_RTP);
+		cb->dev = dev;
+		smmu_info.present[IPA_SMMU_CB_RTP] = true;
 		ipa3_ctx->num_smmu_cb_probed++;
 		return ipa_smmu_update_fw_loader();
 	}
@@ -12163,6 +12302,13 @@ int ipa3_iommu_map(struct iommu_domain *domain,
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_UC);
 		if (iova >= cb->va_start && iova < cb->va_end) {
 			IPAERR("iommu uC overlap addr 0x%lx\n", iova);
+			ipa_assert();
+			return -EFAULT;
+		}
+	} else if (domain == ipa3_get_rtp_smmu_domain()) {
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_RTP);
+		if (iova >= cb->va_start && iova < cb->va_end) {
+			IPAERR("iommu rtp overlap addr 0x%lx\n", iova);
 			ipa_assert();
 			return -EFAULT;
 		}
