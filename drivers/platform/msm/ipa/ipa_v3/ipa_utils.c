@@ -8524,7 +8524,7 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 			IPADBG("Setting ucp_cfg register HPS SEQ Update\n");
 			//set ucp_cfg register
 			ep_cfg_ucp.enable = true;
-			if(ipa3_ctx->private_ip_forward_eth_iface == true) {
+			if(ipa3_ctx->private_ip_forward_eth_iface) {
 				ep_cfg_ucp.command =
 					IPA_UCP_CMD_UCP_CFG_HANDLE_PRIVATE_IP_MAPPING;
 			}
