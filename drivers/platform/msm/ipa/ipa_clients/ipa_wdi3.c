@@ -877,14 +877,14 @@ int ipa_wdi_enable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR) {
 		if (wlan_flt_rsrv_wq == NULL) {
 			wlan_flt_rsrv_wq = create_singlethread_workqueue("wlan_flt_rsrv_wq");
-			if (wlan_flt_rsrv_wq) {
+			if (!wlan_flt_rsrv_wq) {
 				IPA_WDI_ERR("failed to create wq\n");
 				return 0;
 			}
 
 			ret = queue_delayed_work(wlan_flt_rsrv_wq, &wlan_flt_rsrv_handle,
 				msecs_to_jiffies(QUEUE_DELAY_TIME));
-			if (ret) {
+			if (!ret) {
 				IPA_WDI_ERR("failed to queue delayed wq\n");
 				return 0;
 			}
@@ -1612,7 +1612,7 @@ static void ipa_xr_wdi_opt_dpath_rsrv_filter_wq_handler(struct work_struct *work
 	int res = 0;
 
 	res = ipa_xr_wdi_opt_dpath_rsrv_filter_req();
-	if (!res)
+	if (res)
 		IPAERR("Failed to reserve the filters in wlan\n");
 }
 

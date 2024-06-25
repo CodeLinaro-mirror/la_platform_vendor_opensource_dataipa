@@ -714,7 +714,8 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		memcpy(&ep_rx->cfg, &in->u_rx.rx_smmu.ipa_ep_cfg,
 			sizeof(ep_rx->cfg));
 
-	if (ipa3_ctx->ipa_wdi_opt_dpath) {
+	if (ipa3_ctx->ipa_wdi_opt_dpath &&
+		ipa3_ctx->platform_type != IPA_PLAT_TYPE_XR) {
 		ep_rx->cfg.cfg.frag_offload_en = true;
 		ep_rx->status.status_en = true;
 		ep_rx->status.status_ep =

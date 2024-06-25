@@ -2011,6 +2011,11 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			netif_napi_del(&ep->sys->napi_tx);
 	}
 
+	if (IPA_CLIENT_IS_WAN_CONS(ep->client)) {
+		napi_disable(ep->sys->napi_obj);
+		netif_napi_del(ep->sys->napi_obj);
+	}
+
 	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
 		napi_disable(&ep->sys->napi_rx);
 		netif_napi_del(&ep->sys->napi_rx);
@@ -2146,6 +2151,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 	if (ep->sys->repl_hdlr == ipa3_replenish_rx_page_recycle) {
 		cancel_delayed_work_sync(&ep->sys->common_sys->freepage_work);
+
+		if (ep->sys->freepage_wq)
+			flush_workqueue(ep->sys->freepage_wq);
+
 		tasklet_kill(&ep->sys->common_sys->tasklet_find_freepage);
 	}
 

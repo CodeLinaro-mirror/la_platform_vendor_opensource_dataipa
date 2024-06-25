@@ -2309,7 +2309,7 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 			(struct ipa_hw_hdr_proc_ctx_rtp_hdr_cmd_seq *)
 			(base + offset);
 		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 0;
+		ctx->hdr_add.tlv.length = 2;
 		ctx->hdr_add.tlv.value = 0;
 		hdr_addr = hdr_base_addr + offset_entry->offset;
 		IPAHAL_DBG("header address 0x%llx length %d\n",
