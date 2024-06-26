@@ -5270,6 +5270,12 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		dev->xfrmdev_ops = ipa3_ctx->ipsec->xfrmdev_ops;
 		ipa3_ctx->ipsec->dev = dev;
 	}
+
+	if (atomic_read(&rmnet_ipa3_ctx->is_ssr) && ipa_ipsec_enabled()) {
+		IPAWANDBG("IPsec offload is enabled\n");
+		dev->features |= NETIF_F_HW_ESP;
+		dev->hw_enc_features |= NETIF_F_HW_ESP;
+	}
 #endif
 	if (ipa3_rmnet_res.ipa_napi_enable)
 		netif_napi_add(dev, &(rmnet_ipa3_ctx->wwan_priv->napi),
