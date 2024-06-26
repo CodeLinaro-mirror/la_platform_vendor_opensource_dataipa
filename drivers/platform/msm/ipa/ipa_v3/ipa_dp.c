@@ -2294,8 +2294,6 @@ void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client)
 		ipa_assert();
 	}
 
-	IPA_ACTIVE_CLIENTS_INC_EP(client);
-
 	if (gsi_read_chan_state(gsi_ep_cfg->ipa_gsi_chan_num, ipa3_ctx->ee) ==
 		GSI_CHAN_STATE_STOPPED) {
 		/* Save the event ring idx first. */
@@ -2327,8 +2325,6 @@ void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client)
 	} else {
 		IPADBG("client %d not connected before, skip\n", client);
 	}
-
-	IPA_ACTIVE_CLIENTS_DEC_EP(client);
 }
 
 /**
