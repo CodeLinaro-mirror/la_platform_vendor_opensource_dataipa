@@ -11514,10 +11514,6 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_1)
 		ipa3_ctx->wan_common_page_pool = true;
 
-	/* enable IPA clocks explicitly to allow the initialization */
-	ipa3_enable_clks();
-	IPADBG("votes IPA clokd on v2x-pre_init\n");
-
 	/* setup IPA register access */
 	IPADBG("Mapping 0x%x\n", resource_p->ipa_mem_base +
 		ipa3_ctx->ctrl->ipa_reg_base_ofst);
