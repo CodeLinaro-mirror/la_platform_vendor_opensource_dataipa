@@ -1948,8 +1948,9 @@ static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
 	int nbytes;
 	int cnt = 0;
 	struct Ipa3HwStatsMPLS stats;
-	struct Ipa3HwStatsEOGRE eogre;  
-	if (!ipa3_get_eogre_stats(&stats,&eogre)) {
+	struct Ipa3HwStatsEOGRE eogre;
+	struct Ipa3HwStatsMultiCombined multi;
+	if (!ipa3_get_eogre_stats(&stats, &eogre, &multi)) {
 
 		if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE ||
                   	ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE) {
@@ -1958,6 +1959,7 @@ static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
 				"EoGRE DL stats is %llu\n",
 				eogre.eogre_header_add_id,
 				eogre.eogre_header_remove_id);
+			cnt += nbytes;
 		}
 		if(ipa3_ctx->eogre_tunnel_feature == DOUBLE_TAG_FEATURE) {
 			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
@@ -1969,8 +1971,29 @@ static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
 				 stats.mpls_header_remove_id,
 				 stats.pppoe_mpls_header_add_id,
 				 stats.pppoe_mpls_header_remove_id);
+			cnt += nbytes;
 		}
-		cnt += nbytes;
+		if(ipa3_ctx->eogre_tunnel_feature == SINGLE_TAG_FEATURE) {
+			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"EoGRE UL Stats is %llu\n"
+				"EoGRE DL stats is %llu\n",
+				multi.eogre_header_add_id,
+				multi.eogre_header_remove_id);
+			cnt += nbytes;
+
+			for(int i = 0;i < MAX_MULTI_TUNNEL_STATS;i++) {
+				nbytes = scnprintf(dbg_buff + cnt,
+					IPA_MAX_MSG_LEN - cnt,
+					"Tunnel id %d\n"
+					"EoGRE UL Stats is %llu\n"
+					"EoGRE DL stats is %llu\n",
+					i,
+					multi.tunnels[i].eogre_header_add_id,
+					multi.tunnels[i].eogre_header_remove_id);
+				cnt += nbytes;
+			}
+
+		}
 	} else {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 				"Fail to read EOGRE stats\n");

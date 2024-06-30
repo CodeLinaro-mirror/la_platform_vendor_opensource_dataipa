@@ -405,6 +405,7 @@ enum {
 #define IPA_GSI_CHANNEL_HALT_MAX_SLEEP 10000
 #define IPA_GSI_CHANNEL_HALT_MAX_TRY 10
 
+#define MAX_MULTI_TUNNEL_STATS 4
 /* round addresses for closes page per SMMU requirements */
 #define IPA_SMMU_ROUND_TO_PAGE(iova, pa, size, iova_p, pa_p, size_p) \
 	do { \
@@ -1793,9 +1794,23 @@ struct Ipa3HwStatsMPLS{
 	uint64_t mpls_header_remove_id;
 } __packed;
 
+struct Ipa3HwStatsMulti{
+	uint32_t tunnel_id;
+	uint32_t mux_id;
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+}__packed;
+
+struct Ipa3HwStatsMultiCombined{
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+	struct Ipa3HwStatsMulti tunnels[4];
+}__packed;
+
 union Ipa3HwStatsEOGREInfoData_t{
 	struct Ipa3HwStatsEOGRE *eogre;
 	struct Ipa3HwStatsMPLS *mpls;
+	struct Ipa3HwStatsMultiCombined *multi;
 };
 
 /**
@@ -3225,7 +3240,8 @@ u16 ipa3_get_smem_restr_bytes(void);
 int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
 int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
-		struct Ipa3HwStatsEOGRE *eogre);
+		struct Ipa3HwStatsEOGRE *eogre,
+		struct Ipa3HwStatsMultiCombined *multi);
 
 int ipa3_wigig_init_debugfs_i(struct dentry *dent);
 

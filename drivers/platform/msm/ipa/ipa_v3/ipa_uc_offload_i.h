@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_UC_OFFLOAD_I_H_
@@ -78,7 +80,7 @@ enum ipa3_hw_features {
 	IPA_HW_FEATURE_UNIT_4		=	0xB,
 	IPA_HW_FEATURE_EOGRE_UNTAG	=	0xC,
 	IPA_HW_FEATURE_MPLS		=	0xD,
-	IPA_HW_FEATURE_UNIT_6		=	0xE,
+	IPA_HW_FEATURE_MULTI		=	0xE,
 	IPA_HW_FEATURE_MAX		=	IPA_HW_NUM_FEATURES
 };
 
