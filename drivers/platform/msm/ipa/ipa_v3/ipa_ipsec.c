@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -1304,22 +1304,30 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		esa.dyna.seq_num = 0;
 		esa.dyna.volume_bytes = 0;
 
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 		/* install the SA into SRAM */
 		ret = ipa_ipsec_install_encap_sa(idx, &esa);
-		if (!!ret)
+		if (!!ret) {
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto state_end;
+		}
 
 		if (eklen) IPADBG_LOW("ekey = %32phN", ekey);
 		ret = ipa_ipsec_install_key(idx, IPA_IPSEC_KEY_ENC, eklen, ekey);
-		if (!!ret)
+		if (!!ret) {
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto clean_sa;
+		}
 		IPADBG_LOW("e key = %32phN", ipa3_ctx->ipsec->keys->enc[idx].b256);
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
 		ret = ipa_ipsec_install_key(idx, IPA_IPSEC_KEY_AUTH, aklen, akey);
-		if (!!ret)
+		if (!!ret) {
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto zero_keys;
+		}
 		IPADBG_LOW("a key = %64phN", ipa3_ctx->ipsec->keys->auth[idx].b512);
 
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		/* Construct and install header template and HPC */
 		ret = ipa_ipsec_install_encap_hpc(x, idx);
 		if (!!ret) {
@@ -1384,26 +1392,34 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 			x->lft.hard_byte_limit ? x->lft.hard_byte_limit : XFRM_INF;
 		dsa.dyna.volume_bytes = 0;
 
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 		/* install the SA into SRAM */
 		ret = ipa_ipsec_install_decap_sa(idx, &dsa);
-		if (!!ret)
+		if (!!ret) {
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto state_end;
+		}
 
 		if (eklen) IPADBG_LOW("ekey = %32phN", ekey);
 		ret = ipa_ipsec_install_key(IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx,
 			IPA_IPSEC_KEY_ENC, eklen, ekey);
-		if (!!ret)
+		if (!!ret) {
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto clean_sa;
+		}
 		IPADBG_LOW("e key = %32ph",
 			ipa3_ctx->ipsec->keys->enc[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b256);
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
 		ret = ipa_ipsec_install_key(IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx,
 			IPA_IPSEC_KEY_AUTH, aklen, akey);
-		if (!!ret)
+		if (!!ret) {
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto zero_keys;
+		}
 		IPADBG_LOW("a key = %64ph",
 			ipa3_ctx->ipsec->keys->auth[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b512);
 
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		/* Construct and install HPC */
 		ret = ipa_ipsec_install_decap_hpc(x, idx);
 		if (!!ret)
