@@ -378,21 +378,20 @@ static inline u32 xdo2ipa_replay_window_sz(u32 xdo_sz)
 }
 
 /* Match XFRM template against an XFRM state */
-static inline bool ipa_ipsec_tmpl_sa_match(const struct xfrm_tmpl *tmpl, const struct xfrm_state *x,
-	      unsigned short family)
+static inline bool ipa_ipsec_tmpl_sa_match(const struct xfrm_tmpl *tmpl, const struct xfrm_state *x)
 {
 	IPADBG_LOW("tmpl->id.spi = 0x%08X  x->id.spi = 0x%08X\n",
 		tmpl->id.spi, x ? x->id.spi : 0xFFFFFFFF);
-	return	!!x && !!tmpl && family == x->props.family &&
+	return	!!x && !!tmpl && tmpl->encap_family == x->props.family &&
 		xfrm_id_proto_match(tmpl->id.proto, IPPROTO_ESP) &&
 		(!tmpl->id.spi || x->id.spi == tmpl->id.spi) &&
-		(xfrm_addr_any(&x->id.daddr, family) ||
-		 xfrm_addr_equal(&x->id.daddr, &tmpl->id.daddr, family)) &&
+		(xfrm_addr_any(&x->id.daddr, tmpl->encap_family) ||
+		 xfrm_addr_equal(&x->id.daddr, &tmpl->id.daddr, tmpl->encap_family)) &&
 		(!tmpl->reqid || x->props.reqid == tmpl->reqid) &&
 		(!tmpl->mode || x->props.mode == tmpl->mode) &&
 		(tmpl->allalgs ||
 		 (tmpl->aalgos & (1<<x->props.aalgo)) || (tmpl->ealgos & (1<<x->props.ealgo))) &&
-		!(xfrm_state_addr_cmp(tmpl, x, family));
+		!(xfrm_state_addr_cmp(tmpl, x, tmpl->encap_family));
 }
 
 /* Find offloaded SA matching an XFRM template */
@@ -405,7 +404,7 @@ static u8 ipa_ipsec_find_match_sa(const struct xfrm_tmpl *tmpl, u16 family,
 
 	for (idx = 0; idx < IPA_IPSEC_MAX_SA_NUM; idx++) {
 		if (ipa3_ctx->ipsec->sa_db[type][idx].x &&
-		    ipa_ipsec_tmpl_sa_match(tmpl, ipa3_ctx->ipsec->sa_db[type][idx].x, family))
+		    ipa_ipsec_tmpl_sa_match(tmpl, ipa3_ctx->ipsec->sa_db[type][idx].x))
 			return idx;
 	}
 
@@ -1000,8 +999,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (ipa_ipsec_tmpl_sa_match(pol->xp->xfrm_vec,
-			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x,
-			pol->xp->selector.family)) {
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x)) {
 
 			ul_flt = (struct ipa_ioc_ipsec_ul_flt_attr *)kzalloc(
 				sizeof(struct ipa_ioc_ipsec_ul_flt_attr), GFP_KERNEL);
@@ -1059,8 +1057,7 @@ static int ipa_ipsec_install_cached_dl_pols(u8 idx)
 
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (ipa_ipsec_tmpl_sa_match(pol->xp->xfrm_vec,
-			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x,
-			pol->xp->selector.family)) {
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x)) {
 
 			while (i < IPA_IPSEC_DL_FLT_PER_POL) {
 				if (pol->flt[i] == -1)
@@ -1098,8 +1095,7 @@ static int ipa_ipsec_delete_orphan_ul_fnr(u8 idx)
 	   we will delete FnR for each mapped policy */
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (ipa_ipsec_tmpl_sa_match(pol->xp->xfrm_vec,
-			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x,
-			pol->xp->selector.family)) {
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x)) {
 
 			ul_flt = (struct ipa_ioc_ipsec_ul_flt_attr *)kzalloc(
 				sizeof(struct ipa_ioc_ipsec_ul_flt_attr), GFP_KERNEL);
@@ -1735,8 +1731,7 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 		     idx < IPA_IPSEC_MAX_SA_NUM && i < IPA_IPSEC_DL_FLT_PER_POL; idx++) {
 			if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x &&
 				ipa_ipsec_tmpl_sa_match(xp->xfrm_vec,
-					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x,
-					xp->family)) {
+					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x)) {
 				flt = ipa_ipsec_install_decap_flt(xp, idx);
 				if (flt < 0) {
 					kfree(pol);
