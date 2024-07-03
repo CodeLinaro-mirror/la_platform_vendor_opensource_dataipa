@@ -531,7 +531,7 @@ static int ipa_ipsec_install_key(u8 idx, enum ipa_ipsec_key_type type,
  * @x:   [in] XFRM state pointer
  * @idx: [in] HW encap SA index
  */
-static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx)
+static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx, enum ipa_ip_type inner_iptype)
 {
 	int i, ret = 0;
 	struct ipa_ioc_add_hdr *hdrs;
@@ -619,7 +619,7 @@ static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx)
 		hdr[i] = i + 1;
 	hdr += ESP_PAD_LEN;
 	hdr[0] = ESP_PAD_LEN;
-	hdr[1] = x->inner_mode.family == AF_INET6 ? IPPROTO_IPV6 : IPPROTO_IPIP;
+	hdr[1] = inner_iptype == IPA_IP_v6 ? IPPROTO_IPV6 : IPPROTO_IPIP;
 	hdr_add->hdr_len += ESP_PAD_LEN + 2;
 
 	/* Set ICV length */
@@ -648,8 +648,7 @@ static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx)
 	proc_ctx_add->ipsec_params.action = IPA_IPSEC_HPC_ENCAP;
 	proc_ctx_add->ipsec_params.sa_idx = idx;
 	proc_ctx_add->ipsec_params.flt_tbl_id = IPA_CLIENT_APPS_WAN_PROD;
-	proc_ctx_add->ipsec_params.pre_params.encap.input_ip_version =
-		x->inner_mode.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
+	proc_ctx_add->ipsec_params.pre_params.encap.input_ip_version = inner_iptype;
 	proc_ctx_add->ipsec_params.pre_params.encap.output_ip_version =
 		x->props.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 	proc_ctx_add->ipsec_params.pre_params.encap.retain_l2_header = 0;
@@ -1028,6 +1027,17 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 					return -EFAULT;
 			}
 
+			/* Construct and install header template and HPC */
+			if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc == 0) {
+				rc = ipa_ipsec_install_encap_hpc(
+					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x,
+					idx, ul_flt->ip);
+				if (rc < 0) {
+					IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
+					return rc;
+				}
+			}
+
 			/* Install RT rule */
 			rt = ipa_ipsec_install_encap_rt(pol->xp, idx);
 			if (rt < 0) {
@@ -1330,12 +1340,6 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		IPADBG_LOW("a key = %64phN", ipa3_ctx->ipsec->keys->auth[idx].b512);
 
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-		/* Construct and install header template and HPC */
-		ret = ipa_ipsec_install_encap_hpc(x, idx);
-		if (!!ret) {
-			IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", ret);
-			goto zero_keys;
-		}
 
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = x;
 		x->xso.offload_handle = (unsigned long)idx | IPA_IPSEC_OFFLOAD_MAGIC;
@@ -1523,7 +1527,9 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 		mutex_lock(&ipa3_ctx->lock);
 		BUG_ON(__ipa3_release_hdr_proc_ctx(
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
 		BUG_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 		mutex_unlock(&ipa3_ctx->lock);
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
 		break;
@@ -1546,6 +1552,7 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 			mutex_lock(&ipa3_ctx->lock);
 			BUG_ON(__ipa3_release_hdr_proc_ctx(
 					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc));
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 			mutex_unlock(&ipa3_ctx->lock);
 		}
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
