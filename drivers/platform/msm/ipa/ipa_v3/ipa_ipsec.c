@@ -1912,8 +1912,8 @@ void ipa_ipsec_xdo_policy_delete(struct xfrm_policy *xp)
 void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 {
 	int i;
-	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt;
-	struct ipa3_rt_entry *rt_entry;
+	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt = NULL;
+	struct ipa3_rt_entry *rt_entry = NULL;
 	struct ipa_ipsec_policy_work_wrap *work_data =
 		container_of(work, struct ipa_ipsec_policy_work_wrap, work);
 	struct ipa_ipsec_policy *pol = work_data->pol;
