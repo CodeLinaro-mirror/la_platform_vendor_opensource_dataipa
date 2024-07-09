@@ -852,7 +852,7 @@ static int ipa_ipv6ct_post_dma_cmd(struct ipa_ioc_nat_dma_cmd* cmd)
 
 void ipa_ipv6ct_dump_table(uint32_t table_handle)
 {
-	ipa_ipv6ct_table* ipv6ct_table;
+	ipa_ipv6ct_table* ipv6ct_table = NULL;
 
 	if (ipv6ct.ipa_desc->ver < IPA_HW_v4_0)
 	{
