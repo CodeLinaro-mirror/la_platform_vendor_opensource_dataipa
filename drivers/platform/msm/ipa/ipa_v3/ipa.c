@@ -10283,7 +10283,7 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	cmd.cs_disable = false;
 	cmd.flt_retain_hdr = true;
 	cmd.rt_retain_hdr = true;
-	cmd.rt_pipe_dest_idx = dst_ep_idx;
+	cmd.rt_pipe_dest_idx = (dst_ep_idx < ipa3_ctx->ipa_num_pipes) ? dst_ep_idx : 0xFF;
 	cmd.rt_proc_ctx = proc_ctx;
 	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
 		&cmd, false);
@@ -10297,6 +10297,64 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	return 0;
 }
 EXPORT_SYMBOL(ipa_set_pkt_init_ex_hdr_ofst);
+
+
+
+/**
+ * ipa_set_pkt_init_ex_hdr_ofst_by_hdl() - Set pkt_init_ex header offset for the ep
+ * @dst_ep_idx: DST EP index
+ * @hdl: header or hpc handle
+ * @proc_ctx: true if HPC
+ *
+ * Returns 0 on success
+ */
+int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx)
+{
+	struct ipahal_imm_cmd_pyld *cmd_pyld;
+	struct ipahal_imm_cmd_ip_packet_init_ex cmd = {0};
+	struct ipa3_hdr_entry *hdr_entry;
+	struct ipa3_hdr_proc_ctx_entry *hdr_proc_entry;
+	u32 offset;
+	enum hpc_tbl_storage storage;
+
+	if (proc_ctx) {
+		hdr_proc_entry = ipa3_id_find(hdl);
+		if (!hdr_proc_entry || !hdr_proc_entry->offset_entry)
+			return -EINVAL;
+		storage = hdr_proc_entry->is_lcl ? HPC_TBL_LCL : HPC_TBL_SYS;
+		/* offset is in 32 Bytes chunks */
+		offset = (hdr_proc_entry->offset_entry->offset +
+		ipa3_ctx->hdr_proc_ctx_tbl[storage].start_offset) >> 5;
+	} else {
+		hdr_entry = ipa3_id_find(hdl);
+		if (!hdr_entry || !hdr_entry->offset_entry)
+			return -EINVAL;
+		offset = hdr_entry->offset_entry->offset;
+	}
+
+	cmd.rt_hdr_offset = offset;
+	cmd.frag_disable = true;
+	cmd.nat_disable = true;
+	cmd.filter_disable = true;
+	cmd.route_disable = true;
+	cmd.hdr_removal_insertion_disable = false;
+	cmd.cs_disable = false;
+	cmd.flt_retain_hdr = true;
+	cmd.rt_retain_hdr = true;
+	cmd.rt_pipe_dest_idx = (dst_ep_idx < ipa3_ctx->ipa_num_pipes) ? dst_ep_idx : 0xFF;
+	cmd.rt_proc_ctx = proc_ctx;
+	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		&cmd, false);
+	if (!cmd_pyld) {
+		IPAERR("failed to construct IMM cmd\n");
+		return -ENOMEM;
+	}
+	memcpy(ipa3_ctx->pkt_init_ex_mem.base + dst_ep_idx * cmd_pyld->len,
+		cmd_pyld->data, cmd_pyld->len);
+	ipahal_destroy_imm_cmd(cmd_pyld);
+	return 0;
+}
+EXPORT_SYMBOL(ipa_set_pkt_init_ex_hdr_ofst_by_hdl);
 
 /*
  * SCM call to check if secure dump is allowed.

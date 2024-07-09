@@ -1007,6 +1007,7 @@ bool ipa3_is_ulso_supported(void);
 /* IPA_PACKET_INIT_EX IC to pipe API */
 int ipa_set_pkt_init_ex_hdr_ofst(
   struct ipa_pkt_init_ex_hdr_ofst_set *lookup, bool proc_ctx);
+int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx);
 
 /* IPA stats pm functions */
 int ipa_pm_get_scaling_bw_levels(struct ipa_lnx_clock_stats *clock_stats);

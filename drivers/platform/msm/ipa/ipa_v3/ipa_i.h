@@ -3523,6 +3523,12 @@ int ipa3_tx_dp_mul(enum ipa_client_type dst,
 
 void ipa3_free_skb(struct ipa_rx_data *data);
 
+#if defined(CONFIG_IPA_IPSEC)
+int xmit_ipsec_frag_ul(struct sk_buff *skb);
+
+int ipa3_frag_ul_ipsec(struct sk_buff *skb, u8 sa_idx);
+#endif
+
 /*
  * System pipes
  */
