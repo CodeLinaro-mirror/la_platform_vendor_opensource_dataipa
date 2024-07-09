@@ -4886,21 +4886,39 @@ int ipa3_setup_dflt_rt_tables(void)
 {
 	struct ipa_ioc_add_rt_rule *rt_rule;
 	struct ipa_rt_rule_add *rt_rule_entry;
+	int num_rules = 1;
+
+	if (ipa3_ctx->lan_coal_enable) {
+		num_rules = 3;
+	}
 
 	rt_rule =
-		kzalloc(sizeof(struct ipa_ioc_add_rt_rule) + 1 *
+		kzalloc(sizeof(struct ipa_ioc_add_rt_rule) + num_rules *
 			sizeof(struct ipa_rt_rule_add), GFP_KERNEL);
 	if (!rt_rule)
 		return -ENOMEM;
 
-	/* setup a default v4 route to point to Apps */
-	rt_rule->num_rules = 1;
+	/* setup a default v4 routes to point to Apps */
+	rt_rule->num_rules = num_rules;
 	rt_rule->commit = 1;
 	rt_rule->ip = IPA_IP_v4;
 	strlcpy(rt_rule->rt_tbl_name, IPA_DFLT_RT_TBL_NAME,
 		IPA_RESOURCE_NAME_MAX);
 
 	rt_rule_entry = &rt_rule->rules[0];
+	if (ipa3_ctx->lan_coal_enable) {
+		rt_rule_entry->rule.dst = IPA_CLIENT_APPS_LAN_COAL_CONS;
+		rt_rule_entry->rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
+		rt_rule_entry->rule.attrib.u.v4.protocol = (uint8_t)IPPROTO_TCP;
+
+		rt_rule_entry = &rt_rule->rules[1];
+		rt_rule_entry->rule.dst = IPA_CLIENT_APPS_LAN_COAL_CONS;
+		rt_rule_entry->rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
+		rt_rule_entry->rule.attrib.u.v4.protocol = (uint8_t)IPPROTO_UDP;
+
+		rt_rule_entry = &rt_rule->rules[2];
+	}
+
 	rt_rule_entry->at_rear = 1;
 	rt_rule_entry->rule.dst = IPA_CLIENT_APPS_LAN_CONS;
 	rt_rule_entry->rule.hdr_hdl = ipa3_ctx->excp_hdr_hdl;
@@ -4911,18 +4929,53 @@ int ipa3_setup_dflt_rt_tables(void)
 		kfree(rt_rule);
 		return -EPERM;
 	}
-	IPADBG("dflt v4 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
-	ipa3_ctx->dflt_v4_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
 
-	/* setup a default v6 route to point to A5 */
+	if (ipa3_ctx->lan_coal_enable) {
+		rt_rule_entry = &rt_rule->rules[0];
+		ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt LAN Coal TCP v4 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+		rt_rule_entry = &rt_rule->rules[1];
+		ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt LAN Coal UDP v4 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+		rt_rule_entry = &rt_rule->rules[2];
+		ipa3_ctx->dflt_v4_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+	}
+	else {
+		ipa3_ctx->dflt_v4_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt v4 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+	}
+
+	/* setup a default v6 routes to point to A5 */
 	rt_rule->ip = IPA_IP_v6;
+	if (ipa3_ctx->lan_coal_enable) {
+		rt_rule_entry = &rt_rule->rules[0];
+		rt_rule_entry->rule.attrib.attrib_mask = IPA_FLT_NEXT_HDR;
+		rt_rule_entry->rule.attrib.u.v6.next_hdr = (uint8_t)IPPROTO_TCP;
+		rt_rule_entry = &rt_rule->rules[1];
+		rt_rule_entry->rule.attrib.attrib_mask = IPA_FLT_NEXT_HDR;
+		rt_rule_entry->rule.attrib.u.v6.next_hdr = (uint8_t)IPPROTO_UDP;
+	}
+
 	if (ipa3_add_rt_rule(rt_rule)) {
 		IPAERR("fail to add dflt v6 rule\n");
 		kfree(rt_rule);
 		return -EPERM;
 	}
-	IPADBG("dflt v6 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
-	ipa3_ctx->dflt_v6_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+
+	if (ipa3_ctx->lan_coal_enable) {
+		rt_rule_entry = &rt_rule->rules[0];
+		ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt LAN Coal TCP v6 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+		rt_rule_entry = &rt_rule->rules[1];
+		ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt LAN Coal UDP v6 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+		rt_rule_entry = &rt_rule->rules[2];
+		ipa3_ctx->dflt_v6_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+	}
+	else {
+		ipa3_ctx->dflt_v6_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt v6 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+	}
 
 	/*
 	 * because these tables are the very first to be added, they will both
@@ -7071,6 +7124,16 @@ fail_flt_hash_tuple:
 		__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
 	if (ipa3_ctx->dflt_v4_rt_rule_hdl)
 		__ipa3_del_rt_rule(ipa3_ctx->dflt_v4_rt_rule_hdl);
+	if(ipa3_ctx->lan_coal_enable) {
+		if (ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl);
+	}
 	if (ipa3_ctx->excp_hdr_hdl)
 		__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
 	ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
@@ -7084,8 +7147,20 @@ static void ipa3_teardown_apps_pipes(void)
 		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_out);
 	if ( ipa3_ctx->clnt_hdl_data_in )
 		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
-	__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
-	__ipa3_del_rt_rule(ipa3_ctx->dflt_v4_rt_rule_hdl);
+	if (ipa3_ctx->dflt_v6_rt_rule_hdl)
+		__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
+	if (ipa3_ctx->dflt_v4_rt_rule_hdl)
+		__ipa3_del_rt_rule(ipa3_ctx->dflt_v4_rt_rule_hdl);
+	if(ipa3_ctx->lan_coal_enable) {
+		if (ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl);
+	}
 	__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
 	ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
 	ipa3_dealloc_common_event_ring();

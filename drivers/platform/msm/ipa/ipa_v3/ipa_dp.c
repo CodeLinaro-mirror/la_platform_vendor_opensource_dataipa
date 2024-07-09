@@ -5569,7 +5569,7 @@ void ipa3_lan_coal_rx_cb(
 			in_pkts_sub,
 			aggr_payload_size,
 			tot_pkts,
-			false);
+			false || aggr_payload_size > in_pkts[0].pkt_len);
 
 		return;
 	}
@@ -5613,7 +5613,8 @@ void ipa3_lan_coal_rx_cb(
 						in_pkts_sub,
 						aggr_payload_size,
 						tot_pkts,
-						!cksum_is_zero);
+						!cksum_is_zero || aggr_payload_size >
+							in_pkts[0].pkt_len);
 
 					in_pkts_sub = aggr_payload_size = 0;
 				}
@@ -5637,7 +5638,10 @@ void ipa3_lan_coal_rx_cb(
 					in_pkts_sub,
 					aggr_payload_size,
 					tot_pkts,
-					(csum_err) ? false : !cksum_is_zero);
+					(csum_err) ? (false || aggr_payload_size >
+						in_pkts[0].pkt_len)
+						: (!cksum_is_zero || aggr_payload_size >
+						in_pkts[0].pkt_len));
 
 				in_pkts_sub = aggr_payload_size = 0;
 
@@ -5663,7 +5667,7 @@ void ipa3_lan_coal_rx_cb(
 				in_pkts_sub,
 				aggr_payload_size,
 				tot_pkts,
-				!cksum_is_zero);
+				!cksum_is_zero || aggr_payload_size > in_pkts[0].pkt_len);
 		}
 	}
 

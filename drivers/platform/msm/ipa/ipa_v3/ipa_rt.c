@@ -1227,7 +1227,7 @@ static int __ipa_add_rt_rule(enum ipa_ip_type ip, const char *name,
 	 * table
 	 */
 	if (!strcmp(tbl->name, IPA_DFLT_RT_TBL_NAME) &&
-	    (tbl->rule_cnt > 0)) {
+	    ((ipa3_ctx->lan_coal_enable) ? (tbl->rule_cnt > 2) : (tbl->rule_cnt > 0))) {
 		IPAERR_RL("cannot add rules to default rt table\n");
 		goto error;
 	}
