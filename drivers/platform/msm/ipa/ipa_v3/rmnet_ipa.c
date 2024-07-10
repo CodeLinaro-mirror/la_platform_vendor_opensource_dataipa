@@ -337,6 +337,12 @@ static void ipa3_del_a7_qmap_hdr(void)
 	u32 pyld_sz;
 	int ret;
 
+	if (rmnet_ipa3_ctx->qmap_hdr_hdl == 0) {
+		IPAWANERR("Invalid hdr_hdl provided\n");
+		WARN_ON((rmnet_ipa3_ctx->qmap_hdr_hdl == 0));
+		return;
+	}
+
 	pyld_sz = sizeof(struct ipa_ioc_del_hdr) + 1 *
 		      sizeof(struct ipa_hdr_del);
 	del_hdr = kzalloc(pyld_sz, GFP_KERNEL);
