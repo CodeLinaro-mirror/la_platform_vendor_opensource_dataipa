@@ -2589,7 +2589,7 @@ static int ipa_ipsec_fnr_init(void)
 		ret = -ENOMEM;
 		goto fail_rt;
 	}
-	rt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
+	rt_tbl->rules = (uint64_t)kzalloc(2 * sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
 	if (!rt_tbl->rules) {
 		IPAERR("Failed to allocate ipa_rt_rule_add_v2\n");
 		ret = -ENOMEM;
@@ -2654,14 +2654,35 @@ static int ipa_ipsec_fnr_init(void)
 	}
 
 	/* Install decap RT table */
-	rt_tbl->num_rules = 1;
-	memset((void *)(rt_tbl->rules), 0, sizeof(struct ipa_rt_rule_add_v2));
+	rt_tbl->num_rules = 2;
+	memset((void *)(rt_tbl->rules), 0, 2 * sizeof(struct ipa_rt_rule_add_v2));
 	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
 		rt_tbl->ip = ip;
 		strlcpy(rt_tbl->rt_tbl_name, __ipa_ipsec_s.decap_rt[ip], IPA_RESOURCE_NAME_MAX);
 
-		/* Catch all */
+		/* UDP 4500 + ESP after UDP */
 		rt_rule = &(((struct ipa_rt_rule_add_v2 *)rt_tbl->rules)[0]);
+		rt_rule->at_rear = 0;
+		rt_rule->rt_rule_hdl = -1;
+		rt_rule->status = -1;
+		rt_rule->rule.dst = IPA_CLIENT_APPS_WAN_CONS;
+		rt_rule->rule.hashable = true;
+		rt_rule->rule.esp_after_udp = 1;
+		if (ip == IPA_IP_v4) {
+			rt_rule->rule.attrib.attrib_mask =
+				IPA_FLT_PROTOCOL | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT;
+			rt_rule->rule.attrib.u.v4.protocol = IPPROTO_UDP;
+		} else {
+			rt_rule->rule.attrib.attrib_mask =
+				IPA_FLT_NEXT_HDR | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT;
+			rt_rule->rule.attrib.u.v6.next_hdr = IPPROTO_UDP;
+		}
+		/* 4500 is the standard NAT-T port */
+		rt_rule->rule.attrib.dst_port = 4500;
+		rt_rule->rule.attrib.src_port = 4500;
+
+		/* Catch all */
+		rt_rule = &(((struct ipa_rt_rule_add_v2 *)rt_tbl->rules)[1]);
 		rt_rule->at_rear = 1;
 		rt_rule->rt_rule_hdl = -1;
 		rt_rule->status = -1;
