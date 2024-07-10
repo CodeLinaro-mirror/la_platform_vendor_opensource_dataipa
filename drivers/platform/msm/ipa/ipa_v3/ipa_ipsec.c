@@ -378,21 +378,20 @@ static inline u32 xdo2ipa_replay_window_sz(u32 xdo_sz)
 }
 
 /* Match XFRM template against an XFRM state */
-static inline bool ipa_ipsec_tmpl_sa_match(const struct xfrm_tmpl *tmpl, const struct xfrm_state *x,
-	      unsigned short family)
+static inline bool ipa_ipsec_tmpl_sa_match(const struct xfrm_tmpl *tmpl, const struct xfrm_state *x)
 {
 	IPADBG_LOW("tmpl->id.spi = 0x%08X  x->id.spi = 0x%08X\n",
 		tmpl->id.spi, x ? x->id.spi : 0xFFFFFFFF);
-	return	!!x && !!tmpl && family == x->props.family &&
+	return	!!x && !!tmpl && tmpl->encap_family == x->props.family &&
 		xfrm_id_proto_match(tmpl->id.proto, IPPROTO_ESP) &&
 		(!tmpl->id.spi || x->id.spi == tmpl->id.spi) &&
-		(xfrm_addr_any(&x->id.daddr, family) ||
-		 xfrm_addr_equal(&x->id.daddr, &tmpl->id.daddr, family)) &&
+		(xfrm_addr_any(&x->id.daddr, tmpl->encap_family) ||
+		 xfrm_addr_equal(&x->id.daddr, &tmpl->id.daddr, tmpl->encap_family)) &&
 		(!tmpl->reqid || x->props.reqid == tmpl->reqid) &&
 		(!tmpl->mode || x->props.mode == tmpl->mode) &&
 		(tmpl->allalgs ||
 		 (tmpl->aalgos & (1<<x->props.aalgo)) || (tmpl->ealgos & (1<<x->props.ealgo))) &&
-		!(xfrm_state_addr_cmp(tmpl, x, family));
+		!(xfrm_state_addr_cmp(tmpl, x, tmpl->encap_family));
 }
 
 /* Find offloaded SA matching an XFRM template */
@@ -405,7 +404,7 @@ static u8 ipa_ipsec_find_match_sa(const struct xfrm_tmpl *tmpl, u16 family,
 
 	for (idx = 0; idx < IPA_IPSEC_MAX_SA_NUM; idx++) {
 		if (ipa3_ctx->ipsec->sa_db[type][idx].x &&
-		    ipa_ipsec_tmpl_sa_match(tmpl, ipa3_ctx->ipsec->sa_db[type][idx].x, family))
+		    ipa_ipsec_tmpl_sa_match(tmpl, ipa3_ctx->ipsec->sa_db[type][idx].x))
 			return idx;
 	}
 
@@ -532,7 +531,7 @@ static int ipa_ipsec_install_key(u8 idx, enum ipa_ipsec_key_type type,
  * @x:   [in] XFRM state pointer
  * @idx: [in] HW encap SA index
  */
-static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx)
+static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx, enum ipa_ip_type inner_iptype)
 {
 	int i, ret = 0;
 	struct ipa_ioc_add_hdr *hdrs;
@@ -620,7 +619,7 @@ static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx)
 		hdr[i] = i + 1;
 	hdr += ESP_PAD_LEN;
 	hdr[0] = ESP_PAD_LEN;
-	hdr[1] = x->inner_mode.family == AF_INET6 ? IPPROTO_IPV6 : IPPROTO_IPIP;
+	hdr[1] = inner_iptype == IPA_IP_v6 ? IPPROTO_IPV6 : IPPROTO_IPIP;
 	hdr_add->hdr_len += ESP_PAD_LEN + 2;
 
 	/* Set ICV length */
@@ -649,8 +648,7 @@ static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx)
 	proc_ctx_add->ipsec_params.action = IPA_IPSEC_HPC_ENCAP;
 	proc_ctx_add->ipsec_params.sa_idx = idx;
 	proc_ctx_add->ipsec_params.flt_tbl_id = IPA_CLIENT_APPS_WAN_PROD;
-	proc_ctx_add->ipsec_params.pre_params.encap.input_ip_version =
-		x->inner_mode.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
+	proc_ctx_add->ipsec_params.pre_params.encap.input_ip_version = inner_iptype;
 	proc_ctx_add->ipsec_params.pre_params.encap.output_ip_version =
 		x->props.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 	proc_ctx_add->ipsec_params.pre_params.encap.retain_l2_header = 0;
@@ -1000,8 +998,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (ipa_ipsec_tmpl_sa_match(pol->xp->xfrm_vec,
-			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x,
-			pol->xp->selector.family)) {
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x)) {
 
 			ul_flt = (struct ipa_ioc_ipsec_ul_flt_attr *)kzalloc(
 				sizeof(struct ipa_ioc_ipsec_ul_flt_attr), GFP_KERNEL);
@@ -1028,6 +1025,17 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 
 				if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt) != 0)
 					return -EFAULT;
+			}
+
+			/* Construct and install header template and HPC */
+			if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc == 0) {
+				rc = ipa_ipsec_install_encap_hpc(
+					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x,
+					idx, ul_flt->ip);
+				if (rc < 0) {
+					IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
+					return rc;
+				}
 			}
 
 			/* Install RT rule */
@@ -1059,8 +1067,7 @@ static int ipa_ipsec_install_cached_dl_pols(u8 idx)
 
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (ipa_ipsec_tmpl_sa_match(pol->xp->xfrm_vec,
-			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x,
-			pol->xp->selector.family)) {
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x)) {
 
 			while (i < IPA_IPSEC_DL_FLT_PER_POL) {
 				if (pol->flt[i] == -1)
@@ -1098,8 +1105,7 @@ static int ipa_ipsec_delete_orphan_ul_fnr(u8 idx)
 	   we will delete FnR for each mapped policy */
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (ipa_ipsec_tmpl_sa_match(pol->xp->xfrm_vec,
-			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x,
-			pol->xp->selector.family)) {
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x)) {
 
 			ul_flt = (struct ipa_ioc_ipsec_ul_flt_attr *)kzalloc(
 				sizeof(struct ipa_ioc_ipsec_ul_flt_attr), GFP_KERNEL);
@@ -1334,12 +1340,6 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		IPADBG_LOW("a key = %64phN", ipa3_ctx->ipsec->keys->auth[idx].b512);
 
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-		/* Construct and install header template and HPC */
-		ret = ipa_ipsec_install_encap_hpc(x, idx);
-		if (!!ret) {
-			IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", ret);
-			goto zero_keys;
-		}
 
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = x;
 		x->xso.offload_handle = (unsigned long)idx | IPA_IPSEC_OFFLOAD_MAGIC;
@@ -1527,7 +1527,9 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 		mutex_lock(&ipa3_ctx->lock);
 		BUG_ON(__ipa3_release_hdr_proc_ctx(
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
 		BUG_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 		mutex_unlock(&ipa3_ctx->lock);
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
 		break;
@@ -1550,6 +1552,7 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 			mutex_lock(&ipa3_ctx->lock);
 			BUG_ON(__ipa3_release_hdr_proc_ctx(
 					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc));
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 			mutex_unlock(&ipa3_ctx->lock);
 		}
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
@@ -1735,8 +1738,7 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 		     idx < IPA_IPSEC_MAX_SA_NUM && i < IPA_IPSEC_DL_FLT_PER_POL; idx++) {
 			if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x &&
 				ipa_ipsec_tmpl_sa_match(xp->xfrm_vec,
-					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x,
-					xp->family)) {
+					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x)) {
 				flt = ipa_ipsec_install_decap_flt(xp, idx);
 				if (flt < 0) {
 					kfree(pol);
