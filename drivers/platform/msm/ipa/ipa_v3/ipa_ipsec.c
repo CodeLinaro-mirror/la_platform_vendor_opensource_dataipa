@@ -1668,9 +1668,9 @@ bool ipa_ipsec_xdo_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 	}
 
 	/* Set skb cb for the datapath use */
-	IPA_IPSEC_SKB_CB(skb)->magic = IPA_IPSEC_SKB_MAGIC;
-	IPA_IPSEC_SKB_CB(skb)->sa_idx = idx;
-	IPA_IPSEC_SKB_CB(skb)->sa_dir = x->xso.dir;
+	skb->ipa_skb_cb.magic = IPA_IPSEC_SKB_MAGIC;
+	skb->ipa_skb_cb.sa_idx = idx;
+	skb->ipa_skb_cb.sa_dir = x->xso.dir;
 
 	IPADBG_LOW("success\n");
 	return true;
