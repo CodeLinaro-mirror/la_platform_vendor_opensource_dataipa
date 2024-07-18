@@ -168,6 +168,8 @@ enum gsi_evt_chtype {
 	GSI_EVT_CHTYPE_WDI3_V2_EV = 0XF,
 	GSI_EVT_CHTYPE_WDI4_EV = 0X10,
 	GSI_EVT_CHTYPE_RTK3_EV = 0x11,
+	GSI_EVT_CHTYPE_XR_EV = 0x12,
+	GSI_EVT_CHTYPE_WDI3M_V2_EV = 0x13,
 };
 
 enum gsi_evt_ring_elem_size {
@@ -261,6 +263,8 @@ enum gsi_chan_prot {
 	GSI_CHAN_PROT_WDI3_V2 = 0XF,
 	GSI_CHAN_PROT_WDI4 = 0X10,
 	GSI_CHAN_PROT_RTK3 = 0x11,
+	GSI_CHAN_PROT_XR = 0x12,
+	GSI_CHAN_PROT_WDI3M_V2 = 0x13,
 };
 
 enum gsi_max_prefetch {

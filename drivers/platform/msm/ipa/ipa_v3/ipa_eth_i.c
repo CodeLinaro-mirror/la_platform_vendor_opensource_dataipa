@@ -1092,9 +1092,9 @@ int ipa3_eth_connect(
 	enum ipa_client_type client_type,
 	int inst_id)
 {
-	struct ipa3_ep_context *ep;
-	int ep_idx;
-	bool vlan_mode;
+	struct ipa3_ep_context *ep = NULL;
+	int ep_idx = -1;
+	bool vlan_mode = 0;
 	int result = 0;
 	u32 gsi_db_addr_low, gsi_db_addr_high;
 	void __iomem *db_addr;
@@ -1104,7 +1104,7 @@ int ipa3_eth_connect(
 	u64 bar_addr;
 	enum ipa4_hw_protocol prot;
 #if IPA_ETH_API_VER >= 2
-	struct net_device *net_dev;
+	struct net_device *net_dev = NULL;
 #endif
 	struct ipa_ep_cfg_holb holb_cfg;
 

@@ -1030,9 +1030,9 @@ static int ipa_eth_client_disconn_evt_internal(struct ipa_ecm_msg *msg)
 
 static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 {
-	struct ipa_eth_intf *new_intf;
-	struct ipa_eth_intf *entry;
-	struct ipa_ioc_add_hdr *hdr;
+	struct ipa_eth_intf *new_intf = NULL;
+	struct ipa_eth_intf *entry = NULL;
+	struct ipa_ioc_add_hdr *hdr = NULL;
 	struct ipa_tx_intf tx;
 	struct ipa_rx_intf rx;
 	enum ipa_client_type tx_client[IPA_CLIENT_MAX] = {0};
@@ -1040,10 +1040,10 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 	struct ipa_ioc_tx_intf_prop *tx_prop =  NULL;
 	struct ipa_ioc_rx_intf_prop *rx_prop = NULL;
 	struct ipa_eth_client_pipe_info *pipe;
-	u32 len;
-	int ret = 0, i;
+	u32 len = 0;
+	int ret = 0, i = 0;
 #if IPA_ETH_API_VER >= 2
-	struct ipa_ecm_msg msg;
+	struct ipa_ecm_msg msg ;
 	bool vlan_mode = false;
 	bool ezmesh = false;
 #if IPA_ETH_API_VER >= 3
@@ -1210,7 +1210,7 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 	strlcpy(new_intf->netdev_name, intf->net_dev->name, sizeof(new_intf->netdev_name));
 #else
 	strlcpy(new_intf->netdev_name, intf->netdev_name,
-		sizeof(new_intf->netdev_name));
+			sizeof(new_intf->netdev_name));
 #endif
 
 	num_hdrs = ezmesh ? 4 : 2;
@@ -1243,7 +1243,7 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 	IPA_ETH_DBG("IPv4 hdr hdl: %d IPv6 hdr hdl: %d\n",
 		hdr->hdr[IPA_IP_v4].hdr_hdl, hdr->hdr[IPA_IP_v6].hdr_hdl);
 #if IPA_ETH_API_VER >= 3
-	if (hdr->num_hdrs > 2) {
+	if (hdr->num_hdrs > 2 && num_hdrs > 2) {
 		new_intf->partial_hdr_hdl[IPA_IP_v4_VLAN] = hdr->hdr[IPA_IP_v4_VLAN].hdr_hdl;
 		new_intf->partial_hdr_hdl[IPA_IP_v6_VLAN] = hdr->hdr[IPA_IP_v6_VLAN].hdr_hdl;
 		IPA_ETH_DBG("IPv4 vlan hdr hdl: %d IPv6 vlan hdr hdl: %d\n",

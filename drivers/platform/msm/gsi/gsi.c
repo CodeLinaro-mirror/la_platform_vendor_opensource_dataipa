@@ -1935,7 +1935,8 @@ static void gsi_program_evt_ring_ctx(struct gsi_evt_ring_props *props,
 		ee, evt_id,
 		&ev_ch_k_cntxt_9);
 
-	if(props->intf != GSI_EVT_CHTYPE_WDI3_V2_EV) {
+	if (props->intf != GSI_EVT_CHTYPE_WDI3_V2_EV &&
+	    props->intf != GSI_EVT_CHTYPE_WDI3M_V2_EV) {
 		ev_ch_k_cntxt_10.msi_addr_lsb = GSI_LSB(props->msi_addr);
 		gsihal_write_reg_nk_fields(GSI_EE_n_EV_CH_k_CNTXT_10,
 			ee, evt_id,
@@ -1956,8 +1957,7 @@ static void gsi_program_evt_ring_ctx(struct gsi_evt_ring_props *props,
 		gsihal_write_reg_nk_fields(GSI_EE_n_EV_CH_k_CNTXT_13,
 			ee, evt_id,
 			&ev_ch_k_cntxt_13);
-	}
-	else {
+	} else {
 		ev_ch_k_cntxt_10.rp_addr_lsb = GSI_LSB(props->rp_update_addr);
 		gsihal_write_reg_nk_fields(GSI_EE_n_EV_CH_k_CNTXT_10,
 			ee, evt_id,
@@ -1968,8 +1968,6 @@ static void gsi_program_evt_ring_ctx(struct gsi_evt_ring_props *props,
 			ee, evt_id,
 			&ev_ch_k_cntxt_11);
 	}
-
-
 }
 
 static void gsi_init_evt_ring(struct gsi_evt_ring_props *props,
@@ -2780,6 +2778,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_QDSS:
 	case GSI_CHAN_PROT_NTN:
 	case GSI_CHAN_PROT_WDI3M:
+	case GSI_CHAN_PROT_WDI3M_V2:
 		ch_k_cntxt_0.chtype_protocol_msb = 1;
 		break;
 	default:

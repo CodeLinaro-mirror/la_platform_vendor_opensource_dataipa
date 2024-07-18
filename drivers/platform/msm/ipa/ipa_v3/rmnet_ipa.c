@@ -24,6 +24,7 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <net/pkt_sched.h>
+#include <net/netfilter/ipv6/nf_defrag_ipv6.h>
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)) || !IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/subsystem_notif.h>
@@ -335,6 +336,12 @@ static void ipa3_del_a7_qmap_hdr(void)
 	struct ipa_hdr_del *hdl_entry;
 	u32 pyld_sz;
 	int ret;
+
+	if (rmnet_ipa3_ctx->qmap_hdr_hdl == 0) {
+		IPAWANERR("Invalid hdr_hdl provided\n");
+		WARN_ON((rmnet_ipa3_ctx->qmap_hdr_hdl == 0));
+		return;
+	}
 
 	pyld_sz = sizeof(struct ipa_ioc_del_hdr) + 1 *
 		      sizeof(struct ipa_hdr_del);
@@ -1525,20 +1532,17 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled()) {
-		if (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC) {
-
-			dst_ipa_client =
+	if (ipa_ipsec_enabled() && (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC)) {
+		dst_ipa_client =
 			(IPA_IPSEC_SKB_CB(skb)->sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
 			IPA_CLIENT_IPSEC_ENCAP_PROD : IPA_CLIENT_IPSEC_DECAP_PROD;
 
-			sa_idx = (u8)(IPA_IPSEC_SKB_CB(skb)->sa_idx);
-			if (dst_ipa_client == IPA_CLIENT_IPSEC_ENCAP_PROD) {
-				ipsec_encap = true;
-			}
-			if (dst_ipa_client == IPA_CLIENT_IPSEC_DECAP_PROD) {
-				ipsec_decap = true;
-			}
+		sa_idx = (u8)(IPA_IPSEC_SKB_CB(skb)->sa_idx);
+		if (dst_ipa_client == IPA_CLIENT_IPSEC_ENCAP_PROD) {
+			ipsec_encap = true;
+		}
+		if (dst_ipa_client == IPA_CLIENT_IPSEC_DECAP_PROD) {
+			ipsec_decap = true;
 		}
 	}
 #endif
@@ -1752,6 +1756,25 @@ send:
 	 * both data packets and command will be routed to
 	 * IPA_CLIENT_Q6_WAN_CONS based on status configuration
 	 */
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_enabled() && (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC)) {
+		if (ip_hdr(skb)->version == 4) {
+			/* Handle ip fragmentation */
+			if (ip_is_fragment(ip_hdr(skb))) {
+				ret = xmit_ipsec_frag_ul(skb);
+				kfree_skb(skb);
+				goto out;
+			}
+		} else { // IPv6
+			unsigned int offset = 0;
+			if (NEXTHDR_FRAGMENT == ipv6_find_hdr(skb, &offset, NEXTHDR_FRAGMENT, NULL, NULL)) {
+				ret = xmit_ipsec_frag_ul(skb);
+				kfree_skb(skb);
+				goto out;
+			}
+		}
+	}
+#endif
 	if (unlikely(!eth_check) && unlikely(!v2x_check))
 		ret = ipa3_tx_dp(dst_ipa_client, skb, NULL);
 	else if (unlikely(!v2x_check))
@@ -2024,6 +2047,34 @@ EXPORT_SYMBOL(apps_ipa_packet_receive_notify);
 
 #ifdef CONFIG_IPA_IPSEC
 /**
+ * send_ipsec_err_to_ns() - send skb to netwrok stack
+ *
+ * @skb: skb to send
+ * @dev: network device
+ *
+ */
+void send_ipsec_err_to_ns(struct sk_buff *skb, struct net_device *dev)
+{
+	int result = 0;
+
+		if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH
+				== 0) {
+			trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
+			result = netif_rx_ni(skb);
+		} else {
+			trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
+			result = netif_rx(skb);
+		}
+
+	if (result)	{
+		pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_receive_skb\n",
+			__func__, __LINE__);
+		dev->stats.rx_dropped++;
+	}
+}
+
+
+/**
  * apps_ipa_ipsec_err_pkt_rcv_ntfy() - handler for APPS IPSEC errors.
  *
  * @priv: driver context
@@ -2038,16 +2089,15 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 {
 	struct sk_buff *skb = (struct sk_buff *)data;
 	struct net_device *dev = (struct net_device *)priv;
-	struct error_qmap_hdr ipsec_err_qmap;
+	struct error_qmap_hdr ipsec_err_qmap = { 0 };
 	struct ipahal_pkt_status pkt_status;
-	u8 sa_idx;
 	enum ipa_ipsec_sa_type sa_type = IPA_IPSEC_TYPE_MAX;
 	enum ipa_ipsec_error_action act = IPA_IPSEC_ERROR_DROP_ACTION;
 	struct xfrm_state *x = NULL;
 	struct sec_path *sp;
 	struct xfrm_offload *xo;
 	u32 xo_status = CRYPTO_GENERIC_ERROR;
-	int result;
+	u8 sa_idx;
 
 	if (evt != IPA_RECEIVE) {
 		IPAWANERR("Invalid evt %d received in ipa_ipsec_err_pkt_rcv\n", evt);
@@ -2098,6 +2148,17 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 		case IPA_IPSEC_ERROR_CODE_SEQ_NUM_OVERFLOW:
 			atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].error_code_seq_num_overflow);
 			break;
+		case IPA_IPSEC_ERROR_CODE_SEQ_NUM_EXCEED_MTU:
+			/* Store SA index and MUX ID in the SKB mark for use on the reinjected fragments */
+			skb->mark = (u32)ipsec_err_qmap.sa_idx | ((u32)ipsec_err_qmap.mux_id << 8);
+			IPADBG_LOW("After assignment: skb->mark = 0x%X", skb->mark);
+			skb_pull(skb, sizeof(struct error_qmap_hdr));
+			atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_excp_exceed_mtu);
+			if (ipa3_frag_ul_ipsec(skb, sa_idx)) {
+				IPAERR("Fail to frag UL ipsec skb for sa index %u \n", sa_idx);
+				kfree_skb(skb);
+			}
+			return;
 		default:
 			IPAWANERR("unknown Encap IPSEC error code %d\n",
 					ipsec_err_qmap.error_code);
@@ -2167,6 +2228,10 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 			atomic_inc(&ipa3_ctx->ipsec->stats.decap_stats[sa_idx].error_code_inner_pkt_sa_mismatch);
 			act = IPA_IPSEC_ERROR_DROP_ACTION;
 			break;
+		case IPA_IPSEC_ERROR_CODE_FRAG:
+			atomic_inc(&ipa3_ctx->ipsec->stats.error_code_frag);
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			break;
 		default:
 			IPAWANERR("unknown Decap IPSEC error code %d\n",
 					ipsec_err_qmap.error_code);
@@ -2214,21 +2279,7 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 				__func__, __LINE__);
 		}
 
-		if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH
-				== 0) {
-			trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
-			result = netif_rx_ni(skb);
-		} else {
-			trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
-			result = netif_rx(skb);
-		}
-
-		if (result)	{
-			pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_receive_skb\n",
-				__func__, __LINE__);
-			dev->stats.rx_dropped++;
-		}
-
+		send_ipsec_err_to_ns(skb, dev);
 	} else if (act == IPA_IPSEC_ERROR_SW_HANDLING_ACTION) {
 		/* TODO IPsec Frag handle, for now drop all frags*/
 		kfree_skb(skb);
@@ -5269,6 +5320,12 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		IPAWANDBG("IPsec offload is initialized\n");
 		dev->xfrmdev_ops = ipa3_ctx->ipsec->xfrmdev_ops;
 		ipa3_ctx->ipsec->dev = dev;
+	}
+
+	if (atomic_read(&rmnet_ipa3_ctx->is_ssr) && ipa_ipsec_enabled()) {
+		IPAWANDBG("IPsec offload is enabled\n");
+		dev->features |= NETIF_F_HW_ESP;
+		dev->hw_enc_features |= NETIF_F_HW_ESP;
 	}
 #endif
 	if (ipa3_rmnet_res.ipa_napi_enable)

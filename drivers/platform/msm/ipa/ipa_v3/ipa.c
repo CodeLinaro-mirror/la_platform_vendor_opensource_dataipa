@@ -4886,21 +4886,39 @@ int ipa3_setup_dflt_rt_tables(void)
 {
 	struct ipa_ioc_add_rt_rule *rt_rule;
 	struct ipa_rt_rule_add *rt_rule_entry;
+	int num_rules = 1;
+
+	if (ipa3_ctx->lan_coal_enable) {
+		num_rules = 3;
+	}
 
 	rt_rule =
-		kzalloc(sizeof(struct ipa_ioc_add_rt_rule) + 1 *
+		kzalloc(sizeof(struct ipa_ioc_add_rt_rule) + num_rules *
 			sizeof(struct ipa_rt_rule_add), GFP_KERNEL);
 	if (!rt_rule)
 		return -ENOMEM;
 
-	/* setup a default v4 route to point to Apps */
-	rt_rule->num_rules = 1;
+	/* setup a default v4 routes to point to Apps */
+	rt_rule->num_rules = num_rules;
 	rt_rule->commit = 1;
 	rt_rule->ip = IPA_IP_v4;
 	strlcpy(rt_rule->rt_tbl_name, IPA_DFLT_RT_TBL_NAME,
 		IPA_RESOURCE_NAME_MAX);
 
 	rt_rule_entry = &rt_rule->rules[0];
+	if (ipa3_ctx->lan_coal_enable) {
+		rt_rule_entry->rule.dst = IPA_CLIENT_APPS_LAN_COAL_CONS;
+		rt_rule_entry->rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
+		rt_rule_entry->rule.attrib.u.v4.protocol = (uint8_t)IPPROTO_TCP;
+
+		rt_rule_entry = &rt_rule->rules[1];
+		rt_rule_entry->rule.dst = IPA_CLIENT_APPS_LAN_COAL_CONS;
+		rt_rule_entry->rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
+		rt_rule_entry->rule.attrib.u.v4.protocol = (uint8_t)IPPROTO_UDP;
+
+		rt_rule_entry = &rt_rule->rules[2];
+	}
+
 	rt_rule_entry->at_rear = 1;
 	rt_rule_entry->rule.dst = IPA_CLIENT_APPS_LAN_CONS;
 	rt_rule_entry->rule.hdr_hdl = ipa3_ctx->excp_hdr_hdl;
@@ -4911,18 +4929,53 @@ int ipa3_setup_dflt_rt_tables(void)
 		kfree(rt_rule);
 		return -EPERM;
 	}
-	IPADBG("dflt v4 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
-	ipa3_ctx->dflt_v4_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
 
-	/* setup a default v6 route to point to A5 */
+	if (ipa3_ctx->lan_coal_enable) {
+		rt_rule_entry = &rt_rule->rules[0];
+		ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt LAN Coal TCP v4 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+		rt_rule_entry = &rt_rule->rules[1];
+		ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt LAN Coal UDP v4 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+		rt_rule_entry = &rt_rule->rules[2];
+		ipa3_ctx->dflt_v4_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+	}
+	else {
+		ipa3_ctx->dflt_v4_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt v4 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+	}
+
+	/* setup a default v6 routes to point to A5 */
 	rt_rule->ip = IPA_IP_v6;
+	if (ipa3_ctx->lan_coal_enable) {
+		rt_rule_entry = &rt_rule->rules[0];
+		rt_rule_entry->rule.attrib.attrib_mask = IPA_FLT_NEXT_HDR;
+		rt_rule_entry->rule.attrib.u.v6.next_hdr = (uint8_t)IPPROTO_TCP;
+		rt_rule_entry = &rt_rule->rules[1];
+		rt_rule_entry->rule.attrib.attrib_mask = IPA_FLT_NEXT_HDR;
+		rt_rule_entry->rule.attrib.u.v6.next_hdr = (uint8_t)IPPROTO_UDP;
+	}
+
 	if (ipa3_add_rt_rule(rt_rule)) {
 		IPAERR("fail to add dflt v6 rule\n");
 		kfree(rt_rule);
 		return -EPERM;
 	}
-	IPADBG("dflt v6 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
-	ipa3_ctx->dflt_v6_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+
+	if (ipa3_ctx->lan_coal_enable) {
+		rt_rule_entry = &rt_rule->rules[0];
+		ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt LAN Coal TCP v6 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+		rt_rule_entry = &rt_rule->rules[1];
+		ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt LAN Coal UDP v6 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+		rt_rule_entry = &rt_rule->rules[2];
+		ipa3_ctx->dflt_v6_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+	}
+	else {
+		ipa3_ctx->dflt_v6_rt_rule_hdl = rt_rule_entry->rt_rule_hdl;
+		IPADBG("dflt v6 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
+	}
 
 	/*
 	 * because these tables are the very first to be added, they will both
@@ -7071,6 +7124,16 @@ fail_flt_hash_tuple:
 		__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
 	if (ipa3_ctx->dflt_v4_rt_rule_hdl)
 		__ipa3_del_rt_rule(ipa3_ctx->dflt_v4_rt_rule_hdl);
+	if(ipa3_ctx->lan_coal_enable) {
+		if (ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl);
+	}
 	if (ipa3_ctx->excp_hdr_hdl)
 		__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
 	ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
@@ -7084,8 +7147,20 @@ static void ipa3_teardown_apps_pipes(void)
 		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_out);
 	if ( ipa3_ctx->clnt_hdl_data_in )
 		ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_data_in);
-	__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
-	__ipa3_del_rt_rule(ipa3_ctx->dflt_v4_rt_rule_hdl);
+	if (ipa3_ctx->dflt_v6_rt_rule_hdl)
+		__ipa3_del_rt_rule(ipa3_ctx->dflt_v6_rt_rule_hdl);
+	if (ipa3_ctx->dflt_v4_rt_rule_hdl)
+		__ipa3_del_rt_rule(ipa3_ctx->dflt_v4_rt_rule_hdl);
+	if(ipa3_ctx->lan_coal_enable) {
+		if (ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v6_udp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v6_tcp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_udp_rt_rule_hdl);
+		if (ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl)
+			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl);
+	}
 	__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
 	ipa3_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
 	ipa3_dealloc_common_event_ring();
@@ -7342,6 +7417,7 @@ void _ipa_enable_clks_v3_0(void)
 		if (ret == 0) {
 			wait_for_completion(&ipa3_ctx->msgq_desc.req_complete);
 		} else {
+			complete(&ipa3_ctx->msgq_desc.req_complete);
 			IPAERR("clock vote failed %d\n", ret);
 		}
 	} else
@@ -7436,6 +7512,7 @@ void _ipa_disable_clks_v3_0(void)
 		if (ret == 0) {
 			wait_for_completion(&ipa3_ctx->msgq_desc.req_complete);
 		} else {
+			complete(&ipa3_ctx->msgq_desc.req_complete);
 			IPAERR("clock vote failed %d\n", ret);
 		}
 	} else
@@ -8203,11 +8280,10 @@ int ipa3_init_interrupts(void)
 {
 	int result;
 
-	/*register IPA IRQ handler*/
-	result = ipa3_interrupts_init(ipa3_res.ipa_irq, ipa3_ctx->ee,
-			&ipa3_ctx->master_pdev->dev);
+	/*IPA IRQ pre_init config*/
+	result = ipa3_interrupts_pre_init(ipa3_ctx->ee);
 	if (result) {
-		IPAERR("ipa interrupts initialization failed\n");
+		IPAERR("ipa interrupts pre initialization failed\n");
 		return -ENODEV;
 	}
 
@@ -8216,15 +8292,18 @@ int ipa3_init_interrupts(void)
 			ipa3_suspend_handler, false, NULL);
 	if (result) {
 		IPAERR("register handler for suspend interrupt failed\n");
-		result = -ENODEV;
-		goto fail_add_interrupt_handler;
+		return -ENODEV;
+	}
+
+	/*register IPA IRQ handler*/
+	result = ipa3_interrupts_init(ipa3_res.ipa_irq,
+			&ipa3_ctx->master_pdev->dev);
+	if (result) {
+		IPAERR("ipa interrupts initialization failed\n");
+		return -ENODEV;
 	}
 
 	return 0;
-
-fail_add_interrupt_handler:
-	ipa3_interrupts_destroy(ipa3_res.ipa_irq, &ipa3_ctx->master_pdev->dev);
-	return result;
 }
 
 /**
@@ -8628,20 +8707,30 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 {
 	struct ipa_msgq_desc *msgq_desc = &ipa3_ctx->msgq_desc;
 	struct ipa_msg msg;
-	int ret;
+	int ret = -EINVAL;
+	int i;
 
 	memset(&msg, 0, sizeof(msg));
 	msg.msg_hdr.msg_size = sizeof(msg);
 	msg.msg_hdr.msg_type = msg_type;
 	msg.data = data;
 
-	ret = gh_msgq_send(msgq_desc->msgq_hdl, &msg, sizeof(msg), 0);
+	if (!msgq_desc->msgq_hdl)
+		IPAERR("msgq_hdl is invalid %d for msg_type %d assert!\n", msgq_desc->msgq_hdl, msg_type);
+	else {
+		for (i = 0; i < IPA_MSGQ_MAX_RETRY && ret; i++) {
+			usleep_range(IPA_MSGQ_MIN_SLEEP,
+					IPA_MSGQ_MAX_SLEEP);
+			ret = gh_msgq_send(msgq_desc->msgq_hdl, &msg, sizeof(msg), 0);
+			IPAERR("send msgq failed %d time ret %d for msg_type %d\n", i, ret, msg_type);
+		}
+	}
 
-	if (ret)
-		IPAERR("send msgq failed ret %d\n", ret);
-	else
+	if (ret && ipa3_ctx->ipa_v2x_vm) {
+		IPAERR("send msgq failed ret %d for msg_type %d on v2x-vm\n", ret, msg_type);
+		ipa_assert();
+	} else
 		IPADBG("send msgq success msg_type %d\n", msg_type);
-
 	return ret;
 }
 
@@ -8766,7 +8855,8 @@ static int ipa3_msgq_init(void)
 
 	if (IS_ERR_OR_NULL(msgq_desc->msgq_hdl)) {
 		ret = PTR_ERR(msgq_desc->msgq_hdl);
-		IPAERR("failed to get gunyah msgq hdl %d\n", ret);
+		IPAERR("failed to get gunyah msgq hdl %d assert ! \n", ret);
+		ipa_assert();
 		return ret;
 	}
 
@@ -8808,6 +8898,8 @@ static void ipa3_msgq_deinit(void)
 	destroy_workqueue(msgq_desc->msgq_wq);
 	kthread_stop(msgq_desc->recv_thread);
 	gh_msgq_unregister(msgq_desc->msgq_hdl);
+	/* memset msgq_desc */
+	memset(msgq_desc, 0, sizeof(struct ipa_msgq_desc));
 }
 
 static void ipa3_msgq_ssr_before_shutdown_delay(struct work_struct *work)
@@ -8880,9 +8972,6 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 	/* Prevent consequent calls from trying to load the FW again. */
 	if (ipa3_ctx->ipa_initialization_complete)
 		return 0;
-
-	/* enable IPA clocks explicitly to allow the initialization */
-	ipa3_enable_clks();
 
 	/*
 	 * IPA version 3.0 IPAHAL initialized at pre_init as there is no SMMU.
@@ -8995,9 +9084,8 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa_fmwk_deepsleep_exit_ipa();
 #endif
 	complete_all(&ipa3_ctx->init_completion_obj);
-	ipa3_disable_clks();
 
-	pr_info("IPA driver initialization was successful.\n");
+	IPAERR("IPA driver initialization was successful.\n");
 
 	return 0;
 
@@ -9013,7 +9101,6 @@ fail_dma_task:
 fail_init_hw:
 	ipahal_destroy();
 fail_ipahal:
-	ipa3_disable_clks();
 	return result;
 }
 
@@ -10271,7 +10358,7 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	cmd.cs_disable = false;
 	cmd.flt_retain_hdr = true;
 	cmd.rt_retain_hdr = true;
-	cmd.rt_pipe_dest_idx = dst_ep_idx;
+	cmd.rt_pipe_dest_idx = (dst_ep_idx < ipa3_ctx->ipa_num_pipes) ? dst_ep_idx : 0xFF;
 	cmd.rt_proc_ctx = proc_ctx;
 	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
 		&cmd, false);
@@ -10285,6 +10372,64 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	return 0;
 }
 EXPORT_SYMBOL(ipa_set_pkt_init_ex_hdr_ofst);
+
+
+
+/**
+ * ipa_set_pkt_init_ex_hdr_ofst_by_hdl() - Set pkt_init_ex header offset for the ep
+ * @dst_ep_idx: DST EP index
+ * @hdl: header or hpc handle
+ * @proc_ctx: true if HPC
+ *
+ * Returns 0 on success
+ */
+int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx)
+{
+	struct ipahal_imm_cmd_pyld *cmd_pyld;
+	struct ipahal_imm_cmd_ip_packet_init_ex cmd = {0};
+	struct ipa3_hdr_entry *hdr_entry;
+	struct ipa3_hdr_proc_ctx_entry *hdr_proc_entry;
+	u32 offset;
+	enum hpc_tbl_storage storage;
+
+	if (proc_ctx) {
+		hdr_proc_entry = ipa3_id_find(hdl);
+		if (!hdr_proc_entry || !hdr_proc_entry->offset_entry)
+			return -EINVAL;
+		storage = hdr_proc_entry->is_lcl ? HPC_TBL_LCL : HPC_TBL_SYS;
+		/* offset is in 32 Bytes chunks */
+		offset = (hdr_proc_entry->offset_entry->offset +
+		ipa3_ctx->hdr_proc_ctx_tbl[storage].start_offset) >> 5;
+	} else {
+		hdr_entry = ipa3_id_find(hdl);
+		if (!hdr_entry || !hdr_entry->offset_entry)
+			return -EINVAL;
+		offset = hdr_entry->offset_entry->offset;
+	}
+
+	cmd.rt_hdr_offset = offset;
+	cmd.frag_disable = true;
+	cmd.nat_disable = true;
+	cmd.filter_disable = true;
+	cmd.route_disable = true;
+	cmd.hdr_removal_insertion_disable = false;
+	cmd.cs_disable = false;
+	cmd.flt_retain_hdr = true;
+	cmd.rt_retain_hdr = true;
+	cmd.rt_pipe_dest_idx = (dst_ep_idx < ipa3_ctx->ipa_num_pipes) ? dst_ep_idx : 0xFF;
+	cmd.rt_proc_ctx = proc_ctx;
+	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		&cmd, false);
+	if (!cmd_pyld) {
+		IPAERR("failed to construct IMM cmd\n");
+		return -ENOMEM;
+	}
+	memcpy(ipa3_ctx->pkt_init_ex_mem.base + dst_ep_idx * cmd_pyld->len,
+		cmd_pyld->data, cmd_pyld->len);
+	ipahal_destroy_imm_cmd(cmd_pyld);
+	return 0;
+}
+EXPORT_SYMBOL(ipa_set_pkt_init_ex_hdr_ofst_by_hdl);
 
 /*
  * SCM call to check if secure dump is allowed.
@@ -11365,6 +11510,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	/* v2x vm related */
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
 #ifdef CONFIG_GH_MSGQ
+	memset(&ipa3_ctx->msgq_desc, 0, sizeof(ipa3_ctx->msgq_desc));
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;
 #endif
 	if (resource_p->gsi_fw_file_name) {
@@ -11684,6 +11830,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_mhi_coal_set = false;
 	ipa3_ctx->wkup_enable=0;
 
+	IPADBG("IPA driver pre-init was successful.\n");
 	return 0;
 
 fail_wwan_init:
@@ -13576,13 +13723,17 @@ static int ipa_smmu_update_fw_loader(void)
 				}
 
 				if (ipa3_ctx->ipa_v2x_vm) {
+					IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 					result = ipa3_v2x_vm_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+					IPADBG("IPA post init done!");
 #ifdef CONFIG_GH_MSGQ
 					ipa3_msgq_send(IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND, 0);
 #endif
+					IPADBG("send IPA_MSG_TYPE_V2X_VM_INIT_DONE_IND!");
 					/* Check if GVM SSR handling is required after GVM reset */
 					ipa3_v2x_vm_ssr_teardown_sys_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD);
 					ipa3_v2x_vm_ssr_teardown_sys_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS);
+					IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 				} else {
 					result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
 				}
@@ -13600,6 +13751,7 @@ static int ipa_smmu_update_fw_loader(void)
 		IPADBG("smmu is disabled\n");
 	}
 
+	IPADBG("ipa_smmu_update_fw_loader done !");
 	return 0;
 }
 
@@ -14119,15 +14271,15 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		result = ipa3_pre_init(&ipa3_res, pdev_p);
 	}
 
-#ifdef CONFIG_GH_MSGQ
-	/* Initialize msgq for PVM and SVM */
-	ipa3_msgq_init();
-#endif
-
 	if (result) {
 		IPAERR("ipa3_init failed\n");
 		goto err_check;
 	}
+
+#ifdef CONFIG_GH_MSGQ
+	/* Initialize msgq for PVM and SVM */
+	ipa3_msgq_init();
+#endif
 
 skip_repeat_pre_init:
 	result = of_platform_populate(pdev_p->dev.of_node,

@@ -3937,8 +3937,11 @@ static int ipsec_read_sa_stats(enum ipa_ipsec_sa_type sa_type,
 			"error_code_encap_sa_disabled = %u\n",
 				atomic_read(&encap_stats.error_code_encap_sa_disabled));
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-			"error_code_seq_num_overflow = %u\n\n",
+			"error_code_seq_num_overflow = %u\n",
 			atomic_read(&encap_stats.error_code_seq_num_overflow));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"ipsec_excp_exceed_mtu = %u\n\n",
+			atomic_read(&encap_stats.ipsec_excp_exceed_mtu));
 	}
 
 	if (sa_type == IPA_IPSEC_DECAP) {
@@ -3946,7 +3949,9 @@ static int ipsec_read_sa_stats(enum ipa_ipsec_sa_type sa_type,
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 			"---Decap SA index %d Stats---\n",
 				sa_idx);
-
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"Decap *General(not related to SA)* error_code_frag = %u\n",
+			atomic_read(&ipa3_ctx->ipsec->stats.error_code_frag));
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 			"ipsec_decap_xmit = %u\n",
 			atomic_read(&decap_stats.ipsec_decap_xmit));

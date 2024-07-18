@@ -323,6 +323,11 @@ enum hpc_tbl_storage {
 #define IPA_GSI_CHANNEL_STOP_MAX_RETRY 10
 #define IPA_GSI_CHANNEL_STOP_PKT_SIZE 1
 
+#define IPA_MSGQ_MIN_SLEEP 10000
+#define IPA_MSGQ_MAX_SLEEP 20000
+#define IPA_MSGQ_MAX_RETRY 20
+
+
 #define IPA_GSI_CHANNEL_EMPTY_MAX_RETRY 15
 #define IPA_GSI_CHANNEL_EMPTY_SLEEP_MIN_USEC (1000)
 #define IPA_GSI_CHANNEL_EMPTY_SLEEP_MAX_USEC (2000)
@@ -1923,6 +1928,7 @@ enum ipa3_hw_flags {
  * @ipa_use_uc_holb_monitor: Indicates if uC HOLB feature is enabled
  * @ipa_holb_monitor: Struct with all info needed for uC HOLB feature
  * @curr_cmd: If cesta_enable it has the last MHI channel info sent to uC.
+ * @ipsec_next_iv_wa_ready: Boolean to indicate the NextIV uC readiness
  */
 struct ipa3_uc_ctx {
 	bool uc_inited;
@@ -1956,6 +1962,7 @@ struct ipa3_uc_ctx {
 	bool ipa_use_uc_holb_monitor;
 	struct ipa_holb_monitor holb_monitor;
 	struct IpaMhiChInfo_t curr_cmd;
+	bool ipsec_next_iv_wa_ready;
 };
 
 /**
@@ -2476,7 +2483,11 @@ struct ipa3_eth_pdu_ctx {
  * @ipv6ct_mem: IPv6CT memory
  * @excp_hdr_hdl: exception header handle
  * @dflt_v4_rt_rule_hdl: default v4 routing rule handle
+ * @dflt_lan_coal_v4_udp_rt_rule_hdl: default LAN Coalescing v4 UDP routing rule handle
+ * @dflt_lan_coal_v4_tcp_rt_rule_hdl: default LAN Coalescing v4 TCP routing rule handle
  * @dflt_v6_rt_rule_hdl: default v6 routing rule handle
+ * @dflt_lan_coal_v6_udp_rt_rule_hdl: default LAN Coalescing v6 UDP routing rule handle
+ * @dflt_lan_coal_v6_tcp_rt_rule_hdl: default LAN Coalescing v6 TCP routing rule handle
  * @aggregation_type: aggregation type used on USB client endpoint
  * @aggregation_byte_limit: aggregation byte limit used on USB client endpoint
  * @aggregation_time_limit: aggregation time limit used on USB client endpoint
@@ -2604,7 +2615,11 @@ struct ipa3_context {
 	struct ipa3_ipv6ct_mem ipv6ct_mem;
 	u32 excp_hdr_hdl;
 	u32 dflt_v4_rt_rule_hdl;
+	u32 dflt_lan_coal_v4_udp_rt_rule_hdl;
+	u32 dflt_lan_coal_v4_tcp_rt_rule_hdl;
 	u32 dflt_v6_rt_rule_hdl;
+	u32 dflt_lan_coal_v6_udp_rt_rule_hdl;
+	u32 dflt_lan_coal_v6_tcp_rt_rule_hdl;
 	uint aggregation_type;
 	uint aggregation_byte_limit;
 	uint aggregation_time_limit;
@@ -3516,6 +3531,12 @@ int ipa3_tx_dp_mul(enum ipa_client_type dst,
 
 void ipa3_free_skb(struct ipa_rx_data *data);
 
+#if defined(CONFIG_IPA_IPSEC)
+int xmit_ipsec_frag_ul(struct sk_buff *skb);
+
+int ipa3_frag_ul_ipsec(struct sk_buff *skb, u8 sa_idx);
+#endif
+
 /*
  * System pipes
  */
@@ -3787,7 +3808,8 @@ void ipa3_active_clients_log_inc(struct ipa_active_client_logging_info *id,
 int ipa3_active_clients_log_print_buffer(char *buf, int size);
 int ipa3_active_clients_log_print_table(char *buf, int size);
 void ipa3_active_clients_log_clear(void);
-int ipa3_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev);
+int ipa3_interrupts_pre_init(u32 ee);
+int ipa3_interrupts_init(u32 ipa_irq, struct device *ipa_dev);
 void ipa3_interrupts_destroy(u32 ipa_irq, struct device *ipa_dev);
 int __ipa3_del_rt_rule(u32 rule_hdl);
 int __ipa_del_flt_rule(u32 rule_hdl);

@@ -2294,8 +2294,6 @@ void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client)
 		ipa_assert();
 	}
 
-	IPA_ACTIVE_CLIENTS_INC_EP(client);
-
 	if (gsi_read_chan_state(gsi_ep_cfg->ipa_gsi_chan_num, ipa3_ctx->ee) ==
 		GSI_CHAN_STATE_STOPPED) {
 		/* Save the event ring idx first. */
@@ -2327,8 +2325,6 @@ void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client)
 	} else {
 		IPADBG("client %d not connected before, skip\n", client);
 	}
-
-	IPA_ACTIVE_CLIENTS_DEC_EP(client);
 }
 
 /**
@@ -2410,15 +2406,15 @@ static inline int validate_client_ipa_tiering(enum ipa_client_type dst)
 int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		struct ipa_tx_meta *meta)
 {
-	struct ipa3_desc *desc;
+	struct ipa3_desc *desc = NULL;
 	struct ipa3_desc _desc[3];
-	int dst_ep_idx;
-	struct ipa3_sys_context *sys;
-	int src_ep_idx;
-	int num_frags, f;
-	const struct ipa_gsi_ep_config *gsi_ep;
-	int data_idx;
-	unsigned int max_desc;
+	int dst_ep_idx = -1;
+	struct ipa3_sys_context *sys = NULL;
+	int src_ep_idx = -1;
+	int num_frags = 0, f = 0;
+	const struct ipa_gsi_ep_config *gsi_ep = NULL;
+	int data_idx = 0;
+	unsigned int max_desc = 0;
 
 	if (unlikely(!ipa3_ctx)) {
 		IPAERR("IPA3 driver was not initialized\n");
@@ -2531,26 +2527,60 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 			data_idx++;
 		}
 
-		if ((ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) &&
-		    ((network_header->version == 4 &&
-		     network_header->protocol == IPPROTO_ICMP) ||
-		    (((struct ipv6hdr *)network_header)->version == 6 &&
-		     ((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP))) {
-			ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
-				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
-				dst_ep_idx);
+#if defined(CONFIG_IPA_IPSEC)
+		if (dst == IPA_CLIENT_IPSEC_ENCAP_PROD) {
+			u8 sa_idx = (u8)(skb->mark & 0xF);
+			u8 mux_id = (u8)((skb->mark >> 8) & 0xFF);
+			struct ipa3_hdr_proc_ctx_entry *hdr_proc_entry =
+				ipa3_id_find(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].hpc);
+			IPADBG_LOW("sa_idx = %d, mux_id = %d, hpc = %d\n", sa_idx, mux_id,
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].hpc);
+
+			if (!hdr_proc_entry || !hdr_proc_entry->offset_entry) {
+				IPAERR("Invaild ipsec proc ctx hdl %u\n",
+					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].hpc);
+				return -EINVAL;
+			}
+			/* IPA_CLIENT_IPSEC_ENCAP_PROD expect for QMAP Header */
+			memset(skb_push(skb, IPA_QMAP_HEADER_LENGTH), 0, IPA_QMAP_HEADER_LENGTH);
+
+			/* Copy the MUX ID from SKB mark to QMAP header */
+			skb->data[1] = mux_id;
+
+			/* set the header offset for the IC */
+			ipa_set_pkt_init_ex_hdr_ofst_by_hdl(
+				ipa3_ctx->ipa_num_pipes,
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].hpc, true);
+
+
 			desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
 			desc[data_idx].dma_address =
 				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].phys_base;
-		} else if (ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe &&
-			skb_is_gso(skb)) {
-			desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
-			desc[data_idx].dma_address =
-				ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].phys_base;
 		} else {
-			desc[data_idx].opcode = ipa3_ctx->pkt_init_imm_opcode;
-			desc[data_idx].dma_address = ipa3_ctx->pkt_init_imm[dst_ep_idx];
+#endif
+			if ((ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) &&
+				((network_header->version == 4 &&
+				 network_header->protocol == IPPROTO_ICMP) ||
+				(((struct ipv6hdr *)network_header)->version == 6 &&
+				((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP))) {
+				ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
+					ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
+						dst_ep_idx);
+				desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
+				desc[data_idx].dma_address =
+				 ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].phys_base;
+			} else if (ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe &&
+					skb_is_gso(skb)) {
+				desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
+				desc[data_idx].dma_address =
+					ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].phys_base;
+			} else {
+				desc[data_idx].opcode = ipa3_ctx->pkt_init_imm_opcode;
+				desc[data_idx].dma_address = ipa3_ctx->pkt_init_imm[dst_ep_idx];
+			}
+#if defined(CONFIG_IPA_IPSEC)
 		}
+#endif
 		desc[data_idx].dma_address_valid = true;
 		desc[data_idx].type = IPA_IMM_CMD_DESC;
 		desc[data_idx].callback = NULL;
@@ -3954,6 +3984,123 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 	}
 }
 
+#if defined(CONFIG_IPA_IPSEC)
+/**
+ * xmit_ipsec_frag_ul_wrapper() - wrapper function for xmit_ipsec_frag_ul()
+ */
+int xmit_ipsec_frag_ul_wrapper(struct net *net, struct sock *sk, struct sk_buff *skb)
+{
+	return xmit_ipsec_frag_ul(skb);
+}
+
+/**
+ * xmit_ipsec_frag_ul() - handler for IPsec up-link fragments packets
+ * @skb: the packet to send
+ *
+ * IPsec fragments tx handler.
+ * Re-inject the fragments to IPA on the encap consumer pipe
+ * using packet_init_ex IC.
+ *
+ * IPA HW performs encapsulation on the fragments
+ * and sends the packets to destination.
+ *
+ * Returns:	0 on success, negative on failure
+ */
+int xmit_ipsec_frag_ul(struct sk_buff *skb)
+{
+	u8 sa_idx;
+	struct ipa_tx_meta meta = {0};
+
+	sa_idx = (u8)(skb->mark & 0xFF);
+	if (sa_idx >= IPA_IPSEC_MAX_SA_NUM) {
+		IPAERR("sa_idx %u is invalid, free frag ul skb \n", sa_idx);
+		kfree_skb(skb);
+		return -EINVAL;
+	}
+
+	meta.pkt_init_dst_ep_valid = 1;
+	meta.pkt_init_dst_ep = 0xff;
+	return ipa3_tx_dp(IPA_CLIENT_IPSEC_ENCAP_PROD, skb, &meta);
+}
+
+/**
+ * ipa3_frag_ul_ipsec() - handle IPsec EXCEED_MTU packets
+ * @skb: the packet to frag
+ * @sa_idx: SA index
+ *
+ * Perform fragmentation on the packet according to the SA MTU.
+ *
+ * Returns:	0 on success, negative on failure
+ */
+int ipa3_frag_ul_ipsec(struct sk_buff *skb, u8 sa_idx)
+{
+	int ret = 0;
+	struct ipa_ipsec_sa_encap *e_sa;
+	u32 ipsec_stat;
+	u16 sa_path_mtu;
+	struct net *net = dev_net(skb->dev);
+	struct rtable *rt;
+
+	struct xfrm_state *x = ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x;
+
+	if (unlikely(!x)) {
+		IPAERR("SA:%u has no XFRM state pointer \n", sa_idx);
+		return -EINVAL;
+	}
+
+	e_sa = ipa3_ctx->ipsec->encap + sa_idx;
+	ipsec_stat = readl_relaxed((void __iomem *)&e_sa->stat);
+	sa_path_mtu = (*(struct ipa_ipsec_sa_encap_static *)&ipsec_stat).path_mtu;
+	if (unlikely(!sa_path_mtu)) {
+		IPAERR("SA:%u path MTU is 0 \n", sa_idx);
+		return -EINVAL;
+	}
+
+	/* Sets skb dst so ip frag kernel API will not crash */
+	rt = ip_route_output(net, ip_hdr(skb)->daddr, 0, 0, 0);
+	if (IS_ERR(rt)) {
+		IPAERR("Fail to ip_route_output \n", sa_idx);
+		return -EINVAL;
+	}
+	skb_dst_set(skb, &rt->dst);
+
+	/* Do ip fragmentation */
+	if(ip_hdr(skb)->version == 4) {
+		/* Fix skb length, if needed */
+		IPADBG("skb->len = %d, ip_hdr(skb)->tot_len = %d\n", skb->len,
+			ntohs(ip_hdr(skb)->tot_len));
+		if (skb->len > ntohs(ip_hdr(skb)->tot_len))
+			skb_trim(skb, ntohs(ip_hdr(skb)->tot_len));
+
+		/* Set the Encap MTU to frag_max_size*/
+		IPCB(skb)->frag_max_size = xfrm_state_mtu(x, sa_path_mtu) - IPA_QMAP_HEADER_LENGTH;
+		IPADBG("IPv4 IPCB(skb)->frag_max_size, %u", IPCB(skb)->frag_max_size);
+		ret = ip_do_fragment(net, skb->sk, skb, xmit_ipsec_frag_ul_wrapper);
+		if (ret) {
+			IPAERR("Fail to frag ipsec IPv4 packet, sa:%u, err:%d\n", sa_idx, ret);
+			return ret;
+		}
+	} else { // IPv6
+		/* Fix skb length (uC may return with wrong len) */
+		IPADBG("skb->len = %d, ipv6_hdr(skb)->payload_len = %d\n", skb->len,
+			ntohs(ipv6_hdr(skb)->payload_len));
+		if (skb->len > ntohs(ipv6_hdr(skb)->payload_len) + sizeof(struct ipv6hdr))
+			skb_trim(skb, ntohs(ipv6_hdr(skb)->payload_len) + sizeof(struct ipv6hdr));
+
+		/* Set the Encap MTU to frag_max_size*/
+		IP6CB(skb)->frag_max_size = xfrm_state_mtu(x, sa_path_mtu) - IPA_QMAP_HEADER_LENGTH;
+		IPAERR("IPv6 IP6CB(skb)->frag_max_size, %u", IP6CB(skb)->frag_max_size);
+		ret = ipv6_stub->ipv6_fragment(net, skb->sk, skb, xmit_ipsec_frag_ul_wrapper);
+		if (ret) {
+			IPAERR("Fail to frag ipsec IPv6 packet, sa:%u, err:%d\n", sa_idx, ret);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+#endif
+
 static struct sk_buff *ipa3_skb_copy_for_client(struct sk_buff *skb, int len)
 {
 	struct sk_buff *skb2 = NULL;
@@ -4553,10 +4700,26 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 	u16 cb_value = 0;
 
 /*
- * RX TLV headers.
+ * Pine RX TLV headers.
  * <28 bytes of rx_msdu_end_tlv> + <16 bytes of attn_tlv> +
  * <48 bytes of rx_msdu_start tlv>.
+ *
+ * HMT RX TLV headers.
+ *
+ * 1st TLV
+ * <1 [15:0] Sa_sw_peer_id> + <1 [23] Sa_is_valid> +
+ * <2 [15:0] Sa_index>
+ *
+ * 2nd TLV
+ * <11	[5]	Mac_addr_ad4_valid>
+ *
+ * GSI will send us 12 byte of TLV with the above fields
  */
+
+	if (ipa_get_wdi_version() == IPA_WDI_3_V2) {
+		/* Incremental offset for sa_peer_id. */
+		ast_info->sa_peer_id = *((u16 *)buff);
+	}
 
 /* Incremental offset for sa_vlid bit. */
 #define IPA_WDI_AST_SA_VALID_INC_OFFST 2
@@ -4575,16 +4738,21 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 
 /* Incremental offset for sa_peer_id. */
 #define IPA_WDI_AST_SA_PEER_ID_INC_OFFST 14
-
-	buff += IPA_WDI_AST_SA_PEER_ID_INC_OFFST;
-
-	ast_info->sa_peer_id = *((u16 *)buff);
+	/* Pine offset */
+	if (ipa_get_wdi_version() == IPA_WDI_3) {
+		buff += IPA_WDI_AST_SA_PEER_ID_INC_OFFST;
+		ast_info->sa_peer_id = *((u16 *)buff);
+	}
 
 /* Incremental offset for mac_addr4_valid bit. */
-#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST 74
+#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT 8
+#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_PINE 74
 #define IPA_WDI_AST_MAC_ADDR4_VALID_MSK 0x20
 
-	buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST;
+	if (ipa_get_wdi_version() == IPA_WDI_3_V2)
+		buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT;
+	else
+		buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_PINE;
 
 	ast_info->mac_addr_ad4_valid =
 		*((u32 *)buff) & IPA_WDI_AST_MAC_ADDR4_VALID_MSK;
@@ -4602,7 +4770,13 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 #define IPA_WDI_AST_FIRST_MSDU_MSK 0x1000
 	ast_info->first_msdu_in_mpdu_flag = metadata & IPA_WDI_AST_FIRST_MSDU_MSK;
 
-	skb_pull(skb, IPA_WDI_RX_TLV_SIZE);
+#define IPA_WDI_RX_TLV_SIZE_HMT 12
+#define IPA_WDI_RX_TLV_SIZE_PINE 96
+
+	if (ipa_get_wdi_version() == IPA_WDI_3_V2)
+		skb_pull(skb, IPA_WDI_RX_TLV_SIZE_HMT);
+	else
+		skb_pull(skb, IPA_WDI_RX_TLV_SIZE_PINE);
 
 /* Update CB with previous metadata format. */
 /* Old Metadata Format
@@ -5395,7 +5569,7 @@ void ipa3_lan_coal_rx_cb(
 			in_pkts_sub,
 			aggr_payload_size,
 			tot_pkts,
-			false);
+			false || aggr_payload_size > in_pkts[0].pkt_len);
 
 		return;
 	}
@@ -5439,7 +5613,8 @@ void ipa3_lan_coal_rx_cb(
 						in_pkts_sub,
 						aggr_payload_size,
 						tot_pkts,
-						!cksum_is_zero);
+						!cksum_is_zero || aggr_payload_size >
+							in_pkts[0].pkt_len);
 
 					in_pkts_sub = aggr_payload_size = 0;
 				}
@@ -5463,7 +5638,10 @@ void ipa3_lan_coal_rx_cb(
 					in_pkts_sub,
 					aggr_payload_size,
 					tot_pkts,
-					(csum_err) ? false : !cksum_is_zero);
+					(csum_err) ? (false || aggr_payload_size >
+						in_pkts[0].pkt_len)
+						: (!cksum_is_zero || aggr_payload_size >
+						in_pkts[0].pkt_len));
 
 				in_pkts_sub = aggr_payload_size = 0;
 
@@ -5489,7 +5667,7 @@ void ipa3_lan_coal_rx_cb(
 				in_pkts_sub,
 				aggr_payload_size,
 				tot_pkts,
-				!cksum_is_zero);
+				!cksum_is_zero || aggr_payload_size > in_pkts[0].pkt_len);
 		}
 	}
 

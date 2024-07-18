@@ -4,3 +4,4 @@
 */
 
 #define CONFIG_IPA_IPSEC 1
+#define CONFIG_IPA_IPSEC_NEXTIV_WA 1
