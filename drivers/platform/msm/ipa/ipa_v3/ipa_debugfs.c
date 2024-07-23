@@ -105,6 +105,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_MOVE_NAT_TABLE),
 	__stringify(IPA_EoGRE_UP_EVENT),
 	__stringify(IPA_EoGRE_DOWN_EVENT),
+	__stringify(IPA_EoGRE_NOTIFY_EVENT),
 	__stringify(IPA_IPPT_SW_FLT_EVENT),
 	__stringify(IPA_MACSEC_ADD_EVENT),
 	__stringify(IPA_MACSEC_DEL_EVENT),
@@ -144,6 +145,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_2ND_PASS),
+	__stringify(IPA_HDR_PROC_MARK_DSCP),
 };
 
 static struct dentry *dent;
@@ -1359,7 +1361,6 @@ bail:
 static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
-	int nbytes;
 	struct ipa3_hdr_proc_ctx_tbl *tbl;
 	struct ipa3_hdr_proc_ctx_entry *entry;
 	u32 ofst_words;
@@ -1367,8 +1368,6 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 	int res = 0;
 
 	for (hpc_tbl = HPC_TBL_LCL; hpc_tbl < HPC_TBLS_TOTAL; hpc_tbl++) {
-		nbytes = 0;
-		memset(dbg_buff, '\0', sizeof(dbg_buff));
 		tbl = &ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl];
 		mutex_lock(&ipa3_ctx->lock);
 
@@ -1381,17 +1380,13 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		ofst_words = (entry->offset_entry->offset +
 			ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
 			>> 5;
-		nbytes += scnprintf(dbg_buff + nbytes,
-			IPA_MAX_MSG_LEN - nbytes,
-			"id:%u hdr_proc_type:%s proc_ctx[32B]:%u ",
+		pr_err("id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
 			entry->id,
 			ipa3_hdr_proc_type_name[entry->type],
 			ofst_words);
 		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
 			entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"\naction:%u\n"
+			pr_err("\naction:%u\n"
 				"sa_idx:%u\n"
 				"flt_tbl_id:%u\n"
 				"input_ip_version:%u\n"
@@ -1404,18 +1399,14 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 				entry->ipsec_params.pre_params.encap.output_ip_version,
 				entry->ipsec_params.pre_params.encap.retain_l2_header);
 		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"input_ethhdr_negative_offset:%u\n"
+			pr_err("input_ethhdr_negative_offset:%u\n"
 				"output_ethhdr_negative_offset:%u\n"
 				"output_dscp_pcp_update:%u\n",
 				entry->generic_params.input_ethhdr_negative_offset,
 				entry->generic_params.output_ethhdr_negative_offset,
 				entry->generic_params.output_dscp_pcp_update);
 		} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"input_ethhdr_negative_offset:%u\n"
+			pr_err("input_ethhdr_negative_offset:%u\n"
 				"output_ethhdr_negative_offset:%u\n"
 				"output_dscp_pcp_update:%u\n"
 				"input_ethhdr_valid:%u\n",
@@ -1423,23 +1414,23 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 				entry->generic_params_v2.output_ethhdr_negative_offset,
 				entry->generic_params_v2.output_dscp_pcp_update,
 				entry->generic_params_v2.input_ethhdr_valid);
+		} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
+			pr_err("input_valid:%u\n"
+				"input_dscp_val:%u\n",
+				entry->pdn_dscp_params.valid,
+				entry->pdn_dscp_params.dscp_val);
 		}
 		if (entry->hdr->is_hdr_proc_ctx) {
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"hdr_phys_base:0x%pa\n",
+			pr_err("hdr_phys_base:0x%pa\n",
 				&entry->hdr->phys_base);
 		}
 		else
 		{
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"hdr[words]:%u\n",
+			pr_err("hdr[words]:%u\n",
 				entry->hdr->offset_entry->offset >> 2);
 		}
 		}
 		mutex_unlock(&ipa3_ctx->lock);
-		pr_err("%s", dbg_buff);
 	}
 
 	return res;
@@ -3491,6 +3482,125 @@ static ssize_t ipa3_enable_ipc_low(struct file *file,
 	return count;
 }
 
+static ssize_t ipa3_read_uc_act_tbl(struct file *file,
+	char __user *ubuf, size_t count, loff_t *ppos)
+{
+	int nbytes;
+	int cnt = 0;
+	int i;
+	struct ipa_ipv6_nat_uc_tmpl *uc_entry_nat;
+	struct ipa_socksv5_uc_tmpl *uc_entry_socks;
+	struct iphdr_rsv *socks_iphdr;
+	struct ipv6hdr *socks_ipv6hdr;
+
+	/* IPA version check */
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_5) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"This feature only support on IPA4.5+\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	if (!ipa3_ctx->uc_act_tbl_valid) {
+		IPAERR("uC act tbl wasn't allocated\n");
+		return -ENOENT;
+	}
+
+	if (sizeof(dbg_buff) < count + 1)
+		return -EFAULT;
+
+	dbg_buff[count] = '\0';
+
+	mutex_lock(&ipa3_ctx->act_tbl_lock);
+
+	uc_entry_nat = (struct ipa_ipv6_nat_uc_tmpl *)
+		(ipa3_ctx->uc_act_tbl.base);
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"uc_act_tbl_total %d, uc_act_tbl_ipv6_nat_total %d uc_act_tbl_socksv5_total %d, uc_act_tbl_next_index %d\n"
+		"uC activation entries:"
+		, ipa3_ctx->uc_act_tbl_total,
+		ipa3_ctx->uc_act_tbl_ipv6_nat_total,
+		ipa3_ctx->uc_act_tbl_socksv5_total,
+		ipa3_ctx->uc_act_tbl_next_index);
+	cnt += nbytes;
+	for (i = 0; i < IPA_UC_ACT_TBL_SIZE; i++) {
+		if (uc_entry_nat[i].cmd_id == IPA_IPv6_NAT_COM_ID) {
+			nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN,
+				"\nentry %d:\n"
+				"cmd_id = IPV6_NAT\n"
+				"private_address_msb 0x%llX\n"
+				"private_address_lsb 0x%llX\n"
+				"private_port %u\n"
+				"public_address_msb 0x%llX\n"
+				"public_address_lsb 0x%llX\n"
+				"public_port %u\n",
+				i,
+				uc_entry_nat[i].private_address_msb,
+				uc_entry_nat[i].private_address_lsb,
+				uc_entry_nat[i].private_port,
+				uc_entry_nat[i].public_address_msb,
+				uc_entry_nat[i].public_address_lsb,
+				uc_entry_nat[i].public_port);
+			cnt += nbytes;
+		} else if (uc_entry_nat[i].cmd_id == IPA_SOCKSV5_ADD_COM_ID) {
+			uc_entry_socks = (struct ipa_socksv5_uc_tmpl *)
+				(uc_entry_nat);
+			nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN,
+				"\nentry %d:\n"
+				"cmd_id = SOCKSv5\n"
+				"cmd_param: %u\n"
+				"source_port: %u\n"
+				"dest_port: %u\n"
+				"ipa_socksv5_mask: %x\n",
+				i,
+				uc_entry_socks[i].cmd_param,
+				uc_entry_socks[i].src_port,
+				uc_entry_socks[i].dst_port,
+				uc_entry_socks[i].ipa_sockv5_mask);
+			cnt += nbytes;
+
+			if (uc_entry_socks[i].cmd_param ==
+					IPA_SOCKsv5_ADD_V6_V4_COM_PM) {
+				socks_iphdr =
+					&uc_entry_socks[i].ip_hdr.ipv4_rsv;
+				nbytes = scnprintf(dbg_buff + cnt,
+					IPA_MAX_MSG_LEN,
+					"ipv4_src_addr: 0x%X\n"
+					"ipv4_dst_addr: 0x%X\n",
+					socks_iphdr->ipv4_temp.saddr,
+					socks_iphdr->ipv4_temp.daddr);
+				cnt += nbytes;
+			} else {
+				socks_ipv6hdr =
+					&uc_entry_socks[i].ip_hdr.ipv6_temp;
+				nbytes = scnprintf(dbg_buff + cnt,
+					IPA_MAX_MSG_LEN,
+					"ipv6_src_addr[0]: 0x%X\n"
+					"ipv6_src_addr[1]: 0x%X\n"
+					"ipv6_src_addr[2]: 0x%X\n"
+					"ipv6_src_addr[3]: 0x%X\n"
+					"ipv6_dts_addr[0]: 0x%X\n"
+					"ipv6_dts_addr[1]: 0x%X\n"
+					"ipv6_dts_addr[2]: 0x%X\n"
+					"ipv6_dts_addr[3]: 0x%X\n",
+					socks_ipv6hdr->saddr.s6_addr32[0],
+					socks_ipv6hdr->saddr.s6_addr32[1],
+					socks_ipv6hdr->saddr.s6_addr32[2],
+					socks_ipv6hdr->saddr.s6_addr32[3],
+					socks_ipv6hdr->daddr.s6_addr32[0],
+					socks_ipv6hdr->daddr.s6_addr32[1],
+					socks_ipv6hdr->daddr.s6_addr32[2],
+					socks_ipv6hdr->daddr.s6_addr32[3]);
+				cnt += nbytes;
+			}
+		}
+	}
+	mutex_unlock(&ipa3_ctx->act_tbl_lock);
+done:
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
+
+}
+
 static ssize_t ipa3_read_ipa_max_napi_sort_page_thrshld(struct file *file,
 	char __user *buf, size_t count, loff_t *ppos) {
 
@@ -3521,6 +3631,32 @@ static ssize_t ipa3_read_ipa_dscp_pcp_mapping_cache(struct file *file,
 	} else {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 				"DSCP PCP Mapping not present in uc\n");
+		cnt += nbytes;
+	}
+
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, cnt);
+
+}
+
+static ssize_t ipa3_read_ipa_pdn_dscp_mapping_cache(struct file *file,
+	char __user *buf, size_t count, loff_t *ppos) {
+
+	int nbytes, i;
+	int cnt = 0;
+
+	if (ipa3_ctx->pdn_dscp_map_info_cache.add) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"PDN DSCP Mapping present in uc\n |PDN| - |DSCP|\n");
+		cnt += nbytes;
+
+		for (i = 0; i < IPA_UC_MAX_PDN_DSCP_VAL; i++) {
+			nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN - cnt,
+			"%3d   -   %d\n", i, ipa3_ctx->pdn_dscp_map_info_cache.pdn_dscp_map[i]);
+			cnt += nbytes;
+		}
+	} else {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"PDN DSCP Mapping not present in uc\n");
 		cnt += nbytes;
 	}
 
@@ -3801,8 +3937,11 @@ static int ipsec_read_sa_stats(enum ipa_ipsec_sa_type sa_type,
 			"error_code_encap_sa_disabled = %u\n",
 				atomic_read(&encap_stats.error_code_encap_sa_disabled));
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-			"error_code_seq_num_overflow = %u\n\n",
+			"error_code_seq_num_overflow = %u\n",
 			atomic_read(&encap_stats.error_code_seq_num_overflow));
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"ipsec_excp_exceed_mtu = %u\n\n",
+			atomic_read(&encap_stats.ipsec_excp_exceed_mtu));
 	}
 
 	if (sa_type == IPA_IPSEC_DECAP) {
@@ -3810,7 +3949,9 @@ static int ipsec_read_sa_stats(enum ipa_ipsec_sa_type sa_type,
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 			"---Decap SA index %d Stats---\n",
 				sa_idx);
-
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+			"Decap *General(not related to SA)* error_code_frag = %u\n",
+			atomic_read(&ipa3_ctx->ipsec->stats.error_code_frag));
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 			"ipsec_decap_xmit = %u\n",
 			atomic_read(&decap_stats.ipsec_decap_xmit));
@@ -3916,6 +4057,8 @@ static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
 		"is_stopped = %d\n", esa.dyna.is_stopped);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"send_to_sw = %d\n", esa.dyna.send_to_sw);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"thresh_met = %d\n", esa.dyna.thresh_met);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"ipv4_id = %d\n", esa.dyna.ipv4_id);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
@@ -4032,6 +4175,8 @@ static ssize_t ipa3_read_ipsec_decap_sa_info(struct file *file,
 		"is_stopped = %d\n", dsa.dyna.is_stopped);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"send_to_sw = %d\n", dsa.dyna.send_to_sw);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+		"thresh_met = %d\n", dsa.dyna.thresh_met);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"volume_bytes = %llu\n", dsa.dyna.volume_bytes);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
@@ -4376,6 +4521,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		"ipa_dscp_pcp_mapping_cache", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_ipa_dscp_pcp_mapping_cache,
 		}
+	}, {
+		"ipa_pdn_dscp_mapping_cache", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_ipa_pdn_dscp_mapping_cache,
+		}
 #if defined(CONFIG_IPA_TSP)
 	}, {
 		"tsp", IPA_READ_WRITE_MODE, NULL, {
@@ -4404,6 +4553,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"enable_wkup_log", IPA_WRITE_ONLY_MODE,NULL, {
 			.write = enable_wkup_logs,
+		}
+	}, {
+		"uc_act_table", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_uc_act_tbl,
 		}
 	},
 };
@@ -4723,8 +4876,12 @@ done:
 }
 
 #if IPA_ETH_API_VER >= 2
-static void __ipa_ntn3_client_stats_read(int *cnt, struct ipa_ntn3_client_stats *s,
-	const char *str_client_tx, const char *str_client_rx, const char *str_client_rx1)
+static void __ipa_ntn3_client_stats_read(int *cnt,
+					 struct ipa_ntn3_client_stats *s,
+					 const char *str_client_tx,
+					 const char *str_client_rx,
+					 const char *str_client_rx1,
+					 const char *str_client_tx1)
 {
 	int nbytes;
 
@@ -4798,6 +4955,28 @@ static void __ipa_ntn3_client_stats_read(int *cnt, struct ipa_ntn3_client_stats 
 			str_client_rx1, s->rx1_stats.msi_db_cnt);
 		*cnt += nbytes;
 	}
+	if (str_client_tx1) {
+		nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
+			"%s_RP=0x%x\n"
+			"%s_WP=0x%x\n"
+			"%s_ntn_pending_db_after_rollback:%u\n"
+			"%s_msi_db_idx_val:%u\n"
+			"%s_tx_derr_counter:%u\n"
+			"%s_ntn_tx_oob_counter:%u\n"
+			"%s_ntn_accumulated_tres_handled:%u\n"
+			"%s_ntn_rollbacks_counter:%u\n"
+			"%s_ntn_msi_db_count:%u\n",
+			str_client_tx1, s->tx1_stats.rp,
+			str_client_tx1, s->tx1_stats.wp,
+			str_client_tx1, s->tx1_stats.pending_db_after_rollback,
+			str_client_tx1, s->tx1_stats.msi_db_idx,
+			str_client_tx1, s->tx1_stats.derr_cnt,
+			str_client_tx1, s->tx1_stats.oob_cnt,
+			str_client_tx1, s->tx1_stats.tres_handled,
+			str_client_tx1, s->tx1_stats.rollbacks_cnt,
+			str_client_tx1, s->tx1_stats.msi_db_cnt);
+		*cnt += nbytes;
+	}
 }
 #endif
 
@@ -4813,7 +4992,7 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 	int scratch_num;
 #if IPA_ETH_API_VER >= 2
 	struct ipa_ntn3_client_stats ntn3_stats;
-	const char *str_client_tx, *str_client_rx, *str_client_rx1;
+	const char *str_client_tx, *str_client_rx, *str_client_rx1, *str_client_tx1;
 #endif
 
 	memset(&tx_stats, 0, sizeof(struct ipa3_eth_error_stats));
@@ -4852,17 +5031,29 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 		memset(&ntn3_stats, 0, sizeof(ntn3_stats));
 		if (strstr(file->f_path.dentry->d_name.name, "0_status")) {
 			ipa_eth_ntn3_get_status(&ntn3_stats, 0);
-			str_client_tx = ipa_clients_strings[IPA_CLIENT_ETHERNET_CONS];
-			str_client_rx = ipa_clients_strings[IPA_CLIENT_ETHERNET_PROD];
-			str_client_rx1 = ipa_clients_strings[IPA_CLIENT_ETHERNET_PROD1];
+			str_client_tx =
+				ipa_clients_strings[IPA_CLIENT_ETHERNET_CONS];
+			str_client_rx =
+				ipa_clients_strings[IPA_CLIENT_ETHERNET_PROD];
+			str_client_rx1 =
+				ipa_clients_strings[IPA_CLIENT_ETHERNET_PROD1];
+			if (ipa3_ctx->tsn_iface)
+				str_client_tx1 = ipa_clients_strings
+					[IPA_CLIENT_ETHERNET_LOW_LAT_CONS];
+			else
+				str_client_tx1 = NULL;
 		} else {
 			ipa_eth_ntn3_get_status(&ntn3_stats, 1);
-			str_client_tx = ipa_clients_strings[IPA_CLIENT_ETHERNET2_CONS];
-			str_client_rx = ipa_clients_strings[IPA_CLIENT_ETHERNET2_PROD];
+			str_client_tx =
+				ipa_clients_strings[IPA_CLIENT_ETHERNET2_CONS];
+			str_client_rx =
+				ipa_clients_strings[IPA_CLIENT_ETHERNET2_PROD];
 			str_client_rx1 = NULL;
+			str_client_tx1 = NULL;
 		}
-		__ipa_ntn3_client_stats_read(&cnt, &ntn3_stats, str_client_tx, str_client_rx,
-									 str_client_rx1);
+		__ipa_ntn3_client_stats_read(&cnt, &ntn3_stats, str_client_tx,
+						str_client_rx, str_client_rx1,
+						str_client_tx1);
 		goto done;
 #endif
 	default:

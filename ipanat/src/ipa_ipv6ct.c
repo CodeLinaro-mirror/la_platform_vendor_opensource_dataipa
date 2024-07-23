@@ -1244,8 +1244,8 @@ static int ipa_ipv6ct_post_dma_cmd(
 
 void ipa_ipv6ct_dump_table(uint32_t table_handle)
 {
-	struct ipa_ct_ip6_table_cache* ct_table;
-	struct ipa_ct_cache*        ct_cache_ptr;
+	struct ipa_ct_ip6_table_cache* ct_table = NULL;
+	struct ipa_ct_cache*        ct_cache_ptr = NULL;
 	enum ipa3_nat_mem_in nmi;
 
 	CT_BREAK_TBL_HDL(table_handle, nmi, table_handle);

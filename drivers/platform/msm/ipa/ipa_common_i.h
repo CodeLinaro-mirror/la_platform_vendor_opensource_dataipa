@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_COMMON_I_H_
@@ -721,6 +721,8 @@ int ipa_smmu_store_sgt(struct sg_table **out_ch_ptr,
 		struct sg_table *in_sgt_ptr);
 int ipa_smmu_free_sgt(struct sg_table **out_sgt_ptr);
 
+int ipa3_update_l2tp_config(uint32_t client);
+
 #ifdef CONFIG_IPA_UT
 int ipa_ut_module_init(void);
 void ipa_ut_module_exit(void);
@@ -1005,6 +1007,7 @@ bool ipa3_is_ulso_supported(void);
 /* IPA_PACKET_INIT_EX IC to pipe API */
 int ipa_set_pkt_init_ex_hdr_ofst(
   struct ipa_pkt_init_ex_hdr_ofst_set *lookup, bool proc_ctx);
+int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx);
 
 /* IPA stats pm functions */
 int ipa_pm_get_scaling_bw_levels(struct ipa_lnx_clock_stats *clock_stats);

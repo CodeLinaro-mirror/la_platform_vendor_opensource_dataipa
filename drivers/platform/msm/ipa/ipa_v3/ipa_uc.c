@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -69,56 +69,62 @@ DECLARE_WORK(ipa3_ipsec_enabled_work, ipa_ipsec_ep_init_cons);
  *                                  easymesh service prioritization.
  * IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING: Command to Delete DSCP PCP mapping for
  *                                  easymesh service prioritization.
+ * IPA_CPU_2_HW_CMD_TSN_ENABLE: command to notify uc of enablement of tsn mode
+ * IPA_CPU_2_HW_CMD_ADD_PDN_DSCP_MAPPING: Command to Add PDN DSCP mapping for
+ *                                  DL traffic prioritization.
+ * IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING: Command to Delete PDN DSCP mapping for
+ *                                  DL traffic prioritization.
  */
 enum ipa3_cpu_2_hw_commands {
-	IPA_CPU_2_HW_CMD_NO_OP                     =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 0),
-	IPA_CPU_2_HW_CMD_UPDATE_FLAGS              =
+	IPA_CPU_2_HW_CMD_NO_OP = FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 0),
+	IPA_CPU_2_HW_CMD_UPDATE_FLAGS =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 1),
-	IPA_CPU_2_HW_CMD_DEBUG_RUN_TEST            =
+	IPA_CPU_2_HW_CMD_DEBUG_RUN_TEST =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 2),
-	IPA_CPU_2_HW_CMD_DEBUG_GET_INFO            =
+	IPA_CPU_2_HW_CMD_DEBUG_GET_INFO =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 3),
-	IPA_CPU_2_HW_CMD_ERR_FATAL                 =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 4),
-	IPA_CPU_2_HW_CMD_CLK_GATE                  =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 5),
-	IPA_CPU_2_HW_CMD_CLK_UNGATE                =
+	IPA_CPU_2_HW_CMD_ERR_FATAL = FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 4),
+	IPA_CPU_2_HW_CMD_CLK_GATE = FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 5),
+	IPA_CPU_2_HW_CMD_CLK_UNGATE =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 6),
-	IPA_CPU_2_HW_CMD_MEMCPY                    =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 7),
-	IPA_CPU_2_HW_CMD_RESET_PIPE                =
+	IPA_CPU_2_HW_CMD_MEMCPY = FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 7),
+	IPA_CPU_2_HW_CMD_RESET_PIPE =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 8),
-	IPA_CPU_2_HW_CMD_REG_WRITE                 =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 9),
-	IPA_CPU_2_HW_CMD_GSI_CH_EMPTY              =
+	IPA_CPU_2_HW_CMD_REG_WRITE = FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 9),
+	IPA_CPU_2_HW_CMD_GSI_CH_EMPTY =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 10),
-	IPA_CPU_2_HW_CMD_REMOTE_IPA_INFO           =
+	IPA_CPU_2_HW_CMD_REMOTE_IPA_INFO =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 11),
-	IPA_CPU_2_HW_CMD_SETUP_EVENT_RING          =
+	IPA_CPU_2_HW_CMD_SETUP_EVENT_RING =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 12),
-	IPA_CPU_2_HW_CMD_ENABLE_FLOW_CTL_MONITOR   =
+	IPA_CPU_2_HW_CMD_ENABLE_FLOW_CTL_MONITOR =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 13),
-	IPA_CPU_2_HW_CMD_UPDATE_FLOW_CTL_MONITOR   =
+	IPA_CPU_2_HW_CMD_UPDATE_FLOW_CTL_MONITOR =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 14),
-	IPA_CPU_2_HW_CMD_DISABLE_FLOW_CTL_MONITOR  =
+	IPA_CPU_2_HW_CMD_DISABLE_FLOW_CTL_MONITOR =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 15),
-	IPA_CPU_2_HW_CMD_ENABLE_HOLB_MONITOR       =
+	IPA_CPU_2_HW_CMD_ENABLE_HOLB_MONITOR =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 17),
-	IPA_CPU_2_HW_CMD_ADD_HOLB_MONITOR          =
+	IPA_CPU_2_HW_CMD_ADD_HOLB_MONITOR =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 18),
-	IPA_CPU_2_HW_CMD_DEL_HOLB_MONITOR          =
+	IPA_CPU_2_HW_CMD_DEL_HOLB_MONITOR =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 19),
-	IPA_CPU_2_HW_CMD_DISABLE_HOLB_MONITOR       =
+	IPA_CPU_2_HW_CMD_DISABLE_HOLB_MONITOR =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 20),
-	IPA_CPU_2_HW_CMD_ADD_EOGRE_MAPPING             =
+	IPA_CPU_2_HW_CMD_ADD_EOGRE_MAPPING =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 21),
-	IPA_CPU_2_HW_CMD_ADD_DSCP_PCP_MAPPING       =
+	IPA_CPU_2_HW_CMD_ADD_DSCP_PCP_MAPPING =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 22),
-	IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING       =
+	IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 23),
-        IPA_CPU_2_HW_CMD_MHI_CESTA_CHANNEL_LIST  =
-                FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 24),
+	IPA_CPU_2_HW_CMD_MHI_CESTA_CHANNEL_LIST =
+		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 24),
+	IPA_CPU_2_HW_CMD_TSN_ENABLE =
+		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 25),
+	IPA_CPU_2_HW_CMD_ADD_PDN_DSCP_MAPPING =
+		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 26),
+	IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING =
+		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 27),
 };
 
 /**
@@ -254,6 +260,16 @@ struct IpaHwDbAddrInfo_t {
  */
 struct IpaDscpPcpMap_t {
 	uint8_t dscp_pcp_map[IPA_UC_MAX_DSCP_VAL];
+} __packed;
+
+/**
+ * Structure holding the parameters for IPA_CPU_2_HW_CMD_ADD_PDN_DSCP_MAPPING
+ * and IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING command.
+ * @dscp_pcp_map: DSCP <6 bits>.
+ *                PDN(mux_id) is used as index (0-15).
+ */
+struct IpaPdnDscpMap_t {
+	uint8_t pdn_dscp_map[IPA_UC_MAX_PDN_DSCP_VAL];
 } __packed;
 
 /**
@@ -616,7 +632,7 @@ static void ipa3_event_ring_hdlr(void)
 	struct eventElement_t *e_b = NULL, *e_q = NULL, *e_h = NULL;
 	int mul = 0;
 #if defined(CONFIG_IPA_IPSEC)
-	union EventParamFormat_t *val;
+	struct eventElement_t *e_t = NULL;
 #endif
 
 	ering_rp = ipahal_read_reg_mn(IPA_UC_MAILBOX_m_n,
@@ -628,7 +644,8 @@ static void ipa3_event_ring_hdlr(void)
 		rp_va = ipa3_ctx->uc_ctx.event_ring.base +
 			ipa3_ctx->uc_ctx.ering_rp_local;
 
-		if (((struct eventElement_t *) rp_va)->Opcode == BW_NOTIFY) {
+		switch (((struct eventElement_t *) rp_va)->Opcode) {
+		case BW_NOTIFY:
 			e_b = ((struct eventElement_t *) rp_va);
 			IPADBG("prot(%d), index (%d) throughput (%lu)\n",
 			e_b->Protocol,
@@ -644,8 +661,8 @@ static void ipa3_event_ring_hdlr(void)
 			if (ipa3_inform_wlan_bw(&bw_info))
 				IPAERR_RL("failed on index %d to wlan\n",
 				bw_info.index);
-		} else if (((struct eventElement_t *) rp_va)->Opcode
-			== QUOTA_NOTIFY) {
+			break;
+		case QUOTA_NOTIFY:
 			e_q = ((struct eventElement_t *) rp_va);
 			IPADBG("got quota-notify %d reach(%d) usage (%lu)\n",
 			e_q->Protocol,
@@ -655,8 +672,8 @@ static void ipa3_event_ring_hdlr(void)
 				e_q->Value.quota_param.usage))
 				IPAERR_RL("failed on quota_reach for %d\n",
 						e_q->Protocol);
-		} else if (((struct eventElement_t *) rp_va)->Opcode
-				== IPA_HOLB_BAD_PERIPHERAL_EVENT) {
+			break;
+		case IPA_HOLB_BAD_PERIPHERAL_EVENT:
 			e_h = ((struct eventElement_t *) rp_va);
 			IPAERR("Bad Periph for Chan %d QTimer %u %u\n",
 				e_h->Value.holb_notify_param.ipaProdGsiChid,
@@ -667,8 +684,8 @@ static void ipa3_event_ring_hdlr(void)
 				true,
 				e_h->Value.holb_notify_param.qTimerLSB,
 				e_h->Value.holb_notify_param.qTimerMSB);
-		} else if (((struct eventElement_t *) rp_va)->Opcode
-				== IPA_HOLB_PERIPHERAL_RECOVERED_EVENT) {
+			break;
+		case IPA_HOLB_PERIPHERAL_RECOVERED_EVENT:
 			e_h = ((struct eventElement_t *) rp_va);
 			IPAERR("Recovered Periph Chan %d QTimer %u %u\n",
 				e_h->Value.holb_notify_param.ipaProdGsiChid,
@@ -679,14 +696,30 @@ static void ipa3_event_ring_hdlr(void)
 				false,
 				e_h->Value.holb_notify_param.qTimerLSB,
 				e_h->Value.holb_notify_param.qTimerMSB);
+			break;
 #if defined(CONFIG_IPA_IPSEC)
-		} else if (((struct eventElement_t *) rp_va)->Opcode
-				== IPSEC_THRESH_NOTIFY) {
-			val = &((struct eventElement_t *)rp_va)->Value;
-			ipa_ipsec_handle_sa_thresh(
-				(u8)(val->ipsec_threshold_param.sa_idx),
-				(enum ipa_ipsec_uc_sa_action)(val->ipsec_threshold_param.sa_action));
+		case IPSEC_THRESH_NOTIFY:
+			if (ipa_ipsec_enabled()) {
+				IPADBG("Got IPsec threshold sa_idx (%d), sa_action (%d), type (%d)\n",
+					e_t->Value.ipsec_threshold_param.sa_idx,
+					e_t->Value.ipsec_threshold_param.sa_action,
+					e_t->Value.ipsec_threshold_param.type);
+				ipa_ipsec_handle_sa_thresh(
+					(u8)(e_t->Value.ipsec_threshold_param.sa_idx),
+					(enum ipa_ipsec_uc_sa_action)
+					(e_t->Value.ipsec_threshold_param.sa_action),
+					(enum ipa_ipsec_uc_thresh_type)
+					(e_t->Value.ipsec_threshold_param.type));
+			}
+		case IPSEC_NEXT_IV_READY_NOTIFY:
+			if (ipa_ipsec_enabled())
+				ipa3_ctx->uc_ctx.ipsec_next_iv_wa_ready = true;
+			break;
 #endif
+		default:
+			IPAERR("Unidentified uC event %d\n",
+				((struct eventElement_t *) rp_va)->Opcode);
+			break;
 		}
 		ipa3_ctx->uc_ctx.ering_rp_local += offset;
 		ipa3_ctx->uc_ctx.ering_rp_local %=
@@ -946,7 +979,7 @@ static void ipa3_uc_response_hdlr(enum ipa_irq_type interrupt,
 			queue_work(ipa_uc_holb_wq, &ipa3_holb_enabled_work);
 
 #if defined(CONFIG_IPA_IPSEC)
-		if (ipa_ipsec_enabled() && ipa_uc_ipsec_wq != NULL) {
+		if (ipa_ipsec_initialized() && ipa_uc_ipsec_wq != NULL) {
 			queue_work(ipa_uc_ipsec_wq, &ipa3_ipsec_enabled_work);
 		}
 #endif
@@ -2253,6 +2286,88 @@ int ipa3_add_remove_dscp_pcp_map(
 		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
 	else
 		IPADBG("DSCP <-> PCP %s Success\n", (AddMapping)?"Add":"Delete");
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return res;
+}
+
+/**
+ * ipa3_notify_uc_tsn_enable() - Send tsn enable mode notification to IPA uC
+ *
+ * Returns: 0 on success, negative on failure
+ */
+
+int ipa3_notify_uc_tsn_enable(void)
+{
+	int result = 0;
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	result = ipa3_uc_send_cmd(0, IPA_CPU_2_HW_CMD_TSN_ENABLE, 0, false,
+				  10 * HZ);
+	if (result)
+		IPAERR("ipa3_uc_send_cmd failed %d\n", result);
+	else
+		IPADBG("UC TSN enable Success\n");
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return result;
+}
+EXPORT_SYMBOL(ipa3_notify_uc_tsn_enable);
+
+/**
+ * ipa3_add_remove_pdn_dscp_map() - Feed "PDN <-> DSCP" mapping into the IPA uC
+ * @map: The mapping data destined for the uC
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_add_remove_pdn_dscp_map(
+	uint8_t *map, bool AddMapping)
+{
+	struct ipa_mem_buffer mem;
+	struct IpaPdnDscpMap_t *cmd;
+	int res;
+
+	if (!map) {
+		IPAERR("null argument (ie. map) passed\n");
+		return -EINVAL;
+	}
+
+	IPADBG("PDN <-> DSCP %s attempt\n", (AddMapping)?"Add":"Delete");
+
+	if (AddMapping) {
+		mem.size = sizeof(struct IpaPdnDscpMap_t);
+
+		mem.base = dma_alloc_coherent(
+		ipa3_ctx->uc_pdev, mem.size,
+		&mem.phys_base, GFP_KERNEL);
+
+		if (!mem.base) {
+			IPAERR("Fail to alloc DMA buff of size %d\n", mem.size);
+			return -ENOMEM;
+		}
+
+		cmd = (struct IpaPdnDscpMap_t *) mem.base;
+
+		memcpy(cmd, map, sizeof(struct IpaPdnDscpMap_t));
+
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+		res = ipa3_uc_send_cmd(
+			(u32) mem.phys_base,
+			IPA_CPU_2_HW_CMD_ADD_PDN_DSCP_MAPPING,
+			0, true, 10 * HZ);
+
+		dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
+	} else {
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+		res = ipa3_uc_send_cmd(
+			0, IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING,
+			0, true, 10 * HZ);
+	}
+
+	if (res)
+		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
+	else
+		IPADBG("DSCP <-> PDN %s Success\n", (AddMapping)?"Add":"Delete");
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 

@@ -6726,13 +6726,6 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 35, 27 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0][IPA_CLIENT_WLAN2_CONS1] = {
-			true,   IPA_v6_0_GROUP_DL,
-			false,
-			IPA_DPS_HPS_SEQ_TYPE_INVALID,
-			QMB_MASTER_SELECT_DDR,
-			{ 35, 27 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_DL },
 	[IPA_6_0][IPA_CLIENT_USB_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
@@ -6754,6 +6747,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 39, 10, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
+	[IPA_6_0][IPA_CLIENT_ETHERNET_LOW_LAT_CONS] = {
+			true,   IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 40, 6, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_DL },
 	[IPA_6_0][IPA_CLIENT_USB2_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
@@ -6762,6 +6762,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 41, 8, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 4},
 			IPA_TX_INSTANCE_DL },
 	[IPA_6_0][IPA_CLIENT_ODU_EMB_CONS] = {
+			true,   IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 41, 8, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 4},
+			IPA_TX_INSTANCE_DL },
+	[IPA_6_0][IPA_CLIENT_WLAN2_CONS1] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -6810,6 +6817,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 49, 36, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
+	[IPA_6_0][IPA_CLIENT_DUMMY_CONS] = {
+			true, IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 50, 50, 9 , 9 , IPA_EE_AP},
+			IPA_TX_INSTANCE_NA },
 
 	/*For test purposes only*/
 	[IPA_6_0][IPA_CLIENT_TEST_PROD] = {
@@ -8863,6 +8877,8 @@ static struct ipa3_mem_partition ipa_5_2_mdm_mem_part = {
 	.modem_size = 0xd48,
 	.nat_tbl_ofst = 0x38c0,
 	.nat_tbl_size = 0x900,
+	.ct_tbl_ofst = 0x2B50,
+	.ct_tbl_size = 0x0,
 	.apps_v4_flt_nhash_ofst = 0x2B50,
 	.apps_v4_flt_nhash_size = 0x0,
 	.apps_v6_flt_nhash_ofst = 0x2B50,
@@ -9043,8 +9059,11 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_quota_ap_size = 0x60,
 	.stats_peripheral_prod_ofst = 0x64a8,
 	.stats_peripheral_prod_size = 0x90,
-	.stats_tethering_ofst = 0x6538,
-	.stats_tethering_size = 0x7b0,
+	 /* Make sure empty table ofst is always > base table address. */
+	.apps_fltrt_empty_tbl_ofst = 0x6538,
+	.apps_fltrt_empty_tbl_size = 0x20,
+	.stats_tethering_ofst = 0x6558,
+	.stats_tethering_size = 0x790,
 	.stats_flt_v4_ofst = 0,
 	.stats_flt_v4_size = 0,
 	.stats_flt_v6_ofst = 0,
@@ -9054,9 +9073,9 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_rt_v6_ofst = 0,
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x6ce8,
-	.stats_fnr_size = 0x2680,
-	.stats_drop_ofst = 0x9368,
-	.stats_drop_size = 0x20,
+	.stats_fnr_size = 0x2658,
+	.stats_drop_ofst = 0x9340,
+	.stats_drop_size = 0x48,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x9398,
@@ -9238,6 +9257,9 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(RESERVERD_PROD_144),
 	__stringify(IPA_CLIENT_Q6_CV2X_DECIPHER_CONS),
 	__stringify(IPA_CLIENT_ETHERNET_PROD1),
+	__stringify(RESERVERD_CONS_147),
+	__stringify(RESERVERD_PROD_148),
+	__stringify(IPA_CLIENT_ETHERNET_LOW_LAT_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -9534,7 +9556,8 @@ bool ipa3_should_pipe_be_suspended(enum ipa_client_type client)
 		client == IPA_CLIENT_ODU_EMB_CONS ||
 		client == IPA_CLIENT_ODU_TETH_CONS ||
 		client == IPA_CLIENT_ETHERNET_CONS ||
-		client == IPA_CLIENT_ETHERNET2_CONS)
+		client == IPA_CLIENT_ETHERNET2_CONS ||
+		client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS)
 		return true;
 
 	return false;
@@ -11055,6 +11078,7 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_ETHERNET_PROD:
 		case IPA_CLIENT_ETHERNET_CONS:
 		case IPA_CLIENT_ETHERNET2_CONS:
+		case IPA_CLIENT_ETHERNET_LOW_LAT_CONS:
 		case IPA_CLIENT_USB2_CONS:
 		case IPA_CLIENT_WLAN4_CONS:
 		case IPA_CLIENT_WLAN1_PROD:
@@ -16402,6 +16426,7 @@ int ipa3_get_prot_id(enum ipa_client_type client)
 	case IPA_CLIENT_ETHERNET_PROD:
 	case IPA_CLIENT_ETHERNET_CONS:
 	case IPA_CLIENT_ETHERNET_PROD1:
+	case IPA_CLIENT_ETHERNET_LOW_LAT_CONS:
 		prot_id = IPA_HW_PROTOCOL_ETH;
 		break;
 	case IPA_CLIENT_WIGIG_PROD:
@@ -16486,6 +16511,11 @@ void ipa_eth_ntn3_get_status(struct ipa_ntn3_client_stats *s, unsigned inst_id)
 		}
 		if (ezmesh)
 			__ipa_ntn3_prod_stats_get(&s->rx1_stats, IPA_CLIENT_ETHERNET_PROD1);
+
+		if (ipa3_ctx->tsn_iface)
+			__ipa_ntn3_cons_stats_get(
+				&s->tx1_stats,
+				IPA_CLIENT_ETHERNET_LOW_LAT_CONS);
 #endif
 	} else {
 		__ipa_ntn3_cons_stats_get(&s->tx_stats, IPA_CLIENT_ETHERNET2_CONS);
@@ -16769,6 +16799,25 @@ done:
 	return ret;
 }
 
+int ipa3_send_eogre_notify(enum ipa_eogre_event etype)
+{
+	struct ipa_msg_meta    msg_meta;
+	int res = 0;
+
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = etype;
+
+	IPADBG("sending eogre notify to ipacm\n");
+
+	res = ipa3_send_msg(&msg_meta, NULL, NULL);
+
+	if (res) {
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+	}
+
+	return res;
+}
+
 /**
  * ipa3_send_eogre_info() - Notify ipacm of incoming eogre event
  *
@@ -16981,6 +17030,212 @@ int ipa3_setup_uc_act_tbl(void)
 	return res;
 }
 
+static inline bool is_free_socksv5(struct ipa_socksv5_uc_tmpl *socksv5_entry)
+{
+	if ((!socksv5_entry->cmd_id) ||
+		(socksv5_entry->cmd_id == IPA_SOCKsv5_ADD_COM_ID &&
+		!(socksv5_entry->ipa_sockv5_mask & IPA_SOCKSv5_ENTRY_VALID)))
+		return true;
+	return false;
+}
+
+static int ipa3_get_free_uc_act_entry(void)
+{
+	struct ipa_socksv5_uc_tmpl *entry;
+	int orig_index = ipa3_ctx->uc_act_tbl_next_index;
+	int free_index = -1;
+
+	IPADBG("\n");
+	/* find a free spot*/
+	do {
+		entry = ipa3_ctx->uc_act_tbl.base +
+			ipa3_ctx->uc_act_tbl_next_index
+			* sizeof(struct ipa_socksv5_uc_tmpl);
+
+		/* check if entry is free */
+		if (is_free_socksv5(entry)) {
+			free_index = ipa3_ctx->uc_act_tbl_next_index;
+			IPADBG("found free index at %d\n", free_index);
+			break;
+		}
+
+		ipa3_ctx->uc_act_tbl_next_index++;
+		ipa3_ctx->uc_act_tbl_next_index %=
+			IPA_UC_ACT_TBL_SIZE;
+	} while (orig_index != ipa3_ctx->uc_act_tbl_next_index);
+	IPADBG("exit free_index %d\n", free_index);
+	return free_index;
+}
+
+int ipa3_add_ipv6_nat_uc_activation_entry(
+	struct ipa_ioc_ipv6_nat_uc_act_entry *entry)
+{
+	int res = 0;
+	int index;
+	struct ipa_ipv6_nat_uc_tmpl *uc_entry;
+
+	/* IPA version check */
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_5) {
+		IPAERR("Not support !\n");
+		return -EPERM;
+	}
+
+	if (!ipa3_ctx->uc_act_tbl_valid) {
+		IPAERR("uC act tbl wasn't allocated\n");
+		return -ENOENT;
+	}
+
+	if (!entry) {
+		IPAERR("Null entry\n");
+		return -EIO;
+	}
+	if (!entry->private_address_lsb || !entry->private_address_msb
+		|| !entry->public_address_lsb || !entry->public_address_msb
+		|| !entry->private_port || !entry->public_port) {
+		IPAERR("0 param 0x%llX 0x%llX 0x%llX 0x%llX %d %d\n",
+			entry->private_address_lsb, entry->private_address_msb,
+			entry->public_address_lsb, entry->public_address_msb,
+			entry->private_port, entry->public_port);
+		return -EFAULT;
+	}
+
+	mutex_lock(&ipa3_ctx->act_tbl_lock);
+	/* check the left # of entries */
+	if (ipa3_ctx->uc_act_tbl_total
+		>= IPA_UC_ACT_TBL_SIZE) {
+		IPAERR("uc act tbl is full!\n");
+		res = -EFAULT;
+		goto error;
+	}
+
+	index = ipa3_get_free_uc_act_entry();
+
+	uc_entry = (struct ipa_ipv6_nat_uc_tmpl *)(ipa3_ctx->uc_act_tbl.base +
+		index * sizeof(struct ipa_ipv6_nat_uc_tmpl));
+
+	uc_entry->private_address_lsb = entry->private_address_lsb;
+	uc_entry->private_address_msb = entry->private_address_msb;
+	uc_entry->public_address_lsb = entry->public_address_lsb;
+	uc_entry->public_address_msb = entry->public_address_msb;
+	uc_entry->private_port = entry->private_port;
+	uc_entry->public_port = entry->public_port;
+	uc_entry->cmd_id = IPA_IPv6_NAT_COM_ID;
+
+	/* set output index */
+	entry->index = (uint16_t)index;
+
+	ipa3_ctx->uc_act_tbl_total++;
+	ipa3_ctx->uc_act_tbl_ipv6_nat_total++;
+
+	if (ipa3_ctx->uc_act_tbl_total < IPA_UC_ACT_TBL_SIZE) {
+		/*
+		 * find next free spot, this function shall update
+		 * uc_act_tbl_next_index
+		 */
+		index = ipa3_get_free_uc_act_entry();
+
+		if (index < 0) {
+			/* set to max tbl size to debug */
+			IPAERR("can't find available spot!\n");
+			ipa3_ctx->uc_act_tbl_total = IPA_UC_ACT_TBL_SIZE;
+			res = -EFAULT;
+		}
+	}
+error:
+	mutex_unlock(&ipa3_ctx->act_tbl_lock);
+	return res;
+}
+
+int ipa3_del_uc_act_entry(uint16_t index)
+{
+	struct ipa_ipv6_nat_uc_tmpl *uc_entry;
+	uint16_t cmd_id;
+
+	/* IPA version check */
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_5) {
+		IPAERR_RL("Not support !\n");
+		return -EPERM;
+	}
+
+	if (!ipa3_ctx->uc_act_tbl_valid) {
+		IPAERR_RL("uC act tbl haven't allocated\n");
+		return -ENOENT;
+	}
+
+	if (index > IPA_UC_ACT_TBL_SIZE || index < 0) {
+		IPAERR_RL("invalid index!\n");
+		return -EINVAL;
+	}
+
+	if (!ipa3_ctx->uc_act_tbl_total) {
+		IPAERR_RL(
+			"invalid handle, no uc activation entries in table (total %d)\n"
+			, ipa3_ctx->uc_act_tbl_total);
+		return -EINVAL;
+	}
+
+	uc_entry = (struct ipa_ipv6_nat_uc_tmpl *)(ipa3_ctx->uc_act_tbl.base +
+		index * sizeof(struct ipa_ipv6_nat_uc_tmpl));
+
+	mutex_lock(&ipa3_ctx->act_tbl_lock);
+	cmd_id = uc_entry->cmd_id;
+	mutex_unlock(&ipa3_ctx->act_tbl_lock);
+
+	if (cmd_id == IPA_IPv6_NAT_COM_ID)
+		return ipa3_del_ipv6_nat_uc_activation_entry(index);
+	else
+		return ipa3_del_socksv5_conn(index);
+}
+
+int ipa3_del_ipv6_nat_uc_activation_entry(uint16_t index)
+{
+	struct ipa_ipv6_nat_uc_tmpl *uc_entry;
+	int res = 0;
+
+	/* IPA version check */
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_5) {
+		IPAERR_RL("Not support !\n");
+		return -EPERM;
+	}
+
+	if (!ipa3_ctx->uc_act_tbl_valid) {
+		IPAERR_RL("uC act tbl haven't allocated\n");
+		return -ENOENT;
+	}
+
+	if (index > IPA_UC_ACT_TBL_SIZE || index < 0) {
+		IPAERR_RL("invalid index!\n");
+		return -EINVAL;
+	}
+
+	if (!ipa3_ctx->uc_act_tbl_ipv6_nat_total) {
+		IPAERR_RL(
+			"invalid handle, no IPv6 NAT entries in table (total %d)\n"
+		, ipa3_ctx->uc_act_tbl_total);
+		return -EINVAL;
+	}
+
+	uc_entry = (struct ipa_ipv6_nat_uc_tmpl *)(ipa3_ctx->uc_act_tbl.base +
+		index * sizeof(struct ipa_ipv6_nat_uc_tmpl));
+
+	mutex_lock(&ipa3_ctx->act_tbl_lock);
+	if (uc_entry->cmd_id != IPA_IPv6_NAT_COM_ID) {
+		IPAERR_RL("entry %d wrong cmd id %d\n", uc_entry->cmd_id);
+		res = -EFAULT;
+		goto error;
+	}
+	uc_entry->cmd_id = 0;
+	ipa3_ctx->uc_act_tbl_total--;
+	ipa3_ctx->uc_act_tbl_ipv6_nat_total--;
+
+	IPADBG("free entry %d, nat total %d, left total %d\n",
+		index,
+		ipa3_ctx->uc_act_tbl_ipv6_nat_total,
+		ipa3_ctx->uc_act_tbl_total);
+error:
+	mutex_unlock(&ipa3_ctx->act_tbl_lock);
+	return res;
+}
 static void ipa3_socksv5_msg_free_cb(void *buff, u32 len, u32 type)
 {
 	if (!buff) {
@@ -16998,6 +17253,39 @@ static void ipa3_socksv5_msg_free_cb(void *buff, u32 len, u32 type)
 	kfree(buff);
 }
 
+static int ipa3_get_free_socksv5_entry(void)
+{
+	struct ipa_socksv5_uc_tmpl *first;
+	struct ipa_socksv5_uc_tmpl *next;
+	int orig_index = ipa3_ctx->uc_act_tbl_next_index;
+	int free_index = -1;
+
+	IPADBG("\n");
+	/* find a free spot with two contiguous entries*/
+	do {
+		first = ipa3_ctx->uc_act_tbl.base +
+			ipa3_ctx->uc_act_tbl_next_index
+			* sizeof(struct ipa_socksv5_uc_tmpl);
+		next = ipa3_ctx->uc_act_tbl.base +
+			(ipa3_ctx->uc_act_tbl_next_index + 1)
+			* sizeof(struct ipa_socksv5_uc_tmpl);
+
+		/* check if first entry and next entry are free */
+		if (is_free_socksv5(first) && is_free_socksv5(next)) {
+			free_index = ipa3_ctx->uc_act_tbl_next_index;
+			IPADBG("found free index at %d\n", free_index);
+			break;
+		}
+
+		ipa3_ctx->uc_act_tbl_next_index += 2;
+		ipa3_ctx->uc_act_tbl_next_index %=
+			IPA_UC_ACT_TBL_SIZE;
+	} while (orig_index != ipa3_ctx->uc_act_tbl_next_index);
+
+	IPADBG("exit free_index %d\n", free_index);
+	return free_index;
+}
+
 /**
  * ipa3_add_socksv5_conn() - IPA add socksv5_conn
  *
@@ -17007,8 +17295,8 @@ static void ipa3_socksv5_msg_free_cb(void *buff, u32 len, u32 type)
  */
 int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
 {
-	int res = 0;
-	void *rp_va, *wp_va;
+	int res = 0, index;
+	void *wp_va;
 	struct ipa_socksv5_msg *socksv5_msg;
 	struct ipa_msg_meta msg_meta;
 
@@ -17029,18 +17317,24 @@ int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
 	}
 
 	mutex_lock(&ipa3_ctx->act_tbl_lock);
-	/* check the left # of entries */
+	/* check the left # of entries (need at least 2)*/
 	if (ipa3_ctx->uc_act_tbl_total
-		>= IPA_UC_ACT_TBL_SIZE)	{
+		>= IPA_UC_ACT_TBL_SIZE - 1)	{
 		IPAERR("uc act tbl is full!\n");
+		res = -EFAULT;
+		goto error;
+	}
+
+	index = ipa3_get_free_socksv5_entry();
+	if (index < 0) {
+		IPAERR("couldn't find free socksv5 entry\n");
 		res = -EFAULT;
 		goto error;
 	}
 
 	/* Copied the act-info to tbl */
 	wp_va = ipa3_ctx->uc_act_tbl.base +
-		ipa3_ctx->uc_act_tbl_next_index
-			* sizeof(struct ipa_socksv5_uc_tmpl);
+		index * sizeof(struct ipa_socksv5_uc_tmpl);
 
 	/* check entry valid */
 	if ((info->ul_out.cmd_id != IPA_SOCKsv5_ADD_COM_ID)
@@ -17077,9 +17371,10 @@ int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
 		&(info->dl_out), sizeof(info->dl_out));
 
 	/* set output handle */
-	info->handle = (uint16_t) ipa3_ctx->uc_act_tbl_next_index;
+	info->handle = (uint16_t) index;
 
 	ipa3_ctx->uc_act_tbl_total += 2;
+	ipa3_ctx->uc_act_tbl_socksv5_total += 2;
 
 	/* send msg to ipacm */
 	socksv5_msg = kzalloc(sizeof(*socksv5_msg), GFP_KERNEL);
@@ -17092,9 +17387,9 @@ int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
 	memcpy(&(socksv5_msg->dl_in), &(info->dl_in), sizeof(info->dl_in));
 	socksv5_msg->handle = info->handle;
 	socksv5_msg->ul_in.index =
-		(uint16_t) ipa3_ctx->uc_act_tbl_next_index;
+		(uint16_t) index;
 	socksv5_msg->dl_in.index =
-		(uint16_t) ipa3_ctx->uc_act_tbl_next_index + 1;
+		(uint16_t) index + 1;
 
 	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
 	msg_meta.msg_type = IPA_SOCKV5_ADD;
@@ -17107,27 +17402,14 @@ int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
 		goto error;
 	}
 
-	if (ipa3_ctx->uc_act_tbl_total < IPA_UC_ACT_TBL_SIZE) {
-		/* find next free spot */
-		do {
-			ipa3_ctx->uc_act_tbl_next_index += 2;
-			ipa3_ctx->uc_act_tbl_next_index %=
-				IPA_UC_ACT_TBL_SIZE;
+	if (ipa3_ctx->uc_act_tbl_total < IPA_UC_ACT_TBL_SIZE - 1) {
+		/*
+		 * find next free spot, this function shall update
+		 * uc_act_tbl_next_index
+		 */
+		index = ipa3_get_free_socksv5_entry();
 
-			rp_va =  ipa3_ctx->uc_act_tbl.base +
-				ipa3_ctx->uc_act_tbl_next_index
-					* sizeof(struct ipa_socksv5_uc_tmpl);
-
-			if (!((((struct ipa_socksv5_uc_tmpl *) rp_va)->
-				ipa_sockv5_mask) & IPA_SOCKSv5_ENTRY_VALID)) {
-				IPADBG("next available entry %d, total %d\n",
-				ipa3_ctx->uc_act_tbl_next_index,
-				ipa3_ctx->uc_act_tbl_total);
-				break;
-			}
-		} while (rp_va != wp_va);
-
-		if (rp_va == wp_va) {
+		if (index < 0) {
 			/* set to max tbl size to debug */
 			IPAERR("can't find available spot!\n");
 			ipa3_ctx->uc_act_tbl_total = IPA_UC_ACT_TBL_SIZE;
@@ -17138,6 +17420,128 @@ int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
 error:
 	mutex_unlock(&ipa3_ctx->act_tbl_lock);
 	return res;
+}
+
+/*
+ * ipa3_add_socksv5_conn_usr() - IPA copy and add socksv5 conn
+ *
+ * Returns: 0 on success, negative on failure
+ *
+ * Note : Should not be called from atomic context
+ */
+int ipa3_add_socksv5_conn_usr(struct ipa_kernel_tests_socksv5_uc_tmpl *tmpl)
+{
+	struct ipa_socksv5_info info;
+	int retval = 0;
+
+	memset(&info, 0, sizeof(struct ipa_socksv5_info));
+
+	if (tmpl->direction == 0) { /* DL */
+		info.dl_out.cmd_id = tmpl->cmd_id;
+		info.dl_out.cmd_param = tmpl->cmd_param;
+		info.dl_out.ip_hdr.ipv6_temp.version = 6;
+		info.dl_out.ip_hdr.ipv6_temp.nexthdr = 6;
+		info.dl_out.ip_hdr.ipv6_temp.saddr.s6_addr32[0] =
+			tmpl->ipv6_src_addr[0];
+		info.dl_out.ip_hdr.ipv6_temp.saddr.s6_addr32[1] =
+			tmpl->ipv6_src_addr[1];
+		info.dl_out.ip_hdr.ipv6_temp.saddr.s6_addr32[2] =
+			tmpl->ipv6_src_addr[2];
+		info.dl_out.ip_hdr.ipv6_temp.saddr.s6_addr32[3] =
+			tmpl->ipv6_src_addr[3];
+		info.dl_out.ip_hdr.ipv6_temp.daddr.s6_addr32[0] =
+			tmpl->ipv6_dst_addr[0];
+		info.dl_out.ip_hdr.ipv6_temp.daddr.s6_addr32[1] =
+			tmpl->ipv6_dst_addr[1];
+		info.dl_out.ip_hdr.ipv6_temp.daddr.s6_addr32[2] =
+			tmpl->ipv6_dst_addr[2];
+		info.dl_out.ip_hdr.ipv6_temp.daddr.s6_addr32[3] =
+			tmpl->ipv6_dst_addr[3];
+		info.dl_out.src_port = tmpl->src_port;
+		info.dl_out.dst_port = tmpl->dst_port;
+		info.dl_out.ipa_sockv5_mask = tmpl->ipa_sockv5_mask;
+		info.dl_out.out_irs = tmpl->out_irs;
+		info.dl_out.out_iss = tmpl->out_iss;
+		info.dl_out.in_irs = tmpl->in_irs;
+		info.dl_out.in_iss = tmpl->in_iss;
+		info.dl_out.out_ircv_tsval = tmpl->out_ircv_tsval;
+		info.dl_out.in_ircv_tsecr = tmpl->in_ircv_tsecr;
+		info.dl_out.out_ircv_tsecr = tmpl->out_ircv_tsecr;
+		info.dl_out.in_ircv_tsval = tmpl->in_ircv_tsval;
+		info.dl_out.in_isnd_wscale = tmpl->in_isnd_wscale;
+		info.dl_out.out_isnd_wscale = tmpl->out_isnd_wscale;
+		info.dl_out.in_ircv_wscale = tmpl->in_ircv_wscale;
+		info.dl_out.out_ircv_wscale = tmpl->out_ircv_wscale;
+
+		/* for UL set default values to pass pair validity check */
+		info.ul_out.cmd_id = IPA_SOCKsv5_ADD_COM_ID;
+		info.ul_out.cmd_param = IPA_SOCKsv5_ADD_V6_V4_COM_PM;
+	} else if (tmpl->direction == 1) { /* UL */
+		info.ul_out.cmd_id = tmpl->cmd_id;
+		info.ul_out.cmd_param = tmpl->cmd_param;
+		if (info.ul_out.cmd_param == IPA_SOCKsv5_ADD_V6_V4_COM_PM) {
+			info.ul_out.ip_hdr.ipv4_rsv.ipv4_temp.version = 4;
+			info.ul_out.ip_hdr.ipv4_rsv.ipv4_temp.ihl = 5;
+			info.ul_out.ip_hdr.ipv4_rsv.ipv4_temp.saddr =
+				tmpl->ip_src_addr;
+			info.ul_out.ip_hdr.ipv4_rsv.ipv4_temp.daddr =
+				tmpl->ip_dst_addr;
+			info.ul_out.ip_hdr.ipv4_rsv.ipv4_temp.protocol = 6;
+		}
+		if (info.ul_out.cmd_param == IPA_SOCKsv5_ADD_V6_V6_COM_PM) {
+			info.ul_out.ip_hdr.ipv6_temp.version = 6;
+			info.ul_out.ip_hdr.ipv6_temp.nexthdr = 6;
+			info.ul_out.ip_hdr.ipv6_temp.saddr.s6_addr32[0] =
+				tmpl->ipv6_src_addr[0];
+			info.ul_out.ip_hdr.ipv6_temp.saddr.s6_addr32[1] =
+				tmpl->ipv6_src_addr[1];
+			info.ul_out.ip_hdr.ipv6_temp.saddr.s6_addr32[2] =
+				tmpl->ipv6_src_addr[2];
+			info.ul_out.ip_hdr.ipv6_temp.saddr.s6_addr32[3] =
+				tmpl->ipv6_src_addr[3];
+			info.ul_out.ip_hdr.ipv6_temp.daddr.s6_addr32[0] =
+				tmpl->ipv6_dst_addr[0];
+			info.ul_out.ip_hdr.ipv6_temp.daddr.s6_addr32[1] =
+				tmpl->ipv6_dst_addr[1];
+			info.ul_out.ip_hdr.ipv6_temp.daddr.s6_addr32[2] =
+				tmpl->ipv6_dst_addr[2];
+			info.ul_out.ip_hdr.ipv6_temp.daddr.s6_addr32[3] =
+				tmpl->ipv6_dst_addr[3];
+		}
+		info.ul_out.src_port = tmpl->src_port;
+		info.ul_out.dst_port = tmpl->dst_port;
+		info.ul_out.ipa_sockv5_mask = tmpl->ipa_sockv5_mask;
+		info.ul_out.out_irs = tmpl->out_irs;
+		info.ul_out.out_iss = tmpl->out_iss;
+		info.ul_out.in_irs = tmpl->in_irs;
+		info.ul_out.in_iss = tmpl->in_iss;
+		info.ul_out.out_ircv_tsval = tmpl->out_ircv_tsval;
+		info.ul_out.in_ircv_tsecr = tmpl->in_ircv_tsecr;
+		info.ul_out.out_ircv_tsecr = tmpl->out_ircv_tsecr;
+		info.ul_out.in_ircv_tsval = tmpl->in_ircv_tsval;
+		info.ul_out.in_isnd_wscale = tmpl->in_isnd_wscale;
+		info.ul_out.out_isnd_wscale = tmpl->out_isnd_wscale;
+		info.ul_out.in_ircv_wscale = tmpl->in_ircv_wscale;
+		info.ul_out.out_ircv_wscale = tmpl->out_ircv_wscale;
+
+		/* for DL set default values to pass pair validity check */
+		info.dl_out.cmd_param = IPA_SOCKsv5_ADD_V4_V6_COM_PM;
+		info.dl_out.cmd_id = IPA_SOCKsv5_ADD_COM_ID;
+	} else {
+		IPAERR("invalid socksv5 direction: %d\n", tmpl->direction);
+		return -EINVAL;
+	}
+
+	retval = ipa3_add_socksv5_conn(&info);
+	if (retval) {
+		IPAERR("ipa3_add_socksv5_conn failed retval: %d\n", retval);
+		return retval;
+	}
+
+	/* save uc handle */
+	tmpl->handle = info.handle;
+
+	return retval;
 }
 
 void ipa3_default_evict_register( void )
@@ -17168,9 +17572,9 @@ void ipa3_default_evict_register( void )
 int ipa3_del_socksv5_conn(uint32_t handle)
 {
 	int res = 0;
-	void *rp_va;
 	uint32_t *socksv5_handle;
 	struct ipa_msg_meta msg_meta;
+	struct ipa_socksv5_uc_tmpl *entry, *next;
 
 	/* IPA version check */
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_5) {
@@ -17188,43 +17592,44 @@ int ipa3_del_socksv5_conn(uint32_t handle)
 		return -EINVAL;
 	}
 
-	if ((handle % 2) != 0) {
-		IPAERR("invalid handle!\n");
+	if (ipa3_ctx->uc_act_tbl_socksv5_total < 2) {
+		IPAERR("invalid handle, tbl doesn't have socksv5 entries!\n");
 		return -EINVAL;
 	}
 
-	if (ipa3_ctx->uc_act_tbl_total < 2) {
-		IPAERR("invalid handle, all tbl is empty!\n");
-		return -EINVAL;
-	}
-
-	rp_va =  ipa3_ctx->uc_act_tbl.base +
-			handle * sizeof(struct ipa_socksv5_uc_tmpl);
+	entry = (struct ipa_socksv5_uc_tmpl *)(ipa3_ctx->uc_act_tbl.base +
+			handle * sizeof(struct ipa_socksv5_uc_tmpl));
+	next = (struct ipa_socksv5_uc_tmpl *)(ipa3_ctx->uc_act_tbl.base +
+		(handle + 1) * sizeof(struct ipa_socksv5_uc_tmpl));
 
 	/* check entry is valid or not */
 	mutex_lock(&ipa3_ctx->act_tbl_lock);
-	if (!((((struct ipa_socksv5_uc_tmpl *) rp_va)->
-		ipa_sockv5_mask) & IPA_SOCKSv5_ENTRY_VALID)) {
-		IPADBG(" entry %d already free\n", handle);
+	if (entry->cmd_id != IPA_SOCKsv5_ADD_COM_ID) {
+		IPAERR(" entry %d not socksv5\n", handle);
+		res = -EINVAL;
+		goto error;
 	}
-
-	if (!((((struct ipa_socksv5_uc_tmpl *) (rp_va +
-		sizeof(struct ipa_socksv5_uc_tmpl)))->
-		ipa_sockv5_mask) & IPA_SOCKSv5_ENTRY_VALID)) {
-		IPADBG(" entry %d already free\n", handle);
+	if (next->cmd_id != IPA_SOCKsv5_ADD_COM_ID) {
+		IPAERR(" entry %d not socksv5\n", handle + 1);
+		res = -EINVAL;
+		goto error;
 	}
+	if (!(entry->ipa_sockv5_mask & IPA_SOCKSv5_ENTRY_VALID))
+		IPADBG(" entry %d already free\n", handle);
 
-	((struct ipa_socksv5_uc_tmpl *) rp_va)->ipa_sockv5_mask
-		&= ~IPA_SOCKSv5_ENTRY_VALID;
-	((struct ipa_socksv5_uc_tmpl *) (rp_va +
-		sizeof(struct ipa_socksv5_uc_tmpl)))->ipa_sockv5_mask
-			&= ~IPA_SOCKSv5_ENTRY_VALID;
+	if (!(next->ipa_sockv5_mask & IPA_SOCKSv5_ENTRY_VALID))
+		IPADBG(" entry %d already free\n", handle);
+
+	entry->ipa_sockv5_mask &= ~IPA_SOCKSv5_ENTRY_VALID;
+	next->ipa_sockv5_mask &= ~IPA_SOCKSv5_ENTRY_VALID;
 	ipa3_ctx->uc_act_tbl_total -= 2;
+	ipa3_ctx->uc_act_tbl_socksv5_total -= 2;
 
-	IPADBG("free entry %d and %d, left total %d\n",
+	IPADBG("free entry %d and %d, left total %d, socksv5 total %d\n",
 		handle,
 		handle + 1,
-		ipa3_ctx->uc_act_tbl_total);
+		ipa3_ctx->uc_act_tbl_total,
+		ipa3_ctx->uc_act_tbl_socksv5_total);
 
 	/* send msg to ipacm */
 	socksv5_handle = kzalloc(sizeof(*socksv5_handle), GFP_KERNEL);
@@ -17248,10 +17653,11 @@ error:
 	return res;
 }
 
-void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx)
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx[])
 {
 	ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id = rx_idx;
-	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id = tx_idx;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id[0] = tx_idx[0];
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id[1] = tx_idx[1];
 }
 EXPORT_SYMBOL(ipa3_update_eth_pdu_ep_index);
 
@@ -17320,3 +17726,49 @@ void ipa3_set_eth_pdu_ep_status()
 		return;
 	}
 }
+
+int ipa3_update_l2tp_config(uint32_t client)
+{
+	struct ipa3_ep_context *ep;
+	int ipa_ep_idx;
+	union __packed gsi_ntn_channel_scratch2_reg scratch2_reg;
+	int result = -EINVAL;
+
+	if (client  >= IPA_CLIENT_MAX) {
+		IPAERR_RL("bad parm client:%d\n", client);
+		return result;
+	}
+
+	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	if (ipa_ep_idx == -1) {
+		IPAERR_RL("Invalid client.\n");
+		return result;
+	}
+
+	ep = &ipa3_ctx->ep[ipa_ep_idx];
+	if (!ep->valid) {
+		IPAERR_RL("EP not allocated.\n");
+		return result;
+	}
+	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(ipa_ep_idx));
+	result = gsi_read_ntn_channel_scratch2_reg(ep->gsi_chan_hdl,
+			&scratch2_reg);
+	if (result != GSI_STATUS_SUCCESS) {
+		IPAERR("failed to read channel scratch2 reg %d\n", result);
+		goto exit;
+	}
+	IPADBG("updating l2tp config for client %d and gsi_handle %d\n",
+			client, ep->gsi_chan_hdl);
+	scratch2_reg.ntn.is_l2tp_config = 1;
+	result = gsi_write_ntn_channel_scratch2_reg(ep->gsi_chan_hdl,
+			scratch2_reg);
+	if (result != GSI_STATUS_SUCCESS) {
+		IPAERR("failed to write channel scratch2 reg %d\n", result);
+		goto exit;
+	}
+
+exit:
+	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(ipa_ep_idx));
+	return result;
+}
+

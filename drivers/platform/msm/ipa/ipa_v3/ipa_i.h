@@ -323,6 +323,11 @@ enum hpc_tbl_storage {
 #define IPA_GSI_CHANNEL_STOP_MAX_RETRY 10
 #define IPA_GSI_CHANNEL_STOP_PKT_SIZE 1
 
+#define IPA_MSGQ_MIN_SLEEP 10000
+#define IPA_MSGQ_MAX_SLEEP 20000
+#define IPA_MSGQ_MAX_RETRY 20
+
+
 #define IPA_GSI_CHANNEL_EMPTY_MAX_RETRY 15
 #define IPA_GSI_CHANNEL_EMPTY_SLEEP_MIN_USEC (1000)
 #define IPA_GSI_CHANNEL_EMPTY_SLEEP_MAX_USEC (2000)
@@ -639,6 +644,9 @@ enum {
 #define MBOX_TOUT_MS 100
 
 /* miscellaneous for rmnet_ipa and qmi_service */
+#define WWAN_METADATA_SHFT 24
+#define WWAN_METADATA_MASK 0xFF000000
+
 enum ipa_type_mode {
 	IPA_HW_TYPE,
 	PLATFORM_TYPE,
@@ -992,6 +1000,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_ipsec_params ipsec_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
+	struct ipa_pdn_dscp_procparams pdn_dscp_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -1919,6 +1928,7 @@ enum ipa3_hw_flags {
  * @ipa_use_uc_holb_monitor: Indicates if uC HOLB feature is enabled
  * @ipa_holb_monitor: Struct with all info needed for uC HOLB feature
  * @curr_cmd: If cesta_enable it has the last MHI channel info sent to uC.
+ * @ipsec_next_iv_wa_ready: Boolean to indicate the NextIV uC readiness
  */
 struct ipa3_uc_ctx {
 	bool uc_inited;
@@ -1952,6 +1962,7 @@ struct ipa3_uc_ctx {
 	bool ipa_use_uc_holb_monitor;
 	struct ipa_holb_monitor holb_monitor;
 	struct IpaMhiChInfo_t curr_cmd;
+	bool ipsec_next_iv_wa_ready;
 };
 
 /**
@@ -2271,6 +2282,7 @@ struct ipa_ntn3_client_stats {
 	struct ipa_ntn3_stats_rx rx_stats;
 	struct ipa_ntn3_stats_rx rx1_stats;
 	struct ipa_ntn3_stats_tx tx_stats;
+	struct ipa_ntn3_stats_tx tx1_stats;
 };
 #if defined(CONFIG_IPA_TSP)
 struct ipa3_tsp_ctx {
@@ -2428,8 +2440,9 @@ struct ipa_msgq_desc {
 struct ipa3_eth_pdu_ctx {
 	bool eth_pdu_mode_enabled;
 	enum ipa_eth_hw_config_enum_v01 eth_pdu_vlan_mode;
-	int eth_pdu_tx_ep_id;
-	int eth_pdu_rx_ep_id;
+	int eth_pdu_tx_ep_id[2]; /* best effort and low latency pipes */
+	int eth_pdu_rx_ep_id; /* best effort pipe only currently */
+
 };
 
 /**
@@ -2470,7 +2483,11 @@ struct ipa3_eth_pdu_ctx {
  * @ipv6ct_mem: IPv6CT memory
  * @excp_hdr_hdl: exception header handle
  * @dflt_v4_rt_rule_hdl: default v4 routing rule handle
+ * @dflt_lan_coal_v4_udp_rt_rule_hdl: default LAN Coalescing v4 UDP routing rule handle
+ * @dflt_lan_coal_v4_tcp_rt_rule_hdl: default LAN Coalescing v4 TCP routing rule handle
  * @dflt_v6_rt_rule_hdl: default v6 routing rule handle
+ * @dflt_lan_coal_v6_udp_rt_rule_hdl: default LAN Coalescing v6 UDP routing rule handle
+ * @dflt_lan_coal_v6_tcp_rt_rule_hdl: default LAN Coalescing v6 TCP routing rule handle
  * @aggregation_type: aggregation type used on USB client endpoint
  * @aggregation_byte_limit: aggregation byte limit used on USB client endpoint
  * @aggregation_time_limit: aggregation time limit used on USB client endpoint
@@ -2598,7 +2615,11 @@ struct ipa3_context {
 	struct ipa3_ipv6ct_mem ipv6ct_mem;
 	u32 excp_hdr_hdl;
 	u32 dflt_v4_rt_rule_hdl;
+	u32 dflt_lan_coal_v4_udp_rt_rule_hdl;
+	u32 dflt_lan_coal_v4_tcp_rt_rule_hdl;
 	u32 dflt_v6_rt_rule_hdl;
+	u32 dflt_lan_coal_v6_udp_rt_rule_hdl;
+	u32 dflt_lan_coal_v6_tcp_rt_rule_hdl;
 	uint aggregation_type;
 	uint aggregation_byte_limit;
 	uint aggregation_time_limit;
@@ -2723,6 +2744,7 @@ struct ipa3_context {
 	struct mutex ipa_cne_evt_lock;
 	bool vlan_mode_iface[IPA_VLAN_IF_MAX];
 	bool spcl_iface[IPA_VLAN_IF_MAX];
+	bool tsn_iface;
 	bool wdi_over_pcie;
 	u32 entire_ipa_block_size;
 	bool do_register_collection_on_crash;
@@ -2822,6 +2844,7 @@ struct ipa3_context {
 	bool buff_below_thresh_for_ll_pipe_notified;
 	bool free_page_task_scheduled;
 	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info_cache;
+	struct ipa_ioc_pdn_dscp_map_info pdn_dscp_map_info_cache;
 	u8 mhi_ctrl_state;
 	bool is_mhi_coal_set;
 	struct mutex mhi_lock;
@@ -2829,6 +2852,8 @@ struct ipa3_context {
 	bool uc_act_tbl_valid;
 	struct mutex act_tbl_lock;
 	int uc_act_tbl_total;
+	int uc_act_tbl_socksv5_total;
+	int uc_act_tbl_ipv6_nat_total;
 	int uc_act_tbl_next_index;
 	int ipa_pil_load;
 	bool is_dual_pine_config;
@@ -3189,6 +3214,9 @@ struct ipa3_mem_partition {
 	u32 pre_sa_contexts_canary_size;
 	u32 sa_contexts_ofst;
 	u32 sa_contexts_size;
+
+	u32 apps_fltrt_empty_tbl_ofst;
+	u32 apps_fltrt_empty_tbl_size;
 };
 
 struct ipa3_controller {
@@ -3339,6 +3367,15 @@ int ipa3_setup_uc_act_tbl(void);
 int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info);
 
 int ipa3_del_socksv5_conn(uint32_t handle);
+
+int ipa3_add_socksv5_conn_usr(struct ipa_kernel_tests_socksv5_uc_tmpl *tmpl);
+
+int ipa3_add_ipv6_nat_uc_activation_entry(
+	struct ipa_ioc_ipv6_nat_uc_act_entry *entry);
+
+int ipa3_del_ipv6_nat_uc_activation_entry(uint16_t index);
+
+int ipa3_del_uc_act_entry(uint16_t index);
 
 /*
  * Header removal / addition
@@ -3493,6 +3530,12 @@ int ipa3_tx_dp_mul(enum ipa_client_type dst,
 			struct ipa_tx_data_desc *data_desc);
 
 void ipa3_free_skb(struct ipa_rx_data *data);
+
+#if defined(CONFIG_IPA_IPSEC)
+int xmit_ipsec_frag_ul(struct sk_buff *skb);
+
+int ipa3_frag_ul_ipsec(struct sk_buff *skb, u8 sa_idx);
+#endif
 
 /*
  * System pipes
@@ -3765,7 +3808,8 @@ void ipa3_active_clients_log_inc(struct ipa_active_client_logging_info *id,
 int ipa3_active_clients_log_print_buffer(char *buf, int size);
 int ipa3_active_clients_log_print_table(char *buf, int size);
 void ipa3_active_clients_log_clear(void);
-int ipa3_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev);
+int ipa3_interrupts_pre_init(u32 ee);
+int ipa3_interrupts_init(u32 ipa_irq, struct device *ipa_dev);
 void ipa3_interrupts_destroy(u32 ipa_irq, struct device *ipa_dev);
 int __ipa3_del_rt_rule(u32 rule_hdl);
 int __ipa_del_flt_rule(u32 rule_hdl);
@@ -4253,6 +4297,11 @@ int ipa3_add_dscp_vlan_pcp_map(
 int ipa3_send_eogre_info(
 	enum ipa_eogre_event etype,
 	struct ipa_ioc_eogre_info *info );
+/*
+ * To send notification to ipacm to do eogre_down() and eogre_up()
+ */
+int ipa3_send_eogre_notify(
+		enum ipa_eogre_event etype);
 
 /* update mhi ctrl pipe state */
 void ipa3_update_mhi_ctrl_state(u8 state, bool set);
@@ -4272,6 +4321,16 @@ int ipa3_send_macsec_info(enum ipa_macsec_event event_type, struct ipa_macsec_ma
  */
 int ipa3_add_remove_dscp_pcp_map(
 	uint8_t *map, bool AddMapping );
+/*
+ * To send tsn enable notification to uC
+ */
+int ipa3_notify_uc_tsn_enable(void);
+
+/*
+ * To send PDN<->DSCP map information to uC
+ */
+int ipa3_add_remove_pdn_dscp_map(
+	uint8_t *map, bool AddMapping);
 
 /* Peripheral stats APIs */
 /* Non periodic/Event based stats update */
@@ -4283,7 +4342,7 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
-void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
+void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx[]);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
 void ipa3_set_eth_pdu_ep_status(void);

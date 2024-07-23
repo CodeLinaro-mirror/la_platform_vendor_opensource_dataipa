@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPAHAL_I_H_
@@ -467,6 +467,64 @@ struct ipa_imm_cmd_hw_ip_packet_init_ex_v5_5 {
 	u64 rt_qos_class : 6;
 	u64 rt_skip_ingress : 1;
 	u64 rsvd5 : 8;
+} __packed;
+
+/*
+ * struct ipa_imm_cmd_hw_ip_packet_init_ex_v6_0 - IP_PACKET_INIT_EX command payload
+ *  in H/W format for IPA v6_0.
+ * @frag_disable: 1 - disabled. overrides IPA_ENDP_CONFIG_n:FRAG_OFFLOAD_EN
+ * @filter_disable: 1 - disabled, 0 enabled
+ * @nat_disable: 1 - disabled, 0 enabled
+ * @route_disable: 1 - disabled, 0 enabled
+ * @hdr_removal_insertion_disable: 1 - disabled, 0 enabled
+ * @cs_disable: 1 - disabled, 0 enabled
+ * @quota_tethering_stats_disable: 1 - disabled, 0 enabled
+ * @dpl_disable: 1 - disabled, 0 enabled
+ * fields @flt_rt_tbl_idx - @rsvd5 are a copy of ipa5_5_flt_rule_hw_hdr and ipa6_0_flt_rule_hw_hdr_ext
+ * fields @rt_pipe_dest_idx - @rsvd6 are a copy of ipa5_5_rt_rule_hw_hdr and ipa6_0_rt_rule_hw_hdr_ext
+ */
+struct ipa_imm_cmd_hw_ip_packet_init_ex_v6_0 {
+	u64 rsvd1 : 16;
+	u64 frag_disable : 1;
+	u64 filter_disable : 1;
+	u64 nat_disable : 1;
+	u64 route_disable : 1;
+	u64 hdr_removal_insertion_disable : 1;
+	u64 cs_disable : 1;
+	u64 quota_tethering_stats_disable : 1;
+	u64 dpl_disable : 1;
+	u64 rsvd2 : 40;
+	u64 flt_rt_tbl_idx : 8;
+	u64 flt_stats_cnt_idx : 8;
+	u64 flt_priority : 8;
+	u64 flt_ext_hdr : 1;
+	u64 flt_close_aggr_irq_mod : 1;
+	u64 flt_rule_id : 10;
+	u64 flt_action : 5;
+	u64 flt_pdn_idx : 4;
+	u64 flt_set_metadata : 1;
+	u64 flt_retain_hdr : 1;
+	u64 rsvd3 : 1;
+	u64 flt_ttl : 1;
+	u64 flt_qos_class : 6;
+	u64 rsvd4 : 1;
+	u64 flt_esp_after_udp : 1;
+	u64 rsvd5 : 7;
+	u64 rt_pipe_dest_idx : 8;
+	u64 rt_stats_cnt_idx : 8;
+	u64 rt_priority : 8;
+	u64 rt_ext_hdr : 1;
+	u64 rt_close_aggr_irq_mod : 1;
+	u64 rt_rule_id : 10;
+	u64 rt_hdr_offset : 9;
+	u64 rt_proc_ctx : 1;
+	u64 rt_retain_hdr : 1;
+	u64 rt_system : 1;
+	u64 rt_ttl : 1;
+	u64 rt_qos_class : 6;
+	u64 rt_skip_ingress : 1;
+	u64 rt_esp_after_udp : 1;
+	u64 rsvd6 : 7;
 } __packed;
 
 /*
@@ -1286,6 +1344,7 @@ union ipa_pkt_status_hw_v6_0 {
 #define IPA_HDR_UCP_PMIPV6_HEADER_REMOVE   28
 #define IPA_Q6_IPSEC_BANK_REFILL           29
 #define IPA_HDR_UCP_2ND_PASS               30
+#define IPA_HDR_UCP_MARK_DSCP              33
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0
@@ -1506,6 +1565,17 @@ struct ipa_hw_hdr_proc_ctx_eogre_remove_hdr {
 };
 
 /**
+ * struct ipa_hw_hdr_proc_ctx_pdn_dscp_upate -
+ * HW structure of IPA processing context - update PDN DSCP update
+ * @tlv: IPA processing context TLV
+ * @pdn_dscp_params: PDN DSCP parameters
+ */
+struct ipa_hw_hdr_proc_ctx_pdn_dscp_upate {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_pdn_dscp_procparams pdn_dscp_params;
+};
+
+/**
  * struct ipa_hw_hdr_proc_ctx_add_eogre_hdr_cmd_seq -
  * IPA processing context header - process command sequence
  * @hdr_add: add header command
@@ -1696,6 +1766,21 @@ struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
 	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
 	struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec cmd;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq -
+ * IPA processing context IPsec command sequence
+ * @hdr_add: add header command
+ * @nxt_rnd: tlv Next round rules
+ * @ipsec: tlv IPsec activation
+ * @cmd: tlv uC processing command
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_pdn_dscp_proc_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_pdn_dscp_upate pdn_dscp_params;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 

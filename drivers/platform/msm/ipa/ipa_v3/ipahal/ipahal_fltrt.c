@@ -12,6 +12,7 @@
 #include "ipahal_fltrt_i.h"
 #include "ipahal_i.h"
 #include "ipa_common_i.h"
+#include "ipa_i.h"
 
 #define MAX_IS_FRAG_ENCODING 0x3
 
@@ -5540,9 +5541,10 @@ int ipahal_rt_generate_empty_img(u32 tbls_num, u32 hash_hdr_size,
 		IPAHAL_ERR("fail to alloc DMA buff of size %d\n", mem->size);
 		return -ENOMEM;
 	}
-	/* fetch empty tbl from SRAM */
+
 	addr = obj->create_tbl_addr(true,
-		ipahal_ctx->empty_fltrt_tbl.phys_base);
+			ipahal_ctx->empty_fltrt_tbl.phys_base);
+
 	for (i = 0; i < tbls_num; i++)
 		obj->write_val_to_hdr(addr,
 			mem->base + i * obj->tbl_hdr_width);
@@ -5629,9 +5631,8 @@ int ipahal_flt_generate_empty_img(u32 tbls_num, u32 hash_hdr_size,
 		obj->write_val_to_hdr(flt_bitmap, mem->base);
 	}
 
-	/* fetch empty tbl from SRAM */
 	addr = obj->create_tbl_addr(true,
-		ipahal_ctx->empty_fltrt_tbl.phys_base);
+			ipahal_ctx->empty_fltrt_tbl.phys_base);
 
 	if (ep_bitmap) {
 		for (i = 1; i <= tbls_num; i++)
@@ -5657,7 +5658,7 @@ int ipahal_flt_generate_empty_img(u32 tbls_num, u32 hash_hdr_size,
 static int ipa_fltrt_alloc_init_tbl_hdr(
 	struct ipahal_fltrt_alloc_imgs_params *params)
 {
-	u64 addr;
+	u64 nhash_addr, hash_addr;
 	int i;
 	struct ipahal_fltrt_obj *obj;
 	gfp_t flag = GFP_KERNEL;
@@ -5696,13 +5697,24 @@ alloc:
 		}
 	}
 
-	addr = obj->create_tbl_addr(true,
-		ipahal_ctx->empty_fltrt_tbl.phys_base);
+	/* fetch empty tbl from SRAM if space available. */
+	if (IPA_MEM_PART(apps_fltrt_empty_tbl_size)) {
+		nhash_addr = obj->create_tbl_addr(false,
+			params->nhash_bdy_start_ofst);
+		hash_addr = obj->create_tbl_addr(false,
+			params->hash_bdy_start_ofst);
+	} else {
+		nhash_addr = obj->create_tbl_addr(true,
+			ipahal_ctx->empty_fltrt_tbl.phys_base);
+		hash_addr = obj->create_tbl_addr(true,
+			ipahal_ctx->empty_fltrt_tbl.phys_base);
+	}
+
 	for (i = 0; i < params->tbls_num; i++) {
-		obj->write_val_to_hdr(addr,
+		obj->write_val_to_hdr(nhash_addr,
 			params->nhash_hdr.base + i * obj->tbl_hdr_width);
 		if (obj->support_hash)
-			obj->write_val_to_hdr(addr,
+			obj->write_val_to_hdr(hash_addr,
 				params->hash_hdr.base +
 				i * obj->tbl_hdr_width);
 	}

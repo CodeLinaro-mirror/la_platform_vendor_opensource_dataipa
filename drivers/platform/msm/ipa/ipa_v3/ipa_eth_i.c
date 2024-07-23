@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -49,7 +49,8 @@
 	(client) == IPA_CLIENT_RTK_ETHERNET_CONS || \
 	(client) == IPA_CLIENT_ETHERNET_PROD || \
 	(client) == IPA_CLIENT_ETHERNET_CONS || \
-	(client) == IPA_CLIENT_ETHERNET_PROD1 )
+	(client) == IPA_CLIENT_ETHERNET_PROD1 || \
+	(client) == IPA_CLIENT_ETHERNET_LOW_LAT_CONS)
 
 #define IPA_CLIENT_IS_SMMU_ETH1_INSTANCE(client) \
 	((client) == IPA_CLIENT_ETHERNET2_PROD || \
@@ -71,8 +72,10 @@ static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys
 	cb->m_map[instance_id][dir][traffic_type].m_size = len;
 }
 
-static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_addr_t pa, size_t len,
-	bool device, unsigned long *iova, int instance_id, enum ipa_eth_pipe_direction dir, enum ipa_eth_pipe_traffic_type traffic_type)
+static int ipa_iemac_smmu_cb_add_mapping_pa(
+	enum ipa_smmu_cb_type cb_type, phys_addr_t pa, size_t len, bool device,
+	unsigned long *iova, int instance_id, enum ipa_eth_pipe_direction dir,
+	enum ipa_eth_pipe_traffic_type traffic_type)
 {
 	struct ipa_smmu_cb_ctx *cb;
 	unsigned long va, eth_next_addr;
@@ -112,7 +115,8 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 	 * Assuming each IEMAC client does maximum of 1 mapping with
 	 * constant size per direction.
 	 */
-	eth_next_addr = cb->va_end + eth_offset + PAGE_SIZE * (2 * instance_id + dir + traffic_type);
+	eth_next_addr = cb->va_end + eth_offset +
+			PAGE_SIZE * (2 * instance_id + dir + 2 * traffic_type);
 	va = roundup(eth_next_addr, PAGE_SIZE);
 	if (len > PAGE_SIZE)
 		va = roundup(eth_next_addr, len);
@@ -965,6 +969,9 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		goto fail_get_gsi_ep_info;
 	} else
 		gsi_channel_props.ch_id = gsi_ep_info->ipa_gsi_chan_num;
+ 	if ((ipa3_ctx->tsn_iface == true ) &&
+		(ep->client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS))
+ 		gsi_channel_props.low_latency_en = 1;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
 	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
 	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
@@ -1085,9 +1092,9 @@ int ipa3_eth_connect(
 	enum ipa_client_type client_type,
 	int inst_id)
 {
-	struct ipa3_ep_context *ep;
-	int ep_idx;
-	bool vlan_mode;
+	struct ipa3_ep_context *ep = NULL;
+	int ep_idx = -1;
+	bool vlan_mode = 0;
 	int result = 0;
 	u32 gsi_db_addr_low, gsi_db_addr_high;
 	void __iomem *db_addr;
@@ -1097,8 +1104,9 @@ int ipa3_eth_connect(
 	u64 bar_addr;
 	enum ipa4_hw_protocol prot;
 #if IPA_ETH_API_VER >= 2
-	struct net_device *net_dev;
+	struct net_device *net_dev = NULL;
 #endif
+	struct ipa_ep_cfg_holb holb_cfg;
 
 	ep_idx = ipa_get_ep_mapping(client_type);
 	if (ep_idx == IPA_EP_NOT_ALLOCATED) {
@@ -1469,6 +1477,14 @@ int ipa3_eth_connect(
 		IPAERR("enable data path failed res=%d clnt=%d\n", result,
 			ep_idx);
 		goto enable_data_path_fail;
+	}
+
+	/* Enable default HOLB Timeout of 31ms. */
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		memset(&holb_cfg, 0, sizeof(holb_cfg));
+		holb_cfg.en = IPA_HOLB_TMR_EN;
+		holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+		ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
 	}
 
 	/* start gsi channel */

@@ -172,7 +172,10 @@ static int ipa_wdi_commit_partial_hdr(
 		hdr->hdr[i].hdr_len = hdr_info[i].hdr_len;
 		memcpy(hdr->hdr[i].hdr, hdr_info[i].hdr, hdr->hdr[i].hdr_len);
 		hdr->hdr[i].type = hdr_info[i].hdr_type;
-		hdr->hdr[i].is_partial = 1;
+		/* For IPv4, keep the header in SRAM.
+		 * It will be used in header proc context for L2L.
+		 * TBD: for a better design in Kobuk. */
+		hdr->hdr[i].is_partial = (i == 0) ? 0 : 1;
 		hdr->hdr[i].is_eth2_ofst_valid = 1;
 		hdr->hdr[i].eth2_ofst = hdr_info[i].dst_mac_addr_offset;
 	}

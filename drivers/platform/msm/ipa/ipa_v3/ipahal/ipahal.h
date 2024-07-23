@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPAHAL_H_
@@ -248,12 +248,12 @@ struct ipahal_imm_cmd_ip_packet_init {
  * @dpl_disable: true - disabled, false - enabled, valid from IPAv5_5.
  * @flt_ext_hdr: true - flt ext_hdr enabled, false - disabled. Note all fields of
  * ext header are valid in immediate command irrespective of this flag.
- * fields @flt_ttl - @flt_qos_class are a logical software translation
- * of ipa5_5_flt_rule_hw_hdr_ext.
+ * fields @flt_ttl - @flt_esp_after_udp are a logical software translation
+ * of ipa6_0_flt_rule_hw_hdr_ext.
  * @rt_ext_hdr: true - rt ext_hdr enabled, false - disabled. Note all fields of
  * ext header are valid in immediate command irrespective of this flag.
- * fields @rt_ttl - @rt_skip_ingress are a logical software translation
- * ipa5_5_rt_rule_hw_hdr_ext
+ * fields @rt_ttl - @rt_esp_after_udp are a logical software translation
+ * ipa6_0_rt_rule_hw_hdr_ext
  */
 struct ipahal_imm_cmd_ip_packet_init_ex {
 	bool frag_disable;
@@ -283,10 +283,12 @@ struct ipahal_imm_cmd_ip_packet_init_ex {
 	bool flt_ext_hdr;
 	bool flt_ttl;
 	u8 flt_qos_class;
+	bool flt_esp_after_udp;
 	bool rt_ext_hdr;
 	bool rt_ttl;
 	u8 rt_qos_class;
 	bool rt_skip_ingress;
+	bool rt_esp_after_udp;
 };
 
 /*
@@ -846,6 +848,7 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 		struct ipa_ipsec_params *ipsec_params,
 		struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
 		struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
+		struct ipa_pdn_dscp_procparams *pdn_dscp_params,
 		bool is_64);
 
 /*

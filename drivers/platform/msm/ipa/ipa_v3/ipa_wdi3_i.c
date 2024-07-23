@@ -90,24 +90,27 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	memset(&gsi_evt_ring_props, 0, sizeof(gsi_evt_ring_props));
 	memset(&gsi_channel_props, 0, sizeof(gsi_channel_props));
 
-	if(ipa_get_wdi_version() == IPA_WDI_3_V2) {
-		gsi_channel_props.prot = GSI_CHAN_PROT_WDI3_V2;
-		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3_V2_EV;
-	}
-	else if(ipa_get_wdi_version() == IPA_WDI_4){
+	if (ipa_get_wdi_version() == IPA_WDI_3_V2) {
+		if (ast_update) {
+			gsi_channel_props.prot = GSI_CHAN_PROT_WDI3M_V2;
+			gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3M_V2_EV;
+		} else {
+			gsi_channel_props.prot = GSI_CHAN_PROT_WDI3_V2;
+			gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3_V2_EV;
+		}
+	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
 		gsi_channel_props.prot = GSI_CHAN_PROT_WDI4;
 		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI4_EV;
-	}
-	else if (ast_update){
+	} else if (ast_update) {
 		gsi_channel_props.prot = GSI_CHAN_PROT_WDI3M;
 		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3M_EV;
-	}
-	else {
+	} else {
 		gsi_channel_props.prot = GSI_CHAN_PROT_WDI3;
 		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3_EV;
-
 	}
-
+	IPADBG("Is ast update enabled:%d\n",ast_update);
+	IPADBG("WDI version:%d\n",ipa_get_wdi_version());
+	IPADBG("GSI version:%d\n",gsi_channel_props.prot);
 	/* setup event ring */
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_9) {
@@ -259,13 +262,17 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_9) {
 		/* 32 (for Tx) and 64 (for Rx) */
 		if ((dir == IPA_WDI3_TX_DIR) || (dir == IPA_WDI3_TX1_DIR) ||
-			(dir == IPA_WDI3_TX2_DIR) || (dir == IPA_WDI3_TX3_DIR))
+		    (dir == IPA_WDI3_TX2_DIR) || (dir == IPA_WDI3_TX3_DIR))
 			gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
 		else {
-			if (gsi_channel_props.prot == GSI_CHAN_PROT_WDI3_V2 || gsi_channel_props.prot == GSI_CHAN_PROT_WDI4 )
-				gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
-			else 
-				gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_64B;
+			if (gsi_channel_props.prot == GSI_CHAN_PROT_WDI3_V2 ||
+			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI3M_V2 ||
+			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI4)
+				gsi_channel_props.re_size =
+					GSI_CHAN_RE_SIZE_32B;
+			else
+				gsi_channel_props.re_size =
+					GSI_CHAN_RE_SIZE_64B;
 		}
 
 	} else
@@ -1646,21 +1653,20 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		result = ipa3_cfg_ep_holb(ipa_ep_idx_tx, &holb_cfg);
 		IPADBG("Configured HOLB for clnt=%d, timer=%d, return = %d\n",
 				ipa_ep_idx_tx, holb_cfg.tmr_val, result);
-	} else if (ipa_get_wdi_version () >= IPA_WDI_4) {
-			
-			memset(&holb_cfg, 0, sizeof(holb_cfg));
-			holb_cfg.en = IPA_HOLB_TMR_EN;
-			if (ep_tx->client == IPA_CLIENT_WLAN4_CONS)
-					holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_2g_holb_timeout;
-			else if (ep_tx->client == IPA_CLIENT_WLAN1_CONS) {
-					holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_5g_holb_timeout;
-			}
-			else if (ep_tx->client == IPA_CLIENT_WLAN2_CONS)
-					holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_5g_holb_timeout;
+	} else if (ipa_get_wdi_version () >= IPA_WDI_3) {
+		memset(&holb_cfg, 0, sizeof(holb_cfg));
+		holb_cfg.en = IPA_HOLB_TMR_EN;
+		if (ep_tx->client == IPA_CLIENT_WLAN4_CONS)
+			holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_2g_holb_timeout;
+		else if (ep_tx->client == IPA_CLIENT_WLAN1_CONS) {
+			holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_5g_holb_timeout;
+		}
+		else if (ep_tx->client == IPA_CLIENT_WLAN2_CONS)
+			holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_5g_holb_timeout;
 
-			result = ipa3_cfg_ep_holb(ipa_ep_idx_tx, &holb_cfg);
-			IPADBG("Configured HOLB for clnt=%d, timer=%d, return = %d\n",
-							ipa_ep_idx_tx, holb_cfg.tmr_val, result);
+		result = ipa3_cfg_ep_holb(ipa_ep_idx_tx, &holb_cfg);
+		IPADBG("Configured HOLB for clnt=%d, timer=%d, return = %d\n",
+						ipa_ep_idx_tx, holb_cfg.tmr_val, result);
 	}
 
 

@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_ut_framework.h"
@@ -577,7 +577,7 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->client.client_type = IPA_ETH_CLIENT_NTN;
 	test_ntn_ctx->client.inst_id = 0;
 #endif
-#if IPA_ETH_API_VER == 2
+#if IPA_ETH_API_VER < 3
 	test_ntn_ctx->client.traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
 #endif
 #if IPA_ETH_API_VER >= 2
