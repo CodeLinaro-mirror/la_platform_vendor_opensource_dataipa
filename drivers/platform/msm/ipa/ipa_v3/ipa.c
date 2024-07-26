@@ -10418,8 +10418,8 @@ int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx)
 	cmd.rt_retain_hdr = true;
 	cmd.rt_pipe_dest_idx = (dst_ep_idx < ipa3_ctx->ipa_num_pipes) ? dst_ep_idx : 0xFF;
 	cmd.rt_proc_ctx = proc_ctx;
-	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
-		&cmd, false);
+	/* This may be called from the XFRM in interrupt context, therefore -> is atomic */
+	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX, &cmd, true);
 	if (!cmd_pyld) {
 		IPAERR("failed to construct IMM cmd\n");
 		return -ENOMEM;
