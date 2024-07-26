@@ -734,6 +734,11 @@ static int ipa_ipsec_install_decap_rt(const struct xfrm_state *x, u8 idx)
 
 	IPADBG("Start\n");
 
+	if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc == 0) {
+		IPAERR("The HPC is not installed\n");
+		return -EFAULT;
+	}
+
 	ip_type = x->props.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 
 	rt_tbl = (struct ipa_ioc_add_rt_rule_v2 *)kzalloc(
@@ -853,6 +858,11 @@ static int ipa_ipsec_install_encap_rt(struct xfrm_policy *xp, u8 idx)
 	enum ipa_ip_type ip_type;
 
 	IPADBG("Start\n");
+
+	if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc == 0) {
+		IPAERR("The HPC is not installed\n");
+		return -EFAULT;
+	}
 
 	ip_type = xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 
@@ -1041,7 +1051,13 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 			/* Install RT rule */
 			rt = ipa_ipsec_install_encap_rt(pol->xp, idx);
 			if (rt < 0) {
+				mutex_lock(&ipa3_ctx->lock);
 				IPAERR("ipa_ipsec_install_encap_rt returned %d\n", rt);
+				__ipa3_release_hdr_proc_ctx(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc);
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
+				__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr);
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
+				mutex_unlock(&ipa3_ctx->lock);
 				return rt;
 			}
 			pol->rt = rt;
@@ -1475,13 +1491,16 @@ del_hpc:
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc)
 			BUG_ON(__ipa3_release_hdr_proc_ctx(
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr)
 			BUG_ON(__ipa3_release_hdr(
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 	} else {
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc)
 			BUG_ON(__ipa3_release_hdr_proc_ctx(
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 	}
 	mutex_unlock(&ipa3_ctx->lock);
 
@@ -1696,10 +1715,11 @@ void ipa_ipsec_xdo_state_update_curlft(struct xfrm_state *x)
 
 int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 {
-	int i, rt = -1, flt = -1;
+	int i, rc, rt = -1, flt = -1;
 	u8 idx = IPA_IPSEC_MAX_SA_NUM;
 	struct ipa_ipsec_policy *pol;
 	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt;
+	enum ipa_ip_type ip;
 
 	IPADBG("Start\n");
 
@@ -1708,6 +1728,8 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 		IPADBG("Null policy or wrong XDO or invalid AF\n");
 		return -EINVAL;
 	}
+
+	ip = xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 
 	/* HW policy must be main  */
 	if (xp->type != XFRM_POLICY_TYPE_MAIN && xp->action != XFRM_POLICY_ALLOW) {
@@ -1758,9 +1780,33 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 			break;
 		}
 
+		/*
+		 * The following code adds HPC, RT and sends event to the IPACM,
+		 * which is duplicating the code of the ipa_ipsec_install_cached_ul_pols().
+		 * TODO: Get rid of code duplication by uniformly calling the FnR installation
+		 * from both SA and SP callbacks in both in and out dir, based on a matched bundle.
+		 * TODO2: Fix cleanup in case of HPC installation success and RT installation fail.
+		 */
+
+		/* Construct and install header template and HPC */
+		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc == 0) {
+			rc = ipa_ipsec_install_encap_hpc(
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x, idx, ip);
+			if (rc < 0) {
+				IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
+				return rc;
+			}
+		}
+
 		/* Install RT rule */
 		rt = ipa_ipsec_install_encap_rt(xp, idx);
 		if (rt < 0) {
+			mutex_lock(&ipa3_ctx->lock);
+			__ipa3_release_hdr_proc_ctx(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc);
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
+			__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr);
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
+			mutex_unlock(&ipa3_ctx->lock);
 			kfree(pol);
 			return rt;
 		}
@@ -1775,7 +1821,7 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 		}
 
 		ipa_ipsec_xfrm_sp_to_ipa_attrib(xp, &ul_flt->attr, IPA_IPSEC_MAX_SA_NUM);
-		ul_flt->ip = xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
+		ul_flt->ip = ip;
 		if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_ADD_EVENT, ul_flt) != 0) {
 			kfree(pol);
 			return -EFAULT;
