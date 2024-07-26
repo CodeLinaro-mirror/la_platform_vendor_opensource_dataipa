@@ -469,13 +469,27 @@ static void ipa_ipsec_xfrm_sp_to_ipa_attrib(
 		case IPPROTO_UDP:
 		case IPPROTO_SCTP:
 		case IPPROTO_DCCP:
-			if (sel->dport_mask) {
+			/* The following logic is in fact potentionally allowing wider port range,
+			   than was configured in the IKE, but it mimics the logic in the SW path */
+			IPADBG("sel->dport_mask = %X, sel->dport = %X\n",
+				sel->dport_mask, sel->dport);
+			IPADBG("sel->dport_mask = %X, sel->dport = %X\n",
+				sel->dport_mask, sel->dport);
+			if (be16_to_cpu(sel->dport_mask) == 0xFFFF) {
 				attr->attrib_mask |= IPA_FLT_DST_PORT;
 				attr->dst_port = be16_to_cpu(sel->dport);
+			} else if (be16_to_cpu(sel->dport_mask) != 0x0) {
+				attr->attrib_mask |= IPA_FLT_DST_PORT_RANGE;
+				attr->dst_port_lo = be16_to_cpu(sel->dport & sel->dport_mask);
+				attr->dst_port_hi = be16_to_cpu(sel->dport | ~sel->dport_mask);
 			}
-			if (sel->sport_mask) {
+			if (be16_to_cpu(sel->sport_mask) == 0xFFFF) {
 				attr->attrib_mask |= IPA_FLT_SRC_PORT;
 				attr->src_port = be16_to_cpu(sel->sport);
+			} else if (be16_to_cpu(sel->sport_mask) != 0x0) {
+				attr->attrib_mask |= IPA_FLT_SRC_PORT_RANGE;
+				attr->src_port_lo = be16_to_cpu(sel->sport & sel->sport_mask);
+				attr->src_port_hi = be16_to_cpu(sel->sport | ~sel->sport_mask);
 			}
 			break;
 		case IPPROTO_ICMP:
