@@ -1292,6 +1292,70 @@ int ipa_query_teth_stats(enum ipa_client_type prod,
 	return 0;
 }
 
+int ipa_query_cumm_teth_prod_stats(enum ipa_client_type prod,
+	struct ipa_quota_stats *out)
+{
+	int ipa_ep_idx, i = 0;
+	struct ipa_quota_stats *stats;
+
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
+		return 0;
+
+	if (!IPA_CLIENT_IS_PROD(prod) || ipa3_get_ep_mapping(prod) == -1) {
+		IPAERR("invalid prod %d\n", prod);
+		return -EINVAL;
+	}
+
+	ipa_ep_idx = ipa3_get_ep_mapping(prod);
+	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to get prod stats\n");
+		return -EFAULT;
+	}
+
+	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[ipa_ep_idx].client[i];
+		out->num_ipv4_bytes += stats->num_ipv4_bytes;
+		out->num_ipv6_bytes += stats->num_ipv6_bytes;
+		out->num_ipv4_pkts += stats->num_ipv4_pkts;
+		out->num_ipv6_pkts += stats->num_ipv6_pkts;
+	}
+
+	return 0;
+}
+
+int ipa_query_cumm_teth_cons_stats(enum ipa_client_type cons,
+	struct ipa_quota_stats *out)
+{
+	int ipa_ep_idx, i = 0;
+	struct ipa_quota_stats *stats;
+
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
+		return 0;
+
+	if (!IPA_CLIENT_IS_CONS(cons) || ipa3_get_ep_mapping(cons) == -1) {
+		IPAERR("invalid cons %d\n", cons);
+		return -EINVAL;
+	}
+
+	ipa_ep_idx = ipa3_get_ep_mapping(cons);
+	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to get cons stats\n");
+		return -EFAULT;
+	}
+
+	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[i].client[ipa_ep_idx];
+		out->num_ipv4_bytes += stats->num_ipv4_bytes;
+		out->num_ipv6_bytes += stats->num_ipv6_bytes;
+		out->num_ipv4_pkts += stats->num_ipv4_pkts;
+		out->num_ipv6_pkts += stats->num_ipv6_pkts;
+	}
+
+	return 0;
+}
+
 int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons)
 {
 	int ret;

@@ -4980,6 +4980,88 @@ static void __ipa_ntn3_client_stats_read(int *cnt,
 }
 #endif
 
+static ssize_t ipa3_eth_read_qos_stats(struct file *file,
+	char __user *ubuf, size_t count, loff_t *ppos)
+{
+	int nbytes;
+	int cnt = 0, i = 0;
+	struct ipa_eth_client *client;
+	u8 tx_num_pipes, rx_num_pipes;
+	struct ipa_eth_qos_info eth_qos_info;
+	bool hw_stats = true;
+	struct ipa_quota_stats out;
+
+	client = (struct ipa_eth_client *)file->private_data;
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v6_0 ||
+		client->client_type != IPA_ETH_CLIENT_IEMAC) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"This feature only support on IPA6.0+ and IEMAC\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	memset(&eth_qos_info, 0, sizeof(eth_qos_info));
+
+	ipa_eth_qos_get_num_pipes(client->inst_id, &tx_num_pipes,
+		IPA_ETH_PIPE_DIR_TX);
+	ipa_eth_qos_get_num_pipes(client->inst_id, &rx_num_pipes,
+		IPA_ETH_PIPE_DIR_RX);
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"tx_num_pipes: %d, rx_num_pipes: %d\n", tx_num_pipes, rx_num_pipes);
+	cnt += nbytes;
+
+	/* qet HW-stats */
+	hw_stats = (ipa_get_teth_stats() == 0) ? true: false;
+
+	for (i = 0; i < tx_num_pipes; i++) {
+		memset(&out, 0, sizeof(out));
+		ipa_eth_qos_get_qos_info(client->inst_id, i, &eth_qos_info,
+			IPA_ETH_PIPE_DIR_TX);
+		nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+			"Client: %s, TC Bitmap: 0x%x, Priority: %d\n",
+			ipa_clients_strings[eth_qos_info.client_type],
+			eth_qos_info.tc_bmap, eth_qos_info.priority);
+		cnt += nbytes;
+		if (hw_stats &&
+			(!ipa_query_cumm_teth_cons_stats(eth_qos_info.client_type,
+			&out))) {
+			nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+					"v4_rx_p-b(%d,%lld) v6_rx_p-b(%d,%lld)\n",
+					out.num_ipv4_pkts,
+					out.num_ipv4_bytes,
+					out.num_ipv6_pkts,
+					out.num_ipv6_bytes);
+			cnt += nbytes;
+		}
+	}
+
+	for (i = 0; i < rx_num_pipes; i++) {
+		memset(&out, 0, sizeof(out));
+		ipa_eth_qos_get_qos_info(client->inst_id, i, &eth_qos_info,
+			IPA_ETH_PIPE_DIR_RX);
+		nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+			"Client: %s, TC Bitmap: 0x%x, Priority: %d\n",
+			ipa_clients_strings[eth_qos_info.client_type],
+			eth_qos_info.tc_bmap, eth_qos_info.priority);
+		cnt += nbytes;
+		if (hw_stats &&
+			(!ipa_query_cumm_teth_prod_stats(eth_qos_info.client_type,
+			&out))) {
+			nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+					"v4_rx_p-b(%d,%lld) v6_rx_p-b(%d,%lld)\n",
+					out.num_ipv4_pkts,
+					out.num_ipv4_bytes,
+					out.num_ipv6_pkts,
+					out.num_ipv6_bytes);
+			cnt += nbytes;
+		}
+	}
+
+done:
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
+}
+
 static ssize_t ipa3_eth_read_err_status(struct file *file,
 	char __user *ubuf, size_t count, loff_t *ppos)
 {
@@ -5097,6 +5179,10 @@ static const struct file_operations fops_ipa_eth_client_status = {
 	.read = ipa3_eth_read_err_status,
 	.open = ipa3_open_dbg,
 };
+static const struct file_operations fops_ipa_eth_qos_stats = {
+	.read = ipa3_eth_read_qos_stats,
+	.open = ipa3_open_dbg,
+};
 void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client)
 {
 	struct dentry *file = NULL;
@@ -5130,6 +5216,18 @@ void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client)
 			"%s_%d_status", ipa_eth_clients_strings[type], inst_id);
 		file = debugfs_create_file(name, IPA_READ_ONLY_MODE,
 			dent_eth, (void *)client, &fops_ipa_eth_client_status);
+	}
+	if (!file) {
+		IPAERR("could not create hw_type file\n");
+		goto fail;
+	}
+
+	if (ipa3_ctx->eth_qos && type == IPA_ETH_CLIENT_IEMAC
+		&& inst_id == 0) {
+		snprintf(name, IPA_RESOURCE_NAME_MAX,
+			"%s_%d_qos_stats", ipa_eth_clients_strings[type], inst_id);
+		file = debugfs_create_file(name, IPA_READ_ONLY_MODE,
+			dent_eth, (void *)client, &fops_ipa_eth_qos_stats);
 	}
 	if (!file) {
 		IPAERR("could not create hw_type file\n");

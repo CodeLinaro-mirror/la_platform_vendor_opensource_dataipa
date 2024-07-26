@@ -3994,6 +3994,12 @@ int ipa_get_teth_stats(void);
 int ipa_query_teth_stats(enum ipa_client_type prod,
 	struct ipa_quota_stats_all *out, bool reset);
 
+int ipa_query_cumm_teth_prod_stats(enum ipa_client_type prod,
+	struct ipa_quota_stats *out);
+
+int ipa_query_cumm_teth_cons_stats(enum ipa_client_type cons,
+	struct ipa_quota_stats *out);
+
 int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons);
 
 int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod);
