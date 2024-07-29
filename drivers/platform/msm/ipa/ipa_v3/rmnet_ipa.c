@@ -1762,14 +1762,12 @@ send:
 			/* Handle ip fragmentation */
 			if (ip_is_fragment(ip_hdr(skb))) {
 				ret = xmit_ipsec_frag_ul(skb);
-				kfree_skb(skb);
 				goto out;
 			}
 		} else { // IPv6
 			unsigned int offset = 0;
 			if (NEXTHDR_FRAGMENT == ipv6_find_hdr(skb, &offset, NEXTHDR_FRAGMENT, NULL, NULL)) {
 				ret = xmit_ipsec_frag_ul(skb);
-				kfree_skb(skb);
 				goto out;
 			}
 		}
@@ -2154,10 +2152,8 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 			IPADBG_LOW("After assignment: skb->mark = 0x%X", skb->mark);
 			skb_pull(skb, sizeof(struct error_qmap_hdr));
 			atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_excp_exceed_mtu);
-			if (ipa3_frag_ul_ipsec(skb, sa_idx)) {
+			if (ipa3_frag_ul_ipsec(skb, sa_idx))
 				IPAERR("Fail to frag UL ipsec skb for sa index %u \n", sa_idx);
-				kfree_skb(skb);
-			}
 			return;
 		default:
 			IPAWANERR("unknown Encap IPSEC error code %d\n",

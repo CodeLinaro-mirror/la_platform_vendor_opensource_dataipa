@@ -4031,7 +4031,6 @@ int xmit_ipsec_frag_ul(struct sk_buff *skb)
 	sa_idx = (u8)(skb->mark & 0xFF);
 	if (sa_idx >= IPA_IPSEC_MAX_SA_NUM) {
 		IPAERR("sa_idx %u is invalid, free frag ul skb \n", sa_idx);
-		kfree_skb(skb);
 		return -EINVAL;
 	}
 
@@ -4062,6 +4061,7 @@ int ipa3_frag_ul_ipsec(struct sk_buff *skb, u8 sa_idx)
 
 	if (unlikely(!x)) {
 		IPAERR("SA:%u has no XFRM state pointer \n", sa_idx);
+		kfree_skb(skb);
 		return -EINVAL;
 	}
 
@@ -4070,6 +4070,7 @@ int ipa3_frag_ul_ipsec(struct sk_buff *skb, u8 sa_idx)
 	sa_path_mtu = (*(struct ipa_ipsec_sa_encap_static *)&ipsec_stat).path_mtu;
 	if (unlikely(!sa_path_mtu)) {
 		IPAERR("SA:%u path MTU is 0 \n", sa_idx);
+		kfree_skb(skb);
 		return -EINVAL;
 	}
 
@@ -4077,6 +4078,7 @@ int ipa3_frag_ul_ipsec(struct sk_buff *skb, u8 sa_idx)
 	rt = ip_route_output(net, ip_hdr(skb)->daddr, 0, 0, 0);
 	if (IS_ERR(rt)) {
 		IPAERR("Fail to ip_route_output \n", sa_idx);
+		kfree_skb(skb);
 		return -EINVAL;
 	}
 	skb_dst_set(skb, &rt->dst);
