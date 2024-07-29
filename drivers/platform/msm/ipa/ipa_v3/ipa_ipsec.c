@@ -2069,14 +2069,16 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
 		if (ip == IPA_IP_v4) {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
-			attrib.attrib_mask = IPA_FLT_PROTOCOL | IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_DST_PORT;
 			attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
-			attrib.attrib_mask = IPA_FLT_NEXT_HDR | IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_DST_PORT;
 			attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
 		attrib.dst_port = 500;
+		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
+		attrib.meta_data_mask = WWAN_METADATA_MASK;
 		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
 		if (!!rc)
 			return rc;
@@ -2100,16 +2102,18 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		req->filter_spec_ex_list[pos].is_routing_table_index_valid = true;
 		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
 		if (ip == IPA_IP_v4) {
-			attrib.attrib_mask = IPA_FLT_PROTOCOL | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT | IPA_FLT_SPI;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_SRC_PORT|IPA_FLT_DST_PORT|IPA_FLT_SPI;
 			attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
-			attrib.attrib_mask = IPA_FLT_NEXT_HDR | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT | IPA_FLT_SPI;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_SRC_PORT|IPA_FLT_DST_PORT|IPA_FLT_SPI;
 			attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
 		attrib.src_port = 4500;
 		attrib.dst_port = 4500;
 		attrib.spi = 0;
 		attrib.ext_attrib_mask = IPA_FLT_EXT_NAT_T;
+		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
+		attrib.meta_data_mask = WWAN_METADATA_MASK;
 		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
 		if (!!rc)
 			return rc;
@@ -2139,13 +2143,15 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		attrib.ext_attrib_mask = 0;
 		if (ip == IPA_IP_v4) {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
-			attrib.attrib_mask = IPA_FLT_PROTOCOL;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL;
 			attrib.u.v4.protocol = IPPROTO_ESP;
 		} else {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
-			attrib.attrib_mask = IPA_FLT_NEXT_HDR;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR;
 			attrib.u.v6.next_hdr = IPPROTO_ESP;
 		}
+		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
+		attrib.meta_data_mask = WWAN_METADATA_MASK;
 		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
 		if (!!rc)
 			return rc;
@@ -2165,14 +2171,16 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
 		if (ip == IPA_IP_v4) {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
-			attrib.attrib_mask = IPA_FLT_PROTOCOL | IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_DST_PORT;
 			attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
-			attrib.attrib_mask = IPA_FLT_NEXT_HDR | IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_DST_PORT;
 			attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
 		attrib.dst_port = 4500;
+		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
+		attrib.meta_data_mask = WWAN_METADATA_MASK;
 		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
 		if (!!rc)
 			return rc;
