@@ -14,6 +14,7 @@
 #define IPAHAL_IPA6_PIPES_NUM 50
 #define IPAHAL_IPA5_PIPE_REG_NUM 2
 #define IPAHAL_IPA5_PRODUCER_PIPE_NUM 16
+#define IPAHAL_IPA6_PRODUCER_PIPE_NUM 22
 #define IPAHAL_MAX_RULE_ID_32 (1024 / 32) /* 10 bits of rule id */
 
 enum ipahal_hw_stats_type {
