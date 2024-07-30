@@ -1168,10 +1168,10 @@ static void ipa_ipsec_delete_orphan_dl_fnr(enum ipa_ip_type ip, u8 idx)
 
 				if ((flt_rule->rule.attrib.meta_data & META_SA_MASK) == idx) {
 					mutex_lock(&ipa3_ctx->lock);
-					BUG_ON(__ipa_del_flt_rule(pol->flt[i]));
+					WARN_ON(__ipa_del_flt_rule(pol->flt[i]));
 					IPADBG("deleted FLT rule %d\n",pol->flt[i]);
 					mutex_unlock(&ipa3_ctx->lock);
-					BUG_ON(ipa3_commit_flt(ip));
+					WARN_ON(ipa3_commit_flt(ip));
 					pol->flt[i] = -1;
 				}
 			}
@@ -1460,10 +1460,10 @@ free_idx:
 	if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt > 0) {
 
 		mutex_lock(&ipa3_ctx->lock);
-		BUG_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
+		WARN_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
 		mutex_unlock(&ipa3_ctx->lock);
 
-		BUG_ON(ipa3_commit_rt((x->props.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4));
+		WARN_ON(ipa3_commit_rt((x->props.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4));
 		IPADBG("deleted RT rule %d\n",
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt);
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = -1;
@@ -1473,14 +1473,14 @@ del_hpc:
 	mutex_lock(&ipa3_ctx->lock);
 	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc)
-			BUG_ON(__ipa3_release_hdr_proc_ctx(
+			WARN_ON(__ipa3_release_hdr_proc_ctx(
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr)
-			BUG_ON(__ipa3_release_hdr(
+			WARN_ON(__ipa3_release_hdr(
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
 	} else {
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc)
-			BUG_ON(__ipa3_release_hdr_proc_ctx(
+			WARN_ON(__ipa3_release_hdr_proc_ctx(
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc));
 	}
 	mutex_unlock(&ipa3_ctx->lock);
@@ -1522,13 +1522,13 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 
 	switch (work_data->dir) {
 	case XFRM_DEV_OFFLOAD_OUT:
-		BUG_ON(ipa_ipsec_delete_orphan_ul_fnr(idx));
+		WARN_ON(ipa_ipsec_delete_orphan_ul_fnr(idx));
 		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
 		mutex_lock(&ipa3_ctx->lock);
-		BUG_ON(__ipa3_release_hdr_proc_ctx(
+		WARN_ON(__ipa3_release_hdr_proc_ctx(
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
-		BUG_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
+		WARN_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 		mutex_unlock(&ipa3_ctx->lock);
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
@@ -1540,17 +1540,17 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 			ipa_ipsec_delete_orphan_dl_fnr(work_data->ip, idx);
 
 			mutex_lock(&ipa3_ctx->lock);
-			BUG_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
+			WARN_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
 			mutex_unlock(&ipa3_ctx->lock);
 
-			BUG_ON(ipa3_commit_rt(work_data->ip));
+			WARN_ON(ipa3_commit_rt(work_data->ip));
 			IPADBG("deleted RT rule %d\n",
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt);
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = -1;
 		}
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc) {
 			mutex_lock(&ipa3_ctx->lock);
-			BUG_ON(__ipa3_release_hdr_proc_ctx(
+			WARN_ON(__ipa3_release_hdr_proc_ctx(
 					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc));
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 			mutex_unlock(&ipa3_ctx->lock);
@@ -1923,7 +1923,7 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 	for (i = 0; i < IPA_IPSEC_DL_FLT_PER_POL; i++) {
 		if (pol->flt[i] != -1) {
 			mutex_lock(&ipa3_ctx->lock);
-			BUG_ON(__ipa_del_flt_rule(pol->flt[i]));
+			WARN_ON(__ipa_del_flt_rule(pol->flt[i]));
 			IPADBG("deleted FLT rule %d\n", pol->flt[i]);
 			mutex_unlock(&ipa3_ctx->lock);
 			pol->flt[i] = -1;
@@ -1941,7 +1941,7 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 				sizeof(struct ipa_rule_attrib));
 			ul_flt->ip = work_data->ip;
 		}
-		BUG_ON(__ipa3_del_rt_rule(pol->rt));
+		WARN_ON(__ipa3_del_rt_rule(pol->rt));
 		mutex_unlock(&ipa3_ctx->lock);
 
 		pol->rt = -1;
@@ -1952,7 +1952,7 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 	}
 
 	/* This will commit flt as well */
-	BUG_ON(ipa3_commit_rt(work_data->ip));
+	WARN_ON(ipa3_commit_rt(work_data->ip));
 
 	list_del(&pol->l);
 	kfree(pol);
@@ -2921,7 +2921,7 @@ int ipa_ipsec_init(void)
 	ipa3_ctx->ipsec->keys = (struct ipa_ipsec_key_store *)key_mmio;
 
 	/* Compile time check the SA SRAM partition size and alignment */
-	BUG_ON(IPA_MEM_PART(sa_contexts_size) < IPA_SA_DB_SIZE ||
+	WARN_ON(IPA_MEM_PART(sa_contexts_size) < IPA_SA_DB_SIZE ||
 		IPA_MEM_PART(sa_contexts_ofst) & 0x3);
 
 	/* Map the SA database SRAM region */
