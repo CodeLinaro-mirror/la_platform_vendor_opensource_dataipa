@@ -2013,6 +2013,7 @@ enum ipa_smmu_cb_type {
 	IPA_SMMU_CB_11AD,
 	IPA_SMMU_CB_ETH,
 	IPA_SMMU_CB_ETH1,
+	IPA_SMMU_CB_RTP,
 	IPA_SMMU_CB_MAX
 };
 
@@ -2460,6 +2461,7 @@ struct ipa3_context {
 	struct platform_device *master_pdev;
 	struct device *pdev;
 	struct device *uc_pdev;
+	struct device *rtp_pdev;
 	spinlock_t idr_lock;
 	u32 enable_clock_scaling;
 	u32 enable_napi_chain;
@@ -2635,6 +2637,7 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_default_recycle_stats;
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
+	struct mutex ssr_lock;
 };
 
 struct ipa3_plat_drv_res {
