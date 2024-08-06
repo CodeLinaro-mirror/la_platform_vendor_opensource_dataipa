@@ -462,7 +462,8 @@ int ipa_ipv6ct_add_tbl(uint16_t number_of_entries, enum ipa3_nat_mem_in nmi, uin
 	if (ct_cache_ptr->table_cnt >= IPA_IPV6CT_MAX_TBLS)
 	{
 		IPAERR("Can't add addition IPv6 connection tracking table. Maximum %d tables allowed\n", IPA_IPV6CT_MAX_TBLS);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto unlock;
 	}
 
 	if (!ct_cache_ptr->ipa_desc)
@@ -564,7 +565,8 @@ int ipa_ipv6ct_del_tbl(uint32_t table_handle)
 	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
 	{
 		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto unlock;
 	}
 
 	if (!ct_table->mem_desc.valid)
@@ -1250,12 +1252,6 @@ void ipa_ipv6ct_dump_table(uint32_t table_handle)
 
 	CT_BREAK_TBL_HDL(table_handle, nmi, table_handle);
 
-	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
-	{
-		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
-		return;
-	}
-
 	if (table_handle == IPA_TABLE_INVALID_ENTRY || table_handle > IPA_IPV6CT_MAX_TBLS)
 	{
 		IPAERR("invalid parameters passed %d\n", table_handle);
@@ -1269,6 +1265,12 @@ void ipa_ipv6ct_dump_table(uint32_t table_handle)
 	}
 
 	ct_cache_ptr = &ipv6_ct_cache[nmi];
+
+	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
+	{
+		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
+		goto unlock;
+	}
 
 	ct_table = &ct_cache_ptr->ip6_tbl[table_handle - 1];
 
