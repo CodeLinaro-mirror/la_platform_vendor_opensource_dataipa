@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -351,14 +351,17 @@ static void ipa3_handle_modem_init_cmplt_req(struct qmi_handle *qmi_handle,
 	cmplt_req = (struct ipa_init_modem_driver_cmplt_req_msg_v01 *)
 		decoded_msg;
 
+	mutex_lock(&ipa3_qmi_lock);
 	if (!ipa3_modem_init_cmplt) {
 		ipa3_modem_init_cmplt = true;
 		if (ipa3_ctx->apply_rg10_wa && ipa3_qmi_modem_init_fin == true) {
 			IPAWANDBG("load uc related registers (%d)\n",
 				ipa3_qmi_modem_init_fin);
+			if (!ipa3_ctx->uc_ctx.uc_loaded)
 				ipa3_uc_load_notify();
 		}
 	}
+	mutex_unlock(&ipa3_qmi_lock);
 
 	memset(&resp, 0, sizeof(resp));
 	resp.resp.result = IPA_QMI_RESULT_SUCCESS_V01;
@@ -1931,14 +1934,17 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 		 */
 		BUG();
 	}
+	mutex_lock(&ipa3_qmi_lock);
 	ipa3_qmi_modem_init_fin = true;
 
 	/* got modem_init_cmplt_req already, load uc-related register */
 	if (ipa3_ctx->apply_rg10_wa && ipa3_modem_init_cmplt == true) {
 		IPAWANDBG("load uc related registers (%d)\n",
 			ipa3_modem_init_cmplt);
-		ipa3_uc_load_notify();
+		if (!ipa3_ctx->uc_ctx.uc_loaded)
+			ipa3_uc_load_notify();
 	}
+	mutex_unlock(&ipa3_qmi_lock);
 
 	/* In cold-bootup, first_time_handshake = false */
 	ipa3_q6_handshake_complete(first_time_handshake);
