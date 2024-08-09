@@ -6760,11 +6760,7 @@ static struct ipa3_mem_partition ipa_5_2_mem_part = {
 	.stats_quota_ap_ofst = 0x18C8,
 	.stats_quota_ap_size = 0x48,
 	.stats_tethering_ofst = 0x1910,
-	.stats_tethering_size = 0x0,
-	.apps_v4_flt_nhash_ofst = 0x1918,
-	.apps_v4_flt_nhash_size = 0x188,
-	.apps_v6_flt_nhash_ofst = 0x1aa0,
-	.apps_v6_flt_nhash_size = 0x228,
+	.stats_tethering_size = 0x3c0,
 	.stats_flt_v4_ofst = 0,
 	.stats_flt_v4_size = 0,
 	.stats_flt_v6_ofst = 0,
@@ -6787,6 +6783,10 @@ static struct ipa3_mem_partition ipa_5_2_mem_part = {
 	.apps_v4_flt_hash_size = 0x0,
 	.apps_v6_flt_hash_ofst = 0x2718,
 	.apps_v6_flt_hash_size = 0x0,
+	.apps_v4_flt_nhash_ofst = 0x2718,
+	.apps_v4_flt_nhash_size = 0x0,
+	.apps_v6_flt_nhash_ofst = 0x2718,
+	.apps_v6_flt_nhash_size = 0x0,
 	.apps_v4_rt_hash_ofst = 0x2718,
 	.apps_v4_rt_hash_size = 0x0,
 	.apps_v4_rt_nhash_ofst = 0x2718,
@@ -13932,17 +13932,17 @@ bool ipa3_is_modem_up(void)
 {
 	bool is_up;
 
-	mutex_lock(&ipa3_ctx->lock);
+	mutex_lock(&ipa3_ctx->ssr_lock);
 	is_up = ipa3_ctx->is_modem_up;
-	mutex_unlock(&ipa3_ctx->lock);
+	mutex_unlock(&ipa3_ctx->ssr_lock);
 	return is_up;
 }
 
 void ipa3_set_modem_up(bool is_up)
 {
-	mutex_lock(&ipa3_ctx->lock);
+	mutex_lock(&ipa3_ctx->ssr_lock);
 	ipa3_ctx->is_modem_up = is_up;
-	mutex_unlock(&ipa3_ctx->lock);
+	mutex_unlock(&ipa3_ctx->ssr_lock);
 }
 
 /**

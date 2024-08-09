@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <asm/barrier.h>
@@ -86,12 +86,12 @@ int ipa3_enable_data_path(u32 clnt_hdl)
 			holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
 			holb_cfg.en = IPA_HOLB_TMR_EN;
 		} else if ((ipa3_ctx->ipa_hw_type >= IPA_HW_v5_2) &&
-				(ep->client == IPA_CLIENT_USB_CONS)) {
+				(ep->client == IPA_CLIENT_USB_CONS ||
+				ep->client == IPA_CLIENT_APPS_WAN_CONS)) {
 			holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
 			holb_cfg.en = IPA_HOLB_TMR_EN;
 		} else if ((ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) &&
-				(ep->client == IPA_CLIENT_APPS_WAN_CONS ||
-				ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS)) {
+				ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS) {
 			holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
 			holb_cfg.en = IPA_HOLB_TMR_EN;
 		} else {

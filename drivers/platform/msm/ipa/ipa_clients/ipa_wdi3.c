@@ -1612,7 +1612,7 @@ static void ipa_xr_wdi_opt_dpath_rsrv_filter_wq_handler(struct work_struct *work
 	int res = 0;
 
 	res = ipa_xr_wdi_opt_dpath_rsrv_filter_req();
-	if (!res)
+	if (res)
 		IPAERR("Failed to reserve the filters in wlan\n");
 }
 

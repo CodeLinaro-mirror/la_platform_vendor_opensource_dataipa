@@ -2072,6 +2072,9 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 				IPAERR("failed to teardown default coal pipe\n");
 				return result;
 			}
+		} else {
+			napi_disable(ep->sys->napi_obj);
+			netif_napi_del(ep->sys->napi_obj);
 		}
 	}
 
@@ -2221,6 +2224,19 @@ static int ipa3_teardown_pipe(u32 clnt_hdl)
 		ipa_assert();
 		return result;
 	}
+
+	if (IPA_CLIENT_IS_WAN_CONS(ep->client)) {
+		/* Wait for any pending irqs */
+		usleep_range(POLLING_MIN_SLEEP_RX, POLLING_MAX_SLEEP_RX);
+		/* Wait until end point moving to interrupt mode before teardown */
+		do {
+			usleep_range(95, 105);
+		} while (atomic_read(&ep->sys->curr_polling_state));
+
+		napi_disable(ep->sys->napi_obj);
+		netif_napi_del(ep->sys->napi_obj);
+	}
+
 	result = ipa3_reset_gsi_channel(clnt_hdl);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("Failed to reset chan: %d.\n", result);
