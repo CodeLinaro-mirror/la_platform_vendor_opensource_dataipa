@@ -11997,6 +11997,91 @@ success:
 EXPORT_SYMBOL(ipa3_cfg_ep_holb);
 
 /**
+ * ipa3_cfg_ep_holb_uS() - IPA end-point holb configuration
+ *
+ * If an IPA producer pipe is full, IPA HW by default will block
+ * indefinitely till space opens up. During this time no packets
+ * including those from unrelated pipes will be processed. Enabling
+ * HOLB means IPA HW will be allowed to drop packets as/when needed
+ * and indefinite blocking is avoided.
+ *
+ * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
+ * @ipa_ep_cfg:	[in] IPA end-point configuration params
+ *
+ * Returns:	0 on success, negative on failure
+ */
+int ipa3_cfg_ep_holb_uS(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ep_holb)
+{
+	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
+	    ipa3_ctx->ep[clnt_hdl].valid == 0 || ep_holb == NULL ||
+	    ep_holb->tmr_val > ipa3_ctx->ctrl->max_holb_tmr_val ||
+	    ep_holb->en > 1) {
+		IPAERR("bad parm.\n");
+		return -EINVAL;
+	}
+
+	if (IPA_CLIENT_IS_PROD(ipa3_ctx->ep[clnt_hdl].client)) {
+		IPAERR("HOLB does not apply to IPA in EP %d\n", clnt_hdl);
+		return -EINVAL;
+	}
+
+	ipa3_ctx->ep[clnt_hdl].holb = *ep_holb;
+
+	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
+
+	if (ep_holb->en == IPA_HOLB_TMR_DIS) {
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			clnt_hdl, ep_holb);
+		goto success;
+	}
+
+	/* Follow HPG sequence to DIS_HOLB, Configure Timer, and HOLB_EN */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+		ipa3_ctx->ep[clnt_hdl].holb.en = IPA_HOLB_TMR_DIS;
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			clnt_hdl, ep_holb);
+	}
+
+	/* Configure timer */
+	if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_2) {
+		ipa3_cal_ep_holb_scale_base_val(ep_holb->tmr_val,
+			&ipa3_ctx->ep[clnt_hdl].holb);
+	}
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+		int res;
+
+		res = ipa3_process_timer_cfg(ep_holb->tmr_val,
+			&ipa3_ctx->ep[clnt_hdl].holb.pulse_generator,
+			&ipa3_ctx->ep[clnt_hdl].holb.scaled_time);
+		if (res) {
+			IPAERR("failed to process HOLB timer tmr=%u\n",
+				ep_holb->tmr_val);
+			ipa_assert();
+			return res;
+		}
+	}
+
+	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n,
+		clnt_hdl, &ipa3_ctx->ep[clnt_hdl].holb);
+
+	/* Enable HOLB */
+	ipa3_ctx->ep[clnt_hdl].holb.en = IPA_HOLB_TMR_EN;
+	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+		clnt_hdl, ep_holb);
+	/* IPA4.5 issue requires HOLB_EN to be written twice */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			clnt_hdl, ep_holb);
+
+success:
+	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
+	IPADBG("cfg holb %u ep=%d tmr= %d \n", ep_holb->en, clnt_hdl,
+		ep_holb->tmr_val);
+	return 0;
+}
+EXPORT_SYMBOL(ipa3_cfg_ep_holb_uS);
+
+/**
  * ipa3_force_cfg_ep_holb() - IPA end-point holb configuration
  *			for QDSS_MHI_CONS pipe
  *

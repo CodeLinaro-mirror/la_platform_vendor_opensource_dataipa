@@ -3360,6 +3360,8 @@ int ipa3_cfg_ep_route(u32 clnt_hdl, const struct ipa_ep_cfg_route *ipa_ep_cfg);
 
 int ipa3_cfg_ep_holb(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ipa_ep_cfg);
 
+int ipa3_cfg_ep_holb_uS(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ipa_ep_cfg);
+
 void ipa3_cal_ep_holb_scale_base_val(u32 tmr_val,
 				struct ipa_ep_cfg_holb *ep_holb);
 
