@@ -1655,7 +1655,6 @@ static int ipa3_send_gsb_msg(unsigned long usr_param, uint8_t msg_type)
 	return 0;
 }
 
-
 static void ipa3_qos_param_msg_free_cb(void *buff, u32 len, u32 type)
 {
 	if (!buff) {
@@ -1664,6 +1663,312 @@ static void ipa3_qos_param_msg_free_cb(void *buff, u32 len, u32 type)
 	}
 
 	kfree(buff);
+}
+
+static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
+{
+	int cur_idx = ipa3_ctx->get_qos_config.num_qos_configs;
+	int i;
+
+	if (cur_idx >= IPA_QOS_PARAMS_MAX)
+	{
+		IPAERR("Max rules saved cannot save more %d \n", cur_idx);
+		return 0;
+	}
+
+	IPADBG("Attemp saving qos request at index %d \n", cur_idx);
+	for (i = 0; i < ipa3_ctx->get_qos_config.num_qos_configs; i++)
+	{
+		if (ipa3_ctx->get_qos_config.qos_config[i].traffic_class ==
+				qos_param->traffic_class &&
+			ipa3_ctx->get_qos_config.qos_config[i].ip_type ==
+				qos_param->ip_type &&
+			ipa3_ctx->get_qos_config.qos_config[i].src_ip_addr ==
+				qos_param->src_ip_addr &&
+			ipa3_ctx->get_qos_config.qos_config[i].dst_ip_addr ==
+				qos_param->dst_ip_addr &&
+			ipa3_ctx->get_qos_config.qos_config[i].src_port_start ==
+				qos_param->src_port_start &&
+			ipa3_ctx->get_qos_config.qos_config[i].src_port_end ==
+				qos_param->src_port_end &&
+			ipa3_ctx->get_qos_config.qos_config[i].dst_port_start ==
+				qos_param->dst_port_start &&
+			ipa3_ctx->get_qos_config.qos_config[i].dst_port_end ==
+				qos_param->dst_port_end &&
+			ipa3_ctx->get_qos_config.qos_config[i].protocol ==
+				qos_param->protocol &&
+			ipa3_ctx->get_qos_config.qos_config[i].dscp ==
+				qos_param->dscp &&
+			ipa3_ctx->get_qos_config.qos_config[i].pcp ==
+				qos_param->pcp &&
+			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].src_v6_ip_addr,
+				qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
+			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].dst_v6_ip_addr,
+				qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
+			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].dst_mac_addr,
+				qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
+			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].src_mac_addr,
+				qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr))
+			)
+		{
+			IPADBG("Duplicate entry dont increase rule count \n");
+			return 0;
+		}
+	}
+
+	memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].dev_name,
+		qos_param->dev_name, sizeof(qos_param->dev_name));
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class =
+		qos_param->traffic_class;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type = qos_param->ip_type;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_ip_addr =
+		qos_param->src_ip_addr;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_ip_addr =
+		qos_param->dst_ip_addr;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_start =
+		qos_param->src_port_start;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_end =
+		qos_param->src_port_end;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_start =
+		qos_param->dst_port_start;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_end =
+		qos_param->dst_port_end;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol =
+		qos_param->protocol;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp = qos_param->dscp;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp = qos_param->pcp;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count =
+		qos_param->vlan_count;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0] =
+		qos_param->vlan_ids[0];
+
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0] =
+		qos_param->src_v6_ip_addr[0];
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[1] =
+		qos_param->src_v6_ip_addr[1];
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[2] =
+		qos_param->src_v6_ip_addr[2];
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[3] =
+		qos_param->src_v6_ip_addr[3];
+
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[0] =
+		qos_param->dst_v6_ip_addr[0];
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[1] =
+		qos_param->dst_v6_ip_addr[1];
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[2] =
+		qos_param->dst_v6_ip_addr[2];
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[3] =
+		qos_param->dst_v6_ip_addr[3];
+
+	memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].src_mac_addr,
+		qos_param->src_mac_addr, IPA_MAC_ADDR_SIZE);
+	memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_mac_addr,
+		qos_param->dst_mac_addr, IPA_MAC_ADDR_SIZE);
+
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].qos_rule_hdl =
+		qos_param->qos_rule_hdl;
+	ipa3_ctx->get_qos_config.num_qos_configs++;
+	IPADBG("Stored qos configs count now: %d\n",
+		ipa3_ctx->get_qos_config.num_qos_configs);
+
+	return 0;
+}
+
+static int ipa3_delete_qos_params(struct ipa_ioc_qos_config *qos_param)
+{
+	int num_config = ipa3_ctx->get_qos_config.num_qos_configs;
+	int cur_idx = 0;
+	int i = 0;
+
+	IPADBG("Total configs available: %d \n", num_config);
+	for (i = 0; i < ipa3_ctx->get_qos_config.num_qos_configs; i++)
+	{
+		if (ipa3_ctx->get_qos_config.qos_config[i].traffic_class ==
+				qos_param->traffic_class &&
+			ipa3_ctx->get_qos_config.qos_config[i].ip_type ==
+				qos_param->ip_type &&
+			ipa3_ctx->get_qos_config.qos_config[i].src_ip_addr ==
+				qos_param->src_ip_addr &&
+			ipa3_ctx->get_qos_config.qos_config[i].dst_ip_addr ==
+				qos_param->dst_ip_addr &&
+			ipa3_ctx->get_qos_config.qos_config[i].src_port_start ==
+				qos_param->src_port_start &&
+			ipa3_ctx->get_qos_config.qos_config[i].src_port_end ==
+				qos_param->src_port_end &&
+			ipa3_ctx->get_qos_config.qos_config[i].dst_port_start ==
+				qos_param->dst_port_start &&
+			ipa3_ctx->get_qos_config.qos_config[i].dst_port_end ==
+				qos_param->dst_port_end &&
+			ipa3_ctx->get_qos_config.qos_config[i].protocol ==
+				qos_param->protocol &&
+			ipa3_ctx->get_qos_config.qos_config[i].dscp ==
+				qos_param->dscp &&
+			ipa3_ctx->get_qos_config.qos_config[i].pcp ==
+				qos_param->pcp &&
+			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].src_v6_ip_addr,
+				qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
+			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].dst_v6_ip_addr,
+				qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
+			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].dst_mac_addr,
+				qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
+			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].src_mac_addr,
+				qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr))
+			)
+		{
+			cur_idx = i;
+			IPADBG("Matching entry found at index %d\n", i);
+			break;
+		}
+	}
+
+	if (num_config  == i)
+	{
+		IPADBG("No Matching entry found to delete\n");
+		return 0;
+	}
+
+	IPADBG("Attempt deleting qos request at index %d \n", cur_idx);
+	for (cur_idx = i; cur_idx < ipa3_ctx->get_qos_config.num_qos_configs - 1;
+			cur_idx++)
+	{
+		memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].dev_name,
+				ipa3_ctx->get_qos_config.qos_config[cur_idx+1].dev_name,
+				IPA_RESOURCE_NAME_MAX);
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].traffic_class;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx+1].ip_type;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_ip_addr =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_ip_addr;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_ip_addr =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_ip_addr;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_start =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_port_start;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_end =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_port_end;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_start =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_port_start;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_end =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_port_end;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].protocol;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dscp;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].pcp;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].vlan_count;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].vlan_ids[0];
+
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_v6_ip_addr[0];
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[1] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_v6_ip_addr[1];
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[2] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_v6_ip_addr[2];
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[3] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_v6_ip_addr[3];
+
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[0] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_v6_ip_addr[0];
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[1] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_v6_ip_addr[1];
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[2] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_v6_ip_addr[2];
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[3] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_v6_ip_addr[3];
+
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].qos_rule_hdl =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].qos_rule_hdl;
+		memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].src_mac_addr,
+			ipa3_ctx->get_qos_config.qos_config[cur_idx+1].src_mac_addr,
+			IPA_MAC_ADDR_SIZE);
+		memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_mac_addr,
+			ipa3_ctx->get_qos_config.qos_config[cur_idx+1].dst_mac_addr,
+			IPA_MAC_ADDR_SIZE);
+	}
+
+	memset(&ipa3_ctx->get_qos_config.qos_config[num_config - 1], 0,
+		sizeof(struct ipa_ioc_qos_config));
+
+	ipa3_ctx->get_qos_config.num_qos_configs--;
+	IPADBG("Stored qos configs count now: %d\n",
+		ipa3_ctx->get_qos_config.num_qos_configs);
+
+	return 0;
+}
+
+
+static int ipa3_get_qos_params(struct ipa_ioc_get_qos_config *get_qos_param)
+{
+	int cur_idx = 0;
+	memset(get_qos_param, 0, sizeof(struct ipa_ioc_get_qos_config));
+
+	get_qos_param->num_qos_configs = ipa3_ctx->get_qos_config.num_qos_configs;
+	for (cur_idx = 0; cur_idx < get_qos_param->num_qos_configs; cur_idx++)
+	{
+		memcpy(get_qos_param->qos_config[cur_idx].dev_name,
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dev_name,
+			sizeof(get_qos_param->qos_config[cur_idx].dev_name));
+		get_qos_param->qos_config[cur_idx].traffic_class =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class;
+		get_qos_param->qos_config[cur_idx].ip_type =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type;
+		get_qos_param->qos_config[cur_idx].src_ip_addr =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_ip_addr;
+		get_qos_param->qos_config[cur_idx].dst_ip_addr =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_ip_addr;
+		get_qos_param->qos_config[cur_idx].src_port_start =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_start;
+		get_qos_param->qos_config[cur_idx].src_port_end =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_end;
+		get_qos_param->qos_config[cur_idx].dst_port_start =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_start;
+		get_qos_param->qos_config[cur_idx].dst_port_end =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_end;
+		get_qos_param->qos_config[cur_idx].protocol =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol;
+		get_qos_param->qos_config[cur_idx].dscp =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp;
+		get_qos_param->qos_config[cur_idx].pcp =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp;
+		get_qos_param->qos_config[cur_idx].vlan_count =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count;
+		get_qos_param->qos_config[cur_idx].vlan_ids[0] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0];
+
+		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[0] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0];
+		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[1] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[1];
+		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[2] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[2];
+		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[3] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[3];
+
+		get_qos_param->qos_config[cur_idx].dst_v6_ip_addr[0] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[0];
+		get_qos_param->qos_config[cur_idx].dst_v6_ip_addr[1] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[1];
+		get_qos_param->qos_config[cur_idx].dst_v6_ip_addr[2] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[2];
+		get_qos_param->qos_config[cur_idx].dst_v6_ip_addr[3] =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[3];
+		get_qos_param->qos_config[cur_idx].qos_rule_hdl =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].qos_rule_hdl;
+
+		memcpy(get_qos_param->qos_config[cur_idx].src_mac_addr,
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_mac_addr,
+			IPA_MAC_ADDR_SIZE);
+		memcpy(get_qos_param->qos_config[cur_idx].dst_mac_addr,
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_mac_addr,
+			IPA_MAC_ADDR_SIZE);
+	}
+	IPADBG("Stored qos configs count: %d\n",
+		ipa3_ctx->get_qos_config.num_qos_configs);
+
+	return 0;
 }
 
 static int ipa3_send_qos_param_msg(unsigned long usr_param)
@@ -1709,9 +2014,61 @@ static int ipa3_send_qos_param_msg(unsigned long usr_param)
 		kfree(buff);
 		return retval;
 	}
+	else
+	{
+		if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_ADD_EVENT)
+		{
+			ipa3_save_qos_params(qos_param);
+		}
+		else if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_DELETE_EVENT)
+		{
+			ipa3_delete_qos_params(qos_param);
+		}
+		else if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_FLUSH_EVENT)
+		{
+			memset(&ipa3_ctx->get_qos_config, 0, sizeof(struct ipa_ioc_get_qos_config));
+		}
+	}
 	IPADBG("exit\n");
 
 	return 0;
+}
+
+static int ipa3_get_qos_param_list(struct ipa_ioc_get_qos_config *get_qos_config)
+{
+	int retval = 0;
+	struct ipa_ioc_get_qos_config *get_qos_param;
+	struct ipa_msg_meta msg_meta;
+
+	IPADBG("Received ioctl qos\n");
+	memset(&msg_meta, 0, sizeof(msg_meta));
+
+	get_qos_param = kzalloc(sizeof(struct ipa_ioc_get_qos_config),
+		GFP_KERNEL);
+	if (!get_qos_param)
+		return -ENOMEM;
+	IPADBG("kzalloc success qos\n");
+
+	if (copy_from_user((u8 *)get_qos_param, (void __user *)get_qos_config,
+		sizeof(struct ipa_ioc_get_qos_config))) {
+		IPADBG("copy_from_user failed\n");
+		kfree(get_qos_param);
+		return -EFAULT;
+	}
+
+	ipa3_get_qos_params(get_qos_param);
+
+	IPADBG("mem duplicated succeeded\n");
+	if (copy_to_user((void __user *)get_qos_config , get_qos_param,
+		sizeof(struct ipa_ioc_get_qos_config))) {
+		IPADBG("copy_from_user failed\n");
+		retval = -EFAULT;
+	}
+
+	kfree(get_qos_param);
+	IPADBG("exit\n");
+
+	return retval;
 }
 
 static int ipa3_ioctl_add_rt_rule_v2(unsigned long arg)
@@ -4373,11 +4730,12 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	case IPA_IOC_QOS_PARAM:
-		IPADBG("Got IPA_IOC_QOS_PARAM\n");
-		if (ipa3_send_qos_param_msg(arg)) {
-			retval = -EFAULT;
-			break;
-		}
+		retval = ipa3_send_qos_param_msg(arg);
+		break;
+
+	case IPA_IOC_GET_QOS_PARAMS:
+		IPADBG("Got IPA_IOC_GET_QOS_PARAMS\n");
+		retval = ipa3_get_qos_param_list((struct ipa_ioc_get_qos_config *)arg);
 		break;
 
 	case IPA_IOC_SET_MAC_FLT:
@@ -7412,8 +7770,12 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case IPA_IOC_GET_CT_IN_SRAM_INFO32:
 		cmd = IPA_IOC_GET_CT_IN_SRAM_INFO;
+		break;
     case IPA_IOC_QOS_PARAM32:
 		cmd = IPA_IOC_QOS_PARAM;
+		break;
+	case IPA_IOC_GET_QOS_PARAMS32:
+		cmd = IPA_IOC_GET_QOS_PARAMS;
 		break;
 	case IPA_IOC_COMMIT_HDR:
 	case IPA_IOC_RESET_HDR:
@@ -11040,6 +11402,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	memset(&ipa3_ctx->prev_coal_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
 	memset(&ipa3_ctx->prev_default_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
 	memset(&ipa3_ctx->prev_low_lat_data_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
+
+	memset(&ipa3_ctx->get_qos_config, 0, sizeof(struct ipa_ioc_get_qos_config));
 
 	/* Create workqueue for recycle stats collection */
 	ipa3_ctx->collect_recycle_stats_wq =
