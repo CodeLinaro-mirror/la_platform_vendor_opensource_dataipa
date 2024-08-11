@@ -881,6 +881,7 @@ add_pipe_list:
 			|| pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN
 #endif
 			) {
+				rx_pipe_idx++;
 				continue;
 			}
 		rc = ipa_pm_associate_ipa_cons_to_client(
