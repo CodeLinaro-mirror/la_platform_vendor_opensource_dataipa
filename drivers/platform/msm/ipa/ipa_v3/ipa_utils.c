@@ -13891,82 +13891,161 @@ static void ipa3_eogre_info_free_cb(
  *
  * Returns: 0 on success, negative on failure
  */
-int ipa3_check_eogre(
-	struct ipa_ioc_eogre_info *eogre_info,
-	bool                      *send2uC,
-	bool                      *send2ipacm )
+int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
+		bool *send2ipacm, bool to_add)
 {
 	struct ipa_ioc_eogre_info null_eogre;
 
 	bool cache_is_null, eogre_is_null, same;
 
 	int ret = 0;
+	int len = 0;
+	uint16_t t_id = 0;
 
 	if (eogre_info == NULL || send2uC == NULL || send2ipacm == NULL) {
-		IPAERR("NULL ptr: eogre_info(%pK) and/or "
-			   "send2uC(%pK) and/or send2ipacm(%pK)\n",
-			   eogre_info, send2uC, send2ipacm);
+		IPAERR("NULL ptr: eogre_info(%pK) and/or send2uC(%pK) and/or "
+			"send2ipacm(%pK)\n",
+			eogre_info, send2uC, send2ipacm);
 		ret = -EIO;
 		goto done;
 	}
 
 	memset(&null_eogre, 0, sizeof(null_eogre));
 
-	cache_is_null =
-		!memcmp(
-			&ipa3_ctx->eogre_cache,
-			&null_eogre,
-			sizeof(null_eogre));
-
-	eogre_is_null =
-		!memcmp(
-			eogre_info,
-			&null_eogre,
-			sizeof(null_eogre));
+	if (!ipa3_ctx->eogre_tunnel_tagged) {
+		cache_is_null = !memcmp(&ipa3_ctx->eogre_cache, &null_eogre,
+					sizeof(null_eogre));
+	} else {
+		t_id = eogre_info->ipgre_info.num_exceptions;
+		IPADBG("Got ipgre_info from for tunnel_id:[%d]\n", t_id);
+		cache_is_null =
+			!memcmp(&ipa3_ctx->multi_tunnel_eogre_cache[t_id],
+				&null_eogre, sizeof(null_eogre));
+	}
+	eogre_is_null = !memcmp(eogre_info, &null_eogre, sizeof(null_eogre));
 
 	*send2uC = *send2ipacm = false;
 
 	if (cache_is_null) {
-
 		if (eogre_is_null) {
 			IPAERR("Receiving Invalid eogre info from user."
-					" No work needs to be done.\n");
+				" No work needs to be done.\n");
 			ret = -EIO;
 			goto done;
 		}
 
 		*send2uC = *send2ipacm = true;
+		IPADBG("ADD First Time: send2uC(%u) send2ipacm(%u)\n", *send2uC,
+			*send2ipacm);
+		if (!ipa3_ctx->eogre_tunnel_tagged) {
+			ipa3_ctx->eogre_cache = *eogre_info;
+		} else {
+			ipa3_ctx->multi_tunnel_eogre_cache
+				[eogre_info->ipgre_info.num_exceptions] =
+				*eogre_info;
 
-	} else { /* (!cache_is_null) */
-
-		if (!eogre_is_null) {
-			IPAERR(
-				"EoGRE is already enabled for iptype(%d). "
-				"No work needs to be done.\n",
-				ipa3_ctx->eogre_cache.ipgre_info.iptype);
-			ret = -EIO;
-			goto done;
+			IPADBG("eogre_info iptype: %d, src: %x, dst: %x, tunnel_id: %d\n",
+					eogre_info->ipgre_info.iptype,
+					eogre_info->ipgre_info.ipv4_src,
+					eogre_info->ipgre_info.ipv4_dst, t_id);
 		}
+	} else { /* (!cache_is_null) */
+		if (!ipa3_ctx->eogre_tunnel_tagged) {
+			if (!eogre_is_null) {
+				IPAERR("EoGRE is already enabled for iptype(%d). "
+					"No work needs to be done.\n",
+					ipa3_ctx->eogre_cache.ipgre_info.iptype);
+				ret = -EIO;
+				goto done;
+			}
 
-		same = !memcmp(
-			&ipa3_ctx->eogre_cache.map_info,
-			&eogre_info->map_info,
-			sizeof(struct IpaDscpVlanPcpMap_t));
+			same = !memcmp(&ipa3_ctx->eogre_cache.map_info,
+					&eogre_info->map_info,
+					sizeof(struct IpaDscpVlanPcpMap_t));
 
-		*send2uC = !same;
+			*send2uC = !same;
 
-		same = !memcmp(
-			&ipa3_ctx->eogre_cache.ipgre_info,
-			&eogre_info->ipgre_info,
-			sizeof(struct ipa_ipgre_info));
+			same = !memcmp(&ipa3_ctx->eogre_cache.ipgre_info,
+					&eogre_info->ipgre_info,
+					sizeof(struct ipa_ipgre_info));
 
-		*send2ipacm = !same;
+			*send2ipacm = !same;
+			ipa3_ctx->eogre_cache = *eogre_info;
+		} else {
+			/*Multi Tunnel Handle*/
+			if (to_add == true) {
+				IPADBG("Ops: ADD: (%d) Check for t_id:[%d]\n",
+					to_add, t_id);
+				same = !memcmp(
+					&ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+					.map_info,
+					&eogre_info->map_info,
+					sizeof(struct IpaDscpVlanPcpMap_t));
+
+				*send2uC = !same;
+
+				same = !memcmp(
+					&ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+						 .ipgre_info,
+					&eogre_info->ipgre_info,
+					sizeof(struct ipa_ipgre_info));
+
+				*send2ipacm = !same;
+				ipa3_ctx->multi_tunnel_eogre_cache[t_id] =
+					*eogre_info;
+				IPADBG("ADD: Inward eogre_info for iptype: %d, src: %x,"
+					" dst: %x, tunnel_id: %d\n",
+					eogre_info->ipgre_info.iptype,
+					eogre_info->ipgre_info.ipv4_src,
+					eogre_info->ipgre_info.ipv4_dst, t_id);
+			} else {
+				IPADBG("Ops: DEL:(%d) Check for t_id:[%d]\n",
+					to_add, t_id);
+				same = !memcmp(
+					&ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+					.map_info,
+					&eogre_info->map_info,
+					sizeof(struct IpaDscpVlanPcpMap_t));
+
+				*send2uC = same;
+
+				same = !memcmp(
+					&ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+					.ipgre_info,
+					&eogre_info->ipgre_info,
+					sizeof(struct ipa_ipgre_info));
+
+				*send2ipacm = same;
+				len = sizeof(
+					ipa3_ctx->multi_tunnel_eogre_cache[t_id]);
+				memset(&ipa3_ctx->multi_tunnel_eogre_cache[t_id],
+					0, len);
+
+				IPADBG("DEL : ipgre_info iptype:%d,src: %x,dst: %x,t_id:%d\n",
+					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+					.ipgre_info.iptype,
+					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+					.ipgre_info.ipv4_src,
+					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+					.ipgre_info.ipv4_dst,
+					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+					.ipgre_info.num_exceptions);
+			}
+		}
 	}
-
-	ipa3_ctx->eogre_cache = *eogre_info;
-
-	IPADBG("send2uC(%u) send2ipacm(%u)\n",
-		   *send2uC, *send2ipacm);
+	if (ipa3_ctx->eogre_tunnel_tagged) {
+		IPADBG("Cached ipgre info ip: %d, src: %x, dst: %x, t_id: %d\n",
+			ipa3_ctx->multi_tunnel_eogre_cache
+			[eogre_info->ipgre_info.num_exceptions]
+			.ipgre_info.iptype,
+			ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+			.ipgre_info.ipv4_src,
+			ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+			.ipgre_info.ipv4_dst,
+			ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+			.ipgre_info.num_exceptions);
+	}
+	IPADBG("send2uC(%u) send2ipacm(%u)\n", *send2uC, *send2ipacm);
 
 done:
 	return ret;

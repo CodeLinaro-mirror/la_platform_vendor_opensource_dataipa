@@ -405,6 +405,7 @@ enum {
 #define IPA_GSI_CHANNEL_HALT_MAX_SLEEP 10000
 #define IPA_GSI_CHANNEL_HALT_MAX_TRY 10
 
+#define MAX_MULTI_TUNNEL_STATS 4
 /* round addresses for closes page per SMMU requirements */
 #define IPA_SMMU_ROUND_TO_PAGE(iova, pa, size, iova_p, pa_p, size_p) \
 	do { \
@@ -1781,6 +1782,37 @@ struct ipa3_uc_ctx {
 	struct ipa_holb_monitor holb_monitor;
 };
 
+struct Ipa3HwStatsEOGRE{
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+} __packed;
+
+struct Ipa3HwStatsMPLS{
+	uint64_t pppoe_mpls_header_add_id;
+	uint64_t pppoe_mpls_header_remove_id;
+	uint64_t mpls_header_add_id;
+	uint64_t mpls_header_remove_id;
+} __packed;
+
+struct Ipa3HwStatsMulti{
+	uint32_t tunnel_id;
+	uint32_t mux_id;
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+}__packed;
+
+struct Ipa3HwStatsMultiCombined{
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+	struct Ipa3HwStatsMulti tunnels[4];
+}__packed;
+
+union Ipa3HwStatsEOGREInfoData_t{
+	struct Ipa3HwStatsEOGRE *eogre;
+	struct Ipa3HwStatsMPLS *mpls;
+	struct Ipa3HwStatsMultiCombined *multi;
+};
+
 /**
  * struct ipa3_uc_eogre_ctx
  * @eogre_uc_stats_ofst: EoGRE stats offset
@@ -1788,17 +1820,8 @@ struct ipa3_uc_ctx {
  */
 struct ipa3_uc_eogre_ctx{
 	u32 eogre_uc_stats_ofst;
-	struct Ipa3HwStatsEOGREInfoData_t *eogre_uc_stats_mmio;
+	union Ipa3HwStatsEOGREInfoData_t eogre_uc_stats_mmio;
 };
-
-/**
- * eogre_header_add_id    : EoGRE header add stats
- * eogre_header_remove_id : EoGRE header removal stats
- */
-struct Ipa3HwStatsEOGREInfoData_t{
-	uint32_t eogre_header_add_id;
-	uint32_t eogre_header_remove_id;
-} __packed;
 
 /**
  * struct ipa3_uc_wdi_ctx
@@ -2339,6 +2362,8 @@ struct ipa3_eth_pdu_ctx {
  * @eogre_tunnel_pppoe: set as true if pppoe tunnel is set,otherwise false
  * @eogre_tunnel_tagged: set as true if tagged tunnel active,otherwise false
  * @eogre_tunnel_feature: Will store the EoGRE tunnel feature configured.
+ * @multi_tunnel_eogre_cache: Will store Multi tunnel vlan mapping info
+ * @gre_tmplt_cfg_cache: Will store multi tunnel template info
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2615,6 +2640,8 @@ struct ipa3_context {
 	bool eogre_tunnel_pppoe;
 	bool eogre_tunnel_tagged;
 	u8 eogre_tunnel_feature;
+	struct ipa_ioc_eogre_info multi_tunnel_eogre_cache[MAX_TUNNEL_SUPPORT];
+	struct tunnel_protocols_config_table_t gre_tmplt_cfg_cache;
 };
 
 struct ipa3_plat_drv_res {
@@ -3216,7 +3243,9 @@ int ipa3_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats);
 u16 ipa3_get_smem_restr_bytes(void);
 int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
-int ipa3_get_eogre_stats(struct Ipa3HwStatsEOGREInfoData_t *stats);
+int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
+		struct Ipa3HwStatsEOGRE *eogre,
+		struct Ipa3HwStatsMultiCombined *multi);
 
 int ipa3_wigig_init_debugfs_i(struct dentry *dent);
 
@@ -3837,10 +3866,8 @@ int ipa3_qmi_reg_dereg_for_bw(bool bw_reg_dereg);
  * To check if the eogre is worthy of sending to recipients who would
  * use the data.
  */
-int ipa3_check_eogre(
-	struct ipa_ioc_eogre_info *eogre_info,
-	bool                      *send2uC,
-	bool                      *send2ipacm );
+int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
+		bool *send2ipacm, bool to_add);
 
 /*
  * To send map information to uC
