@@ -1259,10 +1259,11 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 	case IPA_IPSEC_ENC_NULL:
 	case IPA_IPSEC_ENC_AES_CBC:
 		if (!x->ealg || !x->aalg) {
-			IPAERR("%s authentication algo is NULL\n", (!x->ealg) ? "ealg" : "aalg");
+			IPAERR("%s algo is NULL\n", (!x->ealg) ? "ealg" : "aalg");
 			return -EINVAL;
 		}
-		if ((aalg = _ipa_ipsec_xfrm_sa_auth_get(x)) == IPA_IPSEC_AUTH_MAX) {
+		aalg = _ipa_ipsec_xfrm_sa_auth_get(x);
+		if (aalg <= IPA_IPSEC_AUTH_NONE || aalg >= IPA_IPSEC_AUTH_MAX) {
 			IPAERR("Unsupported authentication algo\n");
 			return -EINVAL;
 		}
@@ -1275,7 +1276,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		break;
 	case IPA_IPSEC_ENC_AES_GCM_16:
 		if (!x->aead) {
-			IPAERR("aead authentication algo is NULL\n");
+			IPAERR("aead algo is NULL\n");
 			return -EINVAL;
 		}
 		icvlen = x->aead->alg_icv_len / BITS_PER_BYTE;
