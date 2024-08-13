@@ -1532,12 +1532,12 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled() && (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC)) {
+	if (ipa_ipsec_enabled() && (skb->ipa_skb_cb.magic == IPA_IPSEC_SKB_MAGIC)) {
 		dst_ipa_client =
-			(IPA_IPSEC_SKB_CB(skb)->sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
+			(skb->ipa_skb_cb.sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
 			IPA_CLIENT_IPSEC_ENCAP_PROD : IPA_CLIENT_IPSEC_DECAP_PROD;
 
-		sa_idx = (u8)(IPA_IPSEC_SKB_CB(skb)->sa_idx);
+		sa_idx = (u8)(skb->ipa_skb_cb.sa_idx);
 		if (dst_ipa_client == IPA_CLIENT_IPSEC_ENCAP_PROD) {
 			ipsec_encap = true;
 		}
@@ -1757,7 +1757,7 @@ send:
 	 * IPA_CLIENT_Q6_WAN_CONS based on status configuration
 	 */
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled() && (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC)) {
+	if (ipa_ipsec_enabled() && (skb->ipa_skb_cb.magic == IPA_IPSEC_SKB_MAGIC)) {
 		if (ip_hdr(skb)->version == 4) {
 			/* Handle ip fragmentation */
 			if (ip_is_fragment(ip_hdr(skb))) {
