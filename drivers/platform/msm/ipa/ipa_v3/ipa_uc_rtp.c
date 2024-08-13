@@ -5,8 +5,8 @@
 
 #include "ipa_i.h"
 #include <linux/delay.h>
-#include <linux/soc/qcom/msm_hw_fence.h>
 #include <synx_api.h>
+#include <linux/sync_file.h>
 
 /* ER ==> (16B * 512 entries ) * 4 frames = 8k *4 = 32k */
 #define IPA_UC_PROD_EVENT_RING_SIZE 512
@@ -156,6 +156,7 @@ struct er_tr_to_free er_tr_cpu_addresses;
 void *cpu_address[NO_OF_BUFFS];
 struct uc_temp_buffer_info tb_info;
 struct list_head mapped_bs_buff_lst[MAX_NUMBER_OF_STREAMS];
+struct synx_session *glob_synx_session_ptr;
 
 int ipa3_uc_send_tuple_info_cmd(struct traffic_tuple_info *data)
 {
@@ -902,9 +903,13 @@ int ipa3_send_bitstream_buff_info(struct bitstream_buffers *data)
 {
 	struct bitstream_buffers_to_uc tmp;
 	int index = 0;
+	int synx_result = 0;
 	struct dma_buf *dmab = NULL;
 	struct dma_address_map_table *map_table = NULL;
 	struct sg_table *sgt = NULL;
+	struct synx_import_params params = {0};
+	struct dma_fence *fence =  NULL;
+	u32 handle;
 
 	if (!data || data->buff_cnt < 1) {
 		IPAERR("Invalid params.\n");
@@ -916,12 +921,46 @@ int ipa3_send_bitstream_buff_info(struct bitstream_buffers *data)
 	tmp.cookie = data->cookie;
 
 	for (index = 0; index < data->buff_cnt; index++) {
+		/*
+		 * We need to get the underlying fence handle/hash on every
+		 * fence fd received from IPA C2 and pass the handle to uC.
+		 */
+		params.type = SYNX_IMPORT_INDV_PARAMS;
+		params.indv.flags = SYNX_IMPORT_DMA_FENCE | SYNX_IMPORT_GLOBAL_FENCE;
+		fence = sync_file_get_fence(data->bs_info[index].fence_id);
+		if (!fence) {
+			IPAERR("sync_file_get_fence failure on %u fd\n",
+						data->bs_info[index].fence_id);
+			return -EFAULT;
+		}
+		params.indv.fence = fence;
+		params.indv.new_h_synx = &handle;
+
+		synx_result = synx_import(glob_synx_session_ptr, &params);
+		if (synx_result) {
+			IPAERR("synx_import is failed with %d\n", synx_result);
+			dma_fence_put(fence);
+			return -EFAULT;
+		}
+
+		tmp.bs_info[index].fence_id = handle;
+
+		/*
+		 * Irrespective of whether bitstream_buffer cmd is sent to uC,
+		 * we can call synx_release, dma_fence_put to put one refcnt
+		 * taken by synx_import & sync_file_get_fence() respectively.
+		 */
+
+		if (synx_release(glob_synx_session_ptr, handle))
+			IPAERR("synx_release failed on this %u handle\n", handle);
+		dma_fence_put(fence);
+
 		tmp.bs_info[index].stream_id = data->bs_info[index].stream_id;
-		tmp.bs_info[index].fence_id = data->bs_info[index].fence_id;
 		tmp.bs_info[index].buff_fd = data->bs_info[index].buff_fd;
 		tmp.bs_info[index].buff_size = data->bs_info[index].buff_size;
 		tmp.bs_info[index].meta_buff_fd = data->bs_info[index].meta_buff_fd;
 		tmp.bs_info[index].meta_buff_size = data->bs_info[index].meta_buff_size;
+
 		dmab = dma_buf_get(tmp.bs_info[index].buff_fd);
 		if (IS_ERR_OR_NULL(dmab)) {
 			IPAERR("no dma handle for the fd.\n");
@@ -1008,12 +1047,12 @@ int ipa3_uc_send_hfi_cmd(struct hfi_queue_info *data)
 int ipa3_create_hfi_send_uc(void)
 {
 	int res = 0;
-	struct synx_session *synx_session_ptr = NULL;
 	struct synx_initialization_params params;
 	struct synx_queue_desc queue_desc;
 	char synx_session_name[MAX_SYNX_FENCE_SESSION_NAME];
 	struct hfi_queue_info data;
 	dma_addr_t hfi_queue_addr = 0;
+	struct ipa_smmu_cb_ctx *cb = NULL;
 
 	snprintf(synx_session_name, MAX_SYNX_FENCE_SESSION_NAME, "ipa synx fence");
 	queue_desc.vaddr = NULL;
@@ -1023,30 +1062,35 @@ int ipa3_create_hfi_send_uc(void)
 
 	params.name = (const char *)synx_session_name;
 	params.ptr = &queue_desc;
-	params.id = SYNX_CLIENT_HW_FENCE_VID_CTX0;
+	params.id = SYNX_CLIENT_HW_FENCE_IPA_CTX0;
 	params.flags = SYNX_INIT_MAX;
 
-	synx_session_ptr = synx_initialize(&params);
-	if (IS_ERR_OR_NULL(synx_session_ptr)) {
+	glob_synx_session_ptr = synx_initialize(&params);
+	if (IS_ERR_OR_NULL(glob_synx_session_ptr)) {
 		IPAERR("invalid synx fence session\n");
 		return -EFAULT;
 	}
 
-	res = iommu_map(iommu_get_domain_for_dev(ipa3_ctx->pdev),
+	cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_UC);
+	res = ipa3_iommu_map(cb->iommu_domain,
 			queue_desc.dev_addr, queue_desc.dev_addr,
 			queue_desc.size, IOMMU_READ | IOMMU_WRITE);
 	if (res) {
 		IPAERR("HFI - smmu map failed\n");
+		synx_uninitialize(glob_synx_session_ptr);
 		return -EFAULT;
 	}
+
+	IPADBG("hfi queue addr is 0x%x and size is 0x%x\n",
+				queue_desc.dev_addr, queue_desc.size);
 
 	hfi_queue_addr = queue_desc.dev_addr;
 	data.hfi_queue_addr = hfi_queue_addr;
 	data.hfi_queue_size = queue_desc.size;
 	data.queue_header_start_addr = hfi_queue_addr +
-			sizeof(struct msm_hw_fence_hfi_queue_table_header);
+			sizeof(struct synx_hw_fence_hfi_queue_table_header);
 	data.queue_payload_start_addr = data.queue_header_start_addr +
-			sizeof(struct msm_hw_fence_hfi_queue_header);
+			sizeof(struct synx_hw_fence_hfi_queue_header);
 	res = ipa3_uc_send_hfi_cmd(&data);
 	return res;
 }
