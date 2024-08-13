@@ -186,6 +186,9 @@ int ipa_hw_stats_init(void)
 			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET2_PROD,
 				&reg_idx);
 			teth_stats_init->prod_mask[reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET_PROD1,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
 		}
 
 		if (ipa_hw_stats_get_ep_bit_n_idx(

@@ -472,8 +472,10 @@ static enum ipa_client_type
 	traffic_type = client->traffic_type;
 #endif
 
-	IPA_ETH_DBG("pipe %p traffic_type %d dir %d, client_type %d\n",
-				pipe, traffic_type, pipe->dir, client->client_type);
+	IPA_ETH_DBG("pipe %p traffic_type %d dir %d, client_type %d,"
+				"rx idx %d tx idx %d\n",
+				pipe, traffic_type, pipe->dir, client->client_type,
+				rx_pipe_idx, tx_pipe_idx);
 
 	switch (client->client_type) {
 	case IPA_ETH_CLIENT_AQC107:
@@ -641,6 +643,9 @@ static enum ipa_client_type
 					switch (rx_pipe_idx) {
 						case 0:
 							ipa_client_type = IPA_CLIENT_ETHERNET_PROD;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD1;
 							break;
 						default:
 							IPA_ETH_ERR("invalid client index%d\n",
@@ -1603,7 +1608,7 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 				tx.num_props++;
 			} else {
 				rx_client[rx.num_props] =
-				ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);				
+				ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
 #if IPA_ETH_API_VER >= 4
 				rx_tc[rx.num_props] = pipe->tc_bmap;
 #endif

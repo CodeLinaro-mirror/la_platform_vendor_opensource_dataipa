@@ -31,9 +31,9 @@
 #define IPA_EP_PER_REG 32
 
 /* QOS Definitions. */
-#define IPA_ETH_MAX_RX_DMA_CHANNEL_QOS 1
+#define IPA_ETH_MAX_RX_DMA_CHANNEL_QOS 2
 #define IPA_ETH_MAX_TX_DMA_CHANNEL_QOS 2
-#define IPA_ETH_MAX_DMA_CHANNEL_QOS 3
+#define IPA_ETH_MAX_DMA_CHANNEL_QOS 4
 
 #define __FILENAME__ \
 	(strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
