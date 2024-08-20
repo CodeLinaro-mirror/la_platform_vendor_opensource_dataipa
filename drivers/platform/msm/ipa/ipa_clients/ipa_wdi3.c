@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/ipa_wdi3.h>
@@ -262,6 +262,7 @@ static int ipa_wdi_init_per_inst_internal(struct ipa_wdi_init_in_params *in,
 	ipa_wdi_ctx_list[hdl]->is_rx1_used = false;
 	uc_ready_params.notify = in->notify;
 	uc_ready_params.priv = in->priv;
+	uc_ready_params.inst_id = in->inst_id;
 
 	if (ipa3_uc_reg_rdyCB(&uc_ready_params) != 0) {
 		mutex_destroy(&ipa_wdi_ctx_list[hdl]->lock);
@@ -1048,6 +1049,10 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 		list_del(&entry->link);
 		kfree(entry);
 	}
+
+	if(!ipa3_uc_dereg_per_inst_rdyCB(ipa_wdi_ctx_list[hdl]->inst_id))
+		IPAERR("entry not found for id %d\n", ipa_wdi_ctx_list[hdl]->inst_id);
+
 	mutex_destroy(&ipa_wdi_ctx_list[hdl]->lock);
 	kfree(ipa_wdi_ctx_list[hdl]);
 	ipa_wdi_ctx_list[hdl] = NULL;
