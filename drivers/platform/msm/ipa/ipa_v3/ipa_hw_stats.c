@@ -1890,17 +1890,6 @@ int ipa_drop_stats_init(void)
 			pipe_bitmask[reg_idx] |= mask;
 		}
 
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0) {
-			mask = ipa_hw_stats_get_ep_bit_n_idx(
-				IPA_CLIENT_ETHERNET_CONS,
-				&reg_idx);
-			pipe_bitmask[reg_idx] |= mask;
-
-			mask = ipa_hw_stats_get_ep_bit_n_idx(
-				IPA_CLIENT_ETHERNET2_CONS,
-				&reg_idx);
-			pipe_bitmask[reg_idx] |= mask;
-		}
 	} else {
 		/* ADPL pipe hw stats is now taken care by IPA Q6 */
 		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0) {
@@ -2718,7 +2707,7 @@ static ssize_t ipa_debugfs_print_drop_stats(struct file *file,
 				i == IPA_CLIENT_WLAN4_CONS) {
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
-				"IPA_CLIENT_WLAN2_LOWSPEED_CONS:\n");
+				" IPA_CLIENT_WLAN2_LOWSPEED_CONS:\n");
 		} else {
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
