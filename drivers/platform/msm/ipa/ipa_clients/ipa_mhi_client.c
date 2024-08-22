@@ -14,15 +14,28 @@
 #include <linux/msm_gsi.h>
 #include <linux/ipa_mhi.h>
 #include <linux/mhi_dma.h>
+#include <linux/fs.h>
+#include <linux/etherdevice.h>
+#include <linux/if_vlan.h>
+#include <linux/netdevice.h>
+#include <linux/skbuff.h>
+#include <linux/atomic.h>
 #include "gsi.h"
 #include "ipa_common_i.h"
 #include "ipa_pm.h"
 #include "ipa_i.h"
 #include "ipahal.h"
 #include <linux/ipa_fmwk.h>
+#include <linux/random.h>
 
 #define IPA_MHI_DRV_NAME "ipa_mhi_client"
 #define IPA_MHI_MAX_MSG_LEN 512
+#define MHI_IPA_IPV4_HDR_NAME "mhi_eth_ipv4"
+#define MHI_IPA_IPV6_HDR_NAME "mhi_eth_ipv6"
+#define DEFAULT_OUTSTANDING_HIGH 64
+#define DEFAULT_OUTSTANDING_LOW 32
+#define TX_TIMEOUT (5 * HZ)
+
 #define IPA_MHI_DBG(fmt, args...) \
 	do { \
 		pr_debug(IPA_MHI_DRV_NAME " %s:%d " fmt, \
@@ -139,7 +152,17 @@ struct ipa_mhi_channel_ctx {
 	unsigned long cached_gsi_evt_ring_hdl;
 };
 
+/*
+ * @priv: private data given upon ipa_connect
+ * @evt: event enum, should be IPA_WRITE_DONE
+ * @data: for tx path the data field is the sent socket buffer.
+ */
+typedef void (*mhi_ipa_callback)(void *priv,
+		enum ipa_dp_evt_type evt,
+		unsigned long data);
+
 struct ipa_mhi_client_ctx {
+	struct net_device *net;
 	enum ipa_mhi_state state;
 	spinlock_t state_lock;
 	mhi_client_cb cb_notify;
@@ -164,7 +187,20 @@ struct ipa_mhi_client_ctx {
 	u32 pm_hdl;
 	u32 modem_pm_hdl;
 	enum ipa_mhi_mstate mhi_mstate;
+	u32 eth_ipv4_hdr_hdl;
+	u32 eth_ipv6_hdr_hdl;
+	atomic_t outstanding_pkts;
+	u8 outstanding_high;
+	u8 outstanding_low;
+	bool is_vlan_mode;
+	int (*netif_rx_function)(struct sk_buff *skb);
+	mhi_ipa_callback mhi_ipa_tx_dp_notify;
+	mhi_ipa_callback mhi_ipa_rx_dp_notify;
+	bool is_mhi_connected;
+	bool is_mhi_up;
+	void *private;
 };
+
 
 static struct ipa_mhi_client_ctx *ipa_mhi_client_ctx;
 static DEFINE_MUTEX(mhi_client_general_mutex);
@@ -613,16 +649,16 @@ const struct attribute_group ipa_mhi_attr_group = {
 static int ipa_mhi_sysfs_init(void)
 {
 	int ret = -1;
-	
+
 	ret = sysfs_create_group(kernel_kobj, &ipa_mhi_attr_group);
 	if (ret != 0) {
 		pr_err("Fail to create IPA-MHI sysfs attribute\n");
 	}
-	return ret;		
+	return ret;
 }
 static void ipa_mhi_sysfs_destroy(void)
 {
-	sysfs_remove_group(kernel_kobj, &ipa_mhi_attr_group);		
+	sysfs_remove_group(kernel_kobj, &ipa_mhi_attr_group);
 }
 #endif /* CONFIG_DEBUG_FS */
 
@@ -633,6 +669,196 @@ static DECLARE_WORK(ipa_mhi_notify_wakeup_work, ipa_mhi_wq_notify_wakeup);
 
 static void ipa_mhi_wq_notify_ready(struct work_struct *work);
 static DECLARE_WORK(ipa_mhi_notify_ready_work, ipa_mhi_wq_notify_ready);
+
+static int mhi_ipa_open(struct net_device *net);
+static void mhi_ipa_packet_receive_notify(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
+static void mhi_ipa_tx_complete_notify(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
+static void mhi_ipa_tx_timeout(struct net_device *net,
+	unsigned int txqueue);
+static int mhi_ipa_stop(struct net_device *net);
+static int mhi_ipa_hdrs_cfg(const void *dst_mac,const void *src_mac);
+static void mhi_ipa_rules_destroy(struct ipa_mhi_client_ctx *mhi_ipa_ctx);
+static int mhi_ipa_register_properties(void);
+static void mhi_ipa_deregister_properties(void);
+static struct net_device_stats *mhi_ipa_get_stats(struct net_device *net);
+static netdev_tx_t mhi_ipa_start_xmit(struct sk_buff *skb, struct net_device *net);
+static int mhi_ipa_set_device_ethernet_addr(u8 *dev_ethaddr, u8 device_ethaddr[]);
+
+static const struct net_device_ops mhi_ipa_netdev_ops = {
+	.ndo_open		= mhi_ipa_open,
+	.ndo_stop		= mhi_ipa_stop,
+	.ndo_start_xmit = mhi_ipa_start_xmit,
+	.ndo_set_mac_address = eth_mac_addr,
+	.ndo_tx_timeout = mhi_ipa_tx_timeout,
+	.ndo_get_stats = mhi_ipa_get_stats,
+};
+
+static void ipa_eth_msg_free_cb(void *buff, u32 len, u32 type)
+{
+	kfree(buff);
+}
+
+static void generate_random_mac(u8 *mac) {
+	int i;
+	u8 rand;
+
+	// Generate random bytes for the MAC address
+	for (i = 0; i < 6; i++) {
+		get_random_bytes(&rand, sizeof(rand));
+		mac[i] = rand % 256;
+	}
+
+	// Set the locally administered and unicast bits
+	mac[0] = (mac[0] & 0xFC) | 0x02;
+}
+
+/**
+ * mhi_ipa_set_device_ethernet_addr() - set device ethernet address
+ * @dev_ethaddr: device ethernet address
+ *
+ * Returns 0 for success, negative otherwise
+ */
+static int mhi_ipa_set_device_ethernet_addr(u8 *dev_ethaddr, u8 device_ethaddr[])
+{
+	if (!is_valid_ether_addr(device_ethaddr))
+	{
+		/* Generate random MAC addr for now*/
+		IPA_MHI_DBG("mac is not valid, generate random mac\n");
+		generate_random_mac(device_ethaddr);
+	}
+	memcpy(dev_ethaddr, device_ethaddr, ETH_ALEN);
+	IPA_MHI_DBG("device ethernet address: %pM\n", dev_ethaddr);
+	return 0;
+}
+
+static void mhi_ipa_prepare_header_insertion(
+	int eth_type,
+	const char *hdr_name, struct ipa_hdr_add *add_hdr,
+	const void *dst_mac, const void *src_mac, bool is_vlan_mode)
+{
+	struct ethhdr *eth_hdr;
+	struct vlan_ethhdr *eth_vlan_hdr;
+
+	add_hdr->is_partial = 0;
+	strlcpy(add_hdr->name, hdr_name, IPA_RESOURCE_NAME_MAX);
+	add_hdr->is_eth2_ofst_valid = true;
+	add_hdr->eth2_ofst = 0;
+
+	if (is_vlan_mode) {
+		eth_vlan_hdr = (struct vlan_ethhdr *)add_hdr->hdr;
+		memcpy(eth_vlan_hdr->h_dest, dst_mac, ETH_ALEN);
+		memcpy(eth_vlan_hdr->h_source, src_mac, ETH_ALEN);
+		eth_vlan_hdr->h_vlan_encapsulated_proto =
+			htons(eth_type);
+		eth_vlan_hdr->h_vlan_proto = htons(ETH_P_8021Q);
+		add_hdr->hdr_len = VLAN_ETH_HLEN;
+		add_hdr->type = IPA_HDR_L2_802_1Q;
+	} else {
+		eth_hdr = (struct ethhdr *)add_hdr->hdr;
+		memcpy(eth_hdr->h_dest, dst_mac, ETH_ALEN);
+		memcpy(eth_hdr->h_source, src_mac, ETH_ALEN);
+		eth_hdr->h_proto = htons(eth_type);
+		add_hdr->hdr_len = ETH_HLEN;
+		add_hdr->type = IPA_HDR_L2_ETHERNET_II;
+	}
+}
+
+/**
+ * mhi_ipa_hdrs_cfg() - set header insertion and register Tx/Rx properties
+ *				Headers will be committed to HW
+ * @dst_mac: destination MAC address
+ * @src_mac: source MAC address
+ *
+ * Returns negative errno, or zero on success
+ */
+static int mhi_ipa_hdrs_cfg(const void *dst_mac, const void *src_mac)
+{
+	struct ipa_ioc_add_hdr *hdrs;
+	struct ipa_hdr_add *ipv4_hdr;
+	struct ipa_hdr_add *ipv6_hdr;
+	int result = 0;
+
+	IPA_MHI_FUNC_ENTRY();
+
+	hdrs = kzalloc(sizeof(*hdrs) + sizeof(*ipv4_hdr) + sizeof(*ipv6_hdr), GFP_KERNEL);
+	if (!hdrs) {
+		result = -ENOMEM;
+		goto out;
+	}
+
+	ipv4_hdr = &hdrs->hdr[0];
+	mhi_ipa_prepare_header_insertion(ETH_P_IP, MHI_IPA_IPV4_HDR_NAME,
+		ipv4_hdr, dst_mac, src_mac, ipa_mhi_client_ctx->is_vlan_mode);
+
+	ipv6_hdr = &hdrs->hdr[1];
+	mhi_ipa_prepare_header_insertion(ETH_P_IPV6, MHI_IPA_IPV6_HDR_NAME,
+		ipv6_hdr, dst_mac, src_mac, ipa_mhi_client_ctx->is_vlan_mode);
+
+	hdrs->commit = 1;
+	hdrs->num_hdrs = 2;
+	result = ipa3_add_hdr(hdrs);
+	if (result) {
+		IPA_MHI_ERR("Fail on Header-Insertion(%d)\n", result);
+		goto out_free_mem;
+	}
+	if (ipv4_hdr->status) {
+		IPA_MHI_ERR("Fail on Header-Insertion ipv4(%d)\n",
+			ipv4_hdr->status);
+		result = ipv4_hdr->status;
+		goto out_free_mem;
+	}
+	if (ipv6_hdr->status) {
+		IPA_MHI_ERR("Fail on Header-Insertion ipv6(%d)\n",
+			ipv6_hdr->status);
+		result = ipv6_hdr->status;
+		goto out_free_mem;
+	}
+	ipa_mhi_client_ctx->eth_ipv4_hdr_hdl = ipv4_hdr->hdr_hdl;
+	ipa_mhi_client_ctx->eth_ipv6_hdr_hdl = ipv6_hdr->hdr_hdl;
+
+	IPA_MHI_FUNC_EXIT();
+
+out_free_mem:
+	kfree(hdrs);
+out:
+	return result;
+}
+
+/**
+ * mhi_ipa_rules_destroy() - remove the IPA core configuration done for
+ *  the driver data path.
+ *  @mhi_ipa_ctx: the driver context
+ *
+ *  Revert the work done on mhi_ipa_rules_cfg.
+ */
+static void mhi_ipa_rules_destroy(struct ipa_mhi_client_ctx *mhi_ipa_ctx)
+{
+	struct ipa_ioc_del_hdr *del_hdr;
+	struct ipa_hdr_del *ipv4;
+	struct ipa_hdr_del *ipv6;
+	int result;
+
+	IPA_MHI_FUNC_ENTRY();
+
+	del_hdr = kzalloc(sizeof(*del_hdr) + sizeof(*ipv4) + sizeof(*ipv6),
+			GFP_KERNEL);
+	if (!del_hdr)
+		return;
+
+	del_hdr->commit = 1;
+	del_hdr->num_hdls = 2;
+	ipv4 = &del_hdr->hdl[0];
+	ipv4->hdl = mhi_ipa_ctx->eth_ipv4_hdr_hdl;
+	ipv6 = &del_hdr->hdl[1];
+	ipv6->hdl = mhi_ipa_ctx->eth_ipv6_hdr_hdl;
+
+	result = ipa3_del_hdr(del_hdr);
+	if (result || ipv4->status || ipv6->status)
+		IPA_MHI_ERR("ipa3_del_hdr failed\n");
+	kfree(del_hdr);
+
+	IPA_MHI_FUNC_EXIT();
+}
 
 /**
  * ipa_mhi_notify_wakeup() - Schedule work to notify data available
@@ -1443,6 +1669,8 @@ static int ipa_mhi_connect_pipe_internal(struct ipa_mhi_connect_params *in, u32 
 	unsigned long flags;
 	struct ipa_mhi_channel_ctx *channel = NULL;
 	struct ipa_mhi_connect_params_internal internal;
+	struct ipa_msg_meta msg_meta;
+	struct ipa_ecm_msg *eth_msg;
 
 	IPA_MHI_FUNC_ENTRY();
 
@@ -1532,15 +1760,77 @@ static int ipa_mhi_connect_pipe_internal(struct ipa_mhi_connect_params *in, u32 
 	internal.start.gsi.cached_gsi_evt_ring_hdl =
 			&channel->cached_gsi_evt_ring_hdl;
 	internal.start.gsi.evchid = channel->index;
+	internal.sys->priv = ipa_mhi_client_ctx->private;
+
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		if((IPA_CLIENT_IS_MHI_CONS(ipa_get_ep_mapping(in->sys.client))))
+		{
+			internal.sys->notify = ipa_mhi_client_ctx->mhi_ipa_tx_dp_notify;
+		}
+		else
+		{
+			internal.sys->notify = ipa_mhi_client_ctx->mhi_ipa_rx_dp_notify;
+		}
+
+		res = mhi_ipa_register_properties();
+		if (res) {
+			IPA_MHI_ERR("fail on properties set\n");
+			goto fail_register_prop;
+		}
+	}
+	else
+	{
+		internal.sys->notify = in->sys.notify;
+	}
 
 	res = ipa3_connect_mhi_pipe(&internal, clnt_hdl);
 	if (res) {
 		IPA_MHI_ERR("ipa_connect_mhi_pipe failed %d\n", res);
 		goto fail_connect_pipe;
 	}
+
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		if((IPA_CLIENT_IS_MHI_CONS(ipa_get_ep_mapping(in->sys.client))))
+		{
+			/*send peripheral connect for IPACM */
+			eth_msg = kzalloc(sizeof(*eth_msg), GFP_KERNEL);
+			if (eth_msg == NULL)
+			{
+				IPA_MHI_ERR("alloc failed");
+				return -ENOMEM;
+			}
+			strlcpy(eth_msg->name, ipa_mhi_client_ctx->net->name, sizeof(eth_msg->name));
+			eth_msg->ifindex = ipa_mhi_client_ctx->net->ifindex;
+			memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+			msg_meta.msg_len = sizeof(struct ipa_ecm_msg);
+			msg_meta.msg_type = IPA_PERIPHERAL_CONNECT;
+
+			IPA_MHI_DBG("Send IPA_PERIPHERAL_CONNECT, len:%d, buff %p", msg_meta.msg_len, eth_msg);
+			res = ipa_send_msg(&msg_meta, eth_msg, ipa_eth_msg_free_cb);
+		}
+	}
 	channel->state = IPA_HW_MHI_CHANNEL_STATE_RUN;
 	channel->brstmode_enabled =
 			channel->ch_scratch.mhi.burst_mode_enabled;
+
+	ipa_mhi_client_ctx->is_mhi_connected = true;
+
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		netif_carrier_on(ipa_mhi_client_ctx->net);
+
+		if (!netif_carrier_ok(ipa_mhi_client_ctx->net)) {
+			IPA_MHI_ERR("netif_carrier_ok error\n");
+			res = -EBUSY;
+			goto fail_netif_carrier;
+		}
+
+		if(ipa_mhi_client_ctx->is_mhi_connected && ipa_mhi_client_ctx->is_mhi_up){
+			netif_start_queue(ipa_mhi_client_ctx->net);
+		}
+	}
 
 	res = ipa_mhi_read_write_host(IPA_MHI_DMA_TO_HOST,
 		&channel->state, channel->channel_context_addr +
@@ -1587,10 +1877,347 @@ static int ipa_mhi_connect_pipe_internal(struct ipa_mhi_connect_params *in, u32 
 	return 0;
 fail_connect_pipe:
 	ipa_mhi_reset_channel(channel, true);
+fail_netif_carrier:
+fail_register_prop:
+	mhi_ipa_deregister_properties();
 fail_start_channel:
 	mutex_unlock(&mhi_client_general_mutex);
 	IPA_ACTIVE_CLIENTS_DEC_EP(in->sys.client);
 	return -EPERM;
+}
+
+/**
+ * mhi_ipa_open() - notify Linux network stack to start sending packets
+ * @net: the network interface supplied by the network stack
+ *
+ * Linux uses this API to notify the driver that the network interface
+ * transitions to the up state.
+ * The driver will instruct the Linux network stack to start
+ * delivering data packets.
+ */
+static int mhi_ipa_open(struct net_device *net)
+{
+	IPA_MHI_FUNC_ENTRY();
+
+	ipa_mhi_client_ctx->is_mhi_up = true;
+	if(ipa_mhi_client_ctx->is_mhi_connected){
+		netif_start_queue(net);
+	}
+
+	IPA_MHI_FUNC_EXIT();
+
+	return 0;
+}
+
+/**
+ * mhi_ipa_start_xmit() - send data from APPs to MHI via IPA core
+ * @skb: packet received from Linux network stack
+ * @net: the network device being used to send this packet
+ *
+ * Several conditions needed in order to send the packet to IPA:
+ * - Transmit queue for the network driver is currently
+ *   in "send" state
+ * - The driver internal state is in "UP" state.
+ * - Filter Tx switch is turned off
+ * - Outstanding high boundary did not reach.
+ *
+ * In case all of the above conditions are met, the network driver will
+ * send the packet by using the IPA API for Tx.
+ * In case the outstanding packet high boundary is reached, the driver will
+ * stop the send queue until enough packet were proceeded by the IPA core.
+ */
+static netdev_tx_t mhi_ipa_start_xmit
+	(struct sk_buff *skb, struct net_device *net)
+{
+	int ret;
+	netdev_tx_t status = NETDEV_TX_BUSY;
+	struct ipa_mhi_client_ctx *mhi_ipa_ctx = netdev_priv(net);
+
+	netif_trans_update(net);
+
+	IPA_MHI_DBG("Tx, len=%d, skb->protocol=%d, outstanding=%d\n",
+		skb->len, skb->protocol,
+		atomic_read(&mhi_ipa_ctx->outstanding_pkts));
+
+	if (unlikely(netif_queue_stopped(net))) {
+		IPA_MHI_ERR("interface queue is stopped\n");
+		goto out;
+	}
+
+	if (unlikely(!(mhi_ipa_ctx->is_mhi_connected && mhi_ipa_ctx->is_mhi_up))) {
+		IPA_MHI_ERR("Missing pipe connected and/or iface up\n");
+		return NETDEV_TX_BUSY;
+	}
+
+	ret = ipa_pm_activate(mhi_ipa_ctx->pm_hdl);
+	if (ret) {
+		IPA_MHI_DBG("Failed to activate PM client\n");
+		netif_stop_queue(net);
+		goto fail_pm_activate;
+	}
+
+	if (atomic_read(&mhi_ipa_ctx->outstanding_pkts) >=
+					mhi_ipa_ctx->outstanding_high) {
+		IPA_MHI_DBG
+			("outstanding high (%d)- stopping\n",
+			mhi_ipa_ctx->outstanding_high);
+		netif_stop_queue(net);
+		status = NETDEV_TX_BUSY;
+		goto out;
+	}
+
+	if (mhi_ipa_ctx->is_vlan_mode)
+		if (unlikely(skb->protocol != htons(ETH_P_8021Q)))
+			IPA_MHI_DBG("ether_type != ETH_P_8021Q && vlan, prot = 0x%X\n",
+				skb->protocol);
+
+	ret = ipa_tx_dp(IPA_CLIENT_MHI_CONS, skb, NULL);
+	if (ret) {
+		IPA_MHI_DBG("ipa transmit failed (%d)\n", ret);
+		goto fail_tx_packet;
+	}
+
+	atomic_inc(&mhi_ipa_ctx->outstanding_pkts);
+
+	status = NETDEV_TX_OK;
+
+	goto out;
+
+fail_tx_packet:
+out:
+	if (atomic_read(&mhi_ipa_ctx->outstanding_pkts) == 0)
+		ipa_pm_deferred_deactivate(mhi_ipa_ctx->pm_hdl);
+fail_pm_activate:
+	return status;
+}
+
+/**
+ * mhi_ipa_packet_receive_notify() - Rx notify
+ *
+ * @priv: mhi driver context
+ * @evt: event type
+ * @data: data provided with event
+ *
+ * IPA will pass a packet to the Linux network stack with skb->data pointing
+ * to Ethernet packet frame.
+ */
+static void mhi_ipa_packet_receive_notify
+	(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
+{
+	struct sk_buff *skb = (struct sk_buff *)data;
+	struct ipa_mhi_client_ctx *mhi_ipa_ctx = priv;
+	unsigned int packet_len;
+
+	if (!skb) {
+		IPA_MHI_ERR("Bad SKB received from IPA driver\n");
+		return;
+	}
+
+	packet_len = skb->len;
+
+	if (unlikely(mhi_ipa_ctx == NULL)) {
+		IPA_MHI_DBG("Private context is NULL. Drop SKB.\n");
+		dev_kfree_skb_any(skb);
+		return;
+	}
+
+	if (unlikely(!(mhi_ipa_ctx->is_mhi_connected && mhi_ipa_ctx->is_mhi_up))) {
+		IPA_MHI_DBG("Missing pipe connected and/or iface up\n");
+		dev_kfree_skb_any(skb);
+		return;
+	}
+
+	if (unlikely(evt != IPA_RECEIVE)) {
+		IPA_MHI_ERR("A none IPA_RECEIVE event in mhi ipa receive\n");
+		dev_kfree_skb_any(skb);
+		return;
+	}
+
+	skb->dev = mhi_ipa_ctx->net;
+	skb->protocol = eth_type_trans(skb, mhi_ipa_ctx->net);
+
+	mhi_ipa_ctx->netif_rx_function(skb);
+
+	mhi_ipa_ctx->net->stats.rx_packets++;
+	mhi_ipa_ctx->net->stats.rx_bytes += packet_len;
+}
+
+/** mhi_ipa_stop() - called when network device transitions to the down
+ *     state.
+ *  @net: the network device being stopped.
+ *
+ * This API is used by Linux network stack to notify the network driver that
+ * its state was changed to "down"
+ * The driver will stop the "send" queue and change its internal
+ * state to "Connected".
+ */
+static int mhi_ipa_stop(struct net_device *net)
+{
+	IPA_MHI_FUNC_ENTRY();
+
+	if(!ipa_mhi_client_ctx->is_mhi_up){
+		return -EPERM;
+	}
+	ipa_mhi_client_ctx->is_mhi_up = false;
+
+	netif_stop_queue(net);
+
+	IPA_MHI_FUNC_EXIT();
+
+	return 0;
+}
+
+/**
+ * mhi_ipa_tx_complete_notify() - Rx notify
+ *
+ * @priv: mhi driver context
+ * @evt: event type
+ * @data: data provided with event
+ *
+ * Check that the packet is the one we sent and release it
+ * This function will be called in defered context in IPA wq.
+ */
+static void mhi_ipa_tx_complete_notify
+		(void *priv,
+		enum ipa_dp_evt_type evt,
+		unsigned long data)
+{
+	struct sk_buff *skb = (struct sk_buff *)data;
+	struct ipa_mhi_client_ctx *mhi_ipa_ctx = priv;
+
+	if (!skb) {
+		IPA_MHI_ERR("Bad SKB received from IPA driver\n");
+		return;
+	}
+
+	if (!mhi_ipa_ctx) {
+		IPA_MHI_ERR("mhi_ipa_ctx is NULL pointer\n");
+		return;
+	}
+
+	if (evt != IPA_WRITE_DONE) {
+		IPA_MHI_ERR("unsupported event on Tx callback\n");
+		return;
+	}
+
+	if (unlikely(!(mhi_ipa_ctx->is_mhi_connected &&  mhi_ipa_ctx->is_mhi_up))) {
+		IPA_MHI_DBG("dropping Tx-complete pkt");
+		goto out;
+	}
+
+	mhi_ipa_ctx->net->stats.tx_packets++;
+	mhi_ipa_ctx->net->stats.tx_bytes += skb->len;
+
+	if (atomic_read(&mhi_ipa_ctx->outstanding_pkts) > 0)
+		atomic_dec(&mhi_ipa_ctx->outstanding_pkts);
+
+	if
+		(netif_queue_stopped(mhi_ipa_ctx->net) &&
+		netif_carrier_ok(mhi_ipa_ctx->net) &&
+		atomic_read(&mhi_ipa_ctx->outstanding_pkts)
+		< (mhi_ipa_ctx->outstanding_low)) {
+		IPA_MHI_DBG
+			("outstanding low (%d) - waking up queue\n",
+			mhi_ipa_ctx->outstanding_low);
+		netif_wake_queue(mhi_ipa_ctx->net);
+	}
+
+	if (atomic_read(&mhi_ipa_ctx->outstanding_pkts) == 0)
+		ipa_pm_deferred_deactivate(mhi_ipa_ctx->pm_hdl);
+out:
+	dev_kfree_skb_any(skb);
+
+}
+
+static struct net_device_stats *mhi_ipa_get_stats(struct net_device *net)
+{
+	return &net->stats;
+}
+
+static void mhi_ipa_tx_timeout(struct net_device *net, unsigned int txqueue)
+{
+	struct ipa_mhi_client_ctx *mhi_ipa_ctx = netdev_priv(net);
+	IPA_MHI_ERR
+		("possible IPA stall was detected, %d outstanding",
+		atomic_read(&mhi_ipa_ctx->outstanding_pkts));
+	net->stats.tx_errors++;
+}
+
+/* mhi_ipa_register_properties() - set Tx/Rx properties for ipacm
+ *
+ * Register mhi_eth0 interface with 2 Tx properties and 2 Rx properties:
+ * The 2 Tx properties are for data flowing from IPA to USB, they
+ * have Header-Insertion properties both for Ipv4 and Ipv6 Ethernet framing.
+ * The 2 Rx properties are for data flowing from USB to IPA, they have
+ * simple rule which always "hit".
+ *
+ */
+static int mhi_ipa_register_properties()
+{
+	struct ipa_tx_intf tx_properties = {0};
+	struct ipa_ioc_tx_intf_prop properties[2] = { {0}, {0} };
+	struct ipa_ioc_tx_intf_prop *ipv4_property;
+	struct ipa_ioc_tx_intf_prop *ipv6_property;
+	struct ipa_ioc_rx_intf_prop rx_ioc_properties[2] = { {0}, {0} };
+	struct ipa_rx_intf rx_properties = {0};
+	struct ipa_ioc_rx_intf_prop *rx_ipv4_property;
+	struct ipa_ioc_rx_intf_prop *rx_ipv6_property;
+	enum ipa_hdr_l2_type hdr_l2_type = IPA_HDR_L2_ETHERNET_II;
+	int result = 0;
+
+	IPA_MHI_FUNC_ENTRY();
+
+	if (ipa_mhi_client_ctx->is_vlan_mode)
+		hdr_l2_type = IPA_HDR_L2_802_1Q;
+
+	tx_properties.prop = properties;
+	ipv4_property = &tx_properties.prop[0];
+	ipv4_property->ip = IPA_IP_v4;
+	ipv4_property->dst_pipe = IPA_CLIENT_MHI_CONS;
+	strlcpy
+		(ipv4_property->hdr_name, MHI_IPA_IPV4_HDR_NAME,
+		IPA_RESOURCE_NAME_MAX);
+	ipv4_property->hdr_l2_type = hdr_l2_type;
+	ipv6_property = &tx_properties.prop[1];
+	ipv6_property->ip = IPA_IP_v6;
+	ipv6_property->dst_pipe = IPA_CLIENT_MHI_CONS;
+	ipv6_property->hdr_l2_type = hdr_l2_type;
+	strlcpy
+		(ipv6_property->hdr_name, MHI_IPA_IPV6_HDR_NAME,
+		IPA_RESOURCE_NAME_MAX);
+	tx_properties.num_props = 2;
+
+	rx_properties.prop = rx_ioc_properties;
+	rx_ipv4_property = &rx_properties.prop[0];
+	rx_ipv4_property->ip = IPA_IP_v4;
+	rx_ipv4_property->attrib.attrib_mask = 0;
+	rx_ipv4_property->src_pipe = IPA_CLIENT_MHI_PROD;
+	rx_ipv4_property->hdr_l2_type = hdr_l2_type;
+	rx_ipv6_property = &rx_properties.prop[1];
+	rx_ipv6_property->ip = IPA_IP_v6;
+	rx_ipv6_property->attrib.attrib_mask = 0;
+	rx_ipv6_property->src_pipe = IPA_CLIENT_MHI_PROD;
+	rx_ipv6_property->hdr_l2_type = hdr_l2_type;
+	rx_properties.num_props = 2;
+
+	result = ipa3_register_intf("mhi_eth0", &tx_properties, &rx_properties);
+	if (result)
+		IPA_MHI_ERR("fail on Tx/Rx properties registration\n");
+
+	IPA_MHI_FUNC_EXIT();
+
+	return result;
+}
+
+static void mhi_ipa_deregister_properties(void)
+{
+	int result;
+
+	IPA_MHI_FUNC_ENTRY();
+	result = ipa3_deregister_intf("mhi_eth0");
+	if (result)
+		IPA_MHI_DBG("Fail on Tx prop deregister\n");
+	IPA_MHI_FUNC_EXIT();
 }
 
 /**
@@ -1612,6 +2239,10 @@ static int ipa_mhi_disconnect_pipe_internal(u32 clnt_hdl)
 	int res;
 	enum ipa_client_type client;
 	static struct ipa_mhi_channel_ctx *channel;
+	int outstanding_dropped_pkts;
+	struct ipa_msg_meta msg_meta;
+	struct ipa_ecm_msg *eth_msg;
+
 
 	IPA_MHI_FUNC_ENTRY();
 
@@ -1674,6 +2305,41 @@ static int ipa_mhi_disconnect_pipe_internal(u32 clnt_hdl)
 	mutex_unlock(&mhi_client_general_mutex);
 
 	IPA_ACTIVE_CLIENTS_DEC_EP(client);
+
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		if(IPA_CLIENT_IS_MHI_PROD(client))
+		{
+			/* send peripheral disconnect */
+			eth_msg = kzalloc(sizeof(*eth_msg), GFP_KERNEL);
+			if (eth_msg == NULL)
+			{
+				IPA_MHI_ERR("alloc failed");
+				return -ENOMEM;
+			}
+			strlcpy(eth_msg->name, ipa_mhi_client_ctx->net->name, sizeof(eth_msg->name));
+			eth_msg->ifindex = ipa_mhi_client_ctx->net->ifindex;
+			memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+			msg_meta.msg_len = sizeof(struct ipa_ecm_msg);
+			msg_meta.msg_type = IPA_PERIPHERAL_DISCONNECT;
+
+			IPA_MHI_DBG("Send IPA_PERIPHERAL_DISCONNECT, len:%d, buff %p", msg_meta.msg_len, eth_msg);
+			res = ipa_send_msg(&msg_meta, eth_msg, ipa_eth_msg_free_cb);
+		}
+
+		netif_carrier_off(ipa_mhi_client_ctx->net);
+		IPA_MHI_DBG("carrier_off notifcation was sent\n");
+
+		netif_stop_queue(ipa_mhi_client_ctx->net);
+		IPA_MHI_DBG("queue stopped\n");
+
+		outstanding_dropped_pkts =
+			atomic_read(&ipa_mhi_client_ctx->outstanding_pkts);
+		ipa_mhi_client_ctx->net->stats.tx_errors += outstanding_dropped_pkts;
+		atomic_set(&ipa_mhi_client_ctx->outstanding_pkts, 0);
+	}
+
+	ipa_mhi_client_ctx->is_mhi_connected = false;
 
 	IPA_MHI_DBG("client (ep: %d) disconnected\n", clnt_hdl);
 	IPA_MHI_FUNC_EXIT();
@@ -2389,7 +3055,16 @@ static void ipa_mhi_destroy_internal(void)
 	ipa_mhi_sysfs_destroy();
 #endif
 	destroy_workqueue(ipa_mhi_client_ctx->wq);
-	kfree(ipa_mhi_client_ctx);
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		mhi_ipa_rules_destroy(ipa_mhi_client_ctx);
+		unregister_netdev(ipa_mhi_client_ctx->net);
+		free_netdev(ipa_mhi_client_ctx->net);
+	}
+	else
+	{
+		kfree(ipa_mhi_client_ctx);
+	}
 	ipa_mhi_client_ctx = NULL;
 	IPA_MHI_DBG("IPA MHI was reset, ready for re-init\n");
 
@@ -2503,7 +3178,8 @@ fail_pm_cons:
  */
 static int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 {
-	int res;
+	int res = 0;
+	struct net_device *net;
 
 	IPA_MHI_FUNC_ENTRY();
 
@@ -2533,11 +3209,36 @@ static int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 	IPA_MHI_DBG("assert_bit40=%d\n", params->assert_bit40);
 	IPA_MHI_DBG("test_mode=%d\n", params->test_mode);
 
-	/* Initialize context */
-	ipa_mhi_client_ctx = kzalloc(sizeof(*ipa_mhi_client_ctx), GFP_KERNEL);
-	if (!ipa_mhi_client_ctx) {
-		res = -EFAULT;
-		goto fail_alloc_ctx;
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		IPA_MHI_DBG("host_ethaddr=%pM, device_ethaddr=%pM\n",
+		params->host_ethaddr,
+		params->device_ethaddr);
+
+		net = alloc_etherdev(sizeof(struct ipa_mhi_client_ctx));
+		if (!net) {
+			res = -ENOMEM;
+			IPA_MHI_ERR("fail to allocate etherdev\n");
+			goto fail_alloc_etherdev;
+		}
+		IPA_MHI_ERR("network device was successfully allocated\n");
+
+		ipa_mhi_client_ctx = netdev_priv(net);
+		if (!ipa_mhi_client_ctx) {
+			IPA_MHI_ERR("fail to extract netdev priv\n");
+			res = -ENOMEM;
+			goto fail_netdev_priv;
+		}
+		memset(ipa_mhi_client_ctx, 0, sizeof(*ipa_mhi_client_ctx));
+	}
+	else
+	{
+		/* Initialize context */
+		ipa_mhi_client_ctx = kzalloc(sizeof(*ipa_mhi_client_ctx), GFP_KERNEL);
+		if (!ipa_mhi_client_ctx) {
+			res = -EFAULT;
+			goto fail_alloc_ctx;
+		}
 	}
 
 	ipa_mhi_client_ctx->state = IPA_MHI_STATE_INITIALIZED;
@@ -2553,6 +3254,62 @@ static int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 	ipa_mhi_client_ctx->assert_bit40 = !!params->assert_bit40;
 	ipa_mhi_client_ctx->test_mode = params->test_mode;
 	ipa_mhi_client_ctx->mhi_mstate = IPA_MHI_STATE_M0;
+
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		ipa_mhi_client_ctx->net = net;
+		ipa_mhi_client_ctx->outstanding_high = DEFAULT_OUTSTANDING_HIGH;
+		ipa_mhi_client_ctx->outstanding_low = DEFAULT_OUTSTANDING_LOW;
+		atomic_set(&ipa_mhi_client_ctx->outstanding_pkts, 0);
+		snprintf(net->name, sizeof(net->name), "%s%%d", "mhi_eth");
+		net->netdev_ops = &mhi_ipa_netdev_ops;
+		net->watchdog_timeo = TX_TIMEOUT;
+		if (ipa_get_lan_rx_napi()) {
+			ipa_mhi_client_ctx->netif_rx_function = netif_receive_skb;
+			IPA_MHI_DBG("LAN RX NAPI enabled = True");
+		} else {
+			ipa_mhi_client_ctx->netif_rx_function = netif_rx_ni;
+			IPA_MHI_DBG("LAN RX NAPI enabled = False");
+		}
+
+		if (ipa_is_vlan_mode(IPA_VLAN_IF_MHI_ETH, &ipa_mhi_client_ctx->is_vlan_mode))
+		{
+			IPA_MHI_ERR("couldn't acquire vlan mode, is ipa ready?\n");
+			goto fail_get_vlan_mode;
+		}
+		IPA_MHI_DBG("is vlan mode %d\n", ipa_mhi_client_ctx->is_vlan_mode);
+
+		res = mhi_ipa_set_device_ethernet_addr(net->dev_addr, params->device_ethaddr);
+		if (res) {
+			IPA_MHI_ERR("set device MAC failed\n");
+			goto fail_set_device_ethernet;
+		}
+		IPA_MHI_DBG("Device Ethernet address set %pM\n", net->dev_addr);
+
+		res = mhi_ipa_hdrs_cfg(params->host_ethaddr, params->device_ethaddr);
+		if (res) {
+			IPA_MHI_ERR("fail on ipa rules set\n");
+			goto fail_rules_cfg;
+		}
+		IPA_MHI_DBG("Ethernet header insertion set\n");
+
+		netif_carrier_off(net);
+		IPA_MHI_DBG("netif_carrier_off() was called\n");
+
+		netif_stop_queue(ipa_mhi_client_ctx->net);
+		IPA_MHI_DBG("netif_stop_queue() was called");
+
+		res = register_netdev(net);
+		if (res) {
+			IPA_MHI_ERR("register_netdev failed: %d\n", res);
+			goto fail_register_netdev;
+		}
+		IPA_MHI_DBG("register_netdev succeeded\n");
+
+		ipa_mhi_client_ctx->mhi_ipa_rx_dp_notify = mhi_ipa_packet_receive_notify;
+		ipa_mhi_client_ctx->mhi_ipa_tx_dp_notify = mhi_ipa_tx_complete_notify;
+		ipa_mhi_client_ctx->private = (void *)ipa_mhi_client_ctx;
+	}
 
 	ipa_mhi_client_ctx->wq = create_singlethread_workqueue("ipa_mhi_wq");
 	if (!ipa_mhi_client_ctx->wq) {
@@ -2592,9 +3349,30 @@ fail_pm:
 fail_dma_init:
 	destroy_workqueue(ipa_mhi_client_ctx->wq);
 fail_create_wq:
-	kfree(ipa_mhi_client_ctx);
-	ipa_mhi_client_ctx = NULL;
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		unregister_netdev(ipa_mhi_client_ctx->net);
+	}
+fail_register_netdev:
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		mhi_ipa_rules_destroy(ipa_mhi_client_ctx);
+	}
+fail_rules_cfg:
+fail_set_device_ethernet:
+fail_get_vlan_mode:
 fail_alloc_ctx:
+	if(!ipa3_ctx->ipa_mhi_eth)
+	{
+		kfree(ipa_mhi_client_ctx);
+	}
+fail_netdev_priv:
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		free_netdev(net);
+	}
+	ipa_mhi_client_ctx = NULL;
+fail_alloc_etherdev:
 	return res;
 }
 
@@ -2741,7 +3519,7 @@ int ipa_mhi_dma_connect_endp(struct mhi_dma_function_params function,
 	connect_params.sys.int_modc = in->int_modc;
 	connect_params.sys.buff_size = in->buff_size;
 
-	connect_params.sys.skip_ep_cfg = true;
+	connect_params.sys.skip_ep_cfg = !ipa3_ctx->ipa_mhi_eth;
 
 	return ipa_mhi_connect_pipe_internal(&connect_params, clnt_hdl);
 }
@@ -2783,7 +3561,7 @@ static dma_addr_t ipa_mhi_dma_map_buffer(void* virt, size_t size,
 	enum dma_data_direction dir)
 {
 	dma_addr_t phys;
-	IPA_MHI_DBG("Begin\n");
+	IPA_MHI_DBG_LOW("Begin\n");
 
 	phys = dma_map_single(ipa3_ctx->pdev, virt, size, dir);
 	if (dma_mapping_error(ipa3_ctx->pdev, phys)) {
@@ -2797,21 +3575,21 @@ static dma_addr_t ipa_mhi_dma_map_buffer(void* virt, size_t size,
 static void ipa_mhi_dma_unmap_buffer(dma_addr_t phys, size_t size,
 	enum dma_data_direction dir)
 {
-	IPA_MHI_DBG("Begin\n");
+	IPA_MHI_DBG_LOW("Begin\n");
 	dma_unmap_single(ipa3_ctx->pdev, phys, size, dir);
 }
 
 static void *ipa_mhi_dma_alloc_buffer(size_t size,
 	dma_addr_t* phys, gfp_t gfp)
 {
-	IPA_MHI_DBG("Begin\n");
+	IPA_MHI_DBG_LOW("Begin\n");
 	return  dma_alloc_coherent(ipa3_ctx->pdev, size, phys, gfp);
 }
 
 static void ipa_mhi_dma_free_buffer(size_t size, void* virt,
 	dma_addr_t phys)
 {
-	IPA_MHI_DBG("Begin\n");
+	IPA_MHI_DBG_LOW("Begin\n");
 	dma_free_coherent(ipa3_ctx->pdev, size, virt, phys);
 }
 

@@ -18,7 +18,8 @@
 #include "ipa_i.h"
 
 #define IPA_MHI_DRV_NAME "ipa_mhi"
-
+#define IPA_MHI_ETH_AGGR_PKT_LIMIT 1  /* disable aggregation */
+#define IPA_MHI_ETH_AGGR_BYTE_LIMIT 2 /* 2 Kbytes Agger hard byte limit */
 
 #define IPA_MHI_DBG(fmt, args...) \
 	do { \
@@ -194,8 +195,7 @@ static int ipa3_mhi_get_ch_poll_cfg(enum ipa_client_type client,
 }
 
 static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
-	int ipa_ep_idx, struct start_gsi_channel *params,
-	struct ipa_ep_cfg *ipa_ep_cfg)
+	int ipa_ep_idx, struct start_gsi_channel *params)
 {
 	int res = 0;
 	struct gsi_evt_ring_props ev_props;
@@ -211,6 +211,7 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 	struct ipa_ep_cfg_ctrl ep_cfg_ctrl;
 	bool burst_mode_enabled = false;
 	int code = 0;
+	bool vlan_mode;
 
 	IPA_MHI_FUNC_ENTRY();
 
@@ -415,7 +416,6 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 	}
 
 	*params->mhi = ch_scratch.mhi;
-
 	res = ipa3_enable_data_path(ipa_ep_idx);
 	if (res) {
 		IPA_MHI_ERR("enable data path failed res=%d clnt=%d.\n", res,
@@ -424,12 +424,47 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 	}
 
 	if (!ep->skip_ep_cfg) {
-		if (ipa3_cfg_ep(ipa_ep_idx, ipa_ep_cfg)) {
-			IPAERR("fail to configure EP.\n");
+
+		/* Configure the MHI pipe like ETH pipe if mhi_eth is enabled */
+		if(ipa3_ctx->ipa_mhi_eth) {
+			//get VLAN mode
+			res = ipa3_is_vlan_mode(IPA_VLAN_IF_MHI_ETH, &vlan_mode);
+			if (res) {
+				IPA_MHI_ERR("Could not determine IPA VLAN mode\n");
+				return res;
+			}
+			IPA_MHI_ERR("MHI_ETH is in VLAN mode %d\n", vlan_mode);
+			//Configure EP like ETH
+			ep->cfg.nat.nat_en = IPA_CLIENT_IS_PROD(client) ?
+			IPA_SRC_NAT : IPA_BYPASS_NAT;
+			ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+			ep->cfg.mode.mode = IPA_BASIC;
+			if (IPA_CLIENT_IS_CONS(client)) {
+				ep->cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
+				ep->cfg.aggr.aggr = IPA_GENERIC;
+				ep->cfg.aggr.aggr_byte_limit = IPA_MHI_ETH_AGGR_BYTE_LIMIT;
+				ep->cfg.aggr.aggr_pkt_limit = IPA_MHI_ETH_AGGR_PKT_LIMIT;
+				ep->cfg.aggr.aggr_hard_byte_limit_en = IPA_ENABLE_AGGR;
+			} else {
+				// ep->client_notify = pipe->info.notify;
+				// ep->priv = pipe->info.priv;
+			/* xlat config in vlan mode */
+				if (vlan_mode) {
+					ep->cfg.hdr.hdr_ofst_metadata_valid = 1;
+					ep->cfg.hdr.hdr_ofst_metadata = ETH_HLEN;
+					ep->cfg.hdr.hdr_metadata_reg_valid = false;
+				}
+			}
+		}
+
+		//Commit the EP cfg
+		if (ipa3_cfg_ep(ipa_ep_idx, &ep->cfg)) {
+			IPA_MHI_ERR("fail to setup MHI pipe cfg\n");
 			goto fail_ep_cfg;
 		}
+
 		if (ipa3_cfg_ep_status(ipa_ep_idx, &ep->status)) {
-			IPAERR("fail to configure status of EP.\n");
+			IPA_MHI_ERR("fail to configure status of EP.\n");
 			goto fail_ep_cfg;
 		}
 		IPA_MHI_DBG("ep configuration successful\n");
@@ -439,12 +474,11 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 			ipa3_ctx->ep[ipa_ep_idx].client == IPA_CLIENT_MHI_PROD
 				&& !ipa3_is_mhip_offload_enabled()) {
 			if (ipa3_cfg_ep_seq(ipa_ep_idx,
-						&ipa_ep_cfg->seq)) {
+						&ep->cfg.seq)) {
 				IPA_MHI_ERR("fail to configure USB pipe seq\n");
 				goto fail_ep_cfg;
 			}
 		}
-
 	}
 
 	if (IPA_CLIENT_IS_PROD(ep->client) && ep->skip_ep_cfg) {
@@ -604,13 +638,13 @@ int ipa3_connect_mhi_pipe(struct ipa_mhi_connect_params_internal *in,
 	ep->valid = 1;
 	ep->skip_ep_cfg = in->sys->skip_ep_cfg;
 	ep->client = client;
-	ep->client_notify = in->sys->notify;
 	ep->priv = in->sys->priv;
 	ep->keep_ipa_awake = in->sys->keep_ipa_awake;
+	ep->client_notify = in->sys->notify;
+	ep->cfg = in->sys->ipa_ep_cfg;
 
 	res = ipa_mhi_start_gsi_channel(client,
-					ipa_ep_idx, &in->start.gsi,
-					&in->sys->ipa_ep_cfg);
+					ipa_ep_idx, &in->start.gsi);
 	if (res) {
 		IPA_MHI_ERR("ipa_mhi_start_gsi_channel failed %d\n",
 			res);

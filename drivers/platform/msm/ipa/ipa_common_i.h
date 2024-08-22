@@ -202,20 +202,20 @@ do {\
 
 
 #define IPA_CLIENT_IS_MHI_PROD(x) \
-	((x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_PROD)) || \
-	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI2_PROD)) || \
-	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_PROD)))
+	((x == ipa_get_ep_mapping(IPA_CLIENT_MHI_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI2_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_PROD)))
 
 #define IPA_CLIENT_IS_MHI_CONS(x) \
-	((x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_DPL_CONS)) || \
-	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_QDSS_CONS)) || \
-	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS)) || \
-	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI2_CONS)) || \
-	 (x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_CONS)))
+	((x == ipa_get_ep_mapping(IPA_CLIENT_MHI_DPL_CONS)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI_QDSS_CONS)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI_CONS)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI2_CONS)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_CONS)))
 
 #ifdef IPA_CLIENT_MHI_COAL_CONS
 #define IPA_CLIENT_IS_MHI_COAL_CONS(x) \
-	((x == ipa3_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS)))
+	((x == ipa_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS)))
 #endif
 
 #define IPA_GSI_CHANNEL_STOP_SLEEP_MIN_USEC (3000)
@@ -226,6 +226,7 @@ do {\
 #define STR_ETH1_IFACE "eth1"
 #define STR_RNDIS_IFACE "rndis"
 #define STR_ECM_IFACE "ecm"
+#define STR_MHI_ETH_IFACE "mhi_eth"
 
 #define MINIDUMP_MASK 0x10000
 /**
