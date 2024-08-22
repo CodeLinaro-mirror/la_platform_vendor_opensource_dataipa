@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/ipa_wigig.h>
@@ -11,6 +13,7 @@
 #include <linux/ipa_fmwk.h>
 
 #define OFFLOAD_DRV_NAME "ipa_wigig"
+#define IPA_MAX_MSG_LEN 4096
 #define IPA_WIGIG_DBG(fmt, args...) \
 	do { \
 		pr_debug(OFFLOAD_DRV_NAME " %s:%d " fmt, \
@@ -1898,8 +1901,6 @@ static int ipa_wigig_tx_dp_internal(enum ipa_client_type dst, struct sk_buff *sk
 
 
 #ifdef CONFIG_DEBUG_FS
-#define IPA_MAX_MSG_LEN 4096
-
 static ssize_t ipa_wigig_read_conn_clients(struct file *file,
 		char __user *ubuf, size_t count, loff_t *ppos)
 {
