@@ -3977,6 +3977,92 @@ static ssize_t ipsec_active_sa_show(struct device *dev, struct device_attribute 
 
 #endif
 
+static ssize_t ipa3_eth_read_qos_stats(char* ubuf)
+{
+	int nbytes;
+	int cnt = 0, i = 0;
+	u8 tx_num_pipes, rx_num_pipes;
+	struct ipa_eth_qos_info eth_qos_info;
+	bool hw_stats = true;
+	struct ipa_quota_stats out;
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v6_0) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"This feature only support on IPA6.0+ and IEMAC\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	if (ipa3_ctx->eth_qos) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"QOS not enabled\n");
+		cnt += nbytes;
+		goto done;
+	}
+	
+
+	memset(&eth_qos_info, 0, sizeof(eth_qos_info));
+
+	ipa_eth_qos_get_num_pipes(0, &tx_num_pipes,
+		IPA_ETH_PIPE_DIR_TX);
+	ipa_eth_qos_get_num_pipes(0, &rx_num_pipes,
+		IPA_ETH_PIPE_DIR_RX);
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"tx_num_pipes: %d, rx_num_pipes: %d\n", tx_num_pipes, rx_num_pipes);
+	cnt += nbytes;
+
+	/* qet HW-stats */
+	hw_stats = (ipa_get_teth_stats() == 0) ? true: false;
+
+	for (i = 0; i < tx_num_pipes; i++) {
+		memset(&out, 0, sizeof(out));
+		ipa_eth_qos_get_qos_info(0, i, &eth_qos_info,
+			IPA_ETH_PIPE_DIR_TX);
+		nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+			"Client: %s, TC Bitmap: 0x%x, Priority: %d\n",
+			ipa_clients_strings[IPA_ETH_CLIENT_IEMAC],
+			eth_qos_info.tc_bmap, eth_qos_info.priority);
+		cnt += nbytes;
+		if (hw_stats &&
+			(!ipa_query_cumm_teth_cons_stats(eth_qos_info.client_type,
+			&out))) {
+			nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+					"v4_rx_p-b(%d,%lld) v6_rx_p-b(%d,%lld)\n",
+					out.num_ipv4_pkts,
+					out.num_ipv4_bytes,
+					out.num_ipv6_pkts,
+					out.num_ipv6_bytes);
+			cnt += nbytes;
+		}
+	}
+
+	for (i = 0; i < rx_num_pipes; i++) {
+		memset(&out, 0, sizeof(out));
+		ipa_eth_qos_get_qos_info(0, i, &eth_qos_info,
+			IPA_ETH_PIPE_DIR_RX);
+		nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+			"Client: %s, TC Bitmap: 0x%x, Priority: %d\n",
+			ipa_clients_strings[IPA_ETH_CLIENT_IEMAC],
+			eth_qos_info.tc_bmap, eth_qos_info.priority);
+		cnt += nbytes;
+		if (hw_stats &&
+			(!ipa_query_cumm_teth_prod_stats(eth_qos_info.client_type,
+			&out))) {
+			nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+					"v4_rx_p-b(%d,%lld) v6_rx_p-b(%d,%lld)\n",
+					out.num_ipv4_pkts,
+					out.num_ipv4_bytes,
+					out.num_ipv6_pkts,
+					out.num_ipv6_bytes);
+			cnt += nbytes;
+		}
+	}
+
+done:
+	memcpy(ubuf, dbg_buff, cnt);
+	return cnt;
+}
+
 
 static ssize_t eth_status_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
@@ -4175,6 +4261,11 @@ static ssize_t __eth_perf_status_show(enum ipa_eth_client_type type, char *ubuf)
 done:
 	memcpy(ubuf, dbg_buff, cnt);
 	return cnt;
+}
+
+static ssize_t emac_qos_stats_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	return ipa3_eth_read_qos_stats(ubuf);
 }
 
 static ssize_t aqc_perf_status_show(struct device *dev, struct device_attribute *attr, char *ubuf)
@@ -4424,6 +4515,7 @@ static DEVICE_ATTR_RO(ipsec_decap_sa_info);
 static DEVICE_ATTR_RO(ipsec_active_sa);
 #endif
 static DEVICE_ATTR_RO(eth_status);
+static DEVICE_ATTR_RO(emac_qos_stats);
 static DEVICE_ATTR_RO(aqc_perf_status);
 static DEVICE_ATTR_RO(ntn_perf_status);
 static DEVICE_ATTR_RO(aqc_0_err_status);
@@ -4520,6 +4612,7 @@ static struct attribute *ipa_attrs[] = {
 	&dev_attr_ipa_max_napi_sort_page_thrshld.attr,
 	&dev_attr_ipa_dscp_pcp_mapping_cache.attr,
 	&dev_attr_eth_status.attr,
+	&dev_attr_emac_qos_stats.attr,
 	&dev_attr_aqc_perf_status.attr,
 	&dev_attr_ntn_perf_status.attr,
 	&dev_attr_aqc_0_err_status.attr,
