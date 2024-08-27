@@ -15,6 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
@@ -86,6 +87,11 @@
 #define DEFAULT_MPM_RING_SIZE_DL 16
 #define DEFAULT_MPM_TETH_AGGR_SIZE 24
 #define DEFAULT_MPM_UC_THRESH_SIZE 4
+
+static char *ipa_cfg = "";
+
+module_param(ipa_cfg, charp, 0644);
+MODULE_PARM_DESC(ipa_cfg, "IPA Driver Config");
 
 RAW_NOTIFIER_HEAD(ipa_rmnet_notifier_list);
 
@@ -192,6 +198,9 @@ static int ipa3_ioctl_mdfy_flt_rule_v2(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_alloc(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_query(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_set(unsigned long arg);
+
+ssize_t ipa3_update_config(const char *buff);
+
 static struct ipa3_plat_drv_res ipa3_res = {0, };
 
 static struct clk *ipa3_clk;
@@ -10953,9 +10962,6 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	char dbg_buff[300] = { 0 };
 	int i = 0;
-#if defined(CONFIG_IPA_IPSEC)
-	int res;
-#endif
 
 	if (count >= sizeof(dbg_buff))
 	{
@@ -10982,6 +10988,39 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	if (i == count) {
 		IPADBG("Empty ipa_config file\n");
+		return count;
+	}
+
+	return ipa3_update_config(dbg_buff);
+}
+
+ssize_t ipa3_update_config(const char *buff)
+{
+	char dbg_buff[300] = { 0 };
+	int i = 0;
+	size_t count = strlen(buff);
+#if defined(CONFIG_IPA_IPSEC)
+	int res;
+#endif
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+ 	if (count > 0) {
+		memcpy(dbg_buff, buff, count);
+		dbg_buff[count] = '\0';
+	}
+
+	IPADBG("Mod Param String is %s\n", dbg_buff);
+
+	/*Ignore empty mod param*/
+	for (i = 0 ; i < count ; ++i) {
+		if (!isspace(dbg_buff[i]))
+			break;
+	}
+
+	if (i == count) {
+		IPADBG("Empty Mod Param String\n");
 		return count;
 	}
 
@@ -15295,6 +15334,12 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	/* Initialize msgq for PVM and SVM */
 	ipa3_msgq_init();
 #endif
+
+	result = ipa3_update_config((const char *)ipa_cfg);
+	if (result < 0) {
+		IPAERR("failed to update config\n");
+		return result;
+	}
 
 skip_repeat_pre_init:
 	result = of_platform_populate(pdev_p->dev.of_node,
