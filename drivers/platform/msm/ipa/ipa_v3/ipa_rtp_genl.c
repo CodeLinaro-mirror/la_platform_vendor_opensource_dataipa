@@ -412,7 +412,7 @@ int ipa_rtp_send_tuple_info_resp(struct genl_info *info,
 		return rc;
 	}
 
-	msg_head = genlmsg_put(skb, 0, info->snd_seq + 1,
+	msg_head = genlmsg_put(skb, 0, info->snd_seq,
 			       &ipa_rtp_genl_family,
 			       0, IPA_RTP_GENL_CMD_ASSIGN_STREAM_ID);
 	if (!msg_head) {
@@ -439,6 +439,7 @@ int ipa_rtp_send_tuple_info_resp(struct genl_info *info,
 	ipa3_ctx->rtp_stream_id_cnt++;
 	IPADBG("assigned stream-id is %u\n", tuple_info_resp->stream_id);
 	IPADBG_LOW("Exit\n");
+	return rc;
 
 free_skb:
 	kfree(skb);
@@ -773,11 +774,10 @@ int ipa_rtp_add_bitstream_buff_req_hdlr(struct sk_buff *skb_2,
 	IPADBG_LOW("buff_cnt is %u\n", bs_buffer_req.buff_cnt);
 	IPADBG_LOW("cookie is 0x%x\n", bs_buffer_req.cookie);
 
-	/* If IPA C2 component is providing two buffers for meta data and bitstream buff,
-	 * they need to fill meta_buff_offset and buff_offset as zero.
-	 * If it is a single buffer for meta data and bitstream buff, then meta_buff_fd
-	 * and buff_fd will be the same. And they need to fill meta_buff_offset as zero
-	 * and fill the bitstream buff offset in buff_offset and it should be 4 byte aligned.
+	/* If IPA C2 component is providing two fd's for meta fd and bitstream buff fd then
+	 * sizes need to be filled. If it is a single fd for both meta data and bitstream buff
+	 * then meta_buff_fd and bitstream_buffer_fd will be the same. And they need to fill
+	 * bitstream_buffer_size as actual size and meta_buff_size to zero.
 	 */
 
 	for (i = 0; i < bs_buffer_req.buff_cnt; i++) {
@@ -788,26 +788,16 @@ int ipa_rtp_add_bitstream_buff_req_hdlr(struct sk_buff *skb_2,
 		}
 
 		if (bs_buffer_req.bs_info[i].meta_buff_fd == bs_buffer_req.bs_info[i].buff_fd) {
-			if (bs_buffer_req.bs_info[i].meta_buff_offset ||
-				!bs_buffer_req.bs_info[i].buff_offset ||
-				bs_buffer_req.bs_info[i].meta_buff_size ||
+			if (bs_buffer_req.bs_info[i].meta_buff_size ||
 				!bs_buffer_req.bs_info[i].buff_size) {
-				IPAERR("invalid meta_buff_offset %u or bs_buff_offset %u\n",
-						bs_buffer_req.bs_info[i].meta_buff_offset,
-						bs_buffer_req.bs_info[i].buff_offset);
 				IPAERR("or meta_buff_size %u or bs_buff_size %u params\n",
 						bs_buffer_req.bs_info[i].meta_buff_size,
 						bs_buffer_req.bs_info[i].buff_size);
 				return rc;
 			}
 		} else {
-			if (bs_buffer_req.bs_info[i].meta_buff_offset ||
-				bs_buffer_req.bs_info[i].buff_offset ||
-				!bs_buffer_req.bs_info[i].meta_buff_size ||
+			if (!bs_buffer_req.bs_info[i].meta_buff_size ||
 				!bs_buffer_req.bs_info[i].buff_size) {
-				IPAERR("invalid meta_buff_offset %u or bs_buff_offset %u\n",
-						bs_buffer_req.bs_info[i].meta_buff_offset,
-						bs_buffer_req.bs_info[i].buff_offset);
 				IPAERR("or meta_buff_size %u or bs_buff_size %u params\n",
 						bs_buffer_req.bs_info[i].meta_buff_size,
 						bs_buffer_req.bs_info[i].buff_size);
@@ -869,8 +859,8 @@ int ipa_rtp_rmv_stream_id_req_hdlr(struct sk_buff *skb_2,
 	}
 
 	/* Call IPA driver/uC API's here */
-	if (is_req_valid && ipa3_uc_send_remove_stream_cmd(&rmv_sid_req)
-		&& ipa3_delete_rtp_hdr_proc_rt_flt_rules(rmv_sid_req.stream_id)) {
+	if (is_req_valid && (ipa3_uc_send_remove_stream_cmd(&rmv_sid_req)
+		|| ipa3_delete_rtp_hdr_proc_rt_flt_rules(rmv_sid_req.stream_id))) {
 		IPAERR("failed in removing stream-id, deleting hdr proc and flt rules\n");
 		return rc;
 	}
