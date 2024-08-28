@@ -1351,7 +1351,12 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		esa.stat.sa_life_bytes =
 			x->lft.hard_byte_limit ? x->lft.hard_byte_limit : XFRM_INF;
 		esa.dyna.ipv4_id = 0;
-		esa.dyna.seq_num = 0;
+		if (x->props.flags & XFRM_STATE_ESN) {
+			esa.dyna.seq_num =
+				(u64)(x->replay_esn->oseq) | ((u64)(x->replay_esn->oseq_hi) << 32);
+		} else {
+			esa.dyna.seq_num = (u64)(x->replay.oseq);
+		}
 		esa.dyna.volume_bytes = 0;
 
 		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
