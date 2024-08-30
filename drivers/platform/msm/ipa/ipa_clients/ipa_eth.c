@@ -1307,8 +1307,9 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 		intf_hdr[1].hdr_len = VLAN_ETH_HLEN;
 		intf_hdr[1].hdr_type = IPA_HDR_L2_802_1Q;;
 	}
+	else
 #endif
-	else {
+	{
 		struct ethhdr *eth_h;
 
 		intf_hdr[0].hdr = (u8 *)&l_ethhdr[0];
