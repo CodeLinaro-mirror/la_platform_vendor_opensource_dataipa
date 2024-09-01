@@ -501,144 +501,6 @@ enum {
 
 #define IPA_MEM_INIT_VAL 0xFFFFFFFF
 
-#ifdef CONFIG_COMPAT
-#define IPA_IOC_COAL_EVICT_POLICY32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_COAL_EVICT_POLICY, \
-					compat_uptr_t)
-#define IPA_IOC_ADD_HDR32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_ADD_HDR, \
-					compat_uptr_t)
-#define IPA_IOC_DEL_HDR32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_DEL_HDR, \
-					compat_uptr_t)
-#define IPA_IOC_ADD_RT_RULE32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_ADD_RT_RULE, \
-					compat_uptr_t)
-#define IPA_IOC_DEL_RT_RULE32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_DEL_RT_RULE, \
-					compat_uptr_t)
-#define IPA_IOC_ADD_FLT_RULE32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_ADD_FLT_RULE, \
-					compat_uptr_t)
-#define IPA_IOC_DEL_FLT_RULE32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_DEL_FLT_RULE, \
-					compat_uptr_t)
-#define IPA_IOC_GET_RT_TBL32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_GET_RT_TBL, \
-				compat_uptr_t)
-#define IPA_IOC_COPY_HDR32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_COPY_HDR, \
-				compat_uptr_t)
-#define IPA_IOC_QUERY_INTF32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_QUERY_INTF, \
-				compat_uptr_t)
-#define IPA_IOC_QUERY_INTF_TX_PROPS32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_QUERY_INTF_TX_PROPS, \
-				compat_uptr_t)
-#define IPA_IOC_QUERY_INTF_RX_PROPS32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_QUERY_INTF_RX_PROPS, \
-					compat_uptr_t)
-#define IPA_IOC_QUERY_INTF_EXT_PROPS32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_QUERY_INTF_EXT_PROPS, \
-					compat_uptr_t)
-#define IPA_IOC_GET_HDR32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_GET_HDR, \
-				compat_uptr_t)
-#define IPA_IOC_ALLOC_NAT_MEM32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_ALLOC_NAT_MEM, \
-				compat_uptr_t)
-#define IPA_IOC_ALLOC_NAT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_ALLOC_NAT_TABLE, \
-				compat_uptr_t)
-#define IPA_IOC_ALLOC_IPV6CT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_ALLOC_IPV6CT_TABLE, \
-				compat_uptr_t)
-#define IPA_IOC_V4_INIT_NAT32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_V4_INIT_NAT, \
-				compat_uptr_t)
-#define IPA_IOC_INIT_IPV6CT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_INIT_IPV6CT_TABLE, \
-				compat_uptr_t)
-#define IPA_IOC_TABLE_DMA_CMD32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_TABLE_DMA_CMD, \
-				compat_uptr_t)
-#define IPA_IOC_V4_DEL_NAT32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_V4_DEL_NAT, \
-				compat_uptr_t)
-#define IPA_IOC_DEL_NAT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_DEL_NAT_TABLE, \
-				compat_uptr_t)
-#define IPA_IOC_DEL_IPV6CT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_DEL_IPV6CT_TABLE, \
-				compat_uptr_t)
-#define IPA_IOC_NAT_MODIFY_PDN32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_NAT_MODIFY_PDN, \
-				compat_uptr_t)
-#define IPA_IOC_GET_NAT_OFFSET32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_GET_NAT_OFFSET, \
-				compat_uptr_t)
-#define IPA_IOC_PULL_MSG32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_PULL_MSG, \
-				compat_uptr_t)
-#define IPA_IOC_RM_ADD_DEPENDENCY32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_RM_ADD_DEPENDENCY, \
-				compat_uptr_t)
-#define IPA_IOC_RM_DEL_DEPENDENCY32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_RM_DEL_DEPENDENCY, \
-				compat_uptr_t)
-#define IPA_IOC_GENERATE_FLT_EQ32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_GENERATE_FLT_EQ, \
-				compat_uptr_t)
-#define IPA_IOC_QUERY_RT_TBL_INDEX32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_QUERY_RT_TBL_INDEX, \
-				compat_uptr_t)
-#define IPA_IOC_WRITE_QMAPID32  _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_WRITE_QMAPID, \
-				compat_uptr_t)
-#define IPA_IOC_MDFY_FLT_RULE32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_MDFY_FLT_RULE, \
-				compat_uptr_t)
-#define IPA_IOC_NOTIFY_WAN_UPSTREAM_ROUTE_ADD32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_NOTIFY_WAN_UPSTREAM_ROUTE_ADD, \
-				compat_uptr_t)
-#define IPA_IOC_NOTIFY_WAN_UPSTREAM_ROUTE_DEL32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_NOTIFY_WAN_UPSTREAM_ROUTE_DEL, \
-				compat_uptr_t)
-#define IPA_IOC_NOTIFY_WAN_EMBMS_CONNECTED32 _IOWR(IPA_IOC_MAGIC, \
-					IPA_IOCTL_NOTIFY_WAN_EMBMS_CONNECTED, \
-					compat_uptr_t)
-#define IPA_IOC_ADD_HDR_PROC_CTX32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_ADD_HDR_PROC_CTX, \
-				compat_uptr_t)
-#define IPA_IOC_DEL_HDR_PROC_CTX32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_DEL_HDR_PROC_CTX, \
-				compat_uptr_t)
-#define IPA_IOC_MDFY_RT_RULE32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_MDFY_RT_RULE, \
-				compat_uptr_t)
-#define IPA_IOC_GET_NAT_IN_SRAM_INFO32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_GET_NAT_IN_SRAM_INFO, \
-				compat_uptr_t)
-#define IPA_IOC_APP_CLOCK_VOTE32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_APP_CLOCK_VOTE, \
-				compat_uptr_t)
-#define IPA_IOC_ADD_EoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_ADD_EoGRE_MAPPING, \
-				compat_uptr_t)
-#define IPA_IOC_DEL_EoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_DEL_EoGRE_MAPPING, \
-				compat_uptr_t)
-#define IPA_IOC_SET_NAT_EXC_RT_TBL_IDX32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_SET_NAT_EXC_RT_TBL_IDX, \
-				compat_uptr_t)
-#define IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_SET_CONN_TRACK_EXC_RT_TBL_IDX, \
-				compat_uptr_t)
-#define IPA_IOC_GET_CT_IN_SRAM_INFO32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_GET_CT_IN_SRAM_INFO, \
-				compat_uptr_t)
-#endif /* #ifdef CONFIG_COMPAT */
-
 #define IPA_TZ_UNLOCK_ATTRIBUTE 0x0C0311
 
 #define MBOX_TOUT_MS 100
@@ -750,7 +612,9 @@ struct ipa_smmu_cb_ctx {
 	/**
 	 * todo: make this a list.
 	 */
-	struct ipa_smmu_cb_mapping m_map[IPA_ETH_INST_ID_MAX][IPA_ETH_PIPE_DIR_MAX][IPA_ETH_PIPE_TRAFFIC_TYPE_MAX];
+	struct ipa_smmu_cb_mapping
+		m_map[IPA_ETH_INST_ID_MAX]
+		[IPA_ETH_PIPE_DIR_MAX][IPA_ETH_MAX_TX_DMA_CHANNEL_QOS];
 };
 
 /**
@@ -2445,6 +2309,13 @@ struct ipa3_eth_pdu_ctx {
 
 };
 
+/* ETH QOS Type*/
+enum ipa_eth_qos_type_e {
+	IPA_ETH_QOS_DISABLE = 0,
+	IPA_ETH_QOS_ENABLE = 1,
+	IPA_ETH_QOS_MAX
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2745,6 +2616,7 @@ struct ipa3_context {
 	bool vlan_mode_iface[IPA_VLAN_IF_MAX];
 	bool spcl_iface[IPA_VLAN_IF_MAX];
 	bool tsn_iface;
+	enum ipa_eth_qos_type_e eth_qos;
 	bool wdi_over_pcie;
 	u32 entire_ipa_block_size;
 	bool do_register_collection_on_crash;
@@ -2883,6 +2755,7 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
 	u16 filter_start_id;
+	struct ipa_ioc_get_qos_config get_qos_config;
 };
 
 struct ipa3_plat_drv_res {
@@ -3343,6 +3216,8 @@ int ipa3_cfg_ep_route(u32 clnt_hdl, const struct ipa_ep_cfg_route *ipa_ep_cfg);
 
 int ipa3_cfg_ep_holb(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ipa_ep_cfg);
 
+int ipa3_cfg_ep_holb_uS(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ipa_ep_cfg);
+
 void ipa3_cal_ep_holb_scale_base_val(u32 tmr_val,
 				struct ipa_ep_cfg_holb *ep_holb);
 
@@ -3533,8 +3408,6 @@ void ipa3_free_skb(struct ipa_rx_data *data);
 
 #if defined(CONFIG_IPA_IPSEC)
 int xmit_ipsec_frag_ul(struct sk_buff *skb);
-
-int ipa3_frag_ul_ipsec(struct sk_buff *skb, u8 sa_idx);
 #endif
 
 /*
@@ -3579,7 +3452,6 @@ int ipa3_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats);
 u16 ipa3_get_smem_restr_bytes(void);
 int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
-int ipa3_wigig_init_debugfs_i(struct dentry *dent);
 
 /*
  * To retrieve doorbell physical address of
@@ -3766,10 +3638,23 @@ int ipa3_generate_hw_rule(enum ipa_ip_type ip,
 int ipa3_init_hw(void);
 struct ipa3_rt_tbl *__ipa3_find_rt_tbl(enum ipa_ip_type ip, const char *name);
 int ipa3_set_single_ndp_per_mbim(bool enable);
+#ifdef CONFIG_DEBUG_FS
 void ipa3_debugfs_init(void);
 void ipa3_debugfs_remove(void);
 void ipa3_eth_debugfs_init(void);
 void ipa3_eth_debugfs_add(struct ipa_eth_client *client);
+void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client);
+struct dentry *ipa_debugfs_get_root(void);
+int ipa3_wigig_init_debugfs_i(struct dentry *dent);
+int ipa_debugfs_init_stats(struct dentry *parent);
+#else
+int ipa_sysfs_init(void);
+void ipa_sysfs_deinit(void);
+int ipa_sysfs_init_stats(void);
+void ipa_sysfs_deinit_stats(void);
+int ipa3_wigig_init_sysfs_i(void);
+void ipa3_wigig_fini_sysfs_i(void);
+#endif
 
 void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size);
 
@@ -3957,8 +3842,6 @@ int ipa_hw_stats_init(void);
 
 int ipa_init_flt_rt_stats(void);
 
-int ipa_debugfs_init_stats(struct dentry *parent);
-
 int ipa_init_quota_stats(u32 *pipe_bitmask);
 
 int ipa_get_quota_stats(struct ipa_quota_stats_all *out);
@@ -3983,6 +3866,12 @@ int ipa_get_teth_stats(void);
 
 int ipa_query_teth_stats(enum ipa_client_type prod,
 	struct ipa_quota_stats_all *out, bool reset);
+
+int ipa_query_cumm_teth_prod_stats(enum ipa_client_type prod,
+	struct ipa_quota_stats *out);
+
+int ipa_query_cumm_teth_cons_stats(enum ipa_client_type cons,
+	struct ipa_quota_stats *out);
 
 int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons);
 
@@ -4077,6 +3966,9 @@ int ipa3_unregister_rmnet_ll_cb(void);
 int ipa3_rmnet_ll_xmit(struct sk_buff *skb);
 int ipa3_register_notifier(void *fn_ptr);
 int ipa3_unregister_notifier(void *fn_ptr);
+#ifndef CONFIG_DEBUG_FS
+void rmnet_ll_ipa3_sysfs_destroy(void);
+#endif
 int ipa3_setup_apps_low_lat_data_prod_pipe(
 	struct rmnet_egress_param *egress_param,
 	struct net_device *dev);
@@ -4094,7 +3986,6 @@ int ipa3_smmu_map_peer_buff(u64 iova, u32 size, bool map, struct sg_table *sgt,
 void ipa3_reset_freeze_vote(void);
 int ipa3_ntn_init(void);
 int ipa3_get_ntn_stats(struct Ipa3HwStatsNTNInfoData_t *stats);
-struct dentry *ipa_debugfs_get_root(void);
 bool ipa3_is_msm_device(void);
 void ipa3_enable_dcd(void);
 void ipa3_disable_prefetch(enum ipa_client_type client);
@@ -4136,14 +4027,16 @@ void ipa_eth_exit(void);
 static inline int ipa_eth_init(void) { return 0; }
 static inline void ipa_eth_exit(void) { }
 #endif
-void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client);
 int ipa3_eth_connect(
 	struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type client_type,
-	int inst_id);
+	int inst_id,
+	u8 priority,
+	u8 pipe_idx);
 int ipa3_eth_disconnect(
 	struct ipa_eth_client_pipe_info *pipe,
-	enum ipa_client_type client_type);
+	enum ipa_client_type client_type,
+	u8 pipe_idx);
 #if IPA_ETH_API_VER < 2
 int ipa3_eth_client_conn_evt(struct ipa_ecm_msg *msg);
 int ipa3_eth_client_disconn_evt(struct ipa_ecm_msg *msg);

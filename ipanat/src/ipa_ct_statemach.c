@@ -333,7 +333,7 @@ static int ct_migrate_rule(
 		cnt_ptr          = &(cti_obj.tot_rules_in_table[SRAM_SUB]);
 	}
 
-	if ( ct_rule_ptr->protocol == IPA_IPV6CT_INVALID_PROTO_FIELD_VALUE )
+	if ( ct_rule_ptr->protocol == IPA_IPV6CT_INVALID_PROTO_FIELD_CMP )
 	{
 		IPADBG("%s: Special \"first rule in list\" case. "
 			   "Rule's enabled bit on, but protocol implies deleted\n",

@@ -50,7 +50,14 @@
 	(client) == IPA_CLIENT_ETHERNET_PROD || \
 	(client) == IPA_CLIENT_ETHERNET_CONS || \
 	(client) == IPA_CLIENT_ETHERNET_PROD1 || \
-	(client) == IPA_CLIENT_ETHERNET_LOW_LAT_CONS)
+	(client) == IPA_CLIENT_ETHERNET_LOW_LAT_CONS || \
+	(client) == IPA_CLIENT_ETHERNET_CONS1 || \
+	(client) == IPA_CLIENT_ETHERNET_PROD2 || \
+	(client) == IPA_CLIENT_ETHERNET_CONS2 || \
+	(client) == IPA_CLIENT_ETHERNET_PROD3 || \
+	(client) == IPA_CLIENT_ETHERNET_CONS3 || \
+	(client) == IPA_CLIENT_ETHERNET_PROD4 || \
+	(client) == IPA_CLIENT_ETHERNET_CONS4)
 
 #define IPA_CLIENT_IS_SMMU_ETH1_INSTANCE(client) \
 	((client) == IPA_CLIENT_ETHERNET2_PROD || \
@@ -61,21 +68,21 @@ enum ipa_eth_dir {
 	IPA_ETH_TX = 1,
 };
 
+/* HOLB timeout values for QOS. */
+u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {2000, 500};
+
 static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys_addr_t pa,
-	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir,
-	enum ipa_eth_pipe_traffic_type traffic_type)
+	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir, u8 pipe_idx)
 {
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(cb_type);
 
-	cb->m_map[instance_id][dir][traffic_type].m_pa = pa;
-	cb->m_map[instance_id][dir][traffic_type].m_iova = iova;
-	cb->m_map[instance_id][dir][traffic_type].m_size = len;
+	cb->m_map[instance_id][dir][pipe_idx].m_pa = pa;
+	cb->m_map[instance_id][dir][pipe_idx].m_iova = iova;
+	cb->m_map[instance_id][dir][pipe_idx].m_size = len;
 }
 
-static int ipa_iemac_smmu_cb_add_mapping_pa(
-	enum ipa_smmu_cb_type cb_type, phys_addr_t pa, size_t len, bool device,
-	unsigned long *iova, int instance_id, enum ipa_eth_pipe_direction dir,
-	enum ipa_eth_pipe_traffic_type traffic_type)
+static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_addr_t pa, size_t len,
+	bool device, unsigned long *iova, int instance_id, enum ipa_eth_pipe_direction dir, u8 pipe_idx)
 {
 	struct ipa_smmu_cb_ctx *cb;
 	unsigned long va, eth_next_addr;
@@ -116,7 +123,8 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(
 	 * constant size per direction.
 	 */
 	eth_next_addr = cb->va_end + eth_offset +
-			PAGE_SIZE * (2 * instance_id + dir + 2 * traffic_type);
+		PAGE_SIZE * ((instance_id * IPA_ETH_MAX_DMA_CHANNEL_QOS) +
+		(IPA_ETH_MAX_TX_DMA_CHANNEL_QOS * dir + pipe_idx));
 	va = roundup(eth_next_addr, PAGE_SIZE);
 	if (len > PAGE_SIZE)
 		va = roundup(eth_next_addr, len);
@@ -127,13 +135,13 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(
 		return -EINVAL;
 	}
 	*iova = va + pa - rounddown(pa, PAGE_SIZE);
-	ipa_iemac_smmu_cb_save_mapping_i(cb_type, pa, va, true_len, instance_id, dir, traffic_type);
+	ipa_iemac_smmu_cb_save_mapping_i(cb_type, pa, va, true_len, instance_id, dir, pipe_idx);
 
 	return 0;
 }
 
 static int ipa_iemac_smmu_cb_reset_mapping(enum ipa_smmu_cb_type cb_type, int instance_id,
-	enum ipa_eth_pipe_direction dir, enum ipa_eth_pipe_traffic_type traffic_type)
+	enum ipa_eth_pipe_direction dir, u8 pipe_idx)
 {
 	struct ipa_smmu_cb_ctx *cb;
 
@@ -154,12 +162,12 @@ static int ipa_iemac_smmu_cb_reset_mapping(enum ipa_smmu_cb_type cb_type, int in
 		IPAERR("No SMMU CB setup\n");
 		return -EINVAL;
 	}
-	if (cb->m_map[instance_id][dir][traffic_type].m_size != 0) {
-		iommu_unmap(cb->iommu_domain, cb->m_map[instance_id][dir][traffic_type].m_iova,
-			cb->m_map[instance_id][dir][traffic_type].m_size);
-		cb->m_map[instance_id][dir][traffic_type].m_pa = 0;
-		cb->m_map[instance_id][dir][traffic_type].m_iova = 0;
-		cb->m_map[instance_id][dir][traffic_type].m_size = 0;
+	if (cb->m_map[instance_id][dir][pipe_idx].m_size != 0) {
+		iommu_unmap(cb->iommu_domain, cb->m_map[instance_id][dir][pipe_idx].m_iova,
+			cb->m_map[instance_id][dir][pipe_idx].m_size);
+		cb->m_map[instance_id][dir][pipe_idx].m_pa = 0;
+		cb->m_map[instance_id][dir][pipe_idx].m_iova = 0;
+		cb->m_map[instance_id][dir][pipe_idx].m_size = 0;
 	}
 
 	return 0;
@@ -283,7 +291,9 @@ static int ipa3_eth_config_uc(bool init,
 	u8 protocol,
 	u8 dir,
 	u8 gsi_ch,
-	u8 peripheral_ch)
+	u8 peripheral_ch,
+	u8 inst_id,
+	u8 priority)
 {
 	struct ipa_mem_buffer cmd;
 	enum ipa_cpu_2_hw_offload_commands command;
@@ -316,6 +326,10 @@ static int ipa3_eth_config_uc(bool init,
 		case IPA_HW_PROTOCOL_IEMAC:
 			cmd_data->SetupCh_params.iemac_params.direction = dir;
 			cmd_data->SetupCh_params.iemac_params.gsi_channel = gsi_ch;
+			/* Emac0 - 1, Emac1 - 2*/
+			cmd_data->SetupCh_params.iemac_params.port_id =
+				(inst_id == 0) ? 1 : 2;
+			cmd_data->SetupCh_params.iemac_params.priority = priority;
 			break;
 		default:
 			IPAERR("Unsupported protocol %d\n", protocol);
@@ -881,7 +895,7 @@ fail_get_gsi_ep_info:
 
 static int ipa_eth_setup_ntn_gsi_channel(
 	struct ipa_eth_client_pipe_info *pipe,
-	struct ipa3_ep_context *ep)
+	struct ipa3_ep_context *ep, u8 pipe_idx)
 {
 	struct gsi_evt_ring_props gsi_evt_ring_props;
 	struct gsi_chan_props gsi_channel_props;
@@ -930,7 +944,7 @@ static int ipa_eth_setup_ntn_gsi_channel(
 #endif
 	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC) {
 		result = ipa_iemac_smmu_cb_add_mapping_pa(IPA_SMMU_CB_AP,
-			gsi_evt_ring_props.msi_addr, 8, true, &iova, pipe->client_info->inst_id, pipe->dir, traffic_type);
+			gsi_evt_ring_props.msi_addr, 8, true, &iova, pipe->client_info->inst_id, pipe->dir, pipe_idx);
 		if (result) {
 			IPAERR("Failed to map IEMAC regs %d\n", result);
 			return result;
@@ -1037,7 +1051,7 @@ fail_get_gsi_ep_info:
 	ep->gsi_evt_ring_hdl = ~0;
 	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC)
 		ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id,
-			pipe->dir, traffic_type);
+			pipe->dir, pipe_idx);
 	return result;
 }
 
@@ -1090,7 +1104,9 @@ static bool hw_support_protocol(enum ipa4_hw_protocol protocol)
 int ipa3_eth_connect(
 	struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type client_type,
-	int inst_id)
+	int inst_id,
+	u8 priority,
+	u8 pipe_idx)
 {
 	struct ipa3_ep_context *ep = NULL;
 	int ep_idx = -1;
@@ -1274,7 +1290,7 @@ int ipa3_eth_connect(
 		break;
 	case IPA_HW_PROTOCOL_NTN3:
 	case IPA_HW_PROTOCOL_IEMAC:
-		result = ipa_eth_setup_ntn_gsi_channel(pipe, ep);
+		result = ipa_eth_setup_ntn_gsi_channel(pipe, ep, pipe_idx);
 		break;
 	default:
 		IPAERR("unknown protocol %d\n", prot);
@@ -1487,6 +1503,23 @@ int ipa3_eth_connect(
 		ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
 	}
 
+	/* Enable HOLB Timeout when QOS is enabled. */
+	if (ipa3_ctx->eth_qos && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		if (!pipe->tc_bmap && !priority)
+		{
+			IPADBG("Only BE tx available, no need to set holb\n");
+		}
+		else
+		{
+			memset(&holb_cfg, 0, sizeof(holb_cfg));
+			holb_cfg.en = IPA_HOLB_TMR_EN;
+			holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS) ?
+				qos_holb_tmr[priority] :
+				qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS - 1];
+			ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
+		}
+	}
+
 	/* start gsi channel */
 	result = gsi_start_channel(ep->gsi_chan_hdl);
 	if (result) {
@@ -1537,7 +1570,7 @@ int ipa3_eth_connect(
 	     ((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2))) {
 		result = ipa3_eth_config_uc(true, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
-			ep->gsi_chan_hdl, ch);
+			ep->gsi_chan_hdl, ch, inst_id, priority);
 		if (result) {
 			IPAERR("failed to config uc\n");
 			ipa_assert();
@@ -1578,7 +1611,8 @@ EXPORT_SYMBOL(ipa3_eth_connect);
 
 int ipa3_eth_disconnect(
 	struct ipa_eth_client_pipe_info *pipe,
-	enum ipa_client_type client_type)
+	enum ipa_client_type client_type,
+	u8 pipe_idx)
 {
 	int result = 0;
 	struct ipa3_ep_context *ep;
@@ -1639,7 +1673,7 @@ int ipa3_eth_disconnect(
 	     ((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2))) {
 		result = ipa3_eth_config_uc(false, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
-			ep->gsi_chan_hdl, 0);
+			ep->gsi_chan_hdl, 0, 0, 0);
 		if (result)
 			IPAERR("failed to config uc\n");
 	}
@@ -1696,7 +1730,7 @@ int ipa3_eth_disconnect(
 			}
 		}
 	}
-	ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id, pipe->dir, traffic_type);
+	ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id, pipe->dir, pipe_idx);
 fail:
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	return result;

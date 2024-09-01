@@ -64,6 +64,7 @@
 #define IPA_WWAN_DEV_NAME "rmnet_ipa%d"
 #define IPA_UPSTEAM_WLAN_IFACE_NAME "wlan0"
 #define IPA_UPSTEAM_WLAN1_IFACE_NAME "wlan1"
+static char dbg_buff[4096];
 
 enum ipa_ap_ingress_ep_enum {
 	IPA_AP_INGRESS_NONE = 0,
@@ -135,7 +136,13 @@ static int rmnet_ipa_send_coalesce_notification(uint8_t qmap_id, bool enable,
 
 static int rmnet_ipa_send_set_mtu_notification(char *if_name,
 					uint16_t mtu_v4, uint16_t mtu_v6, enum ipa_ip_type ip);
-
+#ifdef CONFIG_DEBUG_FS
+static void rmnet_ipa_debugfs_init(void);
+static void rmnet_ipa_debugfs_remove(void);
+#else
+static int rmnet_ipa_sysfs_init(void);
+static void rmnet_ipa_sysfs_destroy(void);
+#endif
 
 enum ipa3_wwan_device_status {
 	WWAN_DEVICE_INACTIVE = 0,
@@ -1532,12 +1539,12 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled() && (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC)) {
+	if (ipa_ipsec_enabled() && (skb->ipa_skb_cb.magic == IPA_IPSEC_SKB_MAGIC)) {
 		dst_ipa_client =
-			(IPA_IPSEC_SKB_CB(skb)->sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
+			(skb->ipa_skb_cb.sa_dir == XFRM_DEV_OFFLOAD_OUT) ?
 			IPA_CLIENT_IPSEC_ENCAP_PROD : IPA_CLIENT_IPSEC_DECAP_PROD;
 
-		sa_idx = (u8)(IPA_IPSEC_SKB_CB(skb)->sa_idx);
+		sa_idx = (u8)(skb->ipa_skb_cb.sa_idx);
 		if (dst_ipa_client == IPA_CLIENT_IPSEC_ENCAP_PROD) {
 			ipsec_encap = true;
 		}
@@ -1757,20 +1764,18 @@ send:
 	 * IPA_CLIENT_Q6_WAN_CONS based on status configuration
 	 */
 #ifdef CONFIG_IPA_IPSEC
-	if (ipa_ipsec_enabled() && (IPA_IPSEC_SKB_CB(skb)->magic == IPA_IPSEC_SKB_MAGIC)) {
+	if (ipa_ipsec_enabled() && (skb->ipa_skb_cb.magic == IPA_IPSEC_SKB_MAGIC)) {
 		if (ip_hdr(skb)->version == 4) {
 			/* Handle ip fragmentation */
 			if (ip_is_fragment(ip_hdr(skb))) {
 				ret = xmit_ipsec_frag_ul(skb);
-				kfree_skb(skb);
-				goto out;
+				goto count;
 			}
 		} else { // IPv6
 			unsigned int offset = 0;
 			if (NEXTHDR_FRAGMENT == ipv6_find_hdr(skb, &offset, NEXTHDR_FRAGMENT, NULL, NULL)) {
 				ret = xmit_ipsec_frag_ul(skb);
-				kfree_skb(skb);
-				goto out;
+				goto count;
 			}
 		}
 	}
@@ -1781,7 +1786,9 @@ send:
 		ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_ETH_PROD, skb, NULL);
 	else
 	  ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_V2X_PROD, skb, NULL);
-
+#ifdef CONFIG_IPA_IPSEC
+count:
+#endif
 	if (ret) {
 		if (ipsec_decap) {
 			atomic_dec(&wwan_ptr->outstanding_pkts_ipsec_decap);
@@ -1851,6 +1858,14 @@ static void ipa3_wwan_tx_timeout(struct net_device *dev)
 	if (atomic_read(&wwan_ptr->outstanding_pkts_v2x) != 0)
 		IPAWANERR("[%s] data stall in UL, %d v2x outstanding\n",
 			dev->name, atomic_read(&wwan_ptr->outstanding_pkts_v2x));
+
+	if (atomic_read(&wwan_ptr->outstanding_pkts_ipsec_encap) != 0)
+		IPAWANERR("[%s] data stall in UL, %d IPsec encap outstanding\n",
+			dev->name, atomic_read(&wwan_ptr->outstanding_pkts_ipsec_encap));
+
+	if (atomic_read(&wwan_ptr->outstanding_pkts_ipsec_decap) != 0)
+		IPAWANERR("[%s] data stall in UL, %d IPsec decap outstanding\n",
+			dev->name, atomic_read(&wwan_ptr->outstanding_pkts_ipsec_decap));
 }
 /**
  * apps_ipa_tx_complete_notify() - Rx notify
@@ -2149,16 +2164,9 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 			atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].error_code_seq_num_overflow);
 			break;
 		case IPA_IPSEC_ERROR_CODE_SEQ_NUM_EXCEED_MTU:
-			/* Store SA index and MUX ID in the SKB mark for use on the reinjected fragments */
-			skb->mark = (u32)ipsec_err_qmap.sa_idx | ((u32)ipsec_err_qmap.mux_id << 8);
-			IPADBG_LOW("After assignment: skb->mark = 0x%X", skb->mark);
-			skb_pull(skb, sizeof(struct error_qmap_hdr));
 			atomic_inc(&ipa3_ctx->ipsec->stats.encap_stats[sa_idx].ipsec_excp_exceed_mtu);
-			if (ipa3_frag_ul_ipsec(skb, sa_idx)) {
-				IPAERR("Fail to frag UL ipsec skb for sa index %u \n", sa_idx);
-				kfree_skb(skb);
-			}
-			return;
+			act = IPA_IPSEC_ERROR_TO_NS_ACTION;
+			break;
 		default:
 			IPAWANERR("unknown Encap IPSEC error code %d\n",
 					ipsec_err_qmap.error_code);
@@ -2255,28 +2263,30 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 		/* Record a special RX queue IPA_RMNET_RX_QUEUE_IPSEC for IPSEC error. */
 		skb_record_rx_queue(skb, IPA_RMNET_RX_QUEUE_IPSEC_ERROR);
 
-		x = ipa3_ctx->ipsec->sa_db[sa_type][sa_idx].x;
-		if (unlikely(!x)) {
-			IPAERR("SA%02d has no XFRM state pointer (0x%X) \n", sa_idx, x);
-			BUG();
-		}
-
-		sp = secpath_set(skb);
-		if (sp) {
-			sp->xvec[sp->len++] = x;
-			sp->olen++;
-			xfrm_state_hold(x);
-			xo = xfrm_offload(skb);
-			if (xo) {
-				xo->flags = CRYPTO_DONE;
-				xo->status = xo_status;
-			} else {
-				pr_err_ratelimited(DEV_NAME " %s:%d fail at xfrm_offload\n",
-				__func__, __LINE__);
+		if (ipsec_err_qmap.error_code != IPA_IPSEC_ERROR_CODE_SEQ_NUM_EXCEED_MTU) {
+			x = ipa3_ctx->ipsec->sa_db[sa_type][sa_idx].x;
+			if (unlikely(!x)) {
+				IPAERR("SA%02d has no XFRM state pointer (0x%X) \n", sa_idx, x);
+				BUG();
 			}
-		} else {
-			pr_err_ratelimited(DEV_NAME " %s:%d fail at secpath_set\n",
-				__func__, __LINE__);
+
+			sp = secpath_set(skb);
+			if (sp) {
+				sp->xvec[sp->len++] = x;
+				sp->olen++;
+				xfrm_state_hold(x);
+				xo = xfrm_offload(skb);
+				if (xo) {
+					xo->flags = CRYPTO_DONE;
+					xo->status = xo_status;
+				} else {
+					pr_err_ratelimited(DEV_NAME " %s:%d fail at xfrm_offload\n",
+					__func__, __LINE__);
+				}
+			} else {
+				pr_err_ratelimited(DEV_NAME " %s:%d fail at secpath_set\n",
+					__func__, __LINE__);
+			}
 		}
 
 		send_ipsec_err_to_ns(skb, dev);
@@ -5285,6 +5295,9 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	rmnet_ipa3_ctx->wwan_priv->net = dev;
 	atomic_set(&rmnet_ipa3_ctx->wwan_priv->outstanding_pkts, 0);
 	atomic_set(&rmnet_ipa3_ctx->wwan_priv->outstanding_pkts_eth, 0);
+	atomic_set(&rmnet_ipa3_ctx->wwan_priv->outstanding_pkts_v2x, 0);
+	atomic_set(&rmnet_ipa3_ctx->wwan_priv->outstanding_pkts_ipsec_encap, 0);
+	atomic_set(&rmnet_ipa3_ctx->wwan_priv->outstanding_pkts_ipsec_decap, 0);
 	spin_lock_init(&rmnet_ipa3_ctx->wwan_priv->lock);
 	init_completion(
 		&rmnet_ipa3_ctx->wwan_priv->resource_granted_completion);
@@ -8465,9 +8478,8 @@ int rmnet_ipa3_get_wan_mtu(
 
 	return 0;
 }
-#ifdef CONFIG_DEBUG_FS
-static char dbg_buff[4096];
 
+#ifdef CONFIG_DEBUG_FS
 static ssize_t rmnet_ipa_set_mtu(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -8584,9 +8596,122 @@ static void rmnet_ipa_debugfs_remove(void)
 	debugfs_remove_recursive(rmnet_ipa3_ctx->dbgfs.dent);
 	memset(&rmnet_ipa3_ctx->dbgfs, 0, sizeof(struct rmnet_ipa_debugfs));
 }
-#else /* CONFIG_DEBUG_FS */
-static void rmnet_ipa_debugfs_init(void){}
-static void rmnet_ipa_debugfs_remove(void){}
+#else /* !CONFIG_DEBUG_FS */
+static ssize_t outstanding_low_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou32(ubuf, 0, &rmnet_ipa3_ctx->outstanding_low);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_low_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rmnet_ipa3_ctx->outstanding_low);
+    return sizeof(uint32_t);
+}
+
+static ssize_t outstanding_high_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou32(ubuf, 0, &rmnet_ipa3_ctx->outstanding_high);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_high_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{	
+	scnprintf(ubuf, sizeof(uint32_t),"%d",rmnet_ipa3_ctx->outstanding_high);
+    return sizeof(uint32_t);
+}
+
+static ssize_t outstanding_high_ctl_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou32(ubuf, 0, &rmnet_ipa3_ctx->outstanding_high_ctl);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_high_ctl_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rmnet_ipa3_ctx->outstanding_high_ctl);
+    return sizeof(uint32_t);
+}
+
+static ssize_t set_mtu_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	__s8    if_name[IFNAMSIZ];
+	uint16_t mtu_v4 = 0, mtu_v6 = 0;
+	char *sptr, *token;
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+	memcpy(dbg_buff, ubuf, count);
+
+	dbg_buff[count] = '\0';
+
+	sptr = dbg_buff;
+
+	memset(if_name, 0, IFNAMSIZ);
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	strlcpy(if_name, token, IFNAMSIZ);
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou16(token, 0, &mtu_v4))
+		return -EINVAL;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou16(token, 0, &mtu_v6))
+		return -EINVAL;
+
+	rmnet_ipa_send_set_mtu_notification(
+		if_name,
+		mtu_v4,
+		mtu_v6, IPA_IP_MAX);
+
+	return count;
+}
+static DEVICE_ATTR_WO(set_mtu);
+static DEVICE_ATTR_RW(outstanding_low);
+static DEVICE_ATTR_RW(outstanding_high);
+static DEVICE_ATTR_RW(outstanding_high_ctl);
+
+static struct attribute *ipa_rmnet_attrs[] = {
+	&dev_attr_set_mtu.attr,
+	&dev_attr_outstanding_low.attr,
+	&dev_attr_outstanding_high.attr,
+	&dev_attr_outstanding_high_ctl.attr,
+	NULL
+};
+
+const struct attribute_group ipa_rmnet_attr_group = {
+	.name		= "rmnet_ipa",
+	.attrs		= ipa_rmnet_attrs,
+};
+static int rmnet_ipa_sysfs_init(void)
+{
+	int ret = -1;
+	ret = sysfs_create_group(kernel_kobj, &ipa_rmnet_attr_group);
+	if (ret != 0) {
+		pr_err("Fail to create IPA syfs attribute\n");
+	}
+	return ret;
+}
+static void rmnet_ipa_sysfs_destroy(void)
+{
+		sysfs_remove_group(kernel_kobj, &ipa_rmnet_attr_group);
+}
 #endif /* CONFIG_DEBUG_FS */
 
 int ipa3_wwan_platform_driver_register(void)
@@ -8793,8 +8918,11 @@ int ipa3_wwan_init(void)
 	rmnet_ipa3_ctx->outstanding_high_ctl = OUTSTANDING_HIGH_CTL_DEFAULT;
 	rmnet_ipa3_ctx->outstanding_low = OUTSTANDING_LOW_DEFAULT;
 
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ipa_debugfs_init();
-
+#else
+	rmnet_ipa_sysfs_init();
+#endif
 	/* Register for Local Modem SSR */
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	ssr_hdl = qcom_register_ssr_notifier(SUBSYS_LOCAL_MODEM,
@@ -8852,7 +8980,11 @@ fail_unreg_lcl_mdm_ssr:
 		rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle = NULL;
 	}
 fail_dbgfs_rm:
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ipa_debugfs_remove();
+#else
+	rmnet_ipa_sysfs_destroy();
+#endif
 	return rc;
 }
 
@@ -8893,7 +9025,11 @@ void ipa3_wwan_cleanup(void)
 			"Failed to unregister subsys %s notifier ret=%d\n",
 			SUBSYS_REMOTE_MODEM, ret);
 	}
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ipa_debugfs_remove();
+#else
+	rmnet_ipa_sysfs_init();
+#endif
 	ipa3_qmi_cleanup();
 	mutex_destroy(&rmnet_ipa3_ctx->per_client_stats_guard);
 	mutex_destroy(&rmnet_ipa3_ctx->add_mux_channel_lock);

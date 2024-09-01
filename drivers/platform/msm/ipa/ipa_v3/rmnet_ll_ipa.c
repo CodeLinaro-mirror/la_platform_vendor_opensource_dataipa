@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -34,6 +36,8 @@ enum ipa_rmnet_ll_state {
 
 #define IPA_RMNET_LL_FREE_CREDIT_THRSHLD 64
 #define IPA_RMNET_LL_FREE_CREDIT_THRSHLD_MAX 128
+#define IPA_MAX_MSG_LEN 4096
+static char dbg_buff[IPA_MAX_MSG_LEN + 1];
 
 struct ipa3_rmnet_ll_cb_info {
 	ipa_rmnet_ll_ready_cb ready_cb;
@@ -98,9 +102,6 @@ static void apps_rmnet_ll_receive_notify(void *priv,
 static int ipa3_rmnet_ll_register_pm_client(void);
 static void ipa3_rmnet_ll_deregister_pm_client(void);
 #ifdef CONFIG_DEBUG_FS
-#define IPA_MAX_MSG_LEN 4096
-static char dbg_buff[IPA_MAX_MSG_LEN + 1];
-
 static ssize_t rmnet_ll_ipa3_read_stats(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
@@ -172,6 +173,7 @@ static ssize_t rmnet_ll_ipa3_write_free_credit_threshld
 
 #define READ_WRITE_MODE 0664
 #define READ_ONLY_MODE  0444
+
 static const struct rmnet_ll_ipa3_debugfs_file debugfs_files[] = {
 	{
 		"stats", READ_ONLY_MODE, NULL, {
@@ -226,8 +228,105 @@ static void rmnet_ll_ipa3_debugfs_init(void)
 fail:
 	rmnet_ll_ipa3_debugfs_remove();
 }
-#else /* CONFIG_DEBUG_FS */
-static void rmnet_ll_ipa3_debugfs_init(void){}
+#else /* !CONFIG_DEBUG_FS */
+static int rmnet_ll_ipa3_sysfs_init(void);
+void rmnet_ll_ipa3_sysfs_destroy(void);
+static ssize_t ll_stats_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	int nbytes;
+	int cnt = 0;
+
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"Queue Leng=%u\n"
+		"outstanding_pkts=%u\n"
+		"tx_pkt_sent=%u\n"
+		"rx_pkt_rcvd=%u\n"
+		"tx_byte_sent=%lu\n"
+		"rx_byte_rcvd=%lu\n"
+		"tx_pkt_dropped=%u\n"
+		"rx_pkt_dropped=%u\n"
+		"tx_byte_dropped=%lu\n"
+		"rx_byte_dropped=%lu\n",
+		skb_queue_len(&rmnet_ll_ipa3_ctx->tx_queue),
+		atomic_read(
+		&rmnet_ll_ipa3_ctx->stats.outstanding_pkts),
+		rmnet_ll_ipa3_ctx->stats.tx_pkt_sent,
+		rmnet_ll_ipa3_ctx->stats.rx_pkt_rcvd,
+		rmnet_ll_ipa3_ctx->stats.tx_byte_sent,
+		rmnet_ll_ipa3_ctx->stats.rx_byte_rcvd,
+		rmnet_ll_ipa3_ctx->stats.tx_pkt_dropped,
+		rmnet_ll_ipa3_ctx->stats.rx_pkt_dropped,
+		rmnet_ll_ipa3_ctx->stats.tx_byte_dropped,
+		rmnet_ll_ipa3_ctx->stats.rx_byte_dropped);
+	cnt += nbytes;
+
+	memcpy(ubuf, dbg_buff, nbytes);
+	return cnt;
+}
+
+static ssize_t free_credit_threshld_show
+(struct device *dev, struct device_attribute *attr, char *ubuf) {
+
+	int nbytes;
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"Free credit Threshold = %d\n",
+				rmnet_ll_ipa3_ctx->free_credit_thrshld);
+	memcpy(ubuf, dbg_buff, nbytes);
+	return nbytes;
+}
+static ssize_t free_credit_threshld_store
+(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count) {
+
+	int ret;
+	u32 free_credit_thrshld =0;
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+	ret = kstrtou32(ubuf, 0, &free_credit_thrshld);
+	if(ret)
+		return ret;
+
+	if(free_credit_thrshld != 0 &&
+		free_credit_thrshld <= IPA_RMNET_LL_FREE_CREDIT_THRSHLD_MAX)
+		rmnet_ll_ipa3_ctx->free_credit_thrshld = free_credit_thrshld;
+	else
+		IPAERR("Invalid value \n");
+
+	IPADBG("Updated free credit threshold = %d",
+		rmnet_ll_ipa3_ctx->free_credit_thrshld);
+
+	return count;
+}
+
+static DEVICE_ATTR_RO(ll_stats);
+static DEVICE_ATTR_RW(free_credit_threshld);
+
+static struct attribute *ipa_rmnet_11_attrs[] = {
+	&dev_attr_ll_stats.attr,
+	&dev_attr_free_credit_threshld.attr,
+	NULL
+};
+
+const struct attribute_group ipa_rmnet_11_attr_group = {
+	.name		= "rmnet_ll_ipa",
+	.attrs		= ipa_rmnet_11_attrs,
+};
+static int rmnet_ll_ipa3_sysfs_init(void)
+{
+	int ret = -1;
+	
+	ret = sysfs_create_group(kernel_kobj, &ipa_rmnet_11_attr_group);
+	if (ret != 0) {
+		pr_err("Fail to create IPA syfs attribute\n");
+	}
+	return ret;
+}
+void rmnet_ll_ipa3_sysfs_destroy()
+{
+	if(rmnet_ll_ipa3_ctx)
+		sysfs_remove_group(kernel_kobj, &ipa_rmnet_11_attr_group);
+}
 #endif /* CONFIG_DEBUG_FS */
 
 int ipa3_rmnet_ll_init(void)
@@ -270,7 +369,11 @@ int ipa3_rmnet_ll_init(void)
 	spin_lock_init(&rmnet_ll_ipa3_ctx->tx_lock);
 	rmnet_ll_ipa3_ctx->pipe_state = IPA_RMNET_LL_PIPE_NOT_READY;
 	rmnet_ll_ipa3_ctx->free_credit_thrshld = IPA_RMNET_LL_FREE_CREDIT_THRSHLD;
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ll_ipa3_debugfs_init();
+#else
+	rmnet_ll_ipa3_sysfs_init();
+#endif
 	return 0;
 }
 
