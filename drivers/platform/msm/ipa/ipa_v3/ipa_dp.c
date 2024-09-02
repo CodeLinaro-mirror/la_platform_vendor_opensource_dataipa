@@ -2529,11 +2529,10 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 
 #if defined(CONFIG_IPA_IPSEC)
 		if (dst == IPA_CLIENT_IPSEC_ENCAP_PROD) {
-			u8 sa_idx = (u8)(skb->mark & 0xF);
-			u8 mux_id = (u8)((skb->mark >> 8) & 0xFF);
+			u8 sa_idx = skb->ipa_skb_cb.sa_idx;
 			struct ipa3_hdr_proc_ctx_entry *hdr_proc_entry =
 				ipa3_id_find(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].hpc);
-			IPADBG_LOW("sa_idx = %d, mux_id = %d, hpc = %d\n", sa_idx, mux_id,
+			IPADBG_LOW("sa_idx = %d, hpc = %d\n", sa_idx,
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].hpc);
 
 			if (!hdr_proc_entry || !hdr_proc_entry->offset_entry) {
@@ -2541,11 +2540,6 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].hpc);
 				return -EINVAL;
 			}
-			/* IPA_CLIENT_IPSEC_ENCAP_PROD expect for QMAP Header */
-			memset(skb_push(skb, IPA_QMAP_HEADER_LENGTH), 0, IPA_QMAP_HEADER_LENGTH);
-
-			/* Copy the MUX ID from SKB mark to QMAP header */
-			skb->data[1] = mux_id;
 
 			/* set the header offset for the IC */
 			ipa_set_pkt_init_ex_hdr_ofst_by_hdl(
@@ -4003,14 +3997,6 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 
 #if defined(CONFIG_IPA_IPSEC)
 /**
- * xmit_ipsec_frag_ul_wrapper() - wrapper function for xmit_ipsec_frag_ul()
- */
-int xmit_ipsec_frag_ul_wrapper(struct net *net, struct sock *sk, struct sk_buff *skb)
-{
-	return xmit_ipsec_frag_ul(skb);
-}
-
-/**
  * xmit_ipsec_frag_ul() - handler for IPsec up-link fragments packets
  * @skb: the packet to send
  *
@@ -4025,96 +4011,18 @@ int xmit_ipsec_frag_ul_wrapper(struct net *net, struct sock *sk, struct sk_buff 
  */
 int xmit_ipsec_frag_ul(struct sk_buff *skb)
 {
-	u8 sa_idx;
 	struct ipa_tx_meta meta = {0};
 
-	sa_idx = (u8)(skb->mark & 0xFF);
-	if (sa_idx >= IPA_IPSEC_MAX_SA_NUM) {
-		IPAERR("sa_idx %u is invalid, free frag ul skb \n", sa_idx);
+	if (skb->ipa_skb_cb.sa_idx >= IPA_IPSEC_MAX_SA_NUM) {
+		IPAERR("sa_idx %u is invalid, free frag ul skb \n", skb->ipa_skb_cb.sa_idx);
 		kfree_skb(skb);
 		return -EINVAL;
 	}
 
 	meta.pkt_init_dst_ep_valid = 1;
+	meta.pkt_init_dst_ep_remote = 1;
 	meta.pkt_init_dst_ep = 0xff;
 	return ipa3_tx_dp(IPA_CLIENT_IPSEC_ENCAP_PROD, skb, &meta);
-}
-
-/**
- * ipa3_frag_ul_ipsec() - handle IPsec EXCEED_MTU packets
- * @skb: the packet to frag
- * @sa_idx: SA index
- *
- * Perform fragmentation on the packet according to the SA MTU.
- *
- * Returns:	0 on success, negative on failure
- */
-int ipa3_frag_ul_ipsec(struct sk_buff *skb, u8 sa_idx)
-{
-	int ret = 0;
-	struct ipa_ipsec_sa_encap *e_sa;
-	u32 ipsec_stat;
-	u16 sa_path_mtu;
-	struct net *net = dev_net(skb->dev);
-	struct rtable *rt;
-
-	struct xfrm_state *x = ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x;
-
-	if (unlikely(!x)) {
-		IPAERR("SA:%u has no XFRM state pointer \n", sa_idx);
-		return -EINVAL;
-	}
-
-	e_sa = ipa3_ctx->ipsec->encap + sa_idx;
-	ipsec_stat = readl_relaxed((void __iomem *)&e_sa->stat);
-	sa_path_mtu = (*(struct ipa_ipsec_sa_encap_static *)&ipsec_stat).path_mtu;
-	if (unlikely(!sa_path_mtu)) {
-		IPAERR("SA:%u path MTU is 0 \n", sa_idx);
-		return -EINVAL;
-	}
-
-	/* Sets skb dst so ip frag kernel API will not crash */
-	rt = ip_route_output(net, ip_hdr(skb)->daddr, 0, 0, 0);
-	if (IS_ERR(rt)) {
-		IPAERR("Fail to ip_route_output \n", sa_idx);
-		return -EINVAL;
-	}
-	skb_dst_set(skb, &rt->dst);
-
-	/* Do ip fragmentation */
-	if(ip_hdr(skb)->version == 4) {
-		/* Fix skb length, if needed */
-		IPADBG("skb->len = %d, ip_hdr(skb)->tot_len = %d\n", skb->len,
-			ntohs(ip_hdr(skb)->tot_len));
-		if (skb->len > ntohs(ip_hdr(skb)->tot_len))
-			skb_trim(skb, ntohs(ip_hdr(skb)->tot_len));
-
-		/* Set the Encap MTU to frag_max_size*/
-		IPCB(skb)->frag_max_size = xfrm_state_mtu(x, sa_path_mtu) - IPA_QMAP_HEADER_LENGTH;
-		IPADBG("IPv4 IPCB(skb)->frag_max_size, %u", IPCB(skb)->frag_max_size);
-		ret = ip_do_fragment(net, skb->sk, skb, xmit_ipsec_frag_ul_wrapper);
-		if (ret) {
-			IPAERR("Fail to frag ipsec IPv4 packet, sa:%u, err:%d\n", sa_idx, ret);
-			return ret;
-		}
-	} else { // IPv6
-		/* Fix skb length (uC may return with wrong len) */
-		IPADBG("skb->len = %d, ipv6_hdr(skb)->payload_len = %d\n", skb->len,
-			ntohs(ipv6_hdr(skb)->payload_len));
-		if (skb->len > ntohs(ipv6_hdr(skb)->payload_len) + sizeof(struct ipv6hdr))
-			skb_trim(skb, ntohs(ipv6_hdr(skb)->payload_len) + sizeof(struct ipv6hdr));
-
-		/* Set the Encap MTU to frag_max_size*/
-		IP6CB(skb)->frag_max_size = xfrm_state_mtu(x, sa_path_mtu) - IPA_QMAP_HEADER_LENGTH;
-		IPAERR("IPv6 IP6CB(skb)->frag_max_size, %u", IP6CB(skb)->frag_max_size);
-		ret = ipv6_stub->ipv6_fragment(net, skb->sk, skb, xmit_ipsec_frag_ul_wrapper);
-		if (ret) {
-			IPAERR("Fail to frag ipsec IPv6 packet, sa:%u, err:%d\n", sa_idx, ret);
-			return ret;
-		}
-	}
-
-	return 0;
 }
 #endif
 
@@ -4266,6 +4174,7 @@ begin:
 		case IPAHAL_PKT_STATUS_OPCODE_PACKET:
 		case IPAHAL_PKT_STATUS_OPCODE_SUSPENDED_PACKET:
 		case IPAHAL_PKT_STATUS_OPCODE_PACKET_2ND_PASS:
+		case IPAHAL_PKT_STATUS_OPCODE_PACKET_3RD_PASS:
 			break;
 		case IPAHAL_PKT_STATUS_OPCODE_NEW_FRAG_RULE:
 			IPAERR_RL("Frag packets received on lan consumer\n");

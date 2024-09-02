@@ -469,13 +469,27 @@ static void ipa_ipsec_xfrm_sp_to_ipa_attrib(
 		case IPPROTO_UDP:
 		case IPPROTO_SCTP:
 		case IPPROTO_DCCP:
-			if (sel->dport_mask) {
+			/* The following logic is in fact potentionally allowing wider port range,
+			   than was configured in the IKE, but it mimics the logic in the SW path */
+			IPADBG("sel->dport_mask = %X, sel->dport = %X\n",
+				sel->dport_mask, sel->dport);
+			IPADBG("sel->dport_mask = %X, sel->dport = %X\n",
+				sel->dport_mask, sel->dport);
+			if (be16_to_cpu(sel->dport_mask) == 0xFFFF) {
 				attr->attrib_mask |= IPA_FLT_DST_PORT;
 				attr->dst_port = be16_to_cpu(sel->dport);
+			} else if (be16_to_cpu(sel->dport_mask) != 0x0) {
+				attr->attrib_mask |= IPA_FLT_DST_PORT_RANGE;
+				attr->dst_port_lo = be16_to_cpu(sel->dport & sel->dport_mask);
+				attr->dst_port_hi = be16_to_cpu(sel->dport | ~sel->dport_mask);
 			}
-			if (sel->sport_mask) {
+			if (be16_to_cpu(sel->sport_mask) == 0xFFFF) {
 				attr->attrib_mask |= IPA_FLT_SRC_PORT;
 				attr->src_port = be16_to_cpu(sel->sport);
+			} else if (be16_to_cpu(sel->sport_mask) != 0x0) {
+				attr->attrib_mask |= IPA_FLT_SRC_PORT_RANGE;
+				attr->src_port_lo = be16_to_cpu(sel->sport & sel->sport_mask);
+				attr->src_port_hi = be16_to_cpu(sel->sport | ~sel->sport_mask);
 			}
 			break;
 		case IPPROTO_ICMP:
@@ -734,6 +748,11 @@ static int ipa_ipsec_install_decap_rt(const struct xfrm_state *x, u8 idx)
 
 	IPADBG("Start\n");
 
+	if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc == 0) {
+		IPAERR("The HPC is not installed\n");
+		return -EFAULT;
+	}
+
 	ip_type = x->props.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 
 	rt_tbl = (struct ipa_ioc_add_rt_rule_v2 *)kzalloc(
@@ -853,6 +872,11 @@ static int ipa_ipsec_install_encap_rt(struct xfrm_policy *xp, u8 idx)
 	enum ipa_ip_type ip_type;
 
 	IPADBG("Start\n");
+
+	if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc == 0) {
+		IPAERR("The HPC is not installed\n");
+		return -EFAULT;
+	}
 
 	ip_type = xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 
@@ -1041,7 +1065,13 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 			/* Install RT rule */
 			rt = ipa_ipsec_install_encap_rt(pol->xp, idx);
 			if (rt < 0) {
+				mutex_lock(&ipa3_ctx->lock);
 				IPAERR("ipa_ipsec_install_encap_rt returned %d\n", rt);
+				__ipa3_release_hdr_proc_ctx(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc);
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
+				__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr);
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
+				mutex_unlock(&ipa3_ctx->lock);
 				return rt;
 			}
 			pol->rt = rt;
@@ -1168,10 +1198,10 @@ static void ipa_ipsec_delete_orphan_dl_fnr(enum ipa_ip_type ip, u8 idx)
 
 				if ((flt_rule->rule.attrib.meta_data & META_SA_MASK) == idx) {
 					mutex_lock(&ipa3_ctx->lock);
-					BUG_ON(__ipa_del_flt_rule(pol->flt[i]));
+					WARN_ON(__ipa_del_flt_rule(pol->flt[i]));
 					IPADBG("deleted FLT rule %d\n",pol->flt[i]);
 					mutex_unlock(&ipa3_ctx->lock);
-					BUG_ON(ipa3_commit_flt(ip));
+					WARN_ON(ipa3_commit_flt(ip));
 					pol->flt[i] = -1;
 				}
 			}
@@ -1229,10 +1259,11 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 	case IPA_IPSEC_ENC_NULL:
 	case IPA_IPSEC_ENC_AES_CBC:
 		if (!x->ealg || !x->aalg) {
-			IPAERR("%s authentication algo is NULL\n", (!x->ealg) ? "ealg" : "aalg");
+			IPAERR("%s algo is NULL\n", (!x->ealg) ? "ealg" : "aalg");
 			return -EINVAL;
 		}
-		if ((aalg = _ipa_ipsec_xfrm_sa_auth_get(x)) == IPA_IPSEC_AUTH_MAX) {
+		aalg = _ipa_ipsec_xfrm_sa_auth_get(x);
+		if (aalg <= IPA_IPSEC_AUTH_NONE || aalg >= IPA_IPSEC_AUTH_MAX) {
 			IPAERR("Unsupported authentication algo\n");
 			return -EINVAL;
 		}
@@ -1245,7 +1276,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		break;
 	case IPA_IPSEC_ENC_AES_GCM_16:
 		if (!x->aead) {
-			IPAERR("aead authentication algo is NULL\n");
+			IPAERR("aead algo is NULL\n");
 			return -EINVAL;
 		}
 		icvlen = x->aead->alg_icv_len / BITS_PER_BYTE;
@@ -1460,10 +1491,10 @@ free_idx:
 	if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt > 0) {
 
 		mutex_lock(&ipa3_ctx->lock);
-		BUG_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
+		WARN_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
 		mutex_unlock(&ipa3_ctx->lock);
 
-		BUG_ON(ipa3_commit_rt((x->props.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4));
+		WARN_ON(ipa3_commit_rt((x->props.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4));
 		IPADBG("deleted RT rule %d\n",
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt);
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = -1;
@@ -1473,15 +1504,18 @@ del_hpc:
 	mutex_lock(&ipa3_ctx->lock);
 	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc)
-			BUG_ON(__ipa3_release_hdr_proc_ctx(
+			WARN_ON(__ipa3_release_hdr_proc_ctx(
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr)
-			BUG_ON(__ipa3_release_hdr(
+			WARN_ON(__ipa3_release_hdr(
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 	} else {
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc)
-			BUG_ON(__ipa3_release_hdr_proc_ctx(
+			WARN_ON(__ipa3_release_hdr_proc_ctx(
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc));
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 	}
 	mutex_unlock(&ipa3_ctx->lock);
 
@@ -1522,13 +1556,13 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 
 	switch (work_data->dir) {
 	case XFRM_DEV_OFFLOAD_OUT:
-		BUG_ON(ipa_ipsec_delete_orphan_ul_fnr(idx));
+		WARN_ON(ipa_ipsec_delete_orphan_ul_fnr(idx));
 		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
 		mutex_lock(&ipa3_ctx->lock);
-		BUG_ON(__ipa3_release_hdr_proc_ctx(
+		WARN_ON(__ipa3_release_hdr_proc_ctx(
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
-		BUG_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
+		WARN_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 		mutex_unlock(&ipa3_ctx->lock);
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
@@ -1540,17 +1574,17 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 			ipa_ipsec_delete_orphan_dl_fnr(work_data->ip, idx);
 
 			mutex_lock(&ipa3_ctx->lock);
-			BUG_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
+			WARN_ON(__ipa3_del_rt_rule(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt));
 			mutex_unlock(&ipa3_ctx->lock);
 
-			BUG_ON(ipa3_commit_rt(work_data->ip));
+			WARN_ON(ipa3_commit_rt(work_data->ip));
 			IPADBG("deleted RT rule %d\n",
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt);
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = -1;
 		}
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc) {
 			mutex_lock(&ipa3_ctx->lock);
-			BUG_ON(__ipa3_release_hdr_proc_ctx(
+			WARN_ON(__ipa3_release_hdr_proc_ctx(
 					ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc));
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 			mutex_unlock(&ipa3_ctx->lock);
@@ -1635,9 +1669,9 @@ bool ipa_ipsec_xdo_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 	}
 
 	/* Set skb cb for the datapath use */
-	IPA_IPSEC_SKB_CB(skb)->magic = IPA_IPSEC_SKB_MAGIC;
-	IPA_IPSEC_SKB_CB(skb)->sa_idx = idx;
-	IPA_IPSEC_SKB_CB(skb)->sa_dir = x->xso.dir;
+	skb->ipa_skb_cb.magic = IPA_IPSEC_SKB_MAGIC;
+	skb->ipa_skb_cb.sa_idx = idx;
+	skb->ipa_skb_cb.sa_dir = x->xso.dir;
 
 	IPADBG_LOW("success\n");
 	return true;
@@ -1696,10 +1730,11 @@ void ipa_ipsec_xdo_state_update_curlft(struct xfrm_state *x)
 
 int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 {
-	int i, rt = -1, flt = -1;
+	int i, rc, rt = -1, flt = -1;
 	u8 idx = IPA_IPSEC_MAX_SA_NUM;
 	struct ipa_ipsec_policy *pol;
 	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt;
+	enum ipa_ip_type ip;
 
 	IPADBG("Start\n");
 
@@ -1708,6 +1743,8 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 		IPADBG("Null policy or wrong XDO or invalid AF\n");
 		return -EINVAL;
 	}
+
+	ip = xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 
 	/* HW policy must be main  */
 	if (xp->type != XFRM_POLICY_TYPE_MAIN && xp->action != XFRM_POLICY_ALLOW) {
@@ -1758,9 +1795,33 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 			break;
 		}
 
+		/*
+		 * The following code adds HPC, RT and sends event to the IPACM,
+		 * which is duplicating the code of the ipa_ipsec_install_cached_ul_pols().
+		 * TODO: Get rid of code duplication by uniformly calling the FnR installation
+		 * from both SA and SP callbacks in both in and out dir, based on a matched bundle.
+		 * TODO2: Fix cleanup in case of HPC installation success and RT installation fail.
+		 */
+
+		/* Construct and install header template and HPC */
+		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc == 0) {
+			rc = ipa_ipsec_install_encap_hpc(
+				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x, idx, ip);
+			if (rc < 0) {
+				IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
+				return rc;
+			}
+		}
+
 		/* Install RT rule */
 		rt = ipa_ipsec_install_encap_rt(xp, idx);
 		if (rt < 0) {
+			mutex_lock(&ipa3_ctx->lock);
+			__ipa3_release_hdr_proc_ctx(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc);
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc = 0;
+			__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr);
+			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
+			mutex_unlock(&ipa3_ctx->lock);
 			kfree(pol);
 			return rt;
 		}
@@ -1775,7 +1836,7 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 		}
 
 		ipa_ipsec_xfrm_sp_to_ipa_attrib(xp, &ul_flt->attr, IPA_IPSEC_MAX_SA_NUM);
-		ul_flt->ip = xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
+		ul_flt->ip = ip;
 		if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_ADD_EVENT, ul_flt) != 0) {
 			kfree(pol);
 			return -EFAULT;
@@ -1923,7 +1984,7 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 	for (i = 0; i < IPA_IPSEC_DL_FLT_PER_POL; i++) {
 		if (pol->flt[i] != -1) {
 			mutex_lock(&ipa3_ctx->lock);
-			BUG_ON(__ipa_del_flt_rule(pol->flt[i]));
+			WARN_ON(__ipa_del_flt_rule(pol->flt[i]));
 			IPADBG("deleted FLT rule %d\n", pol->flt[i]);
 			mutex_unlock(&ipa3_ctx->lock);
 			pol->flt[i] = -1;
@@ -1941,7 +2002,7 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 				sizeof(struct ipa_rule_attrib));
 			ul_flt->ip = work_data->ip;
 		}
-		BUG_ON(__ipa3_del_rt_rule(pol->rt));
+		WARN_ON(__ipa3_del_rt_rule(pol->rt));
 		mutex_unlock(&ipa3_ctx->lock);
 
 		pol->rt = -1;
@@ -1952,7 +2013,7 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 	}
 
 	/* This will commit flt as well */
-	BUG_ON(ipa3_commit_rt(work_data->ip));
+	WARN_ON(ipa3_commit_rt(work_data->ip));
 
 	list_del(&pol->l);
 	kfree(pol);
@@ -2921,7 +2982,7 @@ int ipa_ipsec_init(void)
 	ipa3_ctx->ipsec->keys = (struct ipa_ipsec_key_store *)key_mmio;
 
 	/* Compile time check the SA SRAM partition size and alignment */
-	BUG_ON(IPA_MEM_PART(sa_contexts_size) < IPA_SA_DB_SIZE ||
+	WARN_ON(IPA_MEM_PART(sa_contexts_size) < IPA_SA_DB_SIZE ||
 		IPA_MEM_PART(sa_contexts_ofst) & 0x3);
 
 	/* Map the SA database SRAM region */

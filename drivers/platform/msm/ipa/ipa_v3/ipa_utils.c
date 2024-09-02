@@ -7161,6 +7161,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 3 , 7, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_PROD1] = {
+			true,   IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			QMB_MASTER_SELECT_DDR,
+			{ 3 , 7, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_APPS_WAN_LOW_LAT_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			false,
@@ -7189,21 +7196,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 7 , 16, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_PROD2] = {
+			true,   IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 7 , 16, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_PROD] = {
-			true,   IPA_v6_0_GROUP_UL,
-			true,
-			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
-			QMB_MASTER_SELECT_DDR,
-			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_NA },
-	[IPA_6_0_AUTO][IPA_CLIENT_AQC_ETHERNET_PROD] = {
-			true,   IPA_v6_0_GROUP_UL,
-			true,
-			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
-			QMB_MASTER_SELECT_DDR,
-			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_NA },
-	[IPA_6_0_AUTO][IPA_CLIENT_RTK_ETHERNET_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
@@ -7249,19 +7249,12 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 11, 10, 28, 32, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_DECAP_PROD] ={
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_PROD3] ={
 			true,   IPA_v6_0_GROUP_DL,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 12 , 19, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_NA },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_ENCAP_PROD] ={
-			true,   IPA_v6_0_GROUP_UL,
-			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
-			QMB_MASTER_SELECT_DDR,
-			{ 13 , 20, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO][IPA_CLIENT_Q6_WAN_PROD]  = {
 			true, IPA_v6_0_GROUP_DL,
@@ -7382,20 +7375,6 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 33, 26, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO][IPA_CLIENT_AQC_ETHERNET_CONS] = {
-			true,   IPA_v6_0_GROUP_DL,
-			false,
-			IPA_DPS_HPS_SEQ_TYPE_INVALID,
-			QMB_MASTER_SELECT_DDR,
-			{ 33, 26, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO][IPA_CLIENT_RTK_ETHERNET_CONS] = {
-			true,   IPA_v6_0_GROUP_DL,
-			false,
-			IPA_DPS_HPS_SEQ_TYPE_INVALID,
-			QMB_MASTER_SELECT_DDR,
-			{ 33, 26, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_DL },
 	[IPA_6_0_AUTO][IPA_CLIENT_WLAN2_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
@@ -7424,7 +7403,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 36, 28, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET2_CONS] = {
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_CONS1] = {
+			true,   IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 37, 29, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_DL },
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_CONS1] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -7477,21 +7463,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 43, 31, 0, 0, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS] = {
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_CONS2] = {
 			true, IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 44, 32, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS] = {
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_CONS3] = {
 			true, IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 45, 33, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO][IPA_CLIENT_IPSEC_ENCAP_ERR_CONS] = {
+	[IPA_6_0_AUTO][IPA_CLIENT_ETHERNET_CONS4] = {
 			true, IPA_v6_0_GROUP_UL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -9257,9 +9243,15 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(RESERVERD_PROD_144),
 	__stringify(IPA_CLIENT_Q6_CV2X_DECIPHER_CONS),
 	__stringify(IPA_CLIENT_ETHERNET_PROD1),
-	__stringify(RESERVERD_CONS_147),
+	__stringify(IPA_CLIENT_ETHERNET_CONS1),
 	__stringify(RESERVERD_PROD_148),
 	__stringify(IPA_CLIENT_ETHERNET_LOW_LAT_CONS),
+	__stringify(IPA_CLIENT_ETHERNET_PROD2),
+	__stringify(IPA_CLIENT_ETHERNET_CONS2),
+	__stringify(IPA_CLIENT_ETHERNET_PROD3),
+	__stringify(IPA_CLIENT_ETHERNET_CONS3),
+	__stringify(IPA_CLIENT_ETHERNET_PROD4),
+	__stringify(IPA_CLIENT_ETHERNET_CONS4),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -11085,6 +11077,14 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_WLAN4_CONS:
 		case IPA_CLIENT_WLAN1_PROD:
 		case IPA_CLIENT_APPS_WAN_ETH_PROD:
+		case IPA_CLIENT_ETHERNET_PROD1:
+		case IPA_CLIENT_ETHERNET_CONS1:
+		case IPA_CLIENT_ETHERNET_PROD2:
+		case IPA_CLIENT_ETHERNET_CONS2:
+		case IPA_CLIENT_ETHERNET_PROD3:
+		case IPA_CLIENT_ETHERNET_CONS3:
+		case IPA_CLIENT_ETHERNET_PROD4:
+		case IPA_CLIENT_ETHERNET_CONS4:
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en = 1;
 			break;
 		default:
@@ -11997,6 +11997,91 @@ success:
 EXPORT_SYMBOL(ipa3_cfg_ep_holb);
 
 /**
+ * ipa3_cfg_ep_holb_uS() - IPA end-point holb configuration
+ *
+ * If an IPA producer pipe is full, IPA HW by default will block
+ * indefinitely till space opens up. During this time no packets
+ * including those from unrelated pipes will be processed. Enabling
+ * HOLB means IPA HW will be allowed to drop packets as/when needed
+ * and indefinite blocking is avoided.
+ *
+ * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
+ * @ipa_ep_cfg:	[in] IPA end-point configuration params
+ *
+ * Returns:	0 on success, negative on failure
+ */
+int ipa3_cfg_ep_holb_uS(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ep_holb)
+{
+	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
+	    ipa3_ctx->ep[clnt_hdl].valid == 0 || ep_holb == NULL ||
+	    ep_holb->tmr_val > ipa3_ctx->ctrl->max_holb_tmr_val ||
+	    ep_holb->en > 1) {
+		IPAERR("bad parm.\n");
+		return -EINVAL;
+	}
+
+	if (IPA_CLIENT_IS_PROD(ipa3_ctx->ep[clnt_hdl].client)) {
+		IPAERR("HOLB does not apply to IPA in EP %d\n", clnt_hdl);
+		return -EINVAL;
+	}
+
+	ipa3_ctx->ep[clnt_hdl].holb = *ep_holb;
+
+	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
+
+	if (ep_holb->en == IPA_HOLB_TMR_DIS) {
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			clnt_hdl, ep_holb);
+		goto success;
+	}
+
+	/* Follow HPG sequence to DIS_HOLB, Configure Timer, and HOLB_EN */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+		ipa3_ctx->ep[clnt_hdl].holb.en = IPA_HOLB_TMR_DIS;
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			clnt_hdl, ep_holb);
+	}
+
+	/* Configure timer */
+	if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_2) {
+		ipa3_cal_ep_holb_scale_base_val(ep_holb->tmr_val,
+			&ipa3_ctx->ep[clnt_hdl].holb);
+	}
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+		int res;
+
+		res = ipa3_process_timer_cfg(ep_holb->tmr_val,
+			&ipa3_ctx->ep[clnt_hdl].holb.pulse_generator,
+			&ipa3_ctx->ep[clnt_hdl].holb.scaled_time);
+		if (res) {
+			IPAERR("failed to process HOLB timer tmr=%u\n",
+				ep_holb->tmr_val);
+			ipa_assert();
+			return res;
+		}
+	}
+
+	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n,
+		clnt_hdl, &ipa3_ctx->ep[clnt_hdl].holb);
+
+	/* Enable HOLB */
+	ipa3_ctx->ep[clnt_hdl].holb.en = IPA_HOLB_TMR_EN;
+	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+		clnt_hdl, ep_holb);
+	/* IPA4.5 issue requires HOLB_EN to be written twice */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HOL_BLOCK_EN_n,
+			clnt_hdl, ep_holb);
+
+success:
+	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
+	IPADBG("cfg holb %u ep=%d tmr= %d \n", ep_holb->en, clnt_hdl,
+		ep_holb->tmr_val);
+	return 0;
+}
+EXPORT_SYMBOL(ipa3_cfg_ep_holb_uS);
+
+/**
  * ipa3_force_cfg_ep_holb() - IPA end-point holb configuration
  *			for QDSS_MHI_CONS pipe
  *
@@ -12231,6 +12316,8 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 	    param_in->client == IPA_CLIENT_ETHERNET_PROD ||
 	    param_in->client == IPA_CLIENT_ETHERNET2_PROD ||
 		param_in->client == IPA_CLIENT_ETHERNET_PROD1 ||
+		param_in->client == IPA_CLIENT_ETHERNET_PROD2 ||
+		param_in->client == IPA_CLIENT_ETHERNET_PROD3 ||
 		param_in->client == IPA_CLIENT_WIGIG_PROD ||
 		param_in->client == IPA_CLIENT_AQC_ETHERNET_PROD ||
 		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD) {

@@ -131,6 +131,251 @@ int ipa_hw_stats_init(void)
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
+	} else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0) {
+		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_Q6_WAN_PROD,
+			&reg_idx);
+		teth_stats_init->prod_mask[reg_idx] = mask;
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_USB_PROD,
+			&reg_idx);
+		teth_stats_init->prod_mask[reg_idx] |= mask;
+
+		if (ipa3_ctx->ipa_wdi3_over_gsi) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_WLAN2_PROD,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+		} else {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_WLAN1_PROD,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+		}
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_DL_NLO_DATA_PROD,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+		}
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_1) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+		}
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET_PROD,
+			&reg_idx);
+		teth_stats_init->prod_mask[reg_idx] |= mask;
+
+		if (ipa3_ctx->ipa_config_is_auto) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET_PROD1,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET_PROD2,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET_PROD3,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+		} else {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET2_PROD,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+		}
+
+		if (ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_WAN_PROD,
+			&reg_idx)) {
+			ep_index = ipa3_get_ep_mapping(IPA_CLIENT_Q6_WAN_PROD);
+			if (ep_index == IPA_EP_NOT_ALLOCATED) {
+				IPAERR("Invalid client.\n");
+				ret = -EINVAL;
+				goto fail_free_stats_ctx;
+			}
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_USB_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+			if (ipa3_ctx->ipa_wdi3_over_gsi) {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_WLAN2_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx]
+					|= mask;
+			} else {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_WLAN1_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx]
+					|= mask;
+			}
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+
+			if (ipa3_ctx->ipa_config_is_auto) {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS1,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS2,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS3,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS4,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			} else {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET2_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_LOW_LAT_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			}
+		}
+
+		if (ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_DL_NLO_DATA_PROD,
+			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)) {
+			ep_index = ipa3_get_ep_mapping(
+				IPA_CLIENT_Q6_DL_NLO_DATA_PROD);
+			if (ep_index == IPA_EP_NOT_ALLOCATED) {
+				IPAERR("Invalid client.\n");
+				ret = -EINVAL;
+				goto fail_free_stats_ctx;
+			}
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_USB_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+			if (ipa3_ctx->ipa_wdi3_over_gsi) {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_WLAN2_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx]
+					|= mask;
+			} else {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_WLAN1_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx]
+					|= mask;
+			}
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+
+			if (ipa3_ctx->ipa_config_is_auto) {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS1,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS2,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS3,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS4,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			} else {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET2_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_LOW_LAT_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			}
+		}
+
+		if (ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD,
+			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)) {
+			ep_index = ipa3_get_ep_mapping(
+					IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD);
+			if (ep_index == IPA_EP_NOT_ALLOCATED) {
+				IPAERR("Invalid client.\n");
+				ret = -EINVAL;
+				goto fail_free_stats_ctx;
+			}
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_USB_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+			if (ipa3_ctx->ipa_wdi3_over_gsi) {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_WLAN2_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx]
+					|= mask;
+			} else {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_WLAN1_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx]
+					|= mask;
+			}
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+
+			if (ipa3_ctx->ipa_config_is_auto) {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS1,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS2,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS3,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS4,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			} else {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET2_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_LOW_LAT_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			}
+		}
 	} else {
 		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_Q6_WAN_PROD,
 			&reg_idx);
@@ -428,6 +673,120 @@ int ipa_hw_stats_init(void)
 		}
 	}
 
+	if (ipa_hw_stats_get_ep_bit_n_idx(
+		IPA_CLIENT_ETHERNET_PROD,
+		&reg_idx)) {
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
+			IPAERR("Invalid client.\n");
+			ret = -EINVAL;
+			goto fail_free_stats_ctx;
+		}
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_WAN_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_UL_NLO_DATA_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		}
+	}
+
+	if (ipa_hw_stats_get_ep_bit_n_idx(
+		IPA_CLIENT_ETHERNET2_PROD,
+		&reg_idx)) {
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD);
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
+			IPAERR("Invalid client.\n");
+			ret = -EINVAL;
+			goto fail_free_stats_ctx;
+		}
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_WAN_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_UL_NLO_DATA_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		}
+	}
+
+	if (ipa_hw_stats_get_ep_bit_n_idx(
+		IPA_CLIENT_ETHERNET_PROD1,
+		&reg_idx)) {
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1);
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
+			IPAERR("Invalid client.\n");
+			ret = -EINVAL;
+			goto fail_free_stats_ctx;
+		}
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_WAN_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_UL_NLO_DATA_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		}
+	}
+
+	if (ipa_hw_stats_get_ep_bit_n_idx(
+		IPA_CLIENT_ETHERNET_PROD2,
+		&reg_idx)) {
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD2);
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
+			IPAERR("Invalid client.\n");
+			ret = -EINVAL;
+			goto fail_free_stats_ctx;
+		}
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_WAN_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_UL_NLO_DATA_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		}
+	}
+
+	if (ipa_hw_stats_get_ep_bit_n_idx(
+		IPA_CLIENT_ETHERNET_PROD3,
+		&reg_idx)) {
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD3);
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
+			IPAERR("Invalid client.\n");
+			ret = -EINVAL;
+			goto fail_free_stats_ctx;
+		}
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_WAN_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_UL_NLO_DATA_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		}
+	}
 
 	ret = ipa_init_teth_stats(teth_stats_init);
 	if (ret != 0) {
@@ -1292,6 +1651,70 @@ int ipa_query_teth_stats(enum ipa_client_type prod,
 	return 0;
 }
 
+int ipa_query_cumm_teth_prod_stats(enum ipa_client_type prod,
+	struct ipa_quota_stats *out)
+{
+	int ipa_ep_idx, i = 0;
+	struct ipa_quota_stats *stats;
+
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
+		return 0;
+
+	if (!IPA_CLIENT_IS_PROD(prod) || ipa3_get_ep_mapping(prod) == -1) {
+		IPAERR("invalid prod %d\n", prod);
+		return -EINVAL;
+	}
+
+	ipa_ep_idx = ipa3_get_ep_mapping(prod);
+	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to get prod stats\n");
+		return -EFAULT;
+	}
+
+	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[ipa_ep_idx].client[i];
+		out->num_ipv4_bytes += stats->num_ipv4_bytes;
+		out->num_ipv6_bytes += stats->num_ipv6_bytes;
+		out->num_ipv4_pkts += stats->num_ipv4_pkts;
+		out->num_ipv6_pkts += stats->num_ipv6_pkts;
+	}
+
+	return 0;
+}
+
+int ipa_query_cumm_teth_cons_stats(enum ipa_client_type cons,
+	struct ipa_quota_stats *out)
+{
+	int ipa_ep_idx, i = 0;
+	struct ipa_quota_stats *stats;
+
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
+		return 0;
+
+	if (!IPA_CLIENT_IS_CONS(cons) || ipa3_get_ep_mapping(cons) == -1) {
+		IPAERR("invalid cons %d\n", cons);
+		return -EINVAL;
+	}
+
+	ipa_ep_idx = ipa3_get_ep_mapping(cons);
+	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
+		IPAERR_RL("failed to get cons stats\n");
+		return -EFAULT;
+	}
+
+	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[i].client[ipa_ep_idx];
+		out->num_ipv4_bytes += stats->num_ipv4_bytes;
+		out->num_ipv6_bytes += stats->num_ipv6_bytes;
+		out->num_ipv4_pkts += stats->num_ipv4_pkts;
+		out->num_ipv6_pkts += stats->num_ipv6_pkts;
+	}
+
+	return 0;
+}
+
 int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons)
 {
 	int ret;
@@ -1922,8 +2345,41 @@ int ipa_drop_stats_init(void)
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
 
+			if (!ipa3_ctx->ipa_config_is_auto) {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_APPS_WAN_COAL_CONS,
+					&reg_idx);
+				pipe_bitmask[reg_idx] |= mask;
+			}
+		}
+	}
+
+	/* QOS Scenario. */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0) {
+		/* Auto Config. */
+		if (ipa3_ctx->ipa_config_is_auto) {
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
-				IPA_CLIENT_APPS_WAN_COAL_CONS,
+				IPA_CLIENT_ETHERNET_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS1,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+		
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS2,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS3,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS4,
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
 		}
