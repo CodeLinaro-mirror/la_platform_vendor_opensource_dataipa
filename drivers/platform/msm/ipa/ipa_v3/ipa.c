@@ -6789,7 +6789,7 @@ void ipa3_disable_clks(void)
 	 * issue on GSI FW side. We need to capture before
 	 * turn off the ipa clock.
 	 */
-	if (!ipa3_ctx->ipa_config_is_mhi) {
+	if (!ipa3_ctx->ipa_config_is_mhi || (ipa3_ctx->platform_type != IPA_PLAT_TYPE_XR)) {
 		type = gsi_pending_irq_type();
 		if (type != -EPERM && type) {
 			IPAERR("unexpected gsi irq type: %d\n", type);
