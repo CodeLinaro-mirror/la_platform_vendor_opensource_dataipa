@@ -1396,8 +1396,7 @@ static bool ipa_mhi_wait_for_ul_empty_timeout(unsigned int msecs)
 			break;
 		}
 
-		if (IPA_MHI_MAX_UL_CHANNELS == 1)
-			usleep_range(IPA_GSI_CHANNEL_STOP_SLEEP_MIN_USEC,
+		usleep_range(IPA_GSI_CHANNEL_STOP_SLEEP_MIN_USEC,
 			IPA_GSI_CHANNEL_STOP_SLEEP_MAX_USEC);
 	}
 
