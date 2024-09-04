@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -1001,8 +1001,7 @@ static bool ipa_mhi_wait_for_ul_empty_timeout(unsigned int msecs)
 			break;
 		}
 
-		if (IPA_MHI_MAX_UL_CHANNELS == 1)
-			usleep_range(IPA_GSI_CHANNEL_STOP_SLEEP_MIN_USEC,
+		usleep_range(IPA_GSI_CHANNEL_STOP_SLEEP_MIN_USEC,
 			IPA_GSI_CHANNEL_STOP_SLEEP_MAX_USEC);
 	}
 
