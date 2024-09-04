@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -1397,12 +1397,8 @@ static int __ipa_wwan_close(struct net_device *dev)
  */
 static int ipa3_wwan_stop(struct net_device *dev)
 {
-	struct ipa3_wwan_private *wwan_ptr = netdev_priv(dev);
-
 	IPAWANDBG("[%s]\n", dev->name);
 	__ipa_wwan_close(dev);
-	if (ipa3_rmnet_res.ipa_napi_enable)
-		napi_disable(&(wwan_ptr->napi));
 	netif_stop_queue(dev);
 	return 0;
 }
@@ -4845,6 +4841,7 @@ static inline int rmnet_ipa3_get_max_wigig_clnt(void)
 	case IPA_HW_v5_5:
 		return MAX_WIGIG_CLIENTS_IPA_5_5;
 	case IPA_HW_v4_11:
+	case IPA_HW_v5_2:
 		return MAX_WIGIG_CLIENTS_IPA_4_11;
 	default:
 		return MAX_WIGIG_CLIENTS;
