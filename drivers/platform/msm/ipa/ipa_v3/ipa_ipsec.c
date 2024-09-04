@@ -72,7 +72,8 @@ bool ipa_ipsec_initialized(void)
 
 bool ipa_ipsec_enabled(void)
 {
-	return ipa3_ctx->ipsec && ipa3_ctx->ipsec->enabled;
+	return ipa3_ctx->ipsec && ipa3_ctx->ipsec->enabled &&
+		!ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled;
 }
 
 /*
@@ -1220,6 +1221,11 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 
 	IPADBG("Start\n");
 
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return -EFAULT;
+	}
+
 	if (!x || (x->props.family != AF_INET && x->props.family != AF_INET6)) {
 		IPADBG("Null state or invalid AF\n");
 		return -EINVAL;
@@ -1541,6 +1547,10 @@ state_end:
 void ipa_ipsec_xdo_state_delete(struct xfrm_state *x)
 {
 	IPADBG_LOW("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!x)
 		return;
@@ -1611,6 +1621,10 @@ void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
 	struct ipa_ipsec_state_work_wrap *work_data;
 
 	IPADBG_LOW("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!x || (x->xso.offload_handle & IPA_IPSEC_OFFLOAD_MAGIC) != IPA_IPSEC_OFFLOAD_MAGIC) {
 		IPADBG("Called for a non-offloaded state\n");
@@ -1642,6 +1656,10 @@ bool ipa_ipsec_xdo_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 	u8 idx;
 
 	IPADBG_LOW("Start x = %X\n", x);
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return false;
+	}
 
 	if (!skb || !x) {
 		IPAERR("Null state or skb\n");
@@ -1681,6 +1699,10 @@ bool ipa_ipsec_xdo_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 void ipa_ipsec_xdo_state_advance_esn(struct xfrm_state *x)
 {
 	IPADBG("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!x)
 		return;
@@ -1694,6 +1716,10 @@ void ipa_ipsec_xdo_state_update_curlft(struct xfrm_state *x)
 	struct ipa_ipsec_sa_decap *d_sa;
 
 	IPADBG_LOW("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!x || x->xso.type != XFRM_DEV_OFFLOAD_PACKET ||
 		(x->xso.offload_handle & IPA_IPSEC_OFFLOAD_MAGIC) != IPA_IPSEC_OFFLOAD_MAGIC) {
@@ -1737,6 +1763,10 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 	enum ipa_ip_type ip;
 
 	IPADBG("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return -EFAULT;
+	}
 
 	if (!xp || xp->xdo.type != XFRM_DEV_OFFLOAD_PACKET ||
 		(xp->selector.family != AF_INET && xp->selector.family != AF_INET6)) {
@@ -1965,6 +1995,10 @@ int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *rt_tbl
 void ipa_ipsec_xdo_policy_delete(struct xfrm_policy *xp)
 {
 	IPADBG_LOW("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!xp)
 		return;
@@ -2024,6 +2058,10 @@ void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
 	struct ipa_ipsec_policy_work_wrap *work_data;
 
 	IPADBG("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!xp || (xp->selector.family != AF_INET && xp->selector.family != AF_INET6) ||
 		xp->xdo.offload_handle == 0) {
@@ -3099,6 +3137,7 @@ int ipa_ipsec_enable(void)
 
 	/* Update RMNET netdev */
 	if (ipa3_ctx->ipsec->dev) {
+		IPAWANDBG("IPsec offload is enabled\n");
 		ipa3_ctx->ipsec->dev->features |= NETIF_F_HW_ESP;
 		ipa3_ctx->ipsec->dev->hw_enc_features |= NETIF_F_HW_ESP;
 		if (rtnl_trylock()) {
