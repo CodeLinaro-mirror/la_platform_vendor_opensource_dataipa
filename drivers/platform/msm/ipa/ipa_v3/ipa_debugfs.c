@@ -4129,6 +4129,8 @@ static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"copy_flow_lbl = %d\n", esa.stat.copy_flow_lbl);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+	       "overflow_allowed = %d\n", esa.stat.overflow_allowed);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"path_mtu = %d\n", esa.stat.path_mtu);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"sa_life_bytes_wm = %llu\n", esa.stat.sa_life_bytes_wm);

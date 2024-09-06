@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_IPSEC_H_
@@ -168,7 +168,8 @@ struct ipa_ipsec_sa_encap_static {
 	u32 copy_dscp		:1;
 	u32 copy_ecn		:1;
 	u32 copy_flow_lbl	:1;
-	u32 reserved1		:11;
+	u32 overflow_allowed	:1;
+	u32 reserved1		:10;
 	u32 path_mtu		:16;
 
 	u64 sa_life_bytes_wm; /* soft threshold */

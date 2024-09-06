@@ -1343,6 +1343,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		esa.stat.copy_df = !(x->props.flags & XFRM_STATE_NOPMTUDISC);
 		esa.stat.copy_dscp = !(x->props.extra_flags & XFRM_SA_XFLAG_DONT_ENCAP_DSCP);
 		esa.stat.copy_ecn = !(x->props.flags & XFRM_STATE_NOECN);
+		esa.stat.overflow_allowed = x->props.extra_flags & XFRM_SA_XFLAG_OSEQ_MAY_WRAP;
 		esa.stat.copy_flow_lbl = 0;
 		esa.stat.path_mtu = x->props.family == AF_INET ? mtu_info.mtu_v4 : mtu_info.mtu_v6;
 		esa.stat.sa_life_bytes_wm =
