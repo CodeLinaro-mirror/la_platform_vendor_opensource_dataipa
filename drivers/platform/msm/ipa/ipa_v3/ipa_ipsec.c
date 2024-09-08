@@ -1845,6 +1845,7 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x, idx, ip);
 			if (rc < 0) {
 				IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
+				kfree(pol);
 				return rc;
 			}
 		}
@@ -2045,8 +2046,8 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 		WARN_ON(__ipa3_del_rt_rule(pol->rt));
 		mutex_unlock(&ipa3_ctx->lock);
 
-		pol->rt = -1;
 		IPADBG("deleted RT rule %d\n", pol->rt);
+		pol->rt = -1;
 
 		if (ul_flt)
 			ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt);
