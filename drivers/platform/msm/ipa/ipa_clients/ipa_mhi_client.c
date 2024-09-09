@@ -186,6 +186,7 @@ struct ipa_mhi_client_ctx {
 	bool test_mode;
 	u32 pm_hdl;
 	u32 modem_pm_hdl;
+	u32 mhi_eth_pm_hdl;
 	enum ipa_mhi_mstate mhi_mstate;
 	u32 eth_ipv4_hdr_hdl;
 	u32 eth_ipv6_hdr_hdl;
@@ -1079,15 +1080,27 @@ static int ipa_mhi_start_internal(struct ipa_mhi_start_params *params)
 	IPA_MHI_DBG("event_context_array_addr 0x%llx\n",
 		ipa_mhi_client_ctx->event_context_array_addr);
 
-	res = ipa_pm_activate_sync(ipa_mhi_client_ctx->pm_hdl);
-	if (res) {
-		IPA_MHI_ERR("failed activate client %d\n", res);
-		goto fail_pm_activate;
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		res = ipa_pm_activate_sync(ipa_mhi_client_ctx->mhi_eth_pm_hdl);
+		if (res) {
+			IPA_MHI_ERR("failed activate client %d\n", res);
+			goto fail_pm_activate;
+		}
 	}
-	res = ipa_pm_activate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
-	if (res) {
-		IPA_MHI_ERR("failed activate modem client %d\n", res);
-		goto fail_pm_activate_modem;
+	else
+	{
+		res = ipa_pm_activate_sync(ipa_mhi_client_ctx->pm_hdl);
+		if (res) {
+			IPA_MHI_ERR("failed activate client %d\n", res);
+			goto fail_pm_activate;
+		}
+
+		res = ipa_pm_activate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
+		if (res) {
+			IPA_MHI_ERR("failed activate modem client %d\n", res);
+			goto fail_pm_activate_modem;
+		}
 	}
 
 	/* gsi params */
@@ -1111,7 +1124,7 @@ static int ipa_mhi_start_internal(struct ipa_mhi_start_params *params)
 		goto fail_init_engine;
 	}
 
-	if(ipa3_ctx->cesta_enable) {
+	if(ipa3_ctx->cesta_enable && !ipa3_ctx->ipa_mhi_eth) {
 		ipa_pm_deactivate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
 		ipa_pm_activate_sync(ipa_mhi_client_ctx->pm_hdl);
 	}
@@ -1120,9 +1133,13 @@ static int ipa_mhi_start_internal(struct ipa_mhi_start_params *params)
 	return 0;
 
 fail_init_engine:
+if(!ipa3_ctx->ipa_mhi_eth)
 	ipa_pm_deactivate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
 fail_pm_activate_modem:
+if(!ipa3_ctx->ipa_mhi_eth)
 	ipa_pm_deactivate_sync(ipa_mhi_client_ctx->pm_hdl);
+else
+	ipa_pm_deactivate_sync(ipa_mhi_client_ctx->mhi_eth_pm_hdl);
 fail_pm_activate:
 	ipa_mhi_set_state(IPA_MHI_STATE_INITIALIZED);
 	return res;
@@ -1949,9 +1966,9 @@ static netdev_tx_t mhi_ipa_start_xmit
 		return NETDEV_TX_BUSY;
 	}
 
-	ret = ipa_pm_activate(mhi_ipa_ctx->pm_hdl);
+	ret = ipa_pm_activate(mhi_ipa_ctx->mhi_eth_pm_hdl);
 	if (ret) {
-		IPA_MHI_DBG("Failed to activate PM client\n");
+		IPA_MHI_DBG("Failed to activate mhi eth PM client\n");
 		netif_stop_queue(net);
 		goto fail_pm_activate;
 	}
@@ -1986,7 +2003,7 @@ static netdev_tx_t mhi_ipa_start_xmit
 fail_tx_packet:
 out:
 	if (atomic_read(&mhi_ipa_ctx->outstanding_pkts) == 0)
-		ipa_pm_deferred_deactivate(mhi_ipa_ctx->pm_hdl);
+		ipa_pm_deferred_deactivate(mhi_ipa_ctx->mhi_eth_pm_hdl);
 fail_pm_activate:
 	return status;
 }
@@ -2123,7 +2140,7 @@ static void mhi_ipa_tx_complete_notify
 	}
 
 	if (atomic_read(&mhi_ipa_ctx->outstanding_pkts) == 0)
-		ipa_pm_deferred_deactivate(mhi_ipa_ctx->pm_hdl);
+		ipa_pm_deferred_deactivate(mhi_ipa_ctx->mhi_eth_pm_hdl);
 out:
 	dev_kfree_skb_any(skb);
 
@@ -2791,15 +2808,26 @@ static int ipa_mhi_suspend_internal(bool force)
 	 */
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
-	res = ipa_pm_deactivate_sync(ipa_mhi_client_ctx->pm_hdl);
-	if (res) {
-		IPA_MHI_ERR("fail to deactivate client %d\n", res);
-		goto fail_deactivate_pm;
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		res = ipa_pm_deactivate_sync(ipa_mhi_client_ctx->mhi_eth_pm_hdl);
+		if (res) {
+			IPA_MHI_ERR("fail to deactivate client %d\n", res);
+			goto fail_deactivate_pm;
+		}
 	}
-	res = ipa_pm_deactivate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
-	if (res) {
-		IPA_MHI_ERR("fail to deactivate client %d\n", res);
-		goto fail_deactivate_modem_pm;
+	else
+	{
+		res = ipa_pm_deactivate_sync(ipa_mhi_client_ctx->pm_hdl);
+		if (res) {
+			IPA_MHI_ERR("fail to deactivate client %d\n", res);
+			goto fail_deactivate_pm;
+		}
+		res = ipa_pm_deactivate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
+		if (res) {
+			IPA_MHI_ERR("fail to deactivate client %d\n", res);
+			goto fail_deactivate_modem_pm;
+		}
 	}
 	usleep_range(IPA_MHI_SUSPEND_SLEEP_MIN, IPA_MHI_SUSPEND_SLEEP_MAX);
 
@@ -2817,9 +2845,13 @@ static int ipa_mhi_suspend_internal(bool force)
 	return 0;
 
 fail_release_cons:
-	ipa_pm_activate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
+	if(!ipa3_ctx->ipa_mhi_eth)
+		ipa_pm_activate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
+	else
+		ipa_pm_activate_sync(ipa_mhi_client_ctx->mhi_eth_pm_hdl);
 fail_deactivate_modem_pm:
-	ipa_pm_activate_sync(ipa_mhi_client_ctx->pm_hdl);
+	if(!ipa3_ctx->ipa_mhi_eth)
+		ipa_pm_activate_sync(ipa_mhi_client_ctx->pm_hdl);
 fail_deactivate_pm:
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 fail_suspend_ul_channel:
@@ -2872,16 +2904,26 @@ static int ipa_mhi_resume_internal(void)
 		return res;
 	}
 
-	res = ipa_pm_activate_sync(ipa_mhi_client_ctx->pm_hdl);
-	if (res) {
-		IPA_MHI_ERR("fail to activate client %d\n", res);
-		goto fail_pm_activate;
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		res = ipa_pm_activate_sync(ipa_mhi_client_ctx->mhi_eth_pm_hdl);
+		if (res) {
+			IPA_MHI_ERR("fail to activate client %d\n", res);
+			goto fail_pm_activate;
+		}
 	}
-
-	res = ipa_pm_activate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
-	if (res) {
-		IPA_MHI_ERR("fail to activate client %d\n", res);
-		goto fail_pm_activate_modem;
+	else
+	{ /* legacy pm clients */
+		res = ipa_pm_activate_sync(ipa_mhi_client_ctx->pm_hdl);
+		if (res) {
+			IPA_MHI_ERR("fail to activate client %d\n", res);
+			goto fail_pm_activate;
+		}
+		res = ipa_pm_activate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
+		if (res) {
+			IPA_MHI_ERR("fail to activate client %d\n", res);
+			goto fail_pm_activate_modem;
+		}
 	}
 
 	/* resume all UL channels */
@@ -2920,9 +2962,13 @@ fail_resume_dl_channels:
 	ipa_mhi_suspend_channels(ipa_mhi_client_ctx->ul_channels,
 		IPA_MHI_MAX_UL_CHANNELS);
 fail_resume_ul_channels:
-	ipa_pm_deactivate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
+	if(!ipa3_ctx->ipa_mhi_eth)
+		ipa_pm_deactivate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
+	else
+		ipa_pm_deactivate_sync(ipa_mhi_client_ctx->mhi_eth_pm_hdl);
 fail_pm_activate_modem:
-	ipa_pm_deactivate_sync(ipa_mhi_client_ctx->pm_hdl);
+	if(!ipa3_ctx->ipa_mhi_eth)
+		ipa_pm_deactivate_sync(ipa_mhi_client_ctx->pm_hdl);
 fail_pm_activate:
 	ipa_mhi_set_state(IPA_MHI_STATE_SUSPENDED);
 	return res;
@@ -3010,13 +3056,25 @@ static void ipa_mhi_debugfs_destroy(void)
 
 static void ipa_mhi_deregister_pm(void)
 {
-	ipa_pm_deactivate_sync(ipa_mhi_client_ctx->pm_hdl);
-	ipa_pm_deregister(ipa_mhi_client_ctx->pm_hdl);
-	ipa_mhi_client_ctx->pm_hdl = ~0;
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		IPA_MHI_DBG("Deregistering MHI ETH pm hdl\n");
+		ipa_pm_deactivate_sync(ipa_mhi_client_ctx->mhi_eth_pm_hdl);
+		ipa_pm_deregister(ipa_mhi_client_ctx->mhi_eth_pm_hdl);
+		ipa_mhi_client_ctx->mhi_eth_pm_hdl = ~0;
+	}
+	else
+	{
+		IPA_MHI_DBG("Deregistering MHI and MHI(modem) pm hdl\n");
+		ipa_pm_deactivate_sync(ipa_mhi_client_ctx->pm_hdl);
+		ipa_pm_deregister(ipa_mhi_client_ctx->pm_hdl);
+		ipa_mhi_client_ctx->pm_hdl = ~0;
 
-	ipa_pm_deactivate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
-	ipa_pm_deregister(ipa_mhi_client_ctx->modem_pm_hdl);
-	ipa_mhi_client_ctx->modem_pm_hdl = ~0;
+		ipa_pm_deactivate_sync(ipa_mhi_client_ctx->modem_pm_hdl);
+		ipa_pm_deregister(ipa_mhi_client_ctx->modem_pm_hdl);
+		ipa_mhi_client_ctx->modem_pm_hdl = ~0;
+	}
+
 }
 
 /**
@@ -3099,10 +3157,50 @@ static void ipa_mhi_pm_cb(void *p, enum ipa_pm_cb_event event)
 	IPA_MHI_DBG("EXIT");
 }
 
+static int ipa_mhi_register_pm_mhi_eth(void)
+{
+	int res;
+	struct ipa_pm_register_params params;
+
+	IPA_MHI_DBG("Registering MHI ETH pm hdl\n");
+
+	memset(&params, 0, sizeof(params));
+	params.name = "MHI_ETH";
+	params.callback = ipa_mhi_pm_cb;
+	params.group = IPA_PM_GROUP_DEFAULT;
+	res = ipa_pm_register(&params, &ipa_mhi_client_ctx->mhi_eth_pm_hdl);
+	if (res) {
+		IPA_MHI_ERR("fail to register with PM %d\n", res);
+		return res;
+	}
+
+	res = ipa_pm_associate_ipa_cons_to_client(ipa_mhi_client_ctx->mhi_eth_pm_hdl,
+		IPA_CLIENT_MHI_PROD); //change to CONS
+	if (res) {
+		IPA_MHI_ERR("fail to associate cons with PM %d\n", res);
+		goto fail_pm_cons;
+	}
+
+	res = ipa_pm_set_throughput(ipa_mhi_client_ctx->mhi_eth_pm_hdl, 2200);
+	if (res) {
+		IPA_MHI_ERR("fail to set perf profile to PM %d\n", res);
+		goto fail_pm_cons;
+	}
+
+	return 0;
+
+fail_pm_cons:
+	ipa_pm_deregister(ipa_mhi_client_ctx->mhi_eth_pm_hdl);
+	ipa_mhi_client_ctx->mhi_eth_pm_hdl = ~0;
+	return res;
+}
+
 static int ipa_mhi_register_pm(void)
 {
 	int res;
 	struct ipa_pm_register_params params;
+
+	IPA_MHI_DBG("Registering MHI and MHI(modem) pm hdl\n");
 
 	memset(&params, 0, sizeof(params));
 	params.name = "MHI";
@@ -3151,6 +3249,12 @@ static int ipa_mhi_register_pm(void)
 	res = ipa_pm_register(&params, &ipa_mhi_client_ctx->modem_pm_hdl);
 	if (res) {
 		IPA_MHI_ERR("fail to register with PM %d\n", res);
+		goto fail_pm_cons;
+	}
+
+	res = ipa_pm_set_throughput(ipa_mhi_client_ctx->modem_pm_hdl, 2000);
+	if (res) {
+		IPA_MHI_ERR("fail to set perf profile to PM %d\n", res);
 		goto fail_pm_cons;
 	}
 
@@ -3324,11 +3428,23 @@ static int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 		goto fail_dma_init;
 	}
 
-	res = ipa_mhi_register_pm();
-	if (res) {
-		IPA_MHI_ERR("failed to create PM resources\n");
-		res = -EFAULT;
-		goto fail_pm;
+	if(ipa3_ctx->ipa_mhi_eth)
+	{
+		res = ipa_mhi_register_pm_mhi_eth();
+		if (res) {
+			IPA_MHI_ERR("failed to create PM resources\n");
+			res = -EFAULT;
+			goto fail_pm;
+		}
+	}
+	else
+	{
+		res = ipa_mhi_register_pm();
+		if (res) {
+			IPA_MHI_ERR("failed to create PM resources\n");
+			res = -EFAULT;
+			goto fail_pm;
+		}
 	}
 
 	ipa_mhi_set_state(IPA_MHI_STATE_READY);
