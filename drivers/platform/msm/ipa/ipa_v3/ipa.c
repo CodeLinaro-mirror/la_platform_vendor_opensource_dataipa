@@ -6789,7 +6789,7 @@ void ipa3_disable_clks(void)
 	 * issue on GSI FW side. We need to capture before
 	 * turn off the ipa clock.
 	 */
-	if (!ipa3_ctx->ipa_config_is_mhi) {
+	if (!ipa3_ctx->ipa_config_is_mhi || (ipa3_ctx->platform_type != IPA_PLAT_TYPE_XR)) {
 		type = gsi_pending_irq_type();
 		if (type != -EPERM && type) {
 			IPAERR("unexpected gsi irq type: %d\n", type);
@@ -8301,9 +8301,18 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		}
 
 		/*
-		 * Will enable synx_init API calls back when
-		 * hw-fence is enabled by default in builds.
-		 */
+		* Here, synx_init API calls will be success only
+		* when hw-fence is enabled by default in builds.
+		*/
+		result = ipa3_create_hfi_send_uc();
+		if (result) {
+			IPAERR("HFI Creation failed %d\n", result);
+			ipa3_free_uc_temp_buffs(NO_OF_BUFFS);
+			ipa3_free_uc_pipes_er_tr();
+			result = -ENODEV;
+			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+			goto fail_teth_bridge_driver_init;
+		}
 
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	}

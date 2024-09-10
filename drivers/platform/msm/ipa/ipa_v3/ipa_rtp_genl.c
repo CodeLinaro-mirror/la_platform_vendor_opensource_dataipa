@@ -24,7 +24,7 @@
 		.flags	= 0,				\
 	}
 
-static u8 si[MAX_STREAMS];
+static u8 ipa_rtp_active_streams[MAX_STREAMS];
 
 static struct nla_policy ipa_rtp_genl_attr_policy[IPA_RTP_GENL_ATTR_MAX + 1] = {
 	[IPA_RTP_GENL_ATTR_STR]  = { .type = NLA_NUL_STRING, .len = IPA_RTP_GENL_MAX_STR_LEN },
@@ -119,7 +119,6 @@ static int ipa3_rtp_del_flt_rule(u32 stream_id)
 	struct ipa3_ep_context *ep;
 	struct ipa_ioc_del_flt_rule *rtp_del_flt_rule = NULL;
 
-	IPADBG("Deleting rtp filter rules of stream_id: %u\n", stream_id);
 	rtp_del_flt_rule = kzalloc(sizeof(*rtp_del_flt_rule) +
 		1 * sizeof(struct ipa_flt_rule_del), GFP_KERNEL);
 	if (!rtp_del_flt_rule) {
@@ -130,7 +129,10 @@ static int ipa3_rtp_del_flt_rule(u32 stream_id)
 
 	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
 	ep = &ipa3_ctx->ep[ipa_ep_idx];
-	if (ep->rtp_flt4_rule_hdls[stream_id]) {
+
+	/* check whether filter rule hdl is deleted or not */
+	if (ep->rtp_flt4_rule_hdls[stream_id] != -1) {
+		IPADBG("Deleting rtp filter rules of stream_id: %u\n", stream_id);
 		rtp_del_flt_rule->commit = 1;
 		rtp_del_flt_rule->ip = 0;
 		rtp_del_flt_rule->num_hdls = 1;
@@ -141,7 +143,7 @@ static int ipa3_rtp_del_flt_rule(u32 stream_id)
 			rc = -EPERM;
 			return rc;
 		}
-		ep->rtp_flt4_rule_hdls[stream_id] = 0;
+		ep->rtp_flt4_rule_hdls[stream_id] = -1;
 	}
 
 	kfree(rtp_del_flt_rule);
@@ -153,7 +155,6 @@ static int ipa3_rtp_del_rt_rule(u32 stream_id)
 	int rc = 0;
 	struct ipa_ioc_del_rt_rule *rtp_del_rt_rule = NULL;
 
-	IPADBG("Deleting rtp route rules of stream_id: %u\n", stream_id);
 	rtp_del_rt_rule = kzalloc(sizeof(*rtp_del_rt_rule) +
 		1 * sizeof(struct ipa_rt_rule_del), GFP_KERNEL);
 	if (!rtp_del_rt_rule) {
@@ -162,7 +163,9 @@ static int ipa3_rtp_del_rt_rule(u32 stream_id)
 		return rc;
 	}
 
-	if (ipa3_ctx->rtp_rt4_rule_hdls[stream_id]) {
+	/* check whether route rule hdl is deleted or not */
+	if (ipa3_ctx->rtp_rt4_rule_hdls[stream_id] != -1) {
+		IPADBG("Deleting rtp route rules of stream_id: %u\n", stream_id);
 		rtp_del_rt_rule->commit = 1;
 		rtp_del_rt_rule->ip = 0;
 		rtp_del_rt_rule->num_hdls = 1;
@@ -187,7 +190,6 @@ static int ipa3_rtp_del_hdr_proc_ctx(u32 stream_id)
 	struct ipa_ioc_del_hdr_proc_ctx *rtp_del_proc_ctx = NULL;
 	struct ipa_hdr_proc_ctx_del *rtp_del_proc_ctx_entry = NULL;
 
-	IPADBG("Deleting rtp hdr proc ctx of stream_id: %u\n", stream_id);
 	buf_size = (sizeof(struct ipa_ioc_del_hdr_proc_ctx) +
 		(sizeof(struct ipa_hdr_proc_ctx_del)));
 	rtp_del_proc_ctx = kzalloc(buf_size, GFP_KERNEL);
@@ -197,7 +199,9 @@ static int ipa3_rtp_del_hdr_proc_ctx(u32 stream_id)
 		return rc;
 	}
 
-	if (ipa3_ctx->rtp_proc_hdls[stream_id]) {
+	/* check whether hdr proc ctx hdl is deleted or not */
+	if (ipa3_ctx->rtp_proc_hdls[stream_id] != -1) {
+		IPADBG("Deleting rtp hdr proc ctx of stream_id: %u\n", stream_id);
 		rtp_del_proc_ctx_entry = &(rtp_del_proc_ctx->hdl[0]);
 		rtp_del_proc_ctx->commit = 1;
 		rtp_del_proc_ctx->num_hdls = 1;
@@ -412,7 +416,7 @@ int ipa_rtp_send_tuple_info_resp(struct genl_info *info,
 		return rc;
 	}
 
-	msg_head = genlmsg_put(skb, 0, info->snd_seq + 1,
+	msg_head = genlmsg_put(skb, 0, info->snd_seq,
 			       &ipa_rtp_genl_family,
 			       0, IPA_RTP_GENL_CMD_ASSIGN_STREAM_ID);
 	if (!msg_head) {
@@ -439,6 +443,7 @@ int ipa_rtp_send_tuple_info_resp(struct genl_info *info,
 	ipa3_ctx->rtp_stream_id_cnt++;
 	IPADBG("assigned stream-id is %u\n", tuple_info_resp->stream_id);
 	IPADBG_LOW("Exit\n");
+	return rc;
 
 free_skb:
 	kfree(skb);
@@ -525,16 +530,15 @@ int ipa_rtp_tuple_info_req_hdlr(struct sk_buff *skb_2,
 	memset(&tuple_info_resp, 0, sizeof(tuple_info_resp));
 
 	for (i = 0; i < MAX_STREAMS; i++) {
-		if (si[i] == 0) {
+		if (ipa_rtp_active_streams[i] == 0) {
 			tuple_info_resp.stream_id = i;
-			si[i] = 1;
 			stream_id_available = 1;
 			break;
 		}
 	}
 
 	if (!stream_id_available) {
-		IPAERR("max stream-ids supported are four only\n");
+		IPAERR("max stream-ids supported are %u only\n", MAX_STREAMS);
 		return rc;
 	}
 
@@ -542,17 +546,20 @@ int ipa_rtp_tuple_info_req_hdlr(struct sk_buff *skb_2,
 	if (ipa3_install_rtp_hdr_proc_rt_flt_rules(&tuple_info_req, tuple_info_resp.stream_id) ||
 		ipa3_tuple_info_cmd_to_wlan_uc(&tuple_info_req, tuple_info_resp.stream_id)) {
 		IPAERR("failed to install hdr proc and flt rules or filters at WLAN\n");
+		ipa3_delete_rtp_hdr_proc_rt_flt_rules(tuple_info_resp.stream_id);
 		return rc;
 	}
 
+	ipa_rtp_active_streams[tuple_info_resp.stream_id] = 1;
+
 	if (is_req_valid &&
-		ipa_rtp_send_tuple_info_resp(info, &tuple_info_resp)) {
+			ipa_rtp_send_tuple_info_resp(info, &tuple_info_resp)) {
 		IPAERR("failed in sending stream_id response\n");
 		memset(&rmv_sid_req, 0, sizeof(rmv_sid_req));
 		rmv_sid_req.stream_id = tuple_info_resp.stream_id;
 		ipa3_uc_send_remove_stream_cmd(&rmv_sid_req);
 		ipa3_delete_rtp_hdr_proc_rt_flt_rules(rmv_sid_req.stream_id);
-		si[tuple_info_resp.stream_id] = 0;
+		ipa_rtp_active_streams[tuple_info_resp.stream_id] = 0;
 	} else
 		rc = 0;
 
@@ -773,11 +780,10 @@ int ipa_rtp_add_bitstream_buff_req_hdlr(struct sk_buff *skb_2,
 	IPADBG_LOW("buff_cnt is %u\n", bs_buffer_req.buff_cnt);
 	IPADBG_LOW("cookie is 0x%x\n", bs_buffer_req.cookie);
 
-	/* If IPA C2 component is providing two buffers for meta data and bitstream buff,
-	 * they need to fill meta_buff_offset and buff_offset as zero.
-	 * If it is a single buffer for meta data and bitstream buff, then meta_buff_fd
-	 * and buff_fd will be the same. And they need to fill meta_buff_offset as zero
-	 * and fill the bitstream buff offset in buff_offset and it should be 4 byte aligned.
+	/* If IPA C2 component is providing two fd's for meta fd and bitstream buff fd then
+	 * sizes need to be filled. If it is a single fd for both meta data and bitstream buff
+	 * then meta_buff_fd and bitstream_buffer_fd will be the same. And they need to fill
+	 * bitstream_buffer_size as actual size and meta_buff_size to zero.
 	 */
 
 	for (i = 0; i < bs_buffer_req.buff_cnt; i++) {
@@ -788,26 +794,16 @@ int ipa_rtp_add_bitstream_buff_req_hdlr(struct sk_buff *skb_2,
 		}
 
 		if (bs_buffer_req.bs_info[i].meta_buff_fd == bs_buffer_req.bs_info[i].buff_fd) {
-			if (bs_buffer_req.bs_info[i].meta_buff_offset ||
-				!bs_buffer_req.bs_info[i].buff_offset ||
-				bs_buffer_req.bs_info[i].meta_buff_size ||
+			if (bs_buffer_req.bs_info[i].meta_buff_size ||
 				!bs_buffer_req.bs_info[i].buff_size) {
-				IPAERR("invalid meta_buff_offset %u or bs_buff_offset %u\n",
-						bs_buffer_req.bs_info[i].meta_buff_offset,
-						bs_buffer_req.bs_info[i].buff_offset);
 				IPAERR("or meta_buff_size %u or bs_buff_size %u params\n",
 						bs_buffer_req.bs_info[i].meta_buff_size,
 						bs_buffer_req.bs_info[i].buff_size);
 				return rc;
 			}
 		} else {
-			if (bs_buffer_req.bs_info[i].meta_buff_offset ||
-				bs_buffer_req.bs_info[i].buff_offset ||
-				!bs_buffer_req.bs_info[i].meta_buff_size ||
+			if (!bs_buffer_req.bs_info[i].meta_buff_size ||
 				!bs_buffer_req.bs_info[i].buff_size) {
-				IPAERR("invalid meta_buff_offset %u or bs_buff_offset %u\n",
-						bs_buffer_req.bs_info[i].meta_buff_offset,
-						bs_buffer_req.bs_info[i].buff_offset);
 				IPAERR("or meta_buff_size %u or bs_buff_size %u params\n",
 						bs_buffer_req.bs_info[i].meta_buff_size,
 						bs_buffer_req.bs_info[i].buff_size);
@@ -869,13 +865,13 @@ int ipa_rtp_rmv_stream_id_req_hdlr(struct sk_buff *skb_2,
 	}
 
 	/* Call IPA driver/uC API's here */
-	if (is_req_valid && ipa3_uc_send_remove_stream_cmd(&rmv_sid_req)
-		&& ipa3_delete_rtp_hdr_proc_rt_flt_rules(rmv_sid_req.stream_id)) {
+	if (is_req_valid && (ipa3_uc_send_remove_stream_cmd(&rmv_sid_req)
+		|| ipa3_delete_rtp_hdr_proc_rt_flt_rules(rmv_sid_req.stream_id))) {
 		IPAERR("failed in removing stream-id, deleting hdr proc and flt rules\n");
 		return rc;
 	}
 
-	si[rmv_sid_req.stream_id] = 0;
+	ipa_rtp_active_streams[rmv_sid_req.stream_id] = 0;
 	ipa3_ctx->rtp_stream_id_cnt--;
 
 	IPADBG("Exit\n");
