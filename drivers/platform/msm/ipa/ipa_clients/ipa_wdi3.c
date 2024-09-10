@@ -805,8 +805,10 @@ static int ipa_wdi_enable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
-		ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
-		ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
+		if (ipa_wdi_ctx_list[hdl]->is_rx1_used)
+			ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
+		if (ipa_wdi_ctx_list[hdl]->is_tx1_used)
+			ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
 	}
 
 	if (ipa_ep_idx_tx <= 0 || ipa_ep_idx_rx <= 0)
@@ -1178,13 +1180,15 @@ static int ipa_wdi_disconn_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		}
 	}
 
-        ipa_ep_idx_rx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx_client);
-        ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
+	ipa_ep_idx_rx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx_client);
+	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
 
-        if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
-                ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
-                ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
-        }
+	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
+		if (ipa_wdi_ctx_list[hdl]->is_rx1_used)
+			ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
+		if (ipa_wdi_ctx_list[hdl]->is_tx1_used)
+			ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
+    }
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
 		if (ipa3_disconn_wdi3_pipes(
@@ -1245,13 +1249,15 @@ static int ipa_wdi_disable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		return -EPERM;
 	}
 
-        ipa_ep_idx_rx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx_client);
-        ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
+	ipa_ep_idx_rx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx_client);
+	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
 
-        if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
-                ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
-                ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
-        }
+	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
+		if (ipa_wdi_ctx_list[hdl]->is_rx1_used)
+			ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
+		if (ipa_wdi_ctx_list[hdl]->is_tx1_used)
+			ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
+    }
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
 		if (ipa3_disable_wdi3_pipes(
