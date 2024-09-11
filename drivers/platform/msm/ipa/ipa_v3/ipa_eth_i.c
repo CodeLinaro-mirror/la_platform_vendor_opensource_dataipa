@@ -69,7 +69,7 @@ enum ipa_eth_dir {
 };
 
 /* HOLB timeout values for QOS. */
-u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {2000, 500};
+u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {31000, 500};
 
 static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys_addr_t pa,
 	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir, u8 pipe_idx)
