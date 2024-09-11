@@ -2326,6 +2326,26 @@ int ipa_drop_stats_init(void)
 				IPA_CLIENT_ETHERNET2_CONS,
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_APPS_LAN_CONS,
+				 &reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_APPS_LAN_COAL_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_APPS_WAN_CONS,
+				 &reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_APPS_WAN_COAL_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
 		}
 	} else {
 		/* ADPL pipe hw stats is now taken care by IPA Q6 */
