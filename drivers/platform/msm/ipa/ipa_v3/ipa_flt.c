@@ -2079,11 +2079,6 @@ void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx)
 	mutex_lock(&ipa3_ctx->lock);
 	tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v4];
 	rule.action = IPA_PASS_TO_EXCEPTION;
-	rule.hashable = true;
-	/* hashable rules cannot be with 0 attributes.
-	 * Getting checked against 0 source address
-	 * with 0 source mask. */
-	rule.attrib.attrib_mask |= IPA_FLT_SRC_ADDR;
 	__ipa_add_flt_rule(tbl, IPA_IP_v4, &rule, true,
 			&ep->dflt_flt4_rule_hdl, false);
 	ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4);
