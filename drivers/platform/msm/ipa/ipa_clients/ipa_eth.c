@@ -41,7 +41,7 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
-#define IPA_ETH_PIPES_NO 16
+#define IPA_ETH_PIPES_NO 17
 #define DMA_NUM_CHANNEL_EZMESH 4
 #define DMA_NUM_CHANNEL_DEFAULT 2
 #define DMA_NUM_CHANNEL_TSN 3
