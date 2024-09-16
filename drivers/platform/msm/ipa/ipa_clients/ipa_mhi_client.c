@@ -139,7 +139,6 @@ struct ipa_mhi_client_ctx {
 	struct workqueue_struct *wq;
 	struct ipa_mhi_channel_ctx ul_channels[IPA_MHI_MAX_UL_CHANNELS];
 	struct ipa_mhi_channel_ctx dl_channels[IPA_MHI_MAX_DL_CHANNELS];
-	u32 total_channels;
 	struct ipa_mhi_msi_info msi;
 	u32 mmio_addr;
 	u32 first_ch_idx;
@@ -783,16 +782,6 @@ static struct ipa_mhi_channel_ctx *ipa_mhi_get_channel_context(
 
 	channels[ch_idx].valid = true;
 	channels[ch_idx].id = channel_id;
-#ifdef IPA_CLIENT_MHI_COAL_CONS
-	/* For COAL CONS and default consumer pipe using same event ring
-	 * so not required to increment the event ring count.
-	 */
-	if (client == IPA_CLIENT_MHI_COAL_CONS)
-		channels[ch_idx].index = ipa_mhi_client_ctx->total_channels;
-	else
-#endif
-		channels[ch_idx].index = ipa_mhi_client_ctx->total_channels++;
-
 	channels[ch_idx].client = client;
 	channels[ch_idx].state = IPA_HW_MHI_CHANNEL_STATE_INVALID;
 
@@ -1356,6 +1345,10 @@ static int ipa_mhi_connect_pipe_internal(struct ipa_mhi_connect_params *in, u32 
 		IPA_MHI_ERR("ipa_mhi_read_ch_ctx failed %d\n", res);
 		goto fail_start_channel;
 	}
+	channel->index = channel->ch_ctx_host.erindex - ipa_mhi_client_ctx->first_er_idx;
+	IPA_MHI_DBG("ch_ctx_host.erindex = %d first_er_idx = %d index = %d\n",
+			channel->ch_ctx_host.erindex, ipa_mhi_client_ctx->first_er_idx,
+			channel->index);
 
 	internal.channel_id = in->channel_id;
 	internal.sys = &in->sys;
