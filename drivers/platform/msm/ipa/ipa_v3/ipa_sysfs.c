@@ -3713,7 +3713,7 @@ static int ipsec_read_sa_stats(enum ipa_ipsec_sa_type sa_type,
 }
 
 
-static ssize_t ipsec_encap_sa_info_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+static ssize_t ipsec_encap_sa_info_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	int j, nbytes = 0;
 	struct ipa_ipsec_ctx *ipsec = ipa3_ctx->ipsec;
@@ -3721,7 +3721,7 @@ static ssize_t ipsec_encap_sa_info_show(struct device *dev, struct device_attrib
 	if (!ipsec) {
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 			"The IPsec is not initialyzed\n");
-		memcpy(ubuf, dbg_buff, nbytes);
+		memcpy(buf, dbg_buff, nbytes);
 		return nbytes;
 	}
 
@@ -3799,10 +3799,11 @@ static ssize_t ipsec_encap_sa_info_show(struct device *dev, struct device_attrib
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
-	return memcpy(buf, dbg_buff, nbytes);
+	memcpy(buf, dbg_buff, nbytes);
+	return  nbytes;
 }
 
-static ssize_t ipsec_decap_sa_info_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+static ssize_t ipsec_decap_sa_info_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	int j, nbytes = 0;
 	struct ipa_ipsec_ctx *ipsec = ipa3_ctx->ipsec;
@@ -3810,7 +3811,8 @@ static ssize_t ipsec_decap_sa_info_show(struct device *dev, struct device_attrib
 	if (!ipsec) {
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 			"The IPsec is not initialyzed\n");
-		return memcpy(buf, dbg_buff, nbytes);
+		memcpy(buf, dbg_buff, nbytes);
+		return nbytes;
 	}
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
@@ -3904,12 +3906,12 @@ static ssize_t ipsec_decap_sa_info_show(struct device *dev, struct device_attrib
 	return nbytes;
 }
 
-static ssize_t ipsec_set_sa_info_index_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+static ssize_t ipsec_set_sa_info_index_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	u8 option;
 	int ret;
 
-	ret = kstrtou8(ubuf, 0, &option);
+	ret = kstrtou8(buf, 0, &option);
 	if(ret != 0)
 		return ret;
 
@@ -3924,7 +3926,7 @@ static ssize_t ipsec_set_sa_info_index_store(struct device *dev, struct device_a
 }
 
 
-static ssize_t ipsec_active_sa_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+static ssize_t ipsec_active_sa_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	int nbytes = 0;
 	u8 sa_idx;
@@ -3933,7 +3935,8 @@ static ssize_t ipsec_active_sa_show(struct device *dev, struct device_attribute 
 	if (!ipsec) {
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 			"The IPsec is not initialyzed\n");
-		return memcpy(buf, dbg_buff, nbytes);
+		memcpy(buf, dbg_buff, nbytes);
+		return nbytes;
 	}
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();

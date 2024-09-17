@@ -4712,6 +4712,13 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			ipa3_set_eth_pdu_mode(true, rmnet_ipa3_ctx->eth_vlan);
 			ipa3_notify_ipacm_eth_pdu_enable();
 			ipa3_set_eth_pdu_ep_status();
+
+			if (IPA_NETDEV()) {
+				IPADBG("ETH pdu enabled. Disable IPSEC feature.\n");
+				IPA_NETDEV()->features &= ~NETIF_F_HW_ESP;
+				IPA_NETDEV()->hw_enc_features &= ~NETIF_F_HW_ESP;
+				netdev_update_features(IPA_NETDEV());
+			}
 			break;
 		default:
 			IPAWANERR("[%s] unsupported extended cmd[%d]",
