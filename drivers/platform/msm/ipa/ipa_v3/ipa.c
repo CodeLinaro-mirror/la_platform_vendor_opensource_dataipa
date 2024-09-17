@@ -15309,7 +15309,8 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	/* LAN coal disabling for all modes*/
-	ipa3_res.lan_coal_enable = false;
+	if (ipa3_res.ipa_mhi_dynamic_config || ipa3_ctx->ipa_config_is_mhi)
+		ipa3_res.lan_coal_enable = false;
 
 	/*
 	* Since we now know where the transport's registers live,
