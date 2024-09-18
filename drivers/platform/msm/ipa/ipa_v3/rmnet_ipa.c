@@ -404,7 +404,6 @@ static void ipa3_del_qmap_hdr(uint32_t hdr_hdl)
 	else
 		IPAWANDBG("header deletion done\n");
 
-	rmnet_ipa3_ctx->qmap_hdr_hdl = 0;
 	kfree(del_hdr);
 }
 
