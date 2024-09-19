@@ -2682,6 +2682,7 @@ struct ipa3_context {
 		eth_info[IPA_ETH_CLIENT_MAX][IPA_ETH_INST_ID_MAX];
 	u32 ipa_wan_aggr_pkt_cnt;
 	bool ipa_mhi_proxy;
+	bool ipa_mhi_eth;
 	u32 num_smmu_cb_probed;
 	u32 max_num_smmu_cb;
 	u32 ipa_wdi3_2g_holb_timeout;

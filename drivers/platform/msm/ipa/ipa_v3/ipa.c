@@ -7657,7 +7657,7 @@ static int ipa3_setup_apps_pipes(void)
 	}
 
 	/* LAN OUT (AP->IPA) */
-	if (!ipa3_ctx->ipa_config_is_mhi) {
+	if (!ipa3_ctx->ipa_config_is_mhi || ipa3_ctx->ipa_mhi_eth) {
 		memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
 		sys_in.client = IPA_CLIENT_APPS_LAN_PROD;
 		sys_in.desc_fifo_sz = IPA_SYS_TX_DATA_DESC_FIFO_SZ;
@@ -10951,15 +10951,17 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 {
 	unsigned long missing;
 
-	char dbg_buff[32] = { 0 };
+	char dbg_buff[300] = { 0 };
 	int i = 0;
 #if defined(CONFIG_IPA_IPSEC)
 	int res;
 #endif
 
 	if (count >= sizeof(dbg_buff))
+	{
+		IPAERR("Count is greater than dbg_buff, return error\n");
 		return -EFAULT;
-
+	}
 	missing = copy_from_user(dbg_buff, buf, count);
 
 	if (missing) {
@@ -10985,6 +10987,13 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	/* Check MHI configuration on MDM devices */
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
+		/* Check MHI mode configuration */
+		if (strnstr(dbg_buff, STR_MHI_ETH_IFACE, strlen(dbg_buff)))
+		{
+			IPAERR("ipa3_ctx->ipa_config_is_mhi = %d\n", ipa3_ctx->ipa_config_is_mhi);
+			ipa3_ctx->ipa_config_is_mhi = true;
+			ipa3_ctx->ipa_mhi_eth = true;
+		}
 
 #if IPA_ETH_API_VER >= 4
 		if (strnstr(dbg_buff, "ethqos", strlen(dbg_buff))) {
@@ -10992,6 +11001,7 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			IPADBG("ETH QOS enabled: %d\n", ipa3_ctx->eth_qos);
 		}
 #endif
+		/* Check Vlan configuration */
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
 			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] =
@@ -11014,6 +11024,12 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			if (strnstr(dbg_buff, STR_ECM_IFACE, strlen(dbg_buff)))
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] =
 				true;
+			if (strnstr(dbg_buff, STR_MHI_ETH_IFACE, strlen(dbg_buff)))
+			{
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_MHI_ETH] =
+				true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] = false;
+			}
 
 			/*
 			 * when vlan mode is passed to our dev we expect
