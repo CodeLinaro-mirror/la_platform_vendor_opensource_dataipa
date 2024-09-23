@@ -7627,7 +7627,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
-			{ 8 , 17, 4 , 8, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			{ 16 , 23, 4 , 8, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO_MHI][IPA_CLIENT_MHI_LOW_LAT_PROD] ={
 			true,   IPA_v6_0_GROUP_URLLC,
@@ -7753,7 +7753,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
-			{ 33, 26, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			{ 49, 36, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
 	[IPA_6_0_AUTO_MHI][IPA_CLIENT_MHI_QDSS_CONS] = {
 			true,   IPA_v6_0_GROUP_QDSS,
@@ -7810,6 +7810,27 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 35, 24 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_DL },
+	[IPA_6_0_AUTO_MHI][IPA_CLIENT_APPS_LAN_PROD] = {
+			true,   IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 9 , 18, 25, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 4},
+			IPA_TX_INSTANCE_NA },
+	[IPA_6_0_AUTO_MHI][IPA_CLIENT_ETHERNET_PROD] = {
+			true,   IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 8 , 17, 8 , 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_NA},
+	[IPA_6_0_AUTO_MHI][IPA_CLIENT_ETHERNET_CONS] = {
+			true,   IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 33, 26, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
 };
 
@@ -10635,11 +10656,12 @@ void ipa_init_ep_flt_bitmap(void)
 
 	for (cl = 0; cl < IPA_CLIENT_MAX ; cl++) {
 		/* In normal mode don't add filter support test pipes*/
-		if (ipa3_ep_mapping[hw_idx][cl].support_flt &&
+		if ((ipa3_ep_mapping[hw_idx][cl].support_flt &&
 		    (!IPA_CLIENT_IS_TEST(cl) ||
 		     ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_VIRTUAL ||
 		     ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_EMULATION ||
-		     ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST)) {
+		     ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST)) ||
+		    (cl == IPA_CLIENT_MHI_PROD && ipa3_ctx->ipa_mhi_eth)) {
 			gsi_ep_ptr =
 				&ipa3_ep_mapping[hw_idx][cl].ipa_gsi_ep_info;
 			pipe_num = gsi_ep_ptr->ipa_ep_num;
@@ -12320,7 +12342,8 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		param_in->client == IPA_CLIENT_ETHERNET_PROD3 ||
 		param_in->client == IPA_CLIENT_WIGIG_PROD ||
 		param_in->client == IPA_CLIENT_AQC_ETHERNET_PROD ||
-		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD) {
+		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD ||
+		param_in->client == IPA_CLIENT_MHI_PROD) {
 		result = ipa3_cfg_ep_metadata(ipa_ep_idx, &meta);
 	} else if (param_in->client == IPA_CLIENT_WLAN1_PROD ||
 			param_in->client == IPA_CLIENT_WLAN2_PROD ||
@@ -12343,11 +12366,10 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		else
 			result = ipa3_write_qmapid_wdi_pipe(
 				ipa_ep_idx, meta.qmap_id);
-		if (result)
-			IPAERR_RL("qmap_id %d write failed on ep=%d\n",
-					meta.qmap_id, ipa_ep_idx);
-		result = 0;
 	}
+	if (result)
+		IPAERR_RL("qmap_id %d write failed on ep=%d\n",
+			meta.qmap_id, ipa_ep_idx);
 
 fail:
 	return result;

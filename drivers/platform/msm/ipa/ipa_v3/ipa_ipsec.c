@@ -1573,7 +1573,6 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 	switch (work_data->dir) {
 	case XFRM_DEV_OFFLOAD_OUT:
 		WARN_ON(ipa_ipsec_delete_orphan_ul_fnr(idx));
-		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
 		mutex_lock(&ipa3_ctx->lock);
 		WARN_ON(__ipa3_release_hdr_proc_ctx(
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
@@ -1581,12 +1580,11 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 		WARN_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 		mutex_unlock(&ipa3_ctx->lock);
+		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
 		break;
 	case XFRM_DEV_OFFLOAD_IN:
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt) {
-			memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
-
 			ipa_ipsec_delete_orphan_dl_fnr(work_data->ip, idx);
 
 			mutex_lock(&ipa3_ctx->lock);
@@ -1605,6 +1603,7 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 			mutex_unlock(&ipa3_ctx->lock);
 		}
+		memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
 		break;
 	default:
