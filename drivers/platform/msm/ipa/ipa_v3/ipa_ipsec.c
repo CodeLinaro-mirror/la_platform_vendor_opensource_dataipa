@@ -760,14 +760,13 @@ static int ipa_ipsec_install_decap_rt(const struct xfrm_state *x, u8 idx)
 		sizeof(struct ipa_ioc_add_rt_rule_v2), GFP_KERNEL);
 	if (!rt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_rt_rule_v2\n");
-		ret = -ENOMEM;
-		return ret;
+		return -ENOMEM;
 	}
 	rt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
 	if (!rt_tbl->rules) {
 		IPAERR("Failed to allocate ipa_rt_rule_add_v2\n");
-		ret = -ENOMEM;
-		goto end;
+		kfree(rt_tbl);
+		return -ENOMEM;
 	}
 
 	rt_tbl->commit = 1;
@@ -845,14 +844,11 @@ static int ipa_ipsec_install_decap_rt(const struct xfrm_state *x, u8 idx)
 	}
 
 	ret = ipa3_add_rt_rule_v2(rt_tbl);
-	if (!!ret) {
+	if (!!ret)
 		IPAERR("ipa3_add_rt_rule_v2 returned %d\n", ret);
-		goto end;
-	}
+	else
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = rt_rule->rt_rule_hdl;
 
-	ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = rt_rule->rt_rule_hdl;
-
-end:
 	kfree((void *)rt_tbl->rules);
 	kfree(rt_tbl);
 
@@ -885,14 +881,13 @@ static int ipa_ipsec_install_encap_rt(struct xfrm_policy *xp, u8 idx)
 		sizeof(struct ipa_ioc_add_rt_rule_v2), GFP_KERNEL);
 	if (!rt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_rt_rule_v2\n");
-		ret = -ENOMEM;
-		return ret;
+		return -ENOMEM;
 	}
 	rt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
 	if (!rt_tbl->rules) {
 		IPAERR("Failed to allocate ipa_rt_rule_add_v2\n");
-		ret = -ENOMEM;
-		goto end;
+		kfree(rt_tbl);
+		return -ENOMEM;
 	}
 
 	rt_tbl->commit = 1;
@@ -912,14 +907,11 @@ static int ipa_ipsec_install_encap_rt(struct xfrm_policy *xp, u8 idx)
 	ipa_ipsec_xfrm_sp_to_ipa_attrib(xp, &rt_rule->rule.attrib, IPA_IPSEC_MAX_SA_NUM);
 
 	ret = ipa3_add_rt_rule_v2(rt_tbl);
-	if (!!ret) {
+	if (!!ret)
 		IPAERR("ipa3_add_rt_rule_v2 returned %d\n", ret);
-		goto end;
-	}
+	else
+		ret = rt_rule->rt_rule_hdl;
 
-	ret = rt_rule->rt_rule_hdl;
-
-end:
 	kfree((void *)rt_tbl->rules);
 	kfree(rt_tbl);
 
@@ -946,14 +938,13 @@ static int ipa_ipsec_install_decap_flt(struct xfrm_policy *xp, u8 idx)
 	flt_tbl = kzalloc(sizeof(*flt_tbl), GFP_KERNEL);
 	if (!flt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_flt_rule_v2\n");
-		ret = -ENOMEM;
-		return ret;
+		return -ENOMEM;
 	}
 	flt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
 	if (!flt_tbl->rules) {
 		IPAERR("Failed to allocate ipa_flt_rule_add_v2\n");
-		ret = -ENOMEM;
-		goto end;
+		kfree(flt_tbl);
+		return -ENOMEM;
 	}
 
 	flt_tbl->commit = 1;
@@ -1618,6 +1609,8 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 		sizeof(struct ipa_ipsec_decap_stats));
 	memset(&ipa3_ctx->ipsec->stats.encap_stats[idx], 0,
 		sizeof(struct ipa_ipsec_encap_stats));
+
+	kfree(work_data);
 }
 
 void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
@@ -2057,6 +2050,7 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 
 	list_del(&pol->l);
 	kfree(pol);
+	kfree(work_data);
 }
 
 void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
