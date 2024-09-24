@@ -69,6 +69,24 @@ struct remove_bitstream_buffers {
 	uint32_t stream_id;
 };
 
+struct bitstream_buffer_info_to_uc {
+	uint8_t stream_id;
+	uint16_t fence_id;
+	uint8_t reserved;
+	u64 buff_addr;
+	u32 buff_fd;
+	u32 buff_size;
+	u64 meta_buff_addr;
+	u32 meta_buff_fd;
+	u32 meta_buff_size;
+} __packed;
+
+struct bitstream_buffers_to_uc {
+	uint16_t buff_cnt;
+	uint16_t cookie;
+	struct bitstream_buffer_info_to_uc bs_info[MAX_BUFF];
+} __packed;
+
 /**
  * struct traffic_selector_info - traffic selector information.
  * @no_of_openframe: no. of openframes in a stream.
