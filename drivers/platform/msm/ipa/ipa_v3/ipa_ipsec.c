@@ -1008,7 +1008,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 	int rc = 0;
 	int rt = -1;
 	struct ipa_ipsec_policy *pol;
-	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt;
+	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt, *ul_flt_del = NULL;
 
 	IPADBG("Start\n");
 
@@ -1039,7 +1039,11 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 
 				pol->rt = -1;
 
-				if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt) != 0)
+				/* Duplicate the message struct,
+				   because it will be freed by the send routine */
+				ul_flt_del = kmemdup(ul_flt, sizeof(*ul_flt), GFP_KERNEL);
+				if (!ul_flt_del &&
+				    (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt_del) != 0))
 					return -EFAULT;
 			}
 
@@ -1050,6 +1054,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 					idx, ul_flt->ip);
 				if (rc < 0) {
 					IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
+					kfree(ul_flt);
 					return rc;
 				}
 			}
@@ -1064,6 +1069,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 				__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr);
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 				mutex_unlock(&ipa3_ctx->lock);
+				kfree(ul_flt);
 				return rt;
 			}
 			pol->rt = rt;
