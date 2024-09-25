@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -100,6 +100,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_MAC_FLT_EVENT),
 	__stringify(IPA_SOCKV5_ADD),
 	__stringify(IPA_SOCKV5_DEL),
+	__stringify(IPA_WARNING_LIMIT_REACHED),
 	__stringify(IPA_SW_FLT_EVENT),
 	__stringify(IPA_PKT_THRESHOLD_EVENT),
 	__stringify(IPA_MOVE_NAT_TABLE),
@@ -111,8 +112,15 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_DONE_RESTORE_EVENT),
 	__stringify(IPA_SET_EXT_ROUTER_MODE_EVENT),
 	__stringify(IPA_ENABLE_ETH_PDU_MODE_EVENT),
+	__stringify(IPA_VLAN_PRIORITY_UPDATE_EVENT),
+	__stringify(IPA_VLAN_CONFIG_READY),
 	__stringify(IPA_IPSEC_UL_FLT_ADD_EVENT),
 	__stringify(IPA_IPSEC_UL_FLT_DEL_EVENT),
+	__stringify(IPA_PDN_DSCP_ADD_EVENT),
+	__stringify(IPA_PDN_DSCP_DEL_EVENT),
+	__stringify(IPA_QOS_PARAM_ADD_EVENT),
+	__stringify(IPA_QOS_PARAM_DELETE_EVENT),
+	__stringify(IPA_QOS_PARAM_FLUSH_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {

@@ -13918,6 +13918,10 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		goto err_check;
 	}
 
+	if(!ipa3_ctx->ipa_config_is_auto && (ipa3_res.ipa_mhi_dynamic_config
+		|| ipa3_ctx->ipa_config_is_mhi))
+		ipa3_notify_ipacm_eth_pdu_enable();
+
 #ifdef CONFIG_GH_MSGQ
 	/* Initialize msgq for PVM and SVM */
 	ipa3_msgq_init();
