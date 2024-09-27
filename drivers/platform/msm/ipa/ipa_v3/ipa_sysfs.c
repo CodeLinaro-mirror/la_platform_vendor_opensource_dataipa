@@ -3996,13 +3996,13 @@ static ssize_t ipa3_eth_read_qos_stats(char* ubuf)
 		goto done;
 	}
 
-	if (ipa3_ctx->eth_qos) {
+	if (ipa3_ctx->eth_qos != IPA_ETH_QOS_ENABLE) {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 				"QOS not enabled\n");
 		cnt += nbytes;
 		goto done;
 	}
-	
+
 
 	memset(&eth_qos_info, 0, sizeof(eth_qos_info));
 
@@ -4023,7 +4023,7 @@ static ssize_t ipa3_eth_read_qos_stats(char* ubuf)
 			IPA_ETH_PIPE_DIR_TX);
 		nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
 			"Client: %s, TC Bitmap: 0x%x, Priority: %d\n",
-			ipa_clients_strings[IPA_ETH_CLIENT_IEMAC],
+			ipa_clients_strings[eth_qos_info.client_type],
 			eth_qos_info.tc_bmap, eth_qos_info.priority);
 		cnt += nbytes;
 		if (hw_stats &&
@@ -4045,7 +4045,7 @@ static ssize_t ipa3_eth_read_qos_stats(char* ubuf)
 			IPA_ETH_PIPE_DIR_RX);
 		nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
 			"Client: %s, TC Bitmap: 0x%x, Priority: %d\n",
-			ipa_clients_strings[IPA_ETH_CLIENT_IEMAC],
+			ipa_clients_strings[eth_qos_info.client_type],
 			eth_qos_info.tc_bmap, eth_qos_info.priority);
 		cnt += nbytes;
 		if (hw_stats &&
@@ -4266,7 +4266,7 @@ done:
 	return cnt;
 }
 
-static ssize_t emac_qos_stats_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+static ssize_t IEMAC_0_qos_stats_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
 	return ipa3_eth_read_qos_stats(ubuf);
 }
@@ -4518,7 +4518,7 @@ static DEVICE_ATTR_RO(ipsec_decap_sa_info);
 static DEVICE_ATTR_RO(ipsec_active_sa);
 #endif
 static DEVICE_ATTR_RO(eth_status);
-static DEVICE_ATTR_RO(emac_qos_stats);
+static DEVICE_ATTR_RO(IEMAC_0_qos_stats);
 static DEVICE_ATTR_RO(aqc_perf_status);
 static DEVICE_ATTR_RO(ntn_perf_status);
 static DEVICE_ATTR_RO(aqc_0_err_status);
@@ -4614,8 +4614,6 @@ static struct attribute *ipa_attrs[] = {
 	&dev_attr_page_wq_reschd_time.attr,
 	&dev_attr_ipa_max_napi_sort_page_thrshld.attr,
 	&dev_attr_ipa_dscp_pcp_mapping_cache.attr,
-	&dev_attr_eth_status.attr,
-	&dev_attr_emac_qos_stats.attr,
 	&dev_attr_aqc_perf_status.attr,
 	&dev_attr_ntn_perf_status.attr,
 	&dev_attr_aqc_0_err_status.attr,
@@ -4641,26 +4639,58 @@ static struct attribute *ipa_attrs[] = {
 };
 
 const struct attribute_group ipa_attr_group = {
-	.name		= "ipa",
 	.attrs		= ipa_attrs,
 };
+
+static struct attribute *eth_attrs[] = {
+	&dev_attr_eth_status.attr,
+	&dev_attr_IEMAC_0_qos_stats.attr,
+	NULL
+};
+
+const struct attribute_group eth_attr_group = {
+	.name		= "eth",
+	.attrs		= eth_attrs,
+};
+
+static struct kobject *ipa_kobj = NULL;
 
 int ipa_sysfs_init()
 {
 	int ret = -1;
 
-	/* Create sysfs file in /sys/kernel/ipa */
-	
-	ret = sysfs_create_group(kernel_kobj, &ipa_attr_group);
+	/* Create sysfs kobj /sys/kernel/ipa */
+	ipa_kobj = kobject_create_and_add("ipa", kernel_kobj);
+	if (!ipa_kobj) {
+		printk(KERN_ERR "Failed to create kobject 'ipa'\n");
+		return -ENOMEM;
+	}
+
+	/* Add attributes to /sys/kernel/ipa */
+
+	ret = sysfs_create_group(ipa_kobj, &ipa_attr_group);
 	if (ret != 0) {
 		pr_err("Fail to create IPA syfs attribute\n");
+		kobject_put(ipa_kobj);
+		return ret;
+	}
+
+	/* Create sysfs file in /sys/kernel/ipa/eth */
+
+	ret = sysfs_create_group(ipa_kobj, &eth_attr_group);
+	if (ret != 0) {
+		pr_err("Fail to create ETH syfs attribute\n");
+		return ret;
 	}
 	return ret;
 }
 
 void ipa_sysfs_deinit()
 {
-		sysfs_remove_group(kernel_kobj, &ipa_attr_group);
+	if(ipa_kobj) {
+		sysfs_remove_group(ipa_kobj, &eth_attr_group);
+		kobject_put(ipa_kobj);
+	}
 }
 
 #endif
