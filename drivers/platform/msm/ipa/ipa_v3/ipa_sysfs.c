@@ -4572,7 +4572,7 @@ void ipa_sysfs_deinit()
 
 #endif
 
-static const char *ipa_qmap_string()
+static const char *ipa_qmap_string(void)
 {
 	return ipa3_ctx->ipa_hw_type < IPA_HW_v4_5 ? "MAPv4" : "MAPv5";
 }

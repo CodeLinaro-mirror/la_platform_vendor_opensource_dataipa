@@ -1186,7 +1186,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 			in->u_rx1.rx.event_ring_size);
 		db_val += GSI_EVT_RING_RE_SIZE_8B;
 		iowrite32(db_val, db_addr);
-		IPADBG("RX1 base_addr 0x%x evt wp val: 0x%x\n",
+		IPADBG("RX1 base_addr 0x%llx evt wp val: 0x%x\n",
 			ep_rx1->gsi_mem_info.evt_ring_base_addr, db_val);
 	}
 

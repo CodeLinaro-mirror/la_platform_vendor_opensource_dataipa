@@ -2314,7 +2314,7 @@ int ipa3_flt_read_tbl_from_hw(u32 pipe_idx, enum ipa_ip_type ip_type,
 		IPAERR("hashable bool flaged used when there are more than 2 rule types\n");
 		goto bail;
 	}
-	IPADBG("table_size=%zu\n", table_size);
+	IPADBG("table_size=%u\n", table_size);
 
 	while (rule_idx < *num_entry && curr_size < table_size) {
 		res = ipahal_flt_parse_hw_rule(rule_addr, &entry[rule_idx]);

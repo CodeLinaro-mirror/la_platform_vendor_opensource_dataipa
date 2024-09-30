@@ -42,6 +42,7 @@
 //#define IPA_SUMMING_THRESHOLD 0x10
 #define IPA_EVENT_THRESHOLD 0x10
 #define IPA_NUM_PIPES 0x24
+#define VLAN_HLEN 4
 
 #define TEST_SIGNATURE 0xfacecafe
 #define DFAB_ARB1_HCLK_CTL		(MSM_CLK_CTL_BASE + 0x2564)
@@ -2390,7 +2391,7 @@ void suspend_handler(enum ipa_irq_type interrupt,
 		((struct ipa_tx_suspend_private_data *)private_data)->gsi_chan_hdl;
 
 	IPATEST_DBG("in suspend handler: interrupt=%d, private_data=%d, interrupt_data=",
-			 interrupt, clnt_hdl, suspend_data[0], suspend_data[1]);
+			 interrupt, clnt_hdl);
 	for (i = 0; i < IPA_EP_ARR_SIZE; i++)
 		IPATEST_DBG("%d", suspend_data[i]);
 

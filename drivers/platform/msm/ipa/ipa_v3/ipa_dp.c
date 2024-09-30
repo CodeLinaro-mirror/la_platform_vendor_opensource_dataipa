@@ -2319,7 +2319,7 @@ void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client)
 		gsi_evt_ring_hdl = gsi_read_chan_evt_ring_idx(
 			gsi_ep_cfg->ipa_gsi_chan_num, ipa3_ctx->ee);
 
-		IPADBG("gsi chan %d in stopped state, evt ring idx: %d\n",
+		IPADBG("gsi chan %d in stopped state, evt ring idx: %lu\n",
 			gsi_ep_cfg->ipa_gsi_chan_num, gsi_evt_ring_hdl);
 		IPADBG("cleanup gsi chan: %d\n", gsi_ep_cfg->ipa_gsi_chan_num);
 
@@ -2332,7 +2332,7 @@ void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client)
 		if (gsi_read_evt_ring_state(gsi_evt_ring_hdl, ipa3_ctx->ee) ==
 			GSI_EVT_RING_STATE_ALLOCATED) {
 
-			IPADBG("cleanup gsi evt ring: %d\n", gsi_evt_ring_hdl);
+			IPADBG("cleanup gsi evt ring: %lu\n", gsi_evt_ring_hdl);
 			result = gsi_cleanup_evt_ring(gsi_evt_ring_hdl);
 
 			if (result != GSI_STATUS_SUCCESS) {

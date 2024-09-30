@@ -3060,7 +3060,7 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 	if (props->prot == GSI_CHAN_PROT_GCI) {
 		gsi_ctx->coal_info.ch_id = props->ch_id;
 		gsi_ctx->coal_info.evchid = props->evt_ring_hdl;
-		GSIDBG("GSI coal ch = %d, ev id %d\n",
+		GSIDBG("GSI coal ch = %d, ev id %lu\n",
 			props->ch_id, props->evt_ring_hdl);
 	}
 
@@ -3540,12 +3540,12 @@ int gsi_get_channel_event_db_base_addr(uint64_t *ch_db_base_addr,
         }
 
 		if (start_chan_id >= gsi_ctx->max_ch) {
-			GSIERR("bad params chan_hdl=%lu\n", start_chan_id);
+			GSIERR("bad params chan_hdl=%u\n", start_chan_id);
 			return -GSI_STATUS_INVALID_PARAMS;
 		}
 
 		if (start_evtr_id >= gsi_ctx->max_ev) {
-			GSIERR("bad params evt_ring_hdl=%lu\n", start_evtr_id);
+			GSIERR("bad params evt_ring_hdl=%u\n", start_evtr_id);
 			return -GSI_STATUS_INVALID_PARAMS;
 		}
 

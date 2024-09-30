@@ -4514,7 +4514,7 @@ static int ipa_fltrt_parse_hw_rule_eq(u8 *addr, u32 hdr_sz,
 		extra = &dummy_extra_wrd;
 		rest = addr + hdr_sz;
 	}
-	IPAHAL_DBG_LOW("addr=0x%llX extra=0x%llX extra_shift=%d rest=0x%llX\n",
+	IPAHAL_DBG_LOW("addr=0x%s extra=0x%s extra_shift=%d rest=0x%s\n",
 		addr, extra, extra_shift, rest);
 
 	if (IPA_IS_RULE_EQ_VALID(IPA_TOS_EQ) && atrb->tos_eq_present)

@@ -240,7 +240,7 @@ static int ipa3_nat_ipv6ct_mmap(
 			result = vm_iomap_memory(
 				vma, mld_ptr->phys_addr, dev->phys_mem_size);
 
-			IPADBG("NAT phys_addr : %llu", mld_ptr->phys_addr);
+			IPADBG("NAT phys_addr : %lu", mld_ptr->phys_addr);
 
 			if (result) {
 				IPAERR("vm_iomap_memory failed. Err:%d\n",
@@ -285,7 +285,7 @@ static int ipa3_nat_ipv6ct_mmap(
 			if (dev->phys_mem_size == 0 ||
 				dev->phys_mem_size > vsize) {
 				IPAERR_RL(
-				 "%s err vsize(0x%X) phys_mem_size(0x%X)\n",
+				 "%s err vsize(0x%lX) phys_mem_size(0x%X)\n",
 				 dev->name, vsize, dev->phys_mem_size);
 				result = -EINVAL;
 				goto unlock;
@@ -322,12 +322,12 @@ static int ipa3_nat_ipv6ct_mmap(
 
 		} else { /* nmi == IPA_NAT_MEM_IN_SRAM */
 
-			IPADBG("map phys_mem_size(0x%08X) -> vma sz(0x%08X)\n",
+			IPADBG("map phys_mem_size(0x%08X) -> vma sz(0x%08lX)\n",
 				   dev->phys_mem_size, vsize);
 
 			vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
-			IPADBG("CT phys_addr : %llu", ct_mld_ptr->phys_addr);
+			IPADBG("CT phys_addr : %lu", ct_mld_ptr->phys_addr);
 
 			result = vm_iomap_memory(
 				vma, ct_mld_ptr->phys_addr, dev->phys_mem_size);
@@ -673,7 +673,7 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 					0) +
 				IPA_NAT_PHYS_MEM_OFFSET;
 
-			IPADBG("NAT phys_addr : %llu", mld_ptr->phys_addr);
+			IPADBG("NAT phys_addr : %lu", mld_ptr->phys_addr);
 
 			mld_ptr->io_vaddr = ioremap(
 				mld_ptr->phys_addr, IPA_NAT_PHYS_MEM_SIZE);
@@ -736,7 +736,7 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 				// CAN fit in SRAM, hence we'll use SRAM...
 				// And SRAM allowed
 				//
-				IPADBG("V6 CT with size 0x%08X will reside in: %s\n",
+				IPADBG("V6 CT with size 0x%08zX will reside in: %s\n",
 						table_alloc->size,
 						ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_SRAM));
 
@@ -758,7 +758,7 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 						0) +
 						IPA_IPV6CT_PHYS_MEM_OFFSET;
 
-				IPADBG("CT phys_addr : %llu", ct_mld_ptr->phys_addr);
+				IPADBG("CT phys_addr : %lu", ct_mld_ptr->phys_addr);
 
 				ct_mld_ptr->io_vaddr = ioremap(
 					ct_mld_ptr->phys_addr, IPA_IPV6CT_PHYS_MEM_SIZE);
@@ -781,7 +781,7 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 				//
 				// CAN NOT fit in SRAM OR SRAM not allowed, hence we'll allocate DDR...
 				//
-				IPADBG("V6 CT with size 0x%08X will reside in: %s\n",
+				IPADBG("V6 CT with size 0x%08zX will reside in: %s\n",
 					   table_alloc->size,
 					   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_DDR));
 
@@ -1765,12 +1765,12 @@ int ipa3_ipv6ct_init_cmd(
 
 	IPADBG("In\n");
 
-	IPADBG("nmi(%s) %d\n", init->mem_type, ct_sram_compatible);
+	IPADBG("nmi(%hhu) %d\n", init->mem_type, ct_sram_compatible);
 
 	if (!ct_sram_compatible) {
 		init->mem_type     = 0;
 		init->focus_change = 0;
-		IPADBG("nmi(%s) %d\n", init->mem_type, ct_sram_compatible);
+		IPADBG("nmi(%hhu) %d\n", init->mem_type, ct_sram_compatible);
 	}
 
 	nmi = init->mem_type;
@@ -2055,7 +2055,7 @@ static uint32_t ipa3_nat_ipv6ct_calculate_table_size(
 
 	ipahal_nat_entry_size(nat_type, &entry_size);
 
-	IPADBG("ipv6ct num_ent : %d entry size %d\n", num_entries, entry_size);
+	IPADBG("ipv6ct num_ent : %d entry size %zu\n", num_entries, entry_size);
 	return entry_size * num_entries;
 }
 

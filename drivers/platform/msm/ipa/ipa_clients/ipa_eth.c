@@ -11,6 +11,7 @@
 #include "../ipa_v3/ipa_i.h"
 #include <linux/sort.h>
 #include "ipa_eth.h"
+#include <linux/if_vlan.h>
 
 #define OFFLOAD_DRV_NAME "ipa_eth"
 #define IPA_ETH_DBG(fmt, args...) \
@@ -698,7 +699,7 @@ static int ipa_eth_client_connect_pipe(
 	client_type =
 		ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
 	if (client_type == IPA_CLIENT_MAX) {
-		IPA_ETH_ERR("invalid client type %d\n");
+		IPA_ETH_ERR("invalid client type\n");
 		return -EFAULT;
 	}
 
@@ -1069,7 +1070,7 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 				pipe, pipe->traffic_type, pipe->dir);
 		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN &&
 			pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-			IPA_ETH_DBG("traffic_type %d dir %d continue... %d \n",
+			IPA_ETH_DBG("traffic_type %d dir %d continue...\n",
 				pipe->traffic_type, pipe->dir);
 			tx_pipe_idx++;
 			continue;
@@ -1240,8 +1241,8 @@ int ipa_eth_client_disconn_pipes(struct ipa_eth_client *client)
 #if IPA_ETH_API_VER >= 3
 		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN
 			&& pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-			IPA_ETH_DBG("traffic_type %d dir %d continue... %d \n",
-				pipe->traffic_type, pipe->dir);			
+			IPA_ETH_DBG("traffic_type %d dir %d continue... \n",
+				pipe->traffic_type, pipe->dir);
 			tx_pipe_idx++;
 			continue;
 		}
@@ -1350,7 +1351,7 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 	struct ipa_eth_hdr_info intf_hdr[IPA_IP_MAX];
 #endif
 	struct ethhdr l_ethhdr[IPA_IP_MAX] = { 0 };
-	struct vlan_ethhdr l_vlan_ethhdr[IPA_IP_MAX] = { 0 };
+	struct vlan_ethhdr l_vlan_ethhdr[IPA_IP_MAX] = { {0} };
 #endif
 	int num_hdrs = 0;
 	int traffic_type = 0;

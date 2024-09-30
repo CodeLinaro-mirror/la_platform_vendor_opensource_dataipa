@@ -711,6 +711,7 @@ static void ipa3_event_ring_hdlr(void)
 					(enum ipa_ipsec_uc_thresh_type)
 					(e_t->Value.ipsec_threshold_param.type));
 			}
+			fallthrough;
 		case IPSEC_NEXT_IV_READY_NOTIFY:
 			if (ipa_ipsec_enabled())
 				ipa3_ctx->uc_ctx.ipsec_next_iv_wa_ready = true;
