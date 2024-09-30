@@ -9310,7 +9310,7 @@ static void _set_coalescing_disposition(
 	}
 }
 
-void start_coalescing()
+void start_coalescing(void)
 {
 	if ( ipa3_ctx->coal_stopped ) {
 		_set_coalescing_disposition(false);
@@ -9318,7 +9318,7 @@ void start_coalescing()
 	}
 }
 
-void stop_coalescing()
+void stop_coalescing(void)
 {
 	if ( ! ipa3_ctx->coal_stopped ) {
 		_set_coalescing_disposition(true);
@@ -9326,7 +9326,7 @@ void stop_coalescing()
 	}
 }
 
-bool lan_coal_enabled()
+bool lan_coal_enabled(void)
 {
 	if ( ipa3_ctx->ipa_initialization_complete && ipa3_ctx->lan_coal_enable) {
 		int ep_idx;
@@ -17356,7 +17356,7 @@ int ipa3_del_ipv6_nat_uc_activation_entry(uint16_t index)
 
 	mutex_lock(&ipa3_ctx->act_tbl_lock);
 	if (uc_entry->cmd_id != IPA_IPv6_NAT_COM_ID) {
-		IPAERR_RL("entry %d wrong cmd id %d\n", uc_entry->cmd_id);
+		IPAERR_RL("entry wrong cmd id %d\n", uc_entry->cmd_id);
 		res = -EFAULT;
 		goto error;
 	}
@@ -17804,7 +17804,7 @@ void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan)
 }
 EXPORT_SYMBOL(ipa3_set_eth_pdu_mode);
 
-void ipa3_notify_ipacm_eth_pdu_enable()
+void ipa3_notify_ipacm_eth_pdu_enable(void)
 {
 	struct ipa_msg_meta msg_meta;
 	int res = 0;
@@ -17827,7 +17827,7 @@ void ipa3_notify_ipacm_eth_pdu_enable()
 		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
 }
 
-void ipa3_set_eth_pdu_ep_status()
+void ipa3_set_eth_pdu_ep_status(void)
 {
 	struct ipa3_ep_context *ep = NULL;
 
@@ -17893,7 +17893,7 @@ int ipa3_update_l2tp_config(uint32_t client)
 		IPAERR("failed to read channel scratch2 reg %d\n", result);
 		goto exit;
 	}
-	IPADBG("updating l2tp config for client %d and gsi_handle %d\n",
+	IPADBG("updating l2tp config for client %d and gsi_handle %lu\n",
 			client, ep->gsi_chan_hdl);
 	scratch2_reg.ntn.is_l2tp_config = 1;
 	result = gsi_write_ntn_channel_scratch2_reg(ep->gsi_chan_hdl,

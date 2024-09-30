@@ -15,6 +15,7 @@
 #include <linux/inetdevice.h>
 #include <net/addrconf.h>
 #include "ipa_i.h"
+#include <linux/netdevice.h>
 
 #define ESP_PAD_LEN 16
 #define IPA_IPSEC_DL_POL_FLT_ID (IPA_CLIENT_MAX)
@@ -145,7 +146,7 @@ int ipa_ipsec_install_key_test(u8 idx, enum ipa_ipsec_key_type type, enum ipa_ip
 static int ipa_ipsec_install_encap_sa(u8 idx, struct ipa_ipsec_sa_encap *sa)
 {
 	if (!sa || idx >= IPA_IPSEC_MAX_SA_NUM) {
-		IPAERR("Invalid input sa = 0x%llX, idx = %d", sa, idx);
+		IPAERR("Invalid input sa is NULL, idx = %d", idx);
 		return -EINVAL;
 	}
 
@@ -1229,7 +1230,7 @@ static void ipa_ipsec_delete_orphan_dl_fnr(enum ipa_ip_type ip, u8 idx)
 	}
 }
 
-int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
+int ipa_ipsec_xdo_state_add(struct xfrm_state *x, struct netlink_ext_ack *extack)
 {
 	int ret = 0;
 	u8 idx = IPA_IPSEC_MAX_SA_NUM;
@@ -1391,14 +1392,14 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto clean_sa;
 		}
-		IPADBG_LOW("e key = %32phN", ipa3_ctx->ipsec->keys->enc[idx].b256);
+		IPADBG_LOW("e key = %32phN", ipa3_ctx->ipsec->keys->enc[idx].b256.b);
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
 		ret = ipa_ipsec_install_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_AUTH, aklen, akey);
 		if (!!ret) {
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto zero_keys;
 		}
-		IPADBG_LOW("a key = %64phN", ipa3_ctx->ipsec->keys->auth[idx].b512);
+		IPADBG_LOW("a key = %64phN", ipa3_ctx->ipsec->keys->auth[idx].b512.b);
 
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
@@ -1474,7 +1475,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 			goto clean_sa;
 		}
 		IPADBG_LOW("e key = %32ph",
-			ipa3_ctx->ipsec->keys->enc[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b256);
+			ipa3_ctx->ipsec->keys->enc[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b256.b);
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
 		ret = ipa_ipsec_install_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_AUTH, aklen, akey);
 		if (!!ret) {
@@ -1482,7 +1483,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 			goto zero_keys;
 		}
 		IPADBG_LOW("a key = %64ph",
-			ipa3_ctx->ipsec->keys->auth[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b512);
+			ipa3_ctx->ipsec->keys->auth[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b512.b);
 
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		/* Construct and install HPC */
@@ -1582,7 +1583,7 @@ void ipa_ipsec_xdo_state_delete(struct xfrm_state *x)
 	if (!x)
 		return;
 
-	IPADBG("x->xso.offload_handle = %08X\n", x->xso.offload_handle);
+	IPADBG("x->xso.offload_handle = %08lX\n", x->xso.offload_handle);
 }
 
 void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
@@ -1660,7 +1661,7 @@ void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
 		return;
 	}
 
-	IPADBG("x = 0x%08X, x->xso.offload_handle = %08X, x->xso.dir = %d\n",
+	IPADBG("x = 0x%p, x->xso.offload_handle = %08lX, x->xso.dir = %d\n",
 		x, x->xso.offload_handle, x->xso.dir);
 
 	if ((idx = x->xso.offload_handle & 0xF) >= IPA_IPSEC_MAX_SA_NUM) {
@@ -1684,7 +1685,7 @@ bool ipa_ipsec_xdo_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 {
 	u8 idx;
 
-	IPADBG_LOW("Start x = %X\n", x);
+	IPADBG_LOW("Start x = %p\n", x);
 	if (!ipa_ipsec_enabled()) {
 		IPAERR("IPsec is not enabled.\n");
 		return false;
@@ -1783,7 +1784,7 @@ void ipa_ipsec_xdo_state_update_curlft(struct xfrm_state *x)
 	}
 }
 
-int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
+int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp, struct netlink_ext_ack *extack)
 {
 	int i, rc, rt = -1, flt = -1;
 	u8 idx = IPA_IPSEC_MAX_SA_NUM;
@@ -1937,13 +1938,13 @@ void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action,
 
 	x = ipa3_ctx->ipsec->sa_db[sa_type][idx].x;
 	if (unlikely(!x)) {
-		IPAERR("%s SA%02d has no XFRM state pointer (0x%X) \n",
+		IPAERR("%s SA%02d has no XFRM state pointer (0x%p) \n",
 			(sa_type == IPA_IPSEC_ENCAP) ? "Encap" : "Decap", idx, x);
 		return;
 		//goto no_work;
 	}
 
-	IPADBG("%s SA%02d XFRM state pointer (0x%X) \n",
+	IPADBG("%s SA%02d XFRM state pointer (0x%p) \n",
 		(sa_type == IPA_IPSEC_ENCAP) ? "Encap" : "Decap", idx, x);
 
 	spin_lock_bh(&x->lock);
@@ -2033,7 +2034,7 @@ void ipa_ipsec_xdo_policy_delete(struct xfrm_policy *xp)
 	if (!xp)
 		return;
 
-	IPADBG("xp->xdo.offload_handle = %08X\n", xp->xdo.offload_handle);
+	IPADBG("xp->xdo.offload_handle = %08lX\n", xp->xdo.offload_handle);
 }
 
 void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
@@ -2100,7 +2101,7 @@ void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
 		return;
 	}
 
-	IPADBG("x->xso.offload_handle = %llX\n", xp->xdo.offload_handle);
+	IPADBG("x->xso.offload_handle = %lX\n", xp->xdo.offload_handle);
 
 	work_data = kzalloc(sizeof(struct ipa_ipsec_policy_work_wrap), GFP_ATOMIC);
 	if (!work_data) {
@@ -2188,7 +2189,7 @@ int ipa_ipsec_install_dl_pol_flt(void)
 		strlcpy(rt_lookup.name, __ipa_ipsec_s.decap_no_policy_rt[ip], IPA_RESOURCE_NAME_MAX);
 		ret = ipa3_get_rt_tbl(&rt_lookup);
 		if (unlikely(!!ret)) {
-			IPAERR("%s is not installed\n", __ipa_ipsec_s.decap_no_policy_rt);
+			IPAERR("%s is not installed\n", __ipa_ipsec_s.decap_no_policy_rt[ip]);
 			goto end;
 		}
 		flt_rule_no_policy->rule.rt_tbl_hdl = rt_lookup.hdl;
@@ -2210,6 +2211,7 @@ int ipa_ipsec_install_dl_pol_flt(void)
 			IPAERR("Fail to add FLT table for DL policy rules for ip %d, \
 			flt_rule_catch_all->status %d , flt_rule_no_policy->status %d \
 			flt_rule_frag->status %d\n",
+			ip,
 			flt_rule_catch_all->status, flt_rule_no_policy->status,
 			flt_rule_frag->status);
 			goto end;
@@ -2295,7 +2297,7 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
 		if (!!rc)
 			return rc;
-		IPADBG_LOW("pos = %d, copy %u bytes from %08X to %08X", pos,
+		IPADBG_LOW("pos = %d, copy %lu bytes from %p to %p", pos,
 			sizeof(struct ipa_filter_rule_type_v01),
 			&eq_atrb, &req->filter_spec_ex_list[pos].filter_rule);
 		memcpy(&req->filter_spec_ex_list[pos].filter_rule, &eq_atrb,
@@ -2590,7 +2592,7 @@ int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata)
 
 	x = ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x;
 	if (unlikely(!x)) {
-		IPAERR_RL("Decap SA%02d has no XFRM state pointer (0x%X) \n", idx, x);
+		IPAERR_RL("Decap SA%02d has no XFRM state pointer (0x%p) \n", idx, x);
 		return -EINVAL;
 	}
 
@@ -3044,7 +3046,7 @@ int ipa_ipsec_init(void)
 		goto free_wq;
 	}
 
-	IPADBG_LOW("keys_phys_base 0x%08X key_mmio=0x%X\n", keys_phys_base, key_mmio);
+	IPADBG_LOW("keys_phys_base 0x%08X key_mmio=0x%p\n", keys_phys_base, key_mmio);
 	memset_io(key_mmio, 0, sizeof(struct ipa_ipsec_key_store));
 	ipa3_ctx->ipsec->keys = (struct ipa_ipsec_key_store *)key_mmio;
 
@@ -3076,11 +3078,11 @@ int ipa_ipsec_init(void)
 	/* Zero the SA SRAM */
 	memset_io(sa_mmio, 0, IPA_SA_DB_SIZE);
 
-	IPADBG_LOW("sa_phys_base 0x%08X sa_mmio=0x%X\n", sa_phys_base, sa_mmio);
+	IPADBG_LOW("sa_phys_base 0x%08X sa_mmio=0x%p\n", sa_phys_base, sa_mmio);
 	ipa3_ctx->ipsec->decap = (struct ipa_ipsec_sa_decap *)sa_mmio;
 	ipa3_ctx->ipsec->encap =
 		(struct ipa_ipsec_sa_encap *)(ipa3_ctx->ipsec->decap + IPA_IPSEC_MAX_SA_NUM);
-	IPADBG_LOW("ipa3_ctx->ipsec->decap=0x%08X ipa3_ctx->ipsec->encap=0x%X\n",
+	IPADBG_LOW("ipa3_ctx->ipsec->decap=0x%p ipa3_ctx->ipsec->encap=0x%p\n",
 		ipa3_ctx->ipsec->decap, ipa3_ctx->ipsec->encap);
 
 	/*

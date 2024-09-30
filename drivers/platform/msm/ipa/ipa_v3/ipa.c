@@ -11931,7 +11931,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 
 	IPADBG(
-	    "base(0x%x)+offset(0x%x)=(0x%x) mapped to (%0x%x) with len (0x%x)\n",
+	    "base(0x%x)+offset(0x%x)=(0x%x) mapped to (0x%p) with len (0x%x)\n",
 	    resource_p->ipa_mem_base,
 	    ipa3_ctx->ctrl->ipa_reg_base_ofst,
 	    resource_p->ipa_mem_base + ipa3_ctx->ctrl->ipa_reg_base_ofst,
@@ -12149,7 +12149,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	spin_lock_init(&ipa3_ctx->wc_memb.ipa_tx_mul_spinlock);
 	INIT_LIST_HEAD(&ipa3_ctx->wc_memb.wlan_comm_desc_list);
 
-	ipa3_ctx->cdev.class = class_create(THIS_MODULE, DRV_NAME);
+	ipa3_ctx->cdev.class = class_create(DRV_NAME);
 
 	result = alloc_chrdev_region(&ipa3_ctx->cdev.dev_num, 0, 1, DRV_NAME);
 	if (result) {
@@ -14553,7 +14553,6 @@ static int ipa_smmu_v2x_cb_probe(struct device *dev)
 		IPAERR_RL("could not get iommu domain\n");
 		return -EINVAL;
 	}
-	IPADBG("V2X CB PROBE mapping retrieved - iommu_domain %d\n", cb->iommu_domain);
 
 	cb->is_cache_coherent = of_property_read_bool(dev->of_node,
 						"dma-coherent");

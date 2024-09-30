@@ -4080,7 +4080,7 @@ static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
 			sizeof(struct ipa_ipsec_sa_encap));
 	if (ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x)
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-			"--- XFRM state ID %d\n", ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x->id);
+			"--- XFRM state ID %d\n", ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x->props.reqid);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, "IV: ");
 	for (j = 0; j < 4; j++) {
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
@@ -4175,7 +4175,7 @@ static ssize_t ipa3_read_ipsec_decap_sa_info(struct file *file,
 		"Decap SA %d:\n", sa_idx);
 	if (ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x)
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-			"--- XFRM state ID %d\n", ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x->id); // TBD
+			"--- XFRM state ID %d\n", ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x->props.reqid); // TBD
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"intgr_fail = %d\n", dsa.intr.intgr_fail);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
@@ -4183,7 +4183,7 @@ static ssize_t ipa3_read_ipsec_decap_sa_info(struct file *file,
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"antirep_fail = %d\n", dsa.intr.antirep_fail);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"cons_intgr_fail = %llu\n", dsa.intr.cons_intgr_fail);
+		"cons_intgr_fail = %hu\n", dsa.intr.cons_intgr_fail);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"out_win_fail = %d\n", dsa.intr.out_win_fail);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
@@ -5195,8 +5195,10 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 		tx_ep = IPA_CLIENT_ETHERNET_CONS;
 		rx_ep = IPA_CLIENT_ETHERNET_PROD;
 		scratch_num = 6;
+		fallthrough;
 #if IPA_ETH_API_VER >= 2
 	case IPA_ETH_CLIENT_NTN3:
+		fallthrough;
 	case IPA_ETH_CLIENT_IEMAC:
 
 		memset(&ntn3_stats, 0, sizeof(ntn3_stats));

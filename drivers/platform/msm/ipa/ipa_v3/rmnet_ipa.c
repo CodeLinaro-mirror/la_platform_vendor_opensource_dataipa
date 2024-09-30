@@ -2119,7 +2119,10 @@ void send_ipsec_err_to_ns(struct sk_buff *skb, struct net_device *dev)
 		if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH
 				== 0) {
 			trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0))
 			result = netif_rx_ni(skb);
+#endif
+			result = netif_rx(skb);
 		} else {
 			trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
 			result = netif_rx(skb);
@@ -2311,7 +2314,7 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 		if (ipsec_err_qmap.error_code != IPA_IPSEC_ERROR_CODE_SEQ_NUM_EXCEED_MTU) {
 			x = ipa3_ctx->ipsec->sa_db[sa_type][sa_idx].x;
 			if (unlikely(!x)) {
-				IPAERR("SA%02d has no XFRM state pointer (0x%X) \n", sa_idx, x);
+				IPAERR("SA%02d has no XFRM state pointer (0x%p) \n", sa_idx, x);
 				BUG();
 			}
 
@@ -2378,7 +2381,10 @@ static void apps_ipa_v2x_packet_receive_notify(void *priv,
 
 		/* for low latency, use netif_rx_ni always */
 		trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0))
 		result = netif_rx_ni(skb);
+#endif
+		result = netif_rx(skb);
 
 		if (result)	{
 			pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_receive_skb\n",
@@ -5830,7 +5836,7 @@ static void rmnet_ipa_send_ssr_notification(bool ssr_done)
 	}
 }
 
-void ipa3_lcl_mdm_reboot_cb ( )
+void ipa3_lcl_mdm_reboot_cb (void)
 {
 	struct ipa3_ep_context *ep;
 	int ep_idx;

@@ -449,7 +449,7 @@ fail_alloc_mmio:
 	return ret;
 }
 
-static void ipa_ntn_test_print_stats()
+static void ipa_ntn_test_print_stats(void)
 {
 	struct ipa_uc_dbg_ring_stats stats;
 	int ret;
@@ -544,7 +544,7 @@ static int ipa_ntn_test_ready_cb(void *priv)
 	return 0;
 }
 
-static void ipa_ntn_test_del_client_list()
+static void ipa_ntn_test_del_client_list(void)
 {
 	struct ipa_eth_client *eth_client = &test_ntn_ctx->client;
 	struct ipa_eth_client_pipe_info *pipe_info, *tmp;

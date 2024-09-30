@@ -92,7 +92,7 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 	u32 eth_offset = IPA_AP_CB_WLAN_END_MAPPING;
 
 	if (len == 0) {
-		IPAERR("Invalid SMMU CB mapping size: %llu\n", len);
+		IPAERR("Invalid SMMU CB mapping size: %zu\n", len);
 		return -EINVAL;
 	}
 	if (instance_id >= IPA_ETH_INST_ID_MAX) {
@@ -1737,7 +1737,7 @@ fail:
 }
 EXPORT_SYMBOL(ipa3_eth_disconnect);
 
-int ipa3_eth_tx_ring_db()
+int ipa3_eth_tx_ring_db(void)
 {
 	int ch_id, ipa_ep_idx, result = 0, i = 0;
 	phys_addr_t db_pa;
