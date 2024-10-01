@@ -116,7 +116,8 @@ LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
 endif
 endif
 
-ifeq ($(CONFIG_ARCH_SDXPINN), y)
+
+ifeq ($(filter $(CONFIG_ARCH_SDXPINN) $(CONFIG_ARCH_SDXKOVA), y), y)
 DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
 LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa.h
 include $(srctree)/../../../dataipa/config/dataipa_QGKI.conf
