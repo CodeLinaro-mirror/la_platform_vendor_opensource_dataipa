@@ -700,6 +700,7 @@ static void ipa3_event_ring_hdlr(void)
 #if defined(CONFIG_IPA_IPSEC)
 		case IPSEC_THRESH_NOTIFY:
 			if (ipa_ipsec_enabled()) {
+				e_t = ((struct eventElement_t *) rp_va);
 				IPADBG("Got IPsec threshold sa_idx (%d), sa_action (%d), type (%d)\n",
 					e_t->Value.ipsec_threshold_param.sa_idx,
 					e_t->Value.ipsec_threshold_param.sa_action,
