@@ -11025,6 +11025,15 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	cb->valid = true;
 
 	cb->va_start = cb->va_end  = cb->va_size = 0;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0))
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,ipa-dma-addr-pool",
+			iova_ap_mapping, 2) == 0) {
+		cb->va_start = iova_ap_mapping[0];
+		cb->va_size  = iova_ap_mapping[1];
+		cb->va_end   = cb->va_start + cb->va_size;
+	}
+#else
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
 			iova_ap_mapping, 2) == 0) {
@@ -11032,7 +11041,7 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 		cb->va_size  = iova_ap_mapping[1];
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
-
+#endif
 	IPADBG("CB %d PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   cb_type, dev, cb->va_start, cb->va_size);
 
@@ -11154,6 +11163,15 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	cb->valid = true;
 
 	cb->va_start = cb->va_end  = cb->va_size = 0;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0))
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,ipa-dma-addr-pool",
+			iova_ap_mapping, 2) == 0) {
+		cb->va_start = iova_ap_mapping[0];
+		cb->va_size  = iova_ap_mapping[1];
+		cb->va_end   = cb->va_start + cb->va_size;
+	}
+#else
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
 			iova_ap_mapping, 2) == 0) {
@@ -11161,7 +11179,7 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 		cb->va_size  = iova_ap_mapping[1];
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
-
+#endif
 	IPADBG("UC CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
 
@@ -11286,6 +11304,15 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	cb->valid = true;
 
 	cb->va_start = cb->va_end  = cb->va_size = 0;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0))
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,ipa-dma-addr-pool",
+			iova_ap_mapping, 2) == 0) {
+		cb->va_start = iova_ap_mapping[0];
+		cb->va_size  = iova_ap_mapping[1];
+		cb->va_end   = cb->va_start + cb->va_size;
+	}
+#else
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
 			iova_ap_mapping, 2) == 0) {
@@ -11293,7 +11320,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 		cb->va_size  = iova_ap_mapping[1];
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
-
+#endif
 	IPADBG("AP CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
 	if (of_property_read_u32_array(
@@ -11468,6 +11495,15 @@ static int ipa_smmu_11ad_cb_probe(struct device *dev)
 	cb->valid = true;
 
 	cb->va_start = cb->va_end  = cb->va_size = 0;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0))
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,ipa-dma-addr-pool",
+			iova_ap_mapping, 2) == 0) {
+		cb->va_start = iova_ap_mapping[0];
+		cb->va_size  = iova_ap_mapping[1];
+		cb->va_end   = cb->va_start + cb->va_size;
+	}
+#else
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
 			iova_ap_mapping, 2) == 0) {
@@ -11475,7 +11511,7 @@ static int ipa_smmu_11ad_cb_probe(struct device *dev)
 		cb->va_size  = iova_ap_mapping[1];
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
-
+#endif
 	IPADBG("11AD CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
