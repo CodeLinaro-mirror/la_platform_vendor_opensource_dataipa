@@ -1939,7 +1939,7 @@ void apps_ipa_tx_complete_notify(void *priv,
 	}
 
 	if (evt != IPA_WRITE_DONE) {
-		IPAWANERR("unsupported evt on Tx callback, Drop the packet\n");
+		IPAWANERR_RL("unsupported evt on Tx callback, Drop the packet\n");
 		dev_kfree_skb_any(skb);
 		dev->stats.tx_dropped++;
 		return;
