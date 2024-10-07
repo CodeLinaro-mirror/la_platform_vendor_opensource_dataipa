@@ -1305,7 +1305,6 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		/* We can use HW offloaded AES CBC SAs only once the uC completed NextIV WA init */
 		if (ealg == IPA_IPSEC_ENC_AES_CBC && !ipa3_ctx->uc_ctx.ipsec_next_iv_wa_ready) {
 			IPAERR("Next IV uC workaround is not yet ready.\n");
-			return -EINVAL;
 		}
 
 		/* find a free index */
