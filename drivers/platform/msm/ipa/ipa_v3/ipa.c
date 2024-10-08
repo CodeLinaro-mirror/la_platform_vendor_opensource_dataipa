@@ -9712,7 +9712,8 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 			usleep_range(IPA_MSGQ_MIN_SLEEP,
 					IPA_MSGQ_MAX_SLEEP);
 			ret = gh_msgq_send(msgq_desc->msgq_hdl, &msg, sizeof(msg), 0);
-			IPAERR("send msgq failed %d time ret %d for msg_type %d\n", i, ret, msg_type);
+			if(ret < 0)
+				IPAERR("send msgq failed %d time ret %d for msg_type %d\n", i, ret, msg_type);
 		}
 	}
 
