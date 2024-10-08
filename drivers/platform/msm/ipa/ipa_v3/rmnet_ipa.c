@@ -6007,6 +6007,12 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			break;
 		}
 		mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
+		/*
+		 * Clear the proxy vote if any. This happens in scenarios
+		 * where Modem restarts before QMI Handshake is complete
+		 */
+		if (!ipa3_is_modem_up())
+			ipa3_proxy_clk_unvote();
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
 		/* send SSR before-shutdown notification to IPACM */
