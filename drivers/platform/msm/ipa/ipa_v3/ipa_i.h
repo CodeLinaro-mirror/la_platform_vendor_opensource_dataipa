@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA3_I_H_
@@ -2539,6 +2539,7 @@ struct ipa3_context {
 	struct ipa3_tsp_ctx tsp;
 #endif
 	atomic_t ipa_clk_vote;
+	bool gsi_status;
 
 	int (*client_lock_unlock[IPA_MAX_CLNT])(bool is_lock);
 
