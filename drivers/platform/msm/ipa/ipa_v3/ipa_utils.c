@@ -9122,11 +9122,9 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.apps_v6_rt_hash_size = 0x0,
 	.apps_v6_rt_nhash_ofst = 0x10be0,
 	.apps_v6_rt_nhash_size = 0x300,
-	.pre_sa_contexts_canary_ofst = 0x10ee0,
-	.pre_sa_contexts_canary_size = 0x290,
-	.sa_contexts_ofst = 0x11170,
+	.sa_contexts_ofst = 0x12000,
 	.sa_contexts_size = 0xe18, // (IPA_SA_DB_SIZE)
-	.end_ofst = 0x11f88,
+	.end_ofst = 0x12e18,
 };
 
 const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
