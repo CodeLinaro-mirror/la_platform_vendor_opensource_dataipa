@@ -11100,6 +11100,7 @@ ssize_t ipa3_update_config(const char *buff)
 		{
 			IPADBG("Platform type is RDKB\n");
 			ipa3_ctx->ipa_config_is_rdkb = true;
+			ipa3_ctx->enable_napi_chain = 0;
 			return count;
 		}
 

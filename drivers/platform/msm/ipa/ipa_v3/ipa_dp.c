@@ -1770,6 +1770,12 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
 							ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor;
+				else if (ipa3_ctx->ipa_config_is_rdkb &&
+					ipa3_ctx->wan_common_page_pool &&
+					sys_in->client == IPA_CLIENT_APPS_WAN_CONS)
+					ep->sys->page_recycle_repl->capacity =
+						(ep->sys->rx_pool_sz + 1) *
+						ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor;
 				else
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
@@ -1799,6 +1805,10 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 				sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1) *
 				ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor;
+			else if (ipa3_ctx->ipa_config_is_rdkb && sys_in->client ==
+					IPA_CLIENT_APPS_WAN_CONS)
+					ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1) *
+					ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor;
 			else
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1);
 			IPADBG("Repl capacity for client:%d, value:%d\n",
