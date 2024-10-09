@@ -13830,7 +13830,7 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	if (of_device_is_compatible(dev->of_node,
 	    "qcom,smp2p-map-ipa-1-in"))
 		return ipa3_smp2p_probe(dev);
-        
+
         ipa3_ctx->ipa_config_is_mhi =
 			of_property_read_bool(dev->of_node,
 			"qcom,use-ipa-in-mhi-mode");
@@ -13849,6 +13849,9 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		IPAERR("IPA dts parsing failed\n");
 		return result;
 	}
+
+	/* LAN coal disabling in all modes*/
+	ipa3_res.lan_coal_enable = false;
 
 	/*
 	* Since we now know where the transport's registers live,
