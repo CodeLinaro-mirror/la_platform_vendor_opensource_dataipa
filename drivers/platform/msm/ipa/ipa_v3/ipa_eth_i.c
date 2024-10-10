@@ -1743,7 +1743,7 @@ int ipa3_eth_tx_ring_db(void)
 	phys_addr_t db_pa;
 	void __iomem *db_addr;
 
-	ipa_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS);
+	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS);
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
 		IPADBG("IPA_CLIENT_ETHERNET2_CONS not mapped\n");
 		return 0;

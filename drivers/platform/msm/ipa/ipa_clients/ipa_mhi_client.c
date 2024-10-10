@@ -796,7 +796,7 @@ static int mhi_ipa_hdrs_cfg(const void *dst_mac, const void *src_mac)
 
 	hdrs->commit = 1;
 	hdrs->num_hdrs = 2;
-	result = ipa3_add_hdr(hdrs);
+	result = ipa_add_hdr(hdrs);
 	if (result) {
 		IPA_MHI_ERR("Fail on Header-Insertion(%d)\n", result);
 		goto out_free_mem;
@@ -852,9 +852,9 @@ static void mhi_ipa_rules_destroy(struct ipa_mhi_client_ctx *mhi_ipa_ctx)
 	ipv6 = &del_hdr->hdl[1];
 	ipv6->hdl = mhi_ipa_ctx->eth_ipv6_hdr_hdl;
 
-	result = ipa3_del_hdr(del_hdr);
+	result = ipa_del_hdr(del_hdr);
 	if (result || ipv4->status || ipv6->status)
-		IPA_MHI_ERR("ipa3_del_hdr failed\n");
+		IPA_MHI_ERR("ipa_del_hdr failed\n");
 	kfree(del_hdr);
 
 	IPA_MHI_FUNC_EXIT();
@@ -933,7 +933,7 @@ static void ipa_mhi_get_ch_bitmap(u32 *ch_bitmap)
 
 	*ch_bitmap = 0;
 	for (i = 0; i < IPA_MHI_TOTAL_CLIENTS; i++) {
-		gsi_ep_config = ipa3_get_gsi_ep_info(mhi_clients[i]);
+		gsi_ep_config = ipa_get_gsi_ep_info(mhi_clients[i]);
 		if (gsi_ep_config)
 			*ch_bitmap |= 1 << gsi_ep_config->ipa_gsi_chan_num;
 	}
@@ -2170,7 +2170,7 @@ static void mhi_ipa_tx_timeout(struct net_device *net, unsigned int txqueue)
  * simple rule which always "hit".
  *
  */
-static int mhi_ipa_register_properties()
+static int mhi_ipa_register_properties(void)
 {
 	struct ipa_tx_intf tx_properties = {0};
 	struct ipa_ioc_tx_intf_prop properties[2] = { {0}, {0} };
@@ -2218,7 +2218,7 @@ static int mhi_ipa_register_properties()
 	rx_ipv6_property->hdr_l2_type = hdr_l2_type;
 	rx_properties.num_props = 2;
 
-	result = ipa3_register_intf("mhi_eth0", &tx_properties, &rx_properties);
+	result = ipa_register_intf("mhi_eth0", &tx_properties, &rx_properties);
 	if (result)
 		IPA_MHI_ERR("fail on Tx/Rx properties registration\n");
 
@@ -2232,7 +2232,7 @@ static void mhi_ipa_deregister_properties(void)
 	int result;
 
 	IPA_MHI_FUNC_ENTRY();
-	result = ipa3_deregister_intf("mhi_eth0");
+	result = ipa_deregister_intf("mhi_eth0");
 	if (result)
 		IPA_MHI_DBG("Fail on Tx prop deregister\n");
 	IPA_MHI_FUNC_EXIT();
@@ -3285,7 +3285,7 @@ fail_pm_cons:
  * Return codes: 0	  : success
  *		 negative : error
  */
-int ipa_mhi_init(struct ipa_mhi_init_params *params)
+int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 {
 	int res = 0;
 	struct net_device *net;
@@ -3377,7 +3377,10 @@ int ipa_mhi_init(struct ipa_mhi_init_params *params)
 			ipa_mhi_client_ctx->netif_rx_function = netif_receive_skb;
 			IPA_MHI_DBG("LAN RX NAPI enabled = True");
 		} else {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0))
 			ipa_mhi_client_ctx->netif_rx_function = netif_rx_ni;
+#endif
+			ipa_mhi_client_ctx->netif_rx_function = netif_rx;
 			IPA_MHI_DBG("LAN RX NAPI enabled = False");
 		}
 
@@ -3388,7 +3391,7 @@ int ipa_mhi_init(struct ipa_mhi_init_params *params)
 		}
 		IPA_MHI_DBG("is vlan mode %d\n", ipa_mhi_client_ctx->is_vlan_mode);
 
-		res = mhi_ipa_set_device_ethernet_addr(net->dev_addr, params->device_ethaddr);
+		res = mhi_ipa_set_device_ethernet_addr((u8*)(net->dev_addr), params->device_ethaddr);
 		if (res) {
 			IPA_MHI_ERR("set device MAC failed\n");
 			goto fail_set_device_ethernet;
@@ -3496,7 +3499,7 @@ fail_netdev_priv:
 fail_alloc_etherdev:
 	return res;
 }
-EXPORT_SYMBOL(ipa_mhi_init);
+EXPORT_SYMBOL(ipa_mhi_init_internal);
 
 /**
  * ipa_mhi_handle_ipa_config_req() - hanle IPA CONFIG QMI message
@@ -3606,7 +3609,7 @@ EXPORT_SYMBOL(ipa_mhi_dma_init);
 int ipa_mhi_dma_start(struct mhi_dma_function_params function,
 		struct mhi_dma_start_params *params)
 {
-	return ipa_mhi_start_internal((struct ipa_mhi_start_params *)params);
+	return ipa_mhi_start((struct ipa_mhi_start_params *)params);
 }
 EXPORT_SYMBOL(ipa_mhi_dma_start);
 
@@ -3627,39 +3630,39 @@ int ipa_mhi_dma_connect_endp(struct mhi_dma_function_params function,
 
 	connect_params.sys.skip_ep_cfg = !ipa3_ctx->ipa_mhi_eth;
 
-	return ipa_mhi_connect_pipe_internal(&connect_params, clnt_hdl);
+	return ipa_mhi_connect_pipe(&connect_params, clnt_hdl);
 }
 EXPORT_SYMBOL(ipa_mhi_dma_connect_endp);
 
 int ipa_mhi_dma_disconnect_endp(struct mhi_dma_function_params function,
                 struct mhi_dma_disconnect_params *in)
 {
-	return ipa_mhi_disconnect_pipe_internal(in->clnt_hdl);
+	return ipa_mhi_disconnect_pipe(in->clnt_hdl);
 }
 EXPORT_SYMBOL(ipa_mhi_dma_disconnect_endp);
 
 int ipa_mhi_dma_suspend(struct mhi_dma_function_params function, bool force)
 {
-	return ipa_mhi_suspend_internal(force);
+	return ipa_mhi_suspend(force);
 }
 EXPORT_SYMBOL(ipa_mhi_dma_suspend);
 
 int ipa_mhi_dma_resume(struct mhi_dma_function_params function)
 {
-	return ipa_mhi_resume_internal();
+	return ipa_mhi_resume();
 }
 EXPORT_SYMBOL(ipa_mhi_dma_resume);
 
 int ipa_mhi_dma_update_mstate(struct mhi_dma_function_params function,
 		enum mhi_dma_mstate mstate_info)
 {
-	return ipa_mhi_update_mstate_internal((enum ipa_mhi_mstate)mstate_info);
+	return ipa_mhi_update_mstate((enum ipa_mhi_mstate)mstate_info);
 }
 EXPORT_SYMBOL(ipa_mhi_dma_update_mstate);
 
 void ipa_mhi_dma_destroy(struct mhi_dma_function_params function)
 {
-	ipa_mhi_destroy_internal();
+	ipa_mhi_destroy();
 }
 EXPORT_SYMBOL(ipa_mhi_dma_destroy);
 

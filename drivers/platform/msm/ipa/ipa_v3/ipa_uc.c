@@ -2136,7 +2136,7 @@ int ipa3_uc_send_mhi_cesta_pipe_info(enum ipa_client_type clnt_type, bool connec
 	/* get the address of cmd variable defined in uc_ctx & populate below info.*/
 	ch_data = &ipa3_ctx->uc_ctx.curr_cmd;
 
-	ch_data->pipeNum = ipa3_get_ep_mapping(clnt_type);
+	ch_data->pipeNum = ipa_get_ep_mapping(clnt_type);
 	ch_data->chNo = ipa3_ctx->ep[ch_data->pipeNum].gsi_chan_hdl;
 
 	if(connect) {

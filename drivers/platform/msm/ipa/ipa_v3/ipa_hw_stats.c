@@ -194,7 +194,7 @@ int ipa_hw_stats_init(void)
 		if (ipa_hw_stats_get_ep_bit_n_idx(
 			IPA_CLIENT_Q6_WAN_PROD,
 			&reg_idx)) {
-			ep_index = ipa3_get_ep_mapping(IPA_CLIENT_Q6_WAN_PROD);
+			ep_index = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_PROD);
 			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
 				ret = -EINVAL;
@@ -257,7 +257,7 @@ int ipa_hw_stats_init(void)
 		if (ipa_hw_stats_get_ep_bit_n_idx(
 			IPA_CLIENT_Q6_DL_NLO_DATA_PROD,
 			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)) {
-			ep_index = ipa3_get_ep_mapping(
+			ep_index = ipa_get_ep_mapping(
 				IPA_CLIENT_Q6_DL_NLO_DATA_PROD);
 			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
@@ -320,7 +320,7 @@ int ipa_hw_stats_init(void)
 		if (ipa_hw_stats_get_ep_bit_n_idx(
 			IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD,
 			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)) {
-			ep_index = ipa3_get_ep_mapping(
+			ep_index = ipa_get_ep_mapping(
 					IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD);
 			if (ep_index == IPA_EP_NOT_ALLOCATED) {
 				IPAERR("Invalid client.\n");
@@ -679,7 +679,7 @@ int ipa_hw_stats_init(void)
 	if (ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_ETHERNET_PROD,
 		&reg_idx)) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -702,7 +702,7 @@ int ipa_hw_stats_init(void)
 	if (ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_ETHERNET2_PROD,
 		&reg_idx)) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -725,7 +725,7 @@ int ipa_hw_stats_init(void)
 	if (ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_ETHERNET_PROD1,
 		&reg_idx)) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -748,7 +748,7 @@ int ipa_hw_stats_init(void)
 	if (ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_ETHERNET_PROD2,
 		&reg_idx)) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD2);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD2);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -771,7 +771,7 @@ int ipa_hw_stats_init(void)
 	if (ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_ETHERNET_PROD3,
 		&reg_idx)) {
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD3);
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD3);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -1188,7 +1188,7 @@ int ipa_reset_quota_stats(enum ipa_client_type client)
 		return ret;
 	}
 
-	ep_idx = ipa3_get_ep_mapping(client);
+	ep_idx = ipa_get_ep_mapping(client);
 	if(ep_idx == IPA_EP_NOT_ALLOCATED){
 		IPAERR_RL("failed to reset quota stats\n");
 		return -EFAULT;
@@ -1641,7 +1641,7 @@ int ipa_query_teth_stats(enum ipa_client_type prod,
 		return -EINVAL;
 	}
 
-	ipa_ep_idx = ipa3_get_ep_mapping(prod);
+	ipa_ep_idx = ipa_get_ep_mapping(prod);
 	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
 		IPAERR_RL("failed to reset prod stats\n");
 		return -EFAULT;
@@ -1664,12 +1664,12 @@ int ipa_query_cumm_teth_prod_stats(enum ipa_client_type prod,
 		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
 
-	if (!IPA_CLIENT_IS_PROD(prod) || ipa3_get_ep_mapping(prod) == -1) {
+	if (!IPA_CLIENT_IS_PROD(prod) || ipa_get_ep_mapping(prod) == -1) {
 		IPAERR("invalid prod %d\n", prod);
 		return -EINVAL;
 	}
 
-	ipa_ep_idx = ipa3_get_ep_mapping(prod);
+	ipa_ep_idx = ipa_get_ep_mapping(prod);
 	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
 		IPAERR_RL("failed to get prod stats\n");
 		return -EFAULT;
@@ -1696,12 +1696,12 @@ int ipa_query_cumm_teth_cons_stats(enum ipa_client_type cons,
 		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
 
-	if (!IPA_CLIENT_IS_CONS(cons) || ipa3_get_ep_mapping(cons) == -1) {
+	if (!IPA_CLIENT_IS_CONS(cons) || ipa_get_ep_mapping(cons) == -1) {
 		IPAERR("invalid cons %d\n", cons);
 		return -EINVAL;
 	}
 
-	ipa_ep_idx = ipa3_get_ep_mapping(cons);
+	ipa_ep_idx = ipa_get_ep_mapping(cons);
 	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
 		IPAERR_RL("failed to get cons stats\n");
 		return -EFAULT;
@@ -1733,12 +1733,12 @@ int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons)
 		return -EINVAL;
 	}
 
-	prod_ep_idx = ipa3_get_ep_mapping(prod);
+	prod_ep_idx = ipa_get_ep_mapping(prod);
 	if(prod_ep_idx == IPA_EP_NOT_ALLOCATED){
 		IPAERR_RL("failed to reset prod stats sum\n");
 		return -EFAULT;
 	}
-	cons_ep_idx = ipa3_get_ep_mapping(cons);
+	cons_ep_idx = ipa_get_ep_mapping(cons);
 	if(cons_ep_idx == IPA_EP_NOT_ALLOCATED){
 		IPAERR_RL("failed to reset prod stats sum\n");
 		return -EFAULT;
@@ -1772,7 +1772,7 @@ int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod)
 		return -EINVAL;
 	}
 
-	ipa_ep_idx = ipa3_get_ep_mapping(prod);
+	ipa_ep_idx = ipa_get_ep_mapping(prod);
 	if(ipa_ep_idx == IPA_EP_NOT_ALLOCATED){
 		IPAERR_RL("failed to reset prod stats sum\n");
 		return -EFAULT;
@@ -2843,7 +2843,7 @@ static ssize_t quota_show(struct device *dev, struct device_attribute *attr, cha
 		return res;
 	}
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa3_get_ep_mapping(i);
+		int ep_idx = ipa_get_ep_mapping(i);
 
 		if (ep_idx == -1)
 			continue;
@@ -2936,7 +2936,7 @@ static ssize_t tethering_show(struct device *dev, struct device_attribute *attr,
 	}
 
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa3_get_ep_mapping(i);
+		int ep_idx = ipa_get_ep_mapping(i);
 
 		if (ep_idx == IPA_EP_NOT_ALLOCATED)
 			continue;
@@ -2960,7 +2960,7 @@ static ssize_t tethering_show(struct device *dev, struct device_attribute *attr,
 		}
 
 		for (j = 0; j < IPA_CLIENT_MAX; j++) {
-			int cons_idx = ipa3_get_ep_mapping(j);
+			int cons_idx = ipa_get_ep_mapping(j);
 
 			if (cons_idx == IPA_EP_NOT_ALLOCATED)
 				continue;
@@ -3159,7 +3159,7 @@ static ssize_t drop_show(struct device *dev, struct device_attribute *attr, char
 	}
 
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa3_get_ep_mapping(i);
+		int ep_idx = ipa_get_ep_mapping(i);
 
 		if (ep_idx == IPA_EP_NOT_ALLOCATED)
 			continue;

@@ -1141,7 +1141,7 @@ static ssize_t __rt_show(enum ipa_ip_type ip)
 				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
 					i, entry->rule.dst,
 					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
-					ipa3_get_ep_mapping(entry->rule.dst),
+					ipa_get_ep_mapping(entry->rule.dst),
 					is_lcl);
 				pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
 					ofst_words,
@@ -1154,7 +1154,7 @@ static ssize_t __rt_show(enum ipa_ip_type ip)
 				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
 					i, entry->rule.dst,
 					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
-					ipa3_get_ep_mapping(entry->rule.dst),
+					ipa_get_ep_mapping(entry->rule.dst),
 					!(entry->hdr && entry->hdr->is_lcl));
 				pr_err("hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u",
 					ofst >> 2,
@@ -1956,7 +1956,7 @@ static ssize_t wstats_show(struct device *dev, struct device_attribute *attr, ch
 			HEAD_FRMT_STR, "Client IPA_CLIENT_WLAN1_PROD Stats:");
 		cnt += nbytes;
 
-		ipa_ep_idx = ipa3_get_ep_mapping(client);
+		ipa_ep_idx = ipa_get_ep_mapping(client);
 		if (ipa_ep_idx == -1) {
 			nbytes = scnprintf(dbg_buff + cnt,
 				IPA_MAX_MSG_LEN - cnt, HEAD_FRMT_STR, "Not up");
@@ -2014,7 +2014,7 @@ static ssize_t wstats_show(struct device *dev, struct device_attribute *attr, ch
 		"Client IPA_CLIENT_WLAN1_CONS Stats:");
 	cnt += nbytes;
 	while (1) {
-		ipa_ep_idx = ipa3_get_ep_mapping(client);
+		ipa_ep_idx = ipa_get_ep_mapping(client);
 		if (ipa_ep_idx == -1) {
 			nbytes = scnprintf(dbg_buff + cnt,
 				IPA_MAX_MSG_LEN - cnt, HEAD_FRMT_STR, "Not up");
@@ -2207,7 +2207,7 @@ static ssize_t wdi_show(struct device *dev, struct device_attribute *attr, char 
 	int cnt = 0;
 	struct IpaHwStatsWDITxInfoData_t *tx_ch_ptr;
 
-	if (!ipa3_get_wdi_stats(&stats)) {
+	if (!ipa_get_wdi_stats(&stats)) {
 		tx_ch_ptr = &stats.tx_ch_stats;
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 			"TX num_pkts_processed=%u\n"
@@ -4792,7 +4792,7 @@ static ssize_t tx_offload_show(struct device *dev, struct device_attribute *attr
 static ssize_t ipa_endpoint_id_show(char *buf, enum ipa_client_type client)
 {
 	u32 endpoint_id = 0;
-	const struct ipa_gsi_ep_config *gsi_ep_info = ipa3_get_gsi_ep_info(client);
+	const struct ipa_gsi_ep_config *gsi_ep_info = ipa_get_gsi_ep_info(client);
 	if(!gsi_ep_info)
 		return -EFAULT;
 	endpoint_id = gsi_ep_info->ipa_ep_num;

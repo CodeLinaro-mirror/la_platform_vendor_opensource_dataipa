@@ -36,7 +36,7 @@ struct ipa3_pull_msg {
 };
 
 /**
- * ipa3_register_intf() - register "logical" interface
+ * ipa_register_intf() - register "logical" interface
  * @name: [in] interface name
  * @tx:	[in] TX properties of the interface
  * @rx:	[in] RX properties of the interface
@@ -551,7 +551,7 @@ static int lan_msg_process(struct ipa_msg_meta *meta, void *buff)
 			}
 			memcpy(data_dup, buff, meta->msg_len);
 			msg_dup->buff = data_dup;
-			msg_dup->callback = ipa3_send_msg_free;
+			msg_dup->callback = ipa_send_msg_free;
 		} else {
 			IPAERR("msg_len %d\n", meta->msg_len);
 			mutex_unlock(&ipa3_ctx->msg_lan_lock);
@@ -764,7 +764,7 @@ int ipa3_resend_lan_msg(void)
 		}
 		memcpy(data, entry->buff, entry->meta.msg_len);
 		msg->buff = data;
-		msg->callback = ipa3_send_msg_free;
+		msg->callback = ipa_send_msg_free;
 		mutex_lock(&ipa3_ctx->msg_lock);
 		list_add_tail(&msg->link, &ipa3_ctx->msg_list);
 		mutex_unlock(&ipa3_ctx->msg_lock);
@@ -795,7 +795,7 @@ static int ipa3_send_done_restore_msg(void)
 		return -ENOMEM;
 	msg->meta.msg_type = IPA_DONE_RESTORE_EVENT;
 	msg->buff = NULL;
-	msg->callback = ipa3_send_msg_free;
+	msg->callback = ipa_send_msg_free;
 
 	mutex_lock(&ipa3_ctx->msg_lock);
 	list_add_tail(&msg->link, &ipa3_ctx->msg_list);

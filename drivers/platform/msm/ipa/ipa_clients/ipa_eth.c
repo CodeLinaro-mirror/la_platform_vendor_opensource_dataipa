@@ -114,7 +114,7 @@ static void eth_qos_swap(void *a, void *b, int size) {
 	return;
 }
 
-static int ipa_eth_qos_get_num_pipes_internal
+int ipa_eth_qos_get_num_pipes
 (
 	u8 inst_id, u8 *num_pipes, enum ipa_eth_pipe_direction dir
 ) {
@@ -126,8 +126,9 @@ static int ipa_eth_qos_get_num_pipes_internal
 		*num_pipes = ipa_eth_ctx->rx_num_pipes[inst_id];
 	return 0;
 }
+EXPORT_SYMBOL(ipa_eth_qos_get_num_pipes);
 
-static int ipa_eth_qos_get_qos_info_internal
+int ipa_eth_qos_get_qos_info
 (
 	u8 inst_id,
 	u8 idx,
@@ -142,6 +143,7 @@ static int ipa_eth_qos_get_qos_info_internal
 		*info = ipa_eth_ctx->rx_qos_info[inst_id][idx];
 	return -1;
 }
+EXPORT_SYMBOL(ipa_eth_qos_get_qos_info);
 
 static u8 eth_qos_get_tx_priority(u8 pipe_idx, u8 inst_id) {
 	int i;
@@ -1389,19 +1391,19 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 	IPA_ETH_DBG("register interface for netdev %s\n", intf->net_dev->name);
 	/* multiple attach support */
 	if (strnstr(intf->net_dev->name, STR_ETH0_IFACE, strlen(intf->net_dev->name))) {
-		ret = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH0, &vlan_mode);
+		ret = ipa_is_vlan_mode(IPA_VLAN_IF_ETH0, &vlan_mode);
 		if (ret) {
 			IPA_ETH_ERR("Could not determine IPA VLAN mode\n");
 			return ret;
 		}
 	} else if (strnstr(intf->net_dev->name, STR_ETH1_IFACE, strlen(intf->net_dev->name))) {
-		ret = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH1, &vlan_mode);
+		ret = ipa_is_vlan_mode(IPA_VLAN_IF_ETH1, &vlan_mode);
 		if (ret) {
 			IPA_ETH_ERR("Could not determine IPA VLAN mode\n");
 			return ret;
 		}
 	} else {
-		ret = ipa3_is_vlan_mode(IPA_VLAN_IF_ETH, &vlan_mode);
+		ret = ipa_is_vlan_mode(IPA_VLAN_IF_ETH, &vlan_mode);
 		if (ret) {
 			IPA_ETH_ERR("Could not determine IPA VLAN mode\n");
 			return ret;
@@ -1738,7 +1740,7 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 	if (intf->is_conn_evt) {
 		strlcpy(msg.name, intf->net_dev->name, sizeof(msg.name));
 		msg.ifindex = intf->net_dev->ifindex;
-		ipa_eth_client_conn_evt_internal(&msg);
+		ipa_eth_client_conn_evt(&msg);
 	}
 #endif
 	return 0;
@@ -1829,7 +1831,7 @@ fail:
 	if (intf->is_conn_evt) {
 		strlcpy(msg.name, intf->net_dev->name, sizeof(msg.name));
 		msg.ifindex = intf->net_dev->ifindex;
-		ipa_eth_client_disconn_evt_internal(&msg);
+		ipa_eth_client_disconn_evt(&msg);
 	}
 #endif
 	return ret;
@@ -1917,7 +1919,7 @@ bool ipa_eth_client_exist(enum ipa_eth_client_type eth_client_type, int inst_id)
 }
 EXPORT_SYMBOL(ipa_eth_client_exist);
 
-static int ipa_eth_get_config_type_internal(
+int ipa_eth_get_config_type(
 	enum ipa_eth_client_type client_type, int inst_id, struct ipa_eth_config *eth_config)
 {
 	int ret = 0;
