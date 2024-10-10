@@ -1203,7 +1203,7 @@ static int find_vchannel_name_index(const char *vchannel_name)
 }
 
 
-static int ipa3_find_free_rmnet_index( )
+static int ipa3_find_free_rmnet_index(void)
 {
 	int i;
 
@@ -1229,7 +1229,7 @@ static int del_mux_channel(int mux_index)
 	IPAWANDBG("de-register device %s\n",
 		mux_channel[mux_index].vchannel_name);
 
-	rc = ipa3_deregister_intf(mux_channel[mux_index].vchannel_name);
+	rc = ipa_deregister_intf(mux_channel[mux_index].vchannel_name);
 	if (rc < 0) {
 		IPAWANDBG("de-register device %s failed\n",
 		mux_channel[mux_index].vchannel_name);
@@ -1351,7 +1351,7 @@ static int ipa3_wwan_register_to_ipa(int index)
 			&rx_properties,
 			&ext_properties);
 		if (ret) {
-			IPAWANERR("[%d]ipa3_register_intf failed %d\n",
+			IPAWANERR("[%d]ipa_register_intf failed %d\n",
 				index,
 				ret);
 			goto fail;
@@ -1388,7 +1388,7 @@ static int ipa3_wwan_register_to_ipa(int index)
 		&rx_properties,
 		&ext_properties);
 	if (ret) {
-		IPAWANERR("[%s]:ipa3_register_intf failed %d\n",
+		IPAWANERR("[%s]:ipa_register_intf failed %d\n",
 			rmnet_ipa3_ctx->mux_channel[index].vchannel_name,
 				ret);
 		goto fail;
@@ -5302,7 +5302,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		}
 	}
 
-	wan_cons_ep = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
+	wan_cons_ep = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
 	ret = get_ipa_rmnet_dts_configuration(pdev, &ipa3_rmnet_res);
 	ipa3_rmnet_ctx.ipa_rmnet_ssr = ipa3_rmnet_res.ipa_rmnet_ssr;
 
@@ -5527,7 +5527,7 @@ static int ipa3_wwan_remove_v2x(struct platform_device *pdev)
 
 	/* clean v2x pipe */
 	if (rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl > 0) {
-		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl);
+		ret = ipa_teardown_sys_pipe(rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl);
 		if (ret < 0)
 			IPAWANERR("Failed to teardown IPA V2X->APPS pipe\n");
 		else
@@ -5535,7 +5535,7 @@ static int ipa3_wwan_remove_v2x(struct platform_device *pdev)
 	}
 
 	if (rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl > 0) {
-		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl);
+		ret = ipa_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl);
 		if (ret < 0)
 			IPAWANERR("Failed to teardown APPS->IPA V2X pipe\n");
 		else
@@ -5616,7 +5616,7 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 	/* clean eth pdu pipe. Change to global if needed */
 	if (rmnet_ipa3_ctx->apps_to_ipa3_eth_hdl > 0)
 	{
-		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_eth_hdl);
+		ret = ipa_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_eth_hdl);
 		if (ret < 0)
 			IPAWANERR("Failed to teardown APPS->IPA eth pipe\n");
 		else
@@ -5625,7 +5625,7 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 
 	/* clean v2x pipe */
 	if (rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl > 0) {
-		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl);
+		ret = ipa_teardown_sys_pipe(rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl);
 		if (ret < 0)
 			IPAWANERR("Failed to teardown IPA V2X->APPS pipe\n");
 		else
@@ -5633,7 +5633,7 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 	}
 
 	if (rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl > 0) {
-		ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl);
+		ret = ipa_teardown_sys_pipe(rmnet_ipa3_ctx->apps_to_ipa3_v2x_hdl);
 		if (ret < 0)
 			IPAWANERR("Failed to teardown APPS->IPA V2X pipe\n");
 		else
@@ -5872,7 +5872,7 @@ void ipa3_lcl_mdm_reboot_cb (void)
 	if (atomic_read(&ipa3_ctx->ipa_clk_vote)) {
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	/* Stopping IPA_CLIENT_APPS_USB_PROD */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_USB_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
@@ -5880,7 +5880,7 @@ void ipa3_lcl_mdm_reboot_cb (void)
 		memset(ep,0,sizeof(struct ipa3_ep_context));
 	}
 	/* Stopping IPA_CLIENT_APPS_USB_CONS */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_USB_CONS);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_USB_CONS);
 	if (ep_idx >= 0) {
 		res = ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
 		if(res < 0)
@@ -5889,14 +5889,14 @@ void ipa3_lcl_mdm_reboot_cb (void)
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_USB_CONS stopped \n");
 	}
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_WLAN1_PROD stopped \n");
 	}
 	/* Stopping IPA_CLIENT_WLAN2_CONS */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
 	if (ep_idx >= 0) {
 		res = ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
 		if(res < 0)
@@ -5906,7 +5906,7 @@ void ipa3_lcl_mdm_reboot_cb (void)
 		IPAWANDBG("IPA_CLIENT_WLAN2_CONS stopped \n");
 	}
 	/* Stopping IPA_CLIENT_WLAN2_CONS1 */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_CONS1);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS1);
 	if (ep_idx >= 0) {
 		res = ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
 		if(res < 0)
@@ -5915,7 +5915,7 @@ void ipa3_lcl_mdm_reboot_cb (void)
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_WLAN2_CONS1 stopped \n");
 	}
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
 	if (ep_idx >= 0) {
 		res = ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
 		if(res < 0)
@@ -5924,14 +5924,14 @@ void ipa3_lcl_mdm_reboot_cb (void)
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_WAN_CONS stopped \n");
 	}
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_WAN_PROD stopped \n");
 	}
 	/* Stopping IPA_CLIENT_APPS_LAN_CONS pipe */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
 	if (ep_idx >= 0) {
 		res = ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
 		if(res < 0)
@@ -5941,26 +5941,26 @@ void ipa3_lcl_mdm_reboot_cb (void)
 		IPAWANDBG("IPA_CLIENT_APPS_LAN_CONS stopped \n");
 	}
 	/* Stopping IPA_CLIENT_APPS_LAN_COAL_CONS pipe */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS);
 	if (ep_idx >= 0 ){
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_LAN_COAL_CONS stopped \n");
 	}
 	/* Stopping IPA_CLIENT_APPS_LAN_PROD pipe */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_PROD);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_APPS_LAN_PROD stopped \n");
 	}
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
 	if (ep_idx >= 0) {
 		ep = &ipa3_ctx->ep[ep_idx];
 		gsi_stop_channel(ep->gsi_chan_hdl);
 		IPAWANDBG("IPA_CLIENT_ETH_PROD stopped \n");
 	}
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
 	if (ep_idx >= 0) {
 		res = ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
 		if(res < 0)
@@ -7062,7 +7062,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 	else
 		wlan_client = IPA_CLIENT_WLAN1_CONS;
 
-	wlan_ep_idx = ipa3_get_ep_mapping( wlan_client );
+	wlan_ep_idx = ipa_get_ep_mapping( wlan_client );
 
 	if (wlan_ep_idx == -1 || wlan_ep_idx >= ipa3_get_max_num_pipes())
 		return wlan_ep_idx ;
@@ -7075,7 +7075,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 	wlan_client);
 
 
-	usb_ep_idx = ipa3_get_ep_mapping( IPA_CLIENT_USB_CONS );
+	usb_ep_idx = ipa_get_ep_mapping( IPA_CLIENT_USB_CONS );
 
 	if (usb_ep_idx == -1 || usb_ep_idx >= ipa3_get_max_num_pipes())
 		return usb_ep_idx ;
@@ -7093,7 +7093,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 		if (wigig_client > IPA_CLIENT_WIGIG4_CONS)
 			break;
 
-		ep_idx = ipa3_get_ep_mapping( wigig_client );
+		ep_idx = ipa_get_ep_mapping( wigig_client );
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			return ep_idx ;
@@ -7128,7 +7128,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 		if (wigig_client > IPA_CLIENT_WIGIG4_CONS)
 			break;
 
-		ep_idx = ipa3_get_ep_mapping( wigig_client );
+		ep_idx = ipa_get_ep_mapping( wigig_client );
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			return ep_idx ;
@@ -7167,7 +7167,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 	else
 		wlan_client = IPA_CLIENT_WLAN1_CONS;
 
-	wlan_ep_idx = ipa3_get_ep_mapping( wlan_client );
+	wlan_ep_idx = ipa_get_ep_mapping( wlan_client );
 
 	if (wlan_ep_idx == -1 || wlan_ep_idx >= ipa3_get_max_num_pipes())
 		return wlan_ep_idx ;
@@ -7191,7 +7191,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 
 		if (wigig_client > IPA_CLIENT_WIGIG4_CONS)
 			break;
-		ep_idx = ipa3_get_ep_mapping( wigig_client );
+		ep_idx = ipa_get_ep_mapping( wigig_client );
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			return ep_idx ;
@@ -7225,7 +7225,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 		if (wigig_client > IPA_CLIENT_WIGIG4_CONS)
 			break;
 
-		ep_idx = ipa3_get_ep_mapping( wigig_client );
+		ep_idx = ipa_get_ep_mapping( wigig_client );
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			return ep_idx ;
@@ -7263,7 +7263,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 	else
 		wlan_client = IPA_CLIENT_WLAN1_CONS;
 
-	wlan_ep_idx = ipa3_get_ep_mapping( wlan_client );
+	wlan_ep_idx = ipa_get_ep_mapping( wlan_client );
 
 	if (wlan_ep_idx == -1 || wlan_ep_idx >= ipa3_get_max_num_pipes())
 		return wlan_ep_idx ;
@@ -7288,7 +7288,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 		if (wigig_client > IPA_CLIENT_WIGIG4_CONS)
 			break;
 
-		ep_idx = ipa3_get_ep_mapping( wigig_client );
+		ep_idx = ipa_get_ep_mapping( wigig_client );
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			return ep_idx ;
@@ -7322,7 +7322,7 @@ static int rmnet_ipa3_query_tethering_stats_hw(
 		if (wigig_client > IPA_CLIENT_WIGIG4_CONS)
 			break;
 
-		ep_idx = ipa3_get_ep_mapping( wigig_client );
+		ep_idx = ipa_get_ep_mapping( wigig_client );
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			return ep_idx ;
@@ -7356,7 +7356,7 @@ skip_nlo_stats:
 		index = IPA_CLIENT_MHI_PRIME_TETH_CONS;
 	else
 		index = IPA_CLIENT_Q6_WAN_CONS;
-	ep_idx = ipa3_get_ep_mapping( index );
+	ep_idx = ipa_get_ep_mapping( index );
 
 	if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 		return ep_idx ;
@@ -7382,7 +7382,7 @@ skip_nlo_stats:
 
 		index = IPA_CLIENT_Q6_UL_NLO_DATA_CONS;
 
-		ep_idx = ipa3_get_ep_mapping( index );
+		ep_idx = ipa_get_ep_mapping( index );
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			return ep_idx ;
@@ -7424,7 +7424,7 @@ skip_nlo_stats:
 	else
 		index = IPA_CLIENT_Q6_WAN_CONS;
 
-	ep_idx = ipa3_get_ep_mapping( index );
+	ep_idx = ipa_get_ep_mapping( index );
 
 	if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 		return ep_idx ;
@@ -7448,7 +7448,7 @@ skip_nlo_stats:
 		ipa3_ctx->platform_type == IPA_PLAT_TYPE_MSM) {
 		index = IPA_CLIENT_Q6_UL_NLO_DATA_CONS;
 
-		ep_idx = ipa3_get_ep_mapping( index );
+		ep_idx = ipa_get_ep_mapping( index );
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			return ep_idx ;
@@ -7486,7 +7486,7 @@ skip_nlo_stats:
 		else
 			index = IPA_CLIENT_Q6_WAN_CONS;
 
-		ep_idx = ipa3_get_ep_mapping( index );
+		ep_idx = ipa_get_ep_mapping( index );
 
 		if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 			return ep_idx ;
@@ -7511,7 +7511,7 @@ skip_nlo_stats:
 				ipa3_ctx->platform_type == IPA_PLAT_TYPE_MSM) {
 			index = IPA_CLIENT_Q6_UL_NLO_DATA_CONS;
 
-			ep_idx = ipa3_get_ep_mapping( index );
+			ep_idx = ipa_get_ep_mapping( index );
 
 			if (ep_idx == -1 || ep_idx >= ipa3_get_max_num_pipes())
 				return ep_idx ;

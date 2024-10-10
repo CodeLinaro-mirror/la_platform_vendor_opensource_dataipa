@@ -991,8 +991,8 @@ static int ipa_ipsec_install_decap_flt(struct xfrm_policy *xp, u8 idx)
 		ret, rt_lookup.name, rt_lookup.hdl);
 	flt_rule->rule.rt_tbl_hdl = rt_lookup.hdl;
 
-	if (ipa3_put_rt_tbl(rt_lookup.hdl)) {
-		IPAERR("ipa3_put_rt_tbl() failure.\n");
+	if (ipa_put_rt_tbl(rt_lookup.hdl)) {
+		IPAERR("ipa_put_rt_tbl() failure.\n");
 	}
 
 	ipa_ipsec_xfrm_sp_to_ipa_attrib(xp, &flt_rule->rule.attrib, idx);
@@ -2177,8 +2177,8 @@ int ipa_ipsec_install_dl_pol_flt(void)
 		}
 		flt_rule_catch_all->rule.rt_tbl_hdl = rt_lookup.hdl;
 
-		if (ipa3_put_rt_tbl(rt_lookup.hdl)) {
-			IPAERR("ipa3_put_rt_tbl() failure.\n");
+		if (ipa_put_rt_tbl(rt_lookup.hdl)) {
+			IPAERR("ipa_put_rt_tbl() failure.\n");
 		}
 
 		ret = ipa3_add_flt_rule_usr_v2(flt_tbl, false);
@@ -2412,7 +2412,7 @@ int ipa_ipsec_ep_init_prod(void)
 	sys_in.ext_ioctl_v2 = true;
 	sys_in.int_modt = 16;
 	sys_in.int_modc = 20;
-	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
+	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
 		return -EPERM;
 	}
@@ -2431,7 +2431,7 @@ int ipa_ipsec_ep_init_prod(void)
 	sys_in.ext_ioctl_v2 = true;
 	sys_in.int_modt = 16;
 	sys_in.int_modc = 20;
-	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
+	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
 		return -EPERM;
 	}
@@ -2490,21 +2490,21 @@ void ipa_ipsec_ep_init_cons(struct work_struct *work)
 	sys_in.ipa_ep_cfg.hdr_ext.hdr_little_endian = 0;
 	sys_in.ipa_ep_cfg.metadata_mask.metadata_mask = 0xF;
 	sys_in.ipa_ep_cfg.prod_cfg.error_qmap_en = true;
-	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
+	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
 		return;
 	}
 
 	/* IPsec decap non-recoverable error (IPA->AP) */
 	sys_in.client = IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS;
-	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
+	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
 		return;
 	}
 
 	/* IPsec encap error (IPA->AP) */
 	sys_in.client = IPA_CLIENT_IPSEC_ENCAP_ERR_CONS;
-	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
+	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
 		return;
 	}
@@ -2531,7 +2531,7 @@ void ipa_ipsec_ep_init_cons(struct work_struct *work)
 	sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_offset = 0;
 	sys_in.ipa_ep_cfg.hdr_ext.hdr_little_endian = 0;
 	sys_in.ipa_ep_cfg.metadata_mask.metadata_mask = 0xFF000000;
-	if (ipa3_setup_sys_pipe(&sys_in, &clnt_hdl)) {
+	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
 		return;
 	}
@@ -2631,7 +2631,7 @@ static int ipa_ipsec_setup_sa_mismatch_err_qmap_hdr(void)
 	memcpy(hdr_entry->hdr, &sa_mismatch_err_qmap_hdr, sizeof(sa_mismatch_err_qmap_hdr));
 	hdr_entry->hdr_len = sizeof(sa_mismatch_err_qmap_hdr);
 
-	if (ipa3_add_hdr(hdr)) {
+	if (ipa_add_hdr(hdr)) {
 		IPAERR("fail to add SA mismatch error QMAP header\n");
 		ret = -EPERM;
 		goto bail;
@@ -2755,8 +2755,8 @@ static int ipa_ipsec_fnr_init(void)
 		IPADBG_LOW("encap_rt[IPv%d] = %d\n", ip == IPA_IP_v4 ? 4 : 6,
 			ipa3_ctx->ipsec->encap_rt[ip]);
 
-		if (ipa3_put_rt_tbl(rt_lookup.hdl)) {
-			IPAERR("ipa3_put_rt_tbl() failure.\n");
+		if (ipa_put_rt_tbl(rt_lookup.hdl)) {
+			IPAERR("ipa_put_rt_tbl() failure.\n");
 		}
 	}
 
@@ -2813,8 +2813,8 @@ static int ipa_ipsec_fnr_init(void)
 		IPADBG_LOW("decap_rt[IPv%d] = %d\n", ip == IPA_IP_v4 ? 4 : 6,
 			ipa3_ctx->ipsec->decap_rt[ip]);
 
-		if (ipa3_put_rt_tbl(rt_lookup.hdl)) {
-			IPAERR("ipa3_put_rt_tbl() failure.\n");
+		if (ipa_put_rt_tbl(rt_lookup.hdl)) {
+			IPAERR("ipa_put_rt_tbl() failure.\n");
 		}
 	}
 
@@ -3128,9 +3128,9 @@ int ipa_ipsec_enable(void)
 	 *  - DECAPS_NEXT_HDR_CHECK_DISABLE field with 1 to disable checking
 	 *  for Next-header errors for traffic from matching consumer.
 	 */
-	ipsec_ep_cfg = (u32)(ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS)) |
-		(u32)(ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS)) << 8 |
-		(u32)(ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_ENCAP_ERR_CONS)) << 16;
+	ipsec_ep_cfg = (u32)(ipa_get_ep_mapping(IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS)) |
+		(u32)(ipa_get_ep_mapping(IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS)) << 8 |
+		(u32)(ipa_get_ep_mapping(IPA_CLIENT_IPSEC_ENCAP_ERR_CONS)) << 16;
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	for (n = 0; n < IPA6_PROD_PIPES_NUM; n++) {
 		ipahal_write_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, n, ipsec_ep_cfg);

@@ -10,6 +10,7 @@
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/if_vlan.h>
 #include "ipa.h"
 #include <linux/msm_gsi.h>
 #include <linux/ipa_mhi.h>
@@ -227,7 +228,7 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 #ifdef IPA_CLIENT_MHI_COAL_CONS
 	/* share default pipe event ring for MHI coal pipe */
 	if(client == IPA_CLIENT_MHI_COAL_CONS) {
-		ep_def = &ipa3_ctx->ep[ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS)];
+		ep_def = &ipa3_ctx->ep[ipa_get_ep_mapping(IPA_CLIENT_MHI_CONS)];
 		ep->gsi_evt_ring_hdl = ep_def->gsi_evt_ring_hdl;
 		*params->cached_gsi_evt_ring_hdl = ep->gsi_evt_ring_hdl;
 	} else {
@@ -428,7 +429,7 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 		/* Configure the MHI pipe like ETH pipe if mhi_eth is enabled */
 		if(ipa3_ctx->ipa_mhi_eth) {
 			//get VLAN mode
-			res = ipa3_is_vlan_mode(IPA_VLAN_IF_MHI_ETH, &vlan_mode);
+			res = ipa_is_vlan_mode(IPA_VLAN_IF_MHI_ETH, &vlan_mode);
 			if (res) {
 				IPA_MHI_ERR("Could not determine IPA VLAN mode\n");
 				return res;

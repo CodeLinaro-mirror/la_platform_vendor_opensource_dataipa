@@ -1299,7 +1299,7 @@ int ipa_flt_get_nxt_rnd_idx(u32 tbl_id)
 	int tbl_idx;
 
 	if (tbl_id < IPA_CLIENT_MAX)
-		return ipa3_get_ep_mapping(tbl_id);
+		return ipa_get_ep_mapping(tbl_id);
 
 	tbl_idx = tbl_id - IPA_CLIENT_MAX + IPA6_NXT_FLT_TBL_START;
 	if (tbl_idx > IPA6_NXT_FLT_TBL_END) {

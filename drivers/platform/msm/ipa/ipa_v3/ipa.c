@@ -1348,10 +1348,10 @@ static int ipa3_send_pdn_dscp_msg(unsigned long usr_param)
 	IPADBG("type %d, add:%d\n", msg_meta.msg_type,
 		pdn_dscp_info->add);
 
-	retval = ipa3_send_msg(&msg_meta, buff,
+	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_pdn_config_msg_free_cb);
 	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
 			retval,
 			msg_meta.msg_type);
 		kfree(buff);
@@ -2021,10 +2021,10 @@ static int ipa3_send_qos_param_msg(unsigned long usr_param)
 		return -EINVAL;
 	}
 
-	retval = ipa3_send_msg(&msg_meta, buff,
+	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_qos_param_msg_free_cb);
 	if (retval) {
-		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
 			retval,
 			msg_meta.msg_type);
 		kfree(buff);
@@ -3533,10 +3533,10 @@ int ipa3_send_ext_router_info(struct ipa_ioc_ext_router_info *info)
 	/*
 	 * Post event to ipacm
 	 */
-	res = ipa3_send_msg(&msg_meta, info, ipa3_general_free_cb);
+	res = ipa_send_msg(&msg_meta, info, ipa3_general_free_cb);
 
 	if (res) {
-		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		IPAERR_RL("ipa_send_msg failed: %d\n", res);
 		kfree(info);
 		goto done;
 	}
@@ -3575,10 +3575,10 @@ int ipa3_send_general(uint8_t event_type, void *param, size_t size)
 	/*
 	 * Post event to ipacm
 	 */
-	res = ipa3_send_msg(&msg_meta, param, ipa3_general_free_cb);
+	res = ipa_send_msg(&msg_meta, param, ipa3_general_free_cb);
 
 	if (res != 0) {
-		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		IPAERR_RL("ipa_send_msg failed: %d\n", res);
 		kfree(param);
 		goto done;
 	}
@@ -6671,10 +6671,10 @@ static void ipa3_v2x_vm_pipe_flow_control(bool delay)
 	int code = 0, result;
 	const struct ipa_gsi_ep_config *gsi_ep_cfg;
 
-	ep_idx = ipa3_get_ep_mapping(client_id);
+	ep_idx = ipa_get_ep_mapping(client_id);
 	if (ep_idx == -1)
 		return;
-	gsi_ep_cfg = ipa3_get_gsi_ep_info(client_id);
+	gsi_ep_cfg = ipa_get_gsi_ep_info(client_id);
 	if (!gsi_ep_cfg) {
 		IPAERR("failed to get GSI config\n");
 		ipa_assert();
@@ -6703,7 +6703,7 @@ static void ipa3_v2x_vm_pipe_delay(bool delay)
 	memset(&ep_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 	ep_ctrl.ipa_ep_delay = delay;
 
-	ep_idx = ipa3_get_ep_mapping(client_id);
+	ep_idx = ipa_get_ep_mapping(client_id);
 	if (ep_idx == -1)
 		return;
 
@@ -6728,7 +6728,7 @@ static void ipa3_v2x_vm_avoid_holb(void)
 	if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_2)
 		ipa3_cal_ep_holb_scale_base_val(ep_holb.tmr_val, &ep_holb);
 
-	ep_idx = ipa3_get_ep_mapping(client_id);
+	ep_idx = ipa_get_ep_mapping(client_id);
 	if (ep_idx == -1)
 		return;
 
@@ -6777,11 +6777,11 @@ static void ipa3_halt_v2x_vm_gsi_channels(bool prod)
 		client_id = clients[client_idx];
 		if ((client_id == IPA_CLIENT_APPS_WAN_V2X_CONS) ||
 			((client_id == IPA_CLIENT_APPS_WAN_V2X_PROD) && prod)) {
-			ep_idx = ipa3_get_ep_mapping(client_id);
+			ep_idx = ipa_get_ep_mapping(client_id);
 			if (ep_idx == -1)
 				continue;
 
-			gsi_ep_cfg = ipa3_get_gsi_ep_info(client_id);
+			gsi_ep_cfg = ipa_get_gsi_ep_info(client_id);
 			if (!gsi_ep_cfg) {
 				IPAERR("failed to get GSI config\n");
 				ipa_assert();
@@ -7788,7 +7788,7 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	if (_IOC_TYPE(cmd) != IPA_IOC_MAGIC)
 		return -ENOTTY;
 
-	if (!ipa3_is_ready()) {
+	if (!ipa_is_ready()) {
 		IPAERR("IPA not ready, waiting for init completion\n");
 		wait_for_completion(&ipa3_ctx->init_completion_obj);
 	}
@@ -9926,7 +9926,6 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 {
 	int result;
 	struct gsi_per_props gsi_props;
-	bool reg = false;
 
 	if (ipa3_ctx == NULL) {
 		IPAERR("IPA driver haven't initialized\n");
@@ -10035,16 +10034,10 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 	mutex_lock(&ipa3_ctx->lock);
 	ipa3_ctx->ipa_initialization_complete = true;
-	if (ipa3_ctx->clients_registered)
-		reg = true;
 	mutex_unlock(&ipa3_ctx->lock);
-	if (reg) {
-		IPADBG("register to fmwk\n");
-		ipa3_register_to_fmwk();
-	}
 
 #ifdef CONFIG_DEEPSLEEP
-	if (!ipa3_is_ready())
+	if (!ipa_is_ready())
 		ipa_fmwk_deepsleep_exit_ipa();
 #endif
 	complete_all(&ipa3_ctx->init_completion_obj);
@@ -14216,11 +14209,11 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	phys_addr_t iova;
 	phys_addr_t pa;
 #endif
-	u32 iova_ap_mapping[2];
+	u32 iova_ap_mapping[4];
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
 #endif
-	u32 geometry_ap_mapping[2];
+	u32 geometry_ap_mapping[4];
 
 	IPADBG("AP CB PROBE dev=%pK\n", dev);
 
@@ -14262,9 +14255,9 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
-			iova_ap_mapping, 2) == 0) {
-		cb->va_start = iova_ap_mapping[0];
-		cb->va_size  = iova_ap_mapping[1];
+			iova_ap_mapping, 4) == 0) {
+		cb->va_start = iova_ap_mapping[1];
+		cb->va_size  = iova_ap_mapping[3];
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
 
@@ -14272,8 +14265,8 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 		   dev, cb->va_start, cb->va_size);
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-geometry",
-			geometry_ap_mapping, 2) == 0) {
-		cb->geometry_start = geometry_ap_mapping[0];
+			geometry_ap_mapping, 4) == 0) {
+		cb->geometry_start = geometry_ap_mapping[1];
 		cb->geometry_end  = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
 	} else {
 		IPADBG("AP CB PROBE Geometry not defined using max!\n");
@@ -14482,11 +14475,11 @@ static int ipa_smmu_v2x_cb_probe(struct device *dev)
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_V2X);
 	int fast = 0;
 	int bypass = 0;
-	u32 iova_ap_mapping[2];
+	u32 iova_ap_mapping[4];
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
 #endif
-	u32 geometry_ap_mapping[2];
+	u32 geometry_ap_mapping[4];
 
 	IPAERR("V2X CB PROBE dev=%pK\n", dev);
 
@@ -14526,9 +14519,9 @@ static int ipa_smmu_v2x_cb_probe(struct device *dev)
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
-			iova_ap_mapping, 2) == 0) {
-		cb->va_start = iova_ap_mapping[0];
-		cb->va_size  = iova_ap_mapping[1];
+			iova_ap_mapping, 4) == 0) {
+		cb->va_start = iova_ap_mapping[1];
+		cb->va_size  = iova_ap_mapping[3];
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
 
@@ -14536,9 +14529,9 @@ static int ipa_smmu_v2x_cb_probe(struct device *dev)
 		   dev, cb->va_start, cb->va_size);
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-geometry",
-			geometry_ap_mapping, 2) == 0) {
-		cb->geometry_start = geometry_ap_mapping[0];
-		cb->geometry_end  = geometry_ap_mapping[1];
+			geometry_ap_mapping, 4) == 0) {
+		cb->geometry_start = geometry_ap_mapping[1];
+		cb->geometry_end  = geometry_ap_mapping[3];
 	} else {
 		IPAERR_RL("V2X CB PROBE Geometry not defined using max!\n");
 		cb->geometry_start = 0;

@@ -408,7 +408,7 @@ static void ipa3_handle_modem_init_cmplt_req(struct qmi_handle *qmi_handle,
 		req.num_eps_valid = true;
 		req.num_eps = 1;
 		ep_info = &req.ep_info[0];
-		ep_info->ep_id = ipa3_get_ep_mapping(IPA_CLIENT_IPSEC_ENCAP_PROD);
+		ep_info->ep_id = ipa_get_ep_mapping(IPA_CLIENT_IPSEC_ENCAP_PROD);
 		ep_info->ic_type = DATA_IC_TYPE_AP_V01;
 		ep_info->ep_type = DATA_EP_DESC_TYPE_EMB_CONS_V01;
 		ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
@@ -953,7 +953,7 @@ int ipa3_qmi_eth_backhaul_info_send(struct ipa_eth_backhaul_info_req_msg_v01 *re
 	resp_desc.max_msg_len =IPA_ETH_BACKHAUL_INFO_RESP_MSG_V01_MAX_MSG_LEN;
 	resp_desc.msg_id = QMI_IPA_ETH_BACKHAUL_INFO_RESP_V01;
 	resp_desc.ei_array = ipa3_eth_backhaul_info_resp_msg_v01_ei;
-	pipe = ipa3_get_ep_mapping(req->eth_pipe);
+	pipe = ipa_get_ep_mapping(req->eth_pipe);
 	if(pipe < 0){
 		IPAWANDBG("Invalid pipe %d\n", req->eth_pipe);
 	}

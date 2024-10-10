@@ -171,9 +171,9 @@ static void ipa3_collect_default_coal_recycle_stats_wq(struct work_struct *work)
 	int ep_idx = -1;
 
 	/* For targets which don't require coalescing pipe */
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 	if (ep_idx == -1)
-		ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
+		ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS);
 
 	if (ep_idx == -1)
 		sys = NULL;
@@ -257,7 +257,7 @@ static void ipa3_collect_low_lat_data_recycle_stats_wq(struct work_struct *work)
 	int stat_interval_index;
 	int ep_idx;
 
-	ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS);
+	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS);
 	if (ep_idx == -1)
 		sys = NULL;
 	else
@@ -2321,7 +2321,7 @@ void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client)
 		return;
 	}
 
-	gsi_ep_cfg = ipa3_get_gsi_ep_info(client);
+	gsi_ep_cfg = ipa_get_gsi_ep_info(client);
 
 	if (!gsi_ep_cfg) {
 		IPAERR("failed to get GSI config\n");
@@ -4059,7 +4059,7 @@ int xmit_ipsec_frag_ul(struct sk_buff *skb)
 	meta.pkt_init_dst_ep_valid = 1;
 	meta.pkt_init_dst_ep_remote = 1;
 	meta.pkt_init_dst_ep = 0xff;
-	return ipa3_tx_dp(IPA_CLIENT_IPSEC_ENCAP_PROD, skb, &meta);
+	return ipa_tx_dp(IPA_CLIENT_IPSEC_ENCAP_PROD, skb, &meta);
 }
 #endif
 
