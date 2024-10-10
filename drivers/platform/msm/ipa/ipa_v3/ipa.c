@@ -8317,11 +8317,6 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EPERM;
 			cmd = IPA_IOC_UPDATE_PDN_DSCP_MAPPING;
 			break;
-		case IPA_IOCTL_ADD_VLAN_PRIORITY:
-			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_VLAN_PRIORITY))
-				return -EPERM;
-			cmd = IPA_IOC_ADD_VLAN_PRIORITY;
-			break;
 		case IPA_IOCTL_GET_CT_IN_SRAM_INFO:
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_GET_CT_IN_SRAM_INFO))
 				return -EPERM;
