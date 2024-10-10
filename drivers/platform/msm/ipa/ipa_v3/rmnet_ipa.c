@@ -8498,7 +8498,8 @@ static int rmnet_ipa_sysfs_init(void)
 	}
 	return ret;
 }
-static void rmnet_ipa_sysfs_fini(void)
+
+static void rmnet_ipa_sysfs_destroy(void)
 {
 		sysfs_remove_group(kernel_kobj, &ipa_rmnet_attr_group);
 }

@@ -14118,9 +14118,10 @@ static void ipa3_deepsleep_suspend(void)
 	/*Destroying ipa hal module*/
 	ipahal_destroy();
 	ipa3_ctx->ipa_initialization_complete = false;
-	ipa3_debugfs_remove();
 #ifndef CONFIG_DEBUG_FS
 	ipa_sysfs_deinit();
+#else
+	ipa3_debugfs_remove();
 #endif
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
