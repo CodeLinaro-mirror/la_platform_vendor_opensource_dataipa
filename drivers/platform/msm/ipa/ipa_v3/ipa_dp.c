@@ -4681,7 +4681,7 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 	}
 
 /* Incremental offset for mac_addr4_valid bit. */
-#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT 8
+#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT 4
 #define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_PINE 74
 #define IPA_WDI_AST_MAC_ADDR4_VALID_MSK 0x20
 
