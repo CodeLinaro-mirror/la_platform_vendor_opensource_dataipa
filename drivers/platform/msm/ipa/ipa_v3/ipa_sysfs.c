@@ -235,6 +235,49 @@ static ssize_t holb_store(struct device *dev, struct device_attribute *attr, con
 	return count;
 }
 
+static ssize_t holb_uS_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	struct ipa_ep_cfg_holb holb;
+	u32 en;
+	u32 tmr_val;
+	u32 ep_idx;
+	char *sptr, *token;
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+	memcpy(dbg_buff, ubuf, count);
+
+	dbg_buff[count] = '\0';
+
+	sptr = dbg_buff;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &ep_idx))
+		return -EINVAL;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &en))
+		return -EINVAL;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &tmr_val))
+		return -EINVAL;
+
+	holb.en = en;
+	holb.tmr_val = tmr_val;
+
+	ipa3_cfg_ep_holb_uS(ep_idx, &holb);
+
+	return count;
+}
+
 static ssize_t holb_monitor_client_param_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
 	struct ipa_uc_holb_client_info holb_client;
@@ -3980,6 +4023,145 @@ static ssize_t ipsec_active_sa_show(struct device *dev, struct device_attribute 
 
 #endif
 
+static ssize_t hw_type_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        scnprintf(ubuf, sizeof(uint32_t),"%d", ipa3_ctx->ipa_hw_type);
+        return sizeof(uint32_t);
+}
+
+static ssize_t enable_clock_scaling_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        scnprintf(ubuf, sizeof(uint32_t),"%d", ipa3_ctx->enable_clock_scaling);
+        return sizeof(uint32_t);
+}
+
+static ssize_t tx_wrapper_cache_max_size_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        scnprintf(ubuf, sizeof(uint32_t),"%d", ipa3_ctx->tx_wrapper_cache_max_size);
+        return sizeof(uint32_t);
+}
+
+static ssize_t enable_napi_chain_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        scnprintf(ubuf, sizeof(uint32_t),"%d", ipa3_ctx->enable_napi_chain);
+        return sizeof(uint32_t);
+}
+
+static ssize_t clock_scaling_bw_threshold_nominal_mbps_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        scnprintf(ubuf, sizeof(uint32_t),"%d", ipa3_ctx->ctrl->clock_scaling_bw_threshold_nominal);
+        return sizeof(uint32_t);
+}
+
+static ssize_t clock_scaling_bw_threshold_turbo_mbps_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        scnprintf(ubuf, sizeof(uint32_t),"%d", ipa3_ctx->ctrl->clock_scaling_bw_threshold_turbo);
+        return sizeof(uint32_t);
+}
+
+static ssize_t clk_rate_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        scnprintf(ubuf, sizeof(uint32_t),"%d", ipa3_ctx->curr_ipa_clk_rate);
+        return sizeof(uint32_t);
+}
+
+static ssize_t enable_clock_scaling_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+        int ret = -1;
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        ret = kstrtou32(ubuf, 0, &ipa3_ctx->enable_clock_scaling);
+        if(!ret)
+                return count;
+
+        return ret;
+}
+
+static ssize_t tx_wrapper_cache_max_size_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+        int ret = -1;
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        ret = kstrtou32(ubuf, 0, &ipa3_ctx->tx_wrapper_cache_max_size);
+        if(!ret)
+                return count;
+
+        return ret;
+}
+
+static ssize_t enable_napi_chain_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+        int ret = -1;
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        ret = kstrtou32(ubuf, 0, &ipa3_ctx->enable_napi_chain);
+        if(!ret)
+                return count;
+
+        return ret;
+}
+
+static ssize_t clock_scaling_bw_threshold_nominal_mbps_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+        int ret = -1;
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        ret = kstrtou32(ubuf, 0, &ipa3_ctx->ctrl->clock_scaling_bw_threshold_nominal);
+        if(!ret)
+                return count;
+
+        return ret;
+}
+
+static ssize_t clock_scaling_bw_threshold_turbo_mbps_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+        int ret = -1;
+        if(ipa3_ctx == NULL) {
+                return -EINVAL;
+        }
+
+        ret = kstrtou32(ubuf, 0, &ipa3_ctx->ctrl->clock_scaling_bw_threshold_turbo);
+        if(!ret)
+                return count;
+
+        return ret;
+}
 
 static ssize_t eth_status_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
@@ -4399,6 +4581,8 @@ static DEVICE_ATTR_RO(ip6_flt);
 static DEVICE_ATTR_RO(ip6_flt_hw);
 static DEVICE_ATTR_RO(stats);
 static DEVICE_ATTR_RO(wstats);
+static DEVICE_ATTR_RO(hw_type);
+static DEVICE_ATTR_RO(clk_rate);
 static DEVICE_ATTR_RO(odlstats);
 static DEVICE_ATTR_RO(page_recycle_stats);
 static DEVICE_ATTR_RO(lan_coal_stats);
@@ -4443,6 +4627,7 @@ static DEVICE_ATTR_RO(iemac_1_err_status);
 /* Write only sysfs attributes */
 
 static DEVICE_ATTR_WO(holb);
+static DEVICE_ATTR_WO(holb_uS);
 static DEVICE_ATTR_WO(holb_monitor_client_param);
 static DEVICE_ATTR_WO(holb_monitor_client_add_del);
 static DEVICE_ATTR_WO(enable_low_prio_print);
@@ -4454,6 +4639,11 @@ static DEVICE_ATTR_WO(ipsec_set_sa_info_index);
 
 /* RW sysfs attributes */
 static DEVICE_ATTR_RW(active_clients);
+static DEVICE_ATTR_RW(enable_clock_scaling);
+static DEVICE_ATTR_RW(tx_wrapper_cache_max_size);
+static DEVICE_ATTR_RW(enable_napi_chain);
+static DEVICE_ATTR_RW(clock_scaling_bw_threshold_nominal_mbps);
+static DEVICE_ATTR_RW(clock_scaling_bw_threshold_turbo_mbps);
 static DEVICE_ATTR_RW(ep_reg);
 static DEVICE_ATTR_RW(keep_awake);
 static DEVICE_ATTR_RW(mpm_ring_size_dl);
@@ -4495,6 +4685,14 @@ static struct attribute *ipa_attrs[] = {
 	&dev_attr_ip6_flt_hw.attr,
 	&dev_attr_stats.attr,
 	&dev_attr_wstats.attr,
+	&dev_attr_holb_uS.attr,
+        &dev_attr_hw_type.attr,
+        &dev_attr_enable_clock_scaling.attr,
+        &dev_attr_tx_wrapper_cache_max_size.attr,
+        &dev_attr_enable_napi_chain.attr,
+        &dev_attr_clock_scaling_bw_threshold_nominal_mbps.attr,
+        &dev_attr_clock_scaling_bw_threshold_turbo_mbps.attr,
+        &dev_attr_clk_rate.attr,
 	&dev_attr_odlstats.attr,
 	&dev_attr_page_recycle_stats.attr,
 	&dev_attr_lan_coal_stats.attr,
@@ -4557,17 +4755,21 @@ int ipa_sysfs_init()
 	int ret = -1;
 
 	/* Create sysfs file in /sys/kernel/ipa */
-	
 	ret = sysfs_create_group(kernel_kobj, &ipa_attr_group);
 	if (ret != 0) {
 		pr_err("Fail to create IPA syfs attribute\n");
 	}
+
+	ipa_sysfs_init_stats();
+	ipa3_wigig_init_sysfs_i();
 	return ret;
 }
 
 void ipa_sysfs_deinit()
 {
-		sysfs_remove_group(kernel_kobj, &ipa_attr_group);
+	sysfs_remove_group(kernel_kobj, &ipa_attr_group);
+	ipa_sysfs_deinit_stats();
+	ipa3_wigig_fini_sysfs_i();
 }
 
 #endif
