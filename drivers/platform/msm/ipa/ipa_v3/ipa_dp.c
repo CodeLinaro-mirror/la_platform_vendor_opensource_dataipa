@@ -323,7 +323,7 @@ static int ipa3_write_done_common(struct ipa3_sys_context *sys,
 	void (*callback)(void *user1, int user2);
 
 	if (unlikely(tx_pkt == NULL)) {
-		IPAERR("tx_pkt is NULL\n");
+		IPAERR_RL("tx_pkt is NULL\n");
 		return 0;
 	}
 
