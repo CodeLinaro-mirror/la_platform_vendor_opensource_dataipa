@@ -3467,9 +3467,14 @@ int ipa3_uc_wdi_get_dbpa(struct ipa_wdi_db_params *out);
  */
 int ipa3_uc_reg_rdyCB(struct ipa_wdi_uc_ready_params *param);
 /*
- * To de-register uC ready callback
+ * To de-register uC ready callback.
  */
 int ipa3_uc_dereg_rdyCB(void);
+
+/*
+ * To deregister uc callback per instance basis.
+ */
+int ipa3_uc_dereg_per_inst_rdyCB(int);
 
 int ipa_create_uc_smmu_mapping(int res_idx, bool wlan_smmu_en,
 		phys_addr_t pa, struct sg_table *sgt, size_t len, bool device,
