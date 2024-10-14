@@ -790,14 +790,13 @@ static int ipa_ipsec_install_decap_rt(const struct xfrm_state *x, u8 idx)
 		rt_rule->rule.attrib.ext_attrib_mask = IPA_FLT_EXT_NAT_T;
 		if (ip_type == IPA_IP_v4) {
 			rt_rule->rule.attrib.attrib_mask |=
-				IPA_FLT_PROTOCOL | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT;
+				IPA_FLT_PROTOCOL | IPA_FLT_SRC_PORT;
 			rt_rule->rule.attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
 			rt_rule->rule.attrib.attrib_mask |=
-				IPA_FLT_NEXT_HDR | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT;
+				IPA_FLT_NEXT_HDR | IPA_FLT_SRC_PORT;
 			rt_rule->rule.attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
-		rt_rule->rule.attrib.dst_port = be16_to_cpu(x->encap->encap_dport);
 		rt_rule->rule.attrib.src_port = be16_to_cpu(x->encap->encap_sport);
 	} else {
 		if (ip_type == IPA_IP_v4) {
@@ -2773,15 +2772,14 @@ static int ipa_ipsec_fnr_init(void)
 		rt_rule->rule.esp_after_udp = 1;
 		if (ip == IPA_IP_v4) {
 			rt_rule->rule.attrib.attrib_mask =
-				IPA_FLT_PROTOCOL | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT;
+				IPA_FLT_PROTOCOL | IPA_FLT_SRC_PORT;
 			rt_rule->rule.attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
 			rt_rule->rule.attrib.attrib_mask =
-				IPA_FLT_NEXT_HDR | IPA_FLT_SRC_PORT | IPA_FLT_DST_PORT;
+				IPA_FLT_NEXT_HDR | IPA_FLT_SRC_PORT;
 			rt_rule->rule.attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
 		/* 4500 is the standard NAT-T port */
-		rt_rule->rule.attrib.dst_port = 4500;
 		rt_rule->rule.attrib.src_port = 4500;
 
 		/* Catch all */
