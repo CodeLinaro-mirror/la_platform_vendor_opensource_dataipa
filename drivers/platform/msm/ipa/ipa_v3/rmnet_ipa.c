@@ -3724,7 +3724,11 @@ wan_ioctl_init_err:
 	return ret;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0))
+static void ipa3_wwan_remove(struct platform_device *pdev)
+#else
 static int ipa3_wwan_remove(struct platform_device *pdev)
+#endif
 {
 	int ret, j;
 
@@ -3797,7 +3801,9 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 	rmnet_ipa3_ctx->dl_csum_offload_enabled = false;
 	atomic_set(&rmnet_ipa3_ctx->is_initialized, 0);
 	IPAWANINFO("rmnet_ipa completed deinitialization\n");
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 10, 0))
 	return 0;
+#endif
 }
 
 /**
