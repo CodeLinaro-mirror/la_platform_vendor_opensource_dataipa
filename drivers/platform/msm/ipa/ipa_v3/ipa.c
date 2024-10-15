@@ -8255,8 +8255,6 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG(":mpm init init ok\n");
 
-	ipa3_usb_init();
-
 	mutex_lock(&ipa3_ctx->lock);
 	ipa3_ctx->ipa_initialization_complete = true;
 	mutex_unlock(&ipa3_ctx->lock);
@@ -9797,6 +9795,12 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_ipa_dma_setup;
 	}
 
+	result = ipa3_usb_init();
+	if (result) {
+		IPAERR("Failed to setup USB\n");
+		result = -ENODEV;
+		goto fail_ipa_usb_setup;
+	}
 	/*
 	 * We can't register the GSI driver yet, as it expects
 	 * the GSI FW to be up and running before the registration.
@@ -9912,6 +9916,8 @@ fail_odl_init:
 	cdev_del(cdev);
 fail_cdev_add:
 fail_gsi_pre_fw_load_init:
+	ipa3_usb_exit();
+fail_ipa_usb_setup:
 	ipa3_dma_shutdown();
 fail_ipa_dma_setup:
 	ipa_pm_destroy();
@@ -12186,7 +12192,6 @@ static void ipa3_deepsleep_suspend(void)
 
 	/* To allow default routing table delection using this flag */
 	ipa3_ctx->deepsleep = true;
-	ipa3_usb_exit();
 	/*Disabling the LAN NAPI*/
 	ipa3_disable_napi_lan_rx();
 	/*NOt allow uC related operations until uC load again*/
