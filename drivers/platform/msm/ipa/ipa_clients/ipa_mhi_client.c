@@ -3112,12 +3112,16 @@ static void ipa_mhi_destroy_internal(void)
 #else
 	ipa_mhi_sysfs_destroy();
 #endif
-	destroy_workqueue(ipa_mhi_client_ctx->wq);
+	if (ipa_mhi_client_ctx->wq)
+		destroy_workqueue(ipa_mhi_client_ctx->wq);
 	if(ipa3_ctx->ipa_mhi_eth)
 	{
 		mhi_ipa_rules_destroy(ipa_mhi_client_ctx);
-		unregister_netdev(ipa_mhi_client_ctx->net);
-		free_netdev(ipa_mhi_client_ctx->net);
+		if (ipa_mhi_client_ctx->net)
+		{
+			unregister_netdev(ipa_mhi_client_ctx->net);
+			free_netdev(ipa_mhi_client_ctx->net);
+		}
 	}
 	else
 	{
@@ -3297,11 +3301,6 @@ static int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 		return -EINVAL;
 	}
 
-	if (ipa_mhi_client_ctx) {
-		IPA_MHI_ERR("already initialized\n");
-		return -EPERM;
-	}
-
 	IPA_MHI_DBG("notify = %pS priv = %pK\n", params->notify, params->priv);
 	IPA_MHI_DBG("msi: addr_lo = 0x%x addr_hi = 0x%x\n",
 		params->msi.addr_low, params->msi.addr_hi);
@@ -3312,6 +3311,11 @@ static int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 	IPA_MHI_DBG("first_er_idx = 0x%x\n", params->first_er_idx);
 	IPA_MHI_DBG("assert_bit40=%d\n", params->assert_bit40);
 	IPA_MHI_DBG("test_mode=%d\n", params->test_mode);
+
+	if (ipa_mhi_client_ctx) {
+		IPA_MHI_ERR("mhi_ctx already initialized, cleanup MHI for re-init\n");
+		ipa_mhi_destroy_internal();
+	}
 
 	if(ipa3_ctx->ipa_mhi_eth)
 	{
