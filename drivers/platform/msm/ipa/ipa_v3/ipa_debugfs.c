@@ -113,8 +113,6 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_DONE_RESTORE_EVENT),
 	__stringify(IPA_SET_EXT_ROUTER_MODE_EVENT),
 	__stringify(IPA_ENABLE_ETH_PDU_MODE_EVENT),
-	__stringify(IPA_VLAN_PRIORITY_UPDATE_EVENT),
-	__stringify(IPA_VLAN_CONFIG_READY),
 	__stringify(IPA_IPSEC_UL_FLT_ADD_EVENT),
 	__stringify(IPA_IPSEC_UL_FLT_DEL_EVENT),
 	__stringify(IPA_PDN_DSCP_ADD_EVENT),
