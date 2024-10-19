@@ -79,10 +79,10 @@ enum ipa_ap_ingress_ep_enum {
 static const struct rmnet_ingress_param rmnet_ingress_cfg ={
 	.ingress_ep_type = 1,
 	.cs_offload_en = 1,
-	.buff_size = 4096,
-	.agg_byte_limit = 8192,
+	.buff_size = 8192,
+	.agg_byte_limit = 32000,
 	.agg_time_limit = 500,
-	.agg_pkt_limit = 63,
+	.agg_pkt_limit = 30,
 	.int_modt = 16,
 	.int_modc = 20,};
 
@@ -406,7 +406,6 @@ static void ipa3_del_qmap_hdr(uint32_t hdr_hdl)
 	else
 		IPAWANDBG("header deletion done\n");
 
-	rmnet_ipa3_ctx->qmap_hdr_hdl = 0;
 	kfree(del_hdr);
 }
 
@@ -1939,7 +1938,7 @@ void apps_ipa_tx_complete_notify(void *priv,
 	}
 
 	if (evt != IPA_WRITE_DONE) {
-		IPAWANERR("unsupported evt on Tx callback, Drop the packet\n");
+		IPAWANERR_RL("unsupported evt on Tx callback, Drop the packet\n");
 		dev_kfree_skb_any(skb);
 		dev->stats.tx_dropped++;
 		return;

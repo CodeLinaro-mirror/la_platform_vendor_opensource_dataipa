@@ -8317,11 +8317,6 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EPERM;
 			cmd = IPA_IOC_UPDATE_PDN_DSCP_MAPPING;
 			break;
-		case IPA_IOCTL_ADD_VLAN_PRIORITY:
-			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_VLAN_PRIORITY))
-				return -EPERM;
-			cmd = IPA_IOC_ADD_VLAN_PRIORITY;
-			break;
 		case IPA_IOCTL_GET_CT_IN_SRAM_INFO:
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_GET_CT_IN_SRAM_INFO))
 				return -EPERM;
@@ -9712,7 +9707,8 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 			usleep_range(IPA_MSGQ_MIN_SLEEP,
 					IPA_MSGQ_MAX_SLEEP);
 			ret = gh_msgq_send(msgq_desc->msgq_hdl, &msg, sizeof(msg), 0);
-			IPAERR("send msgq failed %d time ret %d for msg_type %d\n", i, ret, msg_type);
+			if(ret < 0)
+				IPAERR("send msgq failed %d time ret %d for msg_type %d\n", i, ret, msg_type);
 		}
 	}
 
@@ -11099,6 +11095,7 @@ ssize_t ipa3_update_config(const char *buff)
 		{
 			IPADBG("Platform type is RDKB\n");
 			ipa3_ctx->ipa_config_is_rdkb = true;
+			ipa3_ctx->enable_napi_chain = 0;
 			return count;
 		}
 

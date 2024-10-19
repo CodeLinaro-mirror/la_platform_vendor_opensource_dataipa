@@ -209,7 +209,7 @@ int ipa_ipsec_stop_sa(u8 idx, enum ipa_ipsec_sa_type sa_type)
 /* Lookup for next free HW SA index, return IPA_IPSEC_MAX_SA_NUM, if not found */
 static u8 _ipa_ipsec_next_free_sa(enum ipa_ipsec_sa_type sa_type)
 {
-	u8 idx = 0;
+	u8 idx = 1; // Index 0 causes false positive ECN errors
 	while (ipa3_ctx->ipsec->sa_db[sa_type][idx].x && idx < IPA_IPSEC_MAX_SA_NUM)
 		idx++;
 
@@ -403,7 +403,7 @@ static u8 ipa_ipsec_find_match_sa(const struct xfrm_tmpl *tmpl, u16 family,
 
 	IPADBG_LOW("Start\n");
 
-	for (idx = 0; idx < IPA_IPSEC_MAX_SA_NUM; idx++) {
+	for (idx = 1; idx < IPA_IPSEC_MAX_SA_NUM; idx++) {  // Index 0 causes false positive ECN errors
 		if (ipa3_ctx->ipsec->sa_db[type][idx].x &&
 		    ipa_ipsec_tmpl_sa_match(tmpl, ipa3_ctx->ipsec->sa_db[type][idx].x))
 			return idx;
@@ -1008,7 +1008,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 	int rc = 0;
 	int rt = -1;
 	struct ipa_ipsec_policy *pol;
-	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt;
+	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt, *ul_flt_del = NULL;
 
 	IPADBG("Start\n");
 
@@ -1039,7 +1039,11 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 
 				pol->rt = -1;
 
-				if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt) != 0)
+				/* Duplicate the message struct,
+				   because it will be freed by the send routine */
+				ul_flt_del = kmemdup(ul_flt, sizeof(*ul_flt), GFP_KERNEL);
+				if (!ul_flt_del &&
+				    (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt_del) != 0))
 					return -EFAULT;
 			}
 
@@ -1050,6 +1054,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 					idx, ul_flt->ip);
 				if (rc < 0) {
 					IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
+					kfree(ul_flt);
 					return rc;
 				}
 			}
@@ -1064,6 +1069,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 				__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr);
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 				mutex_unlock(&ipa3_ctx->lock);
+				kfree(ul_flt);
 				return rt;
 			}
 			pol->rt = rt;
@@ -1798,7 +1804,7 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 	switch (xp->xdo.dir) {
 	case XFRM_DEV_OFFLOAD_IN:
 		/* Install FLT rule/s */
-		for (i = 0, idx = 0;
+		for (i = 0, idx = 1; // Index 0 causes false positive ECN errors
 		     idx < IPA_IPSEC_MAX_SA_NUM && i < IPA_IPSEC_DL_FLT_PER_POL; idx++) {
 			if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x &&
 				ipa_ipsec_tmpl_sa_match(xp->xfrm_vec,
@@ -2250,14 +2256,14 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
 		if (ip == IPA_IP_v4) {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_SRC_PORT;
 			attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_SRC_PORT;
 			attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
-		attrib.dst_port = 500;
+		attrib.src_port = 500;
 		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
 		attrib.meta_data_mask = WWAN_METADATA_MASK;
 		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
@@ -2283,14 +2289,13 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		req->filter_spec_ex_list[pos].is_routing_table_index_valid = true;
 		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
 		if (ip == IPA_IP_v4) {
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_SRC_PORT|IPA_FLT_DST_PORT|IPA_FLT_SPI;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_SRC_PORT|IPA_FLT_SPI;
 			attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_SRC_PORT|IPA_FLT_DST_PORT|IPA_FLT_SPI;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_SRC_PORT|IPA_FLT_SPI;
 			attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
 		attrib.src_port = 4500;
-		attrib.dst_port = 4500;
 		attrib.spi = 0;
 		attrib.ext_attrib_mask = IPA_FLT_EXT_NAT_T;
 		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
@@ -2352,14 +2357,14 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
 		if (ip == IPA_IP_v4) {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_SRC_PORT;
 			attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_SRC_PORT;
 			attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
-		attrib.dst_port = 4500;
+		attrib.src_port = 4500;
 		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
 		attrib.meta_data_mask = WWAN_METADATA_MASK;
 		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
