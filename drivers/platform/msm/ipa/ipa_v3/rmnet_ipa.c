@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 /*
@@ -1597,6 +1597,7 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		dev->stats.tx_dropped++;
 		return NETDEV_TX_OK;
 	}
+	trace_ipa_suspend_info("emb-UL", skb->len, ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD));
 
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_enabled() && (skb->ipa_skb_cb.magic == IPA_IPSEC_SKB_MAGIC)) {
@@ -2075,6 +2076,8 @@ void apps_ipa_packet_receive_notify(void *priv,
 		unsigned int packet_len = skb->len;
 
 		IPAWANDBG_LOW("Rx packet was received");
+		trace_ipa_suspend_info("emb-DL", packet_len, 0);
+
 		skb->dev = IPA_NETDEV();
 		if (skb->dev == NULL) {
 			IPAERR ("rmnet interface is down, packet cannot be forwarded to"
