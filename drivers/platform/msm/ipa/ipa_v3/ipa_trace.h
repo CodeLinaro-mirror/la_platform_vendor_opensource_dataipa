@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #undef TRACE_SYSTEM
@@ -424,6 +424,31 @@ TRACE_EVENT(
 
 	TP_printk("first_skb=0x%pK prev_skb=0x%pK rx_skb=0x%pK",
 		__entry->first_skb, __entry->prev_skb, __entry->rx_skb)
+);
+
+TRACE_EVENT(
+	ipa_suspend_info,
+
+	TP_PROTO(const char* name, unsigned int len, u8 src_idx),
+
+	TP_ARGS(name, len, src_idx),
+
+	TP_STRUCT__entry(
+		__string(name, name)
+		__field(unsigned int, len)
+		__field(u8, src_idx)
+	),
+
+	TP_fast_assign(
+		__assign_str(name, name);
+		__entry->len = len;
+		__entry->src_idx = src_idx;
+	),
+
+	TP_printk("%s: len=%d, src=%d\n",
+		__get_str(name),
+		__entry->len,
+		__entry->src_idx)
 );
 
 #endif /* _IPA_TRACE_H */
