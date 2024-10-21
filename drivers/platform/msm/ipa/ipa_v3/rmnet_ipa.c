@@ -2181,7 +2181,8 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 	}
 
 	IPADBG("QMAP header: %12phN\n", &ipsec_err_qmap);
-	skb_dump(KERN_DEBUG, skb, false);
+	if (ipa3_ctx->ipsec_debug)
+		skb_dump(KERN_DEBUG, skb, false);
 
 	switch (ipsec_err_qmap.error_type) {
 	case IPA_IPSEC_ERROR_TYPE_ENCAP:
