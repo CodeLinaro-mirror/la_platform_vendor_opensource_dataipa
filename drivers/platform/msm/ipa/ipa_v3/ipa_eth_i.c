@@ -69,7 +69,7 @@ enum ipa_eth_dir {
 };
 
 /* HOLB timeout values for QOS. */
-u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {2000, 500};
+u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {31000, 500};
 
 static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys_addr_t pa,
 	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir, u8 pipe_idx)
@@ -1125,8 +1125,8 @@ int ipa3_eth_connect(
 	struct ipa_ep_cfg_holb holb_cfg;
 
 	ep_idx = ipa_get_ep_mapping(client_type);
-	if (ep_idx == IPA_EP_NOT_ALLOCATED) {
-		IPAERR("undefined client_type\n");
+	if ((ep_idx == IPA_EP_NOT_ALLOCATED) || (ep_idx >= IPA_MAX_NUM_PIPES)) {
+		IPAERR("undefined client_type or ep_idx[%d] out of range\n", ep_idx);
 		return -EFAULT;
 	}
 

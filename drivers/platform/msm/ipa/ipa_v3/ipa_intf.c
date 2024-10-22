@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/fs.h>
@@ -405,6 +405,7 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 {
 	struct ipa3_push_msg *msg_dup;
 	struct ipa_wlan_msg_ex *event_ex_list = NULL;
+	struct ipa_wlan_msg *event_list = NULL;
 	struct ipa_wlan_msg *event_ex_cur_discon = NULL;
 	struct ipa_wlan_msg *event_cur_con = NULL;
 	void *data_dup = NULL;
@@ -474,25 +475,35 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 		list_for_each_entry_safe(entry, next,
 				&ipa3_ctx->msg_wlan_client_list,
 				link) {
-			event_ex_list = entry->buff;
-			max = event_ex_list->num_of_attribs;
-			for (cnt = 0; cnt < max; cnt++) {
-				memcpy(mac,
-					event_ex_list->attribs[cnt].u.mac_addr,
-					sizeof(mac));
-				if (event_ex_list->attribs[cnt].attrib_type ==
-					WLAN_HDR_ATTRIB_MAC_ADDR) {
-					pr_debug("%pM\n", mac);
-
-					/* compare to delete one*/
-					if (memcmp(mac2, mac,
-						sizeof(mac)) == 0) {
-						IPADBG("clean %d\n", total);
-						list_del(&entry->link);
-						entry->callback(entry->buff, entry->meta.msg_len, entry->meta.msg_type);
-						kfree(entry);
-						break;
+			if(entry->meta.msg_type == WLAN_CLIENT_CONNECT_EX) {
+				event_ex_list = entry->buff;
+				max = event_ex_list->num_of_attribs;
+				for (cnt = 0; cnt < max; cnt++) {
+					memcpy(mac,
+						event_ex_list->attribs[cnt].u.mac_addr,
+						sizeof(mac));
+					if (event_ex_list->attribs[cnt].attrib_type == WLAN_HDR_ATTRIB_MAC_ADDR) {
+						/* compare to delete one*/
+						if (memcmp(mac2, mac, sizeof(mac)) == 0) {
+							IPADBG("clean %d\n", total);
+							list_del(&entry->link);
+							entry->callback(entry->buff,
+								entry->meta.msg_len, entry->meta.msg_type);
+							kfree(entry);
+							break;
+						}
 					}
+				}
+			} else {
+				event_list = entry->buff;
+				memcpy(mac, event_list->mac_addr, sizeof(mac));
+				/* compare to delete one*/
+				if (memcmp(mac2, mac, sizeof(mac)) == 0) {
+					IPADBG("clean %d\n", total);
+					list_del(&entry->link);
+					entry->callback(entry->buff, entry->meta.msg_len, entry->meta.msg_type);
+					kfree(entry);
+					break;
 				}
 			}
 			total++;

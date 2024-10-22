@@ -72,11 +72,9 @@
 #define GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id) (((8 * (ep_id * 10 + 9)) + 4) / 4)
 
 #ifndef CONFIG_DEBUG_FS
-void gsi_debugfs_init(void)
-{
-}
+extern int gsi_sysfs_init(void);
+extern void gsi_sysfs_destroy(void);
 #endif
-
 static const struct of_device_id msm_gsi_match[] = {
 	{ .compatible = "qcom,msm_gsi", },
 	{ },
@@ -6373,7 +6371,11 @@ static int msm_gsi_probe(struct platform_device *pdev)
 
 	gsi_ctx->dev = dev;
 	init_completion(&gsi_ctx->gen_ee_cmd_compl);
+#ifdef CONFIG_DEBUG_FS
 	gsi_debugfs_init();
+#else
+	gsi_sysfs_init();
+#endif
 
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 	result = qcom_va_md_register("gsi_mini", &qcom_va_md_gsi_notif_blk);
@@ -6429,6 +6431,9 @@ arch_initcall(gsi_init);
  */
 static void __exit gsi_exit(void)
 {
+#ifndef CONFIG_DEBUG_FS
+	gsi_sysfs_destroy();
+#endif
 	if (running_emulation && pdev)
 		platform_device_unregister(pdev);
 	platform_driver_unregister(&msm_gsi_driver);

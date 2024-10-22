@@ -100,6 +100,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_MAC_FLT_EVENT),
 	__stringify(IPA_SOCKV5_ADD),
 	__stringify(IPA_SOCKV5_DEL),
+	__stringify(IPA_WARNING_LIMIT_REACHED),
 	__stringify(IPA_SW_FLT_EVENT),
 	__stringify(IPA_PKT_THRESHOLD_EVENT),
 	__stringify(IPA_MOVE_NAT_TABLE),
@@ -114,6 +115,11 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_ENABLE_ETH_PDU_MODE_EVENT),
 	__stringify(IPA_IPSEC_UL_FLT_ADD_EVENT),
 	__stringify(IPA_IPSEC_UL_FLT_DEL_EVENT),
+	__stringify(IPA_PDN_DSCP_ADD_EVENT),
+	__stringify(IPA_PDN_DSCP_DEL_EVENT),
+	__stringify(IPA_QOS_PARAM_ADD_EVENT),
+	__stringify(IPA_QOS_PARAM_DELETE_EVENT),
+	__stringify(IPA_QOS_PARAM_FLUSH_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
@@ -4129,6 +4135,8 @@ static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"copy_flow_lbl = %d\n", esa.stat.copy_flow_lbl);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+	       "overflow_allowed = %d\n", esa.stat.overflow_allowed);
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"path_mtu = %d\n", esa.stat.path_mtu);
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"sa_life_bytes_wm = %llu\n", esa.stat.sa_life_bytes_wm);
@@ -5290,19 +5298,10 @@ fail:
 	debugfs_remove_recursive(dent_eth);
 }
 EXPORT_SYMBOL(ipa3_eth_debugfs_add_node);
-
 #else /* !CONFIG_DEBUG_FS */
 #define INVALID_NO_OF_CHAR (-1)
 void ipa3_debugfs_init(void) {}
 void ipa3_debugfs_remove(void) {}
-int _ipa_read_ep_reg_v3_0(char *buf, int max_len, int pipe)
-{
-	return INVALID_NO_OF_CHAR;
-}
-int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
-{
-	return INVALID_NO_OF_CHAR;
-}
 void ipa3_eth_debugfs_init(void) {}
 void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client) {}
 #endif

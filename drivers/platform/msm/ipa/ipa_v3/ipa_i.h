@@ -2682,6 +2682,7 @@ struct ipa3_context {
 		eth_info[IPA_ETH_CLIENT_MAX][IPA_ETH_INST_ID_MAX];
 	u32 ipa_wan_aggr_pkt_cnt;
 	bool ipa_mhi_proxy;
+	bool ipa_mhi_eth;
 	u32 num_smmu_cb_probed;
 	u32 max_num_smmu_cb;
 	u32 ipa_wdi3_2g_holb_timeout;
@@ -3452,7 +3453,6 @@ int ipa3_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats);
 u16 ipa3_get_smem_restr_bytes(void);
 int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
-int ipa3_wigig_init_debugfs_i(struct dentry *dent);
 
 /*
  * To retrieve doorbell physical address of
@@ -3467,9 +3467,14 @@ int ipa3_uc_wdi_get_dbpa(struct ipa_wdi_db_params *out);
  */
 int ipa3_uc_reg_rdyCB(struct ipa_wdi_uc_ready_params *param);
 /*
- * To de-register uC ready callback
+ * To de-register uC ready callback.
  */
 int ipa3_uc_dereg_rdyCB(void);
+
+/*
+ * To deregister uc callback per instance basis.
+ */
+int ipa3_uc_dereg_per_inst_rdyCB(int);
 
 int ipa_create_uc_smmu_mapping(int res_idx, bool wlan_smmu_en,
 		phys_addr_t pa, struct sg_table *sgt, size_t len, bool device,
@@ -3639,10 +3644,23 @@ int ipa3_generate_hw_rule(enum ipa_ip_type ip,
 int ipa3_init_hw(void);
 struct ipa3_rt_tbl *__ipa3_find_rt_tbl(enum ipa_ip_type ip, const char *name);
 int ipa3_set_single_ndp_per_mbim(bool enable);
+#ifdef CONFIG_DEBUG_FS
 void ipa3_debugfs_init(void);
 void ipa3_debugfs_remove(void);
 void ipa3_eth_debugfs_init(void);
 void ipa3_eth_debugfs_add(struct ipa_eth_client *client);
+void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client);
+struct dentry *ipa_debugfs_get_root(void);
+int ipa3_wigig_init_debugfs_i(struct dentry *dent);
+int ipa_debugfs_init_stats(struct dentry *parent);
+#else
+int ipa_sysfs_init(void);
+void ipa_sysfs_deinit(void);
+int ipa_sysfs_init_stats(void);
+void ipa_sysfs_deinit_stats(void);
+int ipa3_wigig_init_sysfs_i(void);
+void ipa3_wigig_fini_sysfs_i(void);
+#endif
 
 void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size);
 
@@ -3830,8 +3848,6 @@ int ipa_hw_stats_init(void);
 
 int ipa_init_flt_rt_stats(void);
 
-int ipa_debugfs_init_stats(struct dentry *parent);
-
 int ipa_init_quota_stats(u32 *pipe_bitmask);
 
 int ipa_get_quota_stats(struct ipa_quota_stats_all *out);
@@ -3956,6 +3972,9 @@ int ipa3_unregister_rmnet_ll_cb(void);
 int ipa3_rmnet_ll_xmit(struct sk_buff *skb);
 int ipa3_register_notifier(void *fn_ptr);
 int ipa3_unregister_notifier(void *fn_ptr);
+#ifndef CONFIG_DEBUG_FS
+void rmnet_ll_ipa3_sysfs_destroy(void);
+#endif
 int ipa3_setup_apps_low_lat_data_prod_pipe(
 	struct rmnet_egress_param *egress_param,
 	struct net_device *dev);
@@ -3973,7 +3992,6 @@ int ipa3_smmu_map_peer_buff(u64 iova, u32 size, bool map, struct sg_table *sgt,
 void ipa3_reset_freeze_vote(void);
 int ipa3_ntn_init(void);
 int ipa3_get_ntn_stats(struct Ipa3HwStatsNTNInfoData_t *stats);
-struct dentry *ipa_debugfs_get_root(void);
 bool ipa3_is_msm_device(void);
 void ipa3_enable_dcd(void);
 void ipa3_disable_prefetch(enum ipa_client_type client);
@@ -4015,7 +4033,6 @@ void ipa_eth_exit(void);
 static inline int ipa_eth_init(void) { return 0; }
 static inline void ipa_eth_exit(void) { }
 #endif
-void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client);
 int ipa3_eth_connect(
 	struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type client_type,

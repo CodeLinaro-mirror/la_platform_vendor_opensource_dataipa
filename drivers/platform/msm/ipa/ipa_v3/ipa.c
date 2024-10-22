@@ -15,6 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
@@ -86,6 +87,11 @@
 #define DEFAULT_MPM_RING_SIZE_DL 16
 #define DEFAULT_MPM_TETH_AGGR_SIZE 24
 #define DEFAULT_MPM_UC_THRESH_SIZE 4
+
+static char *ipa_cfg = "";
+
+module_param(ipa_cfg, charp, 0644);
+MODULE_PARM_DESC(ipa_cfg, "IPA Driver Config");
 
 RAW_NOTIFIER_HEAD(ipa_rmnet_notifier_list);
 
@@ -192,6 +198,9 @@ static int ipa3_ioctl_mdfy_flt_rule_v2(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_alloc(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_query(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_set(unsigned long arg);
+
+ssize_t ipa3_update_config(const char *buff);
+
 static struct ipa3_plat_drv_res ipa3_res = {0, };
 
 static struct clk *ipa3_clk;
@@ -7657,7 +7666,7 @@ static int ipa3_setup_apps_pipes(void)
 	}
 
 	/* LAN OUT (AP->IPA) */
-	if (!ipa3_ctx->ipa_config_is_mhi) {
+	if (!ipa3_ctx->ipa_config_is_mhi || ipa3_ctx->ipa_mhi_eth) {
 		memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
 		sys_in.client = IPA_CLIENT_APPS_LAN_PROD;
 		sys_in.desc_fifo_sz = IPA_SYS_TX_DATA_DESC_FIFO_SZ;
@@ -8307,11 +8316,6 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_UPDATE_PDN_DSCP_MAPPING))
 				return -EPERM;
 			cmd = IPA_IOC_UPDATE_PDN_DSCP_MAPPING;
-			break;
-		case IPA_IOCTL_ADD_VLAN_PRIORITY:
-			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_VLAN_PRIORITY))
-				return -EPERM;
-			cmd = IPA_IOC_ADD_VLAN_PRIORITY;
 			break;
 		case IPA_IOCTL_GET_CT_IN_SRAM_INFO:
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_GET_CT_IN_SRAM_INFO))
@@ -9703,7 +9707,8 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 			usleep_range(IPA_MSGQ_MIN_SLEEP,
 					IPA_MSGQ_MAX_SLEEP);
 			ret = gh_msgq_send(msgq_desc->msgq_hdl, &msg, sizeof(msg), 0);
-			IPAERR("send msgq failed %d time ret %d for msg_type %d\n", i, ret, msg_type);
+			if(ret < 0)
+				IPAERR("send msgq failed %d time ret %d for msg_type %d\n", i, ret, msg_type);
 		}
 	}
 
@@ -10486,8 +10491,11 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	/* 1st ipa3_panic_notifier*/
 	ipa3_register_panic_hdlr();
 
+#ifndef CONFIG_DEBUG_FS
+	ipa_sysfs_init();
+#else
 	ipa3_debugfs_init();
-
+#endif
 	result = ipa_mpm_init();
 	if (result)
 		IPAERR("fail to init mpm %d\n", result);
@@ -10948,15 +10956,14 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 {
 	unsigned long missing;
 
-	char dbg_buff[32] = { 0 };
+	char dbg_buff[300] = { 0 };
 	int i = 0;
-#if defined(CONFIG_IPA_IPSEC)
-	int res;
-#endif
 
 	if (count >= sizeof(dbg_buff))
+	{
+		IPAERR("Count is greater than dbg_buff, return error\n");
 		return -EFAULT;
-
+	}
 	missing = copy_from_user(dbg_buff, buf, count);
 
 	if (missing) {
@@ -10980,8 +10987,48 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		return count;
 	}
 
+	return ipa3_update_config(dbg_buff);
+}
+
+ssize_t ipa3_update_config(const char *buff)
+{
+	char dbg_buff[300] = { 0 };
+	int i = 0;
+	size_t count = strlen(buff);
+#if defined(CONFIG_IPA_IPSEC)
+	int res;
+#endif
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+ 	if (count > 0) {
+		memcpy(dbg_buff, buff, count);
+		dbg_buff[count] = '\0';
+	}
+
+	IPADBG("Mod Param String is %s\n", dbg_buff);
+
+	/*Ignore empty mod param*/
+	for (i = 0 ; i < count ; ++i) {
+		if (!isspace(dbg_buff[i]))
+			break;
+	}
+
+	if (i == count) {
+		IPADBG("Empty Mod Param String\n");
+		return count;
+	}
+
 	/* Check MHI configuration on MDM devices */
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
+		/* Check MHI mode configuration */
+		if (strnstr(dbg_buff, STR_MHI_ETH_IFACE, strlen(dbg_buff)))
+		{
+			IPAERR("ipa3_ctx->ipa_config_is_mhi = %d\n", ipa3_ctx->ipa_config_is_mhi);
+			ipa3_ctx->ipa_config_is_mhi = true;
+			ipa3_ctx->ipa_mhi_eth = true;
+		}
 
 #if IPA_ETH_API_VER >= 4
 		if (strnstr(dbg_buff, "ethqos", strlen(dbg_buff))) {
@@ -10989,6 +11036,7 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			IPADBG("ETH QOS enabled: %d\n", ipa3_ctx->eth_qos);
 		}
 #endif
+		/* Check Vlan configuration */
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
 			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] =
@@ -11011,6 +11059,12 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			if (strnstr(dbg_buff, STR_ECM_IFACE, strlen(dbg_buff)))
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] =
 				true;
+			if (strnstr(dbg_buff, STR_MHI_ETH_IFACE, strlen(dbg_buff)))
+			{
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_MHI_ETH] =
+				true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] = false;
+			}
 
 			/*
 			 * when vlan mode is passed to our dev we expect
@@ -11041,6 +11095,7 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		{
 			IPADBG("Platform type is RDKB\n");
 			ipa3_ctx->ipa_config_is_rdkb = true;
+			ipa3_ctx->enable_napi_chain = 0;
 			return count;
 		}
 
@@ -15268,10 +15323,20 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		goto err_check;
 	}
 
+	if(!ipa3_ctx->ipa_config_is_auto && (ipa3_res.ipa_mhi_dynamic_config
+		|| ipa3_ctx->ipa_config_is_mhi))
+		ipa3_notify_ipacm_eth_pdu_enable();
+
 #ifdef CONFIG_GH_MSGQ
 	/* Initialize msgq for PVM and SVM */
 	ipa3_msgq_init();
 #endif
+
+	result = ipa3_update_config((const char *)ipa_cfg);
+	if (result < 0) {
+		IPAERR("failed to update config\n");
+		return result;
+	}
 
 skip_repeat_pre_init:
 	result = of_platform_populate(pdev_p->dev.of_node,
@@ -15453,6 +15518,9 @@ static void ipa3_deepsleep_suspend(void)
 	ipahal_destroy();
 	ipa3_ctx->ipa_initialization_complete = false;
 	ipa3_debugfs_remove();
+#ifndef CONFIG_DEBUG_FS
+	ipa_sysfs_deinit();
+#endif
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
 	/*Calling framework API to reset IPA ready flag to false*/
@@ -15976,6 +16044,9 @@ static void __exit ipa_module_exit(void)
 {
 #ifdef CONFIG_GH_MSGQ
 	ipa3_msgq_deinit();
+#endif
+#ifndef CONFIG_DEBUG_FS
+	rmnet_ll_ipa3_sysfs_destroy();
 #endif
 #ifdef CONFIG_ARCH_SA525_HOSTVM
 	/* Only required in PVM + GVM mode. */

@@ -72,7 +72,8 @@ bool ipa_ipsec_initialized(void)
 
 bool ipa_ipsec_enabled(void)
 {
-	return ipa3_ctx->ipsec && ipa3_ctx->ipsec->enabled;
+	return ipa3_ctx->ipsec && ipa3_ctx->ipsec->enabled &&
+		!ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled;
 }
 
 /*
@@ -208,7 +209,7 @@ int ipa_ipsec_stop_sa(u8 idx, enum ipa_ipsec_sa_type sa_type)
 /* Lookup for next free HW SA index, return IPA_IPSEC_MAX_SA_NUM, if not found */
 static u8 _ipa_ipsec_next_free_sa(enum ipa_ipsec_sa_type sa_type)
 {
-	u8 idx = 0;
+	u8 idx = 1; // Index 0 causes false positive ECN errors
 	while (ipa3_ctx->ipsec->sa_db[sa_type][idx].x && idx < IPA_IPSEC_MAX_SA_NUM)
 		idx++;
 
@@ -402,7 +403,7 @@ static u8 ipa_ipsec_find_match_sa(const struct xfrm_tmpl *tmpl, u16 family,
 
 	IPADBG_LOW("Start\n");
 
-	for (idx = 0; idx < IPA_IPSEC_MAX_SA_NUM; idx++) {
+	for (idx = 1; idx < IPA_IPSEC_MAX_SA_NUM; idx++) {  // Index 0 causes false positive ECN errors
 		if (ipa3_ctx->ipsec->sa_db[type][idx].x &&
 		    ipa_ipsec_tmpl_sa_match(tmpl, ipa3_ctx->ipsec->sa_db[type][idx].x))
 			return idx;
@@ -759,14 +760,13 @@ static int ipa_ipsec_install_decap_rt(const struct xfrm_state *x, u8 idx)
 		sizeof(struct ipa_ioc_add_rt_rule_v2), GFP_KERNEL);
 	if (!rt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_rt_rule_v2\n");
-		ret = -ENOMEM;
-		return ret;
+		return -ENOMEM;
 	}
 	rt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
 	if (!rt_tbl->rules) {
 		IPAERR("Failed to allocate ipa_rt_rule_add_v2\n");
-		ret = -ENOMEM;
-		goto end;
+		kfree(rt_tbl);
+		return -ENOMEM;
 	}
 
 	rt_tbl->commit = 1;
@@ -844,14 +844,11 @@ static int ipa_ipsec_install_decap_rt(const struct xfrm_state *x, u8 idx)
 	}
 
 	ret = ipa3_add_rt_rule_v2(rt_tbl);
-	if (!!ret) {
+	if (!!ret)
 		IPAERR("ipa3_add_rt_rule_v2 returned %d\n", ret);
-		goto end;
-	}
+	else
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = rt_rule->rt_rule_hdl;
 
-	ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt = rt_rule->rt_rule_hdl;
-
-end:
 	kfree((void *)rt_tbl->rules);
 	kfree(rt_tbl);
 
@@ -884,14 +881,13 @@ static int ipa_ipsec_install_encap_rt(struct xfrm_policy *xp, u8 idx)
 		sizeof(struct ipa_ioc_add_rt_rule_v2), GFP_KERNEL);
 	if (!rt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_rt_rule_v2\n");
-		ret = -ENOMEM;
-		return ret;
+		return -ENOMEM;
 	}
 	rt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
 	if (!rt_tbl->rules) {
 		IPAERR("Failed to allocate ipa_rt_rule_add_v2\n");
-		ret = -ENOMEM;
-		goto end;
+		kfree(rt_tbl);
+		return -ENOMEM;
 	}
 
 	rt_tbl->commit = 1;
@@ -911,14 +907,11 @@ static int ipa_ipsec_install_encap_rt(struct xfrm_policy *xp, u8 idx)
 	ipa_ipsec_xfrm_sp_to_ipa_attrib(xp, &rt_rule->rule.attrib, IPA_IPSEC_MAX_SA_NUM);
 
 	ret = ipa3_add_rt_rule_v2(rt_tbl);
-	if (!!ret) {
+	if (!!ret)
 		IPAERR("ipa3_add_rt_rule_v2 returned %d\n", ret);
-		goto end;
-	}
+	else
+		ret = rt_rule->rt_rule_hdl;
 
-	ret = rt_rule->rt_rule_hdl;
-
-end:
 	kfree((void *)rt_tbl->rules);
 	kfree(rt_tbl);
 
@@ -945,14 +938,13 @@ static int ipa_ipsec_install_decap_flt(struct xfrm_policy *xp, u8 idx)
 	flt_tbl = kzalloc(sizeof(*flt_tbl), GFP_KERNEL);
 	if (!flt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_flt_rule_v2\n");
-		ret = -ENOMEM;
-		return ret;
+		return -ENOMEM;
 	}
 	flt_tbl->rules = (uint64_t)kzalloc(sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
 	if (!flt_tbl->rules) {
 		IPAERR("Failed to allocate ipa_flt_rule_add_v2\n");
-		ret = -ENOMEM;
-		goto end;
+		kfree(flt_tbl);
+		return -ENOMEM;
 	}
 
 	flt_tbl->commit = 1;
@@ -1016,7 +1008,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 	int rc = 0;
 	int rt = -1;
 	struct ipa_ipsec_policy *pol;
-	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt;
+	struct ipa_ioc_ipsec_ul_flt_attr *ul_flt, *ul_flt_del = NULL;
 
 	IPADBG("Start\n");
 
@@ -1047,7 +1039,11 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 
 				pol->rt = -1;
 
-				if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt) != 0)
+				/* Duplicate the message struct,
+				   because it will be freed by the send routine */
+				ul_flt_del = kmemdup(ul_flt, sizeof(*ul_flt), GFP_KERNEL);
+				if (!ul_flt_del &&
+				    (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt_del) != 0))
 					return -EFAULT;
 			}
 
@@ -1058,6 +1054,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 					idx, ul_flt->ip);
 				if (rc < 0) {
 					IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
+					kfree(ul_flt);
 					return rc;
 				}
 			}
@@ -1072,6 +1069,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 				__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr);
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 				mutex_unlock(&ipa3_ctx->lock);
+				kfree(ul_flt);
 				return rt;
 			}
 			pol->rt = rt;
@@ -1220,6 +1218,11 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 
 	IPADBG("Start\n");
 
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return -EFAULT;
+	}
+
 	if (!x || (x->props.family != AF_INET && x->props.family != AF_INET6)) {
 		IPADBG("Null state or invalid AF\n");
 		return -EINVAL;
@@ -1308,7 +1311,6 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		/* We can use HW offloaded AES CBC SAs only once the uC completed NextIV WA init */
 		if (ealg == IPA_IPSEC_ENC_AES_CBC && !ipa3_ctx->uc_ctx.ipsec_next_iv_wa_ready) {
 			IPAERR("Next IV uC workaround is not yet ready.\n");
-			return -EINVAL;
 		}
 
 		/* find a free index */
@@ -1337,6 +1339,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		esa.stat.copy_df = !(x->props.flags & XFRM_STATE_NOPMTUDISC);
 		esa.stat.copy_dscp = !(x->props.extra_flags & XFRM_SA_XFLAG_DONT_ENCAP_DSCP);
 		esa.stat.copy_ecn = !(x->props.flags & XFRM_STATE_NOECN);
+		esa.stat.overflow_allowed = x->props.extra_flags & XFRM_SA_XFLAG_OSEQ_MAY_WRAP;
 		esa.stat.copy_flow_lbl = 0;
 		esa.stat.path_mtu = x->props.family == AF_INET ? mtu_info.mtu_v4 : mtu_info.mtu_v6;
 		esa.stat.sa_life_bytes_wm =
@@ -1344,7 +1347,12 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		esa.stat.sa_life_bytes =
 			x->lft.hard_byte_limit ? x->lft.hard_byte_limit : XFRM_INF;
 		esa.dyna.ipv4_id = 0;
-		esa.dyna.seq_num = 0;
+		if (x->props.flags & XFRM_STATE_ESN) {
+			esa.dyna.seq_num =
+				(u64)(x->replay_esn->oseq) | ((u64)(x->replay_esn->oseq_hi) << 32);
+		} else {
+			esa.dyna.seq_num = (u64)(x->replay.oseq);
+		}
 		esa.dyna.volume_bytes = 0;
 
 		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
@@ -1541,6 +1549,10 @@ state_end:
 void ipa_ipsec_xdo_state_delete(struct xfrm_state *x)
 {
 	IPADBG_LOW("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!x)
 		return;
@@ -1557,7 +1569,6 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 	switch (work_data->dir) {
 	case XFRM_DEV_OFFLOAD_OUT:
 		WARN_ON(ipa_ipsec_delete_orphan_ul_fnr(idx));
-		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
 		mutex_lock(&ipa3_ctx->lock);
 		WARN_ON(__ipa3_release_hdr_proc_ctx(
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hpc));
@@ -1565,12 +1576,11 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 		WARN_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 		mutex_unlock(&ipa3_ctx->lock);
+		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
 		break;
 	case XFRM_DEV_OFFLOAD_IN:
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt) {
-			memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
-
 			ipa_ipsec_delete_orphan_dl_fnr(work_data->ip, idx);
 
 			mutex_lock(&ipa3_ctx->lock);
@@ -1589,6 +1599,7 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 			mutex_unlock(&ipa3_ctx->lock);
 		}
+		memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
 		break;
 	default:
@@ -1603,6 +1614,8 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 		sizeof(struct ipa_ipsec_decap_stats));
 	memset(&ipa3_ctx->ipsec->stats.encap_stats[idx], 0,
 		sizeof(struct ipa_ipsec_encap_stats));
+
+	kfree(work_data);
 }
 
 void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
@@ -1611,6 +1624,10 @@ void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
 	struct ipa_ipsec_state_work_wrap *work_data;
 
 	IPADBG_LOW("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!x || (x->xso.offload_handle & IPA_IPSEC_OFFLOAD_MAGIC) != IPA_IPSEC_OFFLOAD_MAGIC) {
 		IPADBG("Called for a non-offloaded state\n");
@@ -1642,6 +1659,10 @@ bool ipa_ipsec_xdo_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 	u8 idx;
 
 	IPADBG_LOW("Start x = %X\n", x);
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return false;
+	}
 
 	if (!skb || !x) {
 		IPAERR("Null state or skb\n");
@@ -1681,6 +1702,10 @@ bool ipa_ipsec_xdo_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 void ipa_ipsec_xdo_state_advance_esn(struct xfrm_state *x)
 {
 	IPADBG("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!x)
 		return;
@@ -1694,6 +1719,10 @@ void ipa_ipsec_xdo_state_update_curlft(struct xfrm_state *x)
 	struct ipa_ipsec_sa_decap *d_sa;
 
 	IPADBG_LOW("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!x || x->xso.type != XFRM_DEV_OFFLOAD_PACKET ||
 		(x->xso.offload_handle & IPA_IPSEC_OFFLOAD_MAGIC) != IPA_IPSEC_OFFLOAD_MAGIC) {
@@ -1737,6 +1766,10 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 	enum ipa_ip_type ip;
 
 	IPADBG("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return -EFAULT;
+	}
 
 	if (!xp || xp->xdo.type != XFRM_DEV_OFFLOAD_PACKET ||
 		(xp->selector.family != AF_INET && xp->selector.family != AF_INET6)) {
@@ -1771,7 +1804,7 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 	switch (xp->xdo.dir) {
 	case XFRM_DEV_OFFLOAD_IN:
 		/* Install FLT rule/s */
-		for (i = 0, idx = 0;
+		for (i = 0, idx = 1; // Index 0 causes false positive ECN errors
 		     idx < IPA_IPSEC_MAX_SA_NUM && i < IPA_IPSEC_DL_FLT_PER_POL; idx++) {
 			if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x &&
 				ipa_ipsec_tmpl_sa_match(xp->xfrm_vec,
@@ -1809,6 +1842,7 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp)
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x, idx, ip);
 			if (rc < 0) {
 				IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
+				kfree(pol);
 				return rc;
 			}
 		}
@@ -1965,6 +1999,10 @@ int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *rt_tbl
 void ipa_ipsec_xdo_policy_delete(struct xfrm_policy *xp)
 {
 	IPADBG_LOW("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!xp)
 		return;
@@ -2005,8 +2043,8 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 		WARN_ON(__ipa3_del_rt_rule(pol->rt));
 		mutex_unlock(&ipa3_ctx->lock);
 
-		pol->rt = -1;
 		IPADBG("deleted RT rule %d\n", pol->rt);
+		pol->rt = -1;
 
 		if (ul_flt)
 			ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt);
@@ -2017,6 +2055,7 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 
 	list_del(&pol->l);
 	kfree(pol);
+	kfree(work_data);
 }
 
 void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
@@ -2024,6 +2063,10 @@ void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
 	struct ipa_ipsec_policy_work_wrap *work_data;
 
 	IPADBG("Start\n");
+	if (!ipa_ipsec_enabled()) {
+		IPAERR("IPsec is not enabled.\n");
+		return;
+	}
 
 	if (!xp || (xp->selector.family != AF_INET && xp->selector.family != AF_INET6) ||
 		xp->xdo.offload_handle == 0) {
@@ -2213,14 +2256,14 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
 		if (ip == IPA_IP_v4) {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_SRC_PORT;
 			attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_SRC_PORT;
 			attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
-		attrib.dst_port = 500;
+		attrib.src_port = 500;
 		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
 		attrib.meta_data_mask = WWAN_METADATA_MASK;
 		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
@@ -2246,14 +2289,13 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		req->filter_spec_ex_list[pos].is_routing_table_index_valid = true;
 		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
 		if (ip == IPA_IP_v4) {
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_SRC_PORT|IPA_FLT_DST_PORT|IPA_FLT_SPI;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_SRC_PORT|IPA_FLT_SPI;
 			attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_SRC_PORT|IPA_FLT_DST_PORT|IPA_FLT_SPI;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_SRC_PORT|IPA_FLT_SPI;
 			attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
 		attrib.src_port = 4500;
-		attrib.dst_port = 4500;
 		attrib.spi = 0;
 		attrib.ext_attrib_mask = IPA_FLT_EXT_NAT_T;
 		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
@@ -2315,14 +2357,14 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 		req->filter_spec_ex_list[pos].route_table_index = rt_tbl->idx;
 		if (ip == IPA_IP_v4) {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V4_V01;
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_PROTOCOL|IPA_FLT_SRC_PORT;
 			attrib.u.v4.protocol = IPPROTO_UDP;
 		} else {
 			req->filter_spec_ex_list[pos].ip_type = QMI_IPA_IP_TYPE_V6_V01;
-			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_DST_PORT;
+			attrib.attrib_mask = IPA_FLT_META_DATA|IPA_FLT_NEXT_HDR|IPA_FLT_SRC_PORT;
 			attrib.u.v6.next_hdr = IPPROTO_UDP;
 		}
-		attrib.dst_port = 4500;
+		attrib.src_port = 4500;
 		attrib.meta_data = mux_id << WWAN_METADATA_SHFT;
 		attrib.meta_data_mask = WWAN_METADATA_MASK;
 		rc = ipahal_flt_generate_equation(ip, &attrib, &eq_atrb);
@@ -3099,6 +3141,7 @@ int ipa_ipsec_enable(void)
 
 	/* Update RMNET netdev */
 	if (ipa3_ctx->ipsec->dev) {
+		IPAWANDBG("IPsec offload is enabled\n");
 		ipa3_ctx->ipsec->dev->features |= NETIF_F_HW_ESP;
 		ipa3_ctx->ipsec->dev->hw_enc_features |= NETIF_F_HW_ESP;
 		if (rtnl_trylock()) {

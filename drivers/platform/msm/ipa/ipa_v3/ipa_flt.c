@@ -139,7 +139,7 @@ static int ipa_prep_flt_tbl_for_cmt(enum ipa_ip_type ip,
 	list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
 
 		if (entry->rule.max_prio) {
-			entry->prio = max_prio;
+			entry->prio = entry->rule.max_prio;
 		} else {
 			if (ipahal_rule_decrease_priority(&prio_i)) {
 				IPAERR("cannot decrease rule priority - %d\n",

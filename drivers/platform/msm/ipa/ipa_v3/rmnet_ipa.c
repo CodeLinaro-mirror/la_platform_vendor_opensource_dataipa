@@ -64,6 +64,7 @@
 #define IPA_WWAN_DEV_NAME "rmnet_ipa%d"
 #define IPA_UPSTEAM_WLAN_IFACE_NAME "wlan0"
 #define IPA_UPSTEAM_WLAN1_IFACE_NAME "wlan1"
+static char dbg_buff[4096];
 
 enum ipa_ap_ingress_ep_enum {
 	IPA_AP_INGRESS_NONE = 0,
@@ -78,10 +79,10 @@ enum ipa_ap_ingress_ep_enum {
 static const struct rmnet_ingress_param rmnet_ingress_cfg ={
 	.ingress_ep_type = 1,
 	.cs_offload_en = 1,
-	.buff_size = 4096,
-	.agg_byte_limit = 8192,
+	.buff_size = 8192,
+	.agg_byte_limit = 32000,
 	.agg_time_limit = 500,
-	.agg_pkt_limit = 63,
+	.agg_pkt_limit = 30,
 	.int_modt = 16,
 	.int_modc = 20,};
 
@@ -123,6 +124,8 @@ static int ipa3_wwan_del_ul_flt_rule_to_ipa(void);
 static void ipa3_wwan_msg_free_cb(void*, u32, u32);
 static int ipa3_rmnet_poll(struct napi_struct *napi, int budget);
 
+static int ipa3_find_free_rmnet_index(void);
+
 static void ipa3_wake_tx_queue(struct work_struct *work);
 static DECLARE_WORK(ipa3_tx_wakequeue_work, ipa3_wake_tx_queue);
 
@@ -135,7 +138,13 @@ static int rmnet_ipa_send_coalesce_notification(uint8_t qmap_id, bool enable,
 
 static int rmnet_ipa_send_set_mtu_notification(char *if_name,
 					uint16_t mtu_v4, uint16_t mtu_v6, enum ipa_ip_type ip);
-
+#ifdef CONFIG_DEBUG_FS
+static void rmnet_ipa_debugfs_init(void);
+static void rmnet_ipa_debugfs_remove(void);
+#else
+static int rmnet_ipa_sysfs_init(void);
+static void rmnet_ipa_sysfs_destroy(void);
+#endif
 
 enum ipa3_wwan_device_status {
 	WWAN_DEVICE_INACTIVE = 0,
@@ -397,7 +406,6 @@ static void ipa3_del_qmap_hdr(uint32_t hdr_hdl)
 	else
 		IPAWANDBG("header deletion done\n");
 
-	rmnet_ipa3_ctx->qmap_hdr_hdl = 0;
 	kfree(del_hdr);
 }
 
@@ -406,6 +414,8 @@ static void ipa3_del_mux_qmap_hdrs(void)
 	int index;
 
 	for (index = 0; index < rmnet_ipa3_ctx->rmnet_index; index++) {
+		if (rmnet_ipa3_ctx->mux_channel[index].hdr_hdl == 0)
+			continue;
 		ipa3_del_qmap_hdr(rmnet_ipa3_ctx->mux_channel[index].hdr_hdl);
 		rmnet_ipa3_ctx->mux_channel[index].hdr_hdl = 0;
 	}
@@ -1191,6 +1201,45 @@ static int find_vchannel_name_index(const char *vchannel_name)
 	return MAX_NUM_OF_MUX_CHANNEL;
 }
 
+
+static int ipa3_find_free_rmnet_index( )
+{
+	int i;
+
+	for (i = 0; i < rmnet_ipa3_ctx->rmnet_index; i++) {
+		if (rmnet_ipa3_ctx->mux_channel[i].mux_hdr_set == false )
+			return i;
+	}
+	return MAX_NUM_OF_MUX_CHANNEL;
+}
+
+static int del_mux_channel(int mux_index)
+{
+	int rc = 0;
+	struct ipa3_rmnet_mux_val *mux_channel;
+
+	if (mux_index >= MAX_NUM_OF_MUX_CHANNEL  ) {
+		IPAWANDBG("Invalid mux index\n");
+		return -EINVAL;
+	}
+	mutex_lock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+	mux_channel = rmnet_ipa3_ctx->mux_channel;
+	ipa3_del_qmap_hdr(mux_channel[mux_index].hdr_hdl);
+	IPAWANDBG("de-register device %s\n",
+		mux_channel[mux_index].vchannel_name);
+
+	rc = ipa3_deregister_intf(mux_channel[mux_index].vchannel_name);
+	if (rc < 0) {
+		IPAWANDBG("de-register device %s failed\n",
+		mux_channel[mux_index].vchannel_name);
+		mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+		return rc;
+	}
+	memset(&mux_channel[mux_index], 0,
+		sizeof(struct ipa3_rmnet_mux_val));
+	mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+  return rc;
+}
 static enum ipa_upstream_type find_upstream_type(const char *upstreamIface)
 {
 	int i;
@@ -1889,7 +1938,7 @@ void apps_ipa_tx_complete_notify(void *priv,
 	}
 
 	if (evt != IPA_WRITE_DONE) {
-		IPAWANERR("unsupported evt on Tx callback, Drop the packet\n");
+		IPAWANERR_RL("unsupported evt on Tx callback, Drop the packet\n");
 		dev_kfree_skb_any(skb);
 		dev->stats.tx_dropped++;
 		return;
@@ -4072,7 +4121,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 #endif
 {
 	int rc = 0;
-	int mru = 1000, epid = 1, mux_index, len, epid_ll = 5, epid_eth = 6, epid_v2x = 10;
+	int mru = 1000, epid = 1, mux_index, len, free_index = 0, epid_ll = 5, epid_eth = 6, epid_v2x = 10, vchannel_index = 0;
 	struct ipa_msg_meta msg_meta;
 	struct ipa_wan_msg *wan_msg = NULL;
 	struct rmnet_ioctl_extended_s ext_ioctl_data;
@@ -4395,13 +4444,15 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			mux_id = ext_ioctl_data.u.rmnet_mux_val.mux_id;
 			mux_index = ipa3_find_mux_channel_index(
 				ext_ioctl_data.u.rmnet_mux_val.mux_id, true);
+			free_index = ipa3_find_free_rmnet_index();
 			if (mux_index < MAX_NUM_OF_MUX_CHANNEL) {
 				IPAWANDBG("already setup mux(%d)\n", mux_id);
 				return rc;
 			}
 			mutex_lock(&rmnet_ipa3_ctx->add_mux_channel_lock);
-			if (rmnet_ipa3_ctx->rmnet_index
-				>= MAX_NUM_OF_MUX_CHANNEL) {
+			if ((rmnet_ipa3_ctx->rmnet_index
+				>= MAX_NUM_OF_MUX_CHANNEL) &&
+			  	 (free_index ==  MAX_NUM_OF_MUX_CHANNEL)) {
 				IPAWANERR("Exceed mux_channel limit(%d)\n",
 				rmnet_ipa3_ctx->rmnet_index);
 				mutex_unlock(
@@ -4415,8 +4466,11 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			ext_ioctl_data.u.rmnet_mux_val.vchannel_name);
 			/* cache the mux name and id */
 			mux_channel = rmnet_ipa3_ctx->mux_channel;
-			rmnet_index = rmnet_ipa3_ctx->rmnet_index;
-
+			if (free_index < MAX_NUM_OF_MUX_CHANNEL) {
+				rmnet_index = free_index;
+			} else {
+				rmnet_index = rmnet_ipa3_ctx->rmnet_index;
+			}
 			mux_channel[rmnet_index].mux_id =
 				ext_ioctl_data.u.rmnet_mux_val.mux_id;
 			memcpy(mux_channel[rmnet_index].vchannel_name,
@@ -4439,8 +4493,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 					&rmnet_ipa3_ctx->add_mux_channel_lock;
 				IPAWANERR_RL("dev(%s) register to IPA\n",
 					v_name);
-				rc = ipa3_wwan_register_to_ipa(
-						rmnet_ipa3_ctx->rmnet_index);
+				rc = ipa3_wwan_register_to_ipa(rmnet_index);
 				if (rc < 0) {
 					IPAWANERR("device %s reg IPA failed\n",
 						v_name);
@@ -4459,7 +4512,8 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 				mux_channel[rmnet_index].ul_flt_reg =
 					false;
 			}
-			rmnet_ipa3_ctx->rmnet_index++;
+			if ( free_index ==  MAX_NUM_OF_MUX_CHANNEL  )
+				rmnet_ipa3_ctx->rmnet_index++;
 			mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
 			break;
 		/*  Add MUX ID for ETH PDU interface */
@@ -4547,6 +4601,41 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			}
 			rmnet_ipa3_ctx->rmnet_index_eth++;
 			mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+			break;
+		case RMNET_IOCTL_DEL_MUX_CHANNEL:
+			mux_id = ext_ioctl_data.u.rmnet_mux_val.mux_id;
+			mux_index = ipa3_find_mux_channel_index(
+				ext_ioctl_data.u.rmnet_mux_val.mux_id, true);
+			if (mux_index >= MAX_NUM_OF_MUX_CHANNEL  ) {
+				IPAWANDBG(" mux_id is not present (%d)\n", mux_id);
+				return -EFAULT;
+			}
+			rc = del_mux_channel(mux_index);
+			if(rc < 0) {
+				IPAWANDBG("Mux channel deletion failed\n");
+				return rc;
+			}
+			break;
+		case RMNET_IOCTL_DEL_IFACE_MUX_CHANNEL:
+			v_name =
+				ext_ioctl_data.u.rmnet_mux_val.vchannel_name;
+			vchannel_index = find_vchannel_name_index(v_name);
+			if (vchannel_index == MAX_NUM_OF_MUX_CHANNEL) {
+				IPAWANERR("%s is an invalid iface name\n",
+						v_name);
+				return -EFAULT;
+			}
+			mux_id = rmnet_ipa3_ctx->mux_channel[vchannel_index].mux_id;
+			mux_index = ipa3_find_mux_channel_index(mux_id, true);
+			if (mux_index >= MAX_NUM_OF_MUX_CHANNEL  ) {
+				IPAWANDBG(" mux_id is not present (%d)\n", mux_id);
+				return -EFAULT;
+			}
+			rc = del_mux_channel(mux_index);
+			if(rc < 0) {
+				IPAWANDBG("Mux channel deletion failed\n");
+				return rc;
+			}
 			break;
 		case RMNET_IOCTL_SET_EGRESS_DATA_FORMAT:
 			rc = handle3_egress_format(dev, &ext_ioctl_data);
@@ -4705,6 +4794,13 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			ipa3_set_eth_pdu_mode(true, rmnet_ipa3_ctx->eth_vlan);
 			ipa3_notify_ipacm_eth_pdu_enable();
 			ipa3_set_eth_pdu_ep_status();
+
+			if (IPA_NETDEV()) {
+				IPADBG("ETH pdu enabled. Disable IPSEC feature.\n");
+				IPA_NETDEV()->features &= ~NETIF_F_HW_ESP;
+				IPA_NETDEV()->hw_enc_features &= ~NETIF_F_HW_ESP;
+				netdev_update_features(IPA_NETDEV());
+			}
 			break;
 		default:
 			IPAWANERR("[%s] unsupported extended cmd[%d]",
@@ -8471,9 +8567,8 @@ int rmnet_ipa3_get_wan_mtu(
 
 	return 0;
 }
-#ifdef CONFIG_DEBUG_FS
-static char dbg_buff[4096];
 
+#ifdef CONFIG_DEBUG_FS
 static ssize_t rmnet_ipa_set_mtu(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -8590,9 +8685,122 @@ static void rmnet_ipa_debugfs_remove(void)
 	debugfs_remove_recursive(rmnet_ipa3_ctx->dbgfs.dent);
 	memset(&rmnet_ipa3_ctx->dbgfs, 0, sizeof(struct rmnet_ipa_debugfs));
 }
-#else /* CONFIG_DEBUG_FS */
-static void rmnet_ipa_debugfs_init(void){}
-static void rmnet_ipa_debugfs_remove(void){}
+#else /* !CONFIG_DEBUG_FS */
+static ssize_t outstanding_low_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou32(ubuf, 0, &rmnet_ipa3_ctx->outstanding_low);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_low_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rmnet_ipa3_ctx->outstanding_low);
+    return sizeof(uint32_t);
+}
+
+static ssize_t outstanding_high_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou32(ubuf, 0, &rmnet_ipa3_ctx->outstanding_high);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_high_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{	
+	scnprintf(ubuf, sizeof(uint32_t),"%d",rmnet_ipa3_ctx->outstanding_high);
+    return sizeof(uint32_t);
+}
+
+static ssize_t outstanding_high_ctl_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	ret = kstrtou32(ubuf, 0, &rmnet_ipa3_ctx->outstanding_high_ctl);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_high_ctl_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rmnet_ipa3_ctx->outstanding_high_ctl);
+    return sizeof(uint32_t);
+}
+
+static ssize_t set_mtu_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	__s8    if_name[IFNAMSIZ];
+	uint16_t mtu_v4 = 0, mtu_v6 = 0;
+	char *sptr, *token;
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+	memcpy(dbg_buff, ubuf, count);
+
+	dbg_buff[count] = '\0';
+
+	sptr = dbg_buff;
+
+	memset(if_name, 0, IFNAMSIZ);
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	strlcpy(if_name, token, IFNAMSIZ);
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou16(token, 0, &mtu_v4))
+		return -EINVAL;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou16(token, 0, &mtu_v6))
+		return -EINVAL;
+
+	rmnet_ipa_send_set_mtu_notification(
+		if_name,
+		mtu_v4,
+		mtu_v6, IPA_IP_MAX);
+
+	return count;
+}
+static DEVICE_ATTR_WO(set_mtu);
+static DEVICE_ATTR_RW(outstanding_low);
+static DEVICE_ATTR_RW(outstanding_high);
+static DEVICE_ATTR_RW(outstanding_high_ctl);
+
+static struct attribute *ipa_rmnet_attrs[] = {
+	&dev_attr_set_mtu.attr,
+	&dev_attr_outstanding_low.attr,
+	&dev_attr_outstanding_high.attr,
+	&dev_attr_outstanding_high_ctl.attr,
+	NULL
+};
+
+const struct attribute_group ipa_rmnet_attr_group = {
+	.name		= "rmnet_ipa",
+	.attrs		= ipa_rmnet_attrs,
+};
+static int rmnet_ipa_sysfs_init(void)
+{
+	int ret = -1;
+	ret = sysfs_create_group(kernel_kobj, &ipa_rmnet_attr_group);
+	if (ret != 0) {
+		pr_err("Fail to create IPA syfs attribute\n");
+	}
+	return ret;
+}
+static void rmnet_ipa_sysfs_destroy(void)
+{
+		sysfs_remove_group(kernel_kobj, &ipa_rmnet_attr_group);
+}
 #endif /* CONFIG_DEBUG_FS */
 
 int ipa3_wwan_platform_driver_register(void)
@@ -8799,8 +9007,11 @@ int ipa3_wwan_init(void)
 	rmnet_ipa3_ctx->outstanding_high_ctl = OUTSTANDING_HIGH_CTL_DEFAULT;
 	rmnet_ipa3_ctx->outstanding_low = OUTSTANDING_LOW_DEFAULT;
 
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ipa_debugfs_init();
-
+#else
+	rmnet_ipa_sysfs_init();
+#endif
 	/* Register for Local Modem SSR */
 #if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
 	ssr_hdl = qcom_register_ssr_notifier(SUBSYS_LOCAL_MODEM,
@@ -8858,7 +9069,11 @@ fail_unreg_lcl_mdm_ssr:
 		rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle = NULL;
 	}
 fail_dbgfs_rm:
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ipa_debugfs_remove();
+#else
+	rmnet_ipa_sysfs_destroy();
+#endif
 	return rc;
 }
 
@@ -8899,7 +9114,11 @@ void ipa3_wwan_cleanup(void)
 			"Failed to unregister subsys %s notifier ret=%d\n",
 			SUBSYS_REMOTE_MODEM, ret);
 	}
+#ifdef CONFIG_DEBUG_FS
 	rmnet_ipa_debugfs_remove();
+#else
+	rmnet_ipa_sysfs_init();
+#endif
 	ipa3_qmi_cleanup();
 	mutex_destroy(&rmnet_ipa3_ctx->per_client_stats_guard);
 	mutex_destroy(&rmnet_ipa3_ctx->add_mux_channel_lock);

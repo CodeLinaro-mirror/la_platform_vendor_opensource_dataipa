@@ -323,7 +323,7 @@ static int ipa3_write_done_common(struct ipa3_sys_context *sys,
 	void (*callback)(void *user1, int user2);
 
 	if (unlikely(tx_pkt == NULL)) {
-		IPAERR("tx_pkt is NULL\n");
+		IPAERR_RL("tx_pkt is NULL\n");
 		return 0;
 	}
 
@@ -1770,6 +1770,12 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
 							ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor;
+				else if (ipa3_ctx->ipa_config_is_rdkb &&
+					ipa3_ctx->wan_common_page_pool &&
+					sys_in->client == IPA_CLIENT_APPS_WAN_CONS)
+					ep->sys->page_recycle_repl->capacity =
+						(ep->sys->rx_pool_sz + 1) *
+						ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor;
 				else
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
@@ -1799,6 +1805,10 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 				sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1) *
 				ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor;
+			else if (ipa3_ctx->ipa_config_is_rdkb && sys_in->client ==
+					IPA_CLIENT_APPS_WAN_CONS)
+					ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1) *
+					ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor;
 			else
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1);
 			IPADBG("Repl capacity for client:%d, value:%d\n",
@@ -4671,7 +4681,7 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 	}
 
 /* Incremental offset for mac_addr4_valid bit. */
-#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT 8
+#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT 4
 #define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_PINE 74
 #define IPA_WDI_AST_MAC_ADDR4_VALID_MSK 0x20
 
