@@ -10,6 +10,9 @@
 #include "ipa_i.h"
 #include "ipahal.h"
 #include "ipahal_hw_stats.h"
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+#include <linux/vmalloc.h>
+#endif
 
 #define IPA_INIT_DROP_STATS_MAX_CMD_NUM 5
 #define IPA_INIT_TETH_STATS_MAX_CMD_NUM 5

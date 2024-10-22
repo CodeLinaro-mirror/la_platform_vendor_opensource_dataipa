@@ -729,6 +729,14 @@ ssize_t ipa3_read(struct file *filp, char __user *buf, size_t count,
 		IPADBG_LOW("msg=%pK\n", msg);
 
 		if (msg) {
+			if (msg->meta.msg_len > count) {
+				IPAERR("Message length greater than count\n");
+				kfree(msg->buff);
+				kfree(msg);
+				msg = NULL;
+				ret = -EAGAIN;
+				break;
+			}
 			locked = 0;
 			mutex_unlock(&ipa3_ctx->msg_lock);
 			if (copy_to_user(buf, &msg->meta,
