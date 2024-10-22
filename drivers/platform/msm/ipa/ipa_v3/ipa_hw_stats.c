@@ -1890,12 +1890,22 @@ int ipa_drop_stats_init(void)
 			pipe_bitmask[reg_idx] |= mask;
 		}
 
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0) {
+		/* Add drop stats for WAN_CONS if IPA_HW >=5.2 */
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v5_2) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_APPS_WAN_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+		}
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_2) {
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
 				IPA_CLIENT_ETHERNET_CONS,
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
+		}
 
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0) {
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
 				IPA_CLIENT_ETHERNET2_CONS,
 				&reg_idx);
