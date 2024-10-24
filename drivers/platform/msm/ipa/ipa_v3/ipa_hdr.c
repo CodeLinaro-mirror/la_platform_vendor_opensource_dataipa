@@ -1043,8 +1043,10 @@ static int __ipa3_del_hdr_proc_ctx(u32 proc_ctx_hdl,
 			proc_ctx_hdl, entry->ref_cnt);
 		return 0;
 	}
+	if (entry->hdr && (entry == entry->hdr->proc_ctx))
+		entry->hdr->proc_ctx = NULL;
 
-	if (release_hdr)
+	if (entry->hdr && release_hdr)
 		__ipa3_del_hdr(entry->hdr->id, false);
 
 	/* move the offset entry to appropriate free list */
@@ -1139,16 +1141,20 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 		IPADBG("hdr_hdl %x ref_cnt %d\n", hdr_hdl, entry->ref_cnt);
 		return 0;
 	}
+
+	if (entry->proc_ctx && (entry == entry->proc_ctx->hdr))
+		entry->proc_ctx->hdr = NULL;
+
 	if ((entry->is_hdr_proc_ctx && entry->proc_ctx) || entry->proc_ctx)
 		__ipa3_del_hdr_proc_ctx(entry->proc_ctx->id, false, false);
-	else
-		/* move the offset entry to appropriate free list */
-		list_move(&entry->offset_entry->link,
-			&htbl->head_free_offset_list[entry->offset_entry->bin]);
 
 	if(entry->in_apps_headers_ext)
 	{
 		htbl = &ipa3_ctx->hdr_tbl[HDR_TBL_LCL_EXT];
+		list_move(&entry->offset_entry->link,
+			&htbl->head_free_offset_list[entry->offset_entry->bin]);
+	} else if(!entry->is_hdr_proc_ctx) {
+		/* move the offset entry to appropriate free list */
 		list_move(&entry->offset_entry->link,
 			&htbl->head_free_offset_list[entry->offset_entry->bin]);
 	}
