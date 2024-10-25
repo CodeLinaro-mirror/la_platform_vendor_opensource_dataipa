@@ -10465,6 +10465,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 			IPAERR(":IPSEC init failed (%d)\n", -result);
 		else
 			IPADBG(":IPSEC init ok\n");
+		ipa3_ctx->ipsec_debug = 0;
 	}
 #endif
 
