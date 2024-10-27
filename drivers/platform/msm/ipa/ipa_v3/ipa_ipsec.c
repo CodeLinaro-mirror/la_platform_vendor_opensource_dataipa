@@ -510,11 +510,14 @@ static void ipa_ipsec_xfrm_sp_to_ipa_attrib(
  * ipa_ipsec_install_key()
  * 	Install a key.
  */
-static int ipa_ipsec_install_key(u8 idx, enum ipa_ipsec_key_type type,
+static int ipa_ipsec_install_key(enum ipa_ipsec_sa_type dir, u8 idx, enum ipa_ipsec_key_type type,
 	enum ipa_ipsec_key_len len_code, void *key)
 {
 	size_t len = ipa_ipsec_key_len_to_byte(len_code);
-	u8 *to = (type == IPA_IPSEC_KEY_ENC) ?
+	u8 *to;
+
+	idx += (dir == IPA_IPSEC_DECAP) ? IPA_IPSEC_MAX_ENACAP_KEY_NUM : 0;
+	to = (type == IPA_IPSEC_KEY_ENC) ?
 		(u8 *)&ipa3_ctx->ipsec->keys->enc[idx] : (u8 *)&ipa3_ctx->ipsec->keys->auth[idx];
 
 	if (unlikely(!to)) {
@@ -538,6 +541,26 @@ static int ipa_ipsec_install_key(u8 idx, enum ipa_ipsec_key_type type,
 	}
 
 	return 0;
+}
+
+/*
+ * ipa_ipsec_delete_key()
+ * 	Delete a key.
+ */
+static void ipa_ipsec_delete_key(enum ipa_ipsec_sa_type dir, u8 idx, enum ipa_ipsec_key_type type)
+{
+	idx += (dir == IPA_IPSEC_DECAP) ? IPA_IPSEC_MAX_ENACAP_KEY_NUM : 0;
+
+	switch (type) {
+	case IPA_IPSEC_KEY_ENC:
+		memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->enc[idx], 0, 32);
+		break;
+	case IPA_IPSEC_KEY_AUTH:
+		memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->auth[idx], 0, 64);
+		break;
+	default:
+		break;
+	}
 }
 
 /*
@@ -1363,14 +1386,14 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		}
 
 		if (eklen) IPADBG_LOW("ekey = %32phN", ekey);
-		ret = ipa_ipsec_install_key(idx, IPA_IPSEC_KEY_ENC, eklen, ekey);
+		ret = ipa_ipsec_install_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_ENC, eklen, ekey);
 		if (!!ret) {
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto clean_sa;
 		}
 		IPADBG_LOW("e key = %32phN", ipa3_ctx->ipsec->keys->enc[idx].b256);
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
-		ret = ipa_ipsec_install_key(idx, IPA_IPSEC_KEY_AUTH, aklen, akey);
+		ret = ipa_ipsec_install_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_AUTH, aklen, akey);
 		if (!!ret) {
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto zero_keys;
@@ -1445,8 +1468,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		}
 
 		if (eklen) IPADBG_LOW("ekey = %32phN", ekey);
-		ret = ipa_ipsec_install_key(IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx,
-			IPA_IPSEC_KEY_ENC, eklen, ekey);
+		ret = ipa_ipsec_install_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_ENC, eklen, ekey);
 		if (!!ret) {
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto clean_sa;
@@ -1454,8 +1476,7 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x)
 		IPADBG_LOW("e key = %32ph",
 			ipa3_ctx->ipsec->keys->enc[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b256);
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
-		ret = ipa_ipsec_install_key(IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx,
-			IPA_IPSEC_KEY_AUTH, aklen, akey);
+		ret = ipa_ipsec_install_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_AUTH, aklen, akey);
 		if (!!ret) {
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto zero_keys;
@@ -1527,8 +1548,13 @@ del_hpc:
 	mutex_unlock(&ipa3_ctx->lock);
 
 zero_keys:
-	memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->enc[idx], 0, 32);
-	memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->auth[idx], 0, 64);
+	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
+		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_ENC);
+		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_AUTH);
+	} else {
+		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_ENC);
+		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_AUTH);
+	}
 
 clean_sa:
 	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
@@ -1576,6 +1602,8 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 		mutex_unlock(&ipa3_ctx->lock);
 		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
+		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_ENC);
+		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_AUTH);
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
 		break;
 	case XFRM_DEV_OFFLOAD_IN:
@@ -1599,14 +1627,13 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 			mutex_unlock(&ipa3_ctx->lock);
 		}
 		memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
+		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_ENC);
+		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_AUTH);
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
 		break;
 	default:
 		return;
 	}
-
-	memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->enc[idx], 0, 32);
-	memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->auth[idx], 0, 64);
 
 	/* Reset SA statistics*/
 	memset(&ipa3_ctx->ipsec->stats.decap_stats[idx], 0,
