@@ -58,24 +58,6 @@ enum ipa3_cpu_2_hw_rtp_commands {
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_RTP, 11),
 };
 
-struct bitstream_buffer_info_to_uc {
-	uint8_t stream_id;
-	uint16_t fence_id;
-	uint8_t reserved;
-	u64 buff_addr;
-	u32 buff_fd;
-	u32 buff_size;
-	u64 meta_buff_addr;
-	u32 meta_buff_fd;
-	u32 meta_buff_size;
-} __packed;
-
-struct bitstream_buffers_to_uc {
-	uint16_t buff_cnt;
-	uint16_t cookie;
-	struct bitstream_buffer_info_to_uc bs_info[MAX_BUFF];
-} __packed;
-
 struct dma_address_map_table {
 	struct dma_buf *dma_buf_list[2];
 	struct dma_buf_attachment *attachment[2];
@@ -127,7 +109,7 @@ struct rtp_pipe_setup_cmd_data {
 
 struct hfi_queue_info {
 	u64 hfi_queue_addr;
-	u32 hfi_queue_size;
+	u32 hfi_queue_payload_size;
 	u64 queue_header_start_addr;
 	u64 queue_payload_start_addr;
 } __packed;
@@ -222,9 +204,8 @@ int ipa3_tuple_info_cmd_to_wlan_uc(struct traffic_tuple_info *req, u32 stream_id
 		return -EINVAL;
 	}
 
-	if (!ipa3_ctx->ipa_xr_wdi_flt_rsv_status) {
+	if (!atomic_read(&ipa3_ctx->ipa_xr_wdi_flt_rsv_status)) {
 		result = ipa_xr_wdi_opt_dpath_rsrv_filter_req();
-		ipa3_ctx->ipa_xr_wdi_flt_rsv_status = !result;
 		if (result) {
 			IPAERR("filter reservation failed at WLAN %d\n", result);
 			return result;
@@ -264,17 +245,19 @@ int ipa3_tuple_info_cmd_to_wlan_uc(struct traffic_tuple_info *req, u32 stream_id
 			flt_add_req.flt_info[0].ipv6_addr.ipv6_daddr[3]);
 	}
 
+	result = ipa3_uc_send_tuple_info_cmd(req);
+	if (result) {
+		IPAERR("Fail to send tuple info cmd to uc\n");
+		return -EPERM;
+	}
+	else
+		IPADBG("send tuple info cmd to uc succeeded\n");
+
 	result = ipa_xr_wdi_opt_dpath_add_filter_req(&flt_add_req, stream_id);
 	if (result) {
 		IPAERR("Fail to send tuple info cmd to wlan\n");
 		return -EPERM;
 	}
-
-	result = ipa3_uc_send_tuple_info_cmd(req);
-	if (result)
-		IPAERR("Fail to send tuple info cmd to uc\n");
-	else
-		IPADBG("send tuple info cmd to uc succeeded\n");
 
 	return result;
 }
@@ -291,8 +274,10 @@ int ipa3_uc_send_remove_stream_cmd(struct remove_bitstream_buffers *data)
 	}
 
 	result = ipa_xr_wdi_opt_dpath_remove_filter_req(data->stream_id);
-	if (result)
+	if (result) {
 		IPAERR("Failed to remove wlan filter of stream ID %d\n", data->stream_id);
+		return result;
+	}
 
 	cmd.size = sizeof(*cmd_data);
 	cmd.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, cmd.size,
@@ -1043,6 +1028,7 @@ int ipa3_create_hfi_send_uc(void)
 	struct hfi_queue_info data;
 	dma_addr_t hfi_queue_addr = 0;
 	struct ipa_smmu_cb_ctx *cb = NULL;
+	struct synx_hw_fence_hfi_queue_header *hfi_queue_payload_vptr = NULL;
 
 	snprintf(synx_session_name, MAX_SYNX_FENCE_SESSION_NAME, "ipa synx fence");
 	queue_desc.vaddr = NULL;
@@ -1076,11 +1062,15 @@ int ipa3_create_hfi_send_uc(void)
 
 	hfi_queue_addr = queue_desc.dev_addr;
 	data.hfi_queue_addr = hfi_queue_addr;
-	data.hfi_queue_size = queue_desc.size;
 	data.queue_header_start_addr = hfi_queue_addr +
 			sizeof(struct synx_hw_fence_hfi_queue_table_header);
 	data.queue_payload_start_addr = data.queue_header_start_addr +
 			sizeof(struct synx_hw_fence_hfi_queue_header);
+	hfi_queue_payload_vptr = (struct synx_hw_fence_hfi_queue_header *)(queue_desc.vaddr +
+				sizeof(struct synx_hw_fence_hfi_queue_table_header));
+	data.hfi_queue_payload_size = hfi_queue_payload_vptr->queue_size;
+	IPADBG("hfi queue payload vptr is 0x%x\n", hfi_queue_payload_vptr);
+	IPADBG("hfi queue payload size is 0x%x\n", data.hfi_queue_payload_size);
 	res = ipa3_uc_send_hfi_cmd(&data);
 	return res;
 }
