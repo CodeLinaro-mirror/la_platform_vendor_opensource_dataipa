@@ -2230,21 +2230,25 @@ EXPORT_SYMBOL(ipa_ipsec_install_dl_pol_flt);
 int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 {
 	int pos, rc, temp;
-	u32 mux_id;
+	int mux_id = ipa3_ctx->ipsec->mux_id;
 	enum ipa_ip_type ip;
 	struct ipa3_rt_tbl *rt_tbl;
 	struct ipa_rule_attrib attrib;
 	struct ipa_ipfltri_rule_eq eq_atrb;
 
-	IPADBG("Start\n");
+	IPADBG_LOW("Start\n");
+
+	if (mux_id == 0 || req->filter_spec_ex_list_len == 0) {
+		IPADBG("Cleanup or non-default PDN QMI. Won't send the IKE and IPsec rules.\n");
+		return 0;
+	}
+
+	IPADBG("Default PDN mux_id = %d\n", mux_id);
 
 	if (req->filter_spec_ex_list_len + IPA_QMI_IPSEC_FLT_NUM > QMI_IPA_MAX_FILTERS_EX_V01) {
 		IPAERR("Not enough memory in the QMI buffer\n");
 		return -ENOMEM;
 	}
-
-	/* Stealing the MUX ID from the first rule. TBD: support MPDN */
-	mux_id = req->filter_spec_ex_list[0].mux_id;
 
 	temp = req->filter_spec_ex_list_len - 1;
 	req->filter_spec_ex_list_len += IPA_QMI_IPSEC_FLT_NUM;
