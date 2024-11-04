@@ -187,7 +187,8 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 		if (ipa3_qmi_send_endp_desc_indication(&endp_ind))
 			IPAWANERR("Failed to send eth pipe endp desc QMI\n");
 	}
-	if(ipa3_rmnet_ctx.num_mux_channel_eth)
+	if(ipa3_rmnet_ctx.num_mux_channel_eth &&
+			(ipa3_rmnet_ctx.num_mux_channel_eth < QMI_IPA_MAX_RMNET_ETH_INFO_V01))
 	{
 		/* if rmnet_info comes before qmi, send all the cached info using QMI */
 		IPAWANDBG("Sending Rmnet_eth_info QMI\n");
