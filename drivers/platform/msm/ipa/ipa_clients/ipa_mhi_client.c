@@ -2785,6 +2785,9 @@ static int ipa_mhi_suspend_internal(bool force)
 		return res;
 	}
 
+	if(ipa3_ctx->ipa_mhi_eth)
+		netif_device_detach(ipa_mhi_client_ctx->net);
+
 	res = ipa_mhi_suspend_dl(force);
 	if (res) {
 		IPA_MHI_ERR("ipa_mhi_suspend_dl failed %d\n", res);
@@ -2911,6 +2914,8 @@ static int ipa_mhi_resume_internal(void)
 			IPA_MHI_ERR("fail to activate client %d\n", res);
 			goto fail_pm_activate;
 		}
+		netif_device_attach(ipa_mhi_client_ctx->net);
+		netif_trans_update(ipa_mhi_client_ctx->net);
 	}
 	else
 	{ /* legacy pm clients */
