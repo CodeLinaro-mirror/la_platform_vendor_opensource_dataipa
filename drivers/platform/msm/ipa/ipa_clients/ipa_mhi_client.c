@@ -3647,6 +3647,18 @@ int ipa_mhi_dma_suspend(struct mhi_dma_function_params function, bool force)
 }
 EXPORT_SYMBOL(ipa_mhi_dma_suspend);
 
+int ipa_mhi_client_get_ep_mapping(u8 channel_id)
+{
+	enum ipa_client_type client;
+	u32 clnt_hdl;
+
+	client = ipa3_mhi_get_client_by_chid(channel_id);
+	clnt_hdl = ipa_get_ep_mapping(client);
+	IPA_MHI_DBG("channel_id = %d clnt_hdl = %d client = %d\n", channel_id, clnt_hdl, client);
+	return clnt_hdl;
+}
+EXPORT_SYMBOL(ipa_mhi_client_get_ep_mapping);
+
 int ipa_mhi_dma_resume(struct mhi_dma_function_params function)
 {
 	return ipa_mhi_resume();
@@ -3723,6 +3735,7 @@ const struct mhi_dma_ops ipa_dma_mhi_driver_ops = {
 	.mhi_dma_update_mstate = ipa_mhi_dma_update_mstate,
 	.mhi_dma_resume = ipa_mhi_dma_resume,
 	.mhi_dma_suspend = ipa_mhi_dma_suspend,
+	.mhi_dma_get_ep_mapping = ipa_mhi_client_get_ep_mapping,
 };
 
 int ipa_dma_mhi_provide_ops(void)
