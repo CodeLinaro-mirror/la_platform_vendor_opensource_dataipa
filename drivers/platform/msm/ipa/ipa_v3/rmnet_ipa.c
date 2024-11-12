@@ -5327,6 +5327,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	rmnet_ipa3_ctx->old_num_q6_rules = 0;
 	rmnet_ipa3_ctx->rmnet_index = 0;
 	rmnet_ipa3_ctx->rmnet_index_eth = 0;
+	ipa3_rmnet_ctx.num_mux_channel_eth = 0;
 	rmnet_ipa3_ctx->egress_set = false;
 	rmnet_ipa3_ctx->a7_ul_flt_set = false;
 	rmnet_ipa3_ctx->ipa_mhi_aggr_formet_set = false;
@@ -5340,6 +5341,8 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		memset(&rmnet_ipa3_ctx->mux_channel[i], 0,
 				sizeof(struct ipa3_rmnet_mux_val));
 		memset(&rmnet_ipa3_ctx->mux_channel_eth[i], 0,
+				sizeof(struct ipa3_rmnet_mux_val));
+		memset(&ipa3_rmnet_ctx.mux_channel_eth[i], 0,
 				sizeof(struct ipa3_rmnet_mux_val));
 	}
 
