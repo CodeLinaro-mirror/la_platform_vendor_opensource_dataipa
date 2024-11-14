@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -976,13 +976,14 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 			}
 		}
 	}
-
+	/* Dst mac based rule have fixed rule id as 1 so ignore if passed by ipacm */
 	if (rule->rule_id) {
-		if ((rule->rule_id < ipa3_ctx->filter_start_id) ||
-		(rule->rule_id >= ((IPA_Q6_FLT_START_ID)<<1)-1)) {
+		if (((rule->rule_id < ipa3_ctx->filter_start_id) &&
+		     (rule->rule_id != 1)) ||
+		    (rule->rule_id >= ((IPA_Q6_FLT_START_ID) << 1) - 1)) {
 			IPAERR_RL("invalid rule_id provided 0x%x\n"
-				"rule_id with bit 0x%x are auto generated\n",
-				rule->rule_id, ipa3_ctx->filter_start_id);
+				  "rule_id with bit 0x%x are auto generated\n",
+				  rule->rule_id, ipa3_ctx->filter_start_id);
 			goto error;
 		}
 	}
@@ -1060,10 +1061,8 @@ static int __ipa_finish_flt_rule_add(struct ipa3_flt_tbl *tbl,
 {
 	int id;
 
-	if (tbl->rule_cnt < ipa3_ctx->filter_start_id)
-		tbl->rule_cnt++;
-	else
-		return -EINVAL;
+	tbl->rule_cnt++;
+
 	if (entry->rt_tbl)
 		entry->rt_tbl->ref_cnt++;
 	id = ipa3_id_alloc(entry);
