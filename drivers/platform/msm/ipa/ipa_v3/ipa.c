@@ -177,6 +177,11 @@ static void ipa_inc_clients_enable_clks_on_wq(struct work_struct *work);
 static DECLARE_WORK(ipa_inc_clients_enable_clks_on_wq_work,
 	ipa_inc_clients_enable_clks_on_wq);
 
+#ifdef CONFIG_IPA_RTP
+static void ipa_xr_uc_init_wq_handler(struct work_struct *work);
+static DECLARE_DELAYED_WORK(ipa_xr_uc_init_handle, ipa_xr_uc_init_wq_handler);
+#endif
+
 static int ipa3_ioctl_add_rt_rule_v2(unsigned long arg);
 static int ipa3_ioctl_add_rt_rule_ext_v2(unsigned long arg);
 static int ipa3_ioctl_add_rt_rule_after_v2(unsigned long arg);
@@ -7874,6 +7879,27 @@ static void ipa_gsi_map_unmap_gsi_msi_addr(bool map)
 	}
 }
 
+#ifdef CONFIG_IPA_RTP
+static int ipa3_xr_uc_loaded_handler(struct notifier_block *self,
+	unsigned long val, void *data)
+{
+	ipa3_ctx->xr_uc_init_wq =
+		create_singlethread_workqueue("xr_uc_init_wq");
+	if (!ipa3_ctx->xr_uc_init_wq) {
+		IPAERR("failed to create xr uc initialization wq\n");
+		return -EINVAL;
+	}
+
+	queue_delayed_work(ipa3_ctx->xr_uc_init_wq,
+		&ipa_xr_uc_init_handle,
+		msecs_to_jiffies(XR_IPA_UC_INIT_TIMEOUT_MSEC));
+	return 0;
+}
+
+static struct notifier_block xr_uc_loaded_cb = {
+	.notifier_call = ipa3_xr_uc_loaded_handler,
+};
+#endif
 
 /**
  * ipa3_post_init() - Initialize the IPA Driver (Part II).
@@ -8255,8 +8281,6 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG(":mpm init init ok\n");
 
-	ipa3_usb_init();
-
 	mutex_lock(&ipa3_ctx->lock);
 	ipa3_ctx->ipa_initialization_complete = true;
 	mutex_unlock(&ipa3_ctx->lock);
@@ -8279,42 +8303,11 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 #ifdef CONFIG_IPA_RTP
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR) {
-		/* uC is getting loaded through XBL here */
-		ipa3_ctx->uc_ctx.uc_inited = true;
-		ipa3_ctx->uc_ctx.uc_loaded = true;
-		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-		result = ipa3_alloc_temp_buffs_to_uc(TEMP_BUFF_SIZE, NO_OF_BUFFS);
+		result = ipa3_uc_register_ready_cb(&xr_uc_loaded_cb);
 		if (result) {
-			IPAERR("Temp buffer allocations for uC failed %d\n", result);
-			result = -ENODEV;
-			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+			IPAERR("Failed to register uc ready cb\n");
 			goto fail_teth_bridge_driver_init;
 		}
-
-		result = ipa3_allocate_uc_pipes_er_tr_send_to_uc();
-		if (result) {
-			IPAERR("ER and TR allocations for uC pipes failed %d\n", result);
-			ipa3_free_uc_temp_buffs(NO_OF_BUFFS);
-			result = -ENODEV;
-			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-			goto fail_teth_bridge_driver_init;
-		}
-
-		/*
-		* Here, synx_init API calls will be success only
-		* when hw-fence is enabled by default in builds.
-		*/
-		result = ipa3_create_hfi_send_uc();
-		if (result) {
-			IPAERR("HFI Creation failed %d\n", result);
-			ipa3_free_uc_temp_buffs(NO_OF_BUFFS);
-			ipa3_free_uc_pipes_er_tr();
-			result = -ENODEV;
-			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-			goto fail_teth_bridge_driver_init;
-		}
-
-		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	}
 #endif
 
@@ -8359,6 +8352,41 @@ fail_ipahal:
 
 	return result;
 }
+
+#ifdef CONFIG_IPA_RTP
+static void ipa_xr_uc_init_wq_handler(struct work_struct *work)
+{
+	int result;
+
+	IPADBG("Entry\n");
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	result = ipa3_create_hfi_send_uc();
+	if (result) {
+		IPAERR("HFI Creation failed\n");
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+		ipa_assert();
+	}
+
+	result = ipa3_alloc_temp_buffs_to_uc(TEMP_BUFF_SIZE, NO_OF_BUFFS);
+	if (result) {
+		IPAERR("Temp buffer allocations for uC failed %d\n", result);
+		ipa3_synx_uninitialize();
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+		ipa_assert();
+	}
+
+	result = ipa3_allocate_uc_pipes_er_tr_send_to_uc();
+	if (result) {
+		IPAERR("ER and TR allocations for uC pipes failed %d\n", result);
+		ipa3_synx_uninitialize();
+		ipa3_free_uc_temp_buffs(NO_OF_BUFFS);
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+		ipa_assert();
+	}
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+}
+#endif
 
 static int ipa3_manual_load_ipa_fws(void)
 {
@@ -9799,6 +9827,12 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_ipa_dma_setup;
 	}
 
+	result = ipa3_usb_init();
+	if (result) {
+		IPAERR("Failed to setup USB\n");
+		result = -ENODEV;
+		goto fail_ipa_usb_setup;
+	}
 	/*
 	 * We can't register the GSI driver yet, as it expects
 	 * the GSI FW to be up and running before the registration.
@@ -9914,6 +9948,8 @@ fail_odl_init:
 	cdev_del(cdev);
 fail_cdev_add:
 fail_gsi_pre_fw_load_init:
+	ipa3_usb_exit();
+fail_ipa_usb_setup:
 	ipa3_dma_shutdown();
 fail_ipa_dma_setup:
 	ipa_pm_destroy();
@@ -12186,9 +12222,11 @@ static void ipa3_deepsleep_suspend(void)
 	IPADBG("Entry\n");
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
+#if IS_ENABLED(CONFIG_DEEPSLEEP)
+	ipa_exit_callback();
+#endif
 	/* To allow default routing table delection using this flag */
 	ipa3_ctx->deepsleep = true;
-	ipa3_usb_exit();
 	/*Disabling the LAN NAPI*/
 	ipa3_disable_napi_lan_rx();
 	/*NOt allow uC related operations until uC load again*/
@@ -12224,6 +12262,7 @@ static void ipa3_deepsleep_resume(void)
 	IPADBG("Entry\n");
 	/*After deeplseep exit we shouldn't allow delete the default routing table*/
 	ipa3_ctx->deepsleep = false;
+	ipa3_usb_register_ready_cb();
 	/*Scheduling WQ to load IPA FW*/
 	queue_work(ipa3_ctx->transport_power_mgmt_wq,
 		&ipa3_fw_loading_work);
