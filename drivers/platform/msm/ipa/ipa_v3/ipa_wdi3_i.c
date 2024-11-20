@@ -1929,7 +1929,7 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 
 	/* stop gsi rx1 channel */
 	if (ipa_ep_idx_rx1 >= 0) {
-		result = ipa3_stop_gsi_channel(ipa_ep_idx_rx1);
+		result = ipa_stop_gsi_channel(ipa_ep_idx_rx1);
 		if (result) {
 			IPAERR("failed to stop gsi rx1 channel\n");
 			result = -EFAULT;

@@ -17,6 +17,12 @@
 #include <linux/types.h>
 #include <linux/if_ether.h>
 
+#undef __packed
+
+#ifndef __packed
+  #define __packed __attribute__((__packed__))
+#endif
+
 /**
  * unique magic number of the IPA device
  */

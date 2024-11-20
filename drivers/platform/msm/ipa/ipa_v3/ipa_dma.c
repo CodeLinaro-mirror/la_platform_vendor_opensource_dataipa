@@ -1148,20 +1148,20 @@ void ipa3_dma_async_memcpy_notify_cb(void *priv
 
 int ipa_mhi_dma_memcpy_init(struct mhi_dma_function_params function)
 {
-	return ipa3_dma_init();
+	return ipa_dma_init();
 }
 EXPORT_SYMBOL(ipa_mhi_dma_memcpy_init);
 
 void ipa_mhi_dma_memcpy_destroy(struct mhi_dma_function_params function)
 {
-	return ipa3_dma_destroy();
+	return ipa_dma_destroy();
 }
 EXPORT_SYMBOL(ipa_mhi_dma_memcpy_destroy);
 
 int ipa_mhi_dma_sync_memcpy(u64 dest, u64 src, int len,
 		struct mhi_dma_function_params function)
 {
-	return ipa3_dma_sync_memcpy(dest, src, len);
+	return ipa_dma_sync_memcpy(dest, src, len);
 }
 EXPORT_SYMBOL(ipa_mhi_dma_sync_memcpy);
 
@@ -1169,19 +1169,19 @@ int ipa_mhi_dma_async_memcpy(u64 dest, u64 src, int len,
 		 struct mhi_dma_function_params function,
 		 void (*user_cb)(void *user1), void *user_param)
 {
-	return ipa3_dma_async_memcpy(dest, src, len, user_cb, user_param);
+	return ipa_dma_async_memcpy(dest, src, len, user_cb, user_param);
 }
 EXPORT_SYMBOL(ipa_mhi_dma_async_memcpy);
 
 int ipa_mhi_dma_memcpy_enable(struct mhi_dma_function_params function)
 {
-	return ipa3_dma_enable();
+	return ipa_dma_enable();
 }
 EXPORT_SYMBOL(ipa_mhi_dma_memcpy_enable);
 
 int ipa_mhi_dma_memcpy_disable(struct mhi_dma_function_params function)
 {
-	return ipa3_dma_disable();
+	return ipa_dma_disable();
 }
 EXPORT_SYMBOL(ipa_mhi_dma_memcpy_disable);
 
@@ -1318,7 +1318,7 @@ static ssize_t dma_info_show(struct device *dev,
 {
 	int nbytes = 0;
 
-	if (!ipa3_dma_init_refcnt_ctrl) {
+	if (!ipa_dma_init_refcnt_ctrl) {
 		nbytes += scnprintf(&dbg_buff[nbytes],
 			IPADMA_MAX_MSG_LEN - nbytes,
 			"Setup was not done\n");
@@ -1330,12 +1330,12 @@ static ssize_t dma_info_show(struct device *dev,
 		nbytes += scnprintf(&dbg_buff[nbytes],
 			IPADMA_MAX_MSG_LEN - nbytes,
 			"Status:\n	Not initialized (ref_cnt=%d)\n",
-			ipa3_dma_init_refcnt_ctrl->ref_cnt);
+			ipa_dma_init_refcnt_ctrl->ref_cnt);
 	} else {
 		nbytes += scnprintf(&dbg_buff[nbytes],
 			IPADMA_MAX_MSG_LEN - nbytes,
 			"Status:\n	Initialized (ref_cnt=%d)\n",
-			ipa3_dma_init_refcnt_ctrl->ref_cnt);
+			ipa_dma_init_refcnt_ctrl->ref_cnt);
 		nbytes += scnprintf(&dbg_buff[nbytes],
 			IPADMA_MAX_MSG_LEN - nbytes,
 			"	%s (ref_cnt=%d)\n",

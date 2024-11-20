@@ -10750,18 +10750,18 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 		type = seq_cfg->seq_type;
 #ifdef CONFIG_IPA_IPSEC
 	} else if (ipa_ipsec_enabled() &&
-		   (clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN3_PROD) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1) ||
-		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD1))) {
+		   (clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1) ||
+		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD1))) {
 		type = IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP;
 #endif
 	} else {
@@ -11449,7 +11449,7 @@ int ipa_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 		ep_ctrl->ipa_ep_suspend,
 		ep_ctrl->ipa_ep_delay);
 	ep = &ipa3_ctx->ep[clnt_hdl];
-	gsi_ep_cfg = ipa3_get_gsi_ep_info(ep->client);
+	gsi_ep_cfg = ipa_get_gsi_ep_info(ep->client);
 
 	if (!gsi_ep_cfg) {
 		IPAERR("failed to get GSI config\n");
@@ -11567,18 +11567,18 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_enabled() &&
-	   (clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN3_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_PROD1)))
+	   (clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1) ||
+	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD1)))
 		type = IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP;
 	else
 #endif
@@ -14028,7 +14028,7 @@ int ipa3_is_spcl_iface(enum ipa_vlan_ifaces iface, bool *res)
 		return -EINVAL;
 	}
 
-	if (!ipa3_is_ready()) {
+	if (!ipa_is_ready()) {
 		IPAERR("IPA is not ready yet\n");
 		return -ENODEV;
 	}
@@ -16938,10 +16938,10 @@ int ipa3_send_eogre_notify(enum ipa_eogre_event etype)
 
 	IPADBG("sending eogre notify to ipacm\n");
 
-	res = ipa3_send_msg(&msg_meta, NULL, NULL);
+	res = ipa_send_msg(&msg_meta, NULL, NULL);
 
 	if (res) {
-		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		IPAERR_RL("ipa_send_msg failed: %d\n", res);
 	}
 
 	return res;
@@ -17048,7 +17048,7 @@ int ipa_send_mhi_coal_endp_ind_to_modem(bool check_if_modem_is_up) {
 	struct ipa_endp_desc_indication_msg_v01 req;
 	struct ipa_ep_id_type_v01 *ep_info;
 	int ipa_mhi_coal_ep_idx =
-		ipa3_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS);
+		ipa_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS);
 
 	mutex_lock(&ipa3_ctx->mhi_lock);
 
@@ -17313,7 +17313,7 @@ int ipa3_del_uc_act_entry(uint16_t index)
 	if (cmd_id == IPA_IPv6_NAT_COM_ID)
 		return ipa3_del_ipv6_nat_uc_activation_entry(index);
 	else
-		return ipa3_del_socksv5_conn(index);
+		return ipa_del_socksv5_conn(index);
 }
 
 int ipa3_del_ipv6_nat_uc_activation_entry(uint16_t index)
@@ -17661,9 +17661,9 @@ int ipa3_add_socksv5_conn_usr(struct ipa_kernel_tests_socksv5_uc_tmpl *tmpl)
 		return -EINVAL;
 	}
 
-	retval = ipa3_add_socksv5_conn(&info);
+	retval = ipa_add_socksv5_conn(&info);
 	if (retval) {
-		IPAERR("ipa3_add_socksv5_conn failed retval: %d\n", retval);
+		IPAERR("ipa_add_socksv5_conn failed retval: %d\n", retval);
 		return retval;
 	}
 
@@ -17814,10 +17814,10 @@ void ipa3_notify_ipacm_eth_pdu_enable(void)
 	/*
 	 * Post event to ipacm
 	 */
-	res = ipa3_send_msg(&msg_meta, NULL, NULL);
+	res = ipa_send_msg(&msg_meta, NULL, NULL);
 
 	if (res)
-		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		IPAERR_RL("ipa_send_msg failed: %d\n", res);
 }
 
 void ipa3_set_eth_pdu_ep_status(void)
@@ -17868,7 +17868,7 @@ int ipa3_update_l2tp_config(uint32_t client)
 		return result;
 	}
 
-	ipa_ep_idx = ipa3_get_ep_mapping(client);
+	ipa_ep_idx = ipa_get_ep_mapping(client);
 	if (ipa_ep_idx == -1) {
 		IPAERR_RL("Invalid client.\n");
 		return result;
