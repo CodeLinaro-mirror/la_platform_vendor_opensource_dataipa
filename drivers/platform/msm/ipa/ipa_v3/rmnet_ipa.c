@@ -4975,7 +4975,7 @@ int ipa3_wwan_set_modem_state(struct wan_ioctl_notify_wan_state *state)
 	char wan_state[IPA_UPSTREAM_ALERT_MAX_SIZE];
 	char *envp[IPA_UEVENT_NUM_EVNP] = {
 		alert_msg, wan_iface, wan_state, NULL};
-	int res;
+	int mux_id, res;
 
 	if (!state)
 		return -EINVAL;
@@ -4984,6 +4984,19 @@ int ipa3_wwan_set_modem_state(struct wan_ioctl_notify_wan_state *state)
 		ret = ipa_pm_activate_sync(rmnet_ipa3_ctx->q6_teth_pm_hdl);
 	else
 		ret = ipa_pm_deactivate_sync(rmnet_ipa3_ctx->q6_teth_pm_hdl);
+
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_initialized()) {
+		if (state->up && state->upstreamIface[0] != 0) {
+			mux_id = rmnet_ipa3_get_wan_mux_id(state->upstreamIface);
+			IPAWANDBG("mux_id = %d\n", mux_id);
+			if (mux_id > 0)
+				ipa3_ctx->ipsec->mux_id = mux_id;
+		} else {
+			ipa3_ctx->ipsec->mux_id = 0;
+		}
+	}
+#endif
 
 	/* Send upstream state uevent if RSC/RSB is enabled. */
 	if (IPA_NETDEV() && (IPA_NETDEV()->features & NETIF_F_GRO_HW)) {
@@ -8570,6 +8583,26 @@ int rmnet_ipa3_get_wan_mtu(
 		mux_channel[rmnet_index].mtu_v6;
 
 	return 0;
+}
+
+/* rmnet_ipa3_get_wan_mux_id() -
+ * @dev_name - RMNET interface name
+ *
+ * Returs:
+ * Mux ID value: on Success
+ * -ENODEV: Invalid args provided
+ */
+int rmnet_ipa3_get_wan_mux_id(const char *dev_name)
+{
+	int rmnet_index = find_vchannel_name_index(dev_name);
+
+	if (rmnet_index == MAX_NUM_OF_MUX_CHANNEL) {
+		IPAWANERR("%s is an invalid iface name\n", dev_name);
+		return -ENODEV;
+	}
+
+	IPAWANDBG("returning mux ID = %d\n", rmnet_ipa3_ctx->mux_channel[rmnet_index].mux_id);
+	return rmnet_ipa3_ctx->mux_channel[rmnet_index].mux_id;
 }
 
 #ifdef CONFIG_DEBUG_FS
