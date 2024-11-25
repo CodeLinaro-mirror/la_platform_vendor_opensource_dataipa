@@ -112,7 +112,7 @@ struct ipa_mhi_connect_params {
 
 #if IS_ENABLED(CONFIG_IPA3)
 
-int ipa_mhi_init(struct ipa_mhi_init_params *params);
+int ipa_mhi_init_internal(struct ipa_mhi_init_params *params);
 
 int ipa_mhi_start(struct ipa_mhi_start_params *params);
 
@@ -130,7 +130,7 @@ int ipa_mhi_update_mstate(enum ipa_mhi_mstate mstate_info);
 
 #else /* IS_ENABLED(CONFIG_IPA3) */
 
-static inline int ipa_mhi_init(struct ipa_mhi_init_params *params)
+static inline int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
 {
 	return -EPERM;
 }

@@ -651,7 +651,7 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 			 * CAN fit in SRAM, hence we'll use SRAM...
 			 * And SRAM allowed
 			 */
-			IPADBG("V4 NAT with size 0x%08lX will reside in: %s\n",
+			IPADBG("V4 NAT with size 0x%08zX will reside in: %s\n",
 				   table_alloc->size,
 				   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_SRAM));
 
@@ -696,7 +696,7 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 			/*
 			 * CAN NOT fit in SRAM OR SRAM not allowed, hence we'll allocate DDR...
 			 */
-			IPADBG("V4 NAT with size 0x%08lX will reside in: %s\n",
+			IPADBG("V4 NAT with size 0x%08zX will reside in: %s\n",
 				   table_alloc->size,
 				   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_DDR));
 
@@ -864,7 +864,7 @@ int ipa3_allocate_nat_table(
 
 	int result;
 
-	IPADBG("table size:%lu offset:%lu\n",
+	IPADBG("table size:%zu offset:%lu\n",
 		   table_alloc->size, table_alloc->offset);
 
 	mutex_lock(&nm_ptr->dev.lock);

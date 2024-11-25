@@ -1200,8 +1200,8 @@ int ipa3_conn_wigig_client_i(void *in,
 				input_smmu->pipe_smmu.status_ring_HWTAIL_pa)) {
 			IPAERR(
 				"status ring HWHEAD and HWTAIL differ in 8 MSbs head 0x%llX tail 0x%llX\n"
-			, input_smmu->pipe_smmu.status_ring_HWHEAD_pa,
-			input_smmu->pipe_smmu.status_ring_HWTAIL_pa);
+			, (u64)input_smmu->pipe_smmu.status_ring_HWHEAD_pa,
+			(u64)input_smmu->pipe_smmu.status_ring_HWTAIL_pa);
 			return -EFAULT;
 		}
 
@@ -1239,8 +1239,8 @@ int ipa3_conn_wigig_client_i(void *in,
 				input->pipe.status_ring_HWTAIL_pa)) {
 			IPAERR(
 				"status ring HWHEAD and HWTAIL differ in 8 MSbs head 0x%llX tail 0x%llX\n"
-				, input->pipe.status_ring_HWHEAD_pa,
-				input->pipe.status_ring_HWTAIL_pa);
+				, (u64)input->pipe.status_ring_HWHEAD_pa,
+				(u64)input->pipe.status_ring_HWTAIL_pa);
 			return -EFAULT;
 		}
 

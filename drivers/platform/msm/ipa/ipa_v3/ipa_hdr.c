@@ -1114,7 +1114,7 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 	htbl = entry->is_lcl ? &ipa3_ctx->hdr_tbl[HDR_TBL_LCL] : &ipa3_ctx->hdr_tbl[HDR_TBL_SYS];
 	if(entry->proc_ctx ||  entry->is_hdr_proc_ctx)
 		IPADBG("del hdr of len=%d hdr_cnt=%d ofst=%llu\n", entry->hdr_len, htbl->hdr_cnt,
-			entry->phys_base);
+			(u64)entry->phys_base);
 	else
 		IPADBG("del hdr of len=%d hdr_cnt=%d ofst=%d\n", entry->hdr_len, htbl->hdr_cnt,
 			entry->offset_entry->offset);

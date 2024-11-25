@@ -161,7 +161,7 @@ int ipa_qdss_conn_pipes(struct ipa_qdss_conn_in_params *in,
 		goto fail_write_scratch;
 	}
 	out->ipa_rx_db_pa = (phys_addr_t)(gsi_db_addr_low);
-	IPA_QDSS_DBG("QDSS out->ipa_rx_db_pa %llu\n", out->ipa_rx_db_pa);
+	IPA_QDSS_DBG("QDSS out->ipa_rx_db_pa %llu\n", (u64)out->ipa_rx_db_pa);
 
 	/* Configuring HOLB on MHI endpoint */
 	memset(&holb_cfg, 0, sizeof(holb_cfg));

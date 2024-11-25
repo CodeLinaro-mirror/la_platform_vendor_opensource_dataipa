@@ -1086,7 +1086,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		out->rx_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
 	}
 
-	IPADBG("out->rx_uc_db_pa %llu\n", out->rx_uc_db_pa);
+	IPADBG("out->rx_uc_db_pa %llu\n", (u64)out->rx_uc_db_pa);
 
 	ipa3_install_dflt_flt_rules(ipa_ep_idx_rx);
 	IPADBG("client %d (ep: %d) connected\n", rx_client,
@@ -1158,7 +1158,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 			out->rx1_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
 		}
 
-		IPADBG("out->rx1_uc_db_pa %llu\n", out->rx1_uc_db_pa);
+		IPADBG("out->rx1_uc_db_pa %llu\n", (u64)out->rx1_uc_db_pa);
 
 		ipa3_install_dflt_flt_rules(ipa_ep_idx_rx1);
 		IPADBG("client %d (ep: %d) connected\n", rx1_client,
@@ -1259,7 +1259,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		out->tx_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
 	}
 
-	IPADBG("out->tx_uc_db_pa %llu\n", out->tx_uc_db_pa);
+	IPADBG("out->tx_uc_db_pa %llu\n", (u64)out->tx_uc_db_pa);
 	IPADBG("client %d (ep: %d) connected\n", tx_client,
 		ipa_ep_idx_tx);
 
@@ -1372,7 +1372,7 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 			out->tx1_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
 		}
 
-		IPADBG("out->tx1_uc_db_pa %llu\n", out->tx1_uc_db_pa);
+		IPADBG("out->tx1_uc_db_pa %llu\n", (u64)out->tx1_uc_db_pa);
 		IPADBG("client %d (ep: %d) connected\n", tx1_client,
 			ipa_ep_idx_tx1);
 

@@ -599,7 +599,7 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->rx_pipe_info.info.transfer_ring_sgt =
 		test_ntn_ctx->rx_transfer_ring_sgt;
 
-	IPA_UT_DBG("rx TR phys 0x%llX, cpu 0x%p, size %d, sgt 0x%p\n",
+	IPA_UT_DBG("rx TR phys 0x%pa, cpu 0x%p, size %d, sgt 0x%p\n",
 		test_ntn_ctx->rx_transfer_ring_addr.phys_base,
 		test_ntn_ctx->rx_transfer_ring_addr.base,
 		test_ntn_ctx->rx_transfer_ring_addr.size,
@@ -613,7 +613,7 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->rx_pipe_info.info.buffer_pool_base_sgt =
 		test_ntn_ctx->rx_buff_sgt;
 
-	IPA_UT_DBG("rx buff phys 0x%llX, cpu 0x%p, size %d, fix size %d sgt 0x%p\n"
+	IPA_UT_DBG("rx buff phys 0x%pa, cpu 0x%p, size %d, fix size %d sgt 0x%p\n"
 		, test_ntn_ctx->rx_buf.phys_base,
 		test_ntn_ctx->rx_buf.base,
 		test_ntn_ctx->rx_buf.size,
@@ -635,7 +635,7 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->rx_pipe_info.info.client_info.ntn.tail_ptr_offs =
 		RX_TAIL_PTR_OFF;
 
-	IPA_UT_DBG("tail registers bar: phys 0x%llX virt 0x%p\n",
+	IPA_UT_DBG("tail registers bar: phys 0x%pa virt 0x%p\n",
 		test_ntn_ctx->bar_addr.phys_base, test_ntn_ctx->bar_addr.base);
 
 	/* TX pipe */
@@ -653,7 +653,7 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->tx_pipe_info.info.transfer_ring_sgt =
 		test_ntn_ctx->tx_transfer_ring_sgt;
 
-	IPA_UT_DBG("tx TR phys 0x%llX, cpu 0x%p, size %d, sgt 0x%p\n",
+	IPA_UT_DBG("tx TR phys 0x%pa, cpu 0x%p, size %d, sgt 0x%p\n",
 		test_ntn_ctx->tx_transfer_ring_addr.phys_base,
 		test_ntn_ctx->tx_transfer_ring_addr.base,
 		test_ntn_ctx->tx_transfer_ring_addr.size,
@@ -674,16 +674,16 @@ static int ipa_ntn_test_setup_pipes(void)
 			((phys_addr_t)(test_ntn_ctx->tx_buf.base +
 			(BUFFER_SIZE * i)) & ~PAGE_MASK);
 
-		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].iova = 0x%llx",
+		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].iova = 0x%pa",
 			i,
 			test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].iova);
-		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].pa = 0x%llx",
+		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].pa = 0x%pa",
 			i,
 			test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].pa);
 	}
 	test_ntn_ctx->tx_pipe_info.info.data_buff_list_size = NUM_TX_BUFS;
 
-	IPA_UT_DBG("tx buff phys 0x%llX, cpu 0x%p, size %d, fix size %d sgt 0x%p\n"
+	IPA_UT_DBG("tx buff phys 0x%pa, cpu 0x%p, size %d, fix size %d sgt 0x%p\n"
 		, test_ntn_ctx->tx_buf.phys_base,
 		test_ntn_ctx->tx_buf.base,
 		test_ntn_ctx->tx_buf.size,
@@ -753,11 +753,11 @@ static int ipa_ntn_test_reg_intf(void)
 	intf.client = &test_ntn_ctx->client;
 
 	snprintf(intf.net_dev->name, sizeof(intf.net_dev->name), "ntn_test");
-	IPA_UT_INFO("netdev name: %s strlen: %lu\n", intf.net_dev->name, strlen(intf.net_dev->name));
+	IPA_UT_INFO("netdev name: %s strlen: %u\n", intf.net_dev->name, strlen(intf.net_dev->name));
 #else
 	snprintf(netdev_name, sizeof(netdev_name), "ntn_test");
 	intf.netdev_name = netdev_name;
-	IPA_UT_INFO("netdev name: %s strlen: %lu\n", intf.netdev_name,
+	IPA_UT_INFO("netdev name: %s strlen: %u\n", intf.netdev_name,
 		strlen(intf.netdev_name));
 
 	intf.hdr[0].hdr = &hdr_content;
@@ -821,7 +821,7 @@ static int ipa_ntn_test_unreg_intf(void)
 	intf.client = &test_ntn_ctx->client;
 
 	snprintf(intf.net_dev->name, sizeof(intf.net_dev->name), "ntn_test");
-	IPA_UT_INFO("netdev name: %s strlen: %lu\n", intf.net_dev->name, strlen(intf.net_dev->name));
+	IPA_UT_INFO("netdev name: %s strlen: %u\n", intf.net_dev->name, strlen(intf.net_dev->name));
 #else
 	snprintf(netdev_name, sizeof(netdev_name), "ntn_test");
 	intf.netdev_name = netdev_name;
