@@ -1589,6 +1589,12 @@ enum ipa3_config_this_ep {
 	IPA_DO_NOT_CONFIGURE_THIS_EP,
 };
 
+enum ipa_ep_holb_timer_type {
+	IPA_EP_HOLB_TIMER_TYPE_S,
+	IPA_EP_HOLB_TIMER_TYPE_US,
+	IPA_EP_HOLB_TIMER_TYPE_MAX
+};
+
 struct ipa3_page_recycle_stats {
 	u64 total_replenished;
 	u64 page_recycled;
@@ -3216,6 +3222,9 @@ int ipa3_cfg_ep_deaggr(u32 clnt_hdl,
 
 int ipa3_cfg_ep_route(u32 clnt_hdl, const struct ipa_ep_cfg_route *ipa_ep_cfg);
 
+int __ipa3_cfg_ep_holb(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ep_holb,
+		enum ipa_ep_holb_timer_type timer_type);
+
 int ipa3_cfg_ep_holb(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ipa_ep_cfg);
 
 int ipa3_cfg_ep_holb_uS(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ipa_ep_cfg);
@@ -3708,6 +3717,10 @@ int __ipa_del_flt_rule(u32 rule_hdl);
 int __ipa3_del_hdr(u32 hdr_hdl, bool by_user);
 int __ipa3_release_hdr(u32 hdr_hdl);
 int __ipa3_release_hdr_proc_ctx(u32 proc_ctx_hdl);
+
+ssize_t __holb_set(struct device *dev, struct device_attribute *attr, const char *ubuf,
+		size_t count, enum ipa_ep_holb_timer_type timer_type);
+
 int _ipa_read_ep_reg_v3_0(char *buf, int max_len, int pipe);
 int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe);
 int _ipa_read_ipahal_regs(void);
