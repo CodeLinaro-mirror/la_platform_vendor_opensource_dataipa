@@ -4975,8 +4975,10 @@ int ipa3_wwan_set_modem_state(struct wan_ioctl_notify_wan_state *state)
 	char wan_state[IPA_UPSTREAM_ALERT_MAX_SIZE];
 	char *envp[IPA_UEVENT_NUM_EVNP] = {
 		alert_msg, wan_iface, wan_state, NULL};
-	int mux_id, res;
-
+	int res;
+#ifdef CONFIG_IPA_IPSEC
+	int mux_id;
+#endif
 	if (!state)
 		return -EINVAL;
 
