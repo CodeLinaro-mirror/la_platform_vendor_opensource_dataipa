@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/ipa_wdi3.h>
@@ -801,8 +801,10 @@ static int ipa_wdi_enable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
-		ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
-		ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
+		if (ipa_wdi_ctx_list[hdl]->is_rx1_used)
+			ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
+		if (ipa_wdi_ctx_list[hdl]->is_tx1_used)
+			ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
 	}
 
 	if (ipa_ep_idx_tx <= 0 || ipa_ep_idx_rx <= 0)
@@ -1058,10 +1060,11 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
  */
 static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_hdl_t hdl)
 {
-	int len, ret = 0;
+	int i, len, ret = 0;
 	struct ipa_ioc_del_hdr *hdr = NULL;
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
+	int num_hdr = 0;
 
 	if (!netdev_name) {
 		IPA_WDI_ERR("no netdev name.\n");
@@ -1085,13 +1088,16 @@ static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_
 		IPA_WDI_ERR("wdi ctx is not initialized.\n");
 		return -EPERM;
 	}
+
+	num_hdr = ipa_wdi_ctx_list[hdl]->is_rx1_used ? 4 : 2;
+
 	IPA_WDI_DBG("Deregister Instance hdl %d\n",hdl);
 	mutex_lock(&ipa_wdi_ctx_list[hdl]->lock);
 	list_for_each_entry_safe(entry, next, &ipa_wdi_ctx_list[hdl]->head_intf_list,
 		link)
 		if (strcmp(entry->netdev_name, netdev_name) == 0) {
 			len = sizeof(struct ipa_ioc_del_hdr) +
-				2 * sizeof(struct ipa_hdr_del);
+				num_hdr * sizeof(struct ipa_hdr_del);
 			hdr = kzalloc(len, GFP_KERNEL);
 			if (hdr == NULL) {
 				IPA_WDI_ERR("fail to alloc %d bytes\n", len);
@@ -1100,11 +1106,11 @@ static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_
 			}
 
 			hdr->commit = 1;
-			hdr->num_hdls = 2;
-			hdr->hdl[0].hdl = entry->partial_hdr_hdl[0];
-			hdr->hdl[1].hdl = entry->partial_hdr_hdl[1];
-			IPA_WDI_DBG("IPv4 hdr hdl: %d IPv6 hdr hdl: %d\n",
-				hdr->hdl[0].hdl, hdr->hdl[1].hdl);
+			hdr->num_hdls = num_hdr;
+			for (i = 0; i < num_hdr; i++) {
+				hdr->hdl[i].hdl = entry->partial_hdr_hdl[i];
+				IPA_WDI_DBG("hdr hdl: %d\n", hdr->hdl[i].hdl);
+			}
 
 			if (ipa3_del_hdr(hdr)) {
 				IPA_WDI_ERR("fail to delete partial header\n");
@@ -1170,13 +1176,15 @@ static int ipa_wdi_disconn_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		}
 	}
 
-        ipa_ep_idx_rx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx_client);
-        ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
+	ipa_ep_idx_rx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx_client);
+	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
 
-        if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
-                ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
-                ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
-        }
+	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
+		if (ipa_wdi_ctx_list[hdl]->is_rx1_used)
+			ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
+		if (ipa_wdi_ctx_list[hdl]->is_tx1_used)
+			ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
+    }
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
 		if (ipa3_disconn_wdi3_pipes(
@@ -1237,13 +1245,15 @@ static int ipa_wdi_disable_pipes_per_inst_internal(ipa_wdi_hdl_t hdl)
 		return -EPERM;
 	}
 
-        ipa_ep_idx_rx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx_client);
-        ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
+	ipa_ep_idx_rx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx_client);
+	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx_client);
 
-        if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
-                ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
-                ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
-        }
+	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
+		if (ipa_wdi_ctx_list[hdl]->is_rx1_used)
+			ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->rx1_client);
+		if (ipa_wdi_ctx_list[hdl]->is_tx1_used)
+			ipa_ep_idx_tx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->tx1_client);
+    }
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_3) {
 		if (ipa3_disable_wdi3_pipes(
