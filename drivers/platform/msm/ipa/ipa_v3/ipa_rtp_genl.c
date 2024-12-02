@@ -8,6 +8,7 @@
 #include <net/sock.h>
 #include <linux/skbuff.h>
 #include <uapi/linux/in.h>
+#include <synx_api.h>
 
 #define MAX_OPEN_FRAMES 3
 /* Single-NAL:0, FU-A Type: 1 */
@@ -542,11 +543,22 @@ int ipa_rtp_tuple_info_req_hdlr(struct sk_buff *skb_2,
 		return rc;
 	}
 
+	if ((!ipa3_ctx->rtp_stream_id_cnt) &&
+		(synx_enable_resources(SYNX_CLIENT_HW_FENCE_IPA_CTX0,
+		SYNX_RESOURCE_SOCCP, true) != SYNX_SUCCESS)) {
+		IPAERR("failed to add power vote on SOCCP\n");
+		return rc;
+	}
+
 	/* Call IPA driver/uC tuple info API's here */
 	if (ipa3_install_rtp_hdr_proc_rt_flt_rules(&tuple_info_req, tuple_info_resp.stream_id) ||
 		ipa3_tuple_info_cmd_to_wlan_uc(&tuple_info_req, tuple_info_resp.stream_id)) {
 		IPAERR("failed to install hdr proc and flt rules or filters at WLAN\n");
 		ipa3_delete_rtp_hdr_proc_rt_flt_rules(tuple_info_resp.stream_id);
+		if ((!ipa3_ctx->rtp_stream_id_cnt) &&
+			(synx_enable_resources(SYNX_CLIENT_HW_FENCE_IPA_CTX0,
+			SYNX_RESOURCE_SOCCP, false) != SYNX_SUCCESS))
+			IPAERR("failed to remove power vote on SOCCP\n");
 		return rc;
 	}
 
@@ -560,6 +572,10 @@ int ipa_rtp_tuple_info_req_hdlr(struct sk_buff *skb_2,
 		ipa3_uc_send_remove_stream_cmd(&rmv_sid_req);
 		ipa3_delete_rtp_hdr_proc_rt_flt_rules(rmv_sid_req.stream_id);
 		ipa_rtp_active_streams[tuple_info_resp.stream_id] = 0;
+		if ((!ipa3_ctx->rtp_stream_id_cnt) &&
+			(synx_enable_resources(SYNX_CLIENT_HW_FENCE_IPA_CTX0,
+			SYNX_RESOURCE_SOCCP, false) != SYNX_SUCCESS))
+			IPAERR("failed to remove power vote on SOCCP\n");
 	} else
 		rc = 0;
 
@@ -873,7 +889,11 @@ int ipa_rtp_rmv_stream_id_req_hdlr(struct sk_buff *skb_2,
 
 	ipa_rtp_active_streams[rmv_sid_req.stream_id] = 0;
 	ipa3_ctx->rtp_stream_id_cnt--;
-
+	if ((!ipa3_ctx->rtp_stream_id_cnt) &&
+		(synx_enable_resources(SYNX_CLIENT_HW_FENCE_IPA_CTX0,
+		SYNX_RESOURCE_SOCCP, false) != SYNX_SUCCESS))
+		IPAERR("failed to remove power vote on SOCCP\n");
+	rc = 0;
 	IPADBG("Exit\n");
 	return rc;
 }
