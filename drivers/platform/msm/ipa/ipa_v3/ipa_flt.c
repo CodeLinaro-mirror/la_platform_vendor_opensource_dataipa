@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -543,6 +544,12 @@ int __ipa_commit_flt_v3(enum ipa_ip_type ip)
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		if (!ipa_is_ep_support_flt(i))
 			continue;
+		if ((ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) &&
+			(i == ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id))
+		{
+			IPAERR("skipping the eth end point flt commit in eth pdu %d\n", i);
+			continue;
+		}
 		tbl = &ipa3_ctx->flt_tbl[i][ip];
 		if (ipa_prep_flt_tbl_for_cmt(ip, tbl, i)) {
 			rc = -EPERM;
