@@ -2615,17 +2615,17 @@ int ipa3_nat_cleanup_cmd(void)
 			ipa3_del_nat_table(&del);
 		}
 	}
-	if (dev->is_ipv6ct_mem) {
-		ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+	if (ct_dev->is_ipv6ct_mem) {
+		ctm_ptr = (struct ipa3_ipv6ct_mem *) ct_dev;
 		if (ctm_ptr->sram_in_use) {
 			memset(&del, 0, sizeof(del));
 			del.mem_type = IPA_NAT_MEM_IN_SRAM;
-			ipa3_del_nat_table(&del);
+			ipa3_del_ipv6ct_table(&del);
 		}
 		if (ctm_ptr->ddr_in_use) {
 			memset(&del, 0, sizeof(del));
 			del.mem_type = IPA_NAT_MEM_IN_DDR;
-			ipa3_del_nat_table(&del);
+			ipa3_del_ipv6ct_table(&del);
 		}
 	}
 

@@ -280,10 +280,20 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 
 	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
+
+	/* Updated threshold value specifically for HMT to
+	   handle the throughput. */
+	if ((gsi_channel_props.dir == GSI_CHAN_DIR_TO_GSI) &&
+				(ipa_get_wdi_version() == IPA_WDI_3_V2)) {
+		gsi_channel_props.empty_lvl_threshold = 15;
+	}
+	else {
+		gsi_channel_props.empty_lvl_threshold =
+			gsi_ep_info->prefetch_threshold;
+	}
+
 	gsi_channel_props.prefetch_mode =
 		gsi_ep_info->prefetch_mode;
-	gsi_channel_props.empty_lvl_threshold =
-		gsi_ep_info->prefetch_threshold;
 	gsi_channel_props.low_weight = 1;
 	gsi_channel_props.err_cb = ipa3_wdi3_gsi_chan_err_cb;
 
@@ -1591,6 +1601,7 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 			!ipa3_ctx->uc_ctx.uc_event_ring_valid) {
 			if (ipa3_uc_setup_event_ring())	{
 				IPAERR("failed to set uc_event ring\n");
+				IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(ipa_ep_idx_tx));
 				return -EFAULT;
 			}
 		} else

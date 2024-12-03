@@ -71,8 +71,7 @@ static int ipa3_irq_mapping[IPA_IRQ_MAX] = {
 	[IPA_DRBIP_IMM_CMD_NO_FLSH_HZRD_IRQ]	= 29,
 };
 
-static void ipa3_interrupt_defer(struct work_struct *work);
-static DECLARE_WORK(ipa3_interrupt_defer_work, ipa3_interrupt_defer);
+static void ipa_irq_thread_handler(int , void*);
 
 static void ipa3_deferred_interrupt_work(struct work_struct *work)
 {
@@ -385,13 +384,13 @@ static void ipa3_process_interrupts(bool isr_context)
 	IPADBG_LOW("Exit\n");
 }
 
-static void ipa3_interrupt_defer(struct work_struct *work)
+static void ipa_irq_thread_handler(int irq, void* devid)
 {
 	struct ipa_active_client_logging_info log_info;
 
-	IPADBG("processing interrupts in wq\n");
+	IPADBG("processing interrupts in threaded IRQ context\n");
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-	ipa3_process_interrupts(false);
+	ipa3_process_interrupts(true);
 	IPA_ACTIVE_CLIENTS_PREP_SIMPLE(log_info);
 	/* Delay the devote process to have time to get gsi ieob irq */
 	ipa3_dec_client_disable_clks_delay_wq(&log_info, IPA_AGG_BUSY_TIMEOUT);
@@ -406,9 +405,8 @@ static irqreturn_t ipa3_isr(int irq, void *ctxt)
 	IPADBG_LOW("Enter\n");
 	/* defer interrupt handling in case IPA is not clocked on */
 	if (ipa3_inc_client_enable_clks_no_block(&log_info)) {
-		IPADBG("defer interrupt processing\n");
-		queue_work(ipa3_ctx->power_mgmt_wq, &ipa3_interrupt_defer_work);
-		return IRQ_HANDLED;
+		IPADBG("defer interrupt processing in thread context with interrupt disabled\n");
+		return IRQ_WAKE_THREAD;
 	}
 
 	ipa3_process_interrupts(true);
@@ -641,8 +639,13 @@ int ipa3_interrupts_init(u32 ipa_irq, struct device *ipa_dev)
 	 *  emulator interrupts are handled...
 	 */
 	if (ipa3_ctx->ipa3_hw_mode != IPA_HW_MODE_EMULATION) {
-		res = request_irq(ipa_irq, (irq_handler_t) ipa3_isr,
-					IRQF_TRIGGER_NONE, "ipa", ipa_dev);
+		/* If clocks are not enabled threaded irq handler make sure
+		 * interrupt will be masked till the time clock enable is in
+		 * process and once clock enable is done IRQ handler will
+		 * run in WQ context
+		 */
+		res = request_threaded_irq(ipa_irq, (irq_handler_t) ipa3_isr,
+					(irq_handler_t)ipa_irq_thread_handler, IRQF_TRIGGER_NONE|IRQF_ONESHOT, "ipa", ipa_dev);
 		if (res) {
 			IPAERR(
 			    "fail to register IPA IRQ handler irq=%d\n",

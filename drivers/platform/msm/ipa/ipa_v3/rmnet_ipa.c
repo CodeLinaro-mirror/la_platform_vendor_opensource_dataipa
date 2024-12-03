@@ -4976,7 +4976,9 @@ int ipa3_wwan_set_modem_state(struct wan_ioctl_notify_wan_state *state)
 	char *envp[IPA_UEVENT_NUM_EVNP] = {
 		alert_msg, wan_iface, wan_state, NULL};
 	int res;
-
+#ifdef CONFIG_IPA_IPSEC
+	int mux_id;
+#endif
 	if (!state)
 		return -EINVAL;
 
@@ -4984,6 +4986,19 @@ int ipa3_wwan_set_modem_state(struct wan_ioctl_notify_wan_state *state)
 		ret = ipa_pm_activate_sync(rmnet_ipa3_ctx->q6_teth_pm_hdl);
 	else
 		ret = ipa_pm_deactivate_sync(rmnet_ipa3_ctx->q6_teth_pm_hdl);
+
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_initialized()) {
+		if (state->up && state->upstreamIface[0] != 0) {
+			mux_id = rmnet_ipa3_get_wan_mux_id(state->upstreamIface);
+			IPAWANDBG("mux_id = %d\n", mux_id);
+			if (mux_id > 0)
+				ipa3_ctx->ipsec->mux_id = mux_id;
+		} else {
+			ipa3_ctx->ipsec->mux_id = 0;
+		}
+	}
+#endif
 
 	/* Send upstream state uevent if RSC/RSB is enabled. */
 	if (IPA_NETDEV() && (IPA_NETDEV()->features & NETIF_F_GRO_HW)) {
@@ -5327,6 +5342,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	rmnet_ipa3_ctx->old_num_q6_rules = 0;
 	rmnet_ipa3_ctx->rmnet_index = 0;
 	rmnet_ipa3_ctx->rmnet_index_eth = 0;
+	ipa3_rmnet_ctx.num_mux_channel_eth = 0;
 	rmnet_ipa3_ctx->egress_set = false;
 	rmnet_ipa3_ctx->a7_ul_flt_set = false;
 	rmnet_ipa3_ctx->ipa_mhi_aggr_formet_set = false;
@@ -5340,6 +5356,8 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		memset(&rmnet_ipa3_ctx->mux_channel[i], 0,
 				sizeof(struct ipa3_rmnet_mux_val));
 		memset(&rmnet_ipa3_ctx->mux_channel_eth[i], 0,
+				sizeof(struct ipa3_rmnet_mux_val));
+		memset(&ipa3_rmnet_ctx.mux_channel_eth[i], 0,
 				sizeof(struct ipa3_rmnet_mux_val));
 	}
 
@@ -6004,6 +6022,12 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			break;
 		}
 		mutex_lock(&rmnet_ipa3_ctx->is_ssr_lock);
+		/*
+		 * Clear the proxy vote if any. This happens in scenarios
+		 * where Modem restarts before QMI Handshake is complete
+		 */
+		if (!ipa3_is_modem_up())
+			ipa3_proxy_clk_unvote();
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
 		/* send SSR before-shutdown notification to IPACM */
@@ -8567,6 +8591,26 @@ int rmnet_ipa3_get_wan_mtu(
 		mux_channel[rmnet_index].mtu_v6;
 
 	return 0;
+}
+
+/* rmnet_ipa3_get_wan_mux_id() -
+ * @dev_name - RMNET interface name
+ *
+ * Returs:
+ * Mux ID value: on Success
+ * -ENODEV: Invalid args provided
+ */
+int rmnet_ipa3_get_wan_mux_id(const char *dev_name)
+{
+	int rmnet_index = find_vchannel_name_index(dev_name);
+
+	if (rmnet_index == MAX_NUM_OF_MUX_CHANNEL) {
+		IPAWANERR("%s is an invalid iface name\n", dev_name);
+		return -ENODEV;
+	}
+
+	IPAWANDBG("returning mux ID = %d\n", rmnet_ipa3_ctx->mux_channel[rmnet_index].mux_id);
+	return rmnet_ipa3_ctx->mux_channel[rmnet_index].mux_id;
 }
 
 #ifdef CONFIG_DEBUG_FS

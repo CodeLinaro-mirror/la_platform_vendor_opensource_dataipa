@@ -10747,7 +10747,7 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 	if (seq_cfg->set_dynamic) {
 		type = seq_cfg->seq_type;
 #ifdef CONFIG_IPA_IPSEC
-	} else if (ipa_ipsec_enabled() &&
+	} else if (ipa_ipsec_enabled() && !ipa3_ctx->ep[clnt_hdl].skip_ep_cfg &&
 		   (clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
 		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
 		    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
@@ -11174,6 +11174,7 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 			IPAERR("bad parm, clnt_hdl = %d , ep_valid = %d\n",
 				clnt_hdl,
 				ipa3_ctx->ep[clnt_hdl].valid);
+			IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return -EINVAL;
 		}
 		ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance = tx_instance;

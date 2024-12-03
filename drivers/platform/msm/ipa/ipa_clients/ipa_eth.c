@@ -951,6 +951,18 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 	struct ipa_endp_desc_indication_msg_v01 req;
 	struct ipa_ep_id_type_v01 *ep_info;
 	enum ipa_client_type ipa_client;
+	int max_tx, max_rx;
+
+	if (ipa3_ctx->ipa_config_is_auto)
+	{
+		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
+		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_AUTO;
+	}
+	else
+	{
+		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE;
+		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_CPE;
+	}
 
 	memset(&req, 0, sizeof(struct ipa_endp_desc_indication_msg_v01));
 
@@ -998,9 +1010,9 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 		ipa_eth_ctx->rx_num_pipes[inst_id] = 0;
 		ipa_eth_ctx->tx_num_pipes[inst_id] = 0;
 		memset(ipa_eth_ctx->rx_qos_info[inst_id], 0,
-			IPA_ETH_MAX_RX_DMA_CHANNEL_QOS * sizeof(struct ipa_eth_qos_info));
+			max_rx * sizeof(struct ipa_eth_qos_info));
 		memset(ipa_eth_ctx->tx_qos_info[inst_id], 0,
-			IPA_ETH_MAX_TX_DMA_CHANNEL_QOS * sizeof(struct ipa_eth_qos_info));
+			max_tx * sizeof(struct ipa_eth_qos_info));
 		list_for_each_entry(pipe, &client->pipe_list,
 			link) {
 			if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
@@ -1033,7 +1045,7 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 			sizeof(struct ipa_eth_qos_info), eth_qos_cmp, eth_qos_swap);
 		/* calculate relative priority. */
 		for (i = 0, prio = 0; i < ipa_eth_ctx->tx_num_pipes[inst_id] &&
-				i < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS; i++) {
+				i < max_tx; i++) {
 			if (ipa_eth_ctx->tx_qos_info[inst_id][i].tc_bmap == 0) {
 				/* Default is Max priority. */
 				ipa_eth_ctx->tx_qos_info[inst_id][i].priority =
@@ -1048,7 +1060,7 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 				ipa_eth_ctx->tx_qos_info[inst_id][i].priority);
 		}
 		for (i = 0, prio = 0; i < ipa_eth_ctx->rx_num_pipes[inst_id] &&
-				i < IPA_ETH_MAX_RX_DMA_CHANNEL_QOS; i++) {
+				i < max_rx; i++) {
 			if (ipa_eth_ctx->rx_qos_info[inst_id][i].tc_bmap == 0) {
 				/* Default is Max priority. */
 				ipa_eth_ctx->rx_qos_info[inst_id][i].priority =
@@ -1355,8 +1367,8 @@ static int ipa_eth_client_reg_intf_internal(struct ipa_eth_intf_info *intf)
 	int num_hdrs = 0;
 	int traffic_type = 0;
 #if IPA_ETH_API_VER >= 4
-	u8 tx_tc[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {0};
-	u8 rx_tc[IPA_ETH_MAX_RX_DMA_CHANNEL_QOS] = {0};
+	u8 tx_tc[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = { 0 };
+	u8 rx_tc[IPA_ETH_MAX_RX_DMA_CHANNEL_QOS] = { 0 };
 #endif
 
 	if (intf == NULL) {
@@ -1974,7 +1986,10 @@ static int ipa_eth_get_config_type_internal(
 		int i = 0;
 		snprintf(eth_config->config, sizeof(eth_config->config), "qos");
 
-		eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS;
+		if (ipa3_ctx->ipa_config_is_auto)
+			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO;
+		else
+			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE;
 
 		for (i = 0; i < eth_config->num_dma_channel; i++) {
 			eth_config->dma_config[i].dir = (i % 2) ? IPA_ETH_PIPE_DIR_RX :
