@@ -13943,11 +13943,25 @@ int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
 			ipa3_ctx->multi_tunnel_eogre_cache
 				[eogre_info->ipgre_info.num_exceptions] =
 				*eogre_info;
-
-			IPADBG("eogre_info iptype: %d, src: %x, dst: %x, tunnel_id: %d\n",
+			if(eogre_info->ipgre_info.iptype == IPA_IP_v4) {
+				IPADBG("eogre_info iptype: %d, src: %x, dst: %x, tunnel_id: %d\n",
+						eogre_info->ipgre_info.iptype,
+						eogre_info->ipgre_info.ipv4_src,
+						eogre_info->ipgre_info.ipv4_dst, t_id);
+			} else {
+				IPADBG("eogre_info iptype:%d, src:0x%08x:%08x:%08x:%08x,"
+					"dst :0x%08x:%08x:%08x:%08x, tunnel_id: %d\n",
 					eogre_info->ipgre_info.iptype,
-					eogre_info->ipgre_info.ipv4_src,
-					eogre_info->ipgre_info.ipv4_dst, t_id);
+					eogre_info->ipgre_info.ipv6_src[0],
+					eogre_info->ipgre_info.ipv6_src[1],
+					eogre_info->ipgre_info.ipv6_src[2],
+					eogre_info->ipgre_info.ipv6_src[3],
+					eogre_info->ipgre_info.ipv6_dst[0],
+					eogre_info->ipgre_info.ipv6_dst[1],
+					eogre_info->ipgre_info.ipv6_dst[2],
+					eogre_info->ipgre_info.ipv6_dst[3],
+					t_id);
+			}
 		}
 	} else { /* (!cache_is_null) */
 		if (!ipa3_ctx->eogre_tunnel_tagged) {
@@ -13993,11 +14007,27 @@ int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
 				*send2ipacm = !same;
 				ipa3_ctx->multi_tunnel_eogre_cache[t_id] =
 					*eogre_info;
-				IPADBG("ADD: Inward eogre_info for iptype: %d, src: %x,"
-					" dst: %x, tunnel_id: %d\n",
-					eogre_info->ipgre_info.iptype,
-					eogre_info->ipgre_info.ipv4_src,
-					eogre_info->ipgre_info.ipv4_dst, t_id);
+				if(eogre_info->ipgre_info.iptype == IPA_IP_v4) {
+					IPADBG("ADD: Inward eogre_info for iptype: %d, src: %x,"
+						" dst: %x, tunnel_id: %d\n",
+						eogre_info->ipgre_info.iptype,
+						eogre_info->ipgre_info.ipv4_src,
+						eogre_info->ipgre_info.ipv4_dst, t_id);
+                                } else {
+					IPADBG("ADD: Inward eogre_info for iptype:"
+						" %d,src:0x%08x:%08x:%08x:%08x, dst"
+						":0x%08x:%08x:%08x:%08x, tunnel_id: %d\n",
+						eogre_info->ipgre_info.iptype,
+						eogre_info->ipgre_info.ipv6_src[0],
+						eogre_info->ipgre_info.ipv6_src[1],
+						eogre_info->ipgre_info.ipv6_src[2],
+						eogre_info->ipgre_info.ipv6_src[3],
+						eogre_info->ipgre_info.ipv6_dst[0],
+						eogre_info->ipgre_info.ipv6_dst[1],
+						eogre_info->ipgre_info.ipv6_dst[2],
+						eogre_info->ipgre_info.ipv6_dst[3],
+						t_id);
+				}
 			} else {
 				IPADBG("Ops: DEL:(%d) Check for t_id:[%d]\n",
 					to_add, t_id);
@@ -14021,7 +14051,8 @@ int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
 				memset(&ipa3_ctx->multi_tunnel_eogre_cache[t_id],
 					0, len);
 
-				IPADBG("DEL : ipgre_info iptype:%d,src: %x,dst: %x,t_id:%d\n",
+				if(eogre_info->ipgre_info.iptype == IPA_IP_v4) {
+					IPADBG("DEL : ipgre_info iptype:%d,src: %x,dst: %x,t_id:%d\n",
 					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
 					.ipgre_info.iptype,
 					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
@@ -14030,20 +14061,50 @@ int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
 					.ipgre_info.ipv4_dst,
 					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
 					.ipgre_info.num_exceptions);
+				} else {
+					IPADBG("DEL : ipgre_info iptype:%d,"
+						"src:0x%08x:%08x:%08x:%08x, dst"
+						":0x%08x:%08x:%08x:%08x, tunnel_id: %d\n",
+						eogre_info->ipgre_info.iptype,
+						eogre_info->ipgre_info.ipv6_src[0],
+						eogre_info->ipgre_info.ipv6_src[1],
+						eogre_info->ipgre_info.ipv6_src[2],
+						eogre_info->ipgre_info.ipv6_src[3],
+						eogre_info->ipgre_info.ipv6_dst[0],
+						eogre_info->ipgre_info.ipv6_dst[1],
+						eogre_info->ipgre_info.ipv6_dst[2],
+						eogre_info->ipgre_info.ipv6_dst[3],
+						t_id);
+				}
 			}
 		}
 	}
 	if (ipa3_ctx->eogre_tunnel_tagged) {
-		IPADBG("Cached ipgre info ip: %d, src: %x, dst: %x, t_id: %d\n",
-			ipa3_ctx->multi_tunnel_eogre_cache
-			[eogre_info->ipgre_info.num_exceptions]
-			.ipgre_info.iptype,
-			ipa3_ctx->multi_tunnel_eogre_cache[t_id]
-			.ipgre_info.ipv4_src,
-			ipa3_ctx->multi_tunnel_eogre_cache[t_id]
-			.ipgre_info.ipv4_dst,
-			ipa3_ctx->multi_tunnel_eogre_cache[t_id]
-			.ipgre_info.num_exceptions);
+		if(eogre_info->ipgre_info.iptype == IPA_IP_v4) {
+			IPADBG("cashed ipgre_info iptype:%d,src: %x,dst: %x,t_id:%d\n",
+				ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+				.ipgre_info.iptype,
+				ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+				.ipgre_info.ipv4_src,
+				ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+				.ipgre_info.ipv4_dst,
+				ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+				.ipgre_info.num_exceptions);
+		} else {
+			IPADBG("cashed ipgre_info iptype:%d,"
+				"src:0x%08x:%08x:%08x:%08x,"
+				"dst :0x%08x:%08x:%08x:%08x, tunnel_id: %d\n",
+				eogre_info->ipgre_info.iptype,
+				eogre_info->ipgre_info.ipv6_src[0],
+				eogre_info->ipgre_info.ipv6_src[1],
+				eogre_info->ipgre_info.ipv6_src[2],
+				eogre_info->ipgre_info.ipv6_src[3],
+				eogre_info->ipgre_info.ipv6_dst[0],
+				eogre_info->ipgre_info.ipv6_dst[1],
+				eogre_info->ipgre_info.ipv6_dst[2],
+				eogre_info->ipgre_info.ipv6_dst[3],
+				t_id);
+		}
 	}
 	IPADBG("send2uC(%u) send2ipacm(%u)\n", *send2uC, *send2ipacm);
 
