@@ -4187,6 +4187,7 @@ begin:
 		IPADBG_LOW("STATUS opcode=%d src=%d dst=%d len=%d\n",
 				status.status_opcode, status.endp_src_idx,
 				status.endp_dest_idx, status.pkt_len);
+		trace_ipa_suspend_info("lan-rx", status.pkt_len, status.endp_src_idx);
 		if (sys->status_stat) {
 			sys->status_stat->status[sys->status_stat->curr] =
 				status;
