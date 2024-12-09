@@ -325,6 +325,8 @@ int rmnet_ipa3_query_tethering_stats_all(
 int rmnet_ipa3_reset_tethering_stats(struct wan_ioctl_reset_tether_stats *data);
 int rmnet_ipa3_set_lan_client_info(struct wan_ioctl_lan_client_info *data);
 
+int rmnet_ipa3_add_stats_counters_to_backup_list(struct ipa_lan_client *lan_client, int device_type);
+
 int rmnet_ipa3_clear_lan_client_info(struct wan_ioctl_lan_client_info *data);
 
 int rmnet_ipa3_send_lan_client_msg(struct wan_ioctl_send_lan_client_msg *data);
@@ -333,6 +335,9 @@ int rmnet_ipa3_enable_per_client_stats(bool *data);
 
 int rmnet_ipa3_query_per_client_stats(
 	struct wan_ioctl_query_per_client_stats *data);
+
+int rmnet_ipa3_copy_lan_stats_msg(
+	struct wan_ioctl_send_lan_client_msg *data);
 
 int rmnet_ipa3_get_wan_mtu(
 	struct ipa_mtu_info *data);
