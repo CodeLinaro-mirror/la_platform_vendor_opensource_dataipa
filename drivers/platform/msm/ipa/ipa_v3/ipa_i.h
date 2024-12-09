@@ -2790,6 +2790,7 @@ struct ipa3_context {
 	bool ipa_v2x_vm;
 	u32 pvm_v2x_pm_hdl;
 	atomic_t v2x_vm_ready;
+	bool ipa_eth_pdu_enable;
 #ifdef CONFIG_GH_MSGQ
 	struct ipa_msgq_desc msgq_desc;
 #endif
@@ -2889,6 +2890,7 @@ struct ipa3_plat_drv_res {
 	bool cesta_enable;
 	bool iemac_exist;
 	bool ipa_v2x_vm;
+	bool ipa_eth_pdu_enable;
 	u32 gunyah_label;
 	u32 filter_start_id;
 };

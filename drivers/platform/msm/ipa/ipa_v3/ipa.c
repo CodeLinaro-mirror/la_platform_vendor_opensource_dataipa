@@ -10340,6 +10340,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_dual_wkk_config = resource_p->is_dual_wkk_config;
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
+	ipa3_ctx->ipa_eth_pdu_enable = resource_p->ipa_eth_pdu_enable;
 	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
 #ifdef CONFIG_GH_MSGQ
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;
@@ -11856,6 +11857,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->is_dual_wkk_config = false;
 	ipa_drv_res->coal_ipv4_id_ignore = true;
 	ipa_drv_res->ipa_v2x_vm = false;
+	ipa_drv_res->ipa_eth_pdu_enable = false;
 
 	ipa_drv_res->ipa_v2x_vm =
 		of_property_read_bool(pdev->dev.of_node,
@@ -12580,6 +12582,13 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	IPADBG(": coal-ipv4-id-ignore = %s\n",
 			ipa_drv_res->coal_ipv4_id_ignore
 			? "True" : "False");
+
+	ipa_drv_res->ipa_eth_pdu_enable =
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,ipa-eth-pdu-enable");
+	IPADBG(": eth_pdu_enable = %s\n",
+		ipa_drv_res->ipa_eth_pdu_enable
+		? "True" : "False");
 
 	ipa_dts_get_iemac_data(pdev, ipa_drv_res);
 
@@ -13917,6 +13926,10 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		IPAERR("ipa3_init failed\n");
 		goto err_check;
 	}
+
+	if(!ipa3_ctx->ipa_config_is_auto && (ipa3_res.ipa_mhi_dynamic_config
+		|| ipa3_ctx->ipa_config_is_mhi))
+		ipa3_notify_ipacm_eth_pdu_enable();
 
 #ifdef CONFIG_GH_MSGQ
 	/* Initialize msgq for PVM and SVM */
