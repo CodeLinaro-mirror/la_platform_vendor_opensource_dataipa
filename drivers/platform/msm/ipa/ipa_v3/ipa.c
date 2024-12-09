@@ -3855,6 +3855,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_CLEANUP:
 		/*Route and filter rules will also be clean*/
 		IPADBG("Got IPA_IOC_CLEANUP\n");
+		ipa3_lan_stats_cleanup();
 		retval = ipa3_reset_hdr(true);
 		IPA_ACTIVE_CLIENTS_INC_SPECIAL("SRAM");
 		retval = ipa3_nat_cleanup_cmd();
@@ -3874,6 +3875,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_QUERY_CACHED_DRIVER_MSG:
 		IPADBG("Got IPA_IOC_QUERY_CACHED_DRIVER_MSG\n");
 		retval = ipa3_resend_driver_msg();
+		ipa3_resend_lan_stats_msg();
 		break;
 
 	case IPA_IOC_GSB_CONNECT:
