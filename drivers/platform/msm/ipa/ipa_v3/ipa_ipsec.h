@@ -375,7 +375,9 @@ struct ipa_ipsec_stats {
  * @default_rt: Default route table pointer
  * @stats: IPsec stats struct
  * @sa_mismatch_qmap_hdr_hdl: IPsec error QMAP header hdl for "no-policy" RT rule
- * @enabled: Boolean to indicate the whole IPsec feature readiness
+ * @mux_id: Mux ID of the default PDN
+ * @initialized: Boolean to indicate the whole IPsec feature initialized
+ * @enabled: Boolean to indicate the whole IPsec feature enabled
  */
 struct ipa_ipsec_ctx {
 	struct net_device *dev;
@@ -400,6 +402,7 @@ struct ipa_ipsec_ctx {
 	struct ipa3_rt_tbl *default_rt;
 	struct ipa_ipsec_stats stats;
 	u32 sa_mismatch_qmap_hdr_hdl;
+	u32 mux_id;
 	bool initialized;
 	bool enabled;
 };

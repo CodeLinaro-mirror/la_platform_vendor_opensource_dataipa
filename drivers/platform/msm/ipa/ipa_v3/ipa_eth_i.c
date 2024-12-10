@@ -69,7 +69,8 @@ enum ipa_eth_dir {
 };
 
 /* HOLB timeout values for QOS. */
-u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {2000, 500};
+u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE] = {31000, 500};
+u32 qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO] = {31000, 20000, 500, 500, 500};
 
 static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys_addr_t pa,
 	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir, u8 pipe_idx)
@@ -122,9 +123,18 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 	 * Assuming each IEMAC client does maximum of 1 mapping with
 	 * constant size per direction.
 	 */
-	eth_next_addr = cb->va_end + eth_offset +
-		PAGE_SIZE * ((instance_id * IPA_ETH_MAX_DMA_CHANNEL_QOS) +
-		(IPA_ETH_MAX_TX_DMA_CHANNEL_QOS * dir + pipe_idx));
+	if (ipa3_ctx->ipa_config_is_auto)
+	{
+		eth_next_addr = cb->va_end + eth_offset +
+			PAGE_SIZE * ((instance_id * IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO) +
+			(IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO * dir + pipe_idx));
+	}
+	else
+	{
+		eth_next_addr = cb->va_end + eth_offset +
+			PAGE_SIZE * ((instance_id * IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE) +
+			(IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE * dir + pipe_idx));
+	}
 	va = roundup(eth_next_addr, PAGE_SIZE);
 	if (len > PAGE_SIZE)
 		va = roundup(eth_next_addr, len);
@@ -1513,9 +1523,18 @@ int ipa3_eth_connect(
 		{
 			memset(&holb_cfg, 0, sizeof(holb_cfg));
 			holb_cfg.en = IPA_HOLB_TMR_EN;
-			holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS) ?
-				qos_holb_tmr[priority] :
-				qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS - 1];
+			if (ipa3_ctx->ipa_config_is_auto)
+			{
+				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO) ?
+					qos_holb_tmr_auto[priority] :
+					qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO - 1];
+			}
+			else
+			{
+				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE) ?
+					qos_holb_tmr[priority] :
+					qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE - 1];
+			}
 			ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
 		}
 	}

@@ -2575,6 +2575,7 @@ struct ipa3_context {
 	struct ipa3_uc_wigig_ctx uc_wigig_ctx;
 #if defined(CONFIG_IPA_IPSEC)
 	struct ipa_ipsec_ctx *ipsec;
+	u8 ipsec_debug;
 #endif
 	u32 wan_rx_ring_size;
 	u32 lan_rx_ring_size;

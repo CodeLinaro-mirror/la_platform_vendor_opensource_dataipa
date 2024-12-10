@@ -323,7 +323,7 @@ static int ipa3_write_done_common(struct ipa3_sys_context *sys,
 	void (*callback)(void *user1, int user2);
 
 	if (unlikely(tx_pkt == NULL)) {
-		IPAERR("tx_pkt is NULL\n");
+		IPAERR_RL("tx_pkt is NULL\n");
 		return 0;
 	}
 
@@ -1802,6 +1802,12 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
 							ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor;
+				else if (ipa3_ctx->ipa_config_is_rdkb &&
+					ipa3_ctx->wan_common_page_pool &&
+					sys_in->client == IPA_CLIENT_APPS_WAN_CONS)
+					ep->sys->page_recycle_repl->capacity =
+						(ep->sys->rx_pool_sz + 1) *
+						ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor;
 				else
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
@@ -1831,6 +1837,10 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 				sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1) *
 				ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor;
+			else if (ipa3_ctx->ipa_config_is_rdkb && sys_in->client ==
+					IPA_CLIENT_APPS_WAN_CONS)
+					ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1) *
+					ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor;
 			else
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1);
 			IPADBG("Repl capacity for client:%d, value:%d\n",
@@ -2106,6 +2116,8 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 		if ( ! IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_WAN_CONS, i) ) {
 			IPAERR("Failed to get idx for IPA_CLIENT_APPS_WAN_CONS");
+			if (!ep->keep_ipa_awake)
+				IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return i;
 		}
 
@@ -2116,6 +2128,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			result = ipa3_teardown_pipe(i);
 			if (result) {
 				IPAERR("failed to teardown default coal pipe\n");
+				if (!ep->keep_ipa_awake) {
+					IPA_ACTIVE_CLIENTS_DEC_EP(
+						ipa3_get_client_mapping(clnt_hdl));
+				}
 				return result;
 			}
 		}
@@ -2128,6 +2144,8 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 		if ( ! IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_LAN_CONS, i) ) {
 			IPAERR("Failed to get idx for IPA_CLIENT_APPS_LAN_CONS,");
+			if (!ep->keep_ipa_awake)
+				IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return i;
 		}
 
@@ -2138,6 +2156,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			result = ipa3_teardown_pipe(i);
 			if (result) {
 				IPAERR("failed to teardown default coal pipe\n");
+				if (!ep->keep_ipa_awake) {
+					IPA_ACTIVE_CLIENTS_DEC_EP(
+						ipa3_get_client_mapping(clnt_hdl));
+				}
 				return result;
 			}
 		}
@@ -2166,8 +2188,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			ep->gsi_mem_info.chan_ring_len;
 	} else if (ep->gsi_evt_ring_hdl != ~0) {
 		result = gsi_reset_evt_ring(ep->gsi_evt_ring_hdl);
-		if (WARN(result != GSI_STATUS_SUCCESS, "reset evt %d", result))
+		if (WARN(result != GSI_STATUS_SUCCESS, "reset evt %d", result)) {
+			ipa_assert();
 			return result;
+		}
 
 		dma_free_coherent(ipa3_ctx->pdev,
 			ep->gsi_mem_info.evt_ring_len,
@@ -2184,8 +2208,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		}
 
 		result = gsi_dealloc_evt_ring(ep->gsi_evt_ring_hdl);
-		if (WARN(result != GSI_STATUS_SUCCESS, "deall evt %d", result))
+		if (WARN(result != GSI_STATUS_SUCCESS, "deall evt %d", result)) {
+			ipa_assert();
 			return result;
+		}
 	}
 	if (ep->sys->repl_wq)
 		flush_workqueue(ep->sys->repl_wq);
@@ -4708,7 +4734,7 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 	}
 
 /* Incremental offset for mac_addr4_valid bit. */
-#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT 8
+#define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT 4
 #define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_PINE 74
 #define IPA_WDI_AST_MAC_ADDR4_VALID_MSK 0x20
 

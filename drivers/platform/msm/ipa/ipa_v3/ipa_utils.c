@@ -6622,6 +6622,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 13, 20, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+	[IPA_6_0][IPA_CLIENT_ETHERNET_PROD1] = {
+			true, IPA_v5_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 14, 21, 10, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH , 3 },
+			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_APPS_LAN_CONS] = {
 			true,   IPA_v6_0_GROUP_UL,
 			false,
@@ -9088,9 +9095,9 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_rt_v6_ofst = 0,
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x6ce8,
-	.stats_fnr_size = 0x2658,
-	.stats_drop_ofst = 0x9340,
-	.stats_drop_size = 0x48,
+	.stats_fnr_size = 0x2648,
+	.stats_drop_ofst = 0x9330,
+	.stats_drop_size = 0x58,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x9398,
@@ -11176,6 +11183,7 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 			IPAERR("bad parm, clnt_hdl = %d , ep_valid = %d\n",
 				clnt_hdl,
 				ipa3_ctx->ep[clnt_hdl].valid);
+			IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return -EINVAL;
 		}
 		ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance = tx_instance;
