@@ -42,7 +42,7 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
-#define IPA_ETH_PIPES_NO 16
+#define IPA_ETH_PIPES_NO 17
 #define DMA_NUM_CHANNEL_EZMESH 4
 #define DMA_NUM_CHANNEL_DEFAULT 2
 #define DMA_NUM_CHANNEL_TSN 3
@@ -477,8 +477,10 @@ static enum ipa_client_type
 	traffic_type = client->traffic_type;
 #endif
 
-	IPA_ETH_DBG("pipe %p traffic_type %d dir %d, client_type %d\n",
-				pipe, traffic_type, pipe->dir, client->client_type);
+	IPA_ETH_DBG("pipe %p traffic_type %d dir %d, client_type %d,"
+				"rx idx %d tx idx %d\n",
+				pipe, traffic_type, pipe->dir, client->client_type,
+				rx_pipe_idx, tx_pipe_idx);
 
 	switch (client->client_type) {
 	case IPA_ETH_CLIENT_AQC107:
@@ -646,6 +648,9 @@ static enum ipa_client_type
 					switch (rx_pipe_idx) {
 						case 0:
 							ipa_client_type = IPA_CLIENT_ETHERNET_PROD;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD1;
 							break;
 						default:
 							IPA_ETH_ERR("invalid client index%d\n",
@@ -950,6 +955,18 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 	struct ipa_endp_desc_indication_msg_v01 req;
 	struct ipa_ep_id_type_v01 *ep_info;
 	enum ipa_client_type ipa_client;
+	int max_tx, max_rx;
+
+	if (ipa3_ctx->ipa_config_is_auto)
+	{
+		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
+		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_AUTO;
+	}
+	else
+	{
+		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE;
+		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_CPE;
+	}
 
 	memset(&req, 0, sizeof(struct ipa_endp_desc_indication_msg_v01));
 
@@ -997,9 +1014,9 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 		ipa_eth_ctx->rx_num_pipes[inst_id] = 0;
 		ipa_eth_ctx->tx_num_pipes[inst_id] = 0;
 		memset(ipa_eth_ctx->rx_qos_info[inst_id], 0,
-			IPA_ETH_MAX_RX_DMA_CHANNEL_QOS * sizeof(struct ipa_eth_qos_info));
+			max_rx * sizeof(struct ipa_eth_qos_info));
 		memset(ipa_eth_ctx->tx_qos_info[inst_id], 0,
-			IPA_ETH_MAX_TX_DMA_CHANNEL_QOS * sizeof(struct ipa_eth_qos_info));
+			max_tx * sizeof(struct ipa_eth_qos_info));
 		list_for_each_entry(pipe, &client->pipe_list,
 			link) {
 			if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
@@ -1032,7 +1049,7 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 			sizeof(struct ipa_eth_qos_info), eth_qos_cmp, eth_qos_swap);
 		/* calculate relative priority. */
 		for (i = 0, prio = 0; i < ipa_eth_ctx->tx_num_pipes[inst_id] &&
-				i < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS; i++) {
+				i < max_tx; i++) {
 			if (ipa_eth_ctx->tx_qos_info[inst_id][i].tc_bmap == 0) {
 				/* Default is Max priority. */
 				ipa_eth_ctx->tx_qos_info[inst_id][i].priority =
@@ -1047,7 +1064,7 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 				ipa_eth_ctx->tx_qos_info[inst_id][i].priority);
 		}
 		for (i = 0, prio = 0; i < ipa_eth_ctx->rx_num_pipes[inst_id] &&
-				i < IPA_ETH_MAX_RX_DMA_CHANNEL_QOS; i++) {
+				i < max_rx; i++) {
 			if (ipa_eth_ctx->rx_qos_info[inst_id][i].tc_bmap == 0) {
 				/* Default is Max priority. */
 				ipa_eth_ctx->rx_qos_info[inst_id][i].priority =
@@ -1358,8 +1375,8 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 	int num_hdrs = 0;
 	int traffic_type = 0;
 #if IPA_ETH_API_VER >= 4
-	u8 tx_tc[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = {0};
-	u8 rx_tc[IPA_ETH_MAX_RX_DMA_CHANNEL_QOS] = {0};
+	u8 tx_tc[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS] = { 0 };
+	u8 rx_tc[IPA_ETH_MAX_RX_DMA_CHANNEL_QOS] = { 0 };
 #endif
 
 	if (intf == NULL) {
@@ -1611,7 +1628,7 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 				tx.num_props++;
 			} else {
 				rx_client[rx.num_props] =
-				ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);				
+				ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
 #if IPA_ETH_API_VER >= 4
 				rx_tc[rx.num_props] = pipe->tc_bmap;
 #endif
@@ -1982,7 +1999,10 @@ int ipa_eth_get_config_type(
 		int i = 0;
 		snprintf(eth_config->config, sizeof(eth_config->config), "qos");
 
-		eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS;
+		if (ipa3_ctx->ipa_config_is_auto)
+			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO;
+		else
+			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE;
 
 		for (i = 0; i < eth_config->num_dma_channel; i++) {
 			eth_config->dma_config[i].dir = (i % 2) ? IPA_ETH_PIPE_DIR_RX :

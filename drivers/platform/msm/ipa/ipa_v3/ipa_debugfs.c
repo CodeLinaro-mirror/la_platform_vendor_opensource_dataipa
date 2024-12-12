@@ -100,6 +100,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_MAC_FLT_EVENT),
 	__stringify(IPA_SOCKV5_ADD),
 	__stringify(IPA_SOCKV5_DEL),
+	__stringify(IPA_WARNING_LIMIT_REACHED),
 	__stringify(IPA_SW_FLT_EVENT),
 	__stringify(IPA_PKT_THRESHOLD_EVENT),
 	__stringify(IPA_MOVE_NAT_TABLE),
@@ -114,6 +115,11 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_ENABLE_ETH_PDU_MODE_EVENT),
 	__stringify(IPA_IPSEC_UL_FLT_ADD_EVENT),
 	__stringify(IPA_IPSEC_UL_FLT_DEL_EVENT),
+	__stringify(IPA_PDN_DSCP_ADD_EVENT),
+	__stringify(IPA_PDN_DSCP_DEL_EVENT),
+	__stringify(IPA_QOS_PARAM_ADD_EVENT),
+	__stringify(IPA_QOS_PARAM_DELETE_EVENT),
+	__stringify(IPA_QOS_PARAM_FLUSH_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
@@ -4268,6 +4274,28 @@ static ssize_t ipa3_write_ipsec_sa_index(struct file *file,
 	return count;
 }
 
+static ssize_t ipa3_enable_ipsec_err_debug(struct file *file,
+	const char __user *buf, size_t count, loff_t *ppos)
+{
+	u8 option;
+	int ret;
+
+	ret = kstrtou8_from_user(buf, count, 0, &option);
+	if (ret)
+		return ret;
+
+	if (option >= 2) {
+		IPAERR("Invalid option %u\n", option);
+		return count;
+	}
+
+	ipa3_ctx->ipsec_debug = option;
+
+	IPADBG("IPsec Debug enable=%u\n", ipa3_ctx->ipsec_debug);
+
+	return count;
+}
+
 
 static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
 	char __user *buf, size_t count, loff_t *ppos)
@@ -4590,6 +4618,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"ipsec_set_sa_info_index", IPA_WRITE_ONLY_MODE, NULL,{
 			.write = ipa3_write_ipsec_sa_index,
+		}
+	}, {
+		"ipsec_enable_debug", IPA_WRITE_ONLY_MODE, NULL,{
+			.write = ipa3_enable_ipsec_err_debug,
 		}
 	}, {
 		"ipsec_encap_sa_info", IPA_READ_ONLY_MODE, NULL,{

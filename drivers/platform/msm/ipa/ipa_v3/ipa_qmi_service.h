@@ -337,6 +337,8 @@ int rmnet_ipa3_query_per_client_stats(
 int rmnet_ipa3_get_wan_mtu(
 	struct ipa_mtu_info *data);
 
+int rmnet_ipa3_get_wan_mux_id(const char *dev_name);
+
 int rmnet_ipa3_query_per_client_stats_v2(
 	struct wan_ioctl_query_per_client_stats *data);
 
