@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _UAPI_MSM_IPA_H_
@@ -198,13 +198,12 @@
 
 
 /**
- * MAX number of the FLT_RT stats counter supported.
+ * MAX number of the FLT_RT stats counter supported from Apps.
  */
-#define IPA_MAX_FLT_RT_CNT_INDEX (128)
-#define IPA_FLT_RT_HW_COUNTER (120)
+#define IPA_MAX_FLT_RT_CNT_INDEX (32)
+#define IPA_FLT_RT_HW_COUNTER (24)
 #define IPA_FLT_RT_SW_COUNTER \
 	(IPA_MAX_FLT_RT_CNT_INDEX - IPA_FLT_RT_HW_COUNTER)
-#define IPA_MAX_FLT_RT_CLIENTS 60
 
 /**
  * Max number of ports/IPs IPPT exception
