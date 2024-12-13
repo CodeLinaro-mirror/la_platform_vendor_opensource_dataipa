@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/clk.h>
@@ -1225,6 +1225,8 @@ static int ipa3_send_pdn_config_msg(unsigned long usr_param)
 			pdn_info->u.passthrough_cfg.client_mac_addr[4],
 			pdn_info->u.passthrough_cfg.client_mac_addr[5]);
 	}
+	/*caching ip pass pdn info*/
+	ipa3_copy_ip_pass_pdn_info(pdn_info);
 
 	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_pdn_config_msg_free_cb);
@@ -3611,6 +3613,7 @@ inline int ipa3_send_ipsec_ul_flt(enum ipa_ipsec_ul_flt_evt event_type,
 static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int retval = 0;
+	int val = -1;
 	u32 pyld_sz;
 	u8 header[512] = { 0 };
 	u8 *param = NULL;
@@ -4754,9 +4757,20 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	case IPA_IOC_QUERY_CACHED_DRIVER_MSG:
-		IPADBG("Got IPA_IOC_QUERY_CACHED_DRIVER_MSG\n");
-		retval = ipa3_resend_driver_msg();
-		ipa3_resend_lan_stats_msg();
+		val = (uint16_t)arg;
+		IPADBG("Got IPA_IOC_QUERY_CACHED_DRIVER_MSG %d\n", val);
+
+		/* if val is 0 resending basic lan features info otherwise resend socks connections tupple info */
+		if(val == 0)
+		{
+			ipa3_ippt_resend_msg();
+			retval = ipa3_resend_driver_msg();
+			ipa3_resend_lan_stats_msg();
+		}
+		else
+		{
+			ipa3_resend_socksv5_msg();
+		}
 		break;
 
 	case IPA_IOC_GSB_CONNECT:
@@ -12115,9 +12129,12 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		   sizeof(ipa3_ctx->flt_rt_counters.used_hw));
 	memset(&ipa3_ctx->flt_rt_counters.used_sw, 0,
 		   sizeof(ipa3_ctx->flt_rt_counters.used_sw));
+	ipa3_ctx->socksv5_conn_refcnt = 0;
+	ipa3_ctx->ippt_pdninfo_refcnt = 0;
 
 	INIT_LIST_HEAD(&ipa3_ctx->intf_list);
 	INIT_LIST_HEAD(&ipa3_ctx->msg_list);
+	INIT_LIST_HEAD(&ipa3_ctx->socksv5_msg_list);
 	INIT_LIST_HEAD(&ipa3_ctx->pull_msg_list);
 	init_waitqueue_head(&ipa3_ctx->msg_waitq);
 	mutex_init(&ipa3_ctx->msg_lock);
@@ -12129,6 +12146,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	/* store  ecm-connect-msg-list */
 	INIT_LIST_HEAD(&ipa3_ctx->msg_lan_list);
 	mutex_init(&ipa3_ctx->msg_lan_lock);
+	INIT_LIST_HEAD(&ipa3_ctx->msg_ippt_list);
 
 	mutex_init(&ipa3_ctx->q6_proxy_clk_vote_mutex);
 	mutex_init(&ipa3_ctx->ipa_cne_evt_lock);
