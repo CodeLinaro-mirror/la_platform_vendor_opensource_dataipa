@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <asm/barrier.h>
@@ -26,7 +26,7 @@
 #define IPA_POLL_FOR_EMPTINESS_SLEEP_USEC 20
 #define IPA_CHANNEL_STOP_IN_PROC_TO_MSEC 5
 #define IPA_CHANNEL_STOP_IN_PROC_SLEEP_USEC 200
-#define IPA_MAX_HOLB_TMR_VAL (4294967296 - 1)
+#define IPA_MAX_HOLB_TMR_VAL 32768
 /* xfer_rsc_idx should be 7 bits */
 #define IPA_XFER_RSC_IDX_MAX 127
 
