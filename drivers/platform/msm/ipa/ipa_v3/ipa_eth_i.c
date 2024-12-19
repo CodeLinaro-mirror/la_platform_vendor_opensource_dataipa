@@ -54,6 +54,14 @@
 	((client) == IPA_CLIENT_ETHERNET2_PROD || \
 	(client) == IPA_CLIENT_ETHERNET2_CONS)
 
+#define EOGRE_STATS(y) eogre->y = \
+	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre->y
+
+#define MPLS_STATS(y) stats->y = \
+	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.mpls->y
+
+#define MULTI_STATS(y,it) multi->tunnels[it].y = \
+	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi->tunnels[it].y
 enum ipa_eth_dir {
 	IPA_ETH_RX = 0,
 	IPA_ETH_TX = 1,
@@ -183,6 +191,10 @@ struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 		feature = IPA_HW_FEATURE_EOGRE;
 	} else if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE) {
 		feature = IPA_HW_FEATURE_EOGRE_UNTAG;
+	} else if(ipa3_ctx->eogre_tunnel_feature == DOUBLE_TAG_FEATURE) {
+          	feature = IPA_HW_FEATURE_MPLS;
+	} else if(ipa3_ctx->eogre_tunnel_feature == SINGLE_TAG_FEATURE) {
+			feature = IPA_HW_FEATURE_MULTI;
 	}
 
 	if ((uc_event_top_mmio->protocolMask &
@@ -192,60 +204,175 @@ struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 		return;
 	}
 
-	if (stats_ptr->featureInfo[feature].params.size !=
-		sizeof(struct Ipa3HwStatsEOGREInfoData_t)) {
+	if(feature == IPA_HW_FEATURE_EOGRE ||
+		feature == IPA_HW_FEATURE_EOGRE_UNTAG) {
+		if (stats_ptr->featureInfo[feature].params.size !=
+		sizeof(struct Ipa3HwStatsEOGRE)) {
 		IPAERR("eogre stats sz invalid exp=%zu is=%u\n",
-			sizeof(struct Ipa3HwStatsEOGREInfoData_t),
+			sizeof(struct Ipa3HwStatsEOGRE),
 			stats_ptr->featureInfo[feature].params.size);
 		return;
+		}
+	}
+
+	if(feature == IPA_HW_FEATURE_MPLS) {
+		if (stats_ptr->featureInfo[feature].params.size !=
+			sizeof(struct Ipa3HwStatsMPLS)) {
+			IPAERR("eogre stats sz invalid exp=%zu is=%u\n",
+			sizeof(struct Ipa3HwStatsMPLS),
+			stats_ptr->featureInfo[feature].params.size);
+			return;
+		}
+	}
+
+	if(feature == IPA_HW_FEATURE_MULTI) {
+		if (stats_ptr->featureInfo[feature].params.size !=
+			sizeof(struct Ipa3HwStatsMultiCombined)) {
+			IPAERR("eogre stats sz invalid exp=%zu is=%u\n",
+			sizeof(struct Ipa3HwStatsMultiCombined),
+			stats_ptr->featureInfo[feature].params.size);
+			return;
+		}
 	}
 
 	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst =
 		stats_ptr->baseAddrOffset +
 		stats_ptr->featureInfo[feature].params.offset;
-	IPAERR("EOGRE stats ofst=0x%x\n", ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
-	if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
-		sizeof(struct Ipa3HwStatsEOGREInfoData_t) >=
-		ipa3_ctx->ctrl->ipa_reg_base_ofst +
-		ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n, 0) +
-		ipa3_ctx->smem_sz) {
-		IPAERR("uc_eogre_stats 0x%x outside SRAM\n",
+	IPAERR("EOGRE stats ofst=0x%x\n",
 			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
-		return;
+
+	if(feature == IPA_HW_FEATURE_EOGRE ||
+			feature == IPA_HW_FEATURE_EOGRE_UNTAG) {
+		if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
+			sizeof(struct Ipa3HwStatsEOGRE) >=
+			ipa3_ctx->ctrl->ipa_reg_base_ofst +
+			ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n,
+				0) + ipa3_ctx->smem_sz) {
+			IPAERR("uc_eogre_stats 0x%x outside SRAM\n",
+				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
+			return;
+		}
+		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre =
+			ioremap(ipa3_ctx->ipa_wrapper_base +
+			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst,
+			sizeof(struct Ipa3HwStatsEOGRE));
+		if (!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre) {
+			IPAERR("fail to ioremap uc eogre stats\n");
+			return;
+		}
+
 	}
 
-	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio =
-		ioremap(ipa3_ctx->ipa_wrapper_base +
-		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst,
-		sizeof(struct Ipa3HwStatsEOGREInfoData_t));
-	if (!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio) {
-		IPAERR("fail to ioremap uc eogre stats\n");
-		return;
+	if(feature == IPA_HW_FEATURE_MULTI) {
+		if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
+				sizeof(struct Ipa3HwStatsMultiCombined) >=
+				ipa3_ctx->ctrl->ipa_reg_base_ofst +
+				ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n, 0) +
+				ipa3_ctx->smem_sz) {
+			IPAERR("uc_eogre_stats 0x%x outside SRAM\n",
+					ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
+			 return;
+		}
+
+		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi =
+			ioremap(ipa3_ctx->ipa_wrapper_base +
+			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst,
+			sizeof(struct Ipa3HwStatsMultiCombined));
+		if (!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi) {
+			IPAERR("fail to ioremap uc eogre stats\n");
+			return;
+		}
 	}
+
+	if(feature == IPA_HW_FEATURE_MPLS) {
+		if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
+			sizeof(struct Ipa3HwStatsMPLS) >=
+			ipa3_ctx->ctrl->ipa_reg_base_ofst +
+			ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n,
+				0)
+			+ ipa3_ctx->smem_sz) {
+			IPAERR("uc_eogre_stats 0x%x outside SRAM\n",
+					ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
+			 return;
+		}
+
+		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.mpls =
+			ioremap(ipa3_ctx->ipa_wrapper_base +
+			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst,
+			sizeof(struct Ipa3HwStatsMPLS));
+		if (!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.mpls) {
+			IPAERR("fail to ioremap uc eogre stats\n");
+			return;
+		}
+	}
+
 }
 
-int ipa3_get_eogre_stats(struct Ipa3HwStatsEOGREInfoData_t *stats)
+int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
+		struct Ipa3HwStatsEOGRE *eogre,
+		struct Ipa3HwStatsMultiCombined *multi)
 {
-
-#define EOGRE_STATS(y) stats->y = \
-	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio->y
 
 	if (unlikely(!ipa3_ctx)) {
 		IPAERR("IPA driver was not initialized\n");
 		return -EINVAL;
 	}
 
-	if (!stats || !ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio) {
+	if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE ||
+          ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE){
+        	if (!eogre || !ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre) {
 		IPAERR("bad parms stats=%pK eogre_stats=%pK\n",
 			stats,
 			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio);
 		return -EINVAL;
-	}
+		}
+        }
+
+	if(ipa3_ctx->eogre_tunnel_feature == DOUBLE_TAG_FEATURE) {
+        	if (!stats ||
+			!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.mpls) {
+			IPAERR("bad parms stats=%pK eogre_stats=%pK\n",
+				stats,
+				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio);
+			return -EINVAL;
+		}
+        }
+
+	if(ipa3_ctx->eogre_tunnel_feature == SINGLE_TAG_FEATURE) {
+        	if (!stats ||
+			!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi) {
+			IPAERR("bad parms stats=%pK eogre_stats=%pK\n",
+				stats,
+				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio);
+			return -EINVAL;
+		}
+        }
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
-	EOGRE_STATS(eogre_header_add_id);
-	EOGRE_STATS(eogre_header_remove_id);
+	if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE ||
+          	ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE) {
+		EOGRE_STATS(eogre_header_add_id);
+		EOGRE_STATS(eogre_header_remove_id);
+        }
+	if(ipa3_ctx->eogre_tunnel_feature == DOUBLE_TAG_FEATURE) {
+		MPLS_STATS(pppoe_mpls_header_add_id);
+		MPLS_STATS(pppoe_mpls_header_remove_id);
+		MPLS_STATS(mpls_header_add_id);
+		MPLS_STATS(mpls_header_remove_id);
+        }
+	if(ipa3_ctx->eogre_tunnel_feature == SINGLE_TAG_FEATURE) {
+		multi->eogre_header_add_id =
+			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi->\
+			eogre_header_add_id;
+		multi->eogre_header_remove_id =
+			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi->\
+			eogre_header_remove_id;
+		for(int i = 0; i < MAX_MULTI_TUNNEL_STATS;i++){
+			MULTI_STATS(eogre_header_add_id,i);
+			MULTI_STATS(eogre_header_remove_id,i);
+		}
+	}
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
