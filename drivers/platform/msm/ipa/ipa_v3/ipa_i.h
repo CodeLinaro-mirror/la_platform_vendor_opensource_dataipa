@@ -3359,6 +3359,7 @@ int ipa3_allocate_nat_table(
 int ipa3_allocate_ipv6ct_table(
 	struct ipa_ioc_nat_ipv6ct_table_alloc *table_alloc);
 int ipa3_nat_cleanup_cmd(void);
+int ipa3_lan_stats_cleanup(void);
 int ipa3_nat_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
 int ipa3_app_clk_vote(enum ipa_app_clock_vote_type vote_type);
 void ipa3_get_default_evict_values(
@@ -3379,6 +3380,7 @@ int ipa3_send_msg(struct ipa_msg_meta *meta, void *buff,
 int ipa3_resend_wlan_msg(void);
 int ipa3_resend_lan_msg(void);
 int ipa3_resend_driver_msg(void);
+int ipa3_resend_lan_stats_msg(void);
 int ipa3_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback);
 int ipa3_deregister_pull_msg(struct ipa_msg_meta *meta);
 
