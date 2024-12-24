@@ -6348,7 +6348,7 @@ int ret = 0;
 		return ret;
 	} else {
 		list_for_each_entry_safe(entry, next,
-			&rmnet_ipa3_ctx->msg_stats_list, link) {
+			&rmnet_ipa3_ctx->msg_stats_backup_cntr_list, link) {
 			/* compare to delete one*/
 			if ((entry) &&
 			(!memcmp(entry->lan_stats_query.client_info.mac,
@@ -7072,7 +7072,8 @@ int rmnet_ipa3_query_per_client_stats(
 			rmnet_ipa3_add_backup_lan_stats_counter(&data->client_info[i],
 				data->device_type);
 
-			IPAWANDBG("tx_b_v4(%lu)v6(%lu)rx_b_v4(%lu) v6(%lu)\n",
+			IPAWANDBG("After adding previous counters stats:"
+			"tx_b_v4(%lu)v6(%lu)rx_b_v4(%lu) v6(%lu)\n",
 			(unsigned long) data->client_info[i].ipv4_tx_bytes,
 			(unsigned long) data->client_info[i].ipv6_tx_bytes,
 			(unsigned long) data->client_info[i].ipv4_rx_bytes,
