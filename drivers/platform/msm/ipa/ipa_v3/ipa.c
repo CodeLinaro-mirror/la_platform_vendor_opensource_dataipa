@@ -10479,7 +10479,8 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPADBG(":mpm init init ok\n");
 
 	ipa3_usb_init();
-
+	if(ipa3_ctx->ipa_config_is_mhi)
+		ipa_dma_mhi_provide_ops();
 	mutex_lock(&ipa3_ctx->lock);
 	ipa3_ctx->ipa_initialization_complete = true;
 	mutex_unlock(&ipa3_ctx->lock);
