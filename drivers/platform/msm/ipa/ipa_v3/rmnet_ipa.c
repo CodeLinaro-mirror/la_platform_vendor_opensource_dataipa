@@ -8232,7 +8232,7 @@ int rmnet_ipa3_remove_stats_counters_from_backup_list(struct ipa_lan_client *lan
 	else
 	{
 		list_for_each_entry_safe(entry, next,
-			&rmnet_ipa3_ctx->msg_stats_list, link) {
+			&rmnet_ipa3_ctx->msg_stats_backup_cntr_list, link) {
 			/* compare to delete one*/
 			if ((entry) && (!memcmp(entry->lan_stats_query.client_info.mac, lan_client->mac,
 				sizeof(lan_client->mac))) && entry->lan_stats_query.device_type == device_type) {
@@ -8348,9 +8348,16 @@ int rmnet_ipa3_add_stats_counters_to_backup_list(struct ipa_lan_client *lan_clie
 		memcpy(&(entry->lan_stats_query.client_info.mac), lan_client->mac, sizeof(lan_client ->mac));
 		list_add_tail(&entry->link, &rmnet_ipa3_ctx->msg_stats_backup_cntr_list);
 		IPAWANDBG("Client_Id: %d MAC: %02x:%02x:%02x:%02x:%02x:%02x v4_tx_bytes: %lu v4_rx_bytes: %lu v6_tx_bytes: %lu v6_rx_bytes: %lu\n",
-		device_type, client_data.client_info[0].mac[0], client_data.client_info[0].mac[1], client_data.client_info[0].mac[2], client_data.client_info[0].mac[3],
-		client_data.client_info[0].mac[4], client_data.client_info[0].mac[5], client_data.client_info[0].ipv4_tx_bytes, client_data.client_info[0].ipv4_rx_bytes,
-		client_data.client_info[0].ipv6_tx_bytes, client_data.client_info[0].ipv6_rx_bytes);
+			device_type, client_data.client_info[0].mac[0],
+			client_data.client_info[0].mac[1],
+			client_data.client_info[0].mac[2],
+			client_data.client_info[0].mac[3],
+			client_data.client_info[0].mac[4],
+			client_data.client_info[0].mac[5],
+			client_data.client_info[0].ipv4_tx_bytes,
+			client_data.client_info[0].ipv4_rx_bytes,
+			client_data.client_info[0].ipv6_tx_bytes,
+			client_data.client_info[0].ipv6_rx_bytes);
 	}
 	else
 	{
@@ -8366,10 +8373,17 @@ int rmnet_ipa3_add_stats_counters_to_backup_list(struct ipa_lan_client *lan_clie
 				entry->lan_stats_query.client_info.ipv6_tx_bytes += client_data.client_info[0].ipv6_tx_bytes;
 				memcpy(&(entry->lan_stats_query.client_info.mac), lan_client ->mac, sizeof(lan_client ->mac));
 				IPAWANDBG("Client_Id: %d MAC: %02x:%02x:%02x:%02x:%02x:%02x v4_tx_bytes: %lu v4_rx_bytes: %lu v6_tx_bytes: %lu v6_rx_bytes: %lu\n",
-					entry->lan_stats_query.device_type, entry->lan_stats_query.client_info.mac[0], entry->lan_stats_query.client_info.mac[1], entry->lan_stats_query.client_info.mac[2],
+					entry->lan_stats_query.device_type,
+					entry->lan_stats_query.client_info.mac[0],
+					entry->lan_stats_query.client_info.mac[1],
+					entry->lan_stats_query.client_info.mac[2],
 					entry->lan_stats_query.client_info.mac[3],
-					entry->lan_stats_query.client_info.mac[4], entry->lan_stats_query.client_info.mac[5], entry->lan_stats_query.client_info.ipv4_tx_bytes, entry->lan_stats_query.client_info.ipv4_rx_bytes,
-					entry->lan_stats_query.client_info.ipv6_tx_bytes, entry->lan_stats_query.client_info.ipv6_rx_bytes);
+					entry->lan_stats_query.client_info.mac[4],
+					entry->lan_stats_query.client_info.mac[5],
+					entry->lan_stats_query.client_info.ipv4_tx_bytes,
+					entry->lan_stats_query.client_info.ipv4_rx_bytes,
+					entry->lan_stats_query.client_info.ipv6_tx_bytes,
+					entry->lan_stats_query.client_info.ipv6_rx_bytes);
 				return ret;
 			}
 		}
@@ -8387,9 +8401,14 @@ int rmnet_ipa3_add_stats_counters_to_backup_list(struct ipa_lan_client *lan_clie
 		memcpy(&(entry->lan_stats_query.client_info.mac), lan_client ->mac, sizeof(lan_client ->mac));
 		list_add_tail(&entry->link, &rmnet_ipa3_ctx->msg_stats_backup_cntr_list);
 		IPAWANDBG("Client_Id: %d MAC: %02x:%02x:%02x:%02x:%02x:%02x v4_tx_bytes: %lu v4_rx_bytes: %lu v6_tx_bytes: %lu v6_rx_bytes: %lu\n",
-		device_type, client_data.client_info[0].mac[0], client_data.client_info[0].mac[1], client_data.client_info[0].mac[2], client_data.client_info[0].mac[3],
-		client_data.client_info[0].mac[4], client_data.client_info[0].mac[5], client_data.client_info[0].ipv4_tx_bytes, client_data.client_info[0].ipv4_rx_bytes,
-		client_data.client_info[0].ipv6_tx_bytes, client_data.client_info[0].ipv6_rx_bytes);
+			device_type, client_data.client_info[0].mac[0],
+			client_data.client_info[0].mac[1], client_data.client_info[0].mac[2],
+			client_data.client_info[0].mac[3], client_data.client_info[0].mac[4],
+			client_data.client_info[0].mac[5],
+			client_data.client_info[0].ipv4_tx_bytes,
+			client_data.client_info[0].ipv4_rx_bytes,
+			client_data.client_info[0].ipv6_tx_bytes,
+			client_data.client_info[0].ipv6_rx_bytes);
 	}
 	return ret;
 }
@@ -8428,10 +8447,16 @@ int rmnet_ipa3_add_backup_lan_stats_counter(struct wan_ioctl_per_client_info *cl
 			if(entry)
 			{
 				IPAWANDBG("Client_Id: %d MAC: %02x:%02x:%02x:%02x:%02x:%02x v4_tx_bytes: %lu v4_rx_bytes: %lu v6_tx_bytes: %lu v6_rx_bytes: %lu\n",
-				entry->lan_stats_query.device_type, entry->lan_stats_query.client_info.mac[0], entry->lan_stats_query.client_info.mac[1], entry->lan_stats_query.client_info.mac[2],
+					entry->lan_stats_query.device_type, entry->lan_stats_query.client_info.mac[0],
+					entry->lan_stats_query.client_info.mac[1],
+					entry->lan_stats_query.client_info.mac[2],
 				entry->lan_stats_query.client_info.mac[3],
-				entry->lan_stats_query.client_info.mac[4], entry->lan_stats_query.client_info.mac[5], entry->lan_stats_query.client_info.ipv4_tx_bytes, entry->lan_stats_query.client_info.ipv4_rx_bytes,
-				entry->lan_stats_query.client_info.ipv6_tx_bytes, entry->lan_stats_query.client_info.ipv6_rx_bytes);
+					entry->lan_stats_query.client_info.mac[4],
+					entry->lan_stats_query.client_info.mac[5],
+					entry->lan_stats_query.client_info.ipv4_tx_bytes,
+					entry->lan_stats_query.client_info.ipv4_rx_bytes,
+					entry->lan_stats_query.client_info.ipv6_tx_bytes,
+					entry->lan_stats_query.client_info.ipv6_rx_bytes);
 			}
 			/* compare to delete one*/
 			if ((entry) && (!memcmp(entry->lan_stats_query.client_info.mac, client_info->mac,
@@ -8442,8 +8467,10 @@ int rmnet_ipa3_add_backup_lan_stats_counter(struct wan_ioctl_per_client_info *cl
 				client_info->ipv6_tx_bytes += entry->lan_stats_query.client_info.ipv6_tx_bytes;
 				client_info->ipv6_rx_bytes += entry->lan_stats_query.client_info.ipv6_rx_bytes;
 				IPAWANDBG("Client_Id: %d MAC: %02x:%02x:%02x:%02x:%02x:%02x v4_tx_bytes: %lu v4_rx_bytes: %lu v6_tx_bytes: %lu v6_rx_bytes: %lu\n",
-					device_type, client_info->mac[0], client_info->mac[1], client_info->mac[2], client_info->mac[3],
-					client_info->mac[4], client_info->mac[5], client_info->ipv4_tx_bytes, client_info->ipv4_rx_bytes,
+					device_type, client_info->mac[0], client_info->mac[1],
+					client_info->mac[2], client_info->mac[3],
+					client_info->mac[4], client_info->mac[5],
+					client_info->ipv4_tx_bytes, client_info->ipv4_rx_bytes,
 					client_info->ipv6_tx_bytes, client_info->ipv6_rx_bytes);
 				return ret;
 			}
@@ -8609,7 +8636,7 @@ int rmnet_ipa3_copy_lan_stats_msg(
 			list_for_each_entry_safe(entry, next,
 				&rmnet_ipa3_ctx->msg_stats_list, link) {
 				/* compare to delete one*/
-				if(entry && (!memcmp(entry->backup.lan_client.mac,data->lan_client.mac,
+				if(entry && (!memcmp(entry->backup.lan_client.mac, data->lan_client.mac,
 				sizeof(data->lan_client.mac)))) {
 					IPAWANDBG("entry is exists\n");
 					list_del(&entry->link);
@@ -8886,7 +8913,7 @@ int rmnet_ipa3_query_per_client_stats(
 
 			rmnet_ipa3_add_backup_lan_stats_counter(&data->client_info[i], data->device_type);
 
-			IPAWANDBG("tx_b_v4(%lu)v6(%lu)rx_b_v4(%lu) v6(%lu)\n",
+			IPAWANDBG("After adding previous counters stats: tx_b_v4(%lu)v6(%lu)rx_b_v4(%lu) v6(%lu)\n",
 			(unsigned long) data->client_info[i].ipv4_tx_bytes,
 			(unsigned long) data->client_info[i].ipv6_tx_bytes,
 			(unsigned long) data->client_info[i].ipv4_rx_bytes,
