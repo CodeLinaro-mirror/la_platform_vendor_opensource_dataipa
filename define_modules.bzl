@@ -1,5 +1,5 @@
 load("//build/bazel_common_rules/dist:dist.bzl", "copy_to_dist_dir")
-load("//msm-kernel:target_variants.bzl", "get_all_variants")
+load(":target_variants.bzl", "get_all_variants")
 load("//build/kernel/kleaf:kernel.bzl", "ddk_module")
 
 def define_modules(target, variant):
@@ -10,6 +10,96 @@ def define_modules(target, variant):
     include_defconfig = ":{}_defconfig".format(variant)
 
     mod_list = []
+
+    kernel_build = select({
+        "//build/kernel/kleaf:socrepo_true": "//soc-repo:{}_base_kernel".format(kernel_build_variant),
+        "//build/kernel/kleaf:socrepo_false": "//msm-kernel:{}".format(kernel_build_variant),
+    })
+
+    gsim_deps = [
+        ":gsi_headers",
+        ":include_headers",
+    ]
+
+    gsim_deps += select({
+        "//build/kernel/kleaf:socrepo_true": ["//soc-repo:all_headers"],
+        "//build/kernel/kleaf:socrepo_false": ["//msm-kernel:all_headers"],
+    })
+
+    ipam_deps = [
+        ":{}_config_headers".format(variant),
+        ":gsi_headers",
+        ":include_headers",
+        ":ipa_headers",
+        ":ipa_clients",
+        ":{}_gsim".format(kernel_build_variant),
+        "//vendor/qcom/opensource/datarmnet-ext/mem:{}_rmnet_mem".format(kernel_build_variant),
+    ]
+
+    ipam_deps += select({
+        "//build/kernel/kleaf:socrepo_true": [
+            "//soc-repo:all_headers",
+            "//soc-repo:{}/drivers/soc/qcom/mdt_loader".format(kernel_build_variant),
+            "//soc-repo:{}/kernel/trace/qcom_ipc_logging".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/firmware/qcom/qcom-scm".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/iommu/qcom_iommu_util".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/soc/qcom/smem".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/soc/qcom/qcom_ramdump".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/soc/qcom/qmi_helpers".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/remoteproc/rproc_qcom_common".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/usb/gadget/function/usb_f_gsi".format(kernel_build_variant),
+        ],
+        "//build/kernel/kleaf:socrepo_false": [
+            "//msm-kernel:all_headers",
+        ],
+    })
+
+    if target == "sun":
+        ipam_deps += select({
+            "//build/kernel/kleaf:socrepo_true": [
+                "//soc-repo:{}/drivers/soc/qcom/qcom_va_minidump".format(kernel_build_variant),
+            ],
+            "//build/kernel/kleaf:socrepo_false": [],
+        })
+
+    ipanetm_deps = [
+        ":{}_config_headers".format(variant),
+        ":{}_ipam".format(kernel_build_variant),
+        ":gsi_headers",
+        ":include_headers",
+        ":ipa_headers",
+        ":ipa_clients",
+    ]
+
+    ipanetm_deps += select({
+        "//build/kernel/kleaf:socrepo_true": [
+            "//soc-repo:all_headers",
+            "//soc-repo:{}/drivers/soc/qcom/mdt_loader".format(kernel_build_variant),
+            "//soc-repo:{}/kernel/trace/qcom_ipc_logging".format(kernel_build_variant),
+        ],
+        "//build/kernel/kleaf:socrepo_false": [
+            "//msm-kernel:all_headers",
+        ],
+    })
+
+    if variant == "consolidate":
+        ipatestm_deps = [
+            ":consolidate_config_headers",
+            ":{}_ipam".format(kernel_build_variant),
+            ":gsi_headers",
+            ":include_headers",
+            ":ipa_headers",
+            ":ipa_clients",
+            ":{}_gsim".format(kernel_build_variant),
+        ]
+        ipatestm_deps += select({
+            "//build/kernel/kleaf:socrepo_true": [
+                "//soc-repo:all_headers",
+            ],
+            "//build/kernel/kleaf:socrepo_false": [
+                "//msm-kernel:all_headers",
+            ],
+        })
 
     ddk_module(
         name = "{}_gsim".format(kernel_build_variant),
@@ -40,12 +130,8 @@ def define_modules(target, variant):
         local_defines = [
             "GSI_TRACE_INCLUDE_PATH={}/drivers/platform/msm/gsi".format(include_base),
         ],
-        kernel_build = "//msm-kernel:{}".format(kernel_build_variant),
-        deps = [
-            ":gsi_headers",
-            ":include_headers",
-            "//msm-kernel:all_headers",
-        ],
+        kernel_build = kernel_build,
+        deps = gsim_deps,
     )
     mod_list.append("{}_gsim".format(kernel_build_variant))
 
@@ -200,17 +286,8 @@ def define_modules(target, variant):
             "IPA_TRACE_INCLUDE_PATH={}/drivers/platform/msm/ipa/ipa_v3".format(include_base),
             "RNDIS_TRACE_INCLUDE_PATH={}/drivers/platform/msm/ipa/ipa_clients".format(include_base),
         ],
-        kernel_build = "//msm-kernel:{}".format(kernel_build_variant),
-        deps = [
-            ":{}_config_headers".format(variant),
-            ":gsi_headers",
-            ":include_headers",
-            ":ipa_headers",
-            ":ipa_clients",
-            "//msm-kernel:all_headers",
-            ":{}_gsim".format(kernel_build_variant),
-            "//vendor/qcom/opensource/datarmnet-ext/mem:{}_rmnet_mem".format(kernel_build_variant),
-        ],
+        kernel_build = kernel_build,
+        deps = ipam_deps,
     )
     mod_list.append("{}_ipam".format(kernel_build_variant))
 
@@ -222,19 +299,11 @@ def define_modules(target, variant):
         ],
         kconfig = "config/Kconfig",
         defconfig = include_defconfig,
-        kernel_build = "//msm-kernel:{}".format(kernel_build_variant),
+        kernel_build = kernel_build,
         local_defines = [
             "RNDIS_TRACE_INCLUDE_PATH={}/drivers/platform/msm/ipa/ipa_clients".format(include_base),
         ],
-        deps = [
-            ":{}_config_headers".format(variant),
-            ":{}_ipam".format(kernel_build_variant),
-            ":gsi_headers",
-            ":include_headers",
-            ":ipa_headers",
-            ":ipa_clients",
-            "//msm-kernel:all_headers",
-        ],
+        deps = ipanetm_deps,
     )
     mod_list.append("{}_ipanetm".format(kernel_build_variant))
 
@@ -251,17 +320,8 @@ def define_modules(target, variant):
             ],
             kconfig = "config/Kconfig",
             defconfig = include_defconfig,
-            kernel_build = "//msm-kernel:{}".format(kernel_build_variant),
-            deps = [
-                ":consolidate_config_headers",
-                ":{}_ipam".format(kernel_build_variant),
-                ":gsi_headers",
-                ":include_headers",
-                ":ipa_headers",
-                ":ipa_clients",
-                "//msm-kernel:all_headers",
-                ":{}_gsim".format(kernel_build_variant),
-            ],
+            kernel_build = kernel_build,
+            deps = ipatestm_deps,
         )
         mod_list.append("{}_ipatestm".format(kernel_build_variant))
 
