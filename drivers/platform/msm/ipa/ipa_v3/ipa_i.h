@@ -1594,6 +1594,18 @@ struct ipa3_cache_recycle_stats {
 	u64 tot_pkt_replenished;
 };
 
+struct ipa3_opt_dpath_stats {
+	atomic_t res_req_count;
+	atomic_t res_req_succ;
+	atomic_t res_rel_count;
+	atomic_t add_flt_req_count;
+	atomic_t add_ctrl_flt_req_count;
+	atomic_t rm_flt_req_count;
+	atomic_t rm_ctrl_flt_req_count;
+	atomic_t opt_dpath_enable_count;
+	atomic_t opt_dpath_disable_count;
+};
+
 struct lan_coal_stats {
 	u64 coal_rx;
 	u64 coal_left_as_is;
@@ -1643,6 +1655,7 @@ struct ipa3_stats {
 	u32 pipe_setup_fail_cnt;
 	struct ipa3_page_recycle_stats page_recycle_stats[3];
 	struct ipa3_cache_recycle_stats cache_recycle_stats[3];
+	struct ipa3_opt_dpath_stats opt_dpath_stats;
 	u64 page_recycle_cnt[3][IPA_PAGE_POLL_THRESHOLD_MAX];
 	atomic_t num_buff_above_thresh_for_def_pipe_notified;
 	atomic_t num_buff_above_thresh_for_coal_pipe_notified;
@@ -3836,5 +3849,4 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
-
 #endif /* _IPA3_I_H_ */
