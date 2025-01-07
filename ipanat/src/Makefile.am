@@ -1,7 +1,7 @@
 ACLOCAL_AMFLAGS = -I m4
 AUTOMAKE_OPTIONS = foreign
 
-AM_CFLAGS = -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -I../inc
+AM_CFLAGS = -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -I../inc -I$(DATAIPA_STAGING_INCDIR)
 #AM_CFLAGS += -g -DDEBUG -DNAT_DEBUG
 
 common_CFLAGS =  -DUSE_GLIB @GLIB_CFLAGS@
