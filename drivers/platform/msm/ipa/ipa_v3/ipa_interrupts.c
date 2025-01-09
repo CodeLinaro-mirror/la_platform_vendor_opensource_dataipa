@@ -71,7 +71,7 @@ static int ipa3_irq_mapping[IPA_IRQ_MAX] = {
 	[IPA_DRBIP_IMM_CMD_NO_FLSH_HZRD_IRQ]	= 29,
 };
 
-static void ipa_irq_thread_handler(int , void*);
+static irqreturn_t ipa_irq_thread_handler(int , void*);
 
 static void ipa3_deferred_interrupt_work(struct work_struct *work)
 {
@@ -384,7 +384,7 @@ static void ipa3_process_interrupts(bool isr_context)
 	IPADBG_LOW("Exit\n");
 }
 
-static void ipa_irq_thread_handler(int irq, void* devid)
+static irqreturn_t ipa_irq_thread_handler(int irq, void* devid)
 {
 	struct ipa_active_client_logging_info log_info;
 
@@ -395,6 +395,7 @@ static void ipa_irq_thread_handler(int irq, void* devid)
 	/* Delay the devote process to have time to get gsi ieob irq */
 	ipa3_dec_client_disable_clks_delay_wq(&log_info, IPA_AGG_BUSY_TIMEOUT);
 	IPADBG("Done\n");
+	return IRQ_HANDLED;
 }
 
 static irqreturn_t ipa3_isr(int irq, void *ctxt)
