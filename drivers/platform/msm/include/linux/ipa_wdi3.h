@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA_WDI3_H_
@@ -220,6 +220,7 @@ struct ipa_wdi_reg_intf_in_params {
 	u8 is_tx1_used;
 	ipa_wdi_hdl_t hdl;
 	u8 is_rx1_used;
+	u8 mld_enabled;
 };
 
 /**
@@ -575,13 +576,24 @@ int ipa_wdi_reg_intf_per_inst(
  */
 int ipa_wdi_dereg_intf(const char *netdev_name);
 
+
+/**
+  * ipa_wdi_dereg_intf_per_inst_mlo - Client Driver should call
+  * this function to deregister in mlo cases.
+  *
+  * @Return 0 on success, negetive on failure.
+  */
+
+int ipa_wdi_dereg_intf_per_inst_mlo(const char *netdev_name,
+			ipa_wdi_hdl_t hdl, uint8_t vdev_id, bool mld_enabled);
 /**
  * ipa_wdi_dereg_intf_per_inst - Client Driver should call this
  * function to deregister before unload and after disconnect
  *
  * @Return 0 on success, negative on failure
  */
-int ipa_wdi_dereg_intf_per_inst(const char *netdev_name, ipa_wdi_hdl_t hdl);
+int ipa_wdi_dereg_intf_per_inst(const char *netdev_name,
+				ipa_wdi_hdl_t hdl);
 
 /**
  * ipa_wdi_conn_pipes - Client should call this
@@ -843,6 +855,12 @@ static inline int ipa_wdi_dereg_intf(const char *netdev_name)
 
 static inline int ipa_wdi_dereg_intf_per_inst(const char *netdev_name,
 	ipa_wdi_hdl_t hdl)
+{
+	return -EPERM;
+}
+
+static inline int ipa_wdi_dereg_intf_per_inst_mlo(const char *netdev_name,
+	ipa_wdi_hdl_t hdl, uint8_t vdev_id, bool mld_enabled)
 {
 	return -EPERM;
 }

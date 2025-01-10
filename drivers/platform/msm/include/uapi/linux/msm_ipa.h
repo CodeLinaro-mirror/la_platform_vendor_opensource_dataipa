@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _UAPI_MSM_IPA_H_
@@ -3121,8 +3121,11 @@ struct ipa_wlan_msg {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint8_t mac_addr[IPA_MAC_ADDR_SIZE];
 	int16_t if_index;
+	uint8_t mld_enabled;
 #define IPA_WDI_AST_UPDATE
 	uint8_t ast_update;
+	uint8_t instance_id;
+	uint8_t vdev_id;
 
 };
 
@@ -3172,6 +3175,9 @@ struct ipa_wlan_hdr_attrib_val {
 struct ipa_wlan_msg_ex {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint8_t num_of_attribs;
+	uint8_t instance_id;
+	uint8_t vdev_id;
+	uint8_t mld_enabled;
 	struct ipa_wlan_hdr_attrib_val attribs[];
 };
 
