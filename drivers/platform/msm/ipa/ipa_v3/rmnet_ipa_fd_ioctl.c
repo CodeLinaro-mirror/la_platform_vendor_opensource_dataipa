@@ -4,7 +4,7 @@
  */
 /*
  *
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  */
 
@@ -556,6 +556,14 @@ static long ipa3_wan_ioctl(struct file *filp,
 			(struct wan_ioctl_send_lan_client_msg *)
 			param)) {
 			IPAWANERR("IOC_SEND_LAN_CLIENT_MSG failed\n");
+			retval = -EFAULT;
+			break;
+		}
+		/* Backup connection info to resend to IPACM if ipacm restart */
+		if (rmnet_ipa3_copy_lan_stats_msg(
+			(struct wan_ioctl_send_lan_client_msg *)
+			param)) {
+			IPAWANERR("LAN STATS info copy is failed\n");
 			retval = -EFAULT;
 			break;
 		}

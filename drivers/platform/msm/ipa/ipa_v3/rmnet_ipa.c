@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -125,6 +125,21 @@ struct ipa3_rmnet_plat_drv_res {
 	u32 wan_rx_desc_size;
 };
 
+struct ipa3_lan_stats {
+	struct wan_ioctl_send_lan_client_msg backup;
+	struct list_head link;
+};
+
+struct ipa3_rmnet_lan_stats_counters {
+	enum ipacm_per_client_device_type device_type;
+	struct wan_ioctl_per_client_info client_info;
+};
+
+struct ipa3_lan_stats_cntr {
+	struct ipa3_rmnet_lan_stats_counters lan_stats_query;
+	struct list_head link;
+};
+
 /**
  * struct ipa3_wwan_private - WWAN private data
  * @net: network interface struct implemented by this driver
@@ -207,6 +222,8 @@ struct rmnet_ipa3_context {
 	bool eth_wan_set;
 	enum ipa_eth_hw_config_enum_v01 eth_vlan;
 	bool no_qmap_config;
+	struct list_head msg_stats_list;
+	struct list_head msg_stats_backup_cntr_list;
 };
 
 static struct rmnet_ipa3_context *rmnet_ipa3_ctx;
@@ -6302,6 +6319,53 @@ int rmnet_ipa3_set_lan_client_info(
 	return 0;
 }
 
+/* rmnet_ipa3_remove_stats_counters_from_backup_list() -
+ * @lan_client - lan stats client info
+ * @device type - lan stats device type.
+ *
+ * This function handles WAN_IOC_DELETE_LAN_CLIENT_INFO.
+ * It is used to delete backup LAN client information which
+ * is used to fetch the packet stats for a client.
+ *
+ * Return codes:
+ * 0: Success
+ * -EINVAL: Invalid args provided
+ */
+int rmnet_ipa3_remove_stats_counters_from_backup_list(
+			struct ipa_lan_client *lan_client,int device_type)
+{
+int ret = 0;
+	struct ipa3_lan_stats_cntr *entry = NULL;
+	struct ipa3_lan_stats_cntr *next = NULL;
+
+	if(lan_client == NULL) {
+		IPAWANERR("client_info is null\n");
+		return -EINVAL;
+	}
+
+	if(list_empty(&rmnet_ipa3_ctx->msg_stats_backup_cntr_list)) {
+		IPAWANDBG("entry is empty\n");
+		return ret;
+	} else {
+		list_for_each_entry_safe(entry, next,
+			&rmnet_ipa3_ctx->msg_stats_backup_cntr_list, link) {
+			/* compare to delete one*/
+			if ((entry) &&
+			(!memcmp(entry->lan_stats_query.client_info.mac,
+			lan_client->mac,sizeof(lan_client->mac))) &&
+			entry->lan_stats_query.device_type == device_type) {
+				IPAWANDBG("entry is exists\n");
+				list_del(&entry->link);
+				kfree(entry);
+				entry = NULL;
+				return 0;
+			}
+		}
+	}
+	IPAWANDBG("entry is not found\n");
+	return ret;
+}
+
 /* rmnet_ipa3_delete_lan_client_info() -
  * @data - IOCTL data
  *
@@ -6357,10 +6421,394 @@ int rmnet_ipa3_clear_lan_client_info(
 
 	lan_client->inited = false;
 	mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
-
+	rmnet_ipa3_remove_stats_counters_from_backup_list(lan_client,
+						data->device_type);
 	return 0;
 }
 
+/* rmnet_ipa3_add_stats_counters_to_backup_list() -
+ * @lan_client - lan stats client info
+ * @device type - lan stats device type.
+ *
+ * This function is add the backup stats to current stats
+ * based on device type and device mac addr
+ *
+ * Return codes:
+ * 0: Success
+ * -EINVAL: Invalid args provided
+ */
+int rmnet_ipa3_add_stats_counters_to_backup_list(struct ipa_lan_client
+					*lan_client,
+					int device_type)
+{
+	struct ipa3_lan_stats_cntr *entry = NULL;
+	struct ipa3_lan_stats_cntr *next = NULL;
+	struct wan_ioctl_query_per_client_stats client_data;
+	int ret = 0;
+
+	client_data.device_type = device_type;
+	client_data.num_clients = 1;
+	client_data.disconnect_clnt  = 0;
+	client_data.reset_stats  = 0;
+	memcpy(&client_data.client_info[0].mac, lan_client ->mac,
+		sizeof(lan_client ->mac));
+	rmnet_ipa3_query_per_client_stats_v2(&client_data);
+
+	if(list_empty(&rmnet_ipa3_ctx->msg_stats_backup_cntr_list)) {
+		entry = kzalloc(sizeof(struct ipa3_lan_stats_cntr), GFP_KERNEL);
+		if(!entry) {
+			IPAWANERR("failed to alloc memory\n");
+			return -EINVAL;
+		}
+		entry->lan_stats_query.device_type = device_type;
+		entry->lan_stats_query.client_info.ipv4_tx_bytes =
+			client_data.client_info[0].ipv4_tx_bytes;
+		entry->lan_stats_query.client_info.ipv4_rx_bytes =
+			client_data.client_info[0].ipv4_rx_bytes;
+		entry->lan_stats_query.client_info.ipv6_tx_bytes =
+			client_data.client_info[0].ipv6_tx_bytes;
+		entry->lan_stats_query.client_info.ipv6_tx_bytes =
+			client_data.client_info[0].ipv6_tx_bytes;
+		memcpy(&(entry->lan_stats_query.client_info.mac),
+			lan_client->mac, sizeof(lan_client ->mac));
+		list_add_tail(&entry->link,
+			&rmnet_ipa3_ctx->msg_stats_backup_cntr_list);
+		IPAWANDBG("Client_Id: %d MAC: %02x:%02x:%02x:%02x:%02x:%02x"
+			"v4_tx_bytes: %lu v4_rx_bytes: %lu v6_tx_bytes: %lu"
+			"v6_rx_bytes: %lu\n",
+			device_type, client_data.client_info[0].mac[0],
+			client_data.client_info[0].mac[1],
+			client_data.client_info[0].mac[2],
+			client_data.client_info[0].mac[3],
+			client_data.client_info[0].mac[4],
+			client_data.client_info[0].mac[5],
+			client_data.client_info[0].ipv4_tx_bytes,
+			client_data.client_info[0].ipv4_rx_bytes,
+			client_data.client_info[0].ipv6_tx_bytes,
+			client_data.client_info[0].ipv6_rx_bytes);
+	} else {
+		list_for_each_entry_safe(entry, next,
+			&rmnet_ipa3_ctx->msg_stats_list, link) {
+			/* compare to delete one*/
+			if ((entry) &&
+				(!memcmp(entry->lan_stats_query.client_info.mac,
+				lan_client->mac,
+				sizeof(lan_client->mac))) &&
+				entry->lan_stats_query.device_type ==
+					device_type) {
+				IPAWANDBG("entry is already exists\n");
+				entry->lan_stats_query.client_info.ipv4_tx_bytes
+					+= client_data.client_info[0].ipv4_tx_bytes;
+				entry->lan_stats_query.client_info.ipv4_rx_bytes
+					+= client_data.client_info[0].ipv4_rx_bytes;
+				entry->lan_stats_query.client_info.ipv6_tx_bytes
+					+= client_data.client_info[0].ipv6_tx_bytes;
+				entry->lan_stats_query.client_info.ipv6_tx_bytes
+					+= client_data.client_info[0].ipv6_tx_bytes;
+				memcpy(&(entry->lan_stats_query.client_info.mac),
+					lan_client ->mac, sizeof(lan_client ->mac));
+				IPAWANDBG("Client_Id: %d MAC: "
+					"%02x:%02x:%02x:%02x:%02x:%02x "
+					"v4_tx_bytes: %lu v4_rx_bytes: %lu"
+					" v6_tx_bytes: %lu v6_rx_bytes: %lu\n",
+					entry->lan_stats_query.device_type,
+					entry->lan_stats_query.client_info.mac[0],
+					entry->lan_stats_query.client_info.mac[1],
+					entry->lan_stats_query.client_info.mac[2],
+					entry->lan_stats_query.client_info.mac[3],
+					entry->lan_stats_query.client_info.mac[4],
+					entry->lan_stats_query.client_info.mac[5],
+					entry->lan_stats_query.client_info.ipv4_tx_bytes,
+					entry->lan_stats_query.client_info.ipv4_rx_bytes,
+					entry->lan_stats_query.client_info.ipv6_tx_bytes,
+					entry->lan_stats_query.client_info.ipv6_rx_bytes);
+				return ret;
+			}
+		}
+		entry = kzalloc(sizeof(struct ipa3_lan_stats_cntr), GFP_KERNEL);
+		if(!entry) {
+			IPAWANERR("failed to alloc memory\n");
+			return -EINVAL;
+		}
+		entry->lan_stats_query.device_type = device_type;
+		entry->lan_stats_query.client_info.ipv4_tx_bytes =
+				client_data.client_info[0].ipv4_tx_bytes;
+		entry->lan_stats_query.client_info.ipv4_rx_bytes =
+				client_data.client_info[0].ipv4_rx_bytes;
+		entry->lan_stats_query.client_info.ipv6_tx_bytes =
+				client_data.client_info[0].ipv6_tx_bytes;
+		entry->lan_stats_query.client_info.ipv6_tx_bytes =
+				client_data.client_info[0].ipv6_tx_bytes;
+		memcpy(&(entry->lan_stats_query.client_info.mac),
+				lan_client ->mac, sizeof(lan_client ->mac));
+		list_add_tail(&entry->link, &rmnet_ipa3_ctx->msg_stats_backup_cntr_list);
+		IPAWANDBG("Client_Id: %d MAC: %02x:%02x:%02x:%02x:%02x:%02x"
+			"v4_tx_bytes: %lu v4_rx_bytes: %lu v6_tx_bytes:"
+			"%lu v6_rx_bytes: %lu\n",
+			device_type, client_data.client_info[0].mac[0],
+			client_data.client_info[0].mac[1],
+			client_data.client_info[0].mac[2],
+			client_data.client_info[0].mac[3],
+			client_data.client_info[0].mac[4],
+			client_data.client_info[0].mac[5],
+			client_data.client_info[0].ipv4_tx_bytes,
+			client_data.client_info[0].ipv4_rx_bytes,
+			client_data.client_info[0].ipv6_tx_bytes,
+			client_data.client_info[0].ipv6_rx_bytes);
+	}
+	return ret;
+}
+
+/* rmnet_ipa3_add_backup_lan_stats_counter() -
+ * @lan_client - lan stats client info
+ * @device type - lan stats device type.
+ *
+ * This function is add to the backup stats list
+ * based on device type and device mac addr
+ *
+ * Return codes:
+ * 0: Success
+ * -EINVAL: Invalid args provided
+ */
+int rmnet_ipa3_add_backup_lan_stats_counter(struct wan_ioctl_per_client_info
+				*client_info, int device_type)
+{
+	int ret = 0;
+	struct ipa3_lan_stats_cntr *entry = NULL;
+	struct ipa3_lan_stats_cntr *next = NULL;
+
+	if(!client_info) {
+		IPAWANERR("client_info is null\n");
+		return -EINVAL;
+	}
+	if(list_empty(&rmnet_ipa3_ctx->msg_stats_backup_cntr_list)) {
+		IPAWANDBG("entry is empty so no need to add the"
+			"previous counters\n");
+		return ret;
+	} else {
+		list_for_each_entry_safe(entry, next,
+			&rmnet_ipa3_ctx->msg_stats_backup_cntr_list, link) {
+			if(entry) {
+				IPAWANDBG("Client_Id: %d MAC: "
+				"%02x:%02x:%02x:%02x:%02x:%02x "
+				"v4_tx_bytes: %lu v4_rx_bytes:"
+				"%lu v6_tx_bytes: %lu v6_rx_bytes: %lu\n",
+				entry->lan_stats_query.device_type,
+				entry->lan_stats_query.client_info.mac[0],
+				entry->lan_stats_query.client_info.mac[1],
+				entry->lan_stats_query.client_info.mac[2],
+				entry->lan_stats_query.client_info.mac[3],
+				entry->lan_stats_query.client_info.mac[4],
+				entry->lan_stats_query.client_info.mac[5],
+				entry->lan_stats_query.client_info.ipv4_tx_bytes,
+				entry->lan_stats_query.client_info.ipv4_rx_bytes,
+				entry->lan_stats_query.client_info.ipv6_tx_bytes,
+				entry->lan_stats_query.client_info.ipv6_rx_bytes);
+			}
+			/* compare to delete one*/
+			if ((entry) &&
+				(!memcmp(entry->lan_stats_query.client_info.mac,
+				client_info->mac, sizeof(client_info->mac)))
+				&& entry->lan_stats_query.device_type ==
+				device_type) {
+					IPAWANDBG("entry is exists so "
+					"adding previous counters\n");
+					client_info->ipv4_tx_bytes +=
+						entry->lan_stats_query.client_info.ipv4_tx_bytes;
+					client_info->ipv4_rx_bytes +=
+						entry->lan_stats_query.client_info.ipv4_rx_bytes;
+					client_info->ipv6_tx_bytes +=
+						entry->lan_stats_query.client_info.ipv6_tx_bytes;
+					client_info->ipv6_rx_bytes +=
+						entry->lan_stats_query.client_info.ipv6_rx_bytes;
+					IPAWANDBG("Client_Id: %d MAC:"
+						"%02x:%02x:%02x:%02x:%02x:%02x"
+						"v4_tx_bytes: %lu v4_rx_bytes:"
+						"%lu v6_tx_bytes: %lu v6_rx_bytes: %lu\n",
+						device_type,
+						client_info->mac[0],
+						client_info->mac[1],
+						client_info->mac[2],
+						client_info->mac[3],
+						client_info->mac[4],
+						client_info->mac[5],
+						client_info->ipv4_tx_bytes,
+						client_info->ipv4_rx_bytes,
+						client_info->ipv6_tx_bytes,
+						client_info->ipv6_rx_bytes);
+				return ret;
+			}
+		}
+	}
+	IPAWANDBG("entry is not exists\n");
+	return ret;
+}
+
+/* ipa3_lan_stats_cleanup() -
+ * This function handles IPA_IOC_CLEAN_UP.
+ *
+ * This function is used to delete all active LAN client information
+ * installed by previous ipacm process.
+ *
+ * Return codes:
+ * 0: Success
+ */
+int ipa3_lan_stats_cleanup()
+{
+	int i, j;
+	struct ipa_lan_client *lan_client = NULL;
+	struct ipa_tether_device_info *teth_ptr = NULL;
+	for(i = 0; i < IPACM_MAX_CLIENT_DEVICE_TYPES; i++) {
+		teth_ptr = &rmnet_ipa3_ctx->tether_device[i];
+		if(!teth_ptr) {
+			continue;
+		}
+		for(j = 0; j < IPA_MAX_NUM_HW_PATH_CLIENTS; j++) {
+			lan_client = &teth_ptr->lan_client[j];
+			if(lan_client) {
+				if(lan_client->inited == true) {
+					rmnet_ipa3_add_stats_counters_to_backup_list(lan_client, i);
+					IPAWANDBG("entry is clearing from HW\n");
+					lan_client->inited  = false;
+				}
+			}
+		}
+	}
+	IPAWANDBG("entry is clearing completed\n");
+	return 0;
+}
+
+/* ipa3_resend_lan_stats_msg() -
+ * @data - IOCTL data
+ *
+ * This function handles WAN_IOC_GET_LAN_CLIENT_INFO.
+ * It is used to send LAN client information to IPACM
+ * if match with data information in msg_stats_list.
+ *
+ * Return codes:
+ * 0: Success
+ * -EINVAL: Invalid args provided
+ */
+int ipa3_resend_lan_stats_msg()
+{
+	int ret = 0;
+	struct ipa3_lan_stats *entry = NULL;
+	struct ipa3_lan_stats *next = NULL;
+	struct wan_ioctl_send_lan_client_msg lan_client;
+	if(list_empty(&rmnet_ipa3_ctx->msg_stats_list)) {
+		IPAWANDBG("list is empty\n");
+		return ret;
+	} else {
+		list_for_each_entry_safe(entry, next,
+			&rmnet_ipa3_ctx->msg_stats_list, link) {
+			/* compare to delete one*/
+			if(entry) {
+				IPAWANDBG("entry is exists\n");
+				memcpy(&lan_client,&entry->backup,
+				sizeof(struct wan_ioctl_send_lan_client_msg));
+				rmnet_ipa3_send_lan_client_msg(&lan_client);
+			}
+		}
+	}
+	return ret;
+}
+
+/* rmnet_ipa3_copy_lan_stats_msg() -
+ * @data - IOCTL data
+ *
+ * It is used to copy the LAN client information to
+ * msg_stats_list.
+ *
+ * Return codes:
+ * 0: Success
+ * -EINVAL: Invalid args provided
+ */
+int rmnet_ipa3_copy_lan_stats_msg(
+	struct wan_ioctl_send_lan_client_msg *data)
+{
+	int ret = 0;
+	struct ipa3_lan_stats *entry = NULL;
+	struct ipa3_lan_stats *next = NULL;
+
+	if(!data) {
+		IPAWANERR("data is null\n");
+		return -EINVAL;
+	}
+
+	if(data->client_event == IPA_PER_CLIENT_STATS_CONNECT_EVENT) {
+		if(list_empty(&rmnet_ipa3_ctx->msg_stats_list)) {
+			entry =
+			kzalloc(sizeof(struct ipa3_lan_stats), GFP_KERNEL);
+			if(!entry) {
+				IPAWANERR("failed to alloc memory\n");
+				return -EINVAL;
+			}
+			entry->backup.client_event =
+				IPA_PER_CLIENT_STATS_CONNECT_EVENT;
+			memcpy(entry->backup.lan_client.lanIface,
+				data->lan_client.lanIface,
+				sizeof(data->lan_client.lanIface));
+			memcpy(entry->backup.lan_client.mac,
+				data->lan_client.mac,
+				IPA_MAC_ADDR_SIZE* sizeof(uint8_t));
+			list_add_tail(&entry->link,
+				&rmnet_ipa3_ctx->msg_stats_list);
+			IPAWANDBG("entry is added\n");
+		} else {
+			list_for_each_entry_safe(entry, next,
+				&rmnet_ipa3_ctx->msg_stats_list, link) {
+				/* compare to delete one*/
+				if (entry &&
+					(!memcmp(entry->backup.lan_client.mac,
+						data->lan_client.mac,
+					sizeof(data->lan_client.mac)))) {
+					IPAWANDBG("entry is already exists\n");
+					return ret;
+				}
+			}
+			entry = kzalloc(sizeof(struct ipa3_lan_stats),
+				GFP_KERNEL);
+			if(!entry) {
+				IPAWANERR("failed to alloc memory\n");
+				return -EINVAL;
+			}
+			entry->backup.client_event =
+				IPA_PER_CLIENT_STATS_CONNECT_EVENT;
+			memcpy(entry->backup.lan_client.lanIface,
+				data->lan_client.lanIface,
+				sizeof(data->lan_client.lanIface));
+			memcpy(entry->backup.lan_client.mac,
+				data->lan_client.mac,
+				IPA_MAC_ADDR_SIZE* sizeof(uint8_t));
+			list_add_tail(&entry->link,
+				&rmnet_ipa3_ctx->msg_stats_list);
+			IPAWANDBG("entry is added\n");
+		}
+	} else if(data->client_event == IPA_PER_CLIENT_STATS_DISCONNECT_EVENT) {
+		if(list_empty(&rmnet_ipa3_ctx->msg_stats_list)) {
+			IPAWANDBG("list is empty\n");
+			return ret;
+		} else {
+			list_for_each_entry_safe(entry, next,
+				&rmnet_ipa3_ctx->msg_stats_list, link) {
+				/* compare to delete one*/
+				if(entry &&
+				(!memcmp(entry->backup.lan_client.mac,
+					data->lan_client.mac,
+				sizeof(data->lan_client.mac)))) {
+					IPAWANDBG("entry is exists\n");
+					list_del(&entry->link);
+					kfree(entry);
+					entry = NULL;
+					return ret;
+				}
+			}
+			IPAWANDBG("entry is not preset\n");
+			return ret;
+		}
+	}
+	return ret;
+}
 
 /* rmnet_ipa3_send_lan_client_msg() -
  * @data - IOCTL data
@@ -6474,13 +6922,13 @@ int rmnet_ipa3_query_per_client_stats(
 	struct ipa_lan_client *lan_client = NULL;
 	struct ipa_tether_device_info *teth_ptr = NULL;
 
-	IPAWANDBG("Client MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
+	IPAWANDBG("Client MAC %02x:%02x:%02x:%02x:%02x:%02x  device type\n",
 		data->client_info[0].mac[0],
 		data->client_info[0].mac[1],
 		data->client_info[0].mac[2],
 		data->client_info[0].mac[3],
 		data->client_info[0].mac[4],
-		data->client_info[0].mac[5]);
+		data->client_info[0].mac[5], data->device_type);
 
 	/* Check if Device type is valid. */
 	if (data->device_type >= IPACM_MAX_CLIENT_DEVICE_TYPES ||
@@ -6616,6 +7064,16 @@ int rmnet_ipa3_query_per_client_stats(
 			resp->per_client_stats_list[i].num_ul_ipv6_bytes;
 
 			IPAWANDBG("tx_b_v4(%lu)v6(%lu)rx_b_v4(%lu) v6(%lu)\n",
+			(unsigned long) data->client_info[i].ipv4_tx_bytes,
+			(unsigned long) data->client_info[i].ipv6_tx_bytes,
+			(unsigned long) data->client_info[i].ipv4_rx_bytes,
+			(unsigned long) data->client_info[i].ipv6_rx_bytes);
+
+			rmnet_ipa3_add_backup_lan_stats_counter(&data->client_info[i],
+				data->device_type);
+
+			IPAWANDBG("After adding previous counters stats:"
+			"tx_b_v4(%lu)v6(%lu)rx_b_v4(%lu) v6(%lu)\n",
 			(unsigned long) data->client_info[i].ipv4_tx_bytes,
 			(unsigned long) data->client_info[i].ipv6_tx_bytes,
 			(unsigned long) data->client_info[i].ipv4_rx_bytes,
@@ -6959,6 +7417,13 @@ int rmnet_ipa3_query_per_client_stats_v2(
 				data->client_info[stats_idx].ipv4_tx_bytes,
 				data->client_info[stats_idx].ipv4_rx_bytes);
 
+		rmnet_ipa3_add_backup_lan_stats_counter(&data->client_info[stats_idx],
+			data->device_type);
+
+		IPAWANDBG("After adding previous counters stats Client"
+			"ipv4_tx_bytes = %llu, ipv4_rx_bytes = %llu\n",
+			data->client_info[stats_idx].ipv4_tx_bytes,
+			data->client_info[stats_idx].ipv4_rx_bytes);
 		kfree((void *)query->stats);
 		ret = result;
 	}
@@ -6995,6 +7460,9 @@ int ipa3_wwan_init(void)
 	atomic_set(&rmnet_ipa3_ctx->is_initialized, 0);
 	atomic_set(&rmnet_ipa3_ctx->is_ssr, 0);
 	atomic_set(&rmnet_ipa3_ctx->clock_vote.cnt, 0);
+
+	INIT_LIST_HEAD(&rmnet_ipa3_ctx->msg_stats_list);
+	INIT_LIST_HEAD(&rmnet_ipa3_ctx->msg_stats_backup_cntr_list);
 
 	mutex_init(&rmnet_ipa3_ctx->pipe_handle_guard);
 	mutex_init(&rmnet_ipa3_ctx->add_mux_channel_lock);
