@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -6332,13 +6332,13 @@ int rmnet_ipa3_set_lan_client_info(
  * -EINVAL: Invalid args provided
  */
 int rmnet_ipa3_remove_stats_counters_from_backup_list(
-			struct ipa_lan_client *lan_client,int device_type)
+			uint8_t *mac,int device_type)
 {
 int ret = 0;
 	struct ipa3_lan_stats_cntr *entry = NULL;
 	struct ipa3_lan_stats_cntr *next = NULL;
 
-	if(lan_client == NULL) {
+	if(mac == NULL) {
 		IPAWANERR("client_info is null\n");
 		return -EINVAL;
 	}
@@ -6352,7 +6352,7 @@ int ret = 0;
 			/* compare to delete one*/
 			if ((entry) &&
 			(!memcmp(entry->lan_stats_query.client_info.mac,
-			lan_client->mac,sizeof(lan_client->mac))) &&
+			mac,IPA_MAC_ADDR_SIZE)) &&
 			entry->lan_stats_query.device_type == device_type) {
 				IPAWANDBG("entry is exists\n");
 				list_del(&entry->link);
@@ -6421,7 +6421,7 @@ int rmnet_ipa3_clear_lan_client_info(
 
 	lan_client->inited = false;
 	mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
-	rmnet_ipa3_remove_stats_counters_from_backup_list(lan_client,
+	rmnet_ipa3_remove_stats_counters_from_backup_list(lan_client->mac,
 						data->device_type);
 	return 0;
 }
@@ -7071,7 +7071,10 @@ int rmnet_ipa3_query_per_client_stats(
 
 			rmnet_ipa3_add_backup_lan_stats_counter(&data->client_info[i],
 				data->device_type);
-
+			if(data->reset_stats)
+				rmnet_ipa3_remove_stats_counters_from_backup_list(
+					data->client_info[i].mac,
+					data->device_type);
 			IPAWANDBG("After adding previous counters stats:"
 			"tx_b_v4(%lu)v6(%lu)rx_b_v4(%lu) v6(%lu)\n",
 			(unsigned long) data->client_info[i].ipv4_tx_bytes,
@@ -7419,7 +7422,10 @@ int rmnet_ipa3_query_per_client_stats_v2(
 
 		rmnet_ipa3_add_backup_lan_stats_counter(&data->client_info[stats_idx],
 			data->device_type);
-
+		if(data->reset_stats)
+			rmnet_ipa3_remove_stats_counters_from_backup_list(
+					data->client_info[stats_idx].mac,
+					data->device_type);
 		IPAWANDBG("After adding previous counters stats Client"
 			"ipv4_tx_bytes = %llu, ipv4_rx_bytes = %llu\n",
 			data->client_info[stats_idx].ipv4_tx_bytes,
