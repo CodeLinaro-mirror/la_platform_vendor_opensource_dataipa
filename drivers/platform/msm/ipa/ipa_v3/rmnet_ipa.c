@@ -105,6 +105,8 @@ static int rmnet_ipa_send_coalesce_notification(uint8_t qmap_id, bool enable,
 
 static int rmnet_ipa_send_set_mtu_notification(char *if_name,
 					uint16_t mtu_v4, uint16_t mtu_v6, enum ipa_ip_type ip);
+static void ipa3_cleanup_deregister_intf(void);
+static int ipa3_wwan_register_to_ipa(int index);
 
 
 enum ipa3_wwan_device_status {
@@ -857,10 +859,17 @@ static void ipa3_copy_qmi_flt_rule_ex(
 int ipa3_copy_ul_filter_rule_to_ipa(struct ipa_install_fltr_rule_req_msg_v01
 		*rule_req)
 {
-	int i;
+	int i = 0, ret = 0;
+	bool update = false;
+	struct ipa_msg_meta msg_meta;
 
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
 	/* prevent multi-threads accessing rmnet_ipa3_ctx->num_q6_rules */
 	mutex_lock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+	if(rmnet_ipa3_ctx->num_q6_rules > 0)
+	{
+		update = true;
+	}
 	if (rule_req->filter_spec_ex_list_valid == true &&
 		rule_req->filter_spec_ex2_list_valid == false) {
 		rmnet_ipa3_ctx->num_q6_rules =
@@ -966,6 +975,26 @@ int ipa3_copy_ul_filter_rule_to_ipa(struct ipa_install_fltr_rule_req_msg_v01
 				[rule_req->ul_firewall_indices_list[i]]
 				.replicate_needed = 1;
 			}
+		}
+	}
+	/* Iterate through all active rmnet pdn and deregister and register interface again */
+	/* send the event for new ext prop change */
+	if(update)
+	{
+		ipa3_cleanup_deregister_intf();
+		for (i = 0; i < rmnet_ipa3_ctx->rmnet_index; i++) {
+			ret = ipa3_wwan_register_to_ipa(i);
+			if (ret)
+			{
+				IPAWANERR("register iface fail idx: %d err: %d\n", i, ret);
+			}
+		}
+		memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+		msg_meta.msg_type = WAN_EXT_PROP_CHANGE_EVENT;
+		msg_meta.msg_len = 0;
+		ret = ipa_send_msg(&msg_meta, NULL, NULL);
+		if (ret) {
+			IPAWANERR("ipa_send_msg failed: %d\n", ret);
 		}
 	}
 	goto success;
