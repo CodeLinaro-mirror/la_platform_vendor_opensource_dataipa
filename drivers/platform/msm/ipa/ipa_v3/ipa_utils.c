@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <net/ip.h>
@@ -17368,6 +17368,149 @@ static int ipa3_get_free_socksv5_entry(void)
 	return free_index;
 }
 
+/*Caching the sockv5 tupple to establish ipa path in ipacm restart scenarios*/
+int ipa3_socksv5_conn_cache_add(struct ipa_socksv5_info *info, bool true)
+{
+	struct ipa3_socks_v5_msg *entry = NULL;
+	struct ipa3_socks_v5_msg *next = NULL;
+
+	if(list_empty(&ipa3_ctx->socksv5_msg_list))
+	{
+		entry = kzalloc(sizeof(struct ipa_socksv5_info), GFP_KERNEL);
+		memcpy(&(entry->socksv5_config), info,
+			sizeof(struct ipa_socksv5_info));
+			list_add_tail(&entry->link, &ipa3_ctx->socksv5_msg_list);
+		IPADBG("first entry is added\n");
+		ipa3_ctx->socksv5_conn_refcnt++;
+		return 0;
+	}
+	else
+	{
+		list_for_each_entry_safe(entry, next,
+			&ipa3_ctx->socksv5_msg_list, link) {
+
+				if (entry && ((entry->socksv5_config.ul_in.ip_type == IPA_IP_v6) && (info->ul_in.ip_type == IPA_IP_v6)) &&
+					(!memcmp(entry->socksv5_config.ul_in.ipv6_src, info->ul_in.ipv6_src, sizeof(info->ul_in.ipv6_src))) &&
+					(!memcmp(entry->socksv5_config.ul_in.ipv6_dst, info->ul_in.ipv6_dst, sizeof(info->ul_in.ipv6_dst))) &&
+					(!memcmp(entry->socksv5_config.dl_in.ipv6_src, info->dl_in.ipv6_src, sizeof(info->dl_in.ipv6_src))) &&
+					(!memcmp(entry->socksv5_config.dl_in.ipv6_dst, info->dl_in.ipv6_dst, sizeof(info->dl_in.ipv6_dst))) &&
+					(entry->socksv5_config.dl_in.src_port == info->dl_in.src_port) &&
+					(entry->socksv5_config.dl_in.dst_port == info->dl_in.dst_port) &&
+					(entry->socksv5_config.ul_in.src_port == info->ul_in.src_port) &&
+					(entry->socksv5_config.ul_in.dst_port == info->ul_in.dst_port))
+				{
+					IPAERR("entry is already exists\n");
+					return 0;
+				}
+				else if(entry && ((entry->socksv5_config.ul_in.ip_type == IPA_IP_v6) && (info->ul_in.ip_type == IPA_IP_v6)) &&
+					((entry->socksv5_config.dl_in.ipv4_src == info->dl_in.ipv4_src) &&
+					(entry->socksv5_config.dl_in.ipv4_dst == info->dl_in.ipv4_dst)) &&
+					(entry->socksv5_config.dl_in.src_port == info->dl_in.src_port) &&
+					(entry->socksv5_config.dl_in.dst_port == info->dl_in.dst_port) &&
+					(entry->socksv5_config.ul_in.src_port == info->ul_in.src_port) &&
+					(entry->socksv5_config.ul_in.dst_port == info->ul_in.dst_port))
+				{
+					IPAERR("entry is already exists\n");
+					return 0;
+				}
+		}
+		entry = kzalloc(sizeof(struct ipa_socksv5_info), GFP_KERNEL);
+		memcpy(&(entry->socksv5_config), info,
+			sizeof(struct ipa_socksv5_info));
+		list_add_tail(&entry->link, &ipa3_ctx->socksv5_msg_list);
+		ipa3_ctx->socksv5_conn_refcnt++;
+		IPADBG("%d entry is added\n", ipa3_ctx->socksv5_conn_refcnt);
+	}
+	return 0;
+}
+
+/* clearing cached socks info */
+int ipa3_socksv5_conn_cache_remove(uint32_t handle)
+{
+	struct ipa3_socks_v5_msg *entry = NULL;
+	struct ipa3_socks_v5_msg *next = NULL;
+
+	if(list_empty(&ipa3_ctx->socksv5_msg_list))
+	{
+		IPAERR("list is empty\n");
+		return 0;
+	}
+	else
+	{
+		list_for_each_entry_safe(entry, next,
+			&ipa3_ctx->socksv5_msg_list, link) {
+			if (entry && ((entry->socksv5_config.handle == handle) ))
+			{
+				IPADBG("entry is found\n");
+				list_del(&entry->link);
+				kfree(entry);
+				entry = NULL;
+				ipa3_ctx->socksv5_conn_refcnt--;
+				IPADBG("%d entries lefts in list\n", ipa3_ctx->socksv5_conn_refcnt);
+				return 0;
+			}
+		}
+	}
+	return 0;
+}
+
+/*resend the sockstupple info to ipacm*/
+int ipa3_resend_socksv5_msg()
+{
+	int res = 0;
+	struct ipa_msg_meta msg_meta;
+	struct ipa3_socks_v5_msg *entry = NULL;
+	struct ipa3_socks_v5_msg *next = NULL;
+	struct ipa_socksv5_msg *socksv5_msg = NULL;
+
+	if(list_empty(&ipa3_ctx->socksv5_msg_list))
+	{
+		IPAWANDBG("list is empty\n");
+		return 0;
+	}
+	else
+	{
+		list_for_each_entry_safe(entry, next,
+			&ipa3_ctx->socksv5_msg_list, link) {
+			/* compare to delete one*/
+			if(entry)
+			{
+				/* check the left # of entries (need at least 2)*/
+				socksv5_msg = kzalloc(sizeof(*socksv5_msg), GFP_KERNEL);
+				/* send msg to ipacm */
+				if (!socksv5_msg) {
+					IPAERR("socksv5_msg memory allocation failed !\n");
+					res = -ENOMEM;
+					goto error;
+				}
+				memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+				memcpy(&(socksv5_msg->ul_in), &(entry->socksv5_config.ul_in), sizeof(entry->socksv5_config.ul_in));
+				memcpy(&(socksv5_msg->dl_in), &(entry->socksv5_config.dl_in), sizeof(entry->socksv5_config.dl_in));
+				socksv5_msg->handle = entry->socksv5_config.handle;
+				socksv5_msg->ul_in.index = entry->socksv5_config.handle;
+				socksv5_msg->dl_in.index = entry->socksv5_config.handle + 1;
+
+				msg_meta.msg_type = IPA_SOCKV5_ADD;
+				msg_meta.msg_len = sizeof(struct ipa_socksv5_msg);
+				IPADBG("ipa3_sending socksv5 to ipacm %d %d \n",
+					socksv5_msg->ul_in.ip_type, socksv5_msg->dl_in.ip_type);
+				IPADBG("ipa3_sending socksv5 to ipacm %x :%x \n",
+					entry->socksv5_config.ul_in.ipv6_src[0], entry->socksv5_config.ul_in.ipv6_src[1]);
+
+				/* post event to ipacm*/
+				res = ipa_send_msg(&msg_meta, socksv5_msg, ipa3_socksv5_msg_free_cb);
+				if (res) {
+					IPAERR_RL("ipa_send_msg failed: %d\n", res);
+					kfree(socksv5_msg);
+					goto error;
+				}
+			}
+		}
+	}
+error:
+	return res;
+}
+
 /**
  * ipa3_add_socksv5_conn() - IPA add socksv5_conn
  *
@@ -17457,6 +17600,9 @@ int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info)
 
 	ipa3_ctx->uc_act_tbl_total += 2;
 	ipa3_ctx->uc_act_tbl_socksv5_total += 2;
+
+	/*caching the socks connection tupple info*/
+	ipa3_socksv5_conn_cache_add(info, true);
 
 	/* send msg to ipacm */
 	socksv5_msg = kzalloc(sizeof(*socksv5_msg), GFP_KERNEL);
@@ -17713,6 +17859,8 @@ int ipa3_del_socksv5_conn(uint32_t handle)
 		ipa3_ctx->uc_act_tbl_total,
 		ipa3_ctx->uc_act_tbl_socksv5_total);
 
+	/*clearing the socks conn info from backup*/
+	ipa3_socksv5_conn_cache_remove(handle);
 	/* send msg to ipacm */
 	socksv5_handle = kzalloc(sizeof(*socksv5_handle), GFP_KERNEL);
 	if (!socksv5_handle) {
@@ -17854,3 +18002,153 @@ exit:
 	return result;
 }
 
+static void ipa3_ippt_pdn_config_msg_free_cb(void *buff, u32 len, u32 type)
+{
+	if (!buff) {
+		IPAERR("Null buffer\n");
+		return;
+	}
+
+	kfree(buff);
+}
+
+/*resend the ippt pdn info to ipacm*/
+int ipa3_ippt_resend_msg(void)
+{
+	struct ipa3_ip_pass_msg *entry = NULL;
+	struct ipa3_ip_pass_msg *next = NULL;
+	struct ipa_msg_meta msg_meta;
+	void *buff;
+	struct ipa_ioc_pdn_config *pdn_info;
+	int retval = 0;
+
+	if(list_empty(&ipa3_ctx->msg_ippt_list))
+	{
+		IPADBG("list is empty\n");
+		return 0;
+	}
+	else
+	{
+		list_for_each_entry_safe(entry, next,
+			&ipa3_ctx->msg_ippt_list, link) {
+			/* compare to delete one*/
+			if(entry)
+			{
+				IPADBG("entry is exists\n");
+				memset(&msg_meta, 0, sizeof(msg_meta));
+
+				pdn_info = kzalloc(sizeof(struct ipa_ioc_pdn_config),
+					GFP_KERNEL);
+				if (!pdn_info)
+					return -ENOMEM;
+
+				memcpy(pdn_info, entry, sizeof(struct ipa_ioc_pdn_config));
+				msg_meta.msg_len = sizeof(struct ipa_ioc_pdn_config);
+				buff = pdn_info;
+
+				msg_meta.msg_type = pdn_info->pdn_cfg_type;
+				/* null terminate the string */
+				pdn_info->dev_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+				if ((pdn_info->pdn_cfg_type < IPA_PDN_DEFAULT_MODE_CONFIG) ||
+						(pdn_info->pdn_cfg_type >= IPA_PDN_CONFIG_EVENT_MAX)) {
+					IPAERR_RL("invalid pdn_cfg_type =%d", pdn_info->pdn_cfg_type);
+					kfree(pdn_info);
+					return -EINVAL;
+				}
+
+				IPADBG("type %d, interface name: %s, enable:%d\n", msg_meta.msg_type,
+					pdn_info->dev_name, pdn_info->enable);
+
+				if (pdn_info->pdn_cfg_type == IPA_PDN_IP_PASSTHROUGH_MODE_CONFIG) {
+					IPADBG("Client MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
+						pdn_info->u.passthrough_cfg.client_mac_addr[0],
+						pdn_info->u.passthrough_cfg.client_mac_addr[1],
+						pdn_info->u.passthrough_cfg.client_mac_addr[2],
+						pdn_info->u.passthrough_cfg.client_mac_addr[3],
+						pdn_info->u.passthrough_cfg.client_mac_addr[4],
+						pdn_info->u.passthrough_cfg.client_mac_addr[5]);
+				}
+				retval = ipa3_send_msg(&msg_meta, buff,
+					ipa3_ippt_pdn_config_msg_free_cb);
+				if (retval) {
+					IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+						retval,
+						msg_meta.msg_type);
+					kfree(buff);
+					return retval;
+				}
+				IPADBG("exit\n");
+
+				return 0;
+			}
+		}
+	}
+	return 0;
+}
+
+/* Caching ippt pdn info */
+int ipa3_copy_ip_pass_pdn_info(
+	struct ipa_ioc_pdn_config *pdn_info)
+{
+	struct ipa3_ip_pass_msg *entry = NULL;
+	struct ipa3_ip_pass_msg *next = NULL;
+
+	if(pdn_info->enable == 1)
+	{
+		entry = kzalloc(sizeof(struct ipa3_ip_pass_msg), GFP_KERNEL);
+		if(list_empty(&ipa3_ctx->msg_ippt_list))
+		{
+			memcpy(&(entry->ippass_config), pdn_info,
+				sizeof(struct ipa_ioc_pdn_config));
+			list_add_tail(&entry->link, &ipa3_ctx->msg_ippt_list);
+			IPADBG("first entry is added to the list\n");
+			ipa3_ctx->ippt_pdninfo_refcnt++;
+		}
+		else
+		{
+			list_for_each_entry_safe(entry, next,
+				&ipa3_ctx->msg_ippt_list, link) {
+				/* compare to delete one*/
+				if (entry && (!memcmp(entry->ippass_config.dev_name, pdn_info->dev_name,
+					sizeof(pdn_info->dev_name)))) {
+					IPADBG("entry is already exists\n");
+					return 0;
+				}
+			}
+			memcpy(&(entry->ippass_config), pdn_info,
+				sizeof(struct ipa_ioc_pdn_config));
+			list_add_tail(&entry->link, &ipa3_ctx->msg_ippt_list);
+			ipa3_ctx->ippt_pdninfo_refcnt++;
+			IPADBG("entry is added, now no of entries is %d\n", ipa3_ctx->ippt_pdninfo_refcnt);
+		}
+	}
+	else if(pdn_info->enable == 0)
+	{
+		if(list_empty(&ipa3_ctx->msg_ippt_list))
+		{
+			IPADBG("list is empty\n");
+			return 0;
+		}
+		else
+		{
+			list_for_each_entry_safe(entry, next,
+				&ipa3_ctx->msg_ippt_list, link) {
+				/* compare to delete one*/
+				if(entry && (!memcmp(entry->ippass_config.dev_name,pdn_info->dev_name,
+				sizeof(pdn_info->dev_name)))) {
+					IPADBG("entry is found, so clearing the pdn info\n");
+					list_del(&entry->link);
+					kfree(entry);
+					entry = NULL;
+					ipa3_ctx->ippt_pdninfo_refcnt--;
+					IPADBG("now %d ippt pdn config entries present in list\n",
+						ipa3_ctx->ippt_pdninfo_refcnt);
+					return 0;
+				}
+			}
+			IPADBG("entry is not present\n");
+			return 0;
+		}
+	}
+	return 0;
+}

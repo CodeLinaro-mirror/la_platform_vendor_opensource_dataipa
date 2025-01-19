@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -2322,6 +2322,16 @@ enum ipa_eth_qos_type_e {
 	IPA_ETH_QOS_MAX
 };
 
+struct ipa3_socks_v5_msg {
+	struct ipa_socksv5_info socksv5_config;
+	struct list_head link;
+};
+
+struct ipa3_ip_pass_msg {
+	struct ipa_ioc_pdn_config ippass_config;
+	struct list_head link;
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2453,6 +2463,8 @@ enum ipa_eth_qos_type_e {
  * @cesta_enable: flag which holds if cesta_enabled or not in DTSI
  * @eth_pdu_ctx: ETH PDU ctx
  * @ipa_tiering_value: IPA tiering value to support multiple SKUs
+ * @socksv5_conn_refcnt:socksv5 connetions refcnt for ipacm restart scenarios
+ * @ippt_pdninfo_refcnt:ippt_pdninfo_refcnt refcnt for ipacm restart scenarios
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2522,11 +2534,13 @@ struct ipa3_context {
 	u8 a5_pipe_index;
 	struct list_head intf_list;
 	struct list_head msg_list;
+	struct list_head socksv5_msg_list;
 	struct list_head pull_msg_list;
 	struct mutex msg_lock;
 	struct list_head msg_wlan_client_list;
 	struct mutex msg_wlan_client_lock;
 	struct list_head msg_lan_list;
+	struct list_head msg_ippt_list;
 	struct mutex msg_lan_lock;
 	wait_queue_head_t msg_waitq;
 	enum ipa_hw_type ipa_hw_type;
@@ -2764,6 +2778,8 @@ struct ipa3_context {
 	struct mutex recycle_stats_collection_lock;
 	u16 filter_start_id;
 	struct ipa_ioc_get_qos_config get_qos_config;
+	u16 socksv5_conn_refcnt;
+	u8 ippt_pdninfo_refcnt;
 };
 
 struct ipa3_plat_drv_res {
@@ -3360,6 +3376,7 @@ int ipa3_allocate_ipv6ct_table(
 	struct ipa_ioc_nat_ipv6ct_table_alloc *table_alloc);
 int ipa3_nat_cleanup_cmd(void);
 int ipa3_lan_stats_cleanup(void);
+int ipa3_socksv5_cleanup(void);
 int ipa3_nat_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
 int ipa3_app_clk_vote(enum ipa_app_clock_vote_type vote_type);
 void ipa3_get_default_evict_values(
@@ -3381,6 +3398,10 @@ int ipa3_resend_wlan_msg(void);
 int ipa3_resend_lan_msg(void);
 int ipa3_resend_driver_msg(void);
 int ipa3_resend_lan_stats_msg(void);
+int ipa3_resend_socksv5_msg(void);
+int ipa3_ippt_resend_msg(void);
+int ipa3_copy_ip_pass_pdn_info(
+	struct ipa_ioc_pdn_config *pdn_info);
 int ipa3_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback);
 int ipa3_deregister_pull_msg(struct ipa_msg_meta *meta);
 
