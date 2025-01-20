@@ -759,7 +759,7 @@ int ipa3_smmu_map_buff(uint64_t bitstream_buffer_fd,
 		goto dma_buff_det;
 	}
 
-	attachment = dma_buf_attach(dbuff, ipa3_ctx->rtp_pdev);
+	attachment = dma_buf_attach(dbuff, ipa3_ctx->uc_pdev);
 	if (IS_ERR_OR_NULL(attachment)) {
 		IPAERR("dma buf attachment failed.\n");
 		err = -EFAULT;
@@ -981,11 +981,13 @@ int ipa3_send_bitstream_buff_info(struct bitstream_buffers *data)
 			}
 
 			tmp.bs_info[index].buff_addr = map_table->sgt[0]->sgl->dma_address;
-			tmp.bs_info[index].meta_buff_addr  = map_table->sgt[1]->sgl->dma_address;
+			tmp.bs_info[index].meta_buff_addr = map_table->sgt[1]->sgl->dma_address
+				+ data->bs_info[index].meta_buff_offset;
 		} else {
 			tmp.bs_info[index].buff_addr = map_table->sgt[0]->sgl->dma_address +
 			data->bs_info[index].buff_offset;
-			tmp.bs_info[index].meta_buff_addr  = map_table->sgt[1]->sgl->dma_address;
+			tmp.bs_info[index].meta_buff_addr = map_table->sgt[1]->sgl->dma_address
+				+ data->bs_info[index].meta_buff_offset;
 		}
 	}
 
