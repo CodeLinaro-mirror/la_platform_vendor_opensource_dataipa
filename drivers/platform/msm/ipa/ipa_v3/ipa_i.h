@@ -509,6 +509,8 @@ enum {
 #define WWAN_METADATA_SHFT 24
 #define WWAN_METADATA_MASK 0xFF000000
 
+#define IPA_RULE_CNT_MAX 0xFFFFFFFF
+
 enum ipa_type_mode {
 	IPA_HW_TYPE,
 	PLATFORM_TYPE,
