@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -2382,6 +2382,9 @@ enum ipa_eth_qos_type_e {
  * @ipa3_hw_mode: mode of IPA HW mode (e.g. Normal, Virtual or over PCIe)
  * @gsi_ver: version of GSI
  * @ipa_config_is_rdkb: is this RDKB platform
+ * @ipa_config_is_pppoe: whether PPPoE mode has been enabled
+ * @ipa_eth_pppoe_intf_name: name of the ethernet physical interface on which
+ *  PPPoE has been enabled
  * @use_ipa_teth_bridge: use tethering bridge driver
  * @modem_cfg_emb_pipe_flt: modem configure embedded pipe filtering rules
  * @logbuf: ipc log buffer for high priority messages
@@ -2532,6 +2535,8 @@ struct ipa3_context {
 	enum ipa3_platform_type platform_type;
 	bool ipa_config_is_mhi;
 	bool ipa_config_is_rdkb;
+	bool ipa_config_is_pppoe;
+	char ipa_eth_pppoe_intf_name[IFNAMSIZ];
 	bool ipa_config_is_ipsec;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;

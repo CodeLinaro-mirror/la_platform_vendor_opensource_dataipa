@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -1197,6 +1197,7 @@ int ipa3_eth_connect(
 	}
 #endif
 	IPADBG("Vlan mode %d\n", vlan_mode);
+	IPADBG("PPPoE mode %d\n", ipa3_ctx->ipa_config_is_pppoe);
 
 	result = ipa3_eth_get_prot(pipe, &prot);
 	if (result) {
