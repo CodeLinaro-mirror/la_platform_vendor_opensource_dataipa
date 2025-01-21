@@ -8,6 +8,16 @@
 
 typedef uintptr_t arb_t;
 
+/*
+ * Function for taking/locking the mutex...
+ */
+static int ct_take_mutex(void);
+
+/*
+ * Function for giving/unlocking the mutex...
+ */
+static int ct_give_mutex(void);
+
 #define MAKE_AS_STR_CASE(v) case v: return #v
 
 /******************************************************************************/

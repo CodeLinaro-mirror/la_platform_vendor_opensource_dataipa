@@ -174,9 +174,9 @@ static int ct_take_mutex()
 {
 	int ret;
 
+again:
 	if ( ct_mutex_initt )
 	{
-again:
 		ret = pthread_mutex_lock(&ipv6ct_mutex);
 	}
 	else
