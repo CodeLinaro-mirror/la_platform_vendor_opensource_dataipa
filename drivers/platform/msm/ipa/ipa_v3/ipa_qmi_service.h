@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef IPA_QMI_SERVICE_H
@@ -244,7 +244,7 @@ struct ipa3_rmnet_context {
 	u64 polling_interval;
 	u32 metered_mux_id;
 	int num_mux_channel_eth;
-	struct ipa3_rmnet_mux_val mux_channel_eth[MAX_NUM_OF_MUX_CHANNEL];
+	struct ipa3_rmnet_mux_val mux_channel_eth[QMI_IPA_MAX_RMNET_ETH_INFO_V01];
 };
 
 extern struct ipa3_rmnet_context ipa3_rmnet_ctx;
