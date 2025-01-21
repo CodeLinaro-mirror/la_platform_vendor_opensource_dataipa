@@ -80,11 +80,11 @@ typedef enum
 #undef BREAK_RULE_HDL
 #define BREAK_RULE_HDL(tbl, hdl, iet, indx) \
 	do { \
-		iet   =  (hdl)                              & IPA_TABLE_TYPE_MASK; \
-		indx  = ((hdl) >> IPA_TABLE_TYPE_BITS)      & IPA_TABLE_INDX_MASK; \
-		indx += (iet) ? tbl->table_entries : 0; \
+		iet   =  (uint8_t)(hdl & IPA_TABLE_TYPE_MASK); \
+		indx  = (uint16_t)((hdl >> IPA_TABLE_TYPE_BITS) & IPA_TABLE_INDX_MASK); \
+		indx += (iet) ? (uint16_t)tbl->table_entries : 0; \
 		/*IPADBG("hdl(%u) -> mt(%u) iet(%u) indx(%u)\n", hdl, mt, iet, indx);*/ \
-	} while ( 0 )
+	} while( 0 )
 
 typedef int (*entry_validity_checker)(
 	void* entry);

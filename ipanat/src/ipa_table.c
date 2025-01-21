@@ -136,7 +136,7 @@ int ipa_table_calculate_entries_num(
 	table_entries      = Get2PowerTightUpperBound(number_of_entries * btp);
 	expn_table_entries = GetEvenTightUpperBound(number_of_entries * etp);
 
-	table->tot_tbl_ents = (uint32_t) (table_entries + expn_table_entries);
+	table->tot_tbl_ents = (uint32_t)(table_entries) + (uint32_t)(expn_table_entries);
 
 	if ( table->tot_tbl_ents > IPA_TABLE_MAX_ENTRIES )
 	{
