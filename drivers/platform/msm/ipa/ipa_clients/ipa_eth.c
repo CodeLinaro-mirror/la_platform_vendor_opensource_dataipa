@@ -2015,3 +2015,4 @@ int ipa_eth_get_config_type(
 	}
 	return ret;
 }
+EXPORT_SYMBOL(ipa_eth_get_config_type);
