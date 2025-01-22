@@ -54,13 +54,12 @@ def define_modules(target, variant):
         ],
     })
 
-    if target == "sun":
-        ipam_deps += select({
-            "//build/kernel/kleaf:socrepo_true": [
-                "//soc-repo:{}/drivers/soc/qcom/qcom_va_minidump".format(kernel_build_variant),
-            ],
-            "//build/kernel/kleaf:socrepo_false": [],
-        })
+    ipam_deps += select({
+        "//build/kernel/kleaf:socrepo_true": [
+            "//soc-repo:{}/drivers/soc/qcom/qcom_va_minidump".format(kernel_build_variant),
+        ],
+        "//build/kernel/kleaf:socrepo_false": [],
+    })
 
     ipanetm_deps = [
         ":{}_config_headers".format(variant),
