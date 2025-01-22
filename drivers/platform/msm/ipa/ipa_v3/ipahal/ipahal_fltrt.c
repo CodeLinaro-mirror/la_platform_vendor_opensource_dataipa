@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/ipa.h>
@@ -1530,7 +1531,7 @@ static struct ipahal_fltrt_obj ipahal_fltrt_objs[IPA_HW_MAX] = {
 			IPA3_0_HW_TBL_ADDR_MASK,
 			IPA5_0_RULE_MAX_PRIORITY,
 			IPA5_0_RULE_MIN_PRIORITY,
-			IPA3_0_LOW_RULE_ID,
+			IPA6_0_LOW_RULE_ID,
 			IPA3_0_RULE_ID_BIT_LEN,
 			IPA3_0_HW_RULE_BUF_SIZE,
 			ipa_write_64,
