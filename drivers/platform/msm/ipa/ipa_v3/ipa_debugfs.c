@@ -153,6 +153,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_2ND_PASS),
 	__stringify(IPA_HDR_PROC_MARK_DSCP),
+	__stringify(IPA_HDR_PROC_PPPOE_HEADER_ADD),
 };
 
 static struct dentry *dent;

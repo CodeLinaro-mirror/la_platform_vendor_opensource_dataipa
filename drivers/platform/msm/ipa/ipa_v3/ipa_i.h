@@ -867,6 +867,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
+	struct ipa_pppoe_header_add_procparams pppoe_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -2385,6 +2386,7 @@ enum ipa_eth_qos_type_e {
  * @ipa_config_is_pppoe: whether PPPoE mode has been enabled
  * @ipa_eth_pppoe_intf_name: name of the ethernet physical interface on which
  *  PPPoE has been enabled
+ * @client_hps_eth_index: value to store for which eth ep to update hps sequence
  * @use_ipa_teth_bridge: use tethering bridge driver
  * @modem_cfg_emb_pipe_flt: modem configure embedded pipe filtering rules
  * @logbuf: ipc log buffer for high priority messages
@@ -2537,6 +2539,7 @@ struct ipa3_context {
 	bool ipa_config_is_rdkb;
 	bool ipa_config_is_pppoe;
 	char ipa_eth_pppoe_intf_name[IFNAMSIZ];
+	u8 client_hps_eth_index;
 	bool ipa_config_is_ipsec;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
