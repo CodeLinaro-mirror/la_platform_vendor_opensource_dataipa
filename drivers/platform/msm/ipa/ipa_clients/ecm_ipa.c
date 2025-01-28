@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -248,8 +248,6 @@ static int ecm_ipa_set_device_ethernet_addr
 static enum ecm_ipa_state ecm_ipa_next_state
 	(enum ecm_ipa_state current_state, enum ecm_ipa_operation operation);
 static const char *ecm_ipa_state_string(enum ecm_ipa_state state);
-static int ecm_ipa_init_module(void);
-static void ecm_ipa_cleanup_module(void);
 
 static const struct net_device_ops ecm_ipa_netdev_ops = {
 	.ndo_open		= ecm_ipa_open,
@@ -1709,7 +1707,7 @@ static const char *ecm_ipa_state_string(enum ecm_ipa_state state)
  * ecm_ipa_init_module() - module initialization
  *
  */
-static int __init ecm_ipa_init_module(void)
+int ecm_ipa_init_module(void)
 {
 	ECM_IPA_LOG_ENTRY();
 	pr_info("ecm driver init\n");
@@ -1722,12 +1720,12 @@ static int __init ecm_ipa_init_module(void)
 	ECM_IPA_LOG_EXIT();
 	return 0;
 }
-
+EXPORT_SYMBOL(ecm_ipa_init_module);
 /**
  * ecm_ipa_cleanup_module() - module cleanup
  *
  */
-static void __exit ecm_ipa_cleanup_module(void)
+void ecm_ipa_cleanup_module(void)
 {
 	ECM_IPA_LOG_ENTRY();
 	if (ipa_ecm_logbuf)
@@ -1735,9 +1733,4 @@ static void __exit ecm_ipa_cleanup_module(void)
 	ipa_ecm_logbuf = NULL;
 	ECM_IPA_LOG_EXIT();
 }
-
-MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("ECM IPA network interface");
-
-late_initcall(ecm_ipa_init_module);
-module_exit(ecm_ipa_cleanup_module);
+EXPORT_SYMBOL(ecm_ipa_cleanup_module);

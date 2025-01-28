@@ -235,7 +235,7 @@ def define_modules(target, variant):
     )
     mod_list.append("{}-defconfig_ipanetm".format(kernel_build_variant))
 
-    if variant == "perf":
+    if variant == "debug":
         ddk_module(
             name = "{}-defconfig_ipatestm".format(kernel_build_variant),
             out = "ipatestm.ko",
@@ -250,7 +250,7 @@ def define_modules(target, variant):
             defconfig = include_defconfig,
             kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
             deps = [
-                ":perf_config_headers",
+                ":debug_config_headers",
                 ":{}-defconfig_ipam".format(kernel_build_variant),
                 ":gsi_headers",
                 ":include_headers",
