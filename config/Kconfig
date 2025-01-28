@@ -48,7 +48,7 @@ config IPA_TSP
           Long description of export IPA_TSP
 
 config ECM_IPA
-        bool "Short description of export CONFIG_ECM_IPA"
+        tristate "Short description of export CONFIG_ECM_IPA"
         help
           Long description of export CONFIG_ECM_IPA
 

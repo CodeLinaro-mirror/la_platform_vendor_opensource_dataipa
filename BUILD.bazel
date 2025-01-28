@@ -61,7 +61,7 @@ ddk_headers(
 )
 
 ddk_headers(
-    name = "perf_config_headers",
+    name = "debug_config_headers",
     hdrs = [
         "config/dataipa_debug.h",
         "config/dataipa.h",
@@ -70,28 +70,28 @@ ddk_headers(
 )
 
 ddk_headers(
-    name = "debug_config_headers",
+    name = "perf_config_headers",
     hdrs = [
-        "config/dataipa_vendor.h",
+        "config/dataipa.h",
     ],
     includes = ["config"],
 )
 
 genrule(
-    name = "perf_defconfig",
+    name = "debug_defconfig",
     srcs = [
-        "config/dataipa_GKI_consolidate.conf",
+        "config/dataipa_debug.conf",
         "config/dataipa_QGKI.conf",
     ],
-    outs = ["perf_defconfig.conf"],
+    outs = ["debug_defconfig.conf"],
     cmd = "cat $(SRCS) | sed -e 's/^export //g' > $@",
 )
 
 genrule(
-    name = "debug_defconfig",
+    name = "perf_defconfig",
     srcs = [
-        "config/dataipa_GKI.conf",
+        "config/dataipa_QGKI.conf",
     ],
-    outs = ["debug_defconfig.conf"],
+    outs = ["perf_defconfig.conf"],
     cmd = "cat $(SRCS) | sed -e 's/^export //g' > $@",
 )
