@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -23,6 +23,7 @@
 #include "ipa_i.h"
 #include "ipa_qmi_service.h"
 #include "rndis_ipa.h"
+#include "ecm_ipa.h"
 
 static int __init ipa_late_init(void)
 {
@@ -42,6 +43,13 @@ static int __init ipa_late_init(void)
 		IPAERR("rndis_ipa_init_module failed: %d\n",
 			   rc);
 		rndis_ipa_cleanup_module();
+	}
+
+	rc = ecm_ipa_init_module();
+	if (rc) {
+		IPAERR("ecm_ipa_init_module failed: %d\n",
+			   rc);
+		ecm_ipa_cleanup_module();
 	}
 
 	return rc;
