@@ -9254,6 +9254,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		sizeof(ipa3_ctx->stats.coal));
 	memset(ipa3_ctx->stats.page_recycle_cnt, 0,
 		sizeof(ipa3_ctx->stats.page_recycle_cnt));
+	memset(&ipa3_ctx->stats.opt_dpath_stats, 0,
+		sizeof(ipa3_ctx->stats.opt_dpath_stats));
 	ipa3_ctx->stats.num_sort_tasklet_sched[0] = 0;
 	ipa3_ctx->stats.num_sort_tasklet_sched[1] = 0;
 	ipa3_ctx->stats.num_sort_tasklet_sched[2] = 0;

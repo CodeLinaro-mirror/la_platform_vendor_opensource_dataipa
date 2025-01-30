@@ -1171,11 +1171,14 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		goto exit;
 	}
 
-	result = ipa3_enable_data_path(ipa_ep_idx_tx);
-	if (result) {
-		IPAERR("enable data path failed res=%d clnt=%d\n", result,
-			ipa_ep_idx_tx);
-		goto fail_enable_path1;
+	if (!ipa3_ctx->ipa_wdi_opt_dpath || (ipa3_ctx->ipa_wdi_opt_dpath &&
+		!atomic_read(&ipa3_ctx->stats.opt_dpath_stats.res_req_succ))) {
+		result = ipa3_enable_data_path(ipa_ep_idx_tx);
+		if (result) {
+			IPAERR("enable data path failed res=%d clnt=%d\n", result,
+				ipa_ep_idx_tx);
+			goto fail_enable_path1;
+		}
 	}
 
 	/* Enable and config HOLB TO for both tx pipes */
@@ -1196,11 +1199,14 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 			ipa3_cfg_ep_holb(ipa_ep_idx_tx1, &holb_cfg));
 	}
 
-	/* start gsi tx channel */
-	result = gsi_start_channel(ep_tx->gsi_chan_hdl);
-	if (result) {
-		IPAERR("failed to start gsi tx channel\n");
-		goto fail_start_channel1;
+	/* start gsi tx channel if opt dpath is disabled. */
+	if (!ipa3_ctx->ipa_wdi_opt_dpath || (ipa3_ctx->ipa_wdi_opt_dpath &&
+		!atomic_read(&ipa3_ctx->stats.opt_dpath_stats.res_req_succ))) {
+		result = gsi_start_channel(ep_tx->gsi_chan_hdl);
+		if (result) {
+			IPAERR("failed to start gsi tx channel\n");
+			goto fail_start_channel1;
+		}
 	}
 
 	/* start gsi tx1 channel */
@@ -1360,12 +1366,16 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	ipa3_check_wdi_opt_chn_empty(ipa_ep_idx_rx);
 
 	/* stop gsi tx channel */
-	result = ipa_stop_gsi_channel(ipa_ep_idx_tx);
-	if (result) {
-		IPAERR("failed to stop gsi tx channel\n");
-		result = -EFAULT;
-		goto fail;
+	if (!ipa3_ctx->ipa_wdi_opt_dpath || (ipa3_ctx->ipa_wdi_opt_dpath &&
+		!atomic_read(&ipa3_ctx->stats.opt_dpath_stats.res_req_succ))) {
+		result = ipa_stop_gsi_channel(ipa_ep_idx_tx);
+		if (result) {
+			IPAERR("failed to stop gsi tx channel\n");
+			result = -EFAULT;
+			goto fail;
+		}
 	}
+
 	/* stop gsi tx1 channel */
 	if (ipa_ep_idx_tx1 >= 0) {
 		result = ipa_stop_gsi_channel(ipa_ep_idx_tx1);
