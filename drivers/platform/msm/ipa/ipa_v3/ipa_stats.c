@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/init.h>
@@ -700,10 +700,10 @@ static int ipa_get_wlan_inst_stats(unsigned long arg)
 			/* Currently reserved until GSI needs anything in future */
 			tx_instance_ptr_local->num_tx_oob = 0;
 			tx_instance_ptr_local->num_tx_oob_time = 0;
-			tx_instance_ptr_local->gsi_debug1 = 0;
-			tx_instance_ptr_local->gsi_debug2 = 0;
-			tx_instance_ptr_local->gsi_debug3 = 0;
-			tx_instance_ptr_local->gsi_debug4 = 0;
+			tx_instance_ptr_local->msi_db_idx = 0;
+			tx_instance_ptr_local->tres_handled = 0;
+			tx_instance_ptr_local->rollbacks_cnt = 0;
+			tx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *)((
@@ -737,10 +737,10 @@ static int ipa_get_wlan_inst_stats(unsigned long arg)
 				NULL, rx_instance_ptr_local, client_type);
 
 			/* Currently reserved until GSI needs anything in future */
-			rx_instance_ptr_local->gsi_debug1 = 0;
-			rx_instance_ptr_local->gsi_debug2 = 0;
-			rx_instance_ptr_local->gsi_debug3 = 0;
-			rx_instance_ptr_local->gsi_debug4 = 0;
+			rx_instance_ptr_local->msi_db_idx = 0;
+			rx_instance_ptr_local->tres_handled = 0;
+			rx_instance_ptr_local->rollbacks_cnt = 0;
+			rx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +
@@ -927,10 +927,10 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				/* Currently reserved until GSI needs anything in future */
 				tx_instance_ptr_local->num_tx_oob = 0;
 				tx_instance_ptr_local->num_tx_oob_time = 0;
-				tx_instance_ptr_local->gsi_debug1 = 0;
-				tx_instance_ptr_local->gsi_debug2 = 0;
-				tx_instance_ptr_local->gsi_debug3 = 0;
-				tx_instance_ptr_local->gsi_debug4 = 0;
+				tx_instance_ptr_local->msi_db_idx = 0;
+				tx_instance_ptr_local->tres_handled = 0;
+				tx_instance_ptr_local->rollbacks_cnt = 0;
+				tx_instance_ptr_local->msi_db_cnt = 0;
 			} else if (instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8111K ||
 				instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8125B) {
 
@@ -966,10 +966,10 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				/* Currently reserved until GSI needs anything in future */
 				tx_instance_ptr_local->num_tx_oob = 0;
 				tx_instance_ptr_local->num_tx_oob_time = 0;
-				tx_instance_ptr_local->gsi_debug1 = 0;
-				tx_instance_ptr_local->gsi_debug2 = 0;
-				tx_instance_ptr_local->gsi_debug3 = 0;
-				tx_instance_ptr_local->gsi_debug4 = 0;
+				tx_instance_ptr_local->msi_db_idx = 0;
+				tx_instance_ptr_local->tres_handled = 0;
+				tx_instance_ptr_local->rollbacks_cnt = 0;
+				tx_instance_ptr_local->msi_db_cnt = 0;
 			} else if(instance_ptr->eth_mode == IPA_ETH_CLIENT_IEMAC){
 #if IPA_ETH_API_VER >= 2
 				/* Get the client pipe info[0] from the allocation info context only if it is IEMAC */
@@ -999,10 +999,10 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				tx_instance_ptr_local->num_tx_oob = ntn3_stats.tx_stats.oob_cnt;
 				tx_instance_ptr_local->num_tx_oob_time = 0;
 				tx_instance_ptr_local->num_tx_ring_stats_polled = ntn3_stats.tx_stats.pending_db_after_rollback;
-				tx_instance_ptr_local->gsi_debug1 = ntn3_stats.tx_stats.msi_db_idx;
-				tx_instance_ptr_local->gsi_debug2 = ntn3_stats.tx_stats.tres_handled;
-				tx_instance_ptr_local->gsi_debug3 = ntn3_stats.tx_stats.rollbacks_cnt;
-				tx_instance_ptr_local->gsi_debug4 = ntn3_stats.tx_stats.msi_db_cnt;
+				tx_instance_ptr_local->msi_db_idx = ntn3_stats.tx_stats.msi_db_idx;
+				tx_instance_ptr_local->tres_handled = ntn3_stats.tx_stats.tres_handled;
+				tx_instance_ptr_local->rollbacks_cnt = ntn3_stats.tx_stats.rollbacks_cnt;
+				tx_instance_ptr_local->msi_db_cnt = ntn3_stats.tx_stats.msi_db_cnt;
 			}
 			else IPA_STATS_ERR("Eth tx client type not found. ETH client: %d",instance_ptr->eth_mode);
 		}
@@ -1057,10 +1057,10 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 					NULL, rx_instance_ptr_local, client_type);
 
 				/* Currently reserved until GSI needs anything in future */
-				rx_instance_ptr_local->gsi_debug1 = 0;
-				rx_instance_ptr_local->gsi_debug2 = 0;
-				rx_instance_ptr_local->gsi_debug3 = 0;
-				rx_instance_ptr_local->gsi_debug4 = 0;
+				rx_instance_ptr_local->msi_db_idx = 0;
+				rx_instance_ptr_local->tres_handled = 0;
+				rx_instance_ptr_local->rollbacks_cnt = 0;
+				rx_instance_ptr_local->msi_db_cnt = 0;
 			} else if (instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8111K ||
 				instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8125B) {
 
@@ -1081,10 +1081,10 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 					NULL, rx_instance_ptr_local, client_type);
 
 				/* Currently reserved until GSI needs anything in future */
-				rx_instance_ptr_local->gsi_debug1 = 0;
-				rx_instance_ptr_local->gsi_debug2 = 0;
-				rx_instance_ptr_local->gsi_debug3 = 0;
-				rx_instance_ptr_local->gsi_debug4 = 0;
+				rx_instance_ptr_local->msi_db_idx = 0;
+				rx_instance_ptr_local->tres_handled = 0;
+				rx_instance_ptr_local->rollbacks_cnt = 0;
+				rx_instance_ptr_local->msi_db_cnt = 0;
 			} else if(instance_ptr->eth_mode == IPA_ETH_CLIENT_IEMAC){
 #if IPA_ETH_API_VER >= 2
 				/* Get the client pipe info[0] from the allocation info context only if it is IEMAC */
@@ -1110,10 +1110,10 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				__ipa_ntn3_prod_stats_get(&(ntn3_stats.rx_stats), rx_instance_ptr_local->rx_client);
 				rx_instance_ptr_local->num_rx_ring_stats_polled = ntn3_stats.rx_stats.pending_db_after_rollback;
 				rx_instance_ptr_local->num_rx_drop_stats = ntn3_stats.rx_stats.err_cnt;
-				rx_instance_ptr_local->gsi_debug1 = ntn3_stats.rx_stats.msi_db_idx;
-				rx_instance_ptr_local->gsi_debug2 = ntn3_stats.rx_stats.tres_handled;
-				rx_instance_ptr_local->gsi_debug3 = ntn3_stats.rx_stats.rollbacks_cnt;
-				rx_instance_ptr_local->gsi_debug4 = ntn3_stats.rx_stats.msi_db_cnt;
+				rx_instance_ptr_local->msi_db_idx = ntn3_stats.rx_stats.msi_db_idx;
+				rx_instance_ptr_local->tres_handled = ntn3_stats.rx_stats.tres_handled;
+				rx_instance_ptr_local->rollbacks_cnt = ntn3_stats.rx_stats.rollbacks_cnt;
+				rx_instance_ptr_local->msi_db_cnt = ntn3_stats.rx_stats.msi_db_cnt;
 			}  else IPA_STATS_ERR("Eth rx client type not found. ETH client: %d",instance_ptr->eth_mode);
 		}
 
@@ -1257,10 +1257,10 @@ static int ipa_get_usb_inst_stats(unsigned long arg)
 			/* Currently reserved until GSI needs anything in future */
 			tx_instance_ptr_local->num_tx_oob = 0;
 			tx_instance_ptr_local->num_tx_oob_time = 0;
-			tx_instance_ptr_local->gsi_debug1 = 0;
-			tx_instance_ptr_local->gsi_debug2 = 0;
-			tx_instance_ptr_local->gsi_debug3 = 0;
-			tx_instance_ptr_local->gsi_debug4 = 0;
+			tx_instance_ptr_local->msi_db_idx = 0;
+			tx_instance_ptr_local->tres_handled = 0;
+			tx_instance_ptr_local->rollbacks_cnt = 0;
+			tx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *) ((
@@ -1292,10 +1292,10 @@ static int ipa_get_usb_inst_stats(unsigned long arg)
 				NULL, rx_instance_ptr_local, client_type);
 
 			/* Currently reserved until GSI needs anything in future */
-			rx_instance_ptr_local->gsi_debug1 = 0;
-			rx_instance_ptr_local->gsi_debug2 = 0;
-			rx_instance_ptr_local->gsi_debug3 = 0;
-			rx_instance_ptr_local->gsi_debug4 = 0;
+			rx_instance_ptr_local->msi_db_idx = 0;
+			rx_instance_ptr_local->tres_handled = 0;
+			rx_instance_ptr_local->rollbacks_cnt = 0;
+			rx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +
@@ -1439,10 +1439,10 @@ static int ipa_get_mhip_inst_stats(unsigned long arg)
 			/* Currently reserved until GSI needs anything in future */
 			tx_instance_ptr_local->num_tx_oob = 0;
 			tx_instance_ptr_local->num_tx_oob_time = 0;
-			tx_instance_ptr_local->gsi_debug1 = 0;
-			tx_instance_ptr_local->gsi_debug2 = 0;
-			tx_instance_ptr_local->gsi_debug3 = 0;
-			tx_instance_ptr_local->gsi_debug4 = 0;
+			tx_instance_ptr_local->msi_db_idx = 0;
+			tx_instance_ptr_local->tres_handled = 0;
+			tx_instance_ptr_local->rollbacks_cnt = 0;
+			tx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *)((
@@ -1474,10 +1474,10 @@ static int ipa_get_mhip_inst_stats(unsigned long arg)
 				rx_instance_ptr_local, client_type);
 
 			/* Currently reserved until GSI needs anything in future */
-			rx_instance_ptr_local->gsi_debug1 = 0;
-			rx_instance_ptr_local->gsi_debug2 = 0;
-			rx_instance_ptr_local->gsi_debug3 = 0;
-			rx_instance_ptr_local->gsi_debug4 = 0;
+			rx_instance_ptr_local->msi_db_idx = 0;
+			rx_instance_ptr_local->tres_handled = 0;
+			rx_instance_ptr_local->rollbacks_cnt = 0;
+			rx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +

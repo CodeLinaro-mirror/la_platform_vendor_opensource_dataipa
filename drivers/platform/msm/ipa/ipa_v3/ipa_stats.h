@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_LNX_STATS_I_H_
@@ -196,10 +196,10 @@ struct ipa_lnx_gsi_rx_debug_stats {
 	uint32_t num_rx_ring_above_25_perc_pack;
 	uint32_t num_rx_ring_stats_polled;
 	uint32_t num_rx_drop_stats;
-	uint32_t gsi_debug1;
-	uint32_t gsi_debug2;
-	uint32_t gsi_debug3;
-	uint32_t gsi_debug4;
+	uint32_t msi_db_idx;;
+	uint32_t tres_handled;
+	uint32_t rollbacks_cnt;
+	uint32_t msi_db_cnt;
 	uint32_t rx_summary;
 };
 
@@ -212,10 +212,10 @@ struct ipa_lnx_gsi_tx_debug_stats {
 	uint32_t num_tx_ring_stats_polled;
 	uint32_t num_tx_oob;
 	uint32_t num_tx_oob_time;
-	uint32_t gsi_debug1;
-	uint32_t gsi_debug2;
-	uint32_t gsi_debug3;
-	uint32_t gsi_debug4;
+	uint32_t msi_db_idx;;
+	uint32_t tres_handled;
+	uint32_t rollbacks_cnt;
+	uint32_t msi_db_cnt;
 	uint32_t tx_summary;
 	uint32_t reserved;
 };
