@@ -2352,3 +2352,8 @@ bail:
 
 	return ret;
 }
+
+bool ipa_ct_is_sram_supported(void)
+{
+	return CT_VALID_TBL_HDL(cti_obj.sram_tbl_hdl);
+}
