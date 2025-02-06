@@ -14246,11 +14246,18 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	phys_addr_t iova;
 	phys_addr_t pa;
 #endif
+
+#ifdef CONFIG_ARM64
 	u32 iova_ap_mapping[4];
+	u32 geometry_ap_mapping[4];
+#else
+	u32 iova_ap_mapping[2];
+	u32 geometry_ap_mapping[2];
+#endif
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
 #endif
-	u32 geometry_ap_mapping[4];
 
 	IPADBG("AP CB PROBE dev=%pK\n", dev);
 
@@ -14292,9 +14299,15 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
+#ifdef CONFIG_ARM64
 			iova_ap_mapping, 4) == 0) {
 		cb->va_start = iova_ap_mapping[1];
 		cb->va_size  = iova_ap_mapping[3];
+#else
+			iova_ap_mapping, 2) == 0) {
+		cb->va_start = iova_ap_mapping[0];
+		cb->va_size = iova_ap_mapping[1];
+#endif
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
 
@@ -14302,8 +14315,13 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 		   dev, cb->va_start, cb->va_size);
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-geometry",
+#ifdef CONFIG_ARM64
 			geometry_ap_mapping, 4) == 0) {
 		cb->geometry_start = geometry_ap_mapping[1];
+#else
+			geometry_ap_mapping, 2) == 0) {
+		cb->geometry_start = geometry_ap_mapping[0];
+#endif
 		cb->geometry_end  = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
 	} else {
 		IPADBG("AP CB PROBE Geometry not defined using max!\n");
@@ -14512,11 +14530,18 @@ static int ipa_smmu_v2x_cb_probe(struct device *dev)
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_V2X);
 	int fast = 0;
 	int bypass = 0;
+
+#ifdef CONFIG_ARM64
 	u32 iova_ap_mapping[4];
+	u32 geometry_ap_mapping[4];
+#else
+	u32 iova_ap_mapping[2];
+	u32 geometry_ap_mapping[2];
+#endif
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
 #endif
-	u32 geometry_ap_mapping[4];
 
 	IPAERR("V2X CB PROBE dev=%pK\n", dev);
 
@@ -14555,9 +14580,15 @@ static int ipa_smmu_v2x_cb_probe(struct device *dev)
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
+#ifdef CONFIG_ARM64
 			iova_ap_mapping, 4) == 0) {
 		cb->va_start = iova_ap_mapping[1];
 		cb->va_size  = iova_ap_mapping[3];
+#else
+			iova_ap_mapping, 2) == 0) {
+		cb->va_start = iova_ap_mapping[0];
+		cb->va_size = iova_ap_mapping[1];
+#endif
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
 
@@ -14565,9 +14596,15 @@ static int ipa_smmu_v2x_cb_probe(struct device *dev)
 		   dev, cb->va_start, cb->va_size);
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-geometry",
+#ifdef CONFIG_ARM64
 			geometry_ap_mapping, 4) == 0) {
 		cb->geometry_start = geometry_ap_mapping[1];
 		cb->geometry_end  = geometry_ap_mapping[3];
+#else
+			geometry_ap_mapping,2) == 0) {
+		cb->geometry_start = geometry_ap_mapping[0];
+		cb->geometry_end  = geometry_ap_mapping[1];
+#endif
 	} else {
 		IPAERR_RL("V2X CB PROBE Geometry not defined using max!\n");
 		cb->geometry_start = 0;
