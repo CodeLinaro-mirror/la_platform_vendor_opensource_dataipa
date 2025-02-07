@@ -3578,7 +3578,7 @@ int gsi_start_channel(unsigned long chan_hdl)
 	if (ctx->state != GSI_CHAN_STATE_ALLOCATED &&
 		ctx->state != GSI_CHAN_STATE_STOP_IN_PROC &&
 		ctx->state != GSI_CHAN_STATE_STOPPED) {
-		GSIERR("bad state %d\n", ctx->state);
+		GSIERR("bad state %d for channel hdl %d\n", ctx->state, chan_hdl);
 		return -GSI_STATUS_UNSUPPORTED_OP;
 	}
 

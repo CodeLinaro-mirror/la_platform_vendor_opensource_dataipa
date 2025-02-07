@@ -96,6 +96,9 @@ static struct notifier_block uc_rdy_cb = {
 static DECLARE_WORK(ipa_eth_ready_notify, ipa_eth_ready_notify_work);
 
 static bool pipe_connected[IPA_ETH_PIPES_NO];
+#if IPA_ETH_API_VER > 4
+static bool pipe_enabled[IPA_ETH_PIPES_NO];
+#endif
 
 static int eth_qos_cmp(const void *a, const void *b) {
 	if (((struct ipa_eth_qos_info *)a)->tc_bmap <= ((struct ipa_eth_qos_info *)b)->tc_bmap)
@@ -778,6 +781,89 @@ static int ipa_eth_client_disconnect_pipe(
 	return 0;
 }
 
+#if IPA_ETH_API_VER > 4
+static int ipa_eth_client_enable_pipe(
+	struct ipa_eth_client_pipe_info *pipe,
+	int inst_id,
+	u8 rx_pipe_idx,
+	u8 tx_pipe_idx)
+{
+	enum ipa_client_type client_type;
+	struct ipa_eth_client *client;
+	int ret;
+	u8 priority = 0, pipe_idx = 0;
+
+	IPA_ETH_DBG("client %d, inst_id %d, rx_idx %d, tx_idx %d\n",
+		pipe->client_info, inst_id, rx_pipe_idx, tx_pipe_idx);
+
+	if (!pipe) {
+		IPA_ETH_ERR("invalid pipe\n");
+		return -EFAULT;
+	}
+	client = pipe->client_info;
+	if (!client) {
+		IPA_ETH_ERR("invalid client\n");
+		return -EFAULT;
+	}
+	client_type =
+		ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
+	if (client_type == IPA_CLIENT_MAX) {
+		IPA_ETH_ERR("invalid client type %d\n");
+		return -EFAULT;
+	}
+
+	if (pipe_enabled[client_to_pipe_index(client_type)]) {
+		IPA_ETH_ERR("client already enabled\n");
+		return -EFAULT;
+	}
+
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		priority = eth_qos_get_tx_priority(tx_pipe_idx, inst_id);
+		pipe_idx = tx_pipe_idx;
+	} else {
+		priority = eth_qos_get_rx_priority(rx_pipe_idx, inst_id);
+		pipe_idx = rx_pipe_idx;
+	}
+
+	IPADBG("Client_type: %d, Inst_id: %d, Priority: %d, Pipe_idx= %d",
+		client_type, inst_id, priority, pipe_idx);
+	ret = ipa3_eth_enable(pipe, client_type, inst_id, priority, pipe_idx);
+	if (!ret) {
+		pipe_enabled[client_to_pipe_index(client_type)] = true;
+	}
+
+	return ret;
+}
+
+static int ipa_eth_client_disable_pipe(
+	struct ipa_eth_client_pipe_info *pipe,
+	u8 rx_pipe_idx,
+	u8 tx_pipe_idx)
+{
+	enum ipa_client_type client_type;
+
+	if (!pipe) {
+		IPA_ETH_ERR("invalid pipe\n");
+		return -EFAULT;
+	}
+
+	client_type =
+		ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
+	if (client_type == IPA_CLIENT_MAX) {
+		IPA_ETH_ERR("invalid client type\n");
+		return -EFAULT;
+	}
+
+	if (!pipe_enabled[client_to_pipe_index(client_type)]) {
+		IPA_ETH_ERR("client not enabled\n");
+		return -EFAULT;
+	}
+
+	pipe_enabled[client_to_pipe_index(client_type)] = false;
+
+	return 0;
+}
+#endif
 
 static int ipa_eth_commit_partial_hdr(
 	struct ipa_ioc_add_hdr *hdr,
@@ -2018,6 +2104,161 @@ static int ipa_eth_get_config_type_internal(
 	return ret;
 }
 
+#if IPA_ETH_API_VER > 4
+static int ipa_eth_client_enable_pipes_internal(struct ipa_eth_client *client)
+{
+	struct ipa_eth_client_pipe_info *pipe;
+	int rc;
+	int client_type, inst_id, traff_type;
+	u8 rx_pipe_idx = 0, tx_pipe_idx = 0, pipe_idx = 0;
+	int priority = 0;
+
+	/* validate user input */
+	if (!client || (client->client_type >= IPA_ETH_CLIENT_MAX)) {
+		IPA_ETH_ERR("null client or client type not defined");
+		return -EFAULT;
+	}
+	if (!ipa_eth_ctx) {
+		IPA_ETH_ERR("client enable called before register readiness\n");
+		return -EFAULT;
+	}
+
+	if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_ETH) {
+			IPA_ETH_ERR("ETH offload is disabled by IPA Tiering, client %d\n",
+				client->client_type);
+			return -EFAULT;
+	}
+
+	if (!ipa_eth_ctx->is_eth_ready) {
+		IPA_ETH_ERR("client enable called before IPA eth ready\n");
+		return -EFAULT;
+	}
+	ipa_eth_ctx->client_priv = client->priv;
+	client_type = client->client_type;
+	inst_id = client->inst_id;
+
+#if IPA_ETH_API_VER >= 3
+	IPA_ETH_DBG("ipa_eth conn client %d inst %d\n", client_type, inst_id);
+#else
+	traff_type = client->traffic_type;
+	IPA_ETH_DBG("ipa_eth conn client %d inst %d, traffic %d\n",
+			client_type, inst_id, traff_type);
+#endif
+
+	mutex_lock(&ipa_eth_ctx->lock);
+
+	rx_pipe_idx = 0;
+	tx_pipe_idx = 0;
+	list_for_each_entry(pipe, &client->pipe_list,
+		link) {
+#if IPA_ETH_API_VER >= 3
+		IPA_ETH_DBG("Eth connect pipe %p traffic_type %d dir %d\n",
+				pipe, pipe->traffic_type, pipe->dir);
+		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN &&
+			pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			IPA_ETH_DBG("traffic_type %d dir %d continue... %d \n",
+				pipe->traffic_type, pipe->dir);
+			tx_pipe_idx++;
+			continue;
+		}
+#endif
+		if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			priority = eth_qos_get_tx_priority(tx_pipe_idx, inst_id);
+			pipe_idx = tx_pipe_idx;
+		} else {
+			priority = eth_qos_get_rx_priority(rx_pipe_idx, inst_id);
+			pipe_idx = rx_pipe_idx;
+		}
+
+		rc = ipa_eth_client_enable_pipe(pipe, inst_id, priority, pipe_idx);
+		if (rc) {
+			IPA_ETH_ERR("pipe enable fails\n");
+			ipa_assert();
+		}
+
+#if IPA_ETH_API_VER >= 3
+		traff_type = pipe->traffic_type;
+		IPA_ETH_DBG("ipa_eth conn traffic %d\n", traff_type);
+#endif
+		if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
+			tx_pipe_idx++;
+		if (pipe->dir == IPA_ETH_PIPE_DIR_RX)
+			rx_pipe_idx++;
+	}
+
+	if (!ipa_eth_ctx->client[client_type][inst_id].existed) {
+#ifdef CONFIG_DEBUG_FS
+		ipa3_eth_debugfs_add_node(client);
+#endif
+		ipa_eth_ctx->client[client_type][inst_id].existed = true;
+	}
+
+	mutex_unlock(&ipa_eth_ctx->lock);
+	return 0;
+}
+
+static int ipa_eth_client_disable_pipes_internal(struct ipa_eth_client *client)
+{
+	int rc;
+	struct ipa_eth_client_pipe_info *pipe;
+	int  rx_pipe_idx = 0, tx_pipe_idx = 0;
+
+	/* validate user input */
+	if (!client) {
+		IPA_ETH_ERR("null client");
+		return -EFAULT;
+	}
+
+	if (!ipa_eth_ctx) {
+		IPA_ETH_ERR("disconn called before register readiness\n");
+		return -EFAULT;
+	}
+
+	if (!ipa_eth_ctx->is_eth_ready) {
+		IPA_ETH_ERR("disconn called before IPA eth ready\n");
+		return -EFAULT;
+	}
+
+#if IPA_ETH_API_VER >= 3
+	IPA_ETH_DBG("ipa_eth disable client %d inst %d\n",
+		client->client_type, client->inst_id);
+#else
+	IPA_ETH_DBG("ipa_eth disable client %d inst %d, traffic %d\n",
+		client->client_type, client->inst_id,
+		client->traffic_type);
+#endif
+
+	mutex_lock(&ipa_eth_ctx->lock);
+
+	rx_pipe_idx = 0;
+	tx_pipe_idx = 0;
+	list_for_each_entry(pipe, &client->pipe_list,
+		link) {
+#if IPA_ETH_API_VER >= 3
+		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN
+			&& pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+			IPA_ETH_DBG("traffic_type %d dir %d continue... %d \n",
+				pipe->traffic_type, pipe->dir);
+			tx_pipe_idx++;
+			continue;
+		}
+#endif
+		rc = ipa_eth_client_disable_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
+		if (rc) {
+			IPA_ETH_ERR("pipe disable fails\n");
+			ipa_assert();
+		}
+		if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
+			tx_pipe_idx++;
+		if (pipe->dir == IPA_ETH_PIPE_DIR_RX)
+			rx_pipe_idx++;
+	}
+
+	mutex_unlock(&ipa_eth_ctx->lock);
+	return 0;
+}
+#endif
+
 void ipa_eth_register(void)
 {
 	struct ipa_eth_data funcs;
@@ -2042,6 +2283,10 @@ void ipa_eth_register(void)
 	funcs.ipa_eth_get_config_type = ipa_eth_get_config_type_internal;
 	funcs.ipa_eth_qos_get_num_pipes = ipa_eth_qos_get_num_pipes_internal;
 	funcs.ipa_eth_qos_get_qos_info = ipa_eth_qos_get_qos_info_internal;
+#if IPA_ETH_API_VER > 4
+	funcs.ipa_eth_client_enable_pipes = ipa_eth_client_enable_pipes_internal;
+	funcs.ipa_eth_client_disable_pipes = ipa_eth_client_disable_pipes_internal;
+#endif
 
 	if (ipa_fmwk_register_ipa_eth(&funcs))
 		pr_err("failed to register ipa_eth APIs\n");
