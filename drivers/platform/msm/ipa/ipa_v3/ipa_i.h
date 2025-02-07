@@ -4193,4 +4193,14 @@ void ipa3_v2x_vm_shutdown_cleanup(void);
 /* Send IPsec UL flt to IPACM */
 int ipa3_send_ipsec_ul_flt(enum ipa_ipsec_ul_flt_evt event_type,
 	struct ipa_ioc_ipsec_ul_flt_attr *uf);
+
+#if IPA_ETH_API_VER > 4
+int ipa3_eth_enable(
+	struct ipa_eth_client_pipe_info *pipe,
+	enum ipa_client_type client_type,
+	int inst_id,
+	u8 priority,
+	u8 pipe_idx);
+#endif
+
 #endif /* _IPA3_I_H_ */
