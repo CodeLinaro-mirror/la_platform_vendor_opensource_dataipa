@@ -5685,6 +5685,8 @@ int _ipa_init_sram_v3(void)
 		IPA_MEM_PART(modem_hdr_proc_ctx_ofst) - 4);
 	ipa3_sram_set_canary(ipa_sram_mmio,
 		IPA_MEM_PART(modem_hdr_proc_ctx_ofst));
+	ipa_sram_mmio[IPA_MEM_PART(uc_descriptor_ram_ofst) / 4] = 0x00000000;
+
 	if (ipa_get_hw_type() >= IPA_HW_v4_5
 		&& ipa_get_hw_type() < IPA_HW_v5_0) {
 		/* 4.5, 4.7, 4.9, 4.11 */
