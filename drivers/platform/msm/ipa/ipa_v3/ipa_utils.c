@@ -17380,6 +17380,11 @@ int ipa3_socksv5_conn_cache_add(struct ipa_socksv5_info *info, bool true)
 	if(list_empty(&ipa3_ctx->socksv5_msg_list))
 	{
 		entry = kzalloc(sizeof(struct ipa_socksv5_info), GFP_KERNEL);
+		if(!entry)
+		{
+			IPAERR("entry memory allocation failed !\n");
+			return -ENOMEM;
+		}
 		memcpy(&(entry->socksv5_config), info,
 			sizeof(struct ipa_socksv5_info));
 			list_add_tail(&entry->link, &ipa3_ctx->socksv5_msg_list);
@@ -17418,6 +17423,11 @@ int ipa3_socksv5_conn_cache_add(struct ipa_socksv5_info *info, bool true)
 				}
 		}
 		entry = kzalloc(sizeof(struct ipa_socksv5_info), GFP_KERNEL);
+		if(!entry)
+		{
+			IPAERR("entry memory allocation failed !\n");
+			return -ENOMEM;
+		}
 		memcpy(&(entry->socksv5_config), info,
 			sizeof(struct ipa_socksv5_info));
 		list_add_tail(&entry->link, &ipa3_ctx->socksv5_msg_list);
@@ -18099,6 +18109,10 @@ int ipa3_copy_ip_pass_pdn_info(
 	if(pdn_info->enable == 1)
 	{
 		entry = kzalloc(sizeof(struct ipa3_ip_pass_msg), GFP_KERNEL);
+		if (!entry) {
+			IPAERR("memory allocation failed !\n");
+			return -ENOMEM;
+		}
 		if(list_empty(&ipa3_ctx->msg_ippt_list))
 		{
 			memcpy(&(entry->ippass_config), pdn_info,
