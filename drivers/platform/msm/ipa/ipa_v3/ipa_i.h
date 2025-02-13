@@ -2525,6 +2525,7 @@ struct ipa3_context {
 	struct ipa3_tsp_ctx tsp;
 #endif
 	atomic_t ipa_clk_vote;
+	bool gsi_status;
 
 	int (*client_lock_unlock[IPA_MAX_CLNT])(bool is_lock);
 
@@ -2626,6 +2627,7 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
 	struct mutex ssr_lock;
+	bool rmnet_napi_enable;
 };
 
 struct ipa3_plat_drv_res {

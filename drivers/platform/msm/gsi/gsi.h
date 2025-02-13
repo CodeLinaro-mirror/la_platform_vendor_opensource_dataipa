@@ -1883,6 +1883,14 @@ void gsi_ring_evt_doorbell_polling_mode(unsigned long chan_hdl);
 int gsi_config_channel_mode(unsigned long chan_hdl, enum gsi_chan_mode mode);
 
 /**
+ * gsi_status_enabled() - Query GSI Status
+ *
+ * Returns:	true if ENABLED, false on DISABLED
+ *
+ */
+bool gsi_status_enabled(void);
+
+/**
  * gsi_queue_xfer - Peripheral should call this function
  * to queue transfers on the given channel
  *
@@ -2592,5 +2600,7 @@ uint32_t gsi_get_evt_ring_len(int evt_hdl);
 int gsi_get_peripheral_ee(void);
 
 uint32_t gsi_get_chan_stop_stm(int chan_id, int ee);
+
+uint32_t gsi_get_outstanding_buffers(int ep_idx);
 
 #endif
