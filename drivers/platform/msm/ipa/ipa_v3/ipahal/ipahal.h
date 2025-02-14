@@ -780,6 +780,7 @@ struct ipahal_pkt_status_thin {
 	enum ipahal_pkt_status_exception exception;
 	u32 metadata;
 	u8 endp_src_idx;
+	u64 tag_info;
 	bool ucp;
 };
 
