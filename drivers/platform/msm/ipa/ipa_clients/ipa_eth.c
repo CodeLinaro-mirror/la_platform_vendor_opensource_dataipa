@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/msm_ipa.h>
@@ -949,7 +949,7 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 						     tx_idx[2] = { 0 };
 	u8 rx_pipe_idx = 0, tx_pipe_idx = 0;
 	struct ipa_endp_desc_indication_msg_v01 req;
-	struct ipa_ep_id_type_v01 *ep_info;
+	struct ipa_ep_id_type_v01 *ep_info, *ep2_info;
 	enum ipa_client_type ipa_client;
 	int max_tx, max_rx;
 
@@ -1138,6 +1138,15 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 				tx_idx[0] = ep_idx;
 			}
 			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+			/* Adding IPA_CLIENT_APPS_LAN_CONS pipe info in QMI
+			 * for eth pdu enabled cases */
+			req.ep_info_len++;
+			req.num_eps++;
+			ep2_info = &req.ep_info[req.ep_info_len - 1];
+			ep2_info->ep_id = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+			ep2_info->ic_type = DATA_IC_TYPE_RESERVED_V01;
+			ep2_info->ep_type = DATA_EP_DESC_TYPE_RESERVED_V01;
+			ep2_info->ep_status = DATA_EP_STATUS_RESERVED_V01;
 		} else if ((ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) &&
 			   (traff_type == IPA_ETH_PIPE_LOW_LATENCY)) {
 			/* Populate the QMI */
@@ -1170,6 +1179,15 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 				tx_idx[1] = ep_idx;
 			}
 			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+			/* Adding IPA_CLIENT_APPS_LAN_CONS pipe info in QMI
+			 * for eth pdu enabled cases */
+			req.ep_info_len++;
+			req.num_eps++;
+			ep2_info = &req.ep_info[req.ep_info_len - 1];
+			ep2_info->ep_id = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+			ep2_info->ic_type = DATA_IC_TYPE_RESERVED_V01;
+			ep2_info->ep_type = DATA_EP_DESC_TYPE_RESERVED_V01;
+			ep2_info->ep_status = DATA_EP_STATUS_RESERVED_V01;
 		}
 	}
 	if (!ipa_eth_ctx->client[client_type][inst_id].existed) {

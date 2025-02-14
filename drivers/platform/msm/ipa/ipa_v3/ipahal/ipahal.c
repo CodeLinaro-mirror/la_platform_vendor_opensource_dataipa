@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -2316,6 +2316,7 @@ static void ipa_pkt_status_parse_thin_v6_0(const void *unparsed_status,
 	status->metadata = hw_status->ipa_pkt.metadata;
 	status->endp_src_idx = hw_status->ipa_pkt.endp_src_idx;
 	status->ucp = hw_status->ipa_pkt.ucp;
+	status->tag_info = hw_status->ipa_pkt.tag_info;
 	status->exception = pkt_status_parse_exception(is_ipv6,
 					hw_status->ipa_pkt.exception);
 }
