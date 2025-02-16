@@ -7,7 +7,6 @@
 #include <linux/ipc_logging.h>
 #include <linux/soc/qcom/smem.h>
 #include <soc/qcom/qcom_ramdump.h>
-#include <linux/fcntl.h>
 #include "ipa_elf_dump.h"
 
 
@@ -31,7 +30,6 @@ static void ipa_host_ramdump_dev_release(struct device *dev)
 	IPADBG("free host ramdump device\n");
 	kfree(dev);
 }
-
 
 /* Helper functions to check if minidump enabled, to help with
  * fetching and browsing through ipc logs and dmesg logs
@@ -80,34 +78,6 @@ stop:
 	return ret;
 }
 
-int retrieve_ipc_logs(int buf_size, char *buffer, void *ctxt)
-{
-	size_t len_out;
-
-	len_out = ipc_log_extract(ctxt, buffer, buf_size);
-	if (len_out > 0) {
-		IPADBG("Successfully got ipc logs len: %zu\n", len_out);
-		return len_out;
-	}
-	IPAERR("ipc log failed.  No logs\n");
-	return -1;
-}
-
-int retrieve_dmesg_logs(int buf_size, char *buffer)
-{
-	struct kmsg_dump_iter k_iter;
-	size_t len_out;
-
-	k_iter.cur_seq = 0;
-	k_iter.next_seq = -1;
-	if (kmsg_dump_get_buffer(&k_iter, false, buffer, buf_size, &len_out)) {
-		IPADBG("Successfully got kmsg len: %zu\n", len_out);
-		return len_out;
-	}
-	IPAERR("kmsg_get_buffer failed, no logs\n");
-	return -1;
-}
-
 /* The IPA ELF SSR logic, which will facilitate stringing of all
  * the buffers we need to be dumped, so that they can be given to
  * the qcom_elf_dump API
@@ -118,12 +88,11 @@ int ipa_ssr_driver_dump_init(void)
 	mutex_init(&region_list_mutex);
 	num_of_regions_registered = 0;
 	memset(dump_entry_list, 0, sizeof(dump_entry_list));
-	for(i=0; i < DMESG_BUF_CHUNKS; i++) {
+	for (i = 0; i < DMESG_BUF_CHUNKS; i++)
 		dmesg_buf[i] = NULL;
-	}
-	for(i=0; i < IPC_BUF_CHUNKS; i++) {
+	for (i = 0; i < IPC_BUF_CHUNKS; i++)
 		ipc_buf[i] = NULL;
-	}
+
 	return 0;
 }
 
@@ -131,12 +100,11 @@ int ipa_ssr_driver_dump_deinit(void)
 {
 	int i;
 	mutex_destroy(&region_list_mutex);
-	for(i=0; i < DMESG_BUF_CHUNKS; i++) {
+	for (i = 0; i < DMESG_BUF_CHUNKS; i++)
 		kfree(dmesg_buf[i]);
-	}
-	for(i=0; i < IPC_BUF_CHUNKS; i++) {
+	for (i = 0; i < IPC_BUF_CHUNKS; i++)
 		kfree(ipc_buf[i]);
-	}
+
 	if (num_of_regions_registered > 0)
 		IPADBG("deiniting with regions still registered");
 	num_of_regions_registered = 0;
@@ -170,28 +138,9 @@ ipa_ssr_driver_dump_find_entry_by_name(char *region_name)
 	return NULL;
 }
 
-struct ipc_log_page *get_next_page(struct ipc_log_context *ilctxt,
-							struct ipc_log_page *cur_pg)
-{
-	struct ipc_log_page_header *p_pghdr;
-	struct ipc_log_page *pg = NULL;
-
-	if (!ilctxt || !cur_pg)
-		return NULL;
-
-	if (ilctxt->last_page == cur_pg)
-		return NULL;
-
-	p_pghdr = list_first_entry(&cur_pg->hdr.list,
-			struct ipc_log_page_header, list);
-	pg = container_of(p_pghdr, struct ipc_log_page, hdr);
-
-	return pg;
-}
-
 int ipa_ipc_logs_register_each_page(char *region_name)
 {
-	int status=0;
+	int status = 0;
 	struct elf_ssr_driver_dump_entry *entry;
 	int total_size = IPC_BUF_SIZE;
 	int entry_num = 1;
@@ -201,32 +150,34 @@ int ipa_ipc_logs_register_each_page(char *region_name)
 		mutex_lock(&region_list_mutex);
 		entry = ipa_ssr_driver_dump_find_next_free_entry();
 		if (!entry) {
-			IPAERR("too many entries: %d, cannot insert %s",
+			IPAERR("too many entries: %zu, cannot insert %s",
 				num_of_regions_registered, region_name);
 			status = entry_num;
 			mutex_unlock(&region_list_mutex);
 			return status;
 		}
-		if(!ipc_buf[entry_num - 1])
+		if (!ipc_buf[entry_num - 1])
 			ipc_buf[entry_num - 1] = kmalloc(IPA_ELF_CHUNK_SIZE, GFP_KERNEL);
-		if(ipc_buf[entry_num - 1]) {
-			len_out = ipc_log_extract(ipc_ctxt, ipc_buf[entry_num - 1], IPA_ELF_CHUNK_SIZE);
+		if (ipc_buf[entry_num - 1]) {
+			len_out = ipc_log_extract(ipc_ctxt, ipc_buf[entry_num - 1],
+			IPA_ELF_CHUNK_SIZE);
 			entry->buffer_pointer = ipc_buf[entry_num - 1];
 			entry->buffer_size = len_out;
-			strlcpy(entry->region_name, region_name,sizeof(entry->region_name));
+			strscpy(entry->region_name, region_name, sizeof(entry->region_name));
 			entry->entry_num = entry_num++;
 			num_of_regions_registered++;
 			total_size -= IPA_ELF_CHUNK_SIZE;
-			IPADBG("Registered %s %d %d\n",region_name,entry->buffer_size,entry->entry_num);
+			IPADBG("Registered %s %zu %d\n", region_name, entry->buffer_size,
+			entry->entry_num);
 		} else {
 			status = entry_num;
-			IPAERR("Unable to allocate memory entry_num:%d\n",entry_num);
+			IPAERR("Unable to allocate memory entry_num:%d\n", entry_num);
 			mutex_unlock(&region_list_mutex);
 			return status;
 		}
 		mutex_unlock(&region_list_mutex);
 		IPADBG("len_out: %d, total_size: %d\n", len_out, total_size);
-	} while((len_out > 0) && (total_size >= IPA_ELF_CHUNK_SIZE));
+	} while ((len_out > 0) && (total_size >= IPA_ELF_CHUNK_SIZE));
 
 	return status;
 }
@@ -243,56 +194,60 @@ int ipa_dmesg_logs_register_each_page(char *region_name)
 	struct kmsg_dump_iter k_iter;
 
 	kmsg_dump_rewind(&k_iter);
-	while(index >= 0 && total_size > 0) {
-		if(!dmesg_buf[index])
+	while (index >= 0 && total_size > 0) {
+		if (!dmesg_buf[index])
 			dmesg_buf[index] = kmalloc(IPA_ELF_CHUNK_SIZE, GFP_KERNEL);
-		if(dmesg_buf[index]) {
-			if (!kmsg_dump_get_buffer(&k_iter, false, dmesg_buf[index], IPA_ELF_CHUNK_SIZE, &len_out)) {
-				IPAERR("dmesg logs have stopped at this point. entry_num:%d\n",index);
+		if (dmesg_buf[index]) {
+			if (!kmsg_dump_get_buffer(&k_iter, false, dmesg_buf[index],
+			IPA_ELF_CHUNK_SIZE, &len_out)) {
+				IPAERR("dmesg logs have stopped at this point. entry_num:%d\n",
+				 index);
 				status = index;
 				break;
 			}
-			if(len_out <= 0) {
-				IPAERR("dmesg logs have stopped at this point. entry_num:%d\n",index);
+			if (len_out <= 0) {
+				IPAERR("dmesg logs have stopped at this point. entry_num:%d\n",
+				 index);
 				break;
 			}
 			dmesg_buf_len[index] = len_out;
 			total_size -= IPA_ELF_CHUNK_SIZE;
 		} else {
 			status = index;
-			IPAERR("Unable to allocate memory index:%d\n",index);
+			IPAERR("Unable to allocate memory index:%d\n", index);
 			mutex_unlock(&region_list_mutex);
 			return status;
 		}
 		index--;
 	}
-	index+=1;
-	if(index < 0)
+	index += 1;
+	if (index < 0)
 		index = 0;
 
-	while(index < (DMESG_BUF_CHUNKS - 1)) {
+	while (index < (DMESG_BUF_CHUNKS - 1)) {
 		mutex_lock(&region_list_mutex);
 		entry = ipa_ssr_driver_dump_find_next_free_entry();
 		if (!entry) {
-			IPAERR("too many entries: %d, cannot insert %s",
+			IPAERR("too many entries: %zu, cannot insert %s",
 				num_of_regions_registered, region_name);
 			status = entry_num;
 			mutex_unlock(&region_list_mutex);
 			return status;
 		}
 
-		if(!(dmesg_buf[index] && dmesg_buf_len[index]>0)) {
+		if (!(dmesg_buf[index] && dmesg_buf_len[index] > 0)) {
 			index++;
 			mutex_unlock(&region_list_mutex);
 			continue;
 		}
 		entry->buffer_pointer = dmesg_buf[index];
 		entry->buffer_size = dmesg_buf_len[index];
-		strlcpy(entry->region_name, region_name,sizeof(entry->region_name));
+		strscpy(entry->region_name, region_name, sizeof(entry->region_name));
 		entry->entry_num = entry_num++;
 		num_of_regions_registered++;
 		index++;
-		IPADBG("Registered %s %d %d\n",region_name,entry->buffer_size,entry->entry_num);
+		IPADBG("Registered %s %zu %d\n", region_name, entry->buffer_size,
+		 entry->entry_num);
 		mutex_unlock(&region_list_mutex);
 	}
 
@@ -398,7 +353,8 @@ int ipa_ssr_driver_dump_retrieve_regions(struct elf_ssr_driver_dump_entry *
 					&dump_entry_list[i],
 					sizeof(dump_entry_list[i]));
 			IPADBG("input index %d, region name: %s, entry_num: %d\n",
-		 input_index, input_array[input_index].region_name, input_array[input_index].entry_num);
+			input_index, input_array[input_index].region_name,
+			input_array[input_index].entry_num);
 			input_index++;
 		}
 	}
