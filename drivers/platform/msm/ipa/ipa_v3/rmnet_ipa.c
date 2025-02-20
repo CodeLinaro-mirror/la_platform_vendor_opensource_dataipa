@@ -2079,16 +2079,8 @@ void apps_ipa_packet_receive_notify(void *priv,
 			trace_rmnet_ipa_netif_rcv_skb3(skb, dev->stats.rx_packets);
 			result = netif_receive_skb(skb);
 		} else {
-			if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH
-					== 0) {
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0))
-				trace_rmnet_ipa_netifni3(dev->stats.rx_packets);
-				result = netif_rx_ni(skb);
-			} else {
-#endif
-				trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
-				result = netif_rx(skb);
-			}
+			trace_rmnet_ipa_netifrx3(dev->stats.rx_packets);
+			result = netif_rx(skb);
 		}
 
 		if (result)	{
