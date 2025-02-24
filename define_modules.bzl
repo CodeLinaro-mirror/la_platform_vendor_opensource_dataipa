@@ -167,6 +167,11 @@ def define_modules(target, variant):
                     "drivers/platform/msm/ipa/ipa_v3/ipa_tsp.c",
                 ],
             },
+            "CONFIG_IPA_IPSEC": {
+                True: [
+                    "drivers/platform/msm/ipa/ipa_v3/ipa_ipsec.c",
+                ],
+            },
             "CONFIG_ECM_IPA": {
                 True: [
                     "drivers/platform/msm/ipa/ipa_clients/ecm_ipa.c",

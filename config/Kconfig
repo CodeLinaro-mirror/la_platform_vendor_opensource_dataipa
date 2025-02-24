@@ -47,6 +47,16 @@ config IPA_TSP
         help
           Long description of export IPA_TSP
 
+config IPA_IPSEC
+        bool "Short description of export IPA_IPSEC"
+        help
+          Long description of export IPA_IPSEC
+
+config IPA_IPSEC_NEXTIV_WA
+        bool "Short description of export IPA_IPSEC_NEXTIV_WA"
+        help
+          Long description of export IPA_IPSEC_NEXTIV_WA
+
 config ECM_IPA
         tristate "Short description of export CONFIG_ECM_IPA"
         help
