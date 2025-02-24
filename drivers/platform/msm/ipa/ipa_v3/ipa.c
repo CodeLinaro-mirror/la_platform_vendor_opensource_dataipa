@@ -11042,7 +11042,7 @@ ssize_t ipa3_update_config(const char *buff)
 		/* Check MHI mode configuration */
 		if (strnstr(dbg_buff, "mhi_mode", strlen(dbg_buff)))
 		{
-			if (strnstr(dbg_buff, STR_MHI_ETH_IFACE, strlen(dbg_buff)))
+			if (strnstr(dbg_buff, "EthMode", strlen(dbg_buff)))
 			{
 				IPADBG("Enable MHI ETH mode\n");
 				ipa3_ctx->ipa_config_is_mhi = true;
@@ -11077,9 +11077,9 @@ ssize_t ipa3_update_config(const char *buff)
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS] = true;
 			if (strnstr(dbg_buff, STR_ECM_IFACE, strlen(dbg_buff)))
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] = true;
-			/* space is added for non-vlan/vlan mode support on mhi_eth */
-			if (strnstr(dbg_buff, STR_MHI_ETH_IFACE " ", strlen(dbg_buff)))
+			if (strnstr(dbg_buff, STR_MHI_ETH_IFACE, strlen(dbg_buff)))
 			{
+				IPADBG("Enable VLAN for MHI ETH\n");
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_MHI_ETH] =
 				true;
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] = false;
