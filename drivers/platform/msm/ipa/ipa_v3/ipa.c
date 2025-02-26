@@ -14811,7 +14811,7 @@ static bool is_pcie_ep_falvor(struct device *dev)
 {
 	struct nvmem_cell *cell = NULL;
 	struct device_node *n = dev->of_node;
-	u32 fast_boot, host_bypass, fast_boot_mask = 0, host_bypass_mask = 0;
+	u32 fast_boot, fast_boot_mask = 0;
 	u8 *buf;
 	int res = 0, num_fast_boot_values = 0, i;
 	u32 fast_boot_values[16];
@@ -14829,11 +14829,6 @@ static bool is_pcie_ep_falvor(struct device *dev)
 	res = of_property_read_u32(n, "qcom,fast-boot-mask", &fast_boot_mask);
 	if (res) {
 		pr_err("qcom,fast-boot-mask property is not defined in %s node\n", n->name);
-		return false;
-	}
-	res = of_property_read_u32(n, "qcom,host-bypass-mask", &host_bypass_mask);
-	if (res) {
-		pr_err("qcom,host-bypass-mask property is not defined in %s node\n", n->name);
 		return false;
 	}
 	num_fast_boot_values = of_property_count_elems_of_size(n, "qcom,fast-boot-values",
@@ -14861,13 +14856,9 @@ static bool is_pcie_ep_falvor(struct device *dev)
 		return false;
 	}
 	fast_boot = (((*buf) & fast_boot_mask) >> ((ffs(fast_boot_mask)) - 1));
-	host_bypass = ((*buf) & host_bypass_mask);
-	pr_debug("boot_conf = %x, fast_boot = %x, host_bypass = %x\n", *buf, fast_boot,
-		 host_bypass);
+	pr_debug("boot_conf = %x, fast_boot = %x\n", *buf, fast_boot);
 	kfree(buf);
 	nvmem_cell_put(cell);
-	if (host_bypass)
-		return false;
 	for (i = 0; i < num_fast_boot_values; i++) {
 		if (fast_boot == fast_boot_values[i])
 			return true;
