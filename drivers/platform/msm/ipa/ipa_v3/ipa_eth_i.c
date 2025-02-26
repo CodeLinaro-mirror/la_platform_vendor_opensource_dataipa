@@ -1125,14 +1125,16 @@ int ipa3_eth_connect(
 	u32 gsi_db_addr_low, gsi_db_addr_high;
 	void __iomem *db_addr;
 	u32 evt_ring_db_addr_low, evt_ring_db_addr_high, db_val = 0;
+	enum ipa4_hw_protocol prot;
+#if IPA_ETH_API_VER < 5
 	int id;
 	int ch;
 	u64 bar_addr;
-	enum ipa4_hw_protocol prot;
+	struct ipa_ep_cfg_holb holb_cfg;
+#endif
 #if IPA_ETH_API_VER >= 2
 	struct net_device *net_dev = NULL;
 #endif
-	struct ipa_ep_cfg_holb holb_cfg;
 
 	ep_idx = ipa_get_ep_mapping(client_type);
 	if ((ep_idx == IPA_EP_NOT_ALLOCATED) || (ep_idx >= IPA_MAX_NUM_PIPES)) {
@@ -1497,6 +1499,7 @@ int ipa3_eth_connect(
 	iowrite32(db_val, db_addr);
 	iounmap(db_addr);
 
+#if IPA_ETH_API_VER < 5
 	/* enable data path */
 	result = ipa3_enable_data_path(ep_idx);
 	if (result) {
@@ -1596,10 +1599,11 @@ int ipa3_eth_connect(
 			goto config_uc_fail;
 		}
 	}
+#endif
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	return 0;
-
+#if IPA_ETH_API_VER < 5
 config_uc_fail:
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
@@ -1616,6 +1620,7 @@ uc_init_peripheral_fail:
 start_channel_fail:
 	ipa3_disable_data_path(ep_idx);
 enable_data_path_fail:
+#endif
 ioremap_fail:
 query_msi_fail:
 query_ch_db_fail:
@@ -1790,3 +1795,166 @@ fail:
 	return result;
 }
 EXPORT_SYMBOL(ipa3_eth_tx_ring_db);
+
+#if IPA_ETH_API_VER > 4
+int ipa3_eth_enable(
+	struct ipa_eth_client_pipe_info *pipe,
+	enum ipa_client_type client_type,
+	int inst_id,
+	u8 priority,
+	u8 pipe_idx)
+{
+	struct ipa3_ep_context *ep = NULL;
+	int ep_idx = -1;
+	int result = 0;
+	int id;
+	int ch;
+	u64 bar_addr;
+	enum ipa4_hw_protocol prot;
+	struct ipa_ep_cfg_holb holb_cfg;
+
+	ep_idx = ipa_get_ep_mapping(client_type);
+	if ((ep_idx == IPA_EP_NOT_ALLOCATED) || (ep_idx >= IPA_MAX_NUM_PIPES)) {
+		IPAERR("undefined client_type %d or ep_idx[%d] out of range\n",
+			client_type, ep_idx);
+		return -EFAULT;
+	}
+
+	ep = &ipa3_ctx->ep[ep_idx];
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	/* enable data path */
+	result = ipa3_enable_data_path(ep_idx);
+	if (result) {
+		IPAERR("enable data path failed res=%d clnt=%d\n", result,
+			ep_idx);
+		goto enable_data_path_fail;
+	}
+
+	/* Enable default HOLB Timeout of 31ms. */
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		memset(&holb_cfg, 0, sizeof(holb_cfg));
+		holb_cfg.en = IPA_HOLB_TMR_EN;
+		holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+		ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
+	}
+
+	/* Enable HOLB Timeout when QOS is enabled. */
+	if (ipa3_ctx->eth_qos && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		if (!pipe->tc_bmap && !priority)
+		{
+			IPADBG("Only BE tx available, no need to set holb\n");
+		}
+		else
+		{
+			memset(&holb_cfg, 0, sizeof(holb_cfg));
+			holb_cfg.en = IPA_HOLB_TMR_EN;
+			if (ipa3_ctx->ipa_config_is_auto)
+			{
+				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO) ?
+					qos_holb_tmr_auto[priority] :
+					qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO - 1];
+			}
+			else
+			{
+				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE) ?
+					qos_holb_tmr[priority] :
+					qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE - 1];
+			}
+			ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
+		}
+	}
+
+	/* start gsi channel */
+	result = gsi_start_channel(ep->gsi_chan_hdl);
+	if (result) {
+		IPAERR("failed to start gsi tx channel\n");
+		goto start_channel_fail;
+	}
+
+	id = (pipe->dir == IPA_ETH_PIPE_DIR_TX) ? 1 : 0;
+
+	result = ipa3_eth_get_prot(pipe, &prot);
+	if (result) {
+		IPAERR("Could not determine protocol\n");
+		return result;
+	}
+	if (!hw_support_protocol(prot)) {
+		IPAERR("Invalid ipa-hw-type, protocol combination: %d, %d\n", ipa3_ctx->ipa_hw_type,
+		       prot);
+		return -EINVAL;
+	}
+
+	/* start uC gsi dbg stats monitor */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
+		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
+			= ep->gsi_chan_hdl;
+		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
+			= pipe->dir;
+		ipa3_uc_debug_stats_alloc(
+			ipa3_ctx->gsi_info[prot]);
+	}
+
+	ch = 0;
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) &&
+			(prot == IPA_HW_PROTOCOL_AQC)) {
+		enum ipa_eth_client_type type;
+		u8 inst_id;
+		struct ipa3_eth_info *eth_info;
+
+		type = pipe->client_info->client_type;
+		inst_id = pipe->client_info->inst_id;
+		eth_info = &ipa3_ctx->eth_info[type][inst_id];
+		if (!eth_info->num_ch) {
+			bar_addr =
+				IPA_ETH_PCIE_SET(pipe->info.client_info.aqc.bar_addr);
+			result = ipa3_eth_uc_init_peripheral(true,
+				IPA_HW_PROTOCOL_AQC, bar_addr);
+			if (result) {
+				IPAERR("failed to init peripheral from uc\n");
+				goto uc_init_peripheral_fail;
+			}
+		}
+		ch = pipe->info.client_info.aqc.aqc_ch;
+	}
+
+	ipa3_eth_save_client_mapping(pipe, client_type,
+		id, ep_idx, ep->gsi_chan_hdl);
+	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
+		((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2))) {
+		result = ipa3_eth_config_uc(true, prot,
+			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
+			ep->gsi_chan_hdl, ch, inst_id, priority);
+		if (result) {
+			IPAERR("failed to config uc\n");
+			ipa_assert();
+			goto config_uc_fail;
+		}
+	}
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return 0;
+
+config_uc_fail:
+	/* stop uC gsi dbg stats monitor */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
+		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
+			= 0xff;
+		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
+			= pipe->dir;
+		ipa3_uc_debug_stats_alloc(
+			ipa3_ctx->gsi_info[prot]);
+	}
+uc_init_peripheral_fail:
+	ipa3_stop_gsi_channel(ep->gsi_chan_hdl);
+start_channel_fail:
+	ipa3_disable_data_path(ep_idx);
+enable_data_path_fail:
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return result;
+}
+EXPORT_SYMBOL(ipa3_eth_enable);
+#endif
