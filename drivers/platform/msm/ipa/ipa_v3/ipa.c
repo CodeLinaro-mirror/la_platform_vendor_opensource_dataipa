@@ -3650,6 +3650,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	unsigned long uptr = 0;
 	struct ipa_ioc_get_ep_info ep_info;
 	union ipa_ioc_uc_activation_entry uc_act;
+	struct ipa_mtu_info mtu_info;
 	int i = 0;
 
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
@@ -5451,6 +5452,15 @@ send:
 		break;
 	case IPA_IOC_UPDATE_L2TP_CONFIG:
 		retval = ipa3_update_l2tp_config(arg);
+		break;
+	case IPA_IOC_SET_IPTYPE_MTU:
+		if (copy_from_user(&mtu_info, (const void __user *)arg,
+			sizeof(struct ipa_mtu_info))) {
+			IPAERR_RL("ipa_mtu_info - copy_from_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+		ipa3_update_mtu_config(&mtu_info);
 		break;
 
 	default:
@@ -8357,6 +8367,11 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_GET_QOS_PARAMS))
 				return -EPERM;
 			cmd = IPA_IOC_GET_QOS_PARAMS;
+			break;
+		case IPA_IOC_SET_IPTYPE_MTU:
+			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_SET_IPTYPE_MTU))
+				return -EPERM;
+			cmd = IPA_IOC_SET_IPTYPE_MTU;
 			break;
 	default:
 		return -ENOIOCTLCMD;
