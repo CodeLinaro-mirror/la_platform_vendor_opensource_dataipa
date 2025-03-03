@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022, 2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef GSI_H
@@ -1006,6 +1006,8 @@ struct __packed gsi_wdi4_channel_scratch {
 			      base address.
  * @qmap_id: Rx only, used for setting metadata register in IPA, Read only field
 	     for MCS, Write for SW
+ * @metadata_ver: Rx only, used to identify the offset of metadata in rx
+ 				  descriptors.
  */
 
 struct __packed gsi_wdi3_v2_channel_scratch {
@@ -1013,12 +1015,13 @@ struct __packed gsi_wdi3_v2_channel_scratch {
 	uint32_t wifi_rp_address_high;
 	uint32_t update_rp_moderation_threshold : 5;
 	uint32_t qmap_id : 8;
-	uint32_t reserved1 : 3;
+	uint32_t metadata_ver : 1;
+	uint32_t reserved1 : 2;
 	uint32_t endp_metadata_reg_offset : 16;
 	uint32_t rx_pkt_offset : 16;
 	uint32_t reserved2 : 6;
 	uint32_t bank_id : 6;
-	uint32_t reserved3: 4;
+	uint32_t reserved3 : 4;
 };
 
 /**

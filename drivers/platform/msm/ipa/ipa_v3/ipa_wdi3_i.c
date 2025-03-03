@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 - 2024,  Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -18,6 +18,8 @@
 #define IPA_WDI4_MAX_VALUE_OF_VDEV_ID 255
 #define IPA_WDI4_MAX_VALUE_OF_PMAC_ID 3
 #define IPA_WDI4_MAX_VALUE_OF_CHIP_ID 0x7
+
+#define HTT_RX_PEER_METADATA_V1A 2
 
 static void ipa3_wdi3_gsi_evt_ring_err_cb(struct gsi_evt_err_notify *notify)
 {
@@ -778,11 +780,20 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 			ch_scratch.wdi3.update_rp_moderation_threshold;
 
 
-		if ( dir == IPA_WDI3_RX_DIR) {
+		if ( dir == IPA_WDI3_RX_DIR || dir == IPA_WDI3_RX3_DIR ) {
 
 			ch_scratch.wdi3_v2.rx_pkt_offset = ch_scratch.wdi3.rx_pkt_offset;
 			ch_scratch.wdi3_v2.endp_metadata_reg_offset =
 						ch_scratch.wdi3.endp_metadata_reg_offset;
+
+			if (is_smmu_enabled) {
+				if (info_smmu->rx_peer_metadata_ver == HTT_RX_PEER_METADATA_V1A)
+					ch_scratch.wdi3_v2.metadata_ver = 1;
+			}
+			else {
+				if (info->rx_peer_metadata_ver == HTT_RX_PEER_METADATA_V1A)
+					ch_scratch.wdi3_v2.metadata_ver = 1;
+			}
 		} else {
 
 
