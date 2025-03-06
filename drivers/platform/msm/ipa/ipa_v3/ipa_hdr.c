@@ -52,6 +52,13 @@ alloc:
 	list_for_each_entry(entry, &ipa3_ctx->hdr_tbl[hdr_table].head_hdr_entry_list, link) {
 		IPADBG_LOW("hdr of len %d ofst=%d\n", entry->hdr_len,
 				entry->offset_entry->offset);
+		/* Safety check for pointer and header length to avoid dangerous overflow in HW */
+		if (unlikely(!entry->offset_entry ||
+			entry->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1])) {
+			IPAERR_RL("Invalid hdr entry\n");
+			return -EINVAL;
+		}
+
 		ipahal_cp_hdr_to_hw_buff(mem->base, entry->offset_entry->offset,
 				entry->hdr, entry->hdr_len);
 	}
