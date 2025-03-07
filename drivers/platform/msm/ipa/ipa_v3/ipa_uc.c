@@ -749,7 +749,7 @@ int ipa3_uc_state_check(void)
 	}
 
 	if (!ipa3_ctx->uc_ctx.uc_loaded) {
-		IPAERR("uC is not loaded\n");
+		IPADBG("uC is not loaded\n");
 		return -EFAULT;
 	}
 
@@ -1718,7 +1718,7 @@ int ipa3_uc_debug_stats_alloc(
 		IPA_HW_2_CPU_OFFLOAD_CMD_STATUS_SUCCESS,
 		false, 20 * HZ);
 	if (result) {
-		IPAERR("fail to alloc offload stats\n");
+		IPADBG("fail to alloc offload stats\n");
 		goto cleanup;
 	}
 	result = 0;
