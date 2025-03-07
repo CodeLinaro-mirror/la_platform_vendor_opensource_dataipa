@@ -746,6 +746,8 @@ int ipa_smmu_free_sgt(struct sg_table **out_sgt_ptr);
 
 int ipa3_update_l2tp_config(uint32_t client);
 
+void ipa3_update_mtu_config(struct ipa_mtu_info *mtu_info);
+
 #ifdef CONFIG_IPA_UT
 int ipa_ut_module_init(void);
 void ipa_ut_module_exit(void);
