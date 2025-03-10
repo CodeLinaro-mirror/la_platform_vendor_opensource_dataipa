@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -5585,7 +5585,7 @@ int _ipa_init_sram_v3(void)
 			IPA_MEM_PART(pdn_config_ofst));
 	} else {
 		ipa3_sram_set_canary(ipa_sram_mmio,
-			(ipa_get_hw_type_internal() >= IPA_HW_v3_5) ?
+			(ipa_get_hw_type_internal() >= IPA_HW_v3_5 && ipa_get_hw_type_internal() != IPA_HW_v4_5) ?
 			IPA_MEM_PART(uc_descriptor_ram_ofst) :
 			IPA_MEM_PART(end_ofst));
 	}
