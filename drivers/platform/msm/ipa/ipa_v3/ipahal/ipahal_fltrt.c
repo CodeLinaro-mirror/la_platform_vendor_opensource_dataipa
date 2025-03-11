@@ -20,6 +20,8 @@
 		IPA_FLT_MAC_SRC_ADDR_802_3 | IPA_FLT_MAC_DST_ADDR_802_1Q | \
 		IPA_FLT_MAC_SRC_ADDR_802_1Q)
 
+#define MPLS_V4_ETHERTYPE 0X800
+#define MPLS_V6_ETHERTYPE 0x86DD
 static u64 ipa_fltrt_create_flt_bitmap(u64 ep_bitmap)
 {
 	/* At IPA3, there global configuration is possible but not used */
@@ -3016,6 +3018,67 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
 			return -EPERM;
 		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = offset;
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask   = mask;
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value  = value;
+		ihl_ofst_meq32++;
+		if(attrib->fld_val_eq.inner_iptype == IPA_IP_v4)
+			value = MPLS_V4_ETHERTYPE;
+		else
+			value = MPLS_V6_ETHERTYPE;
+		fwo = get_mpls_v4_outer(attrib->fld_val_eq.flow,
+				attrib->fld_val_eq.inner_iptype,
+				FIELD_ETHER_TYPE);
+		cmp_wid = fwo->width;
+		offset  = fwo->offset;
+		rmndr   = abs(offset) % sizeof(uint32_t);
+
+		IPAHAL_DBG("DEBUG ETHER wid=(%u) raw offset=(%d) rmndr=(%d)\n",
+				cmp_wid,
+				offset,
+				rmndr);
+		oo = offset;
+		if ( rmndr ) {
+ 			if ( offset < 0 ) {
+			 	offset = offset - (sizeof(uint32_t) - rmndr);
+			} else {
+				offset -= rmndr;
+			}
+		 }
+
+		if ( offset < 0 ) {
+			rmndr = abs(offset) - abs(oo);
+		} else {
+			rmndr = oo - offset;
+		}
+
+		IPAHAL_DBG("DEBUG ETHER oo=(%d) rmndr=(%d) offset=(%d)\n",
+			oo,
+			rmndr,
+			offset);
+
+		 shift = ((sizeof(uint32_t) - rmndr) - cmp_wid) * 8;
+
+		switch ( cmp_wid )
+		{
+			case ONE_BYTE:
+				mask = 0x000000FF;
+				break;
+			case TWO_BYTE:
+				mask = 0x0000FFFF;
+				break;
+			default:  /* FOUR_BYTE */
+				mask  = 0xFFFFFFFF;
+				shift = 0;
+				break;
+		}
+
+		mask  = (mask  << shift);
+		value = (value << shift);
+
+
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
 		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = offset;
