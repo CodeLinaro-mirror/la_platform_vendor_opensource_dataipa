@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  */
 
 #include <linux/msm_ipa.h>
@@ -805,7 +807,7 @@ static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 	}
 
 	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
-		ipa3_update_eth_pdu_ep_index(0, 0);
+		ipa3_update_eth_pdu_ep_index(-1, -1);
 
 	mutex_unlock(&ipa_eth_ctx->lock);
 	return 0;

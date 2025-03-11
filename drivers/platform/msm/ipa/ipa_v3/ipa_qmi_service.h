@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022,2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef IPA_QMI_SERVICE_H
@@ -31,7 +31,7 @@
 #endif
 #define SUBSYS_REMOTE_MODEM "esoc0"
 #define MAX_NUM_OF_MUX_CHANNEL  15 /* max mux channels */
-
+#define INVALID_EP -1  /* invalid end point */
 
 #define IPAWANDBG(fmt, args...) \
 	do { \

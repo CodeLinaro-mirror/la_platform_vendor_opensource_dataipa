@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022,2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -160,8 +160,8 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 	}
 
 
-	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id &&
-		ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id != INVALID_EP &&
+		ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id != INVALID_EP)
 	{
 		/* if eth is connected before qmim need to send QMI for eth endpoint */
 		IPAWANDBG("Sending ETH PDU endpoint QMI\n");
