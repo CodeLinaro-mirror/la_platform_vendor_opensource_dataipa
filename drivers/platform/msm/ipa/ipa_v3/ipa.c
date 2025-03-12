@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -10264,6 +10264,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 				all other EPs always place the table in DDR */
 			if (ipa3_ctx->flt_tbl_nhash_lcl[ip] &&
 			    (IPA_CLIENT_IS_ETH_PROD(i) || IPA_IS_NXT_FLT(i) ||
+				 IPA_CLIENT_IS_WLAN_PROD(i) ||
 			     ((ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST) &&
 			      (i == ipa_get_ep_mapping(IPA_CLIENT_TEST_PROD))))) {
 				flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = false;
