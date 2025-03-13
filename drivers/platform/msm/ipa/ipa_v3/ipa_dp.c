@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -101,6 +101,8 @@
 #define IPA_EOT_THRESH 32
 
 #define IPA_QMAP_ID_BYTE 0
+
+#define IPA_ETH_PDU_TAG_CHECK 0x7E00
 
 static int ipa3_tx_switch_to_intr_mode(struct ipa3_sys_context *sys);
 static int ipa3_rx_switch_to_intr_mode(struct ipa3_sys_context *sys);
@@ -4201,6 +4203,7 @@ begin:
 		case IPAHAL_PKT_STATUS_OPCODE_SUSPENDED_PACKET:
 		case IPAHAL_PKT_STATUS_OPCODE_PACKET_2ND_PASS:
 		case IPAHAL_PKT_STATUS_OPCODE_PACKET_3RD_PASS:
+		case IPAHAL_PKT_STATUS_OPCODE_DCMP:
 			break;
 		case IPAHAL_PKT_STATUS_OPCODE_NEW_FRAG_RULE:
 			IPAERR_RL("Frag packets received on lan consumer\n");
@@ -4756,6 +4759,8 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	unsigned int src_pipe;
 	u32 metadata;
 	u8 ucp;
+	u32 extra;
+	u64 tag_info;
 	void (*client_notify)(void *client_priv, enum ipa_dp_evt_type evt,
 		       unsigned long data);
 	void *client_priv;
@@ -4766,6 +4771,7 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	src_pipe = status.endp_src_idx;
 	metadata = status.metadata;
 	ucp = status.ucp;
+	tag_info = status.tag_info;
 	ep = &ipa3_ctx->ep[src_pipe];
 	if (unlikely(src_pipe >= ipa3_ctx->ipa_num_pipes) ||
 		unlikely(atomic_read(&ep->disconnect_in_progress))) {
@@ -4774,11 +4780,12 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		return;
 	}
 	if (status.exception == IPAHAL_PKT_STATUS_EXCEPTION_NONE) {
-		u32 extra = ( lan_coal_enabled() ) ? 0 : IPA_LAN_RX_HEADER_LENGTH;
+		extra = ( lan_coal_enabled() ) ? 0 : IPA_LAN_RX_HEADER_LENGTH;
 		skb_pull(rx_skb, ipahal_pkt_status_get_size() + extra);
 	}
-	else
+	else {
 		skb_pull(rx_skb, ipahal_pkt_status_get_size());
+	}
 
 	if (ep->ast_update) {
 		ipa3_wdi_extact_ast_info(rx_skb, ntohl(metadata), ucp, &ast_info);
@@ -4835,6 +4842,12 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
 	}
 	spin_lock(&ipa3_ctx->disconnect_lock);
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && !ep->valid &&
+			(tag_info & 0xFFFF) == IPA_ETH_PDU_TAG_CHECK)
+	{
+		src_pipe = ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id;
+		ep = &ipa3_ctx->ep[src_pipe];
+	}
 	if (likely((!atomic_read(&ep->disconnect_in_progress)) &&
 				ep->valid && ep->client_notify)) {
 		client_notify = ep->client_notify;

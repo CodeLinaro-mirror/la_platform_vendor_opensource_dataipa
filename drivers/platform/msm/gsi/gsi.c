@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of.h>
@@ -88,6 +88,8 @@ static bool running_emulation;
 #endif
 
 struct gsi_ctx *gsi_ctx;
+EXPORT_SYMBOL_GPL(gsi_ctx);
+
 
 static union __packed gsi_channel_scratch __gsi_update_mhi_channel_scratch(
 	unsigned long chan_hdl, struct __packed gsi_mhi_channel_scratch mscr);
@@ -3578,7 +3580,7 @@ int gsi_start_channel(unsigned long chan_hdl)
 	if (ctx->state != GSI_CHAN_STATE_ALLOCATED &&
 		ctx->state != GSI_CHAN_STATE_STOP_IN_PROC &&
 		ctx->state != GSI_CHAN_STATE_STOPPED) {
-		GSIERR("bad state %d\n", ctx->state);
+		GSIERR("bad state %d for channel hdl %d\n", ctx->state, chan_hdl);
 		return -GSI_STATUS_UNSUPPORTED_OP;
 	}
 

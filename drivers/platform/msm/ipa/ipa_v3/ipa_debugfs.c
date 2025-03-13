@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -120,6 +120,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_QOS_PARAM_ADD_EVENT),
 	__stringify(IPA_QOS_PARAM_DELETE_EVENT),
 	__stringify(IPA_QOS_PARAM_FLUSH_EVENT),
+	__stringify(IPA_PPPOE_ADD_MAPPING_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
@@ -152,6 +153,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_2ND_PASS),
 	__stringify(IPA_HDR_PROC_MARK_DSCP),
+	__stringify(IPA_HDR_PROC_PPPOE_HEADER_ADD),
 };
 
 static struct dentry *dent;
