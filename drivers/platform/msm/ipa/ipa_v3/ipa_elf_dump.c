@@ -326,10 +326,10 @@ int get_ipc_and_dmesg_logs(void)
 {
 	ipa_dmesg_logs_register_each_page("dmesg_logs");
 	IPADBG("Got Dmesg logs\n");
-
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	ipa_ipc_logs_register_each_page("ipc_logs");
 	IPADBG("Got IPC logs\n");
-
+#endif
 	return 0;
 }
 
@@ -387,7 +387,9 @@ int ipa_do_host_ramdump(struct elf_ssr_driver_dump_entry *ssr_entry,
 	static const char * const ipa_str[] = {
 		[IPA_HOST_DUMP_IPA_CTX] = "ipa_ctx",
 		[IPA_HOST_DUMP_GSI_CTX] = "gsi_ctx",
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 		[IPA_HOST_DUMP_IPC_LOGS] = "ipc_logs",
+#endif
 		[IPA_HOST_DUMP_DMESG_LOGS] = "dmesg_logs"
 	};
 	int i;
