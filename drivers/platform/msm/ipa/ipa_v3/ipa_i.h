@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -1129,7 +1129,6 @@ struct ipa3_ep_context {
 	u32 dflt_flt6_rule_hdl;
 	u32 dl_flt4_rule_hdl;
 	u32 dl_flt6_rule_hdl;
-	u32 rtp_flt4_rule_hdls[MAX_STREAMS];
 	bool skip_ep_cfg;
 	bool keep_ipa_awake;
 	struct ipa3_wlan_stats wstats;
@@ -2450,6 +2449,7 @@ struct ipa3_context {
 	u32 rtp_rt4_tbl_hdls[MAX_STREAMS];
 	u32 rtp_rt4_tbl_idxs[MAX_STREAMS];
 	u32 rtp_rt4_rule_hdls[MAX_STREAMS];
+	u32 rtp_flt4_rule_hdls[MAX_STREAMS];
 	bool ipa_endp_delay_wa;
 	bool lan_coal_enable;
 	bool ipa_fltrt_not_hashable;
@@ -3858,7 +3858,7 @@ int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t dat
 
 /* XR-IPA API's */
 #ifdef CONFIG_IPA_RTP
-int ipa3_uc_send_tuple_info_cmd(struct traffic_tuple_info *data);
+int ipa3_uc_send_tuple_info_cmd(struct traffic_tuple_info *data, uint8_t stream_id);
 int ipa3_alloc_temp_buffs_to_uc(unsigned int size, unsigned int no_of_buffs);
 int ipa3_map_buff_to_device_addr(struct map_buffer *map_buffs);
 int ipa3_unmap_buff_from_device_addr(struct unmap_buffer *unmap_buffs);
