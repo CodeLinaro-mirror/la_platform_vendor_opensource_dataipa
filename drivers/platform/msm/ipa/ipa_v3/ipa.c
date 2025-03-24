@@ -3650,6 +3650,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	unsigned long uptr = 0;
 	struct ipa_ioc_get_ep_info ep_info;
 	union ipa_ioc_uc_activation_entry uc_act;
+	struct ipa_mtu_info mtu_info;
 	int i = 0;
 
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
@@ -5451,6 +5452,15 @@ send:
 		break;
 	case IPA_IOC_UPDATE_L2TP_CONFIG:
 		retval = ipa3_update_l2tp_config(arg);
+		break;
+	case IPA_IOC_SET_IPTYPE_MTU:
+		if (copy_from_user(&mtu_info, (const void __user *)arg,
+			sizeof(struct ipa_mtu_info))) {
+			IPAERR_RL("ipa_mtu_info - copy_from_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+		ipa3_update_mtu_config(&mtu_info);
 		break;
 
 	default:
@@ -8357,6 +8367,11 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_GET_QOS_PARAMS))
 				return -EPERM;
 			cmd = IPA_IOC_GET_QOS_PARAMS;
+			break;
+		case IPA_IOC_SET_IPTYPE_MTU:
+			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_SET_IPTYPE_MTU))
+				return -EPERM;
+			cmd = IPA_IOC_SET_IPTYPE_MTU;
 			break;
 	default:
 		return -ENOIOCTLCMD;
@@ -14811,7 +14826,7 @@ static bool is_pcie_ep_falvor(struct device *dev)
 {
 	struct nvmem_cell *cell = NULL;
 	struct device_node *n = dev->of_node;
-	u32 fast_boot, host_bypass, fast_boot_mask = 0, host_bypass_mask = 0;
+	u32 fast_boot, fast_boot_mask = 0;
 	u8 *buf;
 	int res = 0, num_fast_boot_values = 0, i;
 	u32 fast_boot_values[16];
@@ -14829,11 +14844,6 @@ static bool is_pcie_ep_falvor(struct device *dev)
 	res = of_property_read_u32(n, "qcom,fast-boot-mask", &fast_boot_mask);
 	if (res) {
 		pr_err("qcom,fast-boot-mask property is not defined in %s node\n", n->name);
-		return false;
-	}
-	res = of_property_read_u32(n, "qcom,host-bypass-mask", &host_bypass_mask);
-	if (res) {
-		pr_err("qcom,host-bypass-mask property is not defined in %s node\n", n->name);
 		return false;
 	}
 	num_fast_boot_values = of_property_count_elems_of_size(n, "qcom,fast-boot-values",
@@ -14861,13 +14871,9 @@ static bool is_pcie_ep_falvor(struct device *dev)
 		return false;
 	}
 	fast_boot = (((*buf) & fast_boot_mask) >> ((ffs(fast_boot_mask)) - 1));
-	host_bypass = ((*buf) & host_bypass_mask);
-	pr_debug("boot_conf = %x, fast_boot = %x, host_bypass = %x\n", *buf, fast_boot,
-		 host_bypass);
+	pr_debug("boot_conf = %x, fast_boot = %x\n", *buf, fast_boot);
 	kfree(buf);
 	nvmem_cell_put(cell);
-	if (host_bypass)
-		return false;
 	for (i = 0; i < num_fast_boot_values; i++) {
 		if (fast_boot == fast_boot_values[i])
 			return true;

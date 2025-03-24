@@ -167,6 +167,7 @@
 #define IPA_IOCTL_QOS_PARAM                     105
 #define IPA_IOCTL_FLUSH_QOS_PARAM               106
 #define IPA_IOCTL_GET_QOS_PARAMS                107
+#define IPA_IOCTL_SET_IPTYPE_MTU                108
 
 /**
  * max size of the header to be inserted
@@ -4241,6 +4242,10 @@ struct ipa_ioc_get_qos_config {
 #define IPA_IOC_GET_QOS_PARAMS _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_GET_QOS_PARAMS, \
 				struct ipa_ioc_get_qos_config)
+
+#define IPA_IOC_SET_IPTYPE_MTU _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_SET_IPTYPE_MTU, \
+				struct ipa_mtu_info)
 
 /*
  * unique magic number of the Tethering bridge ioctls

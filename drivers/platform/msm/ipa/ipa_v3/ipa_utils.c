@@ -10689,7 +10689,6 @@ void ipa_init_ep_flt_bitmap(void)
 		}
 	}
 
-#ifdef CONFIG_IPA_IPSEC
 	/* Take care of EP independent FLT tables */
 	for (pipe_num = IPA6_NXT_FLT_TBL_START; pipe_num <= IPA6_NXT_FLT_TBL_END; pipe_num++) {
 		bitmap |= (1ULL << pipe_num);
@@ -10708,7 +10707,6 @@ void ipa_init_ep_flt_bitmap(void)
 			ipa3_ctx->ep_flt_num++;
 		}
 	}
-#endif
 }
 
 /**
@@ -17907,5 +17905,28 @@ int ipa3_update_l2tp_config(uint32_t client)
 exit:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(ipa_ep_idx));
 	return result;
+}
+
+void ipa3_update_mtu_config(struct ipa_mtu_info *mtu_info)
+{
+#ifdef CONFIG_IPA_IPSEC
+	if (ipa_ipsec_initialized()) {
+		switch (mtu_info->ip_type) {
+		case IPA_IP_v4:
+			ipa3_ctx->ipsec->mtu_v4 = mtu_info->mtu_v4 ? : ipa3_ctx->ipsec->mtu_v4;
+			break;
+		case IPA_IP_v6:
+			ipa3_ctx->ipsec->mtu_v6 = mtu_info->mtu_v6 ? : ipa3_ctx->ipsec->mtu_v6;
+			break;
+		case IPA_IP_MAX:
+			ipa3_ctx->ipsec->mtu_v4 = mtu_info->mtu_v4 ? : ipa3_ctx->ipsec->mtu_v4;
+			ipa3_ctx->ipsec->mtu_v6 = mtu_info->mtu_v6 ? : ipa3_ctx->ipsec->mtu_v6;
+			break;
+		default:
+			IPAERR("Got wrong IP type for MTU setting: %d\n", mtu_info->ip_type);
+			break;
+		}
+	}
+#endif
 }
 

@@ -403,6 +403,8 @@ struct ipa_ipsec_ctx {
 	struct ipa_ipsec_stats stats;
 	u32 sa_mismatch_qmap_hdr_hdl;
 	u32 mux_id;
+	u16 mtu_v4;
+	u16 mtu_v6;
 	bool initialized;
 	bool enabled;
 };

@@ -1237,7 +1237,6 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x, struct netlink_ext_ack *extack
 	u8 ealg, aalg, eklen, aklen, ivlen, icvlen;
 	char *ekey, *akey;
 	u32 *salt;
-	struct ipa_mtu_info mtu_info;
 
 	IPADBG("Start\n");
 
@@ -1272,13 +1271,6 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x, struct netlink_ext_ack *extack
 		x->xso.offload_handle =
 			(unsigned long)IPA_IPSEC_MAX_SA_NUM | IPA_IPSEC_OFFLOAD_MAGIC;
 		return 0;
-	}
-
-	strlcpy(mtu_info.if_name, x->xso.dev->name, IPA_RESOURCE_NAME_MAX);
-	mtu_info.ip_type = x->props.family == AF_INET ? IPA_IP_v4 : IPA_IP_v6;
-	if (rmnet_ipa3_get_wan_mtu(&mtu_info) !=0) {
-		IPAERR("rmnet_ipa3_get_wan_mtu returned error\n");
-		return -EINVAL;
 	}
 
 	switch (ealg = _ipa_ipsec_xfrm_sa_enc_get(x)) {
@@ -1364,11 +1356,10 @@ int ipa_ipsec_xdo_state_add(struct xfrm_state *x, struct netlink_ext_ack *extack
 		esa.stat.copy_ecn = !(x->props.flags & XFRM_STATE_NOECN);
 		esa.stat.overflow_allowed = x->props.extra_flags & XFRM_SA_XFLAG_OSEQ_MAY_WRAP;
 		esa.stat.copy_flow_lbl = 0;
-		esa.stat.path_mtu = x->props.family == AF_INET ? mtu_info.mtu_v4 : mtu_info.mtu_v6;
-		esa.stat.sa_life_bytes_wm =
-			x->lft.soft_byte_limit ? x->lft.soft_byte_limit : XFRM_INF;
-		esa.stat.sa_life_bytes =
-			x->lft.hard_byte_limit ? x->lft.hard_byte_limit : XFRM_INF;
+		esa.stat.path_mtu = x->props.family == AF_INET ?
+			ipa3_ctx->ipsec->mtu_v4 : ipa3_ctx->ipsec->mtu_v6;
+		esa.stat.sa_life_bytes_wm = x->lft.soft_byte_limit ? : XFRM_INF;
+		esa.stat.sa_life_bytes = x->lft.hard_byte_limit ? : XFRM_INF;
 		esa.dyna.ipv4_id = 0;
 		if (x->props.flags & XFRM_STATE_ESN) {
 			esa.dyna.seq_num =
@@ -1549,6 +1540,7 @@ del_hpc:
 	mutex_unlock(&ipa3_ctx->lock);
 
 zero_keys:
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
 		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_ENC);
 		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_AUTH);
@@ -1556,8 +1548,10 @@ zero_keys:
 		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_ENC);
 		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_AUTH);
 	}
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
 clean_sa:
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
 		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
@@ -1565,6 +1559,7 @@ clean_sa:
 		memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
 	}
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
 state_end:
 	IPADBG_LOW("ret = %d\n", ret);
@@ -1602,9 +1597,11 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 		WARN_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 		mutex_unlock(&ipa3_ctx->lock);
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
 		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_ENC);
 		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_AUTH);
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
 		break;
 	case XFRM_DEV_OFFLOAD_IN:
@@ -1627,9 +1624,11 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 			mutex_unlock(&ipa3_ctx->lock);
 		}
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 		memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
 		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_ENC);
 		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_AUTH);
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
 		break;
 	default:
@@ -1744,6 +1743,7 @@ void ipa_ipsec_xdo_state_update_curlft(struct xfrm_state *x)
 	u8 idx;
 	struct ipa_ipsec_sa_encap *e_sa;
 	struct ipa_ipsec_sa_decap *d_sa;
+	struct ipa_active_client_logging_info log_info;
 
 	IPADBG_LOW("Start\n");
 	if (!ipa_ipsec_enabled()) {
@@ -1760,6 +1760,15 @@ void ipa_ipsec_xdo_state_update_curlft(struct xfrm_state *x)
 	idx = (u8)(x->xso.offload_handle & ~IPA_IPSEC_OFFLOAD_MAGIC);
 	if (idx >= IPA_IPSEC_MAX_SA_NUM) {
 		IPADBG("Dummy state\n");
+		return;
+	}
+
+	/* The callback is being called from the timer,
+	   thus we must avoid the mutex locking in the regular API */
+	IPA_ACTIVE_CLIENTS_PREP_SIMPLE(log_info);
+	/* Don't access SRAM, if IPA is not clocked on */
+	if (ipa3_inc_client_enable_clks_no_block(&log_info)) {
+		IPADBG("IPA is not clocked, keep stored values\n");
 		return;
 	}
 
@@ -1780,8 +1789,10 @@ void ipa_ipsec_xdo_state_update_curlft(struct xfrm_state *x)
 		x->curlft.use_time = dsa.dyna.last_pkt_timestamp;
 		break;
 	default:
-		return;
+		break;
 	}
+
+	ipa3_dec_client_disable_clks_no_block(&log_info);
 }
 
 int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp, struct netlink_ext_ack *extack)
@@ -3101,6 +3112,9 @@ int ipa_ipsec_init(void)
 	 */
 	ipahal_write_reg(IPA_IPSEC_SA_ENCAPSULATION_BASE, IPA_MEM_PART(sa_contexts_ofst) + IPA_DECAP_DB_SIZE);
 
+	/* Initialyze the default MTU values */
+	ipa3_ctx->ipsec->mtu_v4 = MTU_BYTE;
+	ipa3_ctx->ipsec->mtu_v6 = MTU_BYTE;
 	ipa3_ctx->ipsec->initialized = true;
 
 	return 0;
@@ -3197,9 +3211,11 @@ void ipa_ipsec_cleanup(void)
 	if (!ipa3_ctx->ipsec)
 		return;
 
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	/* Zero the SA and keys SRAM to avoid IPsec HW execution and for better security */
 	memset_io(ipa3_ctx->ipsec->decap, 0, IPA_SA_DB_SIZE);
 	memset_io(ipa3_ctx->ipsec->keys, 0, sizeof(struct ipa_ipsec_key_store));
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
 	sa_phys_base = ipa3_ctx->ipa_wrapper_base +
 		ipa3_ctx->ctrl->ipa_reg_base_ofst +
