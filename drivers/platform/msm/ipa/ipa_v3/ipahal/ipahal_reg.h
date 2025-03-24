@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPAHAL_REG_H_
@@ -213,6 +213,7 @@ enum ipahal_reg_name {
 	IPA_UCP_RESUME,
 	IPA_UCP_RESUME_METADATA,
 	IPA_STATE_TX_HOLB_MASK_DPS_TX_1,
+	IPA_ENDP_INIT_UCP_CFG_n,
 	IPA_REG_MAX,
 };
 

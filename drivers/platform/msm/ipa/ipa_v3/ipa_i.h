@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -867,6 +867,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
+	struct ipa_pppoe_header_add_procparams pppoe_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -2382,6 +2383,10 @@ enum ipa_eth_qos_type_e {
  * @ipa3_hw_mode: mode of IPA HW mode (e.g. Normal, Virtual or over PCIe)
  * @gsi_ver: version of GSI
  * @ipa_config_is_rdkb: is this RDKB platform
+ * @ipa_config_is_pppoe: whether PPPoE mode has been enabled
+ * @ipa_eth_pppoe_intf_name: name of the ethernet physical interface on which
+ *  PPPoE has been enabled
+ * @client_hps_eth_index: value to store for which eth ep to update hps sequence
  * @use_ipa_teth_bridge: use tethering bridge driver
  * @modem_cfg_emb_pipe_flt: modem configure embedded pipe filtering rules
  * @logbuf: ipc log buffer for high priority messages
@@ -2532,6 +2537,9 @@ struct ipa3_context {
 	enum ipa3_platform_type platform_type;
 	bool ipa_config_is_mhi;
 	bool ipa_config_is_rdkb;
+	bool ipa_config_is_pppoe;
+	char ipa_eth_pppoe_intf_name[IFNAMSIZ];
+	u8 client_hps_eth_index;
 	bool ipa_config_is_ipsec;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
@@ -4258,4 +4266,14 @@ void ipa3_v2x_vm_shutdown_cleanup(void);
 /* Send IPsec UL flt to IPACM */
 int ipa3_send_ipsec_ul_flt(enum ipa_ipsec_ul_flt_evt event_type,
 	struct ipa_ioc_ipsec_ul_flt_attr *uf);
+
+#if IPA_ETH_API_VER > 4
+int ipa3_eth_enable(
+	struct ipa_eth_client_pipe_info *pipe,
+	enum ipa_client_type client_type,
+	int inst_id,
+	u8 priority,
+	u8 pipe_idx);
+#endif
+
 #endif /* _IPA3_I_H_ */

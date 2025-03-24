@@ -78,10 +78,12 @@ struct ipa_host_dump_meta_info {
 
 enum ipa_host_dump_type {
 	IPA_HOST_DUMP_IPA_CTX = 0,
-	IPA_HOST_DUMP_GSI_CTX = 1,
-	IPA_HOST_DUMP_IPC_LOGS = 2,
-	IPA_HOST_DUMP_DMESG_LOGS = 3,
-	IPA_HOST_DUMP_MAX = 4
+	IPA_HOST_DUMP_GSI_CTX,
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
+	IPA_HOST_DUMP_IPC_LOGS,
+#endif
+	IPA_HOST_DUMP_DMESG_LOGS,
+	IPA_HOST_DUMP_MAX
 };
 
 /** Structures pertaining to ipc logs, and to make the SMC call
