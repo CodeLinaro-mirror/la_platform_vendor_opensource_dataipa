@@ -59,18 +59,30 @@
 #define IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_COUNT 5
 #define IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_TIME 10 /* In milli second */
 
+#define TLPD_NUM_MAX_RT_FLT_TBL 16
+#define TLPD_NUM_MAX_RT_FLT_RULE 16
+
+#define TLPD_NUM_MAX_NUM_EQ 2
+
+#define TLPD_NUM_MAX_NAT_RULE 100
+
 /**
  * This is used to indicate which set of logs is enabled from IPA
  * These bitmapped macros.
  */
-#define TLPD_IPA_LOG_TYPE_GENERIC_STATS   0x00001
-#define TLPD_IPA_LOG_TYPE_CLOCK_STATS     0x00002
-#define TLPD_IPA_LOG_TYPE_WLAN_STATS      0x00004
-#define TLPD_IPA_LOG_TYPE_ETH_STATS       0x00008
-#define TLPD_IPA_LOG_TYPE_USB_STATS       0x00010
-#define TLPD_IPA_LOG_TYPE_MHIP_STATS      0x00020
-#define TLPD_IPA_LOG_TYPE_RECYCLE_STATS   0x00040
-
+#define TLPD_IPA_LOG_TYPE_GENERIC_STATS      0x00001
+#define TLPD_IPA_LOG_TYPE_CLOCK_STATS        0x00002
+#define TLPD_IPA_LOG_TYPE_WLAN_STATS         0x00004
+#define TLPD_IPA_LOG_TYPE_ETH_STATS          0x00008
+#define TLPD_IPA_LOG_TYPE_USB_STATS          0x00010
+#define TLPD_IPA_LOG_TYPE_MHIP_STATS         0x00020
+#define TLPD_IPA_LOG_TYPE_RECYCLE_STATS      0x00040
+#define TLPD_IPA_LOG_TYPE_V4_RT_RULE_STATS   0x00080
+#define TLPD_IPA_LOG_TYPE_V6_RT_RULE_STATS   0x00100
+#define TLPD_IPA_LOG_TYPE_V4_FLT_RULE_STATS  0x00200
+#define TLPD_IPA_LOG_TYPE_V6_FLT_RULE_STATS  0x00400
+#define TLPD_IPA_LOG_TYPE_V4_NAT_RULE_STATS  0x00800
+#define TLPD_IPA_LOG_TYPE_V6_NAT_RULE_STATS  0x01000
 
 /**
  * Look up table for pm stats client names.
@@ -331,6 +343,12 @@ struct ipa_lnx_consolidated_stats {
 	struct ipa_lnx_usb_inst_stats *usb_stats;
 	struct ipa_lnx_mhip_inst_stats *mhip_stats;
 	struct ipa_lnx_pipe_page_recycling_stats *recycle_stats;
+	struct ipa_lnx_v4_rt_rule_stats *v4_rt_rule_stats;
+	struct ipa_lnx_v6_rt_rule_stats *v6_rt_rule_stats;
+	struct ipa_lnx_v4_flt_rule_stats *v4_flt_rule_stats;
+	struct ipa_lnx_v6_flt_rule_stats *v6_flt_rule_stats;
+	struct ipa_lnx_v4_nat_rule_stats *v4_nat_rule_stats;
+	struct ipa_lnx_v6_nat_rule_stats *v6_nat_rule_stats;
 };
 
 enum rx_channel_type {
@@ -366,6 +384,541 @@ struct ipa_lnx_pipe_page_recycling_stats {
 	struct ipa_lnx_recycling_stats rx_channel[RX_CHANNEL_MAX][IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_COUNT];
 };
 
+/**
+ * Look up table for Routing table.
+ * New entry to be added when new routing table is created
+ */
+struct rt_table_name_lookup { char *name; int index;};
+static struct rt_table_name_lookup rt_table_lookup_table[] = {
+	{"ipa_dflt_rt", 1},
+	{"COMRTBLLANv4", 2},
+	{"WANRTBLv4", 3},
+	{"ODURTBLv4", 4},
+	{"ipa_dflt_wan_rt", 5},
+	{"COMRTBLv6", 6},
+	{"WANRTBLv6", 7},
+	{"ODURTBLv6", 8},
+	{"IPSEC_ENCAP_v4", 9},
+	{"IPSEC_ENCAP_v6", 10},
+	{"IPSEC_DECAP_v4", 11},
+	{"IPSEC_DECAP_v6", 12},
+	{"IPSEC_DECAP_NO_POLICY_v4", 13},
+	{"IPSEC_DECAP_NO_POLICY_v6", 14},
+	{"RT_TABLE_NAME_MAX", 15},
+};
+
+enum rt_table_types {
+	ipa_dflt_rt = 1,
+	COMRTBLLANv4 = 2,
+	WANRTBLv4 = 3,
+	ODURTBLv4 = 4,
+	ipa_dflt_wan_rt = 5,
+	COMRTBLv6 = 6,
+	WANRTBLv6 = 7,
+	ODURTBLv6 = 8,
+	RT_TABLE_NAME_MAX = 9,
+};
+
+struct ipa_lnx_offset_meq_128 {
+	uint64_t offset : 32;
+	uint64_t reserved : 32;
+	uint8_t value[16];
+	uint8_t mask[16];
+};
+
+struct ipa_lnx_offset_meq {
+	uint64_t offset;
+	uint64_t value : 32;
+	uint64_t mask : 32;
+};
+
+struct ipa_lnx_ihl_offset_range {
+	uint64_t offset : 32;
+	uint64_t range_low : 16;
+	uint64_t mask_high : 16;
+};
+
+struct ipa_lnx_ihl_offset_eq {
+	uint64_t offset : 32;
+	uint64_t value : 32;
+};
+
+struct ipa_lnx_v4_rt_rules {
+	uint64_t rule_idx : 16;
+	uint64_t rule_id : 16;
+	uint64_t retain_hdr : 8;
+	uint64_t close_aggr_irq_mode : 8;
+	uint64_t ttl_update : 8;
+	uint64_t qos_class : 8;
+
+	uint64_t skip_ingress : 8;
+	uint64_t esp_after_udp : 8;
+	uint64_t is_rt_hw : 1;
+	uint64_t is_in_sram : 1;
+	uint64_t reserved : 46;
+
+	uint64_t enable_stats : 8;
+	uint64_t counter_id : 8;
+	uint64_t hashable : 8;
+	uint64_t proc_ctx_valid : 8;
+	uint64_t offset_words : 32;
+
+	uint64_t attribute_mask : 32;
+	uint64_t destination : 16;
+	uint64_t end_point : 16;
+
+	uint64_t tos : 8;
+	uint64_t tos_value : 8;
+	uint64_t tos_mask : 8;
+	uint64_t protocol : 8;
+	uint64_t l2tp_inner_ip_type : 8;
+	uint64_t frag : 8;
+	uint64_t tcp_syn : 8;
+	uint64_t tcp_syn_l2tp : 8;
+
+	uint64_t src_addr : 32;
+	uint64_t src_addr_mask : 32;
+
+	uint64_t dst_addr : 32;
+	uint64_t dst_addr_mask : 32;
+
+	uint64_t src_port_low : 16;
+	uint64_t src_port_high : 16;
+	uint64_t dst_port_low : 16;
+	uint64_t dst_port_high : 16;
+
+	uint64_t src_port : 16;
+	uint64_t dst_port : 16;
+	uint64_t payload_length : 16;
+	uint64_t ether_type : 16;
+
+	uint64_t spi : 32;
+	uint64_t vlan_id : 16;
+	uint64_t type : 8;
+	uint64_t code : 8;
+
+	uint64_t src_mac_addr;
+	uint64_t src_mac_addr_mask;
+	uint64_t dst_mac_addr;
+	uint64_t dst_mac_addr_mask;
+
+	/* Attribute equation */
+	uint64_t protocol_eq : 8;
+	uint64_t num_offset_meq128 : 8;
+	uint64_t num_offset_meq32 : 8;
+	uint64_t num_ihl_offset_meq32 : 8;
+	uint64_t is_metadata_meq32_persent : 8;
+	uint64_t num_ihl_offset_range_16 : 8;
+	uint64_t num_ihl_offset_eq16 : 8;
+	uint64_t num_ihl_offset_eq32 : 8;
+
+	struct ipa_lnx_offset_meq_128 offset_meq_128[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq offset_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq ihl_offset_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq metadata_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_range ihl_offset_range16[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_eq ihl_offset_eq16[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_eq ihl_offset_eq32[TLPD_NUM_MAX_NUM_EQ];
+};
+
+struct ipa_lnx_v6_rt_rules {
+	uint64_t rule_idx : 16;
+	uint64_t rule_id : 16;
+	uint64_t retain_hdr : 8;
+	uint64_t close_aggr_irq_mode : 8;
+	uint64_t ttl_update : 8;
+	uint64_t qos_class : 8;
+
+	uint64_t skip_ingress : 8;
+	uint64_t esp_after_udp : 8;
+	uint64_t is_rt_hw : 1;
+	uint64_t is_in_sram : 1;
+	uint64_t reserved : 46;
+
+	uint64_t enable_stats : 8;
+	uint64_t counter_id : 8;
+	uint64_t hashable : 8;
+	uint64_t proc_ctx_valid : 8;
+	uint64_t offset_words : 32;
+
+	uint64_t attribute_mask : 32;
+	uint64_t destination : 16;
+	uint64_t end_point : 16;
+
+	uint64_t tc : 8;
+	uint64_t flow_label : 8;
+	uint64_t tos_value : 8;
+	uint64_t tos_mask : 8;
+	uint64_t nxt_hdr : 8;
+	uint64_t nxt_hdr_ext : 8;
+	uint64_t type : 8;
+	uint64_t code : 8;
+
+	uint32_t src_addr[4];
+	uint32_t src_addr_mask[4];
+	uint32_t dst_addr[4];
+	uint32_t dst_addr_mask[4];
+
+	uint64_t src_port_low : 16;
+	uint64_t src_port_high : 16;
+	uint64_t dst_port_low : 16;
+	uint64_t dst_port_high : 16;
+
+	uint64_t spi : 32;
+	uint64_t src_port : 16;
+	uint64_t dst_port : 16;
+
+	uint64_t payload_length : 16;
+	uint64_t ether_type : 16;
+	uint64_t vlan_id : 16;
+	uint64_t reserved2 : 16;
+
+	uint64_t tcp_syn : 8;
+	uint64_t tcp_syn_l2tp : 8;
+	uint64_t frag : 8;
+	uint64_t l2tp_inner_ip_type : 8;
+	uint64_t reserved3 : 32;
+
+	uint64_t src_mac_addr;
+	uint64_t src_mac_addr_mask;
+	uint64_t dst_mac_addr;
+	uint64_t dst_mac_addr_mask;
+
+	/* Attribute equation */
+	uint64_t protocol_eq : 8;
+	uint64_t num_offset_meq128 : 8;
+	uint64_t num_offset_meq32 : 8;
+	uint64_t num_ihl_offset_meq32 : 8;
+	uint64_t is_metadata_meq32_persent : 8;
+	uint64_t num_ihl_offset_range_16 : 8;
+	uint64_t num_ihl_offset_eq16 : 8;
+	uint64_t num_ihl_offset_eq32 : 8;
+
+	struct ipa_lnx_offset_meq_128 offset_meq_128[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq offset_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq ihl_offset_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq metadata_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_range ihl_offset_range16[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_eq ihl_offset_eq16[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_eq ihl_offset_eq32[TLPD_NUM_MAX_NUM_EQ];
+};
+
+struct ipa_lnx_v4_rt_rule_table {
+	uint64_t tbl_index : 16;
+	uint64_t tbl_ref_count : 16;
+	uint64_t num_rt_rule : 16;
+	uint64_t tbl_name : 8;
+	uint64_t reserved : 8;
+	struct ipa_lnx_v4_rt_rules v4_rt_rule[TLPD_NUM_MAX_RT_FLT_RULE];
+};
+
+struct ipa_lnx_v6_rt_rule_table {
+	uint64_t tbl_index : 16;
+	uint64_t tbl_ref_count : 16;
+	uint64_t num_rt_rule : 16;
+	uint64_t tbl_name : 8;
+	uint64_t reserved : 8;
+	struct ipa_lnx_v6_rt_rules v6_rt_rule[TLPD_NUM_MAX_RT_FLT_RULE];
+};
+
+struct ipa_lnx_v4_rt_rule_stats {
+	uint32_t ip4_rt_tbl_hash_local : 8;
+	uint32_t ip4_rt_tbl_nhash_local : 8;
+	uint32_t num_v4_rt_table : 16;
+	struct ipa_lnx_v4_rt_rule_table v4_rt_tbl[TLPD_NUM_MAX_RT_FLT_TBL];
+};
+
+struct ipa_lnx_v6_rt_rule_stats {
+	uint32_t ip6_rt_tbl_hash_local : 8;
+	uint32_t ip6_rt_tbl_nhash_local : 8;
+	uint32_t num_v6_rt_table : 16;
+	struct ipa_lnx_v6_rt_rule_table v6_rt_tbl[TLPD_NUM_MAX_RT_FLT_TBL];
+};
+
+
+/* IPA Linux v4/v6 filtering rule stats structure */
+struct ipa_lnx_v4_flt_rules {
+	uint64_t rule_idx : 32;
+	uint64_t ep_idx : 32;
+
+	uint64_t action : 8;
+	uint64_t retain_hdr : 8;
+	uint64_t attrib_mask : 16;
+	uint64_t rt_table_index : 32;
+
+	uint64_t rule_id : 16;
+	uint64_t equation : 8;
+	uint64_t in_sys : 8;
+	uint64_t force_sys : 8;
+	uint64_t hashable : 8;
+	uint64_t enable_stats : 8;
+	uint64_t counter_id : 8;
+
+	uint64_t pdn_index : 8;
+	uint64_t set_metadata : 8;
+	uint64_t close_aggr_irq_mode : 16;
+	uint64_t ttl_update : 8;
+	uint64_t qos_class : 8;
+	uint64_t esp_after_udp : 8;
+	uint64_t is_flt_hw : 8;
+
+	uint64_t tos : 8;
+	uint64_t tos_value : 8;
+	uint64_t tos_mask : 8;
+	uint64_t protocol : 8;
+	uint64_t l2tp_inner_ip_type : 8;
+	uint64_t frag : 8;
+	uint64_t tcp_syn : 8;
+	uint64_t tcp_syn_l2tp : 8;
+
+	uint64_t src_addr : 32;
+	uint64_t src_addr_mask : 32;
+
+	uint64_t dst_addr : 32;
+	uint64_t dst_addr_mask : 32;
+
+	uint64_t src_port_low : 16;
+	uint64_t src_port_high : 16;
+	uint64_t dst_port_low : 16;
+	uint64_t dst_port_high : 16;
+
+	uint64_t src_port : 16;
+	uint64_t dst_port : 16;
+	uint64_t payload_length : 16;
+	uint64_t ether_type : 16;
+
+	uint64_t spi : 32;
+	uint64_t vlan_id : 16;
+	uint64_t type : 8;
+	uint64_t code : 8;
+
+	uint64_t src_mac_addr;
+	uint64_t src_mac_addr_mask;
+	uint64_t dst_mac_addr;
+	uint64_t dst_mac_addr_mask;
+
+	uint64_t meta_data : 32;
+	uint64_t meta_data_mask : 32;
+
+	/* Attribute equation */
+	uint64_t protocol_eq : 8;
+	uint64_t num_offset_meq128 : 8;
+	uint64_t num_offset_meq32 : 8;
+	uint64_t num_ihl_offset_meq32 : 8;
+	uint64_t is_metadata_meq32_persent : 8;
+	uint64_t num_ihl_offset_range_16 : 8;
+	uint64_t num_ihl_offset_eq16 : 8;
+	uint64_t num_ihl_offset_eq32 : 8;
+
+	struct ipa_lnx_offset_meq_128 offset_meq_128[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq offset_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq ihl_offset_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq metadata_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_range ihl_offset_range16[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_eq ihl_offset_eq16[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_eq ihl_offset_eq32[TLPD_NUM_MAX_NUM_EQ];
+};
+
+struct ipa_lnx_v6_flt_rules {
+	uint64_t rule_idx : 32;
+	uint64_t ep_idx : 32;
+
+	uint64_t rt_table_index : 32;
+	uint64_t attrib_mask : 16;
+	uint64_t action : 8;
+	uint64_t retain_hdr : 8;
+
+	uint64_t equation : 8;
+	uint64_t hashable : 8;
+	uint64_t in_sys : 8;
+	uint64_t force_sys : 8;
+	uint64_t enable_stats : 8;
+	uint64_t counter_id : 8;
+	uint64_t rule_id : 16;
+
+	uint64_t pdn_index : 8;
+	uint64_t set_metadata : 8;
+	uint64_t close_aggr_irq_mode : 16;
+	uint64_t ttl_update : 8;
+	uint64_t qos_class : 8;
+	uint64_t esp_after_udp : 8;
+	uint64_t is_flt_hw : 8;
+
+	uint64_t tc : 8;
+	uint64_t flow_label : 8;
+	uint64_t tos_value : 8;
+	uint64_t tos_mask : 8;
+	uint64_t nxt_hdr : 8;
+	uint64_t protocol : 8;
+	uint64_t type : 8;
+	uint64_t code : 8;
+
+	uint32_t src_addr[4];
+	uint32_t src_addr_mask[4];
+	uint32_t dst_addr[4];
+	uint32_t dst_addr_mask[4];
+
+	uint64_t src_port_low : 16;
+	uint64_t src_port_high : 16;
+	uint64_t dst_port_low : 16;
+	uint64_t dst_port_high : 16;
+
+	uint64_t spi : 32;
+	uint64_t src_port : 16;
+	uint64_t dst_port : 16;
+
+	uint64_t payload_length : 16;
+	uint64_t ether_type : 16;
+	uint64_t vlan_id : 16;
+	uint64_t reserved2 : 16;
+
+	uint64_t tcp_syn : 8;
+	uint64_t tcp_syn_l2tp : 8;
+	uint64_t frag : 8;
+	uint64_t l2tp_inner_ip_type : 8;
+	uint64_t reserved3 : 32;
+
+	uint64_t src_mac_addr;
+	uint64_t src_mac_addr_mask;
+	uint64_t dst_mac_addr;
+	uint64_t dst_mac_addr_mask;
+
+	/* Attribute equation */
+	uint64_t protocol_eq : 8;
+	uint64_t num_offset_meq128 : 8;
+	uint64_t num_offset_meq32 : 8;
+	uint64_t num_ihl_offset_meq32 : 8;
+	uint64_t is_metadata_meq32_persent : 8;
+	uint64_t num_ihl_offset_range_16 : 8;
+	uint64_t num_ihl_offset_eq16 : 8;
+	uint64_t num_ihl_offset_eq32 : 8;
+
+	struct ipa_lnx_offset_meq_128 offset_meq_128[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq offset_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq ihl_offset_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_offset_meq metadata_meq32[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_range ihl_offset_range16[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_eq ihl_offset_eq16[TLPD_NUM_MAX_NUM_EQ];
+	struct ipa_lnx_ihl_offset_eq ihl_offset_eq32[TLPD_NUM_MAX_NUM_EQ];
+};
+
+struct ipa_lnx_v4_flt_rule_table {
+	uint64_t tbl_index : 32;
+	uint64_t num_flt_rule : 32;
+	struct ipa_lnx_v4_flt_rules flt_rule[TLPD_NUM_MAX_RT_FLT_RULE];
+};
+
+struct ipa_lnx_v6_flt_rule_table {
+	uint64_t tbl_index : 32;
+	uint64_t num_flt_rule : 32;
+	struct ipa_lnx_v6_flt_rules flt_rule[TLPD_NUM_MAX_RT_FLT_RULE];
+};
+
+struct ipa_lnx_v4_flt_rule_stats {
+	uint64_t ip4_flt_tbl_hash_local : 8;
+	uint64_t ip4_flt_tbl_nhash_local : 8;
+	uint64_t num_v4_flt_table : 16;
+	struct ipa_lnx_v4_flt_rule_table v4_flt_tbl[TLPD_NUM_MAX_RT_FLT_TBL];
+};
+
+struct ipa_lnx_v6_flt_rule_stats {
+	uint64_t ip6_flt_tbl_hash_local : 8;
+	uint64_t ip6_flt_tbl_nhash_local : 8;
+	uint64_t num_v6_flt_table : 16;
+	struct ipa_lnx_v6_flt_rule_table v6_flt_tbl[TLPD_NUM_MAX_RT_FLT_TBL];
+};
+
+/* IPA Linux NAT stats structure */
+struct ipa_lnx_nat_table {
+	uint64_t enable: 16;
+	uint64_t direct_to_apps : 16;
+	uint64_t index_tbl_entry : 16;
+	uint64_t tcp_udp_chksum : 16;
+
+	uint64_t private_ip : 32;
+	uint64_t target_ip : 32;
+
+	uint64_t private_port : 16;
+	uint64_t target_port : 16;
+	uint64_t public_port : 16;
+	uint64_t ip_checksum : 16;
+
+	uint64_t protocol : 8;
+	uint64_t time_stamp : 24;
+	uint64_t next_index : 16;
+	uint64_t prev_index : 16;
+
+	uint64_t entry_index : 16;
+	uint64_t pdn_index : 1;
+	uint64_t ucp : 1;
+	uint64_t address_in_system : 1;
+	uint64_t uc_activation_index : 13;
+	uint64_t tbl_in_sram : 1;
+	uint64_t is_expansion_table : 1;
+	uint64_t reserved : 30;
+};
+
+struct ipa_lnx_nat_idx_table {
+	uint64_t entry_index : 16;
+	uint64_t tbl_entry : 16;
+	uint64_t nxt_index : 16;
+	uint64_t tbl_in_sram : 1;
+	uint64_t is_expansion_table : 1;
+	uint64_t reserved : 14;
+};
+
+struct ipa_lnx_pdn_table {
+	uint32_t public_ip;
+	uint32_t src_metadata;
+	uint32_t dst_metadata;
+	uint32_t valid;
+};
+
+struct ipa_lnx_v6_ct_table {
+	uint64_t direct_to_apps : 8;
+	uint64_t enable : 8;
+	uint64_t in_allowed : 8;
+	uint64_t out_allowed : 8;
+	uint64_t time_stamp : 24;
+	uint64_t protocol : 8;
+
+	uint64_t src_ipv6_lsb;
+	uint64_t src_ipv6_msb;
+	uint64_t dest_ipv6_lsb;
+	uint64_t dest_ipv6_msb;
+
+	uint64_t next_index : 16;
+	uint64_t dest_port : 16;
+	uint64_t src_port : 16;
+	uint64_t prev_index : 16;
+};
+
+struct ipa_lnx_v4_nat_rule_stats {
+	uint64_t is_nat_initialized : 8;
+	uint64_t is_hw_nat : 8;
+	uint64_t ovarall_sram_entries : 16;
+	uint64_t reserved : 32;
+
+	uint64_t num_nat : 16;
+	uint64_t num_nat_idx : 16;
+
+	struct ipa_lnx_nat_table nat_tbl[TLPD_NUM_MAX_NAT_RULE];
+	struct ipa_lnx_nat_idx_table nat_idx_tbl[TLPD_NUM_MAX_NAT_RULE];
+};
+
+struct ipa_lnx_v6_nat_rule_stats {
+	uint64_t is_nat_initialized : 8;
+	uint64_t is_hw_nat : 8;
+	uint64_t ovarall_sram_entries : 16;
+	uint64_t reserved : 32;
+
+	uint64_t num_pdn : 16;
+	uint64_t num_v6_ct : 16;
+
+	struct ipa_lnx_pdn_table pdn_tbl[TLPD_NUM_MAX_NAT_RULE];
+	struct ipa_lnx_v6_ct_table v6_ct_tbl[TLPD_NUM_MAX_NAT_RULE];
+};
+
 /* Explain below structures */
 struct ipa_lnx_each_inst_alloc_info {
 	uint32_t pipes_client_type[TLPD_NUM_MAX_PIPES];
@@ -377,6 +930,27 @@ struct ipa_lnx_each_inst_alloc_info {
 	uint32_t reserved;
 };
 
+struct ipa_lnx_rt_flt_alloc_info {
+	uint16_t num_v4_tables;
+	uint16_t num_v6_tables;
+	uint8_t num_v4_rules[TLPD_NUM_MAX_RT_FLT_TBL];
+	uint8_t num_v6_rules[TLPD_NUM_MAX_RT_FLT_TBL];
+	uint8_t v4_metadata_meq32_present[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v4_offset_meq128s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v4_offset_meq32s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v4_ihl_offset_eq16s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v4_ihl_offset_eq32s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v4_ihl_offset_meq32s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v4_ihl_offset_range_16s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t v6_metadata_meq32_present[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v6_offset_meq128s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v6_offset_meq32s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v6_ihl_offset_meq32s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v6_ihl_offset_range_16s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v6_ihl_offset_eq16s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+	uint8_t num_v6_ihl_offset_eq32s[TLPD_NUM_MAX_RT_FLT_TBL][TLPD_NUM_MAX_RT_FLT_RULE];
+};
+
 struct ipa_lnx_stats_alloc_info {
 	uint32_t num_holb_drop_stats_clients;
 	uint32_t num_holb_mon_stats_clients;
@@ -386,6 +960,12 @@ struct ipa_lnx_stats_alloc_info {
 	uint32_t num_usb_instances;
 	uint32_t num_mhip_instances;
 	uint32_t num_page_rec_interval;
+	struct ipa_lnx_rt_flt_alloc_info rt_alloc_info;
+	struct ipa_lnx_rt_flt_alloc_info flt_alloc_info;
+	uint16_t num_nat_tbl;
+	uint16_t num_nat_idx_tbl;
+	uint16_t num_pdn_tbl;
+	uint16_t num_v6_ct_tbl;
 	struct ipa_lnx_each_inst_alloc_info wlan_inst_info[TLPD_NUM_MAX_INSTANCES];
 	struct ipa_lnx_each_inst_alloc_info eth_inst_info[TLPD_NUM_MAX_INSTANCES];
 	struct ipa_lnx_each_inst_alloc_info usb_inst_info[TLPD_NUM_MAX_INSTANCES];
