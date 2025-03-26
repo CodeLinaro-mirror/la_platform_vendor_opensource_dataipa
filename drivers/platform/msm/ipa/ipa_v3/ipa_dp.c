@@ -2992,13 +2992,14 @@ int ipa_register_notifier(void *fn_ptr)
 	if (fn_ptr == NULL)
 		return -EFAULT;
 	spin_lock(&ipa3_ctx->notifier_lock);
-	ipa_notifier_block = (struct ipa_notifier_block_data *)kzalloc(sizeof(struct ipa_notifier_block_data), GFP_KERNEL);
+	ipa_notifier_block = (struct ipa_notifier_block_data *)kzalloc(sizeof(struct ipa_notifier_block_data), GFP_ATOMIC);
 	if (ipa_notifier_block == NULL) {
 		IPAWANERR("Buffer threshold notifier failure\n");
 		spin_unlock(&ipa3_ctx->notifier_lock);
 		return -EFAULT;
 	}
 	ipa_notifier_block->ipa_rmnet_notifier.notifier_call = fn_ptr;
+	INIT_LIST_HEAD(&ipa_notifier_block->entry);
 	list_add(&ipa_notifier_block->entry, &ipa3_ctx->notifier_block_list_head);
 	raw_notifier_chain_register(ipa3_ctx->ipa_rmnet_notifier_list_internal,
 		&ipa_notifier_block->ipa_rmnet_notifier);

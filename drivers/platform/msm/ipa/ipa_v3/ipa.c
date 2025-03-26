@@ -9863,6 +9863,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		}
 	}
 	ipa3_ctx->ipa_rmnet_notifier_list_internal = &ipa_rmnet_notifier_list;
+	INIT_LIST_HEAD(&ipa3_ctx->notifier_block_list_head);
 	spin_lock_init(&ipa3_ctx->notifier_lock);
 	ipa3_ctx->buff_above_thresh_for_def_pipe_notified = false;
 	ipa3_ctx->buff_above_thresh_for_coal_pipe_notified = false;
