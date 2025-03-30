@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 /*
@@ -1035,15 +1035,17 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 
 	IPADBG("Start\n");
 
+	mutex_lock(&ipa3_ctx->ipsec->pol_list_lock);
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (ipa_ipsec_tmpl_sa_match(pol->xp->xfrm_vec,
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x)) {
 
 			ul_flt = (struct ipa_ioc_ipsec_ul_flt_attr *)kzalloc(
 				sizeof(struct ipa_ioc_ipsec_ul_flt_attr), GFP_KERNEL);
-			if (!ul_flt) {
-				IPAERR("Failed to allocate ipa_ioc_ipsec_ul_flt_attr\n");
-				return -EFAULT;
+			if (unlikely(!ul_flt)) {
+				IPAERR("Failed allocating ipa_ioc_ipsec_ul_flt_attr\n");
+				rc = -EFAULT;
+				goto end;
 			}
 			ul_flt->ip = pol->xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 			ipa_ipsec_xfrm_sp_to_ipa_attrib(pol->xp, &ul_flt->attr, IPA_IPSEC_MAX_SA_NUM);
@@ -1057,17 +1059,25 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 				if (rc) {
 					IPAERR("Failed deleting RT hdl %d.\n", pol->rt);
 					rc = -EFAULT;
+					goto end;
 				}
-				IPADBG("deleted RT rule %d\n", pol->rt);
+				IPADBG("Deleted RT rule %d\n", pol->rt);
 
 				pol->rt = -1;
 
 				/* Duplicate the message struct,
 				   because it will be freed by the send routine */
 				ul_flt_del = kmemdup(ul_flt, sizeof(*ul_flt), GFP_KERNEL);
-				if (!ul_flt_del &&
-				    (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt_del) != 0))
-					return -EFAULT;
+				if (unlikely(!ul_flt_del)) {
+					IPAERR("Failed allocating ipa_ioc_ipsec_ul_flt_attr\n");
+					rc = -EFAULT;
+					goto end;
+				}
+				rc = ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt_del);
+				if (rc != 0) {
+					IPAERR("Failed sending IPA_IPSEC_UL_FLT_DEL_EVENT\n");
+					goto end;
+				}
 			}
 
 			/* Construct and install header template and HPC */
@@ -1078,7 +1088,7 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 				if (rc < 0) {
 					IPAERR("ipa_ipsec_install_encap_hpc returned %d\n", rc);
 					kfree(ul_flt);
-					return rc;
+					goto end;
 				}
 			}
 
@@ -1093,29 +1103,35 @@ static int ipa_ipsec_install_cached_ul_pols(u8 idx)
 				ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 				mutex_unlock(&ipa3_ctx->lock);
 				kfree(ul_flt);
-				return rt;
+				rc = rt;
+				goto end;
 			}
 			pol->rt = rt;
 
 			IPADBG("pol->rt = %d\n", pol->rt);
 
-			if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_ADD_EVENT, ul_flt) != 0)
-				return -EFAULT;
+			if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_ADD_EVENT, ul_flt) != 0) {
+				rc = -EFAULT;
+				goto end;
+                        }
 		}
 	}
 
-	return 0;
+end:
+	mutex_unlock(&ipa3_ctx->ipsec->pol_list_lock);
+	return rc;
 }
 
 /* Install FnR for DL policies installed before a matching state */
 static int ipa_ipsec_install_cached_dl_pols(u8 idx)
 {
-	int i = 0;
+	int ret = 0, i = 0;
 	u32 flt;
 	struct ipa_ipsec_policy *pol;
 
 	IPADBG("Start\n");
 
+	mutex_lock(&ipa3_ctx->ipsec->pol_list_lock);
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (ipa_ipsec_tmpl_sa_match(pol->xp->xfrm_vec,
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x)) {
@@ -1128,19 +1144,23 @@ static int ipa_ipsec_install_cached_dl_pols(u8 idx)
 
 			if (i == IPA_IPSEC_DL_FLT_PER_POL) {
 				IPAERR("The policy already has %d rules.\n", IPA_IPSEC_DL_FLT_PER_POL);
-				return -EFAULT;
+				ret = -EFAULT;
+				goto end;
 			}
 
 			flt = ipa_ipsec_install_decap_flt(pol->xp, idx);
-			if (!flt)
-				return -EFAULT;
+			if (!flt) {
+				ret = -EFAULT;
+				goto end;
+			}
 
 			IPADBG("pol->flt[%d] = %d\n", i, pol->flt[i]);
 			pol->flt[i] = flt;
 		}
 	}
-
-	return 0;
+end:
+	mutex_unlock(&ipa3_ctx->ipsec->pol_list_lock);
+	return ret;
 }
 
 /* Delete FnR for UL policies after destroying a matching state */
@@ -1154,6 +1174,7 @@ static int ipa_ipsec_delete_orphan_ul_fnr(u8 idx)
 
 	/* More than one policy may be mapped to the SA,
 	   we will delete FnR for each mapped policy */
+	mutex_lock(&ipa3_ctx->ipsec->pol_list_lock);
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (ipa_ipsec_tmpl_sa_match(pol->xp->xfrm_vec,
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x)) {
@@ -1162,7 +1183,8 @@ static int ipa_ipsec_delete_orphan_ul_fnr(u8 idx)
 				sizeof(struct ipa_ioc_ipsec_ul_flt_attr), GFP_KERNEL);
 			if (!ul_flt) {
 				IPAERR("Failed to allocate ipa_ioc_ipsec_ul_flt_attr\n");
-				return -EFAULT;
+				rc = -EFAULT;
+				goto end;
 			}
 			ul_flt->ip = pol->xp->selector.family == AF_INET6 ? IPA_IP_v6 : IPA_IP_v4;
 			ipa_ipsec_xfrm_sp_to_ipa_attrib(pol->xp, &ul_flt->attr, IPA_IPSEC_MAX_SA_NUM);
@@ -1186,11 +1208,15 @@ static int ipa_ipsec_delete_orphan_ul_fnr(u8 idx)
 			}
 
 			/* Send FLT deletion event to IPACM */
-			if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt) != 0)
+			if (ipa3_send_ipsec_ul_flt(IPA_IPSEC_UL_FLT_DEL_EVENT, ul_flt) != 0) {
 				rc = -EFAULT;
+				goto end;
+			}
 		}
 	}
 
+end:
+	mutex_unlock(&ipa3_ctx->ipsec->pol_list_lock);
 	return rc;
 }
 
@@ -1204,6 +1230,7 @@ static void ipa_ipsec_delete_orphan_dl_fnr(enum ipa_ip_type ip, u8 idx)
 	IPADBG("Start\n");
 
 	/* Find and delete all DL policy filtering rules that check this SA metadata */
+	mutex_lock(&ipa3_ctx->ipsec->pol_list_lock);
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (pol->xp->xdo.dir == XFRM_DEV_OFFLOAD_IN) {
 			for (i = 0; i < IPA_IPSEC_DL_FLT_PER_POL; i++) {
@@ -1228,6 +1255,7 @@ static void ipa_ipsec_delete_orphan_dl_fnr(enum ipa_ip_type ip, u8 idx)
 			}
 		}
 	}
+	mutex_unlock(&ipa3_ctx->ipsec->pol_list_lock);
 }
 
 int ipa_ipsec_xdo_state_add(struct xfrm_state *x, struct netlink_ext_ack *extack)
@@ -1922,8 +1950,10 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp, struct netlink_ext_ack *ext
 		return -EINVAL;
 	}
 
+	mutex_lock(&ipa3_ctx->ipsec->pol_list_lock);
 	list_add(&pol->l, &ipa3_ctx->ipsec->pol_list);
 	xp->xdo.offload_handle = (unsigned long)pol;
+	mutex_unlock(&ipa3_ctx->ipsec->pol_list_lock);
 
 	return 0;
 }
@@ -1994,6 +2024,7 @@ int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *rt_tbl
 
 	IPADBG("Will update DL policies\n");
 
+	mutex_lock(&ipa3_ctx->ipsec->pol_list_lock);
 	list_for_each_entry(pol, &ipa3_ctx->ipsec->pol_list, l) {
 		if (pol->xp->xdo.dir == XFRM_DEV_OFFLOAD_IN &&
 		    ((ip == IPA_IP_v4 && pol->xp->family == AF_INET) ||
@@ -2004,6 +2035,7 @@ int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *rt_tbl
 
 				flt_rule = ipa3_id_find(pol->flt[i]);
 				if (unlikely(flt_rule == NULL)) {
+					mutex_unlock(&ipa3_ctx->ipsec->pol_list_lock);
 					IPAERR("FLT tbl not found\n");
 					return -EFAULT;
 				}
@@ -2024,6 +2056,7 @@ int ipa_ipsec_handle_lan_up_down(enum ipa_ip_type ip, struct ipa3_rt_tbl *rt_tbl
 			commit = true;
 		}
 	}
+	mutex_unlock(&ipa3_ctx->ipsec->pol_list_lock);
 
 	if (commit)
 		return ipa3_commit_flt(ip);
@@ -2091,8 +2124,10 @@ void ipa_ipsec_xdo_policy_free_work(struct work_struct *work)
 	/* This will commit flt as well */
 	WARN_ON(ipa3_commit_rt(work_data->ip));
 
+	mutex_lock(&ipa3_ctx->ipsec->pol_list_lock);
 	list_del(&pol->l);
 	kfree(pol);
+	mutex_unlock(&ipa3_ctx->ipsec->pol_list_lock);
 	kfree(work_data);
 }
 
@@ -3041,6 +3076,7 @@ int ipa_ipsec_init(void)
 	atomic_set(&ipa3_ctx->stats.ipsec_decap_excp, 0);
 
 	INIT_LIST_HEAD(&ipa3_ctx->ipsec->pol_list);
+	mutex_init(&ipa3_ctx->ipsec->pol_list_lock);
 
 	/* Init SA threshold workqueue */
 	ipa_ipsec_wq = create_singlethread_workqueue(IPSEC_WORKQUEUE_NAME);
@@ -3127,6 +3163,7 @@ free_wq:
 	destroy_workqueue(ipa_ipsec_wq);
 	ipa_ipsec_wq = NULL;
 free_xfrmdev_ops:
+	mutex_destroy(&ipa3_ctx->ipsec->pol_list_lock);
 	kfree(ipa3_ctx->ipsec->xfrmdev_ops);
 free_ctx:
 	kfree(ipa3_ctx->ipsec);
@@ -3235,6 +3272,9 @@ void ipa_ipsec_cleanup(void)
 	ipa_ipsec_wq = NULL;
 	destroy_workqueue(ipa_uc_ipsec_wq);
 	ipa_uc_ipsec_wq = NULL;
+
+	mutex_destroy(&ipa3_ctx->ipsec->pol_list_lock);
+
 	kfree(ipa3_ctx->ipsec->xfrmdev_ops);
 	kfree(ipa3_ctx->ipsec);
 	ipa3_ctx->ipsec = NULL;
