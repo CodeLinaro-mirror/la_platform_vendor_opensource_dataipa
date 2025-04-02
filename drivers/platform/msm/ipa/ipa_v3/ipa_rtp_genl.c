@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_rtp_genl.h"
@@ -116,8 +116,6 @@ static enum ipa_client_type ipa3_get_rtp_dst_pipe(u32 stream_id)
 static int ipa3_rtp_del_flt_rule(u32 stream_id)
 {
 	int rc = 0;
-	int ipa_ep_idx;
-	struct ipa3_ep_context *ep;
 	struct ipa_ioc_del_flt_rule *rtp_del_flt_rule = NULL;
 
 	rtp_del_flt_rule = kzalloc(sizeof(*rtp_del_flt_rule) +
@@ -128,23 +126,20 @@ static int ipa3_rtp_del_flt_rule(u32 stream_id)
 		return rc;
 	}
 
-	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
-	ep = &ipa3_ctx->ep[ipa_ep_idx];
-
 	/* check whether filter rule hdl is deleted or not */
-	if (ep->rtp_flt4_rule_hdls[stream_id] != -1) {
+	if (ipa3_ctx->rtp_flt4_rule_hdls[stream_id] != -1) {
 		IPADBG("Deleting rtp filter rules of stream_id: %u\n", stream_id);
 		rtp_del_flt_rule->commit = 1;
 		rtp_del_flt_rule->ip = 0;
 		rtp_del_flt_rule->num_hdls = 1;
-		rtp_del_flt_rule->hdl[0].hdl = ep->rtp_flt4_rule_hdls[stream_id];
+		rtp_del_flt_rule->hdl[0].hdl = ipa3_ctx->rtp_flt4_rule_hdls[stream_id];
 		if (ipa3_del_flt_rule(rtp_del_flt_rule) || rtp_del_flt_rule->hdl[0].status) {
 			IPAERR("failed to del rtp_flt_rule\n");
 			kfree(rtp_del_flt_rule);
 			rc = -EPERM;
 			return rc;
 		}
-		ep->rtp_flt4_rule_hdls[stream_id] = -1;
+		ipa3_ctx->rtp_flt4_rule_hdls[stream_id] = -1;
 	}
 
 	kfree(rtp_del_flt_rule);
@@ -305,6 +300,20 @@ int ipa3_install_rtp_hdr_proc_rt_flt_rules(struct traffic_tuple_info *tuple_info
 	rtp_rt_rule_entry->rule.retain_hdr = 1;
 	rtp_rt_rule_entry->status = -1;
 
+	rtp_rt_rule_entry->rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
+	rtp_rt_rule_entry->rule.attrib.u.v4.dst_addr = tuple_info->ip_info.ipv4.dst_ip;
+	rtp_rt_rule_entry->rule.attrib.u.v4.src_addr_mask = 0xFFFFFFFF;
+	rtp_rt_rule_entry->rule.attrib.u.v4.src_addr = tuple_info->ip_info.ipv4.src_ip;
+	rtp_rt_rule_entry->rule.attrib.u.v4.protocol = tuple_info->ip_info.ipv4.protocol;
+	rtp_rt_rule_entry->rule.attrib.src_port = tuple_info->ip_info.ipv4.src_port_number;
+	rtp_rt_rule_entry->rule.attrib.dst_port = tuple_info->ip_info.ipv4.dst_port_number;
+
+	rtp_rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_SRC_ADDR;
+	rtp_rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
+	rtp_rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_PROTOCOL;
+	rtp_rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_SRC_PORT;
+	rtp_rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_PORT;
+
 	if (ipa_add_rt_rule(rtp_rt_rule) || rtp_rt_rule_entry->status) {
 		IPAERR("fail to add rtp_rt_rule\n");
 		rc = -EPERM;
@@ -321,8 +330,6 @@ int ipa3_install_rtp_hdr_proc_rt_flt_rules(struct traffic_tuple_info *tuple_info
 	IPADBG("rtp rt tbl idx %d\n", ipa3_ctx->rtp_rt4_tbl_idxs[stream_id]);
 	IPADBG("rtp rt tbl hdl %d\n", ipa3_ctx->rtp_rt4_tbl_hdls[stream_id]);
 
-	IPADBG("adding rtp flt rules for %d\n", ipa_ep_idx);
-
 	rtp_flt_rule = kzalloc(sizeof(*rtp_flt_rule) +
 		1 * sizeof(struct ipa_flt_rule_add), GFP_KERNEL);
 	if (!rtp_flt_rule) {
@@ -334,6 +341,8 @@ int ipa3_install_rtp_hdr_proc_rt_flt_rules(struct traffic_tuple_info *tuple_info
 	memset(rtp_flt_rule, 0, sizeof(*rtp_flt_rule));
 	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
 	ep = &ipa3_ctx->ep[ipa_ep_idx];
+
+	IPADBG("adding rtp flt rules for %d\n", ipa_ep_idx);
 
 	rtp_flt_rule->commit = 1;
 	rtp_flt_rule->ip = tuple_info->ip_type;
@@ -368,8 +377,8 @@ int ipa3_install_rtp_hdr_proc_rt_flt_rules(struct traffic_tuple_info *tuple_info
 		goto free_rtp_flt_rule;
 	}
 
-	ep->rtp_flt4_rule_hdls[stream_id] = rtp_flt_rule->rules[0].flt_rule_hdl;
-	IPADBG("rtp flt rule hdl is %u\n", ep->rtp_flt4_rule_hdls[stream_id]);
+	ipa3_ctx->rtp_flt4_rule_hdls[stream_id] = rtp_flt_rule->rules[0].flt_rule_hdl;
+	IPADBG("rtp flt rule hdl is %u\n", ipa3_ctx->rtp_flt4_rule_hdls[stream_id]);
 
 free_rtp_flt_rule:
 	kfree(rtp_flt_rule);
@@ -884,7 +893,6 @@ int ipa_rtp_rmv_stream_id_req_hdlr(struct sk_buff *skb_2,
 	if (is_req_valid && (ipa3_uc_send_remove_stream_cmd(&rmv_sid_req)
 		|| ipa3_delete_rtp_hdr_proc_rt_flt_rules(rmv_sid_req.stream_id))) {
 		IPAERR("failed in removing stream-id, deleting hdr proc and flt rules\n");
-		return rc;
 	}
 
 	ipa_rtp_active_streams[rmv_sid_req.stream_id] = 0;
