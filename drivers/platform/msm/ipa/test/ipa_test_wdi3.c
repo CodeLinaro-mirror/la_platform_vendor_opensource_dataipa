@@ -710,11 +710,11 @@ static int ipa_wdi3_setup_pipes(void)
 		test_wdi3_ctx->tx_event_ring_addr.size;
 	in_param->u_tx.tx.event_ring_doorbell_pa =
 		test_wdi3_ctx->tx_event_ring_db.phys_base;
-	IPA_UT_DBG("tx_event_ring_db.phys_base %pa\n",
+	IPA_UT_DBG("tx_event_ring_db.phys_base %u\n",
 		test_wdi3_ctx->tx_event_ring_db.phys_base);
 	IPA_UT_DBG("tx_event_ring_db.base %pK\n",
 		test_wdi3_ctx->tx_event_ring_db.base);
-	IPA_UT_DBG("tx_event_ring.phys_base %pa\n",
+	IPA_UT_DBG("tx_event_ring.phys_base %u\n",
 		test_wdi3_ctx->tx_event_ring_addr.phys_base);
 	IPA_UT_DBG("tx_event_ring.base %pK\n",
 		test_wdi3_ctx->tx_event_ring_addr.base);
@@ -739,7 +739,7 @@ static int ipa_wdi3_setup_pipes(void)
 	in_param->u_rx.rx.event_ring_doorbell_pa =
 		test_wdi3_ctx->rx_event_ring_db.phys_base;
 
-	IPA_UT_DBG("rx_event_ring_db.phys_base %pa\n",
+	IPA_UT_DBG("rx_event_ring_db.phys_base %u\n",
 		in_param->u_rx.rx.event_ring_doorbell_pa);
 	IPA_UT_DBG("rx_event_ring_db.base %pK\n",
 		test_wdi3_ctx->rx_event_ring_addr.base);
@@ -760,7 +760,7 @@ static int ipa_wdi3_setup_pipes(void)
 	}
 	test_wdi3_ctx->tx_uc_db_pa = out_param->tx_uc_db_pa;
 	test_wdi3_ctx->rx_uc_db_pa = out_param->rx_uc_db_pa;
-	IPA_UT_DBG("tx_uc_db_pa %pa, rx_uc_db_pa %pa.\n",
+	IPA_UT_DBG("tx_uc_db_pa %u, rx_uc_db_pa %u.\n",
 		test_wdi3_ctx->tx_uc_db_pa, test_wdi3_ctx->rx_uc_db_pa);
 
 	rx_uc_db = ioremap(test_wdi3_ctx->rx_uc_db_pa, DB_REGISTER_SIZE);
@@ -870,11 +870,11 @@ static int ipa_wdi3_setup_pipes_2g_5g(void)
 		test_wdi3_ctx->tx_event_ring_addr.size;
 	in_param->u_tx.tx.event_ring_doorbell_pa =
 		test_wdi3_ctx->tx_event_ring_db.phys_base;
-	IPA_UT_DBG("tx_event_ring_db.phys_base %pa\n",
+	IPA_UT_DBG("tx_event_ring_db.phys_base %u\n",
 		test_wdi3_ctx->tx_event_ring_db.phys_base);
 	IPA_UT_DBG("tx_event_ring_db.base %pK\n",
 		test_wdi3_ctx->tx_event_ring_db.base);
-	IPA_UT_DBG("tx_event_ring.phys_base %pa\n",
+	IPA_UT_DBG("tx_event_ring.phys_base %u\n",
 		test_wdi3_ctx->tx_event_ring_addr.phys_base);
 	IPA_UT_DBG("tx_event_ring.base %pK\n",
 		test_wdi3_ctx->tx_event_ring_addr.base);
@@ -897,11 +897,11 @@ static int ipa_wdi3_setup_pipes_2g_5g(void)
 		test_wdi3_ctx->tx1_event_ring_addr.size;
 	in_param->u_tx1.tx.event_ring_doorbell_pa =
 		test_wdi3_ctx->tx1_event_ring_db.phys_base;
-	IPA_UT_DBG("tx1_event_ring_db.phys_base %pa\n",
+	IPA_UT_DBG("tx1_event_ring_db.phys_base %u\n",
 		test_wdi3_ctx->tx1_event_ring_db.phys_base);
 	IPA_UT_DBG("tx1_event_ring_db.base %pK\n",
 		test_wdi3_ctx->tx1_event_ring_db.base);
-	IPA_UT_DBG("tx1_event_ring.phys_base %pa\n",
+	IPA_UT_DBG("tx1_event_ring.phys_base %u\n",
 		test_wdi3_ctx->tx1_event_ring_addr.phys_base);
 	IPA_UT_DBG("tx1_event_ring.base %pK\n",
 		test_wdi3_ctx->tx1_event_ring_addr.base);
@@ -926,7 +926,7 @@ static int ipa_wdi3_setup_pipes_2g_5g(void)
 	in_param->u_rx.rx.event_ring_doorbell_pa =
 		test_wdi3_ctx->rx_event_ring_db.phys_base;
 
-	IPA_UT_DBG("rx_event_ring_db.phys_base %pa\n",
+	IPA_UT_DBG("rx_event_ring_db.phys_base %u\n",
 		in_param->u_rx.rx.event_ring_doorbell_pa);
 	IPA_UT_DBG("rx_event_ring_db.base %pK\n",
 		test_wdi3_ctx->rx_event_ring_addr.base);
@@ -951,7 +951,7 @@ static int ipa_wdi3_setup_pipes_2g_5g(void)
 	test_wdi3_ctx->tx1_uc_db_pa = out_param->tx1_uc_db_pa;
 	test_wdi3_ctx->rx_uc_db_pa = out_param->rx_uc_db_pa;
 	IPA_UT_DBG(
-		"tx_uc_db_pa %pa, rx_uc_db_pa %pa, tx1_uc_db_pa %pa.\n",
+		"tx_uc_db_pa %u, rx_uc_db_pa %u, tx1_uc_db_pa %u.\n",
 		test_wdi3_ctx->tx_uc_db_pa, test_wdi3_ctx->rx_uc_db_pa,
 		test_wdi3_ctx->tx1_uc_db_pa);
 
@@ -2878,11 +2878,11 @@ static int ipa_wdi3m_setup_pipes(void)
 		test_wdi3m_ctx->tx_event_ring_addr.size;
 	in_param->u_tx.tx.event_ring_doorbell_pa =
 		test_wdi3m_ctx->tx_event_ring_db.phys_base;
-	IPA_UT_DBG("tx_event_ring_db.phys_base %pa\n",
+	IPA_UT_DBG("tx_event_ring_db.phys_base %u\n",
 		test_wdi3m_ctx->tx_event_ring_db.phys_base);
 	IPA_UT_DBG("tx_event_ring_db.base %pK\n",
 		test_wdi3m_ctx->tx_event_ring_db.base);
-	IPA_UT_DBG("tx_event_ring.phys_base %pa\n",
+	IPA_UT_DBG("tx_event_ring.phys_base %u\n",
 		test_wdi3m_ctx->tx_event_ring_addr.phys_base);
 	IPA_UT_DBG("tx_event_ring.base %pK\n",
 		test_wdi3m_ctx->tx_event_ring_addr.base);
@@ -2907,7 +2907,7 @@ static int ipa_wdi3m_setup_pipes(void)
 	in_param->u_rx.rx.event_ring_doorbell_pa =
 		test_wdi3m_ctx->rx_event_ring_db.phys_base;
 
-	IPA_UT_DBG("rx_event_ring_db.phys_base %pa\n",
+	IPA_UT_DBG("rx_event_ring_db.phys_base %u\n",
 		in_param->u_rx.rx.event_ring_doorbell_pa);
 	IPA_UT_DBG("rx_event_ring_db.base %pK\n",
 		test_wdi3m_ctx->rx_event_ring_addr.base);
@@ -2928,7 +2928,7 @@ static int ipa_wdi3m_setup_pipes(void)
 	}
 	test_wdi3m_ctx->tx_uc_db_pa = out_param->tx_uc_db_pa;
 	test_wdi3m_ctx->rx_uc_db_pa = out_param->rx_uc_db_pa;
-	IPA_UT_DBG("tx_uc_db_pa %pa, rx_uc_db_pa %pa.\n",
+	IPA_UT_DBG("tx_uc_db_pa %u, rx_uc_db_pa %u.\n",
 		test_wdi3m_ctx->tx_uc_db_pa, test_wdi3m_ctx->rx_uc_db_pa);
 
 	rx_uc_db = ioremap(test_wdi3m_ctx->rx_uc_db_pa, DB_REGISTER_SIZE);

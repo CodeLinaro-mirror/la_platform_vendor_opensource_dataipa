@@ -357,7 +357,7 @@ static ssize_t channel_write_gsi(struct file *filp, const char __user *buf,
 	struct gsi_xfer_elem gsi_xfer;
 
 	if (count > (RX_BUFF_SIZE))
-		IPATEST_ERR("-----PROBLEM----- count=%zu RX_BUFF_SIZE=%lu\n",
+		IPATEST_ERR("-----PROBLEM----- count=%zu RX_BUFF_SIZE=%u\n",
 		count, RX_BUFF_SIZE);
 
 	/* Copy the data from the user and transmit */
