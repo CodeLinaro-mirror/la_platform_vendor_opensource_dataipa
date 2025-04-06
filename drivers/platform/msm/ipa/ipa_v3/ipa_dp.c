@@ -2376,6 +2376,7 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 	const struct ipa_gsi_ep_config *gsi_ep;
 	int data_idx;
 	unsigned int max_desc;
+	enum ipa_client_type type;
 
 	if (unlikely(!ipa3_ctx)) {
 		IPAERR("IPA3 driver was not initialized\n");
@@ -2414,6 +2415,12 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 			dst_ep_idx = meta->pkt_init_dst_ep;
 		else
 			dst_ep_idx = -1;
+	}
+
+	if (atomic_read(&ipa3_ctx->is_suspend_mode_enabled)) {
+		atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
+		type = ipa3_get_client_by_pipe(src_ep_idx);
+		IPAERR("Client %s woke up the system\n", ipa_clients_strings[type]);
 	}
 
 	sys = ipa3_ctx->ep[src_ep_idx].sys;
@@ -2985,13 +2992,14 @@ int ipa_register_notifier(void *fn_ptr)
 	if (fn_ptr == NULL)
 		return -EFAULT;
 	spin_lock(&ipa3_ctx->notifier_lock);
-	ipa_notifier_block = (struct ipa_notifier_block_data *)kzalloc(sizeof(struct ipa_notifier_block_data), GFP_KERNEL);
+	ipa_notifier_block = (struct ipa_notifier_block_data *)kzalloc(sizeof(struct ipa_notifier_block_data), GFP_ATOMIC);
 	if (ipa_notifier_block == NULL) {
 		IPAWANERR("Buffer threshold notifier failure\n");
 		spin_unlock(&ipa3_ctx->notifier_lock);
 		return -EFAULT;
 	}
 	ipa_notifier_block->ipa_rmnet_notifier.notifier_call = fn_ptr;
+	INIT_LIST_HEAD(&ipa_notifier_block->entry);
 	list_add(&ipa_notifier_block->entry, &ipa3_ctx->notifier_block_list_head);
 	raw_notifier_chain_register(ipa3_ctx->ipa_rmnet_notifier_list_internal,
 		&ipa_notifier_block->ipa_rmnet_notifier);
@@ -3931,6 +3939,7 @@ static int ipa3_lan_rx_pyld_hdlr(struct sk_buff *skb,
 	unsigned long unused = IPA_GENERIC_RX_BUFF_BASE_SZ - used;
 	struct ipa3_tx_pkt_wrapper *tx_pkt = NULL;
 	unsigned long ptr;
+	enum ipa_client_type type;
 
 	IPA_DUMP_BUFF(skb->data, 0, skb->len);
 
@@ -4029,6 +4038,12 @@ begin:
 		IPADBG_LOW("STATUS opcode=%d src=%d dst=%d len=%d\n",
 				status.status_opcode, status.endp_src_idx,
 				status.endp_dest_idx, status.pkt_len);
+		if (atomic_read(&ipa3_ctx->is_suspend_mode_enabled)) {
+			atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
+			type = ipa3_get_client_by_pipe(status.endp_src_idx);
+			IPAERR("Client %s woke up the system\n", ipa_clients_strings[type]);
+			trace_ipa_tx_dp(skb, sys->ep->client);
+		}
 		if (sys->status_stat) {
 			sys->status_stat->status[sys->status_stat->curr] =
 				status;

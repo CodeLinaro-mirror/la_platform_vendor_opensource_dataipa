@@ -25,6 +25,10 @@ define_modules("monaco", "consolidate")
 
 define_modules("monaco", "perf")
 
+define_modules("vienna", "consolidate")
+
+define_modules("vienna", "perf")
+
 package(
     default_visibility = [
         "//visibility:public",
