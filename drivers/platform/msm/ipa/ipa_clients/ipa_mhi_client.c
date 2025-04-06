@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -3285,7 +3285,7 @@ fail_pm_cons:
  * Return codes: 0	  : success
  *		 negative : error
  */
-int ipa_mhi_init_internal(struct ipa_mhi_init_params *params)
+int ipa_mhi_init(struct ipa_mhi_init_params *params)
 {
 	int res = 0;
 	struct net_device *net;
@@ -3499,7 +3499,7 @@ fail_netdev_priv:
 fail_alloc_etherdev:
 	return res;
 }
-EXPORT_SYMBOL(ipa_mhi_init_internal);
+EXPORT_SYMBOL(ipa_mhi_init);
 
 /**
  * ipa_mhi_handle_ipa_config_req() - hanle IPA CONFIG QMI message
@@ -3602,7 +3602,7 @@ int ipa_mhi_dma_init(struct mhi_dma_function_params function,
 	ipa_mhi_get_ch_bitmap(&out->ch_db_fwd_msk);
 	out->ev_db_fwd_msk = out->ch_db_fwd_msk;
 
-	return ipa_mhi_init_internal((struct ipa_mhi_init_params *)params);;
+	return ipa_mhi_init((struct ipa_mhi_init_params *)params);;
 }
 EXPORT_SYMBOL(ipa_mhi_dma_init);
 

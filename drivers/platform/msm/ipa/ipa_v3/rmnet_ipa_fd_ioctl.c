@@ -498,6 +498,14 @@ static long ipa3_wan_ioctl(struct file *filp,
 			retval = -EFAULT;
 			break;
 		}
+		/* Backup connection info to resend to IPACM if ipacm restart */
+		if (rmnet_ipa3_copy_lan_stats_msg(
+			(struct wan_ioctl_send_lan_client_msg *)
+			param)) {
+			IPAWANERR("LAN STATS info copy is failed\n");
+			retval = -EFAULT;
+			break;
+		}
 		break;
 	case WAN_IOC_NOTIFY_NAT_MOVE_RES:
 		IPAWANDBG_LOW("got WAN_IOC_NOTIFY_NAT_MOVE_RES :>>>\n");

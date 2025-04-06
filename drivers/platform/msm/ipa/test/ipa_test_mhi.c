@@ -899,7 +899,7 @@ static int ipa_mhi_test_initialize_driver(bool skip_start_and_conn)
 	init_params.priv = NULL;
 	init_params.test_mode = true;
 
-	rc = ipa_mhi_init_internal(&init_params);
+	rc = ipa_mhi_init(&init_params);
 	if (rc) {
 		IPA_UT_LOG("ipa_mhi_init failed %d\n", rc);
 		return rc;
