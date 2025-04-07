@@ -2458,64 +2458,6 @@ int ipa_ipsec_install_qmi_flt(struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
 }
 EXPORT_SYMBOL(ipa_ipsec_install_qmi_flt);
 
-int ipa_ipsec_ep_init_prod(void)
-{
-	u32 clnt_hdl;
-	static bool allocated = false;
-	struct ipa_sys_connect_params sys_in;
-
-	IPADBG("Start\n");
-
-	/* This may be called number of times from rmnet_ipa */
-	if (allocated)
-		return 0;
-
-	/* IPsec encap (AP->IPA) */
-	memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
-	sys_in.client = IPA_CLIENT_IPSEC_ENCAP_PROD;
-	sys_in.desc_fifo_sz = IPA_SYS_TX_DATA_DESC_FIFO_SZ;
-	sys_in.ipa_ep_cfg.mode.mode = IPA_BASIC;
-	sys_in.ipa_ep_cfg.mode.dst = IPA_CLIENT_IPSEC_ENCAP_PROD;
-	sys_in.ipa_ep_cfg.cfg.cs_offload_en = IPA_DISABLE_CS_OFFLOAD;
-	sys_in.ipa_ep_cfg.aggr.aggr_en = IPA_BYPASS_AGGR;
-	sys_in.ipa_ep_cfg.hdr.hdr_len = 4;
-	sys_in.ipa_ep_cfg.hdr.hdr_ofst_metadata_valid = 1;
-	sys_in.ipa_ep_cfg.hdr.hdr_ofst_metadata = 0;
-	sys_in.ipa_ep_cfg.hdr.hdr_ofst_pkt_size = 2;
-	sys_in.notify = apps_ipa_tx_complete_notify;
-	sys_in.priv = ipa3_ctx->ipsec->dev;
-	sys_in.ext_ioctl_v2 = true;
-	sys_in.int_modt = 16;
-	sys_in.int_modc = 20;
-	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
-		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
-		return -EPERM;
-	}
-
-	/* IPsec decap (AP->IPA) */
-	memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
-	sys_in.client = IPA_CLIENT_IPSEC_DECAP_PROD;
-	sys_in.desc_fifo_sz = IPA_SYS_TX_DATA_DESC_FIFO_SZ;
-	sys_in.ipa_ep_cfg.mode.mode = IPA_BASIC;
-	sys_in.ipa_ep_cfg.mode.dst = IPA_CLIENT_IPSEC_DECAP_PROD;
-	sys_in.ipa_ep_cfg.cfg.cs_offload_en = IPA_DISABLE_CS_OFFLOAD;
-	sys_in.ipa_ep_cfg.aggr.aggr_en = IPA_BYPASS_AGGR;
-	sys_in.ipa_ep_cfg.hdr.hdr_len = 0;
-	sys_in.notify = apps_ipa_tx_complete_notify;
-	sys_in.priv = ipa3_ctx->ipsec->dev;
-	sys_in.ext_ioctl_v2 = true;
-	sys_in.int_modt = 16;
-	sys_in.int_modc = 20;
-	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
-		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
-		return -EPERM;
-	}
-
-	allocated = true;
-	return 0;
-}
-EXPORT_SYMBOL(ipa_ipsec_ep_init_prod);
-
 void ipa_ipsec_ep_init_cons(struct work_struct *work)
 {
 	u32 clnt_hdl;
@@ -2988,6 +2930,73 @@ fail_flt:
 	return ret;
 }
 
+int ipa_ipsec_ep_init_prod(void)
+{
+	u32 clnt_hdl;
+	static bool allocated = false;
+	struct ipa_sys_connect_params sys_in;
+	int ret = 0;
+
+	IPADBG("Start\n");
+
+	/* This may be called number of times from rmnet_ipa */
+	if (allocated)
+		return 0;
+
+	/*Initilize the filter/route rules before IPSEC setup pipes*/
+	ret = ipa_ipsec_fnr_init();
+	if (ret != 0) {
+		IPAERR("Failed to init IPsec FnR\n");
+		return ret;
+	}
+
+	/* IPsec encap (AP->IPA) */
+	memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
+	sys_in.client = IPA_CLIENT_IPSEC_ENCAP_PROD;
+	sys_in.desc_fifo_sz = IPA_SYS_TX_DATA_DESC_FIFO_SZ;
+	sys_in.ipa_ep_cfg.mode.mode = IPA_BASIC;
+	sys_in.ipa_ep_cfg.mode.dst = IPA_CLIENT_IPSEC_ENCAP_PROD;
+	sys_in.ipa_ep_cfg.cfg.cs_offload_en = IPA_DISABLE_CS_OFFLOAD;
+	sys_in.ipa_ep_cfg.aggr.aggr_en = IPA_BYPASS_AGGR;
+	sys_in.ipa_ep_cfg.hdr.hdr_len = 4;
+	sys_in.ipa_ep_cfg.hdr.hdr_ofst_metadata_valid = 1;
+	sys_in.ipa_ep_cfg.hdr.hdr_ofst_metadata = 0;
+	sys_in.ipa_ep_cfg.hdr.hdr_ofst_pkt_size = 2;
+	sys_in.notify = apps_ipa_tx_complete_notify;
+	sys_in.priv = ipa3_ctx->ipsec->dev;
+	sys_in.ext_ioctl_v2 = true;
+	sys_in.int_modt = 16;
+	sys_in.int_modc = 20;
+	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
+		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
+		return -EPERM;
+	}
+
+	/* IPsec decap (AP->IPA) */
+	memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
+	sys_in.client = IPA_CLIENT_IPSEC_DECAP_PROD;
+	sys_in.desc_fifo_sz = IPA_SYS_TX_DATA_DESC_FIFO_SZ;
+	sys_in.ipa_ep_cfg.mode.mode = IPA_BASIC;
+	sys_in.ipa_ep_cfg.mode.dst = IPA_CLIENT_IPSEC_DECAP_PROD;
+	sys_in.ipa_ep_cfg.cfg.cs_offload_en = IPA_DISABLE_CS_OFFLOAD;
+	sys_in.ipa_ep_cfg.aggr.aggr_en = IPA_BYPASS_AGGR;
+	sys_in.ipa_ep_cfg.hdr.hdr_len = 0;
+	sys_in.notify = apps_ipa_tx_complete_notify;
+	sys_in.priv = ipa3_ctx->ipsec->dev;
+	sys_in.ext_ioctl_v2 = true;
+	sys_in.int_modt = 16;
+	sys_in.int_modc = 20;
+	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
+		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
+		return -EPERM;
+	}
+
+	allocated = true;
+	return 0;
+}
+EXPORT_SYMBOL(ipa_ipsec_ep_init_prod);
+
+
 /* Map uC SMMU for encap SAs. To be used by uC for NextIV WA */
 static int ipa_ipsec_map_uc_smmu(phys_addr_t pa, unsigned long *iova)
 {
@@ -3175,7 +3184,7 @@ free_ctx:
 
 int ipa_ipsec_enable(void)
 {
-	int n, ret;
+	int n;
 	u32 ipsec_ep_cfg;
 
 	if (!ipa3_ctx->ipa_config_is_ipsec) {
@@ -3215,12 +3224,6 @@ int ipa_ipsec_enable(void)
 		ipahal_write_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, n, ipsec_ep_cfg);
 	}
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-
-	ret = ipa_ipsec_fnr_init();
-	if (ret != 0) {
-		IPAERR("Failed to init IPsec FnR\n");
-		return ret;
-	}
 
 	/* Update RMNET netdev */
 	if (ipa3_ctx->ipsec->dev) {
