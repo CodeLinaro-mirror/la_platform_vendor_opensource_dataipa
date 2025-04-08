@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <net/ip.h>
@@ -6812,9 +6812,9 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.stats_rt_v6_ofst = 0,
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x2d70,
-	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3910,
-	.stats_drop_size = 0x20,
+	.stats_fnr_size = 0xb90,
+	.stats_drop_ofst = 0x3900,
+	.stats_drop_size = 0x30,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x3938,

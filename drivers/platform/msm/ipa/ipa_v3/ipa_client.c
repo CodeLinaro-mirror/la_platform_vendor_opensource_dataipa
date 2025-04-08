@@ -91,8 +91,10 @@ int ipa3_enable_data_path(u32 clnt_hdl)
 			holb_cfg.en = IPA_HOLB_TMR_EN;
 		} else if ((ipa3_ctx->ipa_hw_type == IPA_HW_v5_0) &&
 				(ep->client == IPA_CLIENT_USB_CONS ||
+				 ep->client == IPA_CLIENT_APPS_LAN_CONS ||
 				 ep->client == IPA_CLIENT_RTK_ETHERNET_CONS ||
 				 ep->client == IPA_CLIENT_ETHERNET_CONS ||
+				 ep->client == IPA_CLIENT_ETHERNET2_CONS ||
 				 ep->client == IPA_CLIENT_AQC_ETHERNET_CONS)){
 			holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
 			holb_cfg.en = IPA_HOLB_TMR_EN;

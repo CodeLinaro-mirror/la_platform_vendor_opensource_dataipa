@@ -1865,6 +1865,17 @@ int ipa_drop_stats_init(void)
 				IPA_CLIENT_ETHERNET_CONS,
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
+			/* Enable Drop Stats for Eth1 instance */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET2_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			/* Enable Drop Stats for LAN CONSUMER pipe */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_APPS_LAN_CONS,
+					&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
 		}
 
 	} else {
