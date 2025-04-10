@@ -1111,7 +1111,7 @@ int ipa_wdi_dereg_intf_per_inst_mlo(const char *netdev_name,
 	}
 	else {
 		IPA_WDI_DBG("non mlo iface\n");
-		strlcpy(iface_name, in->netdev_name, sizeof(iface_name));
+		strlcpy(iface_name, netdev_name, sizeof(iface_name));
 	}
 	ret = ipa_wdi_dereg_intf_per_inst(iface_name, hdl);
 
