@@ -430,7 +430,10 @@ static long ipa3_wan_ioctl(struct file *filp,
 			retval = PTR_ERR(param);
 			break;
 		}
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 && !ipa3_ctx->ipa_config_is_auto)
+			retval = rmnet_ipa3_query_per_client_stats_v3(
+			  (struct wan_ioctl_query_per_client_stats *)param);
+		else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)
 			retval = rmnet_ipa3_query_per_client_stats_v2(
 			  (struct wan_ioctl_query_per_client_stats *)param);
 		else
@@ -464,6 +467,23 @@ static long ipa3_wan_ioctl(struct file *filp,
 		}
 		break;
 
+	case WAN_IOC_SET_LAN_CLIENT_INFO_V2:
+		IPAWANDBG_LOW("got WAN_IOC_SET_LAN_CLIENT_INFO_V2 :>>>\n");
+		pyld_sz = sizeof(struct wan_ioctl_lan_client_info_v2);
+		param = vmemdup_user((const void __user *)arg, pyld_sz);
+
+		if (IS_ERR(param)) {
+			retval = PTR_ERR(param);
+			break;
+		}
+		if (rmnet_ipa3_set_lan_client_info_v2(
+			(struct wan_ioctl_lan_client_info_v2 *)param)) {
+			IPAWANERR("WAN_IOC_SET_LAN_CLIENT_INFO_V2 failed\n");
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
 	case WAN_IOC_CLEAR_LAN_CLIENT_INFO:
 		IPAWANDBG_LOW("got WAN_IOC_CLEAR_LAN_CLIENT_INFO :>>>\n");
 		pyld_sz = sizeof(struct wan_ioctl_lan_client_info);
@@ -481,6 +501,22 @@ static long ipa3_wan_ioctl(struct file *filp,
 		}
 		break;
 
+	case WAN_IOC_CLEAR_LAN_CLIENT_INFO_V2:
+		IPAWANDBG_LOW("got WAN_IOC_CLEAR_LAN_CLIENT_INFO_V2 :>>>\n");
+		pyld_sz = sizeof(struct wan_ioctl_lan_client_info_v2);
+		param = vmemdup_user((const void __user *)arg, pyld_sz);
+
+		if (IS_ERR(param)) {
+			retval = PTR_ERR(param);
+			break;
+		}
+		if (rmnet_ipa3_clear_lan_client_info_v2(
+			(struct wan_ioctl_lan_client_info_v2 *)param)) {
+			IPAWANERR("WAN_IOC_CLEAR_LAN_CLIENT_INFO_V2 failed\n");
+			retval = -EFAULT;
+			break;
+		}
+		break;
 
 	case WAN_IOC_SEND_LAN_CLIENT_MSG:
 		IPAWANDBG_LOW("got WAN_IOC_SEND_LAN_CLIENT_MSG :>>>\n");
