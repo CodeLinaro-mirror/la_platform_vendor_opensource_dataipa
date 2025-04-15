@@ -24,7 +24,11 @@
  * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
+ *
+ * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+ * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear.
  */
 #ifndef IPA_NAT_DRV_H
 #define IPA_NAT_DRV_H
@@ -113,6 +117,7 @@ typedef struct {
 	uint32_t public_ip;
 	uint32_t src_metadata;
 	uint32_t dst_metadata;
+	bool is_sta;
 } ipa_nat_pdn_entry;
 
 /**

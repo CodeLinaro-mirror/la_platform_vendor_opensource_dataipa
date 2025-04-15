@@ -28,7 +28,7 @@
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted (subject to the limitations in the
@@ -929,5 +929,44 @@ int ipa_ipv6ct_del_uc_act_entry(uint16_t index)
 	}
 	IPADBG("posted IPA_IOC_DEL_UC_ACT_ENTRY to kernel successfully, index %d\n",
 		index);
+	return 0;
+}
+
+int ipa_ct_add_ipv6_tbl(uint16_t number_of_entries, const char *mem_type_ptr, uint32_t* table_handle)
+{
+
+	IPAERR("ipv6 CT not supporting\n");
+	return 0;
+}
+
+int ipa_ct_del_ipv6_tbl(uint32_t table_handle)
+{
+
+	IPAERR("ipv6 CT not supporting\n");
+	return 0;
+}
+
+int ipa_ct_add_ipv6_rule(
+	uint32_t tbl_hdl,
+	const ipa_ipv6ct_rule *clnt_rule,
+	uint32_t *rule_hdl)
+{
+	IPAERR("ipv6 CT not supporting\n");
+	return 0;
+}
+
+int ipa_ct_del_ipv6_rule(uint32_t tbl_hdl,
+	uint32_t rule_hdl)
+{
+	IPAERR("ipv6 CT not supporting\n");
+	return 0;
+}
+
+int ipa_ct_query_timestamp(
+	uint32_t tbl_hdl,
+	uint32_t rule_hdl,
+	uint32_t* time_stamp)
+{
+	IPAERR("ipv6 CT not supporting\n");
 	return 0;
 }
