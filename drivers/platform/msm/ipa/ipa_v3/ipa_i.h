@@ -2362,8 +2362,6 @@ struct ipa3_eth_pdu_ctx {
  * @eogre_tunnel_pppoe: set as true if pppoe tunnel is set,otherwise false
  * @eogre_tunnel_tagged: set as true if tagged tunnel active,otherwise false
  * @eogre_tunnel_feature: Will store the EoGRE tunnel feature configured.
- * @multi_tunnel_eogre_cache: Will store Multi tunnel vlan mapping info
- * @gre_tmplt_cfg_cache: Will store multi tunnel template info
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2640,8 +2638,6 @@ struct ipa3_context {
 	bool eogre_tunnel_pppoe;
 	bool eogre_tunnel_tagged;
 	u8 eogre_tunnel_feature;
-	struct ipa_ioc_eogre_info multi_tunnel_eogre_cache[MAX_TUNNEL_SUPPORT];
-	struct tunnel_protocols_config_table_t gre_tmplt_cfg_cache;
 };
 
 struct ipa3_plat_drv_res {
@@ -3868,8 +3864,10 @@ int ipa3_qmi_reg_dereg_for_bw(bool bw_reg_dereg);
  * To check if the eogre is worthy of sending to recipients who would
  * use the data.
  */
-int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
-		bool *send2ipacm, bool to_add);
+int ipa3_check_eogre(
+	struct ipa_ioc_eogre_info *eogre_info,
+	bool                      *send2uC,
+	bool                      *send2ipacm );
 
 /*
  * To send map information to uC

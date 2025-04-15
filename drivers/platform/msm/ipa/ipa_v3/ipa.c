@@ -4111,8 +4111,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			goto free_mem;
 		}
 
-		retval = ipa3_check_eogre(eogre_info, &send2uC, &send2ipacm,
-				true);
+		retval = ipa3_check_eogre(eogre_info, &send2uC, &send2ipacm);
 		if (retval == -EIO)
 		{
 			IPADBG("no work needs to be done but return success to caller");
@@ -4153,16 +4152,8 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 
 		memset(eogre_info, 0, sizeof(eogre_info));
-		if (ipa3_ctx->eogre_tunnel_tagged == true) {
-			if (copy_from_user(eogre_info, (const void __user *)arg,
-					sizeof(struct ipa_ioc_eogre_info))) {
-				IPAERR_RL("copy_from_user fails\n");
-				retval = -EFAULT;
-				goto free_mem;
-			}
-		}
-		retval = ipa3_check_eogre(eogre_info, &send2uC, &send2ipacm,
-				false);
+
+		retval = ipa3_check_eogre(eogre_info, &send2uC, &send2ipacm);
 		if (retval == -EIO)
 		{
 			IPADBG("no work needs to be done but return success to caller");
@@ -9187,10 +9178,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->eogre_tunnel_pppoe = false;
 	ipa3_ctx->eogre_tunnel_tagged = false;
 	ipa3_ctx->is_eth_double_vlan_mode = false;
-	memset(&ipa3_ctx->gre_tmplt_cfg_cache, 0,
-		sizeof(ipa3_ctx->gre_tmplt_cfg_cache));
-	memset(ipa3_ctx->multi_tunnel_eogre_cache, 0,
-		sizeof(ipa3_ctx->multi_tunnel_eogre_cache));
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =
