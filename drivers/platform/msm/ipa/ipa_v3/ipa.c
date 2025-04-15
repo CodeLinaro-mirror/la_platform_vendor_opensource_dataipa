@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- *
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -256,16 +255,15 @@ EXPORT_SYMBOL(ipa_get_hw_type);
 bool ipa_is_test_prod_flt_in_sram_internal(enum ipa_ip_type ip)
 {
 	struct ipa3_flt_tbl *flt_tbl;
-	const struct ipa_gsi_ep_config *gsi_ep_info_cfg;
+	int ipa_ep_idx;
 
 	if (ipa3_ctx == NULL)
 		return false;
 
-	gsi_ep_info_cfg = ipa_get_gsi_ep_info(IPA_CLIENT_TEST_PROD);
-	if(gsi_ep_info_cfg == NULL)
+	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_TEST_PROD);
 		return false;
 
-	flt_tbl = &ipa3_ctx->flt_tbl[gsi_ep_info_cfg->ipa_ep_num][ip];
+	flt_tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][ip];
 
 	return !flt_tbl->force_sys[IPA_RULE_NON_HASHABLE] &&
 		!flt_tbl->in_sys[IPA_RULE_NON_HASHABLE];
@@ -9529,6 +9527,9 @@ static enum gsi_ver ipa3_get_gsi_ver(enum ipa_hw_type ipa_hw_type)
 	case IPA_HW_v6_0:
 		gsi_ver = GSI_VER_6_0;
 		break;
+	case IPA_HW_v7_0:
+		gsi_ver = GSI_VER_7_0;
+		break;
 	default:
 		IPAERR("No GSI version for ipa type %d\n", ipa_hw_type);
 		WARN_ON(1);
@@ -10247,7 +10248,10 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa3_ctx->ep_flt_bitmap, ipa3_ctx->ep_flt_num);
 
 	/* Assign resource limitation to each group */
-	ipa3_set_resorce_groups_min_max_limits();
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		ipa3_set_resorce_groups_min_max_limits_v7_0();
+	else
+		ipa3_set_resorce_groups_min_max_limits();
 
 	/* Initialize general resource group parameters */
 	ipa3_set_resorce_groups_config();
@@ -11294,6 +11298,10 @@ static int ipa_alloc_pkt_init_ex(void)
 	cmd.rt_retain_hdr = true;
 	cmd_mask.rt_retain_hdr = true;
 	cmd_mask.rt_pipe_dest_idx = true;
+	cmd.traffic_mode = 1;
+	cmd_mask.traffic_mode = true;
+	cmd.leading_header_size = 8;
+	cmd_mask.leading_header_size = true;
 	for (cmd.rt_pipe_dest_idx = 0;
 		cmd.rt_pipe_dest_idx < ipa3_ctx->ipa_num_pipes;
 		cmd.rt_pipe_dest_idx++) {
@@ -12218,8 +12226,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	 *
 	 * For IPA3.1 (and on), the GSI configuration is done by TZ.
 	 */
-	if (ipa3_ctx->ipa_hw_type == IPA_HW_v3_0 ||
-	    ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_EMULATION) {
+	if (ipa3_ctx->ipa_hw_type == IPA_HW_v3_0) {
 		result = ipa3_gsi_pre_fw_load_init();
 		if (result) {
 			IPAERR("gsi pre FW loading config failed\n");

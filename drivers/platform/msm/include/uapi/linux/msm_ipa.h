@@ -598,10 +598,32 @@ enum ipa_client_type {
 	IPA_CLIENT_ETHERNET_CONS3		= 153,
 
 	IPA_CLIENT_ETHERNET_PROD4		= 154,
-	IPA_CLIENT_ETHERNET_CONS4		= 155
+	IPA_CLIENT_ETHERNET_CONS4		= 155,
+
+	IPA_CLIENT_WLAN1_QOS_PROD		= 156,
+
+	IPA_CLIENT_WLAN2_QOS_PROD		= 158,
+	IPA_CLIENT_WLAN2_QOS_CONS		= 159,
+
+	IPA_CLIENT_WLAN3_QOS_PROD		= 160,
+	IPA_CLIENT_WLAN2_QOS_CONS1		= 160,
+
+	IPA_CLIENT_WLAN4_QOS_PROD		= 162,
+
+	IPA_CLIENT_WLAN4_PROD			= 164,
+
+	IPA_CLIENT_ETHERNET_QOS_PROD		= 166,
+
+	IPA_CLIENT_ETHERNET2_QOS_PROD		= 168,
+
+	IPA_CLIENT_ETHERNET3_QOS_PROD		= 170,
+
+	IPA_CLIENT_CRYPTO_OFFLOAD_PROD		= 172,
+
+	IPA_CLIENT_PLACEHOLDER
 };
 
-#define IPA_CLIENT_MAX (IPA_CLIENT_ETHERNET_CONS4 + 1)
+#define IPA_CLIENT_MAX (IPA_CLIENT_PLACEHOLDER + 1)
 
 #define IPA_CLIENT_WLAN2_PROD IPA_CLIENT_A5_WLAN_AMPDU_PROD
 #define IPA_CLIENT_Q6_DL_NLO_DATA_PROD IPA_CLIENT_Q6_DL_NLO_DATA_PROD
@@ -859,7 +881,19 @@ enum ipa_flt_action {
 	IPA_PASS_TO_ROUTING,
 	IPA_PASS_TO_SRC_NAT,
 	IPA_PASS_TO_DST_NAT,
-	IPA_PASS_TO_EXCEPTION
+	IPA_PASS_TO_EXCEPTION,
+	IPA_PASS_TO_OUT_IPV4_CT_NAT,
+	IPA_PASS_TO_IN_IPV4_CT_NAT,
+	IPA_FLT_ACTION_MAX
+};
+
+enum ipa_fltrt_rule_type {
+	IPA_FLT_RULE_TYPE_IP,
+	IPA_FLT_RULE_TYPE_ETH,
+	IPA_FLT_RULE_TYPE_ETH_IP,
+	IPA_FLT_RULE_TYPE_ETH_NON_IP,
+	IPA_FLT_RULE_TYPE_NON_IP,
+	IPA_FLT_RULE_TYPE_MAX
 };
 
 /**
@@ -1209,9 +1243,10 @@ enum ipa_hw_type {
 	IPA_HW_v5_2 = 23,
 	IPA_HW_v5_5 = 24,
 	IPA_HW_v6_0 = 25,
+	IPA_HW_v7_0 = 26,
 };
 
-#define IPA_HW_MAX (IPA_HW_v6_0 + 1)
+#define IPA_HW_MAX (IPA_HW_v7_0 + 1)
 
 #define IPA_HW_v4_0 IPA_HW_v4_0
 #define IPA_HW_v4_1 IPA_HW_v4_1
@@ -1225,6 +1260,7 @@ enum ipa_hw_type {
 #define IPA_HW_v5_2 IPA_HW_v5_2
 #define IPA_HW_v5_5 IPA_HW_v5_5
 #define IPA_HW_v6_0 IPA_HW_v6_0
+#define IPA_HW_v7_0 IPA_HW_v7_0
 
 /**
  * enum ipa_hw_feature_support - IPA HW supported feature
@@ -1443,6 +1479,8 @@ struct ipa_ipfltri_rule_eq {
 	 * values: IS-FRAG-0, Is-Primary-1, Is-Secondary-2, Not-Frag-3
 	 */
 	uint8_t is_frag_encoding;
+	uint8_t version;
+	uint32_t rule_eq_bitmap_v3;
 };
 
 /**
@@ -1546,6 +1584,8 @@ struct ipa_flt_rule_v2 {
 	uint8_t ttl_update;
 	uint8_t qos_class;
 	uint8_t esp_after_udp;
+	uint16_t cnt_idx_v2;
+	enum ipa_fltrt_rule_type rule_type;
 };
 
 /**

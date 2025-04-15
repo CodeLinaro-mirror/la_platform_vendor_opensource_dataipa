@@ -1626,8 +1626,6 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 	for (pipe = 0; pipe < IPA_MAX_FLT_TBLS; pipe++) {
 		if (!ipa_is_ep_support_flt(pipe))
 			continue;
-		pr_err("=== Filtering Table ep:%d = Hashable Rules ===\n",
-			pipe);
 		rules_num = IPA_DBG_MAX_RULE_IN_TBL;
 		res = ipa3_flt_read_tbl_from_hw(pipe, ip, true, rules,
 			&rules_num);
@@ -1636,8 +1634,8 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 			IPAERR("failed reading tbl from hw\n");
 			goto bail;
 		}
-		if (!rules_num)
-			pr_err("-->No rules. Empty tbl or modem sys table\n");
+		if (rules_num)
+			pr_err("=== Filtering Table ep:%d = Hashable Rules ===\n", pipe);
 
 		for (rl = 0; rl < rules_num; rl++) {
 			rt_tbl_idx = rules[rl].rule.rt_tbl_idx;
@@ -1662,6 +1660,10 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
 				pr_err("esp_after_udp %u ", rules[rl].rule.esp_after_udp);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				pr_err("rule_type %u ", rules[rl].rule.rule_type);
+				pr_err("cnt_idx2 %u ", rules[rl].rule.cnt_idx2);
+			}
 
 			pr_err("\n");
 			res = ipa3_attrib_dump_eq(&rules[rl].rule.eq_attrib);
@@ -1671,8 +1673,6 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 			}
 		}
 
-		pr_err("=== Filtering Table ep:%d = Non-Hashable Rules ===\n",
-			pipe);
 		rules_num = IPA_DBG_MAX_RULE_IN_TBL;
 		res = ipa3_flt_read_tbl_from_hw(pipe, ip, false, rules,
 			&rules_num);
@@ -1680,8 +1680,8 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 			IPAERR("failed reading tbl from hw\n");
 			goto bail;
 		}
-		if (!rules_num)
-			pr_err("-->No rules. Empty tbl or modem sys table\n");
+		if (rules_num)
+			pr_err("=== Filtering Table ep:%d = Non-Hashable Rules ===\n", pipe);
 		for (rl = 0; rl < rules_num; rl++) {
 			rt_tbl_idx = rules[rl].rule.rt_tbl_idx;
 			bitmap = rules[rl].rule.eq_attrib.rule_eq_bitmap;
@@ -1705,6 +1705,10 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
 				pr_err("esp_after_udp %u ", rules[rl].rule.esp_after_udp);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				pr_err("rule_type %u ", rules[rl].rule.rule_type);
+				pr_err("cnt_idx2 %u ", rules[rl].rule.cnt_idx2);
+			}
 
 			pr_err("\n");
 			res = ipa3_attrib_dump_eq(&rules[rl].rule.eq_attrib);

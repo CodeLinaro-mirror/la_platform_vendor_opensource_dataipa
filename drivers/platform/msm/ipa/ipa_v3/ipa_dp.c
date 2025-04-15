@@ -5922,7 +5922,7 @@ static void ipa3_wq_rx_common(
 		return;
 	}
 
-	rx_skb = handle_skb_completion(notify, false, &pkt_sys);
+	rx_skb = handle_skb_completion(notify, true, &pkt_sys);
 
 	if (rx_skb) {
 		pkt_sys->pyld_hdlr(rx_skb, pkt_sys);
@@ -5946,7 +5946,7 @@ static void ipa3_rx_napi_chain(struct ipa3_sys_context *sys,
 		for (i = 0; i < num; i++) {
 			if (!ipa3_ctx->ipa_wan_skb_page)
 				rx_skb = handle_skb_completion(
-					&notify[i], false, NULL);
+					&notify[i], true, NULL);
 			else
 				rx_skb = handle_page_completion(
 					&notify[i], false);
@@ -5977,7 +5977,7 @@ static void ipa3_rx_napi_chain(struct ipa3_sys_context *sys,
 			/* TODO: add chaining for coal case */
 			for (i = 0; i < num; i++) {
 				rx_skb = handle_skb_completion(
-					&notify[i], false, NULL);
+					&notify[i], true, NULL);
 				if (rx_skb) {
 					sys->pyld_hdlr(rx_skb, sys);
 					/*

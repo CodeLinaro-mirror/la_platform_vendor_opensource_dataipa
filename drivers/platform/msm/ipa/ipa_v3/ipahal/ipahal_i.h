@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #ifndef _IPAHAL_I_H_
@@ -188,6 +189,56 @@ struct ipa_imm_cmd_hw_ip_v4_nat_init {
 };
 
 /*
+ * struct ipa_imm_cmd_hw_ip_v4_nat_init_v7_0 - IP_V4_NAT_INIT command payload in H/W format.
+ *
+ * @ipv4_rules_addr: Addr in sys/shared mem where ipv4 NAT rules start
+ * @ipv4_expansion_rules_addr: Addr in sys/shared mem where expansion NAT
+ *  table starts. IPv4 NAT rules that result in hash collision are located
+ *  in this table.
+ * @index_table_addr: Addr in sys/shared mem where index table, which points
+ *  to NAT table starts
+ * @index_table_expansion_addr: Addr in sys/shared mem where expansion index
+ *  table starts
+ * @table_index: For future support of multiple NAT tables
+ * @reserved1: reserved
+ * @ipv4_rules_addr_type: ipv4_rules_addr in sys or shared mem
+ * @ipv4_expansion_rules_addr_type: ipv4_expansion_rules_addr in
+ *  sys or shared mem
+ * @index_table_addr_type: index_table_addr in sys or shared mem
+ * @index_table_expansion_addr_type: index_table_expansion_addr in
+ *  sys or shared mem
+ * @size_base_tables: Num of entries in NAT tbl and idx tbl (each)
+ * @size_expansion_tables: Num of entries in NAT expansion tbl and expansion
+ *  idx tbl (each)
+ * @reserved2: reserved
+ * @public_addr_info: Public IP addresses info suitable to the IPA H/W version
+ *                    IPA H/W >= 4.0 - PDN config table offset in SMEM
+ *                    IPA H/W < 4.0  - The public IP address
+ *
+ * Init IPv4 NAT functionality. Initialize the NAT table with its dimensions, location, cache
+ * address and other related parameters. Should be called upon IPA initialization. Table is
+ * initialized as empty, NAT_DMA should be called to add new rules to the table and remove unused
+ * rules from the table. Subsequent calls to IP_NAT_INIT with existing Table_Index will result in a
+ * reset-like functionality, including resetting any cache.
+ */
+struct ipa_imm_cmd_hw_ip_v4_nat_init_v7_0 {
+	u64 ipv4_rules_addr:64;
+	u64 ipv4_expansion_rules_addr:64;
+	u64 index_table_addr:64;
+	u64 index_table_expansion_addr:64;
+	u64 table_index:3;
+	u64 reserved1:1;
+	u64 ipv4_rules_addr_type:1;
+	u64 ipv4_expansion_rules_addr_type:1;
+	u64 index_table_addr_type:1;
+	u64 index_table_expansion_addr_type:1;
+	u64 size_base_tables:4;
+	u64 reserved2:4;
+	u64 size_expansion_tables:16;
+	u64 pdn_config_base_addr:32;
+};
+
+/*
  * struct ipa_imm_cmd_hw_ip_v6_ct_init - IP_V6_CONN_TRACK_INIT command payload
  *  in H/W format.
  * Inits IPv6CT block. Initiate IPv6CT table with it dimensions, location
@@ -216,6 +267,20 @@ struct ipa_imm_cmd_hw_ip_v6_ct_init {
 	u64 size_base_table:12;
 	u64 size_expansion_table:10;
 	u64 rsvd3:34;
+};
+
+struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 {
+	u64 table_addr:64;
+	u64 expansion_table_addr:64;
+	u64 table_index:3;
+	u64 reserved1:1;
+	u64 table_addr_type:1;
+	u64 expansion_table_addr_type:1;
+	u64 reserved2:2;
+	u64 size_base_table:4;
+	u64 reserved3:4;
+	u64 size_expansion_table:16;
+	u64 reserved4:32;
 };
 
 /*
@@ -327,6 +392,23 @@ struct ipa_imm_cmd_hw_table_dma_ipav4 {
 	u64 offset : 32;
 	u64 data : 16;
 	u64 rsvd3 : 8;
+};
+
+struct ipa_imm_cmd_hw_table_dma_v7_0 {
+	u64 table_index : 3;
+	u64 reserved1 : 1;
+	u64 table_Select : 2;
+	u64 reserved2 : 2;
+	u64 offset_within_entry : 8;
+	u64 entry_index : 16;
+	u64 data : 16;
+	u64 cache_entry_invalidate : 1;
+	u64 no_dma : 1;
+	u64 reserved3 : 14;
+
+	u64 cache_entry_hash_value : 16;
+	u64 write_bitmask : 16;
+	u64 reserved : 32;
 };
 
 /*
@@ -527,6 +609,52 @@ struct ipa_imm_cmd_hw_ip_packet_init_ex_v6_0 {
 	u64 rsvd6 : 7;
 } __packed;
 
+struct __attribute__((packed)) ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 {
+	u64 sw_reserved:13;
+	u64 conn_track_nat_stats_direction:1;
+	u64 traffic_mode:2;
+	u64 frag_disable:1;
+	u64 filter_disable:1;
+	u64 nat_disable:1;
+	u64 route_disable:1;
+	u64 hdr_removal_insertion_disable : 1;
+	u64 cs_disable:1;
+	u64 quota_tethering_stats_disable:1;
+	u64 dpl_disable:1;
+	u64 leading_header_size:8;
+	u64 conn_track_nat_stats_counter_idx:16;
+	u64 rt_hdr_offset            : 16;
+	u64 rt_pipe_dest_idx         : 8;
+	u64 rt_skip_ingress       : 1;
+	u64 rt_close_aggr_irq_mod    : 1;
+	u64 rt_ttl            : 1;
+	u64 rt_esp_after_udp         : 1;
+	u64 rt_rule_type             : 3;
+	u64 rt_retain_hdr            : 1;
+	u64 rt_priority              : 8;
+	u64 rt_qos_class : 8;
+	u64 rt_stats_cnt_idx         : 12;
+	u64 rt_rule_id               : 10;
+	u64 rt_system                : 1;
+	u64 rt_proc_ctx                   : 1;
+	u64 rt_hpc_fetch_len         : 8;
+	u64 flt_rt_tbl_idx             : 8;
+	u64 flt_reserved               : 1;
+	u64 flt_close_aggr_irq_mod     : 1;
+	u64 flt_ttl             : 1;
+	u64 flt_esp_after_udp          : 1;
+	u64 flt_rule_type              : 3;
+	u64 flt_retain_hdr             : 1;
+	u64 flt_priority               : 8;
+	u64 flt_qos_class : 8;
+	u64 flt_stats_cnt_idx          : 12;
+	u64 flt_rule_id                : 10;
+	u64 flt_action                 : 5;
+	u64 flt_pdn_idx                : 4;
+	u64 flt_set_metadata           : 1;
+	u64 sw_classification_cookie:64;
+};
+
 /*
  * struct ipa_imm_cmd_hw_register_write - REGISTER_WRITE command payload
  *  in H/W format.
@@ -555,7 +683,7 @@ struct ipa_imm_cmd_hw_register_write {
 };
 
 /*
- * struct ipa_imm_cmd_hw_register_write - REGISTER_WRITE command payload
+ * struct ipa_imm_cmd_hw_register_write_v_4_0 - REGISTER_WRITE command payload
  *  in H/W format.
  * Write value to register. Allows reg changes to be synced with data packet
  *  and other immediate command. Can be used to access the sram
@@ -728,7 +856,100 @@ struct ipa_imm_cmd_hw_dma_task_32b_addr {
 	u64 packet_size:16;
 };
 
+/**
+ * struct ipa_imm_cmd_hw_shaping_control - SHAPING_CONTROL
+ * command payload in H/W format.
+ * @traffic_class_bitmap1:
+ * @traffic_class_bitmap2:
+ * @shaped_prod_token_bucket_reinit_bitmap:
+ * @traffic_class_operation:
+ */
+struct ipa_imm_cmd_hw_shaping_control {
+	u64 traffic_class_bitmap1:64;
+	u64 traffic_class_bitmap2:64;
+	u64 shaped_prod_token_bucket_reinit_bitmap:16;
+	u64 reserved:44;
+	u64 traffic_class_operation:4;
+};
 
+/**
+ * struct ipa_imm_cmd_hw_modem_bearer_init - MODEM_BEARER_INIT
+ * command payload in H/W format.
+ * @pdn_id:
+ * @context_idx:
+ * @ipa_maci_size:
+ * @ip_algorithm:
+ * @direction:
+ * @sdap_enabled:
+ * @ip_key_idx:
+ * @pdcp_headers_size:
+ * @bearer:
+ * @cipher_key_idx:
+ * @cipher_algorithm:
+ * @bearer_select:
+ * @rqi_monitor:
+ * @rdi_monitor:
+ * @integrity_protection_processing_type:
+ * @type:
+ * @sdap_offset:
+ * @cipher_offset:
+ * @cipher_keystrm_offset:
+ * @metadata:
+ */
+struct ipa_imm_cmd_hw_modem_bearer_init {
+	u64 pdn_id:8;
+	u64 context_idx:8;
+	u64 ipa_maci_size:2;
+	u64 ip_algorithm:4;
+	u64 direction:1;
+	u64 sdap_enabled:1;
+	u64 ip_key_idx:8;
+	u64 pdcp_headers_size:8;
+	u64 bearer:8;
+	u64 cipher_key_idx:8;
+	u64 cipher_algorithm:4;
+	u64 bearer_select:1;
+	u64 rqi_monitor:1;
+	u64 rdi_monitor:1;
+	u64 integrity_protection_processing_type:1;
+
+	u64 type:2;
+	u64 sdap_offset:6;
+	u64 cipher_offset:8;
+	u64 cipher_keystrm_offset:8;
+	u64 reserved:8;
+	u64 metadata:32;
+};
+
+/**
+ * struct ipa_imm_cmd_hw_modem_bearer_config -
+ * MODEM_BEARER_CONFIG command payload in H/W format.
+ * @reserved_for_sw:
+ * @context_idx:
+ * @size:
+ * @count:
+ */
+struct ipa_imm_cmd_hw_modem_bearer_config {
+	u64 reserved_for_sw:8;
+	u64 context_idx:8;
+	u64 size:16;
+	u64 count:32;
+};
+
+/**
+ * struct ipa_imm_cmd_hw_modem_keys_set - MODEM_KEYS_SET
+ * command payload in H/W format.
+ * @count:
+ * @context_idx:
+ */
+struct ipa_imm_cmd_hw_modem_keys_set {
+	u64 reserved_for_sw:16;
+	u64 size_keys:16;
+	u64 start_offset:16;
+	u64 reserved:16;
+
+	u64 keys_addr;
+};
 
 /* IPA Status packet H/W structures and info */
 
@@ -1188,6 +1409,43 @@ struct ipa_frag_pkt_status_hw_v5_5 {
 	u64 hdr_local:1;
 } __packed;
 
+struct ipa_frag_pkt_status_hw_v7_0 {
+	u64 status_opcode:8;
+	u64 frag_rule_idx:4;
+	u64 reserved_1:2;
+	u64 exception:1;
+	u64 tbl_idx:1;
+	u64 endp_src_idx:8;
+	u64 seq_num:8;
+	u64 src_ip_addr:32;
+	u64 dest_ip_addr:32;
+	u64 endp_dest_idx:8;
+	u64 protocol:8;
+	u64 ip_id:16;
+	u64 translated_ip_addr:32;
+	u64 hdr_offset:16;
+	u64 ip_cksum_diff:16;
+	u64 metadata:32;
+	u64 flt_stats_counter_idx:12;
+	u64 ret:1;
+	u64 low_latency_or_close_aggr_mod:1;
+	u64 ttl_dec:1;
+	u64 packet_type:1;
+	u64 rt_stats_counter_idx:12;
+	u64 nat_or_ct:1;
+	u64 hpc:1;
+	u64 pd:1;
+	u64 hdr_local:1;
+	u64 ergress_traffic_class:8;
+	u64 ingress_traffic_class:8;
+	u64 reserved1:6;
+	u64 nat_type:2;
+	u64 hpc_fetch_len:8;
+	u64 ct_stats_counter_idx:16;
+	u64 reserved2:16;
+	u64 sw_classification_cookie:64;
+} __packed;
+
 /*
  * struct ipa_status_pkt_hw_v6_0 - IPA v6.0 status packet payload in H/W format.
  *  This structure describes the status packet H/W structure for the
@@ -1293,6 +1551,53 @@ struct ipa_gen_pkt_status_hw_v6_0 {
 	u64 ucp:1;
 } __packed;
 
+struct ipa_gen_pkt_status_hw_v7_0 {
+	u64 status_opcode:8;
+	u64 exception:8;
+	u64 status_mask:16;
+	u64 pkt_len:16;
+	u64 endp_src_idx:8;
+	u64 pure_ack:1;
+	u64 syn:1;
+	u64 fin_rst:1;
+	u64 rt_local:1;
+	u64 rt_cache_hit:1;
+	u64 protocol_encoding:3;
+	u64 metadata:32;
+	u64 flt_local:1;
+	u64 flt_cache_hit:1;
+	u64 ucp:1;
+	u64 flt_ret_hdr:1;
+	u64 flt_rule_id:10;
+	u64 rt_tbl_idx:8;
+	u64 rt_rule_id:10;
+	u64 nat_entry_idx:16;
+	u64 tag_info:48;
+	u64 seq_num:8;
+	u64 time_of_day_ctr:24;
+	u64 hdr_offset:16;
+	u64 hpc:1;
+	u64 hdr_in_sys:1;
+	u64 ttl_dec:1;
+	u64 frag_hit:1;
+	u64 packet_type:4;
+	u64 endp_dest_idx:8;
+	u64 ergress_traffic_class:8;
+	u64 ingress_traffic_class:8;
+	u64 nat_hit:1;
+	u64 nat_type:2;
+	u64 nat_cache_hit:1;
+	u64 nat_or_ct:1;
+	u64 nat_exc_suppress:1;
+	u64 num_vlan_tags:2;
+	u64 flt_table_idx:8;
+	u64 frag_rule:4;
+	u64 metadata_origin:4;
+	u64 reserved1:24;
+	u64 reserved2:32;
+	u64 reserved3:32;
+} __packed;
+
 union ipa_pkt_status_hw {
 	struct ipa_gen_pkt_status_hw ipa_pkt;
 	struct ipa_frag_pkt_status_hw frag_pkt;
@@ -1313,8 +1618,14 @@ union ipa_pkt_status_hw_v6_0 {
 	struct ipa_frag_pkt_status_hw_v5_5 frag_pkt; //frag_pkt_status didn't changed in IPA6.0
 } __packed;
 
+union ipa_pkt_status_hw_v7_0 {
+	struct ipa_gen_pkt_status_hw_v7_0 ipa_pkt;
+	struct ipa_frag_pkt_status_hw_v7_0 frag_pkt;
+} __packed;
+
 /* Size of H/W Packet Status */
 #define IPA3_0_PKT_STATUS_SIZE 32
+#define IPA7_0_PKT_STATUS_SIZE 48
 
 /* Headers and processing context H/W structures and definitions */
 

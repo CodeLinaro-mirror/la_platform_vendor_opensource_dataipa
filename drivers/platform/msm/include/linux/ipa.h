@@ -78,15 +78,15 @@ enum ipa_ipv6ct_en_type {
 /**
  * enum ipa_mode_type - mode setting type in IPA end-point
  * @BASIC: basic mode
- * @ENABLE_FRAMING_HDLC: not currently supported
- * @ENABLE_DEFRAMING_HDLC: not currently supported
+ * @IPA_NON_DMA_ETHERNET: Triggers IPA HW L2 header pasring
+ * @IPA_NON_DMA_UNSTRUCTURED:
  * @DMA: all data arriving IPA will not go through IPA logic blocks, this
  *  allows IPA to work as DMA for specific pipes.
  */
 enum ipa_mode_type {
 	IPA_BASIC,
-	IPA_ENABLE_FRAMING_HDLC,
-	IPA_ENABLE_DEFRAMING_HDLC,
+	IPA_NON_DMA_ETHERNET,
+	IPA_NON_DMA_UNSTRUCTURED,
 	IPA_DMA,
 };
 

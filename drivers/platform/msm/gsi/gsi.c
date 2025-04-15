@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include <linux/of.h>
@@ -1265,6 +1266,7 @@ static uint32_t gsi_get_max_event_rings(enum gsi_ver ver)
 			gsi_ctx->per.ee, &hw_param4);
 		max_ev = hw_param4.gsi_num_ev_per_ee;
 		break;
+	case GSI_VER_7_0:
 	default:
 		gsihal_read_reg_n_fields(GSI_EE_n_GSI_HW_PARAM_2,
 			gsi_ctx->per.ee, &hw_param2);
@@ -1611,8 +1613,13 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 	}
 
 	if (running_emulation) {
-		GSIDBG("GSI SW ver register value 0x%x\n",
-			gsihal_read_reg_n(GSI_EE_n_GSI_SW_VERSION, 0));
+		if (gsi_ctx->per.ver < GSI_VER_7_0) {
+			GSIDBG("GSI SW ver register value 0x%x\n",
+				gsihal_read_reg_n(GSI_EE_n_GSI_SW_VERSION, 0));
+		} else {
+			GSIDBG("GSI SW ver register value 0x%x\n",
+				gsihal_read_reg_n(GSI_EE_n_GSI_MCS_CODE_VER, 0));
+		}
 		gsi_ctx->intcntrlr_mem_size =
 		    props->emulator_intcntrlr_size;
 		gsi_ctx->intcntrlr_base =
@@ -2761,6 +2768,54 @@ static void gsi_program_chan_ctx_qos(struct gsi_chan_props *props,
 		ee, props->ch_id, &ch_k_qos);
 }
 
+static uint32_t gsi_legacy_protocol_dir_to_v7_0_protocol(enum gsi_chan_prot prot, enum gsi_chan_dir dir)
+{
+	if (dir >= GSI_CHAN_DIR_MAX) {
+		GSIERR("Invalid GSI direction: %d\n", dir);
+		return prot;
+	}
+	switch (prot) {
+	case GSI_CHAN_PROT_XDCI:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_XDCI_RX :
+			GSI_V7_0_CHAN_PROT_XDCI_TX;
+	case GSI_CHAN_PROT_WDI3:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_WDI3_RX :
+			GSI_V7_0_CHAN_PROT_WDI3_TX;
+	case GSI_CHAN_PROT_AQC:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_AQC_RX :
+			GSI_V7_0_CHAN_PROT_AQC_TX;
+	case GSI_CHAN_PROT_RTK:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_RTK_RX :
+			GSI_V7_0_CHAN_PROT_RTK_TX;
+	case GSI_CHAN_PROT_NTN:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_NTN3_RX :
+			GSI_V7_0_CHAN_PROT_NTN3_TX;
+	case GSI_CHAN_PROT_WDI3_V2:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_WDI3_V2_RX :
+			GSI_V7_0_CHAN_PROT_WDI3_V2_TX;
+	case GSI_CHAN_PROT_WDI4:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_WDI4_RX :
+			GSI_V7_0_CHAN_PROT_WDI4_TX;
+	case GSI_CHAN_PROT_RTK3:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_RTK3_RX :
+			GSI_V7_0_CHAN_PROT_RTK3_TX;
+	case GSI_CHAN_PROT_MHI:
+	case GSI_CHAN_PROT_XHCI:
+	case GSI_CHAN_PROT_GPI:
+	case GSI_CHAN_PROT_WDI2:
+	case GSI_CHAN_PROT_GCI:
+	case GSI_CHAN_PROT_MHIP:
+	case GSI_CHAN_PROT_11AD:
+	case GSI_CHAN_PROT_MHIC:
+	case GSI_CHAN_PROT_QDSS:
+	default:
+		GSIDBG("Direction agnostic protocol, return legacy value\n");
+		break;
+	}
+
+	return prot;
+}
+
 static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 		uint8_t erindex)
 {
@@ -2796,8 +2851,12 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 		WARN_ON(1);
 		return;
 	}
-
-	ch_k_cntxt_0.chtype_protocol = props->prot;
+	if (gsi_ctx->per.ver >= GSI_VER_7_0) {
+		ch_k_cntxt_0.chtype_protocol = gsi_legacy_protocol_dir_to_v7_0_protocol(props->prot,
+			props->dir);
+	} else {
+		ch_k_cntxt_0.chtype_protocol = props->prot;
+	}
 	ch_k_cntxt_0.chtype_dir = props->dir;
 	if (gsi_ctx->per.ver >= GSI_VER_3_0) {
 		ch_k_cntxt_1.erindex = erindex;

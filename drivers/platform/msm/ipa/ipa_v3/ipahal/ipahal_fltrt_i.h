@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #ifndef _IPAHAL_FLTRT_I_H_
@@ -46,6 +47,9 @@ enum ipa_fltrt_equations {
 #define IPA3_0_HW_RULE_BUF_SIZE (256)
 #define IPA3_0_HW_RULE_START_ALIGNMENT (7)
 #define IPA3_0_HW_RULE_PREFETCH_BUF_SIZE (256)
+
+
+#define IPA7_0_HW_RULE_BUF_SIZE (1024)
 
 
 /*
@@ -227,6 +231,27 @@ struct ipa5_5_rt_rule_hw_hdr {
 	} u;
 };
 
+struct __attribute__((packed)) ipa7_0_rt_rule_hw_hdr {
+	u32 en_rule;
+
+	u32 dest_pipe_idx         : 8;
+	u32 ingress_pol_dis       : 1;
+	u32 close_aggr_irq_mod    : 1;
+	u32 ttl_update            : 1;
+	u32 esp_after_udp         : 1;
+	u32 rule_type             : 3;
+	u32 retain_hdr            : 1;
+	u32 priority              : 8;
+	u32 shaping_traffic_class : 8;
+
+	u32 stats_cnt_idx         : 12;
+	u32 rule_id               : 10;
+	u32 system                : 1;
+	u32 hpc                   : 1;
+	u32 hpc_fetch_len         : 8;
+
+	u16 hdr_offset;
+};
 /**
  * struct ipa5_5_rt_rule_hw_hdr_ext - HW header of IPA routing rule
  * extention
@@ -463,6 +488,24 @@ struct ipa5_5_flt_rule_hw_hdr {
 			u64 rsvd : 1;
 		} hdr;
 	} u;
+};
+
+struct __attribute__((packed)) ipa7_0_flt_rule_hw_hdr {
+	u64 en_rule                : 32;
+	u64 rt_tbl_idx             : 8;
+	u64 reserved               : 1;
+	u64 close_aggr_irq_mod     : 1;
+	u64 ttl_update             : 1;
+	u64 esp_after_udp          : 1;
+	u64 rule_type              : 3;
+	u64 retain_hdr             : 1;
+	u64 priority               : 8;
+	u64 policing_traffic_class : 8;
+	u32 stats_cnt_idx          : 12;
+	u32 rule_id                : 10;
+	u32 action                 : 5;
+	u32 pdn_idx                : 4;
+	u32 set_metadata           : 1;
 };
 
 /**

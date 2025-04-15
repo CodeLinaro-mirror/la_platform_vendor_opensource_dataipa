@@ -88,7 +88,6 @@
 #define EXCEPTION_KFIFO_SIZE (8)
 #define EXCEPTION_KFIFO_SLEEP_MS (EXCEPTION_KFIFO_SLEEP_MS)
 #define EXCEPTION_KFIFO_DEBUG_VERBOSE 1
-#define SAVE_HEADER 1
 
 #define IPATEST_DBG(fmt, args...) \
 	do { \
@@ -2559,14 +2558,13 @@ ssize_t exception_kfifo_read(struct file *filp, char __user *buf,
 			(p_exception_hdl_data->
 					notify_cb_data.exception_kfifo)
 			, buf, data_len, &copied);
-#if (EXCEPTION_KFIFO_DEBUG_VERBOSE)
+#if (EXCEPTION_KFIFO_DEBUG_VERBOSE) && !(defined CONFIG_IPA_EMULATION)
 	{
 		int i = 0;
 
-		IPATEST_DBG("Exception packet's length=%zu, Packet's content:\n"
-					, data_len);
-		if (data_len - 3 > 0) {
-			for (i = 0; i < data_len-4; i += 4) {
+		IPATEST_DBG("Exception packet's copied=%zu, Packet's content:\n", copied);
+		if (!ret && copied > 3) {
+			for (i = 0; i < copied-4; i += 4) {
 				IPATEST_DUMP("%02x %02x %02x %02x\n",
 						(buf)[i], (buf)[i+1],
 						(buf)[i+2], (buf)[i+3]);

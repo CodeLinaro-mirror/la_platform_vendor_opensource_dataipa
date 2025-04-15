@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- *
  * Copyright (c) 2022, 2024 - 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.?
  */
 
 #ifndef GSI_H
@@ -31,8 +31,8 @@
 #define GSI_ASSERT() \
 	BUG()
 
-#define GSI_CHAN_MAX      50
-#define GSI_EVT_RING_MAX  44
+#define GSI_CHAN_MAX      75
+#define GSI_EVT_RING_MAX  70
 #define GSI_NO_EVT_ERINDEX 255
 #define GSI_ISR_CACHE_MAX 20
 #define MAX_CHANNELS_SHARING_EVENT_RING 2
@@ -47,6 +47,8 @@
 #define GSI_INST_RAM_FW_VER_FLAVOR_SHIFT        (7)
 #define GSI_INST_RAM_FW_VER_FW_MASK                     (0x7f)
 #define GSI_INST_RAM_FW_VER_FW_SHIFT            (0)
+
+#define GSI_IRQ_2_MCS_MAPPING_ACCn_TABLE_MAXn 0x9
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
 #define GSI_IPC_LOGGING(buf, fmt, args...) \
@@ -111,6 +113,7 @@ enum gsi_ver {
 	GSI_VER_5_2 = 11,
 	GSI_VER_5_5 = 12,
 	GSI_VER_6_0 = 13,
+	GSI_VER_7_0 = 14,
 	GSI_VER_MAX,
 };
 
@@ -271,6 +274,35 @@ enum gsi_chan_prot {
 	GSI_CHAN_PROT_RTK3 = 0x11,
 	GSI_CHAN_PROT_XR = 0x12,
 	GSI_CHAN_PROT_WDI3M_V2 = 0x13,
+};
+
+enum gsi_chan_prot_v7_0 {
+	GSI_V7_0_CHAN_PROT_MHI = 0x0,
+	GSI_V7_0_CHAN_PROT_XHCI = 0x1,
+	GSI_V7_0_CHAN_PROT_GPI = 0x2,
+	GSI_V7_0_CHAN_PROT_XDCI_RX = 0x3,
+	GSI_V7_0_CHAN_PROT_WDI2 = 0x4,
+	GSI_V7_0_CHAN_PROT_GCI = 0x5,
+	GSI_V7_0_CHAN_PROT_WDI3_RX = 0x6,
+	GSI_V7_0_CHAN_PROT_MHIP = 0x7,
+	GSI_V7_0_CHAN_PROT_AQC_RX = 0x8,
+	GSI_V7_0_CHAN_PROT_11AD = 0x9,
+	GSI_V7_0_CHAN_PROT_MHIC = 0xA,
+	GSI_V7_0_CHAN_PROT_QDSS = 0xB,
+	GSI_V7_0_CHAN_PROT_RTK_RX = 0xC,
+	GSI_V7_0_CHAN_PROT_NTN3_RX = 0xD,
+	GSI_V7_0_CHAN_PROT_WDI3M = 0xE,
+	GSI_V7_0_CHAN_PROT_WDI3_V2_RX = 0XF,
+	GSI_V7_0_CHAN_PROT_WDI4_RX = 0X10,
+	GSI_V7_0_CHAN_PROT_RTK3_RX = 0x11,
+	GSI_V7_0_CHAN_PROT_NTN3_TX = 0x12,
+	GSI_V7_0_CHAN_PROT_AQC_TX = 0x13,
+	GSI_V7_0_CHAN_PROT_XDCI_TX = 0x14,
+	GSI_V7_0_CHAN_PROT_WDI3_TX = 0x15,
+	GSI_V7_0_CHAN_PROT_RTK_TX = 0x16,
+	GSI_V7_0_CHAN_PROT_WDI3_V2_TX = 0X17,
+	GSI_V7_0_CHAN_PROT_WDI4_TX = 0X18,
+	GSI_V7_0_CHAN_PROT_RTK3_TX = 0x19,
 };
 
 enum gsi_max_prefetch {

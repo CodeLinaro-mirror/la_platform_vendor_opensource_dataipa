@@ -21,6 +21,8 @@ enum dtsi_index_e {
 	DTSI_INDEX_3_5_1 = 0,
 	DTSI_INDEX_4_0   = 1,
 	DTSI_INDEX_4_5   = 2,
+	DTSI_INDEX_6_0   = 3,
+	DTSI_INDEX_7_0   = 4,
 };
 
 struct dtsi_replacement_u32 {
@@ -60,6 +62,9 @@ struct dtsi_replacement_resource_table {
 };
 
 /*
+ * Any of the data below with _6_0 in the name represent data taken
+ * from the 6.0 dtsi file.
+ *
  * Any of the data below with _4_5 in the name represent data taken
  * from the 4.5 dtsi file.
  *
@@ -69,6 +74,68 @@ struct dtsi_replacement_resource_table {
  * Any of the data below with _3_5_1 in the name represent data taken
  * from the 3.5.1 dtsi file.
  */
+static struct dtsi_replacement_bool ipa3_plat_drv_bool_7_0[] = {
+	{"qcom,use-ipa-tethering-bridge",       true},
+	{"qcom,modem-cfg-emb-pipe-flt",         true},
+	{"qcom,ipa-wdi2",                       false},
+	{"qcom,use-64-bit-dma-mask",            true},
+	{"qcom,bandwidth-vote-for-ipa",         false},
+	{"qcom,skip-uc-pipe-reset",             false},
+	{"qcom,tethered-flow-control",          false},
+	{"qcom,use-rg10-limitation-mitigation", false},
+	{"qcom,do-not-use-ch-gsi-20",           false},
+	{"qcom,use-ipa-pm",                     false},
+	{"qcom,register-collection-on-crash",   true},
+	{"qcom,testbus-collection-on-crash",    true},
+	{"qcom,non-tn-collection-on-crash",     true},
+	{"qcom,use-ipa-tethering-bridge",	true},
+	{"qcom,use - tput - estmation - pipe",	true},
+	{"qcom,use-xbl-boot",			true},
+	{"qcom,arm-smmu",			true},
+	{"qcom,smmu-fast-map",			true},
+	{"qcom,ipa-wdi3-over-gsi",		true},
+	{"qcom,ipa-endp-delay-wa-v2",		true},
+	{"qcom,ipa-gpi-event-rp-ddr",		true},
+	{"qcom,ulso-supported",			true},
+	{"qcom,wan-use-skb-page",		true},
+	{"qcom,ipa-iemac",			true},
+	{"qcom,lan-rx-napi",			false},
+	{"qcom,tx-napi",			true},
+	{"qcom,tx-poll",			true},
+	{"qcom,use-ipa-in-mhi-mode",		false},
+};
+
+static struct dtsi_replacement_bool ipa3_plat_drv_bool_6_0[] = {
+	{"qcom,use-ipa-tethering-bridge",       true},
+	{"qcom,modem-cfg-emb-pipe-flt",         true},
+	{"qcom,ipa-wdi2",                       false},
+	{"qcom,use-64-bit-dma-mask",            true},
+	{"qcom,bandwidth-vote-for-ipa",         false},
+	{"qcom,skip-uc-pipe-reset",             false},
+	{"qcom,tethered-flow-control",          false},
+	{"qcom,use-rg10-limitation-mitigation", false},
+	{"qcom,do-not-use-ch-gsi-20",           false},
+	{"qcom,use-ipa-pm",                     false},
+	{"qcom,register-collection-on-crash",   true},
+	{"qcom,testbus-collection-on-crash",    true},
+	{"qcom,non-tn-collection-on-crash",     true},
+	{"qcom,use-ipa-tethering-bridge",	true},
+	{"qcom,use - tput - estmation - pipe",	true},
+	{"qcom,use-xbl-boot",			true},
+	{"qcom,arm-smmu",			true},
+	{"qcom,smmu-fast-map",			true},
+	{"qcom,ipa-wdi3-over-gsi",		true},
+	{"qcom,ipa-endp-delay-wa-v2",		true},
+	{"qcom,ipa-gpi-event-rp-ddr",		true},
+	{"qcom,ulso-supported",			true},
+	{"qcom,wan-use-skb-page",		true},
+	{"qcom,ipa-iemac",			true},
+	{"qcom,lan-rx - napi",			true},
+	{"qcom,tx-napi",			true},
+	{"qcom,tx-poll",			true},
+	{"qcom,use-ipa-in-mhi-mode",		false},
+};
+
 static struct dtsi_replacement_bool ipa3_plat_drv_bool_4_5[] = {
 	{"qcom,use-ipa-tethering-bridge",       true},
 	{"qcom,modem-cfg-emb-pipe-flt",         true},
@@ -125,6 +192,51 @@ ipa3_plat_drv_bool_table[] = {
 	  ARRAY_SIZE(ipa3_plat_drv_bool_4_0) },
 	{ ipa3_plat_drv_bool_4_5,
 	  ARRAY_SIZE(ipa3_plat_drv_bool_4_5) },
+	{ ipa3_plat_drv_bool_6_0,
+	  ARRAY_SIZE(ipa3_plat_drv_bool_6_0) },
+	{ ipa3_plat_drv_bool_7_0,
+	  ARRAY_SIZE(ipa3_plat_drv_bool_7_0) },
+};
+
+static struct dtsi_replacement_u32 ipa3_plat_drv_u32_7_0[] = {
+	{"qcom,ipa-hw-ver",                     IPA_HW_v7_0},
+	{"qcom,ipa-hw-mode",                    IPA_HW_MODE_EMULATION},
+	{"qcom,platform-type",                  0},
+	{"qcom,ee",                             0},
+	{"emulator-bar0-offset",                0x01C00000}, //offset from bar0 to IPA
+	{"qcom,entire-ipa-block-size",          0x00200000},
+	{"qcom,ipa-wdi3-holb-2g",		15},
+	{"qcom,ipa-wdi3-holb-5g",		31},
+	{"qcom,tx-wrapper-cache-max-size",	400},
+	{"qcom,ulso-ip-id-min-linux-val",	0},
+	{"qcom,ulso-ip-id-max-linux-val",	0xffff},
+	{"qcom,ulso-ip-id-min-windows-val",	0},
+	{"qcom,ulso-ip-id-max-windows-val",	0x7fff},
+	{"qcom,interconnect,num-cases",		5},
+	{"qcom,interconnect,num-paths",		3},
+	{"qcom,max_num_smmu_cb",		7},
+	{"qcom,ipa-cfg-offset",			0x00114000},
+	{"qcom,filter-start-id", 768},
+};
+
+static struct dtsi_replacement_u32 ipa3_plat_drv_u32_6_0[] = {
+	{"qcom,ipa-hw-ver",                     IPA_HW_v6_0},
+	{"qcom,ipa-hw-mode",                    IPA_HW_MODE_EMULATION},
+	{"qcom,platform-type",                  0},
+	{"qcom,ee",                             0},
+	{"emulator-bar0-offset",                0x01C00000}, //offset from bar0 to IPA
+	{"qcom,entire-ipa-block-size",          0x00200000},
+	{"qcom,ipa-wdi3-holb-2g",		15},
+	{"qcom,ipa-wdi3-holb-5g",		31},
+	{"qcom,tx-wrapper-cache-max-size",	400},
+	{"qcom,ulso-ip-id-min-linux-val",	0},
+	{"qcom,ulso-ip-id-max-linux-val",	0xffff},
+	{"qcom,ulso-ip-id-min-windows-val",	0},
+	{"qcom,ulso-ip-id-max-windows-val",	0x7fff},
+	{"qcom,interconnect,num-cases",		5},
+	{"qcom,interconnect,num-paths",		3},
+	{"qcom,max_num_smmu_cb",		7},
+	{"qcom,ipa-cfg-offset",			0x00114000},
 };
 
 static struct dtsi_replacement_u32 ipa3_plat_drv_u32_4_5[] = {
@@ -165,6 +277,18 @@ static struct dtsi_replacement_u32_table ipa3_plat_drv_u32_table[] = {
 	  ARRAY_SIZE(ipa3_plat_drv_u32_4_0) },
 	{ ipa3_plat_drv_u32_4_5,
 	  ARRAY_SIZE(ipa3_plat_drv_u32_4_5) },
+	{ ipa3_plat_drv_u32_6_0,
+	  ARRAY_SIZE(ipa3_plat_drv_u32_6_0) },
+	{ ipa3_plat_drv_u32_7_0,
+	  ARRAY_SIZE(ipa3_plat_drv_u32_7_0) },
+};
+
+static u32 mhi_event_ring_id_limits_array_7_0[] = {
+	9, 15
+};
+
+static u32 mhi_event_ring_id_limits_array_6_0[] = {
+	9, 15
 };
 
 static u32 mhi_event_ring_id_limits_array_4_5[] = {
@@ -177,6 +301,14 @@ static u32 mhi_event_ring_id_limits_array_4_0[] = {
 
 static u32 mhi_event_ring_id_limits_array_3_5_1[] = {
 	IPA_MHI_GSI_EVENT_RING_ID_START, IPA_MHI_GSI_EVENT_RING_ID_END
+};
+
+static u32 ipa_throughput_thresh_array_7_0[] = {
+	2000, 2500, 1000
+};
+
+static u32 ipa_throughput_thresh_array_6_0[] = {
+	2000, 2500, 1000
 };
 
 static u32 ipa_tz_unlock_reg_array_4_5[] = {
@@ -193,6 +325,24 @@ static u32 ipa_tz_unlock_reg_array_4_0[] = {
 
 static u32 ipa_tz_unlock_reg_array_3_5_1[] = {
 	0x04043583c, 0x00001000
+};
+
+struct dtsi_replacement_u32_array ipa3_plat_drv_u32_array_7_0[] = {
+	{"qcom,mhi-event-ring-id-limits",
+	 mhi_event_ring_id_limits_array_7_0,
+	 ARRAY_SIZE(mhi_event_ring_id_limits_array_7_0) },
+	{"qcom,throughput-threshold",
+	 ipa_throughput_thresh_array_7_0,
+	 ARRAY_SIZE(ipa_throughput_thresh_array_7_0) },
+};
+
+struct dtsi_replacement_u32_array ipa3_plat_drv_u32_array_6_0[] = {
+	{"qcom,mhi-event-ring-id-limits",
+	 mhi_event_ring_id_limits_array_6_0,
+	 ARRAY_SIZE(mhi_event_ring_id_limits_array_6_0) },
+	{"qcom,throughput-threshold",
+	 ipa_throughput_thresh_array_6_0,
+	 ARRAY_SIZE(ipa_throughput_thresh_array_6_0) },
 };
 
 struct dtsi_replacement_u32_array ipa3_plat_drv_u32_array_4_5[] = {
@@ -233,11 +383,186 @@ ipa3_plat_drv_u32_array_table[] = {
 	  ARRAY_SIZE(ipa3_plat_drv_u32_array_4_0) },
 	{ ipa3_plat_drv_u32_array_4_5,
 	  ARRAY_SIZE(ipa3_plat_drv_u32_array_4_5) },
+	{ ipa3_plat_drv_u32_array_6_0,
+	  ARRAY_SIZE(ipa3_plat_drv_u32_array_6_0) },
+	{ ipa3_plat_drv_u32_array_7_0,
+	  ARRAY_SIZE(ipa3_plat_drv_u32_array_7_0) },
 };
 
-#define INTCTRL_OFFSET       0x083C0000
-#define INTCTRL_SIZE         0x00000110
+#define INTCTRL_OFFSET       0x065C0000
+#define INTCTRL_SIZE         0x00020000
 
+#define IPA_BASE_OFFSET_6_0  0 /*0x03e00000*/
+#define IPA_BASE_SIZE_6_0    0x00200000
+#define GSI_BASE_OFFSET_6_0  0 /*0x03e00000*/
+#define GSI_BASE_SIZE_6_0    0x00100000
+
+#define IPA_BASE_OFFSET_7_0  0 /*0x03e00000*/
+#define IPA_BASE_SIZE_7_0    0x00200000
+#define GSI_BASE_OFFSET_7_0  0 /*0x03e00000*/
+#define GSI_BASE_SIZE_7_0    0x00100000
+
+struct resource ipa3_plat_drv_resource_7_0[] = {
+	/*
+	 * PLEASE NOTE: The following offset values below ("ipa-base",
+	 * "gsi-base", and "intctrl-base") are used to calculate
+	 * offsets relative to the PCI BAR0 address provided by the
+	 * PCI probe.  After their use to calculate the offsets, they
+	 * are not used again, since PCI ultimately dictates where
+	 * things live.
+	 */
+	{
+		IPA_BASE_OFFSET_7_0,
+		(IPA_BASE_OFFSET_7_0 + IPA_BASE_SIZE_7_0),
+		"ipa-base",
+		IORESOURCE_MEM,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	{
+		GSI_BASE_OFFSET_7_0,
+		(GSI_BASE_OFFSET_7_0 + GSI_BASE_SIZE_7_0),
+		"gsi-base",
+		IORESOURCE_MEM,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	/*
+	 * The following entry is germane only to the emulator
+	 * environment.  It is needed to locate the emulator's PCI
+	 * interrupt controller...
+	 */
+	{
+		INTCTRL_OFFSET,
+		(INTCTRL_OFFSET + INTCTRL_SIZE),
+		"intctrl-base",
+		IORESOURCE_MEM,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	{
+		IPA_PIPE_MEM_START_OFST,
+		(IPA_PIPE_MEM_START_OFST + IPA_PIPE_MEM_SIZE),
+		"ipa-pipe-mem",
+		IORESOURCE_MEM,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	{
+		0,
+		0,
+		"gsi-irq",
+		IORESOURCE_IRQ,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	{
+		0,
+		0,
+		"ipa-irq",
+		IORESOURCE_IRQ,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+};
+
+struct resource ipa3_plat_drv_resource_6_0[] = {
+	/*
+	 * PLEASE NOTE: The following offset values below ("ipa-base",
+	 * "gsi-base", and "intctrl-base") are used to calculate
+	 * offsets relative to the PCI BAR0 address provided by the
+	 * PCI probe.  After their use to calculate the offsets, they
+	 * are not used again, since PCI ultimately dictates where
+	 * things live.
+	 */
+	{
+		IPA_BASE_OFFSET_6_0,
+		(IPA_BASE_OFFSET_6_0 + IPA_BASE_SIZE_6_0),
+		"ipa-base",
+		IORESOURCE_MEM,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	{
+		GSI_BASE_OFFSET_6_0,
+		(GSI_BASE_OFFSET_6_0 + GSI_BASE_SIZE_6_0),
+		"gsi-base",
+		IORESOURCE_MEM,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	/*
+	 * The following entry is germane only to the emulator
+	 * environment.  It is needed to locate the emulator's PCI
+	 * interrupt controller...
+	 */
+	{
+		INTCTRL_OFFSET,
+		(INTCTRL_OFFSET + INTCTRL_SIZE),
+		"intctrl-base",
+		IORESOURCE_MEM,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	{
+		IPA_PIPE_MEM_START_OFST,
+		(IPA_PIPE_MEM_START_OFST + IPA_PIPE_MEM_SIZE),
+		"ipa-pipe-mem",
+		IORESOURCE_MEM,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	{
+		0,
+		0,
+		"gsi-irq",
+		IORESOURCE_IRQ,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+
+	{
+		0,
+		0,
+		"ipa-irq",
+		IORESOURCE_IRQ,
+		0,
+		NULL,
+		NULL,
+		NULL
+	},
+};
 #define IPA_BASE_OFFSET_4_5  0x01e00000
 #define IPA_BASE_SIZE_4_5    0x000c0000
 #define GSI_BASE_OFFSET_4_5  0x01e04000
@@ -504,6 +829,10 @@ ipa3_plat_drv_resource_table[] = {
 	  ARRAY_SIZE(ipa3_plat_drv_resource_4_0) },
 	{ ipa3_plat_drv_resource_4_5,
 	  ARRAY_SIZE(ipa3_plat_drv_resource_4_5) },
+	{ ipa3_plat_drv_resource_6_0,
+	  ARRAY_SIZE(ipa3_plat_drv_resource_6_0) },
+	{ ipa3_plat_drv_resource_7_0,
+	  ARRAY_SIZE(ipa3_plat_drv_resource_7_0) },
 };
 
 /*
@@ -528,6 +857,12 @@ static u32 emulator_type_to_index(void)
 		break;
 	case IPA_HW_v4_5:
 		index = DTSI_INDEX_4_5;
+		break;
+	case IPA_HW_v6_0:
+		index = DTSI_INDEX_6_0;
+		break;
+	case IPA_HW_v7_0:
+		index = DTSI_INDEX_7_0;
 		break;
 	default:
 		break;

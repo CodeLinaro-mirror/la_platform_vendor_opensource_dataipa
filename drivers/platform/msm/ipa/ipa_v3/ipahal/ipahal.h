@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #ifndef _IPAHAL_H_
@@ -34,6 +35,7 @@ enum ipahal_imm_cmd_name {
 	IPA_IMM_CMD_TABLE_DMA,
 	IPA_IMM_CMD_IP_V6_CT_INIT,
 	IPA_IMM_CMD_IP_PACKET_INIT_EX,
+	IPA_IMM_CMD_SHAPING_CONTROL,
 	IPA_IMM_CMD_MAX,
 };
 
@@ -130,6 +132,40 @@ struct ipahal_imm_cmd_ip_v4_nat_init {
 };
 
 /*
+ * struct ipahal_imm_cmd_ip_v4_nat_init_v7_0 - IP_V4_NAT_INIT cmd payload
+ * Inits IPv4 NAT block. Initiate NAT table with it dimensions, location
+ *  cache address and other related parameters.
+ * @ipv4_rules_addr: table initialization parameters
+ * @ipv4_expansion_rules_addr: table initialization parameters
+ * @index_table_addr: Addr in sys/shared mem where index table, which points
+ *  to NAT table starts
+ * @index_table_expansion_addr: Addr in sys/shared mem where expansion index
+ *  table starts
+ * @table_index:
+ * @ipv4_rules_addr_type:
+ * @ipv4_expansion_rules_addr_type:
+ * @index_table_addr_type:
+ * @index_table_expansion_addr_type:
+ * @size_base_tables:
+ * @size_expansion_tables:
+ * @pdn_config_base_addr:
+ */
+struct ipahal_imm_cmd_ip_v4_nat_init_v7_0 {
+	u64 ipv4_rules_addr;
+	u64 ipv4_expansion_rules_addr;
+	u64 index_table_addr;
+	u64 index_table_expansion_addr;
+	u8 table_index;
+	bool ipv4_rules_addr_type;
+	bool ipv4_expansion_rules_addr_type;
+	bool index_table_addr_type;
+	bool index_table_expansion_addr_type;
+	u32 size_base_tables;
+	u16 size_expansion_tables;
+	u32 pdn_config_base_addr;
+};
+
+/*
  * struct ipahal_imm_cmd_ip_v6_ct_init - IP_V6_CONN_TRACK_INIT cmd payload
  * Inits IPv6CT block. Initiate IPv6CT table with it dimensions, location
  *  cache address and other related parameters.
@@ -137,6 +173,28 @@ struct ipahal_imm_cmd_ip_v4_nat_init {
  */
 struct ipahal_imm_cmd_ip_v6_ct_init {
 	struct ipahal_imm_cmd_nat_ipv6ct_init_common table_init;
+};
+
+/*
+ * struct ipahal_imm_cmd_ip_v6_ct_init_v7_0 - IP_V6_CONN_TRACK_INIT cmd payload
+ * Inits IPv6CT block. Initiate IPv6CT table with it dimensions, location
+ *  cache address and other related parameters.
+ * @table_addr: Addr of IPv6CT table start
+ * @expansion_table_addr: Addr of IPv6CT expansion table start
+ * @table_index:
+ * @table_addr_type:
+ * @expansion_table_addr_type:
+ * @size_base_table:
+ * @size_expansion_table:
+ */
+struct ipahal_imm_cmd_ip_v6_ct_init_v7_0 {
+	u64 table_addr;
+	u64 expansion_table_addr;
+	u8 table_index;
+	bool table_addr_type;
+	bool expansion_table_addr_type;
+	u8 size_base_table;
+	u16 size_expansion_table;
 };
 
 /*
@@ -221,6 +279,17 @@ struct ipahal_imm_cmd_table_dma {
 	u8 base_addr;
 };
 
+struct ipahal_imm_cmd_table_dma_v7_0 {
+    u8 table_index;
+    u8 table_Select;
+    u8 offset_within_entry;
+    u16 entry_index;
+    u8 data;
+    bool cache_entry_invalidate;
+    bool no_dma;
+    u16 cache_entry_hash_value;
+};
+
 /*
  * struct ipahal_imm_cmd_ip_packet_init - IP_PACKET_INIT cmd payload
  * Configuration for specific IP pkt. Shall be called prior to an IP pkt
@@ -264,7 +333,7 @@ struct ipahal_imm_cmd_ip_packet_init_ex {
 	bool cs_disable;
 	bool quota_tethering_stats_disable;
 	u8 flt_rt_tbl_idx;
-	u8 flt_stats_cnt_idx;
+	u16 flt_stats_cnt_idx;
 	u8 flt_priority;
 	bool flt_close_aggr_irq_mod;
 	u8 flt_action;
@@ -272,7 +341,7 @@ struct ipahal_imm_cmd_ip_packet_init_ex {
 	bool flt_set_metadata;
 	bool flt_retain_hdr;
 	u8 rt_pipe_dest_idx;
-	u8 rt_stats_cnt_idx;
+	u16 rt_stats_cnt_idx;
 	u8 rt_priority;
 	bool rt_close_aggr_irq_mod;
 	u16 rt_hdr_offset;
@@ -289,6 +358,14 @@ struct ipahal_imm_cmd_ip_packet_init_ex {
 	u8 rt_qos_class;
 	bool rt_skip_ingress;
 	bool rt_esp_after_udp;
+	u8 flt_rule_type;
+	u8 rt_rule_type;
+	u8 rt_hpc_fetch_len;
+	bool conn_track_nat_stats_direction;
+	u8 traffic_mode;
+	u8 leading_header_size;
+	u16 conn_track_nat_stats_counter_idx;
+	u64 sw_classification_cookie;
 };
 
 /*
@@ -413,6 +490,12 @@ struct ipahal_imm_cmd_dma_task_32b_addr {
 	u32 size1;
 	u32 addr1;
 	u32 packet_size;
+};
+
+struct ipahal_imm_cmd_shaping_control {
+	u64 traffic_class_bitmap[2];
+	u16 shaped_prod_token_bucket_reinit_bitmap;
+	u8 traffic_class_operation;
 };
 
 /*

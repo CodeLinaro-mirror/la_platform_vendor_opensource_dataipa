@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
 * Copyright (c) 2030, The Linux Foundation. All rights reserved.
+* Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
 */
 
 #ifndef _GSIHAL_REG_H_
@@ -43,6 +44,7 @@ enum gsihal_reg_name {
 	GSI_EE_n_GSI_HW_PARAM,
 	GSI_EE_n_GSI_HW_PARAM_0,
 	GSI_EE_n_GSI_HW_PARAM_2,
+	GSI_EE_n_GSI_MCS_CODE_VER,
 	GSI_EE_n_GSI_HW_PARAM_4,
 	GSI_EE_n_GSI_SW_VERSION,
 	GSI_EE_n_CNTXT_INTSET,
@@ -101,32 +103,32 @@ enum gsihal_reg_name {
 	GSI_GSI_IRAM_PTR_NEW_RE,
 	GSI_GSI_IRAM_PTR_READ_ENG_COMP,
 	GSI_GSI_IRAM_PTR_TIMER_EXPIRED,
-	GSI_GSI_IRAM_PTR_EV_DB,
-	GSI_GSI_IRAM_PTR_UC_GP_INT,
+	GSI_GSI_IRAM_PTR_EV_DB, // not used.
+	GSI_GSI_IRAM_PTR_UC_GP_INT, // not found in ipa7
 	GSI_GSI_IRAM_PTR_WRITE_ENG_COMP,
 	GSI_GSI_IRAM_PTR_TLV_CH_NOT_FULL,
-	GSI_IC_DISABLE_CHNL_BCK_PRS_LSB,
-	GSI_IC_DISABLE_CHNL_BCK_PRS_MSB,
-	GSI_IC_GEN_EVNT_BCK_PRS_LSB,
-	GSI_IC_GEN_EVNT_BCK_PRS_MSB,
-	GSI_IC_GEN_INT_BCK_PRS_LSB,
-	GSI_IC_GEN_INT_BCK_PRS_MSB,
-	GSI_IC_STOP_INT_MOD_BCK_PRS_LSB,
-	GSI_IC_STOP_INT_MOD_BCK_PRS_MSB,
-	GSI_IC_PROCESS_DESC_BCK_PRS_LSB,
-	GSI_IC_PROCESS_DESC_BCK_PRS_MSB,
-	GSI_IC_TLV_STOP_BCK_PRS_LSB,
-	GSI_IC_TLV_STOP_BCK_PRS_MSB,
-	GSI_IC_TLV_RESET_BCK_PRS_LSB,
-	GSI_IC_TLV_RESET_BCK_PRS_MSB,
-	GSI_IC_RGSTR_TIMER_BCK_PRS_LSB,
-	GSI_IC_RGSTR_TIMER_BCK_PRS_MSB,
-	GSI_IC_READ_BCK_PRS_LSB,
-	GSI_IC_READ_BCK_PRS_MSB,
-	GSI_IC_WRITE_BCK_PRS_LSB,
-	GSI_IC_WRITE_BCK_PRS_MSB,
-	GSI_IC_UCONTROLLER_GPR_BCK_PRS_LSB,
-	GSI_IC_UCONTROLLER_GPR_BCK_PRS_MSB,
+	GSI_IC_DISABLE_CHNL_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_DISABLE_CHNL_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_GEN_EVNT_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_GEN_EVNT_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_GEN_INT_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_GEN_INT_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_STOP_INT_MOD_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_STOP_INT_MOD_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_PROCESS_DESC_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_PROCESS_DESC_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_TLV_STOP_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_TLV_STOP_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_TLV_RESET_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_TLV_RESET_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_RGSTR_TIMER_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_RGSTR_TIMER_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_READ_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_READ_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_WRITE_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_WRITE_BCK_PRS_MSB, // removed in ipa7.0
+	GSI_IC_UCONTROLLER_GPR_BCK_PRS_LSB, // removed in ipa7.0
+	GSI_IC_UCONTROLLER_GPR_BCK_PRS_MSB, // removed in ipa7.0
 	GSI_GSI_PERIPH_BASE_ADDR_MSB,
 	GSI_GSI_PERIPH_BASE_ADDR_LSB,
 	GSI_GSI_MCS_CFG,
@@ -165,6 +167,11 @@ enum gsihal_reg_name {
 	GSI_EE_n_CH_k_CH_ALMST_EMPTY_THRSHOLD,
 	GSI_EE_n_GSI_DEBUG_PC_FOR_DEBUG,
 	GSI_EE_n_GSI_DEBUG_BUSY_REG,
+	GSI_IRQ_2_MCS_MAPPING_ACCn_TABLE0,
+	GSI_IRQ_2_MCS_MAPPING_ACCn_TABLE1,
+	GSI_MAX_TRE_TLV_n,
+	GSI_DEBUG_MUTEX_REGION_TYPE_01,
+	GSI_DEBUG_MUTEX_REGION_TYPE_23,
 	GSI_REG_MAX
 };
 
@@ -336,6 +343,23 @@ struct gsihal_reg_gsi_ee_n_cntxt_gsi_irq {
 	uint8_t gsi_cmd_fifo_ovrflow;
 	uint8_t gsi_bus_error;
 	uint8_t gsi_break_point;
+};
+
+struct gsihal_reg_gsi_irq_2_mcs_mapping_acc_n_table {
+	uint8_t valid_mcs_for_irq_0;
+	uint8_t valid_mcs_for_irq_1;
+	uint8_t valid_mcs_for_irq_2;
+	uint8_t valid_mcs_for_irq_3;
+};
+
+struct gsihal_reg_gsi_debug_mutex_region_type_01 {
+	uint16_t reserved;
+	uint16_t region_type_1;
+};
+
+struct gsihal_reg_gsi_debug_mutex_region_type_23 {
+	uint16_t region_type_2;
+	uint16_t region_type_3;
 };
 
 /*

@@ -144,6 +144,8 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 	gen_params.id = entry->rule_id;
 	gen_params.rule = (const struct ipa_rt_rule_i *)&entry->rule;
 	gen_params.cnt_idx = entry->cnt_idx;
+	gen_params.rule_type = entry->rule.rule_type;
+	gen_params.hpc_fetch_len = entry->rule.hpc_fetch_len;
 
 	res = ipahal_rt_generate_hw_rule(&gen_params, &entry->hw_len, buf);
 	if (res)

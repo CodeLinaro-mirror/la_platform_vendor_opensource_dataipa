@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.?
  */
 
 #ifndef MSM_GSI_H
@@ -11,7 +12,8 @@
 
 enum gsi_chan_dir {
 	GSI_CHAN_DIR_FROM_GSI = 0x0,
-	GSI_CHAN_DIR_TO_GSI = 0x1
+	GSI_CHAN_DIR_TO_GSI = 0x1,
+	GSI_CHAN_DIR_MAX
 };
 
 /**

@@ -38,6 +38,7 @@ static const char *ipahal_imm_cmd_name_to_str[IPA_IMM_CMD_MAX] = {
 	__stringify(IPA_IMM_CMD_TABLE_DMA),
 	__stringify(IPA_IMM_CMD_IP_V6_CT_INIT),
 	__stringify(IPA_IMM_CMD_IP_PACKET_INIT_EX),
+	__stringify(IPA_IMM_CMD_SHAPING_CONTROL),
 };
 
 static const char *ipahal_pkt_status_exception_to_str
@@ -663,6 +664,77 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_packet_init_ex_v6_0(
 	return pyld;
 }
 
+static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_packet_init_ex_v7_0(
+	enum ipahal_imm_cmd_name cmd, const void *params, bool is_atomic_ctx)
+{
+	struct ipahal_imm_cmd_pyld *pyld;
+	struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *data;
+	struct ipahal_imm_cmd_ip_packet_init_ex *packet_init_ex_params =
+		(struct ipahal_imm_cmd_ip_packet_init_ex *)params;
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
+	if (unlikely(!pyld)) {
+		IPAHAL_ERR("kzalloc err\n");
+		return pyld;
+	}
+	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
+	pyld->len = sizeof(*data);
+	data = (struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)pyld->data;
+
+	data->traffic_mode = packet_init_ex_params->traffic_mode;
+	data->frag_disable = packet_init_ex_params->frag_disable;
+	data->filter_disable = packet_init_ex_params->filter_disable;
+	data->nat_disable = packet_init_ex_params->nat_disable;
+	data->route_disable = packet_init_ex_params->route_disable;
+	data->hdr_removal_insertion_disable = packet_init_ex_params->hdr_removal_insertion_disable;
+	data->cs_disable = packet_init_ex_params->cs_disable;
+	data->quota_tethering_stats_disable =
+	packet_init_ex_params->quota_tethering_stats_disable;
+	data->dpl_disable = packet_init_ex_params->dpl_disable;
+	data->leading_header_size = packet_init_ex_params->leading_header_size;
+	data->conn_track_nat_stats_counter_idx =
+		packet_init_ex_params->conn_track_nat_stats_counter_idx;
+	data->rt_pipe_dest_idx = packet_init_ex_params->rt_pipe_dest_idx;
+	data->rt_skip_ingress = packet_init_ex_params->rt_skip_ingress;
+	data->rt_close_aggr_irq_mod = packet_init_ex_params->rt_close_aggr_irq_mod;
+	data->rt_ttl = packet_init_ex_params->rt_ttl;
+	data->rt_esp_after_udp = packet_init_ex_params->rt_esp_after_udp;
+	data->rt_rule_type = packet_init_ex_params->rt_rule_type;
+	data->rt_retain_hdr = packet_init_ex_params->rt_retain_hdr;
+	data->rt_priority = packet_init_ex_params->rt_priority;
+	data->rt_qos_class = packet_init_ex_params->rt_qos_class;
+	data->rt_stats_cnt_idx = packet_init_ex_params->rt_stats_cnt_idx;
+	/**
+	 * rule id value of 0x3FF is required (if not set correctly,
+	 * filtering stats may be updated)
+	 */
+	data->rt_rule_id = 0x3FF;
+	data->rt_system = packet_init_ex_params->rt_system;
+	data->rt_proc_ctx = packet_init_ex_params->rt_proc_ctx;
+	data->rt_hpc_fetch_len = packet_init_ex_params->rt_hpc_fetch_len;
+	data->rt_hdr_offset = packet_init_ex_params->rt_hdr_offset;
+	data->flt_rt_tbl_idx = packet_init_ex_params->flt_rt_tbl_idx;
+	data->flt_close_aggr_irq_mod = packet_init_ex_params->flt_close_aggr_irq_mod;
+	data->flt_ttl = packet_init_ex_params->flt_ttl;
+	data->flt_esp_after_udp = packet_init_ex_params->flt_esp_after_udp;
+	data->flt_rule_type = packet_init_ex_params->flt_rule_type;
+	data->flt_retain_hdr = packet_init_ex_params->flt_retain_hdr;
+	data->flt_priority = packet_init_ex_params->flt_priority;
+	data->flt_qos_class = packet_init_ex_params->flt_qos_class;
+	data->flt_stats_cnt_idx = packet_init_ex_params->flt_stats_cnt_idx;
+	/**
+	 * rule id value of 0x3FF is required (if not set correctly,
+	 * filtering stats may be updated)
+	 */
+	data->flt_rule_id = 0x3FF;
+	data->flt_action = packet_init_ex_params->flt_action;
+	data->flt_pdn_idx = packet_init_ex_params->flt_pdn_idx;
+	data->flt_set_metadata = packet_init_ex_params->flt_set_metadata;
+	data->sw_classification_cookie = packet_init_ex_params->sw_classification_cookie;
+
+	return pyld;
+}
+
 int ipa_imm_cmd_modify_ip_packet_init_ex(
 	enum ipahal_imm_cmd_name cmd,
 	const void *cmd_data,
@@ -799,6 +871,61 @@ static int ipa_imm_cmd_modify_ip_packet_init_ex_v6_0(
 	return 0;
 }
 
+static int ipa_imm_cmd_modify_ip_packet_init_ex_v7_0(
+	enum ipahal_imm_cmd_name cmd,
+	const void *cmd_data,
+	const void *params,
+	const void *params_mask)
+{
+	struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *data =
+		(struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)cmd_data;
+	struct ipahal_imm_cmd_ip_packet_init_ex *mask =
+		(struct ipahal_imm_cmd_ip_packet_init_ex *)params_mask;
+	struct ipahal_imm_cmd_ip_packet_init_ex *prms =
+		(struct ipahal_imm_cmd_ip_packet_init_ex *)params;
+
+	CHECK_SET_PARAM(traffic_mode, data, prms, mask);
+	CHECK_SET_PARAM(frag_disable, data, prms, mask);
+	CHECK_SET_PARAM(filter_disable, data, prms, mask);
+	CHECK_SET_PARAM(nat_disable, data, prms, mask);
+	CHECK_SET_PARAM(route_disable, data, prms, mask);
+	CHECK_SET_PARAM(hdr_removal_insertion_disable, data, prms, mask);
+	CHECK_SET_PARAM(cs_disable, data, prms, mask);
+	CHECK_SET_PARAM(quota_tethering_stats_disable, data, prms, mask);
+	CHECK_SET_PARAM(dpl_disable, data, prms, mask);
+	CHECK_SET_PARAM(leading_header_size, data, prms, mask);
+	CHECK_SET_PARAM(conn_track_nat_stats_counter_idx, data, prms, mask);
+	CHECK_SET_PARAM(rt_pipe_dest_idx, data, prms, mask);
+	CHECK_SET_PARAM(rt_skip_ingress, data, prms, mask);
+	CHECK_SET_PARAM(rt_close_aggr_irq_mod, data, prms, mask);
+	CHECK_SET_PARAM(rt_ttl, data, prms, mask);
+	CHECK_SET_PARAM(rt_esp_after_udp, data, prms, mask);
+	CHECK_SET_PARAM(rt_rule_type, data, prms, mask);
+	CHECK_SET_PARAM(rt_retain_hdr, data, prms, mask);
+	CHECK_SET_PARAM(rt_priority, data, prms, mask);
+	CHECK_SET_PARAM(rt_qos_class, data, prms, mask);
+	CHECK_SET_PARAM(rt_stats_cnt_idx, data, prms, mask);
+	CHECK_SET_PARAM(rt_system, data, prms, mask);
+	CHECK_SET_PARAM(rt_proc_ctx, data, prms, mask);
+	CHECK_SET_PARAM(rt_hpc_fetch_len, data, prms, mask);
+	CHECK_SET_PARAM(rt_hdr_offset, data, prms, mask);
+	CHECK_SET_PARAM(flt_rt_tbl_idx, data, prms, mask);
+	CHECK_SET_PARAM(flt_close_aggr_irq_mod, data, prms, mask);
+	CHECK_SET_PARAM(flt_ttl, data, prms, mask);
+	CHECK_SET_PARAM(flt_esp_after_udp, data, prms, mask);
+	CHECK_SET_PARAM(flt_rule_type, data, prms, mask);
+	CHECK_SET_PARAM(flt_retain_hdr, data, prms, mask);
+	CHECK_SET_PARAM(flt_priority, data, prms, mask);
+	CHECK_SET_PARAM(flt_qos_class, data, prms, mask);
+	CHECK_SET_PARAM(flt_stats_cnt_idx, data, prms, mask);
+	CHECK_SET_PARAM(flt_action, data, prms, mask);
+	CHECK_SET_PARAM(flt_pdn_idx, data, prms, mask);
+	CHECK_SET_PARAM(flt_set_metadata, data, prms, mask);
+	CHECK_SET_PARAM(sw_classification_cookie, data, prms, mask);
+
+	return 0;
+}
+
 inline void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe_v5_5(
 	const void *cmd_data,
 	u64 pipe_dest_idx)
@@ -865,6 +992,35 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_table_dma_ipav4(
 	data->base_addr = nat_params->base_addr;
 	data->offset = nat_params->offset;
 	data->data = nat_params->data;
+
+	return pyld;
+}
+
+static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_table_dma_v7_0(
+	enum ipahal_imm_cmd_name cmd, const void *params, bool is_atomic_ctx)
+{
+	struct ipahal_imm_cmd_pyld *pyld;
+	struct ipa_imm_cmd_hw_table_dma_v7_0 *data;
+	struct ipahal_imm_cmd_table_dma_v7_0 *typed_params =
+		(struct ipahal_imm_cmd_table_dma_v7_0 *)params;
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
+	if (unlikely(!pyld)) {
+		IPAHAL_ERR("kzalloc err\n");
+		return pyld;
+	}
+	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
+	pyld->len = sizeof(*data);
+	data = (struct ipa_imm_cmd_hw_table_dma_v7_0 *)pyld->data;
+
+	data->table_index = typed_params->table_index;
+	data->table_Select = typed_params->table_Select;
+	data->offset_within_entry = typed_params->offset_within_entry;
+	data->entry_index = typed_params->entry_index;
+	data->data = typed_params->data;
+	data->cache_entry_invalidate = typed_params->cache_entry_invalidate;
+	data->no_dma = typed_params->no_dma;
+	data->cache_entry_hash_value = typed_params->cache_entry_hash_value;
 
 	return pyld;
 }
@@ -1097,6 +1253,39 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v4_nat_init(
 	return pyld;
 }
 
+static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v4_nat_init_v7_0(
+	enum ipahal_imm_cmd_name cmd, const void *params, bool is_atomic_ctx)
+{
+	struct ipahal_imm_cmd_pyld *pyld;
+	struct ipa_imm_cmd_hw_ip_v4_nat_init_v7_0 *data;
+	struct ipahal_imm_cmd_ip_v4_nat_init_v7_0 *nat4_params =
+		(struct ipahal_imm_cmd_ip_v4_nat_init_v7_0 *)params;
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
+	if (unlikely(!pyld)) {
+		IPAHAL_ERR("kzalloc err\n");
+		return pyld;
+	}
+	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
+	pyld->len = sizeof(*data);
+	data = (struct ipa_imm_cmd_hw_ip_v4_nat_init_v7_0 *)pyld->data;
+
+	data->ipv4_rules_addr = nat4_params->ipv4_rules_addr;
+	data->ipv4_expansion_rules_addr = nat4_params->ipv4_expansion_rules_addr;
+	data->index_table_addr = nat4_params->index_table_addr;
+	data->index_table_expansion_addr = nat4_params->index_table_expansion_addr;
+	data->table_index = nat4_params->table_index;
+	data->ipv4_rules_addr_type = nat4_params->ipv4_rules_addr_type;
+	data->ipv4_expansion_rules_addr_type = nat4_params->ipv4_rules_addr_type;
+	data->index_table_addr_type = nat4_params->index_table_addr_type;
+	data->index_table_expansion_addr_type = nat4_params->index_table_expansion_addr_type;
+	data->size_base_tables = nat4_params->size_base_tables;
+	data->size_expansion_tables = nat4_params->size_expansion_tables;
+	data->pdn_config_base_addr = nat4_params->pdn_config_base_addr;
+
+	return pyld;
+}
+
 static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v6_ct_init(
 	enum ipahal_imm_cmd_name cmd, const void *params, bool is_atomic_ctx)
 {
@@ -1123,6 +1312,32 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v6_ct_init(
 	data->size_base_table = ipv6ct_params->table_init.size_base_table;
 	data->size_expansion_table =
 		ipv6ct_params->table_init.size_expansion_table;
+
+	return pyld;
+}
+
+static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v6_ct_init_v7_0(
+	enum ipahal_imm_cmd_name cmd, const void *params, bool is_atomic_ctx)
+{
+	struct ipahal_imm_cmd_pyld *pyld;
+	struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 *data;
+	struct ipahal_imm_cmd_ip_v6_ct_init_v7_0 *typed_params =
+		(struct ipahal_imm_cmd_ip_v6_ct_init_v7_0 *)params;
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
+	if (unlikely(!pyld))
+		return pyld;
+	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
+	pyld->len = sizeof(*data);
+	data = (struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 *)pyld->data;
+
+	data->table_addr = typed_params->table_addr;
+	data->expansion_table_addr = typed_params->expansion_table_addr;
+	data->table_index = typed_params->table_index;
+	data->table_addr_type = typed_params->table_addr_type;
+	data->expansion_table_addr_type = typed_params->expansion_table_addr_type;
+	data->size_base_table = typed_params->size_base_table;
+	data->size_expansion_table = typed_params->size_expansion_table;
 
 	return pyld;
 }
@@ -1231,6 +1446,32 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v4_filter_init_v6_0(
 	data->nhash_rules_addr = flt4_params->nhash_rules_addr;
 	data->nhash_rules_size = flt4_params->nhash_rules_size;
 	data->nhash_local_addr = flt4_params->nhash_local_addr >> 3;
+
+	return pyld;
+}
+
+static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_shaping_control(
+	enum ipahal_imm_cmd_name cmd, const void *params, bool is_atomic_ctx)
+{
+	struct ipahal_imm_cmd_pyld *pyld;
+	struct ipa_imm_cmd_hw_shaping_control *data;
+	struct ipahal_imm_cmd_shaping_control *typed_params =
+		(struct ipahal_imm_cmd_shaping_control *)params;
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
+	if (unlikely(!pyld)) {
+		IPAHAL_ERR("kzalloc err\n");
+		return pyld;
+	}
+	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
+	pyld->len = sizeof(*data);
+	data = (struct ipa_imm_cmd_hw_shaping_control *)pyld->data;
+
+	data->traffic_class_bitmap1 = typed_params->traffic_class_bitmap[0];
+	data->traffic_class_bitmap2 = typed_params->traffic_class_bitmap[1];
+	data->shaped_prod_token_bucket_reinit_bitmap =
+		typed_params->shaped_prod_token_bucket_reinit_bitmap;
+	data->traffic_class_operation = typed_params->traffic_class_operation;
 
 	return pyld;
 }
@@ -1413,6 +1654,27 @@ static struct ipahal_imm_cmd_obj
 		ipa_imm_cmd_construct_dma_shared_mem_v_6_0,
 		ipa_imm_cmd_modify_dummy,
 		19},
+	/* IPAv7_0 */
+	[IPA_HW_v7_0][IPA_IMM_CMD_IP_PACKET_INIT_EX] = {
+		ipa_imm_cmd_construct_ip_packet_init_ex_v7_0,
+		ipa_imm_cmd_modify_ip_packet_init_ex_v7_0,
+		18},
+	[IPA_HW_v7_0][IPA_IMM_CMD_IP_V4_NAT_INIT] = {
+		ipa_imm_cmd_construct_ip_v4_nat_init_v7_0,
+		ipa_imm_cmd_modify_dummy,
+		5},
+	[IPA_HW_v7_0][IPA_IMM_CMD_TABLE_DMA] = {
+		ipa_imm_cmd_construct_table_dma_v7_0,
+		ipa_imm_cmd_modify_dummy,
+		14},
+	[IPA_HW_v7_0][IPA_IMM_CMD_IP_V6_CT_INIT] = {
+		ipa_imm_cmd_construct_ip_v6_ct_init_v7_0,
+		ipa_imm_cmd_modify_dummy,
+		23},
+	[IPA_HW_v7_0][IPA_IMM_CMD_SHAPING_CONTROL] = {
+		ipa_imm_cmd_construct_shaping_control,
+		ipa_imm_cmd_modify_dummy,
+		15},
 };
 
 /*
@@ -1879,6 +2141,16 @@ static void __ipa_parse_frag_pkt_v5_5(struct ipahal_pkt_status *status,
 	status->pd = hw_status->frag_pkt.pd;
 }
 
+static void ipa_parse_frag_pkt_v7_0(struct ipahal_pkt_status *status, const void *unparsed_status)
+{
+	union ipa_pkt_status_hw_v7_0 *hw_status = (union ipa_pkt_status_hw_v7_0 *)unparsed_status;
+
+	status->frag_rule_idx = hw_status->frag_pkt.frag_rule_idx;
+	status->tbl_idx = hw_status->frag_pkt.tbl_idx;
+	status->src_ip_addr = hw_status->frag_pkt.src_ip_addr;
+	status->dest_ip_addr = hw_status->frag_pkt.dest_ip_addr;
+}
+
 static void __ipa_parse_gen_pkt_v6_0(struct ipahal_pkt_status *status,
 				const void *unparsed_status)
 {
@@ -1945,6 +2217,46 @@ static void __ipa_parse_gen_pkt_v6_0(struct ipahal_pkt_status *status,
 			hw_status->ipa_pkt.exception);
 }
 
+static void ipa_parse_gen_pkt_v7_0(struct ipahal_pkt_status *status, const void *unparsed_status)
+{
+	bool is_ipv6;
+	union ipa_pkt_status_hw_v7_0 *hw_status = (union ipa_pkt_status_hw_v7_0 *)unparsed_status;
+
+	is_ipv6 = (hw_status->ipa_pkt.status_mask & 0x80) ? false : true;
+	status->pkt_len = hw_status->ipa_pkt.pkt_len;
+	status->endp_src_idx = hw_status->ipa_pkt.endp_src_idx;
+	status->pure_ack = hw_status->ipa_pkt.pure_ack;
+	status->syn = hw_status->ipa_pkt.syn;
+	status->fin_rst = hw_status->ipa_pkt.fin_rst;
+	status->rt_local = hw_status->ipa_pkt.rt_local;
+	status->rt_hash = hw_status->ipa_pkt.rt_cache_hit;
+	status->protocol_encoding = hw_status->ipa_pkt.protocol_encoding;
+	status->metadata = hw_status->ipa_pkt.metadata;
+	status->flt_local = hw_status->ipa_pkt.flt_local;
+	status->flt_ret_hdr = hw_status->ipa_pkt.flt_ret_hdr;
+	status->flt_rule_id = hw_status->ipa_pkt.flt_rule_id;
+	status->flt_miss = (hw_status->ipa_pkt.rt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
+	status->rt_tbl_idx = hw_status->ipa_pkt.rt_tbl_idx;
+	status->rt_rule_id = hw_status->ipa_pkt.rt_rule_id;
+	status->rt_miss = (hw_status->ipa_pkt.rt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
+	status->nat_entry_idx = hw_status->ipa_pkt.nat_entry_idx;
+	status->nat_type = hw_status->ipa_pkt.nat_type;
+	status->tag_info = hw_status->ipa_pkt.tag_info;
+	status->seq_num = hw_status->ipa_pkt.seq_num;
+	status->time_of_day_ctr = hw_status->ipa_pkt.time_of_day_ctr;
+	status->hdr_offset = hw_status->ipa_pkt.hdr_offset;
+	status->frag_hit = hw_status->ipa_pkt.frag_hit;
+	status->frag_rule = hw_status->ipa_pkt.frag_rule;
+	status->endp_dest_idx = hw_status->ipa_pkt.endp_dest_idx;
+	status->nat_exc_suppress = hw_status->ipa_pkt.nat_exc_suppress;
+	status->ttl_dec = hw_status->ipa_pkt.ttl_dec;
+	status->ucp = hw_status->ipa_pkt.ucp;
+	status->egress_tc = hw_status->ipa_pkt.ergress_traffic_class;
+	status->ingress_tc = hw_status->ipa_pkt.ingress_traffic_class;
+	status->flt_tbl_idx = hw_status->ipa_pkt.flt_table_idx;
+
+	status->exception = pkt_status_parse_exception(is_ipv6, hw_status->ipa_pkt.exception);
+}
 
 static void ipa_pkt_status_parse(
 	const void *unparsed_status, struct ipahal_pkt_status *status);
@@ -1956,6 +2268,8 @@ static void ipa_pkt_status_parse_thin_v5_5(const void *unparsed_status,
 	struct ipahal_pkt_status_thin *status);
 static void ipa_pkt_status_parse_thin_v6_0(const void *unparsed_status,
 	struct ipahal_pkt_status_thin *status);
+static void ipa_pkt_status_parse_thin_v7_0(const void *unparsed_status,
+	struct ipahal_pkt_status_thin *status);
 static void ipa_pkt_status_parse(
 	const void *unparsed_status, struct ipahal_pkt_status *status);
 static void ipa_pkt_status_parse_v5_0(
@@ -1964,6 +2278,8 @@ static void ipa_pkt_status_parse_v5_5(
 	const void *unparsed_status, struct ipahal_pkt_status *status);
 static void ipa_pkt_status_parse_v6_0(
 	const void *unparsed_status, struct ipahal_pkt_status *status);
+static void ipa_pkt_status_parse_v7_0(const void *unparsed_status,
+	struct ipahal_pkt_status *status);
 /*
  * struct ipahal_pkt_status_obj - Pakcet Status H/W information for
  *  specific IPA version
@@ -2024,6 +2340,14 @@ static struct ipahal_pkt_status_obj ipahal_pkt_status_objs[IPA_HW_MAX] = {
 		ipa_pkt_status_parse_thin_v6_0,
 		__ipa_parse_gen_pkt_v6_0,
 		__ipa_parse_frag_pkt_v5_5, //frag_pkt_status didn't changed in IPA6.0
+		},
+	/* IPAv7.0 */
+	[IPA_HW_v7_0] = {
+		IPA7_0_PKT_STATUS_SIZE,
+		ipa_pkt_status_parse_v7_0,
+		ipa_pkt_status_parse_thin_v7_0,
+		ipa_parse_gen_pkt_v7_0,
+		ipa_parse_frag_pkt_v7_0,
 		},
 };
 
@@ -2225,6 +2549,25 @@ static void ipa_pkt_status_parse_v6_0(
 	ipa_set_pkt_status_mask_v5_5((u16)(hw_status->ipa_pkt.status_mask), status);
 }
 
+static void ipa_pkt_status_parse_v7_0(const void *unparsed_status, struct ipahal_pkt_status *status)
+{
+	union ipa_pkt_status_hw_v7_0 *hw_status = (union ipa_pkt_status_hw_v7_0 *)unparsed_status;
+
+	status->status_opcode = ipa_hw_opcode_to_opcode(hw_status->ipa_pkt.status_opcode);
+
+	if (status->status_opcode == IPAHAL_PKT_STATUS_OPCODE_NEW_FRAG_RULE)
+		ipahal_pkt_status_objs[ipahal_ctx->hw_type].\
+			__parse_frag_pkt(status, unparsed_status);
+	else
+		ipahal_pkt_status_objs[ipahal_ctx->hw_type].\
+			__parse_gen_pkt(status, unparsed_status);
+
+	status->nat_type = ipa_hw_nat_type_to_nat_type(status->nat_type);
+
+	/* Status Mask didn't changed in IPA 7.0 */
+	ipa_set_pkt_status_mask_v5_5((u16)(hw_status->ipa_pkt.status_mask), status);
+}
+
 /*
  * ipa_pkt_status_parse_thin() - Parse some of the packet status fields
  * for specific usage in the LAN rx data path where parsing needs to be done
@@ -2318,6 +2661,19 @@ static void ipa_pkt_status_parse_thin_v6_0(const void *unparsed_status,
 	status->ucp = hw_status->ipa_pkt.ucp;
 	status->exception = pkt_status_parse_exception(is_ipv6,
 					hw_status->ipa_pkt.exception);
+}
+
+static void ipa_pkt_status_parse_thin_v7_0(const void *unparsed_status,
+	struct ipahal_pkt_status_thin *status)
+{
+	union ipa_pkt_status_hw_v7_0 *hw_status = (union ipa_pkt_status_hw_v7_0 *)unparsed_status;
+	bool is_ipv6 = (hw_status->ipa_pkt.status_mask & 0x80) ? false : true;
+
+	IPAHAL_DBG_LOW("Parse Thin Status Packet\n");
+	status->metadata = hw_status->ipa_pkt.metadata;
+	status->endp_src_idx = hw_status->ipa_pkt.endp_src_idx;
+	status->ucp = hw_status->ipa_pkt.ucp;
+	status->exception = pkt_status_parse_exception(is_ipv6, hw_status->ipa_pkt.exception);
 }
 
 /*

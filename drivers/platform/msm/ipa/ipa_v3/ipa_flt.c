@@ -75,6 +75,7 @@ static int ipa3_generate_flt_hw_rule(enum ipa_ip_type ip,
 	gen_params.id = entry->rule_id;
 	gen_params.rule = (const struct ipa_flt_rule_i *)&entry->rule;
 	gen_params.cnt_idx = entry->cnt_idx;
+	gen_params.rule_type = entry->rule.rule_type;
 
 	res = ipahal_flt_generate_hw_rule(&gen_params, &entry->hw_len, buf);
 	if (res) {
@@ -2336,7 +2337,7 @@ int ipa3_flt_read_tbl_from_hw(u32 pipe_idx, enum ipa_ip_type ip_type,
 	*num_entry = rule_idx;
 bail:
 	iounmap(ipa_sram_mmio);
-	return 0;
+	return res;
 }
 
 int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client)

@@ -75,11 +75,13 @@
 #define IPA_INVALID_PIPE_IDX 0xFF
 #define IPA5_PIPES_NUM 36
 #define IPA6_PIPES_NUM 50
+#define IPA7_PIPES_NUM 75
 #define IPA6_PROD_PIPES_NUM 22
 #define IPA5_PIPE_REG_NUM 2
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
 #define IPA6_MAX_NUM_PIPES (IPA6_PIPES_NUM)
-#define IPA_MAX_NUM_PIPES IPA6_MAX_NUM_PIPES
+#define IPA7_MAX_NUM_PIPES (IPA7_PIPES_NUM)
+#define IPA_MAX_NUM_PIPES IPA7_MAX_NUM_PIPES
 #define IPA_APPS_IN_PIPES_NUM 7 // number of pipes from IPA to APPs
 #define IPA6_NXT_FLT_TBL_Q6_NUM 1
 #define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
@@ -3875,6 +3877,7 @@ int ipa3_create_wdi_mapping(u32 num_buffers, struct ipa_wdi_buffer_info *info);
 int ipa3_set_flt_tuple_mask(int pipe_idx, struct ipahal_reg_hash_tuple *tuple);
 int ipa3_set_rt_tuple_mask(int tbl_idx, struct ipahal_reg_hash_tuple *tuple);
 void ipa3_set_resorce_groups_min_max_limits(void);
+void ipa3_set_resorce_groups_min_max_limits_v7_0(void);
 void ipa3_set_resorce_groups_config(void);
 int ipa3_suspend_apps_pipes(bool suspend);
 void ipa3_force_close_coal(

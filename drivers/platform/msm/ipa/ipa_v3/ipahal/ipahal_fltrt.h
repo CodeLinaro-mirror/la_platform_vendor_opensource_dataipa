@@ -74,6 +74,8 @@ struct ipahal_rt_rule_gen_params {
 	u32 id;
 	u8 cnt_idx;
 	const struct ipa_rt_rule_i *rule;
+	enum ipa_fltrt_rule_type rule_type;
+	u8 hpc_fetch_len;;
 };
 
 /*
@@ -129,6 +131,7 @@ struct ipahal_flt_rule_gen_params {
 	u32 id;
 	u8 cnt_idx;
 	const struct ipa_flt_rule_i *rule;
+	enum ipa_fltrt_rule_type rule_type;
 };
 
 /*
