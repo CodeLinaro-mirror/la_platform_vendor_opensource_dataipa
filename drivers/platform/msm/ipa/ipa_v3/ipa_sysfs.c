@@ -1702,7 +1702,7 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		"flow_enable=%u\n"
 		"flow_disable=%u\n"
 		"rx_page_drop_cnt=%u\n"
-		"lower_order=%u\n"
+		"lower_order=%llu\n"
 		"rmnet_notifier_enabled=%u\n"
 		"num_buff_above_thresh_for_def_pipe_notified=%u\n"
 		"num_buff_below_thresh_for_def_pipe_notified=%u\n"
@@ -1738,7 +1738,7 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		ipa3_ctx->stats.flow_enable,
 		ipa3_ctx->stats.flow_disable,
 		ipa3_ctx->stats.rx_page_drop_cnt,
-		ipa3_ctx->stats.lower_order,
+		(unsigned long long)ipa3_ctx->stats.lower_order,
 		ipa3_ctx->ipa_rmnet_notifier_enabled,
 		atomic_read(&ipa3_ctx->stats.num_buff_above_thresh_for_def_pipe_notified),
 		atomic_read(&ipa3_ctx->stats.num_buff_below_thresh_for_def_pipe_notified),
@@ -4458,6 +4458,7 @@ static ssize_t __eth_err_status_show(enum ipa_eth_client_type type, uint8_t inst
 		rx_ep = IPA_CLIENT_AQC_ETHERNET_PROD;
 		scratch_num = 7;
 	case IPA_ETH_CLIENT_RTK8111K:
+		fallthrough;
 	case IPA_ETH_CLIENT_RTK8125B:
 		tx_ep = IPA_CLIENT_RTK_ETHERNET_CONS;
 		rx_ep = IPA_CLIENT_RTK_ETHERNET_PROD;
@@ -4469,8 +4470,8 @@ static ssize_t __eth_err_status_show(enum ipa_eth_client_type type, uint8_t inst
 		scratch_num = 6;
 #if IPA_ETH_API_VER >= 2
 	case IPA_ETH_CLIENT_NTN3:
+		fallthrough;
 	case IPA_ETH_CLIENT_IEMAC:
-
 		memset(&ntn3_stats, 0, sizeof(ntn3_stats));
 		if (0 == inst_id) {
 			ipa_eth_ntn3_get_status(&ntn3_stats, 0);
@@ -4750,7 +4751,7 @@ const struct attribute_group ipa_attr_group = {
 	.attrs		= ipa_attrs,
 };
 
-int ipa_sysfs_init()
+int ipa_sysfs_init(void)
 {
 	int ret = -1;
 
@@ -4765,7 +4766,7 @@ int ipa_sysfs_init()
 	return ret;
 }
 
-void ipa_sysfs_deinit()
+void ipa_sysfs_deinit(void)
 {
 	sysfs_remove_group(kernel_kobj, &ipa_attr_group);
 	ipa_sysfs_deinit_stats();
