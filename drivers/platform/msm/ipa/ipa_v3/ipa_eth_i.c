@@ -176,31 +176,24 @@ struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 {
 	struct Ipa3HwEventInfoData_t *stats_ptr = &uc_event_top_mmio->statsInfo;
 
-	uint8_t feature;
-	if(ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE) {
-		feature = IPA_HW_FEATURE_EOGRE;
-	} else if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE) {
-		feature = IPA_HW_FEATURE_EOGRE_UNTAG;
-	}
-
 	if ((uc_event_top_mmio->protocolMask &
-		(1 << feature)) == 0) {
+		(1 << IPA_HW_FEATURE_EOGRE)) == 0) {
 		IPAERR("EOGRE protocol missing 0x%x\n",
 				uc_event_top_mmio->protocolMask);
 		return;
 	}
 
-	if (stats_ptr->featureInfo[feature].params.size !=
+	if (stats_ptr->featureInfo[IPA_HW_FEATURE_EOGRE].params.size !=
 		sizeof(struct Ipa3HwStatsEOGREInfoData_t)) {
 		IPAERR("eogre stats sz invalid exp=%zu is=%u\n",
 			sizeof(struct Ipa3HwStatsEOGREInfoData_t),
-			stats_ptr->featureInfo[feature].params.size);
+			stats_ptr->featureInfo[IPA_HW_FEATURE_EOGRE].params.size);
 		return;
 	}
 
 	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst =
 		stats_ptr->baseAddrOffset +
-		stats_ptr->featureInfo[feature].params.offset;
+		stats_ptr->featureInfo[IPA_HW_FEATURE_EOGRE].params.offset;
 	IPAERR("EOGRE stats ofst=0x%x\n", ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
 	if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
 		sizeof(struct Ipa3HwStatsEOGREInfoData_t) >=
