@@ -58,8 +58,6 @@
 #define MPLS_STATS(y) stats->y = \
 	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.mpls->y
 
-#define MULTI_STATS(y,it) multi->tunnels[it].y = \
-	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi->tunnels[it].y
 enum ipa_eth_dir {
 	IPA_ETH_RX = 0,
 	IPA_ETH_TX = 1,
@@ -191,8 +189,6 @@ struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 		feature = IPA_HW_FEATURE_EOGRE_UNTAG;
 	} else if(ipa3_ctx->eogre_tunnel_feature == DOUBLE_TAG_FEATURE) {
           	feature = IPA_HW_FEATURE_MPLS;
-	} else if(ipa3_ctx->eogre_tunnel_feature == SINGLE_TAG_FEATURE) {
-			feature = IPA_HW_FEATURE_MULTI;
 	}
 
 	if ((uc_event_top_mmio->protocolMask &
@@ -223,22 +219,13 @@ struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 		}
 	}
 
-	if(feature == IPA_HW_FEATURE_MULTI) {
-		if (stats_ptr->featureInfo[feature].params.size !=
-			sizeof(struct Ipa3HwStatsMultiCombined)) {
-			IPAERR("eogre stats sz invalid exp=%zu is=%u\n",
-			sizeof(struct Ipa3HwStatsMultiCombined),
-			stats_ptr->featureInfo[feature].params.size);
-			return;
-		}
-	}
 
 	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst =
 		stats_ptr->baseAddrOffset +
 		stats_ptr->featureInfo[feature].params.offset;
 	IPAERR("EOGRE stats ofst=0x%x\n",
 			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
-
+	
 	if(feature == IPA_HW_FEATURE_EOGRE ||
 			feature == IPA_HW_FEATURE_EOGRE_UNTAG) {
 		if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
@@ -250,7 +237,7 @@ struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
 			return;
 		}
-		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre =
+		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre = 
 			ioremap(ipa3_ctx->ipa_wrapper_base +
 			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst,
 			sizeof(struct Ipa3HwStatsEOGRE));
@@ -259,27 +246,6 @@ struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 			return;
 		}
 
-	}
-
-	if(feature == IPA_HW_FEATURE_MULTI) {
-		if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
-				sizeof(struct Ipa3HwStatsMultiCombined) >=
-				ipa3_ctx->ctrl->ipa_reg_base_ofst +
-				ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n, 0) +
-				ipa3_ctx->smem_sz) {
-			IPAERR("uc_eogre_stats 0x%x outside SRAM\n",
-					ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
-			 return;
-		}
-
-		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi =
-			ioremap(ipa3_ctx->ipa_wrapper_base +
-			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst,
-			sizeof(struct Ipa3HwStatsMultiCombined));
-		if (!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi) {
-			IPAERR("fail to ioremap uc eogre stats\n");
-			return;
-		}
 	}
 
 	if(feature == IPA_HW_FEATURE_MPLS) {
@@ -307,16 +273,14 @@ struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 }
 
 int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
-		struct Ipa3HwStatsEOGRE *eogre,
-		struct Ipa3HwStatsMultiCombined *multi)
+		struct Ipa3HwStatsEOGRE *eogre)
 {
-
 	if (unlikely(!ipa3_ctx)) {
 		IPAERR("IPA driver was not initialized\n");
 		return -EINVAL;
 	}
 
-	if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE ||
+	if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE || 
           ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE){
         	if (!eogre || !ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre) {
 		IPAERR("bad parms stats=%pK eogre_stats=%pK\n",
@@ -325,30 +289,19 @@ int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
 		return -EINVAL;
 		}
         }
+  	
 
 	if(ipa3_ctx->eogre_tunnel_feature == DOUBLE_TAG_FEATURE) {
-        	if (!stats ||
-			!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.mpls) {
+        	if (!stats || !ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.mpls) {
 			IPAERR("bad parms stats=%pK eogre_stats=%pK\n",
 				stats,
 				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio);
 			return -EINVAL;
 		}
         }
-
-	if(ipa3_ctx->eogre_tunnel_feature == SINGLE_TAG_FEATURE) {
-        	if (!stats ||
-			!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi) {
-			IPAERR("bad parms stats=%pK eogre_stats=%pK\n",
-				stats,
-				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio);
-			return -EINVAL;
-		}
-        }
-
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-
-	if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE ||
+  
+	if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE || 
           	ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE) {
 		EOGRE_STATS(eogre_header_add_id);
 		EOGRE_STATS(eogre_header_remove_id);
@@ -359,18 +312,6 @@ int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
 		MPLS_STATS(mpls_header_add_id);
 		MPLS_STATS(mpls_header_remove_id);
         }
-	if(ipa3_ctx->eogre_tunnel_feature == SINGLE_TAG_FEATURE) {
-		multi->eogre_header_add_id =
-			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi->\
-			eogre_header_add_id;
-		multi->eogre_header_remove_id =
-			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi->\
-			eogre_header_remove_id;
-		for(int i = 0; i < MAX_MULTI_TUNNEL_STATS;i++){
-			MULTI_STATS(eogre_header_add_id,i);
-			MULTI_STATS(eogre_header_remove_id,i);
-		}
-	}
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
