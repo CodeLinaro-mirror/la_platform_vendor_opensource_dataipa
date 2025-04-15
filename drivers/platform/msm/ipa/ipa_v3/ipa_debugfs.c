@@ -1944,29 +1944,15 @@ static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
 {
 	int nbytes;
 	int cnt = 0;
-	struct Ipa3HwStatsMPLS stats;
-	struct Ipa3HwStatsEOGRE eogre;  
-	if (!ipa3_get_eogre_stats(&stats,&eogre)) {
+	struct Ipa3HwStatsEOGREInfoData_t stats;
 
-		if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE ||
-                  	ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE) {
-			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
-				"EoGRE UL Stats is %llu\n"
-				"EoGRE DL stats is %llu\n",
-				eogre.eogre_header_add_id,
-				eogre.eogre_header_remove_id);
-		}
-		if(ipa3_ctx->eogre_tunnel_feature == DOUBLE_TAG_FEATURE) {
-			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
-				"MPLS UL Stats is %llu\n"
-				"MPLS DL stats is %llu\n"
-				"PPPOEoMPLS UL Stats is %llu\n"
-				"PPPOEoMPLS DL Stats is %llu\n",
-				 stats.mpls_header_add_id,
-				 stats.mpls_header_remove_id,
-				 stats.pppoe_mpls_header_add_id,
-				 stats.pppoe_mpls_header_remove_id);
-		}
+	if (!ipa3_get_eogre_stats(&stats)) {
+
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"EoGRE UL Stats is %u\n"
+			"EoGRE DL stats is %u\n",
+			stats.eogre_header_add_id,
+			stats.eogre_header_remove_id);
 		cnt += nbytes;
 	} else {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
@@ -3480,7 +3466,7 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.read = ipa3_read_wdi,
 		}
 	}, {
-		"tunnel_stats", IPA_READ_ONLY_MODE, NULL, {
+		"eogre_stats", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_eogre_stats,
 		}
 	}, {
