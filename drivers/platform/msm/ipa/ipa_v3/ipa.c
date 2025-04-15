@@ -2737,7 +2737,6 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_macsec_info macsec_info;
 	struct ipa_macsec_map *macsec_map;
 	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
-	struct ipa_ioc_mux_mapping_table vlan_muxid_map_info;
 	struct ipa_ioc_ext_router_info *ext_router_info;
 	bool send2uC, send2ipacm;
 	size_t sz;
@@ -4228,22 +4227,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 		}
 		break;
-	case IPA_IOC_SEND_VLAN_MUXID_MAPPING:
-		IPADBG("Got IPA_IOC_SEND_VLAN_MUXID_MAPPING\n");
-		memset(&vlan_muxid_map_info, 0, sizeof(vlan_muxid_map_info));
 
-		if (copy_from_user(&vlan_muxid_map_info, (const void __user *) arg,
-			sizeof(struct ipa_ioc_mux_mapping_table))) {
-			IPAERR_RL("copy_from_user for vlan_muxid_map_info fails\n");
-			retval = -EFAULT;
-			break;
-		}
-		if (ipa3_send_mux_vlan_map(&vlan_muxid_map_info)) {
-			retval = -EFAULT;
-			IPADBG("function fails\n");
-			break;
-		}
-		break;
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		return -ENOTTY;
@@ -8454,23 +8438,6 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		return count;
 	}
 
-	//Private IP Forward enable check
-	if(strnstr(dbg_buff, "ipforward", strlen(dbg_buff))){
-		//If this string is present, it means the FR is active
-		IPADBG("Private IP Forward FR active\n");
-
-		if(strnstr(dbg_buff, "ipforward1", strlen(dbg_buff))){
-			IPADBG("ipforward1\n");
-			//This means eth0 iface is the one being forwarded
-			ipa3_ctx->private_ip_forward_eth_iface=1;
-		}
-		else{
-			IPADBG("ipforward2\n");
-			//This means eth1 iface is the one being forwarded
-			ipa3_ctx->private_ip_forward_eth_iface=2;
-		}
-		IPADBG("ep index %d\n",ipa3_ctx->private_ip_forward_ep_index);
-	}
 	/* Check MHI configuration on MDM devices */
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
 		/* todo in future: change vlan_mode_iface from bool to enum
@@ -8507,8 +8474,6 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			 * another write
 			 */
 			ipa3_ctx->vlan_mode_set = true;
-			IPAERR("eth vlan(%d)\n",
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH1]);
 			IPAERR("emac vlan(%d)\n",
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC]);
 			IPAERR("rndis vlan(%d)\n",
@@ -9088,8 +9053,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->uc_act_tbl_total = 0;
 	ipa3_ctx->uc_act_tbl_next_index = 0;
 	ipa3_ctx->is_dual_pine_config = resource_p->is_dual_pine_config;
-	ipa3_ctx->private_ip_forward_eth_iface = 0;
-	ipa3_ctx->private_ip_forward_ep_index = -1;
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =

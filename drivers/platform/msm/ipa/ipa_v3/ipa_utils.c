@@ -99,9 +99,6 @@
  */
 #define IPA_TIMER_SCALED_TIME_LIMIT 31
 
-/*Config the ucp_cfg register with this command, when HPS sequence of DMA_ucP is set, to let uC process Private IP packets*/
-#define IPA_UCP_CMD_UCP_CFG_HANDLE_PRIVATE_IP_MAPPING 29
-
 /* HPS, DPS sequencers Types*/
 
 /* DMA Only */
@@ -130,10 +127,6 @@
 #define IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_2ND_UCP_DMAP 0x0000080a
 /* 3 Packet Processing + no decipher + 2 uCP + HPS REP DMA Parser */
 #define IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_NO_DEC_2ND_UCP_DMAP 0x0000080c
-/* DMA to uc directly + 2 packet processing */
-#define IPA_DPS_HPS_SEQ_TYPE_DMA_UCP_2ND_PKT_PROCESS 0x00000017
-
-
 /* Invalid sequencer type */
 #define IPA_DPS_HPS_SEQ_TYPE_INVALID 0xFFFFFFFF
 
@@ -8473,8 +8466,7 @@ bool ipa_is_ep_support_flt(int pipe_idx)
 int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 {
 	int type;
-	struct ipa_ep_cfg_ucp ep_cfg_ucp;
-	struct ipa_ep_cfg_seq ep_cfg_seq;
+
 	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
 	    ipa3_ctx->ep[clnt_hdl].valid == 0) {
 		IPAERR("bad param, clnt_hdl = %d", clnt_hdl);
@@ -8510,22 +8502,7 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 		}
 		IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 		/* Configure sequencers type*/
-		if(ipa3_ctx->private_ip_forward_eth_iface && clnt_hdl == ipa3_ctx->private_ip_forward_ep_index){
-			IPAERR("Setting ucp cfg, and sequence type UCP_DMA instead of default to enable private IP forwarding\n");
-			//set ucp_cfg register
-			ep_cfg_ucp.enable = true;
-			ep_cfg_ucp.command = IPA_UCP_CMD_UCP_CFG_HANDLE_PRIVATE_IP_MAPPING;
-			ipahal_write_reg_n_fields(IPA_ENDP_INIT_UCP_CFG_n,clnt_hdl,&ep_cfg_ucp);
 
-			//Now write to the HPS sequence register
-			ep_cfg_seq.set_dynamic = true;
-			ep_cfg_seq.seq_type = IPA_DPS_HPS_SEQ_TYPE_DMA_UCP_2ND_PKT_PROCESS;
-			IPAERR("change ep seq\n");
-			IPADBG("set sequencers to sequence 0x%x, ep = %d\n", ep_cfg_seq.seq_type,
-				clnt_hdl);
-			ipahal_write_reg_n(IPA_ENDP_INIT_SEQ_n, clnt_hdl, ep_cfg_seq.seq_type);
-			return 0;
-		}
 		IPADBG("set sequencers to sequence 0x%x, ep = %d\n", type,
 				clnt_hdl);
 		ipahal_write_reg_n(IPA_ENDP_INIT_SEQ_n, clnt_hdl, type);

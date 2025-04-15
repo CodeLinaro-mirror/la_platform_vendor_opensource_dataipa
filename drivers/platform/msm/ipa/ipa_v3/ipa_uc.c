@@ -108,10 +108,6 @@ enum ipa3_cpu_2_hw_commands {
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 22),
 	IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING       =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 23),
-	IPA_CPU_2_HW_CMD_ADD_MUX_VLAN_MAPPING       =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 24),
-	IPA_CPU_2_HW_CMD_UCP_CFG_HANDLE_PRIVATE_IP_MAPPING =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 29),
 };
 
 /**
@@ -248,7 +244,6 @@ struct IpaHwDbAddrInfo_t {
 struct IpaDscpPcpMap_t {
 	uint8_t dscp_pcp_map[IPA_UC_MAX_DSCP_VAL];
 } __packed;
-
 
 /**
  * When resource group 10 limitation mitigation is enabled, uC send
@@ -2131,64 +2126,6 @@ int ipa3_add_remove_dscp_pcp_map(
 		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
 	else
 		IPADBG("DSCP <-> PCP %s Success\n", (AddMapping)?"Add":"Delete");
-
-	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-
-	return res;
-}
-
-/**
- * ipa3_send_mux_vlan_map() - Send the VLAN to MUX ID map to uC
- * @map: The mapping data destined for the uC
- *
- * Returns: 0 on success, negative on failure
- */
-int ipa3_send_mux_vlan_map(
-	struct ipa_ioc_mux_mapping_table *map )
-{
-	struct ipa_mem_buffer       mem;
-	struct ipa_ioc_mux_mapping_table *cmd;
-	int res;
-
-	if (!map) {
-		IPAERR("null argument (ie. map) passed\n");
-		return -EINVAL;
-	}
-
-	mem.size = sizeof(struct ipa_ioc_mux_mapping_table);
-
-	IPADBG("Attempting to send map to uC\n");
-
-	mem.base = dma_alloc_coherent(
-		ipa3_ctx->uc_pdev, mem.size,
-		&mem.phys_base, GFP_KERNEL);
-
-	if (!mem.base) {
-		IPAERR("Fail to alloc DMA buff of size %d\n", mem.size);
-		return -ENOMEM;
-	}
-
-	cmd = (struct ipa_ioc_mux_mapping_table *) mem.base;
-
-	memcpy(cmd, map, sizeof(struct ipa_ioc_mux_mapping_table));
-	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-
-	res = ipa3_uc_send_cmd(
-		(u32) mem.phys_base,
-		IPA_CPU_2_HW_CMD_ADD_MUX_VLAN_MAPPING,
-		0, true, 10 * HZ);
-
-	if (res) {
-		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
-		goto free_coherent;
-	}
-
-	IPADBG("map add success\n");
-
-	res = 0;
-
-free_coherent:
-	dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
