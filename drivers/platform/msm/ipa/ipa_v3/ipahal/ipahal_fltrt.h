@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPAHAL_FLTRT_H_
@@ -373,12 +372,6 @@ u32 ipa_fltrt_get_aligned_lcl_bdy_size(u32 num_lcl_tbls, u32 total_sz_lcl_tbls);
  */
 
 /*
- * The following are for MPLS-PPPoE Exception handling
- */
-#define MPLS_PPPOE_LEN 8
-#define PPPOE_EXCEPTION 1
-
-/*
  * out 4/in 4 -> O4_I4
  */
 #define MPLS_DL_O4_I4_OFFSET_TO_ETH \
@@ -400,28 +393,6 @@ u32 ipa_fltrt_get_aligned_lcl_bdy_size(u32 num_lcl_tbls, u32 total_sz_lcl_tbls);
 
 #define MPLS_DL_O4_I4_ETHER_TYPE_OFFSET \
     (MPLS_DL_O4_I4_OFFSET_TO_ETH + OFFSET_TO_ETHER_TYPE)
-
-/*
- * out 4/in 4 -> O4_I4 (MPLS+PPPOE)
- */
-
-#define MPLS_PPPOE_DL_O4_I4_IP_PROTOCOL_OFFSET \
-    (MPLS_DL_O4_I4_OFFSET_TO_V4_HDR + OFFSET_TO_V4_PROTO + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O4_I4_TCP_SRC_PORT_OFFSET \
-    (MPLS_DL_O4_I4_OFFSET_TO_V4_HDR + V4_HDR_LEN + OFFSET_TO_TCP_SRC_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O4_I4_TCP_DST_PORT_OFFSET \
-    (MPLS_DL_O4_I4_OFFSET_TO_V4_HDR + V4_HDR_LEN + OFFSET_TO_TCP_DST_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O4_I4_UDP_SRC_PORT_OFFSET \
-    (MPLS_DL_O4_I4_OFFSET_TO_V4_HDR + V4_HDR_LEN + OFFSET_TO_UDP_SRC_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O4_I4_UDP_DST_PORT_OFFSET \
-    (MPLS_DL_O4_I4_OFFSET_TO_V4_HDR + V4_HDR_LEN + OFFSET_TO_UDP_DST_PORT \
-     + MPLS_PPPOE_LEN)
-
-#define MPLS_PPPOE_DL_O4_I4_ETHER_TYPE_OFFSET \
-    (MPLS_DL_O4_I4_OFFSET_TO_ETH + OFFSET_TO_ETHER_TYPE + MPLS_PPPOE_LEN)
 
 /*
  * out 6/in 6 -> O6_I6
@@ -447,28 +418,6 @@ u32 ipa_fltrt_get_aligned_lcl_bdy_size(u32 num_lcl_tbls, u32 total_sz_lcl_tbls);
     (MPLS_DL_O6_I6_OFFSET_TO_ETH + OFFSET_TO_ETHER_TYPE)
 
 /*
- * out 6/in 6 -> O6_I6 (MPLS+PPPOE)
- */
-
-#define MPLS_PPPOE_DL_O6_I6_IP_PROTOCOL_OFFSET \
-    (MPLS_DL_O6_I6_OFFSET_TO_V6_HDR + OFFSET_TO_V6_PROTO + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O6_I6_TCP_SRC_PORT_OFFSET \
-    (MPLS_DL_O6_I6_OFFSET_TO_V6_HDR + V6_HDR_LEN + OFFSET_TO_TCP_SRC_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O6_I6_TCP_DST_PORT_OFFSET \
-    (MPLS_DL_O6_I6_OFFSET_TO_V6_HDR + V6_HDR_LEN + OFFSET_TO_TCP_DST_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O6_I6_UDP_SRC_PORT_OFFSET \
-    (MPLS_DL_O6_I6_OFFSET_TO_V6_HDR + V6_HDR_LEN + OFFSET_TO_UDP_SRC_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O6_I6_UDP_DST_PORT_OFFSET \
-    (MPLS_DL_O6_I6_OFFSET_TO_V6_HDR + V6_HDR_LEN + OFFSET_TO_UDP_DST_PORT \
-     + MPLS_PPPOE_LEN)
-
-#define MPLS_PPPOE_DL_O6_I6_ETHER_TYPE_OFFSET \
-    (MPLS_DL_O6_I6_OFFSET_TO_ETH + OFFSET_TO_ETHER_TYPE + MPLS_PPPOE_LEN)
-
-/*
  * out 4/in 6 -> O4_I6
  */
 #define MPLS_DL_O4_I6_OFFSET_TO_ETH \
@@ -492,28 +441,6 @@ u32 ipa_fltrt_get_aligned_lcl_bdy_size(u32 num_lcl_tbls, u32 total_sz_lcl_tbls);
     (MPLS_DL_O4_I6_OFFSET_TO_ETH + OFFSET_TO_ETHER_TYPE)
 
 /*
- * out 4/in 6 -> O4_I6 (MPLS+PPPOE)
- */
-
-#define MPLS_PPPOE_DL_O4_I6_IP_PROTOCOL_OFFSET \
-    (MPLS_DL_O4_I6_OFFSET_TO_V6_HDR + OFFSET_TO_V6_PROTO + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O4_I6_TCP_SRC_PORT_OFFSET \
-    (MPLS_DL_O4_I6_OFFSET_TO_V6_HDR + V6_HDR_LEN + OFFSET_TO_TCP_SRC_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O4_I6_TCP_DST_PORT_OFFSET \
-    (MPLS_DL_O4_I6_OFFSET_TO_V6_HDR + V6_HDR_LEN + OFFSET_TO_TCP_DST_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O4_I6_UDP_SRC_PORT_OFFSET \
-    (MPLS_DL_O4_I6_OFFSET_TO_V6_HDR + V6_HDR_LEN + OFFSET_TO_UDP_SRC_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O4_I6_UDP_DST_PORT_OFFSET \
-    (MPLS_DL_O4_I6_OFFSET_TO_V6_HDR + V6_HDR_LEN + OFFSET_TO_UDP_DST_PORT \
-     + MPLS_PPPOE_LEN)
-
-#define MPLS_PPPOE_DL_O4_I6_ETHER_TYPE_OFFSET \
-    (MPLS_DL_O4_I6_OFFSET_TO_ETH + OFFSET_TO_ETHER_TYPE + MPLS_PPPOE_LEN)
-
-/*
  * out 6/in 4 -> O6_I4
  */
 #define MPLS_DL_O6_I4_OFFSET_TO_ETH \
@@ -535,28 +462,6 @@ u32 ipa_fltrt_get_aligned_lcl_bdy_size(u32 num_lcl_tbls, u32 total_sz_lcl_tbls);
 
 #define MPLS_DL_O6_I4_ETHER_TYPE_OFFSET \
     (MPLS_DL_O6_I4_OFFSET_TO_ETH + OFFSET_TO_ETHER_TYPE)
-
-/*
- * out 6/in 4 -> O6_I4 (MPLS+PPPOE)
- */
-
-#define MPLS_PPPOE_DL_O6_I4_IP_PROTOCOL_OFFSET \
-    (MPLS_DL_O6_I4_OFFSET_TO_V4_HDR + OFFSET_TO_V4_PROTO + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O6_I4_TCP_SRC_PORT_OFFSET \
-    (MPLS_DL_O6_I4_OFFSET_TO_V4_HDR + V4_HDR_LEN + OFFSET_TO_TCP_SRC_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O6_I4_TCP_DST_PORT_OFFSET \
-    (MPLS_DL_O6_I4_OFFSET_TO_V4_HDR + V4_HDR_LEN + OFFSET_TO_TCP_DST_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O6_I4_UDP_SRC_PORT_OFFSET \
-    (MPLS_DL_O6_I4_OFFSET_TO_V4_HDR + V4_HDR_LEN + OFFSET_TO_UDP_SRC_PORT \
-     + MPLS_PPPOE_LEN)
-#define MPLS_PPPOE_DL_O6_I4_UDP_DST_PORT_OFFSET \
-    (MPLS_DL_O6_I4_OFFSET_TO_V4_HDR + V4_HDR_LEN + OFFSET_TO_UDP_DST_PORT \
-     + MPLS_PPPOE_LEN)
-
-#define MPLS_PPPOE_DL_O6_I4_ETHER_TYPE_OFFSET \
-    (MPLS_DL_O6_I4_OFFSET_TO_ETH + OFFSET_TO_ETHER_TYPE + MPLS_PPPOE_LEN)
 
 /*
  * UPLINK PACKET OFFSET CONSTANTS
@@ -621,12 +526,6 @@ typedef struct {
 ipa_fld_wid_off_t* get_mpls_v4_outer(enum ipa_data_flow_type, enum ipa_ip_type, enum ipa_exception_type);
 
 ipa_fld_wid_off_t* get_mpls_v6_outer(enum ipa_data_flow_type, enum ipa_ip_type, enum ipa_exception_type);
-
-ipa_fld_wid_off_t* get_mpls_p_v4_outer(enum ipa_data_flow_type,
-		enum ipa_ip_type, uint32_t);
-
-ipa_fld_wid_off_t* get_mpls_p_v6_outer(enum ipa_data_flow_type,
-		enum ipa_ip_type, uint32_t);
 
 #endif /* IPA_FLT_EXT_MPLS_GRE_GENERAL */
 #endif /* _IPAHAL_FLTRT_H_ */
