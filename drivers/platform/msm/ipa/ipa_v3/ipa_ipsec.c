@@ -79,26 +79,26 @@ bool ipa_ipsec_enabled(void)
 
 /*
  * ipa_ipsec_install_key_test()
- * 	Install a key.
+ * 	Install a key in kernel tests.
  */
-int ipa_ipsec_install_key_test(u8 idx, enum ipa_ipsec_key_type type, enum ipa_ipsec_key_len len_code, void *key)
+int ipa_ipsec_install_key_test(u8 idx, enum ipa_ipsec_key_type_v2 type, enum ipa_ipsec_key_len len_code, void *key)
 {
-	struct ipa_ipsec_key_store *keys;
+	struct ipa_ipsec_key_store_v2 *keys_v2;
 	size_t len;
 
-	if (!ipa3_ctx->ipsec || !ipa3_ctx->ipsec->keys)
+	if (!ipa3_ctx->ipsec || !ipa3_ctx->ipsec->keys_v2)
 		return -EFAULT;
 
-	if (idx >= IPA_IPSEC_MAX_KEY_NUM)
+	if (idx >= IPA_IPSEC_MAX_ENACAP_KEY_NUM)
 		return -EINVAL;
 
 	if (len_code == IPA_IPSEC_KEY_0)
 		return 0;
 
-	keys = ipa3_ctx->ipsec->keys;
+	keys_v2 = ipa3_ctx->ipsec->keys_v2;
 
 	switch (type) {
-	case IPA_IPSEC_KEY_ENC:
+	case IPA_IPSEC_KEY_ENCAP_ENC:
 		switch (len_code) {
 		case IPA_IPSEC_KEY_128:
 			len = 16;
@@ -109,9 +109,22 @@ int ipa_ipsec_install_key_test(u8 idx, enum ipa_ipsec_key_type type, enum ipa_ip
 		default:
 			return -EINVAL;
 		}
-		memcpy_toio((void __iomem *)&keys->enc[idx], key, len);
+		memcpy_toio((void __iomem *)&keys_v2->encap_enc[idx], key, len);
 		break;
-	case IPA_IPSEC_KEY_AUTH:
+	case IPA_IPSEC_KEY_DECAP_ENC:
+		switch (len_code) {
+		case IPA_IPSEC_KEY_128:
+			len = 16;
+			break;
+		case IPA_IPSEC_KEY_256:
+			len = 32;
+			break;
+		default:
+			return -EINVAL;
+		}
+		memcpy_toio((void __iomem *)&keys_v2->decap_enc[idx], key, len);
+		break;
+	case IPA_IPSEC_KEY_ENCAP_AUTH:
 		switch (len_code) {
 		case IPA_IPSEC_KEY_128:
 			len = 16;
@@ -131,7 +144,42 @@ int ipa_ipsec_install_key_test(u8 idx, enum ipa_ipsec_key_type type, enum ipa_ip
 		default:
 			return -EINVAL;
 		}
-		memcpy_toio((void __iomem *)&keys->auth[idx], key, len);
+		memcpy_toio((void __iomem *)&keys_v2->encap_auth[idx], key, len);
+		break;
+	case IPA_IPSEC_KEY_ENCAP_IV:
+		switch (len_code) {
+		case IPA_IPSEC_KEY_128:
+			len = 16;
+			break;
+		case IPA_IPSEC_KEY_256:
+			len = 32;
+			break;
+		default:
+			return -EINVAL;
+		}
+		memcpy_toio((void __iomem *)&keys_v2->encap_iv[idx], key, len);
+		break;
+	case IPA_IPSEC_KEY_DECAP_AUTH:
+		switch (len_code) {
+		case IPA_IPSEC_KEY_128:
+			len = 16;
+			break;
+		case IPA_IPSEC_KEY_256:
+			len = 32;
+			break;
+		case IPA_IPSEC_KEY_512:
+			len = 64;
+			break;
+		case IPA_IPSEC_KEY_160:
+			len = 20;
+			break;
+		case IPA_IPSEC_KEY_384:
+			len = 48;
+			break;
+		default:
+			return -EINVAL;
+		}
+		memcpy_toio((void __iomem *)&keys_v2->decap_auth[idx], key, len);
 		break;
 	default:
 		return -EINVAL;
@@ -514,31 +562,77 @@ static void ipa_ipsec_xfrm_sp_to_ipa_attrib(
 static int ipa_ipsec_install_key(enum ipa_ipsec_sa_type dir, u8 idx, enum ipa_ipsec_key_type type,
 	enum ipa_ipsec_key_len len_code, void *key)
 {
-	size_t len = ipa_ipsec_key_len_to_byte(len_code);
-	u8 *to;
+	int len = ipa_ipsec_key_len_to_byte(len_code);
+	u8 *to, tmp[IPA_IPSEC_MAX_KEY_LEN];
+	int i;
 
-	idx += (dir == IPA_IPSEC_DECAP) ? IPA_IPSEC_MAX_ENACAP_KEY_NUM : 0;
-	to = (type == IPA_IPSEC_KEY_ENC) ?
-		(u8 *)&ipa3_ctx->ipsec->keys->enc[idx] : (u8 *)&ipa3_ctx->ipsec->keys->auth[idx];
-
-	if (unlikely(!to)) {
-		IPAERR("Key destination is null\n");
-		return -EFAULT;
-	}
-
-	if (!len)
-		return 0;
-
-	if (type == IPA_IPSEC_KEY_ENC &&
-		!(len_code == IPA_IPSEC_KEY_128 || len_code == IPA_IPSEC_KEY_256)) {
-		IPAERR("Unsupported key length.\n");
+	if (len < 0) {
+		IPAERR("len < 0\n");
 		return -EINVAL;
 	}
 
-	while (len) {
-		__raw_writeb(*((u8 *)key + len - 1), to);
-		to++;
-		len--;
+	if (len == 0) {
+		IPAERR("len == 0\n");
+		return 0;
+	}
+
+	if ((type == IPA_IPSEC_KEY_ENC && !(len_code == IPA_IPSEC_KEY_128 || len_code == IPA_IPSEC_KEY_256)) ||
+	    (type == IPA_IPSEC_KEY_IV && !(len_code == IPA_IPSEC_KEY_128))) {
+		IPAERR("Unsupported key length: len_code = %d, len = %d\n", len_code, len);
+		return -EINVAL;
+	}
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+		if (type == IPA_IPSEC_KEY_IV) {
+			IPAERR("There are no IV keys on this target!\n");
+			return -EFAULT;
+		}
+		idx += (dir == IPA_IPSEC_DECAP) ? IPA_IPSEC_MAX_ENACAP_KEY_NUM : 0;
+		to = (type == IPA_IPSEC_KEY_ENC) ?
+			(u8 *)&ipa3_ctx->ipsec->keys->enc[idx] :
+			(u8 *)&ipa3_ctx->ipsec->keys->auth[idx];
+
+		memcpy_toio((void __iomem *)to, key, (size_t)len);
+	} else { // IPAv7.0+ use new SRAM key layout
+		switch (type) {
+		case IPA_IPSEC_KEY_ENC:
+			to = (dir == IPA_IPSEC_ENCAP) ?
+				(u8 *)&ipa3_ctx->ipsec->keys_v2->encap_enc[idx] :
+				(u8 *)&ipa3_ctx->ipsec->keys_v2->decap_enc[idx];
+			break;
+		case IPA_IPSEC_KEY_AUTH:
+			to = (dir == IPA_IPSEC_ENCAP) ?
+				(u8 *)&ipa3_ctx->ipsec->keys_v2->encap_auth[idx] :
+				(u8 *)&ipa3_ctx->ipsec->keys_v2->decap_auth[idx];
+			break;
+		case IPA_IPSEC_KEY_IV:
+			to = (u8 *)&ipa3_ctx->ipsec->keys_v2->encap_iv[idx];
+			break;
+		default:
+			IPAERR("Key destination not found\n");
+			return -EFAULT;
+		}
+
+		/* Reverse byte order for IPAv7.0 */
+		for (i = 0; i < len; i++)
+			tmp[i] = ((u8 *)key)[len - 1 - i];
+		memcpy_toio((void __iomem *)to, tmp, (size_t)len);
+	}
+
+	/* Readback for debug */
+	memcpy_fromio((void *)tmp, (void __iomem *)to, (size_t)len);
+	switch (type) {
+	case IPA_IPSEC_KEY_ENC:
+		IPADBG_LOW("e key = %32phN", tmp);
+		break;
+	case IPA_IPSEC_KEY_AUTH:
+		IPADBG_LOW("a key = %64phN", tmp);
+		break;
+	case IPA_IPSEC_KEY_IV:
+		IPADBG_LOW("i key = %16phN", tmp);
+		break;
+	default:
+		break;
 	}
 
 	return 0;
@@ -552,15 +646,41 @@ static void ipa_ipsec_delete_key(enum ipa_ipsec_sa_type dir, u8 idx, enum ipa_ip
 {
 	idx += (dir == IPA_IPSEC_DECAP) ? IPA_IPSEC_MAX_ENACAP_KEY_NUM : 0;
 
-	switch (type) {
-	case IPA_IPSEC_KEY_ENC:
-		memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->enc[idx], 0, 32);
-		break;
-	case IPA_IPSEC_KEY_AUTH:
-		memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->auth[idx], 0, 64);
-		break;
-	default:
-		break;
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+		switch (type) {
+		case IPA_IPSEC_KEY_ENC:
+			memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->enc[idx], 0, 32);
+			break;
+		case IPA_IPSEC_KEY_AUTH:
+			memset_io((void __iomem *)&ipa3_ctx->ipsec->keys->auth[idx], 0, 64);
+			break;
+		case IPA_IPSEC_KEY_IV:
+			WARN(true, "There are no IV keys on this target!\n");
+			break;
+		default:
+			break;
+		}
+	} else {
+		switch (type) {
+		case IPA_IPSEC_KEY_ENC:
+			memset_io((dir == IPA_IPSEC_ENCAP) ?
+				(void __iomem *)&ipa3_ctx->ipsec->keys_v2->encap_enc[idx] :
+				(void __iomem *)&ipa3_ctx->ipsec->keys_v2->decap_enc[idx], 0, 32);
+			break;
+		case IPA_IPSEC_KEY_AUTH:
+			memset_io((dir == IPA_IPSEC_ENCAP) ?
+				(void __iomem *)&ipa3_ctx->ipsec->keys_v2->encap_auth[idx] :
+				(void __iomem *)&ipa3_ctx->ipsec->keys_v2->decap_auth[idx], 0, 64);
+			break;
+		case IPA_IPSEC_KEY_IV:
+			if (dir == IPA_IPSEC_DECAP)
+				WARN(true, "There are no IV keys for decap!\n");
+			else
+				memset_io((void __iomem *)&ipa3_ctx->ipsec->keys_v2->encap_iv[idx], 0, 16);
+			break;
+		default:
+			break;
+		}
 	}
 }
 
@@ -1268,6 +1388,7 @@ int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct
 	u8 idx = IPA_IPSEC_MAX_SA_NUM;
 	u8 ealg, aalg, eklen, aklen, ivlen, icvlen;
 	char *ekey, *akey;
+	u8 ivkey[16];
 	u32 *salt;
 
 	IPADBG("Start\n");
@@ -1356,7 +1477,7 @@ int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct
 	switch (x->xso.dir) {
 	case XFRM_DEV_OFFLOAD_OUT:
 		/* We can use HW offloaded encap SAs only once the uC completed NextIV WA init */
-		if (!ipa3_ctx->uc_ctx.ipsec_next_iv_wa_ready) {
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0 && !ipa3_ctx->uc_ctx.ipsec_next_iv_wa_ready) {
 			IPAERR("Next IV uC workaround is not yet ready.\n");
 			return -EBUSY;
 		}
@@ -1416,14 +1537,27 @@ int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto clean_sa;
 		}
-		IPADBG_LOW("e key = %32phN", ipa3_ctx->ipsec->keys->enc[idx].b256.b);
+
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
 		ret = ipa_ipsec_install_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_AUTH, aklen, akey);
 		if (!!ret) {
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto zero_keys;
 		}
-		IPADBG_LOW("a key = %64phN", ipa3_ctx->ipsec->keys->auth[idx].b512.b);
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && ealg == IPA_IPSEC_ENC_AES_CBC) {
+			/* Fill the initial IV value in the SA */
+			get_random_bytes((void *)&esa.intr, sizeof(esa.intr));
+			IPADBG_LOW("esa.intr = %16phN", &esa.intr);
+			/* Fill the IV seed in the dedicated IV key memory */
+			get_random_bytes((void *)ivkey, sizeof(ivkey));
+			IPADBG_LOW("ivkey = %16phN", ivkey);
+			ret = ipa_ipsec_install_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_IV, IPA_IPSEC_KEY_128, ivkey);
+			if (!!ret) {
+				IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+				goto zero_keys;
+			}
+		}
 
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
@@ -1498,16 +1632,12 @@ int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto clean_sa;
 		}
-		IPADBG_LOW("e key = %32ph",
-			ipa3_ctx->ipsec->keys->enc[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b256.b);
 		if (aklen) IPADBG_LOW("akey = %64phN", akey);
 		ret = ipa_ipsec_install_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_AUTH, aklen, akey);
 		if (!!ret) {
 			IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 			goto zero_keys;
 		}
-		IPADBG_LOW("a key = %64ph",
-			ipa3_ctx->ipsec->keys->auth[IPA_IPSEC_MAX_ENACAP_KEY_NUM + idx].b512.b);
 
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		/* Construct and install HPC */
@@ -1577,6 +1707,8 @@ zero_keys:
 	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
 		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_ENC);
 		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_AUTH);
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && ealg == IPA_IPSEC_ENC_AES_CBC)
+			ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_IV);
 	} else {
 		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_ENC);
 		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_AUTH);
@@ -3126,19 +3258,37 @@ int ipa_ipsec_init(void)
 	}
 
 	/* Map IPA IPsec Key SRAM */
-	keys_phys_base = ipa3_ctx->ipa_wrapper_base + ipa3_ctx->ctrl->ipa_reg_base_ofst +
-		ipahal_get_reg_n_ofst(IPA_IPSEC_AREA_RAM_DIRECT_ACCESS_n, 0);
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+		keys_phys_base = ipa3_ctx->ipa_wrapper_base + ipa3_ctx->ctrl->ipa_reg_base_ofst +
+			ipahal_get_reg_n_ofst(IPA_IPSEC_AREA_RAM_DIRECT_ACCESS_n, 0);
 
-	key_mmio = ioremap((phys_addr_t)keys_phys_base, sizeof(struct ipa_ipsec_key_store));
-	if (!key_mmio) {
-		IPAERR("Failed mapping IPsec key SRAM.\n");
-		ret = -ENOMEM;
-		goto free_wq;
+		key_mmio = ioremap((phys_addr_t)keys_phys_base, sizeof(struct ipa_ipsec_key_store));
+		if (!key_mmio) {
+			IPAERR("Failed mapping IPsec key SRAM.\n");
+			ret = -ENOMEM;
+			goto free_wq;
+		}
+
+		IPADBG_LOW("keys_phys_base 0x%08X key_mmio=0x%p\n", keys_phys_base, key_mmio);
+		memset_io(key_mmio, 0, sizeof(struct ipa_ipsec_key_store));
+		ipa3_ctx->ipsec->keys = (struct ipa_ipsec_key_store *)key_mmio;
+		ipa3_ctx->ipsec->keys_v2 = NULL;
+	} else {
+		keys_phys_base = ipa3_ctx->ipa_wrapper_base + ipa3_ctx->ctrl->ipa_reg_base_ofst +
+			ipahal_get_reg_n_ofst(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_KEYS_n, 0);
+
+		key_mmio = ioremap((phys_addr_t)keys_phys_base, sizeof(struct ipa_ipsec_key_store_v2));
+		if (!key_mmio) {
+			IPAERR("Failed mapping IPsec key SRAM.\n");
+			ret = -ENOMEM;
+			goto free_wq;
+		}
+
+		IPADBG_LOW("keys_phys_base 0x%08X key_mmio=0x%p\n", keys_phys_base, key_mmio);
+		memset_io(key_mmio, 0, sizeof(struct ipa_ipsec_key_store_v2));
+		ipa3_ctx->ipsec->keys = NULL;
+		ipa3_ctx->ipsec->keys_v2 = (struct ipa_ipsec_key_store_v2 *)key_mmio;
 	}
-
-	IPADBG_LOW("keys_phys_base 0x%08X key_mmio=0x%p\n", keys_phys_base, key_mmio);
-	memset_io(key_mmio, 0, sizeof(struct ipa_ipsec_key_store));
-	ipa3_ctx->ipsec->keys = (struct ipa_ipsec_key_store *)key_mmio;
 
 	/* Compile time check the SA SRAM partition size and alignment */
 	WARN_ON(IPA_MEM_PART(sa_contexts_size) < IPA_SA_DB_SIZE ||
@@ -3284,7 +3434,10 @@ void ipa_ipsec_cleanup(void)
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	/* Zero the SA and keys SRAM to avoid IPsec HW execution and for better security */
 	memset_io(ipa3_ctx->ipsec->decap, 0, IPA_SA_DB_SIZE);
-	memset_io(ipa3_ctx->ipsec->keys, 0, sizeof(struct ipa_ipsec_key_store));
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+		memset_io(ipa3_ctx->ipsec->keys, 0, sizeof(struct ipa_ipsec_key_store));
+	else
+		memset_io(ipa3_ctx->ipsec->keys_v2, 0, sizeof(struct ipa_ipsec_key_store_v2));
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
 	sa_phys_base = ipa3_ctx->ipa_wrapper_base +
@@ -3297,8 +3450,8 @@ void ipa_ipsec_cleanup(void)
 	ipa_ipsec_unmap_uc_smmu(sa_phys_base + IPA_DECAP_DB_SIZE, ipa3_ctx->ipsec->uc_smmu_iova);
 
 	/* Unmap SA and keys SRAM */
-	iounmap(ipa3_ctx->ipsec->decap);
-	iounmap(ipa3_ctx->ipsec->keys);
+	iounmap((void __iomem *)ipa3_ctx->ipsec->decap);
+	iounmap((void __iomem *)IPA_IPSEC_KEYS(ipa3_ctx->ipa_hw_type));
 
 	/* Free allocated RAM */
 	destroy_workqueue(ipa_ipsec_wq);

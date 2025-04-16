@@ -15,6 +15,7 @@
 #define IPA_IPSEC_MAX_ENACAP_KEY_NUM 16
 #define IPA_IPSEC_MAX_DEACAP_KEY_NUM 16
 #define IPA_IPSEC_MAX_KEY_NUM (IPA_IPSEC_MAX_ENACAP_KEY_NUM + IPA_IPSEC_MAX_DEACAP_KEY_NUM)
+#define IPA_IPSEC_MAX_KEY_LEN 64
 #define XFRM_ALG_NAME_MAX 64
 #define IPA_IPSEC_DL_FLT_PER_POL 10
 
@@ -25,7 +26,17 @@
 enum ipa_ipsec_key_type {
 	IPA_IPSEC_KEY_ENC,
 	IPA_IPSEC_KEY_AUTH,
+	IPA_IPSEC_KEY_IV,
 	IPA_IPSEC_KEY_MAX,
+};
+
+enum ipa_ipsec_key_type_v2 {
+	IPA_IPSEC_KEY_ENCAP_ENC,
+	IPA_IPSEC_KEY_DECAP_ENC,
+	IPA_IPSEC_KEY_ENCAP_AUTH,
+	IPA_IPSEC_KEY_ENCAP_IV,
+	IPA_IPSEC_KEY_DECAP_AUTH,
+	IPA_IPSEC_KEY_MAX_v2,
 };
 
 enum ipa_ipsec_key_len {
@@ -272,6 +283,12 @@ union ipa_ipsec_enc_key {
 	} b256;
 };
 
+union ipa_ipsec_iv_key {
+	struct {
+		u8 b[16];
+	} b128;
+};
+
 union ipa_ipsec_auth_key {
 	struct {
 		u8 b[16];
@@ -302,7 +319,17 @@ struct ipa_ipsec_key_store {
 	union ipa_ipsec_enc_key enc[IPA_IPSEC_MAX_KEY_NUM];
 	union ipa_ipsec_auth_key auth[IPA_IPSEC_MAX_KEY_NUM];
 };
+
+struct ipa_ipsec_key_store_v2 {
+	union ipa_ipsec_enc_key encap_enc[IPA_IPSEC_MAX_ENACAP_KEY_NUM];
+	union ipa_ipsec_enc_key decap_enc[IPA_IPSEC_MAX_DEACAP_KEY_NUM];
+	union ipa_ipsec_auth_key encap_auth[IPA_IPSEC_MAX_ENACAP_KEY_NUM];
+	union ipa_ipsec_iv_key encap_iv[IPA_IPSEC_MAX_ENACAP_KEY_NUM];
+	union ipa_ipsec_auth_key decap_auth[IPA_IPSEC_MAX_DEACAP_KEY_NUM];
+};
 #pragma pack(pop)
+
+#define IPA_IPSEC_KEYS(ipa_ver) ((ipa_ver < IPA_HW_v7_0) ? (ipa3_ctx->ipsec->keys) : (ipa3_ctx->ipsec->keys_v2))
 
 /**
  * struct ipa_ipsec_policy - IPA IPsec policy list member
@@ -356,6 +383,7 @@ struct ipa_ipsec_stats {
  * struct ipa_ipsec_ctx - IPA IPsec context
  * @dev: netdev pointer
  * @keys: SRAM mapped to the keys storage (32 * 32 + 32 * 64 = 3072 bytes)
+ * @keys_v2: SRAM mapped to the keys storage for IPAv7.0 and newer
  * @decap: SRAM mapped to the decap SAs area (11 * 88 = 968 bytes)
  * @encap: SRAM mapped to the encap SAs area (11 * 256 = 2816 bytes)
  * @uc_smmu_iova: uC SMMU VA for cleanup
@@ -382,6 +410,7 @@ struct ipa_ipsec_stats {
 struct ipa_ipsec_ctx {
 	struct net_device *dev;
 	struct ipa_ipsec_key_store __iomem *keys;
+	struct ipa_ipsec_key_store_v2 __iomem *keys_v2;
 	struct ipa_ipsec_sa_decap __iomem *decap;
 	struct ipa_ipsec_sa_encap __iomem *encap;
 	unsigned long uc_smmu_iova;
