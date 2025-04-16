@@ -1,8 +1,7 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #ifndef _IPA3_I_H_
@@ -406,6 +405,7 @@ enum {
 #define IPA_GSI_CHANNEL_HALT_MAX_TRY 10
 
 #define MAX_MULTI_TUNNEL_STATS 4
+#define MAX_MULTI_IPOGRE_TUNNEL_STATS 2
 /* round addresses for closes page per SMMU requirements */
 #define IPA_SMMU_ROUND_TO_PAGE(iova, pa, size, iova_p, pa_p, size_p) \
 	do { \
@@ -564,6 +564,9 @@ enum {
 				compat_uptr_t)
 #define IPA_IOC_DEL_EoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_DEL_EoGRE_MAPPING, \
+				compat_uptr_t)
+#define IPA_IOC_ADD_IPoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_ADD_IPOGRE_MAPPING, \
 				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
@@ -916,6 +919,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
 	struct ipa_gre_hdr_proc_ctx_params gre_params;
+	struct ipa_ipogre_hdr_proc_ctx_params ipogre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
@@ -3883,6 +3887,9 @@ int ipa3_add_dscp_vlan_pcp_map(
 int ipa3_send_eogre_info(
 	enum ipa_eogre_event etype,
 	struct ipa_ioc_eogre_info *info );
+
+int ipa3_send_ipogre_info(enum ipa_ipogre_event etype,
+			  struct ipa_ioc_ipogre_info *info);
 
 /* update mhi ctrl pipe state */
 void ipa3_update_mhi_ctrl_state(u8 state, bool set);

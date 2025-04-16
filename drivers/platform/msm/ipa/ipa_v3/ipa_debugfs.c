@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #ifdef CONFIG_DEBUG_FS
@@ -105,6 +105,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_DONE_RESTORE_EVENT),
 	__stringify(IPA_SET_EXT_ROUTER_MODE_EVENT),
 	__stringify(IPA_ENABLE_ETH_PDU_MODE_EVENT),
+	__stringify(IPA_IPOGRE_UP_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
@@ -131,6 +132,8 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_WWAN_TO_ETHII_EX),
 	__stringify(IPA_HDR_PROC_GRE_HEADER_ADD),
 	__stringify(IPA_HDR_PROC_GRE_HEADER_REMOVE),
+	__stringify(IPA_HDR_PROC_IPOGRE_HEADER_ADD),
+	__stringify(IPA_HDR_PROC_IPOGRE_HEADER_REMOVE),
 };
 
 static struct dentry *dent;
