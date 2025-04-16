@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -109,12 +108,6 @@ enum ipa3_cpu_2_hw_commands {
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 22),
 	IPA_CPU_2_HW_CMD_DEL_DSCP_PCP_MAPPING       =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 23),
-	IPA_CPU_2_HW_CMD_ADD_MUX_VLAN_MAPPING       =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 24),
-	IPA_CPU_2_HW_CMD_SEND_TEMPLATE_TO_UC       =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 27),
-	IPA_CPU_2_HW_CMD_UCP_CFG_HANDLE_PRIVATE_IP_MAPPING =
-		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 29),
 };
 
 /**
@@ -251,7 +244,6 @@ struct IpaHwDbAddrInfo_t {
 struct IpaDscpPcpMap_t {
 	uint8_t dscp_pcp_map[IPA_UC_MAX_DSCP_VAL];
 } __packed;
-
 
 /**
  * When resource group 10 limitation mitigation is enabled, uC send
@@ -2042,14 +2034,10 @@ int ipa3_add_dscp_vlan_pcp_map(
 		map->num_s_vlan,
 		mem.size);
 #endif
-	if (ipa3_ctx->eogre_tunnel_tagged)
-		IPADBG("Attempting to send map tunnel=%u (num_vlan=%u, num_s_vlan=%u)"
-			" of size %u to uC.\n",
-			map->tunnel_id, map->num_vlan, map->num_s_vlan,
-			mem.size);
 
-	mem.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, mem.size,
-			&mem.phys_base, GFP_KERNEL);
+	mem.base = dma_alloc_coherent(
+		ipa3_ctx->uc_pdev, mem.size,
+		&mem.phys_base, GFP_KERNEL);
 
 	if (!mem.base) {
 		IPAERR("Fail to alloc DMA buff of size %d\n", mem.size);
@@ -2139,220 +2127,6 @@ int ipa3_add_remove_dscp_pcp_map(
 	else
 		IPADBG("DSCP <-> PCP %s Success\n", (AddMapping)?"Add":"Delete");
 
-	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-
-	return res;
-}
-
-/**
- * ipa3_send_mux_vlan_map() - Send the VLAN to MUX ID map to uC
- * @map: The mapping data destined for the uC
- *
- * Returns: 0 on success, negative on failure
- */
-int ipa3_send_mux_vlan_map(
-	struct ipa_ioc_mux_mapping_table *map )
-{
-	struct ipa_mem_buffer       mem;
-	struct ipa_ioc_mux_mapping_table *cmd;
-	int res;
-
-	if (!map) {
-		IPAERR("null argument (ie. map) passed\n");
-		return -EINVAL;
-	}
-
-	mem.size = sizeof(struct ipa_ioc_mux_mapping_table);
-
-	IPADBG("Attempting to send map to uC\n");
-
-	mem.base = dma_alloc_coherent(
-		ipa3_ctx->uc_pdev, mem.size,
-		&mem.phys_base, GFP_KERNEL);
-
-	if (!mem.base) {
-		IPAERR("Fail to alloc DMA buff of size %d\n", mem.size);
-		return -ENOMEM;
-	}
-
-	cmd = (struct ipa_ioc_mux_mapping_table *) mem.base;
-
-	memcpy(cmd, map, sizeof(struct ipa_ioc_mux_mapping_table));
-	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-
-	res = ipa3_uc_send_cmd(
-		(u32) mem.phys_base,
-		IPA_CPU_2_HW_CMD_ADD_MUX_VLAN_MAPPING,
-		0, true, 10 * HZ);
-
-	if (res) {
-		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
-		goto free_coherent;
-	}
-
-	IPADBG("map add success\n");
-
-	res = 0;
-
-free_coherent:
-	dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
-
-	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-
-	return res;
-}
-
-/*
- * ipa3_write_template_to_uC() - Send the Tunnel template info
- * @map: The mapping data structure for each tunnel template
- *
- * Returns: 0 on success, negative on failure
- */
-int ipa3_write_template_to_uC(struct ipa_ioc_tunnel_template_info *map)
-{
-	struct ipa_mem_buffer mem;
-	static struct ipa_mem_buffer t_mem[MAX_TUNNEL_SUPPORT];
-	uint16_t t_id;
-	int res;
-	uint32_t len;
-	struct tunnel_protocols_config_table_t *cmd;
-
-	if (!map) {
-		IPAERR("null argument (ie. map) passed\n");
-		return -EINVAL;
-	}
-
-	if (!(map->template_type == UNTAG_FEATURE ||
-		map->template_type == SINGLE_TAG_FEATURE ||
-		map->template_type == DOUBLE_TAG_FEATURE)) {
-		IPAERR("Invalide Template Type\n");
-		return -EINVAL;
-	}
-
-	if (!map->template_len) {
-		IPAERR("Zero length (ie. template) passed\n");
-		return -EINVAL;
-	}
-	IPADBG("Feature :%x Attempt to Send Template to uC of len:%d\n",
-		map->template_type, map->template_len);
-
-	t_id = map->tunnel_config.tunnel_id;
-
-	/*Check If need to update template cache*/
-	if (map->template_len == 0xff &&
-	    map->tunnel_config.is_tunnel_id_to_del == 1) {
-		IPADBG("Reset Template cache for tunnel id: %d\n", t_id);
-		if (map->template_type == SINGLE_TAG_FEATURE &&
-			ipa3_ctx->eogre_tunnel_tagged) {
-			len = sizeof(ipa3_ctx->gre_tmplt_cfg_cache
-				.singletag_mux_mapping_table[t_id]);
-			if (t_mem[t_id].base != NULL) {
-				dma_free_coherent(ipa3_ctx->uc_pdev,
-					t_mem[t_id].size,
-					t_mem[t_id].base,
-					t_mem[t_id].phys_base);
-				memset(&t_mem[t_id], 0, sizeof(t_mem[t_id]));
-			}
-			memset(&ipa3_ctx->gre_tmplt_cfg_cache
-				.singletag_mux_mapping_table[t_id],
-				0, len);
-		}
-		goto update_temp_cache;
-	}
-
-	t_mem[t_id].size = map->template_len;
-	t_mem[t_id].base =
-		dma_alloc_coherent(ipa3_ctx->uc_pdev, t_mem[t_id].size,
-			&t_mem[t_id].phys_base, GFP_KERNEL);
-	if (!t_mem[t_id].base) {
-		IPAERR("Fail to alloc DMA buff of size %d\n", t_mem[t_id].size);
-		return -ENOMEM;
-	}
-
-	memcpy(t_mem[t_id].base, map->template_header, map->template_len);
-
-	/*Copy the tunnel template to DMA address pointer*/
-	if (map->template_type == UNTAG_FEATURE &&
-		ipa3_ctx->eogre_tunnel_pppoe) {
-		map->tunnel_config.untagged_mapping_table.tunnel_template_addr =
-			(uint32_t *)t_mem[t_id].phys_base;
-	}
-	if (map->template_type == SINGLE_TAG_FEATURE &&
-		ipa3_ctx->eogre_tunnel_tagged) {
-		map->tunnel_config.singletag_mux_mapping_table[t_id].tunnel_id =
-			t_id;
-		map->tunnel_config.singletag_mux_mapping_table[t_id]
-			.tunnel_template_addr =
-			(uint32_t *)t_mem[t_id].phys_base;
-	}
-	if (map->template_type == DOUBLE_TAG_FEATURE &&
-		ipa3_ctx->is_eth_double_vlan_mode) {
-		map->tunnel_config.doubletag_mux_mapping_table[t_id]
-			.tunnel_template_addr = (uint32_t *)t_mem[t_id].phys_base;
-	}
-
-	/*Copy the tunnel config to ipa3_ctx template config cache*/
-	if (map->template_type != SINGLE_TAG_FEATURE &&
-		!ipa3_ctx->eogre_tunnel_tagged) {
-		ipa3_ctx->gre_tmplt_cfg_cache = map->tunnel_config;
-	} else {
-		ipa3_ctx->gre_tmplt_cfg_cache.num_of_single_tag_configs =
-			map->tunnel_config.num_of_single_tag_configs;
-		ipa3_ctx->gre_tmplt_cfg_cache.feature_mode =
-			map->tunnel_config.feature_mode;
-		ipa3_ctx->gre_tmplt_cfg_cache.tunnel_id =
-			map->tunnel_config.tunnel_id;
-		ipa3_ctx->gre_tmplt_cfg_cache.singletag_mux_mapping_table[t_id] =
-			map->tunnel_config.singletag_mux_mapping_table[t_id];
-	}
-
-update_temp_cache:
-	IPADBG("Update template to ipa3_ctx multi_tunnel_cache & uC\n");
-
-	mem.size = sizeof(struct tunnel_protocols_config_table_t);
-	mem.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, mem.size,
-		&mem.phys_base, GFP_KERNEL);
-
-	if (!mem.base) {
-		IPAERR("Fail to alloc DMA buff of size %d\n", mem.size);
-		dma_free_coherent(ipa3_ctx->uc_pdev, t_mem[t_id].size,
-			t_mem[t_id].base, t_mem[t_id].phys_base);
-		return -ENOMEM;
-	}
-
-	cmd = (struct tunnel_protocols_config_table_t *)mem.base;
-
-	/*Copy the tunnel structure to uC cmd*/
-	memcpy(cmd, &ipa3_ctx->gre_tmplt_cfg_cache,
-		sizeof(struct tunnel_protocols_config_table_t));
-
-	IPADBG("Send Template to uC with hw_cmd :[ %d ] with addr 0x%p\n",
-		IPA_CPU_2_HW_CMD_SEND_TEMPLATE_TO_UC, (u32)mem.phys_base);
-	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-	res = ipa3_uc_send_cmd((u32)mem.phys_base,
-		IPA_CPU_2_HW_CMD_SEND_TEMPLATE_TO_UC, 0, true,
-		10 * HZ);
-	if (res) {
-		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
-		goto free_coherent;
-	}
-
-	IPADBG("Sent Template to uC Success with hw_cmd :[ %d ].\n",
-		IPA_CPU_2_HW_CMD_SEND_TEMPLATE_TO_UC);
-
-	res = 0;
-
-free_coherent:
-	if (mem.base != NULL)
-		dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base,
-			mem.phys_base);
-	/* Free the template pointer from DDR, when Single tunnel support */
-	if (map->template_type != SINGLE_TAG_FEATURE &&
-		!ipa3_ctx->eogre_tunnel_tagged) {
-		if (t_mem[t_id].base != NULL)
-			dma_free_coherent(ipa3_ctx->uc_pdev, t_mem[t_id].size,
-				t_mem[t_id].base, t_mem[t_id].phys_base);
-	}
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
 	return res;

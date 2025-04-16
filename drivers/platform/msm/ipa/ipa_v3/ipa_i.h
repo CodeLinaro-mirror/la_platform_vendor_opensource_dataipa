@@ -405,7 +405,6 @@ enum {
 #define IPA_GSI_CHANNEL_HALT_MAX_SLEEP 10000
 #define IPA_GSI_CHANNEL_HALT_MAX_TRY 10
 
-#define MAX_MULTI_TUNNEL_STATS 4
 /* round addresses for closes page per SMMU requirements */
 #define IPA_SMMU_ROUND_TO_PAGE(iova, pa, size, iova_p, pa_p, size_p) \
 	do { \
@@ -1794,23 +1793,9 @@ struct Ipa3HwStatsMPLS{
 	uint64_t mpls_header_remove_id;
 } __packed;
 
-struct Ipa3HwStatsMulti{
-	uint32_t tunnel_id;
-	uint32_t mux_id;
-	uint64_t eogre_header_add_id;
-	uint64_t eogre_header_remove_id;
-}__packed;
-
-struct Ipa3HwStatsMultiCombined{
-	uint64_t eogre_header_add_id;
-	uint64_t eogre_header_remove_id;
-	struct Ipa3HwStatsMulti tunnels[4];
-}__packed;
-
 union Ipa3HwStatsEOGREInfoData_t{
 	struct Ipa3HwStatsEOGRE *eogre;
 	struct Ipa3HwStatsMPLS *mpls;
-	struct Ipa3HwStatsMultiCombined *multi;
 };
 
 /**
@@ -2356,14 +2341,6 @@ struct ipa3_eth_pdu_ctx {
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  * @eth_pdu_ctx: ETH PDU ctx
- * @private_ip_forward_eth_iface: Will store 1(eth0) or 2(eth1) if Feature is enabled. Else will store 0.
- * @private_ip_forward_ep_index: int value to store which ep will the forward be enabled on
- * @client_hps_eth_index: value to store for which eth ep to update hps sequence
- * @eogre_tunnel_pppoe: set as true if pppoe tunnel is set,otherwise false
- * @eogre_tunnel_tagged: set as true if tagged tunnel active,otherwise false
- * @eogre_tunnel_feature: Will store the EoGRE tunnel feature configured.
- * @multi_tunnel_eogre_cache: Will store Multi tunnel vlan mapping info
- * @gre_tmplt_cfg_cache: Will store multi tunnel template info
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2634,14 +2611,6 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
 	struct mutex ssr_lock;
-	u8 private_ip_forward_eth_iface;
-	int private_ip_forward_ep_index;
-	u8 client_hps_eth_index;
-	bool eogre_tunnel_pppoe;
-	bool eogre_tunnel_tagged;
-	u8 eogre_tunnel_feature;
-	struct ipa_ioc_eogre_info multi_tunnel_eogre_cache[MAX_TUNNEL_SUPPORT];
-	struct tunnel_protocols_config_table_t gre_tmplt_cfg_cache;
 };
 
 struct ipa3_plat_drv_res {
@@ -3246,8 +3215,7 @@ u16 ipa3_get_smem_restr_bytes(void);
 int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
 int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
-		struct Ipa3HwStatsEOGRE *eogre,
-		struct Ipa3HwStatsMultiCombined *multi);
+		struct Ipa3HwStatsEOGRE *eogre);
 
 int ipa3_wigig_init_debugfs_i(struct dentry *dent);
 
@@ -3868,8 +3836,10 @@ int ipa3_qmi_reg_dereg_for_bw(bool bw_reg_dereg);
  * To check if the eogre is worthy of sending to recipients who would
  * use the data.
  */
-int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
-		bool *send2ipacm, bool to_add);
+int ipa3_check_eogre(
+	struct ipa_ioc_eogre_info *eogre_info,
+	bool                      *send2uC,
+	bool                      *send2ipacm );
 
 /*
  * To send map information to uC
@@ -3902,8 +3872,7 @@ int ipa3_send_macsec_info(enum ipa_macsec_event event_type, struct ipa_macsec_ma
  */
 int ipa3_add_remove_dscp_pcp_map(
 	uint8_t *map, bool AddMapping );
-int ipa3_send_mux_vlan_map(
-	struct ipa_ioc_mux_mapping_table *map );
+
 /* Peripheral stats APIs */
 /* Non periodic/Event based stats update */
 int ipa3_update_usb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
@@ -3919,8 +3888,5 @@ void ipa3_update_eth_pdu_ep_index(int rx_idx, int tx_idx);
 void ipa3_set_eth_pdu_mode(bool enable, enum ipa_eth_hw_config_enum_v01 vlan);
 void ipa3_notify_ipacm_eth_pdu_enable(void);
 void ipa3_set_eth_pdu_ep_status(void);
-
-/* Send Tunnel Template to uC*/
-int ipa3_write_template_to_uC(struct ipa_ioc_tunnel_template_info *map);
 
 #endif /* _IPA3_I_H_ */
