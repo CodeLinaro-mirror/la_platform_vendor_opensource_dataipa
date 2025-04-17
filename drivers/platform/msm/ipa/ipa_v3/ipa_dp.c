@@ -5935,9 +5935,13 @@ static void ipa3_rx_napi_chain(struct ipa3_sys_context *sys,
 {
 	struct ipa3_sys_context *wan_def_sys;
 	int i, ipa_ep_idx;
-	struct sk_buff *rx_skb, *first_skb = NULL, *prev_skb = NULL;
+	struct sk_buff *rx_skb, *first_skb = NULL, *prev_skb = NULL,
+		*second_skb = NULL;
 
 	/* non-coalescing case (SKB chaining enabled) */
+	/* Chain is created as follows: first_skb->frag_list = second_skb
+	 * After that the next skb's are added to second_skb->next .i.e
+	 * first_skb->frag_list->next->next->next etc..*/
 	if (sys->ep->client != IPA_CLIENT_APPS_WAN_COAL_CONS) {
 		for (i = 0; i < num; i++) {
 			if (!ipa3_ctx->ipa_wan_skb_page)
@@ -5949,18 +5953,19 @@ static void ipa3_rx_napi_chain(struct ipa3_sys_context *sys,
 
 			/* this is always true for EOTs */
 			if (rx_skb) {
-				if (!first_skb)
+				if (!first_skb) {
 					first_skb = rx_skb;
-
-				if (prev_skb)
-					skb_shinfo(prev_skb)->frag_list =
-						rx_skb;
-
+				} else if (!second_skb) {
+					second_skb = rx_skb;
+					skb_shinfo(first_skb)->frag_list =
+						second_skb;
+				} else if (prev_skb) {
+					prev_skb->next = rx_skb;
+				}
+				prev_skb = rx_skb;
 				trace_ipa3_rx_napi_chain(first_skb,
 							 prev_skb,
 							 rx_skb);
-
-				prev_skb = rx_skb;
 			}
 		}
 		if (prev_skb) {
@@ -5999,19 +6004,19 @@ static void ipa3_rx_napi_chain(struct ipa3_sys_context *sys,
 
 				/* this is always true for EOTs */
 				if (rx_skb) {
-					if (!first_skb)
+					if (!first_skb) {
 						first_skb = rx_skb;
-
-					if (prev_skb)
-						skb_shinfo(prev_skb)->frag_list
-							= rx_skb;
-
+					} else if (!second_skb) {
+						second_skb = rx_skb;
+						skb_shinfo(first_skb)->frag_list =
+							second_skb;
+					} else if (prev_skb) {
+						prev_skb->next = rx_skb;
+					}
 					prev_skb = rx_skb;
-
 					trace_ipa3_rx_napi_chain(first_skb,
 								 prev_skb,
 								 rx_skb);
-
 				}
 			}
 			if (prev_skb) {
