@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_IPSEC_H_
@@ -393,6 +393,7 @@ struct ipa_ipsec_ctx {
 		u32 rt;
 	} sa_db[IPA_IPSEC_TYPE_MAX][IPA_IPSEC_MAX_SA_NUM];
 	struct list_head pol_list;
+	struct mutex pol_list_lock;
 	u32 ul_hpc;
 	u32 dl_hpc;
 	u32 dl_pol_flt[IPA_IP_MAX];

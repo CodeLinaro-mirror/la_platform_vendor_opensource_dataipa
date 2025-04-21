@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, 2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "ipa_wdi3.h"
@@ -12,6 +12,8 @@
 #include "ipa_i.h"
 
 #define OFFLOAD_DRV_NAME "ipa_wdi"
+#define VDEV_ID_MASK 0xFF
+#define VDEV_BIT_SHIFT 24
 #define IPA_WDI_DBG(fmt, args...) \
 	do { \
 		pr_debug(OFFLOAD_DRV_NAME " %s:%d " fmt, \
@@ -321,6 +323,7 @@ int ipa_wdi_reg_intf_per_inst(
 	struct ipa_rx_intf rx;
 	struct ipa_ioc_tx_intf_prop tx_prop[4];
 	struct ipa_ioc_rx_intf_prop rx_prop[4];
+	char iface_name[IPA_RESOURCE_NAME_MAX] = {'\0'};
 	u32 len;
 	int i = 0;
 	int ret = 0;
@@ -349,8 +352,20 @@ int ipa_wdi_reg_intf_per_inst(
 		return -EPERM;
 	}
 
-	IPA_WDI_DBG("register interface for netdev %s\n",
-		in->netdev_name);
+	if ((ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_4) &&
+					(in->mld_enabled)){
+		IPA_WDI_DBG("mlo supported iface, stitching\n");
+		snprintf((char *)iface_name, sizeof(iface_name),
+						"%s_%d_%d", in->netdev_name, (uint32_t)in->hdl,
+						((in->meta_data>> VDEV_BIT_SHIFT)& VDEV_ID_MASK));
+
+	}
+	else {
+		IPA_WDI_DBG("non-mlo iface\n");
+		strlcpy(iface_name, in->netdev_name, sizeof(iface_name));
+	}
+	IPA_WDI_DBG("register interface for netdev %s %s\n",
+		in->netdev_name, iface_name);
 
 	IPA_WDI_DBG("is_rx1_used: %d\n", in->is_rx1_used);
 
@@ -358,7 +373,7 @@ int ipa_wdi_reg_intf_per_inst(
 
 	mutex_lock(&ipa_wdi_ctx_list[in->hdl]->lock);
 	list_for_each_entry(entry, &ipa_wdi_ctx_list[in->hdl]->head_intf_list, link)
-		if (strcmp(entry->netdev_name, in->netdev_name) == 0) {
+		if (strcmp(entry->netdev_name, iface_name) == 0) {
 			IPA_WDI_DBG("intf was added before.\n");
 			mutex_unlock(&ipa_wdi_ctx_list[in->hdl]->lock);
 			return 0;
@@ -379,7 +394,7 @@ int ipa_wdi_reg_intf_per_inst(
 	}
 
 	INIT_LIST_HEAD(&new_intf->link);
-	strlcpy(new_intf->netdev_name, in->netdev_name,
+	strlcpy(new_intf->netdev_name, iface_name,
 		sizeof(new_intf->netdev_name));
 	new_intf->hdr_len = in->hdr_info[0].hdr_len;
 
@@ -393,7 +408,7 @@ int ipa_wdi_reg_intf_per_inst(
 	}
 	hdr->num_hdrs = num_hdr;
 
-	if (ipa_wdi_commit_partial_hdr(hdr, in->netdev_name, in->hdr_info)) {
+	if (ipa_wdi_commit_partial_hdr(hdr, iface_name, in->hdr_info)) {
 		IPA_WDI_ERR("fail to commit partial headers\n");
 		ret = -EFAULT;
 		goto fail_commit_hdr;
@@ -492,7 +507,7 @@ int ipa_wdi_reg_intf_per_inst(
 				sizeof(tx_prop[3].hdr_name));
 	}
 
-	if (ipa_register_intf(in->netdev_name, &tx, &rx)) {
+	if (ipa_register_intf(iface_name, &tx, &rx)) {
 		IPA_WDI_ERR("fail to add interface prop\n");
 		ret = -EFAULT;
 	}
@@ -1072,12 +1087,44 @@ int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 }
 EXPORT_SYMBOL(ipa_wdi_cleanup_per_inst);
 
+/*
+ * Deregister MLO stiched iface.
+ *
+ * Return 0 on success negetive on failure.
+ */
+
+int ipa_wdi_dereg_intf_per_inst_mlo(const char *netdev_name,
+				ipa_wdi_hdl_t hdl, uint8_t vdev_id, bool mld_enabled)
+{
+	int ret = 0;
+	char iface_name[IPA_RESOURCE_NAME_MAX] = {'\0'};
+
+	if (!netdev_name) {
+		IPA_WDI_ERR("no netdev name. \n");
+		return -EINVAL;
+	}
+
+	if ((ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_4) && (mld_enabled)){
+		IPA_WDI_DBG("stitching mlo enabled iface\n");
+		snprintf((char *)iface_name, sizeof(iface_name), "%s_%d_%d",
+						netdev_name, hdl, vdev_id);
+	}
+	else {
+		IPA_WDI_DBG("non mlo iface\n");
+		strlcpy(iface_name, netdev_name, sizeof(iface_name));
+	}
+	ret = ipa_wdi_dereg_intf_per_inst(iface_name, hdl);
+
+	return ret;
+}
+EXPORT_SYMBOL(ipa_wdi_dereg_intf_per_inst_mlo);
+
 /**
  * function to deregister before unload and after disconnect
  *
  * @Return 0 on success, negative on failure
  */
-int ipa_wdi_dereg_intf_per_inst(const char *netdev_name,ipa_wdi_hdl_t hdl)
+int ipa_wdi_dereg_intf_per_inst(const char *netdev_name, ipa_wdi_hdl_t hdl)
 {
 	int i, len, ret = 0;
 	struct ipa_ioc_del_hdr *hdr = NULL;
@@ -1094,6 +1141,8 @@ int ipa_wdi_dereg_intf_per_inst(const char *netdev_name,ipa_wdi_hdl_t hdl)
 		IPA_WDI_ERR("Invalid Handle %d\n",hdl);
 		return -EFAULT;
 	}
+
+	IPA_WDI_DBG("deregister interface for netdev %s\n", netdev_name);
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
