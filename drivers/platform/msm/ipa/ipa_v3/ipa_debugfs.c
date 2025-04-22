@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -4875,19 +4875,10 @@ fail:
 	debugfs_remove_recursive(dent_eth);
 }
 EXPORT_SYMBOL(ipa3_eth_debugfs_add_node);
-
 #else /* !CONFIG_DEBUG_FS */
 #define INVALID_NO_OF_CHAR (-1)
 void ipa3_debugfs_init(void) {}
 void ipa3_debugfs_remove(void) {}
-int _ipa_read_ep_reg_v3_0(char *buf, int max_len, int pipe)
-{
-	return INVALID_NO_OF_CHAR;
-}
-int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
-{
-	return INVALID_NO_OF_CHAR;
-}
 void ipa3_eth_debugfs_init(void) {}
 void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client) {}
 #endif

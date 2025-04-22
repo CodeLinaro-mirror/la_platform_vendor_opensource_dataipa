@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023,2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/atomic.h>
@@ -243,6 +243,7 @@ struct rndis_ipa_dev {
 	u32 rndis_hdr_hdl;
 };
 
+struct rndis_ipa_dev *rndis_ipa_ctx = NULL;
 /**
  * rndis_pkt_hdr - RNDIS_IPA representation of REMOTE_NDIS_PACKET_MSG
  * @msg_type: for REMOTE_NDIS_PACKET_MSG this value should be 1
@@ -259,6 +260,7 @@ struct rndis_pkt_hdr {
 	__le32  zeroes[7];
 } __packed__;
 
+static void *rndis_hdl = NULL;
 static int rndis_ipa_open(struct net_device *net);
 static void rndis_ipa_packet_receive_notify
 	(void *private, enum ipa_dp_evt_type evt, unsigned long data);
@@ -306,8 +308,13 @@ static ssize_t rndis_ipa_debugfs_atomic_read
 	(struct file *file,
 	char __user *ubuf, size_t count, loff_t *ppos);
 static void rndis_ipa_dump_skb(struct sk_buff *skb);
+#ifdef CONFIG_DEBUG_FS
 static void rndis_ipa_debugfs_init(struct rndis_ipa_dev *rndis_ipa_ctx);
 static void rndis_ipa_debugfs_destroy(struct rndis_ipa_dev *rndis_ipa_ctx);
+#else
+static int rndis_ipa_sysfs_init(void);
+static void rndis_ipa_sysfs_destroy(void);
+#endif
 static int rndis_ipa_ep_registers_cfg
 	(u32 usb_to_ipa_hdl,
 	u32 ipa_to_usb_hdl, u32 max_xfer_size_bytes_to_dev,
@@ -564,7 +571,6 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 {
 	int result = 0;
 	struct net_device *net;
-	struct rndis_ipa_dev *rndis_ipa_ctx;
 	int ret;
 
 	RNDIS_IPA_LOG_ENTRY();
@@ -594,6 +600,7 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 		goto fail_netdev_priv;
 	}
 	memset(rndis_ipa_ctx, 0, sizeof(*rndis_ipa_ctx));
+	rndis_hdl = (void*)rndis_ipa_ctx;
 	RNDIS_IPA_DEBUG("rndis_ipa_ctx (private)=%pK\n", rndis_ipa_ctx);
 
 	spin_lock_init(&rndis_ipa_ctx->state_lock);
@@ -639,9 +646,11 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 	RNDIS_IPA_DEBUG
 		("Needed headroom for RNDIS header set to %d\n",
 		net->needed_headroom);
-
+#ifdef CONFIG_DEBUG_FS
 	rndis_ipa_debugfs_init(rndis_ipa_ctx);
-
+#else
+	rndis_ipa_sysfs_init();
+#endif
 	result = rndis_ipa_set_device_ethernet_addr
 		(net, rndis_ipa_ctx->device_ethaddr);
 	if (result) {
@@ -741,7 +750,11 @@ fail_add_hdrs_hpc:
 fail_hdrs_cfg:
 fail_get_vlan_mode:
 fail_set_device_ethernet:
+#ifdef CONFIG_DEBUG_FS
 	rndis_ipa_debugfs_destroy(rndis_ipa_ctx);
+#else
+	rndis_ipa_sysfs_destroy();
+#endif
 fail_netdev_priv:
 	free_netdev(net);
 fail_alloc_etherdev:
@@ -1524,9 +1537,13 @@ void rndis_ipa_cleanup(void *private)
 	else
 		RNDIS_IPA_DEBUG("RNDIS headers were removed from IPA core\n");
 
+#ifdef CONFIG_DEBUG_FS
 	rndis_ipa_debugfs_destroy(rndis_ipa_ctx);
 	RNDIS_IPA_DEBUG("debugfs remove was done\n");
-
+#else
+	rndis_ipa_sysfs_destroy();
+	RNDIS_IPA_DEBUG("sysfs remove was done\n");
+#endif
 	unregister_netdev(rndis_ipa_ctx->net);
 	RNDIS_IPA_DEBUG("netdev unregistered\n");
 
@@ -2493,10 +2510,502 @@ static void rndis_ipa_debugfs_destroy(struct rndis_ipa_dev *rndis_ipa_ctx)
 }
 
 #else /* !CONFIG_DEBUG_FS */
+static ssize_t tx_filter_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
 
-static void rndis_ipa_debugfs_init(struct rndis_ipa_dev *rndis_ipa_ctx) {}
+	scnprintf(ubuf, sizeof(bool),"%d", rndis_ipa_ctx->tx_filter);
+	return sizeof(bool);
+}
 
-static void rndis_ipa_debugfs_destroy(struct rndis_ipa_dev *rndis_ipa_ctx) {}
+static ssize_t tx_filter_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+	ret = kstrtobool(ubuf, &rndis_ipa_ctx->tx_filter);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t rx_filter_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+	scnprintf(ubuf, sizeof(bool),"%d", rndis_ipa_ctx->rx_filter);
+	return sizeof(bool);
+}
+
+static ssize_t rx_filter_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+	ret = kstrtobool(ubuf, &rndis_ipa_ctx->rx_filter);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t icmp_filter_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+	scnprintf(ubuf, sizeof(bool),"%d", rndis_ipa_ctx->icmp_filter);
+	return sizeof(bool);
+}
+
+static ssize_t icmp_filter_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtobool(ubuf, &rndis_ipa_ctx->icmp_filter);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_high_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rndis_ipa_ctx->outstanding_high);
+	return sizeof(uint32_t);
+}
+
+static ssize_t outstanding_high_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtou32(ubuf, 0, &rndis_ipa_ctx->outstanding_high);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t outstanding_low_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rndis_ipa_ctx->outstanding_low);
+	return sizeof(uint32_t);
+}
+
+static ssize_t outstanding_low_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtou32(ubuf, 0, &rndis_ipa_ctx->outstanding_low);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t state_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint8_t),"%d", rndis_ipa_ctx->state);
+	return sizeof(uint8_t);
+}
+
+static ssize_t tx_dropped_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rndis_ipa_ctx->tx_dropped);
+	return sizeof(uint32_t);
+}
+
+
+static ssize_t rx_dropped_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rndis_ipa_ctx->rx_dropped);
+	return sizeof(uint32_t);
+}
+
+static ssize_t aggr_enable_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint8_t),"%d", ipa_to_usb_ep_cfg.aggr.aggr_en);
+	return sizeof(uint8_t);
+}
+
+static ssize_t aggr_enable_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtou8(ubuf, 0, (u8 *)&ipa_to_usb_ep_cfg.aggr.aggr_en);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t aggr_type_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint8_t),"%d", ipa_to_usb_ep_cfg.aggr.aggr);
+	return sizeof(uint8_t);
+}
+
+static ssize_t aggr_type_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtou8(ubuf, 0, (u8 *)&ipa_to_usb_ep_cfg.aggr.aggr);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t aggr_byte_limit_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint32_t),"%d", ipa_to_usb_ep_cfg.aggr.aggr_byte_limit);
+	return sizeof(uint32_t);
+}
+
+static ssize_t aggr_byte_limit_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtou32(ubuf, 0, &ipa_to_usb_ep_cfg.aggr.aggr_byte_limit);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t aggr_time_limit_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint32_t),"%d", ipa_to_usb_ep_cfg.aggr.aggr_time_limit);
+	return sizeof(uint32_t);
+}
+
+static ssize_t aggr_time_limit_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtou32(ubuf, 0, &ipa_to_usb_ep_cfg.aggr.aggr_time_limit);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t aggr_pkt_limit_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint32_t),"%d", ipa_to_usb_ep_cfg.aggr.aggr_pkt_limit);
+	return sizeof(uint32_t);
+}
+
+static ssize_t aggr_pkt_limit_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtou32(ubuf, 0, &ipa_to_usb_ep_cfg.aggr.aggr_pkt_limit);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t tx_dump_enable_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(bool),"%d", rndis_ipa_ctx->tx_dump_enable);
+	return sizeof(bool);
+}
+
+static ssize_t tx_dump_enable_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtobool(ubuf, &rndis_ipa_ctx->tx_dump_enable);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t rx_dump_enable_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	struct rndis_ipa_dev *rndis_ipa_ctx;
+	rndis_ipa_ctx = (struct rndis_ipa_dev *)rndis_hdl;
+	scnprintf(ubuf, sizeof(bool),"%d", rndis_ipa_ctx->rx_dump_enable);
+	return sizeof(bool);
+}
+
+static ssize_t rx_dump_enable_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtobool(ubuf, &rndis_ipa_ctx->rx_dump_enable);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t deaggregation_enable_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(bool),"%d", rndis_ipa_ctx->deaggregation_enable);
+	return sizeof(bool);
+}
+
+static ssize_t deaggregation_enable_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtobool(ubuf, &rndis_ipa_ctx->deaggregation_enable);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t error_msec_sleep_time_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(uint32_t),"%d", rndis_ipa_ctx->error_msec_sleep_time);
+	return sizeof(uint32_t);
+}
+
+static ssize_t error_msec_sleep_time_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int ret = -1;
+
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	ret = kstrtou32(ubuf, 0, &rndis_ipa_ctx->error_msec_sleep_time);
+	if(!ret)
+		return count;
+	return ret;
+}
+
+static ssize_t during_xmit_error_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	scnprintf(ubuf, sizeof(bool),"%d", rndis_ipa_ctx->during_xmit_error);
+	return sizeof(bool);
+}
+
+static ssize_t is_vlan_mode_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	memcpy(ubuf, &rndis_ipa_ctx->is_vlan_mode, sizeof(bool));
+	return sizeof(bool);
+}
+
+static ssize_t outstanding_show
+	(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	int nbytes;
+	atomic_t *atomic_var;
+	u8 atomic_str[DEBUGFS_TEMP_BUF_SIZE] = {0};
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	atomic_var = &rndis_ipa_ctx->outstanding_pkts;
+
+	RNDIS_IPA_LOG_ENTRY();
+
+	nbytes = scnprintf
+		(atomic_str, sizeof(atomic_str), "%d\n",
+		atomic_read(atomic_var));
+
+	RNDIS_IPA_LOG_EXIT();
+
+	memcpy(ubuf, atomic_str, nbytes);
+	return nbytes;
+}
+
+static ssize_t aggr_value_set_store
+	(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	int result;
+	if(rndis_ipa_ctx == NULL) {
+		return -EINVAL;
+	}
+
+	result = ipa3_cfg_ep(rndis_ipa_ctx->usb_to_ipa_hdl, &ipa_to_usb_ep_cfg);
+	if (result) {
+		pr_err("failed to re-configure USB to IPA point\n");
+		return result;
+	}
+	pr_info("IPA<-USB end-point re-configured\n");
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(tx_filter);
+static DEVICE_ATTR_RW(rx_filter);
+static DEVICE_ATTR_RW(icmp_filter);
+static DEVICE_ATTR_RW(outstanding_high);
+static DEVICE_ATTR_RW(outstanding_low);
+
+static DEVICE_ATTR_RO(outstanding);
+static DEVICE_ATTR_RO(state);
+static DEVICE_ATTR_RO(tx_dropped);
+static DEVICE_ATTR_RO(rx_dropped);
+
+/* AGGR ATTRIBUTES */
+static DEVICE_ATTR_WO(aggr_value_set);
+static DEVICE_ATTR_RW(aggr_enable);
+static DEVICE_ATTR_RW(aggr_type);
+static DEVICE_ATTR_RW(aggr_byte_limit);
+static DEVICE_ATTR_RW(aggr_time_limit);
+static DEVICE_ATTR_RW(aggr_pkt_limit);
+static DEVICE_ATTR_RW(tx_dump_enable);
+static DEVICE_ATTR_RW(rx_dump_enable);
+static DEVICE_ATTR_RW(deaggregation_enable);
+static DEVICE_ATTR_RW(error_msec_sleep_time);
+
+static DEVICE_ATTR_RO(during_xmit_error);
+static DEVICE_ATTR_RO(is_vlan_mode);
+
+static struct attribute *ipa_rndis_attrs[] = {
+	&dev_attr_tx_filter.attr,
+	&dev_attr_rx_filter.attr,
+	&dev_attr_icmp_filter.attr,
+	&dev_attr_outstanding_high.attr,
+	&dev_attr_outstanding_low.attr,
+	&dev_attr_outstanding.attr,
+	&dev_attr_state.attr,
+	&dev_attr_tx_dropped.attr,
+	&dev_attr_rx_dropped.attr,
+	&dev_attr_tx_dump_enable.attr,
+	&dev_attr_rx_dump_enable.attr,
+	&dev_attr_deaggregation_enable.attr,
+	&dev_attr_error_msec_sleep_time.attr,
+	&dev_attr_during_xmit_error.attr,
+	&dev_attr_is_vlan_mode.attr,
+	NULL
+};
+
+static struct attribute *ipa_rndis_aggr_attrs[] = {
+	&dev_attr_aggr_value_set.attr,
+	&dev_attr_aggr_enable.attr,
+	&dev_attr_aggr_type.attr,
+	&dev_attr_aggr_byte_limit.attr,
+	&dev_attr_aggr_time_limit.attr,
+	&dev_attr_aggr_pkt_limit.attr,
+	NULL
+};
+const struct attribute_group ipa_rndis_attr_group = {
+	.name		= "rndis_ipa",
+	.attrs		= ipa_rndis_attrs,
+};
+
+const struct attribute_group ipa_rndis_aggr_attr_group = {
+	.name		= "rndis_ipa_aggregation",
+	.attrs		= ipa_rndis_aggr_attrs,
+};
+
+const struct attribute_group *rndis_group[] = {
+	&ipa_rndis_attr_group,
+	&ipa_rndis_aggr_attr_group,
+	NULL,
+};
+static int rndis_ipa_sysfs_init()
+{
+	int ret = -1;
+
+	ret = sysfs_create_groups(kernel_kobj, rndis_group);
+	if (ret != 0) {
+		pr_err("Fail to create RNDIS syfs attribute\n");
+	}
+	return ret;
+}
+
+static void rndis_ipa_sysfs_destroy()
+{
+	sysfs_remove_groups(kernel_kobj, rndis_group);
+}
 
 #endif /* CONFIG_DEBUG_FS*/
 
