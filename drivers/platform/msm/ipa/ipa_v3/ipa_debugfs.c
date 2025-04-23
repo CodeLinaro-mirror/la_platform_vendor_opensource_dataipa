@@ -535,6 +535,24 @@ static ssize_t ipa3_write_keep_awake(struct file *file, const char __user *buf,
 	return count;
 }
 
+static ssize_t ipa3_disable_proxy_vote(struct file *file, const char __user *buf,
+	size_t count, loff_t *ppos)
+{
+	s8 option = 0;
+	int ret;
+
+	ret = kstrtos8_from_user(buf, count, 0, &option);
+	if (ret)
+		return ret;
+
+	if (option == 1) {
+		ipa3_proxy_clk_unvote();
+	}
+
+	return count;
+}
+
+
 static ssize_t ipa3_read_keep_awake(struct file *file, char __user *ubuf,
 	size_t count, loff_t *ppos)
 {
@@ -3772,6 +3790,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	},	{
 		"ipa_loopback_on_ipa", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_perform_loopback,
+		}
+	},  {
+		"disable_proxy_vote", IPA_WRITE_ONLY_MODE, NULL, {
+			.write = ipa3_disable_proxy_vote,
 		}
 	}
 };
