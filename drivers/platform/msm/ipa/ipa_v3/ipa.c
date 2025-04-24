@@ -11583,17 +11583,30 @@ static int ipa3_lan_poll(struct napi_struct *napi, int budget)
 
 static inline void ipa3_enable_napi_netdev(void)
 {
+	struct net_device *dummy_ndev = NULL;
+
 	if (ipa3_ctx->lan_rx_napi_enable || ipa3_ctx->tx_napi_enable) {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0))
 		init_dummy_netdev(&ipa3_ctx->generic_ndev);
+		dummy_ndev = &ipa3_ctx->generic_ndev;
+#else
+		ipa3_ctx->generic_ndev = alloc_netdev_dummy(0);
+		if (!ipa3_ctx->generic_ndev) {
+			IPAERR("Error allocating LAN netdev, disable LAN NAPI\n");
+			ipa3_ctx->lan_rx_napi_enable = false;
+		}
+		dummy_ndev = ipa3_ctx->generic_ndev;
+#endif
+
 		if(ipa3_ctx->lan_rx_napi_enable) {
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 14))
 			netif_napi_add(
-				&ipa3_ctx->generic_ndev,
+				dummy_ndev,
 				&ipa3_ctx->napi_lan_rx,
 				ipa3_lan_poll);
 #else
 			netif_napi_add(
-				&ipa3_ctx->generic_ndev,
+				dummy_ndev,
 				&ipa3_ctx->napi_lan_rx,
 				ipa3_lan_poll,
 				NAPI_WEIGHT);
