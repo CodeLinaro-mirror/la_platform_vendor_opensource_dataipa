@@ -210,7 +210,7 @@ int ipa_ipsec_stop_sa(u8 idx, enum ipa_ipsec_sa_type sa_type)
 /* Lookup for next free HW SA index, return IPA_IPSEC_MAX_SA_NUM, if not found */
 static u8 _ipa_ipsec_next_free_sa(enum ipa_ipsec_sa_type sa_type)
 {
-	u8 idx = 1; // Index 0 causes false positive ECN errors
+	u8 idx = 0;
 	while (ipa3_ctx->ipsec->sa_db[sa_type][idx].x && idx < IPA_IPSEC_MAX_SA_NUM)
 		idx++;
 
@@ -404,7 +404,7 @@ static u8 ipa_ipsec_find_match_sa(const struct xfrm_tmpl *tmpl, u16 family,
 
 	IPADBG_LOW("Start\n");
 
-	for (idx = 1; idx < IPA_IPSEC_MAX_SA_NUM; idx++) {  // Index 0 causes false positive ECN errors
+	for (idx = 0; idx < IPA_IPSEC_MAX_SA_NUM; idx++) {
 		if (ipa3_ctx->ipsec->sa_db[type][idx].x &&
 		    ipa_ipsec_tmpl_sa_match(tmpl, ipa3_ctx->ipsec->sa_db[type][idx].x))
 			return idx;
@@ -1871,7 +1871,7 @@ int ipa_ipsec_xdo_policy_add(struct xfrm_policy *xp, struct netlink_ext_ack *ext
 	switch (xp->xdo.dir) {
 	case XFRM_DEV_OFFLOAD_IN:
 		/* Install FLT rule/s */
-		for (i = 0, idx = 1; // Index 0 causes false positive ECN errors
+		for (i = 0, idx = 0;
 		     idx < IPA_IPSEC_MAX_SA_NUM && i < IPA_IPSEC_DL_FLT_PER_POL; idx++) {
 			if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x &&
 				ipa_ipsec_tmpl_sa_match(xp->xfrm_vec,
