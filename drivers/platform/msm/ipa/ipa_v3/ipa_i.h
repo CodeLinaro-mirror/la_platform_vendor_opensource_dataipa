@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -2556,7 +2556,11 @@ struct ipa3_context {
 	bool lan_rx_napi_enable;
 	bool tx_napi_enable;
 	bool tx_poll;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0))
 	struct net_device generic_ndev;
+#else
+	struct net_device *generic_ndev;
+#endif
 	struct napi_struct napi_lan_rx;
 	u32 icc_num_cases;
 	u32 icc_num_paths;
