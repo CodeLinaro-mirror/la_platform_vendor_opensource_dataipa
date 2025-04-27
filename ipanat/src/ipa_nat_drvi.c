@@ -28,7 +28,7 @@
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted (subject to the limitations in the
@@ -1252,6 +1252,7 @@ int ipa_nati_alloc_pdn(
 
 		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)))
 		{
+#ifndef FEATURE_STA_AT_ANY_INDEX
 			/* Reserving 0 for STA */
 			if(pdn_info->is_sta == true)
 			{
@@ -1267,6 +1268,7 @@ int ipa_nati_alloc_pdn(
 					continue;
 				}
 			}
+#endif
 			IPADBG("found an empty pdn in index %d PDN IP: %x is_sta: %d\n", i, pdn_info->public_ip, pdn_info->is_sta);
 			break;
 		}
@@ -1279,10 +1281,12 @@ int ipa_nati_alloc_pdn(
 		return -EIO;
 	}
 
+#ifndef FEATURE_STA_AT_ANY_INDEX
 	if(pdn_info->is_sta == true)
 		pdn_data.pdn_index    = 0;
 	else
-		pdn_data.pdn_index    = i;
+#endif
+	pdn_data.pdn_index    = i;
 
 	pdn_data.public_ip    = pdn_info->public_ip;
 	pdn_data.src_metadata = pdn_info->src_metadata;
@@ -1292,10 +1296,12 @@ int ipa_nati_alloc_pdn(
 	if(!ret)
 	{
 		num_pdns++;
+#ifndef FEATURE_STA_AT_ANY_INDEX
 		if(pdn_info->is_sta == true)
 			*pdn_index = 0;
 		else
-			*pdn_index = i;
+#endif
+		*pdn_index = i;
 		IPADBG("modify num_pdns (%d)\n", num_pdns);
 	}
 
