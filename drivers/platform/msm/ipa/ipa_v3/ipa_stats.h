@@ -60,7 +60,7 @@
 #define IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_TIME 10 /* In milli second */
 
 #define TLPD_NUM_MAX_RT_FLT_TBL 16
-#define TLPD_NUM_MAX_RT_FLT_RULE 16
+#define TLPD_NUM_MAX_RT_FLT_RULE 30
 
 #define TLPD_NUM_MAX_NUM_EQ 2
 
@@ -435,7 +435,7 @@ struct ipa_lnx_offset_meq {
 struct ipa_lnx_ihl_offset_range {
 	uint64_t offset : 32;
 	uint64_t range_low : 16;
-	uint64_t mask_high : 16;
+	uint64_t range_high : 16;
 };
 
 struct ipa_lnx_ihl_offset_eq {
@@ -460,7 +460,8 @@ struct ipa_lnx_v4_rt_rules {
 	uint64_t enable_stats : 8;
 	uint64_t counter_id : 8;
 	uint64_t hashable : 8;
-	uint64_t proc_ctx_valid : 8;
+	uint64_t proc_ctx_valid : 2;
+	uint64_t dscp_mark : 6;
 	uint64_t offset_words : 32;
 
 	uint64_t attribute_mask : 32;
@@ -502,6 +503,15 @@ struct ipa_lnx_v4_rt_rules {
 	uint64_t dst_mac_addr;
 	uint64_t dst_mac_addr_mask;
 
+	uint64_t meta_data : 32;
+	uint64_t meta_data_mask : 32;
+
+	uint64_t pure_ack : 8;
+	uint64_t frag_encoding : 8;
+	uint64_t prio : 8;
+	uint64_t max_prio : 8;
+	uint64_t reserved4 : 32;
+
 	/* Attribute equation */
 	uint64_t protocol_eq : 8;
 	uint64_t num_offset_meq128 : 8;
@@ -538,7 +548,8 @@ struct ipa_lnx_v6_rt_rules {
 	uint64_t enable_stats : 8;
 	uint64_t counter_id : 8;
 	uint64_t hashable : 8;
-	uint64_t proc_ctx_valid : 8;
+	uint64_t proc_ctx_valid : 2;
+	uint64_t dscp_mark : 6;
 	uint64_t offset_words : 32;
 
 	uint64_t attribute_mask : 32;
@@ -584,6 +595,15 @@ struct ipa_lnx_v6_rt_rules {
 	uint64_t dst_mac_addr;
 	uint64_t dst_mac_addr_mask;
 
+	uint64_t meta_data : 32;
+	uint64_t meta_data_mask : 32;
+
+	uint64_t pure_ack : 8;
+	uint64_t frag_encoding : 8;
+	uint64_t prio : 8;
+	uint64_t max_prio : 8;
+	uint64_t reserved4 : 32;
+
 	/* Attribute equation */
 	uint64_t protocol_eq : 8;
 	uint64_t num_offset_meq128 : 8;
@@ -609,6 +629,7 @@ struct ipa_lnx_v4_rt_rule_table {
 	uint64_t num_rt_rule : 16;
 	uint64_t tbl_name : 8;
 	uint64_t reserved : 8;
+	char rt_tbl_name[40];
 	struct ipa_lnx_v4_rt_rules v4_rt_rule[TLPD_NUM_MAX_RT_FLT_RULE];
 };
 
@@ -618,6 +639,7 @@ struct ipa_lnx_v6_rt_rule_table {
 	uint64_t num_rt_rule : 16;
 	uint64_t tbl_name : 8;
 	uint64_t reserved : 8;
+	char rt_tbl_name[40];
 	struct ipa_lnx_v6_rt_rules v6_rt_rule[TLPD_NUM_MAX_RT_FLT_RULE];
 };
 
@@ -699,6 +721,12 @@ struct ipa_lnx_v4_flt_rules {
 
 	uint64_t meta_data : 32;
 	uint64_t meta_data_mask : 32;
+
+	uint64_t pure_ack : 8;
+	uint64_t frag_encoding : 8;
+	uint64_t prio : 8;
+	uint64_t max_prio : 8;
+	uint64_t reserved4 : 32;
 
 	/* Attribute equation */
 	uint64_t protocol_eq : 8;
@@ -782,6 +810,15 @@ struct ipa_lnx_v6_flt_rules {
 	uint64_t src_mac_addr_mask;
 	uint64_t dst_mac_addr;
 	uint64_t dst_mac_addr_mask;
+
+	uint64_t meta_data : 32;
+	uint64_t meta_data_mask : 32;
+
+	uint64_t pure_ack : 8;
+	uint64_t frag_encoding : 8;
+	uint64_t prio : 8;
+	uint64_t max_prio : 8;
+	uint64_t reserved4 : 32;
 
 	/* Attribute equation */
 	uint64_t protocol_eq : 8;
