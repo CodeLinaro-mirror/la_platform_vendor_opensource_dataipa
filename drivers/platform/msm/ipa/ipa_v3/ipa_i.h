@@ -2778,6 +2778,8 @@ struct ipa3_context {
 	struct mutex recycle_stats_collection_lock;
 	u16 filter_start_id;
 	struct ipa_ioc_get_qos_config get_qos_config;
+	struct mutex msg_qos_param_lock;
+	struct list_head msg_qos_param_list;
 	u16 socksv5_conn_refcnt;
 	u8 ippt_pdninfo_refcnt;
 };
