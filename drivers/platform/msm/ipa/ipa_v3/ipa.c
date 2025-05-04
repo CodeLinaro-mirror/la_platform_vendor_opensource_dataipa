@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -7683,6 +7683,12 @@ static void ipa3_register_panic_hdlr(void)
 		&ipa3_panic_blk);
 }
 
+static void ipa3_unregister_panic_hdlr(void)
+{
+	atomic_notifier_chain_unregister(&panic_notifier_list,
+		&ipa3_panic_blk);
+}
+
 static void ipa3_uc_is_loaded(void)
 {
 	IPADBG("\n");
@@ -9074,17 +9080,30 @@ static int ipa3_lan_poll(struct napi_struct *napi, int budget)
 
 static inline void ipa3_enable_napi_netdev(void)
 {
+	struct net_device *dummy_ndev = NULL;
+
 	if (ipa3_ctx->lan_rx_napi_enable || ipa3_ctx->tx_napi_enable) {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0))
 		init_dummy_netdev(&ipa3_ctx->generic_ndev);
+		dummy_ndev = &ipa3_ctx->generic_ndev;
+#else
+		ipa3_ctx->generic_ndev = alloc_netdev_dummy(0);
+		if (!ipa3_ctx->generic_ndev) {
+			IPAERR("Error allocating LAN netdev, disable LAN NAPI\n");
+			ipa3_ctx->lan_rx_napi_enable = false;
+		}
+		dummy_ndev = ipa3_ctx->generic_ndev;
+#endif
+
 		if(ipa3_ctx->lan_rx_napi_enable) {
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 14))
 			netif_napi_add(
-				&ipa3_ctx->generic_ndev,
+				dummy_ndev,
 				&ipa3_ctx->napi_lan_rx,
 				ipa3_lan_poll);
 #else
 			netif_napi_add(
-				&ipa3_ctx->generic_ndev,
+				dummy_ndev,
 				&ipa3_ctx->napi_lan_rx,
 				ipa3_lan_poll,
 				NAPI_WEIGHT);
@@ -12073,6 +12092,8 @@ static void ipa3_deepsleep_suspend(void)
 	/*Destroying ipa hal module*/
 	ipahal_destroy();
 	ipa3_ctx->ipa_initialization_complete = false;
+	ipa3_unregister_panic_hdlr();
+	ipa3_wigig_deinit_i();
 	ipa3_debugfs_remove();
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
