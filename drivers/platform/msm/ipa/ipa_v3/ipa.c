@@ -5698,7 +5698,8 @@ int _ipa_init_sram_v3(void)
 		IPA_MEM_PART(modem_hdr_proc_ctx_ofst) - 4);
 	ipa3_sram_set_canary(ipa_sram_mmio,
 		IPA_MEM_PART(modem_hdr_proc_ctx_ofst));
-	ipa_sram_mmio[IPA_MEM_PART(uc_descriptor_ram_ofst) / 4] = 0x00000000;
+	if (IPA_MEM_PART(uc_descriptor_ram_size) > 0)
+		ipa_sram_mmio[IPA_MEM_PART(uc_descriptor_ram_ofst) / 4] = 0x00000000;
 
 	if (ipa_get_hw_type() >= IPA_HW_v4_5
 		&& ipa_get_hw_type() < IPA_HW_v5_0) {
@@ -5760,6 +5761,11 @@ int _ipa_init_sram_v3(void)
 			(ipa_get_hw_type() >= IPA_HW_v3_5) ?
 			IPA_MEM_PART(uc_descriptor_ram_ofst) :
 			IPA_MEM_PART(end_ofst));
+	}
+
+	if (ipa_get_hw_type() >= IPA_HW_v5_5) {
+		if (IPA_MEM_PART(uc_descriptor_ram_size) > 0)
+			ipa_sram_mmio[IPA_MEM_PART(uc_descriptor_ram_ofst) / 4] = 0xABCDEF01;
 	}
 
 	iounmap(ipa_sram_mmio);
