@@ -112,9 +112,13 @@
 #define IPA_Q6_RT_START_ID 768
 #define IPA_Q6_FLT_START_ID 512
 #define IPA_Q6_FNR_START_IDX (128)
+#define IPA_Q6_FNR_MAX_START_IDX (54)
 #define IPA_Q6_FNR_IDX_CNT (52)
+#define IPA_Q6_FNR_MAX_IDX_CNT (200)
 #define IPA_Q6_FNR_END_IDX (IPA_Q6_FNR_START_IDX+IPA_Q6_FNR_IDX_CNT-1)
+#define IPA_Q6_FNR_MAX_END_IDX (IPA_Q6_FNR_MAX_START_IDX+IPA_Q6_FNR_MAX_IDX_CNT-1)
 #define IPA_Q6_FNR_STATS_SIZE (IPA_Q6_FNR_IDX_CNT * 16)
+#define IPA_Q6_FNR_MAX_STATS_SIZE (IPA_Q6_FNR_MAX_IDX_CNT * 16)
 #define IPA_MPM_MAX_RING_LEN 64
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
@@ -2449,6 +2453,7 @@ enum ipa_eth_qos_type_e {
  * @cesta_enable: flag which holds if cesta_enabled or not in DTSI
  * @eth_pdu_ctx: ETH PDU ctx
  * @ipa_tiering_value: IPA tiering value to support multiple SKUs
+ * @lan_stats_enabled: flag to check if stats is enabled or not.
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2620,6 +2625,7 @@ struct ipa3_context {
 	bool spcl_iface[IPA_VLAN_IF_MAX];
 	bool tsn_iface;
 	enum ipa_eth_qos_type_e eth_qos;
+	bool lan_stats_enabled;
 	bool wdi_over_pcie;
 	u32 entire_ipa_block_size;
 	bool do_register_collection_on_crash;
