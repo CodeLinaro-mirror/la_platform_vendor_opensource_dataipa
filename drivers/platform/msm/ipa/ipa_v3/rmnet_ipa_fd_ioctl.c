@@ -567,6 +567,9 @@ long ipa3_compat_wan_ioctl(struct file *file,
 	case WAN_IOC_SET_DATA_QUOTA32:
 		cmd = WAN_IOC_SET_DATA_QUOTA;
 		break;
+	case WAN_IOC_SET_DATA_QUOTA_WARNING:
+		cmd = WAN_IOC_SET_DATA_QUOTA_WARNING;
+		break;
 	case WAN_IOC_SET_TETHER_CLIENT_PIPE32:
 		cmd = WAN_IOC_SET_TETHER_CLIENT_PIPE;
 		break;
