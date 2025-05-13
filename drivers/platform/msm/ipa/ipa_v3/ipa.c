@@ -4208,6 +4208,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			goto free_mem;
 		}
 		retval = ipa3_send_ipogre_info(IPA_IPOGRE_NOTIFY_EVENT,ipogre_info);
+		ipa3_ctx->eogre_tunnel_feature = IPOGRE_FEATURE;
 		break;
 
 #ifdef IPA_IOC_FLT_MEM_PERIPHERAL_SET_PRIO_HIGH

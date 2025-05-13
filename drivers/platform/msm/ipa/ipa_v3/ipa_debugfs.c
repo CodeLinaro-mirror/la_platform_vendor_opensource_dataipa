@@ -1953,7 +1953,8 @@ static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
 	struct Ipa3HwStatsMPLS stats;
 	struct Ipa3HwStatsEOGRE eogre;
 	struct Ipa3HwStatsMultiCombined multi;
-	if (!ipa3_get_eogre_stats(&stats, &eogre, &multi)) {
+	struct Ipa3HwStatsipogreCombined ipogre;
+	if (!ipa3_get_eogre_stats(&stats, &eogre, &multi, &ipogre)) {
 
 		if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE ||
                   	ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE) {
@@ -1997,6 +1998,26 @@ static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
 			}
 
 		}
+		if(ipa3_ctx->eogre_tunnel_feature == IPOGRE_FEATURE) {
+			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"IPOGRE UL Stats is %llu\n"
+				"IPOGRE DL stats is %llu\n",
+				ipogre.eogre_header_add_id,
+				ipogre.eogre_header_remove_id);
+			cnt += nbytes;
+
+			for(int i = 0;i < MAX_MULTI_IPOGRE_TUNNEL_STATS ;i++) {
+				nbytes = scnprintf(dbg_buff + cnt,
+					IPA_MAX_MSG_LEN - cnt,
+					"Tunnel id %d\n"
+					"IPOGRE UL Stats is %llu\n"
+					"IPOGRE DL stats is %llu\n",
+					i,
+					ipogre.tunnels[i].eogre_header_add_id,
+					ipogre.tunnels[i].eogre_header_remove_id);
+				cnt += nbytes;
+			}
+                }
 	} else {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 				"Fail to read EOGRE stats\n");

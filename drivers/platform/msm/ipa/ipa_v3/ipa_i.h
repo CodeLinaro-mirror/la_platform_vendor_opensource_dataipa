@@ -98,6 +98,8 @@
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
 
+#define IPOGRE_FEATURE 0x04
+
 /* ULSO Constants */
 enum {
 	ENDP_INIT_ULSO_CFG_IP_ID_MIN_MAX_VAL_IDX_LINUX,
@@ -566,7 +568,7 @@ enum {
 				IPA_IOCTL_DEL_EoGRE_MAPPING, \
 				compat_uptr_t)
 #define IPA_IOC_ADD_IPoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
-				IPA_IOCTL_ADD_IPOGRE_MAPPING, \
+				IPA_IOCTL_ADD_IPoGRE_MAPPING, \
 				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
@@ -1811,10 +1813,24 @@ struct Ipa3HwStatsMultiCombined{
 	struct Ipa3HwStatsMulti tunnels[4];
 }__packed;
 
+struct Ipa3HwStatsipogre{
+	uint32_t tunnel_id;
+	uint32_t mux_id;
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+}__packed;
+
+struct Ipa3HwStatsipogreCombined{
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+	struct Ipa3HwStatsipogre tunnels[2];
+}__packed;
+
 union Ipa3HwStatsEOGREInfoData_t{
 	struct Ipa3HwStatsEOGRE *eogre;
 	struct Ipa3HwStatsMPLS *mpls;
 	struct Ipa3HwStatsMultiCombined *multi;
+	struct Ipa3HwStatsipogreCombined *ipogre;
 };
 
 /**
@@ -3251,7 +3267,8 @@ int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
 int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
 		struct Ipa3HwStatsEOGRE *eogre,
-		struct Ipa3HwStatsMultiCombined *multi);
+		struct Ipa3HwStatsMultiCombined *multi,
+		struct Ipa3HwStatsipogreCombined *ipogre);
 
 int ipa3_wigig_init_debugfs_i(struct dentry *dent);
 
@@ -3888,8 +3905,9 @@ int ipa3_send_eogre_info(
 	enum ipa_eogre_event etype,
 	struct ipa_ioc_eogre_info *info );
 
-int ipa3_send_ipogre_info(enum ipa_ipogre_event etype,
-			  struct ipa_ioc_ipogre_info *info);
+int ipa3_send_ipogre_info(
+		enum ipa_ipogre_event etype,
+		struct ipa_ioc_ipogre_info *info );
 
 /* update mhi ctrl pipe state */
 void ipa3_update_mhi_ctrl_state(u8 state, bool set);
