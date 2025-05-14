@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/ipa.h>
@@ -21,6 +20,8 @@
 		IPA_FLT_MAC_SRC_ADDR_802_3 | IPA_FLT_MAC_DST_ADDR_802_1Q | \
 		IPA_FLT_MAC_SRC_ADDR_802_1Q)
 
+#define MPLS_V4_ETHERTYPE 0X800
+#define MPLS_V6_ETHERTYPE 0x86DD
 static u64 ipa_fltrt_create_flt_bitmap(u64 ep_bitmap)
 {
 	/* At IPA3, there global configuration is possible but not used */
@@ -2908,36 +2909,10 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 		ipa_fld_wid_off_t* fwo;
 		int32_t            offset, oo, rmndr;
 		uint32_t           row, mask, cmp_wid, shift, value;
-		uint32_t p4_ex;
 
 		value = attrib->fld_val_eq.value;
 
-		if(attrib->p_exception == PPPOE_EXCEPTION &&
-				attrib->fld_val_eq.flow ==
-				FLOW_DOWNLINK) {
-			if (attrib->fld_val_eq.field == FIELD_IP_PROTOCOL)
-				p4_ex = FIELD_IP_PROTOCOL_PPPOE;
-			else if (attrib->fld_val_eq.field ==
-					FIELD_UDP_SRC_PORT)
-				p4_ex = FIELD_UDP_SRC_PORT_PPPOE;
-			else if (attrib->fld_val_eq.field ==
-					FIELD_UDP_DST_PORT)
-				p4_ex = FIELD_UDP_DST_PORT_PPPOE;
-			else if (attrib->fld_val_eq.field ==
-					FIELD_TCP_DST_PORT)
-				p4_ex = FIELD_TCP_DST_PORT_PPPOE;
-			else if (attrib->fld_val_eq.field ==
-					FIELD_TCP_DST_PORT)
-				p4_ex = FIELD_TCP_DST_PORT_PPPOE;
-
-			fwo = get_mpls_p_v4_outer(attrib->fld_val_eq.flow,
-					attrib->fld_val_eq.inner_iptype,
-					p4_ex);
-		} else {
-			fwo = get_mpls_v4_outer(attrib->fld_val_eq.flow,
-					attrib->fld_val_eq.inner_iptype,
-					attrib->fld_val_eq.field);
-		}
+		fwo = get_mpls_v4_outer(attrib->fld_val_eq.flow, attrib->fld_val_eq.inner_iptype, attrib->fld_val_eq.field);
 
 		cmp_wid = fwo->width;
 		offset  = fwo->offset;
@@ -3028,38 +3003,82 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 		mask  = (mask  << shift);
 		value = (value << shift);
 
-		if(attrib->p_exception == PPPOE_EXCEPTION) {
-			IPAHAL_DBG(
-				"outerIP=(v4) flow=(%s) innerIP=(%s) field=(%s)"
-				"value=(%08X) wid=(%u) adj offset=(%d)"
-				"mask=(%08X) val=(%08X)\n",
-				flow_type_as_str(attrib->fld_val_eq.flow),
-				ipa_ip_type_as_str(attrib->fld_val_eq.inner_iptype),
-				pppoe_exception_type_as_str(p4_ex),
-				attrib->fld_val_eq.value,
-				cmp_wid,
-				offset,
-				mask,
-				value);
-		} else {
-			IPAHAL_DBG(
-				"outerIP=(v4) flow=(%s) innerIP=(%s) field=(%s)"
-				"value=(%08X) wid=(%u) adj offset=(%d)"
-				"mask=(%08X) val=(%08X)\n",
-				flow_type_as_str(attrib->fld_val_eq.flow),
-				ipa_ip_type_as_str(attrib->fld_val_eq.inner_iptype),
-				exception_type_as_str(attrib->fld_val_eq.field),
-				attrib->fld_val_eq.value,
-				cmp_wid,
-				offset,
-				mask,
-				value);
-		}
+		IPAHAL_DBG(
+			"outerIP=(v4) flow=(%s) innerIP=(%s) field=(%s) value=(%08X) wid=(%u) adj offset=(%d) mask=(%08X) val=(%08X)\n",
+			flow_type_as_str(attrib->fld_val_eq.flow),
+			ipa_ip_type_as_str(attrib->fld_val_eq.inner_iptype),
+			exception_type_as_str(attrib->fld_val_eq.field),
+			attrib->fld_val_eq.value,
+			cmp_wid,
+			offset,
+			mask,
+			value);
 
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32, ihl_ofst_meq32)) {
 			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
 			return -EPERM;
 		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = offset;
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask   = mask;
+		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value  = value;
+		ihl_ofst_meq32++;
+		if(attrib->fld_val_eq.inner_iptype == IPA_IP_v4)
+			value = MPLS_V4_ETHERTYPE;
+		else
+			value = MPLS_V6_ETHERTYPE;
+		fwo = get_mpls_v4_outer(attrib->fld_val_eq.flow,
+				attrib->fld_val_eq.inner_iptype,
+				FIELD_ETHER_TYPE);
+		cmp_wid = fwo->width;
+		offset  = fwo->offset;
+		rmndr   = abs(offset) % sizeof(uint32_t);
+
+		IPAHAL_DBG("DEBUG ETHER wid=(%u) raw offset=(%d) rmndr=(%d)\n",
+				cmp_wid,
+				offset,
+				rmndr);
+		oo = offset;
+		if ( rmndr ) {
+ 			if ( offset < 0 ) {
+			 	offset = offset - (sizeof(uint32_t) - rmndr);
+			} else {
+				offset -= rmndr;
+			}
+		 }
+
+		if ( offset < 0 ) {
+			rmndr = abs(offset) - abs(oo);
+		} else {
+			rmndr = oo - offset;
+		}
+
+		IPAHAL_DBG("DEBUG ETHER oo=(%d) rmndr=(%d) offset=(%d)\n",
+			oo,
+			rmndr,
+			offset);
+
+		 shift = ((sizeof(uint32_t) - rmndr) - cmp_wid) * 8;
+
+		switch ( cmp_wid )
+		{
+			case ONE_BYTE:
+				mask = 0x000000FF;
+				break;
+			case TWO_BYTE:
+				mask = 0x0000FFFF;
+				break;
+			default:  /* FOUR_BYTE */
+				mask  = 0xFFFFFFFF;
+				shift = 0;
+				break;
+		}
+
+		mask  = (mask  << shift);
+		value = (value << shift);
+
+
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
 		eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = offset;
@@ -3543,36 +3562,10 @@ static int ipa_flt_generate_eq_ip6(enum ipa_ip_type ip,
 		ipa_fld_wid_off_t* fwo;
 		int32_t            offset, oo, rmndr;
 		uint32_t           row, mask, cmp_wid, shift, value;
-		uint32_t p6_ex;
 
 		value = attrib->fld_val_eq.value;
 
-		if(attrib->p_exception == PPPOE_EXCEPTION &&
-				attrib->fld_val_eq.flow ==
-				FLOW_DOWNLINK) {
-			if (attrib->fld_val_eq.field == FIELD_IP_PROTOCOL)
-				p6_ex = FIELD_IP_PROTOCOL_PPPOE;
-			else if (attrib->fld_val_eq.field ==
-					FIELD_UDP_SRC_PORT)
-				p6_ex = FIELD_UDP_SRC_PORT_PPPOE;
-			else if (attrib->fld_val_eq.field ==
-					FIELD_UDP_DST_PORT)
-				p6_ex = FIELD_UDP_DST_PORT_PPPOE;
-			else if (attrib->fld_val_eq.field ==
-					FIELD_TCP_DST_PORT)
-				p6_ex = FIELD_TCP_DST_PORT_PPPOE;
-			else if (attrib->fld_val_eq.field ==
-					FIELD_TCP_DST_PORT)
-				p6_ex = FIELD_TCP_DST_PORT_PPPOE;
-
-			fwo = get_mpls_p_v6_outer(attrib->fld_val_eq.flow,
-					attrib->fld_val_eq.inner_iptype,
-					p6_ex);
-		} else {
-			fwo = get_mpls_v6_outer(attrib->fld_val_eq.flow,
-					attrib->fld_val_eq.inner_iptype,
-					attrib->fld_val_eq.field);
-		}
+		fwo = get_mpls_v6_outer(attrib->fld_val_eq.flow, attrib->fld_val_eq.inner_iptype, attrib->fld_val_eq.field);
 
 		cmp_wid = fwo->width;
 		offset  = fwo->offset;
@@ -3663,33 +3656,16 @@ static int ipa_flt_generate_eq_ip6(enum ipa_ip_type ip,
 		mask  = (mask  << shift);
 		value = (value << shift);
 
-		if(attrib->p_exception == PPPOE_EXCEPTION) {
-			IPAHAL_DBG(
-				"outerIP=(v6) flow=(%s) innerIP=(%s) field=(%s)"
-				" value=(%08X) wid=(%u) adj offset=(%d)"
-				"mask=(%08X) val=(%08X)\n",
-				flow_type_as_str(attrib->fld_val_eq.flow),
-				ipa_ip_type_as_str(attrib->fld_val_eq.inner_iptype),
-				pppoe_exception_type_as_str(p6_ex),
-				attrib->fld_val_eq.value,
-				cmp_wid,
-				offset,
-				mask,
-				value);
-		} else {
-			IPAHAL_DBG(
-				"outerIP=(v6) flow=(%s) innerIP=(%s) field=(%s)"
-				"value=(%08X) wid=(%u) adj offset=(%d)"
-				"mask=(%08X) val=(%08X)\n",
-				flow_type_as_str(attrib->fld_val_eq.flow),
-				ipa_ip_type_as_str(attrib->fld_val_eq.inner_iptype),
-				exception_type_as_str(attrib->fld_val_eq.field),
-				attrib->fld_val_eq.value,
-				cmp_wid,
-				offset,
-				mask,
-				value);
-		}
+		IPAHAL_DBG(
+			"outerIP=(v6) flow=(%s) innerIP=(%s) field=(%s) value=(%08X) wid=(%u) adj offset=(%d) mask=(%08X) val=(%08X)\n",
+			flow_type_as_str(attrib->fld_val_eq.flow),
+			ipa_ip_type_as_str(attrib->fld_val_eq.inner_iptype),
+			exception_type_as_str(attrib->fld_val_eq.field),
+			attrib->fld_val_eq.value,
+			cmp_wid,
+			offset,
+			mask,
+			value);
 
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32, ihl_ofst_meq32)) {
 			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
