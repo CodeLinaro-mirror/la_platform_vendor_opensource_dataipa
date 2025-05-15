@@ -1510,20 +1510,20 @@ const struct attribute_group ipa_ecm_attr_group = {
 	.attrs		= ipa_ecm_attrs,
 };
 
-static int ecm_ipa_sysfs_init()
+static int ecm_ipa_sysfs_init(void)
 {
 	int ret = -1;
-	
+
 	ret = sysfs_create_group(kernel_kobj, &ipa_ecm_attr_group);
 	if (ret != 0) {
 		pr_err("Fail to create ECM syfs attribute\n");
 	}
-	return ret;	
+	return ret;
 }
 
-static void ecm_ipa_sysfs_destroy()
+static void ecm_ipa_sysfs_destroy(void)
 {
-	sysfs_remove_group(kernel_kobj, &ipa_ecm_attr_group);	
+	sysfs_remove_group(kernel_kobj, &ipa_ecm_attr_group);
 }
 
 #endif /* CONFIG_DEBUG_FS */
