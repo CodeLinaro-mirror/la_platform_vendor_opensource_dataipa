@@ -11853,6 +11853,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_dual_wkk_config = resource_p->is_dual_wkk_config;
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
+	ipa3_ctx->client_hps_eth_index = -1;
 	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
 #ifdef CONFIG_GH_MSGQ
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;
