@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -2354,6 +2354,7 @@ enum ipa_per_usb_enum_type_e {
  * @ipa_gpi_event_rp_ddr: use DDR to access event RP for GPI channels
  * @rmnet_ctl_enable: enable pipe support fow low latency data
  * @rmnet_ll_enable: enable pipe support fow low latency data
+ * @ipa_config_is_iot: IOT target with older Modem
  * @gsi_fw_file_name: GSI IPA fw file name
  * @uc_fw_file_name: uC IPA fw file name
  * @eth_info: ethernet client mapping
@@ -2556,7 +2557,11 @@ struct ipa3_context {
 	bool lan_rx_napi_enable;
 	bool tx_napi_enable;
 	bool tx_poll;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0))
 	struct net_device generic_ndev;
+#else
+	struct net_device *generic_ndev;
+#endif
 	struct napi_struct napi_lan_rx;
 	u32 icc_num_cases;
 	u32 icc_num_paths;
@@ -2577,6 +2582,7 @@ struct ipa3_context {
 	bool ipa_gpi_event_rp_ddr;
 	bool rmnet_ctl_enable;
 	bool rmnet_ll_enable;
+	bool ipa_config_is_iot;
 	char *gsi_fw_file_name;
 	char *uc_fw_file_name;
 	struct ipa3_eth_info
@@ -2726,6 +2732,7 @@ struct ipa3_plat_drv_res {
 	bool ulso_wa;
 	bool ipa_wdi_opt_dpath;
 	u8 coal_ipv4_id_ignore;
+	bool ipa_config_is_iot;
 };
 
 /**
@@ -3507,6 +3514,7 @@ void ipa3_tag_destroy_imm(void *user1, int user2);
 void ipa3_uc_rg10_write_reg(enum ipahal_reg_name reg, u32 n, u32 val);
 
 int ipa3_wigig_init_i(void);
+int ipa3_wigig_deinit_i(void);
 
 /* Hardware stats */
 
