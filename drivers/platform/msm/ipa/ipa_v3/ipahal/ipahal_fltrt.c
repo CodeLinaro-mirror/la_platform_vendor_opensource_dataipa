@@ -1813,20 +1813,6 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 			goto err;
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED) {
-		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
-			IPAHAL_ERR("ran out of meq32 eq\n");
-			goto err;
-		}
-		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
-			ipa3_0_ofst_meq32[ofst_meq32]);
-		/* 0 => Take the first word. offset of TOS in v4 header is 1 */
-		extra = ipa_write_8(0, extra);
-		rest = ipa_write_32((attrib->tos_mask << 16), rest);
-		rest = ipa_write_32((attrib->tos_value << 16), rest);
-		ofst_meq32++;
-	}
-
 	if (attrib->attrib_mask & IPA_FLT_SRC_ADDR) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
 			IPAHAL_ERR("ran out of meq32 eq\n");
@@ -1884,6 +1870,21 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 			extra = ipa_write_8(0, extra);
 			rest = ipa_write_32(0xFF << 16, rest);
 			rest = ipa_write_32((attrib->u.v4.tos << 16), rest);
+			ofst_meq32++;
+			tos_done = true;
+		}
+	}
+
+	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED && !tos_done) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
+			IPAHAL_ERR("ran out of meq32 eq\n");
+		} else {
+			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+				ipa3_0_ofst_meq32[ofst_meq32]);
+			/* 0 => Take the first word. offset of TOS in v4 header is 1 */
+			extra = ipa_write_8(0, extra);
+			rest = ipa_write_32((attrib->tos_mask << 16), rest);
+			rest = ipa_write_32((attrib->tos_value << 16), rest);
 			ofst_meq32++;
 			tos_done = true;
 		}
@@ -2053,6 +2054,25 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		}
 	}
 
+	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED && !tos_done) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32, ihl_ofst_meq32)) {
+			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
+		} else {
+			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+				ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
+			/*
+			 * 0 => Take the first word. offset of TOS in
+			 * v4 header is 1. MSB bit asserted at IHL means
+			 * to ignore packet IHL and do offset inside IPA header
+			 */
+			extra = ipa_write_8(0x80, extra);
+			rest = ipa_write_32((attrib->tos_mask << 16), rest);
+			rest = ipa_write_32((attrib->tos_value << 16), rest);
+			ihl_ofst_meq32++;
+			tos_done = true;
+		}
+	}
+
 	if (attrib->attrib_mask & IPA_FLT_META_DATA) {
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_METADATA_COMPARE);
 		rest = ipa_write_32(attrib->meta_data_mask, rest);
@@ -2173,6 +2193,7 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 	u8 ihl_ofst_meq32 = 0;
 	u8 ofst_meq128 = 0;
 	int rc = 0;
+	bool tos_done = false;
 
 	/* v6 code below assumes no extension headers TODO: fix this */
 	if (attrib->attrib_mask & IPA_FLT_IS_PURE_ACK) {
@@ -2245,23 +2266,40 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		ofst_meq128++;
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED) {
+	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED && !tos_done) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq128, ofst_meq128)) {
 			IPAHAL_ERR("ran out of meq128 eq\n");
-			goto err;
+		} else {
+			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+				ipa3_0_ofst_meq128[ofst_meq128]);
+			/* 0 => offset of TOS in v6 header */
+			extra = ipa_write_8(0, extra);
+			rest = ipa_write_64(0, rest);
+			rest = ipa_write_64(0, rest);
+			rest = ipa_write_32(0, rest);
+			rest = ipa_write_32((attrib->tos_mask << 20), rest);
+			rest = ipa_write_32(0, rest);
+			rest = ipa_write_32((attrib->tos_value << 20), rest);
+			ofst_meq128++;
+			tos_done = true;
 		}
-		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
-			ipa3_0_ofst_meq128[ofst_meq128]);
-		/* 0 => offset of TOS in v6 header */
-		extra = ipa_write_8(0, extra);
-		rest = ipa_write_64(0, rest);
-		rest = ipa_write_64(0, rest);
-		rest = ipa_write_32(0, rest);
-		rest = ipa_write_32((attrib->tos_mask << 20), rest);
-		rest = ipa_write_32(0, rest);
-		rest = ipa_write_32((attrib->tos_value << 20), rest);
-		ofst_meq128++;
 	}
+
+	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED && !tos_done) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
+			IPAHAL_ERR("ran out of meq32 eq\n");
+		} else {
+			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+				ipa3_0_ofst_meq32[ofst_meq32]);
+			/* 0 => Take the first word. offset of TOS in v6 header is 1 */
+			extra = ipa_write_8(0, extra);
+			rest = ipa_write_32((attrib->tos_mask << 20), rest);
+			rest = ipa_write_32((attrib->tos_value << 20), rest);
+			ofst_meq32++;
+			tos_done = true;
+		}
+	}
+
 
 	if (attrib->attrib_mask & IPA_MAC_FLT_BITS) {
 		if (ipa_fltrt_generate_mac_hw_rule_bdy(en_rule, attrib,
@@ -3693,21 +3731,6 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 		ihl_ofst_meq32++;
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED) {
-		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
-			IPAHAL_ERR("ran out of meq32 eq\n");
-			return -EPERM;
-		}
-		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
-			ipa3_0_ofst_meq32[ofst_meq32]);
-		eq_atrb->offset_meq_32[ofst_meq32].offset = 0;
-		eq_atrb->offset_meq_32[ofst_meq32].mask =
-			attrib->tos_mask << 16;
-		eq_atrb->offset_meq_32[ofst_meq32].value =
-			attrib->tos_value << 16;
-		ofst_meq32++;
-	}
-
 	if (attrib->attrib_mask & IPA_FLT_SRC_ADDR) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
 			IPAHAL_ERR("ran out of meq32 eq\n");
@@ -3768,6 +3791,22 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 				0xFF << 16;
 			eq_atrb->offset_meq_32[ofst_meq32].value =
 				attrib->u.v4.tos << 16;
+			ofst_meq32++;
+			tos_done = true;
+		}
+	}
+
+	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED && !tos_done) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
+			IPAHAL_ERR("ran out of meq32 eq\n");
+		} else {
+			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+				ipa3_0_ofst_meq32[ofst_meq32]);
+			eq_atrb->offset_meq_32[ofst_meq32].offset = 0;
+			eq_atrb->offset_meq_32[ofst_meq32].mask =
+				attrib->tos_mask << 16;
+			eq_atrb->offset_meq_32[ofst_meq32].value =
+				attrib->tos_value << 16;
 			ofst_meq32++;
 			tos_done = true;
 		}
@@ -3845,6 +3884,23 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 			tos_done = true;
 		}
 	}
+
+	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED && !tos_done) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32, ihl_ofst_meq32)) {
+			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
+		} else {
+			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+				ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = 0x80;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask =
+				attrib->tos_mask << 16;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
+				attrib->tos_value << 16;
+			ihl_ofst_meq32++;
+			tos_done = true;
+		}
+	}
+
 
 	if (attrib->attrib_mask & IPA_FLT_META_DATA) {
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
@@ -3963,6 +4019,7 @@ static int ipa_flt_generate_eq_ip6(enum ipa_ip_type ip,
 	u8 ofst_meq128 = 0;
 	u16 eq_bitmap = 0;
 	u16 *en_rule = &eq_bitmap;
+	bool tos_done = false;
 
 	if (attrib->attrib_mask & IPA_FLT_IS_PURE_ACK) {
 		if (!IPA_IS_RULE_EQ_VALID(IPA_IS_PURE_ACK)) {
@@ -4049,22 +4106,40 @@ static int ipa_flt_generate_eq_ip6(enum ipa_ip_type ip,
 		ofst_meq128++;
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED) {
+	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED && !tos_done) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq128, ofst_meq128)) {
 			IPAHAL_ERR_RL("ran out of meq128 eq\n");
-			return -EPERM;
+		} else {
+			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+				ipa3_0_ofst_meq128[ofst_meq128]);
+			eq_atrb->offset_meq_128[ofst_meq128].offset = 0;
+			memset(eq_atrb->offset_meq_128[ofst_meq128].mask, 0, 12);
+			*(u32 *)(eq_atrb->offset_meq_128[ofst_meq128].mask + 12)
+				= attrib->tos_mask << 20;
+			memset(eq_atrb->offset_meq_128[ofst_meq128].value, 0, 12);
+			*(u32 *)(eq_atrb->offset_meq_128[ofst_meq128].value +
+					12) = attrib->tos_value << 20;
+			ofst_meq128++;
+			tos_done = true;
 		}
-		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
-			ipa3_0_ofst_meq128[ofst_meq128]);
-		eq_atrb->offset_meq_128[ofst_meq128].offset = 0;
-		memset(eq_atrb->offset_meq_128[ofst_meq128].mask, 0, 12);
-		*(u32 *)(eq_atrb->offset_meq_128[ofst_meq128].mask + 12)
-			= attrib->tos_mask << 20;
-		memset(eq_atrb->offset_meq_128[ofst_meq128].value, 0, 12);
-		*(u32 *)(eq_atrb->offset_meq_128[ofst_meq128].value +
-				12) = attrib->tos_value << 20;
-		ofst_meq128++;
 	}
+
+	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED && !tos_done) {
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
+			IPAHAL_ERR("ran out of meq32 eq\n");
+		} else {
+			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+				ipa3_0_ofst_meq32[ofst_meq32]);
+			eq_atrb->offset_meq_32[ofst_meq32].offset = 0;
+			eq_atrb->offset_meq_32[ofst_meq32].mask =
+				attrib->tos_mask << 20;
+			eq_atrb->offset_meq_32[ofst_meq32].value =
+				attrib->tos_value << 20;
+			ofst_meq32++;
+			tos_done = true;
+		}
+	}
+
 
 	if (attrib->attrib_mask & IPA_MAC_FLT_BITS) {
 		if (ipa_flt_generate_mac_eq(attrib, en_rule,
