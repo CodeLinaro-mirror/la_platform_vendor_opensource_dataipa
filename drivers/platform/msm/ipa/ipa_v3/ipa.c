@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/clk.h>
@@ -10495,6 +10495,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPADBG(":mpm init init ok\n");
 
 	ipa3_usb_init();
+	ipa3_qdss_init();
 	if(ipa3_ctx->ipa_config_is_mhi)
 		ipa_dma_mhi_provide_ops();
 	mutex_lock(&ipa3_ctx->lock);
