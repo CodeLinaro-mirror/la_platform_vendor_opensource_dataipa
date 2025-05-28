@@ -2,8 +2,6 @@
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
- * All rights reserved.
- * Confidential and Proprietary - Qualcomm Technologies, Inc.
  */
 
 #include <linux/debugfs.h>
