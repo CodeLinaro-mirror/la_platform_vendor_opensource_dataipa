@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
@@ -122,7 +121,10 @@ static int ipa3_handle_interrupt(int irq_num, bool isr_context)
 	switch (interrupt_info.interrupt) {
 	case IPA_TX_SUSPEND_IRQ:
 		IPADBG_LOW("processing TX_SUSPEND interrupt\n");
-		ipa3_tx_suspend_interrupt_wa();
+		if(ipa3_ctx->ipa_hw_type == IPA_HW_v3_0)
+		{
+			ipa3_tx_suspend_interrupt_wa();
+		}
 		valid = 0;
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) {
 			for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
