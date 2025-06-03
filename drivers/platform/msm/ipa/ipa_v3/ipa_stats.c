@@ -1581,7 +1581,7 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 	struct ipa3_rt_tbl_set *rt_set;
 	u32 ofst;
 	u32 ofst_words;
-	int ret = 0;
+	int ret = 0, i;
 
 	if (ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_tables >=
 		TLPD_NUM_MAX_RT_FLT_TBL) {
@@ -1775,8 +1775,11 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 			if ((rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
-				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_mac_addr =
-					(uint64_t)rt_entry->rule.attrib.src_mac_addr;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_mac_addr |=
+						((uint64_t)rt_entry->rule.attrib.src_mac_addr[i] << (8 * (5 - i)));
+				}
 				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 				.src_mac_addr_mask = (uint64_t)rt_entry->rule.attrib.attrib_mask &
 					(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
@@ -1790,8 +1793,12 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR)) {
-				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_mac_addr =
-					(uint64_t)rt_entry->rule.attrib.dst_mac_addr;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_mac_addr |=
+						((uint64_t)rt_entry->rule.attrib.dst_mac_addr[i] << (8 * (5 - i)));
+				}
+
 				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 				.dst_mac_addr_mask = (uint64_t)rt_entry->rule.attrib.attrib_mask &
 					(IPA_FLT_MAC_DST_ADDR_ETHER_II |
@@ -1799,13 +1806,6 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 					IPA_FLT_MAC_DST_ADDR_802_1Q |
 					IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR |
 					IPA_FLT_L2TP_INNER_IPV4_DST_ADDR);
-				if (rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
-					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
-					.dst_mac_addr = htonl(rt_entry->rule.attrib.u.v4.dst_addr);
-					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
-					.dst_mac_addr_mask =
-						htonl(rt_entry->rule.attrib.u.v4.dst_addr_mask);
-				}
 			}
 
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].meta_data =
@@ -1888,7 +1888,7 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 	struct ipa3_rt_tbl_set *rt_set;
 	u32 ofst;
 	u32 ofst_words;
-	int ret = 0;
+	int ret = 0, i;
 
 	if (ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables >=
 		TLPD_NUM_MAX_RT_FLT_TBL) {
@@ -2091,8 +2091,11 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 				IPA_FLT_MAC_SRC_ADDR_802_3) ||
 				(rt_entry->rule.attrib.attrib_mask &
 				IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
-				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
-				.src_mac_addr = (uint64_t)rt_entry->rule.attrib.src_mac_addr;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].src_mac_addr |=
+						((uint64_t)rt_entry->rule.attrib.src_mac_addr[i] << (8 * (5 - i)));
+				}
 				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 				.src_mac_addr_mask = (uint64_t)rt_entry->rule.attrib.attrib_mask &
 										(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
@@ -2105,8 +2108,11 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
-				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
-				.dst_mac_addr = (uint64_t)rt_entry->rule.attrib.dst_mac_addr;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].dst_mac_addr |=
+						((uint64_t)rt_entry->rule.attrib.dst_mac_addr[i] << (8 * (5 - i)));
+				}
 				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 				.dst_mac_addr_mask =
 					(uint64_t)rt_entry->rule.attrib.attrib_mask &
@@ -2376,11 +2382,16 @@ static int ipa_get_v4_flt_rule_stats(unsigned long arg)
 			if ((attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
-				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.src_mac_addr = (uint64_t)flt_entry->rule.attrib.src_mac_addr;
-				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.src_mac_addr_mask =
-					(uint64_t)flt_entry->rule.attrib.src_mac_addr_mask;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].src_mac_addr |=
+						((uint64_t)flt_entry->rule.attrib.src_mac_addr[i] << (8 * (5 - i)));
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].src_mac_addr_mask |=
+						(uint64_t)attrib->attrib_mask &
+										(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
+										IPA_FLT_MAC_SRC_ADDR_802_3 |
+										IPA_FLT_MAC_SRC_ADDR_802_1Q);
+				}
 			}
 
 			if ((attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
@@ -2388,12 +2399,18 @@ static int ipa_get_v4_flt_rule_stats(unsigned long arg)
 				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
 				(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
-				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.dst_mac_addr =
-					(uint64_t)flt_entry->rule.attrib.dst_mac_addr;
-				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.dst_mac_addr_mask =
-					(uint64_t)flt_entry->rule.attrib.dst_mac_addr_mask;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_mac_addr |=
+						((uint64_t)flt_entry->rule.attrib.dst_mac_addr[i] << (8 * (5 - i)));
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_mac_addr_mask |=
+						(uint64_t)attrib->attrib_mask &
+										(IPA_FLT_MAC_DST_ADDR_ETHER_II |
+										IPA_FLT_MAC_DST_ADDR_802_3 |
+										IPA_FLT_MAC_DST_ADDR_L2TP |
+										IPA_FLT_MAC_DST_ADDR_802_1Q|
+										IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR);
+				}
 			}
 
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
@@ -2760,12 +2777,18 @@ static int ipa_get_v6_flt_rule_stats(unsigned long arg)
 			if ((attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
-				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.src_mac_addr =
-					(uint64_t)flt_entry->rule.attrib.src_mac_addr;
-				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.src_mac_addr_mask =
-					(uint64_t)flt_entry->rule.attrib.src_mac_addr_mask;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.src_mac_addr |=
+						((uint64_t)flt_entry->rule.attrib.src_mac_addr[i] << (8 * (5 - i)));
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.src_mac_addr_mask |=
+						(uint64_t)attrib->attrib_mask &
+										(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
+										IPA_FLT_MAC_SRC_ADDR_802_3 |
+										IPA_FLT_MAC_SRC_ADDR_802_1Q);
+				}
 			}
 
 			if ((attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
@@ -2773,12 +2796,18 @@ static int ipa_get_v6_flt_rule_stats(unsigned long arg)
 				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
 				(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
-				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.dst_mac_addr =
-					(uint64_t)flt_entry->rule.attrib.dst_mac_addr;
-				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.dst_mac_addr_mask =
-					(uint64_t)flt_entry->rule.attrib.dst_mac_addr_mask;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_mac_addr |=
+						((uint64_t)flt_entry->rule.attrib.dst_mac_addr[i] << (8 * (5 - i)));
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.dst_mac_addr_mask |= (uint64_t)attrib->attrib_mask &
+										(IPA_FLT_MAC_DST_ADDR_ETHER_II |
+										IPA_FLT_MAC_DST_ADDR_802_3 |
+										IPA_FLT_MAC_DST_ADDR_L2TP |
+										IPA_FLT_MAC_DST_ADDR_802_1Q|
+										IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR);
+				}
 			}
 
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].meta_data =
