@@ -1787,7 +1787,9 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 					sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
-							ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor;
+							((rmnet_mem_config_query(IPA_ID) & DISABLE_STATIC_REDUCTION_F) ?
+							ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor :
+							(ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor - 1));
 				else if (sys_in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS)
 					ep->sys->page_recycle_repl->capacity =
 						(ep->sys->rx_pool_sz + 1) *
