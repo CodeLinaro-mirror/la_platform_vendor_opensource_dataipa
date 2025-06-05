@@ -2354,6 +2354,7 @@ enum ipa_per_usb_enum_type_e {
  * @ipa_gpi_event_rp_ddr: use DDR to access event RP for GPI channels
  * @rmnet_ctl_enable: enable pipe support fow low latency data
  * @rmnet_ll_enable: enable pipe support fow low latency data
+ * @ipa_config_is_iot: IOT target with older Modem
  * @gsi_fw_file_name: GSI IPA fw file name
  * @uc_fw_file_name: uC IPA fw file name
  * @eth_info: ethernet client mapping
@@ -2581,6 +2582,7 @@ struct ipa3_context {
 	bool ipa_gpi_event_rp_ddr;
 	bool rmnet_ctl_enable;
 	bool rmnet_ll_enable;
+	bool ipa_config_is_iot;
 	char *gsi_fw_file_name;
 	char *uc_fw_file_name;
 	struct ipa3_eth_info
@@ -2730,6 +2732,7 @@ struct ipa3_plat_drv_res {
 	bool ulso_wa;
 	bool ipa_wdi_opt_dpath;
 	u8 coal_ipv4_id_ignore;
+	bool ipa_config_is_iot;
 };
 
 /**
