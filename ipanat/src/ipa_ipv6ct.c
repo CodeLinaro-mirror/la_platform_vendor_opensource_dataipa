@@ -118,6 +118,37 @@ static int table_entry_tail_insert(void* entry, void* user_data);
 
 static uint16_t table_entry_get_delete_head_dma_command_data(void* head, void* next_entry);
 
+int ipa_cti_get_sram_size(uint32_t* size_ptr);
+
+int ipa_calc_num_sram_ct_table_entries(
+	uint32_t  sram_size,
+	uint32_t  table1_ent_size,
+	uint16_t* num_entries_ptr);
+
+int ipa_ipv6ct_walk_table(
+	uint32_t          tbl_hdl,
+	CtWhichTbl2Use      which,
+	ipa_table_walk_cb walk_cb,
+	void*             arb_data_ptr );
+
+int ipa_ipv6ct_stats_table(
+	uint32_t            tbl_hdl,
+	ipa_cti_tbl_stats* ct_stats_ptr);
+
+int ipa_ipv6ct_copy_table(
+	uint32_t          src_tbl_hdl,
+	uint32_t          dst_tbl_hdl,
+	ipa_table_walk_cb copy_cb );
+
+/**
+ * ipa_ct_vote_clock() - used for voting clock
+ * @vote_type: [in] desired vote type
+ */
+int ipa_ct_vote_clock(enum ipa_app_clock_vote_type vote_type);
+
+int ipa_ipv6ct_clear_table(uint32_t tbl_hdl);
+
+
 extern pthread_mutex_t ipv6ct_mutex;
 
 static ipa_table_entry_interface entry_interface =
@@ -1433,7 +1464,7 @@ static int GetEvenTightUpperBound(uint16_t num)
 	if (num == 0)
 		return 2;
 
-	return (num % 2) ? num + 1 : num;
+	return (num % 2) ? num + (uint16_t)1 : num;
 }
 
 int ipa_calc_num_sram_ct_table_entries(

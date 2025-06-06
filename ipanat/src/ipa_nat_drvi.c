@@ -1219,7 +1219,7 @@ int ipa_nati_alloc_pdn(
 			return 0;
 		}
 
-		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)))
+		if(!memcmp((const void *)(pdns + i), (const void *)&zero_test, sizeof(ipa_nat_pdn_entry)))
 		{
 			/* Reserving 0 for STA */
 			if(pdn_info->is_sta == true)
@@ -1294,7 +1294,7 @@ int ipa_nati_dealloc_pdn(
 
 	memset(&zero_test, 0, sizeof(zero_test));
 
-	if(!memcmp((pdns + pdn_index), &zero_test, sizeof(pdns[pdn_index])))
+	if(!memcmp((const void *)(pdns + pdn_index), (const void *)&zero_test, sizeof(pdns[pdn_index])))
 	{
 		IPAERR("pdn entry is a zero entry\n");
 		return -EIO;

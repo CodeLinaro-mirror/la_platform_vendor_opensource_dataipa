@@ -141,10 +141,6 @@ static ipa_nati_obj nati_obj = {
 	.sw_stats = { {0, 0}, {0, 0} },
 };
 
-/* Declarations */
-static int take_mutex(void);
-static int give_mutex(void);
-
 /*
  * The following needed to protect nati_obj above, as well as a number
  * of data stuctures within the file ipa_nat_drvi.c

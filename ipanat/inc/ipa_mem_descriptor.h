@@ -68,4 +68,8 @@ int ipa_mem_descriptor_delete(
 	ipa_mem_descriptor* desc,
 	int ipa_fd);
 
+int ipa_mem_descriptor_allocate_ct_memory(
+	ipa_mem_descriptor* desc,
+	int ipa_fd);
+
 #endif
