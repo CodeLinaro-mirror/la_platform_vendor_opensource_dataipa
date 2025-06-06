@@ -192,7 +192,8 @@ static ssize_t gen_reg_show(struct device *dev, struct device_attribute *attr, c
 
 }
 
-static ssize_t holb_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+ssize_t __holb_set(struct device *dev, struct device_attribute *attr, const char *ubuf,
+		size_t count, enum ipa_ep_holb_timer_type timer_type)
 {
 	struct ipa_ep_cfg_holb holb;
 	u32 en;
@@ -230,52 +231,35 @@ static ssize_t holb_store(struct device *dev, struct device_attribute *attr, con
 	holb.en = en;
 	holb.tmr_val = tmr_val;
 
-	ipa3_cfg_ep_holb(ep_idx, &holb);
+	switch(timer_type)
+	{
+		case IPA_EP_HOLB_TIMER_TYPE_S:
+			{
+				ipa3_cfg_ep_holb(ep_idx, &holb);
+			}
+			break;
+		case IPA_EP_HOLB_TIMER_TYPE_US:
+			{
+				ipa3_cfg_ep_holb_uS(ep_idx, &holb);
+			}
+			break;
+		default:
+			{
+				return -EINVAL;
+			}
+	}
 
 	return count;
 }
 
+static ssize_t holb_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	return __holb_set(dev, attr, ubuf, count, IPA_EP_HOLB_TIMER_TYPE_S);
+}
+
 static ssize_t holb_uS_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
-	struct ipa_ep_cfg_holb holb;
-	u32 en;
-	u32 tmr_val;
-	u32 ep_idx;
-	char *sptr, *token;
-
-	if (count >= sizeof(dbg_buff))
-		return -EFAULT;
-
-	memcpy(dbg_buff, ubuf, count);
-
-	dbg_buff[count] = '\0';
-
-	sptr = dbg_buff;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou32(token, 0, &ep_idx))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou32(token, 0, &en))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou32(token, 0, &tmr_val))
-		return -EINVAL;
-
-	holb.en = en;
-	holb.tmr_val = tmr_val;
-
-	ipa3_cfg_ep_holb_uS(ep_idx, &holb);
-
-	return count;
+	return __holb_set(dev, attr, ubuf, count, IPA_EP_HOLB_TIMER_TYPE_US);
 }
 
 static ssize_t holb_monitor_client_param_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
