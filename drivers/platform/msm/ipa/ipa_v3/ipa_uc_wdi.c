@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -582,7 +582,7 @@ static int ipa_create_ap_smmu_mapping_pa(phys_addr_t pa, size_t len,
 	if (len > PAGE_SIZE)
 		va = roundup(cb->next_addr, len);
 
-	if (cb->next_addr + len  >= cb->geometry_end)
+	if (cb->next_addr + len  >= cb->wlan_va_end)
 		cb->next_addr = cb->va_end;
 
 	ret = ipa3_iommu_map(cb->iommu_domain, va, rounddown(pa, PAGE_SIZE),
@@ -595,7 +595,7 @@ static int ipa_create_ap_smmu_mapping_pa(phys_addr_t pa, size_t len,
 
 	ipa3_ctx->wdi_map_cnt++;
 	cb->next_addr = va + true_len;
-	if (cb->next_addr >= cb->geometry_end)
+	if (cb->next_addr >= cb->wlan_va_end)
 		cb->next_addr = cb->va_end;
 	*iova = va + pa - rounddown(pa, PAGE_SIZE);
 	return 0;
@@ -657,8 +657,8 @@ static int ipa_create_ap_smmu_mapping_sgt(struct sg_table *sgt,
 		len += PAGE_ALIGN(sg->offset + sg->length);
 	}
 
-	if (cb->next_addr + len  >= cb->geometry_end)
-		cb->next_addr = cb->va_end;
+	if (cb->next_addr + len  >= cb->wlan_va_end)
+  		cb->next_addr = cb->va_end;
 
 	if (len > PAGE_SIZE) {
 		va = roundup(cb->next_addr,
@@ -683,7 +683,7 @@ static int ipa_create_ap_smmu_mapping_sgt(struct sg_table *sgt,
 	}
 	cb->next_addr = va;
 
-	if (cb->next_addr >= cb->geometry_end)
+	if (cb->next_addr >= cb->wlan_va_end)
 		cb->next_addr = cb->va_end;
 
 	*iova = start_iova;
@@ -873,6 +873,7 @@ static void ipa_save_uc_smmu_mapping_sgt(int res_idx, struct sg_table *sgt,
 		WARN_ON(1);
 		return;
 	}
+
 	if(wdi_res[res_idx].valid == true)
 	{
 		IPAERR("res_idx = %d was already mapped\n", res_idx);
@@ -1002,7 +1003,7 @@ void ipa3_release_wdi3_gsi_smmu_mappings(u8 dir)
 		}
 	}
 
-	if (ipa3_ctx->wdi_map_cnt == 0 || cb->next_addr >= cb->geometry_end)
+	if (ipa3_ctx->wdi_map_cnt == 0 || cb->next_addr >= cb->wlan_va_end)
 		cb->next_addr = cb->va_end;
 }
 
