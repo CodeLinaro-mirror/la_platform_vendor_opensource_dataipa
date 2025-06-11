@@ -25,6 +25,8 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include "ipa_table.h"
 #include "ipa_nat_utils.h"
@@ -441,8 +443,8 @@ int ipa_table_get_entry(
 	void**     entry,
 	uint16_t*  entry_index )
 {
-	uint8_t              is_expn_tbl;
-	uint16_t             rec_index;
+	uint8_t              is_expn_tbl = 0;
+	uint16_t             rec_index = 0;
 
 	int ret = 0;
 

@@ -26,9 +26,7 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause-Clear
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef IPA_IPV6CTI_H
@@ -175,34 +173,6 @@ struct ipa_ct_cache {
 	enum ipa3_nat_mem_in nmi;
 };
 
-int ipa_cti_add_ipv6_tbl(
-	const char* mem_type_ptr,
-	uint16_t    number_of_entries,
-	uint32_t*   tbl_hdl);
-
-int ipa_cti_del_ipv6_tbl(
-	uint32_t tbl_hdl);
-
-int ipa_cti_add_ipv6_rule(
-	uint32_t                 tbl_hdl,
-	const ipa_ipv6ct_rule* clnt_rule,
-	uint32_t*                rule_hdl );
-
-int ipa_cti_del_ipv6_rule(
-	uint32_t tbl_hdl,
-	uint32_t rule_hdl );
-
-int ipa_cti_query_timestamp(
-	uint32_t  tbl_hdl,
-	uint32_t  rule_hdl,
-	uint32_t* time_stamp);
-
-static int ipa_ipv6ct_post_init_cmd(
-	struct ipa_ct_cache*           ct_cache_ptr,
-	struct ipa_ct_ip6_table_cache* ct_table,
-	uint8_t tbl_index,
-	bool focus_change);
-
 typedef enum
 {
 	USE_NAT_TABLE   = 0,
@@ -238,6 +208,63 @@ typedef struct
 	uint32_t            tot_for_avg;
 	ipa_cti_tbl_stats* stats_ptr;
 } ct_chain_stat_help;
+int ipa_cti_add_ipv6_tbl(
+	const char* mem_type_ptr,
+	uint16_t    number_of_entries,
+	uint32_t*   tbl_hdl);
+
+int ipa_cti_del_ipv6_tbl(
+	uint32_t tbl_hdl);
+
+int ipa_cti_add_ipv6_rule(
+	uint32_t                 tbl_hdl,
+	const ipa_ipv6ct_rule* clnt_rule,
+	uint32_t*                rule_hdl );
+
+int ipa_cti_del_ipv6_rule(
+	uint32_t tbl_hdl,
+	uint32_t rule_hdl );
+
+int ipa_cti_query_timestamp(
+	uint32_t  tbl_hdl,
+	uint32_t  rule_hdl,
+	uint32_t* time_stamp);
+
+static int ipa_ipv6ct_post_init_cmd(
+	struct ipa_ct_cache*           ct_cache_ptr,
+	struct ipa_ct_ip6_table_cache* ct_table,
+	uint8_t tbl_index,
+	bool focus_change);
+
+/**
+ * ipa_ct_vote_clock() - used for voting clock
+ * @vote_type: [in] desired vote type
+ */
+int ipa_ct_vote_clock(enum ipa_app_clock_vote_type vote_type);
+
+int ipa_cti_get_sram_size(uint32_t* size_ptr);
+
+int ipa_calc_num_sram_ct_table_entries(
+        uint32_t  sram_size,
+        uint32_t  table1_ent_size,
+        uint16_t* num_entries_ptr);
+
+int ipa_ipv6ct_clear_table(uint32_t tbl_hdl);
+
+int ipa_ipv6ct_walk_table(
+        uint32_t          tbl_hdl,
+        CtWhichTbl2Use      which,
+        ipa_table_walk_cb walk_cb,
+        void*             arb_data_ptr );
+
+int ipa_ipv6ct_stats_table(
+        uint32_t            tbl_hdl,
+        ipa_cti_tbl_stats* ct_stats_ptr);
+
+int ipa_ipv6ct_copy_table(
+        uint32_t          src_tbl_hdl,
+        uint32_t          dst_tbl_hdl,
+        ipa_table_walk_cb copy_cb );
 
 static inline char* prep_ct_rule_4print(
 	ipa_ipv6ct_hw_entry* rule_ptr,

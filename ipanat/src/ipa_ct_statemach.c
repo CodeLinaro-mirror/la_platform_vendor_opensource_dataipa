@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause-Clear
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 */
 
 #include <errno.h>
@@ -1580,9 +1579,9 @@ static int _smCtClrTbl(
 	arb_t**  args = arb_data_ptr;
 
 	uint32_t tbl_hdl = (uint32_t) args[0];
-	enum ipa3_nat_mem_in nmi;
+	enum ipa3_nat_mem_in nmi = 0;
 
-	uint32_t             unused_hdl, sub;
+	uint32_t             unused_hdl = 0, sub;
 
 	int ret;
 

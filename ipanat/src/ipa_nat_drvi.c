@@ -2,7 +2,6 @@
  * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
  *
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
- * SPDX-License-Identifier: BSD-3-Clause-Clear.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -1333,7 +1332,7 @@ int ipa_nati_dealloc_pdn(
 int ipa_NATI_post_ipv4_init_cmd(
 	uint32_t tbl_hdl )
 {
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	int ret;
@@ -1544,7 +1543,7 @@ bail:
 int ipa_NATI_del_ipv4_table(
 	uint32_t tbl_hdl )
 {
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 
@@ -1625,7 +1624,7 @@ int ipa_NATI_query_timestamp_redirect(
 	uint32_t* time_stamp,
 	uint32_t* redirect)
 {
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	struct ipa_nat_rule*            rule_ptr;
@@ -1705,7 +1704,7 @@ int ipa_NATI_add_ipv4_rule(
 	struct ipa_ioc_nat_dma_cmd* cmd =
 		(struct ipa_ioc_nat_dma_cmd*) cmd_buf;
 
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	struct ipa_nat_rule*            rule;
@@ -1924,7 +1923,7 @@ int ipa_NATI_del_ipv4_rule(
 	struct ipa_ioc_nat_dma_cmd* cmd =
 		(struct ipa_ioc_nat_dma_cmd*) cmd_buf;
 
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	struct ipa_nat_rule*            table_rule;
@@ -2166,8 +2165,8 @@ static int print_nat_rule(
 	uint16_t        meta_record_index,
 	void*           arb_data_ptr )
 {
-	uint8_t              is_expn_tbl;
-	uint16_t             rule_index;
+	uint8_t              is_expn_tbl = 0;
+	uint16_t             rule_index = 0;
 
 	char buf[1024];
 
@@ -2211,8 +2210,8 @@ static int print_meta_data(
 	struct ipa_nat_indx_tbl_meta_info* mi_ptr =
 		(struct ipa_nat_indx_tbl_meta_info*) meta_record_ptr;
 
-	uint8_t              is_expn_tbl;
-	uint16_t             rule_index;
+	uint8_t              is_expn_tbl = 0;
+	uint16_t             rule_index = 0;
 
 	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
@@ -2287,7 +2286,7 @@ void ipa_nat_dump_ipv4_table(
 int ipa_NATI_clear_ipv4_tbl(
 	uint32_t tbl_hdl )
 {
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	int ret = 0;
@@ -2403,8 +2402,8 @@ int ipa_NATI_walk_ipv4_tbl(
 	ipa_table_walk_cb walk_cb,
 	void*             arb_data_ptr )
 {
-	enum ipa3_nat_mem_in            nmi;
-	uint32_t                        broken_tbl_hdl;
+	enum ipa3_nat_mem_in            nmi = 0;
+	uint32_t                        broken_tbl_hdl = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	ipa_table*                      ipa_tbl_ptr;
@@ -2498,8 +2497,8 @@ static int gen_chain_stats(
 {
 	chain_stat_help* csh_ptr = (chain_stat_help*) arb_data_ptr;
 
-	uint8_t              is_expn_tbl;
-	uint16_t             rule_index;
+	uint8_t              is_expn_tbl = 0;
+	uint16_t             rule_index = 0;
 
 	uint32_t             chain_len = 0;
 
@@ -2573,8 +2572,8 @@ int ipa_NATI_ipv4_tbl_stats(
 	ipa_nati_tbl_stats* nat_stats_ptr,
 	ipa_nati_tbl_stats* idx_stats_ptr )
 {
-	enum ipa3_nat_mem_in            nmi;
-	uint32_t                        broken_tbl_hdl;
+	enum ipa3_nat_mem_in            nmi = 0;
+	uint32_t                        broken_tbl_hdl = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	ipa_table*                      ipa_tbl_ptr;
