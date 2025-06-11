@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/msm_ipa.h>
@@ -269,17 +269,24 @@ wq_err:
 
 static int ipa_eth_cleanup_internal(void)
 {
-	struct ipa_eth_intf *entry;
-	struct ipa_eth_intf *next;
+	struct ipa_eth_intf *entry = NULL;
+	struct ipa_eth_intf *next = NULL;
 
 	/* already deinitialized */
 	if (!ipa_eth_ctx)
 		return 0;
 	/* clear interface list */
-	list_for_each_entry_safe(entry, next,
-		&ipa_eth_ctx->head_intf_list, link) {
-		list_del(&entry->link);
-		kfree(entry);
+	if(list_empty(&ipa_eth_ctx->head_intf_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe(entry, next,
+				&ipa_eth_ctx->head_intf_list, link) {
+			list_del(&entry->link);
+			kfree(entry);
+		}
 	}
 	mutex_destroy(&ipa_eth_ctx->lock);
 	destroy_workqueue(ipa_eth_ctx->wq);

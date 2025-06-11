@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -729,6 +729,7 @@ static int _ipa_add_hpc_for_hdr_in_ext(struct ipa3_hdr_entry *hdr_entry, bool us
 	int result = 0;
 
 	IPADBG("adding processing context for header %s\n", hdr_entry->name);
+	memset(&proc_ctx, 0, sizeof(struct ipa_hdr_proc_ctx_add));
 	proc_ctx.type = IPA_HDR_PROC_NONE;
 	proc_ctx.hdr_hdl = hdr_entry->id;
 
@@ -1077,10 +1078,11 @@ static int __ipa_add_hpc_hdr_insertion(struct ipa_hdr_add *hdr, bool user)
 
 	hdr->status = IPA_HDR_TO_DDR_PATTERN;
 
-	if (__ipa_add_hdr(hdr, user, &entry))
+	if (__ipa_add_hdr(hdr, user, &entry) || (NULL == entry))
 		goto error;
 
 	IPADBG("adding processing context for header %s\n", hdr->name);
+	memset(&proc_ctx, 0, sizeof(struct ipa_hdr_proc_ctx_add));
 	proc_ctx.type = IPA_HDR_PROC_NONE;
 	proc_ctx.hdr_hdl = hdr->hdr_hdl;
 	if (__ipa_add_hdr_proc_ctx(&proc_ctx, true, user)) {
