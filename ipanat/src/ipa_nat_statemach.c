@@ -2,7 +2,6 @@
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
  *
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
- * SPDX-License-Identifier: BSD-3-Clause-Clear
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -1236,8 +1235,8 @@ static int _smClrTbl(
 
 	uint32_t tbl_hdl = (uint32_t) args[0];
 
-	enum ipa3_nat_mem_in nmi;
-	uint32_t             unused_hdl, sub;
+	enum ipa3_nat_mem_in nmi = 0;
+	uint32_t             unused_hdl = 0, sub;
 
 	int ret;
 
