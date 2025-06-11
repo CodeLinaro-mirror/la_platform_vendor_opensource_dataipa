@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA3_I_H_
@@ -664,6 +663,7 @@ struct ipa_smmu_cb_ctx {
 	u32 va_end;
 	u32 geometry_start;
 	u32 geometry_end;
+	u32 wlan_va_end;
 	bool shared;
 	bool is_cache_coherent;
 	bool done;
