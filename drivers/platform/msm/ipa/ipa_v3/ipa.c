@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/clk.h>
@@ -10970,6 +10970,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	phys_addr_t pa;
 	u32 iova_ap_mapping[2];
 	u32 geometry_ap_mapping[2];
+	u32 wlan_ap_mapping;
 
 	IPADBG("AP CB PROBE dev=%pK\n", dev);
 
@@ -11032,6 +11033,11 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 
 	IPADBG("AP CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
 		   dev, cb->geometry_start, cb->geometry_end);
+
+	if (of_property_read_u32(
+			dev->of_node, "qcom,iova-wlan-end",
+			&wlan_ap_mapping) == 0)
+		cb->wlan_va_end = wlan_ap_mapping;
 
 	/*
 	 * Prior to these calls to iommu_domain_get_attr(), these
