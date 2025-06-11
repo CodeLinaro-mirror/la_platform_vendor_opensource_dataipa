@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -3253,19 +3253,27 @@ EXPORT_SYMBOL(ipa3_uc_reg_rdyCB);
 
 int ipa3_uc_dereg_per_inst_rdyCB(int instance_id) {
 
-	struct ipa_wdi_ready_cb_wrapper *entry;
-	struct ipa_wdi_ready_cb_wrapper *next;
+	struct ipa_wdi_ready_cb_wrapper *entry = NULL;
+	struct ipa_wdi_ready_cb_wrapper *next = NULL;
 	mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
-	list_for_each_entry_safe (entry, next,
-			&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link)
+
+	if(list_empty(&ipa3_ctx->uc_wdi_ctx.ready_cb_list))
 	{
-		if(entry->info.inst_id == instance_id)
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe (entry, next,
+				&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link)
 		{
-			list_del(&entry->link);
-			IPADBG("deregistering instnace id:%d callback\n", instance_id);
-			kfree(entry);
-			mutex_unlock(&ipa3_ctx->uc_wdi_ctx.lock);
-			return 0;
+			if(entry->info.inst_id == instance_id)
+			{
+				list_del(&entry->link);
+				IPADBG("deregistering instnace id:%d callback\n", instance_id);
+				kfree(entry);
+				mutex_unlock(&ipa3_ctx->uc_wdi_ctx.lock);
+				return 0;
+			}
 		}
 	}
 	mutex_unlock(&ipa3_ctx->uc_wdi_ctx.lock);
@@ -3282,13 +3290,21 @@ EXPORT_SYMBOL(ipa3_uc_dereg_per_inst_rdyCB);
  */
 int ipa3_uc_dereg_rdyCB(void)
 {
-	struct ipa_wdi_ready_cb_wrapper *entry;
-	struct ipa_wdi_ready_cb_wrapper *next;
+	struct ipa_wdi_ready_cb_wrapper *entry = NULL;
+	struct ipa_wdi_ready_cb_wrapper *next = NULL;
 	mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
-	list_for_each_entry_safe (entry, next,
-					&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {
+
+	if(list_empty(&ipa3_ctx->uc_wdi_ctx.ready_cb_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe (entry, next,
+				&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {
 			list_del(&entry->link);
 			kfree(entry);
+		}
 	}
 	mutex_unlock(&ipa3_ctx->uc_wdi_ctx.lock);
 
@@ -3335,19 +3351,28 @@ EXPORT_SYMBOL(ipa_uc_wdi_get_dbpa);
 
 static void ipa3_uc_wdi_loaded_handler(void)
 {
-	struct ipa_wdi_ready_cb_wrapper *entry;
-	struct ipa_wdi_ready_cb_wrapper *next;
+	struct ipa_wdi_ready_cb_wrapper *entry = NULL;
+	struct ipa_wdi_ready_cb_wrapper *next = NULL;
 	if (!ipa3_ctx) {
 		IPAERR("IPA ctx is null\n");
 		return;
 	}
 
 	mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
-	list_for_each_entry_safe (entry, next,
-			&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {
-		entry->info.notify(entry->info.user_data);
-		list_del(&entry->link);
-		kfree(entry);
+
+	if(list_empty(&ipa3_ctx->uc_wdi_ctx.ready_cb_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe (entry, next,
+				&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {
+			entry->info.notify(entry->info.user_data);
+			list_del(&entry->link);
+			kfree(entry);
+
+		}
 	}
 	mutex_unlock(&ipa3_ctx->uc_wdi_ctx.lock);
 }

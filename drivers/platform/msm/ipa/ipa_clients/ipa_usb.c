@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/mutex.h>
@@ -307,10 +307,10 @@ static bool ipa3_usb_get_teth_port_state(void)
 static bool ipa3_usb_set_state(enum ipa3_usb_state new_state, bool err_permit,
 	enum ipa3_usb_transport_type ttype)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 	int state_legal = false;
 	enum ipa3_usb_state state;
-	bool rwakeup_pending;
+	bool rwakeup_pending = false;
 
 	spin_lock_irqsave(&ipa3_usb_ctx->state_lock, flags);
 	state = ipa3_usb_ctx->ttype_ctx[ttype].state;

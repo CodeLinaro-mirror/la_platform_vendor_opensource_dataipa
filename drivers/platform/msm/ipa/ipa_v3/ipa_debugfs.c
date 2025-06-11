@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 
@@ -816,10 +816,10 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 {
 	int nbytes = 0;
 	int i = 0;
-	struct ipa3_hdr_entry *entry;
+	struct ipa3_hdr_entry *entry = NULL;
 	enum hdr_tbl_storage hdr_tbl;
-	struct ipa_hdr_offset_entry *offset_entry;
-	unsigned int offset_count;
+	struct ipa_hdr_offset_entry *offset_entry = NULL;
+	unsigned int offset_count = 0;
 
 	mutex_lock(&ipa3_ctx->lock);
 
@@ -834,71 +834,92 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "Used offsets: ");
 		for (i = 0; i < IPA_HDR_BIN_MAX; i++){
 			offset_count = 0;
-			list_for_each_entry(offset_entry,
-					    &ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i],
-					    link)
-				offset_count++;
+			if(list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i]))
+			{
+				IPAERR("List is empty\n");
+			}
+			else
+			{
+				list_for_each_entry(offset_entry,
+						&ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i],
+						link)
+					offset_count++;
+			}
 			if (offset_count)
 				nbytes += scnprintf(dbg_buff + nbytes,
-						    IPA_MAX_MSG_LEN - nbytes,
-						    "%u * %u bytes, ",
-						    offset_count,
-						    ipa3_get_hdr_bin_size(i));
+						IPA_MAX_MSG_LEN - nbytes,
+						"%u * %u bytes, ",
+						offset_count,
+						ipa3_get_hdr_bin_size(i));
 		}
 		pr_err("%s", dbg_buff);
 
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "Free offsets: ");
 		for (i = 0; i < IPA_HDR_BIN_MAX; i++){
 			offset_count = 0;
-			list_for_each_entry(offset_entry,
-					    &ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i],
-					    link)
-				offset_count++;
+			if(list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i]))
+			{
+				IPAERR("List is empty\n");
+			}
+			else
+			{
+				list_for_each_entry(offset_entry,
+						&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i],
+						link)
+					offset_count++;
+			}
 			if (offset_count)
 				nbytes += scnprintf(dbg_buff + nbytes,
-						    IPA_MAX_MSG_LEN - nbytes,
-						    "%u * %u bytes, ",
-						    offset_count,
-						    ipa3_get_hdr_bin_size(i));
+						IPA_MAX_MSG_LEN - nbytes,
+						"%u * %u bytes, ",
+						offset_count,
+						ipa3_get_hdr_bin_size(i));
 		}
 		pr_err("%s", dbg_buff);
 
-		list_for_each_entry(entry, &ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list,
-				link) {
-			if (entry->cookie != IPA_HDR_COOKIE)
-				continue;
-			nbytes = scnprintf(
-				dbg_buff,
-				IPA_MAX_MSG_LEN,
-				"name:%s len=%d ref=%d partial=%d type=%s table = %d  ",
-				entry->name,
-				entry->hdr_len,
-				entry->ref_cnt,
-				entry->is_partial,
-				ipa3_hdr_l2_type_name[entry->type], hdr_tbl);
+		if(list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list))
+		{
+			IPAERR("List is empty\n");
+		}
+		else
+		{
+			list_for_each_entry(entry, &ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list,
+					link) {
+				if (entry->cookie != IPA_HDR_COOKIE)
+					continue;
+				nbytes = scnprintf(
+						dbg_buff,
+						IPA_MAX_MSG_LEN,
+						"name:%s len=%d ref=%d partial=%d type=%s table = %d  ",
+						entry->name,
+						entry->hdr_len,
+						entry->ref_cnt,
+						entry->is_partial,
+						ipa3_hdr_l2_type_name[entry->type], hdr_tbl);
 
-  		if (entry->is_hdr_proc_ctx) {
-  			nbytes += scnprintf(
-  				dbg_buff + nbytes,
-  				IPA_MAX_MSG_LEN - nbytes,
-  				"phys_base=0x%pa ",
-  				&entry->phys_base);
-  		} else {
-  			nbytes += scnprintf(
-  				dbg_buff + nbytes,
-  				IPA_MAX_MSG_LEN - nbytes,
-  				"ofst=%u ",
-				entry->offset_entry->offset >> 2);
-  		}
-			for (i = 0; i < entry->hdr_len; i++) {
-				scnprintf(dbg_buff + nbytes + i * 2,
-					  IPA_MAX_MSG_LEN - nbytes - i * 2,
-					  "%02x", entry->hdr[i]);
+				if (entry->is_hdr_proc_ctx) {
+					nbytes += scnprintf(
+							dbg_buff + nbytes,
+							IPA_MAX_MSG_LEN - nbytes,
+							"phys_base=0x%pa ",
+							&entry->phys_base);
+				} else {
+					nbytes += scnprintf(
+							dbg_buff + nbytes,
+							IPA_MAX_MSG_LEN - nbytes,
+							"ofst=%u ",
+							entry->offset_entry->offset >> 2);
+				}
+				for (i = 0; i < entry->hdr_len; i++) {
+					scnprintf(dbg_buff + nbytes + i * 2,
+							IPA_MAX_MSG_LEN - nbytes - i * 2,
+							"%02x", entry->hdr[i]);
+				}
+				scnprintf(dbg_buff + nbytes + entry->hdr_len * 2,
+						IPA_MAX_MSG_LEN - nbytes - entry->hdr_len * 2,
+						"\n");
+				pr_err("%s", dbg_buff);
 			}
-			scnprintf(dbg_buff + nbytes + entry->hdr_len * 2,
-				  IPA_MAX_MSG_LEN - nbytes - entry->hdr_len * 2,
-				  "\n");
-			pr_err("%s", dbg_buff);
 		}
 	}
 	mutex_unlock(&ipa3_ctx->lock);
@@ -1173,9 +1194,9 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 		loff_t *ppos)
 {
 	int i = 0;
-	struct ipa3_rt_tbl *tbl;
-	struct ipa3_rt_entry *entry;
-	struct ipa3_rt_tbl_set *set;
+	struct ipa3_rt_tbl *tbl = NULL;
+	struct ipa3_rt_entry *entry = NULL;
+	struct ipa3_rt_tbl_set *set = NULL;
 	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
 	u32 ofst;
 	u32 ofst_words;
@@ -1195,77 +1216,91 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 	else
 		pr_err("Non-Hashable table resides on system (ddr) memory\n");
 
-	list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
-		i = 0;
-		list_for_each_entry(entry, &tbl->head_rt_rule_list, link) {
-			pr_err("tbl_idx:%d tbl_name:%s tbl_ref:%u ",
-				entry->tbl->idx, entry->tbl->name,
-				entry->tbl->ref_cnt);
-			if (entry->proc_ctx &&
-				(!ipa3_check_idr_if_freed(entry->proc_ctx))) {
-				ofst = entry->proc_ctx->offset_entry->offset;
-				is_lcl = entry->proc_ctx->is_lcl;
-				ofst_words = is_lcl ?
-					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset) >> 5 :
-					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset) >> 5;
-				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
-					i, entry->rule.dst,
-					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
-					ipa_get_ep_mapping(entry->rule.dst),
-					is_lcl);
-				pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
-					ofst_words,
-					entry->rule.attrib.attrib_mask);
-			} else {
-				if (entry->hdr && !entry->hdr->is_hdr_proc_ctx)
-				{
-					ofst = entry->hdr->offset_entry->offset;
-				}
-				else
-				{
-					ofst = 0;
-				}
-				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
-					i, entry->rule.dst,
-					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
-					ipa_get_ep_mapping(entry->rule.dst),
-					!(entry->hdr && entry->hdr->is_lcl));
-				if(entry->hdr && entry->hdr->is_hdr_proc_ctx)
-					pr_err("phys_base=0x%pa attrib_mask:%08x hdr_in_ext %u",
-					&entry->hdr->phys_base,
-					entry->rule.attrib.attrib_mask,
-					(entry->hdr->is_hdr_proc_ctx));
-
-				else
-
-				pr_err("hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u",
-					ofst >> 2,
-					entry->rule.attrib.attrib_mask,
-					(entry->hdr && entry->hdr->in_apps_headers_ext));
+	if(list_empty(&set->head_rt_tbl_list))
+	{
+		IPAERR("Rt table list is empty\n");
+	}
+	else
+	{
+		list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
+			i = 0;
+			if(list_empty(&tbl->head_rt_rule_list))
+			{
+				IPAERR("Rt rule list is empty\n");
 			}
-			pr_err("rule_id:%u max_prio:%u prio:%u ",
-				entry->rule_id, entry->rule.max_prio,
-				entry->prio);
-			pr_err("enable_stats:%u counter_id:%u ",
-				entry->rule.enable_stats,
-				entry->rule.cnt_idx);
-			pr_err("hashable:%u retain_hdr:%u ",
-				entry->rule.hashable,
-				entry->rule.retain_hdr);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod: %u ",
-					entry->rule.close_aggr_irq_mod);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update: %u ", entry->rule.ttl_update);
-				pr_err("qos_class: %u ", entry->rule.qos_class);
-				pr_err("skip_ingress: %u ", entry->rule.skip_ingress);
-			}
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp: %u ", entry->rule.esp_after_udp);
+			else
+			{
+				list_for_each_entry(entry, &tbl->head_rt_rule_list, link) {
+					pr_err("tbl_idx:%d tbl_name:%s tbl_ref:%u ",
+							entry->tbl->idx, entry->tbl->name,
+							entry->tbl->ref_cnt);
+					if (entry->proc_ctx &&
+							(!ipa3_check_idr_if_freed(entry->proc_ctx))) {
+						ofst = entry->proc_ctx->offset_entry->offset;
+						is_lcl = entry->proc_ctx->is_lcl;
+						ofst_words = is_lcl ?
+							(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset) >> 5 :
+							(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset) >> 5;
+						pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
+								i, entry->rule.dst,
+								(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
+								ipa_get_ep_mapping(entry->rule.dst),
+								is_lcl);
+						pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
+								ofst_words,
+								entry->rule.attrib.attrib_mask);
+					} else {
+						if (entry->hdr && !entry->hdr->is_hdr_proc_ctx)
+						{
+							ofst = entry->hdr->offset_entry->offset;
+						}
+						else
+						{
+							ofst = 0;
+						}
+						pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
+								i, entry->rule.dst,
+								(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
+								ipa_get_ep_mapping(entry->rule.dst),
+								!(entry->hdr && entry->hdr->is_lcl));
+						if(entry->hdr && entry->hdr->is_hdr_proc_ctx)
+							pr_err("phys_base=0x%pa attrib_mask:%08x hdr_in_ext %u",
+									&entry->hdr->phys_base,
+									entry->rule.attrib.attrib_mask,
+									(entry->hdr->is_hdr_proc_ctx));
 
-			pr_err("\n");
-			ipa3_attrib_dump(&entry->rule.attrib, ip);
-			i++;
+						else
+
+							pr_err("hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u",
+									ofst >> 2,
+									entry->rule.attrib.attrib_mask,
+									(entry->hdr && entry->hdr->in_apps_headers_ext));
+					}
+					pr_err("rule_id:%u max_prio:%u prio:%u ",
+							entry->rule_id, entry->rule.max_prio,
+							entry->prio);
+					pr_err("enable_stats:%u counter_id:%u ",
+							entry->rule.enable_stats,
+							entry->rule.cnt_idx);
+					pr_err("hashable:%u retain_hdr:%u ",
+							entry->rule.hashable,
+							entry->rule.retain_hdr);
+					if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
+						pr_err("close_aggr_irq_mod: %u ",
+								entry->rule.close_aggr_irq_mod);
+					if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+						pr_err("ttl_update: %u ", entry->rule.ttl_update);
+						pr_err("qos_class: %u ", entry->rule.qos_class);
+						pr_err("skip_ingress: %u ", entry->rule.skip_ingress);
+					}
+					if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+						pr_err("esp_after_udp: %u ", entry->rule.esp_after_udp);
+
+					pr_err("\n");
+					ipa3_attrib_dump(&entry->rule.attrib, ip);
+					i++;
+				}
+			}
 		}
 	}
 	pr_err("==== Routing Tables End ====\n");
@@ -1415,8 +1450,8 @@ bail:
 static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
-	struct ipa3_hdr_proc_ctx_tbl *tbl;
-	struct ipa3_hdr_proc_ctx_entry *entry;
+	struct ipa3_hdr_proc_ctx_tbl *tbl = NULL;
+	struct ipa3_hdr_proc_ctx_entry *entry = NULL;
 	u32 ofst_words;
 	enum hpc_tbl_storage hpc_tbl;
 	int res = 0;
@@ -1430,59 +1465,66 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		else
 			pr_info("Table resides on system(ddr) memory\n");
 
-	list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
-		ofst_words = (entry->offset_entry->offset +
-			ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
-			>> 5;
-		pr_err("id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
-			entry->id,
-			ipa3_hdr_proc_type_name[entry->type],
-			ofst_words);
-		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
-			entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
-			pr_err("\naction:%u\n"
-				"sa_idx:%u\n"
-				"flt_tbl_id:%u\n"
-				"input_ip_version:%u\n"
-				"output_ip_version:%u\n"
-				"retain_l2_header:%u\n",
-				entry->ipsec_params.action,
-				entry->ipsec_params.sa_idx,
-				entry->ipsec_params.flt_tbl_id,
-				entry->ipsec_params.pre_params.encap.input_ip_version,
-				entry->ipsec_params.pre_params.encap.output_ip_version,
-				entry->ipsec_params.pre_params.encap.retain_l2_header);
-		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
-			pr_err("input_ethhdr_negative_offset:%u\n"
-				"output_ethhdr_negative_offset:%u\n"
-				"output_dscp_pcp_update:%u\n",
-				entry->generic_params.input_ethhdr_negative_offset,
-				entry->generic_params.output_ethhdr_negative_offset,
-				entry->generic_params.output_dscp_pcp_update);
-		} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
-			pr_err("input_ethhdr_negative_offset:%u\n"
-				"output_ethhdr_negative_offset:%u\n"
-				"output_dscp_pcp_update:%u\n"
-				"input_ethhdr_valid:%u\n",
-				entry->generic_params_v2.input_ethhdr_negative_offset,
-				entry->generic_params_v2.output_ethhdr_negative_offset,
-				entry->generic_params_v2.output_dscp_pcp_update,
-				entry->generic_params_v2.input_ethhdr_valid);
-		} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
-			pr_err("input_valid:%u\n"
-				"input_dscp_val:%u\n",
-				entry->pdn_dscp_params.valid,
-				entry->pdn_dscp_params.dscp_val);
-		}
-		if (entry->hdr->is_hdr_proc_ctx) {
-			pr_err("hdr_phys_base:0x%pa\n",
-				&entry->hdr->phys_base);
+		if(list_empty(&tbl->head_proc_ctx_entry_list))
+		{
+			IPAERR("List is empty\n");
 		}
 		else
 		{
-			pr_err("hdr[words]:%u\n",
-				entry->hdr->offset_entry->offset >> 2);
-		}
+			list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
+				ofst_words = (entry->offset_entry->offset +
+						ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
+					>> 5;
+				pr_err("id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
+						entry->id,
+						ipa3_hdr_proc_type_name[entry->type],
+						ofst_words);
+				if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
+						entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
+					pr_err("\naction:%u\n"
+							"sa_idx:%u\n"
+							"flt_tbl_id:%u\n"
+							"input_ip_version:%u\n"
+							"output_ip_version:%u\n"
+							"retain_l2_header:%u\n",
+							entry->ipsec_params.action,
+							entry->ipsec_params.sa_idx,
+							entry->ipsec_params.flt_tbl_id,
+							entry->ipsec_params.pre_params.encap.input_ip_version,
+							entry->ipsec_params.pre_params.encap.output_ip_version,
+							entry->ipsec_params.pre_params.encap.retain_l2_header);
+				} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
+					pr_err("input_ethhdr_negative_offset:%u\n"
+							"output_ethhdr_negative_offset:%u\n"
+							"output_dscp_pcp_update:%u\n",
+							entry->generic_params.input_ethhdr_negative_offset,
+							entry->generic_params.output_ethhdr_negative_offset,
+							entry->generic_params.output_dscp_pcp_update);
+				} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
+					pr_err("input_ethhdr_negative_offset:%u\n"
+							"output_ethhdr_negative_offset:%u\n"
+							"output_dscp_pcp_update:%u\n"
+							"input_ethhdr_valid:%u\n",
+							entry->generic_params_v2.input_ethhdr_negative_offset,
+							entry->generic_params_v2.output_ethhdr_negative_offset,
+							entry->generic_params_v2.output_dscp_pcp_update,
+							entry->generic_params_v2.input_ethhdr_valid);
+				} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
+					pr_err("input_valid:%u\n"
+							"input_dscp_val:%u\n",
+							entry->pdn_dscp_params.valid,
+							entry->pdn_dscp_params.dscp_val);
+				}
+				if (entry->hdr->is_hdr_proc_ctx) {
+					pr_err("hdr_phys_base:0x%pa\n",
+							&entry->hdr->phys_base);
+				}
+				else
+				{
+					pr_err("hdr[words]:%u\n",
+							entry->hdr->offset_entry->offset >> 2);
+				}
+			}
 		}
 		mutex_unlock(&ipa3_ctx->lock);
 	}
@@ -1495,10 +1537,10 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 {
 	int i;
 	int j;
-	struct ipa3_flt_tbl *tbl;
-	struct ipa3_flt_entry *entry;
+	struct ipa3_flt_tbl *tbl = NULL;
+	struct ipa3_flt_entry *entry = NULL;
 	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
-	struct ipa3_rt_tbl *rt_tbl;
+	struct ipa3_rt_tbl *rt_tbl = NULL;
 	u32 rt_tbl_idx;
 	u32 bitmap;
 	bool eq;
@@ -1521,68 +1563,75 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 			continue;
 		tbl = &ipa3_ctx->flt_tbl[j][ip];
 		i = 0;
-		list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
-			if (entry->cookie != IPA_FLT_COOKIE)
-				continue;
-			if (entry->rule.eq_attrib_type) {
-				rt_tbl_idx = entry->rule.rt_tbl_idx;
-				bitmap = entry->rule.eq_attrib.rule_eq_bitmap;
-				eq = true;
-			} else {
-				rt_tbl = ipa3_id_find(entry->rule.rt_tbl_hdl);
-				if (rt_tbl == NULL ||
-					rt_tbl->cookie != IPA_RT_TBL_COOKIE)
-					rt_tbl_idx =  ~0;
-				else
-					rt_tbl_idx = rt_tbl->idx;
-				bitmap = entry->rule.attrib.attrib_mask;
-				eq = false;
-			}
-			pr_err("ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d ",
-				j, i, entry->rule.action, rt_tbl_idx);
-			pr_err("attrib_mask:%08x retain_hdr:%d eq:%d ",
-				bitmap, entry->rule.retain_hdr, eq);
-			pr_err("hashable:%u rule_id:%u max_prio:%u prio:%u ",
-				entry->rule.hashable, entry->rule_id,
-				entry->rule.max_prio, entry->prio);
-			if (entry->rule.hashable)
-				pr_err("hash in_sys_preffer:%d, force: %d ",
-					tbl->in_sys[IPA_RULE_HASHABLE],
-					tbl->force_sys[IPA_RULE_HASHABLE]);
-			else
-				pr_err("non-hash in_sys_preffer:%d, force: %d ",
-					tbl->in_sys[IPA_RULE_NON_HASHABLE],
-					tbl->force_sys[IPA_RULE_NON_HASHABLE]);
-			pr_err("enable_stats:%u counter_id:%u\n",
-				entry->rule.enable_stats,
-				entry->rule.cnt_idx);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
-				pr_err("pdn index %d, set metadata %d ",
-					entry->rule.pdn_idx,
-					entry->rule.set_metadata);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod %u ",
-					entry->rule.close_aggr_irq_mod);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update %u ", entry->rule.ttl_update);
-				pr_err("qos_class %u ", entry->rule.qos_class);
-			}
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp %u ", entry->rule.esp_after_udp);
-
-			pr_err("\n");
-
-			if (eq) {
-				res = ipa3_attrib_dump_eq(
-						&entry->rule.eq_attrib);
-				if (res) {
-					IPAERR_RL("failed read attrib eq\n");
-					goto bail;
+		if(list_empty(&tbl->head_flt_rule_list))
+		{
+			IPAERR("List is empty\n");
+		}
+		else
+		{
+			list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
+				if (entry->cookie != IPA_FLT_COOKIE)
+					continue;
+				if (entry->rule.eq_attrib_type) {
+					rt_tbl_idx = entry->rule.rt_tbl_idx;
+					bitmap = entry->rule.eq_attrib.rule_eq_bitmap;
+					eq = true;
+				} else {
+					rt_tbl = ipa3_id_find(entry->rule.rt_tbl_hdl);
+					if (rt_tbl == NULL ||
+							rt_tbl->cookie != IPA_RT_TBL_COOKIE)
+						rt_tbl_idx =  ~0;
+					else
+						rt_tbl_idx = rt_tbl->idx;
+					bitmap = entry->rule.attrib.attrib_mask;
+					eq = false;
 				}
-			} else
-				ipa3_attrib_dump(
-					&entry->rule.attrib, ip);
-			i++;
+				pr_err("ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d ",
+						j, i, entry->rule.action, rt_tbl_idx);
+				pr_err("attrib_mask:%08x retain_hdr:%d eq:%d ",
+						bitmap, entry->rule.retain_hdr, eq);
+				pr_err("hashable:%u rule_id:%u max_prio:%u prio:%u ",
+						entry->rule.hashable, entry->rule_id,
+						entry->rule.max_prio, entry->prio);
+				if (entry->rule.hashable)
+					pr_err("hash in_sys_preffer:%d, force: %d ",
+							tbl->in_sys[IPA_RULE_HASHABLE],
+							tbl->force_sys[IPA_RULE_HASHABLE]);
+				else
+					pr_err("non-hash in_sys_preffer:%d, force: %d ",
+							tbl->in_sys[IPA_RULE_NON_HASHABLE],
+							tbl->force_sys[IPA_RULE_NON_HASHABLE]);
+				pr_err("enable_stats:%u counter_id:%u\n",
+						entry->rule.enable_stats,
+						entry->rule.cnt_idx);
+				if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+					pr_err("pdn index %d, set metadata %d ",
+							entry->rule.pdn_idx,
+							entry->rule.set_metadata);
+				if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
+					pr_err("close_aggr_irq_mod %u ",
+							entry->rule.close_aggr_irq_mod);
+				if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+					pr_err("ttl_update %u ", entry->rule.ttl_update);
+					pr_err("qos_class %u ", entry->rule.qos_class);
+				}
+				if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+					pr_err("esp_after_udp %u ", entry->rule.esp_after_udp);
+
+				pr_err("\n");
+
+				if (eq) {
+					res = ipa3_attrib_dump_eq(
+							&entry->rule.eq_attrib);
+					if (res) {
+						IPAERR_RL("failed read attrib eq\n");
+						goto bail;
+					}
+				} else
+					ipa3_attrib_dump(
+							&entry->rule.attrib, ip);
+				i++;
+			}
 		}
 	}
 bail:

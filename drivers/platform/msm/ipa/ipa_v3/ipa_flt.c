@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -2357,16 +2357,23 @@ int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client)
 
 	mutex_lock(&ipa3_ctx->lock);
 	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
-		struct ipa3_flt_tbl_nhash_lcl *lcl_tbl, *tmp;
+		struct ipa3_flt_tbl_nhash_lcl *lcl_tbl = NULL, *tmp = NULL;
 		struct ipa3_flt_tbl *flt_tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][ip];
 		/* Position filtering table last in the list so, it will have first SRAM priority */
-		list_for_each_entry_safe(
-			lcl_tbl, tmp, &ipa3_ctx->flt_tbl_nhash_lcl_list[ip], link) {
-			if (lcl_tbl->tbl == flt_tbl) {
-				list_del(&lcl_tbl->link);
-				list_add_tail(&lcl_tbl->link,
-					&ipa3_ctx->flt_tbl_nhash_lcl_list[ip]);
-				break;
+		if(list_empty(&ipa3_ctx->flt_tbl_nhash_lcl_list[ip]))
+		{
+			IPAERR("List is empty\n");
+		}
+		else
+		{
+			list_for_each_entry_safe(
+					lcl_tbl, tmp, &ipa3_ctx->flt_tbl_nhash_lcl_list[ip], link) {
+				if (lcl_tbl->tbl == flt_tbl) {
+					list_del(&lcl_tbl->link);
+					list_add_tail(&lcl_tbl->link,
+							&ipa3_ctx->flt_tbl_nhash_lcl_list[ip]);
+					break;
+				}
 			}
 		}
 	}

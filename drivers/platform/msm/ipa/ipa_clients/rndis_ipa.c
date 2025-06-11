@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/atomic.h>
@@ -803,9 +803,9 @@ int rndis_ipa_pipe_connect_notify(
 	int next_state;
 	int result;
 	int ret;
-	unsigned long flags;
-	struct ipa_ecm_msg *rndis_msg;
-	struct ipa_msg_meta msg_meta;
+	unsigned long flags = 0;
+	struct ipa_ecm_msg *rndis_msg = NULL;
+	struct ipa_msg_meta msg_meta = {0};
 
 	RNDIS_IPA_LOG_ENTRY();
 
@@ -953,9 +953,9 @@ EXPORT_SYMBOL(rndis_ipa_pipe_connect_notify);
  */
 static int rndis_ipa_open(struct net_device *net)
 {
-	struct rndis_ipa_dev *rndis_ipa_ctx;
-	int next_state;
-	unsigned long flags;
+	struct rndis_ipa_dev *rndis_ipa_ctx = NULL;
+	int next_state = 0;
+	unsigned long flags = 0;
 
 	RNDIS_IPA_LOG_ENTRY();
 
@@ -1327,7 +1327,7 @@ static int rndis_ipa_stop(struct net_device *net)
 {
 	struct rndis_ipa_dev *rndis_ipa_ctx = netdev_priv(net);
 	int next_state;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	RNDIS_IPA_LOG_ENTRY();
 
@@ -1491,9 +1491,9 @@ EXPORT_SYMBOL(rndis_ipa_pipe_disconnect_notify);
 void rndis_ipa_cleanup(void *private)
 {
 	struct rndis_ipa_dev *rndis_ipa_ctx = private;
-	int next_state;
-	int ret;
-	unsigned long flags;
+	int next_state = 0;
+	int ret = 0;
+	unsigned long flags = 0;
 
 	RNDIS_IPA_LOG_ENTRY();
 

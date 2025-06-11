@@ -5257,7 +5257,7 @@ static int ipa3_wwan_register_netdev_pm_client(struct net_device *dev)
 	struct ipa_pm_register_params pm_reg;
 
 	memset(&pm_reg, 0, sizeof(pm_reg));
-	pm_reg.name = IPA_NETDEV()->name;
+	pm_reg.name = (NULL == IPA_NETDEV()) ? NULL : IPA_NETDEV()->name;
 	pm_reg.user_data = dev;
 	pm_reg.callback = ipa_pm_wwan_pm_cb;
 	pm_reg.group = IPA_PM_GROUP_APPS;
@@ -5267,7 +5267,8 @@ static int ipa3_wwan_register_netdev_pm_client(struct net_device *dev)
 		return result;
 	}
 
-	IPAWANERR("%s register done\n", pm_reg.name);
+	if(pm_reg.name)
+		IPAWANERR("%s register done\n", pm_reg.name);
 
 	return 0;
 }

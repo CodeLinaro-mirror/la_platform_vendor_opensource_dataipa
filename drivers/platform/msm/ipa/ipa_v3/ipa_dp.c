@@ -3348,39 +3348,46 @@ static void ipa3_replenish_wlan_rx_cache(struct ipa3_sys_context *sys)
 	rx_len_cached = sys->len;
 
 	if (rx_len_cached < sys->rx_pool_sz) {
-		list_for_each_entry_safe(rx_pkt, tmp,
-			&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
-			list_del(&rx_pkt->link);
+		if(list_empty(&ipa3_ctx->wc_memb.wlan_comm_desc_list))
+		{
+			IPAERR("List is empty\n");
+		}
+		else
+		{
+			list_for_each_entry_safe(rx_pkt, tmp,
+					&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
+				list_del(&rx_pkt->link);
 
-			if (ipa3_ctx->wc_memb.wlan_comm_free_cnt > 0)
-				ipa3_ctx->wc_memb.wlan_comm_free_cnt--;
+				if (ipa3_ctx->wc_memb.wlan_comm_free_cnt > 0)
+					ipa3_ctx->wc_memb.wlan_comm_free_cnt--;
 
-			rx_pkt->len = 0;
-			rx_pkt->sys = sys;
+				rx_pkt->len = 0;
+				rx_pkt->sys = sys;
 
-			memset(&gsi_xfer_elem_one, 0,
-				sizeof(gsi_xfer_elem_one));
-			gsi_xfer_elem_one.addr = rx_pkt->data.dma_addr;
-			gsi_xfer_elem_one.len = IPA_WLAN_RX_BUFF_SZ;
-			gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOT;
-			gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOB;
-			gsi_xfer_elem_one.type = GSI_XFER_ELEM_DATA;
-			gsi_xfer_elem_one.xfer_user_data = rx_pkt;
+				memset(&gsi_xfer_elem_one, 0,
+						sizeof(gsi_xfer_elem_one));
+				gsi_xfer_elem_one.addr = rx_pkt->data.dma_addr;
+				gsi_xfer_elem_one.len = IPA_WLAN_RX_BUFF_SZ;
+				gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOT;
+				gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOB;
+				gsi_xfer_elem_one.type = GSI_XFER_ELEM_DATA;
+				gsi_xfer_elem_one.xfer_user_data = rx_pkt;
 
-			ret = gsi_queue_xfer(sys->ep->gsi_chan_hdl, 1,
-				&gsi_xfer_elem_one, true);
+				ret = gsi_queue_xfer(sys->ep->gsi_chan_hdl, 1,
+						&gsi_xfer_elem_one, true);
 
-			if (ret) {
-				IPAERR("failed to provide buffer: %d\n", ret);
-				goto fail_provide_rx_buffer;
-			}
+				if (ret) {
+					IPAERR("failed to provide buffer: %d\n", ret);
+					goto fail_provide_rx_buffer;
+				}
 
-			rx_len_cached = ++sys->len;
+				rx_len_cached = ++sys->len;
 
-			if (rx_len_cached >= sys->rx_pool_sz) {
-				spin_unlock_bh(
-					&ipa3_ctx->wc_memb.wlan_spinlock);
-				return;
+				if (rx_len_cached >= sys->rx_pool_sz) {
+					spin_unlock_bh(
+							&ipa3_ctx->wc_memb.wlan_spinlock);
+					return;
+				}
 			}
 		}
 	}
@@ -3996,11 +4003,11 @@ static void free_rx_page(void *chan_user_data, void *xfer_user_data)
  */
 static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 {
-	struct ipa3_rx_pkt_wrapper *rx_pkt;
-	struct ipa3_rx_pkt_wrapper *r;
+	struct ipa3_rx_pkt_wrapper *rx_pkt = NULL;
+	struct ipa3_rx_pkt_wrapper *r = NULL;
 	u32 head;
 	u32 tail;
-	struct device *dev;
+	struct device *dev = NULL;
 
 	/*
 	 * buffers not consumed by gsi are cleaned up using cleanup callback
@@ -4016,16 +4023,23 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 	}
 
 	spin_lock_bh(&sys->spinlock);
-	list_for_each_entry_safe(rx_pkt, r,
-				 &sys->rcycl_list, link) {
-		list_del(&rx_pkt->link);
-		if (rx_pkt->data.dma_addr)
-			dma_unmap_single(dev, rx_pkt->data.dma_addr,
-				sys->rx_buff_sz, DMA_FROM_DEVICE);
-		else
-			IPADBG("DMA address already freed\n");
-		sys->free_skb(rx_pkt->data.skb);
-		kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
+	if(list_empty(&sys->rcycl_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe(rx_pkt, r,
+				&sys->rcycl_list, link) {
+			list_del(&rx_pkt->link);
+			if (rx_pkt->data.dma_addr)
+				dma_unmap_single(dev, rx_pkt->data.dma_addr,
+						sys->rx_buff_sz, DMA_FROM_DEVICE);
+			else
+				IPADBG("DMA address already freed\n");
+			sys->free_skb(rx_pkt->data.skb);
+			kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
+		}
 	}
 	spin_unlock_bh(&sys->spinlock);
 
@@ -6838,8 +6852,8 @@ static void ipa_gsi_chan_err_cb(struct gsi_chan_err_notify *notify)
 
 static void ipa_gsi_irq_tx_notify_cb(struct gsi_chan_xfer_notify *notify)
 {
-	struct ipa3_tx_pkt_wrapper *tx_pkt;
-	struct ipa3_sys_context *sys;
+	struct ipa3_tx_pkt_wrapper *tx_pkt = NULL;
+	struct ipa3_sys_context *sys = NULL;
 
 	IPADBG_LOW("event %d notified\n", notify->evt_id);
 
