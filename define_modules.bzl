@@ -17,7 +17,6 @@ def define_modules(target, variant):
         srcs = [
             "drivers/platform/msm/gsi/gsi.c",
             "drivers/platform/msm/gsi/gsi.h",
-            "drivers/platform/msm/gsi/gsi_dbg.c",
             "drivers/platform/msm/gsi/gsi_emulation.h",
             "drivers/platform/msm/gsi/gsi_emulation_stubs.h",
             "drivers/platform/msm/gsi/gsi_trace.h",
@@ -35,6 +34,14 @@ def define_modules(target, variant):
                 True: [
                     "drivers/platform/msm/gsi/gsi_emulation.c",
                 ],
+            },
+            "CONFIG_DEBUG_FS": {
+                True: [
+                    "drivers/platform/msm/gsi/gsi_dbg.c",
+               ],
+                False: [
+                    "drivers/platform/msm/gsi/gsi_sysfs.c",
+               ],
             },
         },
         local_defines = [

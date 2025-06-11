@@ -3006,7 +3006,7 @@ const struct attribute_group *rndis_group[] = {
 	&ipa_rndis_aggr_attr_group,
 	NULL,
 };
-static int rndis_ipa_sysfs_init()
+static int rndis_ipa_sysfs_init(void)
 {
 	int ret = -1;
 	
@@ -3017,7 +3017,7 @@ static int rndis_ipa_sysfs_init()
 	return ret;	
 }
 
-static void rndis_ipa_sysfs_destroy()
+static void rndis_ipa_sysfs_destroy(void)
 {
 	sysfs_remove_groups(kernel_kobj, rndis_group);	
 }

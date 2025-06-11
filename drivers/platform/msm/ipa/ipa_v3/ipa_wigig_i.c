@@ -2033,7 +2033,8 @@ const struct attribute_group ipa_wigig_attr_group = {
 	.name		= "ipa_wigig",
 	.attrs		= ipa_wigig_attrs,
 };
-int ipa3_wigig_init_sysfs_i()
+
+int ipa3_wigig_init_sysfs_i(void)
 { 
 	int ret = -1;
 	
@@ -2043,7 +2044,8 @@ int ipa3_wigig_init_sysfs_i()
 	}
 	return ret;
 }
-void ipa3_wigig_fini_sysfs_i()
+
+void ipa3_wigig_fini_sysfs_i(void)
 {
 	sysfs_remove_group(kernel_kobj, &ipa_wigig_attr_group);
 }
