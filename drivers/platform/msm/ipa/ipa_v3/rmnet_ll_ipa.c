@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -944,7 +944,7 @@ static void apps_rmnet_ll_tx_complete_notify(void *priv,
 	enum ipa_dp_evt_type evt, unsigned long data)
 {
 	struct sk_buff *skb = (struct sk_buff *)data;
-	unsigned long flags;
+	unsigned long flags = 0;
 	u32 pending_credits = 0;
 
 	if (evt != IPA_WRITE_DONE) {

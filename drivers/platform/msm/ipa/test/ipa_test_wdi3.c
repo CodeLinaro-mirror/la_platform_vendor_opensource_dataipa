@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_ut_framework.h"
@@ -1182,24 +1183,24 @@ static int ipa_wdi3_send_one_packet(void)
 
 static int ipa_wdi3_send_one_packet_2g_5g(bool tx1_pipe_test)
 {
-	void __iomem *rx_uc_db;
-	void __iomem *tx_uc_db;
-	void __iomem *tx1_uc_db;
-	u32 *tx_event_ring_db, *rx_transfer_ring_db, *rx_event_ring_db;
-	u32 *tx1_event_ring_db;
+	void __iomem *rx_uc_db = NULL;
+	void __iomem *tx_uc_db = NULL;
+	void __iomem *tx1_uc_db = NULL;
+	u32 *tx_event_ring_db = NULL, *rx_transfer_ring_db = NULL, *rx_event_ring_db = NULL;
+	u32 *tx1_event_ring_db = NULL;
 	u32 orig_tx_event_ring_db;
 	u32 orig_tx1_event_ring_db;
 	u32 orig_rx_event_ring_db;
 	u32 orig_tx_trans_ring_db;
 	u32 orig_tx1_trans_ring_db;
-	u32 *packet;
+	u32 *packet = NULL;
 	u32 *packet_recv = NULL;
-	struct rx_transfer_ring_ele *rx_transfer;
-	struct rx_event_ring_ele *rx_event;
-	struct tx_event_ring_ele *tx_event;
-	struct tx_event_ring_ele *tx1_event;
-	struct tx_transfer_ring_ele *tx_transfer;
-	struct tx_transfer_ring_ele *tx1_transfer;
+	struct rx_transfer_ring_ele *rx_transfer = NULL;
+	struct rx_event_ring_ele *rx_event = NULL;
+	struct tx_event_ring_ele *tx_event = NULL;
+	struct tx_event_ring_ele *tx1_event = NULL;
+	struct tx_transfer_ring_ele *tx_transfer = NULL;
+	struct tx_transfer_ring_ele *tx1_transfer = NULL;
 	struct buffer_addr_info rx_buf;
 	dma_addr_t recv_packet_addr;
 	int loop_cnt, i, num_words;
@@ -1827,27 +1828,27 @@ static int ipa_wdi3_send_multi_packet(void)
 
 static int ipa_wdi3_send_multi_packet_2g_5g(bool tx1_pipe_test)
 {
-	void __iomem *rx_uc_db;
-	void __iomem *tx_uc_db;
-	void __iomem *tx1_uc_db;
-	u32 *tx_event_ring_db, *rx_transfer_ring_db, *rx_event_ring_db;
-	u32 *tx1_event_ring_db;
+	void __iomem *rx_uc_db = NULL;
+	void __iomem *tx_uc_db = NULL;
+	void __iomem *tx1_uc_db = NULL;
+	u32 *tx_event_ring_db = NULL, *rx_transfer_ring_db = NULL, *rx_event_ring_db = NULL;
+	u32 *tx1_event_ring_db = NULL;
 	u32 orig_tx_event_ring_db;
 	u32 orig_tx1_event_ring_db;
 	u32 orig_rx_event_ring_db;
-	u32 *packet;
+	u32 *packet = NULL;
 	u32 *packet_recv = NULL;
-	struct rx_transfer_ring_ele *rx_transfer;
-	struct rx_transfer_ring_ele *rt;
-	struct rx_event_ring_ele *rx_event;
-	struct tx_event_ring_ele *tx_event;
-	struct tx_event_ring_ele *tx1_event;
-	struct tx_event_ring_ele *te;
-	struct tx_transfer_ring_ele *tx_transfer;
-	struct tx_transfer_ring_ele *tx1_transfer;
+	struct rx_transfer_ring_ele *rx_transfer = NULL;
+	struct rx_transfer_ring_ele *rt = NULL;
+	struct rx_event_ring_ele *rx_event = NULL;
+	struct tx_event_ring_ele *tx_event = NULL;
+	struct tx_event_ring_ele *tx1_event = NULL;
+	struct tx_event_ring_ele *te = NULL;
+	struct tx_transfer_ring_ele *tx_transfer = NULL;
+	struct tx_transfer_ring_ele *tx1_transfer = NULL;
 	struct buffer_addr_info rx_buf;
 	dma_addr_t recv_packet_addr;
-	int loop_cnt, i, num_words;
+	int loop_cnt, i, num_words = 0;
 	int idx;
 
 	if (!tx1_pipe_test) {

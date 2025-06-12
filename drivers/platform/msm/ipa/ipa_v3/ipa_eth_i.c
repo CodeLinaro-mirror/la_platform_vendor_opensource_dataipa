@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -1760,7 +1760,7 @@ int ipa3_eth_tx_ring_db()
 {
 	int ch_id, ipa_ep_idx, result = 0, i = 0;
 	phys_addr_t db_pa;
-	void __iomem *db_addr;
+	void __iomem *db_addr = NULL;
 
 	ipa_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS);
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {

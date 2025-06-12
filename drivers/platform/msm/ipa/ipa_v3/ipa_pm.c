@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -872,7 +872,7 @@ int ipa_pm_deregister(u32 hdl)
 {
 	struct ipa_pm_client *client;
 	int i;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	if (ipa_pm_ctx == NULL) {
 		IPA_PM_ERR("PM_ctx is null\n");
@@ -984,7 +984,7 @@ static int ipa_pm_activate_helper(struct ipa_pm_client *client, bool sync)
 {
 	struct ipa_active_client_logging_info log_info;
 	int result = 0;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	spin_lock_irqsave(&client->state_lock, flags);
 	IPA_PM_DBG_STATE(client->hdl, client->name, client->state);
@@ -1111,7 +1111,7 @@ EXPORT_SYMBOL(ipa_pm_activate_sync);
 int ipa_pm_deferred_deactivate(u32 hdl)
 {
 	struct ipa_pm_client *client;
-	unsigned long flags;
+	unsigned long flags = 0;
 	unsigned long delay;
 
 	if (ipa_pm_ctx == NULL) {
@@ -1175,7 +1175,7 @@ int ipa_pm_deactivate_all_deferred(void)
 	int i;
 	bool run_algorithm = false;
 	struct ipa_pm_client *client;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	if (ipa_pm_ctx == NULL) {
 		IPA_PM_ERR("PM_ctx is null\n");

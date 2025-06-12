@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, 2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/ipa_wdi3.h>
@@ -1028,8 +1028,8 @@ static int ipa_wdi_release_smmu_mapping_per_inst_internal(ipa_wdi_hdl_t hdl,
  */
 static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 {
-	struct ipa_wdi_intf_info *entry;
-	struct ipa_wdi_intf_info *next;
+	struct ipa_wdi_intf_info *entry = NULL;
+	struct ipa_wdi_intf_info *next = NULL;
 
 	IPA_WDI_DBG("client hdl = %d, Instance = %d\n", hdl,ipa_wdi_ctx_list[hdl]->inst_id);
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
@@ -1046,10 +1046,17 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 	}
 
 	/* clear interface list */
-	list_for_each_entry_safe(entry, next,
-		&ipa_wdi_ctx_list[hdl]->head_intf_list, link) {
-		list_del(&entry->link);
-		kfree(entry);
+	if(list_empty(&ipa_wdi_ctx_list[hdl]->head_intf_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe(entry, next,
+				&ipa_wdi_ctx_list[hdl]->head_intf_list, link) {
+			list_del(&entry->link);
+			kfree(entry);
+		}
 	}
 
 	if(!ipa3_uc_dereg_per_inst_rdyCB(ipa_wdi_ctx_list[hdl]->inst_id))
