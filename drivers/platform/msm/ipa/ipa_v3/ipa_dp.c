@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -4831,13 +4831,15 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		/* if sa_peer_id != ta_peer_id, roaming scenario, cb is called. */
 		if (!ast_info.sa_valid ||
 			(ast_info.sa_peer_id != ast_info.ta_peer_id)) {
-			spin_lock(&ipa3_ctx->disconnect_lock);
+			spin_lock_bh(&ipa3_ctx->disconnect_lock);
 			if (likely((!atomic_read(&ep->disconnect_in_progress)) &&
 						ep->valid && ep->ast_notify)) {
 				ast_notify = ep->ast_notify;
 				client_priv = ep->priv;
-				spin_unlock(&ipa3_ctx->disconnect_lock);
+				spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 				ast_notify(client_priv, (unsigned long)&ast_info);
+			} else {
+				spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 			}
 		}
 		IPADBG_LOW("ast update meta_data: 0x%x cb: 0x%x for client 0x%x\n",
@@ -4878,7 +4880,7 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 				metadata, *(u32 *)rx_skb->cb);
 		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
 	}
-	spin_lock(&ipa3_ctx->disconnect_lock);
+	spin_lock_bh(&ipa3_ctx->disconnect_lock);
 	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && !ep->valid &&
 			(tag_info & 0xFFFF) == IPA_ETH_PDU_TAG_CHECK)
 	{
@@ -4889,11 +4891,11 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 				ep->valid && ep->client_notify)) {
 		client_notify = ep->client_notify;
 		client_priv = ep->priv;
-		spin_unlock(&ipa3_ctx->disconnect_lock);
+		spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 		client_notify(client_priv, IPA_RECEIVE,
 				(unsigned long)(rx_skb));
 	} else {
-		spin_unlock(&ipa3_ctx->disconnect_lock);
+		spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 		dev_kfree_skb_any(rx_skb);
 	}
 
@@ -5117,14 +5119,14 @@ _prep_and_send_skb(
 
 	client_notify = 0;
 
-	spin_lock(&ipa3_ctx->disconnect_lock);
+	spin_lock_bh(&ipa3_ctx->disconnect_lock);
 	if (ep->valid && ep->client_notify &&
 		likely((!atomic_read(&ep->disconnect_in_progress)))) {
 
 		client_notify = ep->client_notify;
 		client_priv   = ep->priv;
 	}
-	spin_unlock(&ipa3_ctx->disconnect_lock);
+	spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 
 	if ( client_notify ) {
 
