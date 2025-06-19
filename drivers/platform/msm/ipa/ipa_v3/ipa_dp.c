@@ -2049,7 +2049,7 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 		delete_avail_tx_wrapper_list(ep);
 
-		if (ipa3_ctx->tx_napi_enable)
+		if (ep->sys->napi_tx_enable)
 			netif_napi_del(&ep->sys->napi_tx);
 	}
 
