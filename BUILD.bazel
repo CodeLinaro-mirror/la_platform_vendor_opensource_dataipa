@@ -87,7 +87,6 @@ genrule(
     srcs = [
         "config/dataipa_debug.conf",
         "config/dataipa_QGKI.conf",
-        "config/dataipa_ipsec.conf",
     ],
     outs = ["debug_defconfig.conf"],
     cmd = "cat $(SRCS) | sed -e 's/^export //g' > $@",
@@ -97,8 +96,28 @@ genrule(
     name = "perf_defconfig",
     srcs = [
         "config/dataipa_QGKI.conf",
-        "config/dataipa_ipsec.conf",
     ],
     outs = ["perf_defconfig.conf"],
+    cmd = "cat $(SRCS) | sed -e 's/^export //g' > $@",
+)
+
+genrule(
+    name = "ipsec_debug_defconfig",
+    srcs = [
+        "config/dataipa_debug.conf",
+        "config/dataipa_QGKI.conf",
+        "config/dataipa_ipsec.conf",
+    ],
+    outs = ["ipsec_debug_defconfig.conf"],
+    cmd = "cat $(SRCS) | sed -e 's/^export //g' > $@",
+)
+
+genrule(
+    name = "ipsec_perf_defconfig",
+    srcs = [
+        "config/dataipa_QGKI.conf",
+        "config/dataipa_ipsec.conf",
+    ],
+    outs = ["ipsec_perf_defconfig.conf"],
     cmd = "cat $(SRCS) | sed -e 's/^export //g' > $@",
 )

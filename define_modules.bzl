@@ -7,7 +7,10 @@ def define_modules(target, variant):
     include_base = "../../../{}".format(native.package_name())
 
     #The below will take care of the defconfig
-    include_defconfig = ":{}_defconfig".format(variant)
+    if target == "sdxkova.512":
+         include_defconfig = ":{}_defconfig".format(variant)
+    else:
+         include_defconfig = ":ipsec_{}_defconfig".format(variant)
 
     mod_list = []
 

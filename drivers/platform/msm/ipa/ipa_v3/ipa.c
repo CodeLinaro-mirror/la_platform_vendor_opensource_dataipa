@@ -11025,6 +11025,12 @@ ssize_t ipa3_update_config(const char *buff)
 			IPADBG("ETH QOS enabled: %d\n", ipa3_ctx->eth_qos);
 		}
 #endif
+		if (strnstr(dbg_buff, "lanstats", strlen(dbg_buff))) {
+			/* Enable lan stats. */
+			ipa3_ctx->lan_stats_enabled = true;
+			IPADBG("Lan stats enabled: %d\n", ipa3_ctx->lan_stats_enabled);
+		}
+
 		/* Check Vlan configuration */
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
 			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))
@@ -11076,6 +11082,7 @@ ssize_t ipa3_update_config(const char *buff)
 			return count;
 		}
 #endif
+
 		/* trim ending newline character if any */
 		if (count && (dbg_buff[count - 1] == '\n'))
 			dbg_buff[count - 1] = '\0';

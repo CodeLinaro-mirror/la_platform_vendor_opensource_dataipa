@@ -1581,7 +1581,7 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 	struct ipa3_rt_tbl_set *rt_set;
 	u32 ofst;
 	u32 ofst_words;
-	int ret = 0;
+	int ret = 0, i;
 
 	if (ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_tables >=
 		TLPD_NUM_MAX_RT_FLT_TBL) {
@@ -1625,6 +1625,7 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 		rt_rule_stats->v4_rt_tbl[tbl_idx].tbl_ref_count = rt_tbl->ref_cnt;
 		rt_rule_stats->v4_rt_tbl[tbl_idx].tbl_name =
 			(uint8_t) ipa_get_rt_tbl_index_from_name(rt_tbl->name);
+		memcpy(rt_rule_stats->v4_rt_tbl[tbl_idx].rt_tbl_name, rt_tbl->name, IPA_RESOURCE_NAME_MAX);
 		rt_rule_stats->v4_rt_tbl[tbl_idx].num_rt_rule =
 			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_rules[tbl_idx];
 
@@ -1653,6 +1654,13 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 				.offset_words = ofst_words;
 				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 				.is_in_sram = !rt_entry->proc_ctx->is_lcl;
+
+				if ((IPA_HDR_PROC_MARK_DSCP == rt_entry->proc_ctx->type) &&
+					rt_entry->proc_ctx->pdn_dscp_params.valid)
+				{
+					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+					.dscp_mark = rt_entry->proc_ctx->pdn_dscp_params.dscp_val;
+				}
 			} else {
 				if (rt_entry->hdr)
 					ofst = rt_entry->hdr->offset_entry->offset;
@@ -1677,10 +1685,21 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 			.rule_idx = rule_idx;
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 			.rule_id = rt_entry->rule_id;
+
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 			.retain_hdr = rt_entry->rule.retain_hdr;
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 			.close_aggr_irq_mode = rt_entry->rule.close_aggr_irq_mod;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.ttl_update = rt_entry->rule.ttl_update;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.qos_class = rt_entry->rule.qos_class;
+
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.skip_ingress = rt_entry->rule.skip_ingress;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.esp_after_udp = rt_entry->rule.esp_after_udp;
+
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 			.enable_stats = rt_entry->rule.enable_stats;
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
@@ -1756,8 +1775,11 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 			if ((rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
-				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_mac_addr =
-					(uint64_t)rt_entry->rule.attrib.src_mac_addr;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_mac_addr |=
+						((uint64_t)rt_entry->rule.attrib.src_mac_addr[i] << (8 * (5 - i)));
+				}
 				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 				.src_mac_addr_mask = (uint64_t)rt_entry->rule.attrib.attrib_mask &
 					(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
@@ -1771,8 +1793,12 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR)) {
-				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_mac_addr =
-					(uint64_t)rt_entry->rule.attrib.dst_mac_addr;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_mac_addr |=
+						((uint64_t)rt_entry->rule.attrib.dst_mac_addr[i] << (8 * (5 - i)));
+				}
+
 				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 				.dst_mac_addr_mask = (uint64_t)rt_entry->rule.attrib.attrib_mask &
 					(IPA_FLT_MAC_DST_ADDR_ETHER_II |
@@ -1780,14 +1806,15 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 					IPA_FLT_MAC_DST_ADDR_802_1Q |
 					IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR |
 					IPA_FLT_L2TP_INNER_IPV4_DST_ADDR);
-				if (rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
-					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
-					.dst_mac_addr = htonl(rt_entry->rule.attrib.u.v4.dst_addr);
-					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
-					.dst_mac_addr_mask =
-						htonl(rt_entry->rule.attrib.u.v4.dst_addr_mask);
-				}
 			}
+
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].meta_data =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_META_DATA) ?
+				rt_entry->rule.attrib.meta_data : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.meta_data_mask =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_META_DATA) ?
+				rt_entry->rule.attrib.meta_data_mask : 0;
 
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 			.l2tp_inner_ip_type =
@@ -1824,6 +1851,12 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 			.num_ihl_offset_eq32 = 0;
 
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.prio = rt_entry->prio;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.max_prio = rt_entry->rule.max_prio;
+
+
 			rule_idx++;
 		}
 
@@ -1855,7 +1888,7 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 	struct ipa3_rt_tbl_set *rt_set;
 	u32 ofst;
 	u32 ofst_words;
-	int ret = 0;
+	int ret = 0, i;
 
 	if (ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables >=
 		TLPD_NUM_MAX_RT_FLT_TBL) {
@@ -1897,9 +1930,10 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 		rt_rule_stats->v6_rt_tbl[tbl_idx].tbl_ref_count = rt_tbl->ref_cnt;
 		rt_rule_stats->v6_rt_tbl[tbl_idx].tbl_name =
 			(uint8_t)ipa_get_rt_tbl_index_from_name(rt_tbl->name);
+		memcpy(rt_rule_stats->v6_rt_tbl[tbl_idx].rt_tbl_name, rt_tbl->name,
+			IPA_RESOURCE_NAME_MAX);
 		rt_rule_stats->v6_rt_tbl[tbl_idx].num_rt_rule =
 			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_rules[tbl_idx];
-
 		rule_idx = 0;
 		list_for_each_entry(rt_entry, &rt_tbl->head_rt_rule_list, link) {
 			if (rule_idx == TLPD_NUM_MAX_RT_FLT_RULE && rule_idx >=
@@ -1907,7 +1941,6 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 				IPA_STATS_ERR("RT6 Rule limit reached\n");
 				goto stats_fail;
 			}
-
 			if (rt_entry->proc_ctx &&
 				(!ipa3_check_idr_if_freed(rt_entry->proc_ctx))) {
 				ofst = rt_entry->proc_ctx->offset_entry->offset;
@@ -1917,17 +1950,22 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 					.start_offset) >> 5 :
 					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS]
 					.start_offset) >> 5;
-
 				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 				.proc_ctx_valid = 1;
 				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 				.offset_words = ofst_words;
 				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
-				.is_in_sram = !rt_entry->hdr->is_lcl;
+				.is_in_sram = !rt_entry->proc_ctx->is_lcl;
+
+				if ((IPA_HDR_PROC_MARK_DSCP == rt_entry->proc_ctx->type) &&
+					rt_entry->proc_ctx->pdn_dscp_params.valid)
+				{
+					rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+					.dscp_mark = rt_entry->proc_ctx->pdn_dscp_params.dscp_val;
+				}
 			} else {
 				if (rt_entry->hdr) ofst = rt_entry->hdr->offset_entry->offset;
 				else ofst = 0;
-
 				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 				.proc_ctx_valid = 0;
 				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
@@ -1951,12 +1989,21 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 			.close_aggr_irq_mode = rt_entry->rule.close_aggr_irq_mod;
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.ttl_update = rt_entry->rule.ttl_update;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.qos_class = rt_entry->rule.qos_class;
+
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.skip_ingress = rt_entry->rule.skip_ingress;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.esp_after_udp = rt_entry->rule.esp_after_udp;
+
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 			.enable_stats = rt_entry->rule.enable_stats;
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].counter_id =
 				rt_entry->rule.cnt_idx;
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].hashable =
 				rt_entry->rule.hashable;
-
 			/* Rule attributes */
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].tc =
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TC) ?
@@ -2038,15 +2085,17 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 					IPA_FLT_EXT_L2TP_UDP_INNER_ETHER_TYPE)) ?
 					rt_entry->rule.attrib.ether_type : 0;
 
-
 			if ((rt_entry->rule.attrib.attrib_mask &
 				IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
 				(rt_entry->rule.attrib.attrib_mask &
 				IPA_FLT_MAC_SRC_ADDR_802_3) ||
 				(rt_entry->rule.attrib.attrib_mask &
 				IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
-				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
-				.src_mac_addr = (uint64_t)rt_entry->rule.attrib.src_mac_addr;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].src_mac_addr |=
+						((uint64_t)rt_entry->rule.attrib.src_mac_addr[i] << (8 * (5 - i)));
+				}
 				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 				.src_mac_addr_mask = (uint64_t)rt_entry->rule.attrib.attrib_mask &
 										(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
@@ -2059,8 +2108,11 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
-				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
-				.dst_mac_addr = (uint64_t)rt_entry->rule.attrib.dst_mac_addr;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].dst_mac_addr |=
+						((uint64_t)rt_entry->rule.attrib.dst_mac_addr[i] << (8 * (5 - i)));
+				}
 				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 				.dst_mac_addr_mask =
 					(uint64_t)rt_entry->rule.attrib.attrib_mask &
@@ -2070,6 +2122,14 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 					IPA_FLT_MAC_DST_ADDR_802_1Q |
 					IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR);
 			}
+
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].meta_data =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_META_DATA) ?
+				rt_entry->rule.attrib.meta_data : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.meta_data_mask =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_META_DATA) ?
+				rt_entry->rule.attrib.meta_data_mask : 0;
 
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 			.l2tp_inner_ip_type =
@@ -2108,6 +2168,11 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 			.num_ihl_offset_eq32 = 0;
 
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.prio = rt_entry->prio;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.max_prio = rt_entry->rule.max_prio;
+
 			rule_idx++;
 		}
 
@@ -2134,7 +2199,7 @@ static int ipa_get_v4_flt_rule_stats(unsigned long arg)
 {
 	struct ipa_lnx_v4_flt_rule_stats *flt_rule_stats;
 	int alloc_size;
-	int i, j;
+	int i, j, s, r;
 	int rule_idx, tbl_idx;
 	struct ipa3_flt_tbl *flt_tbl;
 	struct ipa3_flt_entry *flt_entry;
@@ -2239,9 +2304,16 @@ static int ipa_get_v4_flt_rule_stats(unsigned long arg)
 				flt_entry->rule.pdn_idx;
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].set_metadata =
 				flt_entry->rule.set_metadata;
-
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
 			.close_aggr_irq_mode = flt_entry->rule.close_aggr_irq_mod;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.ttl_update = flt_entry->rule.ttl_update;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.qos_class = flt_entry->rule.qos_class;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.esp_after_udp = flt_entry->rule.esp_after_udp;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.is_flt_hw = 0;
 
 
 			attrib = &flt_entry->rule.attrib;
@@ -2310,11 +2382,16 @@ static int ipa_get_v4_flt_rule_stats(unsigned long arg)
 			if ((attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
-				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.src_mac_addr = (uint64_t)flt_entry->rule.attrib.src_mac_addr;
-				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.src_mac_addr_mask =
-					(uint64_t)flt_entry->rule.attrib.src_mac_addr_mask;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].src_mac_addr |=
+						((uint64_t)flt_entry->rule.attrib.src_mac_addr[i] << (8 * (5 - i)));
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].src_mac_addr_mask |=
+						(uint64_t)attrib->attrib_mask &
+										(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
+										IPA_FLT_MAC_SRC_ADDR_802_3 |
+										IPA_FLT_MAC_SRC_ADDR_802_1Q);
+				}
 			}
 
 			if ((attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
@@ -2322,12 +2399,18 @@ static int ipa_get_v4_flt_rule_stats(unsigned long arg)
 				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
 				(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
-				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.dst_mac_addr =
-					(uint64_t)flt_entry->rule.attrib.dst_mac_addr;
-				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.dst_mac_addr_mask =
-					(uint64_t)flt_entry->rule.attrib.dst_mac_addr_mask;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_mac_addr |=
+						((uint64_t)flt_entry->rule.attrib.dst_mac_addr[i] << (8 * (5 - i)));
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_mac_addr_mask |=
+						(uint64_t)attrib->attrib_mask &
+										(IPA_FLT_MAC_DST_ADDR_ETHER_II |
+										IPA_FLT_MAC_DST_ADDR_802_3 |
+										IPA_FLT_MAC_DST_ADDR_L2TP |
+										IPA_FLT_MAC_DST_ADDR_802_1Q|
+										IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR);
+				}
 			}
 
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
@@ -2358,33 +2441,116 @@ static int ipa_get_v4_flt_rule_stats(unsigned long arg)
 			.l2tp_inner_ip_type =
 				(attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE) ?
 				flt_entry->rule.attrib.type : 0;
-			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_addr =
-				(attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) ?
-				htonl(flt_entry->rule.attrib.u.v4.dst_addr) : 0;
-			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.dst_addr_mask =
-				(attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) ?
-				htonl(flt_entry->rule.attrib.u.v4.dst_addr_mask) : 0;
+
+			if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR)
+			{
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.dst_addr = htonl(flt_entry->rule.attrib.u.v4.dst_addr);
+
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.dst_addr_mask = htonl(flt_entry->rule.attrib.u.v4.dst_addr_mask);
+			}
 
 			/* Attribute equations are currently NULL and can be enabled during flt_hw */
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.is_flt_hw = 0;
+			.num_offset_meq128 = flt_entry->rule.eq_attrib.num_offset_meq_128;
+			for (r = 0; r < flt_entry->rule.eq_attrib.num_offset_meq_128; r++)
+			{
+				for (s = 0; s < 16; s ++)
+				{
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.offset_meq_128[r].value[s] =
+						flt_entry->rule.eq_attrib.offset_meq_128[r].value[s];
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.offset_meq_128[r].mask[s] =
+						flt_entry->rule.eq_attrib.offset_meq_128[r].mask[s];
+				}
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.offset_meq_128[r].offset =
+					flt_entry->rule.eq_attrib.offset_meq_128[r].offset;
+			}
+
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.protocol_eq = 0;
+			.num_offset_meq32 = flt_entry->rule.eq_attrib.num_offset_meq_32;
+			for (r = 0; r < flt_entry->rule.eq_attrib.num_offset_meq_32; r++)
+			{
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.offset_meq32[r].offset = flt_entry->rule.eq_attrib.offset_meq_32[r].offset;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.offset_meq32[r].value = flt_entry->rule.eq_attrib.offset_meq_32[r].value;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.offset_meq32[r].mask = flt_entry->rule.eq_attrib.offset_meq_32[r].mask;
+
+			}
+
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_offset_meq128 = 0;
+			.num_ihl_offset_meq32 = flt_entry->rule.eq_attrib.num_ihl_offset_meq_32;
+			for (r = 0; r < flt_entry->rule.eq_attrib.num_ihl_offset_meq_32; r++)
+			{
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_meq32[r].offset = flt_entry->rule.eq_attrib.ihl_offset_meq_32[r].offset;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_meq32[r].value = flt_entry->rule.eq_attrib.ihl_offset_meq_32[r].value;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_meq32[r].mask = flt_entry->rule.eq_attrib.ihl_offset_meq_32[r].mask;
+
+			}
+
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_offset_meq32 = 0;
+			.is_metadata_meq32_persent = flt_entry->rule.eq_attrib.metadata_meq32_present;
+			for (r = 0; r < flt_entry->rule.eq_attrib.metadata_meq32_present; r++)
+			{
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.metadata_meq32[r].offset = flt_entry->rule.eq_attrib.metadata_meq32.offset;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.metadata_meq32[r].value = flt_entry->rule.eq_attrib.metadata_meq32.value;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.metadata_meq32[r].mask = flt_entry->rule.eq_attrib.metadata_meq32.mask;
+			}
+
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_ihl_offset_meq32 = 0;
+			.num_ihl_offset_range_16 = flt_entry->rule.eq_attrib.num_ihl_offset_range_16;
+			for (r = 0; r < flt_entry->rule.eq_attrib.num_ihl_offset_range_16; r++)
+			{
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_range16[r].offset = flt_entry->rule.eq_attrib.ihl_offset_range_16[r].offset;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_range16[r].range_low = flt_entry->rule.eq_attrib.ihl_offset_range_16[r].range_low;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_range16[r].range_high = flt_entry->rule.eq_attrib.ihl_offset_range_16[r].range_high;
+			}
+
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.is_metadata_meq32_persent = 0;
+			.num_ihl_offset_eq32 = flt_entry->rule.eq_attrib.ihl_offset_eq_32_present;
+			for (r = 0; r < flt_entry->rule.eq_attrib.ihl_offset_eq_32_present; r++)
+			{
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_eq32[r].offset = flt_entry->rule.eq_attrib.ihl_offset_eq_32.offset;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_eq32[r].value = flt_entry->rule.eq_attrib.ihl_offset_eq_32.value;
+			}
+
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_ihl_offset_range_16 = 0;
+			.num_ihl_offset_eq16 = flt_entry->rule.eq_attrib.ihl_offset_eq_16_present;
+			for (r = 0; r < flt_entry->rule.eq_attrib.ihl_offset_eq_16_present; r++)
+			{
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_eq16[r].offset = flt_entry->rule.eq_attrib.ihl_offset_eq_16.offset;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_eq16[r].value = flt_entry->rule.eq_attrib.ihl_offset_eq_16.value;
+			}
+
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_ihl_offset_eq16 = 0;
+			.protocol_eq = flt_entry->rule.eq_attrib.protocol_eq;
+
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_ihl_offset_eq32 = 0;
+			.pure_ack = flt_entry->rule.eq_attrib.tos_eq_present;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.frag_encoding = flt_entry->rule.eq_attrib.is_frag_encoding;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.prio = flt_entry->prio;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.max_prio = flt_entry->rule.max_prio;
 
 			rule_idx++;
 		}
@@ -2415,7 +2581,7 @@ static int ipa_get_v6_flt_rule_stats(unsigned long arg)
 {
 	struct ipa_lnx_v6_flt_rule_stats *flt_rule_stats;
 	int alloc_size;
-	int i, j;
+	int i, j, s, r;
 	int rule_idx, tbl_idx;
 	struct ipa3_flt_tbl *flt_tbl;
 	struct ipa3_flt_entry *flt_entry;
@@ -2525,9 +2691,16 @@ static int ipa_get_v6_flt_rule_stats(unsigned long arg)
 				flt_entry->rule.pdn_idx;
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].set_metadata =
 				flt_entry->rule.set_metadata;
-
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
 			.close_aggr_irq_mode = flt_entry->rule.close_aggr_irq_mod;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.ttl_update = flt_entry->rule.ttl_update;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.qos_class = flt_entry->rule.qos_class;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.esp_after_udp = flt_entry->rule.esp_after_udp;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.is_flt_hw = 0;
 
 
 			attrib = &flt_entry->rule.attrib;
@@ -2604,12 +2777,18 @@ static int ipa_get_v6_flt_rule_stats(unsigned long arg)
 			if ((attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
-				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.src_mac_addr =
-					(uint64_t)flt_entry->rule.attrib.src_mac_addr;
-				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.src_mac_addr_mask =
-					(uint64_t)flt_entry->rule.attrib.src_mac_addr_mask;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.src_mac_addr |=
+						((uint64_t)flt_entry->rule.attrib.src_mac_addr[i] << (8 * (5 - i)));
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.src_mac_addr_mask |=
+						(uint64_t)attrib->attrib_mask &
+										(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
+										IPA_FLT_MAC_SRC_ADDR_802_3 |
+										IPA_FLT_MAC_SRC_ADDR_802_1Q);
+				}
 			}
 
 			if ((attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
@@ -2617,13 +2796,27 @@ static int ipa_get_v6_flt_rule_stats(unsigned long arg)
 				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
 				(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
-				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.dst_mac_addr =
-					(uint64_t)flt_entry->rule.attrib.dst_mac_addr;
-				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-				.dst_mac_addr_mask =
-					(uint64_t)flt_entry->rule.attrib.dst_mac_addr_mask;
+				for (i = 0; i < ETH_ALEN; i++)
+				{
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_mac_addr |=
+						((uint64_t)flt_entry->rule.attrib.dst_mac_addr[i] << (8 * (5 - i)));
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.dst_mac_addr_mask |= (uint64_t)attrib->attrib_mask &
+										(IPA_FLT_MAC_DST_ADDR_ETHER_II |
+										IPA_FLT_MAC_DST_ADDR_802_3 |
+										IPA_FLT_MAC_DST_ADDR_L2TP |
+										IPA_FLT_MAC_DST_ADDR_802_1Q|
+										IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR);
+				}
 			}
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].meta_data =
+				(attrib->attrib_mask & IPA_FLT_META_DATA) ?
+				flt_entry->rule.attrib.meta_data : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.meta_data_mask =
+				(attrib->attrib_mask & IPA_FLT_META_DATA) ?
+				flt_entry->rule.attrib.meta_data_mask : 0;
 
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
 			.payload_length =
@@ -2656,25 +2849,103 @@ static int ipa_get_v6_flt_rule_stats(unsigned long arg)
 				flt_entry->rule.attrib.type : 0;
 
 
-			/* Attribute equations are currently NULL and can be enabled during flt_hw */
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.is_flt_hw = 0;
+			.num_offset_meq128 = flt_entry->rule.eq_attrib.num_offset_meq_128;
+			for (r = 0; r < flt_entry->rule.eq_attrib.num_offset_meq_128; r++)
+			{
+				for (s = 0; s < 16; s ++)
+				{
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+						.offset_meq_128[r].value[s] = flt_entry->rule.eq_attrib.offset_meq_128[r].value[s];
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+						.offset_meq_128[r].mask[s] = flt_entry->rule.eq_attrib.offset_meq_128[r].mask[s];
+				}
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+						.offset_meq_128[r].offset = flt_entry->rule.eq_attrib.offset_meq_128[r].offset;
+			}
+
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.protocol_eq = 0;
+			.num_offset_meq32 = flt_entry->rule.eq_attrib.num_offset_meq_32;
+			for (r = 0; r < flt_entry->rule.eq_attrib.num_offset_meq_32; r++)
+			{
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.offset_meq32[r].offset = flt_entry->rule.eq_attrib.offset_meq_32[r].offset;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.offset_meq32[r].value = flt_entry->rule.eq_attrib.offset_meq_32[r].value;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.offset_meq32[r].mask = flt_entry->rule.eq_attrib.offset_meq_32[r].mask;
+
+			}
+
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_offset_meq128 = 0;
+			.num_ihl_offset_meq32 = flt_entry->rule.eq_attrib.num_ihl_offset_meq_32;
+			for (r = 0; r < flt_entry->rule.eq_attrib.num_ihl_offset_meq_32; r++)
+			{
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_meq32[r].offset = flt_entry->rule.eq_attrib.ihl_offset_meq_32[r].offset;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_meq32[r].value = flt_entry->rule.eq_attrib.ihl_offset_meq_32[r].value;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_meq32[r].mask = flt_entry->rule.eq_attrib.ihl_offset_meq_32[r].mask;
+
+			}
+
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_offset_meq32 = 0;
+			.is_metadata_meq32_persent = flt_entry->rule.eq_attrib.metadata_meq32_present;
+			for (r = 0; r < flt_entry->rule.eq_attrib.metadata_meq32_present; r++)
+			{
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.metadata_meq32[r].offset = flt_entry->rule.eq_attrib.metadata_meq32.offset;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.metadata_meq32[r].value = flt_entry->rule.eq_attrib.metadata_meq32.value;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.metadata_meq32[r].mask = flt_entry->rule.eq_attrib.metadata_meq32.mask;
+			}
+
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_ihl_offset_meq32 = 0;
+			.num_ihl_offset_range_16 = flt_entry->rule.eq_attrib.num_ihl_offset_range_16;
+			for (r = 0; r < flt_entry->rule.eq_attrib.num_ihl_offset_range_16; r++)
+			{
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_range16[r].offset = flt_entry->rule.eq_attrib.ihl_offset_range_16[r].offset;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_range16[r].range_low = flt_entry->rule.eq_attrib.ihl_offset_range_16[r].range_low;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_range16[r].range_high = flt_entry->rule.eq_attrib.ihl_offset_range_16[r].range_high;
+			}
+
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.is_metadata_meq32_persent = 0;
+			.num_ihl_offset_eq32 = flt_entry->rule.eq_attrib.ihl_offset_eq_32_present;
+			for (r = 0; r < flt_entry->rule.eq_attrib.ihl_offset_eq_32_present; r++)
+			{
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_eq32[r].offset = flt_entry->rule.eq_attrib.ihl_offset_eq_32.offset;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_eq32[r].value = flt_entry->rule.eq_attrib.ihl_offset_eq_32.value;
+			}
+
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_ihl_offset_range_16 = 0;
+			.num_ihl_offset_eq16 = flt_entry->rule.eq_attrib.ihl_offset_eq_16_present;
+			for (r = 0; r < flt_entry->rule.eq_attrib.ihl_offset_eq_16_present; r++)
+			{
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_eq16[r].offset = flt_entry->rule.eq_attrib.ihl_offset_eq_16.offset;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.ihl_offset_eq16[r].value = flt_entry->rule.eq_attrib.ihl_offset_eq_16.value;
+			}
+
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_ihl_offset_eq16 = 0;
+			.protocol_eq = flt_entry->rule.eq_attrib.protocol_eq;
+
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
-			.num_ihl_offset_eq32 = 0;
+			.pure_ack = flt_entry->rule.eq_attrib.tos_eq_present;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.frag_encoding = flt_entry->rule.eq_attrib.is_frag_encoding;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.prio = flt_entry->prio;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.max_prio = flt_entry->rule.max_prio;
+
 
 			rule_idx++;
 		}

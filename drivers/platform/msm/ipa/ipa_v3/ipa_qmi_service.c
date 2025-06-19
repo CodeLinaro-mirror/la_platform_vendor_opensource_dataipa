@@ -835,9 +835,22 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 	req.hw_fiter_stats_info_valid = true;
 	req.hw_filter_stats_info.hw_filter_stats_start_addr =
 		IPA_MEM_PART(stats_fnr_ofst);
-	req.hw_filter_stats_info.hw_filter_stats_size = IPA_Q6_FNR_STATS_SIZE;
-	req.hw_filter_stats_info.hw_filter_stats_start_index = IPA_Q6_FNR_START_IDX;
-	req.hw_filter_stats_info.hw_filter_stats_end_index = IPA_Q6_FNR_END_IDX;
+	IPAWANDBG("LAN Stats enabled: %d\n", ipa3_ctx->lan_stats_enabled);
+	if (!ipa3_ctx->lan_stats_enabled) {
+		req.hw_filter_stats_info.hw_filter_stats_size =
+			IPA_Q6_FNR_MAX_STATS_SIZE;
+		req.hw_filter_stats_info.hw_filter_stats_start_index =
+			IPA_Q6_FNR_MAX_START_IDX;
+		req.hw_filter_stats_info.hw_filter_stats_end_index =
+			IPA_Q6_FNR_MAX_END_IDX;
+	} else {
+		req.hw_filter_stats_info.hw_filter_stats_size =
+			IPA_Q6_FNR_STATS_SIZE;
+		req.hw_filter_stats_info.hw_filter_stats_start_index =
+			IPA_Q6_FNR_START_IDX;
+		req.hw_filter_stats_info.hw_filter_stats_end_index =
+			IPA_Q6_FNR_END_IDX;
+	}
 
 	/* Filter id start id information*/
 	req.filter_start_id_valid = 1;
