@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <net/ip.h>
@@ -45,6 +45,11 @@
 #define IPA_V5_0_CLK_RATE_SVS (240 * 1000 * 1000UL)
 #define IPA_V5_0_CLK_RATE_NOMINAL (500 * 1000 * 1000UL)
 #define IPA_V5_0_CLK_RATE_TURBO (600 * 1000 * 1000UL)
+
+#define IPA_V5_5_CLK_RATE_SVS2 (75 * 1000 * 1000UL)
+#define IPA_V5_5_CLK_RATE_SVS (240 * 1000 * 1000UL)
+#define IPA_V5_5_CLK_RATE_NOMINAL (500 * 1000 * 1000UL)
+#define IPA_V5_5_CLK_RATE_TURBO (600 * 1000 * 1000UL)
 
 #define IPA_MAX_HOLB_TMR_VAL (4294967296 - 1)
 
@@ -5680,7 +5685,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_5_5][IPA_CLIENT_APPS_WAN_LOW_LAT_PROD] = {
 			true, IPA_v5_5_GROUP_URLLC,
 			false,
-			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 4, 9, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
 			IPA_TX_INSTANCE_NA },
@@ -10667,7 +10672,12 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 int ipa3_controller_static_bind(struct ipa3_controller *ctrl,
 		enum ipa_hw_type hw_type, u32 ipa_cfg_offset)
 {
-	if (hw_type >= IPA_HW_v5_0) {
+	if (hw_type >= IPA_HW_v5_5) {
+		ctrl->ipa_clk_rate_turbo = IPA_V5_5_CLK_RATE_TURBO;
+		ctrl->ipa_clk_rate_nominal = IPA_V5_5_CLK_RATE_NOMINAL;
+		ctrl->ipa_clk_rate_svs = IPA_V5_5_CLK_RATE_SVS;
+		ctrl->ipa_clk_rate_svs2 = IPA_V5_5_CLK_RATE_SVS2;
+	} else if (hw_type >= IPA_HW_v5_0) {
 		ctrl->ipa_clk_rate_turbo = IPA_V5_0_CLK_RATE_TURBO;
 		ctrl->ipa_clk_rate_nominal = IPA_V5_0_CLK_RATE_NOMINAL;
 		ctrl->ipa_clk_rate_svs = IPA_V5_0_CLK_RATE_SVS;

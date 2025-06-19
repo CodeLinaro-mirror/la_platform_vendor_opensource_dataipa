@@ -3,7 +3,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -2494,7 +2494,8 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		    ((network_header->version == 4 &&
 		     network_header->protocol == IPPROTO_ICMP) ||
 		    (((struct ipv6hdr *)network_header)->version == 6 &&
-		     ((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP))) {
+		     ((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP) ||
+		    (meta && meta->pkt_ex_init_valid))) {
 			ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
 				dst_ep_idx);
@@ -5812,14 +5813,16 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 	bool apps_wan_cons_agg_gro_flag;
 	unsigned long aggr_byte_limit;
 
-	if (in->client == IPA_CLIENT_APPS_CMD_PROD ||
-		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD) {
+	if ((in->client == IPA_CLIENT_APPS_CMD_PROD) ||
+	   ((ipa3_ctx->ipa_hw_type < IPA_HW_v5_5) &&
+	    (in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD ))){
 		sys->policy = IPA_POLICY_INTR_MODE;
 		sys->use_comm_evt_ring = false;
 		return 0;
 	}
 
 	if (in->client == IPA_CLIENT_APPS_WAN_PROD ||
+		 in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) {
 		sys->policy = IPA_POLICY_INTR_MODE;
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
