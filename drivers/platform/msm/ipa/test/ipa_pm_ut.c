@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/ipa.h>
@@ -933,7 +934,7 @@ static int ipa_pm_ut_atomic_activate(void *priv)
 	int hdl, vote;
 	struct callback_param user_data;
 	spinlock_t lock;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	struct ipa_pm_init_params init_params = {
 		.threshold_size = 2,

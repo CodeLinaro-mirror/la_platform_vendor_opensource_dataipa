@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/string.h>
@@ -575,7 +576,7 @@ out:
 static void rmnet_ctl_wakeup_ipa(struct work_struct *work)
 {
 	int ret;
-	unsigned long flags;
+	unsigned long flags = 0;
 	struct sk_buff *skb;
 	int len = 0;
 
@@ -656,7 +657,7 @@ static void apps_rmnet_ctl_tx_complete_notify(void *priv,
 	enum ipa_dp_evt_type evt, unsigned long data)
 {
 	struct sk_buff *skb = (struct sk_buff *)data;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	if (evt != IPA_WRITE_DONE) {
 		IPAERR("unsupported evt on Tx callback, Drop the packet\n");

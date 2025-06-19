@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/atomic.h>
@@ -1310,7 +1311,7 @@ static int rndis_ipa_stop(struct net_device *net)
 {
 	struct rndis_ipa_dev *rndis_ipa_ctx = netdev_priv(net);
 	int next_state;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	RNDIS_IPA_LOG_ENTRY();
 
