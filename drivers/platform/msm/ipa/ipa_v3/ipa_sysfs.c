@@ -1686,7 +1686,7 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		"flow_enable=%u\n"
 		"flow_disable=%u\n"
 		"rx_page_drop_cnt=%u\n"
-		"lower_order=%u\n"
+		"lower_order=%llu\n"
 		"rmnet_notifier_enabled=%u\n"
 		"num_buff_above_thresh_for_def_pipe_notified=%u\n"
 		"num_buff_below_thresh_for_def_pipe_notified=%u\n"
@@ -4533,6 +4533,7 @@ static ssize_t __eth_err_status_show(enum ipa_eth_client_type type, uint8_t inst
 		tx_ep = IPA_CLIENT_AQC_ETHERNET_CONS;
 		rx_ep = IPA_CLIENT_AQC_ETHERNET_PROD;
 		scratch_num = 7;
+		break;
 	case IPA_ETH_CLIENT_RTK8111K:
 	case IPA_ETH_CLIENT_RTK8125B:
 		tx_ep = IPA_CLIENT_RTK_ETHERNET_CONS;
@@ -4543,6 +4544,7 @@ static ssize_t __eth_err_status_show(enum ipa_eth_client_type type, uint8_t inst
 		tx_ep = IPA_CLIENT_ETHERNET_CONS;
 		rx_ep = IPA_CLIENT_ETHERNET_PROD;
 		scratch_num = 6;
+		break;
 #if IPA_ETH_API_VER >= 2
 	case IPA_ETH_CLIENT_NTN3:
 	case IPA_ETH_CLIENT_IEMAC:
@@ -4838,7 +4840,7 @@ const struct attribute_group eth_attr_group = {
 
 static struct kobject *ipa_kobj = NULL;
 
-int ipa_sysfs_init()
+int ipa_sysfs_init(void)
 {
 	int ret = -1;
 
@@ -4871,7 +4873,7 @@ int ipa_sysfs_init()
 	return ret;
 }
 
-void ipa_sysfs_deinit()
+void ipa_sysfs_deinit(void)
 {
 	ipa_sysfs_deinit_stats();
 	ipa3_wigig_fini_sysfs_i();

@@ -241,12 +241,12 @@ static ssize_t ll_stats_show(struct device *dev, struct device_attribute *attr, 
 		"outstanding_pkts=%u\n"
 		"tx_pkt_sent=%u\n"
 		"rx_pkt_rcvd=%u\n"
-		"tx_byte_sent=%lu\n"
-		"rx_byte_rcvd=%lu\n"
+		"tx_byte_sent=%llu\n"
+		"rx_byte_rcvd=%llu\n"
 		"tx_pkt_dropped=%u\n"
 		"rx_pkt_dropped=%u\n"
-		"tx_byte_dropped=%lu\n"
-		"rx_byte_dropped=%lu\n",
+		"tx_byte_dropped=%llu\n"
+		"rx_byte_dropped=%llu\n",
 		skb_queue_len(&rmnet_ll_ipa3_ctx->tx_queue),
 		atomic_read(
 		&rmnet_ll_ipa3_ctx->stats.outstanding_pkts),
@@ -322,7 +322,7 @@ static int rmnet_ll_ipa3_sysfs_init(void)
 	}
 	return ret;
 }
-void rmnet_ll_ipa3_sysfs_destroy()
+void rmnet_ll_ipa3_sysfs_destroy(void)
 {
 	if(rmnet_ll_ipa3_ctx)
 		sysfs_remove_group(kernel_kobj, &ipa_rmnet_11_attr_group);

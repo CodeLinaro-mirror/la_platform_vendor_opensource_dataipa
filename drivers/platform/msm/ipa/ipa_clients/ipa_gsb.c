@@ -291,7 +291,7 @@ const struct attribute_group ipa_gsb_attr_group = {
 	.attrs		= ipa_gsb_attrs,
 };
 
-static int ipa_gsb_sysfs_init()
+static int ipa_gsb_sysfs_init(void)
 {
 	int ret = -1;
 	
@@ -302,7 +302,7 @@ static int ipa_gsb_sysfs_init()
 	return ret;	
 }
 
-static void ipa_gsb_sysfs_destroy()
+static void ipa_gsb_sysfs_destroy(void)
 {
 	sysfs_remove_group(kernel_kobj, &ipa_gsb_attr_group);	
 }
