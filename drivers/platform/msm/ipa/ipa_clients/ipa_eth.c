@@ -313,6 +313,7 @@ static void ipa_eth_ready_notify_work(struct work_struct *work)
 			entry->info->notify(entry->info->userdata);
 		/* remove from list once notify is done */
 		list_del(&entry->link);
+		kfree(entry->info); // free cb
 		kfree(entry);
 	}
 	mutex_unlock(&ipa_eth_ctx->lock);
@@ -321,13 +322,17 @@ static void ipa_eth_ready_notify_work(struct work_struct *work)
 int ipa_eth_register_ready_cb(struct ipa_eth_ready *ready_info)
 {
 	int rc;
-	struct ipa_eth_ready_cb_wrapper *ready_cb;
+	struct ipa_eth_ready_cb_wrapper *ready_cb = NULL;
+	struct ipa_eth_ready *cb = NULL;
 
 	/* validate user input */
 	if (!ready_info) {
 		IPA_ETH_ERR("null ready_info");
 		return -EFAULT;
 	}
+
+	IPA_ETH_DBG("DBG: ETH CB :%p cb:%p udata: %p\n",ready_info,
+			ready_info->notify, ready_info->userdata);
 
 	if (!ipa_eth_ctx) {
 		rc = ipa_eth_init_internal();
@@ -338,14 +343,26 @@ int ipa_eth_register_ready_cb(struct ipa_eth_ready *ready_info)
 		}
 		IPA_ETH_DBG("ipa_eth register ready cb\n");
 		mutex_lock(&ipa_eth_ctx->lock);
-		ready_cb = kmalloc(sizeof(struct ipa_eth_ready_cb_wrapper),
+		ready_cb = kzalloc(sizeof(struct ipa_eth_ready_cb_wrapper),
 			GFP_KERNEL);
 		if (!ready_cb) {
 			mutex_unlock(&ipa_eth_ctx->lock);
 			ipa_eth_cleanup_internal();
 			return -ENOMEM;
 		}
-		ready_cb->info = ready_info;
+		cb = kzalloc(sizeof(struct ipa_eth_ready), GFP_KERNEL);
+		if(NULL == cb) {
+			IPA_ETH_DBG("Error in alloc cb struct\n");
+			kfree(ready_cb);
+			mutex_unlock(&ipa_eth_ctx->lock);
+			ipa_eth_cleanup_internal();
+			return -ENOMEM;
+		}
+		cb->notify = ready_info->notify;
+		cb->userdata = ready_info->userdata;
+
+		ready_cb->info = cb;
+
 		list_add_tail(&ready_cb->link, &ipa_eth_ctx->ready_cb_list);
 		mutex_unlock(&ipa_eth_ctx->lock);
 		/* rely on uC ready callback, only register once */
@@ -358,13 +375,24 @@ int ipa_eth_register_ready_cb(struct ipa_eth_ready *ready_info)
 		/* assume only IOSS could register for cb */
 		IPA_ETH_ERR("multiple eth register happens\n");
 		mutex_lock(&ipa_eth_ctx->lock);
-		ready_cb = kmalloc(sizeof(struct ipa_eth_ready_cb_wrapper),
+		ready_cb = kzalloc(sizeof(struct ipa_eth_ready_cb_wrapper),
 			GFP_KERNEL);
+
 		if (!ready_cb) {
 			mutex_unlock(&ipa_eth_ctx->lock);
 			return -ENOMEM;
 		}
-		ready_cb->info = ready_info;
+		cb = kzalloc(sizeof(struct ipa_eth_ready), GFP_KERNEL);
+		if(NULL == cb) {
+			IPA_ETH_DBG("Error in alloc cb struct\n");
+			kfree(ready_cb);
+			mutex_unlock(&ipa_eth_ctx->lock);
+			return -ENOMEM;
+		}
+		cb->notify = ready_info->notify;
+		cb->userdata = ready_info->userdata;
+
+		ready_cb->info = cb;
 		list_add_tail(&ready_cb->link, &ipa_eth_ctx->ready_cb_list);
 		/* if already ready, directly callback from wq */
 		if (ipa3_uc_loaded_check())
@@ -1632,7 +1660,7 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 
 	/* populate tx prop */
 	if (tx.num_props) {
-		tx_prop = kmalloc(
+		tx_prop = kzalloc(
 			sizeof(*tx_prop) * tx.num_props *
 			IPA_IP_MAX, GFP_KERNEL);
 		if (!tx_prop) {
@@ -1676,7 +1704,7 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 	}
 	/* populate rx prop */
 	if (rx.num_props) {
-		rx_prop = kmalloc(
+		rx_prop = kzalloc(
 			sizeof(*rx_prop) * rx.num_props *
 			IPA_IP_MAX, GFP_KERNEL);
 		if (!rx_prop) {
