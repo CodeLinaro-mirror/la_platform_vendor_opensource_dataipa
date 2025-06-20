@@ -366,7 +366,6 @@ static void ipa3_del_a7_qmap_hdr(void)
 
 	if (rmnet_ipa3_ctx->qmap_hdr_hdl == 0) {
 		IPAWANERR("Invalid hdr_hdl provided\n");
-		WARN_ON((rmnet_ipa3_ctx->qmap_hdr_hdl == 0));
 		return;
 	}
 
