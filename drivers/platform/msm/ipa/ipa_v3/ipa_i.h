@@ -32,6 +32,7 @@
 #include "ipa_qmi_service.h"
 #include "ipahal_reg.h"
 #include "ipahal.h"
+#include "ipahal_nat.h"
 #include "ipahal_fltrt.h"
 #include "ipahal_hw_stats.h"
 #include "ipa_common_i.h"
@@ -3380,6 +3381,73 @@ void start_coalescing( void );
 void stop_coalescing( void );
 bool lan_coal_enabled( void );
 int ipa3_ct_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
+
+
+/*  for sysfs and debugfs */
+#define IPA_MAX_ENTRY_STRING_LEN 500
+#define IPA_MAX_MSG_LEN 4096
+#define IPA_DBG_MAX_RULE_IN_TBL 128
+#define IPA_DBG_ACTIVE_CLIENT_BUF_SIZE ((IPA3_ACTIVE_CLIENTS_LOG_LINE_LEN \
+	* IPA3_ACTIVE_CLIENTS_LOG_BUFFER_SIZE_LINES) + IPA_MAX_MSG_LEN)
+
+#define IPA_DUMP_STATUS_FIELD(f) \
+	pr_err(#f "=0x%x\n", status->f)
+
+#define IPA_READ_ONLY_MODE  0444
+#define IPA_READ_WRITE_MODE 0664
+#define IPA_WRITE_ONLY_MODE 0220
+
+#define IPA_START_READ_MEMORY_SET_MEM_LOC_INFO(ptr, mld_ptr, num_ent_ptr, type_ptr) \
+do { \
+	if ((ptr)->active_table == IPA_NAT_MEM_IN_DDR && (ptr)->ddr_in_use) { \
+		(mld_ptr) = &(ptr)->mem_loc[IPA_NAT_MEM_IN_DDR]; \
+		(num_ent_ptr) = num_ddr_ent_ptr; \
+		(type_ptr) = "DDR based table"; \
+	} \
+	if ((ptr)->active_table == IPA_NAT_MEM_IN_SRAM && (ptr)->sram_in_use) { \
+		(mld_ptr) = &(ptr)->mem_loc[IPA_NAT_MEM_IN_SRAM]; \
+		(num_ent_ptr) = num_sram_ent_ptr; \
+		(type_ptr) = "SRAM based table"; \
+	} \
+} while (0)
+
+#define IPA_PRINT_FINISH_READ_MEMORY_STATS(dev, switch_ddr, switch_sram) \
+do { \
+	if (num_ddr_entries) \
+		pr_err("%s: Overall number of DDR entries: %u\n\n",	(dev)->name, num_ddr_entries); \
+	if (num_sram_entries) \
+		pr_err("%s: Overall number of SRAM entries: %u\n\n", (dev)->name, num_sram_entries); \
+	pr_err("%s: Driver focus changes to DDR(%u) to SRAM(%u)\n", (dev)->name, (switch_ddr), (switch_sram)); \
+} while (0)
+
+void ipa_start_read_memory_device_table_info(
+	const char *type_ptr,
+	const char *dev_name,
+	void *mld_ptr,
+	bool is_ipv6,
+	u32 *num_ent_ptr,
+	u32 rule_id,
+	enum ipahal_nat_type nat_type);
+
+void ipa3_read_table(
+	char *table_addr,
+	u32 table_size,
+	u32 *total_num_entries,
+	u32 *rule_id,
+	enum ipahal_nat_type nat_type);
+
+void ipa3_start_read_memory_device(
+	struct ipa3_nat_ipv6ct_common_mem *dev,
+	enum ipahal_nat_type nat_type,
+	u32 *num_ddr_ent_ptr,
+	u32 *num_sram_ent_ptr);
+
+void ipa3_finish_read_memory_device(
+	struct ipa3_nat_ipv6ct_common_mem *dev,
+	u32 num_ddr_entries,
+	u32 num_sram_entries);
+
+void ipa3_read_pdn_table(void);
 
 /*
  * Messaging
