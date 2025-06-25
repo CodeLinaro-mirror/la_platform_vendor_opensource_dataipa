@@ -1523,8 +1523,8 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 		loff_t *ppos)
 {
-	int i;
-	int j;
+	int i = 0;
+	int j = 0;
 	struct ipa3_flt_tbl *tbl = NULL;
 	struct ipa3_flt_entry *entry = NULL;
 	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
