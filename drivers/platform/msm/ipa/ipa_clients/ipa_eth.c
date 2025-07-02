@@ -295,7 +295,10 @@ static int ipa_eth_uc_rdy_cb(struct notifier_block *nb,
 	unsigned long action, void *data)
 {
 	IPA_ETH_DBG("IPA uC is ready for eth");
-	queue_work(ipa_eth_ctx->wq, &ipa_eth_ready_notify);
+	if (!ipa_eth_ctx)
+		IPA_ETH_ERR("ipa_eth_ctx isn't initialized\n");
+	else
+		queue_work(ipa_eth_ctx->wq, &ipa_eth_ready_notify);
 	return NOTIFY_OK;
 }
 
