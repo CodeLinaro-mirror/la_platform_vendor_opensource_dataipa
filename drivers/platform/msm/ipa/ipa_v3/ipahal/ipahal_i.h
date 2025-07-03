@@ -1,6 +1,7 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #ifndef _IPAHAL_I_H_
@@ -915,7 +916,8 @@ union ipa_pkt_status_hw_v5_0 {
 #define IPA_HDR_UCP_WWAN_TO_ETHII_EX       26
 #define IPA_HDR_UCP_PMIPV6_HEADER_ADD      27
 #define IPA_HDR_UCP_PMIPV6_HEADER_REMOVE   28
-
+#define IPA_HDR_UCP_IPOGRE_HEADER_ADD      39
+#define IPA_HDR_UCP_IPOGRE_HEADER_REMOVE   40
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0
@@ -1186,4 +1188,51 @@ struct ipa_hw_hdr_proc_ctx_remove_gre_hdr_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 
+/**
+ * struct ipa_hw_hdr_proc_ctx_ipogre_add_hdr -
+ * HW structure of IPA processing context - add gre header tlv
+ * @tlv: IPA processing context TLV
+ * @gre_params: gre parameters
+ */
+struct ipa_hw_hdr_proc_ctx_ipogre_add_hdr {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_ipogre_header_add_procparams ipogre_params;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_ipogre_remove_hdr -
+ * HW structure of IPA processing context - remove gre header tlv
+ * @tlv: IPA processing context TLV
+ * @gre_params: gre parameters
+ */
+struct ipa_hw_hdr_proc_ctx_ipogre_remove_hdr {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_ipogre_header_remove_procparams ipogre_params;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_ipogre_hdr_cmd_seq -
+ * IPA processing context header - process command sequence
+ * @hdr_add: add header command
+ * @gre_params: gre params for header addition
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_ipogre_hdr_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_ipogre_add_hdr ipogre_params;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_remove_ipogre_hdr_cmd_seq -
+ * IPA processing context header - process command sequence
+ * @hdr_add: add header command
+ * @gre_params: gre params for header removal
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_remove_ipogre_hdr_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_ipogre_remove_hdr ipogre_params;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
 #endif /* _IPAHAL_I_H_ */

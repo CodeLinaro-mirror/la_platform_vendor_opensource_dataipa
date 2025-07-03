@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #ifdef CONFIG_DEBUG_FS
@@ -105,6 +105,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_DONE_RESTORE_EVENT),
 	__stringify(IPA_SET_EXT_ROUTER_MODE_EVENT),
 	__stringify(IPA_ENABLE_ETH_PDU_MODE_EVENT),
+	__stringify(IPA_IPOGRE_UP_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
@@ -131,6 +132,8 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_WWAN_TO_ETHII_EX),
 	__stringify(IPA_HDR_PROC_GRE_HEADER_ADD),
 	__stringify(IPA_HDR_PROC_GRE_HEADER_REMOVE),
+	__stringify(IPA_HDR_PROC_IPOGRE_HEADER_ADD),
+	__stringify(IPA_HDR_PROC_IPOGRE_HEADER_REMOVE),
 };
 
 static struct dentry *dent;
@@ -1950,7 +1953,8 @@ static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
 	struct Ipa3HwStatsMPLS stats;
 	struct Ipa3HwStatsEOGRE eogre;
 	struct Ipa3HwStatsMultiCombined multi;
-	if (!ipa3_get_eogre_stats(&stats, &eogre, &multi)) {
+	struct Ipa3HwStatsipogreCombined ipogre;
+	if (!ipa3_get_eogre_stats(&stats, &eogre, &multi, &ipogre)) {
 
 		if(ipa3_ctx->eogre_tunnel_feature == UNTAG_FEATURE ||
                   	ipa3_ctx->eogre_tunnel_feature == DEFAULT_FEATURE) {
@@ -1994,6 +1998,26 @@ static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
 			}
 
 		}
+		if(ipa3_ctx->eogre_tunnel_feature == IPOGRE_FEATURE) {
+			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"IPOGRE UL Stats is %llu\n"
+				"IPOGRE DL stats is %llu\n",
+				ipogre.eogre_header_add_id,
+				ipogre.eogre_header_remove_id);
+			cnt += nbytes;
+
+			for(int i = 0;i < MAX_MULTI_IPOGRE_TUNNEL_STATS ;i++) {
+				nbytes = scnprintf(dbg_buff + cnt,
+					IPA_MAX_MSG_LEN - cnt,
+					"Tunnel id %d\n"
+					"IPOGRE UL Stats is %llu\n"
+					"IPOGRE DL stats is %llu\n",
+					i,
+					ipogre.tunnels[i].eogre_header_add_id,
+					ipogre.tunnels[i].eogre_header_remove_id);
+				cnt += nbytes;
+			}
+                }
 	} else {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 				"Fail to read EOGRE stats\n");

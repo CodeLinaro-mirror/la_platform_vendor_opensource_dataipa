@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #include <net/ip.h>
@@ -13875,13 +13875,14 @@ struct sk_buff* qmap_encapsulate_skb(struct sk_buff *skb, const struct qmap_hdr 
 }
 EXPORT_SYMBOL(qmap_encapsulate_skb);
 
-static void ipa3_eogre_info_free_cb(
+static void ipa3_gre_info_free_cb(
 	void *buff,
 	u32   len,
 	u32   type)
 {
 	if (buff) {
 		kfree(buff);
+		buff = NULL;
 	}
 }
 
@@ -14158,11 +14159,58 @@ int ipa3_send_eogre_info(
 	/*
 	 * Post event to ipacm
 	 */
-	res = ipa3_send_msg(&msg_meta, eogre_info, ipa3_eogre_info_free_cb);
+	res = ipa3_send_msg(&msg_meta, eogre_info, ipa3_gre_info_free_cb);
 
 	if (res) {
 		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
 		kfree(eogre_info);
+		goto done;
+	}
+
+done:
+	return res;
+}
+
+/**
+ * ipa3_send_ipogre_info() - Notify ipacm of incoming ipogre event
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note: Should not be called from atomic context
+ */
+int ipa3_send_ipogre_info(enum ipa_ipogre_event etype,
+			  struct ipa_ioc_ipogre_info *info)
+{
+	struct ipa_msg_meta msg_meta;
+	int res = 0;
+	struct ipa_ioc_ipogre_info *ipogre_info;
+	if (!info) {
+		IPAERR("Bad arg: info is NULL\n");
+		res = -EIO;
+		goto done;
+	}
+	ipogre_info = kzalloc(sizeof(struct ipa_ioc_ipogre_info), GFP_KERNEL);
+	if (!ipogre_info) {
+		IPAERR("eogre_info memory allocation failed !\n");
+		res = -ENOMEM;
+		goto done;
+	}
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+
+	msg_meta.msg_type = etype;
+	msg_meta.msg_len = sizeof(struct ipa_ioc_ipogre_info);
+	memcpy(ipogre_info, info, sizeof(struct ipa_ioc_ipogre_info));
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, ipogre_info, ipa3_gre_info_free_cb);
+
+	if (res) {
+		IPAERR("ipa3_send_msg failed: %d\n", res);
+		kfree(ipogre_info);
 		goto done;
 	}
 
