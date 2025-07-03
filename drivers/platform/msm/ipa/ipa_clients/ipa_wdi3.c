@@ -1261,12 +1261,17 @@ int ipa_wdi_opt_dpath_notify_flt_rlsd_per_inst
 		IPA_EVENT_LOG("wdi ctx is not initialized.\n");
 		return -EPERM;
 	}
+	memset(&ind, 0, sizeof(ind));
 
 	if (!atomic_read(&opt_dpath_info[hdl].rsrv_req))
 	{
 		IPAERR("Reservation request not sent. IGNORE");
 		IPA_EVENT_LOG("Reservation request not sent. IGNORE");
-		return 0;
+
+		ind.filter_removal_all_status.result = IPA_QMI_RESULT_SUCCESS_V01;
+		ind.filter_removal_all_status.error = IPA_QMI_ERR_NONE_V01;
+		ret = ipa3_qmi_send_wdi_opt_dpath_rmv_all_flt_ind(&ind);
+		return ret;
 	}
 
 	IPADBG("Is success: %d\n",is_success);
@@ -1278,7 +1283,6 @@ int ipa_wdi_opt_dpath_notify_flt_rlsd_per_inst
 		opt_dpath_info[hdl].ipa_ep_idx_tx);
 	}
 
-	memset(&ind, 0, sizeof(ind));
 	ind.filter_removal_all_status.result =
 		(is_success == true) ? IPA_QMI_RESULT_SUCCESS_V01:IPA_QMI_RESULT_FAILURE_V01;
 	ind.filter_removal_all_status.error = IPA_QMI_ERR_NONE_V01;
@@ -1374,6 +1378,9 @@ int ipa_wdi_opt_dpath_rsrv_filter_req(
 			IPA_WDI_DBG("fail to deactivate ipa pm\n");
 			IPA_EVENT_LOG("fail to deactivate ipa pm\n");
 		}
+		resp->resp.result = IPA_QMI_RESULT_FAILURE_V01;
+		resp->resp.error = IPA_QMI_ERR_INTERNAL_V01;
+		return -EFAULT;
 	}
 
 	resp->resp.result = ret;
