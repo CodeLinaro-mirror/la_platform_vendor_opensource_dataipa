@@ -3,7 +3,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -2377,6 +2377,7 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 	int data_idx;
 	unsigned int max_desc;
 	enum ipa_client_type type;
+	const char *devname = "";
 
 	if (unlikely(!ipa3_ctx)) {
 		IPAERR("IPA3 driver was not initialized\n");
@@ -2430,7 +2431,10 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		goto fail_pipe_not_valid;
 	}
 
-	trace_ipa_tx_dp(skb,sys->ep->client);
+	if (skb && skb->dev)
+		devname = skb->dev->name;
+
+	trace_ipa_tx_dp(skb, devname, sys->ep->client);
 	num_frags = skb_shinfo(skb)->nr_frags;
 	/*
 	 * make sure TLV FIFO supports the needed frags.
@@ -2494,8 +2498,7 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		    ((network_header->version == 4 &&
 		     network_header->protocol == IPPROTO_ICMP) ||
 		    (((struct ipv6hdr *)network_header)->version == 6 &&
-		     ((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP) ||
-		    (meta && meta->pkt_ex_init_valid))) {
+		     ((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP))) {
 			ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
 				dst_ep_idx);
@@ -3941,6 +3944,7 @@ static int ipa3_lan_rx_pyld_hdlr(struct sk_buff *skb,
 	struct ipa3_tx_pkt_wrapper *tx_pkt = NULL;
 	unsigned long ptr;
 	enum ipa_client_type type;
+	const char *devname = "";
 
 	IPA_DUMP_BUFF(skb->data, 0, skb->len);
 
@@ -4043,7 +4047,11 @@ begin:
 			atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
 			type = ipa3_get_client_by_pipe(status.endp_src_idx);
 			IPAERR("Client %s woke up the system\n", ipa_clients_strings[type]);
-			trace_ipa_tx_dp(skb, sys->ep->client);
+
+			if (skb && skb->dev)
+				devname = skb->dev->name;
+
+			trace_ipa_tx_dp(skb, devname, sys->ep->client);
 		}
 		if (sys->status_stat) {
 			sys->status_stat->status[sys->status_stat->curr] =
@@ -5813,16 +5821,14 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 	bool apps_wan_cons_agg_gro_flag;
 	unsigned long aggr_byte_limit;
 
-	if ((in->client == IPA_CLIENT_APPS_CMD_PROD) ||
-	   ((ipa3_ctx->ipa_hw_type < IPA_HW_v5_5) &&
-	    (in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD ))){
+	if (in->client == IPA_CLIENT_APPS_CMD_PROD ||
+		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD) {
 		sys->policy = IPA_POLICY_INTR_MODE;
 		sys->use_comm_evt_ring = false;
 		return 0;
 	}
 
 	if (in->client == IPA_CLIENT_APPS_WAN_PROD ||
-		 in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD ||
 		in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD) {
 		sys->policy = IPA_POLICY_INTR_MODE;
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
