@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/msm_ipa.h>
@@ -261,3 +261,20 @@ fail:
 	return -IPA_QDSS_PIPE_DISCONN_FAILURE;
 }
 EXPORT_SYMBOL(ipa_qdss_disconn_pipes);
+
+static struct ipa_qdss_ops qdss_ops = {
+	ipa_qdss_conn_pipes,
+	ipa_qdss_disconn_pipes,
+};
+
+int ipa3_qdss_init(void)
+{
+	int res;
+	res = ipa_register_ipa_ready_cb(ipa_qdss_ready_callback, (void *)&qdss_ops);
+	if (res < 0) {
+		IPA_QDSS_ERR("failed to register QDSS ops CB\n");
+		return res;
+	}
+	IPA_QDSS_DBG("ipa_qdss_ready_callback registered\n");
+	return 0;
+}

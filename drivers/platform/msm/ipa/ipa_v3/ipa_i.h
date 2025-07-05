@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA3_I_H_
@@ -3741,6 +3741,8 @@ int ipa3_tag_process(struct ipa3_desc *desc, int num_descs,
 
 int ipa3_usb_init(void);
 void ipa3_usb_exit(void);
+
+int ipa3_qdss_init(void);
 
 void ipa3_q6_pre_shutdown_cleanup(void);
 void ipa3_q6_post_shutdown_cleanup(void);
