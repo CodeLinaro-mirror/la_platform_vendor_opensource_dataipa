@@ -1692,6 +1692,8 @@ static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 	{
 		if (ipa3_ctx->get_qos_config.qos_config[i].traffic_class ==
 				qos_param->traffic_class &&
+			ipa3_ctx->get_qos_config.qos_config[i].dir ==
+				qos_param->dir &&
 			ipa3_ctx->get_qos_config.qos_config[i].ip_type ==
 				qos_param->ip_type &&
 			ipa3_ctx->get_qos_config.qos_config[i].src_ip_addr ==
@@ -1731,6 +1733,8 @@ static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 		qos_param->dev_name, sizeof(qos_param->dev_name));
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class =
 		qos_param->traffic_class;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dir =
+		qos_param->dir;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type = qos_param->ip_type;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_ip_addr =
 		qos_param->src_ip_addr;
@@ -1796,6 +1800,8 @@ static int ipa3_delete_qos_params(struct ipa_ioc_qos_config *qos_param)
 	{
 		if (ipa3_ctx->get_qos_config.qos_config[i].traffic_class ==
 				qos_param->traffic_class &&
+			ipa3_ctx->get_qos_config.qos_config[i].dir ==
+				qos_param->dir &&
 			ipa3_ctx->get_qos_config.qos_config[i].ip_type ==
 				qos_param->ip_type &&
 			ipa3_ctx->get_qos_config.qos_config[i].src_ip_addr ==
@@ -1847,6 +1853,8 @@ static int ipa3_delete_qos_params(struct ipa_ioc_qos_config *qos_param)
 				IPA_RESOURCE_NAME_MAX);
 		ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].traffic_class;
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].dir =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dir;
 		ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx+1].ip_type;
 		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_ip_addr =
@@ -1924,6 +1932,8 @@ static int ipa3_get_qos_params(struct ipa_ioc_get_qos_config *get_qos_param)
 			sizeof(get_qos_param->qos_config[cur_idx].dev_name));
 		get_qos_param->qos_config[cur_idx].traffic_class =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class;
+		get_qos_param->qos_config[cur_idx].dir =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dir;
 		get_qos_param->qos_config[cur_idx].ip_type =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type;
 		get_qos_param->qos_config[cur_idx].src_ip_addr =
