@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  */
 
@@ -169,17 +169,24 @@ wq_err:
 
 static int ipa_eth_cleanup_internal(void)
 {
-	struct ipa_eth_intf *entry;
-	struct ipa_eth_intf *next;
+	struct ipa_eth_intf *entry = NULL;
+	struct ipa_eth_intf *next = NULL;
 
 	/* already deinitialized */
 	if (!ipa_eth_ctx)
 		return 0;
 	/* clear interface list */
-	list_for_each_entry_safe(entry, next,
-		&ipa_eth_ctx->head_intf_list, link) {
-		list_del(&entry->link);
-		kfree(entry);
+	if(list_empty(&ipa_eth_ctx->head_intf_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe(entry, next,
+				&ipa_eth_ctx->head_intf_list, link) {
+			list_del(&entry->link);
+			kfree(entry);
+		}
 	}
 	mutex_destroy(&ipa_eth_ctx->lock);
 	destroy_workqueue(ipa_eth_ctx->wq);
@@ -658,7 +665,7 @@ static int ipa_eth_pm_deregister(struct ipa_eth_client *client)
 
 static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 {
-	struct ipa_eth_client_pipe_info *pipe;
+	struct ipa_eth_client_pipe_info *pipe = NULL;
 	int rc;
 	int client_type, inst_id, traff_type, ep_idx, rx_idx = 0, tx_idx = 0;
 	struct ipa_endp_desc_indication_msg_v01 req;
@@ -694,42 +701,49 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 		mutex_unlock(&ipa_eth_ctx->lock);
 		return -EFAULT;
 	}
-	list_for_each_entry(pipe, &client->pipe_list,
-		link) {
-		rc = ipa_eth_client_connect_pipe(pipe);
-		if (rc) {
-			IPA_ETH_ERR("pipe connect fails\n");
-			ipa_assert();
-		}
-
-		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
-		{
-			//populate the QMI
-			ipa_client = ipa_eth_get_ipa_client_type_from_pipe(pipe);
-			ep_idx = ipa_get_ep_mapping(ipa_client);
-
-			/* NOTE: Only support single NIC for eth_pdu */
-			if ((IPA_CLIENT_IS_PROD(ipa_client) && tx_idx) && (IPA_CLIENT_IS_CONS(ipa_client) && rx_idx)) {
-				IPAERR("QMI already set for ETH PDU tx id:%d rx id:%d\n",tx_idx, rx_idx);
-				continue;
+	if(list_empty(&client->pipe_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry(pipe, &client->pipe_list,
+				link) {
+			rc = ipa_eth_client_connect_pipe(pipe);
+			if (rc) {
+				IPA_ETH_ERR("pipe connect fails\n");
+				ipa_assert();
 			}
-			req.ep_info_len++;
-			req.ep_info_valid = true;
-			req.num_eps_valid = true;
-			req.num_eps++;
-			ep_info = &req.ep_info[req.ep_info_len - 1];
-			ep_info->ep_id = ep_idx;
-			ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
 
-			if (IPA_CLIENT_IS_PROD(ipa_client)) {
-				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
-				rx_idx = ep_idx;
+			if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
+			{
+				//populate the QMI
+				ipa_client = ipa_eth_get_ipa_client_type_from_pipe(pipe);
+				ep_idx = ipa_get_ep_mapping(ipa_client);
+
+				/* NOTE: Only support single NIC for eth_pdu */
+				if ((IPA_CLIENT_IS_PROD(ipa_client) && tx_idx) && (IPA_CLIENT_IS_CONS(ipa_client) && rx_idx)) {
+					IPAERR("QMI already set for ETH PDU tx id:%d rx id:%d\n",tx_idx, rx_idx);
+					continue;
+				}
+				req.ep_info_len++;
+				req.ep_info_valid = true;
+				req.num_eps_valid = true;
+				req.num_eps++;
+				ep_info = &req.ep_info[req.ep_info_len - 1];
+				ep_info->ep_id = ep_idx;
+				ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+
+				if (IPA_CLIENT_IS_PROD(ipa_client)) {
+					ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
+					rx_idx = ep_idx;
+				}
+				else if (IPA_CLIENT_IS_CONS(ipa_client)) {
+					ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
+					tx_idx = ep_idx;
+				}
+				ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
 			}
-			else if (IPA_CLIENT_IS_CONS(ipa_client)) {
-				ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
-				tx_idx = ep_idx;
-			}
-			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
 		}
 	}
 	if (!ipa_eth_ctx->client[client_type][inst_id].existed) {

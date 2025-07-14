@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/of.h>
@@ -820,7 +820,7 @@ static void gsi_handle_ieob(int ee)
 	uint64_t rp;
 	struct gsi_evt_ctx *ctx;
 	struct gsi_chan_xfer_notify notify;
-	unsigned long flags;
+	unsigned long flags = 0;
 	unsigned long cntr;
 	uint32_t msk;
 	bool empty;
@@ -1126,7 +1126,7 @@ static irqreturn_t gsi_msi_isr(int irq, void *ctxt)
 	int ee = gsi_ctx->per.ee;
 	uint64_t rp;
 	struct gsi_chan_xfer_notify notify;
-	unsigned long flags;
+	unsigned long flags = 0;
 	unsigned long cntr;
 	bool empty;
 	uint8_t evt;

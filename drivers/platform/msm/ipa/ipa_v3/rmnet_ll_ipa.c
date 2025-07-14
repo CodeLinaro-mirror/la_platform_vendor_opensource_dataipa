@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -632,7 +633,7 @@ int ipa3_rmnet_ll_xmit(struct sk_buff *skb)
 {
 	int ret;
 	int len, free_desc = 0;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	if (!ipa3_ctx->rmnet_ll_enable) {
 		IPAERR("low lat data pipe not supported\n");
@@ -761,8 +762,8 @@ out:
 static void rmnet_ll_wakeup_ipa(struct work_struct *work)
 {
 	int ret;
-	unsigned long flags;
-	struct sk_buff *skb;
+	unsigned long flags = 0;
+	struct sk_buff *skb = NULL;
 	int len = 0;
 
 	/* calling from WQ */
@@ -842,7 +843,7 @@ static void apps_rmnet_ll_tx_complete_notify(void *priv,
 	enum ipa_dp_evt_type evt, unsigned long data)
 {
 	struct sk_buff *skb = (struct sk_buff *)data;
-	unsigned long flags;
+	unsigned long flags = 0;
 	u32 pending_credits = 0;
 
 	if (evt != IPA_WRITE_DONE) {

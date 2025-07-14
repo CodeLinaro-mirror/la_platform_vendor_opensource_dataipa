@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  */
 
@@ -548,7 +547,7 @@ int ipa3_active_clients_log_print_buffer(char *buf, int size)
 	int cnt = 0;
 	int start_idx;
 	int end_idx;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	spin_lock_irqsave(&ipa3_ctx->ipa3_active_clients_logging.lock, flags);
 	start_idx = (ipa3_ctx->ipa3_active_clients_logging.log_tail + 1) %
@@ -570,38 +569,46 @@ int ipa3_active_clients_log_print_buffer(char *buf, int size)
 int ipa3_active_clients_log_print_table(char *buf, int size)
 {
 	int i;
-	struct ipa3_active_client_htable_entry *iterator;
+	struct ipa3_active_client_htable_entry *iterator = NULL;
 	int cnt = 0;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	spin_lock_irqsave(&ipa3_ctx->ipa3_active_clients_logging.lock, flags);
 	cnt = scnprintf(buf, size, "\n---- Active Clients Table ----\n");
-	hash_for_each(ipa3_ctx->ipa3_active_clients_logging.htable, i,
-			iterator, list) {
-		switch (iterator->type) {
-		case IPA3_ACTIVE_CLIENT_LOG_TYPE_EP:
-			cnt += scnprintf(buf + cnt, size - cnt,
-					"%-40s %-3d ENDPOINT\n",
-					iterator->id_string, iterator->count);
-			break;
-		case IPA3_ACTIVE_CLIENT_LOG_TYPE_SIMPLE:
-			cnt += scnprintf(buf + cnt, size - cnt,
-					"%-40s %-3d SIMPLE\n",
-					iterator->id_string, iterator->count);
-			break;
-		case IPA3_ACTIVE_CLIENT_LOG_TYPE_RESOURCE:
-			cnt += scnprintf(buf + cnt, size - cnt,
-					"%-40s %-3d RESOURCE\n",
-					iterator->id_string, iterator->count);
-			break;
-		case IPA3_ACTIVE_CLIENT_LOG_TYPE_SPECIAL:
-			cnt += scnprintf(buf + cnt, size - cnt,
-					"%-40s %-3d SPECIAL\n",
-					iterator->id_string, iterator->count);
-			break;
-		default:
-			IPAERR("Trying to print illegal active_clients type");
-			break;
+
+	if(hash_empty(ipa3_ctx->ipa3_active_clients_logging.htable))
+	{
+		IPAERR("Hash Table is empty\n");
+	}
+	else
+	{
+		hash_for_each(ipa3_ctx->ipa3_active_clients_logging.htable, i,
+				iterator, list) {
+			switch (iterator->type) {
+				case IPA3_ACTIVE_CLIENT_LOG_TYPE_EP:
+					cnt += scnprintf(buf + cnt, size - cnt,
+							"%-40s %-3d ENDPOINT\n",
+							iterator->id_string, iterator->count);
+					break;
+				case IPA3_ACTIVE_CLIENT_LOG_TYPE_SIMPLE:
+					cnt += scnprintf(buf + cnt, size - cnt,
+							"%-40s %-3d SIMPLE\n",
+							iterator->id_string, iterator->count);
+					break;
+				case IPA3_ACTIVE_CLIENT_LOG_TYPE_RESOURCE:
+					cnt += scnprintf(buf + cnt, size - cnt,
+							"%-40s %-3d RESOURCE\n",
+							iterator->id_string, iterator->count);
+					break;
+				case IPA3_ACTIVE_CLIENT_LOG_TYPE_SPECIAL:
+					cnt += scnprintf(buf + cnt, size - cnt,
+							"%-40s %-3d SPECIAL\n",
+							iterator->id_string, iterator->count);
+					break;
+				default:
+					IPAERR("Trying to print illegal active_clients type");
+					break;
+			}
 		}
 	}
 	cnt += scnprintf(buf + cnt, size - cnt,
@@ -733,7 +740,7 @@ bail:
 
 void ipa3_active_clients_log_clear(void)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	spin_lock_irqsave(&ipa3_ctx->ipa3_active_clients_logging.lock, flags);
 	ipa3_ctx->ipa3_active_clients_logging.log_head = 0;
@@ -745,7 +752,7 @@ void ipa3_active_clients_log_clear(void)
 
 static void ipa3_active_clients_log_destroy(void)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	spin_lock_irqsave(&ipa3_ctx->ipa3_active_clients_logging.lock, flags);
 	ipa3_ctx->ipa3_active_clients_logging.log_rdy = false;
@@ -6922,7 +6929,7 @@ void ipa3_dec_client_disable_clks_delay_wq(
  */
 void ipa3_inc_acquire_wakelock(void)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	spin_lock_irqsave(&ipa3_ctx->wakelock_ref_cnt.spinlock, flags);
 	ipa3_ctx->wakelock_ref_cnt.cnt++;

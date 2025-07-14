@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -3839,7 +3839,7 @@ static int ipa3_wwan_register_netdev_pm_client(struct net_device *dev)
 	struct ipa_pm_register_params pm_reg;
 
 	memset(&pm_reg, 0, sizeof(pm_reg));
-	pm_reg.name = IPA_NETDEV()->name;
+	pm_reg.name = (NULL == IPA_NETDEV()) ? NULL : IPA_NETDEV()->name;
 	pm_reg.user_data = dev;
 	pm_reg.callback = ipa_pm_wwan_pm_cb;
 	pm_reg.group = IPA_PM_GROUP_APPS;
@@ -3849,7 +3849,8 @@ static int ipa3_wwan_register_netdev_pm_client(struct net_device *dev)
 		return result;
 	}
 
-	IPAWANERR("%s register done\n", pm_reg.name);
+	if(pm_reg.name)
+		IPAWANERR("%s register done\n", pm_reg.name);
 
 	return 0;
 }
@@ -4187,7 +4188,7 @@ static int rmnet_ipa_ap_suspend(struct device *dev)
 	struct net_device *netdev = IPA_NETDEV();
 	struct ipa3_wwan_private *wwan_ptr;
 	int ret;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	IPAWANDBG("Enter...\n");
 

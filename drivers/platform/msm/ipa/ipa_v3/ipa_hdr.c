@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -81,50 +81,57 @@ static int ipa3_hdr_proc_ctx_to_hw_format(struct ipa_mem_buffer *mem,
 			ipa3_ctx->smem_restricted_bytes / 4) +
 		IPA_MEM_PART(apps_hdr_ofst);
 
-	list_for_each_entry(entry,
-			&ipa3_ctx->hdr_proc_ctx_tbl.head_proc_ctx_entry_list,
-			link) {
-		IPADBG_LOW("processing type %d ofst=%d\n",
-			entry->type, entry->offset_entry->offset);
+	if(list_empty(&ipa3_ctx->hdr_proc_ctx_tbl.head_proc_ctx_entry_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry(entry,
+				&ipa3_ctx->hdr_proc_ctx_tbl.head_proc_ctx_entry_list,
+				link) {
+			IPADBG_LOW("processing type %d ofst=%d\n",
+					entry->type, entry->offset_entry->offset);
 
-		if (entry->l2tp_params.is_dst_pipe_valid) {
-			ep = ipa3_get_ep_mapping(entry->l2tp_params.dst_pipe);
+			if (entry->l2tp_params.is_dst_pipe_valid) {
+				ep = ipa3_get_ep_mapping(entry->l2tp_params.dst_pipe);
 
-			if (ep >= 0) {
-				cfg_ptr = &ipa3_ctx->ep[ep].cfg;
-				l2p_hdr_rm_ptr =
-					&entry->l2tp_params.hdr_remove_param;
-				l2p_hdr_rm_ptr->hdr_ofst_pkt_size_valid =
-					cfg_ptr->hdr.hdr_ofst_pkt_size_valid;
-				l2p_hdr_rm_ptr->hdr_ofst_pkt_size =
-					cfg_ptr->hdr.hdr_ofst_pkt_size;
-				l2p_hdr_rm_ptr->hdr_endianness =
-					cfg_ptr->hdr_ext.hdr_little_endian ?
-					0 : 1;
+				if (ep >= 0) {
+					cfg_ptr = &ipa3_ctx->ep[ep].cfg;
+					l2p_hdr_rm_ptr =
+						&entry->l2tp_params.hdr_remove_param;
+					l2p_hdr_rm_ptr->hdr_ofst_pkt_size_valid =
+						cfg_ptr->hdr.hdr_ofst_pkt_size_valid;
+					l2p_hdr_rm_ptr->hdr_ofst_pkt_size =
+						cfg_ptr->hdr.hdr_ofst_pkt_size;
+					l2p_hdr_rm_ptr->hdr_endianness =
+						cfg_ptr->hdr_ext.hdr_little_endian ?
+						0 : 1;
+				}
 			}
-		}
 
-		/* Check the pointer and header length to avoid dangerous overflow in HW */
-		if (unlikely(!entry->hdr || !entry->hdr->offset_entry ||
-			!entry->offset_entry ||
-			entry->hdr->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1])) {
-			IPAERR_RL("Found invalid hdr entry\n");
-			return -EINVAL;
-		}
+			/* Check the pointer and header length to avoid dangerous overflow in HW */
+			if (unlikely(!entry->hdr || !entry->hdr->offset_entry ||
+						!entry->offset_entry ||
+						entry->hdr->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1])) {
+				IPAERR_RL("Found invalid hdr entry\n");
+				return -EINVAL;
+			}
 
-		ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
-				entry->offset_entry->offset,
-				entry->hdr->hdr_len,
-				(entry->hdr->is_lcl) ? hdr_lcl_addr : hdr_sys_addr,
-				entry->hdr->offset_entry,
-				&entry->l2tp_params,
-				&entry->eogre_params,
-				&entry->gre_params,
-				&entry->generic_params,
-				&entry->generic_params_v2,
-				ipa3_ctx->use_64_bit_dma_mask);
-		if (ret)
-			return ret;
+			ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
+					entry->offset_entry->offset,
+					entry->hdr->hdr_len,
+					(entry->hdr->is_lcl) ? hdr_lcl_addr : hdr_sys_addr,
+					entry->hdr->offset_entry,
+					&entry->l2tp_params,
+					&entry->eogre_params,
+					&entry->gre_params,
+					&entry->generic_params,
+					&entry->generic_params_v2,
+					ipa3_ctx->use_64_bit_dma_mask);
+			if (ret)
+				return ret;
+		}
 	}
 
 	return 0;
@@ -820,6 +827,8 @@ static int __ipa_add_hpc_hdr_insertion(struct ipa_hdr_add *hdr, bool user)
 	if (__ipa_add_hdr(hdr, user, &entry))
 		goto error;
 
+	if(NULL == entry)
+		goto error;
 	IPADBG("adding processing context for header %s\n", hdr->name);
 	proc_ctx.type = IPA_HDR_PROC_NONE;
 	proc_ctx.hdr_hdl = hdr->hdr_hdl;

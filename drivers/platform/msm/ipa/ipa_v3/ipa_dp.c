@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/delay.h>
@@ -2718,21 +2718,29 @@ static struct ipa3_rx_pkt_wrapper * ipa3_get_free_page
 	u8 LOOP_THRESHOLD = ipa3_ctx->page_poll_threshold;
 
 	spin_lock_bh(&sys->common_sys->spinlock);
-	list_for_each_entry_safe(rx_pkt, tmp,
-		&sys->page_recycle_repl->page_repl_head, link) {
-		if (i == LOOP_THRESHOLD)
-			break;
-		cur_page = rx_pkt->page_data.page;
-		if (page_ref_count(cur_page) == 1) {
-			/* Found a free page. */
-			page_ref_inc(cur_page);
-			list_del_init(&rx_pkt->link);
-			++ipa3_ctx->stats.page_recycle_cnt[stats_i][i];
-			sys->common_sys->napi_sort_page_thrshld_cnt = 0;
-			spin_unlock_bh(&sys->common_sys->spinlock);
-			return rx_pkt;
+
+	if(list_empty(&sys->page_recycle_repl->page_repl_head))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe(rx_pkt, tmp,
+				&sys->page_recycle_repl->page_repl_head, link) {
+			if (i == LOOP_THRESHOLD)
+				break;
+			cur_page = rx_pkt->page_data.page;
+			if (page_ref_count(cur_page) == 1) {
+				/* Found a free page. */
+				page_ref_inc(cur_page);
+				list_del_init(&rx_pkt->link);
+				++ipa3_ctx->stats.page_recycle_cnt[stats_i][i];
+				sys->common_sys->napi_sort_page_thrshld_cnt = 0;
+				spin_unlock_bh(&sys->common_sys->spinlock);
+				return rx_pkt;
+			}
+			i++;
 		}
-		i++;
 	}
 	spin_unlock_bh(&sys->common_sys->spinlock);
 	IPADBG_LOW("napi_sort_page_thrshld_cnt = %d ipa_max_napi_sort_page_thrshld = %d\n",
@@ -2955,7 +2963,7 @@ static void ipa3_replenish_rx_page_recycle(struct ipa3_sys_context *sys)
 static void ipa3_replenish_wlan_rx_cache(struct ipa3_sys_context *sys)
 {
 	struct ipa3_rx_pkt_wrapper *rx_pkt = NULL;
-	struct ipa3_rx_pkt_wrapper *tmp;
+	struct ipa3_rx_pkt_wrapper *tmp = NULL;
 	int ret;
 	struct gsi_xfer_elem gsi_xfer_elem_one;
 	u32 rx_len_cached = 0;
@@ -2966,39 +2974,46 @@ static void ipa3_replenish_wlan_rx_cache(struct ipa3_sys_context *sys)
 	rx_len_cached = sys->len;
 
 	if (rx_len_cached < sys->rx_pool_sz) {
-		list_for_each_entry_safe(rx_pkt, tmp,
-			&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
-			list_del(&rx_pkt->link);
+		if(list_empty(&ipa3_ctx->wc_memb.wlan_comm_desc_list))
+		{
+			IPAERR("List is empty\n");
+		}
+		else
+		{
+			list_for_each_entry_safe(rx_pkt, tmp,
+					&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
+				list_del(&rx_pkt->link);
 
-			if (ipa3_ctx->wc_memb.wlan_comm_free_cnt > 0)
-				ipa3_ctx->wc_memb.wlan_comm_free_cnt--;
+				if (ipa3_ctx->wc_memb.wlan_comm_free_cnt > 0)
+					ipa3_ctx->wc_memb.wlan_comm_free_cnt--;
 
-			rx_pkt->len = 0;
-			rx_pkt->sys = sys;
+				rx_pkt->len = 0;
+				rx_pkt->sys = sys;
 
-			memset(&gsi_xfer_elem_one, 0,
-				sizeof(gsi_xfer_elem_one));
-			gsi_xfer_elem_one.addr = rx_pkt->data.dma_addr;
-			gsi_xfer_elem_one.len = IPA_WLAN_RX_BUFF_SZ;
-			gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOT;
-			gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOB;
-			gsi_xfer_elem_one.type = GSI_XFER_ELEM_DATA;
-			gsi_xfer_elem_one.xfer_user_data = rx_pkt;
+				memset(&gsi_xfer_elem_one, 0,
+						sizeof(gsi_xfer_elem_one));
+				gsi_xfer_elem_one.addr = rx_pkt->data.dma_addr;
+				gsi_xfer_elem_one.len = IPA_WLAN_RX_BUFF_SZ;
+				gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOT;
+				gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOB;
+				gsi_xfer_elem_one.type = GSI_XFER_ELEM_DATA;
+				gsi_xfer_elem_one.xfer_user_data = rx_pkt;
 
-			ret = gsi_queue_xfer(sys->ep->gsi_chan_hdl, 1,
-				&gsi_xfer_elem_one, true);
+				ret = gsi_queue_xfer(sys->ep->gsi_chan_hdl, 1,
+						&gsi_xfer_elem_one, true);
 
-			if (ret) {
-				IPAERR("failed to provide buffer: %d\n", ret);
-				goto fail_provide_rx_buffer;
-			}
+				if (ret) {
+					IPAERR("failed to provide buffer: %d\n", ret);
+					goto fail_provide_rx_buffer;
+				}
 
-			rx_len_cached = ++sys->len;
+				rx_len_cached = ++sys->len;
 
-			if (rx_len_cached >= sys->rx_pool_sz) {
-				spin_unlock_bh(
-					&ipa3_ctx->wc_memb.wlan_spinlock);
-				return;
+				if (rx_len_cached >= sys->rx_pool_sz) {
+					spin_unlock_bh(
+							&ipa3_ctx->wc_memb.wlan_spinlock);
+					return;
+				}
 			}
 		}
 	}
@@ -3605,8 +3620,8 @@ static void free_rx_page(void *chan_user_data, void *xfer_user_data)
  */
 static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 {
-	struct ipa3_rx_pkt_wrapper *rx_pkt;
-	struct ipa3_rx_pkt_wrapper *r;
+	struct ipa3_rx_pkt_wrapper *rx_pkt = NULL;
+	struct ipa3_rx_pkt_wrapper *r = NULL;
 	u32 head;
 	u32 tail;
 	struct device *dev;
@@ -3624,16 +3639,23 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 		return;
 	}
 	spin_lock_bh(&sys->spinlock);
-	list_for_each_entry_safe(rx_pkt, r,
-				 &sys->rcycl_list, link) {
-		list_del(&rx_pkt->link);
-		if (rx_pkt->data.dma_addr)
-			dma_unmap_single(dev, rx_pkt->data.dma_addr,
-				sys->rx_buff_sz, DMA_FROM_DEVICE);
-		else
-			IPADBG("DMA address already freed\n");
-		sys->free_skb(rx_pkt->data.skb);
-		kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
+	if(list_empty(&sys->rcycl_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe(rx_pkt, r,
+				&sys->rcycl_list, link) {
+			list_del(&rx_pkt->link);
+			if (rx_pkt->data.dma_addr)
+				dma_unmap_single(dev, rx_pkt->data.dma_addr,
+						sys->rx_buff_sz, DMA_FROM_DEVICE);
+			else
+				IPADBG("DMA address already freed\n");
+			sys->free_skb(rx_pkt->data.skb);
+			kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
+		}
 	}
 	spin_unlock_bh(&sys->spinlock);
 
