@@ -1,16 +1,7 @@
 /*
  * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
- * Copyright Qualcomm Innovation Center, Inc. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/interrupt.h>
@@ -517,7 +508,9 @@ int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
 				client_idx < IPA_CLIENT_MAX;
 				client_idx++) {
 				if (IPA_CLIENT_IS_Q6_CONS(client_idx) ||
-					IPA_CLIENT_IS_Q6_PROD(client_idx)) {
+					IPA_CLIENT_IS_Q6_PROD(client_idx) ||
+					(client_idx == IPA_CLIENT_ETHERNET_CONS) ||
+					(client_idx == IPA_CLIENT_ETHERNET2_CONS)) {
 					ep_idx = ipa3_get_ep_mapping(client_idx);
 					IPADBG(
 						"modem ep_idx(%d) client_idx = %d\n"
