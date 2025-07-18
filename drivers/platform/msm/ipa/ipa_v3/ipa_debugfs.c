@@ -749,12 +749,7 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "Used offsets: ");
 		for (i = 0; i < IPA_HDR_BIN_MAX; i++){
 			offset_count = 0;
-
-			if(list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i]))
-			{
-				IPAERR("List is empty\n");
-			}
-			else
+			if(!list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i]))
 			{
 				list_for_each_entry(offset_entry,
 						&ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i],
@@ -773,12 +768,7 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "Free offsets: ");
 		for (i = 0; i < IPA_HDR_BIN_MAX; i++){
 			offset_count = 0;
-
-			if(list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i]))
-			{
-				IPAERR("List is empty\n");
-			}
-			else
+			if(!list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i]))
 			{
 				list_for_each_entry(offset_entry,
 						&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i],
@@ -794,11 +784,7 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 		}
 		pr_err("%s", dbg_buff);
 
-		if(list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list))
-		{
-			IPAERR("List is empty\n");
-		}
-		else
+		if(!list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list))
 		{
 			list_for_each_entry(entry, &ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list,
 					link) {
@@ -1318,11 +1304,7 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 	else
 		pr_info("Table resides on system(ddr) memory\n");
 
-	if(list_empty(&tbl->head_proc_ctx_entry_list))
-	{
-		IPAERR("List is empty\n");
-	}
-	else
+	if(!list_empty(&tbl->head_proc_ctx_entry_list))
 	{
 		list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
 			ofst_words = (entry->offset_entry->offset +
@@ -1395,11 +1377,7 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 		if (!ipa_is_ep_support_flt(j))
 			continue;
 		tbl = &ipa3_ctx->flt_tbl[j][ip];
-		if(list_empty(&tbl->head_flt_rule_list))
-		{
-			IPAERR("List is empty\n");
-		}
-		else
+		if(!list_empty(&tbl->head_flt_rule_list))
 		{
 			i = 0;
 			list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
