@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #include "ipa_i.h"
@@ -51,6 +51,13 @@ alloc:
 	list_for_each_entry(entry, &ipa3_ctx->hdr_tbl[loc].head_hdr_entry_list, link) {
 		IPADBG_LOW("hdr of len %d ofst=%d\n", entry->hdr_len,
 				entry->offset_entry->offset);
+		/* Safety check for pointer and header length to avoid dangerous overflow in HW */
+		if (unlikely(!entry->offset_entry ||
+			entry->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1])) {
+			IPAERR_RL("Invalid hdr entry\n");
+			return -EINVAL;
+		}
+
 		ipahal_cp_hdr_to_hw_buff(mem->base, entry->offset_entry->offset,
 				entry->hdr, entry->hdr_len);
 	}
@@ -113,6 +120,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(struct ipa_mem_buffer *mem,
 				&entry->l2tp_params,
 				&entry->eogre_params,
 				&entry->gre_params,
+				&entry->ipogre_params,
 				&entry->generic_params,
 				&entry->generic_params_v2,
 				ipa3_ctx->use_64_bit_dma_mask);
@@ -472,6 +480,7 @@ static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
 	entry->l2tp_params = proc_ctx->l2tp_params;
 	entry->eogre_params = proc_ctx->eogre_params;
 	entry->gre_params = proc_ctx->gre_params;
+	entry->ipogre_params = proc_ctx->ipogre_params;
 	entry->generic_params = proc_ctx->generic_params;
 	entry->generic_params_v2 = proc_ctx->generic_params_v2;
 	if (add_ref_hdr)

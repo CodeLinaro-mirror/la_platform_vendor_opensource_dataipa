@@ -1,8 +1,7 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #ifndef _IPA3_I_H_
@@ -98,6 +97,8 @@
 #define IPA_MPM_MAX_RING_LEN 64
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
+
+#define IPOGRE_FEATURE 0x04
 
 /* ULSO Constants */
 enum {
@@ -406,6 +407,7 @@ enum {
 #define IPA_GSI_CHANNEL_HALT_MAX_TRY 10
 
 #define MAX_MULTI_TUNNEL_STATS 4
+#define MAX_MULTI_IPOGRE_TUNNEL_STATS 2
 /* round addresses for closes page per SMMU requirements */
 #define IPA_SMMU_ROUND_TO_PAGE(iova, pa, size, iova_p, pa_p, size_p) \
 	do { \
@@ -564,6 +566,9 @@ enum {
 				compat_uptr_t)
 #define IPA_IOC_DEL_EoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_DEL_EoGRE_MAPPING, \
+				compat_uptr_t)
+#define IPA_IOC_ADD_IPoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_ADD_IPoGRE_MAPPING, \
 				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
@@ -916,6 +921,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
 	struct ipa_gre_hdr_proc_ctx_params gre_params;
+	struct ipa_ipogre_hdr_proc_ctx_params ipogre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
@@ -1807,10 +1813,24 @@ struct Ipa3HwStatsMultiCombined{
 	struct Ipa3HwStatsMulti tunnels[4];
 }__packed;
 
+struct Ipa3HwStatsipogre{
+	uint32_t tunnel_id;
+	uint32_t mux_id;
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+}__packed;
+
+struct Ipa3HwStatsipogreCombined{
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+	struct Ipa3HwStatsipogre tunnels[2];
+}__packed;
+
 union Ipa3HwStatsEOGREInfoData_t{
 	struct Ipa3HwStatsEOGRE *eogre;
 	struct Ipa3HwStatsMPLS *mpls;
 	struct Ipa3HwStatsMultiCombined *multi;
+	struct Ipa3HwStatsipogreCombined *ipogre;
 };
 
 /**
@@ -3154,6 +3174,7 @@ int ipa3_allocate_nat_table(
 int ipa3_allocate_ipv6ct_table(
 	struct ipa_ioc_nat_ipv6ct_table_alloc *table_alloc);
 int ipa3_nat_cleanup_cmd(void);
+int ipa3_lan_stats_cleanup(void);
 int ipa3_nat_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
 int ipa3_app_clk_vote(enum ipa_app_clock_vote_type vote_type);
 
@@ -3165,6 +3186,7 @@ int ipa3_send_msg(struct ipa_msg_meta *meta, void *buff,
 int ipa3_resend_wlan_msg(void);
 int ipa3_resend_lan_msg(void);
 int ipa3_resend_driver_msg(void);
+int ipa3_resend_lan_stats_msg(void);
 int ipa3_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback);
 int ipa3_deregister_pull_msg(struct ipa_msg_meta *meta);
 
@@ -3245,7 +3267,8 @@ int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
 int ipa3_get_eogre_stats(struct Ipa3HwStatsMPLS *stats,
 		struct Ipa3HwStatsEOGRE *eogre,
-		struct Ipa3HwStatsMultiCombined *multi);
+		struct Ipa3HwStatsMultiCombined *multi,
+		struct Ipa3HwStatsipogreCombined *ipogre);
 
 int ipa3_wigig_init_debugfs_i(struct dentry *dent);
 
@@ -3881,6 +3904,10 @@ int ipa3_add_dscp_vlan_pcp_map(
 int ipa3_send_eogre_info(
 	enum ipa_eogre_event etype,
 	struct ipa_ioc_eogre_info *info );
+
+int ipa3_send_ipogre_info(
+		enum ipa_ipogre_event etype,
+		struct ipa_ioc_ipogre_info *info );
 
 /* update mhi ctrl pipe state */
 void ipa3_update_mhi_ctrl_state(u8 state, bool set);

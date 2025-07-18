@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <asm/barrier.h>
@@ -90,7 +90,12 @@ int ipa3_enable_data_path(u32 clnt_hdl)
 			holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
 			holb_cfg.en = IPA_HOLB_TMR_EN;
 		} else if ((ipa3_ctx->ipa_hw_type == IPA_HW_v5_0) &&
-				(ep->client == IPA_CLIENT_USB_CONS)) {
+				(ep->client == IPA_CLIENT_USB_CONS ||
+				 ep->client == IPA_CLIENT_APPS_LAN_CONS ||
+				 ep->client == IPA_CLIENT_RTK_ETHERNET_CONS ||
+				 ep->client == IPA_CLIENT_ETHERNET_CONS ||
+				 ep->client == IPA_CLIENT_ETHERNET2_CONS ||
+				 ep->client == IPA_CLIENT_AQC_ETHERNET_CONS)){
 			holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
 			holb_cfg.en = IPA_HOLB_TMR_EN;
 		} else if ((ipa3_ctx->ipa_hw_type >= IPA_HW_v5_2) &&
@@ -1246,8 +1251,7 @@ static int ipa3_stop_ul_chan_with_data_drain(u32 qmi_req_id,
 	if (!stop_in_proc)
 		goto exit;
 
-	/* Remove delay only if stop channel success*/
-	if (remove_delay && ep->ep_delay_set == true && !stop_in_proc) {
+	if (remove_delay && ep->ep_delay_set == true) {
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = false;
 		result = ipa3_cfg_ep_ctrl(clnt_hdl,

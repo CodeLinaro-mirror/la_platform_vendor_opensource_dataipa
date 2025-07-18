@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: GPL-2.0-only
  *
  */
 
@@ -2734,6 +2734,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_get_vlan_mode vlan_mode;
 	struct ipa_ioc_wigig_fst_switch fst_switch;
 	struct ipa_ioc_eogre_info *eogre_info = NULL;
+	struct ipa_ioc_ipogre_info *ipogre_info = NULL;
 	struct ipa_ioc_macsec_info macsec_info;
 	struct ipa_macsec_map *macsec_map;
 	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
@@ -3855,6 +3856,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_CLEANUP:
 		/*Route and filter rules will also be clean*/
 		IPADBG("Got IPA_IOC_CLEANUP\n");
+		ipa3_lan_stats_cleanup();
 		retval = ipa3_reset_hdr(true);
 		IPA_ACTIVE_CLIENTS_INC_SPECIAL("SRAM");
 		retval = ipa3_nat_cleanup_cmd();
@@ -3874,6 +3876,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_QUERY_CACHED_DRIVER_MSG:
 		IPADBG("Got IPA_IOC_QUERY_CACHED_DRIVER_MSG\n");
 		retval = ipa3_resend_driver_msg();
+		ipa3_resend_lan_stats_msg();
 		break;
 
 	case IPA_IOC_GSB_CONNECT:
@@ -4188,6 +4191,26 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 
 		break;
+
+	case IPA_IOC_ADD_IPoGRE_MAPPING:
+		IPADBG("Got IPA_IOCTL_ADD_IPoGRE_MAPPING \n");
+		ipogre_info =
+			kzalloc(sizeof(struct ipa_ioc_ipogre_info), GFP_KERNEL);
+		if (ipogre_info == NULL) {
+			IPAERR_RL("fail to alloc\n");
+			return -ENOMEM;
+		}
+
+		if (copy_from_user(ipogre_info, (const void __user *)arg,
+				   sizeof(struct ipa_ioc_ipogre_info))) {
+			IPAERR_RL("copy_from_user fails\n");
+			retval = -EFAULT;
+			goto free_mem;
+		}
+		retval = ipa3_send_ipogre_info(IPA_IPOGRE_NOTIFY_EVENT,ipogre_info);
+		ipa3_ctx->eogre_tunnel_feature = IPOGRE_FEATURE;
+		break;
+
 #ifdef IPA_IOC_FLT_MEM_PERIPHERAL_SET_PRIO_HIGH
 	case IPA_IOC_FLT_MEM_PERIPHERAL_SET_PRIO_HIGH:
 		retval = ipa_flt_sram_set_client_prio_high((enum ipa_client_type) arg);
@@ -4312,6 +4335,8 @@ free_mem:
 		kfree(eogre_info);
 	if(template_info_to_uc != NULL)
 		kfree(template_info_to_uc);
+	if(ipogre_info != NULL)
+		kfree(ipogre_info);
 
 	return retval;
 }
@@ -6401,6 +6426,9 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case IPA_IOC_DEL_EoGRE_MAPPING32:
 		cmd = IPA_IOC_DEL_EoGRE_MAPPING;
+		break;
+	case IPA_IOC_ADD_IPoGRE_MAPPING32:
+		cmd = IPA_IOC_ADD_IPoGRE_MAPPING ;
 		break;
 	case IPA_IOC_COMMIT_HDR:
 	case IPA_IOC_RESET_HDR:
@@ -9731,6 +9759,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
 	ipa3_ctx->wkup_enable=0;
+
+	/* add default vlaue to eth pdu tx/rx end point */
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id = -1;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id = -1;
 
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 	result = qcom_va_md_register("ipa_mini", &qcom_va_md_ipa_notif_blk);

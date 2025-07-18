@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #include <net/ip.h>
@@ -6812,9 +6812,9 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.stats_rt_v6_ofst = 0,
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x2d70,
-	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3910,
-	.stats_drop_size = 0x20,
+	.stats_fnr_size = 0xb90,
+	.stats_drop_ofst = 0x3900,
+	.stats_drop_size = 0x30,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x3938,
@@ -13875,13 +13875,14 @@ struct sk_buff* qmap_encapsulate_skb(struct sk_buff *skb, const struct qmap_hdr 
 }
 EXPORT_SYMBOL(qmap_encapsulate_skb);
 
-static void ipa3_eogre_info_free_cb(
+static void ipa3_gre_info_free_cb(
 	void *buff,
 	u32   len,
 	u32   type)
 {
 	if (buff) {
 		kfree(buff);
+		buff = NULL;
 	}
 }
 
@@ -13943,11 +13944,25 @@ int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
 			ipa3_ctx->multi_tunnel_eogre_cache
 				[eogre_info->ipgre_info.num_exceptions] =
 				*eogre_info;
-
-			IPADBG("eogre_info iptype: %d, src: %x, dst: %x, tunnel_id: %d\n",
+			if(eogre_info->ipgre_info.iptype == IPA_IP_v4) {
+				IPADBG("eogre_info iptype: %d, src: %x, dst: %x, tunnel_id: %d\n",
+						eogre_info->ipgre_info.iptype,
+						eogre_info->ipgre_info.ipv4_src,
+						eogre_info->ipgre_info.ipv4_dst, t_id);
+			} else {
+				IPADBG("eogre_info iptype:%d, src:0x%08x:%08x:%08x:%08x,"
+					"dst :0x%08x:%08x:%08x:%08x, tunnel_id: %d\n",
 					eogre_info->ipgre_info.iptype,
-					eogre_info->ipgre_info.ipv4_src,
-					eogre_info->ipgre_info.ipv4_dst, t_id);
+					eogre_info->ipgre_info.ipv6_src[0],
+					eogre_info->ipgre_info.ipv6_src[1],
+					eogre_info->ipgre_info.ipv6_src[2],
+					eogre_info->ipgre_info.ipv6_src[3],
+					eogre_info->ipgre_info.ipv6_dst[0],
+					eogre_info->ipgre_info.ipv6_dst[1],
+					eogre_info->ipgre_info.ipv6_dst[2],
+					eogre_info->ipgre_info.ipv6_dst[3],
+					t_id);
+			}
 		}
 	} else { /* (!cache_is_null) */
 		if (!ipa3_ctx->eogre_tunnel_tagged) {
@@ -13993,11 +14008,27 @@ int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
 				*send2ipacm = !same;
 				ipa3_ctx->multi_tunnel_eogre_cache[t_id] =
 					*eogre_info;
-				IPADBG("ADD: Inward eogre_info for iptype: %d, src: %x,"
-					" dst: %x, tunnel_id: %d\n",
-					eogre_info->ipgre_info.iptype,
-					eogre_info->ipgre_info.ipv4_src,
-					eogre_info->ipgre_info.ipv4_dst, t_id);
+				if(eogre_info->ipgre_info.iptype == IPA_IP_v4) {
+					IPADBG("ADD: Inward eogre_info for iptype: %d, src: %x,"
+						" dst: %x, tunnel_id: %d\n",
+						eogre_info->ipgre_info.iptype,
+						eogre_info->ipgre_info.ipv4_src,
+						eogre_info->ipgre_info.ipv4_dst, t_id);
+                                } else {
+					IPADBG("ADD: Inward eogre_info for iptype:"
+						" %d,src:0x%08x:%08x:%08x:%08x, dst"
+						":0x%08x:%08x:%08x:%08x, tunnel_id: %d\n",
+						eogre_info->ipgre_info.iptype,
+						eogre_info->ipgre_info.ipv6_src[0],
+						eogre_info->ipgre_info.ipv6_src[1],
+						eogre_info->ipgre_info.ipv6_src[2],
+						eogre_info->ipgre_info.ipv6_src[3],
+						eogre_info->ipgre_info.ipv6_dst[0],
+						eogre_info->ipgre_info.ipv6_dst[1],
+						eogre_info->ipgre_info.ipv6_dst[2],
+						eogre_info->ipgre_info.ipv6_dst[3],
+						t_id);
+				}
 			} else {
 				IPADBG("Ops: DEL:(%d) Check for t_id:[%d]\n",
 					to_add, t_id);
@@ -14021,7 +14052,8 @@ int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
 				memset(&ipa3_ctx->multi_tunnel_eogre_cache[t_id],
 					0, len);
 
-				IPADBG("DEL : ipgre_info iptype:%d,src: %x,dst: %x,t_id:%d\n",
+				if(eogre_info->ipgre_info.iptype == IPA_IP_v4) {
+					IPADBG("DEL : ipgre_info iptype:%d,src: %x,dst: %x,t_id:%d\n",
 					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
 					.ipgre_info.iptype,
 					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
@@ -14030,20 +14062,50 @@ int ipa3_check_eogre(struct ipa_ioc_eogre_info *eogre_info, bool *send2uC,
 					.ipgre_info.ipv4_dst,
 					ipa3_ctx->multi_tunnel_eogre_cache[t_id]
 					.ipgre_info.num_exceptions);
+				} else {
+					IPADBG("DEL : ipgre_info iptype:%d,"
+						"src:0x%08x:%08x:%08x:%08x, dst"
+						":0x%08x:%08x:%08x:%08x, tunnel_id: %d\n",
+						eogre_info->ipgre_info.iptype,
+						eogre_info->ipgre_info.ipv6_src[0],
+						eogre_info->ipgre_info.ipv6_src[1],
+						eogre_info->ipgre_info.ipv6_src[2],
+						eogre_info->ipgre_info.ipv6_src[3],
+						eogre_info->ipgre_info.ipv6_dst[0],
+						eogre_info->ipgre_info.ipv6_dst[1],
+						eogre_info->ipgre_info.ipv6_dst[2],
+						eogre_info->ipgre_info.ipv6_dst[3],
+						t_id);
+				}
 			}
 		}
 	}
 	if (ipa3_ctx->eogre_tunnel_tagged) {
-		IPADBG("Cached ipgre info ip: %d, src: %x, dst: %x, t_id: %d\n",
-			ipa3_ctx->multi_tunnel_eogre_cache
-			[eogre_info->ipgre_info.num_exceptions]
-			.ipgre_info.iptype,
-			ipa3_ctx->multi_tunnel_eogre_cache[t_id]
-			.ipgre_info.ipv4_src,
-			ipa3_ctx->multi_tunnel_eogre_cache[t_id]
-			.ipgre_info.ipv4_dst,
-			ipa3_ctx->multi_tunnel_eogre_cache[t_id]
-			.ipgre_info.num_exceptions);
+		if(eogre_info->ipgre_info.iptype == IPA_IP_v4) {
+			IPADBG("cashed ipgre_info iptype:%d,src: %x,dst: %x,t_id:%d\n",
+				ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+				.ipgre_info.iptype,
+				ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+				.ipgre_info.ipv4_src,
+				ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+				.ipgre_info.ipv4_dst,
+				ipa3_ctx->multi_tunnel_eogre_cache[t_id]
+				.ipgre_info.num_exceptions);
+		} else {
+			IPADBG("cashed ipgre_info iptype:%d,"
+				"src:0x%08x:%08x:%08x:%08x,"
+				"dst :0x%08x:%08x:%08x:%08x, tunnel_id: %d\n",
+				eogre_info->ipgre_info.iptype,
+				eogre_info->ipgre_info.ipv6_src[0],
+				eogre_info->ipgre_info.ipv6_src[1],
+				eogre_info->ipgre_info.ipv6_src[2],
+				eogre_info->ipgre_info.ipv6_src[3],
+				eogre_info->ipgre_info.ipv6_dst[0],
+				eogre_info->ipgre_info.ipv6_dst[1],
+				eogre_info->ipgre_info.ipv6_dst[2],
+				eogre_info->ipgre_info.ipv6_dst[3],
+				t_id);
+		}
 	}
 	IPADBG("send2uC(%u) send2ipacm(%u)\n", *send2uC, *send2ipacm);
 
@@ -14097,11 +14159,58 @@ int ipa3_send_eogre_info(
 	/*
 	 * Post event to ipacm
 	 */
-	res = ipa3_send_msg(&msg_meta, eogre_info, ipa3_eogre_info_free_cb);
+	res = ipa3_send_msg(&msg_meta, eogre_info, ipa3_gre_info_free_cb);
 
 	if (res) {
 		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
 		kfree(eogre_info);
+		goto done;
+	}
+
+done:
+	return res;
+}
+
+/**
+ * ipa3_send_ipogre_info() - Notify ipacm of incoming ipogre event
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note: Should not be called from atomic context
+ */
+int ipa3_send_ipogre_info(enum ipa_ipogre_event etype,
+			  struct ipa_ioc_ipogre_info *info)
+{
+	struct ipa_msg_meta msg_meta;
+	int res = 0;
+	struct ipa_ioc_ipogre_info *ipogre_info;
+	if (!info) {
+		IPAERR("Bad arg: info is NULL\n");
+		res = -EIO;
+		goto done;
+	}
+	ipogre_info = kzalloc(sizeof(struct ipa_ioc_ipogre_info), GFP_KERNEL);
+	if (!ipogre_info) {
+		IPAERR("eogre_info memory allocation failed !\n");
+		res = -ENOMEM;
+		goto done;
+	}
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+
+	msg_meta.msg_type = etype;
+	msg_meta.msg_len = sizeof(struct ipa_ioc_ipogre_info);
+	memcpy(ipogre_info, info, sizeof(struct ipa_ioc_ipogre_info));
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, ipogre_info, ipa3_gre_info_free_cb);
+
+	if (res) {
+		IPAERR("ipa3_send_msg failed: %d\n", res);
+		kfree(ipogre_info);
 		goto done;
 	}
 
@@ -14573,116 +14682,6 @@ static ipa_fld_wid_off_t mpls_v4_outer[FLOW_MAX][IPA_IP_MAX][FIELD_MAX] = {
 		},
 	},
 };
-/*
- * MPLS-PPPoE v4 Outer Header Offset Calculation
- * *** IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT ***
- *
- * NOTE WELL:
- *
- * The three dimensions below line up with the enums:
- *
- *             enum ipa_data_flow_type
- *             enum ipa_ip_type
- *             enum ipa_exception_type_pppoe
- *
- * respectively.  When additions and/or subtractions are made to the
- * enum values, please make sure to re-align the array below to
- * reflect the new ordering
- *
- * *** IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT ***
- */
-static ipa_fld_wid_off_t mpls_p_v4_outer[FLOW_MAX][IPA_IP_MAX][FIELD_PPPOE_MAX] = {
-	/*FLOW_UPLINK*/
-	{
-		/*IPA_IP_v4*/
-		{
-			/*FIELD_IP_PROTOCOL*/
-			{ ONE_BYTE, MPLS_UL_OETH_I4_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_ETHER_TYPE_OFFSET },
-		},
-		/*IPA_IP_v6*/
-		{
-			/*FIELD_IP_PROTOCOL*/
-			{ ONE_BYTE, MPLS_UL_OETH_I6_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_TCP_DST_PORT_OFFSET },
-			/* FIELD_UDP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_ETHER_TYPE_OFFSET },
-		},
-	},
-	/*FLOW_DOWNLINK*/
-	{
-		/*IPA_IP_v4*/
-		{
-			/*FIELD_IP_PROTOCOL*/
-			{ ONE_BYTE, MPLS_DL_O4_I4_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_DL_O4_I4_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT*/
-			{ TWO_BYTE, MPLS_DL_O4_I4_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_DL_O4_I4_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT*/
-			{ TWO_BYTE, MPLS_DL_O4_I4_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE*/
-			{ TWO_BYTE, MPLS_DL_O4_I4_ETHER_TYPE_OFFSET },
-			/*FIELD_IP_PROTOCOL_PPPOE*/
-			{ ONE_BYTE, MPLS_PPPOE_DL_O4_I4_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I4_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I4_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I4_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I4_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I4_ETHER_TYPE_OFFSET },
-		},
-		/*IPA_IP_v6*/
-		{
-			/*FIELD_IP_PROTOCOL*/
-			{ ONE_BYTE, MPLS_DL_O4_I6_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_DL_O4_I6_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT*/
-			{ TWO_BYTE, MPLS_DL_O4_I6_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_DL_O4_I6_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT*/
-			{ TWO_BYTE, MPLS_DL_O4_I6_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE*/
-			{ TWO_BYTE, MPLS_DL_O4_I6_ETHER_TYPE_OFFSET },
-			/*FIELD_IP_PROTOCOL_PPPOE*/
-			{ ONE_BYTE, MPLS_PPPOE_DL_O4_I6_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I6_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I6_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I6_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I6_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O4_I6_ETHER_TYPE_OFFSET },
-		},
-	},
-};
 
 /*
  * *** IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT ***
@@ -14746,117 +14745,6 @@ static ipa_fld_wid_off_t mpls_v6_outer[FLOW_MAX][IPA_IP_MAX][FIELD_MAX] = {
 	},
 };
 
-/*
- * MPLS-PPPoE v6 Outer Header Offset Calculation
- * *** IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT ***
- *
- * NOTE WELL:
- *
- * The three dimensions below line up with the enums:
- *
- *             enum ipa_data_flow_type
- *             enum ipa_ip_type
- *             enum ipa_exception_type_pppoe
- *
- * respectively.  When additions and/or subtractions are made to the
- * enum values, please make sure to re-align the array below to
- * reflect the new ordering
- *
- * *** IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT !!! IMPORTANT ***
- */
-static ipa_fld_wid_off_t mpls_p_v6_outer[FLOW_MAX][IPA_IP_MAX][FIELD_PPPOE_MAX] = {
-	/*FLOW_UPLINK*/
-	{
-		/*IPA_IP_v4*/
-		{
-			/*FIELD_IP_PROTOCOL*/
-			{ ONE_BYTE, MPLS_UL_OETH_I4_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE*/
-			{ TWO_BYTE, MPLS_UL_OETH_I4_ETHER_TYPE_OFFSET },
-		},
-		/* IPA_IP_v6 */
-		{
-			/*FIELD_IP_PROTOCOL*/
-			{ ONE_BYTE, MPLS_UL_OETH_I6_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE*/
-			{ TWO_BYTE, MPLS_UL_OETH_I6_ETHER_TYPE_OFFSET },
-		},
-	},
-	/*FLOW_DOWNLINK*/
-	{
-		/*IPA_IP_v4*/
-		{
-			/*FIELD_IP_PROTOCOL*/
-			{ ONE_BYTE, MPLS_DL_O6_I4_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_DL_O6_I4_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT*/
-			{ TWO_BYTE, MPLS_DL_O6_I4_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_DL_O6_I4_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT*/
-			{ TWO_BYTE, MPLS_DL_O6_I4_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE*/
-			{ TWO_BYTE, MPLS_DL_O6_I4_ETHER_TYPE_OFFSET },
-			/*FIELD_IP_PROTOCOL_PPPOE*/
-			{ ONE_BYTE, MPLS_PPPOE_DL_O6_I4_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I4_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I4_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I4_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I4_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I4_ETHER_TYPE_OFFSET },
-		},
-		/*IPA_IP_v6*/
-		{
-			/*FIELD_IP_PROTOCOL*/
-			{ ONE_BYTE, MPLS_DL_O6_I6_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_DL_O6_I6_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT*/
-			{ TWO_BYTE, MPLS_DL_O6_I6_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT*/
-			{ TWO_BYTE, MPLS_DL_O6_I6_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT*/
-			{ TWO_BYTE, MPLS_DL_O6_I6_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE*/
-			{ TWO_BYTE, MPLS_DL_O6_I6_ETHER_TYPE_OFFSET },
-			/*FIELD_IP_PROTOCOL_PPPOE*/
-			{ ONE_BYTE, MPLS_PPPOE_DL_O6_I6_IP_PROTOCOL_OFFSET },
-			/*FIELD_TCP_SRC_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I6_TCP_SRC_PORT_OFFSET },
-			/*FIELD_TCP_DST_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I6_TCP_DST_PORT_OFFSET },
-			/*FIELD_UDP_SRC_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I6_UDP_SRC_PORT_OFFSET },
-			/*FIELD_UDP_DST_PORT_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I6_UDP_DST_PORT_OFFSET },
-			/*FIELD_ETHER_TYPE_PPPOE*/
-			{ TWO_BYTE, MPLS_PPPOE_DL_O6_I6_ETHER_TYPE_OFFSET },
-		},
-	},
-};
-
 ipa_fld_wid_off_t* get_mpls_v4_outer(enum ipa_data_flow_type flow, enum ipa_ip_type ip, enum ipa_exception_type ex)
 {
 	return &(mpls_v4_outer[flow][ip][ex]);
@@ -14865,18 +14753,6 @@ ipa_fld_wid_off_t* get_mpls_v4_outer(enum ipa_data_flow_type flow, enum ipa_ip_t
 ipa_fld_wid_off_t* get_mpls_v6_outer(enum ipa_data_flow_type flow, enum ipa_ip_type ip, enum ipa_exception_type ex)
 {
 	return &(mpls_v6_outer[flow][ip][ex]);
-}
-/*MPLS PPPoE*/
-ipa_fld_wid_off_t* get_mpls_p_v4_outer(enum ipa_data_flow_type flow,
-		enum ipa_ip_type ip, uint32_t ex)
-{
-	return &(mpls_p_v4_outer[flow][ip][ex]);
-}
-
-ipa_fld_wid_off_t* get_mpls_p_v6_outer(enum ipa_data_flow_type flow,
-		enum ipa_ip_type ip, uint32_t ex)
-{
-	return &(mpls_p_v6_outer[flow][ip][ex]);
 }
 #endif
 

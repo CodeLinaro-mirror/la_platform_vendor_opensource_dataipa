@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -1161,7 +1161,7 @@ int ipa_get_teth_stats(void)
 		goto destroy_imm;
 	}
 
-	stats_all = kzalloc(sizeof(*stats_all), GFP_KERNEL);
+	stats_all = vmalloc(sizeof(*stats_all));
 	if (!stats_all) {
 		IPADBG("failed to alloc memory\n");
 		ret = -ENOMEM;
@@ -1248,7 +1248,7 @@ int ipa_get_teth_stats(void)
 
 	ret = 0;
 free_stats:
-	kfree(stats_all);
+	vfree(stats_all);
 	stats = NULL;
 destroy_imm:
 	for (i = 0; i < num_cmd; i++)
@@ -1857,6 +1857,24 @@ int ipa_drop_stats_init(void)
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
 				client_type,
 				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+		}
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v5_0) {
+			/* Enable Drop Stats for Eth0 instance */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+			/* Enable Drop Stats for Eth1 instance */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET2_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			/* Enable Drop Stats for LAN CONSUMER pipe */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_APPS_LAN_CONS,
+					&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
 		}
 
