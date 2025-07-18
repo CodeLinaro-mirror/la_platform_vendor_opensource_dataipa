@@ -3348,11 +3348,7 @@ static void ipa3_replenish_wlan_rx_cache(struct ipa3_sys_context *sys)
 	rx_len_cached = sys->len;
 
 	if (rx_len_cached < sys->rx_pool_sz) {
-		if(list_empty(&ipa3_ctx->wc_memb.wlan_comm_desc_list))
-		{
-			IPAERR("List is empty\n");
-		}
-		else
+		if(!list_empty(&ipa3_ctx->wc_memb.wlan_comm_desc_list))
 		{
 			list_for_each_entry_safe(rx_pkt, tmp,
 					&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
@@ -4023,11 +4019,7 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 	}
 
 	spin_lock_bh(&sys->spinlock);
-	if(list_empty(&sys->rcycl_list))
-	{
-		IPAERR("List is empty\n");
-	}
-	else
+	if(!list_empty(&sys->rcycl_list))
 	{
 		list_for_each_entry_safe(rx_pkt, r,
 				&sys->rcycl_list, link) {

@@ -1056,11 +1056,7 @@ int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 	}
 
 	/* clear interface list */
-	if(list_empty(&ipa_wdi_ctx_list[hdl]->head_intf_list))
-	{
-		IPAERR("List is empty\n");
-	}
-	else
+	if(!list_empty(&ipa_wdi_ctx_list[hdl]->head_intf_list))
 	{
 		list_for_each_entry_safe(entry, next,
 				&ipa_wdi_ctx_list[hdl]->head_intf_list, link) {

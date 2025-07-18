@@ -3257,11 +3257,7 @@ int ipa3_uc_dereg_per_inst_rdyCB(int instance_id) {
 	struct ipa_wdi_ready_cb_wrapper *next = NULL;
 	mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
 
-	if(list_empty(&ipa3_ctx->uc_wdi_ctx.ready_cb_list))
-	{
-		IPAERR("List is empty\n");
-	}
-	else
+	if(!list_empty(&ipa3_ctx->uc_wdi_ctx.ready_cb_list))
 	{
 		list_for_each_entry_safe (entry, next,
 				&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link)
@@ -3294,11 +3290,7 @@ int ipa3_uc_dereg_rdyCB(void)
 	struct ipa_wdi_ready_cb_wrapper *next = NULL;
 	mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
 
-	if(list_empty(&ipa3_ctx->uc_wdi_ctx.ready_cb_list))
-	{
-		IPAERR("List is empty\n");
-	}
-	else
+	if(!list_empty(&ipa3_ctx->uc_wdi_ctx.ready_cb_list))
 	{
 		list_for_each_entry_safe (entry, next,
 				&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {
@@ -3360,11 +3352,7 @@ static void ipa3_uc_wdi_loaded_handler(void)
 
 	mutex_lock(&ipa3_ctx->uc_wdi_ctx.lock);
 
-	if(list_empty(&ipa3_ctx->uc_wdi_ctx.ready_cb_list))
-	{
-		IPAERR("List is empty\n");
-	}
-	else
+	if(!list_empty(&ipa3_ctx->uc_wdi_ctx.ready_cb_list))
 	{
 		list_for_each_entry_safe (entry, next,
 				&ipa3_ctx->uc_wdi_ctx.ready_cb_list, link) {

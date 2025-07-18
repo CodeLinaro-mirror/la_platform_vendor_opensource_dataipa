@@ -279,11 +279,7 @@ static int ipa_eth_cleanup_internal(void)
 	if (!ipa_eth_ctx)
 		return 0;
 	/* clear interface list */
-	if(list_empty(&ipa_eth_ctx->head_intf_list))
-	{
-		IPAERR("List is empty\n");
-	}
-	else
+	if(!list_empty(&ipa_eth_ctx->head_intf_list))
 	{
 		list_for_each_entry_safe(entry, next,
 				&ipa_eth_ctx->head_intf_list, link) {
