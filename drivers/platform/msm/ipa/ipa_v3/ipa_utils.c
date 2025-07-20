@@ -46,6 +46,11 @@
 #define IPA_V5_0_CLK_RATE_NOMINAL (500 * 1000 * 1000UL)
 #define IPA_V5_0_CLK_RATE_TURBO (600 * 1000 * 1000UL)
 
+#define IPA_V5_5_CLK_RATE_SVS2 (75 * 1000 * 1000UL)
+#define IPA_V5_5_CLK_RATE_SVS (240 * 1000 * 1000UL)
+#define IPA_V5_5_CLK_RATE_NOMINAL (500 * 1000 * 1000UL)
+#define IPA_V5_5_CLK_RATE_TURBO (600 * 1000 * 1000UL)
+
 #define IPA_MAX_HOLB_TMR_VAL (4294967296 - 1)
 
 #define IPA_V3_0_BW_THRESHOLD_TURBO_MBPS (1000)
@@ -5602,7 +5607,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
-			{ 19, 2, 5, 5, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_UL },
+			{ 18, 17, 9, 9, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0}, IPA_TX_INSTANCE_UL },
 
 	[IPA_5_2_IOT][IPA_CLIENT_ETHERNET_CONS] = {
 			true, IPA_v5_2_GROUP_DL,
@@ -10667,7 +10672,12 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 int ipa3_controller_static_bind(struct ipa3_controller *ctrl,
 		enum ipa_hw_type hw_type, u32 ipa_cfg_offset)
 {
-	if (hw_type >= IPA_HW_v5_0) {
+	if (hw_type >= IPA_HW_v5_5) {
+		ctrl->ipa_clk_rate_turbo = IPA_V5_5_CLK_RATE_TURBO;
+		ctrl->ipa_clk_rate_nominal = IPA_V5_5_CLK_RATE_NOMINAL;
+		ctrl->ipa_clk_rate_svs = IPA_V5_5_CLK_RATE_SVS;
+		ctrl->ipa_clk_rate_svs2 = IPA_V5_5_CLK_RATE_SVS2;
+	} else if (hw_type >= IPA_HW_v5_0) {
 		ctrl->ipa_clk_rate_turbo = IPA_V5_0_CLK_RATE_TURBO;
 		ctrl->ipa_clk_rate_nominal = IPA_V5_0_CLK_RATE_NOMINAL;
 		ctrl->ipa_clk_rate_svs = IPA_V5_0_CLK_RATE_SVS;

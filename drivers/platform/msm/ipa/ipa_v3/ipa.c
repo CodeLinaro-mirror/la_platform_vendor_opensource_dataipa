@@ -6743,7 +6743,8 @@ void ipa3_enable_clks(void)
 		return;
 	}
 
-	IPADBG("enabling IPA clocks and bus voting\n");
+	IPADBG_CLK("enabling IPA clocks and bus voting in Process:%s, PID:%d\n",
+			current->comm, current->pid);
 
 	idx = ipa3_get_bus_vote();
 
@@ -6794,7 +6795,8 @@ void ipa3_disable_clks(void)
 		return;
 	}
 
-	IPADBG("disabling IPA clocks and bus voting\n");
+	IPADBG_CLK("disabling IPA clocks and bus voting in Process:%s, PID:%d\n",
+			current->comm, current->pid);
 
 	/*
 	 * We see a NoC error on GSI on this flag sequence.
