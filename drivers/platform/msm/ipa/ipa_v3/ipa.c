@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/clk.h>
@@ -49,6 +48,7 @@
 #include "gsi.h"
 #include "ipa_stats.h"
 #include "ipa_sysfs.h"
+#include "ipahal_nat.h"
 
 #include <linux/suspend.h>
 #ifdef CONFIG_GH_MSGQ
@@ -1225,6 +1225,8 @@ static int ipa3_send_pdn_config_msg(unsigned long usr_param)
 			pdn_info->u.passthrough_cfg.client_mac_addr[4],
 			pdn_info->u.passthrough_cfg.client_mac_addr[5]);
 	}
+	/*caching ip pass pdn info*/
+	ipa3_copy_ip_pass_pdn_info(pdn_info);
 
 	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_pdn_config_msg_free_cb);
@@ -3611,6 +3613,7 @@ inline int ipa3_send_ipsec_ul_flt(enum ipa_ipsec_ul_flt_evt event_type,
 static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int retval = 0;
+	int val = -1;
 	u32 pyld_sz;
 	u8 header[512] = { 0 };
 	u8 *param = NULL;
@@ -4754,9 +4757,20 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	case IPA_IOC_QUERY_CACHED_DRIVER_MSG:
-		IPADBG("Got IPA_IOC_QUERY_CACHED_DRIVER_MSG\n");
-		retval = ipa3_resend_driver_msg();
-		ipa3_resend_lan_stats_msg();
+		val = (uint16_t)arg;
+		IPADBG("Got IPA_IOC_QUERY_CACHED_DRIVER_MSG %d\n", val);
+
+		/* if val is 0 resending basic lan features info otherwise resend socks connections tupple info */
+		if(val == 0)
+		{
+			ipa3_ippt_resend_msg();
+			retval = ipa3_resend_driver_msg();
+			ipa3_resend_lan_stats_msg();
+		}
+		else
+		{
+			ipa3_resend_socksv5_msg();
+		}
 		break;
 
 	case IPA_IOC_GSB_CONNECT:
@@ -12115,9 +12129,12 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		   sizeof(ipa3_ctx->flt_rt_counters.used_hw));
 	memset(&ipa3_ctx->flt_rt_counters.used_sw, 0,
 		   sizeof(ipa3_ctx->flt_rt_counters.used_sw));
+	ipa3_ctx->socksv5_conn_refcnt = 0;
+	ipa3_ctx->ippt_pdninfo_refcnt = 0;
 
 	INIT_LIST_HEAD(&ipa3_ctx->intf_list);
 	INIT_LIST_HEAD(&ipa3_ctx->msg_list);
+	INIT_LIST_HEAD(&ipa3_ctx->socksv5_msg_list);
 	INIT_LIST_HEAD(&ipa3_ctx->pull_msg_list);
 	init_waitqueue_head(&ipa3_ctx->msg_waitq);
 	mutex_init(&ipa3_ctx->msg_lock);
@@ -12129,6 +12146,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	/* store  ecm-connect-msg-list */
 	INIT_LIST_HEAD(&ipa3_ctx->msg_lan_list);
 	mutex_init(&ipa3_ctx->msg_lan_lock);
+	INIT_LIST_HEAD(&ipa3_ctx->msg_ippt_list);
 
 	mutex_init(&ipa3_ctx->q6_proxy_clk_vote_mutex);
 	mutex_init(&ipa3_ctx->ipa_cne_evt_lock);
@@ -15627,6 +15645,275 @@ static void ipa_gsi_notify_cb(struct gsi_per_notify *notify)
 			notify->evt_id);
 		ipa_assert();
 	}
+}
+
+void ipa_start_read_memory_device_table_info(
+	const char *type_ptr,
+	const char *dev_name,
+	void *mld_ptr,
+	bool is_ipv6,
+	u32 *num_ent_ptr,
+	u32 rule_id,
+	enum ipahal_nat_type nat_type)
+{
+	u32 table_size = 0;
+	u32 expn_table_size = 0;
+	void *base_table = NULL;
+	void *expn_table = NULL;
+
+	if (is_ipv6) {
+		struct ipa3_ct_mem_loc_data *ct = (struct ipa3_ct_mem_loc_data *)mld_ptr;
+		table_size = ct->table_entries + 1;
+		expn_table_size = ct->expn_table_entries;
+		base_table = ct->base_table_addr;
+		expn_table = ct->expansion_table_addr;
+	}
+	else {
+		struct ipa3_nat_mem_loc_data *nat = (struct ipa3_nat_mem_loc_data *)mld_ptr;
+		table_size = nat->table_entries + 1;
+		expn_table_size = nat->expn_table_entries;
+		base_table = nat->base_table_addr;
+		expn_table = nat->expansion_table_addr;
+	}
+
+	pr_err("(%s) %s_Table_Size=%d\n", type_ptr, dev_name, table_size);
+	pr_err("(%s) %s_Expansion_Table_Size=%d\n", type_ptr, dev_name, expn_table_size);
+	pr_err("\n(%s) %s_Base Table:\n", type_ptr, dev_name);
+
+	if (base_table) {
+		ipa3_read_table(base_table, table_size, num_ent_ptr, &rule_id, nat_type);
+	}
+
+	pr_err("(%s) %s_Expansion Table:\n", type_ptr, dev_name);
+
+	if (expn_table) {
+		ipa3_read_table(expn_table, expn_table_size, num_ent_ptr, &rule_id, nat_type);
+	}
+}
+
+void ipa3_start_read_memory_device(
+	struct ipa3_nat_ipv6ct_common_mem *dev,
+	enum ipahal_nat_type nat_type,
+	u32 *num_ddr_ent_ptr,
+	u32 *num_sram_ent_ptr)
+{
+	u32 rule_id = 0;
+
+	if (dev->is_ipv6ct_mem) {
+		struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+		struct ipa3_ct_mem_loc_data *ct_mld_ptr = NULL;
+		u32 *num_ent_ptr;
+		const char *type_ptr;
+
+		IPADBG("In: v6\n");
+
+		IPA_START_READ_MEMORY_SET_MEM_LOC_INFO(ctm_ptr, ct_mld_ptr, num_ent_ptr, type_ptr);
+
+		pr_err("%s_Table_Size=%d\n", dev->name, dev->table_entries + 1);
+		pr_err("%s_Expansion_Table_Size=%d\n",dev->name, dev->expn_table_entries);
+
+		if (ct_mld_ptr)
+			ipa_start_read_memory_device_table_info(type_ptr, dev->name, (void *)ct_mld_ptr,
+				 true, num_ent_ptr, rule_id, nat_type);
+	}
+
+	if (dev->is_nat_mem) {
+		struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) dev;
+		struct ipa3_nat_mem_loc_data *mld_ptr = NULL;
+		u32 *num_ent_ptr = NULL;
+		const char *type_ptr = NULL;
+
+		IPADBG("In: v4\n");
+		IPA_START_READ_MEMORY_SET_MEM_LOC_INFO(nm_ptr, mld_ptr, num_ent_ptr, type_ptr);
+
+		if (mld_ptr)
+			ipa_start_read_memory_device_table_info(type_ptr, dev->name, (void *)mld_ptr,
+				 false, num_ent_ptr, rule_id, nat_type);
+	}
+	IPADBG("Out\n");
+}
+
+void ipa3_finish_read_memory_device(
+	struct ipa3_nat_ipv6ct_common_mem *dev,
+	u32 num_ddr_entries,
+	u32 num_sram_entries)
+{
+	IPADBG("In\n");
+	if (dev->is_ipv6ct_mem) {
+		struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+		IPA_PRINT_FINISH_READ_MEMORY_STATS(dev, ctm_ptr->switch2ddr_cnt, ctm_ptr->switch2sram_cnt);
+	}
+	else {
+		struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) dev;
+		IPA_PRINT_FINISH_READ_MEMORY_STATS(dev, nm_ptr->switch2ddr_cnt, nm_ptr->switch2sram_cnt);
+	}
+	IPADBG("Out\n");
+}
+
+void ipa3_read_table(
+	char *table_addr,
+	u32 table_size,
+	u32 *total_num_entries,
+	u32 *rule_id,
+	enum ipahal_nat_type nat_type)
+{
+	int result;
+	char *entry = NULL;
+	size_t entry_size;
+	bool entry_zeroed;
+	bool entry_valid;
+	u32 i, num_entries = 0, id = *rule_id;
+	char *buff = NULL;
+	size_t buff_size = 2 * IPA_MAX_ENTRY_STRING_LEN;
+
+	IPADBG("In\n");
+
+	if (table_addr == NULL) {
+		pr_err("NULL NAT table\n");
+		goto bail;
+	}
+
+	result = ipahal_nat_entry_size(nat_type, &entry_size);
+
+	if (result) {
+		IPAERR("Failed to retrieve size of %s entry\n",
+			ipahal_nat_type_str(nat_type));
+		goto bail;
+	}
+
+	buff = kzalloc(buff_size, GFP_KERNEL);
+
+	if (!buff) {
+		IPAERR("Out of memory\n");
+		goto bail;
+	}
+
+	for (i = 0, entry = table_addr;
+		i < table_size;
+		++i, ++id, entry += entry_size) {
+
+		result = ipahal_nat_is_entry_zeroed(nat_type, entry,
+			&entry_zeroed);
+
+		if (result) {
+			IPAERR("Undefined if %s entry is zero\n",
+				   ipahal_nat_type_str(nat_type));
+			goto free_buf;
+		}
+
+		if (entry_zeroed)
+			continue;
+
+		result = ipahal_nat_is_entry_valid(nat_type, entry,
+			&entry_valid);
+
+		if (result) {
+			IPAERR("Undefined if %s entry is valid\n",
+				   ipahal_nat_type_str(nat_type));
+			goto free_buf;
+		}
+
+		if (entry_valid) {
+			++num_entries;
+			pr_err("\tEntry_Index=%d\n", id);
+		}
+		else
+			pr_err("\tEntry_Index=%d - Invalid Entry\n", id);
+
+		memset(buff, 0, buff_size);
+
+		ipahal_nat_stringify_entry(nat_type, entry,	buff, buff_size);
+
+		pr_err("%s\n", buff);
+	}
+
+	if (num_entries)
+		pr_err("\n");
+	else
+		pr_err("\tEmpty\n\n");
+
+free_buf:
+	if(buff)
+		kfree(buff);
+	*rule_id = id;
+	*total_num_entries += num_entries;
+
+bail:
+	IPADBG("Out\n");
+}
+
+void ipa3_read_pdn_table(void)
+{
+	int i, result;
+	char *pdn_entry;
+	size_t pdn_entry_size;
+	bool entry_zeroed;
+	bool entry_valid;
+	char *buff;
+	size_t buff_size = 128;
+
+	IPADBG("In\n");
+
+	if (ipa3_ctx->nat_mem.pdn_mem.base) {
+
+		result = ipahal_nat_entry_size(
+			IPAHAL_NAT_IPV4_PDN, &pdn_entry_size);
+
+		if (result) {
+			IPAERR("Failed to retrieve size of PDN entry");
+			goto bail;
+		}
+
+		buff = kzalloc(buff_size, GFP_KERNEL);
+		if (!buff) {
+			IPAERR("Out of memory\n");
+			goto bail;
+		}
+
+		for (i = 0, pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
+			 i < ipa3_get_max_pdn();
+			 ++i, pdn_entry += pdn_entry_size) {
+
+			result = ipahal_nat_is_entry_zeroed(
+				IPAHAL_NAT_IPV4_PDN,
+				pdn_entry, &entry_zeroed);
+
+			if (result) {
+				IPAERR("ipahal_nat_is_entry_zeroed() fail\n");
+				goto free;
+			}
+
+			if (entry_zeroed)
+				continue;
+
+			result = ipahal_nat_is_entry_valid(
+				IPAHAL_NAT_IPV4_PDN,
+				pdn_entry, &entry_valid);
+
+			if (result) {
+				IPAERR(
+					"Failed to determine whether the PDN entry is valid\n");
+				goto free;
+			}
+
+			memset(buff, 0, buff_size);
+
+			ipahal_nat_stringify_entry(
+				IPAHAL_NAT_IPV4_PDN,
+				pdn_entry, buff, buff_size);
+
+			if (entry_valid)
+				pr_err("PDN %d: %s\n", i, buff);
+			else
+				pr_err("PDN %d - Invalid: %s\n", i, buff);
+
+		}
+		pr_err("\n");
+free:
+		kfree(buff);
+	}
+bail:
+	IPADBG("Out\n");
 }
 
 int ipa3_iommu_map(struct iommu_domain *domain,

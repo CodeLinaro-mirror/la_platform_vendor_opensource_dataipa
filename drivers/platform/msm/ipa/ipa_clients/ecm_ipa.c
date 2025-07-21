@@ -1510,7 +1510,7 @@ const struct attribute_group ipa_ecm_attr_group = {
 	.attrs		= ipa_ecm_attrs,
 };
 
-static int ecm_ipa_sysfs_init()
+static int ecm_ipa_sysfs_init(void)
 {
 	int ret = -1;
 	
@@ -1521,7 +1521,7 @@ static int ecm_ipa_sysfs_init()
 	return ret;	
 }
 
-static void ecm_ipa_sysfs_destroy()
+static void ecm_ipa_sysfs_destroy(void)
 {
 	sysfs_remove_group(kernel_kobj, &ipa_ecm_attr_group);	
 }

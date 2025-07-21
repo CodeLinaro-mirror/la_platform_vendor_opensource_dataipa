@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA3_I_H_
@@ -32,6 +32,7 @@
 #include "ipa_qmi_service.h"
 #include "ipahal_reg.h"
 #include "ipahal.h"
+#include "ipahal_nat.h"
 #include "ipahal_fltrt.h"
 #include "ipahal_hw_stats.h"
 #include "ipa_common_i.h"
@@ -1589,6 +1590,12 @@ enum ipa3_config_this_ep {
 	IPA_DO_NOT_CONFIGURE_THIS_EP,
 };
 
+enum ipa_ep_holb_timer_type {
+	IPA_EP_HOLB_TIMER_TYPE_S,
+	IPA_EP_HOLB_TIMER_TYPE_US,
+	IPA_EP_HOLB_TIMER_TYPE_MAX
+};
+
 struct ipa3_page_recycle_stats {
 	u64 total_replenished;
 	u64 page_recycled;
@@ -2316,6 +2323,16 @@ enum ipa_eth_qos_type_e {
 	IPA_ETH_QOS_MAX
 };
 
+struct ipa3_socks_v5_msg {
+	struct ipa_socksv5_info socksv5_config;
+	struct list_head link;
+};
+
+struct ipa3_ip_pass_msg {
+	struct ipa_ioc_pdn_config ippass_config;
+	struct list_head link;
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2447,6 +2464,8 @@ enum ipa_eth_qos_type_e {
  * @cesta_enable: flag which holds if cesta_enabled or not in DTSI
  * @eth_pdu_ctx: ETH PDU ctx
  * @ipa_tiering_value: IPA tiering value to support multiple SKUs
+ * @socksv5_conn_refcnt:socksv5 connetions refcnt for ipacm restart scenarios
+ * @ippt_pdninfo_refcnt:ippt_pdninfo_refcnt refcnt for ipacm restart scenarios
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2516,11 +2535,13 @@ struct ipa3_context {
 	u8 a5_pipe_index;
 	struct list_head intf_list;
 	struct list_head msg_list;
+	struct list_head socksv5_msg_list;
 	struct list_head pull_msg_list;
 	struct mutex msg_lock;
 	struct list_head msg_wlan_client_list;
 	struct mutex msg_wlan_client_lock;
 	struct list_head msg_lan_list;
+	struct list_head msg_ippt_list;
 	struct mutex msg_lan_lock;
 	wait_queue_head_t msg_waitq;
 	enum ipa_hw_type ipa_hw_type;
@@ -2758,6 +2779,8 @@ struct ipa3_context {
 	struct mutex recycle_stats_collection_lock;
 	u16 filter_start_id;
 	struct ipa_ioc_get_qos_config get_qos_config;
+	u16 socksv5_conn_refcnt;
+	u8 ippt_pdninfo_refcnt;
 };
 
 struct ipa3_plat_drv_res {
@@ -3214,6 +3237,9 @@ int ipa3_cfg_ep_deaggr(u32 clnt_hdl,
 
 int ipa3_cfg_ep_route(u32 clnt_hdl, const struct ipa_ep_cfg_route *ipa_ep_cfg);
 
+int __ipa3_cfg_ep_holb(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ep_holb,
+		enum ipa_ep_holb_timer_type timer_type);
+
 int ipa3_cfg_ep_holb(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ipa_ep_cfg);
 
 int ipa3_cfg_ep_holb_uS(u32 clnt_hdl, const struct ipa_ep_cfg_holb *ipa_ep_cfg);
@@ -3343,6 +3369,7 @@ int ipa3_allocate_ipv6ct_table(
 	struct ipa_ioc_nat_ipv6ct_table_alloc *table_alloc);
 int ipa3_nat_cleanup_cmd(void);
 int ipa3_lan_stats_cleanup(void);
+int ipa3_socksv5_cleanup(void);
 int ipa3_nat_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
 int ipa3_app_clk_vote(enum ipa_app_clock_vote_type vote_type);
 void ipa3_get_default_evict_values(
@@ -3355,6 +3382,73 @@ void stop_coalescing( void );
 bool lan_coal_enabled( void );
 int ipa3_ct_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
 
+
+/*  for sysfs and debugfs */
+#define IPA_MAX_ENTRY_STRING_LEN 500
+#define IPA_MAX_MSG_LEN 4096
+#define IPA_DBG_MAX_RULE_IN_TBL 128
+#define IPA_DBG_ACTIVE_CLIENT_BUF_SIZE ((IPA3_ACTIVE_CLIENTS_LOG_LINE_LEN \
+	* IPA3_ACTIVE_CLIENTS_LOG_BUFFER_SIZE_LINES) + IPA_MAX_MSG_LEN)
+
+#define IPA_DUMP_STATUS_FIELD(f) \
+	pr_err(#f "=0x%x\n", status->f)
+
+#define IPA_READ_ONLY_MODE  0444
+#define IPA_READ_WRITE_MODE 0664
+#define IPA_WRITE_ONLY_MODE 0220
+
+#define IPA_START_READ_MEMORY_SET_MEM_LOC_INFO(ptr, mld_ptr, num_ent_ptr, type_ptr) \
+do { \
+	if ((ptr)->active_table == IPA_NAT_MEM_IN_DDR && (ptr)->ddr_in_use) { \
+		(mld_ptr) = &(ptr)->mem_loc[IPA_NAT_MEM_IN_DDR]; \
+		(num_ent_ptr) = num_ddr_ent_ptr; \
+		(type_ptr) = "DDR based table"; \
+	} \
+	if ((ptr)->active_table == IPA_NAT_MEM_IN_SRAM && (ptr)->sram_in_use) { \
+		(mld_ptr) = &(ptr)->mem_loc[IPA_NAT_MEM_IN_SRAM]; \
+		(num_ent_ptr) = num_sram_ent_ptr; \
+		(type_ptr) = "SRAM based table"; \
+	} \
+} while (0)
+
+#define IPA_PRINT_FINISH_READ_MEMORY_STATS(dev, switch_ddr, switch_sram) \
+do { \
+	if (num_ddr_entries) \
+		pr_err("%s: Overall number of DDR entries: %u\n\n",	(dev)->name, num_ddr_entries); \
+	if (num_sram_entries) \
+		pr_err("%s: Overall number of SRAM entries: %u\n\n", (dev)->name, num_sram_entries); \
+	pr_err("%s: Driver focus changes to DDR(%u) to SRAM(%u)\n", (dev)->name, (switch_ddr), (switch_sram)); \
+} while (0)
+
+void ipa_start_read_memory_device_table_info(
+	const char *type_ptr,
+	const char *dev_name,
+	void *mld_ptr,
+	bool is_ipv6,
+	u32 *num_ent_ptr,
+	u32 rule_id,
+	enum ipahal_nat_type nat_type);
+
+void ipa3_read_table(
+	char *table_addr,
+	u32 table_size,
+	u32 *total_num_entries,
+	u32 *rule_id,
+	enum ipahal_nat_type nat_type);
+
+void ipa3_start_read_memory_device(
+	struct ipa3_nat_ipv6ct_common_mem *dev,
+	enum ipahal_nat_type nat_type,
+	u32 *num_ddr_ent_ptr,
+	u32 *num_sram_ent_ptr);
+
+void ipa3_finish_read_memory_device(
+	struct ipa3_nat_ipv6ct_common_mem *dev,
+	u32 num_ddr_entries,
+	u32 num_sram_entries);
+
+void ipa3_read_pdn_table(void);
+
 /*
  * Messaging
  */
@@ -3362,6 +3456,10 @@ int ipa3_resend_wlan_msg(void);
 int ipa3_resend_lan_msg(void);
 int ipa3_resend_driver_msg(void);
 int ipa3_resend_lan_stats_msg(void);
+int ipa3_resend_socksv5_msg(void);
+int ipa3_ippt_resend_msg(void);
+int ipa3_copy_ip_pass_pdn_info(
+	struct ipa_ioc_pdn_config *pdn_info);
 int ipa3_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback);
 int ipa3_deregister_pull_msg(struct ipa_msg_meta *meta);
 
@@ -3655,6 +3753,10 @@ int __ipa_del_flt_rule(u32 rule_hdl);
 int __ipa3_del_hdr(u32 hdr_hdl, bool by_user);
 int __ipa3_release_hdr(u32 hdr_hdl);
 int __ipa3_release_hdr_proc_ctx(u32 proc_ctx_hdl);
+
+ssize_t __holb_set(struct device *dev, struct device_attribute *attr, const char *ubuf,
+		size_t count, enum ipa_ep_holb_timer_type timer_type);
+
 int _ipa_read_ep_reg_v3_0(char *buf, int max_len, int pipe);
 int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe);
 int _ipa_read_ipahal_regs(void);

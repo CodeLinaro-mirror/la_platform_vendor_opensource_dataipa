@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 
@@ -20,18 +20,6 @@
 #include "ipa_test_module_tsp.h"
 #include "ipahal_tsp.h"
 #endif
-#define IPA_MAX_ENTRY_STRING_LEN 500
-#define IPA_MAX_MSG_LEN 4096
-#define IPA_DBG_MAX_RULE_IN_TBL 128
-#define IPA_DBG_ACTIVE_CLIENT_BUF_SIZE ((IPA3_ACTIVE_CLIENTS_LOG_LINE_LEN \
-	* IPA3_ACTIVE_CLIENTS_LOG_BUFFER_SIZE_LINES) + IPA_MAX_MSG_LEN)
-
-#define IPA_DUMP_STATUS_FIELD(f) \
-	pr_err(#f "=0x%x\n", status->f)
-
-#define IPA_READ_ONLY_MODE  0444
-#define IPA_READ_WRITE_MODE 0664
-#define IPA_WRITE_ONLY_MODE 0220
 
 struct ipa3_debugfs_file {
 	const char *name;
@@ -816,10 +804,10 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 {
 	int nbytes = 0;
 	int i = 0;
-	struct ipa3_hdr_entry *entry;
+	struct ipa3_hdr_entry *entry = NULL;
 	enum hdr_tbl_storage hdr_tbl;
-	struct ipa_hdr_offset_entry *offset_entry;
-	unsigned int offset_count;
+	struct ipa_hdr_offset_entry *offset_entry = NULL;
+	unsigned int offset_count = 0;
 
 	mutex_lock(&ipa3_ctx->lock);
 
@@ -834,71 +822,92 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "Used offsets: ");
 		for (i = 0; i < IPA_HDR_BIN_MAX; i++){
 			offset_count = 0;
-			list_for_each_entry(offset_entry,
-					    &ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i],
-					    link)
-				offset_count++;
+			if(list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i]))
+			{
+				IPAERR("List is empty\n");
+			}
+			else
+			{
+				list_for_each_entry(offset_entry,
+						&ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i],
+						link)
+					offset_count++;
+			}
 			if (offset_count)
 				nbytes += scnprintf(dbg_buff + nbytes,
-						    IPA_MAX_MSG_LEN - nbytes,
-						    "%u * %u bytes, ",
-						    offset_count,
-						    ipa3_get_hdr_bin_size(i));
+						IPA_MAX_MSG_LEN - nbytes,
+						"%u * %u bytes, ",
+						offset_count,
+						ipa3_get_hdr_bin_size(i));
 		}
 		pr_err("%s", dbg_buff);
 
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "Free offsets: ");
 		for (i = 0; i < IPA_HDR_BIN_MAX; i++){
 			offset_count = 0;
-			list_for_each_entry(offset_entry,
-					    &ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i],
-					    link)
-				offset_count++;
+			if(list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i]))
+			{
+				IPAERR("List is empty\n");
+			}
+			else
+			{
+				list_for_each_entry(offset_entry,
+						&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i],
+						link)
+					offset_count++;
+			}
 			if (offset_count)
 				nbytes += scnprintf(dbg_buff + nbytes,
-						    IPA_MAX_MSG_LEN - nbytes,
-						    "%u * %u bytes, ",
-						    offset_count,
-						    ipa3_get_hdr_bin_size(i));
+						IPA_MAX_MSG_LEN - nbytes,
+						"%u * %u bytes, ",
+						offset_count,
+						ipa3_get_hdr_bin_size(i));
 		}
 		pr_err("%s", dbg_buff);
 
-		list_for_each_entry(entry, &ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list,
-				link) {
-			if (entry->cookie != IPA_HDR_COOKIE)
-				continue;
-			nbytes = scnprintf(
-				dbg_buff,
-				IPA_MAX_MSG_LEN,
-				"name:%s len=%d ref=%d partial=%d type=%s table = %d  ",
-				entry->name,
-				entry->hdr_len,
-				entry->ref_cnt,
-				entry->is_partial,
-				ipa3_hdr_l2_type_name[entry->type], hdr_tbl);
+		if(list_empty(&ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list))
+		{
+			IPAERR("List is empty\n");
+		}
+		else
+		{
+			list_for_each_entry(entry, &ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list,
+					link) {
+				if (entry->cookie != IPA_HDR_COOKIE)
+					continue;
+				nbytes = scnprintf(
+						dbg_buff,
+						IPA_MAX_MSG_LEN,
+						"name:%s len=%d ref=%d partial=%d type=%s table = %d  ",
+						entry->name,
+						entry->hdr_len,
+						entry->ref_cnt,
+						entry->is_partial,
+						ipa3_hdr_l2_type_name[entry->type], hdr_tbl);
 
-  		if (entry->is_hdr_proc_ctx) {
-  			nbytes += scnprintf(
-  				dbg_buff + nbytes,
-  				IPA_MAX_MSG_LEN - nbytes,
-  				"phys_base=0x%pa ",
-  				&entry->phys_base);
-  		} else {
-  			nbytes += scnprintf(
-  				dbg_buff + nbytes,
-  				IPA_MAX_MSG_LEN - nbytes,
-  				"ofst=%u ",
-				entry->offset_entry->offset >> 2);
-  		}
-			for (i = 0; i < entry->hdr_len; i++) {
-				scnprintf(dbg_buff + nbytes + i * 2,
-					  IPA_MAX_MSG_LEN - nbytes - i * 2,
-					  "%02x", entry->hdr[i]);
+				if (entry->is_hdr_proc_ctx) {
+					nbytes += scnprintf(
+							dbg_buff + nbytes,
+							IPA_MAX_MSG_LEN - nbytes,
+							"phys_base=0x%pa ",
+							&entry->phys_base);
+				} else {
+					nbytes += scnprintf(
+							dbg_buff + nbytes,
+							IPA_MAX_MSG_LEN - nbytes,
+							"ofst=%u ",
+							entry->offset_entry->offset >> 2);
+				}
+				for (i = 0; i < entry->hdr_len; i++) {
+					scnprintf(dbg_buff + nbytes + i * 2,
+							IPA_MAX_MSG_LEN - nbytes - i * 2,
+							"%02x", entry->hdr[i]);
+				}
+				scnprintf(dbg_buff + nbytes + entry->hdr_len * 2,
+						IPA_MAX_MSG_LEN - nbytes - entry->hdr_len * 2,
+						"\n");
+				pr_err("%s", dbg_buff);
 			}
-			scnprintf(dbg_buff + nbytes + entry->hdr_len * 2,
-				  IPA_MAX_MSG_LEN - nbytes - entry->hdr_len * 2,
-				  "\n");
-			pr_err("%s", dbg_buff);
 		}
 	}
 	mutex_unlock(&ipa3_ctx->lock);
@@ -1173,9 +1182,9 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 		loff_t *ppos)
 {
 	int i = 0;
-	struct ipa3_rt_tbl *tbl;
-	struct ipa3_rt_entry *entry;
-	struct ipa3_rt_tbl_set *set;
+	struct ipa3_rt_tbl *tbl = NULL;
+	struct ipa3_rt_entry *entry = NULL;
+	struct ipa3_rt_tbl_set *set = NULL;
 	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
 	u32 ofst;
 	u32 ofst_words;
@@ -1195,77 +1204,91 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 	else
 		pr_err("Non-Hashable table resides on system (ddr) memory\n");
 
-	list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
-		i = 0;
-		list_for_each_entry(entry, &tbl->head_rt_rule_list, link) {
-			pr_err("tbl_idx:%d tbl_name:%s tbl_ref:%u ",
-				entry->tbl->idx, entry->tbl->name,
-				entry->tbl->ref_cnt);
-			if (entry->proc_ctx &&
-				(!ipa3_check_idr_if_freed(entry->proc_ctx))) {
-				ofst = entry->proc_ctx->offset_entry->offset;
-				is_lcl = entry->proc_ctx->is_lcl;
-				ofst_words = is_lcl ?
-					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset) >> 5 :
-					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset) >> 5;
-				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
-					i, entry->rule.dst,
-					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
-					ipa_get_ep_mapping(entry->rule.dst),
-					is_lcl);
-				pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
-					ofst_words,
-					entry->rule.attrib.attrib_mask);
-			} else {
-				if (entry->hdr && !entry->hdr->is_hdr_proc_ctx)
-				{
-					ofst = entry->hdr->offset_entry->offset;
-				}
-				else
-				{
-					ofst = 0;
-				}
-				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
-					i, entry->rule.dst,
-					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
-					ipa_get_ep_mapping(entry->rule.dst),
-					!(entry->hdr && entry->hdr->is_lcl));
-				if(entry->hdr && entry->hdr->is_hdr_proc_ctx)
-					pr_err("phys_base=0x%pa attrib_mask:%08x hdr_in_ext %u",
-					&entry->hdr->phys_base,
-					entry->rule.attrib.attrib_mask,
-					(entry->hdr->is_hdr_proc_ctx));
-
-				else
-
-				pr_err("hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u",
-					ofst >> 2,
-					entry->rule.attrib.attrib_mask,
-					(entry->hdr && entry->hdr->in_apps_headers_ext));
+	if(list_empty(&set->head_rt_tbl_list))
+	{
+		IPAERR("Rt table list is empty\n");
+	}
+	else
+	{
+		list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
+			i = 0;
+			if(list_empty(&tbl->head_rt_rule_list))
+			{
+				IPAERR("Rt rule list is empty\n");
 			}
-			pr_err("rule_id:%u max_prio:%u prio:%u ",
-				entry->rule_id, entry->rule.max_prio,
-				entry->prio);
-			pr_err("enable_stats:%u counter_id:%u ",
-				entry->rule.enable_stats,
-				entry->rule.cnt_idx);
-			pr_err("hashable:%u retain_hdr:%u ",
-				entry->rule.hashable,
-				entry->rule.retain_hdr);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod: %u ",
-					entry->rule.close_aggr_irq_mod);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update: %u ", entry->rule.ttl_update);
-				pr_err("qos_class: %u ", entry->rule.qos_class);
-				pr_err("skip_ingress: %u ", entry->rule.skip_ingress);
-			}
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp: %u ", entry->rule.esp_after_udp);
+			else
+			{
+				list_for_each_entry(entry, &tbl->head_rt_rule_list, link) {
+					pr_err("tbl_idx:%d tbl_name:%s tbl_ref:%u ",
+							entry->tbl->idx, entry->tbl->name,
+							entry->tbl->ref_cnt);
+					if (entry->proc_ctx &&
+							(!ipa3_check_idr_if_freed(entry->proc_ctx))) {
+						ofst = entry->proc_ctx->offset_entry->offset;
+						is_lcl = entry->proc_ctx->is_lcl;
+						ofst_words = is_lcl ?
+							(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset) >> 5 :
+							(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset) >> 5;
+						pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
+								i, entry->rule.dst,
+								(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
+								ipa_get_ep_mapping(entry->rule.dst),
+								is_lcl);
+						pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
+								ofst_words,
+								entry->rule.attrib.attrib_mask);
+					} else {
+						if (entry->hdr && !entry->hdr->is_hdr_proc_ctx)
+						{
+							ofst = entry->hdr->offset_entry->offset;
+						}
+						else
+						{
+							ofst = 0;
+						}
+						pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
+								i, entry->rule.dst,
+								(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
+								ipa_get_ep_mapping(entry->rule.dst),
+								!(entry->hdr && entry->hdr->is_lcl));
+						if(entry->hdr && entry->hdr->is_hdr_proc_ctx)
+							pr_err("phys_base=0x%pa attrib_mask:%08x hdr_in_ext %u",
+									&entry->hdr->phys_base,
+									entry->rule.attrib.attrib_mask,
+									(entry->hdr->is_hdr_proc_ctx));
 
-			pr_err("\n");
-			ipa3_attrib_dump(&entry->rule.attrib, ip);
-			i++;
+						else
+
+							pr_err("hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u",
+									ofst >> 2,
+									entry->rule.attrib.attrib_mask,
+									(entry->hdr && entry->hdr->in_apps_headers_ext));
+					}
+					pr_err("rule_id:%u max_prio:%u prio:%u ",
+							entry->rule_id, entry->rule.max_prio,
+							entry->prio);
+					pr_err("enable_stats:%u counter_id:%u ",
+							entry->rule.enable_stats,
+							entry->rule.cnt_idx);
+					pr_err("hashable:%u retain_hdr:%u ",
+							entry->rule.hashable,
+							entry->rule.retain_hdr);
+					if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
+						pr_err("close_aggr_irq_mod: %u ",
+								entry->rule.close_aggr_irq_mod);
+					if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+						pr_err("ttl_update: %u ", entry->rule.ttl_update);
+						pr_err("qos_class: %u ", entry->rule.qos_class);
+						pr_err("skip_ingress: %u ", entry->rule.skip_ingress);
+					}
+					if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+						pr_err("esp_after_udp: %u ", entry->rule.esp_after_udp);
+
+					pr_err("\n");
+					ipa3_attrib_dump(&entry->rule.attrib, ip);
+					i++;
+				}
+			}
 		}
 	}
 	pr_err("==== Routing Tables End ====\n");
@@ -1415,8 +1438,8 @@ bail:
 static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
-	struct ipa3_hdr_proc_ctx_tbl *tbl;
-	struct ipa3_hdr_proc_ctx_entry *entry;
+	struct ipa3_hdr_proc_ctx_tbl *tbl = NULL;
+	struct ipa3_hdr_proc_ctx_entry *entry = NULL;
 	u32 ofst_words;
 	enum hpc_tbl_storage hpc_tbl;
 	int res = 0;
@@ -1430,59 +1453,66 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		else
 			pr_info("Table resides on system(ddr) memory\n");
 
-	list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
-		ofst_words = (entry->offset_entry->offset +
-			ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
-			>> 5;
-		pr_err("id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
-			entry->id,
-			ipa3_hdr_proc_type_name[entry->type],
-			ofst_words);
-		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
-			entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
-			pr_err("\naction:%u\n"
-				"sa_idx:%u\n"
-				"flt_tbl_id:%u\n"
-				"input_ip_version:%u\n"
-				"output_ip_version:%u\n"
-				"retain_l2_header:%u\n",
-				entry->ipsec_params.action,
-				entry->ipsec_params.sa_idx,
-				entry->ipsec_params.flt_tbl_id,
-				entry->ipsec_params.pre_params.encap.input_ip_version,
-				entry->ipsec_params.pre_params.encap.output_ip_version,
-				entry->ipsec_params.pre_params.encap.retain_l2_header);
-		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
-			pr_err("input_ethhdr_negative_offset:%u\n"
-				"output_ethhdr_negative_offset:%u\n"
-				"output_dscp_pcp_update:%u\n",
-				entry->generic_params.input_ethhdr_negative_offset,
-				entry->generic_params.output_ethhdr_negative_offset,
-				entry->generic_params.output_dscp_pcp_update);
-		} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
-			pr_err("input_ethhdr_negative_offset:%u\n"
-				"output_ethhdr_negative_offset:%u\n"
-				"output_dscp_pcp_update:%u\n"
-				"input_ethhdr_valid:%u\n",
-				entry->generic_params_v2.input_ethhdr_negative_offset,
-				entry->generic_params_v2.output_ethhdr_negative_offset,
-				entry->generic_params_v2.output_dscp_pcp_update,
-				entry->generic_params_v2.input_ethhdr_valid);
-		} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
-			pr_err("input_valid:%u\n"
-				"input_dscp_val:%u\n",
-				entry->pdn_dscp_params.valid,
-				entry->pdn_dscp_params.dscp_val);
-		}
-		if (entry->hdr->is_hdr_proc_ctx) {
-			pr_err("hdr_phys_base:0x%pa\n",
-				&entry->hdr->phys_base);
+		if(list_empty(&tbl->head_proc_ctx_entry_list))
+		{
+			IPAERR("List is empty\n");
 		}
 		else
 		{
-			pr_err("hdr[words]:%u\n",
-				entry->hdr->offset_entry->offset >> 2);
-		}
+			list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
+				ofst_words = (entry->offset_entry->offset +
+						ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
+					>> 5;
+				pr_err("id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
+						entry->id,
+						ipa3_hdr_proc_type_name[entry->type],
+						ofst_words);
+				if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
+						entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
+					pr_err("\naction:%u\n"
+							"sa_idx:%u\n"
+							"flt_tbl_id:%u\n"
+							"input_ip_version:%u\n"
+							"output_ip_version:%u\n"
+							"retain_l2_header:%u\n",
+							entry->ipsec_params.action,
+							entry->ipsec_params.sa_idx,
+							entry->ipsec_params.flt_tbl_id,
+							entry->ipsec_params.pre_params.encap.input_ip_version,
+							entry->ipsec_params.pre_params.encap.output_ip_version,
+							entry->ipsec_params.pre_params.encap.retain_l2_header);
+				} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
+					pr_err("input_ethhdr_negative_offset:%u\n"
+							"output_ethhdr_negative_offset:%u\n"
+							"output_dscp_pcp_update:%u\n",
+							entry->generic_params.input_ethhdr_negative_offset,
+							entry->generic_params.output_ethhdr_negative_offset,
+							entry->generic_params.output_dscp_pcp_update);
+				} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
+					pr_err("input_ethhdr_negative_offset:%u\n"
+							"output_ethhdr_negative_offset:%u\n"
+							"output_dscp_pcp_update:%u\n"
+							"input_ethhdr_valid:%u\n",
+							entry->generic_params_v2.input_ethhdr_negative_offset,
+							entry->generic_params_v2.output_ethhdr_negative_offset,
+							entry->generic_params_v2.output_dscp_pcp_update,
+							entry->generic_params_v2.input_ethhdr_valid);
+				} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
+					pr_err("input_valid:%u\n"
+							"input_dscp_val:%u\n",
+							entry->pdn_dscp_params.valid,
+							entry->pdn_dscp_params.dscp_val);
+				}
+				if (entry->hdr->is_hdr_proc_ctx) {
+					pr_err("hdr_phys_base:0x%pa\n",
+							&entry->hdr->phys_base);
+				}
+				else
+				{
+					pr_err("hdr[words]:%u\n",
+							entry->hdr->offset_entry->offset >> 2);
+				}
+			}
 		}
 		mutex_unlock(&ipa3_ctx->lock);
 	}
@@ -1495,10 +1525,10 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 {
 	int i;
 	int j;
-	struct ipa3_flt_tbl *tbl;
-	struct ipa3_flt_entry *entry;
+	struct ipa3_flt_tbl *tbl = NULL;
+	struct ipa3_flt_entry *entry = NULL;
 	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
-	struct ipa3_rt_tbl *rt_tbl;
+	struct ipa3_rt_tbl *rt_tbl = NULL;
 	u32 rt_tbl_idx;
 	u32 bitmap;
 	bool eq;
@@ -1521,68 +1551,75 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 			continue;
 		tbl = &ipa3_ctx->flt_tbl[j][ip];
 		i = 0;
-		list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
-			if (entry->cookie != IPA_FLT_COOKIE)
-				continue;
-			if (entry->rule.eq_attrib_type) {
-				rt_tbl_idx = entry->rule.rt_tbl_idx;
-				bitmap = entry->rule.eq_attrib.rule_eq_bitmap;
-				eq = true;
-			} else {
-				rt_tbl = ipa3_id_find(entry->rule.rt_tbl_hdl);
-				if (rt_tbl == NULL ||
-					rt_tbl->cookie != IPA_RT_TBL_COOKIE)
-					rt_tbl_idx =  ~0;
-				else
-					rt_tbl_idx = rt_tbl->idx;
-				bitmap = entry->rule.attrib.attrib_mask;
-				eq = false;
-			}
-			pr_err("ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d ",
-				j, i, entry->rule.action, rt_tbl_idx);
-			pr_err("attrib_mask:%08x retain_hdr:%d eq:%d ",
-				bitmap, entry->rule.retain_hdr, eq);
-			pr_err("hashable:%u rule_id:%u max_prio:%u prio:%u ",
-				entry->rule.hashable, entry->rule_id,
-				entry->rule.max_prio, entry->prio);
-			if (entry->rule.hashable)
-				pr_err("hash in_sys_preffer:%d, force: %d ",
-					tbl->in_sys[IPA_RULE_HASHABLE],
-					tbl->force_sys[IPA_RULE_HASHABLE]);
-			else
-				pr_err("non-hash in_sys_preffer:%d, force: %d ",
-					tbl->in_sys[IPA_RULE_NON_HASHABLE],
-					tbl->force_sys[IPA_RULE_NON_HASHABLE]);
-			pr_err("enable_stats:%u counter_id:%u\n",
-				entry->rule.enable_stats,
-				entry->rule.cnt_idx);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
-				pr_err("pdn index %d, set metadata %d ",
-					entry->rule.pdn_idx,
-					entry->rule.set_metadata);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod %u ",
-					entry->rule.close_aggr_irq_mod);
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update %u ", entry->rule.ttl_update);
-				pr_err("qos_class %u ", entry->rule.qos_class);
-			}
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp %u ", entry->rule.esp_after_udp);
-
-			pr_err("\n");
-
-			if (eq) {
-				res = ipa3_attrib_dump_eq(
-						&entry->rule.eq_attrib);
-				if (res) {
-					IPAERR_RL("failed read attrib eq\n");
-					goto bail;
+		if(list_empty(&tbl->head_flt_rule_list))
+		{
+			IPAERR("List is empty\n");
+		}
+		else
+		{
+			list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
+				if (entry->cookie != IPA_FLT_COOKIE)
+					continue;
+				if (entry->rule.eq_attrib_type) {
+					rt_tbl_idx = entry->rule.rt_tbl_idx;
+					bitmap = entry->rule.eq_attrib.rule_eq_bitmap;
+					eq = true;
+				} else {
+					rt_tbl = ipa3_id_find(entry->rule.rt_tbl_hdl);
+					if (rt_tbl == NULL ||
+							rt_tbl->cookie != IPA_RT_TBL_COOKIE)
+						rt_tbl_idx =  ~0;
+					else
+						rt_tbl_idx = rt_tbl->idx;
+					bitmap = entry->rule.attrib.attrib_mask;
+					eq = false;
 				}
-			} else
-				ipa3_attrib_dump(
-					&entry->rule.attrib, ip);
-			i++;
+				pr_err("ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d ",
+						j, i, entry->rule.action, rt_tbl_idx);
+				pr_err("attrib_mask:%08x retain_hdr:%d eq:%d ",
+						bitmap, entry->rule.retain_hdr, eq);
+				pr_err("hashable:%u rule_id:%u max_prio:%u prio:%u ",
+						entry->rule.hashable, entry->rule_id,
+						entry->rule.max_prio, entry->prio);
+				if (entry->rule.hashable)
+					pr_err("hash in_sys_preffer:%d, force: %d ",
+							tbl->in_sys[IPA_RULE_HASHABLE],
+							tbl->force_sys[IPA_RULE_HASHABLE]);
+				else
+					pr_err("non-hash in_sys_preffer:%d, force: %d ",
+							tbl->in_sys[IPA_RULE_NON_HASHABLE],
+							tbl->force_sys[IPA_RULE_NON_HASHABLE]);
+				pr_err("enable_stats:%u counter_id:%u\n",
+						entry->rule.enable_stats,
+						entry->rule.cnt_idx);
+				if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+					pr_err("pdn index %d, set metadata %d ",
+							entry->rule.pdn_idx,
+							entry->rule.set_metadata);
+				if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
+					pr_err("close_aggr_irq_mod %u ",
+							entry->rule.close_aggr_irq_mod);
+				if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+					pr_err("ttl_update %u ", entry->rule.ttl_update);
+					pr_err("qos_class %u ", entry->rule.qos_class);
+				}
+				if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
+					pr_err("esp_after_udp %u ", entry->rule.esp_after_udp);
+
+				pr_err("\n");
+
+				if (eq) {
+					res = ipa3_attrib_dump_eq(
+							&entry->rule.eq_attrib);
+					if (res) {
+						IPAERR_RL("failed read attrib eq\n");
+						goto bail;
+					}
+				} else
+					ipa3_attrib_dump(
+							&entry->rule.attrib, ip);
+				i++;
+			}
 		}
 	}
 bail:
@@ -2439,356 +2476,6 @@ static ssize_t ipa3_read_msg(struct file *file, char __user *ubuf,
 	}
 
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
-}
-
-static void ipa3_read_table(
-	char *table_addr,
-	u32 table_size,
-	u32 *total_num_entries,
-	u32 *rule_id,
-	enum ipahal_nat_type nat_type)
-{
-	int result;
-	char *entry;
-	size_t entry_size;
-	bool entry_zeroed;
-	bool entry_valid;
-	u32 i, num_entries = 0, id = *rule_id;
-	char *buff;
-	size_t buff_size = 2 * IPA_MAX_ENTRY_STRING_LEN;
-
-	IPADBG("In\n");
-
-	if (table_addr == NULL) {
-		pr_err("NULL NAT table\n");
-		goto bail;
-	}
-
-	result = ipahal_nat_entry_size(nat_type, &entry_size);
-
-	if (result) {
-		IPAERR("Failed to retrieve size of %s entry\n",
-			ipahal_nat_type_str(nat_type));
-		goto bail;
-	}
-
-	buff = kzalloc(buff_size, GFP_KERNEL);
-
-	if (!buff) {
-		IPAERR("Out of memory\n");
-		goto bail;
-	}
-
-	for (i = 0, entry = table_addr;
-		i < table_size;
-		++i, ++id, entry += entry_size) {
-
-		result = ipahal_nat_is_entry_zeroed(nat_type, entry,
-			&entry_zeroed);
-
-		if (result) {
-			IPAERR("Undefined if %s entry is zero\n",
-				   ipahal_nat_type_str(nat_type));
-			goto free_buf;
-		}
-
-		if (entry_zeroed)
-			continue;
-
-		result = ipahal_nat_is_entry_valid(nat_type, entry,
-			&entry_valid);
-
-		if (result) {
-			IPAERR("Undefined if %s entry is valid\n",
-				   ipahal_nat_type_str(nat_type));
-			goto free_buf;
-		}
-
-		if (entry_valid) {
-			++num_entries;
-			pr_err("\tEntry_Index=%d\n", id);
-		} else
-			pr_err("\tEntry_Index=%d - Invalid Entry\n", id);
-
-		ipahal_nat_stringify_entry(nat_type, entry,
-			buff, buff_size);
-
-		pr_err("%s\n", buff);
-
-		memset(buff, 0, buff_size);
-	}
-
-	if (num_entries)
-		pr_err("\n");
-	else
-		pr_err("\tEmpty\n\n");
-
-free_buf:
-	kfree(buff);
-	*rule_id = id;
-	*total_num_entries += num_entries;
-
-bail:
-	IPADBG("Out\n");
-}
-
-static void ipa3_start_read_memory_device(
-	struct ipa3_nat_ipv6ct_common_mem *dev,
-	enum ipahal_nat_type nat_type,
-	u32 *num_ddr_ent_ptr,
-	u32 *num_sram_ent_ptr)
-{
-	u32 rule_id = 0;
-
-	if (dev->is_ipv6ct_mem) {
-		struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
-		struct ipa3_ct_mem_loc_data *ct_mld_ptr = NULL;
-		u32 *num_ent_ptr;
-		const char *type_ptr;
-
-		IPADBG("In: v6\n");
-
-		if (ctm_ptr->active_table == IPA_NAT_MEM_IN_DDR &&
-			ctm_ptr->ddr_in_use) {
-
-			ct_mld_ptr = &ctm_ptr->mem_loc[IPA_NAT_MEM_IN_DDR];
-			num_ent_ptr = num_ddr_ent_ptr;
-			type_ptr = "DDR based table";
-		}
-
-		if (ctm_ptr->active_table == IPA_NAT_MEM_IN_SRAM &&
-			ctm_ptr->sram_in_use) {
-
-			ct_mld_ptr = &ctm_ptr->mem_loc[IPA_NAT_MEM_IN_SRAM];
-			num_ent_ptr = num_sram_ent_ptr;
-			type_ptr = "SRAM based table";
-		}
-
-		pr_err("%s_Table_Size=%d\n",
-			   dev->name, dev->table_entries + 1);
-
-		pr_err("%s_Expansion_Table_Size=%d\n",
-			   dev->name, dev->expn_table_entries);
-
-		if (ct_mld_ptr) {
-			pr_err("(%s) %s_Table_Size=%d\n",
-				   type_ptr,
-				   dev->name,
-				   ct_mld_ptr->table_entries + 1);
-
-			pr_err("(%s) %s_Expansion_Table_Size=%d\n",
-				   type_ptr,
-				   dev->name,
-				   ct_mld_ptr->expn_table_entries);
-
-			pr_err("\n(%s) %s_Base Table:\n",
-				   type_ptr,
-				   dev->name);
-
-			if (ct_mld_ptr->base_table_addr)
-				ipa3_read_table(
-					ct_mld_ptr->base_table_addr,
-					ct_mld_ptr->table_entries + 1,
-					num_ent_ptr,
-					&rule_id,
-					nat_type);
-
-			pr_err("(%s) %s_Expansion Table:\n",
-				   type_ptr,
-				   dev->name);
-
-			if (ct_mld_ptr->expansion_table_addr)
-				ipa3_read_table(
-					ct_mld_ptr->expansion_table_addr,
-					ct_mld_ptr->expn_table_entries,
-					num_ent_ptr,
-					&rule_id,
-					nat_type);
-		}
-	}
-
-	if (dev->is_nat_mem) {
-		struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) dev;
-		struct ipa3_nat_mem_loc_data *mld_ptr = NULL;
-		u32 *num_ent_ptr;
-		const char *type_ptr;
-
-		IPADBG("In: v4\n");
-
-		if (nm_ptr->active_table == IPA_NAT_MEM_IN_DDR &&
-			nm_ptr->ddr_in_use) {
-
-			mld_ptr     = &nm_ptr->mem_loc[IPA_NAT_MEM_IN_DDR];
-			num_ent_ptr = num_ddr_ent_ptr;
-			type_ptr    = "DDR based table";
-		}
-
-		if (nm_ptr->active_table == IPA_NAT_MEM_IN_SRAM &&
-			nm_ptr->sram_in_use) {
-
-			mld_ptr     = &nm_ptr->mem_loc[IPA_NAT_MEM_IN_SRAM];
-			num_ent_ptr = num_sram_ent_ptr;
-			type_ptr    = "SRAM based table";
-		}
-
-		if (mld_ptr) {
-			pr_err("(%s) %s_Table_Size=%d\n",
-				   type_ptr,
-				   dev->name,
-				   mld_ptr->table_entries + 1);
-
-			pr_err("(%s) %s_Expansion_Table_Size=%d\n",
-				   type_ptr,
-				   dev->name,
-				   mld_ptr->expn_table_entries);
-
-			pr_err("\n(%s) %s_Base Table:\n",
-				   type_ptr,
-				   dev->name);
-
-			if (mld_ptr->base_table_addr)
-				ipa3_read_table(
-					mld_ptr->base_table_addr,
-					mld_ptr->table_entries + 1,
-					num_ent_ptr,
-					&rule_id,
-					nat_type);
-
-			pr_err("(%s) %s_Expansion Table:\n",
-				   type_ptr,
-				   dev->name);
-
-			if (mld_ptr->expansion_table_addr)
-				ipa3_read_table(
-					mld_ptr->expansion_table_addr,
-					mld_ptr->expn_table_entries,
-					num_ent_ptr,
-					&rule_id,
-					nat_type);
-		}
-	}
-
-	IPADBG("Out\n");
-}
-
-static void ipa3_finish_read_memory_device(
-	struct ipa3_nat_ipv6ct_common_mem *dev,
-	u32 num_ddr_entries,
-	u32 num_sram_entries)
-{
-	IPADBG("In\n");
-
-	if (dev->is_ipv6ct_mem) {
-
-		struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
-
-		if (num_ddr_entries)
-			pr_err("%s: Overall number of DDR entries: %u\n\n",
-				   dev->name,
-				   num_ddr_entries);
-
-		if (num_sram_entries)
-			pr_err("%s: Overall number of SRAM entries: %u\n\n",
-				   dev->name,
-				   num_sram_entries);
-
-		pr_err("%s: Driver focus changes to DDR(%u) to SRAM(%u)\n",
-			   dev->name,
-			   ctm_ptr->switch2ddr_cnt,
-			   ctm_ptr->switch2sram_cnt);
-	} else {
-		struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) dev;
-
-		if (num_ddr_entries)
-			pr_err("%s: Overall number of DDR entries: %u\n\n",
-				   dev->name,
-				   num_ddr_entries);
-
-		if (num_sram_entries)
-			pr_err("%s: Overall number of SRAM entries: %u\n\n",
-				   dev->name,
-				   num_sram_entries);
-
-		pr_err("%s: Driver focus changes to DDR(%u) to SRAM(%u)\n",
-			   dev->name,
-			   nm_ptr->switch2ddr_cnt,
-			   nm_ptr->switch2sram_cnt);
-	}
-
-	IPADBG("Out\n");
-}
-
-static void ipa3_read_pdn_table(void)
-{
-	int i, result;
-	char *pdn_entry;
-	size_t pdn_entry_size;
-	bool entry_zeroed;
-	bool entry_valid;
-	char *buff;
-	size_t buff_size = 128;
-
-	IPADBG("In\n");
-
-	if (ipa3_ctx->nat_mem.pdn_mem.base) {
-
-		result = ipahal_nat_entry_size(
-			IPAHAL_NAT_IPV4_PDN, &pdn_entry_size);
-
-		if (result) {
-			IPAERR("Failed to retrieve size of PDN entry");
-			goto bail;
-		}
-
-		buff = kzalloc(buff_size, GFP_KERNEL);
-		if (!buff) {
-			IPAERR("Out of memory\n");
-			goto bail;
-		}
-
-		for (i = 0, pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
-			 i < ipa3_get_max_pdn();
-			 ++i, pdn_entry += pdn_entry_size) {
-
-			result = ipahal_nat_is_entry_zeroed(
-				IPAHAL_NAT_IPV4_PDN,
-				pdn_entry, &entry_zeroed);
-
-			if (result) {
-				IPAERR("ipahal_nat_is_entry_zeroed() fail\n");
-				goto free;
-			}
-
-			if (entry_zeroed)
-				continue;
-
-			result = ipahal_nat_is_entry_valid(
-				IPAHAL_NAT_IPV4_PDN,
-				pdn_entry, &entry_valid);
-
-			if (result) {
-				IPAERR(
-					"Failed to determine whether the PDN entry is valid\n");
-				goto free;
-			}
-
-			ipahal_nat_stringify_entry(
-				IPAHAL_NAT_IPV4_PDN,
-				pdn_entry, buff, buff_size);
-
-			if (entry_valid)
-				pr_err("PDN %d: %s\n", i, buff);
-			else
-				pr_err("PDN %d - Invalid: %s\n", i, buff);
-
-			memset(buff, 0, buff_size);
-		}
-		pr_err("\n");
-free:
-		kfree(buff);
-	}
-bail:
-	IPADBG("Out\n");
 }
 
 static ssize_t ipa3_read_nat4(

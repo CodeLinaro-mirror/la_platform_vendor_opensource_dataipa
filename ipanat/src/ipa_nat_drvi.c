@@ -1,6 +1,8 @@
 /*
  * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
  *
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
@@ -24,40 +26,6 @@
  * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Changes from Qualcomm Innovation Center are provided under the following license:
- *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted (subject to the limitations in the
- * disclaimer below) provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *
- *   * Redistributions in binary form must reproduce the above
- *     copyright notice, this list of conditions and the following
- *     disclaimer in the documentation and/or other materials provided
- *     with the distribution.
- *
- *   * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
- *     contributors may be used to endorse or promote products derived
- *     from this software without specific prior written permission.
- *
- * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
- * GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
- * HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
- * GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
- * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
@@ -1250,7 +1218,7 @@ int ipa_nati_alloc_pdn(
 			return 0;
 		}
 
-		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)))
+		if(!memcmp((const void *)(pdns + i), (const void *)&zero_test, sizeof(ipa_nat_pdn_entry)))
 		{
 			/* Reserving 0 for STA */
 			if(pdn_info->is_sta == true)
@@ -1304,6 +1272,7 @@ int ipa_nati_alloc_pdn(
 
 int ipa_nati_get_pdn_cnt(void)
 {
+	IPADBG("No of pdn count is %d\n", num_pdns);
 	return num_pdns;
 }
 
@@ -1324,7 +1293,7 @@ int ipa_nati_dealloc_pdn(
 
 	memset(&zero_test, 0, sizeof(zero_test));
 
-	if(!memcmp((pdns + pdn_index), &zero_test, sizeof(pdns[pdn_index])))
+	if(!memcmp((const void *)(pdns + pdn_index), (const void *)&zero_test, sizeof(pdns[pdn_index])))
 	{
 		IPAERR("pdn entry is a zero entry\n");
 		return -EIO;
@@ -1363,7 +1332,7 @@ int ipa_nati_dealloc_pdn(
 int ipa_NATI_post_ipv4_init_cmd(
 	uint32_t tbl_hdl )
 {
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	int ret;
@@ -1457,6 +1426,13 @@ int ipa_NATI_add_ipv4_tbl(
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
+	if(!nat_cache_ptr)
+	{
+		IPAERR("Nat pointer is NULL\n");
+		ret = -EINVAL;
+		goto bail;
+	}
+
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
@@ -1484,6 +1460,15 @@ int ipa_NATI_add_ipv4_tbl(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[nat_cache_ptr->table_cnt];
 
+	if(!nat_table)
+	{
+		IPAERR("Nat table pointer is NULL\n");
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	IPADBG("Creating NAT table\n")
+
 	ret = ipa_nati_create_table(
 		nat_cache_ptr,
 		nat_table,
@@ -1499,6 +1484,7 @@ int ipa_NATI_add_ipv4_tbl(
 	/*
 	 * Initialize the ipa hw with nat table dimensions
 	 */
+	IPADBG("post nati ipv4 init cmd\n");
 	ret = ipa_nati_post_ipv4_init_cmd(
 		nat_cache_ptr,
 		nat_table,
@@ -1557,13 +1543,19 @@ bail:
 int ipa_NATI_del_ipv4_table(
 	uint32_t tbl_hdl )
 {
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 
 	int ret;
 
-	IPADBG("In\n");
+	IPADBG("handle %u\n", tbl_hdl);
+	if (!VALID_TBL_HDL(tbl_hdl))
+	{
+		IPAERR("Got invalid table handle %u\n", tbl_hdl);
+		ret = -EINVAL;
+		goto bail;
+	}
 
 	BREAK_TBL_HDL(tbl_hdl, nmi, tbl_hdl);
 
@@ -1575,6 +1567,18 @@ int ipa_NATI_del_ipv4_table(
 
 	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
 
+	IPADBG("nmi %d\n", nmi);
+
+	nat_cache_ptr = &ipv4_nat_cache[nmi];
+	if(nat_cache_ptr)
+		nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
+
+	if(!nat_table)
+	{
+		IPAERR("Nat table is NULL\n");
+		ret = -EINVAL;
+		goto bail;
+	}
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
@@ -1614,12 +1618,13 @@ bail:
 	return ret;
 }
 
-int ipa_NATI_query_timestamp(
+int ipa_NATI_query_timestamp_redirect(
 	uint32_t  tbl_hdl,
 	uint32_t  rule_hdl,
-	uint32_t* time_stamp )
+	uint32_t* time_stamp,
+	uint32_t* redirect)
 {
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	struct ipa_nat_rule*            rule_ptr;
@@ -1673,6 +1678,7 @@ int ipa_NATI_query_timestamp(
 		   prep_nat_rule_4print(rule_ptr, buf, sizeof(buf)));
 
 	*time_stamp = rule_ptr->time_stamp;
+	*redirect = rule_ptr->redirect;
 
 unlock:
 	if (pthread_mutex_unlock(&nat_mutex)) {
@@ -1698,7 +1704,7 @@ int ipa_NATI_add_ipv4_rule(
 	struct ipa_ioc_nat_dma_cmd* cmd =
 		(struct ipa_ioc_nat_dma_cmd*) cmd_buf;
 
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	struct ipa_nat_rule*            rule;
@@ -1917,7 +1923,7 @@ int ipa_NATI_del_ipv4_rule(
 	struct ipa_ioc_nat_dma_cmd* cmd =
 		(struct ipa_ioc_nat_dma_cmd*) cmd_buf;
 
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	struct ipa_nat_rule*            table_rule;
@@ -2159,8 +2165,8 @@ static int print_nat_rule(
 	uint16_t        meta_record_index,
 	void*           arb_data_ptr )
 {
-	uint8_t              is_expn_tbl;
-	uint16_t             rule_index;
+	uint8_t              is_expn_tbl = 0;
+	uint16_t             rule_index = 0;
 
 	char buf[1024];
 
@@ -2204,8 +2210,8 @@ static int print_meta_data(
 	struct ipa_nat_indx_tbl_meta_info* mi_ptr =
 		(struct ipa_nat_indx_tbl_meta_info*) meta_record_ptr;
 
-	uint8_t              is_expn_tbl;
-	uint16_t             rule_index;
+	uint8_t              is_expn_tbl = 0;
+	uint16_t             rule_index = 0;
 
 	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
@@ -2280,7 +2286,7 @@ void ipa_nat_dump_ipv4_table(
 int ipa_NATI_clear_ipv4_tbl(
 	uint32_t tbl_hdl )
 {
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	int ret = 0;
@@ -2396,8 +2402,8 @@ int ipa_NATI_walk_ipv4_tbl(
 	ipa_table_walk_cb walk_cb,
 	void*             arb_data_ptr )
 {
-	enum ipa3_nat_mem_in            nmi;
-	uint32_t                        broken_tbl_hdl;
+	enum ipa3_nat_mem_in            nmi = 0;
+	uint32_t                        broken_tbl_hdl = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	ipa_table*                      ipa_tbl_ptr;
@@ -2491,8 +2497,8 @@ static int gen_chain_stats(
 {
 	chain_stat_help* csh_ptr = (chain_stat_help*) arb_data_ptr;
 
-	uint8_t              is_expn_tbl;
-	uint16_t             rule_index;
+	uint8_t              is_expn_tbl = 0;
+	uint16_t             rule_index = 0;
 
 	uint32_t             chain_len = 0;
 
@@ -2566,8 +2572,8 @@ int ipa_NATI_ipv4_tbl_stats(
 	ipa_nati_tbl_stats* nat_stats_ptr,
 	ipa_nati_tbl_stats* idx_stats_ptr )
 {
-	enum ipa3_nat_mem_in            nmi;
-	uint32_t                        broken_tbl_hdl;
+	enum ipa3_nat_mem_in            nmi = 0;
+	uint32_t                        broken_tbl_hdl = 0;
 	struct ipa_nat_cache*           nat_cache_ptr;
 	struct ipa_nat_ip4_table_cache* nat_table;
 	ipa_table*                      ipa_tbl_ptr;

@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -201,7 +201,8 @@ static void ipa3_handle_indication_req(struct qmi_handle *qmi_handle,
 		if (ipa3_qmi_send_endp_desc_indication(&endp_ind))
 			IPAWANERR("Failed to send eth pipe endp desc QMI\n");
 	}
-	if(ipa3_rmnet_ctx.num_mux_channel_eth)
+	if(ipa3_rmnet_ctx.num_mux_channel_eth &&
+			(ipa3_rmnet_ctx.num_mux_channel_eth <= MAX_NUM_OF_MUX_CHANNEL))
 	{
 		/* if rmnet_info comes before qmi, send all the cached info using QMI */
 		IPAWANDBG("Sending Rmnet_eth_info QMI\n");
@@ -2090,14 +2091,6 @@ static struct qmi_msg_handler server_handlers[] = {
 		.ei = ipa3_config_req_msg_data_v01_ei,
 		.decoded_size = sizeof(struct ipa_config_req_msg_v01),
 		.fn = handle_ipa_config_req,
-	},
-	{
-		.type = QMI_REQUEST,
-		.msg_id = QMI_IPA_INIT_MODEM_DRIVER_CMPLT_REQ_V01,
-		.ei = ipa3_init_modem_driver_cmplt_req_msg_data_v01_ei,
-		.decoded_size = sizeof(
-			struct ipa_init_modem_driver_cmplt_req_msg_v01),
-		.fn = ipa3_handle_modem_init_cmplt_req,
 	},
 	{
 		.type = QMI_REQUEST,

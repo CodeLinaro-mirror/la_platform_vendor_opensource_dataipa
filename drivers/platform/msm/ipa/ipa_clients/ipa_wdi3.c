@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, 2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_wdi3.h"
@@ -1038,8 +1038,8 @@ EXPORT_SYMBOL(ipa_wdi_release_smmu_mapping_per_inst);
  */
 int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 {
-	struct ipa_wdi_intf_info *entry;
-	struct ipa_wdi_intf_info *next;
+	struct ipa_wdi_intf_info *entry = NULL;
+	struct ipa_wdi_intf_info *next = NULL;
 
 	IPA_WDI_DBG("client hdl = %d, Instance = %d\n", hdl,ipa_wdi_ctx_list[hdl]->inst_id);
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
@@ -1056,10 +1056,17 @@ int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 	}
 
 	/* clear interface list */
-	list_for_each_entry_safe(entry, next,
-		&ipa_wdi_ctx_list[hdl]->head_intf_list, link) {
-		list_del(&entry->link);
-		kfree(entry);
+	if(list_empty(&ipa_wdi_ctx_list[hdl]->head_intf_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe(entry, next,
+				&ipa_wdi_ctx_list[hdl]->head_intf_list, link) {
+			list_del(&entry->link);
+			kfree(entry);
+		}
 	}
 
 	if(!ipa3_uc_dereg_per_inst_rdyCB(ipa_wdi_ctx_list[hdl]->inst_id))
@@ -1079,10 +1086,11 @@ EXPORT_SYMBOL(ipa_wdi_cleanup_per_inst);
  */
 int ipa_wdi_dereg_intf_per_inst(const char *netdev_name,ipa_wdi_hdl_t hdl)
 {
-	int len, ret = 0;
+	int i, len, ret = 0;
 	struct ipa_ioc_del_hdr *hdr = NULL;
-	struct ipa_wdi_intf_info *entry;
-	struct ipa_wdi_intf_info *next;
+	struct ipa_wdi_intf_info *entry = NULL;
+	struct ipa_wdi_intf_info *next = NULL;
+	int num_hdr = 0;
 
 	if (!netdev_name) {
 		IPA_WDI_ERR("no netdev name.\n");
@@ -1106,13 +1114,16 @@ int ipa_wdi_dereg_intf_per_inst(const char *netdev_name,ipa_wdi_hdl_t hdl)
 		IPA_WDI_ERR("wdi ctx is not initialized.\n");
 		return -EPERM;
 	}
+
+	num_hdr = ipa_wdi_ctx_list[hdl]->is_rx1_used ? 4 : 2;
+
 	IPA_WDI_DBG("Deregister Instance hdl %d\n",hdl);
 	mutex_lock(&ipa_wdi_ctx_list[hdl]->lock);
 	list_for_each_entry_safe(entry, next, &ipa_wdi_ctx_list[hdl]->head_intf_list,
 		link)
 		if (strcmp(entry->netdev_name, netdev_name) == 0) {
 			len = sizeof(struct ipa_ioc_del_hdr) +
-				2 * sizeof(struct ipa_hdr_del);
+				num_hdr * sizeof(struct ipa_hdr_del);
 			hdr = kzalloc(len, GFP_KERNEL);
 			if (hdr == NULL) {
 				IPA_WDI_ERR("fail to alloc %d bytes\n", len);
@@ -1121,11 +1132,11 @@ int ipa_wdi_dereg_intf_per_inst(const char *netdev_name,ipa_wdi_hdl_t hdl)
 			}
 
 			hdr->commit = 1;
-			hdr->num_hdls = 2;
-			hdr->hdl[0].hdl = entry->partial_hdr_hdl[0];
-			hdr->hdl[1].hdl = entry->partial_hdr_hdl[1];
-			IPA_WDI_DBG("IPv4 hdr hdl: %d IPv6 hdr hdl: %d\n",
-				hdr->hdl[0].hdl, hdr->hdl[1].hdl);
+			hdr->num_hdls = num_hdr;
+			for (i = 0; i < num_hdr; i++) {
+				hdr->hdl[i].hdl = entry->partial_hdr_hdl[i];
+				IPA_WDI_DBG("hdr hdl: %d\n", hdr->hdl[i].hdl);
+			}
 
 			if (ipa_del_hdr(hdr)) {
 				IPA_WDI_ERR("fail to delete partial header\n");

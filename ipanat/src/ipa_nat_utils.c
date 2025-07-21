@@ -143,9 +143,9 @@ void ipa_read_debug_info(
 			break;
 		}
 
-		dbg_buff[(result < IPA_MAX_MSG_LEN) ? result : (IPA_MAX_MSG_LEN - 1)] = '\0';
+		dbg_buff[(result < IPA_MAX_MSG_LEN) ? result : (size_t)(IPA_MAX_MSG_LEN - 1)] = '\0';
 
-		printf("%s", dbg_buff);
+		IPADBG("%s", dbg_buff);
 
 		if (feof(debug_file))
 			break;

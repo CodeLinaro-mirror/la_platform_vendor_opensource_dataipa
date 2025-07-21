@@ -26,39 +26,7 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * ​​​​​Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted (subject to the limitations in the
- * disclaimer below) provided that the following conditions are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *
- *     * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
- * GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
- * HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
- * GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
- * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include "ipa_ipv6ct.h"
 #include "ipa_ipv6cti.h"
@@ -361,7 +329,7 @@ static int ipa_ipv6ct_post_init_cmd(
 int ipa_ipv6ct_post_init_cmd_int(
 	uint32_t tbl_hdl )
 {
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	struct ipa_ct_cache*           ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache* ct_table;
 	int ret;
@@ -530,7 +498,7 @@ bail:
 
 int ipa_ipv6ct_del_tbl(uint32_t table_handle)
 {
-	enum ipa3_nat_mem_in           nmi;
+	enum ipa3_nat_mem_in           nmi = 0;
 	struct ipa_ct_cache*           ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache* ct_table;
 	int ret;
@@ -605,7 +573,7 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 	int ret;
 	struct ipa_ct_cache*           ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache* ct_table;
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	uint16_t new_entry_index;
 	uint32_t new_entry_handle;
 	const uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
@@ -713,7 +681,7 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 {
 	struct ipa_ct_cache*           ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache* ct_table;
-	enum ipa3_nat_mem_in            nmi;
+	enum ipa3_nat_mem_in            nmi = 0;
 	ipa_table_iterator table_iterator;
 	ipa_ipv6ct_hw_entry* entry;
 	const uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
@@ -819,7 +787,7 @@ done:
 int ipa_ipv6ct_query_timestamp(uint32_t table_handle, uint32_t rule_handle, uint32_t* time_stamp)
 {
 	int ret;
-	enum ipa3_nat_mem_in           nmi;
+	enum ipa3_nat_mem_in           nmi = 0;
 	struct ipa_ct_cache*           ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache* ct_table;
 	ipa_ipv6ct_hw_entry *entry;
@@ -1248,7 +1216,7 @@ void ipa_ipv6ct_dump_table(uint32_t table_handle)
 {
 	struct ipa_ct_ip6_table_cache* ct_table = NULL;
 	struct ipa_ct_cache*        ct_cache_ptr = NULL;
-	enum ipa3_nat_mem_in nmi;
+	enum ipa3_nat_mem_in nmi = 0;
 
 	CT_BREAK_TBL_HDL(table_handle, nmi, table_handle);
 
@@ -1433,7 +1401,7 @@ static int GetEvenTightUpperBound(uint16_t num)
 	if (num == 0)
 		return 2;
 
-	return (num % 2) ? num + 1 : num;
+	return (num % 2) ? num + (uint16_t)1 : num;
 }
 
 int ipa_calc_num_sram_ct_table_entries(
@@ -1492,7 +1460,7 @@ int ipa_calc_num_sram_ct_table_entries(
 
 int ipa_ipv6ct_clear_table(uint32_t tbl_hdl)
 {
-	enum ipa3_nat_mem_in nmi;
+	enum ipa3_nat_mem_in nmi = 0;
 	struct ipa_ct_cache*           ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache* ct_table;
 	int ret = 0;
@@ -1547,8 +1515,8 @@ int ipa_ipv6ct_walk_table(
 	ipa_table_walk_cb walk_cb,
 	void*             arb_data_ptr )
 {
-	enum ipa3_nat_mem_in            nmi;
-	uint32_t                        broken_tbl_hdl;
+	enum ipa3_nat_mem_in            nmi = 0;
+	uint32_t                        broken_tbl_hdl = 0;
 	struct ipa_ct_cache*            ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache*  ct_table;
 	ipa_table*                      ipa_tbl_ptr;
@@ -1635,8 +1603,8 @@ static int ct_gen_chain_stats(
 	ct_chain_stat_help* csh_ptr = (ct_chain_stat_help*) arb_data_ptr;
 
 	enum ipa3_nat_mem_in nmi;
-	uint8_t              is_expn_tbl;
-	uint16_t             rule_index;
+	uint8_t              is_expn_tbl = 0;
+	uint16_t             rule_index = 0;
 
 	uint32_t             chain_len = 0;
 
@@ -1692,8 +1660,8 @@ int ipa_ipv6ct_stats_table(
 	uint32_t            tbl_hdl,
 	ipa_cti_tbl_stats* ct_stats_ptr)
 {
-	enum ipa3_nat_mem_in           nmi;
-	uint32_t                       broken_tbl_hdl;
+	enum ipa3_nat_mem_in           nmi = 0;
+	uint32_t                       broken_tbl_hdl = 0;
 	struct ipa_ct_cache*           ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache* ct_table;
 

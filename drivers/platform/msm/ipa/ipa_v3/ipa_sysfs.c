@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2021 Linaro Ltd.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/kernel.h>
@@ -23,18 +23,6 @@
 #include "ipa_test_module_tsp.h"
 #include "ipahal_tsp.h"
 #endif
-#define IPA_MAX_ENTRY_STRING_LEN 500
-#define IPA_MAX_MSG_LEN 4096
-#define IPA_DBG_MAX_RULE_IN_TBL 128
-#define IPA_DBG_ACTIVE_CLIENT_BUF_SIZE ((IPA3_ACTIVE_CLIENTS_LOG_LINE_LEN \
-	* IPA3_ACTIVE_CLIENTS_LOG_BUFFER_SIZE_LINES) + IPA_MAX_MSG_LEN)
-
-#define IPA_DUMP_STATUS_FIELD(f) \
-	pr_err(#f "=0x%x\n", status->f)
-
-#define IPA_READ_ONLY_MODE  0444
-#define IPA_READ_WRITE_MODE 0664
-#define IPA_WRITE_ONLY_MODE 0220
 
 static const char * const ipa_eth_clients_strings[] = {
 	__stringify(AQC107),
@@ -192,7 +180,8 @@ static ssize_t gen_reg_show(struct device *dev, struct device_attribute *attr, c
 
 }
 
-static ssize_t holb_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+ssize_t __holb_set(struct device *dev, struct device_attribute *attr, const char *ubuf,
+		size_t count, enum ipa_ep_holb_timer_type timer_type)
 {
 	struct ipa_ep_cfg_holb holb;
 	u32 en;
@@ -230,52 +219,35 @@ static ssize_t holb_store(struct device *dev, struct device_attribute *attr, con
 	holb.en = en;
 	holb.tmr_val = tmr_val;
 
-	ipa3_cfg_ep_holb(ep_idx, &holb);
+	switch(timer_type)
+	{
+		case IPA_EP_HOLB_TIMER_TYPE_S:
+			{
+				ipa3_cfg_ep_holb(ep_idx, &holb);
+			}
+			break;
+		case IPA_EP_HOLB_TIMER_TYPE_US:
+			{
+				ipa3_cfg_ep_holb_uS(ep_idx, &holb);
+			}
+			break;
+		default:
+			{
+				return -EINVAL;
+			}
+	}
 
 	return count;
 }
 
+static ssize_t holb_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
+{
+	return __holb_set(dev, attr, ubuf, count, IPA_EP_HOLB_TIMER_TYPE_S);
+}
+
 static ssize_t holb_uS_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
 {
-	struct ipa_ep_cfg_holb holb;
-	u32 en;
-	u32 tmr_val;
-	u32 ep_idx;
-	char *sptr, *token;
-
-	if (count >= sizeof(dbg_buff))
-		return -EFAULT;
-
-	memcpy(dbg_buff, ubuf, count);
-
-	dbg_buff[count] = '\0';
-
-	sptr = dbg_buff;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou32(token, 0, &ep_idx))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou32(token, 0, &en))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou32(token, 0, &tmr_val))
-		return -EINVAL;
-
-	holb.en = en;
-	holb.tmr_val = tmr_val;
-
-	ipa3_cfg_ep_holb_uS(ep_idx, &holb);
-
-	return count;
+	return __holb_set(dev, attr, ubuf, count, IPA_EP_HOLB_TIMER_TYPE_US);
 }
 
 static ssize_t holb_monitor_client_param_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count)
@@ -1702,7 +1674,7 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		"flow_enable=%u\n"
 		"flow_disable=%u\n"
 		"rx_page_drop_cnt=%u\n"
-		"lower_order=%u\n"
+		"lower_order=%llu\n"
 		"rmnet_notifier_enabled=%u\n"
 		"num_buff_above_thresh_for_def_pipe_notified=%u\n"
 		"num_buff_below_thresh_for_def_pipe_notified=%u\n"
@@ -2378,306 +2350,6 @@ static ssize_t msg_show(struct device *dev, struct device_attribute *attr, char 
 	return cnt;
 }
 
-static void ipa3_read_table(
-	char *table_addr,
-	u32 table_size,
-	u32 *total_num_entries,
-	u32 *rule_id,
-	enum ipahal_nat_type nat_type)
-{
-	int result;
-	char *entry;
-	size_t entry_size;
-	bool entry_zeroed;
-	bool entry_valid;
-	u32 i, num_entries = 0, id = *rule_id;
-	char *buff;
-	size_t buff_size = 2 * IPA_MAX_ENTRY_STRING_LEN;
-
-	IPADBG("In\n");
-
-	if (table_addr == NULL) {
-		pr_err("NULL NAT table\n");
-		goto bail;
-	}
-
-	result = ipahal_nat_entry_size(nat_type, &entry_size);
-
-	if (result) {
-		IPAERR("Failed to retrieve size of %s entry\n",
-			ipahal_nat_type_str(nat_type));
-		goto bail;
-	}
-
-	buff = kzalloc(buff_size, GFP_KERNEL);
-
-	if (!buff) {
-		IPAERR("Out of memory\n");
-		goto bail;
-	}
-
-	for (i = 0, entry = table_addr;
-		i < table_size;
-		++i, ++id, entry += entry_size) {
-
-		result = ipahal_nat_is_entry_zeroed(nat_type, entry,
-			&entry_zeroed);
-
-		if (result) {
-			IPAERR("Undefined if %s entry is zero\n",
-				   ipahal_nat_type_str(nat_type));
-			goto free_buf;
-		}
-
-		if (entry_zeroed)
-			continue;
-
-		result = ipahal_nat_is_entry_valid(nat_type, entry,
-			&entry_valid);
-
-		if (result) {
-			IPAERR("Undefined if %s entry is valid\n",
-				   ipahal_nat_type_str(nat_type));
-			goto free_buf;
-		}
-
-		if (entry_valid) {
-			++num_entries;
-			pr_err("\tEntry_Index=%d\n", id);
-		} else
-			pr_err("\tEntry_Index=%d - Invalid Entry\n", id);
-
-		ipahal_nat_stringify_entry(nat_type, entry,
-			buff, buff_size);
-
-		pr_err("%s\n", buff);
-
-		memset(buff, 0, buff_size);
-	}
-
-	if (num_entries)
-		pr_err("\n");
-	else
-		pr_err("\tEmpty\n\n");
-
-free_buf:
-	kfree(buff);
-	*rule_id = id;
-	*total_num_entries += num_entries;
-
-bail:
-	IPADBG("Out\n");
-}
-
-static void ipa3_start_read_memory_device(
-	struct ipa3_nat_ipv6ct_common_mem *dev,
-	enum ipahal_nat_type nat_type,
-	u32 *num_ddr_ent_ptr,
-	u32 *num_sram_ent_ptr)
-{
-	u32 rule_id = 0;
-
-	if (dev->is_ipv6ct_mem) {
-
-		IPADBG("In: v6\n");
-
-		pr_err("%s_Table_Size=%d\n",
-			   dev->name, dev->table_entries + 1);
-
-		pr_err("%s_Expansion_Table_Size=%d\n",
-			   dev->name, dev->expn_table_entries);
-
-		pr_err("\n%s Base Table:\n", dev->name);
-
-		if (dev->base_table_addr)
-			ipa3_read_table(
-				dev->base_table_addr,
-				dev->table_entries + 1,
-				num_ddr_ent_ptr,
-				&rule_id,
-				nat_type);
-
-		pr_err("%s Expansion Table:\n", dev->name);
-
-		if (dev->expansion_table_addr)
-			ipa3_read_table(
-				dev->expansion_table_addr,
-				dev->expn_table_entries,
-				num_ddr_ent_ptr,
-				&rule_id,
-				nat_type);
-	}
-
-	if (dev->is_nat_mem) {
-		struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) dev;
-		struct ipa3_nat_mem_loc_data *mld_ptr = NULL;
-		u32 *num_ent_ptr;
-		const char *type_ptr;
-
-		IPADBG("In: v4\n");
-
-		if (nm_ptr->active_table == IPA_NAT_MEM_IN_DDR &&
-			nm_ptr->ddr_in_use) {
-
-			mld_ptr     = &nm_ptr->mem_loc[IPA_NAT_MEM_IN_DDR];
-			num_ent_ptr = num_ddr_ent_ptr;
-			type_ptr    = "DDR based table";
-		}
-
-		if (nm_ptr->active_table == IPA_NAT_MEM_IN_SRAM &&
-			nm_ptr->sram_in_use) {
-
-			mld_ptr     = &nm_ptr->mem_loc[IPA_NAT_MEM_IN_SRAM];
-			num_ent_ptr = num_sram_ent_ptr;
-			type_ptr    = "SRAM based table";
-		}
-
-		if (mld_ptr) {
-			pr_err("(%s) %s_Table_Size=%d\n",
-				   type_ptr,
-				   dev->name,
-				   mld_ptr->table_entries + 1);
-
-			pr_err("(%s) %s_Expansion_Table_Size=%d\n",
-				   type_ptr,
-				   dev->name,
-				   mld_ptr->expn_table_entries);
-
-			pr_err("\n(%s) %s_Base Table:\n",
-				   type_ptr,
-				   dev->name);
-
-			if (mld_ptr->base_table_addr)
-				ipa3_read_table(
-					mld_ptr->base_table_addr,
-					mld_ptr->table_entries + 1,
-					num_ent_ptr,
-					&rule_id,
-					nat_type);
-
-			pr_err("(%s) %s_Expansion Table:\n",
-				   type_ptr,
-				   dev->name);
-
-			if (mld_ptr->expansion_table_addr)
-				ipa3_read_table(
-					mld_ptr->expansion_table_addr,
-					mld_ptr->expn_table_entries,
-					num_ent_ptr,
-					&rule_id,
-					nat_type);
-		}
-	}
-
-	IPADBG("Out\n");
-}
-
-static void ipa3_finish_read_memory_device(
-	struct ipa3_nat_ipv6ct_common_mem *dev,
-	u32 num_ddr_entries,
-	u32 num_sram_entries)
-{
-	IPADBG("In\n");
-
-	if (dev->is_ipv6ct_mem) {
-		pr_err("Overall number %s entries: %u\n\n",
-			   dev->name,
-			   num_ddr_entries);
-	} else {
-		struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) dev;
-
-		if (num_ddr_entries)
-			pr_err("%s: Overall number of DDR entries: %u\n\n",
-				   dev->name,
-				   num_ddr_entries);
-
-		if (num_sram_entries)
-			pr_err("%s: Overall number of SRAM entries: %u\n\n",
-				   dev->name,
-				   num_sram_entries);
-
-		pr_err("%s: Driver focus changes to DDR(%u) to SRAM(%u)\n",
-			   dev->name,
-			   nm_ptr->switch2ddr_cnt,
-			   nm_ptr->switch2sram_cnt);
-	}
-
-	IPADBG("Out\n");
-}
-
-static void ipa3_read_pdn_table(void)
-{
-	int i, result;
-	char *pdn_entry;
-	size_t pdn_entry_size;
-	bool entry_zeroed;
-	bool entry_valid;
-	char *buff;
-	size_t buff_size = 128;
-
-	IPADBG("In\n");
-
-	if (ipa3_ctx->nat_mem.pdn_mem.base) {
-
-		result = ipahal_nat_entry_size(
-			IPAHAL_NAT_IPV4_PDN, &pdn_entry_size);
-
-		if (result) {
-			IPAERR("Failed to retrieve size of PDN entry");
-			goto bail;
-		}
-
-		buff = kzalloc(buff_size, GFP_KERNEL);
-		if (!buff) {
-			IPAERR("Out of memory\n");
-			goto bail;
-		}
-
-		for (i = 0, pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
-			 i < ipa3_get_max_pdn();
-			 ++i, pdn_entry += pdn_entry_size) {
-
-			result = ipahal_nat_is_entry_zeroed(
-				IPAHAL_NAT_IPV4_PDN,
-				pdn_entry, &entry_zeroed);
-
-			if (result) {
-				IPAERR("ipahal_nat_is_entry_zeroed() fail\n");
-				goto free;
-			}
-
-			if (entry_zeroed)
-				continue;
-
-			result = ipahal_nat_is_entry_valid(
-				IPAHAL_NAT_IPV4_PDN,
-				pdn_entry, &entry_valid);
-
-			if (result) {
-				IPAERR(
-					"Failed to determine whether the PDN entry is valid\n");
-				goto free;
-			}
-
-			ipahal_nat_stringify_entry(
-				IPAHAL_NAT_IPV4_PDN,
-				pdn_entry, buff, buff_size);
-
-			if (entry_valid)
-				pr_err("PDN %d: %s\n", i, buff);
-			else
-				pr_err("PDN %d - Invalid: %s\n", i, buff);
-
-			memset(buff, 0, buff_size);
-		}
-		pr_err("\n");
-free:
-		kfree(buff);
-	}
-bail:
-	IPADBG("Out\n");
-}
-
 static ssize_t ip4_nat_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
 	struct ipa3_nat_ipv6ct_common_mem *ndev = &ipa3_ctx->nat_mem.dev;
@@ -2797,8 +2469,10 @@ ret:
 static ssize_t ipv6ct_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
 	struct ipa3_nat_ipv6ct_common_mem *ndev = &ipa3_ctx->ipv6ct_mem.dev;
+	struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) ndev;
 
 	u32 num_ddr_ents, num_sram_ents;
+	bool any_table_active = (ctm_ptr->ddr_in_use || ctm_ptr->sram_in_use);
 
 	num_ddr_ents = num_sram_ents = 0;
 
@@ -2806,7 +2480,7 @@ static ssize_t ipv6ct_show(struct device *dev, struct device_attribute *attr, ch
 
 	pr_err("\n");
 
-	if (!ndev->is_dev_init) {
+	if (!ndev->is_dev_init || !any_table_active) {
 		pr_err("IPv6 Conntrack not initialized or not supported\n");
 		goto bail;
 	}
@@ -2817,6 +2491,11 @@ static ssize_t ipv6ct_show(struct device *dev, struct device_attribute *attr, ch
 	}
 
 	mutex_lock(&ndev->lock);
+
+	if (ctm_ptr->sram_in_use) {
+		IPADBG("SRAM based table with client 0, enable clk\n");
+		IPA_ACTIVE_CLIENTS_INC_SPECIAL("SRAM");
+	}
 
 	ipa3_start_read_memory_device(
 		ndev,
@@ -2829,6 +2508,10 @@ static ssize_t ipv6ct_show(struct device *dev, struct device_attribute *attr, ch
 		num_ddr_ents,
 		num_sram_ents);
 
+	if (ctm_ptr->sram_in_use) {
+		IPADBG("SRAM based table with client 0, disable clk\n");
+		IPA_ACTIVE_CLIENTS_DEC_SPECIAL("SRAM");
+	}
 	mutex_unlock(&ndev->lock);
 
 bail:
@@ -4163,6 +3846,93 @@ static ssize_t clock_scaling_bw_threshold_turbo_mbps_store(struct device *dev, s
         return ret;
 }
 
+static ssize_t ipa3_eth_read_qos_stats(char* ubuf)
+{
+	ssize_t nbytes = 0;
+	ssize_t cnt = 0;
+       	int i = 0;
+	u8 tx_num_pipes, rx_num_pipes;
+	struct ipa_eth_qos_info eth_qos_info;
+	bool hw_stats = true;
+	struct ipa_quota_stats out;
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v6_0) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"This feature only support on IPA6.0+ and IEMAC\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	if (ipa3_ctx->eth_qos != IPA_ETH_QOS_ENABLE) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"QOS not enabled\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	memset(&eth_qos_info, 0, sizeof(eth_qos_info));
+
+	ipa_eth_qos_get_num_pipes(0, &tx_num_pipes,
+		IPA_ETH_PIPE_DIR_TX);
+	ipa_eth_qos_get_num_pipes(0, &rx_num_pipes,
+		IPA_ETH_PIPE_DIR_RX);
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"tx_num_pipes: %d, rx_num_pipes: %d\n", tx_num_pipes, rx_num_pipes);
+	cnt += nbytes;
+
+	/* qet HW-stats */
+	hw_stats = (ipa_get_teth_stats() == 0) ? true: false;
+
+	for (i = 0; i < tx_num_pipes; i++) {
+		memset(&out, 0, sizeof(out));
+		ipa_eth_qos_get_qos_info(0, i, &eth_qos_info,
+			IPA_ETH_PIPE_DIR_TX);
+		nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+			"Client: %s, TC Bitmap: 0x%x, Priority: %d\n",
+			ipa_clients_strings[eth_qos_info.client_type],
+			eth_qos_info.tc_bmap, eth_qos_info.priority);
+		cnt += nbytes;
+		if (hw_stats &&
+			(!ipa_query_cumm_teth_cons_stats(eth_qos_info.client_type,
+			&out))) {
+			nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+					"v4_tx_p-b(%d,%lld) v6_tx_p-b(%d,%lld)\n",
+					out.num_ipv4_pkts,
+					out.num_ipv4_bytes,
+					out.num_ipv6_pkts,
+					out.num_ipv6_bytes);
+			cnt += nbytes;
+		}
+	}
+
+	for (i = 0; i < rx_num_pipes; i++) {
+		memset(&out, 0, sizeof(out));
+		ipa_eth_qos_get_qos_info(0, i, &eth_qos_info,
+			IPA_ETH_PIPE_DIR_RX);
+		nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+			"Client: %s, TC Bitmap: 0x%x, Priority: %d\n",
+			ipa_clients_strings[eth_qos_info.client_type],
+			eth_qos_info.tc_bmap, eth_qos_info.priority);
+		cnt += nbytes;
+		if (hw_stats &&
+			(!ipa_query_cumm_teth_prod_stats(eth_qos_info.client_type,
+			&out))) {
+			nbytes = scnprintf(dbg_buff+cnt, IPA_MAX_MSG_LEN,
+					"v4_rx_p-b(%d,%lld) v6_rx_p-b(%d,%lld)\n",
+					out.num_ipv4_pkts,
+					out.num_ipv4_bytes,
+					out.num_ipv6_pkts,
+					out.num_ipv6_bytes);
+			cnt += nbytes;
+		}
+	}
+
+done:
+	memcpy(ubuf, dbg_buff, cnt);
+	return cnt;
+}
+
+
 static ssize_t eth_status_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
 	int nbytes;
@@ -4362,6 +4132,11 @@ done:
 	return cnt;
 }
 
+static ssize_t IEMAC_0_qos_stats_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	return ipa3_eth_read_qos_stats(ubuf);
+}
+
 static ssize_t aqc_perf_status_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
 	return __eth_perf_status_show(IPA_ETH_CLIENT_AQC107, ubuf);
@@ -4457,6 +4232,7 @@ static ssize_t __eth_err_status_show(enum ipa_eth_client_type type, uint8_t inst
 		tx_ep = IPA_CLIENT_AQC_ETHERNET_CONS;
 		rx_ep = IPA_CLIENT_AQC_ETHERNET_PROD;
 		scratch_num = 7;
+		break;
 	case IPA_ETH_CLIENT_RTK8111K:
 	case IPA_ETH_CLIENT_RTK8125B:
 		tx_ep = IPA_CLIENT_RTK_ETHERNET_CONS;
@@ -4467,6 +4243,7 @@ static ssize_t __eth_err_status_show(enum ipa_eth_client_type type, uint8_t inst
 		tx_ep = IPA_CLIENT_ETHERNET_CONS;
 		rx_ep = IPA_CLIENT_ETHERNET_PROD;
 		scratch_num = 6;
+		break;
 #if IPA_ETH_API_VER >= 2
 	case IPA_ETH_CLIENT_NTN3:
 	case IPA_ETH_CLIENT_IEMAC:
@@ -4611,6 +4388,7 @@ static DEVICE_ATTR_RO(ipsec_decap_sa_info);
 static DEVICE_ATTR_RO(ipsec_active_sa);
 #endif
 static DEVICE_ATTR_RO(eth_status);
+static DEVICE_ATTR_RO(IEMAC_0_qos_stats);
 static DEVICE_ATTR_RO(aqc_perf_status);
 static DEVICE_ATTR_RO(ntn_perf_status);
 static DEVICE_ATTR_RO(aqc_0_err_status);
@@ -4720,7 +4498,6 @@ static struct attribute *ipa_attrs[] = {
 	&dev_attr_page_wq_reschd_time.attr,
 	&dev_attr_ipa_max_napi_sort_page_thrshld.attr,
 	&dev_attr_ipa_dscp_pcp_mapping_cache.attr,
-	&dev_attr_eth_status.attr,
 	&dev_attr_aqc_perf_status.attr,
 	&dev_attr_ntn_perf_status.attr,
 	&dev_attr_aqc_0_err_status.attr,
@@ -4746,18 +4523,48 @@ static struct attribute *ipa_attrs[] = {
 };
 
 const struct attribute_group ipa_attr_group = {
-	.name		= "ipa",
 	.attrs		= ipa_attrs,
 };
 
-int ipa_sysfs_init()
+static struct attribute *eth_attrs[] = {
+	&dev_attr_eth_status.attr,
+	&dev_attr_IEMAC_0_qos_stats.attr,
+	NULL
+};
+
+const struct attribute_group eth_attr_group = {
+	.name		= "eth",
+	.attrs		= eth_attrs,
+};
+
+static struct kobject *ipa_kobj = NULL;
+
+int ipa_sysfs_init(void)
 {
 	int ret = -1;
 
-	/* Create sysfs file in /sys/kernel/ipa */
-	ret = sysfs_create_group(kernel_kobj, &ipa_attr_group);
+	/* Create sysfs kobj /sys/kernel/ipa */
+	ipa_kobj = kobject_create_and_add("ipa", kernel_kobj);
+	if (!ipa_kobj) {
+		printk(KERN_ERR "Failed to create kobject 'ipa'\n");
+		return -ENOMEM;
+	}
+
+	/* Add attributes to /sys/kernel/ipa */
+
+	ret = sysfs_create_group(ipa_kobj, &ipa_attr_group);
 	if (ret != 0) {
 		pr_err("Fail to create IPA syfs attribute\n");
+		kobject_put(ipa_kobj);
+		return ret;
+	}
+
+	/* Create sysfs file in /sys/kernel/ipa/eth */
+
+	ret = sysfs_create_group(ipa_kobj, &eth_attr_group);
+	if (ret != 0) {
+		pr_err("Fail to create ETH syfs attribute\n");
+		return ret;
 	}
 
 	ipa_sysfs_init_stats();
@@ -4765,11 +4572,14 @@ int ipa_sysfs_init()
 	return ret;
 }
 
-void ipa_sysfs_deinit()
+void ipa_sysfs_deinit(void)
 {
-	sysfs_remove_group(kernel_kobj, &ipa_attr_group);
 	ipa_sysfs_deinit_stats();
 	ipa3_wigig_fini_sysfs_i();
+	if(ipa_kobj) {
+		sysfs_remove_group(ipa_kobj, &eth_attr_group);
+		kobject_put(ipa_kobj);
+	}
 }
 
 #endif

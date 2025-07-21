@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 /*
@@ -366,7 +366,6 @@ static void ipa3_del_a7_qmap_hdr(void)
 
 	if (rmnet_ipa3_ctx->qmap_hdr_hdl == 0) {
 		IPAWANERR("Invalid hdr_hdl provided\n");
-		WARN_ON((rmnet_ipa3_ctx->qmap_hdr_hdl == 0));
 		return;
 	}
 
@@ -1597,6 +1596,7 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		dev->stats.tx_dropped++;
 		return NETDEV_TX_OK;
 	}
+	trace_ipa_suspend_info("emb-UL", skb->len, ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD));
 
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_enabled() && (skb->ipa_skb_cb.magic == IPA_IPSEC_SKB_MAGIC)) {
@@ -2075,6 +2075,8 @@ void apps_ipa_packet_receive_notify(void *priv,
 		unsigned int packet_len = skb->len;
 
 		IPAWANDBG_LOW("Rx packet was received");
+		trace_ipa_suspend_info("emb-DL", packet_len, 0);
+
 		skb->dev = IPA_NETDEV();
 		if (skb->dev == NULL) {
 			IPAERR ("rmnet interface is down, packet cannot be forwarded to"
@@ -5255,7 +5257,7 @@ static int ipa3_wwan_register_netdev_pm_client(struct net_device *dev)
 	struct ipa_pm_register_params pm_reg;
 
 	memset(&pm_reg, 0, sizeof(pm_reg));
-	pm_reg.name = IPA_NETDEV()->name;
+	pm_reg.name = (NULL == IPA_NETDEV()) ? NULL : IPA_NETDEV()->name;
 	pm_reg.user_data = dev;
 	pm_reg.callback = ipa_pm_wwan_pm_cb;
 	pm_reg.group = IPA_PM_GROUP_APPS;
@@ -5265,7 +5267,8 @@ static int ipa3_wwan_register_netdev_pm_client(struct net_device *dev)
 		return result;
 	}
 
-	IPAWANERR("%s register done\n", pm_reg.name);
+	if(pm_reg.name)
+		IPAWANERR("%s register done\n", pm_reg.name);
 
 	return 0;
 }
@@ -5345,6 +5348,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	rmnet_ipa3_ctx->old_num_q6_rules = 0;
 	rmnet_ipa3_ctx->rmnet_index = 0;
 	rmnet_ipa3_ctx->rmnet_index_eth = 0;
+	ipa3_rmnet_ctx.num_mux_channel_eth = 0;
 	rmnet_ipa3_ctx->egress_set = false;
 	rmnet_ipa3_ctx->a7_ul_flt_set = false;
 	rmnet_ipa3_ctx->ipa_mhi_aggr_formet_set = false;
@@ -5358,6 +5362,8 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		memset(&rmnet_ipa3_ctx->mux_channel[i], 0,
 				sizeof(struct ipa3_rmnet_mux_val));
 		memset(&rmnet_ipa3_ctx->mux_channel_eth[i], 0,
+				sizeof(struct ipa3_rmnet_mux_val));
+		memset(&ipa3_rmnet_ctx.mux_channel_eth[i], 0,
 				sizeof(struct ipa3_rmnet_mux_val));
 	}
 

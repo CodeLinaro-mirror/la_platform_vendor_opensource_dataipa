@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -241,12 +241,12 @@ static ssize_t ll_stats_show(struct device *dev, struct device_attribute *attr, 
 		"outstanding_pkts=%u\n"
 		"tx_pkt_sent=%u\n"
 		"rx_pkt_rcvd=%u\n"
-		"tx_byte_sent=%lu\n"
-		"rx_byte_rcvd=%lu\n"
+		"tx_byte_sent=%llu\n"
+		"rx_byte_rcvd=%llu\n"
 		"tx_pkt_dropped=%u\n"
 		"rx_pkt_dropped=%u\n"
-		"tx_byte_dropped=%lu\n"
-		"rx_byte_dropped=%lu\n",
+		"tx_byte_dropped=%llu\n"
+		"rx_byte_dropped=%llu\n",
 		skb_queue_len(&rmnet_ll_ipa3_ctx->tx_queue),
 		atomic_read(
 		&rmnet_ll_ipa3_ctx->stats.outstanding_pkts),
@@ -322,7 +322,7 @@ static int rmnet_ll_ipa3_sysfs_init(void)
 	}
 	return ret;
 }
-void rmnet_ll_ipa3_sysfs_destroy()
+void rmnet_ll_ipa3_sysfs_destroy(void)
 {
 	if(rmnet_ll_ipa3_ctx)
 		sysfs_remove_group(kernel_kobj, &ipa_rmnet_11_attr_group);
@@ -947,7 +947,7 @@ static void apps_rmnet_ll_tx_complete_notify(void *priv,
 	enum ipa_dp_evt_type evt, unsigned long data)
 {
 	struct sk_buff *skb = (struct sk_buff *)data;
-	unsigned long flags;
+	unsigned long flags = 0;
 	u32 pending_credits = 0;
 
 	if (evt != IPA_WRITE_DONE) {

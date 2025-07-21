@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -2116,6 +2116,8 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 		if ( ! IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_WAN_CONS, i) ) {
 			IPAERR("Failed to get idx for IPA_CLIENT_APPS_WAN_CONS");
+			if (!ep->keep_ipa_awake)
+				IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return i;
 		}
 
@@ -2126,6 +2128,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			result = ipa3_teardown_pipe(i);
 			if (result) {
 				IPAERR("failed to teardown default coal pipe\n");
+				if (!ep->keep_ipa_awake) {
+					IPA_ACTIVE_CLIENTS_DEC_EP(
+						ipa3_get_client_mapping(clnt_hdl));
+				}
 				return result;
 			}
 		}
@@ -2138,6 +2144,8 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 		if ( ! IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_LAN_CONS, i) ) {
 			IPAERR("Failed to get idx for IPA_CLIENT_APPS_LAN_CONS,");
+			if (!ep->keep_ipa_awake)
+				IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return i;
 		}
 
@@ -2148,6 +2156,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			result = ipa3_teardown_pipe(i);
 			if (result) {
 				IPAERR("failed to teardown default coal pipe\n");
+				if (!ep->keep_ipa_awake) {
+					IPA_ACTIVE_CLIENTS_DEC_EP(
+						ipa3_get_client_mapping(clnt_hdl));
+				}
 				return result;
 			}
 		}
@@ -2176,8 +2188,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			ep->gsi_mem_info.chan_ring_len;
 	} else if (ep->gsi_evt_ring_hdl != ~0) {
 		result = gsi_reset_evt_ring(ep->gsi_evt_ring_hdl);
-		if (WARN(result != GSI_STATUS_SUCCESS, "reset evt %d", result))
+		if (WARN(result != GSI_STATUS_SUCCESS, "reset evt %d", result)) {
+			ipa_assert();
 			return result;
+		}
 
 		dma_free_coherent(ipa3_ctx->pdev,
 			ep->gsi_mem_info.evt_ring_len,
@@ -2194,8 +2208,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		}
 
 		result = gsi_dealloc_evt_ring(ep->gsi_evt_ring_hdl);
-		if (WARN(result != GSI_STATUS_SUCCESS, "deall evt %d", result))
+		if (WARN(result != GSI_STATUS_SUCCESS, "deall evt %d", result)) {
+			ipa_assert();
 			return result;
+		}
 	}
 	if (ep->sys->repl_wq)
 		flush_workqueue(ep->sys->repl_wq);
@@ -3332,39 +3348,46 @@ static void ipa3_replenish_wlan_rx_cache(struct ipa3_sys_context *sys)
 	rx_len_cached = sys->len;
 
 	if (rx_len_cached < sys->rx_pool_sz) {
-		list_for_each_entry_safe(rx_pkt, tmp,
-			&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
-			list_del(&rx_pkt->link);
+		if(list_empty(&ipa3_ctx->wc_memb.wlan_comm_desc_list))
+		{
+			IPAERR("List is empty\n");
+		}
+		else
+		{
+			list_for_each_entry_safe(rx_pkt, tmp,
+					&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
+				list_del(&rx_pkt->link);
 
-			if (ipa3_ctx->wc_memb.wlan_comm_free_cnt > 0)
-				ipa3_ctx->wc_memb.wlan_comm_free_cnt--;
+				if (ipa3_ctx->wc_memb.wlan_comm_free_cnt > 0)
+					ipa3_ctx->wc_memb.wlan_comm_free_cnt--;
 
-			rx_pkt->len = 0;
-			rx_pkt->sys = sys;
+				rx_pkt->len = 0;
+				rx_pkt->sys = sys;
 
-			memset(&gsi_xfer_elem_one, 0,
-				sizeof(gsi_xfer_elem_one));
-			gsi_xfer_elem_one.addr = rx_pkt->data.dma_addr;
-			gsi_xfer_elem_one.len = IPA_WLAN_RX_BUFF_SZ;
-			gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOT;
-			gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOB;
-			gsi_xfer_elem_one.type = GSI_XFER_ELEM_DATA;
-			gsi_xfer_elem_one.xfer_user_data = rx_pkt;
+				memset(&gsi_xfer_elem_one, 0,
+						sizeof(gsi_xfer_elem_one));
+				gsi_xfer_elem_one.addr = rx_pkt->data.dma_addr;
+				gsi_xfer_elem_one.len = IPA_WLAN_RX_BUFF_SZ;
+				gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOT;
+				gsi_xfer_elem_one.flags |= GSI_XFER_FLAG_EOB;
+				gsi_xfer_elem_one.type = GSI_XFER_ELEM_DATA;
+				gsi_xfer_elem_one.xfer_user_data = rx_pkt;
 
-			ret = gsi_queue_xfer(sys->ep->gsi_chan_hdl, 1,
-				&gsi_xfer_elem_one, true);
+				ret = gsi_queue_xfer(sys->ep->gsi_chan_hdl, 1,
+						&gsi_xfer_elem_one, true);
 
-			if (ret) {
-				IPAERR("failed to provide buffer: %d\n", ret);
-				goto fail_provide_rx_buffer;
-			}
+				if (ret) {
+					IPAERR("failed to provide buffer: %d\n", ret);
+					goto fail_provide_rx_buffer;
+				}
 
-			rx_len_cached = ++sys->len;
+				rx_len_cached = ++sys->len;
 
-			if (rx_len_cached >= sys->rx_pool_sz) {
-				spin_unlock_bh(
-					&ipa3_ctx->wc_memb.wlan_spinlock);
-				return;
+				if (rx_len_cached >= sys->rx_pool_sz) {
+					spin_unlock_bh(
+							&ipa3_ctx->wc_memb.wlan_spinlock);
+					return;
+				}
 			}
 		}
 	}
@@ -3980,11 +4003,11 @@ static void free_rx_page(void *chan_user_data, void *xfer_user_data)
  */
 static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 {
-	struct ipa3_rx_pkt_wrapper *rx_pkt;
-	struct ipa3_rx_pkt_wrapper *r;
+	struct ipa3_rx_pkt_wrapper *rx_pkt = NULL;
+	struct ipa3_rx_pkt_wrapper *r = NULL;
 	u32 head;
 	u32 tail;
-	struct device *dev;
+	struct device *dev = NULL;
 
 	/*
 	 * buffers not consumed by gsi are cleaned up using cleanup callback
@@ -4000,16 +4023,23 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 	}
 
 	spin_lock_bh(&sys->spinlock);
-	list_for_each_entry_safe(rx_pkt, r,
-				 &sys->rcycl_list, link) {
-		list_del(&rx_pkt->link);
-		if (rx_pkt->data.dma_addr)
-			dma_unmap_single(dev, rx_pkt->data.dma_addr,
-				sys->rx_buff_sz, DMA_FROM_DEVICE);
-		else
-			IPADBG("DMA address already freed\n");
-		sys->free_skb(rx_pkt->data.skb);
-		kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
+	if(list_empty(&sys->rcycl_list))
+	{
+		IPAERR("List is empty\n");
+	}
+	else
+	{
+		list_for_each_entry_safe(rx_pkt, r,
+				&sys->rcycl_list, link) {
+			list_del(&rx_pkt->link);
+			if (rx_pkt->data.dma_addr)
+				dma_unmap_single(dev, rx_pkt->data.dma_addr,
+						sys->rx_buff_sz, DMA_FROM_DEVICE);
+			else
+				IPADBG("DMA address already freed\n");
+			sys->free_skb(rx_pkt->data.skb);
+			kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
+		}
 	}
 	spin_unlock_bh(&sys->spinlock);
 
@@ -4208,6 +4238,7 @@ begin:
 		IPADBG_LOW("STATUS opcode=%d src=%d dst=%d len=%d\n",
 				status.status_opcode, status.endp_src_idx,
 				status.endp_dest_idx, status.pkt_len);
+		trace_ipa_suspend_info("lan-rx", status.pkt_len, status.endp_src_idx);
 		if (sys->status_stat) {
 			sys->status_stat->status[sys->status_stat->curr] =
 				status;
@@ -6821,8 +6852,8 @@ static void ipa_gsi_chan_err_cb(struct gsi_chan_err_notify *notify)
 
 static void ipa_gsi_irq_tx_notify_cb(struct gsi_chan_xfer_notify *notify)
 {
-	struct ipa3_tx_pkt_wrapper *tx_pkt;
-	struct ipa3_sys_context *sys;
+	struct ipa3_tx_pkt_wrapper *tx_pkt = NULL;
+	struct ipa3_sys_context *sys = NULL;
 
 	IPADBG_LOW("event %d notified\n", notify->evt_id);
 

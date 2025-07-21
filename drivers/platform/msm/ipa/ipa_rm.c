@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
+<<<<<<< HEAD   (18b5f6 ipanat: Fix KW and MISRA issues)
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+=======
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+>>>>>>> CHANGE (dd4d47 dataipa: Added KW fixes.)
  */
 
 #include <linux/slab.h>
@@ -61,7 +65,7 @@ static int _ipa_rm_add_dependency(enum ipa_rm_resource_name resource_name,
 			enum ipa_rm_resource_name depends_on_name,
 			bool userspace_dep)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 	int result;
 
 	if (unlikely(!ipa_rm_ctx)) {

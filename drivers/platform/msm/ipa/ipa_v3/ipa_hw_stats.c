@@ -3328,7 +3328,7 @@ const struct attribute_group ipa_stats_attr_group = {
 	.name		= "hw_stats",
 	.attrs		= ipa_stats_attrs,
 };
-int ipa_sysfs_init_stats()
+int ipa_sysfs_init_stats(void)
 {
 	int ret = -1;
 	
@@ -3338,7 +3338,7 @@ int ipa_sysfs_init_stats()
 	}
 	return ret;
 }
-void ipa_sysfs_deinit_stats()
+void ipa_sysfs_deinit_stats(void)
 {
 		sysfs_remove_group(kernel_kobj, &ipa_stats_attr_group);
 }
