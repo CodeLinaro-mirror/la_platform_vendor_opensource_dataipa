@@ -42,6 +42,9 @@
 #define IPA_ETH_PCIE_MASK BIT_ULL(40)
 #define IPA_ETH_PCIE_SET(val) (val | IPA_ETH_PCIE_MASK)
 
+#define PPPOE_VLAN_ETH_HLEN 26
+#define VLAN_VLAN_ETH_HLEN 22
+
 #define IPA_CLIENT_IS_SMMU_ETH_INSTANCE(client) \
 	((client) == IPA_CLIENT_AQC_ETHERNET_PROD || \
 	(client) == IPA_CLIENT_AQC_ETHERNET_CONS || \
@@ -445,7 +448,7 @@ static void ipa_eth_gsi_chan_err_cb(struct gsi_chan_err_notify *notify)
 
 static int ipa_eth_setup_rtk_gsi_channel(
 	struct ipa_eth_client_pipe_info *pipe,
-	struct ipa3_ep_context *ep)
+	struct ipa3_ep_context *ep, u8 pipe_idx)
 {
 	struct gsi_evt_ring_props gsi_evt_ring_props;
 	struct gsi_chan_props gsi_channel_props;
@@ -455,6 +458,7 @@ static int ipa_eth_setup_rtk_gsi_channel(
 	int result, len;
 	int queue_number;
 	u64 bar_addr;
+	unsigned long iova;
 
 	if (unlikely(!pipe->info.is_transfer_ring_valid)) {
 		IPAERR("RTK transfer ring invalid\n");
@@ -462,9 +466,16 @@ static int ipa_eth_setup_rtk_gsi_channel(
 		return -EFAULT;
 	}
 
-	/* setup event ring */
-	bar_addr =
-		IPA_ETH_PCIE_SET(pipe->info.client_info.rtk.bar_addr);
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K) {
+		/* setup event ring */
+		result = ipa_iemac_smmu_cb_add_mapping_pa(IPA_SMMU_CB_AP,
+			pipe->info.client_info.rtk.bar_addr, 8, true, &iova, pipe->client_info->inst_id, pipe->dir, pipe_idx);
+		bar_addr = iova;
+	} else {
+		/* setup event ring */
+		bar_addr =
+			IPA_ETH_PCIE_SET(pipe->info.client_info.rtk.bar_addr);
+	}
 	memset(&gsi_evt_ring_props, 0, sizeof(gsi_evt_ring_props));
 	/*Setting up EV for RTK8111K*/
 	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
@@ -1259,15 +1270,24 @@ int ipa3_eth_connect(
 
 	/* ETH PDU configuration */
 	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) {
-		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
-			IPA_QMI_ETH_HW_VLAN_IP_V01)
-			ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
-		else if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
-			IPA_QMI_ETH_HW_NON_VLAN_IP_V01)
-			ep->cfg.hdr.hdr_len = ETH_HLEN;
-		else
+
+		switch (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode) {
+			case IPA_QMI_ETH_HW_VLAN_IP_V01:
+				ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
+				break;
+			case IPA_QMI_ETH_HW_NON_VLAN_IP_V01:
+				ep->cfg.hdr.hdr_len = ETH_HLEN;
+				break;
+			case IPA_QMI_ETH_IPA_HW_PPPOE_VLAN_IP_V01:
+				ep->cfg.hdr.hdr_len = PPPOE_VLAN_ETH_HLEN;
+				break;
+			case IPA_QMI_ETH_IPA_HW_VLAN_VLAN_IP_V01:
+				ep->cfg.hdr.hdr_len = VLAN_VLAN_ETH_HLEN;
+				break;
+			default:
 			IPAERR("invalid vlan mode: %d\n",
 				ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode);
+			}
 
 		ep->skip_ep_cfg = true;
 
@@ -1304,7 +1324,7 @@ int ipa3_eth_connect(
 	switch (prot) {
 	case IPA_HW_PROTOCOL_RTK:
 	case IPA_HW_PROTOCOL_RTK3:
-		result = ipa_eth_setup_rtk_gsi_channel(pipe, ep);
+		result = ipa_eth_setup_rtk_gsi_channel(pipe, ep, pipe_idx);
 		break;
 	case IPA_HW_PROTOCOL_AQC:
 		result = ipa_eth_setup_aqc_gsi_channel(pipe, ep);
