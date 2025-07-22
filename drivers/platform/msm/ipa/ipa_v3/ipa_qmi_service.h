@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef IPA_QMI_SERVICE_H
@@ -347,6 +346,11 @@ int rmnet_ipa3_query_per_client_stats_v2(
 
 int rmnet_ipa3_query_per_client_stats_v3(
 	struct wan_ioctl_query_per_client_stats *data);
+/**
+* v4 Api will use to query lan2lan and wan stats when v2 ioctl invoked
+*/
+int rmnet_ipa3_query_per_client_stats_v4(
+	struct wan_ioctl_query_per_client_stats_v2 *data);
 
 int ipa3_qmi_get_data_stats(struct ipa_get_data_stats_req_msg_v01 *req,
 	struct ipa_get_data_stats_resp_msg_v01 *resp);

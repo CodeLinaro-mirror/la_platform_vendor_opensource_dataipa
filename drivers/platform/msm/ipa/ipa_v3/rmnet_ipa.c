@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 /*
@@ -67,6 +66,9 @@
 #define IPA_UPSTEAM_WLAN_IFACE_NAME "wlan0"
 #define IPA_UPSTEAM_WLAN1_IFACE_NAME "wlan1"
 static char dbg_buff[4096];
+
+#define WAN_STATS 1
+#define LAN2LAN_STATS 2
 
 enum ipa_ap_ingress_ep_enum {
 	IPA_AP_INGRESS_NONE = 0,
@@ -8124,6 +8126,59 @@ static int rmnet_ipa_get_hw_fnr_stats_v2(
 }
 
 /* Query must be free-d by the caller */
+static int rmnet_ipa_get_hw_fnr_stats_v4(
+	struct ipa_lan_wan_client_cntr_index *client,
+	struct wan_ioctl_query_per_client_stats_v2 *data,
+	struct ipa_ioc_flt_rt_query *query, bool query_flt,
+	bool query_rt , uint8_t stats_type)
+{
+	int num_counters;
+
+	if(stats_type == WAN_STATS) {
+		query->start_id = client->wan_cnt_idx;
+		query->end_id = client->wan_cnt_idx;
+	}
+
+	if(stats_type == LAN2LAN_STATS) {
+		query->start_id = client->lan_cnt_idx;
+		query->end_id = client->lan_cnt_idx;
+	}
+
+	query->reset = data->reset_stats;
+	num_counters = query->end_id - query->start_id + 1;
+
+	if (num_counters > 2) {
+		IPAWANERR("Dont support more than 2 counter\n");
+		return -EINVAL;
+	}
+
+	IPAWANDBG(" Start/End %u/%u, num counters = %d\n",
+		query->start_id, query->end_id, num_counters);
+
+	query->stats = (uint64_t)kcalloc(
+			num_counters,
+			sizeof(struct ipa_flt_rt_stats),
+			GFP_KERNEL);
+	if (!query->stats) {
+		IPAERR("Failed to allocate memory for query stats\n");
+		return -ENOMEM;
+	}
+
+	if (ipa_get_flt_rt_stats_v2(query, query_flt, query_rt)) {
+		IPAERR("Failed to request stats from h/w\n");
+		return -EINVAL;
+	}
+
+	IPAWANDBG("ul = %u, dl = %u, bytes = %llu, pkts = %u, pkts_hash = %u\n",
+			query_flt, query_rt,
+		  	((struct ipa_flt_rt_stats *)query->stats)[0].num_bytes,
+		  	((struct ipa_flt_rt_stats *)query->stats)[0].num_pkts,
+	  		((struct ipa_flt_rt_stats *)query->stats)[0].num_pkts_hash);
+
+	return 0;
+}
+
+/* Query must be free-d by the caller */
 static int rmnet_ipa_get_hw_fnr_stats_v3(
 	struct ipa_lan_wan_client_cntr_index *client,
 	struct wan_ioctl_query_per_client_stats *data,
@@ -9346,6 +9401,172 @@ int rmnet_ipa3_query_per_client_stats_v3(
 		memset(query, 0, sizeof(query_f));
 		result = rmnet_ipa_get_hw_fnr_stats_v3(&lan_client_index[i],
 				data, query, 0, 1);
+		if (result) {
+			IPAWANERR("Failed: Client type %d, idx %d\n",
+					data->device_type, i);
+			kfree((void *)query->stats);
+			continue;
+		}
+
+		fnr_stats = &((struct ipa_flt_rt_stats *)
+				query->stats)[0];
+
+		data->client_info[stats_idx].ipv4_rx_bytes =
+			fnr_stats->num_bytes;
+
+		memcpy(data->client_info[stats_idx].mac,
+				lan_client[i].mac,
+				IPA_MAC_ADDR_SIZE);
+
+		IPAWANDBG("Client ipv4_tx_bytes = %llu, ipv4_rx_bytes = %llu\n",
+				data->client_info[stats_idx].ipv4_tx_bytes,
+				data->client_info[stats_idx].ipv4_rx_bytes);
+
+		kfree((void *)query->stats);
+		ret = result;
+	}
+
+	/* Legacy per-client stats */
+	IPAWANDBG("Disconnect clnt: %s",
+			data->disconnect_clnt?"Yes":"No");
+
+	if (data->disconnect_clnt) {
+		rmnet_ipa3_delete_lan_client_info(data->device_type,
+				lan_clnt_idx);
+	}
+
+	mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+	return ret;
+}
+
+int rmnet_ipa3_query_per_client_stats_v4(
+		struct wan_ioctl_query_per_client_stats_v2 *data)
+{
+	int lan_clnt_idx, i, j, result = 1, stats_idx = 0;
+	struct ipa_lan_client *lan_client = NULL;
+	struct ipa_lan_wan_client_cntr_index
+		*lan_client_index = NULL;
+	struct ipa_tether_device_info *teth_ptr = NULL;
+	struct ipa_ioc_flt_rt_query query_f;
+	struct ipa_ioc_flt_rt_query *query = &query_f;
+	struct ipa_flt_rt_stats *fnr_stats = NULL;
+	int ret = 1;
+
+	/* Check if Device type is valid. */
+	if (data->device_type >= IPACM_MAX_CLIENT_DEVICE_TYPES ||
+			data->device_type < 0) {
+		IPAWANERR("Invalid Device type: %d\n", data->device_type);
+		return -EINVAL;
+	}
+
+	/* Check if num_clients is valid. */
+	if (data->num_clients != IPA_MAX_NUM_HW_PATH_CLIENTS_V2 &&
+			data->num_clients != 1) {
+		IPAWANERR("Invalid number of clients: %d\n", data->num_clients);
+		return -EINVAL;
+	}
+	/* Check if stats_type is wan or lan2lan */
+	if(data->stats_type == WAN_STATS || data->stats_type == LAN2LAN_STATS) {
+		IPAWANERR("Query Wan/LanToLan Stats. %d \n", data->stats_type);
+	} else {
+		IPAWANERR("No Stats to query!\n");
+		return -EINVAL;
+	}
+	mutex_lock(&rmnet_ipa3_ctx->per_client_stats_guard);
+
+	/* Check if Source pipe is valid. */
+	if (rmnet_ipa3_ctx->tether_device
+			[data->device_type].ul_src_pipe == -1) {
+		IPAWANERR("Device not initialized: %d\n", data->device_type);
+		mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+		return -EINVAL;
+	}
+
+	/* Check if we have clients connected. */
+	if (rmnet_ipa3_ctx->tether_device[data->device_type].num_clients == 0) {
+		IPAWANERR("No clients connected: %d\n", data->device_type);
+		mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+		return -EINVAL;
+	}
+
+	if (data->num_clients == 1) {
+		/* Check if the client info is valid.*/
+		lan_clnt_idx = rmnet_ipa3_get_lan_client_info(
+				data->device_type,
+				data->client_info[0].mac);
+		if (lan_clnt_idx < 0) {
+			IPAWANERR("Client info not available return.\n");
+			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+			return -EINVAL;
+		}
+
+	} else {
+		/* Max number of clients. */
+		/* Check if disconnect flag is set and
+		 * see if all the clients info are cleared.
+		 */
+		if (data->disconnect_clnt &&
+			rmnet_ipa3_check_any_client_inited(data->device_type)) {
+			IPAWANERR("CLient not inited. Try again.\n");
+			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+			return -EAGAIN;
+		}
+		lan_clnt_idx = LAN_STATS_FOR_ALL_CLIENTS;
+	}
+
+	IPAWANDBG("Query stats for client index (0x%x)\n",
+		lan_clnt_idx);
+
+	teth_ptr = &rmnet_ipa3_ctx->tether_device[data->device_type];
+	lan_client = teth_ptr->lan_client;
+	lan_client_index = teth_ptr->lan_wan_client_indices;
+
+	if (lan_clnt_idx == LAN_STATS_FOR_ALL_CLIENTS) {
+		i = 0;
+		j = IPA_MAX_NUM_HW_PATH_CLIENTS_V2;
+	} else {
+		i = lan_clnt_idx;
+		j = i + 1;
+	}
+
+	for (; i < j; i++) {
+		if (!lan_client[i].inited && !data->disconnect_clnt)
+			continue;
+
+		IPAWANDBG("Client MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
+				lan_client[i].mac[0],
+				lan_client[i].mac[1],
+				lan_client[i].mac[2],
+				lan_client[i].mac[3],
+				lan_client[i].mac[4],
+				lan_client[i].mac[5]);
+		IPAWANDBG("Lan client %d inited\n", i);
+		IPAWANDBG("Query stats wan/lan stats indices = %u/%u\n",
+				lan_client_index[i].wan_cnt_idx,
+				lan_client_index[i].lan_cnt_idx);
+
+		memset(query, 0, sizeof(query_f));
+		result = rmnet_ipa_get_hw_fnr_stats_v4(&lan_client_index[i],
+				data, query, 1, 0, data->stats_type);
+		if (result) {
+			IPAWANERR("Failed: Client type %d, idx %d\n",
+					data->device_type, i);
+			kfree((void *)query->stats);
+			continue;
+		}
+		fnr_stats = &((struct ipa_flt_rt_stats *)
+				query->stats)[0];
+		if (data->num_clients == 1)
+			stats_idx = 0;
+		else
+			stats_idx = i;
+
+		data->client_info[stats_idx].ipv4_tx_bytes =
+			fnr_stats->num_bytes;
+
+		memset(query, 0, sizeof(query_f));
+		result = rmnet_ipa_get_hw_fnr_stats_v4(&lan_client_index[i],
+				data, query, 0, 1, data->stats_type);
 		if (result) {
 			IPAWANERR("Failed: Client type %d, idx %d\n",
 					data->device_type, i);

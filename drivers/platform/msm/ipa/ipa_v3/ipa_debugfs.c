@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 
@@ -1245,9 +1246,9 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 					entry->rule.attrib.attrib_mask,
 					(entry->hdr && entry->hdr->in_apps_headers_ext));
 			}
-			pr_err("rule_id:%u max_prio:%u prio:%u ",
+			pr_err("rule_id:%u max_prio:%u prio:%u hdl:%u",
 				entry->rule_id, entry->rule.max_prio,
-				entry->prio);
+				entry->prio, entry->id);
 			pr_err("enable_stats:%u counter_id:%u ",
 				entry->rule.enable_stats,
 				entry->rule.cnt_idx);
@@ -1540,8 +1541,8 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 				bitmap = entry->rule.attrib.attrib_mask;
 				eq = false;
 			}
-			pr_err("ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d ",
-				j, i, entry->rule.action, rt_tbl_idx);
+			pr_err("ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d hdl:%u",
+				j, i, entry->rule.action, rt_tbl_idx, entry->id);
 			pr_err("attrib_mask:%08x retain_hdr:%d eq:%d ",
 				bitmap, entry->rule.retain_hdr, eq);
 			pr_err("hashable:%u rule_id:%u max_prio:%u prio:%u ",
