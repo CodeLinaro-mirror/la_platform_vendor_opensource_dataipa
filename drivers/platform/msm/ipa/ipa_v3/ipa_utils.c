@@ -6630,7 +6630,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 14, 21, 10, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH , 3 },
 			IPA_TX_INSTANCE_NA },
 	[IPA_6_0][IPA_CLIENT_APPS_LAN_CONS] = {
-			true,   IPA_v6_0_GROUP_UL,
+			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
@@ -6672,7 +6672,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 27, 8, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
 			IPA_TX_INSTANCE_UL },
 	[IPA_6_0][IPA_CLIENT_APPS_LAN_COAL_CONS] = {
-			true,   IPA_v6_0_GROUP_UL,
+			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
@@ -6684,14 +6684,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 29, 4 , 16 , 20, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_DL },
+			IPA_TX_INSTANCE_UL },
 	[IPA_6_0][IPA_CLIENT_APPS_WAN_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 30, 1 , 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_DL },
+			IPA_TX_INSTANCE_UL },
 	[IPA_6_0][IPA_CLIENT_USB_DPL_CONS] = {
 			true,   IPA_v6_0_GROUP_DL,
 			false,
