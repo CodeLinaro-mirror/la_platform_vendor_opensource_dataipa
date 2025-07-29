@@ -28,6 +28,7 @@
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
 #include "ipa_stats.h"
+#include <linux/version.h>
 
 #define IPA_GSI_EVENT_RP_SIZE 8
 #define IPA_WAN_NAPI_MAX_FRAMES (NAPI_WEIGHT / IPA_WAN_AGGR_PKT_CNT)
@@ -1573,9 +1574,14 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 		INIT_LIST_HEAD(&ep->sys->avail_tx_wrapper_list);
 		ep->sys->avail_tx_wrapper = 0;
 		spin_lock_init(&ep->sys->spinlock);
+#if (KERNEL_VERSION(6, 15, 0) > LINUX_VERSION_CODE)
 		hrtimer_init(&ep->sys->db_timer, CLOCK_MONOTONIC,
 			HRTIMER_MODE_REL);
 		ep->sys->db_timer.function = ipa3_ring_doorbell_timer_fn;
+#else
+		hrtimer_setup(&ep->sys->db_timer,ipa3_ring_doorbell_timer_fn,
+			CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+#endif
 
 		/* create IPA PM resources for handling polling mode */
 		if (sys_in->client == IPA_CLIENT_APPS_WAN_CONS &&
