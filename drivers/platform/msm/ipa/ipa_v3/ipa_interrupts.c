@@ -2,6 +2,7 @@
  * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #include <linux/interrupt.h>
