@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -59,6 +60,9 @@
  * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #include "ipa_nat_drv.h"
@@ -112,6 +116,20 @@ static int num_pdns = 0;
  * Private helpers for manipulating regular tables
  * ----------------------------------------------------------------------------
  */
+static int table_entry_is_valid_v2(
+	void* entry)
+{
+	struct ipa_nat_rule_v2* rule = (struct ipa_nat_rule_v2*) entry;
+
+	IPADBG("In\n");
+
+	IPADBG("enable(%u)\n", rule->enable);
+
+	IPADBG("Out\n");
+
+	return rule->enable;
+}
+
 static int table_entry_is_valid(
 	void* entry)
 {
@@ -126,6 +144,23 @@ static int table_entry_is_valid(
 	return rule->enable;
 }
 
+static uint16_t table_entry_get_next_index_v2(
+	void* entry)
+{
+	uint16_t result;
+	struct ipa_nat_rule_v2* rule = (struct ipa_nat_rule_v2*)entry;
+
+	IPADBG("In\n");
+
+	result = rule->next_index;
+
+	IPADBG("Next entry of %pK is %u\n", entry, result);
+
+	IPADBG("Out\n");
+
+	return result;
+}
+
 static uint16_t table_entry_get_next_index(
 	void* entry)
 {
@@ -137,6 +172,26 @@ static uint16_t table_entry_get_next_index(
 	result = rule->next_index;
 
 	IPADBG("Next entry of %pK is %u\n", entry, result);
+
+	IPADBG("Out\n");
+
+	return result;
+}
+
+static uint16_t table_entry_get_prev_index_v2(
+	void* entry,
+	uint16_t entry_index,
+	void* meta,
+	uint16_t base_table_size)
+{
+	uint16_t result;
+	struct ipa_nat_rule_v2* rule = (struct ipa_nat_rule_v2*)entry;
+
+	IPADBG("In\n");
+
+	result = rule->prev_index;
+
+	IPADBG("Previous entry of %u is %u\n", entry_index, result);
 
 	IPADBG("Out\n");
 
@@ -163,6 +218,24 @@ static uint16_t table_entry_get_prev_index(
 	return result;
 }
 
+static void table_entry_set_prev_index_v2(
+	void*    entry,
+	uint16_t entry_index,
+	uint16_t prev_index,
+	void*    meta,
+	uint16_t base_table_size)
+{
+	struct ipa_nat_rule_v2* rule = (struct ipa_nat_rule_v2*) entry;
+
+	IPADBG("In\n");
+
+	IPADBG("Previous entry of %u is %u\n", entry_index, prev_index);
+
+	rule->prev_index = prev_index;
+
+	IPADBG("Out\n");
+}
+
 static void table_entry_set_prev_index(
 	void*    entry,
 	uint16_t entry_index,
@@ -179,6 +252,15 @@ static void table_entry_set_prev_index(
 	rule->prev_index = prev_index;
 
 	IPADBG("Out\n");
+}
+
+static size_t get_nat_entry_size(enum ipa_hw_type ver)
+{
+    if (ver >= IPA_HW_v7_0) {
+        return sizeof(struct ipa_nat_rule_v2);
+    }
+
+    return sizeof(struct ipa_nat_rule);
 }
 
 /**
@@ -330,6 +412,99 @@ static uint16_t ipa_nati_calc_tcp_udp_cksum(
 	return ret;
 }
 
+static int copy_from_ipa_nat_ipv4_rule_v1_to_v2(
+    ipa_nat_ipv4_rule* nat_rule_v1,
+    ipa_nat_ipv4_rule_v2* nat_rule_v2)
+{
+    IPADBG("In\n");
+
+    nat_rule_v2->enable       = nat_rule_v1->enable;
+    nat_rule_v2->private_ip   = nat_rule_v1->private_ip;
+	nat_rule_v2->private_port = nat_rule_v1->private_port;
+	nat_rule_v2->protocol     = nat_rule_v1->protocol;
+	nat_rule_v2->public_port  = nat_rule_v1->public_port;
+	nat_rule_v2->target_ip    = nat_rule_v1->target_ip;
+	nat_rule_v2->target_port  = nat_rule_v1->target_port;
+	nat_rule_v2->pdn_index    = nat_rule_v1->pdn_index;
+	nat_rule_v2->uc_activation_index = nat_rule_v1->uc_activation_index;
+    nat_rule_v2->time_stamp = nat_rule_v1->time_stamp;
+	nat_rule_v2->s = nat_rule_v1->s;
+	nat_rule_v2->ucp = nat_rule_v1->ucp;
+	nat_rule_v2->dst_only = nat_rule_v1->dst_only;
+	nat_rule_v2->src_only = nat_rule_v1->src_only;
+
+    /* IPAv7 fields*/
+	nat_rule_v2->all_pkts_stats_cnt_index = 0;
+	nat_rule_v2->non_frag_stats_cnt_index = 0;
+	nat_rule_v2->sw_prod_classification_cookie = 0;
+	nat_rule_v2->conn_tracking = 0;
+	nat_rule_v2->in_redirect = nat_rule_v2->out_redirect = nat_rule_v1->redirect;
+	
+	/* Since we came from V1 application (which resets the redirect bit), we'd like to set both in/out redirect while moving to V2 API */
+	nat_rule_v2->out_allowed = nat_rule_v2->in_allowed = 1;
+
+	IPAERR("OMRIDBG: nat_rule_v2->out_allowed=%d, nat_rule_v2->in_allowed=%d\n",nat_rule_v2->out_allowed, nat_rule_v2->in_allowed);
+
+	IPADBG("Out\n");
+
+	return 0;
+}
+
+static int table_entry_copy_from_user_v2(
+	void* entry,
+	void* user_data)
+{
+	uint32_t pub_ip_addr;
+
+	struct ipa_nat_rule_v2*     nat_entry = (struct ipa_nat_rule_v2*) entry;
+	const ipa_nat_ipv4_rule_v2* user_rule = (const ipa_nat_ipv4_rule_v2*) user_data;
+
+	IPADBG("In\n");
+
+	pub_ip_addr = pdns[user_rule->pdn_index].public_ip;
+
+	nat_entry->private_ip   = user_rule->private_ip;
+	nat_entry->private_port = user_rule->private_port;
+	nat_entry->protocol     = user_rule->protocol;
+	nat_entry->public_port  = user_rule->public_port;
+	nat_entry->target_ip    = user_rule->target_ip;
+	nat_entry->target_port  = user_rule->target_port;
+	nat_entry->pdn_index    = user_rule->pdn_index;
+	nat_entry->uc_activation_index = user_rule->uc_activation_index;
+	nat_entry->s = user_rule->s;
+	nat_entry->ucp = user_rule->ucp;
+	nat_entry->dst_only = user_rule->dst_only;
+	nat_entry->src_only = user_rule->src_only;
+
+    /* IPAv7 fields*/
+	nat_entry->all_pkts_stats_cnt_index = user_rule->all_pkts_stats_cnt_index;
+	nat_entry->non_frag_stats_cnt_index = user_rule->non_frag_stats_cnt_index;
+    nat_entry->sw_prod_classification_cookie = user_rule->sw_prod_classification_cookie;
+    nat_entry->in_redirect = user_rule->in_redirect;
+    nat_entry->out_redirect = user_rule->out_redirect;
+    nat_entry->conn_tracking = user_rule->conn_tracking;
+    nat_entry->out_allowed = user_rule->out_allowed;
+    nat_entry->in_allowed = user_rule->in_allowed;
+
+	if (0 == nat_entry->conn_tracking)
+	{
+		nat_entry->ip_chksum = ipa_nati_calc_ip_cksum(pub_ip_addr, user_rule->private_ip);
+
+		if (IPPROTO_TCP == nat_entry->protocol ||
+			IPPROTO_UDP == nat_entry->protocol) {
+			nat_entry->tcp_udp_chksum = ipa_nati_calc_tcp_udp_cksum(
+				pub_ip_addr,
+				user_rule->public_port,
+				user_rule->private_ip,
+				user_rule->private_port);
+		}
+	}
+
+	IPADBG("Out\n");
+
+	return 0;
+}
+
 static int table_entry_copy_from_user(
 	void* entry,
 	void* user_data)
@@ -373,6 +548,40 @@ static int table_entry_copy_from_user(
 	return 0;
 }
 
+static int table_entry_head_insert_v2(
+	void*      entry,
+	void*      user_data,
+	uint16_t*  dma_command_data)
+{
+	int  ret;
+	struct ipa_nat_rule_v2* nat_entry = (struct ipa_nat_rule_v2*) entry;
+
+	IPADBG("In\n");
+
+	IPADBG("entry(%p) user_data(%p) dma_command_data(%p)\n",
+		   entry,
+		   user_data,
+		   dma_command_data);
+
+	ret = table_entry_copy_from_user_v2(entry, user_data);
+
+	if (ret) {
+		IPAERR("unable to copy from user a new entry\n");
+		goto bail;
+	}
+
+	*dma_command_data = 0;
+	((ipa_nat_flags*)dma_command_data)->enable = IPA_NAT_FLAG_ENABLE_BIT;
+	((ipa_nat_flags*)dma_command_data)->uc_activation_index =
+		nat_entry->uc_activation_index;
+	((ipa_nat_flags*)dma_command_data)->s = nat_entry->s;
+
+bail:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
 static int table_entry_head_insert(
 	void*      entry,
 	void*      user_data,
@@ -401,6 +610,35 @@ static int table_entry_head_insert(
 		nat_entry->uc_activation_index;
 	((ipa_nat_flags*)dma_command_data)->s = nat_entry->s;
 ;
+
+bail:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+static int table_entry_tail_insert_v2(
+	void* entry,
+	void* user_data)
+{
+	struct ipa_nat_rule_v2* nat_entry = (struct ipa_nat_rule_v2*) entry;
+
+	int  ret;
+
+	IPADBG("In\n");
+
+	IPADBG("entry(%p) user_data(%p)\n",
+		   entry,
+		   user_data);
+
+	ret = table_entry_copy_from_user_v2(entry, user_data);
+
+	if (ret) {
+		IPAERR("unable to copy from user a new entry\n");
+		goto bail;
+	}
+
+	nat_entry->enable = IPA_NAT_FLAG_ENABLE_BIT;
 
 bail:
 	IPADBG("Out\n");
@@ -603,6 +841,16 @@ static uint16_t index_table_entry_get_delete_head_dma_command_data(
  * Private data and functions used by this file's API
  * ----------------------------------------------------------------------------
  */
+static ipa_table_entry_interface entry_interface_v2 = {
+	table_entry_is_valid_v2,
+	table_entry_get_next_index_v2,
+	table_entry_get_prev_index_v2,
+	table_entry_set_prev_index_v2,
+	table_entry_head_insert_v2,
+	table_entry_tail_insert_v2,
+	table_entry_get_delete_head_dma_command_data
+};
+
 static ipa_table_entry_interface entry_interface = {
 	table_entry_is_valid,
 	table_entry_get_next_index,
@@ -648,21 +896,21 @@ static void ipa_nati_create_table_dma_cmd_helpers(
 	 * Create helpers for base table
 	 */
 	ipa_table_dma_cmd_helper_init(
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_TABLE_FLAGS],
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_TABLE_FLAGS],
 		table_indx,
 		IPA_NAT_BASE_TBL,
 		IPA_NAT_EXPN_TBL,
 		nat_table->mem_desc.addr_offset + IPA_NAT_RULE_FLAG_FIELD_OFFSET);
 
 	ipa_table_dma_cmd_helper_init(
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_TABLE_NEXT_INDEX],
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_TABLE_NEXT_INDEX],
 		table_indx,
 		IPA_NAT_BASE_TBL,
 		IPA_NAT_EXPN_TBL,
 		nat_table->mem_desc.addr_offset + IPA_NAT_RULE_NEXT_FIELD_OFFSET);
 
 	ipa_table_dma_cmd_helper_init(
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_TABLE_PROTOCOL],
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_TABLE_PROTOCOL],
 		table_indx,
 		IPA_NAT_BASE_TBL,
 		IPA_NAT_EXPN_TBL,
@@ -672,14 +920,14 @@ static void ipa_nati_create_table_dma_cmd_helpers(
 	 * Create helpers for index table
 	 */
 	ipa_table_dma_cmd_helper_init(
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_ENTRY],
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_ENTRY],
 		table_indx,
 		IPA_NAT_INDX_TBL,
 		IPA_NAT_INDEX_EXPN_TBL,
 		nat_table->mem_desc.addr_offset + IPA_NAT_INDEX_RULE_NAT_INDEX_FIELD_OFFSET);
 
 	ipa_table_dma_cmd_helper_init(
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_NEXT_INDEX],
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_NEXT_INDEX],
 		table_indx,
 		IPA_NAT_INDX_TBL,
 		IPA_NAT_INDEX_EXPN_TBL,
@@ -689,25 +937,124 @@ static void ipa_nati_create_table_dma_cmd_helpers(
 	 * Init helpers for base table
 	 */
 	nat_table->table.dma_help[HELP_UPDATE_HEAD] =
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_TABLE_FLAGS];
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_TABLE_FLAGS];
 
 	nat_table->table.dma_help[HELP_UPDATE_ENTRY] =
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_TABLE_NEXT_INDEX];
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_TABLE_NEXT_INDEX];
 
 	nat_table->table.dma_help[HELP_DELETE_HEAD] =
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_TABLE_PROTOCOL];
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_TABLE_PROTOCOL];
 
 	/*
 	 * Init helpers for index table
 	 */
 	nat_table->index_table.dma_help[HELP_UPDATE_HEAD] =
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_ENTRY];
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_ENTRY];
 
 	nat_table->index_table.dma_help[HELP_UPDATE_ENTRY] =
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_NEXT_INDEX];
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_NEXT_INDEX];
 
 	nat_table->index_table.dma_help[HELP_DELETE_HEAD] =
-		&nat_table->table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_ENTRY];
+		&nat_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_NAT_INDEX_TABLE_ENTRY];
+
+	IPADBG("Out\n");
+}
+
+/**
+ * ipa_nati_create_table_write_cmd_helpers()
+ *
+ *   Creates dma_cmd_helpers for base and index tables in the received
+ *   NAT table
+ *
+ * @nat_table: [in] NAT table
+ * @table_indx: [in] The index of the NAT table
+ *
+ * A DMA command helper helps to generate the DMA command for one
+ * specific field change. Each table has 3 different types of field
+ * change: update_head, update_entry and delete_head. This function
+ * creates the helpers for base and index tables and updates the
+ * tables correspondingly.
+ */
+static void ipa_nati_create_table_write_cmd_helpers(
+	struct ipa_nat_ip4_table_cache* nat_table,
+	uint8_t table_indx)
+{
+	IPADBG("In\n");
+
+	/*
+	 * Create helpers for base table
+	 */
+	ipa_table_write_cmd_helper_init(
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_TABLE_FLAGS],
+		table_indx,
+		IPA_TABLE_WRITE_NAT_BASE_TBL,
+		FALSE,
+		IPA_NAT_RULE_FLAG_FIELD_OFFSET,
+	    FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	ipa_table_write_cmd_helper_init(
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_TABLE_NEXT_INDEX],
+		table_indx,
+		IPA_TABLE_WRITE_NAT_BASE_TBL,
+		FALSE,
+		IPA_NAT_RULE_NEXT_FIELD_OFFSET,
+	    FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	ipa_table_write_cmd_helper_init(
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_TABLE_PROTOCOL],
+		table_indx,
+		IPA_TABLE_WRITE_NAT_BASE_TBL,
+		TRUE,
+		IPA_NAT_RULE_PROTO_FIELD_OFFSET,
+	    FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	/*
+	 * Create helpers for index table
+	 */
+	ipa_table_write_cmd_helper_init(
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_INDEX_TABLE_ENTRY],
+		table_indx,
+		IPA_TABLE_WRITE_NAT_INDX_TBL,
+		FALSE,
+		IPA_NAT_INDEX_RULE_NAT_INDEX_FIELD_OFFSET,
+		FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	ipa_table_write_cmd_helper_init(
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_INDEX_TABLE_NEXT_INDEX],
+		table_indx,
+		IPA_TABLE_WRITE_NAT_INDX_TBL,
+		FALSE,
+		IPA_NAT_INDEX_RULE_NEXT_FIELD_OFFSET,
+		FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	/*
+	 * Init helpers for base table
+	 */
+	nat_table->table.dma_help[HELP_UPDATE_HEAD] =
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_TABLE_FLAGS];
+
+	nat_table->table.dma_help[HELP_UPDATE_ENTRY] =
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_TABLE_NEXT_INDEX];
+
+	nat_table->table.dma_help[HELP_DELETE_HEAD] =
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_TABLE_PROTOCOL];
+
+	/*
+	 * Init helpers for index table
+	 */
+	nat_table->index_table.dma_help[HELP_UPDATE_HEAD] =
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_INDEX_TABLE_ENTRY];
+
+	nat_table->index_table.dma_help[HELP_UPDATE_ENTRY] =
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_INDEX_TABLE_NEXT_INDEX];
+
+	nat_table->index_table.dma_help[HELP_DELETE_HEAD] =
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_INDEX_TABLE_ENTRY];
 
 	IPADBG("Out\n");
 }
@@ -736,6 +1083,7 @@ static int ipa_nati_create_table(
 {
 	int ret, size;
 	void* base_addr;
+        size_t nat_entry_size;
 
 #ifdef IPA_ON_R3PC
 	uint32_t nat_mem_offset = 0;
@@ -745,14 +1093,25 @@ static int ipa_nati_create_table(
 
 	nat_table->public_addr = public_ip_addr;
 
+    ipa_table_entry_interface *entry_interface_ptr = &entry_interface;
+	entry_table_cmd_adder entry_table_cmd_adder_func = ipa_table_add_dma_cmd;
+	
+	if (nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+        entry_interface_ptr = &entry_interface_v2;
+		entry_table_cmd_adder_func = ipa_table_add_write_cmd;
+    }
+
+    nat_entry_size = get_nat_entry_size(nat_cache_ptr->ipa_desc->ver);
+
 	ipa_table_init(
 		&nat_table->table,
 		IPA_NAT_TABLE_NAME,
 		nat_cache_ptr->nmi,
-		sizeof(struct ipa_nat_rule),
+		nat_entry_size,
 		NULL,
 		0,
-		&entry_interface);
+		entry_interface_ptr,
+		entry_table_cmd_adder_func);
 
 	ret = ipa_table_calculate_entries_num(
 		&nat_table->table,
@@ -790,7 +1149,8 @@ static int ipa_nati_create_table(
 		sizeof(struct ipa_nat_indx_tbl_rule),
 		nat_table->index_expn_table_meta,
 		sizeof(struct ipa_nat_indx_tbl_meta_info),
-		&index_entry_interface);
+		&index_entry_interface,
+		entry_table_cmd_adder_func);
 
 	nat_table->index_table.table_entries =
 		nat_table->table.table_entries;
@@ -845,7 +1205,12 @@ static int ipa_nati_create_table(
 	ipa_table_reset(&nat_table->table);
 	ipa_table_reset(&nat_table->index_table);
 
-	ipa_nati_create_table_dma_cmd_helpers(nat_table, table_index);
+	if (nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+		ipa_nati_create_table_write_cmd_helpers(nat_table, table_index);
+	}
+	else {
+		ipa_nati_create_table_dma_cmd_helpers(nat_table, table_index);
+	}
 
 	goto done;
 
@@ -900,6 +1265,8 @@ static int ipa_nati_post_ipv4_init_cmd(
 
 	IPADBG("In\n");
 
+	size_t nat_entry_size = get_nat_entry_size(nat_cache_ptr->ipa_desc->ver);
+
 	IPADBG("nat_cache_ptr(%p) nat_table(%p) tbl_index(%u) focus_change(%u)\n",
 		   nat_cache_ptr, nat_table, tbl_index, focus_change);
 
@@ -915,11 +1282,11 @@ static int ipa_nati_post_ipv4_init_cmd(
 
 	cmd.expn_rules_offset =
 		cmd.ipv4_rules_offset +
-		(nat_table->table.table_entries * sizeof(struct ipa_nat_rule));
+		(nat_table->table.table_entries * nat_entry_size);
 
 	cmd.index_offset =
 		cmd.expn_rules_offset +
-		(nat_table->table.expn_table_entries * sizeof(struct ipa_nat_rule));
+		(nat_table->table.expn_table_entries * nat_entry_size);
 
 	cmd.index_expn_offset =
 		cmd.index_offset +
@@ -954,6 +1321,45 @@ bail:
 	return ret;
 }
 
+static void ipa_nati_copy_second_index_entry_to_head_v2(
+	struct ipa_nat_ip4_table_cache* nat_table,
+	ipa_table_iterator* index_table_iterator,
+	struct ipa_ioc_table_write_cmd* cmd)
+{
+	uint16_t idx;
+	struct ipa_nat_rule_v2* table;
+	struct ipa_nat_indx_tbl_rule* index_table_rule =
+		(struct ipa_nat_indx_tbl_rule*)index_table_iterator->next_entry;
+
+	IPADBG("In\n");
+
+	/*
+	 * The DMA command for field tbl_entry already added by the
+	 * index_table.ipa_table_create_delete_command()
+	 */
+	nat_table->table.entry_add_cmd(
+		&nat_table->index_table,
+		HELP_UPDATE_ENTRY,
+		index_table_iterator->curr_entry,
+		index_table_iterator->curr_index,
+		index_table_iterator->curr_index,
+		index_table_rule->next_index,
+		cmd);
+
+	/* Change the indx_tbl_entry field in the related table rule */
+	if (index_table_rule->tbl_entry < nat_table->table.table_entries) {
+		idx = index_table_rule->tbl_entry;
+		table = (struct ipa_nat_rule_v2*)nat_table->table.table_addr;
+	} else {
+		idx = index_table_rule->tbl_entry - nat_table->table.table_entries;
+		table = (struct ipa_nat_rule_v2*)nat_table->table.expn_table_addr;
+	}
+
+	table[idx].indx_tbl_entry = index_table_iterator->curr_index;
+
+	IPADBG("Out\n");
+}
+
 static void ipa_nati_copy_second_index_entry_to_head(
 	struct ipa_nat_ip4_table_cache* nat_table,
 	ipa_table_iterator* index_table_iterator,
@@ -970,11 +1376,12 @@ static void ipa_nati_copy_second_index_entry_to_head(
 	 * The DMA command for field tbl_entry already added by the
 	 * index_table.ipa_table_create_delete_command()
 	 */
-	ipa_table_add_dma_cmd(
+	nat_table->table.entry_add_cmd(
 		&nat_table->index_table,
 		HELP_UPDATE_ENTRY,
 		index_table_iterator->curr_entry,
 		index_table_iterator->curr_index,
+		0,
 		index_table_rule->next_index,
 		cmd);
 
@@ -1114,6 +1521,34 @@ static uint16_t src_hash(
 	IPADBG("Out\n");
 
 	return hash;
+}
+
+static int ipa_nati_post_ipv4_dma_cmd_v2(
+	struct ipa_nat_cache*       nat_cache_ptr,
+	struct ipa_ioc_table_write_cmd* cmd)
+{
+	char buf[4096];
+	int  ret = 0;
+
+	IPADBG("In\n");
+
+	cmd->mem_type = nat_cache_ptr->nmi;
+
+	IPADBG("%s\n", prep_ioc_table_write_cmd_4print(cmd, buf, sizeof(buf)));
+
+	if (ioctl(nat_cache_ptr->ipa_desc->fd, IPA_IOC_TABLE_WRITE_CMD, cmd)) {
+		IPAERR("ioctl (IPA_IOC_TABLE_WRITE_CMD) on fd %d has failed\n",
+			   nat_cache_ptr->ipa_desc->fd);
+		ret = -EIO;
+		goto bail;
+	}
+
+	IPADBG("Posted IPA_IOC_TABLE_WRITE_CMD to kernel successfully\n");
+
+bail:
+	IPADBG("Out\n");
+
+	return ret;
 }
 
 static int ipa_nati_post_ipv4_dma_cmd(
@@ -1614,6 +2049,79 @@ bail:
 	return ret;
 }
 
+int ipa_NATI_query_timestamp_v2(
+	uint32_t  tbl_hdl,
+	uint32_t  rule_hdl,
+	uint32_t* time_stamp )
+{
+	enum ipa3_nat_mem_in            nmi;
+	struct ipa_nat_cache*           nat_cache_ptr;
+	struct ipa_nat_ip4_table_cache* nat_table;
+	struct ipa_nat_rule_v2*         rule_ptr;
+
+	char buf[1024];
+	int  ret;
+
+	IPADBG("In\n");
+
+	BREAK_TBL_HDL(tbl_hdl, nmi, tbl_hdl);
+
+	if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
+		IPAERR("Bad cache type argument passed\n");
+		ret = -EINVAL;
+		goto bail;
+	}
+
+	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
+
+	nat_cache_ptr = &ipv4_nat_cache[nmi];
+
+	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
+
+	if (pthread_mutex_lock(&nat_mutex)) {
+		IPAERR("unable to lock the nat mutex\n");
+		ret = -EINVAL;
+		goto bail;
+	}
+
+	if ( ! nat_table->mem_desc.valid ) {
+		IPAERR("invalid table handle %d\n", tbl_hdl);
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	ret = ipa_table_get_entry(
+		&nat_table->table,
+		rule_hdl,
+		(void**) &rule_ptr,
+		NULL);
+
+	if (ret) {
+		IPAERR("Unable to retrive the entry with "
+			   "handle=%u in NAT table with handle=0x%08X\n",
+			   rule_hdl, tbl_hdl);
+		goto unlock;
+	}
+
+	IPADBG("rule_hdl(0x%08X) -> %s\n",
+		   rule_hdl,
+		   prep_nat_rule_4print_v2(rule_ptr, buf, sizeof(buf)));
+
+	*time_stamp = rule_ptr->time_stamp;
+
+
+unlock:
+	if (pthread_mutex_unlock(&nat_mutex)) {
+		IPAERR("unable to unlock the nat mutex\n");
+		ret = (ret) ? ret : -EPERM;
+	}
+
+bail:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
 int ipa_NATI_query_timestamp(
 	uint32_t  tbl_hdl,
 	uint32_t  rule_hdl,
@@ -1640,6 +2148,16 @@ int ipa_NATI_query_timestamp(
 	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
+
+    if (nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+
+        ret = ipa_NATI_query_timestamp_v2(tbl_hdl, rule_hdl, time_stamp);
+        if ( ret != 0 ) {
+            IPAERR("ipa_NATI_query_timestamp_v2() fail\n");
+        }
+
+        goto bail;
+    }
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
@@ -1725,6 +2243,38 @@ int ipa_NATI_add_ipv4_rule(
 		goto done;
 	}
 
+    BREAK_TBL_HDL(tbl_hdl, nmi, tbl_hdl);
+
+    if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
+        IPAERR("Bad cache type argument passed\n");
+        ret = -EINVAL;
+        goto bail;
+    }
+
+    IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
+	
+	nat_cache_ptr = &ipv4_nat_cache[nmi];
+	
+	if (nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+        ipa_nat_ipv4_rule_v2 clnt_rule_v2;
+
+        memset(&clnt_rule_v2, 0, sizeof(clnt_rule_v2));
+
+        ret = copy_from_ipa_nat_ipv4_rule_v1_to_v2(clnt_rule, &clnt_rule_v2);
+        if (ret) {
+            IPAERR("unable to copy from ipa_nat_ipv4_rule_v1 to ipa_nat_ipv4_rule_v2\n");
+            goto bail;
+        }
+
+        ret = ipa_NATI_add_ipv4_rule_v2(tbl_hdl, &clnt_rule_v2, rule_hdl);
+        if ( ret != 0 ) {
+            IPAERR("ipa_NATI_add_ipv4_rule_v2() fail\n");
+		    goto bail;
+        }
+
+        goto done;
+    }
+
 	*rule_hdl = 0;
 
 	IPADBG("tbl_hdl(0x%08X)\n", tbl_hdl);
@@ -1741,8 +2291,6 @@ int ipa_NATI_add_ipv4_rule(
 		   tbl_hdl,
 		   ipa3_nat_mem_in_as_str(nmi),
 		   prep_nat_ipv4_rule_4print(clnt_rule, buf, sizeof(buf)));
-
-	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
@@ -1806,7 +2354,7 @@ int ipa_NATI_add_ipv4_rule(
 		(void*) clnt_rule,
 		&new_entry_index,
 		&new_entry_handle,
-		cmd);
+		(void*)cmd);
 
 	if (ret) {
 		IPAERR("Failed to add a new NAT entry\n");
@@ -1841,7 +2389,7 @@ int ipa_NATI_add_ipv4_rule(
 		(void*) &new_entry_index,
 		&new_index_tbl_entry_index,
 		NULL,
-		cmd);
+		(void*)cmd);
 
 	if (ret) {
 		IPAERR("failed to add a new NAT index entry\n");
@@ -1906,6 +2454,434 @@ done:
 	return ret;
 }
 
+int ipa_NATI_add_ipv4_rule_v2(
+	uint32_t                 tbl_hdl,
+	const ipa_nat_ipv4_rule_v2* clnt_rule,
+	uint32_t*                rule_hdl)
+{
+	const uint32_t cmd_sz =
+		sizeof(struct ipa_ioc_table_write_cmd) +
+		(MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_table_write_one));
+	char cmd_buf[cmd_sz];
+	struct ipa_ioc_table_write_cmd* cmd =
+		(struct ipa_ioc_table_write_cmd*) cmd_buf;
+
+	enum ipa3_nat_mem_in            nmi;
+	struct ipa_nat_cache*           nat_cache_ptr;
+	struct ipa_nat_ip4_table_cache* nat_table;
+	struct ipa_nat_rule_v2*         rule;
+	static int Hash_token = 69;
+
+	uint16_t new_entry_index;
+	uint16_t new_index_tbl_entry_index;
+	uint32_t new_entry_handle;
+	char     buf[1024];
+
+	int ret = 0;
+
+	IPADBG("In\n");
+
+	memset(cmd_buf, 0, sizeof(cmd_buf));
+
+	if ( ! VALID_TBL_HDL(tbl_hdl) ||
+		 ! clnt_rule ||
+		 ! rule_hdl )
+	{
+		IPAERR("Bad arg: tbl_hdl(0x%08X) and/or clnt_rule(%p) and/or rule_hdl(%p)\n",
+			   tbl_hdl, clnt_rule, rule_hdl);
+		ret = -EINVAL;
+		goto done;
+	}
+
+	*rule_hdl = 0;
+
+	IPADBG("tbl_hdl(0x%08X)\n", tbl_hdl);
+
+	BREAK_TBL_HDL(tbl_hdl, nmi, tbl_hdl);
+
+	if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
+		IPAERR("Bad cache type argument passed\n");
+		ret = -EINVAL;
+		goto done;
+	}
+
+	IPADBG("tbl_hdl(0x%08X) nmi(%s) %s\n",
+		   tbl_hdl,
+		   ipa3_nat_mem_in_as_str(nmi),
+		   prep_nat_ipv4_rule_4print_v2(clnt_rule, buf, sizeof(buf)));
+
+	nat_cache_ptr = &ipv4_nat_cache[nmi];
+
+	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
+
+	if (clnt_rule->protocol == IPAHAL_NAT_INVALID_PROTOCOL) {
+		IPAERR("invalid parameter protocol=%d\n", clnt_rule->protocol);
+		ret = -EINVAL;
+		goto done;
+	}
+
+	/*
+	 * Verify that the rule's PDN is valid
+	 */
+	if (clnt_rule->pdn_index >= IPA_MAX_PDN_NUM ||
+		pdns[clnt_rule->pdn_index].public_ip == 0) {
+		IPAERR("invalid parameters, pdn index %d, public ip = 0x%X\n",
+			   clnt_rule->pdn_index, pdns[clnt_rule->pdn_index].public_ip);
+		ret = -EINVAL;
+		goto done;
+	}
+
+	if (pthread_mutex_lock(&nat_mutex)) {
+		IPAERR("unable to lock the nat mutex\n");
+		ret = -EINVAL;
+		goto done;
+	}
+
+	if (! nat_table->mem_desc.valid) {
+		IPAERR("invalid table handle %d\n", tbl_hdl);
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	if (clnt_rule->conn_tracking) {
+		/* src_only */
+		if (clnt_rule->src_only) {
+			new_entry_index = src_hash(clnt_rule->private_ip,
+				clnt_rule->private_port,
+				clnt_rule->target_ip,
+				clnt_rule->target_port,
+				clnt_rule->protocol,
+				nat_table->table.table_entries - 1) + Hash_token;
+			new_entry_index = (new_entry_index & (nat_table->table.table_entries - 1));
+			if (new_entry_index == 0) {
+				new_entry_index = nat_table->table.table_entries - 1;
+			}
+			Hash_token++;
+		} else {
+			new_entry_index = src_hash(clnt_rule->private_ip,
+				clnt_rule->private_port,
+				clnt_rule->target_ip,
+				clnt_rule->target_port,
+				clnt_rule->protocol,
+				nat_table->table.table_entries - 1);
+			}
+	}
+	else {
+		/* src_only */
+		if (clnt_rule->src_only) {
+			new_entry_index = dst_hash(
+				nat_cache_ptr,
+				pdns[clnt_rule->pdn_index].public_ip,
+				clnt_rule->target_ip,
+				clnt_rule->target_port,
+				clnt_rule->public_port,
+				clnt_rule->protocol,
+				nat_table->table.table_entries - 1) + Hash_token;
+			new_entry_index = (new_entry_index & (nat_table->table.table_entries - 1));
+			if (new_entry_index == 0) {
+				new_entry_index = nat_table->table.table_entries - 1;
+			}
+			Hash_token++;
+		} else {
+			new_entry_index = dst_hash(
+				nat_cache_ptr,
+				pdns[clnt_rule->pdn_index].public_ip,
+				clnt_rule->target_ip,
+				clnt_rule->target_port,
+				clnt_rule->public_port,
+				clnt_rule->protocol,
+				nat_table->table.table_entries - 1);
+		}
+	}
+
+	ret = ipa_table_add_entry(
+		&nat_table->table,
+		(void*) clnt_rule,
+		&new_entry_index,
+		&new_entry_handle,
+		(void*)cmd);
+
+	if (ret) {
+		IPAERR("Failed to add a new NAT entry\n");
+		goto unlock;
+	}
+
+	/* dst_only */
+	if (clnt_rule->dst_only) {
+		new_index_tbl_entry_index =
+			src_hash(clnt_rule->private_ip,
+				 clnt_rule->private_port,
+				 clnt_rule->target_ip,
+				 clnt_rule->target_port,
+				 clnt_rule->protocol,
+				 nat_table->table.table_entries - 1) + Hash_token;
+		new_index_tbl_entry_index = (new_index_tbl_entry_index & (nat_table->table.table_entries - 1));
+		if (new_index_tbl_entry_index == 0) {
+			new_index_tbl_entry_index = nat_table->table.table_entries - 1;
+		}
+		Hash_token++;
+	} else {
+	new_index_tbl_entry_index =
+		src_hash(clnt_rule->private_ip,
+				 clnt_rule->private_port,
+				 clnt_rule->target_ip,
+				 clnt_rule->target_port,
+				 clnt_rule->protocol,
+				 nat_table->table.table_entries - 1);
+	}
+	ret = ipa_table_add_entry(
+		&nat_table->index_table,
+		(void*) &new_entry_index,
+		&new_index_tbl_entry_index,
+		NULL,
+		(void*)cmd);
+
+	if (ret) {
+		IPAERR("failed to add a new NAT index entry\n");
+		goto fail_add_index_entry;
+	}
+
+	rule = ipa_table_get_entry_by_index(
+		&nat_table->table,
+		new_entry_index);
+
+	if (rule == NULL) {
+		IPAERR("Failed to retrieve the entry in index %d for NAT table with handle=%d\n",
+			   new_entry_index, tbl_hdl);
+		ret = -EPERM;
+		goto bail;
+	}
+
+	rule->indx_tbl_entry = new_index_tbl_entry_index;
+
+	rule->in_redirect = clnt_rule->in_redirect;
+	rule->out_redirect = clnt_rule->out_redirect;
+	rule->enable      = clnt_rule->enable;
+	rule->time_stamp  = clnt_rule->time_stamp;
+
+	IPADBG("new entry:%d, new index entry: %d\n",
+		   new_entry_index, new_index_tbl_entry_index);
+
+	IPADBG("rule_hdl(0x%08X) -> %s\n",
+		   new_entry_handle,
+		   prep_nat_rule_4print_v2(rule, buf, sizeof(buf)));
+
+	ret = ipa_nati_post_ipv4_dma_cmd_v2(nat_cache_ptr, cmd);
+
+	if (ret) {
+		IPAERR("unable to post dma command\n");
+		goto bail;
+	}
+
+	IPADBG("rule_hdl(0x%08X) -> %s\n",
+		   new_entry_handle,
+		   prep_nat_rule_4print_v2(rule, buf, sizeof(buf)));
+
+	if (pthread_mutex_unlock(&nat_mutex)) {
+		IPAERR("unable to unlock the nat mutex\n");
+		ret = -EPERM;
+		goto done;
+	}
+
+	*rule_hdl = new_entry_handle;
+
+	IPADBG("rule_hdl value(%u)\n", *rule_hdl);
+
+	goto done;
+
+bail:
+	ipa_table_erase_entry(&nat_table->index_table, new_index_tbl_entry_index);
+
+fail_add_index_entry:
+	ipa_table_erase_entry(&nat_table->table, new_entry_index);
+
+unlock:
+	if (pthread_mutex_unlock(&nat_mutex))
+		IPAERR("unable to unlock the nat mutex\n");
+done:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+int ipa_NATI_del_ipv4_rule_v2(
+	uint32_t tbl_hdl,
+	uint32_t rule_hdl )
+{
+	const uint32_t cmd_sz =
+		sizeof(struct ipa_ioc_table_write_cmd) +
+		(MAX_DMA_ENTRIES_FOR_DEL * sizeof(struct ipa_ioc_table_write_one));
+	char cmd_buf[cmd_sz];
+	struct ipa_ioc_table_write_cmd* cmd =
+		(struct ipa_ioc_table_write_cmd*) cmd_buf;
+
+	enum ipa3_nat_mem_in            nmi;
+	struct ipa_nat_cache*           nat_cache_ptr;
+	struct ipa_nat_ip4_table_cache* nat_table;
+	struct ipa_nat_rule_v2*         table_rule;
+	struct ipa_nat_indx_tbl_rule*   index_table_rule;
+
+	ipa_table_iterator table_iterator;
+	ipa_table_iterator index_table_iterator;
+
+	uint16_t idx;
+	char     buf[1024];
+	int      ret = 0;
+
+	IPADBG("In\n");
+
+	memset(cmd_buf, 0, sizeof(cmd_buf));
+
+	IPADBG("tbl_hdl(0x%08X) rule_hdl(%u)\n", tbl_hdl, rule_hdl);
+
+	BREAK_TBL_HDL(tbl_hdl, nmi, tbl_hdl);
+
+	if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
+		IPAERR("Bad cache type argument passed\n");
+		ret = -EINVAL;
+		goto done;
+	}
+
+	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
+
+	nat_cache_ptr = &ipv4_nat_cache[nmi];
+
+	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
+
+	if (pthread_mutex_lock(&nat_mutex)) {
+		IPAERR("Unable to lock the nat mutex\n");
+		ret = -EINVAL;
+		goto done;
+	}
+
+	if (! nat_table->mem_desc.valid) {
+		IPAERR("Invalid table handle 0x%08X\n", tbl_hdl);
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	ret = ipa_table_get_entry(
+		&nat_table->table,
+		rule_hdl,
+		(void**) &table_rule,
+		&idx);
+
+	if (ret) {
+		IPAERR("Unable to retrive the entry with rule_hdl=%u\n", rule_hdl);
+		goto unlock;
+	}
+
+	IPADBG("rule_hdl(0x%08X) -> %s\n",
+		   rule_hdl,
+		   prep_nat_rule_4print_v2(table_rule, buf, sizeof(buf)));
+
+	ret = ipa_table_iterator_init(
+		&table_iterator,
+		&nat_table->table,
+		table_rule,
+		idx);
+
+	if (ret) {
+		IPAERR("Unable to create iterator which points to the "
+			   "entry %u in NAT table with handle=0x%08X\n",
+			   idx, tbl_hdl);
+		goto unlock;
+	}
+
+	idx = table_rule->indx_tbl_entry;
+
+	index_table_rule = (struct ipa_nat_indx_tbl_rule*)
+		ipa_table_get_entry_by_index(&nat_table->index_table, idx);
+
+	if (index_table_rule == NULL) {
+		IPAERR("Unable to retrieve the entry in index %u "
+			   "in NAT index table with handle=0x%08X\n",
+			   idx, tbl_hdl);
+		ret = -EPERM;
+		goto unlock;
+	}
+
+	ret = ipa_table_iterator_init(
+		&index_table_iterator,
+		&nat_table->index_table,
+		index_table_rule,
+		idx);
+
+	if (ret) {
+		IPAERR("Unable to create iterator which points to the "
+			   "entry %u in NAT index table with handle=0x%08X\n",
+			   idx, tbl_hdl);
+		goto unlock;
+	}
+
+	ipa_table_create_delete_command(
+		&nat_table->index_table,
+		(void*)cmd,
+		&index_table_iterator);
+
+	if (ipa_table_itr_valid_check(&index_table_iterator)) {
+
+		ipa_nati_copy_second_index_entry_to_head_v2(
+			nat_table, &index_table_iterator, cmd);
+		/*
+		 * Iterate to the next entry which should be deleted
+		 */
+		ret = ipa_table_iterator_next(
+			&index_table_iterator, &nat_table->index_table);
+
+		if (ret) {
+			IPAERR("Unable to move the iterator to the next entry "
+				   "(points to the entry %u in NAT index table)\n",
+				   idx);
+			goto unlock;
+		}
+	}
+
+	ipa_table_create_delete_command(
+		&nat_table->table,
+		(void*)cmd,
+		&table_iterator);
+
+	ret = ipa_nati_post_ipv4_dma_cmd_v2(nat_cache_ptr, cmd);
+
+	if (ret) {
+		IPAERR("Unable to post dma command\n");
+		goto unlock;
+	}
+
+	if (! ipa_table_itr_valid_check(&table_iterator)) {
+		/* The entry can be deleted */
+		uint8_t is_prev_empty =
+			(table_iterator.prev_entry != NULL &&
+			 ((struct ipa_nat_rule_v2*)table_iterator.prev_entry)->protocol ==
+			 IPAHAL_NAT_INVALID_PROTOCOL);
+
+		ipa_table_delete_entry(
+			&nat_table->table, &table_iterator, is_prev_empty);
+	}
+
+	ipa_table_delete_entry(
+		&nat_table->index_table,
+		&index_table_iterator,
+		FALSE);
+
+	if (index_table_iterator.curr_index >= nat_table->index_table.table_entries)
+		nat_table->index_expn_table_meta[
+			index_table_iterator.curr_index - nat_table->index_table.table_entries].
+			prev_index = IPA_TABLE_INVALID_ENTRY;
+
+unlock:
+	if (pthread_mutex_unlock(&nat_mutex)) {
+		IPAERR("Unable to unlock the nat mutex\n");
+		ret = (ret) ? ret : -EPERM;
+	}
+
+done:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
 int ipa_NATI_del_ipv4_rule(
 	uint32_t tbl_hdl,
 	uint32_t rule_hdl )
@@ -1947,6 +2923,16 @@ int ipa_NATI_del_ipv4_rule(
 	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
+
+    if (nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+
+        ret = ipa_NATI_del_ipv4_rule_v2(tbl_hdl, rule_hdl);
+        if ( ret != 0 ) {
+            IPAERR("ipa_NATI_del_ipv4_rule_v2() fail\n");
+        }
+
+        goto done;
+    }
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
@@ -2018,7 +3004,7 @@ int ipa_NATI_del_ipv4_rule(
 
 	ipa_table_create_delete_command(
 		&nat_table->index_table,
-		cmd,
+		(void*)cmd,
 		&index_table_iterator);
 
 	if (ipa_table_itr_valid_check(&index_table_iterator)) {
@@ -2041,7 +3027,7 @@ int ipa_NATI_del_ipv4_rule(
 
 	ipa_table_create_delete_command(
 		&nat_table->table,
-		cmd,
+		(void*)cmd,
 		&table_iterator);
 
 	ret = ipa_nati_post_ipv4_dma_cmd(nat_cache_ptr, cmd);
@@ -2150,6 +3136,45 @@ bail:
  * Utility functions
  * ----------------------------------------------------------------------------
  */
+static int print_nat_rule_v2(
+	ipa_table*      table_ptr,
+	uint32_t        rule_hdl,
+	void*           record_ptr,
+	uint16_t        record_index,
+	void*           meta_record_ptr,
+	uint16_t        meta_record_index,
+	void*           arb_data_ptr )
+{
+	uint8_t              is_expn_tbl;
+	uint16_t             rule_index;
+
+	char buf[1024];
+
+	struct ipa_nat_rule_v2* rule_ptr =
+		(struct ipa_nat_rule_v2*) record_ptr;
+
+	if ( rule_ptr->protocol == IPA_NAT_INVALID_PROTO_FIELD_VALUE_IN_RULE )
+	{
+		goto bail;
+	}
+
+	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
+
+	printf("  %s %s (0x%04X) (0x%08X) -> %s\n",
+		   (table_ptr->nmi == IPA_NAT_MEM_IN_DDR) ? "DDR" : "SRAM",
+		   (is_expn_tbl) ? "EXP " : "BASE",
+		   record_index,
+		   rule_hdl,
+		   prep_nat_rule_4print_v2(rule_ptr, buf, sizeof(buf)));
+
+	fflush(stdout);
+
+	*((bool*) arb_data_ptr) = false;
+
+bail:
+	return 0;
+}
+
 static int print_nat_rule(
 	ipa_table*      table_ptr,
 	uint32_t        rule_hdl,
@@ -2241,9 +3266,30 @@ static int print_meta_data(
 void ipa_nat_dump_ipv4_table(
 	uint32_t tbl_hdl )
 {
-	bool empty;
+    bool empty;
+	enum ipa3_nat_mem_in            nmi;
+    struct ipa_nat_cache* nat_cache_ptr;
+	int ret = 0;
 
-	if (pthread_mutex_lock(&nat_mutex)) {
+    BREAK_TBL_HDL(tbl_hdl, nmi, tbl_hdl);
+
+	if (tbl_hdl == 0)
+	{
+		IPAERR("tbl_hdl = 0\n");
+		tbl_hdl = 0;
+	}
+
+	if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
+		IPAERR("Bad cache type argument passed\n");
+		ret = -EINVAL;
+		return;
+	}
+
+	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
+
+    nat_cache_ptr = &ipv4_nat_cache[nmi];
+
+    if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		return;
 	}
@@ -2252,7 +3298,13 @@ void ipa_nat_dump_ipv4_table(
 
 	empty = true;
 
-	ipa_nati_walk_ipv4_tbl(tbl_hdl, USE_NAT_TABLE, print_nat_rule, &empty);
+    if (nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+        ipa_nati_walk_ipv4_tbl(tbl_hdl, USE_NAT_TABLE_V2, print_nat_rule_v2, &empty);
+    }
+    else {
+        ipa_nati_walk_ipv4_tbl(tbl_hdl, USE_NAT_TABLE, print_nat_rule, &empty);
+    }
+
 
 	if ( empty )
 	{
@@ -2339,6 +3391,9 @@ int ipa_nati_copy_ipv4_tbl(
 	ipa_table_walk_cb copy_cb )
 {
 	int ret = 0;
+	enum ipa3_nat_mem_in            nmi;
+	struct ipa_nat_cache*           nat_cache_ptr;
+    WhichTbl2Use                    which;
 
 	IPADBG("In\n");
 
@@ -2349,6 +3404,14 @@ int ipa_nati_copy_ipv4_tbl(
 		goto bail;
 	}
 
+    BREAK_TBL_HDL(src_tbl_hdl, nmi, src_tbl_hdl);
+
+    if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
+		IPAERR("Bad cache type argument passed\n");
+		ret = -EINVAL;
+		goto bail;
+	}
+ 
 	if (pthread_mutex_lock(&nat_mutex))
 	{
 		IPAERR("unable to lock the nat mutex\n");
@@ -2367,8 +3430,12 @@ int ipa_nati_copy_ipv4_tbl(
 		 * Now walk the source table and pass the valid records to the
 		 * user's copy callback...
 		 */
-		ret = ipa_NATI_walk_ipv4_tbl(
-			src_tbl_hdl, USE_NAT_TABLE, copy_cb, dst_tbl_hdl);
+        nat_cache_ptr = &ipv4_nat_cache[nmi];
+
+        which = nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0 ? USE_NAT_TABLE_V2 : USE_NAT_TABLE;
+
+        ret = ipa_NATI_walk_ipv4_tbl(
+			src_tbl_hdl, which, copy_cb, dst_tbl_hdl);
 
 		if ( ret != 0 )
 		{
@@ -2448,7 +3515,7 @@ int ipa_NATI_walk_ipv4_tbl(
 	nat_table = &nat_cache_ptr->ip4_tbl[broken_tbl_hdl - 1];
 
 	ipa_tbl_ptr =
-		(which == USE_NAT_TABLE) ?
+		(which == USE_NAT_TABLE || which == USE_NAT_TABLE_V2) ?
 		&nat_table->table     :
 		&nat_table->index_table;
 
@@ -2519,9 +3586,21 @@ static int gen_chain_stats(
 				list_elem_ptr = GOTO_REC(table_ptr, list_elem_ptr->next_index);
 			}
 		}
-	}
-	else
-	{
+	} else if ( csh_ptr->which == USE_NAT_TABLE_V2 ) {
+		struct ipa_nat_rule_v2 *list_elem_ptr =
+			(struct ipa_nat_rule_v2 *)record_ptr;
+
+		if (list_elem_ptr->next_index) {
+			chain_len = 1;
+
+			while (list_elem_ptr->next_index) {
+				chain_len++;
+
+				list_elem_ptr = GOTO_REC(
+					table_ptr, list_elem_ptr->next_index);
+			}
+		}
+    } else {
 		struct ipa_nat_indx_tbl_rule* list_elem_ptr =
 			(struct ipa_nat_indx_tbl_rule*) record_ptr;
 
@@ -2640,7 +3719,7 @@ int ipa_NATI_ipv4_tbl_stats(
 
 	memset(&csh, 0, sizeof(chain_stat_help));
 
-	csh.which     = USE_NAT_TABLE;
+	csh.which     = nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0 ? USE_NAT_TABLE_V2 : USE_NAT_TABLE;
 	csh.stats_ptr = nat_stats_ptr;
 
 	ret = ipa_table_walk(
@@ -2702,6 +3781,38 @@ unlock:
 	{
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
+	}
+
+bail:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+int ipa_NATI_timestamp_flush(uint32_t  tbl_hdl)
+{
+	struct ipa_nat_cache* nat_cache_ptr = &ipv4_nat_cache[IPA_NAT_MEM_IN_DDR];
+
+	int ret = 0;
+
+	IPADBG("In\n");
+
+	if ( ! nat_cache_ptr->ipa_desc ) {
+		nat_cache_ptr->ipa_desc = ipa_descriptor_open();
+		if ( nat_cache_ptr->ipa_desc == NULL ) {
+			IPAERR("failed to open IPA driver file descriptor\n");
+			ret = -EIO;
+			goto bail;
+		}
+	}
+
+	ret = ioctl(nat_cache_ptr->ipa_desc->fd, IPA_IOC_NAT_CT_TIMESTAMP_FLUSH);
+
+	if (ret)
+	{
+		IPAERR("IPA_IOC_NAT_CT_TIMESTAMP_FLUSH ioctl failure %d on IPA fd %d\n",
+			   ret, nat_cache_ptr->ipa_desc->fd);
+		goto bail;
 	}
 
 bail:

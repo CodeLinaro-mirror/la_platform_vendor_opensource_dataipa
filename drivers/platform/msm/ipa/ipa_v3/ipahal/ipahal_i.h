@@ -68,6 +68,24 @@
 
 #define IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID 0x3ff
 
+#define IPAHAL_PKT_STATUS_PACKET_TYPE_NON_DMA_BMSK 0x1
+#define IPAHAL_PKT_STATUS_PACKET_TYPE_NON_DMA_SHFT 0
+#define IPAHAL_PKT_STATUS_PACKET_TYPE_NON_DMA(x) (\
+	(x & IPAHAL_PKT_STATUS_PACKET_TYPE_NON_DMA_BMSK) >> \
+	IPAHAL_PKT_STATUS_PACKET_TYPE_NON_DMA_SHFT)
+
+#define IPAHAL_PKT_STATUS_PACKET_TYPE_NO_ETH_BMSK  0x2
+#define IPAHAL_PKT_STATUS_PACKET_TYPE_NO_ETH_SHFT  1
+#define IPAHAL_PKT_STATUS_PACKET_TYPE_NO_ETH(x) (\
+	(x & IPAHAL_PKT_STATUS_PACKET_TYPE_NO_ETH_BMSK) >> \
+	IPAHAL_PKT_STATUS_PACKET_TYPE_NO_ETH_SHFT)
+
+#define IPAHAL_PKT_STATUS_PACKET_TYPE_IP_TYPE_BMSK 0xC
+#define IPAHAL_PKT_STATUS_PACKET_TYPE_IP_TYPE_SHFT 2
+#define IPAHAL_PKT_STATUS_PACKET_TYPE_IP_TYPE(x) (\
+	(x & IPAHAL_PKT_STATUS_PACKET_TYPE_IP_TYPE_BMSK) >> \
+	IPAHAL_PKT_STATUS_PACKET_TYPE_IP_TYPE_SHFT)
+
 /*
  * struct ipahal_context - HAL global context data
  * @hw_type: IPA H/W type/version.
@@ -208,8 +226,6 @@ struct ipa_imm_cmd_hw_ip_v4_nat_init {
  * @index_table_expansion_addr_type: index_table_expansion_addr in
  *  sys or shared mem
  * @size_base_tables: Num of entries in NAT tbl and idx tbl (each)
- * @size_expansion_tables: Num of entries in NAT expansion tbl and expansion
- *  idx tbl (each)
  * @reserved2: reserved
  * @public_addr_info: Public IP addresses info suitable to the IPA H/W version
  *                    IPA H/W >= 4.0 - PDN config table offset in SMEM
@@ -233,8 +249,7 @@ struct ipa_imm_cmd_hw_ip_v4_nat_init_v7_0 {
 	u64 index_table_addr_type:1;
 	u64 index_table_expansion_addr_type:1;
 	u64 size_base_tables:4;
-	u64 reserved2:4;
-	u64 size_expansion_tables:16;
+	u64 reserved2:20;
 	u64 pdn_config_base_addr:32;
 };
 
@@ -269,6 +284,23 @@ struct ipa_imm_cmd_hw_ip_v6_ct_init {
 	u64 rsvd3:34;
 };
 
+/*
+ * struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 - IPAv7 IP_V6_CONN_TRACK_INIT command payload
+ *  in H/W format.
+ * Inits IPv6CT block. Initiate IPv6CT table with it dimensions, location
+ *  cache address and other related parameters.
+ * @table_addr: Address in sys/shared mem where IPv6CT rules start
+ * @expansion_table_addr: Address in sys/shared mem where IPv6CT expansion
+ *  table starts. IPv6CT rules that result in hash collision are located
+ *  in this table.
+ * @table_index: For future support of multiple IPv6CT tables
+ * @rsvd1: reserved
+ * @table_addr_type: table_addr in sys or shared mem
+ * @expansion_table_addr_type: expansion_table_addr in sys or shared mem
+ * @rsvd2: reserved
+ * @size_base_tables: Number of entries in IPv6CT table
+ * @rsvd3: reserved
+ */
 struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 {
 	u64 table_addr:64;
 	u64 expansion_table_addr:64;
@@ -278,9 +310,7 @@ struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 {
 	u64 expansion_table_addr_type:1;
 	u64 reserved2:2;
 	u64 size_base_table:4;
-	u64 reserved3:4;
-	u64 size_expansion_table:16;
-	u64 reserved4:32;
+	u64 reserved3:52;
 };
 
 /*
@@ -394,6 +424,26 @@ struct ipa_imm_cmd_hw_table_dma_ipav4 {
 	u64 rsvd3 : 8;
 };
 
+/*
+ * struct ipa_imm_cmd_hw_table_dma_v7_0 - TABLE_WRITE command payload
+ *  in H/W format
+ * Perform DMA operation on NAT and ipv6 connection tracking related mem
+ * addresses. Copy data into different locations within NAT associated tbls
+ * (For add/remove NAT rules)
+ * @table_index: NAT tbl index. Defines the NAT tbl on which to perform DMA op.
+ * @rsvd1: reserved
+ * @table_Select: Type of table, from which the base address of the table can be inferred.
+ * @rsvd2: reserved
+ * @offset_within_entry: offset within the entry of the table
+ * @entry_index: index of the entry in the table
+ * @data: data to be written.
+ * @cache_entry_evict: indicates whether data will be evicted to DDR
+ * @no_write: indicates whether entry will be written to DDR
+ * @rsvd3: reserved
+ * @cache_entry_hash_value: HW uses this value in case of eviction
+ * @write_bitmask: indicates which bits (out of 16 data bits) to write
+ * @rsvd4: reserved
+ */
 struct ipa_imm_cmd_hw_table_dma_v7_0 {
 	u64 table_index : 3;
 	u64 reserved1 : 1;
@@ -402,13 +452,12 @@ struct ipa_imm_cmd_hw_table_dma_v7_0 {
 	u64 offset_within_entry : 8;
 	u64 entry_index : 16;
 	u64 data : 16;
-	u64 cache_entry_invalidate : 1;
-	u64 no_dma : 1;
+	u64 cache_entry_evict : 1;
+	u64 no_write : 1;
 	u64 reserved3 : 14;
-
 	u64 cache_entry_hash_value : 16;
 	u64 write_bitmask : 16;
-	u64 reserved : 32;
+	u64 reserved4 : 32;
 };
 
 /*

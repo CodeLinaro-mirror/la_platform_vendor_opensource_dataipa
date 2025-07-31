@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include <linux/debugfs.h>
@@ -286,6 +287,136 @@ static void ipa_nat_ipv4_pdn_parse_entry_v_4_0(void *fields,
 	pdn_entry->dst_metadata = pdn_entry_address->dst_metadata;
 }
 
+static size_t ipa_nat_ipv4_entry_size_v_7_0(void)
+{
+	return sizeof(struct ipa_nat_hw_ipv4_entry_v_7_0);
+}
+
+static bool ipa_nat_ipv4_is_entry_zeroed_v_7_0(const void *entry)
+{
+	struct ipa_nat_hw_ipv4_entry_v_7_0 zero_entry = { 0 };
+
+	return (memcmp(&zero_entry, entry, sizeof(zero_entry))) ? false : true;
+}
+
+static bool ipa_nat_ipv4_is_entry_valid_v_7_0(const void *entry)
+{
+	struct ipa_nat_hw_ipv4_entry_v_7_0 *hw_entry =
+		(struct ipa_nat_hw_ipv4_entry_v_7_0 *)entry;
+
+	return hw_entry->enable &&
+		hw_entry->protocol != IPAHAL_NAT_INVALID_PROTOCOL;
+}
+
+static int ipa_nat_ipv4_stringify_entry_v_7_0(const void *entry,
+	char *buff, size_t buff_size)
+{
+	const struct ipa_nat_hw_ipv4_entry_v_7_0 *nat_entry =
+		(const struct ipa_nat_hw_ipv4_entry_v_7_0 *)entry;
+
+	return scnprintf(buff, buff_size,
+		"\t\tPrivate_IP=%pI4h  Target_IP=%pI4h\n"
+		"\t\tNext_Index=%d  Public_Port=%d\n"
+		"\t\tPrivate_Port=%d  Target_Port=%d\n"
+		"\t\tIP_CKSM_delta=0x%x  Enable=%s  In_Redirect=%s  Out_Redirect=%s\n"
+		"\t\tTime_stamp=0x%x Proto=%d\n"
+		"\t\tPrev_Index=%d  Indx_tbl_entry=%d\n"
+		"\t\tTCP_UDP_cksum_delta=0x%x\n"
+		"\t\tout_allowed=%s in_allowed=%s\n"
+		"\t\tNAT_CT=%s\n"
+		"\t\tall_pkts_stats_cnt_index=%d\n"
+		"\t\tnon_frag_stats_cnt_index=%d\n"
+		"\t\tsw_prod_classification_cookie=0x%x\n",
+		&nat_entry->private_ip, &nat_entry->target_ip,
+		nat_entry->next_index, nat_entry->public_port,
+		nat_entry->private_port, nat_entry->target_port,
+		nat_entry->ip_chksum,
+		(nat_entry->enable) ? "true" : "false",
+		(nat_entry->in_redirect) ? "In_Fwd_to_route" : "In_Direct_To_APPS",
+		(nat_entry->out_redirect) ? "Out_Fwd_to_route" : "Out_Direct_To_APPS",
+		nat_entry->time_stamp, nat_entry->protocol,
+		nat_entry->prev_index, nat_entry->indx_tbl_entry,
+		nat_entry->tcp_udp_chksum,
+		nat_entry->out_allowed ? "Allow" : "Deny", nat_entry->in_allowed ? "Allow" : "Deny",
+		nat_entry->conn_tracking ? "CT" : "NAT",
+		nat_entry->all_pkts_stats_cnt_index,
+		nat_entry->non_frag_stats_cnt_index,
+		nat_entry->sw_prod_classification_cookie);
+}
+
+static size_t ipa_nat_ipv6ct_entry_size_v_7_0(void)
+{
+	return sizeof(struct ipa_nat_hw_ipv6ct_entry_v_7_0);
+}
+
+static bool ipa_nat_ipv6ct_is_entry_zeroed_v_7_0(const void *entry)
+{
+	struct ipa_nat_hw_ipv6ct_entry_v_7_0 zero_entry = { 0 };
+
+	return (memcmp(&zero_entry, entry, sizeof(zero_entry))) ? false : true;
+}
+
+static bool ipa_nat_ipv6ct_is_entry_valid_v_7_0(const void *entry)
+{
+	struct ipa_nat_hw_ipv6ct_entry_v_7_0 *hw_entry =
+		(struct ipa_nat_hw_ipv6ct_entry_v_7_0 *)entry;
+
+	return hw_entry->enable &&
+		hw_entry->protocol != IPAHAL_NAT_INVALID_PROTOCOL;
+}
+
+static int ipa_nat_ipv6ct_stringify_entry_v_7_0(const void *entry,
+	char *buff, size_t buff_size)
+{
+	int length = 0;
+	const struct ipa_nat_hw_ipv6ct_entry_v_7_0 *ipv6ct_entry =
+		(const struct ipa_nat_hw_ipv6ct_entry_v_7_0 *)entry;
+
+	length += ipa_nat_ipv6_stringify_addr(
+		buff + length,
+		buff_size - length,
+		"Src",
+		ipv6ct_entry->src_ipv6_lsb,
+		ipv6ct_entry->src_ipv6_msb);
+
+	length += ipa_nat_ipv6_stringify_addr(
+		buff + length,
+		buff_size - length,
+		"Dest",
+		ipv6ct_entry->dest_ipv6_lsb,
+		ipv6ct_entry->dest_ipv6_msb);
+
+	length += scnprintf(buff + length, buff_size - length,
+		"\t\tEnable=%s In_Redirect=%s Out_Redirect=%s Time_Stamp=0x%x Proto=%d\n"
+		"\t\tuC activation index=%d s=%s\n"
+		"\t\tNext_Index=%d Dest_Port=%d Src_Port=%d\n"
+		"\t\tucp: %s\n"
+		"\t\tDirection Settings: Out=%s In=%s\n"
+		"\t\tPrev_Index=%d\n"
+		"\t\tall_pkts_stats_cnt_index=%d\n"
+		"\t\tnon_frag_stats_cnt_index=%d\n"
+		"\t\tsw_prod_classification_cookie=0x%x\n",
+		(ipv6ct_entry->enable) ? "true" : "false",
+		(ipv6ct_entry->in_redirect) ? "In_Fwd_to_route" : "In_Direct_To_APPS",
+		(ipv6ct_entry->out_redirect) ? "Out_Fwd_to_route" : "Out_Direct_To_APPS",
+		ipv6ct_entry->time_stamp,
+		ipv6ct_entry->protocol,
+		ipv6ct_entry->uc_activation_index,
+		ipv6ct_entry->s ? "System memory" : "Local memory",
+		ipv6ct_entry->next_index,
+		ipv6ct_entry->dest_port,
+		ipv6ct_entry->src_port,
+		ipv6ct_entry->ucp ? "Enabled" : "Disabled",
+		(ipv6ct_entry->out_allowed) ? "Allow" : "Deny",
+		(ipv6ct_entry->in_allowed) ? "Allow" : "Deny",
+		ipv6ct_entry->prev_index,
+		ipv6ct_entry->all_pkts_stats_cnt_index,
+		ipv6ct_entry->non_frag_stats_cnt_index,
+		ipv6ct_entry->sw_prod_classification_cookie);
+
+	return length;
+}
+
 /*
  * struct ipahal_nat_obj - H/W information for specific IPA version
  * @entry_size - CB to get the size of the entry
@@ -364,6 +495,20 @@ static struct ipahal_nat_obj ipahal_nat_objs[IPA_HW_MAX][IPA_NAT_MAX] = {
 			ipa_nat_ipv6ct_is_entry_zeroed_v_4_0,
 			ipa_nat_ipv6ct_is_entry_valid_v_4_0,
 			ipa_nat_ipv6ct_stringify_entry_v_4_5
+		},
+
+	/* IPAv7.0 */
+	[IPA_HW_v7_0][IPAHAL_NAT_IPV4] = {
+			ipa_nat_ipv4_entry_size_v_7_0,
+			ipa_nat_ipv4_is_entry_zeroed_v_7_0,
+			ipa_nat_ipv4_is_entry_valid_v_7_0,
+			ipa_nat_ipv4_stringify_entry_v_7_0
+		},
+	[IPA_HW_v7_0][IPAHAL_NAT_IPV6CT] = {
+			ipa_nat_ipv6ct_entry_size_v_7_0,
+			ipa_nat_ipv6ct_is_entry_zeroed_v_7_0,
+			ipa_nat_ipv6ct_is_entry_valid_v_7_0,
+			ipa_nat_ipv6ct_stringify_entry_v_7_0
 		}
 };
 

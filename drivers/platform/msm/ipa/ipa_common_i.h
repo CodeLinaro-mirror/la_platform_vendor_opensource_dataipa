@@ -904,6 +904,7 @@ int ipa3_ipv6ct_init_cmd(struct ipa_ioc_ipv6ct_init *init);
 
 int ipa3_nat_dma_cmd(struct ipa_ioc_nat_dma_cmd *dma);
 int ipa3_table_dma_cmd(struct ipa_ioc_nat_dma_cmd *dma);
+int ipa3_table_write_cmd(struct ipa_ioc_table_write_cmd *dma);
 
 int ipa3_nat_del_cmd(struct ipa_ioc_v4_nat_del *del);
 int ipa3_del_nat_table(struct ipa_ioc_nat_ipv6ct_table_del *del);

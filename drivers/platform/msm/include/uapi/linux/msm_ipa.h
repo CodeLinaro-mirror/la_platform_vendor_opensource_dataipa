@@ -168,6 +168,8 @@
 #define IPA_IOCTL_FLUSH_QOS_PARAM               106
 #define IPA_IOCTL_GET_QOS_PARAMS                107
 #define IPA_IOCTL_SET_IPTYPE_MTU                108
+#define IPA_IOCTL_TABLE_WRITE_CMD               109
+#define IPA_IOCTL_NAT_CT_TIMESTAMP_FLUSH        110
 
 /**
  * max size of the header to be inserted
@@ -2935,6 +2937,42 @@ struct ipa_ioc_nat_ipv6ct_table_del {
 };
 
 /**
+ * struct ipa_ioc_table_write_one - nat/ipv6ct dma command parameter
+ * @table_index: input parameter, index of the table
+ * @table_Select: type of table, from which the base address of the table can be inferred
+ * @offset_within_entry: destination offset within the NAT entry
+ * @entry_index: index of the entry in the table
+ * @data: data to be written.
+ * @cache_entry_evict: indicates whether data will be evicted to DDR
+ * @no_write: indicates whether entry will be written to DDR
+ * @cache_entry_hash_value: HW uses this value in case of eviction
+ * @write_bitmask: indicates which bits (out of 16 data bits) to write
+ */
+struct ipa_ioc_table_write_one {
+	uint8_t table_index;
+    uint8_t table_Select;
+    uint8_t offset_within_entry;
+    uint16_t entry_index;
+    uint16_t data;
+    uint8_t cache_entry_evict;
+    uint8_t no_write;
+    uint16_t cache_entry_hash_value;
+    uint16_t write_bitmask;
+};
+
+/**
+ * struct ipa_ioc_table_write_cmd - To hold multiple nat/ipv6ct dma commands
+ * @entries: number of dma commands in use
+ * @dma: data pointer to the dma commands
+ * @mem_type: input parameter, type of memory the table resides in
+ */
+struct ipa_ioc_table_write_cmd {
+	uint8_t entries;
+	uint8_t mem_type;
+	struct ipa_ioc_table_write_one dma[0];
+};
+
+/**
  * struct ipa_ioc_nat_dma_one - nat/ipv6ct dma command parameter
  * @table_index: input parameter, index of the table
  * @base_addr:	type of table, from which the base address of the table
@@ -4034,6 +4072,9 @@ struct ipa_ioc_get_qos_config {
 #define IPA_IOC_TABLE_DMA_CMD _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_TABLE_DMA_CMD, \
 				struct ipa_ioc_nat_dma_cmd *)
+#define IPA_IOC_TABLE_WRITE_CMD _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_TABLE_WRITE_CMD, \
+				struct ipa_ioc_table_write_cmd *)
 #define IPA_IOC_V4_DEL_NAT _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_V4_DEL_NAT, \
 				struct ipa_ioc_v4_nat_del *)
@@ -4292,6 +4333,9 @@ struct ipa_ioc_get_qos_config {
 #define IPA_IOC_SET_IPTYPE_MTU _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_SET_IPTYPE_MTU, \
 				struct ipa_mtu_info)
+
+#define IPA_IOC_NAT_CT_TIMESTAMP_FLUSH _IO(IPA_IOC_MAGIC, \
+				IPA_IOCTL_NAT_CT_TIMESTAMP_FLUSH)
 
 /*
  * unique magic number of the Tethering bridge ioctls

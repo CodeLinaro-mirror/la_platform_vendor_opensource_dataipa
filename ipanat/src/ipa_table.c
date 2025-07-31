@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 #include "ipa_table.h"
 #include "ipa_nat_utils.h"
@@ -52,14 +55,14 @@ static int InsertHead(
 	void*                       rec_ptr,   /* empty record in table */
 	uint16_t                    rec_index, /* index of record above */
 	void*                       user_data,
-	struct ipa_ioc_nat_dma_cmd* cmd );
+	void*                       cmd );
 
 static int InsertTail(
 	ipa_table*                  table,
 	void*                       rec_ptr,       /* occupied record at index below */
 	uint16_t*                   rec_index_ptr, /* pointer to index of record above */
 	void*                       user_data,
-	struct ipa_ioc_nat_dma_cmd* cmd );
+	void*                       cmd );
 
 static uint16_t MakeEntryHdl(
 	ipa_table* tbl,
@@ -83,7 +86,8 @@ void ipa_table_init(
 	int                  entry_size,
 	void*                meta,
 	int                  meta_entry_size,
-	ipa_table_entry_interface* entry_interface )
+	ipa_table_entry_interface* entry_interface,
+	entry_table_cmd_adder      table_add_cmd )
 {
 	IPADBG("In\n");
 
@@ -96,6 +100,7 @@ void ipa_table_init(
 	table->meta            = meta;
 	table->meta_entry_size = meta_entry_size;
 	table->entry_interface = entry_interface;
+	table->entry_add_cmd   = table_add_cmd;
 
 	IPADBG("Table %s with entry size %d has been initialized\n",
 		   table->name, table->entry_size);
@@ -227,7 +232,7 @@ int ipa_table_add_entry(
 	void*      user_data,
 	uint16_t*  rec_index_ptr,
 	uint32_t*  rule_hdl,
-	struct ipa_ioc_nat_dma_cmd* cmd )
+	void* cmd )
 {
 	void* rec_ptr;
 	int ret = 0, occupied;
@@ -270,7 +275,7 @@ bail:
 
 void ipa_table_create_delete_command(
 	ipa_table* table,
-	struct ipa_ioc_nat_dma_cmd* cmd,
+	void* cmd,
 	ipa_table_iterator* iterator)
 {
 	IPADBG("In\n");
@@ -322,21 +327,34 @@ void ipa_table_create_delete_command(
 			ht = HELP_DELETE_HEAD;
 		}
 
-		ipa_table_add_dma_cmd(table,
-							  ht,
-							  iterator->curr_entry,
-							  iterator->curr_index,
-							  data,
-							  cmd);
+		table->entry_add_cmd(table,
+			ht,
+			iterator->curr_entry,
+			iterator->curr_index,
+			iterator->curr_index,
+			data,
+			cmd);
 	}
 	else
 	{
-		ipa_table_add_dma_cmd(table,
-							  HELP_UPDATE_ENTRY,
-							  iterator->prev_entry,
-							  iterator->prev_index,
-							  iterator->next_index,
-							  cmd);
+		ipa_table_iterator table_iterator;
+		uint16_t curr_rec_index = table->entry_interface->entry_get_next_index(iterator->prev_entry);
+		int ret = ipa_table_iterator_start(&table_iterator, table, curr_rec_index, iterator->curr_entry);
+		
+		if ( ret )
+		{
+			IPAERR("Failed to reach the head of list following rec_index(%u) in %s\n",
+				   curr_rec_index, table->name);
+			return;
+		}
+
+		table->entry_add_cmd(table,
+			HELP_UPDATE_ENTRY,
+			iterator->prev_entry,
+			iterator->prev_index,
+			table_iterator.curr_index,
+			iterator->next_index,
+			cmd);
 	}
 
 	IPADBG("Out\n");
@@ -514,6 +532,27 @@ bail:
 	return result;
 }
 
+void ipa_table_write_cmd_helper_init(
+	ipa_table_write_cmd_helper* write_cmd_helper,
+	uint8_t              table_indx,
+	ipa_table_write_type table_type,
+	bool                 cache_entry_evict,
+	uint8_t              offset_within_entry,
+	bool                 no_write,
+	uint16_t             write_bitmask)
+{
+	IPADBG("In\n");
+
+	write_cmd_helper->table_indx = table_indx;
+	write_cmd_helper->table_type = table_type;
+	write_cmd_helper->cache_entry_evict = cache_entry_evict;
+	write_cmd_helper->offset_within_entry = offset_within_entry;
+	write_cmd_helper->no_write = no_write;
+	write_cmd_helper->write_bitmask = write_bitmask;
+	
+	IPADBG("Out\n");
+}
+
 void ipa_table_dma_cmd_helper_init(
 	ipa_table_dma_cmd_helper* dma_cmd_helper,
 	uint8_t table_indx,
@@ -527,6 +566,56 @@ void ipa_table_dma_cmd_helper_init(
 	dma_cmd_helper->table_indx = table_indx;
 	dma_cmd_helper->table_type = table_type;
 	dma_cmd_helper->expn_table_type = expn_table_type;
+
+	IPADBG("Out\n");
+}
+
+void ipa_table_write_cmd_generate(
+	ipa_table_write_cmd_helper* dma_cmd_helper,
+	uint16_t entry_index,
+	uint16_t hash_value,
+	uint16_t data,
+	struct ipa_ioc_table_write_cmd* cmd)
+{
+	struct ipa_ioc_table_write_one* dma = &cmd->dma[cmd->entries];
+
+	IPADBG("In\n");
+
+	IPADBG("entry_index(0x%04X) data(0x%04X)\n", entry_index, data);
+
+	dma->table_index = dma_cmd_helper->table_indx;
+
+	/*
+	 * DMA parameter table_Select is the table type (see the IPA
+	 * architecture document)
+	 */
+	dma->table_Select =
+		dma_cmd_helper->table_type;
+
+	dma->offset_within_entry = dma_cmd_helper->offset_within_entry;
+
+	dma->data = data;
+
+	dma->entry_index = entry_index;
+	dma->cache_entry_evict = (uint8_t)dma_cmd_helper->cache_entry_evict;
+	dma->no_write = (uint8_t)dma_cmd_helper->no_write;
+	dma->cache_entry_hash_value = hash_value;
+	dma->write_bitmask = dma_cmd_helper->write_bitmask;
+
+	IPADBG("dma_entry[%u](table_select(0x%02X) "
+		   "offset_within_entry(0x%02X) entry_index(0x%02X), cache_entry_evict(0x%02X) "
+		   "data(0x%04X), cache_entry_hash_value(0x%04X), write_bitmask(0x%04X), no_write(0x%02X))\n",
+		   cmd->entries,
+		   dma->table_Select,
+		   dma->offset_within_entry,
+		   dma->entry_index,
+		   dma->cache_entry_evict,
+		   dma->data,
+		   dma->cache_entry_hash_value,
+		   dma->write_bitmask,
+		   dma->no_write);
+
+	cmd->entries++;
 
 	IPADBG("Out\n");
 }
@@ -703,6 +792,75 @@ bail:
 	return ret;
 }
 
+int ipa_table_iterator_start(
+	ipa_table_iterator* iterator,
+	ipa_table*          table_ptr,
+	uint16_t            rec_index,  /* a table slot relative to hash */
+	void*               rec_ptr )   /* occupant record at index above */
+{
+	bool found_head = false;
+
+	int ret;
+
+	IPADBG("In\n");
+
+	if ( ! iterator || ! table_ptr || ! rec_ptr )
+	{
+		IPAERR("Bad arg: iterator(%p) and/or table_ptr (%p) and/or rec_ptr(%p)\n",
+			   iterator, table_ptr, rec_ptr);
+		ret = -1;
+		goto bail;
+	}
+
+	memset(iterator, 0, sizeof(ipa_table_iterator));
+
+	iterator->next_index = rec_index;
+	iterator->next_entry = rec_ptr;
+
+	while ( 1 )
+	{
+		uint16_t prev_index =
+				table_ptr->entry_interface->entry_get_prev_index(iterator->next_entry,
+															 iterator->next_index,
+															 table_ptr->meta,
+															 table_ptr->table_entries);
+
+		if ( ! VALID_INDEX(prev_index) )
+		{
+			found_head = true;
+			break;
+		}
+
+		if ( prev_index == iterator->next_index )
+		{
+			IPAERR("next_index(%u) and prev_index(%u) shouldn't be equal in %s\n",
+				   prev_index,
+				   iterator->prev_index,
+				   table_ptr->name);
+			break;
+		}
+
+		iterator->next_index = prev_index;
+		iterator->next_entry = GOTO_REC(table_ptr, prev_index);
+	}
+
+	if ( found_head )
+	{
+		IPADBG("Iterator found head of list record\n");
+		ret = 0;
+	}
+	else
+	{
+		IPAERR("Iterator can't find head of list record\n");
+		ret = -1;
+	}
+
+bail:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
 int ipa_table_iterator_end(
 	ipa_table_iterator* iterator,
 	ipa_table*          table_ptr,
@@ -788,7 +946,7 @@ static int InsertHead(
 	void*                       rec_ptr,   /* empty record in table */
 	uint16_t                    rec_index, /* index of record above */
 	void*                       user_data,
-	struct ipa_ioc_nat_dma_cmd* cmd )
+	void*                       cmd )
 {
 	uint16_t enable_data = 0;
 
@@ -807,10 +965,11 @@ static int InsertHead(
 		goto bail;
 	}
 
-	ipa_table_add_dma_cmd(
+	table->entry_add_cmd(
 		table,
 		HELP_UPDATE_HEAD,
 		rec_ptr,
+		rec_index,
 		rec_index,
 		enable_data,
 		cmd);
@@ -828,7 +987,7 @@ static int InsertTail(
 	void*                       rec_ptr,       /* occupied record at index below */
 	uint16_t*                   rec_index_ptr, /* pointer to index of record above */
 	void*                       user_data,
-	struct ipa_ioc_nat_dma_cmd* cmd )
+	void*                       cmd )
 {
 	bool is_index_tbl = (table->meta) ? true : false;
 
@@ -909,11 +1068,12 @@ static int InsertTail(
 		 * Generate dma command to have the IPA update the
 		 * curr_entry's enable field when not the index table...
 		 */
-		ipa_table_add_dma_cmd(
+		table->entry_add_cmd(
 			table,
 			HELP_UPDATE_HEAD,
 			iterator.curr_entry,
 			iterator.curr_index,
+			*rec_index_ptr,
 			enable_data,
 			cmd);
 	}
@@ -922,11 +1082,12 @@ static int InsertTail(
 	 * Generate a dma command to have the IPA update the prev_entry's
 	 * next_index with iterator.curr_index.
 	 */
-	ipa_table_add_dma_cmd(
+	table->entry_add_cmd(
 		table,
 		HELP_UPDATE_ENTRY,
 		iterator.prev_entry,
 		iterator.prev_index,
+		*rec_index_ptr,
 		iterator.curr_index,
 		cmd);
 
@@ -1145,6 +1306,7 @@ int ipa_calc_num_sram_table_entries(
 					   table1_ent_size,
 					   NULL,
 					   0,
+					   NULL,
 					   NULL);
 
 		ipa_table_init(&index_table,
@@ -1153,6 +1315,7 @@ int ipa_calc_num_sram_table_entries(
 					   table2_ent_size,
 					   NULL,
 					   0,
+					   NULL,
 					   NULL);
 
 		nat_table.table_entries = index_table.table_entries =
@@ -1284,14 +1447,78 @@ bail:
 	return ret;
 }
 
-int ipa_table_add_dma_cmd(
-	ipa_table*                  tbl_ptr,
+int ipa_table_add_write_cmd(
+	void*                  		tbl,
 	dma_help_type               help_type,
 	void*                       rec_ptr,
 	uint16_t                    rec_index,
+	uint16_t                    hash_value,
 	uint16_t                    data_for_entry,
-	struct ipa_ioc_nat_dma_cmd* cmd_ptr )
+	void* cmd )
 {
+	ipa_table* tbl_ptr = (ipa_table*)tbl;
+	struct ipa_ioc_table_write_cmd* cmd_ptr = (struct ipa_ioc_table_write_cmd*)cmd;
+	
+	uint16_t tab_sz;
+
+	uint8_t is_expn;
+
+	int ret = 0;
+
+	IPADBG("In\n");
+
+	if ( ! tbl_ptr ||
+		 ! VALID_DMA_HELP_TYPE(help_type) ||
+		 ! rec_ptr ||
+		 ! cmd_ptr )
+	{
+		IPAERR("Bad arg: tbl_ptr(%p) and/or help_type(%u) "
+			   "and/or rec_ptr(%p) and/or cmd_ptr(%p)\n",
+			   tbl_ptr,
+			   help_type,
+			   rec_ptr,
+			   cmd_ptr);
+		ret = -EINVAL;
+		goto bail;
+	}
+
+	tab_sz = (uint16_t)
+		(tbl_ptr->table_entries +
+		tbl_ptr->expn_table_entries);
+
+	if ( rec_index >= tab_sz )
+	{
+		IPAERR("Bad arg: rec_index(%u)\n", rec_index);
+		ret = -EINVAL;
+		goto bail;
+	}
+
+	is_expn = (rec_index >= tbl_ptr->table_entries);
+
+	ipa_table_write_cmd_generate(
+		tbl_ptr->dma_help[help_type],
+		rec_index,
+		hash_value,
+		data_for_entry,
+		cmd_ptr);
+
+bail:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+int ipa_table_add_dma_cmd(
+	void*                       tbl,
+	dma_help_type               help_type,
+	void*                       rec_ptr,
+	uint16_t                    rec_index,
+	uint16_t                    hash_value,
+	uint16_t                    data_for_entry,
+	void*                       cmd )
+{
+	ipa_table* tbl_ptr = (ipa_table*)tbl;
+	struct ipa_ioc_nat_dma_cmd* cmd_ptr = (struct ipa_ioc_nat_dma_cmd*)cmd;
 
 	uint16_t tab_sz;
        	uint32_t entry_offset;

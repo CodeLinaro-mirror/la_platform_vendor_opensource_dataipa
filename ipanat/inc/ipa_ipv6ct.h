@@ -29,6 +29,9 @@
  * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 #ifndef IPA_IPV6CT_H
 #define IPA_IPV6CT_H
@@ -52,6 +55,47 @@ typedef enum
 	IPA_IPV6CT_DIRECTION_ALLOW_IN  = 2,
 	IPA_IPV6CT_DIRECTION_ALLOW_ALL = 3
 } ipa_ipv6_ct_direction_settings_type;
+
+/**
+ * struct ipa_ipv6ct_rule_v2 - To hold IPv6CT rule starting IPAv7
+ * @src_ipv6_lsb: source IPv6 address LSB
+ * @src_ipv6_msb: source IPv6 address MSB
+ * @dest_ipv6_lsb: destination IPv6 address LSB
+ * @dest_ipv6_msb: destination IPv6 address MSB
+ * @direction_settings: direction filter settings (inbound/outbound) (see ipa_ipv6_ct_direction_settings_type)
+ * @src_port: source port
+ * @dest_port: destination port
+ * @protocol: protocol of rule (tcp/udp)
+ * @uc_activation_index: index pointing to uc activation table
+ * @s: bit indication to use the system or local (1 or 0) addr for above table
+ * @ucp: enable uc processing
+ * @out_redirect: Out direction FIN/RST
+ * @in_redirect: In direction FIN/RST
+ * @all_pkts_stats_cnt_index: All packets statistics count index
+ * @non_frag_stats_cnt_index: Non frag statistics count index
+ * @sw_prod_classification_cookie: Wifi SW producer classification cookie
+ */
+typedef struct {
+	uint64_t src_ipv6_lsb;
+	uint64_t src_ipv6_msb;
+	uint64_t dest_ipv6_lsb;
+	uint64_t dest_ipv6_msb;
+	ipa_ipv6_ct_direction_settings_type  direction_settings;
+	bool  ucp;
+	bool s;
+	uint16_t uc_activation_index;
+	uint16_t src_port;
+	uint16_t dest_port;
+	uint8_t  protocol;
+
+    /* IPAv7 Fields*/
+	bool out_redirect;
+	bool in_redirect;
+	uint16_t all_pkts_stats_cnt_index;
+	uint16_t non_frag_stats_cnt_index;
+	uint64_t sw_prod_classification_cookie;
+
+} ipa_ipv6ct_rule_v2;
 
 /**
  * struct ipa_ipv6ct_rule - To hold IPv6CT rule
@@ -124,6 +168,18 @@ int ipa_ct_add_ipv6_tbl(uint16_t number_of_entries, const char *mem_type_ptr, ui
 int ipa_ct_del_ipv6_tbl(uint32_t tbl_hdl);
 
 /**
+ * ipa_ct_add_ipv6_rule_v2() - to insert new ipv6 rule
+ * @tbl_hdl: [in] handle of ipv4 nat table
+ * @clnt_rule: [in]  Pointer to new rule
+ * @rule_hdl: [out] Return the handle to rule
+ *
+ * To insert new ipv6 ct rule into ipv6 ct table
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_ct_add_ipv6_rule_v2(uint32_t tbl_hdl, const ipa_ipv6ct_rule_v2 *clnt_rule, uint32_t *rule_hdl);
+
+/**
  * ipa_ct_add_ipv6_rule() - to insert new ipv6 rule
  * @tbl_hdl: [in] handle of ipv4 nat table
  * @clnt_rule: [in]  Pointer to new rule
@@ -184,6 +240,18 @@ int ipa_ipv6ct_add_tbl(uint16_t number_of_entries, enum ipa3_nat_mem_in nmi, uin
 int ipa_ipv6ct_del_tbl(uint32_t table_handle);
 
 /**
+ * ipa_ipv6ct_add_rule_v2() - to insert new IPv6CT rule
+ * @table_handle: [in] handle of IPv6CT table
+ * @user_rule: [in] Pointer to new rule
+ * @rule_handle: [out] Return the handle to rule
+ *
+ * To insert new rule into a IPv6CT table
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_ipv6ct_add_rule_v2(uint32_t table_handle, const ipa_ipv6ct_rule_v2* user_rule, uint32_t* rule_handle);
+
+/**
  * ipa_ipv6ct_add_rule() - to insert new IPv6CT rule
  * @table_handle: [in] handle of IPv6CT table
  * @user_rule: [in] Pointer to new rule
@@ -194,6 +262,17 @@ int ipa_ipv6ct_del_tbl(uint32_t table_handle);
  * Returns:	0  On Success, negative on failure
  */
 int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule, uint32_t* rule_handle);
+
+/**
+ * ipa_ipv6ct_del_rule_v2() - to delete IPv6CT rule
+ * @table_handle: [in] handle of IPv6CT table
+ * @rule_handle: [in] IPv6CT rule handle
+ *
+ * To delete a rule from a IPv6CT table
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_ipv6ct_del_rule_v2(uint32_t table_handle, uint32_t rule_handle);
 
 /**
  * ipa_ipv6ct_del_rule() - to delete IPv6CT rule
@@ -207,6 +286,18 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle);
 
 /**
+ * ipa_ipv6ct_query_timestamp_v2() - to query timestamp
+ * @table_handle: [in] handle of IPv6CT table
+ * @rule_handle: [in] IPv6CT rule handle
+ * @time_stamp: [out] time stamp of rule
+ *
+ * To retrieve the timestamp that lastly the IPv6CT rule was accessed
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_ipv6ct_query_timestamp_v2(uint32_t table_handle, uint32_t rule_handle, uint32_t* time_stamp);
+
+/**
  * ipa_ipv6ct_query_timestamp() - to query timestamp
  * @table_handle: [in] handle of IPv6CT table
  * @rule_handle: [in] IPv6CT rule handle
@@ -217,6 +308,16 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle);
  * Returns:	0  On Success, negative on failure
  */
 int ipa_ipv6ct_query_timestamp(uint32_t table_handle, uint32_t rule_handle, uint32_t* time_stamp);
+
+/**
+ * ipa_ipv6ct_timestamp_flush() - to flush timestamps
+ * @table_handle: [in] handle of IPv6CT table
+ *
+ * To flush all CT timestamps from cache to DDR
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_ipv6ct_timestamp_flush(uint32_t table_handle);
 
 /**
  * ipa_ipv6ct_dump_table() - dumps IPv6CT table
@@ -239,5 +340,15 @@ int ipa_ipv6ct_add_uc_act_entry(union ipa_ioc_uc_activation_entry *u);
  * Returns:	0  On Success, negative on failure
  */
 int ipa_ipv6ct_del_uc_act_entry(uint16_t idx);
+
+/**
+ * ipa_ct_timestamp_flush() - to query timestamp
+ * @tbl_hdl: [in] handle of ipv6 ct table
+ *
+ * To flush all timestamps from CT cache to DDR
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_ct_timestamp_flush(uint32_t tbl_hdl);
 
 #endif

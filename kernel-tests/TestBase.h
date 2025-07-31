@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #ifndef _TEST_BASE_H_
@@ -36,6 +39,7 @@
 #include <string.h>
 
 #define DFLT_NAT_MEM_TYPE "HYBRID"
+#define DDR_NAT_MEM_TYPE "DDR"
 
 using namespace std;
 

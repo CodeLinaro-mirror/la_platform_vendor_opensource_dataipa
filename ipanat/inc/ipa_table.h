@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 #ifndef IPA_TABLE_H
 #define IPA_TABLE_H
@@ -48,6 +51,18 @@
 #undef GOTO_REC
 #define GOTO_REC(tbl, rec_idx) \
 	( (tbl)->table_addr + ((rec_idx) * (tbl)->entry_size) )
+
+typedef enum
+{
+	IPA_TABLE_WRITE_NAT_BASE_TBL       = 0,
+	IPA_TABLE_WRITE_NAT_INDX_TBL       = 1,
+	IPA_TABLE_WRITE_IPV6CT_BASE_TBL    = 2,
+} ipa_table_write_type;
+
+#define VALID_IPA_TABLE_WRITE_TYPE(t) \
+	( (t) >= IPA_TABLE_WRITE_NAT_BASE_TBL && (t) <= IPA_TABLE_WRITE_IPV6CT_BASE_TBL )
+
+#define IPA_TABLE_WRITE_BITMASK_ALL 0xFFFF
 
 typedef enum
 {
@@ -127,7 +142,7 @@ typedef struct
 	entry_head_inserter     entry_head_insert;
 	entry_tail_inserter     entry_tail_insert;
 	entry_delete_head_dma_command_data_getter
-	  entry_get_delete_head_dma_command_data;
+	entry_get_delete_head_dma_command_data;
 } ipa_table_entry_interface;
 
 typedef enum
@@ -143,6 +158,16 @@ typedef enum
 #define VALID_DMA_HELP_TYPE(t) \
 	( (t) >=  HELP_UPDATE_HEAD && (t) < HELP_UPDATE_MAX )
 
+typedef struct ipa_table_write_cmd_helper
+{
+	uint8_t              offset_within_entry;
+	ipa_table_write_type table_type;
+	uint8_t              table_indx;
+	bool				 cache_entry_evict;
+	bool				 no_write;
+	uint16_t             write_bitmask;
+} ipa_table_write_cmd_helper;
+
 typedef struct
 {
 	uint32_t           offset;
@@ -150,6 +175,15 @@ typedef struct
 	ipa_table_dma_type expn_table_type;
 	uint8_t            table_indx;
 } ipa_table_dma_cmd_helper;
+
+typedef int (*entry_table_cmd_adder)(
+	void*                  		tbl,
+	dma_help_type               help_type,
+	void*                       rec_ptr,
+	uint16_t                    rec_index,
+	uint16_t                    hash_value,
+	uint16_t                    data_for_entry,
+	void*                       cmd );
 
 typedef struct
 {
@@ -171,10 +205,12 @@ typedef struct
 
 	ipa_table_entry_interface* entry_interface;
 
-	ipa_table_dma_cmd_helper*  dma_help[HELP_UPDATE_MAX];
+	void* dma_help[HELP_UPDATE_MAX];
 
 	void*                      meta;
 	int                        meta_entry_size;
+
+	entry_table_cmd_adder      entry_add_cmd;
 } ipa_table;
 
 typedef struct
@@ -197,7 +233,8 @@ void ipa_table_init(
 	int                        entry_size,
 	void*                      meta,
 	int                        meta_entry_size,
-	ipa_table_entry_interface* entry_interface);
+	ipa_table_entry_interface* entry_interface,
+	entry_table_cmd_adder      table_add_cmd );
 
 int ipa_table_calculate_entries_num(
 	ipa_table*           table,
@@ -219,11 +256,11 @@ int ipa_table_add_entry(
 	void*                       user_data,
 	uint16_t*                   rec_index_ptr,
 	uint32_t*                   rule_hdl,
-	struct ipa_ioc_nat_dma_cmd* cmd);
+	void*                       cmd);
 
 void ipa_table_create_delete_command(
 	ipa_table*                  table,
-	struct ipa_ioc_nat_dma_cmd* cmd,
+	void*                       cmd,
 	ipa_table_iterator*         iterator);
 
 void ipa_table_delete_entry(
@@ -245,12 +282,28 @@ void* ipa_table_get_entry_by_index(
 	ipa_table* table,
 	uint16_t   rec_index);
 
+void ipa_table_write_cmd_helper_init(
+	ipa_table_write_cmd_helper* write_cmd_helper,
+	uint8_t              table_indx,
+	ipa_table_write_type table_type,
+	bool				 cache_entry_evict,
+	uint8_t              offset_within_entry,
+	bool				 no_write,
+    uint16_t             write_bitmask);
+
 void ipa_table_dma_cmd_helper_init(
 	ipa_table_dma_cmd_helper* dma_cmd_helper,
 	uint8_t                   table_indx,
 	ipa_table_dma_type        table_type,
 	ipa_table_dma_type        expn_table_type,
 	uint32_t                  offset);
+
+void ipa_table_write_cmd_generate(
+	ipa_table_write_cmd_helper* dma_cmd_helper,
+	uint16_t entry_index,
+	uint16_t hash_value,
+	uint16_t data,
+	struct ipa_ioc_table_write_cmd* cmd);
 
 void ipa_table_dma_cmd_generate(
 	ipa_table_dma_cmd_helper*   dma_cmd_helper,
@@ -268,6 +321,12 @@ int ipa_table_iterator_init(
 int ipa_table_iterator_next(
 	ipa_table_iterator* iterator,
 	ipa_table*          table);
+
+int ipa_table_iterator_start(
+	ipa_table_iterator* iterator,
+	ipa_table*          table_ptr,
+	uint16_t            rec_index,
+	void*               rec_ptr);
 
 int ipa_table_iterator_end(
 	ipa_table_iterator* iterator,
@@ -312,11 +371,21 @@ int ipa_table_walk(
 	void*             arb_data_ptr );
 
 int ipa_table_add_dma_cmd(
-	ipa_table*                  tbl_ptr,
+	void*                       tbl,
 	dma_help_type               help_type,
 	void*                       rec_ptr,
 	uint16_t                    rec_index,
+	uint16_t                    hash_value,
 	uint16_t                    data_for_entry,
-	struct ipa_ioc_nat_dma_cmd* cmd_ptr );
+	void* cmd );
+
+int ipa_table_add_write_cmd(
+	void*                  		tbl,
+	dma_help_type               help_type,
+	void*                       rec_ptr,
+	uint16_t                    rec_index,
+	uint16_t                    hash_value,
+	uint16_t                    data_for_entry,
+	void* cmd );
 
 #endif

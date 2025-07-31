@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include <linux/init.h>
@@ -216,6 +217,20 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_UCP_RESUME),
 	__stringify(IPA_UCP_RESUME_METADATA),
 	__stringify(IPA_STATE_TX_HOLB_MASK_DPS_TX_1),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_0),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_0_MSB),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_1),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_1_MSB),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_2),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_2_MSB),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_3),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_3_MSB),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_4),
+	__stringify(IPA_IPV4_NAT_INIT_VALUES_5),
+	__stringify(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_TIMESTAMPS_DB_FLUSH),
+	__stringify(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS),
+	__stringify(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_FLUSH),
+	__stringify(IPA_NAT_AND_CONN_TRACK_CFG),
 };
 
 static void ipareg_construct_dummy(enum ipahal_reg_name reg,
@@ -6669,8 +6684,50 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		ipareg_construct_endp_init_nat_exc_suppress_n, ipareg_parse_dummy,
 		0x00001078, 0x100, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_ENDP_INIT_IPSEC_CFG_n] = {
-                ipareg_construct_dummy, ipareg_parse_dummy,
-                0x0000107C, 0x100, 0, 0, 0, 0},
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000107C, 0x100, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_0] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000414, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_0_MSB] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000418, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_1] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000041C, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_1_MSB] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000420, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_2] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000424, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_2_MSB] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000428, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_3] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000042C, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_3_MSB] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000430, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_4] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000434, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPV4_NAT_INIT_VALUES_5] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000438, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_NAT_AND_CONNECTION_TRACKING_CACHE_TIMESTAMPS_DB_FLUSH] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000067c, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000680, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_NAT_AND_CONNECTION_TRACKING_CACHE_FLUSH] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000690, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_NAT_AND_CONN_TRACK_CFG] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000698, 0, 0, 0, 0, 0},
 
 	/* IPA_DEBUG */
 	[IPA_HW_v7_0][IPA_RX_HPS_CLIENTS_MIN_DEPTH_1] = {

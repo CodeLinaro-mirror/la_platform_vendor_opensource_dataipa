@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -25,6 +26,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #include "ipa_nat_drv.h"
@@ -94,6 +98,43 @@ int ipa_nat_del_ipv4_tbl(
 	IPADBG("Passed Table Handle: 0x%08X\n", tbl_hdl);
 
 	return ipa_nati_del_ipv4_table(tbl_hdl);
+}
+
+/**
+ * ipa_nat_add_ipv4_rule_v2() - to insert new ipv4 rule
+ * @table_handle: [in] handle of ipv4 nat table
+ * @rule: [in]  Pointer to new rule
+ * @rule_handle: [out] Return the handle to rule
+ *
+ * To insert new ipv4 nat rule into ipv4 nat table
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_nat_add_ipv4_rule_v2(
+	uint32_t tbl_hdl,
+	const ipa_nat_ipv4_rule_v2 *clnt_rule,
+	uint32_t *rule_hdl)
+{
+	int result = -EINVAL;
+
+	if ( ! VALID_TBL_HDL(tbl_hdl) ||
+		 rule_hdl == NULL ||
+		 clnt_rule == NULL ) {
+		IPAERR(
+			"Invalid parameters tbl_hdl=%d clnt_rule=%pK rule_hdl=%pK\n",
+			tbl_hdl, clnt_rule, rule_hdl);
+		return result;
+	}
+
+	IPADBG("Passed Table handle: 0x%x\n", tbl_hdl);
+
+	if (ipa_nati_add_ipv4_rule_v2(tbl_hdl, clnt_rule, rule_hdl)) {
+		return result;
+	}
+
+	IPADBG("Returning rule handle %u\n", *rule_hdl);
+
+	return 0;
 }
 
 /**
@@ -345,4 +386,23 @@ int ipa_nat_vote_clock(
 	}
 
 	return ipa_nati_vote_clock(vote_type);
+}
+
+/**
+ * ipa_nat_timestamp_flush() - HW timestamp flash update
+ * @tbl_hdl: [in] handle of ipv4 nat table
+ *
+ * To flush timestamp from cache to DDR for all active NAT entries in cache
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_nat_timestamp_flush(uint32_t tbl_hdl)
+{
+	if ( ! VALID_TBL_HDL(tbl_hdl) )
+	{
+		IPAERR("Invalid parameters passed tbl_hdl=0x%x\n", tbl_hdl);
+		return -EINVAL;
+	}
+
+	return ipa_nati_timestamp_flush(tbl_hdl);
 }

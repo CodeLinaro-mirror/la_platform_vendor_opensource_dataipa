@@ -29,6 +29,9 @@
  * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #ifndef IPA_IPV6CTI_H
@@ -82,6 +85,89 @@ typedef enum
 	IPA_IPV6CT_TABLE_PROTOCOL,
 	IPA_IPV6CT_TABLE_DMA_CMD_MAX
 } ipa_ipv6ct_table_dma_cmd_type;
+
+/*------------------------  IPV6CT Table Entry V2  ------------------------------------------------
+
+  -------------------------------------------------------------------------------------------------
+  |     7     |      6      |     5     |     4     |     3     |     2     |     1     |     0     |
+  ---------------------------------------------------------------------------------------------------
+  |                              Outbound Src IPv6 Address (8 LSB Bytes)                            |
+  ---------------------------------------------------------------------------------------------------
+  |                              Outbound Src IPv6 Address (8 MSB Bytes)                            |
+  ---------------------------------------------------------------------------------------------------
+  |                              Outbound Dest IPv6 Address (8 LSB Bytes)                           |
+  ---------------------------------------------------------------------------------------------------
+  |                              Outbound Dest IPv6 Address (8 MSB Bytes)                           |
+  ---------------------------------------------------------------------------------------------------
+  | Protocol  |           TimeStamp (3B)            |       Flags (2B)      |Rsvd   |S |uC activatio|
+  |    (1B)   |                                     |En |In Rdr|Out Rdr|Resv|[15:14]|13|Index [12:0]|
+  ---------------------------------------------------------------------------------------------------
+  |Reserved   |Settings     |     Src Port (2B)     |     Dest Port (2B)    |    Next Index (2B)    |
+  |  (1B)     |  (1B)       |                       |                       |                       |
+  ---------------------------------------------------------------------------------------------------
+  |     Reserved (2B)       |SW Specific Params(4B) |   Non Frag Stats      |   All Pkts Stats      |
+  |                         |    Prev Index (2B)    |   Cnt Index (2B)      |   Cnt Index (2B)      |
+  ---------------------------------------------------------------------------------------------------
+  |                         SW Producer Classification Cookie (8B)                                  |
+  ---------------------------------------------------------------------------------------------------
+
+  Settings(1B)
+ -----------------------------------------------
+ |IN Allowed|OUT Allowed|Reserved|uC processing|
+ |[7:7]     |[6:6]      |[5:1]   |[0:0]        |
+ -----------------------------------------------
+
+  Dont change below structure definition.
+  It should be same as above(little endian order)
+  -------------------------------------------------------------------------------------------------*/
+typedef struct ipa_ipv6ct_hw_entry_v_7_0
+{
+	uint64_t src_ipv6_lsb : 64;
+	uint64_t src_ipv6_msb : 64;
+	uint64_t dest_ipv6_lsb : 64;
+	uint64_t dest_ipv6_msb : 64;
+
+	uint64_t uc_activation_index : 13;
+	uint64_t s : 1;
+	uint64_t rsvd1 : 15;
+	uint64_t out_redirect:1;
+	uint64_t in_redirect:1;
+	uint64_t enable : 1;
+	uint64_t time_stamp : 24;
+	uint64_t protocol : 8;
+
+	uint64_t next_index : 16;
+	uint64_t dest_port : 16;
+	uint64_t src_port : 16;
+	uint64_t ucp : 1;
+	uint64_t rsvd2 : 5;
+	uint64_t out_allowed : 1;
+	uint64_t in_allowed : 1;
+	uint64_t rsvd3 : 8;
+
+	uint64_t all_pkts_stats_cnt_index:16;
+	uint64_t non_frag_stats_cnt_index:16;
+	uint64_t prev_index : 16;
+	uint64_t rsvd4 : 16;
+
+	uint64_t sw_prod_classification_cookie : 64;
+} ipa_ipv6ct_hw_entry_v_7_0;
+
+/*
+	-------------------------
+	|    1      |    0      |
+	-------------------------
+	|       Flags(2B)       |
+	|En |In Rdr|Out Rdr|Resv|
+	-------------------------
+*/
+typedef struct
+{
+	uint16_t rsvd1 : 13;
+	uint16_t out_redirect : 1;
+	uint16_t in_redirect : 1;
+	uint16_t enable : 1;
+} ipa_ipv6ct_flags_v2;
 
 /*------------------------  IPV6CT Table Entry  ---------------------------------------------------
 
@@ -162,10 +248,16 @@ typedef struct
 	uint16_t enable : 1;
 } ipa_ipv6ct_flags;
 
+typedef union
+{
+	ipa_table_write_cmd_helper table_write_cmd_helpers[IPA_IPV6CT_TABLE_DMA_CMD_MAX];
+	ipa_table_dma_cmd_helper table_dma_cmd_helpers[IPA_IPV6CT_TABLE_DMA_CMD_MAX];
+} ipa_nat_ip6_table_cmd_helpers;
+
 struct ipa_ct_ip6_table_cache {
 	ipa_mem_descriptor mem_desc;
 	ipa_table table;
-	ipa_table_dma_cmd_helper table_dma_cmd_helpers[IPA_IPV6CT_TABLE_DMA_CMD_MAX];
+	ipa_nat_ip6_table_cmd_helpers table_cmd_helpers;
 };
 
 struct ipa_ct_cache {
@@ -183,6 +275,11 @@ int ipa_cti_add_ipv6_tbl(
 int ipa_cti_del_ipv6_tbl(
 	uint32_t tbl_hdl);
 
+int ipa_cti_add_ipv6_rule_v2(
+	uint32_t                 tbl_hdl,
+	const ipa_ipv6ct_rule_v2* clnt_rule,
+	uint32_t*                rule_hdl );
+
 int ipa_cti_add_ipv6_rule(
 	uint32_t                 tbl_hdl,
 	const ipa_ipv6ct_rule* clnt_rule,
@@ -196,6 +293,9 @@ int ipa_cti_query_timestamp(
 	uint32_t  tbl_hdl,
 	uint32_t  rule_hdl,
 	uint32_t* time_stamp);
+
+int ipa_cti_timestamp_flush(
+	uint32_t  tbl_hdl);
 
 static int ipa_ipv6ct_post_init_cmd(
 	struct ipa_ct_cache*           ct_cache_ptr,

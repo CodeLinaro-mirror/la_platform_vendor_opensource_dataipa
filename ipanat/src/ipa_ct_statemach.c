@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  * SPDX-License-Identifier: BSD-3-Clause-Clear
 */
 
@@ -465,6 +466,33 @@ int ipa_cti_del_ipv6_tbl(
 	return ret;
 }
 
+int ipa_cti_add_ipv6_rule_v2(
+	uint32_t                 tbl_hdl,
+	const ipa_ipv6ct_rule_v2* clnt_rule,
+	uint32_t*                rule_hdl )
+{
+	arb_t* args[] = {
+		(arb_t*)(arb_t)tbl_hdl,
+		(arb_t*) clnt_rule,
+		(arb_t*) rule_hdl,
+	};
+
+	int ret;
+
+	IPADBG("In\n");
+
+	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_ADD_RULE_V2, args);
+
+	if ( ret == 0 )
+	{
+		IPADBG("rule_hdl val(%u)\n", *rule_hdl);
+	}
+
+	IPADBG("Out\n");
+
+	return ret;
+}
+
 int ipa_cti_add_ipv6_rule(
 	uint32_t                 tbl_hdl,
 	const ipa_ipv6ct_rule* clnt_rule,
@@ -539,6 +567,23 @@ int ipa_cti_query_timestamp(
 	return ret;
 }
 
+int ipa_cti_timestamp_flush(
+	uint32_t  tbl_hdl)
+{
+	arb_t* args[] = {
+		(arb_t*)(arb_t)tbl_hdl,
+	};
+
+	int ret;
+
+	IPADBG("In\n");
+
+	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_TSTAMP_FLSH, args);
+
+	IPADBG("Out\n");
+
+	return ret;
+}
 
 int ipa_cti_clear_ipv6_tbl(
 	uint32_t tbl_hdl,
@@ -981,6 +1026,64 @@ static int _smCtDelSramAndDdrTbl(
 		 * restart...
 		 */
 		CT_BACK2_UNSTARTED_STATE();
+	}
+
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+/******************************************************************************/
+/*
+ * FUNCTION: _smAddRuleToTblV2
+ *
+ * PARAMS:
+ *
+ *   nati_obj_ptr (IN) A pointer to an initialized nati object
+ *
+ *   trigger      (IN) The trigger to run through the state machine
+ *
+ *   arb_data_ptr (IN) Whatever you like
+ *
+ * DESCRIPTION:
+ *
+ *   The following will cause the addtion of a NAT rule into the DDR
+ *   based table.
+ *
+ * RETURNS:
+ *
+ *   zero on success, otherwise non-zero
+ */
+static int _smCtAddRuleToTblV2(
+	ipa_cti_obj*    cti_obj_ptr,
+	ipa_cti_trigger trigger,
+	arb_t*           arb_data_ptr )
+{
+	arb_t** args = arb_data_ptr;
+
+	uint32_t           tbl_hdl   = (uint32_t)           args[0];
+	ipa_ipv6ct_rule_v2* clnt_rule = (ipa_ipv6ct_rule_v2*) args[1];
+	uint32_t*          rule_hdl  = (uint32_t*)          args[2];
+
+	char buf[1024];
+
+	int ret;
+
+	IPADBG("In\n");
+
+	IPADBG("tbl_hdl(0x%08X) clnt_rule_ptr(%p) rule_hdl_ptr(%p)\n",
+	       tbl_hdl, clnt_rule, rule_hdl);
+
+	ret = ipa_ipv6ct_add_rule_v2(tbl_hdl, clnt_rule, rule_hdl);
+
+	if ( ret == 0 )
+	{
+		uint32_t* cnt_ptr = CT_CHOOSE_CNTR();
+
+		(*cnt_ptr)++;
+
+		IPADBG("rule_hdl value(%u or 0x%08X)\n",
+		       *rule_hdl, *rule_hdl);
 	}
 
 	IPADBG("Out\n");
@@ -1854,6 +1957,49 @@ static int _smCtStatTblHybrid(
 
 /******************************************************************************/
 /*
+ * FUNCTION: _smCtTmStmpFlsh
+ *
+ * PARAMS:
+ *
+ *   cti_obj_ptr (IN) A pointer to an initialized cti object
+ *
+ *   trigger      (IN) The trigger to run through the state machine
+ *
+ *   arb_data_ptr (IN) Whatever you like
+ *
+ * DESCRIPTION:
+ *
+ *   Flash CT table timestamps from cache to DDR.
+ *
+ * RETURNS:
+ *
+ *   zero on success, otherwise non-zero
+ */
+static int _smCtTmStmpFlsh(
+	ipa_cti_obj*    cti_obj_ptr,
+	ipa_cti_trigger trigger,
+	arb_t*           arb_data_ptr )
+{
+	arb_t** args = arb_data_ptr;
+
+	uint32_t  tbl_hdl    = (uint32_t)  args[0];
+
+	int ret;
+
+	IPADBG("In\n");
+
+	IPADBG("tbl_hdl(0x%08X)\n",
+	       tbl_hdl);
+
+	ret = ipa_ipv6ct_timestamp_flush(tbl_hdl);
+
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+/******************************************************************************/
+/*
  * FUNCTION: _smCtSwitchFromDdrToSram
  *
  * PARAMS:
@@ -2135,104 +2281,116 @@ static int _smCtSwitchFromSramToDdr(
  * trigger to a callback...
  */
 static cti_statemach_tuple
-_ct_state_mach_tbl[CTI_STATE_LAST+1][CTI_TRIG_LAST+1] =
-{
+	_ct_state_mach_tbl[CTI_STATE_LAST+1][CTI_TRIG_LAST+1] =
 	{
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_NULL,       _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_ADD_TABLE,  _smCtFirstTbl ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_DEL_TABLE,  _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_CLR_TABLE,  _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_WLK_TABLE,  _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_TBL_STATS,  _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_ADD_RULE,   _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_DEL_RULE,   _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_TBL_SWITCH, _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_GOTO_DDR,   _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_GOTO_SRAM,  _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_GET_TSTAMP, _smCtUndef ),
-		SM_ROW( CTI_STATE_NULL,       CTI_TRIG_LAST,       _smCtUndef ),
-	},
+		{
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_NULL,       _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_ADD_TABLE,  _smCtFirstTbl ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_DEL_TABLE,  _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_CLR_TABLE,  _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_WLK_TABLE,  _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_TBL_STATS,  _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_ADD_RULE,   _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_DEL_RULE,   _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_TBL_SWITCH, _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_GOTO_DDR,   _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_GOTO_SRAM,  _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_GET_TSTAMP, _smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_ADD_RULE_V2,_smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_TSTAMP_FLSH,_smCtUndef ),
+			SM_ROW( CTI_STATE_NULL,       CTI_TRIG_LAST,       _smCtUndef ),
+		},
 
-	{
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_NULL,       _smCtUndef ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_ADD_TABLE,  _smCtAddDdrTbl ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_DEL_TABLE,  _smCtDelTbl ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_CLR_TABLE,  _smCtClrTbl ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_WLK_TABLE,  _smCtWalkTbl ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_TBL_STATS,  _smCtStatTbl ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_ADD_RULE,   _smCtAddRuleToTbl ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_DEL_RULE,   _smCtDelRuleFromTbl ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_TBL_SWITCH, _smCtUndef ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_GOTO_DDR,   _smCtUndef ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_GOTO_SRAM,  _smCtUndef ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_GET_TSTAMP, _smCtGetTmStmp ),
-		SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_LAST,       _smCtUndef ),
-	},
+		{
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_NULL,       _smCtUndef ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_ADD_TABLE,  _smCtAddDdrTbl ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_DEL_TABLE,  _smCtDelTbl ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_CLR_TABLE,  _smCtClrTbl ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_WLK_TABLE,  _smCtWalkTbl ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_TBL_STATS,  _smCtStatTbl ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_ADD_RULE,   _smCtAddRuleToTbl ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_DEL_RULE,   _smCtDelRuleFromTbl ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_TBL_SWITCH, _smCtUndef ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_GOTO_DDR,   _smCtUndef ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_GOTO_SRAM,  _smCtUndef ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_GET_TSTAMP, _smCtGetTmStmp ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_ADD_RULE_V2,_smCtAddRuleToTblV2 ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_TSTAMP_FLSH,_smCtTmStmpFlsh ),
+			SM_ROW( CTI_STATE_DDR_ONLY,   CTI_TRIG_LAST,       _smCtUndef ),
+		},
 
-	{
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_NULL,       _smCtUndef ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_ADD_TABLE,  _smCtAddSramTbl ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_DEL_TABLE,  _smCtDelTbl ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_CLR_TABLE,  _smCtClrTbl ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_WLK_TABLE,  _smCtWalkTbl ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_TBL_STATS,  _smCtStatTbl ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_ADD_RULE,   _smCtAddRuleToTbl ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_DEL_RULE,   _smCtDelRuleFromTbl ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_TBL_SWITCH, _smCtUndef ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_GOTO_DDR,   _smCtUndef ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_GOTO_SRAM,  _smCtUndef ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_GET_TSTAMP, _smCtGetTmStmp ),
-		SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_LAST,       _smCtUndef ),
-	},
+		{
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_NULL,       _smCtUndef ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_ADD_TABLE,  _smCtAddSramTbl ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_DEL_TABLE,  _smCtDelTbl ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_CLR_TABLE,  _smCtClrTbl ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_WLK_TABLE,  _smCtWalkTbl ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_TBL_STATS,  _smCtStatTbl ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_ADD_RULE,   _smCtAddRuleToTbl ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_DEL_RULE,   _smCtDelRuleFromTbl ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_TBL_SWITCH, _smCtUndef ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_GOTO_DDR,   _smCtUndef ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_GOTO_SRAM,  _smCtUndef ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_GET_TSTAMP, _smCtGetTmStmp ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_ADD_RULE_V2,_smCtUndef ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_TSTAMP_FLSH,_smCtUndef ),
+			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_LAST,       _smCtUndef ),
+		},
 
-	{
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_NULL,       _smCtUndef ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_ADD_TABLE,  _smCtAddSramAndDdrTbl ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_DEL_TABLE,  _smCtDelSramAndDdrTbl ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_CLR_TABLE,  _smCtClrTblHybrid ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_WLK_TABLE,  _smCtWalkTblHybrid ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_TBL_STATS,  _smCtStatTblHybrid ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_ADD_RULE,   _smCtAddRuleHybrid ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_DEL_RULE,   _smCtDelRuleHybrid ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_TBL_SWITCH, _smCtSwitchFromSramToDdr ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_GOTO_DDR,   _smCtGoToDdr ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_GOTO_SRAM,  _smCtGoToSram ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_GET_TSTAMP, _smCtGetTmStmpHybrid ),
-		SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_LAST,       _smCtUndef ),
-	},
+		{
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_NULL,       _smCtUndef ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_ADD_TABLE,  _smCtAddSramAndDdrTbl ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_DEL_TABLE,  _smCtDelSramAndDdrTbl ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_CLR_TABLE,  _smCtClrTblHybrid ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_WLK_TABLE,  _smCtWalkTblHybrid ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_TBL_STATS,  _smCtStatTblHybrid ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_ADD_RULE,   _smCtAddRuleHybrid ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_DEL_RULE,   _smCtDelRuleHybrid ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_TBL_SWITCH, _smCtSwitchFromSramToDdr ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_GOTO_DDR,   _smCtGoToDdr ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_GOTO_SRAM,  _smCtGoToSram ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_GET_TSTAMP, _smCtGetTmStmpHybrid ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_ADD_RULE_V2,_smCtUndef ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_TSTAMP_FLSH,_smCtUndef ),
+			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_LAST,       _smCtUndef ),
+		},
 
-	{
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_NULL,       _smCtUndef ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_ADD_TABLE,  _smCtUndef ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_DEL_TABLE,  _smCtDelSramAndDdrTbl ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_CLR_TABLE,  _smCtClrTblHybrid ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_WLK_TABLE,  _smCtWalkTblHybrid ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_TBL_STATS,  _smCtStatTblHybrid ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_ADD_RULE,   _smCtAddRuleHybrid ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_DEL_RULE,   _smCtDelRuleHybrid ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_TBL_SWITCH, _smCtSwitchFromDdrToSram ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_GOTO_DDR,   _smCtGoToDdr ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_GOTO_SRAM,  _smCtGoToSram ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_GET_TSTAMP, _smCtGetTmStmpHybrid ),
-		SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_LAST,       _smCtUndef ),
-	},
+		{
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_NULL,       _smCtUndef ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_ADD_TABLE,  _smCtUndef ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_DEL_TABLE,  _smCtDelSramAndDdrTbl ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_CLR_TABLE,  _smCtClrTblHybrid ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_WLK_TABLE,  _smCtWalkTblHybrid ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_TBL_STATS,  _smCtStatTblHybrid ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_ADD_RULE,   _smCtAddRuleHybrid ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_DEL_RULE,   _smCtDelRuleHybrid ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_TBL_SWITCH, _smCtSwitchFromDdrToSram ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_GOTO_DDR,   _smCtGoToDdr ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_GOTO_SRAM,  _smCtGoToSram ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_GET_TSTAMP, _smCtGetTmStmpHybrid ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_ADD_RULE_V2,_smCtUndef ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_TSTAMP_FLSH,_smCtUndef ),
+			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_LAST,       _smCtUndef ),
+		},
 
-	{
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_NULL,       _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_ADD_TABLE,  _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_DEL_TABLE,  _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_CLR_TABLE,  _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_WLK_TABLE,  _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_TBL_STATS,  _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_ADD_RULE,   _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_DEL_RULE,   _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_TBL_SWITCH, _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_GOTO_DDR,   _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_GOTO_SRAM,  _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_GET_TSTAMP, _smCtUndef ),
-		SM_ROW( CTI_STATE_LAST,       CTI_TRIG_LAST,       _smCtUndef ),
-	},
-};
+		{
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_NULL,       _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_ADD_TABLE,  _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_DEL_TABLE,  _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_CLR_TABLE,  _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_WLK_TABLE,  _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_TBL_STATS,  _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_ADD_RULE,   _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_DEL_RULE,   _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_TBL_SWITCH, _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_GOTO_DDR,   _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_GOTO_SRAM,  _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_GET_TSTAMP, _smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_ADD_RULE_V2,_smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_TSTAMP_FLSH,_smCtUndef ),
+			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_LAST,       _smCtUndef ),
+		},
+	};
 
 /******************************************************************************/
 /*
