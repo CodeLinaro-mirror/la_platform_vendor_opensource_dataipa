@@ -25,7 +25,9 @@
 #include <linux/wait.h>
 #include <linux/delay.h>
 #include <linux/version.h>
+#if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 #include <soc/qcom/minidump.h>
+#endif
 
 #define CREATE_TRACE_POINTS
 #include "gsi_trace.h"
@@ -6362,9 +6364,9 @@ static int msm_gsi_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	gsi_ctx->ipc_logbuf = ipc_log_context_create(GSI_IPC_LOG_PAGES,
 		"gsi", MINIDUMP_MASK);
-#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (gsi_ctx->ipc_logbuf == NULL)
 		GSIERR("failed to create IPC log, continue...\n");
 #endif

@@ -1994,7 +1994,9 @@ void ipa_ipsec_handle_sa_thresh(u8 idx, enum ipa_ipsec_uc_sa_action action,
 	case IPA_IPSEC_UC_THRESH_SOFT:
 		if (!x->km.dying) {
 			x->km.dying = 1;
+#if IS_ENABLED(CONFIG_XFRM)
 			km_state_expired(x, 0, 0);
+#endif
 		}
 		break;
 	case IPA_IPSEC_UC_THRESH_HARD:
@@ -2589,11 +2591,13 @@ int ipa_ipsec_rx_update_sec_path(struct sk_buff *skb, u32 metadata)
 		return -EINVAL;
 	}
 
+#if IS_ENABLED(CONFIG_XFRM)
 	sp = secpath_set(skb);
 	if (unlikely(!sp)) {
 		IPAERR_RL("Failed setting the sec_path\n");
 		return -EFAULT;
 	}
+#endif
 
 	xfrm_state_hold(x);
 
@@ -3064,6 +3068,8 @@ int ipa_ipsec_init(void)
 		IPAERR("Failed allocatng IPsec context.\n");
 		return -ENOMEM;
 	}
+
+#if IS_ENABLED (CONFIG_XFRM_OFFLOAD)
 	ipa3_ctx->ipsec->xfrmdev_ops =
 		(struct xfrmdev_ops *)kzalloc(sizeof(struct xfrmdev_ops), GFP_KERNEL);
 	if (!ipa3_ctx->ipsec->xfrmdev_ops) {
@@ -3081,6 +3087,9 @@ int ipa_ipsec_init(void)
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_policy_add = ipa_ipsec_xdo_policy_add;
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_policy_delete = ipa_ipsec_xdo_policy_delete;
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_policy_free = ipa_ipsec_xdo_policy_free;
+#else
+	ipa3_ctx->ipsec->xfrmdev_ops = NULL;
+#endif
 
 	atomic_set(&ipa3_ctx->stats.ipsec_enacp_excp, 0);
 	atomic_set(&ipa3_ctx->stats.ipsec_decap_excp, 0);

@@ -34,12 +34,16 @@
 
 #define IPA_ECM_IPC_LOG_PAGES 50
 
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 #define IPA_ECM_IPC_LOGGING(buf, fmt, args...) \
 	do { \
 		if (buf) \
 			ipc_log_string((buf), fmt, __func__, __LINE__, \
 				## args); \
 	} while (0)
+#else
+#define IPA_ECM_IPC_LOGGING
+#endif
 
 static void *ipa_ecm_logbuf;
 
@@ -1711,11 +1715,13 @@ int ecm_ipa_init_module(void)
 {
 	ECM_IPA_LOG_ENTRY();
 	pr_info("ecm driver init\n");
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	ipa_ecm_logbuf = ipc_log_context_create(IPA_ECM_IPC_LOG_PAGES,
 			"ipa_ecm", MINIDUMP_MASK);
-#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa_ecm_logbuf == NULL)
 		ECM_IPA_DEBUG("failed to create IPC log, continue...\n");
+#else
+	ipa_ecm_logbuf = NULL;
 #endif
 	ECM_IPA_LOG_EXIT();
 	return 0;
@@ -1728,9 +1734,13 @@ EXPORT_SYMBOL(ecm_ipa_init_module);
 void ecm_ipa_cleanup_module(void)
 {
 	ECM_IPA_LOG_ENTRY();
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa_ecm_logbuf)
 		ipc_log_context_destroy(ipa_ecm_logbuf);
+#endif
 	ipa_ecm_logbuf = NULL;
 	ECM_IPA_LOG_EXIT();
 }
 EXPORT_SYMBOL(ecm_ipa_cleanup_module);
+
+MODULE_LICENSE("GPL v2");

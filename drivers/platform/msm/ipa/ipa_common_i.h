@@ -9,7 +9,9 @@
 #define _IPA_COMMON_I_H_
 #include <linux/ipa_qmi_service_v01.h>
 #include <linux/errno.h>
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 #include <linux/ipc_logging.h>
+#endif
 #include "ipa.h"
 #include "ipa_uc_offload.h"
 #include "ipa_wdi3.h"
@@ -646,12 +648,16 @@ struct ipa_tx_suspend_irq_data {
 
 extern const char *ipa_clients_strings[];
 
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 #define IPA_IPC_LOGGING(buf, fmt, args...) \
 	do { \
 		if (buf) \
 			ipc_log_string((buf), fmt, __func__, __LINE__, \
 				## args); \
 	} while (0)
+#else
+#define IPA_IPC_LOGGING(buf, fmt, args...)
+#endif
 
 void ipa3_inc_client_enable_clks(struct ipa_active_client_logging_info *id);
 void ipa3_dec_client_disable_clks(struct ipa_active_client_logging_info *id);

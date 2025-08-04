@@ -25,7 +25,6 @@ ipam-y += \
 	ipa_v3/ipa_wdi3_i.o \
 	ipa_v3/ipa_odl.o \
 	ipa_v3/ipa_wigig_i.o \
-	ipa_v3/ipa_qdss.o \
 	ipa_v3/ipa_uc_holb_monitor.o \
 	ipa_v3/ipahal/ipahal.o \
 	ipa_v3/ipahal/ipahal_reg.o \
@@ -54,6 +53,7 @@ ipam-$(CONFIG_IPA_CLIENTS_MANAGER) += ipa_clients/ipa_usb.o \
 	ipa_clients/ipa_eth.o
 
 ipam-$(CONFIG_RNDIS_IPA) += ipa_clients/rndis_ipa.o
+ipam-$(CONFIG_QDSS_IPA) += ipa_clients/ipa_qdss.o
 
 ipam-$(CONFIG_IPA3_MHI_PRIME_MANAGER) += ipa_v3/ipa_mpm.o
 

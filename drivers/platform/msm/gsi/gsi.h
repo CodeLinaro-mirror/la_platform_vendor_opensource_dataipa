@@ -15,7 +15,9 @@
 #include <linux/spinlock.h>
 #include <linux/msm_gsi.h>
 #include <linux/errno.h>
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 #include <linux/ipc_logging.h>
+#endif
 #include <linux/iommu.h>
 #include <linux/msi.h>
 
@@ -46,12 +48,16 @@
 #define GSI_INST_RAM_FW_VER_FW_MASK                     (0x7f)
 #define GSI_INST_RAM_FW_VER_FW_SHIFT            (0)
 
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 #define GSI_IPC_LOGGING(buf, fmt, args...) \
 	do { \
 		if (buf) \
 			ipc_log_string((buf), fmt, __func__, __LINE__, \
 				## args); \
 	} while (0)
+#else
+#define GSI_IPC_LOGGING(buf, fmt, args...)
+#endif
 
 #define GSIDBG(fmt, args...) \
 	do { \

@@ -10055,11 +10055,6 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 	mutex_lock(&ipa3_ctx->lock);
 	ipa3_ctx->ipa_initialization_complete = true;
 	mutex_unlock(&ipa3_ctx->lock);
-
-#ifdef CONFIG_DEEPSLEEP
-	if (!ipa_is_ready())
-		ipa_fmwk_deepsleep_exit_ipa();
-#endif
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	IPAERR("IPA driver initialization was successful.\n");
@@ -10495,7 +10490,9 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPADBG(":mpm init init ok\n");
 
 	ipa3_usb_init();
+#ifdef CONFIG_IPA_QDSS
 	ipa3_qdss_init();
+#endif
 	if(ipa3_ctx->ipa_config_is_mhi)
 		ipa_dma_mhi_provide_ops();
 	mutex_lock(&ipa3_ctx->lock);
@@ -10505,11 +10502,6 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	/* init uc-activation tbl*/
 	ipa3_setup_uc_act_tbl();
 	ipa_trigger_ipa_ready_cbs();
-
-#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
-	if (!ipa_is_ready())
-		ipa_fmwk_deepsleep_exit_ipa();
-#endif
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	ipa_ut_module_init();
@@ -10706,9 +10698,10 @@ static int ipa_firmware_load(const char *sub_sys)
 	ret = qcom_mdt_load(dev, fw, fw_name, pas_id, virt, phys, size, NULL);
 	if (ret)
 		dev_err(dev, "error %d loading \"%s\"\n", ret, fw_name);
+#if IS_ENABLED(CONFIG_QCOM_SCM1)
 	else if ((ret = qcom_scm_pas_auth_and_reset(pas_id)))
 		dev_err(dev, "error %d authenticating \"%s\"\n", ret, fw_name);
-
+#endif
 	memunmap(virt);
 
 out_release_firmware:
@@ -11182,6 +11175,7 @@ int ipa3_tz_unlock_reg(struct ipa_tz_unlock_reg_info *reg_info, u16 num_regs)
 	cmd_buf.iovec_buf = virt_to_phys((void *)ipa_tz_unlock_vec);
 	cmd_buf.size_bytes = size;
 
+#if IS_ENABLED(CONFIG_QCOM_SCM1)
 	ret = qcom_scm_mem_protect_region_id(
 			virt_to_phys((void *)ipa_tz_unlock_vec),
 			size);
@@ -11191,6 +11185,7 @@ int ipa3_tz_unlock_reg(struct ipa_tz_unlock_reg_info *reg_info, u16 num_regs)
 		kfree(ipa_tz_unlock_vec);
 		return -EFAULT;
 	}
+#endif
 	kfree(ipa_tz_unlock_vec);
 	return 0;
 }
@@ -11479,15 +11474,16 @@ EXPORT_SYMBOL(ipa_set_pkt_init_ex_hdr_ofst_by_hdl);
 static bool ipa_is_mem_dump_allowed(void)
 {
 	int ret;
-	u32 dump_state;
+	u32 dump_state = 0;
 
+#if IS_ENABLED(CONFIG_QCOM_SCM1)
 	ret = qcom_scm_get_sec_dump_state(&dump_state);
 
 	if (ret) {
 		IPAERR("SCM DUMP_STATE call failed\n");
 		return false;
 	}
-
+#endif
 	return (dump_state == 1);
 }
 
@@ -14073,9 +14069,10 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	 * further below acts accordingly...
 	 */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
-
+	mapping_config = 0;
+#if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
 	mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-
+#endif
 	if (mapping_config < 0) {
 		IPAERR("No Mapping configuration found for CB %d\n", cb_type);
 	} else {
@@ -14202,9 +14199,10 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	 * further below acts accordingly...
 	 */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
-
+        mapping_config = 0;
+#if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
         mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-
+#endif
         if (mapping_config < 0) {
                 IPAERR("No Mapping configuration found for UC CB\n");
         } else {
@@ -14352,9 +14350,10 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	 * further below acts accordingly...
 	 */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
-
+        mapping_config = 0;
+#if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
         mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-
+#endif
         if (mapping_config < 0) {
                 IPAERR("No Mapping configuration found for AP CB\n");
         } else {
@@ -14508,9 +14507,10 @@ static int ipa_smmu_11ad_cb_probe(struct device *dev)
 	IPADBG("11AD CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
-
+        mapping_config = 0;
+#if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
         mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-
+#endif
         if (mapping_config < 0) {
                 IPAERR("No Mapping configuration found for 11AD CB\n");
         } else {
@@ -14616,8 +14616,10 @@ static int ipa_smmu_v2x_cb_probe(struct device *dev)
 	 * further below acts accordingly...
 	 */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+        mapping_config = 0;
+#if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
         mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-
+#endif
         if (mapping_config < 0) {
                 IPAERR("No Mapping configuration found for V2X CB\n");
         } else {
@@ -15099,13 +15101,11 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		return -EPROBE_DEFER;
 	}
 
-	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
+	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
 	if (ipa3_ctx->logbuf == NULL)
 		pr_err("failed to create IPC ipa log, continue...\n");
-#endif
 	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
-#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf_clk == NULL)
 		pr_err("failed to create IPC ipa_clk log, continue...\n");
 #endif
@@ -15538,8 +15538,6 @@ static void ipa3_deepsleep_suspend(void)
 #endif
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
-	/*Calling framework API to reset IPA ready flag to false*/
-	ipa_fmwk_deepsleep_entry_ipa();
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	IPADBG("Exit\n");
 }
@@ -15848,13 +15846,11 @@ int ipa3_pci_drv_probe(struct pci_dev *pci_dev, const struct pci_device_id *ent)
 		return -EPROBE_DEFER;
 	}
 
-	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
+	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", MINIDUMP_MASK);
 	if (ipa3_ctx->logbuf == NULL)
 		pr_err("failed to create IPC log, continue...\n");
-#endif
 	ipa3_ctx->logbuf_clk = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa_clk", MINIDUMP_MASK);
-#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa3_ctx->logbuf_clk == NULL)
 		pr_err("failed to create IPC ipa_clk log, continue...\n");
 #endif

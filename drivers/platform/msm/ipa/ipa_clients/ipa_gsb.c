@@ -720,8 +720,10 @@ int ipa_bridge_cleanup(u32 hdl)
 #else
 		ipa_gsb_sysfs_destroy();
 #endif
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 		ipc_log_context_destroy(ipa_gsb_ctx->logbuf);
 		ipc_log_context_destroy(ipa_gsb_ctx->logbuf_low);
+#endif
 		mutex_unlock(&ipa_gsb_ctx->lock);
 		mutex_destroy(&ipa_gsb_ctx->lock);
 		for (i = 0; i < MAX_SUPPORTED_IFACE; i++)

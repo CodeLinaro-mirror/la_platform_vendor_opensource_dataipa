@@ -61,13 +61,16 @@
 
 #define IPA_RNDIS_IPC_LOG_PAGES 50
 
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 #define IPA_RNDIS_IPC_LOGGING(buf, fmt, args...) \
 	do { \
 		if (buf) \
 			ipc_log_string((buf), fmt, __func__, __LINE__, \
 				## args); \
 	} while (0)
-
+#else
+#define IPA_RNDIS_IPC_LOGGING
+#endif
 static void *ipa_rndis_logbuf;
 
 #define RNDIS_IPA_DEBUG(fmt, args...) \
@@ -3089,11 +3092,13 @@ static ssize_t rndis_ipa_debugfs_atomic_read
 
 int rndis_ipa_init_module(void)
 {
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	ipa_rndis_logbuf = ipc_log_context_create(IPA_RNDIS_IPC_LOG_PAGES,
 		"ipa_rndis", MINIDUMP_MASK);
-#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa_rndis_logbuf == NULL)
 		RNDIS_IPA_ERROR("failed to create IPC log, continue...\n");
+#else
+	ipa_rndis_logbuf = NULL;
 #endif
 
 	pr_info("RNDIS_IPA module is loaded.\n");
@@ -3103,8 +3108,10 @@ EXPORT_SYMBOL(rndis_ipa_init_module);
 
 void rndis_ipa_cleanup_module(void)
 {
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 	if (ipa_rndis_logbuf)
 		ipc_log_context_destroy(ipa_rndis_logbuf);
+#endif
 	ipa_rndis_logbuf = NULL;
 
 	pr_info("RNDIS_IPA module is unloaded.\n");

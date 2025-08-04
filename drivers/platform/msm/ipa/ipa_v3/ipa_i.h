@@ -46,7 +46,9 @@
 #include <linux/rmnet_ipa_fd_ioctl.h>
 #include <linux/mhi_dma.h>
 #include "ipa_uc_holb_monitor.h"
+#if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 #include <soc/qcom/minidump.h>
+#endif
 
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"

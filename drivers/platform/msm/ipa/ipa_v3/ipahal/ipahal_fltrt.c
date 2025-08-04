@@ -6,7 +6,9 @@
 
 #include "ipa.h"
 #include <linux/errno.h>
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 #include <linux/ipc_logging.h>
+#endif
 #include <linux/debugfs.h>
 #include "ipahal.h"
 #include "ipahal_fltrt.h"

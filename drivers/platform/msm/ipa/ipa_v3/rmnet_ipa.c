@@ -2320,7 +2320,9 @@ void apps_ipa_ipsec_err_pkt_rcv_ntfy(void *priv,
 				BUG();
 			}
 
+#if IS_ENABLED(CONFIG_XFRM)
 			sp = secpath_set(skb);
+#endif
 			if (sp) {
 				sp->xvec[sp->len++] = x;
 				sp->olen++;
@@ -5449,7 +5451,9 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_initialized()) {
 		IPAWANDBG("IPsec offload is initialized\n");
+#if IS_ENABLED(CONFIG_XFRM_OFFLOAD)
 		dev->xfrmdev_ops = ipa3_ctx->ipsec->xfrmdev_ops;
+#endif
 		ipa3_ctx->ipsec->dev = dev;
 	}
 

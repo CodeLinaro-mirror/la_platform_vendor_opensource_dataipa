@@ -3521,9 +3521,13 @@ static ssize_t ipa3_enable_ipc_low(struct file *file,
 	mutex_lock(&ipa3_ctx->lock);
 	if (option) {
 		if (!ipa_ipc_low_buff) {
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 			ipa_ipc_low_buff =
 				ipc_log_context_create(IPA_IPC_LOG_PAGES,
 					"ipa_low", MINIDUMP_MASK);
+#else
+			ipa_ipc_low_buff = NULL;
+#endif
 		}
 			if (ipa_ipc_low_buff == NULL)
 				IPADBG("failed to get logbuf_low\n");
