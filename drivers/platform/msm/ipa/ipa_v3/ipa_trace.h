@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #undef TRACE_SYSTEM
@@ -257,12 +257,12 @@ TRACE_EVENT(
 TRACE_EVENT(
 	ipa_tx_dp,
 
-	TP_PROTO(const struct sk_buff *skb, unsigned long client),
+	TP_PROTO(const struct sk_buff *skb, const char *devname, unsigned long client),
 
-	TP_ARGS(skb, client),
+	TP_ARGS(skb, devname, client),
 
 	TP_STRUCT__entry(
-		__string(name,			skb->dev->name)
+		__string(name,			devname)
 		__field(const void *,	skbaddr)
 		__field(u16,			protocol)
 		__field(unsigned int,	len)
