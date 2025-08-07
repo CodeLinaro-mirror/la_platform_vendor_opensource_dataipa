@@ -59,6 +59,9 @@
  * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #include "RoutingDriverWrapper.h"
@@ -944,7 +947,7 @@ public:
 
 		// The bin size is 8
 		// We are going to add number of headers to occupy twice the size of the SRAM buffer
-		m_InitialHeadersNum = GetHdrSramSize() / 8 * 2;
+		m_InitialHeadersNum = (GetHdrSramSize() / 8) * 2;
 		m_HeadersNumToDelete = 0;
 		m_HeadersNumToAddAgain = 0;
 	}
@@ -954,6 +957,9 @@ public:
 		m_eIP = IPA_IP_v4;
 		struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
 		struct ipa_ioc_del_hdr *pDelHeaderDescriptor = NULL;
+		size_t deletedHeaders = 0;
+		decltype(ipa_hdr_del::hdl) headerHandles[m_HeadersNumToDelete];
+		using numHandlesType = decltype(pDelHeaderDescriptor->num_hdls);
 
 		memset(&m_RetHeader, 0, sizeof(m_RetHeader));
 		LOG_MSG_STACK("Entering Function");
@@ -965,11 +971,11 @@ public:
 			goto bail;
 		}
 
-		pHeaderDescriptor = (struct ipa_ioc_add_hdr *) calloc(1,
-			sizeof(struct ipa_ioc_add_hdr) + 1 * sizeof(struct ipa_hdr_add));
+		pHeaderDescriptor = (struct ipa_ioc_add_hdr *) calloc(1, sizeof(struct ipa_ioc_add_hdr) + 1 *
+			sizeof(struct ipa_hdr_add));
 		if (m_HeadersNumToDelete > 0)
-			pDelHeaderDescriptor = (struct ipa_ioc_del_hdr *)calloc(1,
-				sizeof(struct ipa_ioc_del_hdr) + m_HeadersNumToDelete * sizeof(struct ipa_hdr_del));
+			pDelHeaderDescriptor = (struct ipa_ioc_del_hdr *)calloc(1, sizeof(struct ipa_ioc_del_hdr) +
+				std::numeric_limits<numHandlesType>::max() * sizeof(struct ipa_hdr_del));
 		if (!pHeaderDescriptor || (m_HeadersNumToDelete > 0 && !pDelHeaderDescriptor))
 		{
 			LOG_MSG_ERROR("calloc failed to allocate ipa_ioc_add_hdr or ipa_ioc_del_hdr");
@@ -1002,7 +1008,7 @@ public:
 			}
 			// Store header descriptors to delete
 			if (m_HeadersNumToDelete > 0 && i < m_HeadersNumToDelete) {
-				pDelHeaderDescriptor->hdl[i].hdl = pHeaderDescriptor->hdr[0].hdr_hdl;
+				headerHandles[i] = pHeaderDescriptor->hdr[0].hdr_hdl;
 			}
 		}
 		strlcpy(m_RetHeader.name, pHeaderDescriptor->hdr[0].name, sizeof(m_RetHeader.name));
@@ -1012,24 +1018,30 @@ public:
 		ret = system("cat /sys/kernel/debug/ipa/hdr");
 
 
-		if (m_HeadersNumToDelete > 0)
-		{
+		if (pDelHeaderDescriptor) {
 			// Delete few headers from SRAM
 			pDelHeaderDescriptor->commit = true;
-			pDelHeaderDescriptor->num_hdls = m_HeadersNumToDelete;
-			for (int i = 0; i < m_HeadersNumToDelete; i++)
-				pDelHeaderDescriptor->hdl[i].status = -1; // Return Parameter
-			if (!m_HeaderInsertion.DeleteHeader(pDelHeaderDescriptor))
-			{
-				LOG_MSG_ERROR("m_HeaderInsertion.DeleteHeader(pDelHeaderDescriptor) Failed");
-				bRetVal = false;
-				goto bail;
+			while (deletedHeaders < m_HeadersNumToDelete) {
+				if ((m_HeadersNumToDelete - deletedHeaders) > std::numeric_limits<numHandlesType>::max()) {
+					pDelHeaderDescriptor->num_hdls = std::numeric_limits<numHandlesType>::max();
+				} else {
+					pDelHeaderDescriptor->num_hdls = m_HeadersNumToDelete - deletedHeaders;
+				}
+				for (int i = 0; i < pDelHeaderDescriptor->num_hdls; i++) {
+					pDelHeaderDescriptor->hdl[i].hdl = headerHandles[deletedHeaders + i];
+					pDelHeaderDescriptor->hdl[i].status = -1; // Return Parameter
+				}
+				if (!m_HeaderInsertion.DeleteHeader(pDelHeaderDescriptor)) {
+					LOG_MSG_ERROR("m_HeaderInsertion.DeleteHeader(pDelHeaderDescriptor) Failed");
+					bRetVal = false;
+					goto bail;
+				}
+				deletedHeaders += pDelHeaderDescriptor->num_hdls;
 			}
-
-			fflush(stderr);
-			fflush(stdout);
-			ret = system("cat /sys/kernel/debug/ipa/hdr");
 		}
+		fflush(stderr);
+		fflush(stdout);
+		ret = system("cat /sys/kernel/debug/ipa/hdr");
 
 		if (m_HeadersNumToAddAgain > 0)
 		{
@@ -1147,9 +1159,9 @@ public:
 
 protected:
 	struct ipa_ioc_get_hdr m_RetHeader;
-	int m_InitialHeadersNum;
-	int m_HeadersNumToDelete;
-	int m_HeadersNumToAddAgain;
+	size_t m_InitialHeadersNum;
+	size_t m_HeadersNumToDelete;
+	size_t m_HeadersNumToAddAgain;
 
 private:
 	uint8_t m_aExpectedBuffer[BUFF_MAX_SIZE]; // Input file / IP packet
@@ -1450,7 +1462,7 @@ public:
 
 protected:
 	struct ipa_ioc_get_hdr m_RetHeader1, m_RetHeader2;
-	int m_InitialHeadersNum;
+	size_t m_InitialHeadersNum;
 
 private:
 	uint8_t m_aExpectedBuffer[BUFF_MAX_SIZE]; // Input file / IP packet
@@ -1738,7 +1750,7 @@ public:
 
 protected:
 	struct ipa_ioc_get_hdr m_RetHeader1, m_RetHeader2;
-	int m_InitialHeadersNum;
+	size_t m_InitialHeadersNum;
 
 private:
 	uint8_t m_aExpectedBuffer[BUFF_MAX_SIZE]; // Input file / IP packet
@@ -2094,14 +2106,14 @@ public:
 
 protected:
 	struct ipa_ioc_get_hdr m_RetHeader1, m_RetHeader2, m_RetHeader3;
-	int m_InitialHeadersNum;
+	size_t m_InitialHeadersNum;
 
 private:
 	uint8_t m_aExpectedBuffer[BUFF_MAX_SIZE]; // Input file / IP packet
 	size_t m_aExpectedBufSize;
 	uint8_t m_aHeadertoAdd1[MAX_HEADER_SIZE], m_aHeadertoAdd2[MAX_HEADER_SIZE], m_aHeadertoAdd3[MAX_HEADER_SIZE];
 	size_t m_nHeadertoAddSize1, m_nHeadertoAddSize2, m_nHeadertoAddSize3;
-	int ret;
+	size_t ret;
 };
 
 class IPAHeaderInsertionTest013: public IPAHeaderInsertionTestFixture {

@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #include <stdio.h>
@@ -188,8 +191,6 @@ TestManager::TestManager(
     const char* nat_mem_type_ptr)
 {
 	m_testList.clear();
-	m_failedTestsNames.clear();
-	m_numTestsFailed = 0;
 	m_numTestsRun = 0;
 	FetchIPAHwType();
 	m_nat_mem_type_ptr = nat_mem_type_ptr;
@@ -232,6 +233,7 @@ bool TestManager::Run(vector<string> testSuiteList, vector<string> testNameList)
 	clock_t begin_test_clk, end_test_clk;
 	double test_runtime_sec = 0, total_time_sec = 0;
 	TestsXMLResult xml_res;
+	vector<string> failedTestNames;
 
 	if (m_testList.size() == 0)
 		return false;
@@ -301,8 +303,7 @@ bool TestManager::Run(vector<string> testSuiteList, vector<string> testNameList)
 		else
 		{
 			m_numTestsRun++;
-			m_numTestsFailed++;
-			m_failedTestsNames.push_back(test->m_name);
+			failedTestNames.emplace_back(test->m_name);
 			PrintSeparator(test->m_name.size());
 			printf("Test %s FAILED ! time:%g\n", test->m_name.c_str(), test_runtime_sec);
 			PrintSeparator(test->m_name.size());
@@ -314,12 +315,11 @@ bool TestManager::Run(vector<string> testSuiteList, vector<string> testNameList)
 	// Print summary
 	printf("\n\n");
 	printf("==================== RESULTS SUMMARY ========================\n");
-	printf("%zu tests were run, %zu failed, total time:%g.\n", m_numTestsRun, m_numTestsFailed, total_time_sec);
-	if (0 != m_numTestsFailed) {
+	printf("%zu tests were run, %zu failed, total time:%g.\n", m_numTestsRun, failedTestNames.size(), total_time_sec);
+	if (!failedTestNames.empty()) {
 		printf("Failed tests list:\n");
-		for (size_t i = 0; i < m_numTestsFailed; i++) {
-			printf("        %s\n", m_failedTestsNames[i].c_str());
-			m_failedTestsNames.pop_back();
+		for (const auto & failedTestName : failedTestNames) {
+			printf("        %s\n", failedTestName.c_str());
 		}
 	}
 	printf("=============================================================\n");

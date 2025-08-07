@@ -269,7 +269,7 @@ public:
 			goto fail;
 		}
 		LOG_MSG_DEBUG("Reading packet through Dummy Endpoint pipe in func %s\n", __func__);
-		ret = m_IpaDriverPipe.Receive(output, PACKET_SIZE);
+		ret = m_FromIPAPipe.Receive(output, PACKET_SIZE);
 		if (ret != 0) {
 			LOG_MSG_ERROR("Failed in reading buffer. %d error", ret);
 			free(input);

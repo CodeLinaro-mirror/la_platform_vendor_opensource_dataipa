@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #include <stdio.h>
@@ -264,8 +267,14 @@ public:
 	inline bool VerifyStatusReceived(size_t SendSize, size_t RecvSize)
 	{
 		size_t stts_size = sizeof(struct ipa3_hw_pkt_status);
+		ipa_hw_type ipaHwType = TestManager::GetInstance()->GetIPAHwType();
 
-		if (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) {
+		if (ipaHwType >= IPA_HW_v7_0)
+		{
+			stts_size = sizeof(struct ipa3_hw_pkt_status_hw_v7_0);
+		}
+		else if (ipaHwType >= IPA_HW_v5_0)
+		{
 			stts_size = sizeof(struct ipa3_hw_pkt_status_hw_v5_0);
 		}
 
@@ -278,7 +287,7 @@ public:
 		return true;
 	}
 
-	inline bool IsCacheHit(size_t SendSize, size_t RecvSize, void *Buff)
+	inline bool IsRtCacheMiss(size_t SendSize, size_t RecvSize, void *Buff)
 	{
 		struct ipa3_hw_pkt_status *pStatus = (struct ipa3_hw_pkt_status *)Buff;
 
@@ -286,17 +295,10 @@ public:
 			return false;
 		}
 
-		if ((bool)pStatus->route_hash) {
-			LOG_MSG_DEBUG("cache hit!! \n");
-			return true;
-		}
-
-		LOG_MSG_ERROR("cache miss!! \n");
-		return false;
-
+		return !((bool)pStatus->route_hash);
 	}
-	
-	inline bool IsCacheHit_v5_0(size_t SendSize, size_t RecvSize, void *Buff)
+
+	inline bool IsRtCacheMiss_v5_0(size_t SendSize, size_t RecvSize, void *Buff)
 	{
 		struct ipa3_hw_pkt_status_hw_v5_0 *pStatus = (struct ipa3_hw_pkt_status_hw_v5_0 *)Buff;
 
@@ -304,53 +306,85 @@ public:
 			return false;
 		}
 
-		if ((bool)pStatus->route_hash) {
-			LOG_MSG_DEBUG("cache hit!! \n");
-			return true;
-		}
-
-		LOG_MSG_ERROR("cache miss!! \n");
-		return false;
-
+		return !((bool)pStatus->route_hash);
 	}
 
-	inline bool IsCacheMiss(size_t SendSize, size_t RecvSize, void *Buff)
+	inline bool IsRtCacheMiss_v7_0(size_t SendSize, size_t RecvSize, void *Buff)
 	{
-		struct ipa3_hw_pkt_status *pStatus = (struct ipa3_hw_pkt_status *)Buff;
+		struct ipa3_hw_pkt_status_hw_v7_0 *pStatus = (struct ipa3_hw_pkt_status_hw_v7_0 *)Buff;
 
 		if (VerifyStatusReceived(SendSize, RecvSize) == false) {
 			return false;
 		}
 
-		if (!((bool)pStatus->route_hash)) {
-			LOG_MSG_DEBUG("cache miss!! \n");
-			return true;
-		}
-
-		LOG_MSG_ERROR("cache hit!! \n");
-		return false;
+		return !((bool)pStatus->rt_cache_hit);
 	}
-	
-	inline bool IsCacheMiss_v5_0(size_t SendSize, size_t RecvSize, void *Buff)
+
+	inline bool isRtCacheMiss(size_t SendSize, size_t RecvSize, void *Buff) {
+		bool res;
+		switch (TestManager::GetInstance()->GetIPAHwType()) {
+			case IPA_HW_v7_0:
+				res = IsRtCacheMiss_v7_0(SendSize, RecvSize, Buff);
+				break;
+			case IPA_HW_v6_0:
+			case IPA_HW_v5_5:
+			case IPA_HW_v5_0:
+			case IPA_HW_v5_1:
+				res = IsRtCacheMiss_v5_0(SendSize, RecvSize, Buff);
+				break;
+			default:
+				res = IsRtCacheMiss(SendSize, RecvSize, Buff);
+				break;
+		}
+		if (!res)
+			printf ("%s::RT cache hit!! \n",__FUNCTION__);
+		else
+			printf ("%s::RT cache miss!! \n",__FUNCTION__);
+
+		return res;
+	}
+
+	inline bool isNatCacheHit(size_t SendSize, size_t RecvSize, void *Buff) {
+		bool res;
+		switch (TestManager::GetInstance()->GetIPAHwType()) {
+			case IPA_HW_v7_0:
+				res = isNatCacheHitV7_0(SendSize, RecvSize, Buff);
+				break;
+			default:
+				res = false;
+				break;
+		}
+		if (res)
+			printf ("%s::NAT cache hit!! \n",__FUNCTION__);
+		else
+			printf ("%s::NAT cache miss!! \n",__FUNCTION__);
+
+		return res;
+	}
+
+	inline bool isNatCacheHitV7_0(size_t SendSize, size_t RecvSize, void *Buff)
 	{
-		struct ipa3_hw_pkt_status_hw_v5_0 *pStatus = (struct ipa3_hw_pkt_status_hw_v5_0 *)Buff;
+		struct ipa3_hw_pkt_status_hw_v7_0 *pStatus = (struct ipa3_hw_pkt_status_hw_v7_0 *)Buff;
 
 		if (VerifyStatusReceived(SendSize, RecvSize) == false) {
 			return false;
 		}
-
-		if (!((bool)pStatus->route_hash)) {
-			LOG_MSG_DEBUG("cache miss!! \n");
-			return true;
-		}
-
-		LOG_MSG_ERROR("cache hit!! \n");
-		return false;
+		
+		return ((bool)pStatus->nat_cache_hit);
 	}
 
 	bool IsSuppressionHit(void *buff)
 	{
 		switch (TestManager::GetInstance()->GetIPAHwType()) {
+		case IPA_HW_v7_0:
+		{
+			struct ipa3_hw_pkt_status_hw_v7_0 *status_v7_0 =
+				(struct ipa3_hw_pkt_status_hw_v7_0 *)buff;
+
+			if (status_v7_0->nat_exc_suppress)
+				return true;
+			break;
+		}
 		case IPA_HW_v6_0:
 		{
 			struct ipa3_hw_pkt_status_hw_v6_0 *status_v6_0 =
@@ -376,6 +410,10 @@ public:
 		return false;
 	}
 
+	inline bool isNatCacheMiss(size_t SendSize, size_t RecvSize, void *Buff) {
+		return !isNatCacheHit(SendSize, RecvSize, Buff);
+	}
+
 	bool CompareResultVsGoldenNat(Byte *goldenBuffer, unsigned int goldenSize,
 		Byte *receivedBuffer, unsigned int receivedSize, int private_ip, int public_ip,
 		int private_port, int public_port, bool src_nat, int IPv4_offset = 0, bool with_status = false)
@@ -388,8 +426,14 @@ public:
 		uint32_t ip_checksum, tcp_checksum;
 		int recv_offset = 0;
 		size_t stts_size = sizeof(struct ipa3_hw_pkt_status);
+		ipa_hw_type ipaHwType = TestManager::GetInstance()->GetIPAHwType();
 
-		if (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) {
+		if (ipaHwType >= IPA_HW_v7_0)
+		{
+			stts_size = sizeof(struct ipa3_hw_pkt_status_hw_v7_0);
+		}
+		else if (ipaHwType >= IPA_HW_v5_0)
+		{
 			stts_size = sizeof(struct ipa3_hw_pkt_status_hw_v5_0);
 		}
 
@@ -879,6 +923,7 @@ public:
 	enum ipv6_ext_hdr_type m_extHdrType;
 	uint32_t m_tbl_hdl;
 	uint32_t m_nat_rule_hdl1;
+	uint32_t m_nat_rule_hdl2;
 	uint32_t m_public_ip;
 	uint32_t m_public_ip2;
 	uint32_t m_private_ip;
@@ -1303,7 +1348,7 @@ public:
 };
 
 /*---------------------------------------------------------------------------*/
-/* Test003: Multi PDN src NAT test					     */
+/* Test003: Multi PDN src NAT test                                           */
 /* NOTE: other classes are derived from this class - change carefully        */
 /*---------------------------------------------------------------------------*/
 class IpaNatBlockTest003 : public IpaNatBlockTestFixture
@@ -2626,8 +2671,7 @@ public:
 			isSuccess = false;
 		}
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize, receivedSize, rxBuff1);
+		isSuccess &= IsRtCacheMiss(m_sendSize, receivedSize, rxBuff1);
 
 		char recievedBuffer[0x400] = { 0 };
 		char SentBuffer[0x400] = { 0 };
@@ -2650,8 +2694,7 @@ public:
 			m_private_port2, m_public_port2,
 			false, 0, true);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheMiss(m_sendSize2, receivedSize2, rxBuff2);
+		isSuccess &= IsRtCacheMiss(m_sendSize, receivedSize, rxBuff1);
 
 		for (j = 0; j < m_sendSize2; j++)
 			snprintf(&SentBuffer2[3 * j], sizeof(SentBuffer2) - (3 * j + 1), " %02X", m_sendBuffer2[j]);
@@ -5153,6 +5196,4341 @@ public:
 	}
 };
 
+/*---------------------------------------------------------------------------*/
+/* Test023: IPAv7: Single PDN src NAT test          					     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest023 : public IpaNatBlockTest001
+{
+public:
+	IpaNatBlockTest023()
+	{
+		m_name = "IpaNatBlockTest023";
+		m_description =
+			"NAT block test 023 - IPAv7: single PDN src NAT test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to src NAT \
+			All DST_IP == (193.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit one NAT rule:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 1);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0x00FFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_target_ip; // Filter DST_IP == 193.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+
+		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_DEBUG("failed creating NAT table\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      m_public_ip);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test024: IPAv7: Single PDN dst NAT test			             		     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest024 : public IpaNatBlockTest002
+{
+public:
+	IpaNatBlockTest024()
+	{
+		m_name = "IpaNatBlockTest024";
+		m_description =
+			"NAT block test 024 - IPAv7: single PDN dst NAT test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block (public IP filtering) \
+		3. generate and commit one NAT rule:\
+			public ip 192.23.22.1 --> private ip 194.23.22.1  ";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 3);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0x00FFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip; // Filter DST_IP == 192.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test025: IPAv7: Multi PDN src NAT test					                 */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest025 : public IpaNatBlockTest003
+{
+public:
+	IpaNatBlockTest025()
+	{
+		m_name = "IpaNatBlockTest025";
+		m_description =
+			"NAT block test 025- IPAv7: Multi PDN src NAT test\
+		1. Generate and commit three routing tables (two are used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit two filtering rule: (DST & Mask Match). \
+			- action go to src NAT \
+			  All SRC_IP == (194.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All SRC_IP == (197.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit two NAT rules:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1 \
+			private ip 197.23.22.1 --> public ip 195.23.22.1";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_private_ip2 = 0xC5171601; /* 197.23.22.1 */
+		m_private_port2 = 5679;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_public_ip2 = 0xC3171601;   /* "195.23.22.1" */
+		m_public_port2 = 9051;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0, routing_table1;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		routing_table1.ip = IPA_IP_v4;
+		strlcpy(routing_table1.name, bypass1, sizeof(routing_table1.name));
+		if (!m_routing.GetRoutingTable(&routing_table1))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table1=0x%p) Failed.\n", &routing_table1);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass1, routing_table1.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 2);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_SRC_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.src_addr_mask = 0xFFFFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.src_addr = m_private_ip; // Filter SRC_IP == 194.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+
+		// Configuring Filtering Rule No.1
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
+		flt_rule_entry.rule.attrib.u.v4.src_addr = m_private_ip2; // Filter SRC_IP == 197.23.22.1
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+			LOG_MSG_DEBUG("flt rule hdl1=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(1)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(1)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+		ipa_nat_pdn_entry pdn_info;
+
+		// first create the NAT table
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		// modify the PDN entries that will be pointed by the NAT rules
+		pdn_info.public_ip = m_public_ip;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 0, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 0 \n");
+			return false;
+		}
+
+		pdn_info.public_ip = m_public_ip2;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 1, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 1 \n");
+			return false;
+		}
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		ipv4_rule.private_ip = m_private_ip2;
+		ipv4_rule.private_port = m_private_port2;
+		ipv4_rule.public_port = m_public_port2;
+		ipv4_rule.pdn_index = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl2);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl2, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test026: IPAv7: Multi PDN dst NAT test					     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest026 : public IpaNatBlockTest004
+{
+public:
+	IpaNatBlockTest026()
+	{
+		m_name = "IpaNatBlockTest026";
+		m_description =
+			"NAT block test 026 - IPAv7: Multi PDN dst NAT test\
+		1. Generate and commit three routing tables (two are used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit two filtering rule: (DST & Mask Match). \
+			- action go to dst NAT \
+			  All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All DST_IP == (195.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit two NAT rules:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1 \
+			private ip 197.23.22.1 --> public ip 195.23.22.1";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_private_ip2 = 0xC5171601; /* 197.23.22.1 */
+		m_private_port2 = 5679;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_public_ip2 = 0xC3171601;   /* "195.23.22.1" */
+		m_public_port2 = 9051;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0, routing_table1;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		routing_table1.ip = IPA_IP_v4;
+		strlcpy(routing_table1.name, bypass1, sizeof(routing_table1.name));
+		if (!m_routing.GetRoutingTable(&routing_table1))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table1=0x%p) Failed.\n", &routing_table1);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass1, routing_table1.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 2);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip; // Filter DST_IP == 192.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+
+		// Configuring Filtering Rule No.1
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip2; // Filter DST_IP == 195.23.22.1
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+			LOG_MSG_DEBUG("flt rule hdl1=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(1)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(1)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+		ipa_nat_pdn_entry pdn_info;
+
+		// first create the NAT table
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		// modify the PDN entries that will be pointed by the NAT rules
+		pdn_info.public_ip = m_public_ip;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 0,&pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 0 \n");
+			return false;
+		}
+
+		pdn_info.public_ip = m_public_ip2;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 1, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 1 \n");
+			return false;
+		}
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		ipv4_rule.private_ip = m_private_ip2;
+		ipv4_rule.private_port = m_private_port2;
+		ipv4_rule.public_port = m_public_port2;
+		ipv4_rule.pdn_index = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl2);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl12 ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test027: IPAv7: Single PDN src metadata replacement NAT test		     */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest027 : public IpaNatBlockTest005
+{
+public:
+	IpaNatBlockTest027()
+	{
+		m_name = "IpaNatBlockTest027";
+		m_description =
+			"IpaNatBlockTest027 - IPAv7: single PDN src metadata replacement NAT test\
+			source metadata will be replaced and the routing rule equation will be done upon replaced value\
+		1. Generate and commit two routing tables (only one is used). \
+			the routing table will catch packets with metadata value 0x34567890 (different from original value)\
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to src NAT \
+			All DST_IP == (193.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			action parameters metadata replacement = true\
+		3. generate and commit one NAT rule:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1\
+			source metadata value shall be replaced to 0x34567890 (caught by the routing rule)";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_metadata = 0x34567890;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateMetdataRoutingRule(bypass0))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateMetdataRoutingRule completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST2_PROD, false, 1);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_target_ip; // Filter DST_IP == 193.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 1;
+		flt_rule_entry.rule.retain_hdr = 1;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		ipa_nat_pdn_entry pdn_info;
+
+		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      m_public_ip);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		// modify the PDN entries that will be pointed by the NAT rules
+		pdn_info.public_ip = m_public_ip;
+		pdn_info.src_metadata = m_metadata;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 0, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed modifying PDN index 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("PDN 0 was modified to hold ip 0x%X, src_metadata 0x%X\n", m_public_ip, m_metadata);
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test028: IPAv7: Single PDN dst metadata replacement NAT test		             */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest028 : public IpaNatBlockTest006
+{
+public:
+	IpaNatBlockTest028()
+	{
+		m_name = "IpaNatBlockTest028";
+		m_description =
+			"NAT block test 028 - IPAv7: single PDN dst metadata replacement NAT test\
+			destination metadata will be replaced and the routing rule equation will be done upon replaced value\
+		1. Generate and commit two routing tables (only one is used). \
+			the routing table will catch packets with metadata value 0x34567890 (different from original value)\
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			action parameters metadata replacement = true\
+		3. generate and commit one NAT rule:\
+			public ip 192.23.22.1 --> private ip 194.23.22.1 \
+			destination metadata value shall be replaced to 0x34567890 (caught by the routing rule)";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_metadata = 0x34567890;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateMetdataRoutingRule(bypass0))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateMetdataRoutingRule completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST2_PROD, false, 1);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip; // Filter DST_IP == 193.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 1;
+		flt_rule_entry.rule.retain_hdr = 1;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		ipa_nat_pdn_entry pdn_info;
+
+		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      m_public_ip);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		// modify the PDN entries that will be pointed by the NAT rules
+		pdn_info.public_ip = m_public_ip;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = m_metadata;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 0, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed modifying PDN index 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("PDN 0 was modified to hold ip 0x%X, dst_metadata 0x%X\n", m_public_ip, m_metadata);
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_ERROR("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test029: IPAv7: Hashable routing rule with dst NAT test                          */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest029 : public IpaNatBlockTest007
+{
+public:
+	IpaNatBlockTest029()
+	{
+		m_name = "IpaNatBlockTest029";
+		m_description =
+			"NAT block test 029 - IPAv7: single PDN dst NAT with hashable routing rule test\
+			test if routing block hash mechanism tests NATed values or pre NAT values\
+		1. Generate and commit routing table with two hashable rules. \
+			first routing rule will send packets with ip == 192.168.9.119 to first pipe \
+			second routing rule will send packets with ip == 192.168.9.120 to second pipe\
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.168.9.1 & 255.255.255.0)traffic goes to NAT block \
+		3. generate and commit two NAT rules with target ip 211.1.1.4:\
+			1. public ip 5.5.6.120 --> private ip 192.168.9.119 \
+			   public port 4501 --> private port 4500 \
+			2.  public ip 5.5.6.120 --> private ip 192.168.9.119 \
+			    public port 4502 --> private port 4500";
+		m_private_ip = 0xC0A80977; /* 192.168.9.119 */
+		m_private_port = 4500;
+		m_private_ip2 = 0xC0A80978; /* 192.168.9.120 */
+		m_private_port2 = 4500;
+		m_public_ip = 0x05050678;   /* 5.5.6.120 */
+		m_public_port = 4501;
+		m_public_port2 = 4502;
+		m_target_ip = 0xD3010104; /* 211.1.1.4 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateHashableRoutingRules(bypass0))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateHashableRoutingRules completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 1);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing table 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0x00000000; // Mask - catch all
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip; // Filter DST_IP == 5.5.6.120
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+
+		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      m_public_ip);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule 1 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip2;
+		ipv4_rule.private_port = m_private_port2;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port2;
+		ipv4_rule.pdn_index = 0;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test030: IPAv7: Multi PDN src NAT test match PDN by input from filtering block   */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest030 : public IpaNatBlockTest008
+{
+public:
+	IpaNatBlockTest030()
+	{
+		m_name = "IpaNatBlockTest030";
+		m_description =
+			"NAT block test 30 - IPAv7: Multi PDN src NAT test match PDN by input from filtering block\
+		1. Generate and commit three routing tables (two are used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			- action go to src NAT + PDN index 2\
+			  All SRC_IP == (194.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit two NAT rules:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1 PDN index 1\
+			private ip 194.23.22.1 --> public ip 195.23.22.1 PDN index 2";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_public_ip2 = 0xC3171601;   /* "195.23.22.1" */
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0, routing_table1;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		routing_table1.ip = IPA_IP_v4;
+		strlcpy(routing_table1.name, bypass1, sizeof(routing_table1.name));
+		if (!m_routing.GetRoutingTable(&routing_table1))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table1=0x%p) Failed.\n", &routing_table1);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass1, routing_table1.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 2);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_SRC_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.src_addr_mask = 0xFFFFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.src_addr = m_private_ip; // Filter SRC_IP == 194.23.22.1
+		flt_rule_entry.rule.pdn_idx = 2;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_ERROR("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+		ipa_nat_pdn_entry pdn_info;
+
+		// first create the NAT table
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		// modify the PDN entries that will be pointed by the NAT rules
+		pdn_info.public_ip = m_public_ip;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 1, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 0 \n");
+			return false;
+		}
+
+		pdn_info.public_ip = m_public_ip2;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 2, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 1 \n");
+			return false;
+		}
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 1;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		// the second rule shall be identical to the first on all parameters except PDN index so the filtering
+		// block action parameter will provide the PDN index.
+		ipv4_rule.pdn_index = 2;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test031: IPAv7: Single PDN src NAT delete rule test                       */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest031 : public IpaNatBlockTest023
+{
+public:
+	IpaNatBlockTest031()
+	{
+		m_name = "IpaNatBlockTest031";
+		m_description =
+			"NAT block test 031 - IPAv7: single PDN src NAT rule deletion test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to src NAT \
+			All DST_IP == (193.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit one NAT rule:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1\
+		4. delete the NAT rule and expect NAT miss";
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		int ret = IpaNatBlockTest023::AddRules();
+		if (!ret) {
+			LOG_MSG_ERROR("Leaving, failed Adding test 023 rules 0\n");
+			return false;
+		}
+
+		ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule deleted\n");
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		size_t receivedSize = 0;
+		bool isSuccess = true;
+
+		// Receive results
+		Byte *rxBuff1 = new Byte[0x400];
+
+		if (NULL == rxBuff1)
+		{
+			LOG_MSG_ERROR("Memory allocation error.\n");
+			return false;
+		}
+
+		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+
+		if (receivedSize) {
+			LOG_MSG_ERROR("Data received - test failed!\n");
+			isSuccess = false;
+
+			// Compare results
+			if (!CompareResultVsGoldenNat(
+				m_sendBuffer, m_sendSize,
+				rxBuff1, receivedSize,
+				m_private_ip, m_public_ip,
+				m_private_port, m_public_port,
+				true))
+			{
+				LOG_MSG_ERROR("Comparison of Buffer0 Failed!\n");
+			} else {
+				LOG_MSG_ERROR("Comparison of Buffer0 succeeded - NAT rule was hit despite deletion!\n");
+			}
+
+			char recievedBuffer[256] = { 0 };
+			char SentBuffer[256] = { 0 };
+			size_t j;
+
+			for (j = 0; j < m_sendSize; j++)
+				snprintf(&SentBuffer[3 * j], sizeof(SentBuffer) - (3 * j + 1), " %02X", m_sendBuffer[j]);
+			for (j = 0; j < receivedSize; j++)
+				snprintf(&recievedBuffer[3 * j], sizeof(recievedBuffer) - (3 * j + 1), " %02X", rxBuff1[j]);
+			LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize, SentBuffer, receivedSize, recievedBuffer);
+		}
+
+		delete[] rxBuff1;
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test032: IPAv7: Single PDN dst NAT rule deletion test                     */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest032 : public IpaNatBlockTest024
+{
+public:
+IpaNatBlockTest032()
+	{
+		m_name = "IpaNatBlockTest032";
+		m_description =
+			"NAT block test 032 - IPAv7: single PDN dst NAT rule deletion test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block (public IP filtering) \
+		3. generate and commit one NAT rule:\
+			public ip 192.23.22.1 --> private ip 194.23.22.1  \
+			delete rule and verrify NAT miss";
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		int ret = IpaNatBlockTest024::AddRules();
+		if (!ret) {
+			LOG_MSG_ERROR("Leaving, failed Adding test 024 rules 0\n");
+			return false;
+		}
+
+		ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule deleted\n");
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		size_t receivedSize = 0;
+		bool isSuccess = true;
+
+		// Receive results
+		Byte *rxBuff1 = new Byte[0x400];
+
+		if (NULL == rxBuff1)
+		{
+			LOG_MSG_ERROR("Memory allocation error.\n");
+			return false;
+		}
+
+		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+
+		if (receivedSize) {
+			LOG_MSG_ERROR("Data received - test failed!\n");
+			isSuccess = false;
+
+			// Compare results
+			if (!CompareResultVsGoldenNat(
+				m_sendBuffer, m_sendSize,
+				rxBuff1, receivedSize,
+				m_private_ip, m_public_ip,
+				m_private_port, m_public_port,
+				false))
+			{
+				LOG_MSG_ERROR("Comparison of Buffer0 Failed!\n");
+			}
+			else {
+				LOG_MSG_ERROR("Comparison of Buffer0 succeeded - NAT rule was hit despite deletion!\n");
+			}
+
+			char recievedBuffer[256] = { 0 };
+			char SentBuffer[256] = { 0 };
+			size_t j;
+
+			for (j = 0; j < m_sendSize; j++)
+				snprintf(&SentBuffer[3 * j], sizeof(SentBuffer) - (3 * j + 1), " %02X", m_sendBuffer[j]);
+			for (j = 0; j < receivedSize; j++)
+				snprintf(&recievedBuffer[3 * j], sizeof(recievedBuffer) - (3 * j + 1), " %02X", rxBuff1[j]);
+			LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize, SentBuffer, receivedSize, recievedBuffer);
+		}
+
+		delete[] rxBuff1;
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test033: IPAv7: Multi PDN src NAT - MAX number of PDNs test               */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest033 : public IpaNatBlockTestFixture
+{
+	uint32_t m_public_ip3;
+	uint32_t m_public_ip4;
+	uint32_t m_private_ip3;
+	uint32_t m_private_ip4;
+	uint16_t m_public_port3;
+	uint16_t m_public_port4;
+	uint16_t m_private_port3;
+	uint16_t m_private_port4;
+	Byte m_sendBuffer4[BUFF_MAX_SIZE];
+	size_t m_sendSize4;
+
+public:
+IpaNatBlockTest033()
+	{
+		m_name = "IpaNatBlockTest033";
+		m_description =
+			"NAT block test 033 - IPAv7: Multi PDN src NAT test\
+		1. Generate and commit three routing tables (one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			- action go to src NAT \
+			  All SRC_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All SRC_IP == (194.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All SRC_IP == (196.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All SRC_IP == (198.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit four NAT rules:\
+			private ip 192.23.22.1 --> public ip 193.23.22.1 \
+			private ip 194.23.22.1 --> public ip 195.23.22.1 \
+			private ip 196.23.22.1 --> public ip 197.23.22.1 \
+			private ip 198.23.22.1 --> public ip 199.23.22.1";
+		m_private_ip = 0xC0171601; /* 192.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC1171601;   /* "193.23.22.1" */
+		m_public_port = 9050;
+
+		m_private_ip2 = 0xC2171601; /* 194.23.22.1 */
+		m_private_port2 = 5679;
+		m_public_ip2 = 0xC3171601;   /* "195.23.22.1" */
+		m_public_port2 = 9051;
+
+		m_private_ip3 = 0xC4171601; /* 196.23.22.1 */
+		m_private_port3 = 5680;
+		m_public_ip3 = 0xC5171601;   /* "197.23.22.1" */
+		m_public_port3 = 9052;
+
+		m_private_ip4 = 0xC6171601; /* 198.23.22.1 */
+		m_private_port4 = 5681;
+		m_public_ip4 = 0xC7171601;   /* "199.23.22.1" */
+		m_public_port4 = 9053;
+
+		m_target_ip = 0xBF171601; /* 191.23.22.1 */
+		m_target_port = 1234;
+
+		m_sendSize4 = BUFF_MAX_SIZE;
+		m_minIPAHwType = IPA_HW_v7_0;
+		Register(*this);
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0, routing_table1;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		routing_table1.ip = IPA_IP_v4;
+		strlcpy(routing_table1.name, bypass1, sizeof(routing_table1.name));
+		if (!m_routing.GetRoutingTable(&routing_table1))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table1=0x%p) Failed.\n", &routing_table1);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass1, routing_table1.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 1);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl;
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_SRC_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.src_addr_mask = 0x00FFFFFF; // Mask - catch all private IPs
+		flt_rule_entry.rule.attrib.u.v4.src_addr = m_private_ip; // Filter SRC_IP == 192.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		ipa_nat_pdn_entry pdn_info;
+
+		// first create the NAT table
+		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      m_public_ip);
+
+		// modify the PDN entries that will be pointed by the NAT rules
+		pdn_info.public_ip = m_public_ip;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 0, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 0 \n");
+			return false;
+		}
+
+		pdn_info.public_ip = m_public_ip2;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 1, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 1 \n");
+			return false;
+		}
+
+		pdn_info.public_ip = m_public_ip3;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 2, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 2 \n");
+			return false;
+		}
+
+		pdn_info.public_ip = m_public_ip4;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 3, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 3 \n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("Added 4 PDNs successfully: 0x%X, 0x%X, 0x%X, 0x%X\n",
+			      m_public_ip, m_public_ip2, m_public_ip3, m_public_ip4);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d, $d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port, ipv4_rule.pdn_index);
+
+		ipv4_rule.private_ip = m_private_ip2;
+		ipv4_rule.private_port = m_private_port2;
+		ipv4_rule.public_port = m_public_port2;
+		ipv4_rule.pdn_index = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d, $d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port, ipv4_rule.pdn_index);
+
+		ipv4_rule.private_ip = m_private_ip3;
+		ipv4_rule.private_port = m_private_port3;
+		ipv4_rule.public_port = m_public_port3;
+		ipv4_rule.pdn_index = 2;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 2\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule 3 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d, $d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port, ipv4_rule.pdn_index);
+
+		ipv4_rule.private_ip = m_private_ip4;
+		ipv4_rule.private_port = m_private_port4;
+		ipv4_rule.public_port = m_public_port4;
+		ipv4_rule.pdn_index = 3;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 3\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule 4 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d, $d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port, ipv4_rule.pdn_index);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+
+	virtual bool ModifyPackets()
+	{
+		uint32_t address;
+		uint16_t port;
+		char flags = 0x18;
+
+		if (!LoadDefaultPacket(IPA_IP_v4, m_extHdrType, m_sendBuffer4, m_sendSize4)) {
+			LOG_MSG_ERROR("Failed default Packet buffer 4\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("Loaded %zu Bytes to Buffer 4\n", m_sendSize4);
+
+		//first packet private ip 192.23.22.1 --> public ip 193.23.22.1
+		address = htonl(m_target_ip);//191.23.22.1
+		memcpy(&m_sendBuffer[IPV4_DST_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_target_port);
+		memcpy(&m_sendBuffer[IPV4_DST_PORT_OFFSET], &port, sizeof(port));
+
+		address = htonl(m_private_ip);/* 192.23.22.1 */
+		memcpy(&m_sendBuffer[IPV4_SRC_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_private_port);
+		memcpy(&m_sendBuffer[IPV4_SRC_PORT_OFFSET], &port, sizeof(port));
+
+		//make sure the FIN flag is not set, otherwise we will get a NAT miss
+		memcpy(&m_sendBuffer[IPV4_TCP_FLAGS_OFFSET], &flags, sizeof(flags));
+
+		// second packet private ip 194.23.22.1 --> public ip 195.23.22.1
+		address = htonl(m_target_ip);//191.23.22.1
+		memcpy(&m_sendBuffer2[IPV4_DST_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_target_port);
+		memcpy(&m_sendBuffer2[IPV4_DST_PORT_OFFSET], &port, sizeof(port));
+
+		address = htonl(m_private_ip2);/* 194.23.22.1 */
+		memcpy(&m_sendBuffer2[IPV4_SRC_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_private_port2);
+		memcpy(&m_sendBuffer2[IPV4_SRC_PORT_OFFSET], &port, sizeof(port));
+
+		//make sure the FIN flag is not set, otherwise we will get a NAT miss
+		memcpy(&m_sendBuffer2[IPV4_TCP_FLAGS_OFFSET], &flags, sizeof(flags));
+
+		// third packet private ip 196.23.22.1 --> public ip 197.23.22.1
+		address = htonl(m_target_ip);//191.23.22.1
+		memcpy(&m_sendBuffer3[IPV4_DST_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_target_port);
+		memcpy(&m_sendBuffer3[IPV4_DST_PORT_OFFSET], &port, sizeof(port));
+
+		address = htonl(m_private_ip3);/* 196.23.22.1 */
+		memcpy(&m_sendBuffer3[IPV4_SRC_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_private_port3);
+		memcpy(&m_sendBuffer3[IPV4_SRC_PORT_OFFSET], &port, sizeof(port));
+
+		//make sure the FIN flag is not set, otherwise we will get a NAT miss
+		memcpy(&m_sendBuffer3[IPV4_TCP_FLAGS_OFFSET], &flags, sizeof(flags));
+
+		// third packet private ip 198.23.22.1 --> public ip 199.23.22.1
+		address = htonl(m_target_ip);//191.23.22.1
+		memcpy(&m_sendBuffer4[IPV4_DST_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_target_port);
+		memcpy(&m_sendBuffer4[IPV4_DST_PORT_OFFSET], &port, sizeof(port));
+
+		address = htonl(m_private_ip4);/* 198.23.22.1 */
+		memcpy(&m_sendBuffer4[IPV4_SRC_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_private_port4);
+		memcpy(&m_sendBuffer4[IPV4_SRC_PORT_OFFSET], &port, sizeof(port));
+
+		//make sure the FIN flag is not set, otherwise we will get a NAT miss
+		memcpy(&m_sendBuffer4[IPV4_TCP_FLAGS_OFFSET], &flags, sizeof(flags));
+
+		return true;
+	}// ModifyPacktes ()
+
+	virtual bool SendPackets()
+	{
+		bool isSuccess = false;
+
+		// Send first packet
+		LOG_MSG_DEBUG("sending first packet\n");
+		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
+		if (false == isSuccess)
+		{
+			LOG_MSG_ERROR("SendData failure.\n");
+			return false;
+		}
+
+		// Send second packet
+		LOG_MSG_DEBUG("sending second packet\n");
+		isSuccess = m_producer.SendData(m_sendBuffer2, m_sendSize2);
+		if (false == isSuccess)
+		{
+			LOG_MSG_ERROR("SendData failure.\n");
+			return false;
+		}
+
+		// Send third packet
+		LOG_MSG_DEBUG("sending third packet\n");
+		isSuccess = m_producer.SendData(m_sendBuffer3, m_sendSize3);
+		if (false == isSuccess)
+		{
+			LOG_MSG_ERROR("SendData failure.\n");
+			return false;
+		}
+
+		// Send fourth packet
+		LOG_MSG_DEBUG("sending fourth packet\n");
+		isSuccess = m_producer.SendData(m_sendBuffer4, m_sendSize4);
+		if (false == isSuccess)
+		{
+			LOG_MSG_ERROR("SendData failure.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("sent successfully four packets\n");
+		return true;
+	}
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		size_t receivedSize = 0;
+		size_t receivedSize2 = 0;
+		size_t receivedSize3 = 0;
+		size_t receivedSize4 = 0;
+		bool isSuccess = true;
+
+		// Receive results
+		Byte *rxBuff1 = new Byte[0x400];
+		Byte *rxBuff2 = new Byte[0x400];
+		Byte *rxBuff3 = new Byte[0x400];
+		Byte *rxBuff4 = new Byte[0x400];
+
+		if (rxBuff1 == NULL)
+		{
+			LOG_MSG_ERROR("Memory allocation error 1.\n");
+			if (rxBuff2)
+				delete[] rxBuff2;
+			if (rxBuff3)
+				delete[] rxBuff3;
+			if (rxBuff4)
+				delete[] rxBuff4;
+			return false;
+		}
+
+		if (rxBuff2 == NULL)
+		{
+			LOG_MSG_ERROR("Memory allocation error 2.\n");
+			delete[] rxBuff1;
+			if (rxBuff3)
+				delete[] rxBuff3;
+			if (rxBuff4)
+				delete[] rxBuff4;
+			return false;
+		}
+
+		if (rxBuff3 == NULL)
+		{
+			LOG_MSG_ERROR("Memory allocation error 3.\n");
+			delete[] rxBuff1;
+			delete[] rxBuff2;
+			if (rxBuff4)
+				delete[] rxBuff4;
+			return false;
+		}
+
+		if (rxBuff4 == NULL)
+		{
+			LOG_MSG_ERROR("Memory allocation error 4.\n");
+			delete[] rxBuff1;
+			delete[] rxBuff2;
+			delete[] rxBuff3;
+			return false;
+		}
+
+		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+
+		receivedSize2 = m_consumer.ReceiveData(rxBuff2, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize2, m_consumer.m_fromChannelName.c_str());
+
+		receivedSize3 = m_consumer.ReceiveData(rxBuff3, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize3, m_consumer.m_fromChannelName.c_str());
+
+		receivedSize4 = m_consumer.ReceiveData(rxBuff4, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize4, m_consumer.m_fromChannelName.c_str());
+
+		// Compare results
+		if (!CompareResultVsGoldenNat(
+			m_sendBuffer, m_sendSize,
+			rxBuff1, receivedSize,
+			m_private_ip, m_public_ip,
+			m_private_port, m_public_port,
+			true))
+		{
+			LOG_MSG_ERROR("Comparison of Buffer0 Failed!\n");
+			isSuccess = false;
+		}
+
+		char recievedBuffer[256] = { 0 };
+		char SentBuffer[256] = { 0 };
+		char recievedBuffer2[256] = { 0 };
+		char SentBuffer2[256] = { 0 };
+		char recievedBuffer3[256] = { 0 };
+		char SentBuffer3[256] = { 0 };
+		char recievedBuffer4[256] = { 0 };
+		char SentBuffer4[256] = { 0 };
+		size_t j;
+
+		for (j = 0; j < m_sendSize; j++)
+			snprintf(&SentBuffer[3 * j], sizeof(SentBuffer) - (3 * j + 1), " %02X", m_sendBuffer[j]);
+		for (j = 0; j < receivedSize; j++)
+			snprintf(&recievedBuffer[3 * j], sizeof(recievedBuffer) - (3 * j + 1), " %02X", rxBuff1[j]);
+		LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize, SentBuffer, receivedSize, recievedBuffer);
+
+		delete[] rxBuff1;
+
+		isSuccess &= CompareResultVsGoldenNat(
+			m_sendBuffer2, m_sendSize2,
+			rxBuff2, receivedSize2,
+			m_private_ip2, m_public_ip2,
+			m_private_port2, m_public_port2,
+			true);
+
+		for (j = 0; j < m_sendSize2; j++)
+			snprintf(&SentBuffer2[3 * j], sizeof(SentBuffer2) - (3 * j + 1), " %02X", m_sendBuffer2[j]);
+		for (j = 0; j < receivedSize2; j++)
+			snprintf(&recievedBuffer2[3 * j], sizeof(recievedBuffer2) - (3 * j + 1), " %02X", rxBuff2[j]);
+		LOG_MSG_STACK("sent Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n", m_sendSize2, SentBuffer2, receivedSize2, recievedBuffer2);
+
+		delete[] rxBuff2;
+
+		isSuccess &= CompareResultVsGoldenNat(
+			m_sendBuffer3, m_sendSize3,
+			rxBuff3, receivedSize3,
+			m_private_ip3, m_public_ip3,
+			m_private_port3, m_public_port3,
+			true);
+
+		for (j = 0; j < m_sendSize3; j++)
+			snprintf(&SentBuffer3[3 * j], sizeof(SentBuffer3) - (3 * j + 1), " %02X", m_sendBuffer3[j]);
+		for (j = 0; j < receivedSize3; j++)
+			snprintf(&recievedBuffer3[3 * j], sizeof(recievedBuffer3) - (3 * j + 1), " %02X", rxBuff3[j]);
+		LOG_MSG_STACK("sent Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n", m_sendSize3, SentBuffer3, receivedSize3, recievedBuffer3);
+
+		delete[] rxBuff3;
+
+		isSuccess &= CompareResultVsGoldenNat(
+			m_sendBuffer4, m_sendSize4,
+			rxBuff4, receivedSize4,
+			m_private_ip4, m_public_ip4,
+			m_private_port4, m_public_port4,
+			true);
+
+		for (j = 0; j < m_sendSize4; j++)
+			snprintf(&SentBuffer4[3 * j], sizeof(SentBuffer4) - (3 * j + 1), " %02X", m_sendBuffer4[j]);
+		for (j = 0; j < receivedSize4; j++)
+			snprintf(&recievedBuffer4[3 * j], sizeof(recievedBuffer4) - (3 * j + 1), " %02X", rxBuff4[j]);
+		LOG_MSG_STACK("sent Value4 (%zu)\n%s\n, Received Value4(%zu)\n%s\n", m_sendSize4, SentBuffer4, receivedSize4, recievedBuffer4);
+
+		delete[] rxBuff4;
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test034: IPAv7: Single PDN dst NAT test expansion table usage                    */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest034 : public IpaNatBlockTestFixture
+{
+	uint32_t m_target_ip2;
+	uint16_t m_target_port2;
+public:
+IpaNatBlockTest034()
+	{
+		m_name = "IpaNatBlockTest034";
+		m_description =
+			"NAT block test 034 - IPAv7: single PDN dst NAT test - expansion table usage\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block (public IP filtering) \
+		3. generate and commit two NAT rules so second one is located in expansion table:\
+		   since we use a single public ip this test should work also on pre IPAv4 targets\
+			public ip 192.23.22.1 --> private ip 194.23.22.1  ";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_private_ip2 = 0xC5171601; /* 197.23.22.1 */
+		m_private_port2 = 5679;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_target_ip2 = 0x1601C117; /* swap m_target_ip to get same hash*/
+		m_target_port2 = m_target_port;
+		m_minIPAHwType = IPA_HW_v7_0;
+		Register(*this);
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 3);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl;
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0x00FFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip; // Filter DST_IP == 192.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d, $d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port, ipv4_rule.pdn_index);
+
+		ipv4_rule.target_ip = m_target_ip2;
+		ipv4_rule.target_port = m_target_port2;
+
+		// private IPs are not part of the dst NAT entry hash calculation
+		ipv4_rule.private_ip = m_private_ip2;
+		ipv4_rule.private_port = m_private_port2;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d, $d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port, ipv4_rule.pdn_index);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+
+	virtual bool ModifyPackets()
+	{
+		uint32_t address;
+		uint16_t port;
+		char flags = 0x18;
+
+		address = htonl(m_public_ip);
+		memcpy(&m_sendBuffer[IPV4_DST_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_public_port);
+		memcpy(&m_sendBuffer[IPV4_DST_PORT_OFFSET], &port, sizeof(port));
+
+		address = htonl(m_target_ip2);
+		memcpy(&m_sendBuffer[IPV4_SRC_ADDR_OFFSET], &address, sizeof(address));
+		port = htons(m_target_port2);
+		memcpy(&m_sendBuffer[IPV4_SRC_PORT_OFFSET], &port, sizeof(port));
+
+		//make sure the FIN flag is not set, otherwise we will get a NAT miss
+		memcpy(&m_sendBuffer[IPV4_TCP_FLAGS_OFFSET], &flags, sizeof(flags));
+
+		return true;
+	}// ModifyPacktes ()
+
+	virtual bool SendPackets()
+	{
+		bool isSuccess = false;
+
+		// Send first packet
+		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
+		if (false == isSuccess)
+		{
+			LOG_MSG_ERROR("SendData failure.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("sent successfully one packet\n");
+		return true;
+	}
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		size_t receivedSize = 0;
+		bool isSuccess = true;
+
+		// Receive results
+		Byte *rxBuff1 = new Byte[0x400];
+
+		if (NULL == rxBuff1)
+		{
+			LOG_MSG_ERROR("Memory allocation error.\n");
+			return false;
+		}
+
+		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+
+		// Compare results
+		if (!CompareResultVsGoldenNat(
+			m_sendBuffer, m_sendSize,
+			rxBuff1, receivedSize,
+			m_private_ip2, m_public_ip,
+			m_private_port2, m_public_port,
+			false))
+		{
+			LOG_MSG_ERROR("Comparison of Buffer0 Failed!\n");
+			isSuccess = false;
+		}
+
+		char recievedBuffer[256] = { 0 };
+		char SentBuffer[256] = { 0 };
+		size_t j;
+
+		for (j = 0; j < m_sendSize; j++)
+			snprintf(&SentBuffer[3 * j], sizeof(SentBuffer) - (3 * j + 1), " %02X", m_sendBuffer[j]);
+		for (j = 0; j < receivedSize; j++)
+			snprintf(&recievedBuffer[3 * j], sizeof(recievedBuffer) - (3 * j + 1), " %02X", rxBuff1[j]);
+		LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize, SentBuffer, receivedSize, recievedBuffer);
+
+		delete[] rxBuff1;
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test035: IPAv7: Single PDN dst NAT expansion rule deletion test                 */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest035 : public IpaNatBlockTest034
+{
+public:
+	IpaNatBlockTest035()
+	{
+		m_name = "IpaNatBlockTest035";
+		m_description =
+			"NAT block test 035 - IPAv7: single PDN dst NAT test - expansion table rule deletion\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block (public IP filtering) \
+		3. generate and commit two NAT rules so second one is located in expansion table:\
+		   since we use a single public ip this test should work also on pre IPAv4 targets\
+			public ip 192.23.22.1 --> private ip 194.23.22.1\
+		4. delete NAT rule and expect NAT miss";
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		int ret = IpaNatBlockTest034::AddRules();
+		if (!ret) {
+			LOG_MSG_ERROR("Leaving, failed Adding test 034 rules 0\n");
+			return false;
+		}
+
+		ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 1\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule deleted\n");
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		size_t receivedSize = 0;
+		bool isSuccess = true;
+
+		// Receive results
+		Byte *rxBuff1 = new Byte[0x400];
+
+		if (NULL == rxBuff1)
+		{
+			LOG_MSG_ERROR("Memory allocation error.\n");
+			return false;
+		}
+
+		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+
+		if (receivedSize) {
+			LOG_MSG_ERROR("Data received - test failed!\n");
+			isSuccess = false;
+
+			// Compare results for debug in the case of failure only
+			if (!CompareResultVsGoldenNat(
+				m_sendBuffer, m_sendSize,
+				rxBuff1, receivedSize,
+				m_private_ip2, m_public_ip,
+				m_private_port2, m_public_port,
+				false))
+			{
+				LOG_MSG_ERROR("Comparison of Buffer0 Failed!\n");
+			}
+			else {
+				LOG_MSG_ERROR("Comparison of Buffer0 succeeded - NAT rule was hit despite deletion!\n");
+			}
+
+			char recievedBuffer[256] = { 0 };
+			char SentBuffer[256] = { 0 };
+			size_t j;
+
+			for (j = 0; j < m_sendSize; j++)
+				snprintf(&SentBuffer[3 * j], sizeof(SentBuffer) - (3 * j + 1), " %02X", m_sendBuffer[j]);
+			for (j = 0; j < receivedSize; j++)
+				snprintf(&recievedBuffer[3 * j], sizeof(recievedBuffer) - (3 * j + 1), " %02X", rxBuff1[j]);
+			LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize, SentBuffer, receivedSize, recievedBuffer);
+		}
+
+		delete[] rxBuff1;
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test036: IPAv7: Single PDN src NAT zero PDN test                                 */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest036 : public IpaNatBlockTest023
+{
+public:
+IpaNatBlockTest036()
+	{
+		m_name = "IpaNatBlockTest036";
+		m_description =
+			"NAT block test 036 - IPAv7: single PDN src NAT PDN zeroing test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to src NAT \
+			All DST_IP == (193.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit one NAT rule:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1\
+		4. modify PDN entry 0 and expect NAT miss";
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+
+	virtual bool AddRules()
+	{
+		ipa_nat_pdn_entry pdn_info;
+
+		LOG_MSG_DEBUG("Entering\n");
+
+		int ret = IpaNatBlockTest023::AddRules();
+		if (!ret) {
+			LOG_MSG_ERROR("Leaving, failed Adding test 023 rules 0\n");
+			return false;
+		}
+
+		// modify PDN entry 0 so the NAT rule will get a NAT miss
+		pdn_info.public_ip = 0;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 0, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 0 \n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("PDN modified\n");
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		size_t receivedSize = 0;
+		bool isSuccess = true;
+
+		// Receive results
+		Byte *rxBuff1 = new Byte[0x400];
+
+		if (NULL == rxBuff1)
+		{
+			LOG_MSG_ERROR("Memory allocation error.\n");
+			return false;
+		}
+
+		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+
+		if (receivedSize) {
+			LOG_MSG_ERROR("Data received - test failed!\n");
+			isSuccess = false;
+
+			// Compare results
+			if (!CompareResultVsGoldenNat(
+				m_sendBuffer, m_sendSize,
+				rxBuff1, receivedSize,
+				m_private_ip, m_public_ip,
+				m_private_port, m_public_port,
+				true))
+			{
+				LOG_MSG_ERROR("Comparison of Buffer0 Failed!\n");
+			}
+			else {
+				LOG_MSG_ERROR("Comparison of Buffer0 succeeded - NAT rule was hit despite deletion!\n");
+			}
+
+			char recievedBuffer[256] = { 0 };
+			char SentBuffer[256] = { 0 };
+			size_t j;
+
+			for (j = 0; j < m_sendSize; j++)
+				snprintf(&SentBuffer[3 * j], sizeof(SentBuffer) - (3 * j + 1), " %02X", m_sendBuffer[j]);
+			for (j = 0; j < receivedSize; j++)
+				snprintf(&recievedBuffer[3 * j], sizeof(recievedBuffer) - (3 * j + 1), " %02X", rxBuff1[j]);
+			LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize, SentBuffer, receivedSize, recievedBuffer);
+		}
+
+		delete[] rxBuff1;
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test037: IPAv7: Single PDN src NAT send two packets that will hit the same rule  */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest037 : public IpaNatBlockTest023
+{
+public:
+IpaNatBlockTest037()
+	{
+		m_name = "IpaNatBlockTest037";
+		m_description =
+			"NAT block test 037 - IPAv7: single PDN src NAT hit the same rule twice\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to src NAT \
+			All DST_IP == (193.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit one NAT rule:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1\
+		4. send two pakcets and verify NATing";
+	}
+
+	virtual bool SendPackets()
+	{
+		bool ret = IpaNatBlockTest023::SendPackets();
+		if (!ret)
+		{
+			LOG_MSG_ERROR("failed sending first pakcket.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("first packet sent succesfully.\n");
+
+		ret = IpaNatBlockTest023::SendPackets();
+		if (!ret)
+		{
+			LOG_MSG_ERROR("failed sending second pakcket.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("second packet sent succesfully.\n");
+
+		return true;
+	}
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		bool isSuccess = true;
+
+		isSuccess &= IpaNatBlockTest023::ReceivePacketsAndCompare();
+		if (!isSuccess)
+		{
+			LOG_MSG_ERROR("failed to receive\\compare first packet.\n");
+		}
+
+		isSuccess &= IpaNatBlockTest023::ReceivePacketsAndCompare();
+		if (!isSuccess)
+		{
+			LOG_MSG_ERROR("failed to receive\\compare second packet.\n");
+		}
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test038: IPAv7: Single PDN dst NAT send two packets that will hit the same rule  */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest038 : public IpaNatBlockTest024
+{
+public:
+	IpaNatBlockTest038()
+	{
+		m_name = "IpaNatBlockTest038";
+		m_description =
+			"NAT block test 038 - IPAv7: single PDN dst NAT hit the same rule twice\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit one NAT rule:\
+			public ip 192.23.22.1 --> private ip 194.23.22.1\
+		4. send two pakcets and verify NATing";
+	}
+
+	virtual bool SendPackets()
+	{
+		bool ret = IpaNatBlockTest024::SendPackets();
+		if (!ret)
+		{
+			LOG_MSG_ERROR("failed sending first pakcket.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("first packet sent succesfully.\n");
+
+		ret = IpaNatBlockTest024::SendPackets();
+		if (!ret)
+		{
+			LOG_MSG_ERROR("failed sending second pakcket.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("second packet sent succesfully.\n");
+
+		return true;
+	}
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		bool isSuccess = true;
+
+		isSuccess &= IpaNatBlockTest024::ReceivePacketsAndCompare();
+		if (!isSuccess)
+		{
+			LOG_MSG_ERROR("failed to receive\\compare first packet.\n");
+		}
+
+		isSuccess &= IpaNatBlockTest024::ReceivePacketsAndCompare();
+		if (!isSuccess)
+		{
+			LOG_MSG_ERROR("failed to receive\\compare second packet.\n");
+		}
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------------*/
+/* Test039: IPAv7: Multi PDN src NAT test with identical private IPs and different ports  */
+/*---------------------------------------------------------------------------------*/
+class IpaNatBlockTest039 : public IpaNatBlockTest025
+{
+public:
+	IpaNatBlockTest039()
+	{
+		m_name = "IpaNatBlockTest039";
+		m_description =
+			"NAT block test 039 - IPAv7: Multi PDN src NAT test with identical private IPs\
+		1. Generate and commit three routing tables (two are used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit two filtering rule: (DST & Mask Match). \
+			- action go to src NAT \
+			  All SRC_IP == (194.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All SRC_IP == (197.23.22.1 & 0.255.255.255)traffic goes to NAT block - not relevant for this test \
+		3. generate and commit two NAT rules:\
+			private ip 194.23.22.1 && port 5678--> public ip 192.23.22.1 \
+			private ip 194.23.22.1 && port 5679--> public ip 195.23.22.1";
+		m_private_ip2 = m_private_ip;
+	}
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		// we cannot just use test 025 ReceivePacketsAndCompare since the filtering rules send the
+		// packets to two different pipes, but since the private IPs are now equal the second filtering rule
+		// won't be hit so we need to recive the second packet on the first pipe
+
+		size_t receivedSize = 0;
+		size_t receivedSize2 = 0;
+		bool isSuccess = true;
+
+		// Receive results
+		Byte *rxBuff1 = new Byte[0x400];
+		Byte *rxBuff2 = new Byte[0x400];
+
+		if (rxBuff1 == NULL)
+		{
+			LOG_MSG_ERROR("Memory allocation error.\n");
+			if (rxBuff2)
+				delete[] rxBuff2;
+			return false;
+		}
+
+		if (rxBuff2 == NULL)
+		{
+			LOG_MSG_ERROR("Memory allocation error.\n");
+			delete[] rxBuff1;
+			return false;
+		}
+
+		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+
+		receivedSize2 = m_consumer.ReceiveData(rxBuff2, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize2, m_consumer.m_fromChannelName.c_str());
+
+		// Compare results
+		if (!CompareResultVsGoldenNat(
+			m_sendBuffer, m_sendSize,
+			rxBuff1, receivedSize,
+			m_private_ip, m_public_ip,
+			m_private_port, m_public_port,
+			true))
+		{
+			LOG_MSG_ERROR("Comparison of Buffer0 Failed!\n");
+			isSuccess = false;
+		}
+
+		char recievedBuffer[256] = { 0 };
+		char SentBuffer[256] = { 0 };
+		char recievedBuffer2[256] = { 0 };
+		char SentBuffer2[256] = { 0 };
+		size_t j;
+
+		for (j = 0; j < m_sendSize; j++)
+			snprintf(&SentBuffer[3 * j], sizeof(SentBuffer) - (3 * j + 1), " %02X", m_sendBuffer[j]);
+		for (j = 0; j < receivedSize; j++)
+			snprintf(&recievedBuffer[3 * j], sizeof(recievedBuffer) - (3 * j + 1), " %02X", rxBuff1[j]);
+		LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize, SentBuffer, receivedSize, recievedBuffer);
+
+		delete[] rxBuff1;
+
+		isSuccess &= CompareResultVsGoldenNat(
+			m_sendBuffer2, m_sendSize2,
+			rxBuff2, receivedSize2,
+			m_private_ip2, m_public_ip2,
+			m_private_port2, m_public_port2,
+			true);
+
+		for (j = 0; j < m_sendSize2; j++)
+			snprintf(&SentBuffer2[3 * j], sizeof(SentBuffer2) - (3 * j + 1), " %02X", m_sendBuffer2[j]);
+		for (j = 0; j < receivedSize2; j++)
+			snprintf(&recievedBuffer2[3 * j], sizeof(recievedBuffer2) - (3 * j + 1), " %02X", rxBuff2[j]);
+		LOG_MSG_STACK("sent Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n", m_sendSize2, SentBuffer2, receivedSize2, recievedBuffer2);
+
+		delete[] rxBuff2;
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------------*/
+/* Test040: IPAv7: Multi PDN dst NAT test with identical private IPs and different ports  */
+/*---------------------------------------------------------------------------------*/
+class IpaNatBlockTest040 : public IpaNatBlockTest026
+{
+public:
+	IpaNatBlockTest040()
+	{
+		m_name = "IpaNatBlockTest040";
+		m_description =
+			"NAT block test 040 - IPAv7: Multi PDN dst NAT test with identical private IPs\
+		1. Generate and commit three routing tables (two are used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit two filtering rule: (DST & Mask Match). \
+			- action go to dst NAT \
+			  All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All DST_IP == (195.23.22.1 & 0.255.255.255)traffic goes to NAT block - not releveant for this test\
+		3. generate and commit two NAT rules:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1 && port 9050\
+			private ip 194.23.22.1 --> public ip 192.23.22.1 && port 9051";
+		m_private_ip2 = m_private_ip;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test041: IPAv7: NAT Suppression test					                     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest041 : public IpaNatBlockTest019
+{
+public:
+IpaNatBlockTest041()
+	{
+		m_name = "IpaNatBlockTest041";
+		m_description =
+			"NAT block test 041 - IPAv7: single PDN src NAT test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to src NAT \
+			All DST_IP == (193.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit one NAT rule:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		/* Setup NAT Exception routing table. */
+		if (!m_routing.SetNatConntrackExcRoutingTable(routing_table0.hdl, true))
+		{
+			LOG_MSG_ERROR("m_routing.SetNatConntrackExcRoutingTable(routing_table0 hdl=%d) Failed.\n",
+				      routing_table0.hdl);
+			return false;
+		}
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 1);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFFFFFF00; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_target_ip; // Filter DST_IP == 193.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+
+		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_DEBUG("failed creating NAT table\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      m_public_ip);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test042: IPAv7: NAT Suppression test with Status					     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest042 : public IpaNatBlockTest020
+{
+public:
+	IpaNatBlockTest042()
+	{
+		m_name = "IpaNatBlockTest042";
+		m_description =
+			"NAT block test 042 - IPAv7: single PDN src NAT test with status enabled\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to src NAT \
+			All DST_IP == (193.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit one NAT rule:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		/* Setup NAT Exception routing table. */
+		if (!m_routing.SetNatConntrackExcRoutingTable(routing_table0.hdl, true))
+		{
+			LOG_MSG_ERROR("m_routing.SetNatConntrackExcRoutingTable(routing_table0 hdl=%d) Failed.\n",
+				      routing_table0.hdl);
+			return false;
+		}
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 1);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFFFFFF00; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_target_ip; // Filter DST_IP == 193.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+
+		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_DEBUG("failed creating NAT table\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      m_public_ip);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test043: IPAv7: Single PDN dst NAT test with NAT suppresssion		     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest043 : public IpaNatBlockTest021
+{
+public:
+	IpaNatBlockTest043()
+	{
+		m_name = "IpaNatBlockTest043";
+		m_description =
+			"NAT block test 043 - IPAv7: single PDN dst NAT test with NAT suppression \
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block (public IP filtering) \
+		3. generate and commit one NAT rule: \
+			public ip 192.23.22.1 --> private ip 194.23.22.1. \
+		4. Send packet not matching with NAT entry.\n";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		/* Setup NAT Exception routing table. */
+		if (!m_routing.SetNatConntrackExcRoutingTable(routing_table0.hdl, true))
+		{
+			LOG_MSG_ERROR("m_routing.SetNatConntrackExcRoutingTable(routing_table0 hdl=%d) Failed.\n",
+				      routing_table0.hdl);
+			return false;
+		}
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 3);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0x00FFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip; // Filter DST_IP == 192.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test044: IPAv7: Single PDN dst NAT test with NAT suppresssion and status enabled */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest044 : public IpaNatBlockTest022
+{
+public:
+	IpaNatBlockTest044()
+	{
+		m_name = "IpaNatBlockTest044";
+		m_description =
+			"NAT block test 044 - IPAv7: single PDN dst NAT test with NAT suppression and status enabled \
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block (public IP filtering) \
+		3. generate and commit one NAT rule:\
+			public ip 192.23.22.1 --> private ip 194.23.22.1. \
+		4. Send packet not matching with NAT entry.\n";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC0171601;   /* "192.23.22.1" */
+		m_public_port = 9050;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		/* Setup NAT Exception routing table. */
+		if (!m_routing.SetNatConntrackExcRoutingTable(routing_table0.hdl, true))
+		{
+			LOG_MSG_ERROR("m_routing.SetNatConntrackExcRoutingTable(routing_table0 hdl=%d) Failed.\n",
+				      routing_table0.hdl);
+			return false;
+		}
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 3);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0x00FFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip; // Filter DST_IP == 192.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test045: IPAv7: IPv4NAT: single PDN src IPv4CT test 					     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest045 : public IpaNatBlockTest001
+{
+public:
+IpaNatBlockTest045()
+	{
+		m_name = "IpaNatBlockTest045";
+		m_description =
+			"NAT block test 045 - IPAv7: IPv4CT: single PDN src IPv4CT test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to src NAT \
+			All DST_IP == (193.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit one CT rule:\
+			private ip 194.23.22.1 = public ip 194.23.22.1";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC2171601;   /* 194.23.22.1 */
+		m_public_port = 5678;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 1);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0x00FFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_target_ip; // Filter DST_IP == 193.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+
+		ret = ipa_nat_add_ipv4_tbl(m_public_ip, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_DEBUG("failed creating NAT table\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      m_public_ip);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+		ipv4_rule.conn_tracking = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+			return false;
+		}
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test046: IPAv7: IPv4CT: Single PDN dst NAT test			             		     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest046 : public IpaNatBlockTest002
+{
+public:
+	IpaNatBlockTest046()
+	{
+		m_name = "IpaNatBlockTest046";
+		m_description =
+			"NAT block test 046 - IPAv7: IPv4CT: single PDN dst IPv4 CT test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block (public IP filtering) \
+		3. generate and commit one IPv4CT rule:\
+			public ip 192.23.22.1 --> private ip 194.23.22.1  ";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_public_ip = 0xC2171601;   /* 194.23.22.1 */
+		m_public_port = 5678;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 3);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0x00FFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip; // Filter DST_IP == 192.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+		ipv4_rule.conn_tracking = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test047: IPAv7: single PDN src NAT basic cache test          		     */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest047 : public IpaNatBlockTest023
+{
+public:
+	IpaNatBlockTest047()
+	{
+		m_name = "IpaNatBlockTest047";
+		m_description =
+			"NAT block test 047 - IPAv7: single PDN src NAT basic cache test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to src NAT \
+			All DST_IP == (193.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit one IPv4CT rule:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1";
+	}
+
+	bool Setup()
+	{
+		return IpaNatBlockTestFixture::Setup(true);
+	}
+
+	virtual bool SendPackets()
+	{
+		bool isSuccess = false;
+
+		// Send first packet
+		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
+		if (false == isSuccess)
+		{
+			LOG_MSG_ERROR("SendData failure.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("sent successfully the first packet\n");
+
+		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
+		if (false == isSuccess)
+		{
+			LOG_MSG_ERROR("SendData failure.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("sent successfully two packet\n");
+		return true;
+	}
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		size_t receivedSize = 0;
+		size_t receivedSize2 = 0;
+		bool isSuccess = true;
+
+		// Receive results
+		Byte *rxBuff1 = new Byte[0x400];
+		Byte *rxBuff2 = new Byte[0x400];
+
+		if (rxBuff1 == NULL || rxBuff2 == NULL)
+		{
+			LOG_MSG_ERROR("Memory allocation error.\n");
+			return false;
+		}
+
+		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+
+		receivedSize2 = m_consumer.ReceiveData(rxBuff2, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize2, m_consumer2.m_fromChannelName.c_str());
+
+		// Compare results
+		if (!CompareResultVsGoldenNat(
+			m_sendBuffer, m_sendSize,
+			rxBuff1, receivedSize,
+			m_private_ip, m_public_ip,
+			m_private_port, m_public_port,
+			true, 0, true))
+		{
+			LOG_MSG_ERROR("Comparison of Buffer0 Failed!\n");
+			isSuccess = false;
+		}
+
+		isSuccess &= isNatCacheMiss(m_sendSize, receivedSize, rxBuff1);
+
+		char recievedBuffer[0x400] = { 0 };
+		char SentBuffer[0x400] = { 0 };
+		char recievedBuffer2[0x400] = { 0 };
+		char SentBuffer2[0x400] = { 0 };
+		size_t j;
+
+		for (j = 0; j < m_sendSize; j++)
+			snprintf(&SentBuffer[3 * j], sizeof(SentBuffer) - (3 * j + 1), " %02X", m_sendBuffer[j]);
+		for (j = 0; j < receivedSize; j++)
+			snprintf(&recievedBuffer[3 * j], sizeof(recievedBuffer) - (3 * j + 1), " %02X", rxBuff1[j]);
+		LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize, SentBuffer, receivedSize, recievedBuffer);
+
+		delete[] rxBuff1;
+
+		isSuccess &= CompareResultVsGoldenNat(
+			m_sendBuffer, m_sendSize,
+			rxBuff2, receivedSize2,
+			m_private_ip, m_public_ip,
+			m_private_port, m_public_port,
+			true, 0, true);
+
+		isSuccess &= isNatCacheHit(m_sendSize, receivedSize2, rxBuff2);
+
+		for (j = 0; j < m_sendSize2; j++)
+			snprintf(&SentBuffer2[3 * j], sizeof(SentBuffer2) - (3 * j + 1), " %02X", m_sendBuffer2[j]);
+		for (j = 0; j < receivedSize2; j++)
+			snprintf(&recievedBuffer2[3 * j], sizeof(recievedBuffer2) - (3 * j + 1), " %02X", rxBuff2[j]);
+		LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize2, SentBuffer2, receivedSize2, recievedBuffer2);
+
+		delete[] rxBuff2;
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test048: IPAv7: single PDN dst NAT basic cache test          		     */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest048 : public IpaNatBlockTest024
+{
+public:
+	IpaNatBlockTest048()
+	{
+		m_name = "IpaNatBlockTest048";
+		m_description =
+			"NAT block test 048 - IPAv7: single PDN dst NAT basic cache test\
+		1. Generate and commit three routing tables (only one is used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit one filtering rule: (DST & Mask Match). \
+			action go to dst NAT \
+			All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block (public IP filtering) \
+		3. generate and commit one NAT rule:\
+			public ip 192.23.22.1 --> private ip 194.23.22.1  ";
+	}
+
+	bool Setup()
+	{
+		return IpaNatBlockTestFixture::Setup(true);
+	}
+
+	virtual bool SendPackets()
+	{
+		bool isSuccess = false;
+
+		// Send first packet
+		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
+		if (false == isSuccess)
+		{
+			LOG_MSG_ERROR("SendData failure.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("sent successfully the first packet\n");
+
+		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
+		if (false == isSuccess)
+		{
+			LOG_MSG_ERROR("SendData failure.\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("sent successfully two packet\n");
+		return true;
+	}
+
+	virtual bool ReceivePacketsAndCompare()
+	{
+		size_t receivedSize = 0;
+		size_t receivedSize2 = 0;
+		bool isSuccess = true;
+
+		// Receive results
+		Byte *rxBuff1 = new Byte[0x400];
+		Byte *rxBuff2 = new Byte[0x400];
+
+		if (rxBuff1 == NULL || rxBuff2 == NULL)
+		{
+			LOG_MSG_ERROR("Memory allocation error.\n");
+			return false;
+		}
+
+		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+
+		receivedSize2 = m_consumer.ReceiveData(rxBuff2, 0x400);
+		LOG_MSG_DEBUG("Received %zu bytes on %s.\n", receivedSize2, m_consumer2.m_fromChannelName.c_str());
+
+		// Compare results
+		if (!CompareResultVsGoldenNat(
+			m_sendBuffer, m_sendSize,
+			rxBuff1, receivedSize,
+			m_private_ip, m_public_ip,
+			m_private_port, m_public_port,
+			false, 0, true))
+		{
+			LOG_MSG_ERROR("Comparison of Buffer0 Failed!\n");
+			isSuccess = false;
+		}
+
+		isSuccess &= isNatCacheMiss(m_sendSize, receivedSize, rxBuff1);
+
+		char recievedBuffer[0x400] = { 0 };
+		char SentBuffer[0x400] = { 0 };
+		char recievedBuffer2[0x400] = { 0 };
+		char SentBuffer2[0x400] = { 0 };
+		size_t j;
+
+		for (j = 0; j < m_sendSize; j++)
+			snprintf(&SentBuffer[3 * j], sizeof(SentBuffer) - (3 * j + 1), " %02X", m_sendBuffer[j]);
+		for (j = 0; j < receivedSize; j++)
+			snprintf(&recievedBuffer[3 * j], sizeof(recievedBuffer) - (3 * j + 1), " %02X", rxBuff1[j]);
+		LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize, SentBuffer, receivedSize, recievedBuffer);
+
+		delete[] rxBuff1;
+
+		isSuccess &= CompareResultVsGoldenNat(
+			m_sendBuffer, m_sendSize,
+			rxBuff2, receivedSize2,
+			m_private_ip, m_public_ip,
+			m_private_port, m_public_port,
+			false, 0, true);
+
+		isSuccess &= isNatCacheHit(m_sendSize, receivedSize2, rxBuff2);
+
+		for (j = 0; j < m_sendSize2; j++)
+			snprintf(&SentBuffer2[3 * j], sizeof(SentBuffer2) - (3 * j + 1), " %02X", m_sendBuffer2[j]);
+		for (j = 0; j < receivedSize2; j++)
+			snprintf(&recievedBuffer2[3 * j], sizeof(recievedBuffer2) - (3 * j + 1), " %02X", rxBuff2[j]);
+		LOG_MSG_STACK("sent Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n", m_sendSize2, SentBuffer2, receivedSize2, recievedBuffer2);
+
+		delete[] rxBuff2;
+
+		return isSuccess;
+	}
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test049: IPAv7: Timestamp moderation src NAT test					                 */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest049  : public IpaNatBlockTest025
+{
+private:
+	uint32_t ts1pre, ts1post, ts1post2;
+	uint32_t ts2pre, ts2post, ts2post2;
+
+public:
+	IpaNatBlockTest049()
+	{
+		m_name = "IpaNatBlockTest049";
+		m_description =
+			"NAT block test 049 - IPAv7: Timestamp moderation src NAT test\
+		1. Generate and commit three routing tables (two are used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit two filtering rule: (DST & Mask Match). \
+			- action go to src NAT \
+			  All SRC_IP == (194.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All SRC_IP == (197.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit two NAT rules:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1 \
+			private ip 197.23.22.1 --> public ip 195.23.22.1 \
+		4. Send one packet to each NAT rule, read the rule's timestamp as ts1pre, ts2pre \
+		5. Perform timestamp flush,and read the timestamp as ts1post, ts2post \
+		6. Sleep for 2sec \
+		7. Send 5 more packets \
+		8. Perform timestamp flush,and read the timestamp as ts1post2, ts2post2 \
+		9. Validate that (ts1pre < ts1post) && (ts1post < ts1post1) && (ts2pre < ts2post) && (ts2post < ts2post2)";
+	}
+
+	bool Run()
+	{
+		bool res = false;
+
+		LOG_MSG_DEBUG("Entering\n");
+
+		// Add the relevant filtering rules
+		res = AddRules();
+		if (false == res) {
+			LOG_MSG_ERROR("Failed adding filtering rules.\n");
+			return false;
+		}
+
+		// Load input data (IP packet) from file
+		res = LoadFiles(m_IpaIPType);
+		if (false == res) {
+			LOG_MSG_ERROR("Failed loading files.\n");
+			return false;
+		}
+
+		res = ModifyPackets();
+		if (false == res) {
+			LOG_MSG_ERROR("Failed to modify packets.\n");
+			return false;
+		}
+
+		res = SendPackets();
+		if (res == false) {
+			LOG_MSG_ERROR("failed to send packets\n");
+			return false;
+		}
+		// Receive packets from the channels and compare results
+		res = ReceivePacketsAndCompare();
+		if (res == FALSE)
+		{
+			LOG_MSG_ERROR(" ReceivePacketsAndCompare failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#1
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl1, &ts1pre);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#2
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl2, &ts2pre);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Timestamp Flush
+		res = ipa_nat_timestamp_flush(m_tbl_hdl);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_timestamp_flush failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#1
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl1, &ts1post);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#2
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl2, &ts2post);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		for (size_t i = 0; i < 4000; i++)
+		{
+			usleep(30000);
+		}
+
+		for (size_t i = 0; i < 5; i++)
+		{
+			res = SendPackets();
+			if (res == false)
+			{
+				LOG_MSG_ERROR("failed to send packets\n");
+				return false;
+			}
+
+			// Receive packets from the channels and compare results
+			res = ReceivePacketsAndCompare();
+			if (res == FALSE)
+			{
+				LOG_MSG_ERROR(" ReceivePacketsAndCompare failure.\n");
+				return false;
+			}
+		}
+
+		// Timestamp Flush
+		res = ipa_nat_timestamp_flush(m_tbl_hdl);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_timestamp_flush failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#1
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl1, &ts1post2);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#2
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl2, &ts2post2);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Valdiate TS was flashed successfully
+		res = ((ts1pre < ts1post) && (ts1post < ts1post2) && (ts2pre < ts2post) && (ts2post < ts2post2));
+		LOG_MSG_DEBUG("Timestamps read rule 1:\nts1pre=%d\tts1post=%d\tts1post2=%d\n", ts1pre, ts1post, ts1post2);
+		LOG_MSG_DEBUG("Timestamps read rule 2:\nts2pre=%d\tts2post=%d\tts2post2=%d\n", ts2pre, ts2post, ts2post2);
+
+		if (!res)
+		{
+			LOG_MSG_ERROR("Timestamp flush failed!\n");
+		}
+
+		LOG_MSG_DEBUG("Returning %d\n", res);
+
+		return res;
+	} // Run()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test050: IPAv7: Timestamp moderation dst NAT test					     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest050  : public IpaNatBlockTest026
+{
+private:
+	uint32_t ts1pre, ts1post, ts1post2;
+	uint32_t ts2pre, ts2post, ts2post2;
+
+public:
+	IpaNatBlockTest050()
+	{
+		m_name = "IpaNatBlockTest050";
+		m_description =
+			"NAT block test 050 - IPAv7:  Timestamp moderation dst NAT test NAT test\
+		1. Generate and commit three routing tables (two are used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit two filtering rule: (DST & Mask Match). \
+			- action go to dst NAT \
+			  All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All DST_IP == (195.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit two NAT rules:\
+			private ip 194.23.22.1 --> public ip 192.23.22.1 \
+			private ip 197.23.22.1 --> public ip 195.23.22.1 \
+		4. Send one packet to each NAT rule, read the rule's timestamp as ts1pre, ts2pre \
+		5. Perform timestamp flush,and read the timestamp as ts1post, ts2post \
+		6. Sleep for 2sec \
+		7. Send 5 more packets \
+		8. Perform timestamp flush,and read the timestamp as ts1post2, ts2post2 \
+		9. Validate that (ts1pre < ts1post) && (ts1post < ts1post1) && (ts2pre < ts2post) && (ts2post < ts2post2)";
+	}
+
+	bool Run()
+	{
+		bool res = false;
+
+		LOG_MSG_DEBUG("Entering\n");
+
+		// Add the relevant filtering rules
+		res = AddRules();
+		if (false == res) {
+			LOG_MSG_ERROR("Failed adding filtering rules.\n");
+			return false;
+		}
+
+		// Load input data (IP packet) from file
+		res = LoadFiles(m_IpaIPType);
+		if (false == res) {
+			LOG_MSG_ERROR("Failed loading files.\n");
+			return false;
+		}
+
+		res = ModifyPackets();
+		if (false == res) {
+			LOG_MSG_ERROR("Failed to modify packets.\n");
+			return false;
+		}
+
+		res = SendPackets();
+		if (res == false) {
+			LOG_MSG_ERROR("failed to send packets\n");
+			return false;
+		}
+
+		// Receive packets from the channels and compare results
+		res = ReceivePacketsAndCompare();
+		if (res == FALSE)
+		{
+			LOG_MSG_ERROR(" ReceivePacketsAndCompare failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#1
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl1, &ts1pre);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#2
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl2, &ts2pre);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Timestamp Flush
+		res = ipa_nat_timestamp_flush(m_tbl_hdl);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_timestamp_flush failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#1
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl1, &ts1post);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#2
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl2, &ts2post);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		for (size_t i = 0; i < 4000; i++)
+		{
+			usleep(30000);
+		}
+
+		for (size_t i = 0; i < 5; i++)
+		{
+			res = SendPackets();
+			if (res == false)
+			{
+				LOG_MSG_ERROR("failed to send packets\n");
+				return false;
+			}
+
+			// Receive packets from the channels and compare results
+			res = ReceivePacketsAndCompare();
+			if (res == FALSE)
+			{
+				LOG_MSG_ERROR(" ReceivePacketsAndCompare failure.\n");
+				return false;
+			}
+		}
+
+		// Timestamp Flush
+		res = ipa_nat_timestamp_flush(m_tbl_hdl);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_timestamp_flush failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#1
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl1, &ts1post2);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Query TS of rule#2
+		res = ipa_nat_query_timestamp(m_tbl_hdl, m_nat_rule_hdl2, &ts2post2);
+		if (res)
+		{
+			LOG_MSG_ERROR("ipa_nat_query_timestamp failure.\n");
+			return false;
+		}
+
+		// Valdiate TS was flashed successfully
+		res = ((ts1pre < ts1post) && (ts1post < ts1post2) && (ts2pre < ts2post) && (ts2post < ts2post2));
+		LOG_MSG_DEBUG("Timestamps read rule 1:\nts1pre=%d\tts1post=%d\tts1post2=%d\n", ts1pre, ts1post, ts1post2);
+		LOG_MSG_DEBUG("Timestamps read rule 2:\nts2pre=%d\tts2post=%d\tts2post2=%d\n", ts2pre, ts2post, ts2post2);
+
+		if (!res)
+		{
+			LOG_MSG_ERROR("Timestamp flush failed!\n");
+		}
+
+		LOG_MSG_DEBUG("Returning %d\n", res);
+
+		return res;
+	} // Run()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test051: IPAv7: IPv4CT: Multi PDN src NAT test					                 */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest051 : public IpaNatBlockTest003
+{
+public:
+	IpaNatBlockTest051()
+	{
+		m_name = "IpaNatBlockTest051";
+		m_description =
+			"NAT block test 051 - IPAv7: IPv4CT: Multi PDN src NAT test\
+		1. Generate and commit three routing tables (two are used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit two filtering rule: (DST & Mask Match). \
+			- action go to src NAT \
+			  All SRC_IP == (194.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All SRC_IP == (197.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit two IPv4CT rules:\
+			private ip 194.23.22.1 = public ip 194.23.22.1 \
+			private ip 197.23.22.1 --> public ip 197.23.22.1";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_private_ip2 = 0xC5171601; /* 197.23.22.1 */
+		m_private_port2 = 5679;
+		m_public_ip = 0xC2171601; /* 194.23.22.1 */
+		m_public_port = 5678;
+		m_public_ip2 = 0xC5171601; /* 197.23.22.1 */
+		m_public_port2 = 5679;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0, routing_table1;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		routing_table1.ip = IPA_IP_v4;
+		strlcpy(routing_table1.name, bypass1, sizeof(routing_table1.name));
+		if (!m_routing.GetRoutingTable(&routing_table1))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table1=0x%p) Failed.\n", &routing_table1);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass1, routing_table1.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 2);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_SRC_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.src_addr_mask = 0xFFFFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.src_addr = m_private_ip; // Filter SRC_IP == 194.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+
+		// Configuring Filtering Rule No.1
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
+		flt_rule_entry.rule.attrib.u.v4.src_addr = m_private_ip2; // Filter SRC_IP == 197.23.22.1
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+			LOG_MSG_DEBUG("flt rule hdl1=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(1)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(1)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+		ipa_nat_pdn_entry pdn_info;
+
+		// first create the NAT table
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		// modify the PDN entries that will be pointed by the NAT rules
+		pdn_info.public_ip = m_public_ip;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 0, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 0 \n");
+			return false;
+		}
+
+		pdn_info.public_ip = m_public_ip2;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 1, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 1 \n");
+			return false;
+		}
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+		ipv4_rule.conn_tracking = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		ipv4_rule.private_ip = m_private_ip2;
+		ipv4_rule.private_port = m_private_port2;
+		ipv4_rule.public_port = m_public_port2;
+		ipv4_rule.pdn_index = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl2);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl2, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
+
+/*---------------------------------------------------------------------------*/
+/* Test052: IPAv7: IPv4CT: Multi PDN dst NAT test				    	     */
+/* NOTE: other classes are derived from this class - change carefully        */
+/*---------------------------------------------------------------------------*/
+class IpaNatBlockTest052 : public IpaNatBlockTest004
+{
+public:
+	IpaNatBlockTest052()
+	{
+		m_name = "IpaNatBlockTest052";
+		m_description =
+			"NAT block test 052 - IPAv7: IPv4CT: Multi PDN dst NAT test\
+		1. Generate and commit three routing tables (two are used). \
+			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
+		2. Generate and commit two filtering rule: (DST & Mask Match). \
+			- action go to dst NAT \
+			  All DST_IP == (192.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+			  All DST_IP == (195.23.22.1 & 0.255.255.255)traffic goes to NAT block \
+		3. generate and commit two IPv4CT rules:\
+			private ip 194.23.22.1 = public ip 194.23.22.1 \
+			private ip 197.23.22.1 = public ip 197.23.22.1";
+		m_private_ip = 0xC2171601; /* 194.23.22.1 */
+		m_private_port = 5678;
+		m_private_ip2 = 0xC5171601; /* 197.23.22.1 */
+		m_private_port2 = 5679;
+		m_public_ip = 0xC2171601; /* 194.23.22.1 */
+		m_public_port = 5678;
+		m_public_ip2 = 0xC5171601; /* 197.23.22.1 */
+		m_public_port2 = 5679;
+		m_target_ip = 0xC1171601; /* 193.23.22.1 */
+		m_target_port = 1234;
+		m_minIPAHwType = IPA_HW_v7_0;
+	}
+
+	virtual bool AddRules()
+	{
+		LOG_MSG_DEBUG("Entering\n");
+
+		const char bypass0[20] = "Bypass0";
+		const char bypass1[20] = "Bypass1";
+		const char bypass2[20] = "Bypass2";
+		struct ipa_ioc_get_rt_tbl routing_table0, routing_table1;
+
+		if (!CreateThreeIPv4BypassRoutingTables(bypass0, bypass1, bypass2))
+		{
+			LOG_MSG_ERROR("CreateThreeBypassRoutingTables Failed\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("CreateThreeBypassRoutingTables completed successfully\n");
+		routing_table0.ip = IPA_IP_v4;
+		strlcpy(routing_table0.name, bypass0, sizeof(routing_table0.name));
+		if (!m_routing.GetRoutingTable(&routing_table0))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table0=0x%p) Failed.\n", &routing_table0);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass0, routing_table0.hdl);
+
+		routing_table1.ip = IPA_IP_v4;
+		strlcpy(routing_table1.name, bypass1, sizeof(routing_table1.name));
+		if (!m_routing.GetRoutingTable(&routing_table1))
+		{
+			LOG_MSG_ERROR("m_routing.GetRoutingTable(&routing_table1=0x%p) Failed.\n", &routing_table1);
+			return false;
+		}
+		LOG_MSG_DEBUG("%s route table handle = %u\n", bypass1, routing_table1.hdl);
+
+		IPAFilteringTable FilterTable0;
+		struct ipa_flt_rule_add flt_rule_entry;
+		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, 2);
+		LOG_MSG_DEBUG("FilterTable*.Init Completed Successfully..\n");
+
+		// Configuring Filtering Rule No.0
+		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1; // return Value
+		flt_rule_entry.status = -1; // return value
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF; // Mask
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip; // Filter DST_IP == 192.23.22.1
+		flt_rule_entry.rule.pdn_idx = 0;
+		flt_rule_entry.rule.set_metadata = 0;
+		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+
+		// Configuring Filtering Rule No.1
+		flt_rule_entry.rule.rt_tbl_hdl = routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = m_public_ip2; // Filter DST_IP == 195.23.22.1
+		if (
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
+		{
+			LOG_MSG_ERROR("Error Adding Rule to Filter Table, aborting...\n");
+			return false;
+		}
+		else
+		{
+			LOG_MSG_DEBUG("flt rule hdl0=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(0)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(0)->status);
+			LOG_MSG_DEBUG("flt rule hdl1=0x%x, status=0x%x\n", FilterTable0.ReadRuleFromTable(1)->flt_rule_hdl, FilterTable0.ReadRuleFromTable(1)->status);
+		}
+
+		//NAT table and rules creation
+		int total_entries = 20;
+		int ret;
+		ipa_nat_ipv4_rule_v2 ipv4_rule = {0};
+		uint32_t pub_ip_add = m_public_ip;
+		ipa_nat_pdn_entry pdn_info;
+
+		// first create the NAT table
+		ret = ipa_nat_add_ipv4_tbl(pub_ip_add, m_mem_type, total_entries, &m_tbl_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed creating NAT table\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("nat table added, hdl %d, public ip 0x%X\n", m_tbl_hdl,
+			      pub_ip_add);
+
+		// modify the PDN entries that will be pointed by the NAT rules
+		pdn_info.public_ip = m_public_ip;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 0,&pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 0 \n");
+			return false;
+		}
+
+		pdn_info.public_ip = m_public_ip2;
+		pdn_info.src_metadata = 0;
+		pdn_info.dst_metadata = 0;
+		ret = ipa_nat_modify_pdn(m_tbl_hdl, 1, &pdn_info);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed Modifying PDN entry 1 \n");
+			return false;
+		}
+
+		ipv4_rule.target_ip = m_target_ip;
+		ipv4_rule.target_port = m_target_port;
+		ipv4_rule.private_ip = m_private_ip;
+		ipv4_rule.private_port = m_private_port;
+		ipv4_rule.protocol = IPPROTO_TCP;
+		ipv4_rule.public_port = m_public_port;
+		ipv4_rule.pdn_index = 0;
+		ipv4_rule.in_allowed = 1;
+		ipv4_rule.out_allowed = 1;
+		ipv4_rule.conn_tracking = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		ipv4_rule.private_ip = m_private_ip2;
+		ipv4_rule.private_port = m_private_port2;
+		ipv4_rule.public_port = m_public_port2;
+		ipv4_rule.pdn_index = 1;
+
+		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl2);
+		if (ret) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+			return false;
+		}
+
+		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
+			      m_nat_rule_hdl2, ipv4_rule.target_ip, ipv4_rule.target_port,
+			      ipv4_rule.private_ip, ipv4_rule.private_port,
+			      ipv4_rule.protocol, ipv4_rule.public_port);
+
+		LOG_MSG_DEBUG("Leaving\n");
+		return true;
+	}// AddRules()
+};
 
 static class IpaNatBlockTest001 IpaNatBlockTest001;//single PDN src NAT test
 static class IpaNatBlockTest002 IpaNatBlockTest002;//single PDN dst NAT test
@@ -5176,3 +9554,34 @@ static class IpaNatBlockTest019 IpaNatBlockTest019;//Single PDN SRC NAT suppress
 static class IpaNatBlockTest020 IpaNatBlockTest020;//Single PDN SRC NAT suppression test with status
 static class IpaNatBlockTest021 IpaNatBlockTest021;//Single PDN DST NAT suppression test
 static class IpaNatBlockTest022 IpaNatBlockTest022;//Single PDN DST NAT suppression test with status
+/* IPAv7 Tests*/ 
+static class IpaNatBlockTest023 IpaNatBlockTest023;//IPAv7: single PDN src NAT test
+static class IpaNatBlockTest024 IpaNatBlockTest024;//IPAv7: single PDN dst NAT test
+static class IpaNatBlockTest025 IpaNatBlockTest025;//IPAv7: multi PDN (tuple) src NAT test
+static class IpaNatBlockTest026 IpaNatBlockTest026;//IPAv7: multi PDN (tuple) dst NAT test
+static class IpaNatBlockTest027 IpaNatBlockTest027;//IPAv7: single PDN src NAT test - src metadata replacement
+static class IpaNatBlockTest028 IpaNatBlockTest028;//IPAv7: single PDN dst NAT test - dst metadata replacement
+static class IpaNatBlockTest029 IpaNatBlockTest029;//IPAv7: hashable routing rule with dst NAT test
+static class IpaNatBlockTest030 IpaNatBlockTest030;//IPAv7: Multi PDN src NAT test match PDN by input from filtering block
+static class IpaNatBlockTest031 IpaNatBlockTest031;//IPAv7: single PDN src NAT rule deletion test
+static class IpaNatBlockTest032 IpaNatBlockTest032;//IPAv7: single PDN dst NAT rule deletion test
+static class IpaNatBlockTest033 IpaNatBlockTest033;//IPAv7: Multi PDN src NAT - MAX number of PDNs test
+static class IpaNatBlockTest034 IpaNatBlockTest034;//IPAv7: Single PDN dst NAT test expansion table usage
+static class IpaNatBlockTest035 IpaNatBlockTest035;//IPAv7: Single PDN dst NAT test expansion table delete test
+static class IpaNatBlockTest036 IpaNatBlockTest036;//IPAv7: single PDN src NAT zero PDN test
+static class IpaNatBlockTest037 IpaNatBlockTest037;//IPAv7: single PDN src NAT test - send two packets that will hit the same rule
+static class IpaNatBlockTest038 IpaNatBlockTest038;//IPAv7: single PDN dst NAT test - send two packets that will hit the same rule
+static class IpaNatBlockTest039 IpaNatBlockTest039;//IPAv7: multi PDN (tuple) src NAT test - identical private IPs different ports
+static class IpaNatBlockTest040 IpaNatBlockTest040;//IPAv7: multi PDN (tuple) dst NAT test - identical private IPs different ports
+static class IpaNatBlockTest041 IpaNatBlockTest041;//IPAv7: Single PDN SRC NAT suppression test
+static class IpaNatBlockTest042 IpaNatBlockTest042;//IPAv7: Single PDN SRC NAT suppression test with status
+static class IpaNatBlockTest043 IpaNatBlockTest043;//IPAv7: Single PDN DST NAT suppression test
+static class IpaNatBlockTest044 IpaNatBlockTest044;//IPAv7: Single PDN DST NAT suppression test with status
+static class IpaNatBlockTest045 IpaNatBlockTest045;//IPAv7: IPv4CT: single PDN src NAT test
+static class IpaNatBlockTest046 IpaNatBlockTest046;//IPAv7: IPv4CT: single PDN dst NAT test
+static class IpaNatBlockTest047 IpaNatBlockTest047;//IPAv7: single PDN src NAT basic cache test
+static class IpaNatBlockTest048 IpaNatBlockTest048;//IPAv7: single PDN dst NAT basic cache test
+static class IpaNatBlockTest049 IpaNatBlockTest049;//IPAv7: Timestamp Flush src NAT test
+static class IpaNatBlockTest050 IpaNatBlockTest050;//IPAv7: Timestamp Flush dst NAT test
+static class IpaNatBlockTest051 IpaNatBlockTest051;//IPAv7: IPv4CT: multi PDN (tuple) src NAT test
+static class IpaNatBlockTest052 IpaNatBlockTest052;//IPAv7: IPv4CT: multi PDN (tuple) dst NAT test

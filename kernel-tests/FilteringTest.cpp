@@ -59,6 +59,9 @@
  * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #include <stdio.h>
@@ -141,38 +144,38 @@ public:
 		/* From ipa configurations - 3 pipes */
 		memset(&from_ipa_cfg[0], 0, sizeof(from_ipa_cfg[0]));
 		prepare_channel_struct(&from_ipa_channels[0],
-				header.from_ipa_channels_num++,
-				IPA_CLIENT_TEST2_CONS,
-				(void *)&from_ipa_cfg[0],
-				sizeof(from_ipa_cfg[0]),
-				en_status);
+				       header.from_ipa_channels_num++,
+				       IPA_CLIENT_TEST2_CONS,
+				       (void *)&from_ipa_cfg[0],
+				       sizeof(from_ipa_cfg[0]),
+				       en_status);
 		from_ipa_array[0] = &from_ipa_channels[0];
 
 		memset(&from_ipa_cfg[1], 0, sizeof(from_ipa_cfg[1]));
 		prepare_channel_struct(&from_ipa_channels[1],
-				header.from_ipa_channels_num++,
-				IPA_CLIENT_TEST3_CONS,
-				(void *)&from_ipa_cfg[1],
-				sizeof(from_ipa_cfg[1]),
-				en_status);
+				       header.from_ipa_channels_num++,
+				       IPA_CLIENT_TEST3_CONS,
+				       (void *)&from_ipa_cfg[1],
+				       sizeof(from_ipa_cfg[1]),
+				       en_status);
 		from_ipa_array[1] = &from_ipa_channels[1];
 
 		memset(&from_ipa_cfg[2], 0, sizeof(from_ipa_cfg[2]));
 		prepare_channel_struct(&from_ipa_channels[2],
-				header.from_ipa_channels_num++,
-				IPA_CLIENT_TEST4_CONS,
-				(void *)&from_ipa_cfg[2],
-				sizeof(from_ipa_cfg[2]),
-				en_status);
+				       header.from_ipa_channels_num++,
+				       IPA_CLIENT_TEST4_CONS,
+				       (void *)&from_ipa_cfg[2],
+				       sizeof(from_ipa_cfg[2]),
+				       en_status);
 		from_ipa_array[2] = &from_ipa_channels[2];
 
 		/* To ipa configurations - 1 pipes */
 		memset(&to_ipa_cfg[0], 0, sizeof(to_ipa_cfg[0]));
 		prepare_channel_struct(&to_ipa_channels[0],
-				header.to_ipa_channels_num++,
-				IPA_CLIENT_TEST_PROD,
-				(void *)&to_ipa_cfg[0],
-				sizeof(to_ipa_cfg[0]));
+				       header.to_ipa_channels_num++,
+				       IPA_CLIENT_TEST_PROD,
+				       (void *)&to_ipa_cfg[0],
+				       sizeof(to_ipa_cfg[0]));
 		to_ipa_array[0] = &to_ipa_channels[0];
 
 		/* header removal for Ethernet header + 8021Q header */
@@ -182,10 +185,10 @@ public:
 		to_ipa_cfg[1].hdr.hdr_ofst_metadata =
 			ETH8021Q_METADATA_OFFSET;
 		prepare_channel_struct(&to_ipa_channels[1],
-			header.to_ipa_channels_num++,
-			IPA_CLIENT_TEST2_PROD,
-			(void *)&to_ipa_cfg[1],
-			sizeof(to_ipa_cfg[1]));
+				       header.to_ipa_channels_num++,
+				       IPA_CLIENT_TEST2_PROD,
+				       (void *)&to_ipa_cfg[1],
+				       sizeof(to_ipa_cfg[1]));
 		to_ipa_array[1] = &to_ipa_channels[1];
 
 		prepare_header_struct(&header, from_ipa_array, to_ipa_array);
@@ -307,7 +310,16 @@ public:
 		}
 
 		if ((RecvSize <= SendSize) ||
-			((RecvSize - SendSize) != stts_size)){
+		    ((RecvSize - SendSize) != stts_size)){
+			printf("received buffer size does not match! sent:receive [%zu]:[%zu]\n",SendSize,RecvSize);
+			return false;
+		}
+
+		return true;
+	}
+
+	inline bool VerifyStatusReceivedV7_0(size_t SendSize, size_t RecvSize) {
+		if ((RecvSize <= SendSize) || ((RecvSize - SendSize) != sizeof(struct ipa3_hw_pkt_status_hw_v7_0))){
 			printf("received buffer size does not match! sent:receive [%zu]:[%zu]\n",SendSize,RecvSize);
 			return false;
 		}
@@ -359,105 +371,120 @@ public:
 		return false;
 	}
 
-	inline bool IsTTLUpdated_v5_5(size_t SendSize, size_t RecvSize, void *Buff)
-	{
-		struct ipa3_hw_pkt_status_hw_v5_5 *pStatus = (struct ipa3_hw_pkt_status_hw_v5_5 *)Buff;
-
-		if (VerifyStatusReceived(SendSize,RecvSize) == false){
+	inline bool isCacheHitV7_0(size_t SendSize, size_t RecvSize, void *Buff) {
+		auto *pStatus = (struct ipa3_hw_pkt_status_hw_v7_0 *)Buff;
+		if (!VerifyStatusReceivedV7_0(SendSize, RecvSize)) {
 			return false;
 		}
+		return static_cast<bool>(pStatus->flt_cache_hit);
+	}
 
+	inline bool isCacheHit(size_t SendSize, size_t RecvSize, void *Buff) {
+		bool res;
+		switch (TestManager::GetInstance()->GetIPAHwType()) {
+			case IPA_HW_v7_0:
+				res = isCacheHitV7_0(SendSize, RecvSize, Buff);
+				break;
+			case IPA_HW_v6_0:
+			case IPA_HW_v5_5:
+			case IPA_HW_v5_0:
+			case IPA_HW_v5_1:
+				res = IsCacheHit_v5_0(SendSize, RecvSize, Buff);
+				break;
+			default:
+				res = IsCacheHit(SendSize, RecvSize, Buff);
+				break;
+		}
+		if (res)
+			printf ("%s::cache hit!! \n",__FUNCTION__);
+		else
+			printf ("%s::cache miss!! \n",__FUNCTION__);
+
+		return res;
+	}
+
+	inline bool isTtlUpdatedV7_0(size_t SendSize, size_t ReceiveSize, void *Buff, bool withStatus = true) {
+		auto *pStatus = (struct ipa3_hw_pkt_status_hw_v7_0 *)Buff;
+
+		if (withStatus) {
+			if (!VerifyStatusReceivedV7_0(SendSize,ReceiveSize))
+				return false;
+		} else {
+			if (!VerifyStatusReceived_wo_status(SendSize,ReceiveSize))
+				return false;
+		}
 		if((bool)pStatus->ttl_dec){
 			printf ("%s::TTL Updated!! \n",__FUNCTION__);
 			return true;
 		}
-
 		printf ("%s::TTL not updated!! \n",__FUNCTION__);
+
 		return false;
 	}
 
-	inline bool IsTTLUpdated_v5_5_wo_status(size_t SendSize, size_t RecvSize, void *Buff)
-	{
-		struct ipa3_hw_pkt_status_hw_v5_5 *pStatus = (struct ipa3_hw_pkt_status_hw_v5_5 *)Buff;
+	inline bool isTtlUpdatedV5_5(size_t SendSize, size_t ReceiveSize, void *Buff, bool withStatus = true) {
+		auto *pStatus = (struct ipa3_hw_pkt_status_hw_v5_5 *)Buff;
 
-		if (VerifyStatusReceived_wo_status(SendSize,RecvSize) == false){
-			return false;
+		if (withStatus) {
+			if (!VerifyStatusReceived(SendSize,ReceiveSize))
+				return false;
+		} else {
+			if (!VerifyStatusReceived_wo_status(SendSize,ReceiveSize))
+				return false;
 		}
-
 		if((bool)pStatus->ttl_dec){
 			printf ("%s::TTL Updated!! \n",__FUNCTION__);
 			return true;
 		}
-
 		printf ("%s::TTL not updated!! \n",__FUNCTION__);
+
 		return false;
 	}
 
-	inline bool IsCacheMiss(size_t SendSize, size_t RecvSize, void *Buff)
-	{
-		struct ipa3_hw_pkt_status *pStatus = (struct ipa3_hw_pkt_status *)Buff;
+	inline bool isTtlUpdated(size_t SendSize, size_t ReceiveSize, void *Buff, bool withStatus = true) {
+		bool res;
 
-		if (VerifyStatusReceived(SendSize,RecvSize) == false){
-			return false;
+		switch (TestManager::GetInstance()->GetIPAHwType()) {
+			case IPA_HW_v7_0:
+				res = isTtlUpdatedV7_0(SendSize, ReceiveSize, Buff, withStatus);
+				break;
+			case IPA_HW_v6_0:
+			case IPA_HW_v5_5:
+				res = isTtlUpdatedV5_5(SendSize, ReceiveSize, Buff, withStatus);
+				break;
+			default:
+				return true;
 		}
+		if (res)
+			printf("%s::TTL Updated!! \n",__FUNCTION__);
+		else
+			printf("%s::TTL not updated!! \n",__FUNCTION__);
 
-		if(!((bool)pStatus->filt_hash)){
-			printf ("%s::cache miss!! \n",__FUNCTION__);
-			return true;
-		}
-
-		printf ("%s::cache hit!! \n",__FUNCTION__);
-		return false;
+		return res;
 	}
 
-	inline bool IsCacheMiss_v5_0(size_t SendSize, size_t RecvSize, void *Buff)
-	{
-		struct ipa3_hw_pkt_status_hw_v5_0 *pStatus = (struct ipa3_hw_pkt_status_hw_v5_0 *)Buff;
-
-		if (VerifyStatusReceived(SendSize,RecvSize) == false){
-			return false;
-		}
-
-		if(!((bool)pStatus->filt_hash)){
-			printf ("%s::cache miss!! \n",__FUNCTION__);
-			return true;
-		}
-
-		printf ("%s::cache hit!! \n",__FUNCTION__);
-		return false;
+	inline bool isCacheMiss(size_t SendSize, size_t RecvSize, void *Buff) {
+		return !isCacheHit(SendSize, RecvSize, Buff);
 	}
 
-
-	bool ReceivePacketAndCompareFrom(InterfaceAbstraction& cons, Byte* send,
-									 size_t send_sz, bool shouldBeHit)
-	{
+	bool ReceivePacketAndCompareFrom(InterfaceAbstraction& cons, Byte* send, size_t send_sz, bool shouldBeHit) {
 		size_t receivedSize = 0;
 		bool isSuccess = true;
-
 		// Receive results
 		Byte *rxBuff1 = new Byte[0x400];
 
-		if (NULL == rxBuff1)
-		{
+		if (NULL == rxBuff1) {
 			printf("Memory allocation error.\n");
 			return false;
 		}
-
 		receivedSize = cons.ReceiveData(rxBuff1, 0x400);
 		printf("Received %zu bytes on %s.\n", receivedSize, cons.m_fromChannelName.c_str());
-
 		// Compare results
 		isSuccess &= CompareResultVsGolden_w_Status(send, send_sz, rxBuff1, receivedSize);
-
-		if (shouldBeHit) {
-			isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-				IsCacheHit_v5_0(send_sz, receivedSize, rxBuff1) : IsCacheHit(send_sz, receivedSize, rxBuff1);
-		}
+		if (shouldBeHit)
+			isSuccess &= isCacheHit(send_sz, receivedSize, rxBuff1);
 		else
-		{
-			isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-				IsCacheMiss_v5_0(send_sz, receivedSize, rxBuff1) : IsCacheMiss(send_sz, receivedSize, rxBuff1);
-		}
+			isSuccess &= isCacheMiss(send_sz, receivedSize, rxBuff1);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -540,8 +567,8 @@ public:
 		for(j = 0; j < receivedSize; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n-->Value1 %s\n",
-			m_sendSize,sentBuffer,receivedSize,recievedBuffer,
-			pkt1_cmp_succ?"Match":"no Match");
+		       m_sendSize,sentBuffer,receivedSize,recievedBuffer,
+		       pkt1_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -550,8 +577,8 @@ public:
 		for(j = 0; j < receivedSize2; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff2[j]);
 		printf("Expected Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n-->Value2 %s\n",
-			m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
-			pkt2_cmp_succ?"Match":"no Match");
+		       m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
+		       pkt2_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -560,8 +587,8 @@ public:
 		for(j = 0; j < receivedSize3; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff3[j]);
 		printf("Expected Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n-->Value3 %s\n",
-			m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
-			pkt3_cmp_succ?"Match":"no Match");
+		       m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
+		       pkt3_cmp_succ?"Match":"no Match");
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -582,18 +609,18 @@ public:
 
 		rt_rule0 = (struct ipa_ioc_add_rt_rule *)
 			calloc(1,
-					sizeof(struct ipa_ioc_add_rt_rule) +
-						1*sizeof(struct ipa_rt_rule_add)
-				);
+			       sizeof(struct ipa_ioc_add_rt_rule) +
+			       1*sizeof(struct ipa_rt_rule_add)
+			);
 		if(!rt_rule0) {
 			printf("calloc failed to allocate rt_rule0 in %s\n",__FUNCTION__);
 			return false;
 		}
 		rt_rule1 = (struct ipa_ioc_add_rt_rule *)
 			calloc(1,
-					sizeof(struct ipa_ioc_add_rt_rule) +
-						1*sizeof(struct ipa_rt_rule_add)
-				);
+			       sizeof(struct ipa_ioc_add_rt_rule) +
+			       1*sizeof(struct ipa_rt_rule_add)
+			);
 		if(!rt_rule1) {
 			printf("calloc failed to allocate rt_rule1 in %s\n",__FUNCTION__);
 			Free(rt_rule0);
@@ -601,9 +628,9 @@ public:
 		}
 		rt_rule2 = (struct ipa_ioc_add_rt_rule *)
 			calloc(1,
-					sizeof(struct ipa_ioc_add_rt_rule) +
-						1*sizeof(struct ipa_rt_rule_add)
-				);
+			       sizeof(struct ipa_ioc_add_rt_rule) +
+			       1*sizeof(struct ipa_rt_rule_add)
+			);
 		if(!rt_rule2) {
 			printf("calloc failed to allocate rt_rule2 in %s\n",__FUNCTION__);
 			Free(rt_rule0);
@@ -691,18 +718,18 @@ public:
 
 		rt_rule0 = (struct ipa_ioc_add_rt_rule *)
 			calloc(1,
-					sizeof(struct ipa_ioc_add_rt_rule) +
-						1*sizeof(struct ipa_rt_rule_add)
-				);
+			       sizeof(struct ipa_ioc_add_rt_rule) +
+			       1*sizeof(struct ipa_rt_rule_add)
+			);
 		if(!rt_rule0) {
 			printf("calloc failed to allocate rt_rule0 in %s\n",__FUNCTION__);
 			return false;
 		}
 		rt_rule1 = (struct ipa_ioc_add_rt_rule *)
 			calloc(1,
-					sizeof(struct ipa_ioc_add_rt_rule) +
-						1*sizeof(struct ipa_rt_rule_add)
-				);
+			       sizeof(struct ipa_ioc_add_rt_rule) +
+			       1*sizeof(struct ipa_rt_rule_add)
+			);
 		if(!rt_rule1) {
 			printf("calloc failed to allocate rt_rule1 in %s\n",__FUNCTION__);
 			Free(rt_rule0);
@@ -710,9 +737,9 @@ public:
 		}
 		rt_rule2 = (struct ipa_ioc_add_rt_rule *)
 			calloc(1,
-					sizeof(struct ipa_ioc_add_rt_rule) +
-						1*sizeof(struct ipa_rt_rule_add)
-				);
+			       sizeof(struct ipa_ioc_add_rt_rule) +
+			       1*sizeof(struct ipa_rt_rule_add)
+			);
 		if(!rt_rule2) {
 			printf("calloc failed to allocate rt_rule2 in %s\n",__FUNCTION__);
 			Free(rt_rule0);
@@ -861,11 +888,11 @@ public:
 
 		for(j = 0; j < m_sendSize; j++) {
 			snprintf(&sentBuffer[3 * j], sentBufferSize - 3 * j,
-				" %02X", m_sendBuffer[j]);
+				 " %02X", m_sendBuffer[j]);
 		}
 		for(j = 0; j < receivedSize; j++) {
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize- 3 * j,
-				" %02X", rxBuff[j]);
+				 " %02X", rxBuff[j]);
 		}
 		printf("Expected Value (%zu)\n%s\n, Received Value(%zu)\n%s\n",m_sendSize,sentBuffer,receivedSize,recievedBuffer);
 	}
@@ -979,7 +1006,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest001";
 		m_description =
-		"Filtering block test 001 - Destination IP address and subnet mask match against LAN subnet (Global Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 001 - Destination IP address and subnet mask match against LAN subnet (Global Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules: (DST & Mask Match). \
@@ -1046,9 +1073,9 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFF0000FF; // Mask
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0x7F000001; // Filter DST_IP == 127.0.0.1.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -1062,8 +1089,8 @@ public:
 		// TODO: Fix this, doesn't match the Rule's Requirements
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80101; // Filter DST_IP == 192.168.1.1.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -1079,8 +1106,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -1120,7 +1147,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest002";
 		m_description =
-		"Filtering block test 002 - Destination IP address exact match against broadcast IP address (Global Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 002 - Destination IP address exact match against broadcast IP address (Global Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules (MASK = 0xFF..FF). \
@@ -1187,9 +1214,9 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0x7F000001; // Filter DST_IP == 127.0.0.1.
 		printf ("flt_rule_entry was set successfully, preparing for insertion....\n");
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -1202,8 +1229,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80101; // Filter DST_IP == 192.168.1.1.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -1218,8 +1245,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -1326,9 +1353,9 @@ public:
 		flt_rule_entry.rule.attrib.dst_port = 546; // DHCP Client Port No 546
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -1341,8 +1368,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.dst_port = 547; // DHCP Server Port No 547
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -1357,8 +1384,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port = 500; // Non-DHCP Port
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -1396,7 +1423,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest004";
 		m_description =
-		"Filtering block test 004 - Firewall filtering rules based on source and destination port ranges (Global Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 004 - Firewall filtering rules based on source and destination port ranges (Global Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules . \
@@ -1466,9 +1493,9 @@ public:
 
 		printf ("flt_rule_entry was set successfully, preparing for insertion....\n");
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -1485,8 +1512,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port_hi = 250;
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -1504,8 +1531,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port_hi = 350;
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -1549,7 +1576,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest005";
 		m_description =
-		"Filtering block test 005 - Filtering Based on Protocol type (TCP/UDP/ICMP) (Global Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 005 - Filtering Based on Protocol type (TCP/UDP/ICMP) (Global Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -1619,9 +1646,9 @@ public:
 		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
 		flt_rule_entry.rule.attrib.u.v4.protocol = 17; // Filter only UDP Packets.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -1634,8 +1661,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.u.v4.protocol = 6; // Filter only TCP Packets.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -1650,8 +1677,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.protocol = 1; // Filter only ICMP Packets.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -1685,7 +1712,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest006";
 		m_description =
-		"Filtering block test 006 - Destination IP address and subnet mask match against LAN subnet (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 006 - Destination IP address and subnet mask match against LAN subnet (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules: (DST & Mask Match). \
@@ -1754,9 +1781,9 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFF0000FF; // Mask
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0x7F000001; // Filter DST_IP == 127.0.0.1.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -1770,8 +1797,8 @@ public:
 		// TODO: Fix this, doesn't match the Rule's Requirements
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80101; // Filter DST_IP == 192.168.1.1.
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -1787,8 +1814,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -1828,7 +1855,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest007";
 		m_description =
-		"Filtering block test 007 - Destination IP address exact match against broadcast IP address (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 007 - Destination IP address exact match against broadcast IP address (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules (MASK = 0xFF..FF). \
@@ -1904,9 +1931,9 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0x7F000001; // Filter DST_IP == 127.0.0.1.
 		printf ("flt_rule_entry was set successfully, preparing for insertion....\n");
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -1919,8 +1946,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80101; // Filter DST_IP == 192.168.1.1.
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -1935,8 +1962,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -1977,7 +2004,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest008";
 		m_description =
-		"Filtering block test 008 - Destination UDP port exact match against DHCP port (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 008 - Destination UDP port exact match against DHCP port (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules . \
@@ -2052,9 +2079,9 @@ public:
 		flt_rule_entry.rule.attrib.dst_port = 546; // DHCP Client Port No 546
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -2067,8 +2094,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.dst_port = 547; // DHCP Server Port No 547
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -2083,8 +2110,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port = 500; // Non-DHCP Port
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -2123,7 +2150,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest009";
 		m_description =
-		"Filtering block test 009 - Firewall filtering rules based on source and destination port ranges (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 009 - Firewall filtering rules based on source and destination port ranges (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules . \
@@ -2201,9 +2228,9 @@ public:
 
 		printf ("flt_rule_entry was set successfully, preparing for insertion....\n");
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -2220,8 +2247,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port_hi = 250;
 
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -2239,8 +2266,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port_hi = 350;
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -2284,7 +2311,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest010";
 		m_description =
-		"Filtering block test 010 - Filtering Based on Protocol type (TCP/UDP/ICMP) (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 010 - Filtering Based on Protocol type (TCP/UDP/ICMP) (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -2356,9 +2383,9 @@ public:
 		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
 		flt_rule_entry.rule.attrib.u.v4.protocol = 17; // Filter only UDP Packets.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -2371,8 +2398,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.u.v4.protocol = 6; // Filter only TCP Packets.
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -2387,8 +2414,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.protocol = 1; // Filter only ICMP Packets.
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -2422,7 +2449,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest021";
 		m_description =
-		"Filtering block test 021 - Destination IP address and subnet mask match against LAN subnet (End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 021 - Destination IP address and subnet mask match against LAN subnet (End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules: (DST & Mask Match). \
@@ -2514,8 +2541,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -2557,7 +2584,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest022";
 		m_description =
-		"Filtering block test 022 - Destination IP address exact match against broadcast IP address (End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 022 - Destination IP address exact match against broadcast IP address (End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules (MASK = 0xFF..FF). \
@@ -2642,8 +2669,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -2685,7 +2712,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest023";
 		m_description =
-		"Filtering block test 023 - Destination UDP port exact match against DHCP port (End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 023 - Destination UDP port exact match against DHCP port (End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules . \
@@ -2769,8 +2796,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port = 500; // Non-DHCP Port
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -2810,7 +2837,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest024";
 		m_description =
-		"Filtering block test 024 - Firewall filtering rules based on source and destination port ranges (End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 024 - Firewall filtering rules based on source and destination port ranges (End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules . \
@@ -2905,8 +2932,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port_hi = 350;
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -2952,7 +2979,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest025";
 		m_description =
-				"Filtering block test 025 - Filtering Based on Protocol type (TCP/UDP/ICMP) (End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 025 - Filtering Based on Protocol type (TCP/UDP/ICMP) (End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -3040,8 +3067,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.protocol = 1; // Filter only ICMP Packets.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -3077,7 +3104,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest026";
 		m_description =
-				"Filtering block test 026 - Destination IP address and subnet mask match against LAN subnet (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 026 - Destination IP address and subnet mask match against LAN subnet (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules: (DST & Mask Match). \
@@ -3145,9 +3172,9 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFF0000FF; // Mask
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0x7F000001; // Filter DST_IP == 127.0.0.1.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -3161,8 +3188,8 @@ public:
 		// TODO: Fix this, doesn't match the Rule's Requirements
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80101; // Filter DST_IP == 192.168.1.1.
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -3178,8 +3205,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -3218,7 +3245,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest027";
 		m_description =
-		"Filtering block test 027 - Destination IP address exact match against broadcast IP address (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit) \
+			"Filtering block test 027 - Destination IP address exact match against broadcast IP address (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit) \
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules (MASK = 0xFF..FF). \
@@ -3293,9 +3320,9 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0x7F000001; // Filter DST_IP == 127.0.0.1.
 		printf ("flt_rule_entry was set successfully, preparing for insertion....\n");
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -3308,8 +3335,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80101; // Filter DST_IP == 192.168.1.1.
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -3324,8 +3351,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -3366,7 +3393,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest028";
 		m_description =
-		"Filtering block test 028 - Destination UDP port exact match against DHCP port (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 028 - Destination UDP port exact match against DHCP port (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules . \
@@ -3440,9 +3467,9 @@ public:
 		flt_rule_entry.rule.attrib.dst_port = 546; // DHCP Client Port No 546
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -3455,8 +3482,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.dst_port = 547; // DHCP Server Port No 547
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -3471,8 +3498,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port = 500; // Non-DHCP Port
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -3511,7 +3538,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest029";
 		m_description =
-		"Filtering block test 029 - Firewall filtering rules based on source and destination port ranges (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 029 - Firewall filtering rules based on source and destination port ranges (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit Three filtering rules . \
@@ -3588,9 +3615,9 @@ public:
 
 		printf ("flt_rule_entry was set successfully, preparing for insertion....\n");
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -3607,8 +3634,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port_hi = 250;
 
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -3626,8 +3653,8 @@ public:
 		flt_rule_entry.rule.attrib.dst_port_hi = 350;
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -3671,7 +3698,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest030";
 		m_description =
-		"Filtering block test 030 - Filtering Based on Protocol type (TCP/UDP/ICMP) (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 030 - Filtering Based on Protocol type (TCP/UDP/ICMP) (End-Point specific Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -3742,9 +3769,9 @@ public:
 		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
 		flt_rule_entry.rule.attrib.u.v4.protocol = 17; // Filter only UDP Packets.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -3757,8 +3784,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.u.v4.protocol = 6; // Filter only TCP Packets.
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -3773,8 +3800,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.protocol = 1; // Filter only ICMP Packets.
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -3806,7 +3833,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest031";
 		m_description =
-				"Filtering block test 031 - Filtering Based on fragment extension(End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 031 - Filtering Based on fragment extension(End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit 2 filtering rules: \
@@ -3881,8 +3908,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0x00000000;// All Packets will get a "Hit"
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -3979,7 +4006,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest050";
 		m_description =
-		"Filtering block test 050 - Destination IPv6 address and Mask exact match against broadcast IP address (Global Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 050 - Destination IPv6 address and Mask exact match against broadcast IP address (Global Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -4054,9 +4081,9 @@ public:
 
 		printf ("flt_rule_entry was set successfully, preparing for insertion....\n");
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -4069,8 +4096,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 1
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[3]      = 0X556677BB;
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -4085,8 +4112,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[3]      = 0X556677CC;
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -4121,7 +4148,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest051";
 		m_description =
-		"Filtering block test 051 - Destination IPv6 address and Mask exact match against broadcast IP address (End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 051 - Destination IPv6 address and Mask exact match against broadcast IP address (End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -4213,8 +4240,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[3]      = 0X556677CC;
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -4250,7 +4277,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest052";
 		m_description =
-		"Filtering block test 052 - Filtering Based on Protocol type (TCP/UDP/ICMP) (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
+			"Filtering block test 052 - Filtering Based on Protocol type (TCP/UDP/ICMP) (Global Filtering Table, each rule is added in a Insert using a dedicated single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -4319,9 +4346,9 @@ public:
 		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_NEXT_HDR;
 		flt_rule_entry.rule.attrib.u.v6.next_hdr = 17; // Filter only UDP Packets.
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
-				)
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			)
 		{
 			printf ("%s::Error Adding RuleTable(0) to Filtering, aborting...\n",__FUNCTION__);
 			return false;
@@ -4334,8 +4361,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table1.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.attrib.u.v6.next_hdr = 6; // Filter only TCP Packets.
 		if (
-				((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
+			((uint8_t)-1 == FilterTable1.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable1.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(1) to Filtering, aborting...\n",__FUNCTION__);
@@ -4350,8 +4377,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v6.next_hdr = 1; // Filter only ICMP Packets.
 
 		if (
-				((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
+			((uint8_t)-1 == FilterTable2.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable2.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -4383,7 +4410,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest053";
 		m_description =
-				"Filtering block test 053 - Filtering Based on fragment extension(End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 053 - Filtering Based on fragment extension(End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit 2 filtering rules: \
@@ -4565,7 +4592,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest054";
 		m_description =
-		"Filtering block test 054 - IPV6 filtering rules based on source and destination port (End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 054 - IPV6 filtering rules based on source and destination port (End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules:\
@@ -4655,8 +4682,8 @@ public:
 		flt_rule_entry.rule.attrib.src_port_hi = 15;
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -4696,7 +4723,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest060";
 		m_description =
-		"Filtering block test 060 - Rules prioritization hashable vs non-hashable rule, both rules match the same packet but non hashable has higher priority\
+			"Filtering block test 060 - Rules prioritization hashable vs non-hashable rule, both rules match the same packet but non hashable has higher priority\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -4790,8 +4817,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -4897,7 +4924,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest061";
 		m_description =
-		"Filtering block test 061 - Rules prioritization hashable vs non-hashable rule, both rules match the same packet but hashable has higher priority\
+			"Filtering block test 061 - Rules prioritization hashable vs non-hashable rule, both rules match the same packet but hashable has higher priority\
 		two identical packets are sent and should be catched by the hashable rule, second one shuld be hit the cache\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -4998,8 +5025,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -5050,7 +5077,7 @@ public:
 		}
 
 		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
-		printf("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
+		printf("Received %zu byt es on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
 
 		receivedSize2 = m_consumer.ReceiveData(rxBuff2, 0x400);
 		printf("Received %zu bytes on %s.\n", receivedSize2, m_consumer.m_fromChannelName.c_str());
@@ -5065,8 +5092,7 @@ public:
 			isSuccess = false;
 		}
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -5082,14 +5108,9 @@ public:
 
 
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
-
+		isSuccess &= isCacheHit(m_sendSize2, receivedSize2, rxBuff2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -5113,7 +5134,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest062";
 		m_description =
-		"Filtering block test 062 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
+			"Filtering block test 062 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
 		two packets with different tuple are sent and should match the hashable rule, no cache hit expected\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -5217,8 +5238,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -5292,9 +5313,7 @@ public:
 			printf("Comparison of Buffer0 Failed!\n");
 			isSuccess = false;
 		}
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -5309,14 +5328,10 @@ public:
 		print_packets(receivedSize3, m_sendSize3, recievedBufferSize, sentBufferSize, rxBuff3, m_sendBuffer3, recievedBuffer, sentBuffer);
 
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheMiss(m_sendSize2,receivedSize2,rxBuff2);
+		isSuccess &= isCacheMiss(m_sendSize2, receivedSize2, rxBuff2);
 
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -5340,7 +5355,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest063";
 		m_description =
-		"Filtering block test 063 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
+			"Filtering block test 063 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
 		two packets with different tuple are sent and should match the hashable rule, no cache hit expected\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -5444,8 +5459,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -5518,9 +5533,7 @@ public:
 			printf("Comparison of Buffer0 Failed!\n");
 			isSuccess = false;
 		}
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -5534,16 +5547,10 @@ public:
 		print_packets(receivedSize2, m_sendSize2, recievedBufferSize, sentBufferSize, rxBuff2, m_sendBuffer2, recievedBuffer, sentBuffer);
 		print_packets(receivedSize3, m_sendSize3, recievedBufferSize, sentBufferSize, rxBuff3, m_sendBuffer3, recievedBuffer, sentBuffer);
 
-
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheMiss(m_sendSize2,receivedSize2,rxBuff2);
-
+		isSuccess &= isCacheMiss(m_sendSize2, receivedSize2, rxBuff2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -5568,7 +5575,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest064";
 		m_description =
-		"Filtering block test 064 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
+			"Filtering block test 064 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
 		two identical packets are sent and should match the hashable rule, cache hit expected\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -5672,8 +5679,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -5741,9 +5748,7 @@ public:
 			printf("Comparison of Buffer0 Failed!\n");
 			isSuccess = false;
 		}
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -5756,16 +5761,10 @@ public:
 		print_packets(receivedSize, m_sendSize, recievedBufferSize, sentBufferSize, rxBuff1, m_sendBuffer, recievedBuffer, sentBuffer);
 		print_packets(receivedSize2, m_sendSize2, recievedBufferSize, sentBufferSize, rxBuff2, m_sendBuffer2, recievedBuffer, sentBuffer);
 		print_packets(receivedSize3, m_sendSize3, recievedBufferSize, sentBufferSize, rxBuff3, m_sendBuffer3, recievedBuffer, sentBuffer);
-
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
-
+		isSuccess &= isCacheHit(m_sendSize2, receivedSize2, rxBuff2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -5790,7 +5789,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest065";
 		m_description =
-		"Filtering block test 065 - Rules prioritization hashable vs non-hashable rule, both rules match the packets\
+			"Filtering block test 065 - Rules prioritization hashable vs non-hashable rule, both rules match the packets\
 		two identical packets are sent, non hashed with max priority should catch both\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -5889,8 +5888,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -5999,7 +5998,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest066";
 		m_description =
-		"Filtering block test 066 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
+			"Filtering block test 066 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
 		two identical packets are sent and should match the hashable rule, cache hit expected\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -6105,8 +6104,8 @@ public:
 			flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 
 			if (
-					((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-					!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 				)
 			{
 				printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -6201,9 +6200,7 @@ public:
 			printf("Comparison of Buffer0 Failed!\n");
 			isSuccess = false;
 		}
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -6212,20 +6209,13 @@ public:
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
-
 		print_packets(receivedSize, m_sendSize, recievedBufferSize, sentBufferSize, rxBuff1, m_sendBuffer, recievedBuffer, sentBuffer);
 		print_packets(receivedSize2, m_sendSize2, recievedBufferSize, sentBufferSize, rxBuff2, m_sendBuffer2, recievedBuffer, sentBuffer);
 		print_packets(receivedSize3, m_sendSize3, recievedBufferSize, sentBufferSize, rxBuff3, m_sendBuffer3, recievedBuffer, sentBuffer);
-
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
-
+		isSuccess &= isCacheHit(m_sendSize2, receivedSize2, rxBuff2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
-
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -6237,33 +6227,25 @@ public:
 		return isSuccess;
 	}
 
-	bool ReceiveAndCompareSpecial()
-	{
+	bool ReceiveAndCompareSpecial() {
 		size_t receivedSize = 0;
-
 		bool isSuccess = true;
-
 		// Receive results
 		Byte *rxBuff1 = new Byte[0x400];
 
-		if (NULL == rxBuff1)
-		{
+		if (nullptr == rxBuff1) {
 			printf("Memory allocation error.\n");
 			return false;
 		}
-
 		receivedSize = m_consumer.ReceiveData(rxBuff1, 0x400);
 		printf("Received %zu bytes on %s.\n", receivedSize, m_consumer.m_fromChannelName.c_str());
-
 		// Compare results
-		if (!CompareResultVsGolden_w_Status(m_sendBuffer, m_sendSize, rxBuff1, receivedSize))
-		{
+		if (!CompareResultVsGolden_w_Status(m_sendBuffer, m_sendSize, rxBuff1, receivedSize)) {
 			printf("Comparison of Buffer0 Failed!\n");
 			isSuccess = false;
 		}
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -6276,13 +6258,13 @@ public:
 		else
 			for(j = 0; j < m_sendSize; j++)
 				snprintf(&sentBuffer[3 * j], sentBufferSize - 3 * j,
-					" %02X", m_sendBuffer[j]);
+					 " %02X", m_sendBuffer[j]);
 		if ((3 * receivedSize) > recievedBufferSize)
 			printf("Failed to stringify recieved packet. Buffer too small\n");
 		else
 			for(j = 0; j < receivedSize; j++)
 				snprintf(&recievedBuffer[3 * j], recievedBufferSize - 3 * j,
-					" %02X", rxBuff1[j]);
+					 " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n",m_sendSize,sentBuffer,receivedSize,recievedBuffer);
 
 		delete[] recievedBuffer;
@@ -6306,7 +6288,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest067";
 		m_description =
-		"Filtering block test 067 - this test first perfroms test 066 and then commits another rule\
+			"Filtering block test 067 - this test first perfroms test 066 and then commits another rule\
 		another identical packet is sent: DST_IP == 127.0.0.1 and expected to get cache miss";
 		m_minIPAHwType = IPA_HW_v3_0;
 	}
@@ -6317,73 +6299,58 @@ public:
 		bool isSuccess = false;
 
 		printf("Entering %s, %s()\n",__FUNCTION__, __FILE__);
-
 		// Add the relevant filtering rules
 		res = AddRules();
-		if (false == res) {
+		if (!res) {
 			printf("Failed adding filtering rules.\n");
 			return false;
 		}
-
 		// Load input data (IP packet) from file
 		res = LoadFiles(m_IpaIPType);
-		if (false == res) {
+		if (!res) {
 			printf("Failed loading files.\n");
 			return false;
 		}
-
 		res = ModifyPackets();
-		if (false == res) {
+		if (!res) {
 			printf("Failed to modify packets.\n");
 			return false;
 		}
-
 		// Send first packet
 		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
-		if (false == isSuccess)
-		{
+		if (!isSuccess) {
 			printf("SendData failure.\n");
 			return false;
 		}
-
 		// Send second packet
 		isSuccess = m_producer.SendData(m_sendBuffer2, m_sendSize2);
-		if (false == isSuccess)
-		{
+		if (!isSuccess) {
 			printf("SendData failure.\n");
 			return false;
 		}
-
 		// Send third packet
 		isSuccess = m_producer.SendData(m_sendBuffer3, m_sendSize3);
-		if (false == isSuccess)
-		{
+		if (!isSuccess) {
 			printf("SendData failure.\n");
 			return false;
 		}
-
 		// Receive packets from the channels and compare results
 		isSuccess = ReceivePacketsAndCompare();
-
-		// untill here test 066 was run, now let's test the invalidation
-
+		// until here test 066 was run, now let's test the invalidation
 		// commit the same rules again, this should clear the cache
 		res = AddRules();
-		if (false == res) {
+		if (!res) {
 			printf("Failed adding filtering rules.\n");
 			return false;
 		}
-
 		// send packet again
 		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
-		if (false == isSuccess)	{
+		if (!isSuccess)	{
 			printf("SendData failure.\n");
 			return false;
 		}
-
 		// receive and verify that cache was missed
 		isSuccess = ReceiveAndCompareSpecial();
-
 		printf("Leaving %s, %s(), Returning %d\n",__FUNCTION__, __FILE__,isSuccess);
 
 		return isSuccess;
@@ -6401,7 +6368,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest068";
 		m_description =
-		"Filtering block test 068 - this test first perfroms test 066 and then removes last rule\
+			"Filtering block test 068 - this test first perfroms test 066 and then removes last rule\
 		another identical packet is sent: DST_IP == 127.0.0.1 and expected to get cache miss";
 		m_minIPAHwType = IPA_HW_v3_0;
 	}
@@ -6497,7 +6464,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest070";
 		m_description =
-		"Filtering block test 070 - Rules prioritization hashable vs non-hashable rule, both rules match the same packet but non hashable has higher priority\
+			"Filtering block test 070 - Rules prioritization hashable vs non-hashable rule, both rules match the same packet but non hashable has higher priority\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -6567,8 +6534,8 @@ public:
 		flt_rule_entry.rule.hashable = 0; // non hashable
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -6604,7 +6571,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest071";
 		m_description =
-		"Filtering block test 071 - Rules prioritization hashable vs non-hashable rule, both rules match the same packet but hashable has higher priority\
+			"Filtering block test 071 - Rules prioritization hashable vs non-hashable rule, both rules match the same packet but hashable has higher priority\
 		two identical packets are sent and should be catched by the hashable rule, second one should be hit the cache\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -6675,8 +6642,8 @@ public:
 		flt_rule_entry.rule.hashable = 0; // non hashable
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -6712,7 +6679,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest072";
 		m_description =
-		"Filtering block test 072 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
+			"Filtering block test 072 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
 		two packets with different tuple are sent and should match the hashable rule, no cache hit expected\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -6788,8 +6755,8 @@ public:
 		flt_rule_entry.rule.hashable = 0; // non hashable
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -6832,7 +6799,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest073";
 		m_description =
-		"Filtering block test 073 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
+			"Filtering block test 073 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
 		two packets with different tuple are sent and should match the hashable rule, no cache hit expected\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -6908,8 +6875,8 @@ public:
 		flt_rule_entry.rule.hashable = 0; // non hashable
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -6951,7 +6918,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest074";
 		m_description =
-		"Filtering block test 074 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
+			"Filtering block test 074 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
 		two identical packets are sent and should match the hashable rule, cache hit expected\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -7026,8 +6993,8 @@ public:
 		flt_rule_entry.rule.hashable = 0; // non hashable
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -7062,7 +7029,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest075";
 		m_description =
-		"Filtering block test 075 - Rules prioritization hashable vs non-hashable rule, both rules match the packets\
+			"Filtering block test 075 - Rules prioritization hashable vs non-hashable rule, both rules match the packets\
 		two identical packets are sent, non hashed with max priority should catch both\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -7138,8 +7105,8 @@ public:
 		flt_rule_entry.rule.hashable = 0; // non hashable
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding RuleTable(2) to Filtering, aborting...\n",__FUNCTION__);
@@ -7176,7 +7143,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest076";
 		m_description =
-		"Filtering block test 076 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
+			"Filtering block test 076 - Rules prioritization hashable vs non-hashable rule, only hashable matches the packets\
 		two identical packets are sent and should match the hashable rule, cache hit expected\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
@@ -7313,7 +7280,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest077";
 		m_description =
-		"Filtering block test 077 - this test first perfroms test 076 and then commits another rule\
+			"Filtering block test 077 - this test first perfroms test 076 and then commits another rule\
 		another identical packet is sent: DST_IP == 127.0.0.1 and expected to get cache miss";
 		m_minIPAHwType = IPA_HW_v3_0;
 		m_IpaIPType = IPA_IP_v6;
@@ -7409,7 +7376,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest078";
 		m_description =
-		"Filtering block test 078 - this test first perfroms test 076 and then removes last rule\
+			"Filtering block test 078 - this test first perfroms test 076 and then removes last rule\
 		another identical packet is sent: DST_IP == 127.0.0.1 and expected to get cache miss";
 		m_minIPAHwType = IPA_HW_v3_0;
 		m_IpaIPType = IPA_IP_v6;
@@ -7600,8 +7567,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.tos = 0x25;
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -7737,8 +7704,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table2.hdl;
 		flt_rule_entry.rule.attrib.attrib_mask = 0;
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -8005,10 +7972,12 @@ public:
 /*---------------------------------------------------------------------------*/
 /* Test100: Cache LRU behavior test  */
 /*---------------------------------------------------------------------------*/
-#define CHACHE_ENTRIES 128
-#define CHACHE_PLUS_ONE (CHACHE_ENTRIES +1)
 class IpaFilteringBlockTest100 : public IpaFilteringBlockTestFixture
 {
+
+private:
+
+	static constexpr size_t numCacheEntries = 255;
 public:
 	IpaFilteringBlockTest100()
 	{
@@ -8018,7 +7987,7 @@ public:
 		1. Preload the cache by sending 64 packets for different connections \
 		2. Send another packet for 65th connection \
 		3. Send packets for first 64 connections \
-		4. Verify that 1st connections entry was reclaimed";
+		4. Verify that 1st connectionÂ’s entry was reclaimed";
 		m_IpaIPType = IPA_IP_v4;
 		m_minIPAHwType = IPA_HW_v4_0;
 		Register(*this);
@@ -8039,11 +8008,11 @@ public:
 		const char bypass0[20] = "Bypass0";
 
 		if (!CreateBypassRoutingTable(&m_routing,
-									  m_IpaIPType,
-									  bypass0,
-									  IPA_CLIENT_TEST2_CONS,
-									  0,
-									  &routing_table0.hdl)) {
+					      m_IpaIPType,
+					      bypass0,
+					      IPA_CLIENT_TEST2_CONS,
+					      0,
+					      &routing_table0.hdl)) {
 			LOG_MSG_ERROR("CreateBypassRoutingTable Failed\n");
 			return false;
 		}
@@ -8058,39 +8027,40 @@ public:
 
 		printf("Creating Bypass Routing Table completed successfully\n");
 
-		IPAFilteringTable FilterTable0;
-		struct ipa_flt_rule_add flt_rule_entry;
-		FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, CHACHE_PLUS_ONE);
-		printf("FilterTable*.Init Completed Successfully..\n");
 
-		FilterTable0.GeneratePresetRule(1, flt_rule_entry);
-		flt_rule_entry.at_rear = true;
-		flt_rule_entry.flt_rule_hdl=-1; // return Value
-		flt_rule_entry.status = -1; // return value
-		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
-		flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl;
-		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
-		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFF0000FF; // Mask
-		flt_rule_entry.rule.hashable = 1;
+		auto installedRules = 0;
+		while (installedRules < numCacheEntries + 1) {
+			IPAFilteringTable FilterTable0;
+			struct ipa_flt_rule_add flt_rule_entry{};
+			auto numRulesPerIoctlCall = std::numeric_limits<uint8_t>::max();
+			FilterTable0.Init(IPA_IP_v4, IPA_CLIENT_TEST_PROD, false, numRulesPerIoctlCall);
+			printf("FilterTable*.Init Completed Successfully..\n");
 
-		for (i = 0; i < CHACHE_PLUS_ONE; i++) {
-			// Configuring Filtering Rule No.i
-			flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80101 + i; // Filter DST_IP == 192.168.1.(1+i).
-			if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) {
-				printf("%s::Error Adding Rule to Filter Table, aborting...\n", __FUNCTION__);
-				return false;
+			FilterTable0.GeneratePresetRule(1, flt_rule_entry);
+			flt_rule_entry.at_rear = true;
+			flt_rule_entry.flt_rule_hdl=-1; // return Value
+			flt_rule_entry.status = -1; // return value
+			flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+			flt_rule_entry.rule.rt_tbl_hdl = routing_table0.hdl;
+			flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
+			flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFF0001FF; // Mask
+			flt_rule_entry.rule.hashable = 1;
+			for (i = 0; i < numRulesPerIoctlCall && installedRules < numCacheEntries + 1; i++, installedRules++) {
+				flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80101 + installedRules; // Filter DST_IP == 192.168.1.(1+installedRules).
+				if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) {
+					printf("%s::Error Adding Rule to Filter Table, aborting...\n", __FUNCTION__);
+					return false;
+				}
 			}
-		}
-
-		if (!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable()))
-		{
-			printf ("%s::Error Adding RuleTable(%d) to Filtering, aborting...\n", __FUNCTION__, i);
-			return false;
-		} else {
-			for (i = 0; i < CHACHE_PLUS_ONE; i++) {
-				printf("flt rule hdl=0x%x, status=0x%x\n",
-					   FilterTable0.ReadRuleFromTable(i)->flt_rule_hdl,
-					   FilterTable0.ReadRuleFromTable(i)->status);
+			if (!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())) {
+				printf ("%s::Error Adding RuleTable(%d) to Filtering, aborting...\n", __FUNCTION__, i);
+				return false;
+			} else {
+				for (int j = 0; j < i; j++) {
+					printf("flt rule hdl=0x%x, status=0x%x\n",
+					       FilterTable0.ReadRuleFromTable(j)->flt_rule_hdl,
+					       FilterTable0.ReadRuleFromTable(j)->status);
+				}
 			}
 		}
 
@@ -8123,10 +8093,10 @@ public:
 			return false;
 		}
 
-		// Send the first CHACHE_ENTRIES packets
+		// Send the first numCacheEntries packets
 		// Receive packets and compare results
 		// All rules should be cache miss
-		for (int i = 0; i < CHACHE_ENTRIES; i++) {
+		for (int i = 0; i < numCacheEntries; i++) {
 			res = __ModifyPackets(i);
 			if (false == res) {
 				printf("Failed to modify packets.\n");
@@ -8147,10 +8117,10 @@ public:
 			}
 		}
 
-		// Send again the first CHACHE_ENTRIES packets
+		// Send again the first numCacheEntries packets
 		// Receive packets and compare results
 		// All rules should be cache hit
-		for (int i = 0; i < CHACHE_ENTRIES; i++) {
+		for (int i = 0; i < numCacheEntries; i++) {
 			res = __ModifyPackets(i);
 			if (false == res) {
 				printf("Failed to modify packets.\n");
@@ -8172,7 +8142,7 @@ public:
 		}
 
 		// Send a packet to a new filter entry, this should trigger the LRU clear
-		res = __ModifyPackets(CHACHE_ENTRIES);
+		res = __ModifyPackets(numCacheEntries);
 		if (false == res) {
 			printf("Failed to modify packets.\n");
 			return false;
@@ -8212,7 +8182,7 @@ public:
 		printf("Leaving %s, %s(), Returning %d\n",__FUNCTION__, __FILE__, isSuccess);
 
 		return isSuccess;
-	} // Run()
+	} // Run()()
 
 private:
 	bool __ModifyPackets(int i)
@@ -8503,7 +8473,7 @@ public:
 		printf("%s(), fd is %d\n", __FUNCTION__, fd);
 
 		while (FilterTable0.size() < MAX_RULES_NUM &&
-			ioctl(fd, IPA_TEST_IOC_IS_TEST_PROD_FLT_IN_SRAM, m_IpaIPType)) {
+		       ioctl(fd, IPA_TEST_IOC_IS_TEST_PROD_FLT_IN_SRAM, m_IpaIPType)) {
 			if (!AddRuleToEnd())
 				return false;
 			printf("%s, %s() Added rule #%d sucessfully \n", __FUNCTION__, __FILE__, FilterTable0.size() - 1);
@@ -8546,7 +8516,7 @@ public:
 
 		printf("%s(), fd is %d\n", __FUNCTION__, fd);
 		while (FilterTable0.size() > MIN_RULES_NUM &&
-			!ioctl(fd, IPA_TEST_IOC_IS_TEST_PROD_FLT_IN_SRAM, m_IpaIPType))
+		       !ioctl(fd, IPA_TEST_IOC_IS_TEST_PROD_FLT_IN_SRAM, m_IpaIPType))
 			if (!RemoveLastRule())
 				return false;
 		close(fd);
@@ -8815,7 +8785,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest110";
 		m_description =
-		"Filtering block test 110 - Destination IP address and subnet mask match against LAN subnet \
+			"Filtering block test 110 - Destination IP address and subnet mask match against LAN subnet \
 		(End-Point specific Filtering Table, Insert all rules in a single commit) \
 		and check if TTL is updated. \
 		1. Generate and commit three routing tables. \
@@ -8909,8 +8879,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 		flt_rule_entry.rule.ttl_update = 0; // doesn't require ttl update
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -9011,8 +8981,8 @@ public:
 		for(j = 0; j < receivedSize; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n-->Value1 %s\n",
-			m_sendSize,sentBuffer,receivedSize,recievedBuffer,
-			pkt1_cmp_succ?"Match":"no Match");
+		       m_sendSize,sentBuffer,receivedSize,recievedBuffer,
+		       pkt1_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -9021,8 +8991,8 @@ public:
 		for(j = 0; j < receivedSize2; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff2[j]);
 		printf("Expected Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n-->Value2 %s\n",
-			m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
-			pkt2_cmp_succ?"Match":"no Match");
+		       m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
+		       pkt2_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -9031,8 +9001,8 @@ public:
 		for(j = 0; j < receivedSize3; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff3[j]);
 		printf("Expected Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n-->Value3 %s\n",
-			m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
-			pkt3_cmp_succ?"Match":"no Match");
+		       m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
+		       pkt3_cmp_succ?"Match":"no Match");
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -9062,7 +9032,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest111";
 		m_description =
-		"Filtering block test 111 - TTL update based on Destination IPv6 address and Mask exact match against broadcast IP address (End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 111 - TTL update based on Destination IPv6 address and Mask exact match against broadcast IP address (End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly with TTL update)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -9160,8 +9130,8 @@ public:
 		/* Enable ttl update in HW */
 		flt_rule_entry.rule.ttl_update = 1;
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -9249,8 +9219,8 @@ public:
 		for(j = 0; j < receivedSize; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n-->Value1 %s\n",
-			m_sendSize,sentBuffer,receivedSize,recievedBuffer,
-			pkt1_cmp_succ?"Match":"no Match");
+		       m_sendSize,sentBuffer,receivedSize,recievedBuffer,
+		       pkt1_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -9259,8 +9229,8 @@ public:
 		for(j = 0; j < receivedSize2; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff2[j]);
 		printf("Expected Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n-->Value2 %s\n",
-			m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
-			pkt2_cmp_succ?"Match":"no Match");
+		       m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
+		       pkt2_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -9269,8 +9239,8 @@ public:
 		for(j = 0; j < receivedSize3; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff3[j]);
 		printf("Expected Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n-->Value3 %s\n",
-			m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
-			pkt3_cmp_succ?"Match":"no Match");
+		       m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
+		       pkt3_cmp_succ?"Match":"no Match");
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -9294,7 +9264,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest112";
 		m_description =
-		"Filtering block test 112 - Destination IP address and subnet mask match against LAN subnet \
+			"Filtering block test 112 - Destination IP address and subnet mask match against LAN subnet \
 		(End-Point specific Filtering Table, Insert all rules in a single commit) \
 		and check if TTL is updated in status and packet. \
 		1. Generate and commit three routing tables. \
@@ -9393,8 +9363,8 @@ public:
 		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0xC0A80102; // Filter DST_IP == 192.168.1.2.
 		flt_rule_entry.rule.ttl_update = 0; // doesn't require ttl update
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -9474,13 +9444,9 @@ public:
 		pkt1_cmp_succ = CompareResultVsGolden_w_Status(m_sendBuffer, m_sendSize, rxBuff1, receivedSize);
 		pkt2_cmp_succ = CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		pkt3_cmp_succ = CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
-
-		pkt1_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5(m_sendSize, receivedSize, rxBuff1) : true;
-		pkt2_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5(m_sendSize2, receivedSize2, rxBuff2) : true;
-		pkt3_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			!IsTTLUpdated_v5_5(m_sendSize3, receivedSize3, rxBuff3) : true;
+		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1, true);
+		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, true);
+		pkt3_cmp_succ &= !isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, true);
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
@@ -9502,8 +9468,8 @@ public:
 		for(j = 0; j < receivedSize; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n-->Value1 %s\n",
-			m_sendSize,sentBuffer,receivedSize,recievedBuffer,
-			pkt1_cmp_succ?"Match":"no Match");
+		       m_sendSize,sentBuffer,receivedSize,recievedBuffer,
+		       pkt1_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -9512,8 +9478,8 @@ public:
 		for(j = 0; j < receivedSize2; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff2[j]);
 		printf("Expected Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n-->Value2 %s\n",
-			m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
-			pkt2_cmp_succ?"Match":"no Match");
+		       m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
+		       pkt2_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -9522,8 +9488,8 @@ public:
 		for(j = 0; j < receivedSize3; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff3[j]);
 		printf("Expected Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n-->Value3 %s\n",
-			m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
-			pkt3_cmp_succ?"Match":"no Match");
+		       m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
+		       pkt3_cmp_succ?"Match":"no Match");
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -9551,7 +9517,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest113";
 		m_description =
-		"Filtering block test 113 - TTL update based on Destination IPv6 address and Mask exact match against broadcast IP address (End-Point specific Filtering Table, Insert all rules in a single commit)\
+			"Filtering block test 113 - TTL update based on Destination IPv6 address and Mask exact match against broadcast IP address (End-Point specific Filtering Table, Insert all rules in a single commit)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly with TTL update)) \
 		2. Generate and commit three filtering rules: (DST & Mask Match). \
@@ -9655,8 +9621,8 @@ public:
 		/* Enable ttl update in HW */
 		flt_rule_entry.rule.ttl_update = 1;
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -9724,12 +9690,9 @@ public:
 		pkt2_cmp_succ = CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		pkt3_cmp_succ = CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		pkt1_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5(m_sendSize, receivedSize, rxBuff1) : true;
-		pkt2_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			!IsTTLUpdated_v5_5(m_sendSize2, receivedSize2, rxBuff2) : true;
-		pkt3_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5(m_sendSize3, receivedSize3, rxBuff3) : true;
+		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1, true);
+		pkt2_cmp_succ &= !isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, true);
+		pkt3_cmp_succ &= isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, true);
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
@@ -9751,8 +9714,8 @@ public:
 		for(j = 0; j < receivedSize; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n-->Value1 %s\n",
-			m_sendSize,sentBuffer,receivedSize,recievedBuffer,
-			pkt1_cmp_succ?"Match":"no Match");
+		       m_sendSize,sentBuffer,receivedSize,recievedBuffer,
+		       pkt1_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -9761,8 +9724,8 @@ public:
 		for(j = 0; j < receivedSize2; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff2[j]);
 		printf("Expected Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n-->Value2 %s\n",
-			m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
-			pkt2_cmp_succ?"Match":"no Match");
+		       m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
+		       pkt2_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -9771,8 +9734,8 @@ public:
 		for(j = 0; j < receivedSize3; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff3[j]);
 		printf("Expected Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n-->Value3 %s\n",
-			m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
-			pkt3_cmp_succ?"Match":"no Match");
+		       m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
+		       pkt3_cmp_succ?"Match":"no Match");
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -9888,8 +9851,8 @@ public:
 		flt_rule_entry.rule.ttl_update = 1;
 		flt_rule_entry.rule.ttl_update = 0; // doesn't require ttl update
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -9954,12 +9917,9 @@ public:
 		pkt2_cmp_succ = CompareResultVsGolden(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		pkt3_cmp_succ = CompareResultVsGolden(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		pkt1_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize, receivedSize, rxBuff1) : true;
-		pkt2_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize2, receivedSize2, rxBuff2) : true;
-		pkt3_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize3, receivedSize3, rxBuff3) : true;
+		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1, false);
+		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, false);
+		pkt3_cmp_succ &= isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, false);
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
@@ -9981,8 +9941,8 @@ public:
 		for(j = 0; j < receivedSize; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n-->Value1 %s\n",
-			m_sendSize,sentBuffer,receivedSize,recievedBuffer,
-			pkt1_cmp_succ?"Match":"no Match");
+		       m_sendSize,sentBuffer,receivedSize,recievedBuffer,
+		       pkt1_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -9991,8 +9951,8 @@ public:
 		for(j = 0; j < receivedSize2; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff2[j]);
 		printf("Expected Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n-->Value2 %s\n",
-			m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
-			pkt2_cmp_succ?"Match":"no Match");
+		       m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
+		       pkt2_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -10001,8 +9961,8 @@ public:
 		for(j = 0; j < receivedSize3; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff3[j]);
 		printf("Expected Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n-->Value3 %s\n",
-			m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
-			pkt3_cmp_succ?"Match":"no Match");
+		       m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
+		       pkt3_cmp_succ?"Match":"no Match");
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -10124,8 +10084,8 @@ public:
 		flt_rule_entry.rule.ttl_update = 0; // doesn't require ttl update
 
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -10190,12 +10150,9 @@ public:
 		pkt2_cmp_succ = CompareResultVsGolden(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		pkt3_cmp_succ = CompareResultVsGolden(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		pkt1_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize, receivedSize, rxBuff1) : true;
-		pkt2_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize2, receivedSize2, rxBuff2) : true;
-		pkt3_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize3, receivedSize3, rxBuff3) : true;
+		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1, false);
+		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, false);
+		pkt3_cmp_succ &= isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, false);
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
@@ -10217,8 +10174,8 @@ public:
 		for(j = 0; j < receivedSize; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n-->Value1 %s\n",
-			m_sendSize,sentBuffer,receivedSize,recievedBuffer,
-			pkt1_cmp_succ?"Match":"no Match");
+		       m_sendSize,sentBuffer,receivedSize,recievedBuffer,
+		       pkt1_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -10227,8 +10184,8 @@ public:
 		for(j = 0; j < receivedSize2; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff2[j]);
 		printf("Expected Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n-->Value2 %s\n",
-			m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
-			pkt2_cmp_succ?"Match":"no Match");
+		       m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
+		       pkt2_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -10237,8 +10194,8 @@ public:
 		for(j = 0; j < receivedSize3; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff3[j]);
 		printf("Expected Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n-->Value3 %s\n",
-			m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
-			pkt3_cmp_succ?"Match":"no Match");
+		       m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
+		       pkt3_cmp_succ?"Match":"no Match");
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -10357,8 +10314,8 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table2.hdl; //put here the handle corresponding to Routing Rule 2
 		flt_rule_entry.rule.ttl_update = 0; // doesn't require ttl update
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -10423,12 +10380,9 @@ public:
 		pkt2_cmp_succ = CompareResultVsGolden(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		pkt3_cmp_succ = CompareResultVsGolden(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		pkt1_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize, receivedSize, rxBuff1) : true;
-		pkt2_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize2, receivedSize2, rxBuff2) : true;
-		pkt3_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize3, receivedSize3, rxBuff3) : true;
+		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1, false);
+		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, false);
+		pkt3_cmp_succ &= isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, false);
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
@@ -10450,8 +10404,8 @@ public:
 		for(j = 0; j < receivedSize; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n-->Value1 %s\n",
-			m_sendSize,sentBuffer,receivedSize,recievedBuffer,
-			pkt1_cmp_succ?"Match":"no Match");
+		       m_sendSize,sentBuffer,receivedSize,recievedBuffer,
+		       pkt1_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -10460,8 +10414,8 @@ public:
 		for(j = 0; j < receivedSize2; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff2[j]);
 		printf("Expected Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n-->Value2 %s\n",
-			m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
-			pkt2_cmp_succ?"Match":"no Match");
+		       m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
+		       pkt2_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -10470,8 +10424,8 @@ public:
 		for(j = 0; j < receivedSize3; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff3[j]);
 		printf("Expected Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n-->Value3 %s\n",
-			m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
-			pkt3_cmp_succ?"Match":"no Match");
+		       m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
+		       pkt3_cmp_succ?"Match":"no Match");
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -10589,8 +10543,8 @@ public:
 
 		flt_rule_entry.rule.ttl_update = 0; // doesn't require ttl update
 		if (
-				((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
-				!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
+			((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry)) ||
+			!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())
 			)
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -10654,12 +10608,9 @@ public:
 		pkt2_cmp_succ = CompareResultVsGolden(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		pkt3_cmp_succ = CompareResultVsGolden(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		pkt1_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize, receivedSize, rxBuff1) : true;
-		pkt2_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize2, receivedSize2, rxBuff2) : true;
-		pkt3_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5_wo_status(m_sendSize3, receivedSize3, rxBuff3) : true;
+		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1, false);
+		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, false);
+		pkt3_cmp_succ &= isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, false);
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
@@ -10681,8 +10632,8 @@ public:
 		for(j = 0; j < receivedSize; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff1[j]);
 		printf("Expected Value1 (%zu)\n%s\n, Received Value1(%zu)\n%s\n-->Value1 %s\n",
-			m_sendSize,sentBuffer,receivedSize,recievedBuffer,
-			pkt1_cmp_succ?"Match":"no Match");
+		       m_sendSize,sentBuffer,receivedSize,recievedBuffer,
+		       pkt1_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -10691,8 +10642,8 @@ public:
 		for(j = 0; j < receivedSize2; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff2[j]);
 		printf("Expected Value2 (%zu)\n%s\n, Received Value2(%zu)\n%s\n-->Value2 %s\n",
-			m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
-			pkt2_cmp_succ?"Match":"no Match");
+		       m_sendSize2,sentBuffer,receivedSize2,recievedBuffer,
+		       pkt2_cmp_succ?"Match":"no Match");
 
 		memset(recievedBuffer, 0, recievedBufferSize);
 		memset(sentBuffer, 0, sentBufferSize);
@@ -10701,8 +10652,8 @@ public:
 		for(j = 0; j < receivedSize3; j++)
 			snprintf(&recievedBuffer[3 * j], recievedBufferSize - (3 * j + 1), " %02X", rxBuff3[j]);
 		printf("Expected Value3 (%zu)\n%s\n, Received Value3(%zu)\n%s\n-->Value3 %s\n",
-			m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
-			pkt3_cmp_succ?"Match":"no Match");
+		       m_sendSize3,sentBuffer,receivedSize3,recievedBuffer,
+		       pkt3_cmp_succ?"Match":"no Match");
 
 		delete[] recievedBuffer;
 		delete[] sentBuffer;
@@ -10730,7 +10681,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest118";
 		m_description =
-				"Filtering block test 118 - Filtering Based on fragment extension(IPv4 IS-FRAG equation enhancement)\
+			"Filtering block test 118 - Filtering Based on fragment extension(IPv4 IS-FRAG equation enhancement)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit 3 filtering rules: \
@@ -10974,7 +10925,7 @@ public:
 	{
 		m_name = "IpaFilteringBlockTest119";
 		m_description =
-				"Filtering block test 119 - Filtering Based on fragment extension(IPv6 IS-FRAG equation enhancement)\
+			"Filtering block test 119 - Filtering Based on fragment extension(IPv6 IS-FRAG equation enhancement)\
 		1. Generate and commit three routing tables. \
 			Each table contains a single \"bypass\" rule (all data goes to output pipe 0, 1  and 2 (accordingly)) \
 		2. Generate and commit 3 filtering rules: \

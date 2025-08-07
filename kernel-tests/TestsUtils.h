@@ -654,8 +654,8 @@ struct ipa_ep_cfg_hdr_ext {
 struct ipa_ep_cfg_mode {
 	enum ipa_mode_type mode;
 	enum ipa_client_type dst;
-	bool bearer_ctx_en;
 	bool drbip_en;
+	bool bearer_ctx_en;
 };
 
 struct ipa_ep_cfg_aggr {
@@ -740,6 +740,7 @@ struct ipa_ep_cfg_prod_cfg {
 	uint8_t max_output_size;
 	uint8_t egress_tc_lowest;
 	uint8_t egress_tc_highest;
+	bool error_qmap_en;
 };
 
 /*
