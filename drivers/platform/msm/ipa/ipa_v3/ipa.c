@@ -11333,10 +11333,6 @@ static int ipa_alloc_pkt_init_ex(void)
 	cmd.rt_retain_hdr = true;
 	cmd_mask.rt_retain_hdr = true;
 	cmd_mask.rt_pipe_dest_idx = true;
-	cmd.traffic_mode = 1;
-	cmd_mask.traffic_mode = true;
-	cmd.leading_header_size = 8;
-	cmd_mask.leading_header_size = true;
 	for (cmd.rt_pipe_dest_idx = 0;
 		cmd.rt_pipe_dest_idx < ipa3_ctx->ipa_num_pipes;
 		cmd.rt_pipe_dest_idx++) {
