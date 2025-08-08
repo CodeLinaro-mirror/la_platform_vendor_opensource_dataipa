@@ -1,6 +1,9 @@
 /*
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
 */
 
 #if !defined(_IPA_CT_STATEMACH_H_)
@@ -67,18 +70,20 @@ static inline ipa_cti_state mem_type_str_to_ipa_cti_state(
  * states defined in ipa_nati_state above.
  */
 typedef enum {
-	CTI_TRIG_NULL       =  0,
-	CTI_TRIG_ADD_TABLE  =  1,
-	CTI_TRIG_DEL_TABLE  =  2,
-	CTI_TRIG_CLR_TABLE  =  3,
-	CTI_TRIG_WLK_TABLE  =  4,
-	CTI_TRIG_TBL_STATS  =  5,
-	CTI_TRIG_ADD_RULE   =  6,
-	CTI_TRIG_DEL_RULE   =  7,
-	CTI_TRIG_TBL_SWITCH =  8,
-	CTI_TRIG_GOTO_DDR   =  9,
-	CTI_TRIG_GOTO_SRAM  = 10,
-	CTI_TRIG_GET_TSTAMP = 11,
+	CTI_TRIG_NULL        =  0,
+	CTI_TRIG_ADD_TABLE   =  1,
+	CTI_TRIG_DEL_TABLE   =  2,
+	CTI_TRIG_CLR_TABLE   =  3,
+	CTI_TRIG_WLK_TABLE   =  4,
+	CTI_TRIG_TBL_STATS   =  5,
+	CTI_TRIG_ADD_RULE    =  6,
+	CTI_TRIG_DEL_RULE    =  7,
+	CTI_TRIG_TBL_SWITCH  =  8,
+	CTI_TRIG_GOTO_DDR    =  9,
+	CTI_TRIG_GOTO_SRAM   = 10,
+	CTI_TRIG_GET_TSTAMP  = 11,
+	CTI_TRIG_ADD_RULE_V2 = 12,
+	CTI_TRIG_TSTAMP_FLSH = 13,
 
 	CTI_TRIG_LAST
 } ipa_cti_trigger;

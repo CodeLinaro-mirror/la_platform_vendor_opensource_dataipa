@@ -3622,6 +3622,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_nat_ipv6ct_table_del table_del;
 	struct ipa_ioc_nat_pdn_entry mdfy_pdn;
 	struct ipa_ioc_nat_dma_cmd *table_dma_cmd;
+	struct ipa_ioc_table_write_cmd *table_write_cmd;
 	struct ipa_ioc_get_vlan_mode vlan_mode;
 	struct ipa_ioc_wigig_fst_switch fst_switch;
 	struct ipa_ioc_eogre_info eogre_info;
@@ -3781,6 +3782,35 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			break;
 		}
 		if (ipa3_table_dma_cmd(table_dma_cmd)) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case IPA_IOC_TABLE_WRITE_CMD:
+		table_write_cmd = (struct ipa_ioc_table_write_cmd *)header;
+		if (copy_from_user(header, (const void __user *)arg,
+			sizeof(struct ipa_ioc_table_write_cmd))) {
+			retval = -EFAULT;
+			break;
+		}
+		pre_entry = table_write_cmd->entries;
+		pyld_sz = sizeof(struct ipa_ioc_table_write_cmd) +
+			pre_entry * sizeof(struct ipa_ioc_table_write_one);
+		param = memdup_user((const void __user *)arg, pyld_sz);
+		if (IS_ERR(param)) {
+			retval = PTR_ERR(param);
+			break;
+		}
+		table_write_cmd = (struct ipa_ioc_table_write_cmd *)param;
+		/* add check in case user-space module compromised */
+		if (unlikely(table_write_cmd->entries != pre_entry)) {
+			IPAERR_RL("current %d pre %d\n",
+				table_write_cmd->entries, pre_entry);
+			retval = -EFAULT;
+			break;
+		}
+		if (ipa3_table_write_cmd(table_write_cmd)) {
 			retval = -EFAULT;
 			break;
 		}
@@ -5451,6 +5481,11 @@ send:
 	case IPA_IOC_UPDATE_L2TP_CONFIG:
 		retval = ipa3_update_l2tp_config(arg);
 		break;
+
+	case IPA_IOC_NAT_CT_TIMESTAMP_FLUSH:
+		retval = ipa3_nat_ct_timestamp_flush();
+		break;
+
 	case IPA_IOC_SET_IPTYPE_MTU:
 		if (copy_from_user(&mtu_info, (const void __user *)arg,
 			sizeof(struct ipa_mtu_info))) {

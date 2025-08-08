@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 
@@ -20,7 +21,7 @@
 #include "ipa_test_module_tsp.h"
 #include "ipahal_tsp.h"
 #endif
-#define IPA_MAX_ENTRY_STRING_LEN 500
+#define IPA_MAX_ENTRY_STRING_LEN 2000
 #define IPA_MAX_MSG_LEN 4096
 #define IPA_DBG_MAX_RULE_IN_TBL 128
 #define IPA_DBG_ACTIVE_CLIENT_BUF_SIZE ((IPA3_ACTIVE_CLIENTS_LOG_LINE_LEN \

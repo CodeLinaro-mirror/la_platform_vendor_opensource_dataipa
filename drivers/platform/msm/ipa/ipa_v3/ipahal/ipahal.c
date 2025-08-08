@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include <linux/debugfs.h>
@@ -39,6 +40,7 @@ static const char *ipahal_imm_cmd_name_to_str[IPA_IMM_CMD_MAX] = {
 	__stringify(IPA_IMM_CMD_IP_V6_CT_INIT),
 	__stringify(IPA_IMM_CMD_IP_PACKET_INIT_EX),
 	__stringify(IPA_IMM_CMD_SHAPING_CONTROL),
+	__stringify(IPA_IMM_CMD_TABLE_WRITE),
 };
 
 static const char *ipahal_pkt_status_exception_to_str
@@ -1018,9 +1020,10 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_table_dma_v7_0(
 	data->offset_within_entry = typed_params->offset_within_entry;
 	data->entry_index = typed_params->entry_index;
 	data->data = typed_params->data;
-	data->cache_entry_invalidate = typed_params->cache_entry_invalidate;
-	data->no_dma = typed_params->no_dma;
+	data->cache_entry_evict = typed_params->cache_entry_evict;
+	data->no_write = typed_params->no_write;
 	data->cache_entry_hash_value = typed_params->cache_entry_hash_value;
+	data->write_bitmask = typed_params->write_bitmask;
 
 	return pyld;
 }
@@ -1258,8 +1261,8 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v4_nat_init_v7_0(
 {
 	struct ipahal_imm_cmd_pyld *pyld;
 	struct ipa_imm_cmd_hw_ip_v4_nat_init_v7_0 *data;
-	struct ipahal_imm_cmd_ip_v4_nat_init_v7_0 *nat4_params =
-		(struct ipahal_imm_cmd_ip_v4_nat_init_v7_0 *)params;
+	struct ipahal_imm_cmd_ip_v4_nat_init *nat4_params =
+		(struct ipahal_imm_cmd_ip_v4_nat_init *)params;
 
 	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
 	if (unlikely(!pyld)) {
@@ -1270,18 +1273,22 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v4_nat_init_v7_0(
 	pyld->len = sizeof(*data);
 	data = (struct ipa_imm_cmd_hw_ip_v4_nat_init_v7_0 *)pyld->data;
 
-	data->ipv4_rules_addr = nat4_params->ipv4_rules_addr;
-	data->ipv4_expansion_rules_addr = nat4_params->ipv4_expansion_rules_addr;
+	data->ipv4_rules_addr = nat4_params->table_init.base_table_addr;
+	data->ipv4_expansion_rules_addr =
+		nat4_params->table_init.expansion_table_addr;
 	data->index_table_addr = nat4_params->index_table_addr;
-	data->index_table_expansion_addr = nat4_params->index_table_expansion_addr;
-	data->table_index = nat4_params->table_index;
-	data->ipv4_rules_addr_type = nat4_params->ipv4_rules_addr_type;
-	data->ipv4_expansion_rules_addr_type = nat4_params->ipv4_rules_addr_type;
-	data->index_table_addr_type = nat4_params->index_table_addr_type;
-	data->index_table_expansion_addr_type = nat4_params->index_table_expansion_addr_type;
-	data->size_base_tables = nat4_params->size_base_tables;
-	data->size_expansion_tables = nat4_params->size_expansion_tables;
-	data->pdn_config_base_addr = nat4_params->pdn_config_base_addr;
+	data->index_table_expansion_addr =
+		nat4_params->index_table_expansion_addr;
+	data->table_index = nat4_params->table_init.table_index;
+	data->ipv4_rules_addr_type =
+		nat4_params->table_init.base_table_addr_shared;
+	data->ipv4_expansion_rules_addr_type =
+		nat4_params->table_init.expansion_table_addr_shared;
+	data->index_table_addr_type = nat4_params->index_table_addr_shared;
+	data->index_table_expansion_addr_type =
+		nat4_params->index_table_expansion_addr_shared;
+	data->size_base_tables = nat4_params->table_init.size_base_table & (0xF);
+	data->pdn_config_base_addr = nat4_params->public_addr_info;
 
 	return pyld;
 }
@@ -1321,8 +1328,8 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v6_ct_init_v7_0(
 {
 	struct ipahal_imm_cmd_pyld *pyld;
 	struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 *data;
-	struct ipahal_imm_cmd_ip_v6_ct_init_v7_0 *typed_params =
-		(struct ipahal_imm_cmd_ip_v6_ct_init_v7_0 *)params;
+	struct ipahal_imm_cmd_ip_v6_ct_init *typed_params =
+		(struct ipahal_imm_cmd_ip_v6_ct_init *)params;
 
 	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
 	if (unlikely(!pyld))
@@ -1331,13 +1338,12 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v6_ct_init_v7_0(
 	pyld->len = sizeof(*data);
 	data = (struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 *)pyld->data;
 
-	data->table_addr = typed_params->table_addr;
-	data->expansion_table_addr = typed_params->expansion_table_addr;
-	data->table_index = typed_params->table_index;
-	data->table_addr_type = typed_params->table_addr_type;
-	data->expansion_table_addr_type = typed_params->expansion_table_addr_type;
-	data->size_base_table = typed_params->size_base_table;
-	data->size_expansion_table = typed_params->size_expansion_table;
+	data->table_addr = typed_params->table_init.base_table_addr;
+	data->expansion_table_addr = typed_params->table_init.expansion_table_addr;
+	data->table_index = typed_params->table_init.table_index;
+	data->table_addr_type = typed_params->table_init.base_table_addr_shared ? 1 : 0;
+	data->expansion_table_addr_type = typed_params->table_init.expansion_table_addr_shared ? 1 : 0;
+	data->size_base_table = typed_params->table_init.size_base_table;
 
 	return pyld;
 }
@@ -1663,7 +1669,15 @@ static struct ipahal_imm_cmd_obj
 		ipa_imm_cmd_construct_ip_v4_nat_init_v7_0,
 		ipa_imm_cmd_modify_dummy,
 		5},
+	[IPA_HW_v7_0][IPA_IMM_CMD_NAT_DMA] = {
+		ipa_imm_cmd_construct_dummy,
+		ipa_imm_cmd_modify_dummy,
+		-1},
 	[IPA_HW_v7_0][IPA_IMM_CMD_TABLE_DMA] = {
+		ipa_imm_cmd_construct_dummy,
+		ipa_imm_cmd_modify_dummy,
+		-1},
+	[IPA_HW_v7_0][IPA_IMM_CMD_TABLE_WRITE] = {
 		ipa_imm_cmd_construct_table_dma_v7_0,
 		ipa_imm_cmd_modify_dummy,
 		14},
@@ -1865,6 +1879,78 @@ struct ipahal_imm_cmd_pyld *ipahal_construct_nop_imm_cmd(
 #define IPA_PKT_STATUS_SET_MSK(__hw_bit_msk, __shft) \
 	(status->status_mask |= \
 		((hw_status_mask) & (__hw_bit_msk) ? 1 : 0) << (__shft))
+
+static enum ipahal_pkt_status_exception pkt_status_parse_exception_v7_0(
+	u64 exception)
+{
+	enum ipahal_pkt_status_exception exception_type = 0;
+
+	switch (exception) {
+	case 0:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_NONE;
+		break;
+	case 1:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_DEAGGR;
+		break;
+	case 4:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_IPTYPE;
+		break;
+	case 8:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_PACKET_LENGTH;
+		break;
+	case 9:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_PACKET_THRESHOLD;
+		break;
+	case 10:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_TTL;
+		break;
+	case 16:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_FRAG_RULE_MISS;
+		break;
+	case 28:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_IPV4_CHECKSUM;
+		break;
+	case 32:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_SW_FILT;
+		break;
+	case 64:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_NAT;
+		break;
+	case 66:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_MTU;
+		break;
+	case 128:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_UCP;
+		break;
+	case 129:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_INVALID_PIPE;
+		break;
+	case 131:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_RQOS;
+		break;
+	case 134:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_DECAPS;
+		break;
+	case 135:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_EXCEED_MTU;
+		break;
+	case 136:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_HDRI;
+		break;
+	case 137:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_FRAG_PKT_IPSEC_TRSPT_MODE;
+		break;
+	case 229:
+		exception_type = IPAHAL_PKT_STATUS_EXCEPTION_CSUM;
+		break;
+	default:
+		IPAHAL_ERR("unsupported Status Exception type 0x%x\n",
+			exception);
+		WARN_ON(1);
+	}
+
+	return exception_type;
+}
 
 static enum ipahal_pkt_status_exception pkt_status_parse_exception(
 	bool is_ipv6, u64 exception)
@@ -2149,6 +2235,7 @@ static void ipa_parse_frag_pkt_v7_0(struct ipahal_pkt_status *status, const void
 	status->tbl_idx = hw_status->frag_pkt.tbl_idx;
 	status->src_ip_addr = hw_status->frag_pkt.src_ip_addr;
 	status->dest_ip_addr = hw_status->frag_pkt.dest_ip_addr;
+	/* TODO: Complete the additional fields in sturct */
 }
 
 static void __ipa_parse_gen_pkt_v6_0(struct ipahal_pkt_status *status,
@@ -2219,10 +2306,8 @@ static void __ipa_parse_gen_pkt_v6_0(struct ipahal_pkt_status *status,
 
 static void ipa_parse_gen_pkt_v7_0(struct ipahal_pkt_status *status, const void *unparsed_status)
 {
-	bool is_ipv6;
 	union ipa_pkt_status_hw_v7_0 *hw_status = (union ipa_pkt_status_hw_v7_0 *)unparsed_status;
 
-	is_ipv6 = (hw_status->ipa_pkt.status_mask & 0x80) ? false : true;
 	status->pkt_len = hw_status->ipa_pkt.pkt_len;
 	status->endp_src_idx = hw_status->ipa_pkt.endp_src_idx;
 	status->pure_ack = hw_status->ipa_pkt.pure_ack;
@@ -2233,29 +2318,41 @@ static void ipa_parse_gen_pkt_v7_0(struct ipahal_pkt_status *status, const void 
 	status->protocol_encoding = hw_status->ipa_pkt.protocol_encoding;
 	status->metadata = hw_status->ipa_pkt.metadata;
 	status->flt_local = hw_status->ipa_pkt.flt_local;
+	status->flt_hash = hw_status->ipa_pkt.flt_cache_hit;
+	status->ucp = hw_status->ipa_pkt.ucp;
 	status->flt_ret_hdr = hw_status->ipa_pkt.flt_ret_hdr;
 	status->flt_rule_id = hw_status->ipa_pkt.flt_rule_id;
-	status->flt_miss = (hw_status->ipa_pkt.rt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
 	status->rt_tbl_idx = hw_status->ipa_pkt.rt_tbl_idx;
 	status->rt_rule_id = hw_status->ipa_pkt.rt_rule_id;
-	status->rt_miss = (hw_status->ipa_pkt.rt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
 	status->nat_entry_idx = hw_status->ipa_pkt.nat_entry_idx;
-	status->nat_type = hw_status->ipa_pkt.nat_type;
 	status->tag_info = hw_status->ipa_pkt.tag_info;
 	status->seq_num = hw_status->ipa_pkt.seq_num;
 	status->time_of_day_ctr = hw_status->ipa_pkt.time_of_day_ctr;
 	status->hdr_offset = hw_status->ipa_pkt.hdr_offset;
-	status->frag_hit = hw_status->ipa_pkt.frag_hit;
-	status->frag_rule = hw_status->ipa_pkt.frag_rule;
-	status->endp_dest_idx = hw_status->ipa_pkt.endp_dest_idx;
-	status->nat_exc_suppress = hw_status->ipa_pkt.nat_exc_suppress;
+	status->hdr_local = hw_status->ipa_pkt.hdr_in_sys;
+	status->hpc = hw_status->ipa_pkt.hpc;
 	status->ttl_dec = hw_status->ipa_pkt.ttl_dec;
-	status->ucp = hw_status->ipa_pkt.ucp;
+	status->frag_hit = hw_status->ipa_pkt.frag_hit;
+	status->packet_type.non_dma = IPAHAL_PKT_STATUS_PACKET_TYPE_NON_DMA(hw_status->ipa_pkt.packet_type);
+	status->packet_type.no_eth = IPAHAL_PKT_STATUS_PACKET_TYPE_NO_ETH(hw_status->ipa_pkt.packet_type);
+	status->packet_type.ip_type = IPAHAL_PKT_STATUS_PACKET_TYPE_IP_TYPE(hw_status->ipa_pkt.packet_type);
+	status->endp_dest_idx = hw_status->ipa_pkt.endp_dest_idx;
 	status->egress_tc = hw_status->ipa_pkt.ergress_traffic_class;
 	status->ingress_tc = hw_status->ipa_pkt.ingress_traffic_class;
+	status->nat_hit = hw_status->ipa_pkt.nat_hit;
+	status->nat_type = hw_status->ipa_pkt.nat_type;
+	status->nat_cache_hit = hw_status->ipa_pkt.nat_cache_hit;
+	status->nat_or_ct = hw_status->ipa_pkt.nat_or_ct;
+	status->nat_exc_suppress = hw_status->ipa_pkt.nat_exc_suppress;
+	status->num_vlan_tags = hw_status->ipa_pkt.num_vlan_tags;
 	status->flt_tbl_idx = hw_status->ipa_pkt.flt_table_idx;
+	status->frag_rule = hw_status->ipa_pkt.frag_rule;
+	status->metadata_origin = hw_status->ipa_pkt.metadata_origin;
+	
+	status->flt_miss = (hw_status->ipa_pkt.flt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
+	status->rt_miss = (hw_status->ipa_pkt.rt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
 
-	status->exception = pkt_status_parse_exception(is_ipv6, hw_status->ipa_pkt.exception);
+	status->exception = pkt_status_parse_exception_v7_0(hw_status->ipa_pkt.exception);
 }
 
 static void ipa_pkt_status_parse(
@@ -2667,13 +2764,12 @@ static void ipa_pkt_status_parse_thin_v7_0(const void *unparsed_status,
 	struct ipahal_pkt_status_thin *status)
 {
 	union ipa_pkt_status_hw_v7_0 *hw_status = (union ipa_pkt_status_hw_v7_0 *)unparsed_status;
-	bool is_ipv6 = (hw_status->ipa_pkt.status_mask & 0x80) ? false : true;
 
 	IPAHAL_DBG_LOW("Parse Thin Status Packet\n");
 	status->metadata = hw_status->ipa_pkt.metadata;
 	status->endp_src_idx = hw_status->ipa_pkt.endp_src_idx;
 	status->ucp = hw_status->ipa_pkt.ucp;
-	status->exception = pkt_status_parse_exception(is_ipv6, hw_status->ipa_pkt.exception);
+	status->exception = pkt_status_parse_exception_v7_0(hw_status->ipa_pkt.exception);
 }
 
 /*

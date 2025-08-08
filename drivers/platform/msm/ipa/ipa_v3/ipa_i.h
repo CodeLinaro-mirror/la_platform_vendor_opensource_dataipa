@@ -3365,6 +3365,7 @@ void start_coalescing( void );
 void stop_coalescing( void );
 bool lan_coal_enabled( void );
 int ipa3_ct_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
+int ipa3_nat_ct_timestamp_flush( void );
 
 /*
  * Messaging

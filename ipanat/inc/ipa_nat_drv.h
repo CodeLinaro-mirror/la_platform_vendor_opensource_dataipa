@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 #ifndef IPA_NAT_DRV_H
 #define IPA_NAT_DRV_H
@@ -38,6 +41,102 @@
  * ipa_nat_is_sram_supported() - Reports if sram is available for use
  */
 bool ipa_nat_is_sram_supported(void);
+
+/**
+ * struct ipa_nat_ipv4_rule_v2 - To hold ipv4 nat rule v2
+ * @target_ip: destination ip address
+ * @private_ip: private ip address
+ * @target_port: destination port
+ * @private_port: private port
+ * @protocol: protocol of rule (tcp/udp)
+ * @pdn_index: PDN index in the PDN config table
+ * @redirect: used internally by various API calls
+ * @enable: used internally by various API calls
+ * @time_stamp: used internally by various API calls
+ * @uc_activation_index: index pointing to uc activation table
+ * @s: bit indication to use the system or local (1 or 0) addr for above table
+ * @ucp: enable uc processing
+ * @dst_only: construct NAT for DL only
+ * @src_only: construct NAT for UL only
+ * @out_redirect: enable out redirect
+ * @in_redirect: enable in redirect
+ * @conn_tracking: indicates NAT or CT
+ * @all_pkts_stats_cnt_index: All packets stats counter index
+ * @non_frag_stats_cnt_index: Non frag stats counter index
+ * @sw_prod_classification_cookie: SW producer classification cookie
+ * @out_allowed: enable out allowed
+ * @in_allowed: enable in allowed
+ */
+typedef struct {
+	uint32_t target_ip;
+	uint32_t private_ip;
+	uint16_t target_port;
+	uint16_t private_port;
+	uint16_t public_port;
+	uint8_t  protocol;
+	uint8_t  pdn_index;
+	uint8_t  enable;
+	uint32_t time_stamp;
+	uint16_t uc_activation_index;
+	bool s;
+	bool ucp;
+	bool dst_only;
+	bool src_only;
+
+    /* IPAv7 Fields*/
+    bool out_redirect;
+    bool in_redirect;
+    bool conn_tracking;
+    uint16_t all_pkts_stats_cnt_index;
+    uint16_t non_frag_stats_cnt_index;
+    uint32_t sw_prod_classification_cookie;
+	bool out_allowed;
+	bool in_allowed;
+
+} ipa_nat_ipv4_rule_v2;
+
+static inline char* prep_nat_ipv4_rule_4print_v2(
+	ipa_nat_ipv4_rule_v2* rule_ptr,
+	char*              buf_ptr,
+	uint32_t           buf_sz )
+{
+	if ( rule_ptr && buf_ptr && buf_sz )
+	{
+		snprintf(
+			buf_ptr, buf_sz,
+			"IPV4 RULE: "
+			"protocol(0x%02X) "
+			"public_port(0x%04X) "
+			"target_ip(0x%08X) "
+			"target_port(0x%04X) "
+			"private_ip(0x%08X) "
+			"private_port(0x%04X) "
+			"dst_only(0x%01X)"
+			"src_only(0x%01X)"
+			"pdn_index(0x%02X)"
+			"conn_tracking(0x%02X) "
+			"non_frag_stats_cnt_index(0x%04X) "
+			"all_pkts_stats_cnt_index(0x%04X) "
+			"out_allowed(0x%01X) "
+			"in_allowed(0x%01X) ",
+			rule_ptr->protocol,
+			rule_ptr->public_port,
+			rule_ptr->target_ip,
+			rule_ptr->target_port,
+			rule_ptr->private_ip,
+			rule_ptr->private_port,
+			rule_ptr->dst_only,
+			rule_ptr->src_only,
+			rule_ptr->pdn_index,
+			rule_ptr->conn_tracking,
+			rule_ptr->non_frag_stats_cnt_index,
+			rule_ptr->all_pkts_stats_cnt_index,
+			rule_ptr->out_allowed,
+			rule_ptr->in_allowed );
+	}
+
+	return buf_ptr;
+}
 
 /**
  * struct ipa_nat_ipv4_rule - To hold ipv4 nat rule
@@ -142,6 +241,20 @@ int ipa_nat_add_ipv4_tbl(
  * Returns:	0  On Success, negative on failure
  */
 int ipa_nat_del_ipv4_tbl(uint32_t tbl_hdl);
+
+/**
+ * ipa_nat_add_ipv4_rule_v2() - to insert new ipv4 rule
+ * @tbl_hdl: [in] handle of ipv4 nat table
+ * @clnt_rule: [in]  Pointer to new rule
+ * @rule_hdl: [out] Return the handle to rule
+ *
+ * To insert new ipv4 nat rule into ipv4 nat table
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_nat_add_ipv4_rule_v2(uint32_t tbl_hdl,
+				const ipa_nat_ipv4_rule_v2 * clnt_rule,
+				uint32_t *rule_hdl);
 
 /**
  * ipa_nat_add_ipv4_rule() - to insert new ipv4 rule
@@ -267,6 +380,16 @@ int ipa_nat_vote_clock(
 int ipa_nat_switch_to(
 	enum ipa3_nat_mem_in nmi,
 	bool                 hold_state );
+
+/**
+ * ipa_nat_timestamp_flush() - HW timestamp flash update
+ * @tbl_hdl: [in] handle of ipv4 nat table
+ *
+ * To flush timestamp from cache to DDR for all active NAT entries in cache
+ *
+ * Returns:	0  On Success, negative on failure
+ */
+int ipa_nat_timestamp_flush(uint32_t tbl_hdl);
 
 #endif
 

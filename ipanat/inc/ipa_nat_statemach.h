@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 #if !defined(_IPA_NAT_STATEMACH_H_)
 # define _IPA_NAT_STATEMACH_H_
@@ -91,19 +94,20 @@ static inline ipa_nati_state mem_type_str_to_ipa_nati_state(
  * states defined in ipa_nati_state above.
  */
 typedef enum {
-	NATI_TRIG_NULL       =  0,
-	NATI_TRIG_ADD_TABLE  =  1,
-	NATI_TRIG_DEL_TABLE  =  2,
-	NATI_TRIG_CLR_TABLE  =  3,
-	NATI_TRIG_WLK_TABLE  =  4,
-	NATI_TRIG_TBL_STATS  =  5,
-	NATI_TRIG_ADD_RULE   =  6,
-	NATI_TRIG_DEL_RULE   =  7,
-	NATI_TRIG_TBL_SWITCH =  8,
-	NATI_TRIG_GOTO_DDR   =  9,
-	NATI_TRIG_GOTO_SRAM  = 10,
-	NATI_TRIG_GET_TSTAMP = 11,
-
+	NATI_TRIG_NULL        =  0,
+	NATI_TRIG_ADD_TABLE   =  1,
+	NATI_TRIG_DEL_TABLE   =  2,
+	NATI_TRIG_CLR_TABLE   =  3,
+	NATI_TRIG_WLK_TABLE   =  4,
+	NATI_TRIG_TBL_STATS   =  5,
+	NATI_TRIG_ADD_RULE    =  6,
+	NATI_TRIG_DEL_RULE    =  7,
+	NATI_TRIG_TBL_SWITCH  =  8,
+	NATI_TRIG_GOTO_DDR    =  9,
+	NATI_TRIG_GOTO_SRAM   = 10,
+	NATI_TRIG_GET_TSTAMP  = 11,
+	NATI_TRIG_ADD_RULE_V2 = 12,
+	NATI_TRIG_TSTAMP_FLSH = 13,
 	NATI_TRIG_LAST
 } ipa_nati_trigger;
 

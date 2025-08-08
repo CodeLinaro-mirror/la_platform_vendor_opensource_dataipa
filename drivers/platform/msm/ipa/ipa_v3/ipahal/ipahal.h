@@ -36,6 +36,7 @@ enum ipahal_imm_cmd_name {
 	IPA_IMM_CMD_IP_V6_CT_INIT,
 	IPA_IMM_CMD_IP_PACKET_INIT_EX,
 	IPA_IMM_CMD_SHAPING_CONTROL,
+	IPA_IMM_CMD_TABLE_WRITE,
 	IPA_IMM_CMD_MAX,
 };
 
@@ -132,40 +133,6 @@ struct ipahal_imm_cmd_ip_v4_nat_init {
 };
 
 /*
- * struct ipahal_imm_cmd_ip_v4_nat_init_v7_0 - IP_V4_NAT_INIT cmd payload
- * Inits IPv4 NAT block. Initiate NAT table with it dimensions, location
- *  cache address and other related parameters.
- * @ipv4_rules_addr: table initialization parameters
- * @ipv4_expansion_rules_addr: table initialization parameters
- * @index_table_addr: Addr in sys/shared mem where index table, which points
- *  to NAT table starts
- * @index_table_expansion_addr: Addr in sys/shared mem where expansion index
- *  table starts
- * @table_index:
- * @ipv4_rules_addr_type:
- * @ipv4_expansion_rules_addr_type:
- * @index_table_addr_type:
- * @index_table_expansion_addr_type:
- * @size_base_tables:
- * @size_expansion_tables:
- * @pdn_config_base_addr:
- */
-struct ipahal_imm_cmd_ip_v4_nat_init_v7_0 {
-	u64 ipv4_rules_addr;
-	u64 ipv4_expansion_rules_addr;
-	u64 index_table_addr;
-	u64 index_table_expansion_addr;
-	u8 table_index;
-	bool ipv4_rules_addr_type;
-	bool ipv4_expansion_rules_addr_type;
-	bool index_table_addr_type;
-	bool index_table_expansion_addr_type;
-	u32 size_base_tables;
-	u16 size_expansion_tables;
-	u32 pdn_config_base_addr;
-};
-
-/*
  * struct ipahal_imm_cmd_ip_v6_ct_init - IP_V6_CONN_TRACK_INIT cmd payload
  * Inits IPv6CT block. Initiate IPv6CT table with it dimensions, location
  *  cache address and other related parameters.
@@ -173,28 +140,6 @@ struct ipahal_imm_cmd_ip_v4_nat_init_v7_0 {
  */
 struct ipahal_imm_cmd_ip_v6_ct_init {
 	struct ipahal_imm_cmd_nat_ipv6ct_init_common table_init;
-};
-
-/*
- * struct ipahal_imm_cmd_ip_v6_ct_init_v7_0 - IP_V6_CONN_TRACK_INIT cmd payload
- * Inits IPv6CT block. Initiate IPv6CT table with it dimensions, location
- *  cache address and other related parameters.
- * @table_addr: Addr of IPv6CT table start
- * @expansion_table_addr: Addr of IPv6CT expansion table start
- * @table_index:
- * @table_addr_type:
- * @expansion_table_addr_type:
- * @size_base_table:
- * @size_expansion_table:
- */
-struct ipahal_imm_cmd_ip_v6_ct_init_v7_0 {
-	u64 table_addr;
-	u64 expansion_table_addr;
-	u8 table_index;
-	bool table_addr_type;
-	bool expansion_table_addr_type;
-	u8 size_base_table;
-	u16 size_expansion_table;
 };
 
 /*
@@ -284,10 +229,11 @@ struct ipahal_imm_cmd_table_dma_v7_0 {
     u8 table_Select;
     u8 offset_within_entry;
     u16 entry_index;
-    u8 data;
-    bool cache_entry_invalidate;
-    bool no_dma;
+    u16 data;
+    bool cache_entry_evict;
+    bool no_write;
     u16 cache_entry_hash_value;
+    u16 write_bitmask;
 };
 
 /*
@@ -639,12 +585,14 @@ enum ipahal_pkt_status_exception {
 	 */
 	IPAHAL_PKT_STATUS_EXCEPTION_NAT,
 	IPAHAL_PKT_STATUS_EXCEPTION_IPV6CT,
+	IPAHAL_PKT_STATUS_EXCEPTION_MTU,
 	IPAHAL_PKT_STATUS_EXCEPTION_UCP,
 	IPAHAL_PKT_STATUS_EXCEPTION_INVALID_PIPE,
 	IPAHAL_PKT_STATUS_EXCEPTION_RQOS,
 	IPAHAL_PKT_STATUS_EXCEPTION_DECAPS,
 	IPAHAL_PKT_STATUS_EXCEPTION_EXCEED_MTU,
 	IPAHAL_PKT_STATUS_EXCEPTION_HDRI,
+	IPAHAL_PKT_STATUS_EXCEPTION_FRAG_PKT_IPSEC_TRSPT_MODE,
 	IPAHAL_PKT_STATUS_EXCEPTION_CSUM,
 	IPAHAL_PKT_STATUS_EXCEPTION_MAX,
 };
@@ -719,6 +667,18 @@ enum ipahal_pkt_status_nat_type {
 	IPAHAL_PKT_STATUS_NAT_NONE,
 	IPAHAL_PKT_STATUS_NAT_SRC,
 	IPAHAL_PKT_STATUS_NAT_DST,
+};
+
+/*
+ * struct ipahal_pkt_status_packet_type - Type of Packet
+ * @non_dma: 0 - DMA, 1 - Non-DMA
+ * @no_eth: 0 - ETH header, 1 - No ETH header
+ * @ip_type: 0 - Undetermined, 1 - IPv4, 2 - IPv6, 3 - Non-IP
+ */
+struct ipahal_pkt_status_packet_type {
+	bool non_dma;
+	bool no_eth;
+	uint8_t ip_type;
 };
 
 /*
@@ -849,6 +809,12 @@ struct ipahal_pkt_status {
 	bool syn;
 	bool fin_rst;
 	u8 protocol_encoding;
+	u8 hpc;
+	struct ipahal_pkt_status_packet_type packet_type;
+	bool nat_cache_hit;
+	bool nat_or_ct;
+	u8 num_vlan_tags;
+	u8 metadata_origin;
 };
 
 /*

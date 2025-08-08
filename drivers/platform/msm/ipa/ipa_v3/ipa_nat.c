@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include <linux/device.h>
@@ -36,9 +37,10 @@
 
 #define IPA_NAT_IPV6CT_TEMP_MEM_SIZE 128
 
-#define IPA_NAT_MAX_NUM_OF_INIT_CMD_DESC 4
-#define IPA_IPV6CT_MAX_NUM_OF_INIT_CMD_DESC 3
+#define IPA_NAT_MAX_NUM_OF_INIT_CMD_DESC 5
+#define IPA_IPV6CT_MAX_NUM_OF_INIT_CMD_DESC 4
 #define IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC 5
+#define IPA_MAX_NUM_OF_TABLE_WRITE_CMD_DESC IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC
 
 /*
  * The base table max entries is limited by index into table 13 bits number.
@@ -49,6 +51,21 @@
 
 #define IPA_VALID_TBL_INDEX(ti) \
 	((ti) == 0)
+
+#define IPA_NAT_AND_CT_CACHE_FLUSH_DONE_MASK (0x1)
+#define IPA_NAT_CACHE_FLUSH_DONE(x) \
+	((x & IPA_NAT_AND_CT_CACHE_FLUSH_DONE_MASK) == IPA_NAT_AND_CT_CACHE_FLUSH_DONE_MASK)
+
+#define IPA_NAT_AND_CT_CACHE_TS_DB_FLUSH_DONE_MASK (0x2)
+#define IPA_NAT_CACHE_TS_DB_FLUSH_DONE(x) \
+	((x & IPA_NAT_AND_CT_CACHE_TS_DB_FLUSH_DONE_MASK) == IPA_NAT_AND_CT_CACHE_TS_DB_FLUSH_DONE_MASK)
+
+enum ipa_nat_ipv6ct_table_type_v7_0
+{
+	IPA_NAT_BASE_TBL_v7_0 = 0,
+	IPA_NAT_INDX_TBL_v7_0 = 1,
+	IPA_IPV6CT_BASE_TBL_v7_0 = 2,
+};
 
 enum ipa_nat_ipv6ct_table_type {
 	IPA_NAT_BASE_TBL = 0,
@@ -562,6 +579,13 @@ int ipa3_nat_ipv6ct_init_devices(void)
 		IPAERR("unable to create IPv6CT device\n");
 		result = -ENODEV;
 		goto fail_init_ipv6ct_dev;
+	}
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		/* Write to IPA_NAT_AND_CONN_TRACK_CFG register */
+		ipahal_write_reg_mask(IPA_NAT_AND_CONN_TRACK_CFG, 0x1, 0x3);
+		usleep_range(1000, 2000);
+		IPAERR("IPA_NAT_AND_CONN_TRACK_CFG = %X\n", ipahal_read_reg(IPA_NAT_AND_CONN_TRACK_CFG));
 	}
 
 	return 0;
@@ -1109,6 +1133,23 @@ static inline void ipa3_nat_ipv6ct_create_init_cmd(
 	table_init_cmd->size_expansion_table = expn_table_entries;
 	IPADBG("%s expansion table size:0x%x\n",
 		table_name, expn_table_entries);
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		/* NAT Driver sends table size in entries minus 1.
+		Since in IPAv7 this field was changed to hold
+		the power of 2 of the entries, we add 1. */
+		table_init_cmd->size_base_table = ilog2(table_entries + 1);
+		IPADBG("%s base table size:0x%x, base table size power of 2:%d\n",
+		       table_name, table_entries + 1,
+		       table_init_cmd->size_base_table);
+	} else {
+		table_init_cmd->size_base_table = table_entries;
+		IPADBG("%s base table size:0x%x\n", table_name, table_entries);
+
+		table_init_cmd->size_expansion_table = expn_table_entries;
+		IPADBG("%s expansion table size:0x%x\n", table_name,
+		       expn_table_entries);
+	}
 }
 
 static inline bool chk_sram_offset_alignment(
@@ -1367,6 +1408,7 @@ static int ipa3_nat_send_init_cmd(struct ipahal_imm_cmd_ip_v4_nat_init *cmd,
 	int i, num_cmd = 0, result;
 	struct ipahal_reg_valmask valmask;
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	uint32_t cache_flush_done = 0;
 
 	IPADBG("\n");
 
@@ -1455,10 +1497,52 @@ static int ipa3_nat_send_init_cmd(struct ipahal_imm_cmd_ip_v4_nat_init *cmd,
 		IPADBG("added PDN table copy cmd\n");
 	}
 
+	/* Register Write IC to flush NAT cache */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		struct ipahal_imm_cmd_register_write reg_write_cmd = {0};
+
+		reg_write_cmd.offset = ipahal_get_reg_ofst(
+				IPA_NAT_AND_CONNECTION_TRACKING_CACHE_FLUSH);
+		reg_write_cmd.skip_pipeline_clear = false;
+		reg_write_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
+		reg_write_cmd.value = 0x1;
+		reg_write_cmd.value_mask = 0x1;
+		
+		cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(
+				IPA_IMM_CMD_REGISTER_WRITE, &reg_write_cmd, false);
+		if (!cmd_pyld[num_cmd]) {
+			IPAERR(
+			"fail construct register_write imm cmd\n");
+			result = -ENOMEM;
+			goto destroy_imm_cmd;
+		}
+		ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
+		++num_cmd;
+		IPADBG("Added Register Write IC to flush NAT cache\n");
+	}
+
 	result = ipa3_send_cmd(num_cmd, desc);
 	if (result) {
 		IPAERR("fail to send NAT init immediate command\n");
+		result = -ENOMEM;
 		goto destroy_imm_cmd;
+	}
+
+	/* Poll IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS, bit 0 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		uint8_t count = 0;
+		do {
+			usleep_range(50, 100);
+			cache_flush_done = ipahal_read_reg(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS);
+			IPADBG("Cache flush yet to be completed, cache_flush_done: %d, count: %d\n", cache_flush_done, count);
+			count++;
+		} while ((count < 20) && (IPA_NAT_CACHE_FLUSH_DONE(cache_flush_done) == false));
+
+		if (count > 20) {
+			IPAERR("Fail to read IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS \n");
+			result = -ENOMEM;
+			goto destroy_imm_cmd;
+		}
 	}
 
 	IPADBG("return\n");
@@ -1478,6 +1562,7 @@ static int ipa3_ipv6ct_send_init_cmd(struct ipahal_imm_cmd_ip_v6_ct_init *cmd)
 	int i, num_cmd = 0, result;
 	struct ipahal_reg_valmask valmask;
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	uint32_t cache_flush_done = 0;
 
 	IPADBG("\n");
 
@@ -1542,10 +1627,51 @@ static int ipa3_ipv6ct_send_init_cmd(struct ipahal_imm_cmd_ip_v6_ct_init *cmd)
 	ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
 	++num_cmd;
 
+	/* Register Write IC to flush NAT cache */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		struct ipahal_imm_cmd_register_write reg_write_cmd = {0};
+
+		reg_write_cmd.offset = ipahal_get_reg_ofst(
+				IPA_NAT_AND_CONNECTION_TRACKING_CACHE_FLUSH);
+		reg_write_cmd.skip_pipeline_clear = false;
+		reg_write_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
+		reg_write_cmd.value = 0x1;
+		reg_write_cmd.value_mask = 0x1;
+		
+		cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(
+				IPA_IMM_CMD_REGISTER_WRITE, &reg_write_cmd, false);
+		if (!cmd_pyld[num_cmd]) {
+			IPAERR(
+			"fail construct register_write imm cmd\n");
+			result = -ENOMEM;
+			goto destroy_imm_cmd;
+		}
+		ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
+		++num_cmd;
+		IPADBG("Added Register Write IC to flush NAT cache\n");
+	}
+
 	result = ipa3_send_cmd(num_cmd, desc);
 	if (result) {
 		IPAERR("Fail to send IPv6CT init immediate command\n");
 		goto destroy_imm_cmd;
+	}
+
+	/* Poll IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS, bit 0 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		uint8_t count = 0;
+		do {
+			usleep_range(50, 100);
+			cache_flush_done = ipahal_read_reg(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS);
+			IPADBG("Cache flush yet to be completed,cache_flush_done: %d, count: %d\n", cache_flush_done, count);
+			count++;
+		} while ((count < 20) && (IPA_NAT_CACHE_FLUSH_DONE(cache_flush_done) == false));
+
+		if (count > 20) {
+			IPAERR("Fail to read IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS \n");
+			result = -ENOMEM;
+			goto destroy_imm_cmd;
+		}
 	}
 
 	IPADBG("return\n");
@@ -2010,6 +2136,41 @@ bail:
 	return result;
 }
 
+static uint32_t ipa3_nat_ipv6ct_calculate_table_size_v7_0(
+	enum ipa3_nat_mem_in nmi,
+	uint8_t base_addr)
+{
+	size_t entry_size;
+	u32 num_entries;
+	enum ipahal_nat_type nat_type;
+	struct ipa3_nat_mem_loc_data *mld_ptr = &ipa3_ctx->nat_mem.mem_loc[nmi];
+	struct ipa3_ct_mem_loc_data *ct_mld_ptr = &ipa3_ctx->ipv6ct_mem.mem_loc[nmi];
+
+	switch (base_addr) {
+	case IPA_NAT_BASE_TBL_v7_0:
+		num_entries = mld_ptr->table_entries + 1;
+		nat_type = IPAHAL_NAT_IPV4;
+		break;
+	case IPA_NAT_INDX_TBL_v7_0:
+		num_entries = mld_ptr->table_entries + 1;
+		nat_type = IPAHAL_NAT_IPV4_INDEX;
+		break;
+	case IPA_IPV6CT_BASE_TBL_v7_0:
+		num_entries = ct_mld_ptr->table_entries + 1;
+		nat_type = IPAHAL_NAT_IPV6CT;
+		IPADBG("ipv6ct base num_ent : %d\n", num_entries);
+		break;
+	default:
+		IPAERR_RL("Invalid base_addr %d for table DMA command\n",
+			base_addr);
+		return 0;
+	}
+
+	ipahal_nat_entry_size(nat_type, &entry_size);
+
+	return entry_size * num_entries;
+}
+
 static uint32_t ipa3_nat_ipv6ct_calculate_table_size(
 	enum ipa3_nat_mem_in nmi,
 	uint8_t base_addr)
@@ -2059,6 +2220,58 @@ static uint32_t ipa3_nat_ipv6ct_calculate_table_size(
 	return entry_size * num_entries;
 }
 
+static int ipa3_table_validate_table_write_one(
+	enum ipa3_nat_mem_in        nmi,
+	struct ipa_ioc_table_write_one *param)
+{
+	uint32_t table_size;
+
+	if (param->table_index >= 1) {
+		IPAERR_RL("Unsupported table index %u\n", param->table_index);
+		return -EPERM;
+	}
+
+	switch (param->table_Select){
+	case IPA_NAT_BASE_TBL_v7_0:
+	case IPA_NAT_INDX_TBL_v7_0:
+		if (!ipa3_ctx->nat_mem.dev.is_hw_init) {
+			IPAERR_RL("attempt to write to %s before HW int\n",
+				ipa3_ctx->nat_mem.dev.name);
+			return -EPERM;
+		}
+		IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
+		break;
+	case IPA_IPV6CT_BASE_TBL_v7_0:
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0) {
+			IPAERR_RL("IPv6 connection tracking isn't supported\n");
+			return -EPERM;
+		}
+
+		if (!ipa3_ctx->ipv6ct_mem.dev.is_hw_init) {
+			IPAERR_RL("attempt to write to %s before HW int\n",
+				ipa3_ctx->ipv6ct_mem.dev.name);
+			return -EPERM;
+		}
+		break;
+	default:
+		IPAERR_RL("Invalid table_Select %d for table Write command\n",
+			param->table_Select);
+		return -EPERM;
+	}
+ 
+	table_size = ipa3_nat_ipv6ct_calculate_table_size_v7_0(
+		nmi,
+		param->table_Select);
+
+	if (!table_size) {
+		IPAERR_RL("Failed to calculate table size for table_Select %d\n",
+				  param->table_Select);
+		return -EPERM;
+	}
+
+	return 0;
+}
+
 static int ipa3_table_validate_table_dma_one(
 	enum ipa3_nat_mem_in        nmi,
 	struct ipa_ioc_nat_dma_one *param)
@@ -2070,7 +2283,7 @@ static int ipa3_table_validate_table_dma_one(
 		return -EPERM;
 	}
 
-	switch (param->base_addr) {
+	switch ((enum ipa_nat_ipv6ct_table_type)param->base_addr) {
 	case IPA_NAT_BASE_TBL:
 	case IPA_NAT_EXPN_TBL:
 	case IPA_NAT_INDX_TBL:
@@ -2122,6 +2335,169 @@ static int ipa3_table_validate_table_dma_one(
 	return 0;
 }
 
+int ipa3_table_write_cmd(
+	struct ipa_ioc_table_write_cmd* dma)
+{
+	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->nat_mem.dev;
+
+	enum ipahal_imm_cmd_name cmd_name = IPA_IMM_CMD_TABLE_WRITE;
+
+	struct ipahal_imm_cmd_table_dma_v7_0 cmd;
+	struct ipahal_imm_cmd_pyld *cmd_pyld[IPA_MAX_NUM_OF_TABLE_WRITE_CMD_DESC];
+	struct ipa3_desc desc[IPA_MAX_NUM_OF_TABLE_WRITE_CMD_DESC];
+
+	uint8_t cnt, num_cmd = 0;
+
+	int result = 0;
+	int i;
+	struct ipahal_reg_valmask valmask;
+	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	int max_dma_table_cmds = IPA_MAX_NUM_OF_TABLE_WRITE_CMD_DESC;
+
+	IPADBG("In\n");
+
+	if (dma == NULL) {
+		IPAERR("dma null ptr\n");
+		result = -EINVAL;
+		goto bail;
+	}
+
+	if (!sram_compatible)
+		dma->mem_type = 0;
+
+	if (!dev->is_dev_init) {
+		IPAERR_RL("NAT hasn't been initialized\n");
+		result = -EPERM;
+		goto bail;
+	}
+
+	if (!IPA_VALID_NAT_MEM_IN(dma->mem_type)) {
+		IPAERR_RL("Invalid ipa3_nat_mem_in type (%u)\n",
+				  dma->mem_type);
+		result = -EPERM;
+		goto bail;
+	}
+
+	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(dma->mem_type));
+
+	memset(&cmd, 0, sizeof(cmd));
+	memset(cmd_pyld, 0, sizeof(cmd_pyld));
+	memset(desc, 0, sizeof(desc));
+
+	/**
+	 * We use a descriptor for closing coalsceing endpoint
+	 * by immediate command. So, DMA entries should be less than
+	 * IPA_MAX_NUM_OF_TABLE_WRITE_CMD_DESC - 1 to overcome
+	 * buffer overflow of ipa3_desc array.
+	 */
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1)
+		max_dma_table_cmds -= 1;
+
+	if (!dma->entries || dma->entries > (max_dma_table_cmds - 1)) {
+		IPAERR_RL("Invalid number of entries %d\n",
+			dma->entries);
+		result = -EPERM;
+		goto bail;
+	}
+
+	for (cnt = 0; cnt < dma->entries; ++cnt) {
+
+		result = ipa3_table_validate_table_write_one(
+			dma->mem_type, &dma->dma[cnt]);
+
+		if (result) {
+			IPAERR_RL("Table DMA command parameter %d is invalid\n",
+					  cnt);
+			goto bail;
+		}
+	}
+
+	/* IC to close the coal frame before HPS Clear if coal is enabled */
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+		&& !ipa3_ctx->ulso_wa) {
+		u32 offset = 0;
+
+		i = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
+		reg_write_coal_close.skip_pipeline_clear = false;
+		reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
+			offset = ipahal_get_reg_ofst(
+				IPA_AGGR_FORCE_CLOSE);
+		else
+			offset = ipahal_get_ep_reg_offset(
+				IPA_AGGR_FORCE_CLOSE_n, i);
+		reg_write_coal_close.offset = offset;
+		ipahal_get_aggr_force_close_valmask(i, &valmask);
+		reg_write_coal_close.value = valmask.val;
+		reg_write_coal_close.value_mask = valmask.mask;
+		cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(
+			IPA_IMM_CMD_REGISTER_WRITE,
+			&reg_write_coal_close, false);
+		if (!cmd_pyld[num_cmd]) {
+			IPAERR("failed to construct coal close IC\n");
+			result = -ENOMEM;
+			goto destroy_imm_cmd;
+		}
+		ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
+		++num_cmd;
+	}
+
+	/*
+	 * NO-OP IC for ensuring that IPA pipeline is empty
+	 */
+	cmd_pyld[num_cmd] =
+		ipahal_construct_nop_imm_cmd(false, IPAHAL_HPS_CLEAR, false);
+
+	if (!cmd_pyld[num_cmd]) {
+		IPAERR("Failed to construct NOP imm cmd\n");
+		result = -ENOMEM;
+		goto destroy_imm_cmd;
+	}
+
+	ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
+
+	++num_cmd;
+
+	for (cnt = 0; cnt < dma->entries; ++cnt) {
+
+		cmd.table_index            = dma->dma[cnt].table_index;
+		cmd.table_Select           = dma->dma[cnt].table_Select;
+		cmd.offset_within_entry    = dma->dma[cnt].offset_within_entry;
+		cmd.entry_index            = dma->dma[cnt].entry_index;
+		cmd.data                   = dma->dma[cnt].data;
+		cmd.cache_entry_evict      = (bool)dma->dma[cnt].cache_entry_evict;
+		cmd.no_write               = (bool)dma->dma[cnt].no_write;
+		cmd.cache_entry_hash_value = dma->dma[cnt].cache_entry_hash_value;
+		cmd.write_bitmask          = dma->dma[cnt].write_bitmask;
+
+		cmd_pyld[num_cmd] =
+			ipahal_construct_imm_cmd(cmd_name, &cmd, false);
+
+		if (!cmd_pyld[num_cmd]) {
+			IPAERR_RL("Fail to construct table_dma imm cmd\n");
+			result = -ENOMEM;
+			goto destroy_imm_cmd;
+		}
+
+		ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
+
+		++num_cmd;
+	}
+
+	result = ipa3_send_cmd(num_cmd, desc);
+
+	if (result)
+		IPAERR("Fail to send table_dma immediate command\n");
+
+destroy_imm_cmd:
+	for (cnt = 0; cnt < num_cmd; ++cnt)
+		ipahal_destroy_imm_cmd(cmd_pyld[cnt]);
+
+bail:
+	IPADBG("Out\n");
+
+	return result;
+}
 
 /**
  * ipa3_table_dma_cmd() - Post TABLE_DMA command to IPA HW
@@ -2917,4 +3293,36 @@ bail:
 	IPADBG("Out\n");
 
 	return ret;
+}
+
+int ipa3_nat_ct_timestamp_flush()
+{
+	int result = 0;
+	uint32_t cache_flush_done = 0;
+
+	IPADBG("\n");
+	
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		/* Write to flush timestamp */
+		ipahal_write_reg_mask(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_TIMESTAMPS_DB_FLUSH, 0x1, 0x1);
+
+		/* Poll IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS, bit 1 */
+		uint8_t count = 0;
+		do {
+			usleep_range(50, 100);
+			cache_flush_done = ipahal_read_reg(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS);
+			IPADBG("Timestamp flush yet to be completed, cache_timestamp_db_flush_done: %d, count: %d\n", cache_flush_done, count);
+			count++;
+		} while ((count < 20) && (IPA_NAT_CACHE_TS_DB_FLUSH_DONE(cache_flush_done) == false));
+
+		if (count >= 20) {
+			IPAERR("Fail to read IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS \n");
+			result = -ENOMEM;
+			// goto destroy_imm_cmd;
+		}
+	}
+
+	IPADBG("return\n");
+
+	return result;
 }

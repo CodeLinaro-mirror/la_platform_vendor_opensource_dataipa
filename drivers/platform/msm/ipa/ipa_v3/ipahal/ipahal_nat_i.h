@@ -1,12 +1,89 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #ifndef _IPAHAL_NAT_I_H_
 #define _IPAHAL_NAT_I_H_
 
 #include <linux/msm_ipa.h>
+
+/* -------------------- IPAv7 IPv4 NAT Table Entry  ----------------------
+ *
+ * -----------------------------------------------------------------------
+ * |  7  |     6    |   5    |   4   |    3        | 2 |    1    |    0  |
+ * -----------------------------------------------------------------------
+ * |           Target IP(4B)         |             Private IP(4B)        |
+ * -----------------------------------------------------------------------
+ * |Target Port(2B) |Private Port(2B)| Public Port(2B) | Next Index(2B)  |
+ * -----------------------------------------------------------------------
+ * |Proto|      TimeStamp(3B)        |     Flags(2B)   |IP check sum Diff|
+ * |(1B) |                           |                 |        (2B)     |
+ * -----------------------------------------------------------------------
+ * |TCP/UDP checksum| PDN &uC info   | Non Frag Stats  | All Pkts Stats  |
+ * |    diff (2B)   |    (2B)        | Cnt Index (2B)  | Cnt Index (2B)  |
+ * -----------------------------------------------------------------------
+ * |               SW Producer Classification Cookie (8B)                |
+ * -----------------------------------------------------------------------
+ * |           Reserved (4B)         |    SW Specific Parameters(4B)     |
+ * |                                 |  Index Table Entry |  Prev Index  |
+ * -----------------------------------------------------------------------
+ */
+struct ipa_nat_hw_ipv4_entry_v_7_0 {
+	/* An IP address can't be bit-field, because its address is used */
+	u32 private_ip;
+	u32 target_ip;
+
+	u32 next_index : 16;
+	u32 public_port : 16;
+	u32 private_port : 16;
+	u32 target_port : 16;
+	u32 ip_chksum : 16;
+
+	/*-----------------------------------------------------------
+	 *IPA NAT Flag is interpreted as follows
+	 *-----------------------------------------------------------
+	 *|  EN   |IN FIN/RST|OUT FIN/RST| IPv4 uC activation index |
+	 *| [15]  | [14]     |      [13] |          [12:0]          |
+	 *-----------------------------------------------------------
+	 */
+	u32 uc_activation_index: 13;
+	u32 out_redirect : 1;
+	u32 in_redirect : 1;
+	u32 enable : 1;
+
+	u32 time_stamp : 24;
+	u32 protocol : 8;
+
+	u32 all_pkts_stats_cnt_index : 16;
+	u32 non_frag_stats_cnt_index : 16;
+
+	/*------------------------------------------------------------------------------------------------------------
+	 *16 bit PDN info is interpreted as following
+	 *------------------------------------------------------------------------------------------------------------
+	 *|     4 bits      |     1 bit      |     3 bits     |      2 bits               | 1 bit | 7 bits           |
+	 *------------------------------------------------------------------------------------------------------------
+	 *|  PDN index      |  uC processing |  Conn Tracking | IN allowed | OUT allowed  |   S   | Reserved         |
+	 *|      [7:4]      |       [3]      |      [10]      |     [9]    |     [8]      |  [7]  |   [6:0]          |
+	 *------------------------------------------------------------------------------------------------------------
+	 */
+	u32 rsvd2 : 7;
+	u32 s : 1;
+	u32 out_allowed : 1;
+	u32 in_allowed : 1;
+	u32 conn_tracking : 1;
+	u32 ucp : 1;
+	u32 pdn_index : 4;
+
+	u32 tcp_udp_chksum : 16;
+
+	u64 sw_prod_classification_cookie;
+
+	u32 prev_index : 16;
+	u32 indx_tbl_entry : 16;
+	u32 rsvd3;
+};
 
 /* ----------------------- IPv4 NAT Table Entry  -------------------------
  *
@@ -114,6 +191,71 @@ struct ipa_nat_hw_pdn_entry {
 	u32 src_metadata;
 	u32 dst_metadata;
 	u32 resrvd;
+};
+
+/*----------------------  IPAv7 IPV6CT Table Entry  ---------------------------
+ *-----------------------------------------------------------------------------
+ *|   7    |      6      |  5  |  4   |      3      |   2   |   1    |   0    |
+ *-----------------------------------------------------------------------------
+ *|                   Outbound Src IPv6 Address (8 LSB Bytes)                 |
+ *-----------------------------------------------------------------------------
+ *|                   Outbound Src IPv6 Address (8 MSB Bytes)                 |
+ *-----------------------------------------------------------------------------
+ *|                   Outbound Dest IPv6 Address (8 LSB Bytes)                |
+ *-----------------------------------------------------------------------------
+ *|                   Outbound Dest IPv6 Address (8 MSB Bytes)                |
+ *-----------------------------------------------------------------------------
+ *|Protocol|      TimeStamp (3B)      |       Flags (2B)    |Rsvd   |S |uC ACT|
+ *|  (1B)  |                          |En|InFin|OutFin|Resv |[15:14]|13|[12:0]|
+ *-----------------------------------------------------------------------------
+ *|Reserved|Settings|    Src Port(2B) |   Dest Port (2B)    |  Next Index(2B) |
+ *|  (1B)  |  (1B)  |                 |                     |                 |
+ *-----------------------------------------------------------------------------
+ *|   Reserved      |    Prev Index   |   Non Frag Stats    |  All Pkts Stats |
+ *|     (2B)        |       (2B)      |   Cnt Index (2B)    |  Cnt Index (2B) |
+ *-----------------------------------------------------------------------------
+ *|                   SW Producer Classification Cookie (8B)                  |
+ *-----------------------------------------------------------------------------
+ *
+ * Settings
+ *-----------------------------------------------
+ *|IN Allowed|OUT Allowed|Reserved|uC processing|
+ *|[7:7]     |[6:6]      |[5:1]   |[0:0]        |
+ *-----------------------------------------------
+ */
+struct ipa_nat_hw_ipv6ct_entry_v_7_0 {
+/* An IP address can't be bit-field, because its address is used */
+	u64 src_ipv6_lsb;
+	u64 src_ipv6_msb;
+	u64 dest_ipv6_lsb;
+	u64 dest_ipv6_msb;
+
+	u64 uc_activation_index : 13;
+	u64 s : 1;
+	u64 rsvd1 : 15;
+	u64 out_redirect : 1;
+	u64 in_redirect : 1;
+	u64 enable : 1;
+
+	u64 time_stamp : 24;
+	u64 protocol : 8;
+
+	u64 next_index : 16;
+	u64 dest_port : 16;
+	u64 src_port : 16;
+	u64 ucp : 1;
+	u64 rsvd2 : 5;
+	u64 out_allowed : 1;
+	u64 in_allowed : 1;
+	u64 rsvd3 : 8;
+
+	u64 all_pkts_stats_cnt_index : 16;
+	u64 non_frag_stats_cnt_index : 16;
+	u64 prev_index : 16;
+	u64 rsvd4 : 16;
+
+
+	u64 sw_prod_classification_cookie : 64;
 };
 
 /*-------------------------  IPV6CT Table Entry  ------------------------------

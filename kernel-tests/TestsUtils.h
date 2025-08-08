@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #ifndef __TESTS_UTILS__H__
@@ -904,6 +907,53 @@ struct ipa3_hw_pkt_status_hw_v6_0 {
         uint64_t nat_exc_suppress:1;
         uint64_t ttl_dec:1;
         uint64_t ucp:1;
+};
+
+struct ipa3_hw_pkt_status_hw_v7_0 {
+	uint64_t status_opcode:8;
+	uint64_t exception:8;
+	uint64_t status_mask:16;
+	uint64_t pkt_len:16;
+	uint64_t endp_src_idx:8;
+	uint64_t pure_ack:1;
+	uint64_t syn:1;
+	uint64_t fin_rst:1;
+	uint64_t rt_local:1;
+	uint64_t rt_cache_hit:1;
+	uint64_t protocol_encoding:3;
+	uint64_t metadata:32;
+	uint64_t flt_local:1;
+	uint64_t flt_cache_hit:1;
+	uint64_t ucp:1;
+	uint64_t flt_ret_hdr:1;
+	uint64_t flt_rule_id:10;
+	uint64_t rt_tbl_idx:8;
+	uint64_t rt_rule_id:10;
+	uint64_t nat_entry_idx:16;
+	uint64_t tag_info:48;
+	uint64_t seq_num:8;
+	uint64_t time_of_day_ctr:24;
+	uint64_t hdr_offset:16;
+	uint64_t hdr_in_sys:1;
+	uint64_t hpc:1;
+	uint64_t ttl_dec:1;
+	uint64_t frag_hit:1;
+	uint64_t packet_type:4;
+	uint64_t endp_dest_idx:8;
+	uint64_t ergress_traffic_class:8;
+	uint64_t ingress_traffic_class:8;
+	uint64_t nat_hit:1;
+	uint64_t nat_type:2;
+	uint64_t nat_cache_hit:1;
+	uint64_t nat_or_ct:1;
+	uint64_t nat_exc_suppress:1;
+	uint64_t num_vlan_tags:2;
+	uint64_t flt_table_idx:8;
+	uint64_t frag_rule:4;
+	uint64_t metadata_origin:4;
+	uint64_t reserved1:24;
+	uint64_t reserved2:32;
+	uint64_t reserved3:32;
 };
 
 static inline uint8_t* Addr_AsStr(

@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #ifndef IPA_NAT_DRVI_H
@@ -80,6 +83,140 @@ typedef enum {
 	IPA_NAT_INDEX_TABLE_NEXT_INDEX,
 	IPA_NAT_TABLE_DMA_CMD_MAX
 } ipa_nat_table_dma_cmd_type;
+
+/*
+ * ------------------------  NAT Table Entry V2  --------------------------------------
+ *
+ * ------------------------------------------------------------------------------------
+ * |   7    |    6    |   5    |    4    |     3        |  2   |    1    |    0       |
+ * ------------------------------------------------------------------------------------
+ * |             Target IP(4B)           |             Private IP(4B)                 |
+ * ------------------------------------------------------------------------------------
+ * |Target Port(2B)   | Private Port(2B) | Public Port(2B)     | Next Index(2B)       |
+ * ------------------------------------------------------------------------------------
+ * | Proto   |      TimeStamp(3B)        |       Flags(2B)     | IP check sum Diff(2B)|
+ * | (1B)    |                           |EN|Redirect|Resv     |                      |
+ * ------------------------------------------------------------------------------------
+ * | TCP/UDP checksum |  PDN &uC info    |   Non Frag Stats    |   All Pkts Stats     |
+ * |     diff (2B)    |     (2B)         |   Cnt Index (2B)    |   Cnt Index (2B)     |
+ * ------------------------------------------------------------------------------------
+ *                    SW Producer Classification Cookie (8B)                          |
+ * ------------------------------------------------------------------------------------
+ * |             Reserved (4B)           |     SW Specific Parameters(4B)             |
+ * |                                     |   Index Table Entry |  Prev Index          |
+ * ------------------------------------------------------------------------------------
+ * -------------------------------------------------------------------------------
+ *
+ * Dont change below structure definition.
+ *
+ * It should be same as above(little endian order)
+ */
+struct ipa_nat_rule_v2 {
+	uint64_t private_ip:32;
+	uint64_t target_ip:32;
+
+	uint64_t next_index:16;
+	uint64_t public_port:16;
+	uint64_t private_port:16;
+	uint64_t target_port:16;
+
+	uint64_t ip_chksum:16;
+
+	uint64_t uc_activation_index:13;
+	uint64_t out_redirect:1;
+	uint64_t in_redirect:1;
+	uint64_t enable:1;
+
+	uint64_t time_stamp:24;
+	uint64_t protocol:8;
+	
+	uint64_t all_pkts_stats_cnt_index:16;
+	uint64_t non_frag_stats_cnt_index:16;
+	
+	uint64_t rsvd1:5;
+	uint64_t dst_only:1;
+	uint64_t src_only:1;
+	uint64_t s:1;
+	uint64_t out_allowed:1;
+	uint64_t in_allowed:1;
+	uint64_t conn_tracking:1;
+	uint64_t ucp:1;
+	uint64_t pdn_index:4;
+
+	uint64_t tcp_udp_chksum:16;
+
+    uint64_t sw_prod_classification_cookie;
+
+    /*--------------------------------------------------
+	32 bit sw_spec_params is interpreted as follows
+	------------------------------------
+	|     16 bits     |     16 bits    |
+	------------------------------------
+	|  index table    |  prev index    |
+	|     entry       |                |
+	------------------------------------
+	--------------------------------------------------*/
+	uint64_t prev_index:16;
+	uint64_t indx_tbl_entry:16;
+    uint64_t rsvd3:32;
+};
+
+static inline char* prep_nat_rule_4print_v2(
+	struct ipa_nat_rule_v2* rule_ptr,
+	char*                buf_ptr,
+	uint32_t             buf_sz )
+{
+	if ( rule_ptr && buf_ptr && buf_sz )
+	{
+		snprintf(
+			buf_ptr, buf_sz,
+			"NAT RULE: "
+			"protocol(0x%02X) "
+			"public_port(0x%04X) "
+			"target_ip(0x%08X) "
+			"target_port(0x%04X) "
+			"private_ip(0x%08X) "
+			"private_port(0x%04X) "
+			"pdn_index(0x%02X) "
+			"ip_chksum(0x%04X) "
+			"tcp_udp_chksum(0x%04X) "
+			"in_redirect(0x%02X) "
+			"out_redirect(0x%02X) "
+			"enable(0x%02X) "
+			"time_stamp(0x%08X) "
+			"indx_tbl_entry(0x%04X) "
+			"prev_index(0x%04X) "
+			"next_index(0x%04X)"
+            "conn_tracking(0x%02X) "
+            "non_frag_stats_cnt_index(0x%04X) "
+            "all_pkts_stats_cnt_index(0x%04X) "
+			"out_allowed(0x%01X) "
+			"in_allowed(0x%01X) ",
+			rule_ptr->protocol,
+			rule_ptr->public_port,
+			rule_ptr->target_ip,
+			rule_ptr->target_port,
+			rule_ptr->private_ip,
+			rule_ptr->private_port,
+			rule_ptr->pdn_index,
+			rule_ptr->ip_chksum,
+			rule_ptr->tcp_udp_chksum,
+			rule_ptr->in_redirect,
+			rule_ptr->out_redirect,
+			rule_ptr->enable,
+			rule_ptr->time_stamp,
+			rule_ptr->indx_tbl_entry,
+			rule_ptr->prev_index,
+			rule_ptr->next_index,
+            rule_ptr->conn_tracking,
+            rule_ptr->non_frag_stats_cnt_index,
+            rule_ptr->all_pkts_stats_cnt_index,
+			rule_ptr->out_allowed,
+			rule_ptr->in_allowed );
+	}
+
+	return buf_ptr;
+}
 
 /*
  * ------------------------  NAT Table Entry  -----------------------------------------
@@ -264,13 +401,19 @@ struct ipa_nat_indx_tbl_meta_info {
 	uint16_t prev_index;
 };
 
+typedef union
+{
+	ipa_table_write_cmd_helper table_write_cmd_helpers[IPA_NAT_TABLE_DMA_CMD_MAX];
+	ipa_table_dma_cmd_helper table_dma_cmd_helpers[IPA_NAT_TABLE_DMA_CMD_MAX];
+} ipa_nat_ip4_table_cmd_helpers;
+
 struct ipa_nat_ip4_table_cache {
 	uint32_t public_addr;
 	ipa_mem_descriptor mem_desc;
 	ipa_table table;
 	ipa_table index_table;
 	struct ipa_nat_indx_tbl_meta_info *index_expn_table_meta;
-	ipa_table_dma_cmd_helper table_dma_cmd_helpers[IPA_NAT_TABLE_DMA_CMD_MAX];
+	ipa_nat_ip4_table_cmd_helpers table_cmd_helpers;
 };
 
 struct ipa_nat_cache {
@@ -302,6 +445,11 @@ int ipa_nati_get_pdn_cnt(void);
 
 int ipa_nati_dealloc_pdn(uint8_t pdn_index);
 
+int ipa_nati_add_ipv4_rule_v2(uint32_t tbl_hdl,
+				const ipa_nat_ipv4_rule_v2 *clnt_rule,
+				uint32_t *rule_hdl);
+
+
 int ipa_nati_add_ipv4_rule(uint32_t tbl_hdl,
 				const ipa_nat_ipv4_rule *clnt_rule,
 				uint32_t *rule_hdl);
@@ -320,10 +468,13 @@ int ipa_nati_copy_ipv4_tbl(
 	uint32_t          dst_tbl_hdl,
 	ipa_table_walk_cb copy_cb );
 
+int ipa_nati_timestamp_flush(uint32_t  tbl_hdl);
+
 typedef enum
 {
-	USE_NAT_TABLE   = 0,
-	USE_INDEX_TABLE = 1,
+	USE_NAT_TABLE    = 0,
+	USE_INDEX_TABLE  = 1,
+	USE_NAT_TABLE_V2 = 2,
 
 	USE_MAX
 } WhichTbl2Use;
@@ -401,5 +552,19 @@ int ipa_NATI_del_ipv4_rule(
 
 int ipa_NATI_post_ipv4_init_cmd(
 	uint32_t tbl_hdl );
+
+
+/*======= The following functions are relevant starting IPAv7 ======= */
+
+int ipa_NATI_del_ipv4_rule_v2(
+	uint32_t tbl_hdl,
+	uint32_t rule_hdl);
+
+int ipa_NATI_add_ipv4_rule_v2(
+	uint32_t                    tbl_hdl,
+	const ipa_nat_ipv4_rule_v2* clnt_rule,
+	uint32_t*                   rule_hdl);
+
+int ipa_NATI_timestamp_flush(uint32_t  tbl_hdl);
 
 #endif/* if not defined IPA_NAT_DRVI_H */

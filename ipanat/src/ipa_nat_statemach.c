@@ -59,6 +59,9 @@
  * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 #include <errno.h>
 #include <pthread.h>
@@ -386,6 +389,33 @@ int ipa_nati_ipv4_tbl_stats(
 	return ret;
 }
 
+int ipa_nati_add_ipv4_rule_v2(
+	uint32_t                    tbl_hdl,
+	const ipa_nat_ipv4_rule_v2* clnt_rule,
+	uint32_t*                   rule_hdl )
+{
+	arb_t* args[] = {
+		(arb_t*)(arb_t)tbl_hdl,
+		(arb_t*) clnt_rule,
+		(arb_t*) rule_hdl,
+	};
+
+	int ret;
+
+	IPADBG("In\n");
+
+	ret = ipa_nati_statemach(&nati_obj, NATI_TRIG_ADD_RULE_V2, args);
+
+	if ( ret == 0 )
+	{
+		IPADBG("rule_hdl val(%u)\n", *rule_hdl);
+	}
+
+	IPADBG("Out\n");
+
+	return ret;
+}
+
 int ipa_nati_add_ipv4_rule(
 	uint32_t                 tbl_hdl,
 	const ipa_nat_ipv4_rule* clnt_rule,
@@ -606,6 +636,23 @@ bail:
 bool ipa_nat_is_sram_supported(void)
 {
 	return VALID_TBL_HDL(nati_obj.sram_tbl_hdl);
+}
+
+int ipa_nati_timestamp_flush(uint32_t  tbl_hdl)
+{
+	arb_t* args[] = {
+		(arb_t*)(arb_t)tbl_hdl,
+	};
+
+	int ret;
+
+	IPADBG("In\n");
+
+	ret = ipa_nati_statemach(&nati_obj, NATI_TRIG_TSTAMP_FLSH, args);
+
+	IPADBG("Out\n");
+
+	return ret;	
 }
 
 /******************************************************************************/
@@ -1535,6 +1582,67 @@ static int _smStatTblHybrid(
 	IPADBG("In\n");
 
 	ret = _smStatTbl(nati_obj_ptr, trigger, new_args);
+
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+/******************************************************************************/
+/*
+ * FUNCTION: _smAddRuleToTblV2
+ *
+ * PARAMS:
+ *
+ *   nati_obj_ptr (IN) A pointer to an initialized nati object
+ *
+ *   trigger      (IN) The trigger to run through the state machine
+ *
+ *   arb_data_ptr (IN) Whatever you like
+ *
+ * DESCRIPTION:
+ *
+ *   The following will cause the addtion of a NAT rule into the DDR
+ *   based table.
+ *
+ * RETURNS:
+ *
+ *   zero on success, otherwise non-zero
+ */
+static int _smAddRuleToTblV2(
+	ipa_nati_obj*    nati_obj_ptr,
+	ipa_nati_trigger trigger,
+	arb_t*           arb_data_ptr )
+{
+	arb_t** args = arb_data_ptr;
+
+	uint32_t           tbl_hdl      = (uint32_t)           args[0];
+    ipa_nat_ipv4_rule_v2 *clnt_rule = (ipa_nat_ipv4_rule_v2 *)args[1];
+	uint32_t*          rule_hdl     = (uint32_t*)          args[2];
+
+	char buf[1024];
+
+	int ret;
+
+	IPADBG("In\n");
+
+	IPADBG("tbl_hdl(0x%08X) clnt_rule_ptr(%p) rule_hdl_ptr(%p) %s\n",
+		   tbl_hdl, clnt_rule, rule_hdl,
+           prep_nat_ipv4_rule_4print_v2(clnt_rule, buf, sizeof(buf)));
+
+	clnt_rule->in_redirect = clnt_rule->out_redirect = clnt_rule->enable = clnt_rule->time_stamp = 0;
+
+    ret = ipa_NATI_add_ipv4_rule_v2(tbl_hdl, clnt_rule, rule_hdl);
+
+	if ( ret == 0 )
+	{
+		uint32_t* cnt_ptr = CHOOSE_CNTR();
+
+		(*cnt_ptr)++;
+
+		IPADBG("rule_hdl value(%u or 0x%08X)\n",
+			   *rule_hdl, *rule_hdl);
+	}
 
 	IPADBG("Out\n");
 
@@ -2488,6 +2596,47 @@ static int _smGetTmStmpHybrid(
 
 /******************************************************************************/
 /*
+ * FUNCTION: _smTmStmpFlsh
+ *
+ * PARAMS:
+ *
+ *   nati_obj_ptr (IN) A pointer to an initialized nati object
+ *
+ *   trigger      (IN) The trigger to run through the state machine
+ *
+ *   arb_data_ptr (IN) Whatever you like
+ *
+ * DESCRIPTION:
+ *
+ *   Releavnt stating IPAv7.
+ *   The following will cause timestamp flush for all active NAT entires in nat cache.
+ *
+ * RETURNS:
+ *
+ *   zero on success, otherwise non-zero
+ */
+static int _smTmStmpFlsh(
+	ipa_nati_obj*    nati_obj_ptr,
+	ipa_nati_trigger trigger,
+	arb_t*           arb_data_ptr )
+{
+	arb_t** args = arb_data_ptr;
+
+	uint32_t           tbl_hdl      = (uint32_t)           args[0];
+
+	int ret;
+
+	IPADBG("In\n");
+
+    ret = ipa_NATI_timestamp_flush(tbl_hdl);
+
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+/******************************************************************************/
+/*
  * The following table relates a nati object's state and a transition
  * trigger to a callback...
  */
@@ -2507,6 +2656,8 @@ _state_mach_tbl[NATI_STATE_LAST+1][NATI_TRIG_LAST+1] =
 		SM_ROW( NATI_STATE_NULL,       NATI_TRIG_GOTO_DDR,   _smUndef ),
 		SM_ROW( NATI_STATE_NULL,       NATI_TRIG_GOTO_SRAM,  _smUndef ),
 		SM_ROW( NATI_STATE_NULL,       NATI_TRIG_GET_TSTAMP, _smUndef ),
+		SM_ROW( NATI_STATE_NULL,       NATI_TRIG_ADD_RULE_V2,_smUndef ),
+		SM_ROW( NATI_STATE_NULL,       NATI_TRIG_TSTAMP_FLSH,_smUndef ),
 		SM_ROW( NATI_STATE_NULL,       NATI_TRIG_LAST,       _smUndef ),
 	},
 
@@ -2523,6 +2674,8 @@ _state_mach_tbl[NATI_STATE_LAST+1][NATI_TRIG_LAST+1] =
 		SM_ROW( NATI_STATE_DDR_ONLY,   NATI_TRIG_GOTO_DDR,   _smUndef ),
 		SM_ROW( NATI_STATE_DDR_ONLY,   NATI_TRIG_GOTO_SRAM,  _smUndef ),
 		SM_ROW( NATI_STATE_DDR_ONLY,   NATI_TRIG_GET_TSTAMP, _smGetTmStmp ),
+		SM_ROW( NATI_STATE_DDR_ONLY,   NATI_TRIG_ADD_RULE_V2,_smAddRuleToTblV2 ),
+		SM_ROW( NATI_STATE_DDR_ONLY,   NATI_TRIG_TSTAMP_FLSH,_smTmStmpFlsh ),
 		SM_ROW( NATI_STATE_DDR_ONLY,   NATI_TRIG_LAST,       _smUndef ),
 	},
 
@@ -2539,6 +2692,8 @@ _state_mach_tbl[NATI_STATE_LAST+1][NATI_TRIG_LAST+1] =
 		SM_ROW( NATI_STATE_SRAM_ONLY,  NATI_TRIG_GOTO_DDR,   _smUndef ),
 		SM_ROW( NATI_STATE_SRAM_ONLY,  NATI_TRIG_GOTO_SRAM,  _smUndef ),
 		SM_ROW( NATI_STATE_SRAM_ONLY,  NATI_TRIG_GET_TSTAMP, _smGetTmStmp ),
+		SM_ROW( NATI_STATE_SRAM_ONLY,  NATI_TRIG_ADD_RULE_V2,_smUndef ),
+		SM_ROW( NATI_STATE_SRAM_ONLY,  NATI_TRIG_TSTAMP_FLSH,_smUndef ),
 		SM_ROW( NATI_STATE_SRAM_ONLY,  NATI_TRIG_LAST,       _smUndef ),
 	},
 
@@ -2555,6 +2710,8 @@ _state_mach_tbl[NATI_STATE_LAST+1][NATI_TRIG_LAST+1] =
 		SM_ROW( NATI_STATE_HYBRID,     NATI_TRIG_GOTO_DDR,   _smGoToDdr ),
 		SM_ROW( NATI_STATE_HYBRID,     NATI_TRIG_GOTO_SRAM,  _smGoToSram ),
 		SM_ROW( NATI_STATE_HYBRID,     NATI_TRIG_GET_TSTAMP, _smGetTmStmpHybrid ),
+		SM_ROW( NATI_STATE_HYBRID,     NATI_TRIG_ADD_RULE_V2,_smUndef ),
+		SM_ROW( NATI_STATE_HYBRID,     NATI_TRIG_TSTAMP_FLSH,_smUndef ),
 		SM_ROW( NATI_STATE_HYBRID,     NATI_TRIG_LAST,       _smUndef ),
 	},
 
@@ -2571,6 +2728,8 @@ _state_mach_tbl[NATI_STATE_LAST+1][NATI_TRIG_LAST+1] =
 		SM_ROW( NATI_STATE_HYBRID_DDR, NATI_TRIG_GOTO_DDR,   _smGoToDdr ),
 		SM_ROW( NATI_STATE_HYBRID_DDR, NATI_TRIG_GOTO_SRAM,  _smGoToSram ),
 		SM_ROW( NATI_STATE_HYBRID_DDR, NATI_TRIG_GET_TSTAMP, _smGetTmStmpHybrid ),
+		SM_ROW( NATI_STATE_HYBRID_DDR, NATI_TRIG_ADD_RULE_V2,_smUndef ),
+		SM_ROW( NATI_STATE_HYBRID_DDR, NATI_TRIG_TSTAMP_FLSH,_smUndef ),
 		SM_ROW( NATI_STATE_HYBRID_DDR, NATI_TRIG_LAST,       _smUndef ),
 	},
 
@@ -2587,6 +2746,8 @@ _state_mach_tbl[NATI_STATE_LAST+1][NATI_TRIG_LAST+1] =
 		SM_ROW( NATI_STATE_LAST,       NATI_TRIG_GOTO_DDR,   _smUndef ),
 		SM_ROW( NATI_STATE_LAST,       NATI_TRIG_GOTO_SRAM,  _smUndef ),
 		SM_ROW( NATI_STATE_LAST,       NATI_TRIG_GET_TSTAMP, _smUndef ),
+		SM_ROW( NATI_STATE_LAST,       NATI_TRIG_ADD_RULE_V2,_smUndef ),
+		SM_ROW( NATI_STATE_LAST,       NATI_TRIG_TSTAMP_FLSH,_smUndef ),
 		SM_ROW( NATI_STATE_LAST,       NATI_TRIG_LAST,       _smUndef ),
 	},
 };

@@ -59,6 +59,9 @@
  * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 #include "ipa_ipv6ct.h"
 #include "ipa_ipv6cti.h"
@@ -91,17 +94,44 @@ static int ipa_ipv6ct_destroy_table(
 	struct ipa_ct_cache*		   ct_cache_ptr,
 	struct ipa_ct_ip6_table_cache* ct_table);
 
+static void ipa_ipv6ct_create_table_write_cmd_helpers(
+	struct ipa_ct_ip6_table_cache* ct_table,
+	uint8_t table_indx );
+
 static void ipa_ipv6ct_create_table_dma_cmd_helpers(
 	struct ipa_ct_ip6_table_cache* ct_table,
 	uint8_t table_indx );
+
+static int ipa_ipv6ct_post_dma_cmd_v2(
+	struct ipa_ct_cache*        ct_cache_ptr,
+	struct ipa_ioc_table_write_cmd* cmd);
 
 static int ipa_ipv6ct_post_dma_cmd(
 	struct ipa_ct_cache*        ct_cache_ptr,
 	struct ipa_ioc_nat_dma_cmd* cmd);
 
+static uint16_t ipa_ipv6ct_hash_v2(const ipa_ipv6ct_rule_v2* rule, uint16_t size);
+
 static uint16_t ipa_ipv6ct_hash(const ipa_ipv6ct_rule* rule, uint16_t size);
 
 static uint16_t ipa_ipv6ct_xor_segments(uint64_t num);
+
+static int table_entry_is_valid_v2(void* entry);
+
+static uint16_t table_entry_get_next_index_v2(void* entry);
+
+static uint16_t table_entry_get_prev_index_v2(void* entry, uint16_t entry_index, void* meta, uint16_t base_table_size);
+
+static void table_entry_set_prev_index_v2(void* entry, uint16_t entry_index, uint16_t prev_index,
+	void* meta, uint16_t base_table_size);
+
+static int table_entry_head_insert_v2(void* entry, void* user_data, uint16_t* dma_command_data);
+
+static int table_entry_tail_insert_v2(void* entry, void* user_data);
+
+static int copy_from_ipa_ipv6ct_rule_v1_to_v2(
+    ipa_ipv6ct_rule* ipv6ct_rule_v1,
+    ipa_ipv6ct_rule_v2* ipv6ct_rule_v2);
 
 static int table_entry_is_valid(void* entry);
 
@@ -120,6 +150,16 @@ static uint16_t table_entry_get_delete_head_dma_command_data(void* head, void* n
 
 extern pthread_mutex_t ipv6ct_mutex;
 
+static ipa_table_entry_interface entry_interface_v2 = {
+	table_entry_is_valid_v2,
+	table_entry_get_next_index_v2,
+	table_entry_get_prev_index_v2,
+	table_entry_set_prev_index_v2,
+	table_entry_head_insert_v2,
+	table_entry_tail_insert_v2,
+	table_entry_get_delete_head_dma_command_data,
+};
+
 static ipa_table_entry_interface entry_interface =
 {
 	table_entry_is_valid,
@@ -130,6 +170,15 @@ static ipa_table_entry_interface entry_interface =
 	table_entry_tail_insert,
 	table_entry_get_delete_head_dma_command_data
 };
+
+static size_t get_ipv6ct_entry_size(enum ipa_hw_type ver)
+{
+    if (ver >= IPA_HW_v7_0) {
+        return sizeof(struct ipa_ipv6ct_hw_entry_v_7_0);
+    }
+
+    return sizeof(struct ipa_ipv6ct_hw_entry);
+}
 
 int ipa_cti_get_sram_size(
 	uint32_t* size_ptr)
@@ -238,6 +287,33 @@ int ipa_ct_del_ipv6_tbl(uint32_t table_handle)
 	return ret;
 }
 
+int ipa_ct_add_ipv6_rule_v2(
+	uint32_t tbl_hdl,
+	const ipa_ipv6ct_rule_v2 *clnt_rule,
+	uint32_t *rule_hdl)
+{
+	int result = -EINVAL;
+
+	if ( tbl_hdl == IPA_TABLE_INVALID_ENTRY ||
+		 rule_hdl == NULL ||
+		 clnt_rule == NULL ) {
+		IPAERR(
+			"Invalid parameters tbl_hdl=%d clnt_rule=%pK rule_hdl=%pK\n",
+			tbl_hdl, clnt_rule, rule_hdl);
+		return result;
+	}
+
+	IPADBG("Passed Table handle: 0x%x\n", tbl_hdl);
+
+	if (ipa_cti_add_ipv6_rule_v2(tbl_hdl, clnt_rule, rule_hdl)) {
+		return result;
+	}
+
+	IPADBG("Returning rule handle %u\n", *rule_hdl);
+
+	return 0;
+}
+
 int ipa_ct_add_ipv6_rule(
 	uint32_t tbl_hdl,
 	const ipa_ipv6ct_rule *clnt_rule,
@@ -328,11 +404,14 @@ static int ipa_ipv6ct_post_init_cmd(
 {
 	struct ipa_ioc_ipv6ct_init cmd;
 	int ret;
+	size_t ipv6ct_entry_size;
 
 	IPADBG("In\n");
 
 	IPADBG("ct_cache_ptr(%p) ct_table(%p) tbl_index(%u) focus_change(%u)\n",
 		   ct_cache_ptr, ct_table, tbl_index, focus_change);
+
+    ipv6ct_entry_size = get_ipv6ct_entry_size(ct_cache_ptr->ipa_desc->ver);
 
 	memset(&cmd, 0, sizeof(cmd));
 
@@ -340,7 +419,7 @@ static int ipa_ipv6ct_post_init_cmd(
 	cmd.focus_change = focus_change;
 
 	cmd.base_table_offset = ct_table->mem_desc.addr_offset;
-	cmd.expn_table_offset = cmd.base_table_offset + (ct_table->table.table_entries * sizeof(ipa_ipv6ct_hw_entry));
+	cmd.expn_table_offset = cmd.base_table_offset + (ct_table->table.table_entries * ipv6ct_entry_size);
 	cmd.mem_type = ct_cache_ptr->nmi;
 
 	/* Driver/HW expected base table size to be power^2-1 due to H/W hash calculation */
@@ -600,7 +679,7 @@ bail:
 	return ret;
 }
 
-int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule, uint32_t* rule_handle)
+int ipa_ipv6ct_add_rule_v2(uint32_t table_handle, const ipa_ipv6ct_rule_v2* user_rule, uint32_t* rule_handle)
 {
 	int ret;
 	struct ipa_ct_cache*           ct_cache_ptr;
@@ -608,10 +687,10 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 	enum ipa3_nat_mem_in            nmi;
 	uint16_t new_entry_index;
 	uint32_t new_entry_handle;
-	const uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
-		(IPA_MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_nat_dma_one));
+	const uint32_t cmd_sz = sizeof(struct ipa_ioc_table_write_cmd) +
+		(IPA_MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_table_write_one));
 	char cmd_buf[cmd_sz];
-	struct ipa_ioc_nat_dma_cmd* cmd;
+	struct ipa_ioc_table_write_cmd* cmd;
 
 	IPADBG("\n");
 
@@ -671,12 +750,137 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 	}
 
 	memset(cmd_buf, 0, sizeof(cmd_buf));
+	cmd = (struct ipa_ioc_table_write_cmd*) cmd_buf;
+	cmd->entries = 0;
+	new_entry_index = ipa_ipv6ct_hash_v2(user_rule, ct_table->table.table_entries - 1);
+	cmd->mem_type = ct_table->table.nmi;
+
+	ret = ipa_table_add_entry(&ct_table->table, (void*)user_rule, &new_entry_index, &new_entry_handle, (void*)cmd);
+	if (ret)
+	{
+		IPAERR("failed to add a new IPV6CT entry\n");
+		goto unlock;
+	}
+
+	ret = ipa_ipv6ct_post_dma_cmd_v2(ct_cache_ptr, cmd);
+	if (ret)
+	{
+		IPAERR("unable to post dma command\n");
+		goto bail;
+	}
+
+	if (pthread_mutex_unlock(&ipv6ct_mutex))
+	{
+		IPAERR("unable to unlock the ipv6ct mutex\n");
+		return -EPERM;
+	}
+
+	*rule_handle = new_entry_handle;
+
+	IPADBG("return\n");
+	return 0;
+
+bail:
+	ipa_table_erase_entry(&ct_table->table, new_entry_index);
+unlock:
+	if (pthread_mutex_unlock(&ipv6ct_mutex))
+		IPAERR("unable to unlock the ipv6ct mutex\n");
+	return ret;
+}
+
+int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule, uint32_t* rule_handle)
+{
+	int ret;
+	struct ipa_ct_cache*           ct_cache_ptr;
+	struct ipa_ct_ip6_table_cache* ct_table;
+	enum ipa3_nat_mem_in            nmi;
+	uint16_t new_entry_index;
+	uint32_t new_entry_handle;
+	const uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
+		(IPA_MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_nat_dma_one));
+	char cmd_buf[cmd_sz];
+	struct ipa_ioc_nat_dma_cmd* cmd;
+
+	IPADBG("\n");
+
+	IPADBG("Passed Table handle: 0x%x\n", table_handle);
+
+    if (ct_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+        ipa_ipv6ct_rule_v2 clnt_rule_v2;
+
+        memset(&clnt_rule_v2, 0, sizeof(clnt_rule_v2));
+
+        ret = copy_from_ipa_ipv6ct_rule_v1_to_v2(user_rule, &clnt_rule_v2);
+        if (ret) {
+            IPAERR("unable to copy from ipa_ipv6ct_rule_v1 to ipa_ipv6ct_rule_v2\n");
+            goto bail;
+        }
+
+        ret = ipa_ipv6ct_add_rule_v2(table_handle, &clnt_rule_v2, rule_handle);
+        if ( ret != 0 ) {
+            IPAERR("ipa_ipv6ct_add_rule_v2() fail\n");
+		    goto bail;
+        }
+
+        return 0;
+    }
+	
+	CT_BREAK_TBL_HDL(table_handle, nmi, table_handle);
+
+	if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
+		IPAERR("Bad cache type argument passed\n");
+		return -EINVAL;
+	}
+
+	IPADBG("tbl_hdl(0x%08X) nmi(%s)\n",
+		   table_handle,
+		   ipa3_ct_mem_in_as_str(nmi));
+
+	if (table_handle == IPA_TABLE_INVALID_ENTRY || table_handle > IPA_IPV6CT_MAX_TBLS ||
+		rule_handle == NULL || user_rule == NULL)
+	{
+		IPAERR("Invalid parameters table_handle=%d rule_handle=%pK user_rule=%pK\n",
+			table_handle, rule_handle, user_rule);
+		return -EINVAL;
+	}
+	IPADBG("Passed Table handle: 0x%x\n", table_handle);
+
+	ct_cache_ptr = &ipv6_ct_cache[nmi];
+
+	ct_table = &ct_cache_ptr->ip6_tbl[table_handle - 1];
+
+	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
+	{
+		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
+		return -EINVAL;
+	}
+
+	if (user_rule->protocol == IPA_IPV6CT_INVALID_PROTO_FIELD_CMP)
+	{
+		IPAERR("invalid parameter protocol=%d\n", user_rule->protocol);
+		return -EINVAL;
+	}
+
+	if (pthread_mutex_lock(&ipv6ct_mutex))
+	{
+		IPAERR("unable to lock the ipv6ct mutex\n");
+		return -EINVAL;
+	}
+
+	if (!ct_table->mem_desc.valid)
+	{
+		IPAERR("invalid table handle %d\n", table_handle);
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	memset(cmd_buf, 0, sizeof(cmd_buf));
 	cmd = (struct ipa_ioc_nat_dma_cmd*) cmd_buf;
 	cmd->entries = 0;
 	new_entry_index = ipa_ipv6ct_hash(user_rule, ct_table->table.table_entries - 1);
 	cmd->mem_type = ct_table->table.nmi;
 
-	ret = ipa_table_add_entry(&ct_table->table, (void*)user_rule, &new_entry_index, &new_entry_handle, cmd);
+	ret = ipa_table_add_entry(&ct_table->table, (void*)user_rule, &new_entry_index, &new_entry_handle, (void*)cmd);
 	if (ret)
 	{
 		IPAERR("failed to add a new IPV6CT entry\n");
@@ -706,6 +910,113 @@ bail:
 unlock:
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 		IPAERR("unable to unlock the ipv6ct mutex\n");
+	return ret;
+}
+
+int ipa_ipv6ct_del_rule_v2(uint32_t table_handle, uint32_t rule_handle)
+{
+	struct ipa_ct_cache*           ct_cache_ptr;
+	struct ipa_ct_ip6_table_cache* ct_table;
+	enum ipa3_nat_mem_in            nmi;
+	ipa_table_iterator table_iterator;
+	ipa_ipv6ct_hw_entry_v_7_0* entry;
+	const uint32_t cmd_sz = sizeof(struct ipa_ioc_table_write_cmd) +
+		(IPA_MAX_DMA_ENTRIES_FOR_DEL * sizeof(struct ipa_ioc_table_write_one));
+	char cmd_buf[cmd_sz];
+	struct ipa_ioc_table_write_cmd* cmd;
+	uint16_t idx;
+	int ret;
+
+	IPADBG("\n");
+
+	CT_BREAK_TBL_HDL(table_handle, nmi, table_handle);
+
+	if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
+		IPAERR("Bad cache type argument passed\n");
+		ret = -EINVAL;
+		goto done;
+	}
+
+	if (table_handle == IPA_TABLE_INVALID_ENTRY || table_handle > IPA_IPV6CT_MAX_TBLS ||
+		rule_handle == IPA_TABLE_INVALID_ENTRY)
+	{
+		IPAERR("Invalid parameters table_handle=%d rule_handle=%d\n", table_handle, rule_handle);
+		return -EINVAL;
+	}
+	IPADBG("Passed Table: 0x%x and rule handle 0x%x\n", table_handle, rule_handle);
+
+	IPADBG("nmi(%s)\n", ipa3_ct_mem_in_as_str(nmi));
+
+	ct_cache_ptr = &ipv6_ct_cache[nmi];
+
+	ct_table = &ct_cache_ptr->ip6_tbl[table_handle - 1];
+
+	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
+	{
+		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
+		return -EINVAL;
+	}
+
+	if (pthread_mutex_lock(&ipv6ct_mutex))
+	{
+		IPAERR("unable to lock the ipv6ct mutex\n");
+		return -EINVAL;
+	}
+
+	if (! ct_table->mem_desc.valid)
+	{
+		IPAERR("invalid table handle %d\n", table_handle);
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	ret = ipa_table_get_entry(&ct_table->table, rule_handle, (void**)&entry, &idx);
+	if (ret)
+	{
+		IPAERR("unable to retrive the entry with handle=%d in IPV6CT table with handle=%d\n",
+			rule_handle, table_handle);
+		goto unlock;
+	}
+
+	ret = ipa_table_iterator_init(&table_iterator, &ct_table->table, entry, idx);
+	if (ret)
+	{
+		IPAERR("unable to create iterator which points to the entry index=%d in IPV6CT table with handle=%d\n",
+			idx, table_handle);
+		goto unlock;
+	}
+
+	memset(cmd_buf, 0, sizeof(cmd_buf));
+	cmd = (struct ipa_ioc_table_write_cmd*) cmd_buf;
+	cmd->entries = 0;
+	cmd->mem_type = ct_table->table.nmi;
+
+	ipa_table_create_delete_command(&ct_table->table, cmd, &table_iterator);
+
+	ret = ipa_ipv6ct_post_dma_cmd_v2(ct_cache_ptr, cmd);
+	if (ret)
+	{
+		IPAERR("unable to post dma command\n");
+		goto unlock;
+	}
+
+	if (!ipa_table_itr_valid_check(&table_iterator))
+	{
+		/* The entry can be deleted */
+		uint8_t is_prev_empty = (table_iterator.prev_entry != NULL &&
+			((ipa_ipv6ct_hw_entry_v_7_0*)table_iterator.prev_entry)->protocol == IPA_IPV6CT_INVALID_PROTO_FIELD_CMP);
+		ipa_table_delete_entry(&ct_table->table, &table_iterator, is_prev_empty);
+	}
+
+unlock:
+	if (pthread_mutex_unlock(&ipv6ct_mutex))
+	{
+		IPAERR("unable to unlock the ipv6ct mutex\n");
+		return (ret) ? ret : -EPERM;
+	}
+
+done:
+	IPADBG("return\n");
 	return ret;
 }
 
@@ -752,6 +1063,16 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
 		return -EINVAL;
 	}
+
+    if (ct_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+
+        ret = ipa_ipv6ct_del_rule_v2(table_handle, rule_handle);
+        if ( ret != 0 ) {
+            IPAERR("ipa_ipv6ct_del_rule() fail\n");
+        }
+
+        goto done;
+    }
 
 	if (pthread_mutex_lock(&ipv6ct_mutex))
 	{
@@ -816,13 +1137,13 @@ done:
 	return ret;
 }
 
-int ipa_ipv6ct_query_timestamp(uint32_t table_handle, uint32_t rule_handle, uint32_t* time_stamp)
+int ipa_ipv6ct_query_timestamp_v2(uint32_t table_handle, uint32_t rule_handle, uint32_t* time_stamp)
 {
 	int ret;
 	enum ipa3_nat_mem_in           nmi;
 	struct ipa_ct_cache*           ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache* ct_table;
-	ipa_ipv6ct_hw_entry *entry;
+	ipa_ipv6ct_hw_entry_v_7_0 *entry;
 
 	IPADBG("In\n");
 
@@ -890,6 +1211,169 @@ bail:
 	return ret;
 }
 
+int ipa_ipv6ct_query_timestamp(uint32_t table_handle, uint32_t rule_handle, uint32_t* time_stamp)
+{
+	int ret;
+	enum ipa3_nat_mem_in           nmi;
+	struct ipa_ct_cache*           ct_cache_ptr;
+	struct ipa_ct_ip6_table_cache* ct_table;
+	ipa_ipv6ct_hw_entry *entry;
+
+	IPADBG("In\n");
+
+	CT_BREAK_TBL_HDL(table_handle, nmi, table_handle);
+
+	if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
+		IPAERR("Bad cache type argument passed\n");
+		ret = -EINVAL;
+		goto bail;
+	}
+
+	IPADBG("nmi(%s)\n", ipa3_ct_mem_in_as_str(nmi));
+
+	if (table_handle == IPA_TABLE_INVALID_ENTRY || table_handle > IPA_IPV6CT_MAX_TBLS ||
+		rule_handle == IPA_TABLE_INVALID_ENTRY || time_stamp == NULL)
+	{
+		IPAERR("invalid parameters passed table_handle=%d rule_handle=%d time_stamp=%pK\n",
+			table_handle, rule_handle, time_stamp);
+		return -EINVAL;
+	}
+	IPADBG("Passed Table: %d and rule handle %d\n", table_handle, rule_handle);
+
+	ct_cache_ptr = &ipv6_ct_cache[nmi];
+
+	if (ct_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+
+        ret = ipa_ipv6ct_query_timestamp_v2(table_handle, rule_handle, time_stamp);
+        if ( ret != 0 ) {
+            IPAERR("ipa_ipv6ct_query_timestamp_v2() fail\n");
+        }
+
+        goto bail;
+	}
+
+	ct_table = &ct_cache_ptr->ip6_tbl[table_handle - 1];
+
+	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
+	{
+		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
+		return -EINVAL;
+	}
+
+	if (pthread_mutex_lock(&ipv6ct_mutex))
+	{
+		IPAERR("unable to lock the ipv6ct mutex\n");
+		return -EINVAL;
+	}
+
+	if (!ct_table->mem_desc.valid)
+	{
+		IPAERR("invalid table handle %d\n", table_handle);
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	ret = ipa_table_get_entry(&ct_table->table, rule_handle, (void**)&entry, NULL);
+	if (ret)
+	{
+		IPAERR("unable to retrive the entry with handle=%d in IPV6CT table with handle=%d\n",
+			rule_handle, table_handle);
+		goto unlock;
+	}
+
+	*time_stamp = entry->time_stamp;
+
+unlock:
+	if (pthread_mutex_unlock(&ipv6ct_mutex))
+	{
+		IPAERR("unable to unlock the ipv6ct mutex\n");
+		return (ret) ? ret : -EPERM;
+	}
+
+bail:
+	IPADBG("Out\n");
+	return ret;
+}
+
+int ipa_ipv6ct_timestamp_flush(uint32_t table_handle)
+{
+	struct ipa_ct_cache* ct_cache_ptr = &ipv6_ct_cache[IPA_NAT_MEM_IN_DDR];
+
+	int ret = 0;
+
+	IPADBG("In\n");
+
+	if ( ! ct_cache_ptr->ipa_desc ) {
+		ct_cache_ptr->ipa_desc = ipa_descriptor_open();
+		if ( ct_cache_ptr->ipa_desc == NULL ) {
+			IPAERR("failed to open IPA driver file descriptor\n");
+			ret = -EIO;
+			goto bail;
+		}
+	}
+
+	ret = ioctl(ct_cache_ptr->ipa_desc->fd, IPA_IOC_NAT_CT_TIMESTAMP_FLUSH);
+
+	if (ret)
+	{
+		IPAERR("IPA_IOC_NAT_CT_TIMESTAMP_FLUSH ioctl failure %d on IPA fd %d\n",
+			   ret, ct_cache_ptr->ipa_desc->fd);
+		goto bail;
+	}
+
+bail:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+
+/**
+* ipv6ct_hash_v2() - Find the index into ipv6ct table
+* @rule: [in] an IPv6CT rule
+* @size: [in] size of the IPv6CT table
+*
+* This hash method is used to find the hash index of an entry into IPv6CT table.
+* In case of result zero, N-1 will be returned, where N is size of IPv6CT table.
+*
+* Returns: >0 index into IPv6CT table, negative on failure
+*/
+static uint16_t ipa_ipv6ct_hash_v2(const ipa_ipv6ct_rule_v2* rule, uint16_t size)
+{
+	uint16_t hash = 0;
+
+	IPADBG("src_ipv6_lsb 0x%llx\n", rule->src_ipv6_lsb);
+	IPADBG("src_ipv6_msb 0x%llx\n", rule->src_ipv6_msb);
+	IPADBG("dest_ipv6_lsb 0x%llx\n", rule->dest_ipv6_lsb);
+	IPADBG("dest_ipv6_msb 0x%llx\n", rule->dest_ipv6_msb);
+	IPADBG("src_port: 0x%x dest_port: 0x%x\n", rule->src_port, rule->dest_port);
+	IPADBG("protocol: 0x%x size: 0x%x\n", rule->protocol, size);
+
+	hash ^= ipa_ipv6ct_xor_segments(rule->src_ipv6_lsb);
+	hash ^= ipa_ipv6ct_xor_segments(rule->src_ipv6_msb);
+	hash ^= ipa_ipv6ct_xor_segments(rule->dest_ipv6_lsb);
+	hash ^= ipa_ipv6ct_xor_segments(rule->dest_ipv6_msb);
+
+	hash ^= rule->src_port;
+	hash ^= rule->dest_port;
+	hash ^= rule->protocol;
+
+	/*
+	 * The size passed to hash function expected be power^2-1, while the actual size is power^2,
+	 * actual_size = size + 1
+	 */
+	hash &= size;
+
+	/* If the hash resulted to zero then set it to maximum value as zero is unused entry in ipv6ct table */
+	if (hash == 0)
+	{
+		hash = size;
+	}
+
+	IPADBG("ipa_ipv6ct_hash_v2 returning value: %d\n", hash);
+	return hash;
+}
+
 /**
 * ipv6ct_hash() - Find the index into ipv6ct table
 * @rule: [in] an IPv6CT rule
@@ -953,6 +1437,172 @@ static uint16_t ipa_ipv6ct_xor_segments(uint64_t num)
 	IPADBG("return\n");
 	return ret;
 }
+
+static int table_entry_is_valid_v2(void* entry)
+{
+	ipa_ipv6ct_hw_entry_v_7_0* ipv6ct_entry = (ipa_ipv6ct_hw_entry_v_7_0*)entry;
+
+	IPADBG("\n");
+
+	return ipv6ct_entry->enable;
+}
+
+static uint16_t table_entry_get_next_index_v2(void* entry)
+{
+	uint16_t result;
+	ipa_ipv6ct_hw_entry_v_7_0* ipv6ct_entry = (ipa_ipv6ct_hw_entry_v_7_0*)entry;
+
+	IPADBG("\n");
+
+	result = ipv6ct_entry->next_index;
+
+	IPADBG("Next entry of %pK is %d\n", entry, result);
+	return result;
+}
+
+
+static uint16_t table_entry_get_prev_index_v2(void* entry, uint16_t entry_index, void* meta, uint16_t base_table_size)
+{
+	uint16_t result;
+	ipa_ipv6ct_hw_entry_v_7_0* ipv6ct_entry = (ipa_ipv6ct_hw_entry_v_7_0*)entry;
+
+	IPADBG("\n");
+
+	result = ipv6ct_entry->prev_index;
+
+	IPADBG("Previous entry of %d is %d\n", entry_index, result);
+	return result;
+}
+
+static void table_entry_set_prev_index_v2(void* entry, uint16_t entry_index, uint16_t prev_index,
+	void* meta, uint16_t base_table_size)
+{
+	ipa_ipv6ct_hw_entry_v_7_0* ipv6ct_entry = (ipa_ipv6ct_hw_entry_v_7_0*)entry;
+
+	IPADBG("Previous entry of %d is %d\n", entry_index, prev_index);
+
+	ipv6ct_entry->prev_index = prev_index;
+
+	IPADBG("return\n");
+}
+
+static int table_entry_copy_from_user_v2(void* entry, void* user_data)
+{
+	ipa_ipv6ct_hw_entry_v_7_0* ipv6ct_entry = (ipa_ipv6ct_hw_entry_v_7_0*)entry;
+	const ipa_ipv6ct_rule_v2* user_rule = (const ipa_ipv6ct_rule_v2*)user_data;
+
+	IPADBG("\n");
+
+	ipv6ct_entry->src_ipv6_lsb = user_rule->src_ipv6_lsb;
+	ipv6ct_entry->src_ipv6_msb = user_rule->src_ipv6_msb;
+	ipv6ct_entry->dest_ipv6_lsb = user_rule->dest_ipv6_lsb;
+	ipv6ct_entry->dest_ipv6_msb = user_rule->dest_ipv6_msb;
+	ipv6ct_entry->protocol = user_rule->protocol;
+	ipv6ct_entry->src_port = user_rule->src_port;
+	ipv6ct_entry->dest_port = user_rule->dest_port;
+	ipv6ct_entry->ucp = user_rule->ucp;
+	ipv6ct_entry->uc_activation_index = user_rule->uc_activation_index;
+	ipv6ct_entry->s = user_rule->s;
+
+	switch (user_rule->direction_settings)
+	{
+	case IPA_IPV6CT_DIRECTION_DENY_ALL:
+		break;
+	case IPA_IPV6CT_DIRECTION_ALLOW_OUT:
+		ipv6ct_entry->out_allowed = IPA_IPV6CT_DIRECTION_ALLOW_BIT;
+		break;
+	case IPA_IPV6CT_DIRECTION_ALLOW_IN:
+		ipv6ct_entry->in_allowed = IPA_IPV6CT_DIRECTION_ALLOW_BIT;
+		break;
+	case IPA_IPV6CT_DIRECTION_ALLOW_ALL:
+		ipv6ct_entry->out_allowed = IPA_IPV6CT_DIRECTION_ALLOW_BIT;
+		ipv6ct_entry->in_allowed = IPA_IPV6CT_DIRECTION_ALLOW_BIT;
+		break;
+	default:
+		IPAERR("wrong value for IPv6CT direction setting parameter %d\n", user_rule->direction_settings);
+		return -EINVAL;
+	}
+
+	/* IPAv7 fields*/
+    ipv6ct_entry->all_pkts_stats_cnt_index = user_rule->all_pkts_stats_cnt_index;
+    ipv6ct_entry->non_frag_stats_cnt_index = user_rule->non_frag_stats_cnt_index;
+    ipv6ct_entry->sw_prod_classification_cookie = user_rule->sw_prod_classification_cookie;
+    ipv6ct_entry->in_redirect = user_rule->in_redirect;
+    ipv6ct_entry->out_redirect = user_rule->out_redirect;
+
+	IPADBG("return\n");
+	return 0;
+}
+
+static int table_entry_head_insert_v2(void* entry, void* user_data, uint16_t* dma_command_data)
+{
+	int ret;
+
+	IPADBG("\n");
+
+	ret = table_entry_copy_from_user_v2(entry, user_data);
+	if (ret)
+	{
+		IPAERR("unable to copy from user a new entry\n");
+		return ret;
+	}
+
+	*dma_command_data = 0;
+	((ipa_ipv6ct_flags_v2*)dma_command_data)->enable = IPA_IPV6CT_FLAG_ENABLE_BIT;
+
+	IPADBG("return\n");
+	return 0;
+}
+
+static int table_entry_tail_insert_v2(void* entry, void* user_data)
+{
+	int ret;
+
+	IPADBG("\n");
+
+	ret = table_entry_copy_from_user_v2(entry, user_data);
+	if (ret)
+	{
+		IPAERR("unable to copy from user a new entry\n");
+		return ret;
+	}
+
+	((ipa_ipv6ct_hw_entry_v_7_0*)entry)->enable = IPA_IPV6CT_FLAG_ENABLE_BIT;
+
+	IPADBG("return\n");
+	return 0;
+}
+
+static int copy_from_ipa_ipv6ct_rule_v1_to_v2(
+    ipa_ipv6ct_rule* ipv6ct_rule_v1,
+    ipa_ipv6ct_rule_v2* ipv6ct_rule_v2)
+{
+    IPADBG("In\n");
+
+    ipv6ct_rule_v2->src_ipv6_lsb  = ipv6ct_rule_v1->src_ipv6_lsb;
+	ipv6ct_rule_v2->src_ipv6_msb  = ipv6ct_rule_v1->src_ipv6_msb;
+	ipv6ct_rule_v2->dest_ipv6_lsb = ipv6ct_rule_v1->dest_ipv6_lsb;
+	ipv6ct_rule_v2->dest_ipv6_msb = ipv6ct_rule_v1->dest_ipv6_msb;
+	ipv6ct_rule_v2->direction_settings = ipv6ct_rule_v1->direction_settings;
+	ipv6ct_rule_v2->ucp = ipv6ct_rule_v1->ucp;
+	ipv6ct_rule_v2->s = ipv6ct_rule_v1->s;
+	ipv6ct_rule_v2->uc_activation_index = ipv6ct_rule_v1->uc_activation_index;
+	ipv6ct_rule_v2->src_port = ipv6ct_rule_v1->src_port;
+	ipv6ct_rule_v2->dest_port = ipv6ct_rule_v1->dest_port;
+	ipv6ct_rule_v2->protocol = ipv6ct_rule_v1->protocol;
+
+    /* IPAv7 fields*/
+	ipv6ct_rule_v2->all_pkts_stats_cnt_index = 0;
+	ipv6ct_rule_v2->non_frag_stats_cnt_index = 0;
+	ipv6ct_rule_v2->sw_prod_classification_cookie = 0;
+	ipv6ct_rule_v2->in_redirect = ipv6ct_rule_v2->out_redirect = 0;
+	
+	IPADBG("Out\n");
+
+	return 0;
+}
+
+/*****************************************************************************************/
 
 static int table_entry_is_valid(void* entry)
 {
@@ -1106,12 +1756,24 @@ static int ipa_ipv6ct_create_table(
 	uint8_t table_index)
 {
 	int ret, size;
+	size_t ipv6ct_entry_size;
 
 	IPADBG("In\n");
 
+	ipa_table_entry_interface *entry_interface_ptr = &entry_interface;
+	entry_table_cmd_adder entry_table_cmd_adder_func = ipa_table_add_dma_cmd;
+	
+	if (ct_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0)
+	{
+        entry_interface_ptr = &entry_interface_v2;
+		entry_table_cmd_adder_func = ipa_table_add_write_cmd;
+    }
+
+    ipv6ct_entry_size = get_ipv6ct_entry_size(ct_cache_ptr->ipa_desc->ver);
+
 	ipa_table_init(
 		&ct_table->table, IPA_IPV6CT_TABLE_NAME, ct_cache_ptr->nmi,
-		sizeof(ipa_ipv6ct_hw_entry), NULL, 0, &entry_interface);
+		ipv6ct_entry_size, NULL, 0, entry_interface_ptr, entry_table_cmd_adder_func);
 
 	ret = ipa_table_calculate_entries_num(
 		&ct_table->table, number_of_entries, ct_cache_ptr->nmi);
@@ -1149,7 +1811,12 @@ static int ipa_ipv6ct_create_table(
 
 	ipa_table_reset(&ct_table->table);
 
-	ipa_ipv6ct_create_table_dma_cmd_helpers(ct_table, table_index);
+	if (ct_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+		ipa_ipv6ct_create_table_write_cmd_helpers(ct_table, table_index);
+	}
+	else {
+		ipa_ipv6ct_create_table_dma_cmd_helpers(ct_table, table_index);
+	}
 
 	IPADBG("return\n");
 	return 0;
@@ -1179,6 +1846,60 @@ static int ipa_ipv6ct_destroy_table(
 }
 
 /**
+ * ipa_ipv6ct_create_table_write_cmd_helpers() -
+ *   Creates dma_cmd_helpers for base table in the received IPv6CT table
+ * @ipv6ct_table: [in] IPv6CT table
+ * @table_indx: [in] The index of the IPv6CT table
+ *
+ * A Table Write command helper helps to generate the Table Write command for one
+ * specific field change. Each table has 3 different types of field
+ * change: update_head, update_entry and delete_head. This function
+ * creates the helpers and updates the base table correspondingly.
+ */
+static void ipa_ipv6ct_create_table_write_cmd_helpers(
+	struct ipa_ct_ip6_table_cache* ct_table,
+	uint8_t table_indx )
+{
+	IPADBG("\n");
+
+	ipa_table_write_cmd_helper_init(
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_FLAGS],
+		table_indx,
+		IPA_TABLE_WRITE_IPV6CT_BASE_TBL,
+		FALSE,
+		IPA_IPV6CT_RULE_FLAG_FIELD_OFFSET,
+		FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	ipa_table_write_cmd_helper_init(
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_NEXT_INDEX],
+		table_indx,
+		IPA_TABLE_WRITE_IPV6CT_BASE_TBL,
+		FALSE,
+		IPA_IPV6CT_RULE_NEXT_FIELD_OFFSET,
+		FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	ipa_table_write_cmd_helper_init(
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_PROTOCOL],
+		table_indx,
+		IPA_TABLE_WRITE_IPV6CT_BASE_TBL,
+		TRUE,
+		IPA_IPV6CT_RULE_PROTO_FIELD_OFFSET,
+		FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	ct_table->table.dma_help[HELP_UPDATE_HEAD] =
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_FLAGS];
+	ct_table->table.dma_help[HELP_UPDATE_ENTRY] =
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_NEXT_INDEX];
+	ct_table->table.dma_help[HELP_DELETE_HEAD] =
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_PROTOCOL];
+
+	IPADBG("return\n");
+}
+
+/**
  * ipa_ipv6ct_create_table_dma_cmd_helpers() -
  *   Creates dma_cmd_helpers for base table in the received IPv6CT table
  * @ipv6ct_table: [in] IPv6CT table
@@ -1196,34 +1917,52 @@ static void ipa_ipv6ct_create_table_dma_cmd_helpers(
 	IPADBG("\n");
 
 	ipa_table_dma_cmd_helper_init(
-		&ct_table->table_dma_cmd_helpers[IPA_IPV6CT_TABLE_FLAGS],
+		&ct_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_IPV6CT_TABLE_FLAGS],
 		table_indx,
 		IPA_IPV6CT_BASE_TBL,
 		IPA_IPV6CT_EXPN_TBL,
 		ct_table->mem_desc.addr_offset + IPA_IPV6CT_RULE_FLAG_FIELD_OFFSET);
 
 	ipa_table_dma_cmd_helper_init(
-		&ct_table->table_dma_cmd_helpers[IPA_IPV6CT_TABLE_NEXT_INDEX],
+		&ct_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_IPV6CT_TABLE_NEXT_INDEX],
 		table_indx,
 		IPA_IPV6CT_BASE_TBL,
 		IPA_IPV6CT_EXPN_TBL,
 		ct_table->mem_desc.addr_offset + IPA_IPV6CT_RULE_NEXT_FIELD_OFFSET);
 
 	ipa_table_dma_cmd_helper_init(
-		&ct_table->table_dma_cmd_helpers[IPA_IPV6CT_TABLE_PROTOCOL],
+		&ct_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_IPV6CT_TABLE_PROTOCOL],
 		table_indx,
 		IPA_IPV6CT_BASE_TBL,
 		IPA_IPV6CT_EXPN_TBL,
 		ct_table->mem_desc.addr_offset + IPA_IPV6CT_RULE_PROTO_FIELD_OFFSET);
 
 	ct_table->table.dma_help[HELP_UPDATE_HEAD] =
-		&ct_table->table_dma_cmd_helpers[IPA_IPV6CT_TABLE_FLAGS];
+		&ct_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_IPV6CT_TABLE_FLAGS];
 	ct_table->table.dma_help[HELP_UPDATE_ENTRY] =
-		&ct_table->table_dma_cmd_helpers[IPA_IPV6CT_TABLE_NEXT_INDEX];
+		&ct_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_IPV6CT_TABLE_NEXT_INDEX];
 	ct_table->table.dma_help[HELP_DELETE_HEAD] =
-		&ct_table->table_dma_cmd_helpers[IPA_IPV6CT_TABLE_PROTOCOL];
+		&ct_table->table_cmd_helpers.table_dma_cmd_helpers[IPA_IPV6CT_TABLE_PROTOCOL];
 
 	IPADBG("return\n");
+}
+
+static int ipa_ipv6ct_post_dma_cmd_v2(
+	struct ipa_ct_cache*        ct_cache_ptr,
+	struct ipa_ioc_table_write_cmd* cmd)
+{
+	IPADBG("In\n");
+
+	cmd->mem_type = ct_cache_ptr->nmi;
+
+	if (ioctl(ct_cache_ptr->ipa_desc->fd, IPA_IOC_TABLE_WRITE_CMD, cmd))
+	{
+		IPAERR("ioctl (IPA_IOC_TABLE_WRITE_CMD) on fd %d has failed\n",
+			  ct_cache_ptr->ipa_desc->fd);
+		return -EIO;
+	}
+	IPADBG("posted IPA_IOC_TABLE_WRITE_CMD to kernel successfully\n");
+	return 0;
 }
 
 static int ipa_ipv6ct_post_dma_cmd(
@@ -1453,6 +2192,8 @@ int ipa_calc_num_sram_ct_table_entries(
 
 	tot = 1;
 
+	struct ipa_ct_cache* ct_cache_ptr = &ipv6_ct_cache[IPA_NAT_MEM_IN_DDR];
+
 	while ( 1 )
 	{
 		IPADBG("Trying %u entries\n", tot);
@@ -1463,6 +2204,7 @@ int ipa_calc_num_sram_ct_table_entries(
 					   table1_ent_size,
 					   NULL,
 					   0,
+					   NULL,
 					   NULL);
 
 
@@ -1853,4 +2595,21 @@ bail:
 	IPADBG("Out\n");
 
 	return ret;
+}
+
+int ipa_ct_timestamp_flush(
+	uint32_t tbl_hdl)
+{
+	int result = -EINVAL;
+
+	if (tbl_hdl == IPA_TABLE_INVALID_ENTRY)
+	{
+		IPAERR("Invalid parameters tbl_hdl=0x%08X\n",
+			   tbl_hdl);
+		return result;
+	}
+
+	IPADBG("Passed Table: 0x%08X\n", tbl_hdl);
+
+	return ipa_cti_timestamp_flush(tbl_hdl);
 }
