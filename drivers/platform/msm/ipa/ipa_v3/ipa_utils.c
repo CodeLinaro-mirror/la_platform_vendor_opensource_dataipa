@@ -46,6 +46,11 @@
 #define IPA_V5_0_CLK_RATE_NOMINAL (500 * 1000 * 1000UL)
 #define IPA_V5_0_CLK_RATE_TURBO (600 * 1000 * 1000UL)
 
+#define IPA_V5_2_IOT_CLK_RATE_SVS2 (75 * 1000 * 1000UL)
+#define IPA_V5_2_IOT_CLK_RATE_SVS (240 * 1000 * 1000UL)
+#define IPA_V5_2_IOT_CLK_RATE_NOMINAL (500 * 1000 * 1000UL)
+#define IPA_V5_2_IOT_CLK_RATE_TURBO (600 * 1000 * 1000UL)
+
 #define IPA_V5_5_CLK_RATE_SVS2 (75 * 1000 * 1000UL)
 #define IPA_V5_5_CLK_RATE_SVS (240 * 1000 * 1000UL)
 #define IPA_V5_5_CLK_RATE_NOMINAL (500 * 1000 * 1000UL)
@@ -10677,6 +10682,11 @@ int ipa3_controller_static_bind(struct ipa3_controller *ctrl,
 		ctrl->ipa_clk_rate_nominal = IPA_V5_5_CLK_RATE_NOMINAL;
 		ctrl->ipa_clk_rate_svs = IPA_V5_5_CLK_RATE_SVS;
 		ctrl->ipa_clk_rate_svs2 = IPA_V5_5_CLK_RATE_SVS2;
+	} else if (hw_type >= IPA_HW_v5_2 && ipa3_ctx->ipa_config_is_iot) {
+		ctrl->ipa_clk_rate_turbo = IPA_V5_2_IOT_CLK_RATE_TURBO;
+		ctrl->ipa_clk_rate_nominal = IPA_V5_2_IOT_CLK_RATE_NOMINAL;
+		ctrl->ipa_clk_rate_svs = IPA_V5_2_IOT_CLK_RATE_SVS;
+		ctrl->ipa_clk_rate_svs2 = IPA_V5_2_IOT_CLK_RATE_SVS2;
 	} else if (hw_type >= IPA_HW_v5_0) {
 		ctrl->ipa_clk_rate_turbo = IPA_V5_0_CLK_RATE_TURBO;
 		ctrl->ipa_clk_rate_nominal = IPA_V5_0_CLK_RATE_NOMINAL;
