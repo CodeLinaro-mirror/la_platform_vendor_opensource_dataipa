@@ -65,6 +65,7 @@
 #define FILTERING_H_
 
 #include <stdint.h>
+#include <limits> //for std:numeric_limits
 #include "linux/msm_ipa.h"
 #include "Feature.h"
 
