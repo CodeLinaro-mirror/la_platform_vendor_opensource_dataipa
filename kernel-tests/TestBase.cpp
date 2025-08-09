@@ -25,6 +25,9 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #include "TestBase.h"
@@ -38,7 +41,12 @@ TestBase::TestBase() :
 		m_minIPAHwType(IPA_HW_v1_1),
 		m_maxIPAHwType(IPA_HW_MAX)
 {
-	m_mem_type = DFLT_NAT_MEM_TYPE;
+	if (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v7_0) {
+        m_mem_type = DDR_NAT_MEM_TYPE;
+    }
+    else {
+        m_mem_type = DFLT_NAT_MEM_TYPE;
+    }
 }
 
 //////////////////////////////////////////////////////////////////////

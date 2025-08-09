@@ -59,6 +59,9 @@
  * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
+ * 
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * 
  */
 
 #include <stdio.h>
@@ -272,13 +275,11 @@ public:
 		isSuccess &= CompareResultVsGolden_w_Status(send,  send_sz,  rxBuff1, receivedSize);
 
 		if (shouldBeHit) {
-			isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-				IsCacheHit_v5_0(send_sz, receivedSize, rxBuff1) : IsCacheHit(send_sz, receivedSize, rxBuff1);
+			isSuccess &= isCacheHit(send_sz, receivedSize, rxBuff1);
 		}
 		else
 		{
-			isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-				IsCacheMiss_v5_0(send_sz, receivedSize, rxBuff1) : IsCacheMiss(send_sz, receivedSize, rxBuff1);
+			isSuccess &= isCacheMiss(send_sz, receivedSize, rxBuff1);
 		}
 
 		size_t recievedBufferSize = receivedSize * 3;
@@ -446,6 +447,25 @@ public:
 		return true;
 	}
 
+	inline bool VerifyStatusReceivedV7_0(size_t SendSize, size_t RecvSize) {
+		if ((RecvSize <= SendSize) || ((RecvSize - SendSize) != sizeof(struct ipa3_hw_pkt_status_hw_v7_0))){
+			printf("received buffer size does not match! sent:receive [%zu]:[%zu]\n",SendSize,RecvSize);
+			return false;
+		}
+
+		return true;
+	}
+
+	inline bool VerifyStatusReceived_wo_status(size_t SendSize, size_t RecvSize)
+	{
+		if ((RecvSize != SendSize)){
+			printf("received buffer size does not match! sent:receive [%zu]:[%zu]\n",SendSize,RecvSize);
+			return false;
+		}
+
+		return true;
+	}
+
 	inline bool IsCacheHit(size_t SendSize, size_t RecvSize, void *Buff)
 	{
 		struct ipa3_hw_pkt_status *pStatus = (struct ipa3_hw_pkt_status *)Buff;
@@ -454,14 +474,13 @@ public:
 			return false;
 		}
 
-		if((bool)pStatus->route_hash){
+		if((bool)pStatus->filt_hash){
 			printf ("%s::cache hit!! \n",__FUNCTION__);
 			return true;
 		}
 
 		printf ("%s::cache miss!! \n",__FUNCTION__);
 		return false;
-
 	}
 
 	inline bool IsCacheHit_v5_0(size_t SendSize, size_t RecvSize, void *Buff)
@@ -472,65 +491,109 @@ public:
 			return false;
 		}
 
-		if((bool)pStatus->route_hash){
+		if((bool)pStatus->filt_hash){
 			printf ("%s::cache hit!! \n",__FUNCTION__);
 			return true;
 		}
 
 		printf ("%s::cache miss!! \n",__FUNCTION__);
 		return false;
-
 	}
 
-	inline bool IsCacheMiss(size_t SendSize, size_t RecvSize, void *Buff)
-	{
-		struct ipa3_hw_pkt_status *pStatus = (struct ipa3_hw_pkt_status *)Buff;
-
-		if (VerifyStatusReceived(SendSize,RecvSize) == false){
+	inline bool isCacheHitV7_0(size_t SendSize, size_t RecvSize, void *Buff) {
+		auto *pStatus = (struct ipa3_hw_pkt_status_hw_v7_0 *)Buff;
+		if (!VerifyStatusReceivedV7_0(SendSize, RecvSize)) {
 			return false;
 		}
-
-		if(!((bool)pStatus->route_hash)){
-			printf ("%s::cache miss!! \n",__FUNCTION__);
-			return true;
+		return static_cast<bool>(pStatus->rt_cache_hit);
 		}
 
+	inline bool isCacheHit(size_t SendSize, size_t RecvSize, void *Buff) {
+		bool res;
+		switch (TestManager::GetInstance()->GetIPAHwType()) {
+			case IPA_HW_v7_0:
+				res = isCacheHitV7_0(SendSize, RecvSize, Buff);
+				break;
+			case IPA_HW_v6_0:
+			case IPA_HW_v5_5:
+			case IPA_HW_v5_0:
+			case IPA_HW_v5_1:
+				res = IsCacheHit_v5_0(SendSize, RecvSize, Buff);
+				break;
+			default:
+				res = IsCacheHit(SendSize, RecvSize, Buff);
+				break;
+		}
+		if (res)
 		printf ("%s::cache hit!! \n",__FUNCTION__);
-		return false;
-	}
-
-		inline bool IsCacheMiss_v5_0(size_t SendSize, size_t RecvSize, void *Buff)
-	{
-		struct ipa3_hw_pkt_status_hw_v5_0 *pStatus = (struct ipa3_hw_pkt_status_hw_v5_0 *)Buff;
-
-		if (VerifyStatusReceived(SendSize,RecvSize) == false){
-			return false;
-		}
-
-		if(!((bool)pStatus->route_hash)){
+		else
 			printf ("%s::cache miss!! \n",__FUNCTION__);
-			return true;
-		}
 
-		printf ("%s::cache hit!! \n",__FUNCTION__);
-		return false;
+		return res;
 	}
 
-	inline bool IsTTLUpdated_v5_5(size_t SendSize, size_t RecvSize, void *Buff)
-	{
-		struct ipa3_hw_pkt_status_hw_v5_5 *pStatus = (struct ipa3_hw_pkt_status_hw_v5_5 *)Buff;
+	inline bool isTtlUpdatedV7_0(size_t SendSize, size_t ReceiveSize, void *Buff, bool withStatus = true) {
+		auto *pStatus = (struct ipa3_hw_pkt_status_hw_v7_0 *)Buff;
 
-		if (VerifyStatusReceived(SendSize,RecvSize) == false){
+		if (withStatus) {
+			if (!VerifyStatusReceivedV7_0(SendSize,ReceiveSize))
+				return false;
+		} else {
+			if (!VerifyStatusReceived_wo_status(SendSize,ReceiveSize))
 			return false;
 		}
-
-		if((bool)pStatus->ttl_dec) {
+		if((bool)pStatus->ttl_dec){
 			printf ("%s::TTL Updated!! \n",__FUNCTION__);
 			return true;
 		}
-
 		printf ("%s::TTL not updated!! \n",__FUNCTION__);
+
 		return false;
+	}
+
+	inline bool isTtlUpdatedV5_5(size_t SendSize, size_t ReceiveSize, void *Buff, bool withStatus = true) {
+		auto *pStatus = (struct ipa3_hw_pkt_status_hw_v5_5 *)Buff;
+
+		if (withStatus) {
+			if (!VerifyStatusReceived(SendSize,ReceiveSize))
+				return false;
+		} else {
+			if (!VerifyStatusReceived_wo_status(SendSize,ReceiveSize))
+			return false;
+		}
+		if((bool)pStatus->ttl_dec){
+			printf ("%s::TTL Updated!! \n",__FUNCTION__);
+			return true;
+		}
+		printf ("%s::TTL not updated!! \n",__FUNCTION__);
+
+		return false;
+	}
+
+	inline bool isTtlUpdated(size_t SendSize, size_t ReceiveSize, void *Buff, bool withStatus = true) {
+		bool res;
+
+		switch (TestManager::GetInstance()->GetIPAHwType()) {
+			case IPA_HW_v7_0:
+				res = isTtlUpdatedV7_0(SendSize, ReceiveSize, Buff, withStatus);
+				break;
+			case IPA_HW_v6_0:
+			case IPA_HW_v5_5:
+				res = isTtlUpdatedV5_5(SendSize, ReceiveSize, Buff, withStatus);
+				break;
+			default:
+				return true;
+		}
+		if (res)
+			printf("%s::TTL Updated!! \n",__FUNCTION__);
+		else
+			printf("%s::TTL not updated!! \n",__FUNCTION__);
+
+		return res;
+	}
+
+	inline bool isCacheMiss(size_t SendSize, size_t RecvSize, void *Buff) {
+		return !isCacheHit(SendSize, RecvSize, Buff);
 	}
 
 	static RoutingDriverWrapper m_routing;
@@ -2136,12 +2199,9 @@ public:
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ? 
-			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
+		isSuccess &= isCacheHit(m_sendSize2, receivedSize2, rxBuff2);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -2337,12 +2397,9 @@ public:
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheMiss(m_sendSize2,receivedSize2,rxBuff2);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
+		isSuccess &= isCacheMiss(m_sendSize2, receivedSize2, rxBuff2);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -2539,12 +2596,9 @@ public:
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheMiss(m_sendSize2,receivedSize2,rxBuff2);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
+		isSuccess &= isCacheMiss(m_sendSize2, receivedSize2, rxBuff2);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -2737,12 +2791,9 @@ public:
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ? 
-			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
+		isSuccess &= isCacheHit(m_sendSize2, receivedSize2, rxBuff2);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -2962,12 +3013,9 @@ public:
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ? 
-			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
+		isSuccess &= isCacheHit(m_sendSize2, receivedSize2, rxBuff2);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -3011,8 +3059,7 @@ public:
 		/* Compare results */
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer,  m_sendSize,  rxBuff1, receivedSize);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -4980,10 +5027,25 @@ public:
 /*---------------------------------------------------------------------------*/
 /* Test100: Cache LRU behavior test  */
 /*---------------------------------------------------------------------------*/
-#define CHACHE_ENTRIES 128
-#define CHACHE_PLUS_ONE (CHACHE_ENTRIES +1)
+#define CHACHE_ENTRIES 255
+#define CHACHE_PLUS_ONE (CHACHE_ENTRIES + 1)
+#define IPV4_DST_ADDR_OFFSET (16)
 class IpaRoutingBlockTest040 : public IpaRoutingBlockTestFixture
 {
+
+private:
+
+	static constexpr size_t numCacheEntries = 255;
+
+	bool __ModifyPackets(int i) {
+		int address;
+
+		address = ntohl(0xC0A80101 + i); // 192.168.1.(1+i)
+		memcpy(&m_sendBuffer[IPV4_DST_ADDR_OFFSET], &address, sizeof(address));
+
+		return true;
+	}
+
 public:
 	IpaRoutingBlockTest040()
 	{
@@ -5008,31 +5070,36 @@ public:
 	{
 		struct ipa_ioc_add_rt_rule *rt_rule;
 		struct ipa_rt_rule_add *rt_rule_entry;
+		const auto numRulesPerIoctlCall = std::numeric_limits<uint8_t>::max();
 
 		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
 
 		rt_rule = (struct ipa_ioc_add_rt_rule *)
 			calloc(1, sizeof(struct ipa_ioc_add_rt_rule) +
-			       CHACHE_PLUS_ONE * sizeof(struct ipa_rt_rule_add));
+				numRulesPerIoctlCall * sizeof(struct ipa_rt_rule_add));
 
 		if(!rt_rule) {
 			printf("Failed memory allocation for rt_rule\n");
 			return false;
 		}
 
+		auto installedRules = 0;
+		while (installedRules < numCacheEntries + 1) {
+
 		rt_rule->commit = 1;
-		rt_rule->num_rules = CHACHE_PLUS_ONE;
+			rt_rule->num_rules = 0;
 		rt_rule->ip = IPA_IP_v4;
 		strlcpy(rt_rule->rt_tbl_name, "LAN", sizeof(rt_rule->rt_tbl_name));
 
-		for (int i = 0; i < CHACHE_PLUS_ONE; i++) {
+			for (int i = 0; i < numRulesPerIoctlCall && installedRules < numCacheEntries + 1; i++, installedRules++) {
 			rt_rule_entry = &rt_rule->rules[i];
 			rt_rule_entry->at_rear = 1;
 			rt_rule_entry->rule.dst = IPA_CLIENT_TEST2_CONS;
 			rt_rule_entry->rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
-			rt_rule_entry->rule.attrib.u.v4.dst_addr = 0xC0A80101 + i; // DST_IP == 192.168.1.(1+i)
+				rt_rule_entry->rule.attrib.u.v4.dst_addr = 0xC0A80101 + installedRules; // DST_IP == 192.168.1.(1+i)
 			rt_rule_entry->rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
 			rt_rule_entry->rule.hashable = 1;
+				rt_rule->num_rules++;
 		}
 
 		// The last rule has to be catch all, otherwize no rule will work
@@ -5045,6 +5112,7 @@ public:
 		}
 
 		printf("rt rule hdl1=%x\n", rt_rule_entry->rt_rule_hdl);
+		}
 
 		free(rt_rule);
 
@@ -5078,8 +5146,8 @@ public:
 		// Send the first CHACHE_ENTRIES packets
 		// Receive packets from the channels and compare results
 		// All rules should be cache miss
-		for (int i = 0; i < CHACHE_ENTRIES; i++) {
-			m_sendBuffer[DST_ADDR_LSB_OFFSET_IPV4] = 0x1 + i;
+		for (int i = 0; i < numCacheEntries; i++) {
+			res = __ModifyPackets(i);
 			isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
 			if (false == isSuccess)
 			{
@@ -5097,8 +5165,8 @@ public:
 		// Send again the first CHACHE_ENTRIES packets
 		// Receive packets from the channels and compare results
 		// All rules should be cache hit
-		for (int i = 0; i < CHACHE_ENTRIES; i++) {
-			m_sendBuffer[DST_ADDR_LSB_OFFSET_IPV4] = 0x1 + i;
+		for (int i = 0; i < numCacheEntries; i++) {
+			res = __ModifyPackets(i);
 			isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
 			if (false == isSuccess)
 			{
@@ -5114,7 +5182,8 @@ public:
 		}
 
 		// Send a packet to a new filter entry, this should trigger the LRU clear
-		m_sendBuffer[DST_ADDR_LSB_OFFSET_IPV4] = 0x1 + CHACHE_ENTRIES;
+//		m_sendBuffer[DST_ADDR_LSB_OFFSET_IPV4] = 0x1 + numCacheEntries;
+		res = __ModifyPackets(numCacheEntries);
 		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
 		if (false == isSuccess)	{
 			printf("SendData failure.\n");
@@ -5129,7 +5198,7 @@ public:
 		}
 
 		// send the first packet again
-		m_sendBuffer[DST_ADDR_LSB_OFFSET_IPV4] = 0x1;
+		res = __ModifyPackets(0);
 		isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
 		if (false == isSuccess)	{
 			printf("SendData failure.\n");
@@ -5581,19 +5650,13 @@ public:
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		isSuccess &= CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize, receivedSize, rxBuff1) : IsCacheMiss(m_sendSize,receivedSize,rxBuff1);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheHit_v5_0(m_sendSize2, receivedSize2, rxBuff2) : IsCacheHit(m_sendSize2,receivedSize2,rxBuff2);
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_0) ?
-			IsCacheMiss_v5_0(m_sendSize3, receivedSize3, rxBuff3) : IsCacheMiss(m_sendSize3,receivedSize3,rxBuff3);
+		isSuccess &= isCacheMiss(m_sendSize, receivedSize, rxBuff1);
+		isSuccess &= isCacheHit(m_sendSize2, receivedSize2, rxBuff2);
+		isSuccess &= isCacheMiss(m_sendSize3, receivedSize3, rxBuff3);
 
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5(m_sendSize, receivedSize, rxBuff1) : true;
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5(m_sendSize2, receivedSize2, rxBuff2) : true;
-		isSuccess &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			!IsTTLUpdated_v5_5(m_sendSize3, receivedSize3, rxBuff3) : true;
+		isSuccess &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1);
+		isSuccess &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2);
+		isSuccess &= !isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3);
 
 		size_t recievedBufferSize = receivedSize * 3;
 		size_t sentBufferSize = m_sendSize * 3;
@@ -5999,12 +6062,9 @@ public:
 		pkt2_cmp_succ = CompareResultVsGolden_w_Status(m_sendBuffer2, m_sendSize2, rxBuff2, receivedSize2);
 		pkt3_cmp_succ = CompareResultVsGolden_w_Status(m_sendBuffer3, m_sendSize3, rxBuff3, receivedSize3);
 
-		pkt1_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5(m_sendSize, receivedSize, rxBuff1) : true;
-		pkt2_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			IsTTLUpdated_v5_5(m_sendSize2, receivedSize2, rxBuff2) : true;
-		pkt3_cmp_succ &= (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v5_5) ?
-			!IsTTLUpdated_v5_5(m_sendSize3, receivedSize3, rxBuff3) : true;
+		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1);
+		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2);
+		pkt3_cmp_succ &= !isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3);
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;

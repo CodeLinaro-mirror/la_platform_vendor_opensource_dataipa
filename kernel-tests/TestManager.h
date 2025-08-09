@@ -93,11 +93,8 @@ private:
 	static TestManager *m_instance;
 
 	size_t m_numTestsRun;
-	size_t m_numTestsFailed;
 	enum ipa_hw_type m_IPAHwType;
 	const char* m_nat_mem_type_ptr;
-
-	vector < string > m_failedTestsNames;
 };
 
 #endif
