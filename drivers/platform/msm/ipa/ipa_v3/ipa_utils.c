@@ -11273,7 +11273,7 @@ int ipa3_cfg_ep(u32 clnt_hdl, const struct ipa_ep_cfg *ipa_ep_cfg)
 		if (result)
 			return result;
 
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0) {
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0 && ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
 			result = ipa3_cfg_ep_conn_track(clnt_hdl,
 				&ipa_ep_cfg->conn_track);
 			if (result)
@@ -11380,7 +11380,9 @@ int ipa3_cfg_ep_nat(u32 clnt_hdl, const struct ipa_ep_cfg_nat *ep_nat)
 
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
-	ipahal_write_reg_n_fields(IPA_ENDP_INIT_NAT_n, clnt_hdl, ep_nat);
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_NAT_n, clnt_hdl, ep_nat);
+	}
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
 		ipahal_write_reg_n_fields(IPA_ENDP_INIT_NAT_EXC_SUPPRESS_n,
