@@ -10,7 +10,7 @@
 #include <linux/platform_device.h>
 #include <linux/debugfs.h>
 #include "ipa.h"
-#include <linux/ipa_usb.h>
+#include <linux/soc/qcom/ipa_usb.h>
 #include "rndis_ipa.h"
 #include "ecm_ipa.h"
 #include "ipa_i.h"

@@ -1262,11 +1262,11 @@ static uint32_t gsi_get_max_event_rings(enum gsi_ver ver)
 	case GSI_VER_5_2:
 	case GSI_VER_5_5:
 	case GSI_VER_6_0:
+	case GSI_VER_7_0:
 		gsihal_read_reg_n_fields(GSI_EE_n_GSI_HW_PARAM_4,
 			gsi_ctx->per.ee, &hw_param4);
 		max_ev = hw_param4.gsi_num_ev_per_ee;
 		break;
-	case GSI_VER_7_0:
 	default:
 		gsihal_read_reg_n_fields(GSI_EE_n_GSI_HW_PARAM_2,
 			gsi_ctx->per.ee, &hw_param2);

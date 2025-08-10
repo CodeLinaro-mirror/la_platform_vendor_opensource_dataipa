@@ -17,7 +17,7 @@
 #include "ipa_wdi3.h"
 #include "ipa_wigig.h"
 #include "ipa_eth.h"
-#include <linux/ipa_usb.h>
+#include <linux/soc/qcom/ipa_usb.h>
 #include <linux/ipa_mhi.h>
 #include <linux/ratelimit.h>
 #include "ipa_stats.h"

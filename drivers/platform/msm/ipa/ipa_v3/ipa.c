@@ -14110,13 +14110,13 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	mapping_config = 0;
 #if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
 	mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-#endif
 	if (mapping_config < 0) {
 		IPAERR("No Mapping configuration found for CB %d\n", cb_type);
 	} else {
 		bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
 		fast = (mapping_config & QCOM_IOMMU_MAPPING_CONF_FAST) ? 1 : 0;
 	}
+#endif
 #else
 	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
 	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
@@ -14240,13 +14240,13 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
         mapping_config = 0;
 #if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
         mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-#endif
         if (mapping_config < 0) {
                 IPAERR("No Mapping configuration found for UC CB\n");
         } else {
                 bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
                 fast = (mapping_config & QCOM_IOMMU_MAPPING_CONF_FAST) ? 1 : 0;
         }
+#endif
 #else
         iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
         iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
@@ -14391,13 +14391,13 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
         mapping_config = 0;
 #if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
         mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-#endif
         if (mapping_config < 0) {
                 IPAERR("No Mapping configuration found for AP CB\n");
         } else {
                 bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
                 fast = (mapping_config & QCOM_IOMMU_MAPPING_CONF_FAST) ? 1 : 0;
         }
+#endif
 #else
         iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
         iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
@@ -14548,12 +14548,12 @@ static int ipa_smmu_11ad_cb_probe(struct device *dev)
         mapping_config = 0;
 #if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
         mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-#endif
         if (mapping_config < 0) {
                 IPAERR("No Mapping configuration found for 11AD CB\n");
         } else {
                 bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
         }
+#endif
 #else
         iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
 #endif
@@ -14657,13 +14657,13 @@ static int ipa_smmu_v2x_cb_probe(struct device *dev)
         mapping_config = 0;
 #if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
         mapping_config = qcom_iommu_get_mappings_configuration(cb->iommu_domain);
-#endif
         if (mapping_config < 0) {
                 IPAERR("No Mapping configuration found for V2X CB\n");
         } else {
                 bypass = (mapping_config & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS) ? 1 : 0;
                 fast = (mapping_config & QCOM_IOMMU_MAPPING_CONF_FAST) ? 1 : 0;
         }
+#endif
 #else
         iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_S1_BYPASS, &bypass);
         iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
@@ -15816,7 +15816,7 @@ EXPORT_SYMBOL(ipa_get_smmu_params);
 
 void ipa_pc_qmp_enable(void)
 {
-#ifdef CONFIG_MAILBOX
+#ifdef CONFIG_QMP_MAILBOX
 	char buf[MAX_LEN] = "{class: bcm, res: ipa_pc, val: 1}";
 	struct qmp_pkt pkt;
 	int ret = 0;

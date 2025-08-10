@@ -20,12 +20,14 @@
 #include <linux/interrupt.h>
 #include <linux/netdevice.h>
 #include "ipa.h"
-#include <linux/ipa_usb.h>
+#include <linux/soc/qcom/ipa_usb.h>
 #include <linux/ipa_qdss.h>
 #include <linux/iommu.h>
 #include <linux/version.h>
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0))
+#if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
 #include <linux/qcom-iommu-util.h>
+#endif
 #endif
 #include <linux/platform_device.h>
 #include <linux/firmware.h>
@@ -42,7 +44,9 @@
 #include "ipa_ipsec.h"
 #endif
 #include <linux/mailbox_client.h>
+#if IS_ENABLED(CONFIG_QMP_MAILBOX)
 #include <linux/mailbox/qmp.h>
+#endif
 #include <linux/rmnet_ipa_fd_ioctl.h>
 #include <linux/mhi_dma.h>
 #include "ipa_uc_holb_monitor.h"
