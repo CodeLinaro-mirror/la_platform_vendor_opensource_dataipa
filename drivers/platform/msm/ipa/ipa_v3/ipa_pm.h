@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_PM_H_
@@ -11,7 +12,7 @@
 /* internal to ipa */
 
 /* actual max is value -1 since we start from 1*/
-#define IPA_PM_MAX_CLIENTS IPA6_PIPES_NUM
+#define IPA_PM_MAX_CLIENTS IPA7_PIPES_NUM
 #define IPA_PM_MAX_EX_CL 64
 #define IPA_PM_THRESHOLD_MAX 5
 #define IPA_PM_EXCEPTION_MAX 5

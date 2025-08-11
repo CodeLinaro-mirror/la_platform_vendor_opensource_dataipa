@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -11,9 +12,9 @@
 #include "ipahal.h"
 #include "ipahal_hw_stats.h"
 #define IPA_MAX_MSG_LEN 4096
-#define IPA_INIT_DROP_STATS_MAX_CMD_NUM 5
-#define IPA_INIT_TETH_STATS_MAX_CMD_NUM 5
-#define IPA_INIT_QUOTA_STATS_MAX_CMD_NUM 5
+#define IPA_INIT_DROP_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 3)
+#define IPA_INIT_TETH_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 3)
+#define IPA_INIT_QUOTA_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 3)
 static char dbg_buff[IPA_MAX_MSG_LEN];
 static inline u32 ipa_hw_stats_get_ep_bit_n_idx(enum ipa_client_type client,
 	u32 *reg_idx)
@@ -862,7 +863,7 @@ int ipa_init_quota_stats(u32 *pipe_bitmask)
 	struct ipahal_imm_cmd_register_write quota_base = {0};
 	struct ipahal_imm_cmd_pyld *quota_base_pyld;
 	struct ipahal_imm_cmd_register_write quota_mask = {0};
-	struct ipahal_imm_cmd_pyld *quota_mask_pyld[IPA5_PIPE_REG_NUM] = {0};
+	struct ipahal_imm_cmd_pyld *quota_mask_pyld[IPA_EP_ARR_SIZE] = {0};
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
 	struct ipa3_desc desc[IPA_INIT_QUOTA_STATS_MAX_CMD_NUM] = { {0} };
 	dma_addr_t dma_address;
@@ -879,7 +880,7 @@ int ipa_init_quota_stats(u32 *pipe_bitmask)
 
 	/* reset driver's cache */
 	memset(&ipa3_ctx->hw_stats->quota, 0, sizeof(ipa3_ctx->hw_stats->quota));
-	for (i = 0; i < IPA5_PIPE_REG_NUM; i++) {
+	for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
 		ipa3_ctx->hw_stats->quota.init.enabled_bitmask[i] =
 			pipe_bitmask[i];
 		IPADBG_LOW("pipe_bitmask[%d]=0x%x\n", i, pipe_bitmask[i]);
@@ -942,7 +943,7 @@ int ipa_init_quota_stats(u32 *pipe_bitmask)
 		desc[num_cmd].type = IPA_IMM_CMD_DESC;
 		num_cmd++;
 	} else {
-		for (i = 0; i < IPA5_PIPE_REG_NUM; i++) {
+		for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
 			quota_mask.value = pipe_bitmask[i];
 			quota_mask.value_mask = ~0;
 			quota_mask.offset = ipahal_get_reg_nk_offset(
@@ -1024,7 +1025,7 @@ destroy_imm:
 destroy_quota_base:
 	ipahal_destroy_imm_cmd(quota_base_pyld);
 destroy_quota_mask:
-	for (i = 0; i < IPA5_PIPE_REG_NUM; i++)
+	for (i = 0; i < IPA_EP_ARR_SIZE; i++)
 		if (quota_mask_pyld[i])
 			ipahal_destroy_imm_cmd(quota_mask_pyld[i]);
 destroy_coal_cmd:
@@ -1228,7 +1229,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	struct ipahal_imm_cmd_register_write teth_base = {0};
 	struct ipahal_imm_cmd_pyld *teth_base_pyld;
 	struct ipahal_imm_cmd_register_write teth_mask = { 0 };
-	struct ipahal_imm_cmd_pyld *teth_mask_pyld[IPA5_PIPE_REG_NUM] = {0};
+	struct ipahal_imm_cmd_pyld *teth_mask_pyld[IPA_EP_ARR_SIZE] = {0};
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
 	struct ipa3_desc desc[IPA_INIT_TETH_STATS_MAX_CMD_NUM] = { {0} };
 	dma_addr_t dma_address;
@@ -1247,14 +1248,14 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	}
 
 	reg_idx = 0;
-	for (i = 0; i < IPA6_PIPES_NUM; i++) {
+	for (i = 0; i < IPA7_PIPES_NUM; i++) {
 		if (i > 0 && !(i % IPA_STATS_MAX_PIPE_BIT)) {
 			reg_idx++;
 		}
 		if (in->prod_mask[reg_idx] & ipahal_get_ep_bit(i)) {
 			bool has_cons = false;
 
-			for (j = 0; j < IPA5_PIPE_REG_NUM; j++) {
+			for (j = 0; j < IPA_EP_ARR_SIZE; j++) {
 				if (in->dst_ep_mask[i][j])
 					has_cons = true;
 			}
@@ -1277,7 +1278,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 		memset(&ipa3_ctx->hw_stats->teth.prod_stats[i], 0,
 			sizeof(ipa3_ctx->hw_stats->teth.prod_stats[i]));
 	}
-	for (i = 0; i < IPA5_PIPE_REG_NUM; i++) {
+	for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
 		ipa3_ctx->hw_stats->teth.init.prod_bitmask[i] = in->prod_mask[i];
 	}
 
@@ -1326,7 +1327,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	teth_mask.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
 	teth_mask.value_mask = ~0;
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) {
-		for (i = 0; i < IPA5_PIPE_REG_NUM; i++) {
+		for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
 			teth_mask.offset = ipahal_get_reg_nk_offset(
 				IPA_STAT_TETHERING_MASK_EE_n_REG_k,
 				ipa3_ctx->ee, i);
@@ -1425,7 +1426,7 @@ destroy_imm:
 destroy_teth_base:
 		ipahal_destroy_imm_cmd(teth_base_pyld);
 destroy_teth_mask:
-	for (i = 0; i < IPA5_PIPE_REG_NUM; i++) {
+	for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
 		if (teth_mask_pyld[i])
 			ipahal_destroy_imm_cmd(teth_mask_pyld[i]);
 	}
@@ -2390,7 +2391,7 @@ int ipa_drop_stats_init(void)
 				IPA_CLIENT_ETHERNET_CONS1,
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
-		
+
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
 				IPA_CLIENT_ETHERNET_CONS2,
 				&reg_idx);
@@ -2425,7 +2426,7 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 	struct ipahal_imm_cmd_register_write drop_base = {0};
 	struct ipahal_imm_cmd_pyld *drop_base_pyld;
 	struct ipahal_imm_cmd_register_write drop_mask = {0};
-	struct ipahal_imm_cmd_pyld *drop_mask_pyld[IPAHAL_IPA5_PIPE_REG_NUM] =
+	struct ipahal_imm_cmd_pyld *drop_mask_pyld[IPA_EP_ARR_SIZE] =
 		{0};
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
 	struct ipa3_desc *desc = NULL;
@@ -2448,7 +2449,7 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 
 	/* check if IPA has enough space for # of pipes drop stats enabled*/
 	memset(&tmp_drop, 0, sizeof(tmp_drop));
-	for (i = 0; i < IPA5_PIPE_REG_NUM; i++) {
+	for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
 		tmp_drop.init.enabled_bitmask[i] = pipe_bitmask[i];
 		IPADBG_LOW("pipe_bitmask[%d]=0x%x\n", i, pipe_bitmask[i]);
 	}
@@ -2521,7 +2522,7 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 		desc[num_cmd].type = IPA_IMM_CMD_DESC;
 		++num_cmd;
 	} else {
-		for (i = 0; i < IPA5_PIPE_REG_NUM; i++) {
+		for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
 			drop_mask.offset = ipahal_get_reg_nk_offset(
 				IPA_STAT_DROP_CNT_MASK_EE_n_REG_k,
 				ipa3_ctx->ee, i);
@@ -2602,7 +2603,7 @@ destroy_imm:
 destroy_drop_base:
 	ipahal_destroy_imm_cmd(drop_base_pyld);
 destroy_drop_mask:
-	for (i = 0; i < IPA5_PIPE_REG_NUM; i++)
+	for (i = 0; i < IPA_EP_ARR_SIZE; i++)
 		if (drop_mask_pyld[i])
 			ipahal_destroy_imm_cmd(drop_mask_pyld[i]);
 destroy_coal_cmd:
@@ -3216,7 +3217,7 @@ static ssize_t enable_drop_stats_store(struct device *dev, struct device_attribu
 {
 	unsigned int pipe_num = 0;
 	bool enable_pipe = true;
-	u32 pipe_bitmask[IPAHAL_IPA5_PIPE_REG_NUM] = {0};
+	u32 pipe_bitmask[IPA_EP_ARR_SIZE] = {0};
 	u32 pipe_ep_reg_idx = 0;
 	u32 pipe_ep_reg_bit = 0;
 	char seprator = ',';
@@ -3226,7 +3227,7 @@ static ssize_t enable_drop_stats_store(struct device *dev, struct device_attribu
 	int pipe_num_temp;
 
 	if (ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled) {
-		for (i = 0; i < IPAHAL_IPA5_PIPE_REG_NUM; i++) {
+		for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
 			pipe_bitmask[i] =
 				ipa3_ctx->hw_stats->drop.init.enabled_bitmask[i];
 		}
@@ -3771,7 +3772,7 @@ static ssize_t ipa_debugfs_enable_disable_drop_stats(struct file *file,
 	unsigned long missing;
 	unsigned int pipe_num = 0;
 	bool enable_pipe = true;
-	u32 pipe_bitmask[IPAHAL_IPA5_PIPE_REG_NUM] = {0};
+	u32 pipe_bitmask[IPA_EP_ARR_SIZE] = {0};
 	u32 pipe_ep_reg_idx = 0;
 	u32 pipe_ep_reg_bit = 0;
 	char seprator = ',';
@@ -3781,7 +3782,7 @@ static ssize_t ipa_debugfs_enable_disable_drop_stats(struct file *file,
 	int pipe_num_temp;
 
 	if (ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled) {
-		for (i = 0; i < IPAHAL_IPA5_PIPE_REG_NUM; i++) {
+		for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
 			pipe_bitmask[i] =
 				ipa3_ctx->hw_stats->drop.init.enabled_bitmask[i];
 		}

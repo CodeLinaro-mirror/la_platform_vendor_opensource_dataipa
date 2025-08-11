@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipahal.h"
@@ -58,7 +59,7 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_quota_v5_0(
 	int i;
 	int entries = 0;
 
-	for (i = 0; i < IPAHAL_IPA5_PIPE_REG_NUM; i++)
+	for (i = 0; i < IPAHAL_PIPE_REG_NUM; i++)
 		entries += _count_ones(in->enabled_bitmask[i]);
 
 	IPAHAL_DBG_LOW("entries = %d\n", entries);
@@ -94,7 +95,7 @@ static int ipahal_get_offset_quota_v5_0(void *params,
 		(struct ipahal_stats_get_offset_quota *)params;
 	int i, entries = 0;
 
-	for (i = 0; i < IPAHAL_IPA5_PIPE_REG_NUM; i++)
+	for (i = 0; i < IPAHAL_PIPE_REG_NUM; i++)
 		entries += _count_ones(in->init.enabled_bitmask[i]);
 
 	IPAHAL_DBG_LOW("\n");
@@ -150,7 +151,7 @@ static int ipahal_parse_stats_quota_v5_0(void *init_params, void *raw_stats,
 
 	memset(out, 0, sizeof(*out));
 	IPAHAL_DBG_LOW("\n");
-	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
 		reg_idx = ipahal_get_ep_reg_idx(i);
 		if (init->enabled_bitmask[reg_idx] & ipahal_get_ep_bit(i)) {
 			IPAHAL_DBG_LOW("pipe %d stat_idx %d\n", i, stat_idx);
@@ -344,21 +345,21 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v6_0(
 	void *pyld_ptr;
 	u32 incremental_offset;
 
-	for (i = 0; i < IPAHAL_IPA5_PIPE_REG_NUM; i++) {
+	for (i = 0; i < IPAHAL_PIPE_REG_NUM; i++) {
 		hdr_entries += _count_ones(in->prod_bitmask[i]);
 	}
 
 	IPAHAL_DBG_LOW("prod entries = %d\n", hdr_entries);
 	reg_idx = 0;
-	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
 		if (i > 0 && !(i % IPAHAL_MAX_PIPES_PER_REG)) {
 			reg_idx++;
 		}
-		if ((reg_idx < IPAHAL_IPA5_PIPE_REG_NUM) &&
+		if ((reg_idx < IPAHAL_PIPE_REG_NUM) &&
 			(in->prod_bitmask[reg_idx] & ipahal_get_ep_bit(i))) {
 			bool has_cons = false;
 
-			for (j = 0; j < IPAHAL_IPA5_PIPE_REG_NUM; j++) {
+			for (j = 0; j < IPAHAL_PIPE_REG_NUM; j++) {
 				if (in->cons_bitmask[i][j]) {
 					has_cons = true;
 					entries +=
@@ -398,22 +399,22 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v6_0(
 		/ 8;
 
 	reg_idx = 0;
-	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
 
 		if (i > 0 && !(i % IPAHAL_MAX_PIPES_PER_REG)) {
 			reg_idx++;
 		}
 
-		if ((reg_idx < IPAHAL_IPA5_PIPE_REG_NUM) &&
+		if ((reg_idx < IPAHAL_PIPE_REG_NUM) &&
 			(in->prod_bitmask[reg_idx] & ipahal_get_ep_bit(i))) {
 			struct ipahal_stats_tethering_hdr_v5_0_hw *hdr =
 				pyld_ptr;
 			hdr->dst_mask_31_0 =
-				((in->cons_bitmask[i][0] >> IPAHAL_IPA6_PRODUCER_PIPE_NUM) |
+				((in->cons_bitmask[i][0] >> IPAHAL_PRODUCER_PIPE_NUM) |
 				(in->cons_bitmask[i][1] <<
-				(IPAHAL_MAX_PIPES_PER_REG - IPAHAL_IPA6_PRODUCER_PIPE_NUM)));
+				(IPAHAL_MAX_PIPES_PER_REG - IPAHAL_PRODUCER_PIPE_NUM)));
 			hdr->dst_mask_63_32 =
-				in->cons_bitmask[i][1] >> IPAHAL_IPA6_PRODUCER_PIPE_NUM;
+				in->cons_bitmask[i][1] >> IPAHAL_PRODUCER_PIPE_NUM;
 			// TODO: for future when num pipes > 64
 			hdr->dst_mask_95_64 = 0;
 			hdr->dst_mask_127_96 = 0;
@@ -473,13 +474,13 @@ static int ipahal_get_offset_tethering_v5_0(void *params,
 	int entries = 0;
 	int i, j, reg_idx;
 
-	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
 		reg_idx = ipahal_get_ep_reg_idx(i);
 
 		if (in->init.prod_bitmask[reg_idx] & ipahal_get_ep_bit(i)) {
 			bool has_cons = false;
 
-			for (j = 0; j < IPAHAL_IPA5_PIPE_REG_NUM; j++) {
+			for (j = 0; j < IPAHAL_PIPE_REG_NUM; j++) {
 				if (in->init.cons_bitmask[i][j]) {
 					has_cons = true;
 					entries +=_count_ones(
@@ -496,7 +497,7 @@ static int ipahal_get_offset_tethering_v5_0(void *params,
 
 	/* skip the header */
 	out->offset = 0;
-	for (j = 0; j < IPAHAL_IPA5_PIPE_REG_NUM; j++)
+	for (j = 0; j < IPAHAL_PIPE_REG_NUM; j++)
 		out->offset += _count_ones(in->init.prod_bitmask[j]) *
 		sizeof(struct ipahal_stats_tethering_hdr_v5_0_hw);
 
@@ -564,9 +565,9 @@ static int ipahal_parse_stats_tethering_v5_0(void *init_params, void *raw_stats,
 
 	memset(out, 0, sizeof(*out));
 	IPAHAL_DBG_LOW("\n");
-	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
 		prod_idx = ipahal_get_ep_reg_idx(i);
-		for (j = 0; j < IPAHAL_IPA6_PIPES_NUM; j++) {
+		for (j = 0; j < IPAHAL_PIPES_NUM; j++) {
 			cons_idx = ipahal_get_ep_reg_idx(j);
 			if ((init->prod_bitmask[prod_idx] &
 				ipahal_get_ep_bit(i)) &&
@@ -826,7 +827,7 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_drop_v5_0(
 	int entries = 0;
 	int i;
 
-	for (i = 0; i < IPAHAL_IPA5_PIPE_REG_NUM; i++)
+	for (i = 0; i < IPAHAL_PIPE_REG_NUM; i++)
 		entries += _count_ones(in->enabled_bitmask[i]);
 	IPAHAL_DBG_LOW("entries = %d\n", entries);
 	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) +
@@ -861,7 +862,7 @@ static int ipahal_get_offset_drop_v5_0(void *params,
 	int entries = 0;
 	int i;
 
-	for (i = 0; i < IPAHAL_IPA5_PIPE_REG_NUM; i++)
+	for (i = 0; i < IPAHAL_PIPE_REG_NUM; i++)
 		entries += _count_ones(in->init.enabled_bitmask[i]);
 	IPAHAL_DBG_LOW("entries %d\n", entries);
 
@@ -912,7 +913,7 @@ static int ipahal_parse_stats_drop_v5_0(void *init_params, void *raw_stats,
 
 	memset(out, 0, sizeof(*out));
 	IPAHAL_DBG_LOW("\n");
-	for (i = 0; i < IPAHAL_IPA6_PIPES_NUM; i++) {
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
 		reg_idx = ipahal_get_ep_reg_idx(i);
 		if (init->enabled_bitmask[reg_idx] & ipahal_get_ep_bit(i)) {
 			out->stats[i].drop_byte_cnt =

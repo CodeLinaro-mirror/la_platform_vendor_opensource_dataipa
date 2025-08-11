@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPAHAL_HW_STATS_H_
@@ -14,9 +15,20 @@
 #define IPAHAL_IPA5_PIPES_NUM 36
 #define IPAHAL_IPA6_PIPES_NUM 50
 #define IPAHAL_IPA5_PIPE_REG_NUM 2
+#define IPAHAL_IPA7_PIPES_NUM 75
+#define IPAHAL_PIPES_NUM IPAHAL_IPA7_PIPES_NUM
 #define IPAHAL_IPA5_PRODUCER_PIPE_NUM 16
 #define IPAHAL_IPA6_PRODUCER_PIPE_NUM 22
+#define IPAHAL_IPA7_PRODUCER_PIPE_NUM 32
+#define IPAHAL_PRODUCER_PIPE_NUM IPAHAL_IPA7_PRODUCER_PIPE_NUM
 #define IPAHAL_MAX_RULE_ID_32 (1024 / 32) /* 10 bits of rule id */
+
+#ifndef NUM_VARS_FOR_BITS
+#define NUM_VARS_FOR_BITS(type, bits) \
+	(((bits) + (sizeof(type) * BITS_PER_BYTE - 1)) / (sizeof(type) * BITS_PER_BYTE))
+#endif
+
+#define IPAHAL_PIPE_REG_NUM NUM_VARS_FOR_BITS(u32, IPAHAL_PIPES_NUM)
 
 enum ipahal_hw_stats_type {
 	IPAHAL_HW_STATS_QUOTA,
@@ -52,7 +64,7 @@ struct ipahal_stats_offset {
  * @enabled_bitmask: bit mask of pipes to be monitored
  */
 struct ipahal_stats_init_quota {
-	u32 enabled_bitmask[IPAHAL_IPA5_PIPE_REG_NUM];
+	u32 enabled_bitmask[IPAHAL_PIPE_REG_NUM];
 };
 
 /*
@@ -82,7 +94,7 @@ struct ipahal_stats_quota {
  * @stats: array of statistics per pipe
  */
 struct ipahal_stats_quota_all {
-	struct ipahal_stats_quota stats[IPAHAL_IPA6_PIPES_NUM];
+	struct ipahal_stats_quota stats[IPAHAL_PIPES_NUM];
 };
 
 /*
@@ -91,8 +103,8 @@ struct ipahal_stats_quota_all {
  * @cons_bitmask: bit mask of consumer pipes to be monitored per producer
  */
 struct ipahal_stats_init_tethering {
-	u32 prod_bitmask[IPAHAL_IPA5_PIPE_REG_NUM];
-	u32 cons_bitmask[IPAHAL_IPA6_PIPES_NUM][IPAHAL_IPA5_PIPE_REG_NUM];
+	u32 prod_bitmask[IPAHAL_PIPE_REG_NUM];
+	u32 cons_bitmask[IPAHAL_PIPES_NUM][IPAHAL_PIPE_REG_NUM];
 };
 
 /*
@@ -124,7 +136,7 @@ struct ipahal_stats_tethering {
  */
 struct ipahal_stats_tethering_all {
 	struct ipahal_stats_tethering
-		stats[IPAHAL_IPA6_PIPES_NUM][IPAHAL_IPA6_PIPES_NUM];
+		stats[IPAHAL_PIPES_NUM][IPAHAL_PIPES_NUM];
 };
 
 /*
@@ -185,7 +197,7 @@ struct ipahal_stats_get_offset_flt_rt_v4_5 {
  * @enabled_bitmask: bit mask of pipes to be monitored
  */
 struct ipahal_stats_init_drop {
-	u32 enabled_bitmask[IPAHAL_IPA5_PIPE_REG_NUM];
+	u32 enabled_bitmask[IPAHAL_PIPE_REG_NUM];
 };
 
 /*
@@ -211,7 +223,7 @@ struct ipahal_stats_drop {
  * @stats: array of statistics per pipes
  */
 struct ipahal_stats_drop_all {
-	struct ipahal_stats_drop stats[IPAHAL_IPA6_PIPES_NUM];
+	struct ipahal_stats_drop stats[IPAHAL_PIPES_NUM];
 };
 
 /*

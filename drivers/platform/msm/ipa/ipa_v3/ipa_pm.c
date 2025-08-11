@@ -60,7 +60,7 @@
 struct ipa_pm_exception_list {
 	char clients[IPA_PM_MAX_EX_CL];
 	int pending;
-	u32 bitmask[IPA5_PIPE_REG_NUM];
+	u32 bitmask[IPA_EP_ARR_SIZE];
 	int threshold[IPA_PM_THRESHOLD_MAX];
 };
 
@@ -81,7 +81,7 @@ struct clk_scaling_db {
 	spinlock_t lock;
 	struct ipa_pm_exception_list exception_list[IPA_PM_EXCEPTION_MAX];
 	struct work_struct work;
-	u32 active_client_bitmask[IPA5_PIPE_REG_NUM];
+	u32 active_client_bitmask[IPA_EP_ARR_SIZE];
 	int threshold_size;
 	int exception_size;
 	int cur_vote;
@@ -171,7 +171,7 @@ struct ipa_pm_client {
  */
 struct ipa_pm_ctx {
 	struct ipa_pm_client *clients[IPA_PM_MAX_CLIENTS];
-	struct ipa_pm_client *clients_by_pipe[IPA6_PIPES_NUM];
+	struct ipa_pm_client *clients_by_pipe[IPA7_PIPES_NUM];
 	struct workqueue_struct *wq;
 	struct clk_scaling_db clk_scaling;
 	struct mutex client_mutex;

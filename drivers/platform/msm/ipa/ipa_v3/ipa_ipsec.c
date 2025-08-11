@@ -3229,7 +3229,7 @@ int ipa_ipsec_enable(void)
 		(u32)(ipa_get_ep_mapping(IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS)) << 8 |
 		(u32)(ipa_get_ep_mapping(IPA_CLIENT_IPSEC_ENCAP_ERR_CONS)) << 16;
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-	for (n = 0; n < IPA6_PROD_PIPES_NUM; n++) {
+	for (n = 0; n < IPA_PROD_PIPES_NUM; n++) {
 		ipahal_write_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, n, ipsec_ep_cfg);
 	}
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
