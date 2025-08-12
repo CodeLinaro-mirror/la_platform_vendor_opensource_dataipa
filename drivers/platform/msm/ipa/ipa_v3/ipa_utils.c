@@ -7935,7 +7935,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_7_0][IPA_CLIENT_APPS_WAN_PROD] = {
 			true,   IPA_v7_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_2ND_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 2 , 11, 25, 39, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
