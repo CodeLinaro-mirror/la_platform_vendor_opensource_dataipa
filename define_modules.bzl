@@ -157,6 +157,8 @@ def define_modules(target, variant):
 	    "drivers/platform/msm/ipa/ipa_backend/ipa_be.c",
 	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_clientdb.c",
 	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_flt_mgmt.c",
+	    "drivers/platform/msm/ipa/ipa_v3/ipa_ini_parse.h",
+	    "drivers/platform/msm/ipa/ipa_v3/ipa_ini_parse.c",
         ],
         hdrs = [
                 "exports/ipa_api.h",
