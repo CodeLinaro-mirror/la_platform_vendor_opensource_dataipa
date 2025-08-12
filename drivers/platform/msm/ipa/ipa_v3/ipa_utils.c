@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <net/ip.h>
@@ -14554,10 +14554,16 @@ void ipa3_notify_ipacm_eth_pdu_enable()
 void ipa3_set_eth_pdu_ep_status()
 {
 	struct ipa3_ep_context *ep;
+	int status_ep = -1;
 
 	if (!ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
 	{
 		IPAERR("ETH PDU pipe is not connected yet\n");
+		return;
+	}
+
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id >= ipa3_ctx->ipa_num_pipes) {
+		IPAERR("Invalid ETH PDU RX endpoint ID %d\n", ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id);
 		return;
 	}
 
@@ -14574,7 +14580,12 @@ void ipa3_set_eth_pdu_ep_status()
 	 * (i.e. QMAP commands) to be routed to modem.
 	 */
 	ep->status.status_en = true;
-	ep->status.status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+	status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+	if (status_ep < 0 || status_ep >= ipa3_ctx->ipa_num_pipes) {
+		IPAERR("Invalid status endpoint mapping for Q6_WAN_CONS: %d\n", status_ep);
+		return;
+	}
+	ep->status.status_ep = status_ep;
 	/* Enable status supression to disable sending status for
 	 * every packet.
 	 */
