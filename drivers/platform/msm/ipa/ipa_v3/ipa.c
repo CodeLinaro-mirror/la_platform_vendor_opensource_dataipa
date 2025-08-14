@@ -10969,8 +10969,13 @@ out:
 sched_fw_load:
 	IPADBG("Scheduled a work to load IPA FW\n");
 	mutex_unlock(&ipa3_ctx->fw_load_data.lock);
-	queue_work(ipa3_ctx->transport_power_mgmt_wq,
-		&ipa3_fw_loading_work);
+	if (ipa3_ctx->use_xbl_boot) {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_xbl_init_work);
+	} else {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_fw_loading_work);
+	}
 }
 
 static ssize_t ipa3_write(struct file *file, const char __user *buf,
