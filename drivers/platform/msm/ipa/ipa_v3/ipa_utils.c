@@ -8161,7 +8161,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
 			QMB_MASTER_SELECT_DDR,
-			{ 30, 12, 20, 28, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			{ 30, 12, 20, 28, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_NA },
 
 	/* Q6 pipes */
