@@ -3841,6 +3841,10 @@ enum ipa_qos_iface_category {
 	IPA_QOS_IFACE_LAN
 };
 
+enum ipa_qos_flt_category {
+	IPA_QOS_FLT_USER,
+	IPA_QOS_FLT_AUTO
+};
 
 struct ipa_ioc_qos_config {
 	char dev_name[IPA_RESOURCE_NAME_MAX];
@@ -3873,6 +3877,7 @@ struct ipa_ioc_qos_config {
 	uint8_t pcp;
 	uint8_t dscp_mark_val;
 	uint32_t qos_rule_hdl;
+	enum ipa_qos_flt_category flt_cat;
 };
 
 struct ipa_ioc_get_qos_config {
