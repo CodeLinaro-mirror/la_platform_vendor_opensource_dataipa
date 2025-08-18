@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/clk.h>
@@ -522,21 +522,8 @@ EXPORT_SYMBOL(ipa_smmu_free_sgt);
 
 static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 {
-	int i;
 	IPADBG("Entry\n");
 	switch (event) {
-	case PM_SUSPEND_PREPARE:
-		/* In case there is a tx/rx handler in polling mode fail to suspend */
-		for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
-			if (ipa3_ctx->ep[i].sys &&
-					atomic_read(&ipa3_ctx->ep[i].sys->curr_polling_state)) {
-				IPAERR("EP %d is in polling state, do not suspend\n", i);
-				return -EAGAIN;
-			}
-		}
-		ipa_pm_deactivate_all_deferred();
-		atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 1);
-		break;
 	case PM_POST_SUSPEND:
 #if IS_ENABLED(CONFIG_DEEPSLEEP)
 		if (pm_suspend_via_firmware() && ipa3_ctx->deepsleep) {
