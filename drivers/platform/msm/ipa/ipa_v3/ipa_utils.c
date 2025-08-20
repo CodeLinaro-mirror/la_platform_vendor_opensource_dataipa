@@ -11751,7 +11751,6 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_CFG_n, clnt_hdl,
 				  &ipa3_ctx->ep[clnt_hdl].cfg.cfg);
-
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0 &&
 		IPA_CLIENT_IS_CONS(ipa3_ctx->ep[clnt_hdl].client)) {
 		tx_instance = ipa3_get_tx_instance(ipa3_ctx->ep[clnt_hdl].client);
@@ -11762,11 +11761,15 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 			IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return -EINVAL;
 		}
+		ipa3_ctx->ep[clnt_hdl].cfg.prod_cfg.tx_instance = tx_instance;
 		ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance = tx_instance;
-		ipahal_write_reg_n(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
-			ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance);
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5)
+			ipahal_write_reg_n(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
+				&ipa3_ctx->ep[clnt_hdl].cfg.prod_cfg);
+		else
+			ipahal_write_reg_n(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
+				tx_instance);
 	}
-
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	return 0;
