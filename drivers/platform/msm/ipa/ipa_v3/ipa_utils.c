@@ -8205,6 +8205,34 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 55, 52, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_DL },
+       [IPA_7_0][IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS] = {
+                       true, IPA_v7_0_GROUP_DL,
+                       false,
+                       IPA_DPS_HPS_SEQ_TYPE_INVALID,
+                       QMB_MASTER_SELECT_DDR,
+                       { 67, 49, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+                       IPA_TX_INSTANCE_DL },
+       [IPA_7_0][IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS] = {
+                       true, IPA_v7_0_GROUP_DL,
+                       false,
+                       IPA_DPS_HPS_SEQ_TYPE_INVALID,
+                       QMB_MASTER_SELECT_DDR,
+                       { 68, 51, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+                       IPA_TX_INSTANCE_DL },
+       [IPA_7_0][IPA_CLIENT_IPSEC_ENCAP_ERR_CONS] = {
+                       true, IPA_v7_0_GROUP_UL,
+                       false,
+                       IPA_DPS_HPS_SEQ_TYPE_INVALID,
+                       QMB_MASTER_SELECT_DDR,
+                       { 69, 53, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+                       IPA_TX_INSTANCE_UL },
+       [IPA_7_0][IPA_CLIENT_IPSEC_APPS_WAN_CONS] = {
+                       true, IPA_v7_0_GROUP_DL,
+                       false,
+                       IPA_DPS_HPS_SEQ_TYPE_INVALID,
+                       QMB_MASTER_SELECT_DDR,
+                       { 71, 55, 17 , 17 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+                       IPA_TX_INSTANCE_DL },
 
 	/* Q6 pipes */
 	[IPA_7_0][IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD] = {
