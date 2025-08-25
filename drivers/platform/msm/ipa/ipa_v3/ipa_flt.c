@@ -442,6 +442,11 @@ static bool ipa_flt_skip_pipe_config(int pipe)
 {
 	struct ipa3_ep_context *ep;
 
+	if((pipe < 0) || (pipe >= IPA5_MAX_NUM_PIPES)) {
+		IPAERR("invalid pipe index %d\n", pipe);
+		return false;
+	}
+
 	if (ipa_is_modem_pipe(pipe)) {
 		IPADBG_LOW("skip %d - modem owned pipe\n", pipe);
 		return true;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -2309,12 +2309,12 @@ static ssize_t ipa_debugfs_print_quota_stats(struct file *file,
 	int i, reg_idx;
 	int res;
 
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+		return 0;
+
 	out = kzalloc(sizeof(*out), GFP_KERNEL);
 	if (!out)
 		return -ENOMEM;
-
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
-		return 0;
 
 	mutex_lock(&ipa3_ctx->lock);
 	res = ipa_get_quota_stats(out);
@@ -2399,13 +2399,13 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 	int i, j, prod_reg, cons_reg;
 	int res;
 
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
+			return 0;
+
 	out = kzalloc(sizeof(*out), GFP_KERNEL);
 	if (!out)
 		return -ENOMEM;
-
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
-		ipa3_ctx->hw_stats->teth_stats_enabled))
-		return 0;
 
 	mutex_lock(&ipa3_ctx->lock);
 
@@ -2630,12 +2630,12 @@ static ssize_t ipa_debugfs_print_drop_stats(struct file *file,
 	int i, reg_idx;
 	int res;
 
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+		return 0;
+
 	out = kzalloc(sizeof(*out), GFP_KERNEL);
 	if (!out)
 		return -ENOMEM;
-
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
-		return 0;
 
 	mutex_lock(&ipa3_ctx->lock);
 	res = ipa_get_drop_stats(out);

@@ -48,7 +48,8 @@
 	} while (0)
 #define IPA_PM_DBG_STATE(hdl, name, state) \
 	IPA_PM_DBG_LOW("Client[%d] %s: %s\n", hdl, name, \
-		client_state_to_str[state])
+		((state >= IPA_PM_STATE_MAX) ? "Invalid State" :  \
+		client_state_to_str[state]))
 
 /*
  * struct ipa_pm_exception_list - holds information about an exception
