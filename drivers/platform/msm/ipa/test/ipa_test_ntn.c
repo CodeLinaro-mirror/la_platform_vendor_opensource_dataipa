@@ -117,7 +117,7 @@ static inline void ipa_test_ntn_set_client_params(enum ipa_client_type cons_type
 
 static void ipa_test_ntn_free_dma_buff(struct ipa_mem_buffer *mem)
 {
-	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN);
+	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH1);
 
 	if (!mem) {
 		IPA_UT_ERR("empty pointer\n");
@@ -132,7 +132,7 @@ static int ipa_test_ntn_alloc_mmio(void)
 {
 	int ret = 0;
 	u32 size;
-	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN);
+	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH1);
 
 	if (!test_ntn_ctx) {
 		IPA_UT_ERR("test_ntn_ctx is not initialized.\n");
@@ -272,7 +272,7 @@ static int ipa_test_ntn_alloc_mmio(void)
 	 */
 	test_ntn_ctx->bar_addr.size = 2 * DB_REGISTER_SIZE + 8;
 	test_ntn_ctx->bar_addr.base =
-		dma_alloc_coherent(ipa3_ctx->pdev,
+		dma_alloc_coherent(cb->dev,
 			test_ntn_ctx->bar_addr.size,
 			&test_ntn_ctx->bar_addr.phys_base,
 			GFP_KERNEL);
@@ -412,7 +412,7 @@ static int ipa_test_ntn_suite_setup(void **priv)
 	}
 
 	if (ipa3_ctx->iemac_exist)
-		ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+		ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET2_CONS, IPA_CLIENT_ETHERNET2_PROD, 1,
 			IPA_ETH_CLIENT_IEMAC);
 	else
 		ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
@@ -560,6 +560,7 @@ static int ipa_ntn_test_setup_pipes(void)
 #if IPA_ETH_API_VER >= 2
 	struct net_device *dummy_net_dev;
 	unsigned char dummy_dev_addr = 1;
+	struct tx_transfer_ring_ele *tx_ele;
 
 	dummy_net_dev = kzalloc(sizeof(*dummy_net_dev), GFP_KERNEL);
 	if (dummy_net_dev == NULL){
@@ -664,6 +665,8 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->tx_pipe_info.info.fix_buffer_size = BUFFER_SIZE;
 	test_ntn_ctx->tx_pipe_info.info.data_buff_list =
 		test_ntn_ctx->tx_data_buff_list;
+	tx_ele = (struct tx_transfer_ring_ele *)
+			(test_ntn_ctx->tx_transfer_ring_addr.base);
 	for (i = 0; i < NUM_TX_BUFS; i++) {
 		test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].iova =
 			(phys_addr_t)((u8 *)test_ntn_ctx->tx_buf.phys_base +
@@ -673,10 +676,12 @@ static int ipa_ntn_test_setup_pipes(void)
 				+ (BUFFER_SIZE * i))) |
 			((phys_addr_t)(test_ntn_ctx->tx_buf.base +
 			(BUFFER_SIZE * i)) & ~PAGE_MASK);
-
-		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].iova = 0x%llx",
+		tx_ele[i].res1 = 
+			(u32)test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].iova;
+		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].iova = 0x%llx:0x%x",
 			i,
-			test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].iova);
+			test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].iova,
+			tx_ele[i].res1);
 		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].pa = 0x%llx",
 			i,
 			test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].pa);
@@ -904,7 +909,8 @@ static int ipa_ntn_send_one_packet(void)
 
 	IPA_UT_DBG("orig tx tail 0x%X\n", orig_tx_tail);
 	IPA_UT_DBG("orig rx tail 0x%X\n", orig_rx_tail);
-
+	wmb();
+	dma_wmb();
 	/* ring db and send packet */
 	iowrite32(test_ntn_ctx->rx_db_local +
 		lower_32_bits(test_ntn_ctx->rx_transfer_ring_addr.phys_base),
@@ -912,7 +918,7 @@ static int ipa_ntn_send_one_packet(void)
 	IPA_UT_DBG("rx_db_local increased to 0x%X\n",
 		test_ntn_ctx->rx_db_local +
 		lower_32_bits(test_ntn_ctx->rx_transfer_ring_addr.phys_base));
-
+	IPA_UT_DBG("rx_db:0x%p value updated\n", test_ntn_ctx->rx_pipe_info.info.db_pa);
 	loop_cnt = 0;
 	while ((orig_rx_tail == *rx_ring_tail) ||
 		(orig_tx_tail == *tx_ring_tail)) {
@@ -1507,7 +1513,7 @@ static int ipa_iemac_test_single_transfer(void *priv)
 {
 	int ret;
 
-	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET2_CONS, IPA_CLIENT_ETHERNET2_PROD, 1,
 		IPA_ETH_CLIENT_IEMAC);
 	ret = ipa_ntn_test_single_transfer(priv);
 
@@ -1518,7 +1524,7 @@ static int ipa_iemac_test_multi_transfer(void *priv)
 {
 	int ret;
 
-	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET2_CONS, IPA_CLIENT_ETHERNET2_PROD, 1,
 		IPA_ETH_CLIENT_IEMAC);
 	ret = ipa_ntn_test_multi_transfer(priv);
 
@@ -1529,7 +1535,7 @@ static int ipa_iemac_test_multi_transfer_wrap_around(void *priv)
 {
 	int ret;
 
-	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET2_CONS, IPA_CLIENT_ETHERNET2_PROD, 1,
 		IPA_ETH_CLIENT_IEMAC);
 	ret = ipa_ntn_test_multi_transfer_wrap_around(priv);
 
@@ -1540,7 +1546,7 @@ static int ipa_iemac_test_multi_transfer_burst(void *priv)
 {
 	int ret;
 
-	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET_CONS, IPA_CLIENT_ETHERNET_PROD, 0,
+	ipa_test_ntn_set_client_params(IPA_CLIENT_ETHERNET2_CONS, IPA_CLIENT_ETHERNET2_PROD, 1,
 		IPA_ETH_CLIENT_IEMAC);
 	ret = ipa_ntn_test_multi_transfer_burst(priv);
 

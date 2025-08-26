@@ -7178,10 +7178,19 @@ fail_setup_event_ring:
 	return result;
 }
 
+static struct device* ipa_get_smmu_pdev(const enum ipa_client_type client)
+{
+	enum ipa_smmu_cb_type smmu_cb_type = ipa_get_client_smmu_cb_type(client);
+	struct ipa_smmu_cb_ctx *smmu_cb = ipa3_get_smmu_ctx(smmu_cb_type);
+
+	return smmu_cb->dev;
+}
+
 static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 	u32 ring_size, gfp_t mem_flag)
 {
 	struct gsi_evt_ring_props gsi_evt_ring_props;
+	struct device *smmu_pdev = ipa_get_smmu_pdev(ep->client);
 	dma_addr_t evt_dma_addr;
 	dma_addr_t evt_rp_dma_addr;
 	int result;
@@ -7198,7 +7207,7 @@ static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 	gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
 	gsi_evt_ring_props.ring_len = ring_size;
 	gsi_evt_ring_props.ring_base_vaddr =
-		dma_alloc_coherent(ipa3_ctx->pdev, gsi_evt_ring_props.ring_len,
+		dma_alloc_coherent(smmu_pdev, gsi_evt_ring_props.ring_len,
 		&evt_dma_addr, mem_flag);
 	if (!gsi_evt_ring_props.ring_base_vaddr) {
 		IPAERR("fail to dma alloc %u bytes\n",
@@ -7249,7 +7258,7 @@ static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 		gsi_evt_ring_props.int_modc);
 	if (ipa3_ctx->ipa_gpi_event_rp_ddr) {
 		gsi_evt_ring_props.rp_update_vaddr =
-			dma_alloc_coherent(ipa3_ctx->pdev,
+			dma_alloc_coherent(smmu_pdev,
 					   IPA_GSI_EVENT_RP_SIZE,
 					   &evt_rp_dma_addr, GFP_KERNEL);
 		if (!gsi_evt_ring_props.rp_update_vaddr) {
@@ -7282,7 +7291,7 @@ static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 
 fail_alloc_evt_ring:
 	if (gsi_evt_ring_props.rp_update_vaddr) {
-		dma_free_coherent(ipa3_ctx->pdev, IPA_GSI_EVENT_RP_SIZE,
+		dma_free_coherent(smmu_pdev, IPA_GSI_EVENT_RP_SIZE,
 				  gsi_evt_ring_props.rp_update_vaddr,
 				  evt_rp_dma_addr);
 		ep->gsi_mem_info.evt_ring_rp_addr = 0;
@@ -7290,7 +7299,7 @@ fail_alloc_evt_ring:
 	}
 fail_alloc_rp:
 	if (ep->gsi_mem_info.evt_ring_base_vaddr)
-		dma_free_coherent(ipa3_ctx->pdev, ep->gsi_mem_info.evt_ring_len,
+		dma_free_coherent(smmu_pdev, ep->gsi_mem_info.evt_ring_len,
 			ep->gsi_mem_info.evt_ring_base_vaddr,
 			ep->gsi_mem_info.evt_ring_base_addr);
 	IPAERR("Return with err: %d\n", result);
@@ -7304,6 +7313,7 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 	union __packed gsi_channel_scratch ch_scratch;
 	struct gsi_chan_props gsi_channel_props;
 	const struct ipa_gsi_ep_config *gsi_ep_info;
+	struct device *smmu_pdev = ipa_get_smmu_pdev(ep->client);
 	int result;
 
 	memset(&gsi_channel_props, 0, sizeof(gsi_channel_props));
@@ -7344,7 +7354,7 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 	gsi_channel_props.ring_len = ring_size;
 
 	gsi_channel_props.ring_base_vaddr =
-		dma_alloc_coherent(ipa3_ctx->pdev, gsi_channel_props.ring_len,
+		dma_alloc_coherent(smmu_pdev, gsi_channel_props.ring_len,
 			&dma_addr, mem_flag);
 	if (!gsi_channel_props.ring_base_vaddr) {
 		IPAERR("fail to dma alloc %u bytes\n",
@@ -7433,7 +7443,7 @@ fail_write_channel_scratch:
 		WARN_ON(1);
 	}
 fail_alloc_channel:
-	dma_free_coherent(ipa3_ctx->pdev, ep->gsi_mem_info.chan_ring_len,
+	dma_free_coherent(smmu_pdev, ep->gsi_mem_info.chan_ring_len,
 			ep->gsi_mem_info.chan_ring_base_vaddr,
 			ep->gsi_mem_info.chan_ring_base_addr);
 fail_alloc_channel_ring:
