@@ -1586,8 +1586,8 @@ struct ipa_flt_rule_v2 {
 	uint8_t ttl_update;
 	uint8_t qos_class;
 	uint8_t esp_after_udp;
-	uint16_t cnt_idx_v2;
 	enum ipa_fltrt_rule_type rule_type;
+	uint16_t cnt_idx_v2;
 };
 
 /**
