@@ -1529,7 +1529,7 @@ static int ipa3_nat_send_init_cmd(struct ipahal_imm_cmd_ip_v4_nat_init *cmd,
 	}
 
 	/* Poll IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS, bit 0 */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && cmd->table_init.size_base_table > 0) {
 		uint8_t count = 0;
 		do {
 			usleep_range(50, 100);
@@ -1658,7 +1658,7 @@ static int ipa3_ipv6ct_send_init_cmd(struct ipahal_imm_cmd_ip_v6_ct_init *cmd)
 	}
 
 	/* Poll IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS, bit 0 */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && cmd->table_init.size_base_table > 0) {
 		uint8_t count = 0;
 		do {
 			usleep_range(50, 100);
