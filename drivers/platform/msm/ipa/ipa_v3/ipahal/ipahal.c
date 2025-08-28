@@ -14,6 +14,8 @@
 #include "ipahal_hw_stats_i.h"
 #include "ipahal_nat_i.h"
 
+#define ULSO_LEADING_HEADER_SIZE (8) /* 8 bytes */
+
 #define CHECK_SET_PARAM(member, p_cmd_data, p_params, p_params_mask) \
 	if ((p_params_mask)->member) {\
 		(p_cmd_data)->member = (p_params)->member;\
@@ -683,8 +685,6 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_packet_init_ex_v7_0(
 	pyld->len = sizeof(*data);
 	data = (struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)pyld->data;
 
-	data->conn_track_nat_stats_ip_type = packet_init_ex_params->conn_track_nat_stats_ip_type;
-	data->conn_track_nat_stats_direction = packet_init_ex_params->conn_track_nat_stats_direction;
 	data->traffic_mode = packet_init_ex_params->traffic_mode;
 	data->frag_disable = packet_init_ex_params->frag_disable;
 	data->filter_disable = packet_init_ex_params->filter_disable;
@@ -888,8 +888,6 @@ static int ipa_imm_cmd_modify_ip_packet_init_ex_v7_0(
 	struct ipahal_imm_cmd_ip_packet_init_ex *prms =
 		(struct ipahal_imm_cmd_ip_packet_init_ex *)params;
 
-	CHECK_SET_PARAM(conn_track_nat_stats_ip_type, data, prms, mask);
-	CHECK_SET_PARAM(conn_track_nat_stats_direction, data, prms, mask);
 	CHECK_SET_PARAM(traffic_mode, data, prms, mask);
 	CHECK_SET_PARAM(frag_disable, data, prms, mask);
 	CHECK_SET_PARAM(filter_disable, data, prms, mask);
@@ -932,14 +930,6 @@ static int ipa_imm_cmd_modify_ip_packet_init_ex_v7_0(
 	return 0;
 }
 
-inline void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe_v7_0(
-	const void *cmd_data,
-	u64 pipe_dest_idx)
-{
-	((struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)cmd_data)->rt_pipe_dest_idx
-		= pipe_dest_idx;
-}
-
 inline void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe_v5_5(
 	const void *cmd_data,
 	u64 pipe_dest_idx)
@@ -952,15 +942,22 @@ inline void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 	const void *cmd_data,
 	u64 pipe_dest_idx)
 {
-	if (ipahal_ctx->hw_type >= IPA_HW_v7_0)
-		return ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe_v7_0(cmd_data,
-			pipe_dest_idx);
-	else if (ipahal_ctx->hw_type >= IPA_HW_v5_5)
+	if (ipahal_ctx->hw_type >= IPA_HW_v5_5)
 		return ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe_v5_5(cmd_data,
 			pipe_dest_idx);
 	else
 		((struct ipa_imm_cmd_hw_ip_packet_init_ex *)cmd_data)->rt_pipe_dest_idx
 			= pipe_dest_idx;
+}
+
+void ipa_imm_cmd_modify_ip_packet_init_ex_ulso(u32 ep)
+{
+	struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *cmd
+		= (struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)(ipa3_ctx->pkt_init_ex_imm[ep].base);
+
+	cmd->rt_pipe_dest_idx = (u64)ep;
+	cmd->traffic_mode = IPA_EP_TRAFFIC_MODE_ETH;
+	cmd->leading_header_size = ULSO_LEADING_HEADER_SIZE;
 }
 
 static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_nat_dma(

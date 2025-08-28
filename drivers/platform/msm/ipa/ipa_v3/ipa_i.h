@@ -3306,8 +3306,6 @@ int ipa3_cfg_ep_holb_by_client(enum ipa_client_type client,
 
 int ipa3_cfg_ep_ulso(u32 clnt_hdl, const struct ipa_ep_cfg_ulso *ep_ulso);
 
-int ipa3_cfg_ep_modify_pkt_init_ex(u32 clnt_hdl);
-
 int ipa3_setup_uc_act_tbl(void);
 
 int ipa3_add_socksv5_conn(struct ipa_socksv5_info *info);
