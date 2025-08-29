@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- *
  * Copyright (c) 2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_COMMON_I_H_
@@ -29,8 +29,6 @@
 
 #define WARNON_RATELIMIT_BURST 1
 #define IPA_RATELIMIT_BURST 1
-#define IPA_EP_ARR_SIZE 2
-#define IPA_EP_PER_REG 32
 
 /* QOS Definitions. */
 #define IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_CPE 2

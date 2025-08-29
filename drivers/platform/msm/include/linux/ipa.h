@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_H_
@@ -20,7 +21,7 @@
 #define IPA_BW_THRESHOLD_MAX 3
 
 #define IPA_MAX_CH_STATS_SUPPORTED 6
-#define IPA_EP_ARR_SIZE 2
+#define IPA_EP_ARR_SIZE 3 // 3 for IPA7. TODO: Use IPA_EP_ARR_SIZE from ipa_i.h once it merges
 #define IPA_EP_PER_REG 32
 
 /* Notifiers for rmnet driver */
