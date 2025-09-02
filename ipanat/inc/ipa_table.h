@@ -33,7 +33,7 @@
 #include <stdbool.h>
 #include <linux/msm_ipa.h>
 
-#define IPA_TABLE_MAX_ENTRIES 5120
+#define IPA_TABLE_MAX_ENTRIES 6144
 
 #define IPA_TABLE_INVALID_ENTRY 0x0
 
