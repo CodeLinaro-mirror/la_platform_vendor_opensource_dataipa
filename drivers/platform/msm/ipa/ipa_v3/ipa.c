@@ -11365,6 +11365,10 @@ static int ipa_alloc_pkt_init_ex(void)
 	cmd_mask.flt_close_aggr_irq_mod = true;
 	cmd.rt_close_aggr_irq_mod = true;
 	cmd_mask.rt_close_aggr_irq_mod = true;
+	/* Since we only need to set destination and disable the aggregation and IRQ moderation,
+	   we will use the DMA traffic mode. */
+	cmd.traffic_mode = IPA_EP_TRAFFIC_MODE_DMA;
+	cmd_mask.traffic_mode = true;
 	/* Just a placeholder. Will be assigned in the DP, before sending. */
 	cmd.rt_pipe_dest_idx = ipa3_ctx->ipa_num_pipes;
 	result = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,

@@ -683,6 +683,8 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_packet_init_ex_v7_0(
 	pyld->len = sizeof(*data);
 	data = (struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)pyld->data;
 
+	data->conn_track_nat_stats_ip_type = packet_init_ex_params->conn_track_nat_stats_ip_type;
+	data->conn_track_nat_stats_direction = packet_init_ex_params->conn_track_nat_stats_direction;
 	data->traffic_mode = packet_init_ex_params->traffic_mode;
 	data->frag_disable = packet_init_ex_params->frag_disable;
 	data->filter_disable = packet_init_ex_params->filter_disable;
@@ -886,6 +888,8 @@ static int ipa_imm_cmd_modify_ip_packet_init_ex_v7_0(
 	struct ipahal_imm_cmd_ip_packet_init_ex *prms =
 		(struct ipahal_imm_cmd_ip_packet_init_ex *)params;
 
+	CHECK_SET_PARAM(conn_track_nat_stats_ip_type, data, prms, mask);
+	CHECK_SET_PARAM(conn_track_nat_stats_direction, data, prms, mask);
 	CHECK_SET_PARAM(traffic_mode, data, prms, mask);
 	CHECK_SET_PARAM(frag_disable, data, prms, mask);
 	CHECK_SET_PARAM(filter_disable, data, prms, mask);
