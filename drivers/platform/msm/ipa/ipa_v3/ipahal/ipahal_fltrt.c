@@ -1830,7 +1830,7 @@ static struct ipahal_fltrt_obj ipahal_fltrt_objs[IPA_HW_MAX] = {
 			{
 				[IPA_TOS_EQ] = 0xFF,
 				[IPA_PROTOCOL_EQ] = 1,
-				[IPA_TC_EQ] = 2,
+				[IPA_TC_EQ] = 0xFF,
 				[IPA_OFFSET_MEQ128_0] = 3,
 				[IPA_OFFSET_MEQ128_1] = 4,
 				[IPA_OFFSET_MEQ32_0] = 5,
@@ -2072,7 +2072,8 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 			goto err;
 		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_PURE_ACK);
-		extra = ipa_write_8(0, extra);
+		if (ipahal_ctx->hw_type <= IPA_HW_v6_0)
+			extra = ipa_write_8(0, extra);
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_TOS && !tos_done) {
@@ -2485,7 +2486,8 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 			goto err;
 		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_PURE_ACK);
-		extra = ipa_write_8(0, extra);
+		if (ipahal_ctx->hw_type <= IPA_HW_v6_0)
+			extra = ipa_write_8(0, extra);
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_NEXT_HDR) {
@@ -2504,7 +2506,7 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		ihl_ofst_meq32++;
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_TC) {
+	if (ipahal_ctx->hw_type <= IPA_HW_v6_0 && attrib->attrib_mask & IPA_FLT_TC) {
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_TC_EQ);
 		extra = ipa_write_8(attrib->u.v6.tc, extra);
 	}
@@ -3283,7 +3285,8 @@ static size_t calculate_extra_words_size(u32 *en_rule, const struct ipa_rule_att
 		if (!IPA_IS_RULE_EQ_VALID(IPA_IS_PURE_ACK)) {
 			return 0;
 		}
-		extra_words_size++;
+		if (ipahal_ctx->hw_type <= IPA_HW_v6_0)
+			extra_words_size++;
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_TOS && !tos_done) {
@@ -3584,11 +3587,11 @@ static int ipa_fltrt_calc_extra_wrd_bytes(
 	 * pure_ack equation for IPA ver >= 4.5
 	 * In both cases it needs one extra word.
 	 */
-	if (attrib->tos_eq_present)
+	if (ipahal_ctx->hw_type <= IPA_HW_v6_0 && attrib->tos_eq_present)
 		num++;
 	if (attrib->protocol_eq_present)
 		num++;
-	if (attrib->tc_eq_present)
+	if (ipahal_ctx->hw_type <= IPA_HW_v6_0 && attrib->tc_eq_present)
 		num++;
 	num += attrib->num_offset_meq_128;
 	num += attrib->num_offset_meq_32;
@@ -3599,27 +3602,6 @@ static int ipa_fltrt_calc_extra_wrd_bytes(
 	if (attrib->ihl_offset_eq_16_present)
 		num++;
 	if (ipahal_ctx->hw_type >= IPA_HW_v6_0 && attrib->ipv4_frag_eq_present)
-		num++;
-
-	IPAHAL_DBG_LOW("extra bytes number %d\n", num);
-
-	return num;
-}
-
-static int ipa_fltrt_calc_extra_wrd_bytes_v7_0(
-	const struct ipa_ipfltri_rule_eq *attrib)
-{
-	int num = 0;
-
-	num += attrib->num_offset_meq_128;
-	num += attrib->num_offset_meq_32;
-	num += attrib->num_ihl_offset_meq_32;
-	num += attrib->num_ihl_offset_range_16;
-	if (attrib->ihl_offset_eq_32_present)
-		num++;
-	if (attrib->ihl_offset_eq_16_present)
-		num++;
-	if (attrib->ipv4_frag_eq_present)
 		num++;
 
 	IPAHAL_DBG_LOW("extra bytes number %d\n", num);
@@ -4167,7 +4149,7 @@ static int ipa_fltrt_generate_hw_rule_bdy_from_eq_7_0(const struct ipa_ipfltri_r
 	u8 *large_params = NULL, *extra_words = NULL;
 	unsigned int lines_to_large_params = 0;
 
-	extra_bytes = ipa_fltrt_calc_extra_wrd_bytes_v7_0(attrib);
+	extra_bytes = ipa_fltrt_calc_extra_wrd_bytes(attrib);
 	if (extra_bytes > 12) {
 		IPAHAL_ERR("too much extra bytes\n");
 		return -EPERM;
@@ -5487,7 +5469,7 @@ static int ipa_fltrt_parse_hw_rule_eq_v7_0(u8 *addr, u32 header_size,
 	if (eq_bitmap & IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_FRAG))
 		atrb->ipv4_frag_eq_present = true;
 
-	extra_bytes = ipa_fltrt_calc_extra_wrd_bytes_v7_0(atrb);
+	extra_bytes = ipa_fltrt_calc_extra_wrd_bytes(atrb);
 	if (extra_bytes > 12) {
 		IPAHAL_ERR("too much extra bytes\n");
 		return -EPERM;
@@ -5502,14 +5484,12 @@ static int ipa_fltrt_parse_hw_rule_eq_v7_0(u8 *addr, u32 header_size,
 
 	if (IPA_IS_RULE_EQ_VALID(IPA_TOS_EQ) && atrb->tos_eq_present)
 		atrb->tos_eq = *extra_words++;
-	if (IPA_IS_RULE_EQ_VALID(IPA_IS_PURE_ACK) && atrb->tos_eq_present) {
+	if (IPA_IS_RULE_EQ_VALID(IPA_IS_PURE_ACK) && atrb->tos_eq_present)
 		atrb->tos_eq = 0;
-		extra_words++;
-	}
 	if (atrb->protocol_eq_present)
 		atrb->protocol_eq = *extra_words++;
 	if (atrb->tc_eq_present)
-		atrb->tc_eq = *extra_words++;
+		IPAHAL_ERR("TC_EQ is not supported, but present in the attrib!\n");
 
 	if (atrb->num_offset_meq_128 > 0) {
 		atrb->offset_meq_128[0].offset = *extra_words++;
