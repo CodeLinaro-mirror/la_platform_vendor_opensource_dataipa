@@ -442,6 +442,11 @@ static bool ipa_flt_skip_pipe_config(int pipe)
 {
 	struct ipa3_ep_context *ep;
 
+	if((pipe < 0) || (pipe >= IPA5_MAX_NUM_PIPES)) {
+		IPAERR("invalid pipe index %d\n", pipe);
+		return false;
+	}
+
 	if (ipa_is_modem_pipe(pipe)) {
 		IPADBG_LOW("skip %d - modem owned pipe\n", pipe);
 		return true;
@@ -2262,11 +2267,7 @@ int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client)
 		struct ipa3_flt_tbl_nhash_lcl *lcl_tbl = NULL, *tmp = NULL;
 		struct ipa3_flt_tbl *flt_tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][ip];
 		/* Position filtering table last in the list so, it will have first SRAM priority */
-		if(list_empty(&ipa3_ctx->flt_tbl_nhash_lcl_list[ip]))
-		{
-			IPAERR("List is empty\n");
-		}
-		else
+		if(!list_empty(&ipa3_ctx->flt_tbl_nhash_lcl_list[ip]))
 		{
 			list_for_each_entry_safe(
 					lcl_tbl, tmp, &ipa3_ctx->flt_tbl_nhash_lcl_list[ip], link) {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/device.h>
@@ -2060,6 +2060,12 @@ int ipa3_table_dma_cmd(
 		cmd_name = IPA_IMM_CMD_TABLE_DMA;
 
 	for (cnt = 0; cnt < dma->entries; ++cnt) {
+
+		if(num_cmd >= IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC) {
+			IPAERR_RL("Max num_cmd[%d] reached\n", num_cmd);
+			result = -ENOBUFS;
+			goto destroy_imm_cmd;
+		}
 
 		cmd.table_index = dma->dma[cnt].table_index;
 		cmd.base_addr   = dma->dma[cnt].base_addr;

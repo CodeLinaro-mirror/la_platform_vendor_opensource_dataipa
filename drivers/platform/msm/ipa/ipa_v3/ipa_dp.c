@@ -858,6 +858,10 @@ failure:
 int ipa3_send_one(struct ipa3_sys_context *sys, struct ipa3_desc *desc,
 	bool in_atomic)
 {
+	if (!sys || !desc) {
+		IPAERR("Invalid parameters sys=%p desc=%p\n", sys, desc);
+		return -EINVAL;
+	}
 	return ipa3_send(sys, 1, desc, in_atomic);
 }
 
@@ -2013,7 +2017,7 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 	if (ep->sys->use_comm_evt_ring) {
 		ipa3_ctx->gsi_evt_comm_ring_rem +=
 			ep->gsi_mem_info.chan_ring_len;
-	} else if (ep->gsi_evt_ring_hdl != ~0) {
+	} else if (ep->gsi_evt_ring_hdl < GSI_EVT_RING_MAX) {
 		result = gsi_reset_evt_ring(ep->gsi_evt_ring_hdl);
 		if (WARN(result != GSI_STATUS_SUCCESS, "reset evt %d", result))
 			return result;
@@ -2974,11 +2978,7 @@ static void ipa3_replenish_wlan_rx_cache(struct ipa3_sys_context *sys)
 	rx_len_cached = sys->len;
 
 	if (rx_len_cached < sys->rx_pool_sz) {
-		if(list_empty(&ipa3_ctx->wc_memb.wlan_comm_desc_list))
-		{
-			IPAERR("List is empty\n");
-		}
-		else
+		if(!list_empty(&ipa3_ctx->wc_memb.wlan_comm_desc_list))
 		{
 			list_for_each_entry_safe(rx_pkt, tmp,
 					&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
@@ -3639,11 +3639,7 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 		return;
 	}
 	spin_lock_bh(&sys->spinlock);
-	if(list_empty(&sys->rcycl_list))
-	{
-		IPAERR("List is empty\n");
-	}
-	else
+	if(!list_empty(&sys->rcycl_list))
 	{
 		list_for_each_entry_safe(rx_pkt, r,
 				&sys->rcycl_list, link) {
