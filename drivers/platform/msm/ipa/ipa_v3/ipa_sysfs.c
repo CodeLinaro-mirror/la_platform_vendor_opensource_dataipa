@@ -51,6 +51,7 @@ extern const char *ipa3_hdr_l2_type_name[];
 extern const char *ipa3_hdr_proc_type_name[];
 extern int _ipa_read_ep_reg_v3_0(char *buf, int max_len, int pipe);
 extern int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe);
+extern int _ipa_read_ep_reg_v7_0(char *buf, int max_len, int pipe);
 const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(WLAN_CLIENT_CONNECT),
 	__stringify(WLAN_CLIENT_DISCONNECT),
