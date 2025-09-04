@@ -1704,6 +1704,8 @@ static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 	{
 		if (ipa3_ctx->get_qos_config.qos_config[i].traffic_class ==
 				qos_param->traffic_class &&
+			ipa3_ctx->get_qos_config.qos_config[i].flt_cat ==
+				qos_param->flt_cat &&
 			ipa3_ctx->get_qos_config.qos_config[i].ip_type ==
 				qos_param->ip_type &&
 			ipa3_ctx->get_qos_config.qos_config[i].src_ip_addr ==
@@ -1790,6 +1792,8 @@ static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].qos_rule_hdl =
 		qos_param->qos_rule_hdl;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].flt_cat =
+		qos_param->flt_cat;
 	ipa3_ctx->get_qos_config.num_qos_configs++;
 	IPADBG("Stored qos configs count now: %d\n",
 		ipa3_ctx->get_qos_config.num_qos_configs);
@@ -1808,6 +1812,8 @@ static int ipa3_delete_qos_params(struct ipa_ioc_qos_config *qos_param)
 	{
 		if (ipa3_ctx->get_qos_config.qos_config[i].traffic_class ==
 				qos_param->traffic_class &&
+			ipa3_ctx->get_qos_config.qos_config[i].flt_cat ==
+				qos_param->flt_cat &&
 			ipa3_ctx->get_qos_config.qos_config[i].ip_type ==
 				qos_param->ip_type &&
 			ipa3_ctx->get_qos_config.qos_config[i].src_ip_addr ==
@@ -1910,6 +1916,8 @@ static int ipa3_delete_qos_params(struct ipa_ioc_qos_config *qos_param)
 		memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_mac_addr,
 			ipa3_ctx->get_qos_config.qos_config[cur_idx+1].dst_mac_addr,
 			IPA_MAC_ADDR_SIZE);
+		ipa3_ctx->get_qos_config.qos_config[cur_idx].flt_cat =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].flt_cat;
 	}
 
 	memset(&ipa3_ctx->get_qos_config.qos_config[num_config - 1], 0,
@@ -1936,6 +1944,8 @@ static int ipa3_get_qos_params(struct ipa_ioc_get_qos_config *get_qos_param)
 			sizeof(get_qos_param->qos_config[cur_idx].dev_name));
 		get_qos_param->qos_config[cur_idx].traffic_class =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class;
+		get_qos_param->qos_config[cur_idx].flt_cat =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].flt_cat;
 		get_qos_param->qos_config[cur_idx].ip_type =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type;
 		get_qos_param->qos_config[cur_idx].src_ip_addr =
