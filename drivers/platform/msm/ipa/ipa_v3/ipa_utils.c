@@ -836,7 +836,7 @@ static const struct rsrc_min_max ipa3_rsrc_src_grp_config
 	[IPA_7_0] = {
 		/* UL DL URLLC Ethernet Crypto QDSS/Diag unused */
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
-		{8, 40}, {8, 40}, {2, 20}, {8, 40}, {1, 3}, {1, 1}, {0, 63},  },
+		{7, 40}, {8, 40}, {2, 20}, {8, 40}, {1, 3}, {1, 1}, {1, 63},  },
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
 		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {6, 6}, {4, 4}, {0, 0},  },
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
