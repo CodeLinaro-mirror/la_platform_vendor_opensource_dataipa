@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/clk.h>
@@ -522,21 +522,8 @@ EXPORT_SYMBOL(ipa_smmu_free_sgt);
 
 static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 {
-	int i;
 	IPADBG("Entry\n");
 	switch (event) {
-	case PM_SUSPEND_PREPARE:
-		/* In case there is a tx/rx handler in polling mode fail to suspend */
-		for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
-			if (ipa3_ctx->ep[i].sys &&
-					atomic_read(&ipa3_ctx->ep[i].sys->curr_polling_state)) {
-				IPAERR("EP %d is in polling state, do not suspend\n", i);
-				return -EAGAIN;
-			}
-		}
-		ipa_pm_deactivate_all_deferred();
-		atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 1);
-		break;
 	case PM_POST_SUSPEND:
 #if IS_ENABLED(CONFIG_DEEPSLEEP)
 		if (ipa3_ctx->deepsleep) {
@@ -8906,6 +8893,7 @@ static int ipa_alloc_pkt_init_ex(void)
 	struct ipahal_imm_cmd_ip_packet_init_ex cmd = {0};
 	struct ipahal_imm_cmd_ip_packet_init_ex cmd_mask = {0};
 	int result = 0;
+	enum ipa_client_type client;
 
 	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
 		&cmd, false);
@@ -8946,6 +8934,16 @@ static int ipa_alloc_pkt_init_ex(void)
 	for (cmd.rt_pipe_dest_idx = 0;
 		cmd.rt_pipe_dest_idx < ipa3_ctx->ipa_num_pipes;
 		cmd.rt_pipe_dest_idx++) {
+		client = ipa3_get_client_by_pipe(cmd.rt_pipe_dest_idx);
+		if(ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5 &&
+			client == IPA_CLIENT_APPS_WAN_LOW_LAT_PROD) {
+			cmd.dpl_disable = true;
+			cmd_mask.dpl_disable = true;
+		} else {
+			cmd.dpl_disable = false;
+			cmd_mask.dpl_disable = false;
+		}
+
 		result = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
 			cmd_pyld->data, &cmd, &cmd_mask);
 		if (unlikely(result != 0)) {
