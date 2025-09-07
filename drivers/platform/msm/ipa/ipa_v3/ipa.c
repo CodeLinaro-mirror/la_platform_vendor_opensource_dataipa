@@ -11139,11 +11139,11 @@ ssize_t ipa3_update_config(const char *buff)
 		if (strnstr(dbg_buff, "pppoe", strlen(dbg_buff))) {
 			IPADBG("PPPoE mode has been enabled.\n");
 			ipa3_ctx->ipa_config_is_pppoe = true;
-			if (strnstr(dbg_buff, "pppoe:eth0", strlen(dbg_buff))) {
+			if (strnstr(dbg_buff, "pppoe:port_zero", strlen(dbg_buff))) {
 				IPADBG("PPPoE on eth0 has been enabled.\n");
 				strlcpy(ipa3_ctx->ipa_eth_pppoe_intf_name, "eth0", IFNAMSIZ);
 			}
-			else if (strnstr(dbg_buff, "pppoe:eth1", strlen(dbg_buff))) {
+			else if (strnstr(dbg_buff, "pppoe:port_one", strlen(dbg_buff))) {
 				IPADBG("PPPoE on eth1 has been enabled.\n");
 				strlcpy(ipa3_ctx->ipa_eth_pppoe_intf_name, "eth1", IFNAMSIZ);
 			}
