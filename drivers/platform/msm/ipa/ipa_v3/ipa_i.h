@@ -81,11 +81,12 @@
 #define IPA6_PIPES_NUM 50
 #define IPA7_PIPES_NUM 75
 #define IPA6_PROD_PIPES_NUM 22
-#define IPA5_PIPE_REG_NUM 2
+#define IPA7_PROD_PIPES_NUM 32
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
 #define IPA6_MAX_NUM_PIPES (IPA6_PIPES_NUM)
 #define IPA7_MAX_NUM_PIPES (IPA7_PIPES_NUM)
 #define IPA_MAX_NUM_PIPES IPA7_MAX_NUM_PIPES
+#define IPA_PROD_PIPES_NUM IPA7_PROD_PIPES_NUM
 #define IPA_APPS_IN_PIPES_NUM 7 // number of pipes from IPA to APPs
 #define IPA6_NXT_FLT_TBL_Q6_NUM 1
 #define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
@@ -133,6 +134,13 @@
 #define IPA_MAX_RT_RULE_ID 1023
 
 #define IPA_AP_CB_WLAN_END_MAPPING 0x20000000
+
+#define NUM_VARS_FOR_BITS(type, bits) \
+	(((bits) + (sizeof(type) * BITS_PER_BYTE - 1)) / (sizeof(type) * BITS_PER_BYTE))
+
+#define IPA_EP_ARR_SIZE NUM_VARS_FOR_BITS(u32, IPA7_PIPES_NUM)
+#define IPA_EP_PER_REG 32
+
 
 /* ULSO Constants */
 enum {
@@ -3167,6 +3175,15 @@ struct coal_packet_status_info {
  */
 #define MAX_COAL_PACKETS            (48)
 
+/*
+ * struct ipa_tx_suspend_irq_data - interrupt data for IPA_TX_SUSPEND_IRQ
+ * @endpoints: bitmask of endpoints which case IPA_TX_SUSPEND_IRQ interrupt
+ * @dma_addr: DMA address of this Rx packet
+ */
+struct ipa_tx_suspend_irq_data {
+	u32 endpoints[IPA_EP_ARR_SIZE];
+};
+
 extern struct ipa3_context *ipa3_ctx;
 extern bool ipa_net_initialized;
 
@@ -3809,8 +3826,8 @@ int ipa3_wigig_init_i(void);
 #define IPA_STATS_MAX_PIPE_BIT 32
 
 struct ipa_teth_stats_endpoints {
-	u32 prod_mask[IPA5_PIPE_REG_NUM];
-	u32 dst_ep_mask[IPA6_PIPES_NUM][IPA5_PIPE_REG_NUM];
+	u32 prod_mask[IPA_EP_ARR_SIZE];
+	u32 dst_ep_mask[IPA7_PIPES_NUM][IPA_EP_ARR_SIZE];
 };
 
 int ipa_hw_stats_init(void);

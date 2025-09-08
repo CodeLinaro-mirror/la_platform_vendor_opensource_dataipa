@@ -635,15 +635,6 @@ struct ipa_tz_unlock_reg_info {
 	u64 size;
 };
 
-/**
- * struct ipa_tx_suspend_irq_data - interrupt data for IPA_TX_SUSPEND_IRQ
- * @endpoints: bitmask of endpoints which case IPA_TX_SUSPEND_IRQ interrupt
- * @dma_addr: DMA address of this Rx packet
- */
-struct ipa_tx_suspend_irq_data {
-	u32 endpoints[IPA_EP_ARR_SIZE];
-};
-
 extern const char *ipa_clients_strings[];
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
