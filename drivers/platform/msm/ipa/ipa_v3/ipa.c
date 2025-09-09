@@ -11122,6 +11122,13 @@ ssize_t ipa3_update_config(const char *buff)
 			ipa3_ctx->ipa_mhi_eth = true;
 		}
 
+		if (strnstr(dbg_buff, "rdkb", strlen(dbg_buff)))
+		{
+			IPADBG("Platform type is RDKB\n");
+			ipa3_ctx->ipa_config_is_rdkb = true;
+			ipa3_ctx->enable_napi_chain = 0;
+		}
+
 #if IPA_ETH_API_VER >= 4
 		if (strnstr(dbg_buff, "ethqos", strlen(dbg_buff))) {
 			ipa3_ctx->eth_qos = IPA_ETH_QOS_ENABLE;
@@ -11132,11 +11139,11 @@ ssize_t ipa3_update_config(const char *buff)
 		if (strnstr(dbg_buff, "pppoe", strlen(dbg_buff))) {
 			IPADBG("PPPoE mode has been enabled.\n");
 			ipa3_ctx->ipa_config_is_pppoe = true;
-			if (strnstr(dbg_buff, "pppoe:eth0", strlen(dbg_buff))) {
+			if (strnstr(dbg_buff, "pppoe:port_zero", strlen(dbg_buff))) {
 				IPADBG("PPPoE on eth0 has been enabled.\n");
 				strlcpy(ipa3_ctx->ipa_eth_pppoe_intf_name, "eth0", IFNAMSIZ);
 			}
-			else if (strnstr(dbg_buff, "pppoe:eth1", strlen(dbg_buff))) {
+			else if (strnstr(dbg_buff, "pppoe:port_one", strlen(dbg_buff))) {
 				IPADBG("PPPoE on eth1 has been enabled.\n");
 				strlcpy(ipa3_ctx->ipa_eth_pppoe_intf_name, "eth1", IFNAMSIZ);
 			}
@@ -11196,14 +11203,6 @@ ssize_t ipa3_update_config(const char *buff)
 		/* trim ending newline character if any */
 		if (count && (dbg_buff[count - 1] == '\n'))
 			dbg_buff[count - 1] = '\0';
-
-		if (strnstr(dbg_buff, "rdkb", strlen(dbg_buff)))
-		{
-			IPADBG("Platform type is RDKB\n");
-			ipa3_ctx->ipa_config_is_rdkb = true;
-			ipa3_ctx->enable_napi_chain = 0;
-			return count;
-		}
 
 #if defined(CONFIG_IPA_IPSEC)
 		if (strnstr(dbg_buff, "ipsec", strlen(dbg_buff)))
@@ -11854,6 +11853,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_dual_wkk_config = resource_p->is_dual_wkk_config;
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
+	ipa3_ctx->client_hps_eth_index = -1;
 	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
 #ifdef CONFIG_GH_MSGQ
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;

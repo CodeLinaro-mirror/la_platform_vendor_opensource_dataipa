@@ -3897,6 +3897,7 @@ int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod);
 int ipa_reset_all_teth_stats(void);
 
 int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query);
+int ipa_get_flt_rt_stats_v2(struct ipa_ioc_flt_rt_query *query, bool query_flt, bool query_rt);
 
 int ipa_set_flt_rt_stats(int index, struct ipa_flt_rt_stats stats);
 
