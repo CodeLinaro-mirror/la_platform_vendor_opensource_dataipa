@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include <linux/bitops.h>
@@ -1289,9 +1289,15 @@ static void __ipa_convert_rt_rule_in(struct ipa_rt_rule rule_in,
 {
 	if (unlikely(sizeof(struct ipa_rt_rule) >
 			sizeof(struct ipa_rt_rule_i))) {
+#ifdef CONFIG_ARM64
+		IPAERR_RL("invalid size in: %lu size out: %lu\n",
+			sizeof(struct ipa_rt_rule),
+			sizeof(struct ipa_rt_rule_i));
+#else
 		IPAERR_RL("invalid size in: %u size out: %u\n",
 			sizeof(struct ipa_rt_rule),
 			sizeof(struct ipa_rt_rule_i));
+#endif
 		return;
 	}
 	memset(rule_out, 0, sizeof(struct ipa_rt_rule_i));
@@ -1303,9 +1309,15 @@ static void __ipa_convert_rt_rule_out(struct ipa_rt_rule_i rule_in,
 {
 	if (unlikely(sizeof(struct ipa_rt_rule) >
 			sizeof(struct ipa_rt_rule_i))) {
+#ifdef CONFIG_ARM64
+		IPAERR_RL("invalid size in:%lu size out:%lu\n",
+			sizeof(struct ipa_rt_rule),
+			sizeof(struct ipa_rt_rule_i));
+#else
 		IPAERR_RL("invalid size in:%u size out:%u\n",
 			sizeof(struct ipa_rt_rule),
 			sizeof(struct ipa_rt_rule_i));
+#endif
 		return;
 	}
 	memset(rule_out, 0, sizeof(struct ipa_rt_rule));
@@ -1317,9 +1329,15 @@ static void __ipa_convert_rt_mdfy_in(struct ipa_rt_rule_mdfy rule_in,
 {
 	if (unlikely(sizeof(struct ipa_rt_rule_mdfy) >
 			sizeof(struct ipa_rt_rule_mdfy_i))) {
+#ifdef CONFIG_ARM64
+		IPAERR_RL("invalid size in:%lu size out:%lu\n",
+			sizeof(struct ipa_rt_rule_mdfy),
+			sizeof(struct ipa_rt_rule_mdfy_i));
+#else
 		IPAERR_RL("invalid size in:%u size out:%u\n",
 			sizeof(struct ipa_rt_rule_mdfy),
 			sizeof(struct ipa_rt_rule_mdfy_i));
+#endif
 		return;
 	}
 	memset(rule_out, 0, sizeof(struct ipa_rt_rule_mdfy_i));
@@ -1334,9 +1352,15 @@ static void __ipa_convert_rt_mdfy_out(struct ipa_rt_rule_mdfy_i rule_in,
 {
 	if (unlikely(sizeof(struct ipa_rt_rule_mdfy) >
 			sizeof(struct ipa_rt_rule_mdfy_i))) {
+#ifdef CONFIG_ARM64
+		IPAERR_RL("invalid size in:%lu size out:%lu\n",
+			sizeof(struct ipa_rt_rule_mdfy),
+			sizeof(struct ipa_rt_rule_mdfy_i));
+#else
 		IPAERR_RL("invalid size in:%u size out:%u\n",
 			sizeof(struct ipa_rt_rule_mdfy),
 			sizeof(struct ipa_rt_rule_mdfy_i));
+#endif
 		return;
 	}
 	memset(rule_out, 0, sizeof(struct ipa_rt_rule_mdfy));

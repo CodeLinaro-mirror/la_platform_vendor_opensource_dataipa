@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #ifndef _ECM_IPA_H_
@@ -66,6 +66,16 @@ int ecm_ipa_disconnect(void *priv);
 void ecm_ipa_cleanup(void *priv);
 
 #else /* IS_ENABLED(CONFIG_ECM_IPA) */
+
+static inline int ecm_ipa_init_module(void)
+{
+	return -EPERM;
+}
+
+static inline void ecm_ipa_cleanup_module(void)
+{
+
+}
 
 static inline int ecm_ipa_init(struct ecm_ipa_params *params)
 {

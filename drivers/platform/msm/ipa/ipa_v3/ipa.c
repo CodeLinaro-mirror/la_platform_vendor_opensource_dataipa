@@ -3306,9 +3306,15 @@ static int ipa3_send_pkt_threshold(unsigned long usr_param)
 
 	if (((struct ipa_ioc_set_pkt_threshold *)buff1)->ioctl_data_size !=
 		sizeof(struct ipa_set_pkt_threshold)) {
+#ifdef CONFIG_ARM64
+		IPAERR("IPA_IOC_SET_PKT_THRESHOLD size not match(%d,%lu)!\n",
+		((struct ipa_ioc_set_pkt_threshold *)buff1)->ioctl_data_size,
+		sizeof(struct ipa_set_pkt_threshold));
+#else
 		IPAERR("IPA_IOC_SET_PKT_THRESHOLD size not match(%d,%u)!\n",
 		((struct ipa_ioc_set_pkt_threshold *)buff1)->ioctl_data_size,
 		sizeof(struct ipa_set_pkt_threshold));
+#endif
 		kfree(buff1);
 		return -EFAULT;
 	}
@@ -3367,9 +3373,15 @@ static int ipa3_send_sw_flt_list(unsigned long usr_param)
 
 	if (sw_flt_list.ioctl_data_size !=
 		sizeof(struct ipa_sw_flt_list_type)) {
+#ifdef CONFIG_ARM64
+		IPAERR("IPA_IOC_SET_SW_FLT size not match(%d,%lu)!\n",
+		sw_flt_list.ioctl_data_size,
+		sizeof(struct ipa_sw_flt_list_type));
+#else
 		IPAERR("IPA_IOC_SET_SW_FLT size not match(%d,%u)!\n",
 		sw_flt_list.ioctl_data_size,
 		sizeof(struct ipa_sw_flt_list_type));
+#endif
 		return -EFAULT;
 	}
 
@@ -3431,9 +3443,15 @@ static int ipa3_send_ippt_sw_flt_list(unsigned long usr_param)
 	/* Expect ipa_ippt_sw_flt_list_type struct*/
 	if (sw_flt_list.ioctl_data_size !=
 		sizeof(struct ipa_ippt_sw_flt_list_type)) {
+#ifdef CONFIG_ARM64
+		IPAERR("IPA_IOC_SET_IPPT_SW_FLT size not match(%d,%lu)!\n",
+		sw_flt_list.ioctl_data_size,
+		sizeof(struct ipa_ippt_sw_flt_list_type));
+#else
 		IPAERR("IPA_IOC_SET_IPPT_SW_FLT size not match(%d,%u)!\n",
 		sw_flt_list.ioctl_data_size,
 		sizeof(struct ipa_ippt_sw_flt_list_type));
+#endif
 		return -EFAULT;
 	}
 
@@ -10057,10 +10075,6 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ipa_initialization_complete = true;
 	mutex_unlock(&ipa3_ctx->lock);
 
-#ifdef CONFIG_DEEPSLEEP
-	if (!ipa_is_ready())
-		ipa_fmwk_deepsleep_exit_ipa();
-#endif
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	IPAERR("IPA driver initialization was successful.\n");
@@ -10504,10 +10518,6 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_setup_uc_act_tbl();
 	ipa_trigger_ipa_ready_cbs();
 
-#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
-	if (!ipa_is_ready())
-		ipa_fmwk_deepsleep_exit_ipa();
-#endif
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	ipa_ut_module_init();
@@ -14220,7 +14230,8 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	cb->next_addr = cb->va_end;
 	return 0;
 }
-#ifdef CONFIG_QCOM_SMEM
+
+#if IS_ENABLED(CONFIG_QCOM_SMEM)
 static void ipa3_ap_iommu_unmap(struct ipa_smmu_cb_ctx *cb, const u32 *add_map, u32 add_map_size) {
 
 	int i, res;
@@ -14247,6 +14258,7 @@ static void ipa3_ap_iommu_unmap(struct ipa_smmu_cb_ctx *cb, const u32 *add_map, 
 	}
 }
 #endif
+
 static int ipa_smmu_ap_cb_probe(struct device *dev)
 {
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_AP);
@@ -14255,7 +14267,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	u32 add_map_size;
 	const u32 *add_map;
 	int i;
-#ifdef CONFIG_QCOM_SMEM
+#if IS_ENABLED(CONFIG_QCOM_SMEM)
 	void *smem_addr;
 	size_t smem_size;
 	u32 ipa_smem_size = 0;
@@ -14411,7 +14423,7 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 				IOMMU_READ | IOMMU_WRITE | IOMMU_MMIO);
 		}
 	}
-#ifdef CONFIG_QCOM_SMEM
+#if IS_ENABLED(CONFIG_QCOM_SMEM)
 	ret = of_property_read_u32(dev->of_node, "qcom,ipa-q6-smem-size",
 					&ipa_smem_size);
 	if (ret) {
@@ -15578,8 +15590,6 @@ static void ipa3_deepsleep_suspend(void)
 #endif
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
-	/*Calling framework API to reset IPA ready flag to false*/
-	ipa_fmwk_deepsleep_entry_ipa();
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	IPADBG("Exit\n");
 }

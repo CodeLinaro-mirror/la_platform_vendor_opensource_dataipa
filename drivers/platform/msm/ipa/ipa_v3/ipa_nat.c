@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include <linux/device.h>
@@ -651,9 +651,15 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 			 * CAN fit in SRAM, hence we'll use SRAM...
 			 * And SRAM allowed
 			 */
+#ifdef CONFIG_ARM64
+			IPADBG("V4 NAT with size 0x%08lX will reside in: %s\n",
+				   table_alloc->size,
+				   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_SRAM));
+#else
 			IPADBG("V4 NAT with size 0x%08zX will reside in: %s\n",
 				   table_alloc->size,
 				   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_SRAM));
+#endif
 
 			if (nm_ptr->sram_in_use) {
 				IPAERR("Memory already allocated\n");
@@ -696,9 +702,15 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 			/*
 			 * CAN NOT fit in SRAM OR SRAM not allowed, hence we'll allocate DDR...
 			 */
+#ifdef CONFIG_ARM64
+			IPADBG("V4 NAT with size 0x%08lX will reside in: %s\n",
+				   table_alloc->size,
+				   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_DDR));
+#else
 			IPADBG("V4 NAT with size 0x%08zX will reside in: %s\n",
 				   table_alloc->size,
 				   ipa3_nat_mem_in_as_str(IPA_NAT_MEM_IN_DDR));
+#endif
 
 			if (nm_ptr->ddr_in_use) {
 				IPAERR("Memory already allocated\n");
@@ -863,9 +875,13 @@ int ipa3_allocate_nat_table(
 	struct ipa3_nat_mem_loc_data *mld_ptr;
 
 	int result;
-
+#ifdef CONFIG_ARM64
+	IPADBG("table size:%lu offset:%lu\n",
+		   table_alloc->size, table_alloc->offset);
+#else
 	IPADBG("table size:%zu offset:%lu\n",
 		   table_alloc->size, table_alloc->offset);
+#endif
 
 	mutex_lock(&nm_ptr->dev.lock);
 

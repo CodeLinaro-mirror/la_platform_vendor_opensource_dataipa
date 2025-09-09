@@ -1230,6 +1230,7 @@ static int ipa3_find_free_rmnet_index(void)
 	return MAX_NUM_OF_MUX_CHANNEL;
 }
 
+#ifndef CONFIG_KERA_LE
 static int del_mux_channel(int mux_index)
 {
 	int rc = 0;
@@ -1257,6 +1258,8 @@ static int del_mux_channel(int mux_index)
 	mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
   return rc;
 }
+#endif
+
 static enum ipa_upstream_type find_upstream_type(const char *upstreamIface)
 {
 	int i;
@@ -2487,12 +2490,12 @@ static int handle3_ingress_format(struct net_device *dev,
 		IPAWANDBG("DL chksum set\n");
 	}
 
-
+#ifndef CONFIG_KERA_LE
 	if ((in->u.data) & RMNET_IOCTL_INGRESS_FORMAT_IP_ROUTE) {
 		rmnet_ipa3_ctx->no_qmap_config = true;
 		ipa_wan_ep_cfg->bypass_agg = true;
 	}
-
+#endif
 	if ((in->u.data) & RMNET_IOCTL_INGRESS_FORMAT_AGG_DATA) {
 		IPAWANDBG("get AGG size %d count %d\n",
 				  in->u.ingress_format.agg_size,
@@ -2633,8 +2636,10 @@ static int handle3_egress_format(struct net_device *dev,
 		return -EFAULT;
 	}
 
+#ifndef CONFIG_KERA_LE
 	if ((e->u.data) & RMNET_IOCTL_EGRESS_FORMAT_IP_ROUTE)
 		rmnet_ipa3_ctx->no_qmap_config = true;
+#endif
 
 	ipa_wan_ep_cfg = &rmnet_ipa3_ctx->apps_to_ipa_ep_cfg;
 	if ((e->u.data) & RMNET_IOCTL_EGRESS_FORMAT_CHECKSUM) {
@@ -2758,10 +2763,12 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	if (!ingress_param || ingress_param->pipe_setup_status == IPA_PIPE_SETUP_EXISTS || dev == NULL)
 		return rc;
 
+#ifndef CONFIG_KERA_LE
 	if(ingress_param->ingress_ep_type == RMNET_INGRESS_V2X_DATA){
 		v2x_check = true;
 		rmnet_ipa3_ctx->no_qmap_config = true;
 	}
+#endif
 
 	if(!v2x_check){
 		coal_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
@@ -2863,12 +2870,14 @@ static int ipa3_setup_apps_wan_cons_pipes(
 		ipa_wan_ep_cfg->client = IPA_CLIENT_APPS_WAN_COAL_CONS;
 		pipe_status->ep_type = RMNET_INGRESS_COALS;
 		*ingress_eps_mask |= IPA_AP_INGRESS_EP_COALS;
+#ifndef CONFIG_KERA_LE
 	} else if (ingress_param->ingress_ep_type == RMNET_INGRESS_V2X_DATA) {
 		/* Setup V2X pipes */
 		IPAWANDBG("Setting up V2X pipe\n");
 		ipa_wan_ep_cfg->client = IPA_CLIENT_APPS_WAN_V2X_CONS;
 		pipe_status->ep_type = RMNET_INGRESS_V2X_DATA;
 		*ingress_eps_mask |= IPA_AP_INGRESS_EP_V2X_DATA;
+#endif
 	} else {
 		return rc;
 	}
@@ -3089,6 +3098,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 			/* caching the success status of the pipe */
 			ingress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
 
+#ifndef CONFIG_KERA_LE
 		} else if (ingress_param[i].ingress_ep_type ==
 			RMNET_INGRESS_V2X_DATA) {
 			/* Not support in non-auto target */
@@ -3128,6 +3138,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 			ingress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 			/* caching the success status of the pipe */
 			ingress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+#endif
 		} else {
 			IPAWANERR("Ingress ep_type not defined\n");
 		}
@@ -3321,6 +3332,7 @@ static int handle3_ingress_format_internal(const struct rmnet_ingress_param ingr
 			/* caching the success status of the pipe */
 			ingress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
 
+#ifndef CONFIG_KERA_LE
 		} else if (ingress_param[i].ingress_ep_type ==
 			RMNET_INGRESS_V2X_DATA) {
 			/* Not support in non-auto target */
@@ -3360,6 +3372,7 @@ static int handle3_ingress_format_internal(const struct rmnet_ingress_param ingr
 			ingress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 			/* caching the success status of the pipe */
 			ingress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+#endif
 		} else {
 			IPAWANERR("Ingress ep_type not defined\n");
 		}
@@ -3422,12 +3435,14 @@ static int ipa3_setup_apps_wan_prod_pipes(
 	if (ip_pdu) {
 		ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_PROD);
 		ipa_wan_ep_cfg = &rmnet_ipa3_ctx->apps_to_ipa_ep_cfg;
+#ifndef CONFIG_KERA_LE
 	} else if (egress_param->egress_ep_type == RMNET_EGRESS_V2X_DATA) {
 		v2x_check = true;
 		ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_V2X_PROD);
 		ipa_wan_ep_cfg = &rmnet_ipa3_ctx->apps_to_ipa_v2x_ep_cfg;
 		ipa_wan_ep_cfg->bypass_agg = true;
 		rmnet_ipa3_ctx->no_qmap_config = true;
+#endif
 	} else {
 		ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_ETH_PROD);
 		ipa_wan_ep_cfg = &rmnet_ipa3_ctx->apps_to_ipa_ep_eth_cfg;
@@ -3541,6 +3556,7 @@ static int ipa3_setup_apps_wan_prod_pipes(
 			return rc;
 		}
 		IPAWANDBG("Egress WAN pipe setup successful\n");
+#ifndef CONFIG_KERA_LE
 	} else if (!v2x_check) {
 		/* eth pdu */
 		pipe_status->ep_type = RMNET_EGRESS_ETH_DATA;
@@ -3562,6 +3578,7 @@ static int ipa3_setup_apps_wan_prod_pipes(
 			return rc;
 		}
 		IPAWANDBG("Egress v2x pipe setup successful\n");
+#endif
 	}
 
 	egress_param->pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
@@ -3657,7 +3674,7 @@ static int handle3_egress_format_v2(struct net_device *dev,
 				IPAWANERR("Failed to setup wan prod pipes\n");
 				return rc;
 			}
-
+#ifndef CONFIG_KERA_LE
 		} else if (egress_param[i].egress_ep_type == RMNET_EGRESS_ETH_DATA) {
 			/* Not support in auto target */
 			if (ipa3_ctx->ipa_config_is_auto) {
@@ -3685,6 +3702,7 @@ static int handle3_egress_format_v2(struct net_device *dev,
 			}
 			/* indicate eth-wan enabled */
 			rmnet_ipa3_ctx->eth_wan_set = true;
+#endif
 		} else if (egress_param[i].egress_ep_type ==
 			RMNET_EGRESS_LOW_LAT_CTRL) {
 			/* Searching through the static table, if pipe exists already */
@@ -3747,7 +3765,7 @@ static int handle3_egress_format_v2(struct net_device *dev,
 			egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 			/* caching the success status of the pipe */
 			egress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
-
+#ifndef CONFIG_KERA_LE
 		} else if (egress_param[i].egress_ep_type ==
 			RMNET_EGRESS_V2X_DATA) {
 			/* Not support in non-auto target */
@@ -3785,6 +3803,7 @@ static int handle3_egress_format_v2(struct net_device *dev,
 			egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 			/* caching the success status of the pipe */
 			egress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+#endif
 		} else {
 			IPAWANERR("Egress ep type not defined");
 		}
@@ -3852,7 +3871,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
 				IPAWANERR("Failed to setup wan prod pipes\n");
 				return rc;
 			}
-
+#ifndef CONFIG_KERA_LE
 		} else if (egress_param[i].egress_ep_type == RMNET_EGRESS_ETH_DATA) {
 			/* Not support in auto target */
 			if (ipa3_ctx->ipa_config_is_auto) {
@@ -3880,6 +3899,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
 			}
 			/* indicate eth-wan enabled */
 			rmnet_ipa3_ctx->eth_wan_set = true;
+#endif
 		} else if (egress_param[i].egress_ep_type ==
 			RMNET_EGRESS_LOW_LAT_CTRL) {
 			/* Searching through the static table, if pipe exists already */
@@ -3942,7 +3962,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
 			egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 			/* caching the success status of the pipe */
 			egress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
-
+#ifndef CONFIG_KERA_LE
 		} else if (egress_param[i].egress_ep_type ==
 			RMNET_EGRESS_V2X_DATA) {
 			/* Not support in non-auto target */
@@ -3980,6 +4000,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
 			egress_param[i].pipe_setup_status = IPA_PIPE_SETUP_SUCCESS;
 			/* caching the success status of the pipe */
 			egress_pipe_status[i].status = IPA_PIPE_SETUP_EXISTS;
+#endif
 		} else {
 			IPAWANERR("Egress ep type not defined");
 		}
@@ -4081,7 +4102,7 @@ int rmnet_mux_init(void)
 	}
 	return rc;
 }
-
+#ifndef CONFIG_KERA_LE
 int ipa3_send_eth_pdu_to_q6_ipa(int rmnet_index)
 {
 	struct ipa3_rmnet_mux_val *mux_channel;
@@ -4119,7 +4140,7 @@ int ipa3_send_eth_pdu_to_q6_ipa(int rmnet_index)
 
 	return 0;
 }
-
+#endif
 /**
  * ipa3_wwan_ioctl() - I/O control for wwan network driver.
  *
@@ -4142,7 +4163,10 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 #endif
 {
 	int rc = 0;
-	int mru = 1000, epid = 1, mux_index, len, free_index = 0, epid_ll = 5, epid_eth = 6, epid_v2x = 10, vchannel_index = 0;
+	int mru = 1000, epid = 1, mux_index, len, free_index = 0, epid_ll = 5;
+#ifndef CONFIG_KERA_LE
+	int epid_eth = 6, epid_v2x = 10, vchannel_index = 0;
+#endif
 	struct ipa_msg_meta msg_meta;
 	struct ipa_wan_msg *wan_msg = NULL;
 	struct rmnet_ioctl_extended_s ext_ioctl_data;
@@ -4153,7 +4177,10 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 	uint32_t  mux_id;
 	int8_t *v_name;
 	struct mutex *mux_mutex_ptr;
-	int wan_ep, rmnet_ll_ep, wan_ep_eth, wan_ep_v2x;
+	int wan_ep, rmnet_ll_ep;
+#ifndef CONFIG_KERA_LE
+	int wan_ep_eth, wan_ep_v2x;
+#endif
 	bool tcp_en = false, udp_en = false;
 	bool mtu_v4_set = false, mtu_v6_set = false;
 	enum ipa_ip_type iptype;
@@ -4233,11 +4260,13 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 				(RMNET_IOCTL_FEAT_NOTIFY_MUX_CHANNEL |
 				RMNET_IOCTL_FEAT_SET_EGRESS_DATA_FORMAT |
 				RMNET_IOCTL_FEAT_SET_INGRESS_DATA_FORMAT);
+#ifndef CONFIG_KERA_LE
 				/* only AUTO config support v2x and no eth pdu */
 				if (ipa3_ctx->ipa_config_is_auto)
 					ext_ioctl_data.u.data |= RMNET_IOCTL_FEAT_V2X_EMB;
 				else
 					ext_ioctl_data.u.data |= RMNET_IOCTL_FEAT_ETH_PDU;
+#endif
 			if (copy_to_user((u8 *)ifr->ifr_ifru.ifru_data,
 				&ext_ioctl_data,
 				sizeof(struct rmnet_ioctl_extended_s)))
@@ -4360,6 +4389,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			ext_ioctl_data.u.ipa_ep_pair.consumer_pipe_num,
 			ext_ioctl_data.u.ipa_ep_pair.producer_pipe_num);
 			break;
+#ifndef CONFIG_KERA_LE
 		/*  Get endpoint ID for ETH PDU */
 		case RMNET_IOCTL_GET_EPID_ETH:
 			IPAWANDBG("get ioctl: RMNET_IOCTL_GET_EPID_ETH\n");
@@ -4444,7 +4474,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			ext_ioctl_data.u.ipa_ep_pair.consumer_pipe_num,
 			ext_ioctl_data.u.ipa_ep_pair.producer_pipe_num);
 			break;
-
+#endif
 		/*  Get driver name  */
 		case RMNET_IOCTL_GET_DRIVER_NAME:
 			if (IPA_NETDEV() != NULL) {
@@ -4537,6 +4567,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 				rmnet_ipa3_ctx->rmnet_index++;
 			mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
 			break;
+#ifndef CONFIG_KERA_LE
 		/*  Add MUX ID for ETH PDU interface */
 		case RMNET_IOCTL_ADD_MUX_CHANNEL_v2:
 			mux_id = ext_ioctl_data.u.rmnet_mux_val_v2.mux_id;
@@ -4658,6 +4689,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 				return rc;
 			}
 			break;
+#endif
 		case RMNET_IOCTL_SET_EGRESS_DATA_FORMAT:
 			rc = handle3_egress_format(dev, &ext_ioctl_data);
 			break;
@@ -4808,6 +4840,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 						iptype);
 
 			break;
+#ifndef CONFIG_KERA_LE
 		/*  indicate ETH PDU is vlan */
 		case RMNET_IOCTL_SET_ETH_VLAN:
 			IPAWANDBG("get ioctl: RMNET_IOCTL_SET_ETH_VLAN vlan %d\n", ext_ioctl_data.u.data);
@@ -4823,6 +4856,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 				netdev_update_features(IPA_NETDEV());
 			}
 			break;
+#endif
 		default:
 			IPAWANERR("[%s] unsupported extended cmd[%d]",
 				dev->name,

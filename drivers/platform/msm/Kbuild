@@ -88,6 +88,16 @@ LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
 endif
 endif
 
+ifeq ($(CONFIG_ARCH_KERA),y)
+DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_le_ipav5_5.h
+include $(srctree)/../../../dataipa/config/dataipa_GKI_le_ipav5_5.conf
+ifneq ($(CONFIG_LOCALVERSION), "-perf")
+include $(srctree)/../../../dataipa/config/dataipa_debug.conf
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
+endif
+endif
+
 ifeq ($(CONFIG_ARCH_SA410M), y)
 DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
 LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/auto_dataipa.h
