@@ -1338,9 +1338,15 @@ static void __ipa_convert_flt_rule_in(struct ipa_flt_rule rule_in,
 {
 	if (unlikely(sizeof(struct ipa_flt_rule) >
 			sizeof(struct ipa_flt_rule_i))) {
+#ifdef CONFIG_ARM64
+		IPAERR_RL("invalid size in:%lu size out:%lu\n",
+			sizeof(struct ipa_flt_rule_i),
+			sizeof(struct ipa_flt_rule));
+#else
 		IPAERR_RL("invalid size in:%u size out:%u\n",
 			sizeof(struct ipa_flt_rule_i),
 			sizeof(struct ipa_flt_rule));
+#endif
 		return;
 	}
 	memset(rule_out, 0, sizeof(struct ipa_flt_rule_i));
@@ -1352,9 +1358,15 @@ static void __ipa_convert_flt_rule_out(struct ipa_flt_rule_i rule_in,
 {
 	if (unlikely(sizeof(struct ipa_flt_rule) >
 			sizeof(struct ipa_flt_rule_i))) {
+#ifdef CONFIG_ARM64
+		IPAERR_RL("invalid size in:%lu size out:%lu\n",
+			sizeof(struct ipa_flt_rule_i),
+			sizeof(struct ipa_flt_rule));
+#else
 		IPAERR_RL("invalid size in:%u size out:%u\n",
 			sizeof(struct ipa_flt_rule_i),
 			sizeof(struct ipa_flt_rule));
+#endif
 		return;
 	}
 	memset(rule_out, 0, sizeof(struct ipa_flt_rule));
@@ -1366,9 +1378,15 @@ static void __ipa_convert_flt_mdfy_in(struct ipa_flt_rule_mdfy rule_in,
 {
 	if (unlikely(sizeof(struct ipa_flt_rule_mdfy) >
 			sizeof(struct ipa_flt_rule_mdfy_i))) {
+#ifdef CONFIG_ARM64
+		IPAERR_RL("invalid size in:%lu size out:%lu\n",
+			sizeof(struct ipa_flt_rule_mdfy),
+			sizeof(struct ipa_flt_rule_mdfy_i));
+#else
 		IPAERR_RL("invalid size in:%u size out:%u\n",
 			sizeof(struct ipa_flt_rule_mdfy),
 			sizeof(struct ipa_flt_rule_mdfy_i));
+#endif
 		return;
 	}
 	memset(rule_out, 0, sizeof(struct ipa_flt_rule_mdfy_i));
@@ -1383,9 +1401,15 @@ static void __ipa_convert_flt_mdfy_out(struct ipa_flt_rule_mdfy_i rule_in,
 {
 	if (unlikely(sizeof(struct ipa_flt_rule_mdfy) >
 			sizeof(struct ipa_flt_rule_mdfy_i))) {
+#ifdef CONFIG_ARM64
+		IPAERR_RL("invalid size in:%lu size out:%lu\n",
+			sizeof(struct ipa_flt_rule_mdfy),
+			sizeof(struct ipa_flt_rule_mdfy_i));
+#else
 		IPAERR_RL("invalid size in:%u size out:%u\n",
 			sizeof(struct ipa_flt_rule_mdfy),
 			sizeof(struct ipa_flt_rule_mdfy_i));
+#endif
 		return;
 	}
 	memset(rule_out, 0, sizeof(struct ipa_flt_rule_mdfy));

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include <linux/debugfs.h>
@@ -2168,8 +2168,13 @@ int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query)
 	}
 
 	if (query->stats_size > sizeof(struct ipa_flt_rt_stats)) {
+#ifdef CONFIG_ARM64
+		IPAERR("stats_size %d > ipa_flt_rt_stats %lu\n",
+			query->stats_size, sizeof(struct ipa_flt_rt_stats));
+#else
 		IPAERR("stats_size %d > ipa_flt_rt_stats %u\n",
 			query->stats_size, sizeof(struct ipa_flt_rt_stats));
+#endif
 		return -EINVAL;
 	}
 
