@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <net/ip.h>
@@ -14059,9 +14060,16 @@ int ipa3_is_spcl_iface(enum ipa_vlan_ifaces iface, bool *res)
 		return -ENODEV;
 	}
 
-	*res = ipa3_ctx->spcl_iface[iface] && ipa3_ctx->is_dual_wkk_config;
+	*res = ((ipa3_ctx->spcl_iface[iface] && ipa3_ctx->is_dual_wkk_config) ||
+			ipa3_ctx->ipa_config_is_pppoe);
 
-	IPADBG("Eth Iface %d ezmesh mode: %d, special iface: %d \n", iface, *res, ipa3_ctx->spcl_iface[iface]);
+	if (ipa3_ctx->ipa_config_is_pppoe) {
+		IPADBG("Eth Iface %d pppoe mode: %d, special iface: %d \n",
+				iface, *res, ipa3_ctx->spcl_iface[iface]);
+	} else {
+		IPADBG("Eth Iface %d ezmesh mode: %d, special iface: %d \n",
+				iface, *res, ipa3_ctx->spcl_iface[iface]);
+	}
 	return 0;
 }
 EXPORT_SYMBOL(ipa3_is_spcl_iface);
