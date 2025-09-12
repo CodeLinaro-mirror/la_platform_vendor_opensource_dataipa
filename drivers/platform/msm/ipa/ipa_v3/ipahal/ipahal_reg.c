@@ -6859,7 +6859,7 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 
 	[IPA_HW_v7_0][IPA_SW_AREA_RAM_DIRECT_ACCESS_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0X20000, 0x4, 0, 0, 0, 0},
+		0X21000, 0x4, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_IPSEC_AREA_RAM_DIRECT_ACCESS_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0x4, 0, 0, 0, 0},
