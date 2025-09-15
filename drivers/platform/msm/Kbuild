@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
-DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
+ifeq ($(origin DATAIPADRVTOP),undefined)
+    $(warning DATAIPADRVTOP is not set)
+else
+    $(warning DATAIPADRVTOP is set to: $(DATAIPADRVTOP))
+endif
+## LE.UM.11.3.1/build-qcom-telematics/tmp-glibc/work/sa535m-qcom-linux
 
 #MSMs - GKI
 ifeq ($(filter $(CONFIG_ARCH_LAHAINA) $(CONFIG_ARCH_HOLI), y),y)
@@ -116,17 +121,6 @@ LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
 endif
 endif
 
-
-ifeq ($(filter $(CONFIG_ARCH_SDXPINN) $(CONFIG_ARCH_SDXKOVA) $(CONFIG_ARCH_QCOM), y), y)
-DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
-LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa.h
-include $(srctree)/../../../dataipa/config/dataipa_QGKI.conf
-ifneq ($(CONFIG_LOCALVERSION), "-perf")
-include $(srctree)/../../../dataipa/config/dataipa_debug.conf
-LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
-endif
-endif
-
 ifeq ($(CONFIG_ARCH_SDXBAAGHA), y)
 DATAIPADRVTOP = $(MODULE_OUT)/drivers/platform/msm
 LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa_hw5_0.h
@@ -137,15 +131,29 @@ LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa_debug.h
 endif
 endif
 
-ifeq ($(CONFIG_ARCH_SA525), y)
-DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
-LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa.h
-include $(srctree)/../../../dataipa/config/dataipa_QGKI.conf
-ifneq ($(CONFIG_LOCALVERSION), "-perf")
-include $(srctree)/../../../dataipa/config/dataipa_debug.conf
-LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
+#Amboseli/SA535
+ifeq ($(filter $(CONFIG_ARCH_SDXPINN) $(CONFIG_ARCH_SDXKOVA) $(CONFIG_ARCH_QCOM), y), y)
+ifeq ($(origin DATAIPADRVTOP),undefined)
+	$(warning DATAIPADRVTOP is not set)
+	DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
+	LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa.h
+	include $(srctree)/../../../dataipa/config/dataipa_QGKI.conf
+	ifneq ($(CONFIG_LOCALVERSION), "-perf")
+		include $(srctree)/../../../dataipa/config/dataipa_debug.conf
+		LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
+	endif
+else
+    $(warning DATAIPADRVTOP is set to: $(DATAIPADRVTOP))
+	LINUXINCLUDE    += -include $(DATAIPADRVTOP)/../../../config/dataipa.h
+	include $(DATAIPADRVTOP)/../../../config/dataipa_QGKI.conf
+	ifneq ($(CONFIG_LOCALVERSION), "-perf")
+		include $(DATAIPADRVTOP)/../../../config/dataipa_debug.conf
+		LINUXINCLUDE    += -include $(DATAIPADRVTOP)/../../../config/dataipa_debug.h
+	endif
 endif
 endif
+
+
 
 ifneq (,$(filter $(CONFIG_IPA3) $(CONFIG_GSI),y m))
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/include
