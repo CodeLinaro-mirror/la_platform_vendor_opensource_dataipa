@@ -6956,7 +6956,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0_MHI][IPA_CLIENT_QDSS_PROD] = {
 			true,   IPA_v6_0_GROUP_QDSS,
 			false,
-			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
 			QMB_MASTER_SELECT_DDR,
 			{ 8 , 17, 4 , 8, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_NA },
@@ -7631,7 +7631,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0_AUTO_MHI][IPA_CLIENT_QDSS_PROD] = {
 			true,   IPA_v6_0_GROUP_QDSS,
 			false,
-			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
 			QMB_MASTER_SELECT_DDR,
 			{ 16 , 23, 4 , 8, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_NA },
