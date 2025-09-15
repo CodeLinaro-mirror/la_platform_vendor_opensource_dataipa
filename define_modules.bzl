@@ -12,8 +12,8 @@ def define_modules(target, variant):
     mod_list = []
 
     kernel_build = select({
-        "//build/kernel/kleaf:socrepo_true": "//soc-repo:{}_base_kernel".format(kernel_build_variant),
-        "//build/kernel/kleaf:socrepo_false": "//msm-kernel:{}".format(kernel_build_variant),
+        "//build/qcom_build_extensions:qtisocrepo_true": "//soc-repo:{}_base_kernel".format(kernel_build_variant),
+        "//build/qcom_build_extensions:qtisocrepo_false": "//msm-kernel:{}".format(kernel_build_variant),
     })
 
     gsim_deps = [
@@ -22,12 +22,12 @@ def define_modules(target, variant):
     ]
 
     gsim_deps += select({
-        "//build/kernel/kleaf:socrepo_true": [
+        "//build/qcom_build_extensions:qtisocrepo_true": [
             "//soc-repo:all_headers",
             "//soc-repo:{}/kernel/trace/qcom_ipc_logging".format(kernel_build_variant),
             "//soc-repo:{}/drivers/soc/qcom/qcom_va_minidump".format(kernel_build_variant),
         ],
-        "//build/kernel/kleaf:socrepo_false": ["//msm-kernel:all_headers"],
+        "//build/qcom_build_extensions:qtisocrepo_false": ["//msm-kernel:all_headers"],
     })
 
     ipam_deps = [
@@ -41,7 +41,7 @@ def define_modules(target, variant):
     ]
 
     ipam_deps += select({
-        "//build/kernel/kleaf:socrepo_true": [
+        "//build/qcom_build_extensions:qtisocrepo_true": [
             "//soc-repo:all_headers",
             "//soc-repo:{}/drivers/soc/qcom/mdt_loader".format(kernel_build_variant),
             "//soc-repo:{}/kernel/trace/qcom_ipc_logging".format(kernel_build_variant),
@@ -54,7 +54,7 @@ def define_modules(target, variant):
             "//soc-repo:{}/drivers/usb/gadget/function/usb_f_gsi".format(kernel_build_variant),
             "//soc-repo:{}/drivers/soc/qcom/qcom_va_minidump".format(kernel_build_variant),
         ],
-        "//build/kernel/kleaf:socrepo_false": [
+        "//build/qcom_build_extensions:qtisocrepo_false": [
             "//msm-kernel:all_headers",
         ],
     })
@@ -69,12 +69,12 @@ def define_modules(target, variant):
     ]
 
     ipanetm_deps += select({
-        "//build/kernel/kleaf:socrepo_true": [
+        "//build/qcom_build_extensions:qtisocrepo_true": [
             "//soc-repo:all_headers",
             "//soc-repo:{}/drivers/soc/qcom/mdt_loader".format(kernel_build_variant),
             "//soc-repo:{}/kernel/trace/qcom_ipc_logging".format(kernel_build_variant),
         ],
-        "//build/kernel/kleaf:socrepo_false": [
+        "//build/qcom_build_extensions:qtisocrepo_false": [
             "//msm-kernel:all_headers",
         ],
     })
@@ -90,10 +90,10 @@ def define_modules(target, variant):
             ":{}_gsim".format(kernel_build_variant),
         ]
         ipatestm_deps += select({
-            "//build/kernel/kleaf:socrepo_true": [
+            "//build/qcom_build_extensions:qtisocrepo_true": [
                 "//soc-repo:all_headers",
             ],
-            "//build/kernel/kleaf:socrepo_false": [
+            "//build/qcom_build_extensions:qtisocrepo_false": [
                 "//msm-kernel:all_headers",
             ],
         })
