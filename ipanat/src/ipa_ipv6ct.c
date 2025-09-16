@@ -748,6 +748,10 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 
 	IPADBG("Passed Table handle: 0x%x\n", table_handle);
 
+	ct_cache_ptr = &ipv6_ct_cache[nmi];
+
+	ct_table = &ct_cache_ptr->ip6_tbl[table_handle - 1];
+
     if (ct_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
         ipa_ipv6ct_rule_v2 clnt_rule_v2;
 
@@ -787,10 +791,6 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 		return -EINVAL;
 	}
 	IPADBG("Passed Table handle: 0x%x\n", table_handle);
-
-	ct_cache_ptr = &ipv6_ct_cache[nmi];
-
-	ct_table = &ct_cache_ptr->ip6_tbl[table_handle - 1];
 
 	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
 	{
