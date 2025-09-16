@@ -450,6 +450,7 @@ enum ipa_ver {
 	IPA_6_0_AUTO_MHI = 28,
 	IPA_7_0 = 29,
 	IPA_7_0_MHI = 30,
+	IPA_7_0_AUTO = 31,
 	IPA_VER_MAX,
 };
 
@@ -844,6 +845,18 @@ static const struct rsrc_min_max ipa3_rsrc_src_grp_config
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
 		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {6, 6}, {4, 4}, {0, 0},  },
 	},
+
+	[IPA_7_0_AUTO] = {
+		/* UL DL URLLC Ethernet Crypto QDSS/Diag unused */
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
+		{8, 40}, {8, 40}, {2, 20}, {8, 40}, {1, 1}, {1, 1}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {3, 3}, {4, 4}, {0, 0},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
+		{0, 63}, {0, 63}, {1, 63}, {0, 63}, {0, 63}, {0, 63}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {4, 4}, {4, 4}, {0, 0},  },
+	},
 };
 
 static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
@@ -1086,6 +1099,23 @@ static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
 		{0, 0}, {0, 0} },
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
 		{0, 0x3f}, {0, 0x3f}, {0, 0}, {0, 0x3f}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0}, {0, 0}},
+	},
+
+	[IPA_7_0_AUTO] = {
+		/**
+		 * [0: UL, 1: DL, 2: URLLC, 3: ETH, 4: IPA_DMA, 5: QDSS/DIAG, 6:
+		 * IPSEC, 7: MODEM_DL, 8: LOW_LATENCY, 9: ETH+IPSEC, 10:
+		 * CRYPTO_OFFLOAD, 11: UC_WORKAROUNDS]
+		 */
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
+		{7, 7}, {7, 7}, {3, 3}, {7, 7}, {0, 0}, {3, 3}, {0, 0}, {16, 80}, {4, 40},
+		{16, 80}, {3, 3}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
+		{1, 63}, {0, 3}, {1, 63}, {0, 63}, {0, 0}, {1, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
+		{0, 63}, {0, 63}, {0, 0}, {0, 63}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
 		{0, 0}, {0, 0}, {0, 0}},
 	},
 };
@@ -8513,6 +8543,103 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 58, 58, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_DL },
+
+	/* IPA_7_0_AUTO */
+
+	[IPA_7_0_AUTO][IPA_CLIENT_USB_PROD] = {
+			true,   IPA_v7_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_NO_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 0 , 13 , 8, 22, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_APPS_WAN_PROD] = {
+			true,   IPA_v7_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_2ND_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 2 , 11, 25, 39, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_PROD] ={
+			true,   IPA_v7_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 10, 20, 24, 58, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_APPS_LAN_PROD]  = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_PKT_PROCESS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 20, 23, 25, 39, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_APPS_CMD_PROD]  = {
+			true, IPA_v7_0_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			QMB_MASTER_SELECT_DDR,
+			{ 30, 12, 20, 28, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 7},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_APPS_LAN_CONS]  = {
+			true, IPA_v7_0_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 33, 34, 17, 17, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_APPS_WAN_CONS]  = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 40, 1, 17, 17, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_USB_CONS]  = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 43, 37, 17, 17, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_CONS]  = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 52, 46, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_NA },
+
+	/* Q6 pipes */
+
+	[IPA_7_0_AUTO][IPA_CLIENT_Q6_WAN_PROD]  = {
+			true, IPA_v7_0_GROUP_DL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP,
+			QMB_MASTER_SELECT_DDR,
+			{ 28, 0, 16, 30, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 7 },
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_Q6_CMD_PROD]  = {
+			true, IPA_v7_0_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_DRBIP,
+			QMB_MASTER_SELECT_DDR,
+			{29, 1, 20, 28, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 7 },
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_Q6_LAN_CONS]   = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 34, 3, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
+			IPA_TX_INSTANCE_DL },
+	[IPA_7_0_AUTO][IPA_CLIENT_Q6_WAN_CONS] = {
+			true, IPA_v7_0_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 38, 7, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
+			IPA_TX_INSTANCE_UL },
 };
 
 static struct ipa3_mem_partition ipa_3_0_mem_part = {
@@ -10701,6 +10828,8 @@ u8 ipa3_get_hw_type_index(void)
                 break;
 	case IPA_HW_v7_0:
 		hw_type_index = IPA_7_0;
+		if (ipa3_ctx->ipa_config_is_auto)
+			hw_type_index = IPA_7_0_AUTO;
 		break;
 	default:
 		IPAERR("Incorrect IPA version %d\n", ipa3_ctx->ipa_hw_type);
@@ -15599,44 +15728,50 @@ void ipa3_set_resorce_groups_min_max_limits_v7_0(void)
 {
 	int i = 0;
 	struct ipahal_reg_rsrc_grp_xy_cfg val = {0};
+	u8 hw_type_index;
+
+	if (ipa3_ctx->ipa_config_is_auto)
+		hw_type_index = IPA_7_0_AUTO;
+	else
+		hw_type_index = IPA_7_0;
 
 	while (i < IPA_v7_0_SRC_GROUP_MAX) {
-		val.x_min = ipa3_rsrc_src_grp_config[IPA_7_0]
+		val.x_min = ipa3_rsrc_src_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS][i].min;
-		val.x_max = ipa3_rsrc_src_grp_config[IPA_7_0]
+		val.x_max = ipa3_rsrc_src_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS][i].max;
 		ipahal_write_reg_n_fields(IPA_SRC_RSRC_TYPE_01_CTX_N_DESC_LIST_GRP_n, i, &val);
-		val.x_min = ipa3_rsrc_src_grp_config[IPA_7_0]
+		val.x_min = ipa3_rsrc_src_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF][i].min;
-		val.x_max = ipa3_rsrc_src_grp_config[IPA_7_0]
+		val.x_max = ipa3_rsrc_src_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF][i].max;
-		val.y_min = ipa3_rsrc_src_grp_config[IPA_7_0]
+		val.y_min = ipa3_rsrc_src_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS][i].min;
-		val.y_max = ipa3_rsrc_src_grp_config[IPA_7_0]
+		val.y_max = ipa3_rsrc_src_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS][i].max;
 		ipahal_write_reg_n_fields(IPA_SRC_RSRC_TYPE_23_DESC_BUFFER_N_HPS_DMAR_GRP_n, i,
 			&val);
-		val.x_min = ipa3_rsrc_src_grp_config[IPA_7_0]
+		val.x_min = ipa3_rsrc_src_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES][i].min;
-		val.x_max = ipa3_rsrc_src_grp_config[IPA_7_0]
+		val.x_max = ipa3_rsrc_src_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES][i].max;
 		ipahal_write_reg_n_fields(IPA_SRC_RSRC_TYPE_4_ACK_ENTRY_GRP_n, i, &val);
 		++i;
 	}
 	i = 0;
 	while (i < IPA_v7_0_DST_GROUP_MAX) {
-		val.x_min = ipa3_rsrc_dst_grp_config[IPA_7_0]
+		val.x_min = ipa3_rsrc_dst_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_DST_DATA_SECTORS][i].min;
-		val.x_max = ipa3_rsrc_dst_grp_config[IPA_7_0]
+		val.x_max = ipa3_rsrc_dst_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_DST_DATA_SECTORS][i].max;
-		val.y_min = ipa3_rsrc_dst_grp_config[IPA_7_0]
+		val.y_min = ipa3_rsrc_dst_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS][i].min;
-		val.y_max = ipa3_rsrc_dst_grp_config[IPA_7_0]
+		val.y_max = ipa3_rsrc_dst_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS][i].max;
 		ipahal_write_reg_n_fields(IPA_DST_RSRC_TYPE_01_DATA_SCTR_N_DPS_DMAR_GRP_n, i, &val);
-		val.x_min = ipa3_rsrc_dst_grp_config[IPA_7_0]
+		val.x_min = ipa3_rsrc_dst_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS][i].min;
-		val.x_max = ipa3_rsrc_dst_grp_config[IPA_7_0]
+		val.x_max = ipa3_rsrc_dst_grp_config[hw_type_index]
 			[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS][i].max;
 		ipahal_write_reg_n_fields(IPA_DST_RSRC_TYPE_2_SEG_CTX_GRP_n, i, &val);
 		++i;
