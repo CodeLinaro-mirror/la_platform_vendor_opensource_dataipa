@@ -1829,10 +1829,14 @@ int ipa_init_flt_rt_stats(void)
 {
 	struct ipahal_stats_init_pyld *pyld;
 	int smem_ofst, smem_size;
+	int smem_flt_v4_ofst = 0, smem_flt_v6_ofst = 0;
+	int smem_rt_v4_ofst = 0, smem_rt_v6_ofst = 0;
 	int stats_base_flt_v4, stats_base_flt_v6;
 	int stats_base_rt_v4, stats_base_rt_v6;
 	struct ipahal_imm_cmd_dma_shared_mem cmd = { 0 };
 	struct ipahal_imm_cmd_pyld *cmd_pyld;
+	struct ipahal_imm_cmd_dma_shared_mem rt_cmd = { 0 };
+	struct ipahal_imm_cmd_pyld *rt_cmd_pyld;
 	struct ipahal_imm_cmd_register_write flt_v4_base = {0};
 	struct ipahal_imm_cmd_pyld *flt_v4_base_pyld;
 	struct ipahal_imm_cmd_register_write flt_v6_base = {0};
@@ -1842,7 +1846,7 @@ int ipa_init_flt_rt_stats(void)
 	struct ipahal_imm_cmd_register_write rt_v6_base = {0};
 	struct ipahal_imm_cmd_pyld *rt_v6_base_pyld;
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
-	struct ipa3_desc desc[6] = { {0} };
+	struct ipa3_desc desc[7] = { {0} };
 	dma_addr_t dma_address;
 	int ret;
 	int num_cmd = 0;
@@ -1852,6 +1856,14 @@ int ipa_init_flt_rt_stats(void)
 
 	smem_ofst = IPA_MEM_PART(stats_fnr_ofst);
 	smem_size = IPA_MEM_PART(stats_fnr_size);
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 && !ipa3_ctx->ipa_config_is_auto) {
+		smem_flt_v4_ofst = IPA_MEM_PART(stats_flt_v4_ofst);
+		smem_flt_v6_ofst = IPA_MEM_PART(stats_flt_v6_ofst);
+
+		smem_rt_v4_ofst = IPA_MEM_PART(stats_rt_v4_ofst);
+		smem_rt_v6_ofst = IPA_MEM_PART(stats_rt_v6_ofst);
+	}
 
 	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_FNR,
 		(void *)(uintptr_t)(IPA_MAX_FLT_RT_CNT_INDEX), false);
@@ -1901,7 +1913,7 @@ int ipa_init_flt_rt_stats(void)
 	flt_v4_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
 	flt_v4_base.offset = stats_base_flt_v4;
 	flt_v4_base.value = ipa3_ctx->smem_restricted_bytes +
-		smem_ofst;
+		smem_ofst + (smem_flt_v4_ofst ? smem_flt_v4_ofst: 0);
 	flt_v4_base.value_mask = ~0;
 	flt_v4_base_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
 		&flt_v4_base, false);
@@ -1921,7 +1933,7 @@ int ipa_init_flt_rt_stats(void)
 	flt_v6_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
 	flt_v6_base.offset = stats_base_flt_v6;
 	flt_v6_base.value = ipa3_ctx->smem_restricted_bytes +
-		smem_ofst;
+		smem_ofst + (smem_flt_v6_ofst ? smem_flt_v6_ofst: 0);
 	flt_v6_base.value_mask = ~0;
 	flt_v6_base_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
 		&flt_v6_base, false);
@@ -1941,7 +1953,7 @@ int ipa_init_flt_rt_stats(void)
 	rt_v4_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
 	rt_v4_base.offset = stats_base_rt_v4;
 	rt_v4_base.value = ipa3_ctx->smem_restricted_bytes +
-		smem_ofst;
+		smem_ofst + (smem_rt_v4_ofst ? smem_rt_v4_ofst: 0);
 	rt_v4_base.value_mask = ~0;
 	rt_v4_base_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
 		&rt_v4_base, false);
@@ -1961,7 +1973,7 @@ int ipa_init_flt_rt_stats(void)
 	rt_v6_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
 	rt_v6_base.offset = stats_base_rt_v6;
 	rt_v6_base.value = ipa3_ctx->smem_restricted_bytes +
-		smem_ofst;
+		smem_ofst + (smem_rt_v6_ofst ? smem_rt_v6_ofst: 0);
 	rt_v6_base.value_mask = ~0;
 	rt_v6_base_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
 		&rt_v6_base, false);
@@ -1982,7 +1994,7 @@ int ipa_init_flt_rt_stats(void)
 	cmd.size = pyld->len;
 	cmd.system_addr = dma_address;
 	cmd.local_addr = ipa3_ctx->smem_restricted_bytes +
-			smem_ofst;
+			smem_ofst + (smem_flt_v4_ofst ? smem_flt_v4_ofst: 0);
 	cmd_pyld = ipahal_construct_imm_cmd(
 		IPA_IMM_CMD_DMA_SHARED_MEM, &cmd, false);
 	if (!cmd_pyld) {
@@ -1996,14 +2008,36 @@ int ipa_init_flt_rt_stats(void)
 	desc[num_cmd].type = IPA_IMM_CMD_DESC;
 	++num_cmd;
 
+	rt_cmd.is_read = false;
+	rt_cmd.skip_pipeline_clear = false;
+	rt_cmd.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
+	rt_cmd.size = pyld->len;
+	rt_cmd.system_addr = dma_address;
+	rt_cmd.local_addr = ipa3_ctx->smem_restricted_bytes +
+			smem_ofst + (smem_rt_v4_ofst ? smem_rt_v4_ofst: 0);
+	rt_cmd_pyld = ipahal_construct_imm_cmd(
+		IPA_IMM_CMD_DMA_SHARED_MEM, &rt_cmd, false);
+	if (!rt_cmd_pyld) {
+		IPAERR("failed to construct dma_shared_mem imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = rt_cmd_pyld->opcode;
+	desc[num_cmd].pyld = rt_cmd_pyld->data;
+	desc[num_cmd].len = rt_cmd_pyld->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	++num_cmd;
+
 	ret = ipa3_send_cmd(num_cmd, desc);
 	if (ret) {
 		IPAERR("failed to send immediate command (error %d)\n", ret);
-		goto destroy_imm;
+		goto destroy_rt_imm;
 	}
 
 	ret = 0;
 
+destroy_rt_imm:
+	ipahal_destroy_imm_cmd(rt_cmd_pyld);
 destroy_imm:
 	ipahal_destroy_imm_cmd(cmd_pyld);
 destroy_rt_v6_base:
@@ -2131,6 +2165,165 @@ free_offset:
 	return ret;
 }
 
+static int __ipa_get_flt_rt_stats_v2(struct ipa_ioc_flt_rt_query *query, bool query_flt, bool query_rt)
+{
+	int ret;
+	int smem_ofst;
+	bool clear = query->reset;
+	struct ipahal_stats_get_offset_flt_rt_v4_5 *get_offset;
+	struct ipahal_stats_offset offset = { 0 };
+	struct ipahal_imm_cmd_dma_shared_mem cmd = { 0 };
+	struct ipahal_imm_cmd_pyld *cmd_pyld[2];
+	struct ipa_mem_buffer mem;
+	struct ipa3_desc desc[2];
+	int num_cmd = 0;
+	int smem_flt_v4_ofst, smem_flt_v6_ofst;
+	int smem_rt_v4_ofst, smem_rt_v6_ofst;
+	int i;
+
+	memset(desc, 0, sizeof(desc));
+	memset(cmd_pyld, 0, sizeof(cmd_pyld));
+
+	get_offset = kzalloc(sizeof(*get_offset), GFP_KERNEL);
+	if (!get_offset) {
+		IPADBG("no mem\n");
+		return -ENOMEM;
+	}
+
+	smem_ofst = IPA_MEM_PART(stats_fnr_ofst);
+
+	smem_flt_v4_ofst = IPA_MEM_PART(stats_flt_v4_ofst);
+	smem_flt_v6_ofst = IPA_MEM_PART(stats_flt_v6_ofst);
+
+	smem_rt_v4_ofst = IPA_MEM_PART(stats_rt_v4_ofst);
+	smem_rt_v6_ofst = IPA_MEM_PART(stats_rt_v6_ofst);
+
+	get_offset->start_id = query->start_id;
+	get_offset->end_id = query->end_id;
+
+	ret = ipahal_stats_get_offset(IPAHAL_HW_STATS_FNR, get_offset,
+		&offset);
+	if (ret) {
+		IPAERR("failed to get offset from hal %d\n", ret);
+		goto free_offset;
+	}
+
+	IPADBG("offset = %d size = %d\n", offset.offset, offset.size);
+
+	if (offset.size == 0) {
+		ret = 0;
+		goto free_offset;
+	}
+
+	mem.size = offset.size;
+	mem.base = dma_alloc_coherent(ipa3_ctx->pdev,
+		mem.size,
+		&mem.phys_base,
+		GFP_KERNEL);
+	if (!mem.base) {
+		IPAERR("fail to alloc DMA memory\n");
+		goto free_offset;
+	}
+
+	/* IC to close the coal frame before HPS Clear if coal is enabled */
+	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
+		ipa_close_coal_frame(&cmd_pyld[num_cmd]);
+		if (!cmd_pyld[num_cmd]) {
+			IPAERR("failed to construct coal close IC\n");
+			ret = -ENOMEM;
+			goto free_dma_mem;
+		}
+		ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
+		++num_cmd;
+	}
+
+	cmd.is_read = true;
+	cmd.clear_after_read = clear;
+	cmd.skip_pipeline_clear = false;
+	cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
+	cmd.size = mem.size;
+	cmd.system_addr = mem.phys_base;
+	cmd.local_addr = ipa3_ctx->smem_restricted_bytes +
+		smem_ofst + offset.offset + (query_flt ? smem_flt_v4_ofst: smem_rt_v4_ofst);
+	cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(
+		IPA_IMM_CMD_DMA_SHARED_MEM, &cmd, false);
+	if (!cmd_pyld[num_cmd]) {
+		IPAERR("failed to construct dma_shared_mem imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
+	++num_cmd;
+
+	ret = ipa3_send_cmd(num_cmd, desc);
+	if (ret) {
+		IPAERR("failed to send immediate command (error %d)\n", ret);
+		goto destroy_imm;
+	}
+
+	ret = ipahal_parse_stats(IPAHAL_HW_STATS_FNR,
+		NULL, mem.base, query);
+	if (ret) {
+		IPAERR("failed to parse stats (error %d)\n", ret);
+		goto destroy_imm;
+	}
+	ret = 0;
+
+destroy_imm:
+	for (i = 0; i < num_cmd; i++)
+		ipahal_destroy_imm_cmd(cmd_pyld[i]);
+free_dma_mem:
+	dma_free_coherent(ipa3_ctx->pdev, mem.size, mem.base, mem.phys_base);
+free_offset:
+	kfree(get_offset);
+	return ret;
+}
+int ipa_get_flt_rt_stats_v2(struct ipa_ioc_flt_rt_query *query, bool query_flt, bool query_rt)
+{
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled)) {
+		IPAERR("hw_stats is not enabled\n");
+		return 0;
+	}
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_5) {
+		IPAERR("FnR stats not supported in %d hw_type\n",
+			ipa3_ctx->ipa_hw_type);
+		return 0;
+	}
+
+	if (query->start_id == 0 || query->end_id == 0) {
+		IPAERR("Invalid start_id/end_id, must be not 0\n");
+		IPAERR("start_id %d, end_id %d\n",
+			query->start_id, query->end_id);
+		return -EINVAL;
+	}
+
+	if (query->start_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+		IPAERR("start_cnt_id %d out of range\n", query->start_id);
+		return -EINVAL;
+	}
+
+	if (query->end_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+		IPAERR("end_cnt_id %d out of range\n", query->end_id);
+		return -EINVAL;
+	}
+
+	if (query->end_id < query->start_id) {
+		IPAERR("end_id %d < start_id %d\n",
+			query->end_id, query->start_id);
+		return -EINVAL;
+	}
+
+	if (query->stats_size > sizeof(struct ipa_flt_rt_stats)) {
+		IPAERR("stats_size %d > ipa_flt_rt_stats %d\n",
+			query->stats_size, sizeof(struct ipa_flt_rt_stats));
+		return -EINVAL;
+	}
+
+	return __ipa_get_flt_rt_stats_v2(query, query_flt, query_rt);
+}
+
 int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query)
 {
 	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled)) {
@@ -2175,7 +2368,6 @@ int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query)
 
 	return __ipa_get_flt_rt_stats(query);
 }
-
 
 static int __ipa_set_flt_rt_stats(int index, struct ipa_flt_rt_stats stats)
 {
