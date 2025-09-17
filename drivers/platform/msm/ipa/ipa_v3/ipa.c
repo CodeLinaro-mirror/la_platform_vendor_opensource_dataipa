@@ -10980,8 +10980,10 @@ sched_fw_load:
 	IPADBG("Scheduled a work to load IPA FW\n");
 	mutex_unlock(&ipa3_ctx->fw_load_data.lock);
 	if (ipa3_ctx->use_xbl_boot) {
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 		queue_work(ipa3_ctx->transport_power_mgmt_wq,
 				&ipa3_xbl_init_work);
+#endif
 	} else {
 		queue_work(ipa3_ctx->transport_power_mgmt_wq,
 				&ipa3_fw_loading_work);
@@ -15607,8 +15609,10 @@ static void ipa3_deepsleep_resume(void)
 	ipa3_ctx->deepsleep = false;
 	/*Scheduling WQ to load IPA FW*/
 	if (ipa3_ctx->use_xbl_boot) {
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 		queue_work(ipa3_ctx->transport_power_mgmt_wq,
 				&ipa3_xbl_init_work);
+#endif
 	} else {
 		queue_work(ipa3_ctx->transport_power_mgmt_wq,
 				&ipa3_fw_loading_work);
