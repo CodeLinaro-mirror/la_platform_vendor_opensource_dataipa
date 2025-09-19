@@ -22,7 +22,11 @@ def define_modules(target, variant):
     ]
 
     gsim_deps += select({
-        "//build/kernel/kleaf:socrepo_true": ["//soc-repo:all_headers"],
+        "//build/kernel/kleaf:socrepo_true": [
+            "//soc-repo:all_headers",
+            "//soc-repo:{}/kernel/trace/qcom_ipc_logging".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/soc/qcom/qcom_va_minidump".format(kernel_build_variant),
+        ],
         "//build/kernel/kleaf:socrepo_false": ["//msm-kernel:all_headers"],
     })
 
@@ -48,17 +52,11 @@ def define_modules(target, variant):
             "//soc-repo:{}/drivers/soc/qcom/qmi_helpers".format(kernel_build_variant),
             "//soc-repo:{}/drivers/remoteproc/rproc_qcom_common".format(kernel_build_variant),
             "//soc-repo:{}/drivers/usb/gadget/function/usb_f_gsi".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/soc/qcom/qcom_va_minidump".format(kernel_build_variant),
         ],
         "//build/kernel/kleaf:socrepo_false": [
             "//msm-kernel:all_headers",
         ],
-    })
-
-    ipam_deps += select({
-        "//build/kernel/kleaf:socrepo_true": [
-            "//soc-repo:{}/drivers/soc/qcom/qcom_va_minidump".format(kernel_build_variant),
-        ],
-        "//build/kernel/kleaf:socrepo_false": [],
     })
 
     ipanetm_deps = [
