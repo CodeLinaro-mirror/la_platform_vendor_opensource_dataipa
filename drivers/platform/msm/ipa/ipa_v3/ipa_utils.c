@@ -8619,6 +8619,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 28, 0, 16, 30, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 7 },
 			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_Q6_DL_NLO_DATA_PROD]  = {
+                        true, IPA_v7_0_GROUP_DL,
+                        true,
+                        IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
+                        QMB_MASTER_SELECT_DDR,
+                        { 31, 2, 32, 51, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 15 },
+                        IPA_TX_INSTANCE_NA },
 	[IPA_7_0_AUTO][IPA_CLIENT_Q6_CMD_PROD]  = {
 			true, IPA_v7_0_GROUP_UL,
 			false,
