@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/module.h>
@@ -52,6 +52,10 @@ static bool nat_move_qmi_disabled;
 static bool cache_max_flag = false;
 static bool cache_filter_max_flag = false;
 struct mutex ipa3_qmi_lock;
+static void ipa3_qmi_service_init_worker(struct work_struct *work);
+static DECLARE_WORK(ipa3_qmi_service_init_work,
+	ipa3_qmi_service_init_worker);
+
 struct ipa_msg_desc {
 	uint16_t msg_id;
 	int max_msg_len;
@@ -2220,10 +2224,10 @@ int ipa3_qmi_service_init(uint32_t wan_platform_type)
 	send_qmi_init_q6 = true;
 	workqueues_stopped = false;
 
+	IPAWANDBG("scheduling the ipa3_qmi_service_init_worker\n");
 	if (!ipa3_svc_handle) {
-		INIT_WORK(&ipa3_qmi_service_init_work,
-			ipa3_qmi_service_init_worker);
-		schedule_work(&ipa3_qmi_service_init_work);
+		if (!schedule_work(&ipa3_qmi_service_init_work))
+		    IPAWANERR("ipa3_qmi_service_init_worker already in pending\n");
 	}
 	return 0;
 }
@@ -2288,7 +2292,7 @@ void ipa3_qmi_service_exit(void)
 	ipa3_qmi_indication_fin = false;
 	ipa3_modem_init_cmplt = false;
 	send_qmi_init_q6 = true;
-	IPADBG("Exit\n");
+	IPAWANDBG("in ipa3_qmi_service_exit completed\n");
 }
 
 void ipa3_qmi_stop_workqueues(void)
