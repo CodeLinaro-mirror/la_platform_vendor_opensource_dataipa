@@ -37,8 +37,8 @@
 
 #define IPA_NAT_IPV6CT_TEMP_MEM_SIZE 128
 
-#define IPA_NAT_MAX_NUM_OF_INIT_CMD_DESC 5
-#define IPA_IPV6CT_MAX_NUM_OF_INIT_CMD_DESC 4
+#define IPA_NAT_MAX_NUM_OF_INIT_CMD_DESC 4
+#define IPA_IPV6CT_MAX_NUM_OF_INIT_CMD_DESC 3
 #define IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC 5
 #define IPA_MAX_NUM_OF_TABLE_WRITE_CMD_DESC IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC
 
@@ -1408,7 +1408,6 @@ static int ipa3_nat_send_init_cmd(struct ipahal_imm_cmd_ip_v4_nat_init *cmd,
 	int i, num_cmd = 0, result;
 	struct ipahal_reg_valmask valmask;
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
-	uint32_t cache_flush_done = 0;
 
 	IPADBG("\n");
 
@@ -1497,52 +1496,11 @@ static int ipa3_nat_send_init_cmd(struct ipahal_imm_cmd_ip_v4_nat_init *cmd,
 		IPADBG("added PDN table copy cmd\n");
 	}
 
-	/* Register Write IC to flush NAT cache */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-		struct ipahal_imm_cmd_register_write reg_write_cmd = {0};
-
-		reg_write_cmd.offset = ipahal_get_reg_ofst(
-				IPA_NAT_AND_CONNECTION_TRACKING_CACHE_FLUSH);
-		reg_write_cmd.skip_pipeline_clear = false;
-		reg_write_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
-		reg_write_cmd.value = 0x1;
-		reg_write_cmd.value_mask = 0x1;
-		
-		cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(
-				IPA_IMM_CMD_REGISTER_WRITE, &reg_write_cmd, false);
-		if (!cmd_pyld[num_cmd]) {
-			IPAERR(
-			"fail construct register_write imm cmd\n");
-			result = -ENOMEM;
-			goto destroy_imm_cmd;
-		}
-		ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
-		++num_cmd;
-		IPADBG("Added Register Write IC to flush NAT cache\n");
-	}
-
 	result = ipa3_send_cmd(num_cmd, desc);
 	if (result) {
 		IPAERR("fail to send NAT init immediate command\n");
 		result = -ENOMEM;
 		goto destroy_imm_cmd;
-	}
-
-	/* Poll IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS, bit 0 */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && cmd->table_init.size_base_table > 0) {
-		uint8_t count = 0;
-		do {
-			usleep_range(50, 100);
-			cache_flush_done = ipahal_read_reg(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS);
-			IPADBG("Cache flush yet to be completed, cache_flush_done: %d, count: %d\n", cache_flush_done, count);
-			count++;
-		} while ((count < 20) && (IPA_NAT_CACHE_FLUSH_DONE(cache_flush_done) == false));
-
-		if (count > 20) {
-			IPAERR("Fail to read IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS \n");
-			result = -ENOMEM;
-			goto destroy_imm_cmd;
-		}
 	}
 
 	IPADBG("return\n");
@@ -1562,7 +1520,6 @@ static int ipa3_ipv6ct_send_init_cmd(struct ipahal_imm_cmd_ip_v6_ct_init *cmd)
 	int i, num_cmd = 0, result;
 	struct ipahal_reg_valmask valmask;
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
-	uint32_t cache_flush_done = 0;
 
 	IPADBG("\n");
 
@@ -1627,51 +1584,10 @@ static int ipa3_ipv6ct_send_init_cmd(struct ipahal_imm_cmd_ip_v6_ct_init *cmd)
 	ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
 	++num_cmd;
 
-	/* Register Write IC to flush NAT cache */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-		struct ipahal_imm_cmd_register_write reg_write_cmd = {0};
-
-		reg_write_cmd.offset = ipahal_get_reg_ofst(
-				IPA_NAT_AND_CONNECTION_TRACKING_CACHE_FLUSH);
-		reg_write_cmd.skip_pipeline_clear = false;
-		reg_write_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
-		reg_write_cmd.value = 0x1;
-		reg_write_cmd.value_mask = 0x1;
-		
-		cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(
-				IPA_IMM_CMD_REGISTER_WRITE, &reg_write_cmd, false);
-		if (!cmd_pyld[num_cmd]) {
-			IPAERR(
-			"fail construct register_write imm cmd\n");
-			result = -ENOMEM;
-			goto destroy_imm_cmd;
-		}
-		ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
-		++num_cmd;
-		IPADBG("Added Register Write IC to flush NAT cache\n");
-	}
-
 	result = ipa3_send_cmd(num_cmd, desc);
 	if (result) {
 		IPAERR("Fail to send IPv6CT init immediate command\n");
 		goto destroy_imm_cmd;
-	}
-
-	/* Poll IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS, bit 0 */
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && cmd->table_init.size_base_table > 0) {
-		uint8_t count = 0;
-		do {
-			usleep_range(50, 100);
-			cache_flush_done = ipahal_read_reg(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS);
-			IPADBG("Cache flush yet to be completed,cache_flush_done: %d, count: %d\n", cache_flush_done, count);
-			count++;
-		} while ((count < 20) && (IPA_NAT_CACHE_FLUSH_DONE(cache_flush_done) == false));
-
-		if (count > 20) {
-			IPAERR("Fail to read IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS \n");
-			result = -ENOMEM;
-			goto destroy_imm_cmd;
-		}
 	}
 
 	IPADBG("return\n");
