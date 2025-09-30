@@ -12033,6 +12033,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	memset(&ipa3_ctx->prev_low_lat_data_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
 
 	memset(&ipa3_ctx->get_qos_config, 0, sizeof(struct ipa_ioc_get_qos_config));
+	mutex_init(&ipa3_ctx->msg_qos_param_lock);
+	INIT_LIST_HEAD(&ipa3_ctx->msg_qos_param_list);
 
 	/* Create workqueue for recycle stats collection */
 	ipa3_ctx->collect_recycle_stats_wq =
