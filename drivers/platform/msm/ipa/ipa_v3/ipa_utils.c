@@ -16440,7 +16440,6 @@ int ipa3_suspend_apps_pipes(bool suspend)
 	}
 
 	if (suspend) {
-		struct ipahal_reg_tx_wrapper tx;
 		int ep_idx;
 
 		ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
@@ -16448,15 +16447,19 @@ int ipa3_suspend_apps_pipes(bool suspend)
 				(!ipa3_ctx->ep[ep_idx].valid))
 			goto do_prod;
 
-		ipahal_read_reg_fields(IPA_STATE_TX_WRAPPER, &tx);
-		if (tx.coal_slave_open_frame != 0) {
-			IPADBG("COAL frame is open 0x%x\n",
-				tx.coal_slave_open_frame);
-			res = -EAGAIN;
-			goto undo_low_lat_data_cons;
-		}
+		/* Channel stop ensures coalescing closure. */
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_5) {
+			struct ipahal_reg_tx_wrapper tx;
+			ipahal_read_reg_fields(IPA_STATE_TX_WRAPPER, &tx);
+			if (tx.coal_slave_open_frame != 0) {
+				IPADBG("COAL frame is open 0x%x\n",
+					tx.coal_slave_open_frame);
+				res = -EAGAIN;
+				goto undo_low_lat_data_cons;
+			}
 
-		usleep_range(IPA_TAG_SLEEP_MIN_USEC, IPA_TAG_SLEEP_MAX_USEC);
+			usleep_range(IPA_TAG_SLEEP_MIN_USEC, IPA_TAG_SLEEP_MAX_USEC);
+		}
 
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) {
 			for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
