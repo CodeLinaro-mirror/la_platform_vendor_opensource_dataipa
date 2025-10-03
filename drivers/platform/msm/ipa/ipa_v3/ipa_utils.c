@@ -18024,6 +18024,11 @@ int ipa3_copy_ip_pass_pdn_info(
 	if(pdn_info->enable == 1)
 	{
 		entry = kzalloc(sizeof(struct ipa3_ip_pass_msg), GFP_KERNEL);
+		if (!entry)
+		{
+			IPAERR("Failed to allocate memory for ip_pass_msg\n");
+			return -ENOMEM;
+		}
 		if(list_empty(&ipa3_ctx->msg_ippt_list))
 		{
 			memcpy(&(entry->ippass_config), pdn_info,
@@ -18053,6 +18058,12 @@ int ipa3_copy_ip_pass_pdn_info(
 	}
 	else if(pdn_info->enable == 0)
 	{
+		IPADBG("ippt_pdninfo_refcnt %d\n",ipa3_ctx->ippt_pdninfo_refcnt);
+		if(ipa3_ctx->ippt_pdninfo_refcnt == 0)
+		{
+			IPADBG("ippt pdn ref count 0\n");
+			return 0;
+		}
 		if(list_empty(&ipa3_ctx->msg_ippt_list))
 		{
 			IPADBG("list is empty\n");
