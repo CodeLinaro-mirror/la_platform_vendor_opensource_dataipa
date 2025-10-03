@@ -14,9 +14,9 @@
 #include <linux/ipa_fmwk.h>
 #include "rndis_ipa.h"
 #include "ecm_ipa.h"
-#include "ipa_i.h"
 #include "ipa_rm_i.h"
 
+#include "../ipa_v3/ipa_i.h"
 #define IPA_USB_DEV_READY_TIMEOUT_MSEC 10000
 
 /* GSI channels weights */
@@ -1411,8 +1411,13 @@ static int ipa3_usb_connect_teth_prot(enum ipa_usb_teth_prot teth_prot)
 	struct teth_bridge_connect_params teth_bridge_params;
 	struct ipa3_usb_teth_prot_conn_params *teth_conn_params;
 	enum ipa3_usb_transport_type ttype;
+	struct ipa_endp_desc_indication_msg_v01 req;
+	struct ipa_ep_id_type_v01 *ep_info;
+	int rx_idx = 0, tx_idx = 0;
 	struct ipa3_usb_teth_prot_context *teth_prot_ptr =
 		&ipa3_usb_ctx->teth_prot_ctx[teth_prot];
+
+	memset(&req, 0, sizeof(struct ipa_endp_desc_indication_msg_v01));
 
 	IPA_USB_DBG("connecting protocol = %s\n",
 		ipa3_usb_teth_prot_to_string(teth_prot));
@@ -1471,6 +1476,33 @@ static int ipa3_usb_connect_teth_prot(enum ipa_usb_teth_prot teth_prot)
 			IPA_USB_TETH_PROT_CONNECTED;
 		IPA_USB_DBG("%s is connected\n",
 			ipa3_usb_teth_prot_to_string(teth_prot));
+		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb)
+		{
+			req.ep_info_len++;
+			req.ep_info_valid = true;
+			req.num_eps_valid = true;
+			req.num_eps++;
+			ep_info = &req.ep_info[req.ep_info_len - 1];
+			ep_info->ep_id = teth_conn_params->usb_to_ipa_clnt_hdl;
+			ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+			ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
+			rx_idx = teth_conn_params->usb_to_ipa_clnt_hdl;
+			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+			req.ep_info_len++;
+			req.num_eps++;
+			ep_info = &req.ep_info[req.ep_info_len - 1];
+			ep_info->ep_id = teth_conn_params->ipa_to_usb_clnt_hdl;
+			ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+			ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
+			tx_idx = teth_conn_params->ipa_to_usb_clnt_hdl;
+			ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+			ipa3_update_eth_pdu_ep_index(rx_idx, tx_idx);
+
+			IPADBG("Sending ETH PDU endpoint QMI for client\n");
+			if (req.ep_info_len > 0)
+				if (ipa3_qmi_send_endp_desc_indication(&req))
+					IPAERR("Failed to send eth pipe endp desc QMI\n");
+		}
 		break;
 	case IPA_USB_RMNET:
 	case IPA_USB_RMNET_CV2X:
@@ -1584,6 +1616,9 @@ static int ipa3_usb_disconnect_teth_prot(enum ipa_usb_teth_prot teth_prot)
 				ipa3_usb_teth_prot_to_string(teth_prot));
 			break;
 		}
+		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled &&
+			ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb)
+			ipa3_update_eth_pdu_ep_index(0, 0);
 		teth_prot_ptr->state = IPA_USB_TETH_PROT_INITIALIZED;
 		IPA_USB_DBG("disconnected %s\n",
 			ipa3_usb_teth_prot_to_string(teth_prot));

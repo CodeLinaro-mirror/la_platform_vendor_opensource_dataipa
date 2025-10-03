@@ -17412,6 +17412,21 @@ int ipa3_check_eth_pipe_connected(void)
 	int rx_idx = 0, tx_idx = 0;
 	struct ipa3_ep_context *rx_ep, *tx_ep;
 
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb ) {
+		tx_idx = ipa_get_ep_mapping(IPA_CLIENT_USB_CONS);
+		rx_idx = ipa_get_ep_mapping(IPA_CLIENT_USB_PROD);
+
+		if(rx_idx != IPA_EP_NOT_ALLOCATED &&
+			tx_idx != IPA_EP_NOT_ALLOCATED) {
+			rx_ep = &ipa3_ctx->ep[rx_idx];
+			tx_ep = &ipa3_ctx->ep[tx_idx];
+			if(rx_ep->valid && tx_ep->valid) {
+				ipa3_update_eth_pdu_ep_index(rx_idx, tx_idx);
+				return true;
+			}
+		}
+	}
+
 	tx_idx = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
 	rx_idx = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
 
