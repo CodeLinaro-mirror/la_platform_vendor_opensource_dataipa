@@ -6346,18 +6346,24 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_QSB_MAX_READS] = {
 		ipareg_construct_qsb_max_reads_v7_0, ipareg_parse_qsb_max_reads_v7_0,
 		0x00000074, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_STATE_TX1] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000008c, 0, 0, 0, 1, 0},
 	[IPA_HW_v7_0][IPA_STATE_ENCAPS] = { // todo: check
                 ipareg_construct_dummy, ipareg_parse_dummy,
                 -1, 0, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_STATE_ACL_1] = {
                 ipareg_construct_dummy, ipareg_parse_dummy,
-                0x00000094, 0, 0, 0, 0, 0},
+                0x00000094, 0, 0, 0, 1, 0},
 	[IPA_HW_v7_0][IPA_STATE_DECAPS] = { // todo: check
                 ipareg_construct_dummy, ipareg_parse_dummy,
                 -1, 0, 0, 0, 0, 0},
-	[IPA_HW_v7_0][IPA_STATE_TX1] = {
+	[IPA_HW_v7_0][IPA_STATE_TX_WRAPPER] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		-1, 0, 0, 0, 1, 0},
+		0x000000B0, 0, 0, 0, 1, 0},
+	[IPA_HW_v7_0][IPA_STATE_TX0] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x000000B4, 0, 0, 0, 1, 0},
 	[IPA_HW_v7_0][IPA_STATE_FETCHER] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x000000C4, 0, 0, 0, 1, 0},
@@ -6374,9 +6380,6 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x000000D4, 0, 0, 0, 1, 0},
 	[IPA_HW_v7_0][IPA_STATE_RX_ACTIVE] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		-1, 0, 0, 0, 1, 0},
-	[IPA_HW_v7_0][IPA_STATE_TX0] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0, 0, 0, 1, 0},
 	[IPA_HW_v7_0][IPA_STATE_TX_HOLB_MASK_DPS_TX_1] = {
@@ -6531,6 +6534,9 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_STAT_QUOTA_MASK_EE_n_REG_k] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00000800, 0x10, 0, 0, 0, 0x4},
+	[IPA_HW_v7_0][IPA_ENDP_YELLOW_RED_MARKER_CFG_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		-1, 0, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_STAT_TETHERING_BASE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x000006F0, 0x4, 0, 0, 0, 0},
@@ -6626,18 +6632,18 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_ENDP_INIT_HDR_METADATA_MASK_n] = {
 		ipareg_construct_endp_init_hdr_metadata_mask_n,
 		ipareg_parse_dummy,
-		0x00001018, 0x100, 21, 48, 1, 0},
+		0x00001018, 0x100, 32, 74, 1, 0},
 	[IPA_HW_v7_0][IPA_ENDP_INIT_HOL_BLOCK_EN_n] = {
 		ipareg_construct_endp_init_hol_block_en_n,
 		ipareg_parse_dummy,
-		0x0000102c, 0x100, 21, 48, 1, 0},
+		0x0000102c, 0x100, 32, 74, 1, 0},
 	[IPA_HW_v7_0][IPA_ENDP_INIT_HOL_BLOCK_TIMER_n] = {
 		ipareg_construct_endp_init_hol_block_timer_n_v5_0,
 		ipareg_parse_dummy,
-		0x00001030, 0x100, 21, 48, 1, 0},
+		0x00001030, 0x100, 32, 74, 1, 0},
 	[IPA_HW_v7_0][IPA_ENDP_INIT_PROD_CFG_n] = {
 		ipareg_construct_endp_init_prod_cfg_n_v6_0, ipareg_parse_endp_init_prod_cfg_n_v6_0,
-		0x0000106C, 0x100, 21, 48, 1, 0},
+		0x0000106C, 0x100, 32, 74, 1, 0},
 	[IPA_HW_v7_0][IPA_COAL_EVICT_LRU] = {
 		ipareg_construct_coal_evict_lru_v5_5, ipareg_parse_coal_evict_lru_v5_5,
 		0x00000A18, 0, 0, 0, 0, 0},
