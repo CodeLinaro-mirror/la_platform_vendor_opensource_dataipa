@@ -159,6 +159,7 @@ struct ipa_ready_cb_info {
 
 static void ipa3_start_tag_process(struct work_struct *work);
 static DECLARE_WORK(ipa3_tag_work, ipa3_start_tag_process);
+struct work_struct update_drop_stats_work;
 
 static void ipa3_transport_release_resource(struct work_struct *work);
 static DECLARE_DELAYED_WORK(ipa3_transport_release_resource_work,
@@ -16104,6 +16105,7 @@ static void __exit ipa_module_exit(void)
 	/* Clean up IPsec */
 	ipa_ipsec_cleanup();
 #endif
+	cancel_work_sync(&update_drop_stats_work);
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
 }

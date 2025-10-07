@@ -3886,6 +3886,15 @@ struct ipa_ioc_get_qos_config {
 };
 
 /**
+ * struct ipa_drop_stats - Drop Stats
+ * @drop_packet_cnt: Drop Packet Count
+ * @drop_byte_cnt: Drop byte Count
+ */
+struct ipa_drop_stats {
+	uint64_t drop_packet_cnt;
+	uint64_t drop_byte_cnt;
+};
+/**
  *   actual IOCTLs supported by IPA driver
  */
 #define IPA_IOC_COAL_EVICT_POLICY _IOWR(IPA_IOC_MAGIC, \
