@@ -3,6 +3,7 @@
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
  * Copyright (c) 2022-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/msm_ipa.h>
@@ -2057,7 +2058,25 @@ static int ipa_eth_get_config_type_internal(
 	}
 #endif
 
-	if (ezmesh) {
+	if (ipa3_ctx->ipa_config_is_pppoe && inst_id == 0) {
+		snprintf(eth_config->config, sizeof(eth_config->config) ,"pppoe");
+		eth_config->num_dma_channel = DMA_NUM_CHANNEL_EZMESH;
+
+		eth_config->dma_config[0].dir = IPA_ETH_PIPE_DIR_TX;
+		eth_config->dma_config[0].traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
+
+		eth_config->dma_config[1].dir = IPA_ETH_PIPE_DIR_RX;
+		eth_config->dma_config[1].traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
+
+		eth_config->dma_config[2].dir = IPA_ETH_PIPE_DIR_TX;
+		eth_config->dma_config[2].traffic_type = IPA_ETH_PIPE_BEST_EFFORT_VLAN;
+
+		eth_config->dma_config[3].dir = IPA_ETH_PIPE_DIR_RX;
+		eth_config->dma_config[3].traffic_type = IPA_ETH_PIPE_BEST_EFFORT_VLAN;
+
+		IPA_ETH_DBG("PPPOE configuration for client %d, inst_id %d\n",
+			client_type, inst_id);
+	} else if (ezmesh) {
 		snprintf(eth_config->config, sizeof(eth_config->config) ,"ezmesh");
 		eth_config->num_dma_channel = DMA_NUM_CHANNEL_EZMESH;
 

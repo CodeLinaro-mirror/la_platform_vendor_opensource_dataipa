@@ -3,6 +3,7 @@
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -1205,6 +1206,9 @@ int ipa3_eth_connect(
 				IPAERR("Could not determine IPA ezmesh mode\n");
 				return result;
 		}
+	} else if ((ipa3_ctx->ipa_config_is_pppoe == true) && (inst_id == 0) &&
+			(pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT)) {
+		vlan_mode = 0;
 	}
 #endif
 	IPADBG("Vlan mode %d\n", vlan_mode);
