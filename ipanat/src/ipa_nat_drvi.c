@@ -309,6 +309,12 @@ static int table_entry_copy_from_user(
 	struct ipa_nat_rule*     nat_entry = (struct ipa_nat_rule*) entry;
 	const ipa_nat_ipv4_rule* user_rule = (const ipa_nat_ipv4_rule*) user_data;
 
+	if(NULL == user_rule)
+	{
+		IPAERR("Invalid User data\n");
+		return -EINVAL;
+	}
+
 	IPADBG("In\n");
 
 	pub_ip_addr = pdns[user_rule->pdn_index].public_ip;
