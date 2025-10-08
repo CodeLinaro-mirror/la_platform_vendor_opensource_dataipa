@@ -3055,10 +3055,10 @@ static int ipa3_ioctl_fnr_counter_alloc(unsigned long arg)
 	}
 	if (((struct ipa_ioc_flt_rt_counter_alloc *)
 		header)->hw_counter.num_counters >
-		IPA_FLT_RT_HW_COUNTER ||
+		GET_IPA_FLT_RT_HW_COUNTER() ||
 		((struct ipa_ioc_flt_rt_counter_alloc *)
 		header)->sw_counter.num_counters >
-		IPA_FLT_RT_SW_COUNTER) {
+		GET_IPA_FLT_RT_SW_COUNTER()) {
 		IPAERR("failed: wrong sw/hw num_counters\n");
 		return -EPERM;
 	}
@@ -3109,7 +3109,7 @@ static int ipa3_ioctl_fnr_counter_query(unsigned long arg)
 		((struct ipa_ioc_flt_rt_query *)
 		header)->end_id - ((struct ipa_ioc_flt_rt_query *)
 		header)->start_id + 1;
-	if (pre_entry <= 0 || pre_entry > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (pre_entry <= 0 || pre_entry > GET_MAX_FLT_RT_CNT_INDEX()) {
 		IPAERR("IPA_IOC_FNR_COUNTER_QUERY failed: num %d\n",
 			pre_entry);
 		retval = -EPERM;
@@ -3215,7 +3215,7 @@ static int ipa3_ioctl_fnr_counter_set(unsigned long arg)
 
 	value = ((struct ipa_ioc_fnr_index_info *)
 		header)->hw_counter_offset;
-	if (value <= 0 || value > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (value <= 0 || value > GET_MAX_FLT_RT_CNT_INDEX()) {
 		IPAERR("hw_counter_offset failed: num %d\n",
 			value);
 		return -EPERM;
@@ -3225,7 +3225,7 @@ static int ipa3_ioctl_fnr_counter_set(unsigned long arg)
 
 	value = ((struct ipa_ioc_fnr_index_info *)
 		header)->sw_counter_offset;
-	if (value <= 0 || value > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (value <= 0 || value > GET_MAX_FLT_RT_CNT_INDEX()) {
 		IPAERR("sw_counter_offset failed: num %d\n",
 			value);
 		return -EPERM;

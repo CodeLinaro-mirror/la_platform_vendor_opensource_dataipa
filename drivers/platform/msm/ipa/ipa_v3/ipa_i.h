@@ -276,6 +276,30 @@ enum {
 #define IPA_STATS_EXCP_CNT(__excp, __base) do { } while (0)
 #endif
 
+/* Get Max HW path clients for stats */
+#define GET_MAX_HW_PATH_CLIENTS() \
+    ((ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 && !ipa3_ctx->ipa_config_is_auto) \
+        ? IPA_MAX_NUM_HW_PATH_CLIENTS_V2 \
+        : IPA_MAX_NUM_HW_PATH_CLIENTS)
+
+/* Get Max flt/rt cnt index for client stats */
+#define GET_MAX_FLT_RT_CNT_INDEX() \
+    ((ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 && !ipa3_ctx->ipa_config_is_auto) \
+        ? IPA_MAX_FLT_RT_CNT_INDEX_V2 \
+        : IPA_MAX_FLT_RT_CNT_INDEX)
+
+/* Get Max flt/rt hw counter for client stats */
+#define GET_IPA_FLT_RT_HW_COUNTER() \
+    ((ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 && !ipa3_ctx->ipa_config_is_auto) \
+        ? IPA_FLT_RT_HW_COUNTER_V2 \
+        : IPA_FLT_RT_HW_COUNTER)
+
+/* Get Max flt/rt sw counter for client stats */
+#define GET_IPA_FLT_RT_SW_COUNTER() \
+    ((ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 && !ipa3_ctx->ipa_config_is_auto) \
+        ? IPA_FLT_RT_SW_COUNTER_V2 \
+        : IPA_FLT_RT_SW_COUNTER)
+
 #define IPA_HDR_BIN0 0
 #define IPA_HDR_BIN1 1
 #define IPA_HDR_BIN2 2
@@ -2055,8 +2079,8 @@ enum ipa_client_cb_type {
  */
 struct ipa_flt_rt_counter {
 	struct idr hdl;
-	bool used_hw[IPA_FLT_RT_HW_COUNTER];
-	bool used_sw[IPA_FLT_RT_SW_COUNTER];
+	bool used_hw[IPA_FLT_RT_HW_COUNTER_V2];
+	bool used_sw[IPA_FLT_RT_SW_COUNTER_V2];
 	spinlock_t hdl_lock;
 };
 

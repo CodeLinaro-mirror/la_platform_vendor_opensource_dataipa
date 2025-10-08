@@ -1077,7 +1077,10 @@ static int __ipa_rt_validate_hndls(const struct ipa_rt_rule_i *rule,
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
 		if (rule->enable_stats && rule->cnt_idx) {
-			if (!ipahal_is_rule_cnt_id_valid(rule->cnt_idx)) {
+			if ((ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 &&
+				!ipa3_ctx->ipa_config_is_auto)
+				? !ipahal_is_rule_cnt_id_valid_v2(rule->cnt_idx)
+				: !ipahal_is_rule_cnt_id_valid(rule->cnt_idx)) {
 				IPAERR_RL(
 					"invalid cnt_idx %hhu out of range\n",
 					rule->cnt_idx);
