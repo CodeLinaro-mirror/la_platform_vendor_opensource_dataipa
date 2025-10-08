@@ -154,6 +154,19 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 	return res;
 }
 
+static struct ipa3_rt_entry dummy_rule_entry = {
+	.cookie = IPA_RT_RULE_COOKIE,
+	.hdr = NULL,
+	.proc_ctx = NULL,
+	.rule = {
+		.dst = IPA_CLIENT_APPS_LAN_CONS,
+		.attrib = {
+			.attrib_mask = IPA_FLT_IS_PURE_ACK,
+		},
+		.rule_type = IPA_FLT_RULE_TYPE_NON_IP,
+	},
+};
+
 /**
  * ipa_translate_rt_tbl_to_hw_fmt() - translate the routing driver structures
  *  (rules and tables) to HW format and fill it in the given buffers
@@ -220,6 +233,36 @@ static int ipa_translate_rt_tbl_to_hw_fmt(enum ipa_ip_type ip,
 					IPAERR_RL("failed to gen HW RT rule\n");
 					goto hdr_update_fail;
 				}
+
+				/* HW WA for QCTDD12682069:
+				   If the next rule is more than 128B
+				   (size of a single prefetch buffer)
+				   and it will start in the last 8 bytes of a 128B chunk,
+				   add a dummy 16B rule before */
+				if (((tbl_mem_buf - (u8 *)tbl_mem.base) & (ipahal_get_hw_prefetch_buf_size() / 2 - 1)) >=
+				    (ipahal_get_hw_prefetch_buf_size() / 2 - 8) &&
+				    entry->hw_len > ipahal_get_hw_prefetch_buf_size() / 2) {
+					res = ipa_generate_rt_hw_rule(
+						ip, &dummy_rule_entry, tbl_mem_buf);
+					if (res) {
+						IPAERR("failed to gen dummy HW RT rule\n");
+						goto hdr_update_fail;
+					}
+					if (tbl_mem_buf + dummy_rule_entry.hw_len + entry->hw_len >
+					    tbl_mem.base + tbl_mem.size) {
+						IPAERR("The table buffer is too small\n");
+						goto hdr_update_fail;
+					}
+					tbl_mem_buf += dummy_rule_entry.hw_len;
+					res = ipa_generate_rt_hw_rule(
+						ip, entry, tbl_mem_buf);
+					if (res) {
+						IPAERR("failed to gen HW RT rule\n");
+						goto hdr_update_fail;
+					}
+
+				}
+
 				tbl_mem_buf += entry->hw_len;
 			}
 
