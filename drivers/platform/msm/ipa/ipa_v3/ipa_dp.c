@@ -6861,29 +6861,33 @@ static void ipa_gsi_irq_tx_notify_cb(struct gsi_chan_xfer_notify *notify)
 	case GSI_CHAN_EVT_EOT:
 		atomic_set(&ipa3_ctx->transport_pm.eot_activity, 1);
 		tx_pkt = notify->xfer_user_data;
-		tx_pkt->xmit_done = true;
-		sys = tx_pkt->sys;
-		if (sys->tx_poll) {
-			if (!atomic_read(&sys->curr_polling_state)) {
-				/* dummy vote to prevent NoC error */
-				if(IPA_ACTIVE_CLIENTS_INC_EP_NO_BLOCK(
-					sys->ep->client)) {
-					IPAERR_RL("clk off, event likely handled in NAPI contxt");
-					return;
-				}
-				/* put the producer event ring into polling mode */
-				gsi_config_channel_mode(sys->ep->gsi_chan_hdl,
+
+		if(tx_pkt && tx_pkt->sys)
+		{
+			tx_pkt->xmit_done = true;
+			sys = tx_pkt->sys;
+			if (sys->tx_poll) {
+				if (!atomic_read(&sys->curr_polling_state)) {
+					/* dummy vote to prevent NoC error */
+					if(IPA_ACTIVE_CLIENTS_INC_EP_NO_BLOCK(
+								sys->ep->client)) {
+						IPAERR_RL("clk off, event likely handled in NAPI contxt");
+						return;
+					}
+					/* put the producer event ring into polling mode */
+					gsi_config_channel_mode(sys->ep->gsi_chan_hdl,
 							GSI_CHAN_MODE_POLL);
-				atomic_set(&sys->curr_polling_state, 1);
-				__ipa3_update_curr_poll_state(sys->ep->client, 1);
-				napi_schedule(&tx_pkt->sys->napi_tx);
+					atomic_set(&sys->curr_polling_state, 1);
+					__ipa3_update_curr_poll_state(sys->ep->client, 1);
+					napi_schedule(&tx_pkt->sys->napi_tx);
+				}
+			} else if (ipa_net_initialized && sys->napi_tx_enable) {
+				if(!atomic_cmpxchg(&tx_pkt->sys->in_napi_context, 0, 1))
+					napi_schedule(&tx_pkt->sys->napi_tx);
+			} else {
+				atomic_inc(&tx_pkt->sys->xmit_eot_cnt);
+				tasklet_schedule(&tx_pkt->sys->tasklet);
 			}
-		} else if (ipa_net_initialized && sys->napi_tx_enable) {
-			if(!atomic_cmpxchg(&tx_pkt->sys->in_napi_context, 0, 1))
-				napi_schedule(&tx_pkt->sys->napi_tx);
-		} else {
-			atomic_inc(&tx_pkt->sys->xmit_eot_cnt);
-			tasklet_schedule(&tx_pkt->sys->tasklet);
 		}
 		break;
 	default:
