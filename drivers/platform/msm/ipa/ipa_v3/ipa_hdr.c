@@ -90,11 +90,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 			ipa3_ctx->smem_restricted_bytes / 4) +
 		IPA_MEM_PART(apps_hdr_ext_ofst);
 
-	if(list_empty(&ipa3_ctx->hdr_proc_ctx_tbl[loc].head_proc_ctx_entry_list))
-	{
-		IPAERR("List is empty\n");
-	}
-	else
+	if(!list_empty(&ipa3_ctx->hdr_proc_ctx_tbl[loc].head_proc_ctx_entry_list))
 	{
 		list_for_each_entry(entry,
 				&ipa3_ctx->hdr_proc_ctx_tbl[loc].head_proc_ctx_entry_list,
