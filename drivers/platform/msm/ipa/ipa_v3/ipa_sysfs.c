@@ -4480,10 +4480,14 @@ static ssize_t __eth_err_status_show(enum ipa_eth_client_type type, uint8_t inst
 			ipa_eth_ntn3_get_status(&ntn3_stats, 0);
 			str_client_tx = ipa_clients_strings[IPA_CLIENT_ETHERNET_CONS];
 			str_client_rx = ipa_clients_strings[IPA_CLIENT_ETHERNET_PROD];
-		} else {
+		} else if (1 == inst_id) {
 			ipa_eth_ntn3_get_status(&ntn3_stats, 1);
 			str_client_tx = ipa_clients_strings[IPA_CLIENT_ETHERNET2_CONS];
 			str_client_rx = ipa_clients_strings[IPA_CLIENT_ETHERNET2_PROD];
+		} else {
+			ipa_eth_ntn3_get_status(&ntn3_stats, 2);
+			str_client_tx = ipa_clients_strings[IPA_CLIENT_ETHERNET3_CONS];
+			str_client_rx = ipa_clients_strings[IPA_CLIENT_ETHERNET3_PROD];
 		}
 		__ipa_ntn3_client_stats_read(&cnt, &ntn3_stats, str_client_tx, str_client_rx);
 		goto done;

@@ -5224,12 +5224,20 @@ static ssize_t ipa3_eth_read_err_status(struct file *file,
 					[IPA_CLIENT_ETHERNET_LOW_LAT_CONS];
 			else
 				str_client_tx1 = NULL;
-		} else {
+		} else if (strstr(file->f_path.dentry->d_name.name, "1_status")) {
 			ipa_eth_ntn3_get_status(&ntn3_stats, 1);
 			str_client_tx =
 				ipa_clients_strings[IPA_CLIENT_ETHERNET2_CONS];
 			str_client_rx =
 				ipa_clients_strings[IPA_CLIENT_ETHERNET2_PROD];
+			str_client_rx1 = NULL;
+			str_client_tx1 = NULL;
+		} else {
+			ipa_eth_ntn3_get_status(&ntn3_stats, 2);
+			str_client_tx =
+				ipa_clients_strings[IPA_CLIENT_ETHERNET3_CONS];
+			str_client_rx =
+				ipa_clients_strings[IPA_CLIENT_ETHERNET3_PROD];
 			str_client_rx1 = NULL;
 			str_client_tx1 = NULL;
 		}

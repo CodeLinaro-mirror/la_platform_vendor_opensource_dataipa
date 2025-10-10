@@ -86,7 +86,7 @@ enum ipa_eth_pipe_direction {
 	IPA_ETH_PIPE_DIR_MAX,
 };
 
-#define IPA_ETH_INST_ID_MAX (2)
+#define IPA_ETH_INST_ID_MAX (3)
 
 struct ipa_eth_dma_ch_config {
 	enum ipa_eth_pipe_direction dir;

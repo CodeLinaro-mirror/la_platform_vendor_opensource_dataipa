@@ -64,6 +64,10 @@
 	((client) == IPA_CLIENT_ETHERNET2_PROD || \
 	(client) == IPA_CLIENT_ETHERNET2_CONS)
 
+#define IPA_CLIENT_IS_SMMU_ETH2_INSTANCE(client) \
+	((client) == IPA_CLIENT_ETHERNET3_PROD || \
+	(client) == IPA_CLIENT_ETHERNET3_CONS)
+
 enum ipa_eth_dir {
 	IPA_ETH_RX = 0,
 	IPA_ETH_TX = 1,
@@ -629,6 +633,8 @@ static struct iommu_domain *ipa_eth_get_smmu_domain(
 		return ipa3_get_eth_smmu_domain();
 	if (IPA_CLIENT_IS_SMMU_ETH1_INSTANCE(client_type))
 		return ipa3_get_eth1_smmu_domain();
+	if (IPA_CLIENT_IS_SMMU_ETH2_INSTANCE(client_type))
+		return ipa3_get_eth2_smmu_domain();
 
 	return NULL;
 }
@@ -642,6 +648,8 @@ static bool ipa_eth_is_smmu_buff_cb_bypass(
 		return ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_ETH];
 	if (IPA_CLIENT_IS_SMMU_ETH1_INSTANCE(client_type))
 		return ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_ETH1];
+	if (IPA_CLIENT_IS_SMMU_ETH2_INSTANCE(client_type))
+		return ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_ETH2];
 	return false;
 }
 
@@ -652,6 +660,7 @@ static enum ipa_smmu_cb_type ipa_eth_get_cb_type(const enum ipa_client_type clie
 	switch (smmu_cb_type) {
 	case IPA_SMMU_CB_ETH:
 	case IPA_SMMU_CB_ETH1:
+	case IPA_SMMU_CB_ETH2:
 		return smmu_cb_type;
 	default:
 		return IPA_SMMU_CB_MAX;
