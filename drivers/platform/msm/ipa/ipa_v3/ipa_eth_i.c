@@ -64,7 +64,7 @@
 	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi->tunnels[it].y
 
 #define IPOGRE_STATS(y,it) ipogre->tunnels[it].y = \
-	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.multi->tunnels[it].y
+	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.ipogre->tunnels[it].y
 
 enum ipa_eth_dir {
 	IPA_ETH_RX = 0,
