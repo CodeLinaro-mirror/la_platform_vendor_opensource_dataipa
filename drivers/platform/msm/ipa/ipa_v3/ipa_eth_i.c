@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- *
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -644,15 +645,17 @@ static bool ipa_eth_is_smmu_buff_cb_bypass(
 	return false;
 }
 
-static enum ipa_smmu_cb_type ipa_eth_get_cb_type(
-	enum ipa_client_type client_type)
+static enum ipa_smmu_cb_type ipa_eth_get_cb_type(const enum ipa_client_type client_type)
 {
-	if (IPA_CLIENT_IS_SMMU_ETH_INSTANCE(client_type))
-		return IPA_SMMU_CB_ETH;
-	if (IPA_CLIENT_IS_SMMU_ETH1_INSTANCE(client_type))
-		return IPA_SMMU_CB_ETH1;
+	enum ipa_smmu_cb_type smmu_cb_type = ipa_get_client_smmu_cb_type(client_type);
 
-	return IPA_SMMU_CB_MAX;
+	switch (smmu_cb_type) {
+	case IPA_SMMU_CB_ETH:
+	case IPA_SMMU_CB_ETH1:
+		return smmu_cb_type;
+	default:
+		return IPA_SMMU_CB_MAX;
+	}
 }
 
 static int ipa3_smmu_map_eth_pipes(struct ipa_eth_client_pipe_info *pipe,
@@ -667,7 +670,7 @@ static int ipa3_smmu_map_eth_pipes(struct ipa_eth_client_pipe_info *pipe,
 	u64 prev_iova_p;
 	phys_addr_t pa_p;
 	u32 size_p;
-	enum ipa_smmu_cb_type cb_type;
+	enum ipa_smmu_cb_type cb_type = IPA_SMMU_CB_AP;
 
 	if (pipe->info.fix_buffer_size > PAGE_SIZE) {
 		IPAERR("%s: invalid data buff size %d\n",
@@ -681,16 +684,18 @@ static int ipa3_smmu_map_eth_pipes(struct ipa_eth_client_pipe_info *pipe,
 		goto map_buffer;
 	}
 
-	result = ipa3_smmu_map_peer_buff(
-		(u64)pipe->info.transfer_ring_base,
-		pipe->info.transfer_ring_size,
-		map,
-		pipe->info.transfer_ring_sgt,
-		IPA_SMMU_CB_AP);
-	if (result) {
-		IPAERR("failed to %s ring %d\n",
-			map ? "map" : "unmap", result);
-		return -EINVAL;
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+		result = ipa3_smmu_map_peer_buff(
+			(u64)pipe->info.transfer_ring_base,
+			pipe->info.transfer_ring_size,
+			map,
+			pipe->info.transfer_ring_sgt,
+			cb_type);
+		if (result) {
+			IPAERR("failed to %s ring %d\n",
+				map ? "map" : "unmap", result);
+			return -EINVAL;
+		}
 	}
 
 map_buffer:
@@ -711,6 +716,20 @@ map_buffer:
 	} else {
 		IPADBG(
 		"SMMU cb %d is not shared, continue to map buffers\n", cb_type);
+	}
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		result = ipa3_smmu_map_peer_buff(
+			(u64)pipe->info.transfer_ring_base,
+			pipe->info.transfer_ring_size,
+			map,
+			pipe->info.transfer_ring_sgt,
+			cb_type);
+		if (result) {
+			IPAERR("failed to %s ring %d\n",
+				map ? "map" : "unmap", result);
+			return -EINVAL;
+		}
 	}
 
 	if (pipe->info.is_buffer_pool_valid) {
@@ -773,7 +792,7 @@ fail_map_buffer_smmu_enabled:
 		pipe->info.transfer_ring_size,
 		!map,
 		pipe->info.transfer_ring_sgt,
-		IPA_SMMU_CB_AP);
+		cb_type);
 	return result;
 }
 
@@ -916,6 +935,7 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	u64 bar_addr;
 	unsigned long iova;
 	enum ipa_eth_pipe_traffic_type traffic_type = 0;
+	enum ipa_smmu_cb_type cb_type = IPA_SMMU_CB_AP;
 
 	if (unlikely(!pipe->info.is_transfer_ring_valid)) {
 		IPAERR("NTN transfer ring invalid\n");
@@ -952,8 +972,17 @@ static int ipa_eth_setup_ntn_gsi_channel(
 #if IPA_ETH_API_VER >= 3
 	traffic_type = pipe->traffic_type;
 #endif
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		cb_type = ipa_eth_get_cb_type(ep->client);
+		if (cb_type >= IPA_SMMU_CB_MAX) {
+			IPAERR("invalid CB type %d\n", cb_type);
+			return -EFAULT;
+		}
+	}
+
 	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC) {
-		result = ipa_iemac_smmu_cb_add_mapping_pa(IPA_SMMU_CB_AP,
+		result = ipa_iemac_smmu_cb_add_mapping_pa(cb_type,
 			gsi_evt_ring_props.msi_addr, 8, true, &iova, pipe->client_info->inst_id, pipe->dir, pipe_idx);
 		if (result) {
 			IPAERR("Failed to map IEMAC regs %d\n", result);
@@ -998,7 +1027,8 @@ static int ipa_eth_setup_ntn_gsi_channel(
  		gsi_channel_props.low_latency_en = 1;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
 	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
-	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
+	gsi_channel_props.use_db_eng = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ? GSI_CHAN_DIRECT_MODE :
+		GSI_CHAN_DB_MODE;
 	gsi_channel_props.db_in_bytes = 1;
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
 	gsi_channel_props.prefetch_mode =
@@ -1060,7 +1090,7 @@ fail_get_gsi_ep_info:
 	gsi_dealloc_evt_ring(ep->gsi_evt_ring_hdl);
 	ep->gsi_evt_ring_hdl = ~0;
 	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC)
-		ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id,
+		ipa_iemac_smmu_cb_reset_mapping(cb_type, pipe->client_info->inst_id,
 			pipe->dir, pipe_idx);
 	return result;
 }
@@ -1376,7 +1406,8 @@ int ipa3_eth_connect(
 			}
 			pipe->info.db_val = 0;
 
-			if (IPA_CLIENT_IS_CONS(client_type) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2)) {
+			if (IPA_CLIENT_IS_CONS(client_type) && ((ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
+				(ipa3_ctx->ipa_hw_type < IPA_HW_v7_0))) {
 				db_addr = ioremap((phys_addr_t)(pipe->info.db_pa), 4);
 				if (!db_addr) {
 					IPAERR("ioremap failed\n");
@@ -1399,10 +1430,12 @@ int ipa3_eth_connect(
 				}
 				/* TX: Initialize to end of ring */
 				db_val = (u32)ep->gsi_mem_info.chan_ring_base_addr;
-				db_val += (u32)ep->gsi_mem_info.chan_ring_len;
+				db_val += (u32)ep->gsi_mem_info.chan_ring_len - 1;
 				iowrite32(db_val, db_addr);
 				iounmap(db_addr);
-
+			} else if (IPA_CLIENT_IS_PROD(client_type) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)){
+				pipe->info.db_pa = gsi_db_addr_low;
+				pipe->info.db_val = 0;
 			}
 
 			break;
@@ -1589,7 +1622,8 @@ int ipa3_eth_connect(
 		id, ep_idx, ep->gsi_chan_hdl);
 	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || 
-	     ((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2))) {
+	     ((prot == IPA_HW_PROTOCOL_IEMAC) && ((ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
+	     (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)))) {
 		result = ipa3_eth_config_uc(true, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, ch, inst_id, priority);
@@ -1644,6 +1678,7 @@ int ipa3_eth_disconnect(
 	int id;
 	enum ipa4_hw_protocol prot;
 	enum ipa_eth_pipe_traffic_type traffic_type = 0;
+	enum ipa_smmu_cb_type cb_type = IPA_SMMU_CB_AP;
 
 #if IPA_ETH_API_VER >= 3
 	traffic_type = pipe->traffic_type;
@@ -1694,7 +1729,8 @@ int ipa3_eth_disconnect(
 
 	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || 
-	     ((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2))) {
+	     ((prot == IPA_HW_PROTOCOL_IEMAC) && ((ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
+	     (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)))) {
 		result = ipa3_eth_config_uc(false, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, 0, 0, 0);
@@ -1754,7 +1790,14 @@ int ipa3_eth_disconnect(
 			}
 		}
 	}
-	ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id, pipe->dir, pipe_idx);
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		cb_type = ipa_eth_get_cb_type(client_type);
+		if (cb_type >= IPA_SMMU_CB_MAX) {
+			IPAERR("invalid CB type %d\n", cb_type);
+			return -EFAULT;
+		}
+	}
+	ipa_iemac_smmu_cb_reset_mapping(cb_type, pipe->client_info->inst_id, pipe->dir, pipe_idx);
 fail:
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	return result;
@@ -1923,7 +1966,8 @@ int ipa3_eth_enable(
 		id, ep_idx, ep->gsi_chan_hdl);
 	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
-		((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2))) {
+		((prot == IPA_HW_PROTOCOL_IEMAC) && ((ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
+		(ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)))) {
 		result = ipa3_eth_config_uc(true, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, ch, inst_id, priority);

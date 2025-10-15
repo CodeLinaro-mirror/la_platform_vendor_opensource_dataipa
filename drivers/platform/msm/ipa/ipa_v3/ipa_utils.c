@@ -8227,14 +8227,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 52, 46, 17, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
-			IPA_TX_INSTANCE_DL },
+			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_CONS]  = {
 			true, IPA_v7_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 55, 52, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
-			IPA_TX_INSTANCE_DL },
+			IPA_TX_INSTANCE_UL },
        [IPA_7_0][IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS] = {
                        true, IPA_v7_0_GROUP_DL,
                        false,
@@ -12591,7 +12591,8 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 		ipahal_write_reg_n(IPA_ENDP_INIT_SEQ_n, clnt_hdl, type);
 	}
 
-	if (IPA_DPS_HPS_SEQ_TYPE_IS_DRBIP(type))
+	if (IPA_DPS_HPS_SEQ_TYPE_IS_DRBIP(type) &&
+		ep_mode->mode != IPA_DMA)
 		init_mode.ep_mode.drbip_en = 1;
 
 	/* Enabling HW replication for eth clients */

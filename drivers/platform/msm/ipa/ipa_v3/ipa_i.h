@@ -2059,6 +2059,41 @@ enum ipa_smmu_cb_type {
 #define VALID_IPA_SMMU_CB_TYPE(t) \
 	((t) >= IPA_SMMU_CB_AP && (t) < IPA_SMMU_CB_MAX)
 
+static inline enum ipa_smmu_cb_type ipa_get_client_smmu_cb_type(const enum ipa_client_type client)
+{
+	switch (client) {
+	case IPA_CLIENT_AQC_ETHERNET_PROD:
+	case IPA_CLIENT_AQC_ETHERNET_CONS:
+	case IPA_CLIENT_RTK_ETHERNET_PROD:
+	case IPA_CLIENT_RTK_ETHERNET_CONS:
+	case IPA_CLIENT_ETHERNET_PROD:
+	case IPA_CLIENT_ETHERNET_CONS:
+	case IPA_CLIENT_ETHERNET_PROD1:
+	case IPA_CLIENT_ETHERNET_LOW_LAT_CONS:
+	case IPA_CLIENT_ETHERNET_CONS1:
+	case IPA_CLIENT_ETHERNET_PROD2:
+	case IPA_CLIENT_ETHERNET_CONS2:
+	case IPA_CLIENT_ETHERNET_PROD3:
+	case IPA_CLIENT_ETHERNET_CONS3:
+	case IPA_CLIENT_ETHERNET_PROD4:
+	case IPA_CLIENT_ETHERNET_CONS4:
+		return IPA_SMMU_CB_ETH;
+	case IPA_CLIENT_ETHERNET2_PROD:
+	case IPA_CLIENT_ETHERNET2_CONS:
+		return IPA_SMMU_CB_ETH1;
+	case IPA_CLIENT_WLAN1_PROD:
+	case IPA_CLIENT_WLAN1_CONS:
+	case IPA_CLIENT_WLAN2_PROD:
+	case IPA_CLIENT_WLAN2_CONS:
+	case IPA_CLIENT_WLAN3_PROD:
+	case IPA_CLIENT_WLAN3_CONS:
+		/* WLAN instance specific context banks are not supported yet. */
+		return IPA_SMMU_CB_MAX;
+	default:
+		return IPA_SMMU_CB_AP;
+	}
+}
+
 enum ipa_client_cb_type {
 	IPA_USB_CLNT,
 	IPA_MHI_CLNT,
