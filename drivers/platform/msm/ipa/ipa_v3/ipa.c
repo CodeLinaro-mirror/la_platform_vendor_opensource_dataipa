@@ -10526,6 +10526,14 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		else
 			IPADBG(":IPSEC init ok\n");
 		ipa3_ctx->ipsec_debug = 0;
+		/* Incase post init happens after ipsec config updated */
+		if (ipa3_ctx->ipa_config_is_ipsec) {
+			result = ipa_ipsec_enable();
+			if (result)
+				IPAERR(":IPSEC enable failed (%d)\n", -result);
+			else
+				IPADBG(":IPSEC enable ok\n");
+		}
 	}
 #endif
 
