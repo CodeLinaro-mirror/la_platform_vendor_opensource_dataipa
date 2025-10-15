@@ -8107,9 +8107,9 @@ static int ipa3_manual_load_ipa_fws(void)
 
 	IPADBG("Manual FW loading (%s) process initiated\n", path);
 
-	result = request_firmware(&fw, path, ipa3_ctx->cdev.dev);
+	result = firmware_request_nowarn(&fw, path, ipa3_ctx->cdev.dev);
 	if (result < 0) {
-		IPAERR("request_firmware failed, error %d\n", result);
+		IPAERR_RL("request_firmware failed, error %d\n", result);
 		return result;
 	}
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -667,7 +668,7 @@ static void ipa3_event_ring_hdlr(void)
 int ipa3_uc_state_check(void)
 {
 	if (!ipa3_ctx->uc_ctx.uc_inited) {
-		IPAERR("uC interface not initialized\n");
+		IPAERR_RL("uC interface not initialized\n");
 		return -EFAULT;
 	}
 
