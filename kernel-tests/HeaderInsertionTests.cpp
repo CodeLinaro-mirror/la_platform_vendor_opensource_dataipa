@@ -938,10 +938,10 @@ public:
 		fflush(stdout);
 		ret = system("cat /sys/kernel/debug/ipa/hdr");
 
-		for (int i = 0; i < m_InitialHeadersNum; i++)
+		for (size_t i = 0; i < m_InitialHeadersNum; i++)
 		{
 			LOG_MSG_DEBUG("%s::%s iter=%d\n", typeid(this).name(), __func__, i);
-			snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name), "IEEE802_3_%03d", i);
+			snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name), "IEEE802_3_%03zu", i);
 			if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
 			{
 				LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed on %d iteration.\n", i);
@@ -996,9 +996,9 @@ public:
 			pHeaderDescriptor->hdr[0].is_partial = false;
 			pHeaderDescriptor->hdr[0].status = -1; // Return Parameter
 
-			for (int i = 0; i < m_HeadersNumToAddAgain; i++) {
+			for (size_t i = 0; i < m_HeadersNumToAddAgain; i++) {
 				LOG_MSG_DEBUG("%s::%s iter=%d\n", typeid(this).name(), __func__, i);
-				snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name), "IEEE802_3_%03d_2", i);
+				snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name), "IEEE802_3_%03u_2", static_cast<unsigned int>(i));
 				if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
 				{
 					LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed on %d iteration.\n", i);
@@ -1253,13 +1253,13 @@ public:
 		}
 
 		// Add bunch of headers to SRAM and DDR
-		for (int i = 1; i < m_InitialHeadersNum; i++)
+		for (size_t i = 1; i < m_InitialHeadersNum; i++)
 		{
 			LOG_MSG_DEBUG("%s::%s iter=%d\n", typeid(this).name(), __func__, i);
 			memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd2, m_nHeadertoAddSize2);
 			pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize2;
 			snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name),
-				"IEEE802_3_%03d", i);
+				"IEEE802_3_%03zu", i);
 			if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
 			{
 				LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed on %d iteration.\n", i);
@@ -1538,13 +1538,13 @@ public:
 		}
 
 		// Fill HDR_TBL_LCL and insert bunch of headers HDR_TBL_LCL_EXT
-		for (int i = 1; i < m_InitialHeadersNum; i++)
+		for (size_t i = 1; i < m_InitialHeadersNum; i++)
 		{
 			LOG_MSG_DEBUG("%s::%s iter=%d\n", typeid(this).name(), __func__, i);
 			memcpy(pHeaderDescriptor->hdr[0].hdr, m_aHeadertoAdd2, m_nHeadertoAddSize2);
 			pHeaderDescriptor->hdr[0].hdr_len = m_nHeadertoAddSize2;
 			snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name),
-				"IEEE802_3_%03d", i);
+				"IEEE802_3_%03zu", i);
 			if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
 			{
 				LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed on %d iteration.\n", i);
@@ -1837,7 +1837,7 @@ public:
 		}
 
 		// Fill HDR_TBL_LCL and HDR_TBL_LCL_EXT, insert bunch of headers to HDR_TBL_SYS
-		for (int i = 1; i < m_InitialHeadersNum; i++)
+		for (size_t i = 1; i < m_InitialHeadersNum; i++)
 		{
 			LOG_MSG_DEBUG("%s::%s iter=%d\n", typeid(this).name(), __func__, i);
 
@@ -1853,7 +1853,7 @@ public:
 			}
 
 			snprintf(pHeaderDescriptor->hdr[0].name, sizeof(pHeaderDescriptor->hdr[0].name),
-				"IEEE802_3_%03d", i);
+				"IEEE802_3_%03zu", i);
 			if (!m_HeaderInsertion.AddHeader(pHeaderDescriptor))
 			{
 				LOG_MSG_ERROR("m_HeaderInsertion.AddHeader(pHeaderDescriptor) Failed on %d iteration.\n", i);

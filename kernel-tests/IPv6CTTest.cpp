@@ -428,8 +428,11 @@ public:
 		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
 		const int total_entries = 20;
 
-		int result = ipa_ipv6ct_add_tbl(total_entries, m_mem_type == DFLT_NAT_MEM_TYPE ? IPA_NAT_MEM_IN_SRAM : IPA_NAT_MEM_IN_DDR, &m_tableHandle);
-		if (result)
+	int result = ipa_ipv6ct_add_tbl(
+		total_entries,
+		strcmp(m_mem_type, DFLT_NAT_MEM_TYPE) == 0 ? IPA_NAT_MEM_IN_SRAM : IPA_NAT_MEM_IN_DDR,
+		&m_tableHandle);
+	if (result)
 		{
 			printf("Leaving %s, %s(), failed creating IPvC6T table with result %d\n", __FUNCTION__, __FILE__, result);
 			return false;

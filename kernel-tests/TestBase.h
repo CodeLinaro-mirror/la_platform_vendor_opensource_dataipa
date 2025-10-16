@@ -10,6 +10,7 @@
 
 #include <string>
 #include <vector>
+#include <cstdint> //needed for uint8_t
 
 #include <string.h>
 

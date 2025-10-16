@@ -231,7 +231,7 @@ struct ipa_test_mem_partition {
 	unsigned sa_contexts_ofst;
 	unsigned sa_contexts_size;
 
-	u32 apps_fltrt_empty_tbl_ofst;
-	u32 apps_fltrt_empty_tbl_size;
+	uint32_t apps_fltrt_empty_tbl_ofst;
+	uint32_t apps_fltrt_empty_tbl_size;
 };
 #endif /* _IPA_TEST_MODULE_H_ */

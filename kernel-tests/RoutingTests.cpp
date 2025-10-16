@@ -5025,7 +5025,7 @@ public:
 			return false;
 		}
 
-		auto installedRules = 0;
+		size_t installedRules = 0;
 		while (installedRules < numCacheEntries + 1) {
 
 		rt_rule->commit = 1;
@@ -5033,7 +5033,7 @@ public:
 		rt_rule->ip = IPA_IP_v4;
 		strlcpy(rt_rule->rt_tbl_name, "LAN", sizeof(rt_rule->rt_tbl_name));
 
-			for (int i = 0; i < numRulesPerIoctlCall && installedRules < numCacheEntries + 1; i++, installedRules++) {
+			for (size_t i = 0; i < numRulesPerIoctlCall && installedRules < numCacheEntries + 1; i++, installedRules++) {
 			rt_rule_entry = &rt_rule->rules[i];
 			rt_rule_entry->at_rear = 1;
 			rt_rule_entry->rule.dst = IPA_CLIENT_TEST2_CONS;
@@ -5088,7 +5088,7 @@ public:
 		// Send the first CHACHE_ENTRIES packets
 		// Receive packets from the channels and compare results
 		// All rules should be cache miss
-		for (int i = 0; i < numCacheEntries; i++) {
+		for (size_t i = 0; i < numCacheEntries; i++) {
 			res = __ModifyPackets(i);
 			isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
 			if (false == isSuccess)
@@ -5107,7 +5107,7 @@ public:
 		// Send again the first CHACHE_ENTRIES packets
 		// Receive packets from the channels and compare results
 		// All rules should be cache hit
-		for (int i = 0; i < numCacheEntries; i++) {
+		for (size_t i = 0; i < numCacheEntries; i++) {
 			res = __ModifyPackets(i);
 			isSuccess = m_producer.SendData(m_sendBuffer, m_sendSize);
 			if (false == isSuccess)

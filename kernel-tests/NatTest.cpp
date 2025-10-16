@@ -2669,7 +2669,7 @@ public:
 			m_private_port2, m_public_port2,
 			false, 0, true);
 
-		isSuccess &= IsRtCacheMiss(m_sendSize, receivedSize, rxBuff1);
+		isSuccess &= IsRtCacheMiss(m_sendSize, receivedSize, rxBuff2);
 
 		for (j = 0; j < m_sendSize2; j++)
 			snprintf(&SentBuffer2[3 * j], sizeof(SentBuffer2) - (3 * j + 1), " %02X", m_sendBuffer2[j]);
@@ -5781,7 +5781,7 @@ public:
 		}
 
 		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
-			      m_nat_rule_hdl12 ipv4_rule.target_ip, ipv4_rule.target_port,
+			      m_nat_rule_hdl2, ipv4_rule.target_ip, ipv4_rule.target_port,
 			      ipv4_rule.private_ip, ipv4_rule.private_port,
 			      ipv4_rule.protocol, ipv4_rule.public_port);
 

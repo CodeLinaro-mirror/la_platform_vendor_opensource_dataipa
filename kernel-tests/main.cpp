@@ -75,6 +75,7 @@ const char *ipa_hw_type_name[] = {
 	"5.2",
 	"5.5",
 	"6.0",
+	"7.0",
 	"MAX"
 };
 

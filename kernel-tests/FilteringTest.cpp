@@ -355,7 +355,7 @@ public:
 			if (!VerifyStatusReceived_wo_status(SendSize,ReceiveSize))
 				return false;
 		}
-		if((bool)pStatus->ttl_dec){
+		if(!withStatus || (bool)pStatus->ttl_dec){
 			printf ("%s::TTL Updated!! \n",__FUNCTION__);
 			return true;
 		}
@@ -7945,7 +7945,7 @@ public:
 	{
 		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
 
-		int i;
+		size_t i;
 		struct ipa_ioc_get_rt_tbl routing_table0;
 		const char bypass0[20] = "Bypass0";
 
@@ -7970,7 +7970,7 @@ public:
 		printf("Creating Bypass Routing Table completed successfully\n");
 
 
-		auto installedRules = 0;
+		size_t installedRules = 0;
 		while (installedRules < numCacheEntries + 1) {
 			IPAFilteringTable FilterTable0;
 			struct ipa_flt_rule_add flt_rule_entry{};
@@ -7995,10 +7995,10 @@ public:
 				}
 			}
 			if (!m_filtering.AddFilteringRule(FilterTable0.GetFilteringTable())) {
-				printf ("%s::Error Adding RuleTable(%d) to Filtering, aborting...\n", __FUNCTION__, i);
+				printf ("%s::Error Adding RuleTable(%zu) to Filtering, aborting...\n", __FUNCTION__, i);
 				return false;
 			} else {
-				for (int j = 0; j < i; j++) {
+				for (size_t j = 0; j < i; j++) {
 					printf("flt rule hdl=0x%x, status=0x%x\n",
 					       FilterTable0.ReadRuleFromTable(j)->flt_rule_hdl,
 					       FilterTable0.ReadRuleFromTable(j)->status);
@@ -8038,7 +8038,7 @@ public:
 		// Send the first numCacheEntries packets
 		// Receive packets and compare results
 		// All rules should be cache miss
-		for (int i = 0; i < numCacheEntries; i++) {
+		for (size_t i = 0; i < numCacheEntries; i++) {
 			res = __ModifyPackets(i);
 			if (false == res) {
 				printf("Failed to modify packets.\n");
@@ -8062,7 +8062,7 @@ public:
 		// Send again the first numCacheEntries packets
 		// Receive packets and compare results
 		// All rules should be cache hit
-		for (int i = 0; i < numCacheEntries; i++) {
+		for (size_t i = 0; i < numCacheEntries; i++) {
 			res = __ModifyPackets(i);
 			if (false == res) {
 				printf("Failed to modify packets.\n");
@@ -9774,6 +9774,9 @@ public:
 		flt_rule_entry.rule.action=IPA_PASS_TO_ROUTING;
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
 		flt_rule_entry.rule.ttl_update = 1; // require ttl update
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR; // add catch all rule
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0;
 		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -9862,6 +9865,9 @@ public:
 		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1, false);
 		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, false);
 		pkt3_cmp_succ &= isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, false);
+
+		//should check if TTL decrement exception is icnremented instead of checking TTL update
+		printf("Check cat /sys/kernel/debug/ipa/stats to see if IPAHAL_PKT_STATUS_EXCEPTION_TTL increased!\n");
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
@@ -9939,6 +9945,7 @@ public:
 		4. Verify that the packet was not modified \
 		5. Verify packet status for the TTL exception";
 		m_minIPAHwType = IPA_HW_v5_5;
+		m_IpaIPType = IPA_IP_v6;
 		Register(*this);
 	}
 
@@ -10004,8 +10011,10 @@ public:
 		flt_rule_entry.status = -1; // return value
 		flt_rule_entry.rule.action=IPA_PASS_TO_ROUTING;
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
-		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
 		flt_rule_entry.rule.ttl_update = 1; // require ttl update
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR; // add catch all rule
+		memset(flt_rule_entry.rule.attrib.u.v6.dst_addr_mask, 0, sizeof(flt_rule_entry.rule.attrib.u.v6.dst_addr_mask));
+		memset(flt_rule_entry.rule.attrib.u.v6.dst_addr, 0, sizeof(flt_rule_entry.rule.attrib.u.v6.dst_addr));
 		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -10095,6 +10104,9 @@ public:
 		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1, false);
 		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, false);
 		pkt3_cmp_succ &= isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, false);
+
+		//should check if TTL decrement exception is icnremented instead of checking TTL update
+		printf("Check cat /sys/kernel/debug/ipa/stats to see if IPAHAL_PKT_STATUS_EXCEPTION_TTL increased!\n");
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
@@ -10238,6 +10250,9 @@ public:
 		flt_rule_entry.rule.action=IPA_PASS_TO_ROUTING;
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
 		flt_rule_entry.rule.ttl_update = 1; // require ttl update
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR; // add catch all rule
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = 0;
 		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -10326,6 +10341,9 @@ public:
 		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, false);
 		pkt3_cmp_succ &= isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, false);
 
+		//should check if TTL decrement exception is icnremented instead of checking TTL update
+		printf("Check cat /sys/kernel/debug/ipa/stats to see if IPAHAL_PKT_STATUS_EXCEPTION_TTL increased!\n");
+
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;
 		size_t sentBufferSize =
@@ -10402,6 +10420,7 @@ public:
 		4. Verify that the packet was not modified \
 		5. Verify packet status for the TTL exception";
 		m_minIPAHwType = IPA_HW_v5_5;
+		m_IpaIPType = IPA_IP_v6;
 		Register(*this);
 	}
 
@@ -10469,6 +10488,9 @@ public:
 		flt_rule_entry.rule.rt_tbl_hdl=routing_table0.hdl; //put here the handle corresponding to Routing Rule 1
 		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
 		flt_rule_entry.rule.ttl_update = 1; // require ttl update
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_DST_ADDR; // add catch all rule
+		memset(flt_rule_entry.rule.attrib.u.v6.dst_addr_mask, 0, sizeof(flt_rule_entry.rule.attrib.u.v6.dst_addr_mask));
+		memset(flt_rule_entry.rule.attrib.u.v6.dst_addr, 0, sizeof(flt_rule_entry.rule.attrib.u.v6.dst_addr));
 		if ((uint8_t)-1 == FilterTable0.AddRuleToTable(flt_rule_entry))
 		{
 			printf ("%s::Error Adding Rule to Filter Table, aborting...\n",__FUNCTION__);
@@ -10553,6 +10575,9 @@ public:
 		pkt1_cmp_succ &= isTtlUpdated(m_sendSize, receivedSize, rxBuff1, false);
 		pkt2_cmp_succ &= isTtlUpdated(m_sendSize2, receivedSize2, rxBuff2, false);
 		pkt3_cmp_succ &= isTtlUpdated(m_sendSize3, receivedSize3, rxBuff3, false);
+
+		//should check if TTL decrement exception is icnremented instead of checking TTL update
+		printf("Check cat /sys/kernel/debug/ipa/stats to see if IPAHAL_PKT_STATUS_EXCEPTION_TTL increased!\n");
 
 		size_t recievedBufferSize =
 			MAX3(receivedSize, receivedSize2, receivedSize3) * 3;

@@ -528,7 +528,7 @@ bool SendReceiveAndCompare(InterfaceAbstraction *pSink, uint8_t* pSendBuffer, si
 	}
 
 bail:
-	delete (pRxBuff);
+	delete [] pRxBuff;
 	LOG_MSG_STACK("Leaving Function (Returning %s)",bRetVal?"True":"False");
 	return bRetVal;
 }
