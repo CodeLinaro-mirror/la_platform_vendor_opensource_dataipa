@@ -2352,8 +2352,8 @@ int ipa3_flt_read_tbl_from_hw(u32 pipe_idx, enum ipa_ip_type ip_type,
 			break;
 
 		rule_addr += entry[rule_idx].rule_size;
-		rule_idx++;
 		curr_size += entry[rule_idx].rule_size;
+		rule_idx++;
 	}
 	*num_entry = rule_idx;
 bail:
