@@ -15025,8 +15025,6 @@ void ipa3_proxy_clk_unvote(void)
 {
 	if (ipa3_ctx == NULL)
 		return;
-	IPADBG("SA535 WA to hold IPA HW  proxy vote\n");
-	return;
 	mutex_lock(&ipa3_ctx->q6_proxy_clk_vote_mutex);
 	if (ipa3_ctx->q6_proxy_clk_vote_valid) {
 		IPA_ACTIVE_CLIENTS_DEC_SPECIAL("PROXY_CLK_VOTE");
