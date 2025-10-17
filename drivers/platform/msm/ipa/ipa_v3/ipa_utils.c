@@ -18019,10 +18019,16 @@ int ipa3_copy_ip_pass_pdn_info(
 {
 	struct ipa3_ip_pass_msg *entry = NULL;
 	struct ipa3_ip_pass_msg *next = NULL;
+	struct ipa3_ip_pass_msg *itr = NULL;
 
 	if(pdn_info->enable == 1)
 	{
 		entry = kzalloc(sizeof(struct ipa3_ip_pass_msg), GFP_KERNEL);
+		if (!entry)
+		{
+			IPAERR("Failed to allocate memory for ip_pass_msg\n");
+			return -ENOMEM;
+		}
 		if(list_empty(&ipa3_ctx->msg_ippt_list))
 		{
 			memcpy(&(entry->ippass_config), pdn_info,
@@ -18033,12 +18039,12 @@ int ipa3_copy_ip_pass_pdn_info(
 		}
 		else
 		{
-			list_for_each_entry_safe(entry, next,
+			list_for_each_entry_safe(itr, next,
 				&ipa3_ctx->msg_ippt_list, link) {
 				/* compare to delete one*/
-				if (entry && (!memcmp(entry->ippass_config.dev_name, pdn_info->dev_name,
+				if (itr && (!memcmp(itr->ippass_config.dev_name, pdn_info->dev_name,
 					sizeof(pdn_info->dev_name)))) {
-					IPADBG("entry is already exists\n");
+					IPADBG("entry %px already exists\n", itr);
 					kfree(entry);
 					return 0;
 				}
@@ -18052,6 +18058,12 @@ int ipa3_copy_ip_pass_pdn_info(
 	}
 	else if(pdn_info->enable == 0)
 	{
+		IPADBG("ippt_pdninfo_refcnt %d\n",ipa3_ctx->ippt_pdninfo_refcnt);
+		if(ipa3_ctx->ippt_pdninfo_refcnt == 0)
+		{
+			IPADBG("ippt pdn ref count 0\n");
+			return 0;
+		}
 		if(list_empty(&ipa3_ctx->msg_ippt_list))
 		{
 			IPADBG("list is empty\n");
@@ -18059,15 +18071,15 @@ int ipa3_copy_ip_pass_pdn_info(
 		}
 		else
 		{
-			list_for_each_entry_safe(entry, next,
+			list_for_each_entry_safe(itr, next,
 				&ipa3_ctx->msg_ippt_list, link) {
 				/* compare to delete one*/
-				if(entry && (!memcmp(entry->ippass_config.dev_name,pdn_info->dev_name,
+				if(itr && (!memcmp(itr->ippass_config.dev_name,pdn_info->dev_name,
 				sizeof(pdn_info->dev_name)))) {
-					IPADBG("entry is found, so clearing the pdn info\n");
-					list_del(&entry->link);
-					kfree(entry);
-					entry = NULL;
+					IPADBG("entry %px is found, so clearing the pdn info\n", itr);
+					list_del(&itr->link);
+					kfree(itr);
+					itr = NULL;
 					ipa3_ctx->ippt_pdninfo_refcnt--;
 					IPADBG("now %d ippt pdn config entries present in list\n",
 						ipa3_ctx->ippt_pdninfo_refcnt);
