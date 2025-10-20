@@ -451,6 +451,7 @@ enum ipa_ver {
 	IPA_7_0 = 29,
 	IPA_7_0_MHI = 30,
 	IPA_7_0_AUTO = 31,
+	IPA_7_0_AUTO_MHI = 32,
 	IPA_VER_MAX,
 };
 
@@ -11149,19 +11150,23 @@ u8 ipa3_get_hw_type_index(void)
 		hw_type_index = IPA_5_5;
 		break;
 	case IPA_HW_v6_0:
-                hw_type_index = IPA_6_0;
+		hw_type_index = IPA_6_0;
 		if (ipa3_ctx->ipa_config_is_mhi)
-			 hw_type_index = IPA_6_0_MHI;
-                if (ipa3_ctx->ipa_config_is_auto)
-                        hw_type_index = IPA_6_0_AUTO;
-                if (ipa3_ctx->ipa_config_is_auto &&
-                        ipa3_ctx->ipa_config_is_mhi)
-                        hw_type_index = IPA_6_0_AUTO_MHI;
-                break;
+			hw_type_index = IPA_6_0_MHI;
+		if (ipa3_ctx->ipa_config_is_auto)
+			hw_type_index = IPA_6_0_AUTO;
+		if (ipa3_ctx->ipa_config_is_auto && ipa3_ctx->ipa_config_is_mhi)
+			hw_type_index = IPA_6_0_AUTO_MHI;
+		break;
 	case IPA_HW_v7_0:
 		hw_type_index = IPA_7_0;
+		if (ipa3_ctx->ipa_config_is_mhi)
+			hw_type_index = IPA_7_0_MHI;
 		if (ipa3_ctx->ipa_config_is_auto)
 			hw_type_index = IPA_7_0_AUTO;
+		if (ipa3_ctx->ipa_config_is_auto &&
+			ipa3_ctx->ipa_config_is_mhi)
+			hw_type_index = IPA_7_0_AUTO_MHI;
 		break;
 	default:
 		IPAERR("Incorrect IPA version %d\n", ipa3_ctx->ipa_hw_type);
@@ -11603,14 +11608,18 @@ int ipa_get_ep_mapping(enum ipa_client_type client)
 		return IPA_EP_NOT_ALLOCATED;
 	}
 
-	if (!ipa3_ep_mapping[hw_idx][client].valid)
+	if (!ipa3_ep_mapping[hw_idx][client].valid) {
+		IPAERR_RL("ipa EP is not valid! client =%d\n", client);
 		return IPA_EP_NOT_ALLOCATED;
+	}
 
 	ipa_ep_idx =
 		ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ipa_ep_num;
 	if (ipa_ep_idx < 0 || (ipa_ep_idx >= ipa3_get_max_num_pipes()
-		&& client != IPA_CLIENT_DUMMY_CONS))
-		return IPA_EP_NOT_ALLOCATED;
+		&& client != IPA_CLIENT_DUMMY_CONS)) {
+			IPAERR_RL("invalid pipe idx! client =%d\n", client);
+			return IPA_EP_NOT_ALLOCATED;
+	}
 
 	return ipa_ep_idx;
 }
