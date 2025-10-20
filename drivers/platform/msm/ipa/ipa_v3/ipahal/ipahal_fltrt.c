@@ -25,6 +25,12 @@
 		IPA_FLT_MAC_SRC_ADDR_802_3 | IPA_FLT_MAC_DST_ADDR_802_1Q | \
 		IPA_FLT_MAC_SRC_ADDR_802_1Q)
 
+#define MAC_ADDR_LEN 6
+#define NON_IHL_EQ_OFFSET_FROM_L2(x) (x | 0x80)
+#define NON_IHL_EQ_OFFSET_FROM_L3(x) (x & 0x7F)
+#define IHL_EQ_OFFSET_FROM_L3(x) (x | 0x80)
+#define IHL_EQ_OFFSET_FROM_L4(x) (x & 0x7F)
+
 static u64 ipa_fltrt_create_flt_bitmap(u64 ep_bitmap)
 {
 	/* At IPA3, there global configuration is possible but not used */
@@ -1926,43 +1932,19 @@ static inline void ipa_fltrt_get_mac_data(const struct ipa_rule_attrib *attrib,
 	uint32_t attrib_mask, u8 *offset, const uint8_t **mac_addr,
 	const uint8_t **mac_addr_mask)
 {
-	if (attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) {
-		*offset =  0 | 0x80;
+	if (attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II ||
+	    attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3 ||
+	    attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) {
+		*offset =  NON_IHL_EQ_OFFSET_FROM_L2(0);
 		*mac_addr = attrib->dst_mac_addr;
 		*mac_addr_mask = attrib->dst_mac_addr_mask;
 		return;
 	}
 
-	if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) {
-		*offset =  6 | 0x80;
-		*mac_addr = attrib->src_mac_addr;
-		*mac_addr_mask = attrib->src_mac_addr_mask;
-		return;
-	}
-
-	if (attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) {
-		*offset =  0 | 0x80;
-		*mac_addr = attrib->dst_mac_addr;
-		*mac_addr_mask = attrib->dst_mac_addr_mask;
-		return;
-	}
-
-	if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) {
-		*offset =  6 | 0x80;
-		*mac_addr = attrib->src_mac_addr;
-		*mac_addr_mask = attrib->src_mac_addr_mask;
-		return;
-	}
-
-	if (attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) {
-		*offset =  0 | 0x80;
-		*mac_addr = attrib->dst_mac_addr;
-		*mac_addr_mask = attrib->dst_mac_addr_mask;
-		return;
-	}
-
-	if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q) {
-		*offset =  6 | 0x80;
+	if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II ||
+	    attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3 ||
+	    attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q) {
+		*offset =  NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN);
 		*mac_addr = attrib->src_mac_addr;
 		*mac_addr_mask = attrib->src_mac_addr_mask;
 		return;
@@ -2041,8 +2023,8 @@ static inline int ipa_fltrt_generate_vlan_hw_rule_bdy(u16 *en_rule,
 		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[*ofst_meq32]);
-		/* -6 => offset of 802_1Q tag in L2 hdr */
-		*extra = ipa_write_8((u8)12 | 0x80, *extra);//todo: eliad fix properly
+		/* 12 => offset of 802_1Q tag in L2 hdr */
+		*extra = ipa_write_8(NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2), *extra);
 		/* filter vlan packets: 0x8100 TPID + required VLAN ID */
 		vlan_tag = (0x8100 << 16) | (attrib->vlan_id & 0xFFF);
 		*rest = ipa_write_32(0xFFFF0FFF, *rest);
@@ -2132,8 +2114,8 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[ofst_meq32]);
-		/* -2 => offset of ether type in L2 hdr */
-		extra = ipa_write_8((u8)12 | 0x80, extra);// todo: fix properly
+		/* 12 => offset of ether type in L2 hdr */
+		extra = ipa_write_8(NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2), extra);
 		rest = ipa_write_16(0, rest);
 		rest = ipa_write_16(htons(attrib->ether_type), rest);
 		rest = ipa_write_16(0, rest);
@@ -2328,9 +2310,9 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 			/*
 			 * 0 => Take the first word. offset of TOS in
 			 * v4 header is 1. MSB bit asserted at IHL means
-			 * to ignore packet IHL and do offset inside IPA header
+			 * to start from the IP header.
 			 */
-			extra = ipa_write_8(0x80, extra);
+			extra = ipa_write_8(IHL_EQ_OFFSET_FROM_L3(0), extra);
 			rest = ipa_write_32(0xFF << 16, rest);
 			rest = ipa_write_32((attrib->u.v4.tos << 16), rest);
 			ihl_ofst_meq32++;
@@ -2347,9 +2329,9 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 			/*
 			 * 0 => Take the first word. offset of TOS in
 			 * v4 header is 1. MSB bit asserted at IHL means
-			 * to ignore packet IHL and do offset inside IPA header
+			 * to start from the IP header.
 			 */
-			extra = ipa_write_8(0x80, extra);
+			extra = ipa_write_8(IHL_EQ_OFFSET_FROM_L3(0), extra);
 			rest = ipa_write_32((attrib->tos_mask << 16), rest);
 			rest = ipa_write_32((attrib->tos_value << 16), rest);
 			ihl_ofst_meq32++;
@@ -2371,8 +2353,8 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 			}
 			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 				ipa3_0_ihl_ofst_rng16[ihl_ofst_rng16]);
-			/* 130	=> (130 - 128) = 2 offset of length in v4 header */
-			extra = ipa_write_8(130, extra);
+			/* 2 is offset of length in v4 header */
+			extra = ipa_write_8(IHL_EQ_OFFSET_FROM_L3(2), extra);
 			rest = ipa_write_16(attrib->payload_length, rest);
 			rest = ipa_write_16(0, rest);
 			ihl_ofst_rng16++;
@@ -2498,8 +2480,8 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 	if (attrib->ext_attrib_mask & IPA_FLT_EXT_NEXT_HDR) {
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
-		/* 134  => offset of Next header after v6 header. */
-		extra = ipa_write_8(134, extra);
+		/* 6 => offset of "next header" in IPv6 header */
+		extra = ipa_write_8(IHL_EQ_OFFSET_FROM_L3(6), extra);
 		rest = ipa_write_32(0xFF000000, rest);
 		rest = ipa_write_32(attrib->u.v6.next_hdr << 24, rest);
 		extra = ipa_write_8(attrib->u.v6.next_hdr, extra);
@@ -2599,8 +2581,8 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[ofst_meq32]);
-		/* -2 => offset of ether type in L2 hdr */
-		extra = ipa_write_8((u8)12 | 0x80, extra);// todo: fix properly
+		/* 12 => offset of ether type in L2 hdr */
+		extra = ipa_write_8(NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2), extra);
 		rest = ipa_write_16(0, rest);
 		rest = ipa_write_16(htons(attrib->ether_type), rest);
 		rest = ipa_write_16(0, rest);
@@ -3223,7 +3205,7 @@ static int ipa_fltrt_generate_hw_rule_bdy_5_5(enum ipa_ip_type ipt,
 		extra_wrd_i = ipa_pad_to_64(extra_wrd_i);
 		sz = extra_wrd_i - extra_wrd_start;
 		IPAHAL_DBG_LOW("extra words params sz %d, buf: 0x%s, \n", sz, *buf);
-		*buf = ipa_fltrt_copy_mem(extra_wrd_start, *buf, sz);	
+		*buf = ipa_fltrt_copy_mem(extra_wrd_start, *buf, sz);
 	}
 	IPAHAL_DBG_LOW("Updated *buf 0x%s\n", *buf);
 
@@ -4317,8 +4299,9 @@ static inline int ipa_flt_generat_vlan_eq(
 		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[*ofst_meq32]);
-		/* -6 => offset of 802_1Q tag in L2 hdr */
-		eq_atrb->offset_meq_32[*ofst_meq32].offset = 12 | 0x80;//todo: eliad fix properly
+		/* 12 => offset of 802_1Q tag in L2 hdr */
+		eq_atrb->offset_meq_32[*ofst_meq32].offset =
+			NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2);
 		/* filter vlan packets: 0x8100 TPID + required VLAN ID */
 		vlan_tag = (0x8100 << 16) | (attrib->vlan_id & 0xFFF);
 		eq_atrb->offset_meq_32[*ofst_meq32].mask = 0xFFFF0FFF;
@@ -4464,7 +4447,8 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[ofst_meq32]);
-		eq_atrb->offset_meq_32[ofst_meq32].offset = 12 | 0x80;// todo: fix properly
+		eq_atrb->offset_meq_32[ofst_meq32].offset =
+			NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2);
 		eq_atrb->offset_meq_32[ofst_meq32].mask =
 			htons(attrib->ether_type);
 		eq_atrb->offset_meq_32[ofst_meq32].value =
@@ -4568,10 +4552,10 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 			/*
 			 * 0 => Take the first word. offset of TOS in
 			 * v4 header is 1. MSB bit asserted at IHL means
-			 * to ignore packet IHL and do offset inside IPA header
+			 * to start from the IP header.
 			 */
 			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset =
-				0x80;
+				IHL_EQ_OFFSET_FROM_L3(0);
 			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask =
 				0xFF << 16;
 			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
@@ -4587,7 +4571,8 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 		} else {
 			*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 				ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
-			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = 0x80;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset =
+				IHL_EQ_OFFSET_FROM_L3(0);
 			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask =
 				attrib->tos_mask << 16;
 			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
@@ -4977,7 +4962,8 @@ static int ipa_flt_generate_eq_ip6(enum ipa_ip_type ip,
 		}
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[ofst_meq32]);
-		eq_atrb->offset_meq_32[ofst_meq32].offset = 12 | 0x80;// todo: fix properly
+		eq_atrb->offset_meq_32[ofst_meq32].offset =
+			NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2);
 		eq_atrb->offset_meq_32[ofst_meq32].mask =
 			htons(attrib->ether_type);
 		eq_atrb->offset_meq_32[ofst_meq32].value =
