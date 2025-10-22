@@ -4222,6 +4222,11 @@ int ipa3_eth_enable(
 	int inst_id,
 	u8 priority,
 	u8 pipe_idx);
+
+int ipa3_eth_disable(
+	struct ipa_eth_client_pipe_info *pipe,
+	enum ipa_client_type client_type,
+	u8 pipe_idx);
 #endif
 
 #endif /* _IPA3_I_H_ */

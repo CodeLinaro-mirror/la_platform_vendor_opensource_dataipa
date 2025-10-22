@@ -1663,6 +1663,8 @@ int ipa3_eth_disconnect(
 		return -EFAULT;
 	}
 	ep = &ipa3_ctx->ep[ep_idx];
+	id = (pipe->dir == IPA_ETH_PIPE_DIR_TX) ? 1 : 0;
+#if IPA_ETH_API_VER < 5
 	/* disable data path */
 	result = ipa3_disable_data_path(ep_idx);
 	if (result) {
@@ -1672,7 +1674,6 @@ int ipa3_eth_disconnect(
 		return -EFAULT;
 	}
 
-	id = (pipe->dir == IPA_ETH_PIPE_DIR_TX) ? 1 : 0;
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
 		&& prot != IPA_HW_PROTOCOL_IEMAC) {
@@ -1701,7 +1702,7 @@ int ipa3_eth_disconnect(
 		if (result)
 			IPAERR("failed to config uc\n");
 	}
-
+#endif
 	/* tear down pipe */
 	result = ipa3_reset_gsi_channel(ep_idx);
 	if (result != GSI_STATUS_SUCCESS) {
@@ -1957,4 +1958,77 @@ enable_data_path_fail:
 	return result;
 }
 EXPORT_SYMBOL(ipa3_eth_enable);
+
+int ipa3_eth_disable(
+	struct ipa_eth_client_pipe_info *pipe,
+	enum ipa_client_type client_type,
+	u8 pipe_idx)
+{
+	struct ipa3_ep_context *ep = NULL;
+	int ep_idx = -1;
+	int result = 0;
+	int id;
+	enum ipa4_hw_protocol prot;
+
+	ep_idx = ipa_get_ep_mapping(client_type);
+	if ((ep_idx == IPA_EP_NOT_ALLOCATED) || (ep_idx >= IPA_MAX_NUM_PIPES)) {
+		IPAERR("undefined client_type %d or ep_idx[%d] out of range\n",
+			client_type, ep_idx);
+		return -EFAULT;
+	}
+
+	ep = &ipa3_ctx->ep[ep_idx];
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	/* disable data path */
+	result = ipa3_disable_data_path(ep_idx);
+	if (result) {
+		IPAERR("enable data path failed res=%d clnt=%d.\n", result,
+			ep_idx);
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+		return -EFAULT;
+	}
+
+	id = (pipe->dir == IPA_ETH_PIPE_DIR_TX) ? 1 : 0;
+	result = ipa3_eth_get_prot(pipe, &prot);
+
+	/* stop uC gsi dbg stats monitor */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
+		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
+			= 0xff;
+		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
+			= pipe->dir;
+		ipa3_uc_debug_stats_alloc(
+			ipa3_ctx->gsi_info[prot]);
+	}
+	/* stop gsi channel */
+	result = ipa_stop_gsi_channel(ep_idx);
+	if (result) {
+		IPAERR("failed to stop gsi channel %d\n", ep_idx);
+		result = -EFAULT;
+		ipa_assert();
+		goto fail;
+	}
+
+
+	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
+	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
+	     ((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2))) {
+		result = ipa3_eth_config_uc(false, prot,
+			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
+			ep->gsi_chan_hdl, 0, 0, 0);
+		if (result)
+			IPAERR("failed to config uc\n");
+	}
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return 0;
+
+fail:
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return result;
+
+}
+EXPORT_SYMBOL(ipa3_eth_disable);
+
 #endif

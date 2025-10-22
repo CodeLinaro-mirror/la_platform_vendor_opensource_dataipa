@@ -841,10 +841,13 @@ static int ipa_eth_client_enable_pipe(
 
 static int ipa_eth_client_disable_pipe(
 	struct ipa_eth_client_pipe_info *pipe,
+	int inst_id,
 	u8 rx_pipe_idx,
 	u8 tx_pipe_idx)
 {
 	enum ipa_client_type client_type;
+	u8 pipe_idx = 0;
+	int ret;
 
 	if (!pipe) {
 		IPA_ETH_ERR("invalid pipe\n");
@@ -861,6 +864,20 @@ static int ipa_eth_client_disable_pipe(
 	if (!pipe_enabled[client_to_pipe_index(client_type)]) {
 		IPA_ETH_ERR("client not enabled\n");
 		return -EFAULT;
+	}
+
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		pipe_idx = tx_pipe_idx;
+	} else {
+		pipe_idx = rx_pipe_idx;
+	}
+
+
+	IPADBG("Client_type: %d, Inst_id: %d, Pipe_idx= %d",
+		client_type, inst_id, pipe_idx);
+	ret = ipa3_eth_disable(pipe, client_type, pipe_idx);
+	if (!ret) {
+		pipe_enabled[client_to_pipe_index(client_type)] = false;
 	}
 
 	pipe_enabled[client_to_pipe_index(client_type)] = false;
@@ -2236,6 +2253,7 @@ int ipa_eth_client_disable_pipes(struct ipa_eth_client *client)
 	int rc;
 	struct ipa_eth_client_pipe_info *pipe;
 	int  rx_pipe_idx = 0, tx_pipe_idx = 0;
+	int  inst_id;
 
 	/* validate user input */
 	if (!client) {
@@ -2252,7 +2270,7 @@ int ipa_eth_client_disable_pipes(struct ipa_eth_client *client)
 		IPA_ETH_ERR("disconn called before IPA eth ready\n");
 		return -EFAULT;
 	}
-
+	inst_id = client->inst_id;
 #if IPA_ETH_API_VER >= 3
 	IPA_ETH_DBG("ipa_eth disable client %d inst %d\n",
 		client->client_type, client->inst_id);
@@ -2277,7 +2295,7 @@ int ipa_eth_client_disable_pipes(struct ipa_eth_client *client)
 			continue;
 		}
 #endif
-		rc = ipa_eth_client_disable_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
+		rc = ipa_eth_client_disable_pipe(pipe, inst_id, rx_pipe_idx, tx_pipe_idx);
 		if (rc) {
 			IPA_ETH_ERR("pipe disable fails\n");
 			ipa_assert();
