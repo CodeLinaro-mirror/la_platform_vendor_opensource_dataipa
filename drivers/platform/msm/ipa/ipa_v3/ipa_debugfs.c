@@ -505,6 +505,64 @@ int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe)
 		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, pipe));
 }
 
+/**
+ * _ipa_read_ep_reg_v7_0() - Reads and prints endpoint configuration registers
+ *
+ * Returns the number of characters printed
+ * Removed IPA_ENDP_INIT_NAT_n and IPA_ENDP_INIT_CONN_TRACK_n from v4
+ * Added IPA_ENDP_INIT_HDR_METADATA_n, IPA_ENDP_INIT_HDR_METADATA_MASK_n,
+ *  IPA_ENDP_INIT_ULSO_CFG_n, IPA_ENDP_INIT_PROD_CFG_n, IPA_ENDP_INIT_RSRC_GRP_n
+ */
+int _ipa_read_ep_reg_v7_0(char *buf, int max_len, int pipe)
+{
+	int ret = 0;
+	ret += scnprintf(
+		buf, IPA_MAX_MSG_LEN,
+		"IPA_ENDP_INIT_HDR_%u=0x%x\n"
+		"IPA_ENDP_INIT_HDR_EXT_%u=0x%x\n"
+		"IPA_ENDP_INIT_AGGR_%u=0x%x\n"
+		"IPA_ENDP_INIT_CFG_%u=0x%x\n"
+		"IPA_ENDP_INIT_RSRC_GRP_%u=0x%x\n",
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HDR_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HDR_EXT_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_AGGR_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CFG_n, pipe),
+		pipe, ipahal_read_reg_n(IPA_ENDP_INIT_RSRC_GRP_n, pipe));
+	if (pipe < IPA7_PROD_PIPES_NUM /* to IPA */) {
+		ret += scnprintf(
+			buf + ret, IPA_MAX_MSG_LEN,
+			"IPA_ENDP_INIT_DEAGGR_%u=0x%x\n"
+			"IPA_ENDP_INIT_HDR_METADATA_%u=0x%x\n"
+			"IPA_ENDP_INIT_MODE_%u=0x%x\n"
+			"IPA_ENDP_INIT_CTRL_%u=0x%x\n"
+			"IPA_ENDP_INIT_SEQ_%u=0x%x\n"
+			"IPA_ENDP_INIT_ULSO_CFG_%u=0x%x\n"
+			"IPA_ENDP_INIT_IPSEC_CFG_%u=0x%x\n"
+			"IPA_ENDP_INIT_DRBIP_CFG_%u=0x%x\n",
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DEAGGR_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HDR_METADATA_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_MODE_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_CTRL_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_SEQ_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_ULSO_CFG_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_IPSEC_CFG_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, pipe));
+	} else /* from IPA */ {
+		ret += scnprintf(
+			buf + ret, IPA_MAX_MSG_LEN,
+			"IPA_ENDP_INIT_HDR_METADATA_MASK_%u=0x%x\n"
+			"IPA_ENDP_INIT_HOL_BLOCK_EN_%u=0x%x\n"
+			"IPA_ENDP_INIT_HOL_BLOCK_TIMER_%u=0x%x\n"
+			"IPA_ENDP_INIT_PROD_CFG_%u=0x%x\n",
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HDR_METADATA_MASK_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HOL_BLOCK_EN_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n, pipe),
+			pipe, ipahal_read_reg_n(IPA_ENDP_INIT_PROD_CFG_n, pipe));
+	}
+
+	return ret;
+}
+
 static ssize_t ipa3_read_ep_reg(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
