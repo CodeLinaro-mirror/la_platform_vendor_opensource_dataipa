@@ -2,6 +2,10 @@ load("//build/bazel_common_rules/dist:dist.bzl", "copy_to_dist_dir")
 load(":target_variants.bzl", "get_all_variants")
 load("//build/kernel/kleaf:kernel.bzl", "ddk_module")
 
+def define_target_modules():
+    for target, variant in get_all_variants():
+        define_modules(target = target, variant = variant)
+
 def define_modules(target, variant):
     kernel_build_variant = "{}_{}".format(target, variant)
     include_base = "../../../{}".format(native.package_name())
@@ -332,3 +336,4 @@ def define_modules(target, variant):
         mode_overrides = {"**/*": "644"},
         log = "info",
     )
+
