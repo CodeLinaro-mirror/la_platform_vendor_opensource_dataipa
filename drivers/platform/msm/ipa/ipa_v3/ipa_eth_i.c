@@ -1150,6 +1150,33 @@ static bool hw_support_protocol(enum ipa4_hw_protocol protocol)
 	return true;
 }
 
+int ipa3_eth_update_dma_config(
+	int inst_id,
+	bool dma_enable,
+	enum ipa_client_type client_type)
+{
+	int ep_idx = -1;
+
+	ep_idx = ipa_get_ep_mapping(client_type);
+	if ((ep_idx == IPA_EP_NOT_ALLOCATED) || (ep_idx >= IPA_MAX_NUM_PIPES)) {
+		IPAERR("undefined client_type or ep_idx[%d] out of range\n", ep_idx);
+		return -EFAULT;
+	}
+
+	if (inst_id >= IPA_ETH_INST_ID_MAX) {
+		IPAERR("Invalid EMAC instance: %d", inst_id);
+		return -EFAULT;
+	}
+
+	ipa3_ctx->ipa3_eth_dma_cfg[inst_id].enable = dma_enable;
+	ipa3_ctx->ipa3_eth_dma_cfg[inst_id].dst = client_type;
+
+	IPADBG("DMA Mode config: EMAC instance: %d, enable: %d,"
+		"client_type: %d, dest_pipe: ep_idx",
+		inst_id, dma_enable, client_type, ep_idx);
+	return 0;
+}
+
 int ipa3_eth_connect(
 	struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type client_type,
@@ -1319,6 +1346,15 @@ int ipa3_eth_connect(
 				goto cfg_ep_fail;
 			}
 		}
+	}
+
+	/* Override DMA Config. */
+	if (IPA_CLIENT_IS_PROD(client_type) &&
+		ipa3_ctx->ipa3_eth_dma_cfg[inst_id].enable) {
+		ep->cfg.mode.mode = IPA_DMA;
+		ep->cfg.mode.dst = ipa3_ctx->ipa3_eth_dma_cfg[inst_id].dst;
+		ep->cfg.seq.set_dynamic = true;
+		ep->cfg.seq.seq_type = 0;
 	}
 
 	if (ipa3_cfg_ep(ep_idx, &ep->cfg)) {

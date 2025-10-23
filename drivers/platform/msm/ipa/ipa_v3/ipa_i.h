@@ -2170,6 +2170,11 @@ struct ipa3_eth_info {
 	struct ipa_eth_client_mapping map[IPA_MAX_CH_STATS_SUPPORTED];
 };
 
+struct ipa3_eth_dma_config {
+	bool enable;
+	enum ipa_client_type dst;
+};
+
 struct ipa3_eth_error_stats {
 	int rp;
 	int wp;
@@ -2746,6 +2751,7 @@ struct ipa3_context {
 	char *uc_fw_file_name;
 	struct ipa3_eth_info
 		eth_info[IPA_ETH_CLIENT_MAX][IPA_ETH_INST_ID_MAX];
+	struct ipa3_eth_dma_config ipa3_eth_dma_cfg[IPA_ETH_INST_ID_MAX];
 	u32 ipa_wan_aggr_pkt_cnt;
 	bool ipa_mhi_proxy;
 	bool ipa_mhi_eth;
@@ -4050,6 +4056,10 @@ void ipa_eth_exit(void);
 static inline int ipa_eth_init(void) { return 0; }
 static inline void ipa_eth_exit(void) { }
 #endif
+int ipa3_eth_update_dma_config(
+	int inst_id,
+	bool dma_enable,
+	enum ipa_client_type client_type);
 int ipa3_eth_connect(
 	struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type client_type,
