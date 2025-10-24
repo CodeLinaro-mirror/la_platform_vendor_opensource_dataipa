@@ -240,4 +240,6 @@ int ipa_ipv6ct_add_uc_act_entry(union ipa_ioc_uc_activation_entry *u);
  */
 int ipa_ipv6ct_del_uc_act_entry(uint16_t idx);
 
+bool ipa_ct_is_sram_supported(void);
+
 #endif

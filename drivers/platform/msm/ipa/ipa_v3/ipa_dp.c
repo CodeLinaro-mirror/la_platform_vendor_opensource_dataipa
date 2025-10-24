@@ -102,6 +102,8 @@
 
 #define IPA_QMAP_ID_BYTE 0
 
+#define IPA_ETH_PDU_TAG_CHECK 0x7E00
+
 static int ipa3_tx_switch_to_intr_mode(struct ipa3_sys_context *sys);
 static int ipa3_rx_switch_to_intr_mode(struct ipa3_sys_context *sys);
 static struct sk_buff *ipa3_get_skb_ipa_rx(unsigned int len, gfp_t flags);
@@ -4794,6 +4796,8 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	unsigned int src_pipe;
 	u32 metadata;
 	u8 ucp;
+	u32 extra;
+	u64 tag_info;
 	void (*client_notify)(void *client_priv, enum ipa_dp_evt_type evt,
 		       unsigned long data);
 	void *client_priv;
@@ -4804,6 +4808,7 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	src_pipe = status.endp_src_idx;
 	metadata = status.metadata;
 	ucp = status.ucp;
+	tag_info = status.tag_info;
 	ep = &ipa3_ctx->ep[src_pipe];
 	if (unlikely(src_pipe >= ipa3_ctx->ipa_num_pipes) ||
 		unlikely(atomic_read(&ep->disconnect_in_progress))) {
@@ -4812,11 +4817,12 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		return;
 	}
 	if (status.exception == IPAHAL_PKT_STATUS_EXCEPTION_NONE) {
-		u32 extra = ( lan_coal_enabled() ) ? 0 : IPA_LAN_RX_HEADER_LENGTH;
+		extra = ( lan_coal_enabled() ) ? 0 : IPA_LAN_RX_HEADER_LENGTH;
 		skb_pull(rx_skb, ipahal_pkt_status_get_size() + extra);
 	}
-	else
+	else {
 		skb_pull(rx_skb, ipahal_pkt_status_get_size());
+	}
 
 	if (ep->ast_update) {
 		ipa3_wdi_extact_ast_info(rx_skb, ntohl(metadata), ucp, &ast_info);
@@ -4873,6 +4879,12 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
 	}
 	spin_lock(&ipa3_ctx->disconnect_lock);
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && !ep->valid &&
+			(tag_info & 0xFFFF) == IPA_ETH_PDU_TAG_CHECK)
+	{
+		src_pipe = ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id;
+		ep = &ipa3_ctx->ep[src_pipe];
+	}
 	if (likely((!atomic_read(&ep->disconnect_in_progress)) &&
 				ep->valid && ep->client_notify)) {
 		client_notify = ep->client_notify;
@@ -6121,14 +6133,14 @@ static void ipa3_set_aggr_limit(struct ipa_sys_connect_params *in,
 	if (ipa3_ctx->ipa_wan_skb_page || in->client == IPA_CLIENT_APPS_WAN_V2X_CONS) {
 		IPAERR("set rx_buff_sz config from netmngr %lu\n", (unsigned long)
 			sys->buff_size);
-		sys->rx_buff_sz = IPA_GENERIC_RX_BUFF_SZ(sys->buff_size);
+		sys->rx_buff_sz = min_t(u64, IPA_GENERIC_RX_BUFF_SZ(sys->buff_size), U32_MAX);
 		*aggr_byte_limit = IPA_ADJUST_AGGR_BYTE_LIMIT(*aggr_byte_limit);
 	} else {
 		adjusted_sz = ipa_adjust_ra_buff_base_sz(*aggr_byte_limit);
 		IPAERR("get close-by %u\n", adjusted_sz);
 		IPAERR("set default rx_buff_sz %lu\n", (unsigned long)
 				IPA_GENERIC_RX_BUFF_SZ(adjusted_sz));
-		sys->rx_buff_sz = IPA_GENERIC_RX_BUFF_SZ(adjusted_sz);
+		sys->rx_buff_sz = min_t(u64, IPA_GENERIC_RX_BUFF_SZ(adjusted_sz), U32_MAX);
 		*aggr_byte_limit = sys->rx_buff_sz < *aggr_byte_limit ?
 		IPA_ADJUST_AGGR_BYTE_LIMIT(sys->rx_buff_sz) :
 		IPA_ADJUST_AGGR_BYTE_LIMIT(*aggr_byte_limit);
@@ -6221,8 +6233,9 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 			INIT_DELAYED_WORK(&sys->replenish_rx_work,
 					ipa3_replenish_rx_work_func);
 			atomic_set(&sys->curr_polling_state, 0);
-			sys->rx_buff_sz = IPA_GENERIC_RX_BUFF_SZ(
-				IPA_GENERIC_RX_BUFF_BASE_SZ);
+			sys->rx_buff_sz = min_t(u64,
+					IPA_GENERIC_RX_BUFF_SZ(IPA_GENERIC_RX_BUFF_BASE_SZ),
+						U32_MAX);
 			sys->get_skb = ipa3_get_skb_ipa_rx;
 			sys->free_skb = ipa_free_skb_rx;
 			if (IPA_CLIENT_IS_APPS_COAL_CONS(in->client))
@@ -6316,8 +6329,9 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 				IPA_CLIENT_APPS_WAN_LOW_LAT_CONS) {
 				INIT_WORK(&sys->repl_work, ipa3_wq_repl_rx);
 				sys->ep->status.status_en = false;
-				sys->rx_buff_sz = IPA_GENERIC_RX_BUFF_SZ(
-					IPA_QMAP_RX_BUFF_BASE_SZ);
+				sys->rx_buff_sz = min_t(u64,
+						IPA_GENERIC_RX_BUFF_SZ(IPA_QMAP_RX_BUFF_BASE_SZ),
+							U32_MAX);
 				sys->pyld_hdlr = ipa3_low_lat_rx_pyld_hdlr;
 				sys->repl_hdlr =
 					ipa3_fast_replenish_rx_cache;
@@ -6373,8 +6387,9 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 				sys->repl_hdlr =
 					ipa3_replenish_rx_cache;
 				/* Overwrite buffer size & aggr limit for GSB */
-				sys->rx_buff_sz = IPA_GENERIC_RX_BUFF_SZ(
-					IPA_GSB_RX_BUFF_BASE_SZ);
+				sys->rx_buff_sz = min_t(u64,
+						IPA_GENERIC_RX_BUFF_SZ(IPA_GSB_RX_BUFF_BASE_SZ),
+							U32_MAX);
 				in->ipa_ep_cfg.aggr.aggr_byte_limit =
 					IPA_GSB_AGGR_BYTE_LIMIT;
 			} else {
@@ -6419,8 +6434,9 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 			INIT_DELAYED_WORK(&sys->replenish_rx_work,
 				ipa3_replenish_rx_work_func);
 			atomic_set(&sys->curr_polling_state, 0);
-			sys->rx_buff_sz =
-				IPA_GENERIC_RX_BUFF_SZ(IPA_ODL_RX_BUFF_SZ);
+			sys->rx_buff_sz = min_t(u64,
+					IPA_GENERIC_RX_BUFF_SZ(IPA_ODL_RX_BUFF_SZ),
+						U32_MAX);
 			sys->pyld_hdlr = ipa3_odl_dpl_rx_pyld_hdlr;
 			sys->get_skb = ipa3_get_skb_ipa_rx;
 			sys->free_skb = ipa_free_skb_rx;

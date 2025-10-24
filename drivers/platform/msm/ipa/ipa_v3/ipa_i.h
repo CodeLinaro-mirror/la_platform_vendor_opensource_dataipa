@@ -2322,6 +2322,11 @@ enum ipa_eth_qos_type_e {
 	IPA_ETH_QOS_MAX
 };
 
+struct ipa3_ip_pass_msg {
+	struct ipa_ioc_pdn_config ippass_config;
+	struct list_head link;
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2454,6 +2459,7 @@ enum ipa_eth_qos_type_e {
  * @eth_pdu_ctx: ETH PDU ctx
  * @ipa_tiering_value: IPA tiering value to support multiple SKUs
  * @lan_stats_enabled: flag to check if stats is enabled or not.
+ * @ippt_pdninfo_refcnt:ippt_pdninfo_refcnt refcnt for ipacm restart scenarios
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2528,6 +2534,7 @@ struct ipa3_context {
 	struct list_head msg_wlan_client_list;
 	struct mutex msg_wlan_client_lock;
 	struct list_head msg_lan_list;
+	struct list_head msg_ippt_list;
 	struct mutex msg_lan_lock;
 	wait_queue_head_t msg_waitq;
 	enum ipa_hw_type ipa_hw_type;
@@ -2766,6 +2773,9 @@ struct ipa3_context {
 	struct mutex recycle_stats_collection_lock;
 	u16 filter_start_id;
 	struct ipa_ioc_get_qos_config get_qos_config;
+	u8 ippt_pdninfo_refcnt;
+	struct mutex msg_qos_param_lock;
+	struct list_head msg_qos_param_list;
 };
 
 struct ipa3_plat_drv_res {
@@ -3368,6 +3378,9 @@ int ipa3_ct_get_sram_info(struct ipa_nat_in_sram_info *info_ptr);
 int ipa3_resend_wlan_msg(void);
 int ipa3_resend_lan_msg(void);
 int ipa3_resend_driver_msg(void);
+int ipa3_ippt_resend_msg(void);
+int ipa3_copy_ip_pass_pdn_info(
+	struct ipa_ioc_pdn_config *pdn_info);
 int ipa3_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback);
 int ipa3_deregister_pull_msg(struct ipa_msg_meta *meta);
 
