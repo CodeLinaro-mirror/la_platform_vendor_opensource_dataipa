@@ -8550,6 +8550,12 @@ static unsigned int ipa3_get_bus_vote(void)
 	} else if (ipa3_ctx->curr_ipa_clk_rate ==
 			ipa3_ctx->ctrl->ipa_clk_rate_turbo) {
 		idx = 4;
+	} else if (ipa3_ctx->curr_ipa_clk_rate ==
+			ipa3_ctx->ctrl->ipa_clk_rate_turbo_l1) {
+		idx = 5;
+	} else if (ipa3_ctx->curr_ipa_clk_rate ==
+			ipa3_ctx->ctrl->ipa_clk_rate_turbo_l3) {
+		idx = 6;
 	} else {
 		WARN(1, "unexpected clock rate");
 	}
@@ -9137,6 +9143,10 @@ int ipa3_set_clock_plan_from_pm(int idx)
 		clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_nominal;
 	else if (idx == 4)
 		clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_turbo;
+	else if (idx == 5)
+		clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_turbo_l1;
+	else if (idx == 6)
+		clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_turbo_l3;
 	else {
 		IPAERR("bad voltage\n");
 		WARN_ON(1);
@@ -9228,6 +9238,12 @@ int ipa3_set_required_perf_profile(enum ipa_voltage_level floor_voltage,
 		break;
 	case IPA_VOLTAGE_TURBO:
 		clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_turbo;
+		break;
+	case IPA_VOLTAGE_TURBO_L1:
+		clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_turbo_l1;
+		break;
+	case IPA_VOLTAGE_TURBO_L3:
+		clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_turbo_l3;
 		break;
 	default:
 		IPAERR("bad voltage\n");
@@ -13202,6 +13218,28 @@ static int get_ipa_dts_pm_info(struct platform_device *pdev,
 	result = of_property_read_u32_array(pdev->dev.of_node,
 			"qcom,turbo",
 			ipa_drv_res->icc_clk_val[IPA_ICC_TURBO],
+			ipa_drv_res->icc_num_paths *
+			IPA_ICC_TYPE_MAX);
+	if (result) {
+		IPAERR("invalid property qcom,turbo\n");
+		return -EFAULT;
+	}
+
+	/* read turbo_l1 AB IB value */
+	result = of_property_read_u32_array(pdev->dev.of_node,
+			"qcom,turbo_l1",
+			ipa_drv_res->icc_clk_val[IPA_ICC_TURBO_L1],
+			ipa_drv_res->icc_num_paths *
+			IPA_ICC_TYPE_MAX);
+	if (result) {
+		IPAERR("invalid property qcom,turbo\n");
+		return -EFAULT;
+	}
+
+	/* read turbo_l3 AB IB value */
+	result = of_property_read_u32_array(pdev->dev.of_node,
+			"qcom,turbo_l3",
+			ipa_drv_res->icc_clk_val[IPA_ICC_TURBO_L3],
 			ipa_drv_res->icc_num_paths *
 			IPA_ICC_TYPE_MAX);
 	if (result) {
