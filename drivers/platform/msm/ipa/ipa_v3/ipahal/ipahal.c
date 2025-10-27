@@ -1317,8 +1317,10 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v6_ct_init(
 		(struct ipahal_imm_cmd_ip_v6_ct_init *)params;
 
 	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
-	if (unlikely(!pyld))
+	if (unlikely(!pyld)) {
+		IPAHAL_ERR("kzalloc err\n");
 		return pyld;
+	}
 	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
 	pyld->len = sizeof(*data);
 	data = (struct ipa_imm_cmd_hw_ip_v6_ct_init *)pyld->data;
@@ -1347,8 +1349,10 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v6_ct_init_v7_0(
 		(struct ipahal_imm_cmd_ip_v6_ct_init *)params;
 
 	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
-	if (unlikely(!pyld))
+	if (unlikely(!pyld)) {
+		IPAHAL_ERR("kzalloc err\n");
 		return pyld;
+	}
 	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
 	pyld->len = sizeof(*data);
 	data = (struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 *)pyld->data;
@@ -2363,7 +2367,7 @@ static void ipa_parse_gen_pkt_v7_0(struct ipahal_pkt_status *status, const void 
 	status->flt_tbl_idx = hw_status->ipa_pkt.flt_table_idx;
 	status->frag_rule = hw_status->ipa_pkt.frag_rule;
 	status->metadata_origin = hw_status->ipa_pkt.metadata_origin;
-	
+
 	status->flt_miss = (hw_status->ipa_pkt.flt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
 	status->rt_miss = (hw_status->ipa_pkt.rt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
 

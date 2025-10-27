@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #ifndef _IPAHAL_FLTRT_H_
@@ -63,6 +64,8 @@ enum ipahal_rt_rule_hdr_type {
  * @id: Rule ID
  * @cnt_idx: Stats counter index
  * @rule: Rule info
+ * @rule_type: Rule Type: ETH, IP etc
+ * @hpc_fetch_len: HPC fetch length field (for inline header insertion HPC)
  */
 struct ipahal_rt_rule_gen_params {
 	enum ipa_ip_type ipt;
@@ -75,7 +78,7 @@ struct ipahal_rt_rule_gen_params {
 	u8 cnt_idx;
 	const struct ipa_rt_rule_i *rule;
 	enum ipa_fltrt_rule_type rule_type;
-	u8 hpc_fetch_len;;
+	u8 hpc_fetch_len;
 };
 
 /*
@@ -123,6 +126,7 @@ struct ipahal_rt_rule_entry {
  * @id: Rule ID
  * @cnt_idx: Stats counter index
  * @rule: Rule info
+ * @rule_type: Rule Type: ETH, IP etc
  */
 struct ipahal_flt_rule_gen_params {
 	enum ipa_ip_type ipt;

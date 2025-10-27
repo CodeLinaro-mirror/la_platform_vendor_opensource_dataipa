@@ -234,6 +234,25 @@ struct ipahal_imm_cmd_table_dma {
 	u8 base_addr;
 };
 
+/*
+ * struct ipahal_imm_cmd_table_dma_v7_0 - TABLE_DMA cmd payload
+ * Perform DMA operation on NAT and IPV6 connection tracking related mem
+ * addresses. Copy data into different locations within IPv6CT and NAT
+ * associated tbls. (For add/remove NAT rules)
+ * @table_index: NAT tbl index. Defines the tbl on which to perform DMA op.
+ * @table_Select: Base addr to which the DMA operation should be performed:
+ *   00: NAT/v4 connection tracking Table
+ *   01: NAT/v4 connection tracking Index Table
+ *   10: IPv6 connection tracking Table
+ * @offset_within_entry: Byte offset within entry
+ * @entry_index: NAT/Connection tracking Entry index
+ * @data: data to be written
+ * @cache_entry_evict: Evict corresponding NAT/CT entry info in the cache
+ * @no_write: Skip Write operation, allowing cache entry eviction without update
+ * @cache_entry_hash_value: Hash value identifying the NAT/CT cache info for eviction
+ * @write_bitmask: Specifies which bits will be written, for example 0x03
+ *   means that only two least significant bits will be updated
+ */
 struct ipahal_imm_cmd_table_dma_v7_0 {
     u8 table_index;
     u8 table_Select;
@@ -266,9 +285,9 @@ struct ipahal_imm_cmd_ip_packet_init {
  * @hdr_removal_insertion_disable: true - disabled, false - enabled
  * @cs_disable: true - disabled, false - enabled
  * @quota_tethering_stats_disable: true - disabled, false - enabled
- * fields @flt_rt_tbl_idx - @flt_retain_hdr are a logical software translation
+ * fields @flt_rt_tbl_idx - @flt_retain_hdr, @flt_rule_type are a logical software translation
  * of ipa5_0_flt_rule_hw_hdr/ipa5_5_flt_rule_hw_hdr
- * fields @rt_pipe_dest_idx - @rt_system are a logical software translation
+ * fields @rt_pipe_dest_idx - @rt_system, @rt_hpc_fetch_len are a logical software translation
  * ipa5_0_rt_rule_hw_hdr/ipa5_5_flt_rule_hw_hdr
  * @dpl_disable: true - disabled, false - enabled, valid from IPAv5_5.
  * @flt_ext_hdr: true - flt ext_hdr enabled, false - disabled. Note all fields of
@@ -279,6 +298,18 @@ struct ipahal_imm_cmd_ip_packet_init {
  * ext header are valid in immediate command irrespective of this flag.
  * fields @rt_ttl - @rt_esp_after_udp are a logical software translation
  * ipa6_0_rt_rule_hw_hdr_ext
+ * @conn_track_nat_stats_direction: CT/NAT "All Packets" Stats direction (0=SrcNAT, 1=DstNAT)
+ * @conn_track_nat_stats_ip_type: CT/NAT "All Packets" Stats IP type: (0=IPv4, 1=IPv6)
+ * @traffic_mode: Traffic mode:
+ *   0: Non-DMA IP mode
+ *   1: Non-DMA Ethernet mode
+ *   2: Non-DMA Unstructured mode
+ *   3: DMA
+ * @leading_header_size: size of header before the packet/message,
+ *   the offset to the traffic mode content (e.g., size of L2 header or L2 without Ethernet)
+ * @conn_track_nat_stats_counter_idx: Set the packet's CT/NAT "All Packets" Stats Counter index.
+ *   0 means not valid.
+ * @sw_classification_cookie: Default Producer Classification SW Cookie value
  */
 struct ipahal_imm_cmd_ip_packet_init_ex {
 	bool frag_disable;
@@ -449,6 +480,19 @@ struct ipahal_imm_cmd_dma_task_32b_addr {
 	u32 packet_size;
 };
 
+/*
+ * struct ipahal_imm_cmd_shaping_control - Immediate cmd shaping control
+ * @traffic_class_bitmap: Each bit indicates the corresponding traffic class index,
+ *   starting with traffic class 1.
+ * @shaped_prod_token_bucket_reinit_bitmap: Each bit indicates the corresponding
+ *   shaped producer index whose token bucket will be reinitialized.
+ * @traffic_class_operation: Operation is one of the following:
+ *   0: Unhalt + reinit token bucket (traffic classes)
+ *   1: Halt (traffic classes)
+ *   2: Flush (traffic classes)
+ *   3: Unhalt (no change to token bucket)
+ *   4: Flush to traffic class threshold (to byte and packet limit)
+ */
 struct ipahal_imm_cmd_shaping_control {
 	u64 traffic_class_bitmap[2];
 	u16 shaped_prod_token_bucket_reinit_bitmap;
