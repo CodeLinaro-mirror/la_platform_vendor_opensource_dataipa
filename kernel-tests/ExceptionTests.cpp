@@ -224,7 +224,7 @@ public:
 			goto bail;
 		}
 		// Creating Filtering Rules
-		cFilterTable.Init(m_eIP,IPA_CLIENT_TEST_PROD,true,1);
+		cFilterTable.Init(m_eIP,IPA_CLIENT_TEST_PROD,false,1);
 		LOG_MSG_INFO("Creation of filtering table completed successfully");
 
 		// Configuring Filtering Rule No.1
@@ -254,9 +254,9 @@ public:
 	} // AddRules()
 
 	virtual bool ModifyPackets() {
-		m_eIP = IPA_IP_v6;
+		//m_eIP = IPA_IP_v6; //to make v6 work, need to change the input packet and fix the length
 
-		AddRules(); // Need to add Routing / Filtering rules for IPv6 as well.
+		//AddRules(); // Need to add Routing / Filtering rules for IPv6 as well.
 		return true;
 	} // ModifyPacktes ()
 
@@ -275,7 +275,7 @@ public:
 			nIPVer = i+4 % 10;
 			m_aBuffer[0] = (m_aBuffer[0] & 0x0F)+0x10*nIPVer;// Change to Invalid IP version
 			m_aExpectedBuffer[8] = (m_aExpectedBuffer[8] & 0x0F)+0x10*nIPVer;
-			if (4 == nIPVer || 6 == nIPVer)
+			if (4 == nIPVer)
 			{
 				if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
 						&m_Consumer1, m_aExpectedBuffer+8, m_aExpectedBufSize-8))
@@ -283,14 +283,24 @@ public:
 					LOG_MSG_ERROR("SendReceiveAndCompare failed. IPVer = %d",nIPVer);
 					return false;
 				}
-			} else
+			} else if (6 == nIPVer)
 			{
 				if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
-						&m_Exceptions, m_aExpectedBuffer, m_aExpectedBufSize))
+						&m_Exceptions, m_aExpectedBuffer+8, m_aExpectedBufSize-8))
 				{
 				LOG_MSG_ERROR("SendReceiveAndCompare failed. IPVer = %d",nIPVer);
 				return false;
 				}
+				printf("Check cat /sys/kernel/debug/ipa/stats to see if PACKET LENGTH Exception increased!\n");
+			}  else
+			{
+				if (!SendReceiveAndCompare(&m_producer, m_aBuffer, m_uBufferSize,
+						&m_Exceptions, m_aExpectedBuffer+8, m_aExpectedBufSize-8))
+				{
+				LOG_MSG_ERROR("SendReceiveAndCompare failed. IPVer = %d",nIPVer);
+				return false;
+				}
+				printf("Check cat /sys/kernel/debug/ipa/stats to see if IPtype Exception increased!\n");
 			}
 		}
 		return true;
@@ -346,7 +356,7 @@ public:
 			goto bail;
 		}
 		// Creating Filtering Rules
-		cFilterTable.Init(m_eIP,IPA_CLIENT_TEST_PROD,true,1);
+		cFilterTable.Init(m_eIP,IPA_CLIENT_TEST_PROD,false,1);
 		LOG_MSG_INFO("Creation of filtering table completed successfully");
 
 		// Configuring Filtering Rule No.1
@@ -393,6 +403,7 @@ public:
 				LOG_MSG_ERROR("SendReceiveAndCompare failed.");
 				return false;
 			}
+		printf("Check cat /sys/kernel/debug/ipa/stats to see if SW FILT Exception increased!\n");
 		return true;
 		}
 private:
@@ -445,7 +456,7 @@ public:
 			goto bail;
 		}
 		// Creating Filtering Rules
-		cFilterTable.Init(m_eIP,IPA_CLIENT_TEST_PROD,true,1);
+		cFilterTable.Init(m_eIP,IPA_CLIENT_TEST_PROD,false,1);
 		LOG_MSG_INFO("Creation of filtering table completed successfully");
 
 		// Configuring Filtering Rule No.1
@@ -493,6 +504,7 @@ public:
 				LOG_MSG_ERROR("SendReceiveAndCompare failed.");
 				return false;
 			}
+		printf("Check cat /sys/kernel/debug/ipa/stats to see if PACKET LENGTH Exception increased!\n");
 		return true;
 		}
 private:

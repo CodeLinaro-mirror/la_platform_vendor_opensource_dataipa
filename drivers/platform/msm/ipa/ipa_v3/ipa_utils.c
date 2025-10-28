@@ -12047,11 +12047,17 @@ int ipa3_cfg_ep(u32 clnt_hdl, const struct ipa_ep_cfg *ipa_ep_cfg)
 	if (result)
 		return result;
 
-	if (ipa3_is_ulso_supported()) {
-		result = ipa3_cfg_ep_ulso(clnt_hdl,
-			&ipa_ep_cfg->ulso);
+	if (ipa3_is_ulso_supported() &&
+		IPA_CLIENT_IS_PROD(ipa3_ctx->ep[clnt_hdl].client)) {
+		result = ipa3_cfg_ep_ulso(clnt_hdl,&ipa_ep_cfg->ulso);
 		if (result)
 			return result;
+	}
+
+	//For ULSO kernel tests
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST
+		&& ipa3_ctx->ep[clnt_hdl].client == IPA_CLIENT_TEST_CONS && ipa_ep_cfg->ulso.is_ulso_pipe) {
+		ipa_imm_cmd_modify_ip_packet_init_ex_ulso(clnt_hdl);
 	}
 
 	if (IPA_CLIENT_IS_PROD(ipa3_ctx->ep[clnt_hdl].client)) {

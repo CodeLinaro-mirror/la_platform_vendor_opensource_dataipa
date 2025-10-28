@@ -6655,10 +6655,10 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		-1, 0, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_ULSO_CFG_IP_ID_MIN_VALUE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000A34, 0x4, 0, 0, 0, 0},
+		0x00000A34, 0x4, 0, 2, 0, 0},
 	[IPA_HW_v7_0][IPA_ULSO_CFG_IP_ID_MAX_VALUE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000A24, 0x4, 0, 0, 0, 0},
+		0x00000A24, 0x4, 0, 2, 0, 0},
 	[IPA_HW_v7_0][IPA_TSP_QM_EXTERNAL_BADDR_LSB] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00005b00, 0, 0, 0, 0, 0},
@@ -6685,7 +6685,7 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		0x00000B24, 0, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_ENDP_INIT_ULSO_CFG_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00001070, 0x100, 0, 0, 0, 0},
+		0x00001070, 0x100, 0, 31, 0, 0},
 	[IPA_HW_v7_0][IPA_ENDP_INIT_NAT_EXC_SUPPRESS_n] = {
 		ipareg_construct_endp_init_nat_exc_suppress_n, ipareg_parse_dummy,
 		0x00001078, 0x100, 0, 0, 0, 0},
