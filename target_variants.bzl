@@ -3,9 +3,10 @@ targets = [
     "bengal",
     "canoe",
     "gen3auto",
+    "lahaina",
+    "monaco",
     "sun",
     "vienna",
-    "lahaina",
 ]
 
 la_variants = [
