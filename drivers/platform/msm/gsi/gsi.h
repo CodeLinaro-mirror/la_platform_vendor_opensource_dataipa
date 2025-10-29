@@ -1664,7 +1664,7 @@ struct gsi_ctx {
 	struct gsi_generic_ee_cmd_debug_stats gen_ee_cmd_dbg;
 	struct mutex mlock;
 	spinlock_t slock;
-	unsigned long evt_bmap;
+	DECLARE_BITMAP(evt_bmap, GSI_EVT_RING_MAX);
 	bool enabled;
 	atomic_t num_chan;
 	atomic_t num_evt_ring;

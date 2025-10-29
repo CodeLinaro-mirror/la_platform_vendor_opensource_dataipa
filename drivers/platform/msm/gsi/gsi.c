@@ -1667,6 +1667,7 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 		goto err_iounmap;
 	}
 	gsi_ctx->max_ev = gsi_get_max_event_rings(gsi_ctx->per.ver);
+	BUG_ON(sizeof(gsi_ctx->evt_bmap) < bitmap_size(gsi_ctx->max_ev));
 	if (gsi_ctx->max_ev == 0) {
 		gsi_unmap_base();
 		if (running_emulation)
@@ -1697,14 +1698,18 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 		goto err_iounmap;
 	}
 
-	gsi_ctx->evt_bmap = ~((((unsigned long)1) << gsi_ctx->max_ev) - 1);
+	bitmap_fill(gsi_ctx->evt_bmap, sizeof(gsi_ctx->evt_bmap) * BITS_PER_BYTE);
+	bitmap_clear(gsi_ctx->evt_bmap, 0, gsi_ctx->max_ev);
 
 	/* exclude reserved mhi events */
-	if (props->mhi_er_id_limits_valid)
-		gsi_ctx->evt_bmap |=
-			((1 << (props->mhi_er_id_limits[1] + 1)) - 1) ^
-			((1 << (props->mhi_er_id_limits[0])) - 1);
-
+	if (props->mhi_er_id_limits_valid) {
+		u32 low = props->mhi_er_id_limits[0];
+		u32 high = props->mhi_er_id_limits[1];
+		if (high >= gsi_ctx->max_ev)
+			high = gsi_ctx->max_ev - 1; // clamp to valid range
+		if (low <= high)
+		        bitmap_set(gsi_ctx->evt_bmap, low, high - low + 1);
+	}
 	/*
 	 * enable all interrupts but GSI_BREAK_POINT.
 	 * Inter EE commands / interrupt are no supported.
@@ -2254,14 +2259,13 @@ int gsi_alloc_evt_ring(struct gsi_evt_ring_props *props, unsigned long dev_hdl,
 
 	if (!props->evchid_valid) {
 		mutex_lock(&gsi_ctx->mlock);
-		evt_id = find_first_zero_bit(&gsi_ctx->evt_bmap,
-				sizeof(unsigned long) * BITS_PER_BYTE);
-		if (evt_id == sizeof(unsigned long) * BITS_PER_BYTE) {
+		evt_id = find_first_zero_bit(gsi_ctx->evt_bmap, gsi_ctx->max_ev);
+		if (evt_id == gsi_ctx->max_ev) {
 			GSIERR("failed to alloc event ID\n");
 			mutex_unlock(&gsi_ctx->mlock);
 			return -GSI_STATUS_RES_ALLOC_FAILURE;
 		}
-		set_bit(evt_id, &gsi_ctx->evt_bmap);
+		set_bit(evt_id, gsi_ctx->evt_bmap);
 		mutex_unlock(&gsi_ctx->mlock);
 	} else {
 		evt_id = props->evchid;
@@ -2298,7 +2302,7 @@ int gsi_alloc_evt_ring(struct gsi_evt_ring_props *props, unsigned long dev_hdl,
 		if (__gsi_pair_msi(ctx, props)) {
 			GSIERR("evt_id=%lu failed to pair MSI\n", evt_id);
 			if (!props->evchid_valid)
-				clear_bit(evt_id, &gsi_ctx->evt_bmap);
+				clear_bit(evt_id, gsi_ctx->evt_bmap);
 			mutex_unlock(&gsi_ctx->mlock);
 			return -GSI_STATUS_NODEV;
 		}
@@ -2314,7 +2318,7 @@ int gsi_alloc_evt_ring(struct gsi_evt_ring_props *props, unsigned long dev_hdl,
 	if (res == 0) {
 		GSIERR("evt_id=%lu timed out\n", evt_id);
 		if (!props->evchid_valid)
-			clear_bit(evt_id, &gsi_ctx->evt_bmap);
+			clear_bit(evt_id, gsi_ctx->evt_bmap);
 		mutex_unlock(&gsi_ctx->mlock);
 		return -GSI_STATUS_TIMED_OUT;
 	}
@@ -2323,7 +2327,7 @@ int gsi_alloc_evt_ring(struct gsi_evt_ring_props *props, unsigned long dev_hdl,
 		GSIERR("evt_id=%lu allocation failed state=%u\n",
 				evt_id, ctx->state);
 		if (!props->evchid_valid)
-			clear_bit(evt_id, &gsi_ctx->evt_bmap);
+			clear_bit(evt_id, gsi_ctx->evt_bmap);
 		mutex_unlock(&gsi_ctx->mlock);
 		return -GSI_STATUS_RES_ALLOC_FAILURE;
 	}
@@ -2491,7 +2495,7 @@ int gsi_dealloc_evt_ring(unsigned long evt_ring_hdl)
 
 	if (!ctx->props.evchid_valid) {
 		mutex_lock(&gsi_ctx->mlock);
-		clear_bit(evt_ring_hdl, &gsi_ctx->evt_bmap);
+		clear_bit(evt_ring_hdl, gsi_ctx->evt_bmap);
 		mutex_unlock(&gsi_ctx->mlock);
 	}
 	atomic_dec(&gsi_ctx->num_evt_ring);
