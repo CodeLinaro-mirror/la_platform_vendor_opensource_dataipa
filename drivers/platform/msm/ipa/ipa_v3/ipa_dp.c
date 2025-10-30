@@ -2425,7 +2425,8 @@ static inline int validate_client_ipa_tiering(enum ipa_client_type dst)
 		if (dst == IPA_CLIENT_ETHERNET_CONS ||
 			dst == IPA_CLIENT_AQC_ETHERNET_CONS ||
 			dst == IPA_CLIENT_RTK_ETHERNET_CONS ||
-			dst == IPA_CLIENT_ETHERNET2_CONS) {
+			dst == IPA_CLIENT_ETHERNET2_CONS ||
+			dst == IPA_CLIENT_ETHERNET3_CONS) {
 				return -EINVAL;
 			}
 	}

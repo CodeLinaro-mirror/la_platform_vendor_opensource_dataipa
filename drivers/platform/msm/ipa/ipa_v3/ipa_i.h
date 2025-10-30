@@ -2050,6 +2050,7 @@ enum ipa_smmu_cb_type {
 	IPA_SMMU_CB_11AD,
 	IPA_SMMU_CB_ETH,
 	IPA_SMMU_CB_ETH1,
+	IPA_SMMU_CB_ETH2,
 	IPA_SMMU_CB_V2X,
 	IPA_SMMU_CB_MAX
 };
@@ -2079,6 +2080,9 @@ static inline enum ipa_smmu_cb_type ipa_get_client_smmu_cb_type(const enum ipa_c
 	case IPA_CLIENT_ETHERNET2_PROD:
 	case IPA_CLIENT_ETHERNET2_CONS:
 		return IPA_SMMU_CB_ETH1;
+	case IPA_CLIENT_ETHERNET3_PROD:
+	case IPA_CLIENT_ETHERNET3_CONS:
+		return IPA_SMMU_CB_ETH2;
 	case IPA_CLIENT_WLAN1_PROD:
 	case IPA_CLIENT_WLAN1_CONS:
 	case IPA_CLIENT_WLAN2_PROD:
@@ -3921,6 +3925,7 @@ struct iommu_domain *ipa3_get_wlan_smmu_domain(void);
 struct iommu_domain *ipa3_get_wlan1_smmu_domain(void);
 struct iommu_domain *ipa3_get_eth_smmu_domain(void);
 struct iommu_domain *ipa3_get_eth1_smmu_domain(void);
+struct iommu_domain *ipa3_get_eth2_smmu_domain(void);
 struct iommu_domain *ipa3_get_smmu_domain_by_type
 	(enum ipa_smmu_cb_type cb_type);
 struct device *ipa3_get_wlan_device(void);

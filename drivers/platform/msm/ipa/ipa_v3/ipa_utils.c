@@ -8082,7 +8082,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 13, 26, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
-	[IPA_7_0][IPA_CLIENT_ETHERNET_PROD3] = {
+	[IPA_7_0][IPA_CLIENT_ETHERNET3_PROD] = {
 			true, IPA_v7_0_GROUP_UL,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
@@ -8236,41 +8236,48 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 55, 52, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
-       [IPA_7_0][IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS] = {
-                       true, IPA_v7_0_GROUP_DL,
-                       false,
-                       IPA_DPS_HPS_SEQ_TYPE_INVALID,
-                       QMB_MASTER_SELECT_DDR,
-                       { 67, 49, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
-                       IPA_TX_INSTANCE_DL },
-       [IPA_7_0][IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS] = {
-                       true, IPA_v7_0_GROUP_DL,
-                       false,
-                       IPA_DPS_HPS_SEQ_TYPE_INVALID,
-                       QMB_MASTER_SELECT_DDR,
-                       { 68, 51, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
-                       IPA_TX_INSTANCE_DL },
-       [IPA_7_0][IPA_CLIENT_IPSEC_ENCAP_ERR_CONS] = {
-                       true, IPA_v7_0_GROUP_UL,
-                       false,
-                       IPA_DPS_HPS_SEQ_TYPE_INVALID,
-                       QMB_MASTER_SELECT_DDR,
-                       { 69, 53, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
-                       IPA_TX_INSTANCE_UL },
-       [IPA_7_0][IPA_CLIENT_IPSEC_APPS_WAN_CONS] = {
-                       true, IPA_v7_0_GROUP_DL,
-                       false,
-                       IPA_DPS_HPS_SEQ_TYPE_INVALID,
-                       QMB_MASTER_SELECT_DDR,
-                       { 71, 55, 17 , 17 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
-                       IPA_TX_INSTANCE_DL },
-       [IPA_7_0][IPA_CLIENT_TPUT_CONS] = {
-                       true, IPA_v7_0_GROUP_DL,
-                       false,
-                       IPA_DPS_HPS_SEQ_TYPE_INVALID,
-                       QMB_MASTER_SELECT_DDR,
-                       { 66, 47, 0, 0, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
-                       IPA_TX_INSTANCE_DL },
+	[IPA_7_0][IPA_CLIENT_ETHERNET3_CONS]  = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 58, 58, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_DL },
+	[IPA_7_0][IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS] = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 67, 49, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_DL },
+	[IPA_7_0][IPA_CLIENT_IPSEC_DECAP_NON_RECOVERABLE_ERR_CONS] = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 68, 51, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_DL },
+	[IPA_7_0][IPA_CLIENT_IPSEC_ENCAP_ERR_CONS] = {
+			true, IPA_v7_0_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 69, 53, 9 , 9 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_UL },
+	[IPA_7_0][IPA_CLIENT_IPSEC_APPS_WAN_CONS] = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 71, 55, 17 , 17 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_DL },
+	[IPA_7_0][IPA_CLIENT_TPUT_CONS] = {
+			true, IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 66, 47, 0, 0, IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_DL },
 
 	/* Q6 pipes */
 	[IPA_7_0][IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD] = {
@@ -10531,6 +10538,8 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_AP_IC_EXCEPTION_CONS),
 	__stringify(RESERVED_PROD_180),
 	__stringify(IPA_CLIENT_ETHERNET_QOS2_CONS),
+	__stringify(IPA_CLIENT_ETHERNET3_PROD),
+	__stringify(IPA_CLIENT_ETHERNET3_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -10831,7 +10840,8 @@ bool ipa3_should_pipe_be_suspended(enum ipa_client_type client)
 		client == IPA_CLIENT_ODU_TETH_CONS ||
 		client == IPA_CLIENT_ETHERNET_CONS ||
 		client == IPA_CLIENT_ETHERNET2_CONS ||
-		client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS)
+		client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS ||
+		client == IPA_CLIENT_ETHERNET3_CONS)
 		return true;
 
 	return false;
@@ -12387,6 +12397,8 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_ETHERNET_CONS3:
 		case IPA_CLIENT_ETHERNET_PROD4:
 		case IPA_CLIENT_ETHERNET_CONS4:
+		case IPA_CLIENT_ETHERNET3_PROD:
+		case IPA_CLIENT_ETHERNET3_CONS:
 			ipa3_ctx->ep[clnt_hdl].cfg.cfg.pipe_replicate_en = 1;
 			break;
 		default:
@@ -13674,6 +13686,7 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		param_in->client == IPA_CLIENT_ETHERNET_PROD1 ||
 		param_in->client == IPA_CLIENT_ETHERNET_PROD2 ||
 		param_in->client == IPA_CLIENT_ETHERNET_PROD3 ||
+		param_in->client == IPA_CLIENT_ETHERNET3_PROD ||
 		param_in->client == IPA_CLIENT_WIGIG_PROD ||
 		param_in->client == IPA_CLIENT_AQC_ETHERNET_PROD ||
 		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD ||
@@ -17944,6 +17957,8 @@ int ipa3_get_prot_id(enum ipa_client_type client)
 		break;
 	case IPA_CLIENT_ETHERNET2_PROD:
 	case IPA_CLIENT_ETHERNET2_CONS:
+	case IPA_CLIENT_ETHERNET3_PROD:
+	case IPA_CLIENT_ETHERNET3_CONS:
 	case IPA_CLIENT_ETHERNET_PROD:
 	case IPA_CLIENT_ETHERNET_CONS:
 	case IPA_CLIENT_ETHERNET_PROD1:
@@ -18038,9 +18053,12 @@ void ipa_eth_ntn3_get_status(struct ipa_ntn3_client_stats *s, unsigned inst_id)
 				&s->tx1_stats,
 				IPA_CLIENT_ETHERNET_LOW_LAT_CONS);
 #endif
-	} else {
+	} else if (inst_id == 1) {
 		__ipa_ntn3_cons_stats_get(&s->tx_stats, IPA_CLIENT_ETHERNET2_CONS);
 		__ipa_ntn3_prod_stats_get(&s->rx_stats, IPA_CLIENT_ETHERNET2_PROD);
+	} else {
+		__ipa_ntn3_cons_stats_get(&s->tx_stats, IPA_CLIENT_ETHERNET3_CONS);
+		__ipa_ntn3_prod_stats_get(&s->rx_stats, IPA_CLIENT_ETHERNET3_PROD);
 	}
 
 }

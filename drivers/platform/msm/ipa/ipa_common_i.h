@@ -202,6 +202,7 @@ do {\
 #define IPA_CLIENT_IS_ETH_PROD(x) \
 	((x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET3_PROD)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD2)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD3)) || \

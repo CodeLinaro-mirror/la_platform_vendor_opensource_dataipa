@@ -350,6 +350,7 @@ static const struct of_device_id ipa_plat_drv_match[] = {
 	{ .compatible = "qcom,ipa-smmu-11ad-cb", },
 	{ .compatible = "qcom,ipa-smmu-eth-cb", },
 	{ .compatible = "qcom,ipa-smmu-eth1-cb", },
+	{ .compatible = "qcom,ipa-smmu-eth2-cb", },
 	{ .compatible = "qcom,ipa-smmu-wlan1-cb", },
 	{ .compatible = "qcom,ipa-smmu-wlan2-cb", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-in", },
@@ -365,6 +366,7 @@ static const struct of_device_id ipa_plat_smmu_match[] = {
 	{ .compatible = "qcom,ipa-smmu-11ad-cb", },
 	{ .compatible = "qcom,ipa-smmu-eth-cb", },
 	{ .compatible = "qcom,ipa-smmu-eth1-cb", },
+	{ .compatible = "qcom,ipa-smmu-eth2-cb", },
 	{ .compatible = "qcom,ipa-smmu-wlan1-cb", },
 	{ .compatible = "qcom,ipa-smmu-wlan2-cb", },
 	{ .compatible = "qcom,ipa-smmu-v2x-cb", },
@@ -1031,6 +1033,11 @@ struct iommu_domain *ipa3_get_eth_smmu_domain(void)
 struct iommu_domain *ipa3_get_eth1_smmu_domain(void)
 {
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_ETH1);
+}
+
+struct iommu_domain *ipa3_get_eth2_smmu_domain(void)
+{
+	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_ETH2);
 }
 
 
@@ -13351,7 +13358,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	result = of_property_read_u32(pdev->dev.of_node,
 					"gunyah-label", &ipa_drv_res->gunyah_label);
 	if (result) {
-		IPAERR("No gunyah-label info\n");
+		IPADBG("No gunyah-label info\n");
 		ipa_drv_res->gunyah_label = 0;
 	}
 	ipa_drv_res->filter_start_id = 0;
@@ -14739,6 +14746,7 @@ static int ipa_smmu_cb_probe(struct device *dev, enum ipa_smmu_cb_type cb_type)
 	case IPA_SMMU_CB_WLAN2:
 	case IPA_SMMU_CB_ETH:
 	case IPA_SMMU_CB_ETH1:
+	case IPA_SMMU_CB_ETH2:
 		return ipa_smmu_perph_cb_probe(dev, cb_type);
 	case IPA_SMMU_CB_UC:
 		ipa3_ctx->uc_pdev = &ipa3_ctx->master_pdev->dev;
@@ -15297,6 +15305,18 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		return ipa_smmu_update_fw_loader();
 	}
 
+	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-eth2-cb")) {
+		if (ipa3_ctx == NULL) {
+			IPAERR("ipa3_ctx was not initialized\n");
+			return -EPROBE_DEFER;
+		}
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH2);
+		cb->dev = dev;
+		smmu_info.present[IPA_SMMU_CB_ETH2] = true;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
+	}
+
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-uc-cb")) {
 		if (ipa3_ctx == NULL) {
 			IPAERR("ipa3_ctx was not initialized\n");
@@ -15726,6 +15746,9 @@ int ipa3_iommu_map(struct iommu_domain *domain,
 	} else if (domain == ipa3_get_eth1_smmu_domain()) {
 		/* eth1 is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH1);
+	} else if (domain == ipa3_get_eth2_smmu_domain()) {
+		/* eth2 is one time map */
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH2);
 	} else if (domain == ipa3_get_11ad_smmu_domain()) {
 		/* 11ad is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_11AD);
@@ -15809,6 +15832,11 @@ int ipa_get_smmu_params(struct ipa_smmu_in_params *in,
 		is_smmu_enable =
 			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
 			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_ETH1]);
+		break;
+	case IPA_SMMU_ETH2_CLIENT:
+		is_smmu_enable =
+			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
+			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_ETH2]);
 		break;
 	case IPA_SMMU_WIGIG_CLIENT:
 		is_smmu_enable = !(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_UC] ||

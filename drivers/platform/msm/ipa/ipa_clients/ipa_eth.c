@@ -42,7 +42,7 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
-#define IPA_ETH_PIPES_NO 17
+#define IPA_ETH_PIPES_NO 19
 #define DMA_NUM_CHANNEL_EZMESH 4
 #define DMA_NUM_CHANNEL_DEFAULT 2
 #define DMA_NUM_CHANNEL_TSN 3
@@ -219,6 +219,12 @@ static u8 client_to_pipe_index(enum ipa_client_type client_type)
 		break;
 	case IPA_CLIENT_ETHERNET_CONS4:
 		return 16;
+		break;
+	case IPA_CLIENT_ETHERNET3_CONS:
+		return 17;
+		break;
+	case IPA_CLIENT_ETHERNET3_PROD:
+		return 18;
 		break;
 	default:
 		IPAERR("invalid eth client_type\n");
@@ -554,6 +560,14 @@ static enum ipa_client_type
 				} else {
 					ipa_client_type =
 						IPA_CLIENT_ETHERNET2_PROD;
+				}
+			} else if (client->inst_id == 2) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET3_CONS;
+				} else {
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET3_PROD;
 				}
 			}
 		} else if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN) {
