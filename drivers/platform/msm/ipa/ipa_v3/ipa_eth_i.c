@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2018-2021, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -933,6 +930,13 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		IPAERR("NTN transfer ring invalid\n");
 		ipa_assert();
 		return -EFAULT;
+	}
+
+	if((((u64)(pipe->info.transfer_ring_base) + (u64)(pipe->info.transfer_ring_size)) &
+		0xFFF00000) != ((u64)(pipe->info.transfer_ring_base) & 0xFFF00000))
+	{
+		IPAERR("Address not aligned as per the GSI requirement\n");
+		ipa_assert();
 	}
 
 	/* Bit 40 means the address is in PCIe address space. Non-IEMAC clients' address is in

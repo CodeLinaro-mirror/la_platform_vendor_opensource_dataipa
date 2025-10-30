@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
- */
-/*
- *
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- *
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/init.h>
@@ -450,6 +444,30 @@ static long ipa3_wan_ioctl(struct file *filp,
 		}
 		break;
 
+	case WAN_IOC_QUERY_PER_CLIENT_STATS_V2:
+		IPAWANDBG_LOW("got WAN_IOC_QUERY_PER_CLIENT_STATS_V2 :>>>\n");
+		pyld_sz = sizeof(struct wan_ioctl_query_per_client_stats_v2);
+		param = vmemdup_user((const void __user *)arg, pyld_sz);
+
+		if (IS_ERR(param)) {
+			retval = PTR_ERR(param);
+			break;
+		}
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 &&
+			!ipa3_ctx->ipa_config_is_auto)
+			retval = rmnet_ipa3_query_per_client_stats_v4(
+			  (struct wan_ioctl_query_per_client_stats_v2 *)param);
+		if (retval) {
+			IPAWANERR("WAN_IOC_QUERY_PER_CLIENT_STATS_V2 failed\n");
+			break;
+		}
+
+		if (copy_to_user((void __user *)arg, param, pyld_sz)) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
 	case WAN_IOC_SET_LAN_CLIENT_INFO:
 		IPAWANDBG_LOW("got WAN_IOC_SET_LAN_CLIENT_INFO :>>>\n");
 		pyld_sz = sizeof(struct wan_ioctl_lan_client_info);
@@ -666,6 +684,11 @@ long ipa3_compat_wan_ioctl(struct file *file,
 			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_QUERY_PER_CLIENT_STATS))
 				return -EPERM;
 			cmd = WAN_IOC_QUERY_PER_CLIENT_STATS;
+			break;
+		case WAN_IOCTL_QUERY_PER_CLIENT_STATS_V2:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_QUERY_PER_CLIENT_STATS_V2))
+				return -EPERM;
+			cmd = WAN_IOC_QUERY_PER_CLIENT_STATS_V2;
 			break;
 		case WAN_IOCTL_SET_LAN_CLIENT_INFO:
 			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SET_LAN_CLIENT_INFO))
