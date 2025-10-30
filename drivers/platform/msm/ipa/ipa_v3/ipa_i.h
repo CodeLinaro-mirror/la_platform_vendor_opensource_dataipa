@@ -44,9 +44,7 @@
 #include "ipa_ipsec.h"
 #endif
 #include <linux/mailbox_client.h>
-#if IS_ENABLED(CONFIG_QMP_MAILBOX)
-#include <linux/mailbox/qmp.h>
-#endif
+#include <linux/soc/qcom/qcom_aoss.h>
 #include <linux/rmnet_ipa_fd_ioctl.h>
 #include <linux/mhi_dma.h>
 #include "ipa_uc_holb_monitor.h"
@@ -2611,6 +2609,7 @@ struct ipa3_context {
 	struct platform_device *master_pdev;
 	struct device *pdev;
 	struct device *uc_pdev;
+	struct qmp *qmp;
 	spinlock_t idr_lock;
 	u32 enable_clock_scaling;
 	u32 enable_napi_chain;
