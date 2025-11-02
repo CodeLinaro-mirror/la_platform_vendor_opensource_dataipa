@@ -934,7 +934,7 @@ int ipa_ipv6ct_del_rule_v2(uint32_t table_handle, uint32_t rule_handle)
 	cmd->entries = 0;
 	cmd->mem_type = ct_table->table.nmi;
 
-	ipa_table_create_delete_command(&ct_table->table, cmd, &table_iterator);
+	ipa_table_create_delete_command(&ct_table->table, cmd, &table_iterator, true);
 
 	ret = ipa_ipv6ct_post_dma_cmd_v2(ct_cache_ptr, cmd);
 	if (ret)
@@ -1051,7 +1051,7 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 	cmd->entries = 0;
 	cmd->mem_type = ct_table->table.nmi;
 
-	ipa_table_create_delete_command(&ct_table->table, cmd, &table_iterator);
+	ipa_table_create_delete_command(&ct_table->table, cmd, &table_iterator, false);
 
 	ret = ipa_ipv6ct_post_dma_cmd(ct_cache_ptr, cmd);
 	if (ret)
@@ -1832,12 +1832,34 @@ static void ipa_ipv6ct_create_table_write_cmd_helpers(
 		FALSE,
 		IPA_TABLE_WRITE_BITMASK_ALL);
 
+	ipa_table_write_cmd_helper_init(
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_FLAGS_AND_EVICT],
+		table_indx,
+		IPA_TABLE_WRITE_IPV6CT_BASE_TBL,
+		TRUE,
+		IPA_IPV6CT_RULE_FLAG_FIELD_OFFSET,
+		FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	ipa_table_write_cmd_helper_init(
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_EVICT_ONLY],
+		table_indx,
+		IPA_TABLE_WRITE_IPV6CT_BASE_TBL,
+		TRUE,
+		IPA_IPV6CT_RULE_FLAG_FIELD_OFFSET,
+		TRUE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
 	ct_table->table.dma_help[HELP_UPDATE_HEAD] =
 		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_FLAGS];
 	ct_table->table.dma_help[HELP_UPDATE_ENTRY] =
 		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_NEXT_INDEX];
 	ct_table->table.dma_help[HELP_DELETE_HEAD] =
 		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_PROTOCOL];
+	ct_table->table.dma_help[HELP_UPDATE_HEAD_AND_EVICT] =
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_TABLE_FLAGS_AND_EVICT];
+	ct_table->table.dma_help[HELP_EVICT_ENTRY] =
+		&ct_table->table_cmd_helpers.table_write_cmd_helpers[IPA_IPV6CT_EVICT_ONLY];
 
 	IPADBG("return\n");
 }

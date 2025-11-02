@@ -16,12 +16,7 @@ TestBase::TestBase() :
 		m_minIPAHwType(IPA_HW_v1_1),
 		m_maxIPAHwType(IPA_HW_MAX)
 {
-	if (TestManager::GetInstance()->GetIPAHwType() >= IPA_HW_v7_0) {
-        m_mem_type = DDR_NAT_MEM_TYPE;
-    }
-    else {
-        m_mem_type = DFLT_NAT_MEM_TYPE;
-    }
+	m_mem_type = DFLT_NAT_MEM_TYPE;
 }
 
 //////////////////////////////////////////////////////////////////////

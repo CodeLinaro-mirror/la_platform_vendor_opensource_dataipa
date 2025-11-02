@@ -168,7 +168,7 @@ TestManager::TestManager(
 	m_testList.clear();
 	m_numTestsRun = 0;
 	FetchIPAHwType();
-	m_nat_mem_type_ptr = nat_mem_type_ptr;
+	m_nat_mem_type_ptr = (GetIPAHwType() < IPA_HW_v7_0) ? nat_mem_type_ptr : DDR_NAT_MEM_TYPE;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////

@@ -19,6 +19,7 @@
 #include "Filtering.h"
 #include "RoutingDriverWrapper.h"
 #include "IPAFilteringTable.h"
+#include <set>
 extern "C" {
 #include "ipa_nat_drv.h"
 }
@@ -196,7 +197,21 @@ public:
 
 	bool Teardown()
 	{
+		bool ret = true;
 		ipa_nat_dump_ipv4_table(m_tbl_hdl);
+
+		for (uint32_t rule_hdl : m_nat_rule_hdls)
+		{
+			int result = ipa_nat_del_ipv4_rule(m_tbl_hdl, rule_hdl);
+			if (result) {
+				LOG_MSG_ERROR("Failed delete NAT rule %d with result %d\n",
+					rule_hdl, result);
+				ret = false;
+			}
+		}
+
+		m_nat_rule_hdls.clear();
+
 		ipa_nat_del_ipv4_tbl(m_tbl_hdl);
 
 		m_producer.Close();
@@ -204,7 +219,7 @@ public:
 		m_consumer.Close();
 		m_consumer2.Close();
 		m_defaultConsumer.Close();
-		return true;
+		return ret;
 	} // Teardown()
 
 	virtual bool LoadFiles(enum ipa_ip_type ip)
@@ -337,6 +352,54 @@ public:
 		return res;
 	}
 
+	bool AddNatRule(ipa_nat_ipv4_rule& rule, uint32_t& rule_hdl) {
+		int ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &rule, &rule_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Failed adding NAT rule with result %d\n", ret);
+			return false;
+		}
+
+		auto insert_result = m_nat_rule_hdls.insert(rule_hdl);
+		if (!insert_result.second) {
+			LOG_MSG_ERROR("Failed inserting NAT rule handle %d to set\n", rule_hdl);
+			return false;
+		}
+
+		return true;
+	}
+
+	bool AddNatRuleV2(ipa_nat_ipv4_rule_v2& rule, uint32_t& rule_hdl) {
+		int ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &rule, &rule_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Failed adding NAT rule v2 with result %d\n", ret);
+			return false;
+		}
+
+		auto insert_result = m_nat_rule_hdls.insert(rule_hdl);
+		if (!insert_result.second) {
+			LOG_MSG_ERROR("Failed inserting NAT rule handle %d to set\n", rule_hdl);
+			return false;
+		}
+
+		return true;
+	}
+
+	bool DeleteNatRule(uint32_t rule_hdl) {
+		int ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, rule_hdl);
+		if (ret) {
+			LOG_MSG_ERROR("Failed deleting NAT rule %d with result %d\n", rule_hdl, ret);
+			return false;
+		}
+
+		size_t erased = m_nat_rule_hdls.erase(rule_hdl);
+		if (erased == 0) {
+			LOG_MSG_ERROR("Failed erasing NAT rule handle %d from set\n", rule_hdl);
+			return false;
+		}
+
+		return true;
+	}
+
 	inline bool isNatCacheHitV7_0(size_t SendSize, size_t RecvSize, void *Buff)
 	{
 		struct ipa3_hw_pkt_status_hw_v7_0 *pStatus = (struct ipa3_hw_pkt_status_hw_v7_0 *)Buff;
@@ -344,7 +407,7 @@ public:
 		if (VerifyStatusReceived(SendSize, RecvSize) == false) {
 			return false;
 		}
-		
+
 		return ((bool)pStatus->nat_cache_hit);
 	}
 
@@ -910,6 +973,7 @@ public:
 	uint16_t m_private_port2;
 	uint16_t m_target_port;
 	uint32_t m_metadata;
+	std::set<uint32_t> m_nat_rule_hdls;
 private:
 };
 
@@ -1021,9 +1085,7 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
@@ -1224,8 +1286,7 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -1476,11 +1537,11 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
+
 
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
 			m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
@@ -1492,11 +1553,11 @@ public:
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 1;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
+
 
 		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
 			m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
@@ -1800,11 +1861,11 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
+
 
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
 			m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
@@ -1816,9 +1877,8 @@ public:
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 1;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
 
@@ -2088,11 +2148,11 @@ public:
 		}
 		LOG_MSG_DEBUG("PDN 0 was modified to hold ip 0x%X, src_metadata 0x%X\n", m_public_ip, m_metadata);
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
+
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
 			m_nat_rule_hdl1, ipv4_rule.target_ip, ipv4_rule.target_port,
 			ipv4_rule.private_ip, ipv4_rule.private_port,
@@ -2306,8 +2366,7 @@ public:
 		}
 		LOG_MSG_DEBUG("PDN 0 was modified to hold ip 0x%X, dst_metadata 0x%X\n", m_public_ip, m_metadata);
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -2520,8 +2579,7 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -2538,9 +2596,8 @@ public:
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
@@ -2822,8 +2879,7 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 1;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -2837,8 +2893,7 @@ public:
 		// block action parameter will provide the PDN index.
 		ipv4_rule.pdn_index = 2;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
@@ -2965,8 +3020,7 @@ public:
 			return false;
 		}
 
-		ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, m_nat_rule_hdl1);
-		if (ret) {
+		if (!DeleteNatRule(m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 0\n");
 			return false;
 		}
@@ -3059,8 +3113,7 @@ public:
 			return false;
 		}
 
-		ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, m_nat_rule_hdl1);
-		if (ret) {
+		if (!DeleteNatRule(m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 0\n");
 			return false;
 		}
@@ -3308,8 +3361,7 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -3324,8 +3376,7 @@ public:
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 1;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
@@ -3340,8 +3391,7 @@ public:
 		ipv4_rule.public_port = m_public_port3;
 		ipv4_rule.pdn_index = 2;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 2\n");
 			return false;
 		}
@@ -3356,8 +3406,7 @@ public:
 		ipv4_rule.public_port = m_public_port4;
 		ipv4_rule.pdn_index = 3;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 3\n");
 			return false;
 		}
@@ -3747,8 +3796,7 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -3765,9 +3813,8 @@ public:
 		ipv4_rule.private_ip = m_private_ip2;
 		ipv4_rule.private_port = m_private_port2;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
 
@@ -3896,9 +3943,8 @@ public:
 			return false;
 		}
 
-		ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 1\n");
+		if (!DeleteNatRule(m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 0\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule deleted\n");
@@ -4434,9 +4480,8 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
@@ -4642,9 +4687,8 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
@@ -4859,8 +4903,7 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -5072,8 +5115,7 @@ public:
 		ipv4_rule.public_port = m_public_port;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRule(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -5277,9 +5319,8 @@ public:
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
@@ -5401,8 +5442,7 @@ public:
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -5572,8 +5612,7 @@ public:
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -5588,8 +5627,7 @@ public:
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl2);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl2)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
@@ -5758,8 +5796,7 @@ public:
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -5774,9 +5811,8 @@ public:
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl2);
-		if (ret) {
-			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl2)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
 
@@ -5911,8 +5947,7 @@ public:
 		}
 		LOG_MSG_DEBUG("PDN 0 was modified to hold ip 0x%X, src_metadata 0x%X\n", m_public_ip, m_metadata);
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -6046,8 +6081,7 @@ public:
 		}
 		LOG_MSG_DEBUG("PDN 0 was modified to hold ip 0x%X, dst_metadata 0x%X\n", m_public_ip, m_metadata);
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -6172,8 +6206,7 @@ public:
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -6190,9 +6223,8 @@ public:
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 0;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule 2 added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
@@ -6345,8 +6377,7 @@ public:
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -6360,8 +6391,7 @@ public:
 		// block action parameter will provide the PDN index.
 		ipv4_rule.pdn_index = 2;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
@@ -6409,8 +6439,7 @@ public:
 			return false;
 		}
 
-		ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, m_nat_rule_hdl1);
-		if (ret) {
+		if (!DeleteNatRule(m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 0\n");
 			return false;
 		}
@@ -6503,8 +6532,7 @@ IpaNatBlockTest032()
 			return false;
 		}
 
-		ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, m_nat_rule_hdl1);
-		if (ret) {
+		if (!DeleteNatRule(m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 0\n");
 			return false;
 		}
@@ -6754,8 +6782,7 @@ IpaNatBlockTest033()
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -6770,8 +6797,7 @@ IpaNatBlockTest033()
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
@@ -6786,8 +6812,7 @@ IpaNatBlockTest033()
 		ipv4_rule.public_port = m_public_port3;
 		ipv4_rule.pdn_index = 2;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 2\n");
 			return false;
 		}
@@ -6802,8 +6827,7 @@ IpaNatBlockTest033()
 		ipv4_rule.public_port = m_public_port4;
 		ipv4_rule.pdn_index = 3;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 3\n");
 			return false;
 		}
@@ -7196,8 +7220,7 @@ IpaNatBlockTest034()
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -7214,9 +7237,8 @@ IpaNatBlockTest034()
 		ipv4_rule.private_ip = m_private_ip2;
 		ipv4_rule.private_port = m_private_port2;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
 
@@ -7346,9 +7368,8 @@ public:
 			return false;
 		}
 
-		ret = ipa_nat_del_ipv4_rule(m_tbl_hdl, m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 1\n");
+		if (!DeleteNatRule(m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed deleting NAT rule 0\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule deleted\n");
@@ -7881,9 +7902,8 @@ IpaNatBlockTest041()
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
@@ -8010,9 +8030,8 @@ public:
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
@@ -8142,8 +8161,7 @@ public:
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -8275,8 +8293,7 @@ public:
 		ipv4_rule.in_allowed = 1;
 		ipv4_rule.out_allowed = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -8398,9 +8415,8 @@ IpaNatBlockTest045()
 		ipv4_rule.out_allowed = 1;
 		ipv4_rule.conn_tracking = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
-			LOG_MSG_ERROR("failed adding NAT rule 0\n");
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
 		LOG_MSG_DEBUG("NAT rule added, hdl %d, data: 0x%X, %d, 0x%X, %d, %d, %d\n",
@@ -8523,8 +8539,7 @@ public:
 		ipv4_rule.out_allowed = 1;
 		ipv4_rule.conn_tracking = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -9288,8 +9303,7 @@ public:
 		ipv4_rule.out_allowed = 1;
 		ipv4_rule.conn_tracking = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -9304,8 +9318,7 @@ public:
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl2);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl2)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
@@ -9475,8 +9488,7 @@ public:
 		ipv4_rule.out_allowed = 1;
 		ipv4_rule.conn_tracking = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl1);
-		if (ret) {
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl1)) {
 			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
 			return false;
 		}
@@ -9491,9 +9503,8 @@ public:
 		ipv4_rule.public_port = m_public_port2;
 		ipv4_rule.pdn_index = 1;
 
-		ret = ipa_nat_add_ipv4_rule_v2(m_tbl_hdl, &ipv4_rule, &m_nat_rule_hdl2);
-		if (ret) {
-			LOG_MSG_ERROR("Leaving, failed adding NAT rule 0\n");
+		if (!AddNatRuleV2(ipv4_rule, m_nat_rule_hdl2)) {
+			LOG_MSG_ERROR("Leaving, failed adding NAT rule 1\n");
 			return false;
 		}
 
