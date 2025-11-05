@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -2530,6 +2530,7 @@ static void ipahal_cp_hdr_to_hw_buff_v3(void *const base, u32 offset,
  * @l2tp_params: l2tp parameters
  * @eogre_params: eogre parameters
  * @ipsec_params: IPsec params
+ * @gre_params: gre parameters
  * @generic_params: generic proc_ctx params
  * @generic_params_v2: generic proc_ctx params for wwan_ethII
  * @pdn_dscp_params: pdn<->dscp proc_ctx params
@@ -2545,6 +2546,7 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 		struct ipa_l2tp_hdr_proc_ctx_params *l2tp_params,
 		struct ipa_eogre_hdr_proc_ctx_params *eogre_params,
 		struct ipa_ipsec_params *ipsec_params,
+		struct ipa_gre_hdr_proc_ctx_params *gre_params,
 		struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
 		struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
 		struct ipa_pdn_dscp_procparams *pdn_dscp_params,
@@ -2869,7 +2871,67 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
 		ctx->end.length = 0;
 		ctx->end.value = 0;
-	} else if (type == IPA_HDR_PROC_NXT_RND) {
+	} else if(type == IPA_HDR_PROC_GRE_HEADER_ADD){
+		struct ipa_hw_hdr_proc_ctx_add_gre_hdr_cmd_seq *ctx =
+			(struct ipa_hw_hdr_proc_ctx_add_gre_hdr_cmd_seq *)
+			(base + offset);
+
+		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
+		ctx->hdr_add.tlv.length = 2;
+		ctx->hdr_add.tlv.value = hdr_len;
+		hdr_addr = hdr_base_addr + offset_entry->offset;
+		IPAHAL_DBG("header address 0x%llx\n",
+			hdr_addr);
+		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
+			ctx->hdr_add.hdr_addr_hi, hdr_addr);
+		if (!is_64)
+			ctx->hdr_add.hdr_addr_hi = 0;
+		ctx->gre_params.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
+		ctx->gre_params.tlv.length = 1;
+		ctx->gre_params.tlv.value = IPA_HDR_UCP_PMIPV6_HEADER_ADD;
+		ctx->gre_params.gre_params.eth_hdr_retained = 0;
+		ctx->gre_params.gre_params.input_ip_version =
+			gre_params->hdr_add_param.input_ip_version;
+		ctx->gre_params.gre_params.output_ip_version =
+			gre_params->hdr_add_param.output_ip_version;
+		ctx->gre_params.gre_params.second_pass =
+			gre_params->hdr_add_param.second_pass;
+
+		IPAHAL_DBG("command id %d\n", ctx->gre_params.tlv.value);
+		IPAHAL_DBG("eth_hdr_retained %d input_ip_version %d output_ip_version %d second_pass %d\n",
+			gre_params->hdr_add_param.eth_hdr_retained,
+			gre_params->hdr_add_param.input_ip_version,
+			gre_params->hdr_add_param.output_ip_version,
+			gre_params->hdr_add_param.second_pass);
+		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
+		ctx->end.length = 0;
+		ctx->end.value = 0;
+	}else if(type == IPA_HDR_PROC_GRE_HEADER_REMOVE){
+		struct ipa_hw_hdr_proc_ctx_remove_gre_hdr_cmd_seq *ctx =
+			(struct ipa_hw_hdr_proc_ctx_remove_gre_hdr_cmd_seq *)
+			(base + offset);
+
+		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
+		ctx->hdr_add.tlv.length = 2;
+		ctx->hdr_add.tlv.value = hdr_len;
+		hdr_addr = hdr_base_addr + offset_entry->offset;
+		IPAHAL_DBG("header address 0x%llx length %d\n",
+				   hdr_addr, ctx->hdr_add.tlv.value);
+		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(
+			ctx->hdr_add.hdr_addr,
+			ctx->hdr_add.hdr_addr_hi, hdr_addr);
+		if (!is_64)
+			ctx->hdr_add.hdr_addr_hi = 0;
+		ctx->gre_params.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
+		ctx->gre_params.tlv.length = 1;
+		ctx->gre_params.tlv.value = IPA_HDR_UCP_PMIPV6_HEADER_REMOVE;
+		ctx->gre_params.gre_params.hdr_len_remove =
+			gre_params->hdr_remove_param.hdr_len_remove;
+		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
+		ctx->end.length = 0;
+		ctx->end.value = 0;
+
+	}else if (type == IPA_HDR_PROC_NXT_RND) {
 		struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq *ctx =
 			(struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq *)
 			(base + offset);
@@ -3194,6 +3256,13 @@ static int ipahal_get_proc_ctx_needed_len_v3(enum ipa_hdr_proc_type type)
 		ret =
 		sizeof(struct ipa_hw_hdr_proc_ctx_pppoe_add_hdr);
 		break;
+	case IPA_HDR_PROC_GRE_HEADER_ADD:
+		ret = sizeof(struct ipa_hw_hdr_proc_ctx_add_gre_hdr_cmd_seq);
+		break;
+	case IPA_HDR_PROC_GRE_HEADER_REMOVE:
+		ret =
+		sizeof(struct ipa_hw_hdr_proc_ctx_remove_gre_hdr_cmd_seq);
+		break;
 	case IPA_HDR_PROC_MAPE_HEADER_ADD:
 	case IPA_HDR_PROC_MAPE_HEADER_REMOVE:
 	case IPA_HDR_PROC_MAPE_FMR_HEADER_ADD:
@@ -3226,6 +3295,7 @@ struct ipahal_hdr_funcs {
 			struct ipa_l2tp_hdr_proc_ctx_params *l2tp_params,
 			struct ipa_eogre_hdr_proc_ctx_params *eogre_params,
 			struct ipa_ipsec_params *ipsec_params,
+			struct ipa_gre_hdr_proc_ctx_params *gre_params,
 			struct ipa_eth_II_to_eth_II_ex_procparams
 			*generic_params,
 			struct ipa_wwan_to_eth_II_ex_procparams
@@ -3298,6 +3368,7 @@ void ipahal_cp_hdr_to_hw_buff(void *base, u32 offset, u8 *const hdr,
  * @offset_entry: offset from hdr_base_addr in table
  * @l2tp_params: l2tp parameters
  * @eogre_params: eogre parameters
+ * @gre_params: gre parameters
  * @generic_params: generic proc_ctx params
  * @mape_params: mape parameters
  * @is_64: Indicates whether header base address/dma base address is 64 bit.
@@ -3309,6 +3380,7 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 		struct ipa_l2tp_hdr_proc_ctx_params *l2tp_params,
 		struct ipa_eogre_hdr_proc_ctx_params *eogre_params,
 		struct ipa_ipsec_params *ipsec_params,
+		struct ipa_gre_hdr_proc_ctx_params *gre_params,
 		struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
 		struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
 		struct ipa_pdn_dscp_procparams *pdn_dscp_params,
@@ -3329,8 +3401,8 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 
 	return hdr_funcs.ipahal_cp_proc_ctx_to_hw_buff(type, base, offset,
 			hdr_len, is_hdr_proc_ctx, phys_base, hdr_base_addr, offset_entry,
-			l2tp_params, eogre_params, ipsec_params, generic_params,
-			generic_params_v2, pdn_dscp_params, pppoe_params, mape_params, is_64);
+			l2tp_params, eogre_params, ipsec_params, gre_params, generic_params,
+			generic_params_v2, pdn_dscp_params, pppoe_params,mape_params, is_64);
 }
 
 /*
