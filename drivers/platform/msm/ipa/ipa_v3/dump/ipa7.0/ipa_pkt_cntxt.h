@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (c) 2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ */
+#if !defined(_IPA_PKT_CNTXT_H_)
+#define _IPA_PKT_CNTXT_H_
+
+#include "ipa_hwio_def.h"
+
+#define IPA_HW_PKT_CTNTX_MAX        0x3C
+
+/*
+ * Packet Context States
+ */
+enum ipa_hw_pkt_cntxt_state_e {
+    IPA_HW_PKT_CNTXT_STATE_HFETCHER_INIT = 1,
+    IPA_HW_PKT_CNTXT_STATE_FETCHER_DMAR  = 2,
+    IPA_HW_PKT_CNTXT_STATE_FETCHER       = 3,
+    IPA_HW_PKT_CNTXT_STATE_H_DCPH        = 4,
+    IPA_HW_PKT_CNTXT_STATE_MULTI_DRBIP   = 5,
+    IPA_HW_PKT_CNTXT_STATE_MULTI_PKT_PARSER = 6,
+    IPA_HW_PKT_CNTXT_STATE_FILTER_NAT    = 7,
+    IPA_HW_PKT_CNTXT_STATE_ROUTER        = 8,
+    IPA_HW_PKT_CNTXT_STATE_MULTI_HDRI    = 9,
+    IPA_HW_PKT_CNTXT_STATE_UCP           = 10,
+    IPA_HW_PKT_CNTXT_STATE_COAL_MASTER   = 11,
+    IPA_HW_PKT_CNTXT_STATE_ENQUEUER      = 12,
+    IPA_HW_PKT_CNTXT_STATE_DFETCHER      = 13,
+    IPA_HW_PKT_CNTXT_STATE_D_DCPH        = 14,
+    IPA_HW_PKT_CNTXT_STATE_DISPATCHER    = 15,
+    IPA_HW_PKT_CNTXT_STATE_TX            = 16,
+    IPA_HW_PKT_CNTXT_STATE_TX_ZLT        = 17,
+    IPA_HW_PKT_CNTXT_STATE_D_DCPH_2      = 19,
+    IPA_HW_PKT_CNTXT_STATE_TX_RSRCREL    = 20,
+    IPA_HW_PKT_CNTXT_STATE_CRYPTO        = 21,
+    IPA_HW_PKT_CNTXT_STATE_TX_STATS      = 23,
+};
+
+#define IPA_PKT_CTX_FIELDS_N(x) \
+  struct ipa_hwio_def_ipa_pkt_ctx_num_m_fields_##x##_s f##x
+
+#define IPA_PKT_CTX_VALUE_N(size) \
+  u32 values[size]
+
+#define IPA_PKT_CTX_FIELDS_SET_N(where,idx,x) \
+   *(u32*)(&(where).f##x) = IPA_HAL_HWIO_IN_REG_n(IPA_PKT_CTX_NUM_##idx##_FIELDS_##x, (idx))
+
+/* Packet Context fields as received from VI/Design */
+struct ipa_pkt_ctntx_s
+{
+  IPA_PKT_CTX_FIELDS_N(0);
+  IPA_PKT_CTX_FIELDS_N(1);
+  IPA_PKT_CTX_FIELDS_N(2);
+  IPA_PKT_CTX_FIELDS_N(3);
+  IPA_PKT_CTX_FIELDS_N(4);
+  IPA_PKT_CTX_FIELDS_N(5);
+  IPA_PKT_CTX_FIELDS_N(6);
+  IPA_PKT_CTX_FIELDS_N(7);
+  IPA_PKT_CTX_FIELDS_N(8);
+  IPA_PKT_CTX_FIELDS_N(9);
+  IPA_PKT_CTX_FIELDS_N(10);
+  IPA_PKT_CTX_FIELDS_N(11);
+  IPA_PKT_CTX_FIELDS_N(12);
+  IPA_PKT_CTX_FIELDS_N(13);
+  IPA_PKT_CTX_FIELDS_N(14);
+  //TODO_IPA7_0 missing in hwio IPA_PKT_CTX_FIELDS_N(15);
+  IPA_PKT_CTX_FIELDS_N(16);
+  IPA_PKT_CTX_FIELDS_N(17);
+  IPA_PKT_CTX_FIELDS_N(18);
+  IPA_PKT_CTX_FIELDS_N(19);
+  IPA_PKT_CTX_FIELDS_N(20);
+  IPA_PKT_CTX_FIELDS_N(21);
+  IPA_PKT_CTX_FIELDS_N(22);
+  IPA_PKT_CTX_FIELDS_N(23);
+  IPA_PKT_CTX_FIELDS_N(24);
+  IPA_PKT_CTX_FIELDS_N(25);
+  IPA_PKT_CTX_FIELDS_N(26);
+  IPA_PKT_CTX_FIELDS_N(27);
+  IPA_PKT_CTX_FIELDS_N(28);
+  IPA_PKT_CTX_FIELDS_N(29);
+  IPA_PKT_CTX_FIELDS_N(30);
+  IPA_PKT_CTX_FIELDS_N(31);
+  IPA_PKT_CTX_FIELDS_N(32);
+  IPA_PKT_CTX_FIELDS_N(33);
+  IPA_PKT_CTX_FIELDS_N(34);
+  IPA_PKT_CTX_FIELDS_N(35);
+  IPA_PKT_CTX_FIELDS_N(36);
+  IPA_PKT_CTX_FIELDS_N(37);
+  IPA_PKT_CTX_FIELDS_N(38);
+  IPA_PKT_CTX_FIELDS_N(39);
+  IPA_PKT_CTX_FIELDS_N(40);
+  IPA_PKT_CTX_FIELDS_N(41);
+  IPA_PKT_CTX_FIELDS_N(42);
+  IPA_PKT_CTX_FIELDS_N(43);
+  IPA_PKT_CTX_FIELDS_N(44);
+  IPA_PKT_CTX_FIELDS_N(45);
+  IPA_PKT_CTX_FIELDS_N(46);
+  IPA_PKT_CTX_FIELDS_N(47);
+  IPA_PKT_CTX_FIELDS_N(48);
+  IPA_PKT_CTX_FIELDS_N(49);
+  IPA_PKT_CTX_FIELDS_N(50);
+  IPA_PKT_CTX_FIELDS_N(51);
+  IPA_PKT_CTX_FIELDS_N(52);
+  IPA_PKT_CTX_FIELDS_N(53);
+  IPA_PKT_CTX_FIELDS_N(54);
+  IPA_PKT_CTX_FIELDS_N(55);
+  IPA_PKT_CTX_FIELDS_N(56);
+  IPA_PKT_CTX_FIELDS_N(57);
+  IPA_PKT_CTX_FIELDS_N(58);
+  IPA_PKT_CTX_FIELDS_N(59);
+  IPA_PKT_CTX_FIELDS_N(60);
+  IPA_PKT_CTX_FIELDS_N(61);
+  IPA_PKT_CTX_FIELDS_N(62);
+  IPA_PKT_CTX_FIELDS_N(63);
+  IPA_PKT_CTX_FIELDS_N(64);
+  IPA_PKT_CTX_FIELDS_N(65);
+};
+
+struct ipa_pkt_cntx_values_s
+{
+  IPA_PKT_CTX_VALUE_N(66);
+};
+
+union ipa_pkt_cntx_s
+{
+  struct ipa_pkt_ctntx_s regs;
+  struct ipa_pkt_cntx_values_s values;
+};
+
+#endif /* #if !defined(_IPA_PKT_CNTXT_H_) */
