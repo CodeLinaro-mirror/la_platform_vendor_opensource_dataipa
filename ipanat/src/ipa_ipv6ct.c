@@ -976,9 +976,11 @@ static int table_entry_copy_from_user(void* entry, void* user_data)
 	ipa_ipv6ct_hw_entry* ipv6ct_entry = (ipa_ipv6ct_hw_entry*)entry;
 	const ipa_ipv6ct_rule* user_rule = (const ipa_ipv6ct_rule*)user_data;
 
-	if(NULL == user_rule)
+	if(!ipv6ct_entry || !user_rule)
 	{
-		IPAERR("Invalid User data\n");
+		IPAERR("Invalid params: ipv6ct_entry=%s user_rule=%s\n",
+					ipv6ct_entry ? "valid" : "NULL",
+					user_rule ? "valid" : "NULL");
 		return -EINVAL;
 	}
 

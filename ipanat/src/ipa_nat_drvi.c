@@ -309,9 +309,11 @@ static int table_entry_copy_from_user(
 	struct ipa_nat_rule*     nat_entry = (struct ipa_nat_rule*) entry;
 	const ipa_nat_ipv4_rule* user_rule = (const ipa_nat_ipv4_rule*) user_data;
 
-	if(NULL == user_rule)
+	if(!nat_entry || !user_rule)
 	{
-		IPAERR("Invalid User data\n");
+		IPAERR("Invalid params: nat_entry=%s user_rule=%s\n",
+					nat_entry ? "valid" : "NULL",
+					user_rule ? "valid" : "NULL");
 		return -EINVAL;
 	}
 
