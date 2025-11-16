@@ -314,6 +314,16 @@ static int ipa_param_handler(const char *key_store,
 						IPAERR("Error in converting '%s' value\n",value_store);
 					}
 					break;
+				case IPA_USE_IPV6_NAT_CONFIG:
+					status = CONVERT_TO_BOOL(value_store, config);
+					if(!status)
+					{
+						IPADBG("config use ipv6 nat '%s' is %d", value_store, config);
+						drv_res->use_ipv6_nat_config = config;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
 			}
 			return status;
 		}

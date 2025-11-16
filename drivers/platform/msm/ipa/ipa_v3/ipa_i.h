@@ -2657,6 +2657,7 @@ struct ipa3_context {
 	bool ipa_config_is_mhi;
 	bool ipa_config_is_rdkb;
 	bool ipa_config_is_ipsec;
+	bool use_ipv6_nat_config;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
@@ -2998,6 +2999,7 @@ struct ipa3_plat_drv_res {
 	bool use_ezmesh_config;
 	bool use_eth_qos_config;
 	bool use_ipsec_config;
+	bool use_ipv6_nat_config;
 };
 
 /**

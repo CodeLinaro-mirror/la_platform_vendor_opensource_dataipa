@@ -15479,6 +15479,11 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 			}
 		}
 #endif
+		/* check ipv6 nat config */
+		if (ipa_drv_res->use_ipv6_nat_config) {
+			IPADBG("Use ipv6 nat config is %d\n", ipa_drv_res->use_ipv6_nat_config);
+			ipa3_ctx->use_ipv6_nat_config = ipa_drv_res->use_ipv6_nat_config;
+		}
 	}
 
 	if (ipa_is_ready())
