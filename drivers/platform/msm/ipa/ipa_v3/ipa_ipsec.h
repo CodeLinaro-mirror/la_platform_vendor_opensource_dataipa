@@ -138,7 +138,7 @@ struct ipa_ipsec_algo {
 };
 
 #pragma pack(push, 4)
-/* Encap SA Shared, Apps writes, uC and HW read */
+/* Encap SA Shared, Apps writes, uC and HW read - 16B */
 struct ipa_ipsec_sa_encap_shared {
 	u32 salt_val;
 
@@ -147,7 +147,8 @@ struct ipa_ipsec_sa_encap_shared {
 	u32 salt_needed		:1;
 	u32 reserved1		:4;
 	u32 iv_sz		:5;
-	u32 reserved2		:11;
+	u32 reserved2		:10;
+	u32 ipsec_mode		:1;
 
 	u32 auth_algo		:8;
 	u32 authkey_len		:3;
@@ -159,7 +160,7 @@ struct ipa_ipsec_sa_encap_shared {
 	u32 reserved5;
 };
 
-/* Encap SA Dynamic, Apps reads/writes, uC reads/writes (not gated) */
+/* Encap SA Dynamic, Apps reads/writes, uC reads/writes (not gated) - 32B */
 struct ipa_ipsec_sa_encap_dynamic {
 	u32 is_stopped		:1;
 	u32 send_to_sw		:1;
@@ -172,7 +173,7 @@ struct ipa_ipsec_sa_encap_dynamic {
 	u64 last_pkt_timestamp;
 };
 
-/* Encap SA Static, Apps writes, uC reads */
+/* Encap SA Static, Apps writes, uC reads - 24B */
 struct ipa_ipsec_sa_encap_static {
 	u32 nat_t		:1;
 	u32 copy_df		:1;
@@ -188,8 +189,25 @@ struct ipa_ipsec_sa_encap_static {
 	u32 reserved2;
 };
 
-/* Encap SA Layout - 22B */
-struct ipa_ipsec_sa_encap {
+/* Encap SA Static v2, Apps writes, uC reads - 32B */
+struct ipa_ipsec_sa_encap_static_v2 {
+	u32 nat_t		:1;
+	u32 copy_df		:1;
+	u32 copy_dscp		:1;
+	u32 copy_ecn		:1;
+	u32 copy_flow_lbl	:1;
+	u32 overflow_allowed	:1;
+	u32 reserved1		:10;
+	u32 path_mtu		:16;
+
+	u64 sa_life_bytes_wm; /* soft threshold */
+	u64 sa_life_bytes; /* hard threshold */
+	u32 reserved2;
+	u64 reserved3; /* for 16 byte alignment */
+};
+
+/* Encap SA Layout - 88B */
+struct ipa_ipsec_sa_encap_v1 {
 	struct {
 		u32 iv[4];
 	} intr;
@@ -197,9 +215,25 @@ struct ipa_ipsec_sa_encap {
 	struct ipa_ipsec_sa_encap_dynamic dyna;
 	struct ipa_ipsec_sa_encap_static stat;
 };
-#define IPA_ENCAP_DB_SIZE (IPA_IPSEC_MAX_SA_NUM * (sizeof(struct ipa_ipsec_sa_encap)))
+#define IPA_ENCAP_DB_SIZE (IPA_IPSEC_MAX_SA_NUM * (sizeof(struct ipa_ipsec_sa_encap_v1)))
 
-/* Decap SA Intra, Apps reads/writes, HW writes/writes */
+/* Encap SA Layout v2 - 96B */
+struct ipa_ipsec_sa_encap_v2 {
+	struct {
+		u32 iv[4];
+	} intr;
+	struct ipa_ipsec_sa_encap_shared shar;
+	struct ipa_ipsec_sa_encap_dynamic dyna;
+	struct ipa_ipsec_sa_encap_static_v2 stat;
+};
+#define IPA_ENCAP_DB_SIZE_v2 (IPA_IPSEC_MAX_SA_NUM * (sizeof(struct ipa_ipsec_sa_encap_v2)))
+
+union ipa_ipsec_sa_encap {
+	struct ipa_ipsec_sa_encap_v1 v1;
+	struct ipa_ipsec_sa_encap_v2 v2;
+};
+
+/* Decap SA Intra, Apps reads/writes, HW writes/writes - 168B */
 struct ipa_ipsec_sa_decap_intra {
 	u32 intgr_fail;
 	u32 pad_fail;
@@ -213,7 +247,22 @@ struct ipa_ipsec_sa_decap_intra {
 	u64 antirep_bottom;
 };
 
-/* Decap SA Shared, Apps writes, uC and HW read */
+/* Decap SA Intra v2, Apps reads/writes, HW writes/writes - 176B */
+struct ipa_ipsec_sa_decap_intra_v2 {
+	u32 intgr_fail;
+	u32 pad_fail;
+	u32 antirep_fail;
+	u16 cons_intgr_fail;
+	u16 reserved;
+	u32 out_win_fail;
+	u32 dummy_pkts;
+	u64 reserved2; /* for 16 byte alignment */
+	u64 antirep_win[16];
+	u64 antirep_top;
+	u64 antirep_bottom;
+};
+
+/* Decap SA Shared, Apps writes, uC and HW read - 24B */
 struct ipa_ipsec_sa_decap_shared {
 	u32 antirep_win_sz;
 	u32 salt_val;
@@ -240,7 +289,38 @@ struct ipa_ipsec_sa_decap_shared {
 	u32 ecn_upd		:1;
 };
 
-/* Decap SA Dynamic, Apps reads/writes, uC reads/writes (not gated) */
+/* Decap SA Shared v2, Apps writes, uC and HW read - 32B */
+struct ipa_ipsec_sa_decap_shared_v2 {
+	u32 antirep_win_sz;
+	u32 salt_val;
+
+	u32 encr_algo		:8;
+	u32 encrkey_len		:3;
+	u32 salt_needed		:1;
+	u32 no_pad_chk		:1;
+	u32 reserved1		:3;
+	u32 iv_sz		:5;
+	u32 reserved2		:9;
+	u32 dscp_copy		:1;
+	u32 ecn_upd		:1;
+
+	u32 auth_algo		:8;
+	u32 authkey_len		:3;
+	u32 esn_en		:1;
+	u32 reserved3		:4;
+	u32 icv_sz		:7;
+	u32 reserved4		:8;
+	u32 ipsec_mode		:1;
+
+	u32 ecn_fld_lut;
+
+	u32 ecn_expt_lut	:16;
+	u32 hdr_checksum	:16;
+
+	u64 reserved5; /* for 16 byte alignment */
+};
+
+/* Decap SA Dynamic, Apps reads/writes, uC reads/writes (not gated) - 24B */
 struct ipa_ipsec_sa_decap_dynamic {
 	u32 is_stopped		:1;
 	u32 send_to_sw		:1;
@@ -252,7 +332,20 @@ struct ipa_ipsec_sa_decap_dynamic {
 	u32 last_prim_frag_seq_num;
 };
 
-/* Decap SA Static, Apps writes, uC reads */
+/* Decap SA Dynamic v2, Apps reads/writes, uC reads/writes (not gated) - 32B */
+struct ipa_ipsec_sa_decap_dynamic_v2 {
+	u32 is_stopped		:1;
+	u32 send_to_sw		:1;
+	u32 thresh_met		:1;
+	u32 reserved		:29;
+
+	u64 volume_bytes;
+	u64 last_pkt_timestamp;
+	u32 last_prim_frag_seq_num;
+	u64 reserved2; /* for 16 byte alignment */
+};
+
+/* Decap SA Static, Apps writes, uC reads - 24B */
 struct ipa_ipsec_sa_decap_static {
 	u32 nat_t		:1;
 	u32 reserved1		:31;
@@ -262,15 +355,39 @@ struct ipa_ipsec_sa_decap_static {
 	u32 reserved2;
 };
 
-/* Decap SA Layout - 30B */
-struct ipa_ipsec_sa_decap {
+/* Decap SA Static v2, Apps writes, uC reads - 32B */
+struct ipa_ipsec_sa_decap_static_v2 {
+	u32 nat_t		:1;
+	u32 reserved1		:31;
+
+	u64 sa_life_bytes_wm; /* soft threshold */
+	u64 sa_life_bytes; /* hard threshold */
+	u32 reserved2;
+	u64 reserved3; /* for 16 byte alignment */
+};
+
+/* Decap SA Layout - 240B */
+struct ipa_ipsec_sa_decap_v1 {
 	struct ipa_ipsec_sa_decap_intra intr;
 	struct ipa_ipsec_sa_decap_shared shar;
 	struct ipa_ipsec_sa_decap_dynamic dyna;
 	struct ipa_ipsec_sa_decap_static stat;
 };
-#define IPA_DECAP_DB_SIZE (IPA_IPSEC_MAX_SA_NUM * (sizeof(struct ipa_ipsec_sa_decap)))
-#define IPA_SA_DB_SIZE (IPA_DECAP_DB_SIZE + IPA_ENCAP_DB_SIZE)
+#define IPA_DECAP_DB_SIZE (IPA_IPSEC_MAX_SA_NUM * (sizeof(struct ipa_ipsec_sa_decap_v1)))
+
+/* Decap SA Layout v2 - 272B */
+struct ipa_ipsec_sa_decap_v2 {
+	struct ipa_ipsec_sa_decap_intra_v2 intr;
+	struct ipa_ipsec_sa_decap_shared_v2 shar;
+	struct ipa_ipsec_sa_decap_dynamic_v2 dyna;
+	struct ipa_ipsec_sa_decap_static_v2 stat;
+};
+#define IPA_DECAP_DB_SIZE_v2 (IPA_IPSEC_MAX_SA_NUM * (sizeof(struct ipa_ipsec_sa_decap_v2)))
+
+union ipa_ipsec_sa_decap {
+	struct ipa_ipsec_sa_decap_v1 v1;
+	struct ipa_ipsec_sa_decap_v2 v2;
+};
 
 union ipa_ipsec_enc_key {
 	struct {
@@ -382,10 +499,12 @@ struct ipa_ipsec_stats {
 /**
  * struct ipa_ipsec_ctx - IPA IPsec context
  * @dev: netdev pointer
- * @keys: SRAM mapped to the keys storage (32 * 32 + 32 * 64 = 3072 bytes)
+ * @keys: SRAM mapped to the keys storage
  * @keys_v2: SRAM mapped to the keys storage for IPAv7.0 and newer
- * @decap: SRAM mapped to the decap SAs area (11 * 88 = 968 bytes)
- * @encap: SRAM mapped to the encap SAs area (11 * 256 = 2816 bytes)
+ * @decap: SRAM mapped to the decap SAs area
+ * @decap_db_size: All decap SA SRAM size, calculated during init
+ * @encap: SRAM mapped to the encap SAs area
+ * @encap_db_size: All encap SA SRAM size, calculated during init
  * @uc_smmu_iova: uC SMMU VA for cleanup
  * @xfrmdev_ops: Pointer to XFRM callbacks struct
  * @sa_db: Per SA handlers: x, hdr, hpc, rt
@@ -411,8 +530,10 @@ struct ipa_ipsec_ctx {
 	struct net_device *dev;
 	struct ipa_ipsec_key_store __iomem *keys;
 	struct ipa_ipsec_key_store_v2 __iomem *keys_v2;
-	struct ipa_ipsec_sa_decap __iomem *decap;
-	struct ipa_ipsec_sa_encap __iomem *encap;
+	void __iomem *decap;
+	u32 decap_db_size;
+	void __iomem *encap;
+	u32 encap_db_size;
 	unsigned long uc_smmu_iova;
 	struct xfrmdev_ops *xfrmdev_ops;
 	struct {
@@ -438,6 +559,19 @@ struct ipa_ipsec_ctx {
 	bool initialized;
 	bool enabled;
 };
+
+#define IPA_SA_DB_SIZE(ipsec) ((ipsec)->decap_db_size + (ipsec)->encap_db_size)
+
+#define IPA_IPSEC_SA_DECAP(ver, idx) \
+	((struct ipa_ipsec_sa_decap_##ver __iomem *)(ipa3_ctx->ipsec->decap) + idx)
+
+#define IPA_IPSEC_SA_ENCAP(ver, idx) \
+	((struct ipa_ipsec_sa_encap_##ver __iomem *)(ipa3_ctx->ipsec->encap) + idx)
+
+#define IPA_IPSEC_SA_DECAP_v1(idx) IPA_IPSEC_SA_DECAP(v1, idx)
+#define IPA_IPSEC_SA_DECAP_v2(idx) IPA_IPSEC_SA_DECAP(v2, idx)
+#define IPA_IPSEC_SA_ENCAP_v1(idx) IPA_IPSEC_SA_ENCAP(v1, idx)
+#define IPA_IPSEC_SA_ENCAP_v2(idx) IPA_IPSEC_SA_ENCAP(v2, idx)
 
 struct ipa_ipsec_state_work_wrap {
 	struct work_struct work;

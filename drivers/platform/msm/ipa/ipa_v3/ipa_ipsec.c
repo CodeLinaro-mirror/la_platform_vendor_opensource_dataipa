@@ -25,8 +25,8 @@
 #define IPSEC_WORKQUEUE_NAME "ipa_ipsec_wq"
 
 /* Static system storage for SA construction and mirroring, to avoid unaligned SRAM access */
-static struct ipa_ipsec_sa_encap esa;
-static struct ipa_ipsec_sa_decap dsa;
+static union ipa_ipsec_sa_encap esa;
+static union ipa_ipsec_sa_decap dsa;
 
 static struct {
 	char encap_hdr[IPA_RESOURCE_NAME_MAX];
@@ -191,7 +191,7 @@ int ipa_ipsec_install_key_test(u8 idx, enum ipa_ipsec_key_type_v2 type, enum ipa
  * ipa_ipsec_install_encap_sa()
  * 	Install an encap SA.
  */
-static int ipa_ipsec_install_encap_sa(u8 idx, struct ipa_ipsec_sa_encap *sa)
+static int ipa_ipsec_install_encap_sa(u8 idx, union ipa_ipsec_sa_encap *sa)
 {
 	if (!sa || idx >= IPA_IPSEC_MAX_SA_NUM) {
 		IPAERR("Invalid input sa is NULL, idx = %d", idx);
@@ -204,8 +204,13 @@ static int ipa_ipsec_install_encap_sa(u8 idx, struct ipa_ipsec_sa_encap *sa)
 	}
 
 	/* memcopy to SRAM */
-	memcpy_toio((void __iomem *)(ipa3_ctx->ipsec->encap + idx), (void *)sa,
-		sizeof(struct ipa_ipsec_sa_encap));
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+		typeof(IPA_IPSEC_SA_ENCAP_v1(idx)) encap = IPA_IPSEC_SA_ENCAP_v1(idx);
+		memcpy_toio((void __iomem *)encap, (void *)&sa->v1, sizeof(*encap));
+	} else {
+		typeof(IPA_IPSEC_SA_ENCAP_v2(idx)) encap = IPA_IPSEC_SA_ENCAP_v2(idx);
+		memcpy_toio((void __iomem *)encap, (void *)&sa->v2, sizeof(*encap));
+	}
 
 	return 0;
 }
@@ -214,7 +219,7 @@ static int ipa_ipsec_install_encap_sa(u8 idx, struct ipa_ipsec_sa_encap *sa)
  * ipa_ipsec_install_decap_sa()
  * 	Install an decap SA.
  */
-int ipa_ipsec_install_decap_sa(u8 idx, struct ipa_ipsec_sa_decap *sa)
+static int ipa_ipsec_install_decap_sa(u8 idx, union ipa_ipsec_sa_decap *sa)
 {
 	if (!sa || idx >= IPA_IPSEC_MAX_SA_NUM)
 		return -EINVAL;
@@ -223,10 +228,40 @@ int ipa_ipsec_install_decap_sa(u8 idx, struct ipa_ipsec_sa_decap *sa)
 		return -EFAULT;
 
 	/* memcopy to SRAM */
-	memcpy_toio((void __iomem *)(ipa3_ctx->ipsec->decap + idx), (void *)sa,
-		sizeof(struct ipa_ipsec_sa_decap));
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+		typeof(IPA_IPSEC_SA_DECAP_v1(idx)) decap = IPA_IPSEC_SA_DECAP_v1(idx);
+		memcpy_toio((void __iomem *)decap, (void *)&sa->v1, sizeof(*decap));
+	} else {
+		typeof(IPA_IPSEC_SA_DECAP_v2(idx)) decap = IPA_IPSEC_SA_DECAP_v2(idx);
+		memcpy_toio((void __iomem *)decap, (void *)&sa->v2, sizeof(*decap));
+	}
 
 	return 0;
+}
+
+static void ipa_ipsec_clean_sa(enum ipa_ipsec_sa_type type, u8 idx)
+{
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	if (type == IPA_IPSEC_ENCAP) {
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+			typeof(IPA_IPSEC_SA_ENCAP_v1(idx)) encap = IPA_IPSEC_SA_ENCAP_v1(idx);
+			memset_io((void __iomem *)encap, 0, sizeof(*encap));
+		} else {
+			typeof(IPA_IPSEC_SA_ENCAP_v2(idx)) encap = IPA_IPSEC_SA_ENCAP_v2(idx);
+			memset_io((void __iomem *)encap, 0, sizeof(*encap));
+		}
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
+	} else {
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+			typeof(IPA_IPSEC_SA_DECAP_v1(idx)) decap = IPA_IPSEC_SA_DECAP_v1(idx);
+			memset_io((void __iomem *)decap, 0, sizeof(*decap));
+		} else {
+			typeof(IPA_IPSEC_SA_DECAP_v2(idx)) decap = IPA_IPSEC_SA_DECAP_v2(idx);
+			memset_io((void __iomem *)decap, 0, sizeof(*decap));
+		}
+		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
+	}
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 }
 
 /*
@@ -243,10 +278,16 @@ int ipa_ipsec_stop_sa(u8 idx, enum ipa_ipsec_sa_type sa_type)
 
 	switch (sa_type) {
 	case IPA_IPSEC_ENCAP:
-		ipa3_ctx->ipsec->encap[idx].dyna.is_stopped = 1;
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+			IPA_IPSEC_SA_ENCAP_v1(idx)->dyna.is_stopped = 1;
+		else
+			IPA_IPSEC_SA_ENCAP_v2(idx)->dyna.is_stopped = 1;
 		break;
 	case IPA_IPSEC_DECAP:
-		ipa3_ctx->ipsec->decap[idx].dyna.is_stopped = 1;
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+			IPA_IPSEC_SA_DECAP_v1(idx)->dyna.is_stopped = 1;
+		else
+			IPA_IPSEC_SA_DECAP_v2(idx)->dyna.is_stopped = 1;
 		break;
 	default:
 		break;
@@ -702,6 +743,7 @@ static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx, enum 
 	struct ipv6hdr *ipv6h;
 	struct udphdr *udph;
 	struct ip_esp_hdr *esph;
+	u32 iv_sz;
 
 	IPADBG("Start\n");
 
@@ -767,10 +809,11 @@ static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx, enum 
 	hdr = esph->enc_data;
 
 	/* Add random IV */
-	if (esa.shar.iv_sz) {
-		get_random_bytes(hdr, esa.shar.iv_sz);
-		hdr_add->hdr_len += esa.shar.iv_sz;
-		hdr += esa.shar.iv_sz;
+	iv_sz = (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) ? esa.v1.shar.iv_sz : esa.v2.shar.iv_sz;
+	if (iv_sz) {
+		get_random_bytes(hdr, iv_sz);
+		hdr_add->hdr_len += iv_sz;
+		hdr += iv_sz;
 	}
 
 	/* Fill padding pattern, Pad Len and Next Header */
@@ -782,7 +825,8 @@ static int ipa_ipsec_install_encap_hpc(const struct xfrm_state *x, u8 idx, enum 
 	hdr_add->hdr_len += ESP_PAD_LEN + 2;
 
 	/* Set ICV length */
-	hdr_add->hdr_len += esa.shar.icv_sz;
+	hdr_add->hdr_len += (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) ?
+		esa.v1.shar.icv_sz : esa.v2.shar.icv_sz;
 
 	ret = ipa3_add_hdr_usr(hdrs, false);
 	if (!!ret) {
@@ -1492,36 +1536,69 @@ int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct
 		memset(&esa, 0, sizeof(esa));
 
 		/* copy data to the temp SA struct */
-		esa.shar.salt_val = 0x0;
-		esa.shar.encr_algo = ealg;
-		esa.shar.encrkey_len = eklen;
-		if (ealg == IPA_IPSEC_ENC_AES_GCM_16) {
-			esa.shar.salt_needed = 1;
-			esa.shar.salt_val = be32_to_cpu(*salt);
-		}
-		esa.shar.iv_sz = ivlen;
-		esa.shar.auth_algo = aalg;
-		esa.shar.authkey_len = aklen;
-		esa.shar.esn_en = !!(x->props.flags & XFRM_STATE_ESN);
-		esa.shar.icv_sz = icvlen;
-		esa.stat.nat_t = !!x->encap;
-		esa.stat.copy_df = !(x->props.flags & XFRM_STATE_NOPMTUDISC);
-		esa.stat.copy_dscp = !(x->props.extra_flags & XFRM_SA_XFLAG_DONT_ENCAP_DSCP);
-		esa.stat.copy_ecn = !(x->props.flags & XFRM_STATE_NOECN);
-		esa.stat.overflow_allowed = x->props.extra_flags & XFRM_SA_XFLAG_OSEQ_MAY_WRAP;
-		esa.stat.copy_flow_lbl = 0;
-		esa.stat.path_mtu = x->props.family == AF_INET ?
-			ipa3_ctx->ipsec->mtu_v4 : ipa3_ctx->ipsec->mtu_v6;
-		esa.stat.sa_life_bytes_wm = x->lft.soft_byte_limit ? : XFRM_INF;
-		esa.stat.sa_life_bytes = x->lft.hard_byte_limit ? : XFRM_INF;
-		esa.dyna.ipv4_id = 0;
-		if (x->props.flags & XFRM_STATE_ESN) {
-			esa.dyna.seq_num =
-				(u64)(x->replay_esn->oseq) | ((u64)(x->replay_esn->oseq_hi) << 32);
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+			esa.v1.shar.salt_val = 0x0;
+			esa.v1.shar.encr_algo = ealg;
+			esa.v1.shar.encrkey_len = eklen;
+			if (ealg == IPA_IPSEC_ENC_AES_GCM_16) {
+				esa.v1.shar.salt_needed = 1;
+				esa.v1.shar.salt_val = be32_to_cpu(*salt);
+			}
+			esa.v1.shar.iv_sz = ivlen;
+			esa.v1.shar.auth_algo = aalg;
+			esa.v1.shar.authkey_len = aklen;
+			esa.v1.shar.esn_en = !!(x->props.flags & XFRM_STATE_ESN);
+			esa.v1.shar.icv_sz = icvlen;
+			esa.v1.stat.nat_t = !!x->encap;
+			esa.v1.stat.copy_df = !(x->props.flags & XFRM_STATE_NOPMTUDISC);
+			esa.v1.stat.copy_dscp = !(x->props.extra_flags & XFRM_SA_XFLAG_DONT_ENCAP_DSCP);
+			esa.v1.stat.copy_ecn = !(x->props.flags & XFRM_STATE_NOECN);
+			esa.v1.stat.overflow_allowed = x->props.extra_flags & XFRM_SA_XFLAG_OSEQ_MAY_WRAP;
+			esa.v1.stat.copy_flow_lbl = 0;
+			esa.v1.stat.path_mtu = x->props.family == AF_INET ?
+				ipa3_ctx->ipsec->mtu_v4 : ipa3_ctx->ipsec->mtu_v6;
+			esa.v1.stat.sa_life_bytes_wm = x->lft.soft_byte_limit ? : XFRM_INF;
+			esa.v1.stat.sa_life_bytes = x->lft.hard_byte_limit ? : XFRM_INF;
+			esa.v1.dyna.ipv4_id = 0;
+			if (x->props.flags & XFRM_STATE_ESN) {
+				esa.v1.dyna.seq_num =
+					(u64)(x->replay_esn->oseq) | ((u64)(x->replay_esn->oseq_hi) << 32);
+			} else {
+				esa.v1.dyna.seq_num = (u64)(x->replay.oseq);
+			}
+			esa.v1.dyna.volume_bytes = 0;
 		} else {
-			esa.dyna.seq_num = (u64)(x->replay.oseq);
+			esa.v2.shar.salt_val = 0x0;
+			esa.v2.shar.encr_algo = ealg;
+			esa.v2.shar.encrkey_len = eklen;
+			if (ealg == IPA_IPSEC_ENC_AES_GCM_16) {
+				esa.v2.shar.salt_needed = 1;
+				esa.v2.shar.salt_val = be32_to_cpu(*salt);
+			}
+			esa.v2.shar.iv_sz = ivlen;
+			esa.v2.shar.auth_algo = aalg;
+			esa.v2.shar.authkey_len = aklen;
+			esa.v2.shar.esn_en = !!(x->props.flags & XFRM_STATE_ESN);
+			esa.v2.shar.icv_sz = icvlen;
+			esa.v2.stat.nat_t = !!x->encap;
+			esa.v2.stat.copy_df = !(x->props.flags & XFRM_STATE_NOPMTUDISC);
+			esa.v2.stat.copy_dscp = !(x->props.extra_flags & XFRM_SA_XFLAG_DONT_ENCAP_DSCP);
+			esa.v2.stat.copy_ecn = !(x->props.flags & XFRM_STATE_NOECN);
+			esa.v2.stat.overflow_allowed = x->props.extra_flags & XFRM_SA_XFLAG_OSEQ_MAY_WRAP;
+			esa.v2.stat.copy_flow_lbl = 0;
+			esa.v2.stat.path_mtu = x->props.family == AF_INET ?
+				ipa3_ctx->ipsec->mtu_v4 : ipa3_ctx->ipsec->mtu_v6;
+			esa.v2.stat.sa_life_bytes_wm = x->lft.soft_byte_limit ? : XFRM_INF;
+			esa.v2.stat.sa_life_bytes = x->lft.hard_byte_limit ? : XFRM_INF;
+			esa.v2.dyna.ipv4_id = 0;
+			if (x->props.flags & XFRM_STATE_ESN) {
+				esa.v2.dyna.seq_num =
+					(u64)(x->replay_esn->oseq) | ((u64)(x->replay_esn->oseq_hi) << 32);
+			} else {
+				esa.v2.dyna.seq_num = (u64)(x->replay.oseq);
+			}
+			esa.v2.dyna.volume_bytes = 0;
 		}
-		esa.dyna.volume_bytes = 0;
 
 		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 		/* install the SA into SRAM */
@@ -1547,8 +1624,8 @@ int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct
 
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && ealg == IPA_IPSEC_ENC_AES_CBC) {
 			/* Fill the initial IV value in the SA */
-			get_random_bytes((void *)&esa.intr, sizeof(esa.intr));
-			IPADBG_LOW("esa.intr = %16phN", &esa.intr);
+			get_random_bytes((void *)&esa.v2.intr, sizeof(esa.v2.intr));
+			IPADBG_LOW("esa.intr = %16phN", &esa.v2.intr);
 			/* Fill the IV seed in the dedicated IV key memory */
 			get_random_bytes((void *)ivkey, sizeof(ivkey));
 			IPADBG_LOW("ivkey = %16phN", ivkey);
@@ -1580,43 +1657,79 @@ int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct
 			IPAERR("No free SA index was found\n");
 			return -EINVAL;
 		}
+		if ((x->props.flags & XFRM_STATE_ESN) && !x->replay_esn) {
+			IPAERR("XFRM_STATE_ESN is on, but x->replay_esn is NULL\n");
+			return -EINVAL;
+		}
 
 		memset(&dsa, 0, sizeof(dsa));
 
 		/* copy data to the temp SA struct */
-		if (x->props.flags & XFRM_STATE_ESN) {
-			if (!x->replay_esn) {
-				IPAERR("XFRM_STATE_ESN is on, but x->replay_esn is NULL\n");
-				return -EINVAL;
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+			if (x->props.flags & XFRM_STATE_ESN) {
+				dsa.v1.shar.esn_en = 1;
+				dsa.v1.shar.antirep_win_sz =
+					xdo2ipa_replay_window_sz(x->replay_esn->replay_window);
+			} else {
+				dsa.v1.shar.antirep_win_sz =
+					xdo2ipa_replay_window_sz(x->props.replay_window);
 			}
-			dsa.shar.antirep_win_sz =
-				xdo2ipa_replay_window_sz(x->replay_esn->replay_window);
-			dsa.shar.esn_en = 1;
+			dsa.v1.intr.antirep_top =
+				dsa.v1.shar.antirep_win_sz ? dsa.v1.shar.antirep_win_sz - 1 : 0;
+			dsa.v1.shar.salt_val = 0x0;
+			dsa.v1.shar.encr_algo = ealg;
+			dsa.v1.shar.encrkey_len = eklen;
+			if (ealg == IPA_IPSEC_ENC_AES_GCM_16) {
+				dsa.v1.shar.salt_needed = 1;
+				dsa.v1.shar.salt_val = be32_to_cpu(*salt);
+			}
+			dsa.v1.shar.no_pad_chk = 0;
+			dsa.v1.shar.iv_sz = ivlen;
+			dsa.v1.shar.auth_algo = aalg;
+			dsa.v1.shar.authkey_len = aklen;
+			dsa.v1.shar.icv_sz = icvlen;
+			dsa.v1.shar.ecn_fld_lut = 0xFFE4D4E4; /* Arch doc Table 6-30 and 6-31 */
+			dsa.v1.shar.ecn_expt_lut = 0x1390; /* Arch doc Table 6-30 and 6-31 */
+			dsa.v1.shar.ecn_upd = !(x->props.flags & XFRM_STATE_NOECN);
+			dsa.v1.stat.nat_t = !!x->encap;
+			dsa.v1.stat.sa_life_bytes_wm =
+				x->lft.soft_byte_limit ? x->lft.soft_byte_limit : XFRM_INF;
+			dsa.v1.stat.sa_life_bytes =
+				x->lft.hard_byte_limit ? x->lft.hard_byte_limit : XFRM_INF;
+			dsa.v1.dyna.volume_bytes = 0;
 		} else {
-			dsa.shar.antirep_win_sz = xdo2ipa_replay_window_sz(x->props.replay_window);
+			if (x->props.flags & XFRM_STATE_ESN) {
+				dsa.v2.shar.esn_en = 1;
+				dsa.v2.shar.antirep_win_sz =
+					xdo2ipa_replay_window_sz(x->replay_esn->replay_window);
+			} else {
+				dsa.v2.shar.antirep_win_sz =
+					xdo2ipa_replay_window_sz(x->props.replay_window);
+			}
+			dsa.v2.intr.antirep_top =
+				dsa.v2.shar.antirep_win_sz ? dsa.v2.shar.antirep_win_sz - 1 : 0;
+			dsa.v2.shar.salt_val = 0x0;
+			dsa.v2.shar.encr_algo = ealg;
+			dsa.v2.shar.encrkey_len = eklen;
+			if (ealg == IPA_IPSEC_ENC_AES_GCM_16) {
+				dsa.v2.shar.salt_needed = 1;
+				dsa.v2.shar.salt_val = be32_to_cpu(*salt);
+			}
+			dsa.v2.shar.no_pad_chk = 0;
+			dsa.v2.shar.iv_sz = ivlen;
+			dsa.v2.shar.auth_algo = aalg;
+			dsa.v2.shar.authkey_len = aklen;
+			dsa.v2.shar.icv_sz = icvlen;
+			dsa.v2.shar.ecn_fld_lut = 0xFFE4D4E4; /* Arch doc Table 6-30 and 6-31 */
+			dsa.v2.shar.ecn_expt_lut = 0x1390; /* Arch doc Table 6-30 and 6-31 */
+			dsa.v2.shar.ecn_upd = !(x->props.flags & XFRM_STATE_NOECN);
+			dsa.v2.stat.nat_t = !!x->encap;
+			dsa.v2.stat.sa_life_bytes_wm =
+				x->lft.soft_byte_limit ? x->lft.soft_byte_limit : XFRM_INF;
+			dsa.v2.stat.sa_life_bytes =
+				x->lft.hard_byte_limit ? x->lft.hard_byte_limit : XFRM_INF;
+			dsa.v2.dyna.volume_bytes = 0;
 		}
-		dsa.intr.antirep_top = dsa.shar.antirep_win_sz ? dsa.shar.antirep_win_sz - 1 : 0;
-		dsa.shar.salt_val = 0x0;
-		dsa.shar.encr_algo = ealg;
-		dsa.shar.encrkey_len = eklen;
-		if (ealg == IPA_IPSEC_ENC_AES_GCM_16) {
-			dsa.shar.salt_needed = 1;
-			dsa.shar.salt_val = be32_to_cpu(*salt);
-		}
-		dsa.shar.no_pad_chk = 0;
-		dsa.shar.iv_sz = ivlen;
-		dsa.shar.auth_algo = aalg;
-		dsa.shar.authkey_len = aklen;
-		dsa.shar.icv_sz = icvlen;
-		dsa.shar.ecn_fld_lut = 0xFFE4D4E4; /* Arch doc Table 6-30 and 6-31 */
-		dsa.shar.ecn_expt_lut = 0x1390; /* Arch doc Table 6-30 and 6-31 */
-		dsa.shar.ecn_upd = !(x->props.flags & XFRM_STATE_NOECN);
-		dsa.stat.nat_t = !!x->encap;
-		dsa.stat.sa_life_bytes_wm =
-			x->lft.soft_byte_limit ? x->lft.soft_byte_limit : XFRM_INF;
-		dsa.stat.sa_life_bytes =
-			x->lft.hard_byte_limit ? x->lft.hard_byte_limit : XFRM_INF;
-		dsa.dyna.volume_bytes = 0;
 
 		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 		/* install the SA into SRAM */
@@ -1716,15 +1829,8 @@ zero_keys:
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
 clean_sa:
-	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-	if (x->xso.dir == XFRM_DEV_OFFLOAD_OUT) {
-		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
-		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
-	} else {
-		memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
-		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
-	}
-	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	ipa_ipsec_clean_sa(
+		(x->xso.dir == XFRM_DEV_OFFLOAD_OUT) ? IPA_IPSEC_ENCAP : IPA_IPSEC_DECAP, idx);
 
 state_end:
 	IPADBG_LOW("ret = %d\n", ret);
@@ -1766,12 +1872,11 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 		WARN_ON(__ipa3_release_hdr(ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr));
 		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].hdr = 0;
 		mutex_unlock(&ipa3_ctx->lock);
+		ipa_ipsec_clean_sa(IPA_IPSEC_ENCAP, idx);
 		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-		memset_io(ipa3_ctx->ipsec->encap + idx, 0, sizeof(struct ipa_ipsec_sa_encap));
 		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_ENC);
 		ipa_ipsec_delete_key(IPA_IPSEC_ENCAP, idx, IPA_IPSEC_KEY_AUTH);
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][idx].x = NULL;
 		break;
 	case XFRM_DEV_OFFLOAD_IN:
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].rt) {
@@ -1793,12 +1898,11 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 			ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].hpc = 0;
 			mutex_unlock(&ipa3_ctx->lock);
 		}
+		ipa_ipsec_clean_sa(IPA_IPSEC_DECAP, idx);
 		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-		memset_io(ipa3_ctx->ipsec->decap + idx, 0, sizeof(struct ipa_ipsec_sa_decap));
 		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_ENC);
 		ipa_ipsec_delete_key(IPA_IPSEC_DECAP, idx, IPA_IPSEC_KEY_AUTH);
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-		ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][idx].x = NULL;
 		break;
 	default:
 		return;
@@ -1918,8 +2022,6 @@ void ipa_ipsec_xdo_state_update_stats(struct xfrm_state *x)
 #endif
 {
 	u8 idx;
-	struct ipa_ipsec_sa_encap *e_sa;
-	struct ipa_ipsec_sa_decap *d_sa;
 	struct ipa_active_client_logging_info log_info;
 
 	IPADBG_LOW("Start\n");
@@ -1951,19 +2053,34 @@ void ipa_ipsec_xdo_state_update_stats(struct xfrm_state *x)
 
 	switch (x->xso.dir) {
 	case XFRM_DEV_OFFLOAD_OUT:
-		e_sa = ipa3_ctx->ipsec->encap + idx;
-		/* Encap fields are aligned */
-		x->curlft.bytes = readq_relaxed((void __iomem *)&e_sa->dyna.volume_bytes);
-		x->curlft.use_time = readq_relaxed((void __iomem *)&e_sa->dyna.last_pkt_timestamp);
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+			/* Encap fields are aligned */
+			x->curlft.bytes =
+				readq_relaxed((void __iomem *)IPA_IPSEC_SA_ENCAP_v1(idx)->dyna.volume_bytes);
+			x->curlft.use_time =
+				readq_relaxed((void __iomem *)IPA_IPSEC_SA_ENCAP_v1(idx)->dyna.last_pkt_timestamp);
+		} else {
+			/* Encap fields are not aligned, so we copy the whole section */
+			typeof(IPA_IPSEC_SA_ENCAP_v2(idx)) encap = IPA_IPSEC_SA_ENCAP_v2(idx);
+			memcpy_fromio(&esa.v2.dyna, (void __iomem *)&encap->dyna, sizeof(esa.v2.dyna));
+			x->curlft.bytes = esa.v2.dyna.volume_bytes;
+			x->curlft.use_time = esa.v2.dyna.last_pkt_timestamp;
+		}
 		break;
 	case XFRM_DEV_OFFLOAD_IN:
 	case XFRM_DEV_OFFLOAD_FWD:
-		d_sa = ipa3_ctx->ipsec->decap + idx;
 		/* Decap fields are not aligned, so we copy the whole section */
-		memcpy_fromio(&dsa.dyna, (void __iomem *)&d_sa->dyna,
-			sizeof(struct ipa_ipsec_sa_decap_dynamic));
-		x->curlft.bytes = dsa.dyna.volume_bytes;
-		x->curlft.use_time = dsa.dyna.last_pkt_timestamp;
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+			typeof(IPA_IPSEC_SA_DECAP_v1(idx)) decap = IPA_IPSEC_SA_DECAP_v1(idx);
+			memcpy_fromio(&dsa.v1.dyna, (void __iomem *)&decap->dyna, sizeof(dsa.v1.dyna));
+			x->curlft.bytes = dsa.v1.dyna.volume_bytes;
+			x->curlft.use_time = dsa.v1.dyna.last_pkt_timestamp;
+		} else {
+			typeof(IPA_IPSEC_SA_DECAP_v2(idx)) decap = IPA_IPSEC_SA_DECAP_v2(idx);
+			memcpy_fromio(&dsa.v2.dyna, (void __iomem *)&decap->dyna, sizeof(dsa.v2.dyna));
+			x->curlft.bytes = dsa.v2.dyna.volume_bytes;
+			x->curlft.use_time = dsa.v2.dyna.last_pkt_timestamp;
+		}
 		break;
 	default:
 		break;
@@ -3154,7 +3271,8 @@ static int ipa_ipsec_map_uc_smmu(phys_addr_t pa, unsigned long *iova)
 {
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_UC);
 	unsigned long va = roundup(cb->next_addr, PAGE_SIZE);
-	size_t len = roundup(IPA_ENCAP_DB_SIZE + pa - rounddown(pa, PAGE_SIZE), PAGE_SIZE);
+	size_t len =
+		roundup(ipa3_ctx->ipsec->encap_db_size + pa - rounddown(pa, PAGE_SIZE), PAGE_SIZE);
 	int ret;
 
 	if (!cb->valid) {
@@ -3165,7 +3283,7 @@ static int ipa_ipsec_map_uc_smmu(phys_addr_t pa, unsigned long *iova)
 	ret = ipa3_iommu_map(cb->iommu_domain, va, rounddown(pa, PAGE_SIZE), len,
 		IOMMU_READ|IOMMU_WRITE|IOMMU_MMIO);
 	if (ret) {
-		IPAERR("iommu map failed for pa=%pa len=%zu\n", &pa, IPA_ENCAP_DB_SIZE);
+		IPAERR("iommu map failed for pa=%pa len=%zu\n", &pa, ipa3_ctx->ipsec->encap_db_size);
 		return -EINVAL;
 	}
 
@@ -3180,7 +3298,7 @@ static void ipa_ipsec_unmap_uc_smmu(phys_addr_t pa, unsigned long iova)
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_UC);
 
 	iommu_unmap(cb->iommu_domain, rounddown(iova, PAGE_SIZE),
-		roundup(IPA_ENCAP_DB_SIZE + pa - rounddown(pa, PAGE_SIZE), PAGE_SIZE));
+		roundup(ipa3_ctx->ipsec->encap_db_size + pa - rounddown(pa, PAGE_SIZE), PAGE_SIZE));
 }
 
 /*
@@ -3243,6 +3361,11 @@ int ipa_ipsec_init(void)
 	ipa3_ctx->ipsec->xfrmdev_ops = NULL;
 #endif
 
+	ipa3_ctx->ipsec->decap_db_size =
+		(ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) ? IPA_DECAP_DB_SIZE : IPA_DECAP_DB_SIZE_v2;
+	ipa3_ctx->ipsec->encap_db_size =
+		(ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) ? IPA_ENCAP_DB_SIZE : IPA_ENCAP_DB_SIZE_v2;
+
 	atomic_set(&ipa3_ctx->stats.ipsec_enacp_excp, 0);
 	atomic_set(&ipa3_ctx->stats.ipsec_decap_excp, 0);
 
@@ -3291,7 +3414,7 @@ int ipa_ipsec_init(void)
 	}
 
 	/* Compile time check the SA SRAM partition size and alignment */
-	WARN_ON(IPA_MEM_PART(sa_contexts_size) < IPA_SA_DB_SIZE ||
+	WARN_ON(IPA_MEM_PART(sa_contexts_size) < ipa3_ctx->ipsec->decap_db_size ||
 		IPA_MEM_PART(sa_contexts_ofst) & 0x3);
 
 	/* Map the SA database SRAM region */
@@ -3301,14 +3424,14 @@ int ipa_ipsec_init(void)
 			ipa3_ctx->smem_restricted_bytes / 4) +
 		IPA_MEM_PART(sa_contexts_ofst);
 
-	sa_mmio = ioremap((phys_addr_t)sa_phys_base, IPA_SA_DB_SIZE);
+	sa_mmio = ioremap((phys_addr_t)sa_phys_base, IPA_SA_DB_SIZE(ipa3_ctx->ipsec));
 	if (!sa_mmio) {
 		IPAERR("Failed mapping IPsec SA SRAM.\n");
 		ret = -ENOMEM;
 		goto unmap_keys;
 	}
 
-	ret = ipa_ipsec_map_uc_smmu(sa_phys_base + IPA_DECAP_DB_SIZE, &uc_smmu_iova);
+	ret = ipa_ipsec_map_uc_smmu(sa_phys_base + ipa3_ctx->ipsec->decap_db_size, &uc_smmu_iova);
 	if (ret != 0) {
 		IPAERR("Failed to map encap SA SMMU for uC\n");
 		goto unmap_sa;
@@ -3316,12 +3439,11 @@ int ipa_ipsec_init(void)
 	ipa3_ctx->ipsec->uc_smmu_iova = uc_smmu_iova;
 
 	/* Zero the SA SRAM */
-	memset_io(sa_mmio, 0, IPA_SA_DB_SIZE);
+	memset_io(sa_mmio, 0, IPA_SA_DB_SIZE(ipa3_ctx->ipsec));
 
 	IPADBG_LOW("sa_phys_base 0x%08X sa_mmio=0x%p\n", sa_phys_base, sa_mmio);
-	ipa3_ctx->ipsec->decap = (struct ipa_ipsec_sa_decap *)sa_mmio;
-	ipa3_ctx->ipsec->encap =
-		(struct ipa_ipsec_sa_encap *)(ipa3_ctx->ipsec->decap + IPA_IPSEC_MAX_SA_NUM);
+	ipa3_ctx->ipsec->decap = sa_mmio;
+	ipa3_ctx->ipsec->encap = ipa3_ctx->ipsec->decap + ipa3_ctx->ipsec->decap_db_size;
 	IPADBG_LOW("ipa3_ctx->ipsec->decap=0x%p ipa3_ctx->ipsec->encap=0x%p\n",
 		ipa3_ctx->ipsec->decap, ipa3_ctx->ipsec->encap);
 
@@ -3335,9 +3457,10 @@ int ipa_ipsec_init(void)
 	 * Configure IPA_IPSEC_SA_ENCAPSULATION_BASE with address in SW SRAM address space.
 	 * This register points to the start of the encapsulation SAs.
 	 */
-	ipahal_write_reg(IPA_IPSEC_SA_ENCAPSULATION_BASE, IPA_MEM_PART(sa_contexts_ofst) + IPA_DECAP_DB_SIZE);
+	ipahal_write_reg(IPA_IPSEC_SA_ENCAPSULATION_BASE,
+		IPA_MEM_PART(sa_contexts_ofst) + ipa3_ctx->ipsec->decap_db_size);
 
-	/* Initialyze the default MTU values */
+	/* Initialize the default MTU values */
 	ipa3_ctx->ipsec->mtu_v4 = MTU_BYTE;
 	ipa3_ctx->ipsec->mtu_v6 = MTU_BYTE;
 	ipa3_ctx->ipsec->initialized = true;
@@ -3433,7 +3556,7 @@ void ipa_ipsec_cleanup(void)
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 	/* Zero the SA and keys SRAM to avoid IPsec HW execution and for better security */
-	memset_io(ipa3_ctx->ipsec->decap, 0, IPA_SA_DB_SIZE);
+	memset_io(ipa3_ctx->ipsec->decap, 0, IPA_SA_DB_SIZE(ipa3_ctx->ipsec));
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
 		memset_io(ipa3_ctx->ipsec->keys, 0, sizeof(struct ipa_ipsec_key_store));
 	else
@@ -3447,7 +3570,7 @@ void ipa_ipsec_cleanup(void)
 		IPA_MEM_PART(sa_contexts_ofst);
 
 	/* Unmap uC SMMU */
-	ipa_ipsec_unmap_uc_smmu(sa_phys_base + IPA_DECAP_DB_SIZE, ipa3_ctx->ipsec->uc_smmu_iova);
+	ipa_ipsec_unmap_uc_smmu(sa_phys_base + ipa3_ctx->ipsec->decap_db_size, ipa3_ctx->ipsec->uc_smmu_iova);
 
 	/* Unmap SA and keys SRAM */
 	iounmap((void __iomem *)ipa3_ctx->ipsec->decap);

@@ -4091,8 +4091,8 @@ static ssize_t ipa3_write_tsp(struct file *file, const char __user *buf,
 
 #if defined(CONFIG_IPA_IPSEC)
 /* We can't directly read unaligned values from SRAM, therefore we will copy the whole struct */
-static struct ipa_ipsec_sa_encap esa;
-static struct ipa_ipsec_sa_decap dsa;
+static union ipa_ipsec_sa_encap esa_buf;
+static union ipa_ipsec_sa_decap dsa_buf;
 static u8 sa_idx;
 
 static int ipsec_read_sa_stats(enum ipa_ipsec_sa_type sa_type,
@@ -4181,10 +4181,76 @@ static int ipsec_read_sa_stats(enum ipa_ipsec_sa_type sa_type,
 	return nbytes;
 }
 
+#define LOG_ENCAP_SA(ver) do { \
+	typeof(IPA_IPSEC_SA_ENCAP(ver, sa_idx)) encap = IPA_IPSEC_SA_ENCAP(ver, sa_idx); \
+	memcpy_fromio((void *)&esa_buf.ver, (void __iomem *)encap, sizeof(esa_buf.ver)); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, "IV: "); \
+	for (int j = 0; j < 4; j++) { \
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+			"%08X ", esa_buf.ver.intr.iv[j]); \
+	} \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, "\n"); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"salt_val = %08X\n", esa_buf.ver.shar.salt_val); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"encr_algo = %d\n", esa_buf.ver.shar.encr_algo); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"encrkey_len = %d\n", esa_buf.ver.shar.encrkey_len); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"salt_needed = %d\n", esa_buf.ver.shar.salt_needed); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"iv_sz = %d\n", esa_buf.ver.shar.iv_sz); \
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) \
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+			"ipsec_mode = %d\n", esa_buf.ver.shar.ipsec_mode); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"auth_algo = %d\n", esa_buf.ver.shar.auth_algo); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"authkey_len = %d\n", esa_buf.ver.shar.authkey_len); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"esn_en = %d\n", esa_buf.ver.shar.esn_en); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"icv_sz = %d\n", esa_buf.ver.shar.icv_sz); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"is_stopped = %d\n", esa_buf.ver.dyna.is_stopped); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"send_to_sw = %d\n", esa_buf.ver.dyna.send_to_sw); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"thresh_met = %d\n", esa_buf.ver.dyna.thresh_met); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"ipv4_id = %d\n", esa_buf.ver.dyna.ipv4_id); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"seq_overflow = %d\n", esa_buf.ver.dyna.seq_overflow); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"seq_num = %llu\n", esa_buf.ver.dyna.seq_num); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"volume_bytes = %llu\n", esa_buf.ver.dyna.volume_bytes); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"last_pkt_timestamp = %llu\n", esa_buf.ver.dyna.last_pkt_timestamp); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"nat_t = %d\n", esa_buf.ver.stat.nat_t); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"copy_df = %d\n", esa_buf.ver.stat.copy_df); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"copy_dscp = %d\n", esa_buf.ver.stat.copy_dscp); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"copy_ecn = %d\n", esa_buf.ver.stat.copy_ecn); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"copy_flow_lbl = %d\n", esa_buf.ver.stat.copy_flow_lbl); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+	       "overflow_allowed = %d\n", esa_buf.ver.stat.overflow_allowed); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"path_mtu = %d\n", esa_buf.ver.stat.path_mtu); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"sa_life_bytes_wm = %llu\n", esa_buf.ver.stat.sa_life_bytes_wm); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"sa_life_bytes = %llu\n", esa_buf.ver.stat.sa_life_bytes); \
+}  while (0)
+
 static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
 	char __user *buf, size_t count, loff_t *ppos)
 {
-	int j, nbytes = 0;
+	int nbytes = 0;
 	struct ipa_ipsec_ctx *ipsec = ipa3_ctx->ipsec;
 
 	if (!ipsec) {
@@ -4199,73 +4265,14 @@ static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"-----------------------Encap SA index %u----------------------------\n",
 		sa_idx);
-
-	memcpy_fromio(&esa, (void __iomem *)(ipsec->encap + sa_idx),
-			sizeof(struct ipa_ipsec_sa_encap));
 	if (ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x)
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 			"--- XFRM state ID %d\n", ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x->props.reqid);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, "IV: ");
-	for (j = 0; j < 4; j++) {
-		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-			"%08X ", esa.intr.iv[j]);
-	}
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, "\n");
 
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"salt_val = %08X\n", esa.shar.salt_val);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"encr_algo = %d\n", esa.shar.encr_algo);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"encrkey_len = %d\n", esa.shar.encrkey_len);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"salt_needed = %d\n", esa.shar.salt_needed);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"iv_sz = %d\n", esa.shar.iv_sz);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"auth_algo = %d\n", esa.shar.auth_algo);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"authkey_len = %d\n", esa.shar.authkey_len);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"esn_en = %d\n", esa.shar.esn_en);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"icv_sz = %d\n", esa.shar.icv_sz);
-
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"is_stopped = %d\n", esa.dyna.is_stopped);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"send_to_sw = %d\n", esa.dyna.send_to_sw);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"thresh_met = %d\n", esa.dyna.thresh_met);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"ipv4_id = %d\n", esa.dyna.ipv4_id);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"seq_overflow = %d\n", esa.dyna.seq_overflow);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"seq_num = %llu\n", esa.dyna.seq_num);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"volume_bytes = %llu\n", esa.dyna.volume_bytes);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"last_pkt_timestamp = %llu\n", esa.dyna.last_pkt_timestamp);
-
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"nat_t = %d\n", esa.stat.nat_t);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"copy_df = %d\n", esa.stat.copy_df);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"copy_dscp = %d\n", esa.stat.copy_dscp);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"copy_ecn = %d\n", esa.stat.copy_ecn);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"copy_flow_lbl = %d\n", esa.stat.copy_flow_lbl);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-	       "overflow_allowed = %d\n", esa.stat.overflow_allowed);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"path_mtu = %d\n", esa.stat.path_mtu);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"sa_life_bytes_wm = %llu\n", esa.stat.sa_life_bytes_wm);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"sa_life_bytes = %llu\n", esa.stat.sa_life_bytes);
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+		LOG_ENCAP_SA(v1);
+	else
+		LOG_ENCAP_SA(v2);
 
 	nbytes = ipsec_read_sa_stats(IPA_IPSEC_ENCAP, sa_idx, nbytes);
 
@@ -4274,10 +4281,91 @@ static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
 	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
 }
 
+#define LOG_DECAP_SA(ver) do { \
+	typeof(IPA_IPSEC_SA_DECAP(ver, sa_idx)) decap = IPA_IPSEC_SA_DECAP(ver, sa_idx); \
+	memcpy_fromio((void *)&dsa_buf.ver, (void __iomem *)decap, sizeof(dsa_buf.ver)); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"intgr_fail = %d\n", dsa_buf.ver.intr.intgr_fail); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"pad_fail = %d\n", dsa_buf.ver.intr.pad_fail); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"antirep_fail = %d\n", dsa_buf.ver.intr.antirep_fail); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"cons_intgr_fail = %hu\n", dsa_buf.ver.intr.cons_intgr_fail); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"out_win_fail = %d\n", dsa_buf.ver.intr.out_win_fail); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"dummy_pkts = %d\n", dsa_buf.ver.intr.dummy_pkts); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"antirep_top = %llX\n", dsa_buf.ver.intr.antirep_top); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"antirep_bottom = %llX\n", dsa_buf.ver.intr.antirep_bottom); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"Antireplay Window:\n"); \
+	for (int j = 0; j < 4; j++) { \
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+			"%016llX\n", dsa_buf.ver.intr.antirep_win[j]); \
+	} \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"antirep_win_sz = %d\n", dsa_buf.ver.shar.antirep_win_sz); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"salt_val = %08X\n", dsa_buf.ver.shar.salt_val); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"encr_algo = %d\n", dsa_buf.ver.shar.encr_algo); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"encrkey_len = %d\n", dsa_buf.ver.shar.encrkey_len); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"salt_needed = %d\n", dsa_buf.ver.shar.salt_needed); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"no_pad_chk = %d\n", dsa_buf.ver.shar.no_pad_chk); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"iv_sz = %d\n", dsa_buf.ver.shar.iv_sz); \
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) \
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+			"dscp_copy = %d\n", dsa_buf.v2.shar.dscp_copy); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"ecn_upd = %d\n", dsa_buf.ver.shar.ecn_upd); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"auth_algo = %d\n", dsa_buf.ver.shar.auth_algo); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"authkey_len = %d\n", dsa_buf.ver.shar.authkey_len); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"esn_en = %d\n", dsa_buf.ver.shar.esn_en); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"icv_sz = %d\n", dsa_buf.ver.shar.icv_sz); \
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) \
+		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+			"ipsec_mode = %d\n", dsa_buf.v2.shar.ipsec_mode); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"ecn_fld_lut = %08X\n", dsa_buf.ver.shar.ecn_fld_lut); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"ecn_expt_lut = %04X\n", dsa_buf.ver.shar.ecn_expt_lut); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"ecn_upd = %d\n", dsa_buf.ver.shar.ecn_upd); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"is_stopped = %d\n", dsa_buf.ver.dyna.is_stopped); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"send_to_sw = %d\n", dsa_buf.ver.dyna.send_to_sw); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"thresh_met = %d\n", dsa_buf.ver.dyna.thresh_met); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"volume_bytes = %llu\n", dsa_buf.ver.dyna.volume_bytes); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"last_pkt_timestamp = %llu\n", dsa_buf.ver.dyna.last_pkt_timestamp); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"last_prim_frag_seq_num = %d\n", dsa_buf.ver.dyna.last_prim_frag_seq_num); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"nat_t = %d\n", dsa_buf.ver.stat.nat_t); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"sa_life_bytes_wm = %llu\n", dsa_buf.ver.stat.sa_life_bytes_wm); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"sa_life_bytes = %llu\n", dsa_buf.ver.stat.sa_life_bytes); \
+} while (0)
+
 static ssize_t ipa3_read_ipsec_decap_sa_info(struct file *file,
 	char __user *buf, size_t count, loff_t *ppos)
 {
-	int j, nbytes = 0;
+	int nbytes = 0;
 	struct ipa_ipsec_ctx *ipsec = ipa3_ctx->ipsec;
 
 	if (!ipsec) {
@@ -4292,84 +4380,14 @@ static ssize_t ipa3_read_ipsec_decap_sa_info(struct file *file,
 	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 		"\n\n-----------------------Decap SA index %u----------------------------\n",
 		sa_idx);
-
-	memcpy_fromio(&dsa, (void __iomem *)(ipsec->decap + sa_idx),
-			sizeof(struct ipa_ipsec_sa_decap));
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"Decap SA %d:\n", sa_idx);
 	if (ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x)
 		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 			"--- XFRM state ID %d\n", ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x->props.reqid); // TBD
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"intgr_fail = %d\n", dsa.intr.intgr_fail);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"pad_fail = %d\n", dsa.intr.pad_fail);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"antirep_fail = %d\n", dsa.intr.antirep_fail);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"cons_intgr_fail = %hu\n", dsa.intr.cons_intgr_fail);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"out_win_fail = %d\n", dsa.intr.out_win_fail);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"dummy_pkts = %d\n", dsa.intr.dummy_pkts);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"antirep_top = %llX\n", dsa.intr.antirep_top);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"antirep_bottom = %llX\n", dsa.intr.antirep_bottom);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"Antireplay Window:\n");
-	for (j = 0; j < 4; j++) {
-		nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-			"%016llX\n", dsa.intr.antirep_win[j]);
-	}
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"antirep_win_sz = %d\n", dsa.shar.antirep_win_sz);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"salt_val = %08X\n", dsa.shar.salt_val);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"encr_algo = %d\n", dsa.shar.encr_algo);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"encrkey_len = %d\n", dsa.shar.encrkey_len);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"salt_needed = %d\n", dsa.shar.salt_needed);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"no_pad_chk = %d\n", dsa.shar.no_pad_chk);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"iv_sz = %d\n", dsa.shar.iv_sz);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"auth_algo = %d\n", dsa.shar.auth_algo);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"authkey_len = %d\n", dsa.shar.authkey_len);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"esn_en = %d\n", dsa.shar.esn_en);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"icv_sz = %d\n", dsa.shar.icv_sz);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"ecn_fld_lut = %08X\n", dsa.shar.ecn_fld_lut);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"ecn_expt_lut = %04X\n", dsa.shar.ecn_expt_lut);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"ecn_upd = %d\n", dsa.shar.ecn_upd);
 
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"is_stopped = %d\n", dsa.dyna.is_stopped);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"send_to_sw = %d\n", dsa.dyna.send_to_sw);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"thresh_met = %d\n", dsa.dyna.thresh_met);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"volume_bytes = %llu\n", dsa.dyna.volume_bytes);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"last_pkt_timestamp = %llu\n", dsa.dyna.last_pkt_timestamp);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"last_prim_frag_seq_num = %d\n", dsa.dyna.last_prim_frag_seq_num);
-
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"nat_t = %d\n", dsa.stat.nat_t);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"sa_life_bytes_wm = %llu\n", dsa.stat.sa_life_bytes_wm);
-	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-		"sa_life_bytes = %llu\n", dsa.stat.sa_life_bytes);
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+		LOG_DECAP_SA(v1);
+	else
+		LOG_DECAP_SA(v2);
 
 	nbytes = ipsec_read_sa_stats(IPA_IPSEC_DECAP, sa_idx, nbytes);
 
@@ -4420,6 +4438,29 @@ static ssize_t ipa3_enable_ipsec_err_debug(struct file *file,
 	return count;
 }
 
+#define LOG_ACTIVE_ENCAP_SA(ver) do { \
+	typeof(IPA_IPSEC_SA_ENCAP(ver, sa_idx)) encap = IPA_IPSEC_SA_ENCAP(ver, sa_idx); \
+	memcpy_fromio((void *)&esa_buf.ver, (void __iomem *)encap, sizeof(esa_buf.ver)); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"encap_volume_bytes = %llu\n", esa_buf.ver.dyna.volume_bytes); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"encap auth name = %s , encr name = %s\n", \
+		ipa_ipsec_get_auth_algo_name(esa_buf.ver.shar.auth_algo), \
+		ipa_ipsec_get_encr_algo_name(esa_buf.ver.shar.encr_algo)); \
+} while (0)
+
+#define LOG_ACTIVE_DECAP_SA(ver) do { \
+	typeof(IPA_IPSEC_SA_DECAP(ver, sa_idx)) decap = IPA_IPSEC_SA_DECAP(ver, sa_idx); \
+	memcpy_fromio((void *)&dsa_buf.ver, (void __iomem *)decap, sizeof(dsa_buf.ver)); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"decap_volume_bytes = %llu\n", dsa_buf.ver.dyna.volume_bytes); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"nat_t = %d\n", dsa_buf.ver.stat.nat_t); \
+	nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes, \
+		"decap auth name = %s , encr name = %s\n", \
+		ipa_ipsec_get_auth_algo_name(dsa_buf.ver.shar.auth_algo), \
+		ipa_ipsec_get_encr_algo_name(dsa_buf.ver.shar.encr_algo)); \
+} while (0)
 
 static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
 	char __user *buf, size_t count, loff_t *ppos)
@@ -4438,32 +4479,22 @@ static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
 
 	for (sa_idx = 0; sa_idx < IPA_IPSEC_MAX_SA_NUM; sa_idx++) {
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_ENCAP][sa_idx].x) {
-			memcpy_fromio(&esa, (void __iomem *)(ipsec->encap + sa_idx),
-				sizeof(struct ipa_ipsec_sa_encap));
 			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 				"\n-----------------------Encap SA index %u is Active----------------------------\n",
 				sa_idx);
-			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-				"encap_volume_bytes = %llu\n", esa.dyna.volume_bytes);
-			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-				"encap auth name = %s , encr name = %s\n",
-				ipa_ipsec_get_auth_algo_name(esa.shar.auth_algo),
-				ipa_ipsec_get_encr_algo_name(esa.shar.encr_algo));
+			if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+				LOG_ACTIVE_ENCAP_SA(v1);
+			else
+				LOG_ACTIVE_ENCAP_SA(v2);
 		}
 		if (ipa3_ctx->ipsec->sa_db[IPA_IPSEC_DECAP][sa_idx].x) {
-			memcpy_fromio(&dsa, (void __iomem *)(ipsec->decap + sa_idx),
-				sizeof(struct ipa_ipsec_sa_decap));
 			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 				"\n-----------------------Decap SA index %u is Active----------------------------\n",
 				sa_idx);
-			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-				"decap_volume_bytes = %llu\n", dsa.dyna.volume_bytes);
-			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-				"nat_t = %d\n", dsa.stat.nat_t);
-			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
-				"decap auth name = %s , encr name = %s\n",
-				ipa_ipsec_get_auth_algo_name(dsa.shar.auth_algo),
-				ipa_ipsec_get_encr_algo_name(dsa.shar.encr_algo));
+			if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+				LOG_ACTIVE_DECAP_SA(v1);
+			else
+				LOG_ACTIVE_DECAP_SA(v2);
 		}
 	}
 
