@@ -230,6 +230,16 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS),
 	__stringify(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_FLUSH),
 	__stringify(IPA_NAT_AND_CONN_TRACK_CFG),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_KEYS_n),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_KEYS_LAST),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_AUTH_KEYS_n),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_AUTH_KEYS_LAST),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_IV_KEYS_n),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_IV_KEYS_LAST),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_DECAPS_ENC_KEYS_n),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_DECAPS_ENC_KEYS_LAST),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_DECAPS_AUTH_KEYS_n),
+	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_DECAPS_AUTH_KEYS_LAST),
 };
 
 static void ipareg_construct_dummy(enum ipahal_reg_name reg,
@@ -6681,7 +6691,7 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		0x00000f00, 0, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_IPSEC_SA_ENCAPSULATION_BASE] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000B24, 0, 0, 0, 0, 0},
+		0x00000f04, 0, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_ENDP_INIT_ULSO_CFG_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00001070, 0x100, 0, 31, 0, 0},
@@ -6894,6 +6904,36 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_IPSEC_AREA_RAM_DIRECT_ACCESS_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0x4, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_KEYS_n] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+		0xAA000, 0x4, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_KEYS_LAST] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0xAA1FC, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_AUTH_KEYS_n] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0xAA400, 0x4, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_AUTH_KEYS_LAST] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+		0xAA7FC, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_IV_KEYS_n] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+		0xAA800, 0x4, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_IV_KEYS_LAST] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+		0xAA8FC, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_DECAPS_ENC_KEYS_n] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+		0xAA200, 0x4, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_DECAPS_ENC_KEYS_LAST] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+                0xAA3FC, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_DECAPS_AUTH_KEYS_n] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+		0xAA900, 0x4, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_DECAPS_AUTH_KEYS_LAST] = {
+                ipareg_construct_dummy, ipareg_parse_dummy,
+		0xAACFC, 0, 0, 0, 0, 0},
 
 	/* IPA_UC */
 
