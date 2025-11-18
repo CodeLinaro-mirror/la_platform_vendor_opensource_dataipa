@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -18,7 +19,7 @@
 
 #define IPA_DMA_POLLING_MIN_SLEEP_RX 1010
 #define IPA_DMA_POLLING_MAX_SLEEP_RX 1050
-#define IPA_DMA_SYS_DESC_MAX_FIFO_SZ 0x7FF8
+#define IPA_DMA_SYS_DESC_MAX_FIFO_SZ 0x1FC0
 #define IPA_DMA_MAX_PKT_SZ 0xFFFF
 #define IPA_DMA_DUMMY_BUFF_SZ 8
 #define IPA_DMA_PREFETCH_WA_THRESHOLD 9
