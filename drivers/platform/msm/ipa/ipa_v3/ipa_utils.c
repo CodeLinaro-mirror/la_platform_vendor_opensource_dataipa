@@ -14255,12 +14255,14 @@ int ipa3_controller_static_bind(struct ipa3_controller *ctrl,
 	ctrl->ipa_init_hdr = _ipa_init_hdr_v3_0;
 	ctrl->max_holb_tmr_val = IPA_MAX_HOLB_TMR_VAL;
 
+#ifdef CONFIG_DEBUG_FS
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0)
 		ctrl->ipa3_read_ep_reg = _ipa_read_ep_reg_v3_0;
 	else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
 		ctrl->ipa3_read_ep_reg = _ipa_read_ep_reg_v7_0;
 	else
 		ctrl->ipa3_read_ep_reg = _ipa_read_ep_reg_v4_0;
+#endif
 
 	return 0;
 }
