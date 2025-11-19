@@ -9388,8 +9388,9 @@ int rmnet_ipa3_query_per_client_stats_v3(
 	}
 
 	/* Check if num_clients is valid. */
-	if (data->num_clients != GET_MAX_HW_PATH_CLIENTS() &&
-			data->num_clients != 1) {
+	if (data->num_clients != IPA_MAX_NUM_HW_PATH_CLIENTS_V2 &&
+		data->num_clients != IPA_MAX_NUM_HW_PATH_CLIENTS &&
+		data->num_clients != 1) {
 		IPAWANERR("Invalid number of clients: %d\n", data->num_clients);
 		return -EINVAL;
 	}
