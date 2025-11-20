@@ -953,6 +953,24 @@ static void ipa_nati_create_table_write_cmd_helpers(
 	    FALSE,
 		IPA_TABLE_WRITE_BITMASK_ALL);
 
+	ipa_table_write_cmd_helper_init(
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_TABLE_FLAGS_AND_EVICT],
+		table_indx,
+		IPA_TABLE_WRITE_NAT_BASE_TBL,
+		TRUE,
+		IPA_NAT_RULE_FLAG_FIELD_OFFSET,
+		FALSE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
+	ipa_table_write_cmd_helper_init(
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_EVICT_ONLY],
+		table_indx,
+		IPA_TABLE_WRITE_NAT_BASE_TBL,
+		TRUE,
+		IPA_NAT_RULE_FLAG_FIELD_OFFSET,
+		TRUE,
+		IPA_TABLE_WRITE_BITMASK_ALL);
+
 	/*
 	 * Create helpers for index table
 	 */
@@ -985,6 +1003,12 @@ static void ipa_nati_create_table_write_cmd_helpers(
 
 	nat_table->table.dma_help[HELP_DELETE_HEAD] =
 		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_TABLE_PROTOCOL];
+
+	nat_table->table.dma_help[HELP_UPDATE_HEAD_AND_EVICT] =
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_TABLE_FLAGS_AND_EVICT];
+
+	nat_table->table.dma_help[HELP_EVICT_ENTRY] =
+		&nat_table->table_cmd_helpers.table_write_cmd_helpers[IPA_NAT_EVICT_ONLY];
 
 	/*
 	 * Init helpers for index table
@@ -2759,7 +2783,8 @@ int ipa_NATI_del_ipv4_rule_v2(
 	ipa_table_create_delete_command(
 		&nat_table->index_table,
 		(void*)cmd,
-		&index_table_iterator);
+		&index_table_iterator,
+		false);
 
 	if (ipa_table_itr_valid_check(&index_table_iterator)) {
 
@@ -2782,7 +2807,8 @@ int ipa_NATI_del_ipv4_rule_v2(
 	ipa_table_create_delete_command(
 		&nat_table->table,
 		(void*)cmd,
-		&table_iterator);
+		&table_iterator,
+		true);
 
 	ret = ipa_nati_post_ipv4_dma_cmd_v2(nat_cache_ptr, cmd);
 
@@ -2947,7 +2973,8 @@ int ipa_NATI_del_ipv4_rule(
 	ipa_table_create_delete_command(
 		&nat_table->index_table,
 		(void*)cmd,
-		&index_table_iterator);
+		&index_table_iterator,
+		false);
 
 	if (ipa_table_itr_valid_check(&index_table_iterator)) {
 
@@ -2970,7 +2997,8 @@ int ipa_NATI_del_ipv4_rule(
 	ipa_table_create_delete_command(
 		&nat_table->table,
 		(void*)cmd,
-		&table_iterator);
+		&table_iterator,
+		false);
 
 	ret = ipa_nati_post_ipv4_dma_cmd(nat_cache_ptr, cmd);
 

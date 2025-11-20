@@ -125,6 +125,8 @@ typedef enum
 	HELP_UPDATE_HEAD  = 0,
 	HELP_UPDATE_ENTRY = 1,
 	HELP_DELETE_HEAD  = 2,
+	HELP_UPDATE_HEAD_AND_EVICT = 3,
+	HELP_EVICT_ENTRY = 4,
 
 	HELP_UPDATE_MAX,
 } dma_help_type;
@@ -236,7 +238,8 @@ int ipa_table_add_entry(
 void ipa_table_create_delete_command(
 	ipa_table*                  table,
 	void*                       cmd,
-	ipa_table_iterator*         iterator);
+	ipa_table_iterator*         iterator,
+	bool                        isEvictionNeeded);
 
 void ipa_table_delete_entry(
 	ipa_table*          table,

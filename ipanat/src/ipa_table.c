@@ -251,9 +251,12 @@ bail:
 void ipa_table_create_delete_command(
 	ipa_table* table,
 	void* cmd,
-	ipa_table_iterator* iterator)
+	ipa_table_iterator* iterator,
+	bool isEvictionNeeded)
 {
 	IPADBG("In\n");
+
+	uint16_t hash_value = 0;
 
 	IPADBG("Delete rule at index(0x%04X) in %s\n",
 		   iterator->curr_index,
@@ -267,6 +270,12 @@ void ipa_table_create_delete_command(
 		 */
 		uint16_t      data = 0;
 		dma_help_type ht   = HELP_UPDATE_HEAD;
+
+		if (isEvictionNeeded)
+		{
+			ht = HELP_UPDATE_HEAD_AND_EVICT;
+			hash_value = iterator->curr_index;
+		}
 
 		if ( VALID_INDEX(iterator->next_index) )
 		{
@@ -306,30 +315,53 @@ void ipa_table_create_delete_command(
 			ht,
 			iterator->curr_entry,
 			iterator->curr_index,
-			iterator->curr_index,
+			hash_value,
 			data,
 			cmd);
 	}
 	else
 	{
-		ipa_table_iterator table_iterator;
-		uint16_t curr_rec_index = table->entry_interface->entry_get_next_index(iterator->prev_entry);
-		int ret = ipa_table_iterator_start(&table_iterator, table, curr_rec_index, iterator->curr_entry);
-		
-		if ( ret )
+		if (isEvictionNeeded)
 		{
-			IPAERR("Failed to reach the head of list following rec_index(%u) in %s\n",
-				   curr_rec_index, table->name);
-			return;
-		}
+			ipa_table_iterator table_iterator;
+			uint16_t curr_rec_index = table->entry_interface->entry_get_next_index(iterator->prev_entry);
+			int ret = ipa_table_iterator_start(&table_iterator, table, curr_rec_index, iterator->curr_entry);
+			hash_value = table_iterator.curr_index;
 
-		table->entry_add_cmd(table,
-			HELP_UPDATE_ENTRY,
-			iterator->prev_entry,
-			iterator->prev_index,
-			table_iterator.curr_index,
-			iterator->next_index,
-			cmd);
+			if ( ret )
+			{
+				IPAERR("Failed to reach the head of list following rec_index(%u) in %s\n",
+					curr_rec_index, table->name);
+
+				/* Unexpected table state - headless table */
+				abort();
+			}
+			table->entry_add_cmd(table,
+				HELP_UPDATE_ENTRY,
+				iterator->prev_entry,
+				iterator->prev_index,
+				hash_value,
+				iterator->next_index,
+				cmd);
+
+			table->entry_add_cmd(table,
+				HELP_EVICT_ENTRY,
+				iterator->curr_entry,
+				iterator->curr_index,
+				hash_value,
+				0,
+				cmd);
+		}
+		else
+		{
+			table->entry_add_cmd(table,
+				HELP_UPDATE_ENTRY,
+				iterator->prev_entry,
+				iterator->prev_index,
+				hash_value,
+				iterator->next_index,
+				cmd);
+		}
 	}
 
 	IPADBG("Out\n");
@@ -789,14 +821,14 @@ int ipa_table_iterator_start(
 
 	memset(iterator, 0, sizeof(ipa_table_iterator));
 
-	iterator->next_index = rec_index;
-	iterator->next_entry = rec_ptr;
+	iterator->curr_index = rec_index;
+	iterator->curr_entry = rec_ptr;
 
 	while ( 1 )
 	{
 		uint16_t prev_index =
-				table_ptr->entry_interface->entry_get_prev_index(iterator->next_entry,
-															 iterator->next_index,
+				table_ptr->entry_interface->entry_get_prev_index(iterator->curr_entry,
+															 iterator->curr_index,
 															 table_ptr->meta,
 															 table_ptr->table_entries);
 
@@ -806,17 +838,19 @@ int ipa_table_iterator_start(
 			break;
 		}
 
-		if ( prev_index == iterator->next_index )
+		if ( prev_index == iterator->curr_index )
 		{
-			IPAERR("next_index(%u) and prev_index(%u) shouldn't be equal in %s\n",
-				   prev_index,
-				   iterator->prev_index,
-				   table_ptr->name);
+			IPAERR("curr_index(%u) and prev_index(%u) shouldn't be equal in %s\n",
+				prev_index,
+				iterator->curr_index,
+				table_ptr->name);
 			break;
 		}
 
-		iterator->next_index = prev_index;
-		iterator->next_entry = GOTO_REC(table_ptr, prev_index);
+		iterator->next_index = iterator->curr_index;
+		iterator->next_entry = iterator->curr_entry;
+		iterator->curr_index = prev_index;
+		iterator->curr_entry = GOTO_REC(table_ptr, prev_index);
 	}
 
 	if ( found_head )

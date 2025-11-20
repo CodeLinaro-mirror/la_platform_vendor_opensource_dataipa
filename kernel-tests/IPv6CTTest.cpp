@@ -22,6 +22,7 @@
 extern "C" {
 #include "ipa_ipv6ct.h"
 }
+#include <set>
 
 #define IPV6_SRC_PORT_OFFSET (40)
 #define IPV6_SRC_ADDRESS_MSB_OFFSET (8)
@@ -213,7 +214,21 @@ public:
 
 	bool Teardown()
 	{
+		bool ret = true;
 		ipa_ipv6ct_dump_table(m_tableHandle);
+
+		for (uint32_t rule_hdl : m_rule_hdls)
+		{
+			int result = ipa_ipv6ct_del_rule(m_tableHandle, rule_hdl);
+			if (result) {
+				printf("Failed delete IPv6CT rule %d with result %d\n",
+					rule_hdl, result);
+				ret = false;
+			}
+		}
+
+		m_rule_hdls.clear();
+
 		ipa_ipv6ct_del_tbl(m_tableHandle);
 
 		m_producer.Close();
@@ -221,7 +236,7 @@ public:
 		m_consumer2.Close();
 		m_defaultConsumer.Close();
 
-		return true;
+		return ret;
 	} // Teardown()
 
 	bool LoadFiles()
@@ -434,7 +449,7 @@ public:
 		&m_tableHandle);
 	if (result)
 		{
-			printf("Leaving %s, %s(), failed creating IPvC6T table with result %d\n", __FUNCTION__, __FILE__, result);
+			printf("Leaving %s, %s(), failed creating IPv6CT table with result %d\n", __FUNCTION__, __FILE__, result);
 			return false;
 		}
 
@@ -443,16 +458,24 @@ public:
 		return true;
 	}
 
-	bool AddIpv6ctRule(ipa_ipv6ct_rule& rule, uint32_t& rule_hdl) const
+	bool AddIpv6ctRule(ipa_ipv6ct_rule& rule, uint32_t& rule_hdl)
 	{
 		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
 
 		int result = ipa_ipv6ct_add_rule(m_tableHandle, &rule, &rule_hdl);
 		if (result)
 		{
-			printf("Leaving %s, %s(), failed creating IPvC6T rule with result %d\n", __FUNCTION__, __FILE__, result);
+			printf("Leaving %s, %s(), failed creating IPv6CT rule with result %d\n", __FUNCTION__, __FILE__, result);
 			return false;
 		}
+
+		auto res = m_rule_hdls.insert(rule_hdl);
+		if (!res.second)
+		{
+			printf("Leaving %s, %s(), failed inserting IPv6CT rule handle to set with result %s\n", __FUNCTION__, __FILE__, res.second ? "TRUE" : "FALSE");
+			return false;
+		}
+
 		printf("IPv6CT rule added:\ndest lsb %llX, dest msb %llX, dest port %d\ndir %d, proto %d\nsrc lsb 0x%llX, src msb 0x%llX, src port %d\n",
 			(long long unsigned int)rule.dest_ipv6_lsb, (long long unsigned int)rule.dest_ipv6_msb,
 			rule.dest_port, rule.direction_settings,
@@ -785,6 +808,7 @@ protected:
 	ipa_ipv6_ct_direction_settings_type m_direction_settings;
 
 	uint32_t m_tableHandle;
+	std::set<uint32_t> m_rule_hdls;
 };
 
 RoutingDriverWrapper IpaIPv6CTBlockTestFixture::m_routing;
@@ -1314,8 +1338,15 @@ public:
 		int result = ipa_ipv6ct_del_rule(m_tableHandle, rule_hdl);
 		if (result)
 		{
-			printf("Leaving %s, %s(), failed delete IPvC6T rule %d with result %d\n", __FUNCTION__, __FILE__,
+			printf("Leaving %s, %s(), failed delete IPv6CT rule %d with result %d\n", __FUNCTION__, __FILE__,
 				rule_hdl, result);
+			return false;
+		}
+
+		if (m_rule_hdls.erase(rule_hdl) == 0)
+		{
+			printf("Leaving %s, %s(), failed erase IPv6CT rule handle %d from set\n", __FUNCTION__, __FILE__,
+				rule_hdl);
 			return false;
 		}
 
@@ -1565,8 +1596,15 @@ public:
 		int result = ipa_ipv6ct_del_rule(m_tableHandle, rule_hdl);
 		if (result)
 		{
-			printf("Leaving %s, %s(), failed delete IPvC6T rule %d with result %d\n", __FUNCTION__, __FILE__,
+			printf("Leaving %s, %s(), failed delete IPv6CT rule %d with result %d\n", __FUNCTION__, __FILE__,
 				rule_hdl, result);
+			return false;
+		}
+
+		if (m_rule_hdls.erase(rule_hdl) == 0)
+		{
+			printf("Leaving %s, %s(), failed erase IPv6CT rule handle %d from set\n", __FUNCTION__, __FILE__,
+				rule_hdl);
 			return false;
 		}
 
@@ -2450,16 +2488,24 @@ public:
 		m_minIPAHwType = IPA_HW_v7_0;
 	}
 
-	bool AddIpv6ctRule(ipa_ipv6ct_rule_v2& rule, uint32_t& rule_hdl) const
+	bool AddIpv6ctRule(ipa_ipv6ct_rule_v2& rule, uint32_t& rule_hdl)
 	{
 		printf("Entering %s, %s()\n", __FUNCTION__, __FILE__);
 
 		int result = ipa_ipv6ct_add_rule_v2(m_tableHandle, &rule, &rule_hdl);
 		if (result)
 		{
-			printf("Leaving %s, %s(), failed creating IPvC6T rule with result %d\n", __FUNCTION__, __FILE__, result);
+			printf("Leaving %s, %s(), failed creating IPv6CT rule with result %d\n", __FUNCTION__, __FILE__, result);
 			return false;
 		}
+
+		auto res = m_rule_hdls.insert(rule_hdl);
+		if (!res.second)
+		{
+			printf("Leaving %s, %s(), failed inserting IPv6CT rule handle to set with result %s\n", __FUNCTION__, __FILE__, res.second ? "TRUE" : "FALSE");
+			return false;
+		}
+
 		printf("IPv6CT rule added:\ndest lsb %llX, dest msb %llX, dest port %d\ndir %d, proto %d\nsrc lsb 0x%llX, src msb 0x%llX, src port %d\n",
 			(long long unsigned int)rule.dest_ipv6_lsb, (long long unsigned int)rule.dest_ipv6_msb,
 			rule.dest_port, rule.direction_settings,
@@ -2931,8 +2977,15 @@ public:
 		int result = ipa_ipv6ct_del_rule_v2(m_tableHandle, rule_hdl);
 		if (result)
 		{
-			printf("Leaving %s, %s(), failed delete IPvC6T rule %d with result %d\n", __FUNCTION__, __FILE__,
+			printf("Leaving %s, %s(), failed delete IPv6CT rule %d with result %d\n", __FUNCTION__, __FILE__,
 				rule_hdl, result);
+			return false;
+		}
+
+		if (m_rule_hdls.erase(rule_hdl) == 0)
+		{
+			printf("Leaving %s, %s(), failed erase IPv6CT rule handle %d from set\n", __FUNCTION__, __FILE__,
+				rule_hdl);
 			return false;
 		}
 
