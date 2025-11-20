@@ -81,6 +81,10 @@ ifneq (,$(filter $(CONFIG_IPA3_REGDUMP_IPA_6_0),y m))
 ipam-$(CONFIG_IPA3_REGDUMP) += ipa_v3/dump/ipa6.0/ipa_reg_dump.o
 endif
 
+ifneq (,$(filter $(CONFIG_IPA3_REGDUMP_IPA_7_0),y m))
+ipam-$(CONFIG_IPA3_REGDUMP) += ipa_v3/dump/ipa7.0/ipa_reg_dump.o
+endif
+
 ipam-$(CONFIG_IPA_UT) += test/ipa_ut_framework.o test/ipa_test_example.o \
 	test/ipa_test_mhi.o test/ipa_test_dma.o \
 	test/ipa_test_hw_stats.o test/ipa_pm_ut.o \
