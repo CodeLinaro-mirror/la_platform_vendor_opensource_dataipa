@@ -637,13 +637,9 @@ int ipa3_send(struct ipa3_sys_context *sys,
 	int i = 0;
 	int j;
 	int result;
-	u32 mem_flag = GFP_ATOMIC;
 	const struct ipa_gsi_ep_config *gsi_ep_cfg;
 	bool send_nop = false;
 	unsigned int max_desc;
-
-	if (unlikely(!in_atomic))
-		mem_flag = GFP_KERNEL;
 
 	gsi_ep_cfg = ipa_get_gsi_ep_info(sys->ep->client);
 	if (unlikely(!gsi_ep_cfg)) {
@@ -4069,6 +4065,7 @@ begin:
 		case IPAHAL_PKT_STATUS_OPCODE_PACKET:
 		case IPAHAL_PKT_STATUS_OPCODE_SUSPENDED_PACKET:
 		case IPAHAL_PKT_STATUS_OPCODE_PACKET_2ND_PASS:
+		case IPAHAL_PKT_STATUS_OPCODE_DCMP:
 			break;
 		case IPAHAL_PKT_STATUS_OPCODE_NEW_FRAG_RULE:
 			IPAERR_RL("Frag packets received on lan consumer\n");
