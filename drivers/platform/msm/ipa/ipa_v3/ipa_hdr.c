@@ -90,57 +90,60 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 			ipa3_ctx->smem_restricted_bytes / 4) +
 		IPA_MEM_PART(apps_hdr_ext_ofst);
 
-	list_for_each_entry(entry,
-			&ipa3_ctx->hdr_proc_ctx_tbl[loc].head_proc_ctx_entry_list,
-			link) {
-		IPADBG_LOW("processing type %d ofst=%d\n",
-			entry->type, entry->offset_entry->offset);
+	if(!list_empty(&ipa3_ctx->hdr_proc_ctx_tbl[loc].head_proc_ctx_entry_list))
+	{
+		list_for_each_entry(entry,
+				&ipa3_ctx->hdr_proc_ctx_tbl[loc].head_proc_ctx_entry_list,
+				link) {
+			IPADBG_LOW("processing type %d ofst=%d\n",
+					entry->type, entry->offset_entry->offset);
 
-		if (entry->l2tp_params.is_dst_pipe_valid) {
-			ep = ipa_get_ep_mapping(entry->l2tp_params.dst_pipe);
+			if (entry->l2tp_params.is_dst_pipe_valid) {
+				ep = ipa_get_ep_mapping(entry->l2tp_params.dst_pipe);
 
-			if (ep >= 0) {
-				cfg_ptr = &ipa3_ctx->ep[ep].cfg;
-				l2p_hdr_rm_ptr =
-					&entry->l2tp_params.hdr_remove_param;
-				l2p_hdr_rm_ptr->hdr_ofst_pkt_size_valid =
-					cfg_ptr->hdr.hdr_ofst_pkt_size_valid;
-				l2p_hdr_rm_ptr->hdr_ofst_pkt_size =
-					cfg_ptr->hdr.hdr_ofst_pkt_size;
-				l2p_hdr_rm_ptr->hdr_endianness =
-					cfg_ptr->hdr_ext.hdr_little_endian ?
-					0 : 1;
+				if (ep >= 0) {
+					cfg_ptr = &ipa3_ctx->ep[ep].cfg;
+					l2p_hdr_rm_ptr =
+						&entry->l2tp_params.hdr_remove_param;
+					l2p_hdr_rm_ptr->hdr_ofst_pkt_size_valid =
+						cfg_ptr->hdr.hdr_ofst_pkt_size_valid;
+					l2p_hdr_rm_ptr->hdr_ofst_pkt_size =
+						cfg_ptr->hdr.hdr_ofst_pkt_size;
+					l2p_hdr_rm_ptr->hdr_endianness =
+						cfg_ptr->hdr_ext.hdr_little_endian ?
+						0 : 1;
+				}
 			}
-		}
-		/* Check the pointer and header length to avoid dangerous overflow in HW */
-		if (unlikely(!entry->hdr || ((!entry->hdr->offset_entry) &&(!entry->hdr->is_hdr_proc_ctx)) ||
-			entry->hdr->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1]))
-			return -EINVAL;
+			/* Check the pointer and header length to avoid dangerous overflow in HW */
+			if (unlikely(!entry->hdr || ((!entry->hdr->offset_entry) &&(!entry->hdr->is_hdr_proc_ctx)) ||
+						entry->hdr->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1]))
+				return -EINVAL;
 
-		if (entry->hdr->in_apps_headers_ext) {
-			hdr_tbl_base_addr = hdr_lcl_ext_addr;
-		} else if (entry->hdr->is_lcl) {
-			hdr_tbl_base_addr = hdr_lcl_addr;
-		} else {
-			hdr_tbl_base_addr = hdr_sys_addr;
-		}
-		ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
-				entry->offset_entry->offset,
-				entry->hdr->hdr_len,
-				entry->hdr->is_hdr_proc_ctx,
-				entry->hdr->phys_base,
-				hdr_tbl_base_addr,
-				entry->hdr->offset_entry,
-				&entry->l2tp_params,
-				&entry->eogre_params,
-				&entry->ipsec_params,
-				&entry->generic_params,
-				&entry->generic_params_v2,
-				&entry->pdn_dscp_params,
-				ipa3_ctx->use_64_bit_dma_mask);
-		if (ret)
-		{
-			return ret;
+			if (entry->hdr->in_apps_headers_ext) {
+				hdr_tbl_base_addr = hdr_lcl_ext_addr;
+			} else if (entry->hdr->is_lcl) {
+				hdr_tbl_base_addr = hdr_lcl_addr;
+			} else {
+				hdr_tbl_base_addr = hdr_sys_addr;
+			}
+			ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
+					entry->offset_entry->offset,
+					entry->hdr->hdr_len,
+					entry->hdr->is_hdr_proc_ctx,
+					entry->hdr->phys_base,
+					hdr_tbl_base_addr,
+					entry->hdr->offset_entry,
+					&entry->l2tp_params,
+					&entry->eogre_params,
+					&entry->ipsec_params,
+					&entry->generic_params,
+					&entry->generic_params_v2,
+					&entry->pdn_dscp_params,
+					ipa3_ctx->use_64_bit_dma_mask);
+			if (ret)
+			{
+				return ret;
+			}
 		}
 	}
 

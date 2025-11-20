@@ -2352,8 +2352,8 @@ int ipa3_flt_read_tbl_from_hw(u32 pipe_idx, enum ipa_ip_type ip_type,
 			break;
 
 		rule_addr += entry[rule_idx].rule_size;
-		rule_idx++;
 		curr_size += entry[rule_idx].rule_size;
+		rule_idx++;
 	}
 	*num_entry = rule_idx;
 bail:
@@ -2384,11 +2384,7 @@ int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client)
 		struct ipa3_flt_tbl_nhash_lcl *lcl_tbl = NULL, *tmp = NULL;
 		struct ipa3_flt_tbl *flt_tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][ip];
 		/* Position filtering table last in the list so, it will have first SRAM priority */
-		if(list_empty(&ipa3_ctx->flt_tbl_nhash_lcl_list[ip]))
-		{
-			IPAERR("List is empty\n");
-		}
-		else
+		if(!list_empty(&ipa3_ctx->flt_tbl_nhash_lcl_list[ip]))
 		{
 			list_for_each_entry_safe(
 					lcl_tbl, tmp, &ipa3_ctx->flt_tbl_nhash_lcl_list[ip], link) {
