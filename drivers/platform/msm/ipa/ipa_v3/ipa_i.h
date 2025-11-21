@@ -2083,14 +2083,22 @@ static inline enum ipa_smmu_cb_type ipa_get_client_smmu_cb_type(const enum ipa_c
 	case IPA_CLIENT_ETHERNET3_PROD:
 	case IPA_CLIENT_ETHERNET3_CONS:
 		return IPA_SMMU_CB_ETH2;
+	case IPA_CLIENT_WLAN1_QOS_PROD:
 	case IPA_CLIENT_WLAN1_PROD:
 	case IPA_CLIENT_WLAN1_CONS:
+	case IPA_CLIENT_WLAN1_QOS_CONS:
+		return IPA_SMMU_CB_WLAN2;
+	case IPA_CLIENT_WLAN2_QOS_PROD:
 	case IPA_CLIENT_WLAN2_PROD:
 	case IPA_CLIENT_WLAN2_CONS:
+	case IPA_CLIENT_WLAN2_CONS1:
+	case IPA_CLIENT_WLAN2_QOS_CONS:
+		return IPA_SMMU_CB_WLAN;
+	case IPA_CLIENT_WLAN3_QOS_PROD:
 	case IPA_CLIENT_WLAN3_PROD:
 	case IPA_CLIENT_WLAN3_CONS:
-		/* WLAN instance specific context banks are not supported yet. */
-		return IPA_SMMU_CB_MAX;
+	case IPA_CLIENT_WLAN3_QOS_CONS:
+		return IPA_SMMU_CB_WLAN1;
 	default:
 		return IPA_SMMU_CB_AP;
 	}
@@ -3516,9 +3524,9 @@ int ipa_create_uc_smmu_mapping(int res_idx, bool wlan_smmu_en,
 
 int ipa_create_gsi_smmu_mapping(int res_idx, bool wlan_smmu_en,
 		phys_addr_t pa, struct sg_table *sgt, size_t len, bool device,
-		unsigned long *iova);
+		unsigned long *iova, enum ipa_smmu_cb_type cb_type);
 
-void ipa3_release_wdi3_gsi_smmu_mappings(u8 dir);
+void ipa3_release_wdi3_gsi_smmu_mappings(u8 dir, enum ipa_smmu_cb_type cb_type);
 
 /*
  * Tethering bridge (Rmnet / MBIM)
