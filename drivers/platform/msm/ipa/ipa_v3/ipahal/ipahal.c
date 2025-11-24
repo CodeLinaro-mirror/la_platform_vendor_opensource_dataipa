@@ -2363,7 +2363,7 @@ static void ipa_parse_gen_pkt_v7_0(struct ipahal_pkt_status *status, const void 
 	status->flt_tbl_idx = hw_status->ipa_pkt.flt_table_idx;
 	status->frag_rule = hw_status->ipa_pkt.frag_rule;
 	status->metadata_origin = hw_status->ipa_pkt.metadata_origin;
-	
+
 	status->flt_miss = (hw_status->ipa_pkt.flt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
 	status->rt_miss = (hw_status->ipa_pkt.rt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID);
 
@@ -3899,6 +3899,39 @@ void ipa_qmap_hdr_parse_v5_5(
 	qmap_data_rslt->vcid = qmap_hdr->qmap5_5.vcid;
 }
 
+void ipa_qmap_hdr_parse_v7_0(
+	union qmap_hdr_u*     qmap_hdr,
+	struct qmap_hdr_data* qmap_data_rslt )
+{
+	int num_of_non_zero_nlos = MAX_COAL_PACKET_STATUS_INFO;
+	struct coal_packet_status_info *cpsi = (struct coal_packet_status_info *)(qmap_hdr + 1);
+
+	/*
+	 * Workaround for the HW issue QCTDD12765353:
+	 * Since we can't rely on the num_nlos in the header, we look in the coal infol lines
+	 * after the header. We start from the end and decrement to determine the number
+	 * of lines with non-zero packet number.
+	 */
+	while (cpsi[num_of_non_zero_nlos - 1].num_pkts == 0 && num_of_non_zero_nlos > 0)
+		num_of_non_zero_nlos--;
+
+	qmap_data_rslt->cd = qmap_hdr->qmap5_5.cd;
+	qmap_data_rslt->qmap_next_hdr = qmap_hdr->qmap5_5.qmap_next_hdr;
+	qmap_data_rslt->pad = qmap_hdr->qmap5_5.pad;
+	qmap_data_rslt->mux_id = qmap_hdr->qmap5_5.mux_id;
+	qmap_data_rslt->packet_len_with_pad = ntohs(qmap_hdr->qmap5_5.packet_len_with_pad);
+
+	qmap_data_rslt->hdr_type = qmap_hdr->qmap5_5.hdr_type;
+	qmap_data_rslt->coal_next_hdr = qmap_hdr->qmap5_5.coal_next_hdr;
+	qmap_data_rslt->chksum_valid = qmap_hdr->qmap5_5.chksum_valid;
+	qmap_data_rslt->num_nlos = num_of_non_zero_nlos;
+	qmap_data_rslt->inc_ip_id = qmap_hdr->qmap5_5.inc_ip_id;
+	qmap_data_rslt->rnd_ip_id = qmap_hdr->qmap5_5.rnd_ip_id;
+	qmap_data_rslt->close_value = qmap_hdr->qmap5_5.close_value;
+	qmap_data_rslt->close_type = qmap_hdr->qmap5_5.close_type;
+	qmap_data_rslt->vcid = qmap_hdr->qmap5_5.vcid;
+}
+
 /*
  * Structure used to describe a version specific qmap parsing table.
  */
@@ -3928,6 +3961,10 @@ static struct ipahal_qmap_parse_s ipahal_qmap_parse_tbl[IPA_HW_MAX] = {
 	/* IPAv5.5 */
 	[IPA_HW_v5_5] = {
 		ipa_qmap_hdr_parse_v5_5
+	},
+	/* IPAv7.0 */
+	[IPA_HW_v7_0] = {
+		ipa_qmap_hdr_parse_v7_0
 	},
 };
 
