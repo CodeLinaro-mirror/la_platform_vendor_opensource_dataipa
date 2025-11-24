@@ -5548,6 +5548,15 @@ bool ipahal_is_rule_cnt_id_valid(u8 cnt_id)
 	return true;
 }
 
+/*
+ * Is the given counter id valid for v2
+ */
+bool ipahal_is_rule_cnt_id_valid_v2(u8 cnt_id)
+{
+	if (cnt_id < 0 || cnt_id > IPA_FLT_RT_HW_COUNTER_V2)
+		return false;
+	return true;
+}
 
 /*
  * low value possible for counter hdl id
@@ -5565,6 +5574,13 @@ u32 ipahal_get_high_hdl_id(void)
 	return IPA_MAX_FLT_RT_CNT_INDEX;
 }
 
+/*
+ * max counter hdl id for stats v2
+ */
+u32 ipahal_get_high_hdl_id_v2(void)
+{
+	return IPA_MAX_FLT_RT_CNT_INDEX_V2;
+}
 /*
  * ipahal_rt_generate_empty_img() - Generate empty route image
  *  Creates routing header buffer for the given tables number.

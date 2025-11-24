@@ -1866,7 +1866,7 @@ int ipa_init_flt_rt_stats(void)
 	}
 
 	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_FNR,
-		(void *)(uintptr_t)(IPA_MAX_FLT_RT_CNT_INDEX), false);
+		(void *)(uintptr_t)(GET_MAX_FLT_RT_CNT_INDEX()), false);
 	if (!pyld) {
 		IPAERR("failed to generate pyld\n");
 		return -EPERM;
@@ -2299,12 +2299,12 @@ int ipa_get_flt_rt_stats_v2(struct ipa_ioc_flt_rt_query *query, bool query_flt, 
 		return -EINVAL;
 	}
 
-	if (query->start_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (query->start_id > GET_MAX_FLT_RT_CNT_INDEX()) {
 		IPAERR("start_cnt_id %d out of range\n", query->start_id);
 		return -EINVAL;
 	}
 
-	if (query->end_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (query->end_id > GET_MAX_FLT_RT_CNT_INDEX()) {
 		IPAERR("end_cnt_id %d out of range\n", query->end_id);
 		return -EINVAL;
 	}
@@ -2344,12 +2344,12 @@ int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query)
 		return -EINVAL;
 	}
 
-	if (query->start_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (query->start_id > GET_MAX_FLT_RT_CNT_INDEX()) {
 		IPAERR("start_cnt_id %d out of range\n", query->start_id);
 		return -EINVAL;
 	}
 
-	if (query->end_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (query->end_id > GET_MAX_FLT_RT_CNT_INDEX()) {
 		IPAERR("end_cnt_id %d out of range\n", query->end_id);
 		return -EINVAL;
 	}
@@ -2465,12 +2465,12 @@ int ipa_set_flt_rt_stats(int index, struct ipa_flt_rt_stats stats)
 		return 0;
 	}
 
-	if (index > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (index > GET_MAX_FLT_RT_CNT_INDEX()) {
 		IPAERR("index %d out of range\n", index);
 		return -EINVAL;
 	}
 
-	if (index <= IPA_FLT_RT_HW_COUNTER) {
+	if (index <= GET_IPA_FLT_RT_HW_COUNTER()) {
 		IPAERR("index %d invalid, only support sw counter set\n",
 			index);
 		return -EINVAL;
@@ -3210,7 +3210,7 @@ static ssize_t flt_rt_store(struct device *dev, struct device_attribute *attr, c
 	if (!query)
 		return -ENOMEM;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = GET_MAX_FLT_RT_CNT_INDEX() *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -3230,7 +3230,7 @@ static ssize_t flt_rt_store(struct device *dev, struct device_attribute *attr, c
 	if (strcmp(dbg_buff, "reset\n") == 0) {
 		query->reset = 1;
 		query->start_id = 1;
-		query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+		query->end_id = GET_MAX_FLT_RT_CNT_INDEX();
 		ipa_get_flt_rt_stats(query);
 	} else {
 		IPAERR("unsupport flt_rt command\n");
@@ -3257,10 +3257,10 @@ static ssize_t flt_rt_show(struct device *dev, struct device_attribute *attr, ch
 	if (!query)
 		return -ENOMEM;
 	query->start_id = 1;
-	query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+	query->end_id = GET_MAX_FLT_RT_CNT_INDEX();
 	query->reset = false;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = GET_MAX_FLT_RT_CNT_INDEX() *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -3275,7 +3275,7 @@ static ssize_t flt_rt_show(struct device *dev, struct device_attribute *attr, ch
 		kfree(query);
 		return res;
 	}
-	for (i = 0; i < IPA_MAX_FLT_RT_CNT_INDEX; i++) {
+	for (i = 0; i < GET_MAX_FLT_RT_CNT_INDEX(); i++) {
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"cnt_id: %d\n", i + 1);
@@ -3759,7 +3759,7 @@ static ssize_t ipa_debugfs_control_flt_rt_stats(struct file *file,
 	if (!query)
 		return -ENOMEM;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = GET_MAX_FLT_RT_CNT_INDEX() *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -3783,7 +3783,7 @@ static ssize_t ipa_debugfs_control_flt_rt_stats(struct file *file,
 	if (strcmp(dbg_buff, "reset\n") == 0) {
 		query->reset = 1;
 		query->start_id = 1;
-		query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+		query->end_id = GET_MAX_FLT_RT_CNT_INDEX();
 		ipa_get_flt_rt_stats(query);
 	} else {
 		IPAERR("unsupport flt_rt command\n");
@@ -3811,10 +3811,10 @@ static ssize_t ipa_debugfs_print_flt_rt_stats(struct file *file,
 	if (!query)
 		return -ENOMEM;
 	query->start_id = 1;
-	query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+	query->end_id = GET_MAX_FLT_RT_CNT_INDEX();
 	query->reset = false;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = GET_MAX_FLT_RT_CNT_INDEX() *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -3829,7 +3829,7 @@ static ssize_t ipa_debugfs_print_flt_rt_stats(struct file *file,
 		kfree(query);
 		return res;
 	}
-	for (i = 0; i < IPA_MAX_FLT_RT_CNT_INDEX; i++) {
+	for (i = 0; i < GET_MAX_FLT_RT_CNT_INDEX(); i++) {
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"cnt_id: %d\n", i + 1);
