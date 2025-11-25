@@ -19258,3 +19258,27 @@ void ipa3_update_mtu_config(struct ipa_mtu_info *mtu_info)
 #endif
 }
 
+/**
+ * ipa3_get_ee_by_pipe() - return EE relative to pipe
+ * index
+ * @pipe_idx: IPA end-point number
+ *
+ * Return: EE on success,
+ *	-EINVAL on invalid pipe index or bad client.
+ */
+int ipa3_get_ee_by_pipe(int pipe_idx)
+{
+	if (pipe_idx >= ipa3_ctx->ipa_num_pipes || pipe_idx < 0) {
+		IPAERR("Bad pipe index!\n");
+		return -EINVAL;
+	}
+
+	u8 hw_idx = ipa3_ctx->hw_type_index;
+	enum ipa_client_type client = ipa3_get_client_by_pipe(pipe_idx);
+	if (client < 0 || client >= IPA_CLIENT_MAX) {
+    	IPAERR("Bad client %d for pipe %d\n", client, pipe_idx);
+    	return -EINVAL;
+	}
+
+	return ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ee;
+}
