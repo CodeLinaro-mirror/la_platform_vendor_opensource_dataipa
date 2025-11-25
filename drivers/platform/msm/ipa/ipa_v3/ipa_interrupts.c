@@ -1,8 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/interrupt.h>
@@ -122,7 +121,10 @@ static int ipa3_handle_interrupt(int irq_num, bool isr_context)
 	switch (interrupt_info.interrupt) {
 	case IPA_TX_SUSPEND_IRQ:
 		IPADBG_LOW("processing TX_SUSPEND interrupt\n");
-		ipa3_tx_suspend_interrupt_wa();
+		if(ipa3_ctx->ipa_hw_type == IPA_HW_v3_0)
+		{
+			ipa3_tx_suspend_interrupt_wa();
+		}
 		valid = 0;
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) {
 			for (i = 0; i < IPA_EP_ARR_SIZE; i++) {
@@ -507,7 +509,9 @@ int ipa_add_interrupt_handler(enum ipa_irq_type interrupt,
 				client_idx < IPA_CLIENT_MAX;
 				client_idx++) {
 				if (IPA_CLIENT_IS_Q6_CONS(client_idx) ||
-					IPA_CLIENT_IS_Q6_PROD(client_idx)) {
+					IPA_CLIENT_IS_Q6_PROD(client_idx) ||
+					(client_idx == IPA_CLIENT_ETHERNET_CONS) ||
+					(client_idx == IPA_CLIENT_ETHERNET2_CONS)) {
 					ep_idx = ipa_get_ep_mapping(client_idx);
 					IPADBG(
 						"modem ep_idx(%d) client_idx = %d\n"
