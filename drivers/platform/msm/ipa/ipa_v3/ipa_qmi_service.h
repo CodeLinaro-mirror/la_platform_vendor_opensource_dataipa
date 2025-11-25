@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef IPA_QMI_SERVICE_H
@@ -126,7 +126,7 @@ struct ipa3_rmnet_mux_val {
 	uint32_t  hdr_hdl;
 	uint16_t mtu_v4;
 	uint16_t mtu_v6;
-	uint8_t mac[MAC_ADDR_SIZE];
+	uint8_t mac[ETH_ALEN];
 	bool q6_qmi_send;
 };
 

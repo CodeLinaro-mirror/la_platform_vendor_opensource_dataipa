@@ -8968,7 +8968,7 @@ static struct ipa3_mem_partition ipa_5_5_mem_part = {
 	.modem_hdr_size = 0x240,
 	.apps_hdr_ofst = 0x1948,
 	.apps_hdr_size = 0x1e0,
-	.apps_hdr_size_ddr = 0x800,
+	.apps_hdr_size_ddr = 0x7ff,
 	.modem_hdr_proc_ctx_ofst = 0x1b40,
 	.modem_hdr_proc_ctx_size = 0xb20,
 	.apps_hdr_proc_ctx_ofst = 0x2660,
@@ -15255,14 +15255,14 @@ int ipa3_suspend_apps_pipes(bool suspend)
 
 	/* Suspend/resume v2x pipes first, applicable for PVM only and GVM. */
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, suspend);
-	if (res == -EAGAIN) {		
+	if (res == -EAGAIN) {
 		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
 		return res;
 	}
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, suspend);
 	if (res == -EAGAIN) {
-		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);		
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
 		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, !suspend);
 		return res;
 	}

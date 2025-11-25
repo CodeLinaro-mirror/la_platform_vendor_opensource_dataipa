@@ -1,7 +1,7 @@
 ﻿// SPDX-License-Identifier: GPL-2.0-only
 /*
 * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
-* Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+* Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
 */
 
 #include <linux/types.h>	/* u32 */
@@ -357,8 +357,13 @@ static ssize_t channel_write_gsi(struct file *filp, const char __user *buf,
 	struct gsi_xfer_elem gsi_xfer;
 
 	if (count > (RX_BUFF_SIZE))
+#ifdef CONFIG_ARM64
+		IPATEST_ERR("-----PROBLEM----- count=%zu RX_BUFF_SIZE=%lu\n",
+		count, RX_BUFF_SIZE);
+#else
 		IPATEST_ERR("-----PROBLEM----- count=%zu RX_BUFF_SIZE=%u\n",
 		count, RX_BUFF_SIZE);
+#endif
 
 	/* Copy the data from the user and transmit */
 	res = copy_from_user(data_address, buf, count);

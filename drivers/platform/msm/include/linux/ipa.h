@@ -1869,12 +1869,6 @@ bool ipa_is_ready(void);
 void ipa_proxy_clk_vote(void);
 void ipa_proxy_clk_unvote(void);
 
-#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
-int ipa_fmwk_deepsleep_entry_ipa(void);
-
-int ipa_fmwk_deepsleep_exit_ipa(void);
-#endif
-
 enum ipa_hw_type ipa_get_hw_type(void);
 
 const struct ipa_gsi_ep_config *ipa_get_gsi_ep_info(
@@ -2276,16 +2270,6 @@ static inline int ipa_get_ep_mapping(enum ipa_client_type client)
 static inline bool ipa_is_ready(void)
 {
 	return false;
-}
-
-static inline int ipa_fmwk_deepsleep_entry_ipa(void)
-{
-	return -EPERM;
-}
-
-static inline int ipa_fmwk_deepsleep_exit_ipa(void)
-{
-	return -EPERM;
 }
 
 static inline enum ipa_hw_type ipa_get_hw_type(void)

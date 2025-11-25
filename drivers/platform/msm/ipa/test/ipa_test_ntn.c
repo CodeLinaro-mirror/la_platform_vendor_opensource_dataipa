@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include "ipa_ut_framework.h"
@@ -599,11 +599,20 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->rx_pipe_info.info.transfer_ring_sgt =
 		test_ntn_ctx->rx_transfer_ring_sgt;
 
+#ifdef CONFIG_ARM64
+	IPA_UT_DBG("rx TR phys 0x%llX, cpu 0x%p, size %d, sgt 0x%p\n",
+		test_ntn_ctx->rx_transfer_ring_addr.phys_base,
+		test_ntn_ctx->rx_transfer_ring_addr.base,
+		test_ntn_ctx->rx_transfer_ring_addr.size,
+		test_ntn_ctx->rx_transfer_ring_sgt);
+#else
 	IPA_UT_DBG("rx TR phys 0x%u, cpu 0x%p, size %d, sgt 0x%p\n",
 		test_ntn_ctx->rx_transfer_ring_addr.phys_base,
 		test_ntn_ctx->rx_transfer_ring_addr.base,
 		test_ntn_ctx->rx_transfer_ring_addr.size,
 		test_ntn_ctx->rx_transfer_ring_sgt);
+#endif
+
 
 	/* buff */
 	test_ntn_ctx->rx_pipe_info.info.is_buffer_pool_valid = true;
@@ -613,12 +622,21 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->rx_pipe_info.info.buffer_pool_base_sgt =
 		test_ntn_ctx->rx_buff_sgt;
 
+#ifdef CONFIG_ARM64
+	IPA_UT_DBG("rx buff phys 0x%llX, cpu 0x%p, size %d, fix size %d sgt 0x%p\n"
+		, test_ntn_ctx->rx_buf.phys_base,
+		test_ntn_ctx->rx_buf.base,
+		test_ntn_ctx->rx_buf.size,
+		test_ntn_ctx->rx_pipe_info.info.fix_buffer_size,
+		test_ntn_ctx->rx_buff_sgt);
+#else
 	IPA_UT_DBG("rx buff phys 0x%u, cpu 0x%p, size %d, fix size %d sgt 0x%p\n"
 		, test_ntn_ctx->rx_buf.phys_base,
 		test_ntn_ctx->rx_buf.base,
 		test_ntn_ctx->rx_buf.size,
 		test_ntn_ctx->rx_pipe_info.info.fix_buffer_size,
 		test_ntn_ctx->rx_buff_sgt);
+#endif
 
 	/* we don't plan to recieve skb on RX CB */
 	test_ntn_ctx->rx_pipe_info.info.notify = NULL;
@@ -635,8 +653,13 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->rx_pipe_info.info.client_info.ntn.tail_ptr_offs =
 		RX_TAIL_PTR_OFF;
 
+#ifdef CONFIG_ARM64
+	IPA_UT_DBG("tail registers bar: phys 0x%llX virt 0x%p\n",
+		test_ntn_ctx->bar_addr.phys_base, test_ntn_ctx->bar_addr.base);
+#else
 	IPA_UT_DBG("tail registers bar: phys 0x%u virt 0x%p\n",
 		test_ntn_ctx->bar_addr.phys_base, test_ntn_ctx->bar_addr.base);
+#endif
 
 	/* TX pipe */
 	/* ring */
@@ -653,11 +676,19 @@ static int ipa_ntn_test_setup_pipes(void)
 	test_ntn_ctx->tx_pipe_info.info.transfer_ring_sgt =
 		test_ntn_ctx->tx_transfer_ring_sgt;
 
+#ifdef CONFIG_ARM64
+	IPA_UT_DBG("tx TR phys 0x%llX, cpu 0x%p, size %d, sgt 0x%p\n",
+		test_ntn_ctx->tx_transfer_ring_addr.phys_base,
+		test_ntn_ctx->tx_transfer_ring_addr.base,
+		test_ntn_ctx->tx_transfer_ring_addr.size,
+		test_ntn_ctx->tx_transfer_ring_sgt);
+#else
 	IPA_UT_DBG("tx TR phys 0x%u, cpu 0x%p, size %d, sgt 0x%p\n",
 		test_ntn_ctx->tx_transfer_ring_addr.phys_base,
 		test_ntn_ctx->tx_transfer_ring_addr.base,
 		test_ntn_ctx->tx_transfer_ring_addr.size,
 		test_ntn_ctx->tx_transfer_ring_sgt);
+#endif
 
 	/* buff - for tx let's use the buffer list method (test both methods) */
 	test_ntn_ctx->tx_pipe_info.info.is_buffer_pool_valid = false;
@@ -674,21 +705,39 @@ static int ipa_ntn_test_setup_pipes(void)
 			((phys_addr_t)(test_ntn_ctx->tx_buf.base +
 			(BUFFER_SIZE * i)) & ~PAGE_MASK);
 
+#ifdef CONFIG_ARM64
+		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].iova = 0x%llx",
+			i,
+			test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].iova);
+		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].pa = 0x%llx",
+			i,
+			test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].pa);
+#else
 		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].iova = 0x%u",
 			i,
 			test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].iova);
 		IPA_UT_DBG("tx_pipe_info.info.data_buff_list[%d].pa = 0x%u",
 			i,
 			test_ntn_ctx->tx_pipe_info.info.data_buff_list[i].pa);
+#endif
 	}
 	test_ntn_ctx->tx_pipe_info.info.data_buff_list_size = NUM_TX_BUFS;
 
+#ifdef CONFIG_ARM64
+	IPA_UT_DBG("tx buff phys 0x%llX, cpu 0x%p, size %d, fix size %d sgt 0x%p\n"
+		, test_ntn_ctx->tx_buf.phys_base,
+		test_ntn_ctx->tx_buf.base,
+		test_ntn_ctx->tx_buf.size,
+		test_ntn_ctx->tx_pipe_info.info.fix_buffer_size,
+		test_ntn_ctx->tx_buff_sgt);
+#else
 	IPA_UT_DBG("tx buff phys 0x%u, cpu 0x%p, size %d, fix size %d sgt 0x%p\n"
 		, test_ntn_ctx->tx_buf.phys_base,
 		test_ntn_ctx->tx_buf.base,
 		test_ntn_ctx->tx_buf.size,
 		test_ntn_ctx->tx_pipe_info.info.fix_buffer_size,
 		test_ntn_ctx->tx_buff_sgt);
+#endif
 
 	test_ntn_ctx->tx_pipe_info.info.notify = NULL;
 	test_ntn_ctx->tx_pipe_info.info.priv = NULL;
@@ -753,7 +802,11 @@ static int ipa_ntn_test_reg_intf(void)
 	intf.client = &test_ntn_ctx->client;
 
 	snprintf(intf.net_dev->name, sizeof(intf.net_dev->name), "ntn_test");
+#ifdef CONFIG_ARM64
+	IPA_UT_INFO("netdev name: %s strlen: %lu\n", intf.net_dev->name, strlen(intf.net_dev->name));
+#else
 	IPA_UT_INFO("netdev name: %s strlen: %u\n", intf.net_dev->name, strlen(intf.net_dev->name));
+#endif
 #else
 	snprintf(netdev_name, sizeof(netdev_name), "ntn_test");
 	intf.netdev_name = netdev_name;
@@ -821,7 +874,11 @@ static int ipa_ntn_test_unreg_intf(void)
 	intf.client = &test_ntn_ctx->client;
 
 	snprintf(intf.net_dev->name, sizeof(intf.net_dev->name), "ntn_test");
+#ifdef CONFIG_ARM64
+	IPA_UT_INFO("netdev name: %s strlen: %lu\n", intf.net_dev->name, strlen(intf.net_dev->name));
+#else
 	IPA_UT_INFO("netdev name: %s strlen: %u\n", intf.net_dev->name, strlen(intf.net_dev->name));
+#endif
 #else
 	snprintf(netdev_name, sizeof(netdev_name), "ntn_test");
 	intf.netdev_name = netdev_name;
