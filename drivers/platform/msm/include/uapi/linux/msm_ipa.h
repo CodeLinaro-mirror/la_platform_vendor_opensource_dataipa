@@ -1755,6 +1755,9 @@ struct ipa_rt_rule {
  * @qos_class: QOS classification value.
  * @skip_ingress: bool to skip ingress policing.
  * @esp_after_udp: bool for ESP after UDP (NAT-T) rules.
+ * @rule_type: enum rule type (IP, ETH, Etc.)
+ * @cnt_idx2: cnt_idx extention
+ * @hpc_fetch_len: HPC fetch length (for inline header insertion HPC)
  */
 struct ipa_rt_rule_v2 {
 	enum ipa_client_type dst;
@@ -1772,6 +1775,9 @@ struct ipa_rt_rule_v2 {
 	uint8_t qos_class;
 	uint8_t skip_ingress;
 	uint8_t esp_after_udp;
+	enum ipa_fltrt_rule_type rule_type;
+	uint8_t cnt_idx2;
+	uint8_t hpc_fetch_len;
 };
 
 /**

@@ -1321,6 +1321,10 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
 				pr_err("esp_after_udp: %u ", entry->rule.esp_after_udp);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				pr_err("hpc_fetch_len: %u ", entry->rule.hpc_fetch_len);
+				pr_err("rule_type: %u ", entry->rule.rule_type);
+			}
 
 			pr_err("\n");
 			ipa3_attrib_dump(&entry->rule.attrib, ip);
@@ -1395,6 +1399,10 @@ static ssize_t ipa3_read_rt_hw(struct file *file, char __user *ubuf,
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
 				pr_err("esp_after_udp: %u\n", rules[rl].esp_after_udp);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				pr_err("hpc_fetch_len: %u ", rules[rl].hpc_fetch_len);
+				pr_err("rule_type: 0x%X ", rules[rl].rule_type);
+			}
 
 			if (rules[rl].hdr_type == IPAHAL_RT_RULE_HDR_PROC_CTX)
 				pr_err("proc_ctx:%u attrib_mask:%08x ",
@@ -1442,6 +1450,10 @@ static ssize_t ipa3_read_rt_hw(struct file *file, char __user *ubuf,
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
 				pr_err("esp_after_udp: %u ", rules[rl].esp_after_udp);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				pr_err("hpc_fetch_len: %u ", rules[rl].hpc_fetch_len);
+				pr_err("rule_type: 0x%X ", rules[rl].rule_type);
+			}
 
 			if (rules[rl].hdr_type == IPAHAL_RT_RULE_HDR_PROC_CTX)
 				pr_err("proc_ctx:%u attrib_mask:%08x ",

@@ -5846,6 +5846,12 @@ static int ipa_rt_parse_hw_rule_ipav7_0(u8 *addr, struct ipahal_rt_rule_entry *r
 	rule->cnt_idx = rule_hdr->stats_cnt_idx;
 	rule->id = rule_hdr->rule_id;
 	rule->close_aggr_irq_mod = rule_hdr->close_aggr_irq_mod;
+	rule->ttl_update = rule_hdr->ttl_update;
+	rule->qos_class = rule_hdr->shaping_traffic_class;
+	rule->skip_ingress = rule_hdr->ingress_pol_dis;
+	rule->esp_after_udp = rule_hdr->esp_after_udp;
+	rule->hpc_fetch_len = rule_hdr->hpc_fetch_len;
+	rule->rule_type = rule_hdr->rule_type;
 
 	atrb->rule_eq_bitmap = rule_hdr->en_rule & 0xFFFF; // todo: handle ipa7 added bits
 

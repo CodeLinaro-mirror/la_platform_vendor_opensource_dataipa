@@ -97,6 +97,9 @@ struct ipahal_rt_rule_gen_params {
  * @qos_class: QOS classification value.
  * @skip_ingress: bool to skip ingress policing.
  * @esp_after_udp: bool to handle ESP fater UDP rules
+ * @hpc_fetch_len: HPC fetch length field (for inline header insertion HPC)
+ * @stats_cnt_idx: stats cnt index
+ * @rule_type: Rule type: IP, ETH, NonIP etc.
  * @eq_attrib: Equations and their params in the rule
  * @rule_size: Rule size in memory
  */
@@ -114,6 +117,9 @@ struct ipahal_rt_rule_entry {
 	u8 qos_class;
 	u8 skip_ingress;
 	u8 esp_after_udp;
+	u8 hpc_fetch_len;
+	u16 stats_cnt_idx;
+	enum ipa_fltrt_rule_type rule_type;
 	struct ipa_ipfltri_rule_eq eq_attrib;
 	u32 rule_size;
 };
