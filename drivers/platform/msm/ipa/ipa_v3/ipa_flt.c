@@ -763,7 +763,7 @@ int __ipa_commit_flt_v3(enum ipa_ip_type ip)
 		}
 
 		if ((i < ipa3_ctx->ipa_num_pipes && ipa_flt_skip_pipe_config(i)) ||
-		    (i >= IPA6_Q6_NXT_FLT_TBL_START && i <= IPA6_Q6_NXT_FLT_TBL_END)) {
+		    (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0 && i >= IPA6_Q6_NXT_FLT_TBL_START && i <= IPA6_Q6_NXT_FLT_TBL_END)) {
 			hdr_idx++;
 			continue;
 		}
