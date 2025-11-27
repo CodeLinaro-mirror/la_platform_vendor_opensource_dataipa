@@ -1031,4 +1031,6 @@ struct sk_buff* qmap_encapsulate_skb(struct sk_buff *skb, const struct qmap_hdr 
 
 int ipa_hdrs_hpc_destroy(u32 hdr_hdl);
 
+int ipa3_get_ee_by_pipe(int pipe_idx);
+
 #endif /* _IPA_COMMON_I_H_ */

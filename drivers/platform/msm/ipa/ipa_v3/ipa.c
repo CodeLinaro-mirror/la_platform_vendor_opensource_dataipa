@@ -5990,6 +5990,7 @@ static int ipa3_q6_clean_q6_flt_tbls(enum ipa_ip_type ip,
 	struct ipahal_reg_valmask valmask;
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
 	int coal_ep = IPA_EP_NOT_ALLOCATED;
+	int ee;
 
 	IPADBG("Entry\n");
 
@@ -6078,12 +6079,17 @@ static int ipa3_q6_clean_q6_flt_tbls(enum ipa_ip_type ip,
 		if (!ipa_is_ep_support_flt(pipe_idx))
 			continue;
 
+		ee = ipa3_get_ee_by_pipe(pipe_idx);
+		if (ee < 0) {
+			continue;
+		}
+
 		/*
 		 * Iterating over all the filtering pipes which are either
-		 * invalid but connected or connected but not configured by AP.
+		 * invalid but belong to EE_Q6, or valid but not configured by AP.
 		 */
-		if (!ipa3_ctx->ep[pipe_idx].valid ||
-		    ipa3_ctx->ep[pipe_idx].skip_ep_cfg) {
+		if ((!ipa3_ctx->ep[pipe_idx].valid && ee == IPA_EE_Q6) ||
+			(ipa3_ctx->ep[pipe_idx].valid && ipa3_ctx->ep[pipe_idx].skip_ep_cfg)) {
 
 			/*
 			 * When coal pipe is valid send close coalescing frame
