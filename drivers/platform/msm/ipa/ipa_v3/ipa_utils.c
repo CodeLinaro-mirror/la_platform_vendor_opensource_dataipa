@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <net/ip.h>
@@ -13068,7 +13069,9 @@ static int __ipa3_alloc_counter_hdl
 
 	/* assign a handle using idr to this counter block */
 	id = idr_alloc(&ipa3_ctx->flt_rt_counters.hdl, counter,
-		ipahal_get_low_hdl_id(), ipahal_get_high_hdl_id(),
+		ipahal_get_low_hdl_id(), ((ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 &&
+			!ipa3_ctx->ipa_config_is_auto) ?
+			ipahal_get_high_hdl_id_v2() : ipahal_get_high_hdl_id()),
 		GFP_ATOMIC);
 
 	return id;
@@ -13099,7 +13102,7 @@ int ipa3_alloc_counter_id(struct ipa_ioc_flt_rt_counter_alloc *header)
 	if (counter->hw_counter.num_counters == 0)
 		goto sw_counter_alloc;
 	/* find the start id which can be used for the block */
-	for (i = 0; i < IPA_FLT_RT_HW_COUNTER; i++) {
+	for (i = 0; i < GET_IPA_FLT_RT_HW_COUNTER(); i++) {
 		if (!ipa3_ctx->flt_rt_counters.used_hw[i])
 			unused_cnt++;
 		else {
@@ -13144,14 +13147,14 @@ sw_counter_alloc:
 	if (counter->sw_counter.num_counters == 0)
 		goto mark_hw_cnt;
 	/* find the start id which can be used for the block */
-	for (i = 0; i < IPA_FLT_RT_SW_COUNTER; i++) {
+	for (i = 0; i < GET_IPA_FLT_RT_SW_COUNTER(); i++) {
 		if (!ipa3_ctx->flt_rt_counters.used_sw[i])
 			unused_cnt++;
 		else {
 			/* tracking max unused block in case allow less */
 			if (unused_cnt > unused_max) {
 				unused_start_id = i - unused_cnt +
-					2 + IPA_FLT_RT_HW_COUNTER;
+					2 + GET_IPA_FLT_RT_HW_COUNTER();
 				unused_max = unused_cnt;
 			}
 			unused_cnt = 0;
@@ -13159,9 +13162,9 @@ sw_counter_alloc:
 		/* find it, break and use this 1st possible block */
 		if (unused_cnt == counter->sw_counter.num_counters) {
 			counter->sw_counter.start_id = i - unused_cnt +
-				2 + IPA_FLT_RT_HW_COUNTER;
+				2 + GET_IPA_FLT_RT_HW_COUNTER();
 			counter->sw_counter.end_id =
-				i + 1 + IPA_FLT_RT_HW_COUNTER;
+				i + 1 + GET_IPA_FLT_RT_HW_COUNTER();
 			break;
 		}
 	}
@@ -13188,7 +13191,7 @@ mark_hw_cnt:
 		goto mark_sw_cnt;
 	unused_start_id = counter->hw_counter.start_id;
 	if (unused_start_id < 1 ||
-		unused_start_id > IPA_FLT_RT_HW_COUNTER) {
+		unused_start_id > GET_IPA_FLT_RT_HW_COUNTER()) {
 		IPAERR_RL("unexpected hw_counter start id %d\n",
 			   unused_start_id);
 		goto err;
@@ -13201,9 +13204,9 @@ mark_sw_cnt:
 	if (counter->sw_counter.num_counters == 0)
 		goto done;
 	unused_start_id = counter->sw_counter.start_id
-		- IPA_FLT_RT_HW_COUNTER;
+		- GET_IPA_FLT_RT_HW_COUNTER();
 	if (unused_start_id < 1 ||
-		unused_start_id > IPA_FLT_RT_SW_COUNTER) {
+		unused_start_id > GET_IPA_FLT_RT_SW_COUNTER()) {
 		IPAERR_RL("unexpected sw_counter start id %d\n",
 			   unused_start_id);
 		goto err;
@@ -13241,16 +13244,16 @@ void ipa3_counter_remove_hdl(int hdl)
 	/* remove counters belong to this hdl, set used back to 0 */
 	offset = counter->hw_counter.start_id - 1;
 	if (offset >= 0 && (offset + counter->hw_counter.num_counters)
-		< IPA_FLT_RT_HW_COUNTER) {
+		< GET_IPA_FLT_RT_HW_COUNTER()) {
 		memset(&ipa3_ctx->flt_rt_counters.used_hw[offset],
 			   0, counter->hw_counter.num_counters * sizeof(bool));
 	} else {
 		IPAERR_RL("unexpected hdl %d\n", hdl);
 		goto err;
 	}
-	offset = counter->sw_counter.start_id - 1 - IPA_FLT_RT_HW_COUNTER;
+	offset = counter->sw_counter.start_id - 1 - GET_IPA_FLT_RT_HW_COUNTER();
 	if (offset >= 0 && (offset + counter->sw_counter.num_counters)
-		< IPA_FLT_RT_SW_COUNTER) {
+		< GET_IPA_FLT_RT_SW_COUNTER()) {
 		memset(&ipa3_ctx->flt_rt_counters.used_sw[offset],
 		   0, counter->sw_counter.num_counters * sizeof(bool));
 	} else {
@@ -14059,9 +14062,16 @@ int ipa3_is_spcl_iface(enum ipa_vlan_ifaces iface, bool *res)
 		return -ENODEV;
 	}
 
-	*res = ipa3_ctx->spcl_iface[iface] && ipa3_ctx->is_dual_wkk_config;
+	*res = ((ipa3_ctx->spcl_iface[iface] && ipa3_ctx->is_dual_wkk_config) ||
+			ipa3_ctx->ipa_config_is_pppoe);
 
-	IPADBG("Eth Iface %d ezmesh mode: %d, special iface: %d \n", iface, *res, ipa3_ctx->spcl_iface[iface]);
+	if (ipa3_ctx->ipa_config_is_pppoe) {
+		IPADBG("Eth Iface %d pppoe mode: %d, special iface: %d \n",
+				iface, *res, ipa3_ctx->spcl_iface[iface]);
+	} else {
+		IPADBG("Eth Iface %d ezmesh mode: %d, special iface: %d \n",
+				iface, *res, ipa3_ctx->spcl_iface[iface]);
+	}
 	return 0;
 }
 EXPORT_SYMBOL(ipa3_is_spcl_iface);

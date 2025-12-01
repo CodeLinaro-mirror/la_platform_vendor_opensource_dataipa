@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2018-2021, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -934,6 +932,13 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		return -EFAULT;
 	}
 
+	if((((u64)(pipe->info.transfer_ring_base) + (u64)(pipe->info.transfer_ring_size)) &
+		0xFFF00000) != ((u64)(pipe->info.transfer_ring_base) & 0xFFF00000))
+	{
+		IPAERR("Address not aligned as per the GSI requirement\n");
+		ipa_assert();
+	}
+
 	/* Bit 40 means the address is in PCIe address space. Non-IEMAC clients' address is in
 	 * PCIe address space. IEMAC clients' address is not in PCIe address space. In test mode
 	 * we emulate regs on DDR not on PICE address space.
@@ -1205,6 +1210,9 @@ int ipa3_eth_connect(
 				IPAERR("Could not determine IPA ezmesh mode\n");
 				return result;
 		}
+	} else if ((ipa3_ctx->ipa_config_is_pppoe == true) && (inst_id == 0) &&
+			(pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT)) {
+		vlan_mode = 0;
 	}
 #endif
 	IPADBG("Vlan mode %d\n", vlan_mode);

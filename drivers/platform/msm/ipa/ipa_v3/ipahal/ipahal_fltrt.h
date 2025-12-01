@@ -193,8 +193,16 @@ u32 ipahal_get_low_hdl_id(void);
  */
 u32 ipahal_get_high_hdl_id(void);
 
+/*
+ * max counter hdl id for stats v2
+ */
+u32 ipahal_get_high_hdl_id_v2(void);
+
 /* used for query check and associated with rt/flt rules */
 bool ipahal_is_rule_cnt_id_valid(u8 cnt_id);
+
+/* used for query check and associated with rt/flt rules v2 */
+bool ipahal_is_rule_cnt_id_valid_v2(u8 cnt_id);
 
 /* max rule id for stats */
 bool ipahal_get_max_stats_rule_id(void);
