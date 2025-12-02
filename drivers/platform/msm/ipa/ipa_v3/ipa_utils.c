@@ -310,9 +310,10 @@
 #define IPA_v7_0_GROUP_URLLC		(4)
 #define IPA_v7_0_GROUP_CV2X		(4)
 #define IPA_v7_0_GROUP_UC		(5)
-#define IPA_v7_0_GROUP_DRB_IP_DL	(6)
+#define IPA_v7_0_GROUP_IPSEC_UL		(6)
+#define IPA_v7_0_GROUP_IPSEC_ETH_UL	(9)
 #define IPA_v7_0_SRC_GROUP_MAX		(7)
-#define IPA_v7_0_GROUP_IPSEC_UL		(7)
+#define IPA_v7_0_GROUP_DRB_IP_DL	(7)
 #define IPA_v7_0_DST_GROUP_MAX		(12)
 #define IPA_v7_0_GROUP_MAX		(12)
 
@@ -12004,7 +12005,7 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 			 * RSRC_GRP_FOR_DRBIP_ACL = IPA_v6_0_GROUP_IPSEC_UL / IPA_v7_0_GROUP_IPSEC_UL
 			 */
 			if (ipa3_ctx->hw_type_index >= IPA_7_0)
-				ipahal_write_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, clnt_hdl, 0x903);
+				ipahal_write_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, clnt_hdl, 0x603);
 			else
 				ipahal_write_reg_n(IPA_ENDP_INIT_DRBIP_CFG_n, clnt_hdl, 0x703);
 
