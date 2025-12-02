@@ -2105,19 +2105,21 @@ struct ipa_hw_hdr_proc_ctx_remove_eogre_hdr_cmd_seq {
 };
 
 /**
- * struct ipa_hw_hdr_proc_ctx_tlv_ipsec -
- * HW structure of IPA processing context header - TLV part (IPsec special)
- * @type: 6 - IPsec activate
+ * struct ipa_hw_hdr_proc_ctx_tlv_crypto -
+ * HW structure of IPA processing context header - TLV part (Crypto special)
+ * @type: 6 - Crypto Activate
  * @length: number of bytes after tlv
- * @sa_action: SA action (0 = disable, 1 = encap, 2 = decap, 3 = reserved)
+ * @crypto_action: Crypto action (0 = disable, 1 = IPsec encap, 2 = IPsec decap, 3-15 = reserved)
  * @reserved: reserved
+ * @sa_valid: 1 - a valid SA is associated with this Crypto_Action
  * @sa_index: SA index
  */
-struct ipa_hw_hdr_proc_ctx_tlv_ipsec {
+struct ipa_hw_hdr_proc_ctx_tlv_crypto {
 	u32 type:8;
 	u32 length:8;
-	u32 sa_action:2;
-	u32 reserved:6;
+	u32 crypto_action:4;
+	u32 reserved:3;
+	u32 sa_valid:1;
 	u32 sa_index:8;
 };
 
@@ -2186,28 +2188,28 @@ struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq {
 
 /**
  * struct ipa_hw_hdr_proc_ctx_ipsec_proc_cmd_seq -
- * IPA processing context next round + IPsec + command sequence
- * @ipsec: tlv IPsec activation
+ * IPA processing context next round + Crypto + command sequence
+ * @crypto: tlv Crypto Activate
  * @cmd: tlv uC processing command
  * @end: tlv end command (cmd.type must be 0)
  */
 struct ipa_hw_hdr_proc_ctx_ipsec_proc_cmd_seq {
-	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv_crypto crypto;
 	struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec cmd;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 
 /**
  * struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq -
- * IPA processing context next round + IPsec + command sequence
+ * IPA processing context next round + Crypto + command sequence
  * @nxt_rnd: tlv Next round rules
- * @ipsec: tlv IPsec activation
+ * @crypto: tlv Crypto Activate
  * @cmd: tlv uC processing command
  * @end: tlv end command (cmd.type must be 0)
  */
 struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
-	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv_crypto crypto;
 	struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec cmd;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
@@ -2229,56 +2231,54 @@ struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_proc_cmd_seq {
 
 /**
  * struct ipa_hw_hdr_proc_ctx_add_ipsec_seq -
- * IPA processing context add + IPsec
+ * IPA processing context add + Crypto
  * @hdr_add: add header command
- * @ipsec: tlv IPsec activation
+ * @crypto: tlv Crypto Activate
  * @end: tlv end command (cmd.type must be 0)
  */
 struct ipa_hw_hdr_proc_ctx_add_ipsec_seq {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
-	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv_crypto crypto;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 
 /**
  * struct ipa_hw_hdr_proc_ctx_add_ipsec_proc_cmd_seq -
- * IPA processing context add + IPsec + command sequence
+ * IPA processing context add + Crypto + command sequence
  * @hdr_add: add header command
- * @ipsec: tlv IPsec activation
+ * @crypto: tlv Crypto Activate
  * @cmd: tlv uC processing command
  * @end: tlv end command (cmd.type must be 0)
  */
 struct ipa_hw_hdr_proc_ctx_add_ipsec_proc_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
-	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv_crypto crypto;
 	struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec cmd;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 
 /**
  * struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq -
- * IPA processing context IPsec command sequence
+ * IPA processing context add + next round + Crypto + command sequence
  * @hdr_add: add header command
  * @nxt_rnd: tlv Next round rules
- * @ipsec: tlv IPsec activation
+ * @crypto: tlv Crypto Activate
  * @cmd: tlv uC processing command
  * @end: tlv end command (cmd.type must be 0)
  */
 struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
-	struct ipa_hw_hdr_proc_ctx_tlv_ipsec ipsec;
+	struct ipa_hw_hdr_proc_ctx_tlv_crypto crypto;
 	struct ipa_hw_hdr_proc_ctx_tlv_pre_ipsec cmd;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 
 /**
- * struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq -
- * IPA processing context IPsec command sequence
+ * struct ipa_hw_hdr_proc_ctx_add_pdn_dscp_proc_cmd_seq -
+ * IPA processing context PDN DSCP
  * @hdr_add: add header command
- * @nxt_rnd: tlv Next round rules
- * @ipsec: tlv IPsec activation
- * @cmd: tlv uC processing command
+ * @pdn_dscp_params: PDN DSCP params
  * @end: tlv end command (cmd.type must be 0)
  */
 struct ipa_hw_hdr_proc_ctx_add_pdn_dscp_proc_cmd_seq {
