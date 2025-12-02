@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022, 2024 - 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef GSI_H
@@ -991,6 +991,14 @@ struct __packed gsi_wdi4_channel_scratch {
 	uint32_t pmac_id : 2;
 };
 
+struct __packed gsi_wdi4_channel_scratch3 {
+	uint32_t ast_index : 16;
+	uint32_t bank_id : 6;
+	uint32_t vdev_id: 8;
+	uint32_t pmac_id: 2;
+};
+
+
 /**
  * gsi_wdi3_hamilton_channel_scratch - WDI 3 protocol, hamilton chipset
  * SW config area of channel scratch
@@ -1232,6 +1240,17 @@ union __packed gsi_channel_scratch {
 		uint32_t word2;
 		uint32_t word3;
 		uint32_t word4;
+	} data;
+};
+
+/**
+ * gsi_channel_scratch 3 - channel scratch 3 SW config area
+ *
+ */
+union __packed gsi_wdi4_channel_scratch3_reg {
+	struct __packed gsi_wdi4_channel_scratch3 wdi4;
+	struct __packed {
+		uint32_t word1;
 	} data;
 };
 
@@ -2204,6 +2223,20 @@ int gsi_write_channel_scratch2_reg(unsigned long chan_hdl,
  */
 int gsi_write_wdi3_channel_scratch2_reg(unsigned long chan_hdl,
 		union __packed gsi_wdi3_channel_scratch2_reg val);
+
+/**
+ * gsi_write_wdi4_channel_scratch3_reg - Peripheral should call this function
+ * to write to the WDI4 scratch 3 register area of the channel context
+ *
+ * @chan_hdl:  Client handle previously obtained from
+ *             gsi_alloc_channel
+ * @val:       Read value
+ *
+ * @Return gsi_status
+ */
+int gsi_write_wdi4_channel_scratch3_reg(unsigned long chan_hdl,
+		union __packed gsi_wdi4_channel_scratch3_reg val);
+
 
 /**
  * gsi_read_channel_scratch - Peripheral should call this function to

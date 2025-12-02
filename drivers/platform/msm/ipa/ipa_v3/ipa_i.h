@@ -1064,6 +1064,7 @@ struct ipa3_ep_context {
 	unsigned long gsi_evt_ring_hdl;
 	struct ipa_gsi_ep_mem_info gsi_mem_info;
 	union __packed gsi_channel_scratch chan_scratch;
+	union __packed gsi_wdi4_channel_scratch3_reg chan_scratch3;
 	struct gsi_chan_xfer_notify xfer_notify;
 	bool xfer_notify_valid;
 	struct ipa_ep_cfg cfg;

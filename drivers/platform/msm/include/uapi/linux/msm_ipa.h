@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _UAPI_MSM_IPA_H_
@@ -598,10 +598,13 @@ enum ipa_client_type {
 	IPA_CLIENT_ETHERNET_CONS3		= 153,
 
 	IPA_CLIENT_ETHERNET_PROD4		= 154,
-	IPA_CLIENT_ETHERNET_CONS4		= 155
+	IPA_CLIENT_ETHERNET_CONS4		= 155,
+
+	/* RESERVED PROD			= 156, */
+	IPA_CLIENT_WLAN_STABRG_CONS	= 157,
 };
 
-#define IPA_CLIENT_MAX (IPA_CLIENT_ETHERNET_CONS4 + 1)
+#define IPA_CLIENT_MAX (IPA_CLIENT_WLAN_STABRG_CONS + 1)
 
 #define IPA_CLIENT_WLAN2_PROD IPA_CLIENT_A5_WLAN_AMPDU_PROD
 #define IPA_CLIENT_Q6_DL_NLO_DATA_PROD IPA_CLIENT_Q6_DL_NLO_DATA_PROD
@@ -695,6 +698,7 @@ enum ipa_client_type {
 
 #define IPA_CLIENT_IS_WLAN_CONS(client) \
 	((client) == IPA_CLIENT_WLAN1_CONS || \
+	(client) == IPA_CLIENT_WLAN_STABRG_CONS|| \
 	(client) == IPA_CLIENT_WLAN2_CONS || \
 	(client) == IPA_CLIENT_WLAN3_CONS || \
 	(client) == IPA_CLIENT_WLAN2_CONS1 || \
@@ -3761,6 +3765,13 @@ enum ipa_ext_router_mode {
 	IPA_PREFIX_SHARING,
 	IPA_PREFIX_DELEGATION
 };
+
+typedef enum
+{
+	DEVMODE_DEFAULT   = 0x00,
+	DEVMODE_STABRIDGE = 0x01,
+	DEVMODE_APBRIDGE  = 0x02
+} ipa_device_mode;
 
 /**
  * struct ipa_ioc_ext_router_info - provide ext_router info
