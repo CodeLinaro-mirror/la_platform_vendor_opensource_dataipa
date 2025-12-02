@@ -193,7 +193,9 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_STAT_TSP_DROP_BASE),
 	__stringify(IPA_STATE_QMNGR_QUEUE_NONEMPTY),
 	__stringify(IPA_IPSEC_SA_DECAPSULATION_BASE),
+	__stringify(IPA_IPSEC_SA_ENCAPSULATION_SIZE),
 	__stringify(IPA_IPSEC_SA_ENCAPSULATION_BASE),
+	__stringify(IPA_IPSEC_SA_DECAPSULATION_SIZE),
 	__stringify(IPA_RAM_INGRESS_POLICER_DB_BASE_ADDR),
 	__stringify(IPA_RAM_EGRESS_SHAPING_PROD_DB_BASE_ADDR),
 	__stringify(IPA_RAM_EGRESS_SHAPING_TC_DB_BASE_ADDR),
@@ -6803,6 +6805,12 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_NTF_TX_CMDQ_CFG_RD_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00013710, 0x4, 0, 2, 0, 0},
+	[IPA_HW_v7_0][IPA_IPSEC_SA_ENCAPSULATION_SIZE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000C748, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_IPSEC_SA_DECAPSULATION_SIZE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000C74C, 0, 0, 0, 0, 0},
 
 	/* IPA_CTX */
 	[IPA_HW_v7_0][IPA_PKT_CTX_NUM_m_FIELDS_2] = {

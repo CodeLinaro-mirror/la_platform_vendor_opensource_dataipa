@@ -184,8 +184,9 @@ static ssize_t ipa3_read_gen_reg(struct file *file, char __user *ubuf,
 		"IPA_QTIME_TIMESTAMP_CFG=0x%x\n"
 		"IPA_TIMERS_PULSE_GRAN_CFG=0x%x\n"
 		"IPA_TIMERS_XO_CLK_DIV_CFG=0x%x\n"
-		"IPA_STATE_ENCAPS=0x%x\n"
-		"IPA_STATE_DECAPS=0x%x\n"
+		"IPA_STATE_ACL_1=0x%x\n"
+		"IPA_IPSEC_SA_ENCAPSULATION_SIZE=0x%x\n"
+		"IPA_IPSEC_SA_DECAPSULATION_SIZE=0x%x\n"
 		"IPA_STATE=0x%x\n",
 		ipahal_read_reg(IPA_VERSION),
 		ipahal_read_reg(IPA_COMP_HW_VERSION),
@@ -195,8 +196,9 @@ static ssize_t ipa3_read_gen_reg(struct file *file, char __user *ubuf,
 		ipahal_read_reg(IPA_QTIME_TIMESTAMP_CFG),
 		ipahal_read_reg(IPA_TIMERS_PULSE_GRAN_CFG),
 		ipahal_read_reg(IPA_TIMERS_XO_CLK_DIV_CFG),
-		ipahal_read_reg(IPA_STATE_ENCAPS),
-		ipahal_read_reg(IPA_STATE_DECAPS),
+		ipahal_read_reg(IPA_STATE_ACL_1),
+		ipahal_read_reg(IPA_IPSEC_SA_ENCAPSULATION_SIZE),
+		ipahal_read_reg(IPA_IPSEC_SA_DECAPSULATION_SIZE),
 		ipahal_read_reg(IPA_STATE));
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
