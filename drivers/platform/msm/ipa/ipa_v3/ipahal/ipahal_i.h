@@ -658,6 +658,28 @@ struct ipa_imm_cmd_hw_ip_packet_init_ex_v6_0 {
 	u64 rsvd6 : 7;
 } __packed;
 
+/*
+ * struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 - IP_PACKET_INIT_EX command payload
+ *  in H/W format for IPA v7.0.
+ * @sw_reserved: Reserved for software use
+ * @conn_track_nat_stats_ip_type: IP type for connection tracking/NAT statistics
+ * @conn_track_nat_stats_direction: Direction for connection tracking/NAT statistics
+ * @traffic_mode: Traffic mode configuration
+ * @frag_disable: 1 - disabled. overrides IPA_ENDP_CONFIG_n:FRAG_OFFLOAD_EN
+ * @filter_disable: 1 - disabled, 0 enabled
+ * @nat_disable: 1 - disabled, 0 enabled
+ * @route_disable: 1 - disabled, 0 enabled
+ * @hdr_removal_insertion_disable: 1 - disabled, 0 enabled
+ * @cs_disable: 1 - disabled, 0 enabled
+ * @quota_tethering_stats_disable: 1 - disabled, 0 enabled
+ * @dpl_disable: 1 - disabled, 0 enabled
+ * @leading_header_size: Size of leading header in bytes
+ * @conn_track_nat_stats_counter_idx: Counter index for connection tracking/NAT statistics
+ * @rt_hdr_offset: Route header offset
+ * Fields @rt_pipe_dest_idx - @rt_hpc_fetch_len are routing rule parameters
+ * Fields @flt_rt_tbl_idx - @flt_set_metadata are filter rule parameters
+ * @sw_classification_cookie: Software classification cookie value
+ */
 struct __attribute__((packed)) ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 {
 	u64 sw_reserved                      :12;
 	u64 conn_track_nat_stats_ip_type     :1;
@@ -1462,6 +1484,53 @@ struct ipa_frag_pkt_status_hw_v5_5 {
 	u64 hdr_local:1;
 } __packed;
 
+/*
+ * struct ipa_frag_pkt_status_hw_v7_0 -
+ * IPA v7.0 status packet payload in H/W format.
+ *  This structure describes the frag status packet H/W structure for the
+ *   following statuses: IPA_NEW_FRAG_RULE.
+ * @status_opcode: The Type of the status (Opcode).
+ * @frag_rule_idx: Frag rule index value.
+ * @reserved_1: reserved
+ * @exception: (not bitmask) - the first exception that took place.
+ * @tbl_idx: Table index valid or not.
+ * @endp_src_idx: Source end point index.
+ *  In case of exception, src endp and pkt len are always valid.
+ * @seq_num: Packet sequence number.
+ * @src_ip_addr: Source packet IP address.
+ * @dest_ip_addr: Destination packet IP address.
+ * @endp_dest_idx: Destination end point index.
+ * @protocol: Protocol number.
+ * @ip_id: IP packet IP ID number.
+ * @translated_ip_addr: IP address.
+ * @hdr_offset: Offset of used header in the header table
+ * @ip_cksum_diff: IP packet checksum difference.
+ * @metadata: meta data value used by packet
+ * @flt_stats_counter_idx: Filter statistics counter index.
+ * @ret: l2 header retained flag, indicates whether l2 header is retained
+ * or not.
+ * @low_latency_or_close_aggr_mod: Low latency or close aggregation mode flag.
+ * @ttl_dec: ttl update indication.
+ * @packet_type: Type of packet.
+ * @rt_stats_counter_idx: Route statistics counter index.
+ * @nat_or_ct: NAT or Connection Tracking flag.
+ * @hpc: Header Processing Context flag.
+ * @pd: Router disabled ingress policer.
+ * @hdr_local: Header table location flag: In header insertion, was the header
+ *  taken from the table resides in local memory? (If no, then system mem)
+ * @ergress_traffic_class: Egress traffic class index.
+ * @ingress_traffic_class: Ingress traffic class index.
+ * @reserved1: reserved
+ * @nat_type: Defines the type of the NAT operation:
+ *	00: No NAT
+ *	01: Source NAT
+ *	10: Destination NAT
+ *	11: Reserved
+ * @hpc_fetch_len: HPC fetch length.
+ * @ct_stats_counter_idx: Connection tracking statistics counter index.
+ * @reserved2: reserved
+ * @sw_classification_cookie: Software classification cookie.
+ */
 struct ipa_frag_pkt_status_hw_v7_0 {
 	u64 status_opcode:8;
 	u64 frag_rule_idx:4;
@@ -1604,6 +1673,76 @@ struct ipa_gen_pkt_status_hw_v6_0 {
 	u64 ucp:1;
 } __packed;
 
+/*
+ * struct ipa_gen_pkt_status_hw_v7_0 - IPA v7.0 status packet payload in H/W format.
+ *  This structure describes the status packet H/W structure for the
+ *   following statuses: IPA_STATUS_PACKET, IPA_STATUS_DROPPED_PACKET,
+ *   IPA_STATUS_SUSPENDED_PACKET.
+ *  Other statuses types has different status packet structure.
+ * @status_opcode: The Type of the status (Opcode).
+ * @exception: (not bitmask) - the first exception that took place.
+ *  In case of exception, src endp and pkt len are always valid.
+ * @status_mask: Bit mask specifying on which H/W blocks the pkt was processed.
+ * @pkt_len: Pkt pyld len including hdr, include retained hdr if used. Does
+ *  not include padding or checksum trailer len.
+ * @endp_src_idx: Source end point index.
+ * @pure_ack: Indicates pure ack TCP packet.
+ * @syn: Indicates TCP syn packet.
+ * @fin_rst: Indicates TCP fin/rst packet.
+ * @rt_local: Route table location flag: Does matching rt rule belongs to
+ *  rt tbl that resides in lcl memory? (if not, then system mem)
+ * @rt_cache_hit: Route cache hit flag: Does matching rt rule was in cache?
+ *  Not valid in case of exception
+ * @protocol_encoding: Defines the packet protocol:
+ * 	0 – None (protocol encoding is not set)
+ * 	1 – TCP
+ * 	2 – UDP
+ * 	3 – ICMP/ IPv6-ICMP (note that Status Mask already has an IPv4/IPv6 bit)
+ * @metadata: meta data value used by packet
+ * @flt_local: Filter table location flag: Does matching flt rule belongs to
+ *  flt tbl that resides in lcl memory? (if not, then system mem)
+ * @flt_cache_hit: Filter cache hit flag: Does matching flt rule was in cache?
+ * @ucp: UC Processing flag.
+ * @flt_ret_hdr: Retain header in filter rule flag: Does matching flt rule
+ *  specifies to retain header?
+ * @flt_rule_id: The ID of the matching filter rule. This info can be combined
+ *  with endp_src_idx to locate the exact rule. ID=0x3FF reserved to specify
+ *  flt miss. In case of miss, all flt info to be ignored
+ * @rt_tbl_idx: Index of rt tbl that contains the rule on which was a match
+ * @rt_rule_id: The ID of the matching rt rule. This info can be combined
+ *  with rt_tbl_idx to locate the exact rule. ID=0x3FF reserved to specify
+ *  rt miss. In case of miss, all rt info to be ignored
+ * @nat_entry_idx: Index of the NAT entry used of NAT processing
+ * @tag_info: S/W defined value provided via immediate command
+ * @seq_num: Per source endp unique packet sequence number
+ * @time_of_day_ctr: running counter from IPA clock
+ * @hdr_offset: Offset of used header in the header table
+ * @hpc: Header Processing Context flag
+ * @hdr_in_sys: Header in system memory flag
+ * @ttl_dec: ttl update flag, indicates whether ttl is updated.
+ * @frag_hit: Frag hit flag: Was their frag rule hit in H/W frag table?
+ * @packet_type: Type of packet
+ * @endp_dest_idx: Destination end point index.
+ * @ergress_traffic_class: Egress traffic class
+ * @ingress_traffic_class: Ingress traffic class
+ * @nat_hit: NAT hit flag: Was their NAT hit?
+ * @nat_type: Defines the type of the NAT operation:
+ *	00: No NAT
+ *	01: Source NAT
+ *	10: Destination NAT
+ *	11: Reserved
+ * @nat_cache_hit: NAT cache hit flag
+ * @nat_or_ct: NAT or Connection Tracking flag
+ * @nat_exc_suppress: nat exception supress flag, indicates whether
+ * nat exception is suppressed.
+ * @num_vlan_tags: Number of VLAN tags
+ * @flt_table_idx: Filter table index
+ * @frag_rule: Frag rule index in H/W frag table in case of frag hit
+ * @metadata_origin: Origin of metadata
+ * @reserved1: reserved
+ * @reserved2: reserved
+ * @reserved3: reserved
+ */
 struct ipa_gen_pkt_status_hw_v7_0 {
 	u64 status_opcode:8;
 	u64 exception:8;

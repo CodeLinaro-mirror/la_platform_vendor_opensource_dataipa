@@ -231,6 +231,31 @@ struct ipa5_5_rt_rule_hw_hdr {
 	} u;
 };
 
+/**
+ * struct ipa7_0_rt_rule_hw_hdr - HW header of IPA routing rule
+ * @en_rule: enable rule - Equation bit fields
+ * @dest_pipe_idx: destination pipe index
+ * @ingress_pol_dis: Ingress policing disable
+ * @close_aggr_irq_mod: close aggregation/coalescing and close GSI
+ *  interrupt moderation
+ * @ttl_update: TTL update
+ * @esp_after_udp: ESP in UDP for caching more than 5 tuple
+ * @rule_type: Rule type: IP, ETH, NonIP etc.
+ * @retain_hdr: added to add back to the packet the header removed
+ *  as part of header removal. This will be done as part of
+ *  header insertion block.
+ * @priority: Rule priority. Added to distinguish rules order
+ *  at the integrated table consisting from hashable and
+ *  non-hashable parts
+ * @shaping_traffic_class: Shaping Traffic Class
+ * @stats_cnt_idx_lsb: stats cnt index
+ * @rule_id: rule ID that will be returned in the packet status
+ * @system: Is referenced header is lcl or sys memory
+ * @hpc: whether hdr_offset points to header table or to
+ *	header processing context table
+ * @hpc_fetch_len: HPC fetch length (for inline header insertion HPC)
+ * @hdr_offset: header offset
+ */
 struct __attribute__((packed)) ipa7_0_rt_rule_hw_hdr {
 	u32 en_rule;
 
@@ -490,6 +515,30 @@ struct ipa5_5_flt_rule_hw_hdr {
 	} u;
 };
 
+/**
+ * struct ipa7_0_flt_rule_hw_hdr - HW header of IPA filter rule
+ * @en_rule: enable rule
+ * @rt_tbl_idx: index in routing table
+ * @reserved: Reserved
+ * @close_aggr_irq_mod: close aggregation/coalescing and close GSI
+ *  interrupt moderation
+ * @ttl_update: TTL update
+ * @esp_after_udp: ESP in UDP for caching more than 5 tuple
+ * @rule_type: Rule type: IP, ETH, NonIP etc.
+ * @retain_hdr: added to add back to the packet the header removed
+ *  as part of header removal. This will be done as part of
+ *  header insertion block.
+ * @priority: Rule priority. Added to distinguish rules order
+ *  at the integrated table consisting from hashable and
+ *  non-hashable parts
+ * @policing_traffic_class: Policing Traffic Class
+ * @stats_cnt_idx: stats cnt index
+ * @rule_id: rule ID that will be returned in the packet status
+ * @action: post filtering action
+ * @pdn_idx: in case of go to src nat action possible to input the pdn index to
+ *  the NAT block
+ * @set_metadata: enable metadata replacement in the NAT block
+ */
 struct __attribute__((packed)) ipa7_0_flt_rule_hw_hdr {
 	u64 en_rule                : 32;
 	u64 rt_tbl_idx             : 8;

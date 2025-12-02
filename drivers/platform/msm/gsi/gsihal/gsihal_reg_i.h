@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
 * Copyright (c) 2020, The Linux Foundation. All rights reserved.
-* Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.?
+* Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
 */
 
 #ifndef _GSIHAL_REG_I_H_
@@ -17,7 +17,7 @@
 #define GSI_INST_RAM_n_MAXn(iram_size, num_psis) (((iram_size) * 2) + ((num_psis) * 2) -1)
 
 #define GSI_GSI_INST_RAM_n_WORD_SZ 0x4
-#define GSI_V7_0_IRAM_SIZE (8 * 1024)
+#define GSI_V7_0_IRAM_SIZE (15 * 512)
 #define GSI_V7_0_NUM_PSIS 48
 
 /* GSI_GSI_SHRAM_n */

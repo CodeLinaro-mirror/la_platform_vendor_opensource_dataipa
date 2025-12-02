@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #include "ipa.h"
@@ -1273,16 +1274,10 @@ static u8 flt_action_to_hw_value(enum ipa_flt_action a)
 	case IPA_PASS_TO_EXCEPTION:
 		ret = 0x3;
 		break;
-	case IPA_PASS_TO_OUT_IPV4_CT_NAT:
-		ret = 0x4;
-		break;
-	case IPA_PASS_TO_IN_IPV4_CT_NAT:
-		ret = 0x5;
-		break;
 	default:
 		IPAHAL_ERR_RL("Invalid rule Action %d\n", a);
 		WARN_ON_RATELIMIT_IPA(1);
-		ret = 0x0;
+		ret = 0xff;
 	}
 
 	return ret;

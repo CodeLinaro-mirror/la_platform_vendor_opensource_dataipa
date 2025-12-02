@@ -1317,8 +1317,10 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v6_ct_init(
 		(struct ipahal_imm_cmd_ip_v6_ct_init *)params;
 
 	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
-	if (unlikely(!pyld))
+	if (unlikely(!pyld)) {
+		IPAHAL_ERR("kzalloc err\n");
 		return pyld;
+	}
 	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
 	pyld->len = sizeof(*data);
 	data = (struct ipa_imm_cmd_hw_ip_v6_ct_init *)pyld->data;
@@ -1347,8 +1349,10 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_ip_v6_ct_init_v7_0(
 		(struct ipahal_imm_cmd_ip_v6_ct_init *)params;
 
 	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
-	if (unlikely(!pyld))
+	if (unlikely(!pyld)) {
+		IPAHAL_ERR("kzalloc err\n");
 		return pyld;
+	}
 	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
 	pyld->len = sizeof(*data);
 	data = (struct ipa_imm_cmd_hw_ip_v6_ct_init_v7_0 *)pyld->data;

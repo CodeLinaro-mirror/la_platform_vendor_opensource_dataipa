@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2021-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 #ifndef _UAPI_MSM_IPA_H_
@@ -910,8 +911,6 @@ enum ipa_flt_action {
 	IPA_PASS_TO_SRC_NAT,
 	IPA_PASS_TO_DST_NAT,
 	IPA_PASS_TO_EXCEPTION,
-	IPA_PASS_TO_OUT_IPV4_CT_NAT,
-	IPA_PASS_TO_IN_IPV4_CT_NAT,
 	IPA_FLT_ACTION_MAX
 };
 
@@ -1591,6 +1590,8 @@ struct ipa_flt_rule {
  * @ttl_update: bool to indicate whether TTL update is needed or not.
  * @qos_class: QOS classification value.
  * @esp_after_udp: bool for ESP after UDP (NAT-T) rules.
+ * @rule_type: IP/ETH/NonIP etc.
+ * @cnt_idx_v2: Stats cnt index for IPAv7 and on
  */
 struct ipa_flt_rule_v2 {
 	uint8_t retain_hdr;
