@@ -2063,7 +2063,7 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		}
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_PROTOCOL) {
+	if (ipahal_ctx->hw_type < IPA_HW_v7_0 && attrib->attrib_mask & IPA_FLT_PROTOCOL) {
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_PROTOCOL_EQ);
 		extra = ipa_write_8(attrib->u.v4.protocol, extra);
 	}
@@ -2423,6 +2423,11 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		ihl_ofst_rng16++;
 	}
 
+	if (ipahal_ctx->hw_type >= IPA_HW_v7_0 &&attrib->attrib_mask & IPA_FLT_PROTOCOL) {
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_PROTOCOL_EQ);
+		extra = ipa_write_8(attrib->u.v4.protocol, extra);
+	}
+
 	if (attrib->attrib_mask & IPA_FLT_FRAGMENT) {
 		ipa_fltrt_generate_hw_rule_bdy_frag(en_rule, attrib, &extra);
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_IS_FRAG);
@@ -2467,12 +2472,12 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 			extra = ipa_write_8(0, extra);
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_NEXT_HDR) {
+	if (ipahal_ctx->hw_type < IPA_HW_v7_0 && attrib->attrib_mask & IPA_FLT_NEXT_HDR) {
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_PROTOCOL_EQ);
 		extra = ipa_write_8(attrib->u.v6.next_hdr, extra);
 	}
 
-	if (attrib->ext_attrib_mask & IPA_FLT_EXT_NEXT_HDR) {
+	if (ipahal_ctx->hw_type < IPA_HW_v7_0 && attrib->ext_attrib_mask & IPA_FLT_EXT_NEXT_HDR) {
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
 		/* 6 => offset of "next header" in IPv6 header */
@@ -2547,6 +2552,12 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		}
 	}
 
+	if (attrib->attrib_mask & IPA_MAC_FLT_BITS) {
+		if (ipa_fltrt_generate_mac_hw_rule_bdy(en_rule, attrib,
+			&ofst_meq128, &extra, &rest))
+			goto err;
+	}
+
 	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED && !tos_done) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, ofst_meq32)) {
 			IPAHAL_ERR("ran out of meq32 eq\n");
@@ -2560,13 +2571,6 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 			ofst_meq32++;
 			tos_done = true;
 		}
-	}
-
-
-	if (attrib->attrib_mask & IPA_MAC_FLT_BITS) {
-		if (ipa_fltrt_generate_mac_hw_rule_bdy(en_rule, attrib,
-			&ofst_meq128, &extra, &rest))
-			goto err;
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_MAC_ETHER_TYPE) {
@@ -2588,6 +2592,17 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 	if (ipa_fltrt_generate_vlan_hw_rule_bdy(en_rule, attrib, &ofst_meq32,
 		&extra, &rest))
 		goto err;
+
+	if (ipahal_ctx->hw_type >= IPA_HW_v7_0 && attrib->ext_attrib_mask & IPA_FLT_EXT_NEXT_HDR) {
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ihl_ofst_meq32[ihl_ofst_meq32]);
+		/* 6 => offset of "next header" in IPv6 header */
+		extra = ipa_write_8(IHL_EQ_OFFSET_FROM_L3(6), extra);
+		rest = ipa_write_32(0xFF000000, rest);
+		rest = ipa_write_32(attrib->u.v6.next_hdr << 24, rest);
+		extra = ipa_write_8(attrib->u.v6.next_hdr, extra);
+		ihl_ofst_meq32++;
+	}
 
 	if (attrib->attrib_mask & IPA_FLT_TYPE) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
@@ -2967,6 +2982,11 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_FL_EQ);
 		rest = ipa_write_32(attrib->u.v6.flow_label & 0xFFFFF,
 			rest);
+	}
+
+	if (ipahal_ctx->hw_type >= IPA_HW_v7_0 && attrib->attrib_mask & IPA_FLT_NEXT_HDR) {
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(IPA_PROTOCOL_EQ);
+		extra = ipa_write_8(attrib->u.v6.next_hdr, extra);
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_FRAGMENT) {
@@ -5467,8 +5487,6 @@ static int ipa_fltrt_parse_hw_rule_eq_v7_0(u8 *addr, u32 header_size,
 		atrb->tos_eq = *extra_words++;
 	if (IPA_IS_RULE_EQ_VALID(IPA_IS_PURE_ACK) && atrb->tos_eq_present)
 		atrb->tos_eq = 0;
-	if (atrb->protocol_eq_present)
-		atrb->protocol_eq = *extra_words++;
 	if (atrb->tc_eq_present)
 		IPAHAL_ERR("TC_EQ is not supported, but present in the attrib!\n");
 
@@ -5565,7 +5583,10 @@ static int ipa_fltrt_parse_hw_rule_eq_v7_0(u8 *addr, u32 header_size,
 		large_params += 4;
 	}
 
-	if (ipahal_ctx->hw_type >= IPA_HW_v6_0 && atrb->ipv4_frag_eq_present)
+	if (atrb->protocol_eq_present)
+		atrb->protocol_eq = *extra_words++;
+
+	if (atrb->ipv4_frag_eq_present)
 		atrb->is_frag_encoding = *extra_words++;
 
 	IPAHAL_DBG_LOW("before rule alignment large_params=0x%pK\n", large_params);
