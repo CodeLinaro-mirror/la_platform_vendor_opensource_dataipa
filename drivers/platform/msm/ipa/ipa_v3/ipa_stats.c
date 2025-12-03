@@ -1743,7 +1743,7 @@ static long ipa_lnx_stats_ioctl(struct file *filp,
 	unsigned long arg)
 {
 	int retval = IPA_LNX_STATS_SUCCESS;
-	struct ipa_lnx_consolidated_stats *consolidated_stats;
+	struct ipa_lnx_consolidated_stats *consolidated_stats = NULL;
 
 	if (_IOC_TYPE(cmd) != IPA_LNX_STATS_IOC_MAGIC) {
 		IPA_STATS_ERR("IOC type mismatch %d\n", cmd);
@@ -1860,6 +1860,8 @@ static long ipa_lnx_stats_ioctl(struct file *filp,
 	default:
 		retval = -ENOTTY;
 	}
+	if (consolidated_stats)
+		kfree(consolidated_stats);
 	mutex_unlock(&ipa_lnx_ctx_mutex);
 	return retval;
 }
