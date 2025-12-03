@@ -714,6 +714,16 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 	params->chan_params.prefetch_mode = gsi_ep_cfg_ptr->prefetch_mode;
 	params->chan_params.empty_lvl_threshold =
 		gsi_ep_cfg_ptr->prefetch_threshold;
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		if (IPA_CLIENT_IS_WAN_CONS(ep->client) ||
+			IPA_CLIENT_IS_USB_CONS(ep->client) ||
+			IPA_CLIENT_IS_WLAN_CONS(ep->client) ||
+			IPA_CLIENT_IS_ETH_CONS(ep->client) ||
+			IPA_CLIENT_IS_QOS_CONS(ep->client) ||
+			ep->client == IPA_CLIENT_ODL_DPL_CONS)
+			params->chan_params.gsi_stats_en = 1;
+
 	gsi_res = gsi_alloc_channel(&params->chan_params, gsi_dev_hdl,
 		&ep->gsi_chan_hdl);
 	if (gsi_res != GSI_STATUS_SUCCESS) {

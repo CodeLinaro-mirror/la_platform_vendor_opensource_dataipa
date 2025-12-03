@@ -7409,6 +7409,15 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS)))
 		gsi_channel_props.cleanup_cb = free_rx_page;
 
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		if (IPA_CLIENT_IS_WAN_CONS(ep->client) ||
+			IPA_CLIENT_IS_USB_CONS(ep->client) ||
+			IPA_CLIENT_IS_WLAN_CONS(ep->client) ||
+			IPA_CLIENT_IS_ETH_CONS(ep->client) ||
+			IPA_CLIENT_IS_QOS_CONS(ep->client) ||
+			ep->client == IPA_CLIENT_ODL_DPL_CONS)
+			gsi_channel_props.gsi_stats_en = 1;
+
 	result = gsi_alloc_channel(&gsi_channel_props, ipa3_ctx->gsi_dev_hdl,
 		&ep->gsi_chan_hdl);
 	if (result != GSI_STATUS_SUCCESS) {
