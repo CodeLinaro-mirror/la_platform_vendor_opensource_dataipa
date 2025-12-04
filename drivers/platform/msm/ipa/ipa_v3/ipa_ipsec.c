@@ -1318,9 +1318,19 @@ int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct
 			return -EINVAL;
 		}
 		eklen = _ipa_ipsec_key_len_from_b(x->ealg->alg_key_len);
+		if (eklen == IPA_IPSEC_KEY_LEN_MAX) {
+			IPAERR("Unsupported key length: x->ealg->alg_key_len = %d\n",
+				x->ealg->alg_key_len);
+			return -EINVAL;
+		}
 		ekey = x->ealg->alg_key;
 		ivlen = (ealg == IPA_IPSEC_ENC_AES_CBC) ? 16 : 0;
 		aklen = _ipa_ipsec_key_len_from_b(x->aalg->alg_key_len);
+		if (aklen == IPA_IPSEC_KEY_LEN_MAX) {
+			IPAERR("Unsupported key length: x->aalg->alg_key_len = %d\n",
+				x->aalg->alg_key_len);
+			return -EINVAL;
+		}
 		akey = x->aalg->alg_key;
 		icvlen = x->aalg->alg_trunc_len / BITS_PER_BYTE;
 		break;
@@ -1335,6 +1345,11 @@ int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct
 			return -EINVAL;
 		}
 		eklen = _ipa_ipsec_key_len_from_b(x->aead->alg_key_len - 32); /* 4 bytes salt */
+		if (eklen == IPA_IPSEC_KEY_LEN_MAX) {
+			IPAERR("Unsupported key length (including salt): x->aead->alg_key_len = %d\n",
+				x->aead->alg_key_len);
+			return -EINVAL;
+		}
 		ekey = x->aead->alg_key;
 		salt = (u32 *)(x->aead->alg_key +
 			       ALIGN(x->aead->alg_key_len, BITS_PER_BYTE) / BITS_PER_BYTE - 4);
