@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -668,6 +668,55 @@ static long ipa_adpl_ioctl(struct file *filp,
 fail:
 	return retval;
 }
+#ifdef CONFIG_COMPAT
+
+long compat_ipa_odl_ctl_fops_ioctl(struct file *filp, unsigned int cmd,
+							unsigned long arg)
+{
+        IPAERR("compat_odl_ctl_ioctl cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
+
+        if (_IOC_TYPE(cmd) != IPA_IOC_MAGIC)
+                return -ENOTTY;
+
+	switch(_IOC_NR(cmd)) {
+	case IPA_IOCTL_ODL_QUERY_ADAPL_EP_INFO:
+		if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ODL_QUERY_ADAPL_EP_INFO))
+			return -ENOTTY;
+		cmd = IPA_IOC_ODL_QUERY_ADAPL_EP_INFO;
+		break;
+	case IPA_IOCTL_ODL_QUERY_MODEM_CONFIG:
+		if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ODL_QUERY_MODEM_CONFIG))
+			return -ENOTTY;
+		cmd = IPA_IOC_ODL_QUERY_MODEM_CONFIG;
+		break;
+	default:
+		return -ENOIOCTLCMD;
+	}
+	return ipa_odl_ctl_fops_ioctl(filp, cmd, (unsigned long) compat_ptr(arg));
+}
+
+long compat_ipa_adpl_ioctl(struct file *filp,
+	unsigned int cmd, unsigned long arg)
+{
+	IPAERR("compat_ipa3_adpl_ioctl cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
+
+	if (_IOC_TYPE(cmd) != IPA_IOC_MAGIC)
+		return -ENOTTY;
+
+	switch(_IOC_NR(cmd)) {
+	case IPA_IOCTL_ODL_GET_AGG_BYTE_LIMIT:
+		if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ODL_GET_AGG_BYTE_LIMIT))
+			return -ENOTTY;
+		cmd = IPA_IOC_ODL_GET_AGG_BYTE_LIMIT;
+		break;
+	default:
+		print_ipa_odl_state_bit_mask();
+		return -ENOIOCTLCMD;
+	}
+	return ipa_adpl_ioctl(filp, cmd, (unsigned long) compat_ptr(arg));
+}
+
+#endif
 
 static const struct file_operations ipa_odl_ctl_fops = {
 	.owner = THIS_MODULE,
@@ -675,6 +724,9 @@ static const struct file_operations ipa_odl_ctl_fops = {
 	.release = ipa_odl_ctl_fops_release,
 	.read = ipa_odl_ctl_fops_read,
 	.unlocked_ioctl = ipa_odl_ctl_fops_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = compat_ipa_odl_ctl_fops_ioctl,
+#endif
 	.poll = ipa_odl_ctl_fops_poll,
 };
 
@@ -684,6 +736,9 @@ static const struct file_operations ipa_adpl_fops = {
 	.release = ipa_adpl_release,
 	.read = ipa_adpl_read,
 	.unlocked_ioctl = ipa_adpl_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = compat_ipa_adpl_ioctl,
+#endif
 };
 
 int ipa_odl_init(void)
