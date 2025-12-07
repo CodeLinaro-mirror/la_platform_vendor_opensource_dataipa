@@ -128,6 +128,10 @@ const char *ipa3_hdr_l2_type_name[] = {
 	__stringify(IPA_HDR_L2_ETHERNET_II),
 	__stringify(IPA_HDR_L2_802_3),
 	__stringify(IPA_HDR_L2_802_1Q),
+	__stringify(IPA_HDR_L2_ETHERNET_II_AST),
+	__stringify(IPA_HDR_L2_802_1Q_AST),
+	__stringify(IPA_HDR_L2_802_Q_IN_Q),
+
 };
 
 const char *ipa3_hdr_proc_type_name[] = {
@@ -972,7 +976,13 @@ static int ipa3_attrib_dump(struct ipa_rule_attrib *attrib,
 			attrib->dst_port_lo,
 			attrib->dst_port_hi);
 	}
-	if (attrib->attrib_mask & IPA_FLT_TYPE)
+	if ((attrib->attrib_mask & IPA_FLT_VLAN_QINQ)
+					&& (ipa3_ctx->device_mode == DEVMODE_APBRIDGE)
+					&& (ipa3_ctx->device_vlan_mode)) {
+
+		pr_cont("vlan_id:%d outer_vlan_id:%d\n", attrib->vlan_id, attrib->outer_vlan_id);
+	}
+	else if (attrib->attrib_mask & IPA_FLT_TYPE)
 		pr_cont("type:%d ", attrib->type);
 
 	if (attrib->attrib_mask & IPA_FLT_CODE)
@@ -1018,6 +1028,7 @@ static int ipa3_attrib_dump(struct ipa_rule_attrib *attrib,
 		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
 		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
+		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q_IN_Q) ||
 		(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
 		pr_cont("dst_mac_addr:%pM ", attrib->dst_mac_addr);
 	}

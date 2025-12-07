@@ -65,6 +65,7 @@
 #define IPA_FLT_COOKIE 0x57831606
 #define IPA_HDR_COOKIE 0x57831607
 #define IPA_PROC_HDR_COOKIE 0x57831608
+#define VLAN_VLAN_ETH_HLEN 22
 
 #define MTU_BYTE 1500
 
@@ -520,6 +521,12 @@ enum {
 #define WWAN_METADATA_MASK 0xFF000000
 
 #define IPA_RULE_CNT_MAX 0xFFFFFFFF
+
+enum ipa_l2_encap_mode {
+	IPA_VLAN_MODE_DISABLED,
+	IPA_VLAN_MODE_SINGLE,
+	IPA_VLAN_MODE_DOUBLE,
+};
 
 enum ipa_type_mode {
 	IPA_HW_TYPE,
@@ -2463,6 +2470,8 @@ struct ipa3_ip_pass_msg {
  * @ipa_tiering_value: IPA tiering value to support multiple SKUs
  * @lan_stats_enabled: flag to check if stats is enabled or not.
  * @ippt_pdninfo_refcnt:ippt_pdninfo_refcnt refcnt for ipacm restart scenarios
+ * @device_mode: To identify device mode AM7/CM7.
+ * @device_vlan_mode: To identify device enabled with or without vlan.
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2778,6 +2787,8 @@ struct ipa3_context {
 	struct mutex msg_qos_param_lock;
 	struct list_head msg_qos_param_list;
 	atomic_t is_suspend_mode_enabled;
+	uint8_t device_mode;
+	bool device_vlan_mode;
 };
 
 struct ipa3_plat_drv_res {

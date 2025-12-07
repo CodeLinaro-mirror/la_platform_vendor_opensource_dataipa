@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/msm_ipa.h>
@@ -81,6 +81,18 @@ struct ipa_eth_context {
 	struct ipa_eth_qos_info rx_qos_info[IPA_ETH_INST_ID_MAX][IPA_ETH_MAX_RX_DMA_CHANNEL_QOS];
 	u8 rx_num_pipes[IPA_ETH_INST_ID_MAX];
 	u8 tx_num_pipes[IPA_ETH_INST_ID_MAX];
+};
+
+/* Structure for double vlan ethernet header.
+ * vlan_ethhdr: vlan ethernet header (ethhdr + vlan_hdr)
+ * outer_vlan_id: Outer vlan id.
+ * outer_vlan_encap: Packet type id.
+ */
+struct dbl_vlan_ethhdr
+{
+	struct vlan_ethhdr hdr;
+	uint16_t outer_vlan_id;
+	uint16_t outer_vlan_encap;
 };
 
 static struct ipa_eth_context *ipa_eth_ctx;
@@ -908,6 +920,19 @@ static int ipa_eth_commit_partial_hdr(
 			 "%s_ipv4", netdev_name);
 	snprintf(hdr->hdr[1].name, sizeof(hdr->hdr[1].name),
 			 "%s_ipv6", netdev_name);
+
+#if IPA_ETH_API_VER >= 6
+	if((ipa3_ctx->device_mode == DEVMODE_APBRIDGE) &&
+					ipa3_ctx->device_vlan_mode)
+	{
+		snprintf(hdr->hdr[0].name, sizeof(hdr->hdr[0].name),
+				"%s_ipv4_qinq", netdev_name);
+		snprintf(hdr->hdr[1].name, sizeof(hdr->hdr[1].name),
+				"%s_ipv6_qinq", netdev_name);
+
+	}
+	else
+#endif
 	if (hdr->num_hdrs > 2) {
 		snprintf(hdr->hdr[2].name, sizeof(hdr->hdr[2].name),
 			 "%s_ipv4_vlan", netdev_name);
@@ -925,6 +950,7 @@ static int ipa_eth_commit_partial_hdr(
 		hdr->hdr[i].is_partial = (i == 0) ? 0 : 1;
 		hdr->hdr[i].is_eth2_ofst_valid = 1;
 		hdr->hdr[i].eth2_ofst = hdr_info[i].dst_mac_addr_offset;
+		IPA_ETH_DBG("hdr len %d eth2_ofst %d\n",hdr_info[i].hdr_len, hdr_info[i].dst_mac_addr_offset);
 	}
 
 	if (ipa_add_hdr(hdr)) {
@@ -1492,6 +1518,7 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 #endif
 	struct ethhdr l_ethhdr[IPA_IP_MAX] = { 0 };
 	struct vlan_ethhdr l_vlan_ethhdr[IPA_IP_MAX] = { {0} };
+	struct dbl_vlan_ethhdr l_dbl_vlan[IPA_IP_MAX] =  {0};
 #endif
 	int num_hdrs = 0;
 	int traffic_type = 0;
@@ -1603,8 +1630,36 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 		intf_hdr[3].hdr_type = IPA_HDR_L2_802_1Q;
 		IPA_ETH_DBG("Ezmesh state true configure 4 hdrs \n");
 	}
+#if IPA_ETH_API_VER >= 6
+	else if((ipa3_ctx->device_mode == DEVMODE_APBRIDGE)
+					&& (ipa3_ctx->device_vlan_mode))
+	{
+		struct dbl_vlan_ethhdr *dbl_vlan_ethhdr;
+		intf_hdr[0].hdr = (u8 *)&l_dbl_vlan[0];
+		dbl_vlan_ethhdr = (struct dbl_vlan_ethhdr *) intf_hdr[0].hdr;
+		memcpy(&dbl_vlan_ethhdr->hdr.h_source, intf->net_dev->dev_addr, ETH_ALEN);
+		dbl_vlan_ethhdr->hdr.h_vlan_proto = htons(ETH_P_8021Q);
+		dbl_vlan_ethhdr->hdr.h_vlan_encapsulated_proto = htons(ETH_P_8021Q);
+		dbl_vlan_ethhdr->outer_vlan_encap = htons(ETH_P_IP);
+		intf_hdr[0].hdr_len = VLAN_VLAN_ETH_HLEN;
+		intf_hdr[0].hdr_type = IPA_HDR_L2_802_Q_IN_Q;
+
+
+		intf_hdr[1].hdr = (u8 *)&l_dbl_vlan[1];
+		dbl_vlan_ethhdr = (struct dbl_vlan_ethhdr *) intf_hdr[1].hdr;
+		memcpy(&dbl_vlan_ethhdr->hdr.h_source, intf->net_dev->dev_addr, ETH_ALEN);
+		dbl_vlan_ethhdr->hdr.h_vlan_proto = htons(ETH_P_8021Q);
+		dbl_vlan_ethhdr->hdr.h_vlan_encapsulated_proto = htons(ETH_P_8021Q);
+		dbl_vlan_ethhdr->outer_vlan_encap = htons(ETH_P_IPV6);
+		intf_hdr[1].hdr_len = VLAN_VLAN_ETH_HLEN;
+		intf_hdr[1].hdr_type = IPA_HDR_L2_802_Q_IN_Q;
+		IPADBG("hdr_len %d hdr type %d\n", intf_hdr[0].hdr_len, intf_hdr[0].hdr_type);
+		IPADBG("hdr_len %d hdr type %d\n", intf_hdr[1].hdr_len, intf_hdr[1].hdr_type);
+
+	}
+#endif
 #if IPA_ETH_API_VER >= 2
-	else if (vlan_mode) { 
+	else if (vlan_mode) {
 		struct vlan_ethhdr *vlan_eth_h;
 
 		intf_hdr[0].hdr = (u8 *)&l_vlan_ethhdr[0];
@@ -2136,6 +2191,21 @@ int ipa_eth_get_config_type(
 			client_type, inst_id);
 		IPA_ETH_DBG("Max num DMA channels: %d\n",
 			eth_config->num_dma_channel);
+	}
+#endif
+#if IPA_ETH_API_VER >= 6
+	else if (ipa3_ctx->device_mode == DEVMODE_APBRIDGE)
+	{
+		snprintf(eth_config->config, sizeof(eth_config->config), "dbl_vlan");
+		eth_config->num_dma_channel = DMA_NUM_CHANNEL_DEFAULT;
+
+		eth_config->dma_config[0].dir = IPA_ETH_PIPE_DIR_TX;
+		eth_config->dma_config[0].traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_DOUBLE_TAG;
+
+		eth_config->dma_config[1].dir = IPA_ETH_PIPE_DIR_RX;
+		eth_config->dma_config[1].traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_DOUBLE_TAG;
+		IPA_ETH_DBG("double vlan configuration for client %d, inst_id %d\n", client_type, inst_id);
+
 	}
 #endif
 	else {

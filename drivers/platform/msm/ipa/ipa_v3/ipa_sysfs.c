@@ -954,6 +954,7 @@ static int ipa3_attrib_dump(struct ipa_rule_attrib *attrib,
 		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
 		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
+		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q_IN_Q) ||
 		(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
 		pr_cont("dst_mac_addr:%pM ", attrib->dst_mac_addr);
 	}

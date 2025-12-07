@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa.h"
@@ -20,8 +20,8 @@
 /* SRAM OFFSET for empty table */
 #define IPA_MAC_FLT_BITS (IPA_FLT_MAC_DST_ADDR_ETHER_II | \
 		IPA_FLT_MAC_SRC_ADDR_ETHER_II | IPA_FLT_MAC_DST_ADDR_802_3 | \
-		IPA_FLT_MAC_SRC_ADDR_802_3 | IPA_FLT_MAC_DST_ADDR_802_1Q | \
-		IPA_FLT_MAC_SRC_ADDR_802_1Q)
+		IPA_FLT_MAC_SRC_ADDR_802_3 | IPA_FLT_MAC_DST_ADDR_802_1Q |\
+		IPA_FLT_MAC_SRC_ADDR_802_1Q | IPA_FLT_MAC_DST_ADDR_802_1Q_IN_Q)
 
 static u64 ipa_fltrt_create_flt_bitmap(u64 ep_bitmap)
 {
@@ -1657,6 +1657,12 @@ static inline void ipa_fltrt_get_mac_data(const struct ipa_rule_attrib *attrib,
 		return;
 	}
 
+	if (attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q_IN_Q) {
+		*offset = -22;
+		*mac_addr = attrib->dst_mac_addr;
+		*mac_addr_mask = attrib->dst_mac_addr_mask;
+		return;
+	}
 	if (attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) {
 		*offset = -22;
 		*mac_addr = attrib->dst_mac_addr;
@@ -1744,6 +1750,40 @@ static int ipa_fltrt_generate_mac_hw_rule_bdy(u16 *en_rule,
 
 	return 0;
 }
+
+static inline int ipa_fltrt_generate_dbl_vlan_hw_rule_bdy(u16 *en_rule,
+	const struct ipa_rule_attrib *attrib,
+	u8 *ofst_meq128, u8 **extra, u8 **rest)
+{
+	if (attrib->attrib_mask & IPA_FLT_VLAN_QINQ) {
+		uint32_t vlan_tag, outer_vlan_tag;
+
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq128, *ofst_meq128)) {
+			IPAHAL_ERR("ran out of meq128 eq\n");
+			return -EPERM;
+		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ofst_meq128[*ofst_meq128]);
+		/* -6 => offset of 802_1Q tag in L2 hdr */
+		*extra = ipa_write_8((u8)-10, *extra);
+		/*Filtering only with vlan-id. */
+		vlan_tag = (attrib->vlan_id & 0xFFF);
+		outer_vlan_tag = (attrib->outer_vlan_id & 0xFFF);
+
+		*rest = ipa_write_64(0, *rest);
+		*rest = ipa_write_64(0, *rest);
+		*rest = ipa_write_32(0x0FFF, *rest);
+		*rest = ipa_write_32(0x0FFF, *rest);
+		*rest = ipa_write_32(outer_vlan_tag, *rest);
+		*rest = ipa_write_32(vlan_tag, *rest);
+
+
+		(*ofst_meq128)++;
+	}
+
+	return 0;
+}
+
 
 static inline int ipa_fltrt_generate_vlan_hw_rule_bdy(u16 *en_rule,
 	const struct ipa_rule_attrib *attrib,
@@ -1890,11 +1930,16 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		}
 	}
 
+	if (ipa_fltrt_generate_dbl_vlan_hw_rule_bdy(en_rule, attrib, &ofst_meq128,
+							&extra, &rest)) {
+		IPAHAL_ERR("ran out of 128 eq\n");
+		goto err;
+	}
 	if (ipa_fltrt_generate_vlan_hw_rule_bdy(en_rule, attrib, &ofst_meq32,
 		&extra, &rest))
 		goto err;
 
-	if (attrib->attrib_mask & IPA_FLT_TYPE) {
+	if ((attrib->attrib_mask & IPA_FLT_TYPE) && (!ipa3_ctx->device_vlan_mode)) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
 			ihl_ofst_meq32)) {
 			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
@@ -2323,11 +2368,19 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		ofst_meq32++;
 	}
 
-	if (ipa_fltrt_generate_vlan_hw_rule_bdy(en_rule, attrib, &ofst_meq32,
-		&extra, &rest))
+	if (ipa_fltrt_generate_dbl_vlan_hw_rule_bdy(en_rule, attrib, &ofst_meq128,
+							&extra, &rest)) {
+		IPAHAL_ERR("ran out of 128 eq\n");
 		goto err;
+	}
 
-	if (attrib->attrib_mask & IPA_FLT_TYPE) {
+	if (ipa_fltrt_generate_vlan_hw_rule_bdy(en_rule, attrib, &ofst_meq32,
+		&extra, &rest)) {
+		IPAHAL_ERR("ran out of 32 eq\n");
+		goto err;
+	}
+
+	if ((attrib->attrib_mask & IPA_FLT_TYPE) && (!ipa3_ctx->device_vlan_mode)) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
 			ihl_ofst_meq32)) {
 			IPAHAL_ERR("ran out of ihl_meq32 eq\n");

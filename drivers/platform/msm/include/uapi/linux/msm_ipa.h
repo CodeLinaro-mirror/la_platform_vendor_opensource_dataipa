@@ -53,7 +53,7 @@
  */
 #define IPAHAL_NAT_INVALID_PROTOCOL   0xFF
 
-#define IPA_ETH_API_VER 5
+#define IPA_ETH_API_VER 6
 
 /**
  * commands supported by IPA driver
@@ -303,8 +303,8 @@
 #define IPA_FLT_EXT_L2TP_UDP_INNER_NEXT_HDR		(1LU << 3)
 #define IPA_FLT_EXT_NEXT_HDR				(1LU << 4)
 #define IPA_FLT_EXT_NAT_T				(1LU << 5)
-
-
+#define IPA_FLT_VLAN_QINQ				(1LU << 6)
+#define IPA_FLT_MAC_DST_ADDR_802_1Q_IN_Q		(1LU << 20)
 /**
  * maximal number of NAT PDNs in the PDN config table
  */
@@ -1319,7 +1319,8 @@ struct ipa_rule_attrib {
 	__u32 ext_attrib_mask;
 	__u8 l2tp_udp_next_hdr;
 	__u8 is_frag_encoding;
-	__u32 padding2;
+	__u16 outer_vlan_id;
+	__u16 padding2;
 };
 
 
@@ -1560,6 +1561,7 @@ struct ipa_flt_rule_v2 {
  * IPA_HDR_L2_802_1Q: L2 header of type 802_1Q
  * IPA_HDR_L2_ETHERNET_II_AST: L2 header of type ETHERNET with AST update
  * IPA_HDR_L2_802_1Q_AST: L2 header of type 802_1Q with AST update
+ * IPA_HDR_L2_802_Q_IN_Q: L2 header of type 802_1Q with double tag
  */
 enum ipa_hdr_l2_type {
 	IPA_HDR_L2_NONE,
@@ -1568,14 +1570,16 @@ enum ipa_hdr_l2_type {
 	IPA_HDR_L2_802_1Q,
 	IPA_HDR_L2_ETHERNET_II_AST,
 	IPA_HDR_L2_802_1Q_AST,
+	IPA_HDR_L2_802_Q_IN_Q,
 };
-#define IPA_HDR_L2_MAX (IPA_HDR_L2_802_1Q_AST + 1)
+#define IPA_HDR_L2_MAX (IPA_HDR_L2_802_Q_IN_Q + 1)
 
 #define IPA_HDR_L2_802_1Q IPA_HDR_L2_802_1Q
 
 #define IPA_HDR_L2_ETHERNET_II_AST IPA_HDR_L2_ETHERNET_II_AST
 
 #define IPA_HDR_L2_802_1Q_AST IPA_HDR_L2_802_1Q_AST
+#define IPA_HDR_L2_802_Q_IN_Q IPA_HDR_L2_802_Q_IN_Q
 
 /**
  * enum ipa_hdr_l2_type - Processing context type
@@ -3541,12 +3545,14 @@ enum ipa_vlan_ifaces {
 	IPA_VLAN_IF_RNDIS,
 	IPA_VLAN_IF_ECM,
 	IPA_VLAN_IF_WLAN,
-	IPA_VLAN_IF_MHI_ETH
+	IPA_VLAN_IF_MHI_ETH,
+	IPA_VLAN_IF_WLAN_STA
 };
 
 #define IPA_VLAN_IF_EMAC IPA_VLAN_IF_ETH
 #define IPA_VLAN_IF_WLAN IPA_VLAN_IF_WLAN
-#define IPA_VLAN_IF_MAX (IPA_VLAN_IF_MHI_ETH + 1)
+#define IPA_VLan_IF_WLAN_STA IPA_VLAN_IF_WLAN_STA
+#define IPA_VLAN_IF_MAX (IPA_VLAN_IF_WLAN_STA + 1)
 
 /**
  * struct ipa_get_vlan_mode - get vlan mode of a Lan interface
