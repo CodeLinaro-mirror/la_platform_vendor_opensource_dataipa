@@ -2626,7 +2626,7 @@ int ipa3_nat_dma_cmd(struct ipa_ioc_nat_dma_cmd *dma)
 	return ipa3_table_dma_cmd(dma);
 }
 
-static void ipa3_nat_ipv6ct_free_mem(
+void ipa3_nat_ipv6ct_free_mem(
 	struct ipa3_nat_ipv6ct_common_mem *dev)
 {
 	struct ipa3_nat_mem *nm_ptr;
@@ -2763,6 +2763,7 @@ static void ipa3_nat_ipv6ct_free_mem(
 
 	IPADBG("Out\n");
 }
+EXPORT_SYMBOL(ipa3_nat_ipv6ct_free_mem);
 
 static int ipa3_nat_ipv6ct_create_del_table_cmd(
 	uint8_t tbl_index,

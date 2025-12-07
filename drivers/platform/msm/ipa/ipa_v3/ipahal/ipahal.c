@@ -67,6 +67,8 @@ static const char *ipahal_pkt_status_exception_to_str
 	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_HDRI),
 	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_FRAG_PKT_IPSEC_TRSPT_MODE),
 	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_CSUM),
+	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL),
+	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL),
 };
 
 /*
