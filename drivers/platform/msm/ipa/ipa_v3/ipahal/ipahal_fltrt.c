@@ -1927,22 +1927,66 @@ static inline void ipa_fltrt_get_mac_data(const struct ipa_rule_attrib *attrib,
 	uint32_t attrib_mask, u8 *offset, const uint8_t **mac_addr,
 	const uint8_t **mac_addr_mask)
 {
-	if (attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II ||
-	    attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3 ||
-	    attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) {
-		*offset =  NON_IHL_EQ_OFFSET_FROM_L2(0);
-		*mac_addr = attrib->dst_mac_addr;
-		*mac_addr_mask = attrib->dst_mac_addr_mask;
-		return;
-	}
+	if (ipahal_ctx->hw_type < IPA_HW_v7_0) {
+		if (attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) {
+			*offset = -14;
+			*mac_addr = attrib->dst_mac_addr;
+			*mac_addr_mask = attrib->dst_mac_addr_mask;
+			return;
+		}
 
-	if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II ||
-	    attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3 ||
-	    attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q) {
-		*offset =  NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN);
-		*mac_addr = attrib->src_mac_addr;
-		*mac_addr_mask = attrib->src_mac_addr_mask;
-		return;
+		if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) {
+			*offset = -8;
+			*mac_addr = attrib->src_mac_addr;
+			*mac_addr_mask = attrib->src_mac_addr_mask;
+			return;
+		}
+
+		if (attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) {
+			*offset = -22;
+			*mac_addr = attrib->dst_mac_addr;
+			*mac_addr_mask = attrib->dst_mac_addr_mask;
+			return;
+		}
+
+		if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) {
+			*offset = -16;
+			*mac_addr = attrib->src_mac_addr;
+			*mac_addr_mask = attrib->src_mac_addr_mask;
+			return;
+		}
+
+		if (attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) {
+			*offset = -18;
+			*mac_addr = attrib->dst_mac_addr;
+			*mac_addr_mask = attrib->dst_mac_addr_mask;
+			return;
+		}
+
+		if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q) {
+			*offset = -12;
+			*mac_addr = attrib->src_mac_addr;
+			*mac_addr_mask = attrib->src_mac_addr_mask;
+			return;
+		}
+	} else {
+		if (attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II ||
+		    attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3 ||
+		    attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) {
+			*offset =  NON_IHL_EQ_OFFSET_FROM_L2(0);
+			*mac_addr = attrib->dst_mac_addr;
+			*mac_addr_mask = attrib->dst_mac_addr_mask;
+			return;
+		}
+
+		if (attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II ||
+		    attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3 ||
+		    attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q) {
+			*offset =  NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN);
+			*mac_addr = attrib->src_mac_addr;
+			*mac_addr_mask = attrib->src_mac_addr_mask;
+			return;
+		}
 	}
 }
 
@@ -2019,7 +2063,8 @@ static inline int ipa_fltrt_generate_vlan_hw_rule_bdy(u16 *en_rule,
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[*ofst_meq32]);
 		/* 12 => offset of 802_1Q tag in L2 hdr */
-		*extra = ipa_write_8(NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2), *extra);
+		*extra = ipa_write_8((ipahal_ctx->hw_type < IPA_HW_v7_0) ?
+			(u8)-6 : NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2), *extra);
 		/* filter vlan packets: 0x8100 TPID + required VLAN ID */
 		vlan_tag = (0x8100 << 16) | (attrib->vlan_id & 0xFFF);
 		*rest = ipa_write_32(0xFFFF0FFF, *rest);
@@ -2110,7 +2155,8 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[ofst_meq32]);
 		/* 12 => offset of ether type in L2 hdr */
-		extra = ipa_write_8(NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2), extra);
+		extra = ipa_write_8((ipahal_ctx->hw_type < IPA_HW_v7_0) ?
+			(u8)-2 : NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2), extra);
 		rest = ipa_write_16(0, rest);
 		rest = ipa_write_16(htons(attrib->ether_type), rest);
 		rest = ipa_write_16(0, rest);
@@ -2577,7 +2623,8 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[ofst_meq32]);
 		/* 12 => offset of ether type in L2 hdr */
-		extra = ipa_write_8(NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2), extra);
+		extra = ipa_write_8((ipahal_ctx->hw_type < IPA_HW_v7_0) ?
+			(u8)-2 : NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2), extra);
 		rest = ipa_write_16(0, rest);
 		rest = ipa_write_16(htons(attrib->ether_type), rest);
 		rest = ipa_write_16(0, rest);
@@ -4296,7 +4343,8 @@ static inline int ipa_flt_generat_vlan_eq(
 			ipa3_0_ofst_meq32[*ofst_meq32]);
 		/* 12 => offset of 802_1Q tag in L2 hdr */
 		eq_atrb->offset_meq_32[*ofst_meq32].offset =
-			NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2);
+			(ipahal_ctx->hw_type < IPA_HW_v7_0) ?
+			-6 : NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2);
 		/* filter vlan packets: 0x8100 TPID + required VLAN ID */
 		vlan_tag = (0x8100 << 16) | (attrib->vlan_id & 0xFFF);
 		eq_atrb->offset_meq_32[*ofst_meq32].mask = 0xFFFF0FFF;
@@ -4443,7 +4491,8 @@ static int ipa_flt_generate_eq_ip4(enum ipa_ip_type ip,
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[ofst_meq32]);
 		eq_atrb->offset_meq_32[ofst_meq32].offset =
-			NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2);
+			(ipahal_ctx->hw_type < IPA_HW_v7_0) ?
+			-2 : NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2);
 		eq_atrb->offset_meq_32[ofst_meq32].mask =
 			htons(attrib->ether_type);
 		eq_atrb->offset_meq_32[ofst_meq32].value =
@@ -4958,7 +5007,8 @@ static int ipa_flt_generate_eq_ip6(enum ipa_ip_type ip,
 		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
 			ipa3_0_ofst_meq32[ofst_meq32]);
 		eq_atrb->offset_meq_32[ofst_meq32].offset =
-			NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2);
+			(ipahal_ctx->hw_type < IPA_HW_v7_0) ?
+			-2 : NON_IHL_EQ_OFFSET_FROM_L2(MAC_ADDR_LEN * 2);
 		eq_atrb->offset_meq_32[ofst_meq32].mask =
 			htons(attrib->ether_type);
 		eq_atrb->offset_meq_32[ofst_meq32].value =
