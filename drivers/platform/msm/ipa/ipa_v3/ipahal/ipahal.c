@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -60,6 +60,8 @@ static const char *ipahal_pkt_status_exception_to_str
 	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_EXCEED_MTU),
 	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_HDRI),
 	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_CSUM),
+	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL),
+	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL),
 };
 
 /*

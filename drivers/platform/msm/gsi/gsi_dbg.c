@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #ifdef CONFIG_DEBUG_FS
 #include <linux/completion.h>
@@ -189,7 +189,7 @@ static ssize_t gsi_dump_ch(struct file *file,
 	}
 
 	gsi_ctx->per.vote_clk_cb();
-	gsi_dump_ch_info(arg1);
+	gsi_dump_ch_info(arg1, 0, NULL);
 	gsi_ctx->per.unvote_clk_cb();
 
 	if (arg2) {
