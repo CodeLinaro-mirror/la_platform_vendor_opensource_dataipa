@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
 * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
+* Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 */
 
 #include "gsihal_i.h"
@@ -1440,10 +1441,10 @@ static struct gsihal_reg_obj gsihal_reg_objs[GSI_VER_MAX][GSI_REG_MAX] = {
 	0x0001f018, 0x4000, 0},
 	[GSI_VER_1_0][GSI_EE_n_GSI_CH_k_RE_FETCH_READ_PTR] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x0001c054, 0x4000, 0x80},
+	0x0000f054, 0x4000, 0x80},
 	[GSI_VER_1_0][GSI_EE_n_GSI_CH_k_RE_FETCH_WRITE_PTR] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
-	0x0001c058, 0x4000, 0x80},
+	0x0000f058, 0x4000, 0x80},
 	[GSI_VER_1_0][GSI_GSI_INST_RAM_n] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
 	0x00004000, GSI_GSI_INST_RAM_n_WORD_SZ, 0},

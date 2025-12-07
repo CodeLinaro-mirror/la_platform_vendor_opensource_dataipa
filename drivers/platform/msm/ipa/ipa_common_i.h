@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_COMMON_I_H_
@@ -175,6 +176,19 @@ do {\
 	 (x == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD)) || \
 	 (x == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD)) || \
 	 (x == ipa3_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD)))
+
+#define IPA_CLIENT_IS_ETH_CONS(client) \
+	((client) == IPA_CLIENT_ETHERNET_CONS || \
+	(client) == IPA_CLIENT_ETHERNET2_CONS || \
+	(client) == IPA_CLIENT_RTK_ETHERNET_CONS || \
+	(client) == IPA_CLIENT_AQC_ETHERNET_CONS)
+
+#define IPA_CLIENT_IS_WLAN_PROD(client) \
+	((client) == IPA_CLIENT_WLAN1_PROD || \
+	(client) == IPA_CLIENT_WLAN2_PROD || \
+	(client) == IPA_CLIENT_WLAN2_PROD1 || \
+	(client) == IPA_CLIENT_WLAN3_PROD || \
+	(client) == IPA_CLIENT_WLAN3_PROD1)
 
 #define IPA_GSI_CHANNEL_STOP_SLEEP_MIN_USEC (5000)
 #define IPA_GSI_CHANNEL_STOP_SLEEP_MAX_USEC (10000)
@@ -919,5 +933,7 @@ int ipa_pm_get_pm_clnt_throughput(enum ipa_client_type client_type);
 struct sk_buff* qmap_encapsulate_skb(struct sk_buff *skb, const struct qmap_hdr *qh);
 
 int ipa_hdrs_hpc_destroy(u32 hdr_hdl);
+
+int ipa_uc_offload_disconn_pipes_internal(u32 clnt_hdl);
 
 #endif /* _IPA_COMMON_I_H_ */

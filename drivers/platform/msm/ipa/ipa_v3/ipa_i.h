@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA3_I_H_
@@ -43,6 +43,7 @@
 #include <linux/ipa_fmwk.h>
 #include "ipa_uc_holb_monitor.h"
 #include <soc/qcom/minidump.h>
+#include "ipa_rc.h"
 
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"
@@ -1588,7 +1589,7 @@ struct ipa3_stats {
 	u32 tx_sw_pkts;
 	u32 tx_hw_pkts;
 	u32 rx_pkts;
-	u32 rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_MAX];
+	u32 rx_excp_pkts[MAX_RC_CLIENTS][IPAHAL_PKT_STATUS_EXCEPTION_MAX];
 	u32 rx_repl_repost;
 	u32 tx_pkts_compl;
 	u32 rx_q_len;
@@ -3274,6 +3275,8 @@ bool ipa3_is_client_handle_valid(u32 clnt_hdl);
 
 enum ipa_client_type ipa3_get_client_mapping(int pipe_idx);
 enum ipa_client_type ipa3_get_client_by_pipe(int pipe_idx);
+int ipa3_get_chan_by_client(enum ipa_client_type client);
+int ipa3_get_ee_by_client(enum ipa_client_type client);
 
 void ipa_init_ep_flt_bitmap(void);
 
@@ -3385,6 +3388,7 @@ int ipa3_query_intf(struct ipa_ioc_query_intf *lookup);
 int ipa3_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx);
 int ipa3_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
+int ipa3_find_chan_by_intf(enum ipa_client_type client);
 
 int ipa3_get_max_pdn(void);
 
@@ -3501,6 +3505,9 @@ struct ipa_teth_stats_endpoints {
 int ipa_hw_stats_init(void);
 
 int ipa_init_flt_rt_stats(void);
+
+int ipa_rc_init(void);
+void ipa_rc_deinit(void);
 
 int ipa_debugfs_init_stats(struct dentry *parent);
 
@@ -3847,5 +3854,9 @@ void ipa3_notify_ipacm_eth_pdu_enable(void);
 void ipa3_set_eth_pdu_ep_status(void);
 int ipa3_add_ttl_vlan_map(
 	struct ipa_ttl_vlan_ids *map );
+
+int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry);
+void ipa3_nat_ipv6ct_free_mem(struct ipa3_nat_ipv6ct_common_mem *dev);
+int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num);
 
 #endif /* _IPA3_I_H_ */

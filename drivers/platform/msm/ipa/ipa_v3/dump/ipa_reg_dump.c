@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include "ipa_reg_dump.h"
 #include "ipa_access_control.h"
@@ -471,8 +472,10 @@ static struct map_src_dst_addr_s ipa_regs_to_save_array[] = {
 	 *       because the following registers are not scaler, rather
 	 *       they are register arrays...
 	 */
+#ifdef CONFIG_IPA3_REGDUMP_IPA_5_0
 	IPA_REG_SAVE_CFG_ENTRY_GEN_EE(IPA_IRQ_STTS_EE_n,
 				      ipa_irq_stts_ee_n),
+#endif
 	IPA_REG_SAVE_CFG_ENTRY_GEN_EE(IPA_IRQ_EN_EE_n,
 				      ipa_irq_en_ee_n),
 	IPA_REG_SAVE_CFG_ENTRY_GEN_EE(IPA_FEC_ADDR_EE_n,

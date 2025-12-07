@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <net/ip.h>
@@ -8366,6 +8366,46 @@ enum ipa_client_type ipa3_get_client_mapping(int pipe_idx)
 	return ipa3_ctx->ep[pipe_idx].client;
 }
 EXPORT_SYMBOL(ipa3_get_client_mapping);
+
+/**
+ * ipa3_get_chan_by_client() - provide channel num mapped to client
+ * @client: IPA client name
+ *
+ * Return value: channel mapping
+ */
+int ipa3_get_chan_by_client(enum ipa_client_type client)
+{
+	u8 hw_idx;
+
+	hw_idx = ipa3_ctx->hw_type_index;
+	if (!ipa3_ep_mapping[hw_idx][client].valid) {
+		IPAERR("Client invalid\n");
+		return -EINVAL;
+	}
+
+	return ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ipa_gsi_chan_num;
+}
+EXPORT_SYMBOL(ipa3_get_chan_by_client);
+
+/**
+ * ipa3_get_ee_by_client() - provide exec env mapped to client
+ * @client: IPA client name
+ *
+ * Return value: EE mapping
+ */
+int ipa3_get_ee_by_client(enum ipa_client_type client)
+{
+	u8 hw_idx;
+
+	hw_idx = ipa3_ctx->hw_type_index;
+	if (!ipa3_ep_mapping[hw_idx][client].valid) {
+		IPAERR("Client invalid\n");
+		return -EINVAL;
+	}
+
+	return ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ee;
+}
+EXPORT_SYMBOL(ipa3_get_ee_by_client);
 
 /**
  * ipa3_get_client_by_pipe() - return client type relative to pipe

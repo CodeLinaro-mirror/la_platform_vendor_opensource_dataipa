@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * ​​​​Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifdef CONFIG_DEBUG_FS
@@ -1561,7 +1561,7 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
 	int nbytes;
-	int i;
+	int i, j, tot_rx_excp_pkts;
 	int cnt = 0;
 	uint connect = 0;
 
@@ -1626,13 +1626,19 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		);
 	cnt += nbytes;
 
-	for (i = 0; i < IPAHAL_PKT_STATUS_EXCEPTION_MAX; i++) {
+	for (i = 0; i < MAX_RC_CLIENTS; i++) {
 		nbytes = scnprintf(dbg_buff + cnt,
 			IPA_MAX_MSG_LEN - cnt,
-			"lan_rx_excp[%u:%20s]=%u\n", i,
-			ipahal_pkt_status_exception_str(i),
-			ipa3_ctx->stats.rx_excp_pkts[i]);
+			"rc_client: %d\n", i);
 		cnt += nbytes;
+		for (j = 0; j < IPAHAL_PKT_STATUS_EXCEPTION_MAX; j++) {
+			nbytes = scnprintf(dbg_buff + cnt,
+				IPA_MAX_MSG_LEN - cnt,
+				"lan_rx_excp[%u:%20s]=%u\n", j,
+				ipahal_pkt_status_exception_str(j),
+				ipa3_ctx->stats.rx_excp_pkts[i][j]);
+			cnt += nbytes;
+		}
 	}
 
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
@@ -3172,6 +3178,29 @@ static ssize_t ipa3_read_ipa_dscp_pcp_mapping_cache(struct file *file,
 
 }
 
+static ssize_t ipa3_rc_status(struct file *file, char __user *buf,
+		size_t count, loff_t *ppos) {
+
+	int nbytes, i=0;
+	struct ipa_rc_health_monitor *entry, *tmp;
+
+	if (list_empty(&rc_list.head)) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"list empty\n");
+	} else {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"Last atmost 10 IPA status id\n");
+	}
+
+	list_for_each_entry_safe(entry, tmp, &rc_list.head, node) {
+		IPADBG("Status code for instance %d : %d :\n", i, entry->status_code);
+		i++;
+		if(i>=10)
+			break;
+	}
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+}
+
 static ssize_t ipa3_write_ipa_max_napi_sort_page_thrshld(struct file *file,
 	const char __user *buf, size_t count, loff_t *ppos) {
 
@@ -3541,6 +3570,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"ipa_dscp_pcp_mapping_cache", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_ipa_dscp_pcp_mapping_cache,
+		}
+	}, {
+		"ipa_hm_status", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_rc_status,
 		}
 	},
 };

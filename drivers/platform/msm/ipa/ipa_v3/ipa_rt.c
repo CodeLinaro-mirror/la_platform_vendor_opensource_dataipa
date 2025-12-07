@@ -921,7 +921,7 @@ error:
 	return NULL;
 }
 
-static int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry)
+int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry)
 {
 	enum ipa_ip_type ip = IPA_IP_MAX;
 	u32 id;
@@ -969,6 +969,7 @@ static int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry)
 	ipa3_id_remove(id);
 	return 0;
 }
+EXPORT_SYMBOL(__ipa_del_rt_tbl);
 
 static int __ipa_rt_validate_rule_id(u16 rule_id)
 {

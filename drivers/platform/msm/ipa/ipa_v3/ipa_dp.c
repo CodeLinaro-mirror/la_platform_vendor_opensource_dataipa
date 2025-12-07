@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/delay.h>
@@ -3720,6 +3720,8 @@ static int ipa3_lan_rx_pyld_hdlr(struct sk_buff *skb,
 	unsigned long unused = IPA_GENERIC_RX_BUFF_BASE_SZ - used;
 	struct ipa3_tx_pkt_wrapper *tx_pkt = NULL;
 	unsigned long ptr;
+	enum ipa_client_type clnt;
+	int rc_client;
 
 	IPA_DUMP_BUFF(skb->data, 0, skb->len);
 
@@ -3846,8 +3848,6 @@ begin:
 			continue;
 		}
 
-		IPA_STATS_EXCP_CNT(status.exception,
-				ipa3_ctx->stats.rx_excp_pkts);
 		if (status.endp_dest_idx >= ipa3_ctx->ipa_num_pipes ||
 			status.endp_src_idx >= ipa3_ctx->ipa_num_pipes) {
 			IPAERR_RL("status fields invalid\n");
@@ -3858,6 +3858,11 @@ begin:
 			/* HW gave an unexpected status */
 			ipa_assert();
 		}
+
+		rc_client = get_rc_client(status.endp_src_idx);
+		IPA_STATS_EXCP_CNT(status.exception,
+				ipa3_ctx->stats.rx_excp_pkts[rc_client]);
+
 		if (IPAHAL_PKT_STATUS_MASK_FLAG_VAL(
 			IPAHAL_PKT_STATUS_MASK_TAG_VALID_SHFT, &status)) {
 			struct ipa3_tag_completion *comp;
@@ -3886,7 +3891,7 @@ begin:
 			skb_pull(skb, pkt_status_sz);
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.aggr_close);
 			IPA_STATS_DEC_CNT(ipa3_ctx->stats.rx_excp_pkts
-				[IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
+				[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
 			continue;
 		}
 
@@ -3989,6 +3994,16 @@ begin:
 			/* TX comp */
 			ipa3_wq_write_done_status(src_pipe, tx_pkt);
 			IPADBG_LOW("tx comp imp for %d\n", src_pipe);
+			if (sys->drop_packet) {
+				clnt = ipa3_get_client_by_pipe(src_pipe);
+				if(IPA_CLIENT_IS_Q6_PROD(clnt) || is_wlan_sta_pkt(&status)) {
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.rx_excp_pkts
+					[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL]);
+				} else {
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.rx_excp_pkts
+					[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL]);
+				}
+			}
 		} else {
 			/* TX comp */
 			ipa3_wq_write_done_status(status.endp_src_idx, tx_pkt);
@@ -3997,7 +4012,7 @@ begin:
 			skb_pull(skb, pkt_status_sz);
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.stat_compl);
 			IPA_STATS_DEC_CNT(ipa3_ctx->stats.rx_excp_pkts
-				[IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
+				[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
 		}
 		tx_pkt = NULL;
 	}

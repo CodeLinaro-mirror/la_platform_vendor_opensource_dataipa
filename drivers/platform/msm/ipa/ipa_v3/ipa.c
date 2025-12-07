@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/clk.h>
@@ -8098,6 +8098,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	ipa_ut_module_init();
+	ipa_rc_init();
 
 	/* Query MSI address. */
 	gsi_query_device_msi_addr(&ipa3_ctx->gsi_msi_addr);
@@ -8582,9 +8583,11 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	/* Prevent consequent calls from trying to load the FW again. */
 	if (ipa3_is_ready())
-		return count;
+		goto last;
 
 	ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_FWFILE_READY);
+last:
+	queue_delayed_work(rc_ctx->rc_wq, &rc_ctx->dwork, msecs_to_jiffies(IPA_COLLECT_INTERVAL_MS));
 
 	return count;
 }
@@ -11677,6 +11680,7 @@ static void ipa3_deepsleep_suspend(void)
 	ipahal_destroy();
 	ipa3_ctx->ipa_initialization_complete = false;
 	ipa3_debugfs_remove();
+	ipa_rc_deinit();
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
 	/*Calling framework API to reset IPA ready flag to false*/

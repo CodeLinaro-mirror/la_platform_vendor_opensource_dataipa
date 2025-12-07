@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/ipa_wdi3.h>
@@ -292,11 +292,12 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_tx_intf tx;
 	struct ipa_rx_intf rx;
+	struct ipa_rc_wlan_intf_info *wlan_intf;
 	struct ipa_ioc_tx_intf_prop tx_prop[4];
 	struct ipa_ioc_rx_intf_prop rx_prop[4];
 	u32 len;
-	int ret = 0;
-	int num_hdr = 0;
+	bool found = false;
+	int ret = 0, num_hdr = 0;
 
 	if (in == NULL) {
 		IPA_WDI_ERR("invalid params in=%pK\n", in);
@@ -461,6 +462,33 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 
  	rx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
  	if (in->is_meta_data_valid) {
+		mutex_lock(&rc_ctx->rc_lock);
+		list_for_each_entry(wlan_intf, &ipa_rc_wlan_info.head, link) {
+			if(strcmp(wlan_intf->name, in->netdev_name) == 0) {
+				wlan_intf->metadata_mask = in->meta_data_mask;
+				wlan_intf->metadata = in->meta_data;
+				found = true;
+				break;
+			}
+		}
+		if(!found) {
+			wlan_intf = kzalloc(sizeof(*wlan_intf), GFP_KERNEL);
+			if (!wlan_intf) {
+				WARN(1, "Kzalloc failed\n");
+				mutex_unlock(&rc_ctx->rc_lock);
+				return -ENOMEM;
+			}
+
+			strlcpy(wlan_intf->name, in->netdev_name,
+					sizeof(wlan_intf->name));
+			wlan_intf->metadata_mask = in->meta_data_mask;
+			wlan_intf->metadata = in->meta_data;
+			INIT_LIST_HEAD(&wlan_intf->link);
+			list_add(&wlan_intf->link, &ipa_rc_wlan_info.head);
+			ipa_rc_wlan_info.size++;
+		}
+		mutex_unlock(&rc_ctx->rc_lock);
+
  		rx_prop[0].attrib.attrib_mask |= IPA_FLT_META_DATA;
  		rx_prop[0].attrib.meta_data = in->meta_data;
  		rx_prop[0].attrib.meta_data_mask = in->meta_data_mask;
@@ -1081,6 +1109,7 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 {
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
+	struct ipa_rc_wlan_intf_info *wlan_intf, *tmp;
 
 	IPA_WDI_DBG("client hdl = %d, Instance = %d\n", hdl,ipa_wdi_ctx_list[hdl]->inst_id);
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
@@ -1095,6 +1124,16 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 				ipa_wdi_ctx_list[hdl]->wdi_version);
 		return -EPERM;
 	}
+
+	mutex_lock(&rc_ctx->rc_lock);
+	/*clear entries from HM wlan intf list*/
+	list_for_each_entry_safe(wlan_intf, tmp,
+		&ipa_rc_wlan_info.head, link) {
+		list_del(&wlan_intf->link);
+		ipa_rc_wlan_info.size--;
+		kfree(wlan_intf);
+	}
+	mutex_unlock(&rc_ctx->rc_lock);
 
 	/* clear interface list */
 	list_for_each_entry_safe(entry, next,
@@ -1119,6 +1158,7 @@ static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_
 	struct ipa_ioc_del_hdr *hdr = NULL;
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
+	struct ipa_rc_wlan_intf_info *wlan_intf, *tmp;
 
 	if (!netdev_name) {
 		IPA_WDI_ERR("no netdev name.\n");
@@ -1188,6 +1228,16 @@ static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_
 
 			break;
 		}
+
+	mutex_lock(&rc_ctx->rc_lock);
+	list_for_each_entry_safe(wlan_intf, tmp, &ipa_rc_wlan_info.head, link) {
+		if(strcmp(wlan_intf->name, netdev_name) == 0) {
+			list_del(&wlan_intf->link);
+			ipa_rc_wlan_info.size--;
+			kfree(wlan_intf);
+		}
+	}
+	mutex_unlock(&rc_ctx->rc_lock);
 
 fail:
 	kfree(hdr);
