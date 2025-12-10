@@ -568,6 +568,15 @@ void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 	u64 pipe_dest_idx);
 
 /*
+ * ipa_imm_cmd_modify_ip_packet_init_ex_ulso() -
+ *   Modify ip_packet_init_ex immdiate command ULSO fields
+ * This function modifies an existing imm cmd buffer
+ * @ep: [in] pipe index
+ */
+void ipa_imm_cmd_modify_ip_packet_init_ex_ulso(
+	u32 ep);
+
+/*
  * ipahal_construct_nop_imm_cmd() - Construct immediate comamnd for NO-Op
  * Core driver may want functionality to inject NOP commands to IPA
  *  to ensure e.g., PIPLINE clear before someother operation.

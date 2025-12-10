@@ -311,8 +311,6 @@
 
 #define IPA_GROUP_MAX IPA_v7_0_GROUP_MAX
 
-#define ULSO_LEADING_HEADER_SIZE (8) /* 8 bytes */
-
 enum ipa_rsrc_grp_type_src {
 	IPA_v3_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS,
 	IPA_v3_0_RSRC_GRP_TYPE_SRC_HDR_SECTORS,
@@ -12056,14 +12054,6 @@ int ipa3_cfg_ep(u32 clnt_hdl, const struct ipa_ep_cfg *ipa_ep_cfg)
 			return result;
 	}
 
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-		if(IPA_CLIENT_IS_ETH_PROD(ipa3_ctx->ep[clnt_hdl].client)) {
-			result = ipa3_cfg_ep_modify_pkt_init_ex(clnt_hdl);
-			if (result)
-				return result;
-		}
-	}
-
 	if (IPA_CLIENT_IS_PROD(ipa3_ctx->ep[clnt_hdl].client)) {
 		result = ipa3_cfg_ep_nat(clnt_hdl, &ipa_ep_cfg->nat);
 		if (result)
@@ -12621,61 +12611,11 @@ int ipa3_cfg_ep_ulso(u32 clnt_hdl, const struct ipa_ep_cfg_ulso *ep_ulso)
 
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && ep_ulso->is_ulso_pipe)
+		ipa_imm_cmd_modify_ip_packet_init_ex_ulso(clnt_hdl);
+	/* TODO: Set cmd->leading_header_size for the other ETH clients */
+
 	return 0;
-}
-
-/**
- * ipa3_cfg_ep_modify_pkt_init_ex() -  IPA end-point ulso packet init ex IC modification
- * @clnt_hdl:		[in] opaque client handle assigned by IPA to client
- *
- * Returns:	0 on success, negative on failure
- *
- * Note:	Should not be called from atomic context
- */
-int ipa3_cfg_ep_modify_pkt_init_ex(u32 clnt_hdl)
-{
-	struct ipahal_imm_cmd_pyld *cmd_pyld;
-	struct ipahal_imm_cmd_ip_packet_init_ex cmd = {0};
-	struct ipahal_imm_cmd_ip_packet_init_ex cmd_mask = {0};
-	struct ipa3_ep_context *ep;
-	int result = 0;
-
-	ep = &ipa3_ctx->ep[clnt_hdl];
-
-	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
-	    ep->valid == 0) {
-		IPAERR("bad parm, clnt_hdl = %d , ep_valid = %d\n",
-				clnt_hdl, ep->valid);
-		return -EINVAL;
-	}
-	
-	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX, &cmd, false);
-	if (!cmd_pyld) {
-		IPAERR("failed to construct IMM cmd\n");
-		return -ENOMEM;
-	}
-
-	cmd.rt_pipe_dest_idx = clnt_hdl;
-	cmd.traffic_mode = 1;
-	cmd_mask.traffic_mode = true;
-
-	/* TODO: Set cmd.leading_header_size for the other ETH clients */
-
-	if(ep->cfg.ulso.is_ulso_pipe) {
-		cmd.leading_header_size = ULSO_LEADING_HEADER_SIZE;
-		cmd_mask.leading_header_size = true;
-	}
-
-	result = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
-		cmd_pyld->data, &cmd, &cmd_mask);
-	if (unlikely(result != 0)) {
-		IPAERR("failed to modify IMM cmd\n");
-		goto free_imm;
-	}
-
-free_imm:
-	ipahal_destroy_imm_cmd(cmd_pyld);
-	return result;
 }
 
 /**
