@@ -6708,6 +6708,9 @@ int ipa3_sys_setup(struct ipa_sys_connect_params *sys_in,
 		ep->status.status_ep = ipa_ep_idx;
 	}
 
+	// Copy over ULSO config
+	ep->cfg.ulso = sys_in->ipa_ep_cfg.ulso;
+
 	result = ipa3_enable_data_path(ipa_ep_idx);
 	if (result) {
 		IPAERR("enable data path failed res=%d clnt=%d.\n",

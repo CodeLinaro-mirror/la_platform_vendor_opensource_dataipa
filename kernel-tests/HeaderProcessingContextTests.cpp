@@ -977,7 +977,7 @@ public:
 		IPv4_Hdr_t* hdr = (IPv4_Hdr_t*) m_expectedBuffer1;
 
 		setv4_dscp(hdr, DSCP_VAL);
-		//setv4_cksum(hdr, 0x3A6A);
+		setv4_cksum(hdr, 0x3A5D);
 
 		print_buffer(m_expectedBuffer1, m_expectedBufferSize1, "Expected packet");
 
@@ -1054,12 +1054,12 @@ public:
 
 	bool Run()
 	{
-		if ( m_filtering.ClrEoGREMap() == true )
+		m_filtering.ClrEoGREMap();
+		if ( m_filtering.AddEoGREMap(m_IpaIPType, m_ip_addrs) == true )
 		{
-			LOG_MSG_DEBUG("EoGRE map clear succeeded\n");
 			return IpaHdrProcCtxTestFixture::Run();
 		}
-		LOG_MSG_ERROR("EoGRE map clear failed\n");
+		LOG_MSG_ERROR("GRE map add failed\n");
 		return false;
 	}
 
