@@ -4017,27 +4017,6 @@ static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
 
 #endif
 
-static ssize_t enable_wkup_logs(struct file *file,
-			const char __user *buf, size_t count, loff_t *ppos)
-{
-	s8 flg=0;
-	int ret;
-
-	ret = kstrtos8_from_user(buf, count, 0, &flg);
-
-	if(ret)
-		return ret;
-
-	if(flg){
-		ipa3_ctx->wkup_enable=1;
-	}
-	else{
-		ipa3_ctx->wkup_enable=0;
-	}
-
-	return count;
-}
-
 static const struct ipa3_debugfs_file debugfs_files[] = {
 	{
 		"gen_reg", IPA_READ_ONLY_MODE, NULL, {
@@ -4303,10 +4282,6 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.read = ipa3_read_ipsec_active_sa,
 		}
 #endif
-	}, {
-		"enable_wkup_log", IPA_WRITE_ONLY_MODE,NULL, {
-			.write = enable_wkup_logs,
-		}
 	}, {
 		"uc_act_table", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_uc_act_tbl,
