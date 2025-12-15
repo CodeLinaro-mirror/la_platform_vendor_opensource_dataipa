@@ -42,6 +42,9 @@
 #define IPA_ETH_PCIE_MASK BIT_ULL(40)
 #define IPA_ETH_PCIE_SET(val) (val | IPA_ETH_PCIE_MASK)
 
+#define PPPOE_VLAN_ETH_HLEN 26
+#define VLAN_VLAN_ETH_HLEN 22
+
 #define IPA_CLIENT_IS_SMMU_ETH_INSTANCE(client) \
 	((client) == IPA_CLIENT_AQC_ETHERNET_PROD || \
 	(client) == IPA_CLIENT_AQC_ETHERNET_CONS || \
@@ -1250,15 +1253,24 @@ int ipa3_eth_connect(
 
 	/* ETH PDU configuration */
 	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) {
-		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
-			IPA_QMI_ETH_HW_VLAN_IP_V01)
-			ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
-		else if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
-			IPA_QMI_ETH_HW_NON_VLAN_IP_V01)
-			ep->cfg.hdr.hdr_len = ETH_HLEN;
-		else
+
+		switch (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode) {
+			case IPA_QMI_ETH_HW_VLAN_IP_V01:
+				ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
+				break;
+			case IPA_QMI_ETH_HW_NON_VLAN_IP_V01:
+				ep->cfg.hdr.hdr_len = ETH_HLEN;
+				break;
+			case IPA_QMI_ETH_IPA_HW_PPPOE_VLAN_IP_V01:
+				ep->cfg.hdr.hdr_len = PPPOE_VLAN_ETH_HLEN;
+				break;
+			case IPA_QMI_ETH_IPA_HW_VLAN_VLAN_IP_V01:
+				ep->cfg.hdr.hdr_len = VLAN_VLAN_ETH_HLEN;
+				break;
+			default:
 			IPAERR("invalid vlan mode: %d\n",
 				ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode);
+			}
 
 		ep->skip_ep_cfg = true;
 
