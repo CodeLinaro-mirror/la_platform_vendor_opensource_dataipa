@@ -19,6 +19,7 @@
 #include "ipa_common_i.h"
 #include <linux/msm_ipa.h>
 #include "gsi.h"
+#include "ipahal_nat.h"
 
 #define DRIVER_NAME "ipa_lnx_stats_ioctl"
 #define DEV_NAME_IPA_LNX_STATS "ipa-lnx-stats"
@@ -1557,6 +1558,1212 @@ static int ipa_get_page_recycle_stats(unsigned long arg)
 	return 0;
 }
 
+static int ipa_get_rt_tbl_index_from_name(char *rt_tbl_name)
+{
+	int i;
+	struct rt_table_name_lookup *lookup;
+
+	for (i = 0; i < RT_TABLE_NAME_MAX; i++) {
+		lookup = &rt_table_lookup_table[i];
+		if (!strcmp(lookup->name, rt_tbl_name))
+			return lookup->index;
+	}
+	return RT_TABLE_NAME_MAX;
+}
+
+static int ipa_get_v4_rt_rule_stats(unsigned long arg)
+{
+	struct ipa_lnx_v4_rt_rule_stats *rt_rule_stats = NULL;
+	int alloc_size;
+	int rule_idx, tbl_idx;
+	struct ipa3_rt_tbl *rt_tbl;
+	struct ipa3_rt_entry *rt_entry;
+	struct ipa3_rt_tbl_set *rt_set;
+	u32 ofst;
+	u32 ofst_words;
+	int ret = 0;
+
+	if (ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_tables >=
+		TLPD_NUM_MAX_RT_FLT_TBL) {
+		IPA_STATS_ERR("Rejecting rt rule log packet collection\n");
+		return -EFAULT;
+	}
+
+	alloc_size = sizeof(struct ipa_lnx_v4_rt_rule_stats);
+
+	rt_rule_stats = (struct ipa_lnx_v4_rt_rule_stats *) memdup_user((
+		const void __user *)arg, alloc_size);
+	if (IS_ERR(rt_rule_stats)) {
+		IPA_STATS_ERR("copy from user failed");
+		return -ENOMEM;
+	}
+
+	/* IPv4 RT structures */
+	mutex_lock(&ipa3_ctx->lock);
+	rt_set = &ipa3_ctx->rt_tbl_set[IPA_IP_v4];
+
+	rt_rule_stats->ip4_rt_tbl_hash_local =
+		ipa3_ctx->rt_tbl_hash_lcl[IPA_IP_v4];
+	rt_rule_stats->ip4_rt_tbl_nhash_local =
+		ipa3_ctx->rt_tbl_nhash_lcl[IPA_IP_v4];
+	rt_rule_stats->num_v4_rt_table =
+		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_tables;
+	IPA_STATS_ERR("consolidated num_v4_tables %d num_v6_tables %d\n",
+		rt_rule_stats->num_v4_rt_table,
+		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables);
+
+	tbl_idx = 0;
+
+	list_for_each_entry(rt_tbl, &rt_set->head_rt_tbl_list, link) {
+		if (tbl_idx == TLPD_NUM_MAX_RT_FLT_TBL && tbl_idx >=
+			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_tables) {
+			IPA_STATS_ERR("RT4 table limit reached\n");
+			goto stats_fail;
+		}
+
+		rt_rule_stats->v4_rt_tbl[tbl_idx].tbl_index = rt_tbl->idx;
+		rt_rule_stats->v4_rt_tbl[tbl_idx].tbl_ref_count = rt_tbl->ref_cnt;
+		rt_rule_stats->v4_rt_tbl[tbl_idx].tbl_name =
+			(uint8_t) ipa_get_rt_tbl_index_from_name(rt_tbl->name);
+		rt_rule_stats->v4_rt_tbl[tbl_idx].num_rt_rule =
+			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_rules[tbl_idx];
+
+		rule_idx = 0;
+		list_for_each_entry(rt_entry, &rt_tbl->head_rt_rule_list, link) {
+			if (rule_idx == TLPD_NUM_MAX_RT_FLT_RULE && rule_idx >=
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_rules[tbl_idx]) {
+				IPA_STATS_ERR("RT4 Rule limit reached\n");
+				goto stats_fail;
+			}
+
+
+			if (rt_entry->proc_ctx &&
+				(!ipa3_check_idr_if_freed(rt_entry->proc_ctx))) {
+				ofst = rt_entry->proc_ctx->offset_entry->offset;
+				ofst_words =
+					rt_entry->proc_ctx->is_lcl ?
+					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL]
+					.start_offset) >> 5 :
+					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS]
+					.start_offset) >> 5;
+
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+				.proc_ctx_valid = 1;
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+				.offset_words = ofst_words;
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+				.is_in_sram = !rt_entry->proc_ctx->is_lcl;
+			} else {
+				if (rt_entry->hdr)
+					ofst = rt_entry->hdr->offset_entry->offset;
+				else
+					ofst = 0;
+
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+				.proc_ctx_valid = 0;
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+				.offset_words = ofst >> 2;
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+				.is_in_sram = !(rt_entry->hdr && rt_entry->hdr->is_lcl);
+			}
+
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].end_point =
+				ipa_get_ep_mapping(rt_entry->rule.dst);
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.destination = rt_entry->rule.dst;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.attribute_mask = rt_entry->rule.attrib.attrib_mask;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.rule_idx = rule_idx;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.rule_id = rt_entry->rule_id;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.retain_hdr = rt_entry->rule.retain_hdr;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.close_aggr_irq_mode = rt_entry->rule.close_aggr_irq_mod;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.enable_stats = rt_entry->rule.enable_stats;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.counter_id = rt_entry->rule.cnt_idx;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.hashable = rt_entry->rule.hashable;
+
+			/* Rule attributes */
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].tos =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TOS) ?
+				(rt_entry->rule.attrib.u.v4.tos) : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].tos_value =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TOS_MASKED) ?
+				(rt_entry->rule.attrib.tos_value) : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].tos_mask =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TOS_MASKED) ?
+				(rt_entry->rule.attrib.tos_mask) : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].protocol =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_PROTOCOL) ?
+				(rt_entry->rule.attrib.u.v4.protocol) : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_addr =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_ADDR) ?
+				htonl(rt_entry->rule.attrib.u.v4.src_addr) : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_addr_mask =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_ADDR) ?
+				htonl(rt_entry->rule.attrib.u.v4.src_addr_mask) : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_addr =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_ADDR) ?
+				htonl(rt_entry->rule.attrib.u.v4.dst_addr) : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_addr_mask =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_ADDR) ?
+				htonl(rt_entry->rule.attrib.u.v4.dst_addr_mask) : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_port_low =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_PORT_RANGE) ?
+				rt_entry->rule.attrib.src_port_lo : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_port_high =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_PORT_RANGE) ?
+				rt_entry->rule.attrib.src_port_hi : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_port_low =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_PORT_RANGE) ?
+				rt_entry->rule.attrib.dst_port_lo : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_port_high =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_PORT_RANGE) ?
+				rt_entry->rule.attrib.dst_port_hi : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].type =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TYPE) ?
+				rt_entry->rule.attrib.type : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].code =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_CODE) ?
+				rt_entry->rule.attrib.code : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].spi =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SPI) ?
+				rt_entry->rule.attrib.spi : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].vlan_id =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_VLAN_ID) ?
+				rt_entry->rule.attrib.vlan_id : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_port =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_PORT) ?
+				rt_entry->rule.attrib.src_port : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_port =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_PORT) ?
+				rt_entry->rule.attrib.dst_port : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].payload_length =
+				(rt_entry->rule.attrib.ext_attrib_mask & IPA_FLT_EXT_MTU) ?
+				rt_entry->rule.attrib.payload_length : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].ether_type =
+				((rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_ETHER_TYPE) ||
+				 (rt_entry->rule.attrib.ext_attrib_mask &
+					IPA_FLT_EXT_L2TP_UDP_INNER_ETHER_TYPE)) ?
+					rt_entry->rule.attrib.ether_type : 0;
+
+
+			if ((rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].src_mac_addr =
+					(uint64_t)rt_entry->rule.attrib.src_mac_addr;
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+				.src_mac_addr_mask = (uint64_t)rt_entry->rule.attrib.attrib_mask &
+					(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
+					IPA_FLT_MAC_SRC_ADDR_802_3 |
+					IPA_FLT_MAC_SRC_ADDR_802_1Q);
+			}
+
+			if ((rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR)) {
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].dst_mac_addr =
+					(uint64_t)rt_entry->rule.attrib.dst_mac_addr;
+				rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+				.dst_mac_addr_mask = (uint64_t)rt_entry->rule.attrib.attrib_mask &
+					(IPA_FLT_MAC_DST_ADDR_ETHER_II |
+					IPA_FLT_MAC_DST_ADDR_802_3 | IPA_FLT_MAC_DST_ADDR_L2TP |
+					IPA_FLT_MAC_DST_ADDR_802_1Q |
+					IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR |
+					IPA_FLT_L2TP_INNER_IPV4_DST_ADDR);
+				if (rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
+					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+					.dst_mac_addr = htonl(rt_entry->rule.attrib.u.v4.dst_addr);
+					rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+					.dst_mac_addr_mask =
+						htonl(rt_entry->rule.attrib.u.v4.dst_addr_mask);
+				}
+			}
+
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.l2tp_inner_ip_type =
+				(rt_entry->rule.attrib.attrib_mask &
+				IPA_FLT_L2TP_INNER_IP_TYPE) ?
+				rt_entry->rule.attrib.type : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].tcp_syn =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TCP_SYN) ? 1 : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.tcp_syn_l2tp = ((rt_entry->rule.attrib.attrib_mask &
+							IPA_FLT_TCP_SYN_L2TP) ||
+							(rt_entry->rule.attrib.ext_attrib_mask &
+							IPA_FLT_EXT_L2TP_UDP_TCP_SYN)) ? 1 : 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx].frag =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_FRAGMENT) ? 1 : 0;
+
+			/* Attribute equations are currently NULL and can be enabled during rt_hw */
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.is_rt_hw = 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.protocol_eq = 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.num_offset_meq128 = 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.num_offset_meq32 = 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.num_ihl_offset_meq32 = 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.is_metadata_meq32_persent = 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.num_ihl_offset_range_16 = 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.num_ihl_offset_eq16 = 0;
+			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
+			.num_ihl_offset_eq32 = 0;
+
+			rule_idx++;
+		}
+
+		tbl_idx++;
+	}
+
+	if(copy_to_user((void __user *)arg,
+		(u8 *)rt_rule_stats,
+		alloc_size)) {
+		IPA_STATS_ERR("copy to user failed");
+		ret = -EFAULT;
+		goto stats_fail;
+	}
+
+stats_fail:
+	mutex_unlock(&ipa3_ctx->lock);
+	kfree(rt_rule_stats);
+	return ret;
+}
+
+
+static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
+	struct ipa_lnx_v6_rt_rule_stats *rt_rule_stats;
+	int alloc_size;
+	int j;
+	int rule_idx, tbl_idx;
+	struct ipa3_rt_tbl *rt_tbl;
+	struct ipa3_rt_entry *rt_entry;
+	struct ipa3_rt_tbl_set *rt_set;
+	u32 ofst;
+	u32 ofst_words;
+	int ret = 0;
+
+	if (ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables >=
+		TLPD_NUM_MAX_RT_FLT_TBL) {
+		IPA_STATS_ERR("Rejecting rt rule log packet collection\n");
+		return -EFAULT;
+	}
+
+	alloc_size = sizeof(struct ipa_lnx_v6_rt_rule_stats) +
+		(ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables *
+		sizeof(struct ipa_lnx_v6_rt_rule_table));
+
+	rt_rule_stats = (struct ipa_lnx_v6_rt_rule_stats *) memdup_user((
+		const void __user *)arg, alloc_size);
+	if (IS_ERR(rt_rule_stats)) {
+		IPA_STATS_ERR("copy from user failed");
+		return -ENOMEM;
+	}
+
+	/* IPv6 RT structures */
+	mutex_lock(&ipa3_ctx->lock);
+	rt_set = &ipa3_ctx->rt_tbl_set[IPA_IP_v6];
+
+	rt_rule_stats->ip6_rt_tbl_hash_local =
+		ipa3_ctx->rt_tbl_hash_lcl[IPA_IP_v6];
+	rt_rule_stats->ip6_rt_tbl_nhash_local =
+		ipa3_ctx->rt_tbl_nhash_lcl[IPA_IP_v6];
+	rt_rule_stats->num_v6_rt_table =
+		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables;
+
+	tbl_idx = 0;
+	list_for_each_entry(rt_tbl, &rt_set->head_rt_tbl_list, link) {
+		if (tbl_idx == TLPD_NUM_MAX_RT_FLT_TBL && tbl_idx >=
+			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables) {
+			IPA_STATS_ERR("RT6 table limit reached\n");
+			goto stats_fail;
+		}
+
+		rt_rule_stats->v6_rt_tbl[tbl_idx].tbl_index = rt_tbl->idx;
+		rt_rule_stats->v6_rt_tbl[tbl_idx].tbl_ref_count = rt_tbl->ref_cnt;
+		rt_rule_stats->v6_rt_tbl[tbl_idx].tbl_name =
+			(uint8_t)ipa_get_rt_tbl_index_from_name(rt_tbl->name);
+		rt_rule_stats->v6_rt_tbl[tbl_idx].num_rt_rule =
+			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_rules[tbl_idx];
+
+		rule_idx = 0;
+		list_for_each_entry(rt_entry, &rt_tbl->head_rt_rule_list, link) {
+			if (rule_idx == TLPD_NUM_MAX_RT_FLT_RULE && rule_idx >=
+			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_rules[tbl_idx]) {
+				IPA_STATS_ERR("RT6 Rule limit reached\n");
+				goto stats_fail;
+			}
+
+			if (rt_entry->proc_ctx &&
+				(!ipa3_check_idr_if_freed(rt_entry->proc_ctx))) {
+				ofst = rt_entry->proc_ctx->offset_entry->offset;
+				ofst_words =
+					rt_entry->proc_ctx->is_lcl ?
+					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL]
+					.start_offset) >> 5 :
+					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS]
+					.start_offset) >> 5;
+
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.proc_ctx_valid = 1;
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.offset_words = ofst_words;
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.is_in_sram = !rt_entry->hdr->is_lcl;
+			} else {
+				if (rt_entry->hdr) ofst = rt_entry->hdr->offset_entry->offset;
+				else ofst = 0;
+
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.proc_ctx_valid = 0;
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.offset_words = ofst >> 2;
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.is_in_sram = !(rt_entry->hdr && rt_entry->hdr->is_lcl);
+			}
+
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].end_point =
+				ipa_get_ep_mapping(rt_entry->rule.dst);
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.destination = rt_entry->rule.dst;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.attribute_mask = rt_entry->rule.attrib.attrib_mask;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].rule_idx =
+				rule_idx;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].rule_id =
+				rt_entry->rule_id;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].retain_hdr =
+				rt_entry->rule.retain_hdr;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.close_aggr_irq_mode = rt_entry->rule.close_aggr_irq_mod;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.enable_stats = rt_entry->rule.enable_stats;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].counter_id =
+				rt_entry->rule.cnt_idx;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].hashable =
+				rt_entry->rule.hashable;
+
+			/* Rule attributes */
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].tc =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TC) ?
+				(rt_entry->rule.attrib.u.v6.tc) : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].tos_value =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TOS_MASKED) ?
+				(rt_entry->rule.attrib.tos_value) : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].flow_label =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_FLOW_LABEL) ?
+				(rt_entry->rule.attrib.u.v6.flow_label) : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].tos_mask =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TOS_MASKED) ?
+				(rt_entry->rule.attrib.tos_mask) : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].nxt_hdr =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_NEXT_HDR) ?
+				(rt_entry->rule.attrib.u.v6.next_hdr) : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.nxt_hdr_ext = (rt_entry->rule.attrib.ext_attrib_mask &
+							IPA_FLT_EXT_NEXT_HDR) ?
+							(rt_entry->rule.attrib.u.v6.next_hdr) : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].type =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TYPE) ?
+				rt_entry->rule.attrib.type : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].code =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_CODE) ?
+				rt_entry->rule.attrib.code : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].src_port_low =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_PORT_RANGE) ?
+				rt_entry->rule.attrib.src_port_lo : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].src_port_high =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_PORT_RANGE) ?
+				rt_entry->rule.attrib.src_port_hi : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].dst_port_low =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_PORT_RANGE) ?
+				rt_entry->rule.attrib.dst_port_lo : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].dst_port_high =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_PORT_RANGE) ?
+				rt_entry->rule.attrib.dst_port_hi : 0;
+
+			for (j = 0; j < 4; j++) {
+				if (rt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_ADDR) {
+					rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+					.src_addr[j] =
+						htonl(rt_entry->rule.attrib.u.v6.src_addr[j]);
+					rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+					.src_addr_mask[j] =
+						htonl(rt_entry->rule.attrib.u.v6.src_addr_mask[j]);
+				}
+
+				if (rt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_ADDR) {
+					rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+					.dst_addr[j] =
+						htonl(rt_entry->rule.attrib.u.v6.dst_addr[j]);
+					rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+					.dst_addr_mask[j] =
+						htonl(rt_entry->rule.attrib.u.v6.dst_addr_mask[j]);
+				}
+			}
+
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].spi =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SPI) ?
+				rt_entry->rule.attrib.spi : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].vlan_id =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_VLAN_ID) ?
+				rt_entry->rule.attrib.vlan_id : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].src_port =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_PORT) ?
+				rt_entry->rule.attrib.src_port : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].dst_port =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_PORT) ?
+				rt_entry->rule.attrib.dst_port : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.payload_length = (rt_entry->rule.attrib.ext_attrib_mask &
+							IPA_FLT_EXT_MTU) ?
+							rt_entry->rule.attrib.payload_length : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].ether_type =
+				((rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_ETHER_TYPE) ||
+				 (rt_entry->rule.attrib.ext_attrib_mask &
+					IPA_FLT_EXT_L2TP_UDP_INNER_ETHER_TYPE)) ?
+					rt_entry->rule.attrib.ether_type : 0;
+
+
+			if ((rt_entry->rule.attrib.attrib_mask &
+				IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
+				(rt_entry->rule.attrib.attrib_mask &
+				IPA_FLT_MAC_SRC_ADDR_802_3) ||
+				(rt_entry->rule.attrib.attrib_mask &
+				IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.src_mac_addr = (uint64_t)rt_entry->rule.attrib.src_mac_addr;
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.src_mac_addr_mask = (uint64_t)rt_entry->rule.attrib.attrib_mask &
+										(IPA_FLT_MAC_SRC_ADDR_ETHER_II |
+										IPA_FLT_MAC_SRC_ADDR_802_3 |
+										IPA_FLT_MAC_SRC_ADDR_802_1Q);
+			}
+
+			if ((rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.dst_mac_addr = (uint64_t)rt_entry->rule.attrib.dst_mac_addr;
+				rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+				.dst_mac_addr_mask =
+					(uint64_t)rt_entry->rule.attrib.attrib_mask &
+					(IPA_FLT_MAC_DST_ADDR_ETHER_II |
+					IPA_FLT_MAC_DST_ADDR_802_3 |
+					IPA_FLT_MAC_DST_ADDR_L2TP |
+					IPA_FLT_MAC_DST_ADDR_802_1Q |
+					IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR);
+			}
+
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.l2tp_inner_ip_type =
+				(rt_entry->rule.attrib.attrib_mask &
+				IPA_FLT_L2TP_INNER_IP_TYPE) ?
+				rt_entry->rule.attrib.type : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].tcp_syn =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_TCP_SYN) ? 1 : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.tcp_syn_l2tp =
+				((rt_entry->rule.attrib.attrib_mask &
+				IPA_FLT_TCP_SYN_L2TP) ||
+				(rt_entry->rule.attrib.ext_attrib_mask &
+				IPA_FLT_EXT_L2TP_UDP_TCP_SYN)) ?
+				1 : 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].frag =
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_FRAGMENT) ? 1 : 0;
+
+			/* Attribute equations are currently NULL and can be enabled during rt_hw */
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.is_rt_hw = 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.protocol_eq = 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.num_offset_meq128 = 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.num_offset_meq32 = 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.num_ihl_offset_meq32 = 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.is_metadata_meq32_persent = 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.num_ihl_offset_range_16 = 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.num_ihl_offset_eq16 = 0;
+			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
+			.num_ihl_offset_eq32 = 0;
+
+			rule_idx++;
+		}
+
+		tbl_idx++;
+	}
+
+	mutex_unlock(&ipa3_ctx->lock);
+
+	if (copy_to_user((void __user *)arg,
+					 (u8 *)rt_rule_stats,
+					 alloc_size)) {
+		IPA_STATS_ERR("copy to user failed");
+		ret = -EFAULT;
+		goto stats_fail;
+	}
+
+stats_fail:
+	mutex_unlock(&ipa3_ctx->lock);
+	kfree(rt_rule_stats);
+	return ret;
+}
+
+static int ipa_get_v4_flt_rule_stats(unsigned long arg)
+{
+	struct ipa_lnx_v4_flt_rule_stats *flt_rule_stats;
+	int alloc_size;
+	int i, j;
+	int rule_idx, tbl_idx;
+	struct ipa3_flt_tbl *flt_tbl;
+	struct ipa3_flt_entry *flt_entry;
+	struct ipa3_rt_tbl *rt_tbl;
+	int eq;
+	struct ipa_rule_attrib *attrib;
+
+	if (ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_tables >=
+		TLPD_NUM_MAX_RT_FLT_TBL) {
+		IPA_STATS_ERR("Rejecting flt rule log packet collection\n");
+		return -EFAULT;
+	}
+
+	alloc_size = sizeof(struct ipa_lnx_v4_flt_rule_stats);
+
+	flt_rule_stats = (struct ipa_lnx_v4_flt_rule_stats *) memdup_user((
+		const void __user *)arg, alloc_size);
+	if (IS_ERR(flt_rule_stats)) {
+		IPA_STATS_ERR("copy from user failed");
+		return -ENOMEM;
+	}
+
+	/* IPv4 flt structures */
+	mutex_lock(&ipa3_ctx->lock);
+	tbl_idx = 0; rule_idx = 0;
+
+	for (j = 0; j < ipa3_ctx->ipa_num_pipes; j++) {
+		if (tbl_idx == TLPD_NUM_MAX_RT_FLT_TBL) {
+			IPA_STATS_ERR("FLT4 table limit reached\n");
+			break;
+		}
+
+		if (!ipa_is_ep_support_flt(j))
+		{
+			IPA_STATS_DBG("j %d tbl idx %d .. continue\n", j , tbl_idx);
+			continue;
+		}
+
+		flt_tbl = &ipa3_ctx->flt_tbl[j][IPA_IP_v4];
+		i = 0;
+		rule_idx = 0;
+		list_for_each_entry(flt_entry, &flt_tbl->head_flt_rule_list, link) {
+			if (flt_entry->cookie != IPA_FLT_COOKIE) continue;
+			if (flt_entry->rule.eq_attrib_type) {
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.rt_table_index = flt_entry->rule.rt_tbl_idx;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.attrib_mask = flt_entry->rule.eq_attrib.rule_eq_bitmap;
+				eq = true;
+			} else {
+				rt_tbl = ipa3_id_find(flt_entry->rule.rt_tbl_hdl);
+				if (rt_tbl == NULL ||
+					rt_tbl->cookie != IPA_RT_TBL_COOKIE) {
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.rt_table_index =  ~0;
+				}
+				else {
+					flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.rt_table_index = rt_tbl->idx;
+				}
+
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.attrib_mask = flt_entry->rule.attrib.attrib_mask;
+				eq = false;
+			}
+
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].ep_idx = j;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].rule_idx =
+				tbl_idx;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].action =
+				flt_entry->rule.action;
+
+
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].retain_hdr =
+				flt_entry->rule.retain_hdr;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].equation = eq;
+
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].hashable =
+				flt_entry->rule.hashable;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].rule_id =
+				flt_entry->rule_id;
+
+			if (flt_entry->rule.hashable) {
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].in_sys =
+					flt_tbl->in_sys[IPA_RULE_HASHABLE];
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].force_sys =
+					flt_tbl->force_sys[IPA_RULE_HASHABLE];
+
+			} else {
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].in_sys =
+					flt_tbl->in_sys[IPA_RULE_NON_HASHABLE];
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].force_sys =
+					flt_tbl->force_sys[IPA_RULE_NON_HASHABLE];
+			}
+
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].enable_stats =
+				flt_entry->rule.enable_stats;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].counter_id =
+				flt_entry->rule.cnt_idx;
+
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].pdn_index =
+				flt_entry->rule.pdn_idx;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].set_metadata =
+				flt_entry->rule.set_metadata;
+
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.close_aggr_irq_mode = flt_entry->rule.close_aggr_irq_mod;
+
+
+			attrib = &flt_entry->rule.attrib;
+			// Rule attributes
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].tos =
+				(attrib->attrib_mask & IPA_FLT_TOS) ?
+				flt_entry->rule.attrib.u.v4.tos : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].tos_value =
+				(attrib->attrib_mask & IPA_FLT_TOS_MASKED) ?
+				flt_entry->rule.attrib.tos_value : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].tos_mask =
+				(attrib->attrib_mask & IPA_FLT_TOS_MASKED) ?
+				flt_entry->rule.attrib.tos_mask : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].protocol =
+				(attrib->attrib_mask & IPA_FLT_PROTOCOL) ?
+				flt_entry->rule.attrib.u.v4.protocol : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].src_addr =
+				(attrib->attrib_mask & IPA_FLT_SRC_ADDR) ?
+				htonl(flt_entry->rule.attrib.u.v4.src_addr) : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].src_addr_mask =
+				(attrib->attrib_mask & IPA_FLT_SRC_ADDR) ?
+				htonl(flt_entry->rule.attrib.u.v4.src_addr_mask) : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_addr =
+				(attrib->attrib_mask & IPA_FLT_DST_ADDR) ?
+				htonl(flt_entry->rule.attrib.u.v4.dst_addr) : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_addr_mask =
+				(attrib->attrib_mask & IPA_FLT_DST_ADDR) ?
+				htonl(flt_entry->rule.attrib.u.v4.dst_addr_mask) : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].src_port_low =
+				(attrib->attrib_mask & IPA_FLT_SRC_PORT_RANGE) ?
+				flt_entry->rule.attrib.src_port_lo : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].src_port_high =
+				(attrib->attrib_mask & IPA_FLT_SRC_PORT_RANGE) ?
+				flt_entry->rule.attrib.src_port_hi : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_port_low =
+				(attrib->attrib_mask & IPA_FLT_DST_PORT_RANGE) ?
+				flt_entry->rule.attrib.dst_port_lo : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_port_high =
+				(attrib->attrib_mask & IPA_FLT_DST_PORT_RANGE) ?
+				flt_entry->rule.attrib.dst_port_hi : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].type =
+				(attrib->attrib_mask & IPA_FLT_TYPE) ?
+				flt_entry->rule.attrib.type : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].code =
+				(attrib->attrib_mask & IPA_FLT_CODE) ?
+				flt_entry->rule.attrib.code : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].spi =
+				(attrib->attrib_mask & IPA_FLT_SPI) ?
+				flt_entry->rule.attrib.spi : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].src_port =
+				(attrib->attrib_mask & IPA_FLT_SRC_PORT) ?
+				flt_entry->rule.attrib.src_port : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_port =
+				(attrib->attrib_mask & IPA_FLT_DST_PORT) ?
+				flt_entry->rule.attrib.dst_port : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].meta_data =
+				(attrib->attrib_mask & IPA_FLT_META_DATA) ?
+				flt_entry->rule.attrib.meta_data : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.meta_data_mask =
+				(attrib->attrib_mask & IPA_FLT_META_DATA) ?
+				flt_entry->rule.attrib.meta_data_mask : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].frag =
+				(attrib->attrib_mask & IPA_FLT_META_DATA) ? 1 : 0;
+
+			if ((attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.src_mac_addr = (uint64_t)flt_entry->rule.attrib.src_mac_addr;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.src_mac_addr_mask =
+					(uint64_t)flt_entry->rule.attrib.src_mac_addr_mask;
+			}
+
+			if ((attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
+				(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.dst_mac_addr =
+					(uint64_t)flt_entry->rule.attrib.dst_mac_addr;
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.dst_mac_addr_mask =
+					(uint64_t)flt_entry->rule.attrib.dst_mac_addr_mask;
+			}
+
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.payload_length =
+				(attrib->ext_attrib_mask & IPA_FLT_EXT_MTU) ?
+				flt_entry->rule.attrib.payload_length : 0;
+
+			if (attrib->attrib_mask & IPA_FLT_MAC_ETHER_TYPE ||
+				attrib->ext_attrib_mask &
+				IPA_FLT_EXT_L2TP_UDP_INNER_ETHER_TYPE) {
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.ether_type = flt_entry->rule.attrib.ether_type;
+			}
+
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].vlan_id =
+				(attrib->attrib_mask & IPA_FLT_VLAN_ID) ?
+				flt_entry->rule.attrib.vlan_id : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].tcp_syn =
+				(attrib->attrib_mask & IPA_FLT_TCP_SYN) ? 1 : 0;
+
+			if (attrib->attrib_mask & IPA_FLT_TCP_SYN_L2TP ||
+				attrib->ext_attrib_mask & IPA_FLT_EXT_L2TP_UDP_TCP_SYN) {
+				flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.tcp_syn_l2tp = 1;
+			}
+
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.l2tp_inner_ip_type =
+				(attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE) ?
+				flt_entry->rule.attrib.type : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_addr =
+				(attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) ?
+				htonl(flt_entry->rule.attrib.u.v4.dst_addr) : 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.dst_addr_mask =
+				(attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) ?
+				htonl(flt_entry->rule.attrib.u.v4.dst_addr_mask) : 0;
+
+			/* Attribute equations are currently NULL and can be enabled during flt_hw */
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.is_flt_hw = 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.protocol_eq = 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_offset_meq128 = 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_offset_meq32 = 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_ihl_offset_meq32 = 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.is_metadata_meq32_persent = 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_ihl_offset_range_16 = 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_ihl_offset_eq16 = 0;
+			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_ihl_offset_eq32 = 0;
+
+			rule_idx++;
+		}
+
+		if (rule_idx)
+		{
+			flt_rule_stats->v4_flt_tbl[tbl_idx].num_flt_rule  =  rule_idx;
+			tbl_idx++;
+		}
+	}
+	flt_rule_stats->num_v4_flt_table = tbl_idx;
+
+	mutex_unlock(&ipa3_ctx->lock);
+
+	if(copy_to_user((void __user *)arg,
+		(u8 *)flt_rule_stats,
+		alloc_size)) {
+		IPA_STATS_ERR("copy to user failed");
+		kfree(flt_rule_stats);
+		return -EFAULT;
+	}
+
+	kfree(flt_rule_stats);
+	return 0;
+}
+
+static int ipa_get_v6_flt_rule_stats(unsigned long arg)
+{
+	struct ipa_lnx_v6_flt_rule_stats *flt_rule_stats;
+	int alloc_size;
+	int i, j;
+	int rule_idx, tbl_idx;
+	struct ipa3_flt_tbl *flt_tbl;
+	struct ipa3_flt_entry *flt_entry;
+	struct ipa3_rt_tbl *rt_tbl;
+	int eq;
+	struct ipa_rule_attrib *attrib;
+
+	if (ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_tables >=
+		TLPD_NUM_MAX_RT_FLT_TBL) {
+		IPA_STATS_ERR("Rejecting flt rule log packet collection\n");
+		return -EFAULT;
+	}
+
+	alloc_size = sizeof(struct ipa_lnx_v6_flt_rule_stats);
+
+	flt_rule_stats = (struct ipa_lnx_v6_flt_rule_stats *) memdup_user((
+		const void __user *)arg, alloc_size);
+	if (IS_ERR(flt_rule_stats)) {
+		IPA_STATS_ERR("copy from user failed");
+		return -ENOMEM;
+	}
+
+
+	/* V6 flt rules*/
+	mutex_lock(&ipa3_ctx->lock);
+	tbl_idx = 0;
+	rule_idx = 0;
+
+	for (j = 0; j < ipa3_ctx->ipa_num_pipes; j++) {
+		if (tbl_idx == TLPD_NUM_MAX_RT_FLT_TBL) {
+			IPA_STATS_ERR("FLT6 table limit reached\n");
+			break;
+		}
+
+		if (!ipa_is_ep_support_flt(j))
+		{
+			IPA_STATS_DBG("j %d tbl idx %d .. continue\n", j , tbl_idx);
+			continue;
+		}
+
+		i = 0;
+		flt_tbl = &ipa3_ctx->flt_tbl[j][IPA_IP_v6];
+		rule_idx = 0;
+
+		list_for_each_entry(flt_entry, &flt_tbl->head_flt_rule_list, link) {
+			if (flt_entry->cookie != IPA_FLT_COOKIE)
+				continue;
+			if (flt_entry->rule.eq_attrib_type) {
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.rt_table_index = flt_entry->rule.rt_tbl_idx;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.attrib_mask = flt_entry->rule.eq_attrib.rule_eq_bitmap;
+				eq = true;
+			} else {
+				rt_tbl = ipa3_id_find(flt_entry->rule.rt_tbl_hdl);
+				if (rt_tbl == NULL ||
+					rt_tbl->cookie != IPA_RT_TBL_COOKIE) {
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.rt_table_index =  ~0;
+				} else
+				{
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.rt_table_index = rt_tbl->idx;
+				}
+
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.attrib_mask = flt_entry->rule.attrib.attrib_mask;
+				eq = false;
+			}
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].ep_idx = j;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].rule_idx =
+				tbl_idx;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].action =
+				flt_entry->rule.action;
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].retain_hdr =
+				flt_entry->rule.retain_hdr;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.equation = eq;
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].hashable =
+				flt_entry->rule.hashable;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].rule_id =
+				flt_entry->rule_id;
+
+			if (flt_entry->rule.hashable) {
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].in_sys =
+					flt_tbl->in_sys[IPA_RULE_HASHABLE];
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].force_sys =
+					flt_tbl->force_sys[IPA_RULE_HASHABLE];
+
+			}
+			else {
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].in_sys =
+					flt_tbl->in_sys[IPA_RULE_NON_HASHABLE];
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].force_sys =
+					flt_tbl->force_sys[IPA_RULE_NON_HASHABLE];
+			}
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].enable_stats =
+				flt_entry->rule.enable_stats;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].counter_id =
+				flt_entry->rule.cnt_idx;
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].pdn_index =
+				flt_entry->rule.pdn_idx;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].set_metadata =
+				flt_entry->rule.set_metadata;
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.close_aggr_irq_mode = flt_entry->rule.close_aggr_irq_mod;
+
+
+			attrib = &flt_entry->rule.attrib;
+			//Rule attributes
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].tos_value =
+				(attrib->attrib_mask & IPA_FLT_TOS_MASKED) ?
+				flt_entry->rule.attrib.tos_value : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].tos_mask =
+				(attrib->attrib_mask & IPA_FLT_TOS_MASKED) ?
+				flt_entry->rule.attrib.tos_mask : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.src_port_low =
+				(attrib->attrib_mask & IPA_FLT_SRC_PORT_RANGE) ?
+				flt_entry->rule.attrib.src_port_lo : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.src_port_high =
+				(attrib->attrib_mask & IPA_FLT_SRC_PORT_RANGE) ?
+				flt_entry->rule.attrib.src_port_hi : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.dst_port_low =
+				(attrib->attrib_mask & IPA_FLT_DST_PORT_RANGE) ?
+				flt_entry->rule.attrib.dst_port_lo : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.dst_port_high =
+				(attrib->attrib_mask & IPA_FLT_DST_PORT_RANGE) ?
+				flt_entry->rule.attrib.dst_port_hi : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].type =
+				(attrib->attrib_mask & IPA_FLT_TYPE) ?
+				flt_entry->rule.attrib.type : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].code =
+				(attrib->attrib_mask & IPA_FLT_CODE) ?
+				flt_entry->rule.attrib.code : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].spi =
+				(attrib->attrib_mask & IPA_FLT_SPI) ?
+				flt_entry->rule.attrib.spi : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].src_port =
+				(attrib->attrib_mask & IPA_FLT_SRC_PORT) ?
+				flt_entry->rule.attrib.src_port : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].dst_port =
+				(attrib->attrib_mask & IPA_FLT_DST_PORT) ?
+				flt_entry->rule.attrib.dst_port : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].tc =
+				(attrib->attrib_mask & IPA_FLT_TC) ?
+				flt_entry->rule.attrib.u.v6.tc : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].flow_label =
+				(attrib->attrib_mask & IPA_FLT_FLOW_LABEL) ?
+				flt_entry->rule.attrib.u.v6.flow_label : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].nxt_hdr =
+				(attrib->attrib_mask & IPA_FLT_NEXT_HDR) ?
+				flt_entry->rule.attrib.u.v6.next_hdr : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].frag =
+				(attrib->attrib_mask & IPA_FLT_META_DATA) ? 1 : 0;
+
+			for (i = 0; i < 4; i++) {
+				if (flt_entry->rule.attrib.attrib_mask & IPA_FLT_SRC_ADDR) {
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.src_addr[i] =
+						htonl(flt_entry->rule.attrib.u.v6.src_addr[i]);
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.src_addr_mask[i] =
+						htonl(flt_entry->rule.attrib.u.v6.src_addr_mask[i]);
+				}
+
+				if (flt_entry->rule.attrib.attrib_mask & IPA_FLT_DST_ADDR) {
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.dst_addr[i] =
+						htonl(flt_entry->rule.attrib.u.v6.dst_addr[i]);
+					flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+					.dst_addr_mask[i] =
+						htonl(flt_entry->rule.attrib.u.v6.dst_addr_mask[i]);
+				}
+			}
+
+			if ((attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.src_mac_addr =
+					(uint64_t)flt_entry->rule.attrib.src_mac_addr;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.src_mac_addr_mask =
+					(uint64_t)flt_entry->rule.attrib.src_mac_addr_mask;
+			}
+
+			if ((attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
+				(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
+				(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.dst_mac_addr =
+					(uint64_t)flt_entry->rule.attrib.dst_mac_addr;
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.dst_mac_addr_mask =
+					(uint64_t)flt_entry->rule.attrib.dst_mac_addr_mask;
+			}
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.payload_length =
+				(attrib->ext_attrib_mask & IPA_FLT_EXT_MTU) ?
+				flt_entry->rule.attrib.payload_length : 0;
+
+			if (attrib->attrib_mask & IPA_FLT_MAC_ETHER_TYPE ||
+				attrib->ext_attrib_mask &
+				IPA_FLT_EXT_L2TP_UDP_INNER_ETHER_TYPE) {
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.ether_type =
+					flt_entry->rule.attrib.ether_type;
+			}
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].vlan_id =
+				(attrib->attrib_mask & IPA_FLT_VLAN_ID) ?
+				flt_entry->rule.attrib.vlan_id : 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].tcp_syn =
+				(attrib->attrib_mask & IPA_FLT_TCP_SYN) ? 1 : 0;
+
+			if (attrib->attrib_mask & IPA_FLT_TCP_SYN_L2TP ||
+				attrib->ext_attrib_mask & IPA_FLT_EXT_L2TP_UDP_TCP_SYN) {
+				flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+				.tcp_syn_l2tp = 1;
+			}
+
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.l2tp_inner_ip_type =
+				(attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE) ?
+				flt_entry->rule.attrib.type : 0;
+
+
+			/* Attribute equations are currently NULL and can be enabled during flt_hw */
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.is_flt_hw = 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.protocol_eq = 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_offset_meq128 = 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_offset_meq32 = 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_ihl_offset_meq32 = 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.is_metadata_meq32_persent = 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_ihl_offset_range_16 = 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_ihl_offset_eq16 = 0;
+			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx]
+			.num_ihl_offset_eq32 = 0;
+
+			rule_idx++;
+		}
+		if (rule_idx)
+		{
+			flt_rule_stats->v6_flt_tbl[tbl_idx].num_flt_rule  =  rule_idx;
+			tbl_idx++;
+		}
+	}
+	flt_rule_stats->num_v6_flt_table = tbl_idx;
+
+	mutex_unlock(&ipa3_ctx->lock);
+
+	if(copy_to_user((void __user *)arg,
+		(u8 *)flt_rule_stats,
+		alloc_size)) {
+		IPA_STATS_ERR("copy to user failed");
+		kfree(flt_rule_stats);
+		return -EFAULT;
+	}
+
+	kfree(flt_rule_stats);
+	return 0;
+}
+
+static int ipa_get_v4_nat_rule_stats(unsigned long arg)
+{
+	struct ipa_lnx_v4_nat_rule_stats *nat_rule_stats;
+	int alloc_size;
+
+	alloc_size = sizeof(struct ipa_lnx_v4_nat_rule_stats);
+
+	IPA_STATS_DBG("Alloc size %d for filling v4_nat \n", alloc_size);
+	nat_rule_stats = (struct ipa_lnx_v4_nat_rule_stats *) memdup_user((
+		const void __user *)arg, alloc_size);
+	if (IS_ERR(nat_rule_stats)) {
+		IPA_STATS_ERR("copy from user failed");
+		return -ENOMEM;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+
+
+	mutex_unlock(&ipa3_ctx->lock);
+
+	if(copy_to_user((void __user *)arg,
+		(u8 *)nat_rule_stats,
+		alloc_size)) {
+		IPA_STATS_ERR("copy to user failed");
+		kfree(nat_rule_stats);
+		return -EFAULT;
+	}
+
+	kfree(nat_rule_stats);
+	return 0;
+}
+
+static int ipa_get_v6_nat_rule_stats(unsigned long arg)
+{
+	struct ipa_lnx_v6_nat_rule_stats *nat_rule_stats;
+	int alloc_size;
+
+	alloc_size = sizeof(struct ipa_lnx_v6_nat_rule_stats);
+
+	IPA_STATS_DBG("Alloc size %d for filling v6_nat \n", alloc_size);
+	nat_rule_stats = (struct ipa_lnx_v6_nat_rule_stats *) memdup_user((
+		const void __user *)arg, alloc_size);
+	if (IS_ERR(nat_rule_stats)) {
+		IPA_STATS_ERR("copy from user failed");
+		return -ENOMEM;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+
+
+	mutex_unlock(&ipa3_ctx->lock);
+
+	if(copy_to_user((void __user *)arg,
+		(u8 *)nat_rule_stats,
+		alloc_size)) {
+		IPA_STATS_ERR("copy to user failed");
+		kfree(nat_rule_stats);
+		return -EFAULT;
+	}
+
+	kfree(nat_rule_stats);
+	return 0;
+}
+
 static int ipa_stats_get_alloc_info(unsigned long arg)
 {
 	int i = 0;
@@ -1567,6 +2774,16 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 	int reg_idx;
 	int index;
 	int eth_instance_id;
+	int result;
+	struct ipa3_rt_tbl *rt_tbl;
+	struct ipa3_rt_entry *rt_entry;
+	struct ipa3_rt_tbl_set *rt_set;
+	struct ipa3_flt_tbl *flt_tbl;
+	struct ipa3_flt_entry *flt_entry;
+	int rule_idx, tbl_idx;
+	struct ipa_ipfltri_rule_eq *flt_attrib;
+	size_t pdn_entry_size;
+	char *pdn_entry;
 
 	if (copy_from_user(&ipa_lnx_agent_ctx, u64_to_user_ptr((u64) arg),
 		sizeof(struct ipa_lnx_stats_tlpd_ctx))) {
@@ -1788,6 +3005,228 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 		ipa_lnx_agent_ctx.alloc_info.num_page_rec_interval =
 			IPA_LNX_PIPE_PAGE_RECYCLING_INTERVAL_COUNT;
 
+	/* For v4 RT Rule */
+	if (ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_V4_RT_RULE_STATS) {
+		/* IPv4 RT structures */
+		mutex_lock(&ipa3_ctx->lock);
+		rt_set = &ipa3_ctx->rt_tbl_set[IPA_IP_v4];
+
+		tbl_idx = 0;
+		list_for_each_entry(rt_tbl, &rt_set->head_rt_tbl_list, link) {
+			if (tbl_idx == TLPD_NUM_MAX_RT_FLT_TBL) {
+				IPA_STATS_ERR("RT4 table limit reached\n");
+				break;
+			}
+
+			rule_idx = 0;
+			list_for_each_entry(rt_entry, &rt_tbl->head_rt_rule_list, link) {
+				if (rule_idx == TLPD_NUM_MAX_RT_FLT_RULE) {
+					IPA_STATS_ERR("RT4 Rule limit reached\n");
+					break;
+				}
+				/**
+				 * Filling number of attribute eq info 0 for rt rules.
+				 * Can be opened up in future for rt_hw_rules
+				 */
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_offset_meq128s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_offset_meq32s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_ihl_offset_meq32s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.v4_metadata_meq32_present[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_ihl_offset_range_16s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_ihl_offset_eq16s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_ihl_offset_eq32s[tbl_idx][rule_idx] = 0;
+				rule_idx++;
+			}
+			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_rules[tbl_idx] = rule_idx;
+			IPA_STATS_DBG("IP v4 rule %d rule %d\n", tbl_idx, rule_idx);
+			tbl_idx++;
+		}
+		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_tables = tbl_idx;
+		mutex_unlock(&ipa3_ctx->lock);
+	}
+
+	if (ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_V6_RT_RULE_STATS) {
+		/* IPv6 RT structures */
+		mutex_lock(&ipa3_ctx->lock);
+		rt_set = &ipa3_ctx->rt_tbl_set[IPA_IP_v6];
+
+		tbl_idx = 0;
+		list_for_each_entry(rt_tbl, &rt_set->head_rt_tbl_list, link) {
+			if (tbl_idx == TLPD_NUM_MAX_RT_FLT_TBL) {
+				IPA_STATS_ERR("RT6 table limit reached\n");
+				break;
+			}
+
+			rule_idx = 0;
+			list_for_each_entry(rt_entry, &rt_tbl->head_rt_rule_list, link) {
+				/**
+				 * Filling number of attribute eq info 0 for rt rules.
+				 * Can be opened up in future for rt_hw_rules
+				 */
+				if (rule_idx == TLPD_NUM_MAX_RT_FLT_RULE) {
+					IPA_STATS_ERR("RT6 Rule limit reached\n");
+					break;
+				}
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_offset_meq128s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_offset_meq32s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_ihl_offset_meq32s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.v6_metadata_meq32_present[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_ihl_offset_range_16s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_ihl_offset_eq16s[tbl_idx][rule_idx] = 0;
+				ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_ihl_offset_eq32s[tbl_idx][rule_idx] = 0;
+				rule_idx++;
+			}
+			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_rules[tbl_idx] = rule_idx;
+			IPA_STATS_DBG("IP v6 rule %d rule %d\n", tbl_idx, rule_idx);
+			tbl_idx++;
+		}
+		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables = tbl_idx;
+		mutex_unlock(&ipa3_ctx->lock);
+	}
+
+	/* For FLT Rule */
+	if (ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_V4_FLT_RULE_STATS) {
+		/* IPv4 structures */
+		tbl_idx = 0;
+		mutex_lock(&ipa3_ctx->lock);
+		for (j = 0; j < ipa3_ctx->ipa_num_pipes; j++) {
+			if (tbl_idx == TLPD_NUM_MAX_RT_FLT_TBL) {
+				IPA_STATS_ERR("FLT4 table limit reached\n");
+				break;
+			}
+
+			if (!ipa_is_ep_support_flt(j)) continue;
+			flt_tbl = &ipa3_ctx->flt_tbl[j][IPA_IP_v4];
+			i = 0;
+			rule_idx = 0;
+			list_for_each_entry(flt_entry, &flt_tbl->head_flt_rule_list, link) {
+				/**
+				 * Filling number of attribute eq info for flt rules.
+				 * Can be opened up in future for flt_hw_rules as well
+				 */
+				if (rule_idx == TLPD_NUM_MAX_RT_FLT_RULE) {
+					IPA_STATS_ERR("FLT4 Rule limit reached\n");
+					break;
+				}
+				if (flt_entry->rule.eq_attrib_type) {
+					flt_attrib = &flt_entry->rule.eq_attrib;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_offset_meq128s[tbl_idx][rule_idx] =
+						(flt_attrib->num_offset_meq_128 <= IPA_IPFLTR_NUM_MEQ_128_EQNS) ? flt_attrib->num_offset_meq_128 : IPA_IPFLTR_NUM_MEQ_128_EQNS;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_offset_meq32s[tbl_idx][rule_idx] =
+						(flt_attrib->num_offset_meq_32 <= IPA_IPFLTR_NUM_MEQ_32_EQNS) ? flt_attrib->num_offset_meq_32 : IPA_IPFLTR_NUM_MEQ_32_EQNS;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_ihl_offset_meq32s[tbl_idx][rule_idx] =
+						(flt_attrib->num_ihl_offset_meq_32 <= IPA_IPFLTR_NUM_IHL_MEQ_32_EQNS) ? flt_attrib->num_ihl_offset_meq_32 : IPA_IPFLTR_NUM_IHL_MEQ_32_EQNS;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.v4_metadata_meq32_present[tbl_idx][rule_idx] = flt_attrib->metadata_meq32_present;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_ihl_offset_range_16s[tbl_idx][rule_idx] =
+						(flt_attrib->num_ihl_offset_range_16 <= IPA_IPFLTR_NUM_IHL_RANGE_16_EQNS) ? flt_attrib->num_ihl_offset_range_16 : IPA_IPFLTR_NUM_IHL_RANGE_16_EQNS;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_ihl_offset_eq16s[tbl_idx][rule_idx] = flt_attrib->ihl_offset_eq_16_present;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_ihl_offset_eq32s[tbl_idx][rule_idx] = flt_attrib->ihl_offset_eq_32_present;
+				}
+				rule_idx++;
+			}
+
+			if (rule_idx)
+			{
+				ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_rules[tbl_idx] = rule_idx;
+				IPA_STATS_DBG("IP v4 flt save flt table %d rule %d \n", tbl_idx, rule_idx);
+				tbl_idx++;
+			}
+
+		}
+		ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_tables = tbl_idx;
+		mutex_unlock(&ipa3_ctx->lock);
+	}
+
+	if (ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_V6_FLT_RULE_STATS) {
+		/* IPv6 structures */
+		tbl_idx = 0;
+		mutex_lock(&ipa3_ctx->lock);
+		for (j = 0; j < ipa3_ctx->ipa_num_pipes; j++) {
+			if (tbl_idx == TLPD_NUM_MAX_RT_FLT_TBL) {
+				IPA_STATS_ERR("FLT6 table limit reached\n");
+				break;
+			} else if (!ipa_is_ep_support_flt(j))
+				continue;
+			flt_tbl = &ipa3_ctx->flt_tbl[j][IPA_IP_v6];
+			rule_idx = 0;
+			list_for_each_entry(flt_entry, &flt_tbl->head_flt_rule_list, link) {
+				/**
+				 * Filling number of attribute eq info for flt rules.
+				 * Can be opened up in future for flt_hw_rules as well
+				 */
+				if (rule_idx == TLPD_NUM_MAX_RT_FLT_RULE) {
+					IPA_STATS_ERR("FLT6 Rule limit reached\n");
+					break;
+				}
+				if (flt_entry->rule.eq_attrib_type) {
+					flt_attrib = &flt_entry->rule.eq_attrib;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_offset_meq128s[tbl_idx][rule_idx] =
+						(flt_attrib->num_offset_meq_128 <= IPA_IPFLTR_NUM_MEQ_128_EQNS) ? flt_attrib->num_offset_meq_128 : IPA_IPFLTR_NUM_MEQ_128_EQNS;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_offset_meq32s[tbl_idx][rule_idx] =
+						(flt_attrib->num_offset_meq_32 <= IPA_IPFLTR_NUM_MEQ_32_EQNS) ? flt_attrib->num_offset_meq_32 : IPA_IPFLTR_NUM_MEQ_32_EQNS;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_ihl_offset_meq32s[tbl_idx][rule_idx] =
+						(flt_attrib->num_ihl_offset_meq_32 <= IPA_IPFLTR_NUM_IHL_MEQ_32_EQNS) ? flt_attrib->num_ihl_offset_meq_32 : IPA_IPFLTR_NUM_IHL_MEQ_32_EQNS;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.v6_metadata_meq32_present[tbl_idx][rule_idx] = flt_attrib->metadata_meq32_present;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_ihl_offset_range_16s[tbl_idx][rule_idx] =
+						(flt_attrib->num_ihl_offset_range_16 <= IPA_IPFLTR_NUM_IHL_RANGE_16_EQNS) ? flt_attrib->num_ihl_offset_range_16 : IPA_IPFLTR_NUM_IHL_RANGE_16_EQNS;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_ihl_offset_eq16s[tbl_idx][rule_idx] = flt_attrib->ihl_offset_eq_16_present;
+					ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_ihl_offset_eq32s[tbl_idx][rule_idx] = flt_attrib->ihl_offset_eq_32_present;
+				}
+				rule_idx++;
+			}
+			if (rule_idx)
+			{
+				ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_rules[tbl_idx] = rule_idx;
+				IPA_STATS_DBG("IP v6 flt save flt table %d rule %d \n", tbl_idx, rule_idx);
+				tbl_idx++;
+			}
+
+		}
+		ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_tables = tbl_idx;
+		mutex_unlock(&ipa3_ctx->lock);
+	}
+
+	/* For NAT Rule instance */
+	if (ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_V4_NAT_RULE_STATS) {
+		/* For PDN table */
+		if (ipa3_ctx->nat_mem.pdn_mem.base) {
+			result = ipahal_nat_entry_size(
+				IPAHAL_NAT_IPV4_PDN, &pdn_entry_size);
+			if (result) {
+				IPAERR("Failed to retrieve size of PDN entry");
+				return -EFAULT;
+			}
+			for (i = 0, pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
+				i < ipa3_get_max_pdn();
+				++i, pdn_entry += pdn_entry_size)
+				ipa_lnx_agent_ctx.alloc_info.num_pdn_tbl++;
+		}
+
+		/* For NAT table */
+		ipa_lnx_agent_ctx.alloc_info.num_nat_tbl = 0;
+		ipa_lnx_agent_ctx.alloc_info.num_nat_idx_tbl = 0;
+	}
+
+	if (ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_V6_NAT_RULE_STATS) {
+		/* For PDN table */
+		if (ipa3_ctx->nat_mem.pdn_mem.base) {
+			result = ipahal_nat_entry_size(
+				IPAHAL_NAT_IPV4_PDN, &pdn_entry_size);
+			if (result) {
+				IPAERR("Failed to retrieve size of PDN entry");
+				return -EFAULT;
+			}
+			for (i = 0, pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
+				i < ipa3_get_max_pdn();
+				++i, pdn_entry += pdn_entry_size)
+				ipa_lnx_agent_ctx.alloc_info.num_pdn_tbl++;
+		}
+
+		/* For NAT table */
+		ipa_lnx_agent_ctx.alloc_info.num_nat_tbl = 0;
+		ipa_lnx_agent_ctx.alloc_info.num_nat_idx_tbl = 0;
+	}
+
 	if(copy_to_user((u8 *)arg,
 		&ipa_lnx_agent_ctx,
 		sizeof(struct ipa_lnx_stats_tlpd_ctx))) {
@@ -1814,6 +3253,9 @@ static long ipa_lnx_stats_ioctl(struct file *filp,
 		return -EPERM;
 	}
 
+	IPA_STATS_DBG("ipa get alloc info 0x%lx 0x%x", IPA_LNX_IOC_GET_ALLOC_INFO, cmd);
+
+	mutex_lock(&ipa_lnx_ctx_mutex);
 	switch (cmd) {
 	case IPA_LNX_IOC_GET_ALLOC_INFO:
 		retval = ipa_stats_get_alloc_info(arg);
@@ -1913,10 +3355,63 @@ static long ipa_lnx_stats_ioctl(struct file *filp,
 				break;
 			}
 		}
+		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V4_RT_RULE_STATS) {
+			IPA_STATS_DBG("ipa get v4 rt rule stats called\n");
+			retval = ipa_get_v4_rt_rule_stats((unsigned long) consolidated_stats->v4_rt_rule_stats);
+			if (retval) {
+				IPA_STATS_ERR("ipa get v4 rt rule stats fail\n");
+				break;
+			}
+			IPA_STATS_DBG("ipa get v4 rt rule stats passed\n");
+		}
+		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V6_RT_RULE_STATS) {
+			IPA_STATS_DBG("ipa get v6 rt rule stats called\n");
+			retval = ipa_get_v6_rt_rule_stats((unsigned long) consolidated_stats->v6_rt_rule_stats);
+			if (retval) {
+				IPA_STATS_ERR("ipa get v6 rt rule stats fail\n");
+				break;
+			}
+			IPA_STATS_DBG("ipa get v6 rt rule stats passed\n");
+		}
+		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V4_FLT_RULE_STATS) {
+			IPA_STATS_DBG("ipa get v4 flt rule stats called\n");
+			retval = ipa_get_v4_flt_rule_stats((unsigned long) consolidated_stats->v4_flt_rule_stats);
+			if (retval) {
+				IPA_STATS_ERR("ipa get flt rule stats fail\n");
+				break;
+			}
+			IPA_STATS_DBG("ipa get v4 flt rule stats passed\n");
+		}
+		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V6_FLT_RULE_STATS) {
+			IPA_STATS_DBG("ipa get v6 flt rule stats called\n");
+			retval = ipa_get_v6_flt_rule_stats((unsigned long) consolidated_stats->v6_flt_rule_stats);
+			if (retval) {
+				IPA_STATS_ERR("ipa get flt rule stats fail\n");
+				break;
+			}
+			IPA_STATS_DBG("ipa get v6 flt rule stats passed\n");
+		}
+		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V4_NAT_RULE_STATS) {
+			retval = ipa_get_v4_nat_rule_stats((unsigned long) consolidated_stats->v4_nat_rule_stats);
+			if (retval) {
+				IPA_STATS_ERR("ipa get nat rule stats fail\n");
+				break;
+			}
+		}
+		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V6_NAT_RULE_STATS) {
+			retval = ipa_get_v6_nat_rule_stats((unsigned long) consolidated_stats->v6_nat_rule_stats);
+			if (retval) {
+				IPA_STATS_ERR("ipa get nat rule stats fail\n");
+				break;
+			}
+		}
 		break;
 	default:
 		retval = -ENOTTY;
 	}
+
+	IPA_STATS_ERR("Exit .. return %d\n", retval);
+	mutex_unlock(&ipa_lnx_ctx_mutex);
 	return retval;
 }
 
