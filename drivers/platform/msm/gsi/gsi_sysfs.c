@@ -561,9 +561,13 @@ static ssize_t ipc_low_store(struct device *dev, struct device_attribute *attr, 
 	mutex_lock(&gsi_ctx->mlock);
 	if (option) {
 		if (!gsi_ipc_logbuf_low) {
+			#if IS_ENABLED(CONFIG_IPC_LOGGING)
 			gsi_ipc_logbuf_low =
 				ipc_log_context_create(GSI_IPC_LOG_PAGES,
 					"gsi_low", MINIDUMP_MASK);
+			#else
+			gsi_ipc_logbuf_low = NULL;
+			#endif
 			if (gsi_ipc_logbuf_low == NULL)
 				TERR("failed to get ipc_logbuf_low\n");
 		}
