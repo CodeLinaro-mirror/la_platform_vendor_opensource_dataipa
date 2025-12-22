@@ -2785,6 +2785,7 @@ static void ipa_pkt_status_parse_thin_v6_0(const void *unparsed_status,
 	status->metadata = hw_status->ipa_pkt.metadata;
 	status->endp_src_idx = hw_status->ipa_pkt.endp_src_idx;
 	status->ucp = hw_status->ipa_pkt.ucp;
+	status->tag_info = hw_status->ipa_pkt.tag_info;
 	status->exception = pkt_status_parse_exception(is_ipv6,
 					hw_status->ipa_pkt.exception);
 }

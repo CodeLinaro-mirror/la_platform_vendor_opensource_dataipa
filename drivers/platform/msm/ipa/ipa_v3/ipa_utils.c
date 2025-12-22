@@ -6750,7 +6750,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0][IPA_CLIENT_APPS_WAN_ETH_PROD] = {
 			true, IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 13, 20, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -19234,4 +19234,168 @@ int ipa3_get_ee_by_pipe(int pipe_idx)
 	}
 
 	return ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ee;
+}
+
+static void ipa3_ippt_pdn_config_msg_free_cb(void *buff, u32 len, u32 type)
+{
+	if (!buff) {
+		IPAERR("Null buffer\n");
+		return;
+	}
+
+	kfree(buff);
+}
+
+/*resend the ippt pdn info to ipacm*/
+int ipa3_ippt_resend_msg(void)
+{
+	struct ipa3_ip_pass_msg *entry = NULL;
+	struct ipa3_ip_pass_msg *next = NULL;
+	struct ipa_msg_meta msg_meta;
+	void *buff;
+	struct ipa_ioc_pdn_config *pdn_info;
+	int retval = 0;
+
+	if(list_empty(&ipa3_ctx->msg_ippt_list))
+	{
+		IPADBG("list is empty\n");
+		return 0;
+	}
+	else
+	{
+		list_for_each_entry_safe(entry, next,
+			&ipa3_ctx->msg_ippt_list, link) {
+			/* compare to delete one*/
+			if(entry)
+			{
+				IPADBG("entry is exists\n");
+				memset(&msg_meta, 0, sizeof(msg_meta));
+
+				pdn_info = kzalloc(sizeof(struct ipa_ioc_pdn_config),
+					GFP_KERNEL);
+				if (!pdn_info)
+					return -ENOMEM;
+
+				memcpy(pdn_info, entry, sizeof(struct ipa_ioc_pdn_config));
+				msg_meta.msg_len = sizeof(struct ipa_ioc_pdn_config);
+				buff = pdn_info;
+
+				msg_meta.msg_type = pdn_info->pdn_cfg_type;
+				/* null terminate the string */
+				pdn_info->dev_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+				if ((pdn_info->pdn_cfg_type < IPA_PDN_DEFAULT_MODE_CONFIG) ||
+						(pdn_info->pdn_cfg_type >= IPA_PDN_CONFIG_EVENT_MAX)) {
+					IPAERR_RL("invalid pdn_cfg_type =%d", pdn_info->pdn_cfg_type);
+					kfree(pdn_info);
+					return -EINVAL;
+				}
+
+				IPADBG("type %d, interface name: %s, enable:%d\n", msg_meta.msg_type,
+					pdn_info->dev_name, pdn_info->enable);
+
+				if (pdn_info->pdn_cfg_type == IPA_PDN_IP_PASSTHROUGH_MODE_CONFIG) {
+					IPADBG("Client MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
+						pdn_info->u.passthrough_cfg.client_mac_addr[0],
+						pdn_info->u.passthrough_cfg.client_mac_addr[1],
+						pdn_info->u.passthrough_cfg.client_mac_addr[2],
+						pdn_info->u.passthrough_cfg.client_mac_addr[3],
+						pdn_info->u.passthrough_cfg.client_mac_addr[4],
+						pdn_info->u.passthrough_cfg.client_mac_addr[5]);
+				}
+				retval = ipa_send_msg(&msg_meta, buff,
+					ipa3_ippt_pdn_config_msg_free_cb);
+				if (retval) {
+					IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+						retval,
+						msg_meta.msg_type);
+					kfree(buff);
+					return retval;
+				}
+				IPADBG("exit\n");
+
+				return 0;
+			}
+		}
+	}
+	return 0;
+}
+
+/* Caching ippt pdn info */
+int ipa3_copy_ip_pass_pdn_info(
+	struct ipa_ioc_pdn_config *pdn_info)
+{
+	struct ipa3_ip_pass_msg *entry = NULL;
+	struct ipa3_ip_pass_msg *next = NULL;
+	struct ipa3_ip_pass_msg *itr = NULL;
+
+	if(pdn_info->enable == 1)
+	{
+		entry = kzalloc(sizeof(struct ipa3_ip_pass_msg), GFP_KERNEL);
+		if (!entry)
+		{
+			IPAERR("Failed to allocate memory for ip_pass_msg\n");
+			return -ENOMEM;
+		}
+		if(list_empty(&ipa3_ctx->msg_ippt_list))
+		{
+			memcpy(&(entry->ippass_config), pdn_info,
+				sizeof(struct ipa_ioc_pdn_config));
+			list_add_tail(&entry->link, &ipa3_ctx->msg_ippt_list);
+			IPADBG("first entry is added to the list\n");
+			ipa3_ctx->ippt_pdninfo_refcnt++;
+		}
+		else
+		{
+			list_for_each_entry_safe(itr, next,
+				&ipa3_ctx->msg_ippt_list, link) {
+				/* compare to delete one*/
+				if (itr && (!memcmp(itr->ippass_config.dev_name, pdn_info->dev_name,
+					sizeof(pdn_info->dev_name)))) {
+					IPADBG("entry %px already exists\n", itr);
+					kfree(entry);
+					return 0;
+				}
+			}
+			memcpy(&(entry->ippass_config), pdn_info,
+				sizeof(struct ipa_ioc_pdn_config));
+			list_add_tail(&entry->link, &ipa3_ctx->msg_ippt_list);
+			ipa3_ctx->ippt_pdninfo_refcnt++;
+			IPADBG("entry is added, now no of entries is %d\n", ipa3_ctx->ippt_pdninfo_refcnt);
+		}
+	}
+	else if(pdn_info->enable == 0)
+	{
+		IPADBG("ippt_pdninfo_refcnt %d\n",ipa3_ctx->ippt_pdninfo_refcnt);
+		if(ipa3_ctx->ippt_pdninfo_refcnt == 0)
+		{
+			IPADBG("ippt pdn ref count 0\n");
+			return 0;
+		}
+		if(list_empty(&ipa3_ctx->msg_ippt_list))
+		{
+			IPADBG("list is empty\n");
+			return 0;
+		}
+		else
+		{
+			list_for_each_entry_safe(itr, next,
+				&ipa3_ctx->msg_ippt_list, link) {
+				/* compare to delete one*/
+				if(itr && (!memcmp(itr->ippass_config.dev_name,pdn_info->dev_name,
+				sizeof(pdn_info->dev_name)))) {
+					IPADBG("entry %px is found, so clearing the pdn info\n", itr);
+					list_del(&itr->link);
+					kfree(itr);
+					itr = NULL;
+					ipa3_ctx->ippt_pdninfo_refcnt--;
+					IPADBG("now %d ippt pdn config entries present in list\n",
+						ipa3_ctx->ippt_pdninfo_refcnt);
+					return 0;
+				}
+			}
+			IPADBG("entry is not present\n");
+			return 0;
+		}
+	}
+	return 0;
 }

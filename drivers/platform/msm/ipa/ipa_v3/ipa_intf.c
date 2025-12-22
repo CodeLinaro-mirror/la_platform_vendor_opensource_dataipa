@@ -594,6 +594,159 @@ static int lan_msg_process(struct ipa_msg_meta *meta, void *buff)
 	return 0;
 }
 
+static int qos_msg_process(struct ipa_msg_meta *meta, void *buff)
+{
+	struct ipa3_push_msg *msg_dup;
+	void *data_dup = NULL;
+	struct ipa3_push_msg *entry;
+	struct ipa3_push_msg *next;
+	struct ipa_ioc_qos_config *event_ex_list = NULL;
+	struct ipa_ioc_qos_config *qos_param = NULL;
+
+	if (!buff)
+		return -EINVAL;
+	if (meta->msg_type == IPA_QOS_PARAM_ADD_EVENT) {
+		qos_param = buff;
+		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+		list_for_each_entry_safe(entry, next,
+				&ipa3_ctx->msg_qos_param_list,
+				link) {
+			event_ex_list = entry->buff;
+			if (event_ex_list->traffic_class ==
+					qos_param->traffic_class &&
+				event_ex_list->ip_type ==
+					qos_param->ip_type &&
+				event_ex_list->src_ip_addr ==
+					qos_param->src_ip_addr &&
+				event_ex_list->dst_ip_addr ==
+					qos_param->dst_ip_addr &&
+				event_ex_list->src_port_start ==
+					qos_param->src_port_start &&
+				event_ex_list->src_port_end ==
+					qos_param->src_port_end &&
+				event_ex_list->dst_port_start ==
+					qos_param->dst_port_start &&
+				event_ex_list->dst_port_end ==
+					qos_param->dst_port_end &&
+				event_ex_list->protocol ==
+					qos_param->protocol &&
+				event_ex_list->dscp ==
+					qos_param->dscp &&
+				event_ex_list->pcp ==
+					qos_param->pcp &&
+				!memcmp(event_ex_list->src_v6_ip_addr,
+					qos_param->src_v6_ip_addr,
+					sizeof(qos_param->src_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_v6_ip_addr,
+					qos_param->dst_v6_ip_addr,
+					sizeof(qos_param->dst_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_mac_addr,
+					qos_param->dst_mac_addr,
+					sizeof(qos_param->dst_mac_addr)) &&
+				!memcmp(event_ex_list->src_mac_addr,
+					qos_param->src_mac_addr,
+					sizeof(qos_param->src_mac_addr))
+				) {
+					IPADBG("Duplicate entry, ignore\n");
+					mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+					return 0;
+				}
+		}
+		msg_dup = kzalloc(sizeof(*msg_dup), GFP_KERNEL);
+		if (msg_dup == NULL) {
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+			return -ENOMEM;
+		}
+		msg_dup->meta = *meta;
+		if (meta->msg_len > 0 && buff) {
+			data_dup = kmemdup(buff, meta->msg_len, GFP_KERNEL);
+			if (data_dup == NULL) {
+				kfree(msg_dup);
+				mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+				return -ENOMEM;
+			}
+			memcpy(data_dup, buff, meta->msg_len);
+			msg_dup->buff = data_dup;
+			msg_dup->callback = ipa_send_msg_free;
+		} else {
+			IPAERR("msg_len %d\n", meta->msg_len);
+			kfree(msg_dup);
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+			return -ENOMEM;
+		}
+		list_add_tail(&msg_dup->link, &ipa3_ctx->msg_qos_param_list);
+		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+	} else if (meta->msg_type == IPA_QOS_PARAM_DELETE_EVENT) {
+		/* debug print */
+		qos_param = buff;
+		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+		list_for_each_entry_safe(entry, next,
+				&ipa3_ctx->msg_qos_param_list,
+				link) {
+			if(entry->meta.msg_type == IPA_QOS_PARAM_ADD_EVENT) {
+				event_ex_list = entry->buff;
+				if (event_ex_list->traffic_class ==
+						qos_param->traffic_class &&
+					event_ex_list->ip_type ==
+						qos_param->ip_type &&
+					event_ex_list->src_ip_addr ==
+						qos_param->src_ip_addr &&
+					event_ex_list->dst_ip_addr ==
+						qos_param->dst_ip_addr &&
+					event_ex_list->src_port_start ==
+						qos_param->src_port_start &&
+					event_ex_list->src_port_end ==
+						qos_param->src_port_end &&
+					event_ex_list->dst_port_start ==
+						qos_param->dst_port_start &&
+					event_ex_list->dst_port_end ==
+						qos_param->dst_port_end &&
+					event_ex_list->protocol ==
+						qos_param->protocol &&
+					event_ex_list->dscp ==
+						qos_param->dscp &&
+					event_ex_list->pcp ==
+						qos_param->pcp &&
+					!memcmp(event_ex_list->src_v6_ip_addr,
+						qos_param->src_v6_ip_addr,
+						sizeof(qos_param->src_v6_ip_addr)) &&
+					!memcmp(event_ex_list->dst_v6_ip_addr,
+						qos_param->dst_v6_ip_addr,
+						sizeof(qos_param->dst_v6_ip_addr)) &&
+					!memcmp(event_ex_list->dst_mac_addr,
+						qos_param->dst_mac_addr,
+						sizeof(qos_param->dst_mac_addr)) &&
+					!memcmp(event_ex_list->src_mac_addr,
+						qos_param->src_mac_addr,
+						sizeof(qos_param->src_mac_addr))
+					) {
+					IPADBG("clean the entry\n");
+					list_del(&entry->link);
+					entry->callback(entry->buff,
+						entry->meta.msg_len,
+						entry->meta.msg_type);
+					kfree(entry);
+					break;
+				}
+			}
+		}
+		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+	}else if (meta->msg_type == IPA_QOS_PARAM_FLUSH_EVENT) {
+		IPADBG("Delete all entries\n");
+		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+		list_for_each_entry_safe(entry, next,
+				&ipa3_ctx->msg_qos_param_list,
+				link) {
+				list_del(&entry->link);
+				entry->callback(entry->buff,
+					entry->meta.msg_len, entry->meta.msg_type);
+				kfree(entry);
+		}
+		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+	}
+	return 0;
+}
+
 /**
  * ipa_send_msg() - Send "message" from kernel client to IPA driver
  * @meta: [in] message meta-data
@@ -651,6 +804,8 @@ int ipa_send_msg(struct ipa_msg_meta *meta, void *buff,
 	if (lan_msg_process(meta, buff))
 		IPADBG("lan_msg_process failed\n");
 
+	if (qos_msg_process(meta, buff))
+		IPAERR_RL("qos_msg_process failed\n");
 	/* unlock only after process */
 	mutex_unlock(&ipa3_ctx->msg_lock);
 	IPA_STATS_INC_CNT(ipa3_ctx->stats.msg_w[meta->msg_type]);
@@ -777,6 +932,57 @@ int ipa3_resend_lan_msg(void)
 	return 0;
 }
 
+/**
+ * ipa3_resend_qos_msg() - Resend cached "message" to IPACM
+ *
+ * resend QOS events to user-space
+ *
+ * Returns:     0 on success, negative on failure
+ *
+ * Note:        Should not be called from atomic context
+ */
+
+int ipa3_resend_qos_msg(void)
+{
+	struct ipa3_push_msg *entry = NULL;
+	struct ipa3_push_msg *next = NULL;
+	struct ipa_ioc_qos_config *qos_param = NULL;
+	struct ipa3_push_msg *msg = NULL;
+	void *data = NULL;
+
+	IPADBG("\n");
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry_safe(entry, next, &ipa3_ctx->msg_qos_param_list, link) {
+		qos_param = entry->buff;
+
+		IPADBG("QOS Msg type: %d\n", qos_param->qos_param_evt_type);
+		IPADBG("interface name: %s\n", qos_param->dev_name);
+
+		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+		if (msg == NULL) {
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+			return -ENOMEM;
+		}
+		msg->meta = entry->meta;
+		data = kzalloc(entry->meta.msg_len, GFP_KERNEL);
+		if (data == NULL) {
+			kfree(msg);
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+			return -ENOMEM;
+		}
+		memcpy(data, entry->buff, entry->meta.msg_len);
+		msg->buff = data;
+		msg->callback = ipa_send_msg_free;
+		mutex_lock(&ipa3_ctx->msg_lock);
+		list_add_tail(&msg->link, &ipa3_ctx->msg_list);
+		mutex_unlock(&ipa3_ctx->msg_lock);
+		wake_up(&ipa3_ctx->msg_waitq);
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	return 0;
+}
+
 /*
  * ipa3_send_done_restore_msg() - Resend done_restore_msg to IPACM
  *
@@ -824,6 +1030,11 @@ int ipa3_resend_driver_msg(void)
 
 	IPADBG("resend lan msg\n");
 	retval = ipa3_resend_lan_msg();
+	if (retval)
+		goto fail;
+
+	IPADBG("resend qos msg\n");
+	retval = ipa3_resend_qos_msg();
 	if (retval)
 		goto fail;
 
