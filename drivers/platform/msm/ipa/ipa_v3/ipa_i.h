@@ -1981,10 +1981,6 @@ struct ipa_quota_stats_all {
 	struct ipa_quota_stats client[IPA_MAX_NUM_PIPES];
 };
 
-struct ipa_drop_stats {
-	u32 drop_packet_cnt;
-	u32 drop_byte_cnt;
-};
 
 struct ipa_drop_stats_all {
 	struct ipa_drop_stats client[IPA_CLIENT_MAX];
