@@ -44,6 +44,10 @@
 #include <linux/rmnet_ipa_fd_ioctl.h>
 #include "ipa_uc_holb_monitor.h"
 #include <soc/qcom/minidump.h>
+#ifdef CONFIG_IPA_RTP
+#include "ipa_rtp_genl.h"
+#endif
+#include <linux/dma-buf.h>
 
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"
@@ -408,6 +412,8 @@ enum {
 #define IPA_GSI_CHANNEL_HALT_MAX_SLEEP 10000
 #define IPA_GSI_CHANNEL_HALT_MAX_TRY 10
 
+#define XR_IPA_UC_INIT_TIMEOUT_MSEC 100
+
 /* round addresses for closes page per SMMU requirements */
 #define IPA_SMMU_ROUND_TO_PAGE(iova, pa, size, iova_p, pa_p, size_p) \
 	do { \
@@ -448,6 +454,13 @@ enum {
 #define MBOX_TOUT_MS 100
 
 #define IPA_RULE_CNT_MAX 512
+
+/* XR-IPA uC temp buffers sizes */
+#define TEMP_BUFF_SIZE	0x300000
+/* XR-IPA uC no. of temp buffers */
+#define NO_OF_BUFFS	0x04
+/* Max number of RTP streams supported */
+#define MAX_STREAMS 2
 
 /* miscellaneous for rmnet_ipa and qmi_service */
 enum ipa_type_mode {
@@ -771,6 +784,7 @@ struct ipa3_hdr_proc_ctx_offset_entry {
  * @type: header processing context type
  * @l2tp_params: L2TP parameters
  * @generic_params: generic proc_ctx params
+ * @rtp_params: ipa rtp proc_ctx params
  * @offset_entry: entry's offset
  * @hdr: the header
  * @cookie: cookie used for validity check
@@ -786,6 +800,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
+	struct ipa_rtp_hdr_proc_ctx_params rtp_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -1444,6 +1459,7 @@ enum ipa3_platform_type {
 	IPA_PLAT_TYPE_MDM	= 0,
 	IPA_PLAT_TYPE_MSM	= 1,
 	IPA_PLAT_TYPE_APQ	= 2,
+	IPA_PLAT_TYPE_XR	= 3,
 };
 
 enum ipa3_config_this_ep {
@@ -1892,6 +1908,7 @@ enum ipa_smmu_cb_type {
 	IPA_SMMU_CB_11AD,
 	IPA_SMMU_CB_ETH,
 	IPA_SMMU_CB_ETH1,
+	IPA_SMMU_CB_RTP,
 	IPA_SMMU_CB_MAX
 };
 
@@ -2162,6 +2179,7 @@ enum ipa_per_usb_enum_type_e {
  * @ip6_flt_tbl_lcl: where ip6 flt tables reside 1-local; 0-system
  * @power_mgmt_wq: workqueue for power management
  * @transport_power_mgmt_wq: workqueue transport related power management
+ * @xr_uc_init_wq: workqueue for uc initializations
  * @tag_process_before_gating: indicates whether to start tag process before
  *  gating IPA clocks
  * @transport_pm: transport power management related information
@@ -2291,6 +2309,7 @@ struct ipa3_context {
 	struct workqueue_struct *transport_power_mgmt_wq;
 	bool tag_process_before_gating;
 	struct ipa3_transport_pm transport_pm;
+	struct workqueue_struct *xr_uc_init_wq;
 	unsigned long gsi_evt_comm_hdl;
 	u32 gsi_evt_comm_ring_rem;
 	u32 clnt_hdl_cmd;
@@ -2318,6 +2337,14 @@ struct ipa3_context {
 	bool ipa_wdi2_over_gsi;
 	bool ipa_wdi3_over_gsi;
 	bool ipa_wdi_opt_dpath;
+	atomic_t ipa_xr_wdi_flt_rsv_status;
+	struct completion ipa_xr_wdi_flt_rsrv_success;
+	u8 rtp_stream_id_cnt;
+	u32 rtp_proc_hdls[MAX_STREAMS];
+	u32 rtp_rt4_tbl_hdls[MAX_STREAMS];
+	u32 rtp_rt4_tbl_idxs[MAX_STREAMS];
+	u32 rtp_rt4_rule_hdls[MAX_STREAMS];
+	u32 rtp_flt4_rule_hdls[MAX_STREAMS];
 	bool ipa_endp_delay_wa;
 	bool lan_coal_enable;
 	bool ipa_fltrt_not_hashable;
@@ -2334,6 +2361,7 @@ struct ipa3_context {
 	struct platform_device *master_pdev;
 	struct device *pdev;
 	struct device *uc_pdev;
+	struct device *rtp_pdev;
 	spinlock_t idr_lock;
 	u32 enable_clock_scaling;
 	u32 enable_napi_chain;
@@ -3730,4 +3758,22 @@ int ipa3_update_apps_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t da
 /* Periodic stats update */
 int ipa3_update_client_holb_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
 int ipa3_update_dma_per_stats(enum ipa_per_stats_type_e stats_type, uint32_t data);
+
+/* XR-IPA API's */
+#ifdef CONFIG_IPA_RTP
+int ipa3_uc_send_tuple_info_cmd(struct traffic_tuple_info *data, uint8_t stream_id);
+int ipa3_alloc_temp_buffs_to_uc(unsigned int size, unsigned int no_of_buffs);
+int ipa3_map_buff_to_device_addr(struct map_buffer *map_buffs);
+int ipa3_unmap_buff_from_device_addr(struct unmap_buffer *unmap_buffs);
+int ipa3_send_bitstream_buff_info(struct bitstream_buffers *data);
+int ipa3_tuple_info_cmd_to_wlan_uc(struct traffic_tuple_info *req, u32 stream_id);
+int ipa3_uc_send_remove_stream_cmd(struct remove_bitstream_buffers *data);
+int ipa3_create_hfi_send_uc(void);
+int ipa3_allocate_uc_pipes_er_tr_send_to_uc(void);
+void ipa3_free_uc_temp_buffs(unsigned int no_of_buffs);
+void ipa3_free_uc_pipes_er_tr(void);
+int ipa3_uc_send_add_bitstream_buffers_cmd(struct bitstream_buffers_to_uc *data);
+void ipa3_synx_uninitialize(void);
+#endif
+
 #endif /* _IPA3_I_H_ */

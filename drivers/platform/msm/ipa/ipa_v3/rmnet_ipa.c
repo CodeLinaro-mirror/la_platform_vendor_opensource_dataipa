@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 /*
@@ -1788,8 +1788,15 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	}
 
 	ipa_wan_ep_cfg = &rmnet_ipa3_ctx->ipa_to_apps_ep_cfg;
-	ipa_wan_ep_cfg->ipa_ep_cfg.cfg.cs_offload_en =
-		IPA_ENABLE_CS_DL_QMAP;
+	if (ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_5)
+		ipa_wan_ep_cfg->ipa_ep_cfg.cfg.cs_offload_en =
+			IPA_ENABLE_CS_DL_QMAP;
+	else
+		ipa_wan_ep_cfg->ipa_ep_cfg.cfg.cs_offload_en =
+			IPA_ENABLE_CS_OFFLOAD_DL;
+
+	IPAWANDBG("DL chksum set\n");
+
 
 	if (!ipa3_disable_apps_wan_cons_deaggr(
 		ingress_param->agg_byte_limit,
@@ -1807,7 +1814,8 @@ static int ipa3_setup_apps_wan_cons_pipes(
 		}
 	}
 
-	if (ingress_param->cs_offload_en) {
+	if (ingress_param->cs_offload_en &&
+			ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_5) {
 		ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 8;
 		rmnet_ipa3_ctx->dl_csum_offload_enabled = true;
 	} else {
@@ -2218,25 +2226,26 @@ static int ipa3_setup_apps_wan_prod_pipes(
 		return rc;
 	}
 	ipa_wan_ep_cfg = &rmnet_ipa3_ctx->apps_to_ipa_ep_cfg;
-	if (egress_param->cs_offload_en &&
-		(dev->features & RMNET_IPA_ULCS_FEATURE)) {
+	if (egress_param->cs_offload_en) {
 		IPAWANDBG("UL Chksum set\n");
 		ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 8;
 		ipa_wan_ep_cfg->ipa_ep_cfg.cfg.cs_offload_en
 			= IPA_ENABLE_CS_OFFLOAD_UL;
 		ipa_wan_ep_cfg->ipa_ep_cfg.cfg.cs_metadata_hdr_offset
 			= 1;
-		if (egress_param->ulso_en &&
-			(dev->features & RMNET_IPA_ULSO_FEATURE)) {
-			IPAWANDBG("ULSO set\n");
-			ipa_wan_ep_cfg->ipa_ep_cfg.ulso.ipid_min_max_idx =
-				egress_param->ipid_min_max_idx;
-			ipa_wan_ep_cfg->ipa_ep_cfg.ulso.is_ulso_pipe = true;
-		}
 	} else {
 		ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 4;
 		ipa_wan_ep_cfg->ipa_ep_cfg.cfg.cs_offload_en
 			= IPA_DISABLE_CS_OFFLOAD;
+	}
+
+	if (egress_param->ulso_en &&
+			(dev->features & RMNET_IPA_ULSO_FEATURE) &&
+			(dev->features & RMNET_IPA_ULCS_FEATURE)) {
+		IPAWANDBG("ULSO set\n");
+		ipa_wan_ep_cfg->ipa_ep_cfg.ulso.ipid_min_max_idx =
+			egress_param->ipid_min_max_idx;
+		ipa_wan_ep_cfg->ipa_ep_cfg.ulso.is_ulso_pipe = true;
 	}
 
 	if (egress_param->aggr_en) {
