@@ -9719,7 +9719,7 @@ int ipa3_msgq_send(enum ipa_msg_type_e msg_type, int data)
 	msg.data = data;
 
 	if (!msgq_desc->msgq_hdl)
-		IPAERR("msgq_hdl is invalid %d for msg_type %d assert!\n", msgq_desc->msgq_hdl, msg_type);
+		IPAERR("msgq_hdl is invalid %p for msg_type %d assert!\n", msgq_desc->msgq_hdl, msg_type);
 	else {
 		for (i = 0; i < IPA_MSGQ_MAX_RETRY && ret; i++) {
 			usleep_range(IPA_MSGQ_MIN_SLEEP,
@@ -9822,7 +9822,7 @@ static int ipa3_msgq_recv_thread(void *data)
 	size_t size;
 	int ret;
 
-	IPADBG("recv thread started msgq_desc %d\n", msgq_desc);
+	IPADBG("recv thread started msgq_desc %p\n", msgq_desc);
 	buf = kzalloc(GH_MSGQ_MAX_MSG_SIZE_BYTES, GFP_KERNEL);
 
 	if (!buf ) {
@@ -9833,7 +9833,7 @@ static int ipa3_msgq_recv_thread(void *data)
 	while (!kthread_should_stop()) {
 		ret = gh_msgq_recv(msgq_desc->msgq_hdl, buf, GH_MSGQ_MAX_MSG_SIZE_BYTES,
 			&size, 0);
-		IPADBG("gh_msgq_recv() size %d buf %d\n", size, buf);
+		IPADBG("gh_msgq_recv() size %ld buf %p\n", size, buf);
 
 		if (ret < 0) {
 			IPAERR("failed to receive message, ret %d\n", ret);
@@ -9864,7 +9864,7 @@ static int ipa3_msgq_init(void)
 		return ret;
 	}
 
-	IPADBG("gunyah msgq hdl %d\n", msgq_desc->msgq_hdl);
+	IPADBG("gunyah msgq hdl %p\n", msgq_desc->msgq_hdl);
 
 	msgq_desc->recv_thread = kthread_run(ipa3_msgq_recv_thread, msgq_desc, "ipa_msgq_rcvr");
 

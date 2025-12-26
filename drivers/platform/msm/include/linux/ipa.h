@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_H_
@@ -15,6 +15,7 @@
 #include <linux/types.h>
 #include <linux/ipa_qmi_service_v01.h>
 #include <linux/msm_gsi.h>
+#include <linux/version.h>
 
 #define IPA_APPS_MAX_BW_IN_MBPS 700
 #define IPA_BW_THRESHOLD_MAX 3
@@ -1870,9 +1871,20 @@ void ipa_proxy_clk_vote(void);
 void ipa_proxy_clk_unvote(void);
 
 #if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,6,0)
+static inline int ipa_fmwk_deepsleep_entry_ipa(void)
+{
+        return -EPERM;
+}
+static inline int ipa_fmwk_deepsleep_exit_ipa(void)
+{
+        return -EPERM;
+}
+#else
 int ipa_fmwk_deepsleep_entry_ipa(void);
 
 int ipa_fmwk_deepsleep_exit_ipa(void);
+#endif
 #endif
 
 enum ipa_hw_type ipa_get_hw_type(void);

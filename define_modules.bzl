@@ -9,6 +9,8 @@ def define_modules(target, variant):
     #The below will take care of the defconfig
     if target == "sdxkova.512":
          include_defconfig = ":{}_defconfig".format(variant)
+    elif target == "taycan":
+         include_defconfig = ":{}_defconfig".format(variant)
     else:
          include_defconfig = ":ipsec_{}_defconfig".format(variant)
 
