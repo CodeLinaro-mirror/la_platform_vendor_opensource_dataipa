@@ -1909,6 +1909,37 @@ int gsi_deregister_device(unsigned long dev_hdl, bool force)
 }
 EXPORT_SYMBOL(gsi_deregister_device);
 
+static uint32_t gsi_legacy_ev_chtype_dir_to_v7_0_ev_chtype
+	(enum gsi_evt_chtype prot)
+{
+	switch (prot) {
+	case GSI_EVT_CHTYPE_WDI3M_V2_EV:
+		return GSI_V7_0_EVT_CHTYPE_WDI3M_V2_RX_EV;
+	case GSI_EVT_CHTYPE_WDI5_EV:
+		return GSI_V7_0_EVT_CHTYPE_WDI5_RX_EV;
+	case GSI_EVT_CHTYPE_WDI4_EV:
+	case GSI_EVT_CHTYPE_WDI3_V2_EV:
+	case GSI_EVT_CHTYPE_NTN_EV:
+	case GSI_EVT_CHTYPE_AQC_EV:
+	case GSI_EVT_CHTYPE_WDI3_EV:
+	case GSI_EVT_CHTYPE_XDCI_EV:
+	case GSI_EVT_CHTYPE_RTK_EV:
+	case GSI_EVT_CHTYPE_RTK3_EV:
+	case GSI_EVT_CHTYPE_MHI_EV:
+	case GSI_EVT_CHTYPE_XHCI_EV:
+	case GSI_EVT_CHTYPE_GPI_EV:
+	case GSI_EVT_CHTYPE_WDI2_EV:
+	case GSI_EVT_CHTYPE_GCI_EV:
+	case GSI_EVT_CHTYPE_MHIP_EV:
+	case GSI_EVT_CHTYPE_11AD_EV:
+	default:
+		GSIDBG("Direction agnostic protocol, return legacy value\n");
+		break;
+	}
+
+	return prot;
+}
+
 static void gsi_program_evt_ring_ctx(struct gsi_evt_ring_props *props,
 		uint8_t evt_id, unsigned int ee)
 {
@@ -1925,7 +1956,11 @@ static void gsi_program_evt_ring_ctx(struct gsi_evt_ring_props *props,
 
 	GSIDBG("intf=%u intr=%u re=%u\n", props->intf, props->intr,
 			props->re_size);
-	ev_ch_k_cntxt_0.chtype = props->intf;
+	if (gsi_ctx->per.ver >= GSI_VER_7_0) {
+		ev_ch_k_cntxt_0.chtype = gsi_legacy_ev_chtype_dir_to_v7_0_ev_chtype(props->intf);
+	} else {
+		ev_ch_k_cntxt_0.chtype = props->intf;
+	}
 	ev_ch_k_cntxt_0.intype = props->intr;
 	ev_ch_k_cntxt_0.element_size = props->re_size;
 	gsihal_write_reg_nk_fields(GSI_EE_n_EV_CH_k_CNTXT_0,
@@ -2772,7 +2807,8 @@ static void gsi_program_chan_ctx_qos(struct gsi_chan_props *props,
 		ee, props->ch_id, &ch_k_qos);
 }
 
-static uint32_t gsi_legacy_protocol_dir_to_v7_0_protocol(enum gsi_chan_prot prot, enum gsi_chan_dir dir)
+static uint32_t gsi_legacy_protocol_dir_to_v7_0_protocol
+	(enum gsi_chan_prot prot, enum gsi_chan_dir dir)
 {
 	if (dir >= GSI_CHAN_DIR_MAX) {
 		GSIERR("Invalid GSI direction: %d\n", dir);
