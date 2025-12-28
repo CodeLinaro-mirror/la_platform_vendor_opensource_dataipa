@@ -111,6 +111,7 @@ enum ipa_aggr_type {
 	IPA_GENERIC = 4,
 	IPA_COALESCE = 5,
 	IPA_QCMAP   = 6,
+	IPA_NCM_16 = 7,
 };
 
 /**
@@ -420,6 +421,7 @@ struct ipa_ep_cfg_deaggr {
 	bool packet_offset_valid;
 	u32 packet_offset_location;
 	bool ignore_min_pkt_err;
+        bool mbim_or_ncm_flag;
 	u32 max_packet_len;
 };
 
@@ -763,6 +765,7 @@ struct ipa_tx_meta {
 	bool pkt_ex_init_valid;
 	dma_addr_t dma_address;
 	bool dma_address_valid;
+	bool ncm_enable;
 };
 
 /**
