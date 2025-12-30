@@ -2,7 +2,8 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ *
  */
 
 
@@ -4134,7 +4135,6 @@ static int ipsec_read_sa_stats(enum ipa_ipsec_sa_type sa_type,
 
 	return nbytes;
 }
-
 
 static ssize_t ipa3_read_ipsec_encap_sa_info(struct file *file,
 	char __user *buf, size_t count, loff_t *ppos)

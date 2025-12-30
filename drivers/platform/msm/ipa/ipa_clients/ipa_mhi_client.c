@@ -740,7 +740,7 @@ static void mhi_ipa_prepare_header_insertion(
 	struct vlan_ethhdr *eth_vlan_hdr;
 
 	add_hdr->is_partial = 0;
-	strlcpy(add_hdr->name, hdr_name, IPA_RESOURCE_NAME_MAX);
+	strscpy(add_hdr->name, hdr_name, IPA_RESOURCE_NAME_MAX);
 	add_hdr->is_eth2_ofst_valid = true;
 	add_hdr->eth2_ofst = 0;
 
@@ -1817,7 +1817,7 @@ int ipa_mhi_connect_pipe(struct ipa_mhi_connect_params *in, u32 *clnt_hdl)
 				IPA_MHI_ERR("alloc failed");
 				return -ENOMEM;
 			}
-			strlcpy(eth_msg->name, ipa_mhi_client_ctx->net->name, sizeof(eth_msg->name));
+			strscpy(eth_msg->name, ipa_mhi_client_ctx->net->name, sizeof(eth_msg->name));
 			eth_msg->ifindex = ipa_mhi_client_ctx->net->ifindex;
 			memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
 			msg_meta.msg_len = sizeof(struct ipa_ecm_msg);
@@ -2191,7 +2191,7 @@ static int mhi_ipa_register_properties(void)
 	ipv4_property = &tx_properties.prop[0];
 	ipv4_property->ip = IPA_IP_v4;
 	ipv4_property->dst_pipe = IPA_CLIENT_MHI_CONS;
-	strlcpy
+	strscpy
 		(ipv4_property->hdr_name, MHI_IPA_IPV4_HDR_NAME,
 		IPA_RESOURCE_NAME_MAX);
 	ipv4_property->hdr_l2_type = hdr_l2_type;
@@ -2199,7 +2199,7 @@ static int mhi_ipa_register_properties(void)
 	ipv6_property->ip = IPA_IP_v6;
 	ipv6_property->dst_pipe = IPA_CLIENT_MHI_CONS;
 	ipv6_property->hdr_l2_type = hdr_l2_type;
-	strlcpy
+	strscpy
 		(ipv6_property->hdr_name, MHI_IPA_IPV6_HDR_NAME,
 		IPA_RESOURCE_NAME_MAX);
 	tx_properties.num_props = 2;
@@ -2334,7 +2334,7 @@ int ipa_mhi_disconnect_pipe(u32 clnt_hdl)
 				IPA_MHI_ERR("alloc failed");
 				return -ENOMEM;
 			}
-			strlcpy(eth_msg->name, ipa_mhi_client_ctx->net->name, sizeof(eth_msg->name));
+			strscpy(eth_msg->name, ipa_mhi_client_ctx->net->name, sizeof(eth_msg->name));
 			eth_msg->ifindex = ipa_mhi_client_ctx->net->ifindex;
 			memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
 			msg_meta.msg_len = sizeof(struct ipa_ecm_msg);

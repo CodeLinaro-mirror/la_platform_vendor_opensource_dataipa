@@ -3,6 +3,7 @@
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/msm_ipa.h>
@@ -1629,10 +1630,10 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 	}
 	INIT_LIST_HEAD(&new_intf->link);
 #if IPA_ETH_API_VER >= 2
-	strlcpy(new_intf->netdev_name, intf->net_dev->name, sizeof(new_intf->netdev_name));
+	strscpy(new_intf->netdev_name, intf->net_dev->name, sizeof(new_intf->netdev_name));
 #else
-	strlcpy(new_intf->netdev_name, intf->netdev_name,
-			sizeof(new_intf->netdev_name));
+	strscpy(new_intf->netdev_name, intf->netdev_name,
+		sizeof(new_intf->netdev_name));
 #endif
 
 	num_hdrs = ezmesh ? 4 : 2;
@@ -1766,7 +1767,7 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 #else
 			tx_prop[2*i].hdr_l2_type = intf->hdr[2*i].hdr_type;
 #endif
-			strlcpy(tx_prop[2*i].hdr_name, hdr->hdr[(2*i)%num_hdrs].name,
+			strscpy(tx_prop[i].hdr_name, hdr->hdr[IPA_IP_v4].name,
 				sizeof(tx_prop[i].hdr_name));
 
 			tx_prop[2*i+1].ip = IPA_IP_v6;
@@ -1779,11 +1780,13 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 #else
 			tx_prop[2*i+1].hdr_l2_type = intf->hdr[1].hdr_type;
 #endif
-			strlcpy(tx_prop[2*i+1].hdr_name, hdr->hdr[(2*i+1)%num_hdrs].name,
+			strscpy(tx_prop[2*i+1].hdr_name, hdr->hdr[(2*i+1)%num_hdrs].name,
 				sizeof(tx_prop[2*i+1].hdr_name));
 
 			IPA_ETH_DBG("tx_prop i %d dst pipe v4:%d v6:%d\n",i, tx_prop[2*i].dst_pipe, tx_prop[2*i + 1].dst_pipe);
 			IPA_ETH_DBG("tx_prop i %d l2_hdr v4:%d v6:%d\n",i, tx_prop[2*i].hdr_l2_type, tx_prop[2*i + 1].hdr_l2_type);
+			strscpy(tx_prop[i+1].hdr_name, hdr->hdr[IPA_IP_v6].name,
+				sizeof(tx_prop[i+1].hdr_name));
 		}
 	}
 	/* populate rx prop */
@@ -1850,7 +1853,7 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 
 #if IPA_ETH_API_VER >= 2
 	if (intf->is_conn_evt) {
-		strlcpy(msg.name, intf->net_dev->name, sizeof(msg.name));
+		strscpy(msg.name, intf->net_dev->name, sizeof(msg.name));
 		msg.ifindex = intf->net_dev->ifindex;
 		ipa_eth_client_conn_evt(&msg);
 	}
@@ -1941,7 +1944,7 @@ fail:
 	mutex_unlock(&ipa_eth_ctx->lock);
 #if IPA_ETH_API_VER >= 2
 	if (intf->is_conn_evt) {
-		strlcpy(msg.name, intf->net_dev->name, sizeof(msg.name));
+		strscpy(msg.name, intf->net_dev->name, sizeof(msg.name));
 		msg.ifindex = intf->net_dev->ifindex;
 		ipa_eth_client_disconn_evt(&msg);
 	}
