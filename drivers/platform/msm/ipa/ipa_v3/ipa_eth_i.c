@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * Changes from Qualcomm Technologies, Inc. are provided under the following license:
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
