@@ -3,7 +3,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -1487,6 +1487,8 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 	char buff[IPA_RESOURCE_NAME_MAX];
 	struct ipa_ep_cfg ep_cfg_copy;
 	int (*tx_completion_func)(struct napi_struct *, int);
+	int pool_capacity = 0;
+	struct net_device *dummy_ndev = NULL;
 
 	if (sys_in == NULL || clnt_hdl == NULL) {
 		IPAERR(
@@ -1652,12 +1654,17 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 	if (IPA_CLIENT_IS_PROD(sys_in->client) &&
 		ipa3_ctx->tx_napi_enable) {
 		if (sys_in->client == IPA_CLIENT_APPS_LAN_PROD) {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0))
+			dummy_ndev = &ipa3_ctx->generic_ndev;
+#else
+			dummy_ndev = ipa3_ctx->generic_ndev;
+#endif
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 14))
-			netif_napi_add_tx_weight(&ipa3_ctx->generic_ndev,
+			netif_napi_add_tx_weight(dummy_ndev,
 			&ep->sys->napi_tx, tx_completion_func,
 			NAPI_TX_WEIGHT);
 #else
-			netif_tx_napi_add(&ipa3_ctx->generic_ndev,
+			netif_tx_napi_add(dummy_ndev,
 			&ep->sys->napi_tx, tx_completion_func,
 			NAPI_TX_WEIGHT);
 

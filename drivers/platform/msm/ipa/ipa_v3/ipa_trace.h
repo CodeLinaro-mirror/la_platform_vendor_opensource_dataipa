@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #undef TRACE_SYSTEM
@@ -173,7 +174,7 @@ TRACE_EVENT(
 	),
 
 	TP_fast_assign(
-		strlcpy(__get_str(name), skb->dev->name, sizeof(skb->dev->name));
+		strscpy(__get_str(name), skb->dev->name, sizeof(skb->dev->name));
 		__entry->skbaddr = skb;
 		__entry->protocol = ntohs(skb->protocol);
 		__entry->len = skb->len;
@@ -308,7 +309,11 @@ TRACE_EVENT(
 	),
 
 	TP_fast_assign(
-		strlcpy(__get_str(name), skb->dev->name, sizeof(skb->dev->name));
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+		__assign_str(name);
+#else
+		__assign_str(name, skb->dev->name);
+#endif
 		__entry->skbaddr = skb;
 		__entry->protocol = ntohs(skb->protocol);
 		__entry->len = skb->len;
