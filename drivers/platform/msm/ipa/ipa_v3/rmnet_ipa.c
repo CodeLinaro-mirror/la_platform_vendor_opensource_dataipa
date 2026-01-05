@@ -9488,6 +9488,7 @@ int rmnet_ipa3_query_per_client_stats_v3(
 		data->client_info[stats_idx].ipv4_tx_bytes =
 			fnr_stats->num_bytes;
 
+		kfree((void *)query->stats);
 		memset(query, 0, sizeof(query_f));
 		result = rmnet_ipa_get_hw_fnr_stats_v3(&lan_client_index[i],
 				data, query, 0, 1);
@@ -9670,6 +9671,7 @@ int rmnet_ipa3_query_per_client_stats_v4(
 			data->client_info[stats_idx].ipv4_tx_bytes =
 				fnr_stats->num_bytes;
 
+			kfree((void *)query->stats);
 			memset(query, 0, sizeof(query_f));
 			/* Query Routing stats */
 			result = rmnet_ipa_get_hw_fnr_stats_v4(&lan_client_index[i],
@@ -9715,6 +9717,7 @@ int rmnet_ipa3_query_per_client_stats_v4(
 			data->lan2lan_client_info[stats_idx].ipv4_tx_bytes =
 				fnr_stats->num_bytes;
 
+			kfree((void *)query->stats);
 			memset(query, 0, sizeof(query_f));
 			/* Query Routing stats */
 			result = rmnet_ipa_get_hw_fnr_stats_v4(&lan_client_index[i],
