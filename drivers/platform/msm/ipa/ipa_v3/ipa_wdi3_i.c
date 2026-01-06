@@ -420,14 +420,16 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	ep->gsi_mem_info.chan_ring_base_addr =
 		gsi_channel_props.ring_base_addr;
 
-	/* write event scratch */
-	memset(&evt_scratch, 0, sizeof(evt_scratch));
-	evt_scratch.wdi3.update_rp_moderation_config =
-		UPDATE_RP_MODERATION_CONFIG;
-	result = gsi_write_evt_ring_scratch(ep->gsi_evt_ring_hdl, evt_scratch);
-	if (result != GSI_STATUS_SUCCESS) {
-		IPAERR("failed to write evt ring scratch\n");
-		goto fail_write_scratch;
+	/* write event scratch. Valid only for targets < 4.9. */
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_9) {
+		memset(&evt_scratch, 0, sizeof(evt_scratch));
+		evt_scratch.wdi3.update_rp_moderation_config =
+			UPDATE_RP_MODERATION_CONFIG;
+		result = gsi_write_evt_ring_scratch(ep->gsi_evt_ring_hdl, evt_scratch);
+		if (result != GSI_STATUS_SUCCESS) {
+			IPAERR("failed to write evt ring scratch\n");
+			goto fail_write_scratch;
+		}
 	}
 
 	if (!is_smmu_enabled) {
