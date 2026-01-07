@@ -1569,6 +1569,10 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	memset(ep_rx, 0, sizeof(struct ipa3_ep_context));
 	IPADBG("rx client (ep: %d) disconnected\n", ipa_ep_idx_rx);
 
+	ipa_reset_drop_stats(rx_client);
+	u16 rx1_client = ipa3_get_client_mapping(ipa_ep_idx_rx1);
+	if(rx1_client != -EINVAL)
+		ipa_reset_drop_stats(rx1_client);
 exit:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_by_pipe(ipa_ep_idx_tx));
 	return result;
@@ -2033,6 +2037,7 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	}
 	if (disable_force_clear)
 		ipa3_disable_force_clear(ipa_ep_idx_rx);
+
 
 fail:
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();

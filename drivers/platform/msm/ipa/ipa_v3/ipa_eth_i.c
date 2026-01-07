@@ -1767,6 +1767,8 @@ int ipa3_eth_disconnect(
 		}
 	}
 	ipa_iemac_smmu_cb_reset_mapping(IPA_SMMU_CB_AP, pipe->client_info->inst_id, pipe->dir, pipe_idx);
+	if (IPA_CLIENT_IS_CONS(client_type))
+		ipa_reset_drop_stats(client_type);
 fail:
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	return result;

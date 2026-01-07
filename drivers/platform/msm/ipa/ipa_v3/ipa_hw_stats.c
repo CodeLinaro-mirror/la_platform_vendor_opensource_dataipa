@@ -7,6 +7,7 @@
 #include <linux/debugfs.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
+#include <linux/workqueue.h>
 #include "ipa_i.h"
 #include "ipahal.h"
 #include "ipahal_hw_stats.h"
@@ -15,6 +16,7 @@
 #define IPA_INIT_TETH_STATS_MAX_CMD_NUM 5
 #define IPA_INIT_QUOTA_STATS_MAX_CMD_NUM 5
 static char dbg_buff[IPA_MAX_MSG_LEN];
+extern struct work_struct update_drop_stats_work;
 static inline u32 ipa_hw_stats_get_ep_bit_n_idx(enum ipa_client_type client,
 	u32 *reg_idx)
 {
@@ -2287,6 +2289,13 @@ int ipa_set_flt_rt_stats(int index, struct ipa_flt_rt_stats stats)
 	return __ipa_set_flt_rt_stats(index, stats);
 }
 
+static void update_drop_stats_worker(struct work_struct *work){
+	int ret = ipa_get_drop_stats(NULL);
+	if (ret) {
+		IPAERR("ipa_get_drop_stats failed %d\n", ret);
+	}
+}
+
 int ipa_drop_stats_init(void)
 {
 	u32 reg_idx;
@@ -2408,6 +2417,9 @@ int ipa_drop_stats_init(void)
 		}
 	}
 
+	INIT_WORK(&update_drop_stats_work,
+			update_drop_stats_worker);
+
 	/* Currently we have option to enable drop stats using debugfs.
 	 * To enable drop stats for a different pipe, first user needs
 	 * to query drop stats to get the current stats and enable.
@@ -2416,6 +2428,7 @@ int ipa_drop_stats_init(void)
 
 	return ipa_init_drop_stats(pipe_bitmask);
 }
+
 
 int ipa_init_drop_stats(u32 *pipe_bitmask)
 {
@@ -2429,7 +2442,7 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 		{0};
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
 	struct ipa3_desc *desc = NULL;
-	struct ipa_hw_stats_drop tmp_drop;
+	struct ipa_hw_stats_drop *tmp_drop = NULL;
 	dma_addr_t dma_address;
 	int ret, i;
 	int num_cmd = 0;
@@ -2446,19 +2459,26 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 		return -ENOMEM;
 	}
 
+	tmp_drop = kzalloc(sizeof(*tmp_drop), GFP_KERNEL);
+	if (!tmp_drop) {
+		IPAERR("failed to allocate memory\n");
+		ret = -ENOMEM;
+		goto fail_free_desc;
+	}
+
 	/* check if IPA has enough space for # of pipes drop stats enabled*/
-	memset(&tmp_drop, 0, sizeof(tmp_drop));
+	memset(tmp_drop, 0, sizeof(*tmp_drop));
 	for (i = 0; i < IPA5_PIPE_REG_NUM; i++) {
-		tmp_drop.init.enabled_bitmask[i] = pipe_bitmask[i];
+		tmp_drop->init.enabled_bitmask[i] = pipe_bitmask[i];
 		IPADBG_LOW("pipe_bitmask[%d]=0x%x\n", i, pipe_bitmask[i]);
 	}
 
 	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_DROP,
-		&tmp_drop.init, false);
+		&tmp_drop->init, false);
 	if (!pyld) {
 		IPAERR("failed to generate pyld\n");
 		ret = -EPERM;
-		goto fail_free_desc;
+		goto fail_free_tmp_drop;
 	}
 
 	if (pyld->len > IPA_MEM_PART(stats_drop_size)) {
@@ -2473,7 +2493,7 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 
 	/* reset driver's cache and copy the bitmask of new drop enabled pipes */
 	memset(&ipa3_ctx->hw_stats->drop, 0, sizeof(ipa3_ctx->hw_stats->drop));
-	ipa3_ctx->hw_stats->drop = tmp_drop;
+	ipa3_ctx->hw_stats->drop = *tmp_drop;
 
 	dma_address = dma_map_single(ipa3_ctx->pdev,
 		pyld->data,
@@ -2612,11 +2632,71 @@ unmap:
 	dma_unmap_single(ipa3_ctx->pdev, dma_address, pyld->len, DMA_TO_DEVICE);
 destroy_init_pyld:
 	ipahal_destroy_stats_init_pyld(pyld);
+fail_free_tmp_drop:
+		kfree(tmp_drop);
 fail_free_desc:
 		kfree(desc);
 	return ret;
 }
 
+int ipa_client_get_stats(enum ipa_client_type client, u32 inst_id, struct ipa_drop_stats *out){
+	int ret = 0;
+	struct ipa_drop_stats *client_stat;
+	int ep_idx, reg_idx;
+
+	if (!out)
+		return -EINVAL;
+
+	if(client == -1){
+		if (inst_id == 0) {
+			client = IPA_CLIENT_ETHERNET_CONS;
+		} else if (inst_id == 1) {
+			client = IPA_CLIENT_ETHERNET2_CONS;
+		} else {
+			IPAERR("invalid inst_id %u\n", inst_id);
+			return -EINVAL;
+		}
+	}
+
+	if (client >= IPA_CLIENT_MAX ||
+		!IPA_CLIENT_IS_CONS(client) ||
+		IPA_CLIENT_IS_TEST(client)) {
+		IPAERR("invalid client %d\n", client);
+		return -EINVAL;
+	}
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+		return -EOPNOTSUPP;  /* Feature not enabled */
+
+	ep_idx = ipa_get_ep_mapping(client);
+	if (ep_idx == IPA_EP_NOT_ALLOCATED)
+			return -ENODEV;  /* Endpoint not configured */
+
+	reg_idx = ipahal_get_ep_reg_idx(ep_idx);
+	if (!(ipa3_ctx->hw_stats->drop.init.enabled_bitmask[reg_idx] &
+	      ipahal_get_ep_bit(ep_idx)))
+			return -ENOENT;  /* Stats not enabled for this pipe */
+
+	if (unlikely(in_interrupt() || in_atomic())) {
+		IPADBG("In atomic/interrupt context. scheduling the work to query the stats.\n");
+		schedule_work(&update_drop_stats_work);
+		ret = 0;
+	} else {
+		/* reading stats will reset them in hardware */
+		ret = ipa_get_drop_stats(NULL);
+		if (ret) {
+			IPAERR("ipa_get_drop_stats failed %d\n", ret);
+			goto bail;
+		}
+	}
+
+	client_stat = &ipa3_ctx->hw_stats->drop.stats.client[client];
+
+	*out = *client_stat;
+
+bail:
+	return ret;
+}
+EXPORT_SYMBOL(ipa_client_get_stats);
 int ipa_get_drop_stats(struct ipa_drop_stats_all *out)
 {
 	int i;
@@ -3194,12 +3274,12 @@ static ssize_t drop_show(struct device *dev, struct device_attribute *attr, char
 
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
-			"drop_byte_cnt=%u\n",
+			"drop_byte_cnt=%llu\n",
 			out->client[i].drop_byte_cnt);
 
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
-			"drop_packet_cnt=%u\n",
+			"drop_packet_cnt=%llu\n",
 			out->client[i].drop_packet_cnt);
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
@@ -3748,12 +3828,12 @@ static ssize_t ipa_debugfs_print_drop_stats(struct file *file,
 
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
-			"drop_byte_cnt=%u\n",
+			"drop_byte_cnt=%llu\n",
 			out->client[i].drop_byte_cnt);
 
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
-			"drop_packet_cnt=%u\n",
+			"drop_packet_cnt=%llu\n",
 			out->client[i].drop_packet_cnt);
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,

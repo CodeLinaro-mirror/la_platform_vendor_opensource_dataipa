@@ -1746,6 +1746,24 @@ int ipa_add_hdr(struct ipa_ioc_add_hdr *hdrs);
 int ipa_del_hdr(struct ipa_ioc_del_hdr *hdls);
 int ipa_get_hdr(struct ipa_ioc_get_hdr *lookup);
 /**
+ * ipa_client_get_stats() - get drop stats either via client type or via instance id
+ * @client:	[in] client.
+ * @inst_id: [in] instance id.
+ * @stats:	[out] stats blob from user populated by driver
+ *
+ * For ETH, use instance id
+ * For WLAN, use client type
+ * drop stats for that instance or client type will be populated
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * @note Calling within atomic context returns last saved drop stats otherwise
+ * returns latest drop stats from HW.
+ *
+ */
+int ipa_client_get_stats(enum ipa_client_type client, u32 inst_id, struct ipa_drop_stats *out);
+
+/**
  * ipa_get_wdi_stats() - Query WDI statistics from uc
  * @stats:	[inout] stats blob from client populated by driver
  *
@@ -2257,6 +2275,11 @@ static inline void ipa_dma_destroy(void)
 /*
  * Miscellaneous
  */
+
+static inline int ipa_client_get_stats(enum ipa_client_type client, u32 inst_id, struct ipa_drop_stats *out)
+{
+	return -EPERM;
+}
 
 static inline int ipa_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats)
 {

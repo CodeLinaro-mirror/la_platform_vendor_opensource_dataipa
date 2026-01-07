@@ -159,6 +159,7 @@ struct ipa_ready_cb_info {
 
 static void ipa3_start_tag_process(struct work_struct *work);
 static DECLARE_WORK(ipa3_tag_work, ipa3_start_tag_process);
+struct work_struct update_drop_stats_work;
 
 static void ipa3_transport_release_resource(struct work_struct *work);
 static DECLARE_DELAYED_WORK(ipa3_transport_release_resource_work,
@@ -12331,6 +12332,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
+	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
 
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 	result = qcom_va_md_register("ipa_mini", &qcom_va_md_ipa_notif_blk);
@@ -12900,7 +12902,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
-	ipa3_ctx->wkup_enable=0;
+	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
 
 	IPADBG("IPA driver pre-init was successful.\n");
 	return 0;
@@ -15444,7 +15446,7 @@ int ipa3_ap_suspend(struct device *dev)
 	}
 #endif
 	ipa_pm_deactivate_all_deferred();
-
+	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 1);
 	IPADBG("Exit\n");
 
 	return 0;
@@ -16104,6 +16106,7 @@ static void __exit ipa_module_exit(void)
 	/* Clean up IPsec */
 	ipa_ipsec_cleanup();
 #endif
+	cancel_work_sync(&update_drop_stats_work);
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
 }

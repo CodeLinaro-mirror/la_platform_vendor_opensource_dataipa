@@ -10753,7 +10753,7 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 	if (seq_cfg->set_dynamic) {
 		type = seq_cfg->seq_type;
 #ifdef CONFIG_IPA_IPSEC
-	} else if (ipa_ipsec_enabled() &&
+	} else if (ipa_ipsec_enabled() && !ipa3_ctx->ep[clnt_hdl].skip_ep_cfg &&
 		   (clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
 		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
 		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
@@ -13267,7 +13267,7 @@ int ipa3_id_alloc(void *ptr)
 
 	idr_preload(GFP_KERNEL);
 	spin_lock(&ipa3_ctx->idr_lock);
-	id = idr_alloc(&ipa3_ctx->ipa_idr, ptr, 0, 0, GFP_NOWAIT);
+	id = idr_alloc(&ipa3_ctx->ipa_idr, ptr, 1, INT_MAX, GFP_NOWAIT);
 	spin_unlock(&ipa3_ctx->idr_lock);
 	idr_preload_end();
 
