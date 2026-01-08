@@ -29,16 +29,22 @@
  * Changes from Qualcomm Technologies, Inc. are provided under the following license:
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
  */
 #ifndef IPA_NAT_UTILS_H
 #define IPA_NAT_UTILS_H
 
+#include <linux/msm_ipa.h>
+#ifdef CONFIG_ECM_CONVERGENCE
+#include "ipa_i.h"
+#else
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <syslog.h>
+#include <stdbool.h>
 #include <time.h>
-#include <linux/msm_ipa.h>
+#endif
 
 #ifndef FALSE
 #define FALSE 0
@@ -60,8 +66,9 @@ size_t strlcpy(char* dst, const char* src, size_t size);
 #endif
 #endif
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #define IPAERR(fmt, ...)  printf("ERR: %s:%d %s() " fmt, __FILE__,  __LINE__, __FUNCTION__, ##__VA_ARGS__);
-
+#endif
 #define IPAINFO(fmt, ...)  printf("INFO: %s:%d %s() " fmt, __FILE__,  __LINE__, __FUNCTION__, ##__VA_ARGS__);
 
 #define IPAWARN(fmt, ...)  printf("WARN: %s:%d %s() " fmt, __FILE__,  __LINE__, __FUNCTION__, ##__VA_ARGS__);
@@ -69,12 +76,16 @@ size_t strlcpy(char* dst, const char* src, size_t size);
 #ifdef NAT_DEBUG
 #define IPADBG(fmt, ...) printf("%s:%d %s() " fmt, __FILE__,  __LINE__, __FUNCTION__, ##__VA_ARGS__);
 #else
+#ifndef CONFIG_ECM_CONVERGENCE
 #define IPADBG(fmt, ...)
+#endif
 #endif
 
 typedef struct
 {
+	#ifndef CONFIG_ECM_CONVERGENCE
 	int              fd;
+	#endif
 	enum ipa_hw_type ver;
 } ipa_descriptor;
 
@@ -83,8 +94,10 @@ ipa_descriptor* ipa_descriptor_open(void);
 void ipa_descriptor_close(
 	ipa_descriptor*);
 
+#ifndef CONFIG_ECM_CONVERGENCE
 void ipa_read_debug_info(
 	const char* debug_file_path);
+#endif
 
 static inline char* prep_ioc_table_write_cmd_4print(
 	struct ipa_ioc_table_write_cmd* cmd_ptr,

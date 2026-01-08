@@ -25,6 +25,11 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
  */
 
 /*=========================================================================*/
@@ -140,29 +145,29 @@ int ipa_nat_test025(
 			 * NAT table stats...
 			 */
 			IPAINFO("Able to add (%u) records to %s "
-					"NAT table of size (%u) or (%f) percent\n",
+					"NAT table of size (%u) or (%d) percent\n",
 					tot,
 					mem_type,
 					last_nstats.tot_ents,
-					((float) tot / (float) last_nstats.tot_ents) * 100.0);
+					(tot / last_nstats.tot_ents) * 100.0);
 
 			IPAINFO("Able to add (%u) records to %s "
-					"NAT BASE table of size (%u) or (%f) percent\n",
+					"NAT BASE table of size (%u) or (%d) percent\n",
 					last_nstats.tot_base_ents_filled,
 					mem_type,
 					last_nstats.tot_base_ents,
-					((float) last_nstats.tot_base_ents_filled /
-					 (float) last_nstats.tot_base_ents) * 100.0);
+					(last_nstats.tot_base_ents_filled /
+					 last_nstats.tot_base_ents) * 100.0);
 
 			IPAINFO("Able to add (%u) records to %s "
-					"NAT EXPN table of size (%u) or (%f) percent\n",
+					"NAT EXPN table of size (%u) or (%d) percent\n",
 					last_nstats.tot_expn_ents_filled,
 					mem_type,
 					last_nstats.tot_expn_ents,
-					((float) last_nstats.tot_expn_ents_filled /
-					 (float) last_nstats.tot_expn_ents) * 100.0);
+					(last_nstats.tot_expn_ents_filled /
+					 last_nstats.tot_expn_ents) * 100.0);
 
-			IPAINFO("%s NAT table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%f)\n",
+			IPAINFO("%s NAT table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%d)\n",
 					mem_type,
 					last_nstats.tot_chains,
 					last_nstats.min_chain_len,
@@ -173,29 +178,29 @@ int ipa_nat_test025(
 			 * INDEX table stats...
 			 */
 			IPAINFO("Able to add (%u) records to %s "
-					"IDX table of size (%u) or (%f) percent\n",
+					"IDX table of size (%u) or (%d) percent\n",
 					tot,
 					mem_type,
 					last_istats.tot_ents,
-					((float) tot / (float) last_istats.tot_ents) * 100.0);
+					(tot /  last_istats.tot_ents) * 100.0);
 
 			IPAINFO("Able to add (%u) records to %s "
-					"IDX BASE table of size (%u) or (%f) percent\n",
+					"IDX BASE table of size (%u) or (%d) percent\n",
 					last_istats.tot_base_ents_filled,
 					mem_type,
 					last_istats.tot_base_ents,
-					((float) last_istats.tot_base_ents_filled /
-					 (float) last_istats.tot_base_ents) * 100.0);
+					(last_istats.tot_base_ents_filled /
+					 last_istats.tot_base_ents) * 100.0);
 
 			IPAINFO("Able to add (%u) records to %s "
-					"IDX EXPN table of size (%u) or (%f) percent\n",
+					"IDX EXPN table of size (%u) or (%d) percent\n",
 					last_istats.tot_expn_ents_filled,
 					mem_type,
 					last_istats.tot_expn_ents,
-					((float) last_istats.tot_expn_ents_filled /
-					 (float) last_istats.tot_expn_ents) * 100.0);
+					(last_istats.tot_expn_ents_filled /
+					 last_istats.tot_expn_ents) * 100.0);
 
-			IPAINFO("%s IDX table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%f)\n",
+			IPAINFO("%s IDX table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%)\n",
 					mem_type,
 					last_istats.tot_chains,
 					last_istats.min_chain_len,
@@ -273,29 +278,29 @@ int ipa_nat_test025(
 	 * NAT table stats...
 	 */
 	IPAINFO("Able to add (%u) records to %s "
-			"NAT table of size (%u) or (%f) percent\n",
+			"NAT table of size (%u) or (%d) percent\n",
 			tot,
 			mem_type,
 			nstats.tot_ents,
-			((float) tot / (float) nstats.tot_ents) * 100.0);
+			(tot / nstats.tot_ents) * 100.0);
 
 	IPAINFO("Able to add (%u) records to %s "
-			"NAT BASE table of size (%u) or (%f) percent\n",
+			"NAT BASE table of size (%u) or (%d) percent\n",
 			nstats.tot_base_ents_filled,
 			mem_type,
 			nstats.tot_base_ents,
-			((float) nstats.tot_base_ents_filled /
-			 (float) nstats.tot_base_ents) * 100.0);
+			(nstats.tot_base_ents_filled /
+			 nstats.tot_base_ents) * 100.0);
 
 	IPAINFO("Able to add (%u) records to %s "
-			"NAT EXPN table of size (%u) or (%f) percent\n",
+			"NAT EXPN table of size (%u) or (%d) percent\n",
 			nstats.tot_expn_ents_filled,
 			mem_type,
 			nstats.tot_expn_ents,
-			((float) nstats.tot_expn_ents_filled /
-			 (float) nstats.tot_expn_ents) * 100.0);
+			(nstats.tot_expn_ents_filled /
+			 nstats.tot_expn_ents) * 100.0);
 
-	IPAINFO("%s NAT table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%f)\n",
+	IPAINFO("%s NAT table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%d)\n",
 			mem_type,
 			nstats.tot_chains,
 			nstats.min_chain_len,
@@ -306,29 +311,29 @@ int ipa_nat_test025(
 	 * INDEX table stats...
 	 */
 	IPAINFO("Able to add (%u) records to %s "
-			"IDX table of size (%u) or (%f) percent\n",
+			"IDX table of size (%u) or (%d) percent\n",
 			tot,
 			mem_type,
 			istats.tot_ents,
-			((float) tot / (float) istats.tot_ents) * 100.0);
+			(tot / istats.tot_ents) * 100.0);
 
 	IPAINFO("Able to add (%u) records to %s "
-			"IDX BASE table of size (%u) or (%f) percent\n",
+			"IDX BASE table of size (%u) or (%d) percent\n",
 			istats.tot_base_ents_filled,
 			mem_type,
 			istats.tot_base_ents,
-			((float) istats.tot_base_ents_filled /
-			 (float) istats.tot_base_ents) * 100.0);
+			(istats.tot_base_ents_filled /
+			 istats.tot_base_ents) * 100.0);
 
 	IPAINFO("Able to add (%u) records to %s "
-			"IDX EXPN table of size (%u) or (%f) percent\n",
+			"IDX EXPN table of size (%u) or (%d) percent\n",
 			istats.tot_expn_ents_filled,
 			mem_type,
 			istats.tot_expn_ents,
-			((float) istats.tot_expn_ents_filled /
-			 (float) istats.tot_expn_ents) * 100.0);
+			(istats.tot_expn_ents_filled /
+			 istats.tot_expn_ents) * 100.0);
 
-	IPAINFO("%s IDX table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%f)\n",
+	IPAINFO("%s IDX table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%d)\n",
 			mem_type,
 			istats.tot_chains,
 			istats.min_chain_len,

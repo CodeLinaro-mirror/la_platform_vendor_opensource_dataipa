@@ -11,6 +11,9 @@
 #include "ipa_be.h"
 #include "ipa_be_flt_mgmt.h"
 #include "ipa_be_clientdb.h"
+#ifdef CONFIG_ECM_CONVERGENCE
+#include "ipa_be_nat_mgmt.h"
+#endif
 
 /* ========================================================================== */
 /* MACROS AND DEFINITIONS                                                     */
@@ -56,7 +59,7 @@ typedef enum {
 struct ipa_response_msg {
 	struct list_head node;
 	ipa_msg_types_t type;
-	void *msg[0];
+	u8 msg[];
 };
 
 /*
@@ -477,16 +480,20 @@ ipa_tx_status_t ipa_be_ipv4_send_request(struct ipa_ctx_instance *ipa_ctx, struc
 {
 	//struct ipa_response_msg *response;
 	//enum ipa_cmn_response ret;
-
-	/*if (msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_MSG) {
+	IPA_BE_DBG("ECMIPA msg type %u\n", msg->cm.type);
+	if (msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_MSG) {
+#ifdef CONFIG_ECM_CONVERGENCE
 		return ipa_sync_ipv4_stats_many_msg(IPA_CTX_TO_PRIVATE(ipa_ctx), msg);
-	}*/
+#else
+		IPA_BE_DBG("NAT support disabled - skipping ipa_sync_ipv4_stats_many_msg\n");
+		return IPA_TX_FAILURE_NOT_ENABLED;
+#endif
+	}
 
 	struct ipa_ctx_instance_internal *ipa_be_ctx = &__ipa_be_ctx;
 	struct ipa_ipv4_work *ipv4_work;
 
 	IPA_BE_DBG("ECMIPA entry ipa_be_ipv4_send_request called ipa_ctx %p\n", ipa_ctx);
-	IPA_BE_DBG("ECMIPA msg type %u\n", msg->cm.type);
 
 	ipv4_work = kmalloc(sizeof(*ipv4_work), GFP_ATOMIC);
 	if (!ipv4_work) {
@@ -538,6 +545,10 @@ ipa_tx_status_t ipa_be_ipv6_send_request(struct ipa_ctx_instance *ipa_ctx, struc
 
 	IPA_BE_DBG("ECMIPA entry ipa_be_ipv6_send_request called ipa_ctx %p\n", ipa_ctx);
 	IPA_BE_DBG("ECMIPA msg type %u\n", msg->cm.type);
+
+	/*if (msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_MSG) {
+		return ipa_sync_ipv6_stats_many_msg(IPA_CTX_TO_PRIVATE(ipa_ctx), msg);
+	}*/
 
 	ipv6_work = kmalloc(sizeof(*ipv6_work), GFP_ATOMIC);
 	if (!ipv6_work) {
@@ -646,21 +657,28 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			client_iface = v4_msg.conn_rule.return_interface_num;
 			vlan_tag = v4_msg.vlan_primary_rule.egress_vlan_tag;
 
-			add_dft_filtering_rule(pdn_iface, IPA_IP_v4);
-			add_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
-			install_wan_filtering_rule();
-
 			if (ipa_be_client_mapping_add_or_ref((uint32_t *)&v4_msg.tuple.return_ip, 0, lan2lan) != NULL)
 			{
 				/* Add route entry for the destination client*/
 				is_ret = true;
 				ipa_ipv4_add_route_rule(v4_msg, lan2lan, v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.return_mac, is_ret);
 			}
+
+			add_dft_filtering_rule(pdn_iface, IPA_IP_v4);
+			add_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
+			install_wan_filtering_rule();
 		}
 		else
 		{
 			IPA_BE_ERR("Unexpected param %d \n", ret);
 		}
+
+		/* Add NAT entry*/
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa_be_addpdn(v4_msg, pdn_iface);
+#else
+		IPA_BE_DBG("NAT support disabled - skipping ipa_be_addpdn\n");
+#endif
 	}
 	IPA_BE_DBG("Command  return %d \n", ret);
 	return ret;
@@ -738,21 +756,28 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			client_iface = v6_msg.conn_rule.return_interface_num;
 			vlan_tag = v6_msg.vlan_primary_rule.egress_vlan_tag;
 
-			add_dft_filtering_rule(pdn_iface, IPA_IP_v6);
-			add_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
-			install_wan_filtering_rule();
-
 			if (ipa_be_client_mapping_add_or_ref((uint32_t *)&v6_msg.tuple.return_ip, 0, lan2lan) != NULL)
 			{
 				/* Add route entry for the destination client*/
 				is_ret = true;
 				ipa_ipv6_add_route_rule(v6_msg, lan2lan, v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.return_mac, is_ret);
 			}
+
+			add_dft_filtering_rule(pdn_iface, IPA_IP_v6);
+			add_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
+			install_wan_filtering_rule();
 		}
 		else
 		{
 			IPA_BE_ERR("Unexpected param %d \n", ret);
 		}
+
+		/* Add CT entry */
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa_be_add_v6_ct_entry(v6_msg, pdn_iface);
+#else
+		IPA_BE_DBG("NAT support disabled - skipping ipa_be_add_v6_ct_entry\n");
+#endif
 	}
 
 	IPA_BE_DBG("Command  return %d \n", ret);
@@ -1061,6 +1086,11 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		{
 			IPA_BE_ERR("Unexpected WAN flow param\n");
 		}
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa_be_delete_entry(*msg);
+#else
+		IPA_BE_DBG("NAT support disabled - skipping ipa_be_delete_entry\n");
+#endif
 	}
 
 	IPA_BE_DBG("Deleted entry %d \n", ref);
@@ -1228,6 +1258,13 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 		} else {
 			IPA_BE_ERR("Unexpected param for LAN2WAN\n");
 		}
+
+		/* Handle IPv6 CT entry deletion */
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa_be_handle_v6_ct_deletion(msg);
+#else
+		IPA_BE_DBG("NAT support disabled - skipping ipa_be_handle_v6_ct_deletion\n");
+#endif
 	}
 
 	IPA_BE_DBG("Successfully deleted IPv6 rule, final ref count: %d\n", ref);
@@ -1623,7 +1660,15 @@ int ipa_be_init_if(void)
 		return -ENOMEM;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if(ipa_be_nat_mgmt_init()){
+		IPA_BE_ERR("failed be_nat_mgmt_init\n");
+	}
+#else
+	IPA_BE_DBG("NAT support disabled - skipping ipa_be_nat_mgmt_init\n");
+#endif
 	IPA_BE_DBG("ECMIPA exit ipa_be_init_if \n");
+
 	return 0;
 }
 EXPORT_SYMBOL(ipa_be_init_if);
@@ -1648,6 +1693,15 @@ int ipa_be_exit_if(void)
 	struct ipa_ctx_instance_internal *ipa_be_ctx = &__ipa_be_ctx;
 
 	IPA_BE_DBG("ECMIPA entry ipa_be_exit_if \n");
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	ipa_be_nat_mgmt_exit();
+#else
+	IPA_BE_DBG("NAT support disabled - skipping ipa_be_nat_mgmt_exit\n");
+#endif
+	/*
+	 * stop work queue, and flush all pending message in queue
+	 */
 
 	cancel_work_sync(&ipa_be_ctx->work);
 	ipa_process_response_msg(&ipa_be_ctx->work);

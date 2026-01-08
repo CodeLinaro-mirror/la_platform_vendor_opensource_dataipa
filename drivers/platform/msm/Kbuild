@@ -120,6 +120,22 @@ LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
 endif
 endif
 
+
+ifeq ($(filter $(CONFIG_ARCH_SDXPINN) $(CONFIG_ARCH_SDXKOVA), y), y)
+DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa.h
+include $(srctree)/../../../dataipa/config/dataipa_QGKI.conf
+ifeq ($(KERNEL_PLATFORM_TARGET), $(filter $(KERNEL_PLATFORM_TARGET), sdxpinn sdxpinn-cpe-wkk sdxpinn-cpe-wkk-v1))
+include $(srctree)/../../../dataipa/config/dataipa_ipsec.conf
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_ipsec.h
+endif
+ifneq ($(CONFIG_LOCALVERSION), "-perf")
+include $(srctree)/../../../dataipa/config/dataipa_debug.conf
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
+endif
+endif
+
+
 ifeq ($(CONFIG_ARCH_SDXBAAGHA), y)
 DATAIPADRVTOP = $(MODULE_OUT)/drivers/platform/msm
 LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa_hw5_0.h
@@ -166,6 +182,8 @@ ifneq ($(CONFIG_LOCALVERSION), "-perf")
 include $(srctree)/../../../dataipa/config/dataipa_debug.conf
 LINUXINCLUDE += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
 endif
+include $(srctree)/../../../dataipa/config/dataipa_nat_lib.conf
+LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa_nat_lib.h
 else
 $(warning DATAIPADRVTOP is set to: $(DATAIPADRVTOP))
 LINUXINCLUDE += -include $(DATAIPADRVTOP)/../../../config/dataipa_hw7_0.h
@@ -178,6 +196,8 @@ ifneq ($(CONFIG_LOCALVERSION), "-perf")
 include $(DATAIPADRVTOP)/../../../config/dataipa_debug.conf
 LINUXINCLUDE += -include $(DATAIPADRVTOP)/../../../config/dataipa_debug.h
 endif
+include $(DATAIPADRVTOP)/../../../config/dataipa_nat_lib.conf
+LINUXINCLUDE    += -include $(DATAIPADRVTOP)/../../../config/dataipa_nat_lib.h
 endif
 endif
 
@@ -192,6 +212,7 @@ LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3/ipahal
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_clients
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/../../../exports/
+LINUXINCLUDE += -I$(DATAIPADRVTOP)/../../../ipanat/inc
 ifneq (,$(filter $(CONFIG_IPA_KERNEL_TESTS_MODULE),y m))
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_test_module
 endif

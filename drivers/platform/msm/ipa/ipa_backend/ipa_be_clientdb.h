@@ -56,7 +56,7 @@ extern ProcCtx *hash_table_ipa[TABLE_SIZE];
 extern Hdr *hash_table_hdr[TABLE_SIZE];
 
 
-extern spinlock_t ipa_client_db_lock;
+extern struct mutex ipa_client_db_lock;
 typedef uint32_t ipa_db_mapping_hash_t;
 
 #define IPA_CLIENT_DB_MAPPING_INSTANCE_MAGIC 0x9876

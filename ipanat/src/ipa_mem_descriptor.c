@@ -26,43 +26,21 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  *
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *  * Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *  * Redistributions in binary form must reproduce the above
- *    copyright notice, this list of conditions and the following
- *    disclaimer in the documentation and/or other materials provided
- *    with the distribution.
- *  * Neither the name of The Linux Foundation nor the names of its
- *    contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "ipa_mem_descriptor.h"
 #include "ipa_nat_utils.h"
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <errno.h>
 #include <unistd.h>
+#endif
 
 #define IPA_DEV_DIR "/dev/"
 
@@ -70,9 +48,14 @@
 #define IPA_DEVICE_MMAP_MEM_SIZE (2 * 1024UL * 1024UL - 1)
 #endif
 
+#ifdef CONFIG_ECM_CONVERGENCE
+static int AllocateMemory(
+	ipa_mem_descriptor* desc)
+#else
 static int AllocateMemory(
 	ipa_mem_descriptor* desc,
 	int ipa_fd)
+#endif
 {
 	struct ipa_ioc_nat_ipv6ct_table_alloc cmd;
 	int ret = 0;
@@ -104,11 +87,17 @@ static int AllocateMemory(
 
 	memset(&desc->nat_sram_info, 0, sizeof(desc->nat_sram_info));
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if(ipa3_nat_get_sram_info(&desc->nat_sram_info))
+		ret = -EFAULT;
+	#else
 	ret = ioctl(
 		ipa_fd,
 		IPA_IOC_GET_NAT_IN_SRAM_INFO,
 		&desc->nat_sram_info);
+	#endif
 
+	IPADBG("desc->base_addr %pX\n", desc->base_addr);
 	if ( ret == 0 )
 	{
 		IPADBG("sram_mem_available_for_nat(0x%08x) "
@@ -138,18 +127,30 @@ static int AllocateMemory(
 
 	cmd.size = desc->orig_rqst_size;
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (ipa3_allocate_nat_table(&cmd)) {
+		ret = -EFAULT;
+	};
+	#else
 	ret = ioctl(ipa_fd, desc->allocate_ioctl_num, &cmd);
+	#endif
 
 	if (ret)
 	{
+		#ifdef CONFIG_ECM_CONVERGENCE
+		IPAERR("Unable to post %s allocate table command. Error %d\n",
+			   desc->name, ret);
+		#else
 		IPAERR("Unable to post %s allocate table command. Error %d IPA fd %d\n",
 			   desc->name, ret, ipa_fd);
-		goto bail;
+		#endif
+			   goto bail;
 	}
 
 	desc->addr_offset = cmd.offset;
 
 	IPADBG("The memory desc for %s allocated successfully\n", desc->name);
+	IPADBG("desc->base_addr %pX\n", desc->base_addr);
 
 bail:
 	IPADBG("Out\n");
@@ -157,9 +158,14 @@ bail:
 	return ret;
 }
 
+#ifdef CONFIG_ECM_CONVERGENCE
+static int AllocateCtMemory(
+	ipa_mem_descriptor* desc)
+#else
 static int AllocateCtMemory(
 	ipa_mem_descriptor* desc,
 	int ipa_fd)
+#endif
 {
 	struct ipa_ioc_nat_ipv6ct_table_alloc cmd;
 	int ret = 0;
@@ -191,11 +197,17 @@ static int AllocateCtMemory(
 
 	memset(&desc->nat_sram_info, 0, sizeof(desc->nat_sram_info));
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if(ipa3_ct_get_sram_info(&desc->nat_sram_info))
+		ret = -EFAULT;
+#else
 	ret = ioctl(
 		ipa_fd,
 		IPA_IOC_GET_CT_IN_SRAM_INFO,
 		&desc->nat_sram_info);
+#endif
 
+	IPADBG("desc->base_addr %pX\n", desc->base_addr);
 	if ( ret == 0 )
 	{
 		IPADBG("sram_mem_available_for_ct(0x%08x) "
@@ -225,18 +237,30 @@ static int AllocateCtMemory(
 
 	cmd.size = desc->orig_rqst_size;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (ipa3_allocate_ipv6ct_table(&cmd)) {
+		ret = -EFAULT;
+	}
+#else
 	ret = ioctl(ipa_fd, desc->allocate_ioctl_num, &cmd);
+#endif
 
 	if (ret)
 	{
+#ifdef CONFIG_ECM_CONVERGENCE
+		IPAERR("Unable to post %s allocate table command. Error %d\n",
+			   desc->name, ret);
+#else
 		IPAERR("Unable to post %s allocate table command. Error %d IPA fd %d\n",
 			   desc->name, ret, ipa_fd);
-		goto bail;
+#endif
+			   goto bail;
 	}
 
 	desc->addr_offset = cmd.offset;
 
 	IPADBG("The memory desc for %s allocated successfully\n", desc->name);
+	IPADBG("desc->base_addr %pX\n", desc->base_addr);
 
 bail:
 	IPADBG("Out\n");
@@ -244,17 +268,45 @@ bail:
 	return ret;
 }
 
-static int MapMemory(
-	ipa_mem_descriptor* desc,
-	int ipa_fd)
+// sat - mmap not needed
+#ifdef CONFIG_ECM_CONVERGENCE
+static int MapMemory(ipa_mem_descriptor *desc)
+#else
+static int MapMemory(ipa_mem_descriptor *desc, int ipa_fd)
+#endif
 {
-	char device_full_path[IPA_RESOURCE_NAME_MAX];
-	size_t ipa_dev_dir_path_len;
-	int device_fd;
 	int ret = 0;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	struct ipa3_nat_mem          *nm_ptr;
+	struct ipa3_nat_mem_loc_data *mld_ptr;
+	enum ipa3_nat_mem_in          nmi;
+	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->nat_mem.dev;
+#else
+	size_t ipa_dev_dir_path_len;
+	char device_full_path[IPA_RESOURCE_NAME_MAX];
+	int device_fd = -1;
+#endif
 
 	IPADBG("In\n");
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	nm_ptr = (struct ipa3_nat_mem *) dev;
+	nmi    = nm_ptr->last_alloc_loc;
+	if (!IPA_VALID_NAT_MEM_IN(nmi)) {
+			IPAERR_RL("Bad ipa3_nat_mem_in type\n");
+			ret = -EPERM;
+			goto bail;
+	}
+	mld_ptr = &nm_ptr->mem_loc[nmi];
+	mld_ptr->is_mapped = true;
+
+	desc->base_addr = mld_ptr->base_address;
+	IPADBG("Sat - mld_ptr->base_address = %pX\n",mld_ptr->base_address);
+	for (int i = 0; i < desc->orig_rqst_size; i++)
+		((char *)desc->base_addr)[i] = 0;
+
+#else
 	ipa_dev_dir_path_len =
 		strlcpy(device_full_path, IPA_DEV_DIR, IPA_RESOURCE_NAME_MAX);
 
@@ -315,6 +367,7 @@ static int MapMemory(
 			0);
 #else
 	IPADBG("user space r3pc\n");
+	desc->mmap_size = IPA_DEVICE_MMAP_MEM_SIZE;
 	desc->mmap_addr = desc->base_addr =
 		(void *) mmap(
 			(caddr_t)0,
@@ -334,32 +387,189 @@ static int MapMemory(
 
 	if ( desc->sram_to_be_used )
 	{
+		// Adjust base address if SRAM is used and offset is required
 		desc->base_addr =
 			(uint8_t*) (desc->base_addr) +
 			desc->nat_sram_info.nat_table_offset_into_mmap;
 	}
+#endif
 
+	
+	IPADBG("Sat - base_addr = %pX , sram_to_be_used %d,  \n",desc->base_addr, desc->sram_to_be_used);
 	IPADBG("mmap for %s return value 0x%lx -> 0x%lx\n",
 		   desc->name,
 		   (long unsigned int) desc->mmap_addr,
 		   (long unsigned int) desc->base_addr);
 
+#ifndef CONFIG_ECM_CONVERGENCE
 hndl_close:
 	if (close(device_fd))
 	{
 		IPAERR("unable to close the file descriptor for %s\n", desc->name);
 		ret = -EINVAL;
 	}
-
+#endif
 bail:
 	IPADBG("Out\n");
 
 	return ret;
 }
 
+#ifdef CONFIG_ECM_CONVERGENCE
+static int MapCtMemory(ipa_mem_descriptor *desc)
+#else
+static int MapCtMemory(ipa_mem_descriptor *desc, int ipa_fd)
+#endif
+{
+	int ret = 0;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	struct ipa3_ipv6ct_mem *ctm_ptr;
+	struct ipa3_ct_mem_loc_data *ct_mld_ptr;
+	enum ipa3_nat_mem_in          nmi;
+	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->ipv6ct_mem.dev;
+#else
+	size_t ipa_dev_dir_path_len;
+	char device_full_path[IPA_RESOURCE_NAME_MAX];
+	int device_fd = -1;
+#endif
+
+	IPADBG("In\n");
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
+	nmi    = ctm_ptr->last_alloc_loc;
+	if (!IPA_VALID_NAT_MEM_IN(nmi)) {
+			IPAERR_RL("Bad ipa3_nat_mem_in type\n");
+			ret = -EPERM;
+			goto bail;
+	}
+	ct_mld_ptr = &ctm_ptr->mem_loc[nmi];
+	ct_mld_ptr->is_mapped = true;
+
+	desc->base_addr = ct_mld_ptr->base_address;
+	IPADBG("ct_mld_ptr->base_address = %pX\n",ct_mld_ptr->base_address);
+	for (int i = 0; i < desc->orig_rqst_size; i++)
+		((char *)desc->base_addr)[i] = 0;
+
+#else
+	ipa_dev_dir_path_len =
+		strlcpy(device_full_path, IPA_DEV_DIR, IPA_RESOURCE_NAME_MAX);
+
+	if (ipa_dev_dir_path_len >= IPA_RESOURCE_NAME_MAX)
+	{
+		IPAERR("Unable to copy a string with size %d to buffer with size %d\n",
+			   (int)ipa_dev_dir_path_len, IPA_RESOURCE_NAME_MAX);
+		ret = -EINVAL;
+		goto bail;
+	}
+
+	strlcpy(device_full_path + ipa_dev_dir_path_len,
+			desc->name, IPA_RESOURCE_NAME_MAX - ipa_dev_dir_path_len);
+
+	device_fd = open(device_full_path, O_RDWR);
+
+	if (device_fd < 0)
+	{
+		IPAERR("unable to open the desc %s in path %s. Error:%d\n",
+			   desc->name, device_full_path, device_fd);
+		ret = -EIO;
+		goto bail;
+	}
+
+#ifndef IPA_ON_R3PC
+	/*
+	 * If/when the number of NAT table entries requested yields a byte
+	 * count that will fit in SRAM, SRAM will be used to hold the NAT
+	 * table. When SRAM is used, some odd things can happen, relative
+	 * to mmap'ing's virtual memory scheme, that require us to make
+	 * some adjustments.
+	 *
+	 * To be more specific, the real physical SRAM location for the
+	 * table and the table's size may not play well with Linux's
+	 * mmap'ing virtual memory scheme....which likes everything to be
+	 * PAGE_SIZE aligned and sized in multiples of PAGE_SIZE.
+	 *
+	 * Given the above, if the NAT table's (in SRAM) physical address
+	 * in not on a PAGE_SIZE boundary, it will be offset into the
+	 * mmap'd virtual memory, hence we need to know that offset in
+	 * order to get to the table.  If said offset plus the table's
+	 * size takes it across a PAGE_SIZE boundary, we need to allocate
+	 * more space to ensure that the table is completely within the
+	 * mmap'd virtual memory.
+	 */
+	desc->mmap_size =
+		( desc->sram_to_be_used )                      ?
+		(int)(desc->nat_sram_info.best_nat_in_sram_size_rqst) :
+		desc->orig_rqst_size;
+
+	desc->mmap_addr = desc->base_addr =
+		(void* )mmap(
+			NULL,
+			desc->mmap_size,
+			PROT_READ | PROT_WRITE,
+			MAP_SHARED,
+			device_fd,
+			0);
+#else
+	IPADBG("user space r3pc\n");
+	desc->mmap_size = IPA_DEVICE_MMAP_MEM_SIZE;
+	desc->mmap_addr = desc->base_addr =
+		(void *) mmap(
+			(caddr_t)0,
+			IPA_DEVICE_MMAP_MEM_SIZE,
+			PROT_READ | PROT_WRITE,
+			MAP_SHARED,
+			device_fd,
+			0);
+#endif
+
+	if (desc->base_addr == MAP_FAILED)
+	{
+		IPAERR("Unable to mmap the memory for %s\n", desc->name);
+		ret = -EINVAL;
+		goto hndl_close;
+	}
+
+	if ( desc->sram_to_be_used )
+	{
+		// Adjust base address if SRAM is used and offset is required
+		desc->base_addr =
+			(uint8_t*) (desc->base_addr) +
+			desc->nat_sram_info.nat_table_offset_into_mmap;
+	}
+#endif
+
+	
+	IPADBG("Sat - base_addr = %pX , sram_to_be_used %d,  \n",desc->base_addr, desc->sram_to_be_used);
+	IPADBG("mmap for %s return value 0x%lx -> 0x%lx\n",
+		   desc->name,
+		   (long unsigned int) desc->mmap_addr,
+		   (long unsigned int) desc->base_addr);
+
+#ifndef CONFIG_ECM_CONVERGENCE
+hndl_close:
+	if (close(device_fd))
+	{
+		IPAERR("unable to close the file descriptor for %s\n", desc->name);
+		ret = -EINVAL;
+	}
+#endif
+bail:
+	IPADBG("Out\n");
+
+	return ret;
+}
+
+
+#ifdef CONFIG_ECM_CONVERGENCE
+static int DeallocateMemory(
+	ipa_mem_descriptor* desc)
+#else
 static int DeallocateMemory(
 	ipa_mem_descriptor* desc,
 	int ipa_fd)
+#endif
 {
 	struct ipa_ioc_nat_ipv6ct_table_del cmd;
 	int ret = 0;
@@ -375,12 +585,23 @@ static int DeallocateMemory(
 		IPA_NAT_MEM_IN_SRAM       :
 		IPA_NAT_MEM_IN_DDR;
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (ipa3_del_nat_table(&cmd)) {
+		ret = -EFAULT;
+	}
+	#else
 	ret = ioctl(ipa_fd, desc->delete_ioctl_num, &cmd);
+	#endif
 
 	if (ret)
 	{
+		#ifdef CONFIG_ECM_CONVERGENCE
+		IPAERR("unable to post table delete command for %s Error: %d\n",
+			   desc->name, ret);
+		#else
 		IPAERR("unable to post table delete command for %s Error: %d IPA fd %d\n",
 			   desc->name, ret, ipa_fd);
+		#endif
 		goto bail;
 	}
 
@@ -414,15 +635,24 @@ void ipa_mem_descriptor_init(
 	IPADBG("Out\n");
 }
 
+#ifdef CONFIG_ECM_CONVERGENCE
+int ipa_mem_desc_alloc_memory(
+	ipa_mem_descriptor* desc)
+#else
 int ipa_mem_desc_alloc_memory(
 	ipa_mem_descriptor* desc,
 	int ipa_fd)
+#endif
 {
 	int ret;
 
 	IPADBG("In\n");
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	ret = AllocateMemory(desc);
+	#else
 	ret = AllocateMemory(desc, ipa_fd);
+	#endif
 
 	if (ret)
 	{
@@ -430,16 +660,26 @@ int ipa_mem_desc_alloc_memory(
 		goto bail;
 	}
 
+	// sat - mmap not needed
+	#ifdef CONFIG_ECM_CONVERGENCE
+	ret = MapMemory(desc);
+	#else
 	ret = MapMemory(desc, ipa_fd);
+	#endif
 
 	if (ret)
 	{
 		IPAERR("unable to map %s\n", desc->name);
+		#ifdef CONFIG_ECM_CONVERGENCE
+		DeallocateMemory(desc);
+		#else
 		DeallocateMemory(desc, ipa_fd);
+		#endif
 		goto bail;
 	}
 
 	desc->valid = TRUE;
+	IPADBG("desc->base_addr %pX\n", desc->base_addr);
 
 bail:
 	IPADBG("Out\n");
@@ -447,15 +687,24 @@ bail:
 	return ret;
 }
 
+#ifdef CONFIG_ECM_CONVERGENCE
+int ipa_mem_descriptor_allocate_ct_memory(
+	ipa_mem_descriptor* desc)
+#else
 int ipa_mem_descriptor_allocate_ct_memory(
 	ipa_mem_descriptor* desc,
 	int ipa_fd)
+#endif
 {
 	int ret;
 
 	IPADBG("In\n");
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	ret = AllocateCtMemory(desc);
+#else
 	ret = AllocateCtMemory(desc, ipa_fd);
+#endif
 
 	if (ret)
 	{
@@ -463,16 +712,26 @@ int ipa_mem_descriptor_allocate_ct_memory(
 		goto bail;
 	}
 
-	ret = MapMemory(desc, ipa_fd);
+	// sat - mmap not needed
+#ifdef CONFIG_ECM_CONVERGENCE
+	ret = MapCtMemory(desc);
+#else
+	ret = MapCtMemory(desc, ipa_fd);
+#endif
 
 	if (ret)
 	{
 		IPAERR("unable to map %s\n", desc->name);
+#ifdef CONFIG_ECM_CONVERGENCE
+		DeallocateMemory(desc);
+#else
 		DeallocateMemory(desc, ipa_fd);
+#endif
 		goto bail;
 	}
 
 	desc->valid = TRUE;
+	IPADBG("desc->base_addr %pX\n", desc->base_addr);
 
 bail:
 	IPADBG("Out\n");
@@ -480,9 +739,14 @@ bail:
 	return ret;
 }
 
+#ifdef CONFIG_ECM_CONVERGENCE
+int ipa_mem_descriptor_delete(
+	ipa_mem_descriptor* desc)
+#else
 int ipa_mem_descriptor_delete(
 	ipa_mem_descriptor* desc,
 	int ipa_fd)
+#endif
 {
 	int ret = 0;
 
@@ -497,13 +761,17 @@ int ipa_mem_descriptor_delete(
 
 	desc->valid = FALSE;
 
-#ifndef IPA_ON_R3PC
-	munmap(desc->mmap_addr, desc->mmap_size);
+// sat - mmap not needed
+#ifdef CONFIG_ECM_CONVERGENCE
+	ret = DeallocateMemory(desc);
 #else
-	munmap(desc->mmap_addr, IPA_DEVICE_MMAP_MEM_SIZE);
-#endif
-
+	#ifndef IPA_ON_R3PC
+		munmap(desc->mmap_addr, desc->mmap_size);
+	#else
+		munmap(desc->mmap_addr, IPA_DEVICE_MMAP_MEM_SIZE);
+	#endif
 	ret = DeallocateMemory(desc, ipa_fd);
+#endif
 
 bail:
 	IPADBG("Out\n");

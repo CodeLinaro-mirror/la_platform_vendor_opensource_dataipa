@@ -3,10 +3,13 @@
  * SPDX-License-Identifier: BSD-3-Clause-Clear
 */
 
+#ifdef CONFIG_ECM_CONVERGENCE
+#include <linux/mutex.h>
+#else
 #include <errno.h>
 #include <pthread.h>
-
 #include "ipa_nat_map.h"
+#endif
 
 #include "ipa_ipv6ct.h"
 #include "ipa_ipv6cti.h"
@@ -17,7 +20,7 @@
 
 #undef PRCNT_OF
 #define PRCNT_OF(v) \
-	((.25) * (v))
+	((v) / (4))
 
 #undef  CT_CHOOSE_MEM_SUB
 #define CT_CHOOSE_MEM_SUB() \
@@ -108,7 +111,9 @@ static ipa_cti_obj cti_obj = {
 	 *   map_pairs[0] for ddr, and
 	 *   map_pairs[1] for sram
 	 */
+#ifndef CONFIG_ECM_CONVERGENCE
 	.map_pairs = { {MAP_NUM_04, MAP_NUM_05}, {MAP_NUM_06, MAP_NUM_07} },
+#endif
 	/*
 	 * Remember:
 	 *   sw_stats[0] for ddr, and
@@ -117,18 +122,27 @@ static ipa_cti_obj cti_obj = {
 	.sw_stats = { {0, 0}, {0, 0} },
 };
 
+bool     ct_mutex_locked;
+
 /*
  * The following needed to protect cti_obj above, as well as a number
  * of data stuctures within the file ipa_ipv6ct.c
  */
+#ifdef CONFIG_ECM_CONVERGENCE
+struct mutex ipv6ct_mutex;
+#else
 pthread_mutex_t ipv6ct_mutex;
+#endif
 static bool     ct_mutex_initt = false;
 
 static inline int ct_mutex_init(void)
 {
-	static pthread_mutexattr_t ct_mutex_attr;
-
 	int ret = 0;
+#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_init(&ipv6ct_mutex);
+	goto bail;
+#else
+	static pthread_mutexattr_t ct_mutex_attr;
 
 	IPADBG("In\n");
 
@@ -158,7 +172,7 @@ static inline int ct_mutex_init(void)
 			   ret );
 		goto bail;
 	}
-
+#endif
 	ct_mutex_initt = true;
 
 bail:
@@ -170,40 +184,63 @@ bail:
 /*
  * Function for taking/locking the mutex...
  */
-static int ct_take_mutex()
+static int ct_take_mutex(void)
+{
+    int ret = -1;
+
+    if (!ct_mutex_initt) {
+#ifdef CONFIG_ECM_CONVERGENCE
+        mutex_init(&ipv6ct_mutex);
+        ct_mutex_initt = true;
+        IPAERR("In, ct_mutex_initt %d\n", ct_mutex_initt);
+        ret = 0;
+#else
+        ret = ct_mutex_init();
+#endif
+        if (ret != 0) {
+            IPAERR("Unable to initialize NAT mutex\n");
+            return ret;
+        }
+    }
+
+#ifdef CONFIG_ECM_CONVERGENCE
+    mutex_lock(&ipv6ct_mutex);
+    ct_mutex_locked = true;
+    ret = 0;
+#else
+    ret = pthread_mutex_lock(&ipv6ct_mutex);
+#endif
+
+    if (ret != 0) {
+        IPAERR("Unable to lock the %s NAT mutex\n",
+               ct_mutex_initt ? "initialized" : "uninitialized");
+    }
+
+    return ret;
+}
+
+
+/*
+ * Function for giving/unlocking the mutex...
+ */
+static int ct_give_mutex(void)
 {
 	int ret;
 
 	if ( ct_mutex_initt )
 	{
-again:
-		ret = pthread_mutex_lock(&ipv6ct_mutex);
+#ifdef CONFIG_ECM_CONVERGENCE
+		mutex_unlock(&ipv6ct_mutex);
+		ct_mutex_locked = false;
+		ret = 0;
+#else
+		ret = pthread_mutex_unlock(&ipv6ct_mutex);
+#endif
 	}
 	else
 	{
-		ret = ct_mutex_init();
-
-		if ( ret == 0 )
-		{
-			goto again;
-		}
+		ret = -1;
 	}
-
-	if ( ret != 0 )
-	{
-		IPAERR("Unable to lock the %s nat mutex\n",
-			   (ct_mutex_initt) ? "initialized" : "uninitialized");
-	}
-
-	return ret;
-}
-
-/*
- * Function for giving/unlocking the mutex...
- */
-static int ct_give_mutex()
-{
-	int ret = (ct_mutex_initt) ? pthread_mutex_unlock(&ipv6ct_mutex) : -1;
 
 	if ( ret != 0 )
 	{
@@ -270,6 +307,7 @@ static int ct_give_mutex()
  *
  *   Returns 0 on success, non-zero on failure
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int ct_migrate_rule(
 	ipa_table*      table_ptr,
 	uint32_t        tbl_rule_hdl,
@@ -280,7 +318,7 @@ static int ct_migrate_rule(
 	void*           arb_data_ptr )
 {
 	ipa_ipv6ct_hw_entry* ct_rule_ptr = (struct ipa_ipv6ct_hw_entry*) record_ptr;
-	uint32_t             dst_tbl_hdl  = (uint32_t) arb_data_ptr;
+	uint32_t             dst_tbl_hdl  = (uint32_t)(uintptr_t) arb_data_ptr;
 
 	ipa_ipv6ct_rule    v6_rule;
 
@@ -412,7 +450,7 @@ bail:
 
 	return ret;
 }
-
+#endif
 /*
  * ****************************************************************************
  *
@@ -425,10 +463,10 @@ int ipa_cti_add_ipv6_tbl(
 	uint16_t    number_of_entries,
 	uint32_t*   tbl_hdl)
 {
-	arb_t* args[] = {
-		(arb_t*)(arb_t)number_of_entries,
-		(arb_t*) tbl_hdl,
-		(arb_t*) mem_type_ptr,
+	arb_t args[] = {
+		(arb_t)number_of_entries,
+		(arb_t) tbl_hdl,
+		(arb_t) mem_type_ptr,
 	};
 
 	int ret;
@@ -439,6 +477,7 @@ int ipa_cti_add_ipv6_tbl(
 
 	if ( ret == 0 )
 	{
+                *tbl_hdl =  cti_obj.ddr_tbl_hdl;
 		IPADBG("tbl_hdl val(0x%08X)\n", *tbl_hdl);
 	}
 
@@ -458,7 +497,7 @@ int ipa_cti_del_ipv6_tbl(
 
 	IPADBG("In\n");
 
-	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_DEL_TABLE, args);
+	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_DEL_TABLE, (arb_t*)args);
 
 	IPADBG("Out\n");
 
@@ -480,7 +519,7 @@ int ipa_cti_add_ipv6_rule_v2(
 
 	IPADBG("In\n");
 
-	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_ADD_RULE_V2, args);
+	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_ADD_RULE_V2, (arb_t*)args);
 
 	if ( ret == 0 )
 	{
@@ -507,7 +546,7 @@ int ipa_cti_add_ipv6_rule(
 
 	IPADBG("In\n");
 
-	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_ADD_RULE, args);
+	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_ADD_RULE, (arb_t*)args);
 
 	if ( ret == 0 )
 	{
@@ -532,7 +571,7 @@ int ipa_cti_del_ipv6_rule(
 
 	IPADBG("In\n");
 
-	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_DEL_RULE, args);
+	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_DEL_RULE, (arb_t*)args);
 
 	IPADBG("Out\n");
 
@@ -554,7 +593,7 @@ int ipa_cti_query_timestamp(
 
 	IPADBG("In\n");
 
-	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_GET_TSTAMP, args);
+	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_GET_TSTAMP, (arb_t*)args);
 
 	if ( ret == 0 )
 	{
@@ -577,7 +616,7 @@ int ipa_cti_timestamp_flush(
 
 	IPADBG("In\n");
 
-	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_TSTAMP_FLSH, args);
+	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_TSTAMP_FLSH, (arb_t*)args);
 
 	IPADBG("Out\n");
 
@@ -597,7 +636,7 @@ int ipa_cti_clear_ipv6_tbl(
 
 	IPADBG("In\n");
 
-	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_CLR_TABLE, args);
+	ret = ipa_cti_statemach(&cti_obj, CTI_TRIG_CLR_TABLE, (arb_t*)args);
 
 	IPADBG("Out\n");
 
@@ -642,9 +681,9 @@ static int _smCtDelTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t**  args = arb_data_ptr;
+	arb_t**  args = &arb_data_ptr;
 
-	uint32_t tbl_hdl = (uint32_t) args[0];
+	uint32_t tbl_hdl = *((uint32_t*) args[0]);
 
 	int ret;
 
@@ -694,11 +733,12 @@ static int _smCtFirstTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t**   args = arb_data_ptr;
+	//arb_t**   args = arb_data_ptr;
 
-	uint16_t    number_of_entries = (uint16_t)    args[0];
-	uint32_t*   tbl_hdl_ptr       = (uint32_t*)   args[1];
-	const char* mem_type_ptr      = (const char*) args[2];
+	//uint16_t    number_of_entries = (uint16_t)    args[0];
+	//uint32_t*   tbl_hdl_ptr       = (uint32_t*)   args[1];
+	//const char* mem_type_ptr      = (const char*) args[2];
+	const char* mem_type_ptr      = (const char*)arb_data_ptr[2];
 
 	int ret;
 
@@ -714,7 +754,7 @@ static int _smCtFirstTbl(
 		cti_obj_ptr->state_to_hold                               :
 		mem_type_str_to_ipa_cti_state(mem_type_ptr));
 
-	ret = ipa_cti_statemach(cti_obj_ptr, CTI_TRIG_ADD_TABLE, args);
+	ret = ipa_cti_statemach(cti_obj_ptr, CTI_TRIG_ADD_TABLE, arb_data_ptr);
 
 	IPADBG("Out\n");
 
@@ -746,9 +786,9 @@ static int _smCtAddDdrTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t**   args = arb_data_ptr;
+	arb_t**   args = &arb_data_ptr;
 
-	uint16_t  number_of_entries = (uint16_t)  args[0];
+	uint16_t  number_of_entries = *((uint16_t*)  args[0]);
 	uint32_t* tbl_hdl_ptr       = (uint32_t*) args[1];
 
 	int ret;
@@ -801,10 +841,10 @@ static int _smCtAddSramTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t**   args = arb_data_ptr;
+	//arb_t**   args = arb_data_ptr;
 
-	uint16_t  number_of_entries = (uint16_t)  args[0];
-	uint32_t* tbl_hdl_ptr       = (uint32_t*) args[1];
+	//uint16_t  number_of_entries = (uint16_t)  args[0];
+	uint32_t* tbl_hdl_ptr       = (uint32_t*)(uintptr_t)arb_data_ptr[1];
 
 	uint32_t  sram_size = 0;
 
@@ -822,7 +862,7 @@ static int _smCtAddSramTbl(
 		ret = ipa_calc_num_sram_ct_table_entries(
 			sram_size,
 			sizeof(struct ipa_ipv6ct_hw_entry),
-			&cti_obj_ptr->tot_slots_in_sram);
+			(uint16_t*)&cti_obj_ptr->tot_slots_in_sram);
 
 		if ( ret == 0 )
 		{
@@ -850,7 +890,7 @@ static int _smCtAddSramTbl(
 
 			if ( ipa_ct_vote_clock(IPA_APP_CLK_DEVOTE) != 0 )
 			{
-				IPAWARN("Voting clock off failed\n");
+				IPAERR("Voting clock off failed\n");
 			}
 
 			if ( ret == 0 )
@@ -890,6 +930,7 @@ done:
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtAddSramAndDdrTbl(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -968,7 +1009,7 @@ static int _smCtAddSramAndDdrTbl(
 
 	return ret;
 }
-
+#endif
 /******************************************************************************/
 /*
  * FUNCTION: _smDelSramAndDdrTbl
@@ -990,6 +1031,7 @@ static int _smCtAddSramAndDdrTbl(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtDelSramAndDdrTbl(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -1031,7 +1073,7 @@ static int _smCtDelSramAndDdrTbl(
 
 	return ret;
 }
-
+#endif
 /******************************************************************************/
 /*
  * FUNCTION: _smAddRuleToTblV2
@@ -1058,7 +1100,7 @@ static int _smCtAddRuleToTblV2(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
+	arb_t* args = arb_data_ptr;
 
 	uint32_t           tbl_hdl   = (uint32_t)           args[0];
 	ipa_ipv6ct_rule_v2* clnt_rule = (ipa_ipv6ct_rule_v2*) args[1];
@@ -1116,13 +1158,11 @@ static int _smCtAddRuleToTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
+	uint32_t           tbl_hdl   = (uint32_t)arb_data_ptr[0];
+	ipa_ipv6ct_rule* clnt_rule = (ipa_ipv6ct_rule*)arb_data_ptr[1];
+	uint32_t*          rule_hdl  = (uint32_t*)arb_data_ptr[2];
 
-	uint32_t           tbl_hdl   = (uint32_t)           args[0];
-	ipa_ipv6ct_rule* clnt_rule = (ipa_ipv6ct_rule*) args[1];
-	uint32_t*          rule_hdl  = (uint32_t*)          args[2];
-
-	char buf[1024];
+	//char buf[1024];
 
 	int ret;
 
@@ -1174,11 +1214,8 @@ static int _smCtDelRuleFromTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t**  args = arb_data_ptr;
-
-	uint32_t tbl_hdl  = (uint32_t) args[0];
-	uint32_t rule_hdl = (uint32_t) args[1];
-
+	uint32_t tbl_hdl  =  (uint32_t)arb_data_ptr[0];
+	uint32_t rule_hdl = (uint32_t)arb_data_ptr[1];
 	int ret;
 
 	IPADBG("In\n");
@@ -1226,6 +1263,7 @@ static int _smCtDelRuleFromTbl(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtAddRuleHybrid(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -1320,6 +1358,7 @@ static int _smCtAddRuleHybrid(
 
 	return ret;
 }
+#endif
 
 /******************************************************************************/
 /*
@@ -1348,6 +1387,7 @@ static int _smCtAddRuleHybrid(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtDelRuleHybrid(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -1456,6 +1496,7 @@ static int _smCtDelRuleHybrid(
 
 	return ret;
 }
+#endif
 
 /******************************************************************************/
 /*
@@ -1478,6 +1519,7 @@ static int _smCtDelRuleHybrid(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtGoToDdr(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -1500,7 +1542,7 @@ static int _smCtGoToDdr(
 
 	return ret;
 }
-
+#endif
 /******************************************************************************/
 /*
  * FUNCTION: _smCtGoToSram
@@ -1522,6 +1564,7 @@ static int _smCtGoToDdr(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtGoToSram(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -1542,6 +1585,7 @@ static int _smCtGoToSram(
 
 	return ret;
 }
+#endif
 
 /******************************************************************************/
 /*
@@ -1568,11 +1612,9 @@ static int _smCtGetTmStmp(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
-
-	uint32_t  tbl_hdl    = (uint32_t)  args[0];
-	uint32_t  rule_hdl   = (uint32_t)  args[1];
-	uint32_t* time_stamp = (uint32_t*) args[2];
+	uint32_t  tbl_hdl    = (uint32_t)arb_data_ptr[0];
+	uint32_t  rule_hdl   = (uint32_t)arb_data_ptr[1];
+	uint32_t* time_stamp = (uint32_t*)arb_data_ptr[2];
 
 	int ret;
 
@@ -1613,6 +1655,7 @@ static int _smCtGetTmStmp(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtGetTmStmpHybrid(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -1653,6 +1696,7 @@ static int _smCtGetTmStmpHybrid(
 
 	return ret;
 }
+#endif
 
 /******************************************************************************/
 /*
@@ -1679,9 +1723,9 @@ static int _smCtClrTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t**  args = arb_data_ptr;
+	arb_t**  args = &arb_data_ptr;
 
-	uint32_t tbl_hdl = (uint32_t) args[0];
+	uint32_t tbl_hdl = *((uint32_t*) args[0]);
 	enum ipa3_nat_mem_in nmi;
 
 	uint32_t             unused_hdl, sub;
@@ -1706,8 +1750,10 @@ static int _smCtClrTbl(
 
 	cti_obj_ptr->tot_rules_in_table[sub] = 0;
 
+#ifndef CONFIG_ECM_CONVERGENCE
 	ipa_nat_map_clear(cti_obj.map_pairs[sub].orig2new_map);
 	ipa_nat_map_clear(cti_obj.map_pairs[sub].new2orig_map);
+#endif
 
 	ret = ipa_ipv6ct_clear_table(tbl_hdl);
 
@@ -1738,6 +1784,7 @@ bail:
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtClrTblHybrid(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -1763,6 +1810,7 @@ static int _smCtClrTblHybrid(
 
 	return ret;
 }
+#endif
 
 /******************************************************************************/
 /*
@@ -1789,10 +1837,10 @@ static int _smCtWalkTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
+arb_t** args = &arb_data_ptr;
 
-	uint32_t          tbl_hdl = (uint32_t)          args[0];
-	CtWhichTbl2Use      which   = (CtWhichTbl2Use)      args[1];
+	uint32_t          tbl_hdl = *((uint32_t*)          args[0]);
+	CtWhichTbl2Use      which   = *((CtWhichTbl2Use*)      args[1]);
 	ipa_table_walk_cb walk_cb = (ipa_table_walk_cb) args[2];
 	arb_t*            wadp    = (arb_t*)            args[3];
 
@@ -1830,6 +1878,7 @@ static int _smCtWalkTbl(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtWalkTblHybrid(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -1861,6 +1910,7 @@ static int _smCtWalkTblHybrid(
 
 	return ret;
 }
+#endif
 
 /******************************************************************************/
 /*
@@ -1887,9 +1937,9 @@ static int _smCtStatTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
+	arb_t** args = &arb_data_ptr;
 
-	uint32_t            tbl_hdl       = (uint32_t)            args[0];
+	uint32_t            tbl_hdl       = *((uint32_t*) args[0]);
 	ipa_cti_tbl_stats* ct_stats_ptr = (ipa_cti_tbl_stats*) args[1];
 
 	int ret;
@@ -1926,6 +1976,7 @@ static int _smCtStatTbl(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtStatTblHybrid(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -1953,6 +2004,7 @@ static int _smCtStatTblHybrid(
 
 	return ret;
 }
+#endif
 
 /******************************************************************************/
 /*
@@ -1979,7 +2031,7 @@ static int _smCtTmStmpFlsh(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
+	arb_t* args = arb_data_ptr;
 
 	uint32_t  tbl_hdl    = (uint32_t)  args[0];
 
@@ -2018,6 +2070,7 @@ static int _smCtTmStmpFlsh(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtSwitchFromDdrToSram(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -2078,8 +2131,8 @@ static int _smCtSwitchFromDdrToSram(
 		{
 			sw_stats_ptr->pass += 1;
 
-			IPADBG("Transistion from DDR to SRAM took %f microseconds\n",
-				   (float) (stop - start) / 1000.0);
+			IPADBG("Transistion from DDR to SRAM took %d microseconds\n",
+				   (stop - start) / 1000);
 		}
 		else
 		{
@@ -2098,29 +2151,29 @@ static int _smCtSwitchFromDdrToSram(
 			 * CT table stats...
 			 */
 			IPADBG("Able to add (%u) records to %s "
-				   "CT table of size (%u) or (%f) percent\n",
+				   "CT table of size (%u) or (%d) percent\n",
 				   *cnt_ptr,
 				   mem_type,
 				   ct_stats.tot_ents,
-				   ((float) *cnt_ptr / (float) ct_stats.tot_ents) * 100.0);
+				   (*cnt_ptr / ct_stats.tot_ents) * 100);
 
 			IPADBG("Able to add (%u) records to %s "
-				   "NAT BASE table of size (%u) or (%f) percent\n",
+				   "NAT BASE table of size (%u) or (%d) percent\n",
 				   ct_stats.tot_base_ents_filled,
 				   mem_type,
 				   ct_stats.tot_base_ents,
-				   ((float) ct_stats.tot_base_ents_filled /
-					(float) ct_stats.tot_base_ents) * 100.0);
+				   (ct_stats.tot_base_ents_filled /
+					ct_stats.tot_base_ents) * 100.0);
 
 			IPADBG("Able to add (%u) records to %s "
-				   "NAT EXPN table of size (%u) or (%f) percent\n",
+				   "NAT EXPN table of size (%u) or (%d) percent\n",
 				   ct_stats.tot_expn_ents_filled,
 				   mem_type,
 				   ct_stats.tot_expn_ents,
-				   ((float) ct_stats.tot_expn_ents_filled /
-					(float) ct_stats.tot_expn_ents) * 100.0);
+				   (ct_stats.tot_expn_ents_filled /
+					ct_stats.tot_expn_ents) * 100.0);
 
-			IPADBG("%s NAT table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%f)\n",
+			IPADBG("%s NAT table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%d)\n",
 				   mem_type,
 				   ct_stats.tot_chains,
 				   ct_stats.min_chain_len,
@@ -2134,7 +2187,7 @@ static int _smCtSwitchFromDdrToSram(
 
 	return ret;
 }
-
+#endif
 /******************************************************************************/
 /*
  * FUNCTION: _smCtSwitchFromSramToDdr
@@ -2156,6 +2209,7 @@ static int _smCtSwitchFromDdrToSram(
  *
  *   zero on success, otherwise non-zero
  */
+#ifndef CONFIG_ECM_CONVERGENCE
 static int _smCtSwitchFromSramToDdr(
 	ipa_cti_obj*    cti_obj_ptr,
 	ipa_cti_trigger trigger,
@@ -2216,8 +2270,8 @@ static int _smCtSwitchFromSramToDdr(
 		{
 			sw_stats_ptr->pass += 1;
 
-			IPADBG("Transistion from SRAM to DDR took %f microseconds\n",
-				   (float) (stop - start) / 1000.0);
+			IPADBG("Transistion from SRAM to DDR took %d microseconds\n",
+				    (stop - start) / 1000);
 		}
 		else
 		{
@@ -2236,29 +2290,29 @@ static int _smCtSwitchFromSramToDdr(
 			 * CT table stats...
 			 */
 			IPADBG("Able to add (%u) records to %s "
-				   "CT table of size (%u) or (%f) percent\n",
+				   "CT table of size (%u) or (%d) percent\n",
 				   *cnt_ptr,
 				   mem_type,
 				   ct_stats.tot_ents,
-				   ((float) *cnt_ptr / (float) ct_stats.tot_ents) * 100.0);
+				   (*cnt_ptr / ct_stats.tot_ents) * 100.0);
 
 			IPADBG("Able to add (%u) records to %s "
-				   "CT BASE table of size (%u) or (%f) percent\n",
+				   "CT BASE table of size (%u) or (%d) percent\n",
 				   ct_stats.tot_base_ents_filled,
 				   mem_type,
 				   ct_stats.tot_base_ents,
-				   ((float) ct_stats.tot_base_ents_filled /
-					(float) ct_stats.tot_base_ents) * 100.0);
+				   (ct_stats.tot_base_ents_filled /
+					ct_stats.tot_base_ents) * 100.0);
 
 			IPADBG("Able to add (%u) records to %s "
-				   "CT EXPN table of size (%u) or (%f) percent\n",
+				   "CT EXPN table of size (%u) or (%d) percent\n",
 				   ct_stats.tot_expn_ents_filled,
 				   mem_type,
 				   ct_stats.tot_expn_ents,
-				   ((float) ct_stats.tot_expn_ents_filled /
-					(float) ct_stats.tot_expn_ents) * 100.0);
+				   (ct_stats.tot_expn_ents_filled /
+					ct_stats.tot_expn_ents) * 100.0);
 
-			IPADBG("%s CT table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%f)\n",
+			IPADBG("%s CT table chains: tot_chains(%u) min_len(%u) max_len(%u) avg_len(%d)\n",
 				   mem_type,
 				   ct_stats.tot_chains,
 				   ct_stats.min_chain_len,
@@ -2272,7 +2326,7 @@ static int _smCtSwitchFromSramToDdr(
 
 	return ret;
 }
-
+#endif
 
 /******************************************************************************/
 /*
@@ -2335,7 +2389,7 @@ static cti_statemach_tuple
 			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_TSTAMP_FLSH,_smCtUndef ),
 			SM_ROW( CTI_STATE_SRAM_ONLY,  CTI_TRIG_LAST,       _smCtUndef ),
 		},
-
+#ifndef CONFIG_ECM_CONVERGENCE
 		{
 			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_NULL,       _smCtUndef ),
 			SM_ROW( CTI_STATE_HYBRID,     CTI_TRIG_ADD_TABLE,  _smCtAddSramAndDdrTbl ),
@@ -2371,7 +2425,7 @@ static cti_statemach_tuple
 			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_TSTAMP_FLSH,_smCtUndef ),
 			SM_ROW( CTI_STATE_HYBRID_DDR, CTI_TRIG_LAST,       _smCtUndef ),
 		},
-
+#endif
 		{
 			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_NULL,       _smCtUndef ),
 			SM_ROW( CTI_STATE_LAST,       CTI_TRIG_ADD_TABLE,  _smCtUndef ),
@@ -2458,11 +2512,16 @@ int ipa_cti_statemach(
 
 	bool vote = false;
 
-	int ret, ret_mtx;
+	int ret = 0 , ret_mtx = 0;
+	int mut_locked = false;
 
 	IPADBG("In\n");
 
-	ret = ct_take_mutex();
+	if (!ct_mutex_locked)
+	{
+		ret = ct_take_mutex();
+		mut_locked = true;
+	}
 
 	if ( ret != 0 )
 	{
@@ -2501,7 +2560,10 @@ int ipa_cti_statemach(
 	}
 
 unlock:
-	ret_mtx = ct_give_mutex();
+	if (mut_locked)
+	{
+		ret_mtx = ct_give_mutex();
+	}
 	ret = (ret) ? ret : ret_mtx;
 
 bail:

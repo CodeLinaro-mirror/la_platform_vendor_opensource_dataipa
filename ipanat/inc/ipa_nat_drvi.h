@@ -88,6 +88,8 @@ typedef enum {
 	IPA_NAT_TABLE_DMA_CMD_MAX
 } ipa_nat_table_dma_cmd_type;
 
+extern bool nat_mutex_locked;
+
 /*
  * ------------------------  NAT Table Entry V2  --------------------------------------
  *
@@ -507,7 +509,7 @@ typedef struct
 	uint32_t tot_chains;
 	uint32_t min_chain_len;
 	uint32_t max_chain_len;
-	float    avg_chain_len;
+	// uint32_t avg_chain_len;
 } ipa_nati_tbl_stats;
 
 int ipa_nati_ipv4_tbl_stats(
@@ -572,5 +574,8 @@ int ipa_NATI_add_ipv4_rule_v2(
 	uint32_t*                   rule_hdl);
 
 int ipa_NATI_timestamp_flush(uint32_t  tbl_hdl);
+
+int take_mutex(void);
+int give_mutex(void);
 
 #endif/* if not defined IPA_NAT_DRVI_H */

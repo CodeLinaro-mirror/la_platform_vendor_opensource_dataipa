@@ -1908,8 +1908,6 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 		else {
 			ipa3_install_dflt_flt_rules(ipa_ep_idx);
 #ifdef CONFIG_ECM_CONVERGENCE
-			ipa3_install_icmp_flt_rules(ipa_ep_idx);
-			ipa3_install_tcp_syn_flt_rules(ipa_ep_idx);
 			ipa3_init_flt_rule(ipa_ep_idx, IPA_IP_v4, false);
 			ipa3_init_flt_rule(ipa_ep_idx, IPA_IP_v6, false);
 #endif
@@ -2258,8 +2256,6 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		else {
 			ipa3_delete_dflt_flt_rules(clnt_hdl);
 #ifdef CONFIG_ECM_CONVERGENCE
-			ipa3_delete_icmp_flt_rules(clnt_hdl);
-			ipa3_delete_tcp_syn_flt_rules(clnt_hdl);
 			ipa3_delete_init_flt_rule(clnt_hdl, IPA_IP_v4);
 			ipa3_delete_init_flt_rule(clnt_hdl, IPA_IP_v6);
 #endif

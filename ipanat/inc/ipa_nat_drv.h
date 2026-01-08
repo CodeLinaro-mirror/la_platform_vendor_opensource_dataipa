@@ -36,8 +36,10 @@
 
 #include "ipa_nat_utils.h"
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #include <stdint.h>  /* uint32_t */
 #include <stdbool.h>
+#endif
 
 /**
  * ipa_nat_is_sram_supported() - Reports if sram is available for use
@@ -176,7 +178,7 @@ typedef struct {
 } ipa_nat_ipv4_rule;
 
 static inline char* prep_nat_ipv4_rule_4print(
-	ipa_nat_ipv4_rule* rule_ptr,
+	const ipa_nat_ipv4_rule* rule_ptr,
 	char*              buf_ptr,
 	uint32_t           buf_sz )
 {

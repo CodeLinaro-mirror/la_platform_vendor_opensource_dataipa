@@ -27,19 +27,23 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Changes from Qualcomm Technologies, Inc. are provided under the following license:
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #include "ipa_table.h"
 #include "ipa_nat_utils.h"
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #include <errno.h>
+#endif
 
-#define IPA_BASE_TABLE_PERCENTAGE       .8
-#define IPA_EXPANSION_TABLE_PERCENTAGE  .2
+#define IPA_BASE_TABLE_NUMERATOR      8
+#define IPA_TABLE_DENOMINATOR		10
+#define IPA_EXPANSION_TABLE_NUMERATOR  2
 
-#define IPA_BASE_TABLE_PCNT_4SRAM      1.00
-#define IPA_EXPANSION_TABLE_PCNT_4SRAM 0.43
+#define IPA_BASE_TABLE_PCNT_4SRAM      1
+#define IPA_EXPANSION_TABLE_PCNT_4SRAM_NUMERATOR 43
+#define IPA_EXPANSION_TABLE_PCNT_4SRAM_DENOMINATOR 100
 
 /*
  * The table number of entries is limited by Entry ID structure
@@ -115,7 +119,8 @@ int ipa_table_calculate_entries_num(
 	enum ipa3_nat_mem_in nmi)
 {
 	uint16_t table_entries, expn_table_entries;
-	float btp, etp;
+	uint16_t btp_num, etp_num, btp_den, etp_den;
+	int value = 0;
 	int result = 0;
 
 	IPADBG("In\n");
@@ -130,19 +135,24 @@ int ipa_table_calculate_entries_num(
 
 	if ( nmi == IPA_NAT_MEM_IN_SRAM )
 	{
-		btp = IPA_BASE_TABLE_PCNT_4SRAM;
-		etp = IPA_EXPANSION_TABLE_PCNT_4SRAM;
-		table_entries      = Get2PowerTightUpperBound(number_of_entries * btp);
-		expn_table_entries = GetEvenTightUpperBound(number_of_entries * etp);
-
+		btp_num = IPA_BASE_TABLE_PCNT_4SRAM; //btp = 1.00, etp = 0.43
+		btp_den = 1;
+		etp_num = IPA_EXPANSION_TABLE_PCNT_4SRAM_NUMERATOR;
+		etp_den = IPA_EXPANSION_TABLE_PCNT_4SRAM_DENOMINATOR;
 	}
 	else
 	{
-		btp = IPA_BASE_TABLE_PERCENTAGE;
-		etp = IPA_EXPANSION_TABLE_PERCENTAGE;
-		table_entries      = Get2PowerTightUpperBound(number_of_entries * btp);
-		expn_table_entries = GetEvenTightUpperBound(number_of_entries/2);
+		btp_num = IPA_BASE_TABLE_NUMERATOR; //btp = 0.8, etp = 0.2
+		btp_den = IPA_TABLE_DENOMINATOR;
+		etp_num = IPA_EXPANSION_TABLE_NUMERATOR;
+		etp_den = IPA_TABLE_DENOMINATOR;
 	}
+
+	value = (number_of_entries * btp_num + btp_den - 1) / btp_den;
+	table_entries      = Get2PowerTightUpperBound(value);
+
+	value = (number_of_entries * etp_num + etp_den - 1) / etp_den;
+	expn_table_entries = GetEvenTightUpperBound(value);
 
 	table->tot_tbl_ents = (uint32_t) (table_entries + expn_table_entries);
 
@@ -1324,6 +1334,7 @@ int ipa_calc_num_sram_table_entries(
 	ipa_table index_table;
 	int       size = 0;
 	uint16_t  tot;
+	int value = 0;
 
 	IPADBG("In\n");
 
@@ -1358,7 +1369,8 @@ int ipa_calc_num_sram_table_entries(
 		nat_table.table_entries = index_table.table_entries =
 			Get2PowerTightUpperBound(tot * IPA_BASE_TABLE_PCNT_4SRAM);
 		nat_table.expn_table_entries = index_table.expn_table_entries =
-			GetEvenTightUpperBound(tot * IPA_EXPANSION_TABLE_PCNT_4SRAM);
+		value = (tot * IPA_EXPANSION_TABLE_PCNT_4SRAM_NUMERATOR + IPA_EXPANSION_TABLE_PCNT_4SRAM_DENOMINATOR - 1) / IPA_EXPANSION_TABLE_PCNT_4SRAM_DENOMINATOR;
+			GetEvenTightUpperBound(value);
 
 		size  = ipa_table_calculate_size(&nat_table);
 		size += ipa_table_calculate_size(&index_table);

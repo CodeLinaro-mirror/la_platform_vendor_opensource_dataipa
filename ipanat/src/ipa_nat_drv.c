@@ -34,7 +34,9 @@
 #include "ipa_nat_drv.h"
 #include "ipa_nat_drvi.h"
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #include <errno.h>
+#endif
 
 /**
  * ipa_nat_add_ipv4_tbl() - create ipv4 nat table
@@ -54,6 +56,13 @@ int ipa_nat_add_ipv4_tbl(
 	uint32_t *tbl_hdl)
 {
 	int ret;
+
+	IPAERR(
+			"parameters tbl_hdl=%pK mem_type_ptr=%s number_of_entries=%d ip =0x%x\n",
+			tbl_hdl,
+			mem_type_ptr,
+			number_of_entries,
+			public_ip_addr);
 
 	if (tbl_hdl == NULL || mem_type_ptr == NULL || number_of_entries == 0) {
 		IPAERR(

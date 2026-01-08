@@ -45,8 +45,21 @@ struct ipa_clientdb_mapping_instance *ipa_db_mappings = NULL;
 
 /*
  * Locking of the database - concurrency control
+ *
+ * Lock Hierarchy: Always acquire ipa_client_db_lock before ipa_hash_table_lock if both are needed.
+ *
+ * Both locks use mutexes to:
+ * 1. Support sleeping operations (memory allocation with GFP_KERNEL, IPA API calls)
+ * 2. Provide consistent locking primitive throughout the module
+ * 3. Enable proper integration with kernel scheduling
  */
-DEFINE_SPINLOCK(ipa_client_db_lock);					/* Protect the table from SMP access. */
+DEFINE_MUTEX(ipa_client_db_lock);					/* Protect the table from SMP access. */
+
+/*
+ * ClientDB Hash Table Lock - Protect hash_table_ipa and hash_table_hdr from concurrent access
+ * Uses mutex to support sleeping operations in deletion functions (kzalloc with GFP_KERNEL, IPA API calls)
+ */
+static DEFINE_MUTEX(ipa_hash_table_lock);
 
 static inline bool is_ip_addr_equal(const ip_addr_t a, const ip_addr_t b)
 {
@@ -130,7 +143,7 @@ bool ipa_be_clientdb_find_and_ref(ip_addr_t address, int vlan_id, bool lan2lan)
 
 	hash_index = ipa_db_mapping_generate_hash_index(address, vlan_id);
 
-	spin_lock_bh(&ipa_client_db_lock);
+	mutex_lock(&ipa_client_db_lock);
 	/* Iterate through the hash chain to find the correct entry */
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
 		if (is_ip_addr_equal(mi->address, address) && mi->vlan_id == vlan_id) {
@@ -142,11 +155,11 @@ bool ipa_be_clientdb_find_and_ref(ip_addr_t address, int vlan_id, bool lan2lan)
 			}
 			IPA_BE_DBG("Found existing mapping, ref_count now l2l: %d, l2w: %d\n",
 				   mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
-			spin_unlock_bh(&ipa_client_db_lock);
+			mutex_unlock(&ipa_client_db_lock);
 			return true;
 		}
 	}
-	spin_unlock_bh(&ipa_client_db_lock);
+	mutex_unlock(&ipa_client_db_lock);
 
 	return false; /* Not found */
 }
@@ -182,7 +195,7 @@ int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan
 	 */
 	mi->vlan_id = vlan_id;
 
-	spin_lock_bh(&ipa_client_db_lock);
+	mutex_lock(&ipa_client_db_lock);
 
 	/*
 	 * Add into the global list
@@ -208,7 +221,7 @@ int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan
 	IPA_BE_DBG(" table len %d, hash_index %d val %p\n",
 		ipa_db_mapping_table_lengths[hash_index], hash_index, ipa_db_mapping_table[hash_index]);
 
-	spin_unlock_bh(&ipa_client_db_lock);
+	mutex_unlock(&ipa_client_db_lock);
 
 	return 0;
 }
@@ -249,13 +262,21 @@ bool ipa_clientdb_mapping_init(void)
  */
 int ipa_be_lookup_handle(char *name) {
 	unsigned int index = ipa_proc_ctx_generate_hash_index(name);
-	ProcCtx *entry = hash_table_ipa[index];
+	ProcCtx *entry = NULL;
+	int handle = -1;
+
+	mutex_lock(&ipa_hash_table_lock);
+	entry = hash_table_ipa[index];
 	while (entry) {
-		if (strcmp(entry->name, name) == 0)
-			return entry->handle;
+		if (strcmp(entry->name, name) == 0) {
+			handle = entry->handle;
+			break;
+		}
 		entry = entry->next;
 	}
-	return -1; // Not found
+	mutex_unlock(&ipa_hash_table_lock);
+
+	return handle;
 }
 
 /**
@@ -266,13 +287,21 @@ int ipa_be_lookup_handle(char *name) {
  */
 int ipa_be_lookup_ref_count(char *name) {
 	unsigned int index = ipa_proc_ctx_generate_hash_index(name);
-	ProcCtx *entry = hash_table_ipa[index];
+	ProcCtx *entry = NULL;
+	int ref_count = -1;
+
+	mutex_lock(&ipa_hash_table_lock);
+	entry = hash_table_ipa[index];
 	while (entry) {
-		if (strcmp(entry->name, name) == 0)
-			return entry->ref_count;
+		if (strcmp(entry->name, name) == 0) {
+			ref_count = entry->ref_count;
+			break;
+		}
 		entry = entry->next;
 	}
-	return -1; // Not found
+	mutex_unlock(&ipa_hash_table_lock);
+
+	return ref_count;
 }
 
 /**
@@ -285,25 +314,36 @@ int ipa_be_lookup_ref_count(char *name) {
  */
 void ipa_be_insert_proc_ctx(char *name, int handle) {
 	unsigned int index = ipa_proc_ctx_generate_hash_index(name);
-	ProcCtx *entry = hash_table_ipa[index];
+	ProcCtx *entry = NULL;
+	ProcCtx *new_ctx = NULL;
 
+	mutex_lock(&ipa_hash_table_lock);
+
+	entry = hash_table_ipa[index];
 	// Check if the entry already exists
 	while (entry) {
 		if (strcmp(entry->name, name) == 0) {
 			// If it exists, increment the ref_count
 			entry->ref_count += 1;
+			mutex_unlock(&ipa_hash_table_lock);
 			return;
 		}
 		entry = entry->next;
 	}
 
 	// If not found, create a new entry with ref_count = 1
-	ProcCtx *new_ctx = kzalloc(sizeof(ProcCtx), GFP_ATOMIC);
+	new_ctx = kzalloc(sizeof(ProcCtx), GFP_KERNEL);
+	if (!new_ctx) {
+		mutex_unlock(&ipa_hash_table_lock);
+		return;
+	}
 	memcpy(new_ctx->name, name, 32);
 	new_ctx->handle = handle;
 	new_ctx->ref_count = 1;
 	new_ctx->next = hash_table_ipa[index];
 	hash_table_ipa[index] = new_ctx;
+
+	mutex_unlock(&ipa_hash_table_lock);
 }
 
 /**
@@ -339,16 +379,22 @@ static inline unsigned int ipa_hdr_generate_hash_index(mac_addr_t mac, uint32_t 
 int ipa_be_lookup_hdr_handle(mac_addr_t mac, uint32_t vlan_tag)
 {
 	unsigned int index = ipa_hdr_generate_hash_index(mac, vlan_tag);
-	Hdr *entry = hash_table_hdr[index];
+	Hdr *entry = NULL;
+	int handle = -1;
 
+	mutex_lock(&ipa_hash_table_lock);
+	entry = hash_table_hdr[index];
 	while (entry) {
 		if (memcmp(entry->mac, mac, IPA_MAC_ADDR_SIZE) == 0 &&
 		    entry->vlan_tag == vlan_tag) {
-			return entry->handle;
+			handle = entry->handle;
+			break;
 		}
 		entry = entry->next;
 	}
-	return -1; /* Not found */
+	mutex_unlock(&ipa_hash_table_lock);
+
+	return handle;
 }
 
 /**
@@ -363,8 +409,12 @@ int ipa_be_lookup_hdr_handle(mac_addr_t mac, uint32_t vlan_tag)
 void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, int handle)
 {
 	unsigned int index = ipa_hdr_generate_hash_index(mac, vlan_tag);
-	Hdr *entry = hash_table_hdr[index];
+	Hdr *entry = NULL;
+	Hdr *new_hdr = NULL;
 
+	mutex_lock(&ipa_hash_table_lock);
+
+	entry = hash_table_hdr[index];
 	/* Check if the entry already exists */
 	while (entry) {
 		if (memcmp(entry->mac, mac, IPA_MAC_ADDR_SIZE) == 0 &&
@@ -373,15 +423,17 @@ void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, int handle)
 			entry->ref_count++;
 			IPA_BE_DBG("Incremented hdr ref_count for MAC %pM VLAN 0x%x to %d\n",
 				   mac, vlan_tag, entry->ref_count);
+			mutex_unlock(&ipa_hash_table_lock);
 			return;
 		}
 		entry = entry->next;
 	}
 
 	/* If not found, create a new entry with ref_count = 1 */
-	Hdr *new_hdr = kzalloc(sizeof(Hdr), GFP_ATOMIC);
+	new_hdr = kzalloc(sizeof(Hdr), GFP_KERNEL);
 	if (!new_hdr) {
 		IPA_BE_ERR("Failed to allocate Hdr\n");
+		mutex_unlock(&ipa_hash_table_lock);
 		return;
 	}
 
@@ -394,6 +446,8 @@ void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, int handle)
 
 	IPA_BE_DBG("Inserted new hdr for MAC %pM VLAN 0x%x handle %d\n",
 		   mac, vlan_tag, handle);
+
+	mutex_unlock(&ipa_hash_table_lock);
 }
 
 /**
@@ -411,13 +465,16 @@ void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, int handle)
 int ipa_be_delete_hdr_by_handle(int hdr_hdl)
 {
 	unsigned int index;
-	Hdr *entry, *prev;
+	Hdr *entry = NULL;
+	Hdr *prev = NULL;
 	int ret = 0;
 
 	if (hdr_hdl <= 0) {
 		IPA_BE_DBG("Invalid header handle %d\n", hdr_hdl);
 		return 0; /* Not an error, just nothing to delete */
 	}
+
+	mutex_lock(&ipa_hash_table_lock);
 
 	/* Search all hash table entries to find the one with matching handle */
 	for (index = 0; index < TABLE_SIZE; index++) {
@@ -447,6 +504,7 @@ int ipa_be_delete_hdr_by_handle(int hdr_hdl)
 						   hdr_hdl, entry->mac, entry->vlan_tag);
 					kfree(entry);
 				}
+				mutex_unlock(&ipa_hash_table_lock);
 				return ret;
 			}
 			prev = entry;
@@ -454,6 +512,7 @@ int ipa_be_delete_hdr_by_handle(int hdr_hdl)
 		}
 	}
 
+	mutex_unlock(&ipa_hash_table_lock);
 	IPA_BE_DBG("Hdr entry with handle %d not found\n", hdr_hdl);
 	return -ENOENT;
 }
@@ -499,7 +558,7 @@ int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 	IPA_BE_DBG("Deleting mapping for " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT(addr));
 	hash_index = ipa_db_mapping_generate_hash_index(addr, 0);
 
-	spin_lock_bh(&ipa_client_db_lock);
+	mutex_lock(&ipa_client_db_lock);
 
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
 		if (is_ip_addr_equal(mi->address, addr)) {
@@ -547,7 +606,7 @@ int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 		}
 	}
 
-	spin_unlock_bh(&ipa_client_db_lock);
+	mutex_unlock(&ipa_client_db_lock);
 	return ref_count;
 }
 
@@ -1340,7 +1399,7 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 
 	key_ip = is_ret ? (uint32_t *)&rule_msg->tuple.return_ip : (uint32_t *)&rule_msg->tuple.flow_ip;
 
-	spin_lock_bh(&ipa_client_db_lock);
+	mutex_lock(&ipa_client_db_lock);
 
 	// Traverse the hash chain to find the matching mapping instance
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
@@ -1387,7 +1446,7 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 		}
 	}
 
-	spin_unlock_bh(&ipa_client_db_lock);
+	mutex_unlock(&ipa_client_db_lock);
 	if (mi) {
 		IPA_BE_ERR("Exit ..new ref count lan2lan %d l2w %d\n", mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
 	} else {
@@ -1429,7 +1488,7 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 
 	key_ip = is_ret ? (uint32_t *)&rule_msg->tuple.return_ip : (uint32_t *)&rule_msg->tuple.flow_ip;
 
-	spin_lock_bh(&ipa_client_db_lock);
+	mutex_lock(&ipa_client_db_lock);
 
 	// Traverse the hash chain to find the matching mapping instance
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
@@ -1478,7 +1537,7 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 		}
 	}
 
-	spin_unlock_bh(&ipa_client_db_lock);
+	mutex_unlock(&ipa_client_db_lock);
 	if (mi) {
 		IPA_BE_ERR("Exit ..new ref count lan2lan %d l2w %d\n", mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
 	} else {
@@ -1504,7 +1563,7 @@ int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int 
 	hash_index = ipa_db_mapping_generate_hash_index(addr, 0);
 	IPA_BE_ERR("hash_index %d\n", hash_index);
 
-	spin_lock_bh(&ipa_client_db_lock);
+	mutex_lock(&ipa_client_db_lock);
 
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
 		IPA_BE_ERR("try ..\n");
@@ -1547,7 +1606,7 @@ int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int 
 
 	IPA_BE_DBG("rt_hdl %d, hdr_hdl %d, proc_ctx_hdl %d\n", rt_hdl, 
 		   hdr_hdl ? *hdr_hdl : -1, proc_ctx_hdl ? *proc_ctx_hdl : -1);
-	spin_unlock_bh(&ipa_client_db_lock);
+	mutex_unlock(&ipa_client_db_lock);
 	return rt_hdl;
 }
 

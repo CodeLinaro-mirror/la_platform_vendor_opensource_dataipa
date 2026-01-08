@@ -26,12 +26,9 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
- * 
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
- * 
  */
 
 #ifndef IPA_IPV6CTI_H
@@ -41,7 +38,9 @@
 #include "ipa_mem_descriptor.h"
 #include "ipa_nat_utils.h"
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #include <sys/ioctl.h>
+#endif
 
 #undef CT_MAKE_TBL_HDL
 #define CT_MAKE_TBL_HDL(hdl, mt) \
@@ -299,11 +298,13 @@ int ipa_cti_query_timestamp(
 int ipa_cti_timestamp_flush(
 	uint32_t  tbl_hdl);
 
+#ifndef CONFIG_ECM_CONVERGENCE
 static int ipa_ipv6ct_post_init_cmd(
 	struct ipa_ct_cache*           ct_cache_ptr,
 	struct ipa_ct_ip6_table_cache* ct_table,
 	uint8_t tbl_index,
 	bool focus_change);
+#endif
 
 typedef enum
 {
@@ -331,7 +332,7 @@ typedef struct
 	uint32_t tot_chains;
 	uint32_t min_chain_len;
 	uint32_t max_chain_len;
-	float    avg_chain_len;
+	/* uint32_t avg_chain_len; */
 } ipa_cti_tbl_stats;
 
 typedef struct
@@ -351,10 +352,10 @@ static inline char* prep_ct_rule_4print(
 		snprintf(
 			buf_ptr, buf_sz,
 			"CT RULE: "
-			"src_msb(0x%016X)"
-			"src_msb(0x%016X)"
-			"dest_msb(0x%016X) "
-			"dest_lsb(0x%016X)"
+			"src_msb(0x%016llX)"
+			"src_msb(0x%016llX)"
+			"dest_msb(0x%016llX) "
+			"dest_lsb(0x%016llX)"
 			"ucp(0x%04X) "
 			"s(0x%02X) "
 			"uc_act_idx(0x%04X) "
@@ -375,3 +376,26 @@ static inline char* prep_ct_rule_4print(
 
 	return buf_ptr;
 }
+
+int ipa_cti_get_sram_size(
+	uint32_t* size_ptr);
+
+int ipa_calc_num_sram_ct_table_entries(
+	uint32_t  sram_size,
+	uint32_t  table1_ent_size,
+	uint16_t* num_entries_ptr);
+
+int ipa_ct_vote_clock(
+	enum ipa_app_clock_vote_type vote_type );
+
+int ipa_ipv6ct_clear_table(uint32_t tbl_hdl);
+
+int ipa_ipv6ct_walk_table(
+	uint32_t          tbl_hdl,
+	CtWhichTbl2Use      which,
+	ipa_table_walk_cb walk_cb,
+	void*             arb_data_ptr );
+
+int ipa_ipv6ct_stats_table(
+	uint32_t            tbl_hdl,
+	ipa_cti_tbl_stats* ct_stats_ptr);

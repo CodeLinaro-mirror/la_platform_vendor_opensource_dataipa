@@ -2221,235 +2221,6 @@ void ipa3_delete_dflt_flt_rules(u32 ipa_ep_idx)
 }
 
 /**
- * ipa3_install_icmp_flt_rules() - Install ICMP filtering rules for an endpoint
- * @ipa_ep_idx: [in] endpoint index
- *
- * Install ICMP filtering rules that pass ICMP traffic to exception handling.
- * This function should be called after ipa3_install_dflt_flt_rules() to ensure
- * ICMP packets are properly handled.
- *
- * Note: Should not be called from atomic context
- */
-void ipa3_install_icmp_flt_rules(u32 ipa_ep_idx)
-{
-	struct ipa3_flt_tbl *tbl;
-	struct ipa3_ep_context *ep;
-	struct ipa_flt_rule_i rule;
-
-	if (ipa_ep_idx >= ipa3_get_max_num_pipes()) {
-		IPAERR("invalid ipa_ep_idx=%u\n", ipa_ep_idx);
-		ipa_assert();
-		return;
-	}
-
-	ep = &ipa3_ctx->ep[ipa_ep_idx];
-
-	if (!ipa_is_ep_support_flt(ipa_ep_idx)) {
-		IPADBG("cannot add flt rules to non filtering pipe num %d\n",
-			ipa_ep_idx);
-		return;
-	}
-
-	memset(&rule, 0, sizeof(rule));
-
-	mutex_lock(&ipa3_ctx->lock);
-
-	/* Install IPv4 ICMP filter rule */
-	tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v4];
-	rule.action = IPA_PASS_TO_EXCEPTION;
-	rule.retain_hdr = 1;
-	rule.to_uc = 0;
-	rule.eq_attrib_type = 0;
-	rule.hashable = true;
-	rule.close_aggr_irq_mod = true;
-	
-	/* Set ICMP protocol filter */
-	rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
-	rule.attrib.u.v4.protocol = IPPROTO_ICMP;
-
-	__ipa_add_flt_rule(tbl, IPA_IP_v4, &rule, true,
-			&ep->icmp_flt4_rule_hdl, false, 0, 0);
-	ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4);
-
-	IPADBG("IPv4 ICMP filter rule installed, hdl=0x%x\n",
-		ep->icmp_flt4_rule_hdl);
-
-	/* Install IPv6 ICMPv6 filter rule */
-	memset(&rule, 0, sizeof(rule));
-	tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v6];
-	rule.action = IPA_PASS_TO_EXCEPTION;
-	rule.retain_hdr = 1;
-	rule.to_uc = 0;
-	rule.eq_attrib_type = 0;
-	rule.hashable = true;
-	rule.close_aggr_irq_mod = true;
-	
-	/* Set ICMPv6 protocol filter */
-	rule.attrib.attrib_mask = IPA_FLT_NEXT_HDR;
-	rule.attrib.u.v6.next_hdr = IPPROTO_ICMPV6;
-
-	__ipa_add_flt_rule(tbl, IPA_IP_v6, &rule, true,
-			&ep->icmp_flt6_rule_hdl, false, 0, 0);
-	ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
-
-	IPADBG("IPv6 ICMPv6 filter rule installed, hdl=0x%x\n",
-		ep->icmp_flt6_rule_hdl);
-
-	mutex_unlock(&ipa3_ctx->lock);
-}
-
-/**
- * ipa3_delete_icmp_flt_rules() - Delete ICMP filtering rules for an endpoint
- * @ipa_ep_idx: [in] endpoint index
- *
- * Delete previously installed ICMP filtering rules.
- *
- * Note: Should not be called from atomic context
- */
-void ipa3_delete_icmp_flt_rules(u32 ipa_ep_idx)
-{
-	struct ipa3_ep_context *ep = &ipa3_ctx->ep[ipa_ep_idx];
-
-	mutex_lock(&ipa3_ctx->lock);
-	
-	if (ep->icmp_flt4_rule_hdl) {
-		__ipa_del_flt_rule(ep->icmp_flt4_rule_hdl);
-		ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4);
-		ep->icmp_flt4_rule_hdl = 0;
-		IPADBG("Deleted IPv4 ICMP filter rule\n");
-	}
-	
-	if (ep->icmp_flt6_rule_hdl) {
-		__ipa_del_flt_rule(ep->icmp_flt6_rule_hdl);
-		ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
-		ep->icmp_flt6_rule_hdl = 0;
-		IPADBG("Deleted IPv6 ICMPv6 filter rule\n");
-	}
-	
-	mutex_unlock(&ipa3_ctx->lock);
-}
-
-/**
- * ipa3_install_tcp_syn_flt_rules() - Install TCP SYN filtering rules for an endpoint
- * @ipa_ep_idx: [in] endpoint index
- *
- * Install TCP SYN filtering rules that pass TCP SYN packets to exception handling.
- * This function should be called after ipa3_install_dflt_flt_rules() to ensure
- * TCP SYN packets are properly handled.
- *
- * Note: Should not be called from atomic context
- */
-void ipa3_install_tcp_syn_flt_rules(u32 ipa_ep_idx)
-{
-	struct ipa3_flt_tbl *tbl;
-	struct ipa3_ep_context *ep;
-	struct ipa_flt_rule_i rule;
-
-	if (ipa_ep_idx >= ipa3_get_max_num_pipes()) {
-		IPAERR("invalid ipa_ep_idx=%u\n", ipa_ep_idx);
-		ipa_assert();
-		return;
-	}
-
-	ep = &ipa3_ctx->ep[ipa_ep_idx];
-
-	if (!ipa_is_ep_support_flt(ipa_ep_idx)) {
-		IPADBG("cannot add flt rules to non filtering pipe num %d\n",
-			ipa_ep_idx);
-		return;
-	}
-
-	memset(&rule, 0, sizeof(rule));
-
-	mutex_lock(&ipa3_ctx->lock);
-
-	/* Install IPv4 TCP SYN filter rule */
-	tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v4];
-	rule.action = IPA_PASS_TO_EXCEPTION;
-	rule.retain_hdr = 1;
-	rule.to_uc = 0;
-	rule.eq_attrib_type = 0;
-	rule.hashable = false;
-	
-	/* Set TCP SYN filter */
-	rule.attrib.attrib_mask = IPA_FLT_TCP_SYN | IPA_FLT_PROTOCOL;
-	rule.attrib.u.v4.protocol = IPPROTO_TCP;
-
-	__ipa_add_flt_rule(tbl, IPA_IP_v4, &rule, true,
-			&ep->tcp_syn_flt4_rule_hdl, false, 0, 0);
-	ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4);
-
-	IPADBG("IPv4 TCP SYN filter rule installed, hdl=0x%x\n",
-		ep->tcp_syn_flt4_rule_hdl);
-
-	/* Install IPv6 TCP SYN filter rule */
-	memset(&rule, 0, sizeof(rule));
-	tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v6];
-	rule.action = IPA_PASS_TO_EXCEPTION;
-	rule.retain_hdr = 1;
-	rule.to_uc = 0;
-	rule.hashable = false;
-	
-	/* For IPv6, use equation attributes to match TCP protocol and SYN flag */
-	rule.eq_attrib_type = 1;
-	rule.eq_attrib.rule_eq_bitmap = 0;
-	
-	/* Match next header = TCP (6) at offset 6 */
-	rule.eq_attrib.rule_eq_bitmap |= (0x20 << rule.eq_attrib.num_offset_meq_32);
-	rule.eq_attrib.offset_meq_32[rule.eq_attrib.num_offset_meq_32].offset = 6;
-	rule.eq_attrib.offset_meq_32[rule.eq_attrib.num_offset_meq_32].mask = 0xFF000000;
-	rule.eq_attrib.offset_meq_32[rule.eq_attrib.num_offset_meq_32].value = 6 << 24;
-	rule.eq_attrib.num_offset_meq_32++;
-	
-	/* Match TCP SYN flag at IHL offset 12 */
-	rule.eq_attrib.rule_eq_bitmap |= (1 << 8);
-	rule.eq_attrib.num_ihl_offset_meq_32 = 1;
-	rule.eq_attrib.ihl_offset_meq_32[0].offset = 12;
-	rule.eq_attrib.ihl_offset_meq_32[0].value = (1 << 1); /* TCP_SYN_SHIFT = 1 */
-	rule.eq_attrib.ihl_offset_meq_32[0].mask = (1 << 1);
-
-	__ipa_add_flt_rule(tbl, IPA_IP_v6, &rule, true,
-			&ep->tcp_syn_flt6_rule_hdl, false, 0, 0);
-	ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
-
-	IPADBG("IPv6 TCP SYN filter rule installed, hdl=0x%x\n",
-		ep->tcp_syn_flt6_rule_hdl);
-
-	mutex_unlock(&ipa3_ctx->lock);
-}
-
-/**
- * ipa3_delete_tcp_syn_flt_rules() - Delete TCP SYN filtering rules for an endpoint
- * @ipa_ep_idx: [in] endpoint index
- *
- * Delete previously installed TCP SYN filtering rules.
- *
- * Note: Should not be called from atomic context
- */
-void ipa3_delete_tcp_syn_flt_rules(u32 ipa_ep_idx)
-{
-	struct ipa3_ep_context *ep = &ipa3_ctx->ep[ipa_ep_idx];
-
-	mutex_lock(&ipa3_ctx->lock);
-	
-	if (ep->tcp_syn_flt4_rule_hdl) {
-		__ipa_del_flt_rule(ep->tcp_syn_flt4_rule_hdl);
-		ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4);
-		ep->tcp_syn_flt4_rule_hdl = 0;
-		IPADBG("Deleted IPv4 TCP SYN filter rule\n");
-	}
-	
-	if (ep->tcp_syn_flt6_rule_hdl) {
-		__ipa_del_flt_rule(ep->tcp_syn_flt6_rule_hdl);
-		ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
-		ep->tcp_syn_flt6_rule_hdl = 0;
-		IPADBG("Deleted IPv6 TCP SYN filter rule\n");
-	}
-	
-	mutex_unlock(&ipa3_ctx->lock);
-}
-
-/**
  * ipa3_init_flt_rule() - Initialize comprehensive default filtering rules
  * @ipa_ep_idx: [in] endpoint index
  * @iptype: [in] IP type (IPv4 or IPv6)
@@ -2506,14 +2277,55 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.eq_attrib_type = 0;
 			rule.hashable = false;
 			rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
-			
+
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, 0, 0);
+						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
 				IPAERR("failed to add IPv4 fragment rule\n");
 				goto bail;
 			}
-			IPADBG("IPv4 fragment rule installed, hdl=0x%x\n", 
+			IPADBG("IPv4 fragment rule installed, hdl=0x%x\n",
+				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
+			ep->init_flt4_rule_cnt++;
+
+			/* Set TCP SYN filter */
+			memset(&rule, 0, sizeof(rule));
+			rule.action = IPA_PASS_TO_EXCEPTION;
+			rule.retain_hdr = 1;
+			rule.to_uc = 0;
+			rule.eq_attrib_type = 0;
+			rule.hashable = false;
+			rule.attrib.attrib_mask = IPA_FLT_TCP_SYN | IPA_FLT_PROTOCOL;
+			rule.attrib.u.v4.protocol = IPPROTO_TCP;
+
+			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
+						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+			if (res) {
+				IPAERR("failed to add IPv4 TCP SYN rule\n");
+				goto bail;
+			}
+			IPADBG("IPv4 TCP SYN installed, hdl=0x%x\n",
+				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
+			ep->init_flt4_rule_cnt++;
+
+			/* Set ICMP protocol filter */
+			memset(&rule, 0, sizeof(rule));
+			rule.action = IPA_PASS_TO_EXCEPTION;
+			rule.retain_hdr = 1;
+			rule.to_uc = 0;
+			rule.eq_attrib_type = 0;
+			rule.hashable = true;
+			rule.close_aggr_irq_mod = true;
+			rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
+			rule.attrib.u.v4.protocol = IPPROTO_ICMP;
+
+			res = __ipa_add_flt_rule(tbl, IPA_IP_v4, &rule, true,
+						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], IPA_FLT_RULE_CAT_DEFAULT, 0, 0);
+			if (res) {
+				IPAERR("failed to add IPv4 ICMP protocol rule rule\n");
+				goto bail;
+			}
+			IPADBG("IPv4 ICMP protocol rule installed, hdl=0x%x\n",
 				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
 			ep->init_flt4_rule_cnt++;
 
@@ -2527,14 +2339,14 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
 			rule.attrib.u.v4.dst_addr_mask = 0xF0000000;
 			rule.attrib.u.v4.dst_addr = 0xE0000000;
-			
+
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, 0, 0);
+						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
 				IPAERR("failed to add IPv4 multicast rule\n");
 				goto bail;
 			}
-			IPADBG("IPv4 multicast rule installed, hdl=0x%x\n", 
+			IPADBG("IPv4 multicast rule installed, hdl=0x%x\n",
 				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
 			ep->init_flt4_rule_cnt++;
 
@@ -2548,14 +2360,14 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.attrib_mask = IPA_FLT_DST_ADDR;
 			rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
 			rule.attrib.u.v4.dst_addr = 0xFFFFFFFF;
-			
+
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, 0, 0);
+						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
 				IPAERR("failed to add IPv4 broadcast rule\n");
 				goto bail;
 			}
-			IPADBG("IPv4 broadcast rule installed, hdl=0x%x\n", 
+			IPADBG("IPv4 broadcast rule installed, hdl=0x%x\n",
 				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
 			ep->init_flt4_rule_cnt++;
 		}
@@ -2573,14 +2385,69 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.eq_attrib_type = 0;
 			rule.hashable = false;
 			rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
-			
+
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, 0, 0);
+						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
 				IPAERR("failed to add IPv6 fragment rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 fragment rule installed, hdl=0x%x\n", 
+			IPADBG("IPv6 fragment rule installed, hdl=0x%x\n",
+				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
+			ep->init_flt6_rule_cnt++;
+
+			/* Install IPv6 TCP SYN filter rule */
+			memset(&rule, 0, sizeof(rule));
+			tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v6];
+			rule.action = IPA_PASS_TO_EXCEPTION;
+			rule.retain_hdr = 1;
+			rule.to_uc = 0;
+			rule.hashable = false;
+			/* For IPv6, use equation attributes to match TCP protocol and SYN flag */
+			rule.eq_attrib_type = 1;
+			rule.eq_attrib.rule_eq_bitmap = 0;
+			/* Match next header = TCP (6) at offset 6 */
+			rule.eq_attrib.rule_eq_bitmap |= (0x20 << rule.eq_attrib.num_offset_meq_32);
+			rule.eq_attrib.offset_meq_32[rule.eq_attrib.num_offset_meq_32].offset = 6;
+			rule.eq_attrib.offset_meq_32[rule.eq_attrib.num_offset_meq_32].mask = 0xFF000000;
+			rule.eq_attrib.offset_meq_32[rule.eq_attrib.num_offset_meq_32].value = 6 << 24;
+			rule.eq_attrib.num_offset_meq_32++;
+			/* Match TCP SYN flag at IHL offset 12 */
+			rule.eq_attrib.rule_eq_bitmap |= (1 << 8);
+			rule.eq_attrib.num_ihl_offset_meq_32 = 1;
+			rule.eq_attrib.ihl_offset_meq_32[0].offset = 12;
+			rule.eq_attrib.ihl_offset_meq_32[0].value = (1 << 1); /* TCP_SYN_SHIFT = 1 */
+			rule.eq_attrib.ihl_offset_meq_32[0].mask = (1 << 1);
+
+			res = __ipa_add_flt_rule(tbl, IPA_IP_v6, &rule, true,
+					&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+			if (res) {
+				IPAERR("failed to add IPv6 TCP SYN rule\n");
+				goto bail;
+			}
+			IPADBG("IPv6 TCP SYN installed, hdl=0x%x\n",
+				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
+			ep->init_flt6_rule_cnt++;
+
+			/* Install IPv6 ICMPv6 filter rule */
+			memset(&rule, 0, sizeof(rule));
+			tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v6];
+			rule.action = IPA_PASS_TO_EXCEPTION;
+			rule.retain_hdr = 1;
+			rule.to_uc = 0;
+			rule.eq_attrib_type = 0;
+			rule.hashable = true;
+			rule.close_aggr_irq_mod = true;
+			rule.attrib.attrib_mask = IPA_FLT_NEXT_HDR;
+			rule.attrib.u.v6.next_hdr = IPPROTO_ICMPV6;
+
+			res = __ipa_add_flt_rule(tbl, IPA_IP_v6, &rule, true,
+						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+			if (res) {
+				IPAERR("failed to add IPv6 ICMPv6 filter rule\n");
+				goto bail;
+			}
+			IPADBG("IPv6 ICMPv6 filter rule installed, hdl=0x%x\n",
 				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
 			ep->init_flt6_rule_cnt++;
 
@@ -2600,14 +2467,14 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.u.v6.dst_addr[1] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[3] = 0x00000000;
-			
+
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, 0, 0);
+						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
 				IPAERR("failed to add IPv6 multicast rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 multicast rule installed, hdl=0x%x\n", 
+			IPADBG("IPv6 multicast rule installed, hdl=0x%x\n",
 				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
 			ep->init_flt6_rule_cnt++;
 
@@ -2627,14 +2494,14 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.u.v6.dst_addr[1] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[3] = 0x00000000;
-			
+
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, 0, 0);
+						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
 				IPAERR("failed to add IPv6 link-scoped rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 link-scoped rule installed, hdl=0x%x\n", 
+			IPADBG("IPv6 link-scoped rule installed, hdl=0x%x\n",
 				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
 			ep->init_flt6_rule_cnt++;
 
@@ -2654,14 +2521,14 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.u.v6.dst_addr[1] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[3] = 0x00000000;
-			
+
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, 0, 0);
+						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
 				IPAERR("failed to add IPv6 IETF reserved rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 IETF reserved rule installed, hdl=0x%x\n", 
+			IPADBG("IPv6 IETF reserved rule installed, hdl=0x%x\n",
 				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
 			ep->init_flt6_rule_cnt++;
 
@@ -2688,41 +2555,11 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 				IPAERR("failed to add IPv6 unique local rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 unique local rule installed, hdl=0x%x\n", 
+			IPADBG("IPv6 unique local rule installed, hdl=0x%x\n",
 				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
 			ep->init_flt6_rule_cnt++;
 
-			/* TCP control packet rules (SYN, FIN, RST) */
-			
-			/* TCP FIN rule */
-			memset(&rule, 0, sizeof(rule));
-			rule.action = IPA_PASS_TO_EXCEPTION;
-			rule.retain_hdr = 1;
-			rule.to_uc = 0;
-			rule.eq_attrib_type = 1;
-			rule.eq_attrib.rule_eq_bitmap = 0;
-			
-			/* Protocol = TCP */
-			rule.eq_attrib.rule_eq_bitmap |= (1 << 1);
-			rule.eq_attrib.protocol_eq_present = 1;
-			rule.eq_attrib.protocol_eq = IPPROTO_TCP;
-			
-			/* TCP FIN flag */
-			rule.eq_attrib.rule_eq_bitmap |= (1 << 8);
-			rule.eq_attrib.num_ihl_offset_meq_32 = 1;
-			rule.eq_attrib.ihl_offset_meq_32[0].offset = 12;
-			rule.eq_attrib.ihl_offset_meq_32[0].value = (1U << 0);
-			rule.eq_attrib.ihl_offset_meq_32[0].mask = (1U << 0);
-			
-			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, 0, 0);
-			if (res) {
-				IPAERR("failed to add IPv6 TCP FIN rule\n");
-				goto bail;
-			}
-			IPADBG("IPv6 TCP FIN rule installed, hdl=0x%x\n", 
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
+			/* TCP control packet rules (SYN) */
 
 			/* TCP SYN rule */
 			memset(&rule, 0, sizeof(rule));
@@ -2731,56 +2568,26 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.to_uc = 0;
 			rule.eq_attrib_type = 1;
 			rule.eq_attrib.rule_eq_bitmap = 0;
-			
+
 			/* Protocol = TCP */
 			rule.eq_attrib.rule_eq_bitmap |= (1 << 1);
 			rule.eq_attrib.protocol_eq_present = 1;
 			rule.eq_attrib.protocol_eq = IPPROTO_TCP;
-			
+
 			/* TCP SYN flag */
 			rule.eq_attrib.rule_eq_bitmap |= (1 << 8);
 			rule.eq_attrib.num_ihl_offset_meq_32 = 1;
 			rule.eq_attrib.ihl_offset_meq_32[0].offset = 12;
 			rule.eq_attrib.ihl_offset_meq_32[0].value = (1U << 1);
 			rule.eq_attrib.ihl_offset_meq_32[0].mask = (1U << 1);
-			
+
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, 0, 0);
+						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
 				IPAERR("failed to add IPv6 TCP SYN rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 TCP SYN rule installed, hdl=0x%x\n", 
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
-
-			/* TCP RST rule */
-			memset(&rule, 0, sizeof(rule));
-			rule.action = IPA_PASS_TO_EXCEPTION;
-			rule.retain_hdr = 1;
-			rule.to_uc = 0;
-			rule.eq_attrib_type = 1;
-			rule.eq_attrib.rule_eq_bitmap = 0;
-			
-			/* Protocol = TCP */
-			rule.eq_attrib.rule_eq_bitmap |= (1 << 1);
-			rule.eq_attrib.protocol_eq_present = 1;
-			rule.eq_attrib.protocol_eq = IPPROTO_TCP;
-			
-			/* TCP RST flag */
-			rule.eq_attrib.rule_eq_bitmap |= (1 << 8);
-			rule.eq_attrib.num_ihl_offset_meq_32 = 1;
-			rule.eq_attrib.ihl_offset_meq_32[0].offset = 12;
-			rule.eq_attrib.ihl_offset_meq_32[0].value = (1U << 2);
-			rule.eq_attrib.ihl_offset_meq_32[0].mask = (1U << 2);
-			
-			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, 0, 0);
-			if (res) {
-				IPAERR("failed to add IPv6 TCP RST rule\n");
-				goto bail;
-			}
-			IPADBG("IPv6 TCP RST rule installed, hdl=0x%x\n", 
+			IPADBG("IPv6 TCP SYN rule installed, hdl=0x%x\n",
 				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
 			ep->init_flt6_rule_cnt++;
 		}

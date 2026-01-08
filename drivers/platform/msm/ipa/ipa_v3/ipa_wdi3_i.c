@@ -1136,8 +1136,6 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 
 	ipa3_install_dflt_flt_rules(ipa_ep_idx_rx);
 #ifdef CONFIG_ECM_CONVERGENCE
-	ipa3_install_icmp_flt_rules(ipa_ep_idx_rx);
-	ipa3_install_tcp_syn_flt_rules(ipa_ep_idx_rx);
 	ipa3_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v4, false);
 	ipa3_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v6, false);
 #endif
@@ -1214,8 +1212,6 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 
 		ipa3_install_dflt_flt_rules(ipa_ep_idx_rx1);
 #ifdef CONFIG_ECM_CONVERGENCE
-		ipa3_install_icmp_flt_rules(ipa_ep_idx_rx1);
-		ipa3_install_tcp_syn_flt_rules(ipa_ep_idx_rx1);
 		ipa3_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v4, false);
 		ipa3_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v6, false);
 #endif
@@ -1591,8 +1587,6 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 
 		ipa3_delete_dflt_flt_rules(ipa_ep_idx_rx1);
 #ifdef CONFIG_ECM_CONVERGENCE
-		ipa3_delete_icmp_flt_rules(ipa_ep_idx_rx1);
-		ipa3_delete_tcp_syn_flt_rules(ipa_ep_idx_rx1);
 		ipa3_delete_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v4);
 		ipa3_delete_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v6);
 #endif
@@ -1629,8 +1623,6 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		ipa3_uc_debug_stats_dealloc(IPA_HW_PROTOCOL_WDI3);
 	ipa3_delete_dflt_flt_rules(ipa_ep_idx_rx);
 #ifdef CONFIG_ECM_CONVERGENCE
-	ipa3_delete_icmp_flt_rules(ipa_ep_idx_rx);
-	ipa3_delete_tcp_syn_flt_rules(ipa_ep_idx_rx);
 	ipa3_delete_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v4);
 	ipa3_delete_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v6);
 #endif

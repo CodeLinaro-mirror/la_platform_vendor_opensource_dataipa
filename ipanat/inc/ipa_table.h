@@ -27,14 +27,16 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Changes from Qualcomm Technologies, Inc. are provided under the following license:
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #ifndef IPA_TABLE_H
 #define IPA_TABLE_H
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #include <stdint.h>
 #include <stdbool.h>
+#endif
 #include <linux/msm_ipa.h>
 
 #define IPA_TABLE_MAX_ENTRIES 6144

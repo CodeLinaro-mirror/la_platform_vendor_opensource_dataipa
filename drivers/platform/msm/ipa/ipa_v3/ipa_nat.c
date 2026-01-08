@@ -712,6 +712,13 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 
 			mld_ptr->vaddr = (void *) tmp_ptr;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+			//mld_ptr->base_address = mld_ptr->vaddr;
+			mld_ptr->base_address = mld_ptr->io_vaddr;
+#endif
+
+			IPADBG("sat - vaddr : %p, io_vaddr : %p, base_address : %p", mld_ptr->vaddr,mld_ptr->io_vaddr, mld_ptr->base_address);
+
 			nm_ptr->sram_in_use    = true;
 			nm_ptr->last_alloc_loc = IPA_NAT_MEM_IN_SRAM;
 
@@ -749,6 +756,10 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 
 			nm_ptr->ddr_in_use     = true;
 			nm_ptr->last_alloc_loc = IPA_NAT_MEM_IN_DDR;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+			mld_ptr->base_address = mld_ptr->vaddr;
+#endif
 		}
 	} else {
 		if (nat_type == IPAHAL_NAT_IPV6CT) {
@@ -797,6 +808,10 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 
 				ct_mld_ptr->vaddr = (void *) tmp_ptr;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+				ct_mld_ptr->base_address = ct_mld_ptr->io_vaddr;
+#endif
+				IPADBG("ct_mld_ptr vaddr : %p, io_vaddr : %p, base_address : %p", ct_mld_ptr->vaddr, ct_mld_ptr->io_vaddr, ct_mld_ptr->base_address);
 				ctm_ptr->sram_in_use    = true;
 				ctm_ptr->last_alloc_loc = IPA_NAT_MEM_IN_SRAM;
 
@@ -834,6 +849,10 @@ static int ipa3_nat_ipv6ct_allocate_mem(
 
 				ctm_ptr->ddr_in_use     = true;
 				ctm_ptr->last_alloc_loc = IPA_NAT_MEM_IN_DDR;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+				ct_mld_ptr->base_address = ct_mld_ptr->vaddr;
+#endif
 			}
 		}
 	}

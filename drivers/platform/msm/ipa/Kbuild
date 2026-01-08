@@ -60,6 +60,17 @@ ipam-$(CONFIG_RNDIS_IPA) += ipa_clients/rndis_ipa.o
 ipam-$(CONFIG_QDSS_IPA) += ipa_clients/ipa_qdss.o
 ipam-$(CONFIG_ECM_IPA) += ipa_clients/ecm_ipa.o
 
+
+ipam-$(CONFIG_ECM_CONVERGENCE) += ipa_backend/ipa_be_nat_mgmt.o \
+	../../../../ipanat/src/ipa_mem_descriptor.o \
+	../../../../ipanat/src/ipa_nat_drv.o \
+	../../../../ipanat/src/ipa_nat_drvi.o \
+	../../../../ipanat/src/ipa_nat_statemach.o \
+	../../../../ipanat/src/ipa_nat_utils.o \
+	../../../../ipanat/src/ipa_table.o \
+	../../../../ipanat/src/ipa_ct_statemach.o \
+	../../../../ipanat/src/ipa_ipv6ct.o
+
 ipam-$(CONFIG_IPA3_MHI_PRIME_MANAGER) += ipa_v3/ipa_mpm.o
 
 ipam-$(CONFIG_IPA3_MHI_PROXY) += ipa_v3/ipa_mhi_proxy.o

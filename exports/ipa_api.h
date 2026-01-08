@@ -488,8 +488,34 @@ struct ipa_ipv4_rule_create_msg {
  * IPv4 rule destroy submessage structure.
  */
 struct ipa_ipv4_rule_destroy_msg {
+	u32 valid_flags;				/**< Bit flags associated with paramater validity. */
+	u32 rule_flags;					/**< Bit flags associated with the rule. */
+
 	struct ipa_ipv4_5tuple tuple;	/**< Holds values of 5-tuple. */
 	struct ipa_ipv4_connection_rule conn_rule;	/**< Basic connection-specific data. */
+	struct ipa_protocol_tcp_rule tcp_rule;		/**< TCP-related acceleration parameters. */
+	struct ipa_pppoe_rule pppoe_rule;		/**< PPPoE-related acceleration parameters. */
+	struct ipa_qos_rule qos_rule;			/**< QoS-related acceleration parameters. */
+	struct ipa_src_mac_rule src_mac_rule;		/**< Source MAC address rule. */
+	struct ipa_mark_rule mark_rule;			/**< SKB mark-related acceleration parameters. */
+	struct ipa_dscp_rule dscp_rule;			/**< DSCP-related acceleration parameters. */
+	struct ipa_vlan_rule vlan_primary_rule;		/**< Primary VLAN-related acceleration parameters. */
+	struct ipa_vlan_rule vlan_secondary_rule;	/**< Secondary VLAN-related acceleration parameters. */
+	struct ipa_trustsec_rule trustsec_rule;		/**< Trustsec-related acceleration parameters. */
+
+#ifdef CONFIG_XFRM
+	struct ipa_acceleration_direction_rule direction_rule;
+							/**< Direction related acceleration parameters. */
+#endif
+	/* Response */
+	struct ipa_service_class_rule sawf_rule;
+							/**< Service class related information */
+	struct ipa_qdisc_rule qdisc_rule;		/**< Qdisc indication per direction */
+	struct ipa_vlan_filter_rule flow_vlan_filter_rule;
+							/**< TO-direction VLAN Filter related acceleration parameters. */
+	struct ipa_vlan_filter_rule return_vlan_filter_rule;
+							/**< FROM-direction VLAN Filter related acceleration parameters. */
+	u32 index;					/**< Slot ID for cache statistics to host OS. */
 };
 
 /*
@@ -678,8 +704,34 @@ struct ipa_ipv6_rule_create_msg {
  * IPv6 rule destroy submessage structure.
  */
 struct ipa_ipv6_rule_destroy_msg {
+	u32 valid_flags;				/**< Bit flags associated with parameter validity. */
+	u32 rule_flags;					/**< Bit flags associated with the rule. */
 	struct ipa_ipv6_5tuple tuple;	/**< Holds values of the ipa_ipv6_5tuple tuple */
 	struct ipa_ipv6_connection_rule conn_rule;	/**< Basic connection-specific data. */
+	struct ipa_protocol_tcp_rule tcp_rule;		/**< Protocol-related acceleration parameters. */
+	struct ipa_pppoe_rule pppoe_rule;		/**< PPPoE-related acceleration parameters. */
+	struct ipa_qos_rule qos_rule;			/**< QoS-related acceleration parameters. */
+	struct ipa_src_mac_rule src_mac_rule;		/**< Source MAC address rule. */
+	struct ipa_mark_rule mark_rule;			/**< SKB mark-related acceleration parameters. */
+	struct ipa_dscp_rule dscp_rule;			/**< DSCP-related acceleration parameters. */
+	struct ipa_vlan_rule vlan_primary_rule;		/**< VLAN-related acceleration parameters. */
+	struct ipa_vlan_rule vlan_secondary_rule;	/**< VLAN-related acceleration parameters. */
+	struct ipa_trustsec_rule trustsec_rule;		/**< Trustsec-related acceleration parameters. */
+
+#ifdef CONFIG_XFRM
+	struct ipa_acceleration_direction_rule direction_rule;
+							/**< Direction-related acceleration parameters. */
+#endif
+	/*
+	 * Response
+	 */
+	struct ipa_service_class_rule sawf_rule;	/**< Service class related information. */
+	struct ipa_qdisc_rule qdisc_rule;		/**< Qdisc indication per direction */
+	struct ipa_vlan_filter_rule flow_vlan_filter_rule;
+							/**< TO-direction VLAN Filter related acceleration parameters. */
+	struct ipa_vlan_filter_rule return_vlan_filter_rule;
+							/**< FROM-direction VLAN Filter related acceleration parameters. */
+	u32 index;					/**< Slot ID for cache statistics to host OS. */
 };
 
 /*

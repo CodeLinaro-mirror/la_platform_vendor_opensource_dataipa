@@ -29,16 +29,20 @@
  * Changes from Qualcomm Technologies, Inc. are provided under the following license:
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
  */
 #include "ipa_ipv6ct.h"
 #include "ipa_ipv6cti.h"
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #include <sys/ioctl.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <fcntl.h>
+#endif
+
 #include <linux/msm_ipa.h>
 
 #define IPA_IPV6CT_DEBUG_FILE_PATH "/sys/kernel/debug/ipa/ipv6ct"
@@ -49,7 +53,9 @@
 
 static struct ipa_ct_cache ipv6_ct_cache[IPA_NAT_MEM_IN_MAX];
 
+#ifndef CONFIG_ECM_CONVERGENCE
 static struct ipa_ct_cache *active_ct_cache_ptr = NULL;
+#endif
 
 static int ipa_ipv6ct_create_table(
 	struct ipa_ct_cache*           ct_cache_ptr,
@@ -115,7 +121,11 @@ static int table_entry_tail_insert(void* entry, void* user_data);
 
 static uint16_t table_entry_get_delete_head_dma_command_data(void* head, void* next_entry);
 
+#ifdef CONFIG_ECM_CONVERGENCE
+extern struct mutex ipv6ct_mutex;
+#else
 extern pthread_mutex_t ipv6ct_mutex;
+#endif
 
 static ipa_table_entry_interface entry_interface_v2 = {
 	table_entry_is_valid_v2,
@@ -150,19 +160,29 @@ static size_t get_ipv6ct_entry_size(enum ipa_hw_type ver)
 int ipa_cti_get_sram_size(
 	uint32_t* size_ptr)
 {
+#ifndef CONFIG_ECM_CONVERGENCE
 	struct ipa_ct_cache* ct_cache_ptr =
 		&ipv6_ct_cache[IPA_NAT_MEM_IN_SRAM];
+#endif
 	struct ipa_nat_in_sram_info ct_sram_info;
-	int ret;
+	int ret = 0;
 
 	IPADBG("In\n");
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+		IPADBG("ipv6ct_mutex is already locked\n");
+	else
+		IPADBG("ipv6ct_mutex is not locked\n");
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex)) {
 		IPAERR("unable to lock the ct mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+#endif
 
+#ifndef CONFIG_ECM_CONVERGENCE
 	if ( ! ct_cache_ptr->ipa_desc ) {
 		ct_cache_ptr->ipa_desc = ipa_descriptor_open();
 		if ( ct_cache_ptr->ipa_desc == NULL ) {
@@ -171,16 +191,27 @@ int ipa_cti_get_sram_size(
 			goto unlock;
 		}
 	}
+#endif
 
 	memset(&ct_sram_info, 0, sizeof(ct_sram_info));
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (ipa3_nat_get_sram_info(&ct_sram_info))
+		ret = -EFAULT;
+#else
 	ret = ioctl(ct_cache_ptr->ipa_desc->fd,
 				IPA_IOC_GET_CT_IN_SRAM_INFO,
 				&ct_sram_info);
+#endif
 
 	if (ret) {
+#ifdef CONFIG_ECM_CONVERGENCE
+		IPAERR("CT_IN_SRAM_INFO ioctl failure %d on IPA\n",
+			   ret);
+#else
 		IPAERR("CT_IN_SRAM_INFO ioctl failure %d on IPA fd %d\n",
 			   ret, ct_cache_ptr->ipa_desc->fd);
+#endif
 		goto unlock;
 	}
 
@@ -192,12 +223,15 @@ int ipa_cti_get_sram_size(
 	}
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	/* No mutex unlock needed in kernel space */
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
-
 bail:
+#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -393,17 +427,28 @@ static int ipa_ipv6ct_post_init_cmd(
 	cmd.table_entries = ct_table->table.table_entries - 1;
 	cmd.expn_table_entries = ct_table->table.expn_table_entries;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	/* Call ipa3_ipv6ct_init_cmd directly as we are calling it from kernel driver */
+	ret = ipa3_ipv6ct_init_cmd(&cmd);
+	if (ret)
+	{
+		IPAERR("unable to post init cmd Error: %d\n", ret);
+		return ret;
+	}
+#else
 	ret = ioctl(ct_cache_ptr->ipa_desc->fd, IPA_IOC_INIT_IPV6CT_TABLE, &cmd);
 	if (ret)
 	{
 		IPAERR("unable to post init cmd Error: %d IPA fd %d\n", ret, ct_cache_ptr->ipa_desc->fd);
 		return ret;
 	}
+#endif
 
 	IPADBG("Posted IPA_IOC_INIT_IPV6CT_TABLE to kernel successfully\n");
 	return 0;
 }
 
+#ifndef CONFIG_ECM_CONVERGENCE
 int ipa_ipv6ct_post_init_cmd_int(
 	uint32_t tbl_hdl )
 {
@@ -462,6 +507,7 @@ bail:
 
 	return ret;
 }
+#endif
 
 /**
  * ipa_ipv6ct_add_tbl() - Adds a new IPv6CT table
@@ -477,7 +523,6 @@ int ipa_ipv6ct_add_tbl(uint16_t number_of_entries, enum ipa3_nat_mem_in nmi, uin
 	int ret;
 	struct ipa_ct_cache*           ct_cache_ptr;
 	struct ipa_ct_ip6_table_cache* ct_table;
-	enum ipa3_nat_mem_in           ch_nmi;
 
 	IPADBG("\n");
 
@@ -497,11 +542,15 @@ int ipa_ipv6ct_add_tbl(uint16_t number_of_entries, enum ipa3_nat_mem_in nmi, uin
 
 	ct_cache_ptr = &ipv6_ct_cache[nmi];
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	//mutex_lock(&nat_mutex);
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex)) {
 		IPAERR("unable to lock the ct mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+#endif
 
 	ct_cache_ptr->nmi = nmi;
 
@@ -557,17 +606,22 @@ int ipa_ipv6ct_add_tbl(uint16_t number_of_entries, enum ipa3_nat_mem_in nmi, uin
 bail_ipv6ct_table:
 	ipa_ipv6ct_destroy_table(ct_cache_ptr, ct_table);
 bail_ipa_desc:
+#ifndef CONFIG_ECM_CONVERGENCE
 	if (!ct_cache_ptr->table_cnt) {
 		ipa_descriptor_close(ct_cache_ptr->ipa_desc);
 		ct_cache_ptr->ipa_desc = NULL;
 	}
+#endif
+
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	//mutex_unlock(&nat_mutex);
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex)) {
 		IPAERR("unable to unlock the ct mutex\n");
-		ret = -EPERM;
-		goto bail;
+		ret = (ret) ? ret : -EPERM;
 	}
-
+#endif
 bail:
 	IPADBG("Out\n");
 
@@ -598,11 +652,15 @@ int ipa_ipv6ct_del_tbl(uint32_t table_handle)
 		goto bail;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&ipv6ct_mutex);
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to lock the ipv6ct mutex\n");
 		return -EINVAL;
 	}
+#endif
 
 	ct_cache_ptr = &ipv6_ct_cache[nmi];
 
@@ -629,17 +687,25 @@ int ipa_ipv6ct_del_tbl(uint32_t table_handle)
 		goto unlock;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	ct_cache_ptr->table_cnt--;
+#else
 	if (! --ct_cache_ptr->table_cnt) {
 		ipa_descriptor_close(ct_cache_ptr->ipa_desc);
 		ct_cache_ptr->ipa_desc = NULL;
 	}
+#endif
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&ipv6ct_mutex);
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to unlock the ipv6ct mutex\n");
 		return (ret) ? ret : -EPERM;
 	}
+#endif
 
 bail:
 	IPADBG("Out\n");
@@ -656,8 +722,19 @@ int ipa_ipv6ct_add_rule_v2(uint32_t table_handle, const ipa_ipv6ct_rule_v2* user
 	uint32_t new_entry_handle;
 	const uint32_t cmd_sz = sizeof(struct ipa_ioc_table_write_cmd) +
 		(IPA_MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_table_write_one));
-	char cmd_buf[cmd_sz];
 	struct ipa_ioc_table_write_cmd* cmd;
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *cmd_buf = NULL;
+	cmd_buf = kzalloc(cmd_sz*sizeof(char), GFP_KERNEL);
+	if(!cmd_buf)
+	{
+		IPAERR("Failed to allocate cmd_buf\n");
+		ret = -ENOMEM;
+		goto end;
+	}
+#else
+	char cmd_buf[cmd_sz];
+#endif
 
 	IPADBG("\n");
 
@@ -667,7 +744,12 @@ int ipa_ipv6ct_add_rule_v2(uint32_t table_handle, const ipa_ipv6ct_rule_v2* user
 
 	if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
 		IPAERR("Bad cache type argument passed\n");
+#ifdef CONFIG_ECM_CONVERGENCE
+		ret = -EINVAL;
+		goto end;
+#else
 		return -EINVAL;
+#endif
 	}
 
 	IPADBG("tbl_hdl(0x%08X) nmi(%s)\n",
@@ -679,7 +761,12 @@ int ipa_ipv6ct_add_rule_v2(uint32_t table_handle, const ipa_ipv6ct_rule_v2* user
 	{
 		IPAERR("Invalid parameters table_handle=%d rule_handle=%pK user_rule=%pK\n",
 			table_handle, rule_handle, user_rule);
+#ifdef CONFIG_ECM_CONVERGENCE
+		ret = -EINVAL;
+		goto end;
+#else
 		return -EINVAL;
+#endif
 	}
 	IPADBG("Passed Table handle: 0x%x\n", table_handle);
 
@@ -691,23 +778,37 @@ int ipa_ipv6ct_add_rule_v2(uint32_t table_handle, const ipa_ipv6ct_rule_v2* user
 
 	IPADBG("Passed Table handle: 0x%x\n", table_handle);
 
+#ifndef CONFIG_ECM_CONVERGENCE
 	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
 	{
 		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
 		return -EINVAL;
 	}
+#endif
 
 	if (user_rule->protocol == IPA_IPV6CT_INVALID_PROTO_FIELD_CMP)
 	{
 		IPAERR("invalid parameter protocol=%d\n", user_rule->protocol);
+#ifdef CONFIG_ECM_CONVERGENCE
+		ret = -EINVAL;
+		goto end;
+#else
 		return -EINVAL;
+#endif
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+		IPADBG("ipv6ct_mutex is already locked\n");
+	else
+		IPADBG("ipv6ct_mutex is not locked\n");
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to lock the ipv6ct mutex\n");
 		return -EINVAL;
 	}
+#endif
 
 	if (!ct_table->mem_desc.valid)
 	{
@@ -716,7 +817,7 @@ int ipa_ipv6ct_add_rule_v2(uint32_t table_handle, const ipa_ipv6ct_rule_v2* user
 		goto unlock;
 	}
 
-	memset(cmd_buf, 0, sizeof(cmd_buf));
+	memset(cmd_buf, 0, cmd_sz);
 	cmd = (struct ipa_ioc_table_write_cmd*) cmd_buf;
 	cmd->entries = 0;
 	new_entry_index = ipa_ipv6ct_hash_v2(user_rule, ct_table->table.table_entries - 1);
@@ -736,12 +837,13 @@ int ipa_ipv6ct_add_rule_v2(uint32_t table_handle, const ipa_ipv6ct_rule_v2* user
 		goto bail;
 	}
 
+#ifndef CONFIG_ECM_CONVERGENCE
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to unlock the ipv6ct mutex\n");
 		return -EPERM;
 	}
-
+#endif
 	*rule_handle = new_entry_handle;
 
 	IPADBG("return\n");
@@ -750,8 +852,20 @@ int ipa_ipv6ct_add_rule_v2(uint32_t table_handle, const ipa_ipv6ct_rule_v2* user
 bail:
 	ipa_table_erase_entry(&ct_table->table, new_entry_index);
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+		IPADBG("ipv6ct_mutex is already locked\n");
+	else
+		IPADBG("ipv6ct_mutex is not locked\n");
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 		IPAERR("unable to unlock the ipv6ct mutex\n");
+#endif
+end:
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (cmd_buf)
+		kfree(cmd_buf);
+#endif
 	return ret;
 }
 
@@ -828,12 +942,18 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+		IPADBG("ipv6ct_mutex is already locked\n");
+	else
+		IPADBG("ipv6ct_mutex is not locked\n");
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to lock the ipv6ct mutex\n");
 		return -EINVAL;
 	}
-
+#endif
 	if (!ct_table->mem_desc.valid)
 	{
 		IPAERR("invalid table handle %d\n", table_handle);
@@ -861,22 +981,43 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 		goto bail;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	/* No mutex unlock needed in kernel space */
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to unlock the ipv6ct mutex\n");
 		return -EPERM;
 	}
+#endif
 
 	*rule_handle = new_entry_handle;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(cmd_buf);
+#endif
 	IPADBG("return\n");
 	return 0;
 
 bail:
 	ipa_table_erase_entry(&ct_table->table, new_entry_index);
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	/* No mutex unlock needed in kernel space */
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 		IPAERR("unable to unlock the ipv6ct mutex\n");
+#endif
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(cmd_buf);
+#endif
+	return ret;
+end:
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (cmd_buf)
+		kfree(cmd_buf);
+#endif
+	IPADBG("Out\n");
 	return ret;
 }
 
@@ -923,13 +1064,20 @@ int ipa_ipv6ct_del_rule_v2(uint32_t table_handle, uint32_t rule_handle)
 		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
 		return -EINVAL;
 	}
-
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+		IPADBG("ipv6ct_mutex is already locked\n");
+	else	
+		IPADBG("ipv6ct_mutex is not locked\n");
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to lock the ipv6ct mutex\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto done;
+	
 	}
-
+#endif
 	if (! ct_table->mem_desc.valid)
 	{
 		IPAERR("invalid table handle %d\n", table_handle);
@@ -953,7 +1101,7 @@ int ipa_ipv6ct_del_rule_v2(uint32_t table_handle, uint32_t rule_handle)
 		goto unlock;
 	}
 
-	memset(cmd_buf, 0, sizeof(cmd_buf));
+	memset(cmd_buf, 0, cmd_sz);
 	cmd = (struct ipa_ioc_table_write_cmd*) cmd_buf;
 	cmd->entries = 0;
 	cmd->mem_type = ct_table->table.nmi;
@@ -976,11 +1124,14 @@ int ipa_ipv6ct_del_rule_v2(uint32_t table_handle, uint32_t rule_handle)
 	}
 
 unlock:
+
+#ifndef CONFIG_ECM_CONVERGENCE
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to unlock the ipv6ct mutex\n");
 		return (ret) ? ret : -EPERM;
 	}
+#endif
 
 done:
 	IPADBG("return\n");
@@ -994,9 +1145,20 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 	enum ipa3_nat_mem_in            nmi;
 	ipa_table_iterator table_iterator;
 	ipa_ipv6ct_hw_entry* entry;
-	const uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
+	const uint32_t cmd_sz =
+		sizeof(struct ipa_ioc_nat_dma_cmd) +
 		(IPA_MAX_DMA_ENTRIES_FOR_DEL * sizeof(struct ipa_ioc_nat_dma_one));
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *cmd_buf = NULL;
+	cmd_buf = kzalloc(cmd_sz*sizeof(char), GFP_KERNEL);
+	if(!cmd_buf)
+	{
+		IPAERR("Failed to allocate cmd_buf\n");
+		return -ENOMEM;
+	}
+#else
 	char cmd_buf[cmd_sz];
+#endif
 	struct ipa_ioc_nat_dma_cmd* cmd;
 	uint16_t idx;
 	int ret;
@@ -1015,7 +1177,8 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 		rule_handle == IPA_TABLE_INVALID_ENTRY)
 	{
 		IPAERR("Invalid parameters table_handle=%d rule_handle=%d\n", table_handle, rule_handle);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto done;
 	}
 	IPADBG("Passed Table: 0x%x and rule handle 0x%x\n", table_handle, rule_handle);
 
@@ -1025,11 +1188,14 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 
 	ct_table = &ct_cache_ptr->ip6_tbl[table_handle - 1];
 
+#ifndef CONFIG_ECM_CONVERGENCE
 	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
 	{
 		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto done;
 	}
+#endif
 
     if (ct_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
 
@@ -1041,12 +1207,19 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
         goto done;
     }
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+		IPADBG("ipv6ct_mutex is already locked\n");
+	else	
+		IPADBG("ipv6ct_mutex is not locked\n");
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to lock the ipv6ct mutex\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto done;
 	}
-
+#endif
 	if (! ct_table->mem_desc.valid)
 	{
 		IPAERR("invalid table handle %d\n", table_handle);
@@ -1070,7 +1243,7 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 		goto unlock;
 	}
 
-	memset(cmd_buf, 0, sizeof(cmd_buf));
+	memset(cmd_buf, 0, cmd_sz);
 	cmd = (struct ipa_ioc_nat_dma_cmd*) cmd_buf;
 	cmd->entries = 0;
 	cmd->mem_type = ct_table->table.nmi;
@@ -1093,13 +1266,20 @@ int ipa_ipv6ct_del_rule(uint32_t table_handle, uint32_t rule_handle)
 	}
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	/* No mutex unlock needed in kernel space */
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to unlock the ipv6ct mutex\n");
-		return (ret) ? ret : -EPERM;
+		ret = (ret) ? ret : -EPERM;
 	}
+#endif
 
 done:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(cmd_buf);
+#endif
 	IPADBG("return\n");
 	return ret;
 }
@@ -1137,6 +1317,7 @@ int ipa_ipv6ct_query_timestamp_v2(uint32_t table_handle, uint32_t rule_handle, u
 
 	ct_table = &ct_cache_ptr->ip6_tbl[table_handle - 1];
 
+#ifndef CONFIG_ECM_CONVERGENCE
 	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
 	{
 		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
@@ -1148,6 +1329,12 @@ int ipa_ipv6ct_query_timestamp_v2(uint32_t table_handle, uint32_t rule_handle, u
 		IPAERR("unable to lock the ipv6ct mutex\n");
 		return -EINVAL;
 	}
+#else
+	if (mutex_is_locked(&ipv6ct_mutex))
+		IPADBG("ipv6ct_mutex is already locked\n");
+	else
+		IPADBG("ipv6ct_mutex is not locked\n");
+#endif
 
 	if (!ct_table->mem_desc.valid)
 	{
@@ -1167,11 +1354,13 @@ int ipa_ipv6ct_query_timestamp_v2(uint32_t table_handle, uint32_t rule_handle, u
 	*time_stamp = entry->time_stamp;
 
 unlock:
+#ifndef CONFIG_ECM_CONVERGENCE
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to unlock the ipv6ct mutex\n");
 		return (ret) ? ret : -EPERM;
 	}
+#endif
 
 bail:
 	IPADBG("Out\n");
@@ -1227,12 +1416,18 @@ int ipa_ipv6ct_query_timestamp(uint32_t table_handle, uint32_t rule_handle, uint
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+		IPADBG("ipv6ct_mutex is already locked\n");
+	else	
+		IPADBG("ipv6ct_mutex is not locked\n");
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to lock the ipv6ct mutex\n");
 		return -EINVAL;
 	}
-
+#endif
 	if (!ct_table->mem_desc.valid)
 	{
 		IPAERR("invalid table handle %d\n", table_handle);
@@ -1251,11 +1446,13 @@ int ipa_ipv6ct_query_timestamp(uint32_t table_handle, uint32_t rule_handle, uint
 	*time_stamp = entry->time_stamp;
 
 unlock:
+#ifndef CONFIG_ECM_CONVERGENCE
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to unlock the ipv6ct mutex\n");
 		return (ret) ? ret : -EPERM;
 	}
+#endif
 
 bail:
 	IPADBG("Out\n");
@@ -1279,6 +1476,17 @@ int ipa_ipv6ct_timestamp_flush(uint32_t table_handle)
 		}
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+
+	ret = ipa3_nat_ct_timestamp_flush();
+
+	if (ret)
+	{
+		IPAERR("IPA_IOC_NAT_CT_TIMESTAMP_FLUSH ioctl failure %d on IPA fd \n",
+			   ret);
+		goto bail;
+	}
+#else	
 	ret = ioctl(ct_cache_ptr->ipa_desc->fd, IPA_IOC_NAT_CT_TIMESTAMP_FLUSH);
 
 	if (ret)
@@ -1287,7 +1495,7 @@ int ipa_ipv6ct_timestamp_flush(uint32_t table_handle)
 			   ret, ct_cache_ptr->ipa_desc->fd);
 		goto bail;
 	}
-
+#endif
 bail:
 	IPADBG("Out\n");
 
@@ -1764,9 +1972,14 @@ static int ipa_ipv6ct_create_table(
 		IPA_IOC_DEL_IPV6CT_TABLE,
 		true); /* false here means don't consider using sram */
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	ret = ipa_mem_descriptor_allocate_ct_memory(
+		&ct_table->mem_desc);
+#else
 	ret = ipa_mem_descriptor_allocate_ct_memory(
 		&ct_table->mem_desc,
 		ct_cache_ptr->ipa_desc->fd);
+#endif
 
 	if (ret)
 	{
@@ -1802,7 +2015,11 @@ static int ipa_ipv6ct_destroy_table(
 
 	IPADBG("\n");
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	ret = ipa_mem_descriptor_delete(&ct_table->mem_desc);
+#else
 	ret = ipa_mem_descriptor_delete(&ct_table->mem_desc, ct_cache_ptr->ipa_desc->fd);
+#endif
 	if (ret)
 		IPAERR("unable to delete IPV6CT descriptor\n");
 
@@ -1944,12 +2161,20 @@ static int ipa_ipv6ct_post_dma_cmd_v2(
 
 	cmd->mem_type = ct_cache_ptr->nmi;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if(ipa3_table_write_cmd(cmd))
+	{
+		IPAERR("ioctl (IPA_IOC_TABLE_WRITE_CMD) on fd has failed\n");
+		return -EIO;
+	}
+#else
 	if (ioctl(ct_cache_ptr->ipa_desc->fd, IPA_IOC_TABLE_WRITE_CMD, cmd))
 	{
 		IPAERR("ioctl (IPA_IOC_TABLE_WRITE_CMD) on fd %d has failed\n",
 			  ct_cache_ptr->ipa_desc->fd);
 		return -EIO;
 	}
+#endif
 	IPADBG("posted IPA_IOC_TABLE_WRITE_CMD to kernel successfully\n");
 	return 0;
 }
@@ -1962,12 +2187,18 @@ static int ipa_ipv6ct_post_dma_cmd(
 
 	cmd->mem_type = ct_cache_ptr->nmi;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (ipa3_table_dma_cmd(cmd)) {
+		return -EIO;
+	}
+#else
 	if (ioctl(ct_cache_ptr->ipa_desc->fd, IPA_IOC_TABLE_DMA_CMD, cmd))
 	{
 		IPAERR("ioctl (IPA_IOC_TABLE_DMA_CMD) on fd %d has failed\n",
 			  ct_cache_ptr->ipa_desc->fd);
 		return -EIO;
 	}
+#endif
 	IPADBG("posted IPA_IOC_TABLE_DMA_CMD to kernel successfully\n");
 	return 0;
 }
@@ -1977,6 +2208,11 @@ void ipa_ipv6ct_dump_table(uint32_t table_handle)
 	struct ipa_ct_ip6_table_cache* ct_table = NULL;
 	struct ipa_ct_cache*        ct_cache_ptr = NULL;
 	enum ipa3_nat_mem_in nmi;
+#ifdef CONFIG_ECM_CONVERGENCE
+	bool mutex_locked = false;
+#else
+	bool mutex_locked = true;
+#endif
 
 	CT_BREAK_TBL_HDL(table_handle, nmi, table_handle);
 
@@ -1986,19 +2222,35 @@ void ipa_ipv6ct_dump_table(uint32_t table_handle)
 		return;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+	{
+		IPADBG("ipv6ct_mutex is already locked\n");
+		mutex_locked = false;
+	}
+	else
+	{
+		IPADBG("ipv6ct_mutex is not locked, locking it\n");
+		mutex_lock(&ipv6ct_mutex);
+		mutex_locked = true;
+	}
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to lock the ipv6ct mutex\n");
 		return;
 	}
+#endif
 
 	ct_cache_ptr = &ipv6_ct_cache[nmi];
 
+#ifndef CONFIG_ECM_CONVERGENCE
 	if (ct_cache_ptr->ipa_desc->ver < IPA_HW_v4_0)
 	{
 		IPAERR("IPv6 connection tracking isn't supported for IPA version %d\n", ct_cache_ptr->ipa_desc->ver);
 		goto unlock;
 	}
+#endif
 
 	ct_table = &ct_cache_ptr->ip6_tbl[table_handle - 1];
 
@@ -2008,17 +2260,32 @@ void ipa_ipv6ct_dump_table(uint32_t table_handle)
 		goto unlock;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	/* In kernel space, use kernel debug mechanisms */
+	IPADBG("IPv6CT table dump for handle %d\n", table_handle);
+	/* Add kernel-specific debug dump code here if needed */
+#else
 	/* Prevents interleaving with later kernel printouts. Flush doesn't help. */
 	sleep(1);
 	ipa_read_debug_info(IPA_IPV6CT_DEBUG_FILE_PATH);
 	ipa_read_debug_info(IPA_UC_ACT_DEBUG_FILE_PATH);
 	sleep(1);
+#endif
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_locked)
+	{
+		IPADBG("Unlocking ipv6ct_mutex as we locked it\n");
+		mutex_unlock(&ipv6ct_mutex);
+	}
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 		IPAERR("unable to unlock the ipv6ct mutex\n");
+#endif
 }
 
+#ifndef CONFIG_ECM_CONVERGENCE
 /**
  * ipa_ipv6ct_add_uc_act_entry() - add uc activation entry
  * @u: [in] structure specifying the uC activation entry
@@ -2078,17 +2345,21 @@ int ipa_ipv6ct_del_uc_act_entry(uint16_t idx)
 	close(fd);
 	return 0;
 }
+#endif
 
 int ipa_cti_vote_clock(
     enum ipa_app_clock_vote_type vote_type )
 {
+#ifndef CONFIG_ECM_CONVERGENCE
 	struct ipa_ct_cache* ct_cache_ptr =
 		&ipv6_ct_cache[IPA_NAT_MEM_IN_SRAM];
+#endif
 
 	int ret = 0;
 
 	IPADBG("In\n");
 
+#ifndef CONFIG_ECM_CONVERGENCE
 	if ( ! ct_cache_ptr->ipa_desc ) {
 		ct_cache_ptr->ipa_desc = ipa_descriptor_open();
 		if ( ct_cache_ptr->ipa_desc == NULL ) {
@@ -2107,6 +2378,15 @@ int ipa_cti_vote_clock(
 			   ret, ct_cache_ptr->ipa_desc->fd);
 		goto bail;
 	}
+#else
+	ret = ipa3_app_clk_vote(vote_type);
+
+	if (ret) {
+		IPAERR("APP_CLOCK_VOTE ioctl failure %d on IPA\n",
+			   ret);
+		goto bail;
+	}
+#endif
 
 bail:
 	IPADBG("Out\n");
@@ -2197,10 +2477,12 @@ int ipa_calc_num_sram_ct_table_entries(
 					   NULL);
 
 
+		int value;
 		ipv6ct_table.table_entries =
 			Get2PowerTightUpperBound(tot * IPA_BASE_TABLE_PCNT_4SRAM);
+		value = (tot * IPA_EXPANSION_TABLE_PCNT_4SRAM_NUMERATOR + IPA_EXPANSION_TABLE_PCNT_4SRAM_DENOMINATOR - 1) / IPA_EXPANSION_TABLE_PCNT_4SRAM_DENOMINATOR;
 		ipv6ct_table.expn_table_entries =
-			GetEvenTightUpperBound(tot * IPA_EXPANSION_TABLE_PCNT_4SRAM);
+			GetEvenTightUpperBound(value);
 
 		size  = ipa_table_calculate_size(&ipv6ct_table);
 
@@ -2242,11 +2524,15 @@ int ipa_ipv6ct_clear_table(uint32_t tbl_hdl)
 
 	ct_cache_ptr = &ipv6_ct_cache[nmi];
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&ipv6ct_mutex);
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex)) {
 		IPAERR("unable to lock the ct mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+#endif
 
 	if ( ! ct_cache_ptr->table_cnt ) {
 		IPAERR("No initialized table in CT\n");
@@ -2254,17 +2540,21 @@ int ipa_ipv6ct_clear_table(uint32_t tbl_hdl)
 		goto unlock;
 	}
 
-	ct_table = &ct_cache_ptr->ip6_tbl[tbl_hdl- 1];
+	ct_table = &ct_cache_ptr->ip6_tbl[tbl_hdl - 1];
 
 	ipa_table_reset(&ct_table->table);
 	ct_table->table.cur_tbl_cnt =
 		ct_table->table.cur_expn_tbl_cnt = 0;
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&ipv6ct_mutex);
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex)) {
 		IPAERR("unable to unlock the ct mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+#endif
 
 bail:
 	IPADBG("Out\n");
@@ -2285,6 +2575,9 @@ int ipa_ipv6ct_walk_table(
 	ipa_table*                      ipa_tbl_ptr;
 
 	int ret = 0;
+#ifdef CONFIG_ECM_CONVERGENCE
+	bool mut_locked = false;
+#endif
 
 	IPADBG("In\n");
 
@@ -2299,12 +2592,26 @@ int ipa_ipv6ct_walk_table(
 		goto bail;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+	{
+		IPADBG("ipv6ct_mutex is already locked\n");
+		mut_locked = false;
+	}
+	else
+	{
+		IPADBG("ipv6ct_mutex is not locked, locking it\n");
+		mutex_lock(&ipv6ct_mutex);
+		mut_locked = true;
+	}
+#else
 	if ( pthread_mutex_lock(&ipv6ct_mutex) )
 	{
 		IPAERR("unable to lock the ct mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+#endif
 
 	/*
 	 * Now walk the table and pass the valid records to the user's
@@ -2342,11 +2649,19 @@ int ipa_ipv6ct_walk_table(
 	}
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mut_locked)
+	{
+		IPADBG("Unlocking ipv6ct_mutex as we locked it\n");
+		mutex_unlock(&ipv6ct_mutex);
+	}
+#else
 	if ( pthread_mutex_unlock(&ipv6ct_mutex) )
 	{
 		IPAERR("unable to unlock the ct mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+#endif
 
 bail:
 	IPADBG("Out\n");
@@ -2365,7 +2680,7 @@ static int ct_gen_chain_stats(
 {
 	ct_chain_stat_help* csh_ptr = (ct_chain_stat_help*) arb_data_ptr;
 
-	enum ipa3_nat_mem_in nmi;
+	//enum ipa3_nat_mem_in nmi;
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 
@@ -2391,7 +2706,7 @@ static int ct_gen_chain_stats(
 			{
 				chain_len++;
 
-				list_elem_ptr = GOTO_REC(table_ptr, list_elem_ptr->next_index);
+				list_elem_ptr = (struct ipa_ipv6ct_hw_entry*)GOTO_REC(table_ptr, list_elem_ptr->next_index);
 			}
 		}
 	}
@@ -2433,6 +2748,9 @@ int ipa_ipv6ct_stats_table(
 	ct_chain_stat_help                 csh;
 
 	int ret = 0;
+#ifdef CONFIG_ECM_CONVERGENCE
+	bool mutex_locked = false;
+#endif
 
 	IPADBG("In\n");
 
@@ -2441,20 +2759,33 @@ int ipa_ipv6ct_stats_table(
 	{
 		IPAERR("Bad arg: "
 			   "tbl_hdl(0x%08X) and/or "
-			   "nat_stats_ptr(%p) and/or "
-			   "idx_stats_ptr(%p)\n",
+			   "ct_stats_ptr(%p)\n",
 			   tbl_hdl,
 			   ct_stats_ptr);
 		ret = -EINVAL;
 		goto bail;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+	{
+		IPADBG("ipv6ct_mutex is already locked\n");
+		mutex_locked = false;
+	}
+	else
+	{
+		IPADBG("ipv6ct_mutex is not locked, locking it\n");
+		mutex_lock(&ipv6ct_mutex);
+		mutex_locked = true;
+	}
+#else
 	if ( pthread_mutex_lock(&ipv6ct_mutex) )
 	{
 		IPAERR("unable to lock the ct mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+#endif
 
 	memset(ct_stats_ptr, 0, sizeof(ipa_cti_tbl_stats));
 
@@ -2508,20 +2839,28 @@ int ipa_ipv6ct_stats_table(
 		goto unlock;
 	}
 
-	if ( csh.tot_for_avg && ct_stats_ptr->tot_chains )
+	/* if ( csh.tot_for_avg && ct_stats_ptr->tot_chains )
 	{
 		ct_stats_ptr->avg_chain_len =
-			(float) csh.tot_for_avg / (float) ct_stats_ptr->tot_chains;
-	}
+			csh.tot_for_avg / ct_stats_ptr->tot_chains;
+	} */
 
 	ret = 0;
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_locked)
+	{
+		IPADBG("Unlocking ipv6ct_mutex as we locked it\n");
+		mutex_unlock(&ipv6ct_mutex);
+	}
+#else
 	if ( pthread_mutex_unlock(&ipv6ct_mutex) )
 	{
 		IPAERR("unable to unlock the ct mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+#endif
 
 bail:
 	IPADBG("Out\n");
@@ -2535,6 +2874,9 @@ int ipa_ipv6ct_copy_table(
 	ipa_table_walk_cb copy_cb )
 {
 	int ret = 0;
+#ifdef CONFIG_ECM_CONVERGENCE
+	bool mutex_locked = false;
+#endif
 
 	IPADBG("In\n");
 
@@ -2545,12 +2887,26 @@ int ipa_ipv6ct_copy_table(
 		goto bail;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&ipv6ct_mutex))
+	{
+		IPADBG("ipv6ct_mutex is already locked\n");
+		mutex_locked = false;
+	}
+	else
+	{
+		IPADBG("ipv6ct_mutex is not locked, locking it\n");
+		mutex_lock(&ipv6ct_mutex);
+		mutex_locked = true;
+	}
+#else
 	if (pthread_mutex_lock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to lock the ct mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+#endif
 
 	/*
 	 * Clear the destination table...
@@ -2564,7 +2920,7 @@ int ipa_ipv6ct_copy_table(
 		 * user's copy callback...
 		 */
 		ret = ipa_ipv6ct_walk_table(
-			src_tbl_hdl, USE_NAT_TABLE, copy_cb, dst_tbl_hdl);
+			src_tbl_hdl, USE_NAT_TABLE, copy_cb, (void*)(uintptr_t)dst_tbl_hdl);
 
 		if ( ret != 0 )
 		{
@@ -2574,11 +2930,19 @@ int ipa_ipv6ct_copy_table(
 	}
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_locked)
+	{
+		IPADBG("Unlocking ipv6ct_mutex as we locked it\n");
+		mutex_unlock(&ipv6ct_mutex);
+	}
+#else
 	if (pthread_mutex_unlock(&ipv6ct_mutex))
 	{
 		IPAERR("unable to unlock the ct mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+#endif
 
 bail:
 	IPADBG("Out\n");

@@ -150,7 +150,7 @@ def define_modules(target, variant):
             "drivers/platform/msm/ipa/ipa_rm_resource.c",
             "drivers/platform/msm/ipa/ipa_rm_resource.h",
             "drivers/platform/msm/ipa/ipa_uc_offload_common_i.h",
-        "exports/ipa_api.h",
+            "exports/ipa_api.h",
 	    "drivers/platform/msm/ipa/ipa_backend/ipa_be.h",
 	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_clientdb.h",
 	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_flt_mgmt.h",
@@ -159,17 +159,41 @@ def define_modules(target, variant):
 	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_flt_mgmt.c",
 	    "drivers/platform/msm/ipa/ipa_v3/ipa_ini_parse.h",
 	    "drivers/platform/msm/ipa/ipa_v3/ipa_ini_parse.c",
+	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_nat_mgmt.h",
+	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_nat_mgmt.c",
         ],
         hdrs = [
                 "exports/ipa_api.h",
         ],
         includes = [
                 ".",
-                "exports",  # Correct relative path
+                "exports",
+				"ipanat/inc",
 	],
         kconfig = "config/Kconfig",
         defconfig = include_defconfig,
         conditional_srcs = {
+             "CONFIG_ECM_CONVERGENCE": {
+                True: [
+                      "ipanat/inc/ipa_mem_descriptor.h",
+                        "ipanat/inc/ipa_nat_drv.h",
+                        "ipanat/inc/ipa_nat_drvi.h",
+                        "ipanat/inc/ipa_nat_statemach.h",
+                        "ipanat/inc/ipa_nat_utils.h",
+                        "ipanat/inc/ipa_table.h",
+                        "ipanat/inc/ipa_ct_statemach.h",
+                        "ipanat/src/ipa_ct_statemach.c",
+                        "ipanat/inc/ipa_ipv6ct.h",
+                        "ipanat/src/ipa_ipv6ct.c",
+                        "ipanat/inc/ipa_ipv6cti.h",
+                        "ipanat/src/ipa_mem_descriptor.c",
+                        "ipanat/src/ipa_nat_drv.c",
+                        "ipanat/src/ipa_nat_drvi.c",
+                        "ipanat/src/ipa_nat_statemach.c",
+                        "ipanat/src/ipa_nat_utils.c",
+                        "ipanat/src/ipa_table.c",
+                ],
+            },
             "CONFIG_IPA3_MHI_PRIME_MANAGER": {
                 True: [
                     "drivers/platform/msm/ipa/ipa_v3/ipa_mpm.c",

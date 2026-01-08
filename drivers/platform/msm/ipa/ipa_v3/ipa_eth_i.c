@@ -1385,8 +1385,6 @@ int ipa3_eth_connect(
 	{
 		ipa3_install_dflt_flt_rules(ep_idx);
 #ifdef CONFIG_ECM_CONVERGENCE
-		ipa3_install_icmp_flt_rules(ep_idx);
-		ipa3_install_tcp_syn_flt_rules(ep_idx);
 		ipa3_init_flt_rule(ep_idx, IPA_IP_v4, false);
 		ipa3_init_flt_rule(ep_idx, IPA_IP_v6, false);
 #endif
@@ -1840,8 +1838,6 @@ int ipa3_eth_disconnect(
 	{
 		ipa3_delete_dflt_flt_rules(ep_idx);
 #ifdef CONFIG_ECM_CONVERGENCE
-		ipa3_delete_icmp_flt_rules(ep_idx);
-		ipa3_delete_tcp_syn_flt_rules(ep_idx);
 		ipa3_delete_init_flt_rule(ep_idx, IPA_IP_v4);
 		ipa3_delete_init_flt_rule(ep_idx, IPA_IP_v6);
 #endif

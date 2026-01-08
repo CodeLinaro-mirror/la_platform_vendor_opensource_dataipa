@@ -26,18 +26,17 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
- * 
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
- * 
  */
 #ifndef IPA_IPV6CT_H
 #define IPA_IPV6CT_H
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #include <stdint.h>
 #include <stdbool.h>
+#endif
 #include <linux/msm_ipa.h>
 
 /**
@@ -128,8 +127,9 @@ typedef struct {
 #define IPA_BASE_TABLE_PERCENTAGE       .8
 #define IPA_EXPANSION_TABLE_PERCENTAGE  .2
 
-#define IPA_BASE_TABLE_PCNT_4SRAM      1.00
-#define IPA_EXPANSION_TABLE_PCNT_4SRAM 0.43
+#define IPA_BASE_TABLE_PCNT_4SRAM      1
+#define IPA_EXPANSION_TABLE_PCNT_4SRAM_NUMERATOR 43
+#define IPA_EXPANSION_TABLE_PCNT_4SRAM_DENOMINATOR 100
 
 static inline const char *ipa3_ct_mem_in_as_str(
 	enum ipa3_nat_mem_in nmi)
@@ -215,7 +215,9 @@ int ipa_ct_del_ipv6_rule(	uint32_t tbl_hdl, 	uint32_t rule_hdl);
  */
 int ipa_ct_query_timestamp(uint32_t tbl_hdl, uint32_t rule_hdl, uint32_t* time_stamp);
 
+#ifndef CONFIG_ECM_CONVERGENCE
 int ipa_ipv6ct_post_init_cmd_int(uint32_t tbl_hdl);
+#endif
 
 /**
  * ipa_ipv6ct_add_tbl() - create IPv6CT table
@@ -325,6 +327,7 @@ int ipa_ipv6ct_timestamp_flush(uint32_t table_handle);
  */
 void ipa_ipv6ct_dump_table(uint32_t table_handle);
 
+#ifndef CONFIG_ECM_CONVERGENCE
 /**
  * ipa_ipv6ct_add_uc_act_entry() - add uc activation entry
  * @u: [in] structure specifying the uC activation entry
@@ -352,5 +355,7 @@ bool ipa_ct_is_sram_supported(void);
  * Returns:	0  On Success, negative on failure
  */
 int ipa_ct_timestamp_flush(uint32_t tbl_hdl);
+
+#endif
 
 #endif

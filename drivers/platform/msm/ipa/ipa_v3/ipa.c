@@ -10630,12 +10630,13 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	if(!ipa_tlpd_stats_init())
 		IPADBG("Fail to init tlpd ipa lnx module");
 
-
+#ifdef CONFIG_ECM_CONVERGENCE
 	result = ipa_be_init_if();
 	if (result)
 		IPAERR("fail to init Backend module %d\n", result);
 	else
 		IPAERR(":Backend module init ok\n");
+#endif
 
 #ifdef CONFIG_ARCH_SA525_HOSTVM
 	/*

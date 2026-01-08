@@ -2297,11 +2297,8 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 	struct ipa_flt_rule_add *rule = &pFilteringTable->rules[0];
 
 	rule->at_rear = true;
-	if (iptype == IPA_IP_v4) {
-		rule->rule.action = IPA_PASS_TO_DST_NAT;
-	} else {
-		rule->rule.action = IPA_PASS_TO_ROUTING;
-	}
+	rule->rule.action = IPA_PASS_TO_DST_NAT;
+
 	rule->rule.rt_tbl_hdl = rt_tbl.hdl;
 	rule->rule.rt_tbl_idx = rt_tbl_idx.idx;
 	rule->rule.hashable = true;

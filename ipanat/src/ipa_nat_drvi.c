@@ -29,20 +29,30 @@
  * Changes from Qualcomm Technologies, Inc. are provided under the following license:
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
  */
 
 #include "ipa_nat_drv.h"
 #include "ipa_nat_drvi.h"
 
-#include <stdio.h>
+#ifdef CONFIG_ECM_CONVERGENCE
+#include <linux/in.h>
+#include <linux/mutex.h>
+#else
 #include <stdint.h>
+#include <stdio.h>
+#include <netinet/in.h>
 #include <stdbool.h>
 #include <sys/ioctl.h>
 #include <stdlib.h>
-#include <netinet/in.h>
 #include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <netinet/in.h>
+#endif
+
+
+
 #include <linux/msm_ipa.h>
 
 #define IPA_NAT_DEBUG_FILE_PATH "/sys/kernel/debug/ipa/ip4_nat"
@@ -72,7 +82,11 @@ static struct ipa_nat_cache *active_nat_cache_ptr = NULL;
 	(active_nat_cache_ptr->nmi == IPA_NAT_MEM_IN_SRAM) : \
 	false
 
+#ifdef CONFIG_ECM_CONVERGENCE
+extern struct mutex nat_mutex;
+#else
 extern pthread_mutex_t nat_mutex;
+#endif
 
 static ipa_nat_pdn_entry pdns[IPA_MAX_PDN_NUM];
 static int num_pdns = 0;
@@ -404,12 +418,12 @@ static int copy_from_ipa_nat_ipv4_rule_v1_to_v2(
 	nat_rule_v2->non_frag_stats_cnt_index = 0;
 	nat_rule_v2->sw_prod_classification_cookie = 0;
 	nat_rule_v2->conn_tracking = 0;
-	nat_rule_v2->in_redirect = nat_rule_v2->out_redirect = nat_rule_v1->redirect;
 	
-	/* Since we came from V1 application (which resets the redirect bit), we'd like to set both in/out redirect while moving to V2 API */
+	/* Reset redirect fields to 0, matching V1 behavior where redirect is reset before adding rule */
+	nat_rule_v2->in_redirect = nat_rule_v2->out_redirect = 0;
+	
+	/* Allow both inbound and outbound traffic by default */
 	nat_rule_v2->out_allowed = nat_rule_v2->in_allowed = 1;
-
-	IPAERR("OMRIDBG: nat_rule_v2->out_allowed=%d, nat_rule_v2->in_allowed=%d\n",nat_rule_v2->out_allowed, nat_rule_v2->in_allowed);
 
 	IPADBG("Out\n");
 
@@ -1120,12 +1134,16 @@ static int ipa_nati_create_table(
 	 * Allocate memory for NAT index expansion table meta data
 	 */
 	nat_table->index_expn_table_meta = (struct ipa_nat_indx_tbl_meta_info*)
-		calloc(nat_table->table.expn_table_entries,
+	#ifdef CONFIG_ECM_CONVERGENCE
+	kzalloc(nat_table->table.expn_table_entries*sizeof(struct ipa_nat_indx_tbl_meta_info), GFP_KERNEL);
+	#else
+	calloc(nat_table->table.expn_table_entries,
 			   sizeof(struct ipa_nat_indx_tbl_meta_info));
+	#endif
 
 	if (nat_table->index_expn_table_meta == NULL) {
 		IPAERR(
-			"Fail to allocate ipv4 index expansion table meta with size %d\n",
+			"Fail to allocate ipv4 index expansion table meta with size %zu\n",
 			nat_table->table.expn_table_entries *
 			sizeof(struct ipa_nat_indx_tbl_meta_info));
 		ret = -ENOMEM;
@@ -1165,9 +1183,14 @@ static int ipa_nati_create_table(
 		IPA_IOC_DEL_NAT_TABLE,
 		true);  /* true here means do consider using sram */
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	ret = ipa_mem_desc_alloc_memory(
+		&nat_table->mem_desc);
+#else
 	ret = ipa_mem_desc_alloc_memory(
 		&nat_table->mem_desc,
 		nat_cache_ptr->ipa_desc->fd);
+#endif
 
 	if (ret) {
 		IPAERR("unable to allocate nat memory descriptor Error: %d\n", ret);
@@ -1210,7 +1233,11 @@ bail_mem_desc:
 #endif
 
 bail_meta:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(nat_table->index_expn_table_meta);
+#else
 	free(nat_table->index_expn_table_meta);
+#endif
 	memset(nat_table, 0, sizeof(*nat_table));
 
 done:
@@ -1227,13 +1254,23 @@ static int ipa_nati_destroy_table(
 
 	IPADBG("In\n");
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	ret = ipa_mem_descriptor_delete(
+		&nat_table->mem_desc);
+#else
 	ret = ipa_mem_descriptor_delete(
 		&nat_table->mem_desc, nat_cache_ptr->ipa_desc->fd);
+#endif
 
 	if (ret)
 		IPAERR("unable to delete NAT descriptor\n");
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(nat_table->index_expn_table_meta);
+	
+#else
 	free(nat_table->index_expn_table_meta);
+#endif
 
 	memset(nat_table, 0, sizeof(*nat_table));
 
@@ -1251,7 +1288,7 @@ static int ipa_nati_post_ipv4_init_cmd(
 	struct ipa_ioc_v4_nat_init cmd;
 
 	char buf[1024];
-	int  ret;
+	int  ret = 0;
 
 	IPADBG("In\n");
 
@@ -1295,13 +1332,23 @@ static int ipa_nati_post_ipv4_init_cmd(
 
 	IPADBG("%s\n", ipa_ioc_v4_nat_init_as_str(&cmd, buf, sizeof(buf)));
 
-	ret = ioctl(nat_cache_ptr->ipa_desc->fd, IPA_IOC_V4_INIT_NAT, &cmd);
-
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (ipa3_nat_init_cmd(&cmd)) {
+			ret = -EFAULT;
+	}
 	if (ret) {
-		IPAERR("unable to post init cmd Error: %d IPA fd %d\n",
-			   ret, nat_cache_ptr->ipa_desc->fd);
+		IPAERR("unable to post init cmd Error: %d\n",
+			   ret);
 		goto bail;
 	}
+	#else
+	ret = ioctl(nat_cache_ptr->ipa_desc->fd, IPA_IOC_V4_INIT_NAT, &cmd);
+	if (ret) {
+		IPAERR("unable to post init cmd Error: %d IPA fd %d\n",
+				ret, nat_cache_ptr->ipa_desc->fd);
+		goto bail;
+	}
+	#endif
 
 	IPADBG("Posted IPA_IOC_V4_INIT_NAT to kernel successfully\n");
 
@@ -1526,13 +1573,20 @@ static int ipa_nati_post_ipv4_dma_cmd_v2(
 
 	IPADBG("%s\n", prep_ioc_table_write_cmd_4print(cmd, buf, sizeof(buf)));
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (ipa3_table_write_cmd(cmd)) {
+		IPAERR("ioctl (IPA_IOC_TABLE_WRITE_CMD) on fd has failed\n"); 
+		ret = -EIO;
+		goto bail;
+	}
+	#else
 	if (ioctl(nat_cache_ptr->ipa_desc->fd, IPA_IOC_TABLE_WRITE_CMD, cmd)) {
 		IPAERR("ioctl (IPA_IOC_TABLE_WRITE_CMD) on fd %d has failed\n",
 			   nat_cache_ptr->ipa_desc->fd);
 		ret = -EIO;
 		goto bail;
 	}
-
+	#endif
 	IPADBG("Posted IPA_IOC_TABLE_WRITE_CMD to kernel successfully\n");
 
 bail:
@@ -1545,21 +1599,40 @@ static int ipa_nati_post_ipv4_dma_cmd(
 	struct ipa_nat_cache*       nat_cache_ptr,
 	struct ipa_ioc_nat_dma_cmd* cmd)
 {
-	char buf[4096];
+
 	int  ret = 0;
 
 	IPADBG("In\n");
+#ifdef CONFIG_ECM_CONVERGENCE
+	char* buf = kzalloc(4096, GFP_KERNEL);
+	if(!buf)
+	{
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto bail;
+	}
+#else
+	char buf[4096];
+#endif
 
 	cmd->mem_type = nat_cache_ptr->nmi;
 
 	IPADBG("%s\n", prep_ioc_nat_dma_cmd_4print(cmd, buf, sizeof(buf)));
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (ipa3_table_dma_cmd(cmd)) {
+		ret = -EFAULT;
+		kfree(buf);
+		goto bail;
+	}
+	#else
 	if (ioctl(nat_cache_ptr->ipa_desc->fd, IPA_IOC_TABLE_DMA_CMD, cmd)) {
 		IPAERR("ioctl (IPA_IOC_TABLE_DMA_CMD) on fd %d has failed\n",
 			   nat_cache_ptr->ipa_desc->fd);
 		ret = -EIO;
 		goto bail;
 	}
+	#endif
 
 	IPADBG("Posted IPA_IOC_TABLE_DMA_CMD to kernel successfully\n");
 
@@ -1597,15 +1670,29 @@ int ipa_nati_modify_pdn(
 	if (entry->public_ip == 0)
 		IPADBG("PDN %d public ip will be set  to 0\n", entry->pdn_index);
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (ipa3_nat_mdfy_pdn(entry))
+		ret = -EFAULT;
+	#else
 	ret = ioctl(nat_cache_ptr->ipa_desc->fd, IPA_IOC_NAT_MODIFY_PDN, entry);
+	#endif
 
 	if ( ret ) {
+		#ifdef CONFIG_ECM_CONVERGENCE
+		IPAERR("unable to call modify pdn icotl\nindex %d, ip 0x%X, src_metdata 0x%X, dst_metadata 0x%X\n",
+			   entry->pdn_index,
+			   entry->public_ip,
+			   entry->src_metadata,
+			   entry->dst_metadata);
+		#else
 		IPAERR("unable to call modify pdn icotl\nindex %d, ip 0x%X, src_metdata 0x%X, dst_metadata 0x%X IPA fd %d\n",
 			   entry->pdn_index,
 			   entry->public_ip,
 			   entry->src_metadata,
 			   entry->dst_metadata,
 			   nat_cache_ptr->ipa_desc->fd);
+		#endif
+
 		goto done;
 	}
 
@@ -1807,11 +1894,15 @@ int ipa_NATI_post_ipv4_init_cmd(
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&nat_mutex);
+	#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+	#endif
 
 	if ( ! nat_cache_ptr->table_cnt ) {
 		IPAERR("No initialized table in NAT cache\n");
@@ -1835,10 +1926,14 @@ int ipa_NATI_post_ipv4_init_cmd(
 	active_nat_cache_ptr = nat_cache_ptr;
 
 unlock:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&nat_mutex);
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+	#endif
 
 bail:
 	IPADBG("Out\n");
@@ -1882,11 +1977,15 @@ int ipa_NATI_add_ipv4_tbl(
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	//mutex_lock(&nat_mutex);
+	#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+	#endif
 
 	nat_cache_ptr->nmi = nmi;
 
@@ -1961,17 +2060,22 @@ failed_post_init_cmd:
 	ipa_nati_destroy_table(nat_cache_ptr, nat_table);
 
 failed_create_table:
+	#ifndef CONFIG_ECM_CONVERGENCE
 	if (!nat_cache_ptr->table_cnt) {
 		ipa_descriptor_close(nat_cache_ptr->ipa_desc);
 		nat_cache_ptr->ipa_desc = NULL;
 	}
+	#endif
 
 unlock:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	//mutex_unlock(&nat_mutex);
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
-		ret = -EPERM;
-		goto bail;
+		ret = (ret) ? ret : -EPERM;
 	}
+	#endif
 
 bail:
 	IPADBG("Out\n");
@@ -2004,11 +2108,15 @@ int ipa_NATI_del_ipv4_table(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&nat_mutex);
+	#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+	#endif
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
@@ -2022,16 +2130,24 @@ int ipa_NATI_del_ipv4_table(
 		goto unlock;
 	}
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	nat_cache_ptr->table_cnt--;
+	#else
 	if (! --nat_cache_ptr->table_cnt) {
 		ipa_descriptor_close(nat_cache_ptr->ipa_desc);
 		nat_cache_ptr->ipa_desc = NULL;
 	}
+	#endif
 
 unlock:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&nat_mutex);
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+	#endif
 
 bail:
 	IPADBG("Out\n");
@@ -2068,12 +2184,25 @@ int ipa_NATI_query_timestamp_v2(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	int ret_mtx = 0;
+	int mut_locked = false;
+	if (!nat_mutex_locked)
+	{
+		ret = take_mutex();
+		if (ret) {
+			IPAERR("unable to lock the nat mutex\n");
+			goto bail;
+		}
+		mut_locked = true;
+	}
+#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
-
+#endif
 	if ( ! nat_table->mem_desc.valid ) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
 		ret = -EINVAL;
@@ -2101,11 +2230,18 @@ int ipa_NATI_query_timestamp_v2(
 
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mut_locked)
+	{
+		ret_mtx = give_mutex();
+	}
+	ret = (ret) ? ret : ret_mtx;
+#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
-
+#endif
 bail:
 	IPADBG("Out\n");
 
@@ -2152,11 +2288,25 @@ int ipa_NATI_query_timestamp_redirect(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	int ret_mtx = 0;
+	int mut_locked = false;
+	if (!nat_mutex_locked)
+	{
+		ret = take_mutex();
+		if (ret) {
+			IPAERR("unable to lock the nat mutex\n");
+			goto bail;
+		}
+		mut_locked = true;
+	}
+#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+#endif
 
 	if ( ! nat_table->mem_desc.valid ) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
@@ -2185,10 +2335,18 @@ int ipa_NATI_query_timestamp_redirect(
 	*redirect = rule_ptr->redirect;
 
 unlock:
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mut_locked)
+	{
+		ret_mtx = give_mutex();
+	}
+	ret = (ret) ? ret : ret_mtx;
+#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+#endif
 
 bail:
 	IPADBG("Out\n");
@@ -2201,10 +2359,22 @@ int ipa_NATI_add_ipv4_rule(
 	const ipa_nat_ipv4_rule* clnt_rule,
 	uint32_t*                rule_hdl)
 {
+	int ret = 0;
 	const uint32_t cmd_sz =
 		sizeof(struct ipa_ioc_nat_dma_cmd) +
 		(MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_nat_dma_one));
+#ifdef CONFIG_ECM_CONVERGENCE
+	char* cmd_buf = NULL;
+	cmd_buf = kzalloc(cmd_sz*sizeof(char), GFP_KERNEL);
+	if(!cmd_buf)
+	{
+		IPAERR("Failed to allocate cmd_bf\n");
+		ret = -ENOMEM;
+		goto end;
+	}
+#else
 	char cmd_buf[cmd_sz];
+#endif
 	struct ipa_ioc_nat_dma_cmd* cmd =
 		(struct ipa_ioc_nat_dma_cmd*) cmd_buf;
 
@@ -2219,11 +2389,11 @@ int ipa_NATI_add_ipv4_rule(
 	uint32_t new_entry_handle;
 	char     buf[1024];
 
-	int ret = 0;
-
 	IPADBG("In\n");
 
+	#ifndef CONFIG_ECM_CONVERGENCE
 	memset(cmd_buf, 0, sizeof(cmd_buf));
+	#endif
 
 	if ( ! VALID_TBL_HDL(tbl_hdl) ||
 		 ! clnt_rule ||
@@ -2303,11 +2473,21 @@ int ipa_NATI_add_ipv4_rule(
 		goto done;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	int ret_mtx;
+	int mut_locked = false;
+	if (!nat_mutex_locked)
+	{
+		ret = take_mutex();
+		mut_locked = true;
+	}
+#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
-		goto done;
+		goto bail;
 	}
+#endif
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
@@ -2419,11 +2599,18 @@ int ipa_NATI_add_ipv4_rule(
 		goto bail;
 	}
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (mut_locked)
+	{
+		ret_mtx = give_mutex();
+	}
+	ret = (ret) ? ret : ret_mtx;
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
-		ret = -EPERM;
-		goto done;
+		ret = (ret) ? ret : -EPERM;
 	}
+	#endif
 
 	*rule_hdl = new_entry_handle;
 
@@ -2438,9 +2625,19 @@ fail_add_index_entry:
 	ipa_table_erase_entry(&nat_table->table, new_entry_index);
 
 unlock:
-	if (pthread_mutex_unlock(&nat_mutex))
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&nat_mutex);
+	#else
+	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
+		ret = (ret) ? ret : -EPERM;
+	}
+	#endif
 done:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(cmd_buf);
+	#endif
+end:
 	IPADBG("Out\n");
 
 	return ret;
@@ -2523,11 +2720,21 @@ int ipa_NATI_add_ipv4_rule_v2(
 		goto done;
 	}
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	int ret_mtx;
+	int mut_locked = false;
+	if (!nat_mutex_locked)
+	{
+		ret = take_mutex();
+		mut_locked = true;
+	}
+	#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto done;
 	}
+	#endif
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
@@ -2669,12 +2876,19 @@ int ipa_NATI_add_ipv4_rule_v2(
 		   new_entry_handle,
 		   prep_nat_rule_4print_v2(rule, buf, sizeof(buf)));
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (mut_locked)
+	{
+		ret_mtx = give_mutex();
+	}
+	ret = (ret) ? ret : ret_mtx;
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = -EPERM;
 		goto done;
 	}
-
+	#endif
 	*rule_hdl = new_entry_handle;
 
 	IPADBG("rule_hdl value(%u)\n", *rule_hdl);
@@ -2688,8 +2902,12 @@ fail_add_index_entry:
 	ipa_table_erase_entry(&nat_table->table, new_entry_index);
 
 unlock:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&nat_mutex);
+	#else
 	if (pthread_mutex_unlock(&nat_mutex))
 		IPAERR("unable to unlock the nat mutex\n");
+	#endif
 done:
 	IPADBG("Out\n");
 
@@ -2740,11 +2958,21 @@ int ipa_NATI_del_ipv4_rule_v2(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	int ret_mtx;
+	int mut_locked = false;
+	if (!nat_mutex_locked)
+	{
+		ret = take_mutex();
+		mut_locked = true;
+	}
+	#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("Unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto done;
 	}
+	#endif
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("Invalid table handle 0x%08X\n", tbl_hdl);
@@ -2865,10 +3093,18 @@ int ipa_NATI_del_ipv4_rule_v2(
 			prev_index = IPA_TABLE_INVALID_ENTRY;
 
 unlock:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (mut_locked)
+	{
+		ret_mtx = give_mutex();
+	}
+	ret = (ret) ? ret : ret_mtx;
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("Unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+	#endif
 
 done:
 	IPADBG("Out\n");
@@ -2880,10 +3116,22 @@ int ipa_NATI_del_ipv4_rule(
 	uint32_t tbl_hdl,
 	uint32_t rule_hdl )
 {
+	int      ret = 0;
 	const uint32_t cmd_sz =
 		sizeof(struct ipa_ioc_nat_dma_cmd) +
 		(MAX_DMA_ENTRIES_FOR_DEL * sizeof(struct ipa_ioc_nat_dma_one));
+	#ifdef CONFIG_ECM_CONVERGENCE
+	char* cmd_buf = NULL;
+	cmd_buf = kzalloc(cmd_sz*sizeof(char), GFP_KERNEL);
+	if(!cmd_buf)
+	{
+		IPAERR("Failed to allocate cmd_bf\n");
+		ret = -ENOMEM;
+		goto end;
+	}
+	#else
 	char cmd_buf[cmd_sz];
+	#endif
 	struct ipa_ioc_nat_dma_cmd* cmd =
 		(struct ipa_ioc_nat_dma_cmd*) cmd_buf;
 
@@ -2898,11 +3146,12 @@ int ipa_NATI_del_ipv4_rule(
 
 	uint16_t idx;
 	char     buf[1024];
-	int      ret = 0;
 
 	IPADBG("In\n");
 
+	#ifndef CONFIG_ECM_CONVERGENCE
 	memset(cmd_buf, 0, sizeof(cmd_buf));
+	#endif
 
 	IPADBG("tbl_hdl(0x%08X) rule_hdl(%u)\n", tbl_hdl, rule_hdl);
 
@@ -2930,11 +3179,24 @@ int ipa_NATI_del_ipv4_rule(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
+	int mut_locked = false;
+	int ret_mtx;
+
+	if (!nat_mutex_locked)
+	{
+		ret = take_mutex();
+		mut_locked = true;
+	}
+
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&nat_mutex);
+	#else
 	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("Unable to lock the nat mutex\n");
+		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto done;
 	}
+	#endif
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("Invalid table handle 0x%08X\n", tbl_hdl);
@@ -3055,12 +3317,25 @@ int ipa_NATI_del_ipv4_rule(
 			prev_index = IPA_TABLE_INVALID_ENTRY;
 
 unlock:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if (mut_locked)
+	{
+		ret_mtx = give_mutex();
+	}
+	ret = (ret) ? ret : ret_mtx;
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("Unable to unlock the nat mutex\n");
+		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+	#endif
 
 done:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(cmd_buf);
+	#endif
+
+end:
 	IPADBG("Out\n");
 
 	return ret;
@@ -3074,19 +3349,35 @@ done:
 int ipa_nati_get_sram_size(
 	uint32_t* size_ptr)
 {
+	#ifndef CONFIG_ECM_CONVERGENCE
 	struct ipa_nat_cache* nat_cache_ptr =
 		&ipv4_nat_cache[IPA_NAT_MEM_IN_SRAM];
+	#endif
 	struct ipa_nat_in_sram_info nat_sram_info;
-	int ret;
+	int ret = 0;
 
 	IPADBG("In\n");
 
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (mutex_is_locked(&nat_mutex))
+		IPADBG("nat_mutex is already locked\n");
+	else
+		IPADBG("nat_mutex is not locked\n");
+#endif
+
+	#ifdef CONFIG_ECM_CONVERGENCE
+	IPADBG("Calling nat_mutex lock\n");
+	//mutex_lock(&nat_mutex);
+	#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+	#endif
 
+	#ifndef CONFIG_ECM_CONVERGENCE
 	if ( ! nat_cache_ptr->ipa_desc ) {
 		nat_cache_ptr->ipa_desc = ipa_descriptor_open();
 		if ( nat_cache_ptr->ipa_desc == NULL ) {
@@ -3095,16 +3386,27 @@ int ipa_nati_get_sram_size(
 			goto unlock;
 		}
 	}
+	#endif
 
 	memset(&nat_sram_info, 0, sizeof(nat_sram_info));
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if(ipa3_nat_get_sram_info(&nat_sram_info))
+		ret = -EFAULT;
+	#else
 	ret = ioctl(nat_cache_ptr->ipa_desc->fd,
 				IPA_IOC_GET_NAT_IN_SRAM_INFO,
 				&nat_sram_info);
+	#endif
 
 	if (ret) {
+		#ifdef CONFIG_ECM_CONVERGENCE
+		IPAERR("NAT_IN_SRAM_INFO ioctl failure %d on IPA\n",
+			   ret);
+		#else
 		IPAERR("NAT_IN_SRAM_INFO ioctl failure %d on IPA fd %d\n",
 			   ret, nat_cache_ptr->ipa_desc->fd);
+		#endif
 		goto unlock;
 	}
 
@@ -3116,12 +3418,15 @@ int ipa_nati_get_sram_size(
 	}
 
 unlock:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	//mutex_unlock(&nat_mutex);	
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
-
 bail:
+	#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -3156,14 +3461,15 @@ static int print_nat_rule_v2(
 
 	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
-	printf("  %s %s (0x%04X) (0x%08X) -> %s\n",
+	IPADBG("  %s %s (0x%04X) (0x%08X) -> %s\n",
 		   (table_ptr->nmi == IPA_NAT_MEM_IN_DDR) ? "DDR" : "SRAM",
 		   (is_expn_tbl) ? "EXP " : "BASE",
 		   record_index,
 		   rule_hdl,
 		   prep_nat_rule_4print_v2(rule_ptr, buf, sizeof(buf)));
-
+	#ifndef CONFIG_ECM_CONVERGENCE
 	fflush(stdout);
+	#endif
 
 	*((bool*) arb_data_ptr) = false;
 
@@ -3195,14 +3501,15 @@ static int print_nat_rule(
 
 	BREAK_RULE_HDL(table_ptr, rule_hdl, is_expn_tbl, rule_index);
 
-	printf("  %s %s (0x%04X) (0x%08X) -> %s\n",
+	IPADBG("  %s %s (0x%04X) (0x%08X) -> %s\n",
 		   (table_ptr->nmi == IPA_NAT_MEM_IN_DDR) ? "DDR" : "SRAM",
 		   (is_expn_tbl) ? "EXP " : "BASE",
 		   record_index,
 		   rule_hdl,
 		   prep_nat_rule_4print(rule_ptr, buf, sizeof(buf)));
-
+	#ifndef CONFIG_ECM_CONVERGENCE
 	fflush(stdout);
+	#endif
 
 	*((bool*) arb_data_ptr) = false;
 
@@ -3232,7 +3539,7 @@ static int print_meta_data(
 
 	if ( mi_ptr )
 	{
-		printf("  %s %s Entry_Index=0x%04X Table_Entry=0x%04X -> "
+		IPADBG("  %s %s Entry_Index=0x%04X Table_Entry=0x%04X -> "
 			   "Prev_Index=0x%04X Next_Index=0x%04X\n",
 			   (table_ptr->nmi == IPA_NAT_MEM_IN_DDR) ? "DDR" : "SRAM",
 			   (is_expn_tbl) ? "EXP " : "BASE",
@@ -3243,7 +3550,7 @@ static int print_meta_data(
 	}
 	else
 	{
-		printf("  %s %s Entry_Index=0x%04X Table_Entry=0x%04X -> "
+		IPADBG("  %s %s Entry_Index=0x%04X Table_Entry=0x%04X -> "
 			   "Prev_Index=0xXXXX Next_Index=0x%04X\n",
 			   (table_ptr->nmi == IPA_NAT_MEM_IN_DDR) ? "DDR" : "SRAM",
 			   (is_expn_tbl) ? "EXP " : "BASE",
@@ -3251,8 +3558,9 @@ static int print_meta_data(
 			   index_entry->tbl_entry,
 			   index_entry->next_index);
 	}
-
+	#ifndef CONFIG_ECM_CONVERGENCE
 	fflush(stdout);
+	#endif
 
 	*((bool*) arb_data_ptr) = false;
 
@@ -3285,12 +3593,15 @@ void ipa_nat_dump_ipv4_table(
 
     nat_cache_ptr = &ipv4_nat_cache[nmi];
 
-    if (pthread_mutex_lock(&nat_mutex)) {
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&nat_mutex);
+	#else
+	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		return;
 	}
-
 	printf("\nIPv4 active rules:\n");
+	#endif	
 
 	empty = true;
 
@@ -3302,12 +3613,14 @@ void ipa_nat_dump_ipv4_table(
     }
 
 
+	#ifndef CONFIG_ECM_CONVERGENCE
 	if ( empty )
 	{
 		printf("  Empty\n");
 	}
 
 	printf("\nExpansion Index Table Meta Data:\n");
+	#endif
 
 	empty = true;
 
@@ -3315,14 +3628,18 @@ void ipa_nat_dump_ipv4_table(
 
 	if ( empty )
 	{
-		printf("  Empty\n");
+		IPADBG("  Empty\n");
 	}
 
-	printf("\n");
+	IPADBG("\n");
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&nat_mutex);
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 	}
+	#endif
 }
 
 int ipa_NATI_clear_ipv4_tbl(
@@ -3347,11 +3664,15 @@ int ipa_NATI_clear_ipv4_tbl(
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&nat_mutex);
+	#else
 	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+	#endif
 
 	if ( ! nat_cache_ptr->table_cnt ) {
 		IPAERR("No initialized table in NAT cache\n");
@@ -3370,10 +3691,14 @@ int ipa_NATI_clear_ipv4_tbl(
 		nat_table->index_table.cur_expn_tbl_cnt = 0;
 
 unlock:
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&nat_mutex);
+	#else
 	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+	#endif
 
 bail:
 	IPADBG("Out\n");
@@ -3408,12 +3733,15 @@ int ipa_nati_copy_ipv4_tbl(
 		goto bail;
 	}
  
-	if (pthread_mutex_lock(&nat_mutex))
-	{
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&nat_mutex);
+	#else
+	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+	#endif
 
 	/*
 	 * Clear the destination table...
@@ -3431,7 +3759,7 @@ int ipa_nati_copy_ipv4_tbl(
         which = nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0 ? USE_NAT_TABLE_V2 : USE_NAT_TABLE;
 
         ret = ipa_NATI_walk_ipv4_tbl(
-			src_tbl_hdl, which, copy_cb, dst_tbl_hdl);
+			src_tbl_hdl, which, copy_cb, &dst_tbl_hdl);
 
 		if ( ret != 0 )
 		{
@@ -3441,11 +3769,14 @@ int ipa_nati_copy_ipv4_tbl(
 	}
 
 unlock:
-	if (pthread_mutex_unlock(&nat_mutex))
-	{
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&nat_mutex);
+	#else
+	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+	#endif
 
 bail:
 	IPADBG("Out\n");
@@ -3479,12 +3810,15 @@ int ipa_NATI_walk_ipv4_tbl(
 		goto bail;
 	}
 
-	if ( pthread_mutex_lock(&nat_mutex) )
-	{
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&nat_mutex);
+	#else
+	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+	#endif
 
 	/*
 	 * Now walk the table and pass the valid records to the user's
@@ -3524,11 +3858,14 @@ int ipa_NATI_walk_ipv4_tbl(
 	}
 
 unlock:
-	if ( pthread_mutex_unlock(&nat_mutex) )
-	{
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&nat_mutex);
+	#else
+	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
+	#endif
 
 bail:
 	IPADBG("Out\n");
@@ -3579,7 +3916,7 @@ static int gen_chain_stats(
 			{
 				chain_len++;
 
-				list_elem_ptr = GOTO_REC(table_ptr, list_elem_ptr->next_index);
+				list_elem_ptr = (struct ipa_nat_rule*)GOTO_REC(table_ptr, list_elem_ptr->next_index);
 			}
 		}
 	} else if ( csh_ptr->which == USE_NAT_TABLE_V2 ) {
@@ -3592,7 +3929,7 @@ static int gen_chain_stats(
 			while (list_elem_ptr->next_index) {
 				chain_len++;
 
-				list_elem_ptr = GOTO_REC(
+				list_elem_ptr = (struct ipa_nat_rule_v2*)GOTO_REC(
 					table_ptr, list_elem_ptr->next_index);
 			}
 		}
@@ -3608,7 +3945,7 @@ static int gen_chain_stats(
 			{
 				chain_len++;
 
-				list_elem_ptr = GOTO_REC(table_ptr, list_elem_ptr->next_index);
+				list_elem_ptr = (struct  ipa_nat_indx_tbl_rule*)GOTO_REC(table_ptr, list_elem_ptr->next_index);
 			}
 		}
 	}
@@ -3668,12 +4005,15 @@ int ipa_NATI_ipv4_tbl_stats(
 		goto bail;
 	}
 
-	if ( pthread_mutex_lock(&nat_mutex) )
-	{
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&nat_mutex);
+	#else
+	if (pthread_mutex_lock(&nat_mutex)) {
 		IPAERR("unable to lock the nat mutex\n");
 		ret = -EINVAL;
 		goto bail;
 	}
+	#endif
 
 	memset(nat_stats_ptr, 0, sizeof(ipa_nati_tbl_stats));
 	memset(idx_stats_ptr, 0, sizeof(ipa_nati_tbl_stats));
@@ -3728,11 +4068,13 @@ int ipa_NATI_ipv4_tbl_stats(
 		goto unlock;
 	}
 
+	/*
 	if ( csh.tot_for_avg && nat_stats_ptr->tot_chains )
 	{
 		nat_stats_ptr->avg_chain_len =
-			(float) csh.tot_for_avg / (float) nat_stats_ptr->tot_chains;
+			csh.tot_for_avg / nat_stats_ptr->tot_chains;
 	}
+	*/
 
 	/*
 	 * Now lets gather index table stats...
@@ -3764,21 +4106,23 @@ int ipa_NATI_ipv4_tbl_stats(
 		goto unlock;
 	}
 
-	if ( csh.tot_for_avg && idx_stats_ptr->tot_chains )
+	/*if ( csh.tot_for_avg && idx_stats_ptr->tot_chains )
 	{
 		idx_stats_ptr->avg_chain_len =
-			(float) csh.tot_for_avg / (float) idx_stats_ptr->tot_chains;
-	}
+			csh.tot_for_avg / idx_stats_ptr->tot_chains;
+	}*/
 
 	ret = 0;
 
 unlock:
-	if ( pthread_mutex_unlock(&nat_mutex) )
-	{
+	#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_unlock(&nat_mutex);
+	#else
+	if (pthread_mutex_unlock(&nat_mutex)) {
 		IPAERR("unable to unlock the nat mutex\n");
 		ret = (ret) ? ret : -EPERM;
 	}
-
+	#endif
 bail:
 	IPADBG("Out\n");
 
@@ -3801,7 +4145,14 @@ int ipa_NATI_timestamp_flush(uint32_t  tbl_hdl)
 			goto bail;
 		}
 	}
-
+	#ifdef CONFIG_ECM_CONVERGENCE
+	ret = ipa3_nat_ct_timestamp_flush();
+	if (ret)
+	{
+		IPAERR("IPA_IOC_NAT_CT_TIMESTAMP_FLUSH ioctl failure %d on IPA fd\n",ret);
+		goto bail;
+	}
+	#else
 	ret = ioctl(nat_cache_ptr->ipa_desc->fd, IPA_IOC_NAT_CT_TIMESTAMP_FLUSH);
 
 	if (ret)
@@ -3810,7 +4161,7 @@ int ipa_NATI_timestamp_flush(uint32_t  tbl_hdl)
 			   ret, nat_cache_ptr->ipa_desc->fd);
 		goto bail;
 	}
-
+	#endif
 bail:
 	IPADBG("Out\n");
 
@@ -3836,13 +4187,22 @@ int ipa_nati_vote_clock(
 		}
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	ret = ipa3_app_clk_vote(vote_type);
+#else
 	ret = ioctl(nat_cache_ptr->ipa_desc->fd,
 				IPA_IOC_APP_CLOCK_VOTE,
 				vote_type);
+#endif
 
 	if (ret) {
+#ifdef CONFIG_ECM_CONVERGENCE
+		IPAERR("APP_CLOCK_VOTE ioctl failure %d on IPA\n",
+			   ret);
+#else
 		IPAERR("APP_CLOCK_VOTE ioctl failure %d on IPA fd %d\n",
 			   ret, nat_cache_ptr->ipa_desc->fd);
+#endif
 		goto bail;
 	}
 

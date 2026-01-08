@@ -569,6 +569,7 @@ enum ipa_icc_type {
 
 enum flt_rule_category {
 	IPA_FLT_RULE_CAT_NONE,
+	IPA_FLT_RULE_CAT_DEFAULT,
 	IPA_FLT_RULE_CAT_LAN2LAN,
 	IPA_FLT_RULE_CAT_MTU,
 	IPA_FLT_RULE_CAT_UPLINK,
@@ -1125,13 +1126,9 @@ struct ipa3_ep_context {
 	atomic_t avail_fifo_desc;
 	u32 dflt_flt4_rule_hdl;
 	u32 dflt_flt6_rule_hdl;
-	u32 icmp_flt4_rule_hdl;
-	u32 icmp_flt6_rule_hdl;
-	u32 tcp_syn_flt4_rule_hdl;
-	u32 tcp_syn_flt6_rule_hdl;
-	u32 init_flt4_rule_hdl[3]; /* fragment, multicast, broadcast */
+	u32 init_flt4_rule_hdl[5]; /* fragment, TCP SYN, ICMP, multicast, broadcast */
 	u32 init_flt4_rule_cnt;
-	u32 init_flt6_rule_hdl[8]; /* fragment, multicast, link-scoped, IETF, unique local, TCP FIN/SYN/RST */
+	u32 init_flt6_rule_hdl[8]; /* fragment, TCP SYN (eq), ICMPv6, multicast, link-scoped, IETF, unique local, TCP SYN */
 	u32 init_flt6_rule_cnt;
 	bool skip_ep_cfg;
 	bool keep_ipa_awake;
@@ -3870,10 +3867,6 @@ int __ipa_commit_hdr_v3_0(void);
 void ipa3_skb_recycle(struct sk_buff *skb);
 void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx);
 void ipa3_delete_dflt_flt_rules(u32 ipa_ep_idx);
-void ipa3_install_icmp_flt_rules(u32 ipa_ep_idx);
-void ipa3_delete_icmp_flt_rules(u32 ipa_ep_idx);
-void ipa3_install_tcp_syn_flt_rules(u32 ipa_ep_idx);
-void ipa3_delete_tcp_syn_flt_rules(u32 ipa_ep_idx);
 void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enabled);
 void ipa3_delete_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype);
 

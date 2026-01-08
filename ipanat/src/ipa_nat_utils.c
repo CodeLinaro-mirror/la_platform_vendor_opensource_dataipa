@@ -25,17 +25,32 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
  */
 #include "ipa_nat_utils.h"
+
+#ifdef CONFIG_ECM_CONVERGENCE
+#include <linux/fcntl.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
+#include <linux/err.h>
+#else
 #include <sys/ioctl.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
+#endif
 
 #define IPA_MAX_MSG_LEN 4096
 
+#ifndef CONFIG_ECM_CONVERGENCE
 static char dbg_buff[IPA_MAX_MSG_LEN];
+#endif
 
 #if !defined(MSM_IPA_TESTS) && !defined(USE_GLIB) && !defined(FEATURE_IPA_ANDROID)
 size_t strlcpy(char* dst, const char* src, size_t size)
@@ -57,11 +72,16 @@ size_t strlcpy(char* dst, const char* src, size_t size)
 ipa_descriptor* ipa_descriptor_open(void)
 {
 	ipa_descriptor* desc_ptr;
-	int res = 0;
+#ifndef CONFIG_ECM_CONVERGENCE
+		int res = 0;
+#endif
 
 	IPADBG("In\n");
-
+#ifdef CONFIG_ECM_CONVERGENCE
+	desc_ptr = kzalloc(sizeof(ipa_descriptor), GFP_KERNEL);
+#else
 	desc_ptr = calloc(1, sizeof(ipa_descriptor));
+#endif
 
 	if ( desc_ptr == NULL )
 	{
@@ -69,6 +89,9 @@ ipa_descriptor* ipa_descriptor_open(void)
 		goto bail;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	desc_ptr->ver = ipa3_ctx->ipa_hw_type;
+#else
 	desc_ptr->fd = open(IPA_DEV_NAME, O_RDONLY);
 
 	if (desc_ptr->fd < 0)
@@ -88,12 +111,17 @@ ipa_descriptor* ipa_descriptor_open(void)
 		IPAERR("Unable to get IPA version. Error %d\n", res);
 		desc_ptr->ver = IPA_HW_None;
 	}
+#endif
 
 	goto bail;
 
+
+#ifdef CONFIG_ECM_CONVERGENCE
+#else
 hndl_fail:
 	free(desc_ptr);
 	desc_ptr = NULL;
+#endif
 
 bail:
 	IPADBG("Out\n");
@@ -108,16 +136,21 @@ void ipa_descriptor_close(
 
 	if ( desc_ptr )
 	{
+#ifdef CONFIG_ECM_CONVERGENCE
+		kfree(desc_ptr);
+#else
 		if ( desc_ptr->fd >= 0)
 		{
 			close(desc_ptr->fd);
 		}
 		free(desc_ptr);
+#endif
 	}
 
 	IPADBG("Out\n");
 }
 
+#ifndef CONFIG_ECM_CONVERGENCE
 void ipa_read_debug_info(
 	const char* debug_file_path)
 {
@@ -152,7 +185,10 @@ void ipa_read_debug_info(
 	}
 	fclose(debug_file);
 }
+#endif
 
+
+#ifndef CONFIG_ECM_CONVERGENCE
 int currTimeAs(
 	TimeAs_t  timeAs,
 	uint64_t* valPtr )
@@ -203,3 +239,4 @@ int currTimeAs(
 bail:
 	return ret;
 }
+#endif

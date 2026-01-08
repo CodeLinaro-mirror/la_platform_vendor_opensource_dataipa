@@ -25,12 +25,18 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #ifndef IPA_MEM_DESCRIPTOR_H
 #define IPA_MEM_DESCRIPTOR_H
 
+#ifndef CONFIG_ECM_CONVERGENCE
 #include <stdint.h>
 #include <stdbool.h>
+#endif
 #include <linux/msm_ipa.h>
 
 typedef struct
@@ -60,12 +66,30 @@ void ipa_mem_descriptor_init(
 	unsigned long delete_ioctl_num,
 	bool consider_using_sram );
 
+#ifdef CONFIG_ECM_CONVERGENCE
+int ipa_mem_desc_alloc_memory(
+	ipa_mem_descriptor* desc);
+#else
 int ipa_mem_desc_alloc_memory(
 	ipa_mem_descriptor* desc,
 	int ipa_fd);
+#endif
 
+#ifdef CONFIG_ECM_CONVERGENCE
+int ipa_mem_descriptor_delete(
+	ipa_mem_descriptor* desc);
+#else
 int ipa_mem_descriptor_delete(
 	ipa_mem_descriptor* desc,
 	int ipa_fd);
+#endif
 
+#ifdef CONFIG_ECM_CONVERGENCE
+int ipa_mem_descriptor_allocate_ct_memory(
+	ipa_mem_descriptor* desc);
+#else
+int ipa_mem_descriptor_allocate_ct_memory(
+	ipa_mem_descriptor* desc,
+	int ipa_fd);
+#endif
 #endif
