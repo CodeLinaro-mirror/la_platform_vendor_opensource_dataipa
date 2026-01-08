@@ -14131,7 +14131,8 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	u32 add_map_size;
 	const u32 *add_map;
 	int i;
-	u32 iova_ap_mapping[2];
+	u32 iova_ap_mapping[4];
+	u32 geometry_ap_mapping[4];
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
 #endif
@@ -14160,14 +14161,28 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
-			iova_ap_mapping, 2) == 0) {
-		cb->va_start = iova_ap_mapping[0];
-		cb->va_size  = iova_ap_mapping[1];
+			iova_ap_mapping, 4) == 0) {
+		cb->va_start = iova_ap_mapping[1];
+		cb->va_size  = iova_ap_mapping[3];
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
 
 	IPADBG("CB %d PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   cb_type, dev, cb->va_start, cb->va_size);
+
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,iommu-geometry",
+			geometry_ap_mapping, 4) == 0) {
+		cb->geometry_start = geometry_ap_mapping[1];
+		cb->geometry_end  = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
+	} else {
+		IPADBG("sky CB PROBE Geometry not defined using max!\n");
+		cb->geometry_start = 0;
+		cb->geometry_end = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
+	}
+
+	IPADBG("CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
+		   dev, cb->geometry_start, cb->geometry_end);
 
 	/*
 	 * Prior to these calls to iommu_domain_get_attr(), these
@@ -14238,6 +14253,9 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	}
 
 	cb->done = true;
+	cb->next_addr = cb->va_end;
+	IPADBG("CB %d PROBE dev=%pK va_next=0x%x va_end=0x%x\n",
+		   cb_type, dev, cb->next_addr, cb->va_end);
 	return 0;
 }
 
@@ -14246,10 +14264,11 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_UC);
 	int bypass = 0;
 	int fast = 0;
-	u32 iova_ap_mapping[2];
+	u32 iova_ap_mapping[4];
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
 #endif
+	u32 geometry_ap_mapping[4];
 
 	IPADBG("UC CB PROBE dev=%pK\n", dev);
 
@@ -14290,14 +14309,28 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
-			iova_ap_mapping, 2) == 0) {
-		cb->va_start = iova_ap_mapping[0];
-		cb->va_size  = iova_ap_mapping[1];
+			iova_ap_mapping, 4) == 0) {
+		cb->va_start = iova_ap_mapping[1];
+		cb->va_size  = iova_ap_mapping[3];
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
 
 	IPADBG("UC CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
+
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,iommu-geometry",
+			geometry_ap_mapping, 4) == 0) {
+		cb->geometry_start = geometry_ap_mapping[1];
+		cb->geometry_end  = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
+	} else {
+		IPADBG("sky CB PROBE Geometry not defined using max!\n");
+		cb->geometry_start = 0;
+		cb->geometry_end = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
+	}
+
+	IPADBG("CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
+		   dev, cb->geometry_start, cb->geometry_end);
 
 	/*
 	 * Prior to these calls to iommu_domain_get_attr(), these
@@ -14586,10 +14619,11 @@ static int ipa_smmu_11ad_cb_probe(struct device *dev)
 {
 	int bypass = 0;
 	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_11AD);
-	u32 iova_ap_mapping[2];
+	u32 iova_ap_mapping[4];
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
 	int mapping_config;
 #endif
+	u32 geometry_ap_mapping[4];
 
 	IPADBG("11AD CB probe: dev=%pK\n", dev);
 
@@ -14611,14 +14645,29 @@ static int ipa_smmu_11ad_cb_probe(struct device *dev)
 	cb->va_start = cb->va_end  = cb->va_size = 0;
 	if (of_property_read_u32_array(
 			dev->of_node, "qcom,iommu-dma-addr-pool",
-			iova_ap_mapping, 2) == 0) {
-		cb->va_start = iova_ap_mapping[0];
-		cb->va_size  = iova_ap_mapping[1];
+			iova_ap_mapping, 4) == 0) {
+		cb->va_start = iova_ap_mapping[1];
+		cb->va_size  = iova_ap_mapping[3];
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
 
 	IPADBG("11AD CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
 		   dev, cb->va_start, cb->va_size);
+
+	if (of_property_read_u32_array(
+			dev->of_node, "qcom,iommu-geometry",
+			geometry_ap_mapping, 4) == 0) {
+		cb->geometry_start = geometry_ap_mapping[1];
+		cb->geometry_end  = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
+	} else {
+		IPADBG("sky CB PROBE Geometry not defined using max!\n");
+		cb->geometry_start = 0;
+		cb->geometry_end = cb->va_end + IPA_AP_CB_WLAN_END_MAPPING;
+	}
+
+	IPADBG("CB PROBE dev=%pK geometry_start=0x%x geometry_end=0x%x\n",
+		   dev, cb->geometry_start, cb->geometry_end);
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
         mapping_config = 0;
 #if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)

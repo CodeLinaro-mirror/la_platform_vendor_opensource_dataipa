@@ -597,10 +597,10 @@ int ipa_wdi_conn_pipes_per_inst(struct ipa_wdi_conn_in_params *in,
 	}
 
 	IPA_WDI_DBG("number of sys pipe %d,Tx1 asked=%d,"
-		"Rx1 asked=%d,Tx1 supported = %d,Rx1 supported=%d\n",
+		"Rx1 asked=%d,Tx1 supported = %d,Rx1 supported=%d smmu_en=%d\n",
 		in->num_sys_pipe_needed, in->is_tx1_used,
 		in->is_rx1_used, ipa_wdi_ctx_list[in->hdl]->is_tx1_used,
-		ipa_wdi_ctx_list[in->hdl]->is_rx1_used);
+		ipa_wdi_ctx_list[in->hdl]->is_rx1_used, in->is_smmu_enabled);
 
 	/* setup sys pipe when needed */
 	for (i = 0; i < in->num_sys_pipe_needed; i++) {
