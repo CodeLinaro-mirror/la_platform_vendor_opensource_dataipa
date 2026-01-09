@@ -299,6 +299,49 @@ static ssize_t ipa3_write_ep_holb_uS(struct file *file,
 	return count;
 }
 
+static ssize_t ipa3_update_eth_dma_mode(struct file *file,
+		const char __user *buf, size_t count, loff_t *ppos)
+{
+	u32 instance_id;
+	u32 en;
+	u32 dst_client_type;
+	unsigned long missing;
+	char *sptr, *token;
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+	missing = copy_from_user(dbg_buff, buf, count);
+	if (missing)
+		return -EFAULT;
+
+	dbg_buff[count] = '\0';
+
+	sptr = dbg_buff;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &instance_id))
+		return -EINVAL;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &en))
+		return -EINVAL;
+
+	token = strsep(&sptr, " ");
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &dst_client_type))
+		return -EINVAL;
+
+	if (ipa3_eth_update_dma_config(instance_id, en, dst_client_type) < 0)
+		return -EFAULT;
+
+	return count;
+}
 
 static ssize_t ipa3_write_holb_monitor_client(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
@@ -4497,6 +4540,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"holb", IPA_WRITE_ONLY_MODE, NULL, {
 			.write = ipa3_write_ep_holb,
+		}
+	}, {
+		"eth_dma_mode", IPA_WRITE_ONLY_MODE, NULL, {
+			.write = ipa3_update_eth_dma_mode,
 		}
 	}, {
 		"holb_uS", IPA_WRITE_ONLY_MODE, NULL, {
