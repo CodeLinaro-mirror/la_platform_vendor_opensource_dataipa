@@ -98,7 +98,7 @@
 
 #define IPA_APPS_BW_FOR_PM 700
 
-#define IPA_SEND_MAX_DESC (20)
+#define IPA_SEND_MAX_DESC (30)
 
 #define IPA_EOT_THRESH 32
 
