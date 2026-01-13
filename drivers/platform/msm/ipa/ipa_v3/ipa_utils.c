@@ -17376,20 +17376,111 @@ void ipa3_notify_ipacm_eth_pdu_enable()
 		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
 }
 
+void ipa_send_eth_pdu_endp_ind_to_modem(void)
+{
+	struct ipa_ep_id_type_v01 *ep_info;
+	struct ipa_endp_desc_indication_msg_v01 req;
+	memset(&req, 0, sizeof(req));
+
+	/*Updating consumer pipe info*/
+	req.ep_info_len++;
+	req.ep_info_valid = true;
+	req.num_eps_valid = true;
+	req.num_eps++;
+	ep_info = &req.ep_info[req.ep_info_len - 1];
+	ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id;
+	ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+	ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_CONS_V01;
+	ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+	/*Updating producer pipe info*/
+	req.ep_info_len++;
+	req.ep_info_valid = true;
+	req.num_eps_valid = true;
+	req.num_eps++;
+	ep_info = &req.ep_info[req.ep_info_len - 1];
+	ep_info->ep_id = ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id;
+	ep_info->ic_type = DATA_IC_TYPE_ETH_V01;
+	ep_info->ep_type = DATA_EP_DESC_TYPE_TETH_PROD_V01;
+	ep_info->ep_status = DATA_EP_STATUS_CONNECTED_V01;
+	IPADBG("Sending ETH PDU endpoint QMI\n");
+	if (ipa3_qmi_send_endp_desc_indication(&req))
+			IPAWANERR("Failed to send eth pipe endp desc QMI\n");
+}
+
+int ipa3_check_eth_pipe_connected(void)
+{
+	int rx_idx = 0, tx_idx = 0;
+	struct ipa3_ep_context *rx_ep, *tx_ep;
+
+	tx_idx = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
+	rx_idx = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
+
+	if(rx_idx != IPA_EP_NOT_ALLOCATED &&
+		tx_idx != IPA_EP_NOT_ALLOCATED) {
+		rx_ep = &ipa3_ctx->ep[rx_idx];
+		tx_ep = &ipa3_ctx->ep[tx_idx];
+		if(rx_ep->valid && tx_ep->valid) {
+			ipa3_update_eth_pdu_ep_index(rx_idx, tx_idx);
+			return true;
+		}
+	}
+
+	tx_idx = ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_CONS);
+	rx_idx = ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD);
+	if(rx_idx != IPA_EP_NOT_ALLOCATED &&
+			tx_idx != IPA_EP_NOT_ALLOCATED) {
+		rx_ep = &ipa3_ctx->ep[rx_idx];
+		tx_ep = &ipa3_ctx->ep[tx_idx];
+		if(rx_ep->valid && tx_ep->valid) {
+			ipa3_update_eth_pdu_ep_index(rx_idx, tx_idx);
+			return true;
+		}
+	}
+
+	tx_idx = ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_CONS);
+	rx_idx = ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD);
+	if(rx_idx != IPA_EP_NOT_ALLOCATED &&
+			tx_idx != IPA_EP_NOT_ALLOCATED) {
+		rx_ep = &ipa3_ctx->ep[rx_idx];
+		tx_ep = &ipa3_ctx->ep[tx_idx];
+		if(rx_ep->valid && tx_ep->valid) {
+			ipa3_update_eth_pdu_ep_index(rx_idx, tx_idx);
+			return true;
+		}
+	}
+	return false;
+}
+
 void ipa3_set_eth_pdu_ep_status()
 {
 	struct ipa3_ep_context *ep = NULL;
 
-	if (!ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id)
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id != IPA_EP_NOT_ALLOCATED)
 	{
-		IPAERR("ETH PDU pipe is not connected yet\n");
-		return;
+		if (!ipa3_check_eth_pipe_connected()) {
+			IPAERR("ETH PDU pipe is not connected yet\n");
+			return;
+		} else {
+			IPAERR("ETH PDU pipe are connected before ETH PDU enable and sending QMI message\n");
+			ipa_send_eth_pdu_endp_ind_to_modem();
+		}
 	}
 
 	ep = &ipa3_ctx->ep[ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id];
 	if (!ep->valid)
 	{
 		IPAERR("ETH PDU pipe is not valid \n");
+		return;
+	}
+
+	IPADBG(" Updating hdr len for ethpdu pipes \n");
+	if(ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode )
+		ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
+	else
+		ep->cfg.hdr.hdr_len =  ETH_HLEN;
+
+	if(ipa3_cfg_ep_hdr(ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id, &ep->cfg.hdr)){
+		IPAERR(" Failed to set hdr_len\n");
 		return;
 	}
 
