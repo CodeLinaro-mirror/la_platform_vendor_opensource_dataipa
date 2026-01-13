@@ -932,6 +932,14 @@ static int ipa_imm_cmd_modify_ip_packet_init_ex_v7_0(
 	return 0;
 }
 
+inline void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe_v7_0(
+	const void *cmd_data,
+	u64 pipe_dest_idx)
+{
+	((struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)cmd_data)->rt_pipe_dest_idx
+		= pipe_dest_idx;
+}
+
 inline void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe_v5_5(
 	const void *cmd_data,
 	u64 pipe_dest_idx)
@@ -944,7 +952,10 @@ inline void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 	const void *cmd_data,
 	u64 pipe_dest_idx)
 {
-	if (ipahal_ctx->hw_type >= IPA_HW_v5_5)
+	if (ipahal_ctx->hw_type >= IPA_HW_v7_0)
+		return ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe_v7_0(cmd_data,
+			pipe_dest_idx);
+	else if (ipahal_ctx->hw_type >= IPA_HW_v5_5)
 		return ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe_v5_5(cmd_data,
 			pipe_dest_idx);
 	else
