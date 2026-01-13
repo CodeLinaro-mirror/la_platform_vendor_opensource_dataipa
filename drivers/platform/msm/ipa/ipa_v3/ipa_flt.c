@@ -1607,6 +1607,7 @@ int ipa3_add_flt_rule_usr_v2(struct ipa_ioc_add_flt_rule_v2
 {
 	int i;
 	int result;
+	struct ipa_flt_rule_add_v2 *rule_entry;
 
 	if (rules == NULL || rules->num_rules == 0 ||
 			rules->ip >= IPA_IP_MAX) {
@@ -1616,34 +1617,39 @@ int ipa3_add_flt_rule_usr_v2(struct ipa_ioc_add_flt_rule_v2
 
 	mutex_lock(&ipa3_ctx->lock);
 	for (i = 0; i < rules->num_rules; i++) {
+		if (i >= rules->num_rules || rules->flt_rule_size == 0)
+		{
+		 	IPAERR_RL("Invalid rule index or size\n");
+			break;
+		}
+
+		rule_entry = (struct ipa_flt_rule_add_v2 *)
+			((uint8_t *)(uintptr_t)rules->rules +
+			 i * rules->flt_rule_size);
+
 		if (!rules->global) {
 			/* if hashing not supported, all table entry
 			 * are non-hash tables
 			 */
 			if (ipa3_ctx->ipa_fltrt_not_hashable)
-				((struct ipa_flt_rule_add_i *)
-				rules->rules)[i].rule.hashable = false;
+				rule_entry->rule.hashable = false;
 			if (rules->ep < IPA_CLIENT_MAX) {
 				result = __ipa_add_ep_flt_rule(rules->ip,
 						rules->ep,
-						&(((struct ipa_flt_rule_add_i *)
-						rules->rules)[i].rule),
-						((struct ipa_flt_rule_add_i *)
-						rules->rules)[i].at_rear,
-						&(((struct ipa_flt_rule_add_i *)
-						rules->rules)[i].flt_rule_hdl),
+						(struct ipa_flt_rule_i *)
+						&rule_entry->rule,
+						rule_entry->at_rear,
+						&rule_entry->flt_rule_hdl,
 						user_only,
-						0,
-						0);
+						rule_entry->flt_rule_category,
+						rule_entry->rule_sub_category);
 			} else {
 				result = __ipa_add_nxt_rnd_flt_rule(rules->ip,
 						rules->ep,
-						&(((struct ipa_flt_rule_add_i *)
-						rules->rules)[i].rule),
-						((struct ipa_flt_rule_add_i *)
-						rules->rules)[i].at_rear,
-						&(((struct ipa_flt_rule_add_i *)
-						rules->rules)[i].flt_rule_hdl),
+						(struct ipa_flt_rule_i *)
+						&rule_entry->rule,
+						rule_entry->at_rear,
+						&rule_entry->flt_rule_hdl,
 						user_only);
 			}
 		} else
@@ -1651,11 +1657,9 @@ int ipa3_add_flt_rule_usr_v2(struct ipa_ioc_add_flt_rule_v2
 
 		if (result) {
 			IPAERR_RL("failed to add flt rule %d\n", i);
-			((struct ipa_flt_rule_add_i *)
-			rules->rules)[i].status = IPA_FLT_STATUS_OF_ADD_FAILED;
+			rule_entry->status = IPA_FLT_STATUS_OF_ADD_FAILED;
 		} else {
-			((struct ipa_flt_rule_add_i *)
-			rules->rules)[i].status = 0;
+			rule_entry->status = 0;
 		}
 	}
 
@@ -2243,6 +2247,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 	struct ipa3_flt_tbl *tbl;
 	struct ipa_flt_rule_i rule;
 	int res = 0;
+	int cnt = 0;
 
 	if (ipa_ep_idx >= ipa3_get_max_num_pipes()) {
 		IPAERR("invalid ipa_ep_idx=%u\n", ipa_ep_idx);
@@ -2266,9 +2271,11 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 	if (iptype == IPA_IP_v4) {
 		/* IPv4 Rules */
-		ep->init_flt4_rule_cnt = 0;
-		
+		INIT_LIST_HEAD(&ep->init_flt4_rule_hdl_list);
+
 		if (!eogre_enabled) {
+			struct ipa3_init_flt_rule_hdl *node;
+
 			/* Fragment filtering rule */
 			memset(&rule, 0, sizeof(rule));
 			rule.action = IPA_PASS_TO_EXCEPTION;
@@ -2278,15 +2285,18 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.hashable = false;
 			rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv4 fragment rule\n");
 				goto bail;
 			}
-			IPADBG("IPv4 fragment rule installed, hdl=0x%x\n",
-				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
-			ep->init_flt4_rule_cnt++;
+			IPADBG("IPv4 fragment rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt4_rule_hdl_list);
+			cnt++;
 
 			/* Set TCP SYN filter */
 			memset(&rule, 0, sizeof(rule));
@@ -2298,15 +2308,18 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.attrib_mask = IPA_FLT_TCP_SYN | IPA_FLT_PROTOCOL;
 			rule.attrib.u.v4.protocol = IPPROTO_TCP;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv4 TCP SYN rule\n");
 				goto bail;
 			}
-			IPADBG("IPv4 TCP SYN installed, hdl=0x%x\n",
-				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
-			ep->init_flt4_rule_cnt++;
+			IPADBG("IPv4 TCP SYN installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt4_rule_hdl_list);
+			cnt++;
 
 			/* Set ICMP protocol filter */
 			memset(&rule, 0, sizeof(rule));
@@ -2319,15 +2332,18 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.attrib_mask = IPA_FLT_PROTOCOL;
 			rule.attrib.u.v4.protocol = IPPROTO_ICMP;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, IPA_IP_v4, &rule, true,
-						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], IPA_FLT_RULE_CAT_DEFAULT, 0, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv4 ICMP protocol rule rule\n");
 				goto bail;
 			}
-			IPADBG("IPv4 ICMP protocol rule installed, hdl=0x%x\n",
-				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
-			ep->init_flt4_rule_cnt++;
+			IPADBG("IPv4 ICMP protocol rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt4_rule_hdl_list);
+			cnt++;
 
 			/* Multicast filtering rule (224.0.0.0/4) */
 			memset(&rule, 0, sizeof(rule));
@@ -2340,15 +2356,18 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.u.v4.dst_addr_mask = 0xF0000000;
 			rule.attrib.u.v4.dst_addr = 0xE0000000;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv4 multicast rule\n");
 				goto bail;
 			}
-			IPADBG("IPv4 multicast rule installed, hdl=0x%x\n",
-				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
-			ep->init_flt4_rule_cnt++;
+			IPADBG("IPv4 multicast rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt4_rule_hdl_list);
+			cnt++;
 
 			/* Broadcast filtering rule (255.255.255.255) */
 			memset(&rule, 0, sizeof(rule));
@@ -2361,22 +2380,27 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
 			rule.attrib.u.v4.dst_addr = 0xFFFFFFFF;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv4 broadcast rule\n");
 				goto bail;
 			}
-			IPADBG("IPv4 broadcast rule installed, hdl=0x%x\n",
-				ep->init_flt4_rule_hdl[ep->init_flt4_rule_cnt]);
-			ep->init_flt4_rule_cnt++;
+			IPADBG("IPv4 broadcast rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt4_rule_hdl_list);
+			cnt++;
 		}
 
 	} else {
 		/* IPv6 Rules */
-		ep->init_flt6_rule_cnt = 0;
-		
+		INIT_LIST_HEAD(&ep->init_flt6_rule_hdl_list);
+
 		if (!eogre_enabled) {
+			struct ipa3_init_flt_rule_hdl *node;
+
 			/* Fragment filtering rule */
 			memset(&rule, 0, sizeof(rule));
 			rule.action = IPA_PASS_TO_EXCEPTION;
@@ -2386,15 +2410,18 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.hashable = false;
 			rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv6 fragment rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 fragment rule installed, hdl=0x%x\n",
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
+			IPADBG("IPv6 fragment rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt6_rule_hdl_list);
+			cnt++;
 
 			/* Install IPv6 TCP SYN filter rule */
 			memset(&rule, 0, sizeof(rule));
@@ -2416,18 +2443,21 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.eq_attrib.rule_eq_bitmap |= (1 << 8);
 			rule.eq_attrib.num_ihl_offset_meq_32 = 1;
 			rule.eq_attrib.ihl_offset_meq_32[0].offset = 12;
-			rule.eq_attrib.ihl_offset_meq_32[0].value = (1 << 1); /* TCP_SYN_SHIFT = 1 */
-			rule.eq_attrib.ihl_offset_meq_32[0].mask = (1 << 1);
+			rule.eq_attrib.ihl_offset_meq_32[0].value = (1 << 17); /* TCP_SYN_SHIFT = 17 */
+			rule.eq_attrib.ihl_offset_meq_32[0].mask = (1 << 17);
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, IPA_IP_v6, &rule, true,
-					&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+					&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv6 TCP SYN rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 TCP SYN installed, hdl=0x%x\n",
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
+			IPADBG("IPv6 TCP SYN installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt6_rule_hdl_list);
+			cnt++;
 
 			/* Install IPv6 ICMPv6 filter rule */
 			memset(&rule, 0, sizeof(rule));
@@ -2436,20 +2466,23 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
 			rule.eq_attrib_type = 0;
-			rule.hashable = true;
+			rule.hashable = false;
 			rule.close_aggr_irq_mod = true;
 			rule.attrib.attrib_mask = IPA_FLT_NEXT_HDR;
 			rule.attrib.u.v6.next_hdr = IPPROTO_ICMPV6;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, IPA_IP_v6, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv6 ICMPv6 filter rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 ICMPv6 filter rule installed, hdl=0x%x\n",
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
+			IPADBG("IPv6 ICMPv6 filter rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt6_rule_hdl_list);
+			cnt++;
 
 			/* Multicast filtering rule (ff00::/8) */
 			memset(&rule, 0, sizeof(rule));
@@ -2468,15 +2501,18 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[3] = 0x00000000;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv6 multicast rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 multicast rule installed, hdl=0x%x\n",
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
+			IPADBG("IPv6 multicast rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt6_rule_hdl_list);
+			cnt++;
 
 			/* Link-scoped unicast filtering rule (fe80::/10) */
 			memset(&rule, 0, sizeof(rule));
@@ -2495,15 +2531,18 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[3] = 0x00000000;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv6 link-scoped rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 link-scoped rule installed, hdl=0x%x\n",
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
+			IPADBG("IPv6 link-scoped rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt6_rule_hdl_list);
+			cnt++;
 
 			/* Reserved by IETF filtering rule (fec0::/10) */
 			memset(&rule, 0, sizeof(rule));
@@ -2522,15 +2561,18 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[3] = 0x00000000;
 
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv6 IETF reserved rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 IETF reserved rule installed, hdl=0x%x\n",
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
+			IPADBG("IPv6 IETF reserved rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt6_rule_hdl_list);
+			cnt++;
 
 			/* Unique local IPv6 address filtering rule (fd00::/8) */
 			memset(&rule, 0, sizeof(rule));
@@ -2548,48 +2590,19 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.attrib.u.v6.dst_addr[1] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 			rule.attrib.u.v6.dst_addr[3] = 0x00000000;
-			
+
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) { res = -ENOMEM; goto bail; }
 			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, 0, 0);
+						&node->hdl, false, IPA_FLT_RULE_CAT_DEFAULT, 0);
 			if (res) {
+				kfree(node);
 				IPAERR("failed to add IPv6 unique local rule\n");
 				goto bail;
 			}
-			IPADBG("IPv6 unique local rule installed, hdl=0x%x\n",
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
-
-			/* TCP control packet rules (SYN) */
-
-			/* TCP SYN rule */
-			memset(&rule, 0, sizeof(rule));
-			rule.action = IPA_PASS_TO_EXCEPTION;
-			rule.retain_hdr = 1;
-			rule.to_uc = 0;
-			rule.eq_attrib_type = 1;
-			rule.eq_attrib.rule_eq_bitmap = 0;
-
-			/* Protocol = TCP */
-			rule.eq_attrib.rule_eq_bitmap |= (1 << 1);
-			rule.eq_attrib.protocol_eq_present = 1;
-			rule.eq_attrib.protocol_eq = IPPROTO_TCP;
-
-			/* TCP SYN flag */
-			rule.eq_attrib.rule_eq_bitmap |= (1 << 8);
-			rule.eq_attrib.num_ihl_offset_meq_32 = 1;
-			rule.eq_attrib.ihl_offset_meq_32[0].offset = 12;
-			rule.eq_attrib.ihl_offset_meq_32[0].value = (1U << 1);
-			rule.eq_attrib.ihl_offset_meq_32[0].mask = (1U << 1);
-
-			res = __ipa_add_flt_rule(tbl, iptype, &rule, true,
-						&ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt], false, IPA_FLT_RULE_CAT_DEFAULT, 0);
-			if (res) {
-				IPAERR("failed to add IPv6 TCP SYN rule\n");
-				goto bail;
-			}
-			IPADBG("IPv6 TCP SYN rule installed, hdl=0x%x\n",
-				ep->init_flt6_rule_hdl[ep->init_flt6_rule_cnt]);
-			ep->init_flt6_rule_cnt++;
+			IPADBG("IPv6 unique local rule installed, hdl=0x%x\n", node->hdl);
+			list_add_tail(&node->link, &ep->init_flt6_rule_hdl_list);
+			cnt++;
 		}
 	}
 
@@ -2605,8 +2618,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 	}
 
 	IPADBG("Successfully installed %d default %s filtering rules for ep %d\n",
-		(iptype == IPA_IP_v4) ? ep->init_flt4_rule_cnt : ep->init_flt6_rule_cnt,
-		(iptype == IPA_IP_v4) ? "IPv4" : "IPv6", ipa_ep_idx);
+		cnt, (iptype == IPA_IP_v4) ? "IPv4" : "IPv6", ipa_ep_idx);
 
 bail:
 	mutex_unlock(&ipa3_ctx->lock);
@@ -2627,7 +2639,6 @@ void ipa3_delete_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype)
 {
 	struct ipa3_ep_context *ep = &ipa3_ctx->ep[ipa_ep_idx];
 	struct ipa3_flt_tbl *tbl;
-	int i;
 
 	if (ipa_ep_idx >= ipa3_get_max_num_pipes()) {
 		IPAERR("invalid ipa_ep_idx=%u\n", ipa_ep_idx);
@@ -2651,32 +2662,44 @@ void ipa3_delete_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype)
 
 	if (iptype == IPA_IP_v4) {
 		/* Delete all IPv4 init filter rules */
-		for (i = 0; i < ep->init_flt4_rule_cnt; i++) {
-			if (ep->init_flt4_rule_hdl[i]) {
-				__ipa_del_flt_rule(ep->init_flt4_rule_hdl[i]);
-				ep->init_flt4_rule_hdl[i] = 0;
-			}
+		struct ipa3_init_flt_rule_hdl *node, *tmp;
+
+		/* list may be uninitialized if ipa3_init_flt_rule was never called */
+		if (!ep->init_flt4_rule_hdl_list.next)
+			goto done;
+
+		list_for_each_entry_safe(node, tmp,
+					 &ep->init_flt4_rule_hdl_list, link) {
+			if (node->hdl)
+				__ipa_del_flt_rule(node->hdl);
+			list_del(&node->link);
+			kfree(node);
 		}
-		ep->init_flt4_rule_cnt = 0;
 	} else {
 		/* Delete all IPv6 init filter rules */
-		for (i = 0; i < ep->init_flt6_rule_cnt; i++) {
-			if (ep->init_flt6_rule_hdl[i]) {
-				__ipa_del_flt_rule(ep->init_flt6_rule_hdl[i]);
-				ep->init_flt6_rule_hdl[i] = 0;
-			}
+		struct ipa3_init_flt_rule_hdl *node, *tmp;
+
+		/* list may be uninitialized if ipa3_init_flt_rule was never called */
+		if (!ep->init_flt6_rule_hdl_list.next)
+			goto done;
+
+		list_for_each_entry_safe(node, tmp,
+					 &ep->init_flt6_rule_hdl_list, link) {
+			if (node->hdl)
+				__ipa_del_flt_rule(node->hdl);
+			list_del(&node->link);
+			kfree(node);
 		}
-		ep->init_flt6_rule_cnt = 0;
 	}
 
+done:
 	/* Commit the changes */
 	ipa3_ctx->ctrl->ipa3_commit_flt(iptype);
 
 	/* Reset the sticky flag */
 	tbl->sticky_rear = false;
 
-	IPADBG("Deleted %d default %s filtering rules for ep %d\n",
-		(iptype == IPA_IP_v4) ? ep->init_flt4_rule_cnt : ep->init_flt6_rule_cnt,
+	IPADBG("Deleted default %s filtering rules for ep %d\n",
 		(iptype == IPA_IP_v4) ? "IPv4" : "IPv6", ipa_ep_idx);
 
 	mutex_unlock(&ipa3_ctx->lock);

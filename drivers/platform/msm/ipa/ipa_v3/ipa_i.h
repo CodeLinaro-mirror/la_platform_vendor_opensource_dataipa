@@ -572,6 +572,7 @@ enum flt_rule_category {
 	IPA_FLT_RULE_CAT_DEFAULT,
 	IPA_FLT_RULE_CAT_LAN2LAN,
 	IPA_FLT_RULE_CAT_MTU,
+	IPA_FLT_RULE_CAT_PRIVATE_SUBNET,
 	IPA_FLT_RULE_CAT_UPLINK,
 	IPA_FLT_RULE_CAT_MAX
 };
@@ -752,6 +753,16 @@ struct ipa_rt_rule_add_ext_i {
 	int status;
 	uint16_t rule_id;
 	struct ipa_rt_rule_i rule;
+};
+
+/**
+ * struct ipa3_init_flt_rule_hdl - node for init filter rule handle list
+ * @link: list node
+ * @hdl: filter rule handle
+ */
+struct ipa3_init_flt_rule_hdl {
+	struct list_head link;
+	u32 hdl;
 };
 
 /**
@@ -1126,10 +1137,8 @@ struct ipa3_ep_context {
 	atomic_t avail_fifo_desc;
 	u32 dflt_flt4_rule_hdl;
 	u32 dflt_flt6_rule_hdl;
-	u32 init_flt4_rule_hdl[5]; /* fragment, TCP SYN, ICMP, multicast, broadcast */
-	u32 init_flt4_rule_cnt;
-	u32 init_flt6_rule_hdl[8]; /* fragment, TCP SYN (eq), ICMPv6, multicast, link-scoped, IETF, unique local, TCP SYN */
-	u32 init_flt6_rule_cnt;
+	struct list_head init_flt4_rule_hdl_list; /* fragment, TCP SYN, ICMP, multicast, broadcast */
+	struct list_head init_flt6_rule_hdl_list; /* fragment, TCP SYN (eq), ICMPv6, multicast, link-scoped, IETF, unique local */
 	bool skip_ep_cfg;
 	bool keep_ipa_awake;
 	struct ipa3_wlan_stats wstats;

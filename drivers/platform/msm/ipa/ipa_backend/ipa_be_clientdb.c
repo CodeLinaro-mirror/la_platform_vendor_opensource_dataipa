@@ -79,7 +79,8 @@ static inline bool ipa_be_is_zero_mac(const u8 *addr)
  * ipa_clientdb_mapping_alloc()
  *	Allocate a mapping instance
  */
-struct ipa_clientdb_mapping_instance *ipa_clientdb_mapping_alloc(void)
+static struct ipa_clientdb_mapping_instance *
+ipa_clientdb_mapping_alloc(void)
 {
 	struct ipa_clientdb_mapping_instance *mi = NULL;
 
@@ -93,7 +94,6 @@ struct ipa_clientdb_mapping_instance *ipa_clientdb_mapping_alloc(void)
 	IPA_BE_DBG("Mapping created %px\n", mi);
 	return mi;
 }
-EXPORT_SYMBOL(ipa_clientdb_mapping_alloc);
 
 /*
  * ipa_db_mapping_generate_hash_index()
@@ -376,7 +376,7 @@ static inline unsigned int ipa_hdr_generate_hash_index(mac_addr_t mac, uint32_t 
  *
  * Return: The handle if found, otherwise -1
  */
-int ipa_be_lookup_hdr_handle(mac_addr_t mac, uint32_t vlan_tag)
+static int ipa_be_lookup_hdr_handle(mac_addr_t mac, uint32_t vlan_tag, enum ipa_ip_type ip_type)
 {
 	unsigned int index = ipa_hdr_generate_hash_index(mac, vlan_tag);
 	Hdr *entry = NULL;
@@ -386,7 +386,8 @@ int ipa_be_lookup_hdr_handle(mac_addr_t mac, uint32_t vlan_tag)
 	entry = hash_table_hdr[index];
 	while (entry) {
 		if (memcmp(entry->mac, mac, IPA_MAC_ADDR_SIZE) == 0 &&
-		    entry->vlan_tag == vlan_tag) {
+		    entry->vlan_tag == vlan_tag &&
+		    entry->ip_type == ip_type) {
 			handle = entry->handle;
 			break;
 		}
@@ -406,7 +407,7 @@ int ipa_be_lookup_hdr_handle(mac_addr_t mac, uint32_t vlan_tag)
  * This function inserts a new header context or increments the reference count
  * of an existing one.
  */
-void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, int handle)
+static void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, enum ipa_ip_type ip_type, int handle)
 {
 	unsigned int index = ipa_hdr_generate_hash_index(mac, vlan_tag);
 	Hdr *entry = NULL;
@@ -418,11 +419,12 @@ void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, int handle)
 	/* Check if the entry already exists */
 	while (entry) {
 		if (memcmp(entry->mac, mac, IPA_MAC_ADDR_SIZE) == 0 &&
-		    entry->vlan_tag == vlan_tag) {
+		    entry->vlan_tag == vlan_tag &&
+		    entry->ip_type == ip_type) {
 			/* If it exists, increment the ref_count */
 			entry->ref_count++;
-			IPA_BE_DBG("Incremented hdr ref_count for MAC %pM VLAN 0x%x to %d\n",
-				   mac, vlan_tag, entry->ref_count);
+			IPA_BE_DBG("Incremented hdr ref_count for MAC %pM VLAN 0x%x ip_type %d to %d\n",
+				   mac, vlan_tag, ip_type, entry->ref_count);
 			mutex_unlock(&ipa_hash_table_lock);
 			return;
 		}
@@ -439,13 +441,14 @@ void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, int handle)
 
 	memcpy(new_hdr->mac, mac, IPA_MAC_ADDR_SIZE);
 	new_hdr->vlan_tag = vlan_tag;
+	new_hdr->ip_type = ip_type;
 	new_hdr->handle = handle;
 	new_hdr->ref_count = 1;
 	new_hdr->next = hash_table_hdr[index];
 	hash_table_hdr[index] = new_hdr;
 
-	IPA_BE_DBG("Inserted new hdr for MAC %pM VLAN 0x%x handle %d\n",
-		   mac, vlan_tag, handle);
+	IPA_BE_DBG("Inserted new hdr for MAC %pM VLAN 0x%x ip_type %d handle %d\n",
+		   mac, vlan_tag, ip_type, handle);
 
 	mutex_unlock(&ipa_hash_table_lock);
 }
@@ -610,7 +613,7 @@ int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 	return ref_count;
 }
 
-int ipa_ipv4_header(struct ipa_ipv4_rule_create_msg v4_msg)
+static int ipa_ipv4_header(struct ipa_ipv4_rule_create_msg v4_msg)
 {
 	int handle = 0;
 	struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
@@ -657,7 +660,10 @@ int ipa_ipv4_header(struct ipa_ipv4_rule_create_msg v4_msg)
 	return handle;
 }
 
-int ipa_ipv4_vlan_header(struct ipa_ipv4_rule_create_msg v4_msg, int vlan_id, char *name)
+static int ipa_ipv4_vlan_header(
+	struct ipa_ipv4_rule_create_msg v4_msg,
+	int vlan_id,
+	char *name)
 {
 	int handle = 0;
 	struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
@@ -783,13 +789,13 @@ static int ipa_eth_hdr_init(mac_addr_t client_mac, char *name, enum ipa_ip_type 
 		return -EINVAL;
 	}
 
-	/* Check if header already exists for this MAC and VLAN combination */
-	handle = ipa_be_lookup_hdr_handle(client_mac, vlan_tag);
+	/* Check if header already exists for this MAC, VLAN and IP type combination */
+	handle = ipa_be_lookup_hdr_handle(client_mac, vlan_tag, ip_type);
 	if (handle != -1) {
 		/* Header exists, increment reference count and return existing handle */
-		ipa_be_insert_hdr(client_mac, vlan_tag, handle);
-		IPA_BE_DBG("Reusing existing header handle %d for MAC %pM VLAN 0x%x\n",
-			   handle, client_mac, vlan_tag);
+		ipa_be_insert_hdr(client_mac, vlan_tag, ip_type, handle);
+		IPA_BE_DBG("Reusing existing header handle %d for MAC %pM VLAN 0x%x ip_type %d\n",
+			   handle, client_mac, vlan_tag, ip_type);
 		return handle;
 	}
 
@@ -932,14 +938,17 @@ static int ipa_eth_hdr_init(mac_addr_t client_mac, char *name, enum ipa_ip_type 
 	IPA_BE_DBG("Installed wan hdr hdl %d\n", handle);
 
 	/* Insert the new header into hash table with ref_count = 1 */
-	ipa_be_insert_hdr(client_mac, vlan_tag, handle);
+	ipa_be_insert_hdr(client_mac, vlan_tag, ip_type, handle);
 
 fail:
 	kfree(pHeaderDescriptor);
 	return res ? res : handle;
 }
 
-int ipa_ipv6_vlan_header(struct ipa_ipv6_rule_create_msg v6_msg, int vlan_id, char *name)
+static int ipa_ipv6_vlan_header(
+	struct ipa_ipv6_rule_create_msg v6_msg,
+	int vlan_id,
+	char *name)
 {
 	int handle = 0;
 	struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
@@ -1015,7 +1024,7 @@ int ipa_ipv6_vlan_header(struct ipa_ipv6_rule_create_msg v6_msg, int vlan_id, ch
 	return handle;
 }
 
-int ipa_ipv6_header(struct ipa_ipv6_rule_create_msg v6_msg)
+static int ipa_ipv6_header(struct ipa_ipv6_rule_create_msg v6_msg)
 {
 	int handle = 0;
 	struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
@@ -1064,7 +1073,11 @@ int ipa_ipv6_header(struct ipa_ipv6_rule_create_msg v6_msg)
 }
 
 
-int ipa_ipv4_header_proc_ctx(struct ipa_ipv4_rule_create_msg v4_msg, int* hdr_hdl, char *name, char *proc_ctx_name_out)
+static int ipa_ipv4_header_proc_ctx(
+	struct ipa_ipv4_rule_create_msg v4_msg,
+	int* hdr_hdl,
+	char *name,
+	char *proc_ctx_name_out)
 {
 	int handle = 0;
 	int egress_vlan_id = 0, ingress_vlan_id = 0;
@@ -1165,7 +1178,11 @@ int ipa_ipv4_header_proc_ctx(struct ipa_ipv4_rule_create_msg v4_msg, int* hdr_hd
 	return handle;
 }
 
-int ipa_ipv6_header_proc_ctx(struct ipa_ipv6_rule_create_msg v6_msg, int* hdr_hdl, char *name, char *proc_ctx_name_out)
+static int ipa_ipv6_header_proc_ctx(
+	struct ipa_ipv6_rule_create_msg v6_msg,
+	int* hdr_hdl,
+	char *name,
+	char *proc_ctx_name_out)
 {
 	int handle = 0;
 	int egress_vlan_id = 0, ingress_vlan_id = 0;
@@ -1277,7 +1294,12 @@ int ipa_ipv6_header_proc_ctx(struct ipa_ipv6_rule_create_msg v6_msg, int* hdr_hd
  *
  * Return: Processing context handle on success, negative errno on failure
  */
-int ipa_vlan_header_proc_ctx(int* hdr_hdl, char *name, mac_addr_t mac, uint32_t vlan_tag, char *proc_ctx_name_out)
+static int ipa_vlan_header_proc_ctx(
+	int* hdr_hdl,
+	char *name,
+	mac_addr_t mac,
+	uint32_t vlan_tag,
+	char *proc_ctx_name_out)
 {
 	int handle = 0;
 	struct ipa_ioc_add_hdr_proc_ctx *hdr_proc_ctx_table;
@@ -1369,27 +1391,29 @@ int ipa_vlan_header_proc_ctx(int* hdr_hdl, char *name, mac_addr_t mac, uint32_t 
 int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, int hdl, int proc,
 							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name)
 {
-	IPA_BE_ERR("ECMIPA entry ipa_be_update_lan_info_from_rule hdl %d proc %d lan2lan %d hdr_hdl %d int is_ret %d\n",
+	IPA_BE_DBG("ECMIPA entry ipa_be_update_lan_info_from_rule hdl %d proc %d lan2lan %d hdr_hdl %d int is_ret %d\n",
 		hdl, proc, lan2lan, hdr_hdl, is_ret);
 	if (!rule_msg)
 		return -1;
 
 	ipa_db_mapping_hash_t hash_index;
 	struct ipa_clientdb_mapping_instance *mi;
-	uint32_t *key_ip = NULL;
+	ip_addr_t key_addr = {0};
 
 	// Compute hash index from rule_msg fields
 	if (is_ret)
 	{
-		hash_index = ipa_db_mapping_generate_hash_index((uint32_t *)&rule_msg->tuple.return_ip, 0);
-		IPA_BE_ERR("Establish mapping for is_ret " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT((uint32_t *)&rule_msg->tuple.return_ip));
+		key_addr[0] = rule_msg->tuple.return_ip;
+		hash_index = ipa_db_mapping_generate_hash_index(key_addr, 0);
+		IPA_BE_DBG("Establish mapping for is_ret " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT(key_addr));
 	}
 	else
 	{
-		hash_index = ipa_db_mapping_generate_hash_index((uint32_t *)&rule_msg->tuple.flow_ip, 0);
-		IPA_BE_ERR("Establish mapping for " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT((uint32_t *)&rule_msg->tuple.flow_ip));
+		key_addr[0] = rule_msg->tuple.flow_ip;
+		hash_index = ipa_db_mapping_generate_hash_index(key_addr, 0);
+		IPA_BE_DBG("Establish mapping for " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT(key_addr));
 	}
-	IPA_BE_ERR("hash_index: %d\n", hash_index);
+	IPA_BE_DBG("hash_index: %d\n", hash_index);
 
 	if (ipa_db_mapping_table[hash_index] == NULL)
 	{
@@ -1397,14 +1421,12 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 		return -1;
 	}
 
-	key_ip = is_ret ? (uint32_t *)&rule_msg->tuple.return_ip : (uint32_t *)&rule_msg->tuple.flow_ip;
-
 	mutex_lock(&ipa_client_db_lock);
 
 	// Traverse the hash chain to find the matching mapping instance
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
-		IPA_BE_ERR("mi: %p " IPA_IP_ADDR_DOT_FMT "\n", mi, IPA_IP_ADDR_TO_DOT((uint32_t *)mi->address));
-		if (is_ip_addr_equal(mi->address, (uint32_t *)key_ip)) {
+		IPA_BE_DBG("mi: %p " IPA_IP_ADDR_DOT_FMT "\n", mi, IPA_IP_ADDR_TO_DOT((uint32_t *)mi->address));
+		if (is_ip_addr_equal(mi->address, key_addr)) {
 
 			if (lan2lan && hdl)
 			{
@@ -1448,9 +1470,9 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 
 	mutex_unlock(&ipa_client_db_lock);
 	if (mi) {
-		IPA_BE_ERR("Exit ..new ref count lan2lan %d l2w %d\n", mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
+		IPA_BE_DBG("Exit ..new ref count lan2lan %d l2w %d\n", mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
 	} else {
-		IPA_BE_ERR("No matching mapping instance found for update\n");
+		IPA_BE_DBG("No matching mapping instance found for update\n");
 	}
 	return 0;
 }
@@ -1458,7 +1480,7 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_msg, int hdl, int proc,
 							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name)
 {
-	IPA_BE_ERR("ECMIPA entry ipa_be_update_lan_v6_info_from_rule hdl %d proc %d lan2lan %d hdr_hdl %d int is_ret %d\n",
+	IPA_BE_DBG("ECMIPA entry ipa_be_update_lan_v6_info_from_rule hdl %d proc %d lan2lan %d hdr_hdl %d int is_ret %d\n",
 		hdl, proc, lan2lan, hdr_hdl, is_ret);
 	if (!rule_msg)
 		return -1;
@@ -1471,14 +1493,14 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 	if (is_ret)
 	{
 		hash_index = ipa_db_mapping_generate_hash_index((uint32_t *)&rule_msg->tuple.return_ip, 0);
-		IPA_BE_ERR("Establish mapping for is_ret " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT((uint32_t *)&rule_msg->tuple.return_ip));
+		IPA_BE_DBG("Establish mapping for is_ret " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT((uint32_t *)&rule_msg->tuple.return_ip));
 	}
 	else
 	{
 		hash_index = ipa_db_mapping_generate_hash_index((uint32_t *)&rule_msg->tuple.flow_ip, 0);
-		IPA_BE_ERR("Establish mapping for " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT((uint32_t *)&rule_msg->tuple.flow_ip));
+		IPA_BE_DBG("Establish mapping for " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT((uint32_t *)&rule_msg->tuple.flow_ip));
 	}
-	IPA_BE_ERR("hash_index: %d\n", hash_index);
+	IPA_BE_DBG("hash_index: %d\n", hash_index);
 
 	if (ipa_db_mapping_table[hash_index] == NULL)
 	{
@@ -1492,7 +1514,7 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 
 	// Traverse the hash chain to find the matching mapping instance
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
-		IPA_BE_ERR("mi: %p " IPA_IP_ADDR_DOT_FMT "\n", mi, IPA_IP_ADDR_TO_DOT((uint32_t *)mi->address));
+		IPA_BE_DBG("mi: %p " IPA_IP_ADDR_DOT_FMT "\n", mi, IPA_IP_ADDR_TO_DOT((uint32_t *)mi->address));
 		if (is_ip_addr_equal(mi->address, (uint32_t *)key_ip)) {
 
 			if (lan2lan && hdl)
@@ -1539,9 +1561,9 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 
 	mutex_unlock(&ipa_client_db_lock);
 	if (mi) {
-		IPA_BE_ERR("Exit ..new ref count lan2lan %d l2w %d\n", mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
+		IPA_BE_DBG("Exit ..new ref count lan2lan %d l2w %d\n", mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
 	} else {
-		IPA_BE_ERR("No matching mapping instance found for update\n");
+		IPA_BE_DBG("No matching mapping instance found for update\n");
 	}
 	return 0;
 }
@@ -1561,16 +1583,16 @@ int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int 
 		proc_ctx_name_out[0] = '\0';
 
 	hash_index = ipa_db_mapping_generate_hash_index(addr, 0);
-	IPA_BE_ERR("hash_index %d\n", hash_index);
+	IPA_BE_DBG("hash_index %d\n", hash_index);
 
 	mutex_lock(&ipa_client_db_lock);
 
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
-		IPA_BE_ERR("try ..\n");
-		IPA_BE_ERR("ECMIPA create flow_ip mi addr: %pI4n: addr %pI4n n", &mi->address, &addr);
-		IPA_BE_ERR("before lan2lan_info %d, lan2wan_info %d\n", mi->lan2lan_info.rt_hdl, mi->lan2wan_info.rt_hdl);
+		IPA_BE_DBG("try ..\n");
+		IPA_BE_DBG("ECMIPA create flow_ip mi addr: %pI4n: addr %pI4n n", &mi->address, &addr);
+		IPA_BE_DBG("before lan2lan_info %d, lan2wan_info %d\n", mi->lan2lan_info.rt_hdl, mi->lan2wan_info.rt_hdl);
 		if (is_ip_addr_equal(mi->address, addr)) {
-			IPA_BE_ERR("is_ip_addr_equal true lan2lan_info %d, lan2wan_info %d\n", mi->lan2lan_info.rt_hdl, mi->lan2wan_info.rt_hdl);
+			IPA_BE_DBG("is_ip_addr_equal true lan2lan_info %d, lan2wan_info %d\n", mi->lan2lan_info.rt_hdl, mi->lan2wan_info.rt_hdl);
 			if (lan2lan) {
 				rt_hdl = mi->lan2lan_info.rt_hdl;
 				if (hdr_hdl)
@@ -1601,7 +1623,7 @@ int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int 
 			}
 			break;
 		}
-		IPA_BE_ERR("lan2lan_info %d, lan2wan_info %d\n", mi->lan2lan_info.rt_hdl, mi->lan2wan_info.rt_hdl);
+		IPA_BE_DBG("lan2lan_info %d, lan2wan_info %d\n", mi->lan2lan_info.rt_hdl, mi->lan2wan_info.rt_hdl);
 	}
 
 	IPA_BE_DBG("rt_hdl %d, hdr_hdl %d, proc_ctx_hdl %d\n", rt_hdl, 
@@ -1613,52 +1635,61 @@ int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int 
 int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret)
 {
 	int retval = 0;
-	struct ipa_ioc_add_rt_rule *rt_rule;
-	struct ipa_rt_rule_add *rt_rule_entry;
+	struct ipa_ioc_add_rt_rule_v2 *rt_rule = NULL;
+	struct ipa_rt_rule_add_v2 *rt_rule_entry = NULL;
 	int NUM = 1;
-	struct ipa_ioc_query_intf_tx_props *tx_prop;
+	struct ipa_ioc_query_intf_tx_props *tx_prop = NULL;
 	int tx_index = 0;
 	struct ipa_ioc_query_intf temp_intf;
 	int proc_ctx_hdl = 0;
 	int rt_hdl = 0;
 	int hdr_hdl = 0;
 
-	IPA_BE_ERR("ECMIPA entry ipa_ipv4_add_route_rule lan2lan %d is_ret %d\n", lan2lan, is_ret);
+	IPA_BE_DBG("ECMIPA entry ipa_ipv4_add_route_rule lan2lan %d is_ret %d\n", lan2lan, is_ret);
 	ipa_type_check_ipa_mac_addr(mac);
 
-	IPA_BE_ERR("ECMIPA checking intf_num %d \n", intf_num);
+	IPA_BE_DBG("ECMIPA checking intf_num %d \n", intf_num);
 	/*Check if the filter interface exists*/
 	if (!ipa3_query_iface(intf_num, &temp_intf)) {
-		return -EINVAL;
+		retval = -EINVAL;
+		goto cleanup;
 	}
 	else {
 		IPA_BE_DBG("Interface with index %u does not exist.\n", intf_num);
 	}
 
-	IPA_BE_ERR("ECMIPA checking intf_num %d exists\n", intf_num);
+	IPA_BE_DBG("ECMIPA checking intf_num %d exists\n", intf_num);
 	tx_prop = (struct ipa_ioc_query_intf_tx_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_tx_props) +
 							temp_intf.num_tx_props * sizeof(struct ipa_ioc_tx_intf_prop), GFP_KERNEL);
 
 	memcpy(tx_prop->name, temp_intf.name, sizeof(temp_intf.name));
 	tx_prop->num_tx_props = temp_intf.num_tx_props;
-	IPA_BE_ERR("Query tx_prop %d name %s\n", tx_prop->num_tx_props, temp_intf.name);
+	IPA_BE_DBG("Query tx_prop %d name %s\n", tx_prop->num_tx_props, temp_intf.name);
 	ipa3_query_intf_tx_props(tx_prop);
 
 
-	rt_rule = (struct ipa_ioc_add_rt_rule *)kzalloc(sizeof(struct ipa_ioc_add_rt_rule) +
-						NUM * sizeof(struct ipa_rt_rule_add), GFP_KERNEL);
-
+	rt_rule = (struct ipa_ioc_add_rt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_rt_rule_v2), GFP_KERNEL);
 	if (rt_rule == NULL)
 	{
 		IPA_BE_ERR("Error Locate ipa_ioc_add_rt_rule memory...\n");
-		return -EFAULT;
+		retval = -EFAULT;
+		goto cleanup;
 	}
 
-	rt_rule->commit = false;
+	rt_rule->rules = (uintptr_t)kzalloc(NUM * sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
+	if (!rt_rule->rules)
+	{
+		IPA_BE_ERR("Error Locate ipa_rt_rule_add_v2 memory...\n");
+		retval = -EFAULT;
+		goto cleanup;
+	}
+
+	rt_rule->commit = true;
 	rt_rule->num_rules = (uint8_t)NUM;
 	rt_rule->ip = 0;
+	rt_rule->rule_add_size = sizeof(struct ipa_rt_rule_add_v2);
 
-	rt_rule_entry = &rt_rule->rules[0];
+	rt_rule_entry = &(((struct ipa_rt_rule_add_v2 *)(uintptr_t)rt_rule->rules)[0]);
 	rt_rule_entry->at_rear = false;
 
 	char proc_ctx_name[32] = {0};
@@ -1675,7 +1706,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 		rt_rule->rt_tbl_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 
 		rt_rule_entry->rule.dst = tx_prop->tx[tx_index].dst_pipe;
-		IPA_BE_ERR("Install rules at destination pipe %d\n", tx_prop->tx[tx_index].dst_pipe);
+		IPA_BE_DBG("Install rules at destination pipe %d\n", tx_prop->tx[tx_index].dst_pipe);
 
 		memcpy(&rt_rule_entry->rule.attrib,
 				&tx_prop->tx[tx_index].attrib,
@@ -1706,7 +1737,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 		rt_rule->rt_tbl_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 
 		rt_rule_entry->rule.dst = tx_prop->tx[tx_index].dst_pipe;
-		IPA_BE_ERR("Install lan2wan rules at destination pipe %d\n", tx_prop->tx[tx_index].dst_pipe);
+		IPA_BE_DBG("Install lan2wan rules at destination pipe %d\n", tx_prop->tx[tx_index].dst_pipe);
 
 		memcpy(&rt_rule_entry->rule.attrib,
 				&tx_prop->tx[tx_index].attrib,
@@ -1736,29 +1767,39 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 		}
 
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
-		rt_rule_entry->rule.attrib.u.v4.dst_addr = (uint32_t)ntohl(v4_msg.conn_rule.return_ip_xlate);
+
+		if (is_ret) {
+			rt_rule_entry->rule.attrib.u.v4.dst_addr = (uint32_t)ntohl(v4_msg.conn_rule.return_ip_xlate);
+		}
+		else {
+			rt_rule_entry->rule.attrib.u.v4.dst_addr = (uint32_t)ntohl(v4_msg.tuple.flow_ip);
+		}
 		rt_rule_entry->rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
 
 		rt_rule_entry->rule.hashable = true;
 		rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 	}
 
-	if (ipa3_add_rt_rule_usr((struct ipa_ioc_add_rt_rule *)rt_rule,
+	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
 				true)) {
 			IPA_BE_ERR("Route rule add failed\n");
 			retval = -EFAULT;
 	}
 	else
 	{
-		rt_hdl = rt_rule->rules[0].rt_rule_hdl;
-		IPA_BE_ERR("Lan2Lan %d route rule hdl: %d\n", lan2lan, rt_hdl);
+		rt_hdl = rt_rule_entry->rt_rule_hdl;
+		IPA_BE_DBG("Lan2Lan %d route rule hdl: %d\n", lan2lan, rt_hdl);
 
 		ipa_be_update_lan_info_from_rule(&v4_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name);
 	}
 
 cleanup:
-	IPA_BE_ERR("Exit retval %d\n", retval);
-	kfree(rt_rule);
+	IPA_BE_DBG("Exit retval %d\n", retval);
+	if (rt_rule) {
+		if (rt_rule->rules)
+			kfree((void *)(uintptr_t)rt_rule->rules);
+		kfree(rt_rule);
+	}
 	kfree(tx_prop);
 	return retval;
 }
@@ -1766,51 +1807,60 @@ cleanup:
 int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret)
 {
 	int retval = 0;
-	struct ipa_ioc_add_rt_rule *rt_rule;
-	struct ipa_rt_rule_add *rt_rule_entry;
+	struct ipa_ioc_add_rt_rule_v2 *rt_rule = NULL;
+	struct ipa_rt_rule_add_v2 *rt_rule_entry = NULL;
 	int NUM = 1;
-	struct ipa_ioc_query_intf_tx_props *tx_prop;
-	int tx_index = 0;
+	struct ipa_ioc_query_intf_tx_props *tx_prop = NULL;
+	int tx_index = 1;
 	struct ipa_ioc_query_intf temp_intf;
 	int proc_ctx_hdl = 0;
 	int rt_hdl = 0;
 	int hdr_hdl = 0;
 
-	IPA_BE_ERR("ECMIPA entry ipa_ipv6_add_route_rule lan2lan %d is_ret %d\n", lan2lan, is_ret);
+	IPA_BE_DBG("ECMIPA entry ipa_ipv6_add_route_rule lan2lan %d is_ret %d\n", lan2lan, is_ret);
 	ipa_type_check_ipa_mac_addr(mac);
 
-	IPA_BE_ERR("ECMIPA checking intf_num %d \n", intf_num);
+	IPA_BE_DBG("ECMIPA checking intf_num %d \n", intf_num);
 	/*Check if the filter interface exists*/
 	if (!ipa3_query_iface(intf_num, &temp_intf)) {
-		return -EINVAL;
+		retval = -EINVAL;
+		goto cleanup;
 	}
 	else {
 		IPA_BE_DBG("Interface with index %u does not exist.\n", intf_num);
 	}
 
-	IPA_BE_ERR("ECMIPA checking intf_num %d exists\n", intf_num);
+	IPA_BE_DBG("ECMIPA checking intf_num %d exists\n", intf_num);
 	tx_prop = (struct ipa_ioc_query_intf_tx_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_tx_props) +
 							temp_intf.num_tx_props * sizeof(struct ipa_ioc_tx_intf_prop), GFP_KERNEL);
 
 	memcpy(tx_prop->name, temp_intf.name, sizeof(temp_intf.name));
 	tx_prop->num_tx_props = temp_intf.num_tx_props;
-	IPA_BE_ERR("Query tx_prop %d name %s\n", tx_prop->num_tx_props, temp_intf.name);
+	IPA_BE_DBG("Query tx_prop %d name %s\n", tx_prop->num_tx_props, temp_intf.name);
 	ipa3_query_intf_tx_props(tx_prop);
 
-	rt_rule = (struct ipa_ioc_add_rt_rule *)kzalloc(sizeof(struct ipa_ioc_add_rt_rule) +
-						NUM * sizeof(struct ipa_rt_rule_add), GFP_KERNEL);
-
+	rt_rule = (struct ipa_ioc_add_rt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_rt_rule_v2), GFP_KERNEL);
 	if (rt_rule == NULL)
 	{
 		IPA_BE_ERR("Error Locate ipa_ioc_add_rt_rule memory...\n");
-		return -EFAULT;
+		retval = -EFAULT;
+		goto cleanup;
 	}
 
-	rt_rule->commit = false;
+	rt_rule->rules = (uintptr_t)kzalloc(NUM * sizeof(struct ipa_rt_rule_add_v2), GFP_KERNEL);
+	if (!rt_rule->rules)
+	{
+		IPA_BE_ERR("Error Locate ipa_rt_rule_add_v2 memory...\n");
+		retval = -EFAULT;
+		goto cleanup;
+	}
+
+	rt_rule->commit = true;
 	rt_rule->num_rules = (uint8_t)NUM;
 	rt_rule->ip = IPA_IP_v6;
+	rt_rule->rule_add_size = sizeof(struct ipa_rt_rule_add_v2);
 
-	rt_rule_entry = &rt_rule->rules[0];
+	rt_rule_entry = &(((struct ipa_rt_rule_add_v2 *)(uintptr_t)rt_rule->rules)[0]);
 	rt_rule_entry->at_rear = false;
 
 	char proc_ctx_name[32] = {0};
@@ -1827,7 +1877,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		rt_rule->rt_tbl_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 
 		rt_rule_entry->rule.dst = tx_prop->tx[tx_index].dst_pipe;
-		IPA_BE_ERR("Install rules at destination pipe %d\n", tx_prop->tx[tx_index].dst_pipe);
+		IPA_BE_DBG("Install rules at destination pipe %d\n", tx_prop->tx[tx_index].dst_pipe);
 
 		memcpy(&rt_rule_entry->rule.attrib,
 				&tx_prop->tx[tx_index].attrib,
@@ -1867,7 +1917,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		rt_rule->rt_tbl_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 
 		rt_rule_entry->rule.dst = tx_prop->tx[tx_index].dst_pipe;
-		IPA_BE_ERR("Install lan2wan rules at destination pipe %d\n", tx_prop->tx[tx_index].dst_pipe);
+		IPA_BE_DBG("Install lan2wan rules at destination pipe %d\n", tx_prop->tx[tx_index].dst_pipe);
 
 		memcpy(&rt_rule_entry->rule.attrib,
 				&tx_prop->tx[tx_index].attrib,
@@ -1898,7 +1948,14 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 		for (int i = 0; i < 4;i++)
 		{
-			rt_rule_entry->rule.attrib.u.v6.dst_addr[i] = (uint32_t)ntohl(v6_msg.conn_rule.return_ip_xlate[i]);
+			if (is_ret)
+			{
+				rt_rule_entry->rule.attrib.u.v6.dst_addr[i] = (uint32_t)ntohl(v6_msg.conn_rule.return_ip_xlate[i]);
+			}
+			else {
+				rt_rule_entry->rule.attrib.u.v6.dst_addr[i] = (uint32_t)ntohl(v6_msg.tuple.flow_ip[i]);
+			}
+			IPA_BE_DBG("dst_addr[%d]: 0x%x\n", i, rt_rule_entry->rule.attrib.u.v6.dst_addr[i]);
 			rt_rule_entry->rule.attrib.u.v6.dst_addr_mask[i] = 0xFFFFFFFF;
 		}
 
@@ -1906,22 +1963,26 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 	}
 
-	if (ipa3_add_rt_rule_usr((struct ipa_ioc_add_rt_rule *)rt_rule,
+	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
 				true)) {
 			IPA_BE_ERR("Route rule add failed\n");
 			retval = -EFAULT;
 	}
 	else
 	{
-		rt_hdl = rt_rule->rules[0].rt_rule_hdl;
-		IPA_BE_ERR("Lan2Lan %d route rule hdl: %d\n", lan2lan, rt_hdl);
+		rt_hdl = rt_rule_entry->rt_rule_hdl;
+		IPA_BE_DBG("Lan2Lan %d route rule hdl: %d\n", lan2lan, rt_hdl);
 
 		ipa_be_update_lan_v6_info_from_rule(&v6_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name);
 	}
 
 cleanup:
-	IPA_BE_ERR("Exit retval %d\n", retval);
-	kfree(rt_rule);
+	IPA_BE_DBG("Exit retval %d\n", retval);
+	if (rt_rule) {
+		if (rt_rule->rules)
+			kfree((void *)(uintptr_t)rt_rule->rules);
+		kfree(rt_rule);
+	}
 	kfree(tx_prop);
 	return retval;
 }
@@ -2047,7 +2108,7 @@ int ipa_delete_route_rule(bool lan2lan, int rt_rule_hdl, enum ipa_ip_type ip)
 	bool res = true;
 	int len = 0;
 
-	IPA_BE_ERR("Entry ipa_delete_route_rule\n");
+	IPA_BE_DBG("Entry ipa_delete_route_rule\n");
 
 	if (rt_rule_hdl == 0)
 	{
@@ -2072,12 +2133,12 @@ int ipa_delete_route_rule(bool lan2lan, int rt_rule_hdl, enum ipa_ip_type ip)
 	rt_rule_entry->status = -1;
 	rt_rule_entry->hdl = rt_rule_hdl;
 
-	IPA_BE_ERR("Entry ip type %d\n", rt_rule->ip);
+	IPA_BE_DBG("Entry ip type %d\n", rt_rule->ip);
 	if (ipa3_del_rt_rule((struct ipa_ioc_del_rt_rule *)rt_rule)) {
 			retval = -EFAULT;
 		}
 
-	IPA_BE_ERR("Delete route rule hdl %d successfully\n", rt_rule_hdl);
+	IPA_BE_DBG("Delete route rule hdl %d successfully\n", rt_rule_hdl);
 	return retval;
 }
 
@@ -2089,7 +2150,7 @@ int ipa_ipv6_delete_route_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, bool lan
 	struct ipa_rt_rule_del *rt_rule_entry;
 	int len = 0;
 
-	IPA_BE_ERR("Entry ipa_ipv6_delete_route_rule rt_rule_hdl %d\n", rt_rule_hdl);
+	IPA_BE_DBG("Entry ipa_ipv6_delete_route_rule rt_rule_hdl %d\n", rt_rule_hdl);
 
 	if (rt_rule_hdl == 0) {
 		IPA_BE_ERR("No route handle passed. Ignoring it\n");
@@ -2112,12 +2173,12 @@ int ipa_ipv6_delete_route_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, bool lan
 	rt_rule_entry->status = -1;
 	rt_rule_entry->hdl = rt_rule_hdl;
 
-	IPA_BE_ERR("Deleting IPv6 route rule with ip type %d\n", rt_rule->ip);
+	IPA_BE_DBG("Deleting IPv6 route rule with ip type %d\n", rt_rule->ip);
 	if (ipa3_del_rt_rule(rt_rule)) {
 		IPA_BE_ERR("Failed to delete IPv6 route rule hdl %d\n", rt_rule_hdl);
 		retval = -EFAULT;
 	} else {
-		IPA_BE_ERR("Successfully deleted IPv6 route rule hdl %d\n", rt_rule_hdl);
+		IPA_BE_DBG("Successfully deleted IPv6 route rule hdl %d\n", rt_rule_hdl);
 	}
 
 	kfree(rt_rule);

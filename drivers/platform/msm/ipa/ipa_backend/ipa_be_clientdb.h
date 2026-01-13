@@ -47,6 +47,7 @@ typedef struct ProcCtx {
 typedef struct Hdr {
 	mac_addr_t mac;
 	uint32_t vlan_tag;
+	enum ipa_ip_type ip_type;
 	int handle;
 	int ref_count;
 	struct Hdr *next;
