@@ -2577,6 +2577,7 @@ struct ipa3_context {
 	struct mutex recycle_stats_collection_lock;
 	struct mutex ssr_lock;
 	bool is_rc_log_enabled;
+	atomic_t is_suspend_mode_enabled;
 };
 
 struct ipa3_plat_drv_res {
