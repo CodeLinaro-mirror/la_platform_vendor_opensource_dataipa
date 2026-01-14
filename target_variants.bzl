@@ -5,6 +5,7 @@ targets = [
     "chora",
     "gen3auto",
     "lahaina",
+    "malabar",
     "monaco",
     "seraph",
     "sun",
