@@ -9668,6 +9668,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
+	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
 
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 	result = qcom_va_md_register("ipa_mini", &qcom_va_md_ipa_notif_blk);
@@ -11619,7 +11620,7 @@ int ipa3_ap_suspend(struct device *dev)
 	}
 #endif
 	ipa_pm_deactivate_all_deferred();
-
+	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 1);
 	IPADBG("Exit\n");
 
 	return 0;
