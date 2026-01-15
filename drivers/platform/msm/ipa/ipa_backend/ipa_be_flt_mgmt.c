@@ -198,11 +198,13 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		IPA_BE_ERR("Unable to allocate rx_prop memory.\n");
 		return -EINVAL;
 	}
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 	strscpy(rx_prop->name, temp_intf.name, sizeof(rx_prop->name));
 #else
 	strlcpy(rx_prop->name, temp_intf.name, sizeof(rx_prop->name));
 #endif
+
 	rx_prop->num_rx_props = temp_intf.num_rx_props;
 	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, temp_intf.name);
 	ipa3_query_intf_rx_props(rx_prop);
@@ -242,11 +244,13 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		flt_rule_entry.rule.eq_attrib_type = 0;
 
 		rt_tbl.ip = IPA_IP_v4;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_tbl.name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #else
 		strlcpy(rt_tbl.name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #endif
+
 		IPA_BE_DBG("This flt rule points to rt tbl %s.\n", rt_tbl.name);
 
 		if (ipa3_get_rt_tbl((struct ipa_ioc_get_rt_tbl *)&rt_tbl)) {
@@ -828,11 +832,13 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 		flt_rule_entry.rule.eq_attrib_type = 1;
 
 		rt_tbl.ip = iptype;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_tbl.name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #else
 		strlcpy(rt_tbl.name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #endif
+
 		IPA_BE_ERR("This flt rule points to rt tbl %s.\n", rt_tbl.name);
 
 		if (ipa3_get_rt_tbl((struct ipa_ioc_get_rt_tbl *)&rt_tbl)) {
@@ -1307,11 +1313,13 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 		flt_rule_entry.rule.eq_attrib_type = 0;
 
 		rt_tbl.ip = IPA_IP_v6;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_tbl.name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #else
 		strlcpy(rt_tbl.name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #endif
+
 		IPA_BE_ERR("This flt rule points to rt tbl %s.\n", rt_tbl.name);
 
 		if (ipa3_get_rt_tbl((struct ipa_ioc_get_rt_tbl *)&rt_tbl)) {
@@ -1842,11 +1850,13 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	mux_id[0] = ext_prop->ext[0].mux_id;
 
 	rt_tbl.ip = iptype;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 	strscpy(rt_tbl.name, WAN_DL_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #else
 	strlcpy(rt_tbl.name, WAN_DL_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #endif
+
 	if (ipa3_get_rt_tbl(&rt_tbl)) {
 		IPA_BE_ERR("Failed to get WAN DL routing table\n");
 		retval = -EIO;
@@ -1855,11 +1865,13 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	IPA_BE_DBG("rt_tbl hdl %d\n", rt_tbl.hdl);
 
 	rt_tbl_idx.ip = iptype;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 	strscpy(rt_tbl_idx.name, WAN_DL_ROUTE_TABLE_NAME, sizeof(rt_tbl_idx.name));
 #else
 	strlcpy(rt_tbl_idx.name, WAN_DL_ROUTE_TABLE_NAME, sizeof(rt_tbl_idx.name));
 #endif
+
 	rt_tbl_idx.name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 	if (ipa3_query_rt_index(&rt_tbl_idx)) {
 		IPA_BE_ERR("Failed to get DL routing table index\n");
@@ -2240,11 +2252,13 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 	}
 
 	rt_tbl.ip = iptype;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 	strscpy(rt_tbl.name, rt_tbl_name, sizeof(rt_tbl.name));
 #else
 	strlcpy(rt_tbl.name, rt_tbl_name, sizeof(rt_tbl.name));
 #endif
+
 	if (ipa3_get_rt_tbl(&rt_tbl)) {
 		IPA_BE_ERR("Failed to get WAN DL routing table\n");
 		retval = -EIO;
@@ -2257,6 +2271,7 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 #else
 	strlcpy(rt_tbl_idx.name, rt_tbl_name, sizeof(rt_tbl_idx.name));
 #endif
+
 	rt_tbl_idx.ip = iptype;
 	rt_tbl_idx.name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 	if (ipa3_query_rt_index(&rt_tbl_idx)) {

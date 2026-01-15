@@ -9,6 +9,7 @@
 #include <linux/atomic.h>
 #include <linux/string.h>
 #include <linux/netdevice.h>
+#include <linux/vmalloc.h>
 #include "ipa_api.h"
 #include "ipa_be.h"
 #include "ipa_be_clientdb.h"
@@ -639,6 +640,7 @@ int ipa_ipv4_vlan_header(struct ipa_ipv4_rule_create_msg v4_msg, int vlan_id, ch
 #else
 	strlcpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
 #endif
+
 	pHeaderDescriptor->hdr[0].name[IPA_RESOURCE_NAME_MAX-1] = '\0';
 
 	memcpy(pHeaderDescriptor->hdr[0].hdr,
@@ -810,6 +812,7 @@ static int ipa_eth_hdr_init(mac_addr_t client_mac, char *name, enum ipa_ip_type 
 	pHeaderDescriptor->num_hdrs = 1;
 
 	snprintf(index, sizeof(index), "%d_", client_if_num);
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 	strscpy(pHeaderDescriptor->hdr[0].name, index,
 		sizeof(pHeaderDescriptor->hdr[0].name));
@@ -919,6 +922,7 @@ int ipa_ipv6_vlan_header(struct ipa_ipv6_rule_create_msg v6_msg, int vlan_id, ch
 #else
 	strlcpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
 #endif
+
 	pHeaderDescriptor->hdr[0].name[IPA_RESOURCE_NAME_MAX-1] = '\0';
 
 	memcpy(pHeaderDescriptor->hdr[0].hdr,
@@ -1035,6 +1039,7 @@ int ipa_ipv4_header_proc_ctx(struct ipa_ipv4_rule_create_msg v4_msg, int* hdr_hd
 #else
 		strlcpy(proc_ctx_name_out, client_mac_vlan_str, 32);
 #endif
+
 	}
 
 	handle = ipa_be_lookup_handle(client_mac_vlan_str);
@@ -1351,6 +1356,7 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 				mi->lan2lan_info.ref_count++;
 				/* Store proc_ctx name for cleanup */
 				if (proc_ctx_name) {
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 					strscpy(mi->lan2lan_info.proc_ctx_name, proc_ctx_name, sizeof(mi->lan2lan_info.proc_ctx_name));
 #else
@@ -1368,6 +1374,7 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 				mi->lan2wan_info.ref_count++;
 				/* Store proc_ctx name for cleanup */
 				if (proc_ctx_name) {
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 					strscpy(mi->lan2wan_info.proc_ctx_name, proc_ctx_name, sizeof(mi->lan2wan_info.proc_ctx_name));
 #else
@@ -1438,11 +1445,13 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 				mi->lan2lan_info.ref_count++;
 				/* Store proc_ctx name for cleanup */
 				if (proc_ctx_name) {
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 					strscpy(mi->lan2lan_info.proc_ctx_name, proc_ctx_name, sizeof(mi->lan2lan_info.proc_ctx_name));
 #else
 					strlcpy(mi->lan2lan_info.proc_ctx_name, proc_ctx_name, sizeof(mi->lan2lan_info.proc_ctx_name));
 #endif
+
 				}
 			}
 
@@ -1455,11 +1464,13 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 				mi->lan2wan_info.ref_count++;
 				/* Store proc_ctx name for cleanup */
 				if (proc_ctx_name) {
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 					strscpy(mi->lan2wan_info.proc_ctx_name, proc_ctx_name, sizeof(mi->lan2wan_info.proc_ctx_name));
 #else
 					strlcpy(mi->lan2wan_info.proc_ctx_name, proc_ctx_name, sizeof(mi->lan2wan_info.proc_ctx_name));
 #endif
+
 				}
 			}
 
@@ -1508,11 +1519,13 @@ int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int 
 				if (proc_ctx_hdl)
 					*proc_ctx_hdl = mi->lan2lan_info.proc_ctx_hdl;
 				if (proc_ctx_name_out && mi->lan2lan_info.proc_ctx_name[0] != '\0')
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 					strscpy(proc_ctx_name_out, mi->lan2lan_info.proc_ctx_name, 32);
 #else
 					strlcpy(proc_ctx_name_out, mi->lan2lan_info.proc_ctx_name, 32);
 #endif
+
 			} else {
 				rt_hdl = mi->lan2wan_info.rt_hdl;
 				if (hdr_hdl)
@@ -1520,6 +1533,7 @@ int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int 
 				if (proc_ctx_hdl)
 					*proc_ctx_hdl = mi->lan2wan_info.proc_ctx_hdl;
 				if (proc_ctx_name_out && mi->lan2wan_info.proc_ctx_name[0] != '\0')
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 					strscpy(proc_ctx_name_out, mi->lan2wan_info.proc_ctx_name, 32);
 #else
@@ -1593,6 +1607,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 	if (lan2lan)
 	{
 		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name);
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
 #else
@@ -1623,6 +1638,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 	}
 	else
 	{
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
 #else
@@ -1783,6 +1799,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 	}
 	else
 	{
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
 #else
