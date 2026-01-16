@@ -8568,7 +8568,7 @@ void ipa3_disable_clks(void)
 	 */
 	if (!ipa3_ctx->ipa_config_is_mhi) {
 		type = gsi_pending_irq_type();
-		if (type) {
+		if (type != -EPERM && type) {
 			IPAERR("unexpected gsi irq type: %d\n", type);
 			/* increase ipa3_active_clients for smp2p response */
 			atomic_inc(&ipa3_ctx->ipa3_active_clients.cnt);
@@ -12338,6 +12338,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
+	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
 
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 	result = qcom_va_md_register("ipa_mini", &qcom_va_md_ipa_notif_blk);
@@ -12907,7 +12908,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
-	ipa3_ctx->wkup_enable=0;
+	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
 
 	IPADBG("IPA driver pre-init was successful.\n");
 	return 0;
@@ -15442,7 +15443,7 @@ int ipa3_ap_suspend(struct device *dev)
 	}
 #endif
 	ipa_pm_deactivate_all_deferred();
-
+	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 1);
 	IPADBG("Exit\n");
 
 	return 0;

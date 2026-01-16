@@ -1219,7 +1219,7 @@ static int find_vchannel_name_index(const char *vchannel_name)
 }
 
 
-static int ipa3_find_free_rmnet_index( )
+static int ipa3_find_free_rmnet_index(void)
 {
 	int i;
 
@@ -1762,6 +1762,8 @@ if (ipsec_decap) {
 }
 
 send:
+	if (atomic_read(&ipa3_ctx->is_suspend_mode_enabled))
+		IPAWANERR("User %s sent data in suspend mode.\n", current->comm);
 	/* IPA_PM checking start */
 	/* activate the modem pm for clock scaling */
 	ipa_pm_activate(rmnet_ipa3_ctx->q6_pm_hdl);

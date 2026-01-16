@@ -2585,8 +2585,6 @@ struct ipa3_context {
 	dma_addr_t pkt_init_imm[IPA_MAX_NUM_PIPES];
 	u32 pkt_init_imm_opcode;
 
-	u32 wkup_enable;
-
 	struct ipa3_wlan_comm_memb wc_memb;
 
 	struct ipa3_uc_ctx uc_ctx;
@@ -2783,6 +2781,7 @@ struct ipa3_context {
 	struct list_head msg_qos_param_list;
 	u16 socksv5_conn_refcnt;
 	u8 ippt_pdninfo_refcnt;
+	atomic_t is_suspend_mode_enabled;
 };
 
 struct ipa3_plat_drv_res {
