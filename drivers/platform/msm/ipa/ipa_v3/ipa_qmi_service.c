@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/module.h>
@@ -1094,14 +1094,23 @@ int ipa3_qmi_filter_request_ex_send(
 			QMI_IPA_IP_TYPE_V4_V01) &&
 			(req->filter_spec_ex_list[i].ip_type !=
 			QMI_IPA_IP_TYPE_V6_V01))
-			return -EINVAL;
+			{
+				IPAWANDBG("Invalid ip_type i %d %d\n", i, req->filter_spec_ex_list[i].ip_type);
+				return -EINVAL;
+			}
 		if (req->filter_spec_ex_list[i].is_mux_id_valid == false)
-			return -EINVAL;
+			{
+				IPAWANDBG("Invalid is_mux_id_valid i %d %d\n", i, req->filter_spec_ex_list[i].is_mux_id_valid);
+				return -EINVAL;
+			}
 		if ((req->filter_spec_ex_list[i].filter_action <=
 			QMI_IPA_FILTER_ACTION_INVALID_V01) ||
 			(req->filter_spec_ex_list[i].filter_action >
 			QMI_IPA_FILTER_ACTION_EXCEPTION_V01))
-			return -EINVAL;
+			{
+				IPAWANDBG("Invalid filter_action i %d %d\n", i, req->filter_spec_ex_list[i].filter_action);
+				return -EINVAL;
+			}
 
 		if (ipa3_ctx->ipa_tiering_value & IPA_TIERING_DISABLE_NAT) {
 			if ((req->filter_spec_ex_list[i].filter_action == QMI_IPA_FILTER_ACTION_SRC_NAT_V01) ||

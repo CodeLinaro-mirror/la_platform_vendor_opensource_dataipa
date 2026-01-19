@@ -150,7 +150,21 @@ def define_modules(target, variant):
             "drivers/platform/msm/ipa/ipa_rm_resource.c",
             "drivers/platform/msm/ipa/ipa_rm_resource.h",
             "drivers/platform/msm/ipa/ipa_uc_offload_common_i.h",
+        "exports/ipa_api.h",
+	    "drivers/platform/msm/ipa/ipa_backend/ipa_be.h",
+	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_clientdb.h",
+	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_flt_mgmt.h",
+	    "drivers/platform/msm/ipa/ipa_backend/ipa_be.c",
+	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_clientdb.c",
+	    "drivers/platform/msm/ipa/ipa_backend/ipa_be_flt_mgmt.c",
         ],
+        hdrs = [
+                "exports/ipa_api.h",
+        ],
+        includes = [
+                ".",
+                "exports",  # Correct relative path
+	],
         kconfig = "config/Kconfig",
         defconfig = include_defconfig,
         conditional_srcs = {

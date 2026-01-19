@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
@@ -1848,6 +1847,7 @@ union ipa_pkt_status_hw_v7_0 {
 #define IPA_Q6_IPSEC_BANK_REFILL           29
 #define IPA_HDR_UCP_2ND_PASS               30
 #define IPA_HDR_UCP_MARK_DSCP              33
+#define IPA_HDR_UCP_ETHII_TO_ETHII_EX_DST  37
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0

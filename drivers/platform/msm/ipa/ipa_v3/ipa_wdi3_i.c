@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 - 2025,  Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -1120,6 +1120,12 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	IPADBG("out->rx_uc_db_pa %llu\n", out->rx_uc_db_pa);
 
 	ipa3_install_dflt_flt_rules(ipa_ep_idx_rx);
+#ifdef CONFIG_ECM_CONVERGENCE
+	ipa3_install_icmp_flt_rules(ipa_ep_idx_rx);
+	ipa3_install_tcp_syn_flt_rules(ipa_ep_idx_rx);
+	ipa3_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v4, false);
+	ipa3_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v6, false);
+#endif
 	IPADBG("client %d (ep: %d) connected\n", rx_client,
 		ipa_ep_idx_rx);
 
@@ -1192,6 +1198,12 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		IPADBG("out->rx1_uc_db_pa %llu\n", out->rx1_uc_db_pa);
 
 		ipa3_install_dflt_flt_rules(ipa_ep_idx_rx1);
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa3_install_icmp_flt_rules(ipa_ep_idx_rx1);
+		ipa3_install_tcp_syn_flt_rules(ipa_ep_idx_rx1);
+		ipa3_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v4, false);
+		ipa3_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v6, false);
+#endif
 		IPADBG("client %d (ep: %d) connected\n", rx1_client,
 			   ipa_ep_idx_rx1);
 
@@ -1563,6 +1575,12 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 			ipa3_release_wdi3_gsi_smmu_mappings(IPA_WDI3_RX6_DIR, smmu_cb_type);
 
 		ipa3_delete_dflt_flt_rules(ipa_ep_idx_rx1);
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa3_delete_icmp_flt_rules(ipa_ep_idx_rx1);
+		ipa3_delete_tcp_syn_flt_rules(ipa_ep_idx_rx1);
+		ipa3_delete_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v4);
+		ipa3_delete_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v6);
+#endif
 		memset(ep_rx1, 0, sizeof(struct ipa3_ep_context));
 		IPADBG("rx1 client (ep: %d) disconnected\n", ipa_ep_idx_rx1);
 	}
@@ -1595,6 +1613,12 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2)
 		ipa3_uc_debug_stats_dealloc(IPA_HW_PROTOCOL_WDI3);
 	ipa3_delete_dflt_flt_rules(ipa_ep_idx_rx);
+#ifdef CONFIG_ECM_CONVERGENCE
+	ipa3_delete_icmp_flt_rules(ipa_ep_idx_rx);
+	ipa3_delete_tcp_syn_flt_rules(ipa_ep_idx_rx);
+	ipa3_delete_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v4);
+	ipa3_delete_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v6);
+#endif
 	memset(ep_rx, 0, sizeof(struct ipa3_ep_context));
 	IPADBG("rx client (ep: %d) disconnected\n", ipa_ep_idx_rx);
 

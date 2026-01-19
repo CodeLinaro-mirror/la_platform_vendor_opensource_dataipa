@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -1901,9 +1900,18 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 				sys_in->client ==
 				IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
 				sys_in->client == IPA_CLIENT_APPS_WAN_V2X_PROD))
+		{
 			IPADBG("modem cfg emb pipe flt\n");
-		else
+		}
+		else {
 			ipa3_install_dflt_flt_rules(ipa_ep_idx);
+#ifdef CONFIG_ECM_CONVERGENCE
+			ipa3_install_icmp_flt_rules(ipa_ep_idx);
+			ipa3_install_tcp_syn_flt_rules(ipa_ep_idx);
+			ipa3_init_flt_rule(ipa_ep_idx, IPA_IP_v4, false);
+			ipa3_init_flt_rule(ipa_ep_idx, IPA_IP_v6, false);
+#endif
+		}
 	}
 
 	result = ipa3_enable_data_path(ipa_ep_idx);
@@ -2245,8 +2253,15 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 				ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD ||
 				ep->client == IPA_CLIENT_APPS_WAN_V2X_PROD))
 			IPADBG("modem cfg emb pipe flt\n");
-		else
+		else {
 			ipa3_delete_dflt_flt_rules(clnt_hdl);
+#ifdef CONFIG_ECM_CONVERGENCE
+			ipa3_delete_icmp_flt_rules(clnt_hdl);
+			ipa3_delete_tcp_syn_flt_rules(clnt_hdl);
+			ipa3_delete_init_flt_rule(clnt_hdl, IPA_IP_v4);
+			ipa3_delete_init_flt_rule(clnt_hdl, IPA_IP_v6);
+#endif
+		}
 	}
 
 	/* WLAN related cleanup */

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
- *
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
 
@@ -154,6 +152,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_2ND_PASS),
 	__stringify(IPA_HDR_PROC_MARK_DSCP),
+	__stringify(IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST),
 };
 
 static struct dentry *dent;
@@ -1567,7 +1566,8 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 				entry->ipsec_params.pre_params.encap.input_ip_version,
 				entry->ipsec_params.pre_params.encap.output_ip_version,
 				entry->ipsec_params.pre_params.encap.retain_l2_header);
-		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
+		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX ||
+			entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST) {
 			pr_err("input_ethhdr_negative_offset:%u\n"
 				"output_ethhdr_negative_offset:%u\n"
 				"output_dscp_pcp_update:%u\n",

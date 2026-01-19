@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2021 Linaro Ltd.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/kernel.h>
@@ -144,6 +144,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP),
 	__stringify(IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
+	__stringify(IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST),
 };
 
 static char dbg_buff[IPA_MAX_MSG_LEN + 1];
@@ -1391,7 +1392,8 @@ static ssize_t proc_ctx_show(struct device *dev, struct device_attribute *attr, 
 				entry->ipsec_params.pre_params.encap.input_ip_version,
 				entry->ipsec_params.pre_params.encap.output_ip_version,
 				entry->ipsec_params.pre_params.encap.retain_l2_header);
-		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
+		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX ||
+			entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST) {
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"input_ethhdr_negative_offset:%u\n"

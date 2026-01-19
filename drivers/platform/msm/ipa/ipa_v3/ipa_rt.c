@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
@@ -1152,7 +1151,8 @@ static int __ipa_create_rt_entry(struct ipa3_rt_entry **entry,
 		const struct ipa_rt_rule_i *rule,
 		struct ipa3_rt_tbl *tbl, struct ipa3_hdr_entry *hdr,
 		struct ipa3_hdr_proc_ctx_entry *proc_ctx,
-		u16 rule_id, bool user)
+		u16 rule_id, bool user, enum rt_rule_category cat,
+		enum rule_sub_category sub_cat)
 {
 	int id;
 
@@ -1166,6 +1166,8 @@ static int __ipa_create_rt_entry(struct ipa3_rt_entry **entry,
 	(*(entry))->tbl = tbl;
 	(*(entry))->hdr = hdr;
 	(*(entry))->proc_ctx = proc_ctx;
+	(*(entry))->cat = cat;
+	(*(entry))->sub_cat = sub_cat;
 	if (rule_id) {
 		id = rule_id;
 		(*(entry))->rule_id_valid = 1;
@@ -1249,12 +1251,15 @@ failed:
 
 static int __ipa_add_rt_rule(enum ipa_ip_type ip, const char *name,
 		const struct ipa_rt_rule_i *rule, u8 at_rear, u32 *rule_hdl,
-		u16 rule_id, bool user)
+		u16 rule_id, bool user, enum rt_rule_category cat,
+		enum rule_sub_category sub_cat)
 {
 	struct ipa3_rt_tbl *tbl;
 	struct ipa3_rt_entry *entry;
 	struct ipa3_hdr_entry *hdr = NULL;
 	struct ipa3_hdr_proc_ctx_entry *proc_ctx = NULL;
+	struct ipa3_rt_entry *curr = NULL;
+	bool added = false;
 
 	if (__ipa_rt_validate_hndls(rule, &hdr, &proc_ctx))
 		goto error;
@@ -1279,13 +1284,54 @@ static int __ipa_add_rt_rule(enum ipa_ip_type ip, const char *name,
 	}
 
 	if (__ipa_create_rt_entry(&entry, rule, tbl, hdr, proc_ctx,
-		rule_id, user))
+		rule_id, user, cat, sub_cat))
 		goto error;
 
-	if (at_rear)
-		list_add_tail(&entry->link, &tbl->head_rt_rule_list);
-	else
-		list_add(&entry->link, &tbl->head_rt_rule_list);
+	/*
+	 * Add the rules in the order of rule_category.
+	 * The lowest priority rules go at the rear.
+	 * This logic is adapted from __ipa_add_flt_rule for proper prioritization.
+	 */
+	if (entry->cat) {
+		IPADBG("add rt rule rule category =%d\n", entry->cat);
+
+		list_for_each_entry(curr, &tbl->head_rt_rule_list, link) {
+			if (curr->cat == 0) {
+				list_add(&entry->link, curr->link.prev);
+				added = true;
+				break;
+			}
+
+			if (entry->cat < curr->cat) {
+				/* Add entry before the current one */
+				list_add(&entry->link, curr->link.prev);
+				added = true;
+				break;
+			}
+			if (entry->cat == curr->cat) {
+				if (at_rear)
+					continue;
+
+				if (curr->sub_cat == IPA_RULE_SUB_CAT_NONE ||
+				    entry->sub_cat < curr->sub_cat) {
+					/* Add entry before the current one */
+					list_add(&entry->link, curr->link.prev);
+					added = true;
+					break;
+				}
+			}
+		}
+
+		if (!added) {
+			list_add_tail(&entry->link, &tbl->head_rt_rule_list);
+		}
+	} else {
+		if (at_rear) {
+			list_add_tail(&entry->link, &tbl->head_rt_rule_list);
+		} else {
+			list_add(&entry->link, &tbl->head_rt_rule_list);
+		}
+	}
 
 	if (__ipa_finish_rt_rule_add(entry, rule_hdl, tbl))
 		goto error;
@@ -1310,7 +1356,7 @@ static int __ipa_add_rt_rule_after(struct ipa3_rt_tbl *tbl,
 	if (__ipa_rt_validate_hndls(rule, &hdr, &proc_ctx))
 		goto error;
 
-	if (__ipa_create_rt_entry(&entry, rule, tbl, hdr, proc_ctx, 0, true))
+	if (__ipa_create_rt_entry(&entry, rule, tbl, hdr, proc_ctx, 0, true, 0, 0))
 		goto error;
 
 	list_add(&entry->link, &((*add_after_entry)->link));
@@ -1458,7 +1504,9 @@ int ipa3_add_rt_rule_usr(struct ipa_ioc_add_rt_rule *rules, bool user_only)
 					rules->rules[i].at_rear,
 					&rules->rules[i].rt_rule_hdl,
 					0,
-					user_only)) {
+					user_only,
+					rules->rules[i].rt_rule_category,
+					rules->rules[i].rule_sub_category)) {
 			IPAERR_RL("failed to add rt rule %d\n", i);
 			rules->rules[i].status = IPA_RT_STATUS_OF_ADD_FAILED;
 		} else {
@@ -1517,7 +1565,9 @@ int ipa3_add_rt_rule_usr_v2(struct ipa_ioc_add_rt_rule_v2 *rules,
 					&(((struct ipa_rt_rule_add_i *)
 					rules->rules)[i].rt_rule_hdl),
 					0,
-					user_only)) {
+					user_only,
+					0,
+					0)) {
 			IPAERR_RL("failed to add rt rule %d\n", i);
 			((struct ipa_rt_rule_add_i *)rules->rules)[i].status
 				= IPA_RT_STATUS_OF_ADD_FAILED;
@@ -1572,7 +1622,9 @@ int ipa3_add_rt_rule_ext(struct ipa_ioc_add_rt_rule_ext *rules)
 					&rule,
 					rules->rules[i].at_rear,
 					&rules->rules[i].rt_rule_hdl,
-					rules->rules[i].rule_id, true)) {
+					rules->rules[i].rule_id, true,
+					0,
+					0)) {
 			IPAERR_RL("failed to add rt rule %d\n", i);
 			rules->rules[i].status = IPA_RT_STATUS_OF_ADD_FAILED;
 		} else {
@@ -1629,7 +1681,9 @@ int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules,
 					&(((struct ipa_rt_rule_add_ext_i *)
 					rules->rules)[i].rt_rule_hdl),
 					((struct ipa_rt_rule_add_ext_i *)
-					rules->rules)[i].rule_id, user)) {
+					rules->rules)[i].rule_id, user,
+					0,
+					0)) {
 			IPAERR_RL("failed to add rt rule %d\n", i);
 			((struct ipa_rt_rule_add_ext_i *)
 			rules->rules)[i].status = IPA_RT_STATUS_OF_ADD_FAILED;

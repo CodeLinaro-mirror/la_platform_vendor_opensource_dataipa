@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
- *
  */
 
 #include <linux/fs.h>
@@ -22,6 +20,8 @@ struct ipa3_intf {
 	struct ipa_ioc_rx_intf_prop *rx;
 	struct ipa_ioc_ext_intf_prop *ext;
 	enum ipa_client_type excp_pipe;
+	struct ipa3_flt_entry *flt_list;
+	int intf_idx;
 };
 
 struct ipa3_push_msg {
@@ -51,9 +51,9 @@ struct ipa3_pull_msg {
  * Note:	Should not be called from atomic context
  */
 int ipa_register_intf(const char *name, const struct ipa_tx_intf *tx,
-		       const struct ipa_rx_intf *rx)
+		       const struct ipa_rx_intf *rx, int intf_idx)
 {
-	return ipa3_register_intf_ext(name, tx, rx, NULL);
+	return ipa3_register_intf_ext(name, tx, rx, NULL, intf_idx);
 }
 EXPORT_SYMBOL(ipa_register_intf);
 
@@ -64,6 +64,7 @@ EXPORT_SYMBOL(ipa_register_intf);
  * @tx:	[in] TX properties of the interface
  * @rx:	[in] RX properties of the interface
  * @ext: [in] EXT properties of the interface
+ * @intf_idx: [in] interface index
  *
  * Register an interface and its tx, rx and ext properties, this allows
  * configuration of rules from user-space
@@ -74,10 +75,13 @@ EXPORT_SYMBOL(ipa_register_intf);
  */
 int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 		       const struct ipa_rx_intf *rx,
-		       const struct ipa_ext_intf *ext)
+		       const struct ipa_ext_intf *ext,
+			   int intf_idx)
 {
 	struct ipa3_intf *intf;
 	u32 len;
+
+	IPAERR_RL("Interface idx passed %d for %s\n", intf_idx, name);
 
 	if (name == NULL || (tx == NULL && rx == NULL && ext == NULL)) {
 		IPAERR_RL("invalid params name=%pK tx=%pK rx=%pK ext=%pK\n",
@@ -149,6 +153,8 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 		intf->excp_pipe = ext->excp_pipe;
 	else
 		intf->excp_pipe = IPA_CLIENT_APPS_LAN_CONS;
+
+	intf->intf_idx = intf_idx;
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_add_tail(&intf->link, &ipa3_ctx->intf_list);
@@ -1049,4 +1055,207 @@ int ipa3_pull_msg(struct ipa_msg_meta *meta, char *buff, size_t count)
 	}
 	mutex_unlock(&ipa3_ctx->msg_lock);
 	return result;
+}
+
+/**
+ * ipa3_query_iface() - pull the specified message from client
+ * @intf_idx: [in] message meta-data
+ * @target_intf:  [out] buffer to read into
+ *
+ * Populate the supplied buffer with the pull message which is fetched
+ * from client, the message must have previously been registered with
+ * the IPA driver
+ *
+ * Returns:	if iface exists or not
+ *
+ */
+bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf)
+{
+	bool ret = false;
+	struct ipa3_intf *entry;
+	IPAERR("Entry \n");
+	if (target_intf == NULL) {
+		 return ret;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		IPAERR("Checking entry->intf_idx %s :%d with intf_idx %d \n", entry->name , entry->intf_idx, intf_idx);
+		if (entry->intf_idx == intf_idx) {
+			IPAERR("Iface found at idx %d \n", intf_idx);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+			strscpy(target_intf->name, entry->name, IPA_RESOURCE_NAME_MAX);
+#else
+			strlcpy(target_intf->name, entry->name, IPA_RESOURCE_NAME_MAX);
+#endif
+			target_intf->num_tx_props = entry->num_tx_props;
+			target_intf->num_rx_props = entry->num_rx_props;
+			target_intf->num_ext_props = entry->num_ext_props;
+			target_intf->excp_pipe = entry->excp_pipe;
+
+			ret = true;
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	IPAERR("Exit \n");
+	return ret;
+}
+
+/**
+ * ipa3_add_filter_rules_entry - Add filter entry to interface filter list
+ * @intf_idx:   Network interface index for adding the filter entry
+ * @flt_entry:  Filter entry struct containing rule and associated data
+ *
+ * Searches for the network interface with index @intf_idx in ipa3_ctx's
+ * interface list. If the interface is found, allocates and appends a
+ * new filter entry to its filter list. If the filter list does not exist,
+ * it is allocated and initialized first. All fields of the new filter
+ * entry are copied from @flt_entry.
+ *
+ * The function uses @ipa3_ctx->lock mutex for thread safety. Key events
+ * and errors are logged for debugging.
+ *
+ * Return: true if interface found and entry added successfully, false
+ * otherwise (e.g., out of memory, interface not found).
+ */
+bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
+{
+	bool ret = false;
+	struct ipa3_intf *entry;
+	struct ipa3_flt_entry *new_entry;
+	struct ipa3_flt_entry *iter;
+	int list_len = 0;
+
+	IPAERR("Entry\n");
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		IPAERR("Checking entry->intf_idx %s :%d with intf_idx %d\n", entry->name, entry->intf_idx, intf_idx);
+		if (entry->intf_idx == intf_idx) {
+			IPAERR("Iface found at idx %d\n", intf_idx);
+
+			if (!entry->flt_list) {
+				IPAERR("flt_list is NULL for intf_idx %d, allocating...\n", intf_idx);
+
+				entry->flt_list = kzalloc(sizeof(*entry->flt_list), GFP_KERNEL);
+				if (!entry->flt_list) {
+					IPAERR("Failed to allocate memory for flt_list\n");
+					kfree(new_entry);  // cleanup if already allocated
+					break;
+				}
+
+				INIT_LIST_HEAD(&entry->flt_list->link);
+			}
+
+
+			new_entry = kzalloc(sizeof(*new_entry), GFP_KERNEL);
+			if (!new_entry) {
+				IPAERR("Failed to allocate memory for new filter entry\n");
+				break;
+			}
+
+            // Copy values from input entry to new entry
+			new_entry->cookie = flt_entry.cookie;
+			new_entry->rule = flt_entry.rule;
+			new_entry->tbl = flt_entry.tbl;
+            new_entry->rt_tbl = flt_entry.rt_tbl;
+            new_entry->hw_len = flt_entry.hw_len;
+            new_entry->id = flt_entry.id;
+            new_entry->prio = flt_entry.prio;
+            new_entry->rule_id = flt_entry.rule_id;
+            new_entry->cnt_idx = flt_entry.cnt_idx;
+            new_entry->ipacm_installed = flt_entry.ipacm_installed;
+			new_entry->flt_hdl = flt_entry.flt_hdl;
+			new_entry->cat = flt_entry.cat;
+			new_entry->ip_type = flt_entry.ip_type;
+
+			INIT_LIST_HEAD(&new_entry->link);
+			list_add_tail(&new_entry->link, &entry->flt_list->link);
+
+			// Count entries in the list
+            list_for_each_entry(iter, &entry->flt_list->link, link) {
+                list_len++;
+            }
+            IPAERR("Filter list size after addition: %d\n", list_len);
+
+			IPAERR("Added flt_hdl %d, cat %d to the list , list size now %d\n", flt_entry.flt_hdl, flt_entry.cat, list_len);
+			ret = true;
+			break;
+        }
+    }
+    mutex_unlock(&ipa3_ctx->lock);
+
+    IPAERR("Exit\n");
+    return ret;
+}
+
+/**
+ * ipa3_delete_filter_rules_entry - Delete a filter rule from an
+ * interface's filter list.
+ * @intf_idx: Interface index to identify the target interface.
+ * @flt_entry: Filter entry containing the rule to be deleted.
+ *
+ * This function searches the filter list associated with the
+ * specified interface for a rule matching the given filter
+ * entry. If a matching rule is found, it is removed from the
+ * list and its memory is freed. The function returns the filter
+ * handle (flt_hdl) of the deleted rule.
+ *
+ * Matching is currently based on rule_id, priority, and attrib_mask.
+ * Additional fields can be added to the match criteria for stricter validation.
+ *
+ * Return: flt_hdl of the deleted rule if found, -1 otherwise.
+ */
+int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
+{
+	struct ipa3_intf *entry;
+	struct ipa3_flt_entry *iter, *tmp;
+	int flt_hdl = -1;
+
+	IPAERR("Delete Entry Start\n");
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		IPADBG("Checking interface: %s (index: %d)\n", entry->name, entry->intf_idx);
+
+		if (entry->intf_idx == intf_idx) {
+			IPAERR("Matched interface index: %d\n", intf_idx);
+
+			if (!entry->flt_list) {
+				IPAERR("Filter list is NULL for intf_idx %d\n", intf_idx);
+				break;
+			}
+
+			list_for_each_entry_safe(iter, tmp, &entry->flt_list->link, link) {
+				IPADBG("Inspecting rule: rule_id=%d, prio=%d, attrib_mask=0x%x, flt_hdl=%d cat=%d\n",
+				iter->rule.rule_id, iter->prio,
+				iter->rule.attrib.attrib_mask, iter->flt_hdl, iter->cat);
+
+				if ((iter->rule.attrib.attrib_mask & flt_entry.rule.attrib.attrib_mask ||
+					iter->cat == flt_entry.cat) && iter->ip_type == flt_entry.ip_type) {
+					IPAERR("Match found. Deleting rule with rule_id: %d, flt_hdl: %d cat: %d ip_type: %d\n",
+					iter->rule.rule_id, iter->flt_hdl, iter->cat, iter->ip_type);
+
+					flt_hdl = iter->flt_hdl;
+					list_del(&iter->link);
+					kfree(iter);
+
+					IPAERR("Rule deleted successfully. Returning flt_hdl: %d\n", flt_hdl);
+					goto unlock_and_exit;
+				}
+			}
+
+			IPAERR("No matching rule found in filter list for intf_idx %d\n", intf_idx);
+			break;
+		}
+	}
+
+	IPAERR("Interface index %d not found in interface list\n", intf_idx);
+
+unlock_and_exit:
+	mutex_unlock(&ipa3_ctx->lock);
+	IPAERR("Delete Entry Exit\n");
+	return flt_hdl;
 }

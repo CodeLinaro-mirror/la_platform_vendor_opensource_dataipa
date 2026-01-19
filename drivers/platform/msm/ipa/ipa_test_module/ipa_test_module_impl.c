@@ -1,7 +1,6 @@
 ﻿// SPDX-License-Identifier: GPL-2.0-only
 /*
 * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
-* Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
 * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
 */
 
@@ -2926,7 +2925,7 @@ int register_lan_interface(void)
 	tx_intf.num_props = 1;
 	tx_intf.prop = &tx_prop;
 
-	res = ipa_register_intf(name, &tx_intf, &rx_intf);
+	res = ipa_register_intf(name, &tx_intf, &rx_intf, 0);
 	if (res != 0)
 		goto fail;
 
@@ -3074,7 +3073,7 @@ int register_wlan_interface(void)
 	tx_intf.num_props = 4;
 	tx_intf.prop = tx_prop;
 
-	res = ipa_register_intf(name, &tx_intf, &rx_intf);
+	res = ipa_register_intf(name, &tx_intf, &rx_intf, 0);
 	if (res) {
 		IPATEST_ERR("Unable to register interface %s, %d\n",
 				name, res);
@@ -3111,7 +3110,7 @@ int register_wan_interface(void)
 	tx_intf.num_props = 1;
 	tx_intf.prop = &tx_prop;
 
-	res = ipa_register_intf(name, &tx_intf, &rx_intf);
+	res = ipa_register_intf(name, &tx_intf, &rx_intf, 0);
 	if (res != 0)
 		goto fail;
 

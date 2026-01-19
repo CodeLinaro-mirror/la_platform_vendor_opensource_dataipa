@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, 2024-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -508,7 +507,7 @@ int ipa_wdi_reg_intf_per_inst(
 				sizeof(tx_prop[3].hdr_name));
 	}
 
-	if (ipa_register_intf(iface_name, &tx, &rx)) {
+	if (ipa_register_intf(iface_name, &tx, &rx, 0)) {
 		IPA_WDI_ERR("fail to add interface prop\n");
 		ret = -EFAULT;
 	}

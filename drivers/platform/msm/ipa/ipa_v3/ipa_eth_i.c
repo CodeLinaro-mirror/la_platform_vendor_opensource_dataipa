@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -1361,7 +1361,15 @@ int ipa3_eth_connect(
 	}
 
 	if (IPA_CLIENT_IS_PROD(client_type))
+	{
 		ipa3_install_dflt_flt_rules(ep_idx);
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa3_install_icmp_flt_rules(ep_idx);
+		ipa3_install_tcp_syn_flt_rules(ep_idx);
+		ipa3_init_flt_rule(ep_idx, IPA_IP_v4, false);
+		ipa3_init_flt_rule(ep_idx, IPA_IP_v6, false);
+#endif
+	}
 	IPADBG("client %d (ep: %d) connected\n", client_type,
 		ep_idx);
 
@@ -1807,7 +1815,15 @@ int ipa3_eth_disconnect(
 		&& prot != IPA_HW_PROTOCOL_IEMAC)
 		ipa3_uc_debug_stats_dealloc(prot);
 	if (IPA_CLIENT_IS_PROD(client_type))
+	{
 		ipa3_delete_dflt_flt_rules(ep_idx);
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa3_delete_icmp_flt_rules(ep_idx);
+		ipa3_delete_tcp_syn_flt_rules(ep_idx);
+		ipa3_delete_init_flt_rule(ep_idx, IPA_IP_v4);
+		ipa3_delete_init_flt_rule(ep_idx, IPA_IP_v6);
+#endif
+	}
 
 	/* unmap th pipe */
 	result = ipa3_smmu_map_eth_pipes(pipe, client_type, false);

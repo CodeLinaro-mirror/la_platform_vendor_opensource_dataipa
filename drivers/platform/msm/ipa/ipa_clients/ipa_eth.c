@@ -2,7 +2,6 @@
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -1833,9 +1832,9 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 		tx.num_props *= IPA_IP_MAX;
 		rx.num_props *= IPA_IP_MAX;
 	}
-	IPA_ETH_DBG("num tx %d, rx %d \n", tx.num_props, rx.num_props);
+	IPA_ETH_DBG("num tx %d, rx %d ifindex %d\n", tx.num_props, rx.num_props, intf->net_dev->ifindex);
 #if IPA_ETH_API_VER >= 2
-	if (ipa_register_intf(intf->net_dev->name, &tx, &rx)) {
+	if (ipa_register_intf(intf->net_dev->name, &tx, &rx,  intf->net_dev->ifindex)) {
 #else
 	if (ipa_register_intf(intf->netdev_name, &tx, &rx)) {
 #endif

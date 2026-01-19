@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 /*
@@ -1272,8 +1272,9 @@ static int ipa3_wwan_register_to_ipa(int index)
 	u32 pyld_sz;
 	int ret = 0, i;
 
-	IPAWANDBG("index(%d) device[%s]:\n", index,
-		rmnet_ipa3_ctx->mux_channel[index].vchannel_name);
+	IPAWANERR("index(%d) device[%s], intf_idx: %d\n", index,
+		rmnet_ipa3_ctx->mux_channel[index].vchannel_name,
+		rmnet_ipa3_ctx->mux_channel[index].intf_idx);
 	if (!rmnet_ipa3_ctx->mux_channel[index].mux_hdr_set) {
 		ret = ipa3_add_qmap_hdr(
 			rmnet_ipa3_ctx->mux_channel[index].mux_id,
@@ -1348,7 +1349,8 @@ static int ipa3_wwan_register_to_ipa(int index)
 			rmnet_ipa3_ctx->mux_channel[index].vchannel_name,
 			&tx_properties,
 			&rx_properties,
-			&ext_properties);
+			&ext_properties,
+			rmnet_ipa3_ctx->mux_channel[index].intf_idx);
 		if (ret) {
 			IPAWANERR("[%d]ipa_register_intf failed %d\n",
 				index,
@@ -1385,7 +1387,8 @@ static int ipa3_wwan_register_to_ipa(int index)
 		rmnet_ipa3_ctx->mux_channel[index].vchannel_name,
 		&tx_properties,
 		&rx_properties,
-		&ext_properties);
+		&ext_properties,
+		rmnet_ipa3_ctx->mux_channel[index].intf_idx);
 	if (ret) {
 		IPAWANERR("[%s]:ipa_register_intf failed %d\n",
 			rmnet_ipa3_ctx->mux_channel[index].vchannel_name,
@@ -4149,6 +4152,8 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 	bool tcp_en = false, udp_en = false;
 	bool mtu_v4_set = false, mtu_v6_set = false;
 	enum ipa_ip_type iptype;
+	int intf_idx = 0;
+	struct net_device *n_dev;
 
 	IPAWANDBG("rmnet_ipa got ioctl number 0x%08x", cmd);
 	switch (cmd) {
@@ -4217,6 +4222,8 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			rc = -EFAULT;
 			break;
 		}
+		intf_idx = dev->ifindex;
+		IPAWANERR("RMNET_IOCTL_EXTENDED intf_idx %d for dev %s\n",intf_idx, dev->name);
 		switch (ext_ioctl_data.extended_ioctl) {
 		/*  Get features  */
 		case RMNET_IOCTL_GET_SUPPORTED_FEATURES:
@@ -4500,6 +4507,19 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			/* check if UL filter rules coming*/
 			v_name =
 				ext_ioctl_data.u.rmnet_mux_val.vchannel_name;
+
+			mux_channel[rmnet_index].vchannel_name[
+				IFNAMSIZ - 1] = '\0';
+
+			n_dev = dev_get_by_name(&init_net, mux_channel[rmnet_index].vchannel_name);
+			if (n_dev) {
+				mux_channel[rmnet_index].intf_idx = n_dev->ifindex;
+				dev_put(n_dev);
+			} else {
+				IPAWANERR_RL("device not found for %s\n", mux_channel[rmnet_index].vchannel_name);
+				mux_channel[rmnet_index].intf_idx = -1;
+			}
+
 			if (rmnet_ipa3_ctx->num_q6_rules != 0 ||
 					(rmnet_ipa3_ctx->ipa_config_is_apq)) {
 				mux_mutex_ptr =
@@ -4587,6 +4607,9 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, void __use
 			/* currently use same UL filter rules, need consider race condition */
 			v_name =
 				ext_ioctl_data.u.rmnet_mux_val_v2.vchannel_name;
+
+			mux_channel[rmnet_index].intf_idx = intf_idx;
+
 			if (rmnet_ipa3_ctx->num_q6_rules != 0 ||
 					(rmnet_ipa3_ctx->ipa_config_is_apq)) {
 				mux_mutex_ptr =

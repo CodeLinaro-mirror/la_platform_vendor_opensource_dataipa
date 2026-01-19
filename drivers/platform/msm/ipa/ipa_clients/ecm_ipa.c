@@ -2,7 +2,6 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -1203,7 +1202,7 @@ static int ecm_ipa_register_properties(struct ecm_ipa_dev *ecm_ipa_ctx)
 	rx_ipv6_property->hdr_l2_type = hdr_l2_type;
 	rx_properties.num_props = 2;
 
-	result = ipa_register_intf("ecm0", &tx_properties, &rx_properties);
+	result = ipa_register_intf("ecm0", &tx_properties, &rx_properties, 0);
 	if (result)
 		ECM_IPA_ERROR("fail on Tx/Rx properties registration\n");
 

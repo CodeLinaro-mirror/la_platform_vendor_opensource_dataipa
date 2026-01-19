@@ -2,7 +2,6 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -429,7 +428,7 @@ int ipa_wigig_reg_intf(
 	rx_prop[1].src_pipe = IPA_CLIENT_WIGIG_PROD;
 	rx_prop[1].hdr_l2_type = in->hdr_info[1].hdr_type;
 
-	if (ipa_register_intf(in->netdev_name, &tx, &rx)) {
+	if (ipa_register_intf(in->netdev_name, &tx, &rx, 0)) {
 		IPA_WIGIG_ERR("fail to add interface prop\n");
 		ret = -EFAULT;
 		goto fail_register;

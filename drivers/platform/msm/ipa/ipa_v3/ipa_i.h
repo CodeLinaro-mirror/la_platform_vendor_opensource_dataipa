@@ -565,6 +565,32 @@ enum ipa_icc_type {
 	IPA_ICC_TYPE_MAX,
 };
 
+enum flt_rule_category {
+	IPA_FLT_RULE_CAT_NONE,
+	IPA_FLT_RULE_CAT_LAN2LAN,
+	IPA_FLT_RULE_CAT_MTU,
+	IPA_FLT_RULE_CAT_UPLINK,
+	IPA_FLT_RULE_CAT_MAX
+};
+
+enum rule_sub_category {
+	IPA_RULE_SUB_CAT_NONE,
+	IPA_RULE_PRIORITY_1,
+	IPA_RULE_PRIORITY_2,
+	IPA_RULE_PRIORITY_3,
+	IPA_RULE_PRIORITY_4,
+	IPA_RULE_PRIORITY_5,
+	IPA_RULE_SUB_CAT_MAX
+};
+
+enum rt_rule_category {
+	IPA_RT_RULE_CAT_NONE,
+	IPA_RT_RULE_CAT_QOS,
+	IPA_RT_RULE_CAT_LAN2LAN,
+	IPA_RT_RULE_CAT_CLIENT,
+	IPA_RT_RULE_CAT_MAX
+};
+
 #define IPA_ICC_MAX (IPA_ICC_PATH_MAX*IPA_ICC_TYPE_MAX)
 
 
@@ -739,6 +765,7 @@ struct ipa_rt_rule_add_ext_i {
  * @rule_id: rule 10bit ID to be returned in packet status
  * @cnt_idx: stats counter index
  * @ipacm_installed: indicate if installed by ipacm
+ * @ip_type: IP type (IPv4 or IPv6) for this filter entry
  */
 struct ipa3_flt_entry {
 	struct list_head link;
@@ -752,6 +779,10 @@ struct ipa3_flt_entry {
 	u16 rule_id;
 	u8 cnt_idx;
 	bool ipacm_installed;
+	u32 flt_hdl;
+	enum flt_rule_category cat;
+	enum rule_sub_category sub_cat;
+	enum ipa_ip_type ip_type;
 };
 
 /**
@@ -971,6 +1002,8 @@ struct ipa3_rt_entry {
 	u16 rule_id_valid;
 	u8 cnt_idx;
 	bool ipacm_installed;
+	enum rt_rule_category cat;
+	enum rule_sub_category sub_cat;
 };
 
 /**
@@ -1090,6 +1123,14 @@ struct ipa3_ep_context {
 	atomic_t avail_fifo_desc;
 	u32 dflt_flt4_rule_hdl;
 	u32 dflt_flt6_rule_hdl;
+	u32 icmp_flt4_rule_hdl;
+	u32 icmp_flt6_rule_hdl;
+	u32 tcp_syn_flt4_rule_hdl;
+	u32 tcp_syn_flt6_rule_hdl;
+	u32 init_flt4_rule_hdl[3]; /* fragment, multicast, broadcast */
+	u32 init_flt4_rule_cnt;
+	u32 init_flt6_rule_hdl[8]; /* fragment, multicast, link-scoped, IETF, unique local, TCP FIN/SYN/RST */
+	u32 init_flt6_rule_cnt;
 	bool skip_ep_cfg;
 	bool keep_ipa_awake;
 	struct ipa3_wlan_stats wstats;
@@ -3457,7 +3498,8 @@ int ipa3_deregister_pull_msg(struct ipa_msg_meta *meta);
  */
 int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 		       const struct ipa_rx_intf *rx,
-		       const struct ipa_ext_intf *ext);
+		       const struct ipa_ext_intf *ext,
+			   int intf_idx);
 
 /*
  * To transfer multiple data packets
@@ -3762,6 +3804,11 @@ int ipa3_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx);
 int ipa3_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
 
+bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf);
+bool ipa3_query_ext_iface(int intf_idx, struct ipa_ioc_query_intf_ext_props *target_intf);
+bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
+int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
+
 int ipa3_get_max_pdn(void);
 
 void wwan_cleanup(void);
@@ -3787,6 +3834,12 @@ int __ipa_commit_hdr_v3_0(void);
 void ipa3_skb_recycle(struct sk_buff *skb);
 void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx);
 void ipa3_delete_dflt_flt_rules(u32 ipa_ep_idx);
+void ipa3_install_icmp_flt_rules(u32 ipa_ep_idx);
+void ipa3_delete_icmp_flt_rules(u32 ipa_ep_idx);
+void ipa3_install_tcp_syn_flt_rules(u32 ipa_ep_idx);
+void ipa3_delete_tcp_syn_flt_rules(u32 ipa_ep_idx);
+void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enabled);
+void ipa3_delete_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype);
 
 int ipa3_remove_secondary_flow_ctrl(int gsi_chan_hdl);
 int ipa3_enable_data_path(u32 clnt_hdl);

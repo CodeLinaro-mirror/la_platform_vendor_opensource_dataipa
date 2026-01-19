@@ -2,7 +2,6 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -1950,7 +1949,7 @@ static int rndis_ipa_register_properties(char *netdev_name, bool is_vlan_mode)
 	rx_ipv6_property->hdr_l2_type = hdr_l2_type;
 	rx_properties.num_props = 2;
 
-	result = ipa_register_intf("rndis0", &tx_properties, &rx_properties);
+	result = ipa_register_intf("rndis0", &tx_properties, &rx_properties, 0);
 	if (result)
 		RNDIS_IPA_ERROR("fail on Tx/Rx properties registration\n");
 	else

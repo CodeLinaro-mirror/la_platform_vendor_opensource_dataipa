@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
@@ -1671,6 +1670,8 @@ enum ipa_hdr_l2_type {
  * IPA_HDR_PROC_2ND_PASS:               send to 2nd pass with no modification
  * IPA_HDR_PROC_MARK_DSCP:              Mark DSCP value based on PDN or tuple
  *                                      info for DL traffic
+ *  IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST: Process Ethernet II to Ethernet II with
+ *                                      generic lengths of dst headers
  */
 enum ipa_hdr_proc_type {
 	IPA_HDR_PROC_NONE,
@@ -1695,8 +1696,9 @@ enum ipa_hdr_proc_type {
 	IPA_HDR_PROC_IPSEC_DECAP_NXT_RND,
 	IPA_HDR_PROC_2ND_PASS,
 	IPA_HDR_PROC_MARK_DSCP,
+	IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST,
 };
-#define IPA_HDR_PROC_MAX (IPA_HDR_PROC_MARK_DSCP + 1)
+#define IPA_HDR_PROC_MAX (IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST + 1)
 
 /**
  * struct ipa_rt_rule - attributes of a routing rule
@@ -1758,6 +1760,9 @@ struct ipa_rt_rule {
  * @rule_type: enum rule type (IP, ETH, Etc.)
  * @cnt_idx2: cnt_idx extention
  * @hpc_fetch_len: HPC fetch length (for inline header insertion HPC)
+ * @rt_rule_category: routing rule category, it will be used for
+ *  categorizing routing rules. This is an optional field. If not
+ *  specified, default value will be used.
  */
 struct ipa_rt_rule_v2 {
 	enum ipa_client_type dst;
@@ -1778,6 +1783,7 @@ struct ipa_rt_rule_v2 {
 	enum ipa_fltrt_rule_type rule_type;
 	uint8_t cnt_idx2;
 	uint8_t hpc_fetch_len;
+	uint32_t rt_rule_category;
 };
 
 /**
@@ -2193,6 +2199,8 @@ struct ipa_ioc_del_hdr_proc_ctx {
  * @rule: actual rule to be added
  * @at_rear:	add at back of routing table, it is NOT possible to add rules at
  *		the rear of the "default" routing tables
+ * @rt_rule_category: routing rule category
+ * @rule_sub_category: routing rule sub category
  * @rt_rule_hdl: output parameter, handle to rule, valid when status is 0
  * @status:	output parameter, status of routing rule add operation,
  *		0 for success,
@@ -2201,6 +2209,8 @@ struct ipa_ioc_del_hdr_proc_ctx {
 struct ipa_rt_rule_add {
 	struct ipa_rt_rule rule;
 	uint8_t at_rear;
+	uint32_t rt_rule_category;
+	uint32_t rule_sub_category;
 	uint32_t rt_rule_hdl;
 	int status;
 };
@@ -2522,13 +2532,16 @@ struct ipa_ioc_get_rt_tbl_indx {
  * @status:	output parameter, status of filtering rule add   operation,
  *		0 for success,
  *		-1 for failure
- *
+ * @flt_rule_category: filtering rule category
+ * @rule_sub_category: filtering rule sub category
  */
 struct ipa_flt_rule_add {
 	struct ipa_flt_rule rule;
 	uint8_t at_rear;
 	uint32_t flt_rule_hdl;
 	int status;
+	uint32_t flt_rule_category;
+	uint32_t rule_sub_category;
 };
 
 /**

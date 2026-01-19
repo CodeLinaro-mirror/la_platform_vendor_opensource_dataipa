@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_uc_offload.h"
@@ -273,7 +273,7 @@ static int ipa_uc_offload_ntn_reg_intf(
 		rx_prop[1].attrib.meta_data_mask = inp->meta_data_mask;
 	}
 
-	if (ipa_register_intf(inp->netdev_name, &tx, &rx)) {
+	if (ipa_register_intf(inp->netdev_name, &tx, &rx, 0)) {
 		IPA_UC_OFFLOAD_ERR("fail to add interface prop\n");
 		memset(ntn_ctx, 0, sizeof(*ntn_ctx));
 		ret = -EFAULT;

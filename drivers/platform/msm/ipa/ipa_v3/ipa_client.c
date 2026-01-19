@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <asm/barrier.h>
@@ -768,7 +768,15 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 
 	ipa3_ctx->skip_ep_cfg_shadow[ipa_ep_idx] = ep->skip_ep_cfg;
 	if (!ep->skip_ep_cfg && IPA_CLIENT_IS_PROD(params->client))
+	{
 		ipa3_install_dflt_flt_rules(ipa_ep_idx);
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa3_install_icmp_flt_rules(ipa_ep_idx);
+		ipa3_install_tcp_syn_flt_rules(ipa_ep_idx);
+		ipa3_init_flt_rule(ipa_ep_idx, IPA_IP_v4, false);
+		ipa3_init_flt_rule(ipa_ep_idx, IPA_IP_v6, false);
+#endif
+	}
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 
@@ -1664,7 +1672,15 @@ int ipa3_release_gsi_channel(u32 clnt_hdl)
 	}
 
 	if (!ep->skip_ep_cfg && IPA_CLIENT_IS_PROD(ep->client))
+	{
 		ipa3_delete_dflt_flt_rules(clnt_hdl);
+#ifdef CONFIG_ECM_CONVERGENCE
+		ipa3_delete_icmp_flt_rules(clnt_hdl);
+		ipa3_delete_tcp_syn_flt_rules(clnt_hdl);
+		ipa3_delete_init_flt_rule(clnt_hdl, IPA_IP_v4);
+		ipa3_delete_init_flt_rule(clnt_hdl, IPA_IP_v6);
+#endif
+	}
 
 	if (!ep->keep_ipa_awake)
 		IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));

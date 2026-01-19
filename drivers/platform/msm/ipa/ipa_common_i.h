@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -952,7 +951,8 @@ int ipa3_remove_interrupt_handler(enum ipa_irq_type interrupt);
 */
 int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 	const struct ipa_rx_intf *rx,
-	const struct ipa_ext_intf *ext);
+	const struct ipa_ext_intf *ext,
+	int intf_idx);
 
 /*
 * Miscellaneous

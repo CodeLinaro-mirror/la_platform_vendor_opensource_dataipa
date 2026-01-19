@@ -2,7 +2,6 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -479,7 +478,7 @@ static int ipa_gsb_reg_intf_props(struct ipa_gsb_iface_info *iface_info)
 	rx_prop[1].attrib.meta_data = iface_info->iface_hdl;
 	rx_prop[1].attrib.meta_data_mask = 0xFF;
 
-	if (ipa_register_intf(iface_info->netdev_name, &tx, &rx)) {
+	if (ipa_register_intf(iface_info->netdev_name, &tx, &rx, 0)) {
 		IPA_GSB_ERR("fail to add interface prop\n");
 		return -EFAULT;
 	}

@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -2217,7 +2217,7 @@ static int mhi_ipa_register_properties(void)
 	rx_ipv6_property->hdr_l2_type = hdr_l2_type;
 	rx_properties.num_props = 2;
 
-	result = ipa_register_intf("mhi_eth0", &tx_properties, &rx_properties);
+	result = ipa_register_intf("mhi_eth0", &tx_properties, &rx_properties, 0);
 	if (result)
 		IPA_MHI_ERR("fail on Tx/Rx properties registration\n");
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
  */
 
@@ -3439,7 +3438,40 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
 		ctx->end.length = 0;
 		ctx->end.value = 0;
-	} else {
+	} else if (type == IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST) {
+		struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex *ctx;
+
+		ctx = (struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex *)
+			(base + offset);
+
+		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
+		ctx->hdr_add.tlv.length = 2;
+		ctx->hdr_add.tlv.value = hdr_len;
+		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
+		IPAHAL_DBG("header address 0x%x\n",
+			ctx->hdr_add.hdr_addr);
+		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
+			ctx->hdr_add.hdr_addr_hi, hdr_addr);
+		if (!is_64)
+			ctx->hdr_add.hdr_addr_hi = 0;
+
+		ctx->hdr_add_ex.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
+		ctx->hdr_add_ex.tlv.length = 1;
+		ctx->hdr_add_ex.tlv.value = IPA_HDR_UCP_ETHII_TO_ETHII_EX_DST;
+
+		ctx->hdr_add_ex.params.input_ethhdr_negative_offset =
+			generic_params->input_ethhdr_negative_offset;
+		ctx->hdr_add_ex.params.output_ethhdr_negative_offset =
+			generic_params->output_ethhdr_negative_offset;
+		ctx->hdr_add_ex.params.output_dscp_pcp_update =
+			generic_params->output_dscp_pcp_update;
+		ctx->hdr_add_ex.params.reserved = 0;
+
+		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
+		ctx->end.length = 0;
+		ctx->end.value = 0;
+	} 
+	else {
 		struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq *ctx;
 
 		ctx = (struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq *)
@@ -3565,6 +3597,9 @@ static int ipahal_get_proc_ctx_needed_len_v3(enum ipa_hdr_proc_type type)
 	case IPA_HDR_PROC_IPSEC_DECAP_NXT_RND:
 		ret =
 		sizeof(struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq);
+		break;
+	case IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST:
+		ret = sizeof(struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex);
 		break;
 	default:
 		/* invalid value to make sure failure */
