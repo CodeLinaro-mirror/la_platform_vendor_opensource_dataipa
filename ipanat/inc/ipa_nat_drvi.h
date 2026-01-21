@@ -454,6 +454,23 @@ typedef struct {
 	uint32_t enable:1;
 } ipa_nat_flags;
 
+/*
+	IPA NAT V2 Flag field is interpreted as follows
+	----------------------------------------------------------------
+	| EN | in_redirect | out_redirect | IPv4 uC activation index    |
+	|[15]|    [14]     |     [13]     |          [12:0]            |
+	----------------------------------------------------------------
+	Bits above map to the Flags(2B) group in struct ipa_nat_rule_v2.
+	Direction allow/conn_tracking/src_only/dst_only/s/ucp/pdn bits are
+	encoded in the separate PDN & uC info field, not in the V2 flags field.
+*/
+typedef struct {
+	uint32_t uc_activation_index:13;
+	uint32_t out_redirect:1;
+	uint32_t in_redirect:1;
+	uint32_t enable:1;
+} ipa_nat_flags_v2;
+
 struct ipa_nat_indx_tbl_rule {
 	uint16_t tbl_entry;
 	uint16_t next_index;
@@ -501,6 +518,8 @@ int ipa_nati_query_timestamp_redirect(uint32_t  tbl_hdl,
 int ipa_nati_modify_pdn(struct ipa_ioc_nat_pdn_entry *entry);
 
 int ipa_nati_get_pdn_index(uint32_t public_ip, uint8_t *pdn_index);
+
+int ipa_nati_get_pdn_public_ip(uint8_t pdn_index, uint32_t *public_ip);
 
 int ipa_nati_alloc_pdn(ipa_nat_pdn_entry *pdn_info, uint8_t *pdn_index);
 

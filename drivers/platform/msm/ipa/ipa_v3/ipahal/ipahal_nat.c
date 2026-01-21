@@ -318,7 +318,7 @@ static int ipa_nat_ipv4_stringify_entry_v_7_0(const void *entry,
 		"\t\tPrivate_IP=%pI4h  Target_IP=%pI4h\n"
 		"\t\tNext_Index=%d  Public_Port=%d\n"
 		"\t\tPrivate_Port=%d  Target_Port=%d\n"
-		"\t\tIP_CKSM_delta=0x%x  Enable=%s  In_Redirect=%s  Out_Redirect=%s\n"
+		"\t\tIP_CKSM_delta=0x%x  s=%s  Enable=%s  In_Redirect=%s  Out_Redirect=%s\n"
 		"\t\tTime_stamp=0x%x Proto=%d\n"
 		"\t\tPrev_Index=%d  Indx_tbl_entry=%d\n"
 		"\t\tTCP_UDP_cksum_delta=0x%x\n"
@@ -331,6 +331,7 @@ static int ipa_nat_ipv4_stringify_entry_v_7_0(const void *entry,
 		nat_entry->next_index, nat_entry->public_port,
 		nat_entry->private_port, nat_entry->target_port,
 		nat_entry->ip_chksum,
+		nat_entry->s ? "System memory" : "Local memory",
 		(nat_entry->enable) ? "true" : "false",
 		(nat_entry->in_redirect) ? "In_Direct_To_APPS" : "In_Fwd_to_route",
 		(nat_entry->out_redirect) ? "Out_Direct_To_APPS" : "Out_Fwd_to_route",

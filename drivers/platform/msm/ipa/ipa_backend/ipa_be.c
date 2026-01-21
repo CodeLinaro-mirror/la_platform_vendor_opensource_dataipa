@@ -629,6 +629,8 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 	int step = 0;
 	if (lan2lan)
 	{
+		enum ipa_hw_type ipa_ver = ipa_get_hw_type();
+
 		ret_ip_key[0] = v4_msg.tuple.return_ip;
 		if (ipa_be_client_mapping_add_or_ref(ret_ip_key, 0, lan2lan, v4_msg.conn_rule.return_mac) != NULL)
 		{
@@ -670,7 +672,25 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 				IPA_BE_ERR("Failed to add filter rule for flow IP\n");
 				goto failed_ret;
 			}
+			step = 6;
 		}
+
+		#ifdef CONFIG_ECM_CONVERGENCE
+			/* Add CT entry*/
+			if (ipa_ver >= IPA_HW_v7_0) {
+				pdn_iface = v4_msg.conn_rule.flow_interface_num;
+				ret = ipa_be_addpdn(v4_msg, pdn_iface, true);
+				if (ret != 0) {
+					IPA_BE_ERR("Failed to add PDN entry\n");
+					goto failed_ret;
+				}
+			}
+			else {
+				IPA_BE_DBG("CT support disabled - skipping ipa_be_addpdn\n");
+			}
+		#else
+			IPA_BE_DBG("CT support disabled - skipping ipa_be_addpdn\n");
+		#endif
 	}
 	else {
 		/* Set direction-specific parameters for lan2wan */
@@ -771,7 +791,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 
 #ifdef CONFIG_ECM_CONVERGENCE
 		/* Add NAT entry */
-		ret = ipa_be_addpdn(v4_msg, pdn_iface);
+		ret = ipa_be_addpdn(v4_msg, pdn_iface, false);
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to add PDN entry\n");
 			goto failed_ret;
@@ -789,6 +809,9 @@ failed_ret:
 	ret = IPA_CMN_RESPONSE_EMSG;
 	if (lan2lan) {
 		switch (step) {
+			case 6:
+				ipa_be_v4_delete_filter_rule(*((struct ipa_ipv4_rule_destroy_msg *)&v4_msg), v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.flow_mac, lan2lan);
+				/* fallthrough */
 			case 5:
 				ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v4_msg.tuple.flow_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
 				/* fallthrough */
@@ -916,6 +939,8 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 				IPA_BE_ERR("Failed to add filter rule for flow IP\n");
 				goto failed_ret;
 			}
+
+			step = 6;
 		}
 	}
 	else {
@@ -1015,7 +1040,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 
 #ifdef CONFIG_ECM_CONVERGENCE
 		/* Add CT entry */
-		ret = ipa_be_add_v6_ct_entry(v6_msg, pdn_iface);
+		ret = ipa_be_add_v6_ct_entry(v6_msg, pdn_iface, lan2lan);
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to add IPv6 CT entry\n");
 			goto failed_ret;
@@ -1032,6 +1057,8 @@ failed_ret:
 	ret = IPA_CMN_RESPONSE_EMSG;
 	if (lan2lan) {
 		switch (step) {
+			case 6:
+				ipa_be_v6_delete_filter_rule(*((struct ipa_ipv6_rule_destroy_msg *)&v6_msg), v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.flow_mac, lan2lan);
 			case 5:
 				ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v6_msg.tuple.flow_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v6);
 				/* fallthrough */
@@ -1358,6 +1385,13 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		}
 
 		ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan);
+
+		/* Delete CT entry for LAN2LAN on IPA v7.0+ */
+		enum ipa_hw_type ipa_ver = ipa_get_hw_type();
+		if (ipa_ver >= IPA_HW_v7_0) {
+			IPA_BE_DBG("Deleting CT entry for LAN2LAN on IPA v7.0+\n");
+			ipa_be_delete_entry(*msg, true);
+		}
 	}
 	else
 	{
@@ -1416,7 +1450,7 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		install_wan_filtering_rule();
 
 #ifdef CONFIG_ECM_CONVERGENCE
-		ipa_be_delete_entry(*msg);
+		ipa_be_delete_entry(*msg, false);
 #else
 		IPA_BE_DBG("NAT support disabled - skipping ipa_be_delete_entry\n");
 #endif
@@ -1557,6 +1591,12 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 		if (ipa_be_v6_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan) != 0) {
 			IPA_BE_ERR("Failed to delete filter rule for forward flow\n");
 		}
+
+#ifdef CONFIG_ECM_CONVERGENCE
+		/* Delete IPv6 CT entry for LAN2LAN */
+		IPA_BE_DBG("Deleting IPv6 CT entry for LAN2LAN\n");
+		ipa_be_handle_v6_ct_deletion(msg, true);
+#endif
 	} else {
 		/* LAN2WAN: Determine direction-specific parameters first, then delete all rules */
 		if (msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num) {
@@ -1614,7 +1654,7 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 
 #ifdef CONFIG_ECM_CONVERGENCE
 		/* Handle IPv6 CT entry deletion */
-		ipa_be_handle_v6_ct_deletion(msg);
+		ipa_be_handle_v6_ct_deletion(msg, false);
 #else
 		IPA_BE_DBG("NAT support disabled - skipping ipa_be_handle_v6_ct_deletion\n");
 #endif

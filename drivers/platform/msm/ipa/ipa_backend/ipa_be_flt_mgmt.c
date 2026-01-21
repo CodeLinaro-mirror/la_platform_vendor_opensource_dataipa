@@ -325,7 +325,19 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 
 		flt_rule_entry.rule.retain_hdr = 0;
 		flt_rule_entry.rule.to_uc = 0;
-		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+
+		/* Set filter action based on IPA version and direction */
+		enum ipa_hw_type ipa_ver = ipa_get_hw_type();
+		if (ipa_ver >= IPA_HW_v7_0) {
+			/* IPA v7.0+: Use NAT/CT table lookup */
+			flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
+			IPA_BE_DBG("LAN2LAN (v7.0+): DST_NAT action\n");
+		} else {
+			/* IPA < v7.0: Use routing (backward compatible) */
+			flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+			IPA_BE_DBG("LAN2LAN (< v7.0): ROUTING action (legacy)\n");
+		}
+
 		flt_rule_entry.rule.eq_attrib_type = 0;
 
 		rt_tbl.ip = IPA_IP_v4;
@@ -2200,8 +2212,7 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 		}
 
 		flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
-		for (int i = 0; i < 4;i++)
-		{
+		for (int i = 0; i < 4; i++) {
 			if (is_ret)
 				flt_rule_entry.rule.attrib.u.v6.dst_addr[i] =
 					(uint32_t)ntohl(v6_msg.tuple.return_ip[i]);

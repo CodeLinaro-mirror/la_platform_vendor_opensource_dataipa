@@ -59,9 +59,9 @@ typedef uint8_t mac_addr_t[IPA_MAC_ADDR_SIZE];
 static inline void ipa_type_check_ipa_mac_addr(mac_addr_t mac_addr){}
 static inline void ipa_type_check_ipa_ip_addr(ip_addr_t ipaddr){}
 
-int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface);
-int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface);
-void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg);
+int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct_enabled);
+int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface, bool lan2lan);
+void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enabled);
 int ipa_be_nat_mgmt_init(void);
 void ipa_be_nat_mgmt_exit(void);
 
