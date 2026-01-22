@@ -216,7 +216,7 @@
 
 #define IPA_MAX_NUM_MAC_FLT 32
 #define IPA_MAX_NUM_IPv4_SEGS_FLT 16
-#define IPA_MAX_NUM_IFACE_FLT 91
+#define IPA_MAX_NUM_IFACE_FLT 139
 
 
 /**
@@ -3885,6 +3885,15 @@ struct ipa_ioc_get_qos_config {
 	struct ipa_ioc_qos_config qos_config[IPA_QOS_PARAMS_MAX];
 };
 
+/**
+ * struct ipa_drop_stats - Drop Stats
+ * @drop_packet_cnt: Drop Packet Count
+ * @drop_byte_cnt: Drop byte Count
+ */
+struct ipa_drop_stats {
+	uint64_t drop_packet_cnt;
+	uint64_t drop_byte_cnt;
+};
 /**
  *   actual IOCTLs supported by IPA driver
  */

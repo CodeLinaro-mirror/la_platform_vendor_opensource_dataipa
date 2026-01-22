@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -787,6 +787,9 @@ int ipa_rmnet_ll_xmit(struct sk_buff *skb)
 			flags);
 		return (free_desc > 0) ? free_desc : 0;
 	}
+
+	if (atomic_read(&ipa3_ctx->is_suspend_mode_enabled))
+		IPAERR("User %s sent data in suspend mode.\n", current->comm);
 
 	/* rmnet_ll is calling from atomic context */
 	ret = ipa_pm_activate(rmnet_ll_ipa3_ctx->rmnet_ll_pm_hdl);

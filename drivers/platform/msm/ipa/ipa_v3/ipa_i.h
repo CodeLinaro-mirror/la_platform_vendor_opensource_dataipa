@@ -1981,10 +1981,6 @@ struct ipa_quota_stats_all {
 	struct ipa_quota_stats client[IPA_MAX_NUM_PIPES];
 };
 
-struct ipa_drop_stats {
-	u32 drop_packet_cnt;
-	u32 drop_byte_cnt;
-};
 
 struct ipa_drop_stats_all {
 	struct ipa_drop_stats client[IPA_CLIENT_MAX];
@@ -2578,8 +2574,6 @@ struct ipa3_context {
 	dma_addr_t pkt_init_imm[IPA_MAX_NUM_PIPES];
 	u32 pkt_init_imm_opcode;
 
-	u32 wkup_enable;
-
 	struct ipa3_wlan_comm_memb wc_memb;
 
 	struct ipa3_uc_ctx uc_ctx;
@@ -2776,6 +2770,7 @@ struct ipa3_context {
 	u8 ippt_pdninfo_refcnt;
 	struct mutex msg_qos_param_lock;
 	struct list_head msg_qos_param_list;
+	atomic_t is_suspend_mode_enabled;
 };
 
 struct ipa3_plat_drv_res {
