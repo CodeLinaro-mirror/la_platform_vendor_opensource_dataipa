@@ -2,12 +2,14 @@
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_wdi3.h"
 #include <linux/msm_ipa.h>
 #include <linux/string.h>
+#include <linux/workqueue.h>
+#include <linux/sched.h>
 #include "ipa_common_i.h"
 #include "ipa_pm.h"
 #include "ipa_i.h"
@@ -50,6 +52,17 @@
 
 #define IPA_WDI_MAX_TX_FILTER 3
 
+/**
+ * Time delay value for delayed queue.
+ */
+#define QUEUE_DELAY_TIME	100
+
+/**
+ * No. of filters reserving at wlan for IPA-XR usecase.
+ */
+#define NO_OF_FILTERS		2
+#define IPA_WDI_FLT_RSRV_TIMEOUT_MS 200
+
 struct ipa_wdi_intf_info {
 	char netdev_name[IPA_RESOURCE_NAME_MAX];
 	u8 hdr_len;
@@ -75,6 +88,7 @@ struct ipa_wdi_opt_dpath_info {
 	atomic_t rsrv_req;
 	atomic_t is_opt_dp_cb_registered;
 	atomic_t is_ctrl_cb_registered;
+	atomic_t is_xr_opt_dp_cb_registered;
 	void *priv;
 	int ipa_ep_idx_tx, ipa_ep_idx_rx;
 	u32 ipa_pm_hdl;
@@ -103,6 +117,13 @@ struct ipa_wdi_context {
 	ipa_wdi_meter_notifier_cb wdi_notify;
 #endif
 };
+
+struct ipa_wdi_opt_dpath_add_flt_handle {
+	uint64_t filter_handle;
+};
+
+struct ipa_wdi_opt_dpath_add_flt_handle  add_flt_hndl[MAX_STREAMS];
+
 /**
  * opt_dpath_info contains fn callbacks which are set by WLAN context and
  * accessed by QMI context. To avoid race condition between these 2,
@@ -1130,6 +1151,12 @@ int ipa_wdi_opt_dpath_register_flt_cb_per_inst(
 	opt_dpath_info[hdl].flt_add_cb = flt_add_cb;
 	opt_dpath_info[hdl].flt_rem_cb = flt_rem_cb;
 
+	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR) {
+		IPADBG("wdi_xr_opt_dpath_register_flt_cb: callbacks registered.\n");
+		atomic_set(&opt_dpath_info[hdl].is_xr_opt_dp_cb_registered, 1);
+		return ret;
+	}
+
 	atomic_set(&opt_dpath_info[hdl].is_opt_dp_cb_registered, 1);
 	atomic_set(&opt_dpath_info[hdl].is_ctrl_cb_registered, 0);
 
@@ -1203,6 +1230,7 @@ int ipa_wdi_opt_dpath_notify_flt_rsvd_per_inst
 	(ipa_wdi_hdl_t hdl,	bool is_success)
 {
 	int ret = 0;
+	int flt_rsv_status = 0;
 	struct ipa_wlan_opt_dp_rsrv_filter_complt_ind_msg_v01 ind;
 
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
@@ -1227,6 +1255,14 @@ int ipa_wdi_opt_dpath_notify_flt_rsvd_per_inst
 		return -EPERM;
 	}
 
+	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR) {
+		IPA_WDI_DBG("Received wlan flt rsv status %d\n", is_success);
+		flt_rsv_status = is_success ? 1 : 0;
+		atomic_set(&ipa3_ctx->ipa_xr_wdi_flt_rsv_status, flt_rsv_status);
+		complete(&ipa3_ctx->ipa_xr_wdi_flt_rsrv_success);
+		return ret;
+	}
+
 	memset(&ind, 0, sizeof(ind));
 	ind.rsrv_filter_status.result = (is_success == true) ? IPA_QMI_RESULT_SUCCESS_V01:IPA_QMI_RESULT_FAILURE_V01;
 	ind.rsrv_filter_status.error = IPA_QMI_ERR_NONE_V01;
@@ -1248,6 +1284,7 @@ int ipa_wdi_opt_dpath_notify_flt_rlsd_per_inst
 	(ipa_wdi_hdl_t hdl,	bool is_success)
 {
 	int ret = 0;
+	int flt_rsv_status = 0;
 	struct ipa_wlan_opt_dp_remove_all_filter_complt_ind_msg_v01 ind;
 
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
@@ -1261,6 +1298,14 @@ int ipa_wdi_opt_dpath_notify_flt_rlsd_per_inst
 		IPA_EVENT_LOG("wdi ctx is not initialized.\n");
 		return -EPERM;
 	}
+
+	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR) {
+		IPA_WDI_DBG("Received wlan flt rlsd status %d\n", is_success);
+		flt_rsv_status = is_success ? 0 : 1;
+		atomic_set(&ipa3_ctx->ipa_xr_wdi_flt_rsv_status, flt_rsv_status);
+		return ret;
+	}
+
 	memset(&ind, 0, sizeof(ind));
 
 	if (!atomic_read(&opt_dpath_info[hdl].rsrv_req))
@@ -1958,6 +2003,158 @@ int ipa_wdi_opt_dpath_disable_clk_per_inst(ipa_wdi_hdl_t hdl)
 EXPORT_SYMBOL(ipa_wdi_opt_dpath_disable_clk_per_inst);
 
 /**
+ * ipa_xr_wdi_opt_dpath_rsrv_filter_req() - Sends WLAN DP filter reservation
+ * from IPA Driver to WLAN
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ */
+int ipa_xr_wdi_opt_dpath_rsrv_filter_req(void)
+{
+	int ret = 0;
+	struct ipa_wdi_opt_dpath_flt_rsrv_cb_params rsrv_filter_req;
+	int rsrv_completed;
+
+	memset(&rsrv_filter_req, 0, sizeof(struct ipa_wdi_opt_dpath_flt_rsrv_cb_params));
+	if (!atomic_read(&opt_dpath_info[0].is_xr_opt_dp_cb_registered)) {
+		IPAERR("filter reserve cb not registered");
+		return -EPERM;
+	}
+
+	if (opt_dpath_info[0].ipa_ep_idx_tx <= 0 || opt_dpath_info[0].ipa_ep_idx_rx <= 0) {
+		IPA_WDI_ERR("Either TX/RX ep is not configured.\n");
+		return -EPERM;
+	}
+
+	ret = ipa_pm_activate_sync(opt_dpath_info[0].ipa_pm_hdl);
+	if (ret) {
+		IPA_WDI_DBG("fail to activate ipa pm\n");
+		return -EFAULT;
+	}
+
+	init_completion(&ipa3_ctx->ipa_xr_wdi_flt_rsrv_success);
+	rsrv_filter_req.num_filters = NO_OF_FILTERS;
+	ret = opt_dpath_info[0].flt_rsrv_cb(
+			opt_dpath_info[0].priv, &rsrv_filter_req);
+	if (!ret) {
+		atomic_set(&opt_dpath_info[0].rsrv_req, 1);
+	} else {
+		if (ipa_pm_deferred_deactivate(opt_dpath_info[0].ipa_pm_hdl))
+			IPA_WDI_DBG("fail to deactivate ipa pm\n");
+	}
+
+	IPA_WDI_DBG("reserved filter callbacks called.\n");
+	rsrv_completed = wait_for_completion_timeout(&ipa3_ctx->ipa_xr_wdi_flt_rsrv_success,
+						 msecs_to_jiffies(IPA_WDI_FLT_RSRV_TIMEOUT_MS));
+	if (!rsrv_completed) {
+		IPADBG("Timed out waiting for filter reservation notification from WLAN\n");
+		return -EPERM;
+	}
+	return ret;
+}
+EXPORT_SYMBOL_GPL(ipa_xr_wdi_opt_dpath_rsrv_filter_req);
+
+/**
+ * ipa_xr_wdi_opt_dpath_add_filter_req() - Sends WLAN DP filter info
+ * from IPA Driver to WLAN
+ * @req:	[in] filter add parameters from IPA Driver
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ *
+ */
+
+int ipa_xr_wdi_opt_dpath_add_filter_req(struct ipa_wdi_opt_dpath_flt_add_cb_params *req,
+		u32 stream_id)
+{
+	int ret = 0;
+
+	if (!atomic_read(&opt_dpath_info[0].is_xr_opt_dp_cb_registered)) {
+		IPAERR("filter add cb not registered");
+		return -EPERM;
+	}
+
+	ret =
+		opt_dpath_info[0].flt_add_cb
+			(opt_dpath_info[0].priv, req);
+	IPA_WDI_DBG("Add filter callbacks called for stream id %d\n", stream_id);
+	if (!ret)
+		add_flt_hndl[stream_id].filter_handle = req->flt_info[0].out_hdl;
+	return ret;
+}
+EXPORT_SYMBOL_GPL(ipa_xr_wdi_opt_dpath_add_filter_req);
+
+/**
+ * ipa_xr_wdi_opt_dpath_remove_filter_req() - Sends WLAN DP filter info
+ * from IPA Driver to WLAN
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ *
+ */
+
+int ipa_xr_wdi_opt_dpath_remove_filter_req(u32 stream_id)
+{
+	int ret = 0;
+	struct ipa_wdi_opt_dpath_flt_rem_cb_params flt_rem_req;
+
+	memset(&flt_rem_req, 0, sizeof(struct ipa_wdi_opt_dpath_flt_rem_cb_params));
+	if (!atomic_read(&opt_dpath_info[0].is_xr_opt_dp_cb_registered)) {
+		IPAERR("filter remove cb not registered");
+		return -EPERM;
+	}
+
+	flt_rem_req.num_tuples = 1;
+	flt_rem_req.hdl_info[0] = add_flt_hndl[stream_id].filter_handle;
+
+	ret = opt_dpath_info[0].flt_rem_cb
+			(opt_dpath_info[0].priv, &flt_rem_req);
+	IPA_WDI_DBG("Remove filter callbacks called for stream id %d\n", stream_id);
+	if (!ret)
+		add_flt_hndl[stream_id].filter_handle = 0;
+	return ret;
+}
+EXPORT_SYMBOL_GPL(ipa_xr_wdi_opt_dpath_remove_filter_req);
+
+/**
+ * ipa_xr_wdi_opt_dpath_remove_all_filter_req() - Sends WLAN DP filter info
+ * from IPAs to WLAN
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ *
+ */
+
+int ipa_xr_wdi_opt_dpath_remove_all_filter_req(void)
+{
+	int ret = 0;
+
+	if (!atomic_read(&opt_dpath_info[0].is_xr_opt_dp_cb_registered)) {
+		IPAERR("filter release cb not registered");
+		return -EPERM;
+	}
+
+	if (!atomic_read(&opt_dpath_info[0].rsrv_req)) {
+		IPAERR("Reservation request not sent. IGNORE");
+		return 0;
+	}
+
+	atomic_set(&opt_dpath_info[0].rsrv_req, 0);
+
+	ret = opt_dpath_info[0].flt_rsrv_rel_cb(
+			opt_dpath_info[0].priv);
+
+	if (opt_dpath_info[0].ipa_ep_idx_rx <= 0 || opt_dpath_info[0].ipa_ep_idx_tx <= 0) {
+		IPA_WDI_ERR("Either RX ep or TX ep is not configured.\n");
+		return 0;
+	}
+
+	IPA_WDI_DBG("remove all filter callbacks called.\n");
+	return ret;
+}
+EXPORT_SYMBOL_GPL(ipa_xr_wdi_opt_dpath_remove_all_filter_req);
+
+/**
  * clean up WDI IPA offload data path
  *
  * @hdl: hdl to wdi client
@@ -1994,6 +2191,8 @@ int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 		list_del(&entry->link);
 		kfree(entry);
 	}
+
+	atomic_set(&opt_dpath_info[hdl].is_xr_opt_dp_cb_registered, 0);
 	atomic_set(&opt_dpath_info[hdl].is_opt_dp_cb_registered, 0);
 	atomic_set(&opt_dpath_info[hdl].is_ctrl_cb_registered, 0);
 	atomic_set(&opt_dpath_info[hdl].num_ctrl_pkts, 0);
@@ -2115,7 +2314,6 @@ int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		IPA_WDI_ERR("wdi ctx is not initialized.\n");
 		return -EPERM;
 	}
-
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
@@ -2275,6 +2473,8 @@ int ipa_wdi_disable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EFAULT;
 	}
 
+	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_XR)
+		atomic_set(&ipa3_ctx->ipa_xr_wdi_flt_rsv_status, 0);
 	return 0;
 }
 EXPORT_SYMBOL(ipa_wdi_disable_pipes_per_inst);

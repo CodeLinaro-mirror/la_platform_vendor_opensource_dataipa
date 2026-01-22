@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
