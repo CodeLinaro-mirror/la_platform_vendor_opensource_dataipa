@@ -5494,9 +5494,9 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		netif_napi_add(dev, &(rmnet_ipa3_ctx->wwan_priv->napi),
 		       ipa3_rmnet_poll, NAPI_WEIGHT);
 
-	SET_NETDEV_DEV(dev, &ipa3_ctx->master_pdev->dev);
 
 #endif
+	SET_NETDEV_DEV(dev, &ipa3_ctx->master_pdev->dev);
 	ret = register_netdev(dev);
 	if (ret) {
 		IPAWANERR("unable to register ipa_netdev %d rc=%d\n",

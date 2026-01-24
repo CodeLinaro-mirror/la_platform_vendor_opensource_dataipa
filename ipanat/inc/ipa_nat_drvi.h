@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
  *
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
@@ -27,7 +28,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Changes from Qualcomm Technologies, Inc. are provided under the following license:
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.​
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
@@ -434,9 +435,10 @@ int ipa_nati_add_ipv4_tbl(
 
 int ipa_nati_del_ipv4_table(uint32_t tbl_hdl);
 
-int ipa_nati_query_timestamp(uint32_t  tbl_hdl,
+int ipa_nati_query_timestamp_redirect(uint32_t  tbl_hdl,
 				uint32_t  rule_hdl,
-				uint32_t  *time_stamp);
+				uint32_t  *time_stamp,
+				uint32_t  *redirect);
 
 int ipa_nati_modify_pdn(struct ipa_ioc_nat_pdn_entry *entry);
 
@@ -539,10 +541,11 @@ int ipa_NATI_ipv4_tbl_stats(
 	ipa_nati_tbl_stats* nat_stats_ptr,
 	ipa_nati_tbl_stats* idx_stats_ptr );
 
-int ipa_NATI_query_timestamp(
+int ipa_NATI_query_timestamp_redirect(
 	uint32_t  tbl_hdl,
 	uint32_t  rule_hdl,
-	uint32_t* time_stamp);
+	uint32_t* time_stamp,
+	uint32_t* redirect);
 
 int ipa_NATI_add_ipv4_rule(
 	uint32_t                 tbl_hdl,
