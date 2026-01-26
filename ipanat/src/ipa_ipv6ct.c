@@ -973,16 +973,18 @@ static void table_entry_set_prev_index(void* entry, uint16_t entry_index, uint16
 
 static int table_entry_copy_from_user(void* entry, void* user_data)
 {
-	ipa_ipv6ct_hw_entry* ipv6ct_entry = (ipa_ipv6ct_hw_entry*)entry;
-	const ipa_ipv6ct_rule* user_rule = (const ipa_ipv6ct_rule*)user_data;
+        ipa_ipv6ct_hw_entry* ipv6ct_entry = NULL;
+	const ipa_ipv6ct_rule* user_rule = NULL;
 
-	if(!ipv6ct_entry || !user_rule)
+	if(!entry || !user_data)
 	{
-		IPAERR("Invalid params: ipv6ct_entry=%s user_rule=%s\n",
-					ipv6ct_entry ? "valid" : "NULL",
-					user_rule ? "valid" : "NULL");
+		IPAERR("Invalid params: entry=%s user_data=%s\n",
+					entry ? "valid" : "NULL",
+					user_data ? "valid" : "NULL");
 		return -EINVAL;
 	}
+	ipv6ct_entry = (ipa_ipv6ct_hw_entry*)entry;
+	user_rule = (const ipa_ipv6ct_rule*)user_data;
 
 	IPADBG("\n");
 

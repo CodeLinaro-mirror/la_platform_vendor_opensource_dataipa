@@ -305,17 +305,18 @@ static int table_entry_copy_from_user(
 	void* user_data)
 {
 	uint32_t pub_ip_addr;
+	struct ipa_nat_rule*     nat_entry = NULL;
+	const ipa_nat_ipv4_rule* user_rule = NULL;
 
-	struct ipa_nat_rule*     nat_entry = (struct ipa_nat_rule*) entry;
-	const ipa_nat_ipv4_rule* user_rule = (const ipa_nat_ipv4_rule*) user_data;
-
-	if(!nat_entry || !user_rule)
+	if(!entry || !user_data)
 	{
-		IPAERR("Invalid params: nat_entry=%s user_rule=%s\n",
-					nat_entry ? "valid" : "NULL",
-					user_rule ? "valid" : "NULL");
+		IPAERR("Invalid params: entry=%s user_data=%s\n",
+			entry ? "valid" : "NULL",
+			user_data ? "valid" : "NULL");
 		return -EINVAL;
 	}
+	nat_entry = (struct ipa_nat_rule*) entry;
+	user_rule = (const ipa_nat_ipv4_rule*) user_data;
 
 	IPADBG("In\n");
 
