@@ -749,6 +749,22 @@ enum ipa_client_type {
 	(client) == IPA_CLIENT_WLAN2_CONS1 || \
 	(client) == IPA_CLIENT_WLAN4_CONS)
 
+#define IPA_CLIENT_IS_ETHERNET_QOS_CONS(client) \
+	((client) == IPA_CLIENT_ETHERNET_QOS_CONS || \
+	(client) == IPA_CLIENT_ETHERNET2_QOS_CONS || \
+	(client) == IPA_CLIENT_ETHERNET2_QOS2_CONS || \
+	(client) == IPA_CLIENT_ETHERNET_QOS2_CONS)
+
+#define IPA_CLIENT_IS_WLAN_QOS_CONS(client) \
+	((client) == IPA_CLIENT_WLAN1_QOS_CONS || \
+	(client) == IPA_CLIENT_WLAN2_QOS_CONS || \
+	(client) == IPA_CLIENT_WLAN3_QOS_CONS || \
+	(client) == IPA_CLIENT_WLAN4_QOS_CONS)
+
+#define IPA_CLIENT_IS_QOS_CONS(client) \
+	(IPA_CLIENT_IS_WLAN_QOS_CONS(client) || \
+	IPA_CLIENT_IS_ETHERNET_QOS_CONS(client))
+
 #define IPA_CLIENT_IS_ODU_CONS(client) \
 	((client) == IPA_CLIENT_ODU_EMB_CONS || \
 	(client) == IPA_CLIENT_ODU_TETH_CONS)

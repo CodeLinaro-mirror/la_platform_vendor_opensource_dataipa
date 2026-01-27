@@ -74,6 +74,8 @@
 /* FOR_SEQ_HIGH channel scratch: (((8 * (pipe_id * ctx_size + offset_lines)) + 4) / 4) */
 #define GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id) (((8 * (ep_id * 10 + 9)) + 4) / 4)
 
+#define GSI_STATS_EN_MASK 					(1U << 31)
+
 #ifndef CONFIG_DEBUG_FS
 extern int gsi_sysfs_init(void);
 extern void gsi_sysfs_destroy(void);
@@ -2832,6 +2834,29 @@ static uint32_t gsi_legacy_protocol_dir_to_v7_0_protocol(enum gsi_chan_prot prot
 	return prot;
 }
 
+static int __gsi_config_gsi_ch_stats(unsigned long chan_hdl)
+{
+	uint32_t mask = GSI_STATS_EN_MASK;
+	struct gsi_chan_ctx *ctx;
+	uint32_t raw;
+
+	if (!gsi_ctx) {
+		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
+		return -GSI_STATUS_NODEV;
+	}
+	if (chan_hdl >= gsi_ctx->max_ch) {
+		GSIERR("bad params chan_hdl=%lu\n", chan_hdl);
+		return -GSI_STATUS_INVALID_PARAMS;
+	}
+	ctx = &gsi_ctx->chan[chan_hdl];
+	mutex_lock(&ctx->mlock);
+	raw = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9, gsi_ctx->per.ee, chan_hdl);
+	gsihal_write_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9, gsi_ctx->per.ee, chan_hdl, (raw | mask));
+	mutex_unlock(&ctx->mlock);
+
+	return GSI_STATUS_SUCCESS;
+}
+
 static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 		uint8_t erindex)
 {
@@ -2870,6 +2895,12 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	if (gsi_ctx->per.ver >= GSI_VER_7_0) {
 		ch_k_cntxt_0.chtype_protocol = gsi_legacy_protocol_dir_to_v7_0_protocol(props->prot,
 			props->dir);
+		if(props->gsi_stats_en) {
+			if (__gsi_config_gsi_ch_stats(props->ch_id) != GSI_STATUS_SUCCESS) {
+				GSIERR("failed to config GSI channel stats in scratch\n");
+				WARN_ON(1);
+			}
+		}
 	} else {
 		ch_k_cntxt_0.chtype_protocol = props->prot;
 	}

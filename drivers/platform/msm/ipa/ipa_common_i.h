@@ -209,6 +209,17 @@ do {\
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD)))
 
+#define IPA_CLIENT_IS_ETH_CONS(x) \
+	((x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET3_CONS)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS1)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS2)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS3)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS4)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_CONS)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_CONS)))
+
 #define IPA_CLIENT_IS_WLAN_PROD(x) \
 	((x == ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD)) || \

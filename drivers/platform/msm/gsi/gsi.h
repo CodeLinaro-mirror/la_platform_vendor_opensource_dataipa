@@ -596,6 +596,7 @@ struct gsi_chan_props {
 	void (*err_cb)(struct gsi_chan_err_notify *notify);
 	void (*cleanup_cb)(void *chan_user_data, void *xfer_user_data);
 	void *chan_user_data;
+	uint8_t gsi_stats_en;
 };
 
 enum gsi_xfer_flag {

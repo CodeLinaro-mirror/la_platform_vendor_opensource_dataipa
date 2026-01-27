@@ -1269,6 +1269,8 @@ static int ipa3_wdi2_gsi_alloc_channel_ring(
 		IPAERR("Client is CONS");
 		channel_props->dir = GSI_CHAN_DIR_FROM_GSI;
 		channel_props->re_size = GSI_CHAN_RE_SIZE_8B;
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+			channel_props->gsi_stats_en = 1;
 	}
 
 	channel_props->prot = GSI_CHAN_PROT_WDI2;
