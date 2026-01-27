@@ -1025,25 +1025,29 @@ static void gsi_handle_inter_ee_ev_ctrl(int ee)
 
 static void gsi_handle_general(int ee)
 {
-	uint32_t val;
+	uint32_t val, en;
 	struct gsi_per_notify notify;
 	struct gsihal_reg_cntxt_gsi_irq_stts gsi_irq_stts;
+	struct gsihal_reg_cntxt_gsi_irq_stts gsi_irq_en;
 
 	val = gsihal_read_reg_n_fields(GSI_EE_n_CNTXT_GSI_IRQ_STTS,
 		ee, &gsi_irq_stts);
 
+	gsihal_read_reg_n_fields(GSI_EE_n_CNTXT_GSI_IRQ_EN,
+		ee, &gsi_irq_en);
+
 	notify.user_data = gsi_ctx->per.user_data;
 
-	if (gsi_irq_stts.gsi_mcs_stack_ovrflow)
+	if (gsi_irq_stts.gsi_mcs_stack_ovrflow & gsi_irq_en.gsi_mcs_stack_ovrflow)
 		notify.evt_id = GSI_PER_EVT_GENERAL_MCS_STACK_OVERFLOW;
 
-	if (gsi_irq_stts.gsi_cmd_fifo_ovrflow)
+	if (gsi_irq_stts.gsi_cmd_fifo_ovrflow & gsi_irq_en.gsi_cmd_fifo_ovrflow)
 		notify.evt_id = GSI_PER_EVT_GENERAL_CMD_FIFO_OVERFLOW;
 
-	if (gsi_irq_stts.gsi_bus_error)
+	if (gsi_irq_stts.gsi_bus_error & gsi_irq_en.gsi_bus_error)
 		notify.evt_id = GSI_PER_EVT_GENERAL_BUS_ERROR;
 
-	if (gsi_irq_stts.gsi_break_point)
+	if (gsi_irq_stts.gsi_break_point & gsi_irq_en.gsi_break_point)
 		notify.evt_id = GSI_PER_EVT_GENERAL_BREAK_POINT;
 
 	if (gsi_ctx->per.notify_cb)
@@ -1746,6 +1750,12 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 	gen_irq.gsi_mcs_stack_ovrflow = 1;
 	gen_irq.gsi_cmd_fifo_ovrflow = 1;
 	gen_irq.gsi_bus_error = 1;
+	if (gsi_ctx->per.ver >= GSI_VER_7_0) {
+		/* Masking GSI_BUS_ERROR irq as it usually fired first even
+		when it's not the first fatal error, hiding the actual error */
+		gen_irq.gsi_bus_error = 0;
+	}
+
 	gen_irq.gsi_break_point = 0;
 	gsihal_write_reg_n_fields(GSI_EE_n_CNTXT_GSI_IRQ_EN,
 		gsi_ctx->per.ee, &gen_irq);
