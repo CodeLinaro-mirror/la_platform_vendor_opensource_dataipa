@@ -2198,6 +2198,10 @@ enum ipa_fw_load_event {
 
 struct ipa_fw_load_data {
 	enum ipa_fw_load_state state;
+#ifdef CONFIG_ECM_CONVERGENCE
+	u8 num_retry_ini;
+	bool is_ipa_ini_init_done;
+#endif
 	struct mutex lock;
 };
 
@@ -2979,6 +2983,19 @@ struct ipa3_plat_drv_res {
 	bool ipa_v2x_vm;
 	u32 gunyah_label;
 	u32 filter_start_id;
+	bool use_vlan_eth_emac_config;
+	bool use_vlan_eth0_config;
+	bool use_vlan_eth1_config;
+	bool use_vlan_rndis_config;
+	bool use_vlan_ecm_config;
+	bool use_vlan_mhi_eth_config;
+	bool use_mhi_config;
+	bool use_mhi_eth_config;
+	bool use_rdkb_config;
+	bool use_tsn_config;
+	bool use_ezmesh_config;
+	bool use_eth_qos_config;
+	bool use_ipsec_config;
 };
 
 /**

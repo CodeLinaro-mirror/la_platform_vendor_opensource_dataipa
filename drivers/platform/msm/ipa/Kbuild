@@ -36,7 +36,8 @@ ipam-y += \
 	ipa_v3/ipa_stats.o \
 	ipa_backend/ipa_be.o \
 	ipa_backend/ipa_be_clientdb.o \
-	ipa_backend/ipa_be_flt_mgmt.o
+	ipa_backend/ipa_be_flt_mgmt.o \
+	ipa_v3/ipa_ini_parse.o
 
 ipam-$(CONFIG_IPA_TSP) += ipa_v3/ipa_tsp.o \
 	ipa_v3/ipahal/ipahal_tsp.o

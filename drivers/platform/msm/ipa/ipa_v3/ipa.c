@@ -40,6 +40,7 @@
 #include <linux/soc/qcom/mdt_loader.h>
 #include <linux/version.h>
 #include <linux/nvmem-consumer.h>
+#include "ipa_ini_parse.h"
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0))
 #include <linux/panic_notifier.h>
 #else
@@ -201,6 +202,10 @@ static DECLARE_WORK(ipa3_msgq_ssr_before_shutdown_work,
 static void ipa3_msgq_ssr_after_powerup_delay(struct work_struct *work);
 static DECLARE_WORK(ipa3_msgq_ssr_after_powerup_work,
 	ipa3_msgq_ssr_after_powerup_delay);
+#endif
+
+#ifdef CONFIG_ECM_CONVERGENCE
+static struct delayed_work ini_parse_work;
 #endif
 
 static int ipa3_ioctl_add_rt_rule_v2(unsigned long arg);
@@ -10875,7 +10880,16 @@ static void ipa3_xbl_ipa_init(struct work_struct *work)
 				result);
 		return;
 	}
-
+#ifdef CONFIG_ECM_CONVERGENCE
+	mutex_lock(&ipa3_ctx->fw_load_data.lock);
+	if(!ipa3_ctx->fw_load_data.is_ipa_ini_init_done)
+	{
+		IPAERR("INI File not loaded avoid post init\n");
+		mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+		return;
+	}
+	mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+#endif
 	result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
 	if (result) {
 		IPAERR("IPA post init failed %d\n", result);
@@ -10941,8 +10955,16 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	mutex_lock(&ipa3_ctx->fw_load_data.lock);
 	ipa3_ctx->fw_load_data.state = IPA_FW_LOAD_STATE_LOADED;
-	mutex_unlock(&ipa3_ctx->fw_load_data.lock);
 	pr_info("IPA FW loaded successfully\n");
+#ifdef CONFIG_ECM_CONVERGENCE
+	if(!ipa3_ctx->fw_load_data.is_ipa_ini_init_done)
+	{
+		IPAERR("INI File not loaded avoid post init\n");
+		mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+		return;
+	}
+#endif
+	mutex_unlock(&ipa3_ctx->fw_load_data.lock);
 
 	result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
 	if (result) {
@@ -11077,7 +11099,11 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		return count;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	return strlen(dbg_buff);
+#else
 	return ipa3_update_config(dbg_buff);
+#endif
 }
 
 ssize_t ipa3_update_config(const char *buff)
@@ -11762,6 +11788,9 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 				0xFF;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	ipa3_ctx->fw_load_data.is_ipa_ini_init_done = false;
+#endif
 	ipa3_ctx->ipa_wrapper_base = resource_p->ipa_mem_base;
 	ipa3_ctx->ipa_wrapper_size = resource_p->ipa_mem_size;
 	ipa3_ctx->ipa_cfg_offset = resource_p->ipa_cfg_offset;
@@ -14988,6 +15017,16 @@ static int ipa_smmu_update_fw_loader(void)
 					ipa3_v2x_vm_ssr_teardown_sys_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS);
 					IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 				} else {
+#ifdef CONFIG_ECM_CONVERGENCE
+					mutex_lock(&ipa3_ctx->fw_load_data.lock);
+					if(!ipa3_ctx->fw_load_data.is_ipa_ini_init_done)
+					{
+						IPAERR("INI File not loaded avoid post init\n");
+						mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+						return -1;
+					}
+					mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+#endif
 					result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
 				}
 
@@ -15265,6 +15304,192 @@ static int handle_smmu_dynamic_cfg(struct device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_ECM_CONVERGENCE
+static int ipa_validate_ini_config(struct ipa3_plat_drv_res *ipa_drv_res)
+{
+	int vlan_count = 0;
+	// Check count for VLAN interfaces
+	if (ipa_drv_res->use_vlan_eth_emac_config) vlan_count++;
+	if (ipa_drv_res->use_vlan_eth0_config) vlan_count++;
+	if (ipa_drv_res->use_vlan_eth1_config) vlan_count++;
+	if (ipa_drv_res->use_vlan_rndis_config) vlan_count++;
+	if (ipa_drv_res->use_vlan_ecm_config) vlan_count++;
+	if (ipa_drv_res->use_vlan_mhi_eth_config) vlan_count++;
+
+	//Validate VLAN configuration limits
+	if (vlan_count >= IPA_VLAN_IF_MAX) {
+		IPAERR("Too many VLAN interfaces enabled: %d (max: %d)\n",
+			vlan_count, IPA_VLAN_IF_MAX);
+		return -EINVAL;
+	}
+	//Validate MHI and IPSec mutual exclusion
+	if (ipa_drv_res->use_mhi_config && ipa_drv_res->use_ipsec_config) {
+		IPAERR("MHI and IPSec cannot be enabled simultaneously\n");
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
+{
+	int res = 0;
+
+	if (!ipa3_ctx) {
+		IPAERR("global context in not allocated\n");
+		return;
+	}
+
+	// Validate configuration before applying
+	res = ipa_validate_ini_config(ipa_drv_res);
+	if (res) {
+		IPAERR("INI configuration validation failed: %d\n", res);
+		return;
+	}
+
+	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
+		/* check MHI configurations*/
+		if(ipa_drv_res->use_mhi_config) {
+			ipa3_ctx->ipa_config_is_mhi = ipa_drv_res->use_mhi_config;
+			IPAERR("Use mhi config is %d\n", ipa3_ctx->ipa_config_is_mhi);
+		}
+		if(ipa_drv_res->use_mhi_eth_config) {
+			ipa3_ctx->ipa_mhi_eth = ipa_drv_res->use_mhi_eth_config;
+			IPAERR("Use mhi_eth config is %d\n", ipa3_ctx->ipa_mhi_eth);
+		}
+
+#if IPA_ETH_API_VER >= 4
+		/* check Eth Qos configurations */
+		if(ipa_drv_res->use_eth_qos_config) {
+			ipa3_ctx->eth_qos = ipa_drv_res->use_eth_qos_config;
+			IPAERR("Use ethqos is %d\n", ipa3_ctx->eth_qos);
+		}
+#endif
+
+		/* check VLAN configurations */
+		if(ipa_drv_res->use_vlan_eth_emac_config) {
+			ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] =
+				ipa_drv_res->use_vlan_eth_emac_config;
+			IPAERR("Use eth emac vlan is %d\n", ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC]);
+		}
+#if IPA_ETH_API_VER >= 2
+		if(ipa_drv_res->use_vlan_eth0_config) {
+			ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] =
+				ipa_drv_res->use_vlan_eth0_config;
+			IPAERR("Use eth0 vlan is %d\n", ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0]);
+		}
+		if(ipa_drv_res->use_vlan_eth1_config) {
+			ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH1] =
+				ipa_drv_res->use_vlan_eth1_config;
+			IPAERR("Use eth1 vlan is %d\n", ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH1]);
+		}
+#endif
+		if(ipa_drv_res->use_vlan_rndis_config) {
+			ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS] =
+				ipa_drv_res->use_vlan_rndis_config;
+			IPAERR("Use rndis vlan is %d\n", ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS]);
+		}
+		if(ipa_drv_res->use_vlan_ecm_config) {
+			ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] =
+				ipa_drv_res->use_vlan_ecm_config;
+			IPAERR("Use ecm vlan is %d\n", ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM]);
+		}
+		if(ipa_drv_res->use_vlan_mhi_eth_config) {
+			ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_MHI_ETH] =
+				ipa_drv_res->use_vlan_mhi_eth_config;
+			IPAERR("Use mhi_eth vlan is %d\n", ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_MHI_ETH]);
+		}
+
+#if IPA_ETH_API_VER >= 3
+		/* check ezmesh config */
+		if(ipa_drv_res->use_ezmesh_config) {
+			ipa3_ctx->spcl_iface[IPA_VLAN_IF_ETH0] =
+				ipa_drv_res->use_ezmesh_config;
+			IPAERR("Use ezmesh config is %d\n", ipa3_ctx->spcl_iface[IPA_VLAN_IF_ETH0]);
+		}
+
+		/* check tsn config */
+		if(ipa_drv_res->use_tsn_config) {
+			ipa3_ctx->tsn_iface =
+				ipa_drv_res->use_tsn_config;
+			IPAERR("Use tsn config is %d\n", ipa3_ctx->tsn_iface);
+		}
+#endif
+		/* check rdkb config */
+		if(ipa_drv_res->use_rdkb_config)
+		{
+			ipa3_ctx->ipa_config_is_rdkb =
+				ipa_drv_res->use_rdkb_config;
+			ipa3_ctx->enable_napi_chain = 0;
+			IPAERR("Use rdkb config is %d\n", ipa3_ctx->ipa_config_is_rdkb);
+		}
+#if defined(CONFIG_IPA_IPSEC)
+		/* check ipsec config */
+		if(ipa_drv_res->use_ipsec_config)
+		{
+			if (ipa3_ctx->ipa_config_is_mhi) {
+				IPAERR("In MHI mode IPSEC enable not required\n");
+			}
+			else
+			{
+				ipa3_ctx->ipa_config_is_ipsec =
+					ipa_drv_res->use_ipsec_config;
+				res = ipa_ipsec_enable();
+				if (res)
+					IPAERR(":IPSEC enable failed (%d)\n", -res);
+				else
+					IPAERR(":IPSEC enable ok\n");
+			}
+		}
+#endif
+	}
+
+	if (ipa_is_ready())
+		return;
+	ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_FWFILE_READY);
+}
+
+static void ipa_ini_read_params_work(struct work_struct *work)
+{
+	int result = -1;
+	IPADBG("Retry INI parsing\n");
+	result = ipa_init_params_from_ini(ipa3_ctx->pdev,  &ipa3_res);
+	if(result)
+	{
+		mutex_lock(&ipa3_ctx->fw_load_data.lock);
+		if(ipa3_ctx->fw_load_data.num_retry_ini < 5)
+		{
+			ipa3_ctx->fw_load_data.num_retry_ini++;
+			IPAERR("INI parsing failed retry %d\n",ipa3_ctx->fw_load_data.num_retry_ini);
+			mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+			schedule_delayed_work(&ini_parse_work, msecs_to_jiffies(DELAY_BEFORE_FW_LOAD)); //delay of 500ms
+		}
+		else
+		{
+			IPAERR("INI parsing failed after max retries\n");
+			mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+			return;
+		}
+	} else {
+		IPADBG("INI parsing successful\n");
+		ipa_populate_ini_values(&ipa3_res);
+		mutex_lock(&ipa3_ctx->fw_load_data.lock);
+		ipa3_ctx->fw_load_data.is_ipa_ini_init_done = true;
+		if(ipa3_ctx->fw_load_data.state != IPA_FW_LOAD_STATE_LOADED)
+		{
+			IPAERR("IPA FW not loaded skip post_init\n");
+			mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+			return;
+		}
+		mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+		result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+		if (result) {
+			IPAERR("IPA post init failed %d\n", result);
+			return;
+		}
+	}
+}
+#endif
+
 int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 {
 	int result;
@@ -15541,13 +15766,41 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	/* Initialize msgq for PVM and SVM */
 	ipa3_msgq_init();
 #endif
-
+#ifdef CONFIG_ECM_CONVERGENCE
+	result = ipa_init_params_from_ini(ipa3_ctx->pdev, &ipa3_res);
+	if(result) {
+		IPADBG("INI parsing failed schedule work to retry\n");
+		mutex_lock(&ipa3_ctx->fw_load_data.lock);
+		ipa3_ctx->fw_load_data.num_retry_ini = 1;//First retry for INI file load
+		mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+		INIT_DELAYED_WORK(&ini_parse_work, ipa_ini_read_params_work);
+		schedule_delayed_work(&ini_parse_work, msecs_to_jiffies(DELAY_BEFORE_FW_LOAD)); //delay of 500ms
+	} else {
+		IPADBG("INI parsing successful\n");
+		ipa_populate_ini_values(&ipa3_res);
+		mutex_lock(&ipa3_ctx->fw_load_data.lock);
+		ipa3_ctx->fw_load_data.is_ipa_ini_init_done = true;
+		if(ipa3_ctx->fw_load_data.state != IPA_FW_LOAD_STATE_LOADED)
+		{
+			IPAERR("IPA FW not loaded skip post_init\n");
+			mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+			goto skip_post_init;
+		}
+		mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+		result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+		if (result) {
+			IPAERR("IPA post init failed %d\n", result);
+			return result;
+		}
+	}
+skip_post_init:
+#else
 	result = ipa3_update_config((const char *)ipa_cfg);
 	if (result < 0) {
 		IPAERR("failed to update config\n");
 		return result;
 	}
-
+#endif
 skip_repeat_pre_init:
 	result = of_platform_populate(pdev_p->dev.of_node,
 		ipa_plat_drv_match, NULL, &pdev_p->dev);
