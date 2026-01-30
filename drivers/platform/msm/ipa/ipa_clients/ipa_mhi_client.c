@@ -197,7 +197,7 @@ struct ipa_mhi_client_ctx {
 	int (*netif_rx_function)(struct sk_buff *skb);
 	mhi_ipa_callback mhi_ipa_tx_dp_notify;
 	mhi_ipa_callback mhi_ipa_rx_dp_notify;
-	bool is_mhi_connected;
+	bool is_mhi_eth_connected;
 	bool is_mhi_up;
 	void *private;
 };
@@ -1832,10 +1832,9 @@ static int ipa_mhi_connect_pipe_internal(struct ipa_mhi_connect_params *in, u32 
 	channel->brstmode_enabled =
 			channel->ch_scratch.mhi.burst_mode_enabled;
 
-	ipa_mhi_client_ctx->is_mhi_connected = true;
-
-	if(ipa3_ctx->ipa_mhi_eth)
+	if(ipa3_ctx->ipa_mhi_eth && IPA_CLIENT_IS_MHI_ETH(ipa_get_ep_mapping(in->sys.client)))
 	{
+		ipa_mhi_client_ctx->is_mhi_eth_connected = true;
 		netif_carrier_on(ipa_mhi_client_ctx->net);
 
 		if (!netif_carrier_ok(ipa_mhi_client_ctx->net)) {
@@ -1844,7 +1843,7 @@ static int ipa_mhi_connect_pipe_internal(struct ipa_mhi_connect_params *in, u32 
 			goto fail_netif_carrier;
 		}
 
-		if(ipa_mhi_client_ctx->is_mhi_connected && ipa_mhi_client_ctx->is_mhi_up){
+		if(ipa_mhi_client_ctx->is_mhi_up){
 			netif_start_queue(ipa_mhi_client_ctx->net);
 		}
 	}
@@ -1917,7 +1916,7 @@ static int mhi_ipa_open(struct net_device *net)
 	IPA_MHI_FUNC_ENTRY();
 
 	ipa_mhi_client_ctx->is_mhi_up = true;
-	if(ipa_mhi_client_ctx->is_mhi_connected){
+	if(ipa_mhi_client_ctx->is_mhi_eth_connected){
 		netif_start_queue(net);
 	}
 
@@ -1961,7 +1960,7 @@ static netdev_tx_t mhi_ipa_start_xmit
 		goto out;
 	}
 
-	if (unlikely(!(mhi_ipa_ctx->is_mhi_connected && mhi_ipa_ctx->is_mhi_up))) {
+	if (unlikely(!(mhi_ipa_ctx->is_mhi_eth_connected && mhi_ipa_ctx->is_mhi_up))) {
 		IPA_MHI_ERR("Missing pipe connected and/or iface up\n");
 		return NETDEV_TX_BUSY;
 	}
@@ -2038,7 +2037,7 @@ static void mhi_ipa_packet_receive_notify
 		return;
 	}
 
-	if (unlikely(!(mhi_ipa_ctx->is_mhi_connected && mhi_ipa_ctx->is_mhi_up))) {
+	if (unlikely(!(mhi_ipa_ctx->is_mhi_eth_connected && mhi_ipa_ctx->is_mhi_up))) {
 		IPA_MHI_DBG("Missing pipe connected and/or iface up\n");
 		dev_kfree_skb_any(skb);
 		return;
@@ -2117,7 +2116,7 @@ static void mhi_ipa_tx_complete_notify
 		return;
 	}
 
-	if (unlikely(!(mhi_ipa_ctx->is_mhi_connected &&  mhi_ipa_ctx->is_mhi_up))) {
+	if (unlikely(!(mhi_ipa_ctx->is_mhi_eth_connected &&  mhi_ipa_ctx->is_mhi_up))) {
 		IPA_MHI_DBG("dropping Tx-complete pkt");
 		goto out;
 	}
@@ -2323,7 +2322,7 @@ static int ipa_mhi_disconnect_pipe_internal(u32 clnt_hdl)
 
 	IPA_ACTIVE_CLIENTS_DEC_EP(client);
 
-	if(ipa3_ctx->ipa_mhi_eth)
+	if(ipa3_ctx->ipa_mhi_eth && IPA_CLIENT_IS_MHI_ETH(ipa_get_ep_mapping(client)))
 	{
 		if(IPA_CLIENT_IS_MHI_PROD(client))
 		{
@@ -2354,9 +2353,9 @@ static int ipa_mhi_disconnect_pipe_internal(u32 clnt_hdl)
 			atomic_read(&ipa_mhi_client_ctx->outstanding_pkts);
 		ipa_mhi_client_ctx->net->stats.tx_errors += outstanding_dropped_pkts;
 		atomic_set(&ipa_mhi_client_ctx->outstanding_pkts, 0);
-	}
 
-	ipa_mhi_client_ctx->is_mhi_connected = false;
+		ipa_mhi_client_ctx->is_mhi_eth_connected = false;
+	}
 
 	IPA_MHI_DBG("client (ep: %d) disconnected\n", clnt_hdl);
 	IPA_MHI_FUNC_EXIT();

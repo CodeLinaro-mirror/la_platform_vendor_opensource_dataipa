@@ -220,6 +220,10 @@ do {\
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI2_CONS)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_CONS)))
 
+#define IPA_CLIENT_IS_MHI_ETH(x) \
+	((x == ipa_get_ep_mapping(IPA_CLIENT_MHI_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI_CONS)))
+
 #ifdef IPA_CLIENT_MHI_COAL_CONS
 #define IPA_CLIENT_IS_MHI_COAL_CONS(x) \
 	((x == ipa_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS)))
