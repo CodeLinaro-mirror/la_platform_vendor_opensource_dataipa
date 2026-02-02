@@ -5219,9 +5219,9 @@ _prep_and_send_skb(
 
 				struct tcphdr* hdr = new_proto_hdr;
 
-				hdr_data->curr_seq += (aggr_payload_size) ? aggr_payload_size : 1;
-
 				hdr->seq = htonl(hdr_data->curr_seq);
+
+				hdr_data->curr_seq += (aggr_payload_size) ? aggr_payload_size : 1;
 
 			} else {
 
