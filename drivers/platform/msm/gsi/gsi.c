@@ -574,10 +574,9 @@ static void gsi_handle_glob_err(uint32_t err)
 		} else if (log->code == GSI_OUT_OF_RESOURCES_ERR) {
 			if (log->ee != gsi_ctx->per.ee) {
 				GSIERR("unexpected EE in event %d\n", log->ee);
-				GSI_ASSERT();
 			}
-			evt_notify.evt_id = GSI_EVT_OUT_OF_RESOURCES_ERR;
-			complete(&ev->compl);
+			GSIERR("GSI_OUT_OF_RESOURCES_ERR in event\n");
+			GSI_ASSERT();
 		} else if (log->code == GSI_UNSUPPORTED_INTER_EE_OP_ERR) {
 			evt_notify.evt_id = GSI_EVT_UNSUPPORTED_INTER_EE_OP_ERR;
 		} else if (log->code == GSI_EVT_RING_EMPTY_ERR) {
@@ -2331,8 +2330,11 @@ int gsi_alloc_evt_ring(struct gsi_evt_ring_props *props, unsigned long dev_hdl,
 	res = wait_for_completion_timeout(&ctx->compl, GSI_CMD_TIMEOUT);
 	if (res == 0) {
 		GSIERR("evt_id=%lu timed out\n", evt_id);
-		if (!props->evchid_valid)
+		if (!props->evchid_valid) {
 			clear_bit(evt_id, gsi_ctx->evt_bmap);
+			mutex_unlock(&gsi_ctx->mlock);
+			GSI_ASSERT();
+		}
 		mutex_unlock(&gsi_ctx->mlock);
 		return -GSI_STATUS_TIMED_OUT;
 	}
