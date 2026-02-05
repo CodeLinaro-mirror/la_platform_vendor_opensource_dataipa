@@ -1636,12 +1636,13 @@ int ipa3_reset_hdr(bool user_only)
 					entry->proc_ctx->hdr = NULL;
 					entry->proc_ctx = NULL;
 				}
-				/* move the offset entry to free list */
-				entry->offset_entry->ipacm_installed = false;
-				list_move(&entry->offset_entry->link,
-				&ipa3_ctx->hdr_tbl[hdr_tbl_loc].head_free_offset_list[
-						entry->offset_entry->bin]);
-
+				if (entry->offset_entry) {
+					/* move the offset entry to free list */
+					entry->offset_entry->ipacm_installed = false;
+					list_move(&entry->offset_entry->link,
+							&ipa3_ctx->hdr_tbl[hdr_tbl_loc].head_free_offset_list[
+							entry->offset_entry->bin]);
+				}
 				/* delete the hdr entry from headers list */
 				list_del(&entry->link);
 				ipa3_ctx->hdr_tbl[hdr_tbl_loc].hdr_cnt--;
