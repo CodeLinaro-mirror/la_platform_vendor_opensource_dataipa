@@ -8591,7 +8591,7 @@ int rmnet_ipa3_clear_lan_client_info_v2(
 	}
 
 	/* Check if Client index is valid. */
-	if (data->client_idx >= IPA_MAX_NUM_HW_PATH_CLIENTS ||
+	if (data->client_idx >= IPA_MAX_NUM_HW_PATH_CLIENTS_V2 ||
 		data->client_idx < 0) {
 		IPAWANERR("Invalid Client Index: %d\n", data->client_idx);
 		return -EINVAL;
