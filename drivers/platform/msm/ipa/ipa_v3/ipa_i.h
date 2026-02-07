@@ -547,6 +547,8 @@ enum ipa_icc_level {
 	IPA_ICC_SVS,
 	IPA_ICC_NOMINAL,
 	IPA_ICC_TURBO,
+	IPA_ICC_TURBO_L1,
+	IPA_ICC_TURBO_L3,
 	IPA_ICC_LVL_MAX,
 };
 
@@ -3243,6 +3245,8 @@ struct ipa3_mem_partition {
 
 struct ipa3_controller {
 	struct ipa3_mem_partition *mem_partition;
+	u32 ipa_clk_rate_turbo_l3;
+	u32 ipa_clk_rate_turbo_l1;
 	u32 ipa_clk_rate_turbo;
 	u32 ipa_clk_rate_nominal;
 	u32 ipa_clk_rate_svs;
