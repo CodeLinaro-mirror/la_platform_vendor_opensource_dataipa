@@ -6733,6 +6733,12 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_NAT_AND_CONN_TRACK_CFG] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00000698, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_FLAVOR_1] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0004, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_STATE_TX_1] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x008c, 0, 0, 0, 0, 0},
 
 	/* IPA_DEBUG */
 	[IPA_HW_v7_0][IPA_RX_HPS_CLIENTS_MIN_DEPTH_1] = {
@@ -6785,6 +6791,26 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_ENDP_GSI_CFG_AOS_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00014400, 0x4, 0, 48, 0, 0},
+	[IPA_HW_v7_0][IPA_DPS_TX_CMDQ_CMD] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00013400, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_DPS_TX_CMDQ_CFG_RD] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00013410, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_DPS_TX_CMDQ_DATA_WR_0] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00013414, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_NTF_TX_CMDQ_CFG_RD_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00013710, 0x4, 0, 2, 0, 0},
+
+	/* IPA_CTX */
+	[IPA_HW_v7_0][IPA_PKT_CTX_NUM_m_FIELDS_2] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000b008, 0x200, 0, 59, 0, 0},
+	[IPA_HW_v7_0][IPA_PKT_CTX_NUM_m_FIELDS_14] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000b038, 0x200, 0, 59, 0, 0},
 
 	/* IPA_EE */
 	[IPA_HW_v7_0][IPA_IRQ_STTS_EE_n] = {

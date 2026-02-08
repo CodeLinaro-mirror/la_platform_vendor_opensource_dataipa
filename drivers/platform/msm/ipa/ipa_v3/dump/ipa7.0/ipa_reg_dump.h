@@ -245,6 +245,11 @@ struct map_src_dst_addr_s {
 	  (u32 *)&ipa_reg_save.sub_struct.field_name , \
 	  GEN_REG_ATTR(reg_name) }
 
+#define GEN_SRC_DST_ADDR_MAP_IDX(reg_name, sub_struct, field_name, m) \
+	{ GEN_1xVECTOR_REG_OFST(reg_name, m), \
+	  (u32 *)&ipa_reg_save.sub_struct.field_name , \
+	  GEN_REG_ATTR(reg_name) }
+
 /*
  * Macro to get value of bits 18:13, used tp get rsrc cnts from
  * IPA_DEBUG_DATA
@@ -1773,6 +1778,37 @@ struct ipa_reg_save_dst_rsrc_cnt_s {
 	  ipa_dst_rsrc_type_cnt_grp_n;
 };
 
+struct ipa_reg_save_tsp_stop_ch_wa {
+	struct ipa_hwio_def_ipa_dps_tx_cmdq_cfg_rd_s
+	  ipa_dps_tx_cmdq_cfg_rd;
+	struct ipa_hwio_def_ipa_flavor_1_s
+	  ipa_flavor_1;
+	struct ipa_hwio_def_ipa_pkt_ctx_num_m_fields_2_s
+	  ipa_pkt_ctx_num_m_fields_2;
+	struct ipa_hwio_def_ipa_pkt_ctx_num_m_fields_14_s
+	  ipa_pkt_ctx_num_m_fields_14;
+	struct ipa_hwio_def_ipa_dps_tx_cmdq_data_wr_0_s
+	  ipa_dps_tx_cmdq_data_wr_0;
+	struct ipa_hwio_def_ipa_dps_tx_cmdq_cmd_s
+	  ipa_dps_tx_cmdq_cmd;
+	struct ipa_hwio_def_ipa_ntf_tx_cmdq_cfg_rd_n_s
+	  ipa_ntf_tx_cmdq_cfg_rd_1;
+	struct ipa_hwio_def_ipa_ntf_tx_cmdq_cfg_rd_n_s
+	  ipa_ntf_tx_cmdq_cfg_rd_2;
+	struct ipa_hwio_def_ipa_state_tx_1_s
+	  ipa_state_tx_1;
+};
+
+struct ipa_reg_save_dlnlo_stop_ch_wa {
+	struct ipa_hwio_def_ipa_ackmngr_cmdq_status_empty_n_s
+	  ipa_ackmngr_cmdq_status_empty_n[
+			GEN_MAX_n(IPA_ACKMNGR_CMDQ_STATUS_EMPTY_n) + 1];
+	struct ipa_hwio_def_ipa_rx_hps_cmdq_status_empty_s
+	  ipa_rx_hps_cmdq_status_empty;
+	struct ipa_hwio_def_ipa_rx_hps_cmdq_cfg_wr_s
+	  ipa_rx_hps_cmdq_cfg_wr;
+};
+
 /* GSI fw version data */
 struct ipa_reg_save_gsi_fw_version_s {
 	u32 raw_version;
@@ -1827,6 +1863,8 @@ struct ipa_reg_save_gsi_gen_ee_s {
 		ee_n_cntxt_src_ieob_irq_msk_k;
 	struct gsi_hwio_def_ee_n_cntxt_gsi_irq_stts_s
 	  ee_n_cntxt_gsi_irq_stts;
+	struct gsi_hwio_def_ee_n_cntxt_gsi_irq_en_s
+	  ee_n_cntxt_gsi_irq_en;
 	struct gsi_hwio_def_ee_n_cntxt_glob_irq_stts_s
 	  ee_n_cntxt_glob_irq_stts;
 	struct gsi_hwio_def_ee_n_error_log_s
@@ -2228,6 +2266,16 @@ struct ipa_reg_save_rsrc_cnts_s {
 };
 
 /*
+ * IPA Specific Debug Data
+ */
+struct ipa_reg_save_ipa_workarounds_debug_data {
+	struct ipa_reg_save_tsp_stop_ch_wa
+		tsp_stop_ch_wa;
+	struct ipa_reg_save_dlnlo_stop_ch_wa
+		dlnlo_stop_ch_wa;
+};
+
+/*
  * Top level IPA and GSI registers save data struct
  */
 struct regs_save_hierarchy_s {
@@ -2247,6 +2295,8 @@ struct regs_save_hierarchy_s {
 		rsrc_cnts;
 	struct ipa_reg_save_gsi_fifo_status_s
 		gsi_fifo_status[IPA_HW_PIPE_ID_MAX];
+	struct ipa_reg_save_ipa_workarounds_debug_data
+		ipa_workarounds_debug_data;
 };
 
 /*
