@@ -8,6 +8,7 @@
 #include <linux/debugfs.h>
 #include <linux/kernel.h>
 #include <linux/stringify.h>
+#include <linux/if_vlan.h>
 #include "ipa_i.h"
 #include "ipa_rm_i.h"
 #include "ipahal_reg.h"
@@ -1570,6 +1571,31 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
 				pr_err("esp_after_udp %u ", entry->rule.esp_after_udp);
 
+			pr_err("ep_hdr_len %u ", ipa3_ctx->ep[j].cfg.hdr.hdr_len);
+
+			switch(ipa3_ctx->ep[j].cfg.hdr.hdr_len)
+			{
+				case EoGRE_V4_HDR_LEN:
+					pr_err("EoGRE V4 HDR");
+					break;
+				case EoGRE_V6_HDR_LEN:
+					pr_err("EoGRE V6 HDR");
+					break;
+				case VLAN_ETH_HLEN:
+					pr_err("VLAN");
+					break;
+				case ETH_HLEN:
+					pr_err("Non-VLAN");
+					break;
+				case VLAN_VLAN_ETH_HLEN:
+					pr_err("PPPoE non-VLAN");
+					break;
+				case PPPOE_VLAN_ETH_HLEN:
+					pr_err("PPPoE VLAN");
+					break;
+				default:
+					pr_err("");
+			}
 			pr_err("\n");
 
 			if (eq) {

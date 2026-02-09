@@ -1434,6 +1434,7 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	int result = 0;
 	enum ipa_client_type rx_client;
 	enum ipa_client_type tx_client;
+	enum ipa_client_type rx1_client;
 
 	/* wdi3 only support over gsi */
 	if (ipa_get_wdi_version() < IPA_WDI_3) {
@@ -1536,6 +1537,9 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 			ipa3_release_wdi3_gsi_smmu_mappings(IPA_WDI3_RX6_DIR);
 
 		ipa3_delete_dflt_flt_rules(ipa_ep_idx_rx1);
+		rx1_client = ipa3_get_client_mapping(ipa_ep_idx_rx1);
+		if(rx1_client != -EINVAL)
+			ipa_reset_drop_stats(rx1_client);
 		memset(ep_rx1, 0, sizeof(struct ipa3_ep_context));
 		IPADBG("rx1 client (ep: %d) disconnected\n", ipa_ep_idx_rx1);
 	}
@@ -1570,9 +1574,6 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	IPADBG("rx client (ep: %d) disconnected\n", ipa_ep_idx_rx);
 
 	ipa_reset_drop_stats(rx_client);
-	u16 rx1_client = ipa3_get_client_mapping(ipa_ep_idx_rx1);
-	if(rx1_client != -EINVAL)
-		ipa_reset_drop_stats(rx1_client);
 exit:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_by_pipe(ipa_ep_idx_tx));
 	return result;

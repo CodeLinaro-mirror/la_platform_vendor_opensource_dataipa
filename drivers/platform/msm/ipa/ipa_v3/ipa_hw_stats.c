@@ -8,6 +8,7 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/workqueue.h>
+#include <linux/rcupdate.h>
 #include "ipa_i.h"
 #include "ipahal.h"
 #include "ipahal_hw_stats.h"
@@ -2676,7 +2677,7 @@ int ipa_client_get_stats(enum ipa_client_type client, u32 inst_id, struct ipa_dr
 	      ipahal_get_ep_bit(ep_idx)))
 			return -ENOENT;  /* Stats not enabled for this pipe */
 
-	if (unlikely(in_interrupt() || in_atomic())) {
+	if (unlikely(in_interrupt() || in_atomic() || rcu_preempt_depth() > 0)) {
 		IPADBG("In atomic/interrupt context. scheduling the work to query the stats.\n");
 		schedule_work(&update_drop_stats_work);
 		ret = 0;
