@@ -4225,6 +4225,13 @@ int ipa3_check_eogre(
 	bool                      *send2ipacm );
 
 /*
+ * To send RGIP info to ipacm
+ */
+int ipa3_send_rgip_info(
+	enum ipa_rgip_event  etype,
+	struct rgip_info rgip );
+
+/*
  * To send map information to uC
  */
 int ipa3_add_dscp_vlan_pcp_map(
