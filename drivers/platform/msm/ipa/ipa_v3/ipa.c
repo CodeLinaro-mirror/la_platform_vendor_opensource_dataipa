@@ -3685,7 +3685,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_get_ep_info ep_info;
 	union ipa_ioc_uc_activation_entry uc_act;
 	int i = 0;
-
+	struct rgip_info rgip_addr;
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
 
 	if (_IOC_TYPE(cmd) != IPA_IOC_MAGIC)
@@ -5510,6 +5510,17 @@ send:
 		break;
 	case IPA_IOC_UPDATE_L2TP_CONFIG:
 		retval = ipa3_update_l2tp_config(arg);
+		break;
+	case IPA_IOC_ADD_RGIP:
+		if (copy_from_user(
+				&rgip_addr,
+				(const void __user *) arg,
+				sizeof(struct rgip_info))) {
+			IPAERR("copy_from_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+		ipa3_send_rgip_info(IPA_RGIP_ADD_EVENT,rgip_addr);
 		break;
 
 	default:
@@ -8421,6 +8432,11 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_PPPOE_MAPPING))
 				return -EPERM;
 			cmd = IPA_IOC_ADD_PPPOE_MAPPING;
+			break;
+		case IPA_IOCTL_ADD_RGIP:
+			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_RGIP))
+				return -EPERM;
+			cmd = IPA_IOC_ADD_RGIP;
 			break;
 
 	default:
