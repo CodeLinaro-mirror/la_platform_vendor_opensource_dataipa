@@ -1258,7 +1258,11 @@ static void ipa_ipsec_delete_orphan_dl_fnr(enum ipa_ip_type ip, u8 idx)
 	mutex_unlock(&ipa3_ctx->ipsec->pol_list_lock);
 }
 
+#if (KERNEL_VERSION(6, 16, 0) > LINUX_VERSION_CODE)
 int ipa_ipsec_xdo_state_add(struct xfrm_state *x, struct netlink_ext_ack *extack)
+#else
+int ipa_ipsec_xdo_state_add(struct net_device *dev, struct xfrm_state *x, struct netlink_ext_ack *extack)
+#endif
 {
 	int ret = 0;
 	u8 idx = IPA_IPSEC_MAX_SA_NUM;
@@ -1596,7 +1600,11 @@ state_end:
 }
 
 /* Placeholder - no real driver action is needed */
+#if (KERNEL_VERSION(6, 16, 0) > LINUX_VERSION_CODE)
 void ipa_ipsec_xdo_state_delete(struct xfrm_state *x)
+#else
+void ipa_ipsec_xdo_state_delete(struct net_device *dev, struct xfrm_state *x)
+#endif
 {
 	IPADBG_LOW("Start\n");
 	if (!ipa_ipsec_enabled()) {
@@ -1673,7 +1681,11 @@ void ipa_ipsec_xdo_state_free_work(struct work_struct *work)
 	kfree(work_data);
 }
 
+#if (KERNEL_VERSION(6, 16, 0) > LINUX_VERSION_CODE)
 void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
+#else
+void ipa_ipsec_xdo_state_free(struct net_device *dev, struct xfrm_state *x)
+#endif
 {
 	int idx = IPA_IPSEC_MAX_SA_NUM;
 	struct ipa_ipsec_state_work_wrap *work_data;
@@ -1767,7 +1779,11 @@ void ipa_ipsec_xdo_state_advance_esn(struct xfrm_state *x)
 
 }
 
+#if (KERNEL_VERSION(6, 16, 0) > LINUX_VERSION_CODE)
 void ipa_ipsec_xdo_state_update_curlft(struct xfrm_state *x)
+#else
+void ipa_ipsec_xdo_state_update_stats(struct xfrm_state *x)
+#endif
 {
 	u8 idx;
 	struct ipa_ipsec_sa_encap *e_sa;
@@ -3083,7 +3099,11 @@ int ipa_ipsec_init(void)
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_state_free = ipa_ipsec_xdo_state_free;
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_offload_ok = ipa_ipsec_xdo_offload_ok;
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_state_advance_esn = ipa_ipsec_xdo_state_advance_esn;
+#if (KERNEL_VERSION(6, 16, 0) > LINUX_VERSION_CODE)
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_state_update_curlft = ipa_ipsec_xdo_state_update_curlft;
+#else
+	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_state_update_stats = ipa_ipsec_xdo_state_update_stats;
+#endif
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_policy_add = ipa_ipsec_xdo_policy_add;
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_policy_delete = ipa_ipsec_xdo_policy_delete;
 	ipa3_ctx->ipsec->xfrmdev_ops->xdo_dev_policy_free = ipa_ipsec_xdo_policy_free;
