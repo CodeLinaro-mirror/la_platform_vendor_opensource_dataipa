@@ -3717,7 +3717,8 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 		"type %d, base %pK, offset %d, hdr_len %d, hdr_base_addr %llu, offset_entry %pK, bool %d\n"
 			, type, base, offset, hdr_len, hdr_base_addr, offset_entry, is_64);
 
-	if (!base || (!offset_entry && !is_hdr_proc_ctx) || !hdr_base_addr) {
+	if (!ipa_is_proc_ctx_headerless(type) &&
+	    (!base || (!offset_entry && !is_hdr_proc_ctx) || !hdr_base_addr)) {
 		IPAHAL_ERR(
 			"invalid input: hdr_len:%u hdr_base_addr:%llu offset_entry:%pK\n",
 			hdr_len, hdr_base_addr, offset_entry);
