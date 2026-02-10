@@ -70,7 +70,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 	struct ipa_mem_buffer *mem, u64 hdr_sys_addr)
 {
 	struct ipa3_hdr_proc_ctx_entry *entry;
-	int ret;
+	int ret = 0;
 	int ep;
 	struct ipa_ep_cfg *cfg_ptr;
 	struct ipa_l2tp_header_remove_procparams *l2p_hdr_rm_ptr;
@@ -112,19 +112,22 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 					0 : 1;
 			}
 		}
-		/* Check the pointer and header length to avoid dangerous overflow in HW */
-		if (unlikely(!entry->hdr || ((!entry->hdr->offset_entry) &&(!entry->hdr->is_hdr_proc_ctx)) ||
-			entry->hdr->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1]))
-			return -EINVAL;
 
-		if (entry->hdr->in_apps_headers_ext) {
-			hdr_tbl_base_addr = hdr_lcl_ext_addr;
-		} else if (entry->hdr->is_lcl) {
-			hdr_tbl_base_addr = hdr_lcl_addr;
-		} else {
-			hdr_tbl_base_addr = hdr_sys_addr;
-		}
-		ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
+		/* Check the pointer and header length to avoid dangerous overflow in HW */
+		if (entry->hdr) {
+
+			if (unlikely((!entry->hdr->offset_entry && !entry->hdr->is_hdr_proc_ctx) ||
+				     entry->hdr->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1]))
+				return -EINVAL;
+
+			if (entry->hdr->in_apps_headers_ext)
+				hdr_tbl_base_addr = hdr_lcl_ext_addr;
+			else if (entry->hdr->is_lcl)
+				hdr_tbl_base_addr = hdr_lcl_addr;
+			else
+				hdr_tbl_base_addr = hdr_sys_addr;
+
+			ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
 				entry->offset_entry->offset,
 				entry->hdr->hdr_len,
 				entry->hdr->is_hdr_proc_ctx,
@@ -138,13 +141,30 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 				&entry->generic_params_v2,
 				&entry->pdn_dscp_params,
 				ipa3_ctx->use_64_bit_dma_mask);
-		if (ret)
-		{
-			return ret;
+
+		} else { /* For headerless contexts, skip header - related processing */
+
+			if (!ipa_is_proc_ctx_headerless(entry->type))
+				return -EINVAL;
+
+			ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
+				entry->offset_entry->offset,
+				0, /* hdr_len */
+				false, /* is_hdr_proc_ctx */
+				0, /* phys_base */
+				0, /* hdr_tbl_base_addr */
+				NULL, /* offset_entry */
+				&entry->l2tp_params,
+				&entry->eogre_params,
+				&entry->ipsec_params,
+				&entry->generic_params,
+				&entry->generic_params_v2,
+				&entry->pdn_dscp_params,
+				ipa3_ctx->use_64_bit_dma_mask);
 		}
 	}
 
-	return 0;
+	return ret;
 }
 
 /**
@@ -568,17 +588,24 @@ static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
 		return -EINVAL;
 	}
 
-	hdr_entry = ipa3_id_find(proc_ctx->hdr_hdl);
-	if (!hdr_entry) {
-		IPAERR_RL("hdr_hdl is invalid\n");
-		return -EINVAL;
+	/* Check if this is a headerless processing context type */
+	if (ipa_is_proc_ctx_headerless(proc_ctx->type)) {
+		hdr_entry = NULL;
+	} else {
+		hdr_entry = ipa3_id_find(proc_ctx->hdr_hdl);
+		if (!hdr_entry) {
+			IPAERR_RL("hdr_hdl is invalid\n");
+			return -EINVAL;
+		}
+		if (hdr_entry->cookie != IPA_HDR_COOKIE) {
+			IPAERR_RL("Invalid header cookie %u\n", hdr_entry->cookie);
+			WARN_ON_RATELIMIT_IPA(1);
+			return -EINVAL;
+		}
 	}
-	if (hdr_entry->cookie != IPA_HDR_COOKIE) {
-		IPAERR_RL("Invalid header cookie %u\n", hdr_entry->cookie);
-		WARN_ON_RATELIMIT_IPA(1);
-		return -EINVAL;
-	}
-	IPADBG("Associated header is name=%s\n", hdr_entry->name);
+
+	if (hdr_entry)
+		IPADBG("Associated header is name=%s\n", hdr_entry->name);
 
 	entry = kmem_cache_zalloc(ipa3_ctx->hdr_proc_ctx_cache, GFP_KERNEL);
 	if (!entry) {
@@ -596,7 +623,7 @@ static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
 	entry->generic_params = proc_ctx->generic_params;
 	entry->generic_params_v2 = proc_ctx->generic_params_v2;
 	entry->pdn_dscp_params = proc_ctx->pdn_dscp_params;
-	if (add_ref_hdr)
+	if (hdr_entry && add_ref_hdr)
 		hdr_entry->ref_cnt++;
 	entry->cookie = IPA_PROC_HDR_COOKIE;
 	entry->ipacm_installed = user_only;
@@ -708,7 +735,7 @@ ipa_insert_failed:
 	htbl->proc_ctx_cnt--;
 
 bad_len:
-	if (add_ref_hdr)
+	if (hdr_entry && add_ref_hdr)
 		hdr_entry->ref_cnt--;
 	entry->cookie = 0;
 	kmem_cache_free(ipa3_ctx->hdr_proc_ctx_cache, entry);
