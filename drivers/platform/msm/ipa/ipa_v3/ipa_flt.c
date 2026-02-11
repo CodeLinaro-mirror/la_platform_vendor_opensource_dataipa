@@ -7,6 +7,7 @@
 #include "ipa_i.h"
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
+#include <linux/list_sort.h>
 
 #define IPA_FLT_STATUS_OF_ADD_FAILED		(-1)
 #define IPA_FLT_STATUS_OF_DEL_FAILED		(-1)
@@ -112,6 +113,19 @@ static void __ipa_reap_sys_flt_tbls(enum ipa_ip_type ip, enum ipa_rule_type rlt)
 	}
 }
 
+static int ipa_flt_rule_cmp(void *priv, const struct list_head *a, const struct list_head *b)
+{
+	struct ipa3_flt_entry *entry_a = list_entry(a, struct ipa3_flt_entry, link);
+	struct ipa3_flt_entry *entry_b = list_entry(b, struct ipa3_flt_entry, link);
+
+	if (entry_a->prio < entry_b->prio)
+		return -1;
+	else if (entry_a->prio > entry_b->prio)
+		return 1;
+	else
+		return 0;
+}
+
 /**
  * ipa_prep_flt_tbl_for_cmt() - preparing the flt table for commit
  *  assign priorities to the rules, calculate their sizes and calculate
@@ -129,6 +143,8 @@ static int ipa_prep_flt_tbl_for_cmt(enum ipa_ip_type ip,
 	int prio_i;
 	int max_prio;
 	u32 hdr_width;
+	bool sort_needed = false;
+	u32 prev_prio = 0;
 
 	tbl->sz[IPA_RULE_HASHABLE] = 0;
 	tbl->sz[IPA_RULE_NON_HASHABLE] = 0;
@@ -138,9 +154,15 @@ static int ipa_prep_flt_tbl_for_cmt(enum ipa_ip_type ip,
 	prio_i = max_prio;
 	list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
 
-		if (entry->rule.max_prio) {
+		if (entry->rule.max_prio)
+		{
 			entry->prio = entry->rule.max_prio;
-		} else {
+			if (entry->prio < prev_prio)
+				sort_needed = true;
+			prev_prio = entry->prio;
+		}
+		else
+		{
 			if (ipahal_rule_decrease_priority(&prio_i)) {
 				IPAERR("cannot decrease rule priority - %d\n",
 					prio_i);
@@ -161,6 +183,8 @@ static int ipa_prep_flt_tbl_for_cmt(enum ipa_ip_type ip,
 		else
 			tbl->sz[IPA_RULE_NON_HASHABLE] += entry->hw_len;
 	}
+	if (sort_needed)
+		list_sort(NULL, &tbl->head_flt_rule_list, ipa_flt_rule_cmp);
 
 	if ((tbl->sz[IPA_RULE_HASHABLE] +
 		tbl->sz[IPA_RULE_NON_HASHABLE]) == 0) {
@@ -2391,4 +2415,3 @@ int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client)
 
 	return 0;
 }
-
