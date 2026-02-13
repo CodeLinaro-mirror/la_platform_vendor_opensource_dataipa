@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- *
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include <linux/ip.h>
@@ -27,7 +26,9 @@
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
 #include "ipa_stats.h"
+#ifdef CONFIG_IPA_RMNET_MEM
 #include <rmnet_mem.h>
+#endif
 
 #define IPA_GSI_EVENT_RP_SIZE 8
 #define IPA_WAN_NAPI_MAX_FRAMES (NAPI_WEIGHT / IPA_WAN_AGGR_PKT_CNT)
@@ -637,9 +638,13 @@ int ipa3_send(struct ipa3_sys_context *sys,
 	int i = 0;
 	int j;
 	int result;
+	u32 mem_flag = GFP_ATOMIC;
 	const struct ipa_gsi_ep_config *gsi_ep_cfg;
 	bool send_nop = false;
 	unsigned int max_desc;
+
+	if (unlikely(!in_atomic))
+		mem_flag = GFP_KERNEL;
 
 	gsi_ep_cfg = ipa_get_gsi_ep_info(sys->ep->client);
 	if (unlikely(!gsi_ep_cfg)) {
@@ -1438,6 +1443,7 @@ static void ipa3_tasklet_find_freepage(unsigned long data)
 
 }
 
+#ifdef CONFIG_IPA_RMNET_MEM
 static int ipa3_rmnet_mem_notifier(struct notifier_block *this,
 	unsigned long pool_size, void *ptr)
 {
@@ -1450,6 +1456,7 @@ static struct notifier_block ipa3_rmnet_mem_blk = {
 	.notifier_call = ipa3_rmnet_mem_notifier,
 	.priority = INT_MAX,
 };
+#endif
 
 /**
  * ipa_setup_sys_pipe() - Setup an IPA GPI pipe and perform
@@ -1475,7 +1482,9 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 	char buff[IPA_RESOURCE_NAME_MAX];
 	struct ipa_ep_cfg ep_cfg_copy;
 	int (*tx_completion_func)(struct napi_struct *, int);
+#ifdef CONFIG_IPA_RMNET_MEM
 	int pool_capacity = 0;
+#endif
 	struct net_device *dummy_ndev = NULL;
 
 	if (sys_in == NULL || clnt_hdl == NULL) {
@@ -1780,12 +1789,15 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 				atomic_set(&ep->sys->page_recycle_repl->pending, 0);
 				/* For common page pool double the pool size. */
 				if (ipa3_ctx->wan_common_page_pool &&
-					sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
+					sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS) {
+#ifdef CONFIG_IPA_RMNET_MEM
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
 							((rmnet_mem_config_query(IPA_ID) & DISABLE_STATIC_REDUCTION_F) ?
 							ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor :
 							(ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor - 1));
+#endif
+					}
 				else if (sys_in->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS)
 					ep->sys->page_recycle_repl->capacity =
 						(ep->sys->rx_pool_sz + 1) *
@@ -1825,6 +1837,7 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 					   sys_in->client, ep->sys->repl->capacity);
 			if (sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS ||
 				sys_in->client == IPA_CLIENT_APPS_WAN_CONS) {
+#ifdef CONFIG_IPA_RMNET_MEM
 				pool_capacity =
 					rmnet_mem_get_pool_size(ep->sys->page_order);
 				int temp_pool_capacity = (pool_capacity > 0) ?
@@ -1834,6 +1847,7 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 						sys_in->client,
 						atomic_read(&ipa3_ctx->ipa_temp_pool_capacity));
 				rmnet_mem_register_notifier(&ipa3_rmnet_mem_blk);
+#endif
 			}
 			atomic_set(&ep->sys->repl->pending, 0);
 			ep->sys->repl->cache = kcalloc(ep->sys->repl->capacity,
@@ -2056,10 +2070,14 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		netif_napi_del(&ep->sys->napi_rx);
 	}
 
+	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
+		tasklet_kill(&ep->sys->tasklet);
+
 	if ( ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS ) {
 		stop_coalescing();
 		ipa3_force_close_coal(false, true);
 	}
+
 
 	/* channel stop might fail on timeout if IPA is busy */
 	for (i = 0; i < IPA_GSI_CHANNEL_STOP_MAX_RETRY; i++) {
@@ -2497,15 +2515,15 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		     network_header->protocol == IPPROTO_ICMP) ||
 		    (((struct ipv6hdr *)network_header)->version == 6 &&
 		     ((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP) ||
-		    (meta && meta->pkt_ex_init_valid))) {
+		    (meta && meta->pkt_ex_init_valid)) && (meta && (!meta->ncm_enable))) {
 			ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
 				dst_ep_idx);
 			desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
 			desc[data_idx].dma_address =
 				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].phys_base;
-		} else if (ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe &&
-			skb_is_gso(skb)) {
+		} else if ((ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe &&
+			skb_is_gso(skb)) || (meta && (meta->ncm_enable))) {
 			desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
 			desc[data_idx].dma_address =
 				ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].phys_base;
@@ -2748,6 +2766,7 @@ static struct page *ipa3_alloc_page(
 	return page;
 }
 
+#ifdef CONFIG_IPA_RMNET_MEM
 static struct page *ipa3_rmnet_alloc_page(
 	gfp_t flag, u32 *page_order, bool try_lower)
 {
@@ -2778,7 +2797,7 @@ static struct page *ipa3_rmnet_alloc_page(
 	*page_order = p_order;
 	return page;
 }
-
+#endif
 
 static struct ipa3_rx_pkt_wrapper *ipa3_alloc_rx_pkt_page(
 	gfp_t flag, bool is_tmp_alloc, struct ipa3_sys_context *sys)
@@ -2795,8 +2814,14 @@ static struct ipa3_rx_pkt_wrapper *ipa3_alloc_rx_pkt_page(
 	/* For temporary allocations, avoid triggering OOM Killer. */
 	if (is_tmp_alloc) {
 		flag |= __GFP_RETRY_MAYFAIL | __GFP_NOWARN;
+#ifdef CONFIG_IPA_RMNET_MEM
 		rx_pkt->page_data.page = ipa3_rmnet_alloc_page(
 			flag, &rx_pkt->page_data.page_order, true);
+#else
+		rx_pkt->page_data.page = ipa3_alloc_page(flag,
+					&rx_pkt->page_data.page_order,
+					(is_tmp_alloc && rx_pkt->page_data.page_order == 3));
+#endif
 	} else {
 		/* Try a lower order page for order 3 pages in case allocation fails. */
 		rx_pkt->page_data.page = ipa3_alloc_page(flag,
@@ -3898,10 +3923,12 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 		kfree(sys->repl->cache);
 		kfree(sys->repl);
 		sys->repl = NULL;
+#ifdef CONFIG_IPA_RMNET_MEM
 		if (sys->ep->client == IPA_CLIENT_APPS_WAN_CONS ||
 			sys->ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS) {
 			rmnet_mem_unregister_notifier(&ipa3_rmnet_mem_blk);
 		}
+#endif
 	}
 }
 

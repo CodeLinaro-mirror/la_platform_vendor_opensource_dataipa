@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -161,9 +161,17 @@ struct IpaHwRegWriteCmdData_t {
  */
 union IpaHwCpuCmdCompletedResponseData_t {
 	struct IpaHwCpuCmdCompletedResponseParams_t {
+	#ifdef CONFIG_IPA_RTP
+		u32 originalCmdOp:16;
+	#else
 		u32 originalCmdOp:8;
+	#endif
 		u32 status:8;
+	#ifdef CONFIG_IPA_RTP
+		u32 responseData:8;
+	#else
 		u32 responseData:16;
+	#endif
 	} __packed params;
 	u32 raw32b;
 } __packed;
