@@ -9770,6 +9770,18 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		}
 #endif
 
+		if (strnstr(dbg_buff, "eth_pdu_over_usb", strlen(dbg_buff)))
+		{
+			IPADBG("ETH PDU over USB is enabled \n");
+			ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb = true;
+			return count;
+		}
+		if (strnstr(dbg_buff, "eth_pdu_over_eth", strlen(dbg_buff))) {
+			IPADBG("ETH PDU over ETH is enabled \n");
+			ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb = false;
+			return count;
+		}
+
 		/*
 		 * This logic enforeces MHI mode based on userspace input.
 		 * Note that MHI mode could be already determined due
@@ -10897,6 +10909,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->is_modem_up = false;
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
+	ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb = false;
 
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 	result = qcom_va_md_register("ipa_mini", &qcom_va_md_ipa_notif_blk);

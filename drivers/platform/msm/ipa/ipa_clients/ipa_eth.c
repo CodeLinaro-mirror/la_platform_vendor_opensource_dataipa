@@ -762,7 +762,7 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 			ipa_assert();
 		}
 
-		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
+		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && !ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb )
 		{
 			//populate the QMI
 			ipa_client = ipa_eth_get_ipa_client_type_from_pipe(pipe);
@@ -799,7 +799,7 @@ static int ipa_eth_client_conn_pipes_internal(struct ipa_eth_client *client)
 		ipa_eth_ctx->client[client_type][inst_id].existed = true;
 	}
 
-	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && !ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb)
 	{
 		ipa3_update_eth_pdu_ep_index(rx_idx, tx_idx);
 
@@ -873,7 +873,7 @@ static int ipa_eth_client_disconn_pipes_internal(struct ipa_eth_client *client)
 		return -EFAULT;
 	}
 
-	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled)
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && !ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb)
 		ipa3_update_eth_pdu_ep_index(0, 0);
 
 	mutex_unlock(&ipa_eth_ctx->lock);
