@@ -40,7 +40,7 @@
 #include "ipa_defs.h"
 #include "ipa_opt_log.h"
 #include <linux/mailbox_client.h>
-#include <linux/mailbox/qmp.h>
+#include <linux/soc/qcom/qcom_aoss.h>
 #include <linux/rmnet_ipa_fd_ioctl.h>
 #include "ipa_uc_holb_monitor.h"
 #include <soc/qcom/minidump.h>
@@ -2393,6 +2393,7 @@ struct ipa3_context {
 	struct device *pdev;
 	struct device *uc_pdev;
 	struct device *rtp_pdev;
+	struct qmp *qmp;
 	spinlock_t idr_lock;
 	u32 enable_clock_scaling;
 	u32 enable_napi_chain;
