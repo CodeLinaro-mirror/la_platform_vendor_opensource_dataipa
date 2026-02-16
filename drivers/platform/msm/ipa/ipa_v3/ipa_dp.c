@@ -4866,13 +4866,27 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 				metadata, *(u32 *)rx_skb->cb, ep->client);
 		IPADBG_LOW("ast update ucp: %d for client 0x%x\n", *(u8 *)(rx_skb->cb + 4), ep->client);
 	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
+		/* Metadata Info
+		 *  -----------------------------------------------------
+		 *  |   30 - 31 bits | 29 bit  |24-28 bits |16 -23 bits|
+		 *  | ta_peer_id_msb | reserv  |vap_id     |  QMAP_ID  |
+		 *  -----------------------------------------------------------
+		 *  | 14 - 15 bits|   13 bit  |    12 bit         |  0-11 bit  |
+		 *  | DEST_CHIP_ID| DA_IS_MCBC| dest_chip_pmac_id | ta_peer_id |
+		 *  -----------------------------------------------------------
+		 */
 
 		metadata = ntohl(metadata);
-		*(u16 *)rx_skb->cb = (((metadata >> 24) & 0xFF) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);//updating the vdev id and da_is_mcbc
-		*(u8 *)(rx_skb->cb + 4) = ucp; //updating the ucp
-		*(u16 *)(rx_skb->cb + 5) = metadata & 0xFFF; //updating the  ta peer id
-		*(u8 *) (rx_skb->cb + 7) = ((metadata >> 14) & 0x3); //extract the destination chip id.
-		*(u8 *) (rx_skb->cb + 8) = ((metadata >> 12) & 0x1); // extract the pmac id.
+		/*updating the vdev id and da_is_mcbc*/
+		*(u16 *)rx_skb->cb = (((metadata >> 24) & 0x1F) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);
+		/*updating the ucp*/
+		*(u8 *)(rx_skb->cb + 4) = ucp;
+		/*updating the  ta peer id of LSB and MSB bits*/
+		*(u16 *)(rx_skb->cb + 5) = ((metadata & 0xFFF)|(((metadata >> 30) & 0x3) << 12));
+		/*extract the destination chip id*/
+		*(u8 *) (rx_skb->cb + 7) = ((metadata >> 14) & 0x3);
+		/*extract the pmac id*/
+		*(u8 *) (rx_skb->cb + 8) = ((metadata >> 12) & 0x1);
 		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
 				metadata, *(u32 *)rx_skb->cb);
 		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
