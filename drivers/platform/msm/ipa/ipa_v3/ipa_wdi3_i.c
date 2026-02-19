@@ -104,6 +104,9 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
 		gsi_channel_props.prot = GSI_CHAN_PROT_WDI4;
 		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI4_EV;
+	} else if (ipa_get_wdi_version() == IPA_WDI_5) {
+		gsi_channel_props.prot = GSI_CHAN_PROT_WDI5;
+		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI5_EV;
 	} else if (ast_update) {
 		gsi_channel_props.prot = GSI_CHAN_PROT_WDI3M;
 		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3M_EV;
@@ -125,7 +128,16 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	}
 	IPADBG("client=%d smmu_cb_type = %d, dir %d\n", ep->client, cb_type, dir);
 
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_9) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+		ipa_get_wdi_version() == IPA_WDI_5) {
+		gsi_evt_ring_props.intr = GSI_INTR_MSI;
+		/* 64 (for Tx) and 8 (for Rx) */
+		if ((dir == IPA_WDI3_TX_DIR) || (dir == IPA_WDI3_TX1_DIR) ||
+			(dir == IPA_WDI3_TX2_DIR) || (dir == IPA_WDI3_TX3_DIR))
+			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_64B;
+		else
+			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_8B;
+	} else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_9) {
 		gsi_evt_ring_props.intr = GSI_INTR_MSI;
 		/* 32 (for Tx) and 8 (for Rx) */
 		if ((dir == IPA_WDI3_TX_DIR) || (dir == IPA_WDI3_TX1_DIR) ||
@@ -279,7 +291,8 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 		else {
 			if (gsi_channel_props.prot == GSI_CHAN_PROT_WDI3_V2 ||
 			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI3M_V2 ||
-			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI4)
+			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI4 ||
+			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI5)
 				gsi_channel_props.re_size =
 					GSI_CHAN_RE_SIZE_32B;
 			else
@@ -788,7 +801,8 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 			(1 << 8));
 	}
 
-	if(ipa_get_wdi_version() == IPA_WDI_3_V2) {
+	if(ipa_get_wdi_version() == IPA_WDI_3_V2 ||
+		ipa_get_wdi_version() == IPA_WDI_5) {
 
 		ch_scratch.wdi3_v2.wifi_rp_address_high =
 			ch_scratch.wdi3.wifi_rp_address_high;
@@ -837,8 +851,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 		ch_scratch.wdi3_v2.qmap_id = 0;
 		ch_scratch.wdi3_v2.reserved1 = 0;
 		ch_scratch.wdi3_v2.reserved2 = 0;
-	}
-	else if(ipa_get_wdi_version() == IPA_WDI_4){
+	} else if(ipa_get_wdi_version() == IPA_WDI_4){
 
 		ch_scratch.wdi4.wifi_rp_address_high =
 			ch_scratch.wdi3.wifi_rp_address_high;

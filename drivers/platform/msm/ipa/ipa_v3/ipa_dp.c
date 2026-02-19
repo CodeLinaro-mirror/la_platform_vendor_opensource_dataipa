@@ -4708,7 +4708,8 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
  * GSI will send us 12 byte of TLV with the above fields
  */
 
-	if (ipa_get_wdi_version() == IPA_WDI_3_V2) {
+	if ((ipa_get_wdi_version() == IPA_WDI_3_V2) ||
+		ipa_get_wdi_version() == IPA_WDI_5) {
 		/* Incremental offset for sa_peer_id. */
 		ast_info->sa_peer_id = *((u16 *)buff);
 	}
@@ -4741,7 +4742,8 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 #define IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_PINE 74
 #define IPA_WDI_AST_MAC_ADDR4_VALID_MSK 0x20
 
-	if (ipa_get_wdi_version() == IPA_WDI_3_V2)
+	if ((ipa_get_wdi_version() == IPA_WDI_3_V2) ||
+		ipa_get_wdi_version() == IPA_WDI_5)
 		buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_HMT;
 	else
 		buff += IPA_WDI_AST_MAC_ADDR4_VALID_VALID_INC_OFFST_PINE;
@@ -4765,7 +4767,8 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 #define IPA_WDI_RX_TLV_SIZE_HMT 12
 #define IPA_WDI_RX_TLV_SIZE_PINE 96
 
-	if (ipa_get_wdi_version() == IPA_WDI_3_V2)
+	if ((ipa_get_wdi_version() == IPA_WDI_3_V2) ||
+		ipa_get_wdi_version() == IPA_WDI_5)
 		skb_pull(skb, IPA_WDI_RX_TLV_SIZE_HMT);
 	else
 		skb_pull(skb, IPA_WDI_RX_TLV_SIZE_PINE);

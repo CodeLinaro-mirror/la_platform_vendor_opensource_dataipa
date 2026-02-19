@@ -3237,7 +3237,7 @@ struct ipa_wlan_msg {
 	uint8_t ast_update;
 	uint8_t instance_id;
 	uint8_t vdev_id;
-
+	uint8_t bank_id;
 };
 
 /**
@@ -3246,14 +3246,19 @@ struct ipa_wlan_msg {
  *
  * WLAN_HDR_ATTRIB_MAC_ADDR: attrib type mac address
  * WLAN_HDR_ATTRIB_STA_ID: attrib type station id
+ * WLAN_HDR_ATTRIB_TA_PEER_ID: TA peer id
+ * WLAN_HDR_ATTRIB_TX_PKT_CLSSFY_INDX: TX PKT Classify info index
  */
 enum ipa_wlan_hdr_attrib_type {
 	WLAN_HDR_ATTRIB_MAC_ADDR,
 	WLAN_HDR_ATTRIB_STA_ID,
-	WLAN_HDR_ATTRIB_TA_PEER_ID
+	WLAN_HDR_ATTRIB_TA_PEER_ID,
+	WLAN_HDR_ATTRIB_TXPKT_CLSSFY_INFO_INDX,
 };
 
 #define WLAN_HDR_ATTRIB_TA_PEER_ID WLAN_HDR_ATTRIB_TA_PEER_ID
+#define WLAN_HDR_ATTRIB_TXPKT_CLSSFY_INFO_INDX \
+	WLAN_HDR_ATTRIB_TXPKT_CLSSFY_INFO_INDX
 
 /**
  * struct ipa_wlan_hdr_attrib_val - header attribute value
@@ -3261,6 +3266,8 @@ enum ipa_wlan_hdr_attrib_type {
  * @offset: offset of attribute within header
  * @u.mac_addr: mac address
  * @u.sta_id: station id
+ * @u.ta_peer_id: ta peer id
+ * @u.txpkt_classfy_info_indx: packet class info index
  */
 struct ipa_wlan_hdr_attrib_val {
 	enum ipa_wlan_hdr_attrib_type attrib_type;
@@ -3269,6 +3276,7 @@ struct ipa_wlan_hdr_attrib_val {
 		uint8_t mac_addr[IPA_MAC_ADDR_SIZE];
 		uint8_t sta_id;
 		uint16_t ta_peer_id;
+		uint8_t txpkt_classfy_info_indx;
 	} u;
 };
 
@@ -3289,6 +3297,7 @@ struct ipa_wlan_msg_ex {
 	uint8_t instance_id;
 	uint8_t vdev_id;
 	uint8_t mld_enabled;
+	uint8_t bank_id;
 	struct ipa_wlan_hdr_attrib_val attribs[];
 };
 
