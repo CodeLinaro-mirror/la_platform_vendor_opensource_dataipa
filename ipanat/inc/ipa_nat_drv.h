@@ -64,7 +64,7 @@ typedef struct {
     bool conn_tracking;
     uint16_t all_pkts_stats_cnt_index;
     uint16_t non_frag_stats_cnt_index;
-    uint32_t sw_prod_classification_cookie;
+    uint64_t sw_prod_classification_cookie;
 	bool out_allowed;
 	bool in_allowed;
 
