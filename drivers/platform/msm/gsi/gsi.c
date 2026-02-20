@@ -2826,6 +2826,9 @@ static uint32_t gsi_legacy_protocol_dir_to_v7_0_protocol(enum gsi_chan_prot prot
 	case GSI_CHAN_PROT_WDI4:
 		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_WDI4_RX :
 			GSI_V7_0_CHAN_PROT_WDI4_TX;
+	case GSI_CHAN_PROT_WDI5:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_WDI5_RX :
+			GSI_V7_0_CHAN_PROT_WDI5_TX;
 	case GSI_CHAN_PROT_RTK:
 	case GSI_CHAN_PROT_RTK3:
 	case GSI_CHAN_PROT_MHI:
@@ -2896,6 +2899,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_NTN:
 	case GSI_CHAN_PROT_WDI3M:
 	case GSI_CHAN_PROT_WDI3M_V2:
+	case GSI_CHAN_PROT_WDI5:
 		ch_k_cntxt_0.chtype_protocol_msb = 1;
 		break;
 	default:

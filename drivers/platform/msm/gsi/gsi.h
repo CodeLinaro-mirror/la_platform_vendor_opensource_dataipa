@@ -178,6 +178,7 @@ enum gsi_evt_chtype {
 	GSI_EVT_CHTYPE_RTK3_EV = 0x11,
 	GSI_EVT_CHTYPE_XR_EV = 0x12,
 	GSI_EVT_CHTYPE_WDI3M_V2_EV = 0x13,
+	GSI_EVT_CHTYPE_WDI5_EV = 0X14
 };
 
 enum gsi_evt_ring_elem_size {
@@ -185,6 +186,7 @@ enum gsi_evt_ring_elem_size {
 	GSI_EVT_RING_RE_SIZE_8B = 8,
 	GSI_EVT_RING_RE_SIZE_16B = 16,
 	GSI_EVT_RING_RE_SIZE_32B = 32,
+	GSI_EVT_RING_RE_SIZE_64B = 64,
 };
 
 /**
@@ -273,6 +275,7 @@ enum gsi_chan_prot {
 	GSI_CHAN_PROT_RTK3 = 0x11,
 	GSI_CHAN_PROT_XR = 0x12,
 	GSI_CHAN_PROT_WDI3M_V2 = 0x13,
+	GSI_CHAN_PROT_WDI5 = 0x14,
 };
 
 enum gsi_chan_prot_v7_0 {
@@ -301,6 +304,8 @@ enum gsi_chan_prot_v7_0 {
 	GSI_V7_0_CHAN_PROT_WDI3_V2_TX = 0x16,
 	GSI_V7_0_CHAN_PROT_WDI3M_V2_TX = 0X17,
 	GSI_V7_0_CHAN_PROT_WDI4_TX = 0X18,
+	GSI_V7_0_CHAN_PROT_WDI5_RX = 0X19,
+	GSI_V7_0_CHAN_PROT_WDI5_TX = 0x1A,
 };
 
 enum gsi_max_prefetch {

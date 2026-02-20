@@ -29,6 +29,7 @@ enum ipa_wdi_version {
 	IPA_WDI_3,
 	IPA_WDI_3_V2,
 	IPA_WDI_4,
+	IPA_WDI_5,
 	IPA_WDI_VER_MAX
 };
 
@@ -573,6 +574,15 @@ int ipa_wdi_reg_intf_per_inst(
 	struct ipa_wdi_reg_intf_in_params *in);
 
 /**
+ * ipa_wdi_update_txpt_classfy_info_idx - Client Driver should call this
+ * function to update tx packet classify info index for the STA interface.
+ *
+ * @Return 0 on success, negative on failure
+ */
+int ipa_wdi_update_txpt_classfy_info_idx(ipa_wdi_hdl_t hdl,
+	u8 txpt_classfy_info_idx);
+
+/**
  * ipa_wdi_dereg_intf - Client Driver should call this
  * function to deregister before unload and after disconnect
  *
@@ -848,6 +858,12 @@ static inline int ipa_wdi_reg_intf(
 
 static inline int ipa_wdi_reg_intf_per_inst(
 	struct ipa_wdi_reg_intf_in_params *in)
+{
+	return -EPERM;
+}
+
+static inline int ipa_wdi_update_txpt_classfy_info_idx(ipa_wdi_hdl_t hdl,
+	u8 txpt_classfy_info_idx)
 {
 	return -EPERM;
 }
