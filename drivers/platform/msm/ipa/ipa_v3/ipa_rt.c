@@ -1683,7 +1683,8 @@ int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules,
 					rules->rules)[i].rt_rule_hdl),
 					((struct ipa_rt_rule_add_ext_i *)
 					rules->rules)[i].rule_id, user,
-					0,
+					((struct ipa_rt_rule_add_ext_i *)
+					rules->rules)[i].rule.rt_rule_category,
 					0)) {
 			IPAERR_RL("failed to add rt rule %d\n", i);
 			((struct ipa_rt_rule_add_ext_i *)

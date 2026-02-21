@@ -818,14 +818,13 @@ int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct
 	bool is_sta = 0;
 	bool ip_pass = 0;
 	bool isVlan = 0;
-	uint32_t pub_ip;
+	uint32_t pub_ip = 0;
 	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
 	struct ipa_ioc_query_intf pdn_intf;
 	int ret = 0;
 
 	IPA_BE_DBG("Entry \n");
 
-	/* ext Props */
 	memset(&pdn_intf, 0, sizeof(pdn_intf));
 	/*Check if the filter interface exists*/
 	if (!ipa3_query_iface(pdn_iface, &pdn_intf)) {
@@ -835,20 +834,45 @@ int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct
 		IPA_BE_DBG("Interface with index %u exist.\n", pdn_iface);
 	}
 
-	ext_prop = (struct ipa_ioc_query_intf_ext_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_ext_props) +
-		pdn_intf.num_ext_props * sizeof(struct ipa_ioc_ext_intf_prop), GFP_KERNEL);
-	if (ext_prop == NULL) {
-		IPA_BE_ERR("Unable to allocate ext_prop memory.\n");
-		return -ENOMEM;
+	/*
+	 * Modem PDNs expose ext_props (mux_id, is_sta, etc) over QMI. Eth backhaul
+	 * (eth) PDNs have num_ext_props == 0 — keep the defaults (mux_id=0,
+	 * is_sta=false, ip_pass=false) and skip the ext_props query.
+	 */
+	if (pdn_intf.num_ext_props > 0) {
+		ext_prop = (struct ipa_ioc_query_intf_ext_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_ext_props) +
+			pdn_intf.num_ext_props * sizeof(struct ipa_ioc_ext_intf_prop), GFP_KERNEL);
+		if (ext_prop == NULL) {
+			IPA_BE_ERR("Unable to allocate ext_prop memory.\n");
+			return -ENOMEM;
+		}
+
+		memcpy(ext_prop->name, pdn_intf.name, sizeof(pdn_intf.name));
+		ext_prop->num_ext_props = pdn_intf.num_ext_props;
+		IPA_BE_DBG("Query ext_prop %d name %s\n", ext_prop->num_ext_props, ext_prop->name);
+		if (ipa3_query_intf_ext_props(ext_prop)) {
+			IPA_BE_ERR("Failed to query ext_props for iface %s\n", ext_prop->name);
+			kfree(ext_prop);
+			return -EIO;
+		}
+
+		mux_id = ext_prop->ext[0].mux_id;
+		IPA_BE_DBG("Query iface %s mux_id %d\n", ext_prop->name, mux_id);
+	} else {
+		enum ipa_backhaul_type bh_type;
+		/*
+		 * num_ext_props == 0 on a PDN we previously classified as modem
+		 * indicates an inconsistency — likely a stale cache entry or a
+		 * QMI misreport. We silently fall back to mux_id=0/is_sta=false;
+		 * surface the case so it doesn't masquerade as a successful modem add.
+		 */
+		if (ipa_be_detect_backhaul_type(pdn_iface, &bh_type) == 0 &&
+		    bh_type == IPA_BACKHAUL_TYPE_MODEM)
+			WARN_ONCE(1, "ipa_be_addpdn: PDN %s (iface %d) classified MODEM but reports zero ext_props; using defaults\n",
+				pdn_intf.name, pdn_iface);
+		IPA_BE_DBG("Eth backhaul PDN %s: skipping ext_props query, using mux_id=0\n",
+			pdn_intf.name);
 	}
-
-	memcpy(ext_prop->name, pdn_intf.name, sizeof(pdn_intf.name));
-	ext_prop->num_ext_props = pdn_intf.num_ext_props;
-	IPA_BE_DBG("Query ext_prop %d name %s\n", ext_prop->num_ext_props, ext_prop->name);
-	ipa3_query_intf_ext_props(ext_prop);
-
-	mux_id = ext_prop->ext[0].mux_id;
-	IPA_BE_DBG("Query iface %s mux_id %d\n", ext_prop->name, mux_id);
 
 	/* IP Passthrough case */
 	if (ct_enabled)

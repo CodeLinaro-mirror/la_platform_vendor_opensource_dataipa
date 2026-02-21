@@ -58,6 +58,7 @@ struct ipa_rt_rule_i {
 	enum ipa_fltrt_rule_type rule_type;
 	u8 cnt_idx2;
 	u8 hpc_fetch_len;
+	u32 rt_rule_category;
 };
 
 /**

@@ -1596,13 +1596,14 @@ int ipa_get_teth_stats(void)
 	 * hardware stats are 0 now
 	 */
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		for (j = 0; j < IPA_CLIENT_MAX; j++) {
-			int prod_idx = ipa_get_ep_mapping(i);
-			int cons_idx = ipa_get_ep_mapping(j);
+		int prod_idx = ipa_get_ep_mapping(i);
 
-			if (prod_idx == IPA_EP_NOT_ALLOCATED ||
-				prod_idx >= ipa3_get_max_num_pipes())
-				continue;
+		if (prod_idx == IPA_EP_NOT_ALLOCATED ||
+			prod_idx >= ipa3_get_max_num_pipes())
+			continue;
+
+		for (j = 0; j < IPA_CLIENT_MAX; j++) {
+			int cons_idx = ipa_get_ep_mapping(j);
 
 			if (cons_idx == IPA_EP_NOT_ALLOCATED ||
 				cons_idx >= ipa3_get_max_num_pipes())

@@ -47,4 +47,17 @@ int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype);
 int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type iptype);
 
 int install_wan_filtering_rule(void);
+
+int ipa_be_handle_wan_up(
+	int pdn_iface,
+	int client_iface,
+	enum ipa_ip_type ip_type,
+	bool is_eth_bh_downlink,
+	const uint32_t *dst_ip);
+
+int ipa_be_handle_wan_down(
+	int pdn_iface,
+	int client_iface,
+	enum ipa_ip_type ip_type);
+
 #endif /* _IPA_BE_FLT_MGMT_ */
