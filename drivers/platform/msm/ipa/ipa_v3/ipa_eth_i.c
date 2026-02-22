@@ -1214,7 +1214,7 @@ int ipa3_eth_connect(
 	}
 
 	/* ETH PDU configuration */
-	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled) {
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && !ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb ) {
 		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
 			IPA_QMI_ETH_HW_VLAN_IP_V01)
 			ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
