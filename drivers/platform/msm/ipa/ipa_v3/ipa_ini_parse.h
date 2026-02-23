@@ -6,7 +6,7 @@
 #include "ipa_i.h"
 
 #define IPA_PARAM_STR_LENGTH 40
-#define INI_FILE_PATH "ipa/ipa_ini_file.ini"
+#define INI_FILE_PATH "ipa_be/ipa_ini_file.ini"
 #define MAX_INI_FILE_SIZE (64 * 1024)  // 64KB limit
 
 enum ipa_ini_file_param {

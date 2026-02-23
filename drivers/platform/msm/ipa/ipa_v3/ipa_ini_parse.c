@@ -127,7 +127,8 @@ static int ipa_ini_read_values(char **head, char **read_key,
 		}
 
 		key = strim(key);
-		value = strim(value);
+		if (value)
+			value = strim(value);
 		/*
 		 * Ignoring comments, a valid ini line contains one of:
 		 *	1) some 'key=value' config item
