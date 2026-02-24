@@ -4230,4 +4230,11 @@ int ipa3_eth_disable(
 	u8 pipe_idx);
 #endif
 
+static inline bool ipa_is_proc_ctx_headerless(enum ipa_hdr_proc_type type)
+{
+	return (type == IPA_HDR_PROC_NXT_RND ||
+		type == IPA_HDR_PROC_IPSEC_DECAP ||
+		type == IPA_HDR_PROC_IPSEC_DECAP_NXT_RND);
+}
+
 #endif /* _IPA3_I_H_ */
