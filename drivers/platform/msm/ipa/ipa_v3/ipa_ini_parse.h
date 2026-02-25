@@ -23,6 +23,7 @@ enum ipa_ini_file_param {
 		IPA_USE_EZMESH_CONFIG,
 		IPA_USE_ETH_QOS_CONFIG,
 		IPA_USE_IPSEC_CONFIG,
+		IPA_USE_IPV6_NAT_CONFIG,
 		IPA_PARAM_MAX,
 	};
 
@@ -40,6 +41,7 @@ static char ipa_ini_param[IPA_PARAM_MAX][IPA_PARAM_STR_LENGTH] = {
 		"use_ezmesh_config",
 		"use_eth_qos_config",
 		"use_ipsec_config",
+		"use_ipv6_nat_config",
 	};
 
 int ipa_init_params_from_ini(struct device *device,
