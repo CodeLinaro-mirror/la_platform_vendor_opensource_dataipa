@@ -856,6 +856,7 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 		struct ipa_pdn_dscp_procparams *pdn_dscp_params,
 		struct ipa_pppoe_header_add_procparams *pppoe_params,
 		struct ipa_mape_header_add_procparams *mape_params,
+		struct ipa_ipogre_hdr_proc_ctx_params *ipogre_params,
 		bool is_64);
 
 /*

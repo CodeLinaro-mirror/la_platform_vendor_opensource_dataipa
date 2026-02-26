@@ -895,6 +895,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
 	struct ipa_pppoe_header_add_procparams pppoe_params;
 	struct ipa_mape_header_add_procparams mape_params;
+	struct ipa_ipogre_hdr_proc_ctx_params ipogre_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
