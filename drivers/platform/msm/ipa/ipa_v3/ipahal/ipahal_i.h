@@ -1346,6 +1346,9 @@ union ipa_pkt_status_hw_v6_0 {
 #define IPA_HDR_UCP_2ND_PASS               30
 #define IPA_HDR_UCP_MARK_DSCP              33
 #define IPA_HDR_UCP_PPPOE_HEADER_ADD       37
+#define IPA_HDR_UCP_MAPE_BMR_UL_HEADER_ADD       44
+#define IPA_HDR_UCP_MAPE_FMR_UL_HEADER_ADD       45
+#define IPA_HDR_UCP_MAPE_DL_HEADER_REMOVE       46
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0
@@ -1615,6 +1618,17 @@ struct ipa_hw_hdr_proc_ctx_remove_eogre_hdr_cmd_seq {
 };
 
 /**
+ * struct ipa_hw_hdr_proc_ctx_mape_add_hdr -
+ * HW structure of IPA processing context - add eogre header tlv
+ * @tlv: IPA processing context TLV
+ * @mape_params: mape parameters
+ */
+struct ipa_hw_hdr_proc_ctx_mape_add_hdr {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_mape_header_add_procparams mape_params;
+};
+
+/**
  * struct ipa_hw_hdr_proc_ctx_tlv_ipsec -
  * HW structure of IPA processing context header - TLV part (IPsec special)
  * @type: 6 - IPsec activate
@@ -1809,6 +1823,19 @@ struct ipa_hw_hdr_proc_ctx_add_pdn_dscp_proc_cmd_seq {
 struct ipa_hw_hdr_proc_ctx_add_pppoe_hdr_proc_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hw_hdr_proc_ctx_pppoe_add_hdr pppoe_params;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_mape_hdr_proc_cmd_seq -
+ * IPA processing context IPsec command sequence
+ * @hdr_add: add header command
+ * @mape_params: tlv mape params
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_mape_hdr_proc_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_mape_add_hdr mape_params;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 

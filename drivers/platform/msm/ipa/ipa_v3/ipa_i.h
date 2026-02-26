@@ -873,6 +873,7 @@ struct ipa3_hdr_proc_ctx_offset_entry {
  * @type: header processing context type
  * @l2tp_params: L2TP parameters
  * @generic_params: generic proc_ctx params
+ * @mape_params: MAPE parameters
  * @offset_entry: entry's offset
  * @hdr: the header
  * @cookie: cookie used for validity check
@@ -892,6 +893,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
 	struct ipa_pppoe_header_add_procparams pppoe_params;
+	struct ipa_mape_header_add_procparams mape_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
