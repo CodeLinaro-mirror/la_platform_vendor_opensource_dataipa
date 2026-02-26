@@ -11461,6 +11461,10 @@ static int ipa_alloc_pkt_init_ex(void)
 			mem->base + cmd.rt_pipe_dest_idx * cmd_pyld->len;
 		ipa3_ctx->pkt_init_ex_imm[cmd.rt_pipe_dest_idx].size =
 			cmd_pyld->len;
+               if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+                   ipa3_get_ep_traffic_mode(ipa3_get_client_mapping(cmd.rt_pipe_dest_idx)) ==
+                   IPA_NON_DMA_ETHERNET)
+                       ipa_imm_cmd_modify_ip_packet_init_ex_eth(cmd.rt_pipe_dest_idx);
 	}
 
 	cmd.hdr_removal_insertion_disable = true;
@@ -11557,6 +11561,9 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	memcpy(ipa3_ctx->pkt_init_ex_mem.base + dst_ep_idx * cmd_pyld->len,
 		cmd_pyld->data, cmd_pyld->len);
 	ipahal_destroy_imm_cmd(cmd_pyld);
+       if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+           ipa3_get_ep_traffic_mode(lookup->ep) == IPA_NON_DMA_ETHERNET)
+               ipa_imm_cmd_modify_ip_packet_init_ex_eth(dst_ep_idx);
 	return 0;
 }
 EXPORT_SYMBOL(ipa_set_pkt_init_ex_hdr_ofst);
@@ -11615,6 +11622,10 @@ int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx)
 	memcpy(ipa3_ctx->pkt_init_ex_mem.base + dst_ep_idx * cmd_pyld->len,
 		cmd_pyld->data, cmd_pyld->len);
 	ipahal_destroy_imm_cmd(cmd_pyld);
+       if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+           ipa3_get_ep_traffic_mode(ipa3_get_client_mapping(dst_ep_idx)) ==
+           IPA_NON_DMA_ETHERNET)
+               ipa_imm_cmd_modify_ip_packet_init_ex_eth(dst_ep_idx);
 	return 0;
 }
 EXPORT_SYMBOL(ipa_set_pkt_init_ex_hdr_ofst_by_hdl);

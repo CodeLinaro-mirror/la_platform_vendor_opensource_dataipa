@@ -12633,9 +12633,13 @@ int ipa3_cfg_ep_ulso(u32 clnt_hdl, const struct ipa_ep_cfg_ulso *ep_ulso)
 
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && ep_ulso->is_ulso_pipe)
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && ep_ulso->is_ulso_pipe) {
 		ipa_imm_cmd_modify_ip_packet_init_ex_ulso(clnt_hdl);
-	/* TODO: Set cmd->leading_header_size for the other ETH clients */
+       } else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+                  ipa3_get_ep_traffic_mode(ipa3_ctx->ep[clnt_hdl].client) ==
+                  IPA_NON_DMA_ETHERNET) {
+               ipa_imm_cmd_modify_ip_packet_init_ex_eth(clnt_hdl);
+       }
 
 	return 0;
 }

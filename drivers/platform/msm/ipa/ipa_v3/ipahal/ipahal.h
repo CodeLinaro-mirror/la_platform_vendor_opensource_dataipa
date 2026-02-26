@@ -567,6 +567,15 @@ void ipa_imm_cmd_modify_ip_packet_init_ex_ulso(
 	u32 ep);
 
 /*
+ * ipa_imm_cmd_modify_ip_packet_init_ex_eth() -
+ *   Modify ip_packet_init_ex immediate command ETH fields
+ * This function modifies an existing imm cmd buffer
+ * @ep: [in] pipe index
+ */
+void ipa_imm_cmd_modify_ip_packet_init_ex_eth(
+	u32 ep);
+
+/*
  * ipahal_construct_nop_imm_cmd() - Construct immediate comamnd for NO-Op
  * Core driver may want functionality to inject NOP commands to IPA
  *  to ensure e.g., PIPLINE clear before someother operation.
