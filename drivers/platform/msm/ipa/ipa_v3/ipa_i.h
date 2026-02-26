@@ -3125,6 +3125,7 @@ struct ipa3_context {
 	 */
 	bool ipa_sw;
 	u64 disable_flow_control_mask;
+	bool is_rc_log_enabled;
 };
 
 struct ipa3_plat_drv_res {
