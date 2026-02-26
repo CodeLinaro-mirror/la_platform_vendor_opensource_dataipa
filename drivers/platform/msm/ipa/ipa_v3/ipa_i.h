@@ -2792,6 +2792,7 @@ struct ipa3_context {
 	atomic_t is_suspend_mode_enabled;
 	uint8_t device_mode;
 	bool device_vlan_mode;
+	bool is_rc_log_enabled;
 };
 
 struct ipa3_plat_drv_res {

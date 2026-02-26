@@ -4601,6 +4601,20 @@ static ssize_t ipa_hm_status_show(struct device *dev, struct device_attribute *a
 	return nbytes;
 }
 
+static ssize_t rc_log_store(struct device *dev, struct device_attribute *attr,
+		const char *ubuf, size_t count)
+{
+	s8 flg = 0;
+	int ret;
+
+	ret = kstrtos8(ubuf, 0, &flg);
+	if (ret)
+		return ret;
+
+	ipa3_ctx->is_rc_log_enabled = flg ? 1 : 0;
+	return count;
+}
+
 static DEVICE_ATTR_RO(gen_reg);
 static DEVICE_ATTR_RO(holb_events);
 static DEVICE_ATTR_RO(hdr);
@@ -4661,6 +4675,7 @@ static DEVICE_ATTR_RO(ipa_hm_status);
 
 /* Write only sysfs attributes */
 
+static DEVICE_ATTR_WO(rc_log);
 static DEVICE_ATTR_WO(holb);
 static DEVICE_ATTR_WO(holb_uS);
 static DEVICE_ATTR_WO(holb_monitor_client_param);
@@ -4769,6 +4784,7 @@ static struct attribute *ipa_attrs[] = {
 	&dev_attr_iemac_0_err_status.attr,
 	&dev_attr_iemac_1_err_status.attr,
 	&dev_attr_ipa_hm_status.attr,
+	&dev_attr_rc_log.attr,
 #if defined(CONFIG_IPA_TSP)
 	&dev_attr_tsp.attr,
 #endif
