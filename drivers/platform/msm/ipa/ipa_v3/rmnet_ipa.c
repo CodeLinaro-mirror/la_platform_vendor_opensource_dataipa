@@ -3461,7 +3461,7 @@ static int ipa3_q6_register_pm(void)
 	pm_reg.skip_clk_vote = true;
 	result = ipa_pm_register(&pm_reg, &rmnet_ipa3_ctx->q6_pm_hdl);
 	if (result) {
-		IPAERR("failed to create IPA PM client %d\n", result);
+		IPAERR_BOOTUP("failed to create IPA PM client %d\n", result);
 		return result;
 	}
 
@@ -3470,7 +3470,7 @@ static int ipa3_q6_register_pm(void)
 	pm_reg.skip_clk_vote = true;
 	result = ipa_pm_register(&pm_reg, &rmnet_ipa3_ctx->q6_teth_pm_hdl);
 	if (result) {
-		IPAERR("failed to create IPA PM client %d\n", result);
+		IPAERR_BOOTUP("failed to create IPA PM client %d\n", result);
 		return result;
 	}
 
@@ -3570,7 +3570,7 @@ static int get_ipa_rmnet_dts_configuration(struct platform_device *pdev,
 		pr_info("using default for wan-rx-desc-size = %u\n",
 				ipa_rmnet_drv_res->wan_rx_desc_size);
 	else
-		IPAWANDBG(": found ipa_drv_res->wan-rx-desc-size = %u\n",
+		IPAERR_BOOTUP(": found ipa_drv_res->wan-rx-desc-size = %u\n",
 				ipa_rmnet_drv_res->wan_rx_desc_size);
 
 	return 0;
@@ -3630,11 +3630,11 @@ static int ipa3_wwan_register_netdev_pm_client(struct net_device *dev)
 	pm_reg.group = IPA_PM_GROUP_APPS;
 	result = ipa_pm_register(&pm_reg, &rmnet_ipa3_ctx->pm_hdl);
 	if (result) {
-		IPAWANERR("failed to create IPA PM client %d\n", result);
+		IPAERR_BOOTUP("failed to create IPA PM client %d\n", result);
 		return result;
 	}
 
-	IPAWANERR("%s register done\n", pm_reg.name);
+	IPAERR_BOOTUP("%s register done\n", pm_reg.name);
 
 	return 0;
 }
@@ -3667,7 +3667,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	pr_info("rmnet_ipa3 started initialization\n");
 
 	if (!ipa_is_ready()) {
-		IPAWANDBG("IPA driver not ready, registering callback\n");
+		IPAERR_BOOTUP("IPA driver not ready, registering callback\n");
 		ret = ipa_register_ipa_ready_cb(ipa3_ready_cb, (void *)pdev);
 
 		/*
@@ -3676,7 +3676,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		 */
 		if (ret != -EEXIST) {
 			if (ret)
-				IPAWANERR("IPA CB reg failed - %d\n", ret);
+				IPAERR_BOOTUP("IPA CB reg failed - %d\n", ret);
 			return ret;
 		}
 	}
@@ -3691,7 +3691,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 
 	ret = ipa3_init_q6_smem();
 	if (ret) {
-		IPAWANERR("ipa3_init_q6_smem failed\n");
+		IPAERR_BOOTUP("ipa3_init_q6_smem failed\n");
 		return ret;
 	}
 
@@ -3742,14 +3742,14 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 			   NET_NAME_UNKNOWN,
 			   ipa3_wwan_setup, 1, 2);
 	if (!dev) {
-		IPAWANERR("no memory for netdev\n");
+		IPAERR_BOOTUP("no memory for netdev\n");
 		ret = -ENOMEM;
 		goto alloc_netdev_err;
 	}
 	rmnet_ipa3_ctx->wwan_priv = netdev_priv(dev);
 	memset(rmnet_ipa3_ctx->wwan_priv, 0,
 		sizeof(*(rmnet_ipa3_ctx->wwan_priv)));
-	IPAWANDBG("wwan_ptr (private) = %pK", rmnet_ipa3_ctx->wwan_priv);
+	IPAERR_BOOTUP("wwan_ptr (private) = %pK", rmnet_ipa3_ctx->wwan_priv);
 	rmnet_ipa3_ctx->wwan_priv->net = dev;
 	atomic_set(&rmnet_ipa3_ctx->wwan_priv->outstanding_pkts, 0);
 	spin_lock_init(&rmnet_ipa3_ctx->wwan_priv->lock);
@@ -3760,7 +3760,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		/* IPA_PM configuration starts */
 		ret = ipa3_q6_register_pm();
 		if (ret) {
-			IPAWANERR("ipa3_q6_register_pm failed, ret: %d\n",
+			IPAERR_BOOTUP("ipa3_q6_register_pm failed, ret: %d\n",
 					ret);
 			goto q6_init_err;
 		}
@@ -3768,7 +3768,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 
 	ret = ipa3_wwan_register_netdev_pm_client(dev);
 	if (ret) {
-		IPAWANERR("fail to create/register pm resources\n");
+		IPAERR_BOOTUP("fail to create/register pm resources\n");
 		goto fail_pm;
 	}
 
@@ -3792,14 +3792,14 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 #endif
 	ret = register_netdev(dev);
 	if (ret) {
-		IPAWANERR("unable to register ipa_netdev %d rc=%d\n",
+		IPAERR_BOOTUP("unable to register ipa_netdev %d rc=%d\n",
 			0, ret);
 		goto set_perf_err;
 	}
 
-	IPAWANDBG("IPA-WWAN devices (%s) initialization ok :>>>>\n", dev->name);
+	IPAERR_BOOTUP("IPA-WWAN devices (%s) initialization ok :>>>>\n", dev->name);
 	if (ret) {
-		IPAWANERR("default configuration failed rc=%d\n",
+		IPAERR_BOOTUP("default configuration failed rc=%d\n",
 				ret);
 		goto config_err;
 	}
@@ -3834,7 +3834,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		egress_pipe_status[j].status = 0;
 	}
 
-	IPAWANERR("rmnet_ipa completed initialization\n");
+	IPAERR_BOOTUP("rmnet_ipa completed initialization\n");
 	return 0;
 config_err:
 	if (ipa3_rmnet_res.ipa_napi_enable)
@@ -6785,7 +6785,7 @@ int ipa3_wwan_init(void)
 	int rc = 0;
 
 	if (!ipa3_ctx) {
-		IPAWANERR_RL("ipa3_ctx was not initialized\n");
+		IPAERR_BOOTUP("ipa3_ctx was not initialized\n");
 		return -EINVAL;
 	}
 	rmnet_ipa3_ctx = kzalloc(sizeof(*rmnet_ipa3_ctx), GFP_KERNEL);
@@ -6841,7 +6841,7 @@ int ipa3_wwan_init(void)
 		rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle = ssr_hdl;
 	else if (!rmnet_ipa3_ctx->ipa_config_is_apq) {
 		rc = PTR_ERR(ssr_hdl);
-		IPAWANERR_RL("local modem ssr register fail rc=%d\n", rc);
+		IPAERR_BOOTUP("local modem ssr register fail rc=%d\n", rc);
 		goto fail_dbgfs_rm;
 	}
 
@@ -6856,7 +6856,7 @@ int ipa3_wwan_init(void)
 	#endif
 		if (IS_ERR(ssr_hdl)) {
 			rc = PTR_ERR(ssr_hdl);
-			IPAWANERR_RL("remote modem ssr register fail rc=%d\n",
+			IPAERR_BOOTUP("remote modem ssr register fail rc=%d\n",
 				rc);
 			goto fail_unreg_lcl_mdm_ssr;
 		}
