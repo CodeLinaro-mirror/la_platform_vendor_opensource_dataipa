@@ -3201,6 +3201,20 @@ static ssize_t ipa3_rc_status(struct file *file, char __user *buf,
 	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
 }
 
+static ssize_t ipa3_rc_log_enbl(struct file *file,
+			const char __user *buf, size_t count, loff_t *ppos)
+{
+	s8 flg=0;
+	int ret;
+
+	ret = kstrtos8_from_user(buf, count, 0, &flg);
+	if(ret)
+		return ret;
+
+	ipa3_ctx->is_rc_log_enabled = flg ? 1 : 0;
+	return count;
+}
+
 static ssize_t ipa3_write_ipa_max_napi_sort_page_thrshld(struct file *file,
 	const char __user *buf, size_t count, loff_t *ppos) {
 
@@ -3574,6 +3588,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"ipa_hm_status", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_rc_status,
+		}
+	}, {
+		"rc_log", IPA_WRITE_ONLY_MODE, NULL, {
+			.write = ipa3_rc_log_enbl,
 		}
 	},
 };
