@@ -12531,6 +12531,12 @@ int ipa3_cfg_ep_hdr(u32 clnt_hdl, const struct ipa_ep_cfg_hdr *ep_hdr)
 	/* copy over EP cfg */
 	ep->cfg.hdr = *ep_hdr;
 
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+	    ipa3_get_ep_traffic_mode(ipa3_ctx->ep[clnt_hdl].client) == IPA_NON_DMA_ETHERNET) {
+		ep->cfg.hdr.hdr_len = 0;
+		IPADBG("Ethernet mode EP, setting len=0x0\n");
+	}
+
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HDR_n, clnt_hdl, &ep->cfg.hdr);
@@ -12715,6 +12721,39 @@ int ipa_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 }
 EXPORT_SYMBOL(ipa_cfg_ep_ctrl);
 
+
+/**
+ * ipa3_get_ep_traffic_mode() - Determine IPAv7+ traffic mode for an endpoint
+ * @client:	[in] IPA client type
+ *
+ * Returns the appropriate ipa_mode_type value based on the client type.
+ * Ethernet-framed peripherals (USB, WLAN, ETH) use IPA_NON_DMA_ETHERNET;
+ * all other clients default to IPA_BASIC.
+ *
+ * Returns:	IPA_NON_DMA_ETHERNET or IPA_BASIC
+ */
+enum ipa_mode_type
+ipa3_get_ep_traffic_mode(enum ipa_client_type client)
+{
+	switch (client) {
+	case IPA_CLIENT_USB_PROD:
+	case IPA_CLIENT_ETHERNET_PROD:
+	case IPA_CLIENT_ETHERNET2_PROD:
+	case IPA_CLIENT_ETHERNET_PROD1:
+	case IPA_CLIENT_AQC_ETHERNET_PROD:
+	case IPA_CLIENT_RTK_ETHERNET_PROD:
+	case IPA_CLIENT_WLAN1_PROD:
+	case IPA_CLIENT_WLAN2_PROD:
+	case IPA_CLIENT_WLAN3_PROD:
+	case IPA_CLIENT_WLAN2_PROD1:
+	case IPA_CLIENT_WLAN3_PROD1:
+	case IPA_CLIENT_WLAN1_PROD1:
+		return IPA_NON_DMA_ETHERNET;
+	default:
+		return IPA_BASIC;
+	}
+}
+
 const char *ipa3_get_mode_type_str(enum ipa_mode_type mode)
 {
 	switch (mode) {
@@ -12837,6 +12876,14 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 				clnt_hdl);
 		}
 	}
+	/* On IPAv7+ set MODE to IPA_NON_DMA_ETHERNET for ETH-framed producers.
+	 * The existing MODE field bits [2:0] encode the traffic type; ETH clients
+	 * require IPA_NON_DMA_ETHERNET (0x1) so IPA performs L2 header parsing.
+	 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && init_mode.ep_mode.mode == IPA_BASIC)
+		init_mode.ep_mode.mode =
+			ipa3_get_ep_traffic_mode(ipa3_ctx->ep[clnt_hdl].client);
+
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_MODE_n, clnt_hdl, &init_mode);
 
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));

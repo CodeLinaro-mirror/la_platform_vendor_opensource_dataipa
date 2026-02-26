@@ -3364,6 +3364,8 @@ int ipa3_cfg_ep_hdr(u32 clnt_hdl, const struct ipa_ep_cfg_hdr *ipa_ep_cfg);
 int ipa3_cfg_ep_hdr_ext(u32 clnt_hdl,
 			const struct ipa_ep_cfg_hdr_ext *ipa_ep_cfg);
 
+enum ipa_mode_type ipa3_get_ep_traffic_mode(enum ipa_client_type client);
+
 int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ipa_ep_cfg);
 
 int ipa3_cfg_ep_aggr(u32 clnt_hdl, const struct ipa_ep_cfg_aggr *ipa_ep_cfg);

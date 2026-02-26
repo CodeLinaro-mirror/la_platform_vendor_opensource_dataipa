@@ -1142,6 +1142,15 @@ int ipa_ipv4_header_proc_ctx(struct ipa_ipv4_rule_create_msg v4_msg, int* hdr_hd
 	{
 		hdr_proc_ctx->generic_params.output_ethhdr_negative_offset = 14;
 	}
+	/*
+	 * input_ethhdr_negative_offset is intentionally left 0 (zero-initialised
+	 * by kzalloc/memset above).  ipa_backend operates in IPAv7 ETH traffic
+	 * mode where the packet pointer already points at the Ethernet header.
+	 * The proc_ctx must overwrite the existing ETH header in-place (offset 0
+	 * from the packet start), not write before it as would be required in IP
+	 * traffic mode (where the ETH header is stripped and a negative offset
+	 * from the IP header start is needed).
+	 */
 
 	IPA_BE_DBG("input_ethhdr_negative_offset %d, output_ethhdr_negative_offset %d, type: %d\n",
 	hdr_proc_ctx->generic_params.input_ethhdr_negative_offset,
@@ -1242,6 +1251,15 @@ int ipa_ipv6_header_proc_ctx(struct ipa_ipv6_rule_create_msg v6_msg, int* hdr_hd
 	{
 		hdr_proc_ctx->generic_params.output_ethhdr_negative_offset = 14;
 	}
+	/*
+	 * input_ethhdr_negative_offset is intentionally left 0 (zero-initialised
+	 * by kzalloc/memset above).  ipa_backend operates in IPAv7 ETH traffic
+	 * mode where the packet pointer already points at the Ethernet header.
+	 * The proc_ctx must overwrite the existing ETH header in-place (offset 0
+	 * from the packet start), not write before it as would be required in IP
+	 * traffic mode (where the ETH header is stripped and a negative offset
+	 * from the IP header start is needed).
+	 */
 
 	IPA_BE_DBG("input_ethhdr_negative_offset %d, output_ethhdr_negative_offset %d, type: %d\n",
 	hdr_proc_ctx->generic_params.input_ethhdr_negative_offset,

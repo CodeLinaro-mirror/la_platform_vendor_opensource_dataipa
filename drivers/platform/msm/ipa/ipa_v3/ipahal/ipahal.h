@@ -39,15 +39,6 @@ enum ipahal_imm_cmd_name {
 	IPA_IMM_CMD_MAX,
 };
 
-/* Immediate command packet_init_ex traffic mode values
-   (First 4 values of the mode field in the IPA_ENDP_INIT_MODE_n) */
-enum ipahal_ep_traffic_mode {
-	IPA_EP_TRAFFIC_MODE_IP		= 0x0,
-	IPA_EP_TRAFFIC_MODE_ETH		= 0x1,
-	IPA_EP_TRAFFIC_MODE_NON_IP	= 0x2,
-	IPA_EP_TRAFFIC_MODE_DMA		= 0x3,
-	IPA_EP_TRAFFIC_MODE_MAX,
-};
 
 /* Immediate commands abstracted structures */
 
@@ -349,7 +340,7 @@ struct ipahal_imm_cmd_ip_packet_init_ex {
 	u8 rt_hpc_fetch_len;
 	bool conn_track_nat_stats_direction;
 	bool conn_track_nat_stats_ip_type;
-	u8 traffic_mode;
+	enum ipa_mode_type traffic_mode;
 	u8 leading_header_size;
 	u16 conn_track_nat_stats_counter_idx;
 	u64 sw_classification_cookie;
