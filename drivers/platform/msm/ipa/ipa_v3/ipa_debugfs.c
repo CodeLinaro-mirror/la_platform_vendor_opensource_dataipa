@@ -1544,60 +1544,62 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		else
 			pr_info("Table resides on system(ddr) memory\n");
 
-	list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
-		ofst_words = (entry->offset_entry->offset +
-			ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
-			>> 5;
-		pr_err("id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
-			entry->id,
-			ipa3_hdr_proc_type_name[entry->type],
-			ofst_words);
-		if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
-			entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
-			pr_err("\naction:%u\n"
-				"sa_idx:%u\n"
-				"flt_tbl_id:%u\n"
-				"input_ip_version:%u\n"
-				"output_ip_version:%u\n"
-				"retain_l2_header:%u\n",
-				entry->ipsec_params.action,
-				entry->ipsec_params.sa_idx,
-				entry->ipsec_params.flt_tbl_id,
-				entry->ipsec_params.pre_params.encap.input_ip_version,
-				entry->ipsec_params.pre_params.encap.output_ip_version,
-				entry->ipsec_params.pre_params.encap.retain_l2_header);
-		} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX ||
-			entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST) {
-			pr_err("input_ethhdr_negative_offset:%u\n"
-				"output_ethhdr_negative_offset:%u\n"
-				"output_dscp_pcp_update:%u\n",
-				entry->generic_params.input_ethhdr_negative_offset,
-				entry->generic_params.output_ethhdr_negative_offset,
-				entry->generic_params.output_dscp_pcp_update);
-		} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
-			pr_err("input_ethhdr_negative_offset:%u\n"
-				"output_ethhdr_negative_offset:%u\n"
-				"output_dscp_pcp_update:%u\n"
-				"input_ethhdr_valid:%u\n",
-				entry->generic_params_v2.input_ethhdr_negative_offset,
-				entry->generic_params_v2.output_ethhdr_negative_offset,
-				entry->generic_params_v2.output_dscp_pcp_update,
-				entry->generic_params_v2.input_ethhdr_valid);
-		} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
-			pr_err("input_valid:%u\n"
-				"input_dscp_val:%u\n",
-				entry->pdn_dscp_params.valid,
-				entry->pdn_dscp_params.dscp_val);
-		}
-		if (entry->hdr->is_hdr_proc_ctx) {
-			pr_err("hdr_phys_base:0x%pa\n",
-				&entry->hdr->phys_base);
-		}
-		else
-		{
-			pr_err("hdr[words]:%u\n",
-				entry->hdr->offset_entry->offset >> 2);
-		}
+		list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
+			ofst_words = (entry->offset_entry->offset +
+				ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
+				>> 5;
+			pr_err("id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
+				entry->id,
+				ipa3_hdr_proc_type_name[entry->type],
+				ofst_words);
+			if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
+				entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
+				pr_err("\naction:%u\n"
+					"sa_idx:%u\n"
+					"flt_tbl_id:%u\n"
+					"input_ip_version:%u\n"
+					"output_ip_version:%u\n"
+					"retain_l2_header:%u\n",
+					entry->ipsec_params.action,
+					entry->ipsec_params.sa_idx,
+					entry->ipsec_params.flt_tbl_id,
+					entry->ipsec_params.pre_params.encap.input_ip_version,
+					entry->ipsec_params.pre_params.encap.output_ip_version,
+					entry->ipsec_params.pre_params.encap.retain_l2_header);
+			} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX ||
+				entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST) {
+				pr_err("input_ethhdr_negative_offset:%u\n"
+					"output_ethhdr_negative_offset:%u\n"
+					"output_dscp_pcp_update:%u\n",
+					entry->generic_params.input_ethhdr_negative_offset,
+					entry->generic_params.output_ethhdr_negative_offset,
+					entry->generic_params.output_dscp_pcp_update);
+			} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
+				pr_err("input_ethhdr_negative_offset:%u\n"
+					"output_ethhdr_negative_offset:%u\n"
+					"output_dscp_pcp_update:%u\n"
+					"input_ethhdr_valid:%u\n",
+					entry->generic_params_v2.input_ethhdr_negative_offset,
+					entry->generic_params_v2.output_ethhdr_negative_offset,
+					entry->generic_params_v2.output_dscp_pcp_update,
+					entry->generic_params_v2.input_ethhdr_valid);
+			} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
+				pr_err("input_valid:%u\n"
+					"input_dscp_val:%u\n",
+					entry->pdn_dscp_params.valid,
+					entry->pdn_dscp_params.dscp_val);
+			}
+			if (entry->hdr) {
+				if (entry->hdr->is_hdr_proc_ctx) {
+					pr_err("hdr_phys_base:0x%pa\n",
+						&entry->hdr->phys_base);
+				}
+				else
+				{
+					pr_err("hdr[words]:%u\n",
+						entry->hdr->offset_entry->offset >> 2);
+				}
+			}
 		}
 		mutex_unlock(&ipa3_ctx->lock);
 	}
