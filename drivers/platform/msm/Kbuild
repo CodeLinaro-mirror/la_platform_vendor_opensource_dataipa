@@ -158,6 +158,10 @@ $(warning DATAIPADRVTOP is not set)
 DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
 LINUXINCLUDE += -include $(srctree)/../../../dataipa/config/dataipa_hw7_0.h
 include $(srctree)/../../../dataipa/config/dataipa_hw7_0_QGKI.conf
+ifeq ($(filter $(CONFIG_ARCH_SDXECHO), y), y)
+LINUXINCLUDE += -include $(srctree)/../../../dataipa/config/dataipa_ipsec_hw7_0.h
+include $(srctree)/../../../dataipa/config/dataipa_ipsec_hw7_0.conf
+endif
 ifneq ($(CONFIG_LOCALVERSION), "-perf")
 include $(srctree)/../../../dataipa/config/dataipa_debug.conf
 LINUXINCLUDE += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
@@ -166,6 +170,10 @@ else
 $(warning DATAIPADRVTOP is set to: $(DATAIPADRVTOP))
 LINUXINCLUDE += -include $(DATAIPADRVTOP)/../../../config/dataipa_hw7_0.h
 include $(DATAIPADRVTOP)/../../../config/dataipa_hw7_0_QGKI.conf
+ifeq ($(filter $(CONFIG_ARCH_SDXECHO), y), y)
+LINUXINCLUDE += -include $(DATAIPADRVTOP)/../../../config/dataipa_ipsec_hw7_0.h
+include $(DATAIPADRVTOP)/../../../config/dataipa_ipsec_hw7_0.conf
+endif
 ifneq ($(CONFIG_LOCALVERSION), "-perf")
 include $(DATAIPADRVTOP)/../../../config/dataipa_debug.conf
 LINUXINCLUDE += -include $(DATAIPADRVTOP)/../../../config/dataipa_debug.h
