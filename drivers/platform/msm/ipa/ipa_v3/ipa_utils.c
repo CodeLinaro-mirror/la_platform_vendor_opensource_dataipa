@@ -11896,13 +11896,15 @@ void ipa_init_ep_flt_bitmap(void)
 		}
 	}
 
-	/* Q6 EP independent FLT tables */
-	for (pipe_num = IPA6_Q6_NXT_FLT_TBL_START;
-	     pipe_num <= IPA6_Q6_NXT_FLT_TBL_END; pipe_num++) {
-		bitmap |= (1ULL << pipe_num);
-		if (bitmap != ipa3_ctx->ep_flt_bitmap) {
-			ipa3_ctx->ep_flt_bitmap = bitmap;
-			ipa3_ctx->ep_flt_num++;
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+		/* Q6 EP independent FLT tables - required for NextIV WA */
+		for (pipe_num = IPA6_Q6_NXT_FLT_TBL_START;
+		     pipe_num <= IPA6_Q6_NXT_FLT_TBL_END; pipe_num++) {
+			bitmap |= (1ULL << pipe_num);
+			if (bitmap != ipa3_ctx->ep_flt_bitmap) {
+				ipa3_ctx->ep_flt_bitmap = bitmap;
+				ipa3_ctx->ep_flt_num++;
+			}
 		}
 	}
 }
