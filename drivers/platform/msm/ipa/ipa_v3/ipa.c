@@ -2013,10 +2013,6 @@ static int ipa3_send_qos_param_msg(unsigned long usr_param)
 		return -EFAULT;
 	}
 
-	msg_meta.msg_len = sizeof(struct ipa_ioc_qos_config);
-	buff = qos_param;
-
-	msg_meta.msg_type = qos_param->qos_param_evt_type;
 	/* null terminate the string */
 	qos_param->dev_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 	if ((qos_param->qos_param_evt_type < IPA_QOS_PARAM_ADD_EVENT) ||
@@ -2026,6 +2022,16 @@ static int ipa3_send_qos_param_msg(unsigned long usr_param)
 		return -EINVAL;
 	}
 
+	buff = kmemdup(qos_param, sizeof(struct ipa_ioc_qos_config),
+		GFP_KERNEL);
+	if (!buff) {
+		kfree(qos_param);
+		return -ENOMEM;
+	}
+
+	msg_meta.msg_len = sizeof(struct ipa_ioc_qos_config);
+	msg_meta.msg_type = qos_param->qos_param_evt_type;
+
 	retval = ipa3_send_msg(&msg_meta, buff,
 		ipa3_qos_param_msg_free_cb);
 	if (retval) {
@@ -2033,6 +2039,7 @@ static int ipa3_send_qos_param_msg(unsigned long usr_param)
 			retval,
 			msg_meta.msg_type);
 		kfree(buff);
+		kfree(qos_param);
 		return retval;
 	}
 	else
@@ -2049,6 +2056,7 @@ static int ipa3_send_qos_param_msg(unsigned long usr_param)
 		{
 			memset(&ipa3_ctx->get_qos_config, 0, sizeof(struct ipa_ioc_get_qos_config));
 		}
+		kfree(qos_param);
 	}
 	IPADBG("exit\n");
 
