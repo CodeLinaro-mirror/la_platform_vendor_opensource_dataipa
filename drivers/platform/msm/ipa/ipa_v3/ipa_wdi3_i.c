@@ -21,6 +21,12 @@
 
 #define HTT_RX_PEER_METADATA_V1A 2
 
+/* Helper macro to test TX directions */
+#define IS_TX_DIR(d) ((d) == IPA_WDI3_TX_DIR ||  \
+					  (d) == IPA_WDI3_TX1_DIR || \
+					  (d) == IPA_WDI3_TX2_DIR || \
+					  (d) == IPA_WDI3_TX3_DIR)
+
 static void ipa3_wdi3_gsi_evt_ring_err_cb(struct gsi_evt_err_notify *notify)
 {
 	switch (notify->evt_id) {
@@ -85,6 +91,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	unsigned long va;
 	uint32_t addr_low, addr_high;
 	enum ipa_smmu_cb_type cb_type = IPA_SMMU_CB_AP;
+	int wdi_ver = ipa_get_wdi_version();
 
 	if (!info || !info_smmu || !ep) {
 		IPAERR("invalid input\n");
@@ -93,7 +100,8 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	memset(&gsi_evt_ring_props, 0, sizeof(gsi_evt_ring_props));
 	memset(&gsi_channel_props, 0, sizeof(gsi_channel_props));
 
-	if (ipa_get_wdi_version() == IPA_WDI_3_V2) {
+	switch (wdi_ver) {
+	case IPA_WDI_3_V2:
 		if (ast_update) {
 			gsi_channel_props.prot = GSI_CHAN_PROT_WDI3M_V2;
 			gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3M_V2_EV;
@@ -101,21 +109,36 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 			gsi_channel_props.prot = GSI_CHAN_PROT_WDI3_V2;
 			gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3_V2_EV;
 		}
-	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
+		break;
+
+	case IPA_WDI_4:
 		gsi_channel_props.prot = GSI_CHAN_PROT_WDI4;
 		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI4_EV;
-	} else if (ipa_get_wdi_version() == IPA_WDI_5) {
+		break;
+
+	case IPA_WDI_5:
 		gsi_channel_props.prot = GSI_CHAN_PROT_WDI5;
 		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI5_EV;
-	} else if (ast_update) {
-		gsi_channel_props.prot = GSI_CHAN_PROT_WDI3M;
-		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3M_EV;
-	} else {
-		gsi_channel_props.prot = GSI_CHAN_PROT_WDI3;
-		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3_EV;
+		break;
+
+	case IPA_WDI_6:
+		gsi_channel_props.prot = GSI_CHAN_PROT_WDI6;
+		gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI6_EV;
+		break;
+
+	default: // IPA_WDI_3
+		if (ast_update) {
+			gsi_channel_props.prot = GSI_CHAN_PROT_WDI3M;
+			gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3M_EV;
+		} else {
+			gsi_channel_props.prot = GSI_CHAN_PROT_WDI3;
+			gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_WDI3_EV;
+		}
+		break;
 	}
+
 	IPADBG("Is ast update enabled:%d\n",ast_update);
-	IPADBG("WDI version:%d\n",ipa_get_wdi_version());
+	IPADBG("WDI version:%d\n",wdi_ver);
 	IPADBG("GSI version:%d\n",gsi_channel_props.prot);
 	/* setup event ring */
 
@@ -128,20 +151,25 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	}
 	IPADBG("client=%d smmu_cb_type = %d, dir %d\n", ep->client, cb_type, dir);
 
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
-		ipa_get_wdi_version() == IPA_WDI_5) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && wdi_ver >= IPA_WDI_5 &&
+	    wdi_ver <= IPA_WDI_6) {
 		gsi_evt_ring_props.intr = GSI_INTR_MSI;
-		/* 64 (for Tx) and 8 (for Rx) */
-		if ((dir == IPA_WDI3_TX_DIR) || (dir == IPA_WDI3_TX1_DIR) ||
-			(dir == IPA_WDI3_TX2_DIR) || (dir == IPA_WDI3_TX3_DIR))
-			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_64B;
-		else
+		if (IS_TX_DIR(dir)) {
+			if (wdi_ver == IPA_WDI_5) {
+				/* 64B for WDI5 TX */
+				gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_64B;
+			} else if (wdi_ver == IPA_WDI_6) {
+				/* 32B for WDI6 TX */
+				gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
+			}
+		} else {
+			/* 8B for RX */
 			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_8B;
+		}
 	} else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_9) {
 		gsi_evt_ring_props.intr = GSI_INTR_MSI;
 		/* 32 (for Tx) and 8 (for Rx) */
-		if ((dir == IPA_WDI3_TX_DIR) || (dir == IPA_WDI3_TX1_DIR) ||
-			(dir == IPA_WDI3_TX2_DIR) || (dir == IPA_WDI3_TX3_DIR))
+		if (IS_TX_DIR(dir))
 			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_32B;
 		else
 			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_8B;
@@ -149,7 +177,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 		gsi_evt_ring_props.intr = GSI_INTR_IRQ;
 		/* 16 (for Tx) and 8 (for Rx) */
 		if ((dir == IPA_WDI3_TX_DIR) || (dir == IPA_WDI3_TX1_DIR) ||
-			(dir == IPA_WDI3_TX2_DIR))
+		    (dir == IPA_WDI3_TX2_DIR))
 			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
 		else
 			gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_8B;
@@ -252,8 +280,9 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	gsi_evt_ring_props.err_cb = ipa3_wdi3_gsi_evt_ring_err_cb;
 	gsi_evt_ring_props.user_data = NULL;
 
-	result = gsi_alloc_evt_ring(&gsi_evt_ring_props, ipa3_ctx->gsi_dev_hdl,
-		&ep->gsi_evt_ring_hdl);
+	result = gsi_alloc_evt_ring(&gsi_evt_ring_props,
+					ipa3_ctx->gsi_dev_hdl,
+					&ep->gsi_evt_ring_hdl);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("fail to alloc RX event ring\n");
 		result = -EFAULT;
@@ -265,8 +294,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 		gsi_evt_ring_props.ring_base_addr;
 
 	/* setup channel ring */
-	if ((dir == IPA_WDI3_TX_DIR) || (dir == IPA_WDI3_TX1_DIR) ||
-		(dir == IPA_WDI3_TX2_DIR) || (dir == IPA_WDI3_TX3_DIR))
+	if (IS_TX_DIR(dir))
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
 	else
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
@@ -274,7 +302,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	gsi_ep_info = ipa_get_gsi_ep_info(ep->client);
 	if (!gsi_ep_info) {
 		IPAERR("Failed getting GSI EP info for client=%d\n",
-		       ep->client);
+				ep->client);
 		result = -EINVAL;
 		goto fail_get_gsi_ep_info;
 	} else
@@ -284,24 +312,26 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_9) {
-		/* 32 (for Tx) and 64 (for Rx) */
-		if ((dir == IPA_WDI3_TX_DIR) || (dir == IPA_WDI3_TX1_DIR) ||
-		    (dir == IPA_WDI3_TX2_DIR) || (dir == IPA_WDI3_TX3_DIR)) {
+		/* 8B for WDI6 Tx; 32B for other protocols (Tx), 64B for older Rx protocols */
+		if (IS_TX_DIR(dir)) {
+			if (gsi_channel_props.prot == GSI_CHAN_PROT_WDI6)
+				gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_8B;
+			else
 				gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_32B;
-				if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
-					gsi_channel_props.gsi_stats_en = 1;
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+				gsi_channel_props.gsi_stats_en = 1;
 		} else {
 			if (gsi_channel_props.prot == GSI_CHAN_PROT_WDI3_V2 ||
 			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI3M_V2 ||
 			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI4 ||
-			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI5)
+			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI5 ||
+			    gsi_channel_props.prot == GSI_CHAN_PROT_WDI6)
 				gsi_channel_props.re_size =
 					GSI_CHAN_RE_SIZE_32B;
 			else
 				gsi_channel_props.re_size =
 					GSI_CHAN_RE_SIZE_64B;
 		}
-
 	} else
 		gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
 
@@ -311,7 +341,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	/* Updated threshold value specifically for HMT to
 	   handle the throughput. */
 	if ((gsi_channel_props.dir == GSI_CHAN_DIR_TO_GSI) &&
-				(ipa_get_wdi_version() == IPA_WDI_3_V2))
+				(wdi_ver == IPA_WDI_3_V2))
 		gsi_channel_props.empty_lvl_threshold = 15;
 	else
 		gsi_channel_props.empty_lvl_threshold =
@@ -606,7 +636,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	if ((dir == IPA_WDI3_RX_DIR) || (dir == IPA_WDI3_RX2_DIR)
 		|| (dir == IPA_WDI3_RX3_DIR) || (dir == IPA_WDI3_RX4_DIR) || (dir == IPA_WDI3_RX6_DIR) || (dir == IPA_WDI3_RX5_DIR)) {
 
-		if(ipa_get_wdi_version() == IPA_WDI_4){
+		if(wdi_ver == IPA_WDI_4){
 			if (!is_smmu_enabled)
 				ch_scratch.wdi4.rx_pkt_offset = info->pkt_offset;
 			else
@@ -803,9 +833,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 			(1 << 8));
 	}
 
-	if(ipa_get_wdi_version() == IPA_WDI_3_V2 ||
-		ipa_get_wdi_version() == IPA_WDI_5) {
-
+	if (wdi_ver == IPA_WDI_3_V2 || wdi_ver == IPA_WDI_5) {
 		ch_scratch.wdi3_v2.wifi_rp_address_high =
 			ch_scratch.wdi3.wifi_rp_address_high;
 
@@ -815,46 +843,44 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 		ch_scratch.wdi3_v2.update_rp_moderation_threshold =
 			ch_scratch.wdi3.update_rp_moderation_threshold;
 
-
-		if ( dir == IPA_WDI3_RX_DIR || dir == IPA_WDI3_RX3_DIR ) {
-
-			ch_scratch.wdi3_v2.rx_pkt_offset = ch_scratch.wdi3.rx_pkt_offset;
+		if (dir == IPA_WDI3_RX_DIR || dir == IPA_WDI3_RX3_DIR) {
+			ch_scratch.wdi3_v2.rx_pkt_offset =
+				ch_scratch.wdi3.rx_pkt_offset;
 			ch_scratch.wdi3_v2.endp_metadata_reg_offset =
-						ch_scratch.wdi3.endp_metadata_reg_offset;
+				ch_scratch.wdi3.endp_metadata_reg_offset;
 
 			if (is_smmu_enabled) {
 				if (info_smmu->rx_peer_metadata_ver == HTT_RX_PEER_METADATA_V1A)
 					ch_scratch.wdi3_v2.metadata_ver = 1;
-			}
-			else {
+			} else {
 				if (info->rx_peer_metadata_ver == HTT_RX_PEER_METADATA_V1A)
 					ch_scratch.wdi3_v2.metadata_ver = 1;
 			}
 		} else {
-
-
-				if(is_smmu_enabled) {
-					if(info_smmu->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
-						IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n", info_smmu->rx_bank_id);
-						goto fail_write_scratch;
-					}
-					ch_scratch.wdi3_v2.bank_id = info_smmu->rx_bank_id;
+			if (is_smmu_enabled) {
+				if (info_smmu->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
+					IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n",
+					       info_smmu->rx_bank_id);
+					goto fail_write_scratch;
 				}
-				else {
-					if(info->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
-						IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n", info->rx_bank_id);
-						goto fail_write_scratch;
-					}
-
-					ch_scratch.wdi3_v2.bank_id = info->rx_bank_id;
+				ch_scratch.wdi3_v2.bank_id =
+					info_smmu->rx_bank_id;
+			} else {
+				if (info->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
+					IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n",
+					       info->rx_bank_id);
+					goto fail_write_scratch;
 				}
+
+				ch_scratch.wdi3_v2.bank_id = info->rx_bank_id;
+			}
 		}
 
 		ch_scratch.wdi3_v2.qmap_id = 0;
 		ch_scratch.wdi3_v2.reserved1 = 0;
 		ch_scratch.wdi3_v2.reserved2 = 0;
-	} else if(ipa_get_wdi_version() == IPA_WDI_4){
-
+	} else if (wdi_ver == IPA_WDI_4 || wdi_ver == IPA_WDI_6) {
+		/*same position for WDI 6 as well*/
 		ch_scratch.wdi4.wifi_rp_address_high =
 			ch_scratch.wdi3.wifi_rp_address_high;
 
@@ -864,64 +890,71 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 		ch_scratch.wdi4.update_rp_moderation_threshold =
 			ch_scratch.wdi3.update_rp_moderation_threshold;
 
-		if ( ( dir == IPA_WDI3_TX2_DIR) || ( dir == IPA_WDI3_TX_DIR) || ( dir == IPA_WDI3_TX1_DIR) || ( dir == IPA_WDI3_TX3_DIR))
-			{
-				if(is_smmu_enabled) {
-					ch_scratch.wdi4.vdev_id = 0;
-					if(info_smmu->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
-						IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n", info_smmu->rx_bank_id);
-						goto fail_write_scratch;
-					}
-					ch_scratch.wdi4.bank_id = info_smmu->rx_bank_id;
-					if(info_smmu->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID) {
-						IPAERR("Incorrect pmac id value %d Exceeding the 2bit range\n", info_smmu->rx_pmac_id);
-						goto fail_write_scratch;
-					}
-					ch_scratch.wdi4.pmac_id = info_smmu->rx_pmac_id;
-				} else {
-					ch_scratch.wdi4.vdev_id = 0;
-					if(info->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
-						IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n", info->rx_bank_id);
-						goto fail_write_scratch;
-					}
-					ch_scratch.wdi4.bank_id = info->rx_bank_id;
-					if(info->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID) {
-					IPAERR("Incorrect pmac id value %d Exceeding the 2bit range\n", info->rx_pmac_id);
+		if (IS_TX_DIR(dir) && wdi_ver == IPA_WDI_4) {
+			if (is_smmu_enabled) {
+				ch_scratch.wdi4.vdev_id = 0;
+				if (info_smmu->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
+					IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n",
+					       info_smmu->rx_bank_id);
 					goto fail_write_scratch;
-					}
-					ch_scratch.wdi4.pmac_id = info->rx_pmac_id;
 				}
-			} else { /*rx dir writing sratch specific to wdi4*/
-				memset(&gsi_scratch9, 0, sizeof(gsi_scratch9));
-				gsi_scratch9.wdi.chip_id = 0x7;
-				if (is_smmu_enabled) {
-					if (info_smmu->mlo_chip_id == 0xFF) {
-						gsi_scratch9.wdi.chip_id = 0x7;
-					} else if (info_smmu->mlo_chip_id > IPA_WDI4_MAX_VALUE_OF_CHIP_ID) {
-						IPAERR("Incorrect chip id value %d Exceeding the 4bit range\n", info_smmu->mlo_chip_id);
-						goto fail_write_scratch;
-					} else {
-						gsi_scratch9.wdi.chip_id = info_smmu->mlo_chip_id;
-					}
-				} else {
-					if (info->mlo_chip_id == 0xFF) {
-						gsi_scratch9.wdi.chip_id = 0x7;
-					} else if (info->mlo_chip_id > IPA_WDI4_MAX_VALUE_OF_CHIP_ID) {
-						IPAERR("Incorrect chip id value %d Exceeding the 4bit range\n", info->mlo_chip_id);
-						goto fail_write_scratch;
-					} else {
-						gsi_scratch9.wdi.chip_id = info->mlo_chip_id;
-					}
-				}
-				result = gsi_write_channel_scratch9_reg(ep->gsi_chan_hdl,gsi_scratch9);
-				if (result != GSI_STATUS_SUCCESS) {
-					IPAERR("failed to write evt ring scratch\n");
+				ch_scratch.wdi4.bank_id = info_smmu->rx_bank_id;
+				if (info_smmu->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID) {
+					IPAERR("Incorrect pmac id value %d Exceeding the 2bit range\n",
+					       info_smmu->rx_pmac_id);
 					goto fail_write_scratch;
+				}
+				ch_scratch.wdi4.pmac_id = info_smmu->rx_pmac_id;
+			} else {
+				ch_scratch.wdi4.vdev_id = 0;
+				if (info->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
+					IPAERR("Incorrect bank id value %d Exceeding the 6bit range\n",
+					       info->rx_bank_id);
+					goto fail_write_scratch;
+				}
+				ch_scratch.wdi4.bank_id = info->rx_bank_id;
+				if (info->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID) {
+					IPAERR("Incorrect pmac id value %d Exceeding the 2bit range\n",
+					       info->rx_pmac_id);
+					goto fail_write_scratch;
+				}
+				ch_scratch.wdi4.pmac_id = info->rx_pmac_id;
+			}
+		} else if (wdi_ver == IPA_WDI_4) { // rx dir
+			memset(&gsi_scratch9, 0, sizeof(gsi_scratch9));
+			gsi_scratch9.wdi.chip_id = 0x7;
+			if (is_smmu_enabled) {
+				if (info_smmu->mlo_chip_id == 0xFF) {
+					gsi_scratch9.wdi.chip_id = 0x7;
+				} else if (info_smmu->mlo_chip_id > IPA_WDI4_MAX_VALUE_OF_CHIP_ID) {
+					IPAERR("Incorrect chip id value %d Exceeding the 4bit range\n",
+					       info_smmu->mlo_chip_id);
+					goto fail_write_scratch;
+				} else {
+					gsi_scratch9.wdi.chip_id = info_smmu->mlo_chip_id;
+				}
+			} else {
+				if (info->mlo_chip_id == 0xFF) {
+					gsi_scratch9.wdi.chip_id = 0x7;
+				} else if (info->mlo_chip_id > IPA_WDI4_MAX_VALUE_OF_CHIP_ID) {
+					IPAERR("Incorrect chip id value %d Exceeding the 4bit range\n",
+					       info->mlo_chip_id);
+					goto fail_write_scratch;
+				} else {
+					gsi_scratch9.wdi.chip_id = info->mlo_chip_id;
 				}
 			}
-		ch_scratch.wdi4.qmap_id = 0;
-		ch_scratch.wdi4.wds_ext_enable = 1;
-		ch_scratch.wdi4.reserved1 = 0;
+			result = gsi_write_channel_scratch9_reg(ep->gsi_chan_hdl,
+								gsi_scratch9);
+			if (result != GSI_STATUS_SUCCESS) {
+				IPAERR("failed to write evt ring scratch\n");
+				goto fail_write_scratch;
+			}
+		}
+		ch_scratch.wdi4.qmap_id = 0; // same position for wdi6
+		if (wdi_ver == IPA_WDI_4) {
+			ch_scratch.wdi4.wds_ext_enable = 1;
+		}
 	}
 
 	result = gsi_write_channel_scratch(ep->gsi_chan_hdl, ch_scratch);

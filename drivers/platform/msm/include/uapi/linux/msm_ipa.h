@@ -2885,6 +2885,7 @@ struct ipa_ioc_query_intf_ext_props {
  * @src_pipe: input pipe
  * @hdr_l2_type: type of associated header if any, use NONE when no header
  * @tc_bmap: Bit map indicating the traffic classes associated to the pipe
+ * @rdi: IPA ring ID
  */
 struct ipa_ioc_rx_intf_prop {
 	enum ipa_ip_type ip;
@@ -2892,6 +2893,7 @@ struct ipa_ioc_rx_intf_prop {
 	enum ipa_client_type src_pipe;
 	enum ipa_hdr_l2_type hdr_l2_type;
 	uint32_t tc_bmap;
+	uint8_t rdi;
 };
 
 /**
