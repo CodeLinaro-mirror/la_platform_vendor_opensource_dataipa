@@ -1124,7 +1124,7 @@ int ipa3_qmi_filter_request_ex_send(
 #ifdef CONFIG_IPA_IPSEC
 	/*
 	 * Shift the IPACM rules IPA_QMI_IPSEC_FLT_NUM positions to the bottom,
-	 * and insert IKE and IPsec catch all rules
+	 * and insert IKE and IPsec catch all rules (IPAv6.0)
 	 */
 	if (ipa_ipsec_enabled()) {
 		rc = ipa_ipsec_install_qmi_flt(req);
