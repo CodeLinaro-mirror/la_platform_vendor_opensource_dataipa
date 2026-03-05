@@ -130,8 +130,7 @@ LINUXINCLUDE    += -include $(MODULE_OUT)/config/dataipa_debug.h
 endif
 endif
 
-#Amboseli/SA535
-ifeq ($(filter $(CONFIG_ARCH_SDXPINN) $(CONFIG_ARCH_SDXKOVA) $(CONFIG_ARCH_QCOM), y), y)
+ifeq ($(filter $(CONFIG_ARCH_SDXPINN) $(CONFIG_ARCH_SDXKOVA), y), y)
 ifeq ($(origin DATAIPADRVTOP),undefined)
 $(warning DATAIPADRVTOP is not set)
 DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
@@ -152,7 +151,35 @@ endif
 endif
 endif
 
-
+#Amboseli/SA535
+ifeq ($(filter $(CONFIG_ARCH_QCOM), y), y)
+ifeq ($(origin DATAIPADRVTOP),undefined)
+$(warning DATAIPADRVTOP is not set)
+DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
+LINUXINCLUDE += -include $(srctree)/../../../dataipa/config/dataipa_hw7_0.h
+include $(srctree)/../../../dataipa/config/dataipa_hw7_0_QGKI.conf
+ifeq ($(filter $(CONFIG_ARCH_SDXECHO), y), y)
+LINUXINCLUDE += -include $(srctree)/../../../dataipa/config/dataipa_ipsec_hw7_0.h
+include $(srctree)/../../../dataipa/config/dataipa_ipsec_hw7_0.conf
+endif
+ifneq ($(CONFIG_LOCALVERSION), "-perf")
+include $(srctree)/../../../dataipa/config/dataipa_debug.conf
+LINUXINCLUDE += -include $(srctree)/../../../dataipa/config/dataipa_debug.h
+endif
+else
+$(warning DATAIPADRVTOP is set to: $(DATAIPADRVTOP))
+LINUXINCLUDE += -include $(DATAIPADRVTOP)/../../../config/dataipa_hw7_0.h
+include $(DATAIPADRVTOP)/../../../config/dataipa_hw7_0_QGKI.conf
+ifeq ($(filter $(CONFIG_ARCH_SDXECHO), y), y)
+LINUXINCLUDE += -include $(DATAIPADRVTOP)/../../../config/dataipa_ipsec_hw7_0.h
+include $(DATAIPADRVTOP)/../../../config/dataipa_ipsec_hw7_0.conf
+endif
+ifneq ($(CONFIG_LOCALVERSION), "-perf")
+include $(DATAIPADRVTOP)/../../../config/dataipa_debug.conf
+LINUXINCLUDE += -include $(DATAIPADRVTOP)/../../../config/dataipa_debug.h
+endif
+endif
+endif
 
 ifneq (,$(filter $(CONFIG_IPA3) $(CONFIG_GSI),y m))
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/include
@@ -188,6 +215,10 @@ endif
 
 ifneq (,$(filter $(CONFIG_IPA3_REGDUMP_IPA_6_0),y m))
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3/dump/ipa6.0
+endif
+
+ifneq (,$(filter $(CONFIG_IPA3_REGDUMP_IPA_7_0),y m))
+LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3/dump/ipa7.0
 endif
 
 
