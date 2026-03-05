@@ -302,69 +302,134 @@ static void ipa3_uc_eogre_event_log_info_handler(
 struct IpaHwEventLogInfoData_t *uc_event_top_mmio)
 {
 	struct Ipa3HwEventInfoData_t *stats_ptr = &uc_event_top_mmio->statsInfo;
+	uint8_t feature;
+	if(ipa3_ctx->eogre_enabled == true) {
+		feature = IPA_HW_FEATURE_EOGRE;
+	}
+	else
+	{
+		feature = IPA_HW_FEATURE_IPOGRE;
+	}
 
 	if ((uc_event_top_mmio->protocolMask &
-		(1 << IPA_HW_FEATURE_EOGRE)) == 0) {
+		(1 << feature)) == 0) {
 		IPAERR("EOGRE protocol missing 0x%x\n",
 				uc_event_top_mmio->protocolMask);
 		return;
 	}
 
-	if (stats_ptr->featureInfo[IPA_HW_FEATURE_EOGRE].params.size !=
-		sizeof(struct Ipa3HwStatsEOGREInfoData_t)) {
-		IPAERR("eogre stats sz invalid exp=%zu is=%u\n",
-			sizeof(struct Ipa3HwStatsEOGREInfoData_t),
-			stats_ptr->featureInfo[IPA_HW_FEATURE_EOGRE].params.size);
-		return;
+	if(ipa3_ctx->eogre_enabled == true)
+	{
+		if (stats_ptr->featureInfo[feature].params.size !=
+				sizeof(struct Ipa3HwStatsEOGRE)) {
+				IPAERR("eogre stats sz invalid exp=%zu is=%u\n",
+					sizeof(struct Ipa3HwStatsEOGRE),
+					stats_ptr->featureInfo[feature].params.size);
+				return;
+			}
+	}
+	else
+	{
+		if (stats_ptr->featureInfo[feature].params.size !=
+			sizeof(struct Ipa3HwStatsipogreCombined)) {
+			IPAERR("eogre stats sz invalid exp=%zu is=%u\n",
+				sizeof(struct Ipa3HwStatsipogreCombined),
+				stats_ptr->featureInfo[feature].params.size);
+			return;
+		}
 	}
 
 	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst =
 		stats_ptr->baseAddrOffset +
-		stats_ptr->featureInfo[IPA_HW_FEATURE_EOGRE].params.offset;
+		stats_ptr->featureInfo[feature].params.offset;
 
 	IPAERR("EOGRE stats ofst=0x%x\n", ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
-	if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
-		sizeof(struct Ipa3HwStatsEOGREInfoData_t) >=
-		ipa3_ctx->ctrl->ipa_reg_base_ofst +
-		ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n, 0) +
-		ipa3_ctx->smem_sz) {
-		IPAERR("uc_eogre_stats 0x%x outside SRAM\n",
-			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
-		return;
+	if(ipa3_ctx->eogre_enabled == true)
+	{
+		if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
+			sizeof(struct Ipa3HwStatsEOGRE) >=
+			ipa3_ctx->ctrl->ipa_reg_base_ofst +
+			ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n, 0) +
+			ipa3_ctx->smem_sz) {
+			IPAERR("uc_eogre_stats 0x%x outside SRAM\n",
+				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
+			return;
+		}
+		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre =
+			ioremap(ipa3_ctx->ipa_wrapper_base +
+			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst,
+			sizeof(struct Ipa3HwStatsEOGRE));
+		if (!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre) {
+			IPAERR("fail to ioremap uc eogre stats\n");
+			return;
+		}
+	}
+	else
+	{
+		if (ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst +
+			sizeof(struct Ipa3HwStatsipogreCombined) >=
+			ipa3_ctx->ctrl->ipa_reg_base_ofst +
+			ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n, 0) +
+			ipa3_ctx->smem_sz) {
+			IPAERR("uc_eogre_stats 0x%x outside SRAM\n",
+				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst);
+			return;
+		}
+		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.ipogre =
+			ioremap(ipa3_ctx->ipa_wrapper_base +
+			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst,
+			sizeof(struct Ipa3HwStatsipogreCombined));
+		if (!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.ipogre) {
+			IPAERR("fail to ioremap uc eogre stats\n");
+			return;
+		}
 	}
 
-	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio =
-		ioremap(ipa3_ctx->ipa_wrapper_base +
-		ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_ofst,
-		sizeof(struct Ipa3HwStatsEOGREInfoData_t));
-	if (!ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio) {
-		IPAERR("fail to ioremap uc eogre stats\n");
-		return;
-	}
 }
 
-int ipa3_get_eogre_stats(struct Ipa3HwStatsEOGREInfoData_t *stats)
+int ipa3_get_eogre_stats(struct Ipa3HwStatsEOGRE *eogre,
+		struct Ipa3HwStatsipogreCombined *ipogre)
 {
 
-#define EOGRE_STATS(y) stats->y = \
-	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio->y
+#define EOGRE_STATS(y) eogre->y = \
+	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre->y
+
+#define IPOGRE_STATS(y) ipogre->tunnels[0].y = \
+	ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.ipogre->tunnels[0].y
 
 	if (unlikely(!ipa3_ctx)) {
 		IPAERR("IPA driver was not initialized\n");
 		return -EINVAL;
 	}
-
-	if (!stats || !ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio) {
-		IPAERR("bad parms stats=%pK eogre_stats=%pK\n",
-			stats,
-			ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio);
-		return -EINVAL;
+	if(ipa3_ctx->eogre_enabled == true)
+	{
+		if (!eogre || !ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre) {
+			IPAERR("bad parms stats=%pK eogre_stats=%pK\n",
+				eogre,
+				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.eogre);
+			return -EINVAL;
+		}
 	}
-
+	else
+	{
+		if (!ipogre || !ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.ipogre) {
+			IPAERR("bad parms stats=%pK eogre_stats=%pK\n",
+				ipogre,
+				ipa3_ctx->uc_eogre_ctx.eogre_uc_stats_mmio.ipogre);
+			return -EINVAL;
+		}
+	}
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-
-	EOGRE_STATS(eogre_header_add_id);
-	EOGRE_STATS(eogre_header_remove_id);
+	if(ipa3_ctx->eogre_enabled == true)
+	{
+		EOGRE_STATS(eogre_header_add_id);
+		EOGRE_STATS(eogre_header_remove_id);
+	}
+	else
+	{
+		IPOGRE_STATS(eogre_header_add_id);
+		IPOGRE_STATS(eogre_header_remove_id);
+	}
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 

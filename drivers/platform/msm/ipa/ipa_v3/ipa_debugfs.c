@@ -2278,16 +2278,29 @@ static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
 {
 	int nbytes;
 	int cnt = 0;
-	struct Ipa3HwStatsEOGREInfoData_t stats;
+	struct Ipa3HwStatsEOGRE eogre;
+	struct Ipa3HwStatsipogreCombined ipogre;
 
-	if (!ipa3_get_eogre_stats(&stats)) {
+	if (!ipa3_get_eogre_stats(&eogre, &ipogre)) {
 
-		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
-			"EoGRE UL Stats is %d\n"
-			"EoGRE DL stats is %d\n",
-			stats.eogre_header_add_id,
-			stats.eogre_header_remove_id);
-		cnt += nbytes;
+		if(ipa3_ctx->eogre_enabled)
+                {
+			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"EoGRE UL Stats is %d\n"
+				"EoGRE DL stats is %d\n",
+				eogre.eogre_header_add_id,
+				eogre.eogre_header_remove_id);
+			cnt += nbytes;
+		}
+		else
+		{
+			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"IPoGRE UL Stats is %d\n"
+				"IPoGRE DL stats is %d\n",
+				ipogre.tunnels[0].eogre_header_add_id,
+				ipogre.tunnels[0].eogre_header_remove_id);
+			cnt += nbytes;
+		}
 	} else {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 				"Fail to read EOGRE stats\n");
