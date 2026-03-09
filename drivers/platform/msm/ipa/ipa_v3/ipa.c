@@ -6916,6 +6916,17 @@ static inline void ipa3_sram_set_canary(u32 *sram_mmio, int offset)
 	sram_mmio[(offset - 4) / 4] = IPA_MEM_CANARY_VAL;
 }
 
+static inline void ipa3_sram_set_canary_extended(u32 *sram_mmio, int offset, int size_bytes)
+{
+    int i;
+    int num_words = size_bytes / 4;  // Convert bytes to 32-bit words
+
+    /* Set 'size_bytes' of CANARY before the offset */
+    for (i = 0; i < num_words; i++) {
+        sram_mmio[(offset - size_bytes) / 4 + i] = IPA_MEM_CANARY_VAL;
+    }
+}
+
 /**
  * _ipa_init_sram_v3() - Initialize IPA local SRAM.
  *
@@ -7035,20 +7046,23 @@ int _ipa_init_sram_v3(void)
 			IPA_MEM_PART(end_ofst));
 	}
 
+	if (ipa_get_hw_type() == IPA_HW_v6_0) {
+		ipa3_sram_set_canary_extended(ipa_sram_mmio,
+			IPA_MEM_PART(ct_tbl_ofst), IPA_CT_TBL_CANARY_SIZE);
+	}
+
 	if (ipa_get_hw_type() >= IPA_HW_v6_0) {
 		ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst) - 4);
 		ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(apps_v4_flt_nhash_ofst));
-		ipa3_sram_set_canary(ipa_sram_mmio,
-				IPA_MEM_PART(ct_tbl_ofst) - 4);
-		ipa3_sram_set_canary(ipa_sram_mmio,
-				IPA_MEM_PART(ct_tbl_ofst));
 
-		/* Set CANARY on whole pre_sa_contexts_canary */
-		for (offset = IPA_MEM_PART(pre_sa_contexts_canary_ofst) / 4;
-			offset < IPA_MEM_PART(sa_contexts_ofst) / 4; offset++)
-			ipa_sram_mmio[offset] = IPA_MEM_CANARY_VAL;
+		if(IPA_MEM_PART(pre_sa_contexts_canary_ofst) != 0) {
+			/* Set CANARY on whole pre_sa_contexts_canary */
+			for (offset = IPA_MEM_PART(pre_sa_contexts_canary_ofst) / 4;
+				offset < IPA_MEM_PART(sa_contexts_ofst) / 4; offset++)
+				ipa_sram_mmio[offset] = IPA_MEM_CANARY_VAL;
+		}
 	}
 
 	/* Initialize empty flt/rt table.*/

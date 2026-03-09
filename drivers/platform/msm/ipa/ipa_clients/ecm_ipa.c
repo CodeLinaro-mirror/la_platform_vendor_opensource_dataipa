@@ -1734,3 +1734,6 @@ void ecm_ipa_cleanup_module(void)
 	ECM_IPA_LOG_EXIT();
 }
 EXPORT_SYMBOL(ecm_ipa_cleanup_module);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("ECM ipa driver");
