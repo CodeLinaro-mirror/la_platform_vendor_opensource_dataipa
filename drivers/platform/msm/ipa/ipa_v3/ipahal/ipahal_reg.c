@@ -23,6 +23,7 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_IRQ_STTS_EE_n),
 	__stringify(IPA_IRQ_EN_EE_n),
 	__stringify(IPA_IRQ_CLR_EE_n),
+	__stringify(IPA_IRQ_EN_EE_ERROR_FATAL_n),
 	__stringify(IPA_SUSPEND_IRQ_INFO_EE_n),
 	__stringify(IPA_SUSPEND_IRQ_EN_EE_n),
 	__stringify(IPA_SUSPEND_IRQ_CLR_EE_n),
@@ -79,6 +80,9 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_DEBUG_CNT_REG_n),
 	__stringify(IPA_ENDP_INIT_CFG_n),
 	__stringify(IPA_IRQ_EE_UC_n),
+	__stringify(IPA_FEC_FATAL_ADDR_EE_n),
+	__stringify(IPA_FEC_FATAL_ADDR_MSB_EE_n),
+	__stringify(IPA_FEC_FATAL_ATTR_EE_n),
 	__stringify(IPA_ENDP_INIT_HDR_METADATA_MASK_n),
 	__stringify(IPA_ENDP_INIT_HDR_METADATA_n),
 	__stringify(IPA_ENDP_INIT_PROD_CFG_n),
@@ -6873,6 +6877,18 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_IRQ_EE_UC_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x0001b01c, 0x1000, 0, 0, 1, 0},
+	[IPA_HW_v7_0][IPA_FEC_FATAL_ADDR_EE_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0001b020, 0x1000, 0, 4, 1, 0},
+	[IPA_HW_v7_0][IPA_FEC_FATAL_ADDR_MSB_EE_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0001b024, 0x1000, 0, 4, 1, 0},
+	[IPA_HW_v7_0][IPA_FEC_FATAL_ATTR_EE_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0001b028, 0x1000, 0, 4, 1, 0},
+	[IPA_HW_v7_0][IPA_IRQ_EN_EE_ERROR_FATAL_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0001b148, 0x1000, 0, 4, 1, 0},
 	[IPA_HW_v7_0][IPA_FEC_ADDR_EE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0, 0, 0, 0, 0},

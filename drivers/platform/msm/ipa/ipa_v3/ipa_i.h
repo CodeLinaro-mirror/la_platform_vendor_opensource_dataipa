@@ -2439,6 +2439,15 @@ struct ipa3_ip_pass_msg {
 	struct list_head link;
 };
 
+/* Fatal Error IRQ Debug Registers */
+struct ipa_fatal_err_irq_regs {
+	u32 ipa_irq_stts_ee_error_fatal;
+	u32 ipa_fec_fatal_addr_ee;
+	u32 ipa_fec_fatal_addr_msb_ee;
+	u32 ipa_fec_fatal_attr_ee;
+	u32 ipa_snoc_fec_ee;
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2895,6 +2904,7 @@ struct ipa3_context {
 	u8 ippt_pdninfo_refcnt;
 	struct mutex msg_qos_param_lock;
 	struct list_head msg_qos_param_list;
+	struct ipa_fatal_err_irq_regs ipa_fatal_err_irq_regs;
 };
 
 struct ipa3_plat_drv_res {
