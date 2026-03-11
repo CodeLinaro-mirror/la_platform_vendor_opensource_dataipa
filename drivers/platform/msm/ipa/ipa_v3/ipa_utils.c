@@ -12843,6 +12843,7 @@ static int __ipa_stop_gsi_channel(u32 clnt_hdl)
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_9 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v5_2 &&
 		ipa3_ctx->platform_type != IPA_PLAT_TYPE_XR) {
