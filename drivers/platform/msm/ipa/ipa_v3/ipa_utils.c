@@ -10220,75 +10220,94 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	/* SA contexts must fit into 16 bit addressable SRAM */
 	.sa_contexts_ofst = 0x1bc8,
 	.sa_contexts_size = 0x18c0,
-
-	.modem_hdr_ofst = 0x3488,
+	.modem_ofst = 0x3488,
+	.modem_size = 0xd48,
+	.modem_hdr_proc_ctx_ofst = 0x4200,
+	.modem_hdr_proc_ctx_size = 0x13e0,
+	.apps_hdr_proc_ctx_ofst = 0x55e0,
+	.apps_hdr_proc_ctx_size = 0x1000,
+	.apps_hdr_proc_ctx_size_ddr = 0x3fe0,
+	.modem_hdr_ofst = 0x65e0,
 	.modem_hdr_size = 0x240,
-	.apps_hdr_ofst = 0x36c8,
+	.apps_hdr_ofst = 0x6820,
 	.apps_hdr_size = 0x18674,
 	.apps_hdr_size_ddr = 0x7ff,
 	.apps_hdr_ext_ofst = 0x1bd3c,
 	.apps_hdr_ext_size = 0x0,
-	.modem_hdr_proc_ctx_ofst = 0x1bd60,
-	.modem_hdr_proc_ctx_size = 0x13e0,
-	.apps_hdr_proc_ctx_ofst = 0x1d140,
-	.apps_hdr_proc_ctx_size = 0x1000,
-	.apps_hdr_proc_ctx_size_ddr = 0x3fe0,
-	.stats_quota_q6_ofst = 0x1e148,
+	.stats_quota_q6_ofst = 0x1eea0,
 	.stats_quota_q6_size = 0xa0,
-	.stats_quota_ap_ofst = 0x1e1e8,
+	.stats_quota_ap_ofst = 0x1ef40,
 	.stats_quota_ap_size = 0xa0,
-	.stats_peripheral_prod_ofst = 0x1e288,
+	.stats_peripheral_prod_ofst = 0x1efe0,
 	.stats_peripheral_prod_size = 0x1b8,
-	.apps_fltrt_empty_tbl_ofst = 0x1e440,
+	.apps_fltrt_empty_tbl_ofst = 0x1f198,
 	.apps_fltrt_empty_tbl_size = 0x20,
-	.stats_tethering_ofst = 0x1e460,
+	/* TODO: need to properly configure register. */
+	.stats_tethering_cfg_ofst = 0x1f198,
+	.stats_tethering_cfg_size = 0x20,
+	/* TODO: need to properly configure register. */
+	.stats_fnr_cfg_ofst = 0x1f198,
+	.stats_fnr_cfg_size = 0x20,
+	/* TODO: need to properly configure register. */
+	.stats_flt_nonip_ofst = 0x1f198,
+	.stats_flt_nonip_size = 0x20,
+	/* TODO: need to properly configure register. */
+	.stats_rt_nonip_ofst = 0x1f198,
+	.stats_rt_nonip_size = 0x20,
+	/* TODO: need to properly configure register. */
+	.stats_flt_nonip_cfg_ofst = 0x1f198,
+	.stats_flt_nonip_cfg_size = 0x20,
+	/* TODO: need to properly configure register. */
+	.stats_rt_nonip_cfg_ofst = 0x1f198,
+	.stats_rt_nonip_cfg_size = 0x20,
+	.stats_tethering_ofst = 0x1f1b8,
 	.stats_tethering_size = 0x11b8,
-	.stats_fnr_ofst = 0x1f618,
+	.stats_fnr_ofst = 0x20370,
 	.stats_fnr_size = 0x11a8,
-	.stats_drop_ofst = 0x207c0,
-	.stats_drop_size = 0x230,
-	.modem_ofst = 0x20a00,
-	.modem_size = 0xd48,
-	.nat_tbl_ofst = 0x21760,
+	.ap_stats_drop_ofst = 0x21518,
+	.ap_stats_drop_size = 0x210,
+	.stats_drop_ofst = 0x21728,
+	.stats_drop_size = 0x20,
+	.nat_tbl_ofst = 0x21792,
 	.nat_tbl_size = 0x0,
-	.ct_tbl_ofst = 0x21768,
+	.ct_tbl_ofst = 0x21792,
 	.ct_tbl_size = 0x0,
-	.apps_v4_flt_nhash_ofst = 0x21770,
+	.apps_v4_flt_nhash_ofst = 0x217a8,
 	.apps_v4_flt_nhash_size = 0xa40,
-	.apps_v6_flt_nhash_ofst = 0x221b8,
+	.apps_v6_flt_nhash_ofst = 0x221f0,
 	.apps_v6_flt_nhash_size = 0xa40,
-	.apps_v4_rt_nhash_ofst = 0x22c00,
+	.apps_v4_rt_nhash_ofst = 0x22c38,
 	.apps_v4_rt_nhash_size = 0x300,
-	.apps_v6_rt_nhash_ofst = 0x22f08,
+	.apps_v6_rt_nhash_ofst = 0x22f40,
 	.apps_v6_rt_nhash_size = 0x300,
-	.tethering_drop_stats_ofst = 0x23208,
+	.tethering_drop_stats_ofst = 0x23240,
 	.tethering_drop_stats_size = 0x11b4,
 
 	/* Unified Counters (0x8000) */
-	.nat_ct_stats_counters_ofst = 0x243bc,
+	.nat_ct_stats_counters_ofst = 0x243f4,
 	.nat_ct_stats_counters_size = 0x8000,
 
 	/* Unified Config (0x80) */
-	.nat_ct_stats_cfg_ofst = 0x2c3bc,
+	.nat_ct_stats_cfg_ofst = 0x2c3f4,
 	.nat_ct_stats_cfg_size = 0x80,
 
 	/* Unified Drop Counters (0x8000) */
-	.nat_ct_drop_stats_counters_ofst = 0x2c43c,
+	.nat_ct_drop_stats_counters_ofst = 0x2c474,
 	.nat_ct_drop_stats_counters_size = 0x8000,
 
 	/* Unified Drop Config (0x80) */
-	.nat_ct_drop_stats_cfg_ofst = 0x3443c,
+	.nat_ct_drop_stats_cfg_ofst = 0x34474,
 	.nat_ct_drop_stats_cfg_size = 0x80,
 
-	.fnr_drop_counters_ofst = 0x344bc,
+	.fnr_drop_counters_ofst = 0x344f4,
 	.fnr_drop_counters_size = 0x11a8,
-	.policing_drop_counters_ofst = 0x35664,
+	.policing_drop_counters_ofst = 0x3569c,
 	.policing_drop_counters_size = 0x400,
-	.shaping_drop_counters_ofst = 0x35a64,
+	.shaping_drop_counters_ofst = 0x35a9c,
 	.shaping_drop_counters_size = 0x400,
-	.shaping_drop_pkt_byte_counters_ofst = 0x35e64,
+	.shaping_drop_pkt_byte_counters_ofst = 0x35e9c,
 	.shaping_drop_pkt_byte_counters_size = 0x1000,
-	.end_ofst = 0x36e64,
+	.end_ofst = 0x36e9c,
 };
 
 
@@ -14093,7 +14112,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		   IPA_MEM_PART(nat_tbl_ofst),
 		   IPA_MEM_PART(nat_tbl_size));
 
-	if (IPA_MEM_PART(nat_tbl_ofst) & 31) {
+	if (IPA_MEM_PART(nat_tbl_size) && IPA_MEM_PART(nat_tbl_ofst) & 31) {
 		IPAERR("NAT TBL OFST 0x%x is not aligned properly\n",
 			   IPA_MEM_PART(nat_tbl_ofst));
 		return -ENODEV;
@@ -14156,6 +14175,16 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 	if (IPA_MEM_PART(stats_drop_ofst) & 7) {
 		IPAERR("DROP STATS OFST 0x%x is unaligned\n",
 			IPA_MEM_PART(stats_drop_ofst));
+		return -ENODEV;
+	}
+
+	IPADBG("AP DROP STATS OFST 0x%x SIZE 0x%x\n",
+	IPA_MEM_PART(ap_stats_drop_ofst),
+		IPA_MEM_PART(ap_stats_drop_size));
+
+	if (IPA_MEM_PART(ap_stats_drop_ofst) & 7) {
+		IPAERR("AP DROP STATS OFST 0x%x is unaligned\n",
+			IPA_MEM_PART(ap_stats_drop_ofst));
 		return -ENODEV;
 	}
 

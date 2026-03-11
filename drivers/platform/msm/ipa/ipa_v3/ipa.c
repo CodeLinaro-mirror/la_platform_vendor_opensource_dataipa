@@ -7114,6 +7114,33 @@ int _ipa_init_sram_v3(void)
 		}
 	}
 
+	if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+		/* Initialize new registers to 0. */
+		if (IPA_MEM_PART(stats_tethering_cfg_size))
+			memset_io((u8*)ipa_sram_mmio + IPA_MEM_PART(stats_tethering_cfg_ofst),
+				0, IPA_MEM_PART(stats_tethering_cfg_size));
+
+		if (IPA_MEM_PART(stats_fnr_cfg_ofst))
+			memset_io((u8*)ipa_sram_mmio + IPA_MEM_PART(stats_fnr_cfg_ofst),
+				0, IPA_MEM_PART(stats_fnr_cfg_size));
+
+		if (IPA_MEM_PART(stats_flt_nonip_ofst))
+			memset_io((u8*)ipa_sram_mmio + IPA_MEM_PART(stats_flt_nonip_ofst),
+				0, IPA_MEM_PART(stats_flt_nonip_size));
+
+		if (IPA_MEM_PART(stats_rt_nonip_ofst))
+			memset_io((u8*)ipa_sram_mmio + IPA_MEM_PART(stats_rt_nonip_ofst),
+				0, IPA_MEM_PART(stats_rt_nonip_size));
+
+		if (IPA_MEM_PART(stats_flt_nonip_cfg_ofst))
+			memset_io((u8*)ipa_sram_mmio + IPA_MEM_PART(stats_flt_nonip_cfg_ofst),
+				0, IPA_MEM_PART(stats_flt_nonip_cfg_size));
+
+		if (IPA_MEM_PART(stats_rt_nonip_cfg_ofst))
+			memset_io((u8*)ipa_sram_mmio + IPA_MEM_PART(stats_rt_nonip_cfg_ofst),
+				0, IPA_MEM_PART(stats_rt_nonip_cfg_size));
+	}
+
 	/* Initialize empty flt/rt table.*/
 	if (IPA_MEM_PART(apps_fltrt_empty_tbl_size))
 		memset_io((u8*)ipa_sram_mmio + IPA_MEM_PART(apps_fltrt_empty_tbl_ofst),

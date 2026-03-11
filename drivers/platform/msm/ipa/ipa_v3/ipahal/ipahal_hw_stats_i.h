@@ -31,6 +31,16 @@ struct ipahal_stats_tethering_hdr_v5_0_hw {
 	u64 reserved:32;
 };
 
+struct ipahal_stats_tethering_hdr_v7_0_hw {
+	u64 dst_mask_31_0:32;
+	u64 dst_mask_63_32:32;
+	u64 dst_mask_95_64:32;
+	u64 dst_mask_127_96:32;
+	u64 offset:32;
+	u64 cfg_start_index:32;
+};
+
+
 struct ipahal_stats_tethering_hw {
 	u64 num_ipv4_bytes;
 	u64 num_ipv4_pkts:32;
