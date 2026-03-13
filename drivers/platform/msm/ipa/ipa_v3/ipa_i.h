@@ -123,6 +123,7 @@
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
 #define IPA_MAX_RT_RULE_ID 1023
+#define IPA_CT_TBL_CANARY_SIZE 40
 
 #define IPA_AP_CB_WLAN_END_MAPPING 0x20000000
 
@@ -4222,6 +4223,18 @@ int ipa3_eth_enable(
 	int inst_id,
 	u8 priority,
 	u8 pipe_idx);
+
+int ipa3_eth_disable(
+	struct ipa_eth_client_pipe_info *pipe,
+	enum ipa_client_type client_type,
+	u8 pipe_idx);
 #endif
+
+static inline bool ipa_is_proc_ctx_headerless(enum ipa_hdr_proc_type type)
+{
+	return (type == IPA_HDR_PROC_NXT_RND ||
+		type == IPA_HDR_PROC_IPSEC_DECAP ||
+		type == IPA_HDR_PROC_IPSEC_DECAP_NXT_RND);
+}
 
 #endif /* _IPA3_I_H_ */
