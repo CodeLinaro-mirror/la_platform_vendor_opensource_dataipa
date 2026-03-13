@@ -2372,6 +2372,7 @@ struct ipa3_eth_pdu_ctx {
 	enum ipa_eth_hw_config_enum_v01 eth_pdu_vlan_mode;
 	int eth_pdu_tx_ep_id;
 	int eth_pdu_rx_ep_id;
+	bool eth_pdu_over_usb;
 };
 
 /**
