@@ -5752,8 +5752,8 @@ static struct sk_buff *handle_skb_completion(
 	struct list_head *head;
 	struct ipa3_sys_context *sys;
 
-	sys = (struct ipa3_sys_context *) notify->chan_user_data;
 	rx_pkt = (struct ipa3_rx_pkt_wrapper *) notify->xfer_user_data;
+	sys = rx_pkt->sys;
 
 	if (pkt_sys) {
 		*pkt_sys = rx_pkt->sys;
