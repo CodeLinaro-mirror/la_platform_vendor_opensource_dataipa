@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_WDI3_H_
@@ -267,6 +267,7 @@ struct ipa_wdi_pipe_setup_info {
 	u8 rx_bank_id;
 	u8 rx_pmac_id;
 	u8 mlo_chip_id;
+	u16 ast_index;
 	u8 rx_peer_metadata_ver;
 };
 
@@ -314,6 +315,7 @@ struct ipa_wdi_pipe_setup_info_smmu {
 	u8 rx_bank_id;
 	u8 rx_pmac_id;
 	u8 mlo_chip_id;
+	u16 ast_index;
 	u8 rx_peer_metadata_ver;
 };
 
@@ -628,6 +630,21 @@ int ipa_wdi_conn_pipes_per_inst(struct ipa_wdi_conn_in_params *in,
 	struct ipa_wdi_conn_out_params *out);
 
 /**
+ * ipa_wdi_sbr_connect - function to connect STA bridge TX pipe
+ *
+ * @in: [in] input parameters from client
+ * @out: [out] output params to client
+ *
+ * Note: This function configures only the TX pipe for the STA bridge.
+ *       Should not be called from atomic context.
+ *
+ * @Return 0 on success, negative on failure
+ */
+int ipa_wdi_sbr_connect(struct ipa_wdi_conn_in_params *in,
+	struct ipa_wdi_conn_out_params *out);
+
+
+/**
  * ipa_wdi_disconn_pipes() - Client should call this
  *		function to disconnect pipes
  *
@@ -647,6 +664,17 @@ int ipa_wdi_disconn_pipes(void);
  * Returns: 0 on success, negative on failure
  */
 int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl);
+
+/**
+ * function to disconnect STA bridge TX pipe
+ *
+ * @hdl: hdl to wdi client
+ * Note: Should not be called from atomic context.
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_wdi_sbr_disconnect(ipa_wdi_hdl_t hdl);
+
 
 /**
  * ipa_wdi_enable_pipes() - Client should call this
@@ -670,6 +698,18 @@ int ipa_wdi_enable_pipes(void);
 int ipa_wdi_enable_pipes_per_inst(ipa_wdi_hdl_t hdl);
 
 /**
+ * ipa_wdi_sbr_enable_pipe() - Enable STA bridge TX pipe
+ * @hdl: hdl to wdi client
+ *
+ * This function enables only the TX pipe for the STA bridge.
+ * Should not be called from atomic context.
+ *
+ * Return: 0 on success, negative on failure
+ */
+int ipa_wdi_sbr_enable_pipe(ipa_wdi_hdl_t hdl);
+
+
+/**
  * ipa_wdi_disable_pipes() - Client should call this
  *		function to disable IPA offload data path
  *
@@ -689,6 +729,17 @@ int ipa_wdi_disable_pipes(void);
  * Returns: 0 on success, negative on failure
  */
 int ipa_wdi_disable_pipes_per_inst(ipa_wdi_hdl_t hdl);
+
+/**
+ * ipa_wdi_sbr_disable_pipe() - Disable STA bridge TX pipe
+ * @hdl: hdl to wdi client
+ *
+ * This function disables only the TX pipe for the STA bridge.
+ * Should not be called from atomic context.
+ *
+ * Return: 0 on success, negative on failure
+ */
+int ipa_wdi_sbr_disable_pipe(ipa_wdi_hdl_t hdl);
 
 /**
  * ipa_wdi_set_perf_profile() - Client should call this function to
@@ -882,6 +933,13 @@ static inline int ipa_wdi_conn_pipes_per_inst(
 	return -EPERM;
 }
 
+static inline int ipa_wdi_sbr_connect(
+	struct ipa_wdi_conn_in_params *in,
+	struct ipa_wdi_conn_out_params *out)
+	{
+		return -EPERM;
+	}
+
 static inline int ipa_wdi_disconn_pipes(void)
 {
 	return -EPERM;
@@ -892,6 +950,10 @@ static inline int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl)
 	return -EPERM;
 }
 
+static inline int ipa_wdi_sbr_disconnect(ipa_wdi_hdl_t hdl)
+{
+	return -EPERM;
+}
 
 static inline int ipa_wdi_enable_pipes(void)
 {
@@ -903,12 +965,22 @@ static inline int ipa_wdi_enable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 	return -EPERM;
 }
 
+static inline int ipa_wdi_sbr_enable_pipe(ipa_wdi_hdl_t hdl)
+{
+	return -EPERM;
+}
+
 static inline int ipa_wdi_disable_pipes(void)
 {
 	return -EPERM;
 }
 
 static inline int ipa_wdi_disable_pipes_per_inst(ipa_wdi_hdl_t hdl)
+{
+	return -EPERM;
+}
+
+static inline int ipa_wdi_sbr_disable_pipe(ipa_wdi_hdl_t hdl)
 {
 	return -EPERM;
 }

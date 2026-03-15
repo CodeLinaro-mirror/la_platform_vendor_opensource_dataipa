@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_COMMON_I_H_
@@ -727,12 +727,21 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	struct ipa_wdi_conn_out_params *out,
 	ipa_wdi_meter_notifier_cb wdi_notify,
 	bool ast_update);
+int ipa3_conn_wdi3_sbr_pipe(struct ipa_wdi_conn_in_params *in,
+	struct ipa_wdi_conn_out_params *out,
+	ipa_wdi_meter_notifier_cb wdi_notify,
+	bool ast_update);
 
 int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	int ipa_ep_idx_tx1, int ipa_ep_idx_rx1);
 
+int ipa3_sbr_disconn_wdi3_pipe(int ipa_ep_idx_tx);
+
 int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	int ipa_ep_idx_tx1, int ipa_ep_idx_rx1);
+
+int ipa3_sbr_enable_wdi3_pipe(int ipa_ep_idx_tx);
+int ipa3_sbr_disable_wdi3_pipe(int ipa_ep_idx_tx);
 
 int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	int ipa_ep_idx_tx1, int ipa_ep_idx_rx1);
