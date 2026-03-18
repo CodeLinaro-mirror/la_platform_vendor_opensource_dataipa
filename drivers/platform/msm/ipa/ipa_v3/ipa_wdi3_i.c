@@ -923,8 +923,10 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	memcpy(&ep->chan_scratch, &ch_scratch,
                 sizeof(union __packed gsi_channel_scratch));
 
-	if ( ( dir == IPA_WDI3_TX2_DIR) || ( dir == IPA_WDI3_TX_DIR) || ( dir == IPA_WDI3_TX1_DIR) || ( dir == IPA_WDI3_TX3_DIR))
-	{
+	if(ipa_get_wdi_version() == IPA_WDI_4 &&
+		 ep->client == IPA_CLIENT_WLAN_STABRG_CONS &&
+		 dir == IPA_WDI3_TX3_DIR){
+		IPADBG("updating channel scracth3 with bankid and astindex for stabridge");
 		result = gsi_write_wdi4_channel_scratch3_reg(ep->gsi_chan_hdl, ch_scratch3);
 		if (result != GSI_STATUS_SUCCESS) {
 			IPAERR("failed to write evt ring scratch\n");
