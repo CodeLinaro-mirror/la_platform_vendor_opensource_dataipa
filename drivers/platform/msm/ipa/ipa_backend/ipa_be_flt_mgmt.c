@@ -7,6 +7,7 @@
 #include <linux/jhash.h>
 #include <linux/bitops.h>
 #include <linux/sort.h>
+#include <linux/if_vlan.h>
 #include <linux/msm_ipa.h>
 #include <linux/inetdevice.h>
 #include "ipa_api.h"
@@ -24,6 +25,10 @@
 #define RESERVED_IPV6_PREFIX 0xFEC00000
 #define IPACM_FIREWALL_IPPROTO_TCP 6
 #define IPV6_HEADER_SIZE 40
+#define IPA_ETHERTYPE_OFFSET_ETH (ETH_HLEN - sizeof(u32))
+#define IPA_ETHERTYPE_OFFSET_VLAN (IPA_ETHERTYPE_OFFSET_ETH + VLAN_HLEN)
+#define IPA_ETHERTYPE_OFFSET_IP (-sizeof(u32))
+#define IPA_ETHERTYPE_MASK GENMASK((ETH_TLEN * BITS_PER_BYTE) - 1, 0)
 
 extern int ipa3_qmi_filter_request_ex_send(
 	struct ipa_install_fltr_rule_req_ex_msg_v01 *msg);
@@ -416,11 +421,13 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 	struct ipa_uplink_pair *new_pair = NULL;
 	bool is_xlat = false;
 	uint8_t value = 0;
+	struct ipa_ioc_write_qmapid mux;
+
 	/* Auto-enable XLAT for IPv4 192.0.0.x (192.0.0.0/24) flow/return IPs */
 	if (((ntohl(v4_msg.tuple.flow_ip) & 0xFFFFFF00U) == 0xC0000000U) ||
 	    ((ntohl(v4_msg.tuple.return_ip) & 0xFFFFFF00U) == 0xC0000000U) ||
 		((ntohl(v4_msg.conn_rule.flow_ip_xlate) & 0xFFFFFF00U) == 0xC0000000U) ||
-		((ntohl(v4_msg.conn_rule.return_ip_xlate & 0xFFFFFF00U) == 0xC0000000U))) {
+		((ntohl(v4_msg.conn_rule.return_ip_xlate) & 0xFFFFFF00U) == 0xC0000000U)) {
 		is_xlat = true;
 		IPA_BE_DBG("XLAT enabled due to 192.0.0.x match: flow %pI4n return %pI4n\n",
 			   &v4_msg.tuple.flow_ip, &v4_msg.tuple.return_ip);
@@ -630,6 +637,9 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 				IPA_BE_DBG("xlat meta-data is modified for rule: %d index %d metadata : 0x%x rule_id %d\n",
 						   cnt, i, flt_rule_entry.rule.eq_attrib.metadata_meq32.value, flt_index->rule_id_ex[i]);
 
+				mux.client = rx_prop->rx[idx].src_pipe;
+				mux.qmap_id = ext_prop->ext[cnt].mux_id;
+				ipa3_write_qmap_id(&mux);
 				//flt_index->rule_id_ex[idx_q6] = ext_prop->ext[cnt].rule_id;
 				//idx_q6++;
 			}
@@ -1862,7 +1872,6 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 			flt_rule_entry.rule.retain_hdr = 0;
 			flt_rule_entry.rule.to_uc = 0;
 			flt_rule_entry.rule.eq_attrib_type = 1;
-
 			flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
 			/* cache the flt action */
 			action_cache = flt_rule_entry.rule.action;
@@ -1927,6 +1936,8 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 
 				//add the eth header equation for v4 to the old rule
 				int meq32_n = flt_rule_entry.rule.eq_attrib.num_offset_meq_32;
+				uint8_t ethertype_offset = 0;
+				bool add_ethertype_meq = true;
 
 				if (meq32_n + 1 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
 					IPA_BE_ERR("Can't add another meq_32 equation to this rule");
@@ -1934,15 +1945,54 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 					continue;
 				}
 
-				flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset = -4;
-				flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].mask = 0xFFFF;
-				flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value = 0x0800;
+				switch (rx_prop->rx[idx].hdr_l2_type) {
+				case IPA_HDR_L2_NONE:
+					ethertype_offset = NON_IHL_EQ_OFFSET_FROM_L3(IPA_ETHERTYPE_OFFSET_IP);
+					break;
+				case IPA_HDR_L2_ETHERNET_II:
+				case IPA_HDR_L2_ETHERNET_II_AST:
+					ethertype_offset = NON_IHL_EQ_OFFSET_FROM_L2(IPA_ETHERTYPE_OFFSET_ETH);
+					break;
+				case IPA_HDR_L2_802_1Q:
+				case IPA_HDR_L2_802_1Q_AST:
+					ethertype_offset = NON_IHL_EQ_OFFSET_FROM_L2(IPA_ETHERTYPE_OFFSET_VLAN);
+					break;
+				case IPA_HDR_L2_802_3:
+					add_ethertype_meq = false;
+					break;
+				default:
+					break;
+				}
 
-				//Add the bitmap that will point to the new meq32 eq
-				if (meq32_n == 0) flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 5);
-				else flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 6);
+				if (add_ethertype_meq) {
+					WARN_ON(ethertype_offset == 0);
+					if (meq32_n + 1 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
+						IPA_BE_ERR("Can't add another meq_32 equation to this rule");
+						memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[cnt]), &flt_rule_entry, sizeof(flt_rule_entry));
+						continue;
+					}
 
-				flt_rule_entry.rule.eq_attrib.num_offset_meq_32++;
+					flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset =
+						ethertype_offset;
+					flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].mask =
+						IPA_ETHERTYPE_MASK;
+					flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value = ETH_P_IP;
+					IPA_BE_DBG("XLAT EtherType match: hdr_l2_type=%d rule_type=%d offset=%d value=0x%x\n",
+						rx_prop->rx[idx].hdr_l2_type,
+						flt_rule_entry.rule.rule_type,
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset,
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value);
+
+					//Add the bitmap that will point to the new meq32 eq
+					if (meq32_n == 0) flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 5);
+					else flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 6);
+
+					flt_rule_entry.rule.eq_attrib.num_offset_meq_32++;
+				} else {
+					IPA_BE_DBG("XLAT EtherType match skipped: hdr_l2_type=%d rule_type=%d\n",
+						rx_prop->rx[idx].hdr_l2_type,
+						flt_rule_entry.rule.rule_type);
+				}
 
 				IPA_BE_DBG("Xlat rule %d flt_index rule id %d\n", flt_rule_entry.rule.eq_attrib.num_offset_meq_32, flt_index->rule_id[i]);
 

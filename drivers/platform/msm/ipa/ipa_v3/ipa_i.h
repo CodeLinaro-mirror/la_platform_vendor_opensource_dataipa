@@ -130,6 +130,11 @@
 #define IPA_MPM_MAX_UC_THRESH 4
 #define IPA_MAX_RT_RULE_ID 1023
 
+#define NON_IHL_EQ_OFFSET_FROM_L2(x) (x | 0x80)
+#define NON_IHL_EQ_OFFSET_FROM_L3(x) (x & 0x7F)
+#define IHL_EQ_OFFSET_FROM_L3(x) (x | 0x80)
+#define IHL_EQ_OFFSET_FROM_L4(x) (x & 0x7F)
+
 #define IPA_AP_CB_WLAN_END_MAPPING 0x20000000
 
 #define NUM_VARS_FOR_BITS(type, bits) \

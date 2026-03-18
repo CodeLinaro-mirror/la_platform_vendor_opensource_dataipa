@@ -1411,33 +1411,33 @@ struct ipa_rule_attrib {
 
 /*! @brief Offset and 16 bit comparison equation */
 struct ipa_ipfltr_eq_16 {
-	int8_t offset;
+	uint8_t offset;
 	uint16_t value;
 };
 
 /*! @brief Offset and 32 bit comparison equation */
 struct ipa_ipfltr_eq_32 {
-	int8_t offset;
+	uint8_t offset;
 	uint32_t value;
 };
 
 /*! @brief Offset and 128 bit masked comparison equation */
 struct ipa_ipfltr_mask_eq_128 {
-	int8_t offset;
+	uint8_t offset;
 	uint8_t mask[16];
 	uint8_t value[16];
 };
 
 /*! @brief Offset and 32 bit masked comparison equation */
 struct ipa_ipfltr_mask_eq_32 {
-	int8_t offset;
+	uint8_t offset;
 	uint32_t mask;
 	uint32_t value;
 };
 
 /*! @brief Equation for identifying a range. Ranges are inclusive */
 struct ipa_ipfltr_range_eq_16 {
-	int8_t offset;
+	uint8_t offset;
 	uint16_t range_low;
 	uint16_t range_high;
 };

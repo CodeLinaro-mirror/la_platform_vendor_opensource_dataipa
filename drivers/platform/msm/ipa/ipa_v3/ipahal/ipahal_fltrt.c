@@ -26,10 +26,6 @@
 		IPA_FLT_MAC_SRC_ADDR_802_1Q)
 
 #define MAC_ADDR_LEN 6
-#define NON_IHL_EQ_OFFSET_FROM_L2(x) (x | 0x80)
-#define NON_IHL_EQ_OFFSET_FROM_L3(x) (x & 0x7F)
-#define IHL_EQ_OFFSET_FROM_L3(x) (x | 0x80)
-#define IHL_EQ_OFFSET_FROM_L4(x) (x & 0x7F)
 
 static u64 ipa_fltrt_create_flt_bitmap(u64 ep_bitmap)
 {
