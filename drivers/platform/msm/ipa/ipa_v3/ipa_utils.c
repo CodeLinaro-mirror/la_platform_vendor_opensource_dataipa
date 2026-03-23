@@ -9491,8 +9491,6 @@ int ipa3_cfg_ep_hdr_ext(u32 clnt_hdl,
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HDR_EXT_n, clnt_hdl,
 		&ep->cfg.hdr_ext);
-	IPADBG_CFG("hdr_ext reg value = 0x%x\n", ipahal_read_reg_n_fields(IPA_ENDP_INIT_HDR_EXT_n, 
-			clnt_hdl, &ep->cfg.hdr_ext));
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	return 0;
@@ -10243,8 +10241,6 @@ int ipa3_cfg_ep_deaggr(u32 clnt_hdl,
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_DEAGGR_n, clnt_hdl,
 		&ep->cfg.deaggr);
-	IPADBG_CFG("deaggr reg value = 0x%x\n", ipahal_read_reg_n_fields(IPA_ENDP_INIT_DEAGGR_n,
-				clnt_hdl, &ep->cfg.deaggr));
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	return 0;
