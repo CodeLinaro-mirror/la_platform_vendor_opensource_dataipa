@@ -4803,6 +4803,11 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 
 	*(u16 *)skb->cb = cb_value;
 	*(u8 *)(skb->cb + 4) = ucp;
+	if (ipa_get_wdi_version() == IPA_WDI_3_V2) {
+		*(u16 *)(skb->cb + 5) =
+			ast_info->ta_peer_id; //updating the ta peer id
+		IPADBG_LOW("ta peer id %d",ast_info->ta_peer_id);
+	}
 
 	/* Provide SKB info after pulling RX TLVs. */
 	ast_info->skb = skb;
