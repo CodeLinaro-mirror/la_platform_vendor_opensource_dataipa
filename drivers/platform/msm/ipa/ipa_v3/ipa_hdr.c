@@ -968,6 +968,11 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 		}
 	}
 
+	if (!entry->offset_entry && !entry->is_hdr_proc_ctx) {
+		IPAERR("failed to alloc offset\n");
+		goto bad_hdr_len;
+	}
+
 	list_add(&entry->link, &htbl->head_hdr_entry_list);
 	htbl->hdr_cnt++;
 	if (entry->is_hdr_proc_ctx)
