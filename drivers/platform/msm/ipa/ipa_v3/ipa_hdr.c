@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -134,10 +134,13 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 				&entry->l2tp_params,
 				&entry->eogre_params,
 				&entry->ipsec_params,
+				&entry->gre_params,
 				&entry->generic_params,
 				&entry->generic_params_v2,
 				&entry->pdn_dscp_params,
 				&entry->pppoe_params,
+				&entry->mape_params,
+				&entry->ipogre_params,
 				ipa3_ctx->use_64_bit_dma_mask);
 		if (ret)
 		{
@@ -594,10 +597,13 @@ static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
 	entry->l2tp_params = proc_ctx->l2tp_params;
 	entry->eogre_params = proc_ctx->eogre_params;
 	entry->ipsec_params = proc_ctx->ipsec_params;
+	entry->gre_params = proc_ctx->gre_params;
 	entry->generic_params = proc_ctx->generic_params;
 	entry->generic_params_v2 = proc_ctx->generic_params_v2;
 	entry->pdn_dscp_params = proc_ctx->pdn_dscp_params;
 	entry->pppoe_params = proc_ctx->pppoe_params;
+	entry->mape_params = proc_ctx->mape_params;
+	entry->ipogre_params = proc_ctx->ipogre_params;
 	if (add_ref_hdr)
 		hdr_entry->ref_cnt++;
 	entry->cookie = IPA_PROC_HDR_COOKIE;
