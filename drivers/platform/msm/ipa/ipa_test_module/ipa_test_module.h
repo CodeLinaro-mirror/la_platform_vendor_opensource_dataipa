@@ -233,5 +233,31 @@ struct ipa_test_mem_partition {
 
 	uint32_t apps_fltrt_empty_tbl_ofst;
 	uint32_t apps_fltrt_empty_tbl_size;
+
+	/* New Counters for IPAv7.0 */
+
+	uint32_t tethering_drop_stats_ofst;
+	uint32_t tethering_drop_stats_size;
+
+	uint32_t nat_ct_stats_counters_ofst;
+	uint32_t nat_ct_stats_counters_size;
+
+	uint32_t nat_ct_stats_cfg_ofst;
+	uint32_t nat_ct_stats_cfg_size;
+
+	uint32_t nat_ct_drop_stats_counters_ofst;
+	uint32_t nat_ct_drop_stats_counters_size;
+
+	uint32_t nat_ct_drop_stats_cfg_ofst;
+	uint32_t nat_ct_drop_stats_cfg_size;
+
+	uint32_t fnr_drop_counters_ofst;
+	uint32_t fnr_drop_counters_size;
+	uint32_t policing_drop_counters_ofst;
+	uint32_t policing_drop_counters_size;
+	uint32_t shaping_drop_counters_ofst;
+	uint32_t shaping_drop_counters_size;
+	uint32_t shaping_drop_pkt_byte_counters_ofst;
+	uint32_t shaping_drop_pkt_byte_counters_size;
 };
 #endif /* _IPA_TEST_MODULE_H_ */
