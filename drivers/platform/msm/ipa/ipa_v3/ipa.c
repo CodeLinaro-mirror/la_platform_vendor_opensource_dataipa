@@ -15505,30 +15505,32 @@ static void ipa_ini_read_params_work(struct work_struct *work)
 			IPAERR("INI parsing failed retry %d\n",ipa3_ctx->fw_load_data.num_retry_ini);
 			mutex_unlock(&ipa3_ctx->fw_load_data.lock);
 			schedule_delayed_work(&ini_parse_work, msecs_to_jiffies(DELAY_BEFORE_FW_LOAD)); //delay of 500ms
+			return;
 		}
 		else
 		{
 			IPAERR("INI parsing failed after max retries\n");
-			mutex_unlock(&ipa3_ctx->fw_load_data.lock);
-			return;
+			IPAERR("Initializing with default config\n");
+			/* unlock and post init will be called at the end */
 		}
 	} else {
 		IPADBG("INI parsing successful\n");
 		ipa_populate_ini_values(&ipa3_res);
 		mutex_lock(&ipa3_ctx->fw_load_data.lock);
-		ipa3_ctx->fw_load_data.is_ipa_ini_init_done = true;
-		if(ipa3_ctx->fw_load_data.state != IPA_FW_LOAD_STATE_LOADED)
-		{
-			IPAERR("IPA FW not loaded skip post_init\n");
-			mutex_unlock(&ipa3_ctx->fw_load_data.lock);
-			return;
-		}
+		/* unlock and post init will be called at the end */
+	}
+	ipa3_ctx->fw_load_data.is_ipa_ini_init_done = true;
+	if(ipa3_ctx->fw_load_data.state != IPA_FW_LOAD_STATE_LOADED)
+	{
+		IPAERR("IPA FW not loaded skip post_init\n");
 		mutex_unlock(&ipa3_ctx->fw_load_data.lock);
-		result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
-		if (result) {
-			IPAERR("IPA post init failed %d\n", result);
-			return;
-		}
+		return;
+	}
+	mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+	result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+	if (result) {
+		IPAERR("IPA post init failed %d\n", result);
+		return;
 	}
 }
 #endif
