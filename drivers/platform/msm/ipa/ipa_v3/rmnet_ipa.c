@@ -3163,7 +3163,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 		}
 #ifdef CONFIG_IPA_IPSEC
 		if (ipa_ipsec_enabled()) {
-			rc = ipa_ipsec_install_dl_pol_flt();
+			rc = ipa_ipsec_install_dl_pol_flt(rmnet_ipa3_ctx->qmap_hdr_hdl);
 			if (rc)
 				IPAWANERR("IPsec DL policy FLT init failed = %d\n", rc);
 		}
