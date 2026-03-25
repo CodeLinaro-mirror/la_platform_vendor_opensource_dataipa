@@ -11979,6 +11979,23 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
 	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
+	ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] = resource_p->use_vlan_eth_emac_config;
+	ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = resource_p->use_vlan_eth0_config;
+	ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH1] = resource_p->use_vlan_eth1_config;
+	ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS] = resource_p->use_vlan_rndis_config;
+	ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] = resource_p->use_vlan_ecm_config;
+	ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_MHI_ETH] = resource_p->use_vlan_mhi_eth_config;
+	ipa3_ctx->ipa_config_is_mhi = resource_p->use_mhi_config;
+	ipa3_ctx->ipa_mhi_eth = resource_p->use_mhi_eth_config;
+	ipa3_ctx->ipa_config_is_rdkb = resource_p->use_rdkb_config;
+	ipa3_ctx->tsn_iface = resource_p->use_tsn_config;
+	ipa3_ctx->spcl_iface[IPA_VLAN_IF_ETH0] = resource_p->use_ezmesh_config;
+	ipa3_ctx->eth_qos = resource_p->use_eth_qos_config;
+	ipa3_ctx->ipa_config_is_ipsec = resource_p->use_ipsec_config;
+	ipa3_ctx->use_ipv6_nat_config = resource_p->use_ipv6_nat_config;
+	ipa3_ctx->max_ipv4_accel_conn = resource_p->max_ipv4_stats_accel_conn;
+	ipa3_ctx->max_ipv6_accel_conn = resource_p->max_ipv6_stats_accel_conn;
+	ipa3_ctx->ipa_disable_per_flow_stats = resource_p->ipa_disable_per_flow_stats;
 #ifdef CONFIG_GH_MSGQ
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;
 #endif
@@ -15545,6 +15562,26 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 			IPADBG("Use ipv6 nat config is %d\n", ipa_drv_res->use_ipv6_nat_config);
 			ipa3_ctx->use_ipv6_nat_config = ipa_drv_res->use_ipv6_nat_config;
 		}
+
+		if(ipa_drv_res->ipa_disable_per_flow_stats) {
+			IPADBG("Per flow stats disable: %d\n", ipa_drv_res->ipa_disable_per_flow_stats);
+			ipa3_ctx->ipa_disable_per_flow_stats = ipa_drv_res->ipa_disable_per_flow_stats;
+			/* Use max supported connection if per flow stats disable */
+			ipa3_ctx->max_ipv4_accel_conn = IPA_MAX_ACCEL_CONNECTIONS_V4;
+			ipa3_ctx->max_ipv6_accel_conn = IPA_MAX_ACCEL_CONNECTIONS_V6;
+		}
+		else
+		{
+			/* Get Max v4 and v6 accelerate connections */
+			if (ipa_drv_res->max_ipv4_stats_accel_conn) {
+				IPADBG("Max IPv4 stats accelerate connection: %d\n", ipa_drv_res->max_ipv4_stats_accel_conn);
+				ipa3_ctx->max_ipv4_accel_conn = ipa_drv_res->max_ipv4_stats_accel_conn;
+			}
+			if (ipa_drv_res->max_ipv6_stats_accel_conn) {
+				IPADBG("Max IPv6 stats accelerate connection: %d\n", ipa_drv_res->max_ipv6_stats_accel_conn);
+				ipa3_ctx->max_ipv6_accel_conn = ipa_drv_res->max_ipv6_stats_accel_conn;
+			}
+		}
 	}
 
 	if (ipa_is_ready())
@@ -15594,6 +15631,28 @@ static void ipa_ini_read_params_work(struct work_struct *work)
 		return;
 	}
 }
+
+/* Set default values for IPA INI file fields, ignore dtsi fields */
+void ipa3_set_ini_fields_default(struct ipa3_plat_drv_res *ipa_drv_res)
+{
+	ipa_drv_res->use_vlan_eth_emac_config = 0;
+	ipa_drv_res->use_vlan_eth0_config = 0;
+	ipa_drv_res->use_vlan_eth1_config = 0;
+	ipa_drv_res->use_vlan_rndis_config = 0;
+	ipa_drv_res->use_vlan_ecm_config = 0;
+	ipa_drv_res->use_vlan_mhi_eth_config = 0;
+	ipa_drv_res->use_mhi_config = 0;
+	ipa_drv_res->use_mhi_eth_config = 0;
+	ipa_drv_res->use_rdkb_config = 0;
+	ipa_drv_res->use_tsn_config = 0;
+	ipa_drv_res->use_ezmesh_config = 0;
+	ipa_drv_res->use_eth_qos_config = 0;
+	ipa_drv_res->use_ipsec_config = 0;
+	ipa_drv_res->use_ipv6_nat_config = 0;
+	ipa_drv_res->max_ipv4_stats_accel_conn = 1000;
+	ipa_drv_res->max_ipv6_stats_accel_conn = 1000;
+	ipa_drv_res->ipa_disable_per_flow_stats = 0;
+}
 #endif
 
 int ipa3_plat_drv_probe(struct platform_device *pdev_p)
@@ -15625,6 +15684,7 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	if (ipa3_ctx->logbuf_clk == NULL)
 		pr_err("failed to create IPC ipa_clk log, continue...\n");
 #endif
+
 	if (ipa3_ctx->ipa_hw_type == 0) {
 
 		/* Get IPA HW Version */
@@ -15649,7 +15709,9 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 
 	IPADBG("IPA driver probing started\n");
 	IPADBG("dev->of_node->name = %s\n", dev->of_node->name);
-
+#ifdef CONFIG_ECM_CONVERGENCE
+	ipa3_set_ini_fields_default(&ipa3_res);
+#endif
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-v2x-cb")) {
 		if (ipa3_ctx == NULL) {
 			IPAERR("ipa3_ctx was not initialized\n");

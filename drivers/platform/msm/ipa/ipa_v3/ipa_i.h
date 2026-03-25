@@ -2912,6 +2912,9 @@ struct ipa3_context {
 	struct mutex msg_qos_param_lock;
 	struct list_head msg_qos_param_list;
 	struct ipa_fatal_err_irq_regs ipa_fatal_err_irq_regs;
+	u32 max_ipv4_accel_conn;
+	u32 max_ipv6_accel_conn;
+	bool ipa_disable_per_flow_stats;
 };
 
 struct ipa3_plat_drv_res {
@@ -3017,6 +3020,9 @@ struct ipa3_plat_drv_res {
 	bool use_eth_qos_config;
 	bool use_ipsec_config;
 	bool use_ipv6_nat_config;
+	u32 max_ipv4_stats_accel_conn;
+	u32 max_ipv6_stats_accel_conn;
+	bool ipa_disable_per_flow_stats;
 };
 
 /**

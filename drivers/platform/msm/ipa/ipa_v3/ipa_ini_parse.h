@@ -24,6 +24,9 @@ enum ipa_ini_file_param {
 		IPA_USE_ETH_QOS_CONFIG,
 		IPA_USE_IPSEC_CONFIG,
 		IPA_USE_IPV6_NAT_CONFIG,
+		IPA_MAX_IPV4_STATS_ACCEL_CONNECTIONS,
+		IPA_MAX_IPV6_STATS_ACCEL_CONNECTIONS,
+		IPA_DISABLE_PER_FLOW_STATS,
 		IPA_PARAM_MAX,
 	};
 
@@ -42,6 +45,9 @@ static char ipa_ini_param[IPA_PARAM_MAX][IPA_PARAM_STR_LENGTH] = {
 		"use_eth_qos_config",
 		"use_ipsec_config",
 		"use_ipv6_nat_config",
+		"max_ipv4_stats_accel_conn",
+		"max_ipv6_stats_accel_conn",
+		"ipa_disable_per_flow_stats",
 	};
 
 int ipa_init_params_from_ini(struct device *device,
