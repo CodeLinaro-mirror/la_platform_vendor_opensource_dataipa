@@ -74,6 +74,7 @@ def define_modules(target, variant):
             "//soc-repo:{}/drivers/firmware/qcom/qcom-scm".format(kernel_build_variant),
             "//soc-repo:{}/drivers/iommu/qcom_iommu_util".format(kernel_build_variant),
             "//soc-repo:{}/drivers/soc/qcom/smem".format(kernel_build_variant),
+            "//soc-repo:{}/drivers/soc/qcom/qcom_aoss".format(kernel_build_variant),
             "//soc-repo:{}/drivers/soc/qcom/qcom_ramdump".format(kernel_build_variant),
             "//soc-repo:{}/drivers/soc/qcom/qmi_helpers".format(kernel_build_variant),
             "//soc-repo:{}/drivers/remoteproc/rproc_qcom_common".format(kernel_build_variant),
