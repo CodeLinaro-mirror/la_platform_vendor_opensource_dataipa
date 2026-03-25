@@ -21,6 +21,7 @@ static void print_testcases(void)
 	pr_err("8. -> WLAN STA Flt_rule_order \n");
 	pr_err("9. -> NAT not_init \n");
 	pr_err("10. -> WLAN AP Pkt drop for lan2lan case \n");
+	pr_err("11. -> WLAN STA Flt_rule_order for level-2 recovery \n");
 	return;
 }
 
@@ -258,6 +259,7 @@ static void ipa_test_flt_order(enum ipa_client_type client, uint32_t *metadata)
 	if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)param, true))
 		IPAERR("add modem filter rule failed\n");
 
+	kfree(param);
 	return;
 }
 
@@ -303,6 +305,69 @@ static void ipa_test_wlan_sta_flt_order(void)
 		}
 	}
 	mutex_unlock(&ipa3_ctx->lock);
+	return;
+}
+
+static void ipa_test_sta_flt_order(enum ipa_client_type client, uint32_t *metadata)
+{
+	u32 pyld_sz;
+	struct ipa_ioc_add_flt_rule *param;
+	struct ipa_flt_rule_add flt_rule_entry;
+
+	pyld_sz = sizeof(struct ipa_ioc_add_flt_rule) +
+	   sizeof(struct ipa_flt_rule_add);
+	param = kzalloc(pyld_sz, GFP_KERNEL);
+	if (!param) {
+		IPAERR("Kzalloc failed\n");
+		return;
+	}
+
+	param->commit = 1;
+	param->ep = client;
+	param->global = false;
+	param->num_rules = (uint8_t)1;
+	param->ip = IPA_IP_v4;
+
+	memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
+
+	flt_rule_entry.at_rear = false;
+	flt_rule_entry.rule.action = IPA_PASS_TO_EXCEPTION;
+	flt_rule_entry.rule.retain_hdr = false;
+	flt_rule_entry.rule.hashable = 0;
+	flt_rule_entry.rule.eq_attrib_type = true;
+	flt_rule_entry.rule.attrib.meta_data = *metadata;
+	flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_META_DATA;
+
+	memcpy(&(param->rules[0]), &flt_rule_entry,
+		sizeof(struct ipa_flt_rule_add));
+
+	/* installing dummy default rule on top */
+	if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)param, true))
+		IPAERR("add dummy flt rule failed\n");
+
+	kfree(param);
+	return;
+}
+
+static void ipa_test_wlan_sta_flt_order_lvl2(void)
+{
+	struct ipa_rc_wlan_intf_info *it;
+	int pipe;
+
+	pipe = ipa3_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
+	if(pipe == IPA_EP_NOT_ALLOCATED) {
+		IPAERR("Invalid client.\n");
+		return;
+	}
+
+	mutex_lock(&rc_ctx->rc_lock);
+	list_for_each_entry(it, &ipa_rc_wlan_info.head, link) {
+		if(it->wlan_msg_type == WLAN_STA_CONNECT) {
+			ipa_test_sta_flt_order(IPA_CLIENT_WLAN2_PROD, &it->metadata);
+			break;
+		}
+	}
+	mutex_unlock(&rc_ctx->rc_lock);
 	return;
 }
 
@@ -389,6 +454,10 @@ ssize_t testcase_store(struct device *dev, struct device_attribute *attr,
 		case 10:
 			//IPA_DRIVER_WLAN_AP_PKT_DROP -> for lan2lan scenario
 			ipa_test_ap_pkt_drop_lan_to_lan();
+			break;
+		case 11:
+			//IPA_WLAN_STA_FILTER_RULE_INCORRECT -> to test level2 recovery
+			ipa_test_wlan_sta_flt_order_lvl2();
 			break;
 		default:
 			IPAERR("invalid testcase\n");
