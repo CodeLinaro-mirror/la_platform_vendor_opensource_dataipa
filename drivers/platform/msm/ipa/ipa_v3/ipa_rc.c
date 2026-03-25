@@ -132,7 +132,6 @@ void rc_list_dequeue(struct ipa_rc_queue *q)
 	q->size--;
 	spin_unlock_irqrestore(&q->lock, flags);
 
-	IPADBG("dequeued\n");
 	return;
 }
 

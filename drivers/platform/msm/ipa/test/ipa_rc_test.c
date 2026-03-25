@@ -20,6 +20,7 @@ static void print_testcases(void)
 	pr_err("7. -> WLAN AP Flt_rule_order \n");
 	pr_err("8. -> WLAN STA Flt_rule_order \n");
 	pr_err("9. -> NAT not_init \n");
+	pr_err("10. -> WLAN AP Pkt drop for lan2lan case \n");
 	return;
 }
 
@@ -179,6 +180,41 @@ static void ipa_test_ul_pkt_drop(void)
 static void ipa_test_dl_pkt_drop(void)
 {
 	ipa_test_pkt_drop(false);
+	return;
+}
+
+static void ipa_test_ap_pkt_drop_lan_to_lan(void)
+{
+	struct ipa3_rt_tbl *tbl = NULL;
+	struct ipa3_rt_entry *entry, *tmp;
+	struct ipa3_rt_tbl_set *set = NULL;
+
+	set = &ipa3_ctx->rt_tbl_set[IPA_IP_v4];
+
+	mutex_lock(&ipa3_ctx->lock);
+	if(list_empty(&set->head_rt_tbl_list)) {
+		IPAERR("Rt table list is empty\n");
+		mutex_unlock(&ipa3_ctx->lock);
+		return;
+	}
+
+	list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
+		if(list_empty(&tbl->head_rt_rule_list))
+			continue;
+
+		list_for_each_entry_safe(entry, tmp, &tbl->head_rt_rule_list, link) {
+			if((strcmp(entry->tbl->name, "eth_v4_ETH_II_to_ETH_II") == 0 ||
+				strcmp(entry->tbl->name, "eth_v4_ETH_II_to_802_1Q") == 0)
+				&& (entry->rule.dst == IPA_CLIENT_ETHERNET_CONS))
+					ipa_del_rt_rule_by_entry(entry);
+			else
+				continue;
+
+			if (ipa3_ctx->ctrl->ipa3_commit_rt(IPA_IP_v4))
+				IPAERR("failed to commit RT tbl\n");
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
 	return;
 }
 
@@ -349,6 +385,10 @@ ssize_t testcase_store(struct device *dev, struct device_attribute *attr,
 		case 9:
 			//IPA_NAT_NOT_INITIALIZED
 			ipa_test_nat_init();
+			break;
+		case 10:
+			//IPA_DRIVER_WLAN_AP_PKT_DROP -> for lan2lan scenario
+			ipa_test_ap_pkt_drop_lan_to_lan();
 			break;
 		default:
 			IPAERR("invalid testcase\n");
