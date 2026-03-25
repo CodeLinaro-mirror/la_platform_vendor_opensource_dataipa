@@ -184,13 +184,21 @@ enum {
 				DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
+#define IPAERR_BOOTUP(fmt, args...) \
+	do { \
+		pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+		if(ipa3_ctx) \
+			IPA_IPC_LOGGING(ipa3_ctx->logbuf_boot, \
+				DRV_NAME " %s:%d " fmt, ## args); \
+	} while (0)
+
 #define IPAERR(fmt, args...) \
 	do { \
 		pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
 		if (ipa3_ctx) { \
-			IPA_IPC_LOGGING(ipa3_ctx->logbuf, \
-				DRV_NAME " %s:%d " fmt, ## args); \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
+				DRV_NAME " %s:%d " fmt, ## args); \
+			IPA_IPC_LOGGING(ipa3_ctx->logbuf_crit, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
 	} while (0)
@@ -200,9 +208,9 @@ enum {
 		pr_err_ratelimited_ipa(DRV_NAME " %s:%d " fmt, __func__,\
 		__LINE__, ## args);\
 		if (ipa3_ctx) { \
-			IPA_IPC_LOGGING(ipa3_ctx->logbuf, \
-				DRV_NAME " %s:%d " fmt, ## args); \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
+				DRV_NAME " %s:%d " fmt, ## args); \
+			IPA_IPC_LOGGING(ipa3_ctx->logbuf_crit, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
 	} while (0)
@@ -230,6 +238,23 @@ enum {
 				EVENT_LOG_NAME " %s:%d " fmt, __func__, __LINE__, ## args); \
 		ret = ipa3_send_opt_log_msg(log_buffer); \
 	} while (0)
+
+#define IPADBG_CFG(fmt, args...) \
+	do { \
+		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+		if(ipa3_ctx) \
+			IPA_IPC_LOGGING(ipa3_ctx->logbuf_cfg, \
+				DRV_NAME " %s:%d " fmt, ## args); \
+	} while (0)
+
+#define IPAERR_CFG(fmt, args...) \
+	do { \
+		pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+		if(ipa3_ctx) \
+			IPA_IPC_LOGGING(ipa3_ctx->logbuf_cfg, \
+				DRV_NAME " %s:%d " fmt, ## args); \
+	} while (0)
+
 
 #define WLAN_AMPDU_TX_EP 15
 #define WLAN_PROD_TX_EP  19
@@ -2194,6 +2219,9 @@ enum ipa_per_usb_enum_type_e {
  * @logbuf: ipc log buffer for high priority messages
  * @logbuf_low: ipc log buffer for low priority messages
  * @logbuf_clk: ipc log buffer for ipa clock messages
+ * @logbuf_cfg: ipc log buffer for ipa cfg messages
+ * @logbuf_bootup: ipc log buffer for ipa boot-up messages
+ * @logbuf_crit: ipc log buffer for critical messages
  * @ipa_wdi2: using wdi-2.0
  * @ipa_config_is_auto: is this AUTO use case
  * @ipa_fltrt_not_hashable: filter/route rules not hashable
@@ -2356,6 +2384,9 @@ struct ipa3_context {
 	void *logbuf;
 	void *logbuf_low;
 	void *logbuf_clk;
+	void *logbuf_cfg;
+	void *logbuf_boot;
+	void *logbuf_crit;
 	struct ipa3_controller *ctrl;
 	struct idr ipa_idr;
 	struct platform_device *master_pdev;

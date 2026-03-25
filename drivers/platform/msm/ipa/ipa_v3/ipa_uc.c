@@ -1117,7 +1117,7 @@ int ipa3_uc_interface_init(void)
 	unsigned long phys_addr;
 
 	if (ipa3_ctx->uc_ctx.uc_inited) {
-		IPADBG("uC interface already initialized\n");
+		IPAERR_BOOTUP("uC interface already initialized\n");
 		return 0;
 	}
 
@@ -1132,7 +1132,7 @@ int ipa3_uc_interface_init(void)
 	ipa3_ctx->uc_ctx.uc_sram_mmio = ioremap(phys_addr,
 		IPA_MEM_PART(uc_size));
 	if (!ipa3_ctx->uc_ctx.uc_sram_mmio) {
-		IPAERR("Fail to ioremap IPA uC SRAM\n");
+		IPAERR_BOOTUP("Fail to ioremap IPA uC SRAM\n");
 		result = -ENOMEM;
 		goto remap_fail;
 	}
@@ -1142,7 +1142,7 @@ int ipa3_uc_interface_init(void)
 			ipa3_uc_event_handler, true,
 			ipa3_ctx);
 		if (result) {
-			IPAERR("Fail to register for UC_IRQ0 event interrupt\n");
+			IPAERR_BOOTUP("Fail to register for UC_IRQ0 event interrupt\n");
 			result = -EFAULT;
 			goto irq_fail0;
 		}
@@ -1151,7 +1151,7 @@ int ipa3_uc_interface_init(void)
 			ipa3_uc_response_hdlr, true,
 			ipa3_ctx);
 		if (result) {
-			IPAERR("fail to register for UC_IRQ1 rsp interrupt\n");
+			IPAERR_BOOTUP("fail to register for UC_IRQ1 rsp interrupt\n");
 			result = -EFAULT;
 			goto irq_fail1;
 		}
@@ -1160,7 +1160,7 @@ int ipa3_uc_interface_init(void)
 			ipa3_uc_wigig_misc_int_handler, true,
 			ipa3_ctx);
 		if (result) {
-			IPAERR("fail to register for UC_IRQ2 wigig misc interrupt\n");
+			IPAERR_BOOTUP("fail to register for UC_IRQ2 wigig misc interrupt\n");
 			result = -EFAULT;
 			goto irq_fail2;
 		}
@@ -1170,7 +1170,7 @@ int ipa3_uc_interface_init(void)
 					WQ_MEM_RECLAIM | WQ_UNBOUND | WQ_SYSFS, 1);
 
 			if (!ipa_uc_holb_wq) {
-				IPAERR("Failed to create ipa_uc_holb_wq\n");
+				IPAERR_BOOTUP("Failed to create ipa_uc_holb_wq\n");
 				result = -EFAULT;
 				goto irq_fail3;
 			}
@@ -1179,7 +1179,7 @@ int ipa3_uc_interface_init(void)
 
 	ipa3_ctx->uc_ctx.uc_inited = true;
 
-	IPADBG("IPA uC interface is initialized\n");
+	IPAERR_BOOTUP("IPA uC interface is initialized\n");
 	return 0;
 
 irq_fail3:

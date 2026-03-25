@@ -1352,12 +1352,12 @@ int ipa3_setup_tput_pipe(void)
 
 	ipa_ep_idx = ipa_get_ep_mapping(sys_in.client);
 	if (ipa_ep_idx == IPA_EP_NOT_ALLOCATED) {
-		IPAERR("Invalid client.\n");
+		IPAERR_BOOTUP("Invalid client.\n");
 		return -EFAULT;
 	}
 	ep = &ipa3_ctx->ep[ipa_ep_idx];
 	if (ep->valid == 1) {
-		IPAERR("EP %d already allocated.\n", ipa_ep_idx);
+		IPAERR_BOOTUP("EP %d already allocated.\n", ipa_ep_idx);
 		return -EFAULT;
 	}
 	IPA_ACTIVE_CLIENTS_INC_EP(sys_in.client);
@@ -1367,13 +1367,13 @@ int ipa3_setup_tput_pipe(void)
 
 	result = ipa_gsi_setup_channel(&sys_in, ep);
 	if (result) {
-		IPAERR("Failed to setup GSI channel\n");
+		IPAERR_BOOTUP("Failed to setup GSI channel\n");
 		goto fail_setup;
 	}
 
 	result = ipa3_enable_data_path(ipa_ep_idx);
 	if (result) {
-		IPAERR("enable data path failed res=%d ep=%d.\n", result,
+		IPAERR_BOOTUP("enable data path failed res=%d ep=%d.\n", result,
 			 ipa_ep_idx);
 		goto fail_setup;
 	}
@@ -2061,8 +2061,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 		delete_avail_tx_wrapper_list(ep);
 
-		if (ep->sys->napi_tx_enable)
+		if (ep->sys->napi_tx_enable) {
+			napi_disable(&ep->sys->napi_tx);
 			netif_napi_del(&ep->sys->napi_tx);
+		}
 	}
 
 	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
@@ -2070,10 +2072,14 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		netif_napi_del(&ep->sys->napi_rx);
 	}
 
+	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
+		tasklet_kill(&ep->sys->tasklet);
+
 	if ( ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS ) {
 		stop_coalescing();
 		ipa3_force_close_coal(false, true);
 	}
+
 
 	/* channel stop might fail on timeout if IPA is busy */
 	for (i = 0; i < IPA_GSI_CHANNEL_STOP_MAX_RETRY; i++) {
@@ -2511,7 +2517,7 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		     network_header->protocol == IPPROTO_ICMP) ||
 		    (((struct ipv6hdr *)network_header)->version == 6 &&
 		     ((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP) ||
-		    (meta && meta->pkt_ex_init_valid)) && (meta && (!meta->ncm_enable))) {
+		    (meta && meta->pkt_ex_init_valid)) && (!meta || (meta && (!meta->ncm_enable)))) {
 			ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
 				dst_ep_idx);
@@ -6695,7 +6701,7 @@ int ipa3_alloc_common_event_ring(void)
 		dma_alloc_coherent(ipa3_ctx->pdev,
 		gsi_evt_ring_props.ring_len, &evt_dma_addr, GFP_KERNEL);
 	if (!gsi_evt_ring_props.ring_base_vaddr) {
-		IPAERR("fail to dma alloc %u bytes\n",
+		IPAERR_BOOTUP("fail to dma alloc %u bytes\n",
 			gsi_evt_ring_props.ring_len);
 		return -ENOMEM;
 	}
@@ -6709,7 +6715,7 @@ int ipa3_alloc_common_event_ring(void)
 					   IPA_GSI_EVENT_RP_SIZE,
 					   &evt_rp_dma_addr, GFP_KERNEL);
 		if (!gsi_evt_ring_props.rp_update_vaddr) {
-			IPAERR("fail to dma alloc %u bytes\n",
+			IPAERR_BOOTUP("fail to dma alloc %u bytes\n",
 			       IPA_GSI_EVENT_RP_SIZE);
 			result = -ENOMEM;
 			goto fail_alloc_rp;
@@ -6726,7 +6732,7 @@ int ipa3_alloc_common_event_ring(void)
 	result = gsi_alloc_evt_ring(&gsi_evt_ring_props,
 		ipa3_ctx->gsi_dev_hdl, &ipa3_ctx->gsi_evt_comm_hdl);
 	if (result) {
-		IPAERR("gsi_alloc_evt_ring failed %d\n", result);
+		IPAERR_BOOTUP("gsi_alloc_evt_ring failed %d\n", result);
 		goto fail_alloc_evt_ring;
 	}
 	ipa3_ctx->gsi_evt_comm_ring_rem = IPA_COMMON_EVENT_RING_SIZE;
@@ -7491,7 +7497,7 @@ int ipa_gsi_ch20_wa(void)
 			ipa3_ctx->gsi_dev_hdl,
 			&chan_hdl[i]);
 		if (result != GSI_STATUS_SUCCESS) {
-			IPAERR("failed to alloc channel %d err %d\n",
+			IPAERR_BOOTUP("failed to alloc channel %d err %d\n",
 				i, result);
 			return result;
 		}
@@ -7502,7 +7508,7 @@ int ipa_gsi_ch20_wa(void)
 	result = gsi_alloc_channel(&gsi_channel_props, ipa3_ctx->gsi_dev_hdl,
 		&chan_hdl_to_keep);
 	if (result != GSI_STATUS_SUCCESS) {
-		IPAERR("failed to alloc channel %d err %d\n",
+		IPAERR_BOOTUP("failed to alloc channel %d err %d\n",
 			i, result);
 		return result;
 	}
@@ -7511,7 +7517,7 @@ int ipa_gsi_ch20_wa(void)
 	for (i = 0; i < IPA_GSI_CH_20_WA_NUM_CH_TO_ALLOC; i++) {
 		result = gsi_dealloc_channel(chan_hdl[i]);
 		if (result != GSI_STATUS_SUCCESS) {
-			IPAERR("failed to dealloc channel %d err %d\n",
+			IPAERR_BOOTUP("failed to dealloc channel %d err %d\n",
 				i, result);
 			return result;
 		}
