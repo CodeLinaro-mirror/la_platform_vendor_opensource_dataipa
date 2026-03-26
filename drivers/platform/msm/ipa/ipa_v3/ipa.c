@@ -164,6 +164,8 @@ static void ipa3_free_pkt_init_ex(void);
 #if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 static void ipa3_deepsleep_resume(void);
 static void ipa3_deepsleep_suspend(void);
+static void ipa3_xbl_ipa_init(struct work_struct *work);
+static DECLARE_WORK(ipa3_xbl_init_work, ipa3_xbl_ipa_init);
 #endif
 
 static void ipa3_load_ipa_fw(struct work_struct *work);
@@ -557,6 +559,9 @@ static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 
 static struct notifier_block ipa_pm_notifier = {
 	.notifier_call = ipa_pm_notify,
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
+	.priority = INT_MAX,
+#endif
 };
 
 static const struct dev_pm_ops ipa_pm_ops = {
@@ -7067,6 +7072,18 @@ static const struct file_operations ipa3_drv_fops = {
 #endif
 };
 
+static int ipa3_get_qmp(struct device *dev)
+{
+	ipa3_ctx->qmp = qmp_get(dev);
+	if (IS_ERR(ipa3_ctx->qmp)) {
+		if (PTR_ERR(ipa3_ctx->qmp) != -ENODEV)
+			IPAERR("fail to get QMP Node: %ld\n", PTR_ERR(ipa3_ctx->qmp));
+		ipa3_ctx->qmp = NULL;
+		return PTR_ERR(ipa3_ctx->qmp);
+	}
+	return 0;
+}
+
 static int ipa3_get_clks(struct device *dev)
 {
 	if (!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode)) {
@@ -9003,6 +9020,27 @@ static int ipa3_pil_unload_ipa_fws(void)
 #endif
 	return 0;
 }
+
+static void ipa3_xbl_ipa_init(struct work_struct *work)
+{
+	int result;
+
+	IPAERR("Using XBL boot load for IPA FW\n");
+
+	result = ipa3_attach_to_smmu();
+	if (result) {
+		IPAERR("IPA attach to smmu failed %d\n",
+				result);
+		return;
+	}
+
+	result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+	if (result) {
+		IPAERR("IPA post init failed %d\n", result);
+		return;
+
+	}
+}
 #endif
 
 static void ipa3_load_ipa_fw(struct work_struct *work)
@@ -9985,6 +10023,11 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		}
 	}
 
+	/* get IPA QMP state */
+	result = ipa3_get_qmp(&ipa3_ctx->master_pdev->dev);
+	if (result)
+		goto fail_bus_reg;
+
 	/* get IPA clocks */
 	result = ipa3_get_clks(&ipa3_ctx->master_pdev->dev);
 	if (result)
@@ -10474,6 +10517,9 @@ fail_init_active_client:
 		clk_put(ipa3_clk);
 	ipa3_clk = NULL;
 fail_bus_reg:
+	if (ipa3_ctx->qmp)
+		qmp_put(ipa3_ctx->qmp);
+	ipa3_ctx->qmp = NULL;
 	for (i = 0; i < ipa3_ctx->icc_num_paths; i++)
 		if (IS_ERR_OR_NULL(ipa3_ctx->ctrl->icc_path[i])) {
 			ipa3_ctx->ctrl->icc_path[i] = NULL;
@@ -12777,6 +12823,10 @@ EXPORT_SYMBOL(ipa_get_lan_rx_napi);
 static void ipa3_deepsleep_suspend(void)
 {
 	IPADBG("Entry\n");
+	if (ipa3_ctx->deepsleep) {
+		IPAERR("Already in deepsleep mode\n");
+		return;
+	}
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	/* To allow default routing table delection using this flag */
@@ -12819,8 +12869,13 @@ static void ipa3_deepsleep_resume(void)
 	/*After deeplseep exit we shouldn't allow delete the default routing table*/
 	ipa3_ctx->deepsleep = false;
 	/*Scheduling WQ to load IPA FW*/
-	queue_work(ipa3_ctx->transport_power_mgmt_wq,
-		&ipa3_fw_loading_work);
+	if (ipa3_ctx->use_xbl_boot) {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_xbl_init_work);
+	} else {
+		queue_work(ipa3_ctx->transport_power_mgmt_wq,
+				&ipa3_fw_loading_work);
+	}
 	IPADBG("Exit\n");
 }
 #endif
@@ -13028,45 +13083,21 @@ int ipa_get_smmu_params(struct ipa_smmu_in_params *in,
 }
 EXPORT_SYMBOL(ipa_get_smmu_params);
 
-#define MAX_LEN 96
-
 void ipa_pc_qmp_enable(void)
 {
-	char buf[MAX_LEN] = "{class: bcm, res: ipa_pc, val: 1}";
-	struct qmp_pkt pkt;
 	int ret = 0;
-	struct ipa3_pc_mbox_data *mbox_data = &ipa3_ctx->pc_mbox;
+
+	if (!ipa3_ctx->qmp)
+		return;
 
 	IPADBG("Enter\n");
 
-	/* prepare the mailbox struct */
-	mbox_data->mbox_client.dev = &ipa3_ctx->master_pdev->dev;
-	mbox_data->mbox_client.tx_block = true;
-	mbox_data->mbox_client.tx_tout = MBOX_TOUT_MS;
-	mbox_data->mbox_client.knows_txdone = false;
+	ret = qmp_send(ipa3_ctx->qmp, "{class: bcm, res: ipa_pc, val: 1}");
 
-	mbox_data->mbox = mbox_request_channel(&mbox_data->mbox_client, 0);
-	if (IS_ERR(mbox_data->mbox)) {
-		ret = PTR_ERR(mbox_data->mbox);
-		if (ret != -EPROBE_DEFER)
-			IPAERR("mailbox channel request failed, ret=%d\n", ret);
+	if (ret)
+		IPAERR("Error enabling IPA PC: %d", ret);
 
-		return;
-	}
-
-	/* prepare the QMP packet to send */
-	pkt.size = MAX_LEN;
-	pkt.data = buf;
-
-	/* send the QMP packet to AOP */
-	ret = mbox_send_message(mbox_data->mbox, &pkt);
-	if (ret < 0)
-		IPAERR("qmp message send failed, ret=%d\n", ret);
-
-	if (mbox_data->mbox) {
-		mbox_free_channel(mbox_data->mbox);
-		mbox_data->mbox = NULL;
-	}
+	IPADBG("Exit\n");
 }
 
 /**************************************************************
