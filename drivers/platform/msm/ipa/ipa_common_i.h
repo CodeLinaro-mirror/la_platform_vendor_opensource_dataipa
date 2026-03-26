@@ -211,8 +211,11 @@ do {\
 
 #define IPA_CLIENT_IS_WLAN_PROD(x) \
 	((x == ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD1)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD)) || \
-	 (x == ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD)))
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD1)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD1)))
 
 #define IPA_CLIENT_IS_MHI_PROD(x) \
 	((x == ipa_get_ep_mapping(IPA_CLIENT_MHI_PROD)) || \
