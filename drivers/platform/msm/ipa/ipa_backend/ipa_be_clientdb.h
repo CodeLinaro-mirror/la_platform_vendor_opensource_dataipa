@@ -87,8 +87,11 @@ struct ipa_clientdb_mapping_instance {
 	struct ipa_clientdb_mapping_instance *next;				/* Next instance in global list */
 	struct ipa_clientdb_mapping_instance *prev;				/* Previous instance in global list */
 
-	struct ipa_clientdb_mapping_instance *hash_next;			/* Next mapping in the chain of mappings */
-	struct ipa_clientdb_mapping_instance *hash_prev;			/* previous mapping in the chain of mappings */
+	struct ipa_clientdb_mapping_instance *hash_next;			/* Next mapping in the chain of mappings (IP-based) */
+	struct ipa_clientdb_mapping_instance *hash_prev;			/* previous mapping in the chain of mappings (IP-based) */
+
+	struct ipa_clientdb_mapping_instance *mac_hash_next;		/* Next mapping in the MAC-based hash chain */
+	struct ipa_clientdb_mapping_instance *mac_hash_prev;		/* Previous mapping in the MAC-based hash chain */
 
 	uint8_t mac_addr_t[IPA_MAC_ADDR_SIZE];
 	uint32_t vlan_id;
@@ -106,10 +109,12 @@ struct ipa_clientdb_mapping_instance {
 
 struct ipa_clientdb_mapping_instance *ipa_db_mapping_alloc(void);
 bool ipa_be_clientdb_find_and_ref(ip_addr_t address, int vlan_id, bool lan2lan);
+struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac(mac_addr_t mac, int vlan_id);
 int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan_id, ip_addr_t address,
 							   ipa_db_mapping_final_callback_t final, void *arg);
 
-struct ipa_clientdb_mapping_instance* ipa_be_client_mapping_add_or_ref(ip_addr_t addr, int vlan_id, int lan2lan);
+struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(
+	ip_addr_t addr, int vlan_id, int lan2lan, mac_addr_t mac);
 
 int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan);
 

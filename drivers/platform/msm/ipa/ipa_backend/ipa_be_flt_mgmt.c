@@ -1377,6 +1377,261 @@ int ipa_be_delete_private_subnet(int intf_num, int bridge_if_num, enum ipa_ip_ty
 }
 EXPORT_SYMBOL(ipa_be_delete_private_subnet);
 
+
+int ipa_be_handle_ipv6_prefix_flt_rule(int intf_num, uint32_t *prefix)
+{
+	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
+	struct ipa_flt_rule_add flt_rule_entry;
+	struct ipa_ioc_query_intf temp_intf;
+	int retval = 0, len = 0;
+	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
+	int idx = 0;
+	int j = 0;
+	int flt_hdl = 0;
+	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
+	struct ipa3_flt_entry flt_entry = {0};
+	struct ipa_private_subnet_pair *ps_pair;
+	struct ipa_private_subnet_pair *new_ps_pair = NULL;
+	const enum ipa_ip_type ip_type = IPA_IP_v6;
+	/* bridge_if_num = 0 used as sentinel for IPv6 prefix rules */
+	const int bridge_if_num = 0;
+
+	IPA_BE_DBG("ipa_be_handle_ipv6_prefix_flt_rule: intf_num=%d prefix=0x%08x:%08x\n",
+		intf_num, prefix ? prefix[0] : 0, prefix ? prefix[1] : 0);
+
+	if (!prefix) {
+		IPA_BE_ERR("prefix is NULL\n");
+		return -EINVAL;
+	}
+
+	/*
+	 * Check if IPv6 prefix filter rules are already installed for this
+	 * intf_num. If so, just increment the ref count and return.
+	 */
+	spin_lock_bh(&ipa_private_subnet_lock);
+	list_for_each_entry(ps_pair, &ipa_private_subnet_pairs_list, node) {
+		if (ps_pair->intf_num == intf_num &&
+		    ps_pair->bridge_if_num == bridge_if_num &&
+		    ps_pair->ip_type == ip_type) {
+			ps_pair->ref_count++;
+			spin_unlock_bh(&ipa_private_subnet_lock);
+			IPA_BE_DBG("IPv6 prefix rules for intf %d already installed. ref_count: %d\n",
+				intf_num, ps_pair->ref_count);
+			return 0;
+		}
+	}
+	spin_unlock_bh(&ipa_private_subnet_lock);
+
+	IPA_BE_DBG("Installing new IPv6 prefix filter rules for intf %d\n", intf_num);
+
+	/* Check if the filter interface exists */
+	if (!ipa3_query_iface(intf_num, &temp_intf)) {
+		IPA_BE_ERR("Interface with index %u does not exist.\n", intf_num);
+		retval = -EINVAL;
+		goto end;
+	}
+
+	/* Allocate and query rx_props for intf_num */
+	rx_prop = (struct ipa_ioc_query_intf_rx_props *)kzalloc(
+		sizeof(struct ipa_ioc_query_intf_rx_props) +
+		temp_intf.num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop),
+		GFP_KERNEL);
+	if (!rx_prop) {
+		IPA_BE_ERR("Unable to allocate rx_prop memory.\n");
+		retval = -ENOMEM;
+		goto end;
+	}
+
+	memcpy(rx_prop->name, temp_intf.name, sizeof(temp_intf.name));
+	rx_prop->num_rx_props = temp_intf.num_rx_props;
+	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, temp_intf.name);
+	ipa3_query_intf_rx_props(rx_prop);
+
+	if (rx_prop->num_rx_props == 0) {
+		IPA_BE_ERR("No rx props for iface %s\n", rx_prop->name);
+		retval = -EINVAL;
+		goto end;
+	}
+
+	/* Get the default IPv6 routing table handle - LAN traffic goes to Apps */
+	rt_tbl.ip = IPA_IP_v6;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+	strscpy(rt_tbl.name, V6_DEFAULT_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
+#else
+	strlcpy(rt_tbl.name, V6_DEFAULT_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
+#endif
+
+	if (ipa3_get_rt_tbl(&rt_tbl)) {
+		IPA_BE_ERR("Failed to get default IPv6 routing table %s\n",
+			V6_DEFAULT_ROUTE_TABLE_NAME);
+		retval = -EFAULT;
+		goto end;
+	}
+	IPA_BE_DBG("IPv6 prefix filter uses rt_tbl: %s hdl=%d\n",
+		V6_DEFAULT_ROUTE_TABLE_NAME, rt_tbl.hdl);
+
+	/* Install one filter rule per rx pipe pair (IPv6 only, odd index) */
+	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
+		idx = j * 2 + 1;  /* IPv6 uses odd indices */
+
+		if (idx >= rx_prop->num_rx_props)
+			continue;
+
+		if (rx_prop->rx[idx].ip != IPA_IP_v6) {
+			IPA_BE_DBG("IP not matching required type %d .. continue\n",
+				rx_prop->rx[idx].ip);
+			continue;
+		}
+
+		IPA_BE_DBG("Install IPv6 prefix rule at idx %d src_pipe %d\n",
+			idx, rx_prop->rx[idx].src_pipe);
+
+		len = sizeof(struct ipa_ioc_add_flt_rule) + sizeof(struct ipa_flt_rule_add);
+		pFilteringTable = (struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
+		if (!pFilteringTable) {
+			IPA_BE_ERR("Failed to allocate filtering table memory\n");
+			retval = -ENOMEM;
+			goto end;
+		}
+
+		pFilteringTable->commit = 1;
+		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
+		pFilteringTable->global = false;
+		pFilteringTable->ip = IPA_IP_v6;
+		pFilteringTable->num_rules = 1;
+
+		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.rule.retain_hdr = 1;
+		flt_rule_entry.flt_rule_hdl = -1;
+		flt_rule_entry.status = -1;
+		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+		flt_rule_entry.rule.hashable = true;
+		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
+		flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
+
+		memcpy(&flt_rule_entry.rule.attrib, &rx_prop->rx[idx].attrib,
+			sizeof(flt_rule_entry.rule.attrib));
+		flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
+
+		/* Match upper 64 bits of IPv6 destination address (/64 prefix) */
+		flt_rule_entry.rule.attrib.u.v6.dst_addr[0] = prefix[0];
+		flt_rule_entry.rule.attrib.u.v6.dst_addr[1] = prefix[1];
+		flt_rule_entry.rule.attrib.u.v6.dst_addr[2] = 0x0;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr[3] = 0x0;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[0] = 0xFFFFFFFF;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[1] = 0xFFFFFFFF;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[2] = 0x0;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[3] = 0x0;
+
+		memcpy(&pFilteringTable->rules[0], &flt_rule_entry,
+			sizeof(struct ipa_flt_rule_add));
+
+		if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)pFilteringTable, true)) {
+			IPA_BE_ERR("ipa3_add_flt_rule_usr failed for IPv6 prefix rule\n");
+			retval = -EFAULT;
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			goto end;
+		}
+
+		flt_hdl = pFilteringTable->rules[0].flt_rule_hdl;
+		IPA_BE_DBG("IPv6 prefix filter rule hdl: 0x%x for pipe %d\n",
+			flt_hdl, rx_prop->rx[idx].src_pipe);
+
+		flt_entry.flt_hdl = flt_hdl;
+		flt_entry.cat = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
+		flt_entry.ip_type = IPA_IP_v6;
+		ipa3_add_filter_rules_entry(intf_num, flt_entry);
+
+		kfree(pFilteringTable);
+		pFilteringTable = NULL;
+	}
+
+	retval = 0;
+
+	/*
+	 * Rules installed successfully. Add a new tracking entry with ref_count=1
+	 * so subsequent calls for the same interface are deduplicated.
+	 */
+	spin_lock_bh(&ipa_private_subnet_lock);
+	new_ps_pair = kzalloc(sizeof(struct ipa_private_subnet_pair), GFP_ATOMIC);
+	if (!new_ps_pair) {
+		spin_unlock_bh(&ipa_private_subnet_lock);
+		IPA_BE_ERR("Failed to allocate memory for IPv6 prefix pair tracking\n");
+		/* Rules were installed but tracking failed - not fatal */
+	} else {
+		new_ps_pair->intf_num = intf_num;
+		new_ps_pair->bridge_if_num = bridge_if_num;
+		new_ps_pair->ip_type = ip_type;
+		new_ps_pair->ref_count = 1;
+		list_add(&new_ps_pair->node, &ipa_private_subnet_pairs_list);
+		IPA_BE_DBG("Added IPv6 prefix pair: intf %d, ip_type %d, ref_count: 1\n",
+			intf_num, ip_type);
+		spin_unlock_bh(&ipa_private_subnet_lock);
+	}
+
+end:
+	if (pFilteringTable)
+		kfree(pFilteringTable);
+	if (rx_prop)
+		kfree(rx_prop);
+
+	IPA_BE_DBG("ipa_be_handle_ipv6_prefix_flt_rule exit retval=%d\n", retval);
+	return retval;
+}
+EXPORT_SYMBOL(ipa_be_handle_ipv6_prefix_flt_rule);
+
+int ipa_be_delete_ipv6_prefix_flt_rule(int intf_num)
+{
+	struct ipa_private_subnet_pair *ps_pair, *tmp;
+	bool found = false;
+	int retval = 0;
+	const enum ipa_ip_type ip_type = IPA_IP_v6;
+	const int bridge_if_num = 0;
+
+	IPA_BE_DBG("ipa_be_delete_ipv6_prefix_flt_rule: intf_num=%d\n", intf_num);
+
+	spin_lock_bh(&ipa_private_subnet_lock);
+	list_for_each_entry_safe(ps_pair, tmp, &ipa_private_subnet_pairs_list, node) {
+		if (ps_pair->intf_num == intf_num &&
+		    ps_pair->bridge_if_num == bridge_if_num &&
+		    ps_pair->ip_type == ip_type) {
+			ps_pair->ref_count--;
+			IPA_BE_DBG("Decremented ref_count for IPv6 prefix pair intf %d. New count: %d\n",
+				intf_num, ps_pair->ref_count);
+			if (ps_pair->ref_count > 0) {
+				spin_unlock_bh(&ipa_private_subnet_lock);
+				IPA_BE_DBG("IPv6 prefix rules for intf %d still in use. ref_count: %d\n",
+					intf_num, ps_pair->ref_count);
+				return 0;
+			}
+			/* ref_count reached 0 - remove tracking entry and delete rules */
+			list_del(&ps_pair->node);
+			kfree(ps_pair);
+			found = true;
+			break;
+		}
+	}
+	spin_unlock_bh(&ipa_private_subnet_lock);
+
+	if (!found) {
+		IPA_BE_ERR("No IPv6 prefix tracking entry found for intf %d\n", intf_num);
+		return -ENOENT;
+	}
+
+	IPA_BE_DBG("ref_count reached 0 for intf %d - deleting IPv6 prefix hardware rules\n",
+		intf_num);
+
+	retval = ipa_be_delete_rules_by_category(intf_num,
+		IPA_FLT_RULE_CAT_PRIVATE_SUBNET, IPA_IP_v6);
+
+	IPA_BE_DBG("ipa_be_delete_ipv6_prefix_flt_rule exit retval=%d\n", retval);
+	return retval;
+}
+EXPORT_SYMBOL(ipa_be_delete_ipv6_prefix_flt_rule);
+
+
 int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int pdn_iface, int client_iface, bool is_xlat)
 {
 	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
