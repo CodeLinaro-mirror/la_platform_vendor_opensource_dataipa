@@ -942,6 +942,15 @@ prep_failed:
 	return rc;
 }
 
+static void __ipa_promote_flt_rule_type_for_eth(enum ipa_client_type client,
+						struct ipa_flt_rule_i *rule)
+{
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+	    ipa3_get_ep_traffic_mode(client) == IPA_NON_DMA_ETHERNET &&
+	    rule->rule_type == IPA_FLT_RULE_TYPE_IP)
+		rule->rule_type = IPA_FLT_RULE_TYPE_ETH_IP;
+}
+
 static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 		struct ipa3_rt_tbl **rt_tbl, enum ipa_ip_type ip)
 {
@@ -1066,6 +1075,8 @@ static int __ipa_create_flt_entry(struct ipa3_flt_entry **entry,
 		enum rule_sub_category rule_sub_category)
 {
 	int id;
+	enum ipa_client_type client = IPA_CLIENT_MAX;
+	u32 tbl_idx;
 
 	*entry = kmem_cache_zalloc(ipa3_ctx->flt_rule_cache, GFP_KERNEL);
 	if (!*entry)
@@ -1075,8 +1086,18 @@ static int __ipa_create_flt_entry(struct ipa3_flt_entry **entry,
 	(*entry)->cookie = IPA_FLT_COOKIE;
 	(*entry)->rt_tbl = rt_tbl;
 	(*entry)->tbl = tbl;
-	if (rule->rule_id) {
-		id = rule->rule_id;
+
+	tbl_idx = (u32)(tbl - &ipa3_ctx->flt_tbl[0][0]) / IPA_IP_MAX;
+
+	if (tbl_idx < ipa3_ctx->ipa_num_pipes && ipa_is_ep_support_flt(tbl_idx))
+		client = ipa3_ctx->ep[tbl_idx].client;
+
+	/* Promote rule type for Ethernet clients */
+	if (client < IPA_CLIENT_MAX)
+		__ipa_promote_flt_rule_type_for_eth(client, &(*entry)->rule);
+
+	if ((*entry)->rule.rule_id) {
+		id = (*entry)->rule.rule_id;
 	} else {
 		id = ipa3_alloc_rule_id(tbl->rule_ids);
 		if (id < 0) {
@@ -1089,8 +1110,8 @@ static int __ipa_create_flt_entry(struct ipa3_flt_entry **entry,
 	(*entry)->ipacm_installed = user;
 	(*entry)->cat = rule_category;
 	(*entry)->sub_cat = rule_sub_category;
-	if (rule->enable_stats)
-		(*entry)->cnt_idx = rule->cnt_idx;
+	if ((*entry)->rule.enable_stats)
+		(*entry)->cnt_idx = (*entry)->rule.cnt_idx;
 	else
 		(*entry)->cnt_idx = 0;
 	return 0;
@@ -1142,7 +1163,8 @@ static int __ipa_add_flt_rule(struct ipa3_flt_tbl *tbl, enum ipa_ip_type ip,
 	if (__ipa_validate_flt_rule(rule, &rt_tbl, ip))
 		goto error;
 
-	if (__ipa_create_flt_entry(&entry, rule, rt_tbl, tbl, user, rule_category, rule_sub_category))
+	if (__ipa_create_flt_entry(&entry, rule, rt_tbl, tbl, user,
+				   rule_category, rule_sub_category))
 		goto error;
 
 	/*
@@ -1365,7 +1387,7 @@ static int __ipa_add_flt_get_ep_idx(enum ipa_client_type ep, int *ipa_ep_idx)
 }
 
 static int __ipa_add_ep_flt_rule(enum ipa_ip_type ip, enum ipa_client_type ep,
-				 const struct ipa_flt_rule_i *rule, u8 add_rear,
+				 struct ipa_flt_rule_i *rule, u8 add_rear,
 				 u32 *rule_hdl, bool user, enum flt_rule_category rule_category,
 				 enum rule_sub_category rule_sub_category)
 {
@@ -1389,7 +1411,8 @@ static int __ipa_add_ep_flt_rule(enum ipa_ip_type ip, enum ipa_client_type ep,
 	tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][ip];
 	IPADBG_LOW("add ep flt rule ip=%d ep=%d\n", ip, ep);
 
-	return __ipa_add_flt_rule(tbl, ip, rule, add_rear, rule_hdl, user, rule_category, rule_sub_category);
+	return __ipa_add_flt_rule(tbl, ip, rule, add_rear, rule_hdl, user,
+				  rule_category, rule_sub_category);
 }
 
 int ipa_flt_get_nxt_rnd_idx(u32 tbl_id)
@@ -1884,6 +1907,7 @@ int ipa3_add_flt_rule_after_v2(struct ipa_ioc_add_flt_rule_after_v2
 		if (ipa3_ctx->ipa_fltrt_not_hashable)
 			((struct ipa_flt_rule_add_i *)
 			rules->rules)[i].rule.hashable = false;
+
 		result = __ipa_add_flt_rule_after(tbl,
 				&(((struct ipa_flt_rule_add_i *)
 				rules->rules)[i].rule),

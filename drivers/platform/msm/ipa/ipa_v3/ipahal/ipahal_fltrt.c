@@ -6292,6 +6292,7 @@ static int ipa_flt_parse_hw_rule_ipav7_0(u8 *addr, struct ipahal_flt_rule_entry 
 	rule->rule.close_aggr_irq_mod = rule_hdr->close_aggr_irq_mod;
 	rule->rule.ttl_update = rule_hdr->ttl_update;
 	rule->rule.esp_after_udp = rule_hdr->esp_after_udp;
+	rule->rule.rule_type = rule_hdr->rule_type;
 
 	atrb->rule_eq_bitmap = rule_hdr->en_rule & 0xFFFF; // todo: handle ipa7 added bits
 	rule->rule.eq_attrib_type = 1;

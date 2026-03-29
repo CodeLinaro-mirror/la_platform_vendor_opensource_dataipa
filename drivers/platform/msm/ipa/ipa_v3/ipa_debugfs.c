@@ -1688,6 +1688,8 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
 				pr_err("esp_after_udp %u ", entry->rule.esp_after_udp);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+				pr_err("rule_type: %u ", entry->rule.rule_type);
 
 			pr_err("\n");
 
