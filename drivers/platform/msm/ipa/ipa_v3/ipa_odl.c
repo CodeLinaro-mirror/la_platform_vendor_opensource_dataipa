@@ -351,7 +351,7 @@ static int ipa3_odl_register_pm(void)
 	pm_reg.skip_clk_vote = true;
 	result = ipa_pm_register(&pm_reg, &ipa3_odl_ctx->odl_pm_hdl);
 	if (result) {
-		IPAERR("failed to create IPA PM client %d\n", result);
+		IPAERR_BOOTUP("failed to create IPA PM client %d\n", result);
 		return result;
 	}
 	return result;
@@ -763,14 +763,14 @@ int ipa_odl_init(void)
 	odl_cdev[loop].class = class_create("ipa_adpl");
 
 	if (IS_ERR(odl_cdev[loop].class)) {
-		IPAERR("Error: odl_cdev->class NULL\n");
+		IPAERR_BOOTUP("Error: odl_cdev->class NULL\n");
 		result = -ENODEV;
 		goto create_char_dev0_fail;
 	}
 
 	result = alloc_chrdev_region(&odl_cdev[loop].dev_num, 0, 1, "ipa_adpl");
 	if (result) {
-		IPAERR("alloc_chrdev_region error for ipa adpl pipe\n");
+		IPAERR_BOOTUP("alloc_chrdev_region error for ipa adpl pipe\n");
 		result = -ENODEV;
 		goto alloc_chrdev0_region_fail;
 	}
@@ -778,7 +778,7 @@ int ipa_odl_init(void)
 	odl_cdev[loop].dev = device_create(odl_cdev[loop].class, NULL,
 		 odl_cdev[loop].dev_num, ipa3_ctx, "ipa_adpl");
 	if (IS_ERR(odl_cdev[loop].dev)) {
-		IPAERR("device_create err:%ld\n", PTR_ERR(odl_cdev[loop].dev));
+		IPAERR_BOOTUP("device_create err:%ld\n", PTR_ERR(odl_cdev[loop].dev));
 		result = PTR_ERR(odl_cdev[loop].dev);
 		goto device0_create_fail;
 	}
@@ -790,7 +790,7 @@ int ipa_odl_init(void)
 
 	result = cdev_add(cdev, odl_cdev[loop].dev_num, 1);
 	if (result) {
-		IPAERR("cdev_add err=%d\n", -result);
+		IPAERR_BOOTUP("cdev_add err=%d\n", -result);
 		goto cdev0_add_fail;
 	}
 
@@ -799,7 +799,7 @@ int ipa_odl_init(void)
 	odl_cdev[loop].class = class_create("ipa_odl_ctl");
 
 	if (IS_ERR(odl_cdev[loop].class)) {
-		IPAERR("Error: odl_cdev->class NULL\n");
+		IPAERR_BOOTUP("Error: odl_cdev->class NULL\n");
 		result =  -ENODEV;
 		goto create_char_dev1_fail;
 	}
@@ -807,14 +807,14 @@ int ipa_odl_init(void)
 	result = alloc_chrdev_region(&odl_cdev[loop].dev_num, 0, 1,
 							"ipa_odl_ctl");
 	if (result) {
-		IPAERR("alloc_chrdev_region error for ipa odl ctl pipe\n");
+		IPAERR_BOOTUP("alloc_chrdev_region error for ipa odl ctl pipe\n");
 		goto alloc_chrdev1_region_fail;
 	}
 
 	odl_cdev[loop].dev = device_create(odl_cdev[loop].class, NULL,
 		 odl_cdev[loop].dev_num, ipa3_ctx, "ipa_odl_ctl");
 	if (IS_ERR(odl_cdev[loop].dev)) {
-		IPAERR("device_create err:%ld\n", PTR_ERR(odl_cdev[loop].dev));
+		IPAERR_BOOTUP("device_create err:%ld\n", PTR_ERR(odl_cdev[loop].dev));
 		result = PTR_ERR(odl_cdev[loop].dev);
 		goto device1_create_fail;
 	}
@@ -826,7 +826,7 @@ int ipa_odl_init(void)
 
 	result = cdev_add(cdev, odl_cdev[loop].dev_num, 1);
 	if (result) {
-		IPAERR(":cdev_add err=%d\n", -result);
+		IPAERR_BOOTUP(":cdev_add err=%d\n", -result);
 		goto cdev1_add_fail;
 	}
 
