@@ -179,7 +179,7 @@ static ssize_t ch_dump_store(struct device *dev, struct device_attribute *attr, 
 	}
 
 	gsi_ctx->per.vote_clk_cb();
-	gsi_dump_ch_info(arg1);
+	gsi_dump_ch_info(arg1, 0, NULL);
 	gsi_ctx->per.unvote_clk_cb();
 
 	if (arg2) {
