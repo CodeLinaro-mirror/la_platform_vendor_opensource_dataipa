@@ -3183,6 +3183,7 @@ static ssize_t ipa3_rc_status(struct file *file, char __user *buf,
 
 	int nbytes, i=0;
 	struct ipa_rc_health_monitor *entry, *tmp;
+	struct ipa_rc_wlan_intf_info *wlan_intf;
 
 	if (list_empty(&rc_list.head)) {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
@@ -3193,11 +3194,19 @@ static ssize_t ipa3_rc_status(struct file *file, char __user *buf,
 	}
 
 	list_for_each_entry_safe(entry, tmp, &rc_list.head, node) {
-		IPADBG("Status code for instance %d : %d :\n", i, entry->status_code);
+		IPAERR("Status code for instance %d : %d :\n", i, entry->status_code);
 		i++;
 		if(i>=10)
 			break;
 	}
+
+	mutex_lock(&rc_ctx->rc_lock);
+	list_for_each_entry(wlan_intf, &ipa_rc_wlan_info.head, link) {
+		IPAERR("name: %s, msg_type: %u, metadata: %x, mask: %x\n",
+			wlan_intf->name, (unsigned int)wlan_intf->wlan_msg_type,
+			wlan_intf->metadata, wlan_intf->metadata_mask);
+	}
+	mutex_unlock(&rc_ctx->rc_lock);
 	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
 }
 

@@ -161,17 +161,28 @@ bool is_wlan_sta_pkt(struct ipahal_pkt_status *status)
 	struct ipa_rc_wlan_intf_info *it;
 
 	clnt = ipa3_get_client_by_pipe(status->endp_src_idx);
-	if(!IPA_CLIENT_IS_WLAN_PROD(clnt))
+	if(!IPA_CLIENT_IS_WLAN_PROD(clnt)) {
+		if(ipa3_ctx->is_rc_log_enabled)
+			IPAERR_RL("src: %d not wlan pipe\n", status->endp_src_idx);
+
 		return false;
+	}
+
+	if(ipa3_ctx->is_rc_log_enabled)
+		IPAERR_RL("status metadata: %d\n", ntohl(status->metadata));
 
 	mutex_lock(&rc_ctx->rc_lock);
 	list_for_each_entry(it, &ipa_rc_wlan_info.head, link) {
-		if(it->metadata == ntohl(status->metadata)) {
+		if(((it->metadata) & (it->metadata_mask)) == (ntohl(status->metadata) & (it->metadata_mask))) {
 			mutex_unlock(&rc_ctx->rc_lock);
 			return it->wlan_msg_type == WLAN_STA_CONNECT;
 		}
 	}
 	mutex_unlock(&rc_ctx->rc_lock);
+
+	if(ipa3_ctx->is_rc_log_enabled)
+		IPAERR_RL("can't find sta pkt\n");
+
 	return false;
 }
 
@@ -367,6 +378,11 @@ enum ipa_rc_state_err ipa_rc_detect_chan_stall(enum ipa_client_type client,
 		return cur_status;
 	}
 
+	if (client < 0 || client >= IPA_CLIENT_MAX) {
+		IPAERR("invalid client type %d\n", client);
+		return cur_status;
+	}
+
 	if(ipa3_ctx->is_rc_log_enabled) {
 		IPADBG("ch_state %d :\n", chan_params->ch_state);
 		IPADBG("ch_id %u :\n", chan_params->ch_id);
@@ -422,10 +438,11 @@ void ipa_rc_query_detect_chan_n(struct ipa_rc_health_monitor *ipa_state_info)
 	for(i = 0; i < num_pipe; i++) {
 		client = ipa3_get_client_by_pipe(i);
 
-		if(IPA_CLIENT_IS_ETH_CONS(client)) {
+		if(IPA_CLIENT_IS_ETH_CONS(client) ||
+			IPA_CLIENT_IS_WLAN_CONS(client)) {
 			if(ipa3_find_chan_by_intf(client) != 0) {
 				if(ipa3_ctx->is_rc_log_enabled) {
-					IPADBG("eth ep %d not configured\n", i);
+					IPADBG("ep %d not configured\n", i);
 				}
 				continue;
 			}
