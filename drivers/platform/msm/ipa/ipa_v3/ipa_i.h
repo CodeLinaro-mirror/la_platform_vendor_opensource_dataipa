@@ -935,7 +935,9 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_ipsec_params ipsec_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
+	struct ipa_producer_cookie_procparams cookie_params;
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
+	bool is_cookie_valid;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;

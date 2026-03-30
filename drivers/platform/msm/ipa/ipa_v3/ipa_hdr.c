@@ -128,40 +128,44 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 			else
 				hdr_tbl_base_addr = hdr_sys_addr;
 
-			ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
-				entry->offset_entry->offset,
-				entry->hdr->hdr_len,
-				entry->hdr->is_hdr_proc_ctx,
-				entry->hdr->phys_base,
-				hdr_tbl_base_addr,
-				entry->hdr->offset_entry,
-				&entry->l2tp_params,
-				&entry->eogre_params,
-				&entry->ipsec_params,
-				&entry->generic_params,
-				&entry->generic_params_v2,
-				&entry->pdn_dscp_params,
-				ipa3_ctx->use_64_bit_dma_mask);
+		ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
+			entry->offset_entry->offset,
+			entry->hdr->hdr_len,
+			entry->hdr->is_hdr_proc_ctx,
+			entry->hdr->phys_base,
+			hdr_tbl_base_addr,
+			entry->hdr->offset_entry,
+			&entry->l2tp_params,
+			&entry->eogre_params,
+			&entry->ipsec_params,
+			&entry->generic_params,
+			&entry->generic_params_v2,
+			&entry->cookie_params,
+			&entry->pdn_dscp_params,
+			ipa3_ctx->use_64_bit_dma_mask,
+			entry->is_cookie_valid);
 
 		} else { /* For headerless contexts, skip header - related processing */
 
 			if (!ipa_is_proc_ctx_headerless(entry->type))
 				return -EINVAL;
 
-			ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
-				entry->offset_entry->offset,
-				0, /* hdr_len */
-				false, /* is_hdr_proc_ctx */
-				0, /* phys_base */
-				0, /* hdr_tbl_base_addr */
-				NULL, /* offset_entry */
-				&entry->l2tp_params,
-				&entry->eogre_params,
-				&entry->ipsec_params,
-				&entry->generic_params,
-				&entry->generic_params_v2,
-				&entry->pdn_dscp_params,
-				ipa3_ctx->use_64_bit_dma_mask);
+		ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
+			entry->offset_entry->offset,
+			0, /* hdr_len */
+			false, /* is_hdr_proc_ctx */
+			0, /* phys_base */
+			0, /* hdr_tbl_base_addr */
+			NULL, /* offset_entry */
+			&entry->l2tp_params,
+			&entry->eogre_params,
+			&entry->ipsec_params,
+			&entry->generic_params,
+			&entry->generic_params_v2,
+			&entry->cookie_params,
+			&entry->pdn_dscp_params,
+			ipa3_ctx->use_64_bit_dma_mask,
+			entry->is_cookie_valid);
 		}
 	}
 
@@ -624,13 +628,16 @@ static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
 	entry->generic_params = proc_ctx->generic_params;
 	entry->generic_params_v2 = proc_ctx->generic_params_v2;
 	entry->pdn_dscp_params = proc_ctx->pdn_dscp_params;
+	entry->cookie_params = proc_ctx->cookie_params;
+	entry->is_cookie_valid = proc_ctx->is_cookie_valid;
 	if (hdr_entry && add_ref_hdr)
 		hdr_entry->ref_cnt++;
 	entry->cookie = IPA_PROC_HDR_COOKIE;
 	entry->ipacm_installed = user_only;
 	entry->is_lcl = true;
 
-	needed_len = ipahal_get_proc_ctx_needed_len(proc_ctx->type);
+	needed_len = ipahal_get_proc_ctx_needed_len(proc_ctx->type,
+			entry->is_cookie_valid);
 	if ((needed_len < 0) ||
 		((needed_len > ipa_hdr_proc_ctx_bin_sz[IPA_HDR_PROC_CTX_BIN0])
 			&&
