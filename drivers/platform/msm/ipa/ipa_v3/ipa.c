@@ -9290,6 +9290,45 @@ static void ipa3_process_irq_schedule_rel(void)
 }
 
 /**
+ * ipa3_error_fatal_handler() - Handles the error fatal interrupt
+ * @interrupt:		Interrupt type
+ * @private_data:	The client's private data
+ * @interrupt_data:	Interrupt specific information data
+ */
+void ipa3_error_fatal_handler(enum ipa_irq_type interrupt,
+				void *private_data,
+				void *interrupt_data)
+{
+	u32 ipa_ee = ipa3_ctx->ee;
+
+	IPAERR("IPA Error Fatal Interrupt occurred!\n");
+
+	ipa3_ctx->ipa_fatal_err_irq_regs.ipa_irq_stts_ee_error_fatal =
+		ipahal_read_reg_n(IPA_IRQ_STTS_EE_n, ipa_ee);
+	ipa3_ctx->ipa_fatal_err_irq_regs.ipa_fec_fatal_addr_ee =
+		ipahal_read_reg_n(IPA_FEC_FATAL_ADDR_EE_n, ipa_ee);
+	ipa3_ctx->ipa_fatal_err_irq_regs.ipa_fec_fatal_addr_msb_ee =
+		ipahal_read_reg_n(IPA_FEC_FATAL_ADDR_MSB_EE_n, ipa_ee);
+	ipa3_ctx->ipa_fatal_err_irq_regs.ipa_fec_fatal_attr_ee =
+		ipahal_read_reg_n(IPA_FEC_FATAL_ATTR_EE_n, ipa_ee);
+	ipa3_ctx->ipa_fatal_err_irq_regs.ipa_snoc_fec_ee =
+		ipahal_read_reg_n(IPA_SNOC_FEC_EE_n, ipa_ee);
+
+	IPAERR("IPA_IRQ_STTS_EE_ERROR_FATAL_n: 0x%x\n",
+		ipa3_ctx->ipa_fatal_err_irq_regs.ipa_irq_stts_ee_error_fatal);
+	IPAERR("IPA_FEC_FATAL_ADDR_EE_n: 0x%x\n",
+		ipa3_ctx->ipa_fatal_err_irq_regs.ipa_fec_fatal_addr_ee);
+	IPAERR("IPA_FEC_FATAL_ADDR_MSB_EE_n: 0x%x\n",
+		ipa3_ctx->ipa_fatal_err_irq_regs.ipa_fec_fatal_addr_msb_ee);
+	IPAERR("IPA_FEC_FATAL_ATTR_EE_n: 0x%x\n",
+		ipa3_ctx->ipa_fatal_err_irq_regs.ipa_fec_fatal_attr_ee);
+	IPAERR("IPA_SNOC_FEC_EE_n: 0x%x\n",
+		ipa3_ctx->ipa_fatal_err_irq_regs.ipa_snoc_fec_ee);
+
+	ipa_assert();
+}
+
+/**
  * ipa3_suspend_handler() - Handles the suspend interrupt:
  * wakes up the suspended peripheral by requesting its consumer
  * @interrupt:		Interrupt type
@@ -9409,6 +9448,14 @@ int ipa3_init_interrupts(void)
 			ipa3_suspend_handler, false, NULL);
 	if (result) {
 		IPAERR("register handler for suspend interrupt failed\n");
+		return -ENODEV;
+	}
+
+	/*add handler for error fatal interrupt*/
+	result = ipa_add_interrupt_handler(IPA_ERROR_FATAL_IRQ,
+			ipa3_error_fatal_handler, false, NULL);
+	if (result) {
+		IPAERR("register handler for error fatal interrupt failed\n");
 		return -ENODEV;
 	}
 
@@ -10166,6 +10213,7 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 fail_register_device:
 fail_init_interrupts:
+	ipa3_remove_interrupt_handler(IPA_ERROR_FATAL_IRQ);
 	ipa3_remove_interrupt_handler(IPA_TX_SUSPEND_IRQ);
 	ipa3_interrupts_destroy(ipa3_res.ipa_irq, &ipa3_ctx->master_pdev->dev);
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
@@ -10674,6 +10722,7 @@ fail_setup_apps_pipes:
 fail_register_device:
 	ipa3_destroy_flt_tbl_idrs();
 fail_init_interrupts:
+	ipa3_remove_interrupt_handler(IPA_ERROR_FATAL_IRQ);
 	ipa3_remove_interrupt_handler(IPA_TX_SUSPEND_IRQ);
 	ipa3_interrupts_destroy(ipa3_res.ipa_irq, &ipa3_ctx->master_pdev->dev);
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
@@ -16015,6 +16064,7 @@ static void ipa3_deepsleep_suspend(void)
 	/*Destroying filter table ids*/
 	ipa3_destroy_flt_tbl_idrs();
 	/*Disabling IPA interrupt*/
+	ipa3_remove_interrupt_handler(IPA_ERROR_FATAL_IRQ);
 	ipa3_remove_interrupt_handler(IPA_TX_SUSPEND_IRQ);
 	ipa3_interrupts_destroy(ipa3_res.ipa_irq, &ipa3_ctx->master_pdev->dev);
 	ipa3_uc_interface_destroy();

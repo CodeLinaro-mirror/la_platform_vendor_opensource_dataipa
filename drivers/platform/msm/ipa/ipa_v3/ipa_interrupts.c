@@ -69,6 +69,7 @@ static int ipa3_irq_mapping[IPA_IRQ_MAX] = {
 	[IPA_DRBIP_PKT_EXCEED_MAX_SIZE_IRQ]	= 27,
 	[IPA_DRBIP_DATA_SCTR_CFG_ERROR_IRQ]	= 28,
 	[IPA_DRBIP_IMM_CMD_NO_FLSH_HZRD_IRQ]	= 29,
+	[IPA_ERROR_FATAL_IRQ]			= 31,
 };
 
 static irqreturn_t ipa_irq_thread_handler(int , void*);
@@ -473,6 +474,23 @@ int ipa_add_interrupt_handler(enum ipa_irq_type interrupt,
 	else
 		ipahal_write_reg_n(IPA_IRQ_EN_EE_n, ipa_ee, val);
 	IPADBG("wrote IPA_IRQ_EN_EE_n register. reg = %d\n", val);
+
+	/* register IPA_IRQ_EN_EE_ERROR_FATAL_n for IPA_ERROR_FATAL_IRQ interrupt*/
+	if (interrupt == IPA_ERROR_FATAL_IRQ) {
+		val = ipahal_read_reg_n(IPA_IRQ_EN_EE_ERROR_FATAL_n, ipa_ee);
+		IPADBG("read IPA_IRQ_EN_EE_ERROR_FATAL_n register. reg = %d\n", val);
+		/* Bit 0 corresponds to BAD_SNOC_ACCESS_IRQ_EN; set it to allow
+		 * the hardware to assert the fatal-error interrupt on bad SNOC
+		 * accesses detected by IPA.
+		 */
+		bmsk = 0x1; /* BAD_SNOC_ACCESS_IRQ_EN */
+		val |= bmsk;
+		if (ipa3_ctx->apply_rg10_wa)
+			ipa3_uc_rg10_write_reg(IPA_IRQ_EN_EE_ERROR_FATAL_n, ipa_ee, val);
+		else
+			ipahal_write_reg_n(IPA_IRQ_EN_EE_ERROR_FATAL_n, ipa_ee, val);
+		IPADBG("wrote IPA_IRQ_EN_EE_ERROR_FATAL_n register. reg = %d\n", val);
+	}
 
 	/* register SUSPEND_IRQ_EN_EE_n_ADDR for L2 interrupt*/
 	if ((interrupt == IPA_TX_SUSPEND_IRQ) &&
