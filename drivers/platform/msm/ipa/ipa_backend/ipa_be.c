@@ -608,6 +608,8 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 	int vlan_tag = 0;
 	uint32_t mtu_size = 0;
 	ip_addr_t lan_client_ip = {0};
+	ip_addr_t ret_ip_key = {0};
+	ip_addr_t flow_ip_key = {0};
 	uint32_t wan_ip = 0;
 	uint32_t flow_interface_num = 0;
 	mac_addr_t mac, wan_mac;
@@ -628,7 +630,8 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 	int is_ret = false;
 	if (lan2lan)
 	{
-		if (ipa_be_client_mapping_add_or_ref((uint32_t *)&v4_msg.tuple.return_ip, 0, lan2lan) != NULL)
+		ret_ip_key[0] = v4_msg.tuple.return_ip;
+		if (ipa_be_client_mapping_add_or_ref(ret_ip_key, 0, lan2lan) != NULL)
 		{
 			is_ret =  true;
 			/* Add route entry */
@@ -638,7 +641,8 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			ipa_be_v4_add_filter_rule(v4_msg, lan2lan, v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.return_mac, is_ret);
 		}
 
-		if (ipa_be_client_mapping_add_or_ref((uint32_t *)&v4_msg.tuple.flow_ip, 0, lan2lan) != NULL)
+		flow_ip_key[0] = v4_msg.tuple.flow_ip;
+		if (ipa_be_client_mapping_add_or_ref(flow_ip_key, 0, lan2lan) != NULL)
 		{
 			is_ret =  false;
 			/* Add route entry */
@@ -731,6 +735,8 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 	uint32_t mtu_size = 0;
 	uint32_t *flow_ip_ptr = NULL;
 	uint32_t flow_interface_num = 0;
+	ip_addr_t ret_ip6_key = {0};
+	ip_addr_t flow_ip6_key = {0};
 	mac_addr_t mac, wan_mac;
 
 	ipa_be_log_ipv6_rule_details(v6_msg);
@@ -748,7 +754,8 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 	int is_ret = false;
 	if (lan2lan)
 	{
-		if (ipa_be_client_mapping_add_or_ref((uint32_t *)&v6_msg.tuple.return_ip, 0, lan2lan) != NULL)
+		memcpy(ret_ip6_key, &v6_msg.tuple.return_ip, sizeof(ret_ip6_key));
+		if (ipa_be_client_mapping_add_or_ref(ret_ip6_key, 0, lan2lan) != NULL)
 		{
 			is_ret =  true;
 			/* Add route entry */
@@ -758,7 +765,8 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.return_mac);
 		}
 
-		if (ipa_be_client_mapping_add_or_ref((uint32_t *)&v6_msg.tuple.flow_ip, 0, lan2lan) != NULL)
+		memcpy(flow_ip6_key, &v6_msg.tuple.flow_ip, sizeof(flow_ip6_key));
+		if (ipa_be_client_mapping_add_or_ref(flow_ip6_key, 0, lan2lan) != NULL)
 		{
 			is_ret =  false;
 			/* Add route entry */

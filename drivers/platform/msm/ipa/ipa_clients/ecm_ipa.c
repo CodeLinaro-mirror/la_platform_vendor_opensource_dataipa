@@ -1202,7 +1202,7 @@ static int ecm_ipa_register_properties(struct ecm_ipa_dev *ecm_ipa_ctx)
 	rx_ipv6_property->hdr_l2_type = hdr_l2_type;
 	rx_properties.num_props = 2;
 
-	result = ipa_register_intf("ecm0", &tx_properties, &rx_properties, 0);
+	result = ipa_register_intf("ecm0", &tx_properties, &rx_properties, ecm_ipa_ctx->net->ifindex);
 	if (result)
 		ECM_IPA_ERROR("fail on Tx/Rx properties registration\n");
 

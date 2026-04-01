@@ -613,51 +613,30 @@ int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 	return ref_count;
 }
 
-static int ipa_ipv4_header(struct ipa_ipv4_rule_create_msg v4_msg)
+static int ipa_ipv4_header(char *name)
 {
-	int handle = 0;
-	struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
-	int size = 0;
+	struct ipa_ioc_get_hdr hdr;
+	int ret;
 
-	IPA_BE_DBG("Entry\n");
-	size = sizeof(struct ipa_ioc_add_hdr) + (1 * sizeof(struct ipa_hdr_add));
-	pHeaderDescriptor = (struct ipa_ioc_add_hdr *)kzalloc(size, GFP_KERNEL);
-	if (pHeaderDescriptor == NULL)
-	{
-		IPA_BE_ERR("calloc failed to allocate pHeaderDescriptor\n");
+	if (!name) {
+		IPA_BE_ERR("Invalid header name\n");
+		return -EINVAL;
+	}
+
+	IPA_BE_DBG("Entry: looking up hdr '%s'\n", name);
+
+	memset(&hdr, 0, sizeof(hdr));
+	memcpy(hdr.name, name, sizeof(hdr.name));
+	hdr.name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+
+	ret = ipa_get_hdr(&hdr);
+	if (ret) {
+		IPA_BE_ERR("ipa_get_hdr failed for '%s', ret=%d\n", name, ret);
 		return -EFAULT;
 	}
 
-	pHeaderDescriptor->commit = true;
-	pHeaderDescriptor->num_hdrs = 1;
-
-	memset(pHeaderDescriptor->hdr[0].name, 0,
-		 sizeof(pHeaderDescriptor->hdr[0].name));
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-	strscpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
-#else
-	strlcpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
-#endif
-	pHeaderDescriptor->hdr[0].name[IPA_RESOURCE_NAME_MAX-1] = '\0';
-
-	pHeaderDescriptor->hdr[0].hdr_len = 14;
-	pHeaderDescriptor->hdr[0].hdr_hdl = -1;
-	pHeaderDescriptor->hdr[0].is_partial = 0;
-	pHeaderDescriptor->hdr[0].status = -1;
-
-	if (ipa3_add_hdr_usr(
-			(struct ipa_ioc_add_hdr *)pHeaderDescriptor, true)) {
-			handle = -EFAULT;
-			kfree(pHeaderDescriptor);
-			return handle;
-	}
-
-	handle = pHeaderDescriptor->hdr[0].hdr_hdl;
-	IPA_BE_DBG("Installed hdr proc ctx: hdl %d\n", handle);
-
-	kfree(pHeaderDescriptor);
-	return handle;
+	IPA_BE_DBG("Got hdr hdl %u for '%s'\n", hdr.hdl, name);
+	return (int)hdr.hdl;
 }
 
 static int ipa_ipv4_vlan_header(
@@ -1024,52 +1003,30 @@ static int ipa_ipv6_vlan_header(
 	return handle;
 }
 
-static int ipa_ipv6_header(struct ipa_ipv6_rule_create_msg v6_msg)
+static int ipa_ipv6_header(char *name)
 {
-	int handle = 0;
-	struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
-	int size = 0;
+	struct ipa_ioc_get_hdr hdr;
+	int ret;
 
-	size = sizeof(struct ipa_ioc_add_hdr) + (1 * sizeof(struct ipa_hdr_add));
-	pHeaderDescriptor = (struct ipa_ioc_add_hdr *)kzalloc(size, GFP_KERNEL);
-	if (pHeaderDescriptor == NULL)
-	{
-		IPA_BE_ERR("calloc failed to allocate pHeaderDescriptor\n");
+	if (!name) {
+		IPA_BE_ERR("Invalid header name\n");
+		return -EINVAL;
+	}
+
+	IPA_BE_DBG("Entry: looking up hdr '%s'\n", name);
+
+	memset(&hdr, 0, sizeof(hdr));
+	memcpy(hdr.name, name, sizeof(hdr.name));
+	hdr.name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+
+	ret = ipa_get_hdr(&hdr);
+	if (ret) {
+		IPA_BE_ERR("ipa_get_hdr failed for '%s', ret=%d\n", name, ret);
 		return -EFAULT;
 	}
 
-	pHeaderDescriptor->commit = true;
-	pHeaderDescriptor->num_hdrs = 1;
-
-	memset(pHeaderDescriptor->hdr[0].name, 0,
-		 sizeof(pHeaderDescriptor->hdr[0].name));
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-	strscpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
-#else
-	strlcpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
-#endif
-	pHeaderDescriptor->hdr[0].name[IPA_RESOURCE_NAME_MAX-1] = '\0';
-
-	pHeaderDescriptor->hdr[0].hdr_len = 14;
-	pHeaderDescriptor->hdr[0].hdr_hdl = -1;
-	pHeaderDescriptor->hdr[0].is_partial = 0;
-	pHeaderDescriptor->hdr[0].status = -1;
-
-	if (ipa3_add_hdr_usr(
-			(struct ipa_ioc_add_hdr *)pHeaderDescriptor, true)) {
-			handle = -EFAULT;
-			kfree(pHeaderDescriptor);
-			return handle;
-	}
-
-
-	handle = pHeaderDescriptor->hdr[0].hdr_hdl;
-	IPA_BE_DBG("Installed hdr proc ctx: hdl %d\n", handle);
-
-
-	kfree(pHeaderDescriptor);
-	return handle;
+	IPA_BE_DBG("Got hdr hdl %u for '%s'\n", hdr.hdl, name);
+	return (int)hdr.hdl;
 }
 
 
@@ -1077,7 +1034,8 @@ static int ipa_ipv4_header_proc_ctx(
 	struct ipa_ipv4_rule_create_msg v4_msg,
 	int* hdr_hdl,
 	char *name,
-	char *proc_ctx_name_out)
+	char *proc_ctx_name_out,
+	mac_addr_t mac)
 {
 	int handle = 0;
 	int egress_vlan_id = 0, ingress_vlan_id = 0;
@@ -1099,9 +1057,7 @@ static int ipa_ipv4_header_proc_ctx(
 	IPA_BE_DBG("ECMIPA egress_vlan_id 0x%x  ingress_vlan_id 0x%x hdr_name %s\n", egress_vlan_id, ingress_vlan_id, name);
 
 	snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d",
-			v4_msg.conn_rule.flow_mac[0], v4_msg.conn_rule.flow_mac[1],
-			v4_msg.conn_rule.flow_mac[2], v4_msg.conn_rule.flow_mac[3],
-			v4_msg.conn_rule.flow_mac[4], v4_msg.conn_rule.flow_mac[5],
+			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
 			egress_vlan_id);
 
 	/* Store the proc_ctx name for later cleanup */
@@ -1128,7 +1084,7 @@ static int ipa_ipv4_header_proc_ctx(
 	}
 	else
 	{
-		*hdr_hdl = ipa_ipv4_header(v4_msg);
+		*hdr_hdl = ipa_ipv4_header(name);
 	}
 
 	size = sizeof(struct ipa_ioc_add_hdr_proc_ctx) + sizeof(struct ipa_hdr_proc_ctx_add);
@@ -1191,7 +1147,8 @@ static int ipa_ipv6_header_proc_ctx(
 	struct ipa_ipv6_rule_create_msg v6_msg,
 	int* hdr_hdl,
 	char *name,
-	char *proc_ctx_name_out)
+	char *proc_ctx_name_out,
+	mac_addr_t mac)
 {
 	int handle = 0;
 	int egress_vlan_id = 0, ingress_vlan_id = 0;
@@ -1213,9 +1170,7 @@ static int ipa_ipv6_header_proc_ctx(
 	IPA_BE_DBG("ECMIPA egress_vlan_id 0x%x  ingress_vlan_id 0x%x hdr_name %s\n", egress_vlan_id, ingress_vlan_id, name);
 
 	snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d",
-			v6_msg.conn_rule.flow_mac[0], v6_msg.conn_rule.flow_mac[1],
-			v6_msg.conn_rule.flow_mac[2], v6_msg.conn_rule.flow_mac[3],
-			v6_msg.conn_rule.flow_mac[4], v6_msg.conn_rule.flow_mac[5],
+			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
 			egress_vlan_id);
 
 	/* Store the proc_ctx name for later cleanup */
@@ -1241,7 +1196,7 @@ static int ipa_ipv6_header_proc_ctx(
 	}
 	else
 	{
-		*hdr_hdl = ipa_ipv6_header(v6_msg);
+		*hdr_hdl = ipa_ipv6_header(name);
 	}
 
 	size = sizeof(struct ipa_ioc_add_hdr_proc_ctx) + sizeof(struct ipa_hdr_proc_ctx_add);
@@ -1730,7 +1685,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 
 	if (lan2lan)
 	{
-		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name);
+		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name, mac);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
@@ -1901,7 +1856,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 
 	if (lan2lan)
 	{
-		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name);
+		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[1].hdr_name, proc_ctx_name, mac);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));

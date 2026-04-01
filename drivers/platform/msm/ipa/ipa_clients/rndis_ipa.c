@@ -291,7 +291,7 @@ static int rndis_ipa_hdrs_cfg(struct rndis_ipa_dev *rndis_ipa_ctx,
 static int rndis_ipa_hdrs_hpc_cfg(struct rndis_ipa_dev *rndis_ipa_ctx);
 static int rndis_ipa_hdrs_destroy(struct rndis_ipa_dev *rndis_ipa_ctx);
 static struct net_device_stats *rndis_ipa_get_stats(struct net_device *net);
-static int rndis_ipa_register_properties(char *netdev_name, bool is_vlan_mode);
+static int rndis_ipa_register_properties(char *netdev_name, bool is_vlan_mode, int ifindex);
 static int rndis_ipa_deregister_properties(char *netdev_name);
 static int rndis_ipa_register_pm_client(struct rndis_ipa_dev *rndis_ipa_ctx);
 static int rndis_ipa_deregister_pm_client(struct rndis_ipa_dev *rndis_ipa_ctx);
@@ -696,14 +696,6 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 		rndis_ipa_ctx->net->gso_max_size = ULSO_MAX_SIZE;
 	}
 
-	result = rndis_ipa_register_properties(net->name,
-		rndis_ipa_ctx->is_vlan_mode);
-	if (result) {
-		RNDIS_IPA_ERROR("fail on properties set\n");
-		goto fail_register_tx;
-	}
-	RNDIS_IPA_DEBUG("2 TX and 2 RX properties were registered\n");
-
 	netif_carrier_off(net);
 	RNDIS_IPA_DEBUG("set carrier off until pipes are connected\n");
 
@@ -715,6 +707,14 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 	RNDIS_IPA_DEBUG
 		("netdev:%s registration succeeded, index=%d\n",
 		net->name, net->ifindex);
+
+	result = rndis_ipa_register_properties(net->name,
+	rndis_ipa_ctx->is_vlan_mode, net->ifindex);
+	if (result) {
+		RNDIS_IPA_ERROR("fail on properties set\n");
+		goto fail_register_tx;
+	}
+	RNDIS_IPA_DEBUG("2 TX and 2 RX properties were registered\n");
 
 	if (ipa_get_lan_rx_napi()) {
 		rndis_ipa_ctx->netif_rx_function = netif_receive_skb;
@@ -745,9 +745,9 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 
 	return 0;
 
-fail_register_netdev:
-	rndis_ipa_deregister_properties(net->name);
 fail_register_tx:
+	unregister_netdev(net);
+fail_register_netdev:
 	if (rndis_ipa_ctx->is_ulso_mode)
 		ipa_hdrs_hpc_destroy(rndis_ipa_ctx->rndis_hdr_hdl);
 fail_add_hdrs_hpc:
@@ -1883,6 +1883,7 @@ static struct net_device_stats *rndis_ipa_get_stats(struct net_device *net)
  *  by IPA configuration manager
  * @netdev_name: a string with the name of the network interface device
  * @is_vlan_mode: should driver work in vlan mode?
+ * @ifindex: interface index
  *
  * Register Tx/Rx properties to allow user space configuration (IPA
  * Configuration Manager):
@@ -1901,7 +1902,8 @@ static struct net_device_stats *rndis_ipa_get_stats(struct net_device *net)
  *   This rules shall be added based on the attribute mask supplied at
  *   this function, that is, always hit rule.
  */
-static int rndis_ipa_register_properties(char *netdev_name, bool is_vlan_mode)
+static int rndis_ipa_register_properties(char *netdev_name, bool is_vlan_mode,
+	int ifindex)
 {
 	struct ipa_tx_intf tx_properties = {0};
 	struct ipa_ioc_tx_intf_prop properties[2] = { {0}, {0} };
@@ -1949,7 +1951,7 @@ static int rndis_ipa_register_properties(char *netdev_name, bool is_vlan_mode)
 	rx_ipv6_property->hdr_l2_type = hdr_l2_type;
 	rx_properties.num_props = 2;
 
-	result = ipa_register_intf("rndis0", &tx_properties, &rx_properties, 0);
+	result = ipa_register_intf("rndis0", &tx_properties, &rx_properties, ifindex);
 	if (result)
 		RNDIS_IPA_ERROR("fail on Tx/Rx properties registration\n");
 	else
