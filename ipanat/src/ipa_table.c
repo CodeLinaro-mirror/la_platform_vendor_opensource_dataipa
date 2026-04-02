@@ -139,6 +139,12 @@ int ipa_table_calculate_entries_num(
 		btp_den = 1;
 		etp_num = IPA_EXPANSION_TABLE_PCNT_4SRAM_NUMERATOR;
 		etp_den = IPA_EXPANSION_TABLE_PCNT_4SRAM_DENOMINATOR;
+
+		value = (number_of_entries * btp_num + btp_den - 1) / btp_den;
+		table_entries = Get2PowerTightUpperBound(value);
+
+		value = (number_of_entries * etp_num + etp_den - 1) / etp_den;
+		expn_table_entries = GetEvenTightUpperBound(value);
 	}
 	else
 	{
@@ -146,13 +152,13 @@ int ipa_table_calculate_entries_num(
 		btp_den = IPA_TABLE_DENOMINATOR;
 		etp_num = IPA_EXPANSION_TABLE_NUMERATOR;
 		etp_den = IPA_TABLE_DENOMINATOR;
+
+		value = (number_of_entries * btp_num + btp_den - 1) / btp_den;
+		table_entries = Get2PowerTightUpperBound(value);
+
+		value = number_of_entries / 2;
+		expn_table_entries = GetEvenTightUpperBound(value);
 	}
-
-	value = (number_of_entries * btp_num + btp_den - 1) / btp_den;
-	table_entries      = Get2PowerTightUpperBound(value);
-
-	value = (number_of_entries * etp_num + etp_den - 1) / etp_den;
-	expn_table_entries = GetEvenTightUpperBound(value);
 
 	table->tot_tbl_ents = (uint32_t) (table_entries + expn_table_entries);
 
