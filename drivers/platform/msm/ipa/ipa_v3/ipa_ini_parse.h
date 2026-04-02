@@ -27,6 +27,15 @@ enum ipa_ini_file_param {
 		IPA_MAX_IPV4_STATS_ACCEL_CONNECTIONS,
 		IPA_MAX_IPV6_STATS_ACCEL_CONNECTIONS,
 		IPA_DISABLE_PER_FLOW_STATS,
+		IPA_WDI3_2G_HOLB_TIMEOUT,
+		IPA_WDI3_5G_HOLB_TIMEOUT,
+		IPA_TX_WRAPPER_CACHE_MAX_SIZE,
+		IPA_WAN_SKB_PAGE,
+		IPA_FILTER_START_ID,
+		IPA_WAN_RX_RING_SIZE,
+		IPA_LAN_RX_RING_SIZE,
+		IPA_GEN_RX_CMN_PAGE_POOL_SZ_FACTOR,
+		IPA_GEN_RX_CMN_TEMP_POOL_SZ_FACTOR,
 		IPA_PARAM_MAX,
 	};
 
@@ -48,14 +57,17 @@ static char ipa_ini_param[IPA_PARAM_MAX][IPA_PARAM_STR_LENGTH] = {
 		"max_ipv4_stats_accel_conn",
 		"max_ipv6_stats_accel_conn",
 		"ipa_disable_per_flow_stats",
+		"ipa_wdi3_2g_holb_timeout",
+		"ipa_wdi3_5g_holb_timeout",
+		"tx_wrapper_cache_max_size",
+		"ipa_wan_skb_page",
+		"filter_start_id",
+		"wan_rx_ring_size",
+		"lan_rx_ring_size",
+		"ipa_gen_rx_cmn_page_pool_sz_factor",
+		"ipa_gen_rx_cmn_temp_pool_sz_factor",
 	};
 
 int ipa_init_params_from_ini(struct device *device,
 				struct ipa3_plat_drv_res *ipa_drv_res);
-
-
-
-
-
-
 

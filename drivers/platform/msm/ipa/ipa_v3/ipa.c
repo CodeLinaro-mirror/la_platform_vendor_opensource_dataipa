@@ -15582,6 +15582,37 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 				ipa3_ctx->max_ipv6_accel_conn = ipa_drv_res->max_ipv6_stats_accel_conn;
 			}
 		}
+
+		ipa3_ctx->ipa_wdi3_2g_holb_timeout = ipa_drv_res->ipa_wdi3_2g_holb_timeout;
+		ipa3_ctx->ipa_wdi3_5g_holb_timeout = ipa_drv_res->ipa_wdi3_5g_holb_timeout;
+		IPADBG("wdi3 2g holb timeout: %d\n", ipa_drv_res->ipa_wdi3_2g_holb_timeout);
+		IPADBG("wdi3 5g holb timeout: %d\n", ipa_drv_res->ipa_wdi3_5g_holb_timeout);
+		ipa3_ctx->ipa_wan_skb_page = ipa_drv_res->ipa_wan_skb_page;
+		IPADBG("wan use skb page: %d\n", ipa_drv_res->ipa_wan_skb_page);
+		if (ipa_drv_res->tx_wrapper_cache_max_size) {
+			ipa3_ctx->tx_wrapper_cache_max_size = ipa_drv_res->tx_wrapper_cache_max_size;
+			IPADBG("tx-wrapper-cache-max-size: %d\n", ipa_drv_res->tx_wrapper_cache_max_size);
+		}
+		if (ipa_drv_res->filter_start_id) {
+			ipa3_ctx->filter_start_id = ipa_drv_res->filter_start_id;
+			IPADBG("filter_start_id: %d\n", ipa_drv_res->filter_start_id);
+		}
+		if (ipa_drv_res->wan_rx_ring_size) {
+			ipa3_ctx->wan_rx_ring_size = ipa_drv_res->wan_rx_ring_size;
+			IPADBG("wan_rx_ring_size: %d\n", ipa_drv_res->wan_rx_ring_size);
+		}
+		if (ipa_drv_res->lan_rx_ring_size) {
+			ipa3_ctx->lan_rx_ring_size = ipa_drv_res->lan_rx_ring_size;
+			IPADBG("lan_rx_ring_size: %d\n", ipa_drv_res->lan_rx_ring_size);
+		}
+		if (ipa_drv_res->ipa_gen_rx_cmn_page_pool_sz_factor) {
+			ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor = ipa_drv_res->ipa_gen_rx_cmn_page_pool_sz_factor;
+			IPADBG("ipa_gen_rx_cmn_page_pool_sz_factor: %d\n", ipa_drv_res->ipa_gen_rx_cmn_page_pool_sz_factor);
+		}
+		if (ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor) {
+			ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor = ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor;
+			IPADBG("ipa_gen_rx_cmn_temp_pool_sz_factor: %d\n", ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor);
+		}
 	}
 
 	if (ipa_is_ready())
