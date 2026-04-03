@@ -4815,6 +4815,85 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 	ast_info->skb = skb;
 }
 
+static void ipa3_lan_rx_process_metadata(struct ipa3_ep_context *ep,
+		struct sk_buff *skb, u32 metadata, u8 ucp)
+{
+	if (ep->ast_update) {
+		struct ipa_ast_info_type ast_info;
+		void (*ast_notify)(void *client_priv, unsigned long data);
+		void *client_priv;
+
+		ipa3_wdi_extact_ast_info(skb, ntohl(metadata), ucp, &ast_info);
+		/* Check if AST call back needs to be called. */
+		/* If sa_valid is 0, learning scenario, cb is called. */
+		/* if sa_peer_id != ta_peer_id, roaming scenario, cb is called. */
+		if (!ast_info.sa_valid ||
+			(ast_info.sa_peer_id != ast_info.ta_peer_id)) {
+			spin_lock_bh(&ipa3_ctx->disconnect_lock);
+			if (likely((!atomic_read(&ep->disconnect_in_progress)) &&
+						ep->valid && ep->ast_notify)) {
+				ast_notify = ep->ast_notify;
+				client_priv = ep->priv;
+				spin_unlock_bh(&ipa3_ctx->disconnect_lock);
+				ast_notify(client_priv, (unsigned long)&ast_info);
+			} else {
+				spin_unlock_bh(&ipa3_ctx->disconnect_lock);
+			}
+		}
+		IPADBG_LOW("ast update meta_data: 0x%x cb: 0x%x for client 0x%x\n",
+				metadata, *(u32 *)skb->cb, ep->client);
+		IPADBG_LOW("ast update ucp: %d for client 0x%x\n", *(u8 *)(skb->cb + 4), ep->client);
+	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
+		/* Metadata Info
+		 *  -----------------------------------------------------
+		 *  |   30 - 31 bits | 29 bit  |24-28 bits |16 -23 bits|
+		 *  | ta_peer_id_msb | reserv  |vap_id     |  QMAP_ID  |
+		 *  -----------------------------------------------------------
+		 *  | 14 - 15 bits|   13 bit  |    12 bit         |  0-11 bit  |
+		 *  | DEST_CHIP_ID| DA_IS_MCBC| dest_chip_pmac_id | ta_peer_id |
+		 *  -----------------------------------------------------------
+		 */
+
+		metadata = ntohl(metadata);
+		/*updating the vdev id and da_is_mcbc*/
+		*(u16 *)skb->cb = (((metadata >> 24) & 0x1F) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);
+		/*updating the ucp*/
+		*(u8 *)(skb->cb + 4) = ucp;
+		/*updating the  ta peer id of LSB and MSB bits*/
+		*(u16 *)(skb->cb + 5) = ((metadata & 0xFFF)|(((metadata >> 30) & 0x3) << 12));
+		/*extract the destination chip id*/
+		*(u8 *) (skb->cb + 7) = ((metadata >> 14) & 0x3);
+		/*extract the pmac id*/
+		*(u8 *) (skb->cb + 8) = ((metadata >> 12) & 0x1);
+		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
+				metadata, *(u32 *)skb->cb);
+		IPADBG_LOW("ucp: %d\n", *(u8 *)(skb->cb + 4));
+
+		IPADBG_LOW("ta peer id %d\n", *(u16 *)(skb->cb + 5));
+
+	} else {
+		/* Metadata Info
+		 *  ------------------------------------------
+		 *  |   3     |   2     |    1        |  0   |
+		 *  | fw_desc | vdev_id | qmap mux id | Resv |
+		 *  ------------------------------------------
+		 */
+		*(u16 *)skb->cb = ((metadata >> 16) & 0xFFFF);
+		/* For IPA HW ver < 4.5, if ucp bit set means h/w has not
+		 * retained MAC hdr, so for those pkt sent to EMAC driver
+		 * with uCP bit set, EMAC driver will send to N/W stack as
+		 * IP packet. Starting from IPA HW ver >= 4.5, IPA h/w doesn't
+		 * have limitation and send pkt with retined MAC hdr.*/
+		if(ipa3_ctx->ipa_hw_type < IPA_HW_v4_5)
+			*(u8 *)(skb->cb + 4) = ucp;
+		else
+			*(u8 *)(skb->cb + 4) = 0;
+		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
+				metadata, *(u32 *)skb->cb);
+		IPADBG_LOW("ucp: %d\n", *(u8 *)(skb->cb + 4));
+	}
+}
+
 void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 {
 	struct sk_buff *rx_skb = (struct sk_buff *)data;
@@ -4828,8 +4907,6 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	void (*client_notify)(void *client_priv, enum ipa_dp_evt_type evt,
 		       unsigned long data);
 	void *client_priv;
-	struct ipa_ast_info_type ast_info;
-	void (*ast_notify)(void *client_priv, unsigned long data);
 
 	ipahal_pkt_status_parse_thin(rx_skb->data, &status);
 	src_pipe = status.endp_src_idx;
@@ -4851,76 +4928,7 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 		skb_pull(rx_skb, ipahal_pkt_status_get_size());
 	}
 
-	if (ep->ast_update) {
-		ipa3_wdi_extact_ast_info(rx_skb, ntohl(metadata), ucp, &ast_info);
-		/* Check if AST call back needs to be called. */
-		/* If sa_valid is 0, learning scenario, cb is called. */
-		/* if sa_peer_id != ta_peer_id, roaming scenario, cb is called. */
-		if (!ast_info.sa_valid ||
-			(ast_info.sa_peer_id != ast_info.ta_peer_id)) {
-			spin_lock_bh(&ipa3_ctx->disconnect_lock);
-			if (likely((!atomic_read(&ep->disconnect_in_progress)) &&
-						ep->valid && ep->ast_notify)) {
-				ast_notify = ep->ast_notify;
-				client_priv = ep->priv;
-				spin_unlock_bh(&ipa3_ctx->disconnect_lock);
-				ast_notify(client_priv, (unsigned long)&ast_info);
-			} else {
-				spin_unlock_bh(&ipa3_ctx->disconnect_lock);
-			}
-		}
-		IPADBG_LOW("ast update meta_data: 0x%x cb: 0x%x for client 0x%x\n",
-				metadata, *(u32 *)rx_skb->cb, ep->client);
-		IPADBG_LOW("ast update ucp: %d for client 0x%x\n", *(u8 *)(rx_skb->cb + 4), ep->client);
-	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
-		/* Metadata Info
-		 *  -----------------------------------------------------
-		 *  |   30 - 31 bits | 29 bit  |24-28 bits |16 -23 bits|
-		 *  | ta_peer_id_msb | reserv  |vap_id     |  QMAP_ID  |
-		 *  -----------------------------------------------------------
-		 *  | 14 - 15 bits|   13 bit  |    12 bit         |  0-11 bit  |
-		 *  | DEST_CHIP_ID| DA_IS_MCBC| dest_chip_pmac_id | ta_peer_id |
-		 *  -----------------------------------------------------------
-		 */
-
-		metadata = ntohl(metadata);
-		/*updating the vdev id and da_is_mcbc*/
-		*(u16 *)rx_skb->cb = (((metadata >> 24) & 0x1F) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);
-		/*updating the ucp*/
-		*(u8 *)(rx_skb->cb + 4) = ucp;
-		/*updating the  ta peer id of LSB and MSB bits*/
-		*(u16 *)(rx_skb->cb + 5) = ((metadata & 0xFFF)|(((metadata >> 30) & 0x3) << 12));
-		/*extract the destination chip id*/
-		*(u8 *) (rx_skb->cb + 7) = ((metadata >> 14) & 0x3);
-		/*extract the pmac id*/
-		*(u8 *) (rx_skb->cb + 8) = ((metadata >> 12) & 0x1);
-		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
-				metadata, *(u32 *)rx_skb->cb);
-		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
-
-		IPADBG_LOW("ta peer id %d\n", *(u16 *)(rx_skb->cb + 5));
-
-	}else {
-		/* Metadata Info
-		 *  ------------------------------------------
-		 *  |   3     |   2     |    1        |  0   |
-		 *  | fw_desc | vdev_id | qmap mux id | Resv |
-		 *  ------------------------------------------
-		 */
-		*(u16 *)rx_skb->cb = ((metadata >> 16) & 0xFFFF);
-		/* For IPA HW ver < 4.5, if ucp bit set means h/w has not
-		 * retained MAC hdr, so for those pkt sent to EMAC driver
-		 * with uCP bit set, EMAC driver will send to N/W stack as
-		 * IP packet. Starting from IPA HW ver >= 4.5, IPA h/w doesn't
-		 * have limitation and send pkt with retined MAC hdr.*/
-		if(ipa3_ctx->ipa_hw_type < IPA_HW_v4_5)
-		    *(u8 *)(rx_skb->cb + 4) = ucp;
-		else
-		    *(u8 *)(rx_skb->cb + 4) = 0;
-		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
-				metadata, *(u32 *)rx_skb->cb);
-		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
-	}
+	ipa3_lan_rx_process_metadata(ep, rx_skb, metadata, ucp);
 	spin_lock_bh(&ipa3_ctx->disconnect_lock);
 	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && !ep->valid &&
 			(tag_info & 0xFFFF) == IPA_ETH_PDU_TAG_CHECK)
@@ -5304,12 +5312,7 @@ _prep_and_send_skb(
 		/*
 		 * Send this new skb to the client...
 		 */
-		*(u16 *)head_skb->cb = ((metadata >> 16) & 0xFFFF);
-		*(u8 *)(head_skb->cb + 4) = ucp;
-
-		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
-				   metadata, *(u32 *)head_skb->cb);
-		IPADBG_LOW("ucp: %d\n", *(u8 *)(head_skb->cb + 4));
+		ipa3_lan_rx_process_metadata(ep, head_skb, metadata, ucp);
 
 		client_notify(client_priv, IPA_RECEIVE, (unsigned long)(head_skb));
 	}
