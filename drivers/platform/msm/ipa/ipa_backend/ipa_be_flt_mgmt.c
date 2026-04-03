@@ -6,6 +6,7 @@
 #include <linux/string.h>
 #include <linux/jhash.h>
 #include <linux/bitops.h>
+#include <linux/sort.h>
 #include <linux/msm_ipa.h>
 #include <linux/inetdevice.h>
 #include "ipa_api.h"
@@ -81,6 +82,42 @@ GetQmiFilterAction(enum ipa_flt_action ipa_filter_action)
 	}
 }
 
+struct ipa_be_qmi_rule_entry {
+	const struct ipa_flt_rule_add *rule;
+	uint8_t mux_id;
+	bool mux_id_valid;
+	enum ipa_ip_type ip_type;
+	enum flt_rule_category category;
+	enum rule_sub_category sub_category;
+	int original_index;
+};
+
+static int ipa_be_qmi_rule_cmp(const void *lhs, const void *rhs)
+{
+	const struct ipa_be_qmi_rule_entry *left = lhs;
+	const struct ipa_be_qmi_rule_entry *right = rhs;
+
+	if (left->category != right->category)
+		return (int)left->category - (int)right->category;
+
+	if (left->sub_category != right->sub_category)
+		return (int)left->sub_category - (int)right->sub_category;
+
+	return left->original_index - right->original_index;
+}
+
+static void ipa_be_qmi_rule_swap(void *lhs, void *rhs, int size)
+{
+	struct ipa_be_qmi_rule_entry tmp;
+
+	if (size != sizeof(tmp))
+		return;
+
+	memcpy(&tmp, lhs, sizeof(tmp));
+	memcpy(lhs, rhs, sizeof(tmp));
+	memcpy(rhs, &tmp, sizeof(tmp));
+}
+
 uint32_t wan_ul_fl_rule_hdl_v4[IPA_MAX_NUM_PROPS][MAX_WAN_UL_FILTER_RULES] = {0};
 uint32_t num_wan_ul_fl_rule_v4[IPA_MAX_NUM_PROPS] = {0};
 uint32_t flt_rule_count_v4[IPA_CLIENT_MAX] = {0};
@@ -97,6 +134,8 @@ struct flt_rule
 	struct ipa_flt_rule_add flt_rule;
 	uint8_t mux_id;
 	enum flt_rule_type rule_type;
+	enum flt_rule_category category;
+	enum rule_sub_category sub_category;
 	int pdn_iface;
 };
 
@@ -2410,9 +2449,16 @@ static bool AddWanDLFilteringRule(
 	struct ipa_ioc_add_flt_rule const *rule_table_v4,
 	struct ipa_ioc_add_flt_rule const *rule_table_v6,
 	uint8_t *mux_id_v4,
-	uint8_t *mux_id_v6)
+	uint8_t *mux_id_v6,
+	enum flt_rule_category *category_v4,
+	enum flt_rule_category *category_v6,
+	enum rule_sub_category *sub_category_v4,
+	enum rule_sub_category *sub_category_v6)
 {
-	int ret = 0, cnt, num_rules = 0, pos = 0;
+	int ret = 0, cnt, num_rules = 0, pos;
+	int num_v4_rules = rule_table_v4 ? rule_table_v4->num_rules : 0;
+	int num_v6_rules = rule_table_v6 ? rule_table_v6->num_rules : 0;
+	struct ipa_be_qmi_rule_entry *sorted_rules = NULL;
 	struct ipa_install_fltr_rule_req_ex_msg_v01 *qmi_rule_ex_msg;
 
 	qmi_rule_ex_msg = kzalloc(sizeof(*qmi_rule_ex_msg), GFP_KERNEL);
@@ -2421,13 +2467,13 @@ static bool AddWanDLFilteringRule(
 		return false;
 	}
 
+	num_rules = num_v4_rules + num_v6_rules;
+
 	if (rule_table_v4) {
-		num_rules += rule_table_v4->num_rules;
 		IPA_BE_DBG("Get %d WAN DL IPv4 filtering rules.\n",
 			   rule_table_v4->num_rules);
 	}
 	if (rule_table_v6) {
-		num_rules += rule_table_v6->num_rules;
 		IPA_BE_DBG("Get %d WAN DL IPv6 filtering rules.\n",
 			   rule_table_v6->num_rules);
 	}
@@ -2438,99 +2484,122 @@ static bool AddWanDLFilteringRule(
 		return false;
 	}
 
-	if (num_rules > 0)
+	if (num_rules > 0) {
+		sorted_rules = kcalloc(num_rules, sizeof(*sorted_rules),
+				       GFP_KERNEL);
+		if (!sorted_rules) {
+			IPA_BE_ERR("Failed to allocate memory for sorted_rules\n");
+			kfree(qmi_rule_ex_msg);
+			return false;
+		}
 		qmi_rule_ex_msg->filter_spec_ex_list_valid = true;
-	else
+	} else {
 		qmi_rule_ex_msg->filter_spec_ex_list_valid = false;
+	}
 
 	qmi_rule_ex_msg->filter_spec_ex_list_len = num_rules;
 	qmi_rule_ex_msg->source_pipe_index_valid = 0;
 
 	IPA_BE_DBG("Get %d WAN DL filtering rules in total.\n", num_rules);
 
-	if (rule_table_v4) {
-		for (cnt = rule_table_v4->num_rules - 1; cnt >= 0; cnt--) {
-			if (pos >= QMI_IPA_MAX_FILTERS_EX_V01) {
-				IPA_BE_ERR("QMI only support max %d rules, current (%d)\n",
-					   QMI_IPA_MAX_FILTERS_EX_V01, pos);
-				break;
-			}
-			qmi_rule_ex_msg->filter_spec_ex_list[pos].ip_type =
-				QMI_IPA_IP_TYPE_V4_V01;
-			qmi_rule_ex_msg->filter_spec_ex_list[pos].filter_action =
-				GetQmiFilterAction(
-					rule_table_v4->rules[cnt].rule.action);
-			qmi_rule_ex_msg->filter_spec_ex_list[pos]
-				.is_routing_table_index_valid = 1;
-			qmi_rule_ex_msg->filter_spec_ex_list[pos]
-				.route_table_index =
-				rule_table_v4->rules[cnt].rule.rt_tbl_idx;
-			if (mux_id_v4) {
-				qmi_rule_ex_msg->filter_spec_ex_list[pos]
-					.is_mux_id_valid = 1;
-				qmi_rule_ex_msg->filter_spec_ex_list[pos]
-					.mux_id = mux_id_v4[cnt];
-			}
-			qmi_rule_ex_msg->filter_spec_ex_list[pos].rule_id =
-				rule_table_v4->rules[cnt].rule.rule_id;
-			qmi_rule_ex_msg->filter_spec_ex_list[pos]
-				.is_rule_hashable =
-				rule_table_v4->rules[cnt].rule.hashable;
-			memcpy(&qmi_rule_ex_msg->filter_spec_ex_list[pos]
-					.filter_rule,
-			       &rule_table_v4->rules[cnt].rule.eq_attrib,
-			       sizeof(struct ipa_filter_rule_type_v01));
-
-			pos++;
-		}
+	pos = 0;
+	for (cnt = 0; cnt < num_v4_rules; cnt++, pos++) {
+		sorted_rules[pos].rule = &rule_table_v4->rules[cnt];
+		sorted_rules[pos].mux_id_valid = !!mux_id_v4;
+		sorted_rules[pos].mux_id = mux_id_v4 ? mux_id_v4[cnt] : 0;
+		sorted_rules[pos].ip_type = IPA_IP_v4;
+		sorted_rules[pos].category = category_v4[cnt];
+		sorted_rules[pos].sub_category = sub_category_v4[cnt];
+		sorted_rules[pos].original_index = cnt;
 	}
 
-	if (rule_table_v6) {
-		for (cnt = rule_table_v6->num_rules - 1; cnt >= 0; cnt--) {
-			if (pos >= QMI_IPA_MAX_FILTERS_EX_V01) {
-				IPA_BE_ERR("QMI only support max %d rules, current (%d)\n",
-					   QMI_IPA_MAX_FILTERS_EX_V01, pos);
-				break;
-			}
-			qmi_rule_ex_msg->filter_spec_ex_list[pos].ip_type =
-				QMI_IPA_IP_TYPE_V6_V01;
-			qmi_rule_ex_msg->filter_spec_ex_list[pos].filter_action =
-				GetQmiFilterAction(
-					rule_table_v6->rules[cnt].rule.action);
-			qmi_rule_ex_msg->filter_spec_ex_list[pos]
-				.is_routing_table_index_valid = 1;
-			qmi_rule_ex_msg->filter_spec_ex_list[pos]
-				.route_table_index =
-				rule_table_v6->rules[cnt].rule.rt_tbl_idx;
-			if (mux_id_v6) {
-				qmi_rule_ex_msg->filter_spec_ex_list[pos]
-					.is_mux_id_valid = 1;
-				qmi_rule_ex_msg->filter_spec_ex_list[pos]
-					.mux_id = mux_id_v6[cnt];
-			}
-			qmi_rule_ex_msg->filter_spec_ex_list[pos].rule_id =
-				rule_table_v6->rules[cnt].rule.rule_id;
-			qmi_rule_ex_msg->filter_spec_ex_list[pos]
-				.is_rule_hashable =
-				rule_table_v6->rules[cnt].rule.hashable;
-			memcpy(&qmi_rule_ex_msg->filter_spec_ex_list[pos]
-					.filter_rule,
-			       &rule_table_v6->rules[cnt].rule.eq_attrib,
-			       sizeof(struct ipa_filter_rule_type_v01));
+	if (num_v4_rules > 1)
+		sort(sorted_rules, num_v4_rules, sizeof(*sorted_rules),
+		     ipa_be_qmi_rule_cmp, ipa_be_qmi_rule_swap);
 
-			pos++;
+	for (cnt = 0; cnt < num_v4_rules; cnt++) {
+		int out_idx = cnt;
+		int in_idx = num_v4_rules - 1 - cnt;
+
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx].ip_type =
+			QMI_IPA_IP_TYPE_V4_V01;
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx].filter_action =
+			GetQmiFilterAction(sorted_rules[in_idx].rule->rule.action);
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx]
+			.is_routing_table_index_valid = 1;
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx]
+			.route_table_index =
+			sorted_rules[in_idx].rule->rule.rt_tbl_idx;
+		if (sorted_rules[in_idx].mux_id_valid) {
+			qmi_rule_ex_msg->filter_spec_ex_list[out_idx]
+				.is_mux_id_valid = 1;
+			qmi_rule_ex_msg->filter_spec_ex_list[out_idx].mux_id =
+				sorted_rules[in_idx].mux_id;
 		}
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx].rule_id =
+			sorted_rules[in_idx].rule->rule.rule_id;
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx].is_rule_hashable =
+			sorted_rules[in_idx].rule->rule.hashable;
+		memcpy(&qmi_rule_ex_msg->filter_spec_ex_list[out_idx].filter_rule,
+		       &sorted_rules[in_idx].rule->rule.eq_attrib,
+		       sizeof(struct ipa_filter_rule_type_v01));
 	}
+
+	pos = 0;
+	for (cnt = 0; cnt < num_v6_rules; cnt++, pos++) {
+		sorted_rules[pos].rule = &rule_table_v6->rules[cnt];
+		sorted_rules[pos].mux_id_valid = !!mux_id_v6;
+		sorted_rules[pos].mux_id = mux_id_v6 ? mux_id_v6[cnt] : 0;
+		sorted_rules[pos].ip_type = IPA_IP_v6;
+		sorted_rules[pos].category = category_v6[cnt];
+		sorted_rules[pos].sub_category = sub_category_v6[cnt];
+		sorted_rules[pos].original_index = cnt;
+	}
+
+	if (num_v6_rules > 1)
+		sort(sorted_rules, num_v6_rules, sizeof(*sorted_rules),
+		     ipa_be_qmi_rule_cmp, ipa_be_qmi_rule_swap);
+
+	for (cnt = 0; cnt < num_v6_rules; cnt++) {
+		int out_idx = num_v4_rules + cnt;
+		int in_idx = num_v6_rules - 1 - cnt;
+
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx].ip_type =
+			QMI_IPA_IP_TYPE_V6_V01;
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx].filter_action =
+			GetQmiFilterAction(sorted_rules[in_idx].rule->rule.action);
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx]
+			.is_routing_table_index_valid = 1;
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx]
+			.route_table_index =
+			sorted_rules[in_idx].rule->rule.rt_tbl_idx;
+		if (sorted_rules[in_idx].mux_id_valid) {
+			qmi_rule_ex_msg->filter_spec_ex_list[out_idx]
+				.is_mux_id_valid = 1;
+			qmi_rule_ex_msg->filter_spec_ex_list[out_idx].mux_id =
+				sorted_rules[in_idx].mux_id;
+		}
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx].rule_id =
+			sorted_rules[in_idx].rule->rule.rule_id;
+		qmi_rule_ex_msg->filter_spec_ex_list[out_idx].is_rule_hashable =
+			sorted_rules[in_idx].rule->rule.hashable;
+		memcpy(&qmi_rule_ex_msg->filter_spec_ex_list[out_idx].filter_rule,
+		       &sorted_rules[in_idx].rule->rule.eq_attrib,
+		       sizeof(struct ipa_filter_rule_type_v01));
+	}
+
 	IPA_BE_DBG("Calling the IOCTL to add %d num rules\n", num_rules);
 	ret = ipa3_qmi_filter_request_ex_send(qmi_rule_ex_msg);
 	if (ret) {
 		IPA_BE_ERR("Failed adding Filtering rule %p with ret %d\n",
 			   qmi_rule_ex_msg, ret);
+		kfree(sorted_rules);
 		kfree(qmi_rule_ex_msg);
 		return false;
 	}
 	IPA_BE_DBG("Success adding %d num rules with ret %d\n", num_rules, ret);
 
+	kfree(sorted_rules);
 	kfree(qmi_rule_ex_msg);
 	return true;
 }
@@ -2950,6 +3019,7 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 			memcpy(&new_rule->flt_rule, &pFilteringTable->rules[i], sizeof(struct ipa_flt_rule_add));
 			new_rule->mux_id = mux_id[0];
 			new_rule->rule_type = FLT_RULE_TYPE_DEFAULT;
+			new_rule->category = IPA_FLT_RULE_CAT_DEFAULT;
 			new_rule->pdn_iface = pdn_iface;
 			list_add_tail(&new_rule->node, &Pdn_flt_rule_v4_list);
 			wan_rule_count_v4++;
@@ -2969,6 +3039,7 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 			memcpy(&new_rule->flt_rule, &pFilteringTable->rules[i], sizeof(struct ipa_flt_rule_add));
 			new_rule->mux_id = mux_id[0];
 			new_rule->rule_type = FLT_RULE_TYPE_DEFAULT;
+			new_rule->category = IPA_FLT_RULE_CAT_DEFAULT;
 			new_rule->pdn_iface = pdn_iface;
 			list_add_tail(&new_rule->node, &Pdn_flt_rule_v6_list);
 			wan_rule_count_v6++;
@@ -3181,6 +3252,7 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 			memcpy(&new_rule->flt_rule, rule, sizeof(struct ipa_flt_rule_add));
 			new_rule->mux_id = mux_id[0];
 			new_rule->rule_type = FLT_RULE_TYPE_CATCHUP;
+			new_rule->category = IPA_FLT_RULE_CAT_DOWNLINK;
 			new_rule->pdn_iface = pdn_iface;
 			list_add_tail(&new_rule->node, &Pdn_flt_rule_v4_list);
 			wan_rule_count_v4++;
@@ -3198,6 +3270,7 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 			memcpy(&new_rule->flt_rule, rule, sizeof(struct ipa_flt_rule_add));
 			new_rule->mux_id = mux_id[0];
 			new_rule->rule_type = FLT_RULE_TYPE_CATCHUP;
+			new_rule->category = IPA_FLT_RULE_CAT_DOWNLINK;
 			new_rule->pdn_iface = pdn_iface;
 			list_add_tail(&new_rule->node, &Pdn_flt_rule_v6_list);
 			wan_rule_count_v6++;
@@ -3226,134 +3299,179 @@ fail_rx:
 	return retval;
 }
 
-
 int install_wan_filtering_rule(void)
 {
-    int ret = 0, len = 0, cnt = 0;
-    struct ipa_ioc_add_flt_rule *pFilteringTable_v4 = NULL;
-    struct ipa_ioc_add_flt_rule *pFilteringTable_v6 = NULL;
-    uint8_t *mux_id_v4 = NULL;
-    uint8_t *mux_id_v6 = NULL;
-    struct flt_rule *rule_entry;
+	int ret = 0, len = 0, cnt = 0;
+	struct ipa_ioc_add_flt_rule *pFilteringTable_v4 = NULL;
+	struct ipa_ioc_add_flt_rule *pFilteringTable_v6 = NULL;
+	uint8_t *mux_id_v4 = NULL;
+	uint8_t *mux_id_v6 = NULL;
+	enum flt_rule_category *category_v4 = NULL;
+	enum flt_rule_category *category_v6 = NULL;
+	enum rule_sub_category *sub_category_v4 = NULL;
+	enum rule_sub_category *sub_category_v6 = NULL;
+	struct flt_rule *rule_entry;
 
-    IPA_BE_DBG("IPACM_WAN_KERNEL: Installing WAN filtering rules\n");
+	/* Prepare IPv4 filtering rules (do not send yet) */
+	if (wan_rule_count_v4 > 0) {
+		len = sizeof(struct ipa_ioc_add_flt_rule) +
+			(wan_rule_count_v4 *
+			sizeof(struct ipa_flt_rule_add));
 
-    /* Prepare IPv4 filtering rules (do not send yet) */
-    if (wan_rule_count_v4 > 0) {
-        len = sizeof(struct ipa_ioc_add_flt_rule) +
-              (wan_rule_count_v4 * sizeof(struct ipa_flt_rule_add));
+		pFilteringTable_v4 = kzalloc(len, GFP_KERNEL);
+		if (!pFilteringTable_v4) {
+			IPA_BE_ERR("Failed to allocate IPv4 filtering table\n");
+			ret = -ENOMEM;
+			goto cleanup;
+		}
 
-        pFilteringTable_v4 = kzalloc(len, GFP_KERNEL);
-        if (!pFilteringTable_v4) {
-            IPA_BE_ERR("Failed to allocate IPv4 filtering table\n");
-            ret = -ENOMEM;
-            goto cleanup;
-        }
+		mux_id_v4 = kzalloc(wan_rule_count_v4 *
+			sizeof(uint8_t), GFP_KERNEL);
+		if (!mux_id_v4) {
+			IPA_BE_ERR("Failed to allocate mux_id_v4 array\n");
+			ret = -ENOMEM;
+			goto cleanup;
+		}
 
-        mux_id_v4 = kzalloc(wan_rule_count_v4 * sizeof(uint8_t), GFP_KERNEL);
-        if (!mux_id_v4) {
-            IPA_BE_ERR("Failed to allocate mux_id_v4 array\n");
-            ret = -ENOMEM;
-            goto cleanup;
-        }
+		category_v4 = kzalloc(wan_rule_count_v4 *
+			sizeof(enum flt_rule_category), GFP_KERNEL);
+		if (!category_v4) {
+			IPA_BE_ERR("Failed to allocate category_v4 array\n");
+			ret = -ENOMEM;
+			goto cleanup;
+		}
 
-        pFilteringTable_v4->commit = 1;
-        pFilteringTable_v4->ep = IPA_CLIENT_APPS_WAN_PROD;
-        pFilteringTable_v4->global = false;
-        pFilteringTable_v4->ip = IPA_IP_v4;
-        pFilteringTable_v4->num_rules = wan_rule_count_v4;
+		sub_category_v4 = kzalloc(wan_rule_count_v4 *
+			sizeof(enum rule_sub_category), GFP_KERNEL);
+		if (!sub_category_v4) {
+			IPA_BE_ERR("Failed to allocate sub_category_v4 array\n");
+			ret = -ENOMEM;
+			goto cleanup;
+		}
 
-        /* Copy rules from linked list */
-        cnt = 0;
-        spin_lock_bh(&pdn_flt_rule_v4_lock);
-        list_for_each_entry(rule_entry, &Pdn_flt_rule_v4_list, node) {
-            if (cnt >= wan_rule_count_v4) {
-                IPA_BE_ERR("IPv4 rule count mismatch: cnt=%d, wan_rule_count_v4=%d\n",
-                    cnt, wan_rule_count_v4);
-                break;
-            }
-            memcpy(&pFilteringTable_v4->rules[cnt],
-                   &rule_entry->flt_rule,
-                   sizeof(struct ipa_flt_rule_add));
-            mux_id_v4[cnt] = rule_entry->mux_id;
-            cnt++;
-        }
-        spin_unlock_bh(&pdn_flt_rule_v4_lock);
+		pFilteringTable_v4->commit = 1;
+		pFilteringTable_v4->ep = IPA_CLIENT_APPS_WAN_PROD;
+		pFilteringTable_v4->global = false;
+		pFilteringTable_v4->ip = IPA_IP_v4;
+		pFilteringTable_v4->num_rules = wan_rule_count_v4;
 
-        IPA_BE_DBG("Prepared %d IPv4 WAN filtering rules for combined installation\n",
-            wan_rule_count_v4);
-    }
+		cnt = 0;
+		spin_lock_bh(&pdn_flt_rule_v4_lock);
+		list_for_each_entry(rule_entry, &Pdn_flt_rule_v4_list, node) {
+			if (cnt >= pFilteringTable_v4->num_rules) {
+				IPA_BE_ERR("IPv4 rule count mismatch: cnt=%d, num_rules=%d\n",
+					cnt, pFilteringTable_v4->num_rules);
+				break;
+			}
+			memcpy(&pFilteringTable_v4->rules[cnt],
+				&rule_entry->flt_rule,
+				sizeof(struct ipa_flt_rule_add));
+			mux_id_v4[cnt] = rule_entry->mux_id;
+			category_v4[cnt] = rule_entry->category;
+			sub_category_v4[cnt] = rule_entry->sub_category;
+			cnt++;
+		}
+		spin_unlock_bh(&pdn_flt_rule_v4_lock);
 
-    /* Prepare IPv6 filtering rules (do not send yet) */
-    if (wan_rule_count_v6 > 0) {
-        len = sizeof(struct ipa_ioc_add_flt_rule) +
-              (wan_rule_count_v6 * sizeof(struct ipa_flt_rule_add));
+		IPA_BE_DBG("Prepared %d IPv4 WAN filtering rules for combined installation\n",
+			pFilteringTable_v4->num_rules);
+	}
 
-        pFilteringTable_v6 = kzalloc(len, GFP_KERNEL);
-        if (!pFilteringTable_v6) {
-            IPA_BE_ERR("Failed to allocate IPv6 filtering table\n");
-            ret = -ENOMEM;
-            goto cleanup;
-        }
+	/* Prepare IPv6 filtering rules (do not send yet) */
+	if (wan_rule_count_v6 > 0) {
+		len = sizeof(struct ipa_ioc_add_flt_rule) +
+			(wan_rule_count_v6 *
+			sizeof(struct ipa_flt_rule_add));
 
-        mux_id_v6 = kzalloc(wan_rule_count_v6 * sizeof(uint8_t), GFP_KERNEL);
-        if (!mux_id_v6) {
-            IPA_BE_ERR("Failed to allocate mux_id_v6 array\n");
-            ret = -ENOMEM;
-            goto cleanup;
-        }
+		pFilteringTable_v6 = kzalloc(len, GFP_KERNEL);
+		if (!pFilteringTable_v6) {
+			IPA_BE_ERR("Failed to allocate IPv6 filtering table\n");
+			ret = -ENOMEM;
+			goto cleanup;
+		}
 
-        pFilteringTable_v6->commit = 1;
-        pFilteringTable_v6->ep = IPA_CLIENT_APPS_WAN_PROD;
-        pFilteringTable_v6->global = false;
-        pFilteringTable_v6->ip = IPA_IP_v6;
-        pFilteringTable_v6->num_rules = wan_rule_count_v6;
+		mux_id_v6 = kzalloc(wan_rule_count_v6 *
+			sizeof(uint8_t), GFP_KERNEL);
+		if (!mux_id_v6) {
+			IPA_BE_ERR("Failed to allocate mux_id_v6 array\n");
+			ret = -ENOMEM;
+			goto cleanup;
+		}
 
-        /* Copy rules from linked list */
-        cnt = 0;
-        spin_lock_bh(&pdn_flt_rule_v6_lock);
-        list_for_each_entry(rule_entry, &Pdn_flt_rule_v6_list, node) {
-            if (cnt >= wan_rule_count_v6) {
-                IPA_BE_ERR("IPv6 rule count mismatch: cnt=%d, wan_rule_count_v6=%d\n",
-                    cnt, wan_rule_count_v6);
-                break;
-            }
-            memcpy(&pFilteringTable_v6->rules[cnt],
-                   &rule_entry->flt_rule,
-                   sizeof(struct ipa_flt_rule_add));
-            mux_id_v6[cnt] = rule_entry->mux_id;
-            cnt++;
-        }
-        spin_unlock_bh(&pdn_flt_rule_v6_lock);
+		category_v6 = kzalloc(wan_rule_count_v6 *
+			sizeof(enum flt_rule_category), GFP_KERNEL);
+		if (!category_v6) {
+			IPA_BE_ERR("Failed to allocate category_v6 array\n");
+			ret = -ENOMEM;
+			goto cleanup;
+		}
 
-        IPA_BE_DBG("Prepared %d IPv6 WAN filtering rules for combined installation\n",
-            wan_rule_count_v6);
-    }
+		sub_category_v6 = kzalloc(wan_rule_count_v6 *
+			sizeof(enum rule_sub_category), GFP_KERNEL);
+		if (!sub_category_v6) {
+			IPA_BE_ERR("Failed to allocate sub_category_v6 array\n");
+			ret = -ENOMEM;
+			goto cleanup;
+		}
 
-    /* Send both IPv4 and IPv6 rules together in a single QMI request */
-    IPA_BE_DBG("Sending combined WAN filtering rules to modem: v4=%d, v6=%d\n",
-        wan_rule_count_v4, wan_rule_count_v6);
+		pFilteringTable_v6->commit = 1;
+		pFilteringTable_v6->ep = IPA_CLIENT_APPS_WAN_PROD;
+		pFilteringTable_v6->global = false;
+		pFilteringTable_v6->ip = IPA_IP_v6;
+		pFilteringTable_v6->num_rules = wan_rule_count_v6;
 
-    if (!AddWanDLFilteringRule(pFilteringTable_v4, pFilteringTable_v6, mux_id_v4, mux_id_v6)) {
-        IPA_BE_ERR("Failed to add combined WAN filtering rules via QMI\n");
-        ret = -EIO;
-        goto cleanup;
-    }
+		cnt = 0;
+		spin_lock_bh(&pdn_flt_rule_v6_lock);
+		list_for_each_entry(rule_entry, &Pdn_flt_rule_v6_list, node) {
+			if (cnt >= pFilteringTable_v6->num_rules) {
+				IPA_BE_ERR("IPv6 rule count mismatch: cnt=%d, num_rules=%d\n",
+					cnt, pFilteringTable_v6->num_rules);
+				break;
+			}
+			memcpy(&pFilteringTable_v6->rules[cnt],
+				&rule_entry->flt_rule,
+				sizeof(struct ipa_flt_rule_add));
+			mux_id_v6[cnt] = rule_entry->mux_id;
+			category_v6[cnt] = rule_entry->category;
+			sub_category_v6[cnt] = rule_entry->sub_category;
+			cnt++;
+		}
+		spin_unlock_bh(&pdn_flt_rule_v6_lock);
 
-    IPA_BE_DBG("Successfully installed %d IPv4 filtering rules (combined)\n", wan_rule_count_v4);
-    IPA_BE_DBG("Successfully installed %d IPv6 filtering rules (combined)\n", wan_rule_count_v6);
+		IPA_BE_DBG("Prepared %d IPv6 WAN filtering rules for combined installation\n",
+			pFilteringTable_v6->num_rules);
+	}
+
+	/* Send both IPv4 and IPv6 rules together */
+	IPA_BE_DBG("Sending combined WAN filtering rules to modem: v4=%d, v6=%d\n",
+		pFilteringTable_v4 ? pFilteringTable_v4->num_rules : 0,
+		pFilteringTable_v6 ? pFilteringTable_v6->num_rules : 0);
+
+	if (!AddWanDLFilteringRule(pFilteringTable_v4,
+		pFilteringTable_v6, mux_id_v4, mux_id_v6,
+		category_v4, category_v6,
+		sub_category_v4, sub_category_v6)) {
+		IPA_BE_ERR("Failed to add combined WAN filtering rules via QMI\n");
+		ret = -EIO;
+		goto cleanup;
+	}
+
+	IPA_BE_DBG("Successfully installed %d IPv4 filtering rules (combined)\n",
+		pFilteringTable_v4 ? pFilteringTable_v4->num_rules : 0);
+	IPA_BE_DBG("Successfully installed %d IPv6 filtering rules (combined)\n",
+		pFilteringTable_v6 ? pFilteringTable_v6->num_rules : 0);
 
 cleanup:
-    if (mux_id_v4)
-        kfree(mux_id_v4);
-    if (mux_id_v6)
-        kfree(mux_id_v6);
-    if (pFilteringTable_v4)
-        kfree(pFilteringTable_v4);
-    if (pFilteringTable_v6)
-        kfree(pFilteringTable_v6);
+	kfree(mux_id_v4);
+	kfree(mux_id_v6);
+	kfree(category_v4);
+	kfree(category_v6);
+	kfree(sub_category_v4);
+	kfree(sub_category_v6);
+	kfree(pFilteringTable_v4);
+	kfree(pFilteringTable_v6);
 
-    return ret;
+	return ret;
 }
 
 int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
