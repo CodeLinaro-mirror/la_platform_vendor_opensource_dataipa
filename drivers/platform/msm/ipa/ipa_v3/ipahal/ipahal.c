@@ -973,6 +973,15 @@ void ipa_imm_cmd_modify_ip_packet_init_ex_ulso(u32 ep)
 	cmd->leading_header_size = ULSO_LEADING_HEADER_SIZE;
 }
 
+void ipa_imm_cmd_modify_ip_packet_init_ex_eth(u32 ep)
+{
+	struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *cmd
+		= (struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)(ipa3_ctx->pkt_init_ex_imm[ep].base);
+
+	cmd->traffic_mode = IPA_NON_DMA_ETHERNET;
+	cmd->leading_header_size = 0;
+}
+
 static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_nat_dma(
 	enum ipahal_imm_cmd_name cmd, const void *params, bool is_atomic_ctx)
 {
