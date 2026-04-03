@@ -16,6 +16,7 @@
 #include "ipa_diag_log.h"
 #include "ipa_qmi_service.h"
 #include "../ipa_backend/ipa_be_clientdb.h"
+#include "../ipa_backend/ipa_be_flt_mgmt.h"
 #ifdef CONFIG_DEBUG_FS
 #if defined(CONFIG_IPA_TSP)
 /* The following line should be removed once TSP feature is POR */
@@ -4854,6 +4855,75 @@ static ssize_t enable_wkup_logs(struct file *file,
 	return count;
 }
 
+/*
+ * Accepts a single ASCII '0' or '1' from userspace, with an optional
+ * trailing newline (kstrtos8_from_user tolerates the newline that echo
+ * writes; use `echo -n` if you want to avoid it). Anything else — other
+ * numerics, "true"/"enable", trailing garbage — returns -EINVAL.
+ */
+static ssize_t ipa3_write_sw_routing(struct file *file,
+	const char __user *buf, size_t count, loff_t *ppos)
+{
+	s8 option = 0;
+	int ret;
+
+	ret = kstrtos8_from_user(buf, count, 0, &option);
+	if (ret)
+		return ret;
+
+	if (option == 1)
+		ret = ipa3_sw_routing_enable();
+	else if (option == 0)
+		ret = ipa3_sw_routing_disable();
+	else
+		return -EINVAL;
+
+	if (ret) {
+		IPAERR("SW routing %s failed: %d\n",
+			option ? "enable" : "disable", ret);
+		return ret;
+	}
+
+	/*
+	 * Q6 already has per-flow DL filter rules in its section (higher
+	 * priority than the AP section).  Push the updated rules so Q6
+	 * either gets the SW routing catch-all (enable) or restores the
+	 * per-flow HW rules (disable).  Pass is_sw_routing to mirror
+	 * IPACM_Wan::install_wan_filtering_rule(bool), which triggers the
+	 * SW-routing catch-all when true and normal per-flow rules when false.
+	 */
+	ret = install_wan_filtering_rule(option == 1);
+	if (ret) {
+		IPAERR("install_wan_filtering_rule failed: %d\n", ret);
+		/* Enable succeeded (AP-side rules committed, ipa_sw = true)
+		 * but Q6 push failed — roll back AP-side state so the driver
+		 * doesn't advertise SW routing enabled while Q6 has the
+		 * per-flow rules. Best-effort: log if rollback disable fails.
+		 */
+		if (option == 1) {
+			int rb = ipa3_sw_routing_disable();
+
+			if (rb)
+				IPAERR("SW routing enable rollback (disable) failed: %d — AP/Q6 state may be inconsistent\n",
+					rb);
+		}
+		return ret;
+	}
+
+	return count;
+}
+
+static ssize_t ipa3_read_sw_routing(struct file *file, char __user *ubuf,
+	size_t count, loff_t *ppos)
+{
+	int nbytes;
+
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"sw_routing: %s\n", ipa3_ctx->ipa_sw ? "enabled" : "disabled");
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+}
+
 static const struct ipa3_debugfs_file debugfs_files[] = {
 	{
 		"gen_reg", IPA_READ_ONLY_MODE, NULL, {
@@ -4897,6 +4967,11 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"set_clk_idx", IPA_READ_WRITE_MODE, NULL, {
 			.write = ipa3_set_clk_index,
+		}
+	}, {
+		"sw_routing", IPA_READ_WRITE_MODE, NULL, {
+			.read  = ipa3_read_sw_routing,
+			.write = ipa3_write_sw_routing,
 		}
 	}, {
 		"holb", IPA_WRITE_ONLY_MODE, NULL, {

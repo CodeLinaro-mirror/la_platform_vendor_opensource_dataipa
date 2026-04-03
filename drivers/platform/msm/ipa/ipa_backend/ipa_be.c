@@ -2194,7 +2194,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 		step = V4_MDM_STEP_CATCHUP_ALL;
 
 		if (dl_first_install) {
-			ret = install_wan_filtering_rule();
+			ret = install_wan_filtering_rule(false);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to install wan filtering rule\n");
 				goto failed_ret;
@@ -2621,7 +2621,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			step = V6_MDM_STEP_CATCHUP_ALL;
 
 			if (dl_first_install) {
-				ret = install_wan_filtering_rule();
+				ret = install_wan_filtering_rule(false);
 				if (ret != 0) {
 					IPA_BE_ERR("Failed to install wan filtering rule\n");
 					goto failed_ret;
@@ -3134,7 +3134,7 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 			delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
 			delete_icmp_alg_rules(pdn_iface, IPA_IP_v4);
 			delete_dft_filtering_rule(pdn_iface, IPA_IP_v4);
-			install_wan_filtering_rule();
+			install_wan_filtering_rule(false);
 
 #ifdef CONFIG_ECM_CONVERGENCE
 			ipa_be_delete_entry(*msg, false);
@@ -3385,7 +3385,7 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
 			delete_icmp_alg_rules(pdn_iface, IPA_IP_v6);
 			delete_dft_filtering_rule(pdn_iface, IPA_IP_v6);
-			install_wan_filtering_rule();
+			install_wan_filtering_rule(false);
 
 #ifdef CONFIG_ECM_CONVERGENCE
 			/* Hold ipa_client_db_lock across the entire QoS cleanup sequence to

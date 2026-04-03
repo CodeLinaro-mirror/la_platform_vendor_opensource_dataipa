@@ -911,6 +911,24 @@ int ipa3_query_rt_index(struct ipa_ioc_get_rt_tbl_indx *in)
 	return 0;
 }
 
+int ipa3_get_rt_tbl_hdl(enum ipa_ip_type ip, const char *name, u32 *hdl_out)
+{
+	struct ipa3_rt_tbl *tbl;
+
+	if (ip >= IPA_IP_MAX || !name || !hdl_out)
+		return -EINVAL;
+
+	mutex_lock(&ipa3_ctx->lock);
+	tbl = __ipa3_find_rt_tbl(ip, name);
+	if (!tbl) {
+		mutex_unlock(&ipa3_ctx->lock);
+		return -ENOENT;
+	}
+	*hdl_out = tbl->id;
+	mutex_unlock(&ipa3_ctx->lock);
+	return 0;
+}
+
 static struct ipa3_rt_tbl *__ipa_add_rt_tbl(enum ipa_ip_type ip,
 		const char *name)
 {

@@ -591,6 +591,7 @@ enum ipa_icc_type {
 
 enum flt_rule_category {
 	IPA_FLT_RULE_CAT_NONE,
+	IPA_FLT_RULE_CAT_SW,
 	IPA_FLT_RULE_CAT_DEFAULT,
 	IPA_FLT_RULE_CAT_LAN2LAN,
 	IPA_FLT_RULE_CAT_PRIVATE_SUBNET,
@@ -1166,6 +1167,9 @@ struct ipa3_ep_context {
 	u32 dflt_flt6_rule_hdl;
 	struct list_head init_flt4_rule_hdl_list; /* fragment, TCP SYN, ICMP, multicast, broadcast */
 	struct list_head init_flt6_rule_hdl_list; /* fragment, TCP SYN (eq), ICMPv6, multicast, link-scoped, IETF, unique local */
+	/* Populated by echo 1 > /sys/kernel/debug/ipa/sw_routing; drained by echo 0. */
+	struct list_head sw_routing_flt4_hdl_list;
+	struct list_head sw_routing_flt6_hdl_list;
 	bool skip_ep_cfg;
 	bool keep_ipa_awake;
 	struct ipa3_wlan_stats wstats;
@@ -3042,6 +3046,12 @@ struct ipa3_context {
 	bool nat_stats_mode;
 	u16 nat_stats_max_counters_v4;
 	u16 nat_stats_max_counters_v6;
+	/*
+	 * Sticky flag toggled by ipa3_sw_routing_enable() / _disable().
+	 * Reported via debugfs and used as the idempotency guard for those
+	 * paths. Mirrors IPACM's ipa_sw_rt_enable.
+	 */
+	bool ipa_sw;
 };
 
 struct ipa3_plat_drv_res {
@@ -3652,6 +3662,7 @@ int ipa3_add_rt_rule_after_v2(struct ipa_ioc_add_rt_rule_after_v2
 int ipa3_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup);
 
 int ipa3_query_rt_index(struct ipa_ioc_get_rt_tbl_indx *in);
+int ipa3_get_rt_tbl_hdl(enum ipa_ip_type ip, const char *name, u32 *hdl_out);
 
 int ipa3_mdfy_rt_rule(struct ipa_ioc_mdfy_rt_rule *rules);
 
@@ -4081,6 +4092,9 @@ void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx);
 void ipa3_delete_dflt_flt_rules(u32 ipa_ep_idx);
 void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enabled);
 void ipa3_delete_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype);
+/* IPACM IPA_SW_ROUTING_{ENABLE,DISABLE} analogs, driven by ioctl. */
+int ipa3_sw_routing_enable(void);
+int ipa3_sw_routing_disable(void);
 
 int ipa3_remove_secondary_flow_ctrl(int gsi_chan_hdl);
 int ipa3_enable_data_path(u32 clnt_hdl);

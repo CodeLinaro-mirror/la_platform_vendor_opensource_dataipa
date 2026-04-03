@@ -48,7 +48,7 @@ int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype);
 int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype);
 int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type iptype);
 
-int install_wan_filtering_rule(void);
+int install_wan_filtering_rule(bool is_sw_routing);
 
 bool ipa_be_pdn_filter_installed(int pdn_iface, enum ipa_ip_type ip_type);
 
