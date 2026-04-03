@@ -13,6 +13,8 @@
 #define IPV6_HEADER_SIZE 40
 #define UINT16_MAX (65535U)
 
+#define LAN2LAN_RULE_ID 1
+
 int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret);
 int ipa_be_v4_delete_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg, int intf_idx, mac_addr_t mac, bool lan2lan);
 

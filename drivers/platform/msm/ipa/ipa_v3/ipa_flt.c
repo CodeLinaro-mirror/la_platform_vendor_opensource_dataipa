@@ -2466,7 +2466,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
 			rule.eq_attrib_type = 0;
-			rule.hashable = false;
+			rule.hashable = true;
 			rule.close_aggr_irq_mod = true;
 			rule.attrib.attrib_mask = IPA_FLT_NEXT_HDR;
 			rule.attrib.u.v6.next_hdr = IPPROTO_ICMPV6;

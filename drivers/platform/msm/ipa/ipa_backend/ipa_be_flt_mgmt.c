@@ -301,7 +301,7 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
 
 		flt_rule_entry.rule.hashable = true;
-		flt_rule_entry.rule.rule_id = 1; /* LAN2LAN_RULE_ID */
+		flt_rule_entry.rule.rule_id = LAN2LAN_RULE_ID; /* LAN2LAN_RULE_ID */
 
 		flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_LAN2LAN;
 
@@ -456,7 +456,14 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 	flt_index = (struct ipa_fltr_installed_notif_req_msg_v01 *)kzalloc(
 		sizeof(struct ipa_fltr_installed_notif_req_msg_v01), GFP_KERNEL);
 
-	total_rules = ext_prop->num_ext_props;
+	total_rules = 0;
+	for (cnt = 0; cnt < ext_prop->num_ext_props; cnt++) {
+		if (ext_prop->ext[cnt].ip == IPA_IP_v4)
+			total_rules++;
+	}
+
+	IPA_BE_DBG("Total ext props %d, IPv4 filtering rules %d\n",
+		ext_prop->num_ext_props, total_rules);
 
 	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
 		idx = j * 2;
@@ -1715,16 +1722,26 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 	flt_index = (struct ipa_fltr_installed_notif_req_msg_v01 *)kzalloc(
 		sizeof(struct ipa_fltr_installed_notif_req_msg_v01), GFP_KERNEL);
 
-	total_rules = ext_prop->num_ext_props;
+	total_rules = 0;
+	for (cnt = 0; cnt < ext_prop->num_ext_props; cnt++) {
+		if (ext_prop->ext[cnt].ip == IPA_IP_v6)
+			total_rules++;
+	}
+
+	IPA_BE_DBG("Total ext props %d, IPv6 filtering rules %d before XLAT duplication\n",
+		ext_prop->num_ext_props, total_rules);
 
 	/*for IPv6CT enabled mode, duplicate the pass to NAT modem UL rules and change to pass to route for XLAT packets */
 	int v6_xlat_ul_rules = 0;
 	if (is_xlat)
 	{
 		IPA_BE_DBG("IPv6CT is enabled, need pass to route modem UL rules for XLAT packets\n");
-		for(i = 0; i < total_rules; i++)
-			if(ext_prop->ext[i].action != IPA_PASS_TO_EXCEPTION)
+		for (cnt = 0; cnt < ext_prop->num_ext_props; cnt++) {
+			if (ext_prop->ext[cnt].ip != IPA_IP_v6)
+				continue;
+			if (ext_prop->ext[cnt].action != IPA_PASS_TO_EXCEPTION)
 				v6_xlat_ul_rules++;
+		}
 
 		total_rules = total_rules + v6_xlat_ul_rules;
 		IPA_BE_DBG("Need %d additional XLAT rules\n", v6_xlat_ul_rules);
@@ -2080,7 +2097,7 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
 
 		flt_rule_entry.rule.hashable = true;
-		flt_rule_entry.rule.rule_id = 1; /* LAN2LAN_RULE_ID */
+		flt_rule_entry.rule.rule_id = LAN2LAN_RULE_ID; /* LAN2LAN_RULE_ID */
 
 		memcpy(&flt_rule_entry.rule.attrib, &rx_prop->rx[idx].attrib, sizeof(flt_rule_entry.rule.attrib));
 
