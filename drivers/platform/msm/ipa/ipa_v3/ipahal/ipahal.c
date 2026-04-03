@@ -6,6 +6,7 @@
 
 #include <linux/debugfs.h>
 #include "ipa_i.h"
+#include <linux/if_ether.h>
 #include "ipahal.h"
 #include "ipahal_i.h"
 #include "ipahal_reg_i.h"
@@ -968,7 +969,7 @@ void ipa_imm_cmd_modify_ip_packet_init_ex_ulso(u32 ep)
 		= (struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)(ipa3_ctx->pkt_init_ex_imm[ep].base);
 
 	cmd->rt_pipe_dest_idx = (u64)ep;
-	cmd->traffic_mode = IPA_EP_TRAFFIC_MODE_ETH;
+	cmd->traffic_mode = IPA_NON_DMA_ETHERNET;
 	cmd->leading_header_size = ULSO_LEADING_HEADER_SIZE;
 }
 

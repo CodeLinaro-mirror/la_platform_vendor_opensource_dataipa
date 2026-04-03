@@ -82,10 +82,10 @@ enum ipa_ipv6ct_en_type {
  *  allows IPA to work as DMA for specific pipes.
  */
 enum ipa_mode_type {
-	IPA_BASIC,
-	IPA_NON_DMA_ETHERNET,
-	IPA_NON_DMA_UNSTRUCTURED,
-	IPA_DMA,
+	IPA_BASIC			= 0x0,
+	IPA_NON_DMA_ETHERNET		= 0x1,
+	IPA_NON_DMA_UNSTRUCTURED	= 0x2,
+	IPA_DMA				= 0x3,
 };
 
 /**
