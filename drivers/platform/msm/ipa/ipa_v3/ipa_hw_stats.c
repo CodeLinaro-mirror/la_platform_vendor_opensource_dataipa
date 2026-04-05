@@ -143,31 +143,25 @@ int ipa_hw_stats_init(void)
 			&reg_idx);
 		teth_stats_init->prod_mask[reg_idx] |= mask;
 
-		if (ipa3_ctx->ipa_wdi3_over_gsi) {
-			mask = ipa_hw_stats_get_ep_bit_n_idx(
-				IPA_CLIENT_WLAN2_PROD,
-				&reg_idx);
-			teth_stats_init->prod_mask[reg_idx] |= mask;
-		} else {
-			mask = ipa_hw_stats_get_ep_bit_n_idx(
-				IPA_CLIENT_WLAN1_PROD,
-				&reg_idx);
-			teth_stats_init->prod_mask[reg_idx] |= mask;
-		}
+		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_WLAN1_PROD,
+			&reg_idx);
+		teth_stats_init->prod_mask[reg_idx] |= mask;
 
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
-			mask = ipa_hw_stats_get_ep_bit_n_idx(
-				IPA_CLIENT_Q6_DL_NLO_DATA_PROD,
-				&reg_idx);
-			teth_stats_init->prod_mask[reg_idx] |= mask;
-		}
+		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_WLAN2_PROD,
+			&reg_idx);
+		teth_stats_init->prod_mask[reg_idx] |= mask;
 
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_1) {
-			mask = ipa_hw_stats_get_ep_bit_n_idx(
-				IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD,
-				&reg_idx);
-			teth_stats_init->prod_mask[reg_idx] |= mask;
-		}
+		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_WLAN3_PROD,
+			&reg_idx);
+		teth_stats_init->prod_mask[reg_idx] |= mask;
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_Q6_DL_NLO_DATA_PROD,
+			&reg_idx);
+		teth_stats_init->prod_mask[reg_idx] |= mask;
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD,
+			&reg_idx);
+		teth_stats_init->prod_mask[reg_idx] |= mask;
 
 		mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET_PROD,
 			&reg_idx);
@@ -259,8 +253,7 @@ int ipa_hw_stats_init(void)
 		}
 
 		if (ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_Q6_DL_NLO_DATA_PROD,
-			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)) {
+			IPA_CLIENT_Q6_DL_NLO_DATA_PROD, &reg_idx)) {
 			ep_index = ipa_get_ep_mapping(
 				IPA_CLIENT_Q6_DL_NLO_DATA_PROD);
 			if (ep_index == IPA_EP_NOT_ALLOCATED) {
@@ -323,8 +316,7 @@ int ipa_hw_stats_init(void)
 		}
 
 		if (ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD,
-			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)) {
+			IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD, &reg_idx)) {
 			ep_index = ipa_get_ep_mapping(
 					IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD);
 			if (ep_index == IPA_EP_NOT_ALLOCATED) {
