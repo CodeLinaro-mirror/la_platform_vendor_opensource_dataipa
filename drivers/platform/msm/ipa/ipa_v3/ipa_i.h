@@ -2576,6 +2576,7 @@ struct ipa3_context {
 	struct mutex recycle_stats_collection_lock;
 	struct mutex ssr_lock;
 	atomic_t is_suspend_mode_enabled;
+	bool print_skb_on_wakeup;
 };
 
 struct ipa3_plat_drv_res {
@@ -3326,6 +3327,7 @@ void ipa3_eth_debugfs_init(void);
 void ipa3_eth_debugfs_add(struct ipa_eth_client *client);
 
 void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size);
+void ipa3_dump_skb(struct sk_buff *skb);
 
 void ipa3_qdss_register(void);
 int ipa3_conn_qdss_pipes(struct ipa_qdss_conn_in_params *in,

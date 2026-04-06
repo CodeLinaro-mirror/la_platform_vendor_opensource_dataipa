@@ -2256,6 +2256,8 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		} else {
 			IPAERR("Unknown client (type=%d) woke up the system\n", type);
 		}
+		if (ipa3_ctx->print_skb_on_wakeup)
+			ipa3_dump_skb(skb);
 	}
 
 	sys = ipa3_ctx->ep[src_ep_idx].sys;
@@ -3837,6 +3839,8 @@ begin:
 			} else {
 				IPAERR("Unknown client (type=%d) woke up the system\n", type);
 			}
+			if (ipa3_ctx->print_skb_on_wakeup)
+				ipa3_dump_skb(skb);
 			trace_ipa3_tx_dp(skb, sys->ep->client);
 		}
 
