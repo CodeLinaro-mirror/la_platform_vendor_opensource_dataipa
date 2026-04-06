@@ -347,7 +347,10 @@ void ipa_rc_query_chan(enum ipa_client_type clnt, int chan, struct chan_param_mo
 	chan_params->client = clnt;
 	chan_params->ch_id = chan;
 
+	gsi_ctx->per.vote_clk_cb();
 	gsi_dump_ch_info(chan, ee, chan_params);
+	gsi_ctx->per.unvote_clk_cb();
+
 	return;
 }
 
