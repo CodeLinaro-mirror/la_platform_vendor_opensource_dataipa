@@ -1419,18 +1419,34 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 	ip_addr_t key_addr = {0};
 
 	// Compute hash index from rule_msg fields
-	if (is_ret)
+	if (lan2lan)
 	{
-		key_addr[0] = rule_msg->tuple.return_ip;
-		hash_index = ipa_db_mapping_generate_hash_index(key_addr, 0);
-		IPA_BE_DBG("Establish mapping for is_ret " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT(key_addr));
+		if (is_ret)
+		{
+			key_addr[0] = rule_msg->tuple.return_ip;
+			IPA_BE_DBG("Establish mapping for is_ret (l2l) " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT(key_addr));
+		}
+		else
+		{
+			key_addr[0] = rule_msg->tuple.flow_ip;
+			IPA_BE_DBG("Establish mapping for (l2l) " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT(key_addr));
+		}
 	}
 	else
 	{
-		key_addr[0] = rule_msg->tuple.flow_ip;
-		hash_index = ipa_db_mapping_generate_hash_index(key_addr, 0);
-		IPA_BE_DBG("Establish mapping for " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT(key_addr));
+		/* LAN2WAN: for downlink (is_ret==1) use return_ip_xlate as the client key */
+		if (is_ret)
+		{
+			key_addr[0] = rule_msg->conn_rule.return_ip_xlate;
+			IPA_BE_DBG("Establish mapping for is_ret xlate (l2w) " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT(key_addr));
+		}
+		else
+		{
+			key_addr[0] = rule_msg->tuple.flow_ip;
+			IPA_BE_DBG("Establish mapping for (l2w) " IPA_IP_ADDR_DOT_FMT "\n", IPA_IP_ADDR_TO_DOT(key_addr));
+		}
 	}
+	hash_index = ipa_db_mapping_generate_hash_index(key_addr, 0);
 	IPA_BE_DBG("hash_index: %d\n", hash_index);
 
 	if (ipa_db_mapping_table[hash_index] == NULL)
