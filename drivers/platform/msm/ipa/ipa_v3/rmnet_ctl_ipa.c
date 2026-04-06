@@ -503,8 +503,10 @@ int ipa3_rmnet_ctl_xmit(struct sk_buff *skb)
 		return 0;
 	}
 
-	if (atomic_read(&ipa3_ctx->is_suspend_mode_enabled))
+	if (atomic_read(&ipa3_ctx->is_suspend_mode_enabled)) {
 		IPAERR("User %s sent data in suspend mode.\n", current->comm);
+		ipa3_dump_skb(skb);
+	}
 
 	/* rmnet_ctl is calling from atomic context */
 	ret = ipa_pm_activate(rmnet_ctl_ipa3_ctx->rmnet_ctl_pm_hdl);
@@ -750,4 +752,3 @@ static void ipa3_rmnet_ctl_deregister_pm_client(void)
 	ipa_pm_deactivate_sync(rmnet_ctl_ipa3_ctx->rmnet_ctl_pm_hdl);
 	ipa_pm_deregister(rmnet_ctl_ipa3_ctx->rmnet_ctl_pm_hdl);
 }
-

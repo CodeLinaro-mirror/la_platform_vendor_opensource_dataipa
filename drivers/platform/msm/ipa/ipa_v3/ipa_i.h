@@ -2782,6 +2782,7 @@ struct ipa3_context {
 	u16 socksv5_conn_refcnt;
 	u8 ippt_pdninfo_refcnt;
 	atomic_t is_suspend_mode_enabled;
+	bool print_skb_on_wakeup;
 };
 
 struct ipa3_plat_drv_res {
@@ -3765,6 +3766,7 @@ void ipa3_wigig_fini_sysfs_i(void);
 #endif
 
 void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size);
+void ipa3_dump_skb(struct sk_buff *skb);
 
 void ipa3_qdss_register(void);
 int ipa3_conn_qdss_pipes(struct ipa_qdss_conn_in_params *in,

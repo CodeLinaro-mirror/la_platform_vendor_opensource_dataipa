@@ -2494,6 +2494,7 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		} else {
 			IPAERR("Unknown client (type=%d) woke up the system\n", type);
 		}
+		ipa3_dump_skb(skb);
 	}
 
 	sys = ipa3_ctx->ep[src_ep_idx].sys;
@@ -4213,6 +4214,7 @@ begin:
 			} else {
 				IPAERR("Unknown client (type=%d) woke up the system\n", type);
 			}
+			ipa3_dump_skb(skb);
 			trace_ipa3_tx_dp(skb, sys->ep->client);
 		}
 
@@ -4647,11 +4649,10 @@ bail:
 }
 
 static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
-	struct ipa3_sys_context *sys) {
-
-	IPA_DUMP_BUFF(skb->data, 0, skb->len);
+	struct ipa3_sys_context *sys)
+{
 	if (skb->len == 0) {
-		IPAERR("ZLT\n");
+		IPAERR("Zero Length SKB\n");
 		return 0;
 	}
 
@@ -4659,6 +4660,11 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 		sys->ep->client_notify(sys->ep->priv,
 			IPA_RECEIVE, (unsigned long)(skb));
 		return 0;
+	}
+
+	if (atomic_xchg(&ipa3_ctx->is_suspend_mode_enabled, 0) == 1) {
+		IPAERR("Client %s woke up the system\n", ipa_clients_strings[sys->ep->client]);
+		ipa3_dump_skb(skb);
 	}
 
 	return ipa3_wan_rx_pyld_status_hdlr(skb, sys);
