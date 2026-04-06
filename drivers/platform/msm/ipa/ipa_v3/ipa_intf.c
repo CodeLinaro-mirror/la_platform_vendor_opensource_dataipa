@@ -1425,14 +1425,14 @@ int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry
 	struct ipa3_flt_entry *iter, *tmp;
 	int flt_hdl = -1;
 
-	IPAERR("Delete Entry Start\n");
+	IPADBG("Delete Entry Start\n");
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
 		IPADBG("Checking interface: %s (index: %d)\n", entry->name, entry->intf_idx);
 
 		if (entry->intf_idx == intf_idx) {
-			IPAERR("Matched interface index: %d\n", intf_idx);
+			IPADBG("Matched interface index: %d\n", intf_idx);
 
 			if (!entry->flt_list) {
 				IPAERR("Filter list is NULL for intf_idx %d\n", intf_idx);
@@ -1446,14 +1446,14 @@ int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry
 
 				if ((iter->rule.attrib.attrib_mask & flt_entry.rule.attrib.attrib_mask ||
 					iter->cat == flt_entry.cat) && iter->ip_type == flt_entry.ip_type) {
-					IPAERR("Match found. Deleting rule with rule_id: %d, flt_hdl: %d cat: %d ip_type: %d\n",
+					IPADBG("Match found. Deleting rule with rule_id: %d, flt_hdl: %d cat: %d ip_type: %d\n",
 					iter->rule.rule_id, iter->flt_hdl, iter->cat, iter->ip_type);
 
 					flt_hdl = iter->flt_hdl;
 					list_del(&iter->link);
 					kfree(iter);
 
-					IPAERR("Rule deleted successfully. Returning flt_hdl: %d\n", flt_hdl);
+					IPADBG("Rule deleted successfully. Returning flt_hdl: %d\n", flt_hdl);
 					goto unlock_and_exit;
 				}
 			}
@@ -1467,6 +1467,6 @@ int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry
 
 unlock_and_exit:
 	mutex_unlock(&ipa3_ctx->lock);
-	IPAERR("Delete Entry Exit\n");
+	IPADBG("Delete Entry Exit\n");
 	return flt_hdl;
 }

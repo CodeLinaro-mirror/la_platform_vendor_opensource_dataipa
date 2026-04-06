@@ -2247,6 +2247,8 @@ struct ipa_rt_rule_add_v2 {
 	uint32_t rt_rule_hdl;
 	int status;
 	struct ipa_rt_rule_v2 rule;
+	uint32_t rt_rule_category;
+	uint32_t rule_sub_category;
 };
 
 
@@ -2576,6 +2578,8 @@ struct ipa_flt_rule_add_v2 {
 	uint32_t flt_rule_hdl;
 	int status;
 	struct ipa_flt_rule_v2 rule;
+	uint32_t flt_rule_category;
+	uint32_t rule_sub_category;
 };
 
 /**

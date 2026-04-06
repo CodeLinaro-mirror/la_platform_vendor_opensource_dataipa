@@ -334,7 +334,7 @@ int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 
 	if(nat_app->nat_table_hdl)
 	{
-		IPA_BE_ERR("nat_table_hdl already exist \n");
+		IPA_BE_DBG("nat_table_hdl already exist \n");
 		return 0;
 	}
 
@@ -381,14 +381,14 @@ int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 		{
 			if(is_sta /*&& (isAlgPort(nat_app->cache[cnt].protocol, nat_app->cache[cnt].private_port) ||
 				isAlgPort(nat_app->cache[cnt].protocol, nat_app->cache[cnt].target_port))*/) {
-				IPA_BE_ERR("STA backhaul: connection using ALG Port, ignore\n");
+				IPA_BE_DBG("STA backhaul: connection using ALG Port, ignore\n");
 				memset(&nat_app->cache[cnt], 0, sizeof(nat_app->cache[cnt]));
 				nat_app->curCnt--;
 				continue;
 			}
 
 			if (ip_pass && nat_app->cache[cnt].dummy_nat) {
-				IPA_BE_ERR("IP Pass enabled: connection using dummy Nat, ignore\n");
+				IPA_BE_DBG("IP Pass enabled: connection using dummy Nat, ignore\n");
 				memset(&nat_app->cache[cnt], 0, sizeof(nat_app->cache[cnt]));
 				nat_app->curCnt--;
 				continue;
@@ -520,14 +520,14 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 		{
 			if(is_sta /*&& (isAlgPort(nat_app->cache[cnt].protocol, nat_app->cache[cnt].private_port) ||
 				isAlgPort(nat_app->cache[cnt].protocol, nat_app->cache[cnt].target_port))*/) {
-				IPA_BE_ERR("STA backhaul: connection using ALG Port, ignore\n");
+				IPA_BE_DBG("STA backhaul: connection using ALG Port, ignore\n");
 				memset(&nat_app->cache[cnt], 0, sizeof(nat_app->cache[cnt]));
 				nat_app->curCnt--;
 				continue;
 			}
 
 			if (ip_pass && nat_app->cache[cnt].dummy_nat) {
-				IPA_BE_ERR("IP Pass enabled: connection using dummy Nat, ignore\n");
+				IPA_BE_DBG("IP Pass enabled: connection using dummy Nat, ignore\n");
 				memset(&nat_app->cache[cnt], 0, sizeof(nat_app->cache[cnt]));
 				nat_app->curCnt--;
 				continue;
@@ -583,7 +583,7 @@ int ipa_be_add_table_v6(const uint32_t v6_prefix[2])
 
 	if(NatBase->ct_table_hdl)
 	{
-		IPA_BE_ERR("CT Table already exists\n");
+		IPA_BE_DBG("CT Table already exists\n");
 		return 0;
 	}
 	/* For IPv6, we would typically use IPv6 connection tracking table */
@@ -901,6 +901,18 @@ void ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_ifac
 	mux_id = ext_prop->ext[0].mux_id;
 	IPA_BE_DBG("Query iface %s mux_id %d\n", ext_prop->name, mux_id);
 
+	IPA_BE_DBG("flow_ip_xlate: %08x:%08x:%08x:%08x return_ip:%08x:%08x:%08x:%08x\n",
+		ntohl(v6_msg.conn_rule.flow_ip_xlate[0]),  ntohl(v6_msg.conn_rule.flow_ip_xlate[1]),
+		ntohl(v6_msg.conn_rule.flow_ip_xlate[2]),  ntohl(v6_msg.conn_rule.flow_ip_xlate[3]),
+		ntohl(v6_msg.tuple.return_ip[0]), ntohl(v6_msg.tuple.return_ip[1]),
+		ntohl(v6_msg.tuple.return_ip[2]), ntohl(v6_msg.tuple.return_ip[3]));
+
+	IPA_BE_DBG("flow_ip: %08x:%08x:%08x:%08x return_ip:%08x:%08x:%08x:%08x\n",
+		ntohl(v6_msg.tuple.flow_ip[0]),  ntohl(v6_msg.tuple.flow_ip[1]),
+		ntohl(v6_msg.tuple.flow_ip[2]),  ntohl(v6_msg.tuple.flow_ip[3]),
+		ntohl(v6_msg.conn_rule.return_ip_xlate[0]), ntohl(v6_msg.conn_rule.return_ip_xlate[1]),
+		ntohl(v6_msg.conn_rule.return_ip_xlate[2]), ntohl(v6_msg.conn_rule.return_ip_xlate[3]));
+
 	/* Extract IPv6 prefix - use the first 64 bits (2 x 32-bit words) for prefix */
 	/* Apply ntohl to convert from network to host byte order for hardware */
 	if (memcmp(v6_msg.tuple.flow_ip, v6_msg.conn_rule.flow_ip_xlate, sizeof(v6_msg.tuple.flow_ip)) == 0) {
@@ -936,7 +948,7 @@ void ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_ifac
 					      src_port, dest_port, tuple->protocol);
 
 	if (existing_idx >= 0) {
-		IPA_BE_ERR("Duplicate IPv6 CT entry found at cache index %d, ignoring addition\n", existing_idx);
+		IPA_BE_DBG("Duplicate IPv6 CT entry found at cache index %d, ignoring addition\n", existing_idx);
 		IPA_BE_DBG("Duplicate entry: Flow: %pI6:%u -> Return: %pI6:%u, protocol=%u\n",
 			   tuple->flow_ip, src_port, tuple->return_ip, dest_port, tuple->protocol);
 		goto cleanup;
@@ -1041,7 +1053,7 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan)
 	if (rule->private_ip == 0 ||
 	    rule->target_ip == 0 ||
 	    rule->protocol == 0) {
-		IPA_BE_ERR("Invalid Connection, ignoring it\n");
+		IPA_BE_DBG("Invalid Connection, ignoring it\n");
 		kfree(rule);
 		return IPA_BE_SUCCESS;
 	}
@@ -1141,7 +1153,7 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan)
 
 		mutex_unlock(&nat_app->cache_lock);
 	} else {
-		IPA_BE_ERR("Duplicate rule. Ignore it\n");
+		IPA_BE_DBG("Duplicate rule. Ignore it\n");
 		kfree(rule);
 		return -1;
 	}
@@ -1296,9 +1308,33 @@ int ipa_be_delete_nat_entry(const nat_table_entry *rule)
 EXPORT_SYMBOL(ipa_be_delete_nat_entry);
 
 
+/* Count remaining NAT entries for a given public IP (PDN).
+ * Returns the number of cache entries whose public_ip matches pub_ip.
+ * A return value of 0 means no connections are left on that PDN.
+ */
+static int count_nat_entries_for_pdn(uint32_t pub_ip)
+{
+	int cnt;
+	int count = 0;
+
+	if (!nat_app)
+		return 0;
+
+	mutex_lock(&nat_app->cache_lock);
+	for (cnt = 0; cnt < nat_app->max_entries; cnt++) {
+		if (nat_app->cache[cnt].private_ip != 0 &&
+		    nat_app->cache[cnt].public_ip == pub_ip)
+			count++;
+	}
+	mutex_unlock(&nat_app->cache_lock);
+
+	return count;
+}
+
 void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg)
 {
 	nat_table_entry rule;
+	uint32_t pub_ip = 0;
 
 	IPA_BE_DBG("Deleting IP4 NAT entry\n");
 	memset(&rule, 0, sizeof(rule));
@@ -1333,8 +1369,38 @@ void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg)
 		rule.target_port  = ntohs(v4_msg.tuple.flow_ident);
 	}
 
+	/*
+	 * Compute the public IP (PDN IP) so we can check after deletion
+	 * whether the PDN has become empty.  This mirrors the logic in
+	 * ipa_be_addpdn().
+	 */
+	if ((v4_msg.tuple.flow_ip == v4_msg.conn_rule.flow_ip_xlate) &&
+	    (v4_msg.tuple.return_ip == v4_msg.conn_rule.return_ip_xlate)) {
+		/* IP Passthrough case */
+		if (v4_msg.conn_rule.flow_interface_num ==
+		    v4_msg.conn_rule.flow_top_interface_num)
+			pub_ip = ntohl(v4_msg.tuple.return_ip);
+		else if (v4_msg.conn_rule.return_interface_num ==
+			 v4_msg.conn_rule.return_top_interface_num)
+			pub_ip = ntohl(v4_msg.tuple.flow_ip);
+	} else if (v4_msg.tuple.flow_ip == v4_msg.conn_rule.flow_ip_xlate) {
+		/* Downlink NAT: public IP is the WAN-side (return) address */
+		pub_ip = ntohl(v4_msg.tuple.return_ip);
+	} else {
+		/* Uplink NAT: public IP is the translated flow address */
+		pub_ip = ntohl(v4_msg.conn_rule.flow_ip_xlate);
+	}
+
 	if (ipa_be_delete_nat_entry(&rule)) {
 		IPA_BE_ERR("failed removing nat entry\n");
+		return;
+	}
+
+	if (pub_ip && count_nat_entries_for_pdn(pub_ip) == 0) {
+		IPA_BE_DBG("Last NAT entry for PDN (pub_ip=0x%X) deleted, removing PDN\n",
+			   pub_ip);
+		if (ipa_be_remove_pdn(pub_ip))
+			IPA_BE_ERR("failed removing PDN for pub_ip 0x%X\n", pub_ip);
 	}
 }
 
@@ -1459,7 +1525,7 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg)
 		IPA_BE_DBG("Found IPv6 CT entry at cache index %d with handle %u\n", cache_idx, rule_handle);
 		mutex_unlock(&NatBase->cache_lock);
 
-		/* Delete the IPv6 CT entry */
+		/* Delete the IPv6 CT entry from hardware */
 		ipa_be_delete_v6_ct_entry(*msg, rule_handle);
 
 		/* Clear the cache entry */
@@ -1580,6 +1646,20 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 		/* Set ports */
 		conn_sync->flow_ident = htons(NatBase->m_cache[i].ipv6_ct.src_port);
 		conn_sync->return_ident = htons(NatBase->m_cache[i].ipv6_ct.dest_port);
+
+		/* Populate xlate fields for IPv6. Mirror original tuple when NAT is not used */
+		conn_sync->flow_ip_xlate[0] = conn_sync->flow_ip[0];
+		conn_sync->flow_ip_xlate[1] = conn_sync->flow_ip[1];
+		conn_sync->flow_ip_xlate[2] = conn_sync->flow_ip[2];
+		conn_sync->flow_ip_xlate[3] = conn_sync->flow_ip[3];
+
+		conn_sync->return_ip_xlate[0] = conn_sync->return_ip[0];
+		conn_sync->return_ip_xlate[1] = conn_sync->return_ip[1];
+		conn_sync->return_ip_xlate[2] = conn_sync->return_ip[2];
+		conn_sync->return_ip_xlate[3] = conn_sync->return_ip[3];
+
+		conn_sync->flow_ident_xlate = conn_sync->flow_ident;
+		conn_sync->return_ident_xlate = conn_sync->return_ident;
 
 		/* Calculate inc_ticks as the difference between new and cached timestamp */
 		/* Only set inc_ticks if timestamp has changed (entry is active) */
@@ -1755,7 +1835,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 			IPA_BE_ERR("Failed to query timestamp for entry %d: rule_hdl=%u, ret=%d\n",
 				   i, rule_hdl, ret);
 			mutex_lock(&nat_app->cache_lock);
-			IPA_BE_ERR("  Entry: private_ip=%pI4n:%u, target_ip=%pI4n:%u, protocol=%u, pdn_index=%u\n",
+			IPA_BE_DBG("  Entry: private_ip=%pI4n:%u, target_ip=%pI4n:%u, protocol=%u, pdn_index=%u\n",
 				   &nat_app->cache[i].private_ip, nat_app->cache[i].private_port,
 				   &nat_app->cache[i].target_ip, nat_app->cache[i].target_port,
 				   nat_app->cache[i].protocol, nat_app->cache[i].pdn_index);

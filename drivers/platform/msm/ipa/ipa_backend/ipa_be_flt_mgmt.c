@@ -7,6 +7,7 @@
 #include <linux/jhash.h>
 #include <linux/bitops.h>
 #include <linux/msm_ipa.h>
+#include <linux/inetdevice.h>
 #include "ipa_api.h"
 #include "ipa_be.h"
 #include "ipa_be_clientdb.h"
@@ -63,7 +64,7 @@ static int change_to_network_order_kernel(enum ipa_ip_type iptype, struct ipa_ru
 	return 0;
 }
 
-enum ipa_filter_action_enum_v01
+static enum ipa_filter_action_enum_v01
 GetQmiFilterAction(enum ipa_flt_action ipa_filter_action)
 {
 	switch (ipa_filter_action) {
@@ -106,6 +107,18 @@ static DEFINE_SPINLOCK(pdn_flt_rule_v6_lock);
 uint32_t wan_rule_count_v4 = 0;
 uint32_t wan_rule_count_v6 = 0;
 
+/* Structure to track installed MTU rule pairs and their usage count */
+struct ipa_mtu_rule_pair {
+	struct list_head node;
+	int client_iface;
+	int pdn_iface;
+	enum ipa_ip_type ip_type;
+	int ref_count;
+};
+
+static LIST_HEAD(ipa_mtu_rule_pairs_list);
+static DEFINE_SPINLOCK(ipa_mtu_rule_lock);
+
 /* Structure to track installed uplink interface pairs and their usage count */
 struct ipa_uplink_pair {
 	struct list_head node;
@@ -117,6 +130,22 @@ struct ipa_uplink_pair {
 
 static LIST_HEAD(ipa_uplink_pairs_list);
 static DEFINE_SPINLOCK(ipa_uplink_lock);
+
+/*
+ * Structure to track installed private subnet rules per
+ * (intf_num, bridge_if_num, ip_type) tuple with ref counting.
+ * ip_type is tracked to support both IPv4 and IPv6 private subnet rules.
+ */
+struct ipa_private_subnet_pair {
+	struct list_head node;
+	int intf_num;
+	int bridge_if_num;
+	enum ipa_ip_type ip_type;
+	int ref_count;
+};
+
+static LIST_HEAD(ipa_private_subnet_pairs_list);
+static DEFINE_SPINLOCK(ipa_private_subnet_lock);
 
 /* Structure to track installed PDN-level filtering rules */
 struct ipa_pdn_filter_rules {
@@ -172,8 +201,8 @@ static void ipa_remove_pdn_filter_entry(struct ipa_pdn_filter_rules *entry)
 
 int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret)
 {
-	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
-	struct ipa_flt_rule_add flt_rule_entry;
+	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
+	struct ipa_flt_rule_add_v2 flt_rule_entry;
 	struct ipa_ioc_query_intf temp_intf;
 	int retval = 0, len = 0;
 	struct ipa_ioc_query_intf_rx_props *rx_prop;
@@ -219,21 +248,30 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		rx_prop->rx[idx].hdr_l2_type);
 
 	if (lan2lan) {
-		len = sizeof(struct ipa_ioc_add_flt_rule) + sizeof(struct ipa_flt_rule_add);
-		pFilteringTable = (struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
+		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
 		if (!pFilteringTable) {
-			IPA_BE_ERR("Failed to allocate ipa_ioc_add_flt_rule_after memory...\n");
-			return -EINVAL;
+			IPA_BE_ERR("Failed to allocate ipa_ioc_add_flt_rule_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
+		}
+
+		pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
+		if (!pFilteringTable->rules) {
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			IPA_BE_ERR("Failed to allocate ipa_flt_rule_add_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
 		}
 
 		IPA_BE_DBG("Install rules on Rx pipe at idx %d src_pipe %d\n", idx, rx_prop->rx[idx].src_pipe);
-		memset(pFilteringTable, 0, len);
 
 		/* add mac based rule*/
 		pFilteringTable->commit = 1;
 		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
 		pFilteringTable->ip = IPA_IP_v4;
 		pFilteringTable->num_rules = total_rules;
+		pFilteringTable->flt_rule_size = sizeof(struct ipa_flt_rule_add_v2);
 		/* pFilteringTable->add_after_hdl = 0; //tbd */
 
 		memset(&flt_rule_entry, 0, sizeof(flt_rule_entry));
@@ -278,15 +316,15 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		}
 		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
 
-		memcpy(&(pFilteringTable->rules[0]), &flt_rule_entry, sizeof(flt_rule_entry));
+		memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]), &flt_rule_entry, sizeof(flt_rule_entry));
 
-		if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)pFilteringTable,
+		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable,
 			true)) {
-			IPA_BE_ERR("ipa3_add_flt_rule_usr failed\n");
+			IPA_BE_ERR("ipa3_add_flt_rule_usr_v2 failed\n");
 			retval = -EFAULT;
 			goto end;
 		} else {
-			flt_hdl = pFilteringTable->rules[0].flt_rule_hdl;
+			flt_hdl = (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]).flt_rule_hdl;
 			IPA_BE_DBG("Lan2Lan %d filter rule hdl: %d\n", lan2lan, flt_hdl);
 			flt_entry.flt_hdl = flt_hdl;
 			flt_entry.cat = IPA_FLT_RULE_CAT_LAN2LAN;
@@ -304,8 +342,11 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 	}
 
 end:
-	if (pFilteringTable)
+	if (pFilteringTable) {
+		if (pFilteringTable->rules)
+			kfree((void *)(uintptr_t)pFilteringTable->rules);
 		kfree(pFilteringTable);
+	}
 	if (rx_prop)
 		kfree(rx_prop);
 
@@ -316,8 +357,8 @@ EXPORT_SYMBOL(ipa_be_v4_add_filter_rule);
 
 int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan, int pdn_iface, int client_iface)
 {
-	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
-	struct ipa_flt_rule_add flt_rule_entry;
+	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
+	struct ipa_flt_rule_add_v2 flt_rule_entry;
 	struct ipa_ioc_query_intf client_intf, pdn_intf;
 	int retval = 0, len = 0;
 	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
@@ -442,28 +483,32 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 		IPA_BE_DBG("flt_index: src pipe: %d, num of rules: %d, ebd pipe: %d, mux id: %d\n",
 			flt_index->source_pipe_index, flt_index->rule_id_len, flt_index->embedded_pipe_index, flt_index->embedded_call_mux_id);
 
-		len = sizeof(struct ipa_ioc_add_flt_rule) +
-			total_rules * sizeof(struct ipa_flt_rule_add);
-
-		pFilteringTable =
-			(struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
-
+		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
 		if (pFilteringTable == NULL) {
-			IPA_BE_ERR("Error Locate ipa_flt_rule_add memory...\n");
+			IPA_BE_ERR("Error Locate ipa_ioc_add_flt_rule_v2 memory...\n");
 			retval = -EINVAL;
 			goto end;
 		}
-		memset(pFilteringTable, 0, len);
+
+		pFilteringTable->rules = (uint64_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
+		if (!pFilteringTable->rules) {
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			IPA_BE_ERR("Error Locate ipa_flt_rule_add_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
+		}
 
 		pFilteringTable->commit = 1;
 		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
 		pFilteringTable->global = false;
 		pFilteringTable->ip = iptype;
 		pFilteringTable->num_rules = total_rules;
+		pFilteringTable->flt_rule_size = sizeof(struct ipa_flt_rule_add_v2);
 
 		for (cnt = i = 0; cnt < ext_prop->num_ext_props && i < total_rules; cnt++) {
 			if (ext_prop->ext[cnt].ip != IPA_IP_v4) {
-				IPA_BE_ERR("iptype mismatch %d .. continue\n", ext_prop->ext[cnt].ip);
+				IPA_BE_DBG("iptype mismatch %d .. continue\n", ext_prop->ext[cnt].ip);
 				continue;
 			}
 
@@ -472,7 +517,7 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 					ext_prop->ext[cnt].rule_id,
 					ext_prop->ext[cnt].is_xlat_rule);
 
-			memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
+			memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add_v2));
 			flt_rule_entry.at_rear = 1;
 
 			flt_rule_entry.flt_rule_hdl = -1;
@@ -502,7 +547,7 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 				/* Override the rule action if Q6 can't handle it, go A7 exception */
 				flt_rule_entry.rule.action = ext_prop->ext[cnt].action;
 				flt_rule_entry.rule.rt_tbl_idx = 0;
-				IPA_BE_ERR("Override rule index %d to act: %d, rt_tbl_idx: %d to %d\n",
+				IPA_BE_DBG("Override rule index %d to act: %d, rt_tbl_idx: %d to %d\n",
 					cnt, flt_rule_entry.rule.action,
 					ext_prop->ext[cnt].rt_tbl_idx,
 					flt_rule_entry.rule.rt_tbl_idx);
@@ -611,10 +656,10 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 				/* IPA_BE_ERR("turn on meta-data equation with value 0x%x\n", rx_prop->rx[idx].attrib.meta_data); */
 			/* } */
 
-			memcpy(&pFilteringTable->rules[i], &flt_rule_entry, sizeof(flt_rule_entry));
+			memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
 
-			IPA_BE_ERR("Modem UL filtering rule %d has index %d installed at %d\n", cnt, index, i);
-			IPA_BE_ERR("Modem UL filtering rule_id %d at_rear:%d\n", flt_rule_entry.rule.rule_id, flt_rule_entry.at_rear);
+			IPA_BE_DBG("Modem UL filtering rule %d has index %d installed at %d\n", cnt, index, i);
+			IPA_BE_DBG("Modem UL filtering rule_id %d at_rear:%d\n", flt_rule_entry.rule.rule_id, flt_rule_entry.at_rear);
 			flt_index->rule_id[i] = ext_prop->ext[cnt].rule_id;
 			index++;
 			i++;
@@ -627,30 +672,32 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 		}
 
 		if (notif_only) {
-			IPA_BE_ERR("UL filtering rules already installed for %s, only sent notification for modem (mux %d)\n",
+			IPA_BE_DBG("UL filtering rules already installed for %s, only sent notification for modem (mux %d)\n",
 				rx_prop->name, ext_prop->ext[0].mux_id);
 
 			if (pFilteringTable) {
+				if (pFilteringTable->rules)
+					kfree((void *)(uintptr_t)pFilteringTable->rules);
 				kfree(pFilteringTable);
 				pFilteringTable = NULL;
 			}
 			retval = 0;
 			continue;
 		} else {
-			IPA_BE_ERR("this is the first PDN for dev %s, commiting modem UL rules, mux %d\n", rx_prop->name, ext_prop->ext[0].mux_id);
+			IPA_BE_DBG("this is the first PDN for dev %s, commiting modem UL rules, mux %d\n", rx_prop->name, ext_prop->ext[0].mux_id);
 		}
 
-		if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)pFilteringTable,
+		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable,
 			true)) {
-			IPA_BE_ERR("ipa3_add_flt_rule_usr failed\n");
+			IPA_BE_ERR("ipa3_add_flt_rule_usr_v2 failed\n");
 			retval = -EFAULT;
 			goto end;
 		} else {
 			for (i = 0; i < pFilteringTable->num_rules; i++) {
-				if (!pFilteringTable->rules[i].flt_rule_hdl)
+				if (!(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl)
 					continue;
 
-				IPA_BE_ERR("Modem uplink rules %d filter rule hdl: %d\n", lan2lan, pFilteringTable->rules[i].flt_rule_hdl);
+				IPA_BE_DBG("Modem uplink rules %d filter rule hdl: %d\n", lan2lan, (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl);
 				/* wan_ul_fl_rule_hdl_v4[j][num_wan_ul_fl_rule_v4[j]] = pFilteringTable->rules[i].flt_rule_hdl; */
 				/* num_wan_ul_fl_rule_v4[j]++; */
 				/* Map for dynamic insertion of xlat rules */
@@ -659,8 +706,7 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 				/*	xlat_ctx.ul_rule_id_hdl_map[j][i].rule_id = pFilteringTable->rules[i].rule.rule_id; */
 				/*	xlat_ctx.ul_rule_id_hdl_map[j][i].flt_hdl = pFilteringTable->rules[i].flt_rule_hdl; */
 				/* } */
-
-				flt_entry.flt_hdl = pFilteringTable->rules[i].flt_rule_hdl;
+				flt_entry.flt_hdl = (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl;
 				flt_entry.cat = IPA_FLT_RULE_CAT_UPLINK;  /* Modem uplink rules */
 				flt_entry.ip_type = IPA_IP_v4;
 				ipa3_add_filter_rules_entry(client_iface, flt_entry);
@@ -668,6 +714,8 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 			flt_rule_count_v4[rx_prop->rx[idx].src_pipe]++;
 		}
 		if (pFilteringTable) {
+			if (pFilteringTable->rules)
+				kfree((void *)(uintptr_t)pFilteringTable->rules);
 			kfree(pFilteringTable);
 			pFilteringTable = NULL;
 		}
@@ -695,14 +743,17 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 end:
 	if (flt_index)
 		kfree(flt_index);
-	if (pFilteringTable)
+	if (pFilteringTable) {
+		if (pFilteringTable->rules)
+			kfree((void *)(uintptr_t)pFilteringTable->rules);
 		kfree(pFilteringTable);
+	}
 	if (rx_prop)
 		kfree(rx_prop);
 	if (ext_prop)
 		kfree(ext_prop);
 
-	IPA_BE_ERR("Exit retval %d \n", retval);
+	IPA_BE_DBG("Exit retval %d \n", retval);
 	return retval;
 }
 EXPORT_SYMBOL(ipa_be_v4_add_uplink_filter_rule);
@@ -735,7 +786,7 @@ int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type
 			IPA_BE_ERR("HW delete for intf:%d cat:%d ip:%d flt_hdl:%d failed with status:%d\n",
 				intf_num, category, iptype, flt_hdl, flt_param.hdl[0].status);
 		} else {
-			IPA_BE_ERR("Filter rule deleted successfully for intf:%d cat:%d ip:%d flt_hdl:0x%x\n",
+			IPA_BE_DBG("Filter rule deleted successfully for intf:%d cat:%d ip:%d flt_hdl:0x%x\n",
 				intf_num, category, iptype, flt_hdl);
 		}
 	}
@@ -743,10 +794,10 @@ int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type
 }
 EXPORT_SYMBOL(ipa_be_delete_rules_by_category);
 
-int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_num, int vlan_tag)
+int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_num, int pdn_iface, int vlan_tag)
 {
-	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
-	struct ipa_flt_rule_add flt_rule_entry;
+	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
+	struct ipa_flt_rule_add_v2 flt_rule_entry;
 	struct ipa_ioc_query_intf temp_intf;
 	int retval = 0, len = 0;
 	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
@@ -756,11 +807,28 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 	int j = 0;
 	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
 	struct ipa3_flt_entry flt_entry = {0};
+	struct ipa_mtu_rule_pair *new_mtu_pair = NULL;
+	struct ipa_mtu_rule_pair *existing_pair;
+
+	/* Check if MTU rule already installed for this (client, pdn, ip) tuple */
+	spin_lock_bh(&ipa_mtu_rule_lock);
+	list_for_each_entry(existing_pair, &ipa_mtu_rule_pairs_list, node) {
+		if (existing_pair->client_iface == intf_num &&
+		    existing_pair->pdn_iface == pdn_iface &&
+		    existing_pair->ip_type == iptype) {
+			existing_pair->ref_count++;
+			spin_unlock_bh(&ipa_mtu_rule_lock);
+			IPA_BE_DBG("MTU rule for client %d, pdn %d, ip_type %d already installed. ref_count: %d\n",
+				intf_num, pdn_iface, iptype, existing_pair->ref_count);
+			return 0;
+		}
+	}
+	spin_unlock_bh(&ipa_mtu_rule_lock);
 
 	/* Delete all existing MTU rules for this intf_num before adding new one. */
 	ipa_be_delete_rules_by_category(intf_num, IPA_FLT_RULE_CAT_MTU, iptype);
 
-	IPA_BE_ERR("ECMIPA entry mtu rule size %d\n", mtu);
+	IPA_BE_DBG("ECMIPA entry mtu rule size %d\n", mtu);
 
 	/*Check if the filter interface exists*/
 	retval = ipa3_query_iface(intf_num, &temp_intf);
@@ -782,31 +850,39 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 
 	memcpy(rx_prop->name, temp_intf.name, sizeof(temp_intf.name));
 	rx_prop->num_rx_props = temp_intf.num_rx_props;
-	IPA_BE_ERR("Query rx_prop %d name %s\n", rx_prop->num_rx_props, temp_intf.name);
+	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, temp_intf.name);
 	ipa3_query_intf_rx_props(rx_prop);
 
 	/* avoid out-of-bounds access when logging below */
 	if (rx_prop->num_rx_props > 0) {
-		IPA_BE_ERR("Query response rx_prop src %d hdr_l2_type %d\n",
+		IPA_BE_DBG("Query response rx_prop src %d hdr_l2_type %d\n",
 			rx_prop->rx[idx].src_pipe, rx_prop->rx[idx].hdr_l2_type);
 	}
 
-	len = sizeof(struct ipa_ioc_add_flt_rule) + sizeof(struct ipa_flt_rule_add);
-	pFilteringTable = (struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
+	pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
 	if (!pFilteringTable) {
-		IPA_BE_ERR("Failed to allocate ipa_ioc_add_flt_rule_after memory...\n");
+		IPA_BE_ERR("Failed to allocate ipa_ioc_add_flt_rule_v2 memory...\n");
 		retval = -EINVAL;
 		goto end;
 	}
 
-	IPA_BE_ERR("Install rules on Rx pipe at idx %d src_pipe %d\n",
+	pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
+	if (!pFilteringTable->rules) {
+		kfree(pFilteringTable);
+		pFilteringTable = NULL;
+		IPA_BE_ERR("Failed to allocate ipa_flt_rule_add_v2 memory...\n");
+		retval = -EINVAL;
+		goto end;
+	}
+
+	IPA_BE_DBG("Install rules on Rx pipe at idx %d src_pipe %d\n",
 		idx, (rx_prop->num_rx_props > 0) ? rx_prop->rx[idx].src_pipe : -1);
-	memset(pFilteringTable, 0, len);
 
 	pFilteringTable->commit = 1;
 	pFilteringTable->ep = (rx_prop->num_rx_props > 0) ? rx_prop->rx[idx].src_pipe : 0;
 	pFilteringTable->ip = iptype; /* use requested IP type */
 	pFilteringTable->num_rules = total_rules;
+	pFilteringTable->flt_rule_size = sizeof(struct ipa_flt_rule_add_v2);
 	/* pFilteringTable->add_after_hdl = 0; //tbd */
 
 	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
@@ -819,11 +895,13 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 			continue;
 
 		if (rx_prop->rx[idx].ip != iptype) {
-			IPA_BE_ERR("IP not matching required type %d .. continue\n", rx_prop->rx[idx].ip);
+			IPA_BE_DBG("IP not matching required type %d .. continue\n", rx_prop->rx[idx].ip);
 			continue;
 		}
 
-		IPA_BE_ERR("Install rules at idx %d\n", idx);
+		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
+
+		IPA_BE_DBG("Install rules at idx %d\n", idx);
 		memset(&flt_rule_entry, 0, sizeof(flt_rule_entry));
 
 		flt_rule_entry.rule.retain_hdr = 0;
@@ -839,18 +917,21 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 		strlcpy(rt_tbl.name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #endif
 
-		IPA_BE_ERR("This flt rule points to rt tbl %s.\n", rt_tbl.name);
+		IPA_BE_DBG("This flt rule points to rt tbl %s.\n", rt_tbl.name);
 
 		if (ipa3_get_rt_tbl((struct ipa_ioc_get_rt_tbl *)&rt_tbl)) {
 			IPA_BE_ERR("ECMIPA failed to get route hdl \n");
 			retval = -EFAULT;
 		}
-		IPA_BE_ERR("Install filter rules with rt_tbl.hdl %d \n", rt_tbl.hdl);
-		IPA_BE_ERR("Install rules on Rx pipe at idx %d \n", idx);
+		IPA_BE_DBG("Install filter rules with rt_tbl.hdl %d \n", rt_tbl.hdl);
+		IPA_BE_DBG("Install rules on Rx pipe at idx %d \n", idx);
 
 		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
 		flt_rule_entry.rule.hashable = true;
 		/* flt_rule_entry.rule.rule_id = 1; //LAN2LAN_RULE_ID */
+
+		memcpy(&flt_rule_entry.rule.attrib, &rx_prop->rx[idx].attrib,
+			sizeof(flt_rule_entry.rule.attrib));
 
 		if (vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED)
 		{
@@ -860,8 +941,22 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 
 		flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_MTU;
 
-		memcpy(&flt_rule_entry.rule.attrib, &rx_prop->rx[idx].attrib,
-			sizeof(flt_rule_entry.rule.attrib));
+		if (flt_rule_entry.rule.attrib.attrib_mask) {
+			struct ipa_ioc_generate_flt_eq flt_eq;
+
+			memset(&flt_eq, 0, sizeof(flt_eq));
+			memcpy(&flt_eq.attrib, &flt_rule_entry.rule.attrib,
+				sizeof(flt_eq.attrib));
+			flt_eq.ip = iptype;
+
+			if (ipahal_flt_generate_equation(iptype, &flt_eq.attrib, &flt_eq.eq_attrib)) {
+				IPA_BE_ERR("Failed generating equation for MTU rule\n");
+				retval = -EFAULT;
+				goto end;
+			}
+			memcpy(&flt_rule_entry.rule.eq_attrib, &flt_eq.eq_attrib,
+				sizeof(flt_rule_entry.rule.eq_attrib));
+		}
 
 		flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1<<10);
 		flt_rule_entry.rule.eq_attrib.num_ihl_offset_range_16 = 1;
@@ -876,17 +971,18 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 		}
 		flt_rule_entry.rule.eq_attrib.ihl_offset_range_16[0].range_high = UINT16_MAX; /* 0xFFFF */
 
-		memcpy(&(pFilteringTable->rules[0]), &flt_rule_entry, sizeof(flt_rule_entry));
+		memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]), &flt_rule_entry, sizeof(flt_rule_entry));
 
-		if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)pFilteringTable, true)) {
-			IPA_BE_ERR("ipa3_add_flt_rule_usr failed\n");
+		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable, true)) {
+			IPA_BE_ERR("ipa3_add_flt_rule_usr_v2 failed\n");
 			retval = -EFAULT;
 			goto end;
 		} else {
-			flt_hdl = pFilteringTable->rules[0].flt_rule_hdl;
-			IPA_BE_ERR("MTU rule %d filter rule hdl: %d\n", mtu, flt_hdl);
+			flt_hdl = (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]).flt_rule_hdl;
+			IPA_BE_DBG("MTU rule %d filter rule hdl: %d\n", mtu, flt_hdl);
 			flt_entry.flt_hdl = flt_hdl;
 			flt_entry.cat = IPA_FLT_RULE_CAT_MTU;
+			flt_entry.ip_type = iptype;
 
 			ipa3_add_filter_rules_entry(intf_num, flt_entry);
 		}
@@ -894,18 +990,397 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 
 	retval = 0;
 
+	if (retval == 0) {
+		/* Rule installed successfully - add tracking entry with ref_count = 1 */
+		spin_lock_bh(&ipa_mtu_rule_lock);
+		new_mtu_pair = kzalloc(sizeof(struct ipa_mtu_rule_pair), GFP_ATOMIC);
+		if (!new_mtu_pair) {
+			spin_unlock_bh(&ipa_mtu_rule_lock);
+			IPA_BE_ERR("Failed to allocate memory for MTU rule tracking\n");
+			/* Rules were installed but tracking failed - not fatal */
+		} else {
+			new_mtu_pair->client_iface = intf_num;
+			new_mtu_pair->pdn_iface = pdn_iface;
+			new_mtu_pair->ip_type = iptype;
+			new_mtu_pair->ref_count = 1;
+			list_add(&new_mtu_pair->node, &ipa_mtu_rule_pairs_list);
+			IPA_BE_DBG("Added MTU rule tracking: client %d, pdn %d, ip_type %d, ref_count: 1\n",
+				intf_num, pdn_iface, iptype);
+			spin_unlock_bh(&ipa_mtu_rule_lock);
+		}
+	}
+
 end:
-	if (pFilteringTable)
+	if (pFilteringTable) {
+		if (pFilteringTable->rules)
+			kfree((void *)(uintptr_t)pFilteringTable->rules);
 		kfree(pFilteringTable);
+	}
 	if (rx_prop)
 		kfree(rx_prop);
 	return retval;
 }
 
-int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int pdn_iface, int client_iface, bool is_xlat)
+/**
+ * ipa_be_delete_mtu_rule() - Delete MTU rule with reference counting
+ * @client_iface: Client interface number
+ * @pdn_iface: PDN interface number
+ * @ip_type: IP version (IPA_IP_v4 or IPA_IP_v6)
+ *
+ * Decrements the reference count for the MTU rule associated with the
+ * (client_iface, pdn_iface, ip_type) tuple. The hardware rule is only
+ * deleted when the reference count reaches zero (last connection removed).
+ *
+ * Return: 0 on success, negative errno on failure
+ */
+int ipa_be_delete_mtu_rule(int client_iface, int pdn_iface, enum ipa_ip_type ip_type)
+{
+	struct ipa_mtu_rule_pair *pair, *tmp;
+	bool found = false;
+	bool delete_hw_rules = true;
+
+	IPA_BE_DBG("ipa_be_delete_mtu_rule: client_iface=%d pdn_iface=%d ip_type=%d\n",
+		client_iface, pdn_iface, ip_type);
+
+	spin_lock_bh(&ipa_mtu_rule_lock);
+	list_for_each_entry_safe(pair, tmp, &ipa_mtu_rule_pairs_list, node) {
+		if (pair->client_iface == client_iface &&
+		    pair->pdn_iface == pdn_iface &&
+		    pair->ip_type == ip_type) {
+			pair->ref_count--;
+			IPA_BE_DBG("Decremented MTU rule ref_count for client %d, pdn %d, ip_type %d. New count: %d\n",
+				client_iface, pdn_iface, ip_type, pair->ref_count);
+			if (pair->ref_count > 0) {
+				/* Other connections still using this MTU rule */
+				spin_unlock_bh(&ipa_mtu_rule_lock);
+				IPA_BE_DBG("MTU rule for client %d, pdn %d, ip_type %d still in use. ref_count: %d\n",
+					client_iface, pdn_iface, ip_type, pair->ref_count);
+				return 0;
+			}
+			/* ref_count reached 0 - remove tracking entry */
+			list_del(&pair->node);
+			kfree(pair);
+			found = true;
+			break;
+		}
+	}
+
+	/* Check if there are any other PDNs using the same client_iface with this IP type */
+	if (found) {
+		list_for_each_entry(pair, &ipa_mtu_rule_pairs_list, node) {
+			if (pair->client_iface == client_iface && pair->ip_type == ip_type) {
+				delete_hw_rules = false;
+				IPA_BE_DBG("Found another PDN %d using client_iface %d, ip_type %d. Not deleting MTU rule.\n",
+					pair->pdn_iface, client_iface, ip_type);
+				break;
+			}
+		}
+	}
+	spin_unlock_bh(&ipa_mtu_rule_lock);
+
+	if (!found) {
+		IPA_BE_ERR("No MTU rule tracking entry found for client %d, pdn %d, ip_type %d\n",
+			client_iface, pdn_iface, ip_type);
+		return -ENOENT;
+	}
+
+	if (!delete_hw_rules) {
+		IPA_BE_DBG("Other PDNs still using client_iface %d. Skipping hardware MTU rule deletion.\n", client_iface);
+		return 0;
+	}
+
+	IPA_BE_DBG("No other PDNs using client_iface %d, proceeding with hardware MTU rule deletion for pdn %d, ip_type %d.\n",
+		client_iface, pdn_iface, ip_type);
+
+	return ipa_be_delete_rules_by_category(client_iface, IPA_FLT_RULE_CAT_MTU, ip_type);
+}
+EXPORT_SYMBOL(ipa_be_delete_mtu_rule);
+
+int ipa_be_handle_private_subnet(int intf_num, int bridge_if_num)
 {
 	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
 	struct ipa_flt_rule_add flt_rule_entry;
+	struct ipa_ioc_query_intf temp_intf;
+	int retval = 0, len = 0;
+	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
+	int idx = 0;
+	int j = 0;
+	int flt_hdl = 0;
+	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
+	struct ipa3_flt_entry flt_entry = {0};
+	struct net_device *bridge_dev = NULL;
+	struct in_device *in_dev = NULL;
+	struct in_ifaddr *ifa = NULL;
+	__be32 ip_addr_be = 0, ip_mask_be = 0;
+	uint32_t subnet_addr = 0, subnet_mask = 0;
+	struct ipa_private_subnet_pair *ps_pair;
+	struct ipa_private_subnet_pair *new_ps_pair = NULL;
+	const enum ipa_ip_type ip_type = IPA_IP_v4;
+
+	IPA_BE_DBG("ipa_be_handle_private_subnet: intf_num=%d bridge_if_num=%d\n",
+		intf_num, bridge_if_num);
+
+	/*
+	 * Check if private subnet rules are already installed for this
+	 * (intf_num, bridge_if_num, ip_type) tuple. If so, just increment
+	 * the ref count and return - rules are shared across connections.
+	 */
+	spin_lock_bh(&ipa_private_subnet_lock);
+	list_for_each_entry(ps_pair, &ipa_private_subnet_pairs_list, node) {
+		if (ps_pair->intf_num == intf_num &&
+		    ps_pair->bridge_if_num == bridge_if_num &&
+		    ps_pair->ip_type == ip_type) {
+			ps_pair->ref_count++;
+			spin_unlock_bh(&ipa_private_subnet_lock);
+			IPA_BE_DBG("Private subnet rules for intf %d, bridge %d, ip_type %d already installed. ref_count: %d\n",
+				intf_num, bridge_if_num, ip_type, ps_pair->ref_count);
+			return 0;
+		}
+	}
+	spin_unlock_bh(&ipa_private_subnet_lock);
+
+	IPA_BE_DBG("Installing new private subnet rules for intf %d, bridge %d, ip_type %d\n",
+		intf_num, bridge_if_num, ip_type);
+
+	/* Check if the filter interface exists */
+	if (!ipa3_query_iface(intf_num, &temp_intf)) {
+		IPA_BE_ERR("Interface with index %u does not exist.\n", intf_num);
+		retval = -EINVAL;
+		goto end;
+	}
+
+	/* Get bridge net_device directly by ifindex */
+	bridge_dev = dev_get_by_index(&init_net, bridge_if_num);
+	if (!bridge_dev) {
+		IPA_BE_ERR("Failed to find net_device for bridge ifindex %d\n", bridge_if_num);
+		retval = -ENODEV;
+		goto end;
+	}
+
+	in_dev = in_dev_get(bridge_dev);
+	if (!in_dev) {
+		IPA_BE_ERR("Failed to get in_device for bridge %s\n", bridge_dev->name);
+		dev_put(bridge_dev);
+		retval = -ENODEV;
+		goto end;
+	}
+
+	rcu_read_lock();
+	in_dev_for_each_ifa_rcu(ifa, in_dev) {
+		ip_addr_be = ifa->ifa_address;
+		ip_mask_be = ifa->ifa_mask;
+		break;
+	}
+	rcu_read_unlock();
+
+	in_dev_put(in_dev);
+	dev_put(bridge_dev);
+
+	if (!ip_addr_be) {
+		IPA_BE_ERR("No IPv4 address found on bridge ifindex %d\n", bridge_if_num);
+		retval = -EADDRNOTAVAIL;
+		goto end;
+	}
+
+	/* Convert to host byte order and compute subnet address */
+	subnet_mask = ntohl(ip_mask_be);
+	subnet_addr = ntohl(ip_addr_be) & subnet_mask;
+
+	IPA_BE_DBG("Bridge ifindex=%d: ip=%pI4 mask=%pI4 subnet=0x%08x/0x%08x\n",
+		bridge_if_num, &ip_addr_be, &ip_mask_be, subnet_addr, subnet_mask);
+
+	/* Allocate and query rx_props for intf_num */
+	rx_prop = (struct ipa_ioc_query_intf_rx_props *)kzalloc(
+		sizeof(struct ipa_ioc_query_intf_rx_props) +
+		temp_intf.num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop),
+		GFP_KERNEL);
+	if (!rx_prop) {
+		IPA_BE_ERR("Unable to allocate rx_prop memory.\n");
+		retval = -ENOMEM;
+		goto end;
+	}
+
+	memcpy(rx_prop->name, temp_intf.name, sizeof(temp_intf.name));
+	rx_prop->num_rx_props = temp_intf.num_rx_props;
+	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, temp_intf.name);
+	ipa3_query_intf_rx_props(rx_prop);
+
+	if (rx_prop->num_rx_props == 0) {
+		IPA_BE_ERR("No rx props for iface %s\n", rx_prop->name);
+		retval = -EINVAL;
+		goto end;
+	}
+
+	/* Get the default routing table handle - LAN traffic goes to A5 via default table */
+	rt_tbl.ip = IPA_IP_v4;
+	strscpy(rt_tbl.name, V4_DEFAULT_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
+
+	if (ipa3_get_rt_tbl(&rt_tbl)) {
+		IPA_BE_ERR("Failed to get default routing table %s\n", V4_DEFAULT_ROUTE_TABLE_NAME);
+		retval = -EFAULT;
+		goto end;
+	}
+	IPA_BE_DBG("Private subnet filter uses rt_tbl: %s hdl=%d\n",
+		V4_DEFAULT_ROUTE_TABLE_NAME, rt_tbl.hdl);
+
+	/* Install one filter rule per rx pipe pair (IPv4 only) */
+	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
+		idx = j * 2;
+
+		if (idx >= rx_prop->num_rx_props)
+			continue;
+
+		if (rx_prop->rx[idx].ip != IPA_IP_v4) {
+			IPA_BE_DBG("IP not matching required type %d .. continue\n",
+				rx_prop->rx[idx].ip);
+			continue;
+		}
+
+		IPA_BE_DBG("Install private subnet rule at idx %d src_pipe %d\n",
+			idx, rx_prop->rx[idx].src_pipe);
+
+		len = sizeof(struct ipa_ioc_add_flt_rule) + sizeof(struct ipa_flt_rule_add);
+		pFilteringTable = (struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
+		if (!pFilteringTable) {
+			IPA_BE_ERR("Failed to allocate filtering table memory\n");
+			retval = -ENOMEM;
+			goto end;
+		}
+
+		pFilteringTable->commit = 1;
+		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
+		pFilteringTable->global = false;
+		pFilteringTable->ip = IPA_IP_v4;
+		pFilteringTable->num_rules = 1;
+
+		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.rule.retain_hdr = 1;
+		flt_rule_entry.flt_rule_hdl = -1;
+		flt_rule_entry.status = -1;
+		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+		flt_rule_entry.rule.hashable = true;
+		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
+		flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
+
+		memcpy(&flt_rule_entry.rule.attrib, &rx_prop->rx[idx].attrib,
+			sizeof(flt_rule_entry.rule.attrib));
+		flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = subnet_mask;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = subnet_addr;
+
+		memcpy(&pFilteringTable->rules[0], &flt_rule_entry,
+			sizeof(struct ipa_flt_rule_add));
+
+		if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)pFilteringTable, true)) {
+			IPA_BE_ERR("ipa3_add_flt_rule_usr failed for private subnet rule\n");
+			retval = -EFAULT;
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			goto end;
+		}
+
+		flt_hdl = pFilteringTable->rules[0].flt_rule_hdl;
+		IPA_BE_DBG("Private subnet filter rule hdl: 0x%x for pipe %d\n",
+			flt_hdl, rx_prop->rx[idx].src_pipe);
+
+		flt_entry.flt_hdl = flt_hdl;
+		flt_entry.cat = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
+		flt_entry.ip_type = IPA_IP_v4;
+		ipa3_add_filter_rules_entry(intf_num, flt_entry);
+
+		kfree(pFilteringTable);
+		pFilteringTable = NULL;
+	}
+
+	retval = 0;
+
+	/*
+	 * Rules installed successfully. Add a new tracking entry with ref_count=1
+	 * so subsequent calls for the same pair are deduplicated.
+	 */
+	spin_lock_bh(&ipa_private_subnet_lock);
+	new_ps_pair = kzalloc(sizeof(struct ipa_private_subnet_pair), GFP_ATOMIC);
+	if (!new_ps_pair) {
+		spin_unlock_bh(&ipa_private_subnet_lock);
+		IPA_BE_ERR("Failed to allocate memory for private subnet pair tracking\n");
+		/* Rules were installed but tracking failed - not fatal */
+	} else {
+		new_ps_pair->intf_num = intf_num;
+		new_ps_pair->bridge_if_num = bridge_if_num;
+		new_ps_pair->ip_type = ip_type;
+		new_ps_pair->ref_count = 1;
+		list_add(&new_ps_pair->node, &ipa_private_subnet_pairs_list);
+		IPA_BE_DBG("Added private subnet pair: intf %d, bridge %d, ip_type %d, ref_count: 1\n",
+			intf_num, bridge_if_num, ip_type);
+		spin_unlock_bh(&ipa_private_subnet_lock);
+	}
+
+end:
+	if (pFilteringTable)
+		kfree(pFilteringTable);
+	if (rx_prop)
+		kfree(rx_prop);
+
+	IPA_BE_DBG("ipa_be_handle_private_subnet exit retval=%d\n", retval);
+	return retval;
+}
+EXPORT_SYMBOL(ipa_be_handle_private_subnet);
+
+int ipa_be_delete_private_subnet(int intf_num, int bridge_if_num, enum ipa_ip_type ip_type)
+{
+	struct ipa_private_subnet_pair *ps_pair, *tmp;
+	bool found = false;
+	int retval = 0;
+
+	IPA_BE_DBG("ipa_be_delete_private_subnet: intf_num=%d bridge_if_num=%d ip_type=%d\n",
+		intf_num, bridge_if_num, ip_type);
+
+	spin_lock_bh(&ipa_private_subnet_lock);
+	list_for_each_entry_safe(ps_pair, tmp, &ipa_private_subnet_pairs_list, node) {
+		if (ps_pair->intf_num == intf_num &&
+		    ps_pair->bridge_if_num == bridge_if_num &&
+		    ps_pair->ip_type == ip_type) {
+			ps_pair->ref_count--;
+			IPA_BE_DBG("Decremented ref_count for private subnet pair intf %d, bridge %d, ip_type %d. New count: %d\n",
+				intf_num, bridge_if_num, ip_type, ps_pair->ref_count);
+			if (ps_pair->ref_count > 0) {
+				/* Other connections still using these rules */
+				spin_unlock_bh(&ipa_private_subnet_lock);
+				IPA_BE_DBG("Private subnet rules for intf %d, bridge %d, ip_type %d still in use. ref_count: %d\n",
+					intf_num, bridge_if_num, ip_type, ps_pair->ref_count);
+				return 0;
+			}
+			/* ref_count reached 0 - remove tracking entry and delete rules */
+			list_del(&ps_pair->node);
+			kfree(ps_pair);
+			found = true;
+			break;
+		}
+	}
+	spin_unlock_bh(&ipa_private_subnet_lock);
+
+	if (!found) {
+		IPA_BE_ERR("No private subnet tracking entry found for intf %d, bridge %d, ip_type %d\n",
+			intf_num, bridge_if_num, ip_type);
+		return -ENOENT;
+	}
+
+	IPA_BE_DBG("ref_count reached 0 for intf %d, bridge %d, ip_type %d - deleting hardware rules\n",
+		intf_num, bridge_if_num, ip_type);
+
+	retval = ipa_be_delete_rules_by_category(intf_num,
+		IPA_FLT_RULE_CAT_PRIVATE_SUBNET, ip_type);
+
+	IPA_BE_DBG("ipa_be_delete_private_subnet exit retval=%d\n", retval);
+	return retval;
+}
+EXPORT_SYMBOL(ipa_be_delete_private_subnet);
+
+int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int pdn_iface, int client_iface, bool is_xlat)
+{
+	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
+	struct ipa_flt_rule_add_v2 flt_rule_entry;
 	struct ipa_ioc_query_intf client_intf, pdn_intf;
 	int retval = 0, len = 0;
 	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
@@ -924,7 +1399,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 	struct ipa_uplink_pair *new_pair = NULL;
 
 	iptype = IPA_IP_v6;
-	IPA_BE_ERR("ECMIPA entry lan2lan %d\n", lan2lan);
+	IPA_BE_DBG("ECMIPA entry lan2lan %d\n", lan2lan);
 
 	/*Check if the filter interface exists*/
 	if (!ipa3_query_iface(client_iface, &client_intf)) {
@@ -957,9 +1432,9 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 	}
 	memcpy(rx_prop->name, client_intf.name, sizeof(client_intf.name));
 	rx_prop->num_rx_props = client_intf.num_rx_props;
-	IPA_BE_ERR("Query rx_prop %d name %s\n", rx_prop->num_rx_props, client_intf.name);
+	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, client_intf.name);
 	ipa3_query_intf_rx_props(rx_prop);
-	IPA_BE_ERR("Query response rx_prop src %d hdr_l2_type %d\n", rx_prop->rx[idx].src_pipe,
+	IPA_BE_DBG("Query response rx_prop src %d hdr_l2_type %d\n", rx_prop->rx[idx].src_pipe,
 		rx_prop->rx[idx].hdr_l2_type);
 
 	/* ext Props */
@@ -1003,10 +1478,10 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
 		idx = j * 2 + 1;
 		if (rx_prop->rx[idx].ip != IPA_IP_v6) {
-			IPA_BE_ERR("IP not matching required type %d .. continue\n", rx_prop->rx[idx].ip);
+			IPA_BE_DBG("IP not matching required type %d .. continue\n", rx_prop->rx[idx].ip);
 			continue;
 		}
-		IPA_BE_ERR("Install rules at idx %d\n", idx);
+		IPA_BE_DBG("Install rules at idx %d\n", idx);
 
 		memset(flt_index, 0, sizeof(struct ipa_fltr_installed_notif_req_msg_v01));
 		flt_index->source_pipe_index = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
@@ -1033,41 +1508,42 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 */
 		flt_index->embedded_call_mux_id = ext_prop->ext[0].mux_id;
 
-		IPA_BE_ERR("flt_index: src pipe: %d, num of rules: %d, ebd pipe: %d, mux id: %d\n",
-				   flt_index->source_pipe_index, flt_index->filter_index_list_len, flt_index->embedded_pipe_index, flt_index->embedded_call_mux_id);
+		IPA_BE_DBG("flt_index: src pipe: %d, num of rules: %d, ebd pipe: %d, mux id: %d\n",
+				   flt_index->source_pipe_index, flt_index->rule_id_len, flt_index->embedded_pipe_index, flt_index->embedded_call_mux_id);
 
-		len = sizeof(struct ipa_ioc_add_flt_rule) +
-			total_rules * sizeof(struct ipa_flt_rule_add);
-
-		pFilteringTable =
-			(struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
-
+		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
 		if (pFilteringTable == NULL) {
-			IPA_BE_ERR("Error Locate ipa_flt_rule_add memory...\n");
+			IPA_BE_ERR("Error Locate ipa_ioc_add_flt_rule_v2 memory...\n");
 			retval = -EINVAL;
 			goto end;
 		}
-		memset(pFilteringTable, 0, len);
+
+		pFilteringTable->rules = (uint64_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
+		if (!pFilteringTable->rules) {
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			IPA_BE_ERR("Error Locate ipa_flt_rule_add_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
+		}
 
 		pFilteringTable->commit = 1;
 		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
 		pFilteringTable->global = false;
 		pFilteringTable->ip = iptype;
 		pFilteringTable->num_rules = total_rules;
+		pFilteringTable->flt_rule_size = sizeof(struct ipa_flt_rule_add_v2);
 
 		for (cnt = i = 0; cnt < ext_prop->num_ext_props && i < total_rules; cnt++)
 		{
 			if (ext_prop->ext[cnt].ip != IPA_IP_v6)
 			{
-				IPA_BE_ERR("iptype mismatch %d .. continue\n", ext_prop->ext[cnt].ip);
+				IPA_BE_DBG("iptype mismatch %d .. continue\n", ext_prop->ext[cnt].ip);
 				continue;
 			}
 
-			memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add)); // Zero All Fields
+			memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add_v2));
 			flt_rule_entry.at_rear = 1;
-
-			if (flt_rule_entry.rule.eq_attrib.ipv4_frag_eq_present)
-				flt_rule_entry.at_rear = 0;
 
 			flt_rule_entry.flt_rule_hdl = -1;
 			flt_rule_entry.status = -1;
@@ -1094,7 +1570,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 				/* Override the rule action if Q6 can't handle it, go A7 exception */
 				flt_rule_entry.rule.action = ext_prop->ext[cnt].action;
 				flt_rule_entry.rule.rt_tbl_idx = 0;
-				IPA_BE_ERR("Override rule index %d to act: %d, rt_tbl_idx: %d to %d\n",
+				IPA_BE_DBG("Override rule index %d to act: %d, rt_tbl_idx: %d to %d\n",
 						   cnt, flt_rule_entry.rule.action,
 						   ext_prop->ext[cnt].rt_tbl_idx,
 						   flt_rule_entry.rule.rt_tbl_idx);
@@ -1102,7 +1578,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 				/* restore the rule action */
 				flt_rule_entry.rule.action = action_cache;
 				flt_rule_entry.rule.rt_tbl_idx = ext_prop->ext[cnt].rt_tbl_idx;
-				IPA_BE_ERR("Restore rule index %d to act: %d, rt_tbl_idx: %d \n",
+				IPA_BE_DBG("Restore rule index %d to act: %d, rt_tbl_idx: %d \n",
 						   cnt, flt_rule_entry.rule.action,
 						   flt_rule_entry.rule.rt_tbl_idx);
 			}
@@ -1121,10 +1597,10 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 				//IPA_BE_ERR("turn on meta-data equation with value 0x%x\n", rx_prop->rx[idx].attrib.meta_data);
 			//}
 
-			memcpy(&pFilteringTable->rules[i], &flt_rule_entry, sizeof(flt_rule_entry));
+			memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
 
-			IPA_BE_ERR("Modem UL filtering rule %d has index %d installed at %d\n", cnt, index, i);
-			IPA_BE_ERR("Modem UL filtering rule_id %d\n", flt_rule_entry.rule.rule_id);
+			IPA_BE_DBG("Modem UL filtering rule %d has index %d installed at %d\n", cnt, index, i);
+			IPA_BE_DBG("Modem UL filtering rule_id %d\n", flt_rule_entry.rule.rule_id);
 			flt_index->rule_id[i] = ext_prop->ext[cnt].rule_id;
 			index++;
 			i++;
@@ -1132,7 +1608,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 			//for IPv6CT enabled and XLAT, add a duplicate rule above that will let XLAT packets go to routing instead of NAT
 			if (is_xlat && flt_rule_entry.rule.action != IPA_PASS_TO_EXCEPTION) {
 				//duplicate the old rule to new index
-				memcpy(&pFilteringTable->rules[i], &flt_rule_entry, sizeof(flt_rule_entry));
+				memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
 
 				//change old rule to pass to route and non hashable
 				flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
@@ -1143,7 +1619,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 
 				if (meq32_n + 1 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
 					IPA_BE_ERR("Can't add another meq_32 equation to this rule");
-					memcpy(&pFilteringTable->rules[cnt], &flt_rule_entry, sizeof(flt_rule_entry));
+					memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[cnt]), &flt_rule_entry, sizeof(flt_rule_entry));
 					continue;
 				}
 
@@ -1160,7 +1636,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 				IPA_BE_DBG("Xlat rule %d flt_index rule id %d\n", flt_rule_entry.rule.eq_attrib.num_offset_meq_32, flt_index->rule_id[i]);
 
 				//overwrite the old rule and increment the rule count
-				memcpy(&pFilteringTable->rules[i - 1], &flt_rule_entry, sizeof(flt_rule_entry));
+				memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i - 1]), &flt_rule_entry, sizeof(flt_rule_entry));
 				index++;
 				i++;
 			}
@@ -1174,43 +1650,48 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 		}
 
 		if (notif_only) {
-			IPA_BE_ERR("UL filtering rules already installed for %s, only sent notification for modem (mux %d)\n",
+			IPA_BE_DBG("UL filtering rules already installed for %s, only sent notification for modem (mux %d)\n",
 					   rx_prop->name,  ext_prop->ext[0].mux_id);
 
 			if (pFilteringTable)
 			{
+				if (pFilteringTable->rules)
+					kfree((void *)(uintptr_t)pFilteringTable->rules);
 				kfree(pFilteringTable);
 				pFilteringTable = NULL;
 			}
 			retval = 0;
 			continue;
 		} else {
-			IPA_BE_ERR("this is the first PDN for dev %s, commiting modem UL rules, mux %d\n", rx_prop->name, ext_prop->ext[0].mux_id);
+			IPA_BE_DBG("this is the first PDN for dev %s, commiting modem UL rules, mux %d\n", rx_prop->name, ext_prop->ext[0].mux_id);
 		}
 
-		if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)pFilteringTable,
+		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable,
 				true)) {
-			IPA_BE_ERR("ipa3_add_flt_rule_usr failed\n");
+			IPA_BE_ERR("ipa3_add_flt_rule_usr_v2 failed\n");
 			retval = -EFAULT;
 			goto end;
 		}
 		else
 		{
 			for (i = 0; i < pFilteringTable->num_rules; i++) {
-				if (!pFilteringTable->rules[i].flt_rule_hdl)
+				if (!(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl)
 				{
 					continue;
 				}
-				IPA_BE_ERR("Modem uplink rules %d filter rule hdl: %d\n", lan2lan, pFilteringTable->rules[i].flt_rule_hdl);
+				IPA_BE_DBG("Modem uplink rules %d filter rule hdl: %d\n", lan2lan, (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl);
 
-				flt_entry.flt_hdl = pFilteringTable->rules[i].flt_rule_hdl;
-				flt_entry.cat = IPA_FLT_RULE_CAT_UPLINK;  // Modem uplink rules v6
+				flt_entry.flt_hdl = (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl;
+				flt_entry.cat = IPA_FLT_RULE_CAT_UPLINK;  /* Modem uplink rules v6 */
 				flt_entry.ip_type = IPA_IP_v6;
 				ipa3_add_filter_rules_entry(client_iface, flt_entry);
 			}
+			flt_rule_count_v6[rx_prop->rx[idx].src_pipe]++;
 		}
 		if (pFilteringTable)
 		{
+			if (pFilteringTable->rules)
+				kfree((void *)(uintptr_t)pFilteringTable->rules);
 			kfree(pFilteringTable);
 			pFilteringTable = NULL;
 		}
@@ -1239,22 +1720,25 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 end:
 	if (flt_index)
 		kfree(flt_index);
-	if (pFilteringTable)
+	if (pFilteringTable) {
+		if (pFilteringTable->rules)
+			kfree((void *)(uintptr_t)pFilteringTable->rules);
 		kfree(pFilteringTable);
+	}
 	if (rx_prop)
 		kfree(rx_prop);
 	if (ext_prop)
 		kfree(ext_prop);
 
-	IPA_BE_ERR("Exit retval %d \n", retval);
+	IPA_BE_DBG("Exit retval %d \n", retval);
 	return retval;
 }
 EXPORT_SYMBOL(ipa_be_v6_add_uplink_filter_rule);
 
 int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int intf_num, mac_addr_t mac)
 {
-	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
-	struct ipa_flt_rule_add flt_rule_entry;
+	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
+	struct ipa_flt_rule_add_v2 flt_rule_entry;
 	struct ipa_ioc_query_intf temp_intf;
 	int retval = 0, len = 0;
 	struct ipa_ioc_query_intf_rx_props *rx_prop;
@@ -1264,7 +1748,7 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
 	struct ipa3_flt_entry flt_entry = {0};
 
-	IPA_BE_ERR("ECMIPA entry lan2lan %d\n", lan2lan);
+	IPA_BE_DBG("ECMIPA entry lan2lan %d\n", lan2lan);
 	ipa_type_check_ipa_mac_addr(mac);
 
 	/*Check if the filter interface exists*/
@@ -1282,27 +1766,36 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 	}
 	memcpy(rx_prop->name, temp_intf.name, sizeof(temp_intf.name));
 	rx_prop->num_rx_props = temp_intf.num_rx_props;
-	IPA_BE_ERR("Query rx_prop %d name %s\n", rx_prop->num_rx_props, temp_intf.name);
+	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, temp_intf.name);
 	ipa3_query_intf_rx_props(rx_prop);
-	IPA_BE_ERR("Query response rx_prop src %d hdr_l2_type %d\n", rx_prop->rx[idx].src_pipe,
+	IPA_BE_DBG("Query response rx_prop src %d hdr_l2_type %d\n", rx_prop->rx[idx].src_pipe,
 		rx_prop->rx[idx].hdr_l2_type);
 
 	if (lan2lan) {
-		len = sizeof(struct ipa_ioc_add_flt_rule) + sizeof(struct ipa_flt_rule_add);
-		pFilteringTable = (struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
+		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
 		if (!pFilteringTable) {
-			IPA_BE_ERR("Failed to allocate ipa_ioc_add_flt_rule_after memory...\n");
-			return -EINVAL;
+			IPA_BE_ERR("Failed to allocate ipa_ioc_add_flt_rule_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
 		}
 
-		IPA_BE_ERR("Install rules on Rx pipe at idx %d src_pipe %d\n", idx, rx_prop->rx[idx].src_pipe);
-		memset(pFilteringTable, 0, len);
+		pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
+		if (!pFilteringTable->rules) {
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			IPA_BE_ERR("Failed to allocate ipa_flt_rule_add_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
+		}
+
+		IPA_BE_DBG("Install rules on Rx pipe at idx %d src_pipe %d\n", idx, rx_prop->rx[idx].src_pipe);
 
 		/* add mac based rule*/
 		pFilteringTable->commit = 1;
 		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
 		pFilteringTable->ip = IPA_IP_v6;
 		pFilteringTable->num_rules = total_rules;
+		pFilteringTable->flt_rule_size = sizeof(struct ipa_flt_rule_add_v2);
 		/* pFilteringTable->add_after_hdl = 0; //tbd */
 
 		memset(&flt_rule_entry, 0, sizeof(flt_rule_entry));
@@ -1320,15 +1813,15 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 		strlcpy(rt_tbl.name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #endif
 
-		IPA_BE_ERR("This flt rule points to rt tbl %s.\n", rt_tbl.name);
+		IPA_BE_DBG("This flt rule points to rt tbl %s.\n", rt_tbl.name);
 
 		if (ipa3_get_rt_tbl((struct ipa_ioc_get_rt_tbl *)&rt_tbl)) {
 			IPA_BE_ERR("ECMIPA failed to get route hdl \n");
 			retval = -EFAULT;
 		}
-		IPA_BE_ERR("Install filter rules with rt_tbl.hdl %d \n", rt_tbl.hdl);
+		IPA_BE_DBG("Install filter rules with rt_tbl.hdl %d \n", rt_tbl.hdl);
 
-		IPA_BE_ERR("Install rules on Rx pipe at idx %d \n", idx);
+		IPA_BE_DBG("Install rules on Rx pipe at idx %d \n", idx);
 		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
 
 		flt_rule_entry.rule.hashable = true;
@@ -1348,16 +1841,16 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 			flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[i] = 0xFFFFFFFF;
 		}
 
-		memcpy(&(pFilteringTable->rules[0]), &flt_rule_entry, sizeof(flt_rule_entry));
+		memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]), &flt_rule_entry, sizeof(flt_rule_entry));
 
-		if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)pFilteringTable,
+		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable,
 			true)) {
-			IPA_BE_ERR("ipa3_add_flt_rule_usr failed\n");
+			IPA_BE_ERR("ipa3_add_flt_rule_usr_v2 failed\n");
 			retval = -EFAULT;
 			goto end;
 		} else {
-			flt_hdl = pFilteringTable->rules[0].flt_rule_hdl;
-			IPA_BE_ERR("Lan2Lan %d filter rule hdl: %d\n", lan2lan, flt_hdl);
+			flt_hdl = (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]).flt_rule_hdl;
+			IPA_BE_DBG("Lan2Lan %d filter rule hdl: %d\n", lan2lan, flt_hdl);
 			flt_entry.flt_hdl = flt_hdl;
 			flt_entry.cat = 0;
 
@@ -1367,17 +1860,20 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 			ipa3_add_filter_rules_entry(intf_num, flt_entry);
 		}
 	} else {
-		IPA_BE_ERR("Lan2wan case \n");
+		IPA_BE_DBG("Lan2wan case \n");
 	}
 
 
 end:
-	if (pFilteringTable)
+	if (pFilteringTable) {
+		if (pFilteringTable->rules)
+			kfree((void *)(uintptr_t)pFilteringTable->rules);
 		kfree(pFilteringTable);
+	}
 	if (rx_prop)
 		kfree(rx_prop);
 
-	IPA_BE_ERR("Exit retval %d \n", retval);
+	IPA_BE_DBG("Exit retval %d \n", retval);
 	return retval;
 }
 
@@ -1391,7 +1887,7 @@ int ipa_be_v4_delete_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg, int in
 	int flt_hdl = -1;
 	struct ipa3_flt_entry flt_entry = {0};
 
-	IPA_BE_ERR("Entry ipa_be_v4_delete_filter_rule for mac %pM \n", mac);
+	IPA_BE_DBG("Entry ipa_be_v4_delete_filter_rule for mac %pM \n", mac);
 
 	if (lan2lan) {
 		flt_entry.cat = IPA_FLT_RULE_CAT_LAN2LAN;
@@ -1428,7 +1924,7 @@ int ipa_be_v4_delete_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg, int in
 				retval = -1;
 				goto fail;
 			}
-			IPA_BE_ERR("Filter rule deleted successfully.. lan2lan: %d hdl: %d\n", lan2lan, flt_hdl);
+			IPA_BE_DBG("Filter rule deleted successfully.. lan2lan: %d hdl: %d\n", lan2lan, flt_hdl);
 		}
 	}
 
@@ -1445,7 +1941,7 @@ int ipa_be_v6_delete_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int in
 	int flt_hdl = -1;
 	struct ipa3_flt_entry flt_entry = {0};
 
-	IPA_BE_ERR("Entry ipa_be_v4_delete_filter_rule for mac %pM \n", mac);
+	IPA_BE_DBG("Entry ipa_be_v4_delete_filter_rule for mac %pM \n", mac);
 
 	if (lan2lan) {
 		flt_entry.rule.attrib.attrib_mask |= IPA_FLT_MAC_DST_ADDR_ETHER_II;
@@ -1477,7 +1973,7 @@ int ipa_be_v6_delete_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int in
 				retval = -1;
 				goto fail;
 			}
-			IPA_BE_ERR("Filter rule deleted successfully.. lan2lan: %d hdl: %d\n", lan2lan, flt_hdl);
+			IPA_BE_DBG("Filter rule deleted successfully.. lan2lan: %d hdl: %d\n", lan2lan, flt_hdl);
 		}
 	}
 
@@ -1494,7 +1990,7 @@ int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg,
 	bool is_xlat = false;
 	bool delete_ul_rules = true;
 
-	IPA_BE_ERR("Entry ipa_be_v4_delete_filter_rule for pdn_iface %d client_iface %d \n", pdn_iface, client_iface);
+	IPA_BE_DBG("Entry ipa_be_v4_delete_filter_rule for pdn_iface %d client_iface %d \n", pdn_iface, client_iface);
 
 	/* Check if this was XLAT traffic - same detection logic as in add function */
 	if (((ntohl(v4_msg.tuple.flow_ip) & 0xFFFFFF00U) == 0xC0000000U) ||
@@ -1554,7 +2050,7 @@ int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg,
 
 	retval = ipa_be_delete_rules_by_category(client_iface, IPA_FLT_RULE_CAT_UPLINK, IPA_IP_v4);
 	if (retval == 0) {
-		IPA_BE_ERR("Uplink filter rules deleted successfully for client_iface:%d\n", client_iface);
+		IPA_BE_DBG("Uplink filter rules deleted successfully for client_iface:%d\n", client_iface);
 	} else {
 		IPA_BE_ERR("Failed to delete uplink filter rules for client_iface:%d, retval=%d\n", client_iface, retval);
 	}
@@ -1580,7 +2076,7 @@ int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg,
 	bool found = false;
 	bool delete_ul_rules = true;
 
-	IPA_BE_ERR("Entry ipa_be_v6_delete_uplink_filter_rule for pdn_iface %d client_iface %d \n", pdn_iface, client_iface);
+	IPA_BE_DBG("Entry ipa_be_v6_delete_uplink_filter_rule for pdn_iface %d client_iface %d \n", pdn_iface, client_iface);
 
 	spin_lock_bh(&ipa_uplink_lock);
 	list_for_each_entry_safe(pair, tmp, &ipa_uplink_pairs_list, node) {
@@ -1630,7 +2126,7 @@ int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg,
 
 	retval = ipa_be_delete_rules_by_category(client_iface, IPA_FLT_RULE_CAT_UPLINK, IPA_IP_v6);
 	if (retval == 0) {
-		IPA_BE_ERR("Uplink filter rules deleted successfully for client_iface:%d\n", client_iface);
+		IPA_BE_DBG("Uplink filter rules deleted successfully for client_iface:%d\n", client_iface);
 	} else {
 		IPA_BE_ERR("Failed to delete uplink filter rules for client_iface:%d, retval=%d\n", client_iface, retval);
 	}
@@ -1638,9 +2134,11 @@ int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg,
 }
 EXPORT_SYMBOL(ipa_be_v6_delete_uplink_filter_rule);
 
-bool AddWanDLFilteringRule(struct ipa_ioc_add_flt_rule const *rule_table_v4,
-			   struct ipa_ioc_add_flt_rule const *rule_table_v6,
-			   uint8_t *mux_id_v4, uint8_t *mux_id_v6)
+static bool AddWanDLFilteringRule(
+	struct ipa_ioc_add_flt_rule const *rule_table_v4,
+	struct ipa_ioc_add_flt_rule const *rule_table_v6,
+	uint8_t *mux_id_v4,
+	uint8_t *mux_id_v6)
 {
 	int ret = 0, cnt, num_rules = 0, pos = 0;
 	struct ipa_install_fltr_rule_req_ex_msg_v01 *qmi_rule_ex_msg;
@@ -1844,7 +2342,7 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	}
 	memcpy(ext_prop->name, temp_intf.name, sizeof(temp_intf.name));
 	ext_prop->num_ext_props = temp_intf.num_ext_props;
-	IPA_BE_ERR("Query ext_prop %d name %s\n", ext_prop->num_ext_props, ext_prop->name);
+	IPA_BE_DBG("Query ext_prop %d name %s\n", ext_prop->num_ext_props, ext_prop->name);
 	ipa3_query_intf_ext_props(ext_prop);
 
 	mux_id[0] = ext_prop->ext[0].mux_id;
@@ -1881,9 +2379,9 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	IPA_BE_DBG("rt_tbl_idx %d\n", rt_tbl_idx.idx);
 
 	if (iptype == IPA_IP_v4)
-		num_rules = 2; /* Multicast, Broadcast */
+		num_rules = 3; /* Frag, Multicast, Broadcast */
 	else
-		num_rules = 4; /* Frag, Multicast, Link-Local, Reserved */
+		num_rules = 5; /* Frag, TCP SYN, Multicast, Link-Local, Reserved */
 
 	len = sizeof(*pFilteringTable) +
 		num_rules * sizeof(struct ipa_flt_rule_add);
@@ -1902,7 +2400,41 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	if (iptype == IPA_IP_v4) {
 		/* IPv4 Default Filtering Rules */
 
-		/* Rule 1: Multicast Filtering Rule (224.0.0.0/4) */
+		/* Rule 1: Fragment Filtering Rule */
+		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
+
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1;
+		flt_rule_entry.status = -1;
+
+		flt_rule_entry.rule.retain_hdr = 1;
+		flt_rule_entry.rule.to_uc = 0;
+		flt_rule_entry.rule.eq_attrib_type = 1;
+		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+		flt_rule_entry.rule.hashable = false; /* Fragment rules are not hashable */
+		flt_rule_entry.rule.rt_tbl_idx = rt_tbl_idx.idx;
+
+		/* Set fragment attributes */
+		flt_rule_entry.rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
+
+		/* Convert to network order */
+		retval = change_to_network_order_kernel(IPA_IP_v4, &flt_rule_entry.rule.attrib);
+		if (retval != 0) {
+			IPA_BE_ERR("Failed to convert fragment rule to network order\n");
+			goto fail_rx;
+		}
+
+		/* Generate filter equation */
+		retval = ipahal_flt_generate_equation(iptype, &flt_rule_entry.rule.attrib, &flt_rule_entry.rule.eq_attrib);
+		if (retval != 0) {
+			IPA_BE_ERR("Failed to generate fragment filter equation\n");
+			goto fail_rx;
+		}
+
+		memcpy(&(pFilteringTable->rules[m_ipv4_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
+		m_ipv4_default_filterting_rules_count++;
+
+		/* Rule 2: Multicast Filtering Rule (224.0.0.0/4) */
 		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
 
 		flt_rule_entry.at_rear = true;
@@ -1998,7 +2530,39 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		memcpy(&(pFilteringTable->rules[m_ipv6_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
 		m_ipv6_default_filterting_rules_count++;
 
-		/* Rule 2: Multicast Filtering Rule (ff00::/8) */
+
+		/* Rule 2: TCP SYN Rule */
+		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
+		flt_rule_entry.at_rear = true;
+		flt_rule_entry.flt_rule_hdl = -1;
+		flt_rule_entry.status = -1;
+
+		flt_rule_entry.rule.retain_hdr = 1;
+		flt_rule_entry.rule.to_uc = 0;
+		flt_rule_entry.rule.eq_attrib_type = 1;
+		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+		flt_rule_entry.rule.hashable = false; /* Multicast rules are hashable */
+		flt_rule_entry.rule.rt_tbl_idx = rt_tbl_idx.idx;
+
+		flt_rule_entry.rule.eq_attrib.protocol_eq = 6;
+		flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= 0x20<<flt_rule_entry.rule.eq_attrib.num_offset_meq_32;
+		flt_rule_entry.rule.eq_attrib.offset_meq_32[flt_rule_entry.rule.eq_attrib.num_offset_meq_32].offset = 6;
+		flt_rule_entry.rule.eq_attrib.offset_meq_32[flt_rule_entry.rule.eq_attrib.num_offset_meq_32].mask = 0xFF000000;
+		flt_rule_entry.rule.eq_attrib.offset_meq_32[flt_rule_entry.rule.eq_attrib.num_offset_meq_32].value = 6 << 24;
+		flt_rule_entry.rule.eq_attrib.num_offset_meq_32 ++;
+
+		flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1<<8);
+		flt_rule_entry.rule.eq_attrib.num_ihl_offset_meq_32 = 1;
+		flt_rule_entry.rule.eq_attrib.ihl_offset_meq_32[0].offset = 12;
+
+		/* add TCP SYN rule*/
+		flt_rule_entry.rule.eq_attrib.ihl_offset_meq_32[0].value = (((uint32_t)1)<<17);
+		flt_rule_entry.rule.eq_attrib.ihl_offset_meq_32[0].mask = (((uint32_t)1)<<17);
+
+		memcpy(&(pFilteringTable->rules[m_ipv6_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
+		m_ipv6_default_filterting_rules_count++;
+
+		/* Rule 3: Multicast Filtering Rule (ff00::/8) */
 		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
 
 		flt_rule_entry.at_rear = true;
@@ -2039,7 +2603,7 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		memcpy(&(pFilteringTable->rules[m_ipv6_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
 		m_ipv6_default_filterting_rules_count++;
 
-		/* Rule 3: Link-Local Unicast Filtering Rule (fe80::/10) */
+		/* Rule 4: Link-Local Unicast Filtering Rule (fe80::/10) */
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[0] = LINK_LOCAL_IPV6_PREFIX_MASK;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[1] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[2] = 0x00000000;
@@ -2066,7 +2630,7 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		memcpy(&(pFilteringTable->rules[m_ipv6_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
 		m_ipv6_default_filterting_rules_count++;
 
-		/* Rule 4: Reserved by IETF Filtering Rule (fec0::/10) */
+		/* Rule 5: Reserved by IETF Filtering Rule (fec0::/10) */
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[0] = LINK_LOCAL_IPV6_PREFIX_MASK;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[1] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[2] = 0x00000000;
@@ -2396,13 +2960,13 @@ int install_wan_filtering_rule(void)
     int ret = 0, len = 0, cnt = 0;
     struct ipa_ioc_add_flt_rule *pFilteringTable_v4 = NULL;
     struct ipa_ioc_add_flt_rule *pFilteringTable_v6 = NULL;
-	uint8_t *mux_id_v4 = NULL;
-	uint8_t *mux_id_v6 = NULL;
-	struct flt_rule *rule_entry;
+    uint8_t *mux_id_v4 = NULL;
+    uint8_t *mux_id_v6 = NULL;
+    struct flt_rule *rule_entry;
 
     IPA_BE_DBG("IPACM_WAN_KERNEL: Installing WAN filtering rules\n");
 
-    /* Install IPv4 filtering rules */
+    /* Prepare IPv4 filtering rules (do not send yet) */
     if (wan_rule_count_v4 > 0) {
         len = sizeof(struct ipa_ioc_add_flt_rule) +
               (wan_rule_count_v4 * sizeof(struct ipa_flt_rule_add));
@@ -2410,14 +2974,15 @@ int install_wan_filtering_rule(void)
         pFilteringTable_v4 = kzalloc(len, GFP_KERNEL);
         if (!pFilteringTable_v4) {
             IPA_BE_ERR("Failed to allocate IPv4 filtering table\n");
-            return -ENOMEM;
+            ret = -ENOMEM;
+            goto cleanup;
         }
 
         mux_id_v4 = kzalloc(wan_rule_count_v4 * sizeof(uint8_t), GFP_KERNEL);
         if (!mux_id_v4) {
             IPA_BE_ERR("Failed to allocate mux_id_v4 array\n");
-            kfree(pFilteringTable_v4);
-            return -ENOMEM;
+            ret = -ENOMEM;
+            goto cleanup;
         }
 
         pFilteringTable_v4->commit = 1;
@@ -2443,15 +3008,11 @@ int install_wan_filtering_rule(void)
         }
         spin_unlock_bh(&pdn_flt_rule_v4_lock);
 
-        if (!AddWanDLFilteringRule(pFilteringTable_v4, NULL, mux_id_v4, NULL)) {
-            IPA_BE_ERR("Failed to add v4 filtering rules\n");
-            ret = -EIO;
-        } else {
-            IPA_BE_DBG("Successfully installed %d IPv4 filtering rules\n", wan_rule_count_v4);
-        }
+        IPA_BE_DBG("Prepared %d IPv4 WAN filtering rules for combined installation\n",
+            wan_rule_count_v4);
     }
 
-    /* Install IPv6 filtering rules */
+    /* Prepare IPv6 filtering rules (do not send yet) */
     if (wan_rule_count_v6 > 0) {
         len = sizeof(struct ipa_ioc_add_flt_rule) +
               (wan_rule_count_v6 * sizeof(struct ipa_flt_rule_add));
@@ -2466,7 +3027,6 @@ int install_wan_filtering_rule(void)
         mux_id_v6 = kzalloc(wan_rule_count_v6 * sizeof(uint8_t), GFP_KERNEL);
         if (!mux_id_v6) {
             IPA_BE_ERR("Failed to allocate mux_id_v6 array\n");
-            kfree(pFilteringTable_v6);
             ret = -ENOMEM;
             goto cleanup;
         }
@@ -2494,13 +3054,22 @@ int install_wan_filtering_rule(void)
         }
         spin_unlock_bh(&pdn_flt_rule_v6_lock);
 
-        if (!AddWanDLFilteringRule(NULL, pFilteringTable_v6, NULL, mux_id_v6)) {
-            IPA_BE_ERR("Failed to add v6 filtering rules\n");
-            ret = -EIO;
-        } else {
-            IPA_BE_DBG("Successfully installed %d IPv6 filtering rules\n", wan_rule_count_v6);
-        }
+        IPA_BE_DBG("Prepared %d IPv6 WAN filtering rules for combined installation\n",
+            wan_rule_count_v6);
     }
+
+    /* Send both IPv4 and IPv6 rules together in a single QMI request */
+    IPA_BE_DBG("Sending combined WAN filtering rules to modem: v4=%d, v6=%d\n",
+        wan_rule_count_v4, wan_rule_count_v6);
+
+    if (!AddWanDLFilteringRule(pFilteringTable_v4, pFilteringTable_v6, mux_id_v4, mux_id_v6)) {
+        IPA_BE_ERR("Failed to add combined WAN filtering rules via QMI\n");
+        ret = -EIO;
+        goto cleanup;
+    }
+
+    IPA_BE_DBG("Successfully installed %d IPv4 filtering rules (combined)\n", wan_rule_count_v4);
+    IPA_BE_DBG("Successfully installed %d IPv6 filtering rules (combined)\n", wan_rule_count_v6);
 
 cleanup:
     if (mux_id_v4)
@@ -2551,14 +3120,18 @@ int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 			pdn_iface, iptype, pdn_entry->ref_count);
 		return 0;
 	}
-
-	/* Mark as not installed */
-	pdn_entry->dft_rule_installed = false;
-
 	/* If both default and catchup rules are not installed and ref_count is 0, remove the entry */
 	if (!pdn_entry->catchup_rule_installed && pdn_entry->ref_count == 0) {
+		/* Mark as not installed */
+		pdn_entry->dft_rule_installed = false;
 		ipa_remove_pdn_filter_entry(pdn_entry);
 		IPA_BE_DBG("Removed PDN filter entry for pdn %d, IP type %d\n", pdn_iface, iptype);
+	}
+	else {
+		IPA_BE_DBG("PDN filter entry for pdn %d, IP type %d is not removed as catchup rule is still installed\n",
+			pdn_iface, iptype);
+		spin_unlock_bh(&ipa_pdn_filter_lock);
+		return 0;
 	}
 
 	spin_unlock_bh(&ipa_pdn_filter_lock);
@@ -2626,7 +3199,7 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 	IPA_BE_DBG("Decremented ref_count for pdn %d, IP type %d. New count: %d\n",
 		pdn_iface, iptype, pdn_entry->ref_count);
 
-	if (pdn_entry->ref_count > 0) {
+	if (pdn_entry->ref_count > 1) {
 		/* Other connections are still using these rules, so don't delete them */
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("Catchup filtering rule for pdn %d, IP type %d still in use. ref_count: %d\n",

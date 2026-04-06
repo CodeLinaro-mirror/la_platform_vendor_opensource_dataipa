@@ -62,6 +62,7 @@ void ipa_be_reset(void);
 bool is_pwr_save_if(uint32_t ip_addr);
 uint32_t generate_met_data(uint8_t mux_id);
 
+int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
 int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
 int ipa_be_remove_pdn(uint32_t pub_ip);
 
@@ -76,6 +77,9 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan);
 int ipa_be_delete_nat_entry(const nat_table_entry *rule);
 
 /* IPv6 Connection Tracking functions */
+int ipv6ct_add_entry(struct ipa_ipv6_rule_create_msg *v6_msg, uint32_t *rule_handle);
+int ipv6ct_del_entry(struct ipa_ipv6_rule_destroy_msg *v6_msg, uint32_t rule_handle);
+void ipa_be_delete_v6_ct_entry(struct ipa_ipv6_rule_destroy_msg v6_msg, uint32_t rule_handle);
 int ipa_be_add_table_v6(const uint32_t v6_prefix[2]);
 void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg);
 // int DeleteEntryGRE(const nat_table_entry *);
