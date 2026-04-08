@@ -1894,15 +1894,7 @@ int ipa_NATI_post_ipv4_init_cmd(
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	if ( ! nat_cache_ptr->table_cnt ) {
 		IPAERR("No initialized table in NAT cache\n");
@@ -1926,14 +1918,7 @@ int ipa_NATI_post_ipv4_init_cmd(
 	active_nat_cache_ptr = nat_cache_ptr;
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");
@@ -1977,15 +1962,7 @@ int ipa_NATI_add_ipv4_tbl(
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	//mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	nat_cache_ptr->nmi = nmi;
 
@@ -2068,14 +2045,7 @@ failed_create_table:
 	#endif
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	//mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");
@@ -2108,15 +2078,7 @@ int ipa_NATI_del_ipv4_table(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
@@ -2140,14 +2102,7 @@ int ipa_NATI_del_ipv4_table(
 	#endif
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");
@@ -2184,25 +2139,7 @@ int ipa_NATI_query_timestamp_v2(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
-#ifdef CONFIG_ECM_CONVERGENCE
-	int ret_mtx = 0;
-	int mut_locked = false;
-	if (!nat_mutex_locked)
-	{
-		ret = take_mutex();
-		if (ret) {
-			IPAERR("unable to lock the nat mutex\n");
-			goto bail;
-		}
-		mut_locked = true;
-	}
-#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 	if ( ! nat_table->mem_desc.valid ) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
 		ret = -EINVAL;
@@ -2230,18 +2167,7 @@ int ipa_NATI_query_timestamp_v2(
 
 
 unlock:
-#ifdef CONFIG_ECM_CONVERGENCE
-	if (mut_locked)
-	{
-		ret_mtx = give_mutex();
-	}
-	ret = (ret) ? ret : ret_mtx;
-#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-#endif
+	IPA_NAT_MUTEX_UNLOCK();
 bail:
 	IPADBG("Out\n");
 
@@ -2288,25 +2214,7 @@ int ipa_NATI_query_timestamp_redirect(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
-#ifdef CONFIG_ECM_CONVERGENCE
-	int ret_mtx = 0;
-	int mut_locked = false;
-	if (!nat_mutex_locked)
-	{
-		ret = take_mutex();
-		if (ret) {
-			IPAERR("unable to lock the nat mutex\n");
-			goto bail;
-		}
-		mut_locked = true;
-	}
-#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	if ( ! nat_table->mem_desc.valid ) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
@@ -2335,18 +2243,7 @@ int ipa_NATI_query_timestamp_redirect(
 	*redirect = rule_ptr->redirect;
 
 unlock:
-#ifdef CONFIG_ECM_CONVERGENCE
-	if (mut_locked)
-	{
-		ret_mtx = give_mutex();
-	}
-	ret = (ret) ? ret : ret_mtx;
-#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");
@@ -2473,21 +2370,7 @@ int ipa_NATI_add_ipv4_rule(
 		goto done;
 	}
 
-#ifdef CONFIG_ECM_CONVERGENCE
-	int ret_mtx;
-	int mut_locked = false;
-	if (!nat_mutex_locked)
-	{
-		ret = take_mutex();
-		mut_locked = true;
-	}
-#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-#endif
+	IPA_NAT_MUTEX_LOCK(done);
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
@@ -2599,18 +2482,7 @@ int ipa_NATI_add_ipv4_rule(
 		goto bail;
 	}
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	if (mut_locked)
-	{
-		ret_mtx = give_mutex();
-	}
-	ret = (ret) ? ret : ret_mtx;
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 	*rule_hdl = new_entry_handle;
 
@@ -2625,14 +2497,7 @@ fail_add_index_entry:
 	ipa_table_erase_entry(&nat_table->table, new_entry_index);
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 done:
 	#ifdef CONFIG_ECM_CONVERGENCE
 	kfree(cmd_buf);
@@ -2720,21 +2585,7 @@ int ipa_NATI_add_ipv4_rule_v2(
 		goto done;
 	}
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	int ret_mtx;
-	int mut_locked = false;
-	if (!nat_mutex_locked)
-	{
-		ret = take_mutex();
-		mut_locked = true;
-	}
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto done;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(done);
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("invalid table handle %d\n", tbl_hdl);
@@ -2876,19 +2727,7 @@ int ipa_NATI_add_ipv4_rule_v2(
 		   new_entry_handle,
 		   prep_nat_rule_4print_v2(rule, buf, sizeof(buf)));
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	if (mut_locked)
-	{
-		ret_mtx = give_mutex();
-	}
-	ret = (ret) ? ret : ret_mtx;
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = -EPERM;
-		goto done;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 	*rule_hdl = new_entry_handle;
 
 	IPADBG("rule_hdl value(%u)\n", *rule_hdl);
@@ -2902,12 +2741,7 @@ fail_add_index_entry:
 	ipa_table_erase_entry(&nat_table->table, new_entry_index);
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex))
-		IPAERR("unable to unlock the nat mutex\n");
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 done:
 	IPADBG("Out\n");
 
@@ -2958,21 +2792,7 @@ int ipa_NATI_del_ipv4_rule_v2(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	int ret_mtx;
-	int mut_locked = false;
-	if (!nat_mutex_locked)
-	{
-		ret = take_mutex();
-		mut_locked = true;
-	}
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("Unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto done;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(done);
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("Invalid table handle 0x%08X\n", tbl_hdl);
@@ -3093,18 +2913,7 @@ int ipa_NATI_del_ipv4_rule_v2(
 			prev_index = IPA_TABLE_INVALID_ENTRY;
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	if (mut_locked)
-	{
-		ret_mtx = give_mutex();
-	}
-	ret = (ret) ? ret : ret_mtx;
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("Unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 done:
 	IPADBG("Out\n");
@@ -3179,24 +2988,8 @@ int ipa_NATI_del_ipv4_rule(
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
-	int mut_locked = false;
-	int ret_mtx;
 
-	if (!nat_mutex_locked)
-	{
-		ret = take_mutex();
-		mut_locked = true;
-	}
-
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto done;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(done);
 
 	if (! nat_table->mem_desc.valid) {
 		IPAERR("Invalid table handle 0x%08X\n", tbl_hdl);
@@ -3317,18 +3110,7 @@ int ipa_NATI_del_ipv4_rule(
 			prev_index = IPA_TABLE_INVALID_ENTRY;
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	if (mut_locked)
-	{
-		ret_mtx = give_mutex();
-	}
-	ret = (ret) ? ret : ret_mtx;
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 done:
 	#ifdef CONFIG_ECM_CONVERGENCE
@@ -3358,24 +3140,7 @@ int ipa_nati_get_sram_size(
 
 	IPADBG("In\n");
 
-
-#ifdef CONFIG_ECM_CONVERGENCE
-	if (mutex_is_locked(&nat_mutex))
-		IPADBG("nat_mutex is already locked\n");
-	else
-		IPADBG("nat_mutex is not locked\n");
-#endif
-
-	#ifdef CONFIG_ECM_CONVERGENCE
-	IPADBG("Calling nat_mutex lock\n");
-	//mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	#ifndef CONFIG_ECM_CONVERGENCE
 	if ( ! nat_cache_ptr->ipa_desc ) {
@@ -3418,15 +3183,8 @@ int ipa_nati_get_sram_size(
 	}
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	//mutex_unlock(&nat_mutex);	
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
+	IPA_NAT_MUTEX_UNLOCK();
 bail:
-	#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -3570,12 +3328,12 @@ static int print_meta_data(
 void ipa_nat_dump_ipv4_table(
 	uint32_t tbl_hdl )
 {
-    bool empty;
-	enum ipa3_nat_mem_in            nmi;
-    struct ipa_nat_cache* nat_cache_ptr;
+	bool empty;
+	enum ipa3_nat_mem_in  nmi;
+	struct ipa_nat_cache* nat_cache_ptr;
 	int ret = 0;
 
-    BREAK_TBL_HDL(tbl_hdl, nmi, tbl_hdl);
+	BREAK_TBL_HDL(tbl_hdl, nmi, tbl_hdl);
 
 	if (tbl_hdl == 0)
 	{
@@ -3590,18 +3348,9 @@ void ipa_nat_dump_ipv4_table(
 	}
 
 	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
+	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
-    nat_cache_ptr = &ipv4_nat_cache[nmi];
-
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		return;
-	}
-	printf("\nIPv4 active rules:\n");
-	#endif	
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	empty = true;
 
@@ -3631,15 +3380,10 @@ void ipa_nat_dump_ipv4_table(
 		IPADBG("  Empty\n");
 	}
 
-	IPADBG("\n");
+	IPA_NAT_MUTEX_UNLOCK();
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-	}
-	#endif
+bail:
+	IPADBG("Out\n");
 }
 
 int ipa_NATI_clear_ipv4_tbl(
@@ -3664,15 +3408,7 @@ int ipa_NATI_clear_ipv4_tbl(
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	if ( ! nat_cache_ptr->table_cnt ) {
 		IPAERR("No initialized table in NAT cache\n");
@@ -3691,14 +3427,7 @@ int ipa_NATI_clear_ipv4_tbl(
 		nat_table->index_table.cur_expn_tbl_cnt = 0;
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");
@@ -3732,16 +3461,7 @@ int ipa_nati_copy_ipv4_tbl(
 		ret = -EINVAL;
 		goto bail;
 	}
- 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	/*
 	 * Clear the destination table...
@@ -3769,14 +3489,7 @@ int ipa_nati_copy_ipv4_tbl(
 	}
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");
@@ -3810,15 +3523,7 @@ int ipa_NATI_walk_ipv4_tbl(
 		goto bail;
 	}
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	/*
 	 * Now walk the table and pass the valid records to the user's
@@ -3858,14 +3563,7 @@ int ipa_NATI_walk_ipv4_tbl(
 	}
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");
@@ -4005,15 +3703,7 @@ int ipa_NATI_ipv4_tbl_stats(
 		goto bail;
 	}
 
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_lock(&nat_mutex);
-	#else
-	if (pthread_mutex_lock(&nat_mutex)) {
-		IPAERR("unable to lock the nat mutex\n");
-		ret = -EINVAL;
-		goto bail;
-	}
-	#endif
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	memset(nat_stats_ptr, 0, sizeof(ipa_nati_tbl_stats));
 	memset(idx_stats_ptr, 0, sizeof(ipa_nati_tbl_stats));
@@ -4115,14 +3805,7 @@ int ipa_NATI_ipv4_tbl_stats(
 	ret = 0;
 
 unlock:
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_unlock(&nat_mutex);
-	#else
-	if (pthread_mutex_unlock(&nat_mutex)) {
-		IPAERR("unable to unlock the nat mutex\n");
-		ret = (ret) ? ret : -EPERM;
-	}
-	#endif
+	IPA_NAT_MUTEX_UNLOCK();
 bail:
 	IPADBG("Out\n");
 

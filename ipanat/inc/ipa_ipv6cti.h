@@ -77,6 +77,62 @@
 #define IPA_IPV6CT_INVALID_PROTO_FIELD_VALUE 0xFF00
 #define IPA_IPV6CT_INVALID_PROTO_FIELD_CMP   0xFF
 
+/* ======================== MUTEX MACROS ======================== */
+
+#ifdef CONFIG_ECM_CONVERGENCE
+/*
+ * Kernel side:
+ * - ipa_ipv6ct_take_mutex() / ipa_ipv6ct_give_mutex() never fail
+ * - label parameter is accepted for API symmetry
+ */
+
+#define IPA_IPV6CT_MUTEX_LOCK(label)   \
+    do {                              \
+        ipa_ipv6ct_take_mutex();          \
+    } while (0)
+
+#define IPA_IPV6CT_MUTEX_UNLOCK()     \
+    do {                              \
+        ipa_ipv6ct_give_mutex();          \
+    } while (0)
+
+#else
+/* ====================== USERSPACE ====================== */
+/*
+ * Userspace:
+ * - ipa_ipv6ct_take_mutex() may fail
+ * - failure jumps to label
+ */
+#define IPA_IPV6CT_MUTEX_LOCK(label)                          \
+    do {                                                     \
+        int _ret;                                            \
+        _ret = ipa_ipv6ct_take_mutex();                          \
+        if (_ret) {                                         \
+            IPAERR("unable to lock ipv6ct mutex (%d)\n",    \
+                   _ret);                                   \
+            ret = _ret;                                     \
+            goto label;                                    \
+        }                                                    \
+    } while (0)
+
+/*
+ * Userspace unlock:
+ * - no control‑flow change
+ * - unlock failure indicates a logic bug
+ */
+#define IPA_IPV6CT_MUTEX_UNLOCK()                             \
+    do {                                                     \
+        int _ret;                                            \
+        _ret = ipa_ipv6ct_give_mutex();                          \
+        if (_ret) {                                         \
+            IPAERR("unable to unlock ipv6ct mutex (%d)\n",  \
+                   _ret);                                   \
+            ret = (ret) ? ret : -EPERM;                     \
+        }                                                    \
+    } while (0)
+
+#endif
+
 typedef enum
 {
 	IPA_IPV6CT_TABLE_FLAGS,
@@ -399,3 +455,6 @@ int ipa_ipv6ct_walk_table(
 int ipa_ipv6ct_stats_table(
 	uint32_t            tbl_hdl,
 	ipa_cti_tbl_stats* ct_stats_ptr);
+
+int ipa_ipv6ct_take_mutex(void);
+int ipa_ipv6ct_give_mutex(void);

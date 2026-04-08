@@ -129,127 +129,135 @@ bool     ct_mutex_locked;
  * of data stuctures within the file ipa_ipv6ct.c
  */
 #ifdef CONFIG_ECM_CONVERGENCE
-struct mutex ipv6ct_mutex;
+DEFINE_MUTEX(ipv6ct_mutex);
 #else
 pthread_mutex_t ipv6ct_mutex;
-#endif
-static bool     ct_mutex_initt = false;
+static bool ipv6ct_mutex_init;
 
-static inline int ct_mutex_init(void)
-{
-	int ret = 0;
+/* Guard to protect one‑time initialization */
+static pthread_mutex_t ipv6ct_mutex_init_guard =
+    PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+bool ipv6ct_mutex_locked = false;
+/*
+ * IPV6CT mutex abstraction
+ *
+ * Kernel  : Linux mutex (cannot fail)
+ * Userspace: pthread recursive mutex (may fail)
+ */
+
 #ifdef CONFIG_ECM_CONVERGENCE
-	mutex_init(&ipv6ct_mutex);
-	goto bail;
-#else
-	static pthread_mutexattr_t ct_mutex_attr;
+/* ===================== KERNEL BUILD ===================== */
 
-	IPADBG("In\n");
-
-	ret = pthread_mutexattr_init(&ct_mutex_attr);
-
-	if ( ret != 0 )
-	{
-		IPAERR("pthread_mutexattr_init() failed: ret(%d)\n", ret );
-		goto bail;
-	}
-
-	ret = pthread_mutexattr_settype(
-		&ct_mutex_attr, PTHREAD_MUTEX_RECURSIVE);
-
-	if ( ret != 0 )
-	{
-		IPAERR("pthread_mutexattr_settype() failed: ret(%d)\n",
-			   ret );
-		goto bail;
-	}
-
-	ret = pthread_mutex_init(&ipv6ct_mutex, &ct_mutex_attr);
-
-	if ( ret != 0 )
-	{
-		IPAERR("pthread_mutex_init() failed: ret(%d)\n",
-			   ret );
-		goto bail;
-	}
-#endif
-	ct_mutex_initt = true;
-
-bail:
-	IPADBG("Out\n");
-
-	return ret;
+/* Kernel mutex lock never fails */
+int ipa_ipv6ct_take_mutex(void)
+{
+   if (!ipv6ct_mutex_locked) {
+    	mutex_lock(&ipv6ct_mutex);
+	ipv6ct_mutex_locked = true;
+   }
+   return 0;
 }
 
-/*
- * Function for taking/locking the mutex...
- */
-static int ct_take_mutex(void)
+int ipa_ipv6ct_give_mutex(void)
 {
-    int ret = -1;
+    if (ipv6ct_mutex_locked) {
+    	mutex_unlock(&ipv6ct_mutex);
+	ipv6ct_mutex_locked = false;
+    }
+    return 0;
+}
 
-    if (!ct_mutex_initt) {
-#ifdef CONFIG_ECM_CONVERGENCE
-        mutex_init(&ipv6ct_mutex);
-        ct_mutex_initt = true;
-        IPAERR("In, ct_mutex_initt %d\n", ct_mutex_initt);
-        ret = 0;
 #else
-        ret = ct_mutex_init();
-#endif
-        if (ret != 0) {
-            IPAERR("Unable to initialize NAT mutex\n");
+/* ===================== USERSPACE BUILD ===================== */
+static inline int ipv6ct_kmutex_init(void)
+{
+    int ret;
+    pthread_mutexattr_t attr;
+
+    IPADBG("ipv6ct_kmutex_init: In\n");
+
+    ret = pthread_mutex_lock(&ipv6ct_mutex_init_guard);
+    if (ret)
+        return ret;
+
+    if (ipv6ct_mutex_init) {
+        pthread_mutex_unlock(&ipv6ct_mutex_init_guard);
+        return 0;
+    }
+
+    ret = pthread_mutexattr_init(&attr);
+    if (ret) {
+        IPAERR("pthread_mutexattr_init failed (%d)\n", ret);
+        goto out;
+    }
+
+    ret = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    if (ret) {
+        IPAERR("pthread_mutexattr_settype failed (%d)\n", ret);
+        goto destroy;
+    }
+
+    ret = pthread_mutex_init(&ipv6ct_mutex, &attr);
+    if (ret) {
+        IPAERR("pthread_mutex_init failed (%d)\n", ret);
+        goto destroy;
+    }
+
+    ipv6ct_mutex_init = true;
+
+destroy:
+    pthread_mutexattr_destroy(&attr);
+out:
+    pthread_mutex_unlock(&ipv6ct_mutex_init_guard);
+
+    IPADBG("ipv6ct_kmutex_init: Out ret=%d\n", ret);
+    return ret;
+}
+
+int ipa_ipv6ct_take_mutex(void)
+{
+    int ret;
+
+    if (!ipv6ct_mutex_init) {
+        ret = ipv6ct_kmutex_init();
+        if (ret) {
+            IPAERR("ipv6ct mutex init failed (%d)\n", ret);
             return ret;
         }
     }
 
-#ifdef CONFIG_ECM_CONVERGENCE
-    mutex_lock(&ipv6ct_mutex);
-    ct_mutex_locked = true;
-    ret = 0;
-#else
-    ret = pthread_mutex_lock(&ipv6ct_mutex);
-#endif
-
-    if (ret != 0) {
-        IPAERR("Unable to lock the %s NAT mutex\n",
-               ct_mutex_initt ? "initialized" : "uninitialized");
+    if (!ipv6ct_mutex_locked) {
+    	ret = pthread_mutex_lock(&ipv6ct_mutex);
+   	if (ret) {
+        	IPAERR("pthread_mutex_lock(ipv6ct) failed (%d)\n", ret);
+		return ret;
+	}
+	ipv6ct_mutex_locked = true;
     }
 
     return ret;
 }
 
-
-/*
- * Function for giving/unlocking the mutex...
- */
-static int ct_give_mutex(void)
+int ipa_ipv6ct_give_mutex(void)
 {
-	int ret;
+    int ret;
 
-	if ( ct_mutex_initt )
-	{
-#ifdef CONFIG_ECM_CONVERGENCE
-		mutex_unlock(&ipv6ct_mutex);
-		ct_mutex_locked = false;
-		ret = 0;
-#else
-		ret = pthread_mutex_unlock(&ipv6ct_mutex);
-#endif
+    if (!ipv6ct_mutex_locked) {
+    	ret = pthread_mutex_unlock(&ipv6ct_mutex);
+    	if (ret) {
+        	IPAERR("pthread_mutex_unlock(ipv6ct) failed (%d)\n", ret);
+		return ret;
 	}
-	else
-	{
-		ret = -1;
-	}
+	ipv6ct_mutex_locked = false;
+    }
 
-	if ( ret != 0 )
-	{
-		IPAERR("Unable to unlock the %s nat mutex\n",
-			   (ct_mutex_initt) ? "initialized" : "uninitialized");
-	}
-
-	return ret;
+    return ret;
 }
+
+#endif /* !CONFIG_ECM_CONVERGENCE */
+
 
 /******************************************************************************/
 /*
@@ -2517,16 +2525,7 @@ int ipa_cti_statemach(
 
 	IPADBG("In\n");
 
-	if (!ct_mutex_locked)
-	{
-		ret = ct_take_mutex();
-		mut_locked = true;
-	}
-
-	if ( ret != 0 )
-	{
-		goto bail;
-	}
+	IPA_IPV6CT_MUTEX_LOCK(bail);
 
 	IPADBG("STATE(%s) TRIGGER(%s) CB(%s)\n", ss_ptr, ts_ptr, cbs_ptr);
 
@@ -2560,11 +2559,7 @@ int ipa_cti_statemach(
 	}
 
 unlock:
-	if (mut_locked)
-	{
-		ret_mtx = ct_give_mutex();
-	}
-	ret = (ret) ? ret : ret_mtx;
+	IPA_IPV6CT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");
