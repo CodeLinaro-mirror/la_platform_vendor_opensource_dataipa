@@ -888,7 +888,7 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
   				IPA_MAX_MSG_LEN - nbytes,
   				"phys_base=0x%pa ",
   				&entry->phys_base);
-  		} else {
+  		} else if (entry->offset_entry) {
   			nbytes += scnprintf(
   				dbg_buff + nbytes,
   				IPA_MAX_MSG_LEN - nbytes,
@@ -1491,7 +1491,7 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 					pr_err("hdr_phys_base:0x%pa\n",
 						&entry->hdr->phys_base);
 				}
-				else
+				else if (entry->hdr->offset_entry)
 				{
 					pr_err("hdr[words]:%u\n",
 						entry->hdr->offset_entry->offset >> 2);
