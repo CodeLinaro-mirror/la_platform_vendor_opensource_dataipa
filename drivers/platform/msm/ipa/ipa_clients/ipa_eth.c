@@ -610,6 +610,22 @@ static enum ipa_client_type
 					ipa_client_type = IPA_CLIENT_ETHERNET_PROD1;
 				}
 			}
+		} else if (traffic_type == IPA_ETH_PIPE_TRAFFIC_TYPE_DOUBLE_TAG) {
+				if (client->inst_id == 1) {
+						if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+							ipa_client_type = IPA_CLIENT_ETHERNET2_CONS;
+						}
+						else {
+							ipa_client_type = IPA_CLIENT_ETHERNET2_PROD;
+						}
+				} else {
+						if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+							ipa_client_type = IPA_CLIENT_ETHERNET_CONS;
+						}
+						else {
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD;
+						}
+				}
 		} else if (traffic_type == IPA_ETH_PIPE_TRAFFIC_TYPE_QOS) {
 			if (ipa3_ctx->ipa_config_is_auto && client->inst_id == 0) {
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
@@ -2180,6 +2196,35 @@ int ipa_eth_get_config_type(
 		IPA_ETH_DBG("TSN configuration for client %d, inst_id %d\n",
 			    client_type, inst_id);
 	}
+#if IPA_ETH_API_VER >= 6
+	else if (ipa3_ctx->device_mode == DEVMODE_APBRIDGE)
+	{
+		snprintf(eth_config->config, sizeof(eth_config->config), "dbl_vlan");
+		eth_config->num_dma_channel = DMA_NUM_CHANNEL_DEFAULT;
+
+		eth_config->dma_config[0].dir = IPA_ETH_PIPE_DIR_TX;
+		eth_config->dma_config[0].traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_DOUBLE_TAG;
+
+		eth_config->dma_config[1].dir = IPA_ETH_PIPE_DIR_RX;
+		eth_config->dma_config[1].traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_DOUBLE_TAG;
+		IPA_ETH_DBG("double vlan configuration for client %d, inst_id %d\n", client_type, inst_id);
+		if (ipa3_ctx->eth_qos && (inst_id == 0))
+		{
+
+			int i=0;
+			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE;
+			memset(eth_config->config, '\0', sizeof(eth_config->config));
+			snprintf(eth_config->config, sizeof(eth_config->config), "qos");
+
+			for (i = 0; i < eth_config->num_dma_channel; i++) {
+				eth_config->dma_config[i].dir = (i % 2)? IPA_ETH_PIPE_DIR_RX:IPA_ETH_PIPE_DIR_TX;
+				eth_config->dma_config[i].traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+			}
+
+		}
+	}
+#endif
+
 #if IPA_ETH_API_VER >= 4
 	else if (ipa3_ctx->eth_qos && inst_id == 0) {
 		int i = 0;
@@ -2201,21 +2246,6 @@ int ipa_eth_get_config_type(
 			client_type, inst_id);
 		IPA_ETH_DBG("Max num DMA channels: %d\n",
 			eth_config->num_dma_channel);
-	}
-#endif
-#if IPA_ETH_API_VER >= 6
-	else if (ipa3_ctx->device_mode == DEVMODE_APBRIDGE)
-	{
-		snprintf(eth_config->config, sizeof(eth_config->config), "dbl_vlan");
-		eth_config->num_dma_channel = DMA_NUM_CHANNEL_DEFAULT;
-
-		eth_config->dma_config[0].dir = IPA_ETH_PIPE_DIR_TX;
-		eth_config->dma_config[0].traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_DOUBLE_TAG;
-
-		eth_config->dma_config[1].dir = IPA_ETH_PIPE_DIR_RX;
-		eth_config->dma_config[1].traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_DOUBLE_TAG;
-		IPA_ETH_DBG("double vlan configuration for client %d, inst_id %d\n", client_type, inst_id);
-
 	}
 #endif
 	else {

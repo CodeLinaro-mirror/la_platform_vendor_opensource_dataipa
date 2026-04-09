@@ -1013,6 +1013,14 @@ static int ipa3_attrib_dump(struct ipa_rule_attrib *attrib, enum ipa_ip_type ip,
 	if (attrib->attrib_mask & IPA_FLT_CODE)
 		IPA_DUMP_DBG_FILE(seq, "code:%d \n", attrib->code);
 
+	if ((attrib->attrib_mask & IPA_FLT_VLAN_PCP)
+				&& (ipa3_ctx->device_mode == DEVMODE_APBRIDGE)
+				&& (ipa3_ctx->device_vlan_mode))
+		pr_cont("pcp:%d\n", attrib->pcp);
+
+	else if (attrib->attrib_mask & IPA_FLT_CODE)
+		pr_cont("code:%d ", attrib->code);
+
 	if (attrib->attrib_mask & IPA_FLT_SPI)
 		IPA_DUMP_DBG_FILE(seq, "spi:%x \n", attrib->spi);
 
