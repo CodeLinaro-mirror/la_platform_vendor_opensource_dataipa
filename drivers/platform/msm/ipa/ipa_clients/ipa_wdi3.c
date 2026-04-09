@@ -867,6 +867,7 @@ int ipa_wdi_enable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
 		IPA_WDI_ERR("Invalid handle %d\n", hdl);
+		return -EPERM;
 	}
 
 	if (!ipa_wdi_ctx_list[hdl]) {
@@ -1012,6 +1013,11 @@ int ipa_wdi_set_perf_profile_per_inst(ipa_wdi_hdl_t hdl,
 		return -EFAULT;
 	}
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
 		hdl > 0) {
@@ -1060,6 +1066,11 @@ int ipa_wdi_create_smmu_mapping_per_inst(ipa_wdi_hdl_t hdl,
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
 		IPA_WDI_ERR("Invalid Handle %d\n",hdl);
 		return -EFAULT;
+	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
 	}
 
 	if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
@@ -1127,6 +1138,11 @@ int ipa_wdi_release_smmu_mapping_per_inst(ipa_wdi_hdl_t hdl,
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
 		IPA_WDI_ERR("Invalid Handle %d\n",hdl);
 		return -EFAULT;
+	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
 	}
 
 	if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
@@ -1249,6 +1265,11 @@ int ipa_wdi_dereg_intf_per_inst_mlo(const char *netdev_name,
 		return -EINVAL;
 	}
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if ((ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_4) && (mld_enabled)){
 		IPA_WDI_DBG("stitching mlo enabled iface\n");
 		snprintf((char *)iface_name, sizeof(iface_name), "%s_%d_%d",
@@ -1289,16 +1310,16 @@ int ipa_wdi_dereg_intf_per_inst(const char *netdev_name, ipa_wdi_hdl_t hdl)
 
 	IPA_WDI_DBG("deregister interface for netdev %s\n", netdev_name);
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 					ipa_wdi_ctx_list[hdl]->wdi_version);
-		return -EPERM;
-	}
-
-	if (!ipa_wdi_ctx_list[hdl]) {
-		IPA_WDI_ERR("wdi ctx is not initialized.\n");
 		return -EPERM;
 	}
 
@@ -1369,6 +1390,11 @@ int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EFAULT;
 	}
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
 		hdl > 0) {
@@ -1377,10 +1403,6 @@ int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EPERM;
 	}
 
-	if (!ipa_wdi_ctx_list[hdl]) {
-		IPA_WDI_ERR("wdi ctx is not initialized\n");
-		return -EPERM;
-	}
 	IPA_WDI_DBG("Disconnect pipes for hdl %d\n",hdl);
 	/* tear down sys pipe if needed */
 	for (i = 0; i < ipa_wdi_ctx_list[hdl]->num_sys_pipe_needed; i++) {
@@ -1443,16 +1465,17 @@ int ipa_wdi_sbr_disconnect(ipa_wdi_hdl_t hdl)
 		return -EFAULT;
 	}
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if (ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 && hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 				ipa_wdi_ctx_list[hdl]->wdi_version);
 		return -EPERM;
 	}
 
-	if (!ipa_wdi_ctx_list[hdl]) {
-		IPA_WDI_ERR("wdi ctx is not initialized\n");
-		return -EPERM;
-	}
 	IPA_WDI_DBG("Disconnect stabridge for hdl %d\n", hdl);
 
 	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->stabrg_client);
@@ -1489,16 +1512,16 @@ int ipa_wdi_disable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EFAULT;
 	}
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 					ipa_wdi_ctx_list[hdl]->wdi_version);
-		return -EPERM;
-	}
-
-	if (!ipa_wdi_ctx_list[hdl]) {
-		IPA_WDI_ERR("wdi ctx is not initialized.\n");
 		return -EPERM;
 	}
 
