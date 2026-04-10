@@ -514,17 +514,27 @@ static enum ipa_client_type
 		break;
 	case IPA_ETH_CLIENT_RTK8111K:
 	case IPA_ETH_CLIENT_RTK8125B:
-		if (traffic_type ==
-			IPA_ETH_PIPE_BEST_EFFORT &&
-			client->inst_id == 0) {
-			if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-				ipa_client_type =
-					IPA_CLIENT_RTK_ETHERNET_CONS;
-			} else {
-				ipa_client_type =
-					IPA_CLIENT_RTK_ETHERNET_PROD;
+		if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT) {
+			if (client->inst_id == 0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					ipa_client_type =
+						IPA_CLIENT_RTK_ETHERNET_CONS;
+				} else {
+					ipa_client_type =
+						IPA_CLIENT_RTK_ETHERNET_PROD;
+				}
+
+			} else if (client->inst_id == 1) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET2_CONS;
+				} else {
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET2_PROD;
+				}
 			}
 		}
+
 		break;
 	case IPA_ETH_CLIENT_NTN:
 	case IPA_ETH_CLIENT_EMAC:
