@@ -1804,9 +1804,9 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name, mac);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-		strscpy(rt_rule->rt_tbl_name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
+		strscpy(rt_rule->rt_tbl_name, V4_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
 #else
-		strlcpy(rt_rule->rt_tbl_name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
+		strlcpy(rt_rule->rt_tbl_name, V4_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
 #endif
 		rt_rule->rt_tbl_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 
@@ -1975,9 +1975,9 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[1].hdr_name, proc_ctx_name, mac);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-		strscpy(rt_rule->rt_tbl_name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
+		strscpy(rt_rule->rt_tbl_name, V6_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
 #else
-		strlcpy(rt_rule->rt_tbl_name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
+		strlcpy(rt_rule->rt_tbl_name, V6_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
 #endif
 		rt_rule->rt_tbl_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 

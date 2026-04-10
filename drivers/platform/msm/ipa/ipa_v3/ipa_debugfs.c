@@ -4916,7 +4916,7 @@ static ssize_t ipa3_eth_read_status(struct file *file,
 		for (j = 0; j < IPA_ETH_INST_ID_MAX; j++) {
 			eth_info = ipa3_ctx->eth_info[i][j];
 			for (k = 0; k < eth_info.num_ch; k++) {
-				if (eth_info.map[j].valid) {
+				if (eth_info.map[k].valid) {
 					type = eth_info.map[k].type;
 					nbytes = scnprintf(dbg_buff + cnt,
 						IPA_MAX_MSG_LEN - cnt,
