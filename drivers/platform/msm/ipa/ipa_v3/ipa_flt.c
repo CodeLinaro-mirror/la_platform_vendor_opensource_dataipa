@@ -1853,6 +1853,88 @@ bail:
 }
 
 /**
+ * ipa3_save_flt_snapshot() - saves a snapshot of the current filtering rules.
+ * @ip: IP address family type (IPv4 or IPv6).
+ */
+void ipa3_save_flt_snapshot(enum ipa_ip_type ip)
+{
+	struct ipa_debug_ctx *dbg ;
+	struct ipa_flt_snapshot *snap;
+	struct ipa3_flt_tbl *tbl;
+	struct ipa3_flt_entry *entry;
+	struct ipa_ep_flt_data *data;
+	struct ipa3_flt_entry *new_flt_rules;
+	int i;
+	u32 flt_idx;
+	u32 num_rules;
+
+	mutex_lock(&ipa3_ctx->lock);
+
+	dbg = ipa3_ctx->debug_log;
+	if (!dbg)
+		goto unlock;
+
+	if (!ipa3_ctx->log_max_snapshots)
+		goto unlock;
+
+	if(ip == IPA_IP_v4)
+		flt_idx = dbg->curr_v4_flt_idx;
+	else
+		flt_idx = dbg->curr_v6_flt_idx;
+
+	snap = &dbg->flt_snaps[flt_idx];
+
+	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
+		if (ipa_is_ep_support_flt(i)) {
+			tbl = &ipa3_ctx->flt_tbl[i][ip];
+			data = &snap->ep_flt_data[ip][i];
+
+			num_rules = tbl->rule_cnt;
+			if (!num_rules) {
+				kfree(data->rules);
+				data->rules = NULL;
+				data->count = 0;
+				continue;
+			}
+
+			new_flt_rules = kcalloc(num_rules, sizeof(struct ipa3_flt_entry), GFP_KERNEL);
+			if (!new_flt_rules) {
+				IPADBG("Failed to alloc rules for flt ep %d ip %d snapshot, keeping stale capture\n",
+					i, ip);
+				continue;
+			}
+
+			if (data->rules)
+				kfree(data->rules);
+
+			data->rules = new_flt_rules;
+			data->count = 0;
+
+			list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
+				if (data->count >= num_rules) break;
+				if (entry->cookie != IPA_FLT_COOKIE) continue;
+
+				data->rules[data->count] = *entry;
+
+				data->count++;
+			}
+			IPADBG_LOW("ipa3_save_flt_snapshot: %d rules in table %d\n", data->count, i);
+
+		}
+	}
+
+	snap->timestamp[ip] = sched_clock();
+	flt_idx = (flt_idx + 1) % ipa3_ctx->log_max_snapshots;
+	if(ip == IPA_IP_v4)
+		dbg->curr_v4_flt_idx = flt_idx;
+	else
+		dbg->curr_v6_flt_idx = flt_idx;
+
+unlock:
+	mutex_unlock(&ipa3_ctx->lock);
+}
+
+/**
  * ipa3_commit_flt() - Commit the current SW filtering table of specified type
  * to IPA HW
  * @ip:	[in] the family of routing tables

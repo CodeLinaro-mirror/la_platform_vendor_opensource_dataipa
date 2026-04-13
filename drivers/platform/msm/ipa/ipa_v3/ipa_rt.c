@@ -1868,6 +1868,128 @@ bail:
 }
 
 /**
+ * ipa3_free_rt_snapshot_data() - frees a routing snapshot slot's rule
+ * data for the given ip type and resets its table count.
+ */
+static void ipa3_free_rt_snapshot_data(struct ipa_rt_snapshot *snap,
+	enum ipa_ip_type ip)
+{
+	u32 count, j;
+
+	if (snap->tbl_rt_data[ip]) {
+		count = (ip == IPA_IP_v4) ? snap->v4_count : snap->v6_count;
+		for (j = 0; j < count; j++)
+			kfree(snap->tbl_rt_data[ip][j].rules);
+		kfree(snap->tbl_rt_data[ip]);
+		snap->tbl_rt_data[ip] = NULL;
+	}
+
+	if (ip == IPA_IP_v4)
+		snap->v4_count = 0;
+	else
+		snap->v6_count = 0;
+}
+
+/**
+ * ipa3_save_rt_snapshot() - saves a snapshot of the current routing rules.
+ * @ip: IP address family type (IPv4 or IPv6).
+ */
+void ipa3_save_rt_snapshot(enum ipa_ip_type ip)
+{
+	struct ipa_debug_ctx *dbg ;
+	struct ipa_rt_snapshot *snap;
+	struct ipa3_rt_tbl *tbl;
+	struct ipa3_rt_entry *entry;
+	struct ipa3_rt_tbl_set *set;
+	struct ipa_tbl_rt_data *data;
+	struct ipa_tbl_rt_data *new_rt_tbl_data;
+	u32 t_idx, rt_idx;
+	u32 num_tbls, num_rules;
+
+	mutex_lock(&ipa3_ctx->lock);
+
+	dbg = ipa3_ctx->debug_log;
+	if (!dbg)
+		goto unlock;
+
+	if (!ipa3_ctx->log_max_snapshots)
+		goto unlock;
+
+	set = &ipa3_ctx->rt_tbl_set[ip];
+	num_tbls = set->tbl_cnt;
+
+	if(ip == IPA_IP_v4)
+		rt_idx = dbg->curr_v4_rt_idx;
+	else
+		rt_idx = dbg->curr_v6_rt_idx;
+
+	snap = &dbg->rt_snaps[rt_idx];
+
+	if (num_tbls == 0) {
+		ipa3_free_rt_snapshot_data(snap, ip);
+		goto record;
+	}
+
+	new_rt_tbl_data = kcalloc(num_tbls, sizeof(struct ipa_tbl_rt_data), GFP_KERNEL);
+	if (!new_rt_tbl_data) {
+		IPAERR("Failed to alloc memory for rt tbl snapshot\n");
+		goto unlock;  /* Keep old data intact */
+	}
+
+	/* Only free old data after successful allocation */
+	ipa3_free_rt_snapshot_data(snap, ip);
+	snap->tbl_rt_data[ip] = new_rt_tbl_data;
+
+	t_idx = 0;
+
+	list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
+		if (t_idx >= num_tbls) break;
+
+		data = &snap->tbl_rt_data[ip][t_idx];
+		num_rules = tbl->rule_cnt;
+		if (!num_rules)
+			continue;
+
+		data->rules = kcalloc(num_rules, sizeof(struct ipa3_rt_entry), GFP_KERNEL);
+		if (!data->rules) {
+			IPADBG("Failed to alloc rules for rt table %s snapshot, dropping table from capture\n",
+				tbl->name);
+			continue;
+		}
+		data->count = 0;
+
+		strlcpy(data->name,tbl->name,sizeof(data->name));
+
+		list_for_each_entry(entry, &tbl->head_rt_rule_list, link) {
+			if (data->count >= num_rules) break;
+
+			data->rules[data->count] = *entry;
+
+			data->count++;
+		}
+		t_idx++;
+	}
+
+	if(ip == IPA_IP_v4)
+		snap->v4_count = t_idx;
+	else
+		snap->v6_count = t_idx;
+
+	IPADBG_LOW("ipa3_save_rt_snapshot: %d tables for ip type %d\n", t_idx, ip);
+
+record:
+	snap->timestamp[ip] = sched_clock();
+	rt_idx = (rt_idx + 1) % ipa3_ctx->log_max_snapshots;
+	if(ip == IPA_IP_v4)
+		dbg->curr_v4_rt_idx = rt_idx;
+	else
+		dbg->curr_v6_rt_idx = rt_idx;
+
+unlock:
+	mutex_unlock(&ipa3_ctx->lock);
+}
+
+/**
  * ipa_commit_rt_rule() - Commit the current SW routing table of specified type
  * to IPA HW
  * @ip:	The family of routing tables

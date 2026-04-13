@@ -1927,6 +1927,116 @@ static int ipa3_table_validate_table_dma_one(
 	return 0;
 }
 
+/**
+ * ipa3_save_nat_snapshot() - Capture current NAT IPv4 base+expansion
+ * table entries into the debug snapshot ring buffer.
+ */
+void ipa3_save_nat_snapshot(void)
+{
+	struct ipa_debug_ctx *dbg;
+	struct ipa3_nat_ipv6ct_common_mem *dev;
+	struct ipa3_nat_mem *nm_ptr;
+	struct ipa_nat_snapshot *snap;
+	struct ipa_tbl_nat_data *data;
+	void *new_entries;
+	size_t entry_size;
+	char *entry;
+	char *base_table_addr, *expansion_table_addr;
+	u32 table_entries, expn_table_entries;
+	bool entry_zeroed, entry_valid;
+	u32 i, max_entries;
+
+	mutex_lock(&ipa3_ctx->lock);
+	mutex_lock(&ipa3_ctx->nat_mem.dev.lock);
+
+	dbg = ipa3_ctx->debug_log;
+	if (!dbg)
+		goto unlock;
+
+	if (!ipa3_ctx->log_max_snapshots)
+		goto unlock;
+
+	dev = &ipa3_ctx->nat_mem.dev;
+
+	if (dev->is_nat_mem) {
+		struct ipa3_nat_mem_loc_data *mld_p;
+
+		nm_ptr = (struct ipa3_nat_mem *) dev;
+		mld_p = &nm_ptr->mem_loc[nm_ptr->active_table];
+
+		base_table_addr      = mld_p->base_table_addr;
+		expansion_table_addr = mld_p->expansion_table_addr;
+		table_entries         = mld_p->table_entries;
+		expn_table_entries    = mld_p->expn_table_entries;
+	} else {
+		base_table_addr      = dev->base_table_addr;
+		expansion_table_addr = dev->expansion_table_addr;
+		table_entries         = dev->table_entries;
+		expn_table_entries    = dev->expn_table_entries;
+	}
+
+	if (!dev->is_hw_init || !base_table_addr)
+		goto unlock;
+
+	if (ipahal_nat_entry_size(IPAHAL_NAT_IPV4, &entry_size))
+		goto unlock;
+
+	max_entries = table_entries + 1 + expn_table_entries;
+	if (!max_entries)
+		goto unlock;
+
+	new_entries = kcalloc(max_entries, entry_size, GFP_KERNEL);
+	if (!new_entries) {
+		IPADBG("Failed to alloc memory for nat snapshot, keeping previous capture\n");
+		goto unlock;
+	}
+
+	snap = &dbg->nat_snaps[dbg->curr_nat_idx];
+	data = &snap->tbl_nat_data;
+
+	kfree(data->entries);
+	data->entries = new_entries;
+	data->entry_size = entry_size;
+	data->count = 0;
+
+	for (i = 0, entry = base_table_addr;
+		i < table_entries + 1;
+		++i, entry += entry_size) {
+		if (ipahal_nat_is_entry_zeroed(IPAHAL_NAT_IPV4, entry,
+			&entry_zeroed) || entry_zeroed)
+			continue;
+		if (ipahal_nat_is_entry_valid(IPAHAL_NAT_IPV4, entry,
+			&entry_valid) || !entry_valid)
+			continue;
+		memcpy((char *)data->entries + data->count * entry_size,
+			entry, entry_size);
+		data->count++;
+	}
+
+	if (expn_table_entries && !expansion_table_addr)
+		expn_table_entries = 0;
+
+	for (i = 0, entry = expansion_table_addr;
+		i < expn_table_entries;
+		++i, entry += entry_size) {
+		if (ipahal_nat_is_entry_zeroed(IPAHAL_NAT_IPV4, entry,
+			&entry_zeroed) || entry_zeroed)
+			continue;
+		if (ipahal_nat_is_entry_valid(IPAHAL_NAT_IPV4, entry,
+			&entry_valid) || !entry_valid)
+			continue;
+		memcpy((char *)data->entries + data->count * entry_size,
+			entry, entry_size);
+		data->count++;
+	}
+
+	snap->timestamp = sched_clock();
+	dbg->curr_nat_idx = (dbg->curr_nat_idx + 1) % ipa3_ctx->log_max_snapshots;
+
+unlock:
+	mutex_unlock(&ipa3_ctx->nat_mem.dev.lock);
+	mutex_unlock(&ipa3_ctx->lock);
+}
 
 /**
  * ipa3_table_dma_cmd() - Post TABLE_DMA command to IPA HW

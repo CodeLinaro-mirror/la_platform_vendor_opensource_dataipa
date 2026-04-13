@@ -2134,6 +2134,40 @@ static ssize_t ipa3_read_dbg_cnt(struct file *file, char __user *ubuf,
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
 }
 
+static ssize_t ipa3_write_debug_log_max_snapshots(struct file *file,
+		const char __user *buf, size_t count, loff_t *ppos)
+{
+	u32 requested;
+	int ret;
+
+	ret = kstrtou32_from_user(buf, count, 0, &requested);
+	if (ret)
+		return ret;
+
+	if (requested > IPA_LOG_MAX_SNAPSHOTS_CAP) {
+		IPAERR(
+			"debug_log: requested %u exceeds max %u, using default %u\n",
+			requested, IPA_LOG_MAX_SNAPSHOTS_CAP,
+			IPA_LOG_MAX_SNAPSHOTS_DEFAULT);
+		requested = IPA_LOG_MAX_SNAPSHOTS_DEFAULT;
+	}
+
+	ret = ipa3_debug_log_resize(requested);
+
+	return ret ? ret : count;
+}
+
+static ssize_t ipa3_read_debug_log_max_snapshots(struct file *file,
+		char __user *ubuf, size_t count, loff_t *ppos)
+{
+	int nbytes;
+
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "%u\n",
+		ipa3_ctx->log_max_snapshots);
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+}
+
 static ssize_t ipa3_read_msg(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
@@ -3510,6 +3544,11 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		"dbg_cnt", IPA_READ_WRITE_MODE, NULL, {
 			.read = ipa3_read_dbg_cnt,
 			.write = ipa3_write_dbg_cnt,
+		}
+	}, {
+		"debug_log_max_snapshots", IPA_READ_WRITE_MODE, NULL, {
+			.read = ipa3_read_debug_log_max_snapshots,
+			.write = ipa3_write_debug_log_max_snapshots,
 		}
 	}, {
 		"msg", IPA_READ_ONLY_MODE, NULL, {

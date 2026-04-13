@@ -44,6 +44,7 @@
 #include "ipa_uc_holb_monitor.h"
 #include <soc/qcom/minidump.h>
 #include "ipa_rc.h"
+#include "gsi.h"
 
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"
@@ -424,6 +425,10 @@ enum {
  * As new hardware platforms are added into the emulation environment,
  * please add the appropriate paths here for their firmwares.
  */
+
+#define IPA_LOG_MAX_SNAPSHOTS_DEFAULT 10
+#define IPA_LOG_MAX_SNAPSHOTS_CAP     25
+
 #define IPA_FWS_PATH_4_0     "ipa/4.0/ipa_fws.elf"
 #define IPA_FWS_PATH_3_5_1   "ipa/3.5.1/ipa_fws.elf"
 #define IPA_FWS_PATH_4_5     "ipa/4.5/ipa_fws.elf"
@@ -2183,6 +2188,97 @@ struct ipa3_eth_pdu_ctx {
 	int eth_pdu_rx_ep_id;
 };
 
+
+
+struct ipa_ep_flt_data {
+	u32 count;
+	struct ipa3_flt_entry *rules;
+};
+
+struct ipa_flt_snapshot {
+	u64 timestamp[IPA_IP_MAX];
+	/* Arranged by Endpoint Index [0..IPA5_MAX_NUM_PIPES] */
+	struct ipa_ep_flt_data ep_flt_data[IPA_IP_MAX][IPA5_MAX_NUM_PIPES];
+};
+
+struct ipa_tbl_rt_data {
+	u32 count;
+	char name[IPA_RESOURCE_NAME_MAX]; /* table name for crash-dump context */
+	struct ipa3_rt_entry *rules;
+};
+
+struct ipa_rt_snapshot {
+	u64 timestamp[IPA_IP_MAX];
+	u32 v4_count;
+	u32 v6_count;
+	struct ipa_tbl_rt_data *tbl_rt_data[IPA_IP_MAX];
+};
+
+struct ipa_tbl_hdr_data {
+	u32 count;
+	struct ipa3_hdr_entry *entries;
+};
+
+struct ipa_hdr_snapshot {
+	u64 timestamp;
+	struct ipa_tbl_hdr_data tbl_hdr_data[HDR_TBLS_TOTAL];
+};
+struct ipa_tbl_proc_ctx_hdr_data {
+	u32 count;
+	struct ipa3_hdr_proc_ctx_entry *entries;
+};
+
+struct ipa_proc_ctx_hdr_snapshot {
+	u64 timestamp;
+	struct ipa_tbl_proc_ctx_hdr_data tbl_proc_ctx_hdr_data;
+};
+
+struct ipa_tbl_nat_data {
+	u32 count;
+	size_t entry_size;
+	void *entries;
+};
+
+struct ipa_nat_snapshot {
+	u64 timestamp;
+	struct ipa_tbl_nat_data tbl_nat_data;
+};
+
+struct ipa_rc_chan_snapshot {
+	u64 timestamp;
+	struct chan_param_monitor chan_params[MAX_NUM_CONS_CLIENT];
+	/* RC health status code that triggered this debug snapshot capture */
+	enum ipa_rc_state_err res;
+};
+
+/* Global Debug Context*/
+struct ipa_debug_ctx {
+	/* Filter Buffer */
+	u32 curr_v4_flt_idx;
+	u32 curr_v6_flt_idx;
+	struct ipa_flt_snapshot *flt_snaps;
+
+	/* Routing Buffer */
+	u32 curr_v4_rt_idx;
+	u32 curr_v6_rt_idx;
+	struct ipa_rt_snapshot *rt_snaps;
+
+	/* Header Buffer */
+	u32 curr_hdr_idx;
+	struct ipa_hdr_snapshot *hdr_snaps;
+
+	u32 curr_proc_ctx_hdr_idx;
+	struct ipa_proc_ctx_hdr_snapshot *proc_ctx_hdr_snaps;
+
+	/* NAT Buffer */
+	u32 curr_nat_idx;
+	struct ipa_nat_snapshot *nat_snaps;
+
+	/* IPA-RC Channel State Buffer */
+	u32 curr_rc_chan_idx;
+	struct ipa_rc_chan_snapshot *rc_chan_snaps;
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2309,6 +2405,7 @@ struct ipa3_eth_pdu_ctx {
  * @per_stats_smem_pa: Peripheral stats physical address to be passed to Q6
  * @per_stats_smem_va: Peripheral stats virtual address to update stats from Apps
  * @eth_pdu_ctx: ETH PDU ctx
+ * @debug_log: Debug Log buffer to capture filter/routing/header rules snapshot
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2578,6 +2675,8 @@ struct ipa3_context {
 	struct mutex ssr_lock;
 	bool is_rc_log_enabled;
 	atomic_t is_suspend_mode_enabled;
+	struct ipa_debug_ctx *debug_log;
+	u32 log_max_snapshots;
 };
 
 struct ipa3_plat_drv_res {
@@ -3265,6 +3364,12 @@ int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
  */
 int ipa3_get_ep_mapping(enum ipa_client_type client);
 int ipa3_get_ep_mapping_from_gsi(int ch_id);
+int ipa3_debug_log_resize(u32 new_size);
+void ipa3_save_flt_snapshot(enum ipa_ip_type ip);
+void ipa3_save_rt_snapshot(enum ipa_ip_type ip);
+void ipa3_save_hdr_snapshot(void);
+void ipa3_save_proc_ctx_hdr_snapshot(void);
+void ipa3_save_nat_snapshot(void);
 
 bool ipa3_is_ready(void);
 

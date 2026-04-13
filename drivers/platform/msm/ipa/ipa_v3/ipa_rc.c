@@ -15,7 +15,6 @@
 #define STA_RULE_INCORRECT BIT(0)
 #define AP_RULE_INCORRECT BIT(1)
 #define IPA_BAD_STATE -3
-#define MAX_NUM_CONS_CLIENT (IPA_CLIENT_MAX/2)
 
 struct ipa_rc_queue rc_list;
 struct ipa_rc_wlan_info ipa_rc_wlan_info;
@@ -28,6 +27,11 @@ const char * const ipa_rc_client_names[MAX_RC_CLIENTS] = {
 /* Global context pointer */
 struct ipa_rc_wq_ctx *rc_ctx;
 static bool has_ul_dl_rule, modem_rule;
+
+struct ipa_rc_dbg_work {
+	struct work_struct work;
+	u32 res;
+};
 
 static char msg_buff[IPA_MAX_MSG_LEN + 1];
 static struct chan_param_monitor chan_info[MAX_NUM_CONS_CLIENT][2];
@@ -455,8 +459,11 @@ enum ipa_rc_state_err ipa_rc_detect_chan_stall(enum ipa_client_type client,
 	}
 
 	cons_num = (client - 1)>>1;
+
+	mutex_lock(&ipa3_ctx->lock);
 	chan_info[cons_num][PREV] =  chan_info[cons_num][CUR];
 	chan_info[cons_num][CUR] = *chan_params;
+	mutex_unlock(&ipa3_ctx->lock);
 
 	if(chan_params->ch_state != GSI_CHAN_STATE_STARTED) {
 		if(IPA_CLIENT_IS_ETH_CONS(client)) {
@@ -487,6 +494,33 @@ enum ipa_rc_state_err ipa_rc_detect_chan_stall(enum ipa_client_type client,
 	}
 
 	return cur_status;
+}
+
+static void ipa3_save_rc_chan_snapshot(u32 res)
+{
+	struct ipa_debug_ctx *dbg;
+	struct ipa_rc_chan_snapshot *snap;
+	int i;
+
+	mutex_lock(&ipa3_ctx->lock);
+
+	dbg = ipa3_ctx->debug_log;
+	if (!dbg)
+		goto unlock;
+
+	if (!ipa3_ctx->log_max_snapshots)
+		goto unlock;
+
+	snap = &dbg->rc_chan_snaps[dbg->curr_rc_chan_idx];
+	snap->timestamp = sched_clock();
+	snap->res = res;
+	for (i = 0; i < MAX_NUM_CONS_CLIENT; i++)
+		snap->chan_params[i] = chan_info[i][CUR];
+
+	dbg->curr_rc_chan_idx = (dbg->curr_rc_chan_idx + 1) % ipa3_ctx->log_max_snapshots;
+
+unlock:
+	mutex_unlock(&ipa3_ctx->lock);
 }
 
 void ipa_rc_query_detect_chan_n(struct ipa_rc_health_monitor *ipa_state_info)
@@ -898,6 +932,49 @@ static void ipa_rc_work_handler(struct work_struct *work)
 	}
 }
 
+/**
+ * ipa_rc_dbg_snapshot_work_handler() - captures an on-demand debug snapshot.
+ * @work: per-trigger debug snapshot work item.
+ */
+static void ipa_rc_dbg_snapshot_work_handler(struct work_struct *work)
+{
+	struct ipa_rc_dbg_work *dbg_work =
+		container_of(work, struct ipa_rc_dbg_work, work);
+	enum ipa_ip_type ip;
+
+	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
+		ipa3_save_flt_snapshot(ip);
+		ipa3_save_rt_snapshot(ip);
+	}
+
+	ipa3_save_hdr_snapshot();
+	ipa3_save_proc_ctx_hdr_snapshot();
+
+	ipa3_save_nat_snapshot();
+
+	ipa3_save_rc_chan_snapshot(dbg_work->res);
+	kfree(dbg_work);
+}
+
+void ipa_rc_queue_dbg_snapshot(u32 res)
+{
+	struct ipa_rc_dbg_work *dbg_work;
+
+	if (!rc_ctx || !rc_ctx->rc_dbg_wq)
+		return;
+
+	dbg_work = kzalloc(sizeof(*dbg_work), GFP_KERNEL);
+	if (!dbg_work) {
+		IPAERR("failed to allocate debug snapshot work\n");
+		return;
+	}
+
+	dbg_work->res = res;
+	INIT_WORK(&dbg_work->work, ipa_rc_dbg_snapshot_work_handler);
+	if (!queue_work(rc_ctx->rc_dbg_wq, &dbg_work->work))
+		kfree(dbg_work);
+}
+
 static DEVICE_ATTR_RO(status);
 static DEVICE_ATTR_WO(timer_val);
 
@@ -943,9 +1020,21 @@ int ipa_rc_init(void)
 		return -ENOMEM;
 	}
 
-	rc_ctx->rc_wq = alloc_workqueue("ipa_rc_wq", WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
+	rc_ctx->rc_wq = alloc_workqueue("ipa_rc_wq", WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_FREEZABLE, 1);
 	if (!rc_ctx->rc_wq) {
 		IPAERR("Fail to allocate rc WQ\n");
+		kfree(rc_ctx);
+		rc_ctx = NULL;
+		sysfs_remove_group(ipa_kobj, &hm_attr_group);
+		kobject_put(ipa_kobj);
+		ipa_kobj = NULL;
+		return -ENOMEM;
+	}
+
+	rc_ctx->rc_dbg_wq = alloc_workqueue("rc_dbg_wq", WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_FREEZABLE, 1);
+	if (!rc_ctx->rc_dbg_wq) {
+		IPAERR("Fail to allocate rc dbg WQ\n");
+		destroy_workqueue(rc_ctx->rc_wq);
 		kfree(rc_ctx);
 		rc_ctx = NULL;
 		sysfs_remove_group(ipa_kobj, &hm_attr_group);
@@ -997,6 +1086,10 @@ void ipa_rc_deinit()
 			IPAERR("destroying rc wq\n");
 			destroy_workqueue(rc_ctx->rc_wq);
 		}
+		if (rc_ctx->rc_dbg_wq) {
+			IPAERR("destroying rc dbg wq\n");
+			destroy_workqueue(rc_ctx->rc_dbg_wq);
+		}
 		kfree(rc_ctx);
 		rc_ctx = NULL;
 	}
@@ -1017,6 +1110,9 @@ ssize_t status_show(struct device *dev, struct device_attribute *attr, char *ubu
 				IPAERR("%s\n", ipa_rc_err_names[k].name);
 		}
 	}
+
+	if (res != 0)
+		ipa_rc_queue_dbg_snapshot(res);
 
 	return scnprintf(ubuf, PAGE_SIZE, "%u\n", res);
 }

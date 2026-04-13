@@ -20,6 +20,7 @@
 #define MAX_RC_CLIENTS 4  /* Max no. of type of clients for ipa-rc */
 #define DROP_SAMPLE_WINDOW  10  /* rolling 1-sec sample window for drop detection */
 #define DROP_CONFIRM_THRESH  3  /* min drop samples in window to confirm a real drop */
+#define MAX_NUM_CONS_CLIENT (IPA_CLIENT_MAX/2)
 
 /*
  * ipa_rc_state_err error code names (bitmask)
@@ -308,6 +309,14 @@ struct ipa_rc_wlan_info {
  *         Delayed work structure associated with the RC
  *         workqueue, used for time-based or deferred execution.
  *
+ * @rc_dbg_wq: IPA RC debug snapshot workqueue.
+ *             Freezable workqueue used to capture flt/rt/hdr/nat/
+ *             rc-chan dbg snapshots on demand, whenever a health
+ *             status query reports a non-zero error status.
+ *
+ * Each debug snapshot trigger allocates and queues its own work item,
+ * preserving the health status code associated with that capture.
+ *
  * @rc_lock: RC context mutex.
  *          Protects IPA RC context data accessed from
  *          workqueue and other execution paths.
@@ -315,6 +324,7 @@ struct ipa_rc_wlan_info {
 struct ipa_rc_wq_ctx {
 	struct workqueue_struct *rc_wq;
 	struct delayed_work dwork;
+	struct workqueue_struct *rc_dbg_wq;
 	struct mutex rc_lock;
 };
 
@@ -340,6 +350,12 @@ int get_rc_client(int src_idx);
  * This is the only recovery path — the drop detection algorithm does not self-heal.
  */
 void ipa_rc_reset_drop_pkt_stats(void);
+
+/**
+ * ipa_rc_queue_dbg_snapshot() - queue an on-demand dbg snapshot capture.
+ * @res: Health status code that triggered this capture;
+ */
+void ipa_rc_queue_dbg_snapshot(u32 res);
 
 /* Queue functions */
 void rc_list_init(struct ipa_rc_queue *q);

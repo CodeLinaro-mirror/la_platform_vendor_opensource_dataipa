@@ -165,6 +165,9 @@ static int ipa3_ioctl_fnr_counter_alloc(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_query(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_set(unsigned long arg);
 
+static int ipa3_debug_log_init(void);
+static void ipa3_debug_log_destroy(void);
+
 static struct ipa3_plat_drv_res ipa3_res = {0, };
 
 static struct clk *ipa3_clk;
@@ -7838,6 +7841,12 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_nat_ipv6ct_init_dev;
 	}
 
+	if (ipa3_debug_log_init()) {
+		IPAERR("unable to init debug_log\n");
+		result = -ENOMEM;
+		goto fail_debug_log_init;
+	}
+
 	result = ipa3_alloc_pkt_init();
 	if (result) {
 		IPAERR("Failed to alloc pkt_init payload\n");
@@ -8139,6 +8148,8 @@ fail_init_interrupts:
 fail_alloc_pkt_init_ex:
 	ipa3_free_pkt_init();
 fail_alloc_pkt_init:
+	ipa3_debug_log_destroy();
+fail_debug_log_init:
 	ipa3_nat_ipv6ct_destroy_devices();
 fail_nat_ipv6ct_init_dev:
 	ipa3_free_coal_close_frame();
@@ -8959,6 +8970,358 @@ static struct notifier_block qcom_va_md_ipa_notif_blk = {
 	.priority = INT_MAX,
 };
 #endif
+
+static int ipa3_debug_log_alloc_flt(u32 new_size, struct ipa_flt_snapshot **out)
+{
+	*out = new_size ?
+		kcalloc(new_size, sizeof(**out), GFP_KERNEL) : NULL;
+	if (new_size && !*out)
+		return -ENOMEM;
+	return 0;
+}
+
+static void ipa3_debug_log_commit_flt(struct ipa_debug_ctx *dbg,
+	u32 old_size, u32 new_size, struct ipa_flt_snapshot *new_arr)
+{
+	u32 keep, skip, src, k, ep;
+	int ip;
+
+	for (ip = 0; ip < IPA_IP_MAX; ip++) {
+		u32 cursor = (ip == IPA_IP_v4) ?
+			dbg->curr_v4_flt_idx : dbg->curr_v6_flt_idx;
+
+		keep = min(old_size, new_size);
+		skip = old_size - keep;
+		src = cursor;
+
+		for (k = 0; k < skip; k++) {
+			for (ep = 0; ep < ipa3_ctx->ipa_num_pipes; ep++) {
+				kfree(dbg->flt_snaps[src].ep_flt_data[ip][ep].rules);
+				dbg->flt_snaps[src].ep_flt_data[ip][ep].rules = NULL;
+			}
+			src = (src + 1) % old_size;
+		}
+
+		for (k = 0; k < keep; k++) {
+			new_arr[k].timestamp[ip] = dbg->flt_snaps[src].timestamp[ip];
+			memcpy(new_arr[k].ep_flt_data[ip],
+				dbg->flt_snaps[src].ep_flt_data[ip],
+				sizeof(new_arr[k].ep_flt_data[ip]));
+			src = (src + 1) % old_size;
+		}
+
+		if (ip == IPA_IP_v4)
+			dbg->curr_v4_flt_idx = new_size ? (keep % new_size) : 0;
+		else
+			dbg->curr_v6_flt_idx = new_size ? (keep % new_size) : 0;
+	}
+
+	kfree(dbg->flt_snaps);
+	dbg->flt_snaps = new_arr;
+}
+
+static int ipa3_debug_log_alloc_rt(u32 new_size, struct ipa_rt_snapshot **out)
+{
+	*out = new_size ?
+		kcalloc(new_size, sizeof(**out), GFP_KERNEL) : NULL;
+	if (new_size && !*out)
+		return -ENOMEM;
+	return 0;
+}
+
+static void ipa3_debug_log_commit_rt(struct ipa_debug_ctx *dbg,
+	u32 old_size, u32 new_size, struct ipa_rt_snapshot *new_arr)
+{
+	u32 keep, skip, src, k, j, tbl_count;
+	int ip;
+
+	for (ip = 0; ip < IPA_IP_MAX; ip++) {
+		u32 cursor = (ip == IPA_IP_v4) ?
+			dbg->curr_v4_rt_idx : dbg->curr_v6_rt_idx;
+
+		keep = min(old_size, new_size);
+		skip = old_size - keep;
+		src = cursor;
+
+		for (k = 0; k < skip; k++) {
+			tbl_count = (ip == IPA_IP_v4) ?
+				dbg->rt_snaps[src].v4_count :
+				dbg->rt_snaps[src].v6_count;
+			if (dbg->rt_snaps[src].tbl_rt_data[ip]) {
+				for (j = 0; j < tbl_count; j++)
+					kfree(dbg->rt_snaps[src].tbl_rt_data[ip][j].rules);
+				kfree(dbg->rt_snaps[src].tbl_rt_data[ip]);
+				dbg->rt_snaps[src].tbl_rt_data[ip] = NULL;
+			}
+			src = (src + 1) % old_size;
+		}
+
+		for (k = 0; k < keep; k++) {
+			new_arr[k].timestamp[ip] = dbg->rt_snaps[src].timestamp[ip];
+			new_arr[k].tbl_rt_data[ip] = dbg->rt_snaps[src].tbl_rt_data[ip];
+			if (ip == IPA_IP_v4)
+				new_arr[k].v4_count = dbg->rt_snaps[src].v4_count;
+			else
+				new_arr[k].v6_count = dbg->rt_snaps[src].v6_count;
+			src = (src + 1) % old_size;
+		}
+
+		if (ip == IPA_IP_v4)
+			dbg->curr_v4_rt_idx = new_size ? (keep % new_size) : 0;
+		else
+			dbg->curr_v6_rt_idx = new_size ? (keep % new_size) : 0;
+	}
+
+	kfree(dbg->rt_snaps);
+	dbg->rt_snaps = new_arr;
+}
+
+static int ipa3_debug_log_alloc_hdr(u32 new_size, struct ipa_hdr_snapshot **out)
+{
+	*out = new_size ?
+		kcalloc(new_size, sizeof(**out), GFP_KERNEL) : NULL;
+	if (new_size && !*out)
+		return -ENOMEM;
+	return 0;
+}
+
+static void ipa3_debug_log_commit_hdr(struct ipa_debug_ctx *dbg,
+	u32 old_size, u32 new_size, struct ipa_hdr_snapshot *new_arr)
+{
+	u32 keep, skip, src, k;
+	int loc;
+
+	keep = min(old_size, new_size);
+	skip = old_size - keep;
+	src = dbg->curr_hdr_idx;
+
+	for (k = 0; k < skip; k++) {
+		for (loc = HDR_TBL_LCL; loc < HDR_TBLS_TOTAL; loc++) {
+			kfree(dbg->hdr_snaps[src].tbl_hdr_data[loc].entries);
+			dbg->hdr_snaps[src].tbl_hdr_data[loc].entries = NULL;
+		}
+		src = (src + 1) % old_size;
+	}
+
+	for (k = 0; k < keep; k++) {
+		new_arr[k] = dbg->hdr_snaps[src];
+		src = (src + 1) % old_size;
+	}
+
+	kfree(dbg->hdr_snaps);
+	dbg->hdr_snaps = new_arr;
+	dbg->curr_hdr_idx = new_size ? (keep % new_size) : 0;
+}
+
+static int ipa3_debug_log_alloc_proc_ctx_hdr(u32 new_size,
+	struct ipa_proc_ctx_hdr_snapshot **out)
+{
+	*out = new_size ?
+		kcalloc(new_size, sizeof(**out), GFP_KERNEL) : NULL;
+	if (new_size && !*out)
+		return -ENOMEM;
+	return 0;
+}
+
+static void ipa3_debug_log_commit_proc_ctx_hdr(struct ipa_debug_ctx *dbg,
+	u32 old_size, u32 new_size, struct ipa_proc_ctx_hdr_snapshot *new_arr)
+{
+	u32 keep, skip, src, k;
+
+	keep = min(old_size, new_size);
+	skip = old_size - keep;
+	src = dbg->curr_proc_ctx_hdr_idx;
+
+	for (k = 0; k < skip; k++) {
+		kfree(dbg->proc_ctx_hdr_snaps[src].tbl_proc_ctx_hdr_data.entries);
+		src = (src + 1) % old_size;
+	}
+
+	for (k = 0; k < keep; k++) {
+		new_arr[k] = dbg->proc_ctx_hdr_snaps[src];
+		src = (src + 1) % old_size;
+	}
+
+	kfree(dbg->proc_ctx_hdr_snaps);
+	dbg->proc_ctx_hdr_snaps = new_arr;
+	dbg->curr_proc_ctx_hdr_idx = new_size ? (keep % new_size) : 0;
+}
+
+static int ipa3_debug_log_alloc_nat(u32 new_size, struct ipa_nat_snapshot **out)
+{
+	*out = new_size ?
+		kcalloc(new_size, sizeof(**out), GFP_KERNEL) : NULL;
+	if (new_size && !*out)
+		return -ENOMEM;
+	return 0;
+}
+
+static void ipa3_debug_log_commit_nat(struct ipa_debug_ctx *dbg,
+	u32 old_size, u32 new_size, struct ipa_nat_snapshot *new_arr)
+{
+	u32 keep, skip, src, k;
+
+	keep = min(old_size, new_size);
+	skip = old_size - keep;
+	src = dbg->curr_nat_idx;
+
+	for (k = 0; k < skip; k++) {
+		kfree(dbg->nat_snaps[src].tbl_nat_data.entries);
+		src = (src + 1) % old_size;
+	}
+
+	for (k = 0; k < keep; k++) {
+		new_arr[k] = dbg->nat_snaps[src];
+		src = (src + 1) % old_size;
+	}
+
+	kfree(dbg->nat_snaps);
+	dbg->nat_snaps = new_arr;
+	dbg->curr_nat_idx = new_size ? (keep % new_size) : 0;
+}
+
+static int ipa3_debug_log_alloc_rc_chan(u32 new_size,
+	struct ipa_rc_chan_snapshot **out)
+{
+	*out = new_size ?
+		kcalloc(new_size, sizeof(**out), GFP_KERNEL) : NULL;
+	if (new_size && !*out)
+		return -ENOMEM;
+	return 0;
+}
+
+static void ipa3_debug_log_commit_rc_chan(struct ipa_debug_ctx *dbg,
+	u32 old_size, u32 new_size, struct ipa_rc_chan_snapshot *new_arr)
+{
+	u32 keep, src, k;
+
+	keep = min(old_size, new_size);
+	src = old_size ?
+		(dbg->curr_rc_chan_idx + (old_size - keep)) % old_size : 0;
+
+	for (k = 0; k < keep; k++) {
+		new_arr[k] = dbg->rc_chan_snaps[src];
+		src = (src + 1) % old_size;
+	}
+
+	kfree(dbg->rc_chan_snaps);
+	dbg->rc_chan_snaps = new_arr;
+	dbg->curr_rc_chan_idx = new_size ? (keep % new_size) : 0;
+}
+
+int ipa3_debug_log_resize(u32 new_size)
+{
+	struct ipa_debug_ctx *dbg = ipa3_ctx->debug_log;
+	struct ipa_flt_snapshot *flt_new = NULL;
+	struct ipa_rt_snapshot *rt_new = NULL;
+	struct ipa_hdr_snapshot *hdr_new = NULL;
+	struct ipa_proc_ctx_hdr_snapshot *proc_ctx_hdr_new = NULL;
+	struct ipa_nat_snapshot *nat_new = NULL;
+	struct ipa_rc_chan_snapshot *rc_chan_new = NULL;
+	u32 old_size;
+	int ret;
+
+	if (!dbg)
+		return -ENODEV;
+
+	mutex_lock(&ipa3_ctx->lock);
+
+	old_size = ipa3_ctx->log_max_snapshots;
+	if (new_size == old_size) {
+		mutex_unlock(&ipa3_ctx->lock);
+		return 0;
+	}
+
+	/*
+	 * Allocate every category's new array up-front before committing
+	 * any of them. If any allocation fails, none of dbg's existing
+	 * arrays/data are touched - only the newly (partially) allocated
+	 * arrays from this attempt need freeing, and the caller keeps
+	 * exactly what it had before this call.
+	 */
+	ret = ipa3_debug_log_alloc_flt(new_size, &flt_new);
+	if (!ret)
+		ret = ipa3_debug_log_alloc_rt(new_size, &rt_new);
+	if (!ret)
+		ret = ipa3_debug_log_alloc_hdr(new_size, &hdr_new);
+	if (!ret)
+		ret = ipa3_debug_log_alloc_proc_ctx_hdr(new_size, &proc_ctx_hdr_new);
+	if (!ret)
+		ret = ipa3_debug_log_alloc_nat(new_size, &nat_new);
+	if (!ret)
+		ret = ipa3_debug_log_alloc_rc_chan(new_size, &rc_chan_new);
+
+	if (ret) {
+		IPAERR(
+			"failed to allocate %u debug_log snapshots, keeping existing %u intact\n",
+			new_size, old_size);
+		kfree(flt_new);
+		kfree(rt_new);
+		kfree(hdr_new);
+		kfree(proc_ctx_hdr_new);
+		kfree(nat_new);
+		kfree(rc_chan_new);
+		mutex_unlock(&ipa3_ctx->lock);
+		return ret;
+	}
+
+	ipa3_debug_log_commit_flt(dbg, old_size, new_size, flt_new);
+	ipa3_debug_log_commit_rt(dbg, old_size, new_size, rt_new);
+	ipa3_debug_log_commit_hdr(dbg, old_size, new_size, hdr_new);
+	ipa3_debug_log_commit_proc_ctx_hdr(dbg, old_size, new_size, proc_ctx_hdr_new);
+
+	ipa3_debug_log_commit_rc_chan(dbg, old_size, new_size, rc_chan_new);
+
+	mutex_lock(&ipa3_ctx->nat_mem.dev.lock);
+	ipa3_debug_log_commit_nat(dbg, old_size, new_size, nat_new);
+	mutex_unlock(&ipa3_ctx->nat_mem.dev.lock);
+
+	ipa3_ctx->log_max_snapshots = new_size;
+	IPADBG("debug_log resized from %u to %u snapshots\n", old_size, new_size);
+
+	mutex_unlock(&ipa3_ctx->lock);
+
+	return 0;
+}
+
+static int ipa3_debug_log_init(void)
+{
+	struct ipa_debug_ctx *dbg;
+
+	if (ipa3_ctx->debug_log)
+		return 0;
+
+	dbg = kzalloc(sizeof(struct ipa_debug_ctx), GFP_KERNEL);
+	if (!dbg)
+		return -ENOMEM;
+
+	ipa3_ctx->debug_log = dbg;
+	ipa3_ctx->log_max_snapshots = 0;
+
+	if (ipa3_debug_log_resize(IPA_LOG_MAX_SNAPSHOTS_DEFAULT)) {
+		kfree(dbg);
+		ipa3_ctx->debug_log = NULL;
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+static void ipa3_debug_log_destroy(void)
+{
+	struct ipa_debug_ctx *dbg = ipa3_ctx->debug_log;
+
+	if (!dbg)
+		return;
+
+	ipa3_debug_log_resize(0);
+
+	mutex_lock(&ipa3_ctx->lock);
+	ipa3_ctx->debug_log = NULL;
+	mutex_unlock(&ipa3_ctx->lock);
+
+	kfree(dbg);
+}
 
 /**
  * ipa3_pre_init() - Initialize the IPA Driver.
@@ -12209,6 +12572,7 @@ static void __exit ipa_module_exit(void)
 		kfree(ipa3_ctx->hw_stats);
 		ipa3_ctx->hw_stats = NULL;
 	}
+	ipa3_debug_log_destroy();
 	unregister_pm_notifier(&ipa_pm_notifier);
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
