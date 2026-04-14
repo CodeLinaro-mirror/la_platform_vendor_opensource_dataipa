@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <net/ip.h>
@@ -6797,6 +6797,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 42, 30 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
+	[IPA_6_0][IPA_CLIENT_WLAN_STABRG_CONS] = {
+			true,   IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 42, 30 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_DL },
 	[IPA_6_0][IPA_CLIENT_TPUT_CONS] = {
 			true, IPA_v6_0_GROUP_DL,
 			false,
@@ -9112,20 +9119,20 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.apps_v4_flt_hash_ofst = 0x0,
 	.apps_v4_flt_hash_size = 0x0,
 	.apps_v4_flt_nhash_ofst = 0x119d0,
-	.apps_v4_flt_nhash_size = 0x300,
+	.apps_v4_flt_nhash_size = 0x400,
 	.apps_v6_flt_hash_ofst = 0x0,
 	.apps_v6_flt_hash_size = 0x0,
-	.apps_v6_flt_nhash_ofst = 0x11cd8,
-	.apps_v6_flt_nhash_size = 0x300,
+	.apps_v6_flt_nhash_ofst = 0x11dd8,
+	.apps_v6_flt_nhash_size = 0xC00,
 	.apps_v4_rt_hash_ofst = 0x0,
 	.apps_v4_rt_hash_size = 0x0,
-	.apps_v4_rt_nhash_ofst = 0x11fe0,
+	.apps_v4_rt_nhash_ofst = 0x129e0,
 	.apps_v4_rt_nhash_size = 0x300,
 	.apps_v6_rt_hash_ofst = 0x0,
 	.apps_v6_rt_hash_size = 0x0,
-	.apps_v6_rt_nhash_ofst = 0x122e8,
+	.apps_v6_rt_nhash_ofst = 0x12ce8,
 	.apps_v6_rt_nhash_size = 0x300,
-	.end_ofst = 0x125e8,
+	.end_ofst = 0x12fe8,
 };
 
 const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
@@ -9287,6 +9294,8 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_ETHERNET_CONS3),
 	__stringify(IPA_CLIENT_ETHERNET_PROD4),
 	__stringify(IPA_CLIENT_ETHERNET_CONS4),
+	__stringify(RESERVERD_PROD_156),
+	__stringify(IPA_CLIENT_WLAN_STABRG_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -9576,6 +9585,7 @@ bool ipa3_should_pipe_be_suspended(enum ipa_client_type client)
 		client == IPA_CLIENT_MHI_QDSS_CONS ||
 		client == IPA_CLIENT_HSIC1_CONS   ||
 		client == IPA_CLIENT_WLAN1_CONS   ||
+		client == IPA_CLIENT_WLAN_STABRG_CONS ||
 		client == IPA_CLIENT_WLAN2_CONS   ||
 		client == IPA_CLIENT_WLAN3_CONS   ||
 		client == IPA_CLIENT_WLAN2_CONS1  ||

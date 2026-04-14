@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 - 2025,  Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -15,6 +15,7 @@
 
 #define IPA_WDI3_GSI_EVT_RING_INT_MODT 32
 #define IPA_WDI3_MAX_VALUE_OF_BANK_ID 63
+#define IPA_WDI3_MAX_VALUE_OF_AST_IDX 65535
 #define IPA_WDI4_MAX_VALUE_OF_VDEV_ID 255
 #define IPA_WDI4_MAX_VALUE_OF_PMAC_ID 3
 #define IPA_WDI4_MAX_VALUE_OF_CHIP_ID 0x7
@@ -78,6 +79,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	struct gsi_evt_ring_props gsi_evt_ring_props;
 	struct gsi_chan_props gsi_channel_props;
 	union __packed gsi_channel_scratch ch_scratch;
+	union __packed gsi_wdi4_channel_scratch3_reg ch_scratch3;
 	union __packed gsi_wdi_channel_scratch9_reg gsi_scratch9;
 	union __packed gsi_evt_scratch evt_scratch;
 	const struct ipa_gsi_ep_config *gsi_ep_info;
@@ -576,6 +578,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 
 	/* write channel scratch */
 	memset(&ch_scratch, 0, sizeof(ch_scratch));
+	memset(&ch_scratch3, 0, sizeof(ch_scratch3));
 	ch_scratch.wdi3.update_rp_moderation_threshold =
 		UPDATE_RP_MODERATION_THRESHOLD;
 	if ((dir == IPA_WDI3_RX_DIR) || (dir == IPA_WDI3_RX2_DIR)
@@ -848,11 +851,19 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 						goto fail_write_scratch;
 					}
 					ch_scratch.wdi4.bank_id = info_smmu->rx_bank_id;
+					ch_scratch3.wdi4.bank_id = info_smmu->rx_bank_id;
+					IPADBG("bank_id = %d\n", ch_scratch.wdi4.bank_id);
 					if(info_smmu->rx_pmac_id > IPA_WDI4_MAX_VALUE_OF_PMAC_ID) {
 						IPAERR("Incorrect pmac id value %d Exceeding the 2bit range\n", info_smmu->rx_pmac_id);
 						goto fail_write_scratch;
 					}
 					ch_scratch.wdi4.pmac_id = info_smmu->rx_pmac_id;
+					if(info_smmu->ast_index > IPA_WDI3_MAX_VALUE_OF_AST_IDX) {
+						IPAERR("Incorrect ast index value %d \n", info_smmu->ast_index);
+						goto fail_write_scratch;
+					}
+					IPADBG("ast_index = %d\n", info_smmu->ast_index);
+					ch_scratch3.wdi4.ast_index = info_smmu->ast_index;
 				} else {
 					ch_scratch.wdi4.vdev_id = 0;
 					if(info->rx_bank_id > IPA_WDI3_MAX_VALUE_OF_BANK_ID) {
@@ -865,6 +876,11 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 					goto fail_write_scratch;
 					}
 					ch_scratch.wdi4.pmac_id = info->rx_pmac_id;
+					if(info->ast_index > IPA_WDI3_MAX_VALUE_OF_AST_IDX) {
+						IPAERR("Incorrect ast index value %d\n", info->ast_index);
+						goto fail_write_scratch;
+					}
+					ch_scratch3.wdi4.ast_index = info->ast_index;
 				}
 			} else { /*rx dir writing sratch specific to wdi4*/
 				memset(&gsi_scratch9, 0, sizeof(gsi_scratch9));
@@ -906,6 +922,19 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	}
 	memcpy(&ep->chan_scratch, &ch_scratch,
                 sizeof(union __packed gsi_channel_scratch));
+
+	if(ipa_get_wdi_version() == IPA_WDI_4 &&
+		 ep->client == IPA_CLIENT_WLAN_STABRG_CONS &&
+		 dir == IPA_WDI3_TX3_DIR){
+		IPADBG("updating channel scracth3 with bankid and astindex for stabridge");
+		result = gsi_write_wdi4_channel_scratch3_reg(ep->gsi_chan_hdl, ch_scratch3);
+		if (result != GSI_STATUS_SUCCESS) {
+			IPAERR("failed to write evt ring scratch\n");
+			goto fail_write_scratch;
+		}
+		memcpy(&ep->chan_scratch3, &ch_scratch3,
+						sizeof(union __packed gsi_wdi4_channel_scratch3_reg));
+	}
 	return 0;
 
 fail_write_scratch:
@@ -1427,6 +1456,154 @@ fail:
 }
 EXPORT_SYMBOL(ipa3_conn_wdi3_pipes);
 
+int ipa3_conn_wdi3_sbr_pipe(struct ipa_wdi_conn_in_params *in,
+	struct ipa_wdi_conn_out_params *out,
+	ipa_wdi_meter_notifier_cb wdi_notify,
+	bool ast_update)
+{
+	enum ipa_client_type tx_client;
+	struct ipa3_ep_context *ep_tx = NULL;
+	int ipa_ep_idx_tx = 0;
+	int result = 0;
+	u32 gsi_db_addr_low = 0, gsi_db_addr_high = 0;
+	phys_addr_t gsi_db_addr_pa = 0;
+	u8 tx_dir =0;
+	u32 evt_ring_db_addr_low, evt_ring_db_addr_high, db_val = 0;
+	void __iomem *db_addr = NULL;
+
+	/* wdi3 only support over gsi */
+	if (ipa_get_wdi_version() != IPA_WDI_4) {
+		IPAERR("Not supported other than wdi4");
+		WARN_ON(1);
+		return -EFAULT;
+	}
+
+	if (in == NULL || out == NULL) {
+		IPAERR("invalid input\n");
+		return -EINVAL;
+	}
+
+	tx_client = in->u_tx.tx.client;
+	ipa_ep_idx_tx = ipa_get_ep_mapping(tx_client);
+
+	if (ipa_ep_idx_tx == -1) {
+		IPAERR("fail to alloc EP.\n");
+		return -EFAULT;
+	}
+	if (ipa_ep_idx_tx >= ipa3_get_max_num_pipes()) {
+		IPAERR("ep out of range.\n");
+		return -EFAULT;
+	}
+
+	ep_tx = &ipa3_ctx->ep[ipa_ep_idx_tx];
+
+	if (ep_tx->valid) {
+		IPAERR("EP already allocated.\n");
+		return -EFAULT;
+	}
+
+	memset(ep_tx, 0, offsetof(struct ipa3_ep_context, sys));
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+#ifdef IPA_WAN_MSG_IPv6_ADDR_GW_LEN
+	if (wdi_notify)
+		ipa3_ctx->uc_wdi_ctx.stats_notify = wdi_notify;
+	else
+		IPADBG("wdi_notify is null\n");
+#endif
+
+		/* setup tx ep cfg */
+	ep_tx->valid = 1;
+	ep_tx->client = tx_client;
+	result = ipa3_disable_data_path(ipa_ep_idx_tx);
+	if (result) {
+		IPAERR("disable data path failed res=%d ep=%d.\n", result,
+			ipa_ep_idx_tx);
+		result = -EFAULT;
+		goto fail;
+	}
+
+	tx_dir = IPA_WDI3_TX3_DIR;
+
+	memcpy(&ep_tx->cfg, &in->u_tx.tx.ipa_ep_cfg,
+			sizeof(ep_tx->cfg));
+
+	ep_tx->cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
+	ep_tx->cfg.aggr.aggr = IPA_GENERIC;
+	ep_tx->cfg.aggr.aggr_byte_limit = IPA_WLAN_AGGR_BYTE_LIMIT;
+	ep_tx->cfg.aggr.aggr_pkt_limit = IPA_WLAN_AGGR_PKT_LIMIT;
+	ep_tx->cfg.aggr.aggr_hard_byte_limit_en = IPA_ENABLE_AGGR;
+	if (ipa3_cfg_ep(ipa_ep_idx_tx, &ep_tx->cfg)) {
+		IPAERR("fail to setup tx pipe cfg\n");
+		result = -EFAULT;
+		goto fail;
+	}
+
+	/* setup TX gsi channel */
+
+	if (ipa3_setup_wdi3_gsi_channel(in->is_smmu_enabled,
+		&in->u_tx.tx, &in->u_tx.tx_smmu, tx_dir,
+		ep_tx, ast_update)) {
+		IPAERR("fail to setup wdi3 gsi tx channel\n");
+		result = -EFAULT;
+		goto fail;
+	}
+
+	if (ipa_get_wdi_version() == IPA_WDI_4) {
+		if (gsi_query_msi_addr(ep_tx->gsi_chan_hdl,
+			&gsi_db_addr_pa)) {
+			IPAERR("failed to query msi tx db addr\n");
+			result = -EFAULT;
+			goto fail;
+		}
+		out->tx_uc_db_pa = gsi_db_addr_pa;
+	} else {
+		if (gsi_query_channel_db_addr(ep_tx->gsi_chan_hdl,
+			&gsi_db_addr_low, &gsi_db_addr_high)) {
+			IPAERR("failed to query gsi tx db addr\n");
+			result = -EFAULT;
+			goto fail;
+		}
+		/* only 32 bit lsb is used */
+		out->tx_uc_db_pa = (phys_addr_t)(gsi_db_addr_low);
+	}
+
+	IPADBG("out->tx_uc_db_pa %llu\n", out->tx_uc_db_pa);
+	IPADBG("client %d (ep: %d) connected\n", tx_client,
+		ipa_ep_idx_tx);
+
+	gsi_query_evt_ring_db_addr(ep_tx->gsi_evt_ring_hdl,
+		&evt_ring_db_addr_low, &evt_ring_db_addr_high);
+
+	/* only 32 bit lsb is used */
+	db_addr = ioremap((phys_addr_t)(evt_ring_db_addr_low), 4);
+	/*
+	 * IPA/GSI driver should ring the event DB once after
+	 * initialization of the event, with a value that is
+	 * outside of the ring range. Eg: ring base = 0x1000,
+	 * ring size = 0x100 => AP can write value > 0x1100
+	 * into the doorbell address. Eg: 0x 1110
+	 * Use event ring base addr + event ring size + 1 element size.
+	 */
+	db_val = (u32)ep_tx->gsi_mem_info.evt_ring_base_addr;
+	db_val += ((in->is_smmu_enabled) ? in->u_tx.tx_smmu.event_ring_size :
+		in->u_tx.tx.event_ring_size);
+	db_val += ((ipa3_ctx->ipa_hw_type >= IPA_HW_v4_9) ?
+		GSI_EVT_RING_RE_SIZE_32B : GSI_EVT_RING_RE_SIZE_16B);
+	iowrite32(db_val, db_addr);
+	IPADBG("db_addr %u  TX base_addr 0x%llx evt wp val: 0x%x\n",
+		evt_ring_db_addr_low,
+		ep_tx->gsi_mem_info.evt_ring_base_addr, db_val);
+
+
+fail:
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return result;
+}
+EXPORT_SYMBOL(ipa3_conn_wdi3_sbr_pipe);
+
+
 int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	int ipa_ep_idx_tx1, int ipa_ep_idx_rx1)
 {
@@ -1579,6 +1756,64 @@ exit:
 	return result;
 }
 EXPORT_SYMBOL(ipa3_disconn_wdi3_pipes);
+
+int ipa3_sbr_disconn_wdi3_pipe(int ipa_ep_idx_tx)
+{
+	struct ipa3_ep_context *ep_tx;
+	int result = 0;
+	enum ipa_client_type tx_client;
+
+	/* wdi3 only support over gsi */
+	if (ipa_get_wdi_version() != IPA_WDI_4) {
+		IPAERR("Not supported other than wdi4");
+		WARN_ON(1);
+		return -EFAULT;
+	}
+
+	IPADBG("ep_tx = %d\n", ipa_ep_idx_tx);
+
+	if (ipa_ep_idx_tx < 0 || ipa_ep_idx_tx >= ipa3_get_max_num_pipes())
+	{
+		IPAERR("invalid ipa ep index\n");
+		return -EINVAL;
+	}
+
+	ep_tx = &ipa3_ctx->ep[ipa_ep_idx_tx];
+	tx_client = ipa3_get_client_mapping(ipa_ep_idx_tx);
+	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(ipa_ep_idx_tx));
+
+	/* tear down tx pipe */
+	result = ipa3_reset_gsi_channel(ipa_ep_idx_tx);
+	if (result != GSI_STATUS_SUCCESS) {
+		IPAERR("failed to reset gsi channel: %d.\n", result);
+		goto exit;
+	}
+	result = gsi_reset_evt_ring(ep_tx->gsi_evt_ring_hdl);
+	if (result != GSI_STATUS_SUCCESS) {
+		IPAERR("failed to reset evt ring: %d.\n", result);
+		goto exit;
+	}
+	result = ipa3_release_gsi_channel(ipa_ep_idx_tx);
+	if (result) {
+		IPAERR("failed to release gsi channel: %d\n", result);
+		goto exit;
+	}
+	if (tx_client == IPA_CLIENT_WLAN_STABRG_CONS)
+		ipa3_release_wdi3_gsi_smmu_mappings(IPA_WDI3_TX3_DIR);
+
+
+	memset(ep_tx, 0, sizeof(struct ipa3_ep_context));
+	IPADBG("tx client (ep: %d) disconnected\n", ipa_ep_idx_tx);
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2)
+		ipa3_uc_debug_stats_dealloc(IPA_HW_PROTOCOL_WDI3);
+
+exit:
+	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_by_pipe(ipa_ep_idx_tx));
+	return result;
+}
+EXPORT_SYMBOL(ipa3_sbr_disconn_wdi3_pipe);
+
 
 int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	int ipa_ep_idx_tx1, int ipa_ep_idx_rx1)
@@ -1807,6 +2042,88 @@ exit:
 	return result;
 }
 EXPORT_SYMBOL(ipa3_enable_wdi3_pipes);
+
+int ipa3_sbr_enable_wdi3_pipe(int ipa_ep_idx_tx)
+{
+	struct ipa3_ep_context *ep_tx;
+	int result = 0;
+
+	struct ipa_ep_cfg_holb holb_cfg;
+	u32 holb_max_cnt = ipa3_ctx->uc_ctx.holb_monitor.max_cnt_wlan;
+
+	/* wdi3 only support over gsi */
+	if (ipa_get_wdi_version() != IPA_WDI_4) {
+		IPAERR("Not supported other than wdi4");
+		WARN_ON(1);
+		return -EFAULT;
+	}
+
+	IPADBG("ep_tx = %d\n", ipa_ep_idx_tx);
+
+	ep_tx = &ipa3_ctx->ep[ipa_ep_idx_tx];
+
+	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(ipa_ep_idx_tx));
+
+	result = ipa3_enable_data_path(ipa_ep_idx_tx);
+	if (result) {
+		IPAERR("enable data path failed res=%d clnt=%d\n", result,
+			ipa_ep_idx_tx);
+		goto fail_enable_path;
+	}
+
+	if (ipa_get_wdi_version () >= IPA_WDI_3) {
+		memset(&holb_cfg, 0, sizeof(holb_cfg));
+		holb_cfg.en = IPA_HOLB_TMR_EN;
+		if (ep_tx->client == IPA_CLIENT_WLAN_STABRG_CONS)
+			holb_cfg.tmr_val = ipa3_ctx->ipa_wdi3_5g_holb_timeout;
+
+		result = ipa3_cfg_ep_holb(ipa_ep_idx_tx, &holb_cfg);
+		IPADBG("Configured HOLB for clnt=%d, timer=%d, return = %d\n",
+						ipa_ep_idx_tx, holb_cfg.tmr_val, result);
+	}
+
+	/* start gsi tx channel */
+	result = gsi_start_channel(ep_tx->gsi_chan_hdl);
+	if (result) {
+		IPAERR("failed to start gsi tx channel\n");
+		goto fail_enable_path;
+	}
+
+	result = ipa3_uc_client_add_holb_monitor(ep_tx->gsi_chan_hdl,
+					HOLB_MONITOR_MASK, holb_max_cnt,
+					IPA_EE_AP);
+	if (result)
+		IPAERR("Add HOLB monitor failed for gsi ch %lu\n",
+				ep_tx->gsi_chan_hdl);
+
+	/* start uC gsi dbg stats monitor */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) {
+		if (ep_tx->client == IPA_CLIENT_WLAN_STABRG_CONS) {
+			ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3].ch_id_info
+				[4].ch_id = 0;
+			ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3].ch_id_info
+				[4].dir = DIR_PRODUCER;
+			ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3].ch_id_info
+				[5].ch_id = ep_tx->gsi_chan_hdl;
+			ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3].ch_id_info
+				[5].dir = DIR_CONSUMER;
+		}
+
+		ipa3_uc_debug_stats_alloc(
+				ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI3]);
+	}
+
+	goto exit;
+
+
+fail_enable_path:
+	ipa3_disable_data_path(ipa_ep_idx_tx);
+exit:
+	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(ipa_ep_idx_tx));
+	return result;
+}
+EXPORT_SYMBOL(ipa3_sbr_enable_wdi3_pipe);
+
 
 int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	int ipa_ep_idx_tx1, int ipa_ep_idx_rx1)
@@ -2046,6 +2363,47 @@ fail:
 
 }
 EXPORT_SYMBOL(ipa3_disable_wdi3_pipes);
+
+int ipa3_sbr_disable_wdi3_pipe(int ipa_ep_idx_tx)
+{
+		int result = 0;
+		u16 tx_client = 0;
+
+		/* wdi3 only support over gsi */
+		if (ipa_get_wdi_version() != IPA_WDI_4) {
+			IPAERR("Not supported other than wdi4");
+			WARN_ON(1);
+			return -EFAULT;
+		}
+
+		IPADBG("ep_tx = %d\n", ipa_ep_idx_tx);
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+		tx_client = ipa3_get_client_mapping(ipa_ep_idx_tx);
+
+		/* disable tx data path */
+		result = ipa3_disable_data_path(ipa_ep_idx_tx);
+		if (result) {
+			IPAERR("disable data path failed res=%d clnt=%d.\n", result,
+				ipa_ep_idx_tx);
+			result = -EFAULT;
+			goto fail;
+		}
+
+		/* stop gsi tx channel */
+		result = ipa_stop_gsi_channel(ipa_ep_idx_tx);
+		if (result) {
+			IPAERR("failed to stop gsi tx channel\n");
+			result = -EFAULT;
+			goto fail;
+		}
+
+	fail:
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+		return result;
+
+}
+EXPORT_SYMBOL(ipa3_sbr_disable_wdi3_pipe);
+
 
 int ipa3_write_qmapid_wdi3_gsi_pipe(u32 clnt_hdl, u8 qmap_id)
 {

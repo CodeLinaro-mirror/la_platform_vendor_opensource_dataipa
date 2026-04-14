@@ -104,6 +104,8 @@
 
 #define IPA_ETH_PDU_TAG_CHECK 0x7E00
 
+#define IPA_MEM_ALLOC_RETRY 5
+
 static int ipa3_tx_switch_to_intr_mode(struct ipa3_sys_context *sys);
 static int ipa3_rx_switch_to_intr_mode(struct ipa3_sys_context *sys);
 static struct sk_buff *ipa3_get_skb_ipa_rx(unsigned int len, gfp_t flags);
@@ -4803,6 +4805,11 @@ static void ipa3_wdi_extact_ast_info(struct sk_buff *skb, u32 metadata,
 
 	*(u16 *)skb->cb = cb_value;
 	*(u8 *)(skb->cb + 4) = ucp;
+	if (ipa_get_wdi_version() == IPA_WDI_3_V2) {
+		*(u16 *)(skb->cb + 5) =
+			ast_info->ta_peer_id; //updating the ta peer id
+		IPADBG_LOW("ta peer id %d",ast_info->ta_peer_id);
+	}
 
 	/* Provide SKB info after pulling RX TLVs. */
 	ast_info->skb = skb;
@@ -4866,13 +4873,27 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 				metadata, *(u32 *)rx_skb->cb, ep->client);
 		IPADBG_LOW("ast update ucp: %d for client 0x%x\n", *(u8 *)(rx_skb->cb + 4), ep->client);
 	} else if (ipa_get_wdi_version() == IPA_WDI_4) {
+		/* Metadata Info
+		 *  -----------------------------------------------------
+		 *  |   30 - 31 bits | 29 bit  |24-28 bits |16 -23 bits|
+		 *  | ta_peer_id_msb | reserv  |vap_id     |  QMAP_ID  |
+		 *  -----------------------------------------------------------
+		 *  | 14 - 15 bits|   13 bit  |    12 bit         |  0-11 bit  |
+		 *  | DEST_CHIP_ID| DA_IS_MCBC| dest_chip_pmac_id | ta_peer_id |
+		 *  -----------------------------------------------------------
+		 */
 
 		metadata = ntohl(metadata);
-		*(u16 *)rx_skb->cb = (((metadata >> 24) & 0xFF) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);//updating the vdev id and da_is_mcbc
-		*(u8 *)(rx_skb->cb + 4) = ucp; //updating the ucp
-		*(u16 *)(rx_skb->cb + 5) = metadata & 0xFFF; //updating the  ta peer id
-		*(u8 *) (rx_skb->cb + 7) = ((metadata >> 14) & 0x3); //extract the destination chip id.
-		*(u8 *) (rx_skb->cb + 8) = ((metadata >> 12) & 0x1); // extract the pmac id.
+		/*updating the vdev id and da_is_mcbc*/
+		*(u16 *)rx_skb->cb = (((metadata >> 24) & 0x1F) | ((metadata & IPA_WDI_FW_DESC_MSK) >> 13) << 9);
+		/*updating the ucp*/
+		*(u8 *)(rx_skb->cb + 4) = ucp;
+		/*updating the  ta peer id of LSB and MSB bits*/
+		*(u16 *)(rx_skb->cb + 5) = ((metadata & 0xFFF)|(((metadata >> 30) & 0x3) << 12));
+		/*extract the destination chip id*/
+		*(u8 *) (rx_skb->cb + 7) = ((metadata >> 14) & 0x3);
+		/*extract the pmac id*/
+		*(u8 *) (rx_skb->cb + 8) = ((metadata >> 12) & 0x1);
 		IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
 				metadata, *(u32 *)rx_skb->cb);
 		IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
@@ -5753,8 +5774,8 @@ static struct sk_buff *handle_skb_completion(
 	struct list_head *head;
 	struct ipa3_sys_context *sys;
 
-	sys = (struct ipa3_sys_context *) notify->chan_user_data;
 	rx_pkt = (struct ipa3_rx_pkt_wrapper *) notify->xfer_user_data;
+	sys = rx_pkt->sys;
 
 	if (pkt_sys) {
 		*pkt_sys = rx_pkt->sys;
@@ -7226,6 +7247,33 @@ fail_setup_event_ring:
 	return result;
 }
 
+static void *ipa3_ring_alloc(struct device *dev, size_t size,
+	dma_addr_t *dma_handle, gfp_t gfp)
+{
+	void *va_addr;
+	int retry_cnt = 0;
+
+alloc:
+	va_addr = dma_alloc_coherent(dev, size, dma_handle, gfp);
+	if (!va_addr) {
+		if (retry_cnt < IPA_MEM_ALLOC_RETRY) {
+			IPADBG("Fail to dma alloc retry cnt = %d\n",
+				retry_cnt);
+			retry_cnt++;
+			goto alloc;
+		}
+
+		if (gfp == GFP_ATOMIC) {
+			gfp = GFP_KERNEL;
+			goto alloc;
+		}
+		IPAERR("fail to dma alloc %zu bytes\n", size);
+		ipa_assert();
+	}
+
+	return va_addr;
+}
+
 static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 	u32 ring_size, gfp_t mem_flag)
 {
@@ -7246,13 +7294,8 @@ static int ipa_gsi_setup_event_ring(struct ipa3_ep_context *ep,
 	gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
 	gsi_evt_ring_props.ring_len = ring_size;
 	gsi_evt_ring_props.ring_base_vaddr =
-		dma_alloc_coherent(ipa3_ctx->pdev, gsi_evt_ring_props.ring_len,
+		ipa3_ring_alloc(ipa3_ctx->pdev, gsi_evt_ring_props.ring_len,
 		&evt_dma_addr, mem_flag);
-	if (!gsi_evt_ring_props.ring_base_vaddr) {
-		IPAERR("fail to dma alloc %u bytes\n",
-			gsi_evt_ring_props.ring_len);
-		return -ENOMEM;
-	}
 	gsi_evt_ring_props.ring_base_addr = evt_dma_addr;
 
 	/* copy mem info */
@@ -7392,14 +7435,8 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 	gsi_channel_props.ring_len = ring_size;
 
 	gsi_channel_props.ring_base_vaddr =
-		dma_alloc_coherent(ipa3_ctx->pdev, gsi_channel_props.ring_len,
+		ipa3_ring_alloc(ipa3_ctx->pdev, gsi_channel_props.ring_len,
 			&dma_addr, mem_flag);
-	if (!gsi_channel_props.ring_base_vaddr) {
-		IPAERR("fail to dma alloc %u bytes\n",
-			gsi_channel_props.ring_len);
-		result = -ENOMEM;
-		goto fail_alloc_channel_ring;
-	}
 	gsi_channel_props.ring_base_addr = dma_addr;
 
 	/* copy mem info */
@@ -7484,7 +7521,6 @@ fail_alloc_channel:
 	dma_free_coherent(ipa3_ctx->pdev, ep->gsi_mem_info.chan_ring_len,
 			ep->gsi_mem_info.chan_ring_base_vaddr,
 			ep->gsi_mem_info.chan_ring_base_addr);
-fail_alloc_channel_ring:
 fail_get_gsi_ep_info:
 	if (ep->gsi_evt_ring_hdl != ~0) {
 		gsi_dealloc_evt_ring(ep->gsi_evt_ring_hdl);

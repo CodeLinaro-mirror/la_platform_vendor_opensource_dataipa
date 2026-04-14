@@ -11067,6 +11067,32 @@ ssize_t ipa3_update_config(const char *buff)
 			IPADBG("Lan stats enabled: %d\n", ipa3_ctx->lan_stats_enabled);
 		}
 
+#if IPA_ETH_API_VER >= 6
+		if (strnstr(dbg_buff, "apbridge", strlen(dbg_buff)))
+		{
+			IPADBG("Platform type is apbridge\n");
+			ipa3_ctx->device_mode = DEVMODE_APBRIDGE;
+			if(strnstr(dbg_buff, "dblvlan", strlen(dbg_buff))) {
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_WLAN] = true;
+				ipa3_ctx->device_vlan_mode = true;
+			}
+			return count;
+		}
+		else if (strnstr(dbg_buff, "stabridge", strlen(dbg_buff)))
+		{
+			IPADBG("Platform type is stabridge\n");
+			ipa3_ctx->device_mode = DEVMODE_STABRIDGE;
+			if(strnstr(dbg_buff, "vlan", strlen(dbg_buff)))
+			{
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_WLAN_STA] = true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_WLAN] = true;
+				ipa3_ctx->device_vlan_mode = true;
+			}
+			return count;
+		}
+#endif
 		/* Check Vlan configuration */
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
 			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))
@@ -15309,7 +15335,8 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 	}
 
 	/* LAN coal disabling for all modes*/
-	ipa3_res.lan_coal_enable = false;
+	if (ipa3_res.ipa_mhi_dynamic_config || ipa3_ctx->ipa_config_is_mhi)
+		ipa3_res.lan_coal_enable = false;
 
 	/*
 	* Since we now know where the transport's registers live,

@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -1232,7 +1232,22 @@ int ipa3_eth_connect(
 
 	ep->cfg.nat.nat_en = IPA_CLIENT_IS_PROD(client_type) ?
 		IPA_SRC_NAT : IPA_BYPASS_NAT;
-	ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+#if IPA_ETH_API_VER >= 6
+	if((ipa3_ctx->device_mode == DEVMODE_APBRIDGE) &&
+					(ipa3_ctx->device_vlan_mode))
+	{
+		ep->cfg.hdr.hdr_len = VLAN_VLAN_ETH_HLEN;
+	}
+	else if((ipa3_ctx->device_mode == DEVMODE_STABRIDGE) &&
+					(ipa3_ctx->device_vlan_mode))
+	{
+		ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
+	}
+	else
+#endif
+	{
+		ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+	}
 	ep->cfg.mode.mode = IPA_BASIC;
 	if (IPA_CLIENT_IS_CONS(client_type)) {
 		ep->cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
