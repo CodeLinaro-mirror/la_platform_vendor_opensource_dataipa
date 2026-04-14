@@ -155,132 +155,145 @@ static ipa_nati_obj nati_obj = {
  * of data stuctures within the file ipa_nat_drvi.c
  */
 #ifdef CONFIG_ECM_CONVERGENCE
-struct mutex nat_mutex;
+DEFINE_MUTEX(nat_mutex);
 #else
 pthread_mutex_t nat_mutex;
-#endif
-static bool     nat_mutex_init = false;
-bool     nat_mutex_locked;
-
-static inline int kmutex_init(void)
-{
-	int ret = 0;
-	IPADBG("In\n");
-
-	#ifdef CONFIG_ECM_CONVERGENCE
-	mutex_init(&nat_mutex);
-	#else
-	static pthread_mutexattr_t nat_mutex_attr;
-
-
-	ret = pthread_mutexattr_init(&nat_mutex_attr);
-
-	if ( ret != 0 )
-	{
-		IPAERR("pthread_mutexattr_init() failed: ret(%d)\n", ret );
-		goto bail;
-	}
-
-	ret = pthread_mutexattr_settype(
-		&nat_mutex_attr, PTHREAD_MUTEX_RECURSIVE);
-
-	if ( ret != 0 )
-	{
-		IPAERR("pthread_mutexattr_settype() failed: ret(%d)\n",
-			   ret );
-		goto bail;
-	}
-
-	ret = pthread_mutex_init(&nat_mutex, &nat_mutex_attr);
-
-	if ( ret != 0 )
-	{
-		IPAERR("pthread_mutex_init() failed: ret(%d)\n",
-			   ret );
-		goto bail;
-	}
-	#endif
-
-	nat_mutex_init = true;
-
-#ifndef CONFIG_ECM_CONVERGENCE
-bail:
-#endif
-	IPADBG("Out\n");
-
-	return ret;
-}
-
+static bool nat_mutex_init = false;
 /*
- * Function for taking/locking the mutex...
+ * This guard mutex protects nat_mutex initialization itself.
+ * It is intentionally a plain static mutex initialized at start-up.
  */
-int take_mutex(void)
-{
-	int ret = 0;
-	IPADBG("In\n");
-	if ( !nat_mutex_init )
-	{
-#ifdef CONFIG_ECM_CONVERGENCE
-		mutex_init(&nat_mutex);
-		nat_mutex_init = true;
-		IPAERR("In, nat_mutex_init %d\n", nat_mutex_init);
-#else
-		ret = kmutex_init();
+static pthread_mutex_t nat_mutex_init_guard = PTHREAD_MUTEX_INITIALIZER;
 #endif
-	}
 
-	if (nat_mutex_init || ret == 0)
-	{
-#ifdef CONFIG_ECM_CONVERGENCE
-		mutex_lock(&nat_mutex);
-		nat_mutex_locked = true;
-		ret = 0;
-#else
-		ret = pthread_mutex_lock(&nat_mutex);
-#endif
-	}
-
-	if ( ret != 0 )
-	{
-		IPAERR("Unable to lock the %s nat mutex\n",
-			   (nat_mutex_init) ? "initialized" : "uninitialized");
-	}
-
-	IPADBG("nat_mutex_init %d, nat_mutex_locked %d\n", nat_mutex_init, nat_mutex_locked);
-	IPADBG("Out\n");
-	return ret;
-}
-
+bool nat_mutex_locked = false;
 /*
- * Function for giving/unlocking the mutex...
+ * NAT mutex abstraction
+ *
+ * Kernel  : Linux mutex (cannot fail)
+ * Userspace: pthread recursive mutex (may fail)
  */
-int give_mutex(void)
-{
-	int ret = 0;
 
 #ifdef CONFIG_ECM_CONVERGENCE
-	if (nat_mutex_init)
-	{
-		mutex_unlock(&nat_mutex);
-		nat_mutex_locked = false;
-	}
-	else
-		ret = -1;
-#else
-	ret = (nat_mutex_init) ? pthread_mutex_unlock(&nat_mutex) : -1;
-#endif
 
-	if ( ret != 0 )
-	{
-		IPAERR("Unable to unlock the %s nat mutex\n",
-			   (nat_mutex_init) ? "initialized" : "uninitialized");
-	}
+/* ===================== KERNEL BUILD ===================== */
 
-	IPADBG("nat_mutex_init %d, nat_mutex_locked %d\n",
-	       nat_mutex_init, nat_mutex_locked);
-
-	return ret;
+/* Kernel mutex lock never fails */
+int ipa_nat_take_mutex(void)
+{
+    if (!nat_mutex_locked) {
+    	mutex_lock(&nat_mutex);
+	nat_mutex_locked = true;
+    }
+    return 0;
 }
+
+int ipa_nat_give_mutex(void)
+{
+    if (nat_mutex_locked) {
+    	mutex_unlock(&nat_mutex);
+	nat_mutex_locked = false;
+    }
+    return 0;
+}
+
+/* ===================== USERSPACE BUILD ===================== */
+
+#else
+static inline int nat_kmutex_init(void)
+{
+    int ret = 0;
+    pthread_mutexattr_t nat_mutex_attr;
+
+	IPADBG("nat_kmutex_init: In\n");
+
+    /* Serialize initialization */
+    ret = pthread_mutex_lock(&nat_mutex_init_guard);
+    if (ret) {
+        IPAERR("init guard lock failed (%d)\n", ret);
+        return ret;
+    }
+
+    /* Already initialized → nothing to do */
+    if (nat_mutex_init) {
+        pthread_mutex_unlock(&nat_mutex_init_guard);
+        IPADBG("Already initialized\n");
+        return 0;
+    }
+
+    ret = pthread_mutexattr_init(&nat_mutex_attr);
+    if (ret) {
+        IPAERR("pthread_mutexattr_init() failed: %d\n", ret);
+        goto out;
+    }
+
+    ret = pthread_mutexattr_settype(
+        &nat_mutex_attr, PTHREAD_MUTEX_RECURSIVE);
+    if (ret) {
+        IPAERR("pthread_mutexattr_settype() failed: %d\n", ret);
+        goto destroy_attr;
+    }
+
+    ret = pthread_mutex_init(&nat_mutex, &nat_mutex_attr);
+    if (ret) {
+        IPAERR("pthread_mutex_init() failed: %d\n", ret);
+        goto destroy_attr;
+    }
+
+    /* Publish init success */
+    nat_mutex_init = true;
+
+destroy_attr:
+    pthread_mutexattr_destroy(&nat_mutex_attr);
+
+out:
+    pthread_mutex_unlock(&nat_mutex_init_guard);
+    IPADBG("Out: ret=%d\n", ret);
+
+    return ret;
+}
+
+int ipa_nat_take_mutex(void)
+{
+    int ret = 0;
+
+    if (!nat_mutex_init) {
+        ret = nat_kmutex_init();
+        if (ret) {
+            IPAERR("nat mutex init failed (%d)\n", ret);
+            return ret;
+        }
+    }
+
+    if (!nat_mutex_locked) {
+    	ret = pthread_mutex_lock(&nat_mutex);
+    	if (ret) {
+        	IPAERR("pthread_mutex_lock failed (%d)\n", ret);
+		return ret;
+	}
+	nat_mutex_locked = true;
+    }
+
+    return ret;
+}
+
+
+int ipa_nat_give_mutex(void)
+{
+    int ret = 0;
+
+    if (nat_mutex_locked) {
+    	ret = pthread_mutex_unlock(&nat_mutex);
+    	if (ret) {
+        	IPAERR("pthread_mutex_unlock failed (%d)\n", ret);
+		return ret;
+	}
+	nat_mutex_locked = false;
+    }
+
+    return ret;
+}
+#endif
 
 /*
  * ****************************************************************************
@@ -521,13 +534,7 @@ int ipa_nat_switch_to(
 		goto bail;
 	}
 
-	ret = take_mutex();
-
-	if ( ret != 0 )
-	{
-		goto bail;
-	}
-
+	IPA_NAT_MUTEX_LOCK(bail);
 	/*
 	 * Are we here before the state machine has been started?
 	 */
@@ -638,7 +645,7 @@ int ipa_nat_switch_to(
 	ret = 0;
 
 unlock:
-	ret = give_mutex();
+	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");
@@ -665,7 +672,7 @@ int ipa_nati_timestamp_flush(uint32_t  tbl_hdl)
 
 	IPADBG("Out\n");
 
-	return ret;	
+	return ret;
 }
 
 /******************************************************************************/
@@ -2865,16 +2872,7 @@ int ipa_nati_statemach(
 
 	IPADBG("In\n");
 
-	if (!nat_mutex_locked)
-	{
-		ret = take_mutex();
-		mut_locked = true;
-	}
-
-	if ( ret != 0 )
-	{
-		goto bail;
-	}
+	IPA_NAT_MUTEX_LOCK(bail);
 
 	IPADBG("STATE(%s) TRIGGER(%s) CB(%s)\n", ss_ptr, ts_ptr, cbs_ptr);
 
@@ -2910,11 +2908,7 @@ int ipa_nati_statemach(
 	}
 
 unlock:
-	if (mut_locked)
-	{
-		ret_mtx = give_mutex();
-	}
-	ret = (ret) ? ret : ret_mtx;
+	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
 	IPADBG("Out\n");

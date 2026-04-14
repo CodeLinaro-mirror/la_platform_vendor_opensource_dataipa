@@ -77,6 +77,64 @@
  */
 #define IPA_NAT_INVALID_PROTO_FIELD_VALUE_IN_RULE  0xFF
 
+
+/* ======================== MUTEX MACROS ======================== */
+
+#ifdef CONFIG_ECM_CONVERGENCE
+
+/*
+ * Kernel side:
+ * - ipa_nat_take_mutex() / ipa_nat_give_mutex() never fail
+ * - label parameter is accepted for API symmetry
+ */
+#define IPA_NAT_MUTEX_LOCK(label)            \
+    do {                                    \
+        ipa_nat_take_mutex();                   \
+    } while (0)
+
+#define IPA_NAT_MUTEX_UNLOCK()               \
+    do {                                    \
+        ipa_nat_give_mutex();                   \
+    } while (0)
+
+#else
+/* ====================== USERSPACE ====================== */
+
+/*
+ * Userspace:
+ * - ipa_nat_take_mutex() may fail
+ * - failure jumps to label
+ */
+#define IPA_NAT_MUTEX_LOCK(label)                            \
+    do {                                                    \
+        int _ret;                                           \
+        _ret = ipa_nat_take_mutex();                            \
+        if (_ret) {                                        \
+            IPAERR("unable to lock the nat mutex (%d)\n",  \
+                   _ret);                                  \
+            ret = _ret;                                    \
+            goto label;                                   \
+        }                                                   \
+    } while (0)
+
+/*
+ * Userspace unlock:
+ * - no control‑flow change
+ * - unlock failure indicates a logic bug
+ */
+#define IPA_NAT_MUTEX_UNLOCK()                               \
+    do {                                                    \
+        int _ret;                                           \
+        _ret = ipa_nat_give_mutex();                            \
+        if (_ret) {                                        \
+            IPAERR("unable to unlock the nat mutex (%d)\n",\
+                   _ret);                                  \
+            ret = (ret) ? ret : -EPERM;                    \
+        }                                                   \
+    } while (0)
+
+#endif /* CONFIG_ECM_CONVERGENCE */
+
 typedef enum {
 	IPA_NAT_TABLE_FLAGS,
 	IPA_NAT_TABLE_NEXT_INDEX,
@@ -87,8 +145,6 @@ typedef enum {
 	IPA_NAT_INDEX_TABLE_NEXT_INDEX,
 	IPA_NAT_TABLE_DMA_CMD_MAX
 } ipa_nat_table_dma_cmd_type;
-
-extern bool nat_mutex_locked;
 
 /*
  * ------------------------  NAT Table Entry V2  --------------------------------------
@@ -135,10 +191,10 @@ struct ipa_nat_rule_v2 {
 
 	uint64_t time_stamp:24;
 	uint64_t protocol:8;
-	
+
 	uint64_t all_pkts_stats_cnt_index:16;
 	uint64_t non_frag_stats_cnt_index:16;
-	
+
 	uint64_t rsvd1:5;
 	uint64_t dst_only:1;
 	uint64_t src_only:1;
@@ -575,7 +631,7 @@ int ipa_NATI_add_ipv4_rule_v2(
 
 int ipa_NATI_timestamp_flush(uint32_t  tbl_hdl);
 
-int take_mutex(void);
-int give_mutex(void);
+int ipa_nat_take_mutex(void);
+int ipa_nat_give_mutex(void);
 
 #endif/* if not defined IPA_NAT_DRVI_H */
