@@ -378,7 +378,7 @@ int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext)
 }
 
 /**
- * ipa3_find_chan_by_intf() - lookup chan present in interface list
+ * ipa3_find_intf_by_client() - lookup chan present in interface list
  * @ext:  [input] channel type
  *
  * Iterate and look for interface having input channel
@@ -387,28 +387,42 @@ int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext)
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_find_chan_by_intf(enum ipa_client_type client)
+int ipa3_find_intf_by_client(enum ipa_client_type client)
 {
 	struct ipa3_intf *entry;
 	int result = -EINVAL;
+	int i;
 
 	if (client >= IPA_CLIENT_MAX || client < 0) {
-		IPAERR("Bad client num %d\n", client);
+		IPADBG("Bad client num %d\n", client);
 		return result;
 	}
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
-		if(IPA_CLIENT_IS_CONS(client)) {
-			if(entry->tx->dst_pipe == client) {
-				mutex_unlock(&ipa3_ctx->lock);
-				return 0;
+		if (IPA_CLIENT_IS_CONS(client)) {
+			/* Search across all TX props for a matching dst_pipe */
+			for (i = 0; i < entry->num_tx_props; i++) {
+				if (entry->tx &&
+					entry->tx[i].dst_pipe == client) {
+					mutex_unlock(&ipa3_ctx->lock);
+					if(ipa3_ctx->is_rc_log_enabled)
+						IPADBG("Client %d found in intf [%s] tx[%d]\n",
+							client, entry->name, i);
+					return 0;
+				}
 			}
-		}
-		else {
-			if(entry->rx->src_pipe == client) {
-				mutex_unlock(&ipa3_ctx->lock);
-				return 0;
+		} else {
+			/* Search across all RX props for a matching src_pipe */
+			for (i = 0; i < entry->num_rx_props; i++) {
+				if (entry->rx &&
+					entry->rx[i].src_pipe == client) {
+					mutex_unlock(&ipa3_ctx->lock);
+					if(ipa3_ctx->is_rc_log_enabled)
+						IPADBG("Client %d found in intf [%s] rx[%d]\n",
+							client, entry->name, i);
+					return 0;
+				}
 			}
 		}
 	}

@@ -3903,6 +3903,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		else
 			retval = ipa3_clean_modem_rule();
 		ipa3_counter_id_remove_all();
+		ipa_rc_reset_drop_pkt_stats();
 		break;
 
 	case IPA_IOC_QUERY_WLAN_CLIENT:

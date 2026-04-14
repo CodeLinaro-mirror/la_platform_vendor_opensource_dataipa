@@ -320,6 +320,17 @@ int ipa_rc_monitor_health(void);
 bool is_wlan_sta_pkt(struct ipahal_pkt_status *status);
 int get_rc_client(int src_idx);
 
+/**
+ * ipa_rc_reset_drop_pkt_stats() - Reset drop pkt stats on IPACM restart.
+ *
+ * Resets both:
+ *  - ipa3_ctx->stats.rx_excp_pkts[][EXCEPTION_DROP_UL/DL] for all clients
+ *  - drop_pkt_cnts[][] in every ipa_rc_health_monitor instance in rc_list
+ *
+ * Must be called when IPACM restart is detected via ioctl.
+ */
+void ipa_rc_reset_drop_pkt_stats(void);
+
 /* Queue functions */
 void rc_list_init(struct ipa_rc_queue *q);
 bool rc_list_is_empty(struct ipa_rc_queue *q);
