@@ -34,6 +34,9 @@ Hdr *hash_table_hdr[TABLE_SIZE];
 static struct ipa_clientdb_mapping_instance **ipa_db_mapping_table;
 static int *ipa_db_mapping_table_lengths;
 
+/* MAC-based hash table for MAC + VLAN lookups */
+static struct ipa_clientdb_mapping_instance **ipa_db_mapping_mac_table;
+
 static atomic_t ipa_client_db_mapping_count = ATOMIC_INIT(0);
 
 /*
@@ -113,6 +116,27 @@ static inline ipa_db_mapping_hash_t ipa_db_mapping_generate_hash_index(ip_addr_t
 }
 
 /*
+ * ipa_db_mapping_generate_mac_hash_index()
+ * 	Calculate the hash index for MAC + VLAN.
+ */
+static inline ipa_db_mapping_hash_t ipa_db_mapping_generate_mac_hash_index(mac_addr_t mac, uint32_t vlan)
+{
+	uint32_t hash_val;
+	uint32_t mac_hash = 0;
+	int i;
+
+	/* Create hash from MAC address */
+	for (i = 0; i < IPA_MAC_ADDR_SIZE; i++) {
+		mac_hash = (mac_hash << 8) | mac[i];
+	}
+
+	/* Combine MAC hash with VLAN tag using jhash */
+	hash_val = jhash_2words(mac_hash, vlan, ipa_db_jhash_rnd);
+
+	return (ipa_db_mapping_hash_t)(hash_val & (IPA_DB_MAPPING_HASH_SLOTS - 1));
+}
+
+/*
  * ipa_db_mapping_generate_hash_index()
  * 	Calculate the hash index.
  */
@@ -166,15 +190,47 @@ bool ipa_be_clientdb_find_and_ref(ip_addr_t address, int vlan_id, bool lan2lan)
 EXPORT_SYMBOL(ipa_be_clientdb_find_and_ref);
 
 /*
+ * ipa_be_clientdb_get_mapping_by_mac() - Get mapping instance by MAC + VLAN.
+ * @mac: MAC address to search for
+ * @vlan_id: VLAN ID to search for
+ *
+ * Returns pointer to mapping instance if found, NULL otherwise.
+ * Uses MAC-based hash table for O(1) lookup performance.
+ */
+struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac(mac_addr_t mac, int vlan_id)
+{
+	ipa_db_mapping_hash_t hash_index;
+	struct ipa_clientdb_mapping_instance *mi;
+
+	hash_index = ipa_db_mapping_generate_mac_hash_index(mac, vlan_id);
+
+	mutex_lock(&ipa_client_db_lock);
+	/* Iterate through the MAC hash chain to find the correct entry */
+	for (mi = ipa_db_mapping_mac_table[hash_index]; mi != NULL; mi = mi->mac_hash_next) {
+		if (memcmp(mi->mac_addr_t, mac, IPA_MAC_ADDR_SIZE) == 0 && mi->vlan_id == vlan_id) {
+			IPA_BE_DBG("Found mapping by MAC %pM VLAN %d at %px\n", mac, vlan_id, mi);
+			mutex_unlock(&ipa_client_db_lock);
+			return mi;
+		}
+	}
+	mutex_unlock(&ipa_client_db_lock);
+
+	IPA_BE_DBG("No mapping found for MAC %pM VLAN %d\n", mac, vlan_id);
+	return NULL;
+}
+EXPORT_SYMBOL(ipa_be_clientdb_get_mapping_by_mac);
+
+/*
  * ipa_db_mapping_add()
  *	Add a mapping instance into the database
  *
  * NOTE: The mapping will take a reference to the host instance.
+ * Inserts into both IP-based and MAC-based hash tables for dual indexing.
  */
 int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan_id, ip_addr_t address,
 						ipa_db_mapping_final_callback_t final, void *arg)
 {
-	ipa_db_mapping_hash_t hash_index;
+	ipa_db_mapping_hash_t hash_index, mac_hash_index;
 
 	if (!mi) {
 		IPA_BE_ERR("Invalid mi parameters\n");
@@ -182,7 +238,7 @@ int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan
 	}
 
 	/*
-	 * Compute hash table position for insertion
+	 * Compute hash table position for insertion (IP-based)
 	 */
 	hash_index = ipa_db_mapping_generate_hash_index(address, vlan_id);
 	mi->hash_index = hash_index;
@@ -194,6 +250,13 @@ int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan
 	 * Save vlan id
 	 */
 	mi->vlan_id = vlan_id;
+
+	/* Compute MAC-based hash index if MAC address is available */
+	if (!ipa_be_is_zero_mac(mi->mac_addr_t)) {
+		mac_hash_index = ipa_db_mapping_generate_mac_hash_index(mi->mac_addr_t, vlan_id);
+		IPA_BE_DBG("Also adding to MAC hash table at index %d for MAC %pM\n",
+			   mac_hash_index, mi->mac_addr_t);
+	}
 
 	mutex_lock(&ipa_client_db_lock);
 
@@ -208,7 +271,7 @@ int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan
 	ipa_db_mappings = mi;
 
 	/*
-	 * Insert mapping into the mappings hash table
+	 * Insert mapping into the IP-based mappings hash table
 	 */
 	mi->hash_prev = NULL;
 	mi->hash_next = ipa_db_mapping_table[hash_index];
@@ -220,6 +283,19 @@ int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan
 	ipa_db_mapping_table_lengths[hash_index]++;
 	IPA_BE_DBG(" table len %d, hash_index %d val %p\n",
 		ipa_db_mapping_table_lengths[hash_index], hash_index, ipa_db_mapping_table[hash_index]);
+
+	/*
+	 * Insert mapping into the MAC-based hash table if MAC is available
+	 */
+	if (!ipa_be_is_zero_mac(mi->mac_addr_t)) {
+		mi->mac_hash_prev = NULL;
+		mi->mac_hash_next = ipa_db_mapping_mac_table[mac_hash_index];
+		if (ipa_db_mapping_mac_table[mac_hash_index]) {
+			ipa_db_mapping_mac_table[mac_hash_index]->mac_hash_prev = mi;
+		}
+		ipa_db_mapping_mac_table[mac_hash_index] = mi;
+		IPA_BE_DBG("Inserted into MAC hash table at index %d\n", mac_hash_index);
+	}
 
 	mutex_unlock(&ipa_client_db_lock);
 
@@ -250,7 +326,20 @@ bool ipa_clientdb_mapping_init(void)
 		return false;
 	}
 
-	IPA_BE_DBG("Client DB mapping initialized\n");
+	/* Allocate MAC-based hash table */
+	size = sizeof(struct ipa_clientdb_mapping_instance *) *
+			  IPA_DB_MAPPING_HASH_SLOTS;
+	ipa_db_mapping_mac_table = vzalloc(size);
+	if (!ipa_db_mapping_mac_table) {
+		IPA_BE_ERR("Failed to allocate ipa_db_mapping_mac_table\n");
+		vfree(ipa_db_mapping_table_lengths);
+		vfree(ipa_db_mapping_table);
+		ipa_db_mapping_table = NULL;
+		ipa_db_mapping_table_lengths = NULL;
+		return false;
+	}
+
+	IPA_BE_DBG("Client DB mapping initialized (IP and MAC hash tables)\n");
 	return true;
 }
 
@@ -520,15 +609,18 @@ int ipa_be_delete_hdr_by_handle(int hdr_hdl)
 	return -ENOENT;
 }
 
-struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(ip_addr_t addr, int vlan_id, int lan2lan)
+struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(
+	ip_addr_t addr, int vlan_id, int lan2lan, mac_addr_t mac)
 {
 	struct ipa_clientdb_mapping_instance *nmi = NULL;
 
-	IPA_BE_DBG("Establish mapping for " IPA_IP_ADDR_DOT_FMT " vlan :%d\n", IPA_IP_ADDR_TO_DOT(addr), vlan_id);
+	IPA_BE_DBG("Establish mapping for " IPA_IP_ADDR_DOT_FMT
+		   " vlan :%d MAC %pM\n",
+		   IPA_IP_ADDR_TO_DOT(addr), vlan_id, mac);
 
 	if (ipa_be_clientdb_find_and_ref(addr, vlan_id, lan2lan))
 	{
-		IPA_BE_DBG("Client dst ip already exists,, increase ref \n");
+		IPA_BE_DBG("Client dst ip already exists, increase ref \n");
 		return nmi;
 	}
 
@@ -541,20 +633,29 @@ struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(ip_addr_t
 		return NULL;
 	}
 
-	// Ensure address is stored in struct before adding
+	/* Store address, VLAN, and MAC address in struct before adding */
 	memcpy(nmi->address, addr, sizeof(ip_addr_t));
 	nmi->vlan_id = vlan_id;
 
-	ipa_client_db_mapping_add(nmi, vlan_id,  addr,
-							   NULL, NULL);
+	/* Copy MAC address if provided */
+	if (mac) {
+		memcpy(nmi->mac_addr_t, mac, IPA_MAC_ADDR_SIZE);
+		IPA_BE_DBG("Stored MAC address %pM in mapping instance\n",
+			   nmi->mac_addr_t);
+	}
 
-	IPA_BE_DBG("%px: mapping established " IPA_IP_ADDR_DOT_FMT " vlan :%d\n", nmi, IPA_IP_ADDR_TO_DOT(nmi->address), vlan_id);
+	ipa_client_db_mapping_add(nmi, vlan_id, addr, NULL, NULL);
+
+	IPA_BE_DBG("%px: mapping established " IPA_IP_ADDR_DOT_FMT
+		   " vlan :%d MAC %pM\n",
+		   nmi, IPA_IP_ADDR_TO_DOT(nmi->address), vlan_id,
+		   nmi->mac_addr_t);
 	return nmi;
 }
 
 int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 {
-	ipa_db_mapping_hash_t hash_index;
+	ipa_db_mapping_hash_t hash_index, mac_hash_index;
 	struct ipa_clientdb_mapping_instance *mi;
 	int ref_count = -1;
 
@@ -578,7 +679,7 @@ int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 			ref_count = mi->lan2lan_info.ref_count + mi->lan2wan_info.ref_count;
 
 			if (ref_count == 0) {
-				// Remove from hash table
+				// Remove from IP-based hash table
 				if (mi->hash_prev)
 					mi->hash_prev->hash_next = mi->hash_next;
 				else
@@ -588,6 +689,21 @@ int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 					mi->hash_next->hash_prev = mi->hash_prev;
 
 				ipa_db_mapping_table_lengths[hash_index]--;
+
+				// Remove from MAC-based hash table if MAC is available
+				if (!ipa_be_is_zero_mac(mi->mac_addr_t)) {
+					mac_hash_index = ipa_db_mapping_generate_mac_hash_index(mi->mac_addr_t, mi->vlan_id);
+
+					if (mi->mac_hash_prev)
+						mi->mac_hash_prev->mac_hash_next = mi->mac_hash_next;
+					else
+						ipa_db_mapping_mac_table[mac_hash_index] = mi->mac_hash_next;
+
+					if (mi->mac_hash_next)
+						mi->mac_hash_next->mac_hash_prev = mi->mac_hash_prev;
+
+					IPA_BE_DBG("Removed from MAC hash table at index %d\n", mac_hash_index);
+				}
 
 				// Remove from global list
 				if (mi->prev)
@@ -613,51 +729,30 @@ int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 	return ref_count;
 }
 
-static int ipa_ipv4_header(struct ipa_ipv4_rule_create_msg v4_msg)
+static int ipa_ipv4_header(char *name)
 {
-	int handle = 0;
-	struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
-	int size = 0;
+	struct ipa_ioc_get_hdr hdr;
+	int ret;
 
-	IPA_BE_DBG("Entry\n");
-	size = sizeof(struct ipa_ioc_add_hdr) + (1 * sizeof(struct ipa_hdr_add));
-	pHeaderDescriptor = (struct ipa_ioc_add_hdr *)kzalloc(size, GFP_KERNEL);
-	if (pHeaderDescriptor == NULL)
-	{
-		IPA_BE_ERR("calloc failed to allocate pHeaderDescriptor\n");
+	if (!name) {
+		IPA_BE_ERR("Invalid header name\n");
+		return -EINVAL;
+	}
+
+	IPA_BE_DBG("Entry: looking up hdr '%s'\n", name);
+
+	memset(&hdr, 0, sizeof(hdr));
+	memcpy(hdr.name, name, sizeof(hdr.name));
+	hdr.name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+
+	ret = ipa_get_hdr(&hdr);
+	if (ret) {
+		IPA_BE_ERR("ipa_get_hdr failed for '%s', ret=%d\n", name, ret);
 		return -EFAULT;
 	}
 
-	pHeaderDescriptor->commit = true;
-	pHeaderDescriptor->num_hdrs = 1;
-
-	memset(pHeaderDescriptor->hdr[0].name, 0,
-		 sizeof(pHeaderDescriptor->hdr[0].name));
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-	strscpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
-#else
-	strlcpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
-#endif
-	pHeaderDescriptor->hdr[0].name[IPA_RESOURCE_NAME_MAX-1] = '\0';
-
-	pHeaderDescriptor->hdr[0].hdr_len = 14;
-	pHeaderDescriptor->hdr[0].hdr_hdl = -1;
-	pHeaderDescriptor->hdr[0].is_partial = 0;
-	pHeaderDescriptor->hdr[0].status = -1;
-
-	if (ipa3_add_hdr_usr(
-			(struct ipa_ioc_add_hdr *)pHeaderDescriptor, true)) {
-			handle = -EFAULT;
-			kfree(pHeaderDescriptor);
-			return handle;
-	}
-
-	handle = pHeaderDescriptor->hdr[0].hdr_hdl;
-	IPA_BE_DBG("Installed hdr proc ctx: hdl %d\n", handle);
-
-	kfree(pHeaderDescriptor);
-	return handle;
+	IPA_BE_DBG("Got hdr hdl %u for '%s'\n", hdr.hdl, name);
+	return (int)hdr.hdl;
 }
 
 static int ipa_ipv4_vlan_header(
@@ -864,12 +959,12 @@ static int ipa_eth_hdr_init(mac_addr_t client_mac, char *name, enum ipa_ip_type 
 		vlan_tci = htons(vlan_tci);
 
 		/* Copy the VLAN TCI to the header at the correct position (after TPID) */
-		memcpy(&pHeaderDescriptor->hdr[0].hdr[sCopyHeader.eth2_ofst + 
+		memcpy(&pHeaderDescriptor->hdr[0].hdr[sCopyHeader.eth2_ofst +
 			2 * IPA_MAC_ADDR_SIZE + 2], /* +2 for TPID size */
 			&vlan_tci,
 			sizeof(vlan_tci));
 
-		IPA_BE_DBG("Updated VLAN TCI to 0x%04x, complete VLAN tag is 0x%08x\n", 
+		IPA_BE_DBG("Updated VLAN TCI to 0x%04x, complete VLAN tag is 0x%08x\n",
 			   ntohs(vlan_tci), vlan_tag);
 	}
 
@@ -1024,52 +1119,30 @@ static int ipa_ipv6_vlan_header(
 	return handle;
 }
 
-static int ipa_ipv6_header(struct ipa_ipv6_rule_create_msg v6_msg)
+static int ipa_ipv6_header(char *name)
 {
-	int handle = 0;
-	struct ipa_ioc_add_hdr *pHeaderDescriptor = NULL;
-	int size = 0;
+	struct ipa_ioc_get_hdr hdr;
+	int ret;
 
-	size = sizeof(struct ipa_ioc_add_hdr) + (1 * sizeof(struct ipa_hdr_add));
-	pHeaderDescriptor = (struct ipa_ioc_add_hdr *)kzalloc(size, GFP_KERNEL);
-	if (pHeaderDescriptor == NULL)
-	{
-		IPA_BE_ERR("calloc failed to allocate pHeaderDescriptor\n");
+	if (!name) {
+		IPA_BE_ERR("Invalid header name\n");
+		return -EINVAL;
+	}
+
+	IPA_BE_DBG("Entry: looking up hdr '%s'\n", name);
+
+	memset(&hdr, 0, sizeof(hdr));
+	memcpy(hdr.name, name, sizeof(hdr.name));
+	hdr.name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+
+	ret = ipa_get_hdr(&hdr);
+	if (ret) {
+		IPA_BE_ERR("ipa_get_hdr failed for '%s', ret=%d\n", name, ret);
 		return -EFAULT;
 	}
 
-	pHeaderDescriptor->commit = true;
-	pHeaderDescriptor->num_hdrs = 1;
-
-	memset(pHeaderDescriptor->hdr[0].name, 0,
-		 sizeof(pHeaderDescriptor->hdr[0].name));
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-	strscpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
-#else
-	strlcpy(pHeaderDescriptor->hdr[0].name, V4_LAN_ROUTE_TABLE_NAME, sizeof(pHeaderDescriptor->hdr[0].name));
-#endif
-	pHeaderDescriptor->hdr[0].name[IPA_RESOURCE_NAME_MAX-1] = '\0';
-
-	pHeaderDescriptor->hdr[0].hdr_len = 14;
-	pHeaderDescriptor->hdr[0].hdr_hdl = -1;
-	pHeaderDescriptor->hdr[0].is_partial = 0;
-	pHeaderDescriptor->hdr[0].status = -1;
-
-	if (ipa3_add_hdr_usr(
-			(struct ipa_ioc_add_hdr *)pHeaderDescriptor, true)) {
-			handle = -EFAULT;
-			kfree(pHeaderDescriptor);
-			return handle;
-	}
-
-
-	handle = pHeaderDescriptor->hdr[0].hdr_hdl;
-	IPA_BE_DBG("Installed hdr proc ctx: hdl %d\n", handle);
-
-
-	kfree(pHeaderDescriptor);
-	return handle;
+	IPA_BE_DBG("Got hdr hdl %u for '%s'\n", hdr.hdl, name);
+	return (int)hdr.hdl;
 }
 
 
@@ -1077,7 +1150,8 @@ static int ipa_ipv4_header_proc_ctx(
 	struct ipa_ipv4_rule_create_msg v4_msg,
 	int* hdr_hdl,
 	char *name,
-	char *proc_ctx_name_out)
+	char *proc_ctx_name_out,
+	mac_addr_t mac)
 {
 	int handle = 0;
 	int egress_vlan_id = 0, ingress_vlan_id = 0;
@@ -1099,9 +1173,7 @@ static int ipa_ipv4_header_proc_ctx(
 	IPA_BE_DBG("ECMIPA egress_vlan_id 0x%x  ingress_vlan_id 0x%x hdr_name %s\n", egress_vlan_id, ingress_vlan_id, name);
 
 	snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d",
-			v4_msg.conn_rule.flow_mac[0], v4_msg.conn_rule.flow_mac[1],
-			v4_msg.conn_rule.flow_mac[2], v4_msg.conn_rule.flow_mac[3],
-			v4_msg.conn_rule.flow_mac[4], v4_msg.conn_rule.flow_mac[5],
+			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
 			egress_vlan_id);
 
 	/* Store the proc_ctx name for later cleanup */
@@ -1128,7 +1200,7 @@ static int ipa_ipv4_header_proc_ctx(
 	}
 	else
 	{
-		*hdr_hdl = ipa_ipv4_header(v4_msg);
+		*hdr_hdl = ipa_ipv4_header(name);
 	}
 
 	size = sizeof(struct ipa_ioc_add_hdr_proc_ctx) + sizeof(struct ipa_hdr_proc_ctx_add);
@@ -1191,7 +1263,8 @@ static int ipa_ipv6_header_proc_ctx(
 	struct ipa_ipv6_rule_create_msg v6_msg,
 	int* hdr_hdl,
 	char *name,
-	char *proc_ctx_name_out)
+	char *proc_ctx_name_out,
+	mac_addr_t mac)
 {
 	int handle = 0;
 	int egress_vlan_id = 0, ingress_vlan_id = 0;
@@ -1213,9 +1286,7 @@ static int ipa_ipv6_header_proc_ctx(
 	IPA_BE_DBG("ECMIPA egress_vlan_id 0x%x  ingress_vlan_id 0x%x hdr_name %s\n", egress_vlan_id, ingress_vlan_id, name);
 
 	snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d",
-			v6_msg.conn_rule.flow_mac[0], v6_msg.conn_rule.flow_mac[1],
-			v6_msg.conn_rule.flow_mac[2], v6_msg.conn_rule.flow_mac[3],
-			v6_msg.conn_rule.flow_mac[4], v6_msg.conn_rule.flow_mac[5],
+			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
 			egress_vlan_id);
 
 	/* Store the proc_ctx name for later cleanup */
@@ -1241,7 +1312,7 @@ static int ipa_ipv6_header_proc_ctx(
 	}
 	else
 	{
-		*hdr_hdl = ipa_ipv6_header(v6_msg);
+		*hdr_hdl = ipa_ipv6_header(name);
 	}
 
 	size = sizeof(struct ipa_ioc_add_hdr_proc_ctx) + sizeof(struct ipa_hdr_proc_ctx_add);
@@ -1660,7 +1731,7 @@ int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int 
 		IPA_BE_DBG("lan2lan_info %d, lan2wan_info %d\n", mi->lan2lan_info.rt_hdl, mi->lan2wan_info.rt_hdl);
 	}
 
-	IPA_BE_DBG("rt_hdl %d, hdr_hdl %d, proc_ctx_hdl %d\n", rt_hdl, 
+	IPA_BE_DBG("rt_hdl %d, hdr_hdl %d, proc_ctx_hdl %d\n", rt_hdl,
 		   hdr_hdl ? *hdr_hdl : -1, proc_ctx_hdl ? *proc_ctx_hdl : -1);
 	mutex_unlock(&ipa_client_db_lock);
 	return rt_hdl;
@@ -1730,7 +1801,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 
 	if (lan2lan)
 	{
-		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name);
+		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name, mac);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
@@ -1901,7 +1972,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 
 	if (lan2lan)
 	{
-		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name);
+		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[1].hdr_name, proc_ctx_name, mac);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
@@ -2056,7 +2127,7 @@ int ipa_be_delete_proc_ctx(char *name)
 			/* If reference count reaches 0, delete the proc context */
 			if (entry->ref_count <= 0) {
 				/* Delete from IPA */
-				del_proc_ctx = kzalloc(sizeof(struct ipa_ioc_del_hdr_proc_ctx) + 
+				del_proc_ctx = kzalloc(sizeof(struct ipa_ioc_del_hdr_proc_ctx) +
 						      sizeof(struct ipa_hdr_proc_ctx_del), GFP_KERNEL);
 				if (!del_proc_ctx) {
 					IPA_BE_ERR("Failed to allocate memory for del_proc_ctx\n");

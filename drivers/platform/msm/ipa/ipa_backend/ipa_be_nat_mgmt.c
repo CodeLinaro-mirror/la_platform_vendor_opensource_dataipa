@@ -335,10 +335,29 @@ int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 	if(nat_app->nat_table_hdl)
 	{
 		IPA_BE_DBG("nat_table_hdl already exist \n");
-		return 0;
+		/*
+		 * Table already exists. Check if a PDN for this pub_ip is already
+		 * registered. If not, allocate a new PDN entry so that subsequent
+		 * ipa_be_add_entry() calls can resolve the PDN index correctly.
+		 */
+		if(ipa_nat_get_pdn_index(pub_ip, &pdn_index) < 0)
+		{
+			ret = ipa_nat_alloc_pdn(&entry, &pdn_index);
+			if(ret)
+			{
+				IPA_BE_ERR("couldn't allocate a pdn index for ip 0x%X\n", pub_ip);
+				return ret;
+			}
+			IPA_BE_DBG("successfully allocated pdn index %d for ip 0x%X\n",
+					pdn_index, pub_ip);
+		}
+		else
+		{
+			IPA_BE_DBG("pdn already existed with index %d for ip 0x%X\n", pdn_index, pub_ip);
+			return 0;
+		}
 	}
-
-
+	else
 	{
 		/* create the NAT table, the PDN will be stored in index 0 */
 		if(is_sta)
@@ -646,7 +665,7 @@ int ipa_be_add_table_v6(const uint32_t v6_prefix[2])
 }
 EXPORT_SYMBOL(ipa_be_add_table_v6);
 
-void ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface)
+int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface)
 {
 	uint8_t mux_id = 0;
 	bool is_sta = 0;
@@ -655,6 +674,7 @@ void ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface)
 	uint32_t pub_ip;
 	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
 	struct ipa_ioc_query_intf pdn_intf;
+	int ret = 0;
 
 	IPA_BE_DBG("Entry \n");
 
@@ -663,7 +683,7 @@ void ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface)
 	/*Check if the filter interface exists*/
 	if (!ipa3_query_iface(pdn_iface, &pdn_intf)) {
 		IPA_BE_ERR("Unable to query iface prop\n");
-		return;
+		return -EINVAL;
 	} else {
 		IPA_BE_DBG("Interface with index %u exist.\n", pdn_iface);
 	}
@@ -672,7 +692,7 @@ void ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface)
 		pdn_intf.num_ext_props * sizeof(struct ipa_ioc_ext_intf_prop), GFP_KERNEL);
 	if (ext_prop == NULL) {
 		IPA_BE_ERR("Unable to allocate ext_prop memory.\n");
-		return;
+		return -ENOMEM;
 	}
 
 	memcpy(ext_prop->name, pdn_intf.name, sizeof(pdn_intf.name));
@@ -709,27 +729,34 @@ void ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface)
 	if (v4_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED||
 		v4_msg.vlan_primary_rule.ingress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED)
 	{
-		if (ipa_be_add_pdn(pub_ip, mux_id, is_sta, ip_pass))
+		ret = ipa_be_add_pdn(pub_ip, mux_id, is_sta, ip_pass);
+		if (ret)
 		{
 			IPA_BE_ERR("failed adding pdn\n");
+			goto cleanup;
 		}
 	}
 	else
 	{
-		if (ipa_be_add_table(pub_ip, mux_id, is_sta, ip_pass))
+		ret = ipa_be_add_table(pub_ip, mux_id, is_sta, ip_pass);
+		if (ret)
 		{
 			IPA_BE_ERR("failed adding table\n");
+			goto cleanup;
 		}
 	}
 
-	if(ipa_be_add_entry(v4_msg, isVlan))
+	ret = ipa_be_add_entry(v4_msg, isVlan);
+	if (ret)
 	{
 		IPA_BE_ERR("failed adding nat entry\n");
 	}
 
+cleanup:
 	/* Clean up allocated memory */
 	kfree(ext_prop);
-	IPA_BE_DBG("Exit \n");
+	IPA_BE_DBG("Exit ret=%d\n", ret);
+	return ret;
 }
 
 static int ipv6ct_convert_to_ipa_rule(struct ipa_ipv6_rule_create_msg *v6_msg,
@@ -867,9 +894,10 @@ int ipv6ct_del_entry(struct ipa_ipv6_rule_destroy_msg *v6_msg, uint32_t rule_han
 }
 EXPORT_SYMBOL(ipv6ct_del_entry);
 
-void ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface)
+int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface)
 {
 	uint8_t mux_id = 0;
+	int ret = 0;
 	IPA_BE_DBG("Entry ipa_be_add_v6_ct_entry\n");
 	uint32_t v6_prefix[2];  /* IPv6 prefix is 64 bits = 2 x 32-bit words */
 	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
@@ -881,6 +909,7 @@ void ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_ifac
 	/*Check if the filter interface exists*/
 	if (!ipa3_query_iface(pdn_iface, &pdn_intf)) {
 		IPA_BE_ERR("Unable to query iface prop\n");
+		ret = -EINVAL;
 		goto cleanup;
 	} else {
 		IPA_BE_DBG("Interface with index %u exist.\n", pdn_iface);
@@ -890,7 +919,8 @@ void ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_ifac
 		pdn_intf.num_ext_props * sizeof(struct ipa_ioc_ext_intf_prop), GFP_KERNEL);
 	if (ext_prop == NULL) {
 		IPA_BE_ERR("Unable to allocate ext_prop memory.\n");
-		return;
+		ret = -ENOMEM;
+		goto cleanup;
 	}
 
 	memcpy(ext_prop->name, pdn_intf.name, sizeof(pdn_intf.name));
@@ -929,9 +959,10 @@ void ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_ifac
 
 	/* Check VLAN configuration and call appropriate function */
 	IPA_BE_DBG("No VLAN, using table approach\n");
-	if (ipa_be_add_table_v6(v6_prefix)) {
-			IPA_BE_ERR("failed adding IPv6 CT table\n .. exiting..\n");
-			goto cleanup;
+	ret = ipa_be_add_table_v6(v6_prefix);
+	if (ret) {
+		IPA_BE_ERR("failed adding IPv6 CT table\n .. exiting..\n");
+		goto cleanup;
 	}
 
 	/* Check for duplicate IPv6 CT entry before adding */
@@ -955,7 +986,8 @@ void ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_ifac
 	}
 
 	/* Add IPv6 connection tracking entry */
-	if (ipv6ct_add_entry(&v6_msg, &rule_hdl) == 0) {
+	ret = ipv6ct_add_entry(&v6_msg, &rule_hdl);
+	if (ret == 0) {
 		IPA_BE_DBG("IPv6 CT entry added with hdl %d\n", rule_hdl);
 
 		/* Store the rule handle in cache for bookkeeping */
@@ -963,6 +995,7 @@ void ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_ifac
 						    src_port, dest_port, tuple->protocol, rule_hdl);
 		if (cache_idx < 0) {
 			IPA_BE_ERR("Failed to store IPv6 CT entry in cache\n");
+			ret = -EFAULT;
 		}
 	} else {
 		IPA_BE_ERR("Failed to add IPv6 CT entry\n");
@@ -973,6 +1006,7 @@ cleanup:
 		kfree(ext_prop);
 	}
 	IPA_BE_DBG("Exit ipa_be_add_v6_ct_entry\n");
+	return ret;
 }
 
 /* Add new entry to the nat table on new connection */

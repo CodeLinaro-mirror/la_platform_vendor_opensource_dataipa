@@ -13,6 +13,8 @@
 #define IPV6_HEADER_SIZE 40
 #define UINT16_MAX (65535U)
 
+#define LAN2LAN_RULE_ID 1
+
 int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret);
 int ipa_be_v4_delete_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg, int intf_idx, mac_addr_t mac, bool lan2lan);
 
@@ -31,6 +33,9 @@ int ipa_be_delete_mtu_rule(int client_iface, int pdn_iface, enum ipa_ip_type ip_
 
 int ipa_be_handle_private_subnet(int intf_num, int bridge_if_num);
 int ipa_be_delete_private_subnet(int intf_num, int bridge_if_num, enum ipa_ip_type ip_type);
+
+int ipa_be_handle_ipv6_prefix_flt_rule(int intf_num, uint32_t *prefix);
+int ipa_be_delete_ipv6_prefix_flt_rule(int intf_num);
 
 int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type iptype);
 
