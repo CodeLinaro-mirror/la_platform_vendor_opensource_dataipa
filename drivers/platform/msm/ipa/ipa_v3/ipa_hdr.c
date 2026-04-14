@@ -769,7 +769,6 @@ static int _ipa_add_hpc_for_hdr_in_ext(struct ipa3_hdr_entry *hdr_entry, bool us
 	WARN_ON_RATELIMIT_IPA(!hdr_entry->proc_ctx);
 	if(hdr_entry->proc_ctx == NULL)
 		return -EPERM;
-	hdr_entry->proc_ctx->ref_cnt++;
 
 	return 0;
 }
@@ -1077,8 +1076,10 @@ static int __ipa3_del_hdr_proc_ctx(u32 proc_ctx_hdl,
 			proc_ctx_hdl, entry->ref_cnt);
 		return 0;
 	}
-	if (entry->hdr && (entry == entry->hdr->proc_ctx))
+	if (entry->hdr && (entry == entry->hdr->proc_ctx)) {
 		entry->hdr->proc_ctx = NULL;
+		IPADBG_LOW("Deleting hdr proc ref\n");
+	}
 
 	if (entry->hdr && release_hdr)
 		__ipa3_del_hdr(entry->hdr->id, false);
@@ -1146,6 +1147,9 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 	}
 
 	htbl = entry->is_lcl ? &ipa3_ctx->hdr_tbl[HDR_TBL_LCL] : &ipa3_ctx->hdr_tbl[HDR_TBL_SYS];
+	if(entry->in_apps_headers_ext)
+		htbl = &ipa3_ctx->hdr_tbl[HDR_TBL_LCL_EXT];
+
 	if(entry->proc_ctx ||  entry->is_hdr_proc_ctx)
 		IPADBG("del hdr of len=%d hdr_cnt=%d ofst=%llu\n", entry->hdr_len, htbl->hdr_cnt,
 			entry->phys_base);
@@ -1176,8 +1180,10 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 		return 0;
 	}
 
-	if (entry->proc_ctx && (entry == entry->proc_ctx->hdr))
+	if (entry->proc_ctx && (entry == entry->proc_ctx->hdr)) {
 		entry->proc_ctx->hdr = NULL;
+		IPADBG_LOW("Deleting proc hdr ref\n");
+	}
 
 	if ((entry->is_hdr_proc_ctx && entry->proc_ctx) || entry->proc_ctx)
 		__ipa3_del_hdr_proc_ctx(entry->proc_ctx->id, false, false);
