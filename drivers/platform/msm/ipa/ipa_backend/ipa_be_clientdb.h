@@ -26,6 +26,8 @@
 #define V4_ODU_ROUTE_TABLE_NAME  "ODURTBLv4"
 #define V6_ODU_ROUTE_TABLE_NAME  "ODURTBLv6"
 #define V6_DEFAULT_ROUTE_TABLE_NAME  "ipa_dflt_rt"
+#define V4_LAN_TO_LAN_ROUTE_TABLE_NAME  "lan_to_lan_v4"
+#define V6_LAN_TO_LAN_ROUTE_TABLE_NAME  "lan_to_lan_v6"
 
 
 #define IPA_ETH_HDR_NAME_v4  "IPACM_ETH_v4"

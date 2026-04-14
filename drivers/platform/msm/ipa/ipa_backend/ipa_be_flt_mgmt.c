@@ -323,9 +323,9 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		rt_tbl.ip = IPA_IP_v4;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-		strscpy(rt_tbl.name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
+		strscpy(rt_tbl.name, V4_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #else
-		strlcpy(rt_tbl.name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
+		strlcpy(rt_tbl.name, V4_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #endif
 
 		IPA_BE_DBG("This flt rule points to rt tbl %s.\n", rt_tbl.name);
@@ -2119,9 +2119,9 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 		rt_tbl.ip = IPA_IP_v6;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-		strscpy(rt_tbl.name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
+		strscpy(rt_tbl.name, V6_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #else
-		strlcpy(rt_tbl.name, V6_WAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
+		strlcpy(rt_tbl.name, V6_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #endif
 
 		IPA_BE_DBG("This flt rule points to rt tbl %s.\n", rt_tbl.name);
