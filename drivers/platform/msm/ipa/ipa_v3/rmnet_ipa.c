@@ -3133,6 +3133,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 		sizeof(struct rmnet_ingress_param) *
 			ingress_ioctl_v2_data.number_of_eps)) {
 		IPAWANERR("Ingress copy to user failed\n");
+		mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 		return -EFAULT;
 	}
 
@@ -3650,6 +3651,7 @@ static int handle3_egress_format_v2(struct net_device *dev,
 
 			if (rc == -EFAULT) {
 				IPAWANERR("Failed to setup wan prod pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 				return rc;
 			}
 
@@ -3676,6 +3678,7 @@ static int handle3_egress_format_v2(struct net_device *dev,
 
 			if (rc == -EFAULT) {
 				IPAWANERR("Failed to setup wan_eth prod pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 				return rc;
 			}
 			/* indicate eth-wan enabled */
@@ -3845,6 +3848,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
 
 			if (rc == -EFAULT) {
 				IPAWANERR("Failed to setup wan prod pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 				return rc;
 			}
 
@@ -3871,6 +3875,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
 
 			if (rc == -EFAULT) {
 				IPAWANERR("Failed to setup wan_eth prod pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 				return rc;
 			}
 			/* indicate eth-wan enabled */
