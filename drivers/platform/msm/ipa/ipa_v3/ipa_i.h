@@ -3260,6 +3260,32 @@ struct ipa3_mem_partition {
 
 	u32 apps_fltrt_empty_tbl_ofst;
 	u32 apps_fltrt_empty_tbl_size;
+
+	/* New Counters for IPAv7.0 */
+
+	u32 tethering_drop_stats_ofst;
+	u32 tethering_drop_stats_size;
+
+	u32 nat_ct_stats_counters_ofst;
+	u32 nat_ct_stats_counters_size;
+
+	u32 nat_ct_stats_cfg_ofst;
+	u32 nat_ct_stats_cfg_size;
+
+	u32 nat_ct_drop_stats_counters_ofst;
+	u32 nat_ct_drop_stats_counters_size;
+
+	u32 nat_ct_drop_stats_cfg_ofst;
+	u32 nat_ct_drop_stats_cfg_size;
+
+	u32 fnr_drop_counters_ofst;
+	u32 fnr_drop_counters_size;
+	u32 policing_drop_counters_ofst;
+	u32 policing_drop_counters_size;
+	u32 shaping_drop_counters_ofst;
+	u32 shaping_drop_counters_size;
+	u32 shaping_drop_pkt_byte_counters_ofst;
+	u32 shaping_drop_pkt_byte_counters_size;
 };
 
 struct ipa3_controller {
