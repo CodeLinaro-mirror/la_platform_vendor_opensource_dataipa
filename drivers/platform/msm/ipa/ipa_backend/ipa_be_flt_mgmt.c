@@ -125,7 +125,8 @@ uint32_t flt_rule_count_v6[IPA_CLIENT_MAX] = {0};
 
 enum flt_rule_type {
 	FLT_RULE_TYPE_DEFAULT = 0,
-	FLT_RULE_TYPE_CATCHUP = 1,
+	FLT_RULE_TYPE_ICMP    = 1,
+	FLT_RULE_TYPE_CATCHUP = 2,
 };
 
 struct flt_rule
@@ -192,6 +193,7 @@ struct ipa_pdn_filter_rules {
 	int pdn_iface;
 	enum ipa_ip_type ip_type;
 	bool dft_rule_installed;
+	bool icmp_rule_installed;
 	bool catchup_rule_installed;
 	int ref_count;
 };
@@ -225,6 +227,7 @@ static struct ipa_pdn_filter_rules *ipa_create_pdn_filter_entry(int pdn_iface, e
 	new_entry->pdn_iface = pdn_iface;
 	new_entry->ip_type = ip_type;
 	new_entry->dft_rule_installed = false;
+	new_entry->icmp_rule_installed = false;
 	new_entry->catchup_rule_installed = false;
 	new_entry->ref_count = 0;
 
@@ -3072,6 +3075,328 @@ fail_rx:
 }
 
 
+/**
+ * add_icmp_alg_rules() - Add ICMP/ICMPv6 ALG filter rules for a PDN interface
+ * @pdn_iface: PDN interface number
+ * @iptype: IP version (IPA_IP_v4 or IPA_IP_v6)
+ *
+ * Adds ICMP (IPv4) or ICMPv6 (IPv6) filter rules to the WAN DL filter rule
+ * list for the specified PDN interface. These rules direct ICMP/ICMPv6 traffic
+ * to the WAN DL routing table (IPA_PASS_TO_ROUTING), ensuring ICMP packets
+ * bypass NAT and are handled by the routing path.
+ *
+ * This function must be called after add_dft_filtering_rule() and before
+ * add_catchup_all_filtering_rule_each_pdn() so that ICMP rules are ordered
+ * before the catch-all rule in the WAN DL filter table.
+ *
+ * Reference counting: pdn_entry->ref_count is incremented on every call,
+ * regardless of whether the ICMP rule was already installed. If the rule is
+ * already installed (icmp_rule_installed == true), only the ref_count is
+ * incremented and the function returns immediately without re-installing the
+ * hardware rule. This allows multiple connections sharing the same PDN to
+ * safely call this function without duplicating rules.
+ *
+ * Rules are stored as FLT_RULE_TYPE_ICMP and must be cleaned up by calling
+ * delete_icmp_alg_rules() for each corresponding add_icmp_alg_rules() call.
+ *
+ * Return: 0 on success, negative errno on failure
+ */
+int add_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
+{
+	struct ipa_ioc_query_intf temp_intf;
+	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
+	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
+	struct ipa_ioc_get_rt_tbl_indx rt_tbl_idx = {0};
+	struct ipa_ioc_generate_flt_eq flt_eq;
+	struct ipa_flt_rule_add flt_rule_entry;
+	struct ipa_pdn_filter_rules *pdn_entry;
+	struct flt_rule *new_rule;
+	uint8_t mux_id = 0;
+	int retval = 0;
+	int rx_idx;
+
+	IPA_BE_DBG("Add ICMP/ALG flt rule for iface %d, ip type %d\n",
+		pdn_iface, iptype);
+
+	/*
+	 * Check if a PDN entry exists and if the ICMP rule is already
+	 * installed. Rules should only be added if a PDN entry has been
+	 * created by add_dft_filtering_rule() first.
+	 */
+	spin_lock_bh(&ipa_pdn_filter_lock);
+	pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
+	if (!pdn_entry) {
+		spin_unlock_bh(&ipa_pdn_filter_lock);
+		IPA_BE_ERR("No PDN entry for iface %d, ip %d. Cannot add ICMP rule.\n",
+			   pdn_iface, iptype);
+		return -EINVAL; /* Return error if PDN entry not found */
+	}
+
+	if (pdn_entry->icmp_rule_installed) {
+		pdn_entry->ref_count++;
+		spin_unlock_bh(&ipa_pdn_filter_lock);
+		IPA_BE_DBG("ICMP rule for pdn %d, IP type %d already installed. ref_count: %d\n",
+			   pdn_iface, iptype, pdn_entry->ref_count);
+		return 0; /* Rule already exists, just increment ref count and exit */
+	}
+	spin_unlock_bh(&ipa_pdn_filter_lock);
+
+	if (!ipa3_query_iface(pdn_iface, &temp_intf)) {
+		IPA_BE_ERR("iface %d doesn't exist\n", pdn_iface);
+		return -EINVAL;
+	}
+
+	rx_prop = kzalloc(sizeof(*rx_prop) + temp_intf.num_rx_props *
+		sizeof(struct ipa_ioc_rx_intf_prop), GFP_KERNEL);
+	if (!rx_prop) {
+		IPA_BE_ERR("Failed to allocate rx_prop\n");
+		return -ENOMEM;
+	}
+	memcpy(rx_prop->name, temp_intf.name, sizeof(rx_prop->name));
+	rx_prop->num_rx_props = temp_intf.num_rx_props;
+
+	if (ipa3_query_intf_rx_props(rx_prop)) {
+		IPA_BE_ERR("Failed to query rx_prop for iface %s\n",
+			rx_prop->name);
+		retval = -EIO;
+		goto fail_rx;
+	}
+
+	if (rx_prop->num_rx_props == 0) {
+		IPA_BE_ERR("No rx props for iface %s\n", rx_prop->name);
+		retval = 0; /* Not an error, just nothing to do */
+		goto fail_rx;
+	}
+
+	/* Get ext props for mux_id */
+	ext_prop = kzalloc(sizeof(*ext_prop) + temp_intf.num_ext_props *
+		sizeof(struct ipa_ioc_ext_intf_prop), GFP_KERNEL);
+	if (!ext_prop) {
+		IPA_BE_ERR("Unable to allocate ext_prop memory.\n");
+		retval = -ENOMEM;
+		goto fail_rx;
+	}
+	memcpy(ext_prop->name, temp_intf.name, sizeof(temp_intf.name));
+	ext_prop->num_ext_props = temp_intf.num_ext_props;
+	ipa3_query_intf_ext_props(ext_prop);
+	if (ext_prop->num_ext_props > 0)
+		mux_id = ext_prop->ext[0].mux_id;
+
+	/* Get WAN DL routing table index */
+	rt_tbl_idx.ip = iptype;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+	strscpy(rt_tbl_idx.name, WAN_DL_ROUTE_TABLE_NAME, sizeof(rt_tbl_idx.name));
+#else
+	strlcpy(rt_tbl_idx.name, WAN_DL_ROUTE_TABLE_NAME, sizeof(rt_tbl_idx.name));
+#endif
+	rt_tbl_idx.name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+	if (ipa3_query_rt_index(&rt_tbl_idx)) {
+		IPA_BE_ERR("Failed to get WAN DL routing table index\n");
+		retval = -EIO;
+		goto fail_ext;
+	}
+	IPA_BE_DBG("WAN DL routing table %s has index %d\n",
+		WAN_DL_ROUTE_TABLE_NAME, rt_tbl_idx.idx);
+
+	/* Build the ICMP/ICMPv6 filter rule */
+	memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
+	flt_rule_entry.at_rear = true;
+	flt_rule_entry.flt_rule_hdl = -1;
+	flt_rule_entry.status = -1;
+	flt_rule_entry.rule.retain_hdr = 1;
+	flt_rule_entry.rule.to_uc = 0;
+	flt_rule_entry.rule.eq_attrib_type = 1;
+	flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+	flt_rule_entry.rule.hashable = true;
+	flt_rule_entry.rule.rt_tbl_idx = rt_tbl_idx.idx;
+
+	if (iptype == IPA_IP_v4) {
+		/* Use IPv4 rx prop (even index 0) */
+		rx_idx = 0;
+		memcpy(&flt_rule_entry.rule.attrib, &rx_prop->rx[rx_idx].attrib,
+			sizeof(flt_rule_entry.rule.attrib));
+		/* Multiple PDNs may exist so keep meta-data; add ICMP protocol match */
+		flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_PROTOCOL;
+		flt_rule_entry.rule.attrib.u.v4.protocol = (uint8_t)IPPROTO_ICMP;
+	} else { /* IPA_IP_v6 */
+		/* Use IPv6 rx prop (odd index 1 if available) */
+		rx_idx = (rx_prop->num_rx_props > 1) ? 1 : 0;
+		memcpy(&flt_rule_entry.rule.attrib, &rx_prop->rx[rx_idx].attrib,
+			sizeof(flt_rule_entry.rule.attrib));
+		/* Multiple PDNs may exist so keep meta-data; add ICMPv6 next-header match */
+		flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_NEXT_HDR;
+		flt_rule_entry.rule.attrib.u.v6.next_hdr = (uint8_t)IPPROTO_ICMPV6;
+	}
+
+	/* Generate filter equation */
+	memset(&flt_eq, 0, sizeof(flt_eq));
+	memcpy(&flt_eq.attrib, &flt_rule_entry.rule.attrib, sizeof(flt_eq.attrib));
+	flt_eq.ip = iptype;
+	retval = ipahal_flt_generate_equation(iptype, &flt_eq.attrib, &flt_eq.eq_attrib);
+	if (retval) {
+		IPA_BE_ERR("Failed generating equation for ICMP rule ip type %d with ret %d\n",
+			iptype, retval);
+		retval = -EIO;
+		goto fail_ext;
+	}
+	memcpy(&flt_rule_entry.rule.eq_attrib, &flt_eq.eq_attrib,
+		sizeof(flt_rule_entry.rule.eq_attrib));
+
+	/* Allocate and populate the list node */
+	new_rule = kzalloc(sizeof(struct flt_rule), GFP_KERNEL);
+	if (!new_rule) {
+		IPA_BE_ERR("Failed to allocate memory for ICMP rule\n");
+		retval = -ENOMEM;
+		goto fail_ext;
+	}
+	memcpy(&new_rule->flt_rule, &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
+	new_rule->mux_id = mux_id;
+	new_rule->rule_type = FLT_RULE_TYPE_ICMP;
+	new_rule->category = IPA_FLT_RULE_CAT_DOWNLINK;
+	new_rule->pdn_iface = pdn_iface;
+
+	/* Add rule to the appropriate list */
+	if (iptype == IPA_IP_v4) {
+		spin_lock_bh(&pdn_flt_rule_v4_lock);
+		list_add_tail(&new_rule->node, &Pdn_flt_rule_v4_list);
+		wan_rule_count_v4++;
+		spin_unlock_bh(&pdn_flt_rule_v4_lock);
+		IPA_BE_DBG("Added ICMP v4 rule for pdn %d, rule count now %d\n",
+			pdn_iface, wan_rule_count_v4);
+	} else {
+		spin_lock_bh(&pdn_flt_rule_v6_lock);
+		list_add_tail(&new_rule->node, &Pdn_flt_rule_v6_list);
+		wan_rule_count_v6++;
+		spin_unlock_bh(&pdn_flt_rule_v6_lock);
+		IPA_BE_DBG("Added ICMPv6 rule for pdn %d, rule count now %d\n",
+			pdn_iface, wan_rule_count_v6);
+	}
+
+	/* Mark ICMP rule as installed and increment reference count */
+	spin_lock_bh(&ipa_pdn_filter_lock);
+	pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
+	if (pdn_entry) {
+		pdn_entry->icmp_rule_installed = true;
+		pdn_entry->ref_count++;
+		IPA_BE_DBG("ICMP rule installed for pdn %d, ip %d. ref_count: %d\n",
+			   pdn_iface, iptype, pdn_entry->ref_count);
+	}
+	spin_unlock_bh(&ipa_pdn_filter_lock);
+
+fail_ext:
+	kfree(ext_prop);
+fail_rx:
+	kfree(rx_prop);
+	return retval;
+}
+
+/**
+ * delete_icmp_alg_rules() - Delete ICMP/ICMPv6 ALG filter rules for a PDN interface
+ * @pdn_iface: PDN interface number
+ * @iptype: IP version (IPA_IP_v4 or IPA_IP_v6)
+ *
+ * Decrements pdn_entry->ref_count and removes the ICMP/ICMPv6 filter rules
+ * (FLT_RULE_TYPE_ICMP) from the WAN DL filter rule list for the specified PDN
+ * interface only when ref_count reaches zero (i.e., the last connection using
+ * this PDN's ICMP rule is being torn down). Also resets the
+ * icmp_rule_installed tracking flag when the rule is actually removed.
+ *
+ * This is the counterpart to add_icmp_alg_rules() and must be called once
+ * for each prior call to add_icmp_alg_rules() when tearing down a PDN
+ * connection.
+ *
+ * Return: 0 on success, -ENOENT if no ICMP rule was installed for this PDN
+ */
+int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
+{
+	struct ipa_pdn_filter_rules *pdn_entry;
+	struct flt_rule *rule_entry, *tmp;
+	int retval = 0;
+	int deleted_count = 0;
+
+	IPA_BE_DBG("Delete ICMP/ALG flt rule for iface %d, ip type %d\n",
+		pdn_iface, iptype);
+
+	/* Find and update the PDN filter entry */
+	spin_lock_bh(&ipa_pdn_filter_lock);
+	pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
+	if (!pdn_entry) {
+		spin_unlock_bh(&ipa_pdn_filter_lock);
+		IPA_BE_ERR("No PDN filter entry found for pdn %d, IP type %d\n",
+			pdn_iface, iptype);
+		return -ENOENT;
+	}
+
+	if (!pdn_entry->icmp_rule_installed) {
+		spin_unlock_bh(&ipa_pdn_filter_lock);
+		IPA_BE_DBG("ICMP rule for pdn %d, IP type %d not installed, nothing to delete\n",
+			pdn_iface, iptype);
+		return 0;
+	}
+
+	/* Decrement ref_count for ICMP rule */
+	pdn_entry->ref_count--;
+	IPA_BE_DBG("Decremented ref_count for ICMP rule pdn %d, IP type %d. New count: %d\n",
+		pdn_iface, iptype, pdn_entry->ref_count);
+
+	/*
+	 * Only delete ICMP rules when the last connection to this PDN is being
+	 * removed. Check if ref_count > 0, which means other connections are
+	 * still using this PDN and its rules.
+	 */
+	if (pdn_entry->ref_count > 1) {
+		spin_unlock_bh(&ipa_pdn_filter_lock);
+		IPA_BE_DBG("ICMP rule for pdn %d, IP type %d still in use (ref_count=%d), skipping delete\n",
+			pdn_iface, iptype, pdn_entry->ref_count);
+		return 0;
+	}
+
+	/* Mark ICMP rule as no longer installed */
+	pdn_entry->icmp_rule_installed = false;
+	spin_unlock_bh(&ipa_pdn_filter_lock);
+
+	/* Remove FLT_RULE_TYPE_ICMP rules for this PDN from the linked list */
+	if (iptype == IPA_IP_v4) {
+		spin_lock_bh(&pdn_flt_rule_v4_lock);
+		list_for_each_entry_safe(rule_entry, tmp, &Pdn_flt_rule_v4_list, node) {
+			if (rule_entry->pdn_iface == pdn_iface &&
+			    rule_entry->rule_type == FLT_RULE_TYPE_ICMP) {
+				list_del(&rule_entry->node);
+				kfree(rule_entry);
+				wan_rule_count_v4--;
+				deleted_count++;
+			}
+		}
+		spin_unlock_bh(&pdn_flt_rule_v4_lock);
+		IPA_BE_DBG("Deleted %d ICMP IPv4 rules for pdn %d, new count: %d\n",
+			deleted_count, pdn_iface, wan_rule_count_v4);
+	} else {
+		spin_lock_bh(&pdn_flt_rule_v6_lock);
+		list_for_each_entry_safe(rule_entry, tmp, &Pdn_flt_rule_v6_list, node) {
+			if (rule_entry->pdn_iface == pdn_iface &&
+			    rule_entry->rule_type == FLT_RULE_TYPE_ICMP) {
+				list_del(&rule_entry->node);
+				kfree(rule_entry);
+				wan_rule_count_v6--;
+				deleted_count++;
+			}
+		}
+		spin_unlock_bh(&pdn_flt_rule_v6_lock);
+		IPA_BE_DBG("Deleted %d ICMP IPv6 rules for pdn %d, new count: %d\n",
+			deleted_count, pdn_iface, wan_rule_count_v6);
+	}
+
+	if (deleted_count == 0) {
+		IPA_BE_ERR("No ICMP rules found in list for pdn %d, IP type %d\n",
+			pdn_iface, iptype);
+		return -ENOENT;
+	}
+
+	IPA_BE_DBG("ICMP/ALG rule deleted for pdn %d, IP type %d\n", pdn_iface, iptype);
+	return retval;
+}
+EXPORT_SYMBOL(delete_icmp_alg_rules);
+
 int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type iptype)
 {
 	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
@@ -3511,7 +3836,8 @@ int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		return 0;
 	}
 	/* If both default and catchup rules are not installed and ref_count is 0, remove the entry */
-	if (!pdn_entry->catchup_rule_installed && pdn_entry->ref_count == 0) {
+	if (!pdn_entry->catchup_rule_installed && !pdn_entry->icmp_rule_installed &&
+		pdn_entry->ref_count == 0) {
 		/* Mark as not installed */
 		pdn_entry->dft_rule_installed = false;
 		ipa_remove_pdn_filter_entry(pdn_entry);
@@ -3589,7 +3915,7 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 	IPA_BE_DBG("Decremented ref_count for pdn %d, IP type %d. New count: %d\n",
 		pdn_iface, iptype, pdn_entry->ref_count);
 
-	if (pdn_entry->ref_count > 1) {
+	if (pdn_entry->ref_count > 2) {
 		/* Other connections are still using these rules, so don't delete them */
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("Catchup filtering rule for pdn %d, IP type %d still in use. ref_count: %d\n",
@@ -3601,7 +3927,8 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 	pdn_entry->catchup_rule_installed = false;
 
 	/* If both default and catchup rules are not installed and ref_count is 0, remove the entry */
-	if (!pdn_entry->dft_rule_installed && pdn_entry->ref_count == 0) {
+	if (!pdn_entry->dft_rule_installed && !pdn_entry->icmp_rule_installed &&
+		pdn_entry->ref_count == 0) {
 		ipa_remove_pdn_filter_entry(pdn_entry);
 		IPA_BE_DBG("Removed PDN filter entry for pdn %d, IP type %d\n", pdn_iface, iptype);
 	}

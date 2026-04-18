@@ -747,19 +747,26 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 		}
 		step = 6;
 
+		ret = add_icmp_alg_rules(pdn_iface, IPA_IP_v4);
+		if (ret != 0) {
+			IPA_BE_ERR("Failed to add ICMP/ALG filtering rule\n");
+			goto failed_ret;
+		}
+		step = 7;
+
 		ret = add_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to add catchup all filtering rule\n");
 			goto failed_ret;
 		}
-		step = 7;
+		step = 8;
 
 		ret = install_wan_filtering_rule();
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to install wan filtering rule\n");
 			goto failed_ret;
 		}
-		step = 8;
+		step = 9;
 
 #ifdef CONFIG_ECM_CONVERGENCE
 		/* Add NAT entry */
@@ -768,7 +775,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			IPA_BE_ERR("Failed to add PDN entry\n");
 			goto failed_ret;
 		}
-		step = 9;
+		step = 10;
 #else
 		IPA_BE_DBG("NAT support disabled - skipping ipa_be_addpdn\n");
 		return IPA_TX_FAILURE_NOT_ENABLED;
@@ -798,11 +805,14 @@ failed_ret:
 		}
 	} else {
 		switch (step) {
-			case 8:
+			case 9:
 				/* Need a way to rollback wan_filtering_rule if possible */
 				/* fallthrough */
-			case 7:
+			case 8:
 				delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
+				/* fallthrough */
+			case 7:
+				delete_icmp_alg_rules(pdn_iface, IPA_IP_v4);
 				/* fallthrough */
 			case 6:
 				delete_dft_filtering_rule(pdn_iface, IPA_IP_v4);
@@ -978,19 +988,26 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 		}
 		step = 6;
 
+		ret = add_icmp_alg_rules(pdn_iface, IPA_IP_v6);
+		if (ret != 0) {
+			IPA_BE_ERR("Failed to add IPv6 ICMP/ALG filtering rule\n");
+			goto failed_ret;
+		}
+		step = 7;
+
 		ret = add_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to add IPv6 catchup all filtering rule\n");
 			goto failed_ret;
 		}
-		step = 7;
+		step = 8;
 
 		ret = install_wan_filtering_rule();
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to install wan filtering rule\n");
 			goto failed_ret;
 		}
-		step = 8;
+		step = 9;
 
 #ifdef CONFIG_ECM_CONVERGENCE
 		/* Add CT entry */
@@ -999,7 +1016,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			IPA_BE_ERR("Failed to add IPv6 CT entry\n");
 			goto failed_ret;
 		}
-		step = 9;
+		step = 10;
 #else
 		IPA_BE_DBG("NAT support disabled - skipping ipa_be_add_v6_ct_entry\n");
 #endif
@@ -1028,11 +1045,14 @@ failed_ret:
 		}
 	} else {
 		switch (step) {
-			case 8:
+			case 9:
 				/* Need a way to rollback wan_filtering_rule if possible */
 				/* fallthrough */
-			case 7:
+			case 8:
 				delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
+				/* fallthrough */
+			case 7:
+				delete_icmp_alg_rules(pdn_iface, IPA_IP_v6);
 				/* fallthrough */
 			case 6:
 				delete_dft_filtering_rule(pdn_iface, IPA_IP_v6);
@@ -1387,6 +1407,7 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 
 		/* Delete downlink rules */
 		delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
+		delete_icmp_alg_rules(pdn_iface, IPA_IP_v4);
 		delete_dft_filtering_rule(pdn_iface, IPA_IP_v4);
 		install_wan_filtering_rule();
 
@@ -1583,6 +1604,7 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 
 		/* Delete downlink rules */
 		delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
+		delete_icmp_alg_rules(pdn_iface, IPA_IP_v6);
 		delete_dft_filtering_rule(pdn_iface, IPA_IP_v6);
 		install_wan_filtering_rule();
 
