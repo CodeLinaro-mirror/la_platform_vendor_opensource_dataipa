@@ -850,6 +850,11 @@ static ipa_table_entry_interface index_entry_interface = {
 	index_table_entry_get_delete_head_dma_command_data
 };
 
+#ifdef CONFIG_ECM_CONVERGENCE
+static int  ipa_nat_init_counter_idr(struct ipa_nat_ip4_table_cache *nat_table, uint16_t max_counters);
+static void ipa_nat_destroy_counter_idr(struct ipa_nat_ip4_table_cache *nat_table);
+#endif
+
 /**
  * ipa_nati_create_table_dma_cmd_helpers()
  *
@@ -1062,6 +1067,43 @@ static void ipa_nati_create_table_write_cmd_helpers(
 	IPADBG("Out\n");
 }
 
+static int ipa_nati_destroy_table(
+	struct ipa_nat_cache*           nat_cache_ptr,
+	struct ipa_nat_ip4_table_cache* nat_table)
+{
+	int ret;
+
+	IPADBG("In\n");
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	ret = ipa_mem_descriptor_delete(
+		&nat_table->mem_desc);
+
+	if (nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
+		ipa_nat_destroy_counter_idr(nat_table);
+	}
+#else
+	ret = ipa_mem_descriptor_delete(
+		&nat_table->mem_desc, nat_cache_ptr->ipa_desc->fd);
+#endif
+
+	if (ret)
+		IPAERR("unable to delete NAT descriptor\n");
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(nat_table->index_expn_table_meta);
+
+#else
+	free(nat_table->index_expn_table_meta);
+#endif
+
+	memset(nat_table, 0, sizeof(*nat_table));
+
+	IPADBG("Out\n");
+
+	return ret;
+}
+
 /**
  * ipa_nati_create_table() - Creates a new IPv4 NAT table
  * @nat_table: [in] IPv4 NAT table
@@ -1219,12 +1261,28 @@ static int ipa_nati_create_table(
 
 	if (nat_cache_ptr->ipa_desc->ver >= IPA_HW_v7_0) {
 		ipa_nati_create_table_write_cmd_helpers(nat_table, table_index);
+
+#ifdef CONFIG_ECM_CONVERGENCE
+		ret = ipa_nat_init_counter_idr(nat_table, nat_cache_ptr->ipa_desc->max_stats_counters);
+		if (ret) {
+			IPAERR("Failed to initialize counter tracking\n");
+			goto bail_counter_idr;
+		}
+#endif
 	}
 	else {
 		ipa_nati_create_table_dma_cmd_helpers(nat_table, table_index);
 	}
 
 	goto done;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+bail_counter_idr:
+	/* destroy_table frees mem_desc, index_expn_table_meta, and zeroes nat_table;
+	 * jump to done directly to avoid double-free of those resources in bail_meta. */
+	ipa_nati_destroy_table(nat_cache_ptr, nat_table);
+	goto done;
+#endif
 
 #ifdef IPA_ON_R3PC
 bail_mem_desc:
@@ -1240,39 +1298,6 @@ bail_meta:
 	memset(nat_table, 0, sizeof(*nat_table));
 
 done:
-	IPADBG("Out\n");
-
-	return ret;
-}
-
-static int ipa_nati_destroy_table(
-	struct ipa_nat_cache*           nat_cache_ptr,
-	struct ipa_nat_ip4_table_cache* nat_table)
-{
-	int ret;
-
-	IPADBG("In\n");
-
-#ifdef CONFIG_ECM_CONVERGENCE
-	ret = ipa_mem_descriptor_delete(
-		&nat_table->mem_desc);
-#else
-	ret = ipa_mem_descriptor_delete(
-		&nat_table->mem_desc, nat_cache_ptr->ipa_desc->fd);
-#endif
-
-	if (ret)
-		IPAERR("unable to delete NAT descriptor\n");
-
-#ifdef CONFIG_ECM_CONVERGENCE
-	kfree(nat_table->index_expn_table_meta);
-	
-#else
-	free(nat_table->index_expn_table_meta);
-#endif
-
-	memset(nat_table, 0, sizeof(*nat_table));
-
 	IPADBG("Out\n");
 
 	return ret;
@@ -2768,6 +2793,16 @@ int ipa_NATI_add_ipv4_rule_v2(
 	rule->enable      = clnt_rule->enable;
 	rule->time_stamp  = clnt_rule->time_stamp;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	/* Use pre-allocated counter indices from caller */
+	rule->all_pkts_stats_cnt_index = clnt_rule->all_pkts_stats_cnt_index;
+	rule->non_frag_stats_cnt_index = clnt_rule->non_frag_stats_cnt_index;
+	
+	IPADBG("Using pre-allocated counters: all_pkts=%u, non_frag=%u\n",
+		rule->all_pkts_stats_cnt_index,
+		rule->non_frag_stats_cnt_index);
+#endif
+
 	IPADBG("new entry:%d, new index entry: %d\n",
 		   new_entry_index, new_index_tbl_entry_index);
 
@@ -3953,3 +3988,449 @@ bail:
 
 	return ret;
 }
+
+#ifdef CONFIG_ECM_CONVERGENCE
+/**
+ * ipa_nat_init_counter_idr() - Initialize per-client counter tracking for NAT table
+ * @nat_table: Pointer to NAT table cache
+ * @max_counters: Maximum number of IPv4 counters
+ *
+ * Returns: 0 on success, negative on failure
+ */
+static int ipa_nat_init_counter_idr(
+	struct ipa_nat_ip4_table_cache *nat_table,
+	uint16_t max_counters)
+{
+	if (!nat_table) {
+		IPAERR("Invalid nat_table pointer\n");
+		return -EINVAL;
+	}
+
+	spin_lock_init(&nat_table->counter_lock);
+
+	ipa_nat_stats_init(max_counters);
+
+	memset(nat_table->client_counters, 0, sizeof(nat_table->client_counters));
+	nat_table->num_client_counters = 0;
+
+	IPADBG("Initialized counter tracking for IPv4 NAT (max_counters=%u)\n", max_counters);
+	return 0;
+}
+
+/**
+ * ipa_nat_destroy_counter_idr() - Cleanup per-client counter tracking for NAT table
+ * @nat_table: Pointer to NAT table cache
+ */
+static void ipa_nat_destroy_counter_idr(struct ipa_nat_ip4_table_cache *nat_table)
+{
+	if (!nat_table)
+		return;
+
+	/* Safe to call even if ipa_nat_stats_init() never ran: ipa_nat_stats_destroy()
+	 * is ref-counted and is a no-op when ref_cnt == 0. */
+	ipa_nat_stats_destroy();
+
+	nat_table->num_client_counters = 0;
+}
+
+/**
+ * ipa_nat_alloc_counter() - Allocate a stats counter for an IPv4 NAT entry
+ * @counter_id: Output parameter for allocated counter ID (1-based)
+ *
+ * Returns: 0 on success, negative on failure
+ */
+static int ipa_nat_alloc_counter(
+	uint16_t *counter_id)
+{
+	int ret;
+
+	ret = ipa_nat_stats_pre_alloc_v4();
+	if (ret) {
+		IPAERR("v4 counter INI cap reached\n");
+		return ret;
+	}
+
+	ret = ipa_nat_stats_alloc_id(counter_id);
+	if (ret) {
+		ipa_nat_stats_post_free_v4();
+		return ret;
+	}
+
+	return 0;
+}
+
+/**
+ * ipa_nat_free_counter() - Release a stats counter for an IPv4 NAT entry
+ * @counter_id: Counter ID to free (1-based)
+ */
+static void ipa_nat_free_counter(uint16_t counter_id)
+{
+	ipa_nat_stats_free_id(counter_id);
+	ipa_nat_stats_post_free_v4();
+}
+
+/**
+ * ipa_nat_find_client_v4() - Find client in client_counters array
+ * @nat_table: NAT table cache
+ * @private_ip: Client's private IP
+ *
+ * Returns: Pointer to client info, or NULL if not found
+ */
+static struct ipv4_client_counter_info *ipa_nat_find_client_v4(
+	struct ipa_nat_ip4_table_cache *nat_table,
+	uint32_t private_ip)
+{
+	uint32_t i;
+
+	for (i = 0; i < nat_table->num_client_counters; i++) {
+		if (nat_table->client_counters[i].private_ip == private_ip)
+			return &nat_table->client_counters[i];
+	}
+
+	return NULL;
+}
+
+/**
+ * ipa_nat_get_client_counter_v4() - Get or allocate counter for IPv4 client
+ * @nat_table: NAT table cache
+ * @private_ip: Client's private IP
+ * @is_all_pkts: true for all_pkts counter, false for non_frag counter
+ * @counter_id: Output parameter for counter ID
+ *
+ * Returns: 0 on success, negative on failure
+ */
+static int ipa_nat_get_client_counter_v4(
+	struct ipa_nat_ip4_table_cache *nat_table,
+	uint32_t private_ip,
+	bool is_all_pkts,
+	uint16_t *counter_id)
+{
+	struct ipv4_client_counter_info *client;
+	unsigned long flags;
+	int ret = 0;
+
+	spin_lock_irqsave(&nat_table->counter_lock, flags);
+
+	client = ipa_nat_find_client_v4(nat_table, private_ip);
+
+	if (client) {
+		if (is_all_pkts) {
+			if (client->all_pkts_counter_id != 0) {
+				client->all_pkts_ref_count++;
+				*counter_id = client->all_pkts_counter_id;
+				IPADBG("Reusing all_pkts counter %u for client 0x%08X (ref=%u)\n",
+					*counter_id, private_ip, client->all_pkts_ref_count);
+				goto out;
+			}
+			ret = ipa_nat_alloc_counter(counter_id);
+			if (ret)
+				goto out;
+			client->all_pkts_counter_id = *counter_id;
+			client->all_pkts_ref_count = 1;
+			IPADBG("Allocated all_pkts counter %u for existing client 0x%08X\n",
+				*counter_id, private_ip);
+		} else {
+			if (client->non_frag_counter_id != 0) {
+				client->non_frag_ref_count++;
+				*counter_id = client->non_frag_counter_id;
+				IPADBG("Reusing non_frag counter %u for client 0x%08X (ref=%u)\n",
+					*counter_id, private_ip, client->non_frag_ref_count);
+				goto out;
+			}
+			ret = ipa_nat_alloc_counter(counter_id);
+			if (ret)
+				goto out;
+			client->non_frag_counter_id = *counter_id;
+			client->non_frag_ref_count = 1;
+			IPADBG("Allocated non_frag counter %u for existing client 0x%08X\n",
+				*counter_id, private_ip);
+		}
+		goto out;
+	}
+
+	if (nat_table->num_client_counters >= IPA_NAT_CT_STATS_MAX_CLIENTS) {
+		IPAERR("Client counter table full (max=%d)\n", IPA_NAT_CT_STATS_MAX_CLIENTS);
+		ret = -ENOSPC;
+		goto out;
+	}
+
+	ret = ipa_nat_alloc_counter(counter_id);
+	if (ret)
+		goto out;
+
+	client = &nat_table->client_counters[nat_table->num_client_counters];
+	memset(client, 0, sizeof(*client));
+	client->private_ip = private_ip;
+
+	if (is_all_pkts) {
+		client->all_pkts_counter_id = *counter_id;
+		client->all_pkts_ref_count = 1;
+	} else {
+		client->non_frag_counter_id = *counter_id;
+		client->non_frag_ref_count = 1;
+	}
+
+	nat_table->num_client_counters++;
+	IPADBG("Added new client 0x%08X with %s counter %u (total clients=%u)\n",
+		private_ip, is_all_pkts ? "all_pkts" : "non_frag",
+		*counter_id, nat_table->num_client_counters);
+
+out:
+	spin_unlock_irqrestore(&nat_table->counter_lock, flags);
+	return ret;
+}
+
+/**
+ * ipa_nat_release_client_counter_v4() - Release counter for IPv4 client
+ * @nat_table: NAT table cache
+ * @private_ip: Client's private IP
+ * @is_all_pkts: true for all_pkts counter, false for non_frag counter
+ *
+ * Returns: 0 on success, negative on failure
+ */
+static int ipa_nat_release_client_counter_v4(
+	struct ipa_nat_ip4_table_cache *nat_table,
+	uint32_t private_ip,
+	bool is_all_pkts)
+{
+	struct ipv4_client_counter_info *client;
+	uint16_t counter_id;
+	bool remove_client = false;
+	unsigned long flags;
+	int ret = 0;
+
+	spin_lock_irqsave(&nat_table->counter_lock, flags);
+
+	client = ipa_nat_find_client_v4(nat_table, private_ip);
+	if (!client) {
+		IPAERR("Client 0x%08X not found\n", private_ip);
+		ret = -ENOENT;
+		goto out;
+	}
+
+	if (is_all_pkts) {
+		if (client->all_pkts_counter_id == 0) {
+			IPAERR("Client 0x%08X has no all_pkts counter\n", private_ip);
+			ret = -EINVAL;
+			goto out;
+		}
+		if (client->all_pkts_ref_count == 0) {
+			IPAERR("Client 0x%08X all_pkts ref count already 0\n", private_ip);
+			ret = -EINVAL;
+			goto out;
+		}
+		client->all_pkts_ref_count--;
+		if (client->all_pkts_ref_count == 0) {
+			counter_id = client->all_pkts_counter_id;
+			ipa_nat_free_counter(counter_id);
+			client->all_pkts_counter_id = 0;
+			IPADBG("Freed all_pkts counter %u for client 0x%08X\n",
+				counter_id, private_ip);
+			if (client->non_frag_counter_id == 0)
+				remove_client = true;
+		} else {
+			IPADBG("Decremented all_pkts ref count for client 0x%08X (ref=%u)\n",
+				private_ip, client->all_pkts_ref_count);
+		}
+	} else {
+		if (client->non_frag_counter_id == 0) {
+			IPAERR("Client 0x%08X has no non_frag counter\n", private_ip);
+			ret = -EINVAL;
+			goto out;
+		}
+		if (client->non_frag_ref_count == 0) {
+			IPAERR("Client 0x%08X non_frag ref count already 0\n", private_ip);
+			ret = -EINVAL;
+			goto out;
+		}
+		client->non_frag_ref_count--;
+		if (client->non_frag_ref_count == 0) {
+			counter_id = client->non_frag_counter_id;
+			ipa_nat_free_counter(counter_id);
+			client->non_frag_counter_id = 0;
+			IPADBG("Freed non_frag counter %u for client 0x%08X\n",
+				counter_id, private_ip);
+			if (client->all_pkts_counter_id == 0)
+				remove_client = true;
+		} else {
+			IPADBG("Decremented non_frag ref count for client 0x%08X (ref=%u)\n",
+				private_ip, client->non_frag_ref_count);
+		}
+	}
+
+	if (remove_client) {
+		uint32_t idx = client - nat_table->client_counters;
+		uint32_t last_idx = nat_table->num_client_counters - 1;
+
+		if (idx < last_idx)
+			nat_table->client_counters[idx] = nat_table->client_counters[last_idx];
+		nat_table->num_client_counters--;
+		IPADBG("Removed client 0x%08X (total clients=%u)\n",
+			private_ip, nat_table->num_client_counters);
+	}
+
+out:
+	spin_unlock_irqrestore(&nat_table->counter_lock, flags);
+	return ret;
+}
+
+/**
+ * ipa_nati_alloc_counter_v4() - Internal implementation for counter allocation
+ * @table_handle: [in] NAT table handle
+ * @private_ip: [in] Client's private IP address (for per-client mode)
+ * @is_all_pkts: [in] true for all_pkts counter, false for non_frag counter
+ * @counter_id: [out] Allocated counter index (1-based, 0 = no counter)
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_nati_alloc_counter_v4(
+	uint32_t table_handle,
+	uint32_t private_ip,
+	bool is_all_pkts,
+	uint16_t *counter_id)
+{
+	enum ipa3_nat_mem_in nmi;
+	uint32_t tbl_index;
+	struct ipa_nat_cache *nat_cache_ptr;
+	struct ipa_nat_ip4_table_cache *nat_table;
+	int ret = 0;
+
+	IPADBG("Entry: table_handle=0x%x, private_ip=0x%08X, is_all_pkts=%d\n",
+		table_handle, private_ip, is_all_pkts);
+
+	*counter_id = 0;
+
+	BREAK_TBL_HDL(table_handle, nmi, tbl_index);
+
+	if (!IPA_VALID_NAT_MEM_IN(nmi)) {
+		IPAERR("Bad cache type argument passed\n");
+		return -EINVAL;
+	}
+
+	nat_cache_ptr = &ipv4_nat_cache[nmi];
+
+	/* Check IPA version */
+	if (nat_cache_ptr->ipa_desc->ver < IPA_HW_v7_0) {
+		IPADBG("Counter allocation not supported on IPA version < 7.0\n");
+		return 0;  /* Success but no counter allocated */
+	}
+
+	if (tbl_index == 0 || tbl_index > IPA_NAT_MAX_IP4_TBLS) {
+		IPAERR("Invalid table handle: 0x%x (index=%u)\n", table_handle, tbl_index);
+		return -EINVAL;
+	}
+
+	nat_table = &nat_cache_ptr->ip4_tbl[tbl_index - 1];
+
+	/* Check if table is initialized */
+	if (!nat_table->table.table_addr) {
+		IPAERR("NAT table not initialized (index=%u)\n", tbl_index);
+		return -EINVAL;
+	}
+
+	/* Allocate counter based on mode */
+	if (nat_cache_ptr->ipa_desc->nat_stats_mode == IPA_NAT_STATS_MODE_PER_FLOW) {
+		/* Per-flow mode: allocate unique counter */
+		ret = ipa_nat_alloc_counter(counter_id);
+		if (ret)
+			IPAERR("Failed to allocate per-flow counter: %d\n", ret);
+		else
+			IPADBG("Allocated per-flow counter: %u\n", *counter_id);
+	} else {
+		/* Per-client mode: share counter among client's flows */
+		ret = ipa_nat_get_client_counter_v4(
+			nat_table,
+			private_ip,
+			is_all_pkts,
+			counter_id);
+		if (ret)
+			IPAERR("Failed to get per-client counter: %d\n", ret);
+		else
+			IPADBG("Allocated/reused per-client counter: %u for IP 0x%08X\n",
+				*counter_id, private_ip);
+	}
+
+	IPADBG("Exit: counter_id=%u\n", *counter_id);
+	return ret;
+}
+
+/**
+ * ipa_nati_free_counter_v4() - Internal implementation for counter deallocation
+ * @table_handle: [in] NAT table handle
+ * @private_ip: [in] Client's private IP address (for per-client mode)
+ * @is_all_pkts: [in] true for all_pkts counter, false for non_frag counter
+ * @counter_id: [in] Counter ID to free (0 = skip, returns success)
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_nati_free_counter_v4(
+	uint32_t table_handle,
+	uint32_t private_ip,
+	bool is_all_pkts,
+	uint16_t counter_id)
+{
+	enum ipa3_nat_mem_in nmi;
+	uint32_t tbl_index;
+	struct ipa_nat_cache *nat_cache_ptr;
+	struct ipa_nat_ip4_table_cache *nat_table;
+	int ret = 0;
+
+	IPADBG("Entry: table_handle=0x%x, private_ip=0x%08X, is_all_pkts=%d, counter_id=%u\n",
+		table_handle, private_ip, is_all_pkts, counter_id);
+
+	/* Handle counter_id == 0 (no counter to free) */
+	if (counter_id == 0) {
+		IPADBG("No counter to free (counter_id=0)\n");
+		return 0;
+	}
+
+	BREAK_TBL_HDL(table_handle, nmi, tbl_index);
+
+	if (!IPA_VALID_NAT_MEM_IN(nmi)) {
+		IPAERR("Bad cache type argument passed\n");
+		return -EINVAL;
+	}
+
+	nat_cache_ptr = &ipv4_nat_cache[nmi];
+
+	/* Check IPA version */
+	if (nat_cache_ptr->ipa_desc->ver < IPA_HW_v7_0) {
+		IPADBG("Counter deallocation not needed on IPA version < 7.0\n");
+		return 0;
+	}
+
+	if (tbl_index == 0 || tbl_index > IPA_NAT_MAX_IP4_TBLS) {
+		IPAERR("Invalid table handle: 0x%x (index=%u)\n", table_handle, tbl_index);
+		return -EINVAL;
+	}
+
+	nat_table = &nat_cache_ptr->ip4_tbl[tbl_index - 1];
+
+	/* Check if table is initialized */
+	if (!nat_table->table.table_addr) {
+		IPAERR("NAT table not initialized (index=%u)\n", tbl_index);
+		return -EINVAL;
+	}
+
+	/* Free counter based on mode */
+	if (nat_cache_ptr->ipa_desc->nat_stats_mode == IPA_NAT_STATS_MODE_PER_FLOW) {
+		/* Per-flow mode: free counter directly */
+		ipa_nat_free_counter(counter_id);
+		IPADBG("Freed per-flow counter: %u\n", counter_id);
+	} else {
+		/* Per-client mode: decrement reference count */
+		ret = ipa_nat_release_client_counter_v4(
+			nat_table,
+			private_ip,
+			is_all_pkts);
+		if (ret)
+			IPAERR("Failed to release per-client counter: %d\n", ret);
+		else
+			IPADBG("Released per-client counter: %u for IP 0x%08X\n",
+				counter_id, private_ip);
+	}
+
+	IPADBG("Exit\n");
+	return ret;
+}
+#endif /* CONFIG_ECM_CONVERGENCE */

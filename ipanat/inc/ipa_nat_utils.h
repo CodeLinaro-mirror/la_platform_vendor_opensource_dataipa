@@ -83,15 +83,43 @@ size_t strlcpy(char* dst, const char* src, size_t size);
 #endif
 #endif
 
+#ifdef CONFIG_ECM_CONVERGENCE
+enum ipa_nat_stats_mode {
+	IPA_NAT_STATS_MODE_PER_FLOW = 0,    /* Each flow gets one counter */
+	IPA_NAT_STATS_MODE_PER_CLIENT = 1,  /* All flows per client share counter */
+};
+
+#define IPA_NAT_CT_STATS_MAX_CLIENTS 64
+#endif
+
 typedef struct
 {
 	#ifndef CONFIG_ECM_CONVERGENCE
 	int              fd;
 	#endif
 	enum ipa_hw_type ver;
+
+	#ifdef CONFIG_ECM_CONVERGENCE
+	/* New fields for IPA v7.0+ */
+	uint16_t max_stats_counters; 		     /* Max NAT/CT counters */
+	enum ipa_nat_stats_mode nat_stats_mode;       /* Counter allocation mode */
+	#endif
 } ipa_descriptor;
 
 ipa_descriptor* ipa_descriptor_open(void);
+
+#ifdef CONFIG_ECM_CONVERGENCE
+void ipa_nat_stats_init(uint16_t max_counters);
+void ipa_nat_stats_destroy(void);
+int ipa_nat_stats_alloc_id(uint16_t *counter_id);
+void ipa_nat_stats_free_id(uint16_t counter_id);
+
+/* INI-based per-family caps (unified pool remains shared) */
+int ipa_nat_stats_pre_alloc_v4(void);
+int ipa_nat_stats_pre_alloc_v6(void);
+void ipa_nat_stats_post_free_v4(void);
+void ipa_nat_stats_post_free_v6(void);
+#endif
 
 void ipa_descriptor_close(
 	ipa_descriptor*);

@@ -14,7 +14,14 @@
 #define IPA_INIT_DROP_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 3)
 #define IPA_INIT_TETH_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 4)
 #define IPA_INIT_QUOTA_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 3)
+#define IPA_INIT_NAT_CT_STATS_MAX_CMD_NUM 8
+#define IPV6_MAX_COUNTERS_BMSK (0xffff0000)
+#define IPV6_MAX_COUNTERS_SHFT (0x10)
+#define IPV4_MAX_COUNTERS_BMSK (0xffff)
+#define IPV4_MAX_COUNTERS_SHFT (0x0)
+
 static char dbg_buff[IPA_MAX_MSG_LEN];
+
 static inline u32 ipa_hw_stats_get_ep_bit_n_idx(enum ipa_client_type client,
 	u32 *reg_idx)
 {
@@ -3219,6 +3226,360 @@ int ipa_reset_all_drop_stats(void)
 	stats = &ipa3_ctx->hw_stats->drop.stats;
 	memset(stats, 0, sizeof(*stats));
 	return 0;
+}
+
+int ipa_init_nat_ct_stats(void)
+{
+	struct ipahal_stats_init_pyld *pyld;
+	struct ipahal_imm_cmd_dma_shared_mem cmd = { 0 };
+	struct ipahal_imm_cmd_pyld *cmd_pyld;
+	struct ipahal_imm_cmd_register_write reg_write = {0};
+	struct ipahal_imm_cmd_pyld *reg_write_pyld[5] = {0};
+	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
+	struct ipa3_desc desc[IPA_INIT_NAT_CT_STATS_MAX_CMD_NUM] = { {0} };
+	dma_addr_t dma_address;
+	int ret;
+	int num_cmd = 0;
+	int i;
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+		return 0;
+
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+		return 0;
+
+	ipa3_ctx->hw_stats->nat_ct.init.max_counters =
+		IPA_MEM_PART(nat_ct_stats_counters_size) / 32;
+
+	IPADBG("max_counters = %d\n",
+		ipa3_ctx->hw_stats->nat_ct.init.max_counters);
+
+	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_NAT_CT,
+		&ipa3_ctx->hw_stats->nat_ct.init, false);
+	if (!pyld) {
+		IPAERR("failed to generate pyld\n");
+		return -EPERM;
+	}
+
+	dma_address = dma_map_single(ipa3_ctx->pdev,
+		pyld->data,
+		pyld->len,
+		DMA_TO_DEVICE);
+	if (dma_mapping_error(ipa3_ctx->pdev, dma_address)) {
+		IPAERR("failed to DMA map\n");
+		ret = -EPERM;
+		goto destroy_init_pyld;
+	}
+
+	/* IC to close the coal frame before HPS Clear if coal is enabled */
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
+		ipa_close_coal_frame(&coal_cmd_pyld);
+		if (!coal_cmd_pyld) {
+			IPAERR("failed to construct coal close IC\n");
+			ret = -ENOMEM;
+			goto unmap;
+		}
+		ipa3_init_imm_cmd_desc(&desc[num_cmd], coal_cmd_pyld);
+		num_cmd++;
+	}
+
+	/* 1. IPA_STAT_NAT_AND_CONN_TRACK_IPV4_BASE */
+	reg_write.skip_pipeline_clear = false;
+	reg_write.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
+	reg_write.offset = ipahal_get_reg_ofst(IPA_STAT_NAT_AND_CONN_TRACK_IPV4_BASE);
+	reg_write.value = ipa3_ctx->smem_restricted_bytes +
+		IPA_MEM_PART(nat_ct_stats_counters_ofst);
+	reg_write.value_mask = ~0;
+	reg_write_pyld[0] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[0]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[0]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[0]->data;
+	desc[num_cmd].len = reg_write_pyld[0]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 2. IPA_STAT_NAT_AND_CONN_TRACK_IPV6_BASE */
+	reg_write.offset = ipahal_get_reg_ofst(IPA_STAT_NAT_AND_CONN_TRACK_IPV6_BASE);
+	reg_write.value = ipa3_ctx->smem_restricted_bytes +
+		IPA_MEM_PART(nat_ct_stats_counters_ofst);
+	reg_write_pyld[1] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[1]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[1]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[1]->data;
+	desc[num_cmd].len = reg_write_pyld[1]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 3. IPA_STAT_NAT_AND_CONN_TRACK_IPV4_CFG_BASE */
+	reg_write.offset = ipahal_get_reg_ofst(IPA_STAT_NAT_AND_CONN_TRACK_IPV4_CFG_BASE);
+	reg_write.value = ipa3_ctx->smem_restricted_bytes +
+		IPA_MEM_PART(nat_ct_stats_cfg_ofst);
+	reg_write_pyld[2] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[2]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[2]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[2]->data;
+	desc[num_cmd].len = reg_write_pyld[2]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 4. IPA_STAT_NAT_AND_CONN_TRACK_IPV6_CFG_BASE */
+	reg_write.offset = ipahal_get_reg_ofst(IPA_STAT_NAT_AND_CONN_TRACK_IPV6_CFG_BASE);
+	reg_write.value = ipa3_ctx->smem_restricted_bytes +
+		IPA_MEM_PART(nat_ct_stats_cfg_ofst);
+	reg_write_pyld[3] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[3]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[3]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[3]->data;
+	desc[num_cmd].len = reg_write_pyld[3]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 5. IPA_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS */
+	reg_write.offset = ipahal_get_reg_ofst(IPA_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS);
+	reg_write.value =
+		(((u32)ipa3_ctx->hw_stats->nat_ct.init.max_counters <<
+		  IPV6_MAX_COUNTERS_SHFT) & IPV6_MAX_COUNTERS_BMSK) |
+		(((u32)ipa3_ctx->hw_stats->nat_ct.init.max_counters <<
+		  IPV4_MAX_COUNTERS_SHFT) & IPV4_MAX_COUNTERS_BMSK);
+	reg_write_pyld[4] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[4]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[4]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[4]->data;
+	desc[num_cmd].len = reg_write_pyld[4]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 6. Init payload */
+	cmd.is_read = false;
+	cmd.skip_pipeline_clear = false;
+	cmd.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
+	cmd.size = pyld->len;
+	cmd.system_addr = dma_address;
+	cmd.local_addr = ipa3_ctx->smem_restricted_bytes + IPA_MEM_PART(nat_ct_stats_counters_ofst);
+	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_DMA_SHARED_MEM, &cmd, false);
+	if (!cmd_pyld) {
+		IPAERR("failed to construct dma_shared_mem imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = cmd_pyld->opcode;
+	desc[num_cmd].pyld = cmd_pyld->data;
+	desc[num_cmd].len = cmd_pyld->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	ret = ipa3_send_cmd(num_cmd, desc);
+	if (ret) {
+		IPAERR("failed to send immediate command (error %d)\n", ret);
+		goto destroy_imm;
+	}
+
+	ret = 0;
+
+destroy_imm:
+	if (cmd_pyld)
+		ipahal_destroy_imm_cmd(cmd_pyld);
+	for (i = 0; i < ARRAY_SIZE(reg_write_pyld); i++)
+		if (reg_write_pyld[i])
+			ipahal_destroy_imm_cmd(reg_write_pyld[i]);
+	if (coal_cmd_pyld)
+		ipahal_destroy_imm_cmd(coal_cmd_pyld);
+unmap:
+	dma_unmap_single(ipa3_ctx->pdev, dma_address, pyld->len, DMA_TO_DEVICE);
+destroy_init_pyld:
+	ipahal_destroy_stats_init_pyld(pyld);
+	return ret;
+}
+
+int ipa_get_nat_ct_stats(u16 counter_index,
+	struct ipahal_stats_nat_ct *out)
+{
+	struct ipahal_stats_get_offset_nat_ct get_offset = { 0 };
+	struct ipahal_stats_offset offset = { 0 };
+	struct ipahal_imm_cmd_dma_shared_mem cmd = { 0 };
+	struct ipahal_imm_cmd_pyld *cmd_pyld[2] = {0};
+	struct ipa_mem_buffer mem;
+	struct ipa3_desc desc[2] = { {0} };
+	int ret;
+	int num_cmd = 0;
+	int i;
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+		return -ENODEV;
+	}
+
+	if (!out)
+		return -EINVAL;
+
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled)) {
+		return -EPERM;
+	}
+
+	get_offset.counter_index = counter_index;
+	get_offset.max_counters = ipa3_ctx->hw_stats->nat_ct.init.max_counters;
+
+	ret = ipahal_stats_get_offset(IPAHAL_HW_STATS_NAT_CT, &get_offset, &offset);
+	if (ret) {
+		IPAERR("failed to get offset from hal %d\n", ret);
+		return ret;
+	}
+
+	mem.size = offset.size;
+	mem.base = dma_alloc_coherent(ipa3_ctx->pdev, mem.size, &mem.phys_base, GFP_KERNEL);
+	if (!mem.base) {
+		IPAERR("fail to alloc DMA memory\n");
+		return -ENOMEM;
+	}
+
+	/* IC to close the coal frame before HPS Clear if coal is enabled */
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
+		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
+		ipa_close_coal_frame(&cmd_pyld[num_cmd]);
+		if (!cmd_pyld[num_cmd]) {
+			IPAERR("failed to construct coal close IC\n");
+			ret = -ENOMEM;
+			goto free_dma;
+		}
+		ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
+		num_cmd++;
+	}
+
+	cmd.is_read = true;
+	cmd.clear_after_read = true; /* Typically read-and-clear for stats */
+	cmd.skip_pipeline_clear = false;
+	cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
+	cmd.size = mem.size;
+	cmd.system_addr = mem.phys_base;
+
+	/* Calculate local address */
+	cmd.local_addr = ipa3_ctx->smem_restricted_bytes + IPA_MEM_PART(nat_ct_stats_counters_ofst) + offset.offset;
+
+	cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(IPA_IMM_CMD_DMA_SHARED_MEM, &cmd, false);
+	if (!cmd_pyld[num_cmd]) {
+		IPAERR("failed to construct dma_shared_mem imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+
+	desc[num_cmd].opcode = cmd_pyld[num_cmd]->opcode;
+	desc[num_cmd].pyld = cmd_pyld[num_cmd]->data;
+	desc[num_cmd].len = cmd_pyld[num_cmd]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	ret = ipa3_send_cmd(num_cmd, desc);
+	if (ret) {
+		IPAERR("failed to send immediate command (error %d)\n", ret);
+		goto destroy_imm;
+	}
+
+	ret = ipahal_parse_stats(IPAHAL_HW_STATS_NAT_CT, NULL, mem.base, out);
+	if (ret)
+		IPAERR("failed to parse stats\n");
+
+destroy_imm:
+	for (i = 0; i < num_cmd; i++)
+		ipahal_destroy_imm_cmd(cmd_pyld[i]);
+free_dma:
+	dma_free_coherent(ipa3_ctx->pdev, mem.size, mem.base, mem.phys_base);
+	return ret;
+}
+
+int ipa_set_nat_ct_stats(u16 counter_index,
+	struct ipahal_stats_nat_ct stats)
+{
+	struct ipahal_stats_get_offset_nat_ct get_offset = { 0 };
+	struct ipahal_stats_offset offset = { 0 };
+	struct ipahal_imm_cmd_dma_shared_mem cmd = { 0 };
+	struct ipahal_imm_cmd_pyld *cmd_pyld = NULL;
+	struct ipa_mem_buffer mem;
+	struct ipa3_desc desc = { 0 };
+	int ret;
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+		return -ENODEV;
+
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+		return -EPERM;
+
+	get_offset.counter_index = counter_index;
+	get_offset.max_counters = ipa3_ctx->hw_stats->nat_ct.init.max_counters;
+
+	ret = ipahal_stats_get_offset(IPAHAL_HW_STATS_NAT_CT, &get_offset, &offset);
+	if (ret) {
+		IPAERR("failed to get offset from hal %d\n", ret);
+		return ret;
+	}
+
+	mem.size = offset.size;
+	mem.base = dma_alloc_coherent(ipa3_ctx->pdev, mem.size, &mem.phys_base, GFP_KERNEL);
+	if (!mem.base) {
+		IPAERR("fail to alloc DMA memory\n");
+		return -ENOMEM;
+	}
+
+	ipahal_set_nat_ct_sw_stats(mem.base, stats);
+
+	cmd.is_read = false;
+	cmd.skip_pipeline_clear = false;
+	cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
+	cmd.size = mem.size;
+	cmd.system_addr = mem.phys_base;
+
+	/* Calculate local address */
+	cmd.local_addr = ipa3_ctx->smem_restricted_bytes + IPA_MEM_PART(nat_ct_stats_counters_ofst) + offset.offset;
+
+	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_DMA_SHARED_MEM, &cmd, false);
+	if (!cmd_pyld) {
+		IPAERR("failed to construct dma_shared_mem imm cmd\n");
+		ret = -ENOMEM;
+		goto free_dma;
+	}
+
+	desc.opcode = cmd_pyld->opcode;
+	desc.pyld = cmd_pyld->data;
+	desc.len = cmd_pyld->len;
+	desc.type = IPA_IMM_CMD_DESC;
+
+	ret = ipa3_send_cmd(1, &desc);
+	if (ret) {
+		IPAERR("failed to send immediate command (error %d)\n", ret);
+		goto destroy_imm;
+	}
+
+	ret = 0;
+
+destroy_imm:
+	ipahal_destroy_imm_cmd(cmd_pyld);
+free_dma:
+	dma_free_coherent(ipa3_ctx->pdev, mem.size, mem.base, mem.phys_base);
+	return ret;
 }
 
 #ifndef CONFIG_DEBUG_FS

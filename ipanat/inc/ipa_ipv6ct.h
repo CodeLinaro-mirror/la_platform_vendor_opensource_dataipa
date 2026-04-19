@@ -93,7 +93,6 @@ typedef struct {
 	uint16_t all_pkts_stats_cnt_index;
 	uint16_t non_frag_stats_cnt_index;
 	uint64_t sw_prod_classification_cookie;
-
 } ipa_ipv6ct_rule_v2;
 
 /**
@@ -357,5 +356,41 @@ bool ipa_ct_is_sram_supported(void);
 int ipa_ct_timestamp_flush(uint32_t tbl_hdl);
 
 #endif
+
+#ifdef CONFIG_ECM_CONVERGENCE
+/**
+ * ipa_ct_alloc_counter_v6() - Allocate a counter index for IPv6 CT rule
+ * @table_handle: [in] CT table handle
+ * @src_ipv6_lsb: [in] Client's source IPv6 address LSB (for per-client mode)
+ * @src_ipv6_msb: [in] Client's source IPv6 address MSB (for per-client mode)
+ * @is_all_pkts: [in] true for all_pkts counter, false for non_frag counter
+ * @counter_id: [out] Allocated counter index (1-based, 0 = no counter)
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_ct_alloc_counter_v6(
+    uint32_t table_handle,
+    uint64_t src_ipv6_lsb,
+    uint64_t src_ipv6_msb,
+    bool is_all_pkts,
+    uint16_t *counter_id);
+
+/**
+ * ipa_ct_free_counter_v6() - Free a counter index for IPv6 CT rule
+ * @table_handle: [in] CT table handle
+ * @src_ipv6_lsb: [in] Client's source IPv6 address LSB (for per-client mode)
+ * @src_ipv6_msb: [in] Client's source IPv6 address MSB (for per-client mode)
+ * @is_all_pkts: [in] true for all_pkts counter, false for non_frag counter
+ * @counter_id: [in] Counter ID to free (0 = skip, returns success)
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_ct_free_counter_v6(
+    uint32_t table_handle,
+    uint64_t src_ipv6_lsb,
+    uint64_t src_ipv6_msb,
+    bool is_all_pkts,
+    uint16_t counter_id);
+#endif /* CONFIG_ECM_CONVERGENCE */
 
 #endif

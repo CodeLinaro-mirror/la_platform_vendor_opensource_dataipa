@@ -2082,12 +2082,17 @@ struct ipa_hw_stats_drop {
 	struct ipa_drop_stats_all stats;
 };
 
+struct ipa_hw_stats_nat_ct {
+	struct ipahal_stats_init_nat_ct init;
+};
+
 struct ipa_hw_stats {
 	bool enabled;
 	struct ipa_hw_stats_quota quota;
 	struct ipa_hw_stats_teth teth;
 	struct ipa_hw_stats_flt_rt flt_rt;
 	struct ipa_hw_stats_drop drop;
+	struct ipa_hw_stats_nat_ct nat_ct;
 	bool teth_stats_enabled;
 };
 
@@ -2923,6 +2928,9 @@ struct ipa3_context {
 	u32 max_ipv4_accel_conn;
 	u32 max_ipv6_accel_conn;
 	bool ipa_disable_per_flow_stats;
+	bool nat_stats_mode;
+	u16 nat_stats_max_counters_v4;
+	u16 nat_stats_max_counters_v6;
 };
 
 struct ipa3_plat_drv_res {
@@ -3027,6 +3035,9 @@ struct ipa3_plat_drv_res {
 	bool use_ezmesh_config;
 	bool use_eth_qos_config;
 	bool use_ipsec_config;
+	bool nat_stats_mode;
+	u16 nat_stats_max_counters_v4;
+	u16 nat_stats_max_counters_v6;
 	bool use_ipv6_nat_config;
 	u32 max_ipv4_stats_accel_conn;
 	u32 max_ipv6_stats_accel_conn;
@@ -4086,6 +4097,14 @@ int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons);
 int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod);
 
 int ipa_reset_all_teth_stats(void);
+
+int ipa_init_nat_ct_stats(void);
+
+int ipa_get_nat_ct_stats(u16 counter_index,
+	struct ipahal_stats_nat_ct *out);
+
+int ipa_set_nat_ct_stats(u16 counter_index,
+	struct ipahal_stats_nat_ct stats);
 
 int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query);
 

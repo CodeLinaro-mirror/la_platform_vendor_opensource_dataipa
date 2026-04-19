@@ -389,7 +389,7 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v6_0(
 
 	/*
 	 * Note that the address of the offset in the RAM line is of RAM line
-	 *(8-byte address) and not like the address in the “BASE” register,
+	 *(8-byte address) and not like the address in the â€œBASEâ€ register,
 	 * which is a byte address
 	 */
 	incremental_offset =
@@ -495,7 +495,7 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v7_0(
 
 	/*
 	 * Note that the address of the offset in the RAM line is of RAM line
-	 *(8-byte address) and not like the address in the “BASE” register,
+	 *(8-byte address) and not like the address in the ï¿½BASEï¿½ register,
 	 * which is a byte address
 	 */
 	incremental_offset =
@@ -603,7 +603,7 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v7_1(
 
 	/*
 	 * Note that the address of the offset in the RAM line is of RAM line
-	 *(8-byte address) and not like the address in the “BASE” register,
+	 *(8-byte address) and not like the address in the ï¿½BASEï¿½ register,
 	 * which is a byte address
 	 */
 	incremental_offset =
@@ -1232,6 +1232,72 @@ static int ipahal_parse_stats_drop_v5_0(void *init_params, void *raw_stats,
 	return 0;
 }
 
+static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_nat_ct(
+	void *params, bool is_atomic_ctx)
+{
+	struct ipahal_stats_init_pyld *pyld;
+	struct ipahal_stats_init_nat_ct *init =
+		(struct ipahal_stats_init_nat_ct *)params;
+	int num_counters;
+
+	if (!init) {
+		IPAHAL_ERR("no params\n");
+		return NULL;
+	}
+	num_counters = init->max_counters;
+
+	if (num_counters > IPAHAL_NAT_CT_MAX_COUNTERS) {
+		IPAHAL_ERR("num_counters %d > %d\n", num_counters, IPAHAL_NAT_CT_MAX_COUNTERS);
+		return NULL;
+	}
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) +
+		num_counters * sizeof(struct ipahal_stats_nat_ct_hw) +
+		num_counters,
+		is_atomic_ctx);
+	if (!pyld)
+		return NULL;
+
+	pyld->len = num_counters * sizeof(struct ipahal_stats_nat_ct_hw) + num_counters;
+	return pyld;
+}
+
+static int ipahal_get_offset_nat_ct(void *params,
+	struct ipahal_stats_offset *out)
+{
+	struct ipahal_stats_get_offset_nat_ct *in =
+		(struct ipahal_stats_get_offset_nat_ct *)params;
+
+	if (in->counter_index < 1 ||
+		in->counter_index > in->max_counters) {
+		IPAHAL_ERR("Invalid counter_index %d\n", in->counter_index);
+		return -EINVAL;
+	}
+
+	out->offset = (in->counter_index - 1) * sizeof(struct ipahal_stats_nat_ct_hw);
+	out->size = sizeof(struct ipahal_stats_nat_ct_hw);
+
+	return 0;
+}
+
+static int ipahal_parse_stats_nat_ct(void *init_params, void *raw_stats,
+	void *parsed_stats)
+{
+	struct ipahal_stats_nat_ct_hw *raw_hw =
+		(struct ipahal_stats_nat_ct_hw *)raw_stats;
+	struct ipahal_stats_nat_ct *out =
+		(struct ipahal_stats_nat_ct *)parsed_stats;
+
+	out->num_pkts_inbound = raw_hw->num_pkts_inbound;
+	out->num_pkts_cache_inbound = raw_hw->num_pkts_cache_inbound;
+	out->num_bytes_inbound = raw_hw->num_bytes_inbound;
+	out->num_pkts_outbound = raw_hw->num_pkts_outbound;
+	out->num_pkts_cache_outbound = raw_hw->num_pkts_cache_outbound;
+	out->num_bytes_outbound = raw_hw->num_bytes_outbound;
+
+	return 0;
+}
+
 static struct ipahal_hw_stats_obj
 	ipahal_hw_stats_objs[IPA_HW_MAX][IPAHAL_HW_STATS_MAX] = {
 	/* IPAv4 */
@@ -1307,6 +1373,11 @@ static struct ipahal_hw_stats_obj
 	ipahal_generate_init_pyld_tethering_v7_0,
 	ipahal_get_offset_tethering_v7_0,
 	ipahal_parse_stats_tethering_v7_0
+	},
+	[IPA_HW_v7_0][IPAHAL_HW_STATS_NAT_CT] = {
+		ipahal_generate_init_pyld_nat_ct,
+		ipahal_get_offset_nat_ct,
+		ipahal_parse_stats_nat_ct
 	},
 };
 
@@ -1415,4 +1486,19 @@ void ipahal_set_flt_rt_sw_stats(void *raw_stats,
 	raw_hw->num_bytes = sw_stats.num_bytes;
 	raw_hw->num_packets_hash = sw_stats.num_pkts_hash;
 	raw_hw->num_packets = sw_stats.num_pkts;
+}
+
+void ipahal_set_nat_ct_sw_stats(void *raw_stats,
+	struct ipahal_stats_nat_ct sw_stats)
+{
+	struct ipahal_stats_nat_ct_hw *raw_hw =
+		(struct ipahal_stats_nat_ct_hw *)raw_stats;
+
+	IPAHAL_DBG_LOW("\n");
+	raw_hw->num_pkts_inbound = sw_stats.num_pkts_inbound;
+	raw_hw->num_pkts_cache_inbound = sw_stats.num_pkts_cache_inbound;
+	raw_hw->num_bytes_inbound = sw_stats.num_bytes_inbound;
+	raw_hw->num_pkts_outbound = sw_stats.num_pkts_outbound;
+	raw_hw->num_pkts_cache_outbound = sw_stats.num_pkts_cache_outbound;
+	raw_hw->num_bytes_outbound = sw_stats.num_bytes_outbound;
 }

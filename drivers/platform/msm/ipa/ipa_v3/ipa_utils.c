@@ -10284,30 +10284,30 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.tethering_drop_stats_size = 0x11b4,
 
 	/* Unified Counters (0x8000) */
-	.nat_ct_stats_counters_ofst = 0x243f4,
+	.nat_ct_stats_counters_ofst = 0x243f8,
 	.nat_ct_stats_counters_size = 0x8000,
 
 	/* Unified Config (0x80) */
-	.nat_ct_stats_cfg_ofst = 0x2c3f4,
+	.nat_ct_stats_cfg_ofst = 0x2c3f8,
 	.nat_ct_stats_cfg_size = 0x80,
 
 	/* Unified Drop Counters (0x8000) */
-	.nat_ct_drop_stats_counters_ofst = 0x2c474,
+	.nat_ct_drop_stats_counters_ofst = 0x2c478,
 	.nat_ct_drop_stats_counters_size = 0x8000,
 
 	/* Unified Drop Config (0x80) */
-	.nat_ct_drop_stats_cfg_ofst = 0x34474,
+	.nat_ct_drop_stats_cfg_ofst = 0x34478,
 	.nat_ct_drop_stats_cfg_size = 0x80,
 
-	.fnr_drop_counters_ofst = 0x344f4,
+	.fnr_drop_counters_ofst = 0x344f8,
 	.fnr_drop_counters_size = 0x11a8,
-	.policing_drop_counters_ofst = 0x3569c,
+	.policing_drop_counters_ofst = 0x356a0,
 	.policing_drop_counters_size = 0x400,
-	.shaping_drop_counters_ofst = 0x35a9c,
+	.shaping_drop_counters_ofst = 0x35aa0,
 	.shaping_drop_counters_size = 0x400,
-	.shaping_drop_pkt_byte_counters_ofst = 0x35e9c,
+	.shaping_drop_pkt_byte_counters_ofst = 0x35ea0,
 	.shaping_drop_pkt_byte_counters_size = 0x1000,
-	.end_ofst = 0x36e9c,
+	.end_ofst = 0x36ea0,
 };
 
 

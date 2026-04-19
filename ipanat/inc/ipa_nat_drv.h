@@ -96,7 +96,6 @@ typedef struct {
     uint64_t sw_prod_classification_cookie;
 	bool out_allowed;
 	bool in_allowed;
-
 } ipa_nat_ipv4_rule_v2;
 
 static inline char* prep_nat_ipv4_rule_4print_v2(
@@ -427,5 +426,44 @@ int ipa_nat_switch_to(
  * Returns:	0  On Success, negative on failure
  */
 int ipa_nat_timestamp_flush(uint32_t tbl_hdl);
+
+#ifdef CONFIG_ECM_CONVERGENCE
+/**
+ * ipa_nat_alloc_counter_v4() - Allocate a counter index for IPv4 NAT rule
+ * @table_handle: [in] NAT table handle
+ * @private_ip: [in] Client's private IP address (for per-client mode)
+ * @is_all_pkts: [in] true for all_pkts counter, false for non_frag counter
+ * @counter_id: [out] Allocated counter index (1-based, 0 = no counter)
+ *
+ * Allocates a single counter index based on the configured allocation mode:
+ * - PER_FLOW mode: Allocates a unique counter for each call
+ * - PER_CLIENT mode: Shares counters among rules from the same client
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_nat_alloc_counter_v4(
+    uint32_t table_handle,
+    uint32_t private_ip,
+    bool is_all_pkts,
+    uint16_t *counter_id);
+
+/**
+ * ipa_nat_free_counter_v4() - Free a counter index for IPv4 NAT rule
+ * @table_handle: [in] NAT table handle
+ * @private_ip: [in] Client's private IP address (for per-client mode)
+ * @is_all_pkts: [in] true for all_pkts counter, false for non_frag counter
+ * @counter_id: [in] Counter ID to free (0 = skip, returns success)
+ *
+ * Frees a counter index. For per-client mode, decrements reference count
+ * and only frees when count reaches zero.
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_nat_free_counter_v4(
+    uint32_t table_handle,
+    uint32_t private_ip,
+    bool is_all_pkts,
+    uint16_t counter_id);
+#endif /* CONFIG_ECM_CONVERGENCE */
 
 #endif

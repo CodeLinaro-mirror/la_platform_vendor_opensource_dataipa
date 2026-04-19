@@ -111,6 +111,8 @@ const char* ipa_be_message_type_to_string(enum ipa_message_types type) {
 		case IPA_TX_DESTROY_RULE_MSG: return "IPA_TX_DESTROY_RULE_MSG";
 		case IPA_RX_CONN_STATS_SYNC_MSG: return "IPA_RX_CONN_STATS_SYNC_MSG";
 		case IPA_TX_CONN_STATS_SYNC_MANY_MSG: return "IPA_TX_CONN_STATS_SYNC_MANY_MSG";
+		case IPA_TX_CONN_STATS_SYNC_MANY_TS_ONLY_MSG: return "IPA_TX_CONN_STATS_SYNC_MANY_TS_ONLY_MSG";
+		case IPA_TX_CONN_STATS_SYNC_MANY_STATS_ONLY_MSG: return "IPA_TX_CONN_STATS_SYNC_MANY_STATS_ONLY_MSG";
 		case IPA_TUN6RD_ADD_UPDATE_PEER: return "IPA_TUN6RD_ADD_UPDATE_PEER";
 		case IPA_TX_CREATE_MULTICAST_RULE_MSG: return "IPA_TX_CREATE_MULTICAST_RULE_MSG";
 		case IPA_TX_DESTROY_MULTICAST_RULE_MSG: return "IPA_TX_DESTROY_MULTICAST_RULE_MSG";
@@ -619,7 +621,9 @@ ipa_tx_status_t ipa_be_ipv4_send_request(struct ipa_ctx_instance *ipa_ctx, struc
 	//struct ipa_response_msg *response;
 	//enum ipa_cmn_response ret;
 	IPA_BE_DBG("ECMIPA msg type %u\n", msg->cm.type);
-	if (msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_MSG) {
+	if (msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_MSG ||
+	    msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_TS_ONLY_MSG ||
+	    msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_STATS_ONLY_MSG) {
 #ifdef CONFIG_ECM_CONVERGENCE
 		return ipa_sync_ipv4_stats_many_msg(IPA_CTX_TO_PRIVATE(ipa_ctx), msg);
 #else
@@ -684,7 +688,9 @@ ipa_tx_status_t ipa_be_ipv6_send_request(struct ipa_ctx_instance *ipa_ctx, struc
 	IPA_BE_DBG("ECMIPA entry ipa_be_ipv6_send_request called ipa_ctx %p\n", ipa_ctx);
 	IPA_BE_DBG("ECMIPA msg type %u\n", msg->cm.type);
 
-	if (msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_MSG) {
+	if (msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_MSG ||
+	    msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_TS_ONLY_MSG ||
+	    msg->cm.type == IPA_TX_CONN_STATS_SYNC_MANY_STATS_ONLY_MSG) {
 #ifdef CONFIG_ECM_CONVERGENCE
 		return ipa_sync_ipv6_stats_many_msg(IPA_CTX_TO_PRIVATE(ipa_ctx), msg);
 #else
