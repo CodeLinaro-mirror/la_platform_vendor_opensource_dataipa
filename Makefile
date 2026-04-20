@@ -3,4 +3,4 @@
 all:
 	cd drivers/platform/msm/ && $(MAKE)
 
-obj-m += drivers/platform/msm/
+obj-$(CONFIG_IPA3) += drivers/platform/msm/

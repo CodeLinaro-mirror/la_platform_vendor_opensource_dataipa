@@ -1,16 +1,20 @@
 load(":define_modules.bzl", "define_modules")
 load("//build/kernel/kleaf:kernel.bzl", "ddk_headers")
 
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "dataipa_sources",
+    srcs = glob([
+        "**/*",
+    ]),
+    visibility = ["//visibility:public"],
+)
+
 define_modules("sa510m", "debug")
 define_modules("sa510m", "perf")
 define_modules("sa510m.1g", "debug")
 define_modules("sa510m.1g", "perf")
-
-package(
-    default_visibility = [
-        "//visibility:public",
-    ],
-)
 
 ddk_headers(
     name = "include_headers",

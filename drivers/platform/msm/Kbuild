@@ -126,8 +126,14 @@ LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
 endif
 endif
 
+ifeq ($(filter $(CONFIG_ARCH_SA510M), y), y)
+DATAIPADRVTOP = $(srctree)/../qcom/opensource/dataipa/drivers/platform/msm
+subdir-ccflags-y    += -I$(DATAIPADRVTOP)/include/linux
+subdir-ccflags-y    += -I$(DATAIPADRVTOP)/include/uapi/linux
+subdir-ccflags-y    += -I$(DATAIPADRVTOP)/gsi/gsihal
+endif
 
-ifeq ($(filter $(CONFIG_ARCH_SDXPINN) $(CONFIG_ARCH_SDXKOVA) $(CONFIG_ARCH_SA510M), y), y)
+ifeq ($(filter $(CONFIG_ARCH_SDXPINN) $(CONFIG_ARCH_SDXKOVA), y), y)
 DATAIPADRVTOP = $(srctree)/../../../dataipa/drivers/platform/msm
 LINUXINCLUDE    += -include $(srctree)/../../../dataipa/config/dataipa.h
 include $(srctree)/../../../dataipa/config/dataipa_QGKI.conf
