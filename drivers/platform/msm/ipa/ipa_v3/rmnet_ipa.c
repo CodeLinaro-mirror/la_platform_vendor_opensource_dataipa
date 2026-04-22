@@ -3125,6 +3125,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 		sizeof(struct rmnet_ingress_param) *
 			ingress_ioctl_v2_data.number_of_eps)) {
 		IPAWANERR("Ingress copy to user failed\n");
+		mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 		return -EFAULT;
 	}
 
@@ -3463,6 +3464,12 @@ static int ipa3_setup_apps_wan_prod_pipes(
 			else if (rmnet_ipa3_ctx->eth_vlan == IPA_QMI_ETH_HW_NON_VLAN_IP_V01)
 				/* L2(8) + ETH(14) */
 				ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 22;
+			else if (rmnet_ipa3_ctx->eth_vlan == IPA_QMI_ETH_IPA_HW_VLAN_VLAN_IP_V01)
+				/* L2(8) + ETH(14) + VLAN(4) + VLAN(4)*/
+				ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 30;
+			else if (rmnet_ipa3_ctx->eth_vlan == IPA_QMI_ETH_IPA_HW_PPPOE_VLAN_IP_V01)
+				/* L2(8) + ETH(14) + VLAN(4)+PPPOE(8)*/
+				ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 34;
 			IPAWANDBG("set hdr_len on eth-cons %d\n",
 				ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len);
 		}
@@ -3642,6 +3649,7 @@ static int handle3_egress_format_v2(struct net_device *dev,
 
 			if (rc == -EFAULT) {
 				IPAWANERR("Failed to setup wan prod pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 				return rc;
 			}
 
@@ -3668,6 +3676,7 @@ static int handle3_egress_format_v2(struct net_device *dev,
 
 			if (rc == -EFAULT) {
 				IPAWANERR("Failed to setup wan_eth prod pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 				return rc;
 			}
 			/* indicate eth-wan enabled */
@@ -3837,6 +3846,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
 
 			if (rc == -EFAULT) {
 				IPAWANERR("Failed to setup wan prod pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 				return rc;
 			}
 
@@ -3863,6 +3873,7 @@ static int handle3_egress_format_internal(const struct rmnet_egress_param egress
 
 			if (rc == -EFAULT) {
 				IPAWANERR("Failed to setup wan_eth prod pipes\n");
+				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 				return rc;
 			}
 			/* indicate eth-wan enabled */
@@ -9488,6 +9499,7 @@ int rmnet_ipa3_query_per_client_stats_v3(
 		data->client_info[stats_idx].ipv4_tx_bytes =
 			fnr_stats->num_bytes;
 
+		kfree((void *)query->stats);
 		memset(query, 0, sizeof(query_f));
 		result = rmnet_ipa_get_hw_fnr_stats_v3(&lan_client_index[i],
 				data, query, 0, 1);
@@ -9670,6 +9682,7 @@ int rmnet_ipa3_query_per_client_stats_v4(
 			data->client_info[stats_idx].ipv4_tx_bytes =
 				fnr_stats->num_bytes;
 
+			kfree((void *)query->stats);
 			memset(query, 0, sizeof(query_f));
 			/* Query Routing stats */
 			result = rmnet_ipa_get_hw_fnr_stats_v4(&lan_client_index[i],
@@ -9715,6 +9728,7 @@ int rmnet_ipa3_query_per_client_stats_v4(
 			data->lan2lan_client_info[stats_idx].ipv4_tx_bytes =
 				fnr_stats->num_bytes;
 
+			kfree((void *)query->stats);
 			memset(query, 0, sizeof(query_f));
 			/* Query Routing stats */
 			result = rmnet_ipa_get_hw_fnr_stats_v4(&lan_client_index[i],

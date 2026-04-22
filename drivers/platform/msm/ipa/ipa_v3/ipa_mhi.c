@@ -58,6 +58,7 @@
 
 #define IPA_MHI_MAX_UL_CHANNELS 2 //2 out channels
 #define IPA_MHI_MAX_DL_CHANNELS 4 //3 in channels + QDSS
+#define IPA_MHI_COAL_ALMST_EMPTY_THRSHOLD 5
 
 #define IPA_CLIENT_IS_MHI_LOW_LAT(client) \
 	((client) == IPA_CLIENT_MHI_LOW_LAT_PROD || \
@@ -393,7 +394,7 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 			client == IPA_CLIENT_MHI_COAL_CONS)
 		{
 			gsi_update_almst_empty_thrshold(ep->gsi_chan_hdl,
-				ch_scratch.mhi.polling_configuration);
+                                                        IPA_MHI_COAL_ALMST_EMPTY_THRSHOLD);
 #endif
 		} else {
 			ch_scratch1.mhi_v2.polling_configuration =

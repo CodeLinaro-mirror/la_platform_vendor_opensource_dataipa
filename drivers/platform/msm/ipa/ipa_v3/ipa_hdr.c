@@ -1014,9 +1014,9 @@ ipa_insert_failed:
 			list_move(&offset->link,
 				  &htbl->head_free_offset_list[offset->bin]);
 		entry->offset_entry = NULL;
-		htbl->hdr_cnt--;
-		list_del(&entry->link);
 	}
+	htbl->hdr_cnt--;
+	list_del(&entry->link);
 fail_dma_mapping:
   	entry->is_hdr_proc_ctx = false;
 bad_hdr_len:
