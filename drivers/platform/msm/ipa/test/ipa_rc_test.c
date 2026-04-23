@@ -22,12 +22,43 @@ static void print_testcases(void)
 	pr_err("9. -> NAT not_init \n");
 	pr_err("10. -> WLAN AP Pkt drop for lan2lan case \n");
 	pr_err("11. -> WLAN STA Flt_rule_order for level-2 recovery \n");
+	pr_err("12. -> ETH1 chan_not_started \n");
+	pr_err("13. -> WLAN2 chan_not_started \n");
+	pr_err("14. -> WLAN3 chan_not_started \n");
+	pr_err("15. -> ETH1 pkt_drop \n");
+	pr_err("16. -> WLAN2 AP pkt_drop \n");
+	pr_err("17. -> WLAN2 STA pkt_drop \n");
+	pr_err("18. -> WLAN3 AP pkt_drop \n");
+	pr_err("19. -> WLAN3 STA pkt_drop \n");
+	pr_err("20. -> ETH1 Flt_rule_order \n");
+	pr_err("21. -> WLAN2 AP Flt_rule_order \n");
+	pr_err("22. -> WLAN2 STA Flt_rule_order \n");
+	pr_err("23. -> WLAN3 AP Flt_rule_order \n");
+	pr_err("24. -> WLAN3 STA Flt_rule_order \n");
+	pr_err("25. -> MODEM pkts drop\n");
+	pr_err("26. -> ETH WAN Flt_rule_order\n");
 	return;
 }
 
 static void ipa_test_eth_chan_not_start(enum ipa_client_type client)
 {
-	ipa_uc_offload_disconn_pipes((u32)IPA_UC_NTN);
+	int chan, ep_idx, result;
+
+	ep_idx = ipa_get_ep_mapping(client);
+	chan = ipa3_get_chan_by_client(client);
+
+	IPADBG("ep: %d chan: %d\n", ep_idx, chan);
+
+	result = ipa3_disable_data_path(ep_idx);
+	if (result) {
+		IPAERR("disable data path failed clnt=%d.\n", ep_idx);
+		return;
+	}
+
+	result = ipa_stop_gsi_channel(ep_idx);
+	if (result)
+		IPAERR("failed to stop gsi chanl %d\n", ep_idx);
+
 	return;
 }
 
@@ -135,7 +166,7 @@ static void ipa_del_flt_rule_by_entry(struct ipa3_flt_entry *entry)
 
 static void ipa_test_pkt_drop(bool is_ul)
 {
-	struct ipa3_rt_tbl *tbl = NULL;
+	struct ipa3_rt_tbl *tbl = NULL, *tbl_tmp = NULL;
 	struct ipa3_rt_entry *entry, *tmp;
 	struct ipa3_rt_tbl_set *set = NULL;
 
@@ -148,7 +179,7 @@ static void ipa_test_pkt_drop(bool is_ul)
 		return;
 	}
 
-	list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
+	list_for_each_entry_safe(tbl, tbl_tmp, &set->head_rt_tbl_list, link) {
 		if(list_empty(&tbl->head_rt_rule_list))
 			continue;
 
@@ -186,7 +217,7 @@ static void ipa_test_dl_pkt_drop(void)
 
 static void ipa_test_ap_pkt_drop_lan_to_lan(void)
 {
-	struct ipa3_rt_tbl *tbl = NULL;
+	struct ipa3_rt_tbl *tbl = NULL, *tbl_tmp = NULL;
 	struct ipa3_rt_entry *entry, *tmp;
 	struct ipa3_rt_tbl_set *set = NULL;
 
@@ -199,7 +230,7 @@ static void ipa_test_ap_pkt_drop_lan_to_lan(void)
 		return;
 	}
 
-	list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
+	list_for_each_entry_safe(tbl, tbl_tmp, &set->head_rt_tbl_list, link) {
 		if(list_empty(&tbl->head_rt_rule_list))
 			continue;
 
@@ -224,6 +255,10 @@ static void ipa_test_flt_order(enum ipa_client_type client, uint32_t *metadata)
 	u32 pyld_sz;
 	struct ipa_ioc_add_flt_rule *param;
 	struct ipa_flt_rule_add flt_rule_entry;
+	int ret;
+
+	IPADBG("[tc6] ipa_test_flt_order: client=%d metadata=%s\n",
+		client, metadata ? "set" : "NULL");
 
 	pyld_sz = sizeof(struct ipa_ioc_add_flt_rule) +
 	   sizeof(struct ipa_flt_rule_add);
@@ -245,7 +280,7 @@ static void ipa_test_flt_order(enum ipa_client_type client, uint32_t *metadata)
 	flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
 	flt_rule_entry.rule.retain_hdr = false;
 	flt_rule_entry.rule.hashable = 0;
-	flt_rule_entry.rule.rule_id = 530;
+	flt_rule_entry.rule.rule_id = 800;
 	flt_rule_entry.rule.eq_attrib_type = true;
 	if(metadata) {
 		flt_rule_entry.rule.attrib.meta_data = *metadata;
@@ -255,9 +290,34 @@ static void ipa_test_flt_order(enum ipa_client_type client, uint32_t *metadata)
 	memcpy(&(param->rules[0]), &flt_rule_entry,
 		sizeof(struct ipa_flt_rule_add));
 
+	IPADBG("[tc6] ipa_test_flt_order: calling ipa3_add_flt_rule_usr ep=%d\n", client);
 	/* installing dummy modem rule on top */
-	if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)param, true))
-		IPAERR("add modem filter rule failed\n");
+	ret = ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)param, true);
+	if (ret)
+		IPAERR("[tc6] add modem filter rule failed ret=%d\n", ret);
+	else
+		IPADBG("[tc6] ipa_test_flt_order: rule installed ok, rule_id=%d status=%d\n",
+			param->rules[0].rule.rule_id, param->rules[0].status);
+
+	/* Verify the rule appears in the filter table */
+	{
+		int pipe = ipa_get_ep_mapping(client);
+		struct ipa3_flt_tbl *tbl;
+		struct ipa3_flt_entry *e;
+		int cnt = 0;
+
+		IPADBG("[tc6] ipa_test_flt_order: verifying pipe=%d flt table\n", pipe);
+		mutex_lock(&ipa3_ctx->lock);
+		tbl = &ipa3_ctx->flt_tbl[pipe][IPA_IP_v4];
+		list_for_each_entry(e, &tbl->head_flt_rule_list, link) {
+			IPADBG("[tc6] flt_tbl rule[%d]: rule_id=%u eq=%d action=%d cookie=0x%x\n",
+				cnt, e->rule_id, e->rule.eq_attrib_type,
+				e->rule.action, e->cookie);
+			cnt++;
+		}
+		IPADBG("[tc6] flt_tbl total rules: %d\n", cnt);
+		mutex_unlock(&ipa3_ctx->lock);
+	}
 
 	kfree(param);
 	return;
@@ -269,7 +329,28 @@ static void ipa_test_eth_flt_order(void)
 	return;
 }
 
+static void ipa_test_eth1_flt_order(void)
+{
+	ipa_test_flt_order(IPA_CLIENT_ETHERNET2_PROD, NULL);
+	return;
+}
+
 static void ipa_test_wlan_ap_flt_order(void)
+{
+	struct ipa_rc_wlan_intf_info *it;
+
+	mutex_lock(&rc_ctx->rc_lock);
+	list_for_each_entry(it, &ipa_rc_wlan_info.head, link) {
+		if(it->wlan_msg_type == WLAN_AP_CONNECT) {
+			ipa_test_flt_order(IPA_CLIENT_WLAN1_PROD, &it->metadata);
+			break;
+		}
+	}
+	mutex_unlock(&rc_ctx->rc_lock);
+	return;
+}
+
+static void ipa_test_wlan2_ap_flt_order(void)
 {
 	struct ipa_rc_wlan_intf_info *it;
 
@@ -284,13 +365,100 @@ static void ipa_test_wlan_ap_flt_order(void)
 	return;
 }
 
+static void ipa_test_wlan3_ap_flt_order(void)
+{
+	struct ipa_rc_wlan_intf_info *it;
+
+	mutex_lock(&rc_ctx->rc_lock);
+	list_for_each_entry(it, &ipa_rc_wlan_info.head, link) {
+		if(it->wlan_msg_type == WLAN_AP_CONNECT) {
+			ipa_test_flt_order(IPA_CLIENT_WLAN3_PROD, &it->metadata);
+			break;
+		}
+	}
+	mutex_unlock(&rc_ctx->rc_lock);
+	return;
+}
+
+static void ipa_test_eth_sta_flt_order(void)
+{
+	struct ipa3_flt_tbl *tbl;
+	struct ipa3_flt_entry *entry, *next;
+	int pipe;
+
+	pipe = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
+	if(pipe == IPA_EP_NOT_ALLOCATED) {
+		IPAERR("Invalid client.\n");
+		return;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	tbl = &ipa3_ctx->flt_tbl[pipe][IPA_IP_v4];
+	list_for_each_entry_safe(entry, next, &tbl->head_flt_rule_list, link) {
+		if(ETH_DL_FLT_RULE == get_group_id(entry, IPA_IP_v4, pipe)) {
+			ipa_del_flt_rule_by_entry(entry);
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+	return;
+}
+
 static void ipa_test_wlan_sta_flt_order(void)
 {
 	struct ipa3_flt_tbl *tbl;
 	struct ipa3_flt_entry *entry, *next;
 	int pipe;
 
+	pipe = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+	if(pipe == IPA_EP_NOT_ALLOCATED) {
+		IPAERR("Invalid client.\n");
+		return;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	tbl = &ipa3_ctx->flt_tbl[pipe][IPA_IP_v4];
+	list_for_each_entry_safe(entry, next, &tbl->head_flt_rule_list, link) {
+		if(WLAN_STA_DL_FLT_RULE == get_group_id(entry, IPA_IP_v4, pipe)) {
+			ipa_del_flt_rule_by_entry(entry);
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+	return;
+}
+
+static void ipa_test_wlan2_sta_flt_order(void)
+{
+	struct ipa3_flt_tbl *tbl;
+	struct ipa3_flt_entry *entry, *next;
+	int pipe;
+
 	pipe = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
+	if(pipe == IPA_EP_NOT_ALLOCATED) {
+		IPAERR("Invalid client.\n");
+		return;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	tbl = &ipa3_ctx->flt_tbl[pipe][IPA_IP_v4];
+	list_for_each_entry_safe(entry, next, &tbl->head_flt_rule_list, link) {
+		if(WLAN_STA_DL_FLT_RULE == get_group_id(entry, IPA_IP_v4, pipe)) {
+			ipa_del_flt_rule_by_entry(entry);
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+	return;
+}
+
+static void ipa_test_wlan3_sta_flt_order(void)
+{
+	struct ipa3_flt_tbl *tbl;
+	struct ipa3_flt_entry *entry, *next;
+	int pipe;
+
+	pipe = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
 	if(pipe == IPA_EP_NOT_ALLOCATED) {
 		IPAERR("Invalid client.\n");
 		return;
@@ -335,8 +503,10 @@ static void ipa_test_sta_flt_order(enum ipa_client_type client, uint32_t *metada
 	flt_rule_entry.rule.retain_hdr = false;
 	flt_rule_entry.rule.hashable = 0;
 	flt_rule_entry.rule.eq_attrib_type = true;
-	flt_rule_entry.rule.attrib.meta_data = *metadata;
-	flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_META_DATA;
+	if(metadata) {
+		flt_rule_entry.rule.attrib.meta_data = *metadata;
+		flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_META_DATA;
+	}
 
 	memcpy(&(param->rules[0]), &flt_rule_entry,
 		sizeof(struct ipa_flt_rule_add));
@@ -423,16 +593,22 @@ ssize_t testcase_store(struct device *dev, struct device_attribute *attr,
 			break;
 		case 2:
 			//IPA_CHANNEL_WLAN_NOT_STARTED
-			ipa_test_wlan_chan_not_start(IPA_CLIENT_WLAN2_CONS);
+			ipa_test_wlan_chan_not_start(IPA_CLIENT_WLAN1_CONS);
 			break;
 		case 3:
 			//IPA_DRIVER_ETH_PKT_DROP
 		case 4:
 			//IPA_DRIVER_WLAN_AP_PKT_DROP
+		case 15: // ETH1 pkt drop
+		case 16: // WLAN2 AP pkt drop
+		case 18: // WLAN3 AP pkt drop
 			ipa_test_ul_pkt_drop();
 			break;
 		case 5:
 			//IPA_DRIVER_WLAN_STA_PKT_DROP
+		case 17: // WLAN2 STA pkt drop
+		case 19: // WLAN3 STA pkt drop
+		case 25: //MODEM pkt drop
 			ipa_test_dl_pkt_drop();
 			break;
 		case 6:
@@ -458,6 +634,42 @@ ssize_t testcase_store(struct device *dev, struct device_attribute *attr,
 		case 11:
 			//IPA_WLAN_STA_FILTER_RULE_INCORRECT -> to test level2 recovery
 			ipa_test_wlan_sta_flt_order_lvl2();
+			break;
+		case 12:
+			//IPA_CHANNEL_ETH1_NOT_STARTED
+			ipa_test_eth_chan_not_start(IPA_CLIENT_ETHERNET2_CONS);
+			break;
+		case 13:
+			//IPA_CHANNEL_WLAN2_NOT_STARTED
+			ipa_test_wlan_chan_not_start(IPA_CLIENT_WLAN2_CONS);
+			break;
+		case 14:
+			//IPA_CHANNEL_WLAN3_NOT_STARTED
+			ipa_test_wlan_chan_not_start(IPA_CLIENT_WLAN4_CONS);
+			break;
+		case 20:
+			//IPA_ETH1_FILTER_RULE_INCORRECT
+			ipa_test_eth1_flt_order();
+			break;
+		case 21:
+			//IPA_WLAN2_AP_FILTER_RULE_INCORRECT
+			ipa_test_wlan2_ap_flt_order();
+			break;
+		case 22:
+			//IPA_WLAN2_STA_FILTER_RULE_INCORRECT
+			ipa_test_wlan2_sta_flt_order();
+			break;
+		case 23:
+			//IPA_WLAN3_AP_FILTER_RULE_INCORRECT
+			ipa_test_wlan3_ap_flt_order();
+			break;
+		case 24:
+			//IPA_WLAN3_STA_FILTER_RULE_INCORRECT
+			ipa_test_wlan3_sta_flt_order();
+			break;
+		case 26:
+			//ETH WAN FILTER_RULE_INCORRECT;
+			ipa_test_eth_sta_flt_order();
 			break;
 		default:
 			IPAERR("invalid testcase\n");
