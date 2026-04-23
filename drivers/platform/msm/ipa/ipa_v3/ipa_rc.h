@@ -343,7 +343,5 @@ void rc_list_clear(struct ipa_rc_queue *q);
 /* Health Monitor Interfaces */
 ssize_t status_show(struct device *dev, struct device_attribute *attr, char *ubuf);
 ssize_t timer_val_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count);
-ssize_t testcase_show(struct device *dev, struct device_attribute *attr, char *ubuf);
-ssize_t testcase_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count);
 
 #endif /* _IPA_RC_H_ */

@@ -25,6 +25,7 @@ unsigned int query_timer = 200; // is 200 milliseconds;
 struct ipa_rc_wq_ctx *rc_ctx;
 static bool has_ul_dl_rule, modem_rule;
 
+static char msg_buff[IPA_MAX_MSG_LEN + 1];
 static struct chan_param_monitor chan_info[MAX_NUM_CONS_CLIENT][2];
 
 /* Common Queue Implementations */
@@ -533,7 +534,7 @@ int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num
 					else if(IPA_CLIENT_IS_WLAN_PROD(client)) {
 						if(entry->rule.action == IPA_PASS_TO_SRC_NAT)
 							return WLAN_AP_UL_FLT_RULE;
-						else if((entry->rule.action == IPA_PASS_TO_DST_NAT))
+						else if(entry->rule.action == IPA_PASS_TO_DST_NAT)
 							return WLAN_STA_DL_FLT_RULE;
 					}
 			}
@@ -719,13 +720,16 @@ void ipa_rc_detect_flt_order(struct ipa_rc_health_monitor *ipa_state_info, enum 
 void ipa_rc_nat_init(struct ipa_rc_health_monitor *ipa_state_info)
 {
 	enum ipa_rc_state_err cur_status = IPA_HEALTH_OK;
+	struct ipa3_nat_ipv6ct_common_mem *ndev;
+	struct ipa3_nat_mem *nm_ptr;
+	bool any_table_active;
 
 	if(!has_ul_dl_rule && !modem_rule)
 		return;
 
-	struct ipa3_nat_ipv6ct_common_mem *ndev = &ipa3_ctx->nat_mem.dev;
-	struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) ndev;
-	bool any_table_active = (nm_ptr->ddr_in_use || nm_ptr->sram_in_use);
+	ndev = &ipa3_ctx->nat_mem.dev;
+	nm_ptr = (struct ipa3_nat_mem *) ndev;
+	any_table_active = (nm_ptr->ddr_in_use || nm_ptr->sram_in_use);
 
 	if (!ndev->is_dev_init || !ndev->is_hw_init || !any_table_active) {
 		if(ipa3_ctx->is_rc_log_enabled)
@@ -827,12 +831,10 @@ static void ipa_rc_work_handler(struct work_struct *work)
 }
 
 static DEVICE_ATTR_RO(status);
-static DEVICE_ATTR_RW(testcase);
 static DEVICE_ATTR_WO(timer_val);
 
 static struct attribute *hm_attrs[] = {
 	&dev_attr_status.attr,
-	&dev_attr_testcase.attr,
 	&dev_attr_timer_val.attr,
 	NULL
 };
@@ -927,4 +929,22 @@ ssize_t status_show(struct device *dev, struct device_attribute *attr, char *ubu
 	IPADBG("ipa cur status code = %u\n", res);
 
 	return scnprintf(ubuf, PAGE_SIZE, "%u\n", res);
+}
+
+ssize_t timer_val_store(struct device *dev, struct device_attribute *attr,
+		const char *ubuf, size_t count)
+{
+	u32 val;
+	if (count >= sizeof(msg_buff))
+		return -EFAULT;
+
+	memcpy(msg_buff, ubuf, count);
+	msg_buff[count] = '\0';
+
+	if(kstrtou32(msg_buff, 0, &val))
+		return -EINVAL;
+
+	IPADBG("IPA RC timer changed to = %u\n", val);
+	query_timer = val;
+	return count;
 }
