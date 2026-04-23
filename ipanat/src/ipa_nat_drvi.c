@@ -1993,7 +1993,7 @@ int ipa_NATI_add_ipv4_tbl(
 		goto unlock;
 	}
 
-	IPADBG("Creating NAT table\n")
+	IPADBG("Creating NAT table\n");
 
 	ret = ipa_nati_create_table(
 		nat_cache_ptr,
