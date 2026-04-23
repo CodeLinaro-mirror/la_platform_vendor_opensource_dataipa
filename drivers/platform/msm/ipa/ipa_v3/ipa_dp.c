@@ -4433,7 +4433,7 @@ begin:
 			IPADBG_LOW("tx comp imp for %d\n", src_pipe);
 			if (sys->drop_packet) {
 				clnt = ipa3_get_client_by_pipe(src_pipe);
-				if(IPA_CLIENT_IS_Q6_PROD(clnt) || is_wlan_sta_pkt(&status)) {
+				if(IPA_CLIENT_IS_Q6_PROD(clnt) || IPA_CLIENT_IS_ETH_PROD(clnt) || is_wlan_sta_pkt(&status)) {
 					IPA_STATS_INC_CNT(ipa3_ctx->stats.rx_excp_pkts
 					[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL]);
 				} else {

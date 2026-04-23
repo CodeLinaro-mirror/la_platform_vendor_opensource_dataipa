@@ -17,7 +17,7 @@
 #define LIST_MAX_LEN 5         /* Number of instances used for status calculation */
 #define IPA_MAX_MSG_LEN 4096   /* Buffer size allocated for IPA messages */
 #define IPA_COLLECT_INTERVAL_MS 50000 /* Initial interval (ms) for scheduling the workqueue */
-#define MAX_RC_CLIENTS 4  /* Max no. of type of clients for ipa-rc */
+#define MAX_RC_CLIENTS 7  /* Max no. of type of clients for ipa-rc */
 
 /*
  * ipa_rc_state_err error code names (bitmask)
@@ -27,22 +27,38 @@
  * Channel not started errors:
  * @IPA_CHANNEL_ETH_NOT_STARTED: Ethernet tethering/IPA channel is not started.
  * @IPA_CHANNEL_WLAN_NOT_STARTED: WLAN tethering/IPA channel is not started.
+ * @IPA_CHANNEL_ETH1_NOT_STARTED: Ethernet 1 tethering/IPA channel is not started.
+ * @IPA_CHANNEL_WLAN2_NOT_STARTED: WLAN 2 tethering/IPA channel is not started.
+ * @IPA_CHANNEL_WLAN3_NOT_STARTED: WLAN 3 tethering/IPA channel is not started.
  *
  * Buffer insufficient errors:
  * @IPA_CHANNEL_APPS_EMB_NO_BUFF: APPS embedded endpoint has no buffer.
  * @IPA_CHANNEL_Q6_NO_BUFF: Q6 (modem) endpoint has no buffer.
  * @IPA_CHANNEL_ETH_NO_BUFF: Ethernet endpoint has no buffer.
  * @IPA_CHANNEL_WLAN_NO_BUFF: WLAN endpoint has no buffer.
+ * @IPA_CHANNEL_ETH1_NO_BUFF: Ethernet 1 endpoint has no buffer.
+ * @IPA_CHANNEL_WLAN2_NO_BUFF: WLAN 2 endpoint has no buffer.
+ * @IPA_CHANNEL_WLAN3_NO_BUFF: WLAN 3 endpoint has no buffer.
  *
  * Driver packet drop indications:
  * @IPA_DRIVER_ETH_PKT_DROP: Packets originating from Ethernet are dropping in IPA driver.
  * @IPA_DRIVER_WLAN_AP_PKT_DROP: Packets originating from WLAN AP path are dropping in IPA driver.
  * @IPA_DRIVER_WLAN_STA_PKT_DROP: Packets originating from WLAN STA path are dropping in IPA driver.
+ * @IPA_DRIVER_ETH1_PKT_DROP: Packets originating from Ethernet 1 are dropping in IPA driver.
+ * @IPA_DRIVER_WLAN2_AP_PKT_DROP: Packets originating from WLAN 2 AP path are dropping in IPA driver.
+ * @IPA_DRIVER_WLAN2_STA_PKT_DROP: Packets originating from WLAN 2 STA path are dropping in IPA driver.
+ * @IPA_DRIVER_WLAN3_AP_PKT_DROP: Packets originating from WLAN 3 AP path are dropping in IPA driver.
+ * @IPA_DRIVER_WLAN3_STA_PKT_DROP: Packets originating from WLAN 3 STA path are dropping in IPA driver.
  *
  * Filtering rule validation errors:
  * @IPA_ETH_FILTER_RULE_INCORRECT: Ethernet filtering rule(s) incorrect / unexpected ordering.
  * @IPA_WLAN_AP_FILTER_RULE_INCORRECT: WLAN AP filtering rule(s) incorrect / unexpected ordering.
  * @IPA_WLAN_STA_FILTER_RULE_INCORRECT: WLAN STA filtering rule(s) incorrect / unexpected ordering.
+ * @IPA_ETH1_FILTER_RULE_INCORRECT: Ethernet 1 filtering rule(s) incorrect / unexpected ordering.
+ * @IPA_WLAN2_AP_FILTER_RULE_INCORRECT: WLAN 2 AP filtering rule(s) incorrect / unexpected ordering.
+ * @IPA_WLAN2_STA_FILTER_RULE_INCORRECT: WLAN 2 STA filtering rule(s) incorrect / unexpected ordering.
+ * @IPA_WLAN3_AP_FILTER_RULE_INCORRECT: WLAN 3 AP filtering rule(s) incorrect / unexpected ordering.
+ * @IPA_WLAN3_STA_FILTER_RULE_INCORRECT: WLAN 3 STA filtering rule(s) incorrect / unexpected ordering.
  *
  * NAT initialization error:
  * @IPA_NAT_NOT_INITIALIZED: NAT table not initialized / NAT init validation failure.
@@ -65,7 +81,25 @@ enum ipa_rc_state_err
 	IPA_WLAN_AP_FILTER_RULE_INCORRECT =0x0400,
 	IPA_WLAN_STA_FILTER_RULE_INCORRECT =0x0800,
 	IPA_NAT_NOT_INITIALIZED =0x1000,
-	IPA_HEALTH_MAX= 0x2000
+	IPA_CHANNEL_ETH1_NOT_STARTED =0x2000,
+	IPA_CHANNEL_WLAN2_NOT_STARTED =0x4000,
+	IPA_CHANNEL_WLAN3_NOT_STARTED =0x8000,
+	IPA_CHANNEL_ETH1_NO_BUFF =0x10000,
+	IPA_CHANNEL_WLAN2_NO_BUFF =0x20000,
+	IPA_CHANNEL_WLAN3_NO_BUFF =0x40000,
+	IPA_DRIVER_ETH1_PKT_DROP =0x80000,
+	IPA_DRIVER_WLAN2_AP_PKT_DROP =0x100000,
+	IPA_DRIVER_WLAN2_STA_PKT_DROP =0x200000,
+	IPA_DRIVER_WLAN3_AP_PKT_DROP =0x400000,
+	IPA_DRIVER_WLAN3_STA_PKT_DROP =0x800000,
+	IPA_ETH1_FILTER_RULE_INCORRECT =0x1000000,
+	IPA_WLAN2_AP_FILTER_RULE_INCORRECT =0x2000000,
+	IPA_WLAN2_STA_FILTER_RULE_INCORRECT =0x4000000,
+	IPA_WLAN3_AP_FILTER_RULE_INCORRECT =0x8000000,
+	IPA_WLAN3_STA_FILTER_RULE_INCORRECT =0x10000000,
+	IPA_DRIVER_MODEM_PKT_DROP = 0x20000000,
+	IPA_RESERVE_ERROR_CODE_ICMP = 0x40000000,
+	IPA_HEALTH_MAX = 0x80000000
 };
 
 /*
@@ -82,6 +116,9 @@ enum ipa_rc_clients
 	ETH = 0,
 	WLAN,
 	MODEM,
+	ETH1,
+	WLAN2,
+	WLAN3,
 	OTHERS
 };
 
@@ -99,6 +136,10 @@ enum ipa_rc_clients
  * @MTU_FLT_RULE: MTU-related filter rule group.
  *
  * @ETH_UL_FLT_RULE: Ethernet uplink filter rule group.
+ *
+ * @ETH_DL_FLT_RULE: Ethernet downlink (WAN) filter rule group.
+ *                   Used when Ethernet is configured as WAN.
+ *                   Matches dst_addr/mask 0x0/0x0 with IPA_PASS_TO_DST_NAT.
  *
  * @WLAN_AP_UL_FLT_RULE: WLAN AP uplink filter rule group.
  *                       Used for WLAN Access Point uplink traffic
@@ -123,6 +164,7 @@ enum ipa_rc_flt_rule_grp
 	PVT_SUBNET_FLT_RULE,
 	MTU_FLT_RULE,
 	ETH_UL_FLT_RULE,
+	ETH_DL_FLT_RULE,
 	WLAN_AP_UL_FLT_RULE,
 	WLAN_STA_DL_FLT_RULE,
 	MODEM_FLT_RULE,
