@@ -672,6 +672,38 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 			}
 		}
 	}
+	/* ETH PDU configuration */
+	if (ipa3_ctx->eth_pdu_ctx.eth_pdu_mode_enabled && ipa3_ctx->eth_pdu_ctx.eth_pdu_over_usb) {
+		if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
+			IPA_QMI_ETH_HW_VLAN_IP_V01)
+			ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
+		else if (ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode ==
+			IPA_QMI_ETH_HW_NON_VLAN_IP_V01)
+			ep->cfg.hdr.hdr_len = ETH_HLEN;
+		else
+			IPAERR("invalid vlan mode: %d\n",
+				ipa3_ctx->eth_pdu_ctx.eth_pdu_vlan_mode);
+
+		ipa3_cfg_ep_hdr(ipa_ep_idx, &ep->cfg.hdr);
+		/* only need to route exception for IPA client producer */
+		if (IPA_CLIENT_IS_PROD(ipa3_ctx->ep[ipa_ep_idx].client)) {
+			/*
+			 * enable source notification status for exception packets
+			 * (i.e. QMAP commands) to be routed to modem.
+			 */
+			ep->status.status_en = true;
+			ep->status.status_ep = ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_CONS);
+			/* Enable status supression to disable sending status for
+			 * every packet.
+			 */
+			ep->status.status_pkt_suppress = true;
+
+			if (ipa3_cfg_ep_status(ipa_ep_idx, &ep->status)) {
+				IPAERR("fail to configure status of EP.\n");
+				goto ipa_cfg_ep_fail;
+			}
+		}
+	}
 
 	out_params->clnt_hdl = ipa_ep_idx;
 
