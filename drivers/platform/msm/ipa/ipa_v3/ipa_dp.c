@@ -2005,8 +2005,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		 * in rmnet_ipa driver.
 		 */
 		if (ipa3_ctx->tx_napi_enable &&
-			(ep->client != IPA_CLIENT_APPS_WAN_PROD))
+			(ep->client != IPA_CLIENT_APPS_WAN_PROD)) {
+			napi_disable(&ep->sys->napi_tx);
 			netif_napi_del(&ep->sys->napi_tx);
+		}
 	}
 
 	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
