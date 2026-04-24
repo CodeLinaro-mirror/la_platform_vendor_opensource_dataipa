@@ -5092,6 +5092,7 @@ _calc_partial_csum(
 			hdr->check = pseudo;
 
 			skb->csum_offset = offsetof(struct tcphdr, check);
+			skb->csum_start = new_proto_hdr - skb->head;
 
 		} else {
 
@@ -5100,6 +5101,7 @@ _calc_partial_csum(
 			hdr->check = pseudo;
 
 			skb->csum_offset = offsetof(struct udphdr, check);
+			skb->csum_start = new_proto_hdr - skb->head;
 		}
 	}
 
@@ -5266,8 +5268,16 @@ _prep_and_send_skb(
 		 */
 		shinfo = skb_shinfo(head_skb);
 
-		shinfo->gso_segs = num_pkts;
-		shinfo->gso_size = pkts[0].pkt_len;
+		if(aggr_payload_size > pkts[0].pkt_len)
+		{
+			shinfo->gso_segs = num_pkts;
+			shinfo->gso_size = pkts[0].pkt_len;
+		}
+		else
+		{
+			shinfo->gso_segs = 0;
+			shinfo->gso_size = 0;
+		}
 
 		if (ip_proto == IPPROTO_TCP) {
 			shinfo->gso_type = (ip_vers == 4) ? SKB_GSO_TCPV4 : SKB_GSO_TCPV6;
@@ -5583,7 +5593,7 @@ void ipa3_lan_coal_rx_cb(
 	/*
 	 * Quick check to see if we really need to go any further...
 	 */
-	if ( gro && qmap_hdr.num_nlos == 1 && qmap_hdr.chksum_valid ) {
+	if ( gro && qmap_hdr.num_nlos == 1 && qmap_hdr.chksum_valid && tot_pkts == 1) {
 
 		cpsi = cpsi_orig;
 
