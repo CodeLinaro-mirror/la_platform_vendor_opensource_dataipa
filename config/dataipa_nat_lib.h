@@ -3,4 +3,4 @@
 * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 */
 
-//#define CONFIG_ECM_CONVERGENCE 1
+#define CONFIG_ECM_CONVERGENCE 1
