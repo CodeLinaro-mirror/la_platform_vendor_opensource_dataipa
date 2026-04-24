@@ -19,8 +19,6 @@
 /* MACROS AND DEFINITIONS                                                     */
 /* ========================================================================== */
 
-#define IPA_MAX_ACCEL_CONNECTIONS_V4 1000
-#define IPA_MAX_ACCEL_CONNECTIONS_V6 1000
 #define IPA_MAX_TIMEOUT 20	/* seconds */
 
 #define ipa_ipv4_stopped(CTX) (rcu_dereference((CTX)->ipv4_stats_sync_cb) == NULL)
@@ -1932,13 +1930,13 @@ EXPORT_SYMBOL(ipa_ipv6_msg_init);
 
 int ipa_be_ipv4_get_max_accel_conn(void)
 {
-	return IPA_MAX_ACCEL_CONNECTIONS_V4;
+	return ipa3_ctx->max_ipv4_accel_conn;
 }
 EXPORT_SYMBOL(ipa_be_ipv4_get_max_accel_conn);
 
 int ipa_be_ipv6_get_max_accel_conn(void)
 {
-	return IPA_MAX_ACCEL_CONNECTIONS_V6;
+	return ipa3_ctx->max_ipv6_accel_conn;
 }
 EXPORT_SYMBOL(ipa_be_ipv6_get_max_accel_conn);
 

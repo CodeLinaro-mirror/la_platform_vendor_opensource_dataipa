@@ -180,7 +180,7 @@ int ipa_be_nat_mgmt_init(void)
 
 	nat_app->curCnt = 0;
 	nat_app->mem_type = "DDR";
-	nat_app->max_entries = 4000;
+	nat_app->max_entries = ipa3_ctx->max_ipv4_accel_conn;
 
 	/* Initialize cache lock */
 	mutex_init(&nat_app->cache_lock);
@@ -206,7 +206,7 @@ int ipa_be_nat_mgmt_init(void)
 		goto fail;
 	}
 	NatBase->ct_mem_type = "DDR";
-	NatBase->m_maxEntries = 1000;
+	NatBase->m_maxEntries = ipa3_ctx->max_ipv6_accel_conn;
 
 	/* Initialize IPv6 CT cache lock */
 	mutex_init(&NatBase->cache_lock);

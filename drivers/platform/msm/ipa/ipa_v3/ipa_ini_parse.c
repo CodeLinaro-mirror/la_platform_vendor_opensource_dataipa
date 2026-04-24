@@ -126,7 +126,8 @@ static int ipa_ini_read_values(char **head, char **read_key,
 			}
 		}
 
-		key = strim(key);
+		if (key)
+			key = strim(key);
 		if (value)
 			value = strim(value);
 		/*
@@ -174,14 +175,13 @@ static int ipa_param_handler(const char *key_store,
 {
 	int status = 0;
 	int param = 0;
-	int hw_version;
-	bool use_ipa_pm;
-	bool config_is_auto;
+	u32 value;
 	bool config;
 
 	for (param = 0; param < IPA_PARAM_MAX; param++)
 	{
 		config = 0;
+		value = 0;
 		if(strcmp(ipa_ini_param[param], key_store) == 0)
 		{
 			switch (param) {
@@ -321,6 +321,126 @@ static int ipa_param_handler(const char *key_store,
 					{
 						IPADBG("config use ipv6 nat '%s' is %d", value_store, config);
 						drv_res->use_ipv6_nat_config = config;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_MAX_IPV4_STATS_ACCEL_CONNECTIONS:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("max v4 stats accel conn '%s' is %d", value_store, value);
+						drv_res->max_ipv4_stats_accel_conn = value;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_MAX_IPV6_STATS_ACCEL_CONNECTIONS:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("max v6 stats accel conn '%s' is %d", value_store, value);
+						drv_res->max_ipv6_stats_accel_conn = value;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_DISABLE_PER_FLOW_STATS:
+					status = CONVERT_TO_BOOL(value_store, config);
+					if(!status)
+					{
+						IPADBG("Disable per flow stats: '%s' is %d", value_store, config);
+						drv_res->ipa_disable_per_flow_stats = config;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_WDI3_2G_HOLB_TIMEOUT:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("wdi3 2g holb timeout '%s' is %d", value_store, value);
+						drv_res->ipa_wdi3_2g_holb_timeout = value;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_WDI3_5G_HOLB_TIMEOUT:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("wdi3 5g holb timeout '%s' is %d", value_store, value);
+						drv_res->ipa_wdi3_5g_holb_timeout = value;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_TX_WRAPPER_CACHE_MAX_SIZE:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("tx wrapper cache max size '%s' is %d", value_store, value);
+						drv_res->tx_wrapper_cache_max_size = value;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_FILTER_START_ID:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("filter start id '%s' is %d", value_store, value);
+						drv_res->filter_start_id = value;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_WAN_RX_RING_SIZE:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("wan rx ring size '%s' is %d", value_store, value);
+						drv_res->wan_rx_ring_size = value;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_LAN_RX_RING_SIZE:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("lan rx ring size '%s' is %d", value_store, value);
+						drv_res->lan_rx_ring_size = value;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_GEN_RX_CMN_PAGE_POOL_SZ_FACTOR:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("ipa gen rx cmn page pool sz factor '%s' is %d", value_store, value);
+						drv_res->ipa_gen_rx_cmn_page_pool_sz_factor = value;
+					} else {
+						 IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_GEN_RX_CMN_TEMP_POOL_SZ_FACTOR:
+					status = CONVERT_TO_UINT(value_store, value);
+					if(!status)
+					{
+						IPADBG("ipa_gen_rx_cmn_temp_pool_sz_factor '%s' is %d", value_store, value);
+						drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor = value;
+					} else {
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_WAN_SKB_PAGE:
+					status = CONVERT_TO_BOOL(value_store, config);
+					if(!status)
+					{
+						IPADBG("ipa wan skb page '%s' is %d", value_store, config);
+						drv_res->ipa_wan_skb_page = config;
 					} else {
 						IPAERR("Error in converting '%s' value\n", value_store);
 					}
