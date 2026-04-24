@@ -1000,8 +1000,18 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 #endif
 				IPA_MEM_PART(v4_modem_rt_index_hi) :
 				IPA_MEM_PART(v6_modem_rt_index_hi))) {
-				IPAERR_RL("invalid RT tbl. idx = %d\n", rule->rt_tbl_idx);
-				goto error;
+				if (rule->rt_tbl_hdl) {
+					if (rule->rt_tbl_idx > ((ip == IPA_IP_v4) ?
+						IPA_MEM_PART(v4_apps_rt_index_hi) :
+						IPA_MEM_PART(v6_apps_rt_index_hi))) {
+							IPAERR_RL("invalid RT tbl. idx = %d\n",
+								rule->rt_tbl_idx);
+							goto error;
+					}
+				} else {
+					IPAERR_RL("invalid RT tbl. idx = %d\n", rule->rt_tbl_idx);
+					goto error;
+				}
 			}
 		}
 	} else {
