@@ -1056,9 +1056,9 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan)
 		rule->private_ip = ntohl(v4_msg.conn_rule.return_ip_xlate);
 		rule->target_ip = ntohl(v4_msg.tuple.flow_ip);
 		rule->public_ip = ntohl(v4_msg.tuple.return_ip);
-		rule->private_port = ntohs(v4_msg.tuple.return_ident);
+		rule->private_port = ntohs(v4_msg.conn_rule.return_ident_xlate);
 		rule->target_port = ntohs(v4_msg.tuple.flow_ident);
-		rule->public_port = ntohs(v4_msg.conn_rule.return_ident_xlate);
+		rule->public_port = ntohs(v4_msg.tuple.return_ident);
 
 		IPA_BE_DBG("Downlink case\n");
 	}
@@ -1389,17 +1389,19 @@ void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg)
 		rule.private_ip   = ntohl(v4_msg.tuple.flow_ip);
 		rule.target_ip    = ntohl(v4_msg.tuple.return_ip);
 		rule.private_port = ntohs(v4_msg.tuple.flow_ident);
+		rule.public_port  = ntohs(v4_msg.conn_rule.flow_ident_xlate);
 		rule.target_port  = ntohs(v4_msg.tuple.return_ident);
 	} else {
 		/*
 		 * Destroy message is for the DOWNLINK flow.
-		 * We need to use the XLATE fields to find the original private tuple.
-		 * Original private_ip was return_ip_xlate.
-		 * Original target_ip was flow_ip (which is the public server ip).
+		 * Reconstruct the key used during insertion: private_ip=return_ip_xlate
+		 * (LAN client), private_port=return_ident_xlate (LAN port),
+		 * public_port=return_ident (WAN/NAT port).
 		 */
 		rule.private_ip   = ntohl(v4_msg.conn_rule.return_ip_xlate);
 		rule.target_ip    = ntohl(v4_msg.tuple.flow_ip);
 		rule.private_port = ntohs(v4_msg.conn_rule.return_ident_xlate);
+		rule.public_port  = ntohs(v4_msg.tuple.return_ident);
 		rule.target_port  = ntohs(v4_msg.tuple.flow_ident);
 	}
 

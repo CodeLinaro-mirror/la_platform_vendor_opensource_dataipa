@@ -56,7 +56,6 @@ typedef struct _nat_table_entry
 
 }nat_table_entry;
 
-// void UpdateCTUdpTs(nat_table_entry *, uint32_t);
 bool chk_for_dup(const nat_table_entry *rule);
 void ipa_be_reset(void);
 bool is_pwr_save_if(uint32_t ip_addr);
@@ -65,13 +64,6 @@ uint32_t generate_met_data(uint8_t mux_id);
 int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
 int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
 int ipa_be_remove_pdn(uint32_t pub_ip);
-
-//bool ChkForDupGRE(const nat_table_entry *);
-// bool isAlgPort(uint8_t, uint16_t);
-
-// int AddTable(uint32_t, uint8_t mux_id, bool is_sta);
-// int DeleteTable(uint32_t);
-// int MoveTable(bool to_ddr);
 
 int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan);
 int ipa_be_delete_nat_entry(const nat_table_entry *rule);
@@ -82,30 +74,10 @@ int ipv6ct_del_entry(struct ipa_ipv6_rule_destroy_msg *v6_msg, uint32_t rule_han
 void ipa_be_delete_v6_ct_entry(struct ipa_ipv6_rule_destroy_msg v6_msg, uint32_t rule_handle);
 int ipa_be_add_table_v6(const uint32_t v6_prefix[2]);
 void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg);
-// int DeleteEntryGRE(const nat_table_entry *);
-// void UpdateUDPTimeStamp(void);
-
-// int UpdatePwrSaveIf(uint32_t);
-// int ResetPwrSaveIf(uint32_t);
-// int DelEntriesOnClntDiscon(uint32_t);
-// int DelDummyNatEntries(uint32_t ip_addr);
-// int DelEntriesOnSTAClntDiscon(uint32_t);
-
-// void Read_TcpUdp_Timeout(void);
-
-// void AddTempEntry(const nat_table_entry *);
-// void CacheEntry(const nat_table_entry *);
-// void DeleteTempEntry(const nat_table_entry *);
-// #ifdef FEATURE_VLAN_MPDN
-// 	void FlushAndCacheVlanTempEntries(uint32_t ip_addr, bool *entry_exists, uint32_t *public_ip);
-// #endif
-// void FlushTempEntries(uint32_t, bool, bool isDummy);
-// void DeleteTempEntry_port(uint16_t);
-// int DeleteEntry_port(uint16_t);
 
 int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 				uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
-				uint16_t src_port, uint16_t dest_port, 
+				uint16_t src_port, uint16_t dest_port,
 				uint8_t protocol, uint32_t rule_handle);
 
 int find_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
