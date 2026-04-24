@@ -11224,6 +11224,13 @@ ssize_t ipa3_update_config(const char *buff)
 			ipa3_ctx->ipa_mhi_eth = true;
 		}
 
+		if (strnstr(dbg_buff, "rdkb", strlen(dbg_buff)))
+		{
+			IPADBG("Platform type is RDKB\n");
+			ipa3_ctx->ipa_config_is_rdkb = true;
+			ipa3_ctx->enable_napi_chain = 0;
+		}
+
 #if IPA_ETH_API_VER >= 4
 		if (strnstr(dbg_buff, "ethqos", strlen(dbg_buff))) {
 			ipa3_ctx->eth_qos = IPA_ETH_QOS_ENABLE;
@@ -11291,14 +11298,6 @@ ssize_t ipa3_update_config(const char *buff)
 		/* trim ending newline character if any */
 		if (count && (dbg_buff[count - 1] == '\n'))
 			dbg_buff[count - 1] = '\0';
-
-		if (strnstr(dbg_buff, "rdkb", strlen(dbg_buff)))
-		{
-			IPADBG("Platform type is RDKB\n");
-			ipa3_ctx->ipa_config_is_rdkb = true;
-			ipa3_ctx->enable_napi_chain = 0;
-			return count;
-		}
 
 #if defined(CONFIG_IPA_IPSEC)
 		if (strnstr(dbg_buff, "ipsec", strlen(dbg_buff)))
