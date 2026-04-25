@@ -60,6 +60,7 @@ extern Hdr *hash_table_hdr[TABLE_SIZE];
 
 
 extern struct mutex ipa_client_db_lock;
+extern struct ipa_clientdb_mapping_instance *ipa_db_mappings;
 typedef uint32_t ipa_db_mapping_hash_t;
 
 #define IPA_CLIENT_DB_MAPPING_INSTANCE_MAGIC 0x9876
