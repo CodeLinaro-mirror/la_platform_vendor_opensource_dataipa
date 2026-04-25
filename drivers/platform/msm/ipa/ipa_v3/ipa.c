@@ -11079,6 +11079,7 @@ ssize_t ipa3_update_config(const char *buff)
 			ipa3_ctx->device_mode = DEVMODE_APBRIDGE;
 			if(strnstr(dbg_buff, "dblvlan", strlen(dbg_buff))) {
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH1] = true;
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_WLAN] = true;
 				ipa3_ctx->device_vlan_mode = true;
 			}
