@@ -40,8 +40,10 @@ int ipa_be_delete_ipv6_prefix_flt_rule(int intf_num);
 int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type iptype);
 
 int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype);
+int add_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype);
 int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type iptype);
 int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype);
+int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype);
 int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type iptype);
 
 int install_wan_filtering_rule(void);
