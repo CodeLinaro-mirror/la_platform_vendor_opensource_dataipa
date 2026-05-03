@@ -363,6 +363,7 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		}
 		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
 
+		flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 		memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]), &flt_rule_entry, sizeof(flt_rule_entry));
 
 		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable,
@@ -715,6 +716,7 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 				/* IPA_BE_ERR("turn on meta-data equation with value 0x%x\n", rx_prop->rx[idx].attrib.meta_data); */
 			/* } */
 
+			flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
 
 			IPA_BE_DBG("Modem UL filtering rule %d has index %d installed at %d\n", cnt, index, i);
@@ -1030,6 +1032,7 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 		}
 		flt_rule_entry.rule.eq_attrib.ihl_offset_range_16[0].range_high = UINT16_MAX; /* 0xFFFF */
 
+		flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 		memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]), &flt_rule_entry, sizeof(flt_rule_entry));
 
 		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable, true)) {
@@ -1920,6 +1923,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 				//IPA_BE_ERR("turn on meta-data equation with value 0x%x\n", rx_prop->rx[idx].attrib.meta_data);
 			//}
 
+			flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
 
 			IPA_BE_DBG("Modem UL filtering rule %d has index %d installed at %d\n", cnt, index, i);
@@ -2206,6 +2210,7 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 			flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[i] = 0xFFFFFFFF;
 		}
 
+		flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 		memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]), &flt_rule_entry, sizeof(flt_rule_entry));
 
 		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable,
