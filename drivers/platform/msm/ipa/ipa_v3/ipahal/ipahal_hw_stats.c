@@ -409,11 +409,11 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v6_0(
 			struct ipahal_stats_tethering_hdr_v5_0_hw *hdr =
 				pyld_ptr;
 			hdr->dst_mask_31_0 =
-				((in->cons_bitmask[i][0] >> IPAHAL_PRODUCER_PIPE_NUM) |
-				(in->cons_bitmask[i][1] <<
-				(IPAHAL_MAX_PIPES_PER_REG - IPAHAL_PRODUCER_PIPE_NUM)));
+				(((u64)in->cons_bitmask[i][0] >> IPAHAL_IPA5_2_PRODUCER_PIPE_NUM) |
+				((u64)in->cons_bitmask[i][1] <<
+				(IPAHAL_MAX_PIPES_PER_REG - IPAHAL_IPA5_2_PRODUCER_PIPE_NUM)));
 			hdr->dst_mask_63_32 =
-				in->cons_bitmask[i][1] >> IPAHAL_PRODUCER_PIPE_NUM;
+				(u64)in->cons_bitmask[i][1] >> IPAHAL_IPA5_2_PRODUCER_PIPE_NUM;
 			// TODO: for future when num pipes > 64
 			hdr->dst_mask_95_64 = 0;
 			hdr->dst_mask_127_96 = 0;
@@ -437,6 +437,263 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v6_0(
 
 	return pyld;
 }
+
+static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v7_0(
+	void *params, bool is_atomic_ctx)
+{
+	struct ipahal_stats_init_pyld *pyld;
+	struct ipahal_stats_init_tethering *in =
+		(struct ipahal_stats_init_tethering *)params;
+	int hdr_entries = 0;
+	int entries = 0;
+	int i, j, reg_idx;
+	void *pyld_ptr;
+	u32 incremental_offset;
+
+	for (i = 0; i < IPAHAL_PIPE_REG_NUM; i++) {
+		hdr_entries += _count_ones(in->prod_bitmask[i]);
+	}
+
+	IPAHAL_DBG_LOW("prod entries = %d\n", hdr_entries);
+	reg_idx = 0;
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
+		if (i > 0 && !(i % IPAHAL_MAX_PIPES_PER_REG)) {
+			reg_idx++;
+		}
+		if ((reg_idx < IPAHAL_PIPE_REG_NUM) &&
+			(in->prod_bitmask[reg_idx] & ipahal_get_ep_bit(i))) {
+			bool has_cons = false;
+
+			for (j = 0; j < IPAHAL_PIPE_REG_NUM; j++) {
+				if (in->cons_bitmask[i][j]) {
+					has_cons = true;
+					entries +=
+						_count_ones(in->cons_bitmask[i][j]);
+				}
+			}
+			if (!has_cons) {
+				IPAHAL_ERR("no cons bitmask for prod %d\n", i);
+				return NULL;
+			}
+		}
+	}
+	IPAHAL_DBG_LOW("sum all entries = %d\n", entries);
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) +
+		hdr_entries *
+		sizeof(struct ipahal_stats_tethering_hdr_v7_0_hw) +
+		entries * sizeof(struct ipahal_stats_tethering_hw),
+		is_atomic_ctx);
+	if (!pyld)
+		return NULL;
+
+	pyld->len = hdr_entries *
+		sizeof(struct ipahal_stats_tethering_hdr_v7_0_hw) +
+		entries * sizeof(struct ipahal_stats_tethering_hw);
+
+	pyld_ptr = pyld->data;
+
+	/*
+	 * Note that the address of the offset in the RAM line is of RAM line
+	 *(8-byte address) and not like the address in the “BASE” register,
+	 * which is a byte address
+	 */
+	incremental_offset =
+		(hdr_entries *
+			sizeof(struct ipahal_stats_tethering_hdr_v7_0_hw))
+		/ 8;
+
+	reg_idx = 0;
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
+
+		if (i > 0 && !(i % IPAHAL_MAX_PIPES_PER_REG)) {
+			reg_idx++;
+		}
+
+		if ((reg_idx < IPAHAL_PIPE_REG_NUM) &&
+			(in->prod_bitmask[reg_idx] & ipahal_get_ep_bit(i))) {
+			struct ipahal_stats_tethering_hdr_v7_0_hw *hdr =
+				pyld_ptr;
+			hdr->dst_mask_31_0 =
+			    (u32)(((u64)in->cons_bitmask[i][0] >> IPAHAL_PRODUCER_PIPE_NUM) |
+			    ((u64)in->cons_bitmask[i][1] <<
+			    (IPAHAL_MAX_PIPES_PER_REG - IPAHAL_PRODUCER_PIPE_NUM)));
+			hdr->dst_mask_63_32 =
+			    (u32)((u64)in->cons_bitmask[i][1] >> IPAHAL_PRODUCER_PIPE_NUM);
+			// TODO: for future when num pipes > 64
+			hdr->dst_mask_95_64 = 0;
+			hdr->dst_mask_127_96 = 0;
+			// TODO: Fix later.
+			hdr->cfg_start_index = 0;
+			hdr->offset = incremental_offset;
+			IPAHAL_DBG_LOW("Pipe: %d\n", i);
+			IPAHAL_DBG_LOW("hdr->dst_mask_31_0=[0x%x],"
+				"hdr->dst_mask_63_32=[0x%x],"
+				"hdr->dst_mask_95_64=[0x%x],"
+				"hdr->dst_mask_127_96=[0x%x]\n",
+				hdr->dst_mask_31_0, hdr->dst_mask_63_32,
+				hdr->dst_mask_95_64, hdr->dst_mask_127_96);
+			IPAHAL_DBG_LOW("hdr->offset=0x%x\n", hdr->offset);
+			/* add the stats entry */
+			incremental_offset +=
+				(_count_ones(in->cons_bitmask[i][0]) +
+				_count_ones(in->cons_bitmask[i][1])) *
+				sizeof(struct ipahal_stats_tethering_hw) / 8;
+			pyld_ptr += sizeof(*hdr);
+		}
+	}
+
+	return pyld;
+}
+
+static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_tethering_v7_1(
+	void *params, bool is_atomic_ctx)
+{
+	struct ipahal_stats_init_pyld *pyld;
+	struct ipahal_stats_init_tethering *in =
+		(struct ipahal_stats_init_tethering *)params;
+	int hdr_entries = 0;
+	int entries = 0;
+	int i, j, reg_idx;
+	void *pyld_ptr;
+	u32 incremental_offset;
+
+	for (i = 0; i < IPAHAL_PIPE_REG_NUM; i++) {
+		hdr_entries += _count_ones(in->prod_bitmask[i]);
+	}
+
+	IPAHAL_DBG_LOW("prod entries = %d\n", hdr_entries);
+	reg_idx = 0;
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
+		if (i > 0 && !(i % IPAHAL_MAX_PIPES_PER_REG)) {
+			reg_idx++;
+		}
+		if ((reg_idx < IPAHAL_PIPE_REG_NUM) &&
+			(in->prod_bitmask[reg_idx] & ipahal_get_ep_bit(i))) {
+			bool has_cons = false;
+
+			for (j = 0; j < IPAHAL_PIPE_REG_NUM; j++) {
+				if (in->cons_bitmask[i][j]) {
+					has_cons = true;
+					entries +=
+						_count_ones(in->cons_bitmask[i][j]);
+				}
+			}
+			if (!has_cons) {
+				IPAHAL_ERR("no cons bitmask for prod %d\n", i);
+				return NULL;
+			}
+		}
+	}
+	IPAHAL_DBG_LOW("sum all entries = %d\n", entries);
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) +
+		hdr_entries *
+		sizeof(struct ipahal_stats_tethering_hdr_v7_0_hw) +
+		entries * sizeof(struct ipahal_stats_tethering_hw),
+		is_atomic_ctx);
+	if (!pyld)
+		return NULL;
+
+	pyld->len = hdr_entries *
+		sizeof(struct ipahal_stats_tethering_hdr_v7_0_hw) +
+		entries * sizeof(struct ipahal_stats_tethering_hw);
+
+	pyld_ptr = pyld->data;
+
+	/*
+	 * Note that the address of the offset in the RAM line is of RAM line
+	 *(8-byte address) and not like the address in the “BASE” register,
+	 * which is a byte address
+	 */
+	incremental_offset =
+		(hdr_entries *
+			sizeof(struct ipahal_stats_tethering_hdr_v7_0_hw))
+		/ 8;
+
+	reg_idx = 0;
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
+
+		if (i > 0 && !(i % IPAHAL_MAX_PIPES_PER_REG)) {
+			reg_idx++;
+		}
+
+		if ((reg_idx < IPAHAL_PIPE_REG_NUM) &&
+			(in->prod_bitmask[reg_idx] & ipahal_get_ep_bit(i))) {
+			struct ipahal_stats_tethering_hdr_v7_0_hw *hdr =
+				pyld_ptr;
+			hdr->dst_mask_31_0 =
+			    (u32)(((u64)in->cons_bitmask[i][0] >> IPAHAL_IPA7_1PRODUCER_PIPE_NUM) |
+			    ((u64)in->cons_bitmask[i][1] <<
+			    (IPAHAL_MAX_PIPES_PER_REG - IPAHAL_IPA7_1PRODUCER_PIPE_NUM)));
+			hdr->dst_mask_63_32 =
+			    (u32)((u64)in->cons_bitmask[i][1] >> IPAHAL_IPA7_1PRODUCER_PIPE_NUM);
+			// TODO: for future when num pipes > 64
+			hdr->dst_mask_95_64 = 0;
+			hdr->dst_mask_127_96 = 0;
+			// TODO: Fix later.
+			hdr->cfg_start_index = 0;
+			hdr->offset = incremental_offset;
+			IPAHAL_DBG_LOW("Pipe: %d\n", i);
+			IPAHAL_DBG_LOW("hdr->dst_mask_31_0=[0x%x],"
+				"hdr->dst_mask_63_32=[0x%x],"
+				"hdr->dst_mask_95_64=[0x%x],"
+				"hdr->dst_mask_127_96=[0x%x]\n",
+				hdr->dst_mask_31_0, hdr->dst_mask_63_32,
+				hdr->dst_mask_95_64, hdr->dst_mask_127_96);
+			IPAHAL_DBG_LOW("hdr->offset=0x%x\n", hdr->offset);
+			/* add the stats entry */
+			incremental_offset +=
+				(_count_ones(in->cons_bitmask[i][0]) +
+				_count_ones(in->cons_bitmask[i][1])) *
+				sizeof(struct ipahal_stats_tethering_hw) / 8;
+			pyld_ptr += sizeof(*hdr);
+		}
+	}
+
+	return pyld;
+}
+
+static int ipahal_get_offset_tethering_v7_0(void *params,
+	struct ipahal_stats_offset *out)
+{
+	struct ipahal_stats_get_offset_tethering *in =
+		(struct ipahal_stats_get_offset_tethering *)params;
+	int entries = 0;
+	int i, j, reg_idx;
+
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
+		reg_idx = ipahal_get_ep_reg_idx(i);
+
+		if (in->init.prod_bitmask[reg_idx] & ipahal_get_ep_bit(i)) {
+			bool has_cons = false;
+
+			for (j = 0; j < IPAHAL_PIPE_REG_NUM; j++) {
+				if (in->init.cons_bitmask[i][j]) {
+					has_cons = true;
+					entries +=_count_ones(
+						in->init.cons_bitmask[i][j]);
+				}
+			}
+			if (!has_cons) {
+				IPAHAL_ERR("no cons bitmask for prod %d\n", i);
+				return -EPERM;
+			}
+		}
+	}
+	IPAHAL_DBG_LOW("sum all entries = %d\n", entries);
+
+	/* skip the header */
+	out->offset = 0;
+	for (j = 0; j < IPAHAL_PIPE_REG_NUM; j++)
+		out->offset += _count_ones(in->init.prod_bitmask[j]) *
+		sizeof(struct ipahal_stats_tethering_hdr_v7_0_hw);
+
+	out->size = entries * sizeof(struct ipahal_stats_tethering_hw);
+
+	return 0;
+}
+
 
 static int ipahal_get_offset_tethering(void *params,
 	struct ipahal_stats_offset *out)
@@ -550,6 +807,55 @@ static int ipahal_parse_stats_tethering(void *init_params, void *raw_stats,
 }
 
 static int ipahal_parse_stats_tethering_v5_0(void *init_params, void *raw_stats,
+	void *parsed_stats)
+{
+	struct ipahal_stats_init_tethering *init =
+		(struct ipahal_stats_init_tethering *)init_params;
+	struct ipahal_stats_tethering_hw *raw_hw =
+		(struct ipahal_stats_tethering_hw *)raw_stats;
+	struct ipahal_stats_tethering_all *out =
+		(struct ipahal_stats_tethering_all *)parsed_stats;
+	int i, j;
+	int stat_idx = 0;
+	int prod_idx, cons_idx;
+
+	memset(out, 0, sizeof(*out));
+	IPAHAL_DBG_LOW("\n");
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
+		prod_idx = ipahal_get_ep_reg_idx(i);
+		for (j = 0; j < IPAHAL_PIPES_NUM; j++) {
+			cons_idx = ipahal_get_ep_reg_idx(j);
+			if ((init->prod_bitmask[prod_idx] &
+				ipahal_get_ep_bit(i)) &&
+				init->cons_bitmask[i][cons_idx] &
+				ipahal_get_ep_bit(j)) {
+				IPAHAL_DBG_LOW("prod %d cons %d\n", i, j);
+				IPAHAL_DBG_LOW("stat_idx %d\n", stat_idx);
+				out->stats[i][j].num_ipv4_bytes =
+					raw_hw[stat_idx].num_ipv4_bytes;
+				IPAHAL_DBG_LOW("num_ipv4_bytes %lld\n",
+					out->stats[i][j].num_ipv4_bytes);
+				out->stats[i][j].num_ipv4_pkts =
+					raw_hw[stat_idx].num_ipv4_pkts;
+				IPAHAL_DBG_LOW("num_ipv4_pkts %lld\n",
+					out->stats[i][j].num_ipv4_pkts);
+				out->stats[i][j].num_ipv6_pkts =
+					raw_hw[stat_idx].num_ipv6_pkts;
+				IPAHAL_DBG_LOW("num_ipv6_pkts %lld\n",
+					out->stats[i][j].num_ipv6_pkts);
+				out->stats[i][j].num_ipv6_bytes =
+					raw_hw[stat_idx].num_ipv6_bytes;
+				IPAHAL_DBG_LOW("num_ipv6_bytes %lld\n",
+					out->stats[i][j].num_ipv6_bytes);
+				stat_idx++;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int ipahal_parse_stats_tethering_v7_0(void *init_params, void *raw_stats,
 	void *parsed_stats)
 {
 	struct ipahal_stats_init_tethering *init =
@@ -994,6 +1300,13 @@ static struct ipahal_hw_stats_obj
 	ipahal_generate_init_pyld_tethering_v6_0,
 	ipahal_get_offset_tethering_v5_0,
 	ipahal_parse_stats_tethering_v5_0
+	},
+
+	/* IPAv7_0 */
+	[IPA_HW_v7_0][IPAHAL_HW_STATS_TETHERING] = {
+	ipahal_generate_init_pyld_tethering_v7_0,
+	ipahal_get_offset_tethering_v7_0,
+	ipahal_parse_stats_tethering_v7_0
 	},
 };
 

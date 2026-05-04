@@ -222,6 +222,8 @@ struct ipa_test_mem_partition {
 	unsigned stats_rt_v6_size;
 	/* END of Irrelevant */
 
+	unsigned ap_stats_drop_ofst;
+	unsigned ap_stats_drop_size;
 	unsigned stats_drop_ofst;
 	unsigned stats_drop_size;
 	unsigned q6_stats_drop_ofst;
@@ -259,5 +261,19 @@ struct ipa_test_mem_partition {
 	uint32_t shaping_drop_counters_size;
 	uint32_t shaping_drop_pkt_byte_counters_ofst;
 	uint32_t shaping_drop_pkt_byte_counters_size;
+
+	/* Starting IPA7.0 */
+	uint32_t stats_tethering_cfg_ofst;
+	uint32_t stats_tethering_cfg_size;
+	uint32_t stats_flt_nonip_ofst;
+	uint32_t stats_flt_nonip_size;
+	uint32_t stats_rt_nonip_ofst;
+	uint32_t stats_rt_nonip_size;
+	uint32_t stats_fnr_cfg_ofst;
+	uint32_t stats_fnr_cfg_size;
+	uint32_t stats_flt_nonip_cfg_ofst;
+	uint32_t stats_flt_nonip_cfg_size;
+	uint32_t stats_rt_nonip_cfg_ofst;
+	uint32_t stats_rt_nonip_cfg_size;
 };
 #endif /* _IPA_TEST_MODULE_H_ */

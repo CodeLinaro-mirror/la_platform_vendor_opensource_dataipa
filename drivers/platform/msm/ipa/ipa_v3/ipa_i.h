@@ -3261,6 +3261,8 @@ struct ipa3_mem_partition {
 	u32 stats_rt_v6_size;
 	/* End of Irrelevant */
 
+	u32 ap_stats_drop_ofst;
+	u32 ap_stats_drop_size;
 	u32 stats_drop_ofst;
 	u32 stats_drop_size;
 	u32 q6_stats_drop_ofst;
@@ -3298,6 +3300,20 @@ struct ipa3_mem_partition {
 	u32 shaping_drop_counters_size;
 	u32 shaping_drop_pkt_byte_counters_ofst;
 	u32 shaping_drop_pkt_byte_counters_size;
+
+	/* Starting IPA7.0 */
+	u32 stats_tethering_cfg_ofst;
+	u32 stats_tethering_cfg_size;
+	u32 stats_flt_nonip_ofst;
+	u32 stats_flt_nonip_size;
+	u32 stats_rt_nonip_ofst;
+	u32 stats_rt_nonip_size;
+	u32 stats_fnr_cfg_ofst;
+	u32 stats_fnr_cfg_size;
+	u32 stats_flt_nonip_cfg_ofst;
+	u32 stats_flt_nonip_cfg_size;
+	u32 stats_rt_nonip_cfg_ofst;
+	u32 stats_rt_nonip_cfg_size;
 };
 
 struct ipa3_controller {
