@@ -1837,11 +1837,6 @@ int ipa_drop_stats_init(void)
 	u32 mask, pipe_bitmask[IPA_EP_ARR_SIZE] = {0};
 	int client_type;
 
-	mask = ipa_hw_stats_get_ep_bit_n_idx(
-		IPA_CLIENT_USB_CONS,
-		&reg_idx);
-	pipe_bitmask[reg_idx] |= mask;
-
 	if (ipa3_ctx->ipa_wdi3_5g_holb_timeout || ipa3_ctx->uc_ctx.ipa_use_uc_holb_monitor) {
 		mask = ipa_hw_stats_get_ep_bit_n_idx(
 			IPA_CLIENT_WLAN2_CONS,
@@ -1850,7 +1845,22 @@ int ipa_drop_stats_init(void)
 	}
 
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
-		if (ipa3_ctx->ipa_wdi3_2g_holb_timeout) {
+		if(ipa3_ctx->uc_ctx.ipa_use_uc_holb_monitor)
+		{
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET_CONS,
+					&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_APPS_WAN_CONS,
+					&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_APPS_LAN_CONS,
+					 &reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+		}
+		else if (ipa3_ctx->ipa_wdi3_2g_holb_timeout) {
 			client_type = ipa3_ctx->is_dual_pine_config ?
 					IPA_CLIENT_WLAN4_CONS :
 					IPA_CLIENT_WLAN2_CONS1;

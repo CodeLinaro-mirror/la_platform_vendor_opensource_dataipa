@@ -633,6 +633,7 @@ static void ipa3_event_ring_hdlr(void)
 				e_h->Value.holb_notify_param.qTimerLSB);
 			ipa3_uc_holb_event_log(
 				e_h->Value.holb_notify_param.ipaProdGsiChid,
+				e_h->Value.holb_notify_param.EE,
 				true,
 				e_h->Value.holb_notify_param.qTimerLSB,
 				e_h->Value.holb_notify_param.qTimerMSB);
@@ -645,6 +646,7 @@ static void ipa3_event_ring_hdlr(void)
 				e_h->Value.holb_notify_param.qTimerLSB);
 			ipa3_uc_holb_event_log(
 				e_h->Value.holb_notify_param.ipaProdGsiChid,
+				e_h->Value.holb_notify_param.EE,
 				false,
 				e_h->Value.holb_notify_param.qTimerLSB,
 				e_h->Value.holb_notify_param.qTimerMSB);
