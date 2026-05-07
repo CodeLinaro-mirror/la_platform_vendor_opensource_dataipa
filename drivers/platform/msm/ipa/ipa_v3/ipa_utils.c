@@ -9297,6 +9297,7 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 			IPAERR_CFG("bad parm, clnt_hdl = %d , ep_valid = %d\n",
 				clnt_hdl,
 				ipa3_ctx->ep[clnt_hdl].valid);
+			IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return -EINVAL;
 		}
 		ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance = tx_instance;
@@ -12839,6 +12840,7 @@ static int __ipa_stop_gsi_channel(u32 clnt_hdl)
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_9 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v5_2 &&
 		ipa3_ctx->platform_type != IPA_PLAT_TYPE_XR) {
