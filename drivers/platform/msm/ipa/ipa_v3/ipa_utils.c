@@ -9297,6 +9297,7 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 			IPAERR_CFG("bad parm, clnt_hdl = %d , ep_valid = %d\n",
 				clnt_hdl,
 				ipa3_ctx->ep[clnt_hdl].valid);
+			IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return -EINVAL;
 		}
 		ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance = tx_instance;
@@ -9491,8 +9492,6 @@ int ipa3_cfg_ep_hdr_ext(u32 clnt_hdl,
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HDR_EXT_n, clnt_hdl,
 		&ep->cfg.hdr_ext);
-	IPADBG_CFG("hdr_ext reg value = 0x%x\n", ipahal_read_reg_n_fields(IPA_ENDP_INIT_HDR_EXT_n, 
-			clnt_hdl, &ep->cfg.hdr_ext));
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	return 0;
@@ -10243,8 +10242,6 @@ int ipa3_cfg_ep_deaggr(u32 clnt_hdl,
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_DEAGGR_n, clnt_hdl,
 		&ep->cfg.deaggr);
-	IPADBG_CFG("deaggr reg value = 0x%x\n", ipahal_read_reg_n_fields(IPA_ENDP_INIT_DEAGGR_n,
-				clnt_hdl, &ep->cfg.deaggr));
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	return 0;
@@ -12843,6 +12840,7 @@ static int __ipa_stop_gsi_channel(u32 clnt_hdl)
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_9 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v5_2 &&
 		ipa3_ctx->platform_type != IPA_PLAT_TYPE_XR) {

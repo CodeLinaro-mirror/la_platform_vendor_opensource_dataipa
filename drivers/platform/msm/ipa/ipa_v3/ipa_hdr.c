@@ -1124,6 +1124,7 @@ int ipa3_del_hdr_hpc_usr(struct ipa_ioc_del_hdr *hdls, bool by_user)
 			entry->ref_cnt--;
 			result = __ipa3_del_hdr(hdls->hdl[i].hdl, by_user) != 0;
 			if (proc_ctx_entry) {
+				proc_ctx_entry->hdr = NULL;
 				proc_ctx_entry->ref_cnt--;
 				result = __ipa3_del_hdr_proc_ctx(proc_ctx_entry->id, false, false) != 0;
 			}
