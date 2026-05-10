@@ -4318,7 +4318,7 @@ void ipa3_debugfs_init(void)
 
 	dent = debugfs_create_dir("ipa", NULL);
 	if (IS_ERR(dent)) {
-		IPAERR("fail to create folder in debug_fs.\n");
+		IPAERR_BOOTUP("fail to create folder in debug_fs.\n");
 		return;
 	}
 
@@ -4331,7 +4331,7 @@ void ipa3_debugfs_init(void)
 		file = debugfs_create_file(curr->name, curr->mode, dent,
 			curr->data, &curr->fops);
 		if (!file || IS_ERR(file)) {
-			IPAERR("fail to create file for debug_fs %s\n",
+			IPAERR_BOOTUP("fail to create file for debug_fs %s\n",
 				curr->name);
 			goto fail;
 		}
@@ -4446,18 +4446,18 @@ void ipa3_eth_debugfs_init(void)
 	struct dentry *file;
 
 	if (IS_ERR_OR_NULL(dent)) {
-		IPAERR("debugs root not created\n");
+		IPAERR_BOOTUP("debugs root not created\n");
 		return;
 	}
 	dent_eth = debugfs_create_dir("eth", dent);
 	if (IS_ERR(dent)) {
-		IPAERR("fail to create folder in debug_fs.\n");
+		IPAERR_BOOTUP("fail to create folder in debug_fs.\n");
 		return;
 	}
 	file = debugfs_create_file("status", IPA_READ_ONLY_MODE,
 		dent_eth, NULL, &fops_ipa_eth_status);
 	if (!file) {
-		IPAERR("could not create status\n");
+		IPAERR_BOOTUP("could not create status\n");
 		goto fail;
 	}
 	return;

@@ -670,7 +670,7 @@ int ipa3_wan_ioctl_init(void)
 
 	ret = alloc_chrdev_region(&device, 0, dev_num, DRIVER_NAME);
 	if (ret) {
-		IPAWANERR(":device_alloc err.\n");
+		IPAERR_BOOTUP(":device_alloc err.\n");
 		goto dev_alloc_err;
 	}
 	wan_ioctl_major = MAJOR(device);
@@ -678,27 +678,27 @@ int ipa3_wan_ioctl_init(void)
 	class = class_create(DRIVER_NAME);
 
 	if (IS_ERR(class)) {
-		IPAWANERR(":class_create err.\n");
+		IPAERR_BOOTUP(":class_create err.\n");
 		goto class_err;
 	}
 
 	dev = device_create(class, NULL, device,
 		NULL, DRIVER_NAME);
 	if (IS_ERR(dev)) {
-		IPAWANERR(":device_create err.\n");
+		IPAERR_BOOTUP(":device_create err.\n");
 		goto device_err;
 	}
 
 	cdev_init(&ipa3_wan_ioctl_cdev, &rmnet_ipa3_fops);
 	ret = cdev_add(&ipa3_wan_ioctl_cdev, device, dev_num);
 	if (ret) {
-		IPAWANERR(":cdev_add err.\n");
+		IPAERR_BOOTUP(":cdev_add err.\n");
 		goto cdev_add_err;
 	}
 
 	ipa3_process_ioctl = 1;
 
-	IPAWANDBG("IPA %s major(%d) initial ok :>>>>\n",
+	IPAERR_BOOTUP("IPA %s major(%d) initial ok :>>>>\n",
 	DRIVER_NAME, wan_ioctl_major);
 	return 0;
 
