@@ -2099,7 +2099,7 @@ end:
 }
 EXPORT_SYMBOL(ipa_be_v6_add_uplink_filter_rule);
 
-int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int intf_num, mac_addr_t mac)
+int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret)
 {
 	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
 	struct ipa_flt_rule_add_v2 flt_rule_entry;
@@ -2202,7 +2202,13 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 		flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 		for (int i = 0; i < 4;i++)
 		{
-			flt_rule_entry.rule.attrib.u.v6.dst_addr[i] = (uint32_t)ntohl(v6_msg.tuple.return_ip[i]);
+			if (is_ret)
+				flt_rule_entry.rule.attrib.u.v6.dst_addr[i] =
+					(uint32_t)ntohl(v6_msg.tuple.return_ip[i]);
+			else
+				flt_rule_entry.rule.attrib.u.v6.dst_addr[i] =
+					(uint32_t)ntohl(v6_msg.tuple.flow_ip[i]);
+
 			flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[i] = 0xFFFFFFFF;
 		}
 
