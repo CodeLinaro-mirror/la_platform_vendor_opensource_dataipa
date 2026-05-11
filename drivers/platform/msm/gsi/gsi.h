@@ -1864,6 +1864,43 @@ struct gsi_fw_version {
     u32 fw;
 };
 
+/* Word indices within a per-channel HW stats block in GSI SHRAM.
+ * 5 words x 8 bytes = 40 bytes per channel.
+ * Word 0 packs two 32-bit counters; words 1-4 are full 64-bit values.
+ */
+#define GSI_HW_CH_STATS_WORD_TRE_OOB_CNT	0  /* num_oob_full[31:0] | num_tre[63:32] */
+#define GSI_HW_CH_STATS_WORD_TLV_IN		1
+#define GSI_HW_CH_STATS_WORD_TLV_OUT		2
+#define GSI_HW_CH_STATS_WORD_OOB_FULL_TIME	3
+#define GSI_HW_CH_STATS_WORD_OOB_FULL_TS	4
+
+/* Bit-field masks for oob_full_time and oob_full_ts */
+#define GSI_HW_CH_STATS_TIME_VAL_BMSK		GENMASK_ULL(55, 0)
+#define GSI_HW_CH_STATS_TIME_RSVD_BMSK		GENMASK_ULL(62, 56)
+#define GSI_HW_CH_STATS_FLAG_BMSK		BIT_ULL(63)
+
+/**
+ * struct gsi_hw_ch_stats - GSI v7.0 per-channel HW stats from SHRAM
+ * @num_oob_full:   OOB (inbound) or FULL (outbound) state entry count (32-bit)
+ * @num_tre:        number of TREs processed by MCS (32-bit)
+ * @tlv_in_bytes:   TLV_IN byte counter (64-bit)
+ * @tlv_out_bytes:  TLV_OUT byte counter (64-bit)
+ * @oob_full_time:  [55:0] accumulated QTIMER cycles in OOB/FULL state,
+ *                  [62:56] reserved, [63] F0 flag
+ * @oob_full_ts:    [55:0] QTIMER timestamp of last OOB/FULL entry,
+ *                  [62:56] reserved, [63] F1 flag
+ */
+struct gsi_hw_ch_stats {
+	u32 num_oob_full;
+	u32 num_tre;
+	u64 tlv_in_bytes;
+	u64 tlv_out_bytes;
+	u64 oob_full_time;
+	u64 oob_full_ts;
+};
+
+int gsi_get_hw_ch_stats(unsigned long chan_hdl, struct gsi_hw_ch_stats *stats);
+
 enum gsi_generic_ee_cmd_query_retun_val {
 	GSI_GEN_EE_CMD_RETURN_VAL_FLOW_CONTROL_PRIMARY = 0,
 	GSI_GEN_EE_CMD_RETURN_VAL_FLOW_CONTROL_SECONDARY = 1,

@@ -2850,6 +2850,7 @@ struct ipa3_context {
 	struct ipa3_aqc_ctx aqc_ctx;
 	struct ipa3_rtk_ctx rtk_ctx;
 	struct ipa3_ntn_ctx ntn_ctx;
+	struct ipa3_uc_dbg_stats iemac_dbg_stats;
 #if defined(CONFIG_IPA_TSP)
 	struct ipa3_tsp_ctx tsp;
 #endif

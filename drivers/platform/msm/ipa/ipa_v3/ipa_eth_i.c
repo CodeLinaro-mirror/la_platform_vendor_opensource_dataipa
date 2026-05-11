@@ -539,8 +539,9 @@ static int ipa_eth_setup_rtk_gsi_channel(
 
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
 			gsi_channel_props.gsi_stats_en = 1;
+		}
 	} else {
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 	}
@@ -873,8 +874,9 @@ static int ipa_eth_setup_aqc_gsi_channel(
 	gsi_channel_props.prot = GSI_CHAN_PROT_AQC;
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
 			gsi_channel_props.gsi_stats_en = 1;
+		}
 	} else {
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 	}
@@ -1036,8 +1038,9 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	gsi_channel_props.prot = GSI_CHAN_PROT_NTN;
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
 			gsi_channel_props.gsi_stats_en = 1;
+		}
 	} else {
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 	}
@@ -1664,7 +1667,8 @@ int ipa3_eth_connect(
 
 	/* start uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= ep->gsi_chan_hdl;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1719,7 +1723,8 @@ int ipa3_eth_connect(
 config_uc_fail:
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1789,7 +1794,8 @@ int ipa3_eth_disconnect(
 
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1840,7 +1846,8 @@ int ipa3_eth_disconnect(
 	IPADBG("client (ep: %d) disconnected\n", ep_idx);
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC)
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0))
 		ipa3_uc_debug_stats_dealloc(prot);
 	if (IPA_CLIENT_IS_PROD(client_type))
 	{
@@ -2015,7 +2022,8 @@ int ipa3_eth_enable(
 
 	/* start uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= ep->gsi_chan_hdl;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -2069,7 +2077,8 @@ int ipa3_eth_enable(
 config_uc_fail:
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -2122,7 +2131,8 @@ int ipa3_eth_disable(
 
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
