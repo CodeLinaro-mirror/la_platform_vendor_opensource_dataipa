@@ -852,6 +852,7 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 					*entry_out = entry_t;
 				}
 				hdr->hdr_hdl = entry_t->id;
+				entry_t->ref_cnt++;
 				kmem_cache_free(ipa3_ctx->hdr_cache, entry);
 				return 0;
 			}
@@ -1074,14 +1075,15 @@ static int __ipa3_del_hdr_proc_ctx(u32 proc_ctx_hdl,
 		return -EINVAL;
 	}
 
-	if (by_user)
-		entry->user_deleted = true;
-
 	if (--entry->ref_cnt) {
 		IPADBG("proc_ctx_hdl %x ref_cnt %d\n",
 			proc_ctx_hdl, entry->ref_cnt);
 		return 0;
 	}
+
+	if (by_user)
+		entry->user_deleted = true;
+
 	if (entry->hdr && (entry == entry->hdr->proc_ctx)) {
 		entry->hdr->proc_ctx = NULL;
 		IPADBG_LOW("Deleting hdr proc ref\n");
@@ -1164,8 +1166,13 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 			entry->offset_entry->offset);
 
 	if (by_user && entry->user_deleted) {
-		IPAERR_RL("proc_ctx already deleted by user\n");
+		IPAERR_RL("hdr_hdl already deleted by user\n");
 		return -EINVAL;
+	}
+
+	if (--entry->ref_cnt) {
+		IPADBG("hdr_hdl %x ref_cnt %d\n", hdr_hdl, entry->ref_cnt);
+		return 0;
 	}
 
 	if (by_user && !entry->is_hdr_proc_ctx) {
@@ -1179,11 +1186,6 @@ int __ipa3_del_hdr(u32 hdr_hdl, bool by_user)
 			}
 		}
 		entry->user_deleted = true;
-	}
-
-	if (--entry->ref_cnt) {
-		IPADBG("hdr_hdl %x ref_cnt %d\n", hdr_hdl, entry->ref_cnt);
-		return 0;
 	}
 
 	if (entry->proc_ctx && (entry == entry->proc_ctx->hdr)) {
