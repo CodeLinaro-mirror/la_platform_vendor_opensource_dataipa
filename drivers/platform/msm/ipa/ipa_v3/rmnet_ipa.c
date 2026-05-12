@@ -246,6 +246,9 @@ struct rmnet_ipa3_context {
 	/* For v2 statistics */
 	struct ipa_tether_device_info_v2
 		tether_device_v2[IPACM_MAX_CLIENT_DEVICE_TYPES];
+	/* For per vlan statistics */
+	struct ipa_tether_device_info_vlan
+		tether_device_vlan;
 	u32 outstanding_high;
 	u32 outstanding_high_ctl;
 	u32 outstanding_low;
@@ -8115,6 +8118,45 @@ static inline int rmnet_ipa3_get_lan_client_info_v2(
 	return -EINVAL;
 }
 
+static inline int rmnet_ipa3_get_lan_client_info_by_vlan(
+    enum ipacm_per_client_device_type device_type,
+    uint8_t mac[], uint16_t vlan_id, uint8_t mode)
+{
+    int i = 0;
+    struct ipa_tether_device_info_vlan *teth_ptr_vlan = NULL;
+
+    IPAWANDBG("vlan_id=%u mode=%u\n", vlan_id, mode);
+
+    teth_ptr_vlan = &rmnet_ipa3_ctx->tether_device_vlan;
+
+    for (i = 0; i < IPA_MAX_NUM_HW_PATH_CLIENTS_V2; i++) {
+        if (!teth_ptr_vlan->lan_client[i].inited)
+            continue;
+
+        if (mode == 1) {
+            /* Mode 1: match by vlan_id only (shared counter per VLAN) */
+            if (teth_ptr_vlan->lan_client[i].vlan_id == vlan_id) {
+                IPAWANDBG("Matched client index: %d for vlan_id=%u\n",
+                    i, vlan_id);
+                return i;
+            }
+        } else if (mode == 2) {
+            /* Mode 2: match by both MAC and vlan_id (per-client within VLAN) */
+            if ((memcmp(teth_ptr_vlan->lan_client[i].mac,
+                        mac, IPA_MAC_ADDR_SIZE) == 0) &&
+                teth_ptr_vlan->lan_client[i].vlan_id == vlan_id) {
+                IPAWANDBG("Matched client index: %d for vlan_id=%u\n",
+                    i, vlan_id);
+                return i;
+            }
+        }
+    }
+
+    IPAWANERR("No matching client found for vlan_id=%u mode=%u\n",
+        vlan_id, mode);
+    return -EINVAL;
+}
+
 static inline int rmnet_ipa3_delete_lan_client_info
 (
 	enum ipacm_per_client_device_type device_type,
@@ -8194,6 +8236,38 @@ static inline int rmnet_ipa3_delete_lan_client_info_v2
 		lan_client_v2->client_idx = -1;
 		/* Decrement the number of clients. */
 		teth_ptr_v2->num_clients--;
+	}
+
+	return 0;
+}
+
+static inline int rmnet_ipa3_delete_lan_client_info_vlan
+(
+	int lan_clnt_idx
+)
+{
+	struct ipa_lan_client_vlan *lan_client = NULL;
+	int i;
+	struct ipa_tether_device_info_vlan *teth_ptr = NULL;
+
+	teth_ptr = &rmnet_ipa3_ctx->tether_device_vlan;
+	IPAWANDBG("Delete lan client info vlan: %d, %d (vlan)\n",
+		teth_ptr->num_clients, lan_clnt_idx);
+	/* Check if the request is to clean up all clients. */
+	if (lan_clnt_idx == 0xffffffff) {
+		/* Reset the complete device info. */
+		memset(teth_ptr, 0,
+			sizeof(struct ipa_tether_device_info_vlan));
+		teth_ptr->ul_src_pipe = -1;
+		for (i = 0; i < IPA_MAX_NUM_HW_PATH_CLIENTS_V2; i++)
+			teth_ptr->lan_client[i].client_idx = -1;
+	} else {
+		lan_client = &teth_ptr->lan_client[lan_clnt_idx];
+		/* Reset the client info before sending the message. */
+		memset(lan_client, 0, sizeof(struct ipa_lan_client_vlan));
+		lan_client->client_idx = -1;
+		/* Decrement the number of clients. */
+		teth_ptr->num_clients--;
 	}
 
 	return 0;
@@ -8341,6 +8415,59 @@ static int rmnet_ipa_get_hw_fnr_stats_v3(
 		  	((struct ipa_flt_rt_stats *)query->stats)[0].num_bytes,
 		  	((struct ipa_flt_rt_stats *)query->stats)[0].num_pkts,
 	  		((struct ipa_flt_rt_stats *)query->stats)[0].num_pkts_hash);
+
+	return 0;
+}
+
+/* Query must be free-d by the caller */
+static int rmnet_ipa_get_hw_fnr_stats_vlan(
+	struct ipa_lan_wan_client_cntr_index *client,
+	struct wan_ioctl_query_per_vlan_stats *data,
+	struct ipa_ioc_flt_rt_query *query, bool query_flt,
+	bool query_rt, uint8_t stats_type)
+{
+	int num_counters;
+
+	if (stats_type == WAN_STATS) {
+		query->start_id = client->wan_cnt_idx;
+		query->end_id = client->wan_cnt_idx;
+	}
+
+	if (stats_type == LAN2LAN_STATS) {
+		query->start_id = client->lan_cnt_idx;
+		query->end_id = client->lan_cnt_idx;
+	}
+
+	query->reset = data->reset_stats;
+	num_counters = query->end_id - query->start_id + 1;
+
+	if (num_counters > 2) {
+		IPAWANERR("Dont support more than 2 counter\n");
+		return -EINVAL;
+	}
+
+	IPAWANDBG(" Start/End %u/%u, num counters = %d\n",
+		query->start_id, query->end_id, num_counters);
+
+	query->stats = (uint64_t)kcalloc(
+			num_counters,
+			sizeof(struct ipa_flt_rt_stats),
+			GFP_KERNEL);
+	if (!query->stats) {
+		IPAERR("Failed to allocate memory for query stats\n");
+		return -ENOMEM;
+	}
+
+	if (ipa_get_flt_rt_stats_v2(query, query_flt, query_rt)) {
+		IPAERR("Failed to request stats from h/w\n");
+		return -EINVAL;
+	}
+
+	IPAWANDBG("ul = %u, dl = %u, bytes = %llu, pkts = %u, pkts_hash = %u\n",
+			query_flt, query_rt,
+			((struct ipa_flt_rt_stats *)query->stats)[0].num_bytes,
+			((struct ipa_flt_rt_stats *)query->stats)[0].num_pkts,
+			((struct ipa_flt_rt_stats *)query->stats)[0].num_pkts_hash);
 
 	return 0;
 }
@@ -8655,6 +8782,160 @@ int rmnet_ipa3_clear_lan_client_info_v2(
 	return 0;
 }
 
+/* rmnet_ipa3_set_lan_client_info_vlan() -
+ * @data - IOCTL data
+ *
+ * This function handles WAN_IOC_SET_LAN_CLIENT_INFO_VLAN.
+ * It is used to store VLAN-based LAN client information which
+ * is used to fetch the packet stats for a client.
+ *
+ * Return codes:
+ * 0: Success
+ * -EINVAL: Invalid args provided
+ */
+int rmnet_ipa3_set_lan_client_info_vlan(
+	struct wan_ioctl_lan_client_info_vlan *data)
+{
+	struct ipa_tether_device_info_vlan *teth_ptr = NULL;
+	struct ipa_lan_client_vlan *lan_client = NULL;
+
+	IPAWANDBG("Client MAC %02x:%02x:%02x:%02x:%02x:%02x vlan_id %u\n",
+		data->mac[0], data->mac[1], data->mac[2],
+		data->mac[3], data->mac[4], data->mac[5],
+		data->vlan_id);
+
+	/* Check if Device type is valid. */
+	if (data->device_type >= IPACM_MAX_CLIENT_DEVICE_TYPES ||
+		data->device_type < 0) {
+		IPAWANERR("Invalid Device type: %d\n", data->device_type);
+		return -EINVAL;
+	}
+
+	/* Check if Client index is valid. */
+	if (data->client_idx >= IPA_MAX_NUM_HW_PATH_CLIENTS_V2 ||
+		data->client_idx < 0) {
+		IPAWANERR("Invalid Client Index: %d\n", data->client_idx);
+		return -EINVAL;
+	}
+
+	mutex_lock(&rmnet_ipa3_ctx->per_client_stats_guard);
+	if (data->client_init) {
+		/* check if the client is already inited. */
+		if (rmnet_ipa3_ctx->tether_device_vlan.lan_client[data->client_idx].inited) {
+			IPAWANERR("Client already inited: %d:%d\n",
+				data->device_type, data->client_idx);
+			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+			return -EINVAL;
+		}
+	}
+
+	teth_ptr = &rmnet_ipa3_ctx->tether_device_vlan;
+	lan_client = &teth_ptr->lan_client[data->client_idx];
+
+	memcpy(lan_client->mac, data->mac, IPA_MAC_ADDR_SIZE);
+
+	lan_client->vlan_id = data->vlan_id;
+	lan_client->client_idx = data->client_idx;
+
+	/* Update the Source pipe. */
+	teth_ptr->ul_src_pipe = ipa_get_ep_mapping(data->ul_src_pipe);
+
+	/* Update the header length if not set. */
+	if (!teth_ptr->hdr_len)
+		teth_ptr->hdr_len = data->hdr_len;
+
+	teth_ptr->lan_wan_client_indices[data->client_idx].wan_cnt_idx =
+		data->wan_cnt_idx;
+	teth_ptr->lan_wan_client_indices[data->client_idx].lan_cnt_idx =
+		data->lan_cnt_idx;
+
+	IPAWANDBG("Device type %d, ul/dl = %d/%d, vlan_id %u\n",
+			data->device_type,
+			data->wan_cnt_idx,
+			data->lan_cnt_idx,
+			data->vlan_id);
+
+	lan_client->inited = true;
+
+	teth_ptr->num_clients++;
+
+	IPAWANDBG("Set the lan client info: %d, %d, %d\n",
+		lan_client->client_idx,
+		teth_ptr->ul_src_pipe,
+		teth_ptr->num_clients);
+
+	mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+
+	return 0;
+}
+
+/* rmnet_ipa3_clear_lan_client_info_vlan() -
+ * @data - IOCTL data
+ *
+ * This function handles WAN_IOC_CLEAR_LAN_CLIENT_INFO_VLAN.
+ * It is used to delete VLAN-based LAN client information which
+ * is used to fetch the packet stats for a client.
+ *
+ * Return codes:
+ * 0: Success
+ * -EINVAL: Invalid args provided
+ */
+int rmnet_ipa3_clear_lan_client_info_vlan(
+	struct wan_ioctl_lan_client_info_vlan *data)
+{
+	struct ipa_tether_device_info_vlan *teth_ptr = NULL;
+	struct ipa_lan_client_vlan *lan_client = NULL;
+
+	IPAWANDBG("Client MAC %02x:%02x:%02x:%02x:%02x:%02x vlan_id %u\n",
+		data->mac[0], data->mac[1], data->mac[2],
+		data->mac[3], data->mac[4], data->mac[5],
+		data->vlan_id);
+
+	/* Check if Device type is valid. */
+	if (data->device_type >= IPACM_MAX_CLIENT_DEVICE_TYPES ||
+		data->device_type < 0) {
+		IPAWANERR("Invalid Device type: %d\n", data->device_type);
+		return -EINVAL;
+	}
+
+	/* Check if Client index is valid. */
+	if (data->client_idx >= IPA_MAX_NUM_HW_PATH_CLIENTS_V2 ||
+		data->client_idx < 0) {
+		IPAWANERR("Invalid Client Index: %d\n", data->client_idx);
+		return -EINVAL;
+	}
+
+	mutex_lock(&rmnet_ipa3_ctx->per_client_stats_guard);
+
+	teth_ptr = &rmnet_ipa3_ctx->tether_device_vlan;
+	lan_client = &teth_ptr->lan_client[data->client_idx];
+
+	if (!data->client_init) {
+		if (!lan_client->inited) {
+			IPAWANERR("Client already de-inited: %d:%d\n",
+				data->device_type, data->client_idx);
+			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+			return -EINVAL;
+		}
+	}
+
+	memset(lan_client->mac, 0, IPA_MAC_ADDR_SIZE);
+	lan_client->vlan_id = 0;
+	lan_client->client_idx = -1;
+	teth_ptr->lan_wan_client_indices[data->client_idx].wan_cnt_idx = 0;
+	teth_ptr->lan_wan_client_indices[data->client_idx].lan_cnt_idx = 0;
+	lan_client->inited = false;
+	teth_ptr->num_clients--;
+
+	IPAWANDBG("Clear the lan client info: %d, %d, %d\n",
+		lan_client->client_idx,
+		teth_ptr->ul_src_pipe,
+		teth_ptr->num_clients);
+
+	mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+	return 0;
+}
+
 /* rmnet_ipa3_send_lan_client_msg() -
  * @data - IOCTL data
  *
@@ -8701,6 +8982,71 @@ int rmnet_ipa3_send_lan_client_msg(
 		return rc;
 	}
 	return 0;
+}
+/* rmnet_ipa3_send_lan_client_msg_vlan() -
+ * @data - IOCTL data (msg struct with vlan_id in lan_client)
+ *
+ * This function handles WAN_IOC_SEND_LAN_CLIENT_MSG_VLAN.
+ * It sends LAN client connect/disconnect event to IPACM with VLAN ID
+ * embedded in the message for Mode 1 (VLAN-based) stats support.
+ *
+ * Return codes:
+ * 0: Success
+ * -EINVAL: Invalid args provided
+ * -ENOMEM: Memory allocation failure
+ */
+int rmnet_ipa3_send_lan_client_msg_vlan(
+    struct wan_ioctl_send_lan_client_msg_vlan *data)
+{
+    struct ipa_msg_meta msg_meta;
+    int rc;
+    struct ipa_lan_client_msg_vlan *lan_client;
+
+    if (!data) {
+        IPAWANERR("Invalid data\n");
+        return -EINVAL;
+    }
+
+    if (data->client_event != IPA_PER_CLIENT_STATS_CONNECT_EVENT &&
+        data->client_event != IPA_PER_CLIENT_STATS_DISCONNECT_EVENT) {
+        IPAWANERR("Wrong event given. Event:- %d\n",
+            data->client_event);
+        return -EINVAL;
+    }
+
+    /* Validate vlan_id: 0 = untagged/Mode 0, 1-4094 = valid VLAN */
+    if (data->lan_client.vlan_id > 4094) {
+        IPAWANERR("Invalid vlan_id=%u (must be 0-4094)\n",
+            data->lan_client.vlan_id);
+        return -EINVAL;
+    }
+
+    lan_client = kzalloc(sizeof(struct ipa_lan_client_msg_vlan), GFP_KERNEL);
+    if (!lan_client) {
+        IPAWANERR("Can't allocate memory for lan_client_v2\n");
+        return -ENOMEM;
+    }
+
+    data->lan_client.lanIface[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+    memcpy(lan_client, &data->lan_client, sizeof(struct ipa_lan_client_msg_vlan));
+
+    memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+    msg_meta.msg_type = data->client_event;
+    msg_meta.msg_len = sizeof(struct ipa_lan_client_msg_vlan);
+
+    IPAWANDBG("LAN client vlan: event=%d iface=%s mac=%pM vlan_id=%u\n",
+              data->client_event,
+              lan_client->lanIface,
+              lan_client->mac,
+              lan_client->vlan_id);
+
+    rc = ipa_send_msg(&msg_meta, lan_client, rmnet_ipa_free_msg);
+    if (rc) {
+        IPAWANERR("ipa_send_msg failed: %d\n", rc);
+        kfree(lan_client);
+        return rc;
+    }
+    return 0;
 }
 
 /* rmnet_ipa3_enable_per_client_stats() -
@@ -9787,6 +10133,265 @@ int rmnet_ipa3_query_per_client_stats_v4(
 	if (data->disconnect_clnt) {
 		rmnet_ipa3_delete_lan_client_info_v2(data->device_type,
 				lan_clnt_idx);
+	}
+
+	mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+	return ret;
+}
+/*
+ * rmnet_ipa3_query_per_vlan_stats() -
+ * @data - IOCTL data containing VLAN IDs to query
+ *
+ * Handles WAN_IOC_QUERY_PER_VLAN_STATS.
+ * Queries hardware FnR counters aggregated per VLAN ID for Mode 1 stats.
+ * The counter index for each VLAN is stored in the first client entry
+ * that has a matching vlan_id in tether_device_vlan.
+ *
+ * Return codes:
+ * 0: Success
+ * -EINVAL: Invalid args provided
+ */
+int rmnet_ipa3_query_per_vlan_stats(
+    struct wan_ioctl_query_per_vlan_stats *data)
+{
+    int lan_clnt_idx, i, j, result = 1, stats_idx = 0;
+	struct ipa_lan_client_vlan *lan_client = NULL;
+    struct ipa_tether_device_info_vlan *teth_ptr = NULL;
+    struct ipa_lan_wan_client_cntr_index *lan_client_index = NULL;
+    struct ipa_ioc_flt_rt_query query_f;
+    struct ipa_ioc_flt_rt_query *query = &query_f;
+    struct ipa_flt_rt_stats *fnr_stats = NULL;
+	int ret = 1;
+    uint16_t vlan_id;
+
+    if (!data) {
+        IPAWANERR("Invalid data\n");
+        return -EINVAL;
+    }
+
+	/* Check if Device type is valid. */
+    if (data->device_type >= IPACM_MAX_CLIENT_DEVICE_TYPES ||
+        data->device_type < 0) {
+        IPAWANERR("Invalid Device type: %d\n", data->device_type);
+        return -EINVAL;
+    }
+
+	/* Check if num_vlans is valid. */
+    if (data->num_vlans == 0 ||
+        data->num_vlans > IPA_MAX_NUM_HW_PATH_CLIENTS_V2) {
+        IPAWANERR("Invalid num_vlans=%u\n", data->num_vlans);
+        return -EINVAL;
+    }
+	/* Check if stats_type is wan or lan2lan */
+	if (data->stats_type == WAN_STATS) {
+		IPAWANERR("Query WAN Stats. %d \n", data->stats_type);
+	} else if (data->stats_type == LAN2LAN_STATS) {
+		IPAWANERR("Query LAN2LAN Stats. %d , Currently NOT Supported \n", data->stats_type);
+	} else {
+		IPAWANERR("No Stats to query!\n");
+		return -EINVAL;
+	}
+
+    mutex_lock(&rmnet_ipa3_ctx->per_client_stats_guard);
+
+    teth_ptr = &rmnet_ipa3_ctx->tether_device_vlan;
+
+	/* Check if we have clients connected. */
+    if (teth_ptr->num_clients == 0) {
+        IPAWANERR("No clients connected: %d\n", data->device_type);
+        mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+        return -EINVAL;
+    }
+
+	if (data->num_vlans == 1) {
+			/* Single VLAN query — validate vlan_id */
+		vlan_id = data->vlan_info[0].vlan_id;
+
+		if (vlan_id == 0 || vlan_id > 4094) {
+			IPAWANERR("Invalid vlan_id=%u\n", vlan_id);
+			kfree((void *)query->stats);
+			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+			return -EINVAL;
+		}
+
+		if (data->stats_type == WAN_STATS) {
+			lan_clnt_idx = rmnet_ipa3_get_lan_client_info_by_vlan(
+				data->device_type,
+				data->vlan_info[0].mac,
+				vlan_id,
+				data->mode);
+			if (lan_clnt_idx < 0) {
+				IPAWANERR("Client info not available for vlan_id=%u (WAN)\n",
+					vlan_id);
+				kfree((void *)query->stats);
+				mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+				return -EINVAL;
+			}
+		}
+		else if (data->stats_type == LAN2LAN_STATS) {
+			lan_clnt_idx = rmnet_ipa3_get_lan_client_info_by_vlan(
+				data->device_type,
+				data->vlan_info[0].mac,
+				vlan_id,
+				data->mode);
+			if (lan_clnt_idx < 0) {
+				IPAWANERR("Client info not available for vlan_id=%u (LAN2LAN)\n",
+					vlan_id);
+				kfree((void *)query->stats);
+				mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+				return -EINVAL;
+			}
+		}
+		else {
+			IPAWANERR("Invalid stats_type=%u\n", data->stats_type);
+			kfree((void *)query->stats);
+			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+			return -EINVAL;
+		}
+	}
+	else {
+		/* All VLANs — check disconnect flag */
+		if (data->disconnect_clnt &&
+			rmnet_ipa3_check_any_client_inited_v2(data->device_type)) {
+			IPAWANERR("Client not inited. Try again.\n");
+			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+			return -EAGAIN;
+		}
+		lan_clnt_idx = LAN_STATS_FOR_ALL_CLIENTS;
+	}
+
+	lan_client = teth_ptr->lan_client;
+	lan_client_index = teth_ptr->lan_wan_client_indices;
+
+	if (lan_clnt_idx == LAN_STATS_FOR_ALL_CLIENTS) {
+		/* Query all VLANs — iterate all client slots */
+		i = 0;
+		j = IPA_MAX_NUM_HW_PATH_CLIENTS_V2;
+	} else {
+		/* Query specific VLAN — start from the matched client index */
+		i = lan_clnt_idx;
+		j = i + 1;
+	}
+
+	for (; i < j; i++) {
+		if (!lan_client[i].inited && !data->disconnect_clnt)
+			continue;
+
+		/* Mode 1: skip clients that don't match the requested vlan_id */
+		if (data->mode == 1 && data->num_vlans == 1 &&
+			lan_client[i].vlan_id != data->vlan_info[0].vlan_id)
+			continue;
+
+		/* Mode 2: skip clients that don't match both MAC and vlan_id */
+		if (data->mode == 2 && data->num_vlans == 1) {
+			if (lan_client[i].vlan_id != data->vlan_info[0].vlan_id ||
+				memcmp(lan_client[i].mac, data->vlan_info[0].mac,
+					IPA_MAC_ADDR_SIZE) != 0)
+				continue;
+		}
+
+		IPAWANDBG("VLAN client %d vlan_id=%u\n", i, lan_client[i].vlan_id);
+		IPAWANDBG("Query stats wan/lan stats indices = %u/%u\n",
+			lan_client_index[i].wan_cnt_idx,
+			lan_client_index[i].lan_cnt_idx);
+
+		memset(query, 0, sizeof(query_f));
+		/* Query For WAN stats */
+		if (data->stats_type == WAN_STATS) {
+			/* Query filtering stats (TX/uplink) */
+			result = rmnet_ipa_get_hw_fnr_stats_vlan(&lan_client_index[i],
+				data, query, 1, 0, data->stats_type);
+			if (result) {
+				IPAWANERR("Failed: Client type %d, idx %d\n",
+					data->device_type, i);
+				kfree((void *)query->stats);
+				continue;
+			}
+			fnr_stats = &((struct ipa_flt_rt_stats *)query->stats)[0];
+
+			/* Determine output index */
+			if (data->num_vlans == 1)
+				stats_idx = 0;
+			else
+				stats_idx = i;
+
+			data->vlan_info[stats_idx].ipv4_tx_bytes = fnr_stats->num_bytes;
+
+			memset(query, 0, sizeof(query_f));
+
+			/* Query routing stats (RX/downlink) */
+			result = rmnet_ipa_get_hw_fnr_stats_vlan(&lan_client_index[i],
+				data, query, 0, 1, data->stats_type);
+			if (result) {
+				IPAWANERR("Failed: Client type %d, idx %d\n",
+					data->device_type, i);
+				kfree((void *)query->stats);
+				continue;
+			}
+			fnr_stats = &((struct ipa_flt_rt_stats *)query->stats)[0];
+
+			data->vlan_info[stats_idx].ipv4_rx_bytes = fnr_stats->num_bytes;
+
+			/* Store vlan_id in output (instead of MAC for Mode 0) */
+			data->vlan_info[stats_idx].vlan_id = lan_client[i].vlan_id;
+
+			IPAWANDBG("VLAN %u ipv4_tx_bytes = %llu, ipv4_rx_bytes = %llu\n",
+				data->vlan_info[stats_idx].vlan_id,
+				data->vlan_info[stats_idx].ipv4_tx_bytes,
+				data->vlan_info[stats_idx].ipv4_rx_bytes);
+		}
+		/* Query For LAN2LAN stats */
+		if (data->stats_type == LAN2LAN_STATS) {
+			/* Query filtering stats (TX/uplink) */
+			result = rmnet_ipa_get_hw_fnr_stats_vlan(&lan_client_index[i],
+				data, query, 1, 0, data->stats_type);
+			if (result) {
+				IPAWANERR("Failed: Client type %d, idx %d\n",
+					data->device_type, i);
+				kfree((void *)query->stats);
+				continue;
+			}
+			fnr_stats = &((struct ipa_flt_rt_stats *)query->stats)[0];
+
+			if (data->num_vlans == 1)
+				stats_idx = 0;
+			else
+				stats_idx = i;
+
+			data->vlan_info[stats_idx].ipv4_tx_bytes = fnr_stats->num_bytes;
+
+			memset(query, 0, sizeof(query_f));
+
+			/* Query routing stats (RX/downlink) */
+			result = rmnet_ipa_get_hw_fnr_stats_vlan(&lan_client_index[i],
+				data, query, 0, 1, data->stats_type);
+			if (result) {
+				IPAWANERR("Failed: Client type %d, idx %d\n",
+					data->device_type, i);
+				kfree((void *)query->stats);
+				continue;
+			}
+			fnr_stats = &((struct ipa_flt_rt_stats *)query->stats)[0];
+
+			data->vlan_info[stats_idx].ipv4_rx_bytes = fnr_stats->num_bytes;
+
+			/* Store vlan_id in output (instead of MAC for Mode 0 LAN2LAN) */
+			data->vlan_info[stats_idx].vlan_id = lan_client[i].vlan_id;
+
+			IPAWANDBG("VLAN %u (LAN2LAN) ipv4_tx_bytes = %llu, ipv4_rx_bytes = %llu\n",
+				data->vlan_info[stats_idx].vlan_id,
+				data->vlan_info[stats_idx].ipv4_tx_bytes,
+				data->vlan_info[stats_idx].ipv4_rx_bytes);
+		}
+		kfree((void *)query->stats);
+		ret = result;
+    }
+	/* VLAN-based stats */
+	IPAWANDBG("Disconnect clnt: %s",
+		data->disconnect_clnt ? "Yes" : "No");
+
+	if (data->disconnect_clnt) {
+		rmnet_ipa3_delete_lan_client_info_vlan(lan_clnt_idx);
 	}
 
 	mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
