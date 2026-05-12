@@ -2122,8 +2122,6 @@ static void ipareg_construct_endp_init_deaggr_n_v4_5(
 	IPA_SETFIELD_IN_REG(*val, ep_deaggr->mbim_or_ncm_flag,
 		IPA_ENDP_INIT_DEAGGR_n_MBIM_OR_NCM_FLAG_SHFT,
 		IPA_ENDP_INIT_DEAGGR_n_MBIM_OR_NCM_FLAG_BMSK);
-	IPAHAL_ERR("mbim_or_ncm_flag is set to  %d\n",
-			ep_deaggr->mbim_or_ncm_flag);
 
 	IPA_SETFIELD_IN_REG(*val, ep_deaggr->max_packet_len,
 		IPA_ENDP_INIT_DEAGGR_n_MAX_PACKET_LEN_SHFT,
