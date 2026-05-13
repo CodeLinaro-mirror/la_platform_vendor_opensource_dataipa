@@ -2254,7 +2254,7 @@ int ipa3_table_dma_cmd(
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
 		cmd_name = IPA_IMM_CMD_TABLE_DMA;
 
-	for (cnt = 0; cnt < dma->entries; ++cnt) {
+	for (cnt = 0; cnt < dma->entries && num_cmd < IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC; ++cnt) {
 
 		cmd.table_index = dma->dma[cnt].table_index;
 		cmd.base_addr   = dma->dma[cnt].base_addr;
