@@ -2892,7 +2892,8 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 			ipogre_params->hdr_add_param.input_ip_version;
 		ctx->ipogre_params.ipogre_params.output_ip_version =
 			ipogre_params->hdr_add_param.output_ip_version;
-
+		ctx->ipogre_params.ipogre_params.Mux_Id = ipogre_params->hdr_add_param.Mux_Id;
+		ctx->ipogre_params.ipogre_params.non_ipogre = ipogre_params->hdr_add_param.non_ipogre;
 		IPAHAL_DBG("command id %d\n", ctx->ipogre_params.tlv.value);
 
 		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
