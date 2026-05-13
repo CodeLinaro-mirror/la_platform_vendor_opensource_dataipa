@@ -16031,14 +16031,13 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 			return result;
 		}
 	}
+#endif
 skip_post_init:
-#else
 	result = ipa3_update_config((const char *)ipa_cfg);
 	if (result < 0) {
 		IPAERR("failed to update config\n");
 		return result;
 	}
-#endif
 skip_repeat_pre_init:
 	result = of_platform_populate(pdev_p->dev.of_node,
 		ipa_plat_drv_match, NULL, &pdev_p->dev);
