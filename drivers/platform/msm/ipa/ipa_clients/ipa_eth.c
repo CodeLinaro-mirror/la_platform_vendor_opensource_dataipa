@@ -53,7 +53,8 @@ struct ipa_eth_ready_cb_wrapper {
 };
 
 struct ipa_eth_per_client_info {
-	u32 pm_hdl;
+	u32 pm_hdl_tx;
+	u32 pm_hdl_rx;
 	atomic_t ref_cnt;
 	bool existed;
 };
@@ -259,7 +260,8 @@ static int ipa_eth_init_internal(void)
 	ipa_eth_ctx->is_eth_ready = false;
 	for (i = 0; i < IPA_ETH_CLIENT_MAX; i++) {
 		for (j = 0; j < IPA_ETH_INST_ID_MAX; j++) {
-			ipa_eth_ctx->client[i][j].pm_hdl = 0;
+			ipa_eth_ctx->client[i][j].pm_hdl_tx = 0;
+			ipa_eth_ctx->client[i][j].pm_hdl_rx = 0;
 			ipa_eth_ctx->client[i][j].existed = false;
 			atomic_set(&ipa_eth_ctx->client[i][j].ref_cnt, 0);
 		}
@@ -986,25 +988,44 @@ static int ipa_eth_pm_register(struct ipa_eth_client *client)
 		&ipa_eth_ctx->client[client_type][inst_id].ref_cnt))
 		goto add_pipe_list;
 
+	/* Register TX PM client */
 	memset(&pm_params, 0, sizeof(pm_params));
 	snprintf(name, IPA_RESOURCE_NAME_MAX,
-		"ipa_eth_%d_%d", client_type, inst_id);
+		"ipa_eth_%d_%d_tx", client_type, inst_id);
 	pm_params.name = name;
 	pm_params.callback = ipa_eth_pm_cb;
 	pm_params.user_data = NULL;
 	pm_params.group = IPA_PM_GROUP_DEFAULT;
 	if (ipa_pm_register(&pm_params,
-		&ipa_eth_ctx->client[client_type][inst_id].pm_hdl)) {
-		IPA_ETH_ERR("fail to register ipa pm\n");
+		&ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx)) {
+		IPA_ETH_ERR("fail to register ipa pm tx\n");
 		return -EFAULT;
 	}
-	/* vote IPA clock on */
+	/* vote IPA clock on for TX */
 	rc = ipa_pm_activate_sync(
-		ipa_eth_ctx->client[client_type][inst_id].pm_hdl);
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
 	if (rc) {
-		IPA_ETH_ERR("fail to activate ipa pm\n");
-		return -EFAULT;
+		IPA_ETH_ERR("fail to activate ipa pm tx\n");
+		goto fail_activate_tx;
 	}
+
+	/* Register RX PM client */
+	snprintf(name, IPA_RESOURCE_NAME_MAX,
+		"ipa_eth_%d_%d_rx", client_type, inst_id);
+	pm_params.name = name;
+	if (ipa_pm_register(&pm_params,
+		&ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx)) {
+		IPA_ETH_ERR("fail to register ipa pm rx\n");
+		goto fail_register_rx;
+	}
+	/* vote IPA clock on for RX */
+	rc = ipa_pm_activate_sync(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+	if (rc) {
+		IPA_ETH_ERR("fail to activate ipa pm rx\n");
+		goto fail_activate_rx;
+	}
+
 add_pipe_list:
 	list_for_each_entry(pipe, &client->pipe_list,
 		link) {
@@ -1021,13 +1042,20 @@ add_pipe_list:
 				continue;
 			}
 		rc = ipa_pm_associate_ipa_cons_to_client(
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl,
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx,
 			ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx));
 		if (rc) {
 			IPA_ETH_ERR("fail to associate cons with PM %d\n", rc);
+			ipa_pm_deactivate_sync(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
 			ipa_pm_deregister(
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl);
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl = 0;
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx = 0;
+			ipa_pm_deactivate_sync(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+			ipa_pm_deregister(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx = 0;
 			ipa_assert();
 			return rc;
 		}
@@ -1039,6 +1067,19 @@ add_pipe_list:
 	atomic_inc(
 		&ipa_eth_ctx->client[client_type][inst_id].ref_cnt);
 	return 0;
+
+fail_activate_rx:
+	ipa_pm_deregister(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+	ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx = 0;
+fail_register_rx:
+	ipa_pm_deactivate_sync(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
+fail_activate_tx:
+	ipa_pm_deregister(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
+	ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx = 0;
+	return -EFAULT;
 }
 
 static int ipa_eth_pm_deregister(struct ipa_eth_client *client)
@@ -1057,14 +1098,25 @@ static int ipa_eth_pm_deregister(struct ipa_eth_client *client)
 		&ipa_eth_ctx->client[client_type][inst_id].ref_cnt)
 		== 1) {
 		rc = ipa_pm_deactivate_sync(
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl);
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
 		if (rc) {
-			IPA_ETH_ERR("fail to deactivate ipa pm\n");
+			IPA_ETH_ERR("fail to deactivate ipa pm tx\n");
 			return -EFAULT;
 		}
 		if (ipa_pm_deregister(
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl)) {
-			IPA_ETH_ERR("fail to deregister ipa pm\n");
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx)) {
+			IPA_ETH_ERR("fail to deregister ipa pm tx\n");
+			return -EFAULT;
+		}
+		rc = ipa_pm_deactivate_sync(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+		if (rc) {
+			IPA_ETH_ERR("fail to deactivate ipa pm rx\n");
+			return -EFAULT;
+		}
+		if (ipa_pm_deregister(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx)) {
+			IPA_ETH_ERR("fail to deregister ipa pm rx\n");
 			return -EFAULT;
 		}
 	}
@@ -2012,9 +2064,16 @@ int ipa_eth_client_set_perf_profile(struct ipa_eth_client *client,
 	inst_id = client->inst_id;
 
 	if (ipa_pm_set_throughput(
-		ipa_eth_ctx->client[client_type][inst_id].pm_hdl,
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx,
 		profile->max_supported_bw_mbps)) {
-		IPA_ETH_ERR("fail to set pm throughput\n");
+		IPA_ETH_ERR("fail to set pm throughput tx\n");
+		return -EFAULT;
+	}
+
+	if (ipa_pm_set_throughput(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx,
+		profile->max_supported_bw_mbps)) {
+		IPA_ETH_ERR("fail to set pm throughput rx\n");
 		return -EFAULT;
 	}
 
