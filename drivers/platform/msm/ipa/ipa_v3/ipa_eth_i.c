@@ -1317,6 +1317,11 @@ int ipa3_eth_connect(
 		}
 	}
 
+	if (ipa3_ctx->uplink_pipe_status) {
+		if (ipa3_configure_uplink_ep_status(ep_idx))
+			goto cfg_ep_fail;
+	}
+
 	if (ipa3_cfg_ep(ep_idx, &ep->cfg)) {
 		IPAERR("fail to setup rx pipe cfg\n");
 		goto cfg_ep_fail;

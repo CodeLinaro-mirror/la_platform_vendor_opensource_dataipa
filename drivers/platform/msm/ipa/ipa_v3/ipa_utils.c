@@ -18101,3 +18101,45 @@ int ipa3_copy_ip_pass_pdn_info(
 	}
 	return 0;
 }
+int ipa3_configure_uplink_ep_status(int ep_idx)
+{
+	struct ipahal_reg_ep_cfg_status ep_status;
+	struct ipa3_ep_context *ep;
+	int status_ep;
+
+	ep = &ipa3_ctx->ep[ep_idx];
+
+	if (!ep->valid) {
+		IPAERR("ep_idx=%d is not valid\n", ep_idx);
+		return -EINVAL;
+	}
+
+	if (!IPA_CLIENT_IS_PROD(ep->client)) {
+		IPADBG("ep_idx=%d client=%d is not PROD, skipping\n",
+			ep_idx, ep->client);
+		return 0;
+	}
+
+	status_ep = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+	if (status_ep == IPA_EP_NOT_ALLOCATED) {
+		IPAERR("LAN_CONS ep not allocated for ep_idx=%d client=%d\n",
+			ep_idx, ep->client);
+		return -EINVAL;
+	}
+
+	memset(&ep_status, 0, sizeof(ep_status));
+	ep_status.status_en  = true;
+	ep_status.status_ep  = status_ep;
+
+	IPADBG("configuring ep_status for ep_idx=%d client=%d status_ep=%d\n",
+		ep_idx, ep->client, status_ep);
+
+	if (ipa3_cfg_ep_status(ep_idx, &ep_status)) {
+		IPAERR("fail to configure status of EP ep_idx=%d client=%d\n",
+			ep_idx, ep->client);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+

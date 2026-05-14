@@ -229,6 +229,14 @@ do {\
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI2_CONS)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_MHI_LOW_LAT_CONS)))
 
+#define IPA_CLIENT_IS_USB_PROD(x) \
+	(((x) == ipa_get_ep_mapping(IPA_CLIENT_USB_PROD)))
+
+#define IPA_CLIENT_IS_TETH_PROD(x) \
+	(IPA_CLIENT_IS_ETH_PROD(x)  || \
+	 IPA_CLIENT_IS_WLAN_PROD(x) || \
+	 IPA_CLIENT_IS_USB_PROD(x))
+
 #ifdef IPA_CLIENT_MHI_COAL_CONS
 #define IPA_CLIENT_IS_MHI_COAL_CONS(x) \
 	((x == ipa_get_ep_mapping(IPA_CLIENT_MHI_COAL_CONS)))

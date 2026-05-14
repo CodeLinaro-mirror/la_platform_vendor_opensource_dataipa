@@ -662,6 +662,12 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 			IPAERR("fail to configure status of EP.\n");
 			goto ipa_cfg_ep_fail;
 		}
+
+		if (ipa3_ctx->uplink_pipe_status) {
+			if (ipa3_configure_uplink_ep_status(ipa_ep_idx))
+				goto ipa_cfg_ep_fail;
+		}
+
 		IPADBG("ep configuration successful\n");
 	} else {
 		IPADBG("Skipping endpoint configuration.\n");
