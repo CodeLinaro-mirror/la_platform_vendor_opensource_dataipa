@@ -218,6 +218,9 @@ struct ipa_lnx_gsi_rx_debug_stats {
 	uint32_t num_rx_ring_stats_polled;
 	uint32_t num_rx_drop_stats;
 	uint32_t rx_summary;
+	uint32_t num_rx_oob;       /* GSI HW: OOB state entry count (IPAv7.0+) */
+	uint32_t num_rx_oob_time;  /* GSI HW: oob_full_time[31:0] cycles (IPAv7.0+) */
+	uint32_t num_rx_tre;       /* GSI HW: TREs processed (IPAv7.0+) */
 };
 
 struct ipa_lnx_gsi_tx_debug_stats {
@@ -228,7 +231,7 @@ struct ipa_lnx_gsi_tx_debug_stats {
 	uint32_t num_tx_ring_above_25_perc_cred;
 	uint32_t num_tx_ring_stats_polled;
 	uint32_t tx_summary;
-	uint32_t reserved;
+	uint32_t num_tre;          /* GSI HW: TREs processed (IPAv7.0+) */
 };
 
 /* Extended GSI stats for NTN-protocol clients (NTN/NTN3/IEMAC only) */
