@@ -1263,7 +1263,17 @@ int ipa3_eth_connect(
 	else
 #endif
 	{
-		ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+		if (IPA_CLIENT_IS_PROD(client_type) &&
+			(ipa3_ctx->ipa_config_pppoe_mode == IPA_PPPOE_QOS) && inst_id == 0 &&
+			(pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE))
+		{
+			ep->cfg.hdr.hdr_len = PPPOE_VLAN_ETH_HLEN;
+			IPADBG("PPPoE+QoS header length %d \n", ep->cfg.hdr.hdr_len);
+		}
+		else
+		{
+			ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+		}
 	}
 	ep->cfg.mode.mode = IPA_BASIC;
 	if (IPA_CLIENT_IS_CONS(client_type)) {

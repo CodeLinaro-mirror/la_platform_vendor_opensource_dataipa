@@ -11158,7 +11158,7 @@ ssize_t ipa3_update_config(const char *buff)
 		}
 		if (strnstr(dbg_buff, "pppoe_qos", strlen(dbg_buff))) {
 			ipa3_ctx->ipa_config_pppoe_mode = IPA_PPPOE_QOS;
-			IPADBG("PPPoE mode has been enabled. mode=%d\n",ipa3_ctx->ipa_config_pppoe_mode);
+			IPADBG("PPPoE+QoS mode has been enabled. mode=%d\n",ipa3_ctx->ipa_config_pppoe_mode);
 		}
 		else if (strnstr(dbg_buff, "pppoe", strlen(dbg_buff))) {
 			ipa3_ctx->ipa_config_pppoe_mode = IPA_PPPOE_LEGACY;
