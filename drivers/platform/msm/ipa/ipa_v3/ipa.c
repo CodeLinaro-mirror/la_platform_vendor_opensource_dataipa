@@ -11128,6 +11128,8 @@ ssize_t ipa3_update_config(const char *buff)
 
 	/* Check MHI configuration on MDM devices */
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
+		ipa3_ctx->ipa_eth_pppoe_intf_name[0] = '\0';
+
 		/* Check MHI mode configuration */
 		if (strnstr(dbg_buff, STR_MHI_ETH_IFACE, strlen(dbg_buff)))
 		{
@@ -11154,10 +11156,14 @@ ssize_t ipa3_update_config(const char *buff)
 			ipa3_ctx->lan_stats_enabled = true;
 			IPADBG("Lan stats enabled: %d\n", ipa3_ctx->lan_stats_enabled);
 		}
+		if (strnstr(dbg_buff, "pppoe_qos", strlen(dbg_buff))) {
+			ipa3_ctx->ipa_config_pppoe_mode = IPA_PPPOE_QOS;
+			IPADBG("PPPoE mode has been enabled. mode=%d\n",ipa3_ctx->ipa_config_pppoe_mode);
+		}
+		else if (strnstr(dbg_buff, "pppoe", strlen(dbg_buff))) {
+			ipa3_ctx->ipa_config_pppoe_mode = IPA_PPPOE_LEGACY;
+			IPADBG("PPPoE mode has been enabled. mode=%d\n",ipa3_ctx->ipa_config_pppoe_mode);
 
-		if (strnstr(dbg_buff, "pppoe", strlen(dbg_buff))) {
-			IPADBG("PPPoE mode has been enabled.\n");
-			ipa3_ctx->ipa_config_is_pppoe = true;
 			if (strnstr(dbg_buff, "pppoe:port_zero", strlen(dbg_buff))) {
 				IPADBG("PPPoE on eth0 has been enabled.\n");
 				strlcpy(ipa3_ctx->ipa_eth_pppoe_intf_name, "eth0", IFNAMSIZ);
@@ -11784,6 +11790,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			ipa3_ctx->gsi_info[i].ch_id_info[j].ch_id =
 				0xFF;
 	}
+
+	ipa3_ctx->ipa_config_pppoe_mode = IPA_PPPOE_DISABLED;
 
 	ipa3_ctx->ipa_wrapper_base = resource_p->ipa_mem_base;
 	ipa3_ctx->ipa_wrapper_size = resource_p->ipa_mem_size;

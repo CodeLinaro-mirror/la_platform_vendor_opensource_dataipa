@@ -10851,7 +10851,7 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 		}
 		IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 		/* Configure sequencers type*/
-		if(ipa3_ctx->ipa_config_is_pppoe &&
+		if(ipa3_ctx->ipa_config_pppoe_mode == IPA_PPPOE_LEGACY &&
 			clnt_hdl == ipa3_ctx->client_hps_eth_index) {
 			IPAERR("Setting ucp cfg, and sequence type UCP_DMA\n"
 				"instead of default to enable PPPoE ETH_WAN\n");

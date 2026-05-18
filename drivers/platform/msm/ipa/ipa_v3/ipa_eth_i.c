@@ -1208,10 +1208,10 @@ int ipa3_eth_connect(
 	}
 #endif
 	IPADBG("Vlan mode %d\n", vlan_mode);
-	IPADBG("PPPoE mode %d\n", ipa3_ctx->ipa_config_is_pppoe);
+	IPADBG("PPPoE mode %d\n", ipa3_ctx->ipa_config_pppoe_mode);
 
 	if (IPA_CLIENT_IS_PROD(client_type) &&
-		ipa3_ctx->ipa_config_is_pppoe == true) {
+		ipa3_ctx->ipa_config_pppoe_mode == IPA_PPPOE_LEGACY) {
 		if(strnstr(net_dev->name, ipa3_ctx->ipa_eth_pppoe_intf_name,
 			strlen(net_dev->name))) {
 			ipa3_ctx->client_hps_eth_index = ep_idx;

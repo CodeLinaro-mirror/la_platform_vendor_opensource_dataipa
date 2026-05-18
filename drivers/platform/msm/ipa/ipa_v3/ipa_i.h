@@ -1606,6 +1606,18 @@ enum ipa3_platform_type {
 	IPA_PLAT_TYPE_APQ	= 2,
 };
 
+/*
+* enum ipa3_pppoe_mode - PPPPoE WAN operating modes for pipe configuration
+* @IPA_PPPOE_DISABLED: PPPoE is disabled.
+* @IPA_PPPOE_LEGACY: Configure pipes for PPPoE with LAN concurrency support.
+* @IPA_PPPOE_QOS: Configure pipes for PPPoE with QoS.
+*/
+enum ipa3_pppoe_mode {
+	IPA_PPPOE_DISABLED = 0,
+	IPA_PPPOE_LEGACY,
+	IPA_PPPOE_QOS,
+};
+
 enum ipa3_config_this_ep {
 	IPA_CONFIGURE_THIS_EP,
 	IPA_DO_NOT_CONFIGURE_THIS_EP,
@@ -2403,7 +2415,7 @@ struct ipa3_ip_pass_msg {
  * @ipa3_hw_mode: mode of IPA HW mode (e.g. Normal, Virtual or over PCIe)
  * @gsi_ver: version of GSI
  * @ipa_config_is_rdkb: is this RDKB platform
- * @ipa_config_is_pppoe: whether PPPoE mode has been enabled
+ * @ipa_config_pppoe_mode: PPPoE mode configured from ipa_config.txt
  * @ipa_eth_pppoe_intf_name: name of the ethernet physical interface on which
  *  PPPoE has been enabled
  * @client_hps_eth_index: value to store for which eth ep to update hps sequence
@@ -2562,7 +2574,7 @@ struct ipa3_context {
 	enum ipa3_platform_type platform_type;
 	bool ipa_config_is_mhi;
 	bool ipa_config_is_rdkb;
-	bool ipa_config_is_pppoe;
+	enum ipa3_pppoe_mode ipa_config_pppoe_mode;
 	char ipa_eth_pppoe_intf_name[IFNAMSIZ];
 	u8 client_hps_eth_index;
 	bool ipa_config_is_ipsec;
