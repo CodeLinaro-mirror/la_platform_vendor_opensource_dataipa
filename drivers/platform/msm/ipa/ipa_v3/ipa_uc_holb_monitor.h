@@ -14,10 +14,10 @@
 #define IPA_HOLB_CLIENT_MAX 30
 #define IPA_HOLB_EVENT_LOG_MAX 20
 #define IPA_CLIENT_IS_HOLB_CONS(x) \
-(x == IPA_CLIENT_USB_CONS || x == IPA_CLIENT_WLAN2_CONS || \
-x == IPA_CLIENT_WLAN1_CONS || x == IPA_CLIENT_WIGIG1_CONS || \
-x == IPA_CLIENT_WIGIG2_CONS || x == IPA_CLIENT_WIGIG3_CONS || \
-x == IPA_CLIENT_WIGIG4_CONS)
+(x == IPA_CLIENT_Q6_LAN_CONS || x == IPA_CLIENT_WLAN2_CONS || \
+x == IPA_CLIENT_WLAN1_CONS || x == IPA_CLIENT_ETHERNET_CONS || \
+x == IPA_CLIENT_ETHERNET2_CONS || x == IPA_CLIENT_APPS_WAN_CONS || \
+x == IPA_CLIENT_APPS_LAN_CONS)
 
 /*
  * enum holb_client_state - Client state for HOLB
@@ -85,6 +85,8 @@ struct ipa_holb_monitor {
 	u32 max_cnt_wlan;
 	u32 max_cnt_usb;
 	u32 max_cnt_11ad;
+	u32 max_cnt_embd;
+	u32 max_cnt_eth;
 	struct ipa_uc_holb_client_info client[IPA_HOLB_CLIENT_MAX];
 	struct mutex uc_holb_lock;
 };
@@ -129,13 +131,14 @@ void ipa3_set_holb_client_by_ch(struct ipa_uc_holb_client_info client);
 
 /**
  * ipa3_uc_holb_event_log() - Log HOLB event for specific gsi
- * channel
- * @gsi_ch: Client values to be set for the gsi channel
+ * channel and EE pair
+ * @gsi_ch: GSI Channel of the client
+ * @ee: EE that the channel belongs to
  * @enable: event is for enable/disable
- * @qtimer_lsb: msb for event qtimer
- * @qtimer_msb: lsb for event qtimer
+ * @qtimer_lsb: lsb for event qtimer
+ * @qtimer_msb: msb for event qtimer
  */
-void ipa3_uc_holb_event_log(uint16_t gsi_ch, bool enable,
+void ipa3_uc_holb_event_log(uint16_t gsi_ch, uint8_t ee, bool enable,
 	uint32_t qtimer_lsb, uint32_t qtimer_msb);
 
 #endif /* IPA_UC_HOLB_MONITOR_H */

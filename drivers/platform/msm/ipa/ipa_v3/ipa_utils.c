@@ -12354,7 +12354,8 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 	struct ipa_ep_cfg_ctrl cfg;
 	int ipa_ep_idx, coal_ep_idx;
 	struct ipa3_ep_context *ep;
-	int res;
+	int res = 0;
+        u32 holb_max_cnt = ipa3_ctx->uc_ctx.holb_monitor.max_cnt_embd;
 
 	ipa_ep_idx = ipa3_get_ep_mapping(client);
 	if (ipa_ep_idx < 0) {
@@ -12413,6 +12414,19 @@ chan_statrt:
 		if (res) {
 			IPAERR("failed to start LAN channel\n");
 			ipa_assert();
+		}
+		/* Enable uC monitoring again on LAN/WAN embedded pipes */
+		if(IPA_CLIENT_IS_HOLB_CONS(client))
+		{
+			res = ipa3_uc_client_add_holb_monitor(ep->gsi_chan_hdl,
+					HOLB_MONITOR_MASK, holb_max_cnt,
+					IPA_EE_AP);
+			if (res)
+				IPAERR("Add HOLB monitor failed for gsi ch %d\n",
+						ep->gsi_chan_hdl);
+			else
+				IPADBG("ch %d holb config successful\n",
+						 ep->gsi_chan_hdl);
 		}
 	}
 
@@ -13763,6 +13777,21 @@ void ipa3_set_modem_up(bool is_up)
 	mutex_lock(&ipa3_ctx->ssr_lock);
 	ipa3_ctx->is_modem_up = is_up;
 	mutex_unlock(&ipa3_ctx->ssr_lock);
+
+	if (is_up && ipa3_ctx->uc_ctx.ipa_use_uc_holb_monitor) {
+		const struct ipa_gsi_ep_config *gsi_ep =
+			ipa3_get_gsi_ep_info(IPA_CLIENT_Q6_LAN_CONS);
+
+		if (gsi_ep) {
+			int res = ipa3_uc_client_add_holb_monitor(
+					gsi_ep->ipa_gsi_chan_num,
+					HOLB_MONITOR_MASK,
+					ipa3_ctx->uc_ctx.holb_monitor.max_cnt_embd,
+					IPA_EE_Q6);
+			if (res)
+				IPAERR("Add Q6 LAN CONS HOLB monitor failed\n");
+		}
+	}
 }
 
 /**

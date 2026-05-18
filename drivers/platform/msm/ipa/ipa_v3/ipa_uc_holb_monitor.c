@@ -44,12 +44,13 @@ void ipa3_uc_holb_client_handler(void)
 
 /**
  * ipa3_get_holb_client_idx_by_ch() - Get client index in client
- * array with a specified gsi channel
- * @gsi_chan_hdl: GSI Channel of the client to be monitored
+ * array with a specified gsi channel and EE pair
+ * @gsi_ch: GSI Channel of the client to be monitored
+ * @ee: EE that the channel belongs to
  *
  * Returns client index in client array
  */
-static int ipa3_get_holb_client_idx_by_ch(uint16_t gsi_ch)
+static int ipa3_get_holb_client_idx_by_ch(uint16_t gsi_ch, uint8_t ee)
 {
 	int client_idx;
 	int num_clients = ipa3_ctx->uc_ctx.holb_monitor.num_holb_clients;
@@ -58,7 +59,8 @@ static int ipa3_get_holb_client_idx_by_ch(uint16_t gsi_ch)
 	for (client_idx = 0; client_idx < num_clients; client_idx++) {
 		holb_client =
 			&(ipa3_ctx->uc_ctx.holb_monitor.client[client_idx]);
-		if (holb_client->gsi_chan_hdl == gsi_ch)
+		if (holb_client->gsi_chan_hdl == gsi_ch &&
+				holb_client->ee == ee)
 			return client_idx;
 	}
 	return -EINVAL;
@@ -80,7 +82,7 @@ void ipa3_set_holb_client_by_ch(struct ipa_uc_holb_client_info client)
 	mutex_lock(&ipa3_ctx->uc_ctx.holb_monitor.uc_holb_lock);
 
 	gsi_ch = client.gsi_chan_hdl;
-	client_idx = ipa3_get_holb_client_idx_by_ch(gsi_ch);
+	client_idx = ipa3_get_holb_client_idx_by_ch(gsi_ch, client.ee);
 
 	if (client_idx != -EINVAL) {
 		holb_client =
@@ -91,6 +93,7 @@ void ipa3_set_holb_client_by_ch(struct ipa_uc_holb_client_info client)
 			&(ipa3_ctx->uc_ctx.holb_monitor.client[num_clients]);
 		ipa3_ctx->uc_ctx.holb_monitor.num_holb_clients = ++num_clients;
 		holb_client->gsi_chan_hdl = gsi_ch;
+		holb_client->ee = client.ee;
 	}
 
 	holb_client->debugfs_param = client.debugfs_param;
@@ -125,7 +128,7 @@ int ipa3_uc_client_add_holb_monitor(uint16_t gsi_ch, uint32_t action_mask,
 
 	mutex_lock(&ipa3_ctx->uc_ctx.holb_monitor.uc_holb_lock);
 
-	client_idx = ipa3_get_holb_client_idx_by_ch(gsi_ch);
+	client_idx = ipa3_get_holb_client_idx_by_ch(gsi_ch, ee);
 	if (client_idx != -EINVAL) {
 		holb_client =
 			&(ipa3_ctx->uc_ctx.holb_monitor.client[client_idx]);
@@ -183,9 +186,9 @@ int ipa3_uc_client_del_holb_monitor(uint16_t gsi_ch, uint8_t ee)
 
 	mutex_lock(&ipa3_ctx->uc_ctx.holb_monitor.uc_holb_lock);
 
-	client_idx = ipa3_get_holb_client_idx_by_ch(gsi_ch);
+	client_idx = ipa3_get_holb_client_idx_by_ch(gsi_ch, ee);
 	if (client_idx == -EINVAL) {
-		IPAERR("Invalid client with GSI chan %d\n", gsi_ch);
+		IPAERR("Invalid client with GSI chan %d ee %d\n", gsi_ch, ee);
 		return client_idx;
 	}
 
@@ -208,7 +211,7 @@ int ipa3_uc_client_del_holb_monitor(uint16_t gsi_ch, uint8_t ee)
 	return ret;
 }
 
-void ipa3_uc_holb_event_log(uint16_t gsi_ch, bool enable,
+void ipa3_uc_holb_event_log(uint16_t gsi_ch, uint8_t ee, bool enable,
 	uint32_t qtimer_lsb, uint32_t qtimer_msb)
 {
 	struct ipa_uc_holb_client_info *holb_client;
@@ -226,9 +229,9 @@ void ipa3_uc_holb_event_log(uint16_t gsi_ch, bool enable,
 	 * as we can get uC holb events and a response to add/delete
 	 * commands at the same time.
 	 */
-	client_idx = ipa3_get_holb_client_idx_by_ch(gsi_ch);
+	client_idx = ipa3_get_holb_client_idx_by_ch(gsi_ch, ee);
 	if (client_idx == -EINVAL) {
-		IPAERR("Invalid client with GSI chan %d\n", gsi_ch);
+		IPAERR("Invalid client with GSI chan %d ee %d\n", gsi_ch, ee);
 		return;
 	}
 	holb_client = &(ipa3_ctx->uc_ctx.holb_monitor.client[client_idx]);

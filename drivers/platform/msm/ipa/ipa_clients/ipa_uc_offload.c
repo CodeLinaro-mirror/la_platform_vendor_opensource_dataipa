@@ -10,6 +10,7 @@
 #include "ipa_common_i.h"
 #include "ipa_pm.h"
 #include <linux/ipa_fmwk.h>
+#include "ipa_i.h"
 
 #define IPA_NTN_DMA_POOL_ALIGNMENT 8
 #define OFFLOAD_DRV_NAME "ipa_uc_offload"
@@ -411,6 +412,7 @@ int ipa_uc_ntn_conn_pipes(struct ipa_ntn_conn_in_params *inp,
 {
 	int result = 0;
 	enum ipa_uc_offload_state prev_state;
+	u32 holb_max_cnt = ipa3_ctx->uc_ctx.holb_monitor.max_cnt_eth;
 
 	if (ntn_ctx->conn.dl.smmu_enabled != ntn_ctx->conn.ul.smmu_enabled) {
 		IPA_UC_OFFLOAD_ERR("ul and dl smmu enablement do not match\n");
@@ -446,6 +448,23 @@ int ipa_uc_ntn_conn_pipes(struct ipa_ntn_conn_in_params *inp,
 		goto fail;
 	}
 
+	if (ipa3_ctx->uc_ctx.ipa_use_uc_holb_monitor) {
+		enum ipa_client_type eth_client =
+			(ntn_ctx->proto == IPA_UC_NTN_V2X) ?
+			IPA_CLIENT_ETHERNET2_CONS : IPA_CLIENT_ETHERNET_CONS;
+		const struct ipa_gsi_ep_config *gsi_ep_cfg =
+			ipa3_get_gsi_ep_info(eth_client);
+
+		if (gsi_ep_cfg) {
+			result = ipa3_uc_client_add_holb_monitor(
+					gsi_ep_cfg->ipa_gsi_chan_num,
+					HOLB_MONITOR_MASK, holb_max_cnt,
+					gsi_ep_cfg->ee);
+			if (result)
+				IPAERR("Add HOLB monitor failed for ETH gsi ch %d ee %d\n",
+					gsi_ep_cfg->ipa_gsi_chan_num, gsi_ep_cfg->ee);
+		}
+	}
 	if (ntn_ctx->conn.dl.smmu_enabled) {
 		result = ipa_uc_ntn_alloc_conn_smmu_info(&ntn_ctx->conn.dl,
 			&inp->dl);
@@ -547,6 +566,27 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 		return -EFAULT;
 	}
 
+	/*
+	 * DEL HOLB monitor after teardown. gsi_ep_cfg is used (not ep context)
+	 * because teardown zeroes the ep context. HOLB drop stays active during
+	 * teardown to drain any stuck packets, preventing teardown failure.
+	 */
+	if (ipa3_ctx->uc_ctx.ipa_use_uc_holb_monitor) {
+		enum ipa_client_type eth_client =
+			(ntn_ctx->proto == IPA_UC_NTN_V2X) ?
+			IPA_CLIENT_ETHERNET2_CONS : IPA_CLIENT_ETHERNET_CONS;
+		const struct ipa_gsi_ep_config *gsi_ep_cfg =
+			ipa3_get_gsi_ep_info(eth_client);
+
+		if (gsi_ep_cfg) {
+			ret = ipa3_uc_client_del_holb_monitor(
+					gsi_ep_cfg->ipa_gsi_chan_num,
+					gsi_ep_cfg->ee);
+			if (ret)
+				IPAERR("Delete HOLB monitor failed for ETH gsi ch %d ee %d\n",
+					gsi_ep_cfg->ipa_gsi_chan_num, gsi_ep_cfg->ee);
+		}
+	}
 	if (ntn_ctx->conn.dl.smmu_enabled) {
 		ipa_uc_ntn_free_conn_smmu_info(&ntn_ctx->conn.dl);
 		ipa_uc_ntn_free_conn_smmu_info(&ntn_ctx->conn.ul);

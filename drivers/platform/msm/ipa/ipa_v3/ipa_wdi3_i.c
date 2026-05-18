@@ -1312,6 +1312,7 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		}
 	}
 
+	/* Enable uC HOLB monitor for WLAN pipe */
 	result = ipa3_uc_client_add_holb_monitor(ep_tx->gsi_chan_hdl,
 					HOLB_MONITOR_MASK, holb_max_cnt,
 					IPA_EE_AP);

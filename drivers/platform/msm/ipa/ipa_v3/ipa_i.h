@@ -2642,6 +2642,8 @@ struct ipa3_plat_drv_res {
 	u32 ipa_holb_monitor_max_cnt_wlan;
 	u32 ipa_holb_monitor_max_cnt_usb;
 	u32 ipa_holb_monitor_max_cnt_11ad;
+	u32 ipa_holb_monitor_max_cnt_embd;
+	u32 ipa_holb_monitor_max_cnt_eth;
 	const char *gsi_fw_file_name;
 	const char *uc_fw_file_name;
 	u32 tx_wrapper_cache_max_size;

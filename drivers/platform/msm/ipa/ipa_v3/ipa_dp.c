@@ -1431,6 +1431,7 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 	char buff[IPA_RESOURCE_NAME_MAX];
 	struct ipa_ep_cfg ep_cfg_copy;
 	int (*tx_completion_func)(struct napi_struct *, int);
+	u32 holb_max_cnt = ipa3_ctx->uc_ctx.holb_monitor.max_cnt_embd;
 
 	if (sys_in == NULL || clnt_hdl == NULL) {
 		IPAERR("NULL args\n");
@@ -1805,6 +1806,20 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 
 	IPADBG("client %d (ep: %d) connected sys=%pK\n", sys_in->client,
 			ipa_ep_idx, ep->sys);
+
+	/*Enable uC monitoring for LAN/WAN CONS */
+	if(IPA_CLIENT_IS_HOLB_CONS(sys_in->client))
+	{
+		result = ipa3_uc_client_add_holb_monitor(ep->gsi_chan_hdl,
+				HOLB_MONITOR_MASK, holb_max_cnt,
+				IPA_EE_AP);
+		if (result)
+			IPAERR("Add HOLB monitor failed for gsi ch %d\n",
+					ep->gsi_chan_hdl);
+		else
+			IPADBG("ch %d holb config successful\n",
+					ep->gsi_chan_hdl);
+	}
 
 	/* configure the registers and setup the default pipe */
 	if (sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS) {
