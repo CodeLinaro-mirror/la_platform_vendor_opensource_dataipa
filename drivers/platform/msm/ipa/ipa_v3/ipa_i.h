@@ -184,12 +184,30 @@ enum {
 				DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
+#define IPADBG_BOOTUP(fmt, args...) \
+	do { \
+		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+		if(ipa3_ctx) \
+			IPA_IPC_LOGGING(ipa3_ctx->logbuf_boot, \
+				DRV_NAME " %s:%d " fmt, ## args); \
+	} while (0)
+
 #define IPAERR_BOOTUP(fmt, args...) \
 	do { \
 		pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
 		if(ipa3_ctx) \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_boot, \
 				DRV_NAME " %s:%d " fmt, ## args); \
+	} while (0)
+
+#define IPAERR_BOOTUP_RL(fmt, args...) \
+	do { \
+		pr_err_ratelimited_ipa(DRV_NAME " %s:%d " fmt, __func__,\
+		__LINE__, ## args);\
+		if (ipa3_ctx) { \
+			IPA_IPC_LOGGING(ipa3_ctx->logbuf_boot, \
+				DRV_NAME " %s:%d " fmt, ## args); \
+		} \
 	} while (0)
 
 #define IPAERR(fmt, args...) \
