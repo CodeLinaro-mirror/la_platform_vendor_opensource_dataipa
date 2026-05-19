@@ -513,6 +513,10 @@ int ipa_wdi_reg_intf_per_inst(
 		tx_prop[3].hdr_l2_type = in->hdr_info[3].hdr_type;
 		strlcpy(tx_prop[3].hdr_name, hdr->hdr[IPA_IP_v6_VLAN].name,
 				sizeof(tx_prop[3].hdr_name));
+		if (in->is_tx1_used) {
+			tx_prop[2].dst_pipe =  ipa_wdi_ctx_list[in->hdl]->tx1_client;
+			tx_prop[3].dst_pipe =  ipa_wdi_ctx_list[in->hdl]->tx1_client;
+		}
 	}
 
 	if (ipa_register_intf(iface_name, &tx, &rx)) {
