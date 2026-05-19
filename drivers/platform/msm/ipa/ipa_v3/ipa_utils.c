@@ -12374,6 +12374,24 @@ void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size)
 }
 
 /**
+ * ipa3_dump_skb() - dumps skb for debug purposes
+ * @base: buffer base address
+ * @phy_base: buffer physical base address
+ */
+void ipa3_dump_skb(struct sk_buff *skb)
+{
+	if (!ipa3_ctx || !ipa3_ctx->print_skb_on_wakeup)
+		return;
+
+	if (!skb || !skb->data)
+		return;
+
+	pr_info("SKB len=%u\n", skb->len);
+	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 16, 1,
+		       skb->data, min_t(u32, skb->len, 64), false);
+}
+
+/**
  * ipa3_set_aggr_mode() - Set the aggregation mode which is a global setting
  * @mode:	[in] the desired aggregation mode for e.g. straight MBIM, QCNCM,
  * etc
