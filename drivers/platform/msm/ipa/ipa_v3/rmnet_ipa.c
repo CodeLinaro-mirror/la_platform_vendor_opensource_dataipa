@@ -1790,6 +1790,29 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 			return NETDEV_TX_BUSY;
 		}
 	}
+	/* Flow control for WAN ETH pkts */
+	if (eth_check) {
+		if (netif_tx_queue_stopped(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X))) {
+				spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+				return NETDEV_TX_BUSY;
+		}
+		/* checking High WM hit for wan v2x traffic only */
+		if (atomic_read(&wwan_ptr->outstanding_pkts_eth) >=
+			rmnet_ipa3_ctx->outstanding_high) {
+			IPAWANDBG_LOW("pending(%d)/(%d)- stop(%d)\n",
+				atomic_read(&wwan_ptr->outstanding_pkts_eth),
+				rmnet_ipa3_ctx->outstanding_high,
+				netif_tx_queue_stopped(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X)));
+			IPAWANDBG_LOW("qmap_chk(%d)\n", qmap_check);
+			netif_tx_stop_queue(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X));
+			spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+			return NETDEV_TX_BUSY;
+		}
+	}
+
 
 /* Flow control for ipsec encap pkts */
 if (ipsec_encap) {
