@@ -14,6 +14,7 @@
 #include "ipahal_nat.h"
 #include "ipa_odl.h"
 #include "ipa_qmi_service.h"
+#include "../ipa_backend/ipa_be_clientdb.h"
 #ifdef CONFIG_DEBUG_FS
 #if defined(CONFIG_IPA_TSP)
 /* The following line should be removed once TSP feature is POR */
@@ -4509,6 +4510,82 @@ static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
 
 #endif
 
+static ssize_t ipa3_read_client_db(struct file *file, char __user *ubuf,
+		size_t count, loff_t *ppos)
+{
+	struct ipa_clientdb_mapping_instance *entry;
+	int nbytes = 0;
+	int idx = 0;
+
+	mutex_lock(&ipa_client_db_lock);
+
+	for (entry = ipa_db_mappings; entry; entry = entry->next) {
+		if (entry->address[1] | entry->address[2] | entry->address[3]) {
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"[%d] iface=%.*s(%u) IP=%pI6c"
+				" MAC=%02x:%02x:%02x:%02x:%02x:%02x vlan=%u\n"
+				"     lan2lan: rt=%u proc=%u hdr=%u ref=%u ctx_name=%.*s\n"
+				"     lan2wan: rt=%u proc=%u hdr=%u ref=%u ctx_name=%.*s\n",
+				idx++,
+				(int)sizeof(entry->iface_name), entry->iface_name, entry->iface_num,
+				entry->address,
+				entry->mac_addr_t[0], entry->mac_addr_t[1],
+				entry->mac_addr_t[2], entry->mac_addr_t[3],
+				entry->mac_addr_t[4], entry->mac_addr_t[5],
+				entry->vlan_id,
+				entry->lan2lan_info.rt_hdl,
+				entry->lan2lan_info.proc_ctx_hdl,
+				entry->lan2lan_info.hdr_hdl,
+				entry->lan2lan_info.ref_count,
+				(int)sizeof(entry->lan2lan_info.proc_ctx_name),
+				entry->lan2lan_info.proc_ctx_name,
+				entry->lan2wan_info.rt_hdl,
+				entry->lan2wan_info.proc_ctx_hdl,
+				entry->lan2wan_info.hdr_hdl,
+				entry->lan2wan_info.ref_count,
+				(int)sizeof(entry->lan2wan_info.proc_ctx_name),
+				entry->lan2wan_info.proc_ctx_name);
+		} else {
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"[%d] iface=%.*s(%u) IP=" IPA_IP_ADDR_DOT_FMT
+				" MAC=%02x:%02x:%02x:%02x:%02x:%02x vlan=%u\n"
+				"     lan2lan: rt=%u proc=%u hdr=%u ref=%u ctx_name=%.*s\n"
+				"     lan2wan: rt=%u proc=%u hdr=%u ref=%u ctx_name=%.*s\n",
+				idx++,
+				(int)sizeof(entry->iface_name), entry->iface_name, entry->iface_num,
+				((uint8_t *)entry->address)[0], ((uint8_t *)entry->address)[1],
+				((uint8_t *)entry->address)[2], ((uint8_t *)entry->address)[3],
+				entry->mac_addr_t[0], entry->mac_addr_t[1],
+				entry->mac_addr_t[2], entry->mac_addr_t[3],
+				entry->mac_addr_t[4], entry->mac_addr_t[5],
+				entry->vlan_id,
+				entry->lan2lan_info.rt_hdl,
+				entry->lan2lan_info.proc_ctx_hdl,
+				entry->lan2lan_info.hdr_hdl,
+				entry->lan2lan_info.ref_count,
+				(int)sizeof(entry->lan2lan_info.proc_ctx_name),
+				entry->lan2lan_info.proc_ctx_name,
+				entry->lan2wan_info.rt_hdl,
+				entry->lan2wan_info.proc_ctx_hdl,
+				entry->lan2wan_info.hdr_hdl,
+				entry->lan2wan_info.ref_count,
+				(int)sizeof(entry->lan2wan_info.proc_ctx_name),
+				entry->lan2wan_info.proc_ctx_name);
+		}
+
+		if (nbytes >= IPA_MAX_MSG_LEN - 1)
+			break;
+	}
+
+	if (!idx)
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"No active connections in client DB\n");
+
+	mutex_unlock(&ipa_client_db_lock);
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+}
+
 static ssize_t enable_wkup_logs(struct file *file,
 			const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -4649,6 +4726,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"stats", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_stats,
+		}
+	}, {
+		"client_db", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_client_db,
 		}
 	}, {
 		"wstats", IPA_READ_ONLY_MODE, NULL, {
