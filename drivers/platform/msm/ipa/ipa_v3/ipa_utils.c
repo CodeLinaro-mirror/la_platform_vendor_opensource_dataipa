@@ -10759,9 +10759,8 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 	if (seq_cfg->set_dynamic) {
 		type = seq_cfg->seq_type;
 #ifdef CONFIG_IPA_IPSEC
-	} else if (ipa_ipsec_enabled() && !ipa3_ctx->ep[clnt_hdl].skip_ep_cfg &&
-			(clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
-			clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+	} else if (ipa_ipsec_enabled() &&
+			(clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
 			clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
 			clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
 			clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
@@ -11598,8 +11597,7 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_enabled() &&
-	   (clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+	    (clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
 	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
 	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
 	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
