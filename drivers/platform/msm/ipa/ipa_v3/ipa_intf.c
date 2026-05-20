@@ -1327,6 +1327,44 @@ bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf)
 	return ret;
 }
 
+int ipa3_update_intf_idx(const char *name, int intf_idx)
+{
+	struct ipa3_intf *entry;
+	int ret = -ENOENT;
+
+	if (!name) {
+		IPAERR("Invalid name (NULL), intf_idx=%d\n", intf_idx);
+		return -EINVAL;
+	}
+
+	IPADBG("Entry: name=%s intf_idx=%d\n", name, intf_idx);
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		IPADBG("Scanning intf %s (intf_idx=%d)\n",
+			entry->name, entry->intf_idx);
+		if (strcmp(entry->name, name) == 0) {
+			if (entry->intf_idx != intf_idx) {
+				IPADBG("Updating %s intf_idx %d -> %d\n",
+					entry->name, entry->intf_idx, intf_idx);
+				entry->intf_idx = intf_idx;
+			} else {
+				IPADBG("%s already at intf_idx=%d, no-op\n",
+					entry->name, intf_idx);
+			}
+			ret = 0;
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	if (ret == -ENOENT)
+		IPADBG("intf %s not found in intf_list\n", name);
+
+	IPADBG("Exit: name=%s ret=%d\n", name, ret);
+	return ret;
+}
+
 /**
  * ipa3_add_filter_rules_entry - Add filter entry to interface filter list
  * @intf_idx:   Network interface index for adding the filter entry
