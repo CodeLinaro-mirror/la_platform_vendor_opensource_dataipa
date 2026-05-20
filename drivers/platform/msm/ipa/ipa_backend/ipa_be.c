@@ -886,7 +886,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			step = 2;
 
 			/* Add destination based filter rule */
-			ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.return_mac);
+			ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.return_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add filter rule for return IP\n");
 				goto failed_ret;
@@ -908,7 +908,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			step = 5;
 
 			/* Add destination based filter rule */
-			ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.flow_mac);
+			ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.flow_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add filter rule for flow IP\n");
 				goto failed_ret;
