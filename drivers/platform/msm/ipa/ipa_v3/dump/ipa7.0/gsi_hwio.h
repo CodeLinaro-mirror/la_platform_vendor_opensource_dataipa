@@ -1442,7 +1442,7 @@
         Added Mannually, GSI_SHRAM_n change to GSI_SHRAM_0.
         HWIO gen needs help to create the HWIO_GSI_SHRAM_0_ADDR_n macro
 */
-#define HWIO_GSI_SHRAM_0_ADDR_n(n)                                                                 (GSI_TOP_GSI_REG_BASE      + 0x00006000 + 0x4 * (n))
+#define HWIO_GSI_SHRAM_0_ADDR_n(n)                                                                 (GSI_TOP_GSI_REG_BASE      + 0x00006200 + 0x4 * (n))
 #define HWIO_GSI_SHRAM_0_ADDR                                                                      (GSI_TOP_GSI_REG_BASE      + 0x00006200)
 #define HWIO_GSI_SHRAM_0_PHYS                                                                      (GSI_TOP_GSI_REG_BASE_PHYS + 0x00006200)
 #define HWIO_GSI_SHRAM_0_OFFS                                                                      (GSI_TOP_GSI_REG_BASE_OFFS + 0x00006200)
