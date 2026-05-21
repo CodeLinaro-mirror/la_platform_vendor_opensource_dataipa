@@ -1201,6 +1201,94 @@ static int find_vchannel_name_index(const char *vchannel_name)
 	return MAX_NUM_OF_MUX_CHANNEL;
 }
 
+int ipa3_assign_qmapmux_intf_idx(int wan_iface)
+{
+	struct net_device *dev;
+	char real_name[IFNAMSIZ];
+	char cached_name[IFNAMSIZ];
+	const char *real_dot;
+	const char *cached_dot;
+	int idx;
+	int i;
+
+	IPAWANDBG("Entry: wan_iface=%d\n", wan_iface);
+
+	if (wan_iface <= 0) {
+		IPAWANDBG("Invalid wan_iface=%d, skipping\n", wan_iface);
+		return 0;
+	}
+
+	dev = dev_get_by_index(&init_net, wan_iface);
+	if (!dev) {
+		IPAWANDBG("No netdev found for ifindex %d\n", wan_iface);
+		return 0;
+	}
+
+	IPAWANDBG("ifindex %d -> netdev %s\n", wan_iface, dev->name);
+
+	if (strncmp(dev->name, "qmapmux", 7) != 0) {
+		IPAWANDBG("netdev %s is not qmapmux, skipping\n", dev->name);
+		dev_put(dev);
+		return 0;
+	}
+
+	strscpy(real_name, dev->name, sizeof(real_name));
+	dev_put(dev);
+
+	real_dot = strchr(real_name, '.');
+	if (!real_dot || !*(real_dot + 1)) {
+		IPAWANERR("netdev %s missing .suffix, cannot match\n", real_name);
+		return 0;
+	}
+	IPAWANDBG("real netdev %s suffix=%s\n", real_name, real_dot + 1);
+
+	idx = MAX_NUM_OF_MUX_CHANNEL;
+	cached_name[0] = '\0';
+
+	mutex_lock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+	for (i = 0; i < rmnet_ipa3_ctx->rmnet_index; i++) {
+		cached_dot = strchr(rmnet_ipa3_ctx->mux_channel[i].vchannel_name, '.');
+		if (!cached_dot)
+			continue;
+		if (strcmp(cached_dot + 1, real_dot + 1) == 0) {
+			idx = i;
+			strscpy(cached_name,
+				rmnet_ipa3_ctx->mux_channel[i].vchannel_name,
+				sizeof(cached_name));
+			break;
+		}
+	}
+
+	if (idx >= MAX_NUM_OF_MUX_CHANNEL) {
+		IPAWANERR("No mux channel matches suffix .%s for %s\n",
+			real_dot + 1, real_name);
+		mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+		return 0;
+	}
+
+	IPAWANDBG("Matched %s -> mux_channel[%d] (cached=%s, mux_id=%u)\n",
+		real_name, idx, cached_name,
+		rmnet_ipa3_ctx->mux_channel[idx].mux_id);
+
+	if (rmnet_ipa3_ctx->mux_channel[idx].intf_idx != wan_iface) {
+		IPAWANDBG("Assigning intf_idx %d to mux_channel[%d] %s (was %d)\n",
+			wan_iface, idx, cached_name,
+			rmnet_ipa3_ctx->mux_channel[idx].intf_idx);
+		rmnet_ipa3_ctx->mux_channel[idx].intf_idx = wan_iface;
+	} else {
+		IPAWANDBG("mux_channel[%d] %s already at intf_idx=%d, no-op\n",
+			idx, cached_name, wan_iface);
+	}
+	mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+
+	ipa3_update_intf_idx(cached_name, wan_iface);
+
+	IPAWANDBG("Exit: wan_iface=%d real=%s cached=%s\n",
+		wan_iface, real_name, cached_name);
+	return 0;
+}
+EXPORT_SYMBOL(ipa3_assign_qmapmux_intf_idx);
+
 
 static int ipa3_find_free_rmnet_index(void)
 {

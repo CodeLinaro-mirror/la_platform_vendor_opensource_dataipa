@@ -704,6 +704,9 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			goto failed_ret;
 		}
 
+		IPA_BE_DBG("v4: assigning qmapmux intf_idx for pdn_iface=%d\n", pdn_iface);
+		ipa3_assign_qmapmux_intf_idx(pdn_iface);
+
 		/* Add route entry for the client */
 		if (ipa_be_client_mapping_add_or_ref(lan_client_ip, 0, lan2lan, mac) != NULL) {
 			step = 1;
@@ -942,6 +945,9 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			IPA_BE_ERR("Unexpected param %d\n", ret);
 			goto failed_ret;
 		}
+
+		IPA_BE_DBG("v6: assigning qmapmux intf_idx for pdn_iface=%d\n", pdn_iface);
+		ipa3_assign_qmapmux_intf_idx(pdn_iface);
 
 		/* Add route entry for the client */
 		if (ipa_be_client_mapping_add_or_ref(flow_ip_ptr, 0, lan2lan, mac) != NULL) {
