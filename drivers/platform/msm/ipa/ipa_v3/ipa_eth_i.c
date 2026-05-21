@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #include "ipa_i.h"
 #include <linux/if_vlan.h>
@@ -448,7 +448,7 @@ static void ipa_eth_gsi_chan_err_cb(struct gsi_chan_err_notify *notify)
 
 static int ipa_eth_setup_rtk_gsi_channel(
 	struct ipa_eth_client_pipe_info *pipe,
-	struct ipa3_ep_context *ep)
+	struct ipa3_ep_context *ep, u8 pipe_idx)
 {
 	struct gsi_evt_ring_props gsi_evt_ring_props;
 	struct gsi_chan_props gsi_channel_props;
@@ -458,6 +458,7 @@ static int ipa_eth_setup_rtk_gsi_channel(
 	int result, len;
 	int queue_number;
 	u64 bar_addr;
+	unsigned long iova;
 
 	if (unlikely(!pipe->info.is_transfer_ring_valid)) {
 		IPAERR("RTK transfer ring invalid\n");
@@ -465,9 +466,16 @@ static int ipa_eth_setup_rtk_gsi_channel(
 		return -EFAULT;
 	}
 
-	/* setup event ring */
-	bar_addr =
-		IPA_ETH_PCIE_SET(pipe->info.client_info.rtk.bar_addr);
+	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K) {
+		/* setup event ring */
+		result = ipa_iemac_smmu_cb_add_mapping_pa(IPA_SMMU_CB_AP,
+			pipe->info.client_info.rtk.bar_addr, 8, true, &iova, pipe->client_info->inst_id, pipe->dir, pipe_idx);
+		bar_addr = iova;
+	} else {
+		/* setup event ring */
+		bar_addr =
+			IPA_ETH_PCIE_SET(pipe->info.client_info.rtk.bar_addr);
+	}
 	memset(&gsi_evt_ring_props, 0, sizeof(gsi_evt_ring_props));
 	/*Setting up EV for RTK8111K*/
 	if(pipe->client_info->client_type == IPA_ETH_CLIENT_RTK8111K)
@@ -1232,7 +1240,22 @@ int ipa3_eth_connect(
 
 	ep->cfg.nat.nat_en = IPA_CLIENT_IS_PROD(client_type) ?
 		IPA_SRC_NAT : IPA_BYPASS_NAT;
-	ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+#if IPA_ETH_API_VER >= 6
+	if((ipa3_ctx->device_mode == DEVMODE_APBRIDGE) &&
+					(ipa3_ctx->device_vlan_mode))
+	{
+		ep->cfg.hdr.hdr_len = VLAN_VLAN_ETH_HLEN;
+	}
+	else if((ipa3_ctx->device_mode == DEVMODE_STABRIDGE) &&
+					(ipa3_ctx->device_vlan_mode))
+	{
+		ep->cfg.hdr.hdr_len = VLAN_ETH_HLEN;
+	}
+	else
+#endif
+	{
+		ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+	}
 	ep->cfg.mode.mode = IPA_BASIC;
 	if (IPA_CLIENT_IS_CONS(client_type)) {
 		ep->cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
@@ -1307,7 +1330,7 @@ int ipa3_eth_connect(
 	switch (prot) {
 	case IPA_HW_PROTOCOL_RTK:
 	case IPA_HW_PROTOCOL_RTK3:
-		result = ipa_eth_setup_rtk_gsi_channel(pipe, ep);
+		result = ipa_eth_setup_rtk_gsi_channel(pipe, ep, pipe_idx);
 		break;
 	case IPA_HW_PROTOCOL_AQC:
 		result = ipa_eth_setup_aqc_gsi_channel(pipe, ep);

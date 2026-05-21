@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_ETH_H_
@@ -59,6 +59,7 @@ enum ipa_eth_pipe_traffic_type {
 	IPA_ETH_PIPE_LOW_LATENCY,
 	IPA_ETH_PIPE_BEST_EFFORT_VLAN,
 	IPA_ETH_PIPE_TRAFFIC_TYPE_QOS,
+	IPA_ETH_PIPE_TRAFFIC_TYPE_DOUBLE_TAG,
 	IPA_ETH_PIPE_TRAFFIC_TYPE_MAX,
 };
 

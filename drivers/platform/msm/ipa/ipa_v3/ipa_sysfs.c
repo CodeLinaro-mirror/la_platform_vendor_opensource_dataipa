@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2021 Linaro Ltd.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/kernel.h>
@@ -954,6 +954,7 @@ static int ipa3_attrib_dump(struct ipa_rule_attrib *attrib,
 		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
 		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
+		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q_IN_Q) ||
 		(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
 		pr_cont("dst_mac_addr:%pM ", attrib->dst_mac_addr);
 	}
@@ -2056,6 +2057,7 @@ static ssize_t wstats_show(struct device *dev, struct device_attribute *attr, ch
 nxt_clnt_cons:
 			switch (client) {
 			case IPA_CLIENT_WLAN1_CONS:
+			case IPA_CLIENT_WLAN_STABRG_CONS:
 				client = IPA_CLIENT_WLAN2_CONS;
 				nbytes = scnprintf(dbg_buff + cnt,
 					IPA_MAX_MSG_LEN - cnt, HEAD_FRMT_STR,

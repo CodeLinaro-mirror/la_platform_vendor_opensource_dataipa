@@ -1792,6 +1792,7 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR) ||
+				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q_IN_Q) ||
 				(rt_entry->rule.attrib.attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR)) {
 				for (i = 0; i < ETH_ALEN; i++)
 				{

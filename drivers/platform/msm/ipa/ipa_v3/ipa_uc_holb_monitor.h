@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef IPA_UC_HOLB_MONITOR_H
@@ -17,7 +18,7 @@
 (x == IPA_CLIENT_USB_CONS || x == IPA_CLIENT_WLAN2_CONS || \
 x == IPA_CLIENT_WLAN1_CONS || x == IPA_CLIENT_WIGIG1_CONS || \
 x == IPA_CLIENT_WIGIG2_CONS || x == IPA_CLIENT_WIGIG3_CONS || \
-x == IPA_CLIENT_WIGIG4_CONS)
+x == IPA_CLIENT_WLAN_STABRG_CONS || x == IPA_CLIENT_WIGIG4_CONS)
 
 /*
  * enum holb_client_state - Client state for HOLB

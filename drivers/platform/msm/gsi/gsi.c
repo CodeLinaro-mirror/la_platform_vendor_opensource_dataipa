@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/of.h>
@@ -3136,6 +3136,13 @@ static void __gsi_write_wdi3_channel_scratch2_reg(unsigned long chan_hdl,
 		gsi_ctx->per.ee, chan_hdl, val.data.word1);
 }
 
+static void __gsi_write_wdi4_channel_scratch3_reg(unsigned long chan_hdl,
+		union __packed gsi_wdi4_channel_scratch3_reg val)
+{
+	gsihal_write_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_3,
+		gsi_ctx->per.ee, chan_hdl, val.data.word1);
+}
+
 int gsi_write_channel_scratch9_reg(unsigned long chan_hdl,
 		union __packed gsi_wdi_channel_scratch9_reg val)
 {
@@ -3323,6 +3330,42 @@ int gsi_write_wdi3_channel_scratch2_reg(unsigned long chan_hdl,
 	return GSI_STATUS_SUCCESS;
 }
 EXPORT_SYMBOL(gsi_write_wdi3_channel_scratch2_reg);
+
+
+int gsi_write_wdi4_channel_scratch3_reg(unsigned long chan_hdl,
+		union __packed gsi_wdi4_channel_scratch3_reg val)
+{
+	struct gsi_chan_ctx *ctx;
+
+	if (!gsi_ctx) {
+		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
+		return -GSI_STATUS_NODEV;
+	}
+
+	if (chan_hdl >= gsi_ctx->max_ch) {
+		GSIERR("bad params chan_hdl=%lu\n", chan_hdl);
+		return -GSI_STATUS_INVALID_PARAMS;
+	}
+
+	if (gsi_ctx->chan[chan_hdl].state != GSI_CHAN_STATE_ALLOCATED &&
+		gsi_ctx->chan[chan_hdl].state != GSI_CHAN_STATE_STARTED &&
+		gsi_ctx->chan[chan_hdl].state != GSI_CHAN_STATE_STOPPED) {
+		GSIERR("bad state %d\n",
+				gsi_ctx->chan[chan_hdl].state);
+		return -GSI_STATUS_UNSUPPORTED_OP;
+	}
+
+	ctx = &gsi_ctx->chan[chan_hdl];
+
+	mutex_lock(&ctx->mlock);
+	/* scratch 3 corresponds word 4 */
+	ctx->scratch.data.word4 = val.data.word1;
+	__gsi_write_wdi4_channel_scratch3_reg(chan_hdl, val);
+	mutex_unlock(&ctx->mlock);
+
+	return GSI_STATUS_SUCCESS;
+}
+EXPORT_SYMBOL(gsi_write_wdi4_channel_scratch3_reg);
 
 
 int gsi_read_channel_scratch(unsigned long chan_hdl,

@@ -17,6 +17,7 @@
 #include "ipa_rm_i.h"
 
 #define IPA_USB_DEV_READY_TIMEOUT_MSEC 10000
+#define IPA_MAX_HOLB_TMR_VAL (4294967296 - 1)
 
 /* GSI channels weights */
 #define IPA_USB_DL_CHAN_LOW_WEIGHT 0x5
@@ -2659,6 +2660,7 @@ int ipa_usb_xdci_resume(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	unsigned long flags;
 	enum ipa3_usb_transport_type ttype;
 	struct ipa_ep_cfg_ctrl ep_cfg_ctrl;
+	struct ipa_ep_cfg_holb holb_cfg;
 
 	mutex_lock(&ipa3_usb_ctx->general_mutex);
 	IPA_USB_DBG_LOW("entry\n");
@@ -2725,6 +2727,15 @@ int ipa_usb_xdci_resume(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 		IPA_USB_ERR("failed to start DL/DPL channel\n");
 		goto start_dl_fail;
 	}
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0) {
+		memset(&holb_cfg, 0, sizeof(holb_cfg));
+		holb_cfg.en = IPA_HOLB_TMR_EN;
+		holb_cfg.tmr_val = IPA_MAX_HOLB_TMR_VAL;
+		ipa3_cfg_ep_holb(dl_clnt_hdl, &holb_cfg);
+
+	}
+
 
 	/* Change state to CONNECTED */
 	if (!ipa3_usb_set_state(IPA_USB_CONNECTED, false, ttype)) {

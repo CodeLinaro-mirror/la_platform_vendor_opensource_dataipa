@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, 2024-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_wdi3.h"
@@ -68,6 +68,7 @@ struct ipa_wdi_context {
 	enum ipa_client_type rx_client;
 	enum ipa_client_type tx1_client;
 	enum ipa_client_type rx1_client;
+	enum ipa_client_type stabrg_client;
 	u8 is_smmu_enabled;
 	u32 tx_pipe_hdl;
 	u32 rx_pipe_hdl;
@@ -434,6 +435,13 @@ int ipa_wdi_reg_intf_per_inst(
 		tx_prop[0].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
 		tx_prop[1].dst_pipe = ipa_wdi_ctx_list[in->hdl]->tx_client;
 	}
+
+        /* make only for sta bridge */
+	IPA_WDI_DBG("stabridge: in->hdl = %u, stabrg_client=%u", in->hdl, ipa_wdi_ctx_list[in->hdl]->stabrg_client);
+	if(ipa_wdi_ctx_list[in->hdl]->stabrg_client) {
+		tx_prop[0].dst_pipe = ipa_wdi_ctx_list[in->hdl]->stabrg_client;
+		tx_prop[1].dst_pipe = ipa_wdi_ctx_list[in->hdl]->stabrg_client;
+	}
  	tx_prop[0].alt_dst_pipe = in->alt_dst_pipe;
  	tx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
  	strlcpy(tx_prop[0].hdr_name, hdr->hdr[IPA_IP_v4].name,
@@ -550,6 +558,7 @@ int ipa_wdi_conn_pipes_per_inst(struct ipa_wdi_conn_in_params *in,
 	int ipa_ep_idx_tx1 = IPA_EP_NOT_ALLOCATED;
 	int ipa_ep_idx_rx1 = IPA_EP_NOT_ALLOCATED;
 
+	IPA_WDI_DBG("ipa_wdi_ctx_list[%d]->inst_id = %d", in->hdl, ipa_wdi_ctx_list[in->hdl]->inst_id);
 	if (!(in && out)) {
 		IPA_WDI_ERR("empty parameters. in=%pK out=%pK\n", in, out);
 		return -EINVAL;
@@ -791,6 +800,57 @@ fail_setup_sys_pipe:
 EXPORT_SYMBOL(ipa_wdi_conn_pipes_per_inst);
 
 /**
+ * function to connect STA bridge TX pipe
+ *
+ * @in: [in] input parameters from client
+ * @out: [out] output params to client
+ *
+ * Note: This function configures only the TX pipe for the STA bridge.
+ *       Should not be called from atomic context.
+ *
+ * @Return 0 on success, negative on failure
+ */
+int ipa_wdi_sbr_connect(struct ipa_wdi_conn_in_params *in,
+	struct ipa_wdi_conn_out_params *out)
+{
+	if (!(in && out)) {
+		IPA_WDI_ERR("empty parameters. in=%pK out=%pK\n", in, out);
+		return -EINVAL;
+	}
+
+	if (in->hdl < 0 || in->hdl >= IPA_WDI_INST_MAX) {
+		IPA_WDI_ERR("Invalid handle %d \n", in->hdl);
+		return -EINVAL;
+	}
+
+	if (!ipa_wdi_ctx_list[in->hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized\n");
+		return -EPERM;
+	}
+
+	if (ipa_wdi_ctx_list[in->hdl]->wdi_version >= IPA_WDI_1 &&
+		ipa_wdi_ctx_list[in->hdl]->wdi_version < IPA_WDI_3 &&
+		in->hdl > 0) {
+		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
+					ipa_wdi_ctx_list[in->hdl]->wdi_version);
+		return -EPERM;
+	}
+
+	ipa_wdi_ctx_list[in->hdl]->stabrg_client = in->u_tx.tx.client;
+
+	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_4) {
+		if (ipa3_conn_wdi3_sbr_pipe(in, out, ipa_wdi_ctx_list[in->hdl]->wdi_notify,
+			ipa_wdi_ctx_list[in->hdl]->ast_update)) {
+			IPA_WDI_ERR("fail to setup wdi stabridge pipe\n");
+			return -EFAULT;
+		}
+		IPA_WDI_DBG("stabrg client = %d, hdl=%d\n", in->hdl, ipa_wdi_ctx_list[in->hdl]->stabrg_client);
+	}
+	return 0;
+}
+EXPORT_SYMBOL(ipa_wdi_sbr_connect);
+
+/**
  * function to enable IPA offload data path
  *
  * @hdl: hdl to wdi client
@@ -807,6 +867,7 @@ int ipa_wdi_enable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
 		IPA_WDI_ERR("Invalid handle %d\n", hdl);
+		return -EPERM;
 	}
 
 	if (!ipa_wdi_ctx_list[hdl]) {
@@ -877,6 +938,60 @@ int ipa_wdi_enable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 EXPORT_SYMBOL(ipa_wdi_enable_pipes_per_inst);
 
 /**
+ * ipa_wdi_sbr_enable_pipe() - Enable STA bridge TX pipe
+ * @hdl: hdl to wdi client
+ *
+ * This function enables only the TX pipe for the STA bridge.
+ * Should not be called from atomic context.
+ *
+ * Return: 0 on success, negative on failure
+ */
+int ipa_wdi_sbr_enable_pipe(ipa_wdi_hdl_t hdl)
+{
+	int ipa_ep_idx_tx;
+	struct ipa3_ep_context *ep_tx;
+
+	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
+		IPA_WDI_ERR("Invalid handle %d\n", hdl);
+		return -EINVAL;
+	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
+	if (ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_4 && hdl > 0) {
+		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
+					ipa_wdi_ctx_list[hdl]->wdi_version);
+		return -EPERM;
+	}
+
+	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->stabrg_client);
+	if (ipa_ep_idx_tx <= 0 || ipa_ep_idx_tx >= ipa3_get_max_num_pipes()) {
+		IPAERR("fail to alloc stabridge pipe ipa_ep_idx_ul=%d\n",
+			ipa_ep_idx_tx);
+		return -EFAULT;
+	}
+
+	ep_tx = &ipa3_ctx->ep[ipa_ep_idx_tx];
+	if (!ep_tx->valid) {
+		IPA_WDI_ERR("endpoint not initialized\n");
+		return -EINVAL;
+	}
+
+	IPA_WDI_DBG("Enable WDI stabridge TX pipe, which is %d\n", ipa_ep_idx_tx);
+
+	if (ipa3_sbr_enable_wdi3_pipe(ipa_ep_idx_tx)) {
+		IPA_WDI_ERR("fail to enable wdi stabridge tx pipe\n");
+		return -EFAULT;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_wdi_sbr_enable_pipe);
+
+/**
  * set IPA clock bandwidth based on data rates
  *
  * @hdl: hdl to wdi client
@@ -896,6 +1011,11 @@ int ipa_wdi_set_perf_profile_per_inst(ipa_wdi_hdl_t hdl,
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
 		IPA_WDI_ERR("Invalid Handle %d\n",hdl);
 		return -EFAULT;
+	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
 	}
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
@@ -946,6 +1066,11 @@ int ipa_wdi_create_smmu_mapping_per_inst(ipa_wdi_hdl_t hdl,
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
 		IPA_WDI_ERR("Invalid Handle %d\n",hdl);
 		return -EFAULT;
+	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
 	}
 
 	if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
@@ -1015,6 +1140,11 @@ int ipa_wdi_release_smmu_mapping_per_inst(ipa_wdi_hdl_t hdl,
 		return -EFAULT;
 	}
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if (IPA_CLIENT_IS_WLAN0_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN);
 	else if (IPA_CLIENT_IS_WLAN1_INSTANCE(ipa_wdi_ctx_list[hdl]->inst_id))
@@ -1055,12 +1185,20 @@ int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 {
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
+	struct ipa_ioc_del_hdr *hdr = NULL;
+	int i, len, num_hdr;
 
-	IPA_WDI_DBG("client hdl = %d, Instance = %d\n", hdl,ipa_wdi_ctx_list[hdl]->inst_id);
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
-		IPA_WDI_ERR("Invalid Handle %d\n",hdl);
-		 return -EFAULT;
+		IPA_WDI_ERR("Invalid Handle %d\n", hdl);
+		return -EFAULT;
 	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
+	IPA_WDI_DBG("client hdl = %d, Instance = %d\n", hdl, ipa_wdi_ctx_list[hdl]->inst_id);
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
@@ -1070,14 +1208,37 @@ int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 		return -EPERM;
 	}
 
+	num_hdr = ipa_wdi_ctx_list[hdl]->is_rx1_used ? 4 : 2;
+
 	/* clear interface list */
 	list_for_each_entry_safe(entry, next,
 		&ipa_wdi_ctx_list[hdl]->head_intf_list, link) {
+		len = sizeof(struct ipa_ioc_del_hdr) +
+			num_hdr * sizeof(struct ipa_hdr_del);
+		hdr = kzalloc(len, GFP_KERNEL);
+		if (hdr == NULL) {
+			IPA_WDI_ERR("fail to alloc %d bytes\n", len);
+		} else {
+			hdr->commit = 1;
+			hdr->num_hdls = num_hdr;
+			for (i = 0; i < num_hdr; i++) {
+				hdr->hdl[i].hdl = entry->partial_hdr_hdl[i];
+				IPA_WDI_DBG("hdr hdl: %d\n", hdr->hdl[i].hdl);
+			}
+
+			if (ipa_del_hdr(hdr))
+				IPA_WDI_ERR("fail to delete partial header\n");
+			kfree(hdr);
+		}
+
+		if (ipa_deregister_intf(entry->netdev_name))
+			IPA_WDI_ERR("fail to del interface props\n");
+
 		list_del(&entry->link);
 		kfree(entry);
 	}
 
-	if(!ipa3_uc_dereg_per_inst_rdyCB(ipa_wdi_ctx_list[hdl]->inst_id))
+	if (!ipa3_uc_dereg_per_inst_rdyCB(ipa_wdi_ctx_list[hdl]->inst_id))
 		IPAERR("entry not found for id %d\n", ipa_wdi_ctx_list[hdl]->inst_id);
 
 	mutex_destroy(&ipa_wdi_ctx_list[hdl]->lock);
@@ -1102,6 +1263,11 @@ int ipa_wdi_dereg_intf_per_inst_mlo(const char *netdev_name,
 	if (!netdev_name) {
 		IPA_WDI_ERR("no netdev name. \n");
 		return -EINVAL;
+	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
 	}
 
 	if ((ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_4) && (mld_enabled)){
@@ -1144,16 +1310,16 @@ int ipa_wdi_dereg_intf_per_inst(const char *netdev_name, ipa_wdi_hdl_t hdl)
 
 	IPA_WDI_DBG("deregister interface for netdev %s\n", netdev_name);
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 					ipa_wdi_ctx_list[hdl]->wdi_version);
-		return -EPERM;
-	}
-
-	if (!ipa_wdi_ctx_list[hdl]) {
-		IPA_WDI_ERR("wdi ctx is not initialized.\n");
 		return -EPERM;
 	}
 
@@ -1224,6 +1390,11 @@ int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EFAULT;
 	}
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
 		hdl > 0) {
@@ -1232,10 +1403,6 @@ int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EPERM;
 	}
 
-	if (!ipa_wdi_ctx_list[hdl]) {
-		IPA_WDI_ERR("wdi ctx is not initialized\n");
-		return -EPERM;
-	}
 	IPA_WDI_DBG("Disconnect pipes for hdl %d\n",hdl);
 	/* tear down sys pipe if needed */
 	for (i = 0; i < ipa_wdi_ctx_list[hdl]->num_sys_pipe_needed; i++) {
@@ -1282,6 +1449,49 @@ int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl)
 EXPORT_SYMBOL(ipa_wdi_disconn_pipes_per_inst);
 
 /**
+ * function to disconnect STA bridge TX pipe
+ *
+ * @hdl: hdl to wdi client
+ * Note: Should not be called from atomic context.
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_wdi_sbr_disconnect(ipa_wdi_hdl_t hdl)
+{
+	int ipa_ep_idx_tx;
+
+	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
+		IPA_WDI_ERR("Invalid Handle %d\n", hdl);
+		return -EFAULT;
+	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
+	if (ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 && hdl > 0) {
+		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
+				ipa_wdi_ctx_list[hdl]->wdi_version);
+		return -EPERM;
+	}
+
+	IPA_WDI_DBG("Disconnect stabridge for hdl %d\n", hdl);
+
+	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->stabrg_client);
+
+	if (ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_4) {
+			if (ipa3_sbr_disconn_wdi3_pipe(ipa_ep_idx_tx)) {
+				IPA_WDI_ERR("fail to tear down wdi stabridge pipe\n");
+				return -EFAULT;
+			}
+		}
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_wdi_sbr_disconnect);
+
+/**
  * function to disable IPA offload data path
  *
  * @hdl: hdl to wdi client
@@ -1302,16 +1512,16 @@ int ipa_wdi_disable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EFAULT;
 	}
 
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 					ipa_wdi_ctx_list[hdl]->wdi_version);
-		return -EPERM;
-	}
-
-	if (!ipa_wdi_ctx_list[hdl]) {
-		IPA_WDI_ERR("wdi ctx is not initialized.\n");
 		return -EPERM;
 	}
 
@@ -1359,6 +1569,42 @@ int ipa_wdi_disable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 	return 0;
 }
 EXPORT_SYMBOL(ipa_wdi_disable_pipes_per_inst);
+
+/**
+ * ipa_wdi_sbr_disable_pipe() - Disable STA bridge TX pipe
+ * @hdl: hdl to wdi client
+ *
+ * This function disables only the TX pipe for the STA bridge.
+ * Should not be called from atomic context.
+ *
+ * Return: 0 on success, negative on failure
+ */
+int ipa_wdi_sbr_disable_pipe(ipa_wdi_hdl_t hdl)
+{
+	int ipa_ep_idx_tx;
+
+	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
+		IPA_WDI_ERR("Invalid Handle %d\n", hdl);
+		return -EFAULT;
+	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
+	ipa_ep_idx_tx = ipa_get_ep_mapping(ipa_wdi_ctx_list[hdl]->stabrg_client);
+
+	if (ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_4) {
+		if (ipa3_sbr_disable_wdi3_pipe(ipa_ep_idx_tx)) {
+			IPA_WDI_ERR("fail to disable wdi tx pipe\n");
+			return -EFAULT;
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_wdi_sbr_disable_pipe);
 
 int ipa_wdi_init(struct ipa_wdi_init_in_params *in,
 	struct ipa_wdi_init_out_params *out)
@@ -1413,11 +1659,32 @@ int ipa_wdi_conn_pipes(struct ipa_wdi_conn_in_params *in,
 }
 EXPORT_SYMBOL(ipa_wdi_conn_pipes);
 
+int ipa_wdi_sbr_conn_pipe(struct ipa_wdi_conn_in_params *in,
+			struct ipa_wdi_conn_out_params *out)
+{
+	if (!(in && out)) {
+		IPA_WDI_ERR("empty parameters. in=%pK out=%pK\n", in, out);
+		 return -EINVAL;
+	}
+
+	in->hdl = 0;
+	return ipa_wdi_sbr_connect(in, out);
+}
+EXPORT_SYMBOL(ipa_wdi_sbr_conn_pipe);
+
+
 int ipa_wdi_disconn_pipes(void)
 {
 	return ipa_wdi_disconn_pipes_per_inst(0);
 }
 EXPORT_SYMBOL(ipa_wdi_disconn_pipes);
+
+int ipa_wdi_sbr_disconn_pipe(void)
+{
+	return ipa_wdi_sbr_disconnect(0);
+}
+EXPORT_SYMBOL(ipa_wdi_sbr_disconn_pipe);
+
 
 int ipa_wdi_enable_pipes(void)
 {
@@ -1425,11 +1692,25 @@ int ipa_wdi_enable_pipes(void)
 }
 EXPORT_SYMBOL(ipa_wdi_enable_pipes);
 
+int ipa_wdi_sbr_enable_pipes(void)
+{
+	return ipa_wdi_sbr_enable_pipe(0);
+}
+EXPORT_SYMBOL(ipa_wdi_sbr_enable_pipes);
+
+
 int ipa_wdi_disable_pipes(void)
 {
 	return ipa_wdi_disable_pipes_per_inst(0);
 }
 EXPORT_SYMBOL(ipa_wdi_disable_pipes);
+
+int ipa_wdi_sbr_disable_pipes(void)
+{
+	return ipa_wdi_sbr_disable_pipe(0);
+}
+EXPORT_SYMBOL(ipa_wdi_sbr_disable_pipes);
+
 
 int ipa_wdi_set_perf_profile(struct ipa_wdi_perf_profile *profile)
 {
@@ -1441,4 +1722,3 @@ int ipa_wdi_set_perf_profile(struct ipa_wdi_perf_profile *profile)
 	return ipa_wdi_set_perf_profile_per_inst(0, profile);
 }
 EXPORT_SYMBOL(ipa_wdi_set_perf_profile);
-

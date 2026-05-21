@@ -1055,6 +1055,7 @@ static int __ipa_rt_validate_hndls(const struct ipa_rt_rule_i *rule,
 	}
 
 	if (rule->hdr_hdl) {
+		IPADBG("find the header handle\n");
 		*hdr = ipa3_id_find(rule->hdr_hdl);
 		if ((*hdr == NULL) || ((*hdr)->cookie != IPA_HDR_COOKIE)) {
 			IPAERR_RL("rt rule does not point to valid hdr\n");
@@ -2299,9 +2300,9 @@ static int __ipa_mdfy_rt_rule(struct ipa_rt_rule_mdfy_i *rtrule)
 	}
 
 	if (entry->hdr)
-		entry->hdr->ref_cnt--;
+		__ipa3_release_hdr(entry->hdr->id);
 	else if (entry->proc_ctx)
-		entry->proc_ctx->ref_cnt--;
+		__ipa3_release_hdr_proc_ctx(entry->proc_ctx->id);
 
 	entry->rule = rtrule->rule;
 	entry->hdr = hdr;
