@@ -1629,7 +1629,7 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 	for (i = 0; i < MAX_RC_CLIENTS; i++) {
 		nbytes = scnprintf(dbg_buff + cnt,
 			IPA_MAX_MSG_LEN - cnt,
-			"rc_client: %d\n", i);
+			"rc_client: %s\n", ipa_rc_client_names[i]);
 		cnt += nbytes;
 		for (j = 0; j < IPAHAL_PKT_STATUS_EXCEPTION_MAX; j++) {
 			nbytes = scnprintf(dbg_buff + cnt,

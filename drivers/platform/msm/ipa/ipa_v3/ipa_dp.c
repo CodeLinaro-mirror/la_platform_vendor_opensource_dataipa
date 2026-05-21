@@ -4010,6 +4010,23 @@ begin:
 			ipa3_wq_write_done_status(src_pipe, tx_pkt);
 			IPADBG_LOW("tx comp imp for %d\n", src_pipe);
 			if (sys->drop_packet) {
+				if (ipa3_ctx->is_rc_log_enabled) {
+					IPADBG("drop pkt status_opcode=0x%x exception=0x%x status_mask=0x%x pkt_len=0x%x\n",
+						status.status_opcode, status.exception,
+						status.status_mask, status.pkt_len);
+					IPADBG("endp_src_idx=0x%x endp_dest_idx=0x%x metadata=0x%x\n",
+						status.endp_src_idx, status.endp_dest_idx,
+						status.metadata);
+					IPADBG("flt_miss=0x%x flt_rule_id=0x%x rt_local=0x%x rt_hash=0x%x\n",
+						status.flt_miss, status.flt_rule_id,
+						status.rt_local, status.rt_hash);
+					IPADBG("ucp=0x%x rt_tbl_idx=0x%x rt_miss=0x%x rt_rule_id=0x%x\n",
+						status.ucp, status.rt_tbl_idx,
+						status.rt_miss, status.rt_rule_id);
+					IPADBG("nat_hit=0x%x nat_entry_idx=0x%x nat_type=0x%x\n",
+						status.nat_hit, status.nat_entry_idx,
+						status.nat_type);
+				}
 				clnt = ipa3_get_client_by_pipe(src_pipe);
 				if(IPA_CLIENT_IS_Q6_PROD(clnt) || is_wlan_sta_pkt(&status)) {
 					IPA_STATS_INC_CNT(ipa3_ctx->stats.rx_excp_pkts

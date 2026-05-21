@@ -19,7 +19,11 @@
 
 struct ipa_rc_queue rc_list;
 struct ipa_rc_wlan_info ipa_rc_wlan_info;
-unsigned int query_timer = 200; // is 200 milliseconds;
+unsigned int query_timer = 1000; // is 1000 milliseconds;
+
+const char * const ipa_rc_client_names[MAX_RC_CLIENTS] = {
+	"ETH", "WLAN", "MODEM", "OTHERS"
+};
 
 /* Global context pointer */
 struct ipa_rc_wq_ctx *rc_ctx;
@@ -27,6 +31,31 @@ static bool has_ul_dl_rule, modem_rule;
 
 static char msg_buff[IPA_MAX_MSG_LEN + 1];
 static struct chan_param_monitor chan_info[MAX_NUM_CONS_CLIENT][2];
+
+/* Drop detection state — per client, per direction */
+static u32  drop_prev_cnts[MAX_RC_CLIENTS][DATA_DIR];
+static bool drop_win[MAX_RC_CLIENTS][DATA_DIR][DROP_SAMPLE_WINDOW];
+static int  drop_win_idx[MAX_RC_CLIENTS][DATA_DIR];
+static enum ipa_rc_state_err persistent_drop_status;
+
+static const struct {
+	enum ipa_rc_state_err bit;
+	const char *name;
+} ipa_rc_err_names[] = {
+	{ IPA_CHANNEL_ETH_NOT_STARTED,        "IPA_CHANNEL_ETH_NOT_STARTED"        },
+	{ IPA_CHANNEL_WLAN_NOT_STARTED,       "IPA_CHANNEL_WLAN_NOT_STARTED"       },
+	{ IPA_CHANNEL_APPS_EMB_NO_BUFF,       "IPA_CHANNEL_APPS_EMB_NO_BUFF"       },
+	{ IPA_CHANNEL_Q6_NO_BUFF,             "IPA_CHANNEL_Q6_NO_BUFF"             },
+	{ IPA_CHANNEL_ETH_NO_BUFF,            "IPA_CHANNEL_ETH_NO_BUFF"            },
+	{ IPA_CHANNEL_WLAN_NO_BUFF,           "IPA_CHANNEL_WLAN_NO_BUFF"           },
+	{ IPA_DRIVER_ETH_PKT_DROP,            "IPA_DRIVER_ETH_PKT_DROP"            },
+	{ IPA_DRIVER_WLAN_AP_PKT_DROP,        "IPA_DRIVER_WLAN_AP_PKT_DROP"        },
+	{ IPA_DRIVER_WLAN_STA_PKT_DROP,       "IPA_DRIVER_WLAN_STA_PKT_DROP"       },
+	{ IPA_ETH_FILTER_RULE_INCORRECT,      "IPA_ETH_FILTER_RULE_INCORRECT"      },
+	{ IPA_WLAN_AP_FILTER_RULE_INCORRECT,  "IPA_WLAN_AP_FILTER_RULE_INCORRECT"  },
+	{ IPA_WLAN_STA_FILTER_RULE_INCORRECT, "IPA_WLAN_STA_FILTER_RULE_INCORRECT" },
+	{ IPA_NAT_NOT_INITIALIZED,            "IPA_NAT_NOT_INITIALIZED"            },
+};
 
 /* Common Queue Implementations */
 void rc_list_init(struct ipa_rc_queue *q)
@@ -128,7 +157,6 @@ void rc_list_dequeue(struct ipa_rc_queue *q)
 
 	p = list_last_entry(&q->head, struct ipa_rc_health_monitor, node);
 	list_del(&p->node);
-	if(p)
 	kfree(p);
 	q->size--;
 	spin_unlock_irqrestore(&q->lock, flags);
@@ -290,8 +318,6 @@ static bool is_lan2lan_rule(struct ipa_rule_attrib *attrib)
 
 void ipa_rc_reset_drop_pkt_stats(void)
 {
-	struct ipa_rc_health_monitor *entry = NULL;
-	unsigned long flags;
 	int i;
 
 	IPADBG("Resetting drop pkt stats on IPACM restart\n");
@@ -303,48 +329,84 @@ void ipa_rc_reset_drop_pkt_stats(void)
 			[IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL] = 0;
 	}
 
+	persistent_drop_status = IPA_HEALTH_OK;
+	memset(drop_win, 0, sizeof(drop_win));
+	memset(drop_win_idx, 0, sizeof(drop_win_idx));
+	memset(drop_prev_cnts, 0, sizeof(drop_prev_cnts));
+
 	IPADBG("drop pkt stats reset done\n");
 }
 
 /* IPA HM functions */
 void ipa_rc_query_drop_stats(struct ipa_rc_health_monitor *ipa_state_info)
 {
-	int i;
+	int i, dir, j;
+	u32 cur_cnt, delta;
+	int drop_count;
 	enum ipa_rc_state_err cur_status = IPA_HEALTH_OK;
-	static u32 (*drop_pkt_cnts)[DATA_DIR];
+	enum ipa_rc_state_err bit = IPA_HEALTH_OK;
 
-	drop_pkt_cnts = ipa_state_info->drop_pkt_cnts;
+	/* Snapshot current cumulative counters into health monitor entry for debug */
+	for (i = 0; i < MAX_RC_CLIENTS; i++) {
+		ipa_state_info->drop_pkt_cnts[i][0] =
+			ipa3_ctx->stats.rx_excp_pkts[i][IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL];
+		ipa_state_info->drop_pkt_cnts[i][1] =
+			ipa3_ctx->stats.rx_excp_pkts[i][IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL];
+	}
 
-	for(i=0; i < MAX_RC_CLIENTS; i++) {
-		drop_pkt_cnts[i][0] =
-				ipa3_ctx->stats.rx_excp_pkts[i][IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL];
-		drop_pkt_cnts[i][1] =
-				ipa3_ctx->stats.rx_excp_pkts[i][IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL];
+	if (ipa3_ctx->is_rc_log_enabled) {
+		for (i = 0; i < MAX_RC_CLIENTS; i++)
+			IPADBG("drop stats client=%d UL=%u DL=%u\n",
+				i,
+				ipa_state_info->drop_pkt_cnts[i][0],
+				ipa_state_info->drop_pkt_cnts[i][1]);
+	}
 
-		if(ipa3_ctx->is_rc_log_enabled) {
-			IPADBG("drop stats for rc_client: %d\n", i);
-			IPADBG("drop stats UL: %u DL stats: %u\n",
-					drop_pkt_cnts[i][0],
-					drop_pkt_cnts[i][1]);
-		}
+	for (i = 0; i < MAX_RC_CLIENTS; i++) {
+		for (dir = 0; dir < DATA_DIR; dir++) {
+			cur_cnt = ipa_state_info->drop_pkt_cnts[i][dir];
+			delta = cur_cnt - drop_prev_cnts[i][dir];
+			drop_prev_cnts[i][dir] = cur_cnt;
 
-		if(drop_pkt_cnts[i][0] <= 0 && drop_pkt_cnts[i][1] <= 0)
-			continue;
+			/* Record whether any packet dropped in this 1-sec sample */
+			drop_win[i][dir][drop_win_idx[i][dir]] = (delta > 0);
+			drop_win_idx[i][dir] = (drop_win_idx[i][dir] + 1) % DROP_SAMPLE_WINDOW;
 
-		if(i == WLAN) {
-			if(drop_pkt_cnts[i][0] > 0)
-				cur_status |= IPA_DRIVER_WLAN_AP_PKT_DROP;
+			if (ipa3_ctx->is_rc_log_enabled)
+				IPADBG("drop sample client=%d dir=%d delta=%u\n",
+					i, dir, delta);
 
-			if(drop_pkt_cnts[i][1] > 0)
-				cur_status |= IPA_DRIVER_WLAN_STA_PKT_DROP;
-		}
-		else if(i == ETH) {
-			cur_status |= IPA_DRIVER_ETH_PKT_DROP;
+			/* Only ETH and WLAN have defined status bits */
+			if (i == WLAN)
+				bit = (dir == 0) ? IPA_DRIVER_WLAN_AP_PKT_DROP :
+						   IPA_DRIVER_WLAN_STA_PKT_DROP;
+			else if (i == ETH)
+				bit = IPA_DRIVER_ETH_PKT_DROP;
+			else
+				continue;
+
+			if (persistent_drop_status & bit) {
+				cur_status |= bit;
+				continue;
+			}
+
+			/* Count positive samples in the rolling 10-sec window */
+			drop_count = 0;
+			for (j = 0; j < DROP_SAMPLE_WINDOW; j++) {
+				if (drop_win[i][dir][j])
+					drop_count++;
+			}
+
+			if (drop_count >= DROP_CONFIRM_THRESH) {
+				IPADBG("drop confirmed client=%d dir=%d samples=%d/%d\n",
+					i, dir, drop_count, DROP_SAMPLE_WINDOW);
+				persistent_drop_status |= bit;
+				cur_status |= bit;
+			}
 		}
 	}
 
 	ipa_state_info->status_code |= cur_status;
-	return;
 }
 
 void ipa_rc_query_chan(enum ipa_client_type clnt, int chan, struct chan_param_monitor* chan_params)
@@ -588,13 +650,12 @@ int is_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl,
 			IPADBG("Rule grp id:%d, idx:%d\n", grp_id, i);
 		}
 
-		if(grp_id == WLAN_STA_DL_FLT_RULE)
+		if(grp_id == WLAN_STA_DL_FLT_RULE && has_sta_rule)
 			*has_sta_rule = 1;
 
 		/* To make sure, default rule always stay on top and
 		then follow respective order */
-		if((last == -1 && grp_id != DEFAULT_FLT_RULE) ||
-			(grp_id < 0 || grp_id == MAX_FLT_RULE_GRP))
+		if(grp_id < 0 || grp_id == MAX_FLT_RULE_GRP)
 			return IPA_BAD_STATE;
 
 		if (grp_id < last)
@@ -678,8 +739,6 @@ void ipa_rc_detect_flt_order(struct ipa_rc_health_monitor *ipa_state_info, enum 
 	enum ipa_client_type client;
 
 	mutex_lock(&ipa3_ctx->lock);
-
-	status = ipa_state_info->status_code;
 
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		if (!ipa_is_ep_support_flt(i))
@@ -796,16 +855,25 @@ int ipa_rc_monitor_health(void)
 {
 	int i = 0;
 	struct ipa_rc_health_monitor *entry = NULL;
-	enum ipa_rc_state_err health_status = 0;
+	enum ipa_rc_state_err health_status = IPA_HEALTH_OK;
+	unsigned long flags;
+
+	spin_lock_irqsave(&rc_list.lock, flags);
+
+	if (rc_list.size < LIST_MAX_LEN)
+		goto unlock;
+
+	health_status = IPA_HEALTH_MAX - 1;
 
 	list_for_each_entry(entry, &rc_list.head, node) {
-		if(health_status == 0)
-			health_status = 0x1FFF;
 		health_status &= entry->status_code;
 		i++;
-		if(i>=5)
+		if (i >= LIST_MAX_LEN)
 			break;
 	}
+
+unlock:
+	spin_unlock_irqrestore(&rc_list.lock, flags);
 	return health_status;
 }
 
@@ -823,7 +891,7 @@ static void ipa_rc_work_handler(struct work_struct *work)
 		IPADBG("instance ipa status code: %u\n", res);
 	}
 
-	/* Reschedule work to run again with default 200ms configurable timer */
+	/* Reschedule work to run again with default 1000ms configurable timer */
 	if (lcl_ctx->rc_wq) {
 		mod_delayed_work(lcl_ctx->rc_wq, &lcl_ctx->dwork,
 				msecs_to_jiffies(query_timer));
@@ -848,7 +916,7 @@ static struct kobject *ipa_kobj = NULL;
 
 int ipa_rc_init(void)
 {
-	int ret = -1;
+	int ret = -1, i;
 
 	/* Create sysfs kobj /sys/kernel/ipa */
 	ipa_kobj = kobject_create_and_add("ipa", kernel_kobj);
@@ -861,12 +929,17 @@ int ipa_rc_init(void)
 	ret = sysfs_create_group(ipa_kobj, &hm_attr_group);
 	if (ret != 0) {
 		IPAERR("Fail to create health_monitor syfs attribute\n");
+		kobject_put(ipa_kobj);
+		ipa_kobj = NULL;
 		return ret;
 	}
 
 	rc_ctx = kzalloc(sizeof(struct ipa_rc_wq_ctx), GFP_KERNEL);
 	if (!rc_ctx) {
 		IPAERR("failed to create rc work ctx\n");
+		sysfs_remove_group(ipa_kobj, &hm_attr_group);
+		kobject_put(ipa_kobj);
+		ipa_kobj = NULL;
 		return -ENOMEM;
 	}
 
@@ -875,6 +948,9 @@ int ipa_rc_init(void)
 		IPAERR("Fail to allocate rc WQ\n");
 		kfree(rc_ctx);
 		rc_ctx = NULL;
+		sysfs_remove_group(ipa_kobj, &hm_attr_group);
+		kobject_put(ipa_kobj);
+		ipa_kobj = NULL;
 		return -ENOMEM;
 	}
 
@@ -884,6 +960,13 @@ int ipa_rc_init(void)
 	mutex_init(&rc_ctx->rc_lock);
 	INIT_LIST_HEAD(&ipa_rc_wlan_info.head);
 	ipa_rc_wlan_info.size = 0;
+
+	for (i = 0; i < MAX_RC_CLIENTS; i++) {
+		drop_prev_cnts[i][0] =
+			ipa3_ctx->stats.rx_excp_pkts[i][IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL];
+		drop_prev_cnts[i][1] =
+			ipa3_ctx->stats.rx_excp_pkts[i][IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL];
+	}
 
 	IPADBG("ipa rc init complete\n");
 	return ret;
@@ -924,9 +1007,16 @@ void ipa_rc_deinit()
 ssize_t status_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
 	uint32_t res = 0;
+	int k;
 
 	res = ipa_rc_monitor_health();
 	IPADBG("ipa cur status code = %u\n", res);
+	if (ipa3_ctx->is_rc_log_enabled) {
+		for (k = 0; k < ARRAY_SIZE(ipa_rc_err_names); k++) {
+			if (res & ipa_rc_err_names[k].bit)
+				IPAERR("%s\n", ipa_rc_err_names[k].name);
+		}
+	}
 
 	return scnprintf(ubuf, PAGE_SIZE, "%u\n", res);
 }
