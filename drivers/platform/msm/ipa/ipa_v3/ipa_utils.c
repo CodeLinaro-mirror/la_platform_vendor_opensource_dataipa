@@ -17026,6 +17026,46 @@ done:
 	return res;
 }
 
+static void ipa3_rgip_info_free_cb(
+ 	void *buff,
+ 	u32   len,
+ 	u32   type)
+ {
+ 	if (buff) {
+ 		kfree(buff);
+ 	}
+ }
+
+int ipa3_send_rgip_info(enum ipa_rgip_event etype,
+	struct rgip_info rgip_addr )
+{
+	struct rgip_info *rg;
+	struct ipa_msg_meta    msg_meta;
+	int res = 0;
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+
+		rg = kzalloc(sizeof(struct rgip_info),
+ 					GFP_KERNEL);
+		if(!rg)
+		{
+			IPAERR("RG MEMORY NOT ASSIGNED");
+			return -ENOMEM;
+		}
+		memcpy(rg,
+			&rgip_addr,
+		  	sizeof(struct rgip_info));
+
+		msg_meta.msg_type = IPA_RGIP_ADD_EVENT;
+		msg_meta.msg_len  = sizeof(struct rgip_info);
+
+		if (ipa_send_msg(&msg_meta, rg, ipa3_rgip_info_free_cb)) {
+			IPAERR("Error in sending RGIP to ipacm\n");
+			kfree(rg);
+			res = -ENOMEM;
+		}
+
+		return res;
+}
 /* Send MHI endpoint info to modem using QMI indication message */
 int ipa_send_mhi_ctrl_endp_ind_to_modem(void)
 {

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPAHAL_I_H_
@@ -1346,6 +1346,8 @@ union ipa_pkt_status_hw_v6_0 {
 #define IPA_HDR_UCP_2ND_PASS               30
 #define IPA_HDR_UCP_MARK_DSCP              33
 #define IPA_HDR_UCP_PPPOE_HEADER_ADD       37
+#define IPA_HDR_UCP_IPOGRE_HEADER_ADD	   39
+#define IPA_HDR_UCP_IPOGRE_HEADER_REMOVE      40
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0
@@ -1668,6 +1670,78 @@ struct ipa_hw_hdr_proc_ctx_hdr_add_nxt_rnd_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd nxt_rnd;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
+ };
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_gre_add_hdr -
+ * HW structure of IPA processing context - add gre header tlv
+ * @tlv: IPA processing context TLV
+ * @gre_params: gre parameters
+ */
+struct ipa_hw_hdr_proc_ctx_gre_add_hdr {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_gre_header_add_procparams gre_params;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_gre_remove_hdr -
+ * HW structure of IPA processing context - remove gre header tlv
+ * @tlv: IPA processing context TLV
+ * @gre_params: gre parameters
+ */
+struct ipa_hw_hdr_proc_ctx_gre_remove_hdr {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_gre_header_remove_procparams gre_params;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_gre_hdr_cmd_seq -
+ * IPA processing context header - process command sequence
+ * @hdr_add: add header command
+ * @gre_params: gre params for header addition
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_gre_hdr_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_gre_add_hdr gre_params;
+	 struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_gre_add_hdr -
+ * HW structure of IPA processing context - add gre header tlv
+ * @tlv: IPA processing context TLV
+ * @gre_params: gre parameters
+ */
+struct ipa_hw_hdr_proc_ctx_ipogre_add_hdr {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_ipogre_header_add_procparams ipogre_params;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_gre_remove_hdr -
+ * HW structure of IPA processing context - remove gre header tlv
+ * @tlv: IPA processing context TLV
+ * @gre_params: gre parameters
+ */
+struct ipa_hw_hdr_proc_ctx_ipogre_remove_hdr {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_ipogre_header_remove_procparams ipogre_params;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_gre_hdr_cmd_seq -
+ * IPA processing context header - process command sequence
+ * @hdr_add: add header command
+ * @gre_params: gre params for header addition
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_ipogre_hdr_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_ipogre_add_hdr ipogre_params;
+	 struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 
 /**
@@ -1812,4 +1886,22 @@ struct ipa_hw_hdr_proc_ctx_add_pppoe_hdr_proc_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 
+/*
+ * struct ipa_hw_hdr_proc_ctx_remove_gre_hdr_cmd_seq -
+ * IPA processing context header - process command sequence
+ * @hdr_add: add header command
+ * @gre_params: gre params for header removal
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_remove_gre_hdr_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_gre_remove_hdr gre_params;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+struct ipa_hw_hdr_proc_ctx_remove_ipogre_hdr_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_ipogre_remove_hdr ipogre_params;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
 #endif /* _IPAHAL_I_H_ */

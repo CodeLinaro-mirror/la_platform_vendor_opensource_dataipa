@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA3_I_H_
@@ -864,10 +864,12 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
 	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
 	struct ipa_ipsec_params ipsec_params;
+	struct ipa_gre_hdr_proc_ctx_params gre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
 	struct ipa_pppoe_header_add_procparams pppoe_params;
+	struct ipa_ipogre_hdr_proc_ctx_params ipogre_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -1832,6 +1834,44 @@ struct ipa3_uc_ctx {
 	bool ipsec_next_iv_wa_ready;
 };
 
+
+/**
+ * eogre_header_add_id    : EoGRE header add stats
+ * eogre_header_remove_id : EoGRE header removal stats
+ */
+struct Ipa3HwStatsEOGRE{
+	uint32_t eogre_header_add_id;
+	uint32_t eogre_header_remove_id;
+} __packed;
+
+struct Ipa3HwStatsipogre{
+	uint32_t tunnel_id;
+	uint32_t mux_id;
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+}__packed;
+
+struct Ipa3HwStatsipogreCombined{
+	uint64_t eogre_header_add_id;
+	uint64_t eogre_header_remove_id;
+	struct Ipa3HwStatsipogre tunnels[2];
+}__packed;
+
+union Ipa3HwStatsEOGREInfoData_t{
+	struct Ipa3HwStatsEOGRE *eogre;
+	struct Ipa3HwStatsipogreCombined *ipogre;
+};
+
+/**
+ * struct ipa3_uc_eogre_ctx
+ * @eogre_uc_stats_ofst: EoGRE stats offset
+ * @eogre_uc_stats_mmio: EoGRE stats
+ */
+struct ipa3_uc_eogre_ctx{
+	u32 eogre_uc_stats_ofst;
+	union Ipa3HwStatsEOGREInfoData_t eogre_uc_stats_mmio;
+};
+
 /**
  * struct ipa3_uc_wdi_ctx
  * @wdi_uc_top_ofst:
@@ -2582,6 +2622,7 @@ struct ipa3_context {
 
 	struct ipa3_uc_wdi_ctx uc_wdi_ctx;
 	struct ipa3_uc_ntn_ctx uc_ntn_ctx;
+	struct ipa3_uc_eogre_ctx uc_eogre_ctx;
 	struct ipa3_uc_wigig_ctx uc_wigig_ctx;
 #if defined(CONFIG_IPA_IPSEC)
 	struct ipa_ipsec_ctx *ipsec;
@@ -2713,6 +2754,7 @@ struct ipa3_context {
 	bool use_tput_est_ep;
 	struct ipa_ioc_eogre_info eogre_cache;
 	bool eogre_enabled;
+	bool gre_enabled;
 	bool is_device_crashed;
 	bool ulso_wa;
 	u64 gsi_msi_addr;
@@ -3464,6 +3506,8 @@ int ipa3_get_wdi_stats(struct IpaHwStatsWDIInfoData_t *stats);
 u16 ipa3_get_smem_restr_bytes(void);
 int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 
+int ipa3_get_eogre_stats(struct Ipa3HwStatsEOGRE *eogre,
+		struct Ipa3HwStatsipogreCombined *ipogre);
 
 /*
  * To retrieve doorbell physical address of
@@ -3795,6 +3839,8 @@ int ipa3_write_qmapid_wdi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_write_qmapid_wdi3_gsi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_tag_process(struct ipa3_desc *desc, int num_descs,
 		    unsigned long timeout);
+
+int ipa3_eogre_stats_init(void);
 
 void ipa3_q6_pre_shutdown_cleanup(void);
 void ipa3_q6_post_shutdown_cleanup(void);
@@ -4194,6 +4240,13 @@ int ipa3_check_eogre(
 	struct ipa_ioc_eogre_info *eogre_info,
 	bool                      *send2uC,
 	bool                      *send2ipacm );
+
+/*
+ * To send RGIP info to ipacm
+ */
+int ipa3_send_rgip_info(
+	enum ipa_rgip_event  etype,
+	struct rgip_info rgip );
 
 /*
  * To send map information to uC

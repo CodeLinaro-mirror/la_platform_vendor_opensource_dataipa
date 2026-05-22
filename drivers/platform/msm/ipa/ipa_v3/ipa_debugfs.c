@@ -121,6 +121,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_QOS_PARAM_DELETE_EVENT),
 	__stringify(IPA_QOS_PARAM_FLUSH_EVENT),
 	__stringify(IPA_PPPOE_ADD_MAPPING_EVENT),
+	__stringify(IPA_RGIP_ADD_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
@@ -154,6 +155,10 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_2ND_PASS),
 	__stringify(IPA_HDR_PROC_MARK_DSCP),
 	__stringify(IPA_HDR_PROC_PPPOE_HEADER_ADD),
+	__stringify(IPA_HDR_PROC_GRE_HEADER_ADD),
+	__stringify(IPA_HDR_PROC_GRE_HEADER_REMOVE),
+	__stringify(IPA_HDR_PROC_IPOGRE_HEADER_ADD),
+	__stringify(IPA_HDR_PROC_IPOGRE_HEADER_REMOVE),
 };
 
 static struct dentry *dent;
@@ -2258,6 +2263,43 @@ static ssize_t ipa3_read_ntn(struct file *file, char __user *ubuf,
 	} else {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
 				"Fail to read NTN stats\n");
+		cnt += nbytes;
+	}
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
+}
+
+static ssize_t ipa3_read_eogre_stats(struct file *file, char __user *ubuf,
+		size_t count, loff_t *ppos)
+{
+	int nbytes;
+	int cnt = 0;
+	struct Ipa3HwStatsEOGRE eogre;
+	struct Ipa3HwStatsipogreCombined ipogre;
+
+	if (!ipa3_get_eogre_stats(&eogre, &ipogre)) {
+
+		if(ipa3_ctx->eogre_enabled)
+                {
+			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"EoGRE UL Stats is %d\n"
+				"EoGRE DL stats is %d\n",
+				eogre.eogre_header_add_id,
+				eogre.eogre_header_remove_id);
+			cnt += nbytes;
+		}
+		else
+		{
+			nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"IPoGRE UL Stats is %d\n"
+				"IPoGRE DL stats is %d\n",
+				ipogre.tunnels[0].eogre_header_add_id,
+				ipogre.tunnels[0].eogre_header_remove_id);
+			cnt += nbytes;
+		}
+	} else {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"Fail to read EOGRE stats\n");
 		cnt += nbytes;
 	}
 
@@ -4512,6 +4554,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"wdi", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_wdi,
+		}
+	}, {
+		"tunnel_stats", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_eogre_stats,
 		}
 	}, {
 		"ntn", IPA_READ_ONLY_MODE, NULL, {
