@@ -70,7 +70,6 @@ struct ipv6_ct_entry {
 	uint64_t dest_ipv6_lsb;
 	uint16_t src_port;
 	uint16_t dest_port;
-	uint32_t flow_rule_id;
 };
 
 struct NatEntryBase
@@ -993,8 +992,7 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 
 		/* Store the rule handle in cache for bookkeeping */
 		int cache_idx = store_ipv6_ct_entry(src_ipv6_msb, src_ipv6_lsb, dest_ipv6_msb, dest_ipv6_lsb,
-						    src_port, dest_port, tuple->protocol, rule_hdl,
-						    tuple->flow_rule_id);
+						    src_port, dest_port, tuple->protocol, rule_hdl);
 		if (cache_idx < 0) {
 			IPA_BE_ERR("Failed to store IPv6 CT entry in cache\n");
 			ret = -EFAULT;
@@ -1184,7 +1182,6 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan)
 			nat_app->cache[cnt].pdn_index = pdn_index;
 			nat_app->cache[cnt].public_ip = rule->public_ip;
 			nat_app->cache[cnt].ip_pass_entry = rule->ip_pass_entry;
-			nat_app->cache[cnt].flow_rule_id = v4_msg.tuple.flow_rule_id;
 			nat_app->curCnt++;
 		}
 
@@ -1477,8 +1474,7 @@ int find_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 				uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
 				uint16_t src_port, uint16_t dest_port,
-				uint8_t protocol, uint32_t rule_handle,
-				uint32_t flow_rule_id)
+				uint8_t protocol, uint32_t rule_handle)
 {
 	int cnt;
 	int stored_idx = -1;
@@ -1503,7 +1499,6 @@ int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 			NatBase->m_cache[cnt].ipv6_ct.dest_ipv6_lsb = dest_ipv6_lsb;
 			NatBase->m_cache[cnt].ipv6_ct.src_port = src_port;
 			NatBase->m_cache[cnt].ipv6_ct.dest_port = dest_port;
-			NatBase->m_cache[cnt].ipv6_ct.flow_rule_id = flow_rule_id;
 
 			IPA_BE_DBG("Stored IPv6 CT entry at index %d with handle %u\n", cnt, rule_handle);
 			stored_idx = cnt;
@@ -1687,8 +1682,6 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 		/* Set ports */
 		conn_sync->flow_ident = htons(NatBase->m_cache[i].ipv6_ct.src_port);
 		conn_sync->return_ident = htons(NatBase->m_cache[i].ipv6_ct.dest_port);
-
-		conn_sync->flow_rule_id = NatBase->m_cache[i].ipv6_ct.flow_rule_id;
 
 		/* Populate xlate fields for IPv6. Mirror original tuple when NAT is not used */
 		conn_sync->flow_ip_xlate[0] = conn_sync->flow_ip[0];
@@ -1909,8 +1902,6 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		conn_sync->flow_ident_xlate = htons(nat_app->cache[i].public_port);
 		conn_sync->return_ident = htons(nat_app->cache[i].target_port);
 		conn_sync->return_ident_xlate = htons(nat_app->cache[i].target_port);
-
-		conn_sync->flow_rule_id = nat_app->cache[i].flow_rule_id;
 
 		/* Calculate inc_ticks as the difference between new and cached timestamp */
 		/* Only set inc_ticks if timestamp has changed (entry is active) */
