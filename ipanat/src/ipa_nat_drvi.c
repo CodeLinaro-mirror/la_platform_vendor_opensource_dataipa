@@ -1222,17 +1222,18 @@ int ipa_nati_alloc_pdn(
 
 		if(!memcmp((const void *)(pdns + i), (const void *)&zero_test, sizeof(ipa_nat_pdn_entry)))
 		{
-			/* Reserving 0 for STA */
+			/* Slots 0..(IPA_MAX_WLAN_STA_IFACES-1) are reserved for WLAN STA backhauls.
+			 * STA PDNs must land in that range; WWAN PDNs must start after it. */
 			if(pdn_info->is_sta == true)
 			{
-				if (i != 0)
+				if (i >= IPA_MAX_WLAN_STA_IFACES)
 				{
 					continue;
 				}
 			}
 			else
 			{
-				if (i == 0)
+				if (i < IPA_MAX_WLAN_STA_IFACES)
 				{
 					continue;
 				}
@@ -1249,10 +1250,7 @@ int ipa_nati_alloc_pdn(
 		return -EIO;
 	}
 
-	if(pdn_info->is_sta == true)
-		pdn_data.pdn_index    = 0;
-	else
-		pdn_data.pdn_index    = i;
+	pdn_data.pdn_index    = i;
 
 	pdn_data.public_ip    = pdn_info->public_ip;
 	pdn_data.src_metadata = pdn_info->src_metadata;
@@ -1262,10 +1260,7 @@ int ipa_nati_alloc_pdn(
 	if(!ret)
 	{
 		num_pdns++;
-		if(pdn_info->is_sta == true)
-			*pdn_index = 0;
-		else
-			*pdn_index = i;
+		*pdn_index = i;
 		IPADBG("modify num_pdns (%d)\n", num_pdns);
 	}
 

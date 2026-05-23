@@ -56,6 +56,11 @@
 
 #define IPA_NAT_MAX_IP4_TBLS   1
 
+/* Number of PDN slots reserved exclusively for WLAN STA backhauls */
+#ifndef IPA_MAX_WLAN_STA_IFACES
+#define IPA_MAX_WLAN_STA_IFACES 2
+#endif
+
 #define IPA_NAT_RULE_FLAG_FIELD_OFFSET        18
 #define IPA_NAT_RULE_NEXT_FIELD_OFFSET        8
 #define IPA_NAT_RULE_PROTO_FIELD_OFFSET       22
