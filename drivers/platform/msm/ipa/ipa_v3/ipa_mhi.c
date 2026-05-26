@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -226,8 +226,14 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 
 #ifdef IPA_CLIENT_MHI_COAL_CONS
 	/* share default pipe event ring for MHI coal pipe */
-	if(client == IPA_CLIENT_MHI_COAL_CONS) {
-		ep_def = &ipa3_ctx->ep[ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS)];
+	if (client == IPA_CLIENT_MHI_COAL_CONS) {
+		int mhi_cons_ep_idx = ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS);
+
+		if (mhi_cons_ep_idx == IPA_EP_NOT_ALLOCATED) {
+			IPA_MHI_ERR("MHI_CONS pipe not allocated, cannot share evt ring\n");
+			return -ENODEV;
+		}
+		ep_def = &ipa3_ctx->ep[mhi_cons_ep_idx];
 		ep->gsi_evt_ring_hdl = ep_def->gsi_evt_ring_hdl;
 		*params->cached_gsi_evt_ring_hdl = ep->gsi_evt_ring_hdl;
 	} else {
