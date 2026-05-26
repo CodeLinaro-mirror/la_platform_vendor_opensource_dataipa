@@ -6322,7 +6322,8 @@ static int ipa3_v2x_vm_ssr_notifier_cb(struct notifier_block *this,
 
 	switch (code) {
 		case GH_VM_EARLY_POWEROFF:
-			IPAWANINFO("IPA received GH_VM_EARLY_POWEROFF vm_id %u \n", cb_vm_id);
+		case GH_VM_POWERUP_FAIL:
+			IPAWANINFO("IPA received GH VM POWEROFF code <%d> vm_id %u \n",code, cb_vm_id);
 			ipa3_v2x_vm_shutdown_cleanup();
 			break;
 		default:
