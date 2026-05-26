@@ -1574,6 +1574,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 
 	if (copy_from_user(&ipa_lnx_agent_ctx, u64_to_user_ptr((u64) arg),
 		sizeof(struct ipa_lnx_stats_tlpd_ctx))) {
+		memset(&ipa_lnx_agent_ctx, 0, sizeof(ipa_lnx_agent_ctx));
 		IPA_STATS_ERR("copy from user failed");
 		return -EFAULT;
 	}
@@ -2058,6 +2059,7 @@ int ipa_tlpd_stats_init(void)
 		return -1;
 	}
 	memset(&poll_pack_and_cred_info, 0, sizeof(poll_pack_and_cred_info));
+	memset(&ipa_lnx_agent_ctx, 0, sizeof(ipa_lnx_agent_ctx));
 	IPA_STATS_ERR("IPA_LNX_STATS_IOCTL init success\n");
 
 	return 0;
