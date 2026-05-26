@@ -1318,10 +1318,9 @@ int ipa_pm_handle_suspend(u32 pipe_bitmask, u32 pipe_arr_idx)
 	for (i = 0; i < IPA_EP_PER_REG && (i + pipe_add) < max_pipes; i++) {
 		if (pipe_bitmask & (1 << i)) {
 
-			if(ipa3_ctx->wkup_enable){
-				type = ipa3_get_client_by_pipe(i + pipe_add);
-				IPAERR("%s woke up the system:\n", ipa_clients_strings[type]);
-			}
+			type = ipa3_get_client_by_pipe(i + pipe_add);
+			IPA_PM_ERR("Client %s woke up the system\n",
+					ipa_clients_strings[type]);
 
 			client = ipa_pm_ctx->clients_by_pipe[i + pipe_add];
 			if (client && !client_notified[client->hdl]) {
