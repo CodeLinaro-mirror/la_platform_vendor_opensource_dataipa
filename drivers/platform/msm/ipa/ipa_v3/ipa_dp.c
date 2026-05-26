@@ -2517,7 +2517,7 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		     network_header->protocol == IPPROTO_ICMP) ||
 		    (((struct ipv6hdr *)network_header)->version == 6 &&
 		     ((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP) ||
-		    (meta && meta->pkt_ex_init_valid)) && (!meta || (meta && (!meta->ncm_enable)))) {
+		    (meta && meta->pkt_ex_init_valid)) && (meta && (!meta->ncm_enable))) {
 			ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
 				dst_ep_idx);
