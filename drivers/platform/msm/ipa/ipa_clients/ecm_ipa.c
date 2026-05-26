@@ -340,7 +340,15 @@ int ecm_ipa_init(struct ecm_ipa_params *params)
 		ecm_ipa_ctx->netif_rx_function = netif_receive_skb;
 		ECM_IPA_DEBUG("LAN RX NAPI enabled = True");
 	} else {
-		ecm_ipa_ctx->netif_rx_function = netif_rx_ni;
+		if (ipa3_ctx && ipa3_ctx->ipa_config_is_auto) {
+			ecm_ipa_ctx->netif_rx_function = netif_rx;
+		} else {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
+			ecm_ipa_ctx->netif_rx_function = netif_rx;
+#else
+			ecm_ipa_ctx->netif_rx_function = netif_rx_ni;
+#endif
+		}
 		ECM_IPA_DEBUG("LAN RX NAPI enabled = False");
 	}
 	ECM_IPA_DEBUG("internal data structures were initialized\n");
