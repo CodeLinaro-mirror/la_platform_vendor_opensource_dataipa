@@ -324,6 +324,57 @@ int ipa_nat_modify_pdn(
 }
 
 /**
+* ipa_nat_modify_dummy_pdn() - modify PDN entry only if PDN[0].public_ip ==
+*                              IPA_DUMMY_PDN_PUB_IP
+* @tbl_hdl:   [in] handle of ipv4 nat table
+* @pdn_index: [in] the index of the entry to be modified
+* @pdn_info:  [in] values for the PDN entry to be changed
+*
+* Modify a PDN entry only when the public IP of PDN entry at index 0
+* equals IPA_DUMMY_PDN_PUB_IP (the CT-enabled sentinel value).
+* If the condition is not met, the function returns 0 without modifying.
+*
+* Returns:	0  On Success (or no-op), negative on failure
+*/
+int ipa_nat_modify_dummy_pdn(
+	uint32_t tbl_hdl,
+	uint8_t pdn_index,
+	ipa_nat_pdn_entry *pdn_info)
+{
+	uint32_t pdn0_public_ip;
+	int ret;
+
+	if ( ! VALID_TBL_HDL(tbl_hdl) ||
+		 pdn_info == NULL) {
+		IPAERR(
+			"invalid parameters passed tbl_hdl=%d pdn_info=%pK\n",
+			tbl_hdl, pdn_info);
+		return -EINVAL;
+	}
+
+	if (pdn_index >= IPA_MAX_PDN_NUM) {
+		IPAERR(
+			"PDN index %d is out of range maximum %d",
+			pdn_index, IPA_MAX_PDN_NUM);
+		return -EINVAL;
+	}
+
+	ret = ipa_nati_get_pdn_public_ip(0, &pdn0_public_ip);
+	if (ret) {
+		IPAERR("Failed to get PDN[0] public IP\n");
+		return ret;
+	}
+
+	if (pdn0_public_ip != IPA_DUMMY_PDN_PUB_IP) {
+		IPADBG("PDN[0] public IP (0x%08X) != IPA_DUMMY_PDN_PUB_IP, skipping modify\n",
+			   pdn0_public_ip);
+		return 0;
+	}
+
+	return ipa_nat_modify_pdn(tbl_hdl, pdn_index, pdn_info);
+}
+
+/**
 * ipa_nat_get_pdn_index() - get a PDN index for a public ip
 * @public_ip : [in] IPv4 address of the PDN entry
 * @pdn_index : [out] the index of the requested PDN entry

@@ -335,6 +335,22 @@ int ipa_nat_modify_pdn(uint32_t  tbl_hdl,
 	ipa_nat_pdn_entry *pdn_info);
 
 /**
+ * ipa_nat_modify_dummy_pdn() - conditionally modify a PDN entry
+ * @tbl_hdl:   [in] handle of ipv4 nat table
+ * @pdn_index: [in] the index of the entry to be modified
+ * @pdn_info:  [in] values for the PDN entry to be changed
+ *
+ * Modify a PDN entry only if the public IP of PDN entry at index 0
+ * equals IPA_DUMMY_PDN_PUB_IP (the CT-enabled sentinel value).
+ * If the condition is not met, the function returns 0 without modifying.
+ *
+ * Returns:	0  On Success (or no-op), negative on failure
+ */
+int ipa_nat_modify_dummy_pdn(uint32_t tbl_hdl,
+	uint8_t pdn_index,
+	ipa_nat_pdn_entry *pdn_info);
+
+/**
 * ipa_nat_get_pdn_index() - get a PDN index for a public ip
 * @public_ip : [in] IPv4 address of the PDN entry
 * @pdn_index : [out] the index of the requested PDN entry
@@ -413,4 +429,3 @@ int ipa_nat_switch_to(
 int ipa_nat_timestamp_flush(uint32_t tbl_hdl);
 
 #endif
-

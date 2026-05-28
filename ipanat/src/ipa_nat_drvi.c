@@ -551,10 +551,9 @@ static int table_entry_head_insert_v2(
 	}
 
 	*dma_command_data = 0;
-	((ipa_nat_flags*)dma_command_data)->enable = IPA_NAT_FLAG_ENABLE_BIT;
-	((ipa_nat_flags*)dma_command_data)->uc_activation_index =
+	((ipa_nat_flags_v2*)dma_command_data)->enable = IPA_NAT_FLAG_ENABLE_BIT;
+	((ipa_nat_flags_v2*)dma_command_data)->uc_activation_index =
 		nat_entry->uc_activation_index;
-	((ipa_nat_flags*)dma_command_data)->s = nat_entry->s;
 
 bail:
 	IPADBG("Out\n");
@@ -1711,11 +1710,35 @@ done:
 	return ret;
 }
 
+int ipa_nati_get_pdn_public_ip(
+	uint8_t pdn_index,
+	uint32_t *public_ip)
+{
+	if (pdn_index >= IPA_MAX_PDN_NUM || public_ip == NULL) {
+		IPAERR("Invalid parameters pdn_index=%d public_ip=%pK\n",
+			   pdn_index, public_ip);
+		return -EINVAL;
+	}
+
+	*public_ip = pdns[pdn_index].public_ip;
+
+	return 0;
+}
+
 int ipa_nati_get_pdn_index(
 	uint32_t public_ip,
 	uint8_t *pdn_index)
 {
 	int i = 0;
+
+	/* CT entries use IPA_DUMMY_PDN_PUB_IP as a placeholder public IP; PDN slot 0
+	 * is reserved for it, unless a real WAN IP uses pdns[0].
+	 * In this case IPA_DUMMY_PDN_PUB_IP won't be found and pdn_index = 0
+	 * will be artificially returned. */
+	if (public_ip == IPA_DUMMY_PDN_PUB_IP && num_pdns > 0) {
+		*pdn_index = 0;
+		return 0;
+	}
 
 	for(i = 0; i < IPA_MAX_PDN_NUM; i++) {
 		if(pdns[i].public_ip == public_ip) {
@@ -2603,12 +2626,20 @@ int ipa_NATI_add_ipv4_rule_v2(
 	}
 
 	/*
-	 * Verify that the rule's PDN is valid
+	 * Verify that the rule's PDN is valid.
+	 *
+	 * Conntrack-only entries on IPA v7+ may intentionally use PDN index 0
+	 * with public_ip == 0xFFFFFFFF when the table was created for LAN2LAN CT via
+	 * ipa_nat_add_ipv4_tbl(0, ...). Those entries do not need a translated
+	 * public IP for checksum calculation, so allow this special case.
 	 */
 	if (clnt_rule->pdn_index >= IPA_MAX_PDN_NUM ||
-		pdns[clnt_rule->pdn_index].public_ip == 0) {
-		IPAERR("invalid parameters, pdn index %d, public ip = 0x%X\n",
-			   clnt_rule->pdn_index, pdns[clnt_rule->pdn_index].public_ip);
+		(!clnt_rule->conn_tracking &&
+		 pdns[clnt_rule->pdn_index].public_ip == 0)) {
+		IPAERR("invalid parameters, pdn index %d, public ip = 0x%X conn_tracking=%u\n",
+			   clnt_rule->pdn_index,
+			   pdns[clnt_rule->pdn_index].public_ip,
+			   clnt_rule->conn_tracking);
 		ret = -EINVAL;
 		goto done;
 	}

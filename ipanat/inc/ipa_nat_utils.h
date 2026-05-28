@@ -57,6 +57,8 @@
 #define MAX_DMA_ENTRIES_FOR_ADD 4
 #define MAX_DMA_ENTRIES_FOR_DEL 3
 
+#define IPA_DUMMY_PDN_PUB_IP 0xFFFFFFFF
+
 #if !defined(MSM_IPA_TESTS) && !defined(FEATURE_IPA_ANDROID)
 #ifdef USE_GLIB
 #include <glib.h>
