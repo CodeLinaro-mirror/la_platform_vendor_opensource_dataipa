@@ -1054,8 +1054,9 @@ static int ipa_eth_setup_ntn_gsi_channel(
  		gsi_channel_props.low_latency_en = 1;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
 	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
-	gsi_channel_props.use_db_eng = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ? GSI_CHAN_DIRECT_MODE :
-		GSI_CHAN_DB_MODE;
+	gsi_channel_props.use_db_eng =
+		((ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) && (pipe->dir == IPA_ETH_PIPE_DIR_RX)) ?
+		GSI_CHAN_DIRECT_MODE : GSI_CHAN_DB_MODE;
 	gsi_channel_props.db_in_bytes = 1;
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
 	gsi_channel_props.prefetch_mode =
