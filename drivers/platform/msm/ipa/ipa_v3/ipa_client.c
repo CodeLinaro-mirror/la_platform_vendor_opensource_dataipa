@@ -1950,12 +1950,14 @@ int ipa3_xdci_resume(u32 ul_clnt_hdl, u32 dl_clnt_hdl, bool is_dpl)
 		ipa3_cfg_ep_holb(dl_clnt_hdl, &holb_cfg);
 	}
 	if (!is_dpl) {
-		result = ipa3_uc_client_add_holb_monitor(dl_ep->gsi_chan_hdl,
-				HOLB_MONITOR_MASK,
-				holb_max_cnt, IPA_EE_AP);
-		if (result)
-			IPAERR("Add HOLB monitor failed for gsi ch %d\n",
-					dl_ep->gsi_chan_hdl);
+		if (IPA_CLIENT_IS_HOLB_CONS(dl_ep->client)) {
+			result = ipa3_uc_client_add_holb_monitor(dl_ep->gsi_chan_hdl,
+					HOLB_MONITOR_MASK,
+					holb_max_cnt, IPA_EE_AP);
+			if (result)
+				IPAERR("Add HOLB monitor failed for gsi ch %d\n",
+						dl_ep->gsi_chan_hdl);
+		}
 	}
 	ipa3_start_gsi_debug_monitor(dl_clnt_hdl);
 

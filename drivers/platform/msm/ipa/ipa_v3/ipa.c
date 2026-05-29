@@ -5313,18 +5313,6 @@ void ipa3_q6_pre_shutdown_cleanup(void)
 
 	ipa3_q6_avoid_holb();
 
-	if (ipa3_ctx->uc_ctx.ipa_use_uc_holb_monitor) {
-		const struct ipa_gsi_ep_config *gsi_ep =
-			ipa3_get_gsi_ep_info(IPA_CLIENT_Q6_LAN_CONS);
-
-		if (gsi_ep) {
-			int res = ipa3_uc_client_del_holb_monitor(
-					gsi_ep->ipa_gsi_chan_num, IPA_EE_Q6);
-			if (res)
-				IPAERR("Del Q6 LAN CONS HOLB monitor failed\n");
-		}
-	}
-
 	if (ipa3_ctx->ipa_config_is_mhi) {
 		ipa3_set_reset_client_cons_pipe_sus_holb(true,
 		IPA_CLIENT_MHI_CONS);
