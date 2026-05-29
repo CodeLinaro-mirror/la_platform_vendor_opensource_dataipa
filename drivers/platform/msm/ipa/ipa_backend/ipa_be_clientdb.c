@@ -613,16 +613,77 @@ struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(
 	ip_addr_t addr, int vlan_id, int lan2lan, mac_addr_t mac)
 {
 	struct ipa_clientdb_mapping_instance *nmi = NULL;
+	struct ipa_clientdb_mapping_instance *mi;
+	ipa_db_mapping_hash_t hash_index;
 
 	IPA_BE_DBG("Establish mapping for " IPA_IP_ADDR_DOT_FMT
 		   " vlan :%d MAC %pM\n",
 		   IPA_IP_ADDR_TO_DOT(addr), vlan_id, mac);
 
-	if (ipa_be_clientdb_find_and_ref(addr, vlan_id, lan2lan))
-	{
-		IPA_BE_DBG("Client dst ip already exists, increase ref \n");
-		return nmi;
+	/*
+	 * A single mapping instance is shared between the lan2lan and lan2wan
+	 * directions (each tracked by its own ref_count). The "already
+	 * installed" decision must therefore be made per-direction: if a
+	 * mapping for this IP exists but was created by the *other* direction
+	 * only, this direction's rules have not been installed yet, so we must
+	 * return the existing mapping (non-NULL) to let the caller install
+	 * them (route + filter rules). We only treat it as "already installed"
+	 * (and skip) when this direction's ref_count is already non-zero.
+	 *
+	 * On a first-time install for this direction (ref_count == 0) the
+	 * 0->1 increment is done here, under the lock, before returning to
+	 * the caller. This prevents a concurrent caller for the same IP +
+	 * direction from installing duplicate HW rules. If the caller's
+	 * rule-install fails, the failed_ret path's paired
+	 * ipa_be_mapping_deref_and_delete() decrements this back to 0.
+	 */
+	hash_index = ipa_db_mapping_generate_hash_index(addr, vlan_id);
+
+	mutex_lock(&ipa_client_db_lock);
+	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
+		if (is_ip_addr_equal(mi->address, addr) && mi->vlan_id == vlan_id) {
+			uint32_t dir_ref = lan2lan ? mi->lan2lan_info.ref_count
+						   : mi->lan2wan_info.ref_count;
+
+			if (dir_ref > 0) {
+				/* Rules for this direction already installed:
+				 * just bump the direction ref_count and skip.
+				 */
+				if (lan2lan)
+					mi->lan2lan_info.ref_count++;
+				else
+					mi->lan2wan_info.ref_count++;
+				mutex_unlock(&ipa_client_db_lock);
+				IPA_BE_DBG("Client dst ip already exists for %s, increase ref (l2l: %d, l2w: %d)\n",
+					   lan2lan ? "lan2lan" : "lan2wan",
+					   mi->lan2lan_info.ref_count,
+					   mi->lan2wan_info.ref_count);
+				return NULL;
+			}
+
+			/* Mapping exists for the other direction only - this
+			 * direction's rules are not yet installed. Bump the
+			 * per-direction ref_count (0->1) atomically under the
+			 * lock so that a concurrent caller for the same IP +
+			 * direction takes the dir_ref > 0 fast path above and
+			 * does not install duplicate HW rules. If the caller's
+			 * rule-install fails, the failed_ret path's paired
+			 * ipa_be_mapping_deref_and_delete() decrements this
+			 * back to 0.
+			 */
+			if (lan2lan)
+				mi->lan2lan_info.ref_count++;
+			else
+				mi->lan2wan_info.ref_count++;
+			mutex_unlock(&ipa_client_db_lock);
+			IPA_BE_DBG("Mapping exists but %s rules not installed yet, installing (l2l: %d, l2w: %d)\n",
+				   lan2lan ? "lan2lan" : "lan2wan",
+				   mi->lan2lan_info.ref_count,
+				   mi->lan2wan_info.ref_count);
+			return mi;
+		}
 	}
+	mutex_unlock(&ipa_client_db_lock);
 
 	/*
 	 * Create mapping instance and add a new entry
@@ -636,6 +697,20 @@ struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(
 	/* Store address, VLAN, and MAC address in struct before adding */
 	memcpy(nmi->address, addr, sizeof(ip_addr_t));
 	nmi->vlan_id = vlan_id;
+
+	/* Pre-set the per-direction ref_count to 1 before publishing the
+	 * mapping. nmi is still local here, so no lock is needed for this
+	 * initialization. Once ipa_client_db_mapping_add() inserts nmi into
+	 * the hash tables, a concurrent caller for the same IP + direction
+	 * will take the dir_ref > 0 fast path above. If the caller's
+	 * rule-install fails, the failed_ret path's paired
+	 * ipa_be_mapping_deref_and_delete() decrements this back to 0 and
+	 * frees the mapping.
+	 */
+	if (lan2lan)
+		nmi->lan2lan_info.ref_count = 1;
+	else
+		nmi->lan2wan_info.ref_count = 1;
 
 	/* Copy MAC address if provided */
 	if (mac) {
@@ -1151,10 +1226,11 @@ static int ipa_ipv4_header_proc_ctx(
 	int* hdr_hdl,
 	char *name,
 	char *proc_ctx_name_out,
-	mac_addr_t mac)
+	mac_addr_t mac,
+	int is_ret)
 {
 	int handle = 0;
-	int egress_vlan_id = 0, ingress_vlan_id = 0;
+	int egress_vlan_id = 0, ingress_vlan_id = 0, client_vlan_id = 0;
 	char client_mac_vlan_str[32];
 	struct ipa_ioc_add_hdr_proc_ctx *hdr_proc_ctx_table;
 	struct ipa_hdr_proc_ctx_add *hdr_proc_ctx;
@@ -1170,11 +1246,17 @@ static int ipa_ipv4_header_proc_ctx(
 	{
 		ingress_vlan_id = v4_msg.vlan_primary_rule.ingress_vlan_tag & 0x3FF;
 	}
-	IPA_BE_DBG("ECMIPA egress_vlan_id 0x%x  ingress_vlan_id 0x%x hdr_name %s\n", egress_vlan_id, ingress_vlan_id, name);
+	/*
+	 * Select the VLAN id of the client this route delivers to.
+	 * flow client (is_ret == false) <-> ingress_vlan_tag,
+	 * return client (is_ret == true) <-> egress_vlan_tag.
+	 */
+	client_vlan_id = is_ret ? egress_vlan_id : ingress_vlan_id;
+	IPA_BE_DBG("ECMIPA egress_vlan_id 0x%x  ingress_vlan_id 0x%x client_vlan_id 0x%x hdr_name %s\n", egress_vlan_id, ingress_vlan_id, client_vlan_id, name);
 
 	snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d",
 			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
-			egress_vlan_id);
+			client_vlan_id);
 
 	/* Store the proc_ctx name for later cleanup */
 	if (proc_ctx_name_out) {
@@ -1194,9 +1276,9 @@ static int ipa_ipv4_header_proc_ctx(
 		return handle;
 	}
 
-	if (egress_vlan_id)
+	if (client_vlan_id)
 	{
-		*hdr_hdl = ipa_ipv4_vlan_header(v4_msg,  egress_vlan_id, name);
+		*hdr_hdl = ipa_ipv4_vlan_header(v4_msg,  client_vlan_id, name);
 	}
 	else
 	{
@@ -1219,7 +1301,7 @@ static int ipa_ipv4_header_proc_ctx(
 	hdr_proc_ctx->type = IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST;
 	hdr_proc_ctx->hdr_hdl = *hdr_hdl;
 
-	if (egress_vlan_id)
+	if (client_vlan_id)
 	{
 		hdr_proc_ctx->generic_params.output_ethhdr_negative_offset = 18;
 	}
@@ -1264,10 +1346,11 @@ static int ipa_ipv6_header_proc_ctx(
 	int* hdr_hdl,
 	char *name,
 	char *proc_ctx_name_out,
-	mac_addr_t mac)
+	mac_addr_t mac,
+	int is_ret)
 {
 	int handle = 0;
-	int egress_vlan_id = 0, ingress_vlan_id = 0;
+	int egress_vlan_id = 0, ingress_vlan_id = 0, client_vlan_id = 0;
 	char client_mac_vlan_str[32];
 	struct ipa_ioc_add_hdr_proc_ctx *hdr_proc_ctx_table;
 	struct ipa_hdr_proc_ctx_add *hdr_proc_ctx;
@@ -1283,11 +1366,17 @@ static int ipa_ipv6_header_proc_ctx(
 	{
 		ingress_vlan_id = v6_msg.vlan_primary_rule.ingress_vlan_tag & 0x3FF;
 	}
-	IPA_BE_DBG("ECMIPA egress_vlan_id 0x%x  ingress_vlan_id 0x%x hdr_name %s\n", egress_vlan_id, ingress_vlan_id, name);
+	/*
+	 * Select the VLAN id of the client this route delivers to.
+	 * flow client (is_ret == false) <-> ingress_vlan_tag,
+	 * return client (is_ret == true) <-> egress_vlan_tag.
+	 */
+	client_vlan_id = is_ret ? egress_vlan_id : ingress_vlan_id;
+	IPA_BE_DBG("ECMIPA egress_vlan_id 0x%x  ingress_vlan_id 0x%x client_vlan_id 0x%x hdr_name %s\n", egress_vlan_id, ingress_vlan_id, client_vlan_id, name);
 
 	snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d",
 			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
-			egress_vlan_id);
+			client_vlan_id);
 
 	/* Store the proc_ctx name for later cleanup */
 	if (proc_ctx_name_out) {
@@ -1306,9 +1395,9 @@ static int ipa_ipv6_header_proc_ctx(
 		return handle;
 	}
 
-	if (egress_vlan_id)
+	if (client_vlan_id)
 	{
-		*hdr_hdl = ipa_ipv6_vlan_header(v6_msg,  egress_vlan_id, name);
+		*hdr_hdl = ipa_ipv6_vlan_header(v6_msg,  client_vlan_id, name);
 	}
 	else
 	{
@@ -1331,7 +1420,7 @@ static int ipa_ipv6_header_proc_ctx(
 	hdr_proc_ctx->type = IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST;
 	hdr_proc_ctx->hdr_hdl = *hdr_hdl;
 
-	if (egress_vlan_id)
+	if (client_vlan_id)
 	{
 		hdr_proc_ctx->generic_params.output_ethhdr_negative_offset = 18;
 	}
@@ -1520,12 +1609,6 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 	hash_index = ipa_db_mapping_generate_hash_index(key_addr, 0);
 	IPA_BE_DBG("hash_index: %d\n", hash_index);
 
-	if (ipa_db_mapping_table[hash_index] == NULL)
-	{
-		IPA_BE_ERR("No mapping exists for this hash_index: %d\n", hash_index);
-		return -1;
-	}
-
 	mutex_lock(&ipa_client_db_lock);
 
 	// Traverse the hash chain to find the matching mapping instance
@@ -1539,7 +1622,10 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 				mi->lan2lan_info.rt_hdl = hdl;
 				mi->lan2lan_info.proc_ctx_hdl = proc;
 				mi->lan2lan_info.hdr_hdl = hdr_hdl;
-				mi->lan2lan_info.ref_count++;
+				/* ref_count is now bumped at lookup/alloc time in
+				 * ipa_be_client_mapping_add_or_ref(); do not
+				 * increment again here.
+				 */
 				/* Store proc_ctx name for cleanup */
 				if (proc_ctx_name) {
 
@@ -1557,7 +1643,10 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 				mi->lan2wan_info.rt_hdl = hdl;
 				mi->lan2wan_info.proc_ctx_hdl = proc;
 				mi->lan2wan_info.hdr_hdl = hdr_hdl;
-				mi->lan2wan_info.ref_count++;
+				/* ref_count is now bumped at lookup/alloc time in
+				 * ipa_be_client_mapping_add_or_ref(); do not
+				 * increment again here.
+				 */
 				/* Store proc_ctx name for cleanup */
 				if (proc_ctx_name) {
 
@@ -1607,12 +1696,6 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 	}
 	IPA_BE_DBG("hash_index: %d\n", hash_index);
 
-	if (ipa_db_mapping_table[hash_index] == NULL)
-	{
-		IPA_BE_ERR("No mapping exists for this hash_index: %d\n", hash_index);
-		return -1;
-	}
-
 	key_ip = is_ret ? (uint32_t *)&rule_msg->tuple.return_ip : (uint32_t *)&rule_msg->tuple.flow_ip;
 
 	mutex_lock(&ipa_client_db_lock);
@@ -1628,7 +1711,10 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 				mi->lan2lan_info.rt_hdl = hdl;
 				mi->lan2lan_info.proc_ctx_hdl = proc;
 				mi->lan2lan_info.hdr_hdl = hdr_hdl;
-				mi->lan2lan_info.ref_count++;
+				/* ref_count is now bumped at lookup/alloc time in
+				 * ipa_be_client_mapping_add_or_ref(); do not
+				 * increment again here.
+				 */
 				/* Store proc_ctx name for cleanup */
 				if (proc_ctx_name) {
 
@@ -1647,7 +1733,10 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 				mi->lan2wan_info.rt_hdl = hdl;
 				mi->lan2wan_info.proc_ctx_hdl = proc;
 				mi->lan2wan_info.hdr_hdl = hdr_hdl;
-				mi->lan2wan_info.ref_count++;
+				/* ref_count is now bumped at lookup/alloc time in
+				 * ipa_be_client_mapping_add_or_ref(); do not
+				 * increment again here.
+				 */
 				/* Store proc_ctx name for cleanup */
 				if (proc_ctx_name) {
 
@@ -1766,6 +1855,11 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 	IPA_BE_DBG("ECMIPA checking intf_num %d exists\n", intf_num);
 	tx_prop = (struct ipa_ioc_query_intf_tx_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_tx_props) +
 							temp_intf.num_tx_props * sizeof(struct ipa_ioc_tx_intf_prop), GFP_KERNEL);
+	if (tx_prop == NULL) {
+		IPA_BE_ERR("Error allocate tx_prop memory...\n");
+		retval = -ENOMEM;
+		goto cleanup;
+	}
 
 	memcpy(tx_prop->name, temp_intf.name, sizeof(temp_intf.name));
 	tx_prop->num_tx_props = temp_intf.num_tx_props;
@@ -1801,7 +1895,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 
 	if (lan2lan)
 	{
-		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name, mac);
+		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name, mac, is_ret);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V4_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
@@ -1938,6 +2032,11 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 	IPA_BE_DBG("ECMIPA checking intf_num %d exists\n", intf_num);
 	tx_prop = (struct ipa_ioc_query_intf_tx_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_tx_props) +
 							temp_intf.num_tx_props * sizeof(struct ipa_ioc_tx_intf_prop), GFP_KERNEL);
+	if (tx_prop == NULL) {
+		IPA_BE_ERR("Error allocate tx_prop memory...\n");
+		retval = -ENOMEM;
+		goto cleanup;
+	}
 
 	memcpy(tx_prop->name, temp_intf.name, sizeof(temp_intf.name));
 	tx_prop->num_tx_props = temp_intf.num_tx_props;
@@ -1972,7 +2071,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 
 	if (lan2lan)
 	{
-		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[1].hdr_name, proc_ctx_name, mac);
+		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[1].hdr_name, proc_ctx_name, mac, is_ret);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V6_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
@@ -2106,7 +2205,8 @@ int ipa_be_delete_proc_ctx(char *name)
 {
 	unsigned int index;
 	ProcCtx *entry, *prev = NULL;
-	struct ipa_ioc_del_hdr_proc_ctx *del_proc_ctx;
+	struct ipa_ioc_del_hdr_proc_ctx *del_proc_ctx = NULL;
+	int saved_handle = -1;
 	int ret = 0;
 
 	if (!name) {
@@ -2115,6 +2215,8 @@ int ipa_be_delete_proc_ctx(char *name)
 	}
 
 	index = ipa_proc_ctx_generate_hash_index(name);
+
+	mutex_lock(&ipa_hash_table_lock);
 	entry = hash_table_ipa[index];
 
 	/* Find the entry */
@@ -2124,38 +2226,47 @@ int ipa_be_delete_proc_ctx(char *name)
 			entry->ref_count--;
 			IPA_BE_DBG("Decremented ref_count for proc ctx %s to %d\n", name, entry->ref_count);
 
-			/* If reference count reaches 0, delete the proc context */
 			if (entry->ref_count <= 0) {
-				/* Delete from IPA */
+				/* Allocate the deletion descriptor now that we know we
+				 * need it and the ref decrement has already happened.
+				 * Allocating here (rather than before the lock) ensures
+				 * OOM cannot prevent the ref decrement and pin sw state. */
 				del_proc_ctx = kzalloc(sizeof(struct ipa_ioc_del_hdr_proc_ctx) +
-						      sizeof(struct ipa_hdr_proc_ctx_del), GFP_KERNEL);
+						       sizeof(struct ipa_hdr_proc_ctx_del), GFP_KERNEL);
 				if (!del_proc_ctx) {
 					IPA_BE_ERR("Failed to allocate memory for del_proc_ctx\n");
+					entry->ref_count++;  /* rollback: leave table state consistent for retry */
+					mutex_unlock(&ipa_hash_table_lock);
 					return -ENOMEM;
 				}
 
-				del_proc_ctx->commit = true;
-				del_proc_ctx->num_hdls = 1;
-				del_proc_ctx->hdl[0].hdl = entry->handle;
-
-				if (ipa3_del_hdr_proc_ctx(del_proc_ctx)) {
-					IPA_BE_ERR("Failed to delete proc ctx handle %d\n", entry->handle);
-					ret = -EFAULT;
-				} else {
-					IPA_BE_DBG("Successfully deleted proc ctx handle %d\n", entry->handle);
-				}
-
-				kfree(del_proc_ctx);
-
-				/* Remove from hash table */
-				if (prev) {
+				/* Save handle and unlink from hash table while still
+				 * holding the lock, so no concurrent path can find or
+				 * re-insert this entry between the unlock and the IPA
+				 * call below. */
+				saved_handle = entry->handle;
+				if (prev)
 					prev->next = entry->next;
-				} else {
+				else
 					hash_table_ipa[index] = entry->next;
-				}
-
 				kfree(entry);
 				IPA_BE_DBG("Removed proc ctx entry %s from hash table\n", name);
+			}
+			mutex_unlock(&ipa_hash_table_lock);
+
+			/* Perform the IPA hardware call outside the lock to avoid
+			 * holding it across a potentially slow firmware operation. */
+			if (del_proc_ctx) {
+				del_proc_ctx->commit = true;
+				del_proc_ctx->num_hdls = 1;
+				del_proc_ctx->hdl[0].hdl = saved_handle;
+				if (ipa3_del_hdr_proc_ctx(del_proc_ctx)) {
+					IPA_BE_ERR("Failed to delete proc ctx handle %d\n", saved_handle);
+					ret = -EFAULT;
+				} else {
+					IPA_BE_DBG("Successfully deleted proc ctx handle %d\n", saved_handle);
+				}
+				kfree(del_proc_ctx);
 			}
 			return ret;
 		}
@@ -2163,6 +2274,7 @@ int ipa_be_delete_proc_ctx(char *name)
 		entry = entry->next;
 	}
 
+	mutex_unlock(&ipa_hash_table_lock);
 	IPA_BE_DBG("Proc ctx entry %s not found\n", name);
 	return -ENOENT;
 }
