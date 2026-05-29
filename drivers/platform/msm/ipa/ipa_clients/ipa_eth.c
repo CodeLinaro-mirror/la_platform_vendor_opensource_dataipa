@@ -12,6 +12,8 @@
 #include <linux/sort.h>
 #include "ipa_eth.h"
 #include <linux/if_vlan.h>
+#include <net/ip.h>
+#include <net/ipv6.h>
 
 #define OFFLOAD_DRV_NAME "ipa_eth"
 #define IPA_ETH_DBG(fmt, args...) \
@@ -2245,6 +2247,18 @@ int ipa_eth_get_config_type(
 		eth_config->dma_config[1].traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
 		IPA_ETH_DBG("Default configuration for client %d, inst_id %d\n", client_type, inst_id);
 	}
+
+#if IPA_ETH_API_VER >= 8
+	eth_config->offload_supported    = ipa3_is_ulso_supported();
+	eth_config->offload_max_pkts     = IPA_ETH_OFFLOAD_MAX_PKTS;
+	eth_config->offload_headroom     = sizeof(struct qmap_hdr);
+	eth_config->offload_features     = ipa3_is_ulso_supported() ?
+		(NETIF_F_RXCSUM | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
+		 NETIF_F_SG | NETIF_F_GRO_HW |
+		 NETIF_F_ALL_TSO | NETIF_F_GSO_UDP_L4) : 0;
+	eth_config->offload_gso_max_size = ipa3_is_ulso_supported() ?
+		IPA_ETH_OFFLOAD_GSO_MAX_SIZE : 0;
+#endif
 	return ret;
 }
 EXPORT_SYMBOL(ipa_eth_get_config_type);
@@ -2407,4 +2421,249 @@ int ipa_eth_client_disable_pipes(struct ipa_eth_client *client)
 }
 EXPORT_SYMBOL(ipa_eth_client_disable_pipes);
 #endif
+
+/* ------------------------------------------------------------------ */
+/* ETH ULSO TX path                                                    */
+/* ------------------------------------------------------------------ */
+
+#if IPA_ETH_API_VER >= 8
+
+/*
+ * ipa_eth_ulso_get_tx_pipe_idx() - Compute the zero-based TX pipe index for
+ * a given pipe by counting TX pipes that appear before it in the client's
+ * pipe_list.  This index is required by ipa_eth_get_ipa_client_type_from_pipe()
+ * to resolve the correct IPA consumer endpoint for QoS multi-pipe deployments
+ * (IPA_CLIENT_ETHERNET_CONS0 .. CONS4).
+ */
+static u8 ipa_eth_ulso_get_tx_pipe_idx(
+		const struct ipa_eth_client_pipe_info *target)
+{
+	const struct ipa_eth_client_pipe_info *pipe;
+	u8 idx = 0;
+
+	list_for_each_entry(pipe, &target->client_info->pipe_list, link) {
+		if (pipe == target)
+			return idx;
+		if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
+			idx++;
+	}
+	return 0;
+}
+
+/*
+ * These deltas account for the minimum fixed IP + transport header
+ * overhead subtracted from MTU to derive the TCP/UDP MSS placed in
+ * skb_shinfo()->gso_size.  The IPA driver uses a non-zero gso_size
+ * to recognise a packet as GSO and select the pkt_init_ex_imm path.
+ * IPv4: 20-byte IP hdr + 20-byte TCP hdr = 40 bytes
+ * IPv6: 40-byte IP hdr + 20-byte TCP hdr = 60 bytes
+ */
+#define ETH_ULSO_IPV4_DELTA	40	/* IPv4 hdr + TCP hdr */
+#define ETH_ULSO_IPV6_DELTA	60	/* IPv6 hdr + TCP hdr */
+#define ETH_ULSO_IPV4_UDP_DELTA	28	/* IPv4 hdr + UDP hdr */
+#define ETH_ULSO_IPV6_UDP_DELTA	48	/* IPv6 hdr + UDP hdr */
+
+#define ETH_IPV4_IS_TCP(iph)	((iph)->protocol == IPPROTO_TCP)
+#define ETH_IPV4_IS_UDP(iph)	((iph)->protocol == IPPROTO_UDP)
+#define ETH_IPV6_IS_TCP(iph)	(((struct ipv6hdr *)(iph))->nexthdr == IPPROTO_TCP)
+#define ETH_IPV6_IS_UDP(iph)	(((struct ipv6hdr *)(iph))->nexthdr == IPPROTO_UDP)
+
+/**
+ * ipa_eth_offload_tx_dp() - Transmit an skb over the ETH offload SW TX path
+ * @pipe: TX pipe registered via ipa_eth_client_conn_pipes(); must have
+ *        dir == IPA_ETH_PIPE_DIR_TX and a valid client_info back-pointer
+ * @skb: packet to transmit; ownership transfers to IPA on success;
+ *       skb->dev->mtu is used as the segmentation MTU
+ *
+ * For TCP and UDP packets over IPv4/IPv6, prepends an 8-byte QMAP extension
+ * header (hdr_type=0x3) when IPA segmentation offload is supported by the
+ * hardware.  Sets skb_shinfo()->gso_size so that ipa_tx_dp() selects the
+ * pkt_init_ex_imm descriptor path which instructs IPA to perform HW
+ * segmentation and checksum computation.  Non-TCP/UDP packets are forwarded
+ * without QMAP encapsulation.
+ *
+ * The TX pipe (IPA->ETH consumer endpoint) is resolved from
+ * pipe->client_info->client_type so the correct pipe is chosen for
+ * multi-instance deployments.
+ *
+ * Must not be called from atomic context.
+ *
+ * Returns: 0 on success
+ *          -EINVAL  if pipe or skb is invalid, or pipe direction is not TX
+ *          -EPERM   if the TX pipe is not yet connected
+ *          -EAGAIN  if IPA PM is activating (caller should stop TX queue)
+ *          -ENOSPC  if the GSI descriptor ring is full (caller should stop TX
+ *                   queue and restart it from the TX-complete notify callback)
+ *          negative errno from ipa_tx_dp() on other transmit failures
+ */
+int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
+			  struct sk_buff *skb)
+{
+	enum ipa_client_type tx_client;
+	struct qmap_hdr qmap_hdr;
+	struct iphdr *iph;
+	u16 mtu = skb->dev->mtu;
+	u32 pm_hdl;
+	u16 skb_len;
+	u16 ip_dgram_len = 0;
+	int ret;
+
+	if (!pipe || !pipe->client_info ||
+	    pipe->dir != IPA_ETH_PIPE_DIR_TX ||
+	    pipe->client_info->client_type >= IPA_ETH_CLIENT_MAX ||
+	    pipe->client_info->inst_id >= IPA_ETH_INST_ID_MAX) {
+		IPA_ETH_ERR("invalid pipe\n");
+		return -EINVAL;
+	}
+
+	if (unlikely(!skb)) {
+		IPA_ETH_ERR("null skb\n");
+		return -EINVAL;
+	}
+
+	if (!ipa_eth_ctx) {
+		IPA_ETH_ERR("ULSO TX called before ETH client registered\n");
+		return -EPERM;
+	}
+
+	tx_client = ipa_eth_get_ipa_client_type_from_pipe(
+		pipe, 0, ipa_eth_ulso_get_tx_pipe_idx(pipe));
+
+	if (ipa_get_ep_mapping(tx_client) == IPA_EP_NOT_ALLOCATED) {
+		IPA_ETH_ERR("TX pipe not connected for client %d inst %d\n",
+			    pipe->client_info->client_type,
+			    pipe->client_info->inst_id);
+		return -EPERM;
+	}
+
+	pm_hdl = ipa_eth_ctx->client[pipe->client_info->client_type]
+				    [pipe->client_info->inst_id].pm_hdl_tx;
+	ret = ipa_pm_activate(pm_hdl);
+	if (ret) {
+		IPA_ETH_DBG("IPA PM activation pending for client %d, ret %d\n",
+			    pipe->client_info->client_type, ret);
+		return -EAGAIN;
+	}
+
+	skb_len = skb->len;
+
+	if (ipa3_is_ulso_supported()) {
+		bool is_frag = false;
+
+		/*
+		 * Build a per-call QMAP ULSO template on the stack. segment_size
+		 * is the HW segmentation size = the L4 payload per segment; it
+		 * excludes the IP and transport (TCP/UDP) header sizes and is set
+		 * per-protocol below. gso_size is set to the same value so
+		 * ipa_tx_dp() recognises this as a GSO packet regardless of the
+		 * original packet size (needed for HW checksum offload on small
+		 * frames where the kernel skips SW csum computation).
+		 */
+		memset(&qmap_hdr, 0, sizeof(qmap_hdr));
+		qmap_hdr.next_hdr      = 1;    /* extension header present */
+		qmap_hdr.cd            = 0;    /* data packet, not command */
+		qmap_hdr.mux_id        = 0;
+		qmap_hdr.hdr_type      = 0x3;  /* ULSO extension header type */
+		qmap_hdr.zero_checksum = 0;    /* IPA computes checksum */
+		qmap_hdr.ip_id_cfg     = 0;    /* running IP ID per segment */
+
+		if (ntohs(skb->protocol) == ETH_P_IP) {
+			iph = ip_hdr(skb);
+			is_frag = ip_is_fragment(iph);
+			if (!is_frag &&
+			    (ETH_IPV4_IS_TCP(iph) || ETH_IPV4_IS_UDP(iph))) {
+				u16 delta = ETH_IPV4_IS_TCP(iph) ?
+					ETH_ULSO_IPV4_DELTA :
+					ETH_ULSO_IPV4_UDP_DELTA;
+
+				ip_dgram_len = ntohs(iph->tot_len);
+				qmap_hdr.segment_size = htons(mtu - delta);
+				skb = qmap_encapsulate_skb(skb, &qmap_hdr);
+				skb_shinfo(skb)->gso_size = mtu - delta;
+			}
+		} else if (ntohs(skb->protocol) == ETH_P_IPV6) {
+			unsigned int frag_off = 0;
+
+			iph = ip_hdr(skb);
+			is_frag = (ipv6_find_hdr(skb, &frag_off, NEXTHDR_FRAGMENT,
+				NULL, NULL) == NEXTHDR_FRAGMENT);
+			if (!is_frag &&
+			    (ETH_IPV6_IS_TCP(iph) || ETH_IPV6_IS_UDP(iph))) {
+				u16 delta = ETH_IPV6_IS_TCP(iph) ?
+					ETH_ULSO_IPV6_DELTA :
+					ETH_ULSO_IPV6_UDP_DELTA;
+
+				ip_dgram_len = ntohs(ipv6_hdr(skb)->payload_len) +
+					sizeof(struct ipv6hdr);
+				qmap_hdr.segment_size = htons(mtu - delta);
+				skb = qmap_encapsulate_skb(skb, &qmap_hdr);
+				skb_shinfo(skb)->gso_size = mtu - delta;
+			}
+		}
+
+		/*
+		 * IP-fragmented packets cannot be processed by the HW ULSO block
+		 * (HW exceptions them), so they are left unencapsulated above and
+		 * egress the plain, non-GSO path. HW checksum offload only runs on
+		 * the ULSO path, so realize the L4 checksum in SW here; otherwise
+		 * the fragment would egress with an unresolved CHECKSUM_PARTIAL
+		 * checksum.
+		 */
+		if (is_frag && skb->ip_summed == CHECKSUM_PARTIAL &&
+		    skb_checksum_help(skb))
+			IPA_ETH_ERR("frag: skb_checksum_help failed\n");
+	}
+
+	/*
+	 * Clear any stale or unset gso_size so ipa_tx_dp() does not
+	 * misidentify this packet as GSO.  Covers three cases:
+	 *   - !ipa3_is_ulso_supported(): ULSO HW absent; forward as-is.
+	 *   - ULSO supported but non-TCP/UDP: no encapsulation attempted.
+	 *   - ULSO supported, TCP/UDP, OOM in qmap_encapsulate_skb: the
+	 *     original skb was returned unchanged (skb->len == skb_len).
+	 * When encapsulation succeeded, skb->len grew by sizeof(qmap_hdr)
+	 * so the guard does not fire and gso_size retains the set MSS.
+	 */
+	if (skb_len == skb->len) {
+		skb_shinfo(skb)->gso_size = 0;
+	} else {
+		/*
+		 * qmap_encapsulate_skb() set packet_len_with_pad = skb->len,
+		 * which includes the 8B QMAP and the Ethernet header. The QMAP
+		 * ULSO length field must be the L2 payload only (skb->len minus
+		 * QMAP and Ethernet header), and the QMAP pad field must report
+		 * any trailing Ethernet padding (frame payload beyond the IP
+		 * datagram) so HW does not treat the pad as packet data.
+		 */
+		struct qmap_hdr *qh_ptr = (struct qmap_hdr *)skb->data;
+		u16 l2pay = skb->len - (u16)sizeof(struct qmap_hdr) - ETH_HLEN;
+
+		qh_ptr->packet_len_with_pad = htons(l2pay);
+		if (ip_dgram_len && l2pay > ip_dgram_len)
+			qh_ptr->pad = (l2pay - ip_dgram_len) & 0x3f;
+	}
+
+	ret = ipa_tx_dp(tx_client, skb, NULL);
+	if (ret) {
+		/*
+		 * ipa_tx_dp() returns -EFAULT when ipa3_send() fails, which
+		 * itself returns -EFAULT when gsi_queue_xfer() returns
+		 * -GSI_STATUS_RING_INSUFFICIENT_SPACE.  The GSI ring running
+		 * out of descriptors is the dominant TX failure in the hot
+		 * path; map it to -ENOSPC so the vendor driver can distinguish
+		 * "descriptor ring full — stop TX queue" from hard errors and
+		 * act accordingly (call netif_stop_queue(), then restart it
+		 * from the TX-complete notify callback).
+		 */
+		if (ret == -EFAULT)
+			ret = -ENOSPC;
+		IPA_ETH_ERR("ipa_tx_dp failed for client %d: %d\n",
+			    pipe->client_info->client_type, ret);
+	}
+
+	ipa_pm_deferred_deactivate(pm_hdl);
+	return ret;
+}
+EXPORT_SYMBOL(ipa_eth_offload_tx_dp);
+#endif /* IPA_ETH_API_VER >= 8 */
 

@@ -971,6 +971,12 @@ void ipa_imm_cmd_modify_ip_packet_init_ex_ulso(u32 ep)
 	cmd->rt_pipe_dest_idx = (u64)ep;
 	cmd->traffic_mode = IPA_NON_DMA_ETHERNET;
 	cmd->leading_header_size = ULSO_LEADING_HEADER_SIZE;
+	/*
+	 * Header removal/insertion must stay ENABLED (disable=false) so HW
+	 * strips the leading QMAP header (leading_header_size bytes) on the
+	 * ULSO path; otherwise the 8B QMAP is left on the egress frame.
+	 */
+	cmd->hdr_removal_insertion_disable = 0;
 }
 
 void ipa_imm_cmd_modify_ip_packet_init_ex_eth(u32 ep)
@@ -1984,7 +1990,7 @@ static enum ipahal_pkt_status_exception pkt_status_parse_exception_v7_0(
 	default:
 		IPAHAL_ERR("unsupported Status Exception type 0x%x\n",
 			exception);
-		WARN_ON(1);
+		//WARN_ON(1);
 	}
 
 	return exception_type;

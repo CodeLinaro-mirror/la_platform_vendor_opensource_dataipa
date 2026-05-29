@@ -12148,6 +12148,43 @@ int ipa3_cfg_ep(u32 clnt_hdl, const struct ipa_ep_cfg *ipa_ep_cfg)
 			return result;
 	}
 
+	/*
+	 * ULSO consumer (egress) pipes. ipa3_send() selects the pkt_init_ex
+	 * command keyed on the DESTINATION (consumer) pipe and uses
+	 * pkt_init_ex_imm[dst]. That per-pipe immediate command is set up by
+	 * ipa_imm_cmd_modify_ip_packet_init_ex_ulso(). The PROD block above
+	 * does not cover consumer pipes, and previously only TEST_CONS was
+	 * special-cased (below) - which is exactly why ULSO worked in the UT
+	 * TEST environment but not for production ETH/WLAN consumer pipes.
+	 *
+	 * The ULSO frame already carries its own Ethernet header, but the CONS
+	 * keeps a non-zero hdr_len for its normal offload path, so HW would
+	 * insert a second L2 header ahead of it. Point the pkt_init_ex at the
+	 * common empty (hdr_len=0) HPC header (added once at boot,
+	 * ipa3_setup_ulso_empty_hdr) so HW inserts nothing; this is shared by
+	 * all ULSO peripherals (ETH, WLAN, ...). ipa_set_pkt_init_ex_hdr_ofst()
+	 * resets leading_header_size to 0 for NON_DMA_ETHERNET, so re-apply the
+	 * ULSO imm command afterwards to restore leading_header_size=8 (QMAP
+	 * strip). The ULSO segmentation registers (IPA_ENDP_INIT_ULSO_CFG_n)
+	 * are an ingress concern programmed on LAN_PROD via ipa3_cfg_ep_ulso().
+	 */
+	if (ipa3_is_ulso_supported() && ipa_ep_cfg->ulso.is_ulso_pipe &&
+		IPA_CLIENT_IS_CONS(ipa3_ctx->ep[clnt_hdl].client) &&
+		ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		if (ipa3_ctx->ulso_empty_hdr_valid) {
+			struct ipa_pkt_init_ex_hdr_ofst_set lookup;
+
+			memset(&lookup, 0, sizeof(lookup));
+			lookup.ep = ipa3_ctx->ep[clnt_hdl].client;
+			strscpy(lookup.name, IPA_ULSO_EMPTY_HDR_NAME,
+				sizeof(lookup.name));
+			if (ipa_set_pkt_init_ex_hdr_ofst(&lookup, true))
+				IPAERR("fail to set ULSO empty-hdr ofst clnt=%d\n",
+					ipa3_ctx->ep[clnt_hdl].client);
+		}
+		ipa_imm_cmd_modify_ip_packet_init_ex_ulso(clnt_hdl);
+	}
+
 	//For ULSO kernel tests
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST
 		&& ipa3_ctx->ep[clnt_hdl].client == IPA_CLIENT_TEST_CONS && ipa_ep_cfg->ulso.is_ulso_pipe) {

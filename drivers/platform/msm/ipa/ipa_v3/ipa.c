@@ -172,6 +172,7 @@ static int ipa3_alloc_pkt_init(void);
 static int ipa_alloc_pkt_init_ex(void);
 static void ipa3_free_pkt_init(void);
 static void ipa3_free_pkt_init_ex(void);
+static int ipa3_setup_ulso_empty_hdr(void);
 
 #if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 static void ipa3_deepsleep_resume(void);
@@ -7823,9 +7824,12 @@ static int ipa3_setup_apps_pipes(void)
 				ENDP_INIT_ULSO_CFG_IP_ID_MIN_MAX_VAL_IDX_LINUX;
 			sys_in.ipa_ep_cfg.ulso.is_ulso_pipe = true;
 			sys_in.ipa_ep_cfg.cfg.cs_offload_en = IPA_ENABLE_CS_OFFLOAD_UL;
-			sys_in.ipa_ep_cfg.hdr.hdr_len = QMAP_HDR_LEN + ETH_HLEN;
-			sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove_valid = true;
-			sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove = QMAP_HDR_LEN;
+			sys_in.ipa_ep_cfg.hdr.hdr_len = QMAP_HDR_LEN;
+			sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove_valid = false;
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+				sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove = QMAP_HDR_LEN;
+			else
+				sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove = QMAP_HDR_LEN + ETH_HLEN;
 		}
 		if (ipa_setup_sys_pipe(&sys_in,
 			&ipa3_ctx->clnt_hdl_data_out)) {
@@ -10595,6 +10599,19 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 	IPADBG("IPA GPI pipes were connected\n");
 
+	/*
+	 * Add the common empty (hdr_len=0) HPC header used by all ULSO
+	 * consumer pipes. Done here (after the header tables are set up by
+	 * ipa3_setup_apps_pipes) so every ULSO CONS can point its pkt_init_ex
+	 * at it from ipa3_cfg_ep. Non-fatal: on failure ULSO CONS fall back to
+	 * their configured hdr_len (which may double-insert an L2 header).
+	 */
+	if (ipa3_ctx->ulso_supported &&
+		ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		if (ipa3_setup_ulso_empty_hdr())
+			IPAERR("failed to setup ULSO empty HPC hdr\n");
+	}
+
 	if (ipa3_ctx->use_ipa_teth_bridge) {
 		/* Initialize the tethering bridge driver */
 		result = ipa3_teth_bridge_driver_init();
@@ -11503,6 +11520,56 @@ static void ipa3_free_pkt_init_ex(void)
 	dma_free_coherent(ipa3_ctx->pdev, ipa3_ctx->pkt_init_ex_mem.size,
 		ipa3_ctx->pkt_init_ex_mem.base,
 		ipa3_ctx->pkt_init_ex_mem.phys_base);
+}
+
+/*
+ * ipa3_setup_ulso_empty_hdr() - add the common empty (hdr_len=0) HPC header
+ * shared by all ULSO consumer pipes and cache its handle in ipa3_ctx.
+ *
+ * The ULSO SW TX frame already carries its own Ethernet header
+ * (QMAP|ETH|IP|L4). Every ULSO CONS keeps a non-zero hdr_len for its normal
+ * offload path, so by default HW would insert a second L2 header ahead of the
+ * existing one (pkt_init_ex, driven by hdr_len) and corrupt the wire frame.
+ * ipa3_cfg_ep() points each ULSO CONS pkt_init_ex at this zero-length header
+ * so HW inserts nothing. Added once at boot and reused by ETH, WLAN, etc.
+ * Mirrors ecm_ipa_hdrs_hpc_cfg().
+ */
+static int ipa3_setup_ulso_empty_hdr(void)
+{
+	struct ipa_ioc_add_hdr *hdrs;
+	struct ipa_hdr_add *empty_hdr;
+	int result = 0;
+
+	if (ipa3_ctx->ulso_empty_hdr_valid)
+		return 0;
+
+	hdrs = kzalloc(sizeof(*hdrs) + sizeof(*empty_hdr), GFP_KERNEL);
+	if (!hdrs)
+		return -ENOMEM;
+	empty_hdr = &hdrs->hdr[0];
+	strscpy(empty_hdr->name, IPA_ULSO_EMPTY_HDR_NAME, sizeof(empty_hdr->name));
+	empty_hdr->hdr_len = 0;
+	empty_hdr->hdr_hdl = -1;
+	empty_hdr->is_partial = false;
+	empty_hdr->status = -1;
+	hdrs->num_hdrs = 1;
+	hdrs->commit = 1;
+
+	result = ipa3_add_hdr_hpc(hdrs);
+	if (result || empty_hdr->status) {
+		IPAERR("fail to add ULSO empty HPC hdr (%d/%d)\n",
+			result, empty_hdr->status);
+		result = result ? result : empty_hdr->status;
+		kfree(hdrs);
+		return result;
+	}
+
+	ipa3_ctx->ulso_empty_hdr_hdl = empty_hdr->hdr_hdl;
+	ipa3_ctx->ulso_empty_hdr_valid = true;
+	kfree(hdrs);
+	IPADBG("ULSO empty HPC hdr added, hdl=%u\n",
+		ipa3_ctx->ulso_empty_hdr_hdl);
+	return 0;
 }
 
 static int ipa_alloc_pkt_init_ex(void)

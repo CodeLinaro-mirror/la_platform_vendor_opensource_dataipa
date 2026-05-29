@@ -157,6 +157,9 @@ enum {
 
 #define QMAP_HDR_LEN 8
 
+/* Name of the common empty (hdr_len=0) HPC header shared by ULSO CONS pipes */
+#define IPA_ULSO_EMPTY_HDR_NAME "ipa_ulso_empty"
+
 #define IPA_HOLB_TMR_DIS 0x0
 #define IPA_HOLB_TMR_EN 0x1
 /*
@@ -2937,6 +2940,14 @@ struct ipa3_context {
 	bool ulso_supported;
 	u16 ulso_ip_id_min;
 	u16 ulso_ip_id_max;
+	/*
+	 * Common empty (hdr_len=0) HPC header shared by all ULSO consumer
+	 * pipes (ETH, WLAN, ...). Added once at boot; every ULSO CONS points
+	 * its pkt_init_ex at it (via ipa3_cfg_ep) so HW inserts no L2 header
+	 * ahead of the ULSO frame's own Ethernet header.
+	 */
+	u32 ulso_empty_hdr_hdl;
+	bool ulso_empty_hdr_valid;
 	bool use_pm_wrapper;
 	u8 page_poll_threshold;
 	bool wan_common_page_pool;

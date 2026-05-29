@@ -10,6 +10,7 @@
 #include "ipa.h"
 #include <linux/msm_ipa.h>
 #include <linux/msm_gsi.h>
+#include <linux/netdev_features.h>
 
 #define IPA_ETH_MAX_DMA_CH 12
 #define IPA_ETH_CONFIG_LEN 20
@@ -99,6 +100,34 @@ struct ipa_eth_config {
 
 	/* dma channels config list */
 	struct ipa_eth_dma_ch_config dma_config[IPA_ETH_MAX_DMA_CH];
+
+#if IPA_ETH_API_VER >= 8
+	/* Segmentation-offload capability — populated by ipa_eth_get_config_type().
+	 * Generic across offload paths (ULSO today); not ULSO-specific.
+	 */
+	bool offload_supported;  /* IPA HW supports segmentation offload here */
+	u32  offload_max_pkts;   /* IPA-recommended max in-flight offload TX pkts
+				  * Use as high watermark for TX queue stop.
+				  * Suggested low watermark: offload_max_pkts / 2 */
+	u32  offload_headroom;   /* bytes to reserve via dev->needed_headroom
+				  * for the QMAP extension header.
+				  * Valid only when offload_supported is true.  */
+	/**
+	 * offload_features: netdev HW feature flags to enable on the net_device
+	 * when offload_supported is true.  The ETH driver must set:
+	 *   netdev->hw_features |= config.offload_features;
+	 * Matches the flags set by rndis_ipa / ecm_ipa:
+	 *   NETIF_F_RXCSUM | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
+	 *   NETIF_F_SG | NETIF_F_GRO_HW | NETIF_F_ALL_TSO | NETIF_F_GSO_UDP_L4
+	 * Zero when offload_supported is false.
+	 */
+	netdev_features_t offload_features;
+	/**
+	 * offload_gso_max_size: value to assign to netdev->gso_max_size when
+	 * offload_supported is true.  Zero when offload_supported is false.
+	 */
+	u32  offload_gso_max_size;
+#endif
 };
 
 /**
@@ -333,5 +362,35 @@ int ipa_eth_qos_get_qos_info(
 
 int ipa_eth_client_enable_pipes(struct ipa_eth_client *client);
 int ipa_eth_client_disable_pipes(struct ipa_eth_client *client);
+
+#if IPA_ETH_API_VER >= 8
+/* IPA-recommended maximum in-flight offload TX packets (high watermark).
+ * Returned in ipa_eth_config.offload_max_pkts by ipa_eth_get_config_type().
+ * Suggested low watermark (queue wake): IPA_ETH_OFFLOAD_MAX_PKTS / 2.  */
+#define IPA_ETH_OFFLOAD_MAX_PKTS  128
+
+/* Maximum GSO size when segmentation offload is enabled.
+ * Assign to netdev->gso_max_size; also returned in
+ * ipa_eth_config.offload_gso_max_size by ipa_eth_get_config_type().   */
+#define IPA_ETH_OFFLOAD_GSO_MAX_SIZE  64000
+
+/**
+ * ipa_eth_offload_tx_dp - Transmit an skb over the ETH offload SW TX path
+ * @pipe: TX pipe registered via ipa_eth_client_conn_pipes(); must have
+ *        dir == IPA_ETH_PIPE_DIR_TX and a valid client_info back-pointer
+ * @skb: packet to transmit; skb->dev->mtu is used as the segmentation MTU
+ *
+ * For TCP/UDP over IPv4/IPv6, prepends the QMAP extension header
+ * (hdr_type=0x3) when IPA segmentation offload is supported, and enqueues the
+ * packet into the IPA->ETH TX pipe bound to the pipe's client. Non-offloaded
+ * traffic (offload unsupported, or non-TCP/UDP) is forwarded as-is.
+ *
+ * Returns 0 on success, -EAGAIN if PM is activating (stop TX queue),
+ * -ENOSPC if the GSI descriptor ring is full (stop TX queue; restart from
+ * the TX-complete notify callback), or a negative errno on failure.
+ */
+int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
+			  struct sk_buff *skb);
+#endif /* IPA_ETH_API_VER >= 8 */
 
 #endif // _IPA_ETH_H_
