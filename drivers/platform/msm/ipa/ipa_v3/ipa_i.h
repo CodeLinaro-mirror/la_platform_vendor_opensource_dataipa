@@ -2596,6 +2596,8 @@ struct ipa3_context {
 	struct mutex recycle_stats_collection_lock;
 	struct mutex ssr_lock;
 	atomic_t is_suspend_mode_enabled;
+	bool gemnoc_ddr_init;
+	u32 *gemnoc_ddr_buf;
 };
 
 struct ipa3_plat_drv_res {
@@ -2683,6 +2685,7 @@ struct ipa3_plat_drv_res {
 	bool ipa_wdi_opt_dpath;
 	u8 coal_ipv4_id_ignore;
 	bool ipa_config_is_iot;
+	bool gemnoc_ddr_init;
 };
 
 /**
