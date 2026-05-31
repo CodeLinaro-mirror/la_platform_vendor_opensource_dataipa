@@ -12781,8 +12781,7 @@ ipa3_get_ep_traffic_mode(enum ipa_client_type client)
 	case IPA_CLIENT_WLAN2_PROD1:
 	case IPA_CLIENT_WLAN3_PROD1:
 	case IPA_CLIENT_WLAN1_PROD1:
-		/* Fo now, reverting this to IPA_BASIC, as IPA_NON_DMA_ETHERNET mode changes are not fully enabled. */
-		return IPA_BASIC;
+		return IPA_NON_DMA_ETHERNET;
 	default:
 		return IPA_BASIC;
 	}
