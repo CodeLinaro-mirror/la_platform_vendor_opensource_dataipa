@@ -2581,6 +2581,7 @@ struct ipa3_context {
 	struct device *uc_pdev;
 	spinlock_t idr_lock;
 	u32 enable_clock_scaling;
+	u32 standard_output_en;
 	u32 enable_napi_chain;
 	u32 curr_ipa_clk_rate;
 	bool q6_proxy_clk_vote_valid;
@@ -2772,6 +2773,7 @@ struct ipa3_context {
 	bool ipa_v2x_vm;
 	u32 pvm_v2x_pm_hdl;
 	atomic_t v2x_vm_ready;
+	bool uplink_pipe_status;
 #ifdef CONFIG_GH_MSGQ
 	struct ipa_msgq_desc msgq_desc;
 #endif
@@ -3280,6 +3282,8 @@ int ipa3_add_ipv6_nat_uc_activation_entry(
 int ipa3_del_ipv6_nat_uc_activation_entry(uint16_t index);
 
 int ipa3_del_uc_act_entry(uint16_t index);
+
+int ipa3_configure_uplink_ep_status(int ep_idx);
 
 /*
  * Header removal / addition

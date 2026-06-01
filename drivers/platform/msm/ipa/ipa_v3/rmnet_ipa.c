@@ -3163,7 +3163,7 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 		}
 #ifdef CONFIG_IPA_IPSEC
 		if (ipa_ipsec_enabled()) {
-			rc = ipa_ipsec_install_dl_pol_flt();
+			rc = ipa_ipsec_install_dl_pol_flt(rmnet_ipa3_ctx->qmap_hdr_hdl);
 			if (rc)
 				IPAWANERR("IPsec DL policy FLT init failed = %d\n", rc);
 		}
@@ -3469,6 +3469,12 @@ static int ipa3_setup_apps_wan_prod_pipes(
 			else if (rmnet_ipa3_ctx->eth_vlan == IPA_QMI_ETH_HW_NON_VLAN_IP_V01)
 				/* L2(8) + ETH(14) */
 				ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 22;
+			else if (rmnet_ipa3_ctx->eth_vlan == IPA_QMI_ETH_IPA_HW_VLAN_VLAN_IP_V01)
+				/* L2(8) + ETH(14) + VLAN(4) + VLAN(4)*/
+				ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 30;
+			else if (rmnet_ipa3_ctx->eth_vlan == IPA_QMI_ETH_IPA_HW_PPPOE_VLAN_IP_V01)
+				/* L2(8) + ETH(14) + VLAN(4)+PPPOE(8)*/
+				ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 34;
 			IPAWANDBG("set hdr_len on eth-cons %d\n",
 				ipa_wan_ep_cfg->ipa_ep_cfg.hdr.hdr_len);
 		}

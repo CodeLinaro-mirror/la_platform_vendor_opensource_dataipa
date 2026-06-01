@@ -662,6 +662,12 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 			IPAERR("fail to configure status of EP.\n");
 			goto ipa_cfg_ep_fail;
 		}
+
+		if (ipa3_ctx->uplink_pipe_status) {
+			if (ipa3_configure_uplink_ep_status(ipa_ep_idx))
+				goto ipa_cfg_ep_fail;
+		}
+
 		IPADBG("ep configuration successful\n");
 	} else {
 		IPADBG("Skipping endpoint configuration.\n");
@@ -1797,8 +1803,8 @@ int ipa3_xdci_suspend(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	/*enable holb to discard the packets*/
 	if (IPA_CLIENT_IS_CONS(dl_ep->client) && !is_dpl) {
 		memset(&holb_cfg, 0, sizeof(holb_cfg));
-		holb_cfg.en = IPA_HOLB_TMR_EN;
-		holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+		holb_cfg.en = IPA_HOLB_TMR_DIS;
+		holb_cfg.tmr_val = 0; 
 		result = ipa3_cfg_ep_holb(dl_clnt_hdl, &holb_cfg);
 	}
 

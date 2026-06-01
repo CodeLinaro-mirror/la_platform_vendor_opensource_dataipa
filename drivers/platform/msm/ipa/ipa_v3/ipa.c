@@ -235,6 +235,8 @@ void ipa3_plat_drv_shutdown(struct platform_device *pdev_p);
 int ipa3_pci_drv_probe(struct pci_dev *pci_dev,
 	const struct pci_device_id *ent);
 
+static int ipa3_config_status_for_all_prod_pipes(bool enable);
+
 /**
  * ipa_get_hw_type() - Return IPA HW version
  *
@@ -991,8 +993,6 @@ struct iommu_domain *ipa3_get_smmu_domain_by_type(enum ipa_smmu_cb_type cb_type)
 {
 	if (VALID_IPA_SMMU_CB_TYPE(cb_type) && smmu_cb[cb_type].valid)
 		return smmu_cb[cb_type].iommu_domain;
-
-	IPAERR("cb_type(%d) not valid\n", cb_type);
 
 	return NULL;
 }
@@ -11023,6 +11023,7 @@ ssize_t ipa3_update_config(const char *buff)
 #if defined(CONFIG_IPA_IPSEC)
 	int res;
 #endif
+	bool new_uplink_status;
 
 	if (count >= sizeof(dbg_buff))
 		return -EFAULT;
@@ -11055,6 +11056,13 @@ ssize_t ipa3_update_config(const char *buff)
 			ipa3_ctx->ipa_mhi_eth = true;
 		}
 
+		if (strnstr(dbg_buff, "rdkb", strlen(dbg_buff)))
+		{
+			IPADBG("Platform type is RDKB\n");
+			ipa3_ctx->ipa_config_is_rdkb = true;
+			ipa3_ctx->enable_napi_chain = 0;
+		}
+
 #if IPA_ETH_API_VER >= 4
 		if (strnstr(dbg_buff, "ethqos", strlen(dbg_buff))) {
 			ipa3_ctx->eth_qos = IPA_ETH_QOS_ENABLE;
@@ -11074,6 +11082,7 @@ ssize_t ipa3_update_config(const char *buff)
 			ipa3_ctx->device_mode = DEVMODE_APBRIDGE;
 			if(strnstr(dbg_buff, "dblvlan", strlen(dbg_buff))) {
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH1] = true;
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_WLAN] = true;
 				ipa3_ctx->device_vlan_mode = true;
 			}
@@ -11149,12 +11158,17 @@ ssize_t ipa3_update_config(const char *buff)
 		if (count && (dbg_buff[count - 1] == '\n'))
 			dbg_buff[count - 1] = '\0';
 
-		if (strnstr(dbg_buff, "rdkb", strlen(dbg_buff)))
-		{
-			IPADBG("Platform type is RDKB\n");
-			ipa3_ctx->ipa_config_is_rdkb = true;
-			ipa3_ctx->enable_napi_chain = 0;
-			return count;
+		new_uplink_status = strnstr(dbg_buff, "uplink_pipe_status", strlen(dbg_buff)) ? true : false;
+
+		if (new_uplink_status != ipa3_ctx->uplink_pipe_status) {
+			if (new_uplink_status) {
+				IPADBG("Uplink pipe status enabled\n");
+				ipa3_config_status_for_all_prod_pipes(true);
+			} else {
+				IPADBG("Uplink pipe status disabled\n");
+				ipa3_config_status_for_all_prod_pipes(false);
+			}
+			ipa3_ctx->uplink_pipe_status = new_uplink_status;
 		}
 
 #if defined(CONFIG_IPA_IPSEC)
@@ -11814,6 +11828,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->iemac_exist = resource_p->iemac_exist;
 	ipa3_ctx->ipa_v2x_vm = ipa3_res.ipa_v2x_vm;
 	atomic_set(&ipa3_ctx->v2x_vm_ready, 0);
+	ipa3_ctx->uplink_pipe_status = false;
 #ifdef CONFIG_GH_MSGQ
 	ipa3_ctx->msgq_desc.gunyah_label = ipa3_res.gunyah_label;
 #endif
@@ -16100,6 +16115,56 @@ uint ipa3_get_emulation_type(void)
 	return emulation_type;
 }
 
+static int ipa3_config_status_for_all_prod_pipes(bool flag)
+{
+	int ep_idx;
+	int ret;
+	int status_ep;
+	struct ipa3_ep_context *ep;
+	struct ipahal_reg_ep_cfg_status ep_status;
+
+	for (ep_idx = 0; ep_idx < IPA_MAX_NUM_PIPES; ep_idx++) {
+		ep = &ipa3_ctx->ep[ep_idx];
+
+		if (!ep->valid){
+			IPADBG("ep_idx=%d is not valid\n",
+					ep_idx);
+			continue;
+		}
+
+		if (!IPA_CLIENT_IS_PROD(ep->client)) {
+			IPADBG("ep_idx=%d client=%d is not PROD\n",
+					ep_idx, ep->client);
+			continue;
+		}
+
+		memset(&ep_status, 0, sizeof(ep_status));
+
+		if (IPA_CLIENT_IS_TETH_PROD(ep_idx)) {
+			status_ep = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+			if (status_ep == IPA_EP_NOT_ALLOCATED) {
+				IPADBG("status ep not allocated for ep_idx=%d client=%d\n",
+					   ep_idx, ep->client);
+				continue;
+			}
+
+			ep_status.status_en = flag;
+			ep_status.status_ep = status_ep;
+
+			IPADBG("enabling ep_status for ep_idx=%d client=%d status_ep=%d\n",
+						ep_idx, ep->client, status_ep);
+
+			ret = ipa3_cfg_ep_status(ep_idx, &ep_status);
+			if (ret) {
+				IPADBG("fail to configure status of EP. ep_idx=%d client=%d ret=%d\n",
+						ep_idx, ep->client, ret);
+					continue;
+			}
+		}
+	}
+
+	return 0;
+}
 static int __init ipa_module_init(void)
 {
 	pr_debug("IPA module init\n");
