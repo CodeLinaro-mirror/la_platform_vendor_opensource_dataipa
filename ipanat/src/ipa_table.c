@@ -130,15 +130,17 @@ int ipa_table_calculate_entries_num(
 	{
 		btp = IPA_BASE_TABLE_PCNT_4SRAM;
 		etp = IPA_EXPANSION_TABLE_PCNT_4SRAM;
+		table_entries      = Get2PowerTightUpperBound(number_of_entries * btp);
+		expn_table_entries = GetEvenTightUpperBound(number_of_entries * etp);
+
 	}
 	else
 	{
 		btp = IPA_BASE_TABLE_PERCENTAGE;
 		etp = IPA_EXPANSION_TABLE_PERCENTAGE;
+		table_entries      = Get2PowerTightUpperBound(number_of_entries * btp);
+		expn_table_entries = GetEvenTightUpperBound(number_of_entries/2);
 	}
-
-	table_entries      = Get2PowerTightUpperBound(number_of_entries * btp);
-	expn_table_entries = GetEvenTightUpperBound(number_of_entries * etp);
 
 	table->tot_tbl_ents = (uint32_t)(table_entries) + (uint32_t)(expn_table_entries);
 
