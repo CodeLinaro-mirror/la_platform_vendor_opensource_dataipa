@@ -289,6 +289,47 @@ out:
 /* RULE PROCESSING FUNCTIONS                                                  */
 /* ========================================================================== */
 
+/* Returns the IPA hardware endpoint index for an interface, or -1 on failure. */
+int ipa_be_get_ep_for_intf(s32 intf_num)
+{
+	return ipa3_get_ep_for_intf(intf_num);
+}
+
+/*
+ * ipa_be_flow_canonical_cmp - compare two LAN client endpoints for canonical ordering.
+ *
+ * Returns 1 when flow is canonical (private/src side), 0 when return is
+ * canonical, or -1 on EP query failure or NULL MAC (always logged).
+ * Canonical order: smaller IPA EP index first; MAC tiebreaker when equal.
+ */
+int ipa_be_flow_canonical_cmp(s32 flow_intf, s32 return_intf,
+		const u8 *flow_mac, const u8 *return_mac)
+{
+	int flow_ep;
+	int return_ep;
+
+	if (!flow_mac || !return_mac) {
+		IPA_BE_ERR("NULL MAC address (flow_mac=%p return_mac=%p)\n",
+			   flow_mac, return_mac);
+		return -1;
+	}
+
+	flow_ep = ipa_be_get_ep_for_intf(flow_intf);
+	return_ep = ipa_be_get_ep_for_intf(return_intf);
+
+	if (flow_ep < 0 || return_ep < 0) {
+		IPA_BE_ERR("EP query failed (flow_intf=%d ret_intf=%d)\n",
+			   flow_intf, return_intf);
+		return -1;
+	}
+
+	if (flow_ep != return_ep)
+		return flow_ep < return_ep ? 1 : 0;
+
+	/* Same EP: use MAC address as tiebreaker. */
+	return memcmp(flow_mac, return_mac, IPA_MAC_ADDR_SIZE) < 0 ? 1 : 0;
+}
+
 static inline bool is_ipv4_lan_to_lan(const struct ipa_ipv4_rule_create_msg *msg)
 {
 	if (msg->rule_flags & IPA_RULE_CREATE_FLAG_BRIDGE_FLOW)
@@ -1088,6 +1129,16 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 
 			step = 6;
 		}
+#ifdef CONFIG_ECM_CONVERGENCE
+		pdn_iface = v6_msg.conn_rule.flow_interface_num;
+		ret = ipa_be_add_v6_ct_entry(v6_msg, pdn_iface, lan2lan);
+		if (ret != 0) {
+			IPA_BE_ERR("Failed to add IPv6 CT entry\n");
+			goto failed_ret;
+		}
+#else
+		IPA_BE_DBG("IPv6 CT LAN2LAN disabled - CONFIG_ECM_CONVERGENCE not set\n");
+#endif
 	}
 	else {
 		/* Set direction-specific parameters for lan2wan */
