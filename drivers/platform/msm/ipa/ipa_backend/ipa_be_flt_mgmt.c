@@ -5,6 +5,7 @@
 
 #include <linux/string.h>
 #include <linux/jhash.h>
+#include <linux/atomic.h>
 #include <linux/bitops.h>
 #include <linux/sort.h>
 #include <linux/if_vlan.h>
@@ -158,7 +159,7 @@ struct ipa_mtu_rule_pair {
 	int client_iface;
 	int pdn_iface;
 	enum ipa_ip_type ip_type;
-	int ref_count;
+	atomic_t ref_count;
 };
 
 static LIST_HEAD(ipa_mtu_rule_pairs_list);
@@ -170,7 +171,7 @@ struct ipa_uplink_pair {
 	int pdn_iface;
 	int client_iface;
 	enum ipa_ip_type ip_type;  /* Track IP version separately */
-	int ref_count;
+	atomic_t ref_count;
 };
 
 static LIST_HEAD(ipa_uplink_pairs_list);
@@ -186,7 +187,7 @@ struct ipa_private_subnet_pair {
 	int intf_num;
 	int bridge_if_num;
 	enum ipa_ip_type ip_type;
-	int ref_count;
+	atomic_t ref_count;
 };
 
 static LIST_HEAD(ipa_private_subnet_pairs_list);
@@ -200,7 +201,7 @@ struct ipa_pdn_filter_rules {
 	bool dft_rule_installed;
 	bool icmp_rule_installed;
 	bool catchup_rule_installed;
-	int ref_count;
+	atomic_t ref_count;
 };
 
 static LIST_HEAD(ipa_pdn_filter_list);
@@ -234,7 +235,7 @@ static struct ipa_pdn_filter_rules *ipa_create_pdn_filter_entry(int pdn_iface, e
 	new_entry->dft_rule_installed = false;
 	new_entry->icmp_rule_installed = false;
 	new_entry->catchup_rule_installed = false;
-	new_entry->ref_count = 0;
+	atomic_set(&new_entry->ref_count, 0);
 
 	list_add(&new_entry->node, &ipa_pdn_filter_list);
 	return new_entry;
@@ -470,10 +471,10 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 	spin_lock_bh(&ipa_uplink_lock);
 	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
 		if (pair->pdn_iface == pdn_iface && pair->client_iface == client_iface && pair->ip_type == iptype) {
-			pair->ref_count++;
+			atomic_inc(&pair->ref_count);
 			spin_unlock_bh(&ipa_uplink_lock);
 			IPA_BE_DBG("Uplink filter for pdn %d, client %d, IP type %d already installed. ref_count: %d\n",
-				pdn_iface, client_iface, iptype, pair->ref_count);
+				pdn_iface, client_iface, iptype, atomic_read(&pair->ref_count));
 			return 0; /* Rules already exist, just increment ref count and exit */
 		}
 	}
@@ -806,7 +807,7 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 		new_pair->pdn_iface = pdn_iface;
 		new_pair->client_iface = client_iface;
 		new_pair->ip_type = iptype;
-		new_pair->ref_count = 1;
+		atomic_set(&new_pair->ref_count, 1);
 
 		/* Add to the list */
 		list_add(&new_pair->node, &ipa_uplink_pairs_list);
@@ -889,10 +890,10 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 		if (existing_pair->client_iface == intf_num &&
 		    existing_pair->pdn_iface == pdn_iface &&
 		    existing_pair->ip_type == iptype) {
-			existing_pair->ref_count++;
+			atomic_inc(&existing_pair->ref_count);
 			spin_unlock_bh(&ipa_mtu_rule_lock);
 			IPA_BE_DBG("MTU rule for client %d, pdn %d, ip_type %d already installed. ref_count: %d\n",
-				intf_num, pdn_iface, iptype, existing_pair->ref_count);
+				intf_num, pdn_iface, iptype, atomic_read(&existing_pair->ref_count));
 			return 0;
 		}
 	}
@@ -1076,7 +1077,7 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 			new_mtu_pair->client_iface = intf_num;
 			new_mtu_pair->pdn_iface = pdn_iface;
 			new_mtu_pair->ip_type = iptype;
-			new_mtu_pair->ref_count = 1;
+			atomic_set(&new_mtu_pair->ref_count, 1);
 			list_add(&new_mtu_pair->node, &ipa_mtu_rule_pairs_list);
 			IPA_BE_DBG("Added MTU rule tracking: client %d, pdn %d, ip_type %d, ref_count: 1\n",
 				intf_num, pdn_iface, iptype);
@@ -1121,14 +1122,14 @@ int ipa_be_delete_mtu_rule(int client_iface, int pdn_iface, enum ipa_ip_type ip_
 		if (pair->client_iface == client_iface &&
 		    pair->pdn_iface == pdn_iface &&
 		    pair->ip_type == ip_type) {
-			pair->ref_count--;
+			atomic_dec(&pair->ref_count);
 			IPA_BE_DBG("Decremented MTU rule ref_count for client %d, pdn %d, ip_type %d. New count: %d\n",
-				client_iface, pdn_iface, ip_type, pair->ref_count);
-			if (pair->ref_count > 0) {
+				client_iface, pdn_iface, ip_type, atomic_read(&pair->ref_count));
+			if (atomic_read(&pair->ref_count) > 0) {
 				/* Other connections still using this MTU rule */
 				spin_unlock_bh(&ipa_mtu_rule_lock);
 				IPA_BE_DBG("MTU rule for client %d, pdn %d, ip_type %d still in use. ref_count: %d\n",
-					client_iface, pdn_iface, ip_type, pair->ref_count);
+					client_iface, pdn_iface, ip_type, atomic_read(&pair->ref_count));
 				return 0;
 			}
 			/* ref_count reached 0 - remove tracking entry */
@@ -1204,10 +1205,10 @@ int ipa_be_handle_private_subnet(int intf_num, int bridge_if_num)
 		if (ps_pair->intf_num == intf_num &&
 		    ps_pair->bridge_if_num == bridge_if_num &&
 		    ps_pair->ip_type == ip_type) {
-			ps_pair->ref_count++;
+			atomic_inc(&ps_pair->ref_count);
 			spin_unlock_bh(&ipa_private_subnet_lock);
 			IPA_BE_DBG("Private subnet rules for intf %d, bridge %d, ip_type %d already installed. ref_count: %d\n",
-				intf_num, bridge_if_num, ip_type, ps_pair->ref_count);
+				intf_num, bridge_if_num, ip_type, atomic_read(&ps_pair->ref_count));
 			return 0;
 		}
 	}
@@ -1383,7 +1384,7 @@ int ipa_be_handle_private_subnet(int intf_num, int bridge_if_num)
 		new_ps_pair->intf_num = intf_num;
 		new_ps_pair->bridge_if_num = bridge_if_num;
 		new_ps_pair->ip_type = ip_type;
-		new_ps_pair->ref_count = 1;
+		atomic_set(&new_ps_pair->ref_count, 1);
 		list_add(&new_ps_pair->node, &ipa_private_subnet_pairs_list);
 		IPA_BE_DBG("Added private subnet pair: intf %d, bridge %d, ip_type %d, ref_count: 1\n",
 			intf_num, bridge_if_num, ip_type);
@@ -1415,14 +1416,14 @@ int ipa_be_delete_private_subnet(int intf_num, int bridge_if_num, enum ipa_ip_ty
 		if (ps_pair->intf_num == intf_num &&
 		    ps_pair->bridge_if_num == bridge_if_num &&
 		    ps_pair->ip_type == ip_type) {
-			ps_pair->ref_count--;
+			atomic_dec(&ps_pair->ref_count);
 			IPA_BE_DBG("Decremented ref_count for private subnet pair intf %d, bridge %d, ip_type %d. New count: %d\n",
-				intf_num, bridge_if_num, ip_type, ps_pair->ref_count);
-			if (ps_pair->ref_count > 0) {
+				intf_num, bridge_if_num, ip_type, atomic_read(&ps_pair->ref_count));
+			if (atomic_read(&ps_pair->ref_count) > 0) {
 				/* Other connections still using these rules */
 				spin_unlock_bh(&ipa_private_subnet_lock);
 				IPA_BE_DBG("Private subnet rules for intf %d, bridge %d, ip_type %d still in use. ref_count: %d\n",
-					intf_num, bridge_if_num, ip_type, ps_pair->ref_count);
+					intf_num, bridge_if_num, ip_type, atomic_read(&ps_pair->ref_count));
 				return 0;
 			}
 			/* ref_count reached 0 - remove tracking entry and delete rules */
@@ -1487,10 +1488,10 @@ int ipa_be_handle_ipv6_prefix_flt_rule(int intf_num, uint32_t *prefix)
 		if (ps_pair->intf_num == intf_num &&
 		    ps_pair->bridge_if_num == bridge_if_num &&
 		    ps_pair->ip_type == ip_type) {
-			ps_pair->ref_count++;
+			atomic_inc(&ps_pair->ref_count);
 			spin_unlock_bh(&ipa_private_subnet_lock);
 			IPA_BE_DBG("IPv6 prefix rules for intf %d already installed. ref_count: %d\n",
-				intf_num, ps_pair->ref_count);
+				intf_num, atomic_read(&ps_pair->ref_count));
 			return 0;
 		}
 	}
@@ -1638,7 +1639,7 @@ int ipa_be_handle_ipv6_prefix_flt_rule(int intf_num, uint32_t *prefix)
 		new_ps_pair->intf_num = intf_num;
 		new_ps_pair->bridge_if_num = bridge_if_num;
 		new_ps_pair->ip_type = ip_type;
-		new_ps_pair->ref_count = 1;
+		atomic_set(&new_ps_pair->ref_count, 1);
 		list_add(&new_ps_pair->node, &ipa_private_subnet_pairs_list);
 		IPA_BE_DBG("Added IPv6 prefix pair: intf %d, ip_type %d, ref_count: 1\n",
 			intf_num, ip_type);
@@ -1671,13 +1672,13 @@ int ipa_be_delete_ipv6_prefix_flt_rule(int intf_num)
 		if (ps_pair->intf_num == intf_num &&
 		    ps_pair->bridge_if_num == bridge_if_num &&
 		    ps_pair->ip_type == ip_type) {
-			ps_pair->ref_count--;
+			atomic_dec(&ps_pair->ref_count);
 			IPA_BE_DBG("Decremented ref_count for IPv6 prefix pair intf %d. New count: %d\n",
-				intf_num, ps_pair->ref_count);
-			if (ps_pair->ref_count > 0) {
+				intf_num, atomic_read(&ps_pair->ref_count));
+			if (atomic_read(&ps_pair->ref_count) > 0) {
 				spin_unlock_bh(&ipa_private_subnet_lock);
 				IPA_BE_DBG("IPv6 prefix rules for intf %d still in use. ref_count: %d\n",
-					intf_num, ps_pair->ref_count);
+					intf_num, atomic_read(&ps_pair->ref_count));
 				return 0;
 			}
 			/* ref_count reached 0 - remove tracking entry and delete rules */
@@ -1741,10 +1742,10 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 	spin_lock_bh(&ipa_uplink_lock);
 	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
 		if (pair->pdn_iface == pdn_iface && pair->client_iface == client_iface && pair->ip_type == iptype) {
-			pair->ref_count++;
+			atomic_inc(&pair->ref_count);
 			spin_unlock_bh(&ipa_uplink_lock);
 			IPA_BE_DBG("Uplink filter for pdn %d, client %d, IP type %d already installed. ref_count: %d\n",
-				pdn_iface, client_iface, iptype, pair->ref_count);
+				pdn_iface, client_iface, iptype, atomic_read(&pair->ref_count));
 			return 0; /* Rules already exist, just increment ref count and exit */
 		}
 	}
@@ -2091,7 +2092,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 		new_pair->pdn_iface = pdn_iface;
 		new_pair->client_iface = client_iface;
 		new_pair->ip_type = iptype;
-		new_pair->ref_count = 1;
+		atomic_set(&new_pair->ref_count, 1);
 
 		// Add to the list
 		list_add(&new_pair->node, &ipa_uplink_pairs_list);
@@ -2393,10 +2394,10 @@ int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg,
 	spin_lock_bh(&ipa_uplink_lock);
 	list_for_each_entry_safe(pair, tmp, &ipa_uplink_pairs_list, node) {
 		if (pair->pdn_iface == pdn_iface && pair->client_iface == client_iface && pair->ip_type == IPA_IP_v4) {
-			pair->ref_count--;
+			atomic_dec(&pair->ref_count);
 			IPA_BE_DBG("Decremented ref_count for uplink pair pdn %d, client %d, IP type %d. New count: %d\n",
-				pdn_iface, client_iface, pair->ip_type, pair->ref_count);
-			if (pair->ref_count > 0) {
+				pdn_iface, client_iface, pair->ip_type, atomic_read(&pair->ref_count));
+			if (atomic_read(&pair->ref_count) > 0) {
 				/* Other connections are still using these rules, so don't delete them */
 				spin_unlock_bh(&ipa_uplink_lock);
 				return 0;
@@ -2469,10 +2470,10 @@ int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg,
 	spin_lock_bh(&ipa_uplink_lock);
 	list_for_each_entry_safe(pair, tmp, &ipa_uplink_pairs_list, node) {
 		if (pair->pdn_iface == pdn_iface && pair->client_iface == client_iface && pair->ip_type == IPA_IP_v6) {
-			pair->ref_count--;
+			atomic_dec(&pair->ref_count);
 			IPA_BE_DBG("Decremented ref_count for uplink pair pdn %d, client %d, IP type %d. New count: %d\n",
-				pdn_iface, client_iface, pair->ip_type, pair->ref_count);
-			if (pair->ref_count > 0) {
+				pdn_iface, client_iface, pair->ip_type, atomic_read(&pair->ref_count));
+			if (atomic_read(&pair->ref_count) > 0) {
 				/* Other connections are still using these rules, so don't delete them */
 				spin_unlock_bh(&ipa_uplink_lock);
 				return 0;
@@ -2705,10 +2706,10 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
 	if (pdn_entry) {
 		if (pdn_entry->dft_rule_installed) {
-			pdn_entry->ref_count++;
+			atomic_inc(&pdn_entry->ref_count);
 			spin_unlock_bh(&ipa_pdn_filter_lock);
 			IPA_BE_DBG("Default filtering rule for pdn %d, IP type %d already installed. ref_count: %d\n",
-				pdn_iface, iptype, pdn_entry->ref_count);
+				pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 			return 0; /* Rules already exist, just increment ref count and exit */
 		}
 	} else {
@@ -3128,11 +3129,11 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	/* Mark the default rule as installed and increment reference count */
 	spin_lock_bh(&ipa_pdn_filter_lock);
 	pdn_entry->dft_rule_installed = true;
-	pdn_entry->ref_count++;
+	atomic_inc(&pdn_entry->ref_count);
 	spin_unlock_bh(&ipa_pdn_filter_lock);
 
 	IPA_BE_DBG("Default filtering rule successfully installed for pdn %d, IP type %d. ref_count: %d\n",
-		pdn_iface, iptype, pdn_entry->ref_count);
+		pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 
 	kfree(pFilteringTable);
 	kfree(ext_prop);
@@ -3207,10 +3208,10 @@ int add_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 	}
 
 	if (pdn_entry->icmp_rule_installed) {
-		pdn_entry->ref_count++;
+		atomic_inc(&pdn_entry->ref_count);
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("ICMP rule for pdn %d, IP type %d already installed. ref_count: %d\n",
-			   pdn_iface, iptype, pdn_entry->ref_count);
+			   pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 		return 0; /* Rule already exists, just increment ref count and exit */
 	}
 	spin_unlock_bh(&ipa_pdn_filter_lock);
@@ -3351,9 +3352,9 @@ int add_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 	pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
 	if (pdn_entry) {
 		pdn_entry->icmp_rule_installed = true;
-		pdn_entry->ref_count++;
+		atomic_inc(&pdn_entry->ref_count);
 		IPA_BE_DBG("ICMP rule installed for pdn %d, ip %d. ref_count: %d\n",
-			   pdn_iface, iptype, pdn_entry->ref_count);
+			   pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 	}
 	spin_unlock_bh(&ipa_pdn_filter_lock);
 
@@ -3409,19 +3410,19 @@ int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 	}
 
 	/* Decrement ref_count for ICMP rule */
-	pdn_entry->ref_count--;
+	atomic_dec(&pdn_entry->ref_count);
 	IPA_BE_DBG("Decremented ref_count for ICMP rule pdn %d, IP type %d. New count: %d\n",
-		pdn_iface, iptype, pdn_entry->ref_count);
+		pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 
 	/*
 	 * Only delete ICMP rules when the last connection to this PDN is being
 	 * removed. Check if ref_count > 0, which means other connections are
 	 * still using this PDN and its rules.
 	 */
-	if (pdn_entry->ref_count > 1) {
+	if (atomic_read(&pdn_entry->ref_count) > 1) {
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("ICMP rule for pdn %d, IP type %d still in use (ref_count=%d), skipping delete\n",
-			pdn_iface, iptype, pdn_entry->ref_count);
+			pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 		return 0;
 	}
 
@@ -3494,10 +3495,10 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 	pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
 	if (pdn_entry) {
 		if (pdn_entry->catchup_rule_installed) {
-			pdn_entry->ref_count++;
+			atomic_inc(&pdn_entry->ref_count);
 			spin_unlock_bh(&ipa_pdn_filter_lock);
 			IPA_BE_DBG("Catchup filtering rule for pdn %d, IP type %d already installed. ref_count: %d\n",
-				pdn_iface, iptype, pdn_entry->ref_count);
+				pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 			return 0; /* Rules already exist, just increment ref count and exit */
 		}
 	} else {
@@ -3680,11 +3681,11 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 		/* Mark the catchup rule as installed and increment reference count */
 		spin_lock_bh(&ipa_pdn_filter_lock);
 		pdn_entry->catchup_rule_installed = true;
-		pdn_entry->ref_count++;
+		atomic_inc(&pdn_entry->ref_count);
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 
 		IPA_BE_DBG("Catchup filtering rule successfully installed for pdn %d, IP type %d. ref_count: %d\n",
-			pdn_iface, iptype, pdn_entry->ref_count);
+			pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 	}
 
 	IPA_BE_DBG("Filter rule attrib mask: 0x%x\n", rule->rule.attrib.attrib_mask);
@@ -3898,20 +3899,20 @@ int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		return -ENOENT;
 	}
 
-	pdn_entry->ref_count--;
+	atomic_dec(&pdn_entry->ref_count);
 	IPA_BE_DBG("Decremented ref_count for pdn %d, IP type %d. New count: %d\n",
-		pdn_iface, iptype, pdn_entry->ref_count);
+		pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 
-	if (pdn_entry->ref_count > 0) {
+	if (atomic_read(&pdn_entry->ref_count) > 0) {
 		/* Other connections are still using these rules, so don't delete them */
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("Default filtering rule for pdn %d, IP type %d still in use. ref_count: %d\n",
-			pdn_iface, iptype, pdn_entry->ref_count);
+			pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 		return 0;
 	}
 	/* If both default and catchup rules are not installed and ref_count is 0, remove the entry */
 	if (!pdn_entry->catchup_rule_installed && !pdn_entry->icmp_rule_installed &&
-		pdn_entry->ref_count == 0) {
+		atomic_read(&pdn_entry->ref_count) == 0) {
 		/* Mark as not installed */
 		pdn_entry->dft_rule_installed = false;
 		ipa_remove_pdn_filter_entry(pdn_entry);
@@ -3985,15 +3986,15 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 		return -ENOENT;
 	}
 
-	pdn_entry->ref_count--;
+	atomic_dec(&pdn_entry->ref_count);
 	IPA_BE_DBG("Decremented ref_count for pdn %d, IP type %d. New count: %d\n",
-		pdn_iface, iptype, pdn_entry->ref_count);
+		pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 
-	if (pdn_entry->ref_count > 2) {
+	if (atomic_read(&pdn_entry->ref_count) > 2) {
 		/* Other connections are still using these rules, so don't delete them */
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("Catchup filtering rule for pdn %d, IP type %d still in use. ref_count: %d\n",
-			pdn_iface, iptype, pdn_entry->ref_count);
+			pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
 		return 0;
 	}
 
@@ -4002,7 +4003,7 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 
 	/* If both default and catchup rules are not installed and ref_count is 0, remove the entry */
 	if (!pdn_entry->dft_rule_installed && !pdn_entry->icmp_rule_installed &&
-		pdn_entry->ref_count == 0) {
+		atomic_read(&pdn_entry->ref_count) == 0) {
 		ipa_remove_pdn_filter_entry(pdn_entry);
 		IPA_BE_DBG("Removed PDN filter entry for pdn %d, IP type %d\n", pdn_iface, iptype);
 	}

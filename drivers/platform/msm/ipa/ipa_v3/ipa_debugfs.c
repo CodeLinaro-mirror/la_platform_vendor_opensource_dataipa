@@ -4524,8 +4524,8 @@ static ssize_t ipa3_read_client_db(struct file *file, char __user *ubuf,
 			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 				"[%d] iface=%.*s(%u) IP=%pI6c"
 				" MAC=%02x:%02x:%02x:%02x:%02x:%02x vlan=%u\n"
-				"     lan2lan: rt=%u proc=%u hdr=%u ref=%u ctx_name=%.*s\n"
-				"     lan2wan: rt=%u proc=%u hdr=%u ref=%u ctx_name=%.*s\n",
+				"     lan2lan: rt=%u proc=%u hdr=%u ref=%d ctx_name=%.*s\n"
+				"     lan2wan: rt=%u proc=%u hdr=%u ref=%d ctx_name=%.*s\n",
 				idx++,
 				(int)sizeof(entry->iface_name), entry->iface_name, entry->iface_num,
 				entry->address,
@@ -4536,21 +4536,21 @@ static ssize_t ipa3_read_client_db(struct file *file, char __user *ubuf,
 				entry->lan2lan_info.rt_hdl,
 				entry->lan2lan_info.proc_ctx_hdl,
 				entry->lan2lan_info.hdr_hdl,
-				entry->lan2lan_info.ref_count,
+				atomic_read(&entry->lan2lan_info.ref_count),
 				(int)sizeof(entry->lan2lan_info.proc_ctx_name),
 				entry->lan2lan_info.proc_ctx_name,
 				entry->lan2wan_info.rt_hdl,
 				entry->lan2wan_info.proc_ctx_hdl,
 				entry->lan2wan_info.hdr_hdl,
-				entry->lan2wan_info.ref_count,
+				atomic_read(&entry->lan2wan_info.ref_count),
 				(int)sizeof(entry->lan2wan_info.proc_ctx_name),
 				entry->lan2wan_info.proc_ctx_name);
 		} else {
 			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
 				"[%d] iface=%.*s(%u) IP=" IPA_IP_ADDR_DOT_FMT
 				" MAC=%02x:%02x:%02x:%02x:%02x:%02x vlan=%u\n"
-				"     lan2lan: rt=%u proc=%u hdr=%u ref=%u ctx_name=%.*s\n"
-				"     lan2wan: rt=%u proc=%u hdr=%u ref=%u ctx_name=%.*s\n",
+				"     lan2lan: rt=%u proc=%u hdr=%u ref=%d ctx_name=%.*s\n"
+				"     lan2wan: rt=%u proc=%u hdr=%u ref=%d ctx_name=%.*s\n",
 				idx++,
 				(int)sizeof(entry->iface_name), entry->iface_name, entry->iface_num,
 				((uint8_t *)entry->address)[0], ((uint8_t *)entry->address)[1],
@@ -4562,13 +4562,13 @@ static ssize_t ipa3_read_client_db(struct file *file, char __user *ubuf,
 				entry->lan2lan_info.rt_hdl,
 				entry->lan2lan_info.proc_ctx_hdl,
 				entry->lan2lan_info.hdr_hdl,
-				entry->lan2lan_info.ref_count,
+				atomic_read(&entry->lan2lan_info.ref_count),
 				(int)sizeof(entry->lan2lan_info.proc_ctx_name),
 				entry->lan2lan_info.proc_ctx_name,
 				entry->lan2wan_info.rt_hdl,
 				entry->lan2wan_info.proc_ctx_hdl,
 				entry->lan2wan_info.hdr_hdl,
-				entry->lan2wan_info.ref_count,
+				atomic_read(&entry->lan2wan_info.ref_count),
 				(int)sizeof(entry->lan2wan_info.proc_ctx_name),
 				entry->lan2wan_info.proc_ctx_name);
 		}
