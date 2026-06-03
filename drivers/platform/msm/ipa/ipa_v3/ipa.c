@@ -7171,6 +7171,15 @@ int _ipa_init_hdr_v3_0(void)
 	int i;
 
 	mem.size = IPA_MEM_PART(modem_hdr_size) + IPA_MEM_PART(apps_hdr_size);
+	/*
+	 * WA: HW bug - HDR_INIT_LOCAL encodes size in 12 bits but IPA7 can
+	 * expose a much larger local APPS header partition. Cap to the max
+	 * encodable field value (0xFFF); the APPS partition is populated later
+	 * via DMA_SHARED_MEM commits.
+	 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && mem.size > 0xFFF)
+		mem.size = 0xFFF;
+
 	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (mem.size > 0x7FF)) {
 	/* Max size supported of header table for is 2^11 Bytes.
 	 * The calculation:
