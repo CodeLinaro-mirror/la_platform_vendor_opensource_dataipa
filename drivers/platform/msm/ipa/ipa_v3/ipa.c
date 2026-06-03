@@ -15625,8 +15625,13 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 		ipa3_ctx->ipa_wdi3_5g_holb_timeout = ipa_drv_res->ipa_wdi3_5g_holb_timeout;
 		IPADBG("wdi3 2g holb timeout: %d\n", ipa_drv_res->ipa_wdi3_2g_holb_timeout);
 		IPADBG("wdi3 5g holb timeout: %d\n", ipa_drv_res->ipa_wdi3_5g_holb_timeout);
-		ipa3_ctx->ipa_wan_skb_page = ipa_drv_res->ipa_wan_skb_page;
-		IPADBG("wan use skb page: %d\n", ipa_drv_res->ipa_wan_skb_page);
+		if (ipa3_ctx->ipa_config_is_auto) {
+			ipa3_ctx->ipa_wan_skb_page = false;
+			IPADBG("auto platform: wan skb page disabled\n");
+		} else {
+			ipa3_ctx->ipa_wan_skb_page = ipa_drv_res->ipa_wan_skb_page;
+			IPADBG("wan use skb page: %d\n", ipa_drv_res->ipa_wan_skb_page);
+		}
 		if (ipa_drv_res->tx_wrapper_cache_max_size) {
 			ipa3_ctx->tx_wrapper_cache_max_size = ipa_drv_res->tx_wrapper_cache_max_size;
 			IPADBG("tx-wrapper-cache-max-size: %d\n", ipa_drv_res->tx_wrapper_cache_max_size);
@@ -15683,6 +15688,10 @@ static void ipa_ini_read_params_work(struct work_struct *work)
 	} else {
 		IPADBG("INI parsing successful\n");
 		ipa_populate_ini_values(&ipa3_res);
+		if (ipa3_ctx->ipa_config_is_auto) {
+			ipa3_ctx->ipa_wan_skb_page = false;
+			IPADBG("auto platform: wan skb page reset to false\n");
+		}
 		mutex_lock(&ipa3_ctx->fw_load_data.lock);
 		/* unlock and post init will be called at the end */
 	}
