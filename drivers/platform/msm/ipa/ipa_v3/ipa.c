@@ -1813,7 +1813,11 @@ static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol =
 		qos_param->protocol;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp = qos_param->dscp;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp_mark_val =
+		qos_param->dscp_mark_val;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp = qos_param->pcp;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp_mark_val =
+		qos_param->pcp_mark_val;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count =
 		qos_param->vlan_count;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0] =
@@ -2016,8 +2020,12 @@ static int ipa3_get_qos_params(struct ipa_ioc_get_qos_config *get_qos_param)
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol;
 		get_qos_param->qos_config[cur_idx].dscp =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp;
+		get_qos_param->qos_config[cur_idx].dscp_mark_val =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp_mark_val;
 		get_qos_param->qos_config[cur_idx].pcp =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp;
+		get_qos_param->qos_config[cur_idx].pcp_mark_val =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp_mark_val;
 		get_qos_param->qos_config[cur_idx].vlan_count =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count;
 		get_qos_param->qos_config[cur_idx].vlan_ids[0] =

@@ -1892,7 +1892,11 @@ struct ipa_eogre_hdr_proc_ctx_params {
  * @reserved:<Reserved for future purpose>.
  */
 struct ipa_pppoe_header_add_procparams {
-	uint32_t reserved;
+	uint32_t valid : 1;
+	uint32_t dscp_val : 6;
+	uint32_t pcp_valid : 1;
+	uint32_t pcp_val : 3;
+	uint32_t reserved : 21;
 };
 
 /**
@@ -1996,12 +2000,18 @@ struct ipa_ipsec_params {
  *	0 - use dscp value from pdn-dscp table sent to uc
  *	1 - use dscp value from proc params
  * @input_dscp_value: Specifies DSCP value
+ * @pcp_valid: Specifies whether the proc params hold the pcp value
+ *	0 - do not mark PCP
+ *	1 - use pcp_val from proc params
+ * @pcp_val: PCP value to mark in VLAN header (3 bits, 0-7)
  * @reserved: for future use
  */
 struct ipa_pdn_dscp_procparams {
 	uint32_t valid : 1;
 	uint32_t dscp_val : 6;
-	uint32_t reserved : 25;
+	uint32_t pcp_valid : 1;
+	uint32_t pcp_val : 3;
+	uint32_t reserved : 21;
 };
 
 /**
@@ -3914,6 +3924,7 @@ struct ipa_ioc_qos_config {
 	uint8_t pcp;
 	uint8_t pcp_mask;
 	uint8_t dscp_mark_val;
+	uint8_t pcp_mark_val;
 	uint32_t qos_rule_hdl;
 	enum ipa_qos_flt_category flt_cat;
 };

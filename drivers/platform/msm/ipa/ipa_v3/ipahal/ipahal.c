@@ -2745,6 +2745,8 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 
 		ctx->pdn_dscp_params.pdn_dscp_params.valid = pdn_dscp_params->valid;
 		ctx->pdn_dscp_params.pdn_dscp_params.dscp_val = pdn_dscp_params->dscp_val;
+		ctx->pdn_dscp_params.pdn_dscp_params.pcp_valid = pdn_dscp_params->pcp_valid;
+		ctx->pdn_dscp_params.pdn_dscp_params.pcp_val = pdn_dscp_params->pcp_val;
 		ctx->pdn_dscp_params.pdn_dscp_params.reserved = 0;
 
 		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
@@ -2776,6 +2778,12 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
 		ctx->end.length = 0;
 		ctx->end.value = 0;
+
+		ctx->pppoe_params.pppoe_params.valid = pdn_dscp_params->valid;
+		ctx->pppoe_params.pppoe_params.dscp_val = pdn_dscp_params->dscp_val;
+		ctx->pppoe_params.pppoe_params.pcp_valid = pdn_dscp_params->pcp_valid;
+		ctx->pppoe_params.pppoe_params.pcp_val = pdn_dscp_params->pcp_val;
+		ctx->pppoe_params.pppoe_params.reserved = 0;
 	} else if (type == IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
 		struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_cmd_seq_ex *ctx;
 
