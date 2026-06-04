@@ -2353,12 +2353,14 @@ int ipa_NATI_add_ipv4_rule(
 		goto done;
 	}
 
+	*rule_hdl = 0;
+
     BREAK_TBL_HDL(tbl_hdl, nmi, tbl_hdl);
 
     if ( ! IPA_VALID_NAT_MEM_IN(nmi) ) {
         IPAERR("Bad cache type argument passed\n");
         ret = -EINVAL;
-        goto bail;
+        goto done;
     }
 
     IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(nmi));
@@ -2370,22 +2372,20 @@ int ipa_NATI_add_ipv4_rule(
 
         memset(&clnt_rule_v2, 0, sizeof(clnt_rule_v2));
 
-        ret = copy_from_ipa_nat_ipv4_rule_v1_to_v2(clnt_rule, &clnt_rule_v2);
-        if (ret) {
-            IPAERR("unable to copy from ipa_nat_ipv4_rule_v1 to ipa_nat_ipv4_rule_v2\n");
-            goto bail;
-        }
+	    ret = copy_from_ipa_nat_ipv4_rule_v1_to_v2(clnt_rule, &clnt_rule_v2);
+	    if (ret) {
+	        IPAERR("unable to copy from ipa_nat_ipv4_rule_v1 to ipa_nat_ipv4_rule_v2\n");
+	        goto done;
+	    }
 
-        ret = ipa_NATI_add_ipv4_rule_v2(tbl_hdl, &clnt_rule_v2, rule_hdl);
-        if ( ret != 0 ) {
-            IPAERR("ipa_NATI_add_ipv4_rule_v2() fail\n");
-		    goto bail;
-        }
+	    ret = ipa_NATI_add_ipv4_rule_v2(tbl_hdl, &clnt_rule_v2, rule_hdl);
+	    if ( ret != 0 ) {
+	        IPAERR("ipa_NATI_add_ipv4_rule_v2() fail\n");
+		    goto done;
+	    }
 
-        goto done;
+	    goto done;
     }
-
-	*rule_hdl = 0;
 
 	IPADBG("tbl_hdl(0x%08X)\n", tbl_hdl);
 
