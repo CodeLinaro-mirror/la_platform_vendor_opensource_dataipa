@@ -6979,13 +6979,13 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		0x0001b01c, 0x1000, 0, 0, 1, 0},
 	[IPA_HW_v7_0][IPA_FEC_FATAL_ADDR_EE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x0001b020, 0x1000, 0, 4, 1, 0},
+		0x0001b020, 0x1000, 0, 0, 1, 0},
 	[IPA_HW_v7_0][IPA_FEC_FATAL_ADDR_MSB_EE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x0001b024, 0x1000, 0, 4, 1, 0},
+		0x0001b024, 0x1000, 0, 0, 1, 0},
 	[IPA_HW_v7_0][IPA_FEC_FATAL_ATTR_EE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x0001b028, 0x1000, 0, 4, 1, 0},
+		0x0001b028, 0x1000, 0, 0, 1, 0},
 	[IPA_HW_v7_0][IPA_IRQ_EN_EE_ERROR_FATAL_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x0001b148, 0x1000, 0, 4, 1, 0},
