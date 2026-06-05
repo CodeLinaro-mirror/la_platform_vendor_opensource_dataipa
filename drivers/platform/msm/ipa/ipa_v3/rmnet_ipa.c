@@ -2020,21 +2020,23 @@ void apps_ipa_tx_complete_notify(void *priv,
 			netif_tx_wake_queue(netdev_get_tx_queue(wwan_ptr->net,
 				IPA_RMNET_TX_QUEUE_IPSEC_ENCAP));
 		}
-	} else if (v2x_check) {
-		/* flow control only for WAN V2X pkts */
+	} else if (v2x_check || eth_check) {
+		/* flow control only for WAN V2X/ETH pkts */
+		u16 queue_enum = v2x_check ? IPA_RMNET_TX_QUEUE_V2X :
+					IPA_RMNET_TX_QUEUE_ETH_PDU;
+		int outstanding = v2x_check ?
+			atomic_read(&wwan_ptr->outstanding_pkts_v2x) :
+			atomic_read(&wwan_ptr->outstanding_pkts_eth);
+
 		if (!atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
 			(netif_tx_queue_stopped(netdev_get_tx_queue(wwan_ptr->net,
-				IPA_RMNET_TX_QUEUE_V2X))) &&
-				atomic_read(&wwan_ptr->outstanding_pkts_v2x) <
-				rmnet_ipa3_ctx->outstanding_low) {
+				queue_enum))) &&
+			outstanding < rmnet_ipa3_ctx->outstanding_low) {
 			IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
 					rmnet_ipa3_ctx->outstanding_low);
 			netif_tx_wake_queue(netdev_get_tx_queue(wwan_ptr->net,
-				IPA_RMNET_TX_QUEUE_V2X));
+				queue_enum));
 		}
-	} else if (eth_check) {
-		IPAWANDBG_LOW("Outstanding low (%d) - waking up queue\n",
-				rmnet_ipa3_ctx->outstanding_low);
 	} else {
 		/* flow control only for WAN IP pkts */
 		if (!atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
