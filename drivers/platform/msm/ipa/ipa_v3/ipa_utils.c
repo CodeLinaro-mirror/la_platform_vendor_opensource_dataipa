@@ -10806,6 +10806,29 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 				clnt_hdl);
 		ipahal_write_reg_n(IPA_ENDP_INIT_SEQ_n, clnt_hdl, type);
 
+		/*
+		 * If UCP is already configured on this pipe, clear it now.
+		 * A stale UCP cmd from a previous ETH PDU session combined
+		 * with a non-UCP HPS value causes an IPA stall when a packet
+		 * arrives. Only write the register if it holds a non-zero
+		 * value to avoid unnecessary register access. The Q6 driver
+		 * will reconfigure UCP after receiving the QMI endpoint info.
+		 *
+		 * Use an explicit allow-list instead of (>= v5_0 && != v5_2):
+		 * IPA_HW_v5_1 (enum 22) sits between v5_0 and v5_2 but has no
+		 * IPA_ENDP_INIT_UCP_CFG_n entry in the ipahal register table.
+		 * Reading via an uninitialised ipahal_reg_obj (offset 0) would
+		 * access bus address 0 — at best garbage, at worst WARN_ON or
+		 * a synchronous external abort. An open-ended >= predicate is
+		 * also fragile for future HW versions not yet in the table.
+		 */
+		if (ipa3_ctx->ipa_hw_type == IPA_HW_v5_0 ||
+				ipa3_ctx->ipa_hw_type == IPA_HW_v5_5 ||
+				ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0) {
+			if (ipahal_read_reg_n(IPA_ENDP_INIT_UCP_CFG_n, clnt_hdl))
+				ipahal_write_reg_n(IPA_ENDP_INIT_UCP_CFG_n, clnt_hdl, 0);
+		}
+
 		switch (type) {
 		case IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP:
 		case IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP:

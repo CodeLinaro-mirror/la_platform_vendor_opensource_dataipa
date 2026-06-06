@@ -76,6 +76,7 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_ENDP_INIT_HOL_BLOCK_TIMER_n),
 	__stringify(IPA_ENDP_INIT_DEAGGR_n),
 	__stringify(IPA_ENDP_INIT_SEQ_n),
+	__stringify(IPA_ENDP_INIT_UCP_CFG_n),
 	__stringify(IPA_DEBUG_CNT_REG_n),
 	__stringify(IPA_ENDP_INIT_CFG_n),
 	__stringify(IPA_IRQ_EE_UC_n),
@@ -4943,6 +4944,9 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v5_0][IPA_ENDP_INIT_SEQ_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x0000103C, 0x80, 0, 10, 0, 0},
+	[IPA_HW_v5_0][IPA_ENDP_INIT_UCP_CFG_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00001074, 0x80, 0, 10, 0, 0},
 	[IPA_HW_v5_0][IPA_ENDP_STATUS_n] = {
 		ipareg_construct_endp_status_n_v5_0, ipareg_parse_dummy,
 		0x00001040, 0x80, 0, 30, 1, 0},
@@ -5315,6 +5319,9 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v5_5][IPA_ENDP_INIT_SEQ_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x0000103C, 0x80, 0, 10, 0, 0},
+	[IPA_HW_v5_5][IPA_ENDP_INIT_UCP_CFG_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00001074, 0x80, 0, 10, 0, 0},
 	[IPA_HW_v5_5][IPA_ENDP_STATUS_n] = {
 		ipareg_construct_endp_status_n_v5_0, ipareg_parse_dummy,
 		0x00001040, 0x80, 0, 30, 1, 0},
@@ -5788,6 +5795,9 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_ENDP_INIT_SEQ_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x0000103C, 0x100, 0, 10, 0, 0},
+	[IPA_HW_v6_0][IPA_ENDP_INIT_UCP_CFG_n] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00001074, 0x100, 0, 10, 0, 0},
 	[IPA_HW_v6_0][IPA_ENDP_STATUS_n] = {
 		ipareg_construct_endp_status_n_v5_0, ipareg_parse_dummy,
 		0x00001040, 0x100, 0, 48, 1, 0},
