@@ -7,6 +7,7 @@
 #define _IPA_BE_CLIENTDB_
 
 
+#include <linux/atomic.h>
 #include "ipa_api.h"
 #include "ipa_be.h"
 
@@ -42,7 +43,7 @@ typedef void (*ipa_db_mapping_final_callback_t)(void *arg);		/* Finaliser callba
 typedef struct ProcCtx {
 	char name[32];
 	int handle;
-	int ref_count;
+	atomic_t ref_count;
 	struct ProcCtx *next;
 } ProcCtx;
 
@@ -51,7 +52,7 @@ typedef struct Hdr {
 	uint32_t vlan_tag;
 	enum ipa_ip_type ip_type;
 	int handle;
-	int ref_count;
+	atomic_t ref_count;
 	struct Hdr *next;
 } Hdr;
 
@@ -70,7 +71,7 @@ struct ipa_clientdb_lan2lan_info {
 	uint32_t rt_hdl;
 	uint32_t proc_ctx_hdl;
 	uint32_t hdr_hdl;
-	uint32_t ref_count;			/* Count the number of active connections on this client*/
+	atomic_t ref_count;			/* Count the number of active connections on this client*/
 	char proc_ctx_name[32];		/* Name used for proc_ctx hash table lookup */
 };
 
@@ -78,7 +79,7 @@ struct ipa_clientdb_lan2wan_info {
 	uint32_t rt_hdl;
 	uint32_t proc_ctx_hdl;
 	uint32_t hdr_hdl;
-	uint32_t ref_count;			/* Count the number of active connections on this client*/
+	atomic_t ref_count;			/* Count the number of active connections on this client*/
 	char proc_ctx_name[32];		/* Name used for proc_ctx hash table lookup */
 };
 

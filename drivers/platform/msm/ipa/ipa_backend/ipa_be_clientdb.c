@@ -173,12 +173,12 @@ bool ipa_be_clientdb_find_and_ref(ip_addr_t address, int vlan_id, bool lan2lan)
 		if (is_ip_addr_equal(mi->address, address) && mi->vlan_id == vlan_id) {
 			/* Found the correct mapping, increment ref count */
 			if (lan2lan) {
-				mi->lan2lan_info.ref_count++;
+				atomic_inc(&mi->lan2lan_info.ref_count);
 			} else {
-				mi->lan2wan_info.ref_count++;
+				atomic_inc(&mi->lan2wan_info.ref_count);
 			}
 			IPA_BE_DBG("Found existing mapping, ref_count now l2l: %d, l2w: %d\n",
-				   mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
+				   atomic_read(&mi->lan2lan_info.ref_count), atomic_read(&mi->lan2wan_info.ref_count));
 			mutex_unlock(&ipa_client_db_lock);
 			return true;
 		}
@@ -383,7 +383,7 @@ int ipa_be_lookup_ref_count(char *name) {
 	entry = hash_table_ipa[index];
 	while (entry) {
 		if (strcmp(entry->name, name) == 0) {
-			ref_count = entry->ref_count;
+			ref_count = atomic_read(&entry->ref_count);
 			break;
 		}
 		entry = entry->next;
@@ -413,7 +413,7 @@ void ipa_be_insert_proc_ctx(char *name, int handle) {
 	while (entry) {
 		if (strcmp(entry->name, name) == 0) {
 			// If it exists, increment the ref_count
-			entry->ref_count += 1;
+			atomic_inc(&entry->ref_count);
 			mutex_unlock(&ipa_hash_table_lock);
 			return;
 		}
@@ -428,7 +428,7 @@ void ipa_be_insert_proc_ctx(char *name, int handle) {
 	}
 	memcpy(new_ctx->name, name, 32);
 	new_ctx->handle = handle;
-	new_ctx->ref_count = 1;
+	atomic_set(&new_ctx->ref_count, 1);
 	new_ctx->next = hash_table_ipa[index];
 	hash_table_ipa[index] = new_ctx;
 
@@ -511,9 +511,9 @@ static void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, enum ipa_ip_typ
 		    entry->vlan_tag == vlan_tag &&
 		    entry->ip_type == ip_type) {
 			/* If it exists, increment the ref_count */
-			entry->ref_count++;
+			atomic_inc(&entry->ref_count);
 			IPA_BE_DBG("Incremented hdr ref_count for MAC %pM VLAN 0x%x ip_type %d to %d\n",
-				   mac, vlan_tag, ip_type, entry->ref_count);
+				   mac, vlan_tag, ip_type, atomic_read(&entry->ref_count));
 			mutex_unlock(&ipa_hash_table_lock);
 			return;
 		}
@@ -532,7 +532,7 @@ static void ipa_be_insert_hdr(mac_addr_t mac, uint32_t vlan_tag, enum ipa_ip_typ
 	new_hdr->vlan_tag = vlan_tag;
 	new_hdr->ip_type = ip_type;
 	new_hdr->handle = handle;
-	new_hdr->ref_count = 1;
+	atomic_set(&new_hdr->ref_count, 1);
 	new_hdr->next = hash_table_hdr[index];
 	hash_table_hdr[index] = new_hdr;
 
@@ -576,12 +576,12 @@ int ipa_be_delete_hdr_by_handle(int hdr_hdl)
 		while (entry) {
 			if (entry->handle == hdr_hdl) {
 				/* Found the entry, decrement reference count */
-				entry->ref_count--;
+				atomic_dec(&entry->ref_count);
 				IPA_BE_DBG("Decremented hdr ref_count for handle %d (MAC %pM VLAN 0x%x) to %d\n",
-					   hdr_hdl, entry->mac, entry->vlan_tag, entry->ref_count);
+					   hdr_hdl, entry->mac, entry->vlan_tag, atomic_read(&entry->ref_count));
 
 				/* If reference count reaches 0, delete the header */
-				if (entry->ref_count <= 0) {
+				if (atomic_read(&entry->ref_count) <= 0) {
 					/* Delete header from IPA */
 					ret = ipa_be_delete_hdr_handle(entry->handle);
 
@@ -642,22 +642,22 @@ struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(
 	mutex_lock(&ipa_client_db_lock);
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
 		if (is_ip_addr_equal(mi->address, addr) && mi->vlan_id == vlan_id) {
-			uint32_t dir_ref = lan2lan ? mi->lan2lan_info.ref_count
-						   : mi->lan2wan_info.ref_count;
+			uint32_t dir_ref = lan2lan ? atomic_read(&mi->lan2lan_info.ref_count)
+						   : atomic_read(&mi->lan2wan_info.ref_count);
 
 			if (dir_ref > 0) {
 				/* Rules for this direction already installed:
 				 * just bump the direction ref_count and skip.
 				 */
 				if (lan2lan)
-					mi->lan2lan_info.ref_count++;
+					atomic_inc(&mi->lan2lan_info.ref_count);
 				else
-					mi->lan2wan_info.ref_count++;
+					atomic_inc(&mi->lan2wan_info.ref_count);
 				mutex_unlock(&ipa_client_db_lock);
 				IPA_BE_DBG("Client dst ip already exists for %s, increase ref (l2l: %d, l2w: %d)\n",
 					   lan2lan ? "lan2lan" : "lan2wan",
-					   mi->lan2lan_info.ref_count,
-					   mi->lan2wan_info.ref_count);
+					   atomic_read(&mi->lan2lan_info.ref_count),
+					   atomic_read(&mi->lan2wan_info.ref_count));
 				return NULL;
 			}
 
@@ -672,14 +672,14 @@ struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(
 			 * back to 0.
 			 */
 			if (lan2lan)
-				mi->lan2lan_info.ref_count++;
+				atomic_inc(&mi->lan2lan_info.ref_count);
 			else
-				mi->lan2wan_info.ref_count++;
+				atomic_inc(&mi->lan2wan_info.ref_count);
 			mutex_unlock(&ipa_client_db_lock);
 			IPA_BE_DBG("Mapping exists but %s rules not installed yet, installing (l2l: %d, l2w: %d)\n",
 				   lan2lan ? "lan2lan" : "lan2wan",
-				   mi->lan2lan_info.ref_count,
-				   mi->lan2wan_info.ref_count);
+				   atomic_read(&mi->lan2lan_info.ref_count),
+				   atomic_read(&mi->lan2wan_info.ref_count));
 			return mi;
 		}
 	}
@@ -708,9 +708,9 @@ struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(
 	 * frees the mapping.
 	 */
 	if (lan2lan)
-		nmi->lan2lan_info.ref_count = 1;
+		atomic_set(&nmi->lan2lan_info.ref_count, 1);
 	else
-		nmi->lan2wan_info.ref_count = 1;
+		atomic_set(&nmi->lan2wan_info.ref_count, 1);
 
 	/* Copy MAC address if provided */
 	if (mac) {
@@ -742,16 +742,16 @@ int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
 		if (is_ip_addr_equal(mi->address, addr)) {
 			if (lan2lan) {
-				if (mi->lan2lan_info.ref_count > 0)
-					mi->lan2lan_info.ref_count--;
+				if (atomic_read(&mi->lan2lan_info.ref_count) > 0)
+					atomic_dec(&mi->lan2lan_info.ref_count);
 			}
 			else {
-				if (mi->lan2wan_info.ref_count > 0)
-				mi->lan2wan_info.ref_count--;
+				if (atomic_read(&mi->lan2wan_info.ref_count) > 0)
+				atomic_dec(&mi->lan2wan_info.ref_count);
 			}
 
-			IPA_BE_DBG("Ref count now l2l: %d, l2w: %d\n", mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
-			ref_count = mi->lan2lan_info.ref_count + mi->lan2wan_info.ref_count;
+			IPA_BE_DBG("Ref count now l2l: %d, l2w: %d\n", atomic_read(&mi->lan2lan_info.ref_count), atomic_read(&mi->lan2wan_info.ref_count));
+			ref_count = atomic_read(&mi->lan2lan_info.ref_count) + atomic_read(&mi->lan2wan_info.ref_count);
 
 			if (ref_count == 0) {
 				// Remove from IP-based hash table
@@ -1664,7 +1664,7 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 
 	mutex_unlock(&ipa_client_db_lock);
 	if (mi) {
-		IPA_BE_DBG("Exit ..new ref count lan2lan %d l2w %d\n", mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
+		IPA_BE_DBG("Exit ..new ref count lan2lan %d l2w %d\n", atomic_read(&mi->lan2lan_info.ref_count), atomic_read(&mi->lan2wan_info.ref_count));
 	} else {
 		IPA_BE_DBG("No matching mapping instance found for update\n");
 	}
@@ -1755,7 +1755,7 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 
 	mutex_unlock(&ipa_client_db_lock);
 	if (mi) {
-		IPA_BE_DBG("Exit ..new ref count lan2lan %d l2w %d\n", mi->lan2lan_info.ref_count, mi->lan2wan_info.ref_count);
+		IPA_BE_DBG("Exit ..new ref count lan2lan %d l2w %d\n", atomic_read(&mi->lan2lan_info.ref_count), atomic_read(&mi->lan2wan_info.ref_count));
 	} else {
 		IPA_BE_DBG("No matching mapping instance found for update\n");
 	}
@@ -2223,10 +2223,10 @@ int ipa_be_delete_proc_ctx(char *name)
 	while (entry) {
 		if (strcmp(entry->name, name) == 0) {
 			/* Decrement reference count */
-			entry->ref_count--;
-			IPA_BE_DBG("Decremented ref_count for proc ctx %s to %d\n", name, entry->ref_count);
+			atomic_dec(&entry->ref_count);
+			IPA_BE_DBG("Decremented ref_count for proc ctx %s to %d\n", name, atomic_read(&entry->ref_count));
 
-			if (entry->ref_count <= 0) {
+			if (atomic_read(&entry->ref_count) <= 0) {
 				/* Allocate the deletion descriptor now that we know we
 				 * need it and the ref decrement has already happened.
 				 * Allocating here (rather than before the lock) ensures
@@ -2235,7 +2235,7 @@ int ipa_be_delete_proc_ctx(char *name)
 						       sizeof(struct ipa_hdr_proc_ctx_del), GFP_KERNEL);
 				if (!del_proc_ctx) {
 					IPA_BE_ERR("Failed to allocate memory for del_proc_ctx\n");
-					entry->ref_count++;  /* rollback: leave table state consistent for retry */
+					atomic_inc(&entry->ref_count);  /* rollback: leave table state consistent for retry */
 					mutex_unlock(&ipa_hash_table_lock);
 					return -ENOMEM;
 				}

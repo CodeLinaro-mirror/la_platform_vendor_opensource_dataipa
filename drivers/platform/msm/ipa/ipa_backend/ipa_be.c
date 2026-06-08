@@ -362,7 +362,7 @@ static void ipa_be_log_ipv4_rule_details(struct ipa_ipv4_rule_create_msg v4_msg)
 			   v4_msg.vlan_primary_rule.ingress_vlan_tag,
 			   v4_msg.vlan_primary_rule.egress_vlan_tag,
 			   v4_msg.vlan_secondary_rule.ingress_vlan_tag,
-			   v4_msg.vlan_primary_rule.egress_vlan_tag,
+			   v4_msg.vlan_secondary_rule.egress_vlan_tag,
 			   v4_msg.pppoe_rule.flow_pppoe_session_id,
 			   v4_msg.pppoe_rule.flow_pppoe_remote_mac,
 			   v4_msg.pppoe_rule.return_pppoe_session_id,
@@ -436,7 +436,7 @@ static void ipa_be_log_ipv6_rule_details(struct ipa_ipv6_rule_create_msg v6_msg)
 			   v6_msg.vlan_primary_rule.ingress_vlan_tag,
 			   v6_msg.vlan_primary_rule.egress_vlan_tag,
 			   v6_msg.vlan_secondary_rule.ingress_vlan_tag,
-			   v6_msg.vlan_primary_rule.egress_vlan_tag,
+			   v6_msg.vlan_secondary_rule.egress_vlan_tag,
 			   v6_msg.pppoe_rule.flow_pppoe_session_id,
 			   v6_msg.pppoe_rule.flow_pppoe_remote_mac,
 			   v6_msg.pppoe_rule.return_pppoe_session_id,
@@ -463,6 +463,146 @@ static void ipa_be_log_ipv6_rule_details(struct ipa_ipv6_rule_create_msg v6_msg)
 			   v6_msg.tcp_rule.return_window_scale,
 			   v6_msg.dscp_rule.flow_dscp,
 			   v6_msg.dscp_rule.return_dscp);
+}
+
+static void ipa_be_log_ipv4_destroy_details(const struct ipa_ipv4_rule_destroy_msg *msg)
+{
+	IPA_BE_DBG("ECMIPA destroy rule_flags: 0x%x valid_flags: 0x%x\n",
+		   msg->rule_flags, msg->valid_flags);
+	IPA_BE_DBG("ECMIPA destroy flow_ip: %pI4n:%d protocol: %d\n",
+		   &msg->tuple.flow_ip, ntohs(msg->tuple.flow_ident), msg->tuple.protocol);
+	IPA_BE_DBG("ECMIPA destroy return_ip: %pI4n:%d\n",
+		   &msg->tuple.return_ip, ntohs(msg->tuple.return_ident));
+	IPA_BE_DBG("ECMIPA destroy flow_ip_xlate: %pI4n:%d\n",
+		   &msg->conn_rule.flow_ip_xlate, ntohs(msg->conn_rule.flow_ident_xlate));
+	IPA_BE_DBG("ECMIPA destroy return_ip_xlate: %pI4n:%d\n",
+		   &msg->conn_rule.return_ip_xlate, ntohs(msg->conn_rule.return_ident_xlate));
+	IPA_BE_DBG("ECMIPA destroy "
+		   "flow_interface_num: %u "
+		   "return_interface_num: %u "
+		   "flow_top_interface_num: %u "
+		   "return_top_interface_num: %u\n",
+		   msg->conn_rule.flow_interface_num,
+		   msg->conn_rule.return_interface_num,
+		   msg->conn_rule.flow_top_interface_num,
+		   msg->conn_rule.return_top_interface_num);
+	IPA_BE_DBG("ECMIPA destroy "
+		   "flow_mac: %pM "
+		   "return_mac: %pM\n"
+		   "flow_mtu: %u\n"
+		   "return_mtu: %u\n",
+		   msg->conn_rule.flow_mac,
+		   msg->conn_rule.return_mac,
+		   msg->conn_rule.flow_mtu,
+		   msg->conn_rule.return_mtu);
+	IPA_BE_DBG("ECMIPA destroy "
+		   "ingress_inner_vlan_tag: 0x%x\n"
+		   "egress_inner_vlan_tag: 0x%x\n"
+		   "ingress_outer_vlan_tag: 0x%x\n"
+		   "egress_outer_vlan_tag: 0x%x\n"
+		   "flow_pppoe_session_id: %u\n"
+		   "flow_pppoe_remote_mac: %pM\n"
+		   "return_pppoe_session_id: %u\n"
+		   "return_pppoe_remote_mac: %pM\n",
+		   msg->vlan_primary_rule.ingress_vlan_tag,
+		   msg->vlan_primary_rule.egress_vlan_tag,
+		   msg->vlan_secondary_rule.ingress_vlan_tag,
+		   msg->vlan_secondary_rule.egress_vlan_tag,
+		   msg->pppoe_rule.flow_pppoe_session_id,
+		   msg->pppoe_rule.flow_pppoe_remote_mac,
+		   msg->pppoe_rule.return_pppoe_session_id,
+		   msg->pppoe_rule.return_pppoe_remote_mac);
+	IPA_BE_DBG("ECMIPA destroy "
+		   "tcp flow_max_window: %u\n"
+		   "tcp return_max_window: %u\n"
+		   "tcp flow_end: %u\n"
+		   "tcp return_end: %u\n"
+		   "tcp flow_max_end: %u\n"
+		   "tcp return_max_end: %u\n"
+		   "tcp flow_window_scale: %u\n"
+		   "tcp return_window_scale: %u\n"
+		   "flow_dscp: %u\n"
+		   "return_dscp: %u\n",
+		   msg->tcp_rule.flow_max_window,
+		   msg->tcp_rule.return_max_window,
+		   msg->tcp_rule.flow_end,
+		   msg->tcp_rule.return_end,
+		   msg->tcp_rule.flow_max_end,
+		   msg->tcp_rule.return_max_end,
+		   msg->tcp_rule.flow_window_scale,
+		   msg->tcp_rule.return_window_scale,
+		   msg->dscp_rule.flow_dscp,
+		   msg->dscp_rule.return_dscp);
+}
+
+static void ipa_be_log_ipv6_destroy_details(const struct ipa_ipv6_rule_destroy_msg *msg)
+{
+	IPA_BE_DBG("ECMIPA destroy rule_flags: 0x%x valid_flags: 0x%x\n",
+		   msg->rule_flags, msg->valid_flags);
+	IPA_BE_DBG("ECMIPA destroy flow_ip: %pI6n:%d protocol: %d\n",
+		   &msg->tuple.flow_ip, ntohs(msg->tuple.flow_ident), msg->tuple.protocol);
+	IPA_BE_DBG("ECMIPA destroy return_ip: %pI6n:%d\n",
+		   &msg->tuple.return_ip, ntohs(msg->tuple.return_ident));
+	IPA_BE_DBG("ECMIPA destroy flow_ip_xlate: %pI6n:%d\n",
+		   &msg->conn_rule.flow_ip_xlate, ntohs(msg->conn_rule.flow_ident_xlate));
+	IPA_BE_DBG("ECMIPA destroy return_ip_xlate: %pI6n:%d\n",
+		   &msg->conn_rule.return_ip_xlate, ntohs(msg->conn_rule.return_ident_xlate));
+	IPA_BE_DBG("ECMIPA destroy "
+		   "flow_interface_num: %u "
+		   "return_interface_num: %u "
+		   "flow_top_interface_num: %u "
+		   "return_top_interface_num: %u\n",
+		   msg->conn_rule.flow_interface_num,
+		   msg->conn_rule.return_interface_num,
+		   msg->conn_rule.flow_top_interface_num,
+		   msg->conn_rule.return_top_interface_num);
+	IPA_BE_DBG("ECMIPA destroy "
+		   "flow_mac: %pM "
+		   "return_mac: %pM\n"
+		   "flow_mtu: %u\n"
+		   "return_mtu: %u\n",
+		   msg->conn_rule.flow_mac,
+		   msg->conn_rule.return_mac,
+		   msg->conn_rule.flow_mtu,
+		   msg->conn_rule.return_mtu);
+	IPA_BE_DBG("ECMIPA destroy "
+		   "ingress_inner_vlan_tag: 0x%x\n"
+		   "egress_inner_vlan_tag: 0x%x\n"
+		   "ingress_outer_vlan_tag: 0x%x\n"
+		   "egress_outer_vlan_tag: 0x%x\n"
+		   "flow_pppoe_session_id: %u\n"
+		   "flow_pppoe_remote_mac: %pM\n"
+		   "return_pppoe_session_id: %u\n"
+		   "return_pppoe_remote_mac: %pM\n",
+		   msg->vlan_primary_rule.ingress_vlan_tag,
+		   msg->vlan_primary_rule.egress_vlan_tag,
+		   msg->vlan_secondary_rule.ingress_vlan_tag,
+		   msg->vlan_secondary_rule.egress_vlan_tag,
+		   msg->pppoe_rule.flow_pppoe_session_id,
+		   msg->pppoe_rule.flow_pppoe_remote_mac,
+		   msg->pppoe_rule.return_pppoe_session_id,
+		   msg->pppoe_rule.return_pppoe_remote_mac);
+	IPA_BE_DBG("ECMIPA destroy "
+		   "tcp flow_max_window: %u\n"
+		   "tcp return_max_window: %u\n"
+		   "tcp flow_end: %u\n"
+		   "tcp return_end: %u\n"
+		   "tcp flow_max_end: %u\n"
+		   "tcp return_max_end: %u\n"
+		   "tcp flow_window_scale: %u\n"
+		   "tcp return_window_scale: %u\n"
+		   "flow_dscp: %u\n"
+		   "return_dscp: %u\n",
+		   msg->tcp_rule.flow_max_window,
+		   msg->tcp_rule.return_max_window,
+		   msg->tcp_rule.flow_end,
+		   msg->tcp_rule.return_end,
+		   msg->tcp_rule.flow_max_end,
+		   msg->tcp_rule.return_max_end,
+		   msg->tcp_rule.flow_window_scale,
+		   msg->tcp_rule.return_window_scale,
+		   msg->dscp_rule.flow_dscp,
+		   msg->dscp_rule.return_dscp);
 }
 
 /**
@@ -1267,34 +1407,7 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 	ip_addr_t flow_addr = {0};
 
 	IPA_BE_DBG("Entry  ipa_ipv4_destroy_rule \n");
-
-
-	IPA_BE_DBG("ECMIPA create flow_ip: %pI4n:%d protocol: %d\n", &msg->tuple.flow_ip, ntohs(msg->tuple.flow_ident), msg->tuple.protocol);
-	IPA_BE_DBG("ECMIPA create return_flow_ip: %pI4n:%d\n", &msg->tuple.return_ip, ntohs(msg->tuple.return_ident));
-
-	IPA_BE_DBG("ECMIPA create flow_ip_xlate: %pI4n:%d protocol: %d\n", &msg->conn_rule.flow_ip_xlate, ntohs(msg->conn_rule.flow_ident_xlate), msg->tuple.protocol);
-	IPA_BE_DBG("ECMIPA create return flow_ip_xlate: %pI4n:%d protocol: %d\n", &msg->conn_rule.return_ip_xlate, ntohs(msg->conn_rule.return_ident_xlate), msg->tuple.protocol);
-
-
-	IPA_BE_DBG("ECMIPA destroy "
-				"flow_interface_num: %u "
-				"return_interface_num: %u "
-				"flow_top_interface_num: %u "
-				"return_top_interface_num: %u\n",
-			   msg->conn_rule.flow_interface_num,
-			   msg->conn_rule.return_interface_num,
-			   msg->conn_rule.flow_top_interface_num,
-			   msg->conn_rule.return_top_interface_num);
-
-	IPA_BE_DBG("ECMIPA destroy "
-				"flow_mac: %pM"
-				"return_mac: %pM\n"
-				"flow_mtu: %u\n"
-				"return_mtu: %u\n",
-			   msg->conn_rule.flow_mac,
-			   msg->conn_rule.return_mac,
-			   msg->conn_rule.flow_mtu,
-			   msg->conn_rule.return_mtu);
+	ipa_be_log_ipv4_destroy_details(msg);
 
 	if ((msg->conn_rule.flow_interface_num == msg->conn_rule.flow_top_interface_num) &&
 		(msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num))
@@ -1487,28 +1600,7 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	}
 
 	IPA_BE_DBG("Entry ipa_ipv6_destroy_rule\n");
-
-	IPA_BE_DBG("ECMIPA destroy flow_ip: %pI6n:%d protocol: %d\n", &msg->tuple.flow_ip, ntohs(msg->tuple.flow_ident), msg->tuple.protocol);
-	IPA_BE_DBG("ECMIPA destroy return_flow_ip: %pI6n:%d\n", &msg->tuple.return_ip, ntohs(msg->tuple.return_ident));
-	IPA_BE_DBG("ECMIPA destroy flow_ip_xlate: %pI6n:%d protocol: %d\n", &msg->conn_rule.flow_ip_xlate, ntohs(msg->conn_rule.flow_ident_xlate), msg->tuple.protocol);
-	IPA_BE_DBG("ECMIPA destroy return flow_ip_xlate: %pI6n:%d protocol: %d\n", &msg->conn_rule.return_ip_xlate, ntohs(msg->conn_rule.return_ident_xlate), msg->tuple.protocol);
-	IPA_BE_DBG("ECMIPA destroy "
-				"flow_interface_num: %u "
-				"return_interface_num: %u "
-				"flow_top_interface_num: %u "
-				"return_top_interface_num: %u\n"
-				"flow_mac: %pM "
-				"return_mac: %pM\n"
-				"flow_mtu: %u\n"
-				"return_mtu: %u\n",
-			   msg->conn_rule.flow_interface_num,
-			   msg->conn_rule.return_interface_num,
-			   msg->conn_rule.flow_top_interface_num,
-			   msg->conn_rule.return_top_interface_num,
-			   msg->conn_rule.flow_mac,
-			   msg->conn_rule.return_mac,
-			   msg->conn_rule.flow_mtu,
-			   msg->conn_rule.return_mtu);
+	ipa_be_log_ipv6_destroy_details(msg);
 
 	/* Determine if this is a LAN-to-LAN connection */
 	if ((msg->conn_rule.flow_interface_num == msg->conn_rule.flow_top_interface_num) &&
