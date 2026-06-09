@@ -1104,9 +1104,15 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		goto fail_get_gsi_ep_info;
 	} else
 		gsi_channel_props.ch_id = gsi_ep_info->ipa_gsi_chan_num;
- 	if ((ipa3_ctx->tsn_iface == true ) &&
-		(ep->client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS))
- 		gsi_channel_props.low_latency_en = 1;
+	/* Enable low-latency GSI arbitration on QoS TC pipes so they get
+	 * preferential scheduling over best-effort traffic. BE pipes
+	 * (tc_bmap == 0) are left at the default (disabled). The existing
+	 * tsn/LOW_LAT_CONS path is preserved as a fallback for that client. */
+	if (pipe->tc_bmap != 0)
+		gsi_channel_props.low_latency_en = 1;
+	else if ((ipa3_ctx->tsn_iface == true) &&
+		 (ep->client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS))
+		gsi_channel_props.low_latency_en = 1;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
 	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
 	gsi_channel_props.use_db_eng =
