@@ -1302,16 +1302,16 @@ bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf)
 {
 	bool ret = false;
 	struct ipa3_intf *entry;
-	IPAERR("Entry \n");
+	IPADBG("Entry \n");
 	if (target_intf == NULL) {
 		 return ret;
 	}
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
-		IPAERR("Checking entry->intf_idx %s :%d with intf_idx %d \n", entry->name , entry->intf_idx, intf_idx);
+		IPADBG("Checking entry->intf_idx %s :%d with intf_idx %d \n", entry->name , entry->intf_idx, intf_idx);
 		if (entry->intf_idx == intf_idx) {
-			IPAERR("Iface found at idx %d \n", intf_idx);
+			IPADBG("Iface found at idx %d \n", intf_idx);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 			strscpy(target_intf->name, entry->name, IPA_RESOURCE_NAME_MAX);
 #else
@@ -1328,7 +1328,7 @@ bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf)
 	}
 	mutex_unlock(&ipa3_ctx->lock);
 
-	IPAERR("Exit \n");
+	IPADBG("Exit \n");
 	return ret;
 }
 
@@ -1395,16 +1395,16 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
 	struct ipa3_flt_entry *iter;
 	int list_len = 0;
 
-	IPAERR("Entry\n");
+	IPADBG("Entry\n");
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
-		IPAERR("Checking entry->intf_idx %s :%d with intf_idx %d\n", entry->name, entry->intf_idx, intf_idx);
+		IPADBG("Checking entry->intf_idx %s :%d with intf_idx %d\n", entry->name, entry->intf_idx, intf_idx);
 		if (entry->intf_idx == intf_idx) {
-			IPAERR("Iface found at idx %d\n", intf_idx);
+			IPADBG("Iface found at idx %d\n", intf_idx);
 
 			if (!entry->flt_list) {
-				IPAERR("flt_list is NULL for intf_idx %d, allocating...\n", intf_idx);
+				IPADBG("flt_list is NULL for intf_idx %d, allocating...\n", intf_idx);
 
 				entry->flt_list = kzalloc(sizeof(*entry->flt_list), GFP_KERNEL);
 				if (!entry->flt_list) {
@@ -1445,16 +1445,16 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
             list_for_each_entry(iter, &entry->flt_list->link, link) {
                 list_len++;
             }
-            IPAERR("Filter list size after addition: %d\n", list_len);
+            IPADBG("Filter list size after addition: %d\n", list_len);
 
-			IPAERR("Added flt_hdl %d, cat %d to the list , list size now %d\n", flt_entry.flt_hdl, flt_entry.cat, list_len);
+			IPADBG("Added flt_hdl %d, cat %d to the list , list size now %d\n", flt_entry.flt_hdl, flt_entry.cat, list_len);
 			ret = true;
 			break;
         }
     }
     mutex_unlock(&ipa3_ctx->lock);
 
-    IPAERR("Exit\n");
+    IPADBG("Exit\n");
     return ret;
 }
 
@@ -1514,12 +1514,12 @@ int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry
 				}
 			}
 
-			IPAERR("No matching rule found in filter list for intf_idx %d\n", intf_idx);
+			IPADBG("No matching rule found in filter list for intf_idx %d\n", intf_idx);
 			break;
 		}
 	}
 
-	IPAERR("Interface index %d not found in interface list\n", intf_idx);
+	IPADBG("Interface index %d not found in interface list\n", intf_idx);
 
 unlock_and_exit:
 	mutex_unlock(&ipa3_ctx->lock);
