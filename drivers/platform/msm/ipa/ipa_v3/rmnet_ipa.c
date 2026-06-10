@@ -95,6 +95,26 @@ static const struct rmnet_egress_param rmnet_egress_cfg ={
 	.int_modt = 16,
 	.int_modc = 20,};
 
+/* ULSO-enabled egress config for RDKB mode on HW v7.0 and above */
+static const struct rmnet_egress_param rmnet_egress_cfg_ulso = {
+	.egress_ep_type = 0,
+	.cs_offload_en = 1,
+	.aggr_en = 1,
+	.ulso_en = 1,
+	.ipid_min_max_idx = 0,
+	.int_modt = 16,
+	.int_modc = 20,};
+
+static const struct rmnet_ingress_param rmnet_ingress_coal_cfg = {
+	.ingress_ep_type = RMNET_INGRESS_COALS,
+	.cs_offload_en = 1,
+	.buff_size = 8192,
+	.agg_byte_limit = 32000,
+	.agg_time_limit = 500,
+	.agg_pkt_limit = 30,
+	.int_modt = 16,
+	.int_modc = 20,};
+
 #define IPA_WWAN_RX_SOFTIRQ_THRESH 16
 
 #define INVALID_MUX_ID 0xFF
@@ -3001,10 +3021,14 @@ static int ipa3_setup_apps_wan_cons_pipes(
 
 	/* Pass dummy handle if coal is already setup to avoid overriding */
 	if (ipa_wan_ep_cfg->client == IPA_CLIENT_APPS_WAN_CONS &&
-		(*ingress_eps_mask & IPA_AP_INGRESS_EP_COALS))
-		rc = ipa_setup_sys_pipe(&rmnet_ipa3_ctx->ipa_to_apps_ep_cfg,
-			&wan_hdl);
-	else if (ipa_wan_ep_cfg->client == IPA_CLIENT_APPS_WAN_V2X_CONS &&
+		(*ingress_eps_mask & IPA_AP_INGRESS_EP_COALS)) {
+		if (ep_idx != IPA_EP_NOT_ALLOCATED && ipa3_ctx->ep[ep_idx].valid) {
+			IPADBG("cons_pipes: WAN_CONS already set up by COAL, skip dummy\n");
+		} else {
+			rc = ipa_setup_sys_pipe(&rmnet_ipa3_ctx->ipa_to_apps_ep_cfg,
+					&wan_hdl);
+		}
+	} else if (ipa_wan_ep_cfg->client == IPA_CLIENT_APPS_WAN_V2X_CONS &&
 		(*ingress_eps_mask & IPA_AP_INGRESS_EP_V2X_DATA))
 		rc = ipa_setup_sys_pipe(&rmnet_ipa3_ctx->ipa_v2x_to_apps_ep_cfg,
 			&rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl);
@@ -3499,9 +3523,6 @@ static int handle3_ingress_format_internal(const struct rmnet_ingress_param ingr
 			if (rc)
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
-		/* Sending QMI indication message share RSC/QMAP pipe details*/
-		IPAWANDBG("ingress_ep_mask = %d\n", rmnet_ipa3_ctx->ingress_eps_mask);
-		ipa_send_wan_pipe_ind_to_modem(rmnet_ipa3_ctx->ingress_eps_mask);
 		rmnet_ipa3_ctx->wan_rt_table_setup = true;
 	}
 	return 0;
@@ -5578,14 +5599,26 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	}
 
 	/* Enable SG support in netdevice. */
-	if (ipa3_rmnet_res.ipa_advertise_sg_support)
+	if (ipa3_rmnet_res.ipa_advertise_sg_support) {
 		dev->hw_features |= NETIF_F_SG;
+		dev->features |= NETIF_F_SG;
+	}
 
 	if (ipa3_is_ulso_supported()) {
 		dev->hw_features |= NETIF_F_GSO_UDP_L4;
 		dev->hw_features |= NETIF_F_ALL_TSO;
+		dev->features |= NETIF_F_ALL_TSO | NETIF_F_GSO_UDP_L4;
 		dev->gso_max_size = RMNET_IPA_ULSO_SIZE_LIMIT;
 	}
+
+	/* for > IPA 4.5, we set the colaescing/cs offload feature flag on */
+	if (ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_5) {
+		dev->hw_features |= NETIF_F_GRO_HW | NETIF_F_RXCSUM;
+		dev->hw_features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
+		dev->features |= NETIF_F_GRO_HW | NETIF_F_RXCSUM |
+				  NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
+	}
+
 
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_initialized()) {
@@ -5625,12 +5658,6 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		IPAWANERR("default configuration failed rc=%d\n",
 				ret);
 		goto config_err;
-	}
-
-	/* for > IPA 4.5, we set the colaescing/cs offload feature flag on */
-	if (ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_5) {
-		dev->hw_features |= NETIF_F_GRO_HW | NETIF_F_RXCSUM;
-		dev->hw_features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
 	}
 
 	/*
@@ -6343,8 +6370,13 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		ipa3_eth_tx_ring_db();
 		if(ipa3_ctx->ipa_config_is_rdkb)
 		{
-			handle3_egress_format_internal(rmnet_egress_cfg);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+					ipa3_is_ulso_supported())
+				handle3_egress_format_internal(rmnet_egress_cfg_ulso);
+			else
+				handle3_egress_format_internal(rmnet_egress_cfg);
 
+			handle3_ingress_format_internal(rmnet_ingress_coal_cfg);
 			handle3_ingress_format_internal(rmnet_ingress_cfg);
 		}
 
@@ -8124,6 +8156,13 @@ void ipa3_q6_handshake_complete(bool ssr_bootup)
 	ipa3_set_modem_up(true);
 	if (ipa3_ctx->ipa_config_is_mhi)
 		ipa_send_mhi_ctrl_endp_ind_to_modem();
+
+	if(ipa3_ctx->ipa_config_is_rdkb) {
+		/* Sending QMI indication message share RSC/QMAP pipe details*/
+		IPAWANDBG("ingress_ep_mask = %d\n", rmnet_ipa3_ctx->ingress_eps_mask);
+		IPAWANDBG("Sending wan pipe indication to modem\n");
+		ipa_send_wan_pipe_ind_to_modem(rmnet_ipa3_ctx->ingress_eps_mask);
+	}
 
 	IPAWANDBG("Q6 handshake complete\n");
 }
