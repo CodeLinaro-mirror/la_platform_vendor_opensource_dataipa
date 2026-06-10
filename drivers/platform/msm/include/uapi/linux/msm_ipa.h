@@ -646,6 +646,10 @@ enum ipa_client_type {
 	IPA_CLIENT_ETHERNET3_PROD               = 182,
 	IPA_CLIENT_ETHERNET3_CONS               = 183,
 
+	/* uC/Q6 RQoS WA channels (managed by uC similar to IPAv6 IV WA) */
+	IPA_CLIENT_Q6_RQOS_WA_PROD		= 184,
+	IPA_CLIENT_Q6_RQOS_WA_CONS		= 185,
+
 	IPA_CLIENT_PLACEHOLDER
 };
 
@@ -781,7 +785,8 @@ enum ipa_client_type {
 	(client) == IPA_CLIENT_Q6_QBAP_STATUS_CONS || \
 	(client) == IPA_CLIENT_Q6_CV2X_CONS || \
 	(client) == IPA_CLIENT_Q6_AUDIO_DMA_MHI_CONS || \
-	(client) == IPA_CLIENT_Q6_CV2X_DECIPHER_CONS)
+	(client) == IPA_CLIENT_Q6_CV2X_DECIPHER_CONS || \
+	(client) == IPA_CLIENT_Q6_RQOS_WA_CONS)
 
 #define IPA_CLIENT_IS_Q6_PROD(client) \
 	((client) == IPA_CLIENT_Q6_LAN_PROD || \
@@ -794,7 +799,8 @@ enum ipa_client_type {
 	(client) == IPA_CLIENT_Q6_CV2X_PROD || \
 	(client) == IPA_CLIENT_Q6_AUDIO_DMA_MHI_PROD || \
 	(client) == IPA_CLIENT_Q6_V2X_BROADCAST_PROD || \
-	(client) == IPA_CLIENT_Q6_V2X_UNICAST_PROD)
+	(client) == IPA_CLIENT_Q6_V2X_UNICAST_PROD || \
+	(client) == IPA_CLIENT_Q6_RQOS_WA_PROD)
 
 
 #define IPA_CLIENT_IS_Q6_NON_ZIP_CONS(client) \

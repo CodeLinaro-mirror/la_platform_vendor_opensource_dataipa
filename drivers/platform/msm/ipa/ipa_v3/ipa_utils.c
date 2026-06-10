@@ -8349,6 +8349,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 38, 7, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_UL },
+	/* uC/Q6 RQoS WA channels (managed by uC similar to IPAv6 IV WA) */
+	[IPA_7_0][IPA_CLIENT_Q6_RQOS_WA_PROD] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			QMB_MASTER_SELECT_DDR,
+			{ 27, 12, 8, 22, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0][IPA_CLIENT_Q6_RQOS_WA_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 73, 13, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_DL },
 
 	/* For test purposes only */
 	[IPA_7_0][IPA_CLIENT_TEST_PROD] = {
@@ -8556,6 +8571,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 58, 58, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_DL },
+	/* uC/Q6 RQoS WA channels (managed by uC similar to IPAv6 IV WA) */
+	[IPA_7_0_MHI][IPA_CLIENT_Q6_RQOS_WA_PROD] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			QMB_MASTER_SELECT_DDR,
+			{ 27, 12, 8, 22, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_MHI][IPA_CLIENT_Q6_RQOS_WA_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 73, 13, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
 
 	/* IPA_7_0_AUTO */
@@ -8877,6 +8907,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 38, 7, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
 			IPA_TX_INSTANCE_UL },
+	/* uC/Q6 RQoS WA channels (managed by uC similar to IPAv6 IV WA) */
+	[IPA_7_0_AUTO][IPA_CLIENT_Q6_RQOS_WA_PROD] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			QMB_MASTER_SELECT_DDR,
+			{ 27, 12, 8, 22, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_Q6_RQOS_WA_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 73, 13, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_DL },
 	[IPA_7_0_AUTO][IPA_CLIENT_Q6_CV2X_CONS] = {
 			true, IPA_v7_0_GROUP_CV2X,
 			false,
@@ -10498,6 +10543,8 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_ETHERNET_QOS2_CONS),
 	__stringify(IPA_CLIENT_ETHERNET3_PROD),
 	__stringify(IPA_CLIENT_ETHERNET3_CONS),
+	__stringify(IPA_CLIENT_Q6_RQOS_WA_PROD),
+	__stringify(IPA_CLIENT_Q6_RQOS_WA_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
