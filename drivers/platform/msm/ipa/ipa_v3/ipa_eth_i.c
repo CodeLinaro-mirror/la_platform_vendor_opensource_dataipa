@@ -688,7 +688,7 @@ static int ipa3_smmu_map_eth_pipes(struct ipa_eth_client_pipe_info *pipe,
 	u64 iova;
 	phys_addr_t pa;
 	u64 iova_p;
-	u64 prev_iova_p;
+	u64 prev_map_end;
 	phys_addr_t pa_p;
 	u32 size_p;
 	enum ipa_smmu_cb_type cb_type = IPA_SMMU_CB_AP;
@@ -775,20 +775,31 @@ map_buffer:
 			goto fail_map_buffer_smmu_enabled;
 		}
 
-		prev_iova_p = 0;
+		prev_map_end = 0;
 		for (i = 0; i < pipe->info.data_buff_list_size; i++) {
 			iova = (u64)pipe->info.data_buff_list[i].iova;
 			pa = (phys_addr_t)pipe->info.data_buff_list[i].pa;
 			IPA_SMMU_ROUND_TO_PAGE(iova, pa, pipe->info.fix_buffer_size,
 				iova_p, pa_p, size_p);
-			/* Add check on every 2nd buffer for AQC smmu-dup issue */
-			if (prev_iova_p == iova_p) {
+			/*
+			 * Skip if this buffer's required mapping is entirely
+			 * covered by what we've already mapped. Otherwise, map
+			 * only the new pages beyond prev_map_end to avoid
+			 * overlapping iommu_map calls.
+			 */
+			if ((iova_p + size_p) <= prev_map_end) {
 				IPADBG_LOW(
-					"current buffer and previous are on the same page, skip page mapping\n"
-				);
+					"buffer %d covered by prev mapping, skip\n",
+					i);
 				continue;
 			}
-			prev_iova_p = iova_p;
+			if (iova_p < prev_map_end) {
+				/* Partial overlap: only map the extension */
+				pa_p += (prev_map_end - iova_p);
+				size_p -= (prev_map_end - iova_p);
+				iova_p = prev_map_end;
+			}
+			prev_map_end = iova_p + size_p;
 			IPADBG_LOW("%s 0x%llx to 0x%pa size %d\n", map ? "mapping" :
 				"unmapping", iova_p, &pa_p, size_p);
 			if (map) {
