@@ -318,7 +318,7 @@ static struct ipa3_nat_ipv6ct_tmp_mem *ipa3_nat_ipv6ct_allocate_tmp_memory(void)
 	struct ipa3_nat_ipv6ct_tmp_mem *tmp_mem;
 	gfp_t gfp_flags = GFP_KERNEL | __GFP_ZERO;
 
-	IPAERR_BOOTUP("\n");
+	IPADBG_BOOTUP("\n");
 
 	tmp_mem = kzalloc(sizeof(*tmp_mem), GFP_KERNEL);
 	if (tmp_mem == NULL)
@@ -330,7 +330,7 @@ static struct ipa3_nat_ipv6ct_tmp_mem *ipa3_nat_ipv6ct_allocate_tmp_memory(void)
 	if (tmp_mem->vaddr == NULL)
 		goto bail_tmp_mem;
 
-	IPAERR_BOOTUP("IPA successfully allocated temp memory\n");
+	IPADBG_BOOTUP("IPA successfully allocated temp memory\n");
 	return tmp_mem;
 
 bail_tmp_mem:
@@ -347,7 +347,7 @@ static int ipa3_nat_ipv6ct_init_device(
 {
 	int result = 0;
 
-	IPAERR_BOOTUP("In: Init of %s\n", name);
+	IPADBG_BOOTUP("In: Init of %s\n", name);
 
 	mutex_init(&dev->lock);
 
@@ -406,7 +406,7 @@ static int ipa3_nat_ipv6ct_init_device(
 
 	mutex_unlock(&dev->lock);
 
-	IPAERR_BOOTUP("ipa dev %s added successfully. major:%d minor:%d\n", name,
+	IPADBG_BOOTUP("ipa dev %s added successfully. major:%d minor:%d\n", name,
 			  MAJOR(dev->dev_num), MINOR(dev->dev_num));
 
 	result = 0;
@@ -424,7 +424,7 @@ alloc_chrdev_region_fail:
 	class_destroy(dev->class);
 
 bail:
-	IPAERR_BOOTUP("Out\n");
+	IPADBG_BOOTUP("Out\n");
 
 	return result;
 }
@@ -475,7 +475,7 @@ int ipa3_nat_ipv6ct_init_devices(void)
 	struct ipa3_nat_ipv6ct_tmp_mem *tmp_mem;
 	int result;
 
-	IPAERR_BOOTUP("\n");
+	IPADBG_BOOTUP("\n");
 
 	/*
 	 * Allocate NAT/IPv6CT temporary memory. The memory is never deleted,

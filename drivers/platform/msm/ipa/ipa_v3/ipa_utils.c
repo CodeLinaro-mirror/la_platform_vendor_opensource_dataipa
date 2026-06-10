@@ -8180,15 +8180,15 @@ void _ipa_sram_settings_read_v3_0(void)
 int ipa3_cfg_route(struct ipahal_reg_route *route)
 {
 
-	IPAERR_BOOTUP("disable_route_block=%d, default_pipe=%d, default_hdr_tbl=%d\n",
+	IPADBG_BOOTUP("disable_route_block=%d, default_pipe=%d, default_hdr_tbl=%d\n",
 		route->route_dis,
 		route->route_def_pipe,
 		route->route_def_hdr_table);
-	IPAERR_BOOTUP("default_hdr_ofst=%d, default_frag_pipe=%d\n",
+	IPADBG_BOOTUP("default_hdr_ofst=%d, default_frag_pipe=%d\n",
 		route->route_def_hdr_ofst,
 		route->route_frag_def_pipe);
 
-	IPAERR_BOOTUP("default_retain_hdr=%d\n",
+	IPADBG_BOOTUP("default_retain_hdr=%d\n",
 		route->route_def_retain_hdr);
 
 	if (route->route_dis) {
@@ -8234,7 +8234,7 @@ static int ipa_disable_hashing_rt_flt_v4_2(void)
 		WARN_ON(1);
 		return -EPERM;
 	}
-	IPAERR_BOOTUP("Disable hashing for filter and route table in IPA 4.2 HW\n");
+	IPADBG_BOOTUP("Disable hashing for filter and route table in IPA 4.2 HW\n");
 	ipahal_write_reg(IPA_FILT_ROUT_HASH_EN,
 					IPA_FILT_ROUT_HASH_REG_VAL_v4_2);
 	return 0;
@@ -8374,10 +8374,10 @@ static void ipa_cfg_qtime(void)
 	ts_cfg.tag_timestamp_lsb = IPA_TAG_TIMER_TIMESTAMP_SHFT;
 	ts_cfg.nat_timestamp_lsb = IPA_NAT_TIMER_TIMESTAMP_SHFT;
 	val = ipahal_read_reg(IPA_QTIME_TIMESTAMP_CFG);
-	IPAERR_BOOTUP("qtime timestamp before cfg: 0x%x\n", val);
+	IPADBG_BOOTUP("qtime timestamp before cfg: 0x%x\n", val);
 	ipahal_write_reg_fields(IPA_QTIME_TIMESTAMP_CFG, &ts_cfg);
 	val = ipahal_read_reg(IPA_QTIME_TIMESTAMP_CFG);
-	IPAERR_BOOTUP("qtime timestamp after cfg: 0x%x\n", val);
+	IPADBG_BOOTUP("qtime timestamp after cfg: 0x%x\n", val);
 
 	/* Configure timers pulse generators granularity */
 	memset(&gran_cfg, 0, sizeof(gran_cfg));
@@ -8396,15 +8396,15 @@ static void ipa_cfg_qtime(void)
 		gran_cfg.gran_3 = IPA_TIMERS_TIME_GRAN_10_MSEC;
 	}
 	val = ipahal_read_reg(IPA_TIMERS_PULSE_GRAN_CFG);
-	IPAERR_BOOTUP("timer pulse granularity before cfg: 0x%x\n", val);
+	IPADBG_BOOTUP("timer pulse granularity before cfg: 0x%x\n", val);
 	ipahal_write_reg_fields(IPA_TIMERS_PULSE_GRAN_CFG, &gran_cfg);
 	val = ipahal_read_reg(IPA_TIMERS_PULSE_GRAN_CFG);
-	IPAERR_BOOTUP("timer pulse granularity after cfg: 0x%x\n", val);
+	IPADBG_BOOTUP("timer pulse granularity after cfg: 0x%x\n", val);
 
 	/* Configure timers XO Clock divider */
 	memset(&div_cfg, 0, sizeof(div_cfg));
 	ipahal_read_reg_fields(IPA_TIMERS_XO_CLK_DIV_CFG, &div_cfg);
-	IPAERR_BOOTUP("timer XO clk divider before cfg: enabled=%d divider=%u\n",
+	IPADBG_BOOTUP("timer XO clk divider before cfg: enabled=%d divider=%u\n",
 		div_cfg.enable, div_cfg.value);
 
 	/* Make sure divider is disabled */
@@ -8425,7 +8425,7 @@ static void ipa_cfg_qtime(void)
 	div_cfg.enable = true; /* Enable the divider */
 	ipahal_write_reg_fields(IPA_TIMERS_XO_CLK_DIV_CFG, &div_cfg);
 	ipahal_read_reg_fields(IPA_TIMERS_XO_CLK_DIV_CFG, &div_cfg);
-	IPAERR_BOOTUP("timer XO clk divider after cfg: enabled=%d divider=%u\n",
+	IPADBG_BOOTUP("timer XO clk divider after cfg: enabled=%d divider=%u\n",
 		div_cfg.enable, div_cfg.value);
 }
 
@@ -8443,7 +8443,7 @@ int ipa3_init_hw(void)
 
 	/* Read IPA version and make sure we have access to the registers */
 	ipa_version = ipahal_read_reg(IPA_VERSION);
-	IPAERR_BOOTUP("IPA_VERSION=%u\n", ipa_version);
+	IPADBG_BOOTUP("IPA_VERSION=%u\n", ipa_version);
 	if (ipa_version == 0)
 		return -EFAULT;
 
@@ -8464,7 +8464,7 @@ int ipa3_init_hw(void)
 		ipahal_write_reg(IPA_BCR, IPA_BCR_REG_VAL_v4_2);
 		break;
 	default:
-		IPAERR_BOOTUP("Do not update BCR - hw_type=%d\n",
+		IPADBG_BOOTUP("Do not update BCR - hw_type=%d\n",
 			ipa3_ctx->ipa_hw_type);
 		break;
 	}
@@ -8514,7 +8514,7 @@ int ipa3_init_hw(void)
 		master_cfg.coal_ipv4_id_ignore = ipa3_ctx->coal_ipv4_id_ignore;
 		ipahal_write_reg_fields(IPA_COAL_MASTER_CFG, &master_cfg);
 
-		IPAERR_BOOTUP(
+		IPADBG_BOOTUP(
 			": coal-ipv4-id-ignore = %s\n",
 			master_cfg.coal_ipv4_id_ignore ?
 			"True" : "False");
@@ -9297,6 +9297,7 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 			IPAERR_CFG("bad parm, clnt_hdl = %d , ep_valid = %d\n",
 				clnt_hdl,
 				ipa3_ctx->ep[clnt_hdl].valid);
+			IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return -EINVAL;
 		}
 		ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance = tx_instance;
@@ -9491,8 +9492,6 @@ int ipa3_cfg_ep_hdr_ext(u32 clnt_hdl,
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HDR_EXT_n, clnt_hdl,
 		&ep->cfg.hdr_ext);
-	IPADBG_CFG("hdr_ext reg value = 0x%x\n", ipahal_read_reg_n_fields(IPA_ENDP_INIT_HDR_EXT_n, 
-			clnt_hdl, &ep->cfg.hdr_ext));
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	return 0;
@@ -9925,8 +9924,6 @@ int ipa3_cfg_ep_aggr(u32 clnt_hdl, const struct ipa_ep_cfg_aggr *ep_aggr)
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_AGGR_n, clnt_hdl,
 			&ipa3_ctx->ep[clnt_hdl].cfg.aggr);
-	IPADBG_CFG("aggr reg value = 0x%x\n", ipahal_read_reg_n_fields(IPA_ENDP_INIT_AGGR_n,
-				clnt_hdl, &ipa3_ctx->ep[clnt_hdl].cfg.aggr));
 
 complete:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
@@ -10243,8 +10240,6 @@ int ipa3_cfg_ep_deaggr(u32 clnt_hdl,
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_DEAGGR_n, clnt_hdl,
 		&ep->cfg.deaggr);
-	IPADBG_CFG("deaggr reg value = 0x%x\n", ipahal_read_reg_n_fields(IPA_ENDP_INIT_DEAGGR_n,
-				clnt_hdl, &ep->cfg.deaggr));
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	return 0;
@@ -10568,7 +10563,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -EPERM;
 	}
 
-	IPAERR_BOOTUP("UC OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("UC OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(uc_ofst), IPA_MEM_PART(uc_size));
 
 	if (IPA_MEM_PART(uc_info_ofst) & 3) {
@@ -10577,10 +10572,10 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("UC INFO OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("UC INFO OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(uc_info_ofst), IPA_MEM_PART(uc_info_size));
 
-	IPAERR_BOOTUP("RAM OFST 0x%x\n", IPA_MEM_PART(ofst_start));
+	IPADBG_BOOTUP("RAM OFST 0x%x\n", IPA_MEM_PART(ofst_start));
 
 	if (IPA_MEM_PART(v4_flt_hash_ofst) & 7) {
 		IPAERR_BOOTUP("V4 FLT HASHABLE OFST 0x%x is unaligned\n",
@@ -10588,7 +10583,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("V4 FLT HASHABLE OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("V4 FLT HASHABLE OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(v4_flt_hash_ofst),
 		IPA_MEM_PART(v4_flt_hash_size),
 		IPA_MEM_PART(v4_flt_hash_size_ddr));
@@ -10599,7 +10594,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("V4 FLT NON-HASHABLE OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("V4 FLT NON-HASHABLE OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(v4_flt_nhash_ofst),
 		IPA_MEM_PART(v4_flt_nhash_size),
 		IPA_MEM_PART(v4_flt_nhash_size_ddr));
@@ -10610,7 +10605,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("V6 FLT HASHABLE OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("V6 FLT HASHABLE OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(v6_flt_hash_ofst), IPA_MEM_PART(v6_flt_hash_size),
 		IPA_MEM_PART(v6_flt_hash_size_ddr));
 
@@ -10620,18 +10615,18 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("V6 FLT NON-HASHABLE OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("V6 FLT NON-HASHABLE OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(v6_flt_nhash_ofst),
 		IPA_MEM_PART(v6_flt_nhash_size),
 		IPA_MEM_PART(v6_flt_nhash_size_ddr));
 
-	IPAERR_BOOTUP("V4 RT NUM INDEX 0x%x\n", IPA_MEM_PART(v4_rt_num_index));
+	IPADBG_BOOTUP("V4 RT NUM INDEX 0x%x\n", IPA_MEM_PART(v4_rt_num_index));
 
-	IPAERR_BOOTUP("V4 RT MODEM INDEXES 0x%x - 0x%x\n",
+	IPADBG_BOOTUP("V4 RT MODEM INDEXES 0x%x - 0x%x\n",
 		IPA_MEM_PART(v4_modem_rt_index_lo),
 		IPA_MEM_PART(v4_modem_rt_index_hi));
 
-	IPAERR_BOOTUP("V4 RT APPS INDEXES 0x%x - 0x%x\n",
+	IPADBG_BOOTUP("V4 RT APPS INDEXES 0x%x - 0x%x\n",
 		IPA_MEM_PART(v4_apps_rt_index_lo),
 		IPA_MEM_PART(v4_apps_rt_index_hi));
 
@@ -10641,9 +10636,9 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("V4 RT HASHABLE OFST 0x%x\n", IPA_MEM_PART(v4_rt_hash_ofst));
+	IPADBG_BOOTUP("V4 RT HASHABLE OFST 0x%x\n", IPA_MEM_PART(v4_rt_hash_ofst));
 
-	IPAERR_BOOTUP("V4 RT HASHABLE SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("V4 RT HASHABLE SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(v4_rt_hash_size),
 		IPA_MEM_PART(v4_rt_hash_size_ddr));
 
@@ -10653,20 +10648,20 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("V4 RT NON-HASHABLE OFST 0x%x\n",
+	IPADBG_BOOTUP("V4 RT NON-HASHABLE OFST 0x%x\n",
 		IPA_MEM_PART(v4_rt_nhash_ofst));
 
-	IPAERR_BOOTUP("V4 RT HASHABLE SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("V4 RT HASHABLE SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(v4_rt_nhash_size),
 		IPA_MEM_PART(v4_rt_nhash_size_ddr));
 
-	IPAERR_BOOTUP("V6 RT NUM INDEX 0x%x\n", IPA_MEM_PART(v6_rt_num_index));
+	IPADBG_BOOTUP("V6 RT NUM INDEX 0x%x\n", IPA_MEM_PART(v6_rt_num_index));
 
-	IPAERR_BOOTUP("V6 RT MODEM INDEXES 0x%x - 0x%x\n",
+	IPADBG_BOOTUP("V6 RT MODEM INDEXES 0x%x - 0x%x\n",
 		IPA_MEM_PART(v6_modem_rt_index_lo),
 		IPA_MEM_PART(v6_modem_rt_index_hi));
 
-	IPAERR_BOOTUP("V6 RT APPS INDEXES 0x%x - 0x%x\n",
+	IPADBG_BOOTUP("V6 RT APPS INDEXES 0x%x - 0x%x\n",
 		IPA_MEM_PART(v6_apps_rt_index_lo),
 		IPA_MEM_PART(v6_apps_rt_index_hi));
 
@@ -10676,9 +10671,9 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("V6 RT HASHABLE OFST 0x%x\n", IPA_MEM_PART(v6_rt_hash_ofst));
+	IPADBG_BOOTUP("V6 RT HASHABLE OFST 0x%x\n", IPA_MEM_PART(v6_rt_hash_ofst));
 
-	IPAERR_BOOTUP("V6 RT HASHABLE SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("V6 RT HASHABLE SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(v6_rt_hash_size),
 		IPA_MEM_PART(v6_rt_hash_size_ddr));
 
@@ -10688,10 +10683,10 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("V6 RT NON-HASHABLE OFST 0x%x\n",
+	IPADBG_BOOTUP("V6 RT NON-HASHABLE OFST 0x%x\n",
 		IPA_MEM_PART(v6_rt_nhash_ofst));
 
-	IPAERR_BOOTUP("V6 RT NON-HASHABLE SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("V6 RT NON-HASHABLE SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(v6_rt_nhash_size),
 		IPA_MEM_PART(v6_rt_nhash_size_ddr));
 
@@ -10701,7 +10696,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("MODEM HDR OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("MODEM HDR OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(modem_hdr_ofst), IPA_MEM_PART(modem_hdr_size));
 
 	if (IPA_MEM_PART(apps_hdr_ofst) & 7) {
@@ -10710,7 +10705,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("APPS HDR OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("APPS HDR OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(apps_hdr_ofst), IPA_MEM_PART(apps_hdr_size),
 		IPA_MEM_PART(apps_hdr_size_ddr));
 
@@ -10720,7 +10715,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("MODEM HDR PROC CTX OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("MODEM HDR PROC CTX OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(modem_hdr_proc_ctx_ofst),
 		IPA_MEM_PART(modem_hdr_proc_ctx_size));
 
@@ -10730,7 +10725,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("APPS HDR PROC CTX OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
+	IPADBG_BOOTUP("APPS HDR PROC CTX OFST 0x%x SIZE 0x%x DDR SIZE 0x%x\n",
 		IPA_MEM_PART(apps_hdr_proc_ctx_ofst),
 		IPA_MEM_PART(apps_hdr_proc_ctx_size),
 		IPA_MEM_PART(apps_hdr_proc_ctx_size_ddr));
@@ -10768,7 +10763,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("NAT TBL OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("NAT TBL OFST 0x%x SIZE 0x%x\n",
 		   IPA_MEM_PART(nat_tbl_ofst),
 		   IPA_MEM_PART(nat_tbl_size));
 
@@ -10778,7 +10773,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("PDN CONFIG OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("PDN CONFIG OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(pdn_config_ofst),
 		IPA_MEM_PART(pdn_config_size));
 
@@ -10788,7 +10783,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("Q6 QUOTA STATS OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("Q6 QUOTA STATS OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(stats_quota_q6_ofst),
 		IPA_MEM_PART(stats_quota_q6_size));
 
@@ -10798,7 +10793,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("AP QUOTA STATS OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("AP QUOTA STATS OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(stats_quota_ap_ofst),
 		IPA_MEM_PART(stats_quota_ap_size));
 
@@ -10808,7 +10803,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("TETHERING STATS OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("TETHERING STATS OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(stats_tethering_ofst),
 		IPA_MEM_PART(stats_tethering_size));
 
@@ -10818,7 +10813,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("FILTER AND ROUTING STATS OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("FILTER AND ROUTING STATS OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(stats_fnr_ofst),
 		IPA_MEM_PART(stats_fnr_size));
 
@@ -10828,7 +10823,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("DROP STATS OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("DROP STATS OFST 0x%x SIZE 0x%x\n",
 	IPA_MEM_PART(stats_drop_ofst),
 		IPA_MEM_PART(stats_drop_size));
 
@@ -10838,38 +10833,38 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("V4 APPS HASHABLE FLT OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("V4 APPS HASHABLE FLT OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(apps_v4_flt_hash_ofst),
 		IPA_MEM_PART(apps_v4_flt_hash_size));
 
-	IPAERR_BOOTUP("V4 APPS NON-HASHABLE FLT OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("V4 APPS NON-HASHABLE FLT OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(apps_v4_flt_nhash_ofst),
 		IPA_MEM_PART(apps_v4_flt_nhash_size));
 
-	IPAERR_BOOTUP("V6 APPS HASHABLE FLT OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("V6 APPS HASHABLE FLT OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(apps_v6_flt_hash_ofst),
 		IPA_MEM_PART(apps_v6_flt_hash_size));
 
-	IPAERR_BOOTUP("V6 APPS NON-HASHABLE FLT OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("V6 APPS NON-HASHABLE FLT OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(apps_v6_flt_nhash_ofst),
 		IPA_MEM_PART(apps_v6_flt_nhash_size));
 
-	IPAERR_BOOTUP("RAM END OFST 0x%x\n",
+	IPADBG_BOOTUP("RAM END OFST 0x%x\n",
 		IPA_MEM_PART(end_ofst));
 
-	IPAERR_BOOTUP("V4 APPS HASHABLE RT OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("V4 APPS HASHABLE RT OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(apps_v4_rt_hash_ofst),
 		IPA_MEM_PART(apps_v4_rt_hash_size));
 
-	IPAERR_BOOTUP("V4 APPS NON-HASHABLE RT OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("V4 APPS NON-HASHABLE RT OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(apps_v4_rt_nhash_ofst),
 		IPA_MEM_PART(apps_v4_rt_nhash_size));
 
-	IPAERR_BOOTUP("V6 APPS HASHABLE RT OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("V6 APPS HASHABLE RT OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(apps_v6_rt_hash_ofst),
 		IPA_MEM_PART(apps_v6_rt_hash_size));
 
-	IPAERR_BOOTUP("V6 APPS NON-HASHABLE RT OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("V6 APPS NON-HASHABLE RT OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(apps_v6_rt_nhash_ofst),
 		IPA_MEM_PART(apps_v6_rt_nhash_size));
 
@@ -10879,7 +10874,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("MODEM OFST 0x%x SIZE 0x%x\n", IPA_MEM_PART(modem_ofst),
+	IPADBG_BOOTUP("MODEM OFST 0x%x SIZE 0x%x\n", IPA_MEM_PART(modem_ofst),
 		IPA_MEM_PART(modem_size));
 
 	if (IPA_MEM_PART(uc_descriptor_ram_ofst) & 1023) {
@@ -10888,7 +10883,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPAERR_BOOTUP("UC DESCRIPTOR RAM OFST 0x%x SIZE 0x%x\n",
+	IPADBG_BOOTUP("UC DESCRIPTOR RAM OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(uc_descriptor_ram_ofst),
 		IPA_MEM_PART(uc_descriptor_ram_size));
 
@@ -11833,7 +11828,7 @@ bool ipa3_get_modem_cfg_emb_pipe_flt(void)
 	if (ipa3_ctx)
 		return ipa3_ctx->modem_cfg_emb_pipe_flt;
 
-	IPAERR_BOOTUP("IPA driver has not been initialized\n");
+	IPADBG_BOOTUP("IPA driver has not been initialized\n");
 
 	return false;
 }
@@ -12570,7 +12565,7 @@ static void ipa3_configure_rx_hps(void)
 {
 	int rx_hps_max_clnt_in_depth0;
 
-	IPAERR_BOOTUP("Assign RX_HPS CMDQ rsrc groups min-max limits\n");
+	IPADBG_BOOTUP("Assign RX_HPS CMDQ rsrc groups min-max limits\n");
 
 	/* Starting IPA4.5 we have 5 RX_HPS_CMDQ */
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_5)
@@ -12609,7 +12604,7 @@ void ipa3_set_resorce_groups_min_max_limits(void)
 	struct ipahal_reg_rsrc_grp_xy_cfg val;
 	u8 hw_type_idx;
 
-	IPAERR_BOOTUP("ENTER\n");
+	IPADBG_BOOTUP("ENTER\n");
 
 	hw_type_idx = ipa3_ctx->hw_type_index;
 
@@ -12704,7 +12699,7 @@ void ipa3_set_resorce_groups_min_max_limits(void)
 		return;
 	}
 
-	IPAERR_BOOTUP("Assign source rsrc groups min-max limits\n");
+	IPADBG_BOOTUP("Assign source rsrc groups min-max limits\n");
 	for (i = 0; i < src_rsrc_type_max; i++) {
 		for (j = 0; j < src_grp_idx_max; j = j + 2) {
 			val.x_min =
@@ -12721,7 +12716,7 @@ void ipa3_set_resorce_groups_min_max_limits(void)
 		}
 	}
 
-	IPAERR_BOOTUP("Assign destination rsrc groups min-max limits\n");
+	IPADBG_BOOTUP("Assign destination rsrc groups min-max limits\n");
 	for (i = 0; i < dst_rsrc_type_max; i++) {
 		for (j = 0; j < dst_grp_idx_max; j = j + 2) {
 			val.x_min =
@@ -12747,7 +12742,7 @@ void ipa3_set_resorce_groups_min_max_limits(void)
 		ipa3_configure_rx_hps();
 	}
 
-	IPAERR_BOOTUP("EXIT\n");
+	IPADBG_BOOTUP("EXIT\n");
 }
 
 void ipa3_set_resorce_groups_config(void)
@@ -12755,7 +12750,7 @@ void ipa3_set_resorce_groups_config(void)
 	struct ipahal_reg_rsrc_grp_cfg cfg;
 	struct ipahal_reg_rsrc_grp_cfg_ext cfg_ext;
 
-	IPAERR_BOOTUP("ENTER\n");
+	IPADBG_BOOTUP("ENTER\n");
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) {
 		cfg.src_grp_index = ipa_rsrc_config[ipa3_ctx->hw_type_index].src_grp_index;
@@ -12767,12 +12762,12 @@ void ipa3_set_resorce_groups_config(void)
 		cfg_ext.index = ipa_rsrc_config[ipa3_ctx->hw_type_index].src_grp_2nd_prio_index;
 		cfg_ext.valid = ipa_rsrc_config[ipa3_ctx->hw_type_index].src_grp_2nd_prio_valid;
 
-		IPAERR_BOOTUP("Write IPA_RSRC_GRP_CFG\n");
+		IPADBG_BOOTUP("Write IPA_RSRC_GRP_CFG\n");
 		ipahal_write_reg_fields(IPA_RSRC_GRP_CFG, &cfg);
-		IPAERR_BOOTUP("Write IPA_RSRC_GRP_CFG_EXT\n");
+		IPADBG_BOOTUP("Write IPA_RSRC_GRP_CFG_EXT\n");
 		ipahal_write_reg_fields(IPA_RSRC_GRP_CFG_EXT, &cfg_ext);
 	}
-	IPAERR_BOOTUP("EXIT\n");
+	IPADBG_BOOTUP("EXIT\n");
 }
 
 static void ipa3_gsi_poll_after_suspend(struct ipa3_ep_context *ep)
@@ -12843,6 +12838,7 @@ static int __ipa_stop_gsi_channel(u32 clnt_hdl)
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_9 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11 &&
 		ipa3_ctx->ipa_hw_type != IPA_HW_v5_2 &&
 		ipa3_ctx->platform_type != IPA_PLAT_TYPE_XR) {
@@ -13251,7 +13247,7 @@ int ipa3_allocate_dma_task_for_gsi(void)
 {
 	struct ipahal_imm_cmd_dma_task_32b_addr cmd = { 0 };
 
-	IPAERR_BOOTUP("Allocate mem\n");
+	IPADBG_BOOTUP("Allocate mem\n");
 	ipa3_ctx->dma_task_info.mem.size = IPA_GSI_CHANNEL_STOP_PKT_SIZE;
 	ipa3_ctx->dma_task_info.mem.base = dma_alloc_coherent(ipa3_ctx->pdev,
 		ipa3_ctx->dma_task_info.mem.size,
@@ -13302,7 +13298,7 @@ int ipa3_allocate_coal_close_frame(void)
 
 	if ( IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_WAN_COAL_CONS, ep_idx) ) {
 
-		IPAERR_BOOTUP("Allocate wan coal close frame cmd\n");
+		IPADBG_BOOTUP("Allocate wan coal close frame cmd\n");
 
 		reg_write_cmd.skip_pipeline_clear = false;
 		if (ipa3_ctx->ulso_wa) {
@@ -13334,7 +13330,7 @@ int ipa3_allocate_coal_close_frame(void)
 
 	if ( IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_LAN_COAL_CONS, ep_idx) ) {
 
-		IPAERR_BOOTUP("Allocate lan coal close frame cmd\n");
+		IPADBG_BOOTUP("Allocate lan coal close frame cmd\n");
 
 		reg_write_cmd.skip_pipeline_clear = false;
 		if (ipa3_ctx->ulso_wa) {
@@ -13535,9 +13531,9 @@ static void ipa3_get_hps_dps_areas_absolute_addr_and_sz(
 	info->dps_sz = dps_area_end - dps_area_start + sizeof(u32);
 	info->hps_sz = hps_area_end - hps_area_start + sizeof(u32);
 
-	IPAERR_BOOTUP("dps area: start offset=0x%x end offset=0x%x\n",
+	IPADBG_BOOTUP("dps area: start offset=0x%x end offset=0x%x\n",
 		dps_area_start, dps_area_end);
-	IPAERR_BOOTUP("hps area: start offset=0x%x end offset=0x%x\n",
+	IPADBG_BOOTUP("hps area: start offset=0x%x end offset=0x%x\n",
 		hps_area_start, hps_area_end);
 }
 
@@ -13562,7 +13558,7 @@ static int emulator_load_single_fw(
 	const uint32_t *elf_data_ptr;
 	void __iomem *fw_base;
 
-	IPAERR_BOOTUP("firmware(%pK) phdr(%pK) loc_to_map(0x%X) size_to_map(%u)\n",
+	IPADBG_BOOTUP("firmware(%pK) phdr(%pK) loc_to_map(0x%X) size_to_map(%u)\n",
 	       firmware, phdr, loc_to_map, size_to_map);
 
 	if (phdr->p_offset > firmware->size) {
@@ -13588,7 +13584,7 @@ static int emulator_load_single_fw(
 		return -EFAULT;
 	}
 
-	IPAERR_BOOTUP("ELF: p_memsz(0x%x) p_filesz(0x%x) p_filesz/4(0x%x)\n",
+	IPADBG_BOOTUP("ELF: p_memsz(0x%x) p_filesz(0x%x) p_filesz/4(0x%x)\n",
 	       (uint32_t) phdr->p_memsz,
 	       (uint32_t) phdr->p_filesz,
 	       (uint32_t) (phdr->p_filesz/sizeof(uint32_t)));
@@ -13600,7 +13596,7 @@ static int emulator_load_single_fw(
 		return -ENOMEM;
 	}
 
-	IPAERR_BOOTUP("Physical base(0x%X) mapped to virtual (%pK) with len (%u)\n",
+	IPADBG_BOOTUP("Physical base(0x%X) mapped to virtual (%pK) with len (%u)\n",
 	       loc_to_map,
 	       fw_base,
 	       size_to_map);
@@ -13739,7 +13735,7 @@ int ipa3_load_fws(const struct firmware *firmware, phys_addr_t gsi_mem_base,
 	if (rc)
 		return rc;
 
-	IPAERR_BOOTUP("IPA FWs (GSI FW, DPS and HPS) loaded successfully\n");
+	IPADBG_BOOTUP("IPA FWs (GSI FW, DPS and HPS) loaded successfully\n");
 	return 0;
 }
 
@@ -13756,12 +13752,12 @@ static void ipa_gsi_setup_reg(void)
 	const struct ipa_gsi_ep_config *gsi_ep_info_cfg;
 	enum ipa_client_type type;
 
-	IPAERR_BOOTUP("Setting up registers in preparation for firmware download\n");
+	IPADBG_BOOTUP("Setting up registers in preparation for firmware download\n");
 
 	/* setup IPA_ENDP_GSI_CFG_TLV_n reg */
 	start = 0;
 	ipa3_ctx->ipa_num_pipes = ipa3_get_num_pipes();
-	IPAERR_BOOTUP("ipa_num_pipes=%u\n", ipa3_ctx->ipa_num_pipes);
+	IPADBG_BOOTUP("ipa_num_pipes=%u\n", ipa3_ctx->ipa_num_pipes);
 
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		type = ipa3_get_client_by_pipe(i);
@@ -13836,7 +13832,7 @@ int emulator_load_fws(
 	struct ipa3_hps_dps_areas_info dps_hps_info;
 	int rc;
 
-	IPAERR_BOOTUP("Loading firmware(%pK)\n", firmware);
+	IPADBG_BOOTUP("Loading firmware(%pK)\n", firmware);
 
 	if (!firmware) {
 		IPAERR_BOOTUP("firmware pointer passed to function is NULL\n");
@@ -13889,13 +13885,13 @@ int emulator_load_fws(
 		       phdr->p_memsz, dps_hps_info.hps_sz);
 		return -EINVAL;
 	}
-	IPAERR_BOOTUP("Loading HPS FW\n");
+	IPADBG_BOOTUP("Loading HPS FW\n");
 	rc = emulator_load_single_fw(
 		firmware, phdr,
 		dps_hps_info.hps_abs_addr, dps_hps_info.hps_sz);
 	if (rc)
 		return rc;
-	IPAERR_BOOTUP("Loading HPS FW complete\n");
+	IPADBG_BOOTUP("Loading HPS FW complete\n");
 
 	--phdr;
 
@@ -13907,13 +13903,13 @@ int emulator_load_fws(
 		       phdr->p_memsz, dps_hps_info.dps_sz);
 		return -EINVAL;
 	}
-	IPAERR_BOOTUP("Loading DPS FW\n");
+	IPADBG_BOOTUP("Loading DPS FW\n");
 	rc = emulator_load_single_fw(
 		firmware, phdr,
 		dps_hps_info.dps_abs_addr, dps_hps_info.dps_sz);
 	if (rc)
 		return rc;
-	IPAERR_BOOTUP("Loading DPS FW complete\n");
+	IPADBG_BOOTUP("Loading DPS FW complete\n");
 
 	/*
 	 * Run gsi register setup which is normally done in TZ on
@@ -13934,15 +13930,15 @@ int emulator_load_fws(
 		    phdr->p_memsz, gsi_ram_size);
 		return -EINVAL;
 	}
-	IPAERR_BOOTUP("Loading GSI FW\n");
+	IPADBG_BOOTUP("Loading GSI FW\n");
 	rc = emulator_load_single_fw(
 		firmware, phdr,
 		transport_mem_base + (u32) gsi_offset, gsi_ram_size);
 	if (rc)
 		return rc;
-	IPAERR_BOOTUP("Loading GSI FW complete\n");
+	IPADBG_BOOTUP("Loading GSI FW complete\n");
 
-	IPAERR_BOOTUP("IPA FWs (GSI FW, DPS and HPS) loaded successfully\n");
+	IPADBG_BOOTUP("IPA FWs (GSI FW, DPS and HPS) loaded successfully\n");
 
 	return 0;
 }
@@ -14036,7 +14032,7 @@ void ipa3_disable_prefetch(enum ipa_client_type client)
 
 	qmb = ipa3_get_qmb_master_sel(client);
 
-	IPAERR_BOOTUP("disabling prefetch for qmb %d\n", (int)qmb);
+	IPADBG_BOOTUP("disabling prefetch for qmb %d\n", (int)qmb);
 
 	ipahal_read_reg_fields(IPA_TX_CFG, &cfg);
 	/* QMB0 (DDR) correlates with TX0, QMB1(PCIE) correlates with TX1 */
