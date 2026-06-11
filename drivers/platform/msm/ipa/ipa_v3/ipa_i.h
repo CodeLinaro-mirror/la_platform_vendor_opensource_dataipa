@@ -84,7 +84,7 @@
 #define IPA7_MAX_NUM_PIPES (IPA7_PIPES_NUM)
 #define IPA_MAX_NUM_PIPES IPA7_MAX_NUM_PIPES
 #define IPA_PROD_PIPES_NUM IPA7_PROD_PIPES_NUM
-#define IPA_APPS_IN_PIPES_NUM 7 // number of pipes from IPA to APPs
+#define IPA_APPS_IN_PIPES_NUM 9 // number of pipes from IPA to APPs
 #define IPA6_NXT_FLT_TBL_Q6_NUM 1
 #define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
 #define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
@@ -2803,6 +2803,7 @@ struct ipa3_context {
 	struct IpaHwOffloadStatsAllocCmdData_t
 		gsi_info[IPA_HW_PROTOCOL_MAX];
 	bool ipa_wan_skb_page;
+	bool ipa_lan_skb_page;
 	struct ipacm_fnr_info fnr_info;
 	/* dummy netdev for lan RX NAPI */
 	bool lan_rx_napi_enable;
@@ -2856,6 +2857,7 @@ struct ipa3_context {
 	bool use_pm_wrapper;
 	u8 page_poll_threshold;
 	bool wan_common_page_pool;
+	bool lan_common_page_pool;
 	bool use_tput_est_ep;
 	struct ipa_ioc_eogre_info eogre_cache;
 	bool eogre_enabled;

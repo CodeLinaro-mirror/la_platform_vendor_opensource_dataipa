@@ -123,6 +123,8 @@ static struct ipa3_rx_pkt_wrapper *ipa3_alloc_rx_pkt_page(gfp_t flag,
 static void ipa3_wq_handle_rx(struct work_struct *work);
 static void ipa3_wq_rx_common(struct ipa3_sys_context *sys,
 	struct gsi_chan_xfer_notify *notify);
+static void ipa3_wq_rx_common_page(struct ipa3_sys_context *sys,
+	struct gsi_chan_xfer_notify *notify);
 static void ipa3_rx_napi_chain(struct ipa3_sys_context *sys,
 		struct gsi_chan_xfer_notify *notify, uint32_t num);
 static void ipa3_wlan_wq_rx_common(struct ipa3_sys_context *sys,
@@ -1130,7 +1132,10 @@ static int ipa3_handle_rx_core(struct ipa3_sys_context *sys, bool process_all,
 			ipa3_wlan_wq_rx_common(sys, &notify);
 		else {
 			trace_ipa_handle_rx_core(cnt);
-			ipa3_wq_rx_common(sys, &notify);
+			if (sys->repl_hdlr == ipa3_replenish_rx_page_recycle)
+				ipa3_wq_rx_common_page(sys, &notify);
+			else
+				ipa3_wq_rx_common(sys, &notify);
 		}
 		++cnt;
 	}
@@ -1796,12 +1801,29 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 		}
 	}
 
-	/* Use common page pool for Coal and defalt pipe if applicable. */
+	/* Use common page pool for Coal and default pipe if applicable. */
 	if (ep->sys->repl_hdlr == ipa3_replenish_rx_page_recycle) {
-		if (!(ipa3_ctx->wan_common_page_pool &&
+		if (ipa3_ctx->wan_common_page_pool &&
 			sys_in->client == IPA_CLIENT_APPS_WAN_CONS &&
 			wan_coal_ep_id != IPA_EP_NOT_ALLOCATED &&
-			ipa3_ctx->ep[wan_coal_ep_id].valid == 1)) {
+			ipa3_ctx->ep[wan_coal_ep_id].valid == 1) {
+			/* Use pool same as WAN coal pipe when common page pool is used. */
+			ep->sys->common_buff_pool = true;
+			ep->sys->common_sys = ipa3_ctx->ep[wan_coal_ep_id].sys;
+			ep->sys->repl = ipa3_ctx->ep[wan_coal_ep_id].sys->repl;
+			ep->sys->page_recycle_repl =
+				ipa3_ctx->ep[wan_coal_ep_id].sys->page_recycle_repl;
+		} else if (ipa3_ctx->lan_common_page_pool &&
+			sys_in->client == IPA_CLIENT_APPS_LAN_CONS &&
+			lan_coal_ep_id != IPA_EP_NOT_ALLOCATED &&
+			ipa3_ctx->ep[lan_coal_ep_id].valid == 1) {
+			/* Use pool same as LAN coal pipe when common page pool is used. */
+			ep->sys->common_buff_pool = true;
+			ep->sys->common_sys = ipa3_ctx->ep[lan_coal_ep_id].sys;
+			ep->sys->repl = ipa3_ctx->ep[lan_coal_ep_id].sys->repl;
+			ep->sys->page_recycle_repl =
+				ipa3_ctx->ep[lan_coal_ep_id].sys->page_recycle_repl;
+		} else {
 			/* Allocate page recycling pool only once. */
 			if (!ep->sys->page_recycle_repl) {
 				ep->sys->page_recycle_repl = kzalloc(
@@ -1814,8 +1836,10 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 				}
 				atomic_set(&ep->sys->page_recycle_repl->pending, 0);
 				/* For common page pool double the pool size. */
-				if (ipa3_ctx->wan_common_page_pool &&
-					sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
+				if ((ipa3_ctx->wan_common_page_pool &&
+					sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS) ||
+					(ipa3_ctx->lan_common_page_pool &&
+					sys_in->client == IPA_CLIENT_APPS_LAN_COAL_CONS))
 					ep->sys->page_recycle_repl->capacity =
 							(ep->sys->rx_pool_sz + 1) *
 							ipa3_ctx->ipa_gen_rx_cmn_page_pool_sz_factor;
@@ -1850,8 +1874,10 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 				goto fail_page_recycle_repl;
 			}
 			/* For common page pool triple the pool size. */
-			if (ipa3_ctx->wan_common_page_pool &&
-				sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
+			if ((ipa3_ctx->wan_common_page_pool &&
+				sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS) ||
+				(ipa3_ctx->lan_common_page_pool &&
+				sys_in->client == IPA_CLIENT_APPS_LAN_COAL_CONS))
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1) *
 				ipa3_ctx->ipa_gen_rx_cmn_temp_pool_sz_factor;
 			else if (ipa3_ctx->ipa_config_is_rdkb && sys_in->client ==
@@ -1869,21 +1895,16 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 			atomic_set(&ep->sys->repl->tail_idx, 0);
 
 			ipa3_wq_page_repl(&ep->sys->repl_work);
-		} else {
-			/* Use pool same as coal pipe when common page pool is used. */
-			ep->sys->common_buff_pool = true;
-			ep->sys->common_sys = ipa3_ctx->ep[wan_coal_ep_id].sys;
-			ep->sys->repl = ipa3_ctx->ep[wan_coal_ep_id].sys->repl;
-			ep->sys->page_recycle_repl =
-				ipa3_ctx->ep[wan_coal_ep_id].sys->page_recycle_repl;
 		}
 	}
 
 	if (IPA_CLIENT_IS_CONS(sys_in->client)) {
-		if ((IPA_CLIENT_IS_WAN_CONS(sys_in->client) ||
+		if (((IPA_CLIENT_IS_WAN_CONS(sys_in->client) ||
 			sys_in->client ==
 			IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) &&
-			ipa3_ctx->ipa_wan_skb_page) {
+			ipa3_ctx->ipa_wan_skb_page) ||
+			(IPA_CLIENT_IS_LAN_CONS(sys_in->client) &&
+			ipa3_ctx->ipa_lan_skb_page)) {
 			ipa3_replenish_rx_page_recycle(ep->sys);
 		} else
 			ipa3_first_replenish_rx_cache(ep->sys);
@@ -3191,6 +3212,12 @@ EXPORT_SYMBOL(ipa_unregister_notifier);
 		case IPA_CLIENT_IPSEC_APPS_WAN_CONS:
 			stats_i = 6;
 			break;
+		case IPA_CLIENT_APPS_LAN_COAL_CONS:
+			stats_i = 7;
+			break;
+		case IPA_CLIENT_APPS_LAN_CONS:
+			stats_i = 8;
+			break;
 		default:
 			IPAERR_RL("Unexpected client%d\n", sys->ep->client);
 	}
@@ -4119,6 +4146,23 @@ int xmit_ipsec_frag_ul(struct sk_buff *skb)
 }
 #endif
 
+/*
+ * ipa3_lan_rx_data_ptr - return a pointer to the start of the payload
+ *
+ * Mirrors the rmnet_map_data_ptr() pattern from the datarmnet driver.
+ * Page-recycling delivers LAN RX SKBs whose entire payload sits in frag 0
+ * (alloc_skb(0) + skb_add_rx_frag), leaving the linear area empty.
+ * After each pskb_pull() the frag offset is adjusted, so skb_frag_address()
+ * always reflects the current parse position in the page.
+ * For ordinary linear SKBs (non-page-recycling path) skb->data is returned.
+ */
+static inline unsigned char *ipa3_lan_rx_data_ptr(struct sk_buff *skb)
+{
+	if (skb_is_nonlinear(skb) && skb->len == skb->data_len)
+		return skb_frag_address(skb_shinfo(skb)->frags);
+	return skb->data;
+}
+
 static struct sk_buff *ipa3_skb_copy_for_client(struct sk_buff *skb, int len)
 {
 	struct sk_buff *skb2 = NULL;
@@ -4133,11 +4177,58 @@ static struct sk_buff *ipa3_skb_copy_for_client(struct sk_buff *skb, int len)
 	if (likely(skb2)) {
 		/* Set the data pointer */
 		skb_reserve(skb2, IPA_RX_BUFF_CLIENT_HEADROOM);
-		memcpy(skb2->data, skb->data, len);
+		/*
+		 * Use skb_copy_bits() instead of memcpy(skb->data) so that
+		 * page-recycled SKBs (where all data lives in frag 0) are
+		 * handled correctly without requiring prior linearization.
+		 */
+		if (unlikely(skb_copy_bits(skb, 0, skb2->data, len))) {
+			dev_kfree_skb_any(skb2);
+			return NULL;
+		}
 		skb2->len = len;
 		skb_set_tail_pointer(skb2, len);
 	}
 
+	return skb2;
+}
+
+/*
+ * ipa3_skb_frag_for_client - create a paged sub-SKB referencing the same
+ * page as the source SKB (zero-copy).
+ *
+ * Used for LAN_COAL_CONS in page-recycling mode.  The new SKB gets its own
+ * page reference via skb_append_pagefrags (which calls get_page internally),
+ * so the page stays alive until every sub-SKB created from this coal page is
+ * freed by the stack.  At that point the ref count returns to 1 and the page
+ * is recycled by ipa3_get_free_page().
+ *
+ * The caller must ensure skb is page-backed (skb->len == skb->data_len).
+ */
+static struct sk_buff *ipa3_skb_frag_for_client(struct sk_buff *skb, int len)
+{
+	skb_frag_t *frag0 = &skb_shinfo(skb)->frags[0];
+	struct page *page  = skb_frag_page(frag0);
+	u32          off   = skb_frag_off(frag0);
+	struct sk_buff *skb2;
+
+	skb2 = alloc_skb(0, GFP_ATOMIC);
+	if (unlikely(!skb2))
+		return NULL;
+
+#if (KERNEL_VERSION(6, 5, 0) > LINUX_VERSION_CODE)
+	if (unlikely(skb_append_pagefrags(skb2, page, off, len))) {
+#else
+	if (unlikely(skb_append_pagefrags(skb2, page, off, len,
+					  MAX_SKB_FRAGS))) {
+#endif
+		kfree_skb(skb2);
+		return NULL;
+	}
+
+	skb2->data_len  = len;
+	skb2->len       = len;
+	skb2->truesize += len;
 	return skb2;
 }
 
@@ -4157,7 +4248,7 @@ static int ipa3_lan_rx_pyld_hdlr(struct sk_buff *skb,
 	struct ipa3_tx_pkt_wrapper *tx_pkt = NULL;
 	unsigned long ptr;
 
-	IPA_DUMP_BUFF(skb->data, 0, skb->len);
+	IPA_DUMP_BUFF(ipa3_lan_rx_data_ptr(skb), 0, skb->len);
 
 	if (skb->len == 0) {
 		IPAERR("ZLT packet arrived to AP\n");
@@ -4190,7 +4281,8 @@ static int ipa3_lan_rx_pyld_hdlr(struct sk_buff *skb,
 						0, sys->len_rem, GFP_ATOMIC);
 				if (likely(skb2)) {
 					memcpy(skb_put(skb2, sys->len_rem),
-						skb->data, sys->len_rem);
+						ipa3_lan_rx_data_ptr(skb),
+						sys->len_rem);
 					skb_trim(skb2,
 						skb2->len - sys->len_pad);
 					skb2->truesize = skb2->len +
@@ -4207,7 +4299,7 @@ static int ipa3_lan_rx_pyld_hdlr(struct sk_buff *skb,
 				}
 				dev_kfree_skb_any(sys->prev_skb);
 			}
-			skb_pull(skb, sys->len_rem);
+			pskb_pull(skb, sys->len_rem);
 			sys->prev_skb = NULL;
 			sys->len_rem = 0;
 			sys->len_pad = 0;
@@ -4221,7 +4313,8 @@ static int ipa3_lan_rx_pyld_hdlr(struct sk_buff *skb,
 						skb->len, GFP_ATOMIC);
 				if (likely(skb2)) {
 					memcpy(skb_put(skb2, skb->len),
-						skb->data, skb->len);
+						ipa3_lan_rx_data_ptr(skb),
+						skb->len);
 				} else {
 					IPAERR("copy expand failed\n");
 				}
@@ -4250,7 +4343,7 @@ begin:
 			goto out;
 		}
 
-		ipahal_pkt_status_parse(skb->data, &status);
+		ipahal_pkt_status_parse(ipa3_lan_rx_data_ptr(skb), &status);
 		IPADBG_LOW("STATUS opcode=%d src=%d dst=%d len=%d\n",
 				status.status_opcode, status.endp_src_idx,
 				status.endp_dest_idx, status.pkt_len);
@@ -4275,12 +4368,12 @@ begin:
 			IPAERR_RL("STATUS opcode=%d src=%d dst=%d src ip=%x\n",
 				status.status_opcode, status.endp_src_idx,
 				status.endp_dest_idx, status.src_ip_addr);
-			skb_pull(skb, pkt_status_sz);
+			pskb_pull(skb, pkt_status_sz);
 			continue;
 		default:
 			IPAERR_RL("unsupported opcode(%d)\n",
 				status.status_opcode);
-			skb_pull(skb, pkt_status_sz);
+			pskb_pull(skb, pkt_status_sz);
 			continue;
 		}
 
@@ -4302,13 +4395,13 @@ begin:
 
 			IPADBG_LOW("TAG packet arrived\n");
 			if (status.tag_info == IPA_COOKIE) {
-				skb_pull(skb, pkt_status_sz);
+				pskb_pull(skb, pkt_status_sz);
 				if (skb->len < sizeof(comp)) {
 					IPAERR("TAG arrived without packet\n");
 					goto out;
 				}
-				memcpy(&comp, skb->data, sizeof(comp));
-				skb_pull(skb, sizeof(comp));
+				memcpy(&comp, ipa3_lan_rx_data_ptr(skb), sizeof(comp));
+				pskb_pull(skb, sizeof(comp));
 				complete(&comp->comp);
 				if (atomic_dec_return(&comp->cnt) == 0)
 					kfree(comp);
@@ -4321,7 +4414,7 @@ begin:
 		}
 		if (status.pkt_len == 0) {
 			IPADBG_LOW("Skip aggr close status\n");
-			skb_pull(skb, pkt_status_sz);
+			pskb_pull(skb, pkt_status_sz);
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.aggr_close);
 			IPA_STATS_DEC_CNT(ipa3_ctx->stats.rx_excp_pkts
 				[IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
@@ -4374,8 +4467,23 @@ begin:
 				sys->drop_packet = true;
 			}
 
-			skb2 = ipa3_skb_copy_for_client(skb,
-				min(status.pkt_len + pkt_status_sz, skb->len));
+			/*
+			 * Build a sub-SKB for the coal packet.  For the page-
+			 * recycling path on LAN_COAL_CONS we reference the same
+			 * page frag instead of copying (zero-copy).  For all other
+			 * paths (linear SKBs or non-coal clients) the copy path is
+			 * unchanged.
+			 */
+			if (sys->repl_hdlr == ipa3_replenish_rx_page_recycle &&
+			    sys->ep->client == IPA_CLIENT_APPS_LAN_COAL_CONS &&
+			    skb->len == skb->data_len)
+				skb2 = ipa3_skb_frag_for_client(skb,
+					min(status.pkt_len + pkt_status_sz,
+					    skb->len));
+			else
+				skb2 = ipa3_skb_copy_for_client(skb,
+					min(status.pkt_len + pkt_status_sz,
+					    skb->len));
 			if (likely(skb2)) {
 				if (skb->len < len + pkt_status_sz) {
 					IPADBG_LOW("SPL skb len %d len %d\n",
@@ -4384,7 +4492,7 @@ begin:
 					sys->len_rem = len - skb->len +
 						pkt_status_sz;
 					sys->len_pad = pad_len_byte;
-					skb_pull(skb, skb->len);
+					pskb_pull(skb, skb->len);
 				} else {
 					skb_trim(skb2, status.pkt_len +
 							pkt_status_sz);
@@ -4405,17 +4513,28 @@ begin:
 						sys->drop_packet = true;
 						dev_kfree_skb_any(skb2);
 					} else {
-						skb2->truesize = skb2->len +
-						sizeof(struct sk_buff) +
-						(ALIGN(len +
-						pkt_status_sz, 32) *
-						unused / used_align);
+						/*
+						 * used_align is 0 for page-recycled SKBs
+						 * (alloc_skb(0) zeroes skb->cb).  The
+						 * scaling factor is only meaningful for
+						 * pre-allocated linear buffers; skip it to
+						 * avoid division by zero.
+						 */
+						if (used_align)
+							skb2->truesize = skb2->len +
+							sizeof(struct sk_buff) +
+							(ALIGN(len +
+							pkt_status_sz, 32) *
+							unused / used_align);
+						else
+							skb2->truesize = skb2->len +
+							sizeof(struct sk_buff);
 						sys->ep->client_notify(
 							sys->ep->priv,
 							IPA_RECEIVE,
 							(unsigned long)(skb2));
 					}
-					skb_pull(skb, len + pkt_status_sz);
+					pskb_pull(skb, len + pkt_status_sz);
 				}
 			} else {
 				IPAERR("fail to alloc skb\n");
@@ -4424,9 +4543,9 @@ begin:
 					sys->len_rem = len - skb->len +
 						pkt_status_sz;
 					sys->len_pad = pad_len_byte;
-					skb_pull(skb, skb->len);
+					pskb_pull(skb, skb->len);
 				} else {
-					skb_pull(skb, len + pkt_status_sz);
+					pskb_pull(skb, len + pkt_status_sz);
 				}
 			}
 			/* TX comp */
@@ -4437,7 +4556,7 @@ begin:
 			ipa3_wq_write_done_status(status.endp_src_idx, tx_pkt);
 			IPADBG_LOW("tx comp exp for %d\n",
 				status.endp_src_idx);
-			skb_pull(skb, pkt_status_sz);
+			pskb_pull(skb, pkt_status_sz);
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.stat_compl);
 			IPA_STATS_DEC_CNT(ipa3_ctx->stats.rx_excp_pkts
 				[IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
@@ -4446,7 +4565,19 @@ begin:
 	}
 
 out:
-	ipa3_skb_recycle(skb);
+	/*
+	 * For page-recycling, the incoming skb was allocated by
+	 * handle_page_completion() via alloc_skb(0).  pskb_pull() has
+	 * already decremented the frag page ref as data was consumed; any
+	 * remaining frag ref is released properly by dev_kfree_skb_any().
+	 * ipa3_skb_recycle() must NOT be used here: it memsets shinfo
+	 * without calling put_page(), which would leak the page ref.
+	 * For the SKB-backed path ipa3_skb_recycle() remains correct.
+	 */
+	if (sys->repl_hdlr == ipa3_replenish_rx_page_recycle)
+		dev_kfree_skb_any(skb);
+	else
+		ipa3_skb_recycle(skb);
 	return 0;
 }
 
@@ -5147,7 +5278,8 @@ _prep_and_send_skb(
 	u32                     num_pkts,
 	u32                     aggr_payload_size,
 	u8                      pkt_id,
-	bool                    recalc_cksum )
+	bool                    recalc_cksum,
+	struct page*            coal_page )
 {
 	struct ethhdr* eth_hdr;
 	u32            eth_hdr_size;
@@ -5202,8 +5334,15 @@ _prep_and_send_skb(
 			ipa3_ctx->stats.coal.coal_left_as_is++;
 
 		} else {
-
-			head_skb = alloc_skb(aggr_hdr_len + aggr_payload_size, GFP_ATOMIC);
+			/*
+			 * For paged coal SKBs, allocate linear space for headers
+			 * only; payload is appended as a page frag (zero-copy).
+			 * For linear SKBs, allocate for headers + payload as before.
+			 */
+			head_skb = alloc_skb(
+				coal_page ? aggr_hdr_len
+					  : aggr_hdr_len + aggr_payload_size,
+				GFP_ATOMIC);
 
 			if ( unlikely(!head_skb) ) {
 				IPAERR("skb alloc failure\n");
@@ -5270,11 +5409,34 @@ _prep_and_send_skb(
 			skb_reset_transport_header(head_skb);
 
 			/*
-			 * Now aggregate all the individual physical payloads into
-			 * th eskb.
+			 * Append each sub-packet payload.  When the coal SKB is
+			 * page-backed (coal_page != NULL), reference the same page
+			 * frag instead of copying — zero-copy delivery.  The page
+			 * ref count is incremented by skb_append_pagefrags so that
+			 * the page stays live until every sub-SKB is freed by the
+			 * stack.  For linear coal SKBs the existing memcpy path is
+			 * used unchanged.
 			 */
 			for ( i = 0; i < num_pkts; i++ ) {
-				skb_put_data(head_skb, pkts[i].pkt, pkts[i].pkt_len);
+				if (coal_page) {
+					u32 poff = (u8*)pkts[i].pkt -
+						   (u8*)page_address(coal_page);
+#if (KERNEL_VERSION(6, 5, 0) > LINUX_VERSION_CODE)
+					skb_append_pagefrags(head_skb, coal_page,
+							     poff,
+							     pkts[i].pkt_len);
+#else
+					skb_append_pagefrags(head_skb, coal_page,
+							     poff,
+							     pkts[i].pkt_len,
+							     MAX_SKB_FRAGS);
+#endif
+					head_skb->data_len += pkts[i].pkt_len;
+					head_skb->len      += pkts[i].pkt_len;
+				} else {
+					skb_put_data(head_skb, pkts[i].pkt,
+						     pkts[i].pkt_len);
+				}
 			}
 		}
 
@@ -5379,11 +5541,24 @@ void ipa3_lan_coal_rx_cb(
 
 	int               ret;
 
-	IPA_DUMP_BUFF(rx_skb->data, 0, rx_skb->len);
+	/*
+	 * data_ptr abstracts paged vs linear access, mirroring
+	 * rmnet_map_data_ptr().  coal_page is the backing page when rx_skb
+	 * is page-recycled; it is passed to _prep_and_send_skb() so each
+	 * NLO sub-SKB can reference the same page (zero-copy payload).
+	 */
+	u8               *data_ptr;
+	struct page      *coal_page = NULL;
+
+	data_ptr = ipa3_lan_rx_data_ptr(rx_skb);
+	if (skb_is_nonlinear(rx_skb) && rx_skb->len == rx_skb->data_len)
+		coal_page = skb_frag_page(&skb_shinfo(rx_skb)->frags[0]);
+
+	IPA_DUMP_BUFF(data_ptr, 0, rx_skb->len);
 
 	ipa3_ctx->stats.coal.coal_rx++;
 
-	ipahal_pkt_status_parse_thin(rx_skb->data, &status);
+	ipahal_pkt_status_parse_thin(data_ptr, &status);
 	src_pipe = status.endp_src_idx;
 	metadata = status.metadata;
 	ucp = status.ucp;
@@ -5400,7 +5575,7 @@ void ipa3_lan_coal_rx_cb(
 	/*
 	 * Let's get to, then parse, the qmap header...
 	 */
-	qmap_hdr_data_ptr = rx_skb->data + pkt_status_sz;
+	qmap_hdr_data_ptr = data_ptr + pkt_status_sz;
 
 	ret = ipahal_qmap_parse(qmap_hdr_data_ptr, &qmap_hdr);
 
@@ -5582,11 +5757,12 @@ void ipa3_lan_coal_rx_cb(
 	}
 
 	/*
-	 * The following will adjust the skb internals (ie. skb->data and
-	 * skb->len), such that they're positioned, and reflect, the data
-	 * starting at the ETH header...
+	 * Advance past the IPA status, QMAP, and NLO-header section so
+	 * that rx_skb->data / skb->len reflect the Eth+IP+payload span.
+	 * pskb_pull() is used instead of skb_pull() so that frag offsets
+	 * are updated correctly for page-recycled SKBs.
 	 */
-	skb_pull(
+	pskb_pull(
 		rx_skb,
 		pkt_status_sz +
 		sizeof(union qmap_hdr_u) +
@@ -5610,13 +5786,26 @@ void ipa3_lan_coal_rx_cb(
 	}
 
 	/*
-	 * Quick check to see if we really need to go any further...
+	 * Fast path: single NLO, valid checksum, GRO allowed.
+	 *
+	 * For LINEAR rx_skb (coal_page == NULL): skb->data already points
+	 * to the Eth header after pskb_pull(), so we can hand the SKB to
+	 * the stack directly (coal_left_as_is).
+	 *
+	 * For PAGED rx_skb (coal_page != NULL): after pskb_pull() skb->data
+	 * sits in the empty post-pull linear area — the network stack cannot
+	 * find the IP header.  datarmnet handles this via
+	 * rmnet_map_move_headers() which pulls the IP+transport headers into
+	 * the linear area.  For IPA LAN we take the simpler approach of
+	 * falling through to the slow path (coal_page != NULL branch below),
+	 * which allocates a new head_skb with linear headers + paged payload.
+	 * The header copy is ~54 bytes; the payload remains zero-copy.
 	 */
-	if ( gro && qmap_hdr.num_nlos == 1 && qmap_hdr.chksum_valid && tot_pkts == 1) {
+	if ( gro && qmap_hdr.num_nlos == 1 && qmap_hdr.chksum_valid && tot_pkts == 1 && !coal_page) {
 
 		cpsi = cpsi_orig;
 
-		in_pkts[0].pkt     = rx_skb->data  + hdr_data.aggr_hdr_len;
+		in_pkts[0].pkt     = (u8*)pkt_data + hdr_data.aggr_hdr_len;
 		in_pkts[0].pkt_len = cpsi->pkt_len - (ip_hdr_size + proto_hdr_size);
 
 		in_pkts_sub = 1;
@@ -5631,7 +5820,8 @@ void ipa3_lan_coal_rx_cb(
 			in_pkts_sub,
 			aggr_payload_size,
 			tot_pkts,
-			false || aggr_payload_size > in_pkts[0].pkt_len);
+			false || aggr_payload_size > in_pkts[0].pkt_len,
+			coal_page);
 
 		return;
 	}
@@ -5676,7 +5866,8 @@ void ipa3_lan_coal_rx_cb(
 						aggr_payload_size,
 						tot_pkts,
 						!cksum_is_zero || aggr_payload_size >
-							in_pkts[0].pkt_len);
+							in_pkts[0].pkt_len,
+						coal_page);
 
 					in_pkts_sub = aggr_payload_size = 0;
 				}
@@ -5703,7 +5894,8 @@ void ipa3_lan_coal_rx_cb(
 					(csum_err) ? (false || aggr_payload_size >
 						in_pkts[0].pkt_len)
 						: (!cksum_is_zero || aggr_payload_size >
-						in_pkts[0].pkt_len));
+						in_pkts[0].pkt_len),
+					coal_page);
 
 				in_pkts_sub = aggr_payload_size = 0;
 
@@ -5729,7 +5921,8 @@ void ipa3_lan_coal_rx_cb(
 				in_pkts_sub,
 				aggr_payload_size,
 				tot_pkts,
-				!cksum_is_zero || aggr_payload_size > in_pkts[0].pkt_len);
+				!cksum_is_zero || aggr_payload_size > in_pkts[0].pkt_len,
+				coal_page);
 		}
 	}
 
@@ -5919,9 +6112,12 @@ static struct sk_buff *handle_page_completion(struct gsi_chan_xfer_notify
 	INIT_LIST_HEAD(&rx_pkt->link);
 	list_add_tail(&rx_pkt->link, head);
 
-	/* Check added for handling LAN consumer packet without EOT flag */
+	/* Check added for handling LAN consumer packet without EOT flag.
+	 * Use rx_pkt->sys (per-pipe) because for shared event rings
+	 * chan_user_data sys is coal_ep (LAN_COAL_CONS), not LAN_CONS.
+	 */
 	if (notify->evt_id == GSI_CHAN_EVT_EOT ||
-		sys->ep->client == IPA_CLIENT_APPS_LAN_CONS) {
+		rx_pkt->sys->ep->client == IPA_CLIENT_APPS_LAN_CONS) {
 		rx_skb = alloc_skb(0, GFP_ATOMIC);
 		if (unlikely(!rx_skb)) {
 			IPAERR("skb alloc failure, free all pending pages\n");
@@ -6002,6 +6198,96 @@ static void ipa3_wq_rx_common(
 	}
 }
 
+/**
+ * ipa3_wq_rx_common_page() - Page-mode equivalent of ipa3_wq_rx_common().
+ *
+ * When ipa3_ctx->ipa_lan_skb_page is set and the sys pipe uses
+ * ipa3_replenish_rx_page_recycle, buffers are page-backed.
+ * handle_page_completion() must be used instead of handle_skb_completion()
+ * to avoid corrupting the union (page_data vs data.skb) in rx_pkt_wrapper.
+ *
+ * The pkt_sys is extracted from rx_pkt->sys (via notify->xfer_user_data)
+ * so that when LAN and LAN_COAL share an event ring, the correct sys context
+ * (and therefore the correct pyld_hdlr / repl_hdlr) is used.
+ *
+ * E2E flow validation (LAN coal page-mode RX):
+ *
+ * 1. Buffer allocation (page mode):
+ *    ipa3_replenish_rx_page_recycle() -> ipa3_alloc_rx_pkt_page()
+ *    Allocates a page, DMA-maps it, stores in rx_pkt->page_data union member.
+ *    The rx_pkt is submitted to GSI as a transfer element.
+ *
+ * 2. HW writes coalesced data to page:
+ *    IPA HW aggregates multiple TCP/UDP segments into a single coalesced
+ *    frame (IPA status + QMAP + CPSI + Eth + IP + payload).  The frame is
+ *    DMA'd into the page buffer.  GSI generates an EOT completion event on
+ *    the shared LAN/LAN_COAL event ring.
+ *
+ * 3. Completion: page -> SKB with frag:
+ *    ipa3_lan_rx_poll() / ipa3_handle_rx_core() / ipa3_tasklet_rx_notify()
+ *      -> ipa3_wq_rx_common_page()
+ *        -> handle_page_completion()
+ *    alloc_skb(0) creates a zero-length linear SKB.
+ *    skb_add_rx_frag() attaches the page as frag 0, sets skb->len and
+ *    skb->data_len to bytes_xfered.  The page ref is managed by the
+ *    page_recycle_repl list (non-tmp_alloc pages) or DMA-unmapped (tmp).
+ *    Result: SKB with all data in frags, linear area empty.
+ *
+ * 4. LAN pyld_hdlr parsing (ipa3_lan_rx_pyld_hdlr):
+ *    ipa3_lan_rx_data_ptr(skb) returns skb_frag_address(frags[0]) for
+ *    nonlinear SKBs.  ipahal_pkt_status_parse() reads the IPA status.
+ *    pskb_pull() advances the frag offset as headers are consumed.
+ *    For LAN_COAL_CONS packets: ipa3_skb_frag_for_client() creates a
+ *    sub-SKB referencing the same page (zero-copy) and delivers it via
+ *    ep->client_notify -> ipa3_lan_coal_rx_cb().
+ *
+ * 5. Coal de-coalescing (ipa3_lan_coal_rx_cb):
+ *    data_ptr = ipa3_lan_rx_data_ptr(rx_skb) -> skb_frag_address()
+ *    Parses IPA status, QMAP header, CPSI array, Eth/IP/proto headers
+ *    entirely from the page via pointer arithmetic on data_ptr.
+ *    coal_page = skb_frag_page(&skb_shinfo(rx_skb)->frags[0]) is passed
+ *    to _prep_and_send_skb() for zero-copy payload delivery.
+ *    pskb_pull() adjusts frag offset past headers.
+ *
+ * 6. Per-flow SKB delivery (_prep_and_send_skb):
+ *    Allocates head_skb with linear space for headers only (aggr_hdr_len).
+ *    Copies Eth + IP + TCP/UDP headers into linear area (skb_put_data).
+ *    Appends payload as page frag via skb_append_pagefrags() referencing
+ *    coal_page at the correct offset.  get_page() keeps page alive.
+ *    Sets GSO info (gso_segs, gso_size, gso_type).
+ *    Delivers to stack via ep->client_notify().
+ *
+ * 7. Page recycle:
+ *    After all sub-SKBs are freed by the network stack, the page refcount
+ *    drops to 1.  ipa3_replenish_rx_page_recycle() -> ipa3_get_free_page()
+ *    checks page_ref == 1 to reclaim the page for reuse without
+ *    reallocation.  tmp_alloc pages are freed via __free_pages().
+ */
+static void ipa3_wq_rx_common_page(
+	struct ipa3_sys_context     *sys,
+	struct gsi_chan_xfer_notify *notify)
+{
+	struct ipa3_rx_pkt_wrapper *rx_pkt;
+	struct ipa3_sys_context *pkt_sys;
+	struct sk_buff *rx_skb;
+
+	if (!notify) {
+		IPAERR_RL("gsi_chan_xfer_notify is null\n");
+		return;
+	}
+
+	/* Extract the owning sys before handle_page_completion consumes rx_pkt */
+	rx_pkt = (struct ipa3_rx_pkt_wrapper *) notify->xfer_user_data;
+	pkt_sys = rx_pkt->sys;
+
+	rx_skb = handle_page_completion(notify, true);
+
+	if (rx_skb) {
+		pkt_sys->pyld_hdlr(rx_skb, pkt_sys);
+		pkt_sys->repl_hdlr(pkt_sys);
+	}
+}
+
 static void ipa3_rx_napi_chain(struct ipa3_sys_context *sys,
 		struct gsi_chan_xfer_notify *notify, uint32_t num)
 {
@@ -6016,12 +6302,28 @@ static void ipa3_rx_napi_chain(struct ipa3_sys_context *sys,
 	 * first_skb->frag_list->next->next->next etc..*/
 	if (sys->ep->client != IPA_CLIENT_APPS_WAN_COAL_CONS) {
 		for (i = 0; i < num; i++) {
-			if (!ipa3_ctx->ipa_wan_skb_page)
+			if (IPA_CLIENT_IS_LAN_CONS(sys->ep->client)) {
+				/*
+				 * LAN page recycling: use per-sys repl_hdlr to
+				 * detect page vs SKB mode independently of the
+				 * WAN global flag.  ipa3_lan_rx_data_ptr() +
+				 * pskb_pull() handle paged SKBs in the handlers
+				 * directly, so no linearization is needed here.
+				 */
+				if (sys->repl_hdlr ==
+						ipa3_replenish_rx_page_recycle)
+					rx_skb = handle_page_completion(
+						&notify[i], false);
+				else
+					rx_skb = handle_skb_completion(
+						&notify[i], true, NULL);
+			} else if (!ipa3_ctx->ipa_wan_skb_page) {
 				rx_skb = handle_skb_completion(
 					&notify[i], true, NULL);
-			else
+			} else {
 				rx_skb = handle_page_completion(
 					&notify[i], false);
+			}
 
 			/* this is always true for EOTs */
 			if (rx_skb) {
@@ -6303,14 +6605,22 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 			else
 				in->ipa_ep_cfg.aggr.aggr = IPA_GENERIC;
 			if (IPA_CLIENT_IS_LAN_CONS(in->client)) {
-				INIT_WORK(&sys->repl_work, ipa3_wq_repl_rx);
 				sys->pyld_hdlr = ipa3_lan_rx_pyld_hdlr;
-				sys->repl_hdlr =
-					ipa3_replenish_rx_cache_recycle;
-				sys->free_rx_wrapper =
-					ipa3_recycle_rx_wrapper;
-				sys->rx_pool_sz =
-					ipa3_ctx->lan_rx_ring_size;
+				sys->rx_pool_sz = ipa3_ctx->lan_rx_ring_size;
+				if (ipa3_ctx->ipa_lan_skb_page && in->napi_obj) {
+					INIT_WORK(&sys->repl_work,
+							ipa3_wq_page_repl);
+					sys->repl_hdlr =
+						ipa3_replenish_rx_page_recycle;
+					sys->free_rx_wrapper =
+						ipa3_recycle_rx_page_wrapper;
+				} else {
+					INIT_WORK(&sys->repl_work, ipa3_wq_repl_rx);
+					sys->repl_hdlr =
+						ipa3_replenish_rx_cache_recycle;
+					sys->free_rx_wrapper =
+						ipa3_recycle_rx_wrapper;
+				}
 				in->ipa_ep_cfg.aggr.aggr_en = IPA_ENABLE_AGGR;
 				in->ipa_ep_cfg.aggr.aggr_byte_limit =
 				IPA_GENERIC_AGGR_BYTE_LIMIT;
@@ -7501,6 +7811,8 @@ static int ipa_gsi_setup_transfer_ring(struct ipa3_ep_context *ep,
 		(IPA_CLIENT_IS_WAN_CONS(ep->client) ||
 		(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS)))
 		gsi_channel_props.cleanup_cb = free_rx_page;
+	if (ipa3_ctx->ipa_lan_skb_page && IPA_CLIENT_IS_LAN_CONS(ep->client))
+		gsi_channel_props.cleanup_cb = free_rx_page;
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
 		if (IPA_CLIENT_IS_WAN_CONS(ep->client) ||
@@ -7724,6 +8036,10 @@ start_poll:
 				ipa3_dma_memcpy_notify(ep->sys);
 			else if (IPA_CLIENT_IS_WLAN_CONS(ep->client))
 				ipa3_wlan_wq_rx_common(ep->sys, g_lan_rx_notify + i);
+			else if (ep->sys->repl_hdlr ==
+					ipa3_replenish_rx_page_recycle)
+				ipa3_wq_rx_common_page(ep->sys,
+						g_lan_rx_notify + i);
 			else
 				ipa3_wq_rx_common(ep->sys, g_lan_rx_notify + i);
 		}
@@ -7995,6 +8311,8 @@ static u32 ipa_adjust_ra_buff_base_sz(u32 aggr_byte_limit)
 static void ipa3_tasklet_rx_notify(unsigned long data)
 {
 	struct ipa3_sys_context *sys;
+	struct ipa3_sys_context *pkt_sys;
+	struct ipa3_rx_pkt_wrapper *rx_pkt;
 	struct sk_buff *rx_skb;
 	struct gsi_chan_xfer_notify notify;
 	int ret;
@@ -8011,10 +8329,21 @@ start_poll:
 		ret = ipa_poll_gsi_pkt(sys, &notify);
 		if (ret)
 			break;
-		rx_skb = handle_skb_completion(&notify, true, NULL);
-		if (rx_skb) {
-			sys->pyld_hdlr(rx_skb, sys);
-			sys->repl_hdlr(sys);
+		if (sys->repl_hdlr == ipa3_replenish_rx_page_recycle) {
+			rx_pkt = (struct ipa3_rx_pkt_wrapper *)
+				notify.xfer_user_data;
+			pkt_sys = rx_pkt->sys;
+			rx_skb = handle_page_completion(&notify, true);
+			if (rx_skb) {
+				pkt_sys->pyld_hdlr(rx_skb, pkt_sys);
+				pkt_sys->repl_hdlr(pkt_sys);
+			}
+		} else {
+			rx_skb = handle_skb_completion(&notify, true, NULL);
+			if (rx_skb) {
+				sys->pyld_hdlr(rx_skb, sys);
+				sys->repl_hdlr(sys);
+			}
 		}
 	}
 

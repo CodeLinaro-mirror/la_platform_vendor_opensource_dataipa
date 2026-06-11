@@ -1980,15 +1980,25 @@ static ssize_t ipa3_read_page_recycle_stats(struct file *file,
 
 	nbytes = scnprintf(
 		dbg_buff, IPA_MAX_MSG_LEN,
-		"COAL   : Total number of packets replenished =%llu\n"
-		"COAL   : Number of page recycled packets  =%llu\n"
-		"COAL   : Number of tmp alloc packets  =%llu\n"
-		"COAL   : Number of times tasklet scheduled  =%llu\n"
+		"WAN COAL   : Total number of packets replenished =%llu\n"
+		"WAN COAL   : Number of page recycled packets  =%llu\n"
+		"WAN COAL   : Number of tmp alloc packets  =%llu\n"
+		"WAN COAL   : Number of times tasklet scheduled  =%llu\n"
 
-		"DEF    : Total number of packets replenished =%llu\n"
-		"DEF    : Number of page recycled packets =%llu\n"
-		"DEF    : Number of tmp alloc packets  =%llu\n"
-		"DEF    : Number of times tasklet scheduled  =%llu\n"
+		"WAN DEF    : Total number of packets replenished =%llu\n"
+		"WAN DEF    : Number of page recycled packets =%llu\n"
+		"WAN DEF    : Number of tmp alloc packets  =%llu\n"
+		"WAN DEF    : Number of times tasklet scheduled  =%llu\n"
+
+		"LAN COAL   : Total number of packets replenished =%llu\n"
+		"LAN COAL   : Number of page recycled packets  =%llu\n"
+		"LAN COAL   : Number of tmp alloc packets  =%llu\n"
+		"LAN COAL   : Number of times tasklet scheduled  =%llu\n"
+
+		"LAN DEF    : Total number of packets replenished =%llu\n"
+		"LAN DEF    : Number of page recycled packets =%llu\n"
+		"LAN DEF    : Number of tmp alloc packets  =%llu\n"
+		"LAN DEF    : Number of times tasklet scheduled  =%llu\n"
 
 		"COMMON : Number of page recycled in tasklet  =%llu\n"
 		"COMMON : Number of times free pages not found in tasklet =%llu\n",
@@ -2002,6 +2012,16 @@ static ssize_t ipa3_read_page_recycle_stats(struct file *file,
 		ipa3_ctx->stats.page_recycle_stats[1].page_recycled,
 		ipa3_ctx->stats.page_recycle_stats[1].tmp_alloc,
 		ipa3_ctx->stats.num_sort_tasklet_sched[1],
+
+		ipa3_ctx->stats.page_recycle_stats[7].total_replenished,
+		ipa3_ctx->stats.page_recycle_stats[7].page_recycled,
+		ipa3_ctx->stats.page_recycle_stats[7].tmp_alloc,
+		ipa3_ctx->stats.num_sort_tasklet_sched[7],
+
+		ipa3_ctx->stats.page_recycle_stats[8].total_replenished,
+		ipa3_ctx->stats.page_recycle_stats[8].page_recycled,
+		ipa3_ctx->stats.page_recycle_stats[8].tmp_alloc,
+		ipa3_ctx->stats.num_sort_tasklet_sched[8],
 
 		ipa3_ctx->stats.page_recycle_cnt_in_tasklet,
 		ipa3_ctx->stats.num_of_times_wq_reschd);
