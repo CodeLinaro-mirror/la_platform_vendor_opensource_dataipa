@@ -8,6 +8,10 @@
 #include <linux/soc/qcom/smem.h>
 #include <soc/qcom/qcom_ramdump.h>
 #include "ipa_elf_dump.h"
+#include <linux/sched.h>
+#include <linux/sched/signal.h>
+#include <linux/rcupdate.h>
+#include <linux/string.h>
 
 
 
@@ -31,6 +35,37 @@ static void ipa_host_ramdump_dev_release(struct device *dev)
 	kfree(dev);
 }
 
+/*
+ * task->comm is limited to TASK_COMM_LEN (16) including '\0',
+ * so max visible name length is 15 characters.
+ * "/usr/bin/subsystem_ramdump" will appear truncated in task->comm.
+ */
+
+static pid_t ipa_find_subsystem_ramdump_pid(void)
+{
+	struct task_struct *task;
+	char comm[TASK_COMM_LEN];
+	pid_t pid = 0;
+
+	/* 15-char prefix (no trailing 'p') due to TASK_COMM_LEN limitation */
+	const char *target_name = "subsystem_ramdu";
+	size_t target_len = strlen(target_name);
+
+	rcu_read_lock();
+	for_each_process(task) {
+		get_task_comm(comm, task);
+
+		if (strncmp(comm, target_name, target_len) == 0) {
+			pid = task_pid_nr(task);
+			break;
+		}
+	}
+	rcu_read_unlock();
+
+	return pid;
+}
+
+
 /* Helper functions to check if minidump enabled, to help with
  * fetching and browsing through ipc logs and dmesg logs
  */
@@ -39,10 +74,17 @@ bool ipa_minidump_enabled(void)
 	struct minidump_subsystem *subsystem;
 	struct minidump_global_toc *toc;
 	int ret = true;
+	pid_t ramdump_pid;
 
 	IPADBG("Checking if minidump enabled\n");
 	if (!dump_enabled()) {
 		IPADBG("Dump not enabled\n");
+		return false;
+	}
+
+	ramdump_pid = ipa_find_subsystem_ramdump_pid();
+	if (ramdump_pid <= 0) {
+		IPAERR("subsystem_ramdump not running; skipping IPA minidump/ELF dump\n");
 		return false;
 	}
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, 2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/ipa_wdi3.h>
@@ -1030,12 +1030,20 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 {
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
+	struct ipa_ioc_del_hdr *hdr = NULL;
+	int i, len, num_hdr;
 
-	IPA_WDI_DBG("client hdl = %d, Instance = %d\n", hdl,ipa_wdi_ctx_list[hdl]->inst_id);
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
-		IPA_WDI_ERR("Invalid Handle %d\n",hdl);
-		 return -EFAULT;
+		IPA_WDI_ERR("Invalid Handle %d\n", hdl);
+		return -EFAULT;
 	}
+
+	if (!ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("wdi ctx is not initialized.\n");
+		return -EPERM;
+	}
+
+	IPA_WDI_DBG("client hdl = %d, Instance = %d\n", hdl, ipa_wdi_ctx_list[hdl]->inst_id);
 
 	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
 		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
@@ -1045,14 +1053,37 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 		return -EPERM;
 	}
 
+	num_hdr = ipa_wdi_ctx_list[hdl]->is_rx1_used ? 4 : 2;
+
 	/* clear interface list */
 	list_for_each_entry_safe(entry, next,
 		&ipa_wdi_ctx_list[hdl]->head_intf_list, link) {
+		len = sizeof(struct ipa_ioc_del_hdr) +
+			num_hdr * sizeof(struct ipa_hdr_del);
+		hdr = kzalloc(len, GFP_KERNEL);
+		if (hdr == NULL) {
+			IPA_WDI_ERR("fail to alloc %d bytes\n", len);
+		} else {
+			hdr->commit = 1;
+			hdr->num_hdls = num_hdr;
+			for (i = 0; i < num_hdr; i++) {
+				hdr->hdl[i].hdl = entry->partial_hdr_hdl[i];
+				IPA_WDI_DBG("hdr hdl: %d\n", hdr->hdl[i].hdl);
+			}
+
+			if (ipa_del_hdr(hdr))
+				IPA_WDI_ERR("fail to delete partial header\n");
+			kfree(hdr);
+		}
+
+		if (ipa_deregister_intf(entry->netdev_name))
+			IPA_WDI_ERR("fail to del interface props\n");
+
 		list_del(&entry->link);
 		kfree(entry);
 	}
 
-	if(!ipa3_uc_dereg_per_inst_rdyCB(ipa_wdi_ctx_list[hdl]->inst_id))
+	if (!ipa3_uc_dereg_per_inst_rdyCB(ipa_wdi_ctx_list[hdl]->inst_id))
 		IPAERR("entry not found for id %d\n", ipa_wdi_ctx_list[hdl]->inst_id);
 
 	mutex_destroy(&ipa_wdi_ctx_list[hdl]->lock);

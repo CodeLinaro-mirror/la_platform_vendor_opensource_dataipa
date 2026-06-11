@@ -113,6 +113,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_ENABLE_ETH_PDU_MODE_EVENT),
 	__stringify(IPA_IPSEC_UL_FLT_ADD_EVENT),
 	__stringify(IPA_IPSEC_UL_FLT_DEL_EVENT),
+	__stringify(IPA_RGIP_ADD_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
