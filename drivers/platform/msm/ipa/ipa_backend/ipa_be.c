@@ -825,7 +825,6 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 	bool lan2lan = false;
 	int pdn_iface = 0;
 	int client_iface = 0;
-	int bridge_if_num = 0;
 	int vlan_tag = 0;
 	uint32_t mtu_size = 0;
 	ip_addr_t lan_client_ip = {0};
@@ -921,7 +920,6 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			IPA_BE_DBG("Uplink flow - installing both uplink and downlink rules\n");
 			pdn_iface          = v4_msg.conn_rule.return_interface_num;
 			client_iface       = v4_msg.conn_rule.flow_interface_num;
-			bridge_if_num      = v4_msg.conn_rule.flow_top_interface_num;
 			vlan_tag           = v4_msg.vlan_primary_rule.ingress_vlan_tag;
 			mtu_size           = v4_msg.conn_rule.flow_mtu;
 			lan_client_ip[0]   = v4_msg.tuple.flow_ip;
@@ -933,7 +931,6 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			IPA_BE_DBG("Downlink flow - installing both downlink and uplink rules\n");
 			pdn_iface          = v4_msg.conn_rule.flow_interface_num;
 			client_iface       = v4_msg.conn_rule.return_interface_num;
-			bridge_if_num      = v4_msg.conn_rule.return_top_interface_num;
 			vlan_tag           = v4_msg.vlan_primary_rule.egress_vlan_tag;
 			mtu_size           = v4_msg.conn_rule.return_mtu;
 			lan_client_ip[0]   = v4_msg.conn_rule.return_ip_xlate;
@@ -975,13 +972,6 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			goto failed_ret;
 		}
 		step = 4;
-
-		ret = ipa_be_handle_private_subnet(client_iface, bridge_if_num);
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to handle private subnet\n");
-			goto failed_ret;
-		}
-		step = 5;
 
 		/* Install downlink rules */
 		ret = add_dft_filtering_rule(pdn_iface, IPA_IP_v4);
@@ -1085,9 +1075,6 @@ failed_ret:
 			case 6:
 				delete_dft_filtering_rule(pdn_iface, IPA_IP_v4);
 				/* fallthrough */
-			case 5:
-				ipa_be_delete_private_subnet(client_iface, bridge_if_num, IPA_IP_v4);
-				/* fallthrough */
 			case 4:
 				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4);
 				/* fallthrough */
@@ -1121,7 +1108,6 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 	uint32_t mtu_size = 0;
 	uint32_t *flow_ip_ptr = NULL;
 	uint32_t flow_interface_num = 0;
-	uint32_t v6_prefix[2] = {0};
 	ip_addr_t ret_ip6_key = {0};
 	ip_addr_t flow_ip6_key = {0};
 	mac_addr_t mac, wan_mac;
@@ -1254,15 +1240,6 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 		}
 		step = 4;
 
-		v6_prefix[0] = ntohl(flow_ip_ptr[0]);
-		v6_prefix[1] = ntohl(flow_ip_ptr[1]);
-		ret = ipa_be_handle_ipv6_prefix_flt_rule(client_iface, v6_prefix);
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to handle IPv6 prefix filter rule\n");
-			goto failed_ret;
-		}
-		step = 5;
-
 		/* Install downlink rules */
 		ret = add_dft_filtering_rule(pdn_iface, IPA_IP_v6);
 		if (ret != 0) {
@@ -1364,9 +1341,6 @@ failed_ret:
 				/* fallthrough */
 			case 6:
 				delete_dft_filtering_rule(pdn_iface, IPA_IP_v6);
-				/* fallthrough */
-			case 5:
-				ipa_be_delete_ipv6_prefix_flt_rule(client_iface);
 				/* fallthrough */
 			case 4:
 				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6);
@@ -1535,7 +1509,6 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 	int rt_hdl = 0;
 	int pdn_iface = 0;
 	int client_iface = 0;
-	int bridge_if_num = 0;
 	int hdr_hdl = -1;
 	int proc_ctx_hdl = -1;
 	char proc_ctx_name[32] = {0};
@@ -1668,13 +1641,11 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 			IPA_BE_DBG("Uplink flow destroy - deleting both uplink and downlink rules\n");
 			pdn_iface        = msg->conn_rule.return_interface_num;
 			client_iface     = msg->conn_rule.flow_interface_num;
-			bridge_if_num    = msg->conn_rule.flow_top_interface_num;
 			lan_client_ip[0] = msg->tuple.flow_ip;
 		} else if (msg->conn_rule.flow_interface_num == msg->conn_rule.flow_top_interface_num) {
 			IPA_BE_DBG("Downlink flow destroy - deleting both downlink and uplink rules\n");
 			pdn_iface        = msg->conn_rule.flow_interface_num;
 			client_iface     = msg->conn_rule.return_interface_num;
-			bridge_if_num    = msg->conn_rule.return_top_interface_num;
 			lan_client_ip[0] = msg->conn_rule.return_ip_xlate;
 		} else {
 			IPA_BE_ERR("Invalid WAN flow param\n");
@@ -1707,9 +1678,6 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4) != 0) {
 			IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
 		}
-
-		/* Delete private subnet rules (ref-counted per intf/bridge pair) */
-		ipa_be_delete_private_subnet(client_iface, bridge_if_num, IPA_IP_v4);
 
 		/* Delete downlink rules */
 		delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
@@ -1908,9 +1876,6 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 		if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6) != 0) {
 			IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
 		}
-
-		/* Delete IPv6 prefix filter rules (ref-counted per intf) */
-		ipa_be_delete_ipv6_prefix_flt_rule(client_iface);
 
 		/* Delete downlink rules */
 		delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
@@ -2332,6 +2297,16 @@ int ipa_be_init_if(void)
 #else
 	IPA_BE_DBG("NAT support disabled - skipping ipa_be_nat_mgmt_init\n");
 #endif
+
+	/*
+	 * Register the always-on private-subnet notifiers (defer work to the
+	 * IPv4/IPv6 ordered workqueues). Non-fatal: on failure init rolls back
+	 * and operation continues without the subnet rules.
+	 */
+	if (ipa_be_subnet_notifier_init(ipa_be_ctx->ipa_ipv4_wq,
+		ipa_be_ctx->ipa_ipv6_wq))
+		IPA_BE_ERR("failed to register private-subnet notifiers\n");
+
 	IPA_BE_DBG("ECMIPA exit ipa_be_init_if \n");
 
 	return 0;
@@ -2359,6 +2334,12 @@ int ipa_be_exit_if(void)
 
 	IPA_BE_DBG("ECMIPA entry ipa_be_exit_if \n");
 
+	/*
+	 * Stop the private-subnet notifiers first so no new reconcile work is
+	 * queued while we drain and destroy the workqueues below.
+	 */
+	ipa_be_subnet_notifier_deinit();
+
 #ifdef CONFIG_ECM_CONVERGENCE
 	ipa_be_nat_mgmt_exit();
 #else
@@ -2382,6 +2363,12 @@ int ipa_be_exit_if(void)
 		destroy_workqueue(ipa_be_ctx->ipa_ipv6_wq);
 		ipa_be_ctx->ipa_ipv6_wq = NULL;
 	}
+
+	/*
+	 * Workqueues are drained/destroyed above, so no reconcile work can run
+	 * now; safe to free the private-subnet tracking state.
+	 */
+	ipa_be_subnet_notifier_cleanup();
 
 	IPA_BE_DBG("ECMIPA exit ipa_be_exit_if \n");
 	return 0;

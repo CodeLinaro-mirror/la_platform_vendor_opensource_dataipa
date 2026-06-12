@@ -332,6 +332,8 @@ int ipa_wdi_reg_intf_per_inst(
 	struct ipa_ioc_tx_intf_prop tx_prop[4];
 	struct ipa_ioc_rx_intf_prop rx_prop[4];
 	char iface_name[IPA_RESOURCE_NAME_MAX] = {'\0'};
+	struct net_device *wlan_dev;
+	int wlan_ifindex = 0;
 	u32 len;
 	int i = 0;
 	int ret = 0;
@@ -534,9 +536,31 @@ int ipa_wdi_reg_intf_per_inst(
 			ret = -EFAULT;
 		}
 	} else {
-		if (ipa_register_intf(iface_name, &tx, &rx, 0)) {
+		/*
+		 * Resolve the WLAN netdev so the interface is registered with its
+		 * real ifindex (ipa3_intf.intf_idx). This lets the always-on
+		 * private-subnet notifier engine map a bridge slave's ifindex back
+		 * to this interface.
+		 */
+		wlan_dev = dev_get_by_name(&init_net, in->netdev_name);
+		if (wlan_dev) {
+			wlan_ifindex = wlan_dev->ifindex;
+			dev_put(wlan_dev);
+		} else {
+			IPA_WDI_DBG("netdev %s not found yet; ifindex 0\n",
+				in->netdev_name);
+		}
+
+		if (ipa_register_intf(iface_name, &tx, &rx, wlan_ifindex)) {
 			IPA_WDI_ERR("fail to add interface prop\n");
 			ret = -EFAULT;
+		} else if (wlan_ifindex) {
+			/*
+			 * Seed the always-on private-subnet engine for this slave
+			 * in case the bridge topology already exists (no later
+			 * netdev/addr event would otherwise trigger an install).
+			 */
+			ipa_be_subnet_on_intf_registered(wlan_ifindex);
 		}
 	}
 
