@@ -81,11 +81,11 @@ static struct notifier_block uc_loaded_notifier = {
 
 int ipa3_wigig_init_i(void)
 {
-	IPAERR_BOOTUP("\n");
+	IPADBG_BOOTUP("\n");
 
 	ipa3_uc_register_ready_cb(&uc_loaded_notifier);
 
-	IPAERR_BOOTUP("exit\n");
+	IPADBG_BOOTUP("exit\n");
 
 	return 0;
 }

@@ -3570,7 +3570,7 @@ static int get_ipa_rmnet_dts_configuration(struct platform_device *pdev,
 		pr_info("using default for wan-rx-desc-size = %u\n",
 				ipa_rmnet_drv_res->wan_rx_desc_size);
 	else
-		IPAERR_BOOTUP(": found ipa_drv_res->wan-rx-desc-size = %u\n",
+		IPADBG_BOOTUP(": found ipa_drv_res->wan-rx-desc-size = %u\n",
 				ipa_rmnet_drv_res->wan_rx_desc_size);
 
 	return 0;
@@ -3634,7 +3634,7 @@ static int ipa3_wwan_register_netdev_pm_client(struct net_device *dev)
 		return result;
 	}
 
-	IPAERR_BOOTUP("%s register done\n", pm_reg.name);
+	IPADBG_BOOTUP("%s register done\n", pm_reg.name);
 
 	return 0;
 }
@@ -3667,7 +3667,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	pr_info("rmnet_ipa3 started initialization\n");
 
 	if (!ipa_is_ready()) {
-		IPAERR_BOOTUP("IPA driver not ready, registering callback\n");
+		IPADBG_BOOTUP("IPA driver not ready, registering callback\n");
 		ret = ipa_register_ipa_ready_cb(ipa3_ready_cb, (void *)pdev);
 
 		/*
@@ -3749,7 +3749,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	rmnet_ipa3_ctx->wwan_priv = netdev_priv(dev);
 	memset(rmnet_ipa3_ctx->wwan_priv, 0,
 		sizeof(*(rmnet_ipa3_ctx->wwan_priv)));
-	IPAERR_BOOTUP("wwan_ptr (private) = %pK", rmnet_ipa3_ctx->wwan_priv);
+	IPADBG_BOOTUP("wwan_ptr (private) = %pK", rmnet_ipa3_ctx->wwan_priv);
 	rmnet_ipa3_ctx->wwan_priv->net = dev;
 	atomic_set(&rmnet_ipa3_ctx->wwan_priv->outstanding_pkts, 0);
 	spin_lock_init(&rmnet_ipa3_ctx->wwan_priv->lock);
@@ -3797,7 +3797,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		goto set_perf_err;
 	}
 
-	IPAERR_BOOTUP("IPA-WWAN devices (%s) initialization ok :>>>>\n", dev->name);
+	IPADBG_BOOTUP("IPA-WWAN devices (%s) initialization ok :>>>>\n", dev->name);
 	if (ret) {
 		IPAERR_BOOTUP("default configuration failed rc=%d\n",
 				ret);
