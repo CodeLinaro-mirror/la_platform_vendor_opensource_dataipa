@@ -8,6 +8,7 @@
 #define _IPA_WDI3_H_
 
 #include <linux/ipa.h>
+#include <linux/ipa_fse.h>
 
 #define IPA_HW_WDI3_TCL_DATA_CMD_ER_DESC_SIZE 32
 #define IPA_HW_WDI3_IPA2FW_ER_DESC_SIZE 8
@@ -30,6 +31,7 @@ enum ipa_wdi_version {
 	IPA_WDI_3_V2,
 	IPA_WDI_4,
 	IPA_WDI_5,
+	IPA_WDI_6,
 	IPA_WDI_VER_MAX
 };
 
@@ -43,6 +45,39 @@ enum ipa_wdi_version {
  * <52 bytes of rx_msdu_start tlv>.
  */
 #define IPA_WDI_RX_TLV_SIZE 96
+
+/**
+ * struct ipa_wdi6_rx_skb_cb - WDI6 Rx skb->cb layout
+ *
+ * Describes the fields written into skb->cb for WDI6 Rx packets.
+ * The IPA driver populates these fields from the 32-bit Rx metadata word:
+ *
+ * Metadata word layout:
+ *  +--------+----------+----------+------------+
+ *  | [31:24]| [23:16]  | [15:14]  | [13:0]     |
+ *  | VAP_ID | QMAP_ID  | RESERVED | TA_PEER_ID |
+ *  +--------+----------+----------+------------+
+ *
+ * skb->cb layout (packed into a single u32 = 4 bytes):
+ *  +----------+------------+----------+
+ *  | [7:0]    | [21:8]     | [31:22]  |
+ *  | vap_id   | ta_peer_id | reserved |
+ *  +----------+------------+----------+
+ *
+ * @packed: raw u32; use IPA_WDI6_CB_* macros to access vap_id and ta_peer_id
+ *
+ * vap_id:     bits [7:0]   - VAP ID (vdev id), extracted from metadata bits [31:24]
+ * ta_peer_id: bits [21:8]  - TA peer ID (14 bits), extracted from metadata bits [13:0]
+ * reserved:   bits [31:22] - unused padding bits
+ */
+#define IPA_WDI6_CB_VAP_ID_SHIFT	0
+#define IPA_WDI6_CB_VAP_ID_MASK		0xFFU
+#define IPA_WDI6_CB_TA_PEER_ID_SHIFT	8
+#define IPA_WDI6_CB_TA_PEER_ID_MASK	0x3FFFU
+
+struct ipa_wdi6_rx_skb_cb {
+	u32 packed;
+};
 
 /** struct ipa_ast_info_type - structure used for updating the AST table.
  * @mac_addr_ad4_valid: bool to indicate whethere peer supports 4 address
@@ -104,6 +139,7 @@ struct ipa_wdi_init_out_params {
 	ipa_wdi_hdl_t hdl;
 	bool opt_wdi_dpath;
 };
+
 /**
  * struct filter_tuple_info - Properties of filters installed with WLAN
  *
@@ -210,6 +246,8 @@ struct ipa_wdi_hdr_info {
  * @is_tx1_used: to indicate whether 2.4g or 5g iface
  * @is_rx1_used: to indicate whether additional RX pipe for
  * tagged traffic is needed
+ * @vpnum: virtual port number tied to the interface
+ * @intf_idx: interface index used to identify the WLAN interface instance
  */
 struct ipa_wdi_reg_intf_in_params {
 	const char *netdev_name;
@@ -222,6 +260,8 @@ struct ipa_wdi_reg_intf_in_params {
 	ipa_wdi_hdl_t hdl;
 	u8 is_rx1_used;
 	u8 mld_enabled;
+	u8 vpnum;
+	int intf_idx;
 };
 
 /**
@@ -247,6 +287,7 @@ struct ipa_wdi_reg_intf_in_params {
  * @rx_pmac_id: value used to perform TCL HW setting
  * @mlo_chip_id: used in mlo capable chip to identify chip id for the pipe
  * @rx_peer_metadata_ver: metadata version passed by wlan
+ * @rdi: ring id which maps to the rx hw ring
  */
 struct ipa_wdi_pipe_setup_info {
 	struct ipa_ep_cfg ipa_ep_cfg;
@@ -269,6 +310,7 @@ struct ipa_wdi_pipe_setup_info {
 	u8 rx_pmac_id;
 	u8 mlo_chip_id;
 	u8 rx_peer_metadata_ver;
+	u8 rdi;
 };
 
 /**
@@ -294,6 +336,7 @@ struct ipa_wdi_pipe_setup_info {
  * @rx_pmac_id: value used to perform TCL HW setting
  * @mlo_chip_id: used in mlo capable chip to identify chip id for the pipe
  * @rx_peer_metadata_ver: metadata version passed by wlan
+ * @rdi: ring id which maps to the rx hw ring
  */
 struct ipa_wdi_pipe_setup_info_smmu {
 	struct ipa_ep_cfg ipa_ep_cfg;
@@ -316,6 +359,7 @@ struct ipa_wdi_pipe_setup_info_smmu {
 	u8 rx_pmac_id;
 	u8 mlo_chip_id;
 	u8 rx_peer_metadata_ver;
+	u8 rdi;
 };
 
 /**
