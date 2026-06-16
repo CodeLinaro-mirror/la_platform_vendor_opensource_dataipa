@@ -1301,17 +1301,20 @@ union __packed gsi_wdi3_channel_scratch2_reg {
  * @buff_addr_lsb: NTN buffer address LSB
  * @buff_addr_msb: NTN buffer address MSB
  * @fix_buff_size: buff size in log2
+ * @fcs_strip_en: NTN_FCS_STRIP_EN - GSI FW subtracts 4 bytes from RX packet length (SCRATCH_1 bit 13)
  * @ioc_mod_threshold: the threshold for IOC moderation (TX)
  */
  struct __packed gsi_ntn_channel_scratch {
 	 uint32_t buff_addr_lsb;
 	 uint32_t buff_addr_msb : 8;
 	 uint32_t fix_buff_size : 4;
-	 uint32_t reserved1 : 20;
+	 uint32_t reserved1     : 1;
+	 uint32_t fcs_strip_en  : 1;
+	 uint32_t reserved2     : 18;
 	 uint32_t ioc_mod_threshold : 16;
-	 uint32_t reserved2 : 16;
-	 uint32_t reserved3;
+	 uint32_t reserved3 : 16;
 	 uint32_t reserved4;
+	 uint32_t reserved5;
  };
 
 /**

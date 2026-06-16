@@ -1108,9 +1108,14 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		ch_scratch.ntn.ioc_mod_threshold = IPA_ETH_NTN_MODT;
 	}
 
+#if IPA_ETH_API_VER >= 7
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && pipe->dir == IPA_ETH_PIPE_DIR_RX)
+		ch_scratch.ntn.fcs_strip_en = pipe->info.fcs_strip_en;
+#endif
+
 	result = gsi_write_channel_scratch(ep->gsi_chan_hdl, ch_scratch);
 	if (result != GSI_STATUS_SUCCESS) {
-		IPAERR("failed to write evt ring scratch\n");
+		IPAERR("failed to write channel scratch\n");
 		goto fail_write_scratch;
 	}
 	return 0;

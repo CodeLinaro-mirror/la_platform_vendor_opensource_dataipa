@@ -53,7 +53,7 @@
  */
 #define IPAHAL_NAT_INVALID_PROTOCOL   0xFF
 
-#define IPA_ETH_API_VER 6
+#define IPA_ETH_API_VER 7
 
 /**
  * commands supported by IPA driver
