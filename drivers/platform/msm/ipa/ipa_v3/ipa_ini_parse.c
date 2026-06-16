@@ -315,13 +315,15 @@ static int ipa_param_handler(const char *key_store,
 						IPAERR("Error in converting '%s' value\n",value_store);
 					}
 					break;
-				case IPA_USE_IPV6_NAT_CONFIG:
+				case IPA_NAT_STATS_MODE:
 					status = CONVERT_TO_BOOL(value_store, config);
-					if(!status)
+					if (!status)
 					{
-						IPADBG("config use ipv6 nat '%s' is %d", value_store, config);
-						drv_res->use_ipv6_nat_config = config;
-					} else {
+						IPADBG("nat_stats_mode '%s' is %d", value_store, config);
+						drv_res->nat_stats_mode = config;
+					}
+					else
+					{
 						IPAERR("Error in converting '%s' value\n", value_store);
 					}
 					break;
@@ -445,8 +447,45 @@ static int ipa_param_handler(const char *key_store,
 						IPAERR("Error in converting '%s' value\n", value_store);
 					}
 					break;
-			}
-			return status;
+				case IPA_NAT_STATS_MAX_COUNTERS_V4:
+
+					status = CONVERT_TO_UINT(value_store, value);
+					if (!status)
+					{
+						IPADBG("nat_stats_max_counters_v4 '%s' is %u", value_store, value);
+						drv_res->nat_stats_max_counters_v4 = (u16)value;
+					}
+					else
+					{
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_NAT_STATS_MAX_COUNTERS_V6:
+					status = CONVERT_TO_UINT(value_store, value);
+					if (!status)
+					{
+						IPADBG("nat_stats_max_counters_v6 '%s' is %u", value_store, value);
+						drv_res->nat_stats_max_counters_v6 = (u16)value;
+					}
+					else
+					{
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_USE_IPV6_NAT_CONFIG:
+					status = CONVERT_TO_BOOL(value_store, config);
+					if (!status)
+					{
+						IPADBG("config use ipv6 nat '%s' is %d", value_store, config);
+						drv_res->use_ipv6_nat_config = config;
+					}
+					else
+					{
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				}
+				return status;
 		}
 	}
 	IPAERR("Invalid key '%s' found\n", key_store);
@@ -517,4 +556,3 @@ int ipa_init_params_from_ini(struct device *device,
 	}
 	return status;
 }
-

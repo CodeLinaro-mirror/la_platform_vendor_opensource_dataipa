@@ -23,7 +23,6 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_IRQ_STTS_EE_n),
 	__stringify(IPA_IRQ_EN_EE_n),
 	__stringify(IPA_IRQ_CLR_EE_n),
-	__stringify(IPA_IRQ_EN_EE_ERROR_FATAL_n),
 	__stringify(IPA_SUSPEND_IRQ_INFO_EE_n),
 	__stringify(IPA_SUSPEND_IRQ_EN_EE_n),
 	__stringify(IPA_SUSPEND_IRQ_CLR_EE_n),
@@ -83,6 +82,7 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_FEC_FATAL_ADDR_EE_n),
 	__stringify(IPA_FEC_FATAL_ADDR_MSB_EE_n),
 	__stringify(IPA_FEC_FATAL_ATTR_EE_n),
+	__stringify(IPA_IRQ_EN_EE_ERROR_FATAL_n),
 	__stringify(IPA_ENDP_INIT_HDR_METADATA_MASK_n),
 	__stringify(IPA_ENDP_INIT_HDR_METADATA_n),
 	__stringify(IPA_ENDP_INIT_PROD_CFG_n),
@@ -157,6 +157,11 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_STAT_ROUTER_IPV6_END_ID),
 	__stringify(IPA_STAT_DROP_CNT_BASE_n),
 	__stringify(IPA_STAT_DROP_CNT_MASK_n),
+	__stringify(IPA_STAT_NAT_AND_CONN_TRACK_IPV4_BASE),
+	__stringify(IPA_STAT_NAT_AND_CONN_TRACK_IPV6_BASE),
+	__stringify(IPA_STAT_NAT_AND_CONN_TRACK_IPV4_CFG_BASE),
+	__stringify(IPA_STAT_NAT_AND_CONN_TRACK_IPV6_CFG_BASE),
+	__stringify(IPA_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS),
 	__stringify(IPA_SNOC_FEC_EE_n),
 	__stringify(IPA_FEC_ADDR_EE_n),
 	__stringify(IPA_FEC_ADDR_MSB_EE_n),
@@ -197,9 +202,9 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_STAT_TSP_DROP_BASE),
 	__stringify(IPA_STATE_QMNGR_QUEUE_NONEMPTY),
 	__stringify(IPA_IPSEC_SA_DECAPSULATION_BASE),
-	__stringify(IPA_IPSEC_SA_ENCAPSULATION_SIZE),
-	__stringify(IPA_IPSEC_SA_ENCAPSULATION_BASE),
 	__stringify(IPA_IPSEC_SA_DECAPSULATION_SIZE),
+	__stringify(IPA_IPSEC_SA_ENCAPSULATION_BASE),
+	__stringify(IPA_IPSEC_SA_ENCAPSULATION_SIZE),
 	__stringify(IPA_RAM_INGRESS_POLICER_DB_BASE_ADDR),
 	__stringify(IPA_RAM_EGRESS_SHAPING_PROD_DB_BASE_ADDR),
 	__stringify(IPA_RAM_EGRESS_SHAPING_TC_DB_BASE_ADDR),
@@ -236,6 +241,14 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_STATUS),
 	__stringify(IPA_NAT_AND_CONNECTION_TRACKING_CACHE_FLUSH),
 	__stringify(IPA_NAT_AND_CONN_TRACK_CFG),
+	__stringify(IPA_DPS_TX_CMDQ_CFG_RD),
+	__stringify(IPA_FLAVOR_1),
+	__stringify(IPA_PKT_CTX_NUM_m_FIELDS_14),
+	__stringify(IPA_PKT_CTX_NUM_m_FIELDS_2),
+	__stringify(IPA_DPS_TX_CMDQ_DATA_WR_0),
+	__stringify(IPA_DPS_TX_CMDQ_CMD),
+	__stringify(IPA_NTF_TX_CMDQ_CFG_RD_n),
+	__stringify(IPA_STATE_TX_1),
 	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_KEYS_n),
 	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_ENC_KEYS_LAST),
 	__stringify(IPA_RAM_DIRECT_ACCESS_RAM_IPSEC_ENCAPS_AUTH_KEYS_n),
@@ -6855,6 +6868,21 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_STATE_TX_1] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x008c, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000684, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_STAT_NAT_AND_CONN_TRACK_IPV4_BASE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000688, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_STAT_NAT_AND_CONN_TRACK_IPV6_BASE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000068c, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_STAT_NAT_AND_CONN_TRACK_IPV4_CFG_BASE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000798, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_STAT_NAT_AND_CONN_TRACK_IPV6_CFG_BASE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x0000079c, 0, 0, 0, 0, 0},
 
 	/* IPA_DEBUG */
 	[IPA_HW_v7_0][IPA_RX_HPS_CLIENTS_MIN_DEPTH_1] = {

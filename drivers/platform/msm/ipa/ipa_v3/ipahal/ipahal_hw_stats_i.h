@@ -70,4 +70,13 @@ struct ipahal_stats_drop_hw {
 	u64 drop_packet_cnt:24;
 };
 
+struct ipahal_stats_nat_ct_hw {
+	u64 num_pkts_inbound:32;
+	u64 num_pkts_cache_inbound:32;
+	u64 num_bytes_inbound;
+	u64 num_pkts_outbound:32;
+	u64 num_pkts_cache_outbound:32;
+	u64 num_bytes_outbound;
+};
+
 #endif /* _IPAHAL_HW_STATS_I_H_ */

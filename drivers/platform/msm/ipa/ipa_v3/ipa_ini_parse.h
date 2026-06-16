@@ -36,6 +36,9 @@ enum ipa_ini_file_param {
 		IPA_LAN_RX_RING_SIZE,
 		IPA_GEN_RX_CMN_PAGE_POOL_SZ_FACTOR,
 		IPA_GEN_RX_CMN_TEMP_POOL_SZ_FACTOR,
+		IPA_NAT_STATS_MODE,
+		IPA_NAT_STATS_MAX_COUNTERS_V4,
+		IPA_NAT_STATS_MAX_COUNTERS_V6,
 		IPA_PARAM_MAX,
 	};
 
@@ -66,8 +69,10 @@ static char ipa_ini_param[IPA_PARAM_MAX][IPA_PARAM_STR_LENGTH] = {
 		"lan_rx_ring_size",
 		"ipa_gen_rx_cmn_page_pool_sz_factor",
 		"ipa_gen_rx_cmn_temp_pool_sz_factor",
+		"nat_stats_mode",
+		"nat_stats_max_counters_v4",
+		"nat_stats_max_counters_v6",
 	};
 
 int ipa_init_params_from_ini(struct device *device,
 				struct ipa3_plat_drv_res *ipa_drv_res);
-

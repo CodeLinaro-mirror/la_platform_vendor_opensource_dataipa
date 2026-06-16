@@ -58,6 +58,8 @@ typedef struct _nat_table_entry
 	bool conn_tracking;        /* 0=NAT, 1=CT */
 	bool out_allowed;          /* Outbound direction allowed (for CT) */
 	bool in_allowed;           /* Inbound direction allowed (for CT) */
+	uint16_t all_pkts_stats_cnt_index; /* All packets statistics counter index */
+	uint16_t non_frag_stats_cnt_index; /* Non fragmented statistics counter index */
 
 }nat_table_entry;
 

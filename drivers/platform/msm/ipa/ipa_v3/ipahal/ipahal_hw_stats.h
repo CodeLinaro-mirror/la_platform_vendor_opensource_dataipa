@@ -31,11 +31,14 @@
 
 #define IPAHAL_PIPE_REG_NUM NUM_VARS_FOR_BITS(u32, IPAHAL_PIPES_NUM)
 
+#define IPAHAL_NAT_CT_MAX_COUNTERS 1024
+
 enum ipahal_hw_stats_type {
 	IPAHAL_HW_STATS_QUOTA,
 	IPAHAL_HW_STATS_TETHERING,
 	IPAHAL_HW_STATS_FNR,
 	IPAHAL_HW_STATS_DROP,
+	IPAHAL_HW_STATS_NAT_CT,
 	IPAHAL_HW_STATS_MAX
 };
 
@@ -228,6 +231,41 @@ struct ipahal_stats_drop_all {
 };
 
 /*
+ * struct ipahal_stats_init_nat_ct - Initializations parameters for NAT/CT
+ * @max_counters: max counters
+ */
+struct ipahal_stats_init_nat_ct {
+	u16 max_counters;
+};
+
+/*
+ * struct ipahal_stats_get_offset_nat_ct - Get offset parameters for NAT/CT
+ * @counter_index: counter index to get the offset for (1-1024)
+ */
+struct ipahal_stats_get_offset_nat_ct {
+	u16 counter_index;
+	u16 max_counters;
+};
+
+/*
+ * struct ipahal_stats_nat_ct - NAT/CT statistics
+ * @num_pkts_inbound: Number of inbound packets
+ * @num_pkts_cache_inbound: Number of cached inbound packets
+ * @num_bytes_inbound: Number of inbound bytes
+ * @num_pkts_outbound: Number of outbound packets
+ * @num_pkts_cache_outbound: Number of cached outbound packets
+ * @num_bytes_outbound: Number of outbound bytes
+ */
+struct ipahal_stats_nat_ct {
+	u32 num_pkts_inbound;
+	u32 num_pkts_cache_inbound;
+	u64 num_bytes_inbound;
+	u32 num_pkts_outbound;
+	u32 num_pkts_cache_outbound;
+	u64 num_bytes_outbound;
+};
+
+/*
  * ipahal_stats_generate_init_pyld - Generate the init payload for stats
  * @type: type of stats
  * @params: init_pyld parameters based of stats type
@@ -289,5 +327,15 @@ int ipahal_parse_stats(enum ipahal_hw_stats_type type, void *init_params,
  */
 void ipahal_set_flt_rt_sw_stats(void *raw_stats,
 	struct ipa_flt_rt_stats sw_stats);
+
+/*
+ * ipahal_set_nat_ct_sw_stats - set sw counter stats for NAT/CT
+ * @raw_stats: stats write to IPA SRAM
+ * @sw_stats: NAT/CT sw stats to be written
+ *
+ * Return: None
+ */
+void ipahal_set_nat_ct_sw_stats(void *raw_stats,
+	struct ipahal_stats_nat_ct sw_stats);
 
 #endif /* _IPAHAL_HW_STATS_H_ */

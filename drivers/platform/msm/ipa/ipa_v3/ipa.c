@@ -10685,6 +10685,14 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG(":stats init ok\n");
 
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		result = ipa_init_nat_ct_stats();
+		if (result)
+			IPAERR("fail to init NAT and CT stats %d\n", result);
+		else
+			IPADBG(":NAT and CT stats init ok\n");
+	}
+
 	/* 1st ipa3_panic_notifier*/
 	ipa3_register_panic_hdlr();
 
@@ -15663,6 +15671,11 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 			IPADBG("ipa_gen_rx_cmn_temp_pool_sz_factor: %d\n", ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor);
 		}
 	}
+
+	/* Set NAT Statistics Mode */
+	ipa3_ctx->nat_stats_mode = ipa_drv_res->nat_stats_mode;
+	ipa3_ctx->nat_stats_max_counters_v4 = ipa_drv_res->nat_stats_max_counters_v4;
+	ipa3_ctx->nat_stats_max_counters_v6 = ipa_drv_res->nat_stats_max_counters_v6;
 
 	if (ipa_is_ready())
 		return;

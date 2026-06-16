@@ -25,7 +25,7 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
+ * 
  * Changes from Qualcomm Technologies, Inc. are provided under the following license:
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
@@ -500,3 +500,68 @@ int ipa_nat_timestamp_flush(uint32_t tbl_hdl)
 
 	return ipa_nati_timestamp_flush(tbl_hdl);
 }
+
+#ifdef CONFIG_ECM_CONVERGENCE
+/**
+ * ipa_nat_alloc_counter_v4() - Allocate a counter index for IPv4 NAT rule
+ * @table_handle: [in] NAT table handle
+ * @private_ip: [in] Client's private IP address (for per-client mode)
+ * @is_all_pkts: [in] true for all_pkts counter, false for non_frag counter
+ * @counter_id: [out] Allocated counter index (1-based, 0 = no counter)
+ *
+ * Allocates a single counter index based on the configured allocation mode:
+ * - PER_FLOW mode: Allocates a unique counter for each call
+ * - PER_CLIENT mode: Shares counters among rules from the same client
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_nat_alloc_counter_v4(
+	uint32_t table_handle,
+	uint32_t private_ip,
+	bool is_all_pkts,
+	uint16_t *counter_id)
+{
+	if (!VALID_TBL_HDL(table_handle) || !counter_id) {
+		IPAERR("Invalid parameters: table_handle=0x%x, counter_id=%p\n",
+			table_handle, counter_id);
+		return -EINVAL;
+	}
+
+	IPADBG("Passed table_handle=0x%x, private_ip=0x%08X, is_all_pkts=%d\n",
+		table_handle, private_ip, is_all_pkts);
+
+	return ipa_nati_alloc_counter_v4(table_handle, private_ip, is_all_pkts, counter_id);
+}
+EXPORT_SYMBOL(ipa_nat_alloc_counter_v4);
+
+/**
+ * ipa_nat_free_counter_v4() - Free a counter index for IPv4 NAT rule
+ * @table_handle: [in] NAT table handle
+ * @private_ip: [in] Client's private IP address (for per-client mode)
+ * @is_all_pkts: [in] true for all_pkts counter, false for non_frag counter
+ * @counter_id: [in] Counter ID to free (0 = skip, returns success)
+ *
+ * Frees a counter index. For per-client mode, decrements reference count
+ * and only frees when count reaches zero.
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa_nat_free_counter_v4(
+	uint32_t table_handle,
+	uint32_t private_ip,
+	bool is_all_pkts,
+	uint16_t counter_id)
+{
+	/* Allow counter_id == 0 (no-op, returns success) */
+	if (!VALID_TBL_HDL(table_handle)) {
+		IPAERR("Invalid table_handle=0x%x\n", table_handle);
+		return -EINVAL;
+	}
+
+	IPADBG("Passed table_handle=0x%x, private_ip=0x%08X, is_all_pkts=%d, counter_id=%u\n",
+		table_handle, private_ip, is_all_pkts, counter_id);
+
+	return ipa_nati_free_counter_v4(table_handle, private_ip, is_all_pkts, counter_id);
+}
+EXPORT_SYMBOL(ipa_nat_free_counter_v4);
+#endif /* CONFIG_ECM_CONVERGENCE */

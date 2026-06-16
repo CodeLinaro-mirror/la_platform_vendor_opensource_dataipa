@@ -258,6 +258,8 @@ enum ipa_message_types {
 	IPA_TX_DESTROY_RULE_MSG,	/**< IPv4/IPv6 destroy rule message. */
 	IPA_RX_CONN_STATS_SYNC_MSG,	/**< IPv4/IPv6 connection statistics synchronize message. */
 	IPA_TX_CONN_STATS_SYNC_MANY_MSG,/**< IPv4/IPv6 connection statistics synchronize many message. */
+	IPA_TX_CONN_STATS_SYNC_MANY_TS_ONLY_MSG,/**< IPv4/IPv6 connection timestamp synchronize many message. */
+	IPA_TX_CONN_STATS_SYNC_MANY_STATS_ONLY_MSG,/**< IPv4/IPv6 connection statistics synchronize many message (no timestamp). */
 	IPA_TUN6RD_ADD_UPDATE_PEER,	/**< Add/update peer for 6RD tunnel. */
 	IPA_TX_CREATE_MULTICAST_RULE_MSG,	/**< IPv4/IPv6 create multicast rule message. */
 	IPA_TX_DESTROY_MULTICAST_RULE_MSG,     /**< IPv4/IPv6 destroy multicast rule message. */
@@ -588,9 +590,11 @@ struct ipa_ipv4_conn_sync {
 	u32 flow_end;			/**< Flow direction's largest seen sequence + segment length. */
 	u32 flow_max_end;		/**< Flow direction's largest seen ack + max(1, win). */
 	u32 flow_rx_packet_count;	/**< Flow interface's Rx packet count. */
-	u32 flow_rx_byte_count;		/**< Flow interface's Rx byte count. */
+	u64 flow_rx_byte_count;		/**< Flow interface's Rx byte count. */
+	u32 flow_rx_packet_count_cache;	/**< Flow interface's Rx packet count from cache. */
 	u32 flow_tx_packet_count;	/**< Flow interface's Tx packet count. */
-	u32 flow_tx_byte_count;		/**< Flow interface's Tx byte count. */
+	u64 flow_tx_byte_count;		/**< Flow interface's Tx byte count. */
+	u32 flow_tx_packet_count_cache;	/**< Flow interface's Tx packet count from cache. */
 	u16 flow_pppoe_session_id;	/**< Flow interface`s PPPoE session ID. */
 	u16 flow_pppoe_remote_mac[3];	/**< Flow interface's PPPoE remote server MAC address (if present). */
 	__be32 return_ip;		/**< Return IP address. */
@@ -601,9 +605,11 @@ struct ipa_ipv4_conn_sync {
 	u32 return_end;			/**< Return direction's largest seen sequence + segment length. */
 	u32 return_max_end;		/**< Return direction's largest seen ack + max(1, win). */
 	u32 return_rx_packet_count;	/**< Return interface's Rx packet count. */
-	u32 return_rx_byte_count;	/**< Return interface's Rx byte count. */
+	u64 return_rx_byte_count;	/**< Return interface's Rx byte count. */
+	u32 return_rx_packet_count_cache;	/**< Return interface's Rx packet count from cache. */
 	u32 return_tx_packet_count;	/**< Return interface's Tx packet count. */
-	u32 return_tx_byte_count;	/**< Return interface's Tx byte count. */
+	u64 return_tx_byte_count;	/**< Return interface's Tx byte count. */
+	u32 return_tx_packet_count_cache;	/**< Return interface's Tx packet count from cache. */
 	u16 return_pppoe_session_id;	/**< Return interface`s PPPoE session ID. */
 	u16 return_pppoe_remote_mac[3];	/**< Return interface's PPPoE remote server MAC address (if present). */
 	u32 inc_ticks;			/**< Number of ticks since the last sync. */
@@ -805,9 +811,11 @@ struct ipa_ipv6_conn_sync {
 	u32 flow_end;			/**< Flow direction's largest seen sequence + segment length. */
 	u32 flow_max_end;		/**< Flow direction's largest seen ack + max(1, win). */
 	u32 flow_rx_packet_count;	/**< Flow interface's Rx packet count. */
-	u32 flow_rx_byte_count;		/**< Flow interface's Rx byte count. */
+	u64 flow_rx_byte_count;		/**< Flow interface's Rx byte count. */
+	u32 flow_rx_packet_count_cache;	/**< Flow interface's Rx packet count from cache. */
 	u32 flow_tx_packet_count;	/**< Flow interface's Tx packet count. */
-	u32 flow_tx_byte_count;		/**< Flow interface's Tx byte count. */
+	u64 flow_tx_byte_count;		/**< Flow interface's Tx byte count. */
+	u32 flow_tx_packet_count_cache;	/**< Flow interface's Tx packet count from cache. */
 	u16 flow_pppoe_session_id;	/**< Flow interface`s PPPoE session ID. */
 	u16 flow_pppoe_remote_mac[3];	/**< Flow interface's PPPoE remote server MAC address (if present). */
 	__be32 return_ip[4];		/**< Return IP address. */
@@ -818,9 +826,11 @@ struct ipa_ipv6_conn_sync {
 	u32 return_end;			/**< Return direction's largest seen sequence + segment length. */
 	u32 return_max_end;		/**< Return direction's largest seen ack + max(1, win). */
 	u32 return_rx_packet_count;	/**< Return interface's Rx packet count. */
-	u32 return_rx_byte_count;	/**< Return interface's Rx byte count. */
+	u64 return_rx_byte_count;	/**< Return interface's Rx byte count. */
+	u32 return_rx_packet_count_cache;	/**< Return interface's Rx packet count from cache. */
 	u32 return_tx_packet_count;	/**< Return interface's Tx packet count. */
-	u32 return_tx_byte_count;	/**< Return interface's Tx byte count. */
+	u64 return_tx_byte_count;	/**< Return interface's Tx byte count. */
+	u32 return_tx_packet_count_cache;	/**< Return interface's Tx packet count from cache. */
 	u16 return_pppoe_session_id;	/**< Return interface`s PPPoE session ID. */
 	u16 return_pppoe_remote_mac[3];	/**< Return interface's PPPoE remote server MAC address (if present). */
 	u32 inc_ticks;			/**< Number of ticks since the last sync. */
