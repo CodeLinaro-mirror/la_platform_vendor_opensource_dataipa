@@ -3007,6 +3007,80 @@ static void ipahal_cp_hdr_to_hw_buff_v3(void *const base, u32 offset,
 		hdr_msb = upper_32_bits(addr); \
 	} while (0)
 
+/* Helper functions for generic processing context addition */
+
+static inline void ipa_hw_add_hdr_add_tlv(void **ctx_p, u32 hdr_len, u64 hdr_addr, bool is_64)
+{
+	struct ipa_hw_hdr_proc_ctx_hdr_add *hdr_add = (struct ipa_hw_hdr_proc_ctx_hdr_add *)(*ctx_p);
+	hdr_add->tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
+	hdr_add->tlv.length = 2;
+	hdr_add->tlv.value = hdr_len;
+	IPAHAL_CP_PROC_CTX_HEADER_UPDATE(hdr_add->hdr_addr, hdr_add->hdr_addr_hi, hdr_addr);
+	if (!is_64)
+		hdr_add->hdr_addr_hi = 0;
+	*ctx_p += sizeof(struct ipa_hw_hdr_proc_ctx_hdr_add);
+}
+
+static inline void ipa_hw_add_proc_cmd_tlv(void **ctx_p, u32 value, u32 length, const void *params)
+{
+	struct ipa_hw_hdr_proc_ctx_tlv *cmd = (struct ipa_hw_hdr_proc_ctx_tlv *)(*ctx_p);
+	cmd->type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
+	cmd->length = length;
+	cmd->value = value;
+	*ctx_p += sizeof(struct ipa_hw_hdr_proc_ctx_tlv);
+	if (length > 0 && params) {
+		memcpy(*ctx_p, params, length * 4);
+		*ctx_p += length * 4;
+	}
+}
+
+static inline void ipa_hw_add_crypto_tlv(void **ctx_p, u32 crypto_action, u32 sa_index)
+{
+	struct ipa_hw_hdr_proc_ctx_tlv_crypto *crypto = (struct ipa_hw_hdr_proc_ctx_tlv_crypto *)(*ctx_p);
+	crypto->type = IPA_PROC_CTX_TLV_TYPE_IPSEC;
+	crypto->length = 0;
+	crypto->crypto_action = crypto_action;
+	crypto->sa_index = sa_index;
+	crypto->sa_valid = 1;
+	*ctx_p += sizeof(struct ipa_hw_hdr_proc_ctx_tlv_crypto);
+}
+
+static inline void ipa_hw_add_nxt_rnd_tlv(void **ctx_p, u32 flt_idx)
+{
+	struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd *nxt_rnd = (struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd *)(*ctx_p);
+	nxt_rnd->type = IPA_PROC_CTX_TLV_TYPE_NXT_RND;
+	nxt_rnd->length = 0;
+	nxt_rnd->flt_idx = flt_idx;
+	*ctx_p += sizeof(struct ipa_hw_hdr_proc_ctx_tlv_nxt_rnd);
+}
+
+static inline void ipa_hw_add_sw_prod_cookie_tlv(void **ctx_p, struct ipa_producer_cookie_procparams *cookie_params)
+{
+	struct ipa_hw_hdr_proc_ctx_add_producer_cookie *cookie = (struct ipa_hw_hdr_proc_ctx_add_producer_cookie *)(*ctx_p);
+	cookie->tlv.type = IPA_PROC_CTX_TLV_TYPE_SW_PROD_COOKIE;
+	cookie->tlv.length = 2;
+	cookie->tlv.value = 0;
+
+	if (cookie_params) {
+		cookie->params.sw_cookie_low = cookie_params->sw_cookie_low;
+		cookie->params.sw_cookie_high = cookie_params->sw_cookie_high;
+		cookie->params.dscp = cookie_params->dscp;
+		cookie->params.dscp_valid = cookie_params->dscp_valid;
+	} else {
+		memset(&cookie->params, 0, sizeof(cookie->params));
+	}
+	*ctx_p += sizeof(struct ipa_hw_hdr_proc_ctx_add_producer_cookie);
+}
+
+static inline void ipa_hw_add_end_tlv(void **ctx_p)
+{
+	struct ipa_hw_hdr_proc_ctx_tlv *end = (struct ipa_hw_hdr_proc_ctx_tlv *)(*ctx_p);
+	end->type = IPA_PROC_CTX_TLV_TYPE_END;
+	end->length = 0;
+	end->value = 0;
+	*ctx_p += sizeof(struct ipa_hw_hdr_proc_ctx_tlv);
+}
+
 /*
  * ipahal_cp_proc_ctx_to_hw_buff_v3() - copy processing context to
  * base address and offset given.
@@ -3022,517 +3096,196 @@ static void ipahal_cp_hdr_to_hw_buff_v3(void *const base, u32 offset,
  * @ipsec_params: IPsec params
  * @generic_params: generic proc_ctx params
  * @generic_params_v2: generic proc_ctx params for wwan_ethII
+ * @cookie_params: producer cookie proc_ctx params
  * @pdn_dscp_params: pdn<->dscp proc_ctx params
  * @is_64: Indicates whether header base address/dma base address is 64 bit.
  */
-static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
-		void *const base, u32 offset,
-		u32 hdr_len, bool is_hdr_proc_ctx,
-		dma_addr_t phys_base, u64 hdr_base_addr,
-		struct ipa_hdr_offset_entry *offset_entry,
-		struct ipa_l2tp_hdr_proc_ctx_params *l2tp_params,
-		struct ipa_eogre_hdr_proc_ctx_params *eogre_params,
-		struct ipa_ipsec_params *ipsec_params,
-		struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
-		struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
-		struct ipa_pdn_dscp_procparams *pdn_dscp_params,
-		bool is_64)
+static int ipahal_cp_proc_ctx_to_hw_buff_v3(
+	enum ipa_hdr_proc_type type, void *const base, u32 offset, u32 hdr_len,
+	bool is_hdr_proc_ctx, dma_addr_t phys_base, u64 hdr_base_addr,
+	struct ipa_hdr_offset_entry *offset_entry,
+	struct ipa_l2tp_hdr_proc_ctx_params *l2tp_params,
+	struct ipa_eogre_hdr_proc_ctx_params *eogre_params,
+	struct ipa_ipsec_params *ipsec_params,
+	struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
+	struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
+	struct ipa_producer_cookie_procparams *cookie_params,
+	struct ipa_pdn_dscp_procparams *pdn_dscp_params, bool is_64,
+	bool is_cookie_valid)
 {
 	u64 hdr_addr;
+	void *ctx_p = base + offset;
+
+	if (is_hdr_proc_ctx)
+		hdr_addr = phys_base;
+	else if (offset_entry)
+		hdr_addr = hdr_base_addr + offset_entry->offset;
+	else
+		hdr_addr = hdr_base_addr;
 
 	if (type == IPA_HDR_PROC_NONE) {
-		struct ipa_hw_hdr_proc_ctx_add_hdr_seq *ctx;
-
-		ctx = (struct ipa_hw_hdr_proc_ctx_add_hdr_seq *)
-			(base + offset);
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx\n",
-			hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
 	} else if ((type == IPA_HDR_PROC_L2TP_HEADER_ADD) ||
-		(type == IPA_HDR_PROC_L2TP_UDP_HEADER_ADD)) {
-		struct ipa_hw_hdr_proc_ctx_add_l2tp_hdr_cmd_seq *ctx;
+		   (type == IPA_HDR_PROC_L2TP_UDP_HEADER_ADD)) {
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
 
-		ctx = (struct ipa_hw_hdr_proc_ctx_add_l2tp_hdr_cmd_seq *)
-			(base + offset);
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx\n",
-			hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-		ctx->l2tp_params.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->l2tp_params.tlv.length = 1;
-		if (type == IPA_HDR_PROC_L2TP_HEADER_ADD)
-			ctx->l2tp_params.tlv.value =
-					IPA_HDR_UCP_L2TP_HEADER_ADD;
-		else
-			ctx->l2tp_params.tlv.value =
-					IPA_HDR_UCP_L2TP_UDP_HEADER_ADD;
-		ctx->l2tp_params.l2tp_params.second_pass =
-			l2tp_params->hdr_add_param.second_pass;
-		ctx->l2tp_params.l2tp_params.eth_hdr_retained =
-			l2tp_params->hdr_add_param.eth_hdr_retained;
-		ctx->l2tp_params.l2tp_params.input_ip_version =
-			l2tp_params->hdr_add_param.input_ip_version;
-		ctx->l2tp_params.l2tp_params.output_ip_version =
-			l2tp_params->hdr_add_param.output_ip_version;
-
-		IPAHAL_DBG("command id %d\n", ctx->l2tp_params.tlv.value);
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
-	} else if (type == IPA_HDR_PROC_L2TP_HEADER_REMOVE) {
-		struct ipa_hw_hdr_proc_ctx_remove_l2tp_hdr_cmd_seq *ctx;
-
-		ctx = (struct ipa_hw_hdr_proc_ctx_remove_l2tp_hdr_cmd_seq *)
-			(base + offset);
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx length %d\n",
-			hdr_addr, ctx->hdr_add.tlv.value);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-		ctx->l2tp_params.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->l2tp_params.tlv.length = 1;
-		ctx->l2tp_params.tlv.value =
-					IPA_HDR_UCP_L2TP_HEADER_REMOVE;
-		ctx->l2tp_params.l2tp_params.hdr_len_remove =
-			l2tp_params->hdr_remove_param.hdr_len_remove;
-		ctx->l2tp_params.l2tp_params.eth_hdr_retained =
-			l2tp_params->hdr_remove_param.eth_hdr_retained;
-		ctx->l2tp_params.l2tp_params.hdr_ofst_pkt_size_valid =
-			l2tp_params->hdr_remove_param.hdr_ofst_pkt_size_valid;
-		ctx->l2tp_params.l2tp_params.hdr_ofst_pkt_size =
-			l2tp_params->hdr_remove_param.hdr_ofst_pkt_size;
-		ctx->l2tp_params.l2tp_params.hdr_endianness =
-			l2tp_params->hdr_remove_param.hdr_endianness;
-		IPAHAL_DBG("hdr ofst valid: %d, hdr ofst pkt size: %d\n",
-			ctx->l2tp_params.l2tp_params.hdr_ofst_pkt_size_valid,
-			ctx->l2tp_params.l2tp_params.hdr_ofst_pkt_size);
-		IPAHAL_DBG("endianness: %d\n",
-			ctx->l2tp_params.l2tp_params.hdr_endianness);
-
-		IPAHAL_DBG("command id %d\n", ctx->l2tp_params.tlv.value);
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
-	} else if (type == IPA_HDR_PROC_L2TP_UDP_HEADER_REMOVE) {
-		struct ipa_hw_hdr_proc_ctx_remove_l2tp_hdr_cmd_seq *ctx;
-
-		ctx = (struct ipa_hw_hdr_proc_ctx_remove_l2tp_hdr_cmd_seq *)
-			(base + offset);
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		if (l2tp_params->hdr_remove_param.eth_hdr_retained) {
-			ctx->hdr_add.tlv.value = hdr_len;
-			hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-			IPAHAL_DBG("header address 0x%llx length %d\n",
-				hdr_addr, ctx->hdr_add.tlv.value);
-			IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-				ctx->hdr_add.hdr_addr_hi, hdr_addr);
-			if (!is_64)
-				ctx->hdr_add.hdr_addr_hi = 0;
+		if (type == IPA_HDR_PROC_L2TP_HEADER_ADD) {
+			ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_L2TP_HEADER_ADD, 1,
+						&l2tp_params->hdr_add_param);
+			IPAHAL_DBG("command id %d\n", IPA_HDR_UCP_L2TP_HEADER_ADD);
 		} else {
-			ctx->hdr_add.tlv.value = 0;
+			ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_L2TP_UDP_HEADER_ADD,
+						1, &l2tp_params->hdr_add_param);
+			IPAHAL_DBG("command id %d\n", IPA_HDR_UCP_L2TP_UDP_HEADER_ADD);
 		}
-		ctx->l2tp_params.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->l2tp_params.tlv.length = 1;
-		ctx->l2tp_params.tlv.value =
-				IPA_HDR_UCP_L2TP_UDP_HEADER_REMOVE;
-		ctx->l2tp_params.l2tp_params.hdr_len_remove =
-			l2tp_params->hdr_remove_param.hdr_len_remove;
-		ctx->l2tp_params.l2tp_params.eth_hdr_retained =
-			l2tp_params->hdr_remove_param.eth_hdr_retained;
-		ctx->l2tp_params.l2tp_params.hdr_ofst_pkt_size_valid =
-			l2tp_params->hdr_remove_param.hdr_ofst_pkt_size_valid;
-		ctx->l2tp_params.l2tp_params.hdr_ofst_pkt_size =
-			l2tp_params->hdr_remove_param.hdr_ofst_pkt_size;
-		ctx->l2tp_params.l2tp_params.hdr_endianness =
-			l2tp_params->hdr_remove_param.hdr_endianness;
+	} else if (type == IPA_HDR_PROC_L2TP_HEADER_REMOVE) {
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx length %d\n", hdr_addr, hdr_len);
+
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_L2TP_HEADER_REMOVE, 1,
+					&l2tp_params->hdr_remove_param);
 		IPAHAL_DBG("hdr ofst valid: %d, hdr ofst pkt size: %d\n",
-			ctx->l2tp_params.l2tp_params.hdr_ofst_pkt_size_valid,
-			ctx->l2tp_params.l2tp_params.hdr_ofst_pkt_size);
+			   l2tp_params->hdr_remove_param.hdr_ofst_pkt_size_valid,
+			   l2tp_params->hdr_remove_param.hdr_ofst_pkt_size);
 		IPAHAL_DBG("endianness: %d\n",
-			ctx->l2tp_params.l2tp_params.hdr_endianness);
+			   l2tp_params->hdr_remove_param.hdr_endianness);
+		IPAHAL_DBG("command id %d\n", IPA_HDR_UCP_L2TP_HEADER_REMOVE);
+	} else if (type == IPA_HDR_PROC_L2TP_UDP_HEADER_REMOVE) {
+		if (l2tp_params->hdr_remove_param.eth_hdr_retained) {
+			ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+			IPAHAL_DBG("header address 0x%llx length %d\n", hdr_addr,
+				   hdr_len);
+		} else {
+			ipa_hw_add_hdr_add_tlv(&ctx_p, 0, hdr_addr, is_64);
+		}
 
-		IPAHAL_DBG("command id %d\n", ctx->l2tp_params.tlv.value);
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_L2TP_UDP_HEADER_REMOVE, 1,
+					&l2tp_params->hdr_remove_param);
+		IPAHAL_DBG("hdr ofst valid: %d, hdr ofst pkt size: %d\n",
+			   l2tp_params->hdr_remove_param.hdr_ofst_pkt_size_valid,
+			   l2tp_params->hdr_remove_param.hdr_ofst_pkt_size);
+		IPAHAL_DBG("endianness: %d\n",
+			   l2tp_params->hdr_remove_param.hdr_endianness);
+		IPAHAL_DBG("command id %d\n", IPA_HDR_UCP_L2TP_UDP_HEADER_REMOVE);
 	} else if (type == IPA_HDR_PROC_ETHII_TO_ETHII_EX) {
-		struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex *ctx;
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
 
-		ctx = (struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex *)
-			(base + offset);
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_ETHII_TO_ETHII_EX, 1,
+					generic_params);
+	} else if (type == IPA_HDR_PROC_MARK_DSCP) {
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
 
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%x\n",
-			ctx->hdr_add.hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-
-		ctx->hdr_add_ex.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->hdr_add_ex.tlv.length = 1;
-		ctx->hdr_add_ex.tlv.value = IPA_HDR_UCP_ETHII_TO_ETHII_EX;
-
-		ctx->hdr_add_ex.params.input_ethhdr_negative_offset =
-			generic_params->input_ethhdr_negative_offset;
-		ctx->hdr_add_ex.params.output_ethhdr_negative_offset =
-			generic_params->output_ethhdr_negative_offset;
-		ctx->hdr_add_ex.params.output_dscp_pcp_update =
-			generic_params->output_dscp_pcp_update;
-		ctx->hdr_add_ex.params.reserved = 0;
-
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
-	} else if (type == IPA_HDR_PROC_MARK_DSCP){
-		struct ipa_hw_hdr_proc_ctx_add_pdn_dscp_proc_cmd_seq *ctx;
-
-		ctx = (struct ipa_hw_hdr_proc_ctx_add_pdn_dscp_proc_cmd_seq *)
-			(base + offset);
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx\n",
-			hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-
-		ctx->pdn_dscp_params.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->pdn_dscp_params.tlv.length = 1;
-		ctx->pdn_dscp_params.tlv.value = IPA_HDR_UCP_MARK_DSCP;
-
-		ctx->pdn_dscp_params.pdn_dscp_params.valid = pdn_dscp_params->valid;
-		ctx->pdn_dscp_params.pdn_dscp_params.dscp_val = pdn_dscp_params->dscp_val;
-		ctx->pdn_dscp_params.pdn_dscp_params.reserved = 0;
-
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_MARK_DSCP, 1,
+					pdn_dscp_params);
 	} else if (type == IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
-		struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_cmd_seq_ex *ctx;
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
 
-		ctx = (struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_cmd_seq_ex *)
-			(base + offset);
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_WWAN_TO_ETHII_EX, 1,
+					generic_params_v2);
+	} else if (type == IPA_HDR_PROC_EoGRE_HEADER_ADD) {
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
 
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%x\n",
-			ctx->hdr_add.hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-
-		ctx->hdr_add_ex.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->hdr_add_ex.tlv.length = 1;
-		ctx->hdr_add_ex.tlv.value = IPA_HDR_UCP_WWAN_TO_ETHII_EX;
-
-		ctx->hdr_add_ex.params.input_ethhdr_negative_offset =
-			generic_params_v2->input_ethhdr_negative_offset;
-		ctx->hdr_add_ex.params.output_ethhdr_negative_offset =
-			generic_params_v2->output_ethhdr_negative_offset;
-		ctx->hdr_add_ex.params.output_dscp_pcp_update =
-			generic_params_v2->output_dscp_pcp_update;
-		ctx->hdr_add_ex.params.input_ethhdr_valid =
-			generic_params_v2->input_ethhdr_valid;
-			ctx->hdr_add_ex.params.reserved = 0;
-
-			ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-			ctx->end.length = 0;
-			ctx->end.value = 0;
- 	} else if (type == IPA_HDR_PROC_EoGRE_HEADER_ADD) {
-		struct ipa_hw_hdr_proc_ctx_add_eogre_hdr_cmd_seq *ctx =
-			(struct ipa_hw_hdr_proc_ctx_add_eogre_hdr_cmd_seq *)
-			(base + offset);
-
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx\n",
-			hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-		ctx->eogre_params.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->eogre_params.tlv.length = 1;
-		ctx->eogre_params.tlv.value = IPA_HDR_UCP_EoGRE_HEADER_ADD;
-		ctx->eogre_params.eogre_params.eth_hdr_retained =
-			eogre_params->hdr_add_param.eth_hdr_retained;
-		ctx->eogre_params.eogre_params.input_ip_version =
-			eogre_params->hdr_add_param.input_ip_version;
-		ctx->eogre_params.eogre_params.output_ip_version =
-			eogre_params->hdr_add_param.output_ip_version;
-		ctx->eogre_params.eogre_params.second_pass =
-			eogre_params->hdr_add_param.second_pass;
-		IPAHAL_DBG("command id %d\n", ctx->eogre_params.tlv.value);
-		IPAHAL_DBG("eth_hdr_retained %d input_ip_version %d output_ip_version %d second_pass %d\n",
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_EoGRE_HEADER_ADD, 1,
+					&eogre_params->hdr_add_param);
+		IPAHAL_DBG("command id %d\n", IPA_HDR_UCP_EoGRE_HEADER_ADD);
+		IPAHAL_DBG(
+			"eth_hdr_retained %d input_ip_version %d output_ip_version %d second_pass %d\n",
 			eogre_params->hdr_add_param.eth_hdr_retained,
 			eogre_params->hdr_add_param.input_ip_version,
 			eogre_params->hdr_add_param.output_ip_version,
 			eogre_params->hdr_add_param.second_pass);
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
 	} else if (type == IPA_HDR_PROC_EoGRE_HEADER_REMOVE) {
-		struct ipa_hw_hdr_proc_ctx_remove_eogre_hdr_cmd_seq *ctx =
-			(struct ipa_hw_hdr_proc_ctx_remove_eogre_hdr_cmd_seq *)
-			(base + offset);
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx length %d\n", hdr_addr, hdr_len);
 
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx length %d\n",
-				   hdr_addr, ctx->hdr_add.tlv.value);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(
-			ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-		ctx->eogre_params.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->eogre_params.tlv.length = 1;
-		ctx->eogre_params.tlv.value = IPA_HDR_UCP_EoGRE_HEADER_REMOVE;
-		ctx->eogre_params.eogre_params.hdr_len_remove =
-			eogre_params->hdr_remove_param.hdr_len_remove;
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_EoGRE_HEADER_REMOVE, 1,
+					&eogre_params->hdr_remove_param);
 	} else if (type == IPA_HDR_PROC_NXT_RND) {
-		struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq *ctx =
-			(struct ipa_hw_hdr_proc_ctx_nxt_rnd_cmd_seq *)
-			(base + offset);
-
-		ctx->nxt_rnd.type = IPA_PROC_CTX_TLV_TYPE_NXT_RND;
-		ctx->nxt_rnd.length = 0;
-		ctx->nxt_rnd.flt_idx = ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id);
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_nxt_rnd_tlv(&ctx_p,
+				       ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id));
 	} else if (type == IPA_HDR_PROC_XLAT_NXT_RND) {
-		struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_proc_cmd_seq *ctx =
-			(struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_proc_cmd_seq *)
-			(base + offset);
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx\n",
-			hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-		ctx->nxt_rnd.type = IPA_PROC_CTX_TLV_TYPE_NXT_RND;
-		ctx->nxt_rnd.length = 0;
-		ctx->nxt_rnd.flt_idx = ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id);
-		ctx->cmd.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->cmd.value = 0; //<TBD>;
-		ctx->cmd.length = 0;
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
+
+		ipa_hw_add_nxt_rnd_tlv(&ctx_p,
+				       ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id));
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, 0 /* <TBD> */, 0, NULL);
 	} else if (type == IPA_HDR_PROC_IPSEC_ENCAP) {
-		struct ipa_hw_hdr_proc_ctx_add_ipsec_proc_cmd_seq *ctx =
-			(struct ipa_hw_hdr_proc_ctx_add_ipsec_proc_cmd_seq *)
-			(base + offset);
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx\n",
-			hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-		ctx->crypto.type = IPA_PROC_CTX_TLV_TYPE_IPSEC;
-		ctx->crypto.length = 0;
-		ctx->crypto.crypto_action = ipsec_params->action;
-		ctx->crypto.sa_index = ipsec_params->sa_idx;
-		ctx->crypto.sa_valid = 1;
-		ctx->cmd.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->cmd.tlv.value = IPA_HDR_UCP_IPSEC_PRE_ENCAP;
-		ctx->cmd.tlv.length = 1;
-		ctx->cmd.pre_params = ipsec_params->pre_params;
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
+
+		ipa_hw_add_crypto_tlv(&ctx_p, ipsec_params->action, ipsec_params->sa_idx);
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_IPSEC_PRE_ENCAP, 1,
+					&ipsec_params->pre_params);
 	} else if (type == IPA_HDR_PROC_IPSEC_DECAP) {
-		struct ipa_hw_hdr_proc_ctx_ipsec_proc_cmd_seq *ctx =
-			(struct ipa_hw_hdr_proc_ctx_ipsec_proc_cmd_seq *)
-			(base + offset);
-		ctx->crypto.type = IPA_PROC_CTX_TLV_TYPE_IPSEC;
-		ctx->crypto.length = 0;
-		ctx->crypto.crypto_action = ipsec_params->action;
-		ctx->crypto.sa_index = ipsec_params->sa_idx;
-		ctx->crypto.sa_valid = 1;
-		ctx->cmd.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->cmd.tlv.value = IPA_HDR_UCP_IPSEC_PRE_DECAP;
-		ctx->cmd.tlv.length = 1;
-		ctx->cmd.pre_params = ipsec_params->pre_params;
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_crypto_tlv(&ctx_p, ipsec_params->action, ipsec_params->sa_idx);
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_IPSEC_PRE_DECAP, 1,
+					&ipsec_params->pre_params);
 	} else if (type == IPA_HDR_PROC_IPSEC_ENCAP_NXT_RND) {
-		struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq *ctx =
-			(struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq *)
-			(base + offset);
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx\n",
-			hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-		ctx->nxt_rnd.type = IPA_PROC_CTX_TLV_TYPE_NXT_RND;
-		ctx->nxt_rnd.length = 0;
-		ctx->nxt_rnd.flt_idx = ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id);
-		ctx->crypto.type = IPA_PROC_CTX_TLV_TYPE_IPSEC;
-		ctx->crypto.length = 0;
-		ctx->crypto.crypto_action = ipsec_params->action;
-		ctx->crypto.sa_index = ipsec_params->sa_idx;
-		ctx->crypto.sa_valid = 1;
-		ctx->cmd.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->cmd.tlv.value = IPA_HDR_UCP_IPSEC_PRE_ENCAP;
-		ctx->cmd.tlv.length = 1;
-		ctx->cmd.pre_params = ipsec_params->pre_params;
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
+
+		ipa_hw_add_nxt_rnd_tlv(&ctx_p,
+				       ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id));
+		ipa_hw_add_crypto_tlv(&ctx_p, ipsec_params->action, ipsec_params->sa_idx);
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_IPSEC_PRE_ENCAP, 1,
+					&ipsec_params->pre_params);
 	} else if (type == IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
-		struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq *ctx =
-			(struct ipa_hw_hdr_proc_ctx_nxt_rnd_ipsec_proc_cmd_seq *)
-			(base + offset);
-		ctx->nxt_rnd.type = IPA_PROC_CTX_TLV_TYPE_NXT_RND;
-		ctx->nxt_rnd.length = 0;
-		ctx->nxt_rnd.flt_idx = ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id);
-		ctx->crypto.type = IPA_PROC_CTX_TLV_TYPE_IPSEC;
-		ctx->crypto.length = 0;
-		ctx->crypto.crypto_action = ipsec_params->action;
-		ctx->crypto.sa_index = ipsec_params->sa_idx;
-		ctx->crypto.sa_valid = 1;
-		ctx->cmd.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->cmd.tlv.value = IPA_HDR_UCP_IPSEC_PRE_DECAP;
-		ctx->cmd.tlv.length = 1;
-		ctx->cmd.pre_params = ipsec_params->pre_params;
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_nxt_rnd_tlv(&ctx_p,
+				       ipa_flt_get_nxt_rnd_idx(ipsec_params->flt_tbl_id));
+		ipa_hw_add_crypto_tlv(&ctx_p, ipsec_params->action, ipsec_params->sa_idx);
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_IPSEC_PRE_DECAP, 1,
+					&ipsec_params->pre_params);
 	} else if (type == IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST) {
-		struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex *ctx;
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
 
-		ctx = (struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex *)
-			(base + offset);
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, IPA_HDR_UCP_ETHII_TO_ETHII_EX_DST, 1,
+					generic_params);
+	} else {
+		u32 cmd_value = 0;
+		if (type == IPA_HDR_PROC_2ND_PASS)
+			hdr_len = 0;
+		ipa_hw_add_hdr_add_tlv(&ctx_p, hdr_len, hdr_addr, is_64);
+		IPAHAL_DBG("header address 0x%llx\n", hdr_addr);
 
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%x\n",
-			ctx->hdr_add.hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-
-		ctx->hdr_add_ex.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->hdr_add_ex.tlv.length = 1;
-		ctx->hdr_add_ex.tlv.value = IPA_HDR_UCP_ETHII_TO_ETHII_EX_DST;
-
-		ctx->hdr_add_ex.params.input_ethhdr_negative_offset =
-			generic_params->input_ethhdr_negative_offset;
-		ctx->hdr_add_ex.params.output_ethhdr_negative_offset =
-			generic_params->output_ethhdr_negative_offset;
-		ctx->hdr_add_ex.params.output_dscp_pcp_update =
-			generic_params->output_dscp_pcp_update;
-		ctx->hdr_add_ex.params.reserved = 0;
-
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
-	} 
-	else {
-		struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq *ctx;
-
-		ctx = (struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq *)
-			(base + offset);
-		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
-		ctx->hdr_add.tlv.length = 2;
-		ctx->hdr_add.tlv.value = hdr_len;
-		hdr_addr = is_hdr_proc_ctx ? phys_base : hdr_base_addr + offset_entry->offset;
-		IPAHAL_DBG("header address 0x%llx\n",
-			hdr_addr);
-		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(ctx->hdr_add.hdr_addr,
-			ctx->hdr_add.hdr_addr_hi, hdr_addr);
-		if (!is_64)
-			ctx->hdr_add.hdr_addr_hi = 0;
-		ctx->cmd.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
-		ctx->cmd.length = 0;
 		switch (type) {
 		case IPA_HDR_PROC_ETHII_TO_ETHII:
-			ctx->cmd.value = IPA_HDR_UCP_ETHII_TO_ETHII;
+			cmd_value = IPA_HDR_UCP_ETHII_TO_ETHII;
 			break;
 		case IPA_HDR_PROC_ETHII_TO_802_3:
-			ctx->cmd.value = IPA_HDR_UCP_ETHII_TO_802_3;
+			cmd_value = IPA_HDR_UCP_ETHII_TO_802_3;
 			break;
 		case IPA_HDR_PROC_802_3_TO_ETHII:
-			ctx->cmd.value = IPA_HDR_UCP_802_3_TO_ETHII;
+			cmd_value = IPA_HDR_UCP_802_3_TO_ETHII;
 			break;
 		case IPA_HDR_PROC_802_3_TO_802_3:
-			ctx->cmd.value = IPA_HDR_UCP_802_3_TO_802_3;
+			cmd_value = IPA_HDR_UCP_802_3_TO_802_3;
 			break;
 		case IPA_HDR_PROC_SET_DSCP:
-			ctx->cmd.value = IPA_HDR_UCP_SET_DSCP;
+			cmd_value = IPA_HDR_UCP_SET_DSCP;
 			break;
 		case IPA_HDR_PROC_2ND_PASS:
-			ctx->cmd.value = IPA_HDR_UCP_2ND_PASS;
-			ctx->hdr_add.tlv.value = 0;
+			cmd_value = IPA_HDR_UCP_2ND_PASS;
 			break;
 		default:
 			IPAHAL_ERR("unknown ipa_hdr_proc_type %d\n", type);
 			WARN_ON(1);
 			return -EINVAL;
 		}
-		IPAHAL_DBG("command id %d\n", ctx->cmd.value);
-		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
-		ctx->end.length = 0;
-		ctx->end.value = 0;
+		ipa_hw_add_proc_cmd_tlv(&ctx_p, cmd_value, 0, NULL);
+		IPAHAL_DBG("command id %d\n", cmd_value);
 	}
+
+	if (is_cookie_valid)
+		ipa_hw_add_sw_prod_cookie_tlv(&ctx_p, cookie_params);
+	ipa_hw_add_end_tlv(&ctx_p);
 
 	return 0;
 }
@@ -3544,7 +3297,8 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
  * @type: header processing context type (no processing context,
  *	IPA_HDR_PROC_ETHII_TO_ETHII etc.)
  */
-static int ipahal_get_proc_ctx_needed_len_v3(enum ipa_hdr_proc_type type)
+static int ipahal_get_proc_ctx_needed_len_v3(enum ipa_hdr_proc_type type,
+		bool is_cookie_valid)
 {
 	int ret;
 
@@ -3622,6 +3376,11 @@ static int ipahal_get_proc_ctx_needed_len_v3(enum ipa_hdr_proc_type type)
 		ret = -1;
 	}
 
+	if (ret != -1) {
+		if (is_cookie_valid)
+			ret += sizeof(struct ipa_hw_hdr_proc_ctx_add_producer_cookie);
+	}
+
 	return ret;
 }
 
@@ -3646,10 +3405,12 @@ struct ipahal_hdr_funcs {
 			*generic_params,
 			struct ipa_wwan_to_eth_II_ex_procparams
 			*generic_params_v2,
+			struct ipa_producer_cookie_procparams *cookie_params,
 			struct ipa_pdn_dscp_procparams *pdn_dscp_params,
-			bool is_64);
+			bool is_64, bool is_cookie_valid);
 
-	int (*ipahal_get_proc_ctx_needed_len)(enum ipa_hdr_proc_type type);
+	int (*ipahal_get_proc_ctx_needed_len)(enum ipa_hdr_proc_type type,
+			bool is_cookie_valid);
 };
 
 static struct ipahal_hdr_funcs hdr_funcs;
@@ -3724,8 +3485,9 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 		struct ipa_ipsec_params *ipsec_params,
 		struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
 		struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
+		struct ipa_producer_cookie_procparams *cookie_params,
 		struct ipa_pdn_dscp_procparams *pdn_dscp_params,
-		bool is_64)
+		bool is_64, bool is_cookie_valid)
 {
 	IPAHAL_DBG(
 		"type %d, base %pK, offset %d, hdr_len %d, hdr_base_addr %llu, offset_entry %pK, bool %d\n"
@@ -3742,7 +3504,8 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 	return hdr_funcs.ipahal_cp_proc_ctx_to_hw_buff(type, base, offset,
 			hdr_len, is_hdr_proc_ctx, phys_base, hdr_base_addr, offset_entry,
 			l2tp_params, eogre_params, ipsec_params, generic_params,
-			generic_params_v2, pdn_dscp_params, is_64);
+			generic_params_v2, cookie_params, pdn_dscp_params, is_64,
+			is_cookie_valid);
 }
 
 /*
@@ -3751,14 +3514,17 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
  * context
  * @type: header processing context type (no processing context,
  *	IPA_HDR_PROC_ETHII_TO_ETHII etc.)
+ * @is_cookie_valid: if true, append SW producer cookie TLV
  */
-int ipahal_get_proc_ctx_needed_len(enum ipa_hdr_proc_type type)
+int ipahal_get_proc_ctx_needed_len(enum ipa_hdr_proc_type type,
+		bool is_cookie_valid)
 {
 	int res;
 
 	IPAHAL_DBG("entry\n");
 
-	res = hdr_funcs.ipahal_get_proc_ctx_needed_len(type);
+	res = hdr_funcs.ipahal_get_proc_ctx_needed_len(type,
+			is_cookie_valid);
 
 	IPAHAL_DBG("Exit\n");
 

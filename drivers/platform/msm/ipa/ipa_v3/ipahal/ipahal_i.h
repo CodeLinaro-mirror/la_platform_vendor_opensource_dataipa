@@ -1857,6 +1857,10 @@ union ipa_pkt_status_hw_v7_0 {
 #define IPA_PROC_CTX_TLV_TYPE_TRLR_ADD 5
 #define IPA_PROC_CTX_TLV_TYPE_IPSEC 6
 #define IPA_PROC_CTX_TLV_TYPE_NXT_RND 7
+#define IPA_PROC_CTX_TLV_TYPE_INL_HDR_ADD 8
+#define IPA_PROC_CTX_TLV_TYPE_HDR_ADD_CFG 9
+#define IPA_PROC_CTX_TLV_TYPE_SW_PROD_COOKIE 10
+#define IPA_PROC_CTX_TLV_TYPE_HDR_ADD_ETH_IND 11
 
 /* uC IPsec activate actions */
 #define IPA_UC_IPSEC_ACT_DISABLE 0
@@ -2032,6 +2036,17 @@ struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_cmd_seq_ex {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_ex hdr_add_ex;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_producer_cookie -
+ * HW structure of IPA processing context - add producer cookie
+ * @tlv: IPA processing context TLV
+ * @params: producer cookie parameters
+ */
+struct ipa_hw_hdr_proc_ctx_add_producer_cookie {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_producer_cookie_procparams params;
 };
 
 /**
