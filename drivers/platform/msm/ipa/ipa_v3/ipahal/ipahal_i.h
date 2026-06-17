@@ -1345,7 +1345,7 @@ union ipa_pkt_status_hw_v6_0 {
 #define IPA_Q6_IPSEC_BANK_REFILL           29
 #define IPA_HDR_UCP_2ND_PASS               30
 #define IPA_HDR_UCP_MARK_DSCP              33
-#define IPA_HDR_UCP_PPPOE_HEADER_ADD       34
+#define IPA_HDR_UCP_PPPOE_HEADER_ADD       37
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0
