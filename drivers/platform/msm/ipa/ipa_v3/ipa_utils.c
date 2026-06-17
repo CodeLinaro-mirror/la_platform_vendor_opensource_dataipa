@@ -12251,7 +12251,7 @@ int ipa3_cfg_ep_metadata(u32 clnt_hdl, const struct ipa_ep_cfg_metadata *ep_md)
 	IPADBG("pipe=%d, mux id=%d\n", clnt_hdl, ep_md->qmap_id);
 
 	/* copy over EP cfg */
-	ipa3_ctx->ep[clnt_hdl].cfg.meta = *ep_md;
+	ipa3_ctx->ep[clnt_hdl].cfg.ep_metadata = *ep_md;
 
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
@@ -12332,7 +12332,7 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
 			param_in->client == IPA_CLIENT_WLAN1_PROD1 ||
 			param_in->client == IPA_CLIENT_WLAN3_PROD1) {
-		ipa3_ctx->ep[ipa_ep_idx].cfg.meta = meta;
+		ipa3_ctx->ep[ipa_ep_idx].cfg.ep_metadata = meta;
 		if ((ipa_get_wdi_version() == IPA_WDI_3 ||
 			ipa_get_wdi_version() == IPA_WDI_3_V2 ||
 			ipa_get_wdi_version() == IPA_WDI_4) &&

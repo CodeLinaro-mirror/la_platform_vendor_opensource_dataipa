@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
  */
 
 #include <linux/debugfs.h>
@@ -1286,7 +1286,7 @@ int ipa_bridge_tx_dp(u32 hdl, struct sk_buff *skb,
 		sizeof(struct ipa_gsb_mux_hdr));
 	memset(mux_hdr, 0, sizeof(struct ipa_gsb_mux_hdr));
 	mux_hdr->iface_hdl = (u8)hdl;
-	mux_hdr->qmap_id = (u8)ipa3_ctx->ep[ipa_gsb_ctx->prod_hdl].cfg.meta.qmap_id;
+	mux_hdr->qmap_id = (u8)ipa3_ctx->ep[ipa_gsb_ctx->prod_hdl].cfg.ep_metadata.qmap_id;
 
 	ret = ipa_tx_dp(IPA_CLIENT_ODU_PROD, skb, metadata);
 	if (ret) {

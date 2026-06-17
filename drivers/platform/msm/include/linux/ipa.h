@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
  */
 
 #ifndef _IPA_H_
@@ -613,7 +613,7 @@ struct ipa_ep_cfg_ulso {
  * @route:		Routing parameters
  * @cfg:		Configuration register data
  * @metadata_mask:	Hdr metadata mask
- * @meta:		Metadata
+ * @ep_metadata:	Metadata
  * @seq:		HPS/DPS sequencers configuration
  * @ulso:		ULSO configuration
  * @prod_cfg:	Producer specific Configuration register data
@@ -629,7 +629,7 @@ struct ipa_ep_cfg {
 	struct ipa_ep_cfg_route route;
 	struct ipa_ep_cfg_cfg cfg;
 	struct ipa_ep_cfg_metadata_mask metadata_mask;
-	struct ipa_ep_cfg_metadata meta;
+	struct ipa_ep_cfg_metadata ep_metadata;
 	struct ipa_ep_cfg_seq seq;
 	struct ipa_ep_cfg_ulso ulso;
 	struct ipa_ep_cfg_prod_cfg prod_cfg;

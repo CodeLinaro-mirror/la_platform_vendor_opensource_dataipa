@@ -6582,7 +6582,7 @@ int ipa3_tx_dp_mul(enum ipa_client_type src,
 		IPADBG_LOW("Parsing data desc :%d\n", cnt);
 		cnt++;
 		((u8 *)entry->pyld_buffer)[IPA_WLAN_HDR_QMAP_ID_OFFSET] =
-			(u8)sys->ep->cfg.meta.qmap_id;
+			(u8)sys->ep->cfg.ep_metadata.qmap_id;
 
 		/* the tag field will be populated in ipa3_send() function */
 		desc[0].is_tag_status = true;
