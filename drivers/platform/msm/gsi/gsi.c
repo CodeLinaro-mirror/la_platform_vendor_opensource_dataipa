@@ -1933,13 +1933,16 @@ int gsi_deregister_device(unsigned long dev_hdl, bool force)
 EXPORT_SYMBOL(gsi_deregister_device);
 
 static uint32_t gsi_legacy_ev_chtype_dir_to_v7_0_ev_chtype
-	(enum gsi_evt_chtype prot)
+	(enum gsi_evt_chtype prot, enum gsi_evt_ring_elem_size re_size)
 {
 	switch (prot) {
 	case GSI_EVT_CHTYPE_WDI3M_V2_EV:
 		return GSI_V7_0_EVT_CHTYPE_WDI3M_V2_RX_EV;
 	case GSI_EVT_CHTYPE_WDI5_EV:
 		return GSI_V7_0_EVT_CHTYPE_WDI5_RX_EV;
+	case GSI_EVT_CHTYPE_WDI6_EV:
+		return re_size == GSI_EVT_RING_RE_SIZE_32B ? GSI_V7_0_EVT_CHTYPE_WDI6_TX_EV :
+			GSI_V7_0_EVT_CHTYPE_WDI6_RX_EV;
 	case GSI_EVT_CHTYPE_WDI4_EV:
 	case GSI_EVT_CHTYPE_WDI3_V2_EV:
 	case GSI_EVT_CHTYPE_NTN_EV:
@@ -1980,7 +1983,7 @@ static void gsi_program_evt_ring_ctx(struct gsi_evt_ring_props *props,
 	GSIDBG("intf=%u intr=%u re=%u\n", props->intf, props->intr,
 			props->re_size);
 	if (gsi_ctx->per.ver >= GSI_VER_7_0) {
-		ev_ch_k_cntxt_0.chtype = gsi_legacy_ev_chtype_dir_to_v7_0_ev_chtype(props->intf);
+		ev_ch_k_cntxt_0.chtype = gsi_legacy_ev_chtype_dir_to_v7_0_ev_chtype(props->intf,props->re_size);
 	} else {
 		ev_ch_k_cntxt_0.chtype = props->intf;
 	}
@@ -2865,6 +2868,9 @@ static uint32_t gsi_legacy_protocol_dir_to_v7_0_protocol
 	case GSI_CHAN_PROT_WDI5:
 		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_WDI5_RX :
 			GSI_V7_0_CHAN_PROT_WDI5_TX;
+	case GSI_CHAN_PROT_WDI6:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_WDI6_RX :
+			GSI_V7_0_CHAN_PROT_WDI6_TX;
 	case GSI_CHAN_PROT_RTK:
 	case GSI_CHAN_PROT_RTK3:
 	case GSI_CHAN_PROT_MHI:
@@ -2936,6 +2942,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_WDI3M:
 	case GSI_CHAN_PROT_WDI3M_V2:
 	case GSI_CHAN_PROT_WDI5:
+	case GSI_CHAN_PROT_WDI6:
 		ch_k_cntxt_0.chtype_protocol_msb = 1;
 		break;
 	default:

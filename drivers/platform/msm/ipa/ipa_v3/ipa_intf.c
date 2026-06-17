@@ -22,6 +22,7 @@ struct ipa3_intf {
 	enum ipa_client_type excp_pipe;
 	struct ipa3_flt_entry *flt_list;
 	int intf_idx;
+	u16 vpnum;
 };
 
 struct ipa3_push_msg {
@@ -155,6 +156,10 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 		intf->excp_pipe = IPA_CLIENT_APPS_LAN_CONS;
 
 	intf->intf_idx = intf_idx;
+	if (ext && ext->vpnum_valid)
+		intf->vpnum = ext->vpnum;
+	else
+		intf->vpnum = 0;
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_add_tail(&intf->link, &ipa3_ctx->intf_list);

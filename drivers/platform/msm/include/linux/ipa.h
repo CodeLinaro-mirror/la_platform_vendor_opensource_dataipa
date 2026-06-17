@@ -751,6 +751,8 @@ struct ipa_ext_intf {
 	enum ipa_client_type excp_pipe;
 	u32 num_props;
 	struct ipa_ioc_ext_intf_prop *prop;
+	bool vpnum_valid;
+	u8 vpnum;
 };
 
 /**

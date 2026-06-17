@@ -81,9 +81,17 @@ struct ipa_wdi_context {
 #endif
 	bool ast_update;
 	bool is_rx1_used;
+	u8 rdi;
+	u8 rx1_rdi;
 };
 
 static struct ipa_wdi_context *ipa_wdi_ctx_list[IPA_WDI_INST_MAX];
+
+static inline bool is_single_instance_wdi_version(enum ipa_wdi_version version)
+{
+	return (version >= IPA_WDI_1 && version < IPA_WDI_3) ||
+	       (version == IPA_WDI_6);
+}
 
 /**
  * function to Assign Handle for instance
@@ -328,6 +336,7 @@ int ipa_wdi_reg_intf_per_inst(
 	int i = 0;
 	int ret = 0;
 	int num_hdr = 0;
+	struct ipa_ext_intf ext;
 
 	if (in == NULL) {
 		IPA_WDI_ERR("invalid params in=%pK\n", in);
@@ -344,8 +353,7 @@ int ipa_wdi_reg_intf_per_inst(
 		return -EPERM;
 	}
 
-	if (ipa_wdi_ctx_list[in->hdl]->wdi_version >= IPA_WDI_1 &&
-		ipa_wdi_ctx_list[in->hdl]->wdi_version < IPA_WDI_3 &&
+	if (is_single_instance_wdi_version(ipa_wdi_ctx_list[in->hdl]->wdi_version) &&
 		in->hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 					ipa_wdi_ctx_list[in->hdl]->wdi_version);
@@ -454,6 +462,8 @@ int ipa_wdi_reg_intf_per_inst(
         rx_prop[1].src_pipe = ipa_wdi_ctx_list[in->hdl]->rx_client;
 
  	rx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
+	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_6)
+		rx_prop[0].rdi = ipa_wdi_ctx_list[in->hdl]->rdi;
  	if (in->is_meta_data_valid) {
  		rx_prop[0].attrib.attrib_mask |= IPA_FLT_META_DATA;
  		rx_prop[0].attrib.meta_data = in->meta_data;
@@ -462,6 +472,8 @@ int ipa_wdi_reg_intf_per_inst(
 
  	rx_prop[1].ip = IPA_IP_v6;
  	rx_prop[1].hdr_l2_type = in->hdr_info[1].hdr_type;
+	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_6)
+		rx_prop[1].rdi = ipa_wdi_ctx_list[in->hdl]->rdi;
  	if (in->is_meta_data_valid) {
  		rx_prop[1].attrib.attrib_mask |= IPA_FLT_META_DATA;
  		rx_prop[1].attrib.meta_data = in->meta_data;
@@ -474,6 +486,8 @@ int ipa_wdi_reg_intf_per_inst(
 			rx_prop[2].src_pipe = ipa_wdi_ctx_list[in->hdl]->rx1_client;
 
 		rx_prop[2].hdr_l2_type = in->hdr_info[2].hdr_type;
+		if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_6)
+			rx_prop[2].rdi = ipa_wdi_ctx_list[in->hdl]->rx1_rdi;
 		if (in->is_meta_data_valid) {
 			rx_prop[2].attrib.attrib_mask |= IPA_FLT_META_DATA;
 			rx_prop[2].attrib.meta_data = in->meta_data;
@@ -485,6 +499,8 @@ int ipa_wdi_reg_intf_per_inst(
 			rx_prop[3].src_pipe = ipa_wdi_ctx_list[in->hdl]->rx1_client;
 
 		rx_prop[3].hdr_l2_type = in->hdr_info[3].hdr_type;
+		if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_6)
+			rx_prop[3].rdi = ipa_wdi_ctx_list[in->hdl]->rx1_rdi;
 		if (in->is_meta_data_valid) {
 			rx_prop[3].attrib.attrib_mask |= IPA_FLT_META_DATA;
 			rx_prop[3].attrib.meta_data = in->meta_data;
@@ -507,10 +523,23 @@ int ipa_wdi_reg_intf_per_inst(
 				sizeof(tx_prop[3].hdr_name));
 	}
 
-	if (ipa_register_intf(iface_name, &tx, &rx, 0)) {
-		IPA_WDI_ERR("fail to add interface prop\n");
-		ret = -EFAULT;
+	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_6) {
+		memset(&ext, 0, sizeof(ext));
+		ext.vpnum_valid = true;
+		ext.vpnum = in->vpnum;
+		IPA_WDI_DBG("vp num %d intf_idx %d\n", ext.vpnum, in->intf_idx);
+
+		if (ipa3_register_intf_ext(iface_name, &tx, &rx, &ext, in->intf_idx)) {
+			IPA_WDI_ERR("fail to add interface prop\n");
+			ret = -EFAULT;
+		}
+	} else {
+		if (ipa_register_intf(iface_name, &tx, &rx, 0)) {
+			IPA_WDI_ERR("fail to add interface prop\n");
+			ret = -EFAULT;
+		}
 	}
+
 	IPA_WDI_DBG("Done Register Interface\n");
 	list_add(&new_intf->link, &ipa_wdi_ctx_list[in->hdl]->head_intf_list);
 	init_completion(&ipa_wdi_ctx_list[in->hdl]->wdi_completion);
@@ -565,8 +594,7 @@ int ipa_wdi_conn_pipes_per_inst(struct ipa_wdi_conn_in_params *in,
 		return -EPERM;
 	}
 
-	if (ipa_wdi_ctx_list[in->hdl]->wdi_version >= IPA_WDI_1 &&
-		ipa_wdi_ctx_list[in->hdl]->wdi_version < IPA_WDI_3 &&
+	if (is_single_instance_wdi_version(ipa_wdi_ctx_list[in->hdl]->wdi_version) &&
 		in->hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 					ipa_wdi_ctx_list[in->hdl]->wdi_version);
@@ -581,6 +609,12 @@ int ipa_wdi_conn_pipes_per_inst(struct ipa_wdi_conn_in_params *in,
 	ipa_wdi_ctx_list[in->hdl]->num_sys_pipe_needed = in->num_sys_pipe_needed;
 	ipa_wdi_ctx_list[in->hdl]->tx_client = in->u_tx.tx.client;
 	ipa_wdi_ctx_list[in->hdl]->rx_client = in->u_rx.rx.client;
+	if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_6) {
+		if (in->is_smmu_enabled)
+			ipa_wdi_ctx_list[in->hdl]->rdi = in->u_rx.rx_smmu.rdi;
+		else
+			ipa_wdi_ctx_list[in->hdl]->rdi = in->u_rx.rx.rdi;
+	}
 	IPA_WDI_DBG("number of sys pipe %d\n", in->num_sys_pipe_needed);
 
 	if (in->is_tx1_used) {
@@ -592,6 +626,12 @@ int ipa_wdi_conn_pipes_per_inst(struct ipa_wdi_conn_in_params *in,
 	if (in->is_rx1_used) {
 		ipa_wdi_ctx_list[in->hdl]->is_rx1_used = in->is_rx1_used;
 		ipa_wdi_ctx_list[in->hdl]->rx1_client = in->u_rx1.rx.client;
+		if (ipa_wdi_ctx_list[in->hdl]->wdi_version == IPA_WDI_6) {
+			if (in->is_smmu_enabled)
+				ipa_wdi_ctx_list[in->hdl]->rx1_rdi = in->u_rx1.rx_smmu.rdi;
+			else
+				ipa_wdi_ctx_list[in->hdl]->rx1_rdi = in->u_rx1.rx.rdi;
+		}
 		ipa_ep_idx_rx1 = ipa_get_ep_mapping(ipa_wdi_ctx_list[in->hdl]->rx1_client);
 	}
 
@@ -814,8 +854,7 @@ int ipa_wdi_enable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EPERM;
 	}
 
-	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
-		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
+	if (is_single_instance_wdi_version(ipa_wdi_ctx_list[hdl]->wdi_version) &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 					ipa_wdi_ctx_list[hdl]->wdi_version);
@@ -898,8 +937,7 @@ int ipa_wdi_set_perf_profile_per_inst(ipa_wdi_hdl_t hdl,
 		return -EFAULT;
 	}
 
-	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
-		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
+	if (is_single_instance_wdi_version(ipa_wdi_ctx_list[hdl]->wdi_version) &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 				ipa_wdi_ctx_list[hdl]->wdi_version);
@@ -1070,8 +1108,7 @@ int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 
 	IPA_WDI_DBG("client hdl = %d, Instance = %d\n", hdl, ipa_wdi_ctx_list[hdl]->inst_id);
 
-	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
-		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
+	if (is_single_instance_wdi_version(ipa_wdi_ctx_list[hdl]->wdi_version) &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 				ipa_wdi_ctx_list[hdl]->wdi_version);
@@ -1175,8 +1212,7 @@ int ipa_wdi_dereg_intf_per_inst(const char *netdev_name, ipa_wdi_hdl_t hdl)
 
 	IPA_WDI_DBG("deregister interface for netdev %s\n", netdev_name);
 
-	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
-		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
+	if (is_single_instance_wdi_version(ipa_wdi_ctx_list[hdl]->wdi_version) &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 					ipa_wdi_ctx_list[hdl]->wdi_version);
@@ -1255,8 +1291,7 @@ int ipa_wdi_disconn_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EFAULT;
 	}
 
-	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
-		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
+	if (is_single_instance_wdi_version(ipa_wdi_ctx_list[hdl]->wdi_version) &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 				ipa_wdi_ctx_list[hdl]->wdi_version);
@@ -1333,8 +1368,7 @@ int ipa_wdi_disable_pipes_per_inst(ipa_wdi_hdl_t hdl)
 		return -EFAULT;
 	}
 
-	if (ipa_wdi_ctx_list[hdl]->wdi_version >= IPA_WDI_1 &&
-		ipa_wdi_ctx_list[hdl]->wdi_version < IPA_WDI_3 &&
+	if (is_single_instance_wdi_version(ipa_wdi_ctx_list[hdl]->wdi_version) &&
 		hdl > 0) {
 		IPA_WDI_ERR("More than one instance not supported for WDI ver = %d\n",
 					ipa_wdi_ctx_list[hdl]->wdi_version);

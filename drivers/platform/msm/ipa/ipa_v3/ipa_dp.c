@@ -5006,6 +5006,38 @@ static void ipa3_lan_rx_process_metadata(struct ipa3_ep_context *ep,
 
 		IPADBG_LOW("ta peer id %d\n", *(u16 *)(skb->cb + 5));
 
+	} else if (ipa_get_wdi_version() == IPA_WDI_6) {
+		/* IPA WDITRESTLES Rx metadata
+		 * +-------------+------------+--------+
+		 * | 32-bit word | Field      | Bits   |
+		 * +-------------+------------+--------+
+		 * | 0           | TA_PEER_ID | 0-13   |
+		 * |             | RESERVED   | 14-15  |
+		 * |             | QMAP_ID    | 16-23  |
+		 * |             | VAP_ID     | 24-31  |
+		 * +-------------+------------+--------+
+		 *
+		 * skb->cb layout (packed into a single u32 = 4 bytes):
+		 *  +----------+------------+----------+
+		 *  | [7:0]    | [21:8]     | [31:22]  |
+		 *  | vap_id   | ta_peer_id | reserved |
+		 *  +----------+------------+----------+
+		 */
+		struct ipa_wdi6_rx_skb_cb *wdi6_cb =
+			(struct ipa_wdi6_rx_skb_cb *)skb->cb;
+		u32 vap_id, ta_peer_id;
+
+		metadata = ntohl(metadata);
+		vap_id     = (metadata >> 24) & 0xFF;
+		ta_peer_id = metadata & 0x3FFF;
+		wdi6_cb->packed =
+			((vap_id & IPA_WDI6_CB_VAP_ID_MASK) << IPA_WDI6_CB_VAP_ID_SHIFT) |
+			((ta_peer_id & IPA_WDI6_CB_TA_PEER_ID_MASK) << IPA_WDI6_CB_TA_PEER_ID_SHIFT);
+		IPADBG_LOW("WDI6 meta_data: 0x%x cb: 0x%x\n",
+				metadata, *(u32 *)skb->cb);
+		IPADBG_LOW("WDI6 vap_id %d\n", vap_id);
+		IPADBG_LOW("WDI6 ta peer id %d\n", ta_peer_id);
+
 	} else {
 		/* Metadata Info
 		 *  ------------------------------------------

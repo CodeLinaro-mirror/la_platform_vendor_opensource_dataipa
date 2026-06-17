@@ -95,6 +95,14 @@
 #define IPA_TAG_TIMER_TIMESTAMP_SHFT (14) /* ~0.8msec */
 #define IPA_NAT_TIMER_TIMESTAMP_SHFT (24) /* ~0.8sec */
 
+#define IPA_CLIENT_IS_WLAN_PRODUCER(client)    \
+    (((client) == IPA_CLIENT_WLAN1_PROD) ||  \
+     ((client) == IPA_CLIENT_WLAN2_PROD) ||  \
+     ((client) == IPA_CLIENT_WLAN3_PROD) ||  \
+     ((client) == IPA_CLIENT_WLAN2_PROD1) || \
+     ((client) == IPA_CLIENT_WLAN1_PROD1) || \
+     ((client) == IPA_CLIENT_WLAN3_PROD1))
+
 /*
  * Units of time per a specific granularity
  * The limitation based on H/W HOLB/AGGR time limit field width
@@ -13651,25 +13659,14 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD ||
 		param_in->client == IPA_CLIENT_MHI_PROD) {
 		result = ipa3_cfg_ep_metadata(ipa_ep_idx, &meta);
-	} else if (param_in->client == IPA_CLIENT_WLAN1_PROD ||
-			param_in->client == IPA_CLIENT_WLAN2_PROD ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD ||
-			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
-			param_in->client == IPA_CLIENT_WLAN1_PROD1 ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD1) {
+	}
+	else if (IPA_CLIENT_IS_WLAN_PRODUCER(param_in->client))
+	{
 		ipa3_ctx->ep[ipa_ep_idx].cfg.meta = meta;
-		if ((ipa_get_wdi_version() == IPA_WDI_3 ||
-			ipa_get_wdi_version() == IPA_WDI_3_V2 ||
-			ipa_get_wdi_version() == IPA_WDI_4 ||
-			ipa_get_wdi_version() == IPA_WDI_5) &&
-			(param_in->client == IPA_CLIENT_WLAN2_PROD ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD ||
-			param_in->client == IPA_CLIENT_WLAN1_PROD ||
-			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
-			param_in->client == IPA_CLIENT_WLAN1_PROD1 ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD1))
-				result = ipa3_write_qmapid_wdi3_gsi_pipe(
-					ipa_ep_idx, meta.qmap_id);
+		if ((ipa_get_wdi_version() >= IPA_WDI_3 &&
+			 ipa_get_wdi_version() <= IPA_WDI_6))
+			result = ipa3_write_qmapid_wdi3_gsi_pipe(
+				ipa_ep_idx, meta.qmap_id);
 		else
 			result = ipa3_write_qmapid_wdi_pipe(
 				ipa_ep_idx, meta.qmap_id);
