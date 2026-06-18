@@ -19,6 +19,7 @@
 #include <linux/interrupt.h>
 #include <linux/netdevice.h>
 #include "ipa.h"
+#include <linux/ipa_wdi3.h>
 #include <linux/soc/qcom/ipa_usb.h>
 #include <linux/ipa_qdss.h>
 #include <linux/iommu.h>
@@ -3931,6 +3932,7 @@ int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
 bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf);
 int ipa3_update_intf_idx(const char *name, int intf_idx);
 int ipa3_assign_qmapmux_intf_idx(int wan_iface);
+void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie);
 bool ipa3_query_ext_iface(int intf_idx, struct ipa_ioc_query_intf_ext_props *target_intf);
 bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);

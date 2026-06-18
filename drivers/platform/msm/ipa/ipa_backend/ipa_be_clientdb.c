@@ -14,6 +14,7 @@
 #include "ipa_be.h"
 #include "ipa_be_clientdb.h"
 #include "ipa_i.h"
+#include <linux/ipa_wdi3.h>
 
 
 #define ETH_IFACE_INDEX_LEN 10
@@ -1227,7 +1228,8 @@ static int ipa_ipv4_header_proc_ctx(
 	char *name,
 	char *proc_ctx_name_out,
 	mac_addr_t mac,
-	int is_ret)
+	int is_ret,
+	struct ipa_sw_producer_cookie *cookie)
 {
 	int handle = 0;
 	int egress_vlan_id = 0, ingress_vlan_id = 0, client_vlan_id = 0;
@@ -1324,6 +1326,19 @@ static int ipa_ipv4_header_proc_ctx(
 	hdr_proc_ctx->generic_params.output_ethhdr_negative_offset,
 	hdr_proc_ctx->type);
 
+	/*
+	 * SW producer cookie is supported only on HW v7.0 or later.
+	 * For older HW fall back to legacy mode with cookie disabled.
+	 */
+	if (cookie && cookie->raw != 0) {
+		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+			hdr_proc_ctx->is_cookie_valid = 1;
+			hdr_proc_ctx->cookie_params = cookie->cookie_hw;
+		} else {
+			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
+		}
+	}
+
 	if (ipa3_add_hdr_proc_ctx(
 			(struct ipa_ioc_add_hdr_proc_ctx *)hdr_proc_ctx_table, true)) {
 			handle = -EFAULT;
@@ -1347,7 +1362,8 @@ static int ipa_ipv6_header_proc_ctx(
 	char *name,
 	char *proc_ctx_name_out,
 	mac_addr_t mac,
-	int is_ret)
+	int is_ret,
+	struct ipa_sw_producer_cookie *cookie)
 {
 	int handle = 0;
 	int egress_vlan_id = 0, ingress_vlan_id = 0, client_vlan_id = 0;
@@ -1357,7 +1373,7 @@ static int ipa_ipv6_header_proc_ctx(
 	int size = 0;
 
 	IPA_BE_DBG("ECMIPA entry ipa_ipv6_header_proc_ctx \n");
-	/* vlan is the last 12 bits of vlan tag*/
+	/* vlan is the last 12 bits of vlan tag */
 	if (v6_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED)
 	{
 		egress_vlan_id = v6_msg.vlan_primary_rule.egress_vlan_tag & 0x3FF;
@@ -1443,6 +1459,19 @@ static int ipa_ipv6_header_proc_ctx(
 	hdr_proc_ctx->generic_params.output_ethhdr_negative_offset,
 	hdr_proc_ctx->type);
 
+	/*
+	 * SW producer cookie is supported only on HW v7.0 or later.
+	 * For older HW fall back to legacy mode with cookie disabled.
+	 */
+	if (cookie && cookie->raw != 0) {
+		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+			hdr_proc_ctx->is_cookie_valid = 1;
+			hdr_proc_ctx->cookie_params = cookie->cookie_hw;
+		} else {
+			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
+		}
+	}
+
 	if (ipa3_add_hdr_proc_ctx(
 			(struct ipa_ioc_add_hdr_proc_ctx *)hdr_proc_ctx_table, true)) {
 			handle = -EFAULT;
@@ -1477,7 +1506,8 @@ static int ipa_vlan_header_proc_ctx(
 	char *name,
 	mac_addr_t mac,
 	uint32_t vlan_tag,
-	char *proc_ctx_name_out)
+	char *proc_ctx_name_out,
+	struct ipa_sw_producer_cookie *cookie)
 {
 	int handle = 0;
 	struct ipa_ioc_add_hdr_proc_ctx *hdr_proc_ctx_table;
@@ -1530,6 +1560,18 @@ static int ipa_vlan_header_proc_ctx(
 	hdr_proc_ctx->type = IPA_HDR_PROC_NONE;
 	hdr_proc_ctx->hdr_hdl = *hdr_hdl;
 
+	/*
+	 * SW producer cookie is supported only on HW v7.0 or later.
+	 * For older HW fall back to legacy mode with cookie disabled.
+	 */
+	if (cookie && cookie->raw != 0) {
+		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+			hdr_proc_ctx->is_cookie_valid = 1;
+			hdr_proc_ctx->cookie_params = cookie->cookie_hw;
+		} else {
+			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
+		}
+	}
 
 	if (ipa3_add_hdr_proc_ctx(
 			(struct ipa_ioc_add_hdr_proc_ctx *)hdr_proc_ctx_table, true)) {
@@ -1838,6 +1880,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 	int proc_ctx_hdl = 0;
 	int rt_hdl = 0;
 	int hdr_hdl = 0;
+	struct ipa_sw_producer_cookie cookie;
 
 	IPA_BE_DBG("ECMIPA entry ipa_ipv4_add_route_rule lan2lan %d is_ret %d\n", lan2lan, is_ret);
 	ipa_type_check_ipa_mac_addr(mac);
@@ -1895,7 +1938,18 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 
 	if (lan2lan)
 	{
-		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name, mac, is_ret);
+		/*
+		 * SW producer cookie is supported only on HW v7.0 or later.
+		 * For older HW fall back to legacy mode with cookie disabled.
+		 */
+		memset(&cookie, 0, sizeof(cookie));
+		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+			ipa3_populate_cookie_vpnum(intf_num, &cookie);
+			IPA_BE_ERR("ipa_ipv4_add_route_rule: intf_num %d vpnum %u\n", intf_num, cookie.wdi6.vp_num);
+		} else {
+			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
+		}
+		proc_ctx_hdl = ipa_ipv4_header_proc_ctx(v4_msg, &hdr_hdl, tx_prop->tx[0].hdr_name, proc_ctx_name, mac, is_ret, &cookie);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V4_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
@@ -1957,14 +2011,66 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 			retval = -EFAULT;
 			goto cleanup;
 		}
-		else if(v4_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED){
-			proc_ctx_hdl = ipa_vlan_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, v4_msg.vlan_primary_rule.egress_vlan_tag, proc_ctx_name);
+
+		/*
+		 * SW producer cookie is supported only on HW v7.0 or later.
+		 * For older HW fall back to legacy mode with cookie disabled.
+		 */
+		memset(&cookie, 0, sizeof(cookie));
+		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+			ipa3_populate_cookie_vpnum(intf_num, &cookie);
+			IPA_BE_ERR("ipa_ipv4_add_route_rule: intf_num %d vpnum %u\n", intf_num, cookie.wdi6.vp_num);
+		} else {
+			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
+		}
+
+		if(v4_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED){
+			proc_ctx_hdl = ipa_vlan_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, v4_msg.vlan_primary_rule.egress_vlan_tag, proc_ctx_name, &cookie);
+			rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
+		}
+		else if (cookie.raw != 0) {
+			/*
+			 * SW producer cookie is present but no VLAN tag.
+			 * Add an IPA_HDR_PROC_NONE HPC directly via the normal
+			 * proc ctx API so the SW_PROD_COOKIE TLV is appended.
+			 */
+			struct ipa_ioc_add_hdr_proc_ctx *hdr_proc_ctx_table;
+			struct ipa_hdr_proc_ctx_add *hdr_proc_ctx;
+			int ctx_size = sizeof(struct ipa_ioc_add_hdr_proc_ctx) +
+				       sizeof(struct ipa_hdr_proc_ctx_add);
+
+			hdr_proc_ctx_table = kzalloc(ctx_size, GFP_KERNEL);
+			if (!hdr_proc_ctx_table) {
+				IPA_BE_ERR("Failed to allocate hdr_proc_ctx_table for v4 cookie\n");
+				retval = -ENOMEM;
+				goto cleanup;
+			}
+
+			hdr_proc_ctx_table->commit = 1;
+			hdr_proc_ctx_table->num_proc_ctxs = 1;
+			hdr_proc_ctx = &hdr_proc_ctx_table->proc_ctx[0];
+
+			hdr_proc_ctx->type = IPA_HDR_PROC_NONE;
+			hdr_proc_ctx->hdr_hdl = hdr_hdl;
+			hdr_proc_ctx->is_cookie_valid = 1;
+			hdr_proc_ctx->cookie_params = cookie.cookie_hw;
+
+			if (ipa3_add_hdr_proc_ctx(hdr_proc_ctx_table, true)) {
+				IPA_BE_ERR("Failed to add IPA_HDR_PROC_NONE proc ctx with cookie (v4)\n");
+				kfree(hdr_proc_ctx_table);
+				retval = -EFAULT;
+				goto cleanup;
+			}
+
+			proc_ctx_hdl = hdr_proc_ctx_table->proc_ctx[0].proc_ctx_hdl;
+			IPA_BE_DBG("Installed IPA_HDR_PROC_NONE proc ctx with cookie (v4): hdl %d\n",
+				   proc_ctx_hdl);
+			kfree(hdr_proc_ctx_table);
 			rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 		}
 		else {
 			rt_rule_entry->rule.hdr_hdl = hdr_hdl;
 		}
-
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 
 		if (is_ret) {
@@ -2015,6 +2121,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 	int proc_ctx_hdl = 0;
 	int rt_hdl = 0;
 	int hdr_hdl = 0;
+	struct ipa_sw_producer_cookie cookie;
 
 	IPA_BE_DBG("ECMIPA entry ipa_ipv6_add_route_rule lan2lan %d is_ret %d\n", lan2lan, is_ret);
 	ipa_type_check_ipa_mac_addr(mac);
@@ -2071,7 +2178,18 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 
 	if (lan2lan)
 	{
-		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[1].hdr_name, proc_ctx_name, mac, is_ret);
+		/*
+		 * SW producer cookie is supported only on HW v7.0 or later.
+		 * For older HW fall back to legacy mode with cookie disabled.
+		 */
+		memset(&cookie, 0, sizeof(cookie));
+		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+			ipa3_populate_cookie_vpnum(intf_num, &cookie);
+			IPA_BE_ERR("ipa_ipv6_add_route_rule: intf_num %d vpnum %u\n", intf_num, cookie.wdi6.vp_num);
+		} else {
+			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
+		}
+		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[1].hdr_name, proc_ctx_name, mac, is_ret, &cookie);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 		strscpy(rt_rule->rt_tbl_name, V6_LAN_TO_LAN_ROUTE_TABLE_NAME, sizeof(rt_rule->rt_tbl_name));
@@ -2141,14 +2259,65 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 			goto cleanup;
 		}
 
+		/*
+		 * SW producer cookie is supported only on HW v7.0 or later.
+		 * For older HW fall back to legacy mode with cookie disabled.
+		 */
+		memset(&cookie, 0, sizeof(cookie));
+		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+			ipa3_populate_cookie_vpnum(intf_num, &cookie);
+			IPA_BE_ERR("ipa_ipv6_add_route_rule: intf_num %d vpnum %u\n", intf_num, cookie.wdi6.vp_num);
+		} else {
+			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
+		}
+
 		if(v6_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED){
-			proc_ctx_hdl = ipa_vlan_header_proc_ctx(&hdr_hdl, tx_prop->tx[1].hdr_name, mac, v6_msg.vlan_primary_rule.egress_vlan_tag, proc_ctx_name);
+			proc_ctx_hdl = ipa_vlan_header_proc_ctx(&hdr_hdl, tx_prop->tx[1].hdr_name, mac, v6_msg.vlan_primary_rule.egress_vlan_tag, proc_ctx_name, &cookie);
+			rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
+		}
+		else if (cookie.raw != 0) {
+			/*
+			 * SW producer cookie is present but no VLAN tag.
+			 * Add an IPA_HDR_PROC_NONE HPC directly via the normal
+			 * proc ctx API so the SW_PROD_COOKIE TLV is appended.
+			 */
+			struct ipa_ioc_add_hdr_proc_ctx *hdr_proc_ctx_table;
+			struct ipa_hdr_proc_ctx_add *hdr_proc_ctx;
+			int ctx_size = sizeof(struct ipa_ioc_add_hdr_proc_ctx) +
+				       sizeof(struct ipa_hdr_proc_ctx_add);
+
+			hdr_proc_ctx_table = kzalloc(ctx_size, GFP_KERNEL);
+			if (!hdr_proc_ctx_table) {
+				IPA_BE_ERR("Failed to allocate hdr_proc_ctx_table for v6 cookie\n");
+				retval = -ENOMEM;
+				goto cleanup;
+			}
+
+			hdr_proc_ctx_table->commit = 1;
+			hdr_proc_ctx_table->num_proc_ctxs = 1;
+			hdr_proc_ctx = &hdr_proc_ctx_table->proc_ctx[0];
+
+			hdr_proc_ctx->type = IPA_HDR_PROC_NONE;
+			hdr_proc_ctx->hdr_hdl = hdr_hdl;
+			hdr_proc_ctx->is_cookie_valid = 1;
+			hdr_proc_ctx->cookie_params = cookie.cookie_hw;
+
+			if (ipa3_add_hdr_proc_ctx(hdr_proc_ctx_table, true)) {
+				IPA_BE_ERR("Failed to add IPA_HDR_PROC_NONE proc ctx with cookie (v6)\n");
+				kfree(hdr_proc_ctx_table);
+				retval = -EFAULT;
+				goto cleanup;
+			}
+
+			proc_ctx_hdl = hdr_proc_ctx_table->proc_ctx[0].proc_ctx_hdl;
+			IPA_BE_DBG("Installed IPA_HDR_PROC_NONE proc ctx with cookie (v6): hdl %d\n",
+				   proc_ctx_hdl);
+			kfree(hdr_proc_ctx_table);
 			rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 		}
 		else {
 			rt_rule_entry->rule.hdr_hdl = hdr_hdl;
 		}
-
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 		for (int i = 0; i < 4;i++)
 		{

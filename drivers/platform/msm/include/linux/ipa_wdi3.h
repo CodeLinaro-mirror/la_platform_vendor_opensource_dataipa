@@ -47,6 +47,90 @@ enum ipa_wdi_version {
 #define IPA_WDI_RX_TLV_SIZE 96
 
 /**
+ * struct ipa_wdi6_sw_producer_cookie - wdi6 sw producer cookie
+ * @is_sawf_flow: Constant for a sawf flow (is_sawf_flow=1).
+ * 		Maps to wifi_qos_flag
+ * @stream_id: Stream ID for the QoS flow maps to HASH_VALUE[7:0].
+ * @flow_override: If 0 then select msdu queue 0; if 1 then select msdu queue 1.
+ *		Maps to bit 0 of the wifi_qos descriptor field when wifi_qos_flag=1.
+ * @who_classify_info_sel: Represent which queue to choose.
+ *		0 -> default queue, 1 -> SAWF queue.
+ *		Maps to bits [5:4] of the wifi_qos descriptor field when wifi_qos_flag=1.
+ * @rsrvd_15_12: reserved
+ * @vp_num: Corresponds to unique identifier for WLAN interfaces.
+ * @hlos_tid_overwrite: hlos tid overwrite. Maps to bit 7 of the wifi_qos
+ *		descriptor field when wifi_qos_flag=0. If 1, use hlos_tid bits for TID.
+ * @hlos_tid: Override the tid value to be used for the flow. In general WLAN HW
+ *		can take the tid value from DSCP <-> tid mapping table,
+ *		PCP <-> tid mapping table, or HLOS tid override value in descriptor.
+ *		Maps to bits [3:1] of the wifi_qos descriptor field (both modes).
+ * @rsrvd_31_28: reserved
+ * @rsrvd_63_32: reserved
+ *
+ * SAWF Related Fields:
+ * There are 8 traffic identifiers (tid), and each identifier has 4 msdu queues.
+ * The following fields are constant for a sawf flow (is_sawf_flow=1):
+ * - TCL_METADATA_TYPE_SET = 2
+ * - TX_FLOW_METADATA_TID_OVERRIDE_SET = 1
+ * - flow_override_enable = 1
+ *
+ * MSDU Queue is selected using the below fields:
+ * - flow_override_enable = 1
+ * - who_classify_info_sel = 1
+ * - flow_override
+ *
+ * Descriptor Field Mapping (wifi_qos_flag and wifi_qos):
+ *
+ * wifi_qos_flag (1-bit):
+ *   Master toggle that changes how the hardware interprets the 8-bit wifi_qos field.
+ *   - 0: Hardware only looks at bit 7 of wifi_qos (HLOS TID override mode).
+ *   - 1: Hardware interprets wifi_qos as a 6-bit flow pointer override (SAWF mode).
+ *        Forces the packet into a specific flow queue and selects classification logic.
+ *
+ * wifi_qos (8-bit) field mapping:
+ *
+ *   Bit   | wifi_qos_flag=0                          | wifi_qos_flag=1
+ *   ------+------------------------------------------+------------------------------------------
+ *   [7]   | hlos_tid_overwrite: if 1, use bits [3:1] | Part of flow override logic (Waikiki)
+ *         | for TID                                  |
+ *   [6]   | Ignored                                  | Ignored
+ *   [5:4] | Not used for selection                   | who_classify_info_sel: selects classifier
+ *   [3:1] | hlos_tid: 3-bit TID value (if bit 7 set) | hlos_tid: 3-bit TID value
+ *   [0]   | Not used                                 | flow_override: if 1, overrides std flow
+ */
+struct ipa_wdi6_sw_producer_cookie {
+	u64 is_sawf_flow : 1;
+	u64 stream_id : 8;
+	u64 flow_override : 1;
+	u64 who_classify_info_sel : 2;
+	u64 rsrvd_15_12 : 4;
+	u64 vp_num : 8;
+	u64 hlos_tid_overwrite : 1;
+	u64 hlos_tid : 3;
+	u64 rsrvd_31_28 : 4;
+	u64 rsrvd_63_32 : 32;
+};
+
+/**
+ * struct ipa_sw_producer_cookie - generic SW producer cookie
+ *
+ * A protocol-agnostic wrapper around the 64-bit SW producer cookie.
+ * Protocol-specific layouts are exposed as named union members so
+ * callers can access fields by name while the underlying u64 value
+ * can be read via the @raw member.
+ *
+ * @wdi6: WDI6 bitfield view of the cookie
+ * @raw:  raw 64-bit value
+ */
+struct ipa_sw_producer_cookie {
+	union {
+		struct ipa_wdi6_sw_producer_cookie wdi6;
+		u64 raw;
+		struct ipa_producer_cookie_procparams cookie_hw;
+	};
+};
+
+/**
  * struct ipa_wdi6_rx_skb_cb - WDI6 Rx skb->cb layout
  *
  * Describes the fields written into skb->cb for WDI6 Rx packets.

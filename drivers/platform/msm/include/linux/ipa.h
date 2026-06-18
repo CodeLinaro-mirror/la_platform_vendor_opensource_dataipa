@@ -745,6 +745,8 @@ struct ipa_rx_intf {
  * @excp_pipe:	exception packets should be routed to this pipe
  * @num_props:	number of ext properties
  * @prop:	the ext properties array
+ * @vpnum_valid:	is vpnum field valid?
+ * @vpnum:	virtual port number tied to the interface
  */
 struct ipa_ext_intf {
 	bool excp_pipe_valid;
