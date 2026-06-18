@@ -1414,6 +1414,18 @@ static ssize_t proc_ctx_show(struct device *dev, struct device_attribute *attr, 
 				entry->generic_params_v2.output_dscp_pcp_update,
 				entry->generic_params_v2.input_ethhdr_valid);
 		}
+		if (entry->is_cookie_valid)
+			nbytes += scnprintf(dbg_buff + nbytes,
+				IPA_MAX_MSG_LEN - nbytes,
+				"sw_prod_cookie_valid:1\n"
+				"sw_cookie_low:0x%x\n"
+				"sw_cookie_high:0x%x\n"
+				"dscp:%u\n"
+				"dscp_valid:%u\n",
+				entry->cookie_params.sw_cookie_low,
+				entry->cookie_params.sw_cookie_high,
+				entry->cookie_params.dscp,
+				entry->cookie_params.dscp_valid);
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"hdr[words]:%u\n",
@@ -4852,4 +4864,3 @@ const struct attribute_group ipa_modem_attribute_group = {
 	.name		= "modem",
 	.attrs		= ipa_modem_attrs,
 };
-

@@ -23,6 +23,7 @@ struct ipa3_intf {
 	struct ipa3_flt_entry *flt_list;
 	int intf_idx;
 	u16 vpnum;
+	bool vpnum_valid;
 };
 
 struct ipa3_push_msg {
@@ -156,10 +157,13 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 		intf->excp_pipe = IPA_CLIENT_APPS_LAN_CONS;
 
 	intf->intf_idx = intf_idx;
-	if (ext && ext->vpnum_valid)
+	if (ext && ext->vpnum_valid) {
 		intf->vpnum = ext->vpnum;
-	else
+		intf->vpnum_valid = true;
+	} else {
 		intf->vpnum = 0;
+		intf->vpnum_valid = false;
+	}
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_add_tail(&intf->link, &ipa3_ctx->intf_list);
@@ -1370,6 +1374,47 @@ int ipa3_update_intf_idx(const char *name, int intf_idx)
 	return ret;
 }
 
+/**
+ * ipa3_populate_cookie_vpnum() - get vpnum from interface index
+ * @intf_idx: [in] interface index
+ * @cookie:   [out] SW producer cookie to populate with vpnum (wdi6 only)
+ *
+ * Behaviour per interface type:
+ *  - WDI6 (vpnum_valid == true):  sets cookie->wdi6.vp_num = vpnum
+ *  - Other WDI protocol (vpnum_valid == false):
+ *      cookie is left untouched (protocol has its own cookie layout)
+ *  - Non-WDI interface:
+ *      cookie is left untouched
+ *  - Interface not found: cookie is left untouched
+ */
+void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie)
+{
+	struct ipa3_intf *entry;
+
+	if (!cookie)
+		return;
+
+	/* Validate interface index is non-negative */
+	if (intf_idx < 0) {
+		IPAERR("Invalid interface index %d\n", intf_idx);
+		return;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (entry->intf_idx == intf_idx) {
+			if (entry->vpnum_valid) {
+				/* WDI6: populate the vp_num field */
+				cookie->wdi6.vp_num = entry->vpnum;
+				IPADBG("vp_num %d\n", entry->vpnum);
+			} else {
+				IPADBG("Interface index %d found but no vp num\n", intf_idx);
+			}
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+}
 /**
  * ipa3_add_filter_rules_entry - Add filter entry to interface filter list
  * @intf_idx:   Network interface index for adding the filter entry

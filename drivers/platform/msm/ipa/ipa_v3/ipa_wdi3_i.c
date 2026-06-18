@@ -1146,7 +1146,8 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		goto fail;
 	}
 
-	if (ipa_get_wdi_version() == IPA_WDI_4) {
+	if (ipa_get_wdi_version() == IPA_WDI_4 ||
+	    ipa_get_wdi_version() == IPA_WDI_6) {
 		if (gsi_query_msi_addr(ep_rx->gsi_chan_hdl,
 			&gsi_db_addr_pa)) {
 			IPAERR("failed to query msi rx db addr\n");
@@ -1222,7 +1223,8 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 			goto fail;
 		}
 
-		if (ipa_get_wdi_version() == IPA_WDI_4) {
+		if (ipa_get_wdi_version() == IPA_WDI_4 ||
+		    ipa_get_wdi_version() == IPA_WDI_6) {
 			if (gsi_query_msi_addr(ep_rx1->gsi_chan_hdl,
 				&gsi_db_addr_pa)) {
 				IPAERR("failed to query msi rx1 db addr\n");
@@ -1327,7 +1329,8 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		goto fail;
 	}
 
-	if (ipa_get_wdi_version() == IPA_WDI_4) {
+	if (ipa_get_wdi_version() == IPA_WDI_4 ||
+	    ipa_get_wdi_version() == IPA_WDI_6) {
 		if (gsi_query_msi_addr(ep_tx->gsi_chan_hdl,
 			&gsi_db_addr_pa)) {
 			IPAERR("failed to query msi tx db addr\n");
@@ -1440,7 +1443,8 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 			goto fail;
 		}
 
-		if (ipa_get_wdi_version() == IPA_WDI_4) {
+		if (ipa_get_wdi_version() == IPA_WDI_4 ||
+		    ipa_get_wdi_version() == IPA_WDI_6) {
 			if (gsi_query_msi_addr(ep_tx1->gsi_chan_hdl,
 				&gsi_db_addr_pa)) {
 				IPAERR("failed to query msi tx1 db addr\n");

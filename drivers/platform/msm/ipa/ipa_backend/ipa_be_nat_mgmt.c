@@ -1010,7 +1010,31 @@ int ipv6ct_add_entry(struct ipa_ipv6_rule_create_msg *v6_msg,
         return ret;
     }
 
-    ret = ipa_ct_add_ipv6_rule(NatBase->ct_table_hdl, &ipa_rule, rule_handle);
+    if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+        ipa_ipv6ct_rule_v2 ipa_rule_v2;
+        struct ipa_sw_producer_cookie cookie;
+
+        ret = copy_from_ipa_ipv6ct_rule_v1_to_v2(&ipa_rule, &ipa_rule_v2);
+        if (ret) {
+            IPA_BE_ERR("Failed to copy IPv6CT rule v1 to v2: %d\n", ret);
+            return ret;
+        }
+
+        /* Install SW producer cookie if src or dst interface is wlan */
+        memset(&cookie, 0, sizeof(cookie));
+        ipa3_populate_cookie_vpnum(v6_msg->conn_rule.flow_interface_num, &cookie);
+        if (!cookie.raw)
+            ipa3_populate_cookie_vpnum(v6_msg->conn_rule.return_interface_num, &cookie);
+        ipa_rule_v2.sw_prod_classification_cookie = cookie.raw;
+        IPA_BE_DBG("IPv6CT sw_prod_cookie=0x%llx flow_intf=%d ret_intf=%d\n",
+               ipa_rule_v2.sw_prod_classification_cookie,
+               v6_msg->conn_rule.flow_interface_num,
+               v6_msg->conn_rule.return_interface_num);
+
+        ret = ipa_ct_add_ipv6_rule_v2(NatBase->ct_table_hdl, &ipa_rule_v2, rule_handle);
+    } else {
+        ret = ipa_ct_add_ipv6_rule(NatBase->ct_table_hdl, &ipa_rule, rule_handle);
+    }
     if (ret) {
         IPA_BE_DBG("Failed to add IPv6 CT rule to IPA: %d\n", ret);
         return ret;
@@ -1512,6 +1536,40 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 				}
 				nat_app->cache[cnt].enabled = false;
 				nat_app->cache[cnt].rule_hdl = 0;
+			} else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				ipa_nat_ipv4_rule_v2 nat_rule_v2;
+				struct ipa_sw_producer_cookie cookie;
+
+				if (copy_from_ipa_nat_ipv4_rule_v1_to_v2(&nat_rule, &nat_rule_v2)) {
+					IPA_BE_ERR("Failed to copy NAT rule v1 to v2\n");
+					mutex_unlock(&nat_app->cache_lock);
+					kfree(rule);
+					return -1;
+				}
+
+				/* Install SW producer cookie if src or dst interface is wlan */
+				memset(&cookie, 0, sizeof(cookie));
+				ipa3_populate_cookie_vpnum(
+					v4_msg.conn_rule.flow_interface_num, &cookie);
+				if (!cookie.raw)
+					ipa3_populate_cookie_vpnum(
+						v4_msg.conn_rule.return_interface_num, &cookie);
+				nat_rule_v2.sw_prod_classification_cookie = cookie.raw;
+				IPA_BE_DBG("NAT sw_prod_cookie=0x%llx flow_intf=%d ret_intf=%d\n",
+					   nat_rule_v2.sw_prod_classification_cookie,
+					   v4_msg.conn_rule.flow_interface_num,
+					   v4_msg.conn_rule.return_interface_num);
+
+				if (ipa_nat_add_ipv4_rule_v2(nat_app->nat_table_hdl, &nat_rule_v2,
+							     &nat_app->cache[cnt].rule_hdl) < 0) {
+					IPA_BE_ERR("unable to add the rule\n");
+					mutex_unlock(&nat_app->cache_lock);
+					kfree(rule);
+					return -1;
+				}
+				IPA_BE_DBG("cache entry %d rule handle %d\n", cnt,
+					   nat_app->cache[cnt].rule_hdl);
+				nat_app->cache[cnt].enabled = true;
 			} else {
 				/* Add rule to hardware */
 				if (ipa_ver >= IPA_HW_v7_0) {

@@ -102,7 +102,7 @@ static int table_entry_head_insert_v2(void* entry, void* user_data, uint16_t* dm
 
 static int table_entry_tail_insert_v2(void* entry, void* user_data);
 
-static int copy_from_ipa_ipv6ct_rule_v1_to_v2(
+int copy_from_ipa_ipv6ct_rule_v1_to_v2(
     ipa_ipv6ct_rule* ipv6ct_rule_v1,
     ipa_ipv6ct_rule_v2* ipv6ct_rule_v2);
 
@@ -1581,7 +1581,7 @@ static int table_entry_tail_insert_v2(void* entry, void* user_data)
 	return 0;
 }
 
-static int copy_from_ipa_ipv6ct_rule_v1_to_v2(
+int copy_from_ipa_ipv6ct_rule_v1_to_v2(
     ipa_ipv6ct_rule* ipv6ct_rule_v1,
     ipa_ipv6ct_rule_v2* ipv6ct_rule_v2)
 {

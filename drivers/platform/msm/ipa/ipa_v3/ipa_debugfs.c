@@ -1586,13 +1586,23 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 					entry->generic_params_v2.output_ethhdr_negative_offset,
 					entry->generic_params_v2.output_dscp_pcp_update,
 					entry->generic_params_v2.input_ethhdr_valid);
-			} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
-				pr_err("input_valid:%u\n"
-					"input_dscp_val:%u\n",
-					entry->pdn_dscp_params.valid,
-					entry->pdn_dscp_params.dscp_val);
-			}
-			if (entry->hdr) {
+		} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
+			pr_err("input_valid:%u\n"
+				"input_dscp_val:%u\n",
+				entry->pdn_dscp_params.valid,
+				entry->pdn_dscp_params.dscp_val);
+		}
+		if (entry->is_cookie_valid)
+			pr_err("sw_prod_cookie_valid:1\n"
+				"sw_cookie_low:0x%x\n"
+				"sw_cookie_high:0x%x\n"
+				"dscp:%u\n"
+				"dscp_valid:%u\n",
+				entry->cookie_params.sw_cookie_low,
+				entry->cookie_params.sw_cookie_high,
+				entry->cookie_params.dscp,
+				entry->cookie_params.dscp_valid);
+		if (entry->hdr) {
 				if (entry->hdr->is_hdr_proc_ctx) {
 					pr_err("hdr_phys_base:0x%pa\n",
 						&entry->hdr->phys_base);

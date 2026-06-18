@@ -394,3 +394,4 @@ int ipa_ct_free_counter_v6(
 #endif /* CONFIG_ECM_CONVERGENCE */
 
 #endif
+int copy_from_ipa_ipv6ct_rule_v1_to_v2(ipa_ipv6ct_rule* ipv6ct_rule_v1, ipa_ipv6ct_rule_v2* ipv6ct_rule_v2);
