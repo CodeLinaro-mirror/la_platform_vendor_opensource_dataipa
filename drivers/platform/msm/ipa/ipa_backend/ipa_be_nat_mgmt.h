@@ -79,7 +79,8 @@ int ipa_be_remove_pdn(uint32_t pub_ip);
 // int DeleteTable(uint32_t);
 // int MoveTable(bool to_ddr);
 
-int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan, bool ct_enabled);
+int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
+		     bool ct_enabled, bool ct_canonical_swap);
 int ipa_be_delete_nat_entry(const nat_table_entry *rule);
 
 /* IPv6 Connection Tracking functions */

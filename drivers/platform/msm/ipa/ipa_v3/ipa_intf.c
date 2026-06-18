@@ -1526,3 +1526,31 @@ unlock_and_exit:
 	IPADBG("Delete Entry Exit\n");
 	return flt_hdl;
 }
+
+/**
+ * ipa3_get_ep_for_intf() - atomically look up the RX endpoint for an interface
+ * @intf_idx: interface index (intf_idx field of struct ipa3_intf)
+ *
+ * Holds ipa3_ctx->lock for the full duration to avoid a TOCTOU race between
+ * the existence check and the rx-props read.
+ *
+ * Returns: IPA endpoint index on success, or -1 if the interface is not found
+ * or has no RX properties.
+ */
+int ipa3_get_ep_for_intf(int intf_idx)
+{
+	struct ipa3_intf *entry;
+	int ep = -1;
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (entry->intf_idx == intf_idx) {
+			if (entry->num_rx_props > 0)
+				ep = ipa_get_ep_mapping(entry->rx[0].src_pipe);
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	return ep;
+}

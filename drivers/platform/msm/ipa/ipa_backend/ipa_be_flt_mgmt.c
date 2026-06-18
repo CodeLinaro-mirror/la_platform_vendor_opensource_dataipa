@@ -296,6 +296,8 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		rx_prop->rx[idx].hdr_l2_type);
 
 	if (lan2lan) {
+		enum ipa_hw_type ipa_ver = ipa_get_hw_type();
+
 		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
 		if (!pFilteringTable) {
 			IPA_BE_ERR("Failed to allocate ipa_ioc_add_flt_rule_v2 memory...\n");
@@ -327,12 +329,31 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		flt_rule_entry.rule.retain_hdr = 0;
 		flt_rule_entry.rule.to_uc = 0;
 
-		/* Set filter action based on IPA version and direction */
-		enum ipa_hw_type ipa_ver = ipa_get_hw_type();
+		/* Set filter action based on IPA version and EP direction.
+		 * V4 CT lookup key is target_ip (larger EP). MAC tiebreaker when EPs equal.
+		 * DST_NAT when packet dst = target_ip; SRC_NAT when packet src = target_ip.
+		 */
 		if (ipa_ver >= IPA_HW_v7_0) {
-			/* IPA v7.0+: Use NAT/CT table lookup */
-			flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
-			IPA_BE_DBG("LAN2LAN (v7.0+): DST_NAT action\n");
+			int ep_cmp = ipa_be_flow_canonical_cmp(
+				v4_msg.conn_rule.flow_interface_num,
+				v4_msg.conn_rule.return_interface_num,
+				v4_msg.conn_rule.flow_mac,
+				v4_msg.conn_rule.return_mac);
+
+			if (ep_cmp < 0) {
+				retval = -EINVAL;
+				goto end;
+			}
+
+			if (is_ret)
+				flt_rule_entry.rule.action = ep_cmp ?
+					IPA_PASS_TO_DST_NAT : IPA_PASS_TO_SRC_NAT;
+			else
+				flt_rule_entry.rule.action = ep_cmp ?
+					IPA_PASS_TO_SRC_NAT : IPA_PASS_TO_DST_NAT;
+			IPA_BE_DBG("LAN2LAN (v7.0+): %s action (is_ret=%d)\n",
+				   flt_rule_entry.rule.action == IPA_PASS_TO_DST_NAT ?
+				   "DST_NAT" : "SRC_NAT", is_ret);
 		} else {
 			/* IPA < v7.0: Use routing (backward compatible) */
 			flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
@@ -2154,6 +2175,8 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 		rx_prop->rx[idx].hdr_l2_type);
 
 	if (lan2lan) {
+		enum ipa_hw_type ipa_ver = ipa_get_hw_type();
+
 		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
 		if (!pFilteringTable) {
 			IPA_BE_ERR("Failed to allocate ipa_ioc_add_flt_rule_v2 memory...\n");
@@ -2184,7 +2207,38 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 
 		flt_rule_entry.rule.retain_hdr = 0;
 		flt_rule_entry.rule.to_uc = 0;
-		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+
+		/* Set filter action based on IPA version and EP direction.
+		 * V6 CT lookup key is src_ip (canonical/smaller EP). MAC tiebreaker when EPs equal.
+		 * SRC_NAT when packet src = canonical src_ip; DST_NAT when packet dst = canonical src_ip.
+		 */
+		if (ipa_ver >= IPA_HW_v7_0) {
+			int ep_cmp = ipa_be_flow_canonical_cmp(
+				v6_msg.conn_rule.flow_interface_num,
+				v6_msg.conn_rule.return_interface_num,
+				v6_msg.conn_rule.flow_mac,
+				v6_msg.conn_rule.return_mac);
+
+			if (ep_cmp < 0) {
+				retval = -EINVAL;
+				goto end;
+			}
+
+			if (is_ret)
+				flt_rule_entry.rule.action = ep_cmp ?
+					IPA_PASS_TO_SRC_NAT : IPA_PASS_TO_DST_NAT;
+			else
+				flt_rule_entry.rule.action = ep_cmp ?
+					IPA_PASS_TO_DST_NAT : IPA_PASS_TO_SRC_NAT;
+			IPA_BE_DBG("LAN2LAN v6 (v7.0+): %s action (is_ret=%d)\n",
+				   flt_rule_entry.rule.action == IPA_PASS_TO_DST_NAT ?
+				   "DST_NAT" : "SRC_NAT", is_ret);
+		} else {
+			/* IPA < v7.0: Use routing (backward compatible) */
+			flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+			IPA_BE_DBG("LAN2LAN v6 (< v7.0): ROUTING action (legacy)\n");
+		}
+
 		flt_rule_entry.rule.eq_attrib_type = 0;
 
 		rt_tbl.ip = IPA_IP_v6;

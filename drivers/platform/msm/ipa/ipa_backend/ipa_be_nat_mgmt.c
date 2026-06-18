@@ -896,51 +896,27 @@ int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct
 		}
 	}
 
-	ret = ipa_be_add_entry(v4_msg, isVlan, ct_enabled);
+	/* For CT, determine canonical direction (smaller EP as private side)
+	 * and pass a swap flag to ipa_be_add_entry — no struct copy needed.
+	 */
+	if (ipa_get_hw_type() >= IPA_HW_v7_0 && ct_enabled) {
+		int ep_cmp = ipa_be_flow_canonical_cmp(v4_msg.conn_rule.flow_interface_num,
+						v4_msg.conn_rule.return_interface_num,
+						v4_msg.conn_rule.flow_mac,
+						v4_msg.conn_rule.return_mac);
+		if (ep_cmp < 0) {
+			ret = -EINVAL;
+			goto cleanup;
+		}
+		/* ep_cmp==0: return is canonical, swap private/target in ipa_be_add_entry */
+		ret = ipa_be_add_entry(v4_msg, isVlan, ct_enabled, ep_cmp == 0);
+	} else {
+		ret = ipa_be_add_entry(v4_msg, isVlan, ct_enabled, false);
+	}
 	if (ret)
 	{
 		IPA_BE_ERR("failed adding nat entry\n");
 		goto cleanup;
-	}
-
-	/*
-	 * Add the reverse-direction entry (rule2): swap private/target IPs and
-	 * ports from rule1. This is the second single-direction entry that,
-	 * together with rule1, forms a complete bidirectional CT pair.
-	 *   rule2.private_ip   = rule1.target_ip,   rule2.target_ip    = rule1.private_ip
-	 *   rule2.private_port = rule1.target_port,  rule2.target_port  = rule1.private_port
-	 *   rule2.public_port  = rule1.target_port
-	 */
-	if (ipa_get_hw_type() >= IPA_HW_v7_0 && ct_enabled) {
-		struct ipa_ipv4_rule_create_msg v4_msg2;
-		nat_table_entry r1;
-
-		memset(&r1, 0, sizeof(r1));
-		ipa_be_build_nat_rule_attrs(v4_msg, &r1);
-
-		/* Clone v4_msg and override fields to force the uplink path.
-		 * return_ip_xlate = 0 prevents IPPT match.
-		 */
-		memcpy(&v4_msg2, &v4_msg, sizeof(v4_msg2));
-		v4_msg2.tuple.flow_ip              = htonl(r1.target_ip);
-		v4_msg2.tuple.return_ip            = htonl(r1.private_ip);
-		v4_msg2.conn_rule.flow_ip_xlate    = htonl(IPA_DUMMY_PDN_PUB_IP);
-		v4_msg2.conn_rule.return_ip_xlate  = 0; /* prevent IPPT match */
-		v4_msg2.tuple.flow_ident           = htons(r1.target_port);
-		v4_msg2.tuple.return_ident         = htons(r1.private_port);
-		v4_msg2.conn_rule.flow_ident_xlate = htons(r1.target_port);
-
-		IPA_BE_DBG("Adding rule2: private=%pI4h:%u target=%pI4h:%u public_port=%u\n",
-			   &r1.target_ip, (unsigned int)r1.target_port,
-			   &r1.private_ip, (unsigned int)r1.private_port,
-			   (unsigned int)r1.target_port);
-
-		if (ipa_be_add_entry(v4_msg2, isVlan, ct_enabled)) {
-			IPA_BE_ERR("failed adding rule2 nat entry\n");
-			ret = -EFAULT;
-			if (ipa_be_delete_nat_entry(&r1))
-				IPA_BE_ERR("failed to rollback rule1 nat entry\n");
-		}
 	}
 
 cleanup:
@@ -1051,13 +1027,14 @@ int ipv6ct_add_entry(struct ipa_ipv6_rule_create_msg *v6_msg,
 EXPORT_SYMBOL(ipv6ct_add_entry);
 
 /**
- * ipv6ct_add_entry_v2() - Add a single-direction IPv6 CT entry (IPA v7.0+)
+ * ipv6ct_add_entry_v2() - Add a bidirectional IPv6 CT entry (IPA v7.0+)
  * @v6_msg:       IPv6 rule create message
  * @rule_handle:  Output handle for the added rule
- * @swap_src_dest: When true, swap src/dest for the reverse direction entry
+ * @swap_src_dest: When false, use flow_ip as src (flow is canonical private side);
+ *                 when true, swap src/dest so return_ip becomes src
  *
- * Uses IPA_IPV6CT_DIRECTION_ALLOW_IN so only inbound traffic is permitted
- * through this entry (equivalent to IPv4 in_allowed=true, out_allowed=false).
+ * Uses IPA_IPV6CT_DIRECTION_ALLOW_ALL so the single canonical entry
+ * covers both inbound and outbound traffic for the LAN2LAN pair.
  */
 static int ipv6ct_add_entry_v2(struct ipa_ipv6_rule_create_msg *v6_msg,
 			       uint32_t *rule_handle,
@@ -1085,8 +1062,8 @@ static int ipv6ct_add_entry_v2(struct ipa_ipv6_rule_create_msg *v6_msg,
 
     memset(&ipa_rule_v2, 0, sizeof(ipa_rule_v2));
 
-    if (swap_src_dest) {
-        /* Entry 1: flow_ip=src, return_ip=dest */
+    if (!swap_src_dest) {
+        /* flow_ip as src: flow is canonical private side */
         ipa_rule_v2.src_ipv6_msb = ((__u64)ntohl(tuple->flow_ip[0]) << 32) |
                                     ntohl(tuple->flow_ip[1]);
         ipa_rule_v2.src_ipv6_lsb = ((__u64)ntohl(tuple->flow_ip[2]) << 32) |
@@ -1098,7 +1075,7 @@ static int ipv6ct_add_entry_v2(struct ipa_ipv6_rule_create_msg *v6_msg,
         ipa_rule_v2.src_port  = ntohs(tuple->flow_ident);
         ipa_rule_v2.dest_port = ntohs(tuple->return_ident);
     } else {
-        /* Entry 2: swap src/dest for reverse direction */
+        /* return_ip as src: return is canonical private side */
         ipa_rule_v2.src_ipv6_msb = ((__u64)ntohl(tuple->return_ip[0]) << 32) |
                                     ntohl(tuple->return_ip[1]);
         ipa_rule_v2.src_ipv6_lsb = ((__u64)ntohl(tuple->return_ip[2]) << 32) |
@@ -1112,7 +1089,7 @@ static int ipv6ct_add_entry_v2(struct ipa_ipv6_rule_create_msg *v6_msg,
     }
 
     ipa_rule_v2.protocol            = tuple->protocol;
-    ipa_rule_v2.direction_settings  = IPA_IPV6CT_DIRECTION_ALLOW_IN;
+    ipa_rule_v2.direction_settings  = IPA_IPV6CT_DIRECTION_ALLOW_ALL;
     ipa_rule_v2.ucp                 = false;
     ipa_rule_v2.uc_activation_index = 0;
     ipa_rule_v2.s                   = is_system_memory;
@@ -1219,22 +1196,25 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 {
 	uint8_t mux_id = 0;
 	int ret = 0;
-	IPA_BE_DBG("Entry ipa_be_add_v6_ct_entry\n");
-	uint32_t v6_prefix[2];  /* IPv6 prefix is 64 bits = 2 x 32-bit words */
+	uint32_t v6_prefix[2];
 	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
 	struct ipa_ioc_query_intf pdn_intf;
 	uint32_t rule_hdl = 0;
-	uint32_t rule_hdl_fwd = 0, rule_hdl_rev = 0;
+	uint32_t rule_hdl_v2 = 0;
 	struct ipa_ipv6_5tuple *tuple = &v6_msg.tuple;
-	uint64_t src_ipv6_msb;
-	uint64_t src_ipv6_lsb;
-	uint64_t dest_ipv6_msb;
-	uint64_t dest_ipv6_lsb;
-	uint16_t src_port;
-	uint16_t dest_port;
+	uint64_t src_ipv6_msb, src_ipv6_lsb;
+	uint64_t dest_ipv6_msb, dest_ipv6_lsb;
+	uint16_t src_port, dest_port;
+	/* Canonical (smaller-EP as src) key, used for dup check, add, and cleanup. */
+	int      ep_cmp = 0;
+	uint64_t can_src_msb = 0, can_src_lsb = 0;
+	uint64_t can_dst_msb = 0, can_dst_lsb = 0;
+	uint16_t can_src_port = 0, can_dst_port = 0;
 	int cache_idx;
 	int existing_idx;
 	uint16_t all_pkts_counter = 0, non_frag_counter = 0;
+
+	IPA_BE_DBG("Entry ipa_be_add_v6_ct_entry\n");
 
 	/* ext Props */
 	memset(&pdn_intf, 0, sizeof(pdn_intf));
@@ -1297,7 +1277,7 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 		goto cleanup;
 	}
 
-	/* Check for duplicate IPv6 CT entry before adding */
+	/* Compute raw IPv6 64-bit tuples from network byte order. */
 	src_ipv6_msb = ((__u64)ntohl(tuple->flow_ip[0]) << 32) | ntohl(tuple->flow_ip[1]);
 	src_ipv6_lsb = ((__u64)ntohl(tuple->flow_ip[2]) << 32) | ntohl(tuple->flow_ip[3]);
 	dest_ipv6_msb = ((__u64)ntohl(tuple->return_ip[0]) << 32) | ntohl(tuple->return_ip[1]);
@@ -1305,89 +1285,64 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 	src_port = ntohs(tuple->flow_ident);
 	dest_port = ntohs(tuple->return_ident);
 
-	existing_idx = find_ipv6_ct_entry(src_ipv6_msb, src_ipv6_lsb,
-					  dest_ipv6_msb, dest_ipv6_lsb,
-					  src_port, dest_port, tuple->protocol);
+	/* Canonical key: for v7.0+ LAN2LAN, smaller EP is src; otherwise flow_ip is src. */
+	if ((ipa_get_hw_type() >= IPA_HW_v7_0) && lan2lan) {
+		ep_cmp = ipa_be_flow_canonical_cmp(v6_msg.conn_rule.flow_interface_num,
+						       v6_msg.conn_rule.return_interface_num,
+						       v6_msg.conn_rule.flow_mac,
+						       v6_msg.conn_rule.return_mac);
+		if (ep_cmp < 0) {
+			ret = -EINVAL;
+			goto cleanup;
+		}
+		if (!ep_cmp) {
+			can_src_msb = dest_ipv6_msb; can_src_lsb = dest_ipv6_lsb; can_src_port = dest_port;
+			can_dst_msb = src_ipv6_msb;  can_dst_lsb = src_ipv6_lsb;  can_dst_port = src_port;
+		} else {
+			can_src_msb = src_ipv6_msb;  can_src_lsb = src_ipv6_lsb;  can_src_port = src_port;
+			can_dst_msb = dest_ipv6_msb; can_dst_lsb = dest_ipv6_lsb; can_dst_port = dest_port;
+		}
+	} else {
+		can_src_msb = src_ipv6_msb;  can_src_lsb = src_ipv6_lsb;  can_src_port = src_port;
+		can_dst_msb = dest_ipv6_msb; can_dst_lsb = dest_ipv6_lsb; can_dst_port = dest_port;
+	}
+
+	existing_idx = find_ipv6_ct_entry(can_src_msb, can_src_lsb, can_dst_msb, can_dst_lsb,
+					  can_src_port, can_dst_port, tuple->protocol);
 	if (existing_idx >= 0) {
-		IPA_BE_DBG("Duplicate IPv6 CT entry found at cache index %d, ignoring addition\n", existing_idx);
-		IPA_BE_DBG("Duplicate entry: Flow: %pI6:%u -> Return: %pI6:%u, protocol=%u\n",
-			   tuple->flow_ip, src_port, tuple->return_ip, dest_port, tuple->protocol);
+		IPA_BE_DBG("Duplicate IPv6 CT entry at cache idx %d, skipping\n", existing_idx);
 		ret = 0;
 		goto cleanup;
 	}
 
 	/* Add IPv6 connection tracking entry */
 	if ((ipa_get_hw_type() >= IPA_HW_v7_0) && lan2lan) {
-		uint64_t rev_src_msb = dest_ipv6_msb, rev_src_lsb = dest_ipv6_lsb;
-		uint64_t rev_dst_msb = src_ipv6_msb, rev_dst_lsb = src_ipv6_lsb;
-		uint16_t rev_src_port = dest_port, rev_dst_port = src_port;
-		int rev_existing;
+		/*
+		 * swap_src_dest=false when ep_cmp=1: flow_ip is already
+		 * the canonical src — no swap needed. swap_src_dest=true when
+		 * ep_cmp=0: return_ip becomes the canonical src.
+		 */
+		ret = ipv6ct_add_entry_v2(&v6_msg, &rule_hdl_v2,
+					  &all_pkts_counter, NULL,
+					  !ep_cmp);
+		if (ret) {
+			IPA_BE_ERR("Failed to add IPv6 CT canonical entry\n");
+			ret = -EFAULT;
+			goto cleanup; /* entry not created; counters freed by ipv6ct_add_entry_v2 */
+		}
 
-		/* Entry 1: forward direction (flow_ip -> return_ip) */
-		ret = ipv6ct_add_entry_v2(&v6_msg, &rule_hdl_fwd,
-				&all_pkts_counter, NULL,
-				false);
-
-		if ( ret == 0) {
-			IPA_BE_DBG("IPv6 CT v2 fwd entry added with hdl %d\n", rule_hdl_fwd);
-			cache_idx = store_ipv6_ct_entry(src_ipv6_msb, src_ipv6_lsb,
-							dest_ipv6_msb, dest_ipv6_lsb,
-							src_port, dest_port,
-							tuple->protocol, rule_hdl_fwd);
-			if (cache_idx >= 0) {
-				NatBase->m_cache[cache_idx].ipv6_ct.all_pkts_stats_cnt_index =
-					all_pkts_counter;
-				NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index =
-					non_frag_counter;
-			} else {
-				IPA_BE_ERR("Failed to store IPv6 CT fwd entry in cache\n");
-				ret = -EFAULT;
-				goto cleanup_fwd_rule;
-			}
-
-		} else {
-			IPA_BE_ERR("Failed to add IPv6 CT v2 fwd entry\n");
+		IPA_BE_DBG("IPv6 CT canonical entry added with hdl %d\n", rule_hdl_v2);
+		cache_idx = store_ipv6_ct_entry(can_src_msb, can_src_lsb,
+						can_dst_msb, can_dst_lsb,
+						can_src_port, can_dst_port,
+						tuple->protocol, rule_hdl_v2);
+		if (cache_idx < 0) {
+			IPA_BE_ERR("Failed to store IPv6 CT entry in cache\n");
 			ret = -EFAULT;
 			goto cleanup_fwd_rule;
 		}
-
-		IPA_BE_DBG("IPv6 CT v2 fwd entry added with hdl %d\n", rule_hdl_fwd);
-
-		/* Entry 2: reverse direction (return_ip -> flow_ip) */
-		rev_existing = find_ipv6_ct_entry(rev_src_msb, rev_src_lsb,
-						  rev_dst_msb, rev_dst_lsb,
-						  rev_src_port, rev_dst_port,
-						  tuple->protocol);
-		if (rev_existing >= 0) {
-			IPA_BE_ERR("Reverse IPv6 CT entry already exists at idx %d while forward is new\n",
-				   rev_existing);
-			ret = -EFAULT;
-			goto cleanup_fwd_cache;
-		}
-
-		ret = ipv6ct_add_entry_v2(&v6_msg, &rule_hdl_rev,
-						  &all_pkts_counter, NULL,
-						  true);
-		if (ret) {
-			IPA_BE_ERR("Failed to add IPv6 CT v2 rev entry\n");
-			goto cleanup_fwd_cache;
-		} else {
-			IPA_BE_DBG("IPv6 CT v2 rev entry added with hdl %d\n", rule_hdl_rev);
-			cache_idx = store_ipv6_ct_entry(rev_src_msb, rev_src_lsb,
-							rev_dst_msb, rev_dst_lsb,
-							rev_src_port, rev_dst_port,
-							tuple->protocol, rule_hdl_rev);
-			if (cache_idx < 0) {
-				IPA_BE_ERR("Failed to store IPv6 CT rev entry in cache\n");
-				ret = -EFAULT;
-				goto cleanup_rev_rule;
-			} else {
-				NatBase->m_cache[cache_idx].ipv6_ct.all_pkts_stats_cnt_index =
-					all_pkts_counter;
-				NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index =
-					non_frag_counter;
-			}
-		}
+		NatBase->m_cache[cache_idx].ipv6_ct.all_pkts_stats_cnt_index = all_pkts_counter;
+		NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index = non_frag_counter;
 	} else {
 		/* Legacy path (< IPA v7.0) || !lan2lan: single ALLOW_ALL entry */
 		ret = ipv6ct_add_entry(&v6_msg, &rule_hdl);
@@ -1409,30 +1364,19 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 		}
 	}
 
+	goto cleanup;
+
 cleanup_single_rule:
 	if (ipv6ct_del_entry((struct ipa_ipv6_rule_destroy_msg *)&v6_msg, rule_hdl))
 		IPA_BE_ERR("Failed to cleanup IPv6 CT rule hdl %u\n", rule_hdl);
 	goto cleanup;
 
-cleanup_rev_rule:
-	if (ipv6ct_del_entry((struct ipa_ipv6_rule_destroy_msg *)&v6_msg, rule_hdl_rev))
-		IPA_BE_ERR("Failed to cleanup IPv6 CT rev rule hdl %u\n", rule_hdl_rev);
-cleanup_fwd_cache:
-	existing_idx = find_ipv6_ct_entry(src_ipv6_msb, src_ipv6_lsb,
-					  dest_ipv6_msb, dest_ipv6_lsb,
-					  src_port, dest_port, tuple->protocol);
-	if (existing_idx >= 0) {
-		mutex_lock(&NatBase->cache_lock);
-		memset(&NatBase->m_cache[existing_idx], 0,
-		       sizeof(NatBase->m_cache[existing_idx]));
-		mutex_unlock(&NatBase->cache_lock);
-	}
 cleanup_fwd_rule:
 	ipa_be_free_ct_counters_v6(NatBase->ct_table_hdl,
-				   src_ipv6_lsb, src_ipv6_msb,
+				   can_src_lsb, can_src_msb,
 				   all_pkts_counter, non_frag_counter);
-	if (ipv6ct_del_entry((struct ipa_ipv6_rule_destroy_msg *)&v6_msg, rule_hdl_fwd))
-		IPA_BE_ERR("Failed to cleanup IPv6 CT fwd rule hdl %u\n", rule_hdl_fwd);
+	if (ipv6ct_del_entry((struct ipa_ipv6_rule_destroy_msg *)&v6_msg, rule_hdl_v2))
+		IPA_BE_ERR("Failed to cleanup IPv6 CT rule hdl %u\n", rule_hdl_v2);
 cleanup:
 	kfree(ext_prop);
 	IPA_BE_DBG("Exit ipa_be_add_v6_ct_entry\n");
@@ -1440,10 +1384,13 @@ cleanup:
 }
 
 /* Add new entry to the nat table on new connection */
-int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan, bool ct_enabled)
+int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
+		     bool ct_enabled, bool ct_canonical_swap)
 {
 	int cnt = 0;
 	int ret = 0;
+	bool cacheOnly = false;
+	uint8_t pdn_index;
 	ipa_nat_ipv4_rule nat_rule;
 
 	nat_table_entry *rule = kzalloc(sizeof(nat_table_entry), GFP_KERNEL);
@@ -1454,14 +1401,27 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan, bool c
 
 	ipa_be_build_nat_rule_attrs(v4_msg, rule);
 
-	/* In CT mode, public ip is 0xFFFFFFFF */
 	if (ct_enabled)
-	{
 		rule->public_ip = IPA_DUMMY_PDN_PUB_IP;
-	}
 
-	bool cacheOnly = false;
-	uint8_t pdn_index;
+	/*
+	 * CT canonical direction: smaller EP is private_ip, larger EP is target_ip.
+	 * When ct_canonical_swap is set, return_ip is the canonical private side —
+	 * swap private/target on the already-extracted rule (no message copy needed).
+	 */
+	if (ct_canonical_swap) {
+		uint32_t tmp_ip      = rule->private_ip;
+		uint16_t tmp_port    = rule->private_port;
+
+		rule->private_ip     = rule->target_ip;
+		rule->target_ip      = tmp_ip;
+		rule->private_port   = rule->target_port;
+		rule->target_port    = tmp_port;
+		rule->public_port    = rule->private_port; /* CT: no port NAT */
+		IPA_BE_DBG("CT canonical swap: private=%pI4h:%u target=%pI4h:%u\n",
+			   &rule->private_ip, (unsigned int)rule->private_port,
+			   &rule->target_ip,  (unsigned int)rule->target_port);
+	}
 
 	IPA_BE_DBG("%s() %d\n", __FUNCTION__, __LINE__);
 
@@ -1523,16 +1483,15 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan, bool c
 
 			if (ipa_ver >= IPA_HW_v7_0) {
 				/*
-				 * Each CT entry is single-direction (in_allowed=true,
-				 * out_allowed=false). ipa_be_addpdn() will add a second
-				 * entry with swapped IPs/ports for the reverse direction,
-				 * together forming a bidirectional CT pair.
+				 * out_allowed=true for both NAT and CT on v7.0+.
+				 * For CT (LAN2LAN): single bidirectional entry covers both directions.
+				 * For NAT: out_allowed was already true (unchanged).
 				 */
-				ct_out_allowed = ct_enabled ? false : true;
+				ct_out_allowed = true;
 				ct_in_allowed = true;
 				is_ct_entry = ct_enabled;
-				IPA_BE_DBG("IPA v7.0+ CT entry: single-direction (in_allowed=1, out_allowed=%d)\n",
-					   ct_out_allowed ? 1 : 0);
+				IPA_BE_DBG("IPA v7.0+ %s entry: in_allowed=1 out_allowed=1\n",
+					   ct_enabled ? "CT" : "NAT");
 			} else if (ct_enabled && ipa_ver < IPA_HW_v7_0) {
 				/* LAN2LAN on IPA < v7.0: ERROR - should not create entry */
 				IPA_BE_ERR("Invalid: LAN2LAN on IPA < v7.0 should not call ipa_be_add_entry\n");
@@ -1926,13 +1885,45 @@ void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enable
 	rule.protocol = v4_msg.tuple.protocol;
 
 	/*
-	 * The NAT entry is always created from the uplink direction, where
-	 * flow_ip != flow_ip_xlate. The key used to store the entry is
-	 * based on the private-side tuple.
-	 * The destroy message can come for either direction. We need to
-	 * reconstruct the key that was used during insertion.
+	 * Reconstruct the key that was used during insertion.
+	 * For CT (LAN2LAN): the single canonical entry is keyed on
+	 * the smaller-EP client as private_ip → bigger-EP as target_ip.
+	 * For NAT: the entry is always created from the uplink direction.
+	 * The destroy message can come for either direction; use flow_ip_xlate
+	 * to detect which direction this message represents.
 	 */
-	if (v4_msg.tuple.flow_ip != v4_msg.conn_rule.flow_ip_xlate) {
+	if (ct_enabled) {
+		int ep_cmp = ipa_be_flow_canonical_cmp(v4_msg.conn_rule.flow_interface_num,
+						v4_msg.conn_rule.return_interface_num,
+						v4_msg.conn_rule.flow_mac,
+						v4_msg.conn_rule.return_mac);
+
+		if (ep_cmp < 0) {
+			return;
+		}
+		if (ep_cmp) {
+			/* flow is canonical private */
+			rule.private_ip   = ntohl(v4_msg.tuple.flow_ip);
+			rule.target_ip    = ntohl(v4_msg.tuple.return_ip);
+			rule.private_port = ntohs(v4_msg.tuple.flow_ident);
+			rule.target_port  = ntohs(v4_msg.tuple.return_ident);
+			/* CT: no port translation — public_port = private_port, matching the add path */
+			rule.public_port  = ntohs(v4_msg.tuple.flow_ident);
+		} else {
+			/* return is canonical private */
+			rule.private_ip   = ntohl(v4_msg.tuple.return_ip);
+			rule.target_ip    = ntohl(v4_msg.tuple.flow_ip);
+			rule.private_port = ntohs(v4_msg.tuple.return_ident);
+			rule.target_port  = ntohs(v4_msg.tuple.flow_ident);
+			/* CT: no port translation — public_port = private_port, matching the add path */
+			rule.public_port  = ntohs(v4_msg.tuple.return_ident);
+		}
+		IPA_BE_DBG("CT canonical delete: private=%pI4h:%u target=%pI4h:%u (flow_ep=%u ret_ep=%u)\n",
+			   &rule.private_ip, (unsigned int)rule.private_port,
+			   &rule.target_ip, (unsigned int)rule.target_port,
+			   v4_msg.conn_rule.flow_interface_num,
+			   v4_msg.conn_rule.return_interface_num);
+	} else if (v4_msg.tuple.flow_ip != v4_msg.conn_rule.flow_ip_xlate) {
 		/*
 		 * Destroy message is for the UPLINK flow.
 		 * The key is the original tuple.
@@ -1981,29 +1972,8 @@ void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enable
 	}
 
 	if (ipa_be_delete_nat_entry(&rule)) {
-		IPA_BE_ERR("failed removing rule1 nat entry\n");
+		IPA_BE_ERR("failed removing nat entry\n");
 		return;
-	}
-
-	/* Delete reverse rule (rule2) for IPA v7.0+ CT: swap private/target sides. */
-	if (ct_enabled) {
-		nat_table_entry rule2;
-
-		memset(&rule2, 0, sizeof(rule2));
-		rule2.protocol     = rule.protocol;
-		rule2.private_ip   = rule.target_ip;
-		rule2.target_ip    = rule.private_ip;
-		rule2.private_port = rule.target_port;
-		rule2.target_port  = rule.private_port;
-
-		IPA_BE_DBG("Deleting rule2: private=%pI4h:%u target=%pI4h:%u\n",
-			   &rule2.private_ip, (unsigned int)rule2.private_port,
-			   &rule2.target_ip,  (unsigned int)rule2.target_port);
-
-		if (ipa_be_delete_nat_entry(&rule2)) {
-			IPA_BE_ERR("failed removing rule2 nat entry\n");
-			return;
-		}
 	}
 
 	if (pub_ip && count_nat_entries_for_pdn(pub_ip) == 0) {
@@ -2127,6 +2097,64 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 	src_port = ntohs(tuple->flow_ident);
 	dest_port = ntohs(tuple->return_ident);
 
+	/*
+	 * Find and delete the single canonical CT entry.
+	 * For v7.0+ LAN2LAN, the entry is keyed on smaller EP as src.
+	 */
+	if (lan2lan && ipa_ver >= IPA_HW_v7_0) {
+		uint64_t can_src_msb, can_src_lsb, can_dst_msb, can_dst_lsb;
+		uint16_t can_src_port, can_dst_port;
+		int ep_cmp = ipa_be_flow_canonical_cmp(msg->conn_rule.flow_interface_num,
+						msg->conn_rule.return_interface_num,
+						msg->conn_rule.flow_mac,
+						msg->conn_rule.return_mac);
+
+		if (ep_cmp < 0) {
+			return;
+		}
+
+		if (ep_cmp) {
+			can_src_msb  = src_ipv6_msb;
+			can_src_lsb  = src_ipv6_lsb;
+			can_dst_msb  = dest_ipv6_msb;
+			can_dst_lsb  = dest_ipv6_lsb;
+			can_src_port = src_port;
+			can_dst_port = dest_port;
+		} else {
+			can_src_msb  = dest_ipv6_msb;
+			can_src_lsb  = dest_ipv6_lsb;
+			can_dst_msb  = src_ipv6_msb;
+			can_dst_lsb  = src_ipv6_lsb;
+			can_src_port = dest_port;
+			can_dst_port = src_port;
+		}
+
+		cache_idx = find_ipv6_ct_entry(can_src_msb, can_src_lsb, can_dst_msb, can_dst_lsb,
+					       can_src_port, can_dst_port, tuple->protocol);
+		if (cache_idx >= 0) {
+			uint16_t all_pkts_counter, non_frag_counter;
+
+			mutex_lock(&NatBase->cache_lock);
+			rule_handle = NatBase->m_cache[cache_idx].ipv6_ct.rule_handle;
+			all_pkts_counter = NatBase->m_cache[cache_idx].ipv6_ct.all_pkts_stats_cnt_index;
+			non_frag_counter = NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index;
+			IPA_BE_DBG("Found IPv6 CT canonical entry at cache index %d with handle %u\n",
+				   cache_idx, rule_handle);
+
+			ipa_be_delete_v6_ct_entry(*msg, rule_handle);
+			ipa_be_free_ct_counters_v6(NatBase->ct_table_hdl,
+						   can_src_lsb, can_src_msb,
+						   all_pkts_counter, non_frag_counter);
+
+			memset(&NatBase->m_cache[cache_idx], 0, sizeof(NatBase->m_cache[cache_idx]));
+			mutex_unlock(&NatBase->cache_lock);
+			IPA_BE_DBG("Successfully deleted IPv6 CT canonical entry\n");
+		} else {
+			IPA_BE_ERR("IPv6 CT canonical entry not found in cache for deletion\n");
+		}
+		return;
+	}
+
 	/* Find and delete the forward IPv6 CT entry */
 	cache_idx = find_ipv6_ct_entry(src_ipv6_msb, src_ipv6_lsb, dest_ipv6_msb, dest_ipv6_lsb,
 					src_port, dest_port, tuple->protocol);
@@ -2160,128 +2188,16 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 	} else {
 		IPA_BE_ERR("IPv6 CT fwd entry not found in cache for deletion\n");
 	}
-
-	/* On IPA v7.0+ LAN2LAN, also delete the reverse direction entry */
-	if (lan2lan && ipa_get_hw_type() >= IPA_HW_v7_0) {
-		int rev_cache_idx = find_ipv6_ct_entry(dest_ipv6_msb, dest_ipv6_lsb,
-						       src_ipv6_msb, src_ipv6_lsb,
-						       dest_port, src_port,
-						       tuple->protocol);
-		if (rev_cache_idx >= 0) {
-			uint32_t rev_rule_handle;
-			uint16_t rev_all_pkts_counter;
-			uint16_t rev_non_frag_counter;
-
-			mutex_lock(&NatBase->cache_lock);
-			rev_rule_handle = NatBase->m_cache[rev_cache_idx].ipv6_ct.rule_handle;
-			rev_all_pkts_counter =
-				NatBase->m_cache[rev_cache_idx].ipv6_ct.all_pkts_stats_cnt_index;
-			rev_non_frag_counter =
-				NatBase->m_cache[rev_cache_idx].ipv6_ct.non_frag_stats_cnt_index;
-			IPA_BE_DBG("Found IPv6 CT rev entry at cache index %d with handle %u\n",
-				   rev_cache_idx, rev_rule_handle);
-
-			/* Delete the reverse IPv6 CT entry from hardware */
-			ipa_be_delete_v6_ct_entry(*msg, rev_rule_handle);
-
-			if (ipa_ver >= IPA_HW_v7_0) {
-				ipa_be_free_ct_counters_v6(
-					NatBase->ct_table_hdl,
-					dest_ipv6_lsb,
-					dest_ipv6_msb,
-					rev_all_pkts_counter,
-					rev_non_frag_counter);
-			}
-
-			memset(&NatBase->m_cache[rev_cache_idx], 0,
-			       sizeof(NatBase->m_cache[rev_cache_idx]));
-			mutex_unlock(&NatBase->cache_lock);
-
-			IPA_BE_DBG("Successfully deleted IPv6 CT rev entry and cleared cache\n");
-		} else {
-			IPA_BE_DBG("IPv6 CT rev entry not found in cache (may not exist)\n");
-		}
-	}
 }
 
-
-/**
- * find_rev_ct_entry() - Find the reverse CT entry for a given forward entry.
- *
- * Searches for the entry whose src/dst tuple is the mirror image of the forward
- * entry at @fwd_idx. Must be called with the relevant cache_lock held:
- *   IPA_IP_v4: nat_app->cache_lock
- *   IPA_IP_v6: NatBase->cache_lock
- *
- * @ip_version:    IPA_IP_v4 or IPA_IP_v6
- * @fwd_idx:       forward entry index in the respective cache
- * @rev_stats_cnt: output: all_pkts stats counter index of the reverse entry
- *
- * Returns the reverse entry cache index, or -1 if not found.
- */
-static int find_rev_ct_entry(enum ipa_ip_type ip_version, int fwd_idx,
-				    uint16_t *rev_stats_cnt)
-{
-	int j;
-
-	*rev_stats_cnt = 0;
-
-	if (ip_version == IPA_IP_v4) {
-		uint32_t priv_ip   = nat_app->cache[fwd_idx].private_ip;
-		uint32_t tgt_ip    = nat_app->cache[fwd_idx].target_ip;
-		uint16_t priv_port = nat_app->cache[fwd_idx].private_port;
-		uint16_t tgt_port  = nat_app->cache[fwd_idx].target_port;
-		uint8_t  proto     = nat_app->cache[fwd_idx].protocol;
-
-		for (j = 0; j < nat_app->max_entries; j++) {
-			if (j == fwd_idx || !nat_app->cache[j].enabled ||
-			    !nat_app->cache[j].conn_tracking)
-				continue;
-			if (nat_app->cache[j].private_ip   == tgt_ip   &&
-			    nat_app->cache[j].target_ip    == priv_ip  &&
-			    nat_app->cache[j].private_port == tgt_port &&
-			    nat_app->cache[j].target_port  == priv_port &&
-			    nat_app->cache[j].protocol     == proto) {
-				*rev_stats_cnt = nat_app->cache[j].all_pkts_stats_cnt_index;
-				return j;
-			}
-		}
-	} else {
-		uint64_t src_msb  = NatBase->m_cache[fwd_idx].ipv6_ct.src_ipv6_msb;
-		uint64_t src_lsb  = NatBase->m_cache[fwd_idx].ipv6_ct.src_ipv6_lsb;
-		uint64_t dest_msb = NatBase->m_cache[fwd_idx].ipv6_ct.dest_ipv6_msb;
-		uint64_t dest_lsb = NatBase->m_cache[fwd_idx].ipv6_ct.dest_ipv6_lsb;
-		uint16_t sp       = NatBase->m_cache[fwd_idx].ipv6_ct.src_port;
-		uint16_t dp       = NatBase->m_cache[fwd_idx].ipv6_ct.dest_port;
-		uint8_t  proto    = NatBase->m_cache[fwd_idx].m_protocol;
-
-		for (j = 0; j < NatBase->m_maxEntries; j++) {
-			if (j == fwd_idx || !NatBase->m_cache[j].m_enabled ||
-			    NatBase->m_cache[j].m_type != IPA_IP_v6)
-				continue;
-			if (NatBase->m_cache[j].ipv6_ct.src_ipv6_msb  == dest_msb &&
-			    NatBase->m_cache[j].ipv6_ct.src_ipv6_lsb  == dest_lsb &&
-			    NatBase->m_cache[j].ipv6_ct.dest_ipv6_msb == src_msb  &&
-			    NatBase->m_cache[j].ipv6_ct.dest_ipv6_lsb == src_lsb  &&
-			    NatBase->m_cache[j].ipv6_ct.src_port       == dp       &&
-			    NatBase->m_cache[j].ipv6_ct.dest_port      == sp       &&
-			    NatBase->m_cache[j].m_protocol             == proto) {
-				*rev_stats_cnt =
-					NatBase->m_cache[j].ipv6_ct.all_pkts_stats_cnt_index;
-				return j;
-			}
-		}
-	}
-
-	return -1;
-}
 
 /**
  * get_ct_stats_cached() - Read a stats counter, using a per-sync-cycle cache.
  *
  * Avoids re-reading a clear-on-read HW counter that was already consumed
  * earlier in the same sync cycle.  On a cache miss the HW counter is read
- * and the result is stored so that the paired CT entry can reuse it.
+ * and the result is stored so that subsequent accesses within the same cycle
+ * can reuse it without re-querying hardware.
  *
  * @idx:       entry index used as the cache key
  * @stats_cnt: HW stats counter index to query on a cache miss
@@ -2444,8 +2360,6 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 
 		/* Populate the connection sync structure */
 		struct ipa_ipv6_conn_sync *conn_sync = &sync_many->conn_sync[count];
-		uint16_t rev_stats_cnt_index = 0;
-		int rev_rule_index = -1;
 		memset(conn_sync, 0, sizeof(*conn_sync));
 
 		/* Set the index to the cache table index */
@@ -2497,11 +2411,6 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 			/* If timestamp hasn't changed, leave inc_ticks as 0 (entry is inactive) */
 		}
 
-		/* Find the reverse CT entry's stats counter while holding the lock */
-		rev_rule_index = find_rev_ct_entry(IPA_IP_v6, i, &rev_stats_cnt_index);
-		IPA_BE_DBG("CT entry %d: rev_rule_index=%d rev_stats_cnt_index=%u\n",
-			   i, rev_rule_index, rev_stats_cnt_index);
-
 		mutex_unlock(&NatBase->cache_lock);
 
 		if (is_stats &&
@@ -2538,35 +2447,6 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 				conn_sync->return_tx_packet_count       = stats.num_pkts_outbound;
 				conn_sync->return_tx_byte_count         = stats.num_bytes_outbound;
 				conn_sync->return_tx_packet_count_cache = stats.num_pkts_cache_outbound;
-
-				if (rev_rule_index >= 0 && rev_stats_cnt_index > 0) {
-					struct ipahal_stats_nat_ct rev_stats = {};
-
-					ret = get_ct_stats_cached(rev_rule_index, rev_stats_cnt_index,
-								  entry_stats_cache, entry_stats_cache_valid,
-								  &rev_stats);
-					if (ret) {
-						IPA_BE_ERR("Failed to get rev CT stats for entry %d: rev_idx=%u, ret=%d\n",
-							   i, rev_stats_cnt_index, ret);
-						continue;
-					}
-
-					IPA_BE_DBG("Rev rule %d stats: rev_idx=%u "
-						   "inbound_pkts=%u inbound_cache_pkts=%u inbound_bytes=%llu "
-						   "outbound_pkts=%u outbound_cache_pkts=%u outbound_bytes=%llu\n",
-						   rev_rule_index, rev_stats_cnt_index,
-						   rev_stats.num_pkts_inbound, rev_stats.num_pkts_cache_inbound,
-						   rev_stats.num_bytes_inbound,
-						   rev_stats.num_pkts_outbound, rev_stats.num_pkts_cache_outbound,
-						   rev_stats.num_bytes_outbound);
-
-					conn_sync->flow_rx_packet_count         = rev_stats.num_pkts_inbound;
-					conn_sync->flow_rx_byte_count           = rev_stats.num_bytes_inbound;
-					conn_sync->flow_rx_packet_count_cache   = rev_stats.num_pkts_cache_inbound;
-					conn_sync->return_tx_packet_count       = rev_stats.num_pkts_inbound;
-					conn_sync->return_tx_byte_count         = rev_stats.num_bytes_inbound;
-					conn_sync->return_tx_packet_count_cache = rev_stats.num_pkts_cache_inbound;
-				}
 
 				IPA_BE_DBG("Collected stats for entry %d: idx=%u\n"
 					   "flow_rx_pkts=%u flow_rx_bytes=%u flow_rx_pkt_cache=%u\n"
@@ -2817,9 +2697,6 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 
 		/* Populate the connection sync structure */
 		struct ipa_ipv4_conn_sync *conn_sync = &sync_many->conn_sync[count];
-		bool is_ct = false;
-		uint16_t rev_stats_cnt_index = 0;
-		int rev_rule_index = -1;
 		memset(conn_sync, 0, sizeof(*conn_sync));
 
 		/* Set the index to the NAT table index */
@@ -2827,6 +2704,9 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 
 		/* Lock to safely read cache data and update timestamp */
 		mutex_lock(&nat_app->cache_lock);
+
+		/* Read conn_tracking under lock before unlock */
+		bool entry_is_ct = nat_app->cache[i].conn_tracking;
 
 		/* Set protocol and addresses */
 		conn_sync->protocol = nat_app->cache[i].protocol;
@@ -2850,19 +2730,6 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 				nat_app->cache[i].timestamp = timestamp;
 			}
 			/* If timestamp hasn't changed, leave inc_ticks as 0 (entry is inactive) */
-		}
-
-		/*
-		 * For CT entries, find the reversed entry's stats counter index while
-		 * still holding the lock. The reverse entry has swapped private/target
-		 * IPs and ports relative to this entry.
-		 */
-		is_ct = is_stats && nat_app->cache[i].conn_tracking;
-		if (is_ct) {
-			rev_rule_index = find_rev_ct_entry(IPA_IP_v4, i,
-								  &rev_stats_cnt_index);
-			IPA_BE_DBG("CT entry %d: rev_rule_index=%d rev_stats_cnt_index=%u\n",
-				   i, rev_rule_index, rev_stats_cnt_index);
 		}
 
 		mutex_unlock(&nat_app->cache_lock);
@@ -2898,41 +2765,13 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 				conn_sync->return_tx_byte_count         = stats.num_bytes_outbound;
 				conn_sync->return_tx_packet_count_cache = stats.num_pkts_cache_outbound;
 
-				if (is_ct && rev_rule_index >= 0 && rev_stats_cnt_index > 0) {
-					struct ipahal_stats_nat_ct rev_stats = {};
-
-					ret = get_ct_stats_cached(rev_rule_index, rev_stats_cnt_index,
-								  entry_stats_cache, entry_stats_cache_valid,
-								  &rev_stats);
-					if (!ret) {
-						IPA_BE_DBG("Rev rule %d stats: rev_idx=%u "
-							"inbound_pkts=%u inbound_cache_pkts=%u inbound_bytes=%llu "
-							"outbound_pkts=%u outbound_cache_pkts=%u outbound_bytes=%llu\n",
-							rev_rule_index, rev_stats_cnt_index,
-							rev_stats.num_pkts_inbound, rev_stats.num_pkts_cache_inbound,
-							rev_stats.num_bytes_inbound,
-							rev_stats.num_pkts_outbound, rev_stats.num_pkts_cache_outbound,
-							rev_stats.num_bytes_outbound);
-
-						conn_sync->flow_rx_packet_count         = rev_stats.num_pkts_inbound;
-						conn_sync->flow_rx_byte_count           = rev_stats.num_bytes_inbound;
-						conn_sync->flow_rx_packet_count_cache   = rev_stats.num_pkts_cache_inbound;
-						conn_sync->return_tx_packet_count       = rev_stats.num_pkts_inbound;
-						conn_sync->return_tx_byte_count         = rev_stats.num_bytes_inbound;
-						conn_sync->return_tx_packet_count_cache = rev_stats.num_pkts_cache_inbound;
-					} else {
-						IPA_BE_ERR("Failed to get rev CT stats for entry %d: rev_idx=%u, ret=%d\n",
-							   i, rev_stats_cnt_index, ret);
-					}
-				}
-
 				IPA_BE_DBG("Collected stats for entry %d: idx=%u%s\n"
 					   "flow_rx_pkts=%u flow_rx_bytes=%u flow_rx_pkt_cache=%u\n"
 					   "flow_tx_pkts=%u flow_tx_bytes=%u flow_tx_pkt_cache=%u\n"
 					   "return_rx_pkts=%u return_rx_bytes=%u return_rx_pkt_cache=%u\n"
 					   "return_tx_pkts=%u return_tx_bytes=%u return_tx_pkt_cache=%u\n",
 					   i, nat_app->cache[i].all_pkts_stats_cnt_index,
-					   is_ct ? " (CT)" : "",
+					   entry_is_ct ? " (CT)" : "",
 					   conn_sync->flow_rx_packet_count,
 					   conn_sync->flow_rx_byte_count,
 					   conn_sync->flow_rx_packet_count_cache,

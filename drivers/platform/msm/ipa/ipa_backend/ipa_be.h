@@ -65,6 +65,16 @@ void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enable
 int ipa_be_nat_mgmt_init(void);
 void ipa_be_nat_mgmt_exit(void);
 
+/* Returns the IPA hardware endpoint index for an interface, or -1 on failure. */
+int ipa_be_get_ep_for_intf(s32 intf_num);
+
+/*
+ * Returns 1 when flow_intf is canonical (smaller EP/MAC), 0 when return_intf
+ * is canonical, or -1 on EP query failure or NULL MAC (always logged).
+ */
+int ipa_be_flow_canonical_cmp(s32 flow_intf, s32 return_intf,
+		const u8 *flow_mac, const u8 *return_mac);
+
 #define IPA_MAC_ADDR_HASH(h, a) \
 { \
 	ipa_type_check_ipa_mac_addr(a); \
