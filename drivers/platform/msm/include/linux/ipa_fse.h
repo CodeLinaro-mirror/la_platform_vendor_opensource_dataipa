@@ -57,6 +57,7 @@ enum ipa_fse_flags {
  * @ifindex: Network interface index
  * @flags: Rule flags (IPv4/IPv6, etc.)
  * @stream_id: RX stream identifier for the QoS flow, range [0, 255].
+ *             Use IPA_FSE_STREAM_ID_INVALID (0xFFFF) when not yet assigned.
  *             Used by the Wi-Fi plugin to map the flow to its RX ring.
  *
  * This structure represents a complete FSE rule that combines flow
@@ -80,12 +81,15 @@ struct ipa_fse_rule {
  * to handle flow rule creation and deletion.
  */
 struct ipa_fse_ops {
-	bool (*create_fse_rule)(struct ipa_fse_rule *rule);
-	bool (*destroy_fse_rule)(struct ipa_fse_rule *rule);
+	int (*create_fse_rule)(struct ipa_fse_rule *rule);
+	int (*destroy_fse_rule)(struct ipa_fse_rule *rule);
 };
 
 /* APIs for Wifi/plugins to register FSE callbacks */
 int ipa_fse_ops_register(struct ipa_fse_ops *ops);
 void ipa_fse_ops_unregister(void);
+
+/* Sentinel value for stream_id when the RX stream is not yet assigned */
+#define IPA_FSE_STREAM_ID_INVALID	0xFFFF
 
 #endif /* _IPA_FSE_H_ */

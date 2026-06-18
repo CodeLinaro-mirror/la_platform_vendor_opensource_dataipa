@@ -37,6 +37,7 @@ ipam-y += \
 	ipa_backend/ipa_be.o \
 	ipa_backend/ipa_be_clientdb.o \
 	ipa_backend/ipa_be_flt_mgmt.o \
+	ipa_backend/ipa_be_fse.o \
 	ipa_v3/ipa_ini_parse.o
 
 ipam-$(CONFIG_IPA_TSP) += ipa_v3/ipa_tsp.o \
@@ -113,4 +114,3 @@ obj-$(CONFIG_IPA_KERNEL_TESTS_MODULE) += ipatestm.o
 obj-$(CONFIG_IPA_IPSEC) += ipaipsecm.o
 
 obj-y += ipa_v3/ ipa_clients/
-

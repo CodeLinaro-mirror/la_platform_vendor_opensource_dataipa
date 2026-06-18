@@ -7,6 +7,7 @@
 #include "../ipa_v3/ipa_pm.h"
 #include "../ipa_v3/ipa_i.h"
 #include <linux/sort.h>
+#include <linux/version.h>
 #include "ipa_api.h"
 #include "ipa_be.h"
 #include "ipa_be_flt_mgmt.h"
@@ -14,6 +15,7 @@
 #ifdef CONFIG_ECM_CONVERGENCE
 #include "ipa_be_nat_mgmt.h"
 #endif
+#include "ipa_be_fse.h"
 
 /* ========================================================================== */
 /* MACROS AND DEFINITIONS                                                     */
@@ -288,6 +290,40 @@ out:
 /* ========================================================================== */
 /* RULE PROCESSING FUNCTIONS                                                  */
 /* ========================================================================== */
+
+u8 ipa_be_get_ring_id(u32 intf_num)
+{
+	struct ipa_ioc_query_intf temp_intf;
+	struct ipa_ioc_query_intf_rx_props *rx_prop;
+	u8 ring_id = 0;
+
+	if (!ipa3_query_iface(intf_num, &temp_intf))
+		return 0;
+
+	if (temp_intf.num_rx_props == 0)
+		return 0;
+
+	rx_prop = kzalloc(sizeof(struct ipa_ioc_query_intf_rx_props) +
+		temp_intf.num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop), GFP_KERNEL);
+	if (!rx_prop)
+		return 0;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+	strscpy(rx_prop->name, temp_intf.name, sizeof(rx_prop->name));
+#else
+	strlcpy(rx_prop->name, temp_intf.name, sizeof(rx_prop->name));
+#endif
+	rx_prop->num_rx_props = temp_intf.num_rx_props;
+
+	if (ipa3_query_intf_rx_props(rx_prop) == 0) {
+		if (rx_prop->num_rx_props > 0)
+			ring_id = rx_prop->rx[0].rdi;
+	}
+
+	kfree(rx_prop);
+	return ring_id;
+}
+EXPORT_SYMBOL(ipa_be_get_ring_id);
 
 /* Returns the IPA hardware endpoint index for an interface, or -1 on failure. */
 int ipa_be_get_ep_for_intf(s32 intf_num)
@@ -989,9 +1025,30 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 		return IPA_TX_FAILURE_NOT_ENABLED;
 #endif
 	}
+	struct ipa_fse_rule fse_info;
+	if (ret == IPA_CMN_RESPONSE_ACK) {
+		/* FSE rule creation */
+		if (ipa3_is_vpnum_valid(v4_msg.conn_rule.flow_interface_num)) {
+			memset(&fse_info, 0, sizeof(fse_info));
+			ipa_be_fill_ipv4_fse_info(&fse_info, &v4_msg.tuple,
+						  &v4_msg.conn_rule);
+			if (ipa_be_fse_rule_create(&fse_info)) {
+				IPA_BE_ERR("Failed to create FSE rule for IPv4 flow\n");
+			}
+		}
+
+		if (ipa3_is_vpnum_valid(v4_msg.conn_rule.return_interface_num)) {
+			memset(&fse_info, 0, sizeof(fse_info));
+			ipa_be_fill_ipv4_fse_info_reverse(&fse_info, &v4_msg.tuple,
+							  &v4_msg.conn_rule);
+			if (ipa_be_fse_rule_create(&fse_info)) {
+				IPA_BE_ERR(
+					"Failed to create FSE reverse rule for IPv4 flow\n");
+			}
+		}
+	}
 	IPA_BE_DBG("Command  return %d \n", ret);
 	return ret;
-
 failed_ret:
 	ret = IPA_CMN_RESPONSE_EMSG;
 	if (lan2lan) {
@@ -1247,6 +1304,29 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 		IPA_BE_DBG("NAT support disabled - skipping ipa_be_add_v6_ct_entry\n");
 #endif
 	}
+
+	struct ipa_fse_rule fse_info;
+	if (ret == IPA_CMN_RESPONSE_ACK) {
+		/* FSE rule creation */
+		if (ipa3_is_vpnum_valid(v6_msg.conn_rule.flow_interface_num)) {
+			memset(&fse_info, 0, sizeof(fse_info));
+			ipa_be_fill_ipv6_fse_info(&fse_info, &v6_msg.tuple,
+						  &v6_msg.conn_rule);
+			if (ipa_be_fse_rule_create(&fse_info)) {
+				IPA_BE_ERR("Failed to create FSE rule for IPv6 flow\n");
+			}
+		}
+
+		if (ipa3_is_vpnum_valid(v6_msg.conn_rule.return_interface_num)) {
+			memset(&fse_info, 0, sizeof(fse_info));
+			ipa_be_fill_ipv6_fse_info_reverse(&fse_info, &v6_msg.tuple,
+							  &v6_msg.conn_rule);
+			if (ipa_be_fse_rule_create(&fse_info)) {
+				IPA_BE_ERR(
+					"Failed to create FSE reverse rule for IPv6 flow\n");
+			}
+		}
+	}
 	IPA_BE_DBG("Command  return %d \n", ret);
 	return ret;
 
@@ -1466,6 +1546,24 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 	IPA_BE_DBG("Entry  ipa_ipv4_destroy_rule \n");
 	ipa_be_log_ipv4_destroy_details(msg);
 
+	struct ipa_fse_rule fse_info;
+	/* FSE rule destruction */
+	if (ipa3_is_vpnum_valid(msg->conn_rule.flow_interface_num)) {
+		memset(&fse_info, 0, sizeof(fse_info));
+		ipa_be_fill_ipv4_fse_info(&fse_info, &msg->tuple, &msg->conn_rule);
+		if (ipa_be_fse_rule_destroy(&fse_info)) {
+			IPA_BE_ERR("Failed to destroy FSE rule for IPv4 flow\n");
+		}
+	}
+
+	if (ipa3_is_vpnum_valid(msg->conn_rule.return_interface_num)) {
+		memset(&fse_info, 0, sizeof(fse_info));
+		ipa_be_fill_ipv4_fse_info_reverse(&fse_info, &msg->tuple, &msg->conn_rule);
+		if (ipa_be_fse_rule_destroy(&fse_info)) {
+			IPA_BE_ERR("Failed to destroy FSE reverse rule for IPv4 flow\n");
+		}
+	}
+
 	if ((msg->conn_rule.flow_interface_num == msg->conn_rule.flow_top_interface_num) &&
 		(msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num))
 	{
@@ -1657,6 +1755,25 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	}
 
 	IPA_BE_DBG("Entry ipa_ipv6_destroy_rule\n");
+
+	struct ipa_fse_rule fse_info;
+	/* FSE rule destruction */
+	if (ipa3_is_vpnum_valid(msg->conn_rule.flow_interface_num)) {
+		memset(&fse_info, 0, sizeof(fse_info));
+		ipa_be_fill_ipv6_fse_info(&fse_info, &msg->tuple, &msg->conn_rule);
+		if (ipa_be_fse_rule_destroy(&fse_info)) {
+			IPA_BE_ERR("Failed to destroy FSE rule for IPv6 flow\n");
+		}
+	}
+
+	if (ipa3_is_vpnum_valid(msg->conn_rule.return_interface_num)) {
+		memset(&fse_info, 0, sizeof(fse_info));
+		ipa_be_fill_ipv6_fse_info_reverse(&fse_info, &msg->tuple, &msg->conn_rule);
+		if (ipa_be_fse_rule_destroy(&fse_info)) {
+			IPA_BE_ERR("Failed to destroy FSE reverse rule for IPv6 flow\n");
+		}
+	}
+
 	ipa_be_log_ipv6_destroy_details(msg);
 
 	/* Determine if this is a LAN-to-LAN connection */
@@ -1710,7 +1827,7 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 
 		ref = ipa_be_mapping_deref_and_delete((uint32_t *)&msg->tuple.flow_ip, lan2lan);
 		if (ref == -1) {
-			IPA_BE_DBG("Entry %pI6n does not exist\n", &msg->tuple.flow_ip);
+			IPA_BE_ERR("Entry %pI6n does not exist\n", &msg->tuple.flow_ip);
 			return;
 		} else if (ref > 0) {
 			IPA_BE_DBG("Entry %pI6n has other references, ref count decreased to %d\n", &msg->tuple.flow_ip, ref);

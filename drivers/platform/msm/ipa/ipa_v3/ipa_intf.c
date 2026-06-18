@@ -1415,6 +1415,38 @@ void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *coo
 	}
 	mutex_unlock(&ipa3_ctx->lock);
 }
+
+/**
+ * ipa3_is_vpnum_valid() - check if interface has a valid vpnum
+ * @intf_idx: [in] interface index
+ *
+ * Return: true if valid, false otherwise
+ */
+bool ipa3_is_vpnum_valid(int intf_idx)
+{
+	struct ipa3_intf *entry;
+	bool valid = false;
+
+	/* Validate interface index */
+	if (intf_idx < 0) {
+		IPAERR("Invalid interface index %d\n", intf_idx);
+		return false;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (entry->intf_idx == intf_idx) {
+			valid = entry->vpnum_valid;
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	IPADBG("intf_idx=%d vpnum_valid=%d\n", intf_idx, valid);
+	return valid;
+}
+EXPORT_SYMBOL(ipa3_is_vpnum_valid);
+
 /**
  * ipa3_add_filter_rules_entry - Add filter entry to interface filter list
  * @intf_idx:   Network interface index for adding the filter entry

@@ -3934,6 +3934,7 @@ int ipa3_update_intf_idx(const char *name, int intf_idx);
 int ipa3_get_ep_for_intf(int intf_idx);
 int ipa3_assign_qmapmux_intf_idx(int wan_iface);
 void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie);
+bool ipa3_is_vpnum_valid(int intf_idx);
 bool ipa3_query_ext_iface(int intf_idx, struct ipa_ioc_query_intf_ext_props *target_intf);
 bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
