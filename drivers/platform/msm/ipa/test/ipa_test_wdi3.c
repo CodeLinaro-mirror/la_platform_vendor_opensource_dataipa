@@ -30,15 +30,15 @@
 
 #define NUM_MULTI_PKT 8
 
-int multi_pkt_array[] = {0x12345678, 0x87654321,
+static int multi_pkt_array[] = {0x12345678, 0x87654321,
 	0x00112233, 0x01234567, 0x45454545, 0x80808080,
 	0x13245678, 0x12345767, 0x43213456};
 
-int rx_uc_db_local;
-int tx_uc_db_local;
+static int rx_uc_db_local;
+static int tx_uc_db_local;
 static int tx1_uc_db_local;
-u8 tx_bf_idx;
-u8 rx_bf_idx;
+static u8 tx_bf_idx;
+static u8 rx_bf_idx;
 static u8 tx1_bf_idx;
 
 struct ipa_test_wdi3_context {

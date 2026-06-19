@@ -5937,6 +5937,45 @@ void gsi_wdi3_dump_register(unsigned long chan_hdl)
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_3,
 		gsi_ctx->per.ee, chan_hdl);
 	GSIDBG("GSI_EE_n_GSI_CH_k_SCRATCH_3 0x%x\n", val);
+
+	/* Dump Event Ring Context associated with this channel */
+	if (gsi_ctx->chan[chan_hdl].props.evt_ring_hdl != ~0) {
+		unsigned long evt_hdl = gsi_ctx->chan[chan_hdl].props.evt_ring_hdl;
+		GSIDBG("reg dump ev id %ld\n", evt_hdl);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_0,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_0 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_1,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_1 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_2,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_2 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_3,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_3 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_4,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_4 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_8,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_8 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_9,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_9 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_10,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_10 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_11,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_11 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_12,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_12 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_13,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_13 0x%x\n", val);
+	}
 }
 EXPORT_SYMBOL(gsi_wdi3_dump_register);
 

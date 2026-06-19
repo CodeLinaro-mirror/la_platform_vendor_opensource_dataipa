@@ -256,6 +256,7 @@ int ipa3_query_intf(struct ipa_ioc_query_intf *lookup)
 
 	return result;
 }
+EXPORT_SYMBOL(ipa3_query_intf);
 
 /**
  * ipa3_query_intf_tx_props() - qeury TX props of an interface
@@ -1335,6 +1336,7 @@ bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf)
 	IPAERR("Exit \n");
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_query_iface);
 
 int ipa3_update_intf_idx(const char *name, int intf_idx)
 {
@@ -1415,7 +1417,7 @@ void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *coo
 	}
 	mutex_unlock(&ipa3_ctx->lock);
 }
-
+EXPORT_SYMBOL(ipa3_populate_cookie_vpnum);
 /**
  * ipa3_is_vpnum_valid() - check if interface has a valid vpnum
  * @intf_idx: [in] interface index
