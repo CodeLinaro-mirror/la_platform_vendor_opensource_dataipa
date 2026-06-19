@@ -466,6 +466,5 @@ int ipa_nat_free_counter_v4(
     uint16_t counter_id);
 #endif /* CONFIG_ECM_CONVERGENCE */
 
-int copy_from_ipa_nat_ipv4_rule_v1_to_v2(ipa_nat_ipv4_rule* nat_rule_v1, ipa_nat_ipv4_rule_v2* nat_rule_v2);
 
 #endif

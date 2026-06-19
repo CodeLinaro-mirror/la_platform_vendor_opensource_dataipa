@@ -1536,40 +1536,6 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 				}
 				nat_app->cache[cnt].enabled = false;
 				nat_app->cache[cnt].rule_hdl = 0;
-			} else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-				ipa_nat_ipv4_rule_v2 nat_rule_v2;
-				struct ipa_sw_producer_cookie cookie;
-
-				if (copy_from_ipa_nat_ipv4_rule_v1_to_v2(&nat_rule, &nat_rule_v2)) {
-					IPA_BE_ERR("Failed to copy NAT rule v1 to v2\n");
-					mutex_unlock(&nat_app->cache_lock);
-					kfree(rule);
-					return -1;
-				}
-
-				/* Install SW producer cookie if src or dst interface is wlan */
-				memset(&cookie, 0, sizeof(cookie));
-				ipa3_populate_cookie_vpnum(
-					v4_msg.conn_rule.flow_interface_num, &cookie);
-				if (!cookie.raw)
-					ipa3_populate_cookie_vpnum(
-						v4_msg.conn_rule.return_interface_num, &cookie);
-				nat_rule_v2.sw_prod_classification_cookie = cookie.raw;
-				IPA_BE_DBG("NAT sw_prod_cookie=0x%llx flow_intf=%d ret_intf=%d\n",
-					   nat_rule_v2.sw_prod_classification_cookie,
-					   v4_msg.conn_rule.flow_interface_num,
-					   v4_msg.conn_rule.return_interface_num);
-
-				if (ipa_nat_add_ipv4_rule_v2(nat_app->nat_table_hdl, &nat_rule_v2,
-							     &nat_app->cache[cnt].rule_hdl) < 0) {
-					IPA_BE_ERR("unable to add the rule\n");
-					mutex_unlock(&nat_app->cache_lock);
-					kfree(rule);
-					return -1;
-				}
-				IPA_BE_DBG("cache entry %d rule handle %d\n", cnt,
-					   nat_app->cache[cnt].rule_hdl);
-				nat_app->cache[cnt].enabled = true;
 			} else {
 				/* Add rule to hardware */
 				if (ipa_ver >= IPA_HW_v7_0) {
@@ -1637,6 +1603,31 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 							   all_pkts_ptr ? "" : " (skipped)",
 							   nat_rule_v2.non_frag_stats_cnt_index,
 							   non_frag_ptr ? "" : " (skipped)");
+					}
+
+					/*
+					 * SW producer cookie: set for NAT entries when the flow or
+					 * return interface is WDI6 (vpnum_valid). For CT (LAN2LAN),
+					 * the single canonical entry covers both directions so the
+					 * cookie cannot distinguish per-direction producers — split
+					 * CT entries are needed before this can be enabled for CT.
+					 * This also means WLAN STA-to-AP case is not supported
+					 * until split CT entries are introduced.
+					 */
+					if (!ct_enabled) {
+						struct ipa_sw_producer_cookie cookie;
+
+						memset(&cookie, 0, sizeof(cookie));
+						ipa3_populate_cookie_vpnum(
+							v4_msg.conn_rule.flow_interface_num, &cookie);
+						if (!cookie.raw)
+							ipa3_populate_cookie_vpnum(
+								v4_msg.conn_rule.return_interface_num, &cookie);
+						nat_rule_v2.sw_prod_classification_cookie = cookie.raw;
+						IPA_BE_DBG("NAT sw_prod_cookie=0x%llx flow_intf=%d ret_intf=%d\n",
+							   nat_rule_v2.sw_prod_classification_cookie,
+							   v4_msg.conn_rule.flow_interface_num,
+							   v4_msg.conn_rule.return_interface_num);
 					}
 
 					/* Use v2 API */

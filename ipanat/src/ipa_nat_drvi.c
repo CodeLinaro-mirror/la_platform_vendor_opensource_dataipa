@@ -392,7 +392,7 @@ static uint16_t ipa_nati_calc_tcp_udp_cksum(
 	return ret;
 }
 
-int copy_from_ipa_nat_ipv4_rule_v1_to_v2(
+static int copy_from_ipa_nat_ipv4_rule_v1_to_v2(
     ipa_nat_ipv4_rule* nat_rule_v1,
     ipa_nat_ipv4_rule_v2* nat_rule_v2)
 {
