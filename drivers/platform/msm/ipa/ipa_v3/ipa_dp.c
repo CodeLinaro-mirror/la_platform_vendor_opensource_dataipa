@@ -2004,14 +2004,11 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		/* Delete NAPI TX object. For WAN_PROD, it is deleted
 		 * in rmnet_ipa driver.
 		 */
-		if (ipa3_ctx->tx_napi_enable &&
-			(ep->client != IPA_CLIENT_APPS_WAN_PROD))
+		if (ep->sys->napi_tx_enable &&
+			(ep->client != IPA_CLIENT_APPS_WAN_PROD)) {
+			napi_disable(&ep->sys->napi_tx);
 			netif_napi_del(&ep->sys->napi_tx);
-	}
-
-	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
-		napi_disable(&ep->sys->napi_rx);
-		netif_napi_del(&ep->sys->napi_rx);
+		}
 	}
 
 	if ( ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS ) {
@@ -2050,6 +2047,14 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 	flush_workqueue(ep->sys->wq);
 	if (IPA_CLIENT_IS_PROD(ep->client))
 		atomic_set(&ep->sys->workqueue_flushed, 1);
+
+	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
+		napi_disable(&ep->sys->napi_rx);
+		netif_napi_del(&ep->sys->napi_rx);
+	}
+
+	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
+		tasklet_kill(&ep->sys->tasklet);
 
 	/*
 	 * Tear down the default pipe before we reset the channel
