@@ -1942,6 +1942,8 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 
 	list_add(&new_intf->link, &ipa_eth_ctx->head_intf_list);
 
+	ipa_be_subnet_on_intf_registered(intf->net_dev->ifindex);
+
 	kfree(hdr);
 	kfree(tx_prop);
 	kfree(rx_prop);

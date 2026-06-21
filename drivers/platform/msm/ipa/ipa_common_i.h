@@ -1044,4 +1044,6 @@ int ipa_hdrs_hpc_destroy(u32 hdr_hdl);
 
 int ipa3_get_ee_by_pipe(int pipe_idx);
 
+void ipa_be_subnet_on_intf_registered(int slave_ifindex);
+
 #endif /* _IPA_COMMON_I_H_ */

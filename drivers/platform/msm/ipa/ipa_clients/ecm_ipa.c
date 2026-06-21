@@ -1205,6 +1205,8 @@ static int ecm_ipa_register_properties(struct ecm_ipa_dev *ecm_ipa_ctx)
 	result = ipa_register_intf("ecm0", &tx_properties, &rx_properties, ecm_ipa_ctx->net->ifindex);
 	if (result)
 		ECM_IPA_ERROR("fail on Tx/Rx properties registration\n");
+	else
+		ipa_be_subnet_on_intf_registered(ecm_ipa_ctx->net->ifindex);
 
 	ECM_IPA_LOG_EXIT();
 

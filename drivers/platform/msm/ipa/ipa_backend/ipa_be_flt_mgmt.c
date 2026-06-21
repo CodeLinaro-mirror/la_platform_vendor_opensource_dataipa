@@ -11,6 +11,13 @@
 #include <linux/if_vlan.h>
 #include <linux/msm_ipa.h>
 #include <linux/inetdevice.h>
+#include <linux/netdevice.h>
+#include <linux/notifier.h>
+#include <linux/workqueue.h>
+#include <linux/slab.h>
+#include <net/addrconf.h>
+#include <net/if_inet6.h>
+#include <net/ipv6.h>
 #include "ipa_api.h"
 #include "ipa_be.h"
 #include "ipa_be_clientdb.h"
@@ -178,19 +185,40 @@ static LIST_HEAD(ipa_uplink_pairs_list);
 static DEFINE_SPINLOCK(ipa_uplink_lock);
 
 /*
- * Structure to track installed private subnet rules per
- * (intf_num, bridge_if_num, ip_type) tuple with ref counting.
- * ip_type is tracked to support both IPv4 and IPv6 private subnet rules.
+ * Maximum number of IPv6 /64 prefixes tracked/installed per interface. A LAN
+ * bridge can carry several global prefixes simultaneously (e.g. multiple
+ * delegated prefixes, or GUA + ULA); each needs its own private-subnet rule.
  */
-struct ipa_private_subnet_pair {
+#define IPA_BE_MAX_V6_PREFIXES 8
+
+/*
+ * Subnet match derived from a bridge for one IP family.
+ *  - IPv4: a single subnet addr/mask (host byte order).
+ *  - IPv6: up to IPA_BE_MAX_V6_PREFIXES /64 prefixes, each as the upper 64 bits
+ *    (host byte order) in [hi, lo]; n_v6 is how many are valid.
+ */
+struct ipa_be_subnet_match {
+	uint32_t v4_addr;
+	uint32_t v4_mask;
+	int n_v6;
+	uint32_t v6_prefix[IPA_BE_MAX_V6_PREFIXES][2];
+};
+
+/*
+ * Tracks the always-on private-subnet rules installed on an interface for one IP
+ * type. Notifier-driven (no ref-counting): we store the programmed match so a
+ * reconcile reprograms only when the bridge subnet/prefix set changes.
+ * Keyed by (intf_num, ip_type); bridge_if_num is kept for reference/debug.
+ */
+struct ipa_private_subnet_entry {
 	struct list_head node;
 	int intf_num;
 	int bridge_if_num;
 	enum ipa_ip_type ip_type;
-	atomic_t ref_count;
+	struct ipa_be_subnet_match match;
 };
 
-static LIST_HEAD(ipa_private_subnet_pairs_list);
+static LIST_HEAD(ipa_private_subnet_entries_list);
 static DEFINE_SPINLOCK(ipa_private_subnet_lock);
 
 /* Structure to track installed PDN-level filtering rules */
@@ -858,9 +886,10 @@ int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type
 	struct ipa3_flt_entry flt_entry = {0};
 	int flt_hdl;
 	int ret;
+	int retval = 0;
 
 	flt_entry.cat = category;
-	flt_entry.ip_type = iptype;  /* Pass IP type to filter deletion */
+	flt_entry.ip_type = iptype;
 	for (;;) {
 		flt_hdl = ipa3_delete_filter_rules_entry(intf_num, flt_entry);
 		if (flt_hdl == -1)
@@ -877,15 +906,17 @@ int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type
 		if (ret) {
 			IPA_BE_ERR("Failed HW delete for intf:%d cat:%d ip:%d flt_hdl:%d, ipa3_del_flt_rule returned: %d\n",
 				intf_num, category, iptype, flt_hdl, ret);
+			retval = ret;
 		} else if (flt_param.hdl[0].status != 0) {
 			IPA_BE_ERR("HW delete for intf:%d cat:%d ip:%d flt_hdl:%d failed with status:%d\n",
 				intf_num, category, iptype, flt_hdl, flt_param.hdl[0].status);
+			retval = -EFAULT;
 		} else {
 			IPA_BE_DBG("Filter rule deleted successfully for intf:%d cat:%d ip:%d flt_hdl:0x%x\n",
 				intf_num, category, iptype, flt_hdl);
 		}
 	}
-	return 0;
+	return retval;
 }
 EXPORT_SYMBOL(ipa_be_delete_rules_by_category);
 
@@ -1192,540 +1223,1263 @@ int ipa_be_delete_mtu_rule(int client_iface, int pdn_iface, enum ipa_ip_type ip_
 }
 EXPORT_SYMBOL(ipa_be_delete_mtu_rule);
 
-int ipa_be_handle_private_subnet(int intf_num, int bridge_if_num)
+/*
+ * Find the tracking entry for (intf_num, ip_type, bridge_if_num); caller holds
+ * ipa_private_subnet_lock. bridge_if_num is part of the key so an iface enslaved
+ * to multiple bridges has one entry per bridge.
+ */
+static struct ipa_private_subnet_entry *ipa_be_subnet_find_locked(
+	int intf_num, enum ipa_ip_type ip_type, int bridge_if_num)
 {
-	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
-	struct ipa_flt_rule_add flt_rule_entry;
-	struct ipa_ioc_query_intf temp_intf;
-	int retval = 0, len = 0;
-	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
-	int idx = 0;
-	int j = 0;
-	int flt_hdl = 0;
-	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
-	struct ipa3_flt_entry flt_entry = {0};
-	struct net_device *bridge_dev = NULL;
-	struct in_device *in_dev = NULL;
-	struct in_ifaddr *ifa = NULL;
+	struct ipa_private_subnet_entry *e;
+
+	list_for_each_entry(e, &ipa_private_subnet_entries_list, node) {
+		if (e->intf_num == intf_num && e->ip_type == ip_type &&
+		    e->bridge_if_num == bridge_if_num)
+			return e;
+	}
+	return NULL;
+}
+
+/* True if addr (host byte order) is RFC1918 private: 10/8, 172.16/12, 192.168/16. */
+static inline bool ipa_be_is_private_v4(uint32_t addr)
+{
+	return (addr & 0xFF000000) == 0x0A000000 ||
+	       (addr & 0xFFF00000) == 0xAC100000 ||
+	       (addr & 0xFFFF0000) == 0xC0A80000;
+}
+
+/*
+ * Read the first usable private LAN subnet configured on the bridge net_device
+ * into the match set. Returns true if one was found.
+ *
+ * Skips /32 host addresses (in IPPT-without-NAT the bridge holds the WAN address
+ * as a single-host /32 with no LAN subnet behind it — and that address can fall
+ * inside an RFC1918 range, e.g. 172.21.x.x, so the /32 check is essential) and
+ * non-RFC1918 addresses. A bridge may carry both a private LAN IP and a public
+ * WAN /32 (IPPT with NAT); this picks the private subnet.
+ */
+static bool ipa_be_subnet_get_v4(struct net_device *bridge_dev,
+	struct ipa_be_subnet_match *m)
+{
+	struct in_device *in_dev;
+	struct in_ifaddr *ifa;
 	__be32 ip_addr_be = 0, ip_mask_be = 0;
-	uint32_t subnet_addr = 0, subnet_mask = 0;
-	struct ipa_private_subnet_pair *ps_pair;
-	struct ipa_private_subnet_pair *new_ps_pair = NULL;
-	const enum ipa_ip_type ip_type = IPA_IP_v4;
-
-	IPA_BE_DBG("ipa_be_handle_private_subnet: intf_num=%d bridge_if_num=%d\n",
-		intf_num, bridge_if_num);
-
-	/*
-	 * Check if private subnet rules are already installed for this
-	 * (intf_num, bridge_if_num, ip_type) tuple. If so, just increment
-	 * the ref count and return - rules are shared across connections.
-	 */
-	spin_lock_bh(&ipa_private_subnet_lock);
-	list_for_each_entry(ps_pair, &ipa_private_subnet_pairs_list, node) {
-		if (ps_pair->intf_num == intf_num &&
-		    ps_pair->bridge_if_num == bridge_if_num &&
-		    ps_pair->ip_type == ip_type) {
-			atomic_inc(&ps_pair->ref_count);
-			spin_unlock_bh(&ipa_private_subnet_lock);
-			IPA_BE_DBG("Private subnet rules for intf %d, bridge %d, ip_type %d already installed. ref_count: %d\n",
-				intf_num, bridge_if_num, ip_type, atomic_read(&ps_pair->ref_count));
-			return 0;
-		}
-	}
-	spin_unlock_bh(&ipa_private_subnet_lock);
-
-	IPA_BE_DBG("Installing new private subnet rules for intf %d, bridge %d, ip_type %d\n",
-		intf_num, bridge_if_num, ip_type);
-
-	/* Check if the filter interface exists */
-	if (!ipa3_query_iface(intf_num, &temp_intf)) {
-		IPA_BE_ERR("Interface with index %u does not exist.\n", intf_num);
-		retval = -EINVAL;
-		goto end;
-	}
-
-	/* Get bridge net_device directly by ifindex */
-	bridge_dev = dev_get_by_index(&init_net, bridge_if_num);
-	if (!bridge_dev) {
-		IPA_BE_ERR("Failed to find net_device for bridge ifindex %d\n", bridge_if_num);
-		retval = -ENODEV;
-		goto end;
-	}
+	bool had_addr = false;
 
 	in_dev = in_dev_get(bridge_dev);
-	if (!in_dev) {
-		IPA_BE_ERR("Failed to get in_device for bridge %s\n", bridge_dev->name);
-		dev_put(bridge_dev);
-		retval = -ENODEV;
-		goto end;
-	}
+	if (!in_dev)
+		return false;
 
 	rcu_read_lock();
 	in_dev_for_each_ifa_rcu(ifa, in_dev) {
+		uint32_t addr = ntohl(ifa->ifa_address);
+		uint32_t mask = ntohl(ifa->ifa_mask);
+
+		had_addr = true;
+
+		if (mask == 0xFFFFFFFF) {
+			IPA_BE_DBG("bridge %s: skip %pI4/32 host addr (IPPT without NAT)\n",
+				bridge_dev->name, &ifa->ifa_address);
+			continue;
+		}
+		if (!ipa_be_is_private_v4(addr)) {
+			IPA_BE_DBG("bridge %s: skip %pI4 (not RFC1918)\n",
+				bridge_dev->name, &ifa->ifa_address);
+			continue;
+		}
+
+		IPA_BE_DBG("bridge %s: use %pI4 mask %pI4 for private-subnet rule\n",
+			bridge_dev->name, &ifa->ifa_address, &ifa->ifa_mask);
 		ip_addr_be = ifa->ifa_address;
 		ip_mask_be = ifa->ifa_mask;
 		break;
 	}
 	rcu_read_unlock();
-
 	in_dev_put(in_dev);
-	dev_put(bridge_dev);
 
 	if (!ip_addr_be) {
-		IPA_BE_ERR("No IPv4 address found on bridge ifindex %d\n", bridge_if_num);
-		retval = -EADDRNOTAVAIL;
-		goto end;
+		if (had_addr)
+			IPA_BE_DBG("bridge %s: no usable private LAN subnet (only /32 host or public addrs); no rule\n",
+				bridge_dev->name);
+		else
+			IPA_BE_DBG("bridge %s: no IPv4 address; no private-subnet rule\n",
+				bridge_dev->name);
+		return false;
 	}
 
-	/* Convert to host byte order and compute subnet address */
-	subnet_mask = ntohl(ip_mask_be);
-	subnet_addr = ntohl(ip_addr_be) & subnet_mask;
-
-	IPA_BE_DBG("Bridge ifindex=%d: ip=%pI4 mask=%pI4 subnet=0x%08x/0x%08x\n",
-		bridge_if_num, &ip_addr_be, &ip_mask_be, subnet_addr, subnet_mask);
-
-	/* Allocate and query rx_props for intf_num */
-	rx_prop = (struct ipa_ioc_query_intf_rx_props *)kzalloc(
-		sizeof(struct ipa_ioc_query_intf_rx_props) +
-		temp_intf.num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop),
-		GFP_KERNEL);
-	if (!rx_prop) {
-		IPA_BE_ERR("Unable to allocate rx_prop memory.\n");
-		retval = -ENOMEM;
-		goto end;
-	}
-
-	memcpy(rx_prop->name, temp_intf.name, sizeof(temp_intf.name));
-	rx_prop->num_rx_props = temp_intf.num_rx_props;
-	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, temp_intf.name);
-	ipa3_query_intf_rx_props(rx_prop);
-
-	if (rx_prop->num_rx_props == 0) {
-		IPA_BE_ERR("No rx props for iface %s\n", rx_prop->name);
-		retval = -EINVAL;
-		goto end;
-	}
-
-	/* Get the default routing table handle - LAN traffic goes to A5 via default table */
-	rt_tbl.ip = IPA_IP_v4;
-	strscpy(rt_tbl.name, V4_DEFAULT_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
-
-	if (ipa3_get_rt_tbl(&rt_tbl)) {
-		IPA_BE_ERR("Failed to get default routing table %s\n", V4_DEFAULT_ROUTE_TABLE_NAME);
-		retval = -EFAULT;
-		goto end;
-	}
-	IPA_BE_DBG("Private subnet filter uses rt_tbl: %s hdl=%d\n",
-		V4_DEFAULT_ROUTE_TABLE_NAME, rt_tbl.hdl);
-
-	/* Install one filter rule per rx pipe pair (IPv4 only) */
-	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
-		idx = j * 2;
-
-		if (idx >= rx_prop->num_rx_props)
-			continue;
-
-		if (rx_prop->rx[idx].ip != IPA_IP_v4) {
-			IPA_BE_DBG("IP not matching required type %d .. continue\n",
-				rx_prop->rx[idx].ip);
-			continue;
-		}
-
-		IPA_BE_DBG("Install private subnet rule at idx %d src_pipe %d\n",
-			idx, rx_prop->rx[idx].src_pipe);
-
-		len = sizeof(struct ipa_ioc_add_flt_rule) + sizeof(struct ipa_flt_rule_add);
-		pFilteringTable = (struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
-		if (!pFilteringTable) {
-			IPA_BE_ERR("Failed to allocate filtering table memory\n");
-			retval = -ENOMEM;
-			goto end;
-		}
-
-		pFilteringTable->commit = 1;
-		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
-		pFilteringTable->global = false;
-		pFilteringTable->ip = IPA_IP_v4;
-		pFilteringTable->num_rules = 1;
-
-		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
-		flt_rule_entry.at_rear = true;
-		flt_rule_entry.rule.retain_hdr = 1;
-		flt_rule_entry.flt_rule_hdl = -1;
-		flt_rule_entry.status = -1;
-		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
-		flt_rule_entry.rule.hashable = true;
-		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
-		flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
-
-		memcpy(&flt_rule_entry.rule.attrib, &rx_prop->rx[idx].attrib,
-			sizeof(flt_rule_entry.rule.attrib));
-		flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
-		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = subnet_mask;
-		flt_rule_entry.rule.attrib.u.v4.dst_addr = subnet_addr;
-
-		memcpy(&pFilteringTable->rules[0], &flt_rule_entry,
-			sizeof(struct ipa_flt_rule_add));
-
-		if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)pFilteringTable, true)) {
-			IPA_BE_ERR("ipa3_add_flt_rule_usr failed for private subnet rule\n");
-			retval = -EFAULT;
-			kfree(pFilteringTable);
-			pFilteringTable = NULL;
-			goto end;
-		}
-
-		flt_hdl = pFilteringTable->rules[0].flt_rule_hdl;
-		IPA_BE_DBG("Private subnet filter rule hdl: 0x%x for pipe %d\n",
-			flt_hdl, rx_prop->rx[idx].src_pipe);
-
-		flt_entry.flt_hdl = flt_hdl;
-		flt_entry.cat = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
-		flt_entry.ip_type = IPA_IP_v4;
-		ipa3_add_filter_rules_entry(intf_num, flt_entry);
-
-		kfree(pFilteringTable);
-		pFilteringTable = NULL;
-	}
-
-	retval = 0;
-
-	/*
-	 * Rules installed successfully. Add a new tracking entry with ref_count=1
-	 * so subsequent calls for the same pair are deduplicated.
-	 */
-	spin_lock_bh(&ipa_private_subnet_lock);
-	new_ps_pair = kzalloc(sizeof(struct ipa_private_subnet_pair), GFP_ATOMIC);
-	if (!new_ps_pair) {
-		spin_unlock_bh(&ipa_private_subnet_lock);
-		IPA_BE_ERR("Failed to allocate memory for private subnet pair tracking\n");
-		/* Rules were installed but tracking failed - not fatal */
-	} else {
-		new_ps_pair->intf_num = intf_num;
-		new_ps_pair->bridge_if_num = bridge_if_num;
-		new_ps_pair->ip_type = ip_type;
-		atomic_set(&new_ps_pair->ref_count, 1);
-		list_add(&new_ps_pair->node, &ipa_private_subnet_pairs_list);
-		IPA_BE_DBG("Added private subnet pair: intf %d, bridge %d, ip_type %d, ref_count: 1\n",
-			intf_num, bridge_if_num, ip_type);
-		spin_unlock_bh(&ipa_private_subnet_lock);
-	}
-
-end:
-	if (pFilteringTable)
-		kfree(pFilteringTable);
-	if (rx_prop)
-		kfree(rx_prop);
-
-	IPA_BE_DBG("ipa_be_handle_private_subnet exit retval=%d\n", retval);
-	return retval;
+	m->v4_mask = ntohl(ip_mask_be);
+	m->v4_addr = ntohl(ip_addr_be) & m->v4_mask;
+	return true;
 }
-EXPORT_SYMBOL(ipa_be_handle_private_subnet);
 
-int ipa_be_delete_private_subnet(int intf_num, int bridge_if_num, enum ipa_ip_type ip_type)
+/*
+ * Collect all global-unicast IPv6 /64 prefixes on the bridge into the match
+ * set (upper 64 bits, host byte order). Duplicate prefixes (multiple addresses
+ * sharing a /64) are coalesced. Returns true if at least one was found.
+ */
+static bool ipa_be_subnet_get_v6(struct net_device *bridge_dev,
+	struct ipa_be_subnet_match *m)
 {
-	struct ipa_private_subnet_pair *ps_pair, *tmp;
-	bool found = false;
-	int retval = 0;
+	struct inet6_dev *idev;
+	struct inet6_ifaddr *ifp;
+	int i;
 
-	IPA_BE_DBG("ipa_be_delete_private_subnet: intf_num=%d bridge_if_num=%d ip_type=%d\n",
-		intf_num, bridge_if_num, ip_type);
+	idev = in6_dev_get(bridge_dev);
+	if (!idev) {
+		IPA_BE_DBG("bridge %s: no inet6_dev; no v6 private-subnet rule\n",
+			bridge_dev->name);
+		return false;
+	}
 
-	spin_lock_bh(&ipa_private_subnet_lock);
-	list_for_each_entry_safe(ps_pair, tmp, &ipa_private_subnet_pairs_list, node) {
-		if (ps_pair->intf_num == intf_num &&
-		    ps_pair->bridge_if_num == bridge_if_num &&
-		    ps_pair->ip_type == ip_type) {
-			atomic_dec(&ps_pair->ref_count);
-			IPA_BE_DBG("Decremented ref_count for private subnet pair intf %d, bridge %d, ip_type %d. New count: %d\n",
-				intf_num, bridge_if_num, ip_type, atomic_read(&ps_pair->ref_count));
-			if (atomic_read(&ps_pair->ref_count) > 0) {
-				/* Other connections still using these rules */
-				spin_unlock_bh(&ipa_private_subnet_lock);
-				IPA_BE_DBG("Private subnet rules for intf %d, bridge %d, ip_type %d still in use. ref_count: %d\n",
-					intf_num, bridge_if_num, ip_type, atomic_read(&ps_pair->ref_count));
-				return 0;
+	read_lock_bh(&idev->lock);
+	list_for_each_entry(ifp, &idev->addr_list, if_list) {
+		int type = ipv6_addr_type(&ifp->addr);
+		uint32_t hi, lo;
+		bool dup = false;
+
+		if (type & (IPV6_ADDR_LINKLOCAL | IPV6_ADDR_MULTICAST |
+			    IPV6_ADDR_LOOPBACK)) {
+			IPA_BE_DBG("bridge %s: skip %pI6c (link-local/mcast/loopback, type 0x%x)\n",
+				bridge_dev->name, &ifp->addr, type);
+			continue;
+		}
+		if (!(type & IPV6_ADDR_UNICAST)) {
+			IPA_BE_DBG("bridge %s: skip %pI6c (not unicast, type 0x%x)\n",
+				bridge_dev->name, &ifp->addr, type);
+			continue;
+		}
+		if (ifp->flags & IFA_F_TENTATIVE) {
+			IPA_BE_DBG("bridge %s: skip %pI6c (tentative, DAD not complete; flags 0x%x)\n",
+				bridge_dev->name, &ifp->addr, ifp->flags);
+			continue;
+		}
+
+		hi = ntohl(ifp->addr.s6_addr32[0]);
+		lo = ntohl(ifp->addr.s6_addr32[1]);
+
+		/* coalesce addresses that share the same /64 prefix */
+		for (i = 0; i < m->n_v6; i++) {
+			if (m->v6_prefix[i][0] == hi &&
+			    m->v6_prefix[i][1] == lo) {
+				dup = true;
+				break;
 			}
-			/* ref_count reached 0 - remove tracking entry and delete rules */
-			list_del(&ps_pair->node);
-			kfree(ps_pair);
-			found = true;
+		}
+		if (dup)
+			continue;
+
+		if (m->n_v6 >= IPA_BE_MAX_V6_PREFIXES) {
+			IPA_BE_ERR("bridge %s has >%d v6 prefixes; extra ignored\n",
+				bridge_dev->name, IPA_BE_MAX_V6_PREFIXES);
 			break;
 		}
+
+		m->v6_prefix[m->n_v6][0] = hi;
+		m->v6_prefix[m->n_v6][1] = lo;
+		m->n_v6++;
+		IPA_BE_DBG("bridge %s: use %pI6c (/64 prefix 0x%08x:%08x) for v6 private-subnet rule\n",
+			bridge_dev->name, &ifp->addr, hi, lo);
 	}
-	spin_unlock_bh(&ipa_private_subnet_lock);
+	read_unlock_bh(&idev->lock);
+	in6_dev_put(idev);
 
-	if (!found) {
-		IPA_BE_ERR("No private subnet tracking entry found for intf %d, bridge %d, ip_type %d\n",
-			intf_num, bridge_if_num, ip_type);
-		return -ENOENT;
-	}
+	if (m->n_v6 == 0)
+		IPA_BE_DBG("bridge %s: no usable global v6 prefix (only link-local/tentative?); no rule\n",
+			bridge_dev->name);
 
-	IPA_BE_DBG("ref_count reached 0 for intf %d, bridge %d, ip_type %d - deleting hardware rules\n",
-		intf_num, bridge_if_num, ip_type);
-
-	retval = ipa_be_delete_rules_by_category(intf_num,
-		IPA_FLT_RULE_CAT_PRIVATE_SUBNET, ip_type);
-
-	IPA_BE_DBG("ipa_be_delete_private_subnet exit retval=%d\n", retval);
-	return retval;
+	return m->n_v6 > 0;
 }
-EXPORT_SYMBOL(ipa_be_delete_private_subnet);
 
-
-int ipa_be_handle_ipv6_prefix_flt_rule(int intf_num, uint32_t *prefix)
+/*
+ * Build and install one private-subnet rule on a single rx pipe for the given
+ * match (v4 subnet, or one v6 /64 prefix in pfx[0..1]). Records the rule handle
+ * under IPA_FLT_RULE_CAT_PRIVATE_SUBNET so it can be deleted by category.
+ */
+static int ipa_be_subnet_add_one(int intf_num, enum ipa_ip_type iptype,
+	const struct ipa_ioc_rx_intf_prop *rx, int rt_tbl_hdl,
+	uint32_t v4_addr, uint32_t v4_mask, const uint32_t *pfx)
 {
-	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
+	struct ipa_ioc_add_flt_rule *tbl;
 	struct ipa_flt_rule_add flt_rule_entry;
-	struct ipa_ioc_query_intf temp_intf;
-	int retval = 0, len = 0;
-	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
-	int idx = 0;
-	int j = 0;
-	int flt_hdl = 0;
-	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
 	struct ipa3_flt_entry flt_entry = {0};
-	struct ipa_private_subnet_pair *ps_pair;
-	struct ipa_private_subnet_pair *new_ps_pair = NULL;
-	const enum ipa_ip_type ip_type = IPA_IP_v6;
-	/* bridge_if_num = 0 used as sentinel for IPv6 prefix rules */
-	const int bridge_if_num = 0;
+	int len, ret = 0;
 
-	IPA_BE_DBG("ipa_be_handle_ipv6_prefix_flt_rule: intf_num=%d prefix=0x%08x:%08x\n",
-		intf_num, prefix ? prefix[0] : 0, prefix ? prefix[1] : 0);
-
-	if (!prefix) {
-		IPA_BE_ERR("prefix is NULL\n");
-		return -EINVAL;
+	len = sizeof(struct ipa_ioc_add_flt_rule) +
+		sizeof(struct ipa_flt_rule_add);
+	tbl = (struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
+	if (!tbl) {
+		IPA_BE_ERR("Failed to allocate filtering table memory\n");
+		return -ENOMEM;
 	}
 
-	/*
-	 * Check if IPv6 prefix filter rules are already installed for this
-	 * intf_num. If so, just increment the ref count and return.
-	 */
-	spin_lock_bh(&ipa_private_subnet_lock);
-	list_for_each_entry(ps_pair, &ipa_private_subnet_pairs_list, node) {
-		if (ps_pair->intf_num == intf_num &&
-		    ps_pair->bridge_if_num == bridge_if_num &&
-		    ps_pair->ip_type == ip_type) {
-			atomic_inc(&ps_pair->ref_count);
-			spin_unlock_bh(&ipa_private_subnet_lock);
-			IPA_BE_DBG("IPv6 prefix rules for intf %d already installed. ref_count: %d\n",
-				intf_num, atomic_read(&ps_pair->ref_count));
-			return 0;
-		}
-	}
-	spin_unlock_bh(&ipa_private_subnet_lock);
+	tbl->commit = 1;
+	tbl->ep = rx->src_pipe;
+	tbl->global = false;
+	tbl->ip = iptype;
+	tbl->num_rules = 1;
 
-	IPA_BE_DBG("Installing new IPv6 prefix filter rules for intf %d\n", intf_num);
+	memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
+	flt_rule_entry.at_rear = true;
+	flt_rule_entry.rule.retain_hdr = 1;
+	flt_rule_entry.flt_rule_hdl = -1;
+	flt_rule_entry.status = -1;
+	flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+	flt_rule_entry.rule.hashable = true;
+	flt_rule_entry.rule.rt_tbl_hdl = rt_tbl_hdl;
+	flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
 
-	/* Check if the filter interface exists */
-	if (!ipa3_query_iface(intf_num, &temp_intf)) {
-		IPA_BE_ERR("Interface with index %u does not exist.\n", intf_num);
-		retval = -EINVAL;
-		goto end;
-	}
+	memcpy(&flt_rule_entry.rule.attrib, &rx->attrib,
+		sizeof(flt_rule_entry.rule.attrib));
+	flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 
-	/* Allocate and query rx_props for intf_num */
-	rx_prop = (struct ipa_ioc_query_intf_rx_props *)kzalloc(
-		sizeof(struct ipa_ioc_query_intf_rx_props) +
-		temp_intf.num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop),
-		GFP_KERNEL);
-	if (!rx_prop) {
-		IPA_BE_ERR("Unable to allocate rx_prop memory.\n");
-		retval = -ENOMEM;
-		goto end;
-	}
-
-	memcpy(rx_prop->name, temp_intf.name, sizeof(temp_intf.name));
-	rx_prop->num_rx_props = temp_intf.num_rx_props;
-	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, temp_intf.name);
-	ipa3_query_intf_rx_props(rx_prop);
-
-	if (rx_prop->num_rx_props == 0) {
-		IPA_BE_ERR("No rx props for iface %s\n", rx_prop->name);
-		retval = -EINVAL;
-		goto end;
-	}
-
-	/* Get the default IPv6 routing table handle - LAN traffic goes to Apps */
-	rt_tbl.ip = IPA_IP_v6;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-	strscpy(rt_tbl.name, V6_DEFAULT_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
-#else
-	strlcpy(rt_tbl.name, V6_DEFAULT_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
-#endif
-
-	if (ipa3_get_rt_tbl(&rt_tbl)) {
-		IPA_BE_ERR("Failed to get default IPv6 routing table %s\n",
-			V6_DEFAULT_ROUTE_TABLE_NAME);
-		retval = -EFAULT;
-		goto end;
-	}
-	IPA_BE_DBG("IPv6 prefix filter uses rt_tbl: %s hdl=%d\n",
-		V6_DEFAULT_ROUTE_TABLE_NAME, rt_tbl.hdl);
-
-	/* Install one filter rule per rx pipe pair (IPv6 only, odd index) */
-	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
-		idx = j * 2 + 1;  /* IPv6 uses odd indices */
-
-		if (idx >= rx_prop->num_rx_props)
-			continue;
-
-		if (rx_prop->rx[idx].ip != IPA_IP_v6) {
-			IPA_BE_DBG("IP not matching required type %d .. continue\n",
-				rx_prop->rx[idx].ip);
-			continue;
-		}
-
-		IPA_BE_DBG("Install IPv6 prefix rule at idx %d src_pipe %d\n",
-			idx, rx_prop->rx[idx].src_pipe);
-
-		len = sizeof(struct ipa_ioc_add_flt_rule) + sizeof(struct ipa_flt_rule_add);
-		pFilteringTable = (struct ipa_ioc_add_flt_rule *)kzalloc(len, GFP_KERNEL);
-		if (!pFilteringTable) {
-			IPA_BE_ERR("Failed to allocate filtering table memory\n");
-			retval = -ENOMEM;
-			goto end;
-		}
-
-		pFilteringTable->commit = 1;
-		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
-		pFilteringTable->global = false;
-		pFilteringTable->ip = IPA_IP_v6;
-		pFilteringTable->num_rules = 1;
-
-		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
-		flt_rule_entry.at_rear = true;
-		flt_rule_entry.rule.retain_hdr = 1;
-		flt_rule_entry.flt_rule_hdl = -1;
-		flt_rule_entry.status = -1;
-		flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
-		flt_rule_entry.rule.hashable = true;
-		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
-		flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
-
-		memcpy(&flt_rule_entry.rule.attrib, &rx_prop->rx[idx].attrib,
-			sizeof(flt_rule_entry.rule.attrib));
-		flt_rule_entry.rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
-
-		/* Match upper 64 bits of IPv6 destination address (/64 prefix) */
-		flt_rule_entry.rule.attrib.u.v6.dst_addr[0] = prefix[0];
-		flt_rule_entry.rule.attrib.u.v6.dst_addr[1] = prefix[1];
+	if (iptype == IPA_IP_v4) {
+		flt_rule_entry.rule.attrib.u.v4.dst_addr_mask = v4_mask;
+		flt_rule_entry.rule.attrib.u.v4.dst_addr = v4_addr;
+	} else {
+		/* match upper 64 bits (/64 prefix) of dst addr */
+		flt_rule_entry.rule.attrib.u.v6.dst_addr[0] = pfx[0];
+		flt_rule_entry.rule.attrib.u.v6.dst_addr[1] = pfx[1];
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[2] = 0x0;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[3] = 0x0;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[0] = 0xFFFFFFFF;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[1] = 0xFFFFFFFF;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[2] = 0x0;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[3] = 0x0;
+	}
 
-		memcpy(&pFilteringTable->rules[0], &flt_rule_entry,
-			sizeof(struct ipa_flt_rule_add));
+	memcpy(&tbl->rules[0], &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
 
-		if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)pFilteringTable, true)) {
-			IPA_BE_ERR("ipa3_add_flt_rule_usr failed for IPv6 prefix rule\n");
-			retval = -EFAULT;
-			kfree(pFilteringTable);
-			pFilteringTable = NULL;
-			goto end;
+	if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)tbl, true)) {
+		IPA_BE_ERR("ipa3_add_flt_rule_usr failed for private subnet rule\n");
+		ret = -EFAULT;
+		goto out;
+	}
+
+	IPA_BE_DBG("Private subnet rule hdl: 0x%x for pipe %d ip %d\n",
+		tbl->rules[0].flt_rule_hdl, rx->src_pipe, iptype);
+
+	flt_entry.flt_hdl = tbl->rules[0].flt_rule_hdl;
+	flt_entry.cat = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
+	flt_entry.ip_type = iptype;
+	ipa3_add_filter_rules_entry(intf_num, flt_entry);
+
+out:
+	kfree(tbl);
+	return ret;
+}
+
+/*
+ * Install the private-subnet "pass to default routing" rules on every rx pipe
+ * of intf_num that matches iptype. For IPv4 one rule per pipe matches the
+ * subnet; for IPv6 one rule per pipe per /64 prefix in the match set. The match
+ * is supplied by the caller (derived from the bridge) instead of from a
+ * connection tuple.
+ *
+ * @rolled_back (if non-NULL) is set true only when the fail: path ran its
+ * interface-wide rollback, which also wipes other bridges' rules; early
+ * failures leave it false so the caller can skip a needless rebuild.
+ */
+static int ipa_be_subnet_install_rules(int intf_num, enum ipa_ip_type iptype,
+	const struct ipa_be_subnet_match *m, bool *rolled_back)
+{
+	struct ipa_ioc_query_intf temp_intf;
+	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
+	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
+	int retval = 0, idx, p;
+
+	if (rolled_back)
+		*rolled_back = false;
+
+	/* Check if the filter interface exists */
+	if (!ipa3_query_iface(intf_num, &temp_intf)) {
+		IPA_BE_ERR("Interface with index %u does not exist.\n", intf_num);
+		return -EINVAL;
+	}
+
+	rx_prop = (struct ipa_ioc_query_intf_rx_props *)kzalloc(
+		sizeof(struct ipa_ioc_query_intf_rx_props) +
+		temp_intf.num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop),
+		GFP_KERNEL);
+	if (!rx_prop) {
+		IPA_BE_ERR("Unable to allocate rx_prop memory.\n");
+		return -ENOMEM;
+	}
+
+	memcpy(rx_prop->name, temp_intf.name, sizeof(temp_intf.name));
+	rx_prop->num_rx_props = temp_intf.num_rx_props;
+	ipa3_query_intf_rx_props(rx_prop);
+
+	if (rx_prop->num_rx_props == 0) {
+		IPA_BE_ERR("No rx props for iface %s\n", rx_prop->name);
+		retval = -EINVAL;
+		goto end;
+	}
+
+	/* Default routing table - LAN-local traffic goes to Apps via dflt tbl */
+	rt_tbl.ip = iptype;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+	strscpy(rt_tbl.name,
+		(iptype == IPA_IP_v4) ? V4_DEFAULT_ROUTE_TABLE_NAME :
+					V6_DEFAULT_ROUTE_TABLE_NAME,
+		sizeof(rt_tbl.name));
+#else
+	strlcpy(rt_tbl.name,
+		(iptype == IPA_IP_v4) ? V4_DEFAULT_ROUTE_TABLE_NAME :
+					V6_DEFAULT_ROUTE_TABLE_NAME,
+		sizeof(rt_tbl.name));
+#endif
+	if (ipa3_get_rt_tbl(&rt_tbl)) {
+		IPA_BE_ERR("Failed to get default routing table for ip %d\n",
+			iptype);
+		retval = -EFAULT;
+		goto end;
+	}
+	IPA_BE_DBG("Private subnet (ip %d) uses rt_tbl hdl=%d\n",
+		iptype, rt_tbl.hdl);
+
+	/* Install rules on each rx pipe matching iptype */
+	for (idx = 0; idx < rx_prop->num_rx_props; idx++) {
+		if (rx_prop->rx[idx].ip != iptype)
+			continue;
+
+		if (iptype == IPA_IP_v4) {
+			retval = ipa_be_subnet_add_one(intf_num, iptype,
+				&rx_prop->rx[idx], rt_tbl.hdl,
+				m->v4_addr, m->v4_mask, NULL);
+			if (retval)
+				goto fail;
+		} else {
+			/* one rule per /64 prefix on this pipe */
+			for (p = 0; p < m->n_v6; p++) {
+				retval = ipa_be_subnet_add_one(intf_num, iptype,
+					&rx_prop->rx[idx], rt_tbl.hdl,
+					0, 0, m->v6_prefix[p]);
+				if (retval)
+					goto fail;
+			}
 		}
-
-		flt_hdl = pFilteringTable->rules[0].flt_rule_hdl;
-		IPA_BE_DBG("IPv6 prefix filter rule hdl: 0x%x for pipe %d\n",
-			flt_hdl, rx_prop->rx[idx].src_pipe);
-
-		flt_entry.flt_hdl = flt_hdl;
-		flt_entry.cat = IPA_FLT_RULE_CAT_PRIVATE_SUBNET;
-		flt_entry.ip_type = IPA_IP_v6;
-		ipa3_add_filter_rules_entry(intf_num, flt_entry);
-
-		kfree(pFilteringTable);
-		pFilteringTable = NULL;
 	}
 
-	retval = 0;
+	kfree(rx_prop);
+	return 0;
 
+fail:
 	/*
-	 * Rules installed successfully. Add a new tracking entry with ref_count=1
-	 * so subsequent calls for the same interface are deduplicated.
+	 * Partial failure: rules already added on earlier pipes/prefixes were
+	 * recorded under IPA_FLT_RULE_CAT_PRIVATE_SUBNET but won't be tracked
+	 * by the caller. Roll them back. Log a warning if the HW delete itself
+	 * fails — untracked HW rules may persist, but there is nothing further
+	 * we can do here; the next reconcile will reinstall a clean set.
+	 * The delete is interface-wide, so signal the caller it wiped other
+	 * bridges' rules too.
 	 */
-	spin_lock_bh(&ipa_private_subnet_lock);
-	new_ps_pair = kzalloc(sizeof(struct ipa_private_subnet_pair), GFP_ATOMIC);
-	if (!new_ps_pair) {
-		spin_unlock_bh(&ipa_private_subnet_lock);
-		IPA_BE_ERR("Failed to allocate memory for IPv6 prefix pair tracking\n");
-		/* Rules were installed but tracking failed - not fatal */
-	} else {
-		new_ps_pair->intf_num = intf_num;
-		new_ps_pair->bridge_if_num = bridge_if_num;
-		new_ps_pair->ip_type = ip_type;
-		atomic_set(&new_ps_pair->ref_count, 1);
-		list_add(&new_ps_pair->node, &ipa_private_subnet_pairs_list);
-		IPA_BE_DBG("Added IPv6 prefix pair: intf %d, ip_type %d, ref_count: 1\n",
-			intf_num, ip_type);
-		spin_unlock_bh(&ipa_private_subnet_lock);
-	}
-
+	if (rolled_back)
+		*rolled_back = true;
+	if (ipa_be_delete_rules_by_category(intf_num,
+		IPA_FLT_RULE_CAT_PRIVATE_SUBNET, iptype))
+		IPA_BE_ERR("HW rollback failed for intf %d ip %d; untracked rules may linger\n",
+			intf_num, iptype);
 end:
-	if (pFilteringTable)
-		kfree(pFilteringTable);
-	if (rx_prop)
-		kfree(rx_prop);
-
-	IPA_BE_DBG("ipa_be_handle_ipv6_prefix_flt_rule exit retval=%d\n", retval);
+	kfree(rx_prop);
 	return retval;
 }
-EXPORT_SYMBOL(ipa_be_handle_ipv6_prefix_flt_rule);
 
-int ipa_be_delete_ipv6_prefix_flt_rule(int intf_num)
+/*
+ * Reinstall the private-subnet rules for each entry in `entries` (HW assumed
+ * already wiped by the caller). On full success the entries are re-tracked. On
+ * any failure the loop stops, a category wipe clears partial HW state, and all
+ * entries are freed so the next reconcile retries the whole interface.
+ * Consumes `entries`: empty on return.
+ */
+static void ipa_be_subnet_reinstall_entries(int intf_num,
+	enum ipa_ip_type iptype, struct list_head *entries)
 {
-	struct ipa_private_subnet_pair *ps_pair, *tmp;
-	bool found = false;
-	int retval = 0;
-	const enum ipa_ip_type ip_type = IPA_IP_v6;
-	const int bridge_if_num = 0;
+	struct ipa_private_subnet_entry *e, *tmp;
+	LIST_HEAD(ok);
+	bool any_failed = false;
 
-	IPA_BE_DBG("ipa_be_delete_ipv6_prefix_flt_rule: intf_num=%d\n", intf_num);
+	list_for_each_entry_safe(e, tmp, entries, node) {
+		if (any_failed)
+			break;
+
+		list_del(&e->node);
+		IPA_BE_DBG("Reinstalling bridge %d rules on intf %d ip %d\n",
+			e->bridge_if_num, intf_num, iptype);
+		if (ipa_be_subnet_install_rules(intf_num, iptype, &e->match,
+				NULL)) {
+			IPA_BE_ERR("Reinstall failed bridge %d intf %d ip %d\n",
+				e->bridge_if_num, intf_num, iptype);
+			kfree(e);
+			any_failed = true;
+		} else {
+			list_add(&e->node, &ok);
+		}
+	}
+
+	if (!any_failed) {
+		spin_lock_bh(&ipa_private_subnet_lock);
+		list_splice(&ok, &ipa_private_subnet_entries_list);
+		spin_unlock_bh(&ipa_private_subnet_lock);
+		return;
+	}
+
+	/* Wipe partial HW state, then free all tracking; next reconcile retries. */
+	IPA_BE_ERR("Reinstall failure on intf %d ip %d; wiping and clearing tracking\n",
+		intf_num, iptype);
+	if (ipa_be_delete_rules_by_category(intf_num,
+		IPA_FLT_RULE_CAT_PRIVATE_SUBNET, iptype)) {
+		/* Wipe failed: reattach ok tracking so it is not lost. */
+		IPA_BE_ERR("Emergency wipe failed intf %d ip %d; reattaching ok tracking\n",
+			intf_num, iptype);
+		spin_lock_bh(&ipa_private_subnet_lock);
+		list_splice(&ok, &ipa_private_subnet_entries_list);
+		spin_unlock_bh(&ipa_private_subnet_lock);
+	} else {
+		list_for_each_entry_safe(e, tmp, &ok, node) {
+			list_del(&e->node);
+			kfree(e);
+		}
+	}
+	list_for_each_entry_safe(e, tmp, entries, node) {
+		list_del(&e->node);
+		kfree(e);
+	}
+}
+
+/*
+ * Rebuild all tracked private-subnet rules for (intf_num, iptype) from scratch.
+ * Called after install_rules' fail: path, whose interface-wide rollback may have
+ * wiped other bridges' HW rules while their tracking still claims them installed.
+ * The just-failed bridge is already untracked, so it is not reinstalled here.
+ */
+static void ipa_be_subnet_rebuild(int intf_num, enum ipa_ip_type iptype)
+{
+	struct ipa_private_subnet_entry *e, *tmp;
+	LIST_HEAD(entries);
 
 	spin_lock_bh(&ipa_private_subnet_lock);
-	list_for_each_entry_safe(ps_pair, tmp, &ipa_private_subnet_pairs_list, node) {
-		if (ps_pair->intf_num == intf_num &&
-		    ps_pair->bridge_if_num == bridge_if_num &&
-		    ps_pair->ip_type == ip_type) {
-			atomic_dec(&ps_pair->ref_count);
-			IPA_BE_DBG("Decremented ref_count for IPv6 prefix pair intf %d. New count: %d\n",
-				intf_num, atomic_read(&ps_pair->ref_count));
-			if (atomic_read(&ps_pair->ref_count) > 0) {
-				spin_unlock_bh(&ipa_private_subnet_lock);
-				IPA_BE_DBG("IPv6 prefix rules for intf %d still in use. ref_count: %d\n",
-					intf_num, atomic_read(&ps_pair->ref_count));
-				return 0;
-			}
-			/* ref_count reached 0 - remove tracking entry and delete rules */
-			list_del(&ps_pair->node);
-			kfree(ps_pair);
-			found = true;
-			break;
+	list_for_each_entry_safe(e, tmp, &ipa_private_subnet_entries_list, node) {
+		if (e->intf_num == intf_num && e->ip_type == iptype) {
+			list_del(&e->node);
+			list_add(&e->node, &entries);
 		}
 	}
 	spin_unlock_bh(&ipa_private_subnet_lock);
 
-	if (!found) {
-		IPA_BE_ERR("No IPv6 prefix tracking entry found for intf %d\n", intf_num);
-		return -ENOENT;
+	if (list_empty(&entries))
+		return;
+
+	/* Clear any residual HW rules before reinstalling from tracking. */
+	if (ipa_be_delete_rules_by_category(intf_num,
+		IPA_FLT_RULE_CAT_PRIVATE_SUBNET, iptype)) {
+		/* Wipe failed: reattach tracking, let next reconcile repair. */
+		IPA_BE_ERR("Rebuild wipe failed intf %d ip %d; reattaching tracking\n",
+			intf_num, iptype);
+		spin_lock_bh(&ipa_private_subnet_lock);
+		list_splice(&entries, &ipa_private_subnet_entries_list);
+		spin_unlock_bh(&ipa_private_subnet_lock);
+		return;
 	}
 
-	IPA_BE_DBG("ref_count reached 0 for intf %d - deleting IPv6 prefix hardware rules\n",
-		intf_num);
-
-	retval = ipa_be_delete_rules_by_category(intf_num,
-		IPA_FLT_RULE_CAT_PRIVATE_SUBNET, IPA_IP_v6);
-
-	IPA_BE_DBG("ipa_be_delete_ipv6_prefix_flt_rule exit retval=%d\n", retval);
-	return retval;
+	ipa_be_subnet_reinstall_entries(intf_num, iptype, &entries);
 }
-EXPORT_SYMBOL(ipa_be_delete_ipv6_prefix_flt_rule);
+
+/*
+ * Delete the private-subnet rules for (intf_num, iptype, bridge_if_num) from HW
+ * and drop that bridge's tracking entry. The category delete is interface-wide,
+ * so survivors are reinstalled via ipa_be_subnet_reinstall_entries().
+ * bridge_if_num = 0 removes ALL bridge entries (interface down).
+ */
+static void ipa_be_subnet_remove(int intf_num, enum ipa_ip_type iptype,
+	int bridge_if_num)
+{
+	struct ipa_private_subnet_entry *e, *tmp;
+	LIST_HEAD(survivors);
+	bool found = false;
+
+	spin_lock_bh(&ipa_private_subnet_lock);
+	list_for_each_entry_safe(e, tmp, &ipa_private_subnet_entries_list, node) {
+		if (e->intf_num != intf_num || e->ip_type != iptype)
+			continue;
+		list_del(&e->node);
+		if (bridge_if_num && e->bridge_if_num != bridge_if_num)
+			list_add(&e->node, &survivors);
+		else {
+			kfree(e);
+			found = true;
+		}
+	}
+	spin_unlock_bh(&ipa_private_subnet_lock);
+
+	/*
+	 * If the target bridge entry was not found but survivors exist, there is
+	 * nothing to remove. Reattach survivors and return without triggering a
+	 * needless category wipe and reinstall cycle.
+	 */
+	if (!found) {
+		if (!list_empty(&survivors)) {
+			spin_lock_bh(&ipa_private_subnet_lock);
+			list_splice(&survivors, &ipa_private_subnet_entries_list);
+			spin_unlock_bh(&ipa_private_subnet_lock);
+		}
+		return;
+	}
+
+	IPA_BE_DBG("Removing private subnet rules intf %d bridge %d ip %d\n",
+		intf_num, bridge_if_num, iptype);
+
+	/* wipe all HW rules for this intf/iptype (category delete is interface-wide) */
+	if (ipa_be_delete_rules_by_category(intf_num,
+		IPA_FLT_RULE_CAT_PRIVATE_SUBNET, iptype)) {
+		/*
+		 * HW delete failed. Tracking for the removed bridge is already
+		 * gone. Reattach survivors so they remain tracked — reinstalling
+		 * on top of a partially-wiped HW state would create duplicates.
+		 * The next reconcile will re-evaluate and repair.
+		 */
+		IPA_BE_ERR("Category wipe failed intf %d ip %d; reattaching survivors\n",
+			intf_num, iptype);
+		spin_lock_bh(&ipa_private_subnet_lock);
+		list_splice(&survivors, &ipa_private_subnet_entries_list);
+		spin_unlock_bh(&ipa_private_subnet_lock);
+		return;
+	}
+
+	if (list_empty(&survivors))
+		return;
+
+	/* Survivors were wiped by the category delete above; reinstall them. */
+	ipa_be_subnet_reinstall_entries(intf_num, iptype, &survivors);
+}
+
+/*
+ * Compare two match sets. For IPv6 the prefix set is order-independent (the
+ * kernel may enumerate addresses in any order), so compare as sets.
+ */
+static bool ipa_be_match_equal(enum ipa_ip_type iptype,
+	const struct ipa_be_subnet_match *a,
+	const struct ipa_be_subnet_match *b)
+{
+	int i, j;
+
+	if (iptype == IPA_IP_v4)
+		return a->v4_addr == b->v4_addr && a->v4_mask == b->v4_mask;
+
+	if (a->n_v6 != b->n_v6)
+		return false;
+
+	/* every prefix in a must be present in b (counts equal => set equal) */
+	for (i = 0; i < a->n_v6; i++) {
+		bool found = false;
+
+		for (j = 0; j < b->n_v6; j++) {
+			if (a->v6_prefix[i][0] == b->v6_prefix[j][0] &&
+			    a->v6_prefix[i][1] == b->v6_prefix[j][1]) {
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+			return false;
+	}
+	return true;
+}
+
+/*
+ * Reconcile intf_num/iptype against the supplied match: install if missing,
+ * reprogram if changed, no-op if already installed. Runs in process context
+ * (workqueue); HW APIs may sleep, so ipa_private_subnet_lock is never held
+ * across them.
+ */
+static int ipa_be_subnet_program(int intf_num, int bridge_if_num,
+	enum ipa_ip_type iptype, const struct ipa_be_subnet_match *m)
+{
+	struct ipa_private_subnet_entry *e;
+	bool exists = false, changed = false;
+	bool rolled_back = false;
+	int ret;
+
+	spin_lock_bh(&ipa_private_subnet_lock);
+	e = ipa_be_subnet_find_locked(intf_num, iptype, bridge_if_num);
+	if (e) {
+		exists = true;
+		changed = !ipa_be_match_equal(iptype, &e->match, m);
+	}
+	spin_unlock_bh(&ipa_private_subnet_lock);
+
+	if (exists && !changed) {
+		IPA_BE_DBG("Private subnet intf %d bridge %d ip %d unchanged, skip\n",
+			intf_num, bridge_if_num, iptype);
+		return 0;
+	}
+
+	/* match changed: tear down the stale rules before reinstalling */
+	if (exists && changed)
+		ipa_be_subnet_remove(intf_num, iptype, bridge_if_num);
+
+	ret = ipa_be_subnet_install_rules(intf_num, iptype, m, &rolled_back);
+	if (ret) {
+		IPA_BE_ERR("Failed to install private subnet rules intf %d ip %d ret %d\n",
+			intf_num, iptype, ret);
+		/* Rebuild other bridges only if the fail: path wiped their rules. */
+		if (rolled_back)
+			ipa_be_subnet_rebuild(intf_num, iptype);
+		return ret;
+	}
+
+	/* record the now-installed match so future reconciles can dedup */
+	spin_lock_bh(&ipa_private_subnet_lock);
+	e = ipa_be_subnet_find_locked(intf_num, iptype, bridge_if_num);
+	if (!e) {
+		e = kzalloc(sizeof(*e), GFP_ATOMIC);
+		if (!e) {
+			spin_unlock_bh(&ipa_private_subnet_lock);
+			IPA_BE_ERR("subnet track alloc fail; untracked\n");
+			return 0;
+		}
+		e->intf_num = intf_num;
+		e->ip_type = iptype;
+		list_add(&e->node, &ipa_private_subnet_entries_list);
+	}
+	e->bridge_if_num = bridge_if_num;
+	e->match = *m;
+	spin_unlock_bh(&ipa_private_subnet_lock);
+
+	IPA_BE_DBG("Programmed private subnet intf %d bridge %d ip %d\n",
+		intf_num, bridge_if_num, iptype);
+	return 0;
+}
+
+
+/*
+ * Always-on private-subnet reconcile engine.
+ *
+ * Keeps the private-subnet rule installed on every bridge-enslaved LAN RX iface,
+ * independent of flow acceleration. netdevice/inet(6)addr notifiers walk a
+ * bridge's slaves; each slave's net->ifindex is its intf_num (set by
+ * ipa_register_intf). Notifiers may run atomic and the install path sleeps, so
+ * work is deferred to the backend IPv4/IPv6 ordered workqueues.
+ */
+
+struct ipa_be_subnet_work {
+	struct work_struct work;
+	int bridge_ifindex;     /* bridge to reconcile (0 if slave-targeted) */
+	int slave_ifindex;      /* if non-zero: remove this slave only (real-dev
+				 * ifindex, resolved at queue time) */
+	bool slave_was_vlan;    /* slave_ifindex was resolved from a VLAN */
+	int slave_bridge_ifnum; /* specific bridge to scope slave removal (0 = all) */
+	enum ipa_ip_type ip_type;
+	bool remove_only;       /* true: tear down on this bridge's slaves */
+};
+
+/*
+ * Workqueues used to defer reconcile work out of (possibly atomic) notifier
+ * context. Set by ipa_be_subnet_notifier_init() from the backend's existing
+ * IPv4/IPv6 ordered workqueues.
+ */
+static struct workqueue_struct *ipa_be_subnet_v4_wq;
+static struct workqueue_struct *ipa_be_subnet_v6_wq;
+
+static bool ipa_be_subnet_notifiers_registered;
+
+static void ipa_be_subnet_queue(int bridge_ifindex, enum ipa_ip_type ip_type,
+	bool remove_only);
+
+/*
+ * IPv6 globals are tentative until DAD completes and get_v6() skips them, so a
+ * reconcile that runs before DAD finds nothing and no further event may arrive.
+ * A bounded delayed re-reconcile retries; the budget stops IPPT-without-NAT
+ * (legitimately no v6 prefix) from retrying forever.
+ */
+#define IPA_BE_V6_SETTLE_DELAY_MS 3000
+#define IPA_BE_V6_SETTLE_MAX_TRIES 4
+static struct delayed_work ipa_be_subnet_v6_settle_dwork;
+static int ipa_be_subnet_v6_settle_tries;
+static bool ipa_be_subnet_v6_settle_armed;
+static DEFINE_SPINLOCK(ipa_be_subnet_settle_lock);
+
+/*
+ * Enqueue under the lock so it cannot race deinit, which zeroes the budget under
+ * the same lock before cancelling the work. queue_delayed_work() is non-sleeping.
+ */
+static void ipa_be_subnet_v6_settle_arm(void)
+{
+	spin_lock_bh(&ipa_be_subnet_settle_lock);
+	if (ipa_be_subnet_notifiers_registered &&
+	    ipa_be_subnet_v6_wq &&
+	    ipa_be_subnet_v6_settle_tries > 0 &&
+	    !ipa_be_subnet_v6_settle_armed) {
+		ipa_be_subnet_v6_settle_armed = true;
+		IPA_BE_DBG("arming v6 settle re-reconcile in %dms (tries left %d)\n",
+			IPA_BE_V6_SETTLE_DELAY_MS, ipa_be_subnet_v6_settle_tries);
+		queue_delayed_work(ipa_be_subnet_v6_wq,
+			&ipa_be_subnet_v6_settle_dwork,
+			msecs_to_jiffies(IPA_BE_V6_SETTLE_DELAY_MS));
+	}
+	spin_unlock_bh(&ipa_be_subnet_settle_lock);
+}
+
+/*
+ * Refresh the budget on a genuine external event so a later DAD window gets a
+ * fresh set of retries. Never call from the settle worker's own re-seed.
+ */
+static void ipa_be_subnet_v6_settle_reset(void)
+{
+	spin_lock_bh(&ipa_be_subnet_settle_lock);
+	if (ipa_be_subnet_notifiers_registered)
+		ipa_be_subnet_v6_settle_tries = IPA_BE_V6_SETTLE_MAX_TRIES;
+	spin_unlock_bh(&ipa_be_subnet_settle_lock);
+}
+
+static void ipa_be_subnet_v6_settle_fn(struct work_struct *work)
+{
+	struct net_device *dev;
+
+	spin_lock_bh(&ipa_be_subnet_settle_lock);
+	ipa_be_subnet_v6_settle_armed = false;
+	if (!ipa_be_subnet_notifiers_registered ||
+	    ipa_be_subnet_v6_settle_tries <= 0) {
+		spin_unlock_bh(&ipa_be_subnet_settle_lock);
+		return;
+	}
+	ipa_be_subnet_v6_settle_tries--;
+	spin_unlock_bh(&ipa_be_subnet_settle_lock);
+
+	IPA_BE_DBG("v6 settle re-reconcile firing (tries left %d)\n",
+		ipa_be_subnet_v6_settle_tries);
+
+	rtnl_lock();
+	for_each_netdev(&init_net, dev) {
+		if (netif_is_bridge_master(dev))
+			ipa_be_subnet_queue(dev->ifindex, IPA_IP_v6, false);
+	}
+	rtnl_unlock();
+}
+
+
+/* per-walk context: collect IPA-registered slave ifindexes under RTNL */
+#define IPA_BE_MAX_BRIDGE_SLAVES 16
+struct ipa_be_reconcile_ctx {
+	int slave_ifindex[IPA_BE_MAX_BRIDGE_SLAVES];
+	int n_slaves;
+};
+
+/*
+ * Collect one slave ifindex (called for each lower dev of the bridge, under
+ * RTNL).
+ */
+static int ipa_be_collect_slave(struct net_device *slave,
+	struct netdev_nested_priv *priv)
+{
+	struct ipa_be_reconcile_ctx *ctx =
+		(struct ipa_be_reconcile_ctx *)priv->data;
+
+	if (ctx->n_slaves >= IPA_BE_MAX_BRIDGE_SLAVES) {
+		IPA_BE_ERR("bridge has more than %d slaves; some not reconciled\n",
+			IPA_BE_MAX_BRIDGE_SLAVES);
+		return 0;
+	}
+
+	ctx->slave_ifindex[ctx->n_slaves++] = slave->ifindex;
+	return 0;
+}
+
+/*
+ * Reconcile all IPA-registered slaves of bridge_dev for ip_type. Runs in
+ * process context (workqueue). Slave enumeration happens under RTNL; the
+ * IPA queries and the sleeping HW install/delete happen afterwards with no
+ * locks held (to avoid nesting ipa3_ctx->lock under RTNL).
+ */
+static void ipa_be_subnet_reconcile(struct net_device *bridge_dev,
+	int bridge_ifindex, enum ipa_ip_type ip_type, bool remove_only)
+{
+	struct ipa_be_reconcile_ctx ctx = {0};
+	struct netdev_nested_priv priv = {0};
+	struct ipa_ioc_query_intf tmp;
+	struct ipa_be_subnet_match m = {0};
+	bool has_match = false;
+	int i;
+
+	/* Read the bridge's current address(es), if any, before walking slaves. */
+	if (!remove_only) {
+		if (ip_type == IPA_IP_v4)
+			has_match = ipa_be_subnet_get_v4(bridge_dev, &m);
+		else
+			has_match = ipa_be_subnet_get_v6(bridge_dev, &m);
+	}
+
+	priv.data = &ctx;
+	rtnl_lock();
+	netdev_walk_all_lower_dev(bridge_dev, ipa_be_collect_slave, &priv);
+	rtnl_unlock();
+
+	for (i = 0; i < ctx.n_slaves; i++) {
+		int intf_num = ctx.slave_ifindex[i];
+		/*
+		 * IPA registers the physical interface (eth0), not VLAN
+		 * sub-interfaces (eth0.10). If the bridge slave is a VLAN
+		 * device, look through to its real underlying device so the
+		 * private-subnet rule is programmed on the correct IPA pipe.
+		 * Example: br-lan10 → eth0.10 → real_dev=eth0 → intf_num=eth0->ifindex
+		 */
+		if (!ipa3_query_iface(intf_num, &tmp)) {
+			struct net_device *slave_dev;
+
+			slave_dev = dev_get_by_index(&init_net, intf_num);
+			if (slave_dev) {
+				if (is_vlan_dev(slave_dev))
+					intf_num = vlan_dev_real_dev(slave_dev)->ifindex;
+				dev_put(slave_dev);
+			}
+			if (!ipa3_query_iface(intf_num, &tmp))
+				continue;
+		}
+
+		if (remove_only || !has_match) {
+			IPA_BE_DBG("Reconcile remove: intf %d bridge %d ip %d (%s)\n",
+				intf_num, bridge_ifindex, ip_type,
+				remove_only ? "remove_only" :
+					"no private match (e.g. IPPT without NAT)");
+			ipa_be_subnet_remove(intf_num, ip_type, bridge_ifindex);
+		} else {
+			ipa_be_subnet_program(intf_num, bridge_ifindex,
+				ip_type, &m);
+		}
+	}
+
+	/* v6 install attempt found no prefix: retry in case DAD is still running */
+	if (ip_type == IPA_IP_v6 && !remove_only && !has_match)
+		ipa_be_subnet_v6_settle_arm();
+}
+
+static void ipa_be_subnet_work_fn(struct work_struct *work)
+{
+	struct ipa_be_subnet_work *w =
+		container_of(work, struct ipa_be_subnet_work, work);
+	struct net_device *bridge_dev;
+
+	/*
+	 * Slave-targeted removal (interface down / released from bridge).
+	 * Per-family, queued on that family's workqueue, so it stays FIFO-ordered
+	 * against any re-add reconcile. slave_ifindex was resolved to the real
+	 * device at queue time, so VLAN entries are found even after the subif
+	 * has unregistered.
+	 */
+	if (w->slave_ifindex) {
+		int intf_num = w->slave_ifindex;
+
+		if (w->slave_bridge_ifnum || !w->slave_was_vlan) {
+			/*
+			 * Scoped remove (CHANGEUPPER unlink) or physical
+			 * interface down: remove the specific bridge or all.
+			 */
+			ipa_be_subnet_remove(intf_num, w->ip_type,
+				w->slave_bridge_ifnum);
+		} else {
+			/*
+			 * VLAN subif down with no bridge master: remove each
+			 * tracked bridge for this intf/iptype individually rather
+			 * than bridge_ifnum=0, so other VLAN bridges on the same
+			 * real device are not wiped.
+			 */
+			struct ipa_private_subnet_entry *e;
+			int bridges[IPA_BE_MAX_BRIDGE_SLAVES];
+			int n = 0, i;
+
+			spin_lock_bh(&ipa_private_subnet_lock);
+			list_for_each_entry(e, &ipa_private_subnet_entries_list,
+					node) {
+				if (e->intf_num == intf_num &&
+				    e->ip_type == w->ip_type &&
+				    n < IPA_BE_MAX_BRIDGE_SLAVES)
+					bridges[n++] = e->bridge_if_num;
+			}
+			spin_unlock_bh(&ipa_private_subnet_lock);
+
+			for (i = 0; i < n; i++)
+				ipa_be_subnet_remove(intf_num, w->ip_type,
+					bridges[i]);
+		}
+		kfree(w);
+		return;
+	}
+
+	bridge_dev = dev_get_by_index(&init_net, w->bridge_ifindex);
+	if (bridge_dev) {
+		ipa_be_subnet_reconcile(bridge_dev, w->bridge_ifindex,
+			w->ip_type, w->remove_only);
+		dev_put(bridge_dev);
+	} else {
+		IPA_BE_DBG("bridge ifindex %d gone; skip reconcile\n",
+			w->bridge_ifindex);
+	}
+
+	kfree(w);
+}
+
+/* Queue a reconcile for a bridge on the matching IPv4/IPv6 workqueue. */
+static void ipa_be_subnet_queue(int bridge_ifindex, enum ipa_ip_type ip_type,
+	bool remove_only)
+{
+	struct workqueue_struct *wq;
+	struct ipa_be_subnet_work *w;
+
+	wq = (ip_type == IPA_IP_v4) ? ipa_be_subnet_v4_wq : ipa_be_subnet_v6_wq;
+	if (!wq)
+		return;
+
+	w = kzalloc(sizeof(*w), GFP_ATOMIC);
+	if (!w) {
+		IPA_BE_ERR("Failed to alloc subnet work item\n");
+		return;
+	}
+
+	INIT_WORK(&w->work, ipa_be_subnet_work_fn);
+	w->bridge_ifindex = bridge_ifindex;
+	w->ip_type = ip_type;
+	w->remove_only = remove_only;
+	queue_work(wq, &w->work);
+}
+
+/*
+ * Queue per-family removal for one slave (interface down / released from
+ * bridge, where a bridge walk no longer sees it). Per-family on that family's
+ * workqueue keeps the remove FIFO-ordered against a re-add reconcile.
+ */
+static void ipa_be_subnet_queue_slave_remove_family(int slave_ifindex,
+	bool slave_was_vlan, enum ipa_ip_type ip_type, int bridge_ifnum)
+{
+	struct workqueue_struct *wq;
+	struct ipa_be_subnet_work *w;
+
+	wq = (ip_type == IPA_IP_v4) ? ipa_be_subnet_v4_wq : ipa_be_subnet_v6_wq;
+	if (!wq)
+		return;
+
+	w = kzalloc(sizeof(*w), GFP_ATOMIC);
+	if (!w) {
+		IPA_BE_ERR("Failed to alloc subnet work item\n");
+		return;
+	}
+
+	INIT_WORK(&w->work, ipa_be_subnet_work_fn);
+	w->slave_ifindex = slave_ifindex;
+	w->slave_was_vlan = slave_was_vlan;
+	w->slave_bridge_ifnum = bridge_ifnum;
+	w->ip_type = ip_type;
+	queue_work(wq, &w->work);
+}
+
+/*
+ * Queue per-family removal for a slave; bridge_ifnum scopes which bridge.
+ * Resolves VLAN to real device here (under RTNL, netdev still live) since
+ * tracking is keyed on the physical ifindex; resolving later could fail.
+ */
+static void ipa_be_subnet_queue_slave_remove(struct net_device *dev,
+	int bridge_ifnum)
+{
+	int slave_ifindex = dev->ifindex;
+	bool was_vlan = false;
+
+	if (is_vlan_dev(dev)) {
+		slave_ifindex = vlan_dev_real_dev(dev)->ifindex;
+		was_vlan = true;
+	}
+
+	ipa_be_subnet_queue_slave_remove_family(slave_ifindex, was_vlan,
+		IPA_IP_v4, bridge_ifnum);
+	ipa_be_subnet_queue_slave_remove_family(slave_ifindex, was_vlan,
+		IPA_IP_v6, bridge_ifnum);
+}
+
+/* Queue both address families for a bridge. */
+static void ipa_be_subnet_queue_both(int bridge_ifindex, bool remove_only)
+{
+	/* install-side reconcile is a new topology event: refresh the v6 budget */
+	if (!remove_only)
+		ipa_be_subnet_v6_settle_reset();
+
+	ipa_be_subnet_queue(bridge_ifindex, IPA_IP_v4, remove_only);
+	ipa_be_subnet_queue(bridge_ifindex, IPA_IP_v6, remove_only);
+}
+
+/*
+ * netdevice notifier: react to bridge enslave/release and interface up/down so
+ * the rule follows the topology (a slave appearing under a bridge that already
+ * has an address must trigger an install that a pure address notifier misses).
+ */
+static int ipa_be_netdev_event(struct notifier_block *nb,
+	unsigned long event, void *ptr)
+{
+	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
+	struct net_device *bridge;
+
+	if (!dev)
+		return NOTIFY_DONE;
+
+	switch (event) {
+	case NETDEV_CHANGEUPPER: {
+		struct netdev_notifier_changeupper_info *info = ptr;
+
+		if (!info->upper_dev || !netif_is_bridge_master(info->upper_dev))
+			break;
+		if (info->linking)
+			ipa_be_subnet_queue_both(info->upper_dev->ifindex, false);
+		else
+			/*
+			 * Released from this specific bridge: scope the remove to
+			 * that bridge so rules for other bridges on the same real
+			 * device are not affected.
+			 */
+			ipa_be_subnet_queue_slave_remove(dev,
+				info->upper_dev->ifindex);
+		break;
+	}
+	case NETDEV_UP:
+	case NETDEV_REGISTER:
+		/* a slave came up; if it is under a bridge, (re)program it */
+		rcu_read_lock();
+		bridge = netdev_master_upper_dev_get_rcu(dev);
+		if (bridge && netif_is_bridge_master(bridge)) {
+			int b_ifindex = bridge->ifindex;
+
+			rcu_read_unlock();
+			ipa_be_subnet_queue_both(b_ifindex, false);
+		} else {
+			rcu_read_unlock();
+		}
+		break;
+	case NETDEV_DOWN:
+	case NETDEV_UNREGISTER:
+		rcu_read_lock();
+		bridge = netdev_master_upper_dev_get_rcu(dev);
+		if (bridge && netif_is_bridge_master(bridge)) {
+			/*
+			 * Still attached: scope the remove to this bridge so
+			 * rules for other VLAN bridges on the same real device
+			 * are not affected.
+			 */
+			int b_ifindex = bridge->ifindex;
+
+			rcu_read_unlock();
+			ipa_be_subnet_queue_slave_remove(dev, b_ifindex);
+		} else {
+			rcu_read_unlock();
+			/*
+			 * Not attached to any bridge. A VLAN subif already got a
+			 * scoped remove at CHANGEUPPER (delivered before DOWN), so
+			 * skip it here to avoid wiping other VLAN bridges on the
+			 * same real device; any stale entry self-heals next
+			 * reconcile. A physical iface gets a bridge_ifnum=0 remove.
+			 */
+			if (!is_vlan_dev(dev))
+				ipa_be_subnet_queue_slave_remove(dev, 0);
+		}
+		break;
+	default:
+		break;
+	}
+	return NOTIFY_DONE;
+}
+
+/* IPv4 address add/del on a bridge -> reconcile its slaves. */
+static int ipa_be_inetaddr_event(struct notifier_block *nb,
+	unsigned long event, void *ptr)
+{
+	struct in_ifaddr *ifa = (struct in_ifaddr *)ptr;
+	struct net_device *dev;
+
+	if (!ifa || !ifa->ifa_dev || !ifa->ifa_dev->dev)
+		return NOTIFY_DONE;
+
+	dev = ifa->ifa_dev->dev;
+	if (!netif_is_bridge_master(dev))
+		return NOTIFY_DONE;
+
+	if (event == NETDEV_UP || event == NETDEV_DOWN)
+		ipa_be_subnet_queue(dev->ifindex, IPA_IP_v4, false);
+
+	return NOTIFY_DONE;
+}
+
+/* IPv6 address add/del on a bridge -> reconcile its slaves. */
+static int ipa_be_inet6addr_event(struct notifier_block *nb,
+	unsigned long event, void *ptr)
+{
+	struct inet6_ifaddr *ifa = (struct inet6_ifaddr *)ptr;
+	struct net_device *dev;
+
+	if (!ifa || !ifa->idev || !ifa->idev->dev)
+		return NOTIFY_DONE;
+
+	dev = ifa->idev->dev;
+	if (!netif_is_bridge_master(dev))
+		return NOTIFY_DONE;
+
+	if (event == NETDEV_UP || event == NETDEV_DOWN) {
+		ipa_be_subnet_v6_settle_reset();
+		ipa_be_subnet_queue(dev->ifindex, IPA_IP_v6, false);
+	}
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block ipa_be_netdev_nb = {
+	.notifier_call = ipa_be_netdev_event,
+};
+static struct notifier_block ipa_be_inetaddr_nb = {
+	.notifier_call = ipa_be_inetaddr_event,
+};
+static struct notifier_block ipa_be_inet6addr_nb = {
+	.notifier_call = ipa_be_inet6addr_event,
+};
+
+/*
+ * Seed the engine with topology that exists at registration time: if bridges/
+ * slaves/IPs came up before the notifiers registered, no event would arrive.
+ * Queue a reconcile for every existing bridge.
+ */
+static void ipa_be_subnet_seed_existing(void)
+{
+	struct net_device *dev;
+
+	rtnl_lock();
+	for_each_netdev(&init_net, dev) {
+		if (netif_is_bridge_master(dev))
+			ipa_be_subnet_queue_both(dev->ifindex, false);
+	}
+	rtnl_unlock();
+}
+
+/*
+ * Called by ipa_clients right after a successful ipa_register_intf() to program
+ * rules for the new slave, in case the init seed walk ran before registration.
+ */
+void ipa_be_subnet_on_intf_registered(int slave_ifindex)
+{
+	struct net_device *dev;
+	struct net_device *bridge;
+
+	if (!ipa_be_subnet_notifiers_registered)
+		return;
+
+	dev = dev_get_by_index(&init_net, slave_ifindex);
+	if (!dev)
+		return;
+
+	rcu_read_lock();
+	bridge = netdev_master_upper_dev_get_rcu(dev);
+	if (bridge && netif_is_bridge_master(bridge)) {
+		int b_ifindex = bridge->ifindex;
+
+		rcu_read_unlock();
+		ipa_be_subnet_queue_both(b_ifindex, false);
+	} else {
+		rcu_read_unlock();
+	}
+
+	dev_put(dev);
+}
+EXPORT_SYMBOL(ipa_be_subnet_on_intf_registered);
+
+int ipa_be_subnet_notifier_init(struct workqueue_struct *v4_wq,
+	struct workqueue_struct *v6_wq)
+{
+	int ret;
+
+	if (ipa_be_subnet_notifiers_registered)
+		return 0;
+
+	ipa_be_subnet_v4_wq = v4_wq;
+	ipa_be_subnet_v6_wq = v6_wq;
+
+	ret = register_netdevice_notifier(&ipa_be_netdev_nb);
+	if (ret) {
+		IPA_BE_ERR("register_netdevice_notifier failed %d\n", ret);
+		goto err_netdev;
+	}
+	ret = register_inetaddr_notifier(&ipa_be_inetaddr_nb);
+	if (ret) {
+		IPA_BE_ERR("register_inetaddr_notifier failed %d\n", ret);
+		goto err_inet;
+	}
+	ret = register_inet6addr_notifier(&ipa_be_inet6addr_nb);
+	if (ret) {
+		IPA_BE_ERR("register_inet6addr_notifier failed %d\n", ret);
+		goto err_inet6;
+	}
+
+	/* init budget and worker before marking active so arm() never sees them uninit */
+	spin_lock_bh(&ipa_be_subnet_settle_lock);
+	ipa_be_subnet_v6_settle_tries = IPA_BE_V6_SETTLE_MAX_TRIES;
+	ipa_be_subnet_v6_settle_armed = false;
+	spin_unlock_bh(&ipa_be_subnet_settle_lock);
+	INIT_DELAYED_WORK(&ipa_be_subnet_v6_settle_dwork,
+		ipa_be_subnet_v6_settle_fn);
+
+	ipa_be_subnet_notifiers_registered = true;
+	IPA_BE_DBG("private-subnet notifiers registered\n");
+
+	/* program rules for any topology that already exists */
+	ipa_be_subnet_seed_existing();
+	return 0;
+
+err_inet6:
+	unregister_inetaddr_notifier(&ipa_be_inetaddr_nb);
+err_inet:
+	unregister_netdevice_notifier(&ipa_be_netdev_nb);
+err_netdev:
+	ipa_be_subnet_v4_wq = NULL;
+	ipa_be_subnet_v6_wq = NULL;
+	return ret;
+}
+EXPORT_SYMBOL(ipa_be_subnet_notifier_init);
+
+/*
+ * Stop the engine: unregister notifiers and drop workqueue refs so no new work
+ * is queued. Call BEFORE the backend drains the workqueues. Tracking is freed
+ * later by ipa_be_subnet_notifier_cleanup() (after drain), as in-flight work may
+ * still touch the list.
+ */
+void ipa_be_subnet_notifier_deinit(void)
+{
+	if (!ipa_be_subnet_notifiers_registered)
+		return;
+
+	unregister_netdevice_notifier(&ipa_be_netdev_nb);
+	unregister_inetaddr_notifier(&ipa_be_inetaddr_nb);
+	unregister_inet6addr_notifier(&ipa_be_inet6addr_nb);
+	ipa_be_subnet_notifiers_registered = false;
+
+	/* zero budget under the lock, then cancel: no queue-after-cancel window */
+	spin_lock_bh(&ipa_be_subnet_settle_lock);
+	ipa_be_subnet_v6_settle_tries = 0;
+	spin_unlock_bh(&ipa_be_subnet_settle_lock);
+	cancel_delayed_work_sync(&ipa_be_subnet_v6_settle_dwork);
+
+	ipa_be_subnet_v4_wq = NULL;
+	ipa_be_subnet_v6_wq = NULL;
+	IPA_BE_DBG("private-subnet notifiers unregistered\n");
+}
+EXPORT_SYMBOL(ipa_be_subnet_notifier_deinit);
+
+/*
+ * Free leftover tracking entries. Call only after the backend workqueues have
+ * been drained/destroyed (so no reconcile work can repopulate the list).
+ */
+void ipa_be_subnet_notifier_cleanup(void)
+{
+	struct ipa_private_subnet_entry *e, *tmp;
+
+	spin_lock_bh(&ipa_private_subnet_lock);
+	list_for_each_entry_safe(e, tmp, &ipa_private_subnet_entries_list, node) {
+		list_del(&e->node);
+		kfree(e);
+	}
+	spin_unlock_bh(&ipa_private_subnet_lock);
+}
+EXPORT_SYMBOL(ipa_be_subnet_notifier_cleanup);
 
 
 int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int pdn_iface, int client_iface, bool is_xlat)
