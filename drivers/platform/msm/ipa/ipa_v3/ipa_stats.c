@@ -24,6 +24,24 @@
 #define DRIVER_NAME "ipa_lnx_stats_ioctl"
 #define DEV_NAME_IPA_LNX_STATS "ipa-lnx-stats"
 
+static struct rt_table_name_lookup rt_table_lookup_table[] = {
+	{"ipa_dflt_rt", 1},
+	{"COMRTBLLANv4", 2},
+	{"WANRTBLv4", 3},
+	{"ODURTBLv4", 4},
+	{"ipa_dflt_wan_rt", 5},
+	{"COMRTBLv6", 6},
+	{"WANRTBLv6", 7},
+	{"ODURTBLv6", 8},
+	{"IPSEC_ENCAP_v4", 9},
+	{"IPSEC_ENCAP_v6", 10},
+	{"IPSEC_DECAP_v4", 11},
+	{"IPSEC_DECAP_v6", 12},
+	{"IPSEC_DECAP_NO_POLICY_v4", 13},
+	{"IPSEC_DECAP_NO_POLICY_v6", 14},
+	{"RT_TABLE_NAME_MAX", 15},
+};
+
 #define IPA_STATS_DBG(fmt, args...) \
 	do { \
 		pr_debug(DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, __func__,\
@@ -126,6 +144,7 @@ static int ipa_stats_ioctl_open(struct inode *inode, struct file *filp)
 {
 	return 0;
 }
+
 
 static int ipa_get_generic_stats(unsigned long arg)
 {
@@ -698,13 +717,6 @@ static int ipa_get_wlan_inst_stats(unsigned long arg)
 			ipa_lnx_calculate_gsi_ring_summay(
 				tx_instance_ptr_local, NULL, client_type);
 
-			/* Currently reserved until GSI needs anything in future */
-			tx_instance_ptr_local->num_tx_oob = 0;
-			tx_instance_ptr_local->num_tx_oob_time = 0;
-			tx_instance_ptr_local->msi_db_idx = 0;
-			tx_instance_ptr_local->tres_handled = 0;
-			tx_instance_ptr_local->rollbacks_cnt = 0;
-			tx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *)((
@@ -737,11 +749,6 @@ static int ipa_get_wlan_inst_stats(unsigned long arg)
 			ipa_lnx_calculate_gsi_ring_summay(
 				NULL, rx_instance_ptr_local, client_type);
 
-			/* Currently reserved until GSI needs anything in future */
-			rx_instance_ptr_local->msi_db_idx = 0;
-			rx_instance_ptr_local->tres_handled = 0;
-			rx_instance_ptr_local->rollbacks_cnt = 0;
-			rx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +
@@ -811,13 +818,27 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 			(ipa_lnx_agent_ctx.alloc_info.num_eth_instances *
 				sizeof(struct eth_instance_info));
 	for (i = 0; i < ipa_lnx_agent_ctx.alloc_info.num_eth_instances; i++) {
-		alloc_size = alloc_size +
-			(ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_tx_instances
-			* sizeof(struct ipa_lnx_gsi_tx_debug_stats)) +
-			(ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_rx_instances
-			* sizeof(struct ipa_lnx_gsi_rx_debug_stats)) +
-			(ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_pipes
-			* sizeof(struct ipa_lnx_pipe_info));
+		int num_tx = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_tx_instances;
+		int num_rx = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_rx_instances;
+
+		for (j = 0; j < num_tx; j++) {
+			u32 mode = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].tx_inst_client_type[j];
+
+			alloc_size += (mode == IPA_ETH_CLIENT_IEMAC)
+				? sizeof(struct ipa_lnx_gsi_tx_ntn_debug_stats)
+				: sizeof(struct ipa_lnx_gsi_tx_debug_stats);
+		}
+		for (j = 0; j < num_rx; j++) {
+			/* For eth, tx_inst_client_type[j] carries the mode for both TX and RX instance j */
+			u32 mode = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].tx_inst_client_type[
+				j < num_tx ? j : 0];
+
+			alloc_size += (mode == IPA_ETH_CLIENT_IEMAC)
+				? sizeof(struct ipa_lnx_gsi_rx_ntn_debug_stats)
+				: sizeof(struct ipa_lnx_gsi_rx_debug_stats);
+		}
+		alloc_size += ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_pipes
+			* sizeof(struct ipa_lnx_pipe_info);
 	}
 
 	eth_stats = (struct ipa_lnx_eth_inst_stats *) memdup_user((
@@ -834,6 +855,28 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 
 	instance_ptr = &eth_stats->instance_info[0];
 	for (i = 0; i < eth_stats->num_eth_instance; i++) {
+		size_t tx_sz, rx_sz;
+		size_t total_tx_size = 0, total_rx_size = 0;
+		uint64_t tx_offset = 0, rx_offset = 0;
+		int num_tx_i = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_tx_instances;
+		int num_rx_i = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_rx_instances;
+
+		for (j = 0; j < num_tx_i; j++) {
+			u32 mode = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].tx_inst_client_type[j];
+
+			total_tx_size += (mode == IPA_ETH_CLIENT_IEMAC)
+				? sizeof(struct ipa_lnx_gsi_tx_ntn_debug_stats)
+				: sizeof(struct ipa_lnx_gsi_tx_debug_stats);
+		}
+		for (j = 0; j < num_rx_i; j++) {
+			u32 mode = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].tx_inst_client_type[
+				j < num_tx_i ? j : 0];
+
+			total_rx_size += (mode == IPA_ETH_CLIENT_IEMAC)
+				? sizeof(struct ipa_lnx_gsi_rx_ntn_debug_stats)
+				: sizeof(struct ipa_lnx_gsi_rx_debug_stats);
+		}
+
 		instance_ptr->instance_id = i;
 		instance_ptr->num_pipes =
 			ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_pipes;
@@ -846,9 +889,13 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 			uint64_t)instance_ptr + sizeof(struct eth_instance_info));
 		for (j = 0; j < ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
 			i].num_tx_instances; j++) {
+			u32 eth_mode_j = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].tx_inst_client_type[j];
+
+			tx_sz = (eth_mode_j == IPA_ETH_CLIENT_IEMAC)
+				? sizeof(struct ipa_lnx_gsi_tx_ntn_debug_stats)
+				: sizeof(struct ipa_lnx_gsi_tx_debug_stats);
 			tx_instance_ptr_local = (struct ipa_lnx_gsi_tx_debug_stats *)((
-				uint64_t)tx_instance_ptr + (j *
-				sizeof(struct ipa_lnx_gsi_tx_debug_stats)));
+				uint64_t)tx_instance_ptr + tx_offset);
 
 			/* Eth mode is sent in the tx_inst_client_type variable only */
 			instance_ptr->eth_mode =
@@ -871,10 +918,8 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 						instance_ptr = (struct eth_instance_info *)((
 							uint64_t)instance_ptr +
 							sizeof(struct eth_instance_info) +
-							(instance_ptr->gsi_debug_stats.num_tx_instances *
-							sizeof(struct ipa_lnx_gsi_tx_debug_stats)) +
-							(instance_ptr->gsi_debug_stats.num_rx_instances *
-							sizeof(struct ipa_lnx_gsi_rx_debug_stats)) +
+							total_tx_size +
+							total_rx_size +
 							(instance_ptr->num_pipes *
 							sizeof(struct ipa_lnx_pipe_info)));
 						continue;
@@ -884,10 +929,8 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 						instance_ptr = (struct eth_instance_info *)((
 							uint64_t)instance_ptr +
 							sizeof(struct eth_instance_info) +
-							(instance_ptr->gsi_debug_stats.num_tx_instances *
-							sizeof(struct ipa_lnx_gsi_tx_debug_stats)) +
-							(instance_ptr->gsi_debug_stats.num_rx_instances *
-							sizeof(struct ipa_lnx_gsi_rx_debug_stats)) +
+							total_tx_size +
+							total_rx_size +
 							(instance_ptr->num_pipes *
 							sizeof(struct ipa_lnx_pipe_info)));
 						continue;
@@ -902,11 +945,14 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 					tx_instance_ptr_local->tx_client =
 						IPA_CLIENT_AQC_ETHERNET_CONS;
 #if IPA_ETH_API_VER >= 2
-				/* Get the client pipe info[0] from the allocation info context only if it is NTN3 */
+				/* Get the client pipe info[0] from the allocation info context only if it is NTN3.
+				   Each Ethernet instance j has two pipes (one TX, one RX) stored contiguously
+				   in the pipes_client_type flat array.The * 2 is the stride to reach the TX entry for instance j,
+				   and + 1 elsewhere gets the RX entry for the same instance.*/
 				if (instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3) {
 						tx_instance_ptr_local->tx_client =
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
-							i].pipes_client_type[0];
+							i].pipes_client_type[j * 2];
 				}
 #endif
 				client_type = tx_instance_ptr_local->tx_client;
@@ -925,13 +971,6 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				ipa_lnx_calculate_gsi_ring_summay(
 					tx_instance_ptr_local, NULL, client_type);
 
-				/* Currently reserved until GSI needs anything in future */
-				tx_instance_ptr_local->num_tx_oob = 0;
-				tx_instance_ptr_local->num_tx_oob_time = 0;
-				tx_instance_ptr_local->msi_db_idx = 0;
-				tx_instance_ptr_local->tres_handled = 0;
-				tx_instance_ptr_local->rollbacks_cnt = 0;
-				tx_instance_ptr_local->msi_db_cnt = 0;
 			} else if (instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8111K ||
 				instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8125B) {
 
@@ -939,10 +978,8 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 					instance_ptr = (struct eth_instance_info *)((
 						uint64_t)instance_ptr +
 						sizeof(struct eth_instance_info) +
-						(instance_ptr->gsi_debug_stats.num_tx_instances *
-						sizeof(struct ipa_lnx_gsi_tx_debug_stats)) +
-						(instance_ptr->gsi_debug_stats.num_rx_instances *
-						sizeof(struct ipa_lnx_gsi_rx_debug_stats)) +
+						total_tx_size +
+						total_rx_size +
 						(instance_ptr->num_pipes *
 						sizeof(struct ipa_lnx_pipe_info)));
 					continue;
@@ -964,71 +1001,85 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				ipa_lnx_calculate_gsi_ring_summay(
 					tx_instance_ptr_local, NULL, client_type);
 
-				/* Currently reserved until GSI needs anything in future */
-				tx_instance_ptr_local->num_tx_oob = 0;
-				tx_instance_ptr_local->num_tx_oob_time = 0;
-				tx_instance_ptr_local->msi_db_idx = 0;
-				tx_instance_ptr_local->tres_handled = 0;
-				tx_instance_ptr_local->rollbacks_cnt = 0;
-				tx_instance_ptr_local->msi_db_cnt = 0;
 			} else if(instance_ptr->eth_mode == IPA_ETH_CLIENT_IEMAC){
+				struct ipa_lnx_gsi_tx_ntn_debug_stats *ntn_tx =
+					(struct ipa_lnx_gsi_tx_ntn_debug_stats *)tx_instance_ptr_local;
 #if IPA_ETH_API_VER >= 2
 				/* Get the client pipe info[0] from the allocation info context only if it is IEMAC */
-						tx_instance_ptr_local->tx_client =
+						ntn_tx->base.tx_client =
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
-							i].pipes_client_type[0];
+							i].pipes_client_type[j * 2];
 #endif
-				client_type = tx_instance_ptr_local->tx_client;
+				client_type = ntn_tx->base.tx_client;
 				instance_ptr->pm_bandwidth =
 					ipa_pm_get_pm_clnt_throughput(client_type);
-				tx_instance_ptr_local->num_tx_ring_100_perc_with_cred =
+				ntn_tx->base.num_tx_ring_100_perc_with_cred =
 					stats.u.ring[1].ringFull;
-				tx_instance_ptr_local->num_tx_ring_0_perc_with_cred =
+				ntn_tx->base.num_tx_ring_0_perc_with_cred =
 					stats.u.ring[1].ringEmpty;
-				tx_instance_ptr_local->num_tx_ring_above_75_perc_cred =
+				ntn_tx->base.num_tx_ring_above_75_perc_cred =
 					stats.u.ring[1].ringUsageHigh;
-				tx_instance_ptr_local->num_tx_ring_above_25_perc_cred =
+				ntn_tx->base.num_tx_ring_above_25_perc_cred =
 					stats.u.ring[1].ringUsageLow;
-				tx_instance_ptr_local->num_tx_ring_stats_polled =
+				ntn_tx->base.num_tx_ring_stats_polled =
 					stats.u.ring[1].RingUtilCount;
 				ipa_lnx_calculate_gsi_ring_summay(
-					tx_instance_ptr_local, NULL, client_type);
+					&ntn_tx->base, NULL, client_type);
 				memset(&(ntn3_stats.tx_stats), 0, sizeof(ntn3_stats.tx_stats));
 				// ipa_eth_ntn3_get_status(&ntn3_stats, i);
-				__ipa_ntn3_cons_stats_get(&(ntn3_stats.tx_stats), tx_instance_ptr_local->tx_client);
-				/* Currently reserved until GSI needs anything in future */
-				tx_instance_ptr_local->num_tx_oob = ntn3_stats.tx_stats.oob_cnt;
-				tx_instance_ptr_local->num_tx_oob_time = 0;
-				tx_instance_ptr_local->num_tx_ring_stats_polled = ntn3_stats.tx_stats.pending_db_after_rollback;
-				tx_instance_ptr_local->msi_db_idx = ntn3_stats.tx_stats.msi_db_idx;
-				tx_instance_ptr_local->tres_handled = ntn3_stats.tx_stats.tres_handled;
-				tx_instance_ptr_local->rollbacks_cnt = ntn3_stats.tx_stats.rollbacks_cnt;
-				tx_instance_ptr_local->msi_db_cnt = ntn3_stats.tx_stats.msi_db_cnt;
+				__ipa_ntn3_cons_stats_get(&(ntn3_stats.tx_stats), ntn_tx->base.tx_client);
+				ntn_tx->ntn_stats.last_db_value = ntn3_stats.tx_stats.ntn_stats.last_db_value;
+				ntn_tx->ntn_stats.next_re = ntn3_stats.tx_stats.ntn_stats.next_re;
+				ntn_tx->ntn_stats.malformed_tre = ntn3_stats.tx_stats.ntn_stats.malformed_tre;
+				ntn_tx->ntn_stats.invalid_tre_cnt = ntn3_stats.tx_stats.ntn_stats.invalid_tre_cnt;
+				ntn_tx->ntn_stats.rollbacks_cnt = ntn3_stats.tx_stats.ntn_stats.rollbacks_cnt;
+				ntn_tx->ntn_stats.outstanding_tlvs_cnt = ntn3_stats.tx_stats.ntn_stats.outstanding_tlvs_cnt;
 			}
 			else IPA_STATS_ERR("Eth tx client type not found. ETH client: %d",instance_ptr->eth_mode);
+			tx_offset += tx_sz;
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *)((
 			uint64_t)instance_ptr + sizeof(struct eth_instance_info)
-			+ (sizeof(struct ipa_lnx_gsi_tx_debug_stats) *
-			(ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
-			i].num_tx_instances)));
+			+ total_tx_size);
 		for (j = 0; j < ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
 			i].num_rx_instances; j++) {
+			/* For eth, tx_inst_client_type[j] carries the mode for both TX and RX instance j */
+			u32 eth_mode_j = ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].tx_inst_client_type[
+				j < num_tx_i ? j : 0];
+
+			rx_sz = (eth_mode_j == IPA_ETH_CLIENT_IEMAC)
+				? sizeof(struct ipa_lnx_gsi_rx_ntn_debug_stats)
+				: sizeof(struct ipa_lnx_gsi_rx_debug_stats);
 			rx_instance_ptr_local = (struct ipa_lnx_gsi_rx_debug_stats *)((
-				uint64_t)rx_instance_ptr + (j *
-				sizeof(struct ipa_lnx_gsi_rx_debug_stats)));
+				uint64_t)rx_instance_ptr + rx_offset);
 
-			if ((instance_ptr->eth_mode == IPA_ETH_CLIENT_AQC107 ||
-				instance_ptr->eth_mode == IPA_ETH_CLIENT_AQC113 ||
-				instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN ||
+			if ((eth_mode_j == IPA_ETH_CLIENT_AQC107 ||
+				eth_mode_j == IPA_ETH_CLIENT_AQC113 ||
+				eth_mode_j == IPA_ETH_CLIENT_NTN ||
 #if IPA_ETH_API_VER >= 2
-				instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3 ||
+				eth_mode_j == IPA_ETH_CLIENT_NTN3 ||
 #endif
-				instance_ptr->eth_mode == IPA_ETH_CLIENT_EMAC)) {
+				eth_mode_j == IPA_ETH_CLIENT_EMAC)) {
 
-				if (instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN ||
-					instance_ptr->eth_mode == IPA_ETH_CLIENT_EMAC)
+				if (eth_mode_j == IPA_ETH_CLIENT_NTN
+#if IPA_ETH_API_VER >= 2
+					|| eth_mode_j == IPA_ETH_CLIENT_NTN3
+#endif
+					) {
+					if (ipa3_get_ntn_gsi_stats(&stats)) {
+						rx_offset += rx_sz;
+						continue;
+					}
+				} else if (eth_mode_j != IPA_ETH_CLIENT_IEMAC) {
+					if (ipa3_get_aqc_gsi_stats(&stats)) {
+						rx_offset += rx_sz;
+						continue;
+					}
+				}
+
+				if (eth_mode_j == IPA_ETH_CLIENT_NTN ||
+					eth_mode_j == IPA_ETH_CLIENT_EMAC)
 					rx_instance_ptr_local->rx_client =
 					IPA_CLIENT_ETHERNET_PROD;
 				else
@@ -1036,10 +1087,10 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 						IPA_CLIENT_AQC_ETHERNET_PROD;
 #if IPA_ETH_API_VER >= 2
 				/* Get the client pipe info[1] from the allocation info context only if it is NTN3 */
-				if (instance_ptr->eth_mode == IPA_ETH_CLIENT_NTN3) {
+				if (eth_mode_j == IPA_ETH_CLIENT_NTN3) {
 						rx_instance_ptr_local->rx_client =
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
-							i].pipes_client_type[1];
+							i].pipes_client_type[(j * 2) + 1];
 				}
 #endif
 				client_type = rx_instance_ptr_local->rx_client;
@@ -1057,14 +1108,13 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				ipa_lnx_calculate_gsi_ring_summay(
 					NULL, rx_instance_ptr_local, client_type);
 
-				/* Currently reserved until GSI needs anything in future */
-				rx_instance_ptr_local->msi_db_idx = 0;
-				rx_instance_ptr_local->tres_handled = 0;
-				rx_instance_ptr_local->rollbacks_cnt = 0;
-				rx_instance_ptr_local->msi_db_cnt = 0;
-			} else if (instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8111K ||
-				instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8125B) {
+			} else if (eth_mode_j == IPA_ETH_CLIENT_RTK8111K ||
+				eth_mode_j == IPA_ETH_CLIENT_RTK8125B) {
 
+				if (ipa3_get_rtk_gsi_stats(&stats)) {
+					rx_offset += rx_sz;
+					continue;
+				}
 				client_type = IPA_CLIENT_RTK_ETHERNET_PROD;
 				rx_instance_ptr_local->rx_client = client_type;
 				rx_instance_ptr_local->num_rx_ring_100_perc_with_pack =
@@ -1081,50 +1131,52 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				ipa_lnx_calculate_gsi_ring_summay(
 					NULL, rx_instance_ptr_local, client_type);
 
-				/* Currently reserved until GSI needs anything in future */
-				rx_instance_ptr_local->msi_db_idx = 0;
-				rx_instance_ptr_local->tres_handled = 0;
-				rx_instance_ptr_local->rollbacks_cnt = 0;
-				rx_instance_ptr_local->msi_db_cnt = 0;
-			} else if(instance_ptr->eth_mode == IPA_ETH_CLIENT_IEMAC){
+			} else if(eth_mode_j == IPA_ETH_CLIENT_IEMAC){
+				struct ipa_lnx_gsi_rx_ntn_debug_stats *ntn_rx =
+					(struct ipa_lnx_gsi_rx_ntn_debug_stats *)rx_instance_ptr_local;
+
+				if (ipa3_get_ntn_gsi_stats(&stats)) {
+					rx_offset += rx_sz;
+					continue;
+				}
 #if IPA_ETH_API_VER >= 2
 				/* Get the client pipe info[0] from the allocation info context only if it is IEMAC */
-						rx_instance_ptr_local->rx_client =
+						ntn_rx->base.rx_client =
 							ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
-							i].pipes_client_type[1];
+							i].pipes_client_type[(j * 2) + 1];
 #endif
-				client_type = rx_instance_ptr_local->rx_client;
-				rx_instance_ptr_local->num_rx_ring_100_perc_with_pack =
+				client_type = ntn_rx->base.rx_client;
+				ntn_rx->base.num_rx_ring_100_perc_with_pack =
 					stats.u.ring[0].ringFull;
-				rx_instance_ptr_local->num_rx_ring_0_perc_with_pack =
+				ntn_rx->base.num_rx_ring_0_perc_with_pack =
 					stats.u.ring[0].ringEmpty;
-				rx_instance_ptr_local->num_rx_ring_above_75_perc_pack =
+				ntn_rx->base.num_rx_ring_above_75_perc_pack =
 					stats.u.ring[0].ringUsageHigh;
-				rx_instance_ptr_local->num_rx_ring_above_25_perc_pack =
+				ntn_rx->base.num_rx_ring_above_25_perc_pack =
 					stats.u.ring[0].ringUsageLow;
-				rx_instance_ptr_local->num_rx_ring_stats_polled =
+				ntn_rx->base.num_rx_ring_stats_polled =
 					stats.u.ring[0].RingUtilCount;
 				ipa_lnx_calculate_gsi_ring_summay(
-					NULL, rx_instance_ptr_local, client_type);
+					NULL, &ntn_rx->base, client_type);
 
 				memset(&(ntn3_stats.rx_stats), 0, sizeof(ntn3_stats.rx_stats));
-				__ipa_ntn3_prod_stats_get(&(ntn3_stats.rx_stats), rx_instance_ptr_local->rx_client);
-				rx_instance_ptr_local->num_rx_ring_stats_polled = ntn3_stats.rx_stats.pending_db_after_rollback;
-				rx_instance_ptr_local->num_rx_drop_stats = ntn3_stats.rx_stats.err_cnt;
-				rx_instance_ptr_local->msi_db_idx = ntn3_stats.rx_stats.msi_db_idx;
-				rx_instance_ptr_local->tres_handled = ntn3_stats.rx_stats.tres_handled;
-				rx_instance_ptr_local->rollbacks_cnt = ntn3_stats.rx_stats.rollbacks_cnt;
-				rx_instance_ptr_local->msi_db_cnt = ntn3_stats.rx_stats.msi_db_cnt;
-			}  else IPA_STATS_ERR("Eth rx client type not found. ETH client: %d",instance_ptr->eth_mode);
+				__ipa_ntn3_prod_stats_get(&(ntn3_stats.rx_stats), ntn_rx->base.rx_client);
+				ntn_rx->base.num_rx_drop_stats = ntn3_stats.rx_stats.err_cnt;
+				ntn_rx->ntn_stats.last_db_value = ntn3_stats.rx_stats.ntn_stats.last_db_value;
+				ntn_rx->ntn_stats.next_re = ntn3_stats.rx_stats.ntn_stats.next_re;
+				ntn_rx->ntn_stats.malformed_tre = ntn3_stats.rx_stats.ntn_stats.malformed_tre;
+				ntn_rx->ntn_stats.zero_len_pkt_cnt = ntn3_stats.rx_stats.ntn_stats.zero_len_pkt_cnt;
+				ntn_rx->ntn_stats.invalid_tre_cnt = ntn3_stats.rx_stats.ntn_stats.invalid_tre_cnt;
+				ntn_rx->ntn_stats.rollbacks_cnt = ntn3_stats.rx_stats.ntn_stats.rollbacks_cnt;
+				ntn_rx->ntn_stats.outstanding_tlvs_cnt = ntn3_stats.rx_stats.ntn_stats.outstanding_tlvs_cnt;
+			}  else IPA_STATS_ERR("Eth rx client type not found. ETH client: %d", eth_mode_j);
+			rx_offset += rx_sz;
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +
 			sizeof(struct eth_instance_info)
-			+ (sizeof(struct ipa_lnx_gsi_tx_debug_stats) *
-			(ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_tx_instances))
-			+ (sizeof(struct ipa_lnx_gsi_rx_debug_stats) *
-			(ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
-				i].num_rx_instances)));
+			+ total_tx_size
+			+ total_rx_size);
 		for (j = 0; j < instance_ptr->num_pipes; j++) {
 			pipe_info_ptr_local = (struct ipa_lnx_pipe_info *)((
 				uint64_t)pipe_info_ptr + (j *
@@ -1255,13 +1307,6 @@ static int ipa_get_usb_inst_stats(unsigned long arg)
 			ipa_lnx_calculate_gsi_ring_summay(
 				tx_instance_ptr_local, NULL, client_type);
 
-			/* Currently reserved until GSI needs anything in future */
-			tx_instance_ptr_local->num_tx_oob = 0;
-			tx_instance_ptr_local->num_tx_oob_time = 0;
-			tx_instance_ptr_local->msi_db_idx = 0;
-			tx_instance_ptr_local->tres_handled = 0;
-			tx_instance_ptr_local->rollbacks_cnt = 0;
-			tx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *) ((
@@ -1292,11 +1337,6 @@ static int ipa_get_usb_inst_stats(unsigned long arg)
 			ipa_lnx_calculate_gsi_ring_summay(
 				NULL, rx_instance_ptr_local, client_type);
 
-			/* Currently reserved until GSI needs anything in future */
-			rx_instance_ptr_local->msi_db_idx = 0;
-			rx_instance_ptr_local->tres_handled = 0;
-			rx_instance_ptr_local->rollbacks_cnt = 0;
-			rx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +
@@ -1436,14 +1476,6 @@ static int ipa_get_mhip_inst_stats(unsigned long arg)
 				stats.u.ring[1 + (j*2)].RingUtilCount;
 			ipa_lnx_calculate_gsi_ring_summay(
 				tx_instance_ptr_local, NULL, client_type);
-
-			/* Currently reserved until GSI needs anything in future */
-			tx_instance_ptr_local->num_tx_oob = 0;
-			tx_instance_ptr_local->num_tx_oob_time = 0;
-			tx_instance_ptr_local->msi_db_idx = 0;
-			tx_instance_ptr_local->tres_handled = 0;
-			tx_instance_ptr_local->rollbacks_cnt = 0;
-			tx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *)((
@@ -1473,12 +1505,6 @@ static int ipa_get_mhip_inst_stats(unsigned long arg)
 			rx_instance_ptr_local->num_rx_drop_stats = 0;
 			ipa_lnx_calculate_gsi_ring_summay(NULL,
 				rx_instance_ptr_local, client_type);
-
-			/* Currently reserved until GSI needs anything in future */
-			rx_instance_ptr_local->msi_db_idx = 0;
-			rx_instance_ptr_local->tres_handled = 0;
-			rx_instance_ptr_local->rollbacks_cnt = 0;
-			rx_instance_ptr_local->msi_db_cnt = 0;
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +

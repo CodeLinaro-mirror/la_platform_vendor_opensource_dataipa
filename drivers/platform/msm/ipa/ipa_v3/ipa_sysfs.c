@@ -4400,46 +4400,65 @@ static void __ipa_ntn3_client_stats_read(int *cnt, struct ipa_ntn3_client_stats 
 	nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
 		"%s_RP=0x%x\n"
 		"%s_WP=0x%x\n"
-		"%s_ntn_pending_db_after_rollback:%u\n"
-		"%s_msi_db_idx_val:%u\n"
-		"%s_tx_derr_counter:%u\n"
-		"%s_ntn_tx_oob_counter:%u\n"
-		"%s_ntn_accumulated_tres_handled:%u\n"
-		"%s_ntn_rollbacks_counter:%u\n"
-		"%s_ntn_msi_db_count:%u\n",
+		"%s_ntn_tx_last_db_value:%u\n"
+		"%s_ntn_tx_next_re:%u\n"
+		"%s_ntn_tx_invalid_own_bit:%u\n"
+		"%s_ntn_tx_stop_in_progress_stm:%u\n"
+		"%s_ntn_tx_invalid_own_bit_retries:%u\n"
+		"%s_ntn_tx_malformed_tre_ind:%u\n"
+		"%s_ntn_tx_wp_index_in_malformed_tre:%u\n"
+		"%s_ntn_tx_derr_counter:%u\n"
+		"%s_ntn_tx_accumulated_invalid_tre_cnt:%u\n"
+		"%s_ntn_tx_rollbacks_counter:%u\n"
+		"%s_ntn_tx_outstanding_tlvs_cnt:%u\n",
 		str_client_tx, s->tx_stats.rp,
 		str_client_tx, s->tx_stats.wp,
-		str_client_tx, s->tx_stats.pending_db_after_rollback,
-		str_client_tx, s->tx_stats.msi_db_idx,
+		str_client_tx, s->tx_stats.ntn_stats.last_db_value,
+		str_client_tx, (s->tx_stats.ntn_stats.next_re & 0xFFFF),
+		str_client_tx, (s->tx_stats.ntn_stats.next_re & 0x20000) >> 17,
+		str_client_tx, (s->tx_stats.ntn_stats.next_re & 0xF0000000) >> 28,
+		str_client_tx, (s->tx_stats.ntn_stats.malformed_tre & 0xFF),
+		str_client_tx, (s->tx_stats.ntn_stats.malformed_tre & 0x100) >> 8,
+		str_client_tx, (s->tx_stats.ntn_stats.malformed_tre & 0xFFFF0000) >> 16,
 		str_client_tx, s->tx_stats.derr_cnt,
-		str_client_tx, s->tx_stats.oob_cnt,
-		str_client_tx, s->tx_stats.tres_handled,
-		str_client_tx, s->tx_stats.rollbacks_cnt,
-		str_client_tx, s->tx_stats.msi_db_cnt);
+		str_client_tx, s->tx_stats.ntn_stats.invalid_tre_cnt,
+		str_client_tx, s->tx_stats.ntn_stats.rollbacks_cnt,
+		str_client_tx, s->tx_stats.ntn_stats.outstanding_tlvs_cnt);
 	*cnt += nbytes;
 	nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
 		"%s_RP=0x%x\n"
 		"%s_WP=0x%x\n"
-		"%s_ntn_pending_db_after_rollback:%u\n"
-		"%s_msi_db_idx_val:%u\n"
-		"%s_ntn_rx_chain_counter:%u\n"
+		"%s_ntn_last_db_value:%u\n"
+		"%s_ntn_rx_next_re:%u\n"
+		"%s_ntn_rx_invalid_own_bit:%u\n"
+		"%s_ntn_rx_stop_in_progress_stm:%u\n"
+		"%s_ntn_rx_invalid_own_bit_retries:%u\n"
+		"%s_ntn_rx_malformed_tre_ind:%u\n"
+		"%s_ntn_rx_wp_index_in_malformed_tre:%u\n"
+		"%s_ntn_rx_zero_len_pkt_cnt:%u\n"
 		"%s_ntn_rx_err_cnt:%u\n"
 		"%s_ntn_rx_err_crc_counter:%u\n"
 		"%s_ntn_rx_bmap_err:%09x\n"
-		"%s_ntn_accumulated_tres_handled:%u\n"
-		"%s_ntn_rollbacks_counter:%u\n"
-		"%s_ntn_msi_db_count:%u\n",
+		"%s_ntn_rx_accumulated_invalid_tre_cnt:%u\n"
+		"%s_ntn_rx_rollbacks_counter:%u\n"
+		"%s_ntn_rx_outstanding_tlvs_cnt:%u\n",
 		str_client_rx, s->rx_stats.rp,
 		str_client_rx, s->rx_stats.wp,
-		str_client_rx, s->rx_stats.pending_db_after_rollback,
-		str_client_rx, s->rx_stats.msi_db_idx,
-		str_client_rx, s->rx_stats.chain_cnt,
+		str_client_rx, s->rx_stats.ntn_stats.last_db_value,
+		str_client_rx, (s->rx_stats.ntn_stats.next_re & 0xFFFF),
+		str_client_rx, (s->rx_stats.ntn_stats.next_re & 0x20000) >> 17,
+		str_client_rx, (s->rx_stats.ntn_stats.next_re & 0xF0000000) >> 28,
+		str_client_rx, (s->rx_stats.ntn_stats.malformed_tre & 0xFF),
+		str_client_rx, (s->rx_stats.ntn_stats.malformed_tre & 0x100) >> 8,
+		str_client_rx, (s->rx_stats.ntn_stats.malformed_tre & 0xFFFF0000) >> 16,
+		str_client_rx, s->rx_stats.ntn_stats.zero_len_pkt_cnt,
 		str_client_rx, (s->rx_stats.err_cnt & 0x3FFF),
 		str_client_rx, (s->rx_stats.err_cnt & 0x7FC000)>>14,
 		str_client_rx, (s->rx_stats.err_cnt & 0xFF800000)>>23,
-		str_client_rx, s->rx_stats.tres_handled,
-		str_client_rx, s->rx_stats.rollbacks_cnt,
-		str_client_rx, s->rx_stats.msi_db_cnt);
+		str_client_rx, s->rx_stats.ntn_stats.invalid_tre_cnt,
+		str_client_rx, s->rx_stats.ntn_stats.rollbacks_cnt,
+		str_client_rx, s->rx_stats.ntn_stats.outstanding_tlvs_cnt);
+
 	*cnt += nbytes;
 }
 #endif

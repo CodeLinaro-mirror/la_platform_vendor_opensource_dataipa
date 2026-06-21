@@ -16708,14 +16708,14 @@ int ipa3_suspend_apps_pipes(bool suspend)
 
 	/* Suspend/resume v2x pipes first, applicable for PVM only and GVM. */
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, suspend);
-	if (res == -EAGAIN) {		
+	if (res == -EAGAIN) {
 		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
 		return res;
 	}
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, suspend);
 	if (res == -EAGAIN) {
-		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);		
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
 		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, !suspend);
 		return res;
 	}
@@ -18011,13 +18011,14 @@ void __ipa_ntn3_prod_stats_get(struct ipa_ntn3_stats_rx *stats, enum ipa_client_
 		return;
 	ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
 
-	stats->pending_db_after_rollback = gsi_ntn3_client_stats_get(ipa_ep_idx, 4, ch_id);
-	stats->msi_db_idx = gsi_ntn3_client_stats_get(ipa_ep_idx, 5, ch_id);
-	stats->chain_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 6, ch_id);
+	stats->ntn_stats.last_db_value = gsi_ntn3_client_stats_get(ipa_ep_idx, 3, ch_id);
+	stats->ntn_stats.next_re = gsi_ntn3_client_stats_get(ipa_ep_idx, 4, ch_id);
+	stats->ntn_stats.malformed_tre = gsi_ntn3_client_stats_get(ipa_ep_idx, 5, ch_id);
+	stats->ntn_stats.zero_len_pkt_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 6, ch_id);
 	stats->err_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 7, ch_id);
-	stats->tres_handled = gsi_ntn3_client_stats_get(ipa_ep_idx, 8, ch_id);
-	stats->rollbacks_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 9, ch_id);
-	stats->msi_db_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -1, ch_id);
+	stats->ntn_stats.invalid_tre_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 8, ch_id);
+	stats->ntn_stats.rollbacks_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -2, ch_id);
+	stats->ntn_stats.outstanding_tlvs_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -1, ch_id);
 
 	stats->wp = gsi_get_refetch_reg(ch_id, false);
 	stats->rp = gsi_get_refetch_reg(ch_id, true);
@@ -18036,13 +18037,13 @@ void __ipa_ntn3_cons_stats_get(struct ipa_ntn3_stats_tx *stats, enum ipa_client_
 		return;
 	ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
 
-	stats->pending_db_after_rollback = gsi_ntn3_client_stats_get(ipa_ep_idx, 4, ch_id);
-	stats->msi_db_idx = gsi_ntn3_client_stats_get(ipa_ep_idx, 5, ch_id);
+	stats->ntn_stats.last_db_value = gsi_ntn3_client_stats_get(ipa_ep_idx, 3, ch_id);
+	stats->ntn_stats.next_re = gsi_ntn3_client_stats_get(ipa_ep_idx, 4, ch_id);
+	stats->ntn_stats.malformed_tre = gsi_ntn3_client_stats_get(ipa_ep_idx, 5, ch_id);
 	stats->derr_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 6, ch_id);
-	stats->oob_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 7, ch_id);
-	stats->tres_handled = gsi_ntn3_client_stats_get(ipa_ep_idx, 8, ch_id);
-	stats->rollbacks_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 9, ch_id);
-	stats->msi_db_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -1, ch_id);
+	stats->ntn_stats.invalid_tre_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 8, ch_id);
+	stats->ntn_stats.rollbacks_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -2, ch_id);
+	stats->ntn_stats.outstanding_tlvs_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -1, ch_id);
 
 	stats->wp = gsi_get_refetch_reg(ch_id, false);
 	stats->rp = gsi_get_refetch_reg(ch_id, true);

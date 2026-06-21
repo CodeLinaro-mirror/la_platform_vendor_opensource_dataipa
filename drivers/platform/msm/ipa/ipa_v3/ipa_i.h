@@ -51,6 +51,7 @@
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 #include <soc/qcom/minidump.h>
 #endif
+#include "ipa_stats.h"
 
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"
@@ -2257,28 +2258,91 @@ struct ipa3_eth_error_stats {
 	u32 err;
 };
 
+/*
+ * ; +------------------------------------------------------+
+ * ; | NTN3 RX Channel Scratch                              |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 32-bit word | Field                          | Bits  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 0           | RX_DATA_BUFFERS_BASE_ADDR_LSB  | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 1           | RX_DATA_BUFFERS_BASE_ADDR_MSB  | 0-7   |
+ * ; |             | NTN_DATA_BUFFER_SIZE_POWER_OF_2| 8-11  |
+ * ; |             | NTN_CHAIN                      | 12-12 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 2           | IOC_MOD_THRESHOLD              | 0-15  |
+ * ; |             | IOC_MOD_COUNTER                | 16-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 3           | NTN_LAST_DB_VALUE              | 0-15  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 4           | NTN_NEXT_RE                    | 0-15  |
+ * ; |             | INVALID_OWN_BIT                | 17-17 |
+ * ; |             | STOP_IN_PROGRESS_STM           | 28-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 5           | INVALID_OWN_BIT_RETRIES        | 0-7   |
+ * ; |             | NTN_MALFORMED_TRE_IND          | 8-8   |
+ * ; |             | NTN_WP_INDEX_IN_MALFORMED_TRE  | 16-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 6           | RX_ZERO_LENGTH_PACKET_COUNTER  | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 7           | NTN_RX_ERROR_CNT               | 0-13  |
+ * ; |             | NTN_RX_CRC_ERROR_CNT           | 14-22 |
+ * ; |             | NTN_RX_ERROR_BMAP              | 23-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 8           | NTN_INVALID_TRE_COUNTER        | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 9           | STATS_EN                       | 31-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | FOR_SEQ_LOW | NTN_ROLLBACKS_COUNTER          | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | FOR_SEQ_HIGH| OUTSTANDING_TLVS_COUNTER       | 0-15  |
+ * ; +-------------+--------------------------------+-------+
+ */
 struct ipa_ntn3_stats_rx {
 	int rp;
 	int wp;
-	bool pending_db_after_rollback;
-	u32 msi_db_idx;
-	u32 chain_cnt;
+	struct ipa_lnx_ntn_gsi_rx_debug_stats ntn_stats;
 	u32 err_cnt;
-	u32 tres_handled;
-	u32 rollbacks_cnt;
-	u32 msi_db_cnt;
 };
 
+/*
+ * ; +------------------------------------------------------+
+ * ; | NTN3 TX Channel Scratch                              |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 32-bit word | Field                          | Bits  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 1           | NTN_DATA_BUFFER_SIZE_POWER_OF_2| 8-11  |
+ * ; |             | NTN_CHAIN                      | 12-12 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 2           | IOC_MOD_THRESHOLD              | 0-15  |
+ * ; |             | IOC_MOD_COUNTER                | 16-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 3           | NTN_LAST_DB_VALUE              | 0-15  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 4           | NTN_NEXT_RE                    | 0-15  |
+ * ; |             | INVALID_OWN_BIT                | 17-17 |
+ * ; |             | STOP_IN_PROGRESS_STM           | 28-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 5           | INVALID_OWN_BIT_RETRIES        | 0-7   |
+ * ; |             | NTN_MALFORMED_TRE_IND          | 8-8   |
+ * ; |             | NTN_WP_INDEX_IN_MALFORMED_TRE  | 16-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 6           | TX_DERR_COUNTER                | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 8           | NTN_INVALID_TRE_COUNTER        | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 9           | STATS_EN                       | 31-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | FOR_SEQ_LOW | NTN_ROLLBACKS_COUNTER          | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | FOR_SEQ_HIGH| OUTSTANDING_TLVS_COUNTER       | 0-15  |
+ * ; +-------------+--------------------------------+-------+
+ */
 struct ipa_ntn3_stats_tx {
 	int rp;
 	int wp;
-	bool pending_db_after_rollback;
-	u32 msi_db_idx;
+	struct ipa_lnx_ntn_gsi_tx_debug_stats ntn_stats;
 	u32 derr_cnt;
-	u32 oob_cnt;
-	u32 tres_handled;
-	u32 rollbacks_cnt;
-	u32 msi_db_cnt;
 };
 
 struct ipa_ntn3_client_stats {

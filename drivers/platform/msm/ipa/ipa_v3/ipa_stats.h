@@ -90,19 +90,8 @@
  * registers with pm
  */
 struct pm_client_name_lookup { char *name; int idx_hdl;};
-static struct pm_client_name_lookup client_lookup_table[] = {
-	{"ODL", 1},
-	{"IPA_CLIENT_APPS_LAN_CONS", 2},
-	{"EMB MODEM", 3},
-	{"TETH MODEM", 4},
-	{"rmnet_ipa%d", 5},
-	{"USB", 6},
-	{"USB DPL", 7},
-	{"MODEM (USB RMNET)", 8},
-	{"IPA_CLIENT_APPS_WAN_CONS", 9}
-};
 
-#define NUM_PM_CLIENT_NAMES (sizeof(client_lookup_table)/sizeof(struct pm_client_name_lookup))
+#define NUM_PM_CLIENT_NAMES 9
 
 /**
  * Every structure is associated with the underlying macro
@@ -199,6 +188,26 @@ struct ipa_lnx_clock_stats {
 	struct pm_client_stats pm_clnt_stats[0];
 };
 
+/* NTN-specific GSI debug stats, used in the NTN-extended GSI debug stats */
+struct ipa_lnx_ntn_gsi_tx_debug_stats {
+	uint32_t last_db_value;
+	uint32_t next_re;
+	uint32_t malformed_tre;
+	uint32_t invalid_tre_cnt;
+	uint32_t rollbacks_cnt;
+	uint32_t outstanding_tlvs_cnt;
+};
+
+struct ipa_lnx_ntn_gsi_rx_debug_stats {
+	uint32_t last_db_value;
+	uint32_t next_re;
+	uint32_t malformed_tre;
+	uint32_t zero_len_pkt_cnt;
+	uint32_t invalid_tre_cnt;
+	uint32_t rollbacks_cnt;
+	uint32_t outstanding_tlvs_cnt;
+};
+
 /* Generic instance structures */
 struct ipa_lnx_gsi_rx_debug_stats {
 	uint32_t rx_client;
@@ -208,10 +217,6 @@ struct ipa_lnx_gsi_rx_debug_stats {
 	uint32_t num_rx_ring_above_25_perc_pack;
 	uint32_t num_rx_ring_stats_polled;
 	uint32_t num_rx_drop_stats;
-	uint32_t msi_db_idx;;
-	uint32_t tres_handled;
-	uint32_t rollbacks_cnt;
-	uint32_t msi_db_cnt;
 	uint32_t rx_summary;
 };
 
@@ -222,14 +227,19 @@ struct ipa_lnx_gsi_tx_debug_stats {
 	uint32_t num_tx_ring_above_75_perc_cred;
 	uint32_t num_tx_ring_above_25_perc_cred;
 	uint32_t num_tx_ring_stats_polled;
-	uint32_t num_tx_oob;
-	uint32_t num_tx_oob_time;
-	uint32_t msi_db_idx;;
-	uint32_t tres_handled;
-	uint32_t rollbacks_cnt;
-	uint32_t msi_db_cnt;
 	uint32_t tx_summary;
 	uint32_t reserved;
+};
+
+/* Extended GSI stats for NTN-protocol clients (NTN/NTN3/IEMAC only) */
+struct ipa_lnx_gsi_tx_ntn_debug_stats {
+	struct ipa_lnx_gsi_tx_debug_stats base;
+	struct ipa_lnx_ntn_gsi_tx_debug_stats ntn_stats;
+};
+
+struct ipa_lnx_gsi_rx_ntn_debug_stats {
+	struct ipa_lnx_gsi_rx_debug_stats base;
+	struct ipa_lnx_ntn_gsi_rx_debug_stats ntn_stats;
 };
 
 struct ipa_lnx_gsi_debug_stats {
@@ -391,23 +401,6 @@ struct ipa_lnx_pipe_page_recycling_stats {
  * New entry to be added when new routing table is created
  */
 struct rt_table_name_lookup { char *name; int index;};
-static struct rt_table_name_lookup rt_table_lookup_table[] = {
-	{"ipa_dflt_rt", 1},
-	{"COMRTBLLANv4", 2},
-	{"WANRTBLv4", 3},
-	{"ODURTBLv4", 4},
-	{"ipa_dflt_wan_rt", 5},
-	{"COMRTBLv6", 6},
-	{"WANRTBLv6", 7},
-	{"ODURTBLv6", 8},
-	{"IPSEC_ENCAP_v4", 9},
-	{"IPSEC_ENCAP_v6", 10},
-	{"IPSEC_DECAP_v4", 11},
-	{"IPSEC_DECAP_v6", 12},
-	{"IPSEC_DECAP_NO_POLICY_v4", 13},
-	{"IPSEC_DECAP_NO_POLICY_v6", 14},
-	{"RT_TABLE_NAME_MAX", 15},
-};
 
 enum rt_table_types {
 	ipa_dflt_rt = 1,
