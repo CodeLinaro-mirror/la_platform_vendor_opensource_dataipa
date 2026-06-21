@@ -10759,9 +10759,8 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 	if (seq_cfg->set_dynamic) {
 		type = seq_cfg->seq_type;
 #ifdef CONFIG_IPA_IPSEC
-	} else if (ipa_ipsec_enabled() && !ipa3_ctx->ep[clnt_hdl].skip_ep_cfg &&
-			(clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
-			clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+	} else if (ipa_ipsec_enabled() &&
+			(clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
 			clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
 			clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
 			clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
@@ -11598,8 +11597,7 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_enabled() &&
-	   (clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
-	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+	    (clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
 	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
 	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
 	    clnt_hdl == ipa3_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
@@ -16916,9 +16914,8 @@ int ipa3_check_eogre(
 	if (cache_is_null) {
 
 		if (eogre_is_null) {
-			IPAERR(
-				"Attempting to disable EoGRE. EoGRE is "
-				"already disabled. No work needs to be done.\n");
+			IPAERR("Receiving Invalid eogre info from user."
+					" No work needs to be done.\n");
 			ret = -EIO;
 			goto done;
 		}
@@ -17037,6 +17034,46 @@ done:
 	return res;
 }
 
+static void ipa3_rgip_info_free_cb(
+ 	void *buff,
+ 	u32   len,
+ 	u32   type)
+ {
+ 	if (buff) {
+ 		kfree(buff);
+ 	}
+ }
+
+int ipa3_send_rgip_info(enum ipa_rgip_event etype,
+	struct rgip_info rgip_addr )
+{
+	struct rgip_info *rg;
+	struct ipa_msg_meta    msg_meta;
+	int res = 0;
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+
+		rg = kzalloc(sizeof(struct rgip_info),
+ 					GFP_KERNEL);
+		if(!rg)
+		{
+			IPAERR("RG MEMORY NOT ASSIGNED");
+			return -ENOMEM;
+		}
+		memcpy(rg,
+			&rgip_addr,
+		  	sizeof(struct rgip_info));
+
+		msg_meta.msg_type = IPA_RGIP_ADD_EVENT;
+		msg_meta.msg_len  = sizeof(struct rgip_info);
+
+		if (ipa_send_msg(&msg_meta, rg, ipa3_rgip_info_free_cb)) {
+			IPAERR("Error in sending RGIP to ipacm\n");
+			kfree(rg);
+			res = -ENOMEM;
+		}
+
+		return res;
+}
 /* Send MHI endpoint info to modem using QMI indication message */
 int ipa_send_mhi_ctrl_endp_ind_to_modem(void)
 {

@@ -2116,8 +2116,77 @@ void ipa_ipsec_xdo_policy_free(struct xfrm_policy *xp)
 	xp->xdo.offload_handle = 0;
 }
 
+int ipa_ipsec_udate_decap_rt_rule(u32 qmap_hdr_hdl)
+{
+	int ip, ret = 0;
+	struct ipa_ioc_mdfy_rt_rule_v2  *rt_rule = NULL;
+	struct ipa_rt_rule_mdfy_v2 *rt_rule_entry;
+
+	IPADBG("qmap_hdr_hdl = %d\n", qmap_hdr_hdl);
+	rt_rule = (struct ipa_ioc_mdfy_rt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_mdfy_rt_rule_v2), GFP_KERNEL);
+	if (!rt_rule) {
+		IPAERR("Failed to allocate ipa_ioc_mdfy_rt_rule_v2\n");
+		ret = -ENOMEM;
+		goto fail_rt;
+	}
+	rt_rule->rules = (uint64_t)kzalloc(2 * sizeof(struct ipa_rt_rule_mdfy_v2), GFP_KERNEL);
+	if (!rt_rule->rules) {
+		IPAERR("Failed to allocate ipa_rt_rule_mdfy_v2\n");
+		ret = -ENOMEM;
+		goto fail_rt_rules;
+	}
+	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
+		memset((void *)rt_rule->rules, 0, 2 * sizeof(struct ipa_rt_rule_mdfy_v2));
+		rt_rule->commit = 1;
+		rt_rule->ip = ip;
+		rt_rule->num_rules++;
+		rt_rule->rule_mdfy_size = 2 * sizeof(struct ipa_rt_rule_mdfy_v2);
+		rt_rule_entry = &(((struct ipa_rt_rule_mdfy_v2 *)rt_rule->rules)[0]);
+		rt_rule_entry->rt_rule_hdl = ipa3_ctx->ipsec->decap_rt_rule_hdl[ip].esp_src_port_hdl;
+		rt_rule_entry->rule.hdr_hdl = qmap_hdr_hdl;
+
+		/* UDP 4500 + ESP after UDP */
+		rt_rule_entry->rule.dst = IPA_CLIENT_APPS_WAN_CONS;
+		rt_rule_entry->rule.hashable = true;
+		rt_rule_entry->rule.esp_after_udp = 1;
+		if (ip == IPA_IP_v4) {
+			rt_rule_entry->rule.attrib.attrib_mask =
+				IPA_FLT_PROTOCOL | IPA_FLT_SRC_PORT;
+			rt_rule_entry->rule.attrib.u.v4.protocol = IPPROTO_UDP;
+		} else {
+			rt_rule_entry->rule.attrib.attrib_mask =
+				IPA_FLT_NEXT_HDR | IPA_FLT_SRC_PORT;
+			rt_rule_entry->rule.attrib.u.v6.next_hdr = IPPROTO_UDP;
+		}
+		/* 4500 is the standard NAT-T port */
+		rt_rule_entry->rule.attrib.src_port = 4500;
+
+		/* Catch all */
+		rt_rule->num_rules++;
+		rt_rule_entry = &(((struct ipa_rt_rule_mdfy_v2 *)rt_rule->rules)[1]);
+		rt_rule_entry->rt_rule_hdl = ipa3_ctx->ipsec->decap_rt_rule_hdl[ip].catchall_hdl;
+		rt_rule_entry->rule.hdr_hdl = qmap_hdr_hdl;
+		rt_rule_entry->rule.dst = IPA_CLIENT_APPS_WAN_CONS;
+		rt_rule_entry->rule.hashable = true;
+
+		ret = ipa3_mdfy_rt_rule_v2(rt_rule);
+		if (!ret) {
+			IPAERR("ipa3_mdfy_rt_rule returned %d\n", ret);
+			goto end;
+		}
+	}
+end:
+	kfree((void *)rt_rule->rules);
+fail_rt_rules:
+	kfree(rt_rule);
+fail_rt:
+	return ret;
+
+
+}
+
 /* Install EP independent FLT table for DL policy rules */
-int ipa_ipsec_install_dl_pol_flt(void)
+int ipa_ipsec_install_dl_pol_flt(u32 qmap_hdr_hdl)
 {
 	int ip, ret = 0;
 	struct ipa_flt_rule_add_v2 *flt_rule_frag = NULL;
@@ -2127,13 +2196,13 @@ int ipa_ipsec_install_dl_pol_flt(void)
 	struct ipa_ioc_get_rt_tbl rt_lookup;
 
 	IPADBG("Start\n");
-
 	if (!ipa3_ctx->ipsec) {
 		IPAERR("IPsec is not initialized\n");
 		ret = -EINVAL;
 		return ret;
 	}
 
+	ipa_ipsec_udate_decap_rt_rule(qmap_hdr_hdl);
 	flt_tbl = kzalloc(sizeof(*flt_tbl), GFP_KERNEL);
 	if (!flt_tbl) {
 		IPAERR("Failed to allocate ipa_ioc_add_flt_rule_v2\n");
@@ -2826,6 +2895,10 @@ static int ipa_ipsec_fnr_init(void)
 			IPAERR("ipa3_add_rt_rule_v2 returned %d\n", ret);
 			goto end;
 		}
+		rt_rule = &(((struct ipa_rt_rule_add_v2 *)rt_tbl->rules)[0]);
+		ipa3_ctx->ipsec->decap_rt_rule_hdl[ip].esp_src_port_hdl = rt_rule->rt_rule_hdl;
+		rt_rule = &(((struct ipa_rt_rule_add_v2 *)rt_tbl->rules)[1]);
+		ipa3_ctx->ipsec->decap_rt_rule_hdl[ip].catchall_hdl = rt_rule->rt_rule_hdl;
 
 		rt_lookup.ip = rt_tbl->ip;
 		strlcpy(rt_lookup.name, rt_tbl->rt_tbl_name, IPA_RESOURCE_NAME_MAX);

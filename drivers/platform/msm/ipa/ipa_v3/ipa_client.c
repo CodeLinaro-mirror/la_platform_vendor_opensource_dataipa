@@ -1251,8 +1251,7 @@ static int ipa3_stop_ul_chan_with_data_drain(u32 qmi_req_id,
 	if (!stop_in_proc)
 		goto exit;
 
-	/* Remove delay only if stop channel success*/
-	if (remove_delay && ep->ep_delay_set == true && !stop_in_proc) {
+	if (remove_delay && ep->ep_delay_set == true) {
 		memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));
 		ep_cfg_ctrl.ipa_ep_delay = false;
 		result = ipa3_cfg_ep_ctrl(clnt_hdl,
@@ -1798,8 +1797,8 @@ int ipa3_xdci_suspend(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	/*enable holb to discard the packets*/
 	if (IPA_CLIENT_IS_CONS(dl_ep->client) && !is_dpl) {
 		memset(&holb_cfg, 0, sizeof(holb_cfg));
-		holb_cfg.en = IPA_HOLB_TMR_EN;
-		holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+		holb_cfg.en = IPA_HOLB_TMR_DIS;
+		holb_cfg.tmr_val = 0; 
 		result = ipa3_cfg_ep_holb(dl_clnt_hdl, &holb_cfg);
 	}
 
