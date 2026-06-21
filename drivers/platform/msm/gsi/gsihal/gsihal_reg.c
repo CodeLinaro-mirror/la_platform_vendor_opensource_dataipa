@@ -174,9 +174,12 @@ static const char *gsireg_name_to_str[GSI_REG_MAX] = {
 	__stringify(GSI_GSI_MCS_PROFILING_MCS_BUSY_CNT_MSB),
 	__stringify(GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_LSB),
 	__stringify(GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_MSB),
+	__stringify(GSI_SHRAM_PTR_MCS_STATS_BASE_ADDR),
+	__stringify(GSI_MCS_STATS_CH_EN_n),
 	__stringify(GSI_EE_n_CH_k_CH_ALMST_EMPTY_THRSHOLD),
 	__stringify(GSI_EE_n_GSI_DEBUG_PC_FOR_DEBUG),
 	__stringify(GSI_EE_n_GSI_DEBUG_BUSY_REG),
+	__stringify(GSI_DEBUG_EE_n_CH_k_VP_TABLE),
 	__stringify(GSI_IRQ_2_MCS_MAPPING_ACCn_TABLE0),
 	__stringify(GSI_IRQ_2_MCS_MAPPING_ACCn_TABLE1),
 	__stringify(GSI_MAX_TRE_TLV_n),
@@ -2850,6 +2853,9 @@ static struct gsihal_reg_obj gsihal_reg_objs[GSI_VER_MAX][GSI_REG_MAX] = {
 	[GSI_VER_7_0][GSI_EE_n_GSI_DEBUG_BUSY_REG] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
 	0x00005010, 0, 0},
+	[GSI_VER_7_0][GSI_DEBUG_EE_n_CH_k_VP_TABLE] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00005400, 0x104, 0x4},
 	[GSI_VER_7_0][GSI_GSI_IRAM_PTR_CH_CMD] = {
 	gsireg_construct_dummy, gsireg_parse_dummy,
 	0x00004400, 0, 0},
@@ -2916,6 +2922,12 @@ static struct gsihal_reg_obj gsihal_reg_objs[GSI_VER_MAX][GSI_REG_MAX] = {
 	[GSI_VER_7_0][GSI_DEBUG_MUTEX_REGION_TYPE_23] = {
 	gsireg_construct_gsi_debug_mutex_region_type_23, gsireg_parse_dummy,
 	0xf1c05028, 0, 0},
+	[GSI_VER_7_0][GSI_SHRAM_PTR_MCS_STATS_BASE_ADDR] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x00004250, 0, 0},
+	[GSI_VER_7_0][GSI_MCS_STATS_CH_EN_n] = {
+	gsireg_construct_dummy, gsireg_parse_dummy,
+	0x000061ac, 0, 0x4},
 };
 
 /*

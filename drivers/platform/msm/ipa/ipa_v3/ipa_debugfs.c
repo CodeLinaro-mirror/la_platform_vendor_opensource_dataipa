@@ -3555,6 +3555,71 @@ done:
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
 }
 
+static ssize_t ipa3_read_iemac_gsi_stats(struct file *file,
+	char __user *ubuf, size_t count, loff_t *ppos)
+{
+	void __iomem *base;
+	int nbytes, cnt = 0, i;
+	u32 ring_full, ring_empty, ring_usage_high, ring_usage_low;
+	u32 ring_util_count, db_count;
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v6_0) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"IEMAC GSI stats require IPA_HW_v6_0+\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	if (!ipa3_ctx->iemac_exist) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"IEMAC not present on this platform\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	base = ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_mmio;
+	if (!base) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"IEMAC GSI stats not allocated\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	if (ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_size <
+	    IPA_IEMAC_MAX_STATS_CHANNELS * IPA_IEMAC_STATS_CH_STRIDE) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"IEMAC stats mapping too small: %u < %zu\n",
+			ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_size,
+			(size_t)(IPA_IEMAC_MAX_STATS_CHANNELS *
+				 IPA_IEMAC_STATS_CH_STRIDE));
+		cnt += nbytes;
+		goto done;
+	}
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	for (i = 0; i < IPA_IEMAC_MAX_STATS_CHANNELS; i++) {
+		void __iomem *ch = base + i * IPA_IEMAC_STATS_CH_STRIDE;
+
+		ring_full       = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGFULL_OFF);
+		ring_empty      = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGEMPTY_OFF);
+		ring_usage_high = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGUSAGEHIGH_OFF);
+		ring_usage_low  = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGUSAGELOW_OFF);
+		ring_util_count = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGUTILCOUNT_OFF);
+		db_count        = ioread32(ch + IPA_IEMAC_STATS_DBCOUNT_OFF);
+
+		nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN - cnt,
+			"CH%d ringFull=%u ringEmpty=%u ringUsageHigh=%u "
+			"ringUsageLow=%u RingUtilCount=%u dbCount=%u\n",
+			i, ring_full, ring_empty, ring_usage_high,
+			ring_usage_low, ring_util_count, db_count);
+		cnt += nbytes;
+	}
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+done:
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
+}
+
 static ssize_t ipa3_read_app_clk_vote(
 	struct file *file,
 	char __user *ubuf,
@@ -4851,6 +4916,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.read = ipa3_read_usb_gsi_stats,
 		}
 	}, {
+		"iemac_gsi_stats", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_iemac_gsi_stats,
+		}
+	}, {
 		"app_clk_vote_cnt", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_app_clk_vote,
 		}
@@ -5276,7 +5345,7 @@ static void __ipa_ntn3_client_stats_read(int *cnt,
 	nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
 		"%s_RP=0x%x\n"
 		"%s_WP=0x%x\n"
-		"%s_ntn_last_db_value:%u\n"
+		"%s_ntn_rx_last_db_value:%u\n"
 		"%s_ntn_rx_next_re:%u\n"
 		"%s_ntn_rx_invalid_own_bit:%u\n"
 		"%s_ntn_rx_stop_in_progress_stm:%u\n"
@@ -5311,7 +5380,7 @@ static void __ipa_ntn3_client_stats_read(int *cnt,
 		nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
 			"%s_RP=0x%x\n"
 			"%s_WP=0x%x\n"
-			"%s_ntn_last_db_value:%u\n"
+			"%s_ntn_rx_last_db_value:%u\n"
 			"%s_ntn_rx_next_re:%u\n"
 			"%s_ntn_rx_invalid_own_bit:%u\n"
 			"%s_ntn_rx_stop_in_progress_stm:%u\n"

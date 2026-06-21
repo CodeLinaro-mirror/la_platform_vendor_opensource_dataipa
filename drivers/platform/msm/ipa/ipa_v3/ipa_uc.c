@@ -18,6 +18,20 @@
 
 #define IPA_UC_DBG_STATS_GET_PROT_ID(x) (0xff & ((x) >> 24))
 #define IPA_UC_DBG_STATS_GET_OFFSET(x) (0x00ffffff & (x))
+/*
+ * Largest per-channel stats struct across all offload protocols.
+ * Covers: WDI (IpaHwStatsWDIRxInfoData_t), RTK (ipa_uc_dbg_rtk_ring_stats),
+ *         NTN3 (NTN3RxInfoData_t), IEMAC (IpaHwIemacStatsData_t).
+ * When adding a new per-channel stats struct, extend this max() chain.
+ */
+#define IPA_UC_DBG_STATS_MAX_PER_CH_SIZE \
+	max(sizeof(struct IpaHwStatsWDIRxInfoData_t), \
+	    max(sizeof(struct ipa_uc_dbg_rtk_ring_stats), \
+	        max(sizeof(struct NTN3RxInfoData_t), \
+	            sizeof(struct IpaHwIemacStatsData_t))))
+/* Upper bound: max channels per protocol × largest per-channel stats struct */
+#define IPA_UC_DBG_STATS_MAX_SIZE \
+	(IPA_MAX_CH_STATS_SUPPORTED * IPA_UC_DBG_STATS_MAX_PER_CH_SIZE)
 #define IPA_UC_EVENT_RING_SIZE 10
 /**
  * Mailbox register to Interrupt HWP for CPU cmd
@@ -481,9 +495,16 @@ static void ipa3_uc_save_dbg_stats(u32 size)
 		ipa3_ctx->uc_ctx.uc_sram_mmio->responseParams_1);
 	addr_offset = IPA_UC_DBG_STATS_GET_OFFSET(
 		ipa3_ctx->uc_ctx.uc_sram_mmio->responseParams_1);
-	mmio = ioremap(ipa3_ctx->ipa_wrapper_base +
-		addr_offset, sizeof(struct IpaHwRingStats_t) *
-		MAX_CH_STATS_SUPPORTED);
+	if (!size) {
+		IPAERR("firmware returned zero stats size for prot %u\n", prot_id);
+		return;
+	}
+	if (size > IPA_UC_DBG_STATS_MAX_SIZE) {
+		IPAERR("firmware stats size %u exceeds max %zu for prot %u\n",
+		       size, IPA_UC_DBG_STATS_MAX_SIZE, prot_id);
+		return;
+	}
+	mmio = ioremap(ipa3_ctx->ipa_wrapper_base + addr_offset, size);
 	if (mmio == NULL) {
 		IPAERR("unexpected NULL mmio\n");
 		return;
@@ -563,6 +584,17 @@ static void ipa3_uc_save_dbg_stats(u32 size)
 			ipa3_ctx->usb_ctx.dbg_stats.uc_dbg_stats_ofst =
 				addr_offset;
 			ipa3_ctx->usb_ctx.dbg_stats.uc_dbg_stats_mmio =
+				mmio;
+		} else
+			goto unmap;
+		break;
+	case IPA_HW_PROTOCOL_IEMAC:
+		if (!ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_mmio) {
+			ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_size =
+				size;
+			ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_ofst =
+				addr_offset;
+			ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_mmio =
 				mmio;
 		} else
 			goto unmap;
@@ -1210,6 +1242,8 @@ int ipa3_uc_interface_init(void)
 	int result;
 	unsigned long phys_addr;
 
+	BUILD_BUG_ON(IPA_IEMAC_MAX_STATS_CHANNELS > IPA_MAX_CH_STATS_SUPPORTED);
+
 	if (ipa3_ctx->uc_ctx.uc_inited) {
 		IPADBG("uC interface already initialized\n");
 		return 0;
@@ -1772,6 +1806,10 @@ int ipa3_uc_debug_stats_dealloc(uint32_t prot_id)
 	case IPA_HW_PROTOCOL_WDI3:
 		iounmap(ipa3_ctx->wdi3_ctx.dbg_stats.uc_dbg_stats_mmio);
 		ipa3_ctx->wdi3_ctx.dbg_stats.uc_dbg_stats_mmio = NULL;
+		break;
+	case IPA_HW_PROTOCOL_IEMAC:
+		iounmap(ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_mmio);
+		ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_mmio = NULL;
 		break;
 	default:
 		IPAERR("unknown protocols %d\n", prot_id);

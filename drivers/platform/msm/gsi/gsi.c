@@ -75,8 +75,6 @@
 /* FOR_SEQ_HIGH channel scratch: (((8 * (pipe_id * ctx_size + offset_lines)) + 4) / 4) */
 #define GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id) (((8 * (ep_id * 10 + 9)) + 4) / 4)
 
-#define GSI_STATS_EN_MASK 					(1U << 31)
-
 #ifndef CONFIG_DEBUG_FS
 extern int gsi_sysfs_init(void);
 extern void gsi_sysfs_destroy(void);
@@ -2894,7 +2892,6 @@ static uint32_t gsi_legacy_protocol_dir_to_v7_0_protocol
 
 static int __gsi_config_gsi_ch_stats(unsigned long chan_hdl)
 {
-	uint32_t mask = GSI_STATS_EN_MASK;
 	struct gsi_chan_ctx *ctx;
 	uint32_t raw;
 
@@ -2909,9 +2906,10 @@ static int __gsi_config_gsi_ch_stats(unsigned long chan_hdl)
 	ctx = &gsi_ctx->chan[chan_hdl];
 	mutex_lock(&ctx->mlock);
 	raw = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9, gsi_ctx->per.ee, chan_hdl);
-	gsihal_write_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9, gsi_ctx->per.ee, chan_hdl, (raw | mask));
-	mutex_unlock(&ctx->mlock);
+	gsihal_write_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9, gsi_ctx->per.ee, chan_hdl,
+			    raw | GSI_CH_SCRATCH9_STATS_EN_BMSK);
 
+	mutex_unlock(&ctx->mlock);
 	return GSI_STATUS_SUCCESS;
 }
 
@@ -6275,6 +6273,109 @@ int gsi_get_fw_version(struct gsi_fw_version *ver)
 
 	return 0;
 }
+
+/**
+ * gsi_get_hw_ch_stats() - Read per-channel HW stats from GSI SHRAM
+ * @chan_hdl:	[in] channel handle
+ * @stats:	[out] stats structure populated by this function
+ *
+ * Available on GSI_VER_7_0 and above. The channel must have been allocated
+ * with gsi_chan_props.gsi_stats_en = 1.
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int gsi_get_hw_ch_stats(unsigned long chan_hdl, struct gsi_hw_ch_stats *stats)
+{
+	struct gsi_chan_ctx *ctx;
+	u32 base_ptr, shram_base;
+	u32 lo, hi;
+
+	if (!stats) {
+		GSIERR("bad params: stats is NULL\n");
+		return -EINVAL;
+	}
+
+	if (!gsi_ctx) {
+		GSIERR("gsi_ctx not initialized\n");
+		return -EINVAL;
+	}
+
+	if (gsi_ctx->per.ver < GSI_VER_7_0) {
+		GSIERR("GSI HW ch stats require GSI_VER_7_0+\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (chan_hdl >= gsi_ctx->max_ch) {
+		GSIERR("invalid chan_hdl %lu\n", chan_hdl);
+		return -EINVAL;
+	}
+
+	ctx = &gsi_ctx->chan[chan_hdl];
+	if (!ctx->allocated) {
+		GSIERR("chan_hdl %lu not allocated\n", chan_hdl);
+		return -EINVAL;
+	}
+
+	if (!ctx->props.gsi_stats_en) {
+		GSIERR("chan_hdl %lu: gsi_stats_en not set\n", chan_hdl);
+		return -EINVAL;
+	}
+
+	gsi_ctx->per.vote_clk_cb();
+
+	base_ptr = gsihal_read_reg(GSI_SHRAM_PTR_MCS_STATS_BASE_ADDR)
+		   & GSI_SHRAM_PTR_MCS_STATS_SHRAM_PTR_BMSK;
+
+	if (!base_ptr) {
+		GSIERR("chan_hdl=%lu MCS stats SHRAM base pointer is 0 — stats not configured\n",
+		       chan_hdl);
+		gsi_ctx->per.unvote_clk_cb();
+		return -ENODATA;
+	}
+
+	{
+		u32 vp = gsihal_read_reg_nk(GSI_DEBUG_EE_n_CH_k_VP_TABLE,
+					    gsi_ctx->per.ee, chan_hdl);
+
+		if (!(vp & GSI_DEBUG_EE_n_CH_k_VP_TABLE_VALID_BMSK)) {
+			GSIERR("chan_hdl=%lu VP_TABLE entry not valid\n", chan_hdl);
+			gsi_ctx->per.unvote_clk_cb();
+			return -ENODATA;
+		}
+		/* base_ptr is in 8B SHRAM-line units; convert to 4B dword units
+		 * for gsihal_read_reg_n (n_ofst = 4).
+		 */
+		shram_base = (base_ptr + GSI_HW_STATS_WORDS_PER_CH *
+			      (vp & GSI_DEBUG_EE_n_CH_k_VP_TABLE_PHY_CH_BMSK))
+			     * GSI_HW_STATS_SHRAM_DWORDS_PER_WORD;
+	}
+
+#define GSI_READ_STAT_WORD(word_idx) ({					\
+	u32 _idx = shram_base +						\
+		   (word_idx) * GSI_HW_STATS_SHRAM_DWORDS_PER_WORD;	\
+	lo = gsihal_read_reg_n(GSI_GSI_SHRAM_0, _idx);			\
+	hi = gsihal_read_reg_n(GSI_GSI_SHRAM_0, _idx + 1);		\
+	((u64)hi << 32) | lo; })
+
+	/* Word 0: num_oob_full in lo-32, num_tre in hi-32 */
+	{
+		u64 w0 = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_TRE_OOB_CNT);
+
+		stats->num_oob_full = (u32)(w0 & 0xFFFFFFFF);
+		stats->num_tre      = (u32)(w0 >> 32);
+	}
+	stats->tlv_in_bytes  = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_TLV_IN);
+	stats->tlv_out_bytes = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_TLV_OUT);
+	stats->oob_full_time = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_OOB_FULL_TIME);
+	stats->oob_full_ts   = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_OOB_FULL_TS);
+
+#undef GSI_READ_STAT_WORD
+
+	gsi_ctx->per.unvote_clk_cb();
+
+	return 0;
+}
+EXPORT_SYMBOL(gsi_get_hw_ch_stats);
 
 /**
  * gsi_cleanup_channel - resets and deallocates channel without context

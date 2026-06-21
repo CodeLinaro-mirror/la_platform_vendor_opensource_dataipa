@@ -725,6 +725,61 @@ static const struct file_operations gsi_ver_ops = {
 	.read = gsi_read_gsi_fw_version,
 };
 
+static ssize_t gsi_read_hw_ch_stats(struct file *file,
+	char __user *buf, size_t count, loff_t *ppos)
+{
+	struct gsi_hw_ch_stats stats;
+	int nbytes, cnt = 0;
+	unsigned long ch_id;
+
+	if (gsi_ctx->per.ver < GSI_VER_7_0) {
+		nbytes = scnprintf(dbg_buff, GSI_MAX_MSG_LEN,
+			"GSI HW channel stats require GSI v7.0+\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	for (ch_id = 0; ch_id < gsi_ctx->max_ch; ch_id++) {
+		int rc;
+
+		if (!gsi_ctx->chan[ch_id].allocated ||
+		    !gsi_ctx->chan[ch_id].props.gsi_stats_en)
+			continue;
+		if (cnt >= GSI_MAX_MSG_LEN)
+			break;
+		rc = gsi_get_hw_ch_stats(ch_id, &stats);
+		if (rc == -ENODATA) {
+			nbytes = scnprintf(dbg_buff + cnt, GSI_MAX_MSG_LEN - cnt,
+				"GSI HW channel stats not configured (MCS SHRAM base = 0)\n");
+			cnt += nbytes;
+			break;
+		}
+		if (rc)
+			continue;
+		nbytes = scnprintf(dbg_buff + cnt, GSI_MAX_MSG_LEN - cnt,
+			"CH%lu: num_tre=%u num_oob_full=%u "
+			"tlv_in=%llu tlv_out=%llu "
+			"oob_full_time=%llu F0=%u "
+			"oob_full_ts=%llu F1=%u\n",
+			ch_id,
+			stats.num_tre,
+			stats.num_oob_full,
+			stats.tlv_in_bytes,
+			stats.tlv_out_bytes,
+			stats.oob_full_time & GSI_HW_CH_STATS_TIME_VAL_BMSK,
+			!!(stats.oob_full_time & GSI_HW_CH_STATS_FLAG_BMSK),
+			stats.oob_full_ts & GSI_HW_CH_STATS_TIME_VAL_BMSK,
+			!!(stats.oob_full_ts & GSI_HW_CH_STATS_FLAG_BMSK));
+		cnt += nbytes;
+	}
+done:
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, cnt);
+}
+
+static const struct file_operations gsi_hw_ch_stats_ops = {
+	.read = gsi_read_hw_ch_stats,
+};
+
 void gsi_debugfs_init(void)
 {
 	static struct dentry *dfile;
@@ -804,6 +859,13 @@ void gsi_debugfs_init(void)
 				    &gsi_ver_ops);
 	if (!dfile || IS_ERR(dfile)) {
 		TERR("could not create gsi_fw_version\n");
+		goto fail;
+	}
+
+	dfile = debugfs_create_file("gsi_hw_ch_stats", read_only_mode,
+				    dent, 0, &gsi_hw_ch_stats_ops);
+	if (!dfile || IS_ERR(dfile)) {
+		TERR("could not create gsi_hw_ch_stats\n");
 		goto fail;
 	}
 
