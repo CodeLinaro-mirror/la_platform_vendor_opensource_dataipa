@@ -1432,9 +1432,8 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 		rule->public_ip = IPA_DUMMY_PDN_PUB_IP;
 
 	/*
-	 * CT canonical direction: smaller EP is private_ip, larger EP is target_ip.
-	 * When ct_canonical_swap is set, return_ip is the canonical private side —
-	 * swap private/target on the already-extracted rule (no message copy needed).
+	 * CT canonical direction: when ct_canonical_swap is set, return_ip is the
+	 * canonical private side — swap private/target on the already-extracted rule.
 	 */
 	if (ct_canonical_swap) {
 		uint32_t tmp_ip      = rule->private_ip;
@@ -1939,38 +1938,59 @@ void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enable
 
 	/*
 	 * Reconstruct the key that was used during insertion.
-	 * For CT (LAN2LAN): the single canonical entry is keyed on
-	 * the smaller-EP client as private_ip → bigger-EP as target_ip.
+	 * For CT (LAN2LAN): replay ipa_be_build_nat_rule_attrs + ct_canonical_swap
+	 * to reproduce the exact key stored during ipa_be_add_entry.
 	 * For NAT: the entry is always created from the uplink direction.
 	 * The destroy message can come for either direction; use flow_ip_xlate
 	 * to detect which direction this message represents.
 	 */
 	if (ct_enabled) {
-		int ep_cmp = ipa_be_flow_canonical_cmp(v4_msg.conn_rule.flow_interface_num,
-						v4_msg.conn_rule.return_interface_num,
-						v4_msg.conn_rule.flow_mac,
-						v4_msg.conn_rule.return_mac);
+		int ep_cmp;
+		uint32_t tmp_ip;
+		uint16_t tmp_port;
 
+		ep_cmp = ipa_be_flow_canonical_cmp(v4_msg.conn_rule.flow_interface_num,
+						   v4_msg.conn_rule.return_interface_num,
+						   v4_msg.conn_rule.flow_mac,
+						   v4_msg.conn_rule.return_mac);
 		if (ep_cmp < 0) {
 			return;
 		}
-		if (ep_cmp) {
-			/* flow is canonical private */
+
+		WARN_ON(v4_msg.tuple.flow_ip != v4_msg.conn_rule.flow_ip_xlate ||
+			v4_msg.tuple.return_ip != v4_msg.conn_rule.return_ip_xlate);
+
+		/*
+		 * LAN2LAN has no IP translation, so flow_ip == flow_ip_xlate and
+		 * return_ip == return_ip_xlate — the IPPT branch always fires.
+		 * Replicate ipa_be_build_nat_rule_attrs IPPT logic to get the
+		 * initial private/target assignment, then apply the same swap.
+		 */
+		if (v4_msg.conn_rule.flow_interface_num ==
+		    v4_msg.conn_rule.flow_top_interface_num) {
+			/* Downlink IPPT (typical non-VLAN LAN2LAN) */
+			rule.private_ip   = ntohl(v4_msg.conn_rule.return_ip_xlate);
+			rule.target_ip    = ntohl(v4_msg.tuple.flow_ip);
+			rule.private_port = ntohs(v4_msg.tuple.return_ident);
+			rule.target_port  = ntohs(v4_msg.tuple.flow_ident);
+		} else {
+			/* Uplink IPPT (VLAN LAN2LAN, flow is sub-interface) */
 			rule.private_ip   = ntohl(v4_msg.tuple.flow_ip);
 			rule.target_ip    = ntohl(v4_msg.tuple.return_ip);
 			rule.private_port = ntohs(v4_msg.tuple.flow_ident);
 			rule.target_port  = ntohs(v4_msg.tuple.return_ident);
-			/* CT: no port translation — public_port = private_port, matching the add path */
-			rule.public_port  = ntohs(v4_msg.tuple.flow_ident);
-		} else {
-			/* return is canonical private */
-			rule.private_ip   = ntohl(v4_msg.tuple.return_ip);
-			rule.target_ip    = ntohl(v4_msg.tuple.flow_ip);
-			rule.private_port = ntohs(v4_msg.tuple.return_ident);
-			rule.target_port  = ntohs(v4_msg.tuple.flow_ident);
-			/* CT: no port translation — public_port = private_port, matching the add path */
-			rule.public_port  = ntohs(v4_msg.tuple.return_ident);
 		}
+
+		/* Mirror ct_canonical_swap from ipa_be_addpdn: swap when ep_cmp==0 */
+		if (ep_cmp == 0) {
+			tmp_ip            = rule.private_ip;
+			tmp_port          = rule.private_port;
+			rule.private_ip   = rule.target_ip;
+			rule.target_ip    = tmp_ip;
+			rule.private_port = rule.target_port;
+			rule.target_port  = tmp_port;
+		}
+		rule.public_port = rule.private_port;
 		IPA_BE_DBG("CT canonical delete: private=%pI4h:%u target=%pI4h:%u (flow_ep=%u ret_ep=%u)\n",
 			   &rule.private_ip, (unsigned int)rule.private_port,
 			   &rule.target_ip, (unsigned int)rule.target_port,

@@ -805,6 +805,122 @@ int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan)
 	return ref_count;
 }
 
+/*
+ * Atomically reads rt_hdl, hdr_hdl, and proc_ctx_name from the mapping entry
+ * and decrements the ref count, all under ipa_client_db_lock.
+ *
+ * Splitting these two operations leaves a window where a concurrent destroy
+ * can free the entry and a new connection for the same IP can reuse it.
+ * The late deref would then spuriously decrement the new entry's ref count,
+ * potentially triggering a premature cleanup of its IPA handles.
+ *
+ * Returns the ref count after decrement, or -1 if the entry was not found.
+ * Output handles are initialised to -1 / '\0' so callers see safe defaults
+ * even when the entry is not found.
+ */
+int ipa_be_mapping_deref_and_get_handles(ip_addr_t addr, bool lan2lan,
+					  int *rt_hdl_out, int *hdr_hdl_out,
+					  char *proc_ctx_name_out)
+{
+	ipa_db_mapping_hash_t hash_index, mac_hash_index;
+	struct ipa_clientdb_mapping_instance *mi;
+	int ref_count = -1;
+
+	if (rt_hdl_out)
+		*rt_hdl_out = -1;
+	if (hdr_hdl_out)
+		*hdr_hdl_out = -1;
+	if (proc_ctx_name_out)
+		proc_ctx_name_out[0] = '\0';
+
+	hash_index = ipa_db_mapping_generate_hash_index(addr, 0);
+
+	mutex_lock(&ipa_client_db_lock);
+
+	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
+		if (!is_ip_addr_equal(mi->address, addr))
+			continue;
+
+		/* Read handles while the entry is still live and the lock is held. */
+		if (lan2lan) {
+			if (rt_hdl_out)
+				*rt_hdl_out = mi->lan2lan_info.rt_hdl;
+			if (hdr_hdl_out)
+				*hdr_hdl_out = mi->lan2lan_info.hdr_hdl;
+			if (proc_ctx_name_out && mi->lan2lan_info.proc_ctx_name[0] != '\0')
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+				strscpy(proc_ctx_name_out, mi->lan2lan_info.proc_ctx_name, 32);
+#else
+				strlcpy(proc_ctx_name_out, mi->lan2lan_info.proc_ctx_name, 32);
+#endif
+		} else {
+			if (rt_hdl_out)
+				*rt_hdl_out = mi->lan2wan_info.rt_hdl;
+			if (hdr_hdl_out)
+				*hdr_hdl_out = mi->lan2wan_info.hdr_hdl;
+			if (proc_ctx_name_out && mi->lan2wan_info.proc_ctx_name[0] != '\0')
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+				strscpy(proc_ctx_name_out, mi->lan2wan_info.proc_ctx_name, 32);
+#else
+				strlcpy(proc_ctx_name_out, mi->lan2wan_info.proc_ctx_name, 32);
+#endif
+		}
+
+		/* Decrement ref count (mirrors ipa_be_mapping_deref_and_delete). */
+		if (lan2lan) {
+			if (atomic_read(&mi->lan2lan_info.ref_count) > 0)
+				atomic_dec(&mi->lan2lan_info.ref_count);
+		} else {
+			if (atomic_read(&mi->lan2wan_info.ref_count) > 0)
+				atomic_dec(&mi->lan2wan_info.ref_count);
+		}
+
+		IPA_BE_DBG("Ref count now l2l: %d, l2w: %d\n",
+			   atomic_read(&mi->lan2lan_info.ref_count),
+			   atomic_read(&mi->lan2wan_info.ref_count));
+
+		ref_count = atomic_read(&mi->lan2lan_info.ref_count) +
+			    atomic_read(&mi->lan2wan_info.ref_count);
+
+		if (ref_count == 0) {
+			if (mi->hash_prev)
+				mi->hash_prev->hash_next = mi->hash_next;
+			else
+				ipa_db_mapping_table[hash_index] = mi->hash_next;
+			if (mi->hash_next)
+				mi->hash_next->hash_prev = mi->hash_prev;
+			ipa_db_mapping_table_lengths[hash_index]--;
+
+			if (!ipa_be_is_zero_mac(mi->mac_addr_t)) {
+				mac_hash_index = ipa_db_mapping_generate_mac_hash_index(
+						mi->mac_addr_t, mi->vlan_id);
+				if (mi->mac_hash_prev)
+					mi->mac_hash_prev->mac_hash_next = mi->mac_hash_next;
+				else
+					ipa_db_mapping_mac_table[mac_hash_index] = mi->mac_hash_next;
+				if (mi->mac_hash_next)
+					mi->mac_hash_next->mac_hash_prev = mi->mac_hash_prev;
+			}
+
+			if (mi->prev)
+				mi->prev->next = mi->next;
+			else
+				ipa_db_mappings = mi->next;
+			if (mi->next)
+				mi->next->prev = mi->prev;
+
+			kfree(mi);
+			atomic_dec(&ipa_client_db_mapping_count);
+			IPA_BE_DBG("Deleted Client Db at hash index %d mapping count %d now\n",
+				   hash_index, atomic_read(&ipa_client_db_mapping_count));
+		}
+		break;
+	}
+
+	mutex_unlock(&ipa_client_db_lock);
+	return ref_count;
+}
+
 static int ipa_ipv4_header(char *name)
 {
 	struct ipa_ioc_get_hdr hdr;

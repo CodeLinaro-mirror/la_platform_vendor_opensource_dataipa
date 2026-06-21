@@ -121,6 +121,9 @@ struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(
 	ip_addr_t addr, int vlan_id, int lan2lan, mac_addr_t mac);
 
 int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan);
+int ipa_be_mapping_deref_and_get_handles(ip_addr_t addr, bool lan2lan,
+					  int *rt_hdl_out, int *hdr_hdl_out,
+					  char *proc_ctx_name_out);
 
 bool ipa_clientdb_mapping_init(void);
 

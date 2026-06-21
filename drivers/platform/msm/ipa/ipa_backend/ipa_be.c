@@ -1510,16 +1510,16 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 	int pdn_iface = 0;
 	int client_iface = 0;
 	int hdr_hdl = -1;
-	int proc_ctx_hdl = -1;
 	char proc_ctx_name[32] = {0};
 	ip_addr_t lan_client_ip = {0};
 	ip_addr_t ret_addr = {0};
 	ip_addr_t flow_addr = {0};
+	enum ipa_hw_type ipa_ver = ipa_get_hw_type();
+	struct ipa_fse_rule fse_info;
 
 	IPA_BE_DBG("Entry  ipa_ipv4_destroy_rule \n");
 	ipa_be_log_ipv4_destroy_details(msg);
 
-	struct ipa_fse_rule fse_info;
 	/* FSE rule destruction */
 	if (ipa3_is_vpnum_valid(msg->conn_rule.flow_interface_num)) {
 		memset(&fse_info, 0, sizeof(fse_info));
@@ -1547,12 +1547,9 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 
 	/* Zero-pad IPv4 address into ip_addr_t so hash/compare only sees the IPv4 word */
 	ret_addr[0] = msg->tuple.return_ip;
-	rt_hdl = ipa_get_rt_hdl_from_mapping(ret_addr,
-		lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
+	ref = ipa_be_mapping_deref_and_get_handles(ret_addr, lan2lan,
+		&rt_hdl, &hdr_hdl, proc_ctx_name);
 	IPA_BE_DBG("Rt hdl %d \n", rt_hdl);
-
-	// Check reference count first, then delete route rule only if ref will become 0
-	ref = ipa_be_mapping_deref_and_delete(ret_addr, lan2lan);
 	if (ref == -1)
 	{
 		IPA_BE_DBG("Entry %pI4n does not exist \n", &msg->tuple.return_ip);
@@ -1590,14 +1587,18 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 
 	if (lan2lan)
 	{
+		/* Delete CT entry per-connection, not gated on shared flow_ip ref count. */
+		if (ipa_ver >= IPA_HW_v7_0) {
+			IPA_BE_DBG("Deleting CT entry for LAN2LAN on IPA v7.0+\n");
+			ipa_be_delete_entry(*msg, true);
+		}
+
 		// Delete reverse flow only for LAN2LAN - check reference count first
 		/* Zero-pad IPv4 address into ip_addr_t so hash/compare only sees the IPv4 word */
 		flow_addr[0] = msg->tuple.flow_ip;
-		rt_hdl = ipa_get_rt_hdl_from_mapping(flow_addr,
-			lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
+		ref = ipa_be_mapping_deref_and_get_handles(flow_addr, lan2lan,
+			&rt_hdl, &hdr_hdl, proc_ctx_name);
 		IPA_BE_DBG("Rt hdl %d \n", rt_hdl);
-
-		ref = ipa_be_mapping_deref_and_delete(flow_addr, lan2lan);
 		if (ref == -1)
 		{
 			IPA_BE_DBG("Entry %pI4n does not exist \n", &msg->tuple.flow_ip);
@@ -1627,16 +1628,10 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 					ipa_be_delete_proc_ctx(proc_ctx_name);
 				}
 			}
+
 			/* Filter rule for dst=flow_ip is only shared while flow_ip mapping exists */
 			if (ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan))
 				IPA_BE_ERR("Failed to delete return filter rule\n");
-		}
-
-		/* Delete CT entry for LAN2LAN on IPA v7.0+ */
-		enum ipa_hw_type ipa_ver = ipa_get_hw_type();
-		if (ipa_ver >= IPA_HW_v7_0) {
-			IPA_BE_DBG("Deleting CT entry for LAN2LAN on IPA v7.0+\n");
-			ipa_be_delete_entry(*msg, true);
 		}
 	}
 	else
@@ -1658,10 +1653,8 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		}
 
 		/* Delete route rule for client */
-		rt_hdl = ipa_get_rt_hdl_from_mapping(lan_client_ip,
-			lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
-
-		ref = ipa_be_mapping_deref_and_delete(lan_client_ip, lan2lan);
+		ref = ipa_be_mapping_deref_and_get_handles(lan_client_ip, lan2lan,
+			&rt_hdl, &hdr_hdl, proc_ctx_name);
 		if (ref == 0 && rt_hdl) {
 			ipa_delete_route_rule(lan2lan, rt_hdl, IPA_IP_v4);
 
@@ -1718,9 +1711,9 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	int pdn_iface = 0;
 	int client_iface = 0;
 	int hdr_hdl = -1;
-	int proc_ctx_hdl = -1;
 	char proc_ctx_name[32] = {0};
 	uint32_t *flow_ip_ptr = NULL;
+	struct ipa_fse_rule fse_info;
 
 	if (!msg) {
 		IPA_BE_ERR("Invalid message pointer\n");
@@ -1729,7 +1722,6 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 
 	IPA_BE_DBG("Entry ipa_ipv6_destroy_rule\n");
 
-	struct ipa_fse_rule fse_info;
 	/* FSE rule destruction */
 	if (ipa3_is_vpnum_valid(msg->conn_rule.flow_interface_num)) {
 		memset(&fse_info, 0, sizeof(fse_info));
@@ -1757,12 +1749,11 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	}
 	IPA_BE_DBG("Is connection lan2lan: %d\n", lan2lan);
 
-	rt_hdl = ipa_get_rt_hdl_from_mapping((uint32_t *)&msg->tuple.return_ip,
-		lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
+	ref = ipa_be_mapping_deref_and_get_handles((uint32_t *)&msg->tuple.return_ip,
+		lan2lan, &rt_hdl, &hdr_hdl, proc_ctx_name);
 	IPA_BE_DBG("Return flow rt_hdl %d\n", rt_hdl);
 
 	/* Check reference count first for return flow */
-	ref = ipa_be_mapping_deref_and_delete((uint32_t *)&msg->tuple.return_ip, lan2lan);
 	if (ref == -1) {
 		IPA_BE_DBG("Entry %pI6n does not exist\n", &msg->tuple.return_ip);
 	} else if (ref > 0) {
@@ -1795,11 +1786,16 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	}
 
 	if (lan2lan) {
-		/* LAN2LAN: Also delete forward flow - check reference count first */
-		rt_hdl = ipa_get_rt_hdl_from_mapping((uint32_t *)&msg->tuple.flow_ip, lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
-		IPA_BE_DBG("Forward flow rt_hdl %d\n", rt_hdl);
+#ifdef CONFIG_ECM_CONVERGENCE
+			/* Delete IPv6 CT entry per-connection, not gated on shared flow_ip ref count. */
+			IPA_BE_DBG("Deleting IPv6 CT entry for LAN2LAN\n");
+			ipa_be_handle_v6_ct_deletion(msg, true);
+#endif
 
-		ref = ipa_be_mapping_deref_and_delete((uint32_t *)&msg->tuple.flow_ip, lan2lan);
+		/* LAN2LAN: Also delete forward flow - check reference count first */
+		ref = ipa_be_mapping_deref_and_get_handles((uint32_t *)&msg->tuple.flow_ip,
+			lan2lan, &rt_hdl, &hdr_hdl, proc_ctx_name);
+		IPA_BE_DBG("Forward flow rt_hdl %d\n", rt_hdl);
 		if (ref == -1) {
 			IPA_BE_ERR("Entry %pI6n does not exist\n", &msg->tuple.flow_ip);
 			return;
@@ -1830,12 +1826,6 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			if (ipa_be_v6_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan) != 0)
 				IPA_BE_ERR("Failed to delete filter rule for forward flow\n");
 		}
-
-#ifdef CONFIG_ECM_CONVERGENCE
-		/* Delete IPv6 CT entry for LAN2LAN */
-		IPA_BE_DBG("Deleting IPv6 CT entry for LAN2LAN\n");
-		ipa_be_handle_v6_ct_deletion(msg, true);
-#endif
 	} else {
 		/* LAN2WAN: Determine direction-specific parameters first, then delete all rules */
 		if (msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num) {
@@ -1854,10 +1844,8 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 		}
 
 		/* Delete route rule for client */
-		rt_hdl = ipa_get_rt_hdl_from_mapping(flow_ip_ptr,
-			lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
-
-		ref = ipa_be_mapping_deref_and_delete(flow_ip_ptr, lan2lan);
+		ref = ipa_be_mapping_deref_and_get_handles(flow_ip_ptr, lan2lan,
+			&rt_hdl, &hdr_hdl, proc_ctx_name);
 		if (ref == 0 && rt_hdl) {
 			ipa_ipv6_delete_route_rule(*msg, lan2lan, rt_hdl, IPA_IP_v6);
 
