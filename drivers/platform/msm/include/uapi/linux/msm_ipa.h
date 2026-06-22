@@ -304,6 +304,7 @@
 #define IPA_FLT_EXT_NEXT_HDR				(1LU << 4)
 #define IPA_FLT_EXT_NAT_T				(1LU << 5)
 #define IPA_FLT_VLAN_QINQ				(1LU << 6)
+#define IPA_FLT_VLAN_PCP				(1LU << 7)
 #define IPA_FLT_MAC_DST_ADDR_802_1Q_IN_Q		(1LU << 20)
 /**
  * maximal number of NAT PDNs in the PDN config table
@@ -1320,7 +1321,8 @@ struct ipa_rule_attrib {
 	__u8 l2tp_udp_next_hdr;
 	__u8 is_frag_encoding;
 	__u16 outer_vlan_id;
-	__u16 padding2;
+	__u8 pcp;
+	__u8 pcp_mask;
 };
 
 
@@ -3892,6 +3894,7 @@ struct ipa_ioc_qos_config {
 	uint16_t vlan_ids[30];
 	uint8_t dscp;
 	uint8_t pcp;
+	uint8_t pcp_mask;
 	uint8_t dscp_mark_val;
 	uint32_t qos_rule_hdl;
 	enum ipa_qos_flt_category flt_cat;
