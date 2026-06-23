@@ -1580,12 +1580,16 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 				ipa_be_delete_proc_ctx(proc_ctx_name);
 			}
 		}
+
+		/* Filter rule for dst=return_ip is only shared while return_ip mapping exists */
+		if (lan2lan) {
+			if (ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.flow_interface_num, msg->conn_rule.return_mac, lan2lan))
+				IPA_BE_ERR("Failed to delete flow filter rule\n");
+		}
 	}
 
 	if (lan2lan)
 	{
-		ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.flow_interface_num, msg->conn_rule.return_mac, lan2lan);
-
 		// Delete reverse flow only for LAN2LAN - check reference count first
 		/* Zero-pad IPv4 address into ip_addr_t so hash/compare only sees the IPv4 word */
 		flow_addr[0] = msg->tuple.flow_ip;
@@ -1623,9 +1627,10 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 					ipa_be_delete_proc_ctx(proc_ctx_name);
 				}
 			}
+			/* Filter rule for dst=flow_ip is only shared while flow_ip mapping exists */
+			if (ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan))
+				IPA_BE_ERR("Failed to delete return filter rule\n");
 		}
-
-		ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan);
 
 		/* Delete CT entry for LAN2LAN on IPA v7.0+ */
 		enum ipa_hw_type ipa_ver = ipa_get_hw_type();
@@ -1781,14 +1786,15 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 				ipa_be_delete_proc_ctx(proc_ctx_name);
 			}
 		}
+
+		/* Filter rule for dst=return_ip is only shared while return_ip mapping exists */
+		if (lan2lan) {
+			if (ipa_be_v6_delete_filter_rule(*msg, msg->conn_rule.flow_interface_num, msg->conn_rule.return_mac, lan2lan) != 0)
+				IPA_BE_ERR("Failed to delete LAN2LAN filter rule for return flow\n");
+		}
 	}
 
 	if (lan2lan) {
-		/* LAN2LAN: Delete filter rule for return flow */
-		if (ipa_be_v6_delete_filter_rule(*msg, msg->conn_rule.flow_interface_num, msg->conn_rule.return_mac, lan2lan) != 0) {
-			IPA_BE_ERR("Failed to delete LAN2LAN filter rule for return flow\n");
-		}
-
 		/* LAN2LAN: Also delete forward flow - check reference count first */
 		rt_hdl = ipa_get_rt_hdl_from_mapping((uint32_t *)&msg->tuple.flow_ip, lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
 		IPA_BE_DBG("Forward flow rt_hdl %d\n", rt_hdl);
@@ -1819,11 +1825,10 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 					ipa_be_delete_proc_ctx(proc_ctx_name);
 				}
 			}
-		}
 
-		/* Delete filter rules for forward flow */
-		if (ipa_be_v6_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan) != 0) {
-			IPA_BE_ERR("Failed to delete filter rule for forward flow\n");
+			/* Filter rule for dst=flow_ip is only shared while flow_ip mapping exists */
+			if (ipa_be_v6_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan) != 0)
+				IPA_BE_ERR("Failed to delete filter rule for forward flow\n");
 		}
 
 #ifdef CONFIG_ECM_CONVERGENCE
