@@ -467,6 +467,7 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 			if(strcmp(wlan_intf->name, in->netdev_name) == 0) {
 				wlan_intf->metadata_mask = in->meta_data_mask;
 				wlan_intf->metadata = in->meta_data;
+				wlan_intf->hdl = in->hdl;
 				found = true;
 				break;
 			}
@@ -483,6 +484,7 @@ static int ipa_wdi_reg_intf_per_inst_internal(
 					sizeof(wlan_intf->name));
 			wlan_intf->metadata_mask = in->meta_data_mask;
 			wlan_intf->metadata = in->meta_data;
+			wlan_intf->hdl = in->hdl;
 			INIT_LIST_HEAD(&wlan_intf->link);
 			list_add(&wlan_intf->link, &ipa_rc_wlan_info.head);
 			ipa_rc_wlan_info.size++;
@@ -1126,12 +1128,14 @@ static int ipa_wdi_cleanup_per_inst_internal(ipa_wdi_hdl_t hdl)
 	}
 
 	mutex_lock(&rc_ctx->rc_lock);
-	/*clear entries from HM wlan intf list*/
+	/* clear HM wlan intf entries owned by this instance handle */
 	list_for_each_entry_safe(wlan_intf, tmp,
 		&ipa_rc_wlan_info.head, link) {
-		list_del(&wlan_intf->link);
-		ipa_rc_wlan_info.size--;
-		kfree(wlan_intf);
+		if (wlan_intf->hdl == hdl) {
+			list_del(&wlan_intf->link);
+			ipa_rc_wlan_info.size--;
+			kfree(wlan_intf);
+		}
 	}
 	mutex_unlock(&rc_ctx->rc_lock);
 
@@ -1158,7 +1162,6 @@ static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_
 	struct ipa_ioc_del_hdr *hdr = NULL;
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
-	struct ipa_rc_wlan_intf_info *wlan_intf, *tmp;
 
 	if (!netdev_name) {
 		IPA_WDI_ERR("no netdev name.\n");
@@ -1228,16 +1231,6 @@ static int ipa_wdi_dereg_intf_per_inst_internal(const char *netdev_name,ipa_wdi_
 
 			break;
 		}
-
-	mutex_lock(&rc_ctx->rc_lock);
-	list_for_each_entry_safe(wlan_intf, tmp, &ipa_rc_wlan_info.head, link) {
-		if(strcmp(wlan_intf->name, netdev_name) == 0) {
-			list_del(&wlan_intf->link);
-			ipa_rc_wlan_info.size--;
-			kfree(wlan_intf);
-		}
-	}
-	mutex_unlock(&rc_ctx->rc_lock);
 
 fail:
 	kfree(hdr);
