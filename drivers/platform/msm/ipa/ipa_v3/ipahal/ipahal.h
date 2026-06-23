@@ -839,6 +839,7 @@ void ipahal_cp_hdr_to_hw_buff(void *base, u32 offset, u8 *hdr, u32 hdr_len);
  * @l2tp_params: l2tp parameters
  * @eogre_params: eogre parameters
  * @generic_params: generic proc_ctx params
+ * @pppoe_params: pppoe parameters
  * @is_64: Indicates whether header base address/dma base address is 64 bit.
  */
 int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
@@ -852,6 +853,7 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 		struct ipa_eth_II_to_eth_II_ex_procparams *generic_params,
 		struct ipa_wwan_to_eth_II_ex_procparams *generic_params_v2,
 		struct ipa_pdn_dscp_procparams *pdn_dscp_params,
+		struct ipa_pppoe_header_add_procparams *pppoe_params,
 		bool is_64);
 
 /*

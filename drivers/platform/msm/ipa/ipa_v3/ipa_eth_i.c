@@ -1210,6 +1210,14 @@ int ipa3_eth_connect(
 	IPADBG("Vlan mode %d\n", vlan_mode);
 	IPADBG("PPPoE mode %d\n", ipa3_ctx->ipa_config_is_pppoe);
 
+	if (IPA_CLIENT_IS_PROD(client_type) &&
+		ipa3_ctx->ipa_config_is_pppoe == true) {
+		if(strnstr(net_dev->name, ipa3_ctx->ipa_eth_pppoe_intf_name,
+			strlen(net_dev->name))) {
+			ipa3_ctx->client_hps_eth_index = ep_idx;
+		}
+	}
+
 	result = ipa3_eth_get_prot(pipe, &prot);
 	if (result) {
 		IPAERR("Could not determine protocol\n");

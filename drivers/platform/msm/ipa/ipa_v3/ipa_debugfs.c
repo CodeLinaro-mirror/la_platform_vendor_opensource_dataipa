@@ -2,7 +2,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-  * Copyright (c) 2022-2026 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -176,6 +175,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_2ND_PASS),
 	__stringify(IPA_HDR_PROC_MARK_DSCP),
+	__stringify(IPA_HDR_PROC_PPPOE_HEADER_ADD),
 };
 
 

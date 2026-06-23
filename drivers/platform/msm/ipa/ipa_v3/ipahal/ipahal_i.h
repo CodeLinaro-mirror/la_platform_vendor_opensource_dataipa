@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPAHAL_I_H_
@@ -1345,6 +1345,7 @@ union ipa_pkt_status_hw_v6_0 {
 #define IPA_Q6_IPSEC_BANK_REFILL           29
 #define IPA_HDR_UCP_2ND_PASS               30
 #define IPA_HDR_UCP_MARK_DSCP              33
+#define IPA_HDR_UCP_PPPOE_HEADER_ADD       34
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0
@@ -1575,6 +1576,18 @@ struct ipa_hw_hdr_proc_ctx_pdn_dscp_upate {
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
 };
 
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_pppoe_add_hdr -
+ * HW structure of IPA processing context - add eogre header tlv
+ * @tlv: IPA processing context TLV
+ * @pppoe_params: pppoe parameters
+ */
+struct ipa_hw_hdr_proc_ctx_pppoe_add_hdr {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_pppoe_header_add_procparams pppoe_params;
+};
+
 /**
  * struct ipa_hw_hdr_proc_ctx_add_eogre_hdr_cmd_seq -
  * IPA processing context header - process command sequence
@@ -1781,6 +1794,21 @@ struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq {
 struct ipa_hw_hdr_proc_ctx_add_pdn_dscp_proc_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hw_hdr_proc_ctx_pdn_dscp_upate pdn_dscp_params;
+	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_nxt_rnd_ipsec_proc_cmd_seq -
+ * IPA processing context IPsec command sequence
+ * @hdr_add: add header command
+ * @nxt_rnd: tlv Next round rules
+ * @ipsec: tlv IPsec activation
+ * @cmd: tlv uC processing command
+ * @end: tlv end command (cmd.type must be 0)
+ */
+struct ipa_hw_hdr_proc_ctx_add_pppoe_hdr_proc_cmd_seq {
+	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
+	struct ipa_hw_hdr_proc_ctx_pppoe_add_hdr pppoe_params;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };
 

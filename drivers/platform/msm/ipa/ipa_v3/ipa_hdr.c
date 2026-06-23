@@ -141,6 +141,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 				&entry->generic_params,
 				&entry->generic_params_v2,
 				&entry->pdn_dscp_params,
+				&entry->pppoe_params,
 				ipa3_ctx->use_64_bit_dma_mask);
 
 		} else { /* For headerless contexts, skip header - related processing */
@@ -161,6 +162,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 				&entry->generic_params,
 				&entry->generic_params_v2,
 				&entry->pdn_dscp_params,
+				&entry->pppoe_params,
 				ipa3_ctx->use_64_bit_dma_mask);
 		}
 	}
@@ -624,6 +626,7 @@ static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
 	entry->generic_params = proc_ctx->generic_params;
 	entry->generic_params_v2 = proc_ctx->generic_params_v2;
 	entry->pdn_dscp_params = proc_ctx->pdn_dscp_params;
+	entry->pppoe_params = proc_ctx->pppoe_params;
 	if (hdr_entry && add_ref_hdr)
 		hdr_entry->ref_cnt++;
 	entry->cookie = IPA_PROC_HDR_COOKIE;
