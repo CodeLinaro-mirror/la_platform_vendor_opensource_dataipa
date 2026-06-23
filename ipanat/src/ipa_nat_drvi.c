@@ -26,9 +26,39 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Changes from Qualcomm Technologies, Inc. are provided under the following license:
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
- * SPDX-License-Identifier: BSD-3-Clause-Clear
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ *
+ * Copyright (c) 2022-2026 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted (subject to the limitations in the
+ * disclaimer below) provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *
+ *   * Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the following
+ *     disclaimer in the documentation and/or other materials provided
+ *     with the distribution.
+ *
+ *   * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
+ *     contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
+ * GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
+ * HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+ * GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+ * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+ * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "ipa_nat_drv.h"
@@ -1222,6 +1252,7 @@ int ipa_nati_alloc_pdn(
 
 		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)))
 		{
+#ifndef FEATURE_STA_AT_ANY_INDEX
 			/* Reserving 0 for STA */
 			if(pdn_info->is_sta == true)
 			{
@@ -1237,6 +1268,7 @@ int ipa_nati_alloc_pdn(
 					continue;
 				}
 			}
+#endif
 			IPADBG("found an empty pdn in index %d PDN IP: %x is_sta: %d\n", i, pdn_info->public_ip, pdn_info->is_sta);
 			break;
 		}
@@ -1249,10 +1281,12 @@ int ipa_nati_alloc_pdn(
 		return -EIO;
 	}
 
+#ifndef FEATURE_STA_AT_ANY_INDEX
 	if(pdn_info->is_sta == true)
 		pdn_data.pdn_index    = 0;
 	else
-		pdn_data.pdn_index    = i;
+#endif
+	pdn_data.pdn_index    = i;
 
 	pdn_data.public_ip    = pdn_info->public_ip;
 	pdn_data.src_metadata = pdn_info->src_metadata;
@@ -1262,10 +1296,12 @@ int ipa_nati_alloc_pdn(
 	if(!ret)
 	{
 		num_pdns++;
+#ifndef FEATURE_STA_AT_ANY_INDEX
 		if(pdn_info->is_sta == true)
 			*pdn_index = 0;
 		else
-			*pdn_index = i;
+#endif
+		*pdn_index = i;
 		IPADBG("modify num_pdns (%d)\n", num_pdns);
 	}
 
