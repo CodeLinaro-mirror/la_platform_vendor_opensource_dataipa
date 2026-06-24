@@ -1208,6 +1208,7 @@ int ipa3_eth_connect(
 	}
 #endif
 	IPADBG("Vlan mode %d\n", vlan_mode);
+	IPADBG("PPPoE mode %d\n", ipa3_ctx->ipa_config_is_pppoe);
 
 	result = ipa3_eth_get_prot(pipe, &prot);
 	if (result) {

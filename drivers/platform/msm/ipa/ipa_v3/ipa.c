@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -1363,7 +1363,54 @@ static int ipa3_send_pdn_dscp_msg(unsigned long usr_param)
 	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_pdn_config_msg_free_cb);
 	if (retval) {
-		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+			retval,
+			msg_meta.msg_type);
+		kfree(buff);
+		return retval;
+	}
+	IPADBG("exit\n");
+	return 0;
+}
+
+/**
+ * ipa3_send_pppoe_info() - Pass pppoe mapping to the IPACM
+ * @event_type: Type of the event - IPA_PPPOE_ADD_MAPPING_EVENT
+ * @usr_param: pointer to pppoe to eth mapping structure
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_send_pppoe_info(uint8_t event_type, unsigned long usr_param)
+{
+	int retval;
+	struct ipa_ioc_pppoe_info *pppoe_info;
+	struct ipa_msg_meta msg_meta;
+	void *buff;
+
+	memset(&msg_meta, 0, sizeof(msg_meta));
+
+	pppoe_info = kzalloc(sizeof(struct ipa_ioc_pppoe_info),
+		GFP_KERNEL);
+	if (!pppoe_info)
+		return -ENOMEM;
+
+	if (copy_from_user((u8 *)pppoe_info, (void __user *)usr_param,
+		sizeof(struct ipa_ioc_pppoe_info))) {
+		IPAERR("copy_from_user of pppoe_info failed\n");
+		kfree(pppoe_info);
+		return -EFAULT;
+	}
+
+	msg_meta.msg_len = sizeof(struct ipa_ioc_pppoe_info);
+	msg_meta.msg_type = IPA_PPPOE_ADD_MAPPING_EVENT;
+	buff = pppoe_info;
+
+	IPADBG("type %d\n", msg_meta.msg_type);
+
+	retval = ipa_send_msg(&msg_meta, buff,
+		ipa3_pdn_config_msg_free_cb);
+	if (retval) {
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
 			retval,
 			msg_meta.msg_type);
 		kfree(buff);
@@ -3648,6 +3695,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 #endif
 	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 	struct ipa_ioc_pdn_dscp_map_info *pdn_dscp_map_info;
+	struct ipa_ioc_pppoe_info *pppoe_info;
 #if defined(CONFIG_IPA_TSP)
 	struct ipa_ioc_tsp_ingress_class_get ingr_tc_get;
 	struct ipa_ioc_tsp_egress_class_get egr_tc_get;
@@ -5249,6 +5297,31 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				sizeof(struct ipa_ioc_pdn_dscp_map_info));
 		}
 		kfree(pdn_dscp_map_info);
+		break;
+
+	case IPA_IOC_ADD_PPPOE_MAPPING:
+		IPAERR("Got IPA_IOC_ADD_PPPOE_MAPPING\n");
+
+		pppoe_info = kzalloc(sizeof(struct ipa_ioc_pppoe_info), GFP_KERNEL);
+		if (!pppoe_info) {
+			IPAERR("pppoe_info memory allocation failed !\n");
+			retval = -ENOMEM;
+			break;
+		}
+
+		if (copy_from_user(pppoe_info, (const void __user *) arg,
+			sizeof(struct ipa_ioc_pppoe_info))) {
+			IPAERR("copy_from_user for pppoe_info fails\n");
+			retval = -EFAULT;
+			kfree(pppoe_info);
+			break;
+		}
+
+		if (ipa3_send_pppoe_info(IPA_PPPOE_ADD_MAPPING_EVENT, arg)) {
+			IPAERR("ipa3_send_pppoe_info failed\n");
+			retval = -EFAULT;
+		}
+		kfree(pppoe_info);
 		break;
 
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
@@ -8408,6 +8481,12 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EPERM;
 			cmd = IPA_IOC_SET_IPTYPE_MTU;
 			break;
+		case IPA_IOCTL_ADD_PPPOE_MAPPING:
+			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_PPPOE_MAPPING))
+				return -EPERM;
+			cmd = IPA_IOC_ADD_PPPOE_MAPPING;
+			break;
+
 	default:
 		return -ENOIOCTLCMD;
 	}
@@ -11075,33 +11154,18 @@ ssize_t ipa3_update_config(const char *buff)
 			IPADBG("Lan stats enabled: %d\n", ipa3_ctx->lan_stats_enabled);
 		}
 
-#if IPA_ETH_API_VER >= 6
-		if (strnstr(dbg_buff, "apbridge", strlen(dbg_buff)))
-		{
-			IPADBG("Platform type is apbridge\n");
-			ipa3_ctx->device_mode = DEVMODE_APBRIDGE;
-			if(strnstr(dbg_buff, "dblvlan", strlen(dbg_buff))) {
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = true;
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH1] = true;
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_WLAN] = true;
-				ipa3_ctx->device_vlan_mode = true;
+		if (strnstr(dbg_buff, "pppoe", strlen(dbg_buff))) {
+			IPADBG("PPPoE mode has been enabled.\n");
+			ipa3_ctx->ipa_config_is_pppoe = true;
+			if (strnstr(dbg_buff, "pppoe:port_zero", strlen(dbg_buff))) {
+				IPADBG("PPPoE on eth0 has been enabled.\n");
+				strlcpy(ipa3_ctx->ipa_eth_pppoe_intf_name, "eth0", IFNAMSIZ);
 			}
-			return count;
-		}
-		else if (strnstr(dbg_buff, "stabridge", strlen(dbg_buff)))
-		{
-			IPADBG("Platform type is stabridge\n");
-			ipa3_ctx->device_mode = DEVMODE_STABRIDGE;
-			if(strnstr(dbg_buff, "vlan", strlen(dbg_buff)))
-			{
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = true;
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_WLAN_STA] = true;
-				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_WLAN] = true;
-				ipa3_ctx->device_vlan_mode = true;
+			else if (strnstr(dbg_buff, "pppoe:port_one", strlen(dbg_buff))) {
+				IPADBG("PPPoE on eth1 has been enabled.\n");
+				strlcpy(ipa3_ctx->ipa_eth_pppoe_intf_name, "eth1", IFNAMSIZ);
 			}
-			return count;
 		}
-#endif
 		/* Check Vlan configuration */
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
 			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))

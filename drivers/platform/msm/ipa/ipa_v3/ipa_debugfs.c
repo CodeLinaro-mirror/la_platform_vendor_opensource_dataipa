@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+  * Copyright (c) 2022-2026 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -138,6 +139,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_QOS_PARAM_ADD_EVENT),
 	__stringify(IPA_QOS_PARAM_DELETE_EVENT),
 	__stringify(IPA_QOS_PARAM_FLUSH_EVENT),
+	__stringify(IPA_PPPOE_ADD_MAPPING_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
