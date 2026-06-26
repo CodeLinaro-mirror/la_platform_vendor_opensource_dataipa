@@ -96,7 +96,7 @@
 /* Config the ucp command to process DL Packet in 2 pass (uC + DMA)
  * in ETH_WAN + PPPoE
  */
-#define IPA_UCP_CMD_CFG_HANDLE_ETH_WAN_PPPOE 35
+#define IPA_UCP_CMD_CFG_HANDLE_ETH_WAN_PPPOE 38
 
 /* HPS, DPS sequencers Types*/
 
