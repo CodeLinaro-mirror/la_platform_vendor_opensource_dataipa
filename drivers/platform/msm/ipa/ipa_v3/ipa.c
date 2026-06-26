@@ -10627,6 +10627,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	ipa_ut_module_init();
+	ipa_rc_init();
 
 
 	/* Query MSI address. */
@@ -11240,7 +11241,7 @@ ssize_t ipa3_update_config(const char *buff)
 		{
 			if (ipa3_ctx->ipa_config_is_mhi) {
 				IPADBG("In MHI mode IPSEC enable not required\n");
-				return count;
+				goto last;
 			}
 			IPADBG("IPsec HW offload is configured.\n");
 			ipa3_ctx->ipa_config_is_ipsec = true;
@@ -11249,7 +11250,7 @@ ssize_t ipa3_update_config(const char *buff)
 				IPAERR(":IPSEC enable failed (%d)\n", -res);
 			else
 				IPADBG(":IPSEC enable ok\n");
-			return count;
+			goto last;
 		}
 #endif
 
@@ -11271,9 +11272,12 @@ ssize_t ipa3_update_config(const char *buff)
 
 	/* Prevent consequent calls from trying to load the FW again. */
 	if (ipa_is_ready())
-		return count;
+		goto last;
 
 	ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_FWFILE_READY);
+last:
+	if (rc_ctx && rc_ctx->rc_wq)
+		queue_delayed_work(rc_ctx->rc_wq, &rc_ctx->dwork, msecs_to_jiffies(IPA_COLLECT_INTERVAL_MS));
 
 	return count;
 }
@@ -15682,6 +15686,7 @@ static void ipa3_deepsleep_suspend(void)
 #ifndef CONFIG_DEBUG_FS
 	ipa_sysfs_deinit();
 #endif
+	ipa_rc_deinit();
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
 	/*Calling framework API to reset IPA ready flag to false*/
