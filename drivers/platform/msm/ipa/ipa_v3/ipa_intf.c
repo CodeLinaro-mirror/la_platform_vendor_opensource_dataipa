@@ -401,19 +401,156 @@ static void wlan_ex_conn_mac_print( void *buff)
 	}
 }
 
+/*
+ * ipa3_wlan_mlo_sta_register_prefix_intf() - register logical prefix intf for MLO STA
+ *
+ * Returns:
+ *   0        - prefix entry created (first per-link connect)
+ *   -EEXIST  - prefix already exists (second per-link connect, caller must suppress event)
+ *   -EINVAL  - no underscore suffix found in name
+ *   -ENOENT  - per-link intf not found in intf_list
+ *   -ENOMEM  - allocation failure
+ */
+static int ipa3_wlan_mlo_sta_register_prefix_intf(const char *name)
+{
+	struct ipa3_intf *entry, *src = NULL, *new_intf;
+	char prefix[IPA_RESOURCE_NAME_MAX];
+	char *underscore;
+	u32 len;
+
+	if (!name) {
+		IPAERR_RL("MLO STA: null name arg\n");
+		return -EINVAL;
+	}
+
+	strlcpy(prefix, name, sizeof(prefix));
+	underscore = strrchr(prefix, '_');
+	if (!underscore) {
+		IPADBG("MLO STA: no '_' in intf name %s\n", name);
+		return -EINVAL;
+	}
+	*underscore = '\0';
+
+	mutex_lock(&ipa3_ctx->lock);
+	if (list_empty(&ipa3_ctx->intf_list)) {
+		mutex_unlock(&ipa3_ctx->lock);
+		IPADBG("MLO STA: intf_list empty, intf %s not found\n", name);
+		return -ENOENT;
+	}
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (!strcmp(entry->name, name))
+			src = entry;
+		/* Prefix entry already exists → second per-link connect; skip */
+		if (!strcmp(entry->name, prefix)) {
+			mutex_unlock(&ipa3_ctx->lock);
+			IPADBG("MLO STA: prefix intf %s exists, suppress event\n",
+			       prefix);
+			return -EEXIST;
+		}
+	}
+	if (!src) {
+		mutex_unlock(&ipa3_ctx->lock);
+		IPADBG("MLO STA: intf %s not found\n", name);
+		return -ENOENT;
+	}
+
+	new_intf = kzalloc(sizeof(*new_intf), GFP_KERNEL);
+	if (!new_intf) {
+		mutex_unlock(&ipa3_ctx->lock);
+		return -ENOMEM;
+	}
+
+	strlcpy(new_intf->name, prefix, IPA_RESOURCE_NAME_MAX);
+	new_intf->num_tx_props = src->num_tx_props;
+	new_intf->num_rx_props = src->num_rx_props;
+	new_intf->num_ext_props = src->num_ext_props;
+	new_intf->excp_pipe = src->excp_pipe;
+
+	if (src->tx) {
+		len = src->num_tx_props * sizeof(struct ipa_ioc_tx_intf_prop);
+		new_intf->tx = kmemdup(src->tx, len, GFP_KERNEL);
+		if (!new_intf->tx)
+			goto fail;
+	}
+	if (src->rx) {
+		len = src->num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop);
+		new_intf->rx = kmemdup(src->rx, len, GFP_KERNEL);
+		if (!new_intf->rx)
+			goto fail;
+	}
+	if (src->ext) {
+		len = src->num_ext_props * sizeof(struct ipa_ioc_ext_intf_prop);
+		new_intf->ext = kmemdup(src->ext, len, GFP_KERNEL);
+		if (!new_intf->ext)
+			goto fail;
+	}
+
+	list_add_tail(&new_intf->link, &ipa3_ctx->intf_list);
+	mutex_unlock(&ipa3_ctx->lock);
+	IPADBG("MLO STA: registered prefix intf %s from %s\n", prefix, name);
+	return 0;
+
+fail:
+	mutex_unlock(&ipa3_ctx->lock);
+	kfree(new_intf->ext);
+	kfree(new_intf->rx);
+	kfree(new_intf->tx);
+	kfree(new_intf);
+	IPAERR_RL("MLO STA: alloc failed for prefix intf %s\n", prefix);
+	return -ENOMEM;
+}
+
+/*
+ * ipa3_wlan_mlo_sta_deregister_prefix_intf() - deregister logical prefix intf for MLO STA
+ *
+ * Returns:
+ *   0        - prefix entry deregistered successfully
+ *   -EINVAL  - null name arg or no underscore suffix found in name
+ */
+static int ipa3_wlan_mlo_sta_deregister_prefix_intf(const char *name)
+{
+	char prefix[IPA_RESOURCE_NAME_MAX];
+	char *underscore;
+
+	if (!name) {
+		IPAERR_RL("MLO STA: null name arg\n");
+		return -EINVAL;
+	}
+
+	strlcpy(prefix, name, sizeof(prefix));
+	underscore = strrchr(prefix, '_');
+	if (!underscore) {
+		IPADBG("MLO STA: no '_' in intf name %s\n", name);
+		return -EINVAL;
+	}
+	*underscore = '\0';
+
+	if (ipa3_deregister_intf(prefix))
+		IPADBG("MLO STA: prefix intf %s not found\n", prefix);
+	else
+		IPADBG("MLO STA: deregistered prefix intf %s\n", prefix);
+
+	return 0;
+}
+
 static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 {
 	struct ipa3_push_msg *msg_dup;
+	struct ipa3_push_msg *last_msg = NULL;
 	struct ipa_wlan_msg_ex *event_ex_list = NULL;
 	struct ipa_wlan_msg *event_list = NULL;
 	struct ipa_wlan_msg *event_ex_cur_discon = NULL;
 	struct ipa_wlan_msg *event_cur_con = NULL;
+	struct ipa_wlan_msg *wmsg = NULL;
 	void *data_dup = NULL;
 	struct ipa3_push_msg *entry;
 	struct ipa3_push_msg *next;
 	int cnt = 0, total = 0, max = 0;
+	int ret = 0;
 	uint8_t mac[IPA_MAC_ADDR_SIZE];
 	uint8_t mac2[IPA_MAC_ADDR_SIZE];
+	char prefix[IPA_RESOURCE_NAME_MAX];
+	char *p = NULL;
 
 	if (!buff)
 		return -EINVAL;
@@ -433,10 +570,74 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 					meta->msg_type);
 		}
 
+		if (meta->msg_type == WLAN_STA_CONNECT &&
+		    event_cur_con && event_cur_con->mld_enabled) {
+
+			ret = ipa3_wlan_mlo_sta_register_prefix_intf(
+							event_cur_con->name);
+
+			/* Derive the prefix name for cleanup on error paths. */
+			strlcpy(prefix, event_cur_con->name, sizeof(prefix));
+			p = strrchr(prefix, '_');
+			if (p)
+				*p = '\0';
+
+			/*
+			 * msg_lock is held by ipa3_send_msg() and wake_up() has
+			 * not fired yet — safe to modify/remove the just-added
+			 * msg_list entry before IPACM wakes up.
+			 */
+			if (unlikely(list_empty(&ipa3_ctx->msg_list))) {
+				IPAERR_RL("MLO STA: msg_list empty on STA CONNECT\n");
+				if (ret == 0)
+					ipa3_deregister_intf(prefix);
+				return -EINVAL;
+			}
+			last_msg = list_last_entry(&ipa3_ctx->msg_list,
+						   struct ipa3_push_msg, link);
+			if (last_msg->meta.msg_type != WLAN_STA_CONNECT ||
+			    !last_msg->buff) {
+				IPAERR_RL("MLO STA: invalid last_msg on STA CONNECT (type=%d buff=%pK)\n",
+				       last_msg->meta.msg_type,
+				       last_msg->buff);
+				if (ret == 0)
+					ipa3_deregister_intf(prefix);
+				return -EINVAL;
+			}
+			if (ret == -EEXIST) {
+				/* Second per-link connect: IPACM already has
+				 * wlan0 up — remove this event from msg_list. */
+				IPADBG("MLO STA: ignoring STA_CONNECT for %s, wlan0 already registered\n",
+				       event_cur_con->name);
+				list_del(&last_msg->link);
+				last_msg->callback(last_msg->buff,
+						   last_msg->meta.msg_len,
+						   last_msg->meta.msg_type);
+				kfree(last_msg);
+				return 0; /* skip msg_wlan_client_list caching */
+			}
+			if (ret < 0) {
+				IPAERR_RL("MLO STA: failed to register prefix intf for %s, err %d\n",
+				       event_cur_con->name, ret);
+				return ret;
+			}
+
+			/* ret == 0: first per-link connect, translate "wlan0_0"
+			 * to "wlan0" in the msg_list copy so IPACM sees the
+			 * logical name. */
+			wmsg = (struct ipa_wlan_msg *)last_msg->buff;
+			p = strrchr(wmsg->name, '_');
+			if (p)
+				*p = '\0';
+		}
+
 		mutex_lock(&ipa3_ctx->msg_wlan_client_lock);
 		msg_dup = kzalloc(sizeof(*msg_dup), GFP_KERNEL);
 		if (msg_dup == NULL) {
 			mutex_unlock(&ipa3_ctx->msg_wlan_client_lock);
+			if (meta->msg_type == WLAN_STA_CONNECT &&
+			    event_cur_con && event_cur_con->mld_enabled)
+				ipa3_deregister_intf(prefix);
 			return -ENOMEM;
 		}
 		msg_dup->meta = *meta;
@@ -445,11 +646,24 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 			if (data_dup == NULL) {
 				kfree(msg_dup);
 				mutex_unlock(&ipa3_ctx->msg_wlan_client_lock);
+				if (meta->msg_type == WLAN_STA_CONNECT &&
+				    event_cur_con && event_cur_con->mld_enabled)
+					ipa3_deregister_intf(prefix);
 				return -ENOMEM;
 			}
 			memcpy(data_dup, buff, meta->msg_len);
 			msg_dup->buff = data_dup;
 			msg_dup->callback = ipa3_send_msg_free;
+			/* For MLO STA first link: translate per-link name to base
+			 * name in the client-list cache copy as well. */
+			if (meta->msg_type == WLAN_STA_CONNECT &&
+			    event_cur_con && event_cur_con->mld_enabled) {
+				struct ipa_wlan_msg *wm = data_dup;
+
+				p = strrchr(wm->name, '_');
+				if (p)
+					*p = '\0';
+			}
 		} else {
 			IPAERR("msg_len %d\n", meta->msg_len);
 			kfree(msg_dup);
@@ -470,6 +684,41 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 		memcpy(mac2,
 			event_ex_cur_discon->mac_addr,
 			sizeof(mac2));
+
+		if (meta->msg_type == WLAN_STA_DISCONNECT &&
+		    event_ex_cur_discon->mld_enabled) {
+
+			/* Deregister the prefix interface first so it is cleaned
+			 * up regardless of whether the msg_list translation
+			 * succeeds.  Leaving it registered would cause the next
+			 * CONNECT to find the prefix already present (-EEXIST)
+			 * and suppress the event, breaking the reconnect path. */
+			ipa3_wlan_mlo_sta_deregister_prefix_intf(
+						event_ex_cur_discon->name);
+
+			if (unlikely(list_empty(&ipa3_ctx->msg_list))) {
+				IPAERR_RL("MLO STA: msg_list empty on STA DISCONNECT\n");
+				return -EINVAL;
+			}
+			last_msg = list_last_entry(&ipa3_ctx->msg_list,
+						   struct ipa3_push_msg, link);
+			if (last_msg->meta.msg_type != WLAN_STA_DISCONNECT ||
+			    !last_msg->buff) {
+				IPAERR_RL("MLO STA: invalid last_msg on STA DISCONNECT (type=%d buff=%pK)\n",
+				       last_msg->meta.msg_type,
+				       last_msg->buff);
+				return -EINVAL;
+			}
+
+			/* Translate per-link name to "wlan0" in the msg_list
+			 * entry so IPACM tears down the correct instance.
+			 * Always let this event reach IPACM — suppressing it
+			 * would leave stale routing rules on the dead TX pipe. */
+			wmsg = (struct ipa_wlan_msg *)last_msg->buff;
+			p = strrchr(wmsg->name, '_');
+			if (p)
+				*p = '\0';
+		}
 
 		mutex_lock(&ipa3_ctx->msg_wlan_client_lock);
 		list_for_each_entry_safe(entry, next,
