@@ -786,6 +786,11 @@ int ipa3_rmnet_ll_xmit(struct sk_buff *skb)
 		return (free_desc > 0) ? free_desc : 0;
 	}
 
+	if (atomic_read(&ipa3_ctx->is_suspend_mode_enabled)) {
+		IPAERR("User %s sent data in suspend mode.\n", current->comm);
+		ipa3_dump_skb(skb);
+	}
+
 	/* rmnet_ll is calling from atomic context */
 	ret = ipa_pm_activate(rmnet_ll_ipa3_ctx->rmnet_ll_pm_hdl);
 	if (ret == -EINPROGRESS) {

@@ -2585,8 +2585,6 @@ struct ipa3_context {
 	dma_addr_t pkt_init_imm[IPA_MAX_NUM_PIPES];
 	u32 pkt_init_imm_opcode;
 
-	u32 wkup_enable;
-
 	struct ipa3_wlan_comm_memb wc_memb;
 
 	struct ipa3_uc_ctx uc_ctx;
@@ -2783,6 +2781,8 @@ struct ipa3_context {
 	struct list_head msg_qos_param_list;
 	u16 socksv5_conn_refcnt;
 	u8 ippt_pdninfo_refcnt;
+	atomic_t is_suspend_mode_enabled;
+	bool print_skb_on_wakeup;
 };
 
 struct ipa3_plat_drv_res {
@@ -3766,6 +3766,7 @@ void ipa3_wigig_fini_sysfs_i(void);
 #endif
 
 void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size);
+void ipa3_dump_skb(struct sk_buff *skb);
 
 void ipa3_qdss_register(void);
 int ipa3_conn_qdss_pipes(struct ipa_qdss_conn_in_params *in,
