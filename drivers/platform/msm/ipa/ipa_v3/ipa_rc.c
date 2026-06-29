@@ -724,7 +724,8 @@ void ipa_rc_nat_init(struct ipa_rc_health_monitor *ipa_state_info)
 int ipa_rc_query_detect_for_instance(void)
 {
 	int ret, retries = 0;
-	struct ipa_rc_health_monitor *cur_state=NULL;
+	int result;
+	struct ipa_rc_health_monitor *cur_state = NULL;
 	enum ipa_rc_state_err *status_code = NULL;
 
 	cur_state = kmalloc(sizeof(*cur_state), GFP_KERNEL);
@@ -732,6 +733,8 @@ int ipa_rc_query_detect_for_instance(void)
 		IPAERR("kmalloc failed\n");
 		return -ENOMEM;
 	}
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	memset(cur_state, 0, offsetof(struct ipa_rc_health_monitor, node));
 	has_ul_dl_rule = false;
@@ -764,11 +767,15 @@ int ipa_rc_query_detect_for_instance(void)
 		IPAERR("failed to enqueue cur entry\n");
 		kfree(cur_state);
 		cur_state = NULL;
-		return -ENOMEM;
+		result = -ENOMEM;
+		goto done;
 	}
 
 last:
-	return *status_code;
+	result = *status_code;
+done:
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+	return result;
 }
 
 int ipa_rc_monitor_health(void)
