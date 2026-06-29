@@ -1219,7 +1219,7 @@ static int find_vchannel_name_index(const char *vchannel_name)
 }
 
 
-static int ipa3_find_free_rmnet_index( )
+static int ipa3_find_free_rmnet_index(void)
 {
 	int i;
 
