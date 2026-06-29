@@ -672,6 +672,29 @@ void *ipa3_get_ipc_logbuf(void);
 void *ipa3_get_ipc_logbuf_low(void);
 void ipa_assert(void);
 
+/*
+ * Severity levels for the /dev/diag_ipa tap. Lower number = higher severity.
+ * The daemon maps these to QXDM MSG_LEGACY_* levels. Used as the @level
+ * argument to ipa3_diag_log_write() and as the kernel-side min_level filter
+ * threshold (a line is captured only when its level <= min_level).
+ */
+enum ipa_diag_log_level {
+	IPA_DIAG_LVL_ERR  = 0,	/* errors (pr_err family)        -> QXDM ERROR */
+	IPA_DIAG_LVL_INFO = 1,	/* informational                 -> QXDM MED   */
+	IPA_DIAG_LVL_DBG  = 2,	/* debug (default capture floor) -> QXDM MED   */
+	IPA_DIAG_LVL_LOW  = 3,	/* verbose / per-packet          -> QXDM LOW   */
+};
+
+/*
+ * Tap used by the control-path log macros (IPADBG/IPAERR/... and subsystem
+ * equivalents) to mirror lines into the /dev/diag_ipa ring. Defined in
+ * ipa_v3/ipa_diag_log.c; declared here so every macro call site sees it.
+ * @level is one of enum ipa_diag_log_level. Safe from any context and a
+ * near-no-op when the feature is disabled or the level is filtered out.
+ */
+__printf(2, 3)
+void ipa3_diag_log_write(u8 level, const char *fmt, ...);
+
 /* MHI */
 int ipa3_mhi_init_engine(struct ipa_mhi_init_engine *params);
 int ipa3_connect_mhi_pipe(struct ipa_mhi_connect_params_internal *in,

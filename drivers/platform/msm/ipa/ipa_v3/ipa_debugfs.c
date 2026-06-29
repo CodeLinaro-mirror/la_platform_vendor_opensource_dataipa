@@ -13,6 +13,7 @@
 #include "ipahal_reg.h"
 #include "ipahal_nat.h"
 #include "ipa_odl.h"
+#include "ipa_diag_log.h"
 #include "ipa_qmi_service.h"
 #include "../ipa_backend/ipa_be_clientdb.h"
 #ifdef CONFIG_DEBUG_FS
@@ -3761,6 +3762,117 @@ static ssize_t ipa3_enable_ipc_low(struct file *file,
 	return count;
 }
 
+/*
+ * diag_log debugfs knob: read shows the runtime enable state and counters;
+ * write "0"/"1" toggles the /dev/diag_ipa tap at runtime (default enabled).
+ */
+static ssize_t ipa3_diag_log_read_dbg(struct file *file,
+	char __user *ubuf, size_t count, loff_t *ppos)
+{
+	struct ipa_diag_log_context *ctx = ipa3_diag_log_ctx;
+	unsigned long flags;
+	u64 enqueued, dropped, read_cnt, markers;
+	u32 head, tail, inflight;
+	bool enabled, drop_newest;
+	u8 min_level;
+	char sink_cfg[IPA_DIAG_LOG_SINK_CFG_SZ];
+	int nbytes;
+
+	if (!ctx || !ctx->initialized) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"diag_ipa: not initialized\n");
+		return simple_read_from_buffer(ubuf, count, ppos, dbg_buff,
+				nbytes);
+	}
+
+	spin_lock_irqsave(&ctx->lock, flags);
+	enabled = ctx->enabled;
+	drop_newest = ctx->drop_newest;
+	min_level = ctx->min_level;
+	strscpy(sink_cfg, ctx->sink_cfg, sizeof(sink_cfg));
+	enqueued = ctx->stats.enqueued;
+	dropped = ctx->stats.dropped;
+	read_cnt = ctx->stats.read;
+	markers = ctx->stats.markers;
+	head = ctx->head;
+	tail = ctx->tail;
+	spin_unlock_irqrestore(&ctx->lock, flags);
+
+	inflight = (head - tail) & (IPA_DIAG_LOG_NUM_SLOTS - 1);
+
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"enabled=%d\n"
+		"min_level=%u (0=ERR 1=INFO 2=DBG 3=LOW)\n"
+		"overflow_policy=%s\n"
+		"sink=%s\n"
+		"slots=%u line_sz=%u\n"
+		"in_flight=%u\n"
+		"enqueued=%llu\n"
+		"dropped=%llu\n"
+		"read=%llu\n"
+		"drop_markers=%llu\n",
+		enabled, min_level,
+		drop_newest ? "drop_newest" : "drop_oldest",
+		sink_cfg, IPA_DIAG_LOG_NUM_SLOTS, IPA_DIAG_LOG_LINE_SZ,
+		inflight, enqueued, dropped, read_cnt, markers);
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+}
+
+/*
+ * Accepts one directive per write:
+ *   enable | disable | "1" | "0"   - turn the tap on/off
+ *   drop_oldest | drop_newest      - overflow policy
+ *   min_level=<0..3>               - severity capture floor (ERR/INFO/DBG/LOW)
+ *   sink=<str>                     - opaque daemon sink config (e.g. "diag",
+ *                                    "file:/data/diag_ipa.log"); kernel stores
+ *                                    it verbatim for the daemon to read back.
+ */
+static ssize_t ipa3_diag_log_write_dbg(struct file *file,
+	const char __user *ubuf, size_t count, loff_t *ppos)
+{
+	struct ipa_diag_log_context *ctx = ipa3_diag_log_ctx;
+	char kbuf[IPA_DIAG_LOG_SINK_CFG_SZ + 8] = {0};
+	unsigned long flags;
+	size_t n;
+
+	if (!ctx || !ctx->initialized)
+		return -ENODEV;
+
+	n = min(count, sizeof(kbuf) - 1);
+	if (copy_from_user(kbuf, ubuf, n))
+		return -EFAULT;
+	/* strip trailing newline/space */
+	while (n && (kbuf[n - 1] == '\n' || kbuf[n - 1] == ' '))
+		kbuf[--n] = '\0';
+
+	/* WRITE_ONCE: producers read these locklessly on the fast path. */
+	if (!strcmp(kbuf, "1") || !strcmp(kbuf, "enable")) {
+		WRITE_ONCE(ctx->enabled, true);
+	} else if (!strcmp(kbuf, "0") || !strcmp(kbuf, "disable")) {
+		WRITE_ONCE(ctx->enabled, false);
+	} else if (!strcmp(kbuf, "drop_oldest")) {
+		WRITE_ONCE(ctx->drop_newest, false);
+	} else if (!strcmp(kbuf, "drop_newest")) {
+		WRITE_ONCE(ctx->drop_newest, true);
+	} else if (!strncmp(kbuf, "min_level=", 10)) {
+		u8 lvl;
+
+		if (kstrtou8(kbuf + 10, 0, &lvl) || lvl > IPA_DIAG_LVL_LOW)
+			return -EINVAL;
+		WRITE_ONCE(ctx->min_level, lvl);
+	} else if (!strncmp(kbuf, "sink=", 5)) {
+		/* sink_cfg is read by the daemon under the lock. */
+		spin_lock_irqsave(&ctx->lock, flags);
+		strscpy(ctx->sink_cfg, kbuf + 5, sizeof(ctx->sink_cfg));
+		spin_unlock_irqrestore(&ctx->lock, flags);
+	} else {
+		return -EINVAL;
+	}
+
+	return count;
+}
+
 static ssize_t ipa3_read_uc_act_tbl(struct file *file,
 	char __user *ubuf, size_t count, loff_t *ppos)
 {
@@ -4886,6 +4998,11 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"enable_low_prio_print", IPA_WRITE_ONLY_MODE, NULL, {
 			.write = ipa3_enable_ipc_low,
+		}
+	}, {
+		"diag_log", IPA_READ_WRITE_MODE, NULL, {
+			.read = ipa3_diag_log_read_dbg,
+			.write = ipa3_diag_log_write_dbg,
 		}
 	}, {
 		"ipa_dump_regs", IPA_READ_ONLY_MODE, NULL, {
