@@ -14,10 +14,12 @@
 
 #define DATA_DIR 2        /* data traffic directions: uplink/downlink */
 #define LIST_MAX_LEN_DEBUG 10  /* Store up to 10 instances for debug enhancement */
-#define LIST_MAX_LEN 5         /* Number of instances used for status calculation */
+#define LIST_MAX_LEN 3         /* Number of instances used for status calculation */
 #define IPA_MAX_MSG_LEN 4096   /* Buffer size allocated for IPA messages */
 #define IPA_COLLECT_INTERVAL_MS 50000 /* Initial interval (ms) for scheduling the workqueue */
 #define MAX_RC_CLIENTS 7  /* Max no. of type of clients for ipa-rc */
+#define DROP_SAMPLE_WINDOW  10  /* rolling 1-sec sample window for drop detection */
+#define DROP_CONFIRM_THRESH  3  /* min drop samples in window to confirm a real drop */
 
 /*
  * ipa_rc_state_err error code names (bitmask)
@@ -121,6 +123,8 @@ enum ipa_rc_clients
 	WLAN3,
 	OTHERS
 };
+
+extern const char * const ipa_rc_client_names[MAX_RC_CLIENTS];
 
 /*
  * ipa_rc_flt_rule_grp filter rule group identifiers
@@ -363,13 +367,14 @@ bool is_wlan_sta_pkt(struct ipahal_pkt_status *status);
 int get_rc_client(int src_idx);
 
 /**
- * ipa_rc_reset_drop_pkt_stats() - Reset drop pkt stats on IPACM restart.
+ * ipa_rc_reset_drop_pkt_stats() - Reset drop detection state on IPACM restart.
  *
- * Resets both:
+ * Clears all drop detection state including:
  *  - ipa3_ctx->stats.rx_excp_pkts[][EXCEPTION_DROP_UL/DL] for all clients
- *  - drop_pkt_cnts[][] in every ipa_rc_health_monitor instance in rc_list
+ *  - persistent drop latch, rolling sample window, and previous sample counters
  *
  * Must be called when IPACM restart is detected via ioctl.
+ * This is the only recovery path — the drop detection algorithm does not self-heal.
  */
 void ipa_rc_reset_drop_pkt_stats(void);
 
