@@ -50,6 +50,8 @@ static struct rt_table_name_lookup rt_table_lookup_table[] = {
 				DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPA_STATS_ERR(fmt, args...) \
@@ -60,6 +62,8 @@ static struct rt_table_name_lookup rt_table_lookup_table[] = {
 				DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPA_PERIPHERAL_STATS_MDM_NUM_ENTRIES 20

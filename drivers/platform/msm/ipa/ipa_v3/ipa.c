@@ -81,6 +81,7 @@
 #define CREATE_TRACE_POINTS
 #include "ipa_trace.h"
 #include "ipa_odl.h"
+#include "ipa_diag_log.h"
 
 #define IPA_SUSPEND_BUSY_TIMEOUT (msecs_to_jiffies(10))
 
@@ -12553,6 +12554,15 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			MAJOR(ipa3_ctx->cdev.dev_num),
 			MINOR(ipa3_ctx->cdev.dev_num));
 
+	/*
+	 * Bring up the diag log tap (/dev/diag_ipa). Non-fatal: a logging
+	 * facility must never block driver bring-up.
+	 */
+	if (ipa3_diag_log_init())
+		IPAERR("Error: diag_ipa log init failed, continuing\n");
+	else
+		gsi_register_diag_sink(ipa3_diag_log_write);
+
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_1) {
 		result = ipa_odl_init();
 		if (result) {
@@ -12632,6 +12642,8 @@ fail_wwan_init:
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_1)
 		ipa_odl_cleanup();
 fail_odl_init:
+	gsi_register_diag_sink(NULL);
+	ipa3_diag_log_cleanup();
 	cdev_del(cdev);
 fail_cdev_add:
 fail_gsi_pre_fw_load_init:
@@ -13160,6 +13172,12 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			MAJOR(ipa3_ctx->cdev.dev_num),
 			MINOR(ipa3_ctx->cdev.dev_num));
 
+	/* diag log tap (/dev/diag_ipa); non-fatal on failure. */
+	if (ipa3_diag_log_init())
+		IPAERR("Error: diag_ipa log init failed, continuing\n");
+	else
+		gsi_register_diag_sink(ipa3_diag_log_write);
+
 	/* Create the dummy netdev for LAN RX NAPI*/
 	ipa3_enable_napi_netdev();
 
@@ -13194,6 +13212,8 @@ fail_wwan_init:
 	ipa3_disable_napi_netdev();
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_1)
 		ipa_odl_cleanup();
+	gsi_register_diag_sink(NULL);
+	ipa3_diag_log_cleanup();
 fail_cdev_add:
 fail_ipa_dma_setup:
 	ipa_pm_destroy();
@@ -16758,6 +16778,14 @@ subsys_initcall(ipa_module_init);
 
 static void __exit ipa_module_exit(void)
 {
+	/*
+	 * Unhook the GSI diag sink BEFORE anything else: gsi.ko outlives ipa.ko
+	 * (ipa depends on gsi), so a GSIDBG/GSIERR after this point must not call
+	 * ipa3_diag_log_write in about-to-be-freed ipa.ko text. Then tear down
+	 * /dev/diag_ipa so its fops are gone before the module text is unmapped.
+	 */
+	gsi_register_diag_sink(NULL);
+	ipa3_diag_log_cleanup();
 #ifdef CONFIG_GH_MSGQ
 	ipa3_msgq_deinit();
 #endif

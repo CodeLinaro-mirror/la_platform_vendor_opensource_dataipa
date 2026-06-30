@@ -55,6 +55,8 @@ static void *ipa_ecm_logbuf;
 			IPA_ECM_IPC_LOGGING(ipa_ecm_logbuf, \
 				DRIVER_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, DRIVER_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define ECM_IPA_DEBUG_XMIT(fmt, args...) \
@@ -68,6 +70,8 @@ static void *ipa_ecm_logbuf;
 			IPA_ECM_IPC_LOGGING(ipa_ecm_logbuf, \
 				DRIVER_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_INFO, DRIVER_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define ECM_IPA_ERROR(fmt, args...) \
@@ -78,6 +82,8 @@ static void *ipa_ecm_logbuf;
 			IPA_ECM_IPC_LOGGING(ipa_ecm_logbuf, \
 				DRIVER_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DRIVER_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define NULL_CHECK(ptr) \

@@ -60,6 +60,22 @@
 #define GSI_IPC_LOGGING(buf, fmt, args...)
 #endif
 
+/*
+ * Optional DIAG tap. gsi.ko must not call into ipa.ko directly (ipa depends on
+ * gsi, so the reverse would be a circular module dependency). Instead ipa
+ * registers its ipa3_diag_log_write() here at init via gsi_register_diag_sink()
+ * and clears it (NULL) at cleanup. The GSI log macros invoke it through this
+ * NULL-safe pointer. __printf(2,3) matches ipa3_diag_log_write(level, fmt,...).
+ */
+typedef void (*gsi_diag_sink_fn)(u8 level, const char *fmt, ...) __printf(2, 3);
+extern gsi_diag_sink_fn gsi_diag_sink;
+void gsi_register_diag_sink(gsi_diag_sink_fn fn);
+
+/* GSI diag levels mirror enum ipa_diag_log_level (ERR=0, DBG=2, LOW=3). */
+#define GSI_DIAG_LVL_ERR 0
+#define GSI_DIAG_LVL_DBG 2
+#define GSI_DIAG_LVL_LOW 3
+
 #define GSIDBG(fmt, args...) \
 	do { \
 		dev_dbg(gsi_ctx->dev, "%s:%d " fmt, __func__, __LINE__, \
@@ -70,15 +86,27 @@
 			GSI_IPC_LOGGING(gsi_ctx->ipc_logbuf_low, \
 				"%s:%d " fmt, ## args); \
 		} \
+		{ \
+			gsi_diag_sink_fn _s = READ_ONCE(gsi_diag_sink); \
+			if (_s) \
+				_s(GSI_DIAG_LVL_DBG, "gsi %s:%d " fmt, \
+					__func__, __LINE__, ## args); \
+		} \
 	} while (0)
 
 #define GSIDBG_LOW(fmt, args...) \
 	do { \
 		dev_dbg(gsi_ctx->dev, "%s:%d " fmt, __func__, __LINE__, \
 		## args);\
-		if (gsi_ctx) { \
+		if (gsi_ctx && gsi_ctx->ipc_logbuf_low) { \
 			GSI_IPC_LOGGING(gsi_ctx->ipc_logbuf_low, \
 				"%s:%d " fmt, ## args); \
+			{ \
+				gsi_diag_sink_fn _s = READ_ONCE(gsi_diag_sink); \
+				if (_s) \
+					_s(GSI_DIAG_LVL_LOW, "gsi %s:%d " fmt, \
+						__func__, __LINE__, ## args); \
+			} \
 		} \
 	} while (0)
 
@@ -91,6 +119,12 @@
 				"%s:%d " fmt, ## args); \
 			GSI_IPC_LOGGING(gsi_ctx->ipc_logbuf_low, \
 				"%s:%d " fmt, ## args); \
+		} \
+		{ \
+			gsi_diag_sink_fn _s = READ_ONCE(gsi_diag_sink); \
+			if (_s) \
+				_s(GSI_DIAG_LVL_ERR, "gsi %s:%d " fmt, \
+					__func__, __LINE__, ## args); \
 		} \
 	} while (0)
 

@@ -93,6 +93,22 @@ static bool running_emulation;
 
 struct gsi_ctx *gsi_ctx;
 
+/*
+ * Optional DIAG tap, registered by ipa.ko (see gsi.h). NULL until ipa's
+ * diag-log facility comes up, so the GSI log macros are a no-op by default.
+ * Plain pointer: written once at ipa init / cleared at cleanup, read in the
+ * NULL-safe macro path; a stale read is harmless (ipa3_diag_log_write itself
+ * re-validates its own context).
+ */
+gsi_diag_sink_fn gsi_diag_sink;
+EXPORT_SYMBOL(gsi_diag_sink);
+
+void gsi_register_diag_sink(gsi_diag_sink_fn fn)
+{
+	WRITE_ONCE(gsi_diag_sink, fn);
+}
+EXPORT_SYMBOL(gsi_register_diag_sink);
+
 static union __packed gsi_channel_scratch __gsi_update_mhi_channel_scratch(
 	unsigned long chan_hdl, struct __packed gsi_mhi_channel_scratch mscr);
 

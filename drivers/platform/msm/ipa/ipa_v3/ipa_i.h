@@ -206,14 +206,20 @@ enum {
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPADBG_LOW(fmt, args...) \
 	do { \
 		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
-		if (ipa3_ctx) \
+		if (ipa3_ctx && ipa3_ctx->logbuf_low) { \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
+			ipa3_diag_log_write(IPA_DIAG_LVL_LOW, \
+				DRV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
+		} \
 	} while (0)
 
 #define IPADBG_CLK(fmt, args...) \
@@ -233,6 +239,8 @@ enum {
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPAERR_RL(fmt, args...) \
@@ -245,6 +253,8 @@ enum {
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPALOG_VnP_ADDRS(ptr) \

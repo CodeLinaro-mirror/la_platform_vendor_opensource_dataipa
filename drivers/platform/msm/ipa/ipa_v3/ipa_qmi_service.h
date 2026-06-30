@@ -41,6 +41,8 @@
 				DEV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				DEV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, DEV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
 	} while (0)
 
 
@@ -48,8 +50,13 @@
 	do { \
 		pr_debug(DEV_NAME " %s:%d " fmt, __func__,\
 				__LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
+		if (ipa3_get_ipc_logbuf_low()) { \
+			IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				DEV_NAME " %s:%d " fmt, ## args); \
+			ipa3_diag_log_write(IPA_DIAG_LVL_LOW, \
+				DEV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
+		} \
 	} while (0)
 
 #define IPAWANERR(fmt, args...) \
@@ -60,6 +67,8 @@
 				DEV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				DEV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DEV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPAWANERR_RL(fmt, args...) \
@@ -70,6 +79,8 @@
 				DEV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				DEV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DEV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPAWANINFO(fmt, args...) \
@@ -80,6 +91,8 @@
 				DEV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				DEV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_INFO, DEV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
 	} while (0)
 
 extern struct ipa3_qmi_context *ipa3_qmi_ctx;
