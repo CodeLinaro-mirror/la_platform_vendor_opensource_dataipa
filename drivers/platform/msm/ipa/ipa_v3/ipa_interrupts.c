@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
+ *
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/interrupt.h>
@@ -502,7 +504,9 @@ int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
 				client_idx < IPA_CLIENT_MAX;
 				client_idx++) {
 				if (IPA_CLIENT_IS_Q6_CONS(client_idx) ||
-					IPA_CLIENT_IS_Q6_PROD(client_idx)) {
+					IPA_CLIENT_IS_Q6_PROD(client_idx) ||
+					(client_idx == IPA_CLIENT_ETHERNET_CONS) ||
+					(client_idx == IPA_CLIENT_ETHERNET2_CONS)) {
 					ep_idx = ipa3_get_ep_mapping(client_idx);
 					IPADBG(
 						"modem ep_idx(%d) client_idx = %d\n"
