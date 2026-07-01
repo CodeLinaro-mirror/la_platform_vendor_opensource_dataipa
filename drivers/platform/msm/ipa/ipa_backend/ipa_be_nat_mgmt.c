@@ -3,6 +3,10 @@
 * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
+#include <linux/in.h>
+#include <linux/in6.h>
+#include <linux/socket.h>
+#include "ipa_stats_genl.h"
 #include "ipa_api.h"
 #include "ipa_be.h"
 #include "ipa_be_clientdb.h"
@@ -122,6 +126,202 @@ struct NatBase
 
 struct NatBase *NatBase = NULL;
 
+/*
+ * Guards the nat_app / NatBase lifetime against cache readers like
+ * ipa_be_query_tuple_stats(). The per-struct cache_lock can't: it lives inside
+ * the struct exit() frees, so a reader that passed the NULL check could lock
+ * freed memory. Held across the NULL check and cache walk; nests outside cache_lock.
+ */
+static DEFINE_MUTEX(ipa_be_nat_mgmt_lock);
+
+/*
+ * Unified cumulative stats, keyed by HW counter index (all_pkts_stats_cnt_index,
+ * 1-based; slot 0 unused). A single 100 ms poller is the only reader of the
+ * clear-on-read HW counters: it adds each counter's delta into total. Both ECM
+ * (ipa_sync_*, via get_ct_stats_cached) and stats_mgr (ipa_be_query_tuple_stats)
+ * then read total non-destructively, so they no longer clear the HW from under
+ * each other. ipa_be_cum_lock nests inside ipa_be_nat_mgmt_lock / cache_lock.
+ */
+struct ipa_be_cum_counter {
+	struct ipahal_stats_nat_ct total;       /* monotonic cumulative */
+	struct ipahal_stats_nat_ct ecm_last;    /* last total reported to ECM */
+	bool active;
+};
+static struct ipa_be_cum_counter *ipa_be_cum;
+static u32 ipa_be_cum_n;                        /* entries in ipa_be_cum */
+static DEFINE_MUTEX(ipa_be_cum_lock);
+
+static struct delayed_work ipa_be_stats_poll_work;
+static bool ipa_be_stats_poll_running;  /* poller queued; guarded by ipa_be_cum_lock */
+static bool ipa_be_stats_poll_rearm;    /* counter assigned since the tick's snapshot */
+
+#define IPA_BE_STATS_POLL_MS 100u
+
+/* Collect distinct active counter indices from both caches into idx_out. @seen
+ * (sized ipa_be_cum_n) dedupes any counter index that appears in more than one
+ * cache entry so each is accumulated once per tick. Caller holds
+ * ipa_be_nat_mgmt_lock.
+ */
+static u32 ipa_be_collect_active_counters(u16 *idx_out, bool *seen)
+{
+	u32 n = 0;
+	int i;
+
+	if (nat_app && nat_app->cache) {
+		mutex_lock(&nat_app->cache_lock);
+		for (i = 0; i < nat_app->max_entries; i++) {
+			u16 c = nat_app->cache[i].all_pkts_stats_cnt_index;
+
+			if (nat_app->cache[i].enabled && c && c < ipa_be_cum_n &&
+			    !seen[c]) {
+				seen[c] = true;
+				idx_out[n++] = c;
+			}
+		}
+		mutex_unlock(&nat_app->cache_lock);
+	}
+
+	if (NatBase && NatBase->m_cache) {
+		mutex_lock(&NatBase->cache_lock);
+		for (i = 0; i < NatBase->m_maxEntries; i++) {
+			u16 c = NatBase->m_cache[i].ipv6_ct.all_pkts_stats_cnt_index;
+
+			if (NatBase->m_cache[i].m_enabled &&
+			    NatBase->m_cache[i].m_type == IPA_IP_v6 &&
+			    c && c < ipa_be_cum_n && !seen[c]) {
+				seen[c] = true;
+				idx_out[n++] = c;
+			}
+		}
+		mutex_unlock(&NatBase->cache_lock);
+	}
+
+	return n;
+}
+
+static void ipa_be_stats_poll_work_fn(struct work_struct *work)
+{
+	u16 *idx;
+	bool *seen;
+	u32 n, i, cap;
+
+	mutex_lock(&ipa_be_nat_mgmt_lock);
+
+	/* Table gone => BE torn down (exit cleared it); stop for good. A later
+	 * re-init re-kicks. This is the only non-transient stop condition.
+	 */
+	if (!ipa_be_cum || ipa_be_cum_n < 2) {
+		mutex_lock(&ipa_be_cum_lock);
+		ipa_be_stats_poll_running = false;
+		mutex_unlock(&ipa_be_cum_lock);
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+		return;
+	}
+
+	/*
+	 * Clear the re-arm request before sampling the caches. A kick racing in
+	 * after this point re-sets it, so we never stop with a freshly assigned
+	 * counter unsampled.
+	 */
+	mutex_lock(&ipa_be_cum_lock);
+	ipa_be_stats_poll_rearm = false;
+	mutex_unlock(&ipa_be_cum_lock);
+
+	/* One slot per cache entry: the true upper bound on collected indices. */
+	cap = (nat_app ? nat_app->max_entries : 0) +
+	      (NatBase ? NatBase->m_maxEntries : 0);
+
+	idx = cap ? kmalloc_array(cap, sizeof(*idx), GFP_KERNEL) : NULL;
+	seen = kcalloc(ipa_be_cum_n, sizeof(*seen), GFP_KERNEL);
+	if (cap && (!idx || !seen)) {
+		kfree(idx);
+		kfree(seen);
+		goto rearm;   /* transient alloc failure: retry next tick */
+	}
+
+	n = cap ? ipa_be_collect_active_counters(idx, seen) : 0;
+	kfree(seen);
+
+	/* HW read-and-clear outside cache_lock; once per counter this tick. */
+	for (i = 0; i < n; i++) {
+		struct ipahal_stats_nat_ct hw = {};
+
+		if (ipa_get_nat_ct_stats(idx[i], &hw))
+			continue;
+
+		mutex_lock(&ipa_be_cum_lock);
+		ipa_be_cum[idx[i]].active = true;
+		ipa_be_cum[idx[i]].total.num_pkts_inbound        += hw.num_pkts_inbound;
+		ipa_be_cum[idx[i]].total.num_pkts_cache_inbound  += hw.num_pkts_cache_inbound;
+		ipa_be_cum[idx[i]].total.num_bytes_inbound       += hw.num_bytes_inbound;
+		ipa_be_cum[idx[i]].total.num_pkts_outbound       += hw.num_pkts_outbound;
+		ipa_be_cum[idx[i]].total.num_pkts_cache_outbound += hw.num_pkts_cache_outbound;
+		ipa_be_cum[idx[i]].total.num_bytes_outbound      += hw.num_bytes_outbound;
+		mutex_unlock(&ipa_be_cum_lock);
+	}
+
+	kfree(idx);
+
+	/*
+	 * Stop when idle: no active counters this tick and no kick raced in.
+	 * The next ipa_be_cum_assign() re-kicks. Both the stop and kick decisions
+	 * use ipa_be_stats_poll_running/_rearm under ipa_be_cum_lock, so a kick
+	 * cannot be lost in the gap.
+	 */
+	mutex_lock(&ipa_be_cum_lock);
+	if (n == 0 && !ipa_be_stats_poll_rearm) {
+		ipa_be_stats_poll_running = false;
+		mutex_unlock(&ipa_be_cum_lock);
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+		return;
+	}
+	mutex_unlock(&ipa_be_cum_lock);
+
+rearm:
+	schedule_delayed_work(&ipa_be_stats_poll_work,
+			      msecs_to_jiffies(IPA_BE_STATS_POLL_MS));
+
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
+}
+
+/* Start the poller if idle. Safe to call from any entry-add path. */
+static void ipa_be_stats_poll_kick(void)
+{
+	mutex_lock(&ipa_be_cum_lock);
+	if (ipa_be_cum) {
+		/* Force the in-flight (or next) tick to re-arm rather than stop,
+		 * covering a kick that races a tick already past its snapshot.
+		 */
+		ipa_be_stats_poll_rearm = true;
+		if (!ipa_be_stats_poll_running) {
+			ipa_be_stats_poll_running = true;
+			schedule_delayed_work(&ipa_be_stats_poll_work,
+					      msecs_to_jiffies(IPA_BE_STATS_POLL_MS));
+		}
+	}
+	mutex_unlock(&ipa_be_cum_lock);
+}
+
+/* Drop a counter's cumulative record when its HW counter is freed/recycled. */
+static void ipa_be_cum_release(u16 counter_idx)
+{
+	if (!counter_idx)
+		return;
+	mutex_lock(&ipa_be_cum_lock);
+	if (ipa_be_cum && counter_idx < ipa_be_cum_n)
+		memset(&ipa_be_cum[counter_idx], 0, sizeof(ipa_be_cum[counter_idx]));
+	mutex_unlock(&ipa_be_cum_lock);
+}
+
+/* Called when a cache entry is assigned a counter: start from a clean total and
+ * ensure the poller is running. May hold a cache_lock (cum_lock nests inside).
+ */
+static void ipa_be_cum_assign(u16 counter_idx)
+{
+	ipa_be_cum_release(counter_idx);
+	ipa_be_stats_poll_kick();
+}
+
 /**
  * ipa_be_free_nat_counters_v4() - Free counters for IPv4 NAT rule
  * @nat_table_hdl: NAT table handle
@@ -192,7 +392,32 @@ static void ipa_be_free_ct_counters_v6(
 
 void ipa_be_nat_mgmt_exit(void)
 {
+	struct ipa_be_cum_counter *cum;
+
 	IPA_BE_DBG("DEBUG: inside be_nat_mgmt_exit\n");
+
+	/*
+	 * Detach the table first, then cancel. The poller re-arms unconditionally
+	 * while ipa_be_cum is set (and checks it under ipa_be_nat_mgmt_lock at the
+	 * top of each tick), so clearing it under both locks before the cancel
+	 * guarantees no tick re-arms past cancel_delayed_work_sync(). Readers take
+	 * ipa_be_cum_lock, so free under it.
+	 */
+	mutex_lock(&ipa_be_nat_mgmt_lock);
+	mutex_lock(&ipa_be_cum_lock);
+	cum = ipa_be_cum;
+	ipa_be_cum = NULL;
+	ipa_be_cum_n = 0;
+	ipa_be_stats_poll_running = false;
+	mutex_unlock(&ipa_be_cum_lock);
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
+
+	if (cum) {
+		cancel_delayed_work_sync(&ipa_be_stats_poll_work);
+		kfree(cum);
+	}
+
+	mutex_lock(&ipa_be_nat_mgmt_lock);
 
 	/* Clean up NatBase */
 	if(NatBase)
@@ -229,6 +454,8 @@ void ipa_be_nat_mgmt_exit(void)
 		nat_app = NULL;
 		IPA_BE_DBG("DEBUG: freed nat_app\n");
 	}
+
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
 }
 
 int ipa_be_nat_mgmt_init(void)
@@ -237,15 +464,19 @@ int ipa_be_nat_mgmt_init(void)
 
 	IPA_BE_DBG("DEBUG: inside be_nat_mgmt_init\n");
 
+	mutex_lock(&ipa_be_nat_mgmt_lock);
+
 	/* Prevent double initialization of nat_app */
 	if (nat_app) {
 		IPA_BE_ERR("nat_app already initialized!\n");
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
 		return -EALREADY;
 	}
 
 	/* Initialize context */
 	nat_app = kzalloc(sizeof(*nat_app), GFP_KERNEL);
 	if (!nat_app) {
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
 		return -ENOMEM;
 	}
 
@@ -291,9 +522,28 @@ int ipa_be_nat_mgmt_init(void)
 	}
 	IPA_BE_DBG("Allocated %d bytes for NatBase cache\n", size);
 
+	/* Cumulative stats table sized to the HW counter range (1-based). */
+	if (ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->nat_ct.init.max_counters)
+		ipa_be_cum_n = ipa3_ctx->hw_stats->nat_ct.init.max_counters + 1;
+	else
+		ipa_be_cum_n = 0;
+
+	if (ipa_be_cum_n) {
+		ipa_be_cum = kcalloc(ipa_be_cum_n, sizeof(*ipa_be_cum), GFP_KERNEL);
+		if (!ipa_be_cum) {
+			IPA_BE_ERR("Unable to allocate cumulative stats table\n");
+			goto fail;
+		}
+		INIT_DELAYED_WORK(&ipa_be_stats_poll_work, ipa_be_stats_poll_work_fn);
+	}
+
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
 	return IPA_BE_SUCCESS;
 
 fail:
+	kfree(ipa_be_cum);
+	ipa_be_cum = NULL;
+	ipa_be_cum_n = 0;
 	if (NatBase) {
 		if (NatBase->m_cache) {
 			kfree(NatBase->m_cache);
@@ -312,6 +562,7 @@ fail:
 		kfree(nat_app);
 		nat_app = NULL;
 	}
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
 	return -ENOMEM;
 }
 
@@ -1406,6 +1657,7 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 		}
 		NatBase->m_cache[cache_idx].ipv6_ct.all_pkts_stats_cnt_index = all_pkts_counter;
 		NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index = non_frag_counter;
+		ipa_be_cum_assign(all_pkts_counter);
 	} else {
 		/* Legacy path (< IPA v7.0) || !lan2lan: single ALLOW_ALL entry */
 		ret = ipv6ct_add_entry(&v6_msg, &rule_hdl);
@@ -1688,6 +1940,7 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 						nat_rule_v2.all_pkts_stats_cnt_index;
 					nat_app->cache[cnt].non_frag_stats_cnt_index =
 						nat_rule_v2.non_frag_stats_cnt_index;
+					ipa_be_cum_assign(nat_rule_v2.all_pkts_stats_cnt_index);
 
 					if (is_ct_entry) {
 						IPA_BE_DBG("Added CT entry (v7.0+): cache[%d] hdl=%d, %pI4n:%u <-> %pI4n:%u\n",
@@ -1780,6 +2033,8 @@ void ipa_be_reset(void)
 
 	nat_app->nat_table_hdl = 0;
 	nat_app->pub_ip_addr = 0;
+
+	ipa_stats_process_tuple_flush();
 
 	/* NAT tbl deleted, reset enabled bit */
 	mutex_lock(&nat_app->cache_lock);
@@ -2295,40 +2550,253 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 
 
 /**
- * get_ct_stats_cached() - Read a stats counter, using a per-sync-cycle cache.
+ * get_ct_stats_cached() - Return the ECM delta for a stats counter.
  *
- * Avoids re-reading a clear-on-read HW counter that was already consumed
- * earlier in the same sync cycle.  On a cache miss the HW counter is read
- * and the result is stored so that subsequent accesses within the same cycle
- * can reuse it without re-querying hardware.
+ * Serves from the poller-maintained cumulative table instead of reading the
+ * clear-on-read HW counter, so ECM no longer races stats_mgr. Reports the delta
+ * since the previous ECM sync (cumulative total minus the last-reported
+ * snapshot), preserving ECM's on-the-wire delta semantics. The per-cycle cache,
+ * keyed by entry index, ensures a counter referenced by more than one cache
+ * entry in the same cycle advances its snapshot only once.
  *
- * @idx:       entry index used as the cache key
- * @stats_cnt: HW stats counter index to query on a cache miss
+ * @idx:       entry index used as the per-cycle cache key
+ * @stats_cnt: HW stats counter index
  * @cache:     per-cycle stats cache array (indexed by entry index)
  * @valid:     per-cycle cache-valid flags array
- * @out:       output: populated with the stats on success
+ * @out:       output: populated with the delta on success
  *
- * Returns 0 on success, non-zero on HW read failure.
+ * Returns 0 on success, non-zero if the counter has no cumulative record.
  */
 static int get_ct_stats_cached(int idx, uint16_t stats_cnt,
 				struct ipahal_stats_nat_ct *cache,
 				bool *valid,
 				struct ipahal_stats_nat_ct *out)
 {
+	struct ipa_be_cum_counter *c;
+
 	if (valid[idx]) {
 		*out = cache[idx];
 		return 0;
 	}
 
-	int ret = ipa_get_nat_ct_stats(stats_cnt, out);
+	mutex_lock(&ipa_be_cum_lock);
+	if (!ipa_be_cum || stats_cnt >= ipa_be_cum_n) {
+		mutex_unlock(&ipa_be_cum_lock);
+		return -ENOENT;
+	}
+	c = &ipa_be_cum[stats_cnt];
+	{
+		struct ipahal_stats_nat_ct *t = &c->total, *l = &c->ecm_last;
 
-	if (!ret) {
-		cache[idx] = *out;
-		valid[idx] = true;
+		out->num_pkts_inbound        = t->num_pkts_inbound - l->num_pkts_inbound;
+		out->num_pkts_cache_inbound  = t->num_pkts_cache_inbound - l->num_pkts_cache_inbound;
+		out->num_bytes_inbound       = t->num_bytes_inbound - l->num_bytes_inbound;
+		out->num_pkts_outbound       = t->num_pkts_outbound - l->num_pkts_outbound;
+		out->num_pkts_cache_outbound = t->num_pkts_cache_outbound - l->num_pkts_cache_outbound;
+		out->num_bytes_outbound      = t->num_bytes_outbound - l->num_bytes_outbound;
+	}
+	c->ecm_last = c->total;
+	mutex_unlock(&ipa_be_cum_lock);
+
+	cache[idx] = *out;
+	valid[idx] = true;
+	return 0;
+}
+
+/**
+ * ipa_be_query_tuple_stats() - Look up one stats_mgr 5-tuple in the NAT/CT
+ * cache and return its cumulative packet/byte counters.
+ *
+ * @tuple: connection tuple from the stats_mgr genl module. Addresses and ports
+ *         are in network byte order; @af selects AF_INET / AF_INET6.
+ * @out:   on success, populated with the (truncated) uapi stats.
+ *
+ * Walks the appropriate cache (nat_app->cache for AF_INET, NatBase->m_cache for
+ * AF_INET6) for an enabled entry matching @tuple in either the forward or the
+ * src/dst-swapped orientation, resolves its all-packets counter index, then
+ * returns that counter's cumulative total from the poller-maintained table. No
+ * HW access, so concurrent ECM/stats_mgr reads no longer clear each other.
+ *
+ * Return: 0 on success; -EINVAL on bad args / af; -ENODEV if BE not
+ *         initialised; -ENOENT if no matching enabled entry, no counter, or no
+ *         cumulative record. On any non-zero return *out is left untouched.
+ */
+int ipa_be_query_tuple_stats(const struct ipa_stats_tuple_info *tuple,
+			     struct stats_nat_ct *out)
+{
+	struct ipahal_stats_nat_ct hw = {};
+	int idx = -1, i;
+	uint16_t stats_cnt = 0;
+
+	if (!tuple || !out)
+		return -EINVAL;
+
+	if (tuple->protocol != IPPROTO_TCP && tuple->protocol != IPPROTO_UDP)
+		return -EINVAL;
+
+	if (tuple->af == AF_INET) {
+		/* genl tuple addr/port are network order; cache is host order */
+		uint32_t s_ip = ntohl(tuple->src_addr[0]);
+		uint32_t d_ip = ntohl(tuple->dst_addr[0]);
+		uint16_t s_pt = ntohs(tuple->src_port);
+		uint16_t d_pt = ntohs(tuple->dst_port);
+		int rev_idx = -1;
+
+		mutex_lock(&ipa_be_nat_mgmt_lock);
+
+		if (!nat_app || !nat_app->cache) {
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
+			IPA_BE_DBG("v4 NAT cache not initialised, dropping query\n");
+			return -ENODEV;
+		}
+
+		mutex_lock(&nat_app->cache_lock);
+		for (i = 0; i < nat_app->max_entries; i++) {
+			nat_table_entry *e = &nat_app->cache[i];
+
+			if (!e->enabled || e->private_ip == 0)
+				continue;
+			if (e->protocol != tuple->protocol)
+				continue;
+
+			/*
+			 * Forward orientation (private==src, target==dst) is the
+			 * exact match for the direction this tuple represents;
+			 * take it and stop. Reverse orientation is only a
+			 * fallback for a connection BE stored swapped relative to
+			 * how the tuple is named -- remember the first such slot
+			 * but keep scanning, so a forward-registered tuple and
+			 * its reverse twin resolve to their own distinct entries
+			 * (and counters) instead of colliding on whichever slot
+			 * the scan reaches first.
+			 */
+			if (e->private_ip   == s_ip && e->target_ip   == d_ip &&
+			    e->private_port == s_pt && e->target_port == d_pt) {
+				idx = i;
+				break;
+			}
+			if (rev_idx < 0 &&
+			    e->private_ip   == d_ip && e->target_ip   == s_ip &&
+			    e->private_port == d_pt && e->target_port == s_pt)
+				rev_idx = i;
+		}
+		if (idx < 0)
+			idx = rev_idx;
+		if (idx >= 0)
+			stats_cnt = nat_app->cache[idx].all_pkts_stats_cnt_index;
+		mutex_unlock(&nat_app->cache_lock);
+
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+
+	} else if (tuple->af == AF_INET6) {
+		uint64_t s_msb = ((uint64_t)ntohl(tuple->src_addr[0]) << 32) |
+				 ntohl(tuple->src_addr[1]);
+		uint64_t s_lsb = ((uint64_t)ntohl(tuple->src_addr[2]) << 32) |
+				 ntohl(tuple->src_addr[3]);
+		uint64_t d_msb = ((uint64_t)ntohl(tuple->dst_addr[0]) << 32) |
+				 ntohl(tuple->dst_addr[1]);
+		uint64_t d_lsb = ((uint64_t)ntohl(tuple->dst_addr[2]) << 32) |
+				 ntohl(tuple->dst_addr[3]);
+		uint16_t s_pt = ntohs(tuple->src_port);
+		uint16_t d_pt = ntohs(tuple->dst_port);
+		int rev_idx = -1;
+
+		mutex_lock(&ipa_be_nat_mgmt_lock);
+
+		if (!NatBase || !NatBase->m_cache) {
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
+			IPA_BE_DBG("v6 CT cache not initialised, dropping query\n");
+			return -ENODEV;
+		}
+
+		mutex_lock(&NatBase->cache_lock);
+		for (i = 0; i < NatBase->m_maxEntries; i++) {
+			struct NatEntryBase *e = &NatBase->m_cache[i];
+			struct ipv6_ct_entry *c = &e->ipv6_ct;
+
+			if (!e->m_enabled || e->m_type != IPA_IP_v6)
+				continue;
+			if (e->m_protocol != tuple->protocol)
+				continue;
+
+			/* Forward orientation wins; reverse is a fallback only
+			 * (see the AF_INET path for the rationale).
+			 */
+			if (c->src_ipv6_msb  == s_msb && c->src_ipv6_lsb  == s_lsb &&
+			    c->dest_ipv6_msb == d_msb && c->dest_ipv6_lsb == d_lsb &&
+			    c->src_port      == s_pt  && c->dest_port      == d_pt) {
+				idx = i;
+				break;
+			}
+			if (rev_idx < 0 &&
+			    c->src_ipv6_msb  == d_msb && c->src_ipv6_lsb  == d_lsb &&
+			    c->dest_ipv6_msb == s_msb && c->dest_ipv6_lsb == s_lsb &&
+			    c->src_port      == d_pt  && c->dest_port      == s_pt)
+				rev_idx = i;
+		}
+		if (idx < 0)
+			idx = rev_idx;
+		if (idx >= 0)
+			stats_cnt =
+			    NatBase->m_cache[idx].ipv6_ct.all_pkts_stats_cnt_index;
+		mutex_unlock(&NatBase->cache_lock);
+
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+
+	} else {
+		return -EINVAL;
 	}
 
-	return ret;
+	if (idx < 0 || stats_cnt == 0) {
+		if (tuple->af == AF_INET)
+			IPA_BE_DBG("no cache match: %pI4:%u<->%pI4:%u proto=%u\n",
+				   &tuple->src_addr[0], ntohs(tuple->src_port),
+				   &tuple->dst_addr[0], ntohs(tuple->dst_port),
+				   tuple->protocol);
+		else
+			IPA_BE_DBG("no cache match: %pI6c:%u<->%pI6c:%u proto=%u\n",
+				   (struct in6_addr *)tuple->src_addr, ntohs(tuple->src_port),
+				   (struct in6_addr *)tuple->dst_addr, ntohs(tuple->dst_port),
+				   tuple->protocol);
+		return -ENOENT;
+	}
+
+	/* Serve the cumulative total maintained by the poller; no HW access. */
+	mutex_lock(&ipa_be_cum_lock);
+	if (!ipa_be_cum || stats_cnt >= ipa_be_cum_n) {
+		mutex_unlock(&ipa_be_cum_lock);
+		IPA_BE_DBG("cache_idx=%d cnt_idx=%u but no cumulative record (cum_n=%u)\n",
+			   idx, stats_cnt, ipa_be_cum_n);
+		return -ENOENT;
+	}
+	hw = ipa_be_cum[stats_cnt].total;
+	mutex_unlock(&ipa_be_cum_lock);
+
+	out->num_pkts_inbound        = hw.num_pkts_inbound;
+	out->num_pkts_cache_inbound  = hw.num_pkts_cache_inbound;
+	out->num_bytes_inbound       = hw.num_bytes_inbound;
+	out->num_pkts_outbound       = hw.num_pkts_outbound;
+	out->num_pkts_cache_outbound = hw.num_pkts_cache_outbound;
+	out->num_bytes_outbound      = hw.num_bytes_outbound;
+
+	if (tuple->af == AF_INET)
+		IPA_BE_DBG("stats for %pI4:%u<->%pI4:%u proto=%u cache_idx=%d cnt_idx=%u: in_pkts=%u in_bytes=%llu out_pkts=%u out_bytes=%llu\n",
+			   &tuple->src_addr[0], ntohs(tuple->src_port),
+			   &tuple->dst_addr[0], ntohs(tuple->dst_port),
+			   tuple->protocol, idx, stats_cnt,
+			   hw.num_pkts_inbound, hw.num_bytes_inbound,
+			   hw.num_pkts_outbound, hw.num_bytes_outbound);
+	else
+		IPA_BE_DBG("stats for %pI6c:%u<->%pI6c:%u proto=%u cache_idx=%d cnt_idx=%u: in_pkts=%u in_bytes=%llu out_pkts=%u out_bytes=%llu\n",
+			   (struct in6_addr *)tuple->src_addr, ntohs(tuple->src_port),
+			   (struct in6_addr *)tuple->dst_addr, ntohs(tuple->dst_port),
+			   tuple->protocol, idx, stats_cnt,
+			   hw.num_pkts_inbound, hw.num_bytes_inbound,
+			   hw.num_pkts_outbound, hw.num_bytes_outbound);
+
+	return 0;
 }
+EXPORT_SYMBOL(ipa_be_query_tuple_stats);
 
 /**
  * ipa_sync_ipv6_stats_many_msg() - Synchronize statistics for multiple IPv6 CT connections
