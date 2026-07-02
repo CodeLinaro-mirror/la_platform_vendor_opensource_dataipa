@@ -4131,7 +4131,7 @@ int ipa3_set_intf_tx_tc_bitmap_by_pipe(const char *name,
 				       enum ipa_client_type dst_pipe,
 				       uint32_t tc_bitmap);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
-int ipa3_find_chan_by_intf(enum ipa_client_type client);
+int ipa3_find_intf_by_client(enum ipa_client_type client);
 
 bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf);
 int ipa3_update_intf_idx(const char *name, int intf_idx);
