@@ -818,7 +818,7 @@ int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct
 	bool is_sta = 0;
 	bool ip_pass = 0;
 	bool isVlan = 0;
-	uint32_t pub_ip;
+	uint32_t pub_ip = 0;
 	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
 	struct ipa_ioc_query_intf pdn_intf;
 	int ret = 0;
@@ -865,6 +865,19 @@ int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct
 		else if (v4_msg.conn_rule.return_interface_num == v4_msg.conn_rule.return_top_interface_num)
 		{
 			pub_ip = (uint32_t)ntohl(v4_msg.tuple.flow_ip);
+		}
+		else
+		{
+			/* IPPT but no orientation matched: pub_ip unresolved.
+			 * Fail rather than install a bogus 0.0.0.0 PDN.
+			 */
+			IPA_BE_ERR("IPPT topology unresolved (flow_if=%u/%u return_if=%u/%u); abort PDN add\n",
+				v4_msg.conn_rule.flow_interface_num,
+				v4_msg.conn_rule.flow_top_interface_num,
+				v4_msg.conn_rule.return_interface_num,
+				v4_msg.conn_rule.return_top_interface_num);
+			ret = -EINVAL;
+			goto cleanup;
 		}
 	}
 	else if(v4_msg.tuple.flow_ip == v4_msg.conn_rule.flow_ip_xlate)
@@ -1897,11 +1910,14 @@ int ipa_be_delete_nat_entry(const nat_table_entry *rule)
 					nat_app->cache[cnt].public_port, nat_app->cache[cnt].target_port,
 					"deleting from HW\n");
 				if (ipa_nat_del_ipv4_rule(nat_app->nat_table_hdl, nat_app->cache[cnt].rule_hdl) < 0) {
-					IPA_BE_ERR("%s() %d deletion failed\n", __FUNCTION__, __LINE__);
-				} else {
-					IPA_BE_DBG("Deleted Nat entry(%d) from HW Successfully\n", cnt);
+					/* HW delete failed: keep the cache slot so the
+					 * rule isn't orphaned and a retry can act on it.
+					 */
+					IPA_BE_ERR("%s() %d HW deletion failed, keeping cache entry %d (hdl %d)\n",
+						__FUNCTION__, __LINE__, cnt, nat_app->cache[cnt].rule_hdl);
+					mutex_unlock(&nat_app->cache_lock);
+					return IPA_BE_FAILURE;
 				}
-
 				if (ipa_ver >= IPA_HW_v7_0) {
 					ipa_be_free_nat_counters_v4(
 						nat_app->nat_table_hdl,
@@ -1909,6 +1925,7 @@ int ipa_be_delete_nat_entry(const nat_table_entry *rule)
 						nat_app->cache[cnt].all_pkts_stats_cnt_index,
 						nat_app->cache[cnt].non_frag_stats_cnt_index);
 				}
+				IPA_BE_DBG("Deleted Nat entry(%d) from HW Successfully\n", cnt);
 			} else {
 				IPA_BE_DBG("Deleted Nat entry(%d) from cache only\n", cnt);
 			}
@@ -1930,6 +1947,7 @@ EXPORT_SYMBOL(ipa_be_delete_nat_entry);
 void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enabled)
 {
 	nat_table_entry rule;
+	struct ipa_ipv4_rule_create_msg create_msg;
 	uint32_t pub_ip = 0;
 
 	IPA_BE_DBG("Deleting IP4 NAT entry\n");
@@ -1996,35 +2014,21 @@ void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enable
 			   &rule.target_ip, (unsigned int)rule.target_port,
 			   v4_msg.conn_rule.flow_interface_num,
 			   v4_msg.conn_rule.return_interface_num);
-	} else if (v4_msg.tuple.flow_ip != v4_msg.conn_rule.flow_ip_xlate) {
-		/*
-		 * Destroy message is for the UPLINK flow.
-		 * The key is the original tuple.
-		 */
-		rule.private_ip   = ntohl(v4_msg.tuple.flow_ip);
-		rule.target_ip    = ntohl(v4_msg.tuple.return_ip);
-		rule.private_port = ntohs(v4_msg.tuple.flow_ident);
-		rule.public_port  = ntohs(v4_msg.conn_rule.flow_ident_xlate);
-		rule.target_port  = ntohs(v4_msg.tuple.return_ident);
 	} else {
-		/*
-		 * Destroy message is for the DOWNLINK flow.
-		 * Reconstruct the key used during insertion: private_ip=return_ip_xlate
-		 * (LAN client), private_port=return_ident_xlate (LAN port),
-		 * public_port=return_ident (WAN/NAT port).
+		/* Reuse the add-path builder so the delete key matches the
+		 * tuple stored at insertion (private_ip, target_ip, ports,
+		 * protocol). ipa_be_build_nat_rule_attrs() takes a create_msg;
+		 * tuple and conn_rule are shared between create and destroy
+		 * messages, so a small local copy lets us call the helper
+		 * without changing its signature.
 		 */
-		rule.private_ip   = ntohl(v4_msg.conn_rule.return_ip_xlate);
-		rule.target_ip    = ntohl(v4_msg.tuple.flow_ip);
-		rule.private_port = ntohs(v4_msg.conn_rule.return_ident_xlate);
-		rule.public_port  = ntohs(v4_msg.tuple.return_ident);
-		rule.target_port  = ntohs(v4_msg.tuple.flow_ident);
+		memset(&create_msg, 0, sizeof(create_msg));
+		create_msg.tuple     = v4_msg.tuple;
+		create_msg.conn_rule = v4_msg.conn_rule;
+		ipa_be_build_nat_rule_attrs(create_msg, &rule);
 	}
 
-	/*
-	 * Compute the public IP (PDN IP) so we can check after deletion
-	 * whether the PDN has become empty.  This mirrors the logic in
-	 * ipa_be_addpdn().
-	 */
+	/* pub_ip lets us drop the PDN once its last entry is gone (mirrors ipa_be_addpdn). */
 	if (ct_enabled) {
 		pub_ip = IPA_DUMMY_PDN_PUB_IP;
 	} else if ((v4_msg.tuple.flow_ip == v4_msg.conn_rule.flow_ip_xlate) &&
