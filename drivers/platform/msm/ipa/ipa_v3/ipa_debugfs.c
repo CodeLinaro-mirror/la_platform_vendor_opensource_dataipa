@@ -3901,9 +3901,9 @@ static ssize_t ipa3_rc_status(struct file *file, char __user *buf,
 
 	mutex_lock(&rc_ctx->rc_lock);
 	list_for_each_entry(wlan_intf, &ipa_rc_wlan_info.head, link) {
-		IPAERR("name: %s, msg_type: %u, metadata: %x, mask: %x\n",
+		IPAERR("name: %s, msg_type: %u, metadata: %x, mask: %x, hdl: %d\n",
 			wlan_intf->name, (unsigned int)wlan_intf->wlan_msg_type,
-			wlan_intf->metadata, wlan_intf->metadata_mask);
+			wlan_intf->metadata, wlan_intf->metadata_mask, wlan_intf->hdl);
 	}
 	mutex_unlock(&rc_ctx->rc_lock);
 	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);

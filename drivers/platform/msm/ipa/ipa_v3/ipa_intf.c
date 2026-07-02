@@ -463,11 +463,10 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 	struct ipa_wlan_msg *event_cur_con = NULL;
 	void *data_dup = NULL;
 	struct ipa3_push_msg *entry, *next;
-	struct ipa_rc_wlan_intf_info *wlan_intf = NULL, *tmp = NULL;
+	struct ipa_rc_wlan_intf_info *wlan_intf = NULL;
 	int cnt = 0, total = 0, max = 0;
 	uint8_t mac[IPA_MAC_ADDR_SIZE];
 	uint8_t mac2[IPA_MAC_ADDR_SIZE];
-	char intf_name[IPA_RESOURCE_NAME_MAX];
 	bool found = false;
 
 	if (!buff)
@@ -510,6 +509,12 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 				strlcpy(wlan_intf->name, event_cur_con->name,
 						sizeof(wlan_intf->name));
 				wlan_intf->wlan_msg_type = meta->msg_type;
+				/*
+				 * No WDI handle available on the connect event.
+				 * Tag as unowned (-1); reg_intf upserts this same
+				 * entry by name and stamps the real handle later.
+				 */
+				wlan_intf->hdl = -1;
 				INIT_LIST_HEAD(&wlan_intf->link);
 				list_add(&wlan_intf->link, &ipa_rc_wlan_info.head);
 				ipa_rc_wlan_info.size++;
@@ -553,7 +558,6 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 		meta->msg_type, event_ex_cur_discon->name);
 
 		memcpy(mac2, event_ex_cur_discon->mac_addr, sizeof(mac2));
-		strlcpy(intf_name, event_ex_cur_discon->name, sizeof(intf_name));
 
 		mutex_lock(&ipa3_ctx->msg_wlan_client_lock);
 		list_for_each_entry_safe(entry, next,
@@ -593,19 +597,6 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 			total++;
 		}
 		mutex_unlock(&ipa3_ctx->msg_wlan_client_lock);
-
-		if(meta->msg_type == WLAN_AP_DISCONNECT ||
-			meta->msg_type == WLAN_STA_DISCONNECT) {
-			mutex_lock(&rc_ctx->rc_lock);
-			list_for_each_entry_safe(wlan_intf, tmp, &ipa_rc_wlan_info.head, link) {
-				if(strcmp(wlan_intf->name, intf_name) == 0) {
-					list_del(&wlan_intf->link);
-					ipa_rc_wlan_info.size--;
-					kfree(wlan_intf);
-				}
-			}
-			mutex_unlock(&rc_ctx->rc_lock);
-		}
 
 	}
 	return 0;

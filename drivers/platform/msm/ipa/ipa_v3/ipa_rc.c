@@ -715,6 +715,9 @@ int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num
 						return LAN2LAN_FLT_RULE;
 				}
 		}
+
+		if(attrib_mask == 0x0u && entry->rule.action == IPA_PASS_TO_EXCEPTION)
+			return CATCHALL_DFLT_FLT_RULE;
 	}
 	else {
 		eq_attrib = &entry->rule.eq_attrib;
@@ -724,9 +727,6 @@ int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num
 			entry->rule.action == IPA_PASS_TO_EXCEPTION)
 			return MTU_FLT_RULE;
 	}
-
-	if(attrib_mask == 0x0u && entry->rule.action == IPA_PASS_TO_EXCEPTION)
-		return CATCHALL_DFLT_FLT_RULE;
 
 	return res;
 }

@@ -306,6 +306,10 @@ struct ipa_rc_queue {
  *                 Mask applied to metadata for matching or filtering
  *                 purposes.
  *
+ * @hdl: WDI handle.
+ *       WDI instance handle that owns this interface. Used to remove
+ *       the entry only when its owning instance is cleaned up.
+ *
  * @link: List node.
  *        Used to link this WLAN interface information structure into
  *        a list.
@@ -315,6 +319,7 @@ struct ipa_rc_wlan_intf_info {
 	uint8_t wlan_msg_type;
 	uint32_t metadata;
 	uint32_t metadata_mask;
+	int hdl;
 	struct list_head link;
 };
 
