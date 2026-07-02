@@ -3733,7 +3733,7 @@ int ipa3_query_intf(struct ipa_ioc_query_intf *lookup);
 int ipa3_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx);
 int ipa3_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
-int ipa3_find_chan_by_intf(enum ipa_client_type client);
+int ipa3_find_intf_by_client(enum ipa_client_type client);
 
 int ipa3_get_max_pdn(void);
 

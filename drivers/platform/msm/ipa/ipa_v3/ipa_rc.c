@@ -222,13 +222,13 @@ bool is_wlan_sta_pkt(struct ipahal_pkt_status *status)
 	i = status->endp_src_idx;
 	if(!is_any_wlan_prod_pipe(ipa3_get_client_by_pipe(i))) {
 		if(ipa3_ctx->is_rc_log_enabled)
-			IPAERR_RL("src: %d not wlan pipe\n", status->endp_src_idx);
+			IPADBG("src: %d not wlan pipe\n", status->endp_src_idx);
 
 		return false;
 	}
 
 	if(ipa3_ctx->is_rc_log_enabled)
-		IPAERR_RL("status metadata: %d\n", ntohl(status->metadata));
+		IPADBG("status metadata: %d\n", ntohl(status->metadata));
 
 	mutex_lock(&rc_ctx->rc_lock);
 	list_for_each_entry(it, &ipa_rc_wlan_info.head, link) {
@@ -240,7 +240,7 @@ bool is_wlan_sta_pkt(struct ipahal_pkt_status *status)
 	mutex_unlock(&rc_ctx->rc_lock);
 
 	if(ipa3_ctx->is_rc_log_enabled)
-		IPAERR_RL("can't find sta pkt\n");
+		IPADBG("can't find sta pkt\n");
 
 	return false;
 }
@@ -311,7 +311,7 @@ bool has_default_rt_tbl(u32 rt_tbl_idx)
 	set = &ipa3_ctx->rt_tbl_set[IPA_IP_v4];
 
 	if(list_empty(&set->head_rt_tbl_list)) {
-		IPAERR("Rt table list is empty\n");
+		IPADBG("Rt table list is empty\n");
 		return false;
 	}
 
@@ -353,20 +353,29 @@ static bool is_lan2lan_rule(struct ipa_rule_attrib *attrib)
 }
 
 /* IPA HM functions */
+void ipa_rc_reset_drop_pkt_stats(void)
+{
+	int i;
+
+	IPADBG("Resetting drop pkt stats on IPACM restart\n");
+
+	for (i = 0; i < MAX_RC_CLIENTS; i++) {
+		ipa3_ctx->stats.rx_excp_pkts[i]
+			[IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL] = 0;
+		ipa3_ctx->stats.rx_excp_pkts[i]
+			[IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL] = 0;
+	}
+
+	IPADBG("drop pkt stats reset done\n");
+}
+
 void ipa_rc_query_drop_stats(struct ipa_rc_health_monitor *ipa_state_info)
 {
 	int i;
 	enum ipa_rc_state_err cur_status = IPA_HEALTH_OK;
-	struct ipa_rc_health_monitor *prev_ele = NULL;
 	static u32 (*drop_pkt_cnts)[DATA_DIR];
-	int prev_ul_drop = 0, prev_dl_drop = 0;
-	int ul_drop = 0, dl_drop = 0;
-	bool ul_drop_inc, dl_drop_inc;
 
 	drop_pkt_cnts = ipa_state_info->drop_pkt_cnts;
-
-	if (!list_empty(&rc_list.head))
-		prev_ele = list_first_entry(&rc_list.head, struct ipa_rc_health_monitor, node);
 
 	for(i=0; i < MAX_RC_CLIENTS; i++) {
 		drop_pkt_cnts[i][0] =
@@ -381,39 +390,28 @@ void ipa_rc_query_drop_stats(struct ipa_rc_health_monitor *ipa_state_info)
 					drop_pkt_cnts[i][1]);
 		}
 
-		if(!prev_ele)
-			continue;
-
-		ul_drop = drop_pkt_cnts[i][0];
-		dl_drop = drop_pkt_cnts[i][1];
-		prev_ul_drop = prev_ele->drop_pkt_cnts[i][0];
-		prev_dl_drop = prev_ele->drop_pkt_cnts[i][1];
-
-		ul_drop_inc = ul_drop > prev_ul_drop;
-		dl_drop_inc = dl_drop > prev_dl_drop;
-
-		if(!ul_drop_inc && !dl_drop_inc)
+		if(drop_pkt_cnts[i][0] <= 0 && drop_pkt_cnts[i][1] <= 0)
 			continue;
 
 		if(i == WLAN) {
-			if(ul_drop_inc)
+			if(drop_pkt_cnts[i][0] > 0)
 				cur_status |= IPA_DRIVER_WLAN_AP_PKT_DROP;
 
-			if(dl_drop_inc)
+			if(drop_pkt_cnts[i][1] > 0)
 				cur_status |= IPA_DRIVER_WLAN_STA_PKT_DROP;
 		}
 		else if(i == WLAN2) {
-			if(ul_drop_inc)
+			if(drop_pkt_cnts[i][0] > 0)
 				cur_status |= IPA_DRIVER_WLAN2_AP_PKT_DROP;
 
-			if(dl_drop_inc)
+			if(drop_pkt_cnts[i][1] > 0)
 				cur_status |= IPA_DRIVER_WLAN2_STA_PKT_DROP;
 		}
 		else if(i == WLAN3) {
-			if(ul_drop_inc)
+			if(drop_pkt_cnts[i][0] > 0)
 				cur_status |= IPA_DRIVER_WLAN3_AP_PKT_DROP;
 
-			if(dl_drop_inc)
+			if(drop_pkt_cnts[i][1] > 0)
 				cur_status |= IPA_DRIVER_WLAN3_STA_PKT_DROP;
 		}
 		else if(i == ETH) {
@@ -437,7 +435,7 @@ void ipa_rc_query_chan(enum ipa_client_type clnt, int chan, struct chan_param_mo
 
 	ee = ipa3_get_ee_by_client(clnt);
 	if (ee < 0) {
-		IPAERR("Failed to get EE for client %d\n", clnt);
+		IPADBG("Failed to get EE for client %d\n", clnt);
 		return;
 	}
 	chan_params->client = clnt;
@@ -456,12 +454,12 @@ enum ipa_rc_state_err ipa_rc_detect_chan_stall(enum ipa_client_type client,
 	int cons_num;
 
 	if(!chan_params) {
-		IPAERR("chan param NULL\n");
+		IPADBG("chan param NULL\n");
 		return cur_status;
 	}
 
 	if (client < 0 || client >= IPA_CLIENT_MAX) {
-		IPAERR("invalid client type %d\n", client);
+		IPADBG("invalid client type %d\n", client);
 		return cur_status;
 	}
 
@@ -529,45 +527,41 @@ enum ipa_rc_state_err ipa_rc_detect_chan_stall(enum ipa_client_type client,
 
 void ipa_rc_query_detect_chan_n(struct ipa_rc_health_monitor *ipa_state_info)
 {
-	int chan, i, num_pipe;
-	enum ipa_client_type client;
+	int chan, i, idx;
 	enum ipa_rc_state_err status = IPA_HEALTH_OK;;
 	struct chan_param_monitor chan_params;
 
-	num_pipe = ipa3_get_max_num_pipes();
+	for (i = 1; i < IPA_CLIENT_MAX; i+=2) {
+		idx = ipa_get_ep_mapping(i);
+		if (idx == IPA_EP_NOT_ALLOCATED)
+			continue;
 
-	for(i = 0; i < num_pipe; i++) {
-		client = ipa3_get_client_by_pipe(i);
+		if(ipa3_ctx->is_rc_log_enabled)
+			IPADBG("for client : %s :\n", ipa_clients_strings[i]);
 
-		if(is_any_eth_cons_pipe(client) ||
-			is_any_wlan_cons_pipe(client)) {
-			if(ipa3_find_chan_by_intf(client) != 0) {
-				if(ipa3_ctx->is_rc_log_enabled) {
-					IPADBG("ep %d not configured\n", i);
-				}
+		if(is_any_eth_cons_pipe(i) ||
+			is_any_wlan_cons_pipe(i)) {
+			if(ipa3_find_intf_by_client(i) != 0) {
+				if(ipa3_ctx->is_rc_log_enabled)
+					IPADBG("ep %d not configured\n", idx);
 				continue;
 			}
 		}
-		else if(!IPA_CLIENT_IS_Q6_CONS(client) && !ipa3_ctx->ep[i].valid) {
-			if(ipa3_ctx->is_rc_log_enabled) {
-				IPADBG("ep %d not configured\n", i);
-			}
+		else if(!IPA_CLIENT_IS_Q6_CONS(i) && !ipa3_ctx->ep[idx].valid) {
+			if(ipa3_ctx->is_rc_log_enabled)
+				IPADBG("ep %d not configured\n", idx);
 			continue;
 		}
 
-		if(is_any_eth_cons_pipe(client) ||
-			is_any_wlan_cons_pipe(client) ||
-			IPA_CLIENT_IS_APPS_CONS(client) ||
-			IPA_CLIENT_IS_Q6_CONS(client))
+		if(is_any_eth_cons_pipe(i) ||
+			is_any_wlan_cons_pipe(i) ||
+			IPA_CLIENT_IS_APPS_CONS(i) ||
+			IPA_CLIENT_IS_Q6_CONS(i))
 		{
-			chan = ipa3_get_chan_by_client(client);
-			if(ipa3_ctx->is_rc_log_enabled) {
-				IPADBG("for client : %s :\n", ipa_clients_strings[client]);
-			}
-
+			chan = ipa3_get_chan_by_client(i);
 			memset(&chan_params, 0, sizeof(chan_params));
-			ipa_rc_query_chan(client, chan, &chan_params);
-			status |= ipa_rc_detect_chan_stall(client, &chan_params);
+			ipa_rc_query_chan(i, chan, &chan_params);
+			status |= ipa_rc_detect_chan_stall(i, &chan_params);
 		}
 	}
 	ipa_state_info->status_code |= status;
@@ -594,7 +588,7 @@ int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num
 	enum ipa_client_type client = ipa3_get_client_by_pipe(pipe_num);
 
 	if(!entry) {
-		IPAERR("NULL entryl\n");
+		IPADBG("NULL entryl\n");
 		return -EINVAL;
 	}
 
@@ -764,7 +758,7 @@ int is_wlan_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl, enum ipa_ip
 	mutex_unlock(&rc_ctx->rc_lock);
 
 	if(!has_sta_rule && is_nat_present()) {
-		IPAERR_RL("has_sta_rule: %d\n", has_sta_rule);
+		IPADBG("has_sta_rule: %d\n", has_sta_rule);
 		res |= STA_RULE_INCORRECT;
 	}
 
@@ -851,10 +845,9 @@ void ipa_rc_nat_init(struct ipa_rc_health_monitor *ipa_state_info)
 	bool any_table_active = (nm_ptr->ddr_in_use || nm_ptr->sram_in_use);
 
 	if (!ndev->is_dev_init || !ndev->is_hw_init || !any_table_active) {
-            if(ipa3_ctx->is_rc_log_enabled)
-            {
-		IPAERR_RL("NAT hasn't been initialized\n");
-            }
+		if(ipa3_ctx->is_rc_log_enabled)
+			IPADBG("NAT hasn't been initialized\n");
+
 		cur_status = IPA_NAT_NOT_INITIALIZED;
 	}
 
@@ -947,7 +940,7 @@ static void ipa_rc_work_handler(struct work_struct *work)
 
 	res = ipa_rc_query_detect_for_instance();
 	if(res != 0) {
-		IPAERR_RL("instance ipa status code: %u\n", res);
+		IPADBG("instance ipa status code: %u\n", res);
 	}
 
 	/* Reschedule work to run again with default 200ms configurable timer */
@@ -1056,7 +1049,7 @@ ssize_t status_show(struct device *dev, struct device_attribute *attr, char *ubu
 	uint32_t res = 0;
 
 	res = ipa_rc_monitor_health();
-	IPAERR("ipa cur status code = %u\n", res);
+	IPADBG("ipa cur status code = %u\n", res);
 
 	return scnprintf(ubuf, PAGE_SIZE, "%u\n", res);
 }
