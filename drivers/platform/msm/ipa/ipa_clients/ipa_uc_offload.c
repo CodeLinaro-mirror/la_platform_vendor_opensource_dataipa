@@ -558,18 +558,12 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 		ipa_ep_idx_ul = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
 		ipa_ep_idx_dl = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
 	}
-	ret = ipa3_tear_down_uc_offload_pipes(ipa_ep_idx_ul, ipa_ep_idx_dl,
-		&ntn_ctx->conn);
-	if (ret) {
-		IPA_UC_OFFLOAD_ERR("fail to tear down ntn offload pipes, %d\n",
-			ret);
-		return -EFAULT;
-	}
 
 	/*
-	 * DEL HOLB monitor after teardown. gsi_ep_cfg is used (not ep context)
-	 * because teardown zeroes the ep context. HOLB drop stays active during
-	 * teardown to drain any stuck packets, preventing teardown failure.
+	 * DEL HOLB monitor before teardown so the uC stops monitoring the DL
+	 * channel first. Otherwise the uC could flip the HOLB EN bit while
+	 * processing the DEL command after teardown re-enables HOLB drop for
+	 * packet draining, leaving HOLB drop disabled.
 	 */
 	if (ipa3_ctx->uc_ctx.ipa_use_uc_holb_monitor) {
 		enum ipa_client_type eth_client =
@@ -587,6 +581,15 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 					gsi_ep_cfg->ipa_gsi_chan_num, gsi_ep_cfg->ee);
 		}
 	}
+
+	ret = ipa3_tear_down_uc_offload_pipes(ipa_ep_idx_ul, ipa_ep_idx_dl,
+		&ntn_ctx->conn);
+	if (ret) {
+		IPA_UC_OFFLOAD_ERR("fail to tear down ntn offload pipes, %d\n",
+			ret);
+		return -EFAULT;
+	}
+
 	if (ntn_ctx->conn.dl.smmu_enabled) {
 		ipa_uc_ntn_free_conn_smmu_info(&ntn_ctx->conn.dl);
 		ipa_uc_ntn_free_conn_smmu_info(&ntn_ctx->conn.ul);
