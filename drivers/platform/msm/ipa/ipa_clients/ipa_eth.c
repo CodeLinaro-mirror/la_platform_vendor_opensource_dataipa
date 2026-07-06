@@ -51,7 +51,7 @@
 			__func__, __LINE__, ## args); \
 	} while (0)
 
-#define IPA_ETH_PIPES_NO 19
+#define IPA_ETH_PIPES_NO 28
 #define DMA_NUM_CHANNEL_EZMESH 4
 #define DMA_NUM_CHANNEL_DEFAULT 2
 #define DMA_NUM_CHANNEL_TSN 3
@@ -235,6 +235,33 @@ static u8 client_to_pipe_index(enum ipa_client_type client_type)
 		break;
 	case IPA_CLIENT_ETHERNET3_PROD:
 		return 18;
+		break;
+	case IPA_CLIENT_ETHERNET2_QOS_CONS:
+		return 19;
+		break;
+	case IPA_CLIENT_ETHERNET2_QOS2_CONS:
+		return 20;
+		break;
+	case IPA_CLIENT_ETHERNET2_QOS_PROD:
+		return 21;
+		break;
+	case IPA_CLIENT_ETHERNET_QOS_CONS:
+		return 22;
+		break;
+	case IPA_CLIENT_ETHERNET_QOS2_CONS:
+		return 23;
+		break;
+	case IPA_CLIENT_ETHERNET_QOS_PROD:
+		return 24;
+		break;
+	case IPA_CLIENT_ETHERNET3_QOS_CONS:
+		return 25;
+		break;
+	case IPA_CLIENT_ETHERNET3_QOS2_CONS:
+		return 26;
+		break;
+	case IPA_CLIENT_ETHERNET3_QOS_PROD:
+		return 27;
 		break;
 	default:
 		IPAERR("invalid eth client_type\n");
@@ -668,7 +695,111 @@ static enum ipa_client_type
 							return ipa_client_type;
 					}
 				}
-			} else {
+			} else if (client->inst_id == 0 &&
+				   ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					switch (tx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET_CONS;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET_QOS_CONS;
+							break;
+						case 2:
+							ipa_client_type = IPA_CLIENT_ETHERNET_QOS2_CONS;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								tx_pipe_idx);
+							return ipa_client_type;
+					}
+				} else {
+					switch (rx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET_QOS_PROD;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								rx_pipe_idx);
+							return ipa_client_type;
+					}
+				}
+			} else if (client->inst_id == 1 &&
+				   ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					switch (tx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_CONS;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_QOS_CONS;
+							break;
+						case 2:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_QOS2_CONS;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								tx_pipe_idx);
+							return ipa_client_type;
+					}
+				} else {
+					switch (rx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_PROD;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_QOS_PROD;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								rx_pipe_idx);
+							return ipa_client_type;
+					}
+				}
+			} else if (client->inst_id == 2 &&
+				   ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					switch (tx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_CONS;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_QOS_CONS;
+							break;
+						case 2:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_QOS2_CONS;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								tx_pipe_idx);
+							return ipa_client_type;
+					}
+				} else {
+					switch (rx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_PROD;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_QOS_PROD;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								rx_pipe_idx);
+							return ipa_client_type;
+					}
+				}
+			} else if (client->inst_id == 0 &&
+				   ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+				/*
+				 * Legacy (pre-v7.0) single-instance QoS mapping.
+				 * Preserved unchanged from before EMAC-instance
+				 * support so v6.0-class targets keep working:
+				 * TX idx0 -> ETHERNET_CONS, idx1 -> LOW_LAT_CONS;
+				 * RX idx0 -> ETHERNET_PROD, idx1 -> ETHERNET_PROD1.
+				 */
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 					switch (tx_pipe_idx) {
 						case 0:
@@ -696,6 +827,10 @@ static enum ipa_client_type
 							return ipa_client_type;
 					}
 				}
+			} else {
+				IPA_ETH_ERR("QoS not supported for inst_id %d (hw_type %d)\n",
+					client->inst_id, ipa3_ctx->ipa_hw_type);
+				return ipa_client_type;
 			}
 		}
 		break;
@@ -1149,6 +1284,11 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 	{
 		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
 		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_AUTO;
+	}
+	else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+	{
+		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7;
+		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_CPE_V7;
 	}
 	else
 	{
@@ -2212,20 +2352,72 @@ int ipa_eth_get_config_type(
 			    client_type, inst_id);
 	}
 #if IPA_ETH_API_VER >= 4
-	else if (ipa3_ctx->eth_qos && inst_id == 0) {
+	/*
+	 * QoS config selection:
+	 *  - IPA v7.0+: supported on EMAC instances 0, 1 and 2 (ETHERNET /
+	 *    ETHERNET2 / ETHERNET3), BE+QoS layout.
+	 *  - pre-v7.0: legacy single-instance (inst_id 0) QoS only, original
+	 *    all-QoS CPE layout — preserved so v6.0-class targets keep working.
+	 * The inner branches pick the per-era channel layout.
+	 */
+	else if (ipa3_ctx->eth_qos &&
+		 ((ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+		   inst_id < IPA_ETH_INST_ID_MAX) ||
+		  (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0 && inst_id == 0))) {
 		int i = 0;
 		snprintf(eth_config->config, sizeof(eth_config->config), "qos");
 
-		if (ipa3_ctx->ipa_config_is_auto)
+		if (ipa3_ctx->ipa_config_is_auto) {
 			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO;
-		else
+
+			for (i = 0; i < eth_config->num_dma_channel; i++) {
+				eth_config->dma_config[i].dir = (i % 2) ?
+					IPA_ETH_PIPE_DIR_RX : IPA_ETH_PIPE_DIR_TX;
+				eth_config->dma_config[i].traffic_type =
+					IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+			}
+		} else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+			/*
+			 * IPA v7.0+ CPE QoS layout is best-effort + QoS per
+			 * iface: TX = 1 BE + 2 QoS, RX = 1 BE + 1 QoS
+			 * (5 channels). BE pipes are emitted first so they land
+			 * at tx/rx pipe index 0; the QoS pipes follow.
+			 */
+			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE_V7;
+
+			eth_config->dma_config[0].dir = IPA_ETH_PIPE_DIR_TX;
+			eth_config->dma_config[0].traffic_type =
+				IPA_ETH_PIPE_BEST_EFFORT;
+
+			eth_config->dma_config[1].dir = IPA_ETH_PIPE_DIR_RX;
+			eth_config->dma_config[1].traffic_type =
+				IPA_ETH_PIPE_BEST_EFFORT;
+
+			eth_config->dma_config[2].dir = IPA_ETH_PIPE_DIR_TX;
+			eth_config->dma_config[2].traffic_type =
+				IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+
+			eth_config->dma_config[3].dir = IPA_ETH_PIPE_DIR_RX;
+			eth_config->dma_config[3].traffic_type =
+				IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+
+			eth_config->dma_config[4].dir = IPA_ETH_PIPE_DIR_TX;
+			eth_config->dma_config[4].traffic_type =
+				IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+		} else {
+			/*
+			 * Legacy (pre-v7.0) CPE QoS layout: the original
+			 * all-QoS channel set. Kept so 6.0-class targets are
+			 * unaffected by the v7.0 BE+QoS layout above.
+			 */
 			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE;
 
-		for (i = 0; i < eth_config->num_dma_channel; i++) {
-			eth_config->dma_config[i].dir = (i % 2) ? IPA_ETH_PIPE_DIR_RX :
-				IPA_ETH_PIPE_DIR_TX;
-			eth_config->dma_config[i].traffic_type =
-				IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+			for (i = 0; i < eth_config->num_dma_channel; i++) {
+				eth_config->dma_config[i].dir = (i % 2) ?
+					IPA_ETH_PIPE_DIR_RX : IPA_ETH_PIPE_DIR_TX;
+				eth_config->dma_config[i].traffic_type =
+					IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+			}
 		}
 
 		IPA_ETH_DBG("QOS configuration for client %d, inst_id %d\n",

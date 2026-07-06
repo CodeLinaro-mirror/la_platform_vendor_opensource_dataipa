@@ -59,15 +59,24 @@
 	(client) == IPA_CLIENT_ETHERNET_PROD3 || \
 	(client) == IPA_CLIENT_ETHERNET_CONS3 || \
 	(client) == IPA_CLIENT_ETHERNET_PROD4 || \
-	(client) == IPA_CLIENT_ETHERNET_CONS4)
+	(client) == IPA_CLIENT_ETHERNET_CONS4 || \
+	(client) == IPA_CLIENT_ETHERNET_QOS_PROD || \
+	(client) == IPA_CLIENT_ETHERNET_QOS_CONS || \
+	(client) == IPA_CLIENT_ETHERNET_QOS2_CONS)
 
 #define IPA_CLIENT_IS_SMMU_ETH1_INSTANCE(client) \
 	((client) == IPA_CLIENT_ETHERNET2_PROD || \
-	(client) == IPA_CLIENT_ETHERNET2_CONS)
+	(client) == IPA_CLIENT_ETHERNET2_CONS || \
+	(client) == IPA_CLIENT_ETHERNET2_QOS_PROD || \
+	(client) == IPA_CLIENT_ETHERNET2_QOS_CONS || \
+	(client) == IPA_CLIENT_ETHERNET2_QOS2_CONS)
 
 #define IPA_CLIENT_IS_SMMU_ETH2_INSTANCE(client) \
 	((client) == IPA_CLIENT_ETHERNET3_PROD || \
-	(client) == IPA_CLIENT_ETHERNET3_CONS)
+	(client) == IPA_CLIENT_ETHERNET3_CONS || \
+	(client) == IPA_CLIENT_ETHERNET3_QOS_PROD || \
+	(client) == IPA_CLIENT_ETHERNET3_QOS_CONS || \
+	(client) == IPA_CLIENT_ETHERNET3_QOS2_CONS)
 
 enum ipa_eth_dir {
 	IPA_ETH_RX = 0,
@@ -127,13 +136,23 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 	}
 	/**
 	 * Assuming each IEMAC client does maximum of 1 mapping with
-	 * constant size per direction.
+	 * constant size per direction. The per-instance IOVA window stride
+	 * and TX-pipe count must match how many channels are actually
+	 * connected: AUTO uses the QOS_AUTO counts; IPA v7.0+ CPE uses the
+	 * BE+QoS QOS_CPE_V7 counts (5/instance, 3 TX); pre-v7.0 CPE uses the
+	 * legacy QOS_CPE counts.
 	 */
 	if (ipa3_ctx->ipa_config_is_auto)
 	{
 		eth_next_addr = cb->va_end + eth_offset +
 			PAGE_SIZE * ((instance_id * IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO) +
 			(IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO * dir + pipe_idx));
+	}
+	else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+	{
+		eth_next_addr = cb->va_end + eth_offset +
+			PAGE_SIZE * ((instance_id * IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE_V7) +
+			(IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7 * dir + pipe_idx));
 	}
 	else
 	{
@@ -191,50 +210,72 @@ static int ipa_iemac_smmu_cb_reset_mapping(enum ipa_smmu_cb_type cb_type, int in
 
 static void ipa3_eth_save_client_mapping(
 	struct ipa_eth_client_pipe_info *pipe,
-	enum ipa_client_type type, int id,
+	enum ipa_client_type type,
 	int pipe_id, int ch_id)
 {
 	struct ipa_eth_client *client_info;
 	enum ipa_eth_client_type client_type;
 	u8 inst_id, pipe_hdl;
 	struct ipa3_eth_info *eth_info;
+	int i;
 
 	client_info = pipe->client_info;
 	client_type = client_info->client_type;
 	inst_id = client_info->inst_id;
 	pipe_hdl = pipe->pipe_hdl;
 	eth_info = &ipa3_ctx->eth_info[client_type][inst_id];
-	if (!eth_info->map[id].valid) {
-		eth_info->num_ch++;
-		eth_info->map[id].type = type;
-		eth_info->map[id].pipe_id = pipe_id;
-		eth_info->map[id].ch_id = ch_id;
-		eth_info->map[id].valid = true;
-		eth_info->map[id].pipe_hdl = pipe_hdl;
+
+	/*
+	 * Find the first free map slot. A single EMAC instance can connect
+	 * multiple TX + RX channels (best-effort + QoS), so the map cannot be
+	 * indexed by direction alone (that only allows one TX + one RX and
+	 * silently drops the QoS channels from the debugfs "status" node).
+	 * Slots are packed densely so the reader's "k < num_ch" loop visits
+	 * every valid entry.
+	 */
+	for (i = 0; i < IPA_MAX_CH_STATS_SUPPORTED; i++) {
+		if (!eth_info->map[i].valid) {
+			eth_info->num_ch++;
+			eth_info->map[i].type = type;
+			eth_info->map[i].pipe_id = pipe_id;
+			eth_info->map[i].ch_id = ch_id;
+			eth_info->map[i].valid = true;
+			eth_info->map[i].pipe_hdl = pipe_hdl;
+			return;
+		}
 	}
+	IPAERR("no free eth_info map slot for client_type %d inst %d\n",
+		type, inst_id);
 }
 
 static void ipa3_eth_release_client_mapping(
-	struct ipa_eth_client_pipe_info *pipe,
-	int id)
+	struct ipa_eth_client_pipe_info *pipe)
 {
 	struct ipa_eth_client *client_info;
 	enum ipa_eth_client_type client_type;
 	u8 inst_id, pipe_hdl;
 	struct ipa3_eth_info *eth_info;
+	int i;
 
 	client_info = pipe->client_info;
 	client_type = client_info->client_type;
 	inst_id = client_info->inst_id;
 	pipe_hdl = pipe->pipe_hdl;
 	eth_info = &ipa3_ctx->eth_info[client_type][inst_id];
-	if (eth_info->map[id].valid) {
-		eth_info->num_ch--;
-		eth_info->map[id].type = 0;
-		eth_info->map[id].pipe_id = 0;
-		eth_info->map[id].ch_id = 0;
-		eth_info->map[id].valid = false;
-		eth_info->map[id].pipe_hdl = 0;
+
+	/* Match the slot by pipe_hdl (unique per connected pipe) rather than
+	 * by a direction-derived index, mirroring the free-slot save above. */
+	for (i = 0; i < IPA_MAX_CH_STATS_SUPPORTED; i++) {
+		if (eth_info->map[i].valid &&
+		    eth_info->map[i].pipe_hdl == pipe_hdl) {
+			eth_info->num_ch--;
+			eth_info->map[i].type = 0;
+			eth_info->map[i].pipe_id = 0;
+			eth_info->map[i].ch_id = 0;
+			eth_info->map[i].valid = false;
+			eth_info->map[i].pipe_hdl = 0;
+			return;
+		}
 	}
 }
 
@@ -1707,7 +1748,7 @@ int ipa3_eth_connect(
 	}
 
 	ipa3_eth_save_client_mapping(pipe, client_type,
-		id, ep_idx, ep->gsi_chan_hdl);
+		ep_idx, ep->gsi_chan_hdl);
 	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || 
 	     ((prot == IPA_HW_PROTOCOL_IEMAC) && ((ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
@@ -1868,7 +1909,7 @@ int ipa3_eth_disconnect(
 	result = ipa3_smmu_map_eth_pipes(pipe, client_type, false);
 	if (result)
 		IPAERR("failed to unmap SMMU %d\n", result);
-	ipa3_eth_release_client_mapping(pipe, id);
+	ipa3_eth_release_client_mapping(pipe);
 
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) &&
 		(prot == IPA_HW_PROTOCOL_AQC)) {
@@ -2062,7 +2103,7 @@ int ipa3_eth_enable(
 	}
 
 	ipa3_eth_save_client_mapping(pipe, client_type,
-		id, ep_idx, ep->gsi_chan_hdl);
+		ep_idx, ep->gsi_chan_hdl);
 	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
 		((prot == IPA_HW_PROTOCOL_IEMAC) && ((ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
@@ -2158,7 +2199,8 @@ int ipa3_eth_disable(
 
 	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
-	     ((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2))) {
+	     ((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
+	      (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0))) {
 		result = ipa3_eth_config_uc(false, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, 0, 0, 0);

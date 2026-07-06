@@ -4204,8 +4204,8 @@ static ssize_t eth_status_show(struct device *dev, struct device_attribute *attr
 	for (i = 0; i < IPA_ETH_CLIENT_MAX; i++) {
 		for (j = 0; j < IPA_ETH_INST_ID_MAX; j++) {
 			eth_info = ipa3_ctx->eth_info[i][j];
-			for (k = 0; k < eth_info.num_ch; k++) {
-				if (eth_info.map[j].valid) {
+			for (k = 0; k < IPA_MAX_CH_STATS_SUPPORTED; k++) {
+				if (eth_info.map[k].valid) {
 					type = eth_info.map[k].type;
 					nbytes = scnprintf(dbg_buff + cnt,
 						IPA_MAX_MSG_LEN - cnt,
