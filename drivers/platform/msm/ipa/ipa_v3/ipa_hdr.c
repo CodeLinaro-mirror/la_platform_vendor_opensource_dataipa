@@ -20,6 +20,7 @@ static const char *hdr_tbl_to_str[HDR_TBLS_TOTAL] = {
 	__stringify(HDR_TBL_LCL),
 	__stringify(HDR_TBL_LCL_EXT),
 	__stringify(HDR_TBL_SYS),
+	__stringify(HDR_TBL_PROC),
 };
 
 /**
@@ -944,6 +945,11 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 			offset->ipacm_installed = user;
 			break;
 		}
+	}
+
+	if (hdr_table >= HDR_TBLS_TOTAL) {
+		IPAERR("No space in any header table for %s\n", entry->name);
+		goto bad_hdr_len;
 	}
 
 	list_add(&entry->link, &htbl->head_hdr_entry_list);
