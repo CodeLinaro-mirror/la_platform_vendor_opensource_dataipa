@@ -34,6 +34,14 @@
 #define IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE 2
 #define IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE 4
 
+/* IPA v7.0+ CPE QoS layout = best-effort + additional QoS pipes per iface:
+ * RX: 1 BE + 1 QoS = 2; TX: 1 BE + 2 QoS = 3; total 5. Kept separate from
+ * the legacy *_QOS_CPE counts above so pre-7.0 targets (e.g. 6.0) and the
+ * arrays / SMMU offset math sized by those macros are unaffected. */
+#define IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_CPE_V7 2
+#define IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7 3
+#define IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE_V7 5
+
 #define IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_AUTO 4
 #define IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO 5
 #define IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO 9
@@ -206,6 +214,9 @@ do {\
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD2)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD3)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD4)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_QOS_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_QOS_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET3_QOS_PROD)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD)))
 

@@ -5214,7 +5214,7 @@ static ssize_t ipa3_eth_read_status(struct file *file,
 	for (i = 0; i < IPA_ETH_CLIENT_MAX; i++) {
 		for (j = 0; j < IPA_ETH_INST_ID_MAX; j++) {
 			eth_info = ipa3_ctx->eth_info[i][j];
-			for (k = 0; k < eth_info.num_ch; k++) {
+			for (k = 0; k < IPA_MAX_CH_STATS_SUPPORTED; k++) {
 				if (eth_info.map[k].valid) {
 					type = eth_info.map[k].type;
 					nbytes = scnprintf(dbg_buff + cnt,
@@ -5818,8 +5818,9 @@ void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client)
 		goto fail;
 	}
 
-	if (ipa3_ctx->eth_qos && type == IPA_ETH_CLIENT_IEMAC
-		&& inst_id == 0) {
+	if (ipa3_ctx->eth_qos && type == IPA_ETH_CLIENT_IEMAC &&
+	    ((ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+	      inst_id < IPA_ETH_INST_ID_MAX) || inst_id == 0)) {
 		snprintf(name, IPA_RESOURCE_NAME_MAX,
 			"%s_%d_qos_stats", ipa_eth_clients_strings[type], inst_id);
 		file = debugfs_create_file(name, IPA_READ_ONLY_MODE,
