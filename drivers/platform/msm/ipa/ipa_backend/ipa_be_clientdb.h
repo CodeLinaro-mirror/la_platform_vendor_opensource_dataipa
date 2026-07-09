@@ -16,6 +16,16 @@
 
 #define IPA_IP_ADDR_DOT_FMT "%u.%u.%u.%u"
 #define IPA_IP_ADDR_TO_DOT(ipaddrt) ((uint8_t *)ipaddrt)[3], ((uint8_t *)ipaddrt)[2], ((uint8_t *)ipaddrt)[1], ((uint8_t *)ipaddrt)[0]
+/*
+ * Heuristic for ipa_ip_to_str(): IPv4 addresses are stored in (ip)[0] only,
+ * with (ip)[1..3] zero; an IPv6 address typically has at least one nonzero
+ * word in [1..3]. NOTE: this is *not* a reliable IPv6 detector — an IPv6
+ * address whose only nonzero word is (ip)[0] (e.g. 2001:0:0:0::0) will be
+ * misclassified. Callers that know the IP version should pass it explicitly
+ * rather than relying on this macro.
+ */
+#define IPA_IP_ADDR_HAS_NONZERO_LOWER(ip) ((ip)[1] || (ip)[2] || (ip)[3])
+#define IPA_IP_STR_BUFLEN 46
 
 
 #define V4_DEFAULT_ROUTE_TABLE_NAME  "ipa_dflt_rt"
@@ -33,6 +43,9 @@
 
 #define IPA_ETH_HDR_NAME_v4  "IPACM_ETH_v4"
 #define IPA_ETH_HDR_NAME_v6  "IPACM_ETH_v6"
+#define IPA_WAN_PARTIAL_HDR_NAME_v4  "IEEE802_3_STA_v4"
+#define IPA_WAN_PARTIAL_HDR_NAME_v6  "IEEE802_3_STA_v6"
+
 
 /*
  * Mapping owner events
@@ -120,7 +133,7 @@ int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan
 struct ipa_clientdb_mapping_instance *ipa_be_client_mapping_add_or_ref(
 	ip_addr_t addr, int vlan_id, int lan2lan, mac_addr_t mac);
 
-int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan);
+int ipa_be_mapping_deref_and_delete(ip_addr_t addr, bool lan2lan, int *out_rt_hdl);
 int ipa_be_mapping_deref_and_get_handles(ip_addr_t addr, bool lan2lan,
 					  int *rt_hdl_out, int *hdr_hdl_out,
 					  char *proc_ctx_name_out);
@@ -137,12 +150,23 @@ int ipa_delete_route_rule(bool lan2lan, int rt_rule_hdl, enum ipa_ip_type ip);
 int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret);
 int ipa_ipv6_delete_route_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, bool lan2lan, int rt_rule_hdl, enum ipa_ip_type ip);
 
+int ipa_ipv4_eth_backhaul_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg,
+	bool lan2lan, int intf_num, mac_addr_t mac, bool is_ret, bool is_catch_all);
+
+int ipa_ipv6_eth_backhaul_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg,
+	bool lan2lan, int intf_num, mac_addr_t mac, bool is_ret, bool is_catch_all);
+
 int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, int hdl, int proc,
 							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name);
 int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int *proc_ctx_hdl, char *proc_ctx_name_out);
 
 int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_msg, int hdl, int proc,
 							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name);
+
+int ipa_be_wan_catchall_acquire(int pdn_iface, enum ipa_ip_type ip);
+void ipa_be_wan_catchall_install_done(int pdn_iface, enum ipa_ip_type ip, uint32_t rt_hdl);
+void ipa_be_wan_catchall_install_failed(int pdn_iface, enum ipa_ip_type ip);
+int ipa_be_wan_catchall_release(int pdn_iface, enum ipa_ip_type ip);
 
 int ipa_be_delete_proc_ctx(char *name);
 int ipa_be_delete_hdr_by_handle(int hdr_hdl);

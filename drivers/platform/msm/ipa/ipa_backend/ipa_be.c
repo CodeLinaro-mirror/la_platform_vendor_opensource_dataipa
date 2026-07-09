@@ -107,6 +107,108 @@ static struct ipa_ctx_instance_internal __ipa_be_ctx;
 #define IPA_CTX_TO_PUBLIC(intrv) (struct ipa_ctx_instance *)(intrv)
 
 
+/* ========================================================================== */
+/* ETH BACKHAUL SUPPORT FUNCTIONS                                                          */
+/* ========================================================================== */
+
+#define IPA_BE_BACKHAUL_CACHE_SIZE 16
+
+/*
+ * Cache mapping a WAN interface index to its detected backhaul type.
+ * ETH entries are invalidated when the last flow on that interface tears down.
+ * MODEM entries are not invalidated per-flow (no per-iface refcount, no
+ * iface-down hook); stale classification on index reuse is accepted as rare.
+ */
+struct ipa_be_backhaul_cache_entry {
+	int wan_iface;
+	enum ipa_backhaul_type type;
+};
+
+static struct ipa_be_backhaul_cache_entry ipa_be_backhaul_cache[IPA_BE_BACKHAUL_CACHE_SIZE];
+static int ipa_be_backhaul_cache_count;
+static DEFINE_MUTEX(ipa_be_backhaul_cache_lock);
+
+/**
+ * ipa_be_detect_backhaul_type() - Detect backhaul type based on WAN interface
+ * @wan_iface: WAN interface number (pdn_iface)
+ *
+ * Detection logic:
+ *   - Modem interfaces have ext_props (for QMI communication)
+ *   - Ethernet backhaul interfaces don't have ext_props
+ *
+ * Returns backhaul type (MODEM or ETH)
+ */
+int ipa_be_detect_backhaul_type(int wan_iface, enum ipa_backhaul_type *out_type)
+{
+	struct ipa_ioc_query_intf wan_intf;
+	enum ipa_backhaul_type type;
+	int i;
+
+	mutex_lock(&ipa_be_backhaul_cache_lock);
+	for (i = 0; i < ipa_be_backhaul_cache_count; i++) {
+		if (ipa_be_backhaul_cache[i].wan_iface == wan_iface) {
+			*out_type = ipa_be_backhaul_cache[i].type;
+			mutex_unlock(&ipa_be_backhaul_cache_lock);
+			return 0;
+		}
+	}
+
+	if (!ipa3_query_iface(wan_iface, &wan_intf)) {
+		mutex_unlock(&ipa_be_backhaul_cache_lock);
+		IPA_BE_ERR("WAN interface %d does not exist\n", wan_iface);
+		return -ENODEV;
+	}
+
+	if (wan_intf.num_ext_props > 0) {
+		IPA_BE_DBG("WAN interface %d (%s) is modem (ext_props=%d)\n",
+			wan_iface, wan_intf.name, wan_intf.num_ext_props);
+		type = IPA_BACKHAUL_TYPE_MODEM;
+	} else {
+		IPA_BE_DBG("WAN interface %d (%s) is eth backhaul (no ext_props)\n",
+			wan_iface, wan_intf.name);
+		type = IPA_BACKHAUL_TYPE_ETH;
+	}
+
+	if (ipa_be_backhaul_cache_count < IPA_BE_BACKHAUL_CACHE_SIZE) {
+		ipa_be_backhaul_cache[ipa_be_backhaul_cache_count].wan_iface = wan_iface;
+		ipa_be_backhaul_cache[ipa_be_backhaul_cache_count].type = type;
+		ipa_be_backhaul_cache_count++;
+	} else {
+		WARN_ONCE(1, "ipa_be_backhaul_cache full (size=%d); skipping insert for iface %d\n",
+			IPA_BE_BACKHAUL_CACHE_SIZE, wan_iface);
+	}
+	mutex_unlock(&ipa_be_backhaul_cache_lock);
+	*out_type = type;
+	return 0;
+}
+
+void ipa_be_backhaul_cache_invalidate(int wan_iface)
+{
+	int i;
+
+	mutex_lock(&ipa_be_backhaul_cache_lock);
+	for (i = 0; i < ipa_be_backhaul_cache_count; i++) {
+		if (ipa_be_backhaul_cache[i].wan_iface == wan_iface) {
+			ipa_be_backhaul_cache[i] = ipa_be_backhaul_cache[ipa_be_backhaul_cache_count - 1];
+			ipa_be_backhaul_cache_count--;
+			break;
+		}
+	}
+	mutex_unlock(&ipa_be_backhaul_cache_lock);
+}
+
+static bool ipa_be_is_uplink_lan2wan_eth_bh(int return_iface, int return_top_iface,
+					   bool lan2lan)
+{
+	enum ipa_backhaul_type t;
+
+	return !lan2lan &&
+	       return_iface == return_top_iface &&
+	       ipa_be_detect_backhaul_type(return_iface, &t) == 0 &&
+	       t == IPA_BACKHAUL_TYPE_ETH;
+}
+
+
 const char* ipa_be_message_type_to_string(enum ipa_message_types type) {
 	switch (type) {
 		case IPA_TX_CREATE_RULE_MSG: return "IPA_TX_CREATE_RULE_MSG";
@@ -811,10 +913,56 @@ ipa_tx_status_t ipa_be_ipv6_send_request(struct ipa_ctx_instance *ipa_ctx, struc
 }
 EXPORT_SYMBOL(ipa_be_ipv6_send_request);
 
+/* Step constants for create-rule rollback paths */
+enum ipa_l2l_step {
+	L2L_STEP_RET_MAPPING  = 1,
+	L2L_STEP_RET_ROUTE    = 2,
+	L2L_STEP_RET_FILTER   = 3,
+	L2L_STEP_FLOW_MAPPING = 4,
+	L2L_STEP_FLOW_ROUTE   = 5,
+	L2L_STEP_FLOW_FILTER  = 6,
+};
+
+enum ipa_eth_step {
+	ETH_STEP_LAN_MAPPING_ROUTE   = 1,
+	ETH_STEP_WAN_UP_DOWNLINK     = 2,
+	ETH_STEP_WAN_MAPPING         = 3,
+	ETH_STEP_BACKHAUL_RULE_TRUE  = 4,
+	ETH_STEP_BACKHAUL_RULE_FALSE = 5,
+	ETH_STEP_WAN_UP_UPLINK       = 6,
+	ETH_STEP_NAT_ENTRY           = 7,
+};
+
+enum ipa_v4_modem_step {
+	V4_MDM_STEP_CLIENT_MAPPING = 1,
+	V4_MDM_STEP_ROUTE_RULE     = 2,
+	V4_MDM_STEP_UPLINK_FILTER  = 3,
+	V4_MDM_STEP_MTU_RULE       = 4,
+	V4_MDM_STEP_PRIVATE_SUBNET = 5,
+	V4_MDM_STEP_DFT_FILTER     = 6,
+	V4_MDM_STEP_ICMP_ALG       = 7,
+	V4_MDM_STEP_CATCHUP_ALL    = 8,
+	V4_MDM_STEP_WAN_FILTER     = 9,
+	V4_MDM_STEP_NAT_ENTRY      = 10,
+};
+
+enum ipa_v6_modem_step {
+	V6_MDM_STEP_CLIENT_MAPPING  = 1,
+	V6_MDM_STEP_ROUTE_RULE      = 2,
+	V6_MDM_STEP_UPLINK_FILTER   = 3,
+	V6_MDM_STEP_MTU_RULE        = 4,
+	V6_MDM_STEP_PREFIX_FLT_RULE = 5,
+	V6_MDM_STEP_DFT_FILTER      = 6,
+	V6_MDM_STEP_ICMP_ALG        = 7,
+	V6_MDM_STEP_CATCHUP_ALL     = 8,
+	V6_MDM_STEP_WAN_FILTER      = 9,
+	V6_MDM_STEP_CT_ENTRY        = 10,
+};
+
 /**
  * ipa_ipv4_create_rule - Creates IPv4 routing and filtering
  * rules for IPA
- * @v4_msg: IPv6 rule creation message containing connection
+ * @v4_msg: IPv4 rule creation message containing connection
  *  	 details and interface information
  *
  * Return: IPA_CMN_RESPONSE_ACK on success, error code on failure
@@ -830,9 +978,18 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 	ip_addr_t lan_client_ip = {0};
 	ip_addr_t ret_ip_key = {0};
 	ip_addr_t flow_ip_key = {0};
-	uint32_t wan_ip = 0;
+	ip_addr_t wan_ip = {0};
 	uint32_t flow_interface_num = 0;
 	mac_addr_t mac, wan_mac;
+	enum ipa_backhaul_type backhaul_type = IPA_BACKHAUL_TYPE_UNKNOWN;
+	struct ipa_clientdb_mapping_instance *mapping = NULL;
+	bool lan_route_added = false;
+	bool wan_route_added = false;
+	bool wan_catchall_acquired = false;
+	bool ret_route_added = false;
+	bool ret_filter_added = false;
+	bool flow_route_added = false;
+	bool flow_filter_added = false;
 
 	ipa_be_log_ipv4_rule_details(v4_msg);
 
@@ -854,17 +1011,23 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 		enum ipa_hw_type ipa_ver = ipa_get_hw_type();
 
 		ret_ip_key[0] = v4_msg.tuple.return_ip;
-		if (ipa_be_client_mapping_add_or_ref(ret_ip_key, 0, lan2lan, v4_msg.conn_rule.return_mac) != NULL)
+		mapping = ipa_be_client_mapping_add_or_ref(ret_ip_key, 0, lan2lan, v4_msg.conn_rule.return_mac);
+		if (IS_ERR(mapping)) {
+			ret = IPA_CMN_RESPONSE_EMSG;
+			goto failed_ret;
+		}
+		step = L2L_STEP_RET_MAPPING;
+		if (mapping != NULL)
 		{
 			is_ret =  true;
-			step = 1;
 			/* Add route entry */
 			ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.return_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add route rule for return IP\n");
 				goto failed_ret;
 			}
-			step = 2;
+			step = L2L_STEP_RET_ROUTE;
+			ret_route_added = true;
 
 			/* Add destination based filter rule */
 			ret = ipa_be_v4_add_filter_rule(v4_msg, lan2lan, v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.return_mac, is_ret);
@@ -872,21 +1035,28 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 				IPA_BE_ERR("Failed to add filter rule for return IP\n");
 				goto failed_ret;
 			}
-			step = 3;
+			step = L2L_STEP_RET_FILTER;
+			ret_filter_added = true;
 		}
 
 		flow_ip_key[0] = v4_msg.tuple.flow_ip;
-		if (ipa_be_client_mapping_add_or_ref(flow_ip_key, 0, lan2lan, v4_msg.conn_rule.flow_mac) != NULL)
+		mapping = ipa_be_client_mapping_add_or_ref(flow_ip_key, 0, lan2lan, v4_msg.conn_rule.flow_mac);
+		if (IS_ERR(mapping)) {
+			ret = IPA_CMN_RESPONSE_EMSG;
+			goto failed_ret;
+		}
+		step = L2L_STEP_FLOW_MAPPING;
+		if (mapping != NULL)
 		{
 			is_ret =  false;
-			step = 4;
 			/* Add route entry */
 			ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.flow_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add route rule for flow IP\n");
 				goto failed_ret;
 			}
-			step = 5;
+			step = L2L_STEP_FLOW_ROUTE;
+			flow_route_added = true;
 
 			/* Add destination based filter rule */
 			ret = ipa_be_v4_add_filter_rule(v4_msg, lan2lan, v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.flow_mac, is_ret);
@@ -894,7 +1064,8 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 				IPA_BE_ERR("Failed to add filter rule for flow IP\n");
 				goto failed_ret;
 			}
-			step = 6;
+			step = L2L_STEP_FLOW_FILTER;
+			flow_filter_added = true;
 		}
 
 		#ifdef CONFIG_ECM_CONVERGENCE
@@ -923,7 +1094,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			vlan_tag           = v4_msg.vlan_primary_rule.ingress_vlan_tag;
 			mtu_size           = v4_msg.conn_rule.flow_mtu;
 			lan_client_ip[0]   = v4_msg.tuple.flow_ip;
-			wan_ip             = v4_msg.conn_rule.return_ip_xlate;
+			wan_ip[0]          = v4_msg.conn_rule.return_ip_xlate;
 			flow_interface_num = v4_msg.conn_rule.flow_interface_num;
 			memcpy(mac, v4_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
 			memcpy(wan_mac, v4_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
@@ -934,28 +1105,120 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			vlan_tag           = v4_msg.vlan_primary_rule.egress_vlan_tag;
 			mtu_size           = v4_msg.conn_rule.return_mtu;
 			lan_client_ip[0]   = v4_msg.conn_rule.return_ip_xlate;
-			wan_ip             = v4_msg.tuple.flow_ip;
+			wan_ip[0]          = v4_msg.tuple.flow_ip;
 			flow_interface_num = v4_msg.conn_rule.return_interface_num;
 			memcpy(mac, v4_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
 			memcpy(wan_mac, v4_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
 			is_ret = true;
 		} else {
-			IPA_BE_ERR("Unexpected param %d\n", ret);
+			IPA_BE_ERR("Unexpected param: return_if=%d return_top_if=%d flow_if=%d flow_top_if=%d\n",
+				v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.return_top_interface_num,
+				v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.flow_top_interface_num);
 			goto failed_ret;
 		}
 
 		IPA_BE_DBG("v4: assigning qmapmux intf_idx for pdn_iface=%d\n", pdn_iface);
 		ipa3_assign_qmapmux_intf_idx(pdn_iface);
 
+		/* Detect backhaul type */
+		ret = ipa_be_detect_backhaul_type(pdn_iface, &backhaul_type);
+		if (ret < 0) {
+			IPA_BE_ERR("Failed to detect backhaul for iface %d (%d)\n", pdn_iface, ret);
+			ret = IPA_CMN_RESPONSE_EMSG;
+			goto failed_ret;
+		}
+		IPA_BE_DBG("Backhaul type: %s\n",
+			backhaul_type == IPA_BACKHAUL_TYPE_MODEM ? "MODEM" : "ETH");
+
+		/* Install uplink filter rules */
+		if (backhaul_type == IPA_BACKHAUL_TYPE_ETH) {
+			/* Add route entry for the lan client */
+			mapping = ipa_be_client_mapping_add_or_ref(lan_client_ip, 0, lan2lan, mac);
+			if (IS_ERR(mapping)) {
+				ret = IPA_CMN_RESPONSE_EMSG;
+				goto failed_ret;
+			}
+			step = ETH_STEP_LAN_MAPPING_ROUTE;
+			if (mapping != NULL) {
+				ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, client_iface, mac, is_ret);
+				if (ret != 0) {
+					IPA_BE_ERR("Failed to add route rule, rolling back client mapping\n");
+					ret = IPA_CMN_RESPONSE_EMSG;
+					goto failed_ret;
+				}
+				lan_route_added = true;
+			}
+
+			/* install downlink filter rules on the backhaul pipe */
+			ret = ipa_be_handle_wan_up(pdn_iface, client_iface, IPA_IP_v4, true,
+				&v4_msg.vlan_primary_rule.egress_vlan_tag);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to handle wan up (downlink) for IPv4\n");
+				goto failed_ret;
+			}
+			step = ETH_STEP_WAN_UP_DOWNLINK;
+
+			/* Add route entry for the wan client */
+			mapping = ipa_be_client_mapping_add_or_ref(wan_ip, 0, lan2lan, wan_mac);
+			if (IS_ERR(mapping)) {
+				ret = IPA_CMN_RESPONSE_EMSG;
+				goto failed_ret;
+			}
+			step = ETH_STEP_WAN_MAPPING;
+			if (mapping != NULL)
+			{
+				ret = ipa_ipv4_eth_backhaul_add_route_rule(v4_msg, lan2lan, pdn_iface, wan_mac, is_ret, true);
+				if (ret != 0) {
+					IPA_BE_ERR("Failed to add IPv4 eth backhaul route rule (is_catch_all=true)\n");
+					goto failed_ret;
+				}
+				step = ETH_STEP_BACKHAUL_RULE_TRUE;
+				wan_catchall_acquired = true;
+
+				ret = ipa_ipv4_eth_backhaul_add_route_rule(v4_msg, lan2lan, pdn_iface, wan_mac, is_ret, false);
+				if (ret != 0) {
+					IPA_BE_ERR("Failed to add IPv4 eth backhaul route rule (is_catch_all=false)\n");
+					goto failed_ret;
+				}
+				step = ETH_STEP_BACKHAUL_RULE_FALSE;
+				wan_route_added = true;
+			}
+
+			/* For eth backhaul, set up default WAN filtering rules */
+			ret = ipa_be_handle_wan_up(client_iface, pdn_iface, IPA_IP_v4, false, wan_ip);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to handle wan up (uplink) for IPv4\n");
+				goto failed_ret;
+			}
+			step = ETH_STEP_WAN_UP_UPLINK;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+			ret = ipa_be_addpdn(v4_msg, pdn_iface, false);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to add PDN entry (eth backhaul)\n");
+				goto failed_ret;
+			}
+			step = ETH_STEP_NAT_ENTRY;
+#else
+			IPA_BE_DBG("NAT support disabled - skipping ipa_be_addpdn (eth backhaul)\n");
+#endif
+		}
+		else {
 		/* Add route entry for the client */
-		if (ipa_be_client_mapping_add_or_ref(lan_client_ip, 0, lan2lan, mac) != NULL) {
-			step = 1;
+		mapping = ipa_be_client_mapping_add_or_ref(lan_client_ip, 0, lan2lan, mac);
+		if (IS_ERR(mapping)) {
+			ret = IPA_CMN_RESPONSE_EMSG;
+			goto failed_ret;
+		}
+		step = V4_MDM_STEP_CLIENT_MAPPING;
+		if (mapping != NULL) {
 			ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, flow_interface_num, mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add route rule\n");
 				goto failed_ret;
 			}
-			step = 2;
+			step = V4_MDM_STEP_ROUTE_RULE;
+			lan_route_added = true;
 		}
 
 		/* Install uplink filter rules */
@@ -964,14 +1227,14 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			IPA_BE_ERR("Failed to add uplink filter rule\n");
 			goto failed_ret;
 		}
-		step = 3;
+		step = V4_MDM_STEP_UPLINK_FILTER;
 
 		ret = ipa_be_construct_mtu_rule(IPA_IP_v4, mtu_size, client_iface, pdn_iface, vlan_tag);
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to construct mtu rule\n");
 			goto failed_ret;
 		}
-		step = 4;
+		step = V4_MDM_STEP_MTU_RULE;
 
 		/* Install downlink rules */
 		ret = add_dft_filtering_rule(pdn_iface, IPA_IP_v4);
@@ -979,28 +1242,28 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			IPA_BE_ERR("Failed to add dft filtering rule\n");
 			goto failed_ret;
 		}
-		step = 6;
+		step = V4_MDM_STEP_DFT_FILTER;
 
 		ret = add_icmp_alg_rules(pdn_iface, IPA_IP_v4);
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to add ICMP/ALG filtering rule\n");
 			goto failed_ret;
 		}
-		step = 7;
+		step = V4_MDM_STEP_ICMP_ALG;
 
 		ret = add_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to add catchup all filtering rule\n");
 			goto failed_ret;
 		}
-		step = 8;
+		step = V4_MDM_STEP_CATCHUP_ALL;
 
 		ret = install_wan_filtering_rule();
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to install wan filtering rule\n");
 			goto failed_ret;
 		}
-		step = 9;
+		step = V4_MDM_STEP_WAN_FILTER;
 
 #ifdef CONFIG_ECM_CONVERGENCE
 		/* Add NAT entry */
@@ -1009,11 +1272,11 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			IPA_BE_ERR("Failed to add PDN entry\n");
 			goto failed_ret;
 		}
-		step = 10;
+		step = V4_MDM_STEP_NAT_ENTRY;
 #else
 		IPA_BE_DBG("NAT support disabled - skipping ipa_be_addpdn\n");
-		return IPA_TX_FAILURE_NOT_ENABLED;
 #endif
+		}
 	}
 	struct ipa_fse_rule fse_info;
 	if (ret == IPA_CMN_RESPONSE_ACK) {
@@ -1043,49 +1306,84 @@ failed_ret:
 	ret = IPA_CMN_RESPONSE_EMSG;
 	if (lan2lan) {
 		switch (step) {
-			case 6:
-				ipa_be_v4_delete_filter_rule(*((struct ipa_ipv4_rule_destroy_msg *)&v4_msg), v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.flow_mac, lan2lan);
+			case L2L_STEP_FLOW_FILTER:
+				if (flow_filter_added)
+					ipa_be_v4_delete_filter_rule(*((struct ipa_ipv4_rule_destroy_msg *)&v4_msg), v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.flow_mac, lan2lan);
 				/* fallthrough */
-			case 5:
-				ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v4_msg.tuple.flow_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
+			case L2L_STEP_FLOW_ROUTE:
+				if (flow_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v4_msg.tuple.flow_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
 				/* fallthrough */
-			case 4:
-				ipa_be_mapping_deref_and_delete((uint32_t *)&v4_msg.tuple.flow_ip, lan2lan);
+			case L2L_STEP_FLOW_MAPPING:
+				ipa_be_mapping_deref_and_delete((uint32_t *)&v4_msg.tuple.flow_ip, lan2lan, NULL);
 				/* fallthrough */
-			case 3:
-				ipa_be_v4_delete_filter_rule(*((struct ipa_ipv4_rule_destroy_msg *)&v4_msg), v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.return_mac, lan2lan);
+			case L2L_STEP_RET_FILTER:
+				if (ret_filter_added)
+					ipa_be_v4_delete_filter_rule(*((struct ipa_ipv4_rule_destroy_msg *)&v4_msg), v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.return_mac, lan2lan);
 				/* fallthrough */
-			case 2:
-				ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v4_msg.tuple.return_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
+			case L2L_STEP_RET_ROUTE:
+				if (ret_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v4_msg.tuple.return_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
 				/* fallthrough */
-			case 1:
-				ipa_be_mapping_deref_and_delete((uint32_t *)&v4_msg.tuple.return_ip, lan2lan);
+			case L2L_STEP_RET_MAPPING:
+				ipa_be_mapping_deref_and_delete((uint32_t *)&v4_msg.tuple.return_ip, lan2lan, NULL);
+		}
+	} else if (backhaul_type == IPA_BACKHAUL_TYPE_ETH) {
+		switch (step) {
+			case ETH_STEP_NAT_ENTRY:
+				/* no rollback available for NAT entry */
+				/* fallthrough */
+			case ETH_STEP_WAN_UP_UPLINK:
+				ipa_be_handle_wan_down(client_iface, pdn_iface, IPA_IP_v4);
+				/* fallthrough */
+			case ETH_STEP_BACKHAUL_RULE_FALSE:
+				if (wan_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(wan_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
+				/* fallthrough */
+			case ETH_STEP_BACKHAUL_RULE_TRUE:
+				if (wan_catchall_acquired)
+					ipa_be_wan_catchall_release(pdn_iface, IPA_IP_v4);
+				/* fallthrough */
+			case ETH_STEP_WAN_MAPPING:
+				ipa_be_mapping_deref_and_delete(wan_ip, lan2lan, NULL);
+				/* fallthrough */
+			case ETH_STEP_WAN_UP_DOWNLINK:
+				ipa_be_handle_wan_down(pdn_iface, client_iface, IPA_IP_v4);
+				/* fallthrough */
+			case ETH_STEP_LAN_MAPPING_ROUTE:
+				if (lan_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(lan_client_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
+				ipa_be_mapping_deref_and_delete(lan_client_ip, lan2lan, NULL);
 		}
 	} else {
 		switch (step) {
-			case 9:
+			case V4_MDM_STEP_NAT_ENTRY:
+				/* no rollback available for NAT entry */
+				/* fallthrough */
+			case V4_MDM_STEP_WAN_FILTER:
 				/* Need a way to rollback wan_filtering_rule if possible */
 				/* fallthrough */
-			case 8:
+			case V4_MDM_STEP_CATCHUP_ALL:
 				delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
 				/* fallthrough */
-			case 7:
+			case V4_MDM_STEP_ICMP_ALG:
 				delete_icmp_alg_rules(pdn_iface, IPA_IP_v4);
 				/* fallthrough */
-			case 6:
+			case V4_MDM_STEP_DFT_FILTER:
 				delete_dft_filtering_rule(pdn_iface, IPA_IP_v4);
 				/* fallthrough */
-			case 4:
+			case V4_MDM_STEP_MTU_RULE:
 				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4);
 				/* fallthrough */
-			case 3:
+			case V4_MDM_STEP_UPLINK_FILTER:
 				ipa_be_v4_delete_uplink_filter_rule(*((struct ipa_ipv4_rule_destroy_msg *)&v4_msg), pdn_iface, client_iface);
 				/* fallthrough */
-			case 2:
-				ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(lan_client_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
+			case V4_MDM_STEP_ROUTE_RULE:
+				if (lan_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(lan_client_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
 				/* fallthrough */
-			case 1:
-				ipa_be_mapping_deref_and_delete(lan_client_ip, lan2lan);
+			case V4_MDM_STEP_CLIENT_MAPPING:
+				ipa_be_mapping_deref_and_delete(lan_client_ip, lan2lan, NULL);
 		}
 	}
 	IPA_BE_DBG("Command  return %d \n", ret);
@@ -1111,6 +1409,16 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 	ip_addr_t ret_ip6_key = {0};
 	ip_addr_t flow_ip6_key = {0};
 	mac_addr_t mac, wan_mac;
+	uint32_t *wan_ip_ptr = NULL;
+	enum ipa_backhaul_type backhaul_type = IPA_BACKHAUL_TYPE_UNKNOWN;
+	struct ipa_clientdb_mapping_instance *mapping = NULL;
+	bool lan_route_added = false;
+	bool wan_route_added = false;
+	bool wan_catchall_acquired = false;
+	bool ret_route_added = false;
+	bool ret_filter_added = false;
+	bool flow_route_added = false;
+	bool flow_filter_added = false;
 
 	ipa_be_log_ipv6_rule_details(v6_msg);
 
@@ -1129,17 +1437,23 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 	if (lan2lan)
 	{
 		memcpy(ret_ip6_key, &v6_msg.tuple.return_ip, sizeof(ret_ip6_key));
-		if (ipa_be_client_mapping_add_or_ref(ret_ip6_key, 0, lan2lan, v6_msg.conn_rule.return_mac) != NULL)
+		mapping = ipa_be_client_mapping_add_or_ref(ret_ip6_key, 0, lan2lan, v6_msg.conn_rule.return_mac);
+		if (IS_ERR(mapping)) {
+			ret = IPA_CMN_RESPONSE_EMSG;
+			goto failed_ret;
+		}
+		step = L2L_STEP_RET_MAPPING;
+		if (mapping != NULL)
 		{
 			is_ret =  true;
-			step = 1;
 			/* Add route entry */
 			ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.return_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add route rule for return IP\n");
 				goto failed_ret;
 			}
-			step = 2;
+			step = L2L_STEP_RET_ROUTE;
+			ret_route_added = true;
 
 			/* Add destination based filter rule */
 			ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.return_mac, is_ret);
@@ -1147,21 +1461,28 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 				IPA_BE_ERR("Failed to add filter rule for return IP\n");
 				goto failed_ret;
 			}
-			step = 3;
+			step = L2L_STEP_RET_FILTER;
+			ret_filter_added = true;
 		}
 
 		memcpy(flow_ip6_key, &v6_msg.tuple.flow_ip, sizeof(flow_ip6_key));
-		if (ipa_be_client_mapping_add_or_ref(flow_ip6_key, 0, lan2lan, v6_msg.conn_rule.flow_mac) != NULL)
+		mapping = ipa_be_client_mapping_add_or_ref(flow_ip6_key, 0, lan2lan, v6_msg.conn_rule.flow_mac);
+		if (IS_ERR(mapping)) {
+			ret = IPA_CMN_RESPONSE_EMSG;
+			goto failed_ret;
+		}
+		step = L2L_STEP_FLOW_MAPPING;
+		if (mapping != NULL)
 		{
 			is_ret =  false;
-			step = 4;
 			/* Add route entry */
 			ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.flow_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add route rule for flow IP\n");
 				goto failed_ret;
 			}
-			step = 5;
+			step = L2L_STEP_FLOW_ROUTE;
+			flow_route_added = true;
 
 			/* Add destination based filter rule */
 			ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.flow_mac, is_ret);
@@ -1170,7 +1491,8 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 				goto failed_ret;
 			}
 
-			step = 6;
+			step = L2L_STEP_FLOW_FILTER;
+			flow_filter_added = true;
 		}
 #ifdef CONFIG_ECM_CONVERGENCE
 		pdn_iface = v6_msg.conn_rule.flow_interface_num;
@@ -1192,6 +1514,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			vlan_tag           = v6_msg.vlan_primary_rule.ingress_vlan_tag;
 			mtu_size           = v6_msg.conn_rule.flow_mtu;
 			flow_ip_ptr        = (uint32_t *)&v6_msg.tuple.flow_ip;
+			wan_ip_ptr         = (uint32_t *)&v6_msg.tuple.return_ip;
 			flow_interface_num = v6_msg.conn_rule.flow_interface_num;
 			memcpy(mac, v6_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
 			memcpy(wan_mac, v6_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
@@ -1202,84 +1525,166 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			vlan_tag           = v6_msg.vlan_primary_rule.egress_vlan_tag;
 			mtu_size           = v6_msg.conn_rule.return_mtu;
 			flow_ip_ptr        = (uint32_t *)&v6_msg.tuple.return_ip;
+			wan_ip_ptr         = (uint32_t *)&v6_msg.tuple.flow_ip;
 			flow_interface_num = v6_msg.conn_rule.return_interface_num;
 			memcpy(mac, v6_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
 			memcpy(wan_mac, v6_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
 			is_ret = true;
 		} else {
-			IPA_BE_ERR("Unexpected param %d\n", ret);
+			IPA_BE_ERR("Unexpected param: return_if=%d return_top_if=%d flow_if=%d flow_top_if=%d\n",
+				v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.return_top_interface_num,
+				v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.flow_top_interface_num);
 			goto failed_ret;
 		}
 
 		IPA_BE_DBG("v6: assigning qmapmux intf_idx for pdn_iface=%d\n", pdn_iface);
 		ipa3_assign_qmapmux_intf_idx(pdn_iface);
 
-		/* Add route entry for the client */
-		if (ipa_be_client_mapping_add_or_ref(flow_ip_ptr, 0, lan2lan, mac) != NULL) {
-			step = 1;
-			ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, flow_interface_num, mac, is_ret);
-			if (ret != 0) {
-				IPA_BE_ERR("Failed to add IPv6 route rule\n");
-				goto failed_ret;
-			}
-			step = 2;
+		/* Detect backhaul type */
+		ret = ipa_be_detect_backhaul_type(pdn_iface, &backhaul_type);
+		if (ret < 0) {
+			IPA_BE_ERR("Failed to detect backhaul for iface %d (%d)\n", pdn_iface, ret);
+			ret = IPA_CMN_RESPONSE_EMSG;
+			goto failed_ret;
 		}
+		IPA_BE_DBG("Backhaul type: %s\n",
+			backhaul_type == IPA_BACKHAUL_TYPE_MODEM ? "MODEM" : "ETH");
 
 		/* Install uplink filter rules */
-		ret = ipa_be_v6_add_uplink_filter_rule(v6_msg, lan2lan, pdn_iface, client_iface, 0);
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to add IPv6 uplink filter rule\n");
-			goto failed_ret;
-		}
-		step = 3;
+		if (backhaul_type == IPA_BACKHAUL_TYPE_ETH) {
+			/* Add route entry for the lan client */
+			mapping = ipa_be_client_mapping_add_or_ref(flow_ip_ptr, 0, lan2lan, mac);
+			if (IS_ERR(mapping)) {
+				ret = IPA_CMN_RESPONSE_EMSG;
+				goto failed_ret;
+			}
+			step = ETH_STEP_LAN_MAPPING_ROUTE;
+			if (mapping != NULL) {
+				ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, client_iface, mac, is_ret);
+				if (ret != 0) {
+					IPA_BE_ERR("Failed to add route rule, rolling back client mapping\n");
+					ret = IPA_CMN_RESPONSE_EMSG;
+					goto failed_ret;
+				}
+				lan_route_added = true;
+			}
 
-		ret = ipa_be_construct_mtu_rule(IPA_IP_v6, mtu_size, client_iface, pdn_iface, vlan_tag);
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to construct IPv6 mtu rule\n");
-			goto failed_ret;
-		}
-		step = 4;
+			/* install downlink filter rules on the backhaul pipe */
+			ret = ipa_be_handle_wan_up(pdn_iface, client_iface, IPA_IP_v6, true,
+				&v6_msg.vlan_primary_rule.egress_vlan_tag);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to handle wan up (downlink) for IPv6\n");
+				goto failed_ret;
+			}
+			step = ETH_STEP_WAN_UP_DOWNLINK;
 
-		/* Install downlink rules */
-		ret = add_dft_filtering_rule(pdn_iface, IPA_IP_v6);
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to add IPv6 dft filtering rule\n");
-			goto failed_ret;
-		}
-		step = 6;
+			/* Add route entry for the wan client */
+			mapping = ipa_be_client_mapping_add_or_ref(wan_ip_ptr, 0, lan2lan, wan_mac);
+			if (IS_ERR(mapping)) {
+				ret = IPA_CMN_RESPONSE_EMSG;
+				goto failed_ret;
+			}
+			step = ETH_STEP_WAN_MAPPING;
+			if (mapping != NULL) {
+				ret = ipa_ipv6_eth_backhaul_add_route_rule(v6_msg, lan2lan, pdn_iface, wan_mac, is_ret, true);
+				if (ret != 0) {
+					IPA_BE_ERR("Failed to add IPv6 eth backhaul route rule (is_catch_all=true)\n");
+					goto failed_ret;
+				}
+				step = ETH_STEP_BACKHAUL_RULE_TRUE;
+				wan_catchall_acquired = true;
 
-		ret = add_icmp_alg_rules(pdn_iface, IPA_IP_v6);
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to add IPv6 ICMP/ALG filtering rule\n");
-			goto failed_ret;
-		}
-		step = 7;
+				ret = ipa_ipv6_eth_backhaul_add_route_rule(v6_msg, lan2lan, pdn_iface, wan_mac, is_ret, false);
+				if (ret != 0) {
+					IPA_BE_ERR("Failed to add IPv6 eth backhaul route rule (is_catch_all=false)\n");
+					goto failed_ret;
+				}
+				step = ETH_STEP_BACKHAUL_RULE_FALSE;
+				wan_route_added = true;
+			}
 
-		ret = add_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to add IPv6 catchup all filtering rule\n");
-			goto failed_ret;
-		}
-		step = 8;
+			/* For eth backhaul, set up default WAN filtering rules */
+			ret = ipa_be_handle_wan_up(client_iface, pdn_iface, IPA_IP_v6, false, wan_ip_ptr);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to handle wan up (uplink) for IPv6\n");
+				goto failed_ret;
+			}
+			step = ETH_STEP_WAN_UP_UPLINK;
+		} else {
+			/* Add route entry for the client */
+			mapping = ipa_be_client_mapping_add_or_ref(flow_ip_ptr, 0, lan2lan, mac);
+			if (IS_ERR(mapping)) {
+				ret = IPA_CMN_RESPONSE_EMSG;
+				goto failed_ret;
+			}
+			step = V6_MDM_STEP_CLIENT_MAPPING;
+			if (mapping != NULL) {
+				ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, flow_interface_num, mac, is_ret);
+				if (ret != 0) {
+					IPA_BE_ERR("Failed to add IPv6 route rule\n");
+					goto failed_ret;
+				}
+				step = V6_MDM_STEP_ROUTE_RULE;
+				lan_route_added = true;
+			}
 
-		ret = install_wan_filtering_rule();
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to install wan filtering rule\n");
-			goto failed_ret;
-		}
-		step = 9;
+			/* Install uplink filter rules */
+			ret = ipa_be_v6_add_uplink_filter_rule(v6_msg, lan2lan, pdn_iface, client_iface, 0);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to add IPv6 uplink filter rule\n");
+				goto failed_ret;
+			}
+			step = V6_MDM_STEP_UPLINK_FILTER;
+
+			ret = ipa_be_construct_mtu_rule(IPA_IP_v6, mtu_size, client_iface, pdn_iface, vlan_tag);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to construct IPv6 mtu rule\n");
+				goto failed_ret;
+			}
+			step = V6_MDM_STEP_MTU_RULE;
+
+			/* Install downlink rules */
+			ret = add_dft_filtering_rule(pdn_iface, IPA_IP_v6);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to add IPv6 dft filtering rule\n");
+				goto failed_ret;
+			}
+			step = V6_MDM_STEP_DFT_FILTER;
+
+			ret = add_icmp_alg_rules(pdn_iface, IPA_IP_v6);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to add IPv6 ICMP/ALG filtering rule\n");
+				goto failed_ret;
+			}
+			step = V6_MDM_STEP_ICMP_ALG;
+
+			ret = add_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to add IPv6 catchup all filtering rule\n");
+				goto failed_ret;
+			}
+			step = V6_MDM_STEP_CATCHUP_ALL;
+
+			ret = install_wan_filtering_rule();
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to install wan filtering rule\n");
+				goto failed_ret;
+			}
+			step = V6_MDM_STEP_WAN_FILTER;
 
 #ifdef CONFIG_ECM_CONVERGENCE
-		/* Add CT entry */
-		ret = ipa_be_add_v6_ct_entry(v6_msg, pdn_iface, lan2lan);
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to add IPv6 CT entry\n");
-			goto failed_ret;
-		}
-		step = 10;
+			/* Add CT entry */
+			ret = ipa_be_add_v6_ct_entry(v6_msg, pdn_iface, lan2lan);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to add IPv6 CT entry\n");
+				goto failed_ret;
+			}
+			step = V6_MDM_STEP_CT_ENTRY;
+
 #else
-		IPA_BE_DBG("NAT support disabled - skipping ipa_be_add_v6_ct_entry\n");
+			IPA_BE_DBG("NAT support disabled - skipping ipa_be_add_v6_ct_entry\n");
 #endif
+		}
 	}
 
 	struct ipa_fse_rule fse_info;
@@ -1311,48 +1716,81 @@ failed_ret:
 	ret = IPA_CMN_RESPONSE_EMSG;
 	if (lan2lan) {
 		switch (step) {
-			case 6:
-				ipa_be_v6_delete_filter_rule(*((struct ipa_ipv6_rule_destroy_msg *)&v6_msg), v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.flow_mac, lan2lan);
-			case 5:
-				ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v6_msg.tuple.flow_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v6);
+			case L2L_STEP_FLOW_FILTER:
+				if (flow_filter_added)
+					ipa_be_v6_delete_filter_rule(*((struct ipa_ipv6_rule_destroy_msg *)&v6_msg), v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.flow_mac, lan2lan);
 				/* fallthrough */
-			case 4:
-				ipa_be_mapping_deref_and_delete((uint32_t *)&v6_msg.tuple.flow_ip, lan2lan);
+			case L2L_STEP_FLOW_ROUTE:
+				if (flow_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v6_msg.tuple.flow_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v6);
 				/* fallthrough */
-			case 3:
-				ipa_be_v6_delete_filter_rule(*((struct ipa_ipv6_rule_destroy_msg *)&v6_msg), v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.return_mac, lan2lan);
+			case L2L_STEP_FLOW_MAPPING:
+				ipa_be_mapping_deref_and_delete((uint32_t *)&v6_msg.tuple.flow_ip, lan2lan, NULL);
 				/* fallthrough */
-			case 2:
-				ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v6_msg.tuple.return_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v6);
+			case L2L_STEP_RET_FILTER:
+				if (ret_filter_added)
+					ipa_be_v6_delete_filter_rule(*((struct ipa_ipv6_rule_destroy_msg *)&v6_msg), v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.return_mac, lan2lan);
 				/* fallthrough */
-			case 1:
-				ipa_be_mapping_deref_and_delete((uint32_t *)&v6_msg.tuple.return_ip, lan2lan);
+			case L2L_STEP_RET_ROUTE:
+				if (ret_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v6_msg.tuple.return_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v6);
+				/* fallthrough */
+			case L2L_STEP_RET_MAPPING:
+				ipa_be_mapping_deref_and_delete((uint32_t *)&v6_msg.tuple.return_ip, lan2lan, NULL);
+		}
+	} else if (backhaul_type == IPA_BACKHAUL_TYPE_ETH) {
+		switch (step) {
+			case ETH_STEP_WAN_UP_UPLINK:
+				ipa_be_handle_wan_down(client_iface, pdn_iface, IPA_IP_v6);
+				/* fallthrough */
+			case ETH_STEP_BACKHAUL_RULE_FALSE:
+				if (wan_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(wan_ip_ptr, lan2lan, NULL, NULL, NULL), IPA_IP_v6);
+				/* fallthrough */
+			case ETH_STEP_BACKHAUL_RULE_TRUE:
+				if (wan_catchall_acquired)
+					ipa_be_wan_catchall_release(pdn_iface, IPA_IP_v6);
+				/* fallthrough */
+			case ETH_STEP_WAN_MAPPING:
+				ipa_be_mapping_deref_and_delete(wan_ip_ptr, lan2lan, NULL);
+				/* fallthrough */
+			case ETH_STEP_WAN_UP_DOWNLINK:
+				ipa_be_handle_wan_down(pdn_iface, client_iface, IPA_IP_v6);
+				/* fallthrough */
+			case ETH_STEP_LAN_MAPPING_ROUTE:
+				if (lan_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(flow_ip_ptr, lan2lan, NULL, NULL, NULL), IPA_IP_v6);
+				ipa_be_mapping_deref_and_delete(flow_ip_ptr, lan2lan, NULL);
 		}
 	} else {
 		switch (step) {
-			case 9:
+			case V6_MDM_STEP_CT_ENTRY:
+				/* no rollback available for CT entry */
+				/* fallthrough */
+			case V6_MDM_STEP_WAN_FILTER:
 				/* Need a way to rollback wan_filtering_rule if possible */
 				/* fallthrough */
-			case 8:
+			case V6_MDM_STEP_CATCHUP_ALL:
 				delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
 				/* fallthrough */
-			case 7:
+			case V6_MDM_STEP_ICMP_ALG:
 				delete_icmp_alg_rules(pdn_iface, IPA_IP_v6);
 				/* fallthrough */
-			case 6:
+			case V6_MDM_STEP_DFT_FILTER:
 				delete_dft_filtering_rule(pdn_iface, IPA_IP_v6);
 				/* fallthrough */
-			case 4:
+			case V6_MDM_STEP_MTU_RULE:
 				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6);
 				/* fallthrough */
-			case 3:
+			case V6_MDM_STEP_UPLINK_FILTER:
 				ipa_be_v6_delete_uplink_filter_rule(*((struct ipa_ipv6_rule_destroy_msg *)&v6_msg), pdn_iface, client_iface);
 				/* fallthrough */
-			case 2:
-				ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(flow_ip_ptr, lan2lan, NULL, NULL, NULL), IPA_IP_v6);
+			case V6_MDM_STEP_ROUTE_RULE:
+				if (lan_route_added)
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(flow_ip_ptr, lan2lan, NULL, NULL, NULL), IPA_IP_v6);
 				/* fallthrough */
-			case 1:
-				ipa_be_mapping_deref_and_delete(flow_ip_ptr, lan2lan);
+			case V6_MDM_STEP_CLIENT_MAPPING:
+				ipa_be_mapping_deref_and_delete(flow_ip_ptr, lan2lan, NULL);
 		}
 	}
 	IPA_BE_DBG("Command  return %d \n", ret);
@@ -1510,16 +1948,21 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 	int pdn_iface = 0;
 	int client_iface = 0;
 	int hdr_hdl = -1;
+	int proc_ctx_hdl = -1;
 	char proc_ctx_name[32] = {0};
 	ip_addr_t lan_client_ip = {0};
 	ip_addr_t ret_addr = {0};
 	ip_addr_t flow_addr = {0};
+	ip_addr_t wan_ip = {0};
+	int wan_rt_hdl = 0;
+	int wan_ref = -1;
+	enum ipa_backhaul_type backhaul_type = IPA_BACKHAUL_TYPE_UNKNOWN;
 	enum ipa_hw_type ipa_ver = ipa_get_hw_type();
-	struct ipa_fse_rule fse_info;
 
 	IPA_BE_DBG("Entry  ipa_ipv4_destroy_rule \n");
 	ipa_be_log_ipv4_destroy_details(msg);
 
+	struct ipa_fse_rule fse_info;
 	/* FSE rule destruction */
 	if (ipa3_is_vpnum_valid(msg->conn_rule.flow_interface_num)) {
 		memset(&fse_info, 0, sizeof(fse_info));
@@ -1545,46 +1988,12 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 	}
 	IPA_BE_DBG("Is connection lan2lan: %d\n", lan2lan);
 
-	/* Zero-pad IPv4 address into ip_addr_t so hash/compare only sees the IPv4 word */
-	ret_addr[0] = msg->tuple.return_ip;
-	ref = ipa_be_mapping_deref_and_get_handles(ret_addr, lan2lan,
-		&rt_hdl, &hdr_hdl, proc_ctx_name);
-	IPA_BE_DBG("Rt hdl %d \n", rt_hdl);
-	if (ref == -1)
-	{
-		IPA_BE_DBG("Entry %pI4n does not exist \n", &msg->tuple.return_ip);
-	}
-	else if (ref > 0)
-	{
-		IPA_BE_DBG("Entry %pI4n has other references ref count decreased %d\n", &msg->tuple.return_ip, ref);
-		/* Don't delete route rules - other connections still using them */
-	}
-	else if (ref == 0)
-	{
-		IPA_BE_DBG("Ref now %d, deleting route rule\n", ref);
-		/* Only delete route rule when ref count reaches 0 */
-		if (rt_hdl)
-		{
-			ipa_delete_route_rule(lan2lan, rt_hdl, IPA_IP_v4);
-
-			/* Clean up header using handle-based reference counting */
-			if (hdr_hdl > 0) {
-				ipa_be_delete_hdr_by_handle(hdr_hdl);
-			}
-
-			/* Clean up proc_ctx using name-based reference counting */
-			if (proc_ctx_name[0] != '\0') {
-				ipa_be_delete_proc_ctx(proc_ctx_name);
-			}
-		}
-
-		/* Filter rule for dst=return_ip is only shared while return_ip mapping exists */
-		if (lan2lan) {
-			if (ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.flow_interface_num, msg->conn_rule.return_mac, lan2lan))
-				IPA_BE_ERR("Failed to delete flow filter rule\n");
-		}
-	}
-
+	/*
+	 * tuple.return_ip mapping only exists in the lan2lan create path.
+	 * For LAN2WAN, running this deref against return_ip_xlate in the
+	 * no-translation case (return_ip_xlate == tuple.return_ip) would
+	 * double-deref the WAN mapping and skip the catch-all release.
+	 */
 	if (lan2lan)
 	{
 		/* Delete CT entry per-connection, not gated on shared flow_ip ref count. */
@@ -1593,42 +2002,59 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 			ipa_be_delete_entry(*msg, true);
 		}
 
-		// Delete reverse flow only for LAN2LAN - check reference count first
-		/* Zero-pad IPv4 address into ip_addr_t so hash/compare only sees the IPv4 word */
-		flow_addr[0] = msg->tuple.flow_ip;
-		ref = ipa_be_mapping_deref_and_get_handles(flow_addr, lan2lan,
-			&rt_hdl, &hdr_hdl, proc_ctx_name);
-		IPA_BE_DBG("Rt hdl %d \n", rt_hdl);
-		if (ref == -1)
-		{
-			IPA_BE_DBG("Entry %pI4n does not exist \n", &msg->tuple.flow_ip);
-			return;
-		}
-		else if (ref > 0)
-		{
-			IPA_BE_DBG("Entry %pI4n has other references ref count decreased %d\n", &msg->tuple.flow_ip, ref);
-			/* Don't delete route rules - other connections still using them */
-			return;
-		}
-		else if (ref == 0)
-		{
+		ret_addr[0] = msg->tuple.return_ip;
+		rt_hdl = ipa_get_rt_hdl_from_mapping(ret_addr,
+			lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
+		IPA_BE_DBG("Rt hdl %d\n", rt_hdl);
+
+		ref = ipa_be_mapping_deref_and_delete(ret_addr, lan2lan, NULL);
+		if (ref == -1) {
+			IPA_BE_DBG("Entry %pI4n does not exist \n", &msg->tuple.return_ip);
+		} else if (ref > 0) {
+			IPA_BE_DBG("Entry %pI4n has other references ref count decreased %d\n", &msg->tuple.return_ip, ref);
+		} else if (ref == 0) {
 			IPA_BE_DBG("Ref now %d, deleting route rule\n", ref);
-			/* Only delete route rule when ref count reaches 0 */
-			if (rt_hdl)
-			{
+			if (rt_hdl) {
 				ipa_delete_route_rule(lan2lan, rt_hdl, IPA_IP_v4);
 
-				/* Clean up header using handle-based reference counting */
 				if (hdr_hdl > 0) {
 					ipa_be_delete_hdr_by_handle(hdr_hdl);
 				}
 
-				/* Clean up proc_ctx using name-based reference counting */
 				if (proc_ctx_name[0] != '\0') {
 					ipa_be_delete_proc_ctx(proc_ctx_name);
 				}
 			}
+		}
 
+		ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.flow_interface_num, msg->conn_rule.return_mac, lan2lan);
+
+		/* Delete reverse flow only for LAN2LAN */
+		flow_addr[0] = msg->tuple.flow_ip;
+		rt_hdl = ipa_get_rt_hdl_from_mapping(flow_addr,
+			lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
+		IPA_BE_DBG("Rt hdl %d \n", rt_hdl);
+
+		ref = ipa_be_mapping_deref_and_delete(flow_addr, lan2lan, NULL);
+		if (ref == -1) {
+			IPA_BE_DBG("Entry %pI4n does not exist \n", &msg->tuple.flow_ip);
+			return;
+		} else if (ref > 0) {
+			IPA_BE_DBG("Entry %pI4n has other references ref count decreased %d\n", &msg->tuple.flow_ip, ref);
+			return;
+		} else if (ref == 0) {
+			IPA_BE_DBG("Ref now %d, deleting route rule\n", ref);
+			if (rt_hdl) {
+				ipa_delete_route_rule(lan2lan, rt_hdl, IPA_IP_v4);
+
+				if (hdr_hdl > 0) {
+					ipa_be_delete_hdr_by_handle(hdr_hdl);
+				}
+
+				if (proc_ctx_name[0] != '\0') {
+					ipa_be_delete_proc_ctx(proc_ctx_name);
+				}
+			}
 			/* Filter rule for dst=flow_ip is only shared while flow_ip mapping exists */
 			if (ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan))
 				IPA_BE_ERR("Failed to delete return filter rule\n");
@@ -1653,8 +2079,10 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		}
 
 		/* Delete route rule for client */
-		ref = ipa_be_mapping_deref_and_get_handles(lan_client_ip, lan2lan,
-			&rt_hdl, &hdr_hdl, proc_ctx_name);
+		rt_hdl = ipa_get_rt_hdl_from_mapping(lan_client_ip,
+			lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
+
+		ref = ipa_be_mapping_deref_and_delete(lan_client_ip, lan2lan, NULL);
 		if (ref == 0 && rt_hdl) {
 			ipa_delete_route_rule(lan2lan, rt_hdl, IPA_IP_v4);
 
@@ -1670,25 +2098,63 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		}
 
 		/* Delete uplink filter rules */
-		ipa_be_v4_delete_uplink_filter_rule(*msg, pdn_iface, client_iface);
-
-		/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
-		if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4) != 0) {
-			IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
+		if (ipa_be_detect_backhaul_type(pdn_iface, &backhaul_type) < 0) {
+			IPA_BE_ERR("Failed to detect backhaul for iface %d during destroy; defaulting to MODEM\n",
+				pdn_iface);
+			backhaul_type = IPA_BACKHAUL_TYPE_MODEM;
 		}
+		if (backhaul_type == IPA_BACKHAUL_TYPE_ETH) {
+			if (msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num)
+				wan_ip[0] = msg->conn_rule.return_ip_xlate;
+			else
+				wan_ip[0] = msg->tuple.flow_ip;
 
-		/* Delete downlink rules */
-		delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
-		delete_icmp_alg_rules(pdn_iface, IPA_IP_v4);
-		delete_dft_filtering_rule(pdn_iface, IPA_IP_v4);
-		install_wan_filtering_rule();
+			/* Uplink keys WAN on return_ip_xlate, downlink on flow_ip. */
+			wan_rt_hdl = -1;
+			wan_ref = ipa_be_mapping_deref_and_delete(wan_ip, lan2lan, &wan_rt_hdl);
+			if (wan_ref == 0) {
+				if (wan_rt_hdl > 0)
+					ipa_delete_route_rule(lan2lan, wan_rt_hdl, IPA_IP_v4);
+				ipa_be_wan_catchall_release(pdn_iface, IPA_IP_v4);
+			}
+
+			if (ipa_be_handle_wan_down(pdn_iface, client_iface, IPA_IP_v4) != 0)
+				IPA_BE_ERR("Failed to delete WAN filter for pdn %d, client %d\n",
+					pdn_iface, client_iface);
+			if (ipa_be_handle_wan_down(client_iface, pdn_iface, IPA_IP_v4) != 0)
+				IPA_BE_ERR("Failed to delete WAN filter for pdn %d, client %d\n",
+					client_iface, pdn_iface);
+
+			/* Invalidate only on last flow; per-flow would thrash the cache. */
+			if (wan_ref == 0)
+				ipa_be_backhaul_cache_invalidate(pdn_iface);
 
 #ifdef CONFIG_ECM_CONVERGENCE
-		ipa_be_delete_entry(*msg, false);
+			ipa_be_delete_entry(*msg, false);
 #else
-		IPA_BE_DBG("NAT support disabled - skipping ipa_be_delete_entry\n");
+			IPA_BE_DBG("NAT support disabled - skipping ipa_be_delete_entry (eth backhaul)\n");
 #endif
-skip_wan_rules:
+		} else {
+			ipa_be_v4_delete_uplink_filter_rule(*msg, pdn_iface, client_iface);
+
+			/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
+			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4) != 0) {
+				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
+			}
+
+			/* Delete downlink rules */
+			delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
+			delete_icmp_alg_rules(pdn_iface, IPA_IP_v4);
+			delete_dft_filtering_rule(pdn_iface, IPA_IP_v4);
+			install_wan_filtering_rule();
+
+#ifdef CONFIG_ECM_CONVERGENCE
+			ipa_be_delete_entry(*msg, false);
+#else
+			IPA_BE_DBG("NAT support disabled - skipping ipa_be_delete_entry\n");
+#endif
+		}
+	skip_wan_rules:
 	}
 
 	IPA_BE_DBG("Deleted entry %d \n", ref);
@@ -1711,9 +2177,13 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	int pdn_iface = 0;
 	int client_iface = 0;
 	int hdr_hdl = -1;
+	int proc_ctx_hdl = -1;
 	char proc_ctx_name[32] = {0};
 	uint32_t *flow_ip_ptr = NULL;
-	struct ipa_fse_rule fse_info;
+	uint32_t *wan_ip_ptr = NULL;
+	int wan_rt_hdl = 0;
+	int wan_ref = -1;
+	enum ipa_backhaul_type backhaul_type = IPA_BACKHAUL_TYPE_UNKNOWN;
 
 	if (!msg) {
 		IPA_BE_ERR("Invalid message pointer\n");
@@ -1722,6 +2192,7 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 
 	IPA_BE_DBG("Entry ipa_ipv6_destroy_rule\n");
 
+	struct ipa_fse_rule fse_info;
 	/* FSE rule destruction */
 	if (ipa3_is_vpnum_valid(msg->conn_rule.flow_interface_num)) {
 		memset(&fse_info, 0, sizeof(fse_info));
@@ -1749,32 +2220,45 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	}
 	IPA_BE_DBG("Is connection lan2lan: %d\n", lan2lan);
 
-	ref = ipa_be_mapping_deref_and_get_handles((uint32_t *)&msg->tuple.return_ip,
-		lan2lan, &rt_hdl, &hdr_hdl, proc_ctx_name);
-	IPA_BE_DBG("Return flow rt_hdl %d\n", rt_hdl);
+	/*
+	 * For downlink LAN2WAN, tuple.return_ip is the LAN client mapping, which
+	 * is deref'd later via flow_ip_ptr — skipping the early block here prevents
+	 * a double-deref (premature route/hdr deletion while another flow is active).
+	 * lan2lan and uplink LAN2WAN legitimately key on return_ip here.
+	 */
+	if (lan2lan ||
+	    msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num) {
+		rt_hdl = ipa_get_rt_hdl_from_mapping((uint32_t *)&msg->tuple.return_ip,
+			lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
+		IPA_BE_DBG("Return flow rt_hdl %d\n", rt_hdl);
 
-	/* Check reference count first for return flow */
-	if (ref == -1) {
-		IPA_BE_DBG("Entry %pI6n does not exist\n", &msg->tuple.return_ip);
-	} else if (ref > 0) {
-		IPA_BE_DBG("Entry %pI6n has other references, ref count decreased to %d\n", &msg->tuple.return_ip, ref);
-		/* Don't delete route rules - other connections still using them */
-	} else if (ref == 0) {
-		IPA_BE_DBG("Ref now %d, deleting route rule\n", ref);
-		/* Only delete route rule when ref count reaches 0 */
-		if (rt_hdl > 0) {
-			if (ipa_ipv6_delete_route_rule(*msg, lan2lan, rt_hdl, IPA_IP_v6) != 0) {
-				IPA_BE_ERR("Failed to delete return flow route rule hdl %d\n", rt_hdl);
+		ref = ipa_be_mapping_deref_and_delete((uint32_t *)&msg->tuple.return_ip, lan2lan, NULL);
+		if (ref == -1) {
+			IPA_BE_DBG("Entry %pI6n does not exist\n", &msg->tuple.return_ip);
+		} else if (ref > 0) {
+			IPA_BE_DBG("Entry %pI6n has other references, ref count decreased to %d\n", &msg->tuple.return_ip, ref);
+		} else if (ref == 0) {
+			IPA_BE_DBG("Ref now %d, deleting route rule\n", ref);
+			if (rt_hdl > 0) {
+				if (ipa_ipv6_delete_route_rule(*msg, lan2lan, rt_hdl, IPA_IP_v6) != 0) {
+					IPA_BE_ERR("Failed to delete return flow route rule hdl %d\n", rt_hdl);
+				}
 			}
-
-			/* Clean up header using handle-based reference counting */
-			if (hdr_hdl > 0) {
-				ipa_be_delete_hdr_by_handle(hdr_hdl);
+			if (ipa_be_is_uplink_lan2wan_eth_bh(msg->conn_rule.return_interface_num,
+							   msg->conn_rule.return_top_interface_num,
+							   lan2lan)) {
+				ipa_be_wan_catchall_release(msg->conn_rule.return_interface_num, IPA_IP_v6);
+				/* Invalidate only on last flow; per-flow would thrash the cache. */
+				ipa_be_backhaul_cache_invalidate(msg->conn_rule.return_interface_num);
 			}
+			if (rt_hdl > 0) {
+				if (hdr_hdl > 0) {
+					ipa_be_delete_hdr_by_handle(hdr_hdl);
+				}
 
-			/* Clean up proc_ctx using name-based reference counting */
-			if (proc_ctx_name[0] != '\0') {
-				ipa_be_delete_proc_ctx(proc_ctx_name);
+				if (proc_ctx_name[0] != '\0') {
+					ipa_be_delete_proc_ctx(proc_ctx_name);
+				}
 			}
 		}
 
@@ -1787,36 +2271,33 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 
 	if (lan2lan) {
 #ifdef CONFIG_ECM_CONVERGENCE
-			/* Delete IPv6 CT entry per-connection, not gated on shared flow_ip ref count. */
-			IPA_BE_DBG("Deleting IPv6 CT entry for LAN2LAN\n");
-			ipa_be_handle_v6_ct_deletion(msg, true);
+		/* Delete IPv6 CT entry per-connection, not gated on shared flow_ip ref count. */
+		IPA_BE_DBG("Deleting IPv6 CT entry for LAN2LAN\n");
+		ipa_be_handle_v6_ct_deletion(msg, true);
 #endif
 
 		/* LAN2LAN: Also delete forward flow - check reference count first */
-		ref = ipa_be_mapping_deref_and_get_handles((uint32_t *)&msg->tuple.flow_ip,
-			lan2lan, &rt_hdl, &hdr_hdl, proc_ctx_name);
+		rt_hdl = ipa_get_rt_hdl_from_mapping((uint32_t *)&msg->tuple.flow_ip, lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
 		IPA_BE_DBG("Forward flow rt_hdl %d\n", rt_hdl);
+
+		ref = ipa_be_mapping_deref_and_delete((uint32_t *)&msg->tuple.flow_ip, lan2lan, NULL);
 		if (ref == -1) {
 			IPA_BE_ERR("Entry %pI6n does not exist\n", &msg->tuple.flow_ip);
 			return;
 		} else if (ref > 0) {
 			IPA_BE_DBG("Entry %pI6n has other references, ref count decreased to %d\n", &msg->tuple.flow_ip, ref);
-			/* Don't delete route rules - other connections still using them */
 			return;
 		} else if (ref == 0) {
 			IPA_BE_DBG("Ref now %d, deleting route rule\n", ref);
-			/* Only delete route rule when ref count reaches 0 */
 			if (rt_hdl) {
 				if (ipa_delete_route_rule(lan2lan, rt_hdl, IPA_IP_v6) != 0) {
 					IPA_BE_ERR("Failed to delete forward flow route rule hdl %d\n", rt_hdl);
 				}
 
-				/* Clean up header using handle-based reference counting */
 				if (hdr_hdl > 0) {
 					ipa_be_delete_hdr_by_handle(hdr_hdl);
 				}
 
-				/* Clean up proc_ctx using name-based reference counting */
 				if (proc_ctx_name[0] != '\0') {
 					ipa_be_delete_proc_ctx(proc_ctx_name);
 				}
@@ -1833,19 +2314,24 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			pdn_iface    = msg->conn_rule.return_interface_num;
 			client_iface = msg->conn_rule.flow_interface_num;
 			flow_ip_ptr  = (uint32_t *)&msg->tuple.flow_ip;
+			/* WAN IP for uplink (return_ip) already cleaned by early block above */
 		} else if (msg->conn_rule.flow_interface_num == msg->conn_rule.flow_top_interface_num) {
 			IPA_BE_DBG("Downlink flow destroy - deleting both downlink and uplink rules\n");
 			pdn_iface    = msg->conn_rule.flow_interface_num;
 			client_iface = msg->conn_rule.return_interface_num;
 			flow_ip_ptr  = (uint32_t *)&msg->tuple.return_ip;
+			/* WAN IP for downlink not covered by early block; track for cleanup below */
+			wan_ip_ptr   = (uint32_t *)&msg->tuple.flow_ip;
 		} else {
 			IPA_BE_ERR("Invalid WAN flow param\n");
 			goto skip_v6_wan_rules;
 		}
 
 		/* Delete route rule for client */
-		ref = ipa_be_mapping_deref_and_get_handles(flow_ip_ptr, lan2lan,
-			&rt_hdl, &hdr_hdl, proc_ctx_name);
+		rt_hdl = ipa_get_rt_hdl_from_mapping(flow_ip_ptr,
+			lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
+
+		ref = ipa_be_mapping_deref_and_delete(flow_ip_ptr, lan2lan, NULL);
 		if (ref == 0 && rt_hdl) {
 			ipa_ipv6_delete_route_rule(*msg, lan2lan, rt_hdl, IPA_IP_v6);
 
@@ -1861,29 +2347,58 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 		}
 
 		/* Delete uplink filter rules */
-		if (ipa_be_v6_delete_uplink_filter_rule(*msg, pdn_iface, client_iface) != 0) {
-			IPA_BE_ERR("Failed to delete uplink filter rule for pdn %d, client %d\n", pdn_iface, client_iface);
+		if (ipa_be_detect_backhaul_type(pdn_iface, &backhaul_type) < 0) {
+			IPA_BE_ERR("Failed to detect backhaul for iface %d during destroy; defaulting to MODEM\n",
+				pdn_iface);
+			backhaul_type = IPA_BACKHAUL_TYPE_MODEM;
 		}
+		if (backhaul_type == IPA_BACKHAUL_TYPE_ETH) {
+			/* For downlink: WAN IP was not handled by the early block, clean it up now */
+			if (wan_ip_ptr) {
+				wan_rt_hdl = -1;
+				wan_ref = ipa_be_mapping_deref_and_delete(wan_ip_ptr, lan2lan, &wan_rt_hdl);
+				if (wan_ref == 0) {
+					if (wan_rt_hdl > 0)
+						ipa_delete_route_rule(lan2lan, wan_rt_hdl, IPA_IP_v6);
+					ipa_be_wan_catchall_release(pdn_iface, IPA_IP_v6);
+				}
+			}
 
-		/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
-		if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6) != 0) {
-			IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
-		}
+			if (ipa_be_handle_wan_down(pdn_iface, client_iface, IPA_IP_v6) != 0)
+				IPA_BE_ERR("Failed to delete WAN filter for pdn %d, client %d\n",
+					pdn_iface, client_iface);
+			if (ipa_be_handle_wan_down(client_iface, pdn_iface, IPA_IP_v6) != 0)
+				IPA_BE_ERR("Failed to delete WAN filter for pdn %d, client %d\n",
+					client_iface, pdn_iface);
 
-		/* Delete downlink rules */
-		delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
-		delete_icmp_alg_rules(pdn_iface, IPA_IP_v6);
-		delete_dft_filtering_rule(pdn_iface, IPA_IP_v6);
-		install_wan_filtering_rule();
+			/* Invalidate only on last flow; per-flow would thrash the cache. */
+			if (wan_ip_ptr && wan_ref == 0)
+				ipa_be_backhaul_cache_invalidate(pdn_iface);
+		} else {
+			if (ipa_be_v6_delete_uplink_filter_rule(*msg, pdn_iface, client_iface) != 0)
+				IPA_BE_ERR("Failed to delete uplink filter rule for pdn %d, client %d\n",
+					pdn_iface, client_iface);
+
+			/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
+			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6) != 0) {
+				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
+			}
+
+			/* Delete downlink rules */
+			delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
+			delete_icmp_alg_rules(pdn_iface, IPA_IP_v6);
+			delete_dft_filtering_rule(pdn_iface, IPA_IP_v6);
+			install_wan_filtering_rule();
 
 #ifdef CONFIG_ECM_CONVERGENCE
-		/* Handle IPv6 CT entry deletion */
-		ipa_be_handle_v6_ct_deletion(msg, false);
+			/* Handle IPv6 CT entry deletion */
+			ipa_be_handle_v6_ct_deletion(msg, false);
 #else
-		IPA_BE_DBG("NAT support disabled - skipping ipa_be_handle_v6_ct_deletion\n");
+			IPA_BE_DBG("NAT support disabled - skipping ipa_be_handle_v6_ct_deletion\n");
 #endif
+		}
 
-skip_v6_wan_rules:
+	skip_v6_wan_rules:
 	}
 
 	IPA_BE_DBG("Successfully deleted IPv6 rule, final ref count: %d\n", ref);
@@ -2001,12 +2516,12 @@ enum ipa_cmn_response ipa_be_ipv4_send_request_with_resp(struct ipa_ctx_instance
 		return ipa_create_ipv4_rule_msg(IPA_CTX_TO_PRIVATE(ipa_ctx), msg);
 	case IPA_TX_DESTROY_RULE_MSG:
 		return ipa_destroy_ipv4_rule_msg(IPA_CTX_TO_PRIVATE(ipa_ctx), msg);
-/*
+	/*
 	case IPA_TX_CREATE_MULTICAST_RULE_MSG:
 		return ipa_create_ipv4_mc_rule_msg(IPA_CTX_TO_PRIVATE(ipa_ctx), msg);
 	case IPA_TX_DESTROY_MULTICAST_RULE_MSG:
 		return ipa_destroy_ipv4_mc_rule_msg(IPA_CTX_TO_PRIVATE(ipa_ctx), msg);
-*/
+	*/
 	default:
 		ipa_incr_exceptions(IPA_EXCEPTION_IPV4_MSG_UNKNOWN);
 		return IPA_CMN_RESPONSE_EMSG;
@@ -2055,7 +2570,7 @@ EXPORT_SYMBOL(ipa_be_ipv6_send_request_with_resp);
  * @return struct ipa_ctx_instance * The IPA context
  */
 struct ipa_ctx_instance *ipa_ipv4_notify_register(ipa_ipv4_msg_callback_t one_rule_cb,
-		ipa_ipv4_msg_callback_t many_rules_cb,void *app_data)
+	ipa_ipv4_msg_callback_t many_rules_cb, void *app_data)
 {
 	struct ipa_ctx_instance_internal *ipa_be_ctx = &__ipa_be_ctx;
 
@@ -2094,7 +2609,7 @@ EXPORT_SYMBOL(ipa_ipv4_notify_register);
  * @return struct ipa_ctx_instance * The IPA context
  */
 struct ipa_ctx_instance *ipa_ipv6_notify_register(ipa_ipv6_msg_callback_t one_rule_cb,
-		ipa_ipv6_msg_callback_t many_rules_cb,void *app_data)
+	ipa_ipv6_msg_callback_t many_rules_cb, void *app_data)
 {
 	struct ipa_ctx_instance_internal *ipa_be_ctx = &__ipa_be_ctx;
 
@@ -2136,7 +2651,7 @@ void ipa_ipv4_notify_unregister(void)
 
 	spin_lock_bh(&ipa_be_ctx->lock);
 
-    // Clear the registered callbacks and app data
+	// Clear the registered callbacks and app data
 	rcu_assign_pointer(ipa_be_ctx->ipv4_stats_sync_cb, NULL);
 	rcu_assign_pointer(ipa_be_ctx->ipv4_stats_sync_many_cb, NULL);
 	ipa_be_ctx->ipv4_stats_sync_data = NULL;
@@ -2201,7 +2716,7 @@ static void ipa_cmn_msg_init(struct ipa_cmn_msg *ncm, u16 if_num, u32 type,  u32
  *	Initialize IPv4 message.
  */
 void ipa_ipv4_msg_init(struct ipa_ipv4_msg *nim, u16 if_num, u32 type, u32 len,
-			ipa_ipv4_msg_callback_t cb, void *app_data)
+	ipa_ipv4_msg_callback_t cb, void *app_data)
 {
 	ipa_cmn_msg_init(&nim->cm, if_num, type, len, (void *)cb, app_data);
 }
@@ -2213,7 +2728,7 @@ EXPORT_SYMBOL(ipa_ipv4_msg_init);
  *	Initialize IPv6 message.
  */
 void ipa_ipv6_msg_init(struct ipa_ipv6_msg *nim, u16 if_num, u32 type, u32 len,
-			ipa_ipv6_msg_callback_t cb, void *app_data)
+	ipa_ipv6_msg_callback_t cb, void *app_data)
 {
 	ipa_cmn_msg_init(&nim->cm, if_num, type, len, (void *)cb, app_data);
 }
@@ -2284,7 +2799,7 @@ int ipa_be_init_if(void)
 	}
 
 #ifdef CONFIG_ECM_CONVERGENCE
-	if(ipa_be_nat_mgmt_init()){
+	if (ipa_be_nat_mgmt_init()) {
 		IPA_BE_ERR("failed be_nat_mgmt_init\n");
 	}
 #else

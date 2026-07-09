@@ -63,6 +63,13 @@
 #define IPA_MAX_ACCEL_CONNECTIONS_V4 32000
 #define IPA_MAX_ACCEL_CONNECTIONS_V6 32000
 
+/* Backhaul type enumeration */
+enum ipa_backhaul_type {
+	IPA_BACKHAUL_TYPE_MODEM = 0,      /* Modem backhaul (has ext_props/QMI) */
+	IPA_BACKHAUL_TYPE_ETH = 1,        /* Ethernet backhaul (no ext_props) */
+	IPA_BACKHAUL_TYPE_UNKNOWN = 2
+};
+
 typedef uint8_t mac_addr_t[IPA_MAC_ADDR_SIZE];
 
 static inline void ipa_type_check_ipa_mac_addr(mac_addr_t mac_addr){}
@@ -83,6 +90,9 @@ int ipa_be_get_ep_for_intf(s32 intf_num);
  */
 int ipa_be_flow_canonical_cmp(s32 flow_intf, s32 return_intf,
 		const u8 *flow_mac, const u8 *return_mac);
+
+int ipa_be_detect_backhaul_type(int wan_iface, enum ipa_backhaul_type *out_type);
+void ipa_be_backhaul_cache_invalidate(int wan_iface);
 
 #define IPA_MAC_ADDR_HASH(h, a) \
 { \

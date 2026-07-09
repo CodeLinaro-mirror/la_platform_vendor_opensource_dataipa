@@ -11683,10 +11683,8 @@ int ipa_get_ep_mapping(enum ipa_client_type client)
 		return IPA_EP_NOT_ALLOCATED;
 	}
 
-	if (!ipa3_ep_mapping[hw_idx][client].valid) {
-		IPAERR_RL("ipa EP is not valid! client =%d\n", client);
+	if (!ipa3_ep_mapping[hw_idx][client].valid)
 		return IPA_EP_NOT_ALLOCATED;
-	}
 
 	ipa_ep_idx =
 		ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ipa_ep_num;
