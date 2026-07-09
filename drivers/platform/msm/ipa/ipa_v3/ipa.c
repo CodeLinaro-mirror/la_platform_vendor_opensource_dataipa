@@ -201,6 +201,9 @@ static int ipa3_ioctl_fnr_counter_alloc(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_query(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_set(unsigned long arg);
 
+static int ipa3_debug_log_init(void);
+static void ipa3_debug_log_destroy(void);
+
 ssize_t ipa3_update_config(const char *buff);
 
 static struct ipa3_plat_drv_res ipa3_res = {0, };
@@ -11694,6 +11697,72 @@ static struct notifier_block qcom_va_md_ipa_notif_blk = {
 };
 #endif
 
+static int ipa3_debug_log_init(void)
+{
+	if (!ipa3_ctx->debug_log) {
+		ipa3_ctx->debug_log = kzalloc(sizeof(struct ipa_debug_ctx), GFP_KERNEL);
+		if (ipa3_ctx->debug_log == NULL)
+			return -ENOMEM;
+	}
+	return 0;
+}
+
+static void ipa3_debug_log_destroy(void)
+{
+	struct ipa_debug_ctx *dbg = ipa3_ctx->debug_log;
+	int i, j, ip;
+
+	if (!dbg)
+		return;
+
+	/* Free filter snapshot rules */
+	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
+		for (ip = 0; ip < IPA_IP_MAX; ip++) {
+			for (j = 0; j < IPA_MAX_FLT_TBLS; j++) {
+				kfree(dbg->flt_snaps[i].ep_flt_data[ip][j].rules);
+				dbg->flt_snaps[i].ep_flt_data[ip][j].rules = NULL;
+			}
+		}
+	}
+
+	/* Free routing snapshot per-table arrays and their rule arrays */
+	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
+		for (ip = 0; ip < IPA_IP_MAX; ip++) {
+			u32 tbl_count = (ip == IPA_IP_v4) ?
+				dbg->rt_snaps[i].v4_count :
+				dbg->rt_snaps[i].v6_count;
+
+			if (dbg->rt_snaps[i].tbl_rt_data[ip]) {
+				for (j = 0; j < tbl_count; j++) {
+					kfree(dbg->rt_snaps[i].tbl_rt_data[ip][j].rules);
+					dbg->rt_snaps[i].tbl_rt_data[ip][j].rules = NULL;
+				}
+				kfree(dbg->rt_snaps[i].tbl_rt_data[ip]);
+				dbg->rt_snaps[i].tbl_rt_data[ip] = NULL;
+			}
+		}
+	}
+
+	/* Free header snapshot entry arrays */
+	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
+		for (j = 0; j < HDR_TBLS_TOTAL; j++) {
+			kfree(dbg->hdr_snaps[i].tbl_hdr_data[j].entries);
+			dbg->hdr_snaps[i].tbl_hdr_data[j].entries = NULL;
+		}
+	}
+
+	/* Free proc_ctx header snapshot entry arrays */
+	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
+		for (j = 0; j < HPC_TBLS_TOTAL; j++) {
+			kfree(dbg->proc_ctx_hdr_snaps[i].tbl_proc_ctx_hdr_data[j].entries);
+			dbg->proc_ctx_hdr_snaps[i].tbl_proc_ctx_hdr_data[j].entries = NULL;
+		}
+	}
+
+	kfree(dbg);
+	ipa3_ctx->debug_log = NULL;
+}
+
 /**
  * ipa3_pre_init() - Initialize the IPA Driver.
  * This part contains all initialization which doesn't require IPA HW, such
@@ -12035,6 +12104,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->enable_clock_scaling = 1;
 	/* vote for svs2 on bootup */
 	ipa3_ctx->curr_ipa_clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_svs2;
+
+	result = ipa3_debug_log_init();
+	if (result)
+		goto fail_debug_log;
 
 	/* Enable ipa3_ctx->enable_napi_chain */
 	ipa3_ctx->enable_napi_chain = 1;
@@ -12502,6 +12575,8 @@ fail_remap:
 	ipa3_disable_clks();
 	ipa3_active_clients_log_destroy();
 	gsi_unmap_base();
+fail_debug_log:
+	ipa3_debug_log_destroy();
 fail_init_active_client:
 	if (ipa3_clk)
 		clk_put(ipa3_clk);
@@ -16186,6 +16261,7 @@ static void __exit ipa_module_exit(void)
 		kfree(ipa3_ctx->hw_stats);
 		ipa3_ctx->hw_stats = NULL;
 	}
+	ipa3_debug_log_destroy();
 	unregister_pm_notifier(&ipa_pm_notifier);
 #if defined(CONFIG_IPA_IPSEC)
 	/* Clean up IPsec */
