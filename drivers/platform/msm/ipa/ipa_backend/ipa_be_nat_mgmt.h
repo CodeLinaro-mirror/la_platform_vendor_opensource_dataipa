@@ -71,7 +71,7 @@ uint32_t generate_met_data(uint8_t mux_id);
 
 int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
 int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
-int ipa_be_remove_pdn(uint32_t pub_ip);
+int ipa_be_remove_pdn(uint32_t pub_ip, int pdn_iface);
 
 //bool ChkForDupGRE(const nat_table_entry *);
 // bool isAlgPort(uint8_t, uint16_t);

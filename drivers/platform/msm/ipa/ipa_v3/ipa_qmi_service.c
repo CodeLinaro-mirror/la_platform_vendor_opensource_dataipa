@@ -1690,21 +1690,27 @@ int ipa3_qmi_filter_notify_send(
 	struct ipa_msg_desc req_desc, resp_desc;
 	int rc = 0;
 
+	/*
+	 * This QMI request is dual-purpose: rule_id_len==0 && rule_id_ex_len==0
+	 * means "delete all UL rules for this pipe", otherwise it's an install
+	 * notification carrying rule_ids. The previous log unconditionally said
+	 * "delete" which was misleading on the install path.
+	 */
+	IPAWANDBG("UL filter %s notify: pipe=%d rule_id_len=%u rule_id_ex_len=%u\n",
+		(req->rule_id_len == 0 && req->rule_id_ex_len == 0) ? "delete" : "install",
+		req->source_pipe_index,
+		req->rule_id_len,
+		req->rule_id_ex_len);
+
 	/* check if the filter rules from IPACM is valid */
-	if (req->rule_id_len == 0) {
-		IPAWANDBG(" delete UL filter rule for pipe %d\n",
-		req->source_pipe_index);
-	} else if (req->rule_id_len > QMI_IPA_MAX_FILTERS_V01) {
+	if (req->rule_id_len > QMI_IPA_MAX_FILTERS_V01) {
 		IPAWANERR(" UL filter rule for pipe %d exceed max (%u)\n",
 		req->source_pipe_index,
 		req->rule_id_len);
 		return -EINVAL;
 	}
 
-	if (req->rule_id_ex_len == 0) {
-		IPAWANDBG(" delete UL filter rule for pipe %d\n",
-		req->source_pipe_index);
-	} else if (req->rule_id_ex_len > QMI_IPA_MAX_FILTERS_EX2_V01) {
+	if (req->rule_id_ex_len > QMI_IPA_MAX_FILTERS_EX2_V01) {
 		IPAWANERR(" UL filter rule for pipe %d exceed max (%u)\n",
 		req->source_pipe_index,
 		req->rule_id_ex_len);
@@ -1733,7 +1739,8 @@ int ipa3_qmi_filter_notify_send(
 		IPAWANERR(
 			"IPACM passes embedded pipe and mux valid not valid\n");
 		return -EINVAL;
-	} else if (req->embedded_pipe_index >= ipa3_ctx_get_num_pipes()) {
+	} else if (req->embedded_pipe_index_valid &&
+			req->embedded_pipe_index >= ipa3_ctx_get_num_pipes()) {
 		IPAWANERR("IPACM passes source pipe index not valid ID = %d\n",
 		req->source_pipe_index);
 		return -EINVAL;
@@ -1769,6 +1776,7 @@ int ipa3_qmi_filter_notify_send(
 
 	if (unlikely(!ipa_q6_clnt))
 		return -ETIMEDOUT;
+
 	rc = ipa3_qmi_send_req_wait(ipa_q6_clnt,
 		&req_desc, req,
 		&resp_desc, &resp,

@@ -77,6 +77,7 @@ struct ipv6_ct_entry {
 	uint32_t flow_rule_id;
 	uint16_t all_pkts_stats_cnt_index;
 	uint16_t non_frag_stats_cnt_index;
+	int pdn_iface;
 };
 
 struct NatEntryBase
@@ -1677,6 +1678,7 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 			ret = -EFAULT;
 			goto cleanup_fwd_rule;
 		}
+		NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface = pdn_iface;
 		ipa_be_cum_assign(all_pkts_counter);
 	} else {
 		/* Legacy path (< IPA v7.0): single ALLOW_ALL entry, no counter allocation */
@@ -1699,6 +1701,7 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 			ret = -EFAULT;
 			goto cleanup_single_rule;
 		}
+		NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface = pdn_iface;
 	}
 
 	goto cleanup;
@@ -2090,7 +2093,27 @@ static int count_nat_entries_for_pdn(uint32_t pub_ip)
 	return count;
 }
 
-int ipa_be_remove_pdn(uint32_t pub_ip)
+static int count_v6_ct_entries_for_pdn(int pdn_iface)
+{
+	int cnt;
+	int count = 0;
+
+	if (!NatBase)
+		return 0;
+
+	mutex_lock(&NatBase->cache_lock);
+	for (cnt = 0; cnt < NatBase->m_maxEntries; cnt++) {
+		if (NatBase->m_cache[cnt].m_enabled &&
+		    NatBase->m_cache[cnt].m_type == IPA_IP_v6 &&
+		    NatBase->m_cache[cnt].ipv6_ct.pdn_iface == pdn_iface)
+			count++;
+	}
+	mutex_unlock(&NatBase->cache_lock);
+
+	return count;
+}
+
+int ipa_be_remove_pdn(uint32_t pub_ip, int pdn_iface)
 {
 	int ret;
 	uint8_t pdn_index;
@@ -2158,6 +2181,19 @@ int ipa_be_remove_pdn(uint32_t pub_ip)
 	{
 		IPA_BE_ERR(" couldn't acquire number of PDNs\n");
 		return IPA_BE_FAILURE;
+	}
+
+	/* Skip flush when pdn_iface is unresolved; the loop would find no
+	 * matches (pdn_iface == -1 never matches a real pair) but logging
+	 * the skip makes upstream resolution failures visible.
+	 */
+	if (pdn_iface >= 0) {
+		IPA_BE_DBG("RemovePDN: flushing UL filter Q6 notify for pdn_iface=%d pub_ip=0x%X\n",
+			pdn_iface, pub_ip);
+		ipa_be_flush_uplink_rules_for_pdn(pdn_iface, IPA_IP_v4);
+	} else {
+		IPA_BE_DBG("RemovePDN: pdn_iface unresolved, skipping UL flush for pub_ip=0x%X\n",
+			pub_ip);
 	}
 
 	if(!pdn_cnt)
@@ -2354,9 +2390,18 @@ void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enable
 	}
 
 	if (pub_ip && count_nat_entries_for_pdn(pub_ip) == 0) {
-		IPA_BE_DBG("Last NAT entry for PDN (pub_ip=0x%X) deleted, removing PDN\n",
-			   pub_ip);
-		if (ipa_be_remove_pdn(pub_ip))
+		int pdn_iface = -1;
+
+		if (v4_msg.conn_rule.return_interface_num ==
+		    v4_msg.conn_rule.return_top_interface_num)
+			pdn_iface = v4_msg.conn_rule.return_interface_num;
+		else if (v4_msg.conn_rule.flow_interface_num ==
+			 v4_msg.conn_rule.flow_top_interface_num)
+			pdn_iface = v4_msg.conn_rule.flow_interface_num;
+
+		IPA_BE_DBG("Last NAT entry for PDN (pub_ip=0x%X) deleted, removing PDN pdn_iface=%d\n",
+			   pub_ip, pdn_iface);
+		if (ipa_be_remove_pdn(pub_ip, pdn_iface))
 			IPA_BE_ERR("failed removing PDN for pub_ip 0x%X\n", pub_ip);
 	}
 
@@ -2427,6 +2472,10 @@ int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 			NatBase->m_cache[cnt].ipv6_ct.flow_rule_id = flow_rule_id;
 			NatBase->m_cache[cnt].ipv6_ct.all_pkts_stats_cnt_index = all_pkts_stats_cnt_index;
 			NatBase->m_cache[cnt].ipv6_ct.non_frag_stats_cnt_index = non_frag_stats_cnt_index;
+			/* -1 sentinel so count_v6_ct_entries_for_pdn() never
+			 * matches a not-yet-populated slot against pdn_iface==0.
+			 */
+			NatBase->m_cache[cnt].ipv6_ct.pdn_iface = -1;
 
 			IPA_BE_DBG("Stored IPv6 CT entry at index %d with handle %u\n", cnt, rule_handle);
 			stored_idx = cnt;
@@ -2530,8 +2579,15 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 						   all_pkts_counter, non_frag_counter);
 
 			memset(&NatBase->m_cache[cache_idx], 0, sizeof(NatBase->m_cache[cache_idx]));
+			NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface = -1;
 			mutex_unlock(&NatBase->cache_lock);
 			IPA_BE_DBG("Successfully deleted IPv6 CT canonical entry\n");
+
+			/* LAN2LAN traffic does not transit a WAN PDN, so no
+			 * ipa_be_flush_uplink_rules_for_pdn() trigger here —
+			 * Q6 has no UL filter state to withdraw for LAN2LAN.
+			 * The fwd path below handles real LAN→WAN v6 flows.
+			 */
 		} else {
 			IPA_BE_ERR("IPv6 CT canonical entry not found in cache for deletion\n");
 		}
@@ -2554,6 +2610,7 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 		uint16_t all_pkts_counter;
 		uint16_t non_frag_counter;
 		uint64_t stored_src_lsb, stored_src_msb;
+		int pdn_iface;
 
 		mutex_lock(&NatBase->cache_lock);
 		rule_handle = NatBase->m_cache[cache_idx].ipv6_ct.rule_handle;
@@ -2561,7 +2618,9 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 		non_frag_counter = NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index;
 		stored_src_msb = NatBase->m_cache[cache_idx].ipv6_ct.src_ipv6_msb;
 		stored_src_lsb = NatBase->m_cache[cache_idx].ipv6_ct.src_ipv6_lsb;
-		IPA_BE_DBG("Found IPv6 CT fwd entry at cache index %d with handle %u\n", cache_idx, rule_handle);
+		pdn_iface = NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface;
+		IPA_BE_DBG("Found IPv6 CT fwd entry at cache index %d with handle %u pdn_iface=%d\n",
+			   cache_idx, rule_handle, pdn_iface);
 
 		/* Delete the IPv6 CT entry from hardware */
 		ipa_be_delete_v6_ct_entry(*msg, rule_handle);
@@ -2576,9 +2635,18 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 		}
 
 		memset(&NatBase->m_cache[cache_idx], 0, sizeof(NatBase->m_cache[cache_idx]));
+		NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface = -1;
 		mutex_unlock(&NatBase->cache_lock);
 
 		IPA_BE_DBG("Successfully deleted IPv6 CT fwd entry and cleared cache\n");
+
+		/* Flush v6 UL rules on last CT entry for this PDN. */
+		if (pdn_iface >= 0 &&
+		    count_v6_ct_entries_for_pdn(pdn_iface) == 0) {
+			IPA_BE_DBG("Last v6 CT entry for pdn_iface=%d gone, flushing v6 UL rules\n",
+				   pdn_iface);
+			ipa_be_flush_uplink_rules_for_pdn(pdn_iface, IPA_IP_v6);
+		}
 	} else {
 		IPA_BE_ERR("IPv6 CT fwd entry not found in cache for deletion\n");
 	}

@@ -28,6 +28,8 @@ int ipa_be_v6_delete_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int in
 int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int pdn_iface, int client_iface, bool is_xlat);
 int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int pdn_iface, int client_iface);
 
+void ipa_be_flush_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type);
+
 int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_num, int pdn_iface, int vlan_tag);
 int ipa_be_delete_mtu_rule(int client_iface, int pdn_iface, enum ipa_ip_type ip_type);
 
@@ -47,6 +49,8 @@ int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype);
 int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type iptype);
 
 int install_wan_filtering_rule(void);
+
+bool ipa_be_pdn_filter_installed(int pdn_iface, enum ipa_ip_type ip_type);
 
 int ipa_be_handle_wan_up(
 	int pdn_iface,
