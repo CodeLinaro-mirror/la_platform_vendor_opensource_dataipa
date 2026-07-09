@@ -8819,6 +8819,23 @@ int rmnet_ipa3_set_lan_client_info_vlan(
 	}
 
 	mutex_lock(&rmnet_ipa3_ctx->per_client_stats_guard);
+
+	/* Check for duplicate MAC+vlan_id registration at a different slot.
+	 * This prevents the same (MAC, vlan_id) pair from being registered
+	 * with different counter indices at two different client_idx slots,
+	 * which would corrupt per-client stats for Mode-2.
+	 */
+	{
+		int existing = rmnet_ipa3_get_lan_client_info_by_vlan(
+			data->device_type, data->mac, data->vlan_id, 2);
+		if (existing >= 0 && existing != data->client_idx) {
+			IPAWANERR("MAC+vlan_id already registered at idx %d, rejecting idx %d\n",
+				existing, data->client_idx);
+			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+			return -EINVAL;
+		}
+	}
+
 	if (data->client_init) {
 		/* check if the client is already inited. */
 		if (rmnet_ipa3_ctx->tether_device_vlan.lan_client[data->client_idx].inited) {
@@ -10138,6 +10155,7 @@ int rmnet_ipa3_query_per_client_stats_v4(
 	mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
 	return ret;
 }
+
 /*
  * rmnet_ipa3_query_per_vlan_stats() -
  * @data - IOCTL data containing VLAN IDs to query
@@ -10158,11 +10176,14 @@ int rmnet_ipa3_query_per_vlan_stats(
 	struct ipa_lan_client_vlan *lan_client = NULL;
     struct ipa_tether_device_info_vlan *teth_ptr = NULL;
     struct ipa_lan_wan_client_cntr_index *lan_client_index = NULL;
-    struct ipa_ioc_flt_rt_query query_f;
+    struct ipa_ioc_flt_rt_query query_f = {0};
     struct ipa_ioc_flt_rt_query *query = &query_f;
     struct ipa_flt_rt_stats *fnr_stats = NULL;
 	int ret = 1;
     uint16_t vlan_id;
+	int valid_count = 0; /* Gap 4: count of valid output entries written */
+	bool cumulative_mode = false;
+	static const uint8_t zero_mac[IPA_MAC_ADDR_SIZE] = {0};
 
     if (!data) {
         IPAWANERR("Invalid data\n");
@@ -10184,9 +10205,9 @@ int rmnet_ipa3_query_per_vlan_stats(
     }
 	/* Check if stats_type is wan or lan2lan */
 	if (data->stats_type == WAN_STATS) {
-		IPAWANERR("Query WAN Stats. %d \n", data->stats_type);
+		IPAWANDBG("Query WAN Stats. %d\n", data->stats_type);
 	} else if (data->stats_type == LAN2LAN_STATS) {
-		IPAWANERR("Query LAN2LAN Stats. %d , Currently NOT Supported \n", data->stats_type);
+		IPAWANDBG("Query LAN2LAN Stats. %d\n", data->stats_type);
 	} else {
 		IPAWANERR("No Stats to query!\n");
 		return -EINVAL;
@@ -10204,47 +10225,50 @@ int rmnet_ipa3_query_per_vlan_stats(
     }
 
 	if (data->num_vlans == 1) {
-			/* Single VLAN query — validate vlan_id */
+		/* Single VLAN query — validate vlan_id */
 		vlan_id = data->vlan_info[0].vlan_id;
 
 		if (vlan_id == 0 || vlan_id > 4094) {
 			IPAWANERR("Invalid vlan_id=%u\n", vlan_id);
-			kfree((void *)query->stats);
 			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
 			return -EINVAL;
 		}
 
-		if (data->stats_type == WAN_STATS) {
-			lan_clnt_idx = rmnet_ipa3_get_lan_client_info_by_vlan(
-				data->device_type,
-				data->vlan_info[0].mac,
-				vlan_id,
-				data->mode);
-			if (lan_clnt_idx < 0) {
-				IPAWANERR("Client info not available for vlan_id=%u (WAN)\n",
-					vlan_id);
-				kfree((void *)query->stats);
-				mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
-				return -EINVAL;
+		if (data->stats_type == WAN_STATS ||
+			data->stats_type == LAN2LAN_STATS) {
+			/*
+			 * Mode 1: direct lookup by vlan_id (one shared counter per VLAN).
+			 * Mode 2, non-zero MAC: per-client lookup by MAC+VLAN.
+			 * Mode 2, zero MAC: cumulative — sum all (VLAN+MAC) counters.
+			 *
+			 * For mode 1 and mode 2 with non-zero MAC, the lookup function
+			 * is the same — just pass data->mode as the mode argument.
+			 */
+			if (data->mode == 1 ||
+				(data->mode == 2 &&
+				 memcmp(data->vlan_info[0].mac, zero_mac,
+					IPA_MAC_ADDR_SIZE) != 0)) {
+				/* Direct lookup: mode 1 by vlan_id, mode 2 by MAC+VLAN */
+				lan_clnt_idx = rmnet_ipa3_get_lan_client_info_by_vlan(
+					data->device_type,
+					data->vlan_info[0].mac,
+					vlan_id, data->mode);
+				if (lan_clnt_idx < 0) {
+					IPAWANERR("No client for vlan_id=%u mac=%pM mode=%u\n",
+						vlan_id, data->vlan_info[0].mac,
+						data->mode);
+					mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
+					return -EINVAL;
+				}
+			} else {
+				/* Mode 2, zero MAC: cumulative — sum all (VLAN+MAC) counters */
+				cumulative_mode = true;
+				lan_clnt_idx = LAN_STATS_FOR_ALL_CLIENTS;
+				data->vlan_info[0].ipv4_tx_bytes = 0;
+				data->vlan_info[0].ipv4_rx_bytes = 0;
 			}
-		}
-		else if (data->stats_type == LAN2LAN_STATS) {
-			lan_clnt_idx = rmnet_ipa3_get_lan_client_info_by_vlan(
-				data->device_type,
-				data->vlan_info[0].mac,
-				vlan_id,
-				data->mode);
-			if (lan_clnt_idx < 0) {
-				IPAWANERR("Client info not available for vlan_id=%u (LAN2LAN)\n",
-					vlan_id);
-				kfree((void *)query->stats);
-				mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
-				return -EINVAL;
-			}
-		}
-		else {
+		} else {
 			IPAWANERR("Invalid stats_type=%u\n", data->stats_type);
-			kfree((void *)query->stats);
 			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
 			return -EINVAL;
 		}
@@ -10277,24 +10301,25 @@ int rmnet_ipa3_query_per_vlan_stats(
 		if (!lan_client[i].inited && !data->disconnect_clnt)
 			continue;
 
-		/* Mode 1: skip clients that don't match the requested vlan_id */
-		if (data->mode == 1 && data->num_vlans == 1 &&
+		/* For single-VLAN queries, always filter by vlan_id */
+		if (data->num_vlans == 1 &&
 			lan_client[i].vlan_id != data->vlan_info[0].vlan_id)
 			continue;
 
-		/* Mode 2: skip clients that don't match both MAC and vlan_id */
-		if (data->mode == 2 && data->num_vlans == 1) {
-			if (lan_client[i].vlan_id != data->vlan_info[0].vlan_id ||
-				memcmp(lan_client[i].mac, data->vlan_info[0].mac,
-					IPA_MAC_ADDR_SIZE) != 0)
-				continue;
-		}
+		/*
+		 * For Mode 2 per-client (non-cumulative), filter by MAC.
+		 * Mode 1 does NOT use MAC — skip this filter for mode 1.
+		 */
+		if (!cumulative_mode && data->num_vlans == 1 &&
+			data->mode == 2 &&
+			memcmp(lan_client[i].mac, data->vlan_info[0].mac,
+				IPA_MAC_ADDR_SIZE) != 0)
+			continue;
 
 		IPAWANDBG("VLAN client %d vlan_id=%u\n", i, lan_client[i].vlan_id);
 		IPAWANDBG("Query stats wan/lan stats indices = %u/%u\n",
 			lan_client_index[i].wan_cnt_idx,
 			lan_client_index[i].lan_cnt_idx);
-
 		memset(query, 0, sizeof(query_f));
 		/* Query For WAN stats */
 		if (data->stats_type == WAN_STATS) {
@@ -10313,10 +10338,14 @@ int rmnet_ipa3_query_per_vlan_stats(
 			if (data->num_vlans == 1)
 				stats_idx = 0;
 			else
-				stats_idx = i;
+				stats_idx = valid_count;
 
-			data->vlan_info[stats_idx].ipv4_tx_bytes = fnr_stats->num_bytes;
+			if (cumulative_mode)
+				data->vlan_info[stats_idx].ipv4_tx_bytes += fnr_stats->num_bytes;
+			else
+				data->vlan_info[stats_idx].ipv4_tx_bytes = fnr_stats->num_bytes;
 
+			kfree((void *)query->stats);
 			memset(query, 0, sizeof(query_f));
 
 			/* Query routing stats (RX/downlink) */
@@ -10330,10 +10359,16 @@ int rmnet_ipa3_query_per_vlan_stats(
 			}
 			fnr_stats = &((struct ipa_flt_rt_stats *)query->stats)[0];
 
-			data->vlan_info[stats_idx].ipv4_rx_bytes = fnr_stats->num_bytes;
+			if (cumulative_mode)
+				data->vlan_info[stats_idx].ipv4_rx_bytes += fnr_stats->num_bytes;
+			else
+				data->vlan_info[stats_idx].ipv4_rx_bytes = fnr_stats->num_bytes;
 
-			/* Store vlan_id in output (instead of MAC for Mode 0) */
+			/* Store vlan_id in output; for cumulative mode, leave MAC as zeros */
 			data->vlan_info[stats_idx].vlan_id = lan_client[i].vlan_id;
+			if (!cumulative_mode)
+				memcpy(data->vlan_info[stats_idx].mac,
+					lan_client[i].mac, IPA_MAC_ADDR_SIZE);
 
 			IPAWANDBG("VLAN %u ipv4_tx_bytes = %llu, ipv4_rx_bytes = %llu\n",
 				data->vlan_info[stats_idx].vlan_id,
@@ -10356,10 +10391,14 @@ int rmnet_ipa3_query_per_vlan_stats(
 			if (data->num_vlans == 1)
 				stats_idx = 0;
 			else
-				stats_idx = i;
+				stats_idx = valid_count;
 
-			data->vlan_info[stats_idx].ipv4_tx_bytes = fnr_stats->num_bytes;
+			if (cumulative_mode)
+				data->vlan_info[stats_idx].ipv4_tx_bytes += fnr_stats->num_bytes;
+			else
+				data->vlan_info[stats_idx].ipv4_tx_bytes = fnr_stats->num_bytes;
 
+			kfree((void *)query->stats);
 			memset(query, 0, sizeof(query_f));
 
 			/* Query routing stats (RX/downlink) */
@@ -10373,19 +10412,35 @@ int rmnet_ipa3_query_per_vlan_stats(
 			}
 			fnr_stats = &((struct ipa_flt_rt_stats *)query->stats)[0];
 
-			data->vlan_info[stats_idx].ipv4_rx_bytes = fnr_stats->num_bytes;
+			if (cumulative_mode)
+				data->vlan_info[stats_idx].ipv4_rx_bytes += fnr_stats->num_bytes;
+			else
+				data->vlan_info[stats_idx].ipv4_rx_bytes = fnr_stats->num_bytes;
 
-			/* Store vlan_id in output (instead of MAC for Mode 0 LAN2LAN) */
+			/* Store vlan_id in output; for cumulative mode, leave MAC as zeros */
 			data->vlan_info[stats_idx].vlan_id = lan_client[i].vlan_id;
+			if (!cumulative_mode)
+				memcpy(data->vlan_info[stats_idx].mac,
+					lan_client[i].mac, IPA_MAC_ADDR_SIZE);
 
 			IPAWANDBG("VLAN %u (LAN2LAN) ipv4_tx_bytes = %llu, ipv4_rx_bytes = %llu\n",
 				data->vlan_info[stats_idx].vlan_id,
 				data->vlan_info[stats_idx].ipv4_tx_bytes,
 				data->vlan_info[stats_idx].ipv4_rx_bytes);
 		}
+		valid_count++; /* Gap 4: increment for each successfully queried entry */
 		kfree((void *)query->stats);
 		ret = result;
     }
+	/*
+	 * In cumulative mode (mode==2, zero MAC, num_vlans==1) all N matching
+	 * clients on the VLAN are folded into a single output entry at
+	 * vlan_info[0]. Clamp num_results to 1 so userspace does not read
+	 * stale/uninitialized entries at vlan_info[1..N-1].
+	 */
+	if (cumulative_mode && valid_count > 0)
+		valid_count = 1;
+	data->num_results = valid_count;
 	/* VLAN-based stats */
 	IPAWANDBG("Disconnect clnt: %s",
 		data->disconnect_clnt ? "Yes" : "No");
