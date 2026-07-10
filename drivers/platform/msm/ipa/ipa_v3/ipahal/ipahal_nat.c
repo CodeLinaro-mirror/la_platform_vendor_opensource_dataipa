@@ -707,3 +707,37 @@ int ipahal_nat_parse_entry(enum ipahal_nat_type nat_type, void *fields,
 
 	return 0;
 }
+
+int ipahal_nat_entry_stats_cnt_index(enum ipahal_nat_type nat_type,
+	const void *entry, u16 *all_pkts_cnt_index)
+{
+	if (WARN(entry == NULL || all_pkts_cnt_index == NULL,
+		"NULL pointer received\n"))
+		return -EINVAL;
+
+	/* all_pkts_stats_cnt_index exists only in the IPAv7.0 entry layout. */
+	if (ipahal_ctx->hw_type < IPA_HW_v7_0) {
+		*all_pkts_cnt_index = 0;
+		return -ENOTSUPP;
+	}
+
+	switch (nat_type) {
+	case IPAHAL_NAT_IPV4: {
+		const struct ipa_nat_hw_ipv4_entry_v_7_0 *e =
+			(const struct ipa_nat_hw_ipv4_entry_v_7_0 *)entry;
+
+		*all_pkts_cnt_index = e->all_pkts_stats_cnt_index;
+		return 0;
+	}
+	case IPAHAL_NAT_IPV6CT: {
+		const struct ipa_nat_hw_ipv6ct_entry_v_7_0 *e =
+			(const struct ipa_nat_hw_ipv6ct_entry_v_7_0 *)entry;
+
+		*all_pkts_cnt_index = e->all_pkts_stats_cnt_index;
+		return 0;
+	}
+	default:
+		*all_pkts_cnt_index = 0;
+		return -EINVAL;
+	}
+}
