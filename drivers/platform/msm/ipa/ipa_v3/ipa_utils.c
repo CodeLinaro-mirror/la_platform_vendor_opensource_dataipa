@@ -12374,6 +12374,24 @@ void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size)
 }
 
 /**
+ * ipa3_dump_skb() - dumps skb for debug purposes
+ * @base: buffer base address
+ * @phy_base: buffer physical base address
+ */
+void ipa3_dump_skb(struct sk_buff *skb)
+{
+	if (!ipa3_ctx || !ipa3_ctx->print_skb_on_wakeup)
+		return;
+
+	if (!skb || !skb->data)
+		return;
+
+	pr_info("SKB len=%u\n", skb->len);
+	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 16, 1,
+		       skb->data, min_t(u32, skb->len, 64), false);
+}
+
+/**
  * ipa3_set_aggr_mode() - Set the aggregation mode which is a global setting
  * @mode:	[in] the desired aggregation mode for e.g. straight MBIM, QCNCM,
  * etc
@@ -15099,7 +15117,7 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 	struct ipa_ep_cfg_ctrl cfg;
 	int ipa_ep_idx, wan_coal_ep_idx, lan_coal_ep_idx;
 	struct ipa3_ep_context *ep;
-	int res;
+	int res = 0;
 	struct ipa_ep_cfg_holb holb_cfg;
 
 	ipa_ep_idx = ipa3_get_ep_mapping(client);
@@ -15195,8 +15213,19 @@ static int _ipa_suspend_resume_pipe(enum ipa_client_type client, bool suspend)
 			return -EAGAIN;
 	} else if (!atomic_read(&ep->sys->curr_polling_state)) {
 		IPADBG("switch ch %ld to callback\n", ep->gsi_chan_hdl);
-		gsi_config_channel_mode(ep->gsi_chan_hdl,
+		res = gsi_config_channel_mode(ep->gsi_chan_hdl,
 			GSI_CHAN_MODE_CALLBACK);
+		if ((res != GSI_STATUS_SUCCESS) &&
+				!atomic_read(&ep->sys->curr_polling_state)) {
+			if (res == -GSI_STATUS_PENDING_IRQ) {
+				/* schedule poll */
+				IPADBG("Now switch ch %ld to poll\n", ep->gsi_chan_hdl);
+				__ipa_gsi_irq_rx_scedule_poll(ep->sys);
+			} else {
+				IPAERR("Failed to switch to intr mode %d ch_id %d\n",
+					ep->sys->curr_polling_state, ep->gsi_chan_hdl);
+			}
+		}
 	}
 
 	return 0;

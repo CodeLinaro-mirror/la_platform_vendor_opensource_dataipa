@@ -116,6 +116,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(enum hpc_tbl_storage loc,
 			}
 			/* Check the pointer and header length to avoid dangerous overflow in HW */
 			if (unlikely(!entry->hdr || ((!entry->hdr->offset_entry) &&(!entry->hdr->is_hdr_proc_ctx)) ||
+						((entry->hdr->offset_entry) && (entry->hdr->is_hdr_proc_ctx)) ||
 						entry->hdr->hdr_len > ipa_hdr_bin_sz[IPA_HDR_BIN_MAX - 1]))
 				return -EINVAL;
 
@@ -687,9 +688,9 @@ create_entry:
 free_list:
 	list_add(&entry->link, &htbl->head_proc_ctx_entry_list);
 	htbl->proc_ctx_cnt++;
-	IPADBG("add proc ctx of sz=%d cnt=%d ofst=%d, %s table\n", needed_len,
-			htbl->proc_ctx_cnt, offset->offset,
-		    entry->is_lcl ? "SRAM" : "DDR");
+	IPADBG("add proc ctx of sz=%d cnt=%d ofst=%d, hdr hdl = %d hdr ref cnt = %d %s table\n", needed_len,
+			htbl->proc_ctx_cnt, offset->offset, proc_ctx->hdr_hdl, hdr_entry->ref_cnt,
+			entry->is_lcl ? "SRAM" : "DDR");
 
 	id = ipa3_id_alloc(entry);
 	if (id < 0) {
@@ -969,7 +970,8 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 	hdr->hdr_hdl = id;
 	entry->ref_cnt++;
 	if (entry->is_hdr_proc_ctx) {
-		IPADBG("adding processing context for header %s\n", hdr->name);
+		memset(&proc_ctx, 0, sizeof(proc_ctx));
+		IPADBG("adding processing context for header %s hdr ref %d \n", hdr->name, entry->ref_cnt);
 		proc_ctx.type = IPA_HDR_PROC_NONE;
 		proc_ctx.hdr_hdl = id;
  		if (__ipa_add_hdr_proc_ctx(&proc_ctx, false, user)) {
@@ -978,6 +980,7 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
   		}
   		entry->proc_ctx = ipa3_id_find(proc_ctx.proc_ctx_hdl);
   	}
+	IPADBG("installed hdr with hdr = %s hdl =%d hdrcnt = %d\n", hdr->name, id, entry->ref_cnt);
 	if (entry_out)
 		*entry_out = entry;
 
@@ -1703,6 +1706,11 @@ int ipa3_reset_hdr(bool user_only)
 
 			if (!user_only ||
 				ctx_entry->ipacm_installed) {
+				/*decreamenting the ref cnt for partial hdrs
+				if proc ctx is installed by ipacm with
+				partial hdrs*/
+				if (ctx_entry->hdr)
+					__ipa3_del_hdr(ctx_entry->hdr->id, false);
 				/* move the offset entry to appropriate free list */
 				list_move(&ctx_entry->offset_entry->link,
 						  &htbl_proc[hpc_tbl_loc].head_free_offset_list[
@@ -1740,7 +1748,7 @@ int ipa3_reset_hdr(bool user_only)
 			htbl_proc[hpc_tbl_loc].proc_ctx_cnt = 0;
 		}
 	}
-
+	IPADBG("ipa driver to commit hdr\n");
 	/* commit the change to IPA-HW */
 	if (ipa3_ctx->ctrl->ipa3_commit_hdr()) {
 		IPAERR("fail to commit hdr\n");

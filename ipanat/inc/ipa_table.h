@@ -25,6 +25,10 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #ifndef IPA_TABLE_H
 #define IPA_TABLE_H
@@ -33,7 +37,7 @@
 #include <stdbool.h>
 #include <linux/msm_ipa.h>
 
-#define IPA_TABLE_MAX_ENTRIES 5120
+#define IPA_TABLE_MAX_ENTRIES 6144
 
 #define IPA_TABLE_INVALID_ENTRY 0x0
 

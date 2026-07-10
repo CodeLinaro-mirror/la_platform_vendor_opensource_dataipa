@@ -6450,8 +6450,9 @@ static int ipa3_q6_set_ex_path_to_apps(void)
 			ipa3_ctx->ep[ep_idx].skip_ep_cfg) ||
 			ipa3_ctx->ep[ep_idx].client == IPA_CLIENT_IPSEC_ENCAP_PROD ||
 			ipa3_ctx->ep[ep_idx].client == IPA_CLIENT_IPSEC_DECAP_PROD ||
-			(ipa3_ctx->ep[ep_idx].client == IPA_CLIENT_APPS_WAN_PROD
-			&& ipa3_ctx->modem_cfg_emb_pipe_flt))) {
+			((ipa3_ctx->ep[ep_idx].client == IPA_CLIENT_APPS_WAN_PROD ||
+			ipa3_ctx->ep[ep_idx].client == IPA_CLIENT_APPS_WAN_V2X_PROD) &&
+			ipa3_ctx->modem_cfg_emb_pipe_flt))) {
 			ipa_assert_on(num_descs >= ipa3_ctx->ipa_num_pipes);
 
 			ipa3_ctx->ep[ep_idx].status.status_en = false;
@@ -12021,8 +12022,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	atomic_set(&ipa3_ctx->ipa3_active_clients.cnt, 1);
 
 	/* Create workqueues for power management */
-	ipa3_ctx->power_mgmt_wq =
-		create_singlethread_workqueue("ipa_power_mgmt");
+	ipa3_ctx->power_mgmt_wq = alloc_workqueue("ipa_power_mgmt",
+			WQ_MEM_RECLAIM | WQ_UNBOUND | WQ_SYSFS | WQ_HIGHPRI, 1);
 	if (!ipa3_ctx->power_mgmt_wq) {
 		IPAERR("failed to create power mgmt wq\n");
 		result = -ENOMEM;
@@ -12347,6 +12348,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->mhi_ctrl_state = IPA_MHI_CTRL_NOT_SETUP;
 	ipa3_ctx->is_mhi_coal_set = false;
 	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
+	ipa3_ctx->print_skb_on_wakeup = false;
 
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 	result = qcom_va_md_register("ipa_mini", &qcom_va_md_ipa_notif_blk);

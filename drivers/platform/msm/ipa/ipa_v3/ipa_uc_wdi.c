@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #include "ipa_i.h"
@@ -765,13 +765,14 @@ static void ipa_release_ap_smmu_mappings(enum ipa_client_type client)
 
 	if (IPA_CLIENT_IS_CONS(client)) {
 		start = IPA_WDI_TX_RING_RES;
-		if (ipa_get_wdi_version() >= IPA_WDI_3)
+		if ((ipa_get_wdi_version() >= IPA_WDI_3) ||
+			IPA_WDI2_OVER_GSI())
 			end = IPA_WDI_TX_DB_RES;
 		else
 			end = IPA_WDI_CE_DB_RES;
 	} else {
 		start = IPA_WDI_RX_RING_RES;
-		if ((ipa_get_wdi_version() == IPA_WDI_2) ||
+		if (IPA_WDI2_OVER_GSI() ||
 			(ipa_get_wdi_version() == IPA_WDI_3))
 			end = IPA_WDI_RX_COMP_RING_WP_RES;
 		else
@@ -810,7 +811,7 @@ static void ipa_release_uc_smmu_mappings(enum ipa_client_type client)
 		end = IPA_WDI_CE_DB_RES;
 	} else {
 		start = IPA_WDI_RX_RING_RES;
-		if (ipa3_ctx->ipa_wdi2)
+		if (IPA_WDI2_OVER_GSI())
 			end = IPA_WDI_RX_COMP_RING_WP_RES;
 		else
 			end = IPA_WDI_RX_RING_RP_RES;
@@ -1438,7 +1439,7 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 		gsi_evt_ring_props.ring_base_addr = va;
 		gsi_evt_ring_props.ring_base_vaddr = NULL;
 		gsi_evt_ring_props.ring_len = len;
-		pa = in->smmu_enabled ? in->u.dl_smmu.ce_door_bell_pa :
+                pa = in->smmu_enabled ? in->u.dl_smmu.ce_door_bell_pa :
 			in->u.dl.ce_door_bell_pa;
 		if (ipa_create_gsi_smmu_mapping(IPA_WDI_CE_DB_RES,
 					in->smmu_enabled,
@@ -1508,7 +1509,7 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 		}
 		gsi_evt_ring_props.ring_base_vaddr = NULL;
 		gsi_evt_ring_props.ring_len = len;
-		pa = in->smmu_enabled ?
+                pa = in->smmu_enabled ?
 			in->u.ul_smmu.rdy_comp_ring_wp_pa :
 			in->u.ul.rdy_comp_ring_wp_pa;
 		if (ipa_create_gsi_smmu_mapping(
