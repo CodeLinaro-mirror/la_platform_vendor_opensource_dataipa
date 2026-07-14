@@ -1273,6 +1273,13 @@ static int ipv6ct_convert_to_ipa_rule(struct ipa_ipv6_rule_create_msg *v6_msg,
 	return 0;
 }
 
+/**
+ * ipv6ct_add_entry() - Add a v1 IPv6 CT entry (IPA < v7.0 only)
+ * @v6_msg:      IPv6 rule create message
+ * @rule_handle: Output handle for the added rule
+ *
+ * Not supported on IPA >= v7.0; use ipa_be_add_v6_ct_entry() instead.
+ */
 int ipv6ct_add_entry(struct ipa_ipv6_rule_create_msg *v6_msg,
              uint32_t *rule_handle)
 {
@@ -1291,6 +1298,12 @@ int ipv6ct_add_entry(struct ipa_ipv6_rule_create_msg *v6_msg,
         return -ENODEV;
     }
 
+    if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+        WARN_ONCE(1, "ipv6ct_add_entry: v1 API is not supported on IPA >= v7.0; use ipa_be_add_v6_ct_entry()\n");
+        *rule_handle = 0;
+        return -EOPNOTSUPP;
+    }
+
     tuple = &v6_msg->tuple;
 
     ret = ipv6ct_convert_to_ipa_rule(v6_msg, &ipa_rule);
@@ -1299,31 +1312,7 @@ int ipv6ct_add_entry(struct ipa_ipv6_rule_create_msg *v6_msg,
         return ret;
     }
 
-    if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-        ipa_ipv6ct_rule_v2 ipa_rule_v2;
-        struct ipa_sw_producer_cookie cookie;
-
-        ret = copy_from_ipa_ipv6ct_rule_v1_to_v2(&ipa_rule, &ipa_rule_v2);
-        if (ret) {
-            IPA_BE_ERR("Failed to copy IPv6CT rule v1 to v2: %d\n", ret);
-            return ret;
-        }
-
-        /* Install SW producer cookie if src or dst interface is wlan */
-        memset(&cookie, 0, sizeof(cookie));
-        ipa3_populate_cookie_vpnum(v6_msg->conn_rule.flow_interface_num, &cookie);
-        if (!cookie.raw)
-            ipa3_populate_cookie_vpnum(v6_msg->conn_rule.return_interface_num, &cookie);
-        ipa_rule_v2.sw_prod_classification_cookie = cookie.raw;
-        IPA_BE_DBG("IPv6CT sw_prod_cookie=0x%llx flow_intf=%d ret_intf=%d\n",
-               ipa_rule_v2.sw_prod_classification_cookie,
-               v6_msg->conn_rule.flow_interface_num,
-               v6_msg->conn_rule.return_interface_num);
-
-        ret = ipa_ct_add_ipv6_rule_v2(NatBase->ct_table_hdl, &ipa_rule_v2, rule_handle);
-    } else {
-        ret = ipa_ct_add_ipv6_rule(NatBase->ct_table_hdl, &ipa_rule, rule_handle);
-    }
+    ret = ipa_ct_add_ipv6_rule(NatBase->ct_table_hdl, &ipa_rule, rule_handle);
     if (ret) {
         IPA_BE_DBG("Failed to add IPv6 CT rule to IPA: %d\n", ret);
         return ret;
@@ -1348,6 +1337,8 @@ EXPORT_SYMBOL(ipv6ct_add_entry);
  *
  * Uses IPA_IPV6CT_DIRECTION_ALLOW_ALL so the single canonical entry
  * covers both inbound and outbound traffic for the LAN2LAN pair.
+ * Also populates the rule's SW producer classification cookie from
+ * flow/return interface vpnum, when applicable.
  */
 static int ipv6ct_add_entry_v2(struct ipa_ipv6_rule_create_msg *v6_msg,
 			       uint32_t *rule_handle,
@@ -1357,6 +1348,7 @@ static int ipv6ct_add_entry_v2(struct ipa_ipv6_rule_create_msg *v6_msg,
 {
     ipa_ipv6ct_rule_v2 ipa_rule_v2;
     struct ipa_ipv6_5tuple *tuple;
+    struct ipa_sw_producer_cookie cookie;
     bool is_system_memory = ipa_get_hw_type() >= IPA_HW_v7_0;
     int ret;
 
@@ -1446,6 +1438,17 @@ static int ipv6ct_add_entry_v2(struct ipa_ipv6_rule_create_msg *v6_msg,
            ipa_rule_v2.non_frag_stats_cnt_index,
            non_frag_counter ? "" : " (skipped)");
 
+    /* Install SW producer cookie if src or dst interface is wlan */
+    memset(&cookie, 0, sizeof(cookie));
+    ipa3_populate_cookie_vpnum(v6_msg->conn_rule.flow_interface_num, &cookie);
+    if (!cookie.raw)
+        ipa3_populate_cookie_vpnum(v6_msg->conn_rule.return_interface_num, &cookie);
+    ipa_rule_v2.sw_prod_classification_cookie = cookie.raw;
+    IPA_BE_DBG("IPv6CT sw_prod_cookie=0x%llx flow_intf=%d ret_intf=%d\n",
+        ipa_rule_v2.sw_prod_classification_cookie,
+        v6_msg->conn_rule.flow_interface_num,
+        v6_msg->conn_rule.return_interface_num);
+
     ret = ipa_ct_add_ipv6_rule_v2(NatBase->ct_table_hdl, &ipa_rule_v2, rule_handle);
     if (ret) {
         IPA_BE_ERR("Failed to add IPv6 CT v2 rule to IPA: %d\n", ret);
@@ -1505,6 +1508,24 @@ int ipv6ct_del_entry(struct ipa_ipv6_rule_destroy_msg *v6_msg, uint32_t rule_han
 }
 EXPORT_SYMBOL(ipv6ct_del_entry);
 
+/*
+ * LAN2LAN v7.0+ canonical key: smaller-EP endpoint is src, regardless of which
+ * orientation (uplink- or downlink-triggered) produced this call. Returns
+ * -EINVAL on EP query failure, 0 otherwise with *swap_src_dest set.
+ */
+static int ipa_be_ipv6ct_canonical_swap(s32 flow_intf, s32 return_intf,
+					 const u8 *flow_mac, const u8 *return_mac,
+					 bool *swap_src_dest)
+{
+	int ep_cmp = ipa_be_flow_canonical_cmp(flow_intf, return_intf, flow_mac, return_mac);
+
+	if (ep_cmp < 0)
+		return -EINVAL;
+
+	*swap_src_dest = !ep_cmp;
+	return 0;
+}
+
 int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface, bool lan2lan)
 {
 	uint8_t mux_id = 0;
@@ -1518,8 +1539,8 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 	uint64_t src_ipv6_msb, src_ipv6_lsb;
 	uint64_t dest_ipv6_msb, dest_ipv6_lsb;
 	uint16_t src_port, dest_port;
-	/* Canonical (smaller-EP as src) key, used for dup check, add, and cleanup. */
-	int      ep_cmp = 0;
+	/* Canonical (orientation-invariant) key, used for dup check, add, and cleanup. */
+	bool     swap_src_dest = false;
 	uint64_t can_src_msb = 0, can_src_lsb = 0;
 	uint64_t can_dst_msb = 0, can_dst_lsb = 0;
 	uint16_t can_src_port = 0, can_dst_port = 0;
@@ -1598,23 +1619,23 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 	src_port = ntohs(tuple->flow_ident);
 	dest_port = ntohs(tuple->return_ident);
 
-	/* Canonical key: for v7.0+ LAN2LAN, smaller EP is src; otherwise flow_ip is src. */
-	if ((ipa_get_hw_type() >= IPA_HW_v7_0) && lan2lan) {
-		ep_cmp = ipa_be_flow_canonical_cmp(v6_msg.conn_rule.flow_interface_num,
-						       v6_msg.conn_rule.return_interface_num,
-						       v6_msg.conn_rule.flow_mac,
-						       v6_msg.conn_rule.return_mac);
-		if (ep_cmp < 0) {
-			ret = -EINVAL;
-			goto cleanup;
-		}
-		if (!ep_cmp) {
-			can_src_msb = dest_ipv6_msb; can_src_lsb = dest_ipv6_lsb; can_src_port = dest_port;
-			can_dst_msb = src_ipv6_msb;  can_dst_lsb = src_ipv6_lsb;  can_dst_port = src_port;
+	if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+		if (lan2lan) {
+			ret = ipa_be_ipv6ct_canonical_swap(v6_msg.conn_rule.flow_interface_num,
+							    v6_msg.conn_rule.return_interface_num,
+							    v6_msg.conn_rule.flow_mac,
+							    v6_msg.conn_rule.return_mac,
+							    &swap_src_dest);
+			if (ret)
+				goto cleanup;
 		} else {
-			can_src_msb = src_ipv6_msb;  can_src_lsb = src_ipv6_lsb;  can_src_port = src_port;
-			can_dst_msb = dest_ipv6_msb; can_dst_lsb = dest_ipv6_lsb; can_dst_port = dest_port;
+			/* LAN2WAN is single direction: flow_ip is always src, no swap. */
 		}
+	}
+
+	if (swap_src_dest) {
+		can_src_msb = dest_ipv6_msb; can_src_lsb = dest_ipv6_lsb; can_src_port = dest_port;
+		can_dst_msb = src_ipv6_msb;  can_dst_lsb = src_ipv6_lsb;  can_dst_port = src_port;
 	} else {
 		can_src_msb = src_ipv6_msb;  can_src_lsb = src_ipv6_lsb;  can_src_port = src_port;
 		can_dst_msb = dest_ipv6_msb; can_dst_lsb = dest_ipv6_lsb; can_dst_port = dest_port;
@@ -1629,37 +1650,36 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 	}
 
 	/* Add IPv6 connection tracking entry */
-	if ((ipa_get_hw_type() >= IPA_HW_v7_0) && lan2lan) {
+	if (ipa_get_hw_type() >= IPA_HW_v7_0) {
 		/*
-		 * swap_src_dest=false when ep_cmp=1: flow_ip is already
-		 * the canonical src — no swap needed. swap_src_dest=true when
-		 * ep_cmp=0: return_ip becomes the canonical src.
+		 * Use the same swap_src_dest computed above for the canonical
+		 * key, so the installed HW entry matches can_src/can_dst
+		 * regardless of which orientation triggered this call.
 		 */
 		ret = ipv6ct_add_entry_v2(&v6_msg, &rule_hdl_v2,
 					  &all_pkts_counter, NULL,
-					  !ep_cmp);
+					  swap_src_dest);
 		if (ret) {
-			IPA_BE_ERR("Failed to add IPv6 CT canonical entry\n");
+			IPA_BE_ERR("Failed to add IPv6 CT entry\n");
 			ret = -EFAULT;
 			goto cleanup; /* entry not created; counters freed by ipv6ct_add_entry_v2 */
 		}
 
-		IPA_BE_DBG("IPv6 CT canonical entry added with hdl %d\n", rule_hdl_v2);
+		IPA_BE_DBG("IPv6 CT entry added with hdl %d\n", rule_hdl_v2);
 		cache_idx = store_ipv6_ct_entry(can_src_msb, can_src_lsb,
 						can_dst_msb, can_dst_lsb,
 						can_src_port, can_dst_port,
 						tuple->protocol, rule_hdl_v2,
-						tuple->flow_rule_id);
+						tuple->flow_rule_id,
+						all_pkts_counter, non_frag_counter);
 		if (cache_idx < 0) {
 			IPA_BE_ERR("Failed to store IPv6 CT entry in cache\n");
 			ret = -EFAULT;
 			goto cleanup_fwd_rule;
 		}
-		NatBase->m_cache[cache_idx].ipv6_ct.all_pkts_stats_cnt_index = all_pkts_counter;
-		NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index = non_frag_counter;
 		ipa_be_cum_assign(all_pkts_counter);
 	} else {
-		/* Legacy path (< IPA v7.0) || !lan2lan: single ALLOW_ALL entry */
+		/* Legacy path (< IPA v7.0): single ALLOW_ALL entry, no counter allocation */
 		ret = ipv6ct_add_entry(&v6_msg, &rule_hdl);
 		if (ret) {
 			IPA_BE_ERR("Failed to add IPv6 CT entry\n");
@@ -1672,7 +1692,8 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 						dest_ipv6_msb, dest_ipv6_lsb,
 						src_port, dest_port,
 						tuple->protocol, rule_hdl,
-						tuple->flow_rule_id);
+						tuple->flow_rule_id,
+						0, 0);
 		if (cache_idx < 0) {
 			IPA_BE_ERR("Failed to store IPv6 CT entry in cache\n");
 			ret = -EFAULT;
@@ -2376,7 +2397,9 @@ int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 				uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
 				uint16_t src_port, uint16_t dest_port,
 				uint8_t protocol, uint32_t rule_handle,
-				uint32_t flow_rule_id)
+				uint32_t flow_rule_id,
+				uint16_t all_pkts_stats_cnt_index,
+				uint16_t non_frag_stats_cnt_index)
 {
 	int cnt;
 	int stored_idx = -1;
@@ -2402,6 +2425,8 @@ int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 			NatBase->m_cache[cnt].ipv6_ct.src_port = src_port;
 			NatBase->m_cache[cnt].ipv6_ct.dest_port = dest_port;
 			NatBase->m_cache[cnt].ipv6_ct.flow_rule_id = flow_rule_id;
+			NatBase->m_cache[cnt].ipv6_ct.all_pkts_stats_cnt_index = all_pkts_stats_cnt_index;
+			NatBase->m_cache[cnt].ipv6_ct.non_frag_stats_cnt_index = non_frag_stats_cnt_index;
 
 			IPA_BE_DBG("Stored IPv6 CT entry at index %d with handle %u\n", cnt, rule_handle);
 			stored_idx = cnt;
@@ -2462,29 +2487,29 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 	if (lan2lan && ipa_ver >= IPA_HW_v7_0) {
 		uint64_t can_src_msb, can_src_lsb, can_dst_msb, can_dst_lsb;
 		uint16_t can_src_port, can_dst_port;
-		int ep_cmp = ipa_be_flow_canonical_cmp(msg->conn_rule.flow_interface_num,
-						msg->conn_rule.return_interface_num,
-						msg->conn_rule.flow_mac,
-						msg->conn_rule.return_mac);
+		bool swap_src_dest;
 
-		if (ep_cmp < 0) {
+		if (ipa_be_ipv6ct_canonical_swap(msg->conn_rule.flow_interface_num,
+						  msg->conn_rule.return_interface_num,
+						  msg->conn_rule.flow_mac,
+						  msg->conn_rule.return_mac,
+						  &swap_src_dest))
 			return;
-		}
 
-		if (ep_cmp) {
-			can_src_msb  = src_ipv6_msb;
-			can_src_lsb  = src_ipv6_lsb;
-			can_dst_msb  = dest_ipv6_msb;
-			can_dst_lsb  = dest_ipv6_lsb;
-			can_src_port = src_port;
-			can_dst_port = dest_port;
-		} else {
+		if (swap_src_dest) {
 			can_src_msb  = dest_ipv6_msb;
 			can_src_lsb  = dest_ipv6_lsb;
 			can_dst_msb  = src_ipv6_msb;
 			can_dst_lsb  = src_ipv6_lsb;
 			can_src_port = dest_port;
 			can_dst_port = src_port;
+		} else {
+			can_src_msb  = src_ipv6_msb;
+			can_src_lsb  = src_ipv6_lsb;
+			can_dst_msb  = dest_ipv6_msb;
+			can_dst_lsb  = dest_ipv6_lsb;
+			can_src_port = src_port;
+			can_dst_port = dest_port;
 		}
 
 		cache_idx = find_ipv6_ct_entry(can_src_msb, can_src_lsb, can_dst_msb, can_dst_lsb,
@@ -2513,18 +2538,29 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 		return;
 	}
 
-	/* Find and delete the forward IPv6 CT entry */
+	/*
+	 * Find and delete the forward IPv6 CT entry.
+	 *
+	 * Reached for pre-v7.0 LAN2LAN/LAN2WAN and for v7.0+ LAN2WAN (v7.0+
+	 * LAN2LAN already returned above via its own canonical swap). Swap is
+	 * a LAN2LAN-only concept — LAN2WAN is always single direction
+	 * (flow_ip as src, mirroring the add path), so no swap applies here
+	 * regardless of HW version.
+	 */
 	cache_idx = find_ipv6_ct_entry(src_ipv6_msb, src_ipv6_lsb, dest_ipv6_msb, dest_ipv6_lsb,
 					src_port, dest_port, tuple->protocol);
 
 	if (cache_idx >= 0) {
 		uint16_t all_pkts_counter;
 		uint16_t non_frag_counter;
+		uint64_t stored_src_lsb, stored_src_msb;
 
 		mutex_lock(&NatBase->cache_lock);
 		rule_handle = NatBase->m_cache[cache_idx].ipv6_ct.rule_handle;
 		all_pkts_counter = NatBase->m_cache[cache_idx].ipv6_ct.all_pkts_stats_cnt_index;
 		non_frag_counter = NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index;
+		stored_src_msb = NatBase->m_cache[cache_idx].ipv6_ct.src_ipv6_msb;
+		stored_src_lsb = NatBase->m_cache[cache_idx].ipv6_ct.src_ipv6_lsb;
 		IPA_BE_DBG("Found IPv6 CT fwd entry at cache index %d with handle %u\n", cache_idx, rule_handle);
 
 		/* Delete the IPv6 CT entry from hardware */
@@ -2533,8 +2569,8 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 		if (ipa_ver >= IPA_HW_v7_0) {
 			ipa_be_free_ct_counters_v6(
 				NatBase->ct_table_hdl,
-				src_ipv6_lsb,
-				src_ipv6_msb,
+				stored_src_lsb,
+				stored_src_msb,
 				all_pkts_counter,
 				non_frag_counter);
 		}

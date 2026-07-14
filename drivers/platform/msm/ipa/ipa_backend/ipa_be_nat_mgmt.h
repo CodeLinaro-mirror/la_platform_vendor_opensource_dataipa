@@ -115,7 +115,9 @@ int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 				uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
 				uint16_t src_port, uint16_t dest_port,
 				uint8_t protocol, uint32_t rule_handle,
-				uint32_t flow_rule_id);
+				uint32_t flow_rule_id,
+				uint16_t all_pkts_stats_cnt_index,
+				uint16_t non_frag_stats_cnt_index);
 
 int find_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 			       uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
