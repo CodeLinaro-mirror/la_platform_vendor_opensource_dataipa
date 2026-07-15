@@ -63,7 +63,9 @@ struct ipa_response_msg {
 	u8 msg[];
 };
 
-static struct ipa_ctx_instance_internal __ipa_be_ctx;
+static struct ipa_ctx_instance_internal __ipa_be_ctx = {
+	.lock = __SPIN_LOCK_UNLOCKED(__ipa_be_ctx.lock),
+};
 
 /*
  * Convert public IPA context to internal context
