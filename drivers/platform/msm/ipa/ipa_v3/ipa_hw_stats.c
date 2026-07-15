@@ -677,7 +677,7 @@ int ipa_hw_stats_init(void)
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0 && ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_WLAN3_PROD,
 		&reg_idx)) {
-		ep_index = ipa_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_WLAN3_PROD);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
