@@ -2533,7 +2533,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		memset(&cookie, 0, sizeof(cookie));
 		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
 			ipa3_populate_cookie_vpnum(intf_num, &cookie);
-			IPA_BE_ERR("ipa_ipv6_add_route_rule: intf_num %d vpnum %u\n", intf_num, cookie.wdi6.vp_num);
+			IPA_BE_DBG("intf_num %d vpnum %u\n", intf_num, cookie.wdi6.vp_num);
 		} else {
 			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
 		}

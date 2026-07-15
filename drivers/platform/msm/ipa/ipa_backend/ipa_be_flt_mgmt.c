@@ -1113,9 +1113,9 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 		rt_tbl.ip = iptype;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-		strscpy(rt_tbl.name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
+		strscpy(rt_tbl.name, (iptype == IPA_IP_v6) ? V6_WAN_ROUTE_TABLE_NAME : V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #else
-		strlcpy(rt_tbl.name, V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
+		strlcpy(rt_tbl.name, (iptype == IPA_IP_v6) ? V6_WAN_ROUTE_TABLE_NAME : V4_LAN_ROUTE_TABLE_NAME, sizeof(rt_tbl.name));
 #endif
 
 		IPA_BE_DBG("This flt rule points to rt tbl %s.\n", rt_tbl.name);
