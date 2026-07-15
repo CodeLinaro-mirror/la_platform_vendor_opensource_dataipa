@@ -2963,7 +2963,16 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	if (ingress_param->ingress_ep_type == RMNET_INGRESS_DEFAULT) {
 		/* Reject the whole ioctl if coal pipe is not setup first */
 		/*In MHI mode COAL pipe was not supported, so avoid configuring*/
-		if ((dev->features & NETIF_F_GRO_HW) && (!ipa3_ctx->ipa_config_is_mhi)) {
+		/*
+		 * RDKB is exempt too (like MHI): it sets up the COAL pipe via
+		 * the kernel SSR AFTER_POWERUP path (COAL before DEFAULT), not
+		 * the userspace ingress-ioctl ordering. For the other modes,
+		 * when NETIF_F_GRO_HW is active the COAL pipe must be configured
+		 * before the DEFAULT pipe.
+		 */
+		if ((dev->features & NETIF_F_GRO_HW) &&
+			(!ipa3_ctx->ipa_config_is_mhi) &&
+			(!ipa3_ctx->ipa_config_is_rdkb)) {
 			if (coal_ep_idx == IPA_EP_NOT_ALLOCATED) {
 				IPAWANERR("Trying to setup def WAN before coals");
 				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
@@ -5615,8 +5624,18 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	if (ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_5) {
 		dev->hw_features |= NETIF_F_GRO_HW | NETIF_F_RXCSUM;
 		dev->hw_features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
-		dev->features |= NETIF_F_GRO_HW | NETIF_F_RXCSUM |
-				  NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
+		/*
+		 * Only activate HW GRO/coalescing by default on RDKB. Other
+		 * configs (e.g. EMB) keep it offerable via hw_features but
+		 * inactive, matching pre-6939904 behaviour. Activating it
+		 * elsewhere makes dev->features advertise NETIF_F_GRO_HW, which
+		 * trips the COAL-before-DEFAULT gate in
+		 * ipa3_setup_apps_wan_cons_pipes() (no COAL pipe is set up
+		 * outside RDKB) and fails WAN_CONS setup -> WAN RX broken.
+		 */
+		if (ipa3_ctx->ipa_config_is_rdkb)
+			dev->features |= NETIF_F_GRO_HW | NETIF_F_RXCSUM |
+					  NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
 	}
 
 
