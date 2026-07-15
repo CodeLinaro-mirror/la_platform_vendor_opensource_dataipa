@@ -408,6 +408,36 @@ struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac(mac_add
 EXPORT_SYMBOL(ipa_be_clientdb_get_mapping_by_mac);
 
 /*
+ * ipa_be_clientdb_get_mapping_by_mac_locked() - Lookup mapping by MAC + VLAN.
+ * @mac: MAC address to search for
+ * @vlan_id: VLAN ID to search for
+ *
+ * Same as ipa_be_clientdb_get_mapping_by_mac() but requires the caller to hold
+ * ipa_client_db_lock.  The returned pointer is valid only while the lock is held —
+ * callers must snapshot any needed fields before releasing it.
+ */
+struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac_locked(
+	mac_addr_t mac, int vlan_id)
+{
+	ipa_db_mapping_hash_t hash_index;
+	struct ipa_clientdb_mapping_instance *mi;
+
+	hash_index = ipa_db_mapping_generate_mac_hash_index(mac, vlan_id);
+
+	for (mi = ipa_db_mapping_mac_table[hash_index]; mi != NULL; mi = mi->mac_hash_next) {
+		if (memcmp(mi->mac_addr_t, mac, IPA_MAC_ADDR_SIZE) == 0 && mi->vlan_id == vlan_id) {
+			IPA_BE_DBG("Found mapping (locked) by MAC %pM VLAN %d at %px\n",
+				   mac, vlan_id, mi);
+			return mi;
+		}
+	}
+
+	IPA_BE_DBG("No mapping found (locked) for MAC %pM VLAN %d\n", mac, vlan_id);
+	return NULL;
+}
+EXPORT_SYMBOL(ipa_be_clientdb_get_mapping_by_mac_locked);
+
+/*
  * ipa_db_mapping_add()
  *	Add a mapping instance into the database
  *

@@ -9,6 +9,7 @@
 #include <linux/sched/signal.h>
 #include "ipa_i.h"
 #include <linux/msm_ipa.h>
+#include "../ipa_backend/ipa_be.h"
 
 struct ipa3_intf {
 	char name[IPA_RESOURCE_NAME_MAX];
@@ -170,6 +171,178 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 	mutex_unlock(&ipa3_ctx->lock);
 
 	return 0;
+}
+
+/**
+ * ipa3_set_intf_tx_tc_bitmap_by_pipe() - update tc_bmap for every TX property
+ *                                        of an interface that targets a given
+ *                                        destination pipe (client type)
+ * @name:      interface name
+ * @dst_pipe:  the tx_prop dst_pipe (IPA client type) to match
+ * @tc_bitmap: new tc_bmap value
+ *
+ * A single QoS pipe is typically registered as two TX props (one IPA_IP_v4,
+ * one IPA_IP_v6) sharing the same dst_pipe. This helper updates the tc_bmap
+ * on all such rows and refreshes the HW rules per IP version, so callers that
+ * only know the pipe (e.g. the ethernet driver's TC-remap path) do not need to
+ * know the tx_prop index layout. Mirrors ipa3_set_intf_tx_tc_bitmap()'s
+ * commit-under-lock then update-rules-outside-lock discipline.
+ *
+ * Returns 0 on success (including when no row matches — nothing to do),
+ * negative errno on failure.
+ */
+int ipa3_set_intf_tx_tc_bitmap_by_pipe(const char *name,
+				       enum ipa_client_type dst_pipe,
+				       uint32_t tc_bitmap)
+{
+	struct ipa3_intf *entry;
+	int retval = -ENOENT;
+	uint32_t removed_tcs[IPA_IP_MAX] = { 0 };
+	uint32_t added_tcs[IPA_IP_MAX] = { 0 };
+	bool touched = false;
+	int i;
+
+	if (!name) {
+		IPAERR("NULL interface name\n");
+		return -EINVAL;
+	}
+
+	if (tc_bitmap & ~((1U << IPA_MAX_TRAFFIC_CLASSES) - 1)) {
+		IPAERR("Invalid tc_bitmap 0x%x (bits beyond TC %d set)\n",
+		       tc_bitmap, IPA_MAX_TRAFFIC_CLASSES - 1);
+		return -EINVAL;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (strcmp(entry->name, name))
+			continue;
+		retval = 0;
+		for (i = 0; i < entry->num_tx_props; i++) {
+			enum ipa_ip_type ip = entry->tx[i].ip;
+			uint32_t old_bmap;
+
+			if (entry->tx[i].dst_pipe != dst_pipe)
+				continue;
+			if (ip < IPA_IP_v4 || ip >= IPA_IP_MAX)
+				continue;
+
+			old_bmap = entry->tx[i].tc_bmap;
+			entry->tx[i].tc_bmap = tc_bitmap;
+			/* Accumulate the delta per IP version; the HW rules are
+			 * refreshed once per IP after the lock is dropped. */
+			removed_tcs[ip] |= old_bmap & ~tc_bitmap;
+			added_tcs[ip]   |= ~old_bmap & tc_bitmap;
+			touched = true;
+
+			IPADBG("Updated %s tx[%d] (dst_pipe %d ip %d) tc_bmap 0x%x -> 0x%x\n",
+			       name, i, dst_pipe, ip, old_bmap, tc_bitmap);
+		}
+		break;
+	}
+	if (retval == -ENOENT)
+		IPAERR("Interface %s not found in registered interface list\n", name);
+	mutex_unlock(&ipa3_ctx->lock);
+
+	if (retval || !touched)
+		return retval;
+
+	/* Refresh HW rules per IP version, outside the lock (as the by-index
+	 * setter does) to avoid deadlock against the rule-mgmt paths. */
+	for (i = IPA_IP_v4; i < IPA_IP_MAX; i++) {
+		if (removed_tcs[i])
+			ipa_be_cleanup_tc_bitmap_rules(name, i, removed_tcs[i]);
+		if (added_tcs[i]) {
+			int hw_ret = ipa_be_install_tc_bitmap_rules(name, i,
+								    added_tcs[i]);
+			if (hw_ret)
+				retval = hw_ret;
+		}
+	}
+
+	return retval;
+}
+
+/**
+ * ipa3_set_intf_tx_tc_bitmap() - update tc_bmap for one TX interface property
+ * @name:      interface name
+ * @ip:        IP version (IPA_IP_v4 or IPA_IP_v6)
+ * @tx_index:  index of the TX property to update
+ * @tc_bitmap: new tc_bmap value
+ *
+ * Returns 0 on success, -ENOENT if interface or tx_index not found.
+ */
+int ipa3_set_intf_tx_tc_bitmap(const char *name,
+			       uint8_t tx_index, uint32_t tc_bitmap)
+{
+	struct ipa3_intf *entry;
+	int retval = -ENOENT;
+	uint32_t old_bmap = 0;
+	uint32_t removed_tcs = 0;
+	uint32_t added_tcs = 0;
+	enum ipa_ip_type ip = IPA_IP_v4;
+
+	if (!name) {
+		IPAERR("NULL interface name\n");
+		return -EINVAL;
+	}
+
+	if (tc_bitmap & ~((1U << IPA_MAX_TRAFFIC_CLASSES) - 1)) {
+		IPAERR("Invalid tc_bitmap 0x%x (bits beyond TC %d set)\n",
+		       tc_bitmap, IPA_MAX_TRAFFIC_CLASSES - 1);
+		return -EINVAL;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (strcmp(entry->name, name))
+			continue;
+		if (tx_index >= entry->num_tx_props) {
+			IPAERR("tx_index %u out of range (%u props) for %s\n",
+			       tx_index, entry->num_tx_props, name);
+			retval = -EINVAL;
+			break;
+		}
+		old_bmap = entry->tx[tx_index].tc_bmap;
+		ip       = entry->tx[tx_index].ip;
+		entry->tx[tx_index].tc_bmap = tc_bitmap;
+
+		/* Compute delta while holding the lock so the values are
+		 * consistent with the bitmap update.
+		 * NOTE: tc_bmap is committed here before HW rules are updated
+		 * (cleanup/install happen after this lock is released). A
+		 * concurrent ipa3_query_intf_tx_props reader between here and
+		 * the HW update could see the new bitmap with old rules. Full
+		 * atomicity would require holding the lock across HW ops, which
+		 * risks deadlock — this is a known best-effort limitation. */
+		removed_tcs = old_bmap & ~tc_bitmap;
+		added_tcs   = ~old_bmap & tc_bitmap;
+
+		IPADBG("Updated %s tx[%u] tc_bmap 0x%x -> 0x%x\n",
+		       name, tx_index, old_bmap, tc_bitmap);
+		retval = 0;
+		break;
+	}
+	if (retval == -ENOENT)
+		IPAERR("Interface %s not found in registered interface list\n", name);
+	mutex_unlock(&ipa3_ctx->lock);
+
+	/* Perform rule operations outside the lock to avoid deadlock. */
+	if (retval == 0) {
+		if (removed_tcs)
+			ipa_be_cleanup_tc_bitmap_rules(name, ip, removed_tcs);
+		if (added_tcs) {
+			int hw_ret = ipa_be_install_tc_bitmap_rules(name, ip, added_tcs);
+			/* Propagate HW install failure to caller. The tc_bmap was
+			 * already committed under the lock, so subsequent queries
+			 * will see the new bitmap; any failed rule installs will be
+			 * retried on the next tc_bitmap update for this interface. */
+			if (hw_ret)
+				retval = hw_ret;
+		}
+	}
+
+	return retval;
 }
 
 /**
@@ -614,74 +787,54 @@ static int qos_msg_process(struct ipa_msg_meta *meta, void *buff)
 {
 	struct ipa3_push_msg *msg_dup;
 	void *data_dup = NULL;
-	struct ipa3_push_msg *entry;
-	struct ipa3_push_msg *next;
+	struct ipa3_push_msg *entry, *next;
 	struct ipa_ioc_qos_config *event_ex_list = NULL;
 	struct ipa_ioc_qos_config *qos_param = NULL;
 
 	if (!buff)
 		return -EINVAL;
+
+	qos_param = buff;
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+
 	if (meta->msg_type == IPA_QOS_PARAM_ADD_EVENT) {
-		qos_param = buff;
-		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
-		list_for_each_entry_safe(entry, next,
-				&ipa3_ctx->msg_qos_param_list,
-				link) {
+		list_for_each_entry(entry, &ipa3_ctx->msg_qos_param_list, link) {
 			event_ex_list = entry->buff;
-			if (event_ex_list->traffic_class ==
-					qos_param->traffic_class &&
-				event_ex_list->ip_type ==
-					qos_param->ip_type &&
-				event_ex_list->src_ip_addr ==
-					qos_param->src_ip_addr &&
-				event_ex_list->dst_ip_addr ==
-					qos_param->dst_ip_addr &&
-				event_ex_list->src_port_start ==
-					qos_param->src_port_start &&
-				event_ex_list->src_port_end ==
-					qos_param->src_port_end &&
-				event_ex_list->dst_port_start ==
-					qos_param->dst_port_start &&
-				event_ex_list->dst_port_end ==
-					qos_param->dst_port_end &&
-				event_ex_list->protocol ==
-					qos_param->protocol &&
-				event_ex_list->dscp ==
-					qos_param->dscp &&
-				event_ex_list->pcp ==
-					qos_param->pcp &&
-				!memcmp(event_ex_list->src_v6_ip_addr,
-					qos_param->src_v6_ip_addr,
-					sizeof(qos_param->src_v6_ip_addr)) &&
-				!memcmp(event_ex_list->dst_v6_ip_addr,
-					qos_param->dst_v6_ip_addr,
-					sizeof(qos_param->dst_v6_ip_addr)) &&
-				!memcmp(event_ex_list->dst_mac_addr,
-					qos_param->dst_mac_addr,
-					sizeof(qos_param->dst_mac_addr)) &&
-				!memcmp(event_ex_list->src_mac_addr,
-					qos_param->src_mac_addr,
-					sizeof(qos_param->src_mac_addr))
-				) {
-					IPADBG("Duplicate entry, ignore\n");
-					mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
-					return 0;
-				}
+			if (event_ex_list->traffic_class == qos_param->traffic_class &&
+				event_ex_list->ip_type == qos_param->ip_type &&
+				event_ex_list->src_ip_addr == qos_param->src_ip_addr &&
+				event_ex_list->dst_ip_addr == qos_param->dst_ip_addr &&
+				event_ex_list->src_port_start == qos_param->src_port_start &&
+				event_ex_list->src_port_end == qos_param->src_port_end &&
+				event_ex_list->dst_port_start == qos_param->dst_port_start &&
+				event_ex_list->dst_port_end == qos_param->dst_port_end &&
+				event_ex_list->protocol == qos_param->protocol &&
+				event_ex_list->dscp == qos_param->dscp &&
+				event_ex_list->pcp == qos_param->pcp &&
+				!memcmp(event_ex_list->src_v6_ip_addr, qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_v6_ip_addr, qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_mac_addr, qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
+				!memcmp(event_ex_list->src_mac_addr, qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr))) {
+				IPADBG("Duplicate entry, ignore\n");
+				mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+				return 0;
+			}
 		}
+
 		msg_dup = kzalloc(sizeof(*msg_dup), GFP_KERNEL);
-		if (msg_dup == NULL) {
+		if (!msg_dup) {
 			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 			return -ENOMEM;
 		}
+
 		msg_dup->meta = *meta;
 		if (meta->msg_len > 0 && buff) {
 			data_dup = kmemdup(buff, meta->msg_len, GFP_KERNEL);
-			if (data_dup == NULL) {
+			if (!data_dup) {
 				kfree(msg_dup);
 				mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 				return -ENOMEM;
 			}
-			memcpy(data_dup, buff, meta->msg_len);
 			msg_dup->buff = data_dup;
 			msg_dup->callback = ipa_send_msg_free;
 		} else {
@@ -691,75 +844,44 @@ static int qos_msg_process(struct ipa_msg_meta *meta, void *buff)
 			return -ENOMEM;
 		}
 		list_add_tail(&msg_dup->link, &ipa3_ctx->msg_qos_param_list);
-		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
 	} else if (meta->msg_type == IPA_QOS_PARAM_DELETE_EVENT) {
-		/* debug print */
-		qos_param = buff;
-		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
-		list_for_each_entry_safe(entry, next,
-				&ipa3_ctx->msg_qos_param_list,
-				link) {
-			if(entry->meta.msg_type == IPA_QOS_PARAM_ADD_EVENT) {
-				event_ex_list = entry->buff;
-				if (event_ex_list->traffic_class ==
-						qos_param->traffic_class &&
-					event_ex_list->ip_type ==
-						qos_param->ip_type &&
-					event_ex_list->src_ip_addr ==
-						qos_param->src_ip_addr &&
-					event_ex_list->dst_ip_addr ==
-						qos_param->dst_ip_addr &&
-					event_ex_list->src_port_start ==
-						qos_param->src_port_start &&
-					event_ex_list->src_port_end ==
-						qos_param->src_port_end &&
-					event_ex_list->dst_port_start ==
-						qos_param->dst_port_start &&
-					event_ex_list->dst_port_end ==
-						qos_param->dst_port_end &&
-					event_ex_list->protocol ==
-						qos_param->protocol &&
-					event_ex_list->dscp ==
-						qos_param->dscp &&
-					event_ex_list->pcp ==
-						qos_param->pcp &&
-					!memcmp(event_ex_list->src_v6_ip_addr,
-						qos_param->src_v6_ip_addr,
-						sizeof(qos_param->src_v6_ip_addr)) &&
-					!memcmp(event_ex_list->dst_v6_ip_addr,
-						qos_param->dst_v6_ip_addr,
-						sizeof(qos_param->dst_v6_ip_addr)) &&
-					!memcmp(event_ex_list->dst_mac_addr,
-						qos_param->dst_mac_addr,
-						sizeof(qos_param->dst_mac_addr)) &&
-					!memcmp(event_ex_list->src_mac_addr,
-						qos_param->src_mac_addr,
-						sizeof(qos_param->src_mac_addr))
-					) {
-					IPADBG("clean the entry\n");
-					list_del(&entry->link);
-					entry->callback(entry->buff,
-						entry->meta.msg_len,
-						entry->meta.msg_type);
-					kfree(entry);
-					break;
-				}
+		list_for_each_entry_safe(entry, next, &ipa3_ctx->msg_qos_param_list, link) {
+			event_ex_list = entry->buff;
+			if (event_ex_list->traffic_class == qos_param->traffic_class &&
+				event_ex_list->ip_type == qos_param->ip_type &&
+				event_ex_list->src_ip_addr == qos_param->src_ip_addr &&
+				event_ex_list->dst_ip_addr == qos_param->dst_ip_addr &&
+				event_ex_list->src_port_start == qos_param->src_port_start &&
+				event_ex_list->src_port_end == qos_param->src_port_end &&
+				event_ex_list->dst_port_start == qos_param->dst_port_start &&
+				event_ex_list->dst_port_end == qos_param->dst_port_end &&
+				event_ex_list->protocol == qos_param->protocol &&
+				event_ex_list->dscp == qos_param->dscp &&
+				event_ex_list->pcp == qos_param->pcp &&
+				!memcmp(event_ex_list->src_v6_ip_addr, qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_v6_ip_addr, qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_mac_addr, qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
+				!memcmp(event_ex_list->src_mac_addr, qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr))) {
+				IPADBG("clean the entry\n");
+				list_del(&entry->link);
+				if (entry->callback)
+					entry->callback(entry->buff, entry->meta.msg_len, entry->meta.msg_type);
+				kfree(entry);
+				break;
 			}
 		}
-		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
-	}else if (meta->msg_type == IPA_QOS_PARAM_FLUSH_EVENT) {
+	} else if (meta->msg_type == IPA_QOS_PARAM_FLUSH_EVENT) {
 		IPADBG("Delete all entries\n");
-		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
-		list_for_each_entry_safe(entry, next,
-				&ipa3_ctx->msg_qos_param_list,
-				link) {
-				list_del(&entry->link);
-				entry->callback(entry->buff,
-					entry->meta.msg_len, entry->meta.msg_type);
-				kfree(entry);
+		list_for_each_entry_safe(entry, next, &ipa3_ctx->msg_qos_param_list, link) {
+			list_del(&entry->link);
+			if (entry->callback)
+				entry->callback(entry->buff, entry->meta.msg_len, entry->meta.msg_type);
+			kfree(entry);
 		}
-		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 	}
+
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 	return 0;
 }
 
@@ -960,38 +1082,39 @@ int ipa3_resend_lan_msg(void)
 
 int ipa3_resend_qos_msg(void)
 {
-	struct ipa3_push_msg *entry = NULL;
-	struct ipa3_push_msg *next = NULL;
-	struct ipa_ioc_qos_config *qos_param = NULL;
-	struct ipa3_push_msg *msg = NULL;
-	void *data = NULL;
+	struct ipa3_push_msg *entry;
+	struct ipa3_push_msg *msg;
+	void *data;
 
 	IPADBG("\n");
 	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
-	list_for_each_entry_safe(entry, next, &ipa3_ctx->msg_qos_param_list, link) {
-		qos_param = entry->buff;
+	list_for_each_entry(entry, &ipa3_ctx->msg_qos_param_list, link) {
+		struct ipa_ioc_qos_config *qos_param = entry->buff;
 
 		IPADBG("QOS Msg type: %d\n", qos_param->qos_param_evt_type);
 		IPADBG("interface name: %s\n", qos_param->dev_name);
 
 		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-		if (msg == NULL) {
+		if (!msg) {
 			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 			return -ENOMEM;
 		}
+
 		msg->meta = entry->meta;
-		data = kzalloc(entry->meta.msg_len, GFP_KERNEL);
-		if (data == NULL) {
+		data = kmemdup(entry->buff, entry->meta.msg_len, GFP_KERNEL);
+		if (!data) {
 			kfree(msg);
 			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 			return -ENOMEM;
 		}
-		memcpy(data, entry->buff, entry->meta.msg_len);
+
 		msg->buff = data;
 		msg->callback = ipa_send_msg_free;
+
 		mutex_lock(&ipa3_ctx->msg_lock);
 		list_add_tail(&msg->link, &ipa3_ctx->msg_list);
 		mutex_unlock(&ipa3_ctx->msg_lock);
+
 		wake_up(&ipa3_ctx->msg_waitq);
 	}
 	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
@@ -1488,8 +1611,7 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
 				entry->flt_list = kzalloc(sizeof(*entry->flt_list), GFP_KERNEL);
 				if (!entry->flt_list) {
 					IPAERR("Failed to allocate memory for flt_list\n");
-					kfree(new_entry);  // cleanup if already allocated
-					break;
+					break;  // Don't free new_entry here as it's not allocated yet
 				}
 
 				INIT_LIST_HEAD(&entry->flt_list->link);

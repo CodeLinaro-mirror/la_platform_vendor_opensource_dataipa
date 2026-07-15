@@ -127,6 +127,7 @@ struct ipa_clientdb_mapping_instance {
 struct ipa_clientdb_mapping_instance *ipa_db_mapping_alloc(void);
 bool ipa_be_clientdb_find_and_ref(ip_addr_t address, int vlan_id, bool lan2lan);
 struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac(mac_addr_t mac, int vlan_id);
+struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac_locked(mac_addr_t mac, int vlan_id);
 int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan_id, ip_addr_t address,
 							   ipa_db_mapping_final_callback_t final, void *arg);
 

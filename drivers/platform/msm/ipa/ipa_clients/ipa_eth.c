@@ -111,6 +111,12 @@ static bool pipe_connected[IPA_ETH_PIPES_NO];
 static bool pipe_enabled[IPA_ETH_PIPES_NO];
 #endif
 
+static enum ipa_client_type
+	ipa_eth_get_ipa_client_type_from_pipe(
+	struct ipa_eth_client_pipe_info *pipe,
+	u8 rx_pipe_idx,
+	u8 tx_pipe_idx);
+
 static int eth_qos_cmp(const void *a, const void *b) {
 	if (((struct ipa_eth_qos_info *)a)->tc_bmap <= ((struct ipa_eth_qos_info *)b)->tc_bmap)
 		return 1;
@@ -154,9 +160,136 @@ int ipa_eth_qos_get_qos_info
  		*info = ipa_eth_ctx->tx_qos_info[inst_id][idx];
 	else
 		*info = ipa_eth_ctx->rx_qos_info[inst_id][idx];
-	return -1;
+	return 0;
 }
 EXPORT_SYMBOL(ipa_eth_qos_get_qos_info);
+
+int ipa_eth_qos_update_tc_mapping(struct ipa_eth_client_pipe_info *pipe)
+{
+	struct ipa_eth_client *client;
+	struct ipa_eth_client_pipe_info *iter;
+	struct ipa_eth_qos_info *qos_arr;
+	u8 *num_pipes;
+	enum ipa_client_type matched_type;
+	u8 rx_pipe_idx = 0, tx_pipe_idx = 0;
+	u8 max_entries;
+	u8 i, prio = 0;
+	int found = -1;
+
+	if (!pipe || !pipe->client_info) {
+		IPA_ETH_ERR("invalid pipe / client_info\n");
+		return -EINVAL;
+	}
+	if (!ipa_eth_ctx) {
+		IPA_ETH_ERR("ipa_eth not initialized\n");
+		return -ENODEV;
+	}
+	if (!ipa3_ctx || !ipa3_ctx->eth_qos) {
+		IPA_ETH_ERR("eth_qos not enabled\n");
+		return -EOPNOTSUPP;
+	}
+
+	client = pipe->client_info;
+	if (client->inst_id >= IPA_ETH_INST_ID_MAX) {
+		IPA_ETH_ERR("inst_id %u out of range\n", client->inst_id);
+		return -EINVAL;
+	}
+
+	mutex_lock(&ipa_eth_ctx->lock);
+
+	/*
+	 * Walk client->pipe_list to derive @pipe's sequential rx/tx index
+	 * (same scheme used by ipa_eth_client_conn_pipes).  This lets us
+	 * compute the IPA client_type the entry was stored under, then match
+	 * the qos_info[] entry that needs its tc_bmap updated.
+	 */
+	list_for_each_entry(iter, &client->pipe_list, link) {
+		if (iter == pipe)
+			break;
+		if (iter->dir == IPA_ETH_PIPE_DIR_TX)
+			tx_pipe_idx++;
+		else if (iter->dir == IPA_ETH_PIPE_DIR_RX)
+			rx_pipe_idx++;
+	}
+	matched_type = ipa_eth_get_ipa_client_type_from_pipe(
+		pipe, rx_pipe_idx, tx_pipe_idx);
+	if (matched_type == IPA_CLIENT_MAX) {
+		mutex_unlock(&ipa_eth_ctx->lock);
+		IPA_ETH_ERR("could not derive client_type for pipe\n");
+		return -EINVAL;
+	}
+
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		qos_arr     = ipa_eth_ctx->tx_qos_info[client->inst_id];
+		num_pipes   = &ipa_eth_ctx->tx_num_pipes[client->inst_id];
+		max_entries = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS;
+	} else {
+		qos_arr     = ipa_eth_ctx->rx_qos_info[client->inst_id];
+		num_pipes   = &ipa_eth_ctx->rx_num_pipes[client->inst_id];
+		max_entries = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS;
+	}
+
+	for (i = 0; i < *num_pipes && i < max_entries; i++) {
+		if (qos_arr[i].client_type == matched_type) {
+			found = i;
+			break;
+		}
+	}
+	if (found < 0) {
+		mutex_unlock(&ipa_eth_ctx->lock);
+		IPA_ETH_ERR("no qos_info entry for client_type %d (pipe not connected?)\n",
+			matched_type);
+		return -ENOENT;
+	}
+
+	IPADBG("Updating tc_bmap for client_type=%d dir=%d: %u -> %u\n",
+		matched_type, pipe->dir,
+		qos_arr[found].tc_bmap, pipe->tc_bmap);
+	qos_arr[found].tc_bmap = pipe->tc_bmap;
+
+	/* Re-sort by tc_bmap (same comparator the connect path uses). */
+	sort(qos_arr, *num_pipes, sizeof(struct ipa_eth_qos_info),
+		eth_qos_cmp, eth_qos_swap);
+
+	/* Recompute relative priority. */
+	for (i = 0, prio = 0; i < *num_pipes && i < max_entries; i++) {
+		if (qos_arr[i].tc_bmap == 0) {
+			qos_arr[i].priority = *num_pipes - 1;
+		} else {
+			qos_arr[i].priority = prio;
+			prio++;
+		}
+		IPADBG("%s Index: %d, Pipe idx: %d, Tc_bmap: %u, Priority: %d\n",
+			pipe->dir == IPA_ETH_PIPE_DIR_TX ? "TX" : "RX",
+			i, qos_arr[i].pipe_idx,
+			qos_arr[i].tc_bmap, qos_arr[i].priority);
+	}
+
+	mutex_unlock(&ipa_eth_ctx->lock);
+
+	/*
+	 * Mirror the new tc_bmap into the registered interface's TX props so
+	 * the DL QoS route-install path (ipa_be_install_qos_route_rule, which
+	 * reads intf_list entry->tx[].tc_bmap via ipa3_query_intf_tx_props)
+	 * can select this pipe. The ipa_eth tx_qos_info[] updated above only
+	 * drives pipe priority/HOLB; without this, a TC remap would leave the
+	 * routing store at its old value and DL filters for the new TC would
+	 * fail with "No matching TX pipe". Done outside ipa_eth_ctx->lock, and
+	 * only for TX pipes (RX has no routable TX prop). Best-effort: a
+	 * failure here is logged but does not fail the priority update.
+	 */
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX && client->net_dev) {
+		int ret = ipa3_set_intf_tx_tc_bitmap_by_pipe(
+			client->net_dev->name, matched_type, pipe->tc_bmap);
+		if (ret)
+			IPA_ETH_ERR("failed to mirror tc_bmap 0x%x to intf %s props for client_type %d: %d\n",
+				pipe->tc_bmap, client->net_dev->name,
+				matched_type, ret);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_eth_qos_update_tc_mapping);
 
 static u8 eth_qos_get_tx_priority(u8 pipe_idx, u8 inst_id) {
 	int i;
