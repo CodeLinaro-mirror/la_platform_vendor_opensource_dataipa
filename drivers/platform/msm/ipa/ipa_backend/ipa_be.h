@@ -17,6 +17,12 @@
 
 
 #define OFFLOAD_DRV_NAME "ipa_backend"
+
+#define IPA_BE_MULTICAST_IPV6_PREFIX 0xFF000000
+#define IPA_BE_LINK_LOCAL_IPV6_PREFIX 0xFE800000
+#define IPA_BE_LINK_LOCAL_IPV6_PREFIX_MASK 0xFFC00000
+#define IPA_BE_RESERVED_IPV6_PREFIX 0xFEC00000
+
 #define IPA_BE_DBG(fmt, args...) \
 	do { \
 		pr_debug(OFFLOAD_DRV_NAME " %s:%d " fmt, \
@@ -74,6 +80,16 @@ typedef uint8_t mac_addr_t[IPA_MAC_ADDR_SIZE];
 
 static inline void ipa_type_check_ipa_mac_addr(mac_addr_t mac_addr){}
 static inline void ipa_type_check_ipa_ip_addr(ip_addr_t ipaddr){}
+
+/* Returns true if the IPv6 destination address is link-local (fe80::/10).
+ * ttl_update is left unset for link-local route rules; keep the two
+ * lan2wan route callsites in sync through this helper.
+ */
+static inline bool ipa_be_v6_dst_is_link_local(const uint32_t dst_addr[4])
+{
+	return (dst_addr[0] & IPA_BE_LINK_LOCAL_IPV6_PREFIX_MASK) ==
+		IPA_BE_LINK_LOCAL_IPV6_PREFIX;
+}
 
 int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct_enabled);
 int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface, bool lan2lan);
