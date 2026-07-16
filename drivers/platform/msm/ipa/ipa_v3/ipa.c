@@ -3687,6 +3687,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	union ipa_ioc_uc_activation_entry uc_act;
 	int i = 0;
 	struct rgip_info rgip_addr;
+	struct GreIfaceIpInfo_t gre_iface_ip_info;
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
 
 	if (_IOC_TYPE(cmd) != IPA_IOC_MAGIC)
@@ -5522,6 +5523,18 @@ send:
 			break;
 		}
 		ipa3_send_rgip_info(IPA_RGIP_ADD_EVENT,rgip_addr);
+		break;
+
+	case IPA_IOC_SET_IPOGRE_IFACE_ADDR:
+		if (copy_from_user(
+				&gre_iface_ip_info,
+				(const void __user *) arg,
+				sizeof(struct GreIfaceIpInfo_t))) {
+			IPAERR("copy_from_user fails for SET_IPOGRE_IFACE_ADDR\n");
+			retval = -EFAULT;
+			break;
+		}
+		retval = ipa3_uc_send_ipogre_iface_addr(&gre_iface_ip_info);
 		break;
 
 	default:
@@ -8438,6 +8451,11 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_RGIP))
 				return -EPERM;
 			cmd = IPA_IOC_ADD_RGIP;
+			break;
+		case IPA_IOCTL_SET_IPOGRE_IFACE_ADDR:
+			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_SET_IPOGRE_IFACE_ADDR))
+				return -EPERM;
+			cmd = IPA_IOC_SET_IPOGRE_IFACE_ADDR;
 			break;
 
 	default:

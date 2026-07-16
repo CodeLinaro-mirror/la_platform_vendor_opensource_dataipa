@@ -4353,6 +4353,12 @@ int ipa3_add_dscp_vlan_pcp_map(
 	struct IpaDscpVlanPcpMap_t *map );
 
 /*
+ * To send IPoGRE tunnel interface addresses to uC
+ */
+int ipa3_uc_send_ipogre_iface_addr(
+	const struct GreIfaceIpInfo_t *info );
+
+/*
  * To send enable/disable information to ipacm
  */
 int ipa3_send_eogre_info(
