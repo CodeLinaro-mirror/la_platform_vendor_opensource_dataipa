@@ -2067,19 +2067,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		}
 	}
 
-	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
-		napi_disable(&ep->sys->napi_rx);
-		netif_napi_del(&ep->sys->napi_rx);
-	}
-
-	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
-		tasklet_kill(&ep->sys->tasklet);
-
 	if ( ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS ) {
 		stop_coalescing();
 		ipa3_force_close_coal(false, true);
 	}
-
 
 	/* channel stop might fail on timeout if IPA is busy */
 	for (i = 0; i < IPA_GSI_CHANNEL_STOP_MAX_RETRY; i++) {
@@ -2113,6 +2104,14 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 	if (IPA_CLIENT_IS_PROD(ep->client))
 		atomic_set(&ep->sys->workqueue_flushed, 1);
 
+	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
+		napi_disable(&ep->sys->napi_rx);
+		netif_napi_del(&ep->sys->napi_rx);
+	}
+
+	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
+		tasklet_kill(&ep->sys->tasklet);
+
 	/*
 	 * Tear down the default pipe before we reset the channel
 	 */
@@ -2120,6 +2119,8 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 		if ( ! IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_WAN_CONS, i) ) {
 			IPAERR("Failed to get idx for IPA_CLIENT_APPS_WAN_CONS");
+			if (!ep->keep_ipa_awake)
+				IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return i;
 		}
 
@@ -2130,6 +2131,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			result = ipa3_teardown_pipe(i);
 			if (result) {
 				IPAERR("failed to teardown default coal pipe\n");
+				if (!ep->keep_ipa_awake) {
+					IPA_ACTIVE_CLIENTS_DEC_EP(
+						ipa3_get_client_mapping(clnt_hdl));
+				}
 				return result;
 			}
 		}
@@ -2147,6 +2152,8 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 
 		if ( ! IPA_CLIENT_IS_MAPPED(IPA_CLIENT_APPS_LAN_CONS, i) ) {
 			IPAERR("Failed to get idx for IPA_CLIENT_APPS_LAN_CONS,");
+			if (!ep->keep_ipa_awake)
+				IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 			return i;
 		}
 
@@ -2157,6 +2164,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			result = ipa3_teardown_pipe(i);
 			if (result) {
 				IPAERR("failed to teardown default coal pipe\n");
+				if (!ep->keep_ipa_awake) {
+					IPA_ACTIVE_CLIENTS_DEC_EP(
+						ipa3_get_client_mapping(clnt_hdl));
+				}
 				return result;
 			}
 		}
@@ -2185,8 +2196,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 			ep->gsi_mem_info.chan_ring_len;
 	} else if (ep->gsi_evt_ring_hdl != ~0) {
 		result = gsi_reset_evt_ring(ep->gsi_evt_ring_hdl);
-		if (WARN(result != GSI_STATUS_SUCCESS, "reset evt %d", result))
+		if (WARN(result != GSI_STATUS_SUCCESS, "reset evt %d", result)) {
+			ipa_assert();
 			return result;
+		}
 
 		dma_free_coherent(ipa3_ctx->pdev,
 			ep->gsi_mem_info.evt_ring_len,
@@ -2203,8 +2216,10 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		}
 
 		result = gsi_dealloc_evt_ring(ep->gsi_evt_ring_hdl);
-		if (WARN(result != GSI_STATUS_SUCCESS, "deall evt %d", result))
+		if (WARN(result != GSI_STATUS_SUCCESS, "deall evt %d", result)) {
+			ipa_assert();
 			return result;
+		}
 	}
 	if (ep->sys->repl_wq)
 		flush_workqueue(ep->sys->repl_wq);
@@ -2512,20 +2527,24 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 			data_idx++;
 		}
 
-		if ((ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) &&
-		    ((network_header->version == 4 &&
-		     network_header->protocol == IPPROTO_ICMP) ||
-		    (((struct ipv6hdr *)network_header)->version == 6 &&
-		     ((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP) ||
-		    (meta && meta->pkt_ex_init_valid)) && (meta && (!meta->ncm_enable))) {
+		if((ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) && (meta && (meta->ncm_enable))) {
+			desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
+			desc[data_idx].dma_address =
+				ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].phys_base;
+		} else if ((ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) &&
+			((network_header->version == 4 &&
+			network_header->protocol == IPPROTO_ICMP) ||
+			(((struct ipv6hdr *)network_header)->version == 6 &&
+			((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP) ||
+			(meta && meta->pkt_ex_init_valid))) {
 			ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
 				dst_ep_idx);
 			desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
 			desc[data_idx].dma_address =
 				ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].phys_base;
-		} else if ((ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe &&
-			skb_is_gso(skb)) || (meta && (meta->ncm_enable))) {
+		} else if (ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe &&
+			skb_is_gso(skb)) {
 			desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
 			desc[data_idx].dma_address =
 				ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].phys_base;
@@ -6685,51 +6704,56 @@ void ipa3_dealloc_common_event_ring(void)
 
 int ipa3_alloc_common_event_ring(void)
 {
-	struct gsi_evt_ring_props gsi_evt_ring_props;
+	struct gsi_evt_ring_props *gsi_evt_ring_props;
 	dma_addr_t evt_dma_addr = 0;
 	dma_addr_t evt_rp_dma_addr = 0;
 	int result;
 
-	memset(&gsi_evt_ring_props, 0, sizeof(gsi_evt_ring_props));
-	gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_GPI_EV;
-	gsi_evt_ring_props.intr = GSI_INTR_IRQ;
-	gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
-
-	gsi_evt_ring_props.ring_len = IPA_COMMON_EVENT_RING_SIZE;
-
-	gsi_evt_ring_props.ring_base_vaddr =
-		dma_alloc_coherent(ipa3_ctx->pdev,
-		gsi_evt_ring_props.ring_len, &evt_dma_addr, GFP_KERNEL);
-	if (!gsi_evt_ring_props.ring_base_vaddr) {
-		IPAERR_BOOTUP("fail to dma alloc %u bytes\n",
-			gsi_evt_ring_props.ring_len);
+	/* Allocate props on heap to avoid KASAN/Stack issues */
+	gsi_evt_ring_props = kzalloc(sizeof(*gsi_evt_ring_props), GFP_KERNEL);
+	if (!gsi_evt_ring_props)
 		return -ENOMEM;
+
+	gsi_evt_ring_props->intf = GSI_EVT_CHTYPE_GPI_EV;
+	gsi_evt_ring_props->intr = GSI_INTR_IRQ;
+	gsi_evt_ring_props->re_size = GSI_EVT_RING_RE_SIZE_16B;
+
+	gsi_evt_ring_props->ring_len = IPA_COMMON_EVENT_RING_SIZE;
+
+	gsi_evt_ring_props->ring_base_vaddr =
+		dma_alloc_coherent(ipa3_ctx->pdev,
+		gsi_evt_ring_props->ring_len, &evt_dma_addr, GFP_KERNEL);
+	if (!gsi_evt_ring_props->ring_base_vaddr) {
+		IPAERR_BOOTUP("fail to dma alloc %u bytes\n",
+			gsi_evt_ring_props->ring_len);
+		result = -ENOMEM;
+		goto fail_alloc_ring;
 	}
-	gsi_evt_ring_props.ring_base_addr = evt_dma_addr;
-	gsi_evt_ring_props.int_modt = 0;
-	gsi_evt_ring_props.int_modc = 1; /* moderation comes from channel*/
+	gsi_evt_ring_props->ring_base_addr = evt_dma_addr;
+	gsi_evt_ring_props->int_modt = 0;
+	gsi_evt_ring_props->int_modc = 1; /* moderation comes from channel*/
 
 	if (ipa3_ctx->ipa_gpi_event_rp_ddr) {
-		gsi_evt_ring_props.rp_update_vaddr =
+		gsi_evt_ring_props->rp_update_vaddr =
 			dma_alloc_coherent(ipa3_ctx->pdev,
 					   IPA_GSI_EVENT_RP_SIZE,
 					   &evt_rp_dma_addr, GFP_KERNEL);
-		if (!gsi_evt_ring_props.rp_update_vaddr) {
+		if (!gsi_evt_ring_props->rp_update_vaddr) {
 			IPAERR_BOOTUP("fail to dma alloc %u bytes\n",
 			       IPA_GSI_EVENT_RP_SIZE);
 			result = -ENOMEM;
 			goto fail_alloc_rp;
 		}
-		gsi_evt_ring_props.rp_update_addr = evt_rp_dma_addr;
+		gsi_evt_ring_props->rp_update_addr = evt_rp_dma_addr;
 	} else {
-		gsi_evt_ring_props.rp_update_addr = 0;
+		gsi_evt_ring_props->rp_update_addr = 0;
 	}
 
-	gsi_evt_ring_props.exclusive = false;
-	gsi_evt_ring_props.err_cb = ipa_gsi_evt_ring_err_cb;
-	gsi_evt_ring_props.user_data = NULL;
+	gsi_evt_ring_props->exclusive = false;
+	gsi_evt_ring_props->err_cb = ipa_gsi_evt_ring_err_cb;
+	gsi_evt_ring_props->user_data = NULL;
 
-	result = gsi_alloc_evt_ring(&gsi_evt_ring_props,
+	result = gsi_alloc_evt_ring(gsi_evt_ring_props,
 		ipa3_ctx->gsi_dev_hdl, &ipa3_ctx->gsi_evt_comm_hdl);
 	if (result) {
 		IPAERR_BOOTUP("gsi_alloc_evt_ring failed %d\n", result);
@@ -6737,17 +6761,22 @@ int ipa3_alloc_common_event_ring(void)
 	}
 	ipa3_ctx->gsi_evt_comm_ring_rem = IPA_COMMON_EVENT_RING_SIZE;
 
+	/* Free the props structure before returning success */
+	kfree(gsi_evt_ring_props);
 	return 0;
+
 fail_alloc_evt_ring:
-	if (gsi_evt_ring_props.rp_update_vaddr) {
+	if (gsi_evt_ring_props->rp_update_vaddr) {
 		dma_free_coherent(ipa3_ctx->pdev, IPA_GSI_EVENT_RP_SIZE,
-				  gsi_evt_ring_props.rp_update_vaddr,
+				  gsi_evt_ring_props->rp_update_vaddr,
 				  evt_rp_dma_addr);
 	}
 fail_alloc_rp:
-	dma_free_coherent(ipa3_ctx->pdev, gsi_evt_ring_props.ring_len,
-			  gsi_evt_ring_props.ring_base_vaddr,
+	dma_free_coherent(ipa3_ctx->pdev, gsi_evt_ring_props->ring_len,
+			  gsi_evt_ring_props->ring_base_vaddr,
 			  evt_dma_addr);
+fail_alloc_ring:
+	kfree(gsi_evt_ring_props);
 	return result;
 }
 
