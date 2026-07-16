@@ -469,6 +469,11 @@ int ipa_ipv6ct_walk_table(
 	ipa_table_walk_cb walk_cb,
 	void*             arb_data_ptr );
 
+int ipa_ipv6ct_copy_table(
+	uint32_t          src_tbl_hdl,
+	uint32_t          dst_tbl_hdl,
+	ipa_table_walk_cb copy_cb );
+
 int ipa_ipv6ct_stats_table(
 	uint32_t            tbl_hdl,
 	ipa_cti_tbl_stats* ct_stats_ptr);
