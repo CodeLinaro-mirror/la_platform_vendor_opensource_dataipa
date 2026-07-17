@@ -1545,36 +1545,40 @@ int ipa3_add_rt_rule_usr_v2(struct ipa_ioc_add_rt_rule_v2 *rules,
 {
 	int i;
 	int ret;
+	struct ipa_rt_rule_add_v2 *rule_entry;
 
 	if (rules == NULL || rules->num_rules == 0 || rules->ip >= IPA_IP_MAX) {
 		IPAERR_RL("bad param\n");
 		return -EINVAL;
 	}
 
+	if (rules->rule_add_size == 0) {
+		IPAERR_RL("Invalid rule_add_size\n");
+		return -EINVAL;
+	}
+
 	mutex_lock(&ipa3_ctx->lock);
 	for (i = 0; i < rules->num_rules; i++) {
+		rule_entry = (struct ipa_rt_rule_add_v2 *)
+			((uint8_t *)(uintptr_t)rules->rules +
+			 i * rules->rule_add_size);
+
 		rules->rt_tbl_name[IPA_RESOURCE_NAME_MAX-1] = '\0';
 		/* if hashing not supported, all tables are non-hash tables*/
 		if (ipa3_ctx->ipa_fltrt_not_hashable)
-			((struct ipa_rt_rule_add_i *)
-			rules->rules)[i].rule.hashable = false;
+			rule_entry->rule.hashable = false;
 		if (__ipa_add_rt_rule(rules->ip, rules->rt_tbl_name,
-					&(((struct ipa_rt_rule_add_i *)
-					rules->rules)[i].rule),
-					((struct ipa_rt_rule_add_i *)
-					rules->rules)[i].at_rear,
-					&(((struct ipa_rt_rule_add_i *)
-					rules->rules)[i].rt_rule_hdl),
+					(struct ipa_rt_rule_i *)&rule_entry->rule,
+					rule_entry->at_rear,
+					&rule_entry->rt_rule_hdl,
 					0,
 					user_only,
-					0,
-					0)) {
+					rule_entry->rt_rule_category,
+					rule_entry->rule_sub_category)) {
 			IPAERR_RL("failed to add rt rule %d\n", i);
-			((struct ipa_rt_rule_add_i *)rules->rules)[i].status
-				= IPA_RT_STATUS_OF_ADD_FAILED;
+			rule_entry->status = IPA_RT_STATUS_OF_ADD_FAILED;
 		} else {
-			((struct ipa_rt_rule_add_i *)
-			rules->rules)[i].status = 0;
+			rule_entry->status = 0;
 		}
 	}
 
@@ -1835,9 +1839,15 @@ int ipa3_add_rt_rule_after_v2(struct ipa_ioc_add_rt_rule_after_v2
 	int ret = 0;
 	struct ipa3_rt_tbl *tbl = NULL;
 	struct ipa3_rt_entry *entry = NULL;
+	struct ipa_rt_rule_add_v2 *rule_entry;
 
 	if (rules == NULL || rules->num_rules == 0 || rules->ip >= IPA_IP_MAX) {
 		IPAERR_RL("bad param\n");
+		return -EINVAL;
+	}
+
+	if (rules->rule_add_size == 0) {
+		IPAERR_RL("Invalid rule_add_size\n");
 		return -EINVAL;
 	}
 
@@ -1896,22 +1906,21 @@ int ipa3_add_rt_rule_after_v2(struct ipa_ioc_add_rt_rule_after_v2
 	 */
 
 	for (i = 0; i < rules->num_rules; i++) {
+		rule_entry = (struct ipa_rt_rule_add_v2 *)
+			((uint8_t *)(uintptr_t)rules->rules +
+			 i * rules->rule_add_size);
+
 		/* if hashing not supported, all tables are non-hash tables*/
 		if (ipa3_ctx->ipa_fltrt_not_hashable)
-			((struct ipa_rt_rule_add_i *)
-			rules->rules)[i].rule.hashable = false;
+			rule_entry->rule.hashable = false;
 		if (__ipa_add_rt_rule_after(tbl,
-					&(((struct ipa_rt_rule_add_i *)
-					rules->rules)[i].rule),
-					&(((struct ipa_rt_rule_add_i *)
-					rules->rules)[i].rt_rule_hdl),
+					(struct ipa_rt_rule_i *)&rule_entry->rule,
+					&rule_entry->rt_rule_hdl,
 					&entry)) {
 			IPAERR_RL("failed to add rt rule %d\n", i);
-			((struct ipa_rt_rule_add_i *)
-			rules->rules)[i].status = IPA_RT_STATUS_OF_ADD_FAILED;
+			rule_entry->status = IPA_RT_STATUS_OF_ADD_FAILED;
 		} else {
-			((struct ipa_rt_rule_add_i *)
-			rules->rules)[i].status = 0;
+			rule_entry->status = 0;
 		}
 	}
 
