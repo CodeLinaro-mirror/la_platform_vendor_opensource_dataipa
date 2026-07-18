@@ -12411,7 +12411,7 @@ int ipa3_cfg_ep_status(u32 clnt_hdl,
  *
  * Return value: none
  */
-void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
+static void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 {
 	/* Enable ADPL v6 Feature for certain IPA clients */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
@@ -12519,7 +12519,7 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 		ipa3_ctx->ep[clnt_hdl].cfg.prod_cfg.tx_instance = tx_instance;
 		ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance = tx_instance;
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5)
-			ipahal_write_reg_n(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
+			ipahal_write_reg_n_fields(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
 				&ipa3_ctx->ep[clnt_hdl].cfg.prod_cfg);
 		else
 			ipahal_write_reg_n(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
