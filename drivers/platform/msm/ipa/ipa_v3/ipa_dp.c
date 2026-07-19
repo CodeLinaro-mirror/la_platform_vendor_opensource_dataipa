@@ -2450,14 +2450,31 @@ static void ipa3_tx_comp_usr_notify_release(void *user1, int user2)
 {
 	struct sk_buff *skb = (struct sk_buff *)user1;
 	int ep_idx = user2;
+	void (*notify)(void *priv, enum ipa_dp_evt_type evt,
+		       unsigned long data) = NULL;
+	void *priv = NULL;
 
 	IPADBG_LOW("skb=%pK ep=%d\n", skb, ep_idx);
 
 	IPA_STATS_INC_CNT(ipa3_ctx->stats.tx_pkts_compl);
 
-	if (ipa3_ctx->ep[ep_idx].client_notify)
-		ipa3_ctx->ep[ep_idx].client_notify(ipa3_ctx->ep[ep_idx].priv,
-				IPA_WRITE_DONE, (unsigned long)skb);
+	/*
+	 * Snapshot the callback pointer under disconnect_lock so it cannot
+	 * be cleared by a concurrent ipa3_eth_disconnect() / ipa3_disconn_wdi3_pipes()
+	 * memset(ep, 0) between the NULL-check and the invocation.
+	 * Mirrors the protection already present on the RX notify path.
+	 */
+	spin_lock_bh(&ipa3_ctx->disconnect_lock);
+	if (ipa3_ctx->ep[ep_idx].valid &&
+	    ipa3_ctx->ep[ep_idx].client_notify &&
+	    likely(!atomic_read(&ipa3_ctx->ep[ep_idx].disconnect_in_progress))) {
+		notify = ipa3_ctx->ep[ep_idx].client_notify;
+		priv   = ipa3_ctx->ep[ep_idx].priv;
+	}
+	spin_unlock_bh(&ipa3_ctx->disconnect_lock);
+
+	if (notify)
+		notify(priv, IPA_WRITE_DONE, (unsigned long)skb);
 	else
 		dev_kfree_skb_any(skb);
 }

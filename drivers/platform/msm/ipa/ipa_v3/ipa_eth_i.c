@@ -1382,6 +1382,27 @@ int ipa3_eth_connect(
 		ep->cfg.aggr.aggr_byte_limit = IPA_ETH_AGGR_BYTE_LIMIT;
 		ep->cfg.aggr.aggr_pkt_limit = IPA_ETH_AGGR_PKT_LIMIT;
 		ep->cfg.aggr.aggr_hard_byte_limit_en = IPA_ENABLE_AGGR;
+		/*
+		 * TX consumer (IPA->ETH) notify: ipa_eth_offload_tx_dp() submits
+		 * via ipa_tx_dp() with a NULL callback, so the TX-complete
+		 * IPA_WRITE_DONE is delivered through this endpoint's
+		 * client_notify (see ipa3_tx_comp_usr_notify_release). Without
+		 * it the skb is silently freed and the ETH driver never gets a
+		 * TX completion (cannot restart a stopped TX queue).
+		 */
+		ep->client_notify = pipe->info.notify;
+		ep->priv = pipe->info.priv;
+		/*
+		 * Mark the TX consumer as a ULSO pipe so ipa3_send() selects
+		 * the pkt_init_ex command for GSO skbs and ipa3_cfg_ep()
+		 * programs pkt_init_ex_imm[dst] (via the CONS-ULSO block in
+		 * ipa3_cfg_ep). Matches the proven UlsoTest TEST_CONS config
+		 * which sets only is_ulso_pipe on the consumer; ULSO
+		 * segmentation registers (ipid range, etc.) are an ingress
+		 * concern and stay on LAN_PROD.
+		 */
+		if (ipa3_ctx->ulso_supported)
+			ep->cfg.ulso.is_ulso_pipe = true;
 	} else {
 		ep->client_notify = pipe->info.notify;
 		ep->priv = pipe->info.priv;
@@ -1862,6 +1883,7 @@ int ipa3_eth_disconnect(
 			ipa3_ctx->gsi_info[prot]);
 	}
 	/* stop gsi channel */
+	atomic_set(&ep->disconnect_in_progress, 1);
 	result = ipa_stop_gsi_channel(ep_idx);
 	if (result) {
 		IPAERR("failed to stop gsi channel %d\n", ep_idx);
@@ -1900,7 +1922,9 @@ int ipa3_eth_disconnect(
 		ipa_assert();
 		goto fail;
 	}
+	spin_lock_bh(&ipa3_ctx->disconnect_lock);
 	memset(ep, 0, sizeof(struct ipa3_ep_context));
+	spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 	IPADBG("client (ep: %d) disconnected\n", ep_idx);
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
