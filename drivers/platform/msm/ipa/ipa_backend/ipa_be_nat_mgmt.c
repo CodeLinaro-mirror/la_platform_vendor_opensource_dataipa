@@ -2556,26 +2556,30 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
  * clear-on-read HW counter, so ECM no longer races stats_mgr. Reports the delta
  * since the previous ECM sync (cumulative total minus the last-reported
  * snapshot), preserving ECM's on-the-wire delta semantics. The per-cycle cache,
- * keyed by entry index, ensures a counter referenced by more than one cache
- * entry in the same cycle advances its snapshot only once.
+ * keyed by stats_cnt, ensures a counter shared by more than one entry in the
+ * same cycle advances ecm_last only once and returns the same delta to all.
  *
- * @idx:       entry index used as the per-cycle cache key
- * @stats_cnt: HW stats counter index
- * @cache:     per-cycle stats cache array (indexed by entry index)
- * @valid:     per-cycle cache-valid flags array
+ * @stats_cnt: HW stats counter index (cache key and ipa_be_cum[] index)
+ * @cache:     per-cycle stats cache array (indexed by stats_cnt)
+ * @valid:     per-cycle cache-valid flags array (indexed by stats_cnt)
+ * @cache_len: allocated length of cache and valid arrays (snapshot of ipa_be_cum_n)
  * @out:       output: populated with the delta on success
  *
  * Returns 0 on success, non-zero if the counter has no cumulative record.
  */
-static int get_ct_stats_cached(int idx, uint16_t stats_cnt,
+static int get_ct_stats_cached(uint16_t stats_cnt,
 				struct ipahal_stats_nat_ct *cache,
 				bool *valid,
+				u32 cache_len,
 				struct ipahal_stats_nat_ct *out)
 {
 	struct ipa_be_cum_counter *c;
 
-	if (valid[idx]) {
-		*out = cache[idx];
+	if (stats_cnt >= cache_len)
+		return -ENOENT;
+
+	if (valid[stats_cnt]) {
+		*out = cache[stats_cnt];
 		return 0;
 	}
 
@@ -2598,10 +2602,42 @@ static int get_ct_stats_cached(int idx, uint16_t stats_cnt,
 	c->ecm_last = c->total;
 	mutex_unlock(&ipa_be_cum_lock);
 
-	cache[idx] = *out;
-	valid[idx] = true;
+	cache[stats_cnt] = *out;
+	valid[stats_cnt] = true;
 	return 0;
 }
+
+/**
+ * ipa_be_get_cum_stats() - Read the poller-maintained cumulative RX/TX totals
+ * for one stats counter index.
+ *
+ * Unlike get_ct_stats_cached(), returns the raw monotonic total without
+ * advancing ecm_last - a read-only view for debugfs, no HW access.
+ *
+ * Return: 0 on success; -EINVAL on bad args; -ENOENT if BE not initialised,
+ * index out of range, or no cumulative record yet.
+ */
+int ipa_be_get_cum_stats(u16 all_pkts_cnt_index,
+			 struct ipahal_stats_nat_ct *out)
+{
+	if (!out)
+		return -EINVAL;
+
+	if (!all_pkts_cnt_index)
+		return -ENOENT;
+
+	mutex_lock(&ipa_be_cum_lock);
+	if (!ipa_be_cum || all_pkts_cnt_index >= ipa_be_cum_n ||
+	    !ipa_be_cum[all_pkts_cnt_index].active) {
+		mutex_unlock(&ipa_be_cum_lock);
+		return -ENOENT;
+	}
+	*out = ipa_be_cum[all_pkts_cnt_index].total;
+	mutex_unlock(&ipa_be_cum_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_be_get_cum_stats);
 
 /**
  * ipa_be_query_tuple_stats() - Look up one stats_mgr 5-tuple in the NAT/CT
@@ -2821,6 +2857,9 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 	int ret;
 	bool is_timestamp = true;
 	bool is_stats = true;
+	u32 entry_stats_cache_len = 0;
+	struct ipahal_stats_nat_ct *entry_stats_cache = NULL;
+	bool *entry_stats_cache_valid = NULL;
 
 	if (!msg || !NatBase) {
 		IPA_BE_ERR("Invalid parameters or NatBase not initialized\n");
@@ -2878,22 +2917,17 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 		}
 	}
 
-	/*
-	 * Per-entry stats cache: avoids re-reading a clear-on-read HW counter
-	 * that was already consumed when processing an earlier entry in the same
-	 * sync cycle. Indexed by IPv6 CT table entry index.
-	 */
-	struct ipahal_stats_nat_ct *entry_stats_cache = NULL;
-	bool *entry_stats_cache_valid = NULL;
-
 	if (is_stats) {
-		entry_stats_cache = kcalloc(NatBase->m_maxEntries,
+		mutex_lock(&ipa_be_cum_lock);
+		entry_stats_cache_len = ipa_be_cum_n;
+		mutex_unlock(&ipa_be_cum_lock);
+		entry_stats_cache = kcalloc(entry_stats_cache_len,
 					    sizeof(*entry_stats_cache), GFP_KERNEL);
-		entry_stats_cache_valid = kcalloc(NatBase->m_maxEntries,
+		entry_stats_cache_valid = kcalloc(entry_stats_cache_len,
 						  sizeof(bool), GFP_KERNEL);
 		if (!entry_stats_cache || !entry_stats_cache_valid) {
-			IPA_BE_ERR("Failed to allocate stats cache (max_entries=%d)\n",
-				   NatBase->m_maxEntries);
+			IPA_BE_ERR("Failed to allocate stats cache (ipa_be_cum_n=%u)\n",
+				   entry_stats_cache_len);
 			kfree(entry_stats_cache);
 			kfree(entry_stats_cache_valid);
 			return IPA_TX_FAILURE;
@@ -2990,9 +3024,10 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 		    NatBase->m_cache[i].ipv6_ct.all_pkts_stats_cnt_index > 0) {
 			struct ipahal_stats_nat_ct stats = {};
 
-			ret = get_ct_stats_cached(i,
-						  NatBase->m_cache[i].ipv6_ct.all_pkts_stats_cnt_index,
-						  entry_stats_cache, entry_stats_cache_valid, &stats);
+			ret = get_ct_stats_cached(
+					NatBase->m_cache[i].ipv6_ct.all_pkts_stats_cnt_index,
+					entry_stats_cache, entry_stats_cache_valid,
+					entry_stats_cache_len, &stats);
 			if (ret) {
 				IPA_BE_ERR("Failed to get stats for IPv6 CT entry %d: idx=%u, ret=%d\n",
 					   i,
@@ -3108,6 +3143,9 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	int ret;
 	bool is_timestamp = true;
 	bool is_stats = true;
+	u32 entry_stats_cache_len = 0;
+	struct ipahal_stats_nat_ct *entry_stats_cache = NULL;
+	bool *entry_stats_cache_valid = NULL;
 
 	IPA_BE_DBG("=== ENTER ipa_sync_ipv4_stats_many_msg ===\n");
 
@@ -3192,22 +3230,17 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		}
 	}
 
-	/*
-	 * Per-entry stats cache: avoids re-reading a clear-on-read HW counter
-	 * that was already consumed when processing an earlier entry in the same
-	 * sync cycle. Indexed by NAT table entry index.
-	 */
-	struct ipahal_stats_nat_ct *entry_stats_cache = NULL;
-	bool *entry_stats_cache_valid = NULL;
-
 	if (is_stats) {
-		entry_stats_cache = kcalloc(nat_app->max_entries,
+		mutex_lock(&ipa_be_cum_lock);
+		entry_stats_cache_len = ipa_be_cum_n;
+		mutex_unlock(&ipa_be_cum_lock);
+		entry_stats_cache = kcalloc(entry_stats_cache_len,
 					    sizeof(*entry_stats_cache), GFP_KERNEL);
-		entry_stats_cache_valid = kcalloc(nat_app->max_entries,
+		entry_stats_cache_valid = kcalloc(entry_stats_cache_len,
 						  sizeof(bool), GFP_KERNEL);
 		if (!entry_stats_cache || !entry_stats_cache_valid) {
-			IPA_BE_ERR("Failed to allocate stats cache (max_entries=%d)\n",
-				   nat_app->max_entries);
+			IPA_BE_ERR("Failed to allocate stats cache (ipa_be_cum_n=%u)\n",
+				   entry_stats_cache_len);
 			kfree(entry_stats_cache);
 			kfree(entry_stats_cache_valid);
 			return IPA_TX_FAILURE;
@@ -3310,8 +3343,9 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		if (is_stats && nat_app->cache[i].all_pkts_stats_cnt_index > 0) {
 			struct ipahal_stats_nat_ct stats = {};
 
-			ret = get_ct_stats_cached(i, nat_app->cache[i].all_pkts_stats_cnt_index,
-						  entry_stats_cache, entry_stats_cache_valid, &stats);
+			ret = get_ct_stats_cached(nat_app->cache[i].all_pkts_stats_cnt_index,
+						  entry_stats_cache, entry_stats_cache_valid,
+						  entry_stats_cache_len, &stats);
 			if (ret) {
 				IPA_BE_ERR("Failed to get stats for NAT entry %d: idx=%u, ret=%d\n",
 					   i, nat_app->cache[i].all_pkts_stats_cnt_index, ret);

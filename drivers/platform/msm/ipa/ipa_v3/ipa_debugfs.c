@@ -2670,7 +2670,47 @@ static void ipa3_read_table(
 		ipahal_nat_stringify_entry(nat_type, entry,
 			buff, buff_size);
 
-		pr_err("%s\n", buff);
+		/*
+		 * Append the entry's cumulative RX/TX stats. Best-effort: falls
+		 * back to the plain entry dump when the counter has no record yet
+		 * (unassigned / no traffic), on pre-v7.0 HW, or backend absent.
+		 */
+		{
+			bool stats_printed = false;
+#ifdef CONFIG_ECM_CONVERGENCE
+			u16 cnt_idx = 0;
+			struct ipahal_stats_nat_ct st = {};
+
+			if (entry_valid &&
+				(nat_type == IPAHAL_NAT_IPV4 ||
+				 nat_type == IPAHAL_NAT_IPV6CT) &&
+				!ipahal_nat_entry_stats_cnt_index(nat_type,
+					entry, &cnt_idx) && cnt_idx &&
+				!ipa_be_get_cum_stats(cnt_idx, &st)) {
+				size_t blen = strlen(buff);
+
+				/* Drop the trailing newline so stats_cntr_index
+				 * lands on the entry's last line.
+				 */
+				if (blen && buff[blen - 1] == '\n')
+					buff[blen - 1] = '\0';
+
+				pr_err("%s stats_cntr_index=%u\n"
+					"\t\tRX_pkts=%u RX_cache_pkts=%u RX_bytes=%llu\n"
+					"\t\tTX_pkts=%u TX_cache_pkts=%u TX_bytes=%llu\n",
+					buff, cnt_idx,
+					st.num_pkts_inbound,
+					st.num_pkts_cache_inbound,
+					st.num_bytes_inbound,
+					st.num_pkts_outbound,
+					st.num_pkts_cache_outbound,
+					st.num_bytes_outbound);
+				stats_printed = true;
+			}
+#endif /* CONFIG_ECM_CONVERGENCE */
+			if (!stats_printed)
+				pr_err("%s\n", buff);
+		}
 
 		memset(buff, 0, buff_size);
 	}

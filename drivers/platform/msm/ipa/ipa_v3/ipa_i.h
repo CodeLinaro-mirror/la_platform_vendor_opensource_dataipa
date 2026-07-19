@@ -4206,6 +4206,9 @@ int ipa_init_nat_ct_stats(void);
 int ipa_get_nat_ct_stats(u16 counter_index,
 	struct ipahal_stats_nat_ct *out);
 
+int ipa_be_get_cum_stats(u16 all_pkts_cnt_index,
+	struct ipahal_stats_nat_ct *out);
+
 int ipa_set_nat_ct_stats(u16 counter_index,
 	struct ipahal_stats_nat_ct stats);
 
