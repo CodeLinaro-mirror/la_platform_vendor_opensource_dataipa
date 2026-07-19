@@ -213,6 +213,7 @@ LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3/ipahal
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_clients
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/../../../exports/
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/../../../ipanat/inc
+LINUXINCLUDE += -I$(DATAIPADRVTOP)/../../../stats_mgr/inc
 ifneq (,$(filter $(CONFIG_IPA_KERNEL_TESTS_MODULE),y m))
 LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_test_module
 endif

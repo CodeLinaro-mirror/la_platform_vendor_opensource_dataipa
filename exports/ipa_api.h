@@ -1117,4 +1117,27 @@ extern int ipa_be_ipv6_get_max_accel_conn(void);
  */
 extern int ipa_be_get_max_timeout(void);
 
+/**
+ * Query real hardware NAT/CT statistics for a single stats_mgr tuple.
+ *
+ * Matches @tuple (network-order addresses/ports) against the NAT/CT cache in
+ * either the forward or src/dst-swapped orientation and reads its all-packets
+ * hardware counter.
+ *
+ * @param tuple connection tuple to look up
+ * @param out   filled with the (truncated) stats on success
+ *
+ * @return 0 on success, negative errno on no-match / HW failure (in which case
+ *         *out is left untouched)
+ *
+ * Both struct types are defined in uapi/linux/ipa_stats_genl.h; only pointers
+ * are used here so a forward declaration is sufficient and keeps this shared
+ * header free of an include whose path differs between the ipam and stats_mgr
+ * builds.
+ */
+struct ipa_stats_tuple_info;
+struct stats_nat_ct;
+extern int ipa_be_query_tuple_stats(const struct ipa_stats_tuple_info *tuple,
+				    struct stats_nat_ct *out);
+
 #endif /* _IPA_API_ */
