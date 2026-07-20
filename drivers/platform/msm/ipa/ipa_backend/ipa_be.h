@@ -25,14 +25,21 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, OFFLOAD_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define  IPA_BE_LOW(fmt, args...) \
 	do { \
 		pr_debug(OFFLOAD_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
-			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
+		if (ipa3_get_ipc_logbuf_low()) { \
+			IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
+				OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
+			ipa3_diag_log_write(IPA_DIAG_LVL_LOW, \
+				OFFLOAD_DRV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
+		} \
 	} while (0)
 
 #define  IPA_BE_ERR(fmt, args...) \
@@ -43,6 +50,8 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, OFFLOAD_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 
@@ -54,16 +63,36 @@
 #define IPA_MAX_ACCEL_CONNECTIONS_V4 32000
 #define IPA_MAX_ACCEL_CONNECTIONS_V6 32000
 
+/* Backhaul type enumeration */
+enum ipa_backhaul_type {
+	IPA_BACKHAUL_TYPE_MODEM = 0,      /* Modem backhaul (has ext_props/QMI) */
+	IPA_BACKHAUL_TYPE_ETH = 1,        /* Ethernet backhaul (no ext_props) */
+	IPA_BACKHAUL_TYPE_UNKNOWN = 2
+};
+
 typedef uint8_t mac_addr_t[IPA_MAC_ADDR_SIZE];
 
 static inline void ipa_type_check_ipa_mac_addr(mac_addr_t mac_addr){}
 static inline void ipa_type_check_ipa_ip_addr(ip_addr_t ipaddr){}
 
-int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface);
-int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface);
-void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg);
+int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct_enabled);
+int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface, bool lan2lan);
+void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enabled);
 int ipa_be_nat_mgmt_init(void);
 void ipa_be_nat_mgmt_exit(void);
+
+/* Returns the IPA hardware endpoint index for an interface, or -1 on failure. */
+int ipa_be_get_ep_for_intf(s32 intf_num);
+
+/*
+ * Returns 1 when flow_intf is canonical (smaller EP/MAC), 0 when return_intf
+ * is canonical, or -1 on EP query failure or NULL MAC (always logged).
+ */
+int ipa_be_flow_canonical_cmp(s32 flow_intf, s32 return_intf,
+		const u8 *flow_mac, const u8 *return_mac);
+
+int ipa_be_detect_backhaul_type(int wan_iface, enum ipa_backhaul_type *out_type);
+void ipa_be_backhaul_cache_invalidate(int wan_iface);
 
 #define IPA_MAC_ADDR_HASH(h, a) \
 { \

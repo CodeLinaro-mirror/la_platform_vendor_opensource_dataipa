@@ -19,6 +19,7 @@
 #include <linux/interrupt.h>
 #include <linux/netdevice.h>
 #include "ipa.h"
+#include <linux/ipa_wdi3.h>
 #include <linux/soc/qcom/ipa_usb.h>
 #include <linux/ipa_qdss.h>
 #include <linux/iommu.h>
@@ -50,6 +51,7 @@
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 #include <soc/qcom/minidump.h>
 #endif
+#include "ipa_stats.h"
 
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"
@@ -84,7 +86,7 @@
 #define IPA7_MAX_NUM_PIPES (IPA7_PIPES_NUM)
 #define IPA_MAX_NUM_PIPES IPA7_MAX_NUM_PIPES
 #define IPA_PROD_PIPES_NUM IPA7_PROD_PIPES_NUM
-#define IPA_APPS_IN_PIPES_NUM 7 // number of pipes from IPA to APPs
+#define IPA_APPS_IN_PIPES_NUM 9 // number of pipes from IPA to APPs
 #define IPA6_NXT_FLT_TBL_Q6_NUM 1
 #define IPA6_NXT_FLT_TBL_START (60) // we want make it (IPA6_PROD_PIPES_NUM) later
 #define IPA6_NXT_FLT_TBL_END (60) // we want make it (IPA6_PROD_PIPES_NUM) later
@@ -204,14 +206,20 @@ enum {
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPADBG_LOW(fmt, args...) \
 	do { \
 		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
-		if (ipa3_ctx) \
+		if (ipa3_ctx && ipa3_ctx->logbuf_low) { \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
+			ipa3_diag_log_write(IPA_DIAG_LVL_LOW, \
+				DRV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
+		} \
 	} while (0)
 
 #define IPADBG_CLK(fmt, args...) \
@@ -231,6 +239,8 @@ enum {
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPAERR_RL(fmt, args...) \
@@ -243,6 +253,8 @@ enum {
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_low, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPALOG_VnP_ADDRS(ptr) \
@@ -579,6 +591,7 @@ enum flt_rule_category {
 	IPA_FLT_RULE_CAT_LAN2LAN,
 	IPA_FLT_RULE_CAT_PRIVATE_SUBNET,
 	IPA_FLT_RULE_CAT_MTU,
+	IPA_FLT_RULE_CAT_ETH_BH_CATCHALL,
 	IPA_FLT_RULE_CAT_UPLINK,
 	IPA_FLT_RULE_CAT_DOWNLINK,
 	IPA_FLT_RULE_CAT_MAX
@@ -599,6 +612,7 @@ enum rt_rule_category {
 	IPA_RT_RULE_CAT_QOS,
 	IPA_RT_RULE_CAT_LAN2LAN,
 	IPA_RT_RULE_CAT_CLIENT,
+	IPA_RT_RULE_CAT_CATCH_ALL,
 	IPA_RT_RULE_CAT_MAX
 };
 
@@ -935,7 +949,9 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_ipsec_params ipsec_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
+	struct ipa_producer_cookie_procparams cookie_params;
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
+	bool is_cookie_valid;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -2082,12 +2098,17 @@ struct ipa_hw_stats_drop {
 	struct ipa_drop_stats_all stats;
 };
 
+struct ipa_hw_stats_nat_ct {
+	struct ipahal_stats_init_nat_ct init;
+};
+
 struct ipa_hw_stats {
 	bool enabled;
 	struct ipa_hw_stats_quota quota;
 	struct ipa_hw_stats_teth teth;
 	struct ipa_hw_stats_flt_rt flt_rt;
 	struct ipa_hw_stats_drop drop;
+	struct ipa_hw_stats_nat_ct nat_ct;
 	bool teth_stats_enabled;
 };
 
@@ -2131,12 +2152,21 @@ static inline enum ipa_smmu_cb_type ipa_get_client_smmu_cb_type(const enum ipa_c
 	case IPA_CLIENT_ETHERNET_CONS3:
 	case IPA_CLIENT_ETHERNET_PROD4:
 	case IPA_CLIENT_ETHERNET_CONS4:
+	case IPA_CLIENT_ETHERNET_QOS_PROD:
+	case IPA_CLIENT_ETHERNET_QOS_CONS:
+	case IPA_CLIENT_ETHERNET_QOS2_CONS:
 		return IPA_SMMU_CB_ETH;
 	case IPA_CLIENT_ETHERNET2_PROD:
 	case IPA_CLIENT_ETHERNET2_CONS:
+	case IPA_CLIENT_ETHERNET2_QOS_PROD:
+	case IPA_CLIENT_ETHERNET2_QOS_CONS:
+	case IPA_CLIENT_ETHERNET2_QOS2_CONS:
 		return IPA_SMMU_CB_ETH1;
 	case IPA_CLIENT_ETHERNET3_PROD:
 	case IPA_CLIENT_ETHERNET3_CONS:
+	case IPA_CLIENT_ETHERNET3_QOS_PROD:
+	case IPA_CLIENT_ETHERNET3_QOS_CONS:
+	case IPA_CLIENT_ETHERNET3_QOS2_CONS:
 		return IPA_SMMU_CB_ETH2;
 	case IPA_CLIENT_WLAN1_QOS_PROD:
 	case IPA_CLIENT_WLAN1_PROD:
@@ -2249,28 +2279,91 @@ struct ipa3_eth_error_stats {
 	u32 err;
 };
 
+/*
+ * ; +------------------------------------------------------+
+ * ; | NTN3 RX Channel Scratch                              |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 32-bit word | Field                          | Bits  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 0           | RX_DATA_BUFFERS_BASE_ADDR_LSB  | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 1           | RX_DATA_BUFFERS_BASE_ADDR_MSB  | 0-7   |
+ * ; |             | NTN_DATA_BUFFER_SIZE_POWER_OF_2| 8-11  |
+ * ; |             | NTN_CHAIN                      | 12-12 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 2           | IOC_MOD_THRESHOLD              | 0-15  |
+ * ; |             | IOC_MOD_COUNTER                | 16-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 3           | NTN_LAST_DB_VALUE              | 0-15  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 4           | NTN_NEXT_RE                    | 0-15  |
+ * ; |             | INVALID_OWN_BIT                | 17-17 |
+ * ; |             | STOP_IN_PROGRESS_STM           | 28-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 5           | INVALID_OWN_BIT_RETRIES        | 0-7   |
+ * ; |             | NTN_MALFORMED_TRE_IND          | 8-8   |
+ * ; |             | NTN_WP_INDEX_IN_MALFORMED_TRE  | 16-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 6           | RX_ZERO_LENGTH_PACKET_COUNTER  | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 7           | NTN_RX_ERROR_CNT               | 0-13  |
+ * ; |             | NTN_RX_CRC_ERROR_CNT           | 14-22 |
+ * ; |             | NTN_RX_ERROR_BMAP              | 23-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 8           | NTN_INVALID_TRE_COUNTER        | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 9           | STATS_EN                       | 31-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | FOR_SEQ_LOW | NTN_ROLLBACKS_COUNTER          | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | FOR_SEQ_HIGH| OUTSTANDING_TLVS_COUNTER       | 0-15  |
+ * ; +-------------+--------------------------------+-------+
+ */
 struct ipa_ntn3_stats_rx {
 	int rp;
 	int wp;
-	bool pending_db_after_rollback;
-	u32 msi_db_idx;
-	u32 chain_cnt;
+	struct ipa_lnx_ntn_gsi_rx_debug_stats ntn_stats;
 	u32 err_cnt;
-	u32 tres_handled;
-	u32 rollbacks_cnt;
-	u32 msi_db_cnt;
 };
 
+/*
+ * ; +------------------------------------------------------+
+ * ; | NTN3 TX Channel Scratch                              |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 32-bit word | Field                          | Bits  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 1           | NTN_DATA_BUFFER_SIZE_POWER_OF_2| 8-11  |
+ * ; |             | NTN_CHAIN                      | 12-12 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 2           | IOC_MOD_THRESHOLD              | 0-15  |
+ * ; |             | IOC_MOD_COUNTER                | 16-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 3           | NTN_LAST_DB_VALUE              | 0-15  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 4           | NTN_NEXT_RE                    | 0-15  |
+ * ; |             | INVALID_OWN_BIT                | 17-17 |
+ * ; |             | STOP_IN_PROGRESS_STM           | 28-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 5           | INVALID_OWN_BIT_RETRIES        | 0-7   |
+ * ; |             | NTN_MALFORMED_TRE_IND          | 8-8   |
+ * ; |             | NTN_WP_INDEX_IN_MALFORMED_TRE  | 16-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 6           | TX_DERR_COUNTER                | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 8           | NTN_INVALID_TRE_COUNTER        | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | 9           | STATS_EN                       | 31-31 |
+ * ; +-------------+--------------------------------+-------+
+ * ; | FOR_SEQ_LOW | NTN_ROLLBACKS_COUNTER          | 0-31  |
+ * ; +-------------+--------------------------------+-------+
+ * ; | FOR_SEQ_HIGH| OUTSTANDING_TLVS_COUNTER       | 0-15  |
+ * ; +-------------+--------------------------------+-------+
+ */
 struct ipa_ntn3_stats_tx {
 	int rp;
 	int wp;
-	bool pending_db_after_rollback;
-	u32 msi_db_idx;
+	struct ipa_lnx_ntn_gsi_tx_debug_stats ntn_stats;
 	u32 derr_cnt;
-	u32 oob_cnt;
-	u32 tres_handled;
-	u32 rollbacks_cnt;
-	u32 msi_db_cnt;
 };
 
 struct ipa_ntn3_client_stats {
@@ -2786,6 +2879,7 @@ struct ipa3_context {
 	struct ipa3_aqc_ctx aqc_ctx;
 	struct ipa3_rtk_ctx rtk_ctx;
 	struct ipa3_ntn_ctx ntn_ctx;
+	struct ipa3_uc_dbg_stats iemac_dbg_stats;
 #if defined(CONFIG_IPA_TSP)
 	struct ipa3_tsp_ctx tsp;
 #endif
@@ -2803,6 +2897,7 @@ struct ipa3_context {
 	struct IpaHwOffloadStatsAllocCmdData_t
 		gsi_info[IPA_HW_PROTOCOL_MAX];
 	bool ipa_wan_skb_page;
+	bool ipa_lan_skb_page;
 	struct ipacm_fnr_info fnr_info;
 	/* dummy netdev for lan RX NAPI */
 	bool lan_rx_napi_enable;
@@ -2856,6 +2951,7 @@ struct ipa3_context {
 	bool use_pm_wrapper;
 	u8 page_poll_threshold;
 	bool wan_common_page_pool;
+	bool lan_common_page_pool;
 	bool use_tput_est_ep;
 	struct ipa_ioc_eogre_info eogre_cache;
 	bool eogre_enabled;
@@ -2921,6 +3017,9 @@ struct ipa3_context {
 	u32 max_ipv4_accel_conn;
 	u32 max_ipv6_accel_conn;
 	bool ipa_disable_per_flow_stats;
+	bool nat_stats_mode;
+	u16 nat_stats_max_counters_v4;
+	u16 nat_stats_max_counters_v6;
 };
 
 struct ipa3_plat_drv_res {
@@ -3025,6 +3124,9 @@ struct ipa3_plat_drv_res {
 	bool use_ezmesh_config;
 	bool use_eth_qos_config;
 	bool use_ipsec_config;
+	bool nat_stats_mode;
+	u16 nat_stats_max_counters_v4;
+	u16 nat_stats_max_counters_v6;
 	bool use_ipv6_nat_config;
 	u32 max_ipv4_stats_accel_conn;
 	u32 max_ipv6_stats_accel_conn;
@@ -3914,6 +4016,11 @@ int ipa3_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
 
 bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf);
+int ipa3_update_intf_idx(const char *name, int intf_idx);
+int ipa3_get_ep_for_intf(int intf_idx);
+int ipa3_assign_qmapmux_intf_idx(int wan_iface);
+void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie);
+bool ipa3_is_vpnum_valid(int intf_idx);
 bool ipa3_query_ext_iface(int intf_idx, struct ipa_ioc_query_intf_ext_props *target_intf);
 bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
@@ -4082,6 +4189,14 @@ int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons);
 int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod);
 
 int ipa_reset_all_teth_stats(void);
+
+int ipa_init_nat_ct_stats(void);
+
+int ipa_get_nat_ct_stats(u16 counter_index,
+	struct ipahal_stats_nat_ct *out);
+
+int ipa_set_nat_ct_stats(u16 counter_index,
+	struct ipahal_stats_nat_ct stats);
 
 int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query);
 

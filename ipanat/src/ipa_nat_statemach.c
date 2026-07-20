@@ -742,7 +742,7 @@ static int migrate_rule(
 	void*           arb_data_ptr )
 {
 	struct ipa_nat_rule* nat_rule_ptr = (struct ipa_nat_rule*) record_ptr;
-	uint32_t            dst_tbl_hdl  = (uint32_t)((uint32_t *) arb_data_ptr);
+	uint32_t            dst_tbl_hdl  = (uint32_t)(uintptr_t) arb_data_ptr;
 
 	ipa_nat_ipv4_rule    v4_rule;
 
@@ -1838,9 +1838,9 @@ static int _smAddRuleHybrid(
 	uint32_t*          rule_hdl  = (uint32_t*)          args[2];
 
 	arb_t*             new_args[] = {
-		(arb_t*)(arb_t)(nati_obj_ptr->curr_state == NATI_STATE_HYBRID) ?
+		(arb_t*)(arb_t)((nati_obj_ptr->curr_state == NATI_STATE_HYBRID) ?
 		         tbl_hdl :
-		         nati_obj_ptr->ddr_tbl_hdl,
+		         nati_obj_ptr->ddr_tbl_hdl),
 		(arb_t*) clnt_rule,
 		(arb_t*) rule_hdl,
 	};
@@ -2035,9 +2035,9 @@ static int _smDelRuleHybrid(
 	if ( ret == 0 )
 	{
 		arb_t* new_args[]  = {
-			(arb_t*)(arb_t)(nati_obj_ptr->curr_state == NATI_STATE_HYBRID) ?
+			(arb_t*)(arb_t)((nati_obj_ptr->curr_state == NATI_STATE_HYBRID) ?
 			        tbl_hdl :
-			        nati_obj_ptr->ddr_tbl_hdl,
+			        nati_obj_ptr->ddr_tbl_hdl),
 			(arb_t*)(arb_t)new_rule_hdl,
 		};
 
@@ -2046,7 +2046,7 @@ static int _smDelRuleHybrid(
 
 		ipa_nat_map_del(new2orig_map, new_rule_hdl, NULL);
 
-		ret = _smDelRuleFromTbl(nati_obj_ptr, trigger, new_args);
+		ret = _smDelRuleFromTbl(nati_obj_ptr, trigger, (arb_t*)new_args);
 
 		if ( ret == 0 && nati_obj_ptr->curr_state == NATI_STATE_HYBRID_DDR )
 		{
@@ -2625,9 +2625,9 @@ static int _smGetTmStmpHybrid(
 	if ( ret == 0 )
 	{
 		arb_t* new_args[] = {
-			(arb_t*)(arb_t)(nati_obj_ptr->curr_state == NATI_STATE_HYBRID) ?
+			(arb_t*)(arb_t)((nati_obj_ptr->curr_state == NATI_STATE_HYBRID) ?
 			         tbl_hdl :
-			         nati_obj_ptr->ddr_tbl_hdl,
+			         nati_obj_ptr->ddr_tbl_hdl),
 			(arb_t*)(arb_t)new_rule_hdl,
 			(arb_t*) time_stamp,
 			(arb_t*) redirect,

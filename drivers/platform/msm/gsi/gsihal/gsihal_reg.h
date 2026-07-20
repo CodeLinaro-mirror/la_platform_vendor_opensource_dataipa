@@ -7,6 +7,8 @@
 #ifndef _GSIHAL_REG_H_
 #define _GSIHAL_REG_H_
 
+#include <linux/bits.h>
+
 /*
  * Registers names
  *
@@ -164,9 +166,12 @@ enum gsihal_reg_name {
 	GSI_GSI_MCS_PROFILING_MCS_BUSY_CNT_MSB,
 	GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_LSB,
 	GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_MSB,
+	GSI_SHRAM_PTR_MCS_STATS_BASE_ADDR,
+	GSI_MCS_STATS_CH_EN_n,
 	GSI_EE_n_CH_k_CH_ALMST_EMPTY_THRSHOLD,
 	GSI_EE_n_GSI_DEBUG_PC_FOR_DEBUG,
 	GSI_EE_n_GSI_DEBUG_BUSY_REG,
+	GSI_DEBUG_EE_n_CH_k_VP_TABLE,
 	GSI_IRQ_2_MCS_MAPPING_ACCn_TABLE0,
 	GSI_IRQ_2_MCS_MAPPING_ACCn_TABLE1,
 	GSI_MAX_TRE_TLV_n,
@@ -533,5 +538,27 @@ unsigned long gsihal_get_inst_ram_size(void);
  * Get mask for GP_int1
  */
 u32 gsihal_get_glob_irq_en_gp_int1_mask(void);
+
+/* GSI_SHRAM_PTR_MCS_STATS_BASE_ADDR field masks */
+#define GSI_SHRAM_PTR_MCS_STATS_SHRAM_PTR_BMSK		0x0000ffff
+#define GSI_SHRAM_PTR_MCS_STATS_SHRAM_PTR_SHFT		0
+
+/* GSI_MCS_STATS_CH_EN_n field constants */
+#define GSI_MCS_STATS_CH_EN_MAX_N			2
+#define GSI_MCS_STATS_CH_EN_BITS_PER_REG		32
+
+/* Per-channel HW stats layout in GSI SHRAM (IPAv7.0 / GSI_VER_7_0+).
+ * Address = SHRAM_BASE + (base_ptr + GSI_HW_STATS_WORDS_PER_CH * ch_id) * 8.
+ * Each word is 8 bytes, read as two consecutive 32-bit SHRAM dwords.
+ */
+#define GSI_HW_STATS_WORDS_PER_CH			5
+#define GSI_HW_STATS_SHRAM_DWORDS_PER_WORD		2
+
+/* SCRATCH_9 bit that enables HW stats collection for a channel */
+#define GSI_CH_SCRATCH9_STATS_EN_BMSK			BIT(31)
+
+/* GSI_DEBUG_EE_n_CH_k_VP_TABLE field masks */
+#define GSI_DEBUG_EE_n_CH_k_VP_TABLE_VALID_BMSK	0x100
+#define GSI_DEBUG_EE_n_CH_k_VP_TABLE_PHY_CH_BMSK	0x0ff
 
 #endif /* _GSIHAL_REG_H_ */

@@ -311,10 +311,27 @@ typedef union
 	ipa_table_dma_cmd_helper table_dma_cmd_helpers[IPA_IPV6CT_TABLE_DMA_CMD_MAX];
 } ipa_nat_ip6_table_cmd_helpers;
 
+/* Per-client counter tracking for IPv6 (IPA v7.0+) */
+struct ipv6_client_counter_info {
+	uint64_t src_ipv6_lsb;         /* Client identifier LSB */
+	uint64_t src_ipv6_msb;         /* Client identifier MSB */
+	uint16_t all_pkts_counter_id;  /* All packets counter index (0 = not allocated) */
+	uint16_t non_frag_counter_id;  /* Non-frag counter index (0 = not allocated) */
+	uint32_t all_pkts_ref_count;   /* Number of rules using THIS all_pkts counter */
+	uint32_t non_frag_ref_count;   /* Number of rules using THIS non_frag counter */
+};
+
 struct ipa_ct_ip6_table_cache {
 	ipa_mem_descriptor mem_desc;
 	ipa_table table;
 	ipa_nat_ip6_table_cmd_helpers table_cmd_helpers;
+
+	/* Counter management fields (IPA v7.0+) */
+#ifdef CONFIG_ECM_CONVERGENCE
+	struct ipv6_client_counter_info client_counters[IPA_NAT_CT_STATS_MAX_CLIENTS];
+	uint32_t num_client_counters;
+	spinlock_t counter_lock;
+#endif
 };
 
 struct ipa_ct_cache {
@@ -451,6 +468,11 @@ int ipa_ipv6ct_walk_table(
 	CtWhichTbl2Use      which,
 	ipa_table_walk_cb walk_cb,
 	void*             arb_data_ptr );
+
+int ipa_ipv6ct_copy_table(
+	uint32_t          src_tbl_hdl,
+	uint32_t          dst_tbl_hdl,
+	ipa_table_walk_cb copy_cb );
 
 int ipa_ipv6ct_stats_table(
 	uint32_t            tbl_hdl,

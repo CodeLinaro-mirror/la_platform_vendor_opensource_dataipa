@@ -719,6 +719,26 @@ struct uc_channel_setup_cmd_hw_iemac {
 	u8 priority;
 } __packed;
 
+#define IPA_IEMAC_MAX_STATS_CHANNELS	6  /* 3 Rx/Tx pairs */
+
+/**
+ * struct IpaHwIemacStatsData_t - per-channel uC-maintained IEMAC ring stats
+ * Written by IPA uC into IPA SRAM at the offset returned by the
+ * IPA_CPU_2_HW_CMD_OFFLOAD_STATS_ALLOC response, one entry per channel.
+ * @ring: common GSI ring utilisation counters (20 bytes)
+ * @dbCount: doorbell count
+ */
+struct IpaHwIemacStatsData_t {
+	struct IpaHwRingStats_t ring;
+	u32 dbCount;
+} __packed;
+
+/* Byte offsets within struct IpaHwIemacStatsData_t */
+#define IPA_IEMAC_STATS_DBCOUNT_OFF \
+	offsetof(struct IpaHwIemacStatsData_t, dbCount)
+/* Per-channel stride in the SRAM stats block */
+#define IPA_IEMAC_STATS_CH_STRIDE	sizeof(struct IpaHwIemacStatsData_t)
+
 /**
  * struct uc_channel_setup_cmd_hw  - Structure holding the
  * parameters for IPA_CPU_2_HW_CMD_OFFLOAD_CHANNEL_SET_UP

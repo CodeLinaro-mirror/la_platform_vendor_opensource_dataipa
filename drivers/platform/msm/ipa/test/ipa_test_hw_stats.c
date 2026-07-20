@@ -365,6 +365,8 @@ static int ipa_test_hw_stats_add_FnR(void *priv)
 	flt_rule->rules)[0].rule.cnt_idx = ctx->flt4_usb_cnt_id;
 	((struct ipa_flt_rule_add_v2 *)
 	flt_rule->rules)[0].rule.enable_stats = true;
+	((struct ipa_flt_rule_add_v2 *)
+	flt_rule->rules)[0].rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 	if (ipa3_add_flt_rule_v2(flt_rule) || ((struct ipa_flt_rule_add_v2 *)
 	flt_rule->rules)[0].status) {
 		IPA_UT_ERR("failed to install V4 rules\n");
@@ -394,6 +396,8 @@ static int ipa_test_hw_stats_add_FnR(void *priv)
 	flt_rule->rules)[0].rule.cnt_idx = ctx->flt6_usb_cnt_id;
 	((struct ipa_flt_rule_add_v2 *)
 	flt_rule->rules)[0].rule.enable_stats = true;
+	((struct ipa_flt_rule_add_v2 *)
+	flt_rule->rules)[0].rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 	if (ipa3_add_flt_rule_v2(flt_rule) || ((struct ipa_flt_rule_add_v2 *)
 	flt_rule->rules)[0].status) {
 		IPA_UT_ERR("failed to install V6 rules\n");
@@ -423,6 +427,8 @@ static int ipa_test_hw_stats_add_FnR(void *priv)
 	flt_rule->rules)[0].rule.cnt_idx = ctx->flt4_odu_cnt_id;
 	((struct ipa_flt_rule_add_v2 *)
 	flt_rule->rules)[0].rule.enable_stats = true;
+	((struct ipa_flt_rule_add_v2 *)
+	flt_rule->rules)[0].rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 	if (ipa3_add_flt_rule_v2(flt_rule) || ((struct ipa_flt_rule_add_v2 *)
 	flt_rule->rules)[0].status) {
 		IPA_UT_ERR("failed to install V4 rules\n");
@@ -452,6 +458,8 @@ static int ipa_test_hw_stats_add_FnR(void *priv)
 	flt_rule->rules)[0].rule.cnt_idx = ctx->flt6_odu_cnt_id;
 	((struct ipa_flt_rule_add_v2 *)
 	flt_rule->rules)[0].rule.enable_stats = true;
+	((struct ipa_flt_rule_add_v2 *)
+	flt_rule->rules)[0].rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 	if (ipa3_add_flt_rule_v2(flt_rule) || ((struct ipa_flt_rule_add_v2 *)
 	flt_rule->rules)[0].status) {
 		IPA_UT_ERR("failed to install V6 rules\n");

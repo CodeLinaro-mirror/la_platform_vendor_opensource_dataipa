@@ -176,6 +176,7 @@ struct ipa_eth_buff_smmu_map {
  * @notify:	callback for exception/embedded packets
  * @priv: priv for exception callback
  * @client_info: vendor specific pipe setup info
+ * @fcs_strip_en: request GSI FW to subtract 4-byte FCS from RX packet length (NTN/IEMAC only)
  * @db_pa: doorbell physical address
  * @db_val: doorbell value ethernet HW need to ring
  */
@@ -206,6 +207,12 @@ struct ipa_eth_pipe_setup_info {
 		struct ipa_eth_realtek_setup_info rtk;
 		struct ipa_eth_ntn_setup_info ntn;
 	} client_info;
+
+#if IPA_ETH_API_VER >= 7
+	/* request GSI FW to subtract 4-byte FCS trailer from RX packet length;
+	 * generic feature for new ETH protocols, not required for legacy ones */
+	bool fcs_strip_en;
+#endif
 
 	/* output params */
 	phys_addr_t db_pa;

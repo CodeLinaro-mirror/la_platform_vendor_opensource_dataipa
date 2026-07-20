@@ -53,7 +53,7 @@
  */
 #define IPAHAL_NAT_INVALID_PROTOCOL   0xFF
 
-#define IPA_ETH_API_VER 6
+#define IPA_ETH_API_VER 7
 
 /**
  * commands supported by IPA driver
@@ -646,6 +646,13 @@ enum ipa_client_type {
 	IPA_CLIENT_ETHERNET3_PROD               = 182,
 	IPA_CLIENT_ETHERNET3_CONS               = 183,
 
+	/* uC/Q6 RQoS WA channels (managed by uC similar to IPAv6 IV WA) */
+	IPA_CLIENT_Q6_RQOS_WA_PROD		= 184,
+	IPA_CLIENT_Q6_RQOS_WA_CONS		= 185,
+
+	IPA_CLIENT_ETHERNET3_QOS_CONS		= 186,
+	IPA_CLIENT_ETHERNET3_QOS2_CONS		= 187,
+
 	IPA_CLIENT_PLACEHOLDER
 };
 
@@ -753,6 +760,8 @@ enum ipa_client_type {
 	((client) == IPA_CLIENT_ETHERNET_QOS_CONS || \
 	(client) == IPA_CLIENT_ETHERNET2_QOS_CONS || \
 	(client) == IPA_CLIENT_ETHERNET2_QOS2_CONS || \
+	(client) == IPA_CLIENT_ETHERNET3_QOS_CONS || \
+	(client) == IPA_CLIENT_ETHERNET3_QOS2_CONS || \
 	(client) == IPA_CLIENT_ETHERNET_QOS2_CONS)
 
 #define IPA_CLIENT_IS_WLAN_QOS_CONS(client) \
@@ -781,7 +790,8 @@ enum ipa_client_type {
 	(client) == IPA_CLIENT_Q6_QBAP_STATUS_CONS || \
 	(client) == IPA_CLIENT_Q6_CV2X_CONS || \
 	(client) == IPA_CLIENT_Q6_AUDIO_DMA_MHI_CONS || \
-	(client) == IPA_CLIENT_Q6_CV2X_DECIPHER_CONS)
+	(client) == IPA_CLIENT_Q6_CV2X_DECIPHER_CONS || \
+	(client) == IPA_CLIENT_Q6_RQOS_WA_CONS)
 
 #define IPA_CLIENT_IS_Q6_PROD(client) \
 	((client) == IPA_CLIENT_Q6_LAN_PROD || \
@@ -794,7 +804,8 @@ enum ipa_client_type {
 	(client) == IPA_CLIENT_Q6_CV2X_PROD || \
 	(client) == IPA_CLIENT_Q6_AUDIO_DMA_MHI_PROD || \
 	(client) == IPA_CLIENT_Q6_V2X_BROADCAST_PROD || \
-	(client) == IPA_CLIENT_Q6_V2X_UNICAST_PROD)
+	(client) == IPA_CLIENT_Q6_V2X_UNICAST_PROD || \
+	(client) == IPA_CLIENT_Q6_RQOS_WA_PROD)
 
 
 #define IPA_CLIENT_IS_Q6_NON_ZIP_CONS(client) \
@@ -2001,6 +2012,27 @@ struct ipa_wwan_to_eth_II_ex_procparams {
 	uint32_t reserved : 14;
 };
 
+/**
+ * struct ipa_producer_cookie_procparams  -
+ * HW structure for producer cookie in header processing context
+ * opcode/type: Opcode = 10 (IPA_PROC_CTX_TLV_TYPE_SW_PROD_COOKIE)
+ * length: Length = 2 (indicating 2 following words)
+ * reserved: Reserved bits (value dont care)
+ * @sw_cookie_low: Classification cookie bits [31:0]
+ * @sw_cookie_high: Classification cookie bits [56:32]
+ * @dscp: DSCP value bits [62:57]
+ * @dscp_valid: DSCP Valid bit [63]
+ */
+struct ipa_producer_cookie_procparams  {
+	/* Word 1: Classification cookie [31:0] */
+	uint32_t sw_cookie_low;
+
+	/* Word 2: Classification cookie [63:32] with DSCP overlay */
+	uint32_t sw_cookie_high:25; /* Bits 0-24: Cookie bits [56:32] */
+	uint32_t dscp:6;            /* Bits 25-30: DSCP [62:57] */
+	uint32_t dscp_valid:1;      /* Bit 31: DSCP Valid [63] */
+};
+
 #define L2TP_USER_SPACE_SPECIFY_DST_PIPE
 
 /**
@@ -2100,6 +2132,8 @@ struct ipa_hdr_proc_ctx_add {
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa_ipsec_params ipsec_params;
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
+	struct ipa_producer_cookie_procparams cookie_params;
+	uint8_t is_cookie_valid;
 };
 
 #define IPA_L2TP_HDR_PROC_SUPPORT
@@ -2885,6 +2919,7 @@ struct ipa_ioc_query_intf_ext_props {
  * @src_pipe: input pipe
  * @hdr_l2_type: type of associated header if any, use NONE when no header
  * @tc_bmap: Bit map indicating the traffic classes associated to the pipe
+ * @rdi: IPA ring ID
  */
 struct ipa_ioc_rx_intf_prop {
 	enum ipa_ip_type ip;
@@ -2892,6 +2927,7 @@ struct ipa_ioc_rx_intf_prop {
 	enum ipa_client_type src_pipe;
 	enum ipa_hdr_l2_type hdr_l2_type;
 	uint32_t tc_bmap;
+	uint8_t rdi;
 };
 
 /**

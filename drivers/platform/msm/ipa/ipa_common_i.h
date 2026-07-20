@@ -34,6 +34,14 @@
 #define IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE 2
 #define IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE 4
 
+/* IPA v7.0+ CPE QoS layout = best-effort + additional QoS pipes per iface:
+ * RX: 1 BE + 1 QoS = 2; TX: 1 BE + 2 QoS = 3; total 5. Kept separate from
+ * the legacy *_QOS_CPE counts above so pre-7.0 targets (e.g. 6.0) and the
+ * arrays / SMMU offset math sized by those macros are unaffected. */
+#define IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_CPE_V7 2
+#define IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7 3
+#define IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE_V7 5
+
 #define IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_AUTO 4
 #define IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO 5
 #define IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO 9
@@ -206,6 +214,9 @@ do {\
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD2)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD3)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD4)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_QOS_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_QOS_PROD)) || \
+	 (x == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET3_QOS_PROD)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD)))
 
@@ -672,6 +683,29 @@ void *ipa3_get_ipc_logbuf(void);
 void *ipa3_get_ipc_logbuf_low(void);
 void ipa_assert(void);
 
+/*
+ * Severity levels for the /dev/diag_ipa tap. Lower number = higher severity.
+ * The daemon maps these to QXDM MSG_LEGACY_* levels. Used as the @level
+ * argument to ipa3_diag_log_write() and as the kernel-side min_level filter
+ * threshold (a line is captured only when its level <= min_level).
+ */
+enum ipa_diag_log_level {
+	IPA_DIAG_LVL_ERR  = 0,	/* errors (pr_err family)        -> QXDM ERROR */
+	IPA_DIAG_LVL_INFO = 1,	/* informational                 -> QXDM MED   */
+	IPA_DIAG_LVL_DBG  = 2,	/* debug (default capture floor) -> QXDM MED   */
+	IPA_DIAG_LVL_LOW  = 3,	/* verbose / per-packet          -> QXDM LOW   */
+};
+
+/*
+ * Tap used by the control-path log macros (IPADBG/IPAERR/... and subsystem
+ * equivalents) to mirror lines into the /dev/diag_ipa ring. Defined in
+ * ipa_v3/ipa_diag_log.c; declared here so every macro call site sees it.
+ * @level is one of enum ipa_diag_log_level. Safe from any context and a
+ * near-no-op when the feature is disabled or the level is filtered out.
+ */
+__printf(2, 3)
+void ipa3_diag_log_write(u8 level, const char *fmt, ...);
+
 /* MHI */
 int ipa3_mhi_init_engine(struct ipa_mhi_init_engine *params);
 int ipa3_connect_mhi_pipe(struct ipa_mhi_connect_params_internal *in,
@@ -1043,5 +1077,7 @@ struct sk_buff* qmap_encapsulate_skb(struct sk_buff *skb, const struct qmap_hdr 
 int ipa_hdrs_hpc_destroy(u32 hdr_hdl);
 
 int ipa3_get_ee_by_pipe(int pipe_idx);
+
+void ipa_be_subnet_on_intf_registered(int slave_ifindex);
 
 #endif /* _IPA_COMMON_I_H_ */

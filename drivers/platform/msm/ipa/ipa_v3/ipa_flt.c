@@ -945,10 +945,23 @@ prep_failed:
 static void __ipa_promote_flt_rule_type_for_eth(enum ipa_client_type client,
 						struct ipa_flt_rule_i *rule)
 {
+	/*
+	 * IPA_FLT_RULE_TYPE_MAX is the sentinel meaning "not yet decided".
+	 * Any non-MAX value means the caller already decided — leave
+	 * it untouched.
+	 */
+	WARN_ONCE(rule->rule_type == IPA_FLT_RULE_TYPE_IP &&
+		  ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+		  ipa3_get_ep_traffic_mode(client) == IPA_NON_DMA_ETHERNET,
+		  "rule_type zero-initialized; ETH_IP promotion silently skipped");
+	if (rule->rule_type != IPA_FLT_RULE_TYPE_MAX)
+		return;
+
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
-	    ipa3_get_ep_traffic_mode(client) == IPA_NON_DMA_ETHERNET &&
-	    rule->rule_type == IPA_FLT_RULE_TYPE_IP)
+	    ipa3_get_ep_traffic_mode(client) == IPA_NON_DMA_ETHERNET)
 		rule->rule_type = IPA_FLT_RULE_TYPE_ETH_IP;
+	else
+		rule->rule_type = IPA_FLT_RULE_TYPE_IP;
 }
 
 static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
@@ -1587,6 +1600,13 @@ int ipa3_add_flt_rule_usr(struct ipa_ioc_add_flt_rule *rules, bool user_only)
 				rules->rules[i].rule.hashable = false;
 			__ipa_convert_flt_rule_in(
 				rules->rules[i].rule, &rule);
+			/*
+			 * ipa_flt_rule (v1) has no rule_type field; the
+			 * convert zeroes it to IPA_FLT_RULE_TYPE_IP (==0).
+			 * Set MAX so __ipa_promote_flt_rule_type_for_eth
+			 * decides the concrete type based on endpoint.
+			 */
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			result = __ipa_add_ep_flt_rule(rules->ip,
 					rules->ep,
 					&rule,
@@ -1800,6 +1820,13 @@ int ipa3_add_flt_rule_after(struct ipa_ioc_add_flt_rule_after *rules)
 
 		__ipa_convert_flt_rule_in(
 				rules->rules[i].rule, &rule);
+		/*
+		 * ipa_flt_rule (v1) has no rule_type field; the
+		 * convert zeroes it to IPA_FLT_RULE_TYPE_IP (==0).
+		 * Set MAX so __ipa_promote_flt_rule_type_for_eth
+		 * decides the concrete type based on endpoint.
+		 */
+		rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 
 		result = __ipa_add_flt_rule_after(tbl,
 				&rule,
@@ -2215,6 +2242,13 @@ void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx)
 	}
 
 	memset(&rule, 0, sizeof(rule));
+	/*
+	 * memset zeroes rule_type to IPA_FLT_RULE_TYPE_IP (==0), which would
+	 * bypass the promote logic under the new MAX sentinel contract.
+	 * Set MAX explicitly so __ipa_promote_flt_rule_type_for_eth decides
+	 * the concrete type (ETH_IP for Ethernet endpoints, IP otherwise).
+	 */
+	rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 
 	mutex_lock(&ipa3_ctx->lock);
 	tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v4];
@@ -2312,6 +2346,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Fragment filtering rule */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
@@ -2334,6 +2369,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Set TCP SYN filter */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
@@ -2357,6 +2393,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Set ICMP protocol filter */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
@@ -2381,6 +2418,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Multicast filtering rule (224.0.0.0/4) */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
@@ -2405,6 +2443,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Broadcast filtering rule (255.255.255.255) */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
@@ -2437,6 +2476,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Fragment filtering rule */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
@@ -2459,6 +2499,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Install IPv6 TCP SYN filter rule */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v6];
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
@@ -2495,6 +2536,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Install IPv6 ICMPv6 filter rule */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v6];
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
@@ -2520,6 +2562,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Multicast filtering rule (ff00::/8) */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
@@ -2550,6 +2593,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Link-scoped unicast filtering rule (fe80::/10) */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
@@ -2580,6 +2624,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Reserved by IETF filtering rule (fec0::/10) */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;
@@ -2610,6 +2655,7 @@ void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enab
 
 			/* Unique local IPv6 address filtering rule (fd00::/8) */
 			memset(&rule, 0, sizeof(rule));
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			rule.action = IPA_PASS_TO_EXCEPTION;
 			rule.retain_hdr = 1;
 			rule.to_uc = 0;

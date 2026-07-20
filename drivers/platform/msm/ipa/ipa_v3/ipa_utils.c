@@ -95,6 +95,14 @@
 #define IPA_TAG_TIMER_TIMESTAMP_SHFT (14) /* ~0.8msec */
 #define IPA_NAT_TIMER_TIMESTAMP_SHFT (24) /* ~0.8sec */
 
+#define IPA_CLIENT_IS_WLAN_PRODUCER(client)    \
+    (((client) == IPA_CLIENT_WLAN1_PROD) ||  \
+     ((client) == IPA_CLIENT_WLAN2_PROD) ||  \
+     ((client) == IPA_CLIENT_WLAN3_PROD) ||  \
+     ((client) == IPA_CLIENT_WLAN2_PROD1) || \
+     ((client) == IPA_CLIENT_WLAN1_PROD1) || \
+     ((client) == IPA_CLIENT_WLAN3_PROD1))
+
 /*
  * Units of time per a specific granularity
  * The limitation based on H/W HOLB/AGGR time limit field width
@@ -6583,7 +6591,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_6_0][IPA_CLIENT_APPS_WAN_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
 			true,
-			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP,
+			IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_NO_DEC_2ND_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 2 , 11, 25, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
@@ -8249,6 +8257,48 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 58, 58, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_DL },
+	[IPA_7_0][IPA_CLIENT_ETHERNET_QOS_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 53, 48, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_UL },
+	[IPA_7_0][IPA_CLIENT_ETHERNET_QOS2_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 54, 50, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_UL },
+	[IPA_7_0][IPA_CLIENT_ETHERNET2_QOS_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 56, 54, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_UL },
+	[IPA_7_0][IPA_CLIENT_ETHERNET2_QOS2_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 57, 56, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_UL },
+	[IPA_7_0][IPA_CLIENT_ETHERNET3_QOS_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 59, 60, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_UL },
+	[IPA_7_0][IPA_CLIENT_ETHERNET3_QOS2_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 60, 62, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_IPSEC_DECAP_RECOVERABLE_ERR_CONS] = {
 			true,   IPA_v7_0_GROUP_DL,
 			false,
@@ -8349,6 +8399,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 38, 7, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_UL },
+	/* uC/Q6 RQoS WA channels (managed by uC similar to IPAv6 IV WA) */
+	[IPA_7_0][IPA_CLIENT_Q6_RQOS_WA_PROD] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			QMB_MASTER_SELECT_DDR,
+			{ 27, 12, 8, 22, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0][IPA_CLIENT_Q6_RQOS_WA_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 73, 13, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_DL },
 
 	/* For test purposes only */
 	[IPA_7_0][IPA_CLIENT_TEST_PROD] = {
@@ -8556,6 +8621,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 58, 58, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_DL },
+	/* uC/Q6 RQoS WA channels (managed by uC similar to IPAv6 IV WA) */
+	[IPA_7_0_MHI][IPA_CLIENT_Q6_RQOS_WA_PROD] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			QMB_MASTER_SELECT_DDR,
+			{ 27, 12, 8, 22, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_MHI][IPA_CLIENT_Q6_RQOS_WA_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 73, 13, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
 
 	/* IPA_7_0_AUTO */
@@ -8877,6 +8957,21 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 38, 7, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
 			IPA_TX_INSTANCE_UL },
+	/* uC/Q6 RQoS WA channels (managed by uC similar to IPAv6 IV WA) */
+	[IPA_7_0_AUTO][IPA_CLIENT_Q6_RQOS_WA_PROD] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
+			QMB_MASTER_SELECT_DDR,
+			{ 27, 12, 8, 22, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_Q6_RQOS_WA_CONS] = {
+			true,   IPA_v7_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 73, 13, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0},
+			IPA_TX_INSTANCE_DL },
 	[IPA_7_0_AUTO][IPA_CLIENT_Q6_CV2X_CONS] = {
 			true, IPA_v7_0_GROUP_CV2X,
 			false,
@@ -10284,30 +10379,30 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.tethering_drop_stats_size = 0x11b4,
 
 	/* Unified Counters (0x8000) */
-	.nat_ct_stats_counters_ofst = 0x243f4,
+	.nat_ct_stats_counters_ofst = 0x243f8,
 	.nat_ct_stats_counters_size = 0x8000,
 
 	/* Unified Config (0x80) */
-	.nat_ct_stats_cfg_ofst = 0x2c3f4,
+	.nat_ct_stats_cfg_ofst = 0x2c3f8,
 	.nat_ct_stats_cfg_size = 0x80,
 
 	/* Unified Drop Counters (0x8000) */
-	.nat_ct_drop_stats_counters_ofst = 0x2c474,
+	.nat_ct_drop_stats_counters_ofst = 0x2c478,
 	.nat_ct_drop_stats_counters_size = 0x8000,
 
 	/* Unified Drop Config (0x80) */
-	.nat_ct_drop_stats_cfg_ofst = 0x34474,
+	.nat_ct_drop_stats_cfg_ofst = 0x34478,
 	.nat_ct_drop_stats_cfg_size = 0x80,
 
-	.fnr_drop_counters_ofst = 0x344f4,
+	.fnr_drop_counters_ofst = 0x344f8,
 	.fnr_drop_counters_size = 0x11a8,
-	.policing_drop_counters_ofst = 0x3569c,
+	.policing_drop_counters_ofst = 0x356a0,
 	.policing_drop_counters_size = 0x400,
-	.shaping_drop_counters_ofst = 0x35a9c,
+	.shaping_drop_counters_ofst = 0x35aa0,
 	.shaping_drop_counters_size = 0x400,
-	.shaping_drop_pkt_byte_counters_ofst = 0x35e9c,
+	.shaping_drop_pkt_byte_counters_ofst = 0x35ea0,
 	.shaping_drop_pkt_byte_counters_size = 0x1000,
-	.end_ofst = 0x36e9c,
+	.end_ofst = 0x36ea0,
 };
 
 
@@ -10498,6 +10593,10 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_ETHERNET_QOS2_CONS),
 	__stringify(IPA_CLIENT_ETHERNET3_PROD),
 	__stringify(IPA_CLIENT_ETHERNET3_CONS),
+	__stringify(IPA_CLIENT_Q6_RQOS_WA_PROD),
+	__stringify(IPA_CLIENT_Q6_RQOS_WA_CONS),
+	__stringify(IPA_CLIENT_ETHERNET3_QOS_CONS),
+	__stringify(IPA_CLIENT_ETHERNET3_QOS2_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -11584,10 +11683,8 @@ int ipa_get_ep_mapping(enum ipa_client_type client)
 		return IPA_EP_NOT_ALLOCATED;
 	}
 
-	if (!ipa3_ep_mapping[hw_idx][client].valid) {
-		IPAERR_RL("ipa EP is not valid! client =%d\n", client);
+	if (!ipa3_ep_mapping[hw_idx][client].valid)
 		return IPA_EP_NOT_ALLOCATED;
-	}
 
 	ipa_ep_idx =
 		ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ipa_ep_num;
@@ -12314,7 +12411,7 @@ int ipa3_cfg_ep_status(u32 clnt_hdl,
  *
  * Return value: none
  */
-void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
+static void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 {
 	/* Enable ADPL v6 Feature for certain IPA clients */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
@@ -12422,7 +12519,7 @@ int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *cfg)
 		ipa3_ctx->ep[clnt_hdl].cfg.prod_cfg.tx_instance = tx_instance;
 		ipa3_ctx->ep[clnt_hdl].cfg.cfg.tx_instance = tx_instance;
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5)
-			ipahal_write_reg_n(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
+			ipahal_write_reg_n_fields(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
 				&ipa3_ctx->ep[clnt_hdl].cfg.prod_cfg);
 		else
 			ipahal_write_reg_n(IPA_ENDP_INIT_PROD_CFG_n, clnt_hdl,
@@ -12781,8 +12878,7 @@ ipa3_get_ep_traffic_mode(enum ipa_client_type client)
 	case IPA_CLIENT_WLAN2_PROD1:
 	case IPA_CLIENT_WLAN3_PROD1:
 	case IPA_CLIENT_WLAN1_PROD1:
-		/* Fo now, reverting this to IPA_BASIC, as IPA_NON_DMA_ETHERNET mode changes are not fully enabled. */
-		return IPA_BASIC;
+		return IPA_NON_DMA_ETHERNET;
 	default:
 		return IPA_BASIC;
 	}
@@ -13652,25 +13748,14 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD ||
 		param_in->client == IPA_CLIENT_MHI_PROD) {
 		result = ipa3_cfg_ep_metadata(ipa_ep_idx, &meta);
-	} else if (param_in->client == IPA_CLIENT_WLAN1_PROD ||
-			param_in->client == IPA_CLIENT_WLAN2_PROD ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD ||
-			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
-			param_in->client == IPA_CLIENT_WLAN1_PROD1 ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD1) {
+	}
+	else if (IPA_CLIENT_IS_WLAN_PRODUCER(param_in->client))
+	{
 		ipa3_ctx->ep[ipa_ep_idx].cfg.meta = meta;
-		if ((ipa_get_wdi_version() == IPA_WDI_3 ||
-			ipa_get_wdi_version() == IPA_WDI_3_V2 ||
-			ipa_get_wdi_version() == IPA_WDI_4 ||
-			ipa_get_wdi_version() == IPA_WDI_5) &&
-			(param_in->client == IPA_CLIENT_WLAN2_PROD ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD ||
-			param_in->client == IPA_CLIENT_WLAN1_PROD ||
-			param_in->client == IPA_CLIENT_WLAN2_PROD1 ||
-			param_in->client == IPA_CLIENT_WLAN1_PROD1 ||
-			param_in->client == IPA_CLIENT_WLAN3_PROD1))
-				result = ipa3_write_qmapid_wdi3_gsi_pipe(
-					ipa_ep_idx, meta.qmap_id);
+		if ((ipa_get_wdi_version() >= IPA_WDI_3 &&
+			 ipa_get_wdi_version() <= IPA_WDI_6))
+			result = ipa3_write_qmapid_wdi3_gsi_pipe(
+				ipa_ep_idx, meta.qmap_id);
 		else
 			result = ipa3_write_qmapid_wdi_pipe(
 				ipa_ep_idx, meta.qmap_id);
@@ -16665,14 +16750,14 @@ int ipa3_suspend_apps_pipes(bool suspend)
 
 	/* Suspend/resume v2x pipes first, applicable for PVM only and GVM. */
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, suspend);
-	if (res == -EAGAIN) {		
+	if (res == -EAGAIN) {
 		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
 		return res;
 	}
 
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, suspend);
 	if (res == -EAGAIN) {
-		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);		
+		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_CONS, !suspend);
 		_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_V2X_PROD, !suspend);
 		return res;
 	}
@@ -17968,13 +18053,14 @@ void __ipa_ntn3_prod_stats_get(struct ipa_ntn3_stats_rx *stats, enum ipa_client_
 		return;
 	ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
 
-	stats->pending_db_after_rollback = gsi_ntn3_client_stats_get(ipa_ep_idx, 4, ch_id);
-	stats->msi_db_idx = gsi_ntn3_client_stats_get(ipa_ep_idx, 5, ch_id);
-	stats->chain_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 6, ch_id);
+	stats->ntn_stats.last_db_value = gsi_ntn3_client_stats_get(ipa_ep_idx, 3, ch_id);
+	stats->ntn_stats.next_re = gsi_ntn3_client_stats_get(ipa_ep_idx, 4, ch_id);
+	stats->ntn_stats.malformed_tre = gsi_ntn3_client_stats_get(ipa_ep_idx, 5, ch_id);
+	stats->ntn_stats.zero_len_pkt_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 6, ch_id);
 	stats->err_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 7, ch_id);
-	stats->tres_handled = gsi_ntn3_client_stats_get(ipa_ep_idx, 8, ch_id);
-	stats->rollbacks_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 9, ch_id);
-	stats->msi_db_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -1, ch_id);
+	stats->ntn_stats.invalid_tre_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 8, ch_id);
+	stats->ntn_stats.rollbacks_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -2, ch_id);
+	stats->ntn_stats.outstanding_tlvs_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -1, ch_id);
 
 	stats->wp = gsi_get_refetch_reg(ch_id, false);
 	stats->rp = gsi_get_refetch_reg(ch_id, true);
@@ -17993,13 +18079,13 @@ void __ipa_ntn3_cons_stats_get(struct ipa_ntn3_stats_tx *stats, enum ipa_client_
 		return;
 	ch_id = ipa3_ctx->ep[ipa_ep_idx].gsi_chan_hdl;
 
-	stats->pending_db_after_rollback = gsi_ntn3_client_stats_get(ipa_ep_idx, 4, ch_id);
-	stats->msi_db_idx = gsi_ntn3_client_stats_get(ipa_ep_idx, 5, ch_id);
+	stats->ntn_stats.last_db_value = gsi_ntn3_client_stats_get(ipa_ep_idx, 3, ch_id);
+	stats->ntn_stats.next_re = gsi_ntn3_client_stats_get(ipa_ep_idx, 4, ch_id);
+	stats->ntn_stats.malformed_tre = gsi_ntn3_client_stats_get(ipa_ep_idx, 5, ch_id);
 	stats->derr_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 6, ch_id);
-	stats->oob_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 7, ch_id);
-	stats->tres_handled = gsi_ntn3_client_stats_get(ipa_ep_idx, 8, ch_id);
-	stats->rollbacks_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 9, ch_id);
-	stats->msi_db_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -1, ch_id);
+	stats->ntn_stats.invalid_tre_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, 8, ch_id);
+	stats->ntn_stats.rollbacks_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -2, ch_id);
+	stats->ntn_stats.outstanding_tlvs_cnt = gsi_ntn3_client_stats_get(ipa_ep_idx, -1, ch_id);
 
 	stats->wp = gsi_get_refetch_reg(ch_id, false);
 	stats->rp = gsi_get_refetch_reg(ch_id, true);

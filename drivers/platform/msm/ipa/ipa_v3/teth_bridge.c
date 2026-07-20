@@ -23,16 +23,28 @@
 #define TETH_BRIDGE_DRV_NAME "ipa_tethering_bridge"
 
 #define TETH_DBG(fmt, args...) \
-	pr_debug(TETH_BRIDGE_DRV_NAME " %s:%d " fmt, \
-		 __func__, __LINE__, ## args)
+	do { \
+		pr_debug(TETH_BRIDGE_DRV_NAME " %s:%d " fmt, \
+			 __func__, __LINE__, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, TETH_BRIDGE_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
+	} while (0)
 #define TETH_DBG_FUNC_ENTRY() \
 	pr_debug(TETH_BRIDGE_DRV_NAME " %s:%d ENTRY\n", __func__, __LINE__)
 #define TETH_DBG_FUNC_EXIT() \
 	pr_debug(TETH_BRIDGE_DRV_NAME " %s:%d EXIT\n", __func__, __LINE__)
 #define TETH_ERR(fmt, args...) \
-	pr_err(TETH_BRIDGE_DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args)
+	do { \
+		pr_err(TETH_BRIDGE_DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, TETH_BRIDGE_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
+	} while (0)
 #define TETH_ERR_RL(fmt, args...) \
-	pr_err_ratelimited_ipa(TETH_BRIDGE_DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args)
+	do { \
+		pr_err_ratelimited_ipa(TETH_BRIDGE_DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, TETH_BRIDGE_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
+	} while (0)
 
 enum ipa_num_teth_iface {
 	IPA_TETH_IFACE_1 = 0,

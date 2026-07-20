@@ -80,6 +80,8 @@ static void *ipa_rndis_logbuf;
 			IPA_RNDIS_IPC_LOGGING(ipa_rndis_logbuf, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define RNDIS_IPA_DEBUG_XMIT(fmt, args...) \
@@ -93,6 +95,8 @@ static void *ipa_rndis_logbuf;
 			IPA_RNDIS_IPC_LOGGING(ipa_rndis_logbuf, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define RNDIS_IPA_ERROR_RL(fmt, args...) \
@@ -103,6 +107,8 @@ static void *ipa_rndis_logbuf;
 			IPA_RNDIS_IPC_LOGGING(ipa_rndis_logbuf, \
 				DRV_NAME " %s:%d " fmt, ## args); \
 		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define NULL_CHECK_RETVAL(ptr) \

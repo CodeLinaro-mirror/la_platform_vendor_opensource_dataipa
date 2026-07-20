@@ -77,15 +77,6 @@
 #define IPA_RULE_CREATE_FLAG_RETURN_VXLAN_GPE (1<<20)		/**< VXLAN-GPE rule for return flow. */
 
 
-#define IPA_MAX_VLAN_DEPTH 2			/**< Maximum VLAN depth. */
-#define IPA_VLAN_ID_NOT_CONFIGURED 0xfff	/**< VLAN ID not configured. */
-#define IPA_INVALID_VLAN_PCP 0xff		/**< VLAN PCP remark is invalid for SAWF (Service Aware Wi-Fi). */
-#define IPA_MAX_SERVICE_CLASS_ID 0x80		/**< Maximum service class ID. */
-#define IPA_INVALID_SERVICE_CLASS_ID 0xff	/**< Service class ID not valid. */
-#define IPA_SERVICE_CLASS_STATS_MAX_RETRY 100	/**< Maximum retries for fetching service class statistics. */
-#define IPA_INVALID_MSDUQ 0xff			/**< Invalid MAC Service Data Unit Queue. */
-#define IPA_MC_IF_MAX 16
-
 #define IPA_SPECIAL_INTERFACE_BASE 0x7f00	/**< Special interface base number. */
 #define IPA_SPECIAL_INTERFACE_IPV4 (IPA_SPECIAL_INTERFACE_BASE + 1)	/**< Interface number for IPv4. */
 #define IPA_SPECIAL_INTERFACE_IPV6 (IPA_SPECIAL_INTERFACE_BASE + 2)	/**< Interface number for IPv6. */
@@ -108,6 +99,20 @@
 		/**< Ingress SGT for the flow interface is valid. */
 #define IPA_TRUSTSEC_EGRESS_SGT_VALID 0x02
 
+
+/*
+ * Update rule flags are valid.
+ */
+#define IPA_UPDATE_RULE_SAWF_FLOW_VALID        (1<<0)
+		/**< SAWF mark in the flow direction is valid. */
+#define IPA_UPDATE_RULE_SAWF_RETURN_VALID      (1<<1)
+		/**< SAWF mark in the return direction is valid. */
+#define IPA_UPDATE_RULE_SAWF_DEPRIO            (1<<2)
+		/**< SAWF mark is being set to reset queue of this flow */
+#define IPA_UPDATE_RULE_QOS_VALID		(1<<3)
+		/**< QoS mark is set for this flow. */
+#define IPA_UPDATE_RULE_DSCP_VALID		(1<<4)
+		/**< DSCP values are valid in update rule. */
 /*
  *  * Qdisc interface validity flags; used with the qdisc_valid_flags  field in the ipa_qdisc_rule structure.
  *   */
@@ -145,21 +150,6 @@
 #define IPA_MHT_TAG_SHIFT		24	/**< Number of bit shifts for MHT tag. */
 
 #define IPA_MHT_MAX_ACCELERATION_RETRY	256	/**< Maximum retry for IPA acceleration for MHT. */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -208,33 +198,102 @@ typedef enum /** @cond */ ipa_rule_sync_reason /** @endcond */ {
 
 } ipa_rule_sync_reason_t;
 
+
+
+
 /*
- *  * Connection mark types.
- *   */
-enum ipa_connection_mark_type {
-	IPA_CONNECTION_MARK_TYPE_CONNMARK,      /**< Conntrack mark. */
-	IPA_CONNECTION_MARK_TYPE_SAWFMARK,      /**< SAWF mark. */
-	IPA_CONNECTION_MARK_TYPE_MAX            /**< Indicates the last item. */
+ * Direction of the match rule.
+ */
+typedef enum ipa_flow_rule_direction {
+	IPA_FLOW_RULE_DIRECTION_FLOW,	/**< Match direction is original. */
+	IPA_FLOW_RULE_DIRECTION_RETURN	/**< Match direction is reply. */
+} ipa_flow_rule_direction_t;
+
+
+/**
+ * QoS connection rule structure.
+ */
+struct ipa_qos_rule {
+	u32 flow_qos_tag;	/**< QoS tag associated with this rule for flow direction. */
+	u32 return_qos_tag;	/**< QoS tag associated with this rule for return direction. */
+	u8 flow_int_pri;	/**< PPE INT_PRI corresponding to flow direction when PPE Qdisc is configured. */
+	u8 return_int_pri;	/**< PPE INT_PRI corresponding to return direction when PPE Qdisc is configured. */
+};
+/**
+* Mark rule structure.
+*/
+struct ipa_mark_rule {
+	u32 flow_mark;		/**< SKB mark associated with this rule for flow direction. */
+	u32 return_mark;	/**< SKB mark associated with this rule for return direction. */
+};
+/**
+ * DSCP connection rule structure.
+ */
+struct ipa_dscp_rule {
+	u8 flow_dscp;		/**< Egress DSCP value for flow direction. */
+	u8 return_dscp;		/**< Egress DSCP value for return direction. */
+	u8 reserved[2];		/**< Reserved; padding for alignment. */
+};
+
+
+/**
+ * Update message for update type connmark.
+ */
+struct ipa_update_msg_connmark_t {
+	u32 flow_mark;		/**< Mark to be updated for the flow direction. */
+	u32 return_mark;	/**< Mark to be updated for the return direction. */
+};
+/**
+ * Update message for update type sawfmark.
+ */
+struct ipa_update_msg_sawfmark_t {
+	u32 flow_mark;		/**< Mark to be updated for the flow direction. */
+	u32 return_mark;	/**< Mark to be updated for the return direction. */
+	u8 flow_svc_id;		/**< Service class in the flow direction. */
+	u8 return_svc_id;	/**< Service class in the return direction. */
+};
+/**
+ * Update message for update type unidirection.
+ */
+struct ipa_update_msg_unidir_t {
+	struct ipa_qos_rule qos;		/**< QoS rule information. */
+	struct ipa_dscp_rule dscp;		/**< DSCP-related acceleration parameters. */
+	ipa_flow_rule_direction_t update_dir;	/**< Direction to update. */
+};
+
+
+/*
+ * Connection mark types.
+ */
+enum ipa_rule_update_msg_type {
+	IPA_CONNECTION_MARK_TYPE_CONNMARK,		/**< Conntrack mark. */
+	IPA_CONNECTION_MARK_TYPE_BIDIR_SAWF_MARK,	/**< Bidirection SAWF mark. */
+	IPA_CONNECTION_MARK_TYPE_UNIDIR_MARK,		/**< Unidirection update info present in mark. */
+	IPA_CONNECTION_MARK_TYPE_MAX			/**< Indicates the last item. */
 };
 
 /**
- *  * Connection mark structure.
- *   */
-struct ipa_connection_mark {
-	int protocol;				/**< Protocol number. */
-	__be32 src_ip[4];			/**< Source IP address. */
-	__be32 dest_ip[4];			/**< Destination IP address. */
-	__be16 src_port;			/**< Source port number. */
-	__be16 dest_port;			/**< Destination port number. */
-	u32 flow_mark;				/**< Mark to be updated for the flow direction. */
-	u32 return_mark;			/**< Mark to be updated for the return direction. */
-	u8 flow_svc_id;			/**< Service class in the flow direction. */
-	u8 return_svc_id;		/**< Service class in the return direction. */
-	u32 flags;				/**< State of marks. */
-	enum ipa_connection_mark_type type;	/**< Type of the marking. */
+* Connection mark structure.
+*/
+struct ipa_rule_update_msg {
+	enum ipa_rule_update_msg_type type;
+		/**< Type of the marking. */
+	int protocol;		/**< Protocol number. */
+	__be32 src_ip[4];	/**< Source IP address. */
+	__be32 dest_ip[4];	/**< Destination IP address. */
+	__be16 src_port;	/**< Source port number. */
+	__be16 dest_port;	/**< Destination port number. */
+	u32 flow_rule_id;	/**< Unique number defined in connection manager. */
+	u32 flags;		/**< State of marks. */
+	union {
+		struct ipa_update_msg_connmark_t connmark;
+			/**< Information related to update type connmark. */
+		struct ipa_update_msg_sawfmark_t sawf;
+			/**< Information related to update type sawfmark. */
+		struct ipa_update_msg_unidir_t unidir;
+			/**< Information related to update type unidirection. */
+	} info;
 };
-
-
 
 
 /**
@@ -258,6 +317,8 @@ enum ipa_message_types {
 	IPA_TX_DESTROY_RULE_MSG,	/**< IPv4/IPv6 destroy rule message. */
 	IPA_RX_CONN_STATS_SYNC_MSG,	/**< IPv4/IPv6 connection statistics synchronize message. */
 	IPA_TX_CONN_STATS_SYNC_MANY_MSG,/**< IPv4/IPv6 connection statistics synchronize many message. */
+	IPA_TX_CONN_STATS_SYNC_MANY_TS_ONLY_MSG,/**< IPv4/IPv6 connection timestamp synchronize many message. */
+	IPA_TX_CONN_STATS_SYNC_MANY_STATS_ONLY_MSG,/**< IPv4/IPv6 connection statistics synchronize many message (no timestamp). */
 	IPA_TUN6RD_ADD_UPDATE_PEER,	/**< Add/update peer for 6RD tunnel. */
 	IPA_TX_CREATE_MULTICAST_RULE_MSG,	/**< IPv4/IPv6 create multicast rule message. */
 	IPA_TX_DESTROY_MULTICAST_RULE_MSG,     /**< IPv4/IPv6 destroy multicast rule message. */
@@ -276,6 +337,7 @@ struct ipa_ipv4_5tuple {
 	__be16 return_ident;	/**< Return identifier, e.g., TCP/UDP port. */
 	u8 protocol;		/**< Protocol number. */
 	u8 reserved[3];		/**< Reserved; padding for alignment. */
+	u32 flow_rule_id;
 };
 
 /**
@@ -341,32 +403,7 @@ struct ipa_src_mac_rule {
 	uint16_t return_src_mac[3];	/**< Source MAC address for the return direction. */
 };
 
-/**
- * QoS connection rule structure.
- */
-struct ipa_qos_rule {
-	u32 flow_qos_tag;	/**< QoS tag associated with this rule for flow direction. */
-	u32 return_qos_tag;	/**< QoS tag associated with this rule for return direction. */
-	u8 flow_int_pri;	/**< PPE INT_PRI corresponding to flow direction when PPE Qdisc is configured. */
-	u8 return_int_pri;	/**< PPE INT_PRI corresponding to return direction when PPE Qdisc is configured. */
-};
 
-/**
-* Mark rule structure.
-*/
-struct ipa_mark_rule {
-	u32 flow_mark;		/**< SKB mark associated with this rule for flow direction. */
-	u32 return_mark;	/**< SKB mark associated with this rule for return direction. */
-};
-
-/**
- * DSCP connection rule structure.
- */
-struct ipa_dscp_rule {
-	u8 flow_dscp;		/**< Egress DSCP value for flow direction. */
-	u8 return_dscp;		/**< Egress DSCP value for return direction. */
-	u8 reserved[2];		/**< Reserved; padding for alignment. */
-};
 
 /*
  * Bridge VLAN filter flags; used with IPA_RULE_CREATE_VLAN_FILTER_VALID and ipa_vlan_filter_rule structure.
@@ -588,9 +625,11 @@ struct ipa_ipv4_conn_sync {
 	u32 flow_end;			/**< Flow direction's largest seen sequence + segment length. */
 	u32 flow_max_end;		/**< Flow direction's largest seen ack + max(1, win). */
 	u32 flow_rx_packet_count;	/**< Flow interface's Rx packet count. */
-	u32 flow_rx_byte_count;		/**< Flow interface's Rx byte count. */
+	u64 flow_rx_byte_count;		/**< Flow interface's Rx byte count. */
+	u32 flow_rx_packet_count_cache;	/**< Flow interface's Rx packet count from cache. */
 	u32 flow_tx_packet_count;	/**< Flow interface's Tx packet count. */
-	u32 flow_tx_byte_count;		/**< Flow interface's Tx byte count. */
+	u64 flow_tx_byte_count;		/**< Flow interface's Tx byte count. */
+	u32 flow_tx_packet_count_cache;	/**< Flow interface's Tx packet count from cache. */
 	u16 flow_pppoe_session_id;	/**< Flow interface`s PPPoE session ID. */
 	u16 flow_pppoe_remote_mac[3];	/**< Flow interface's PPPoE remote server MAC address (if present). */
 	__be32 return_ip;		/**< Return IP address. */
@@ -601,17 +640,19 @@ struct ipa_ipv4_conn_sync {
 	u32 return_end;			/**< Return direction's largest seen sequence + segment length. */
 	u32 return_max_end;		/**< Return direction's largest seen ack + max(1, win). */
 	u32 return_rx_packet_count;	/**< Return interface's Rx packet count. */
-	u32 return_rx_byte_count;	/**< Return interface's Rx byte count. */
+	u64 return_rx_byte_count;	/**< Return interface's Rx byte count. */
+	u32 return_rx_packet_count_cache;	/**< Return interface's Rx packet count from cache. */
 	u32 return_tx_packet_count;	/**< Return interface's Tx packet count. */
-	u32 return_tx_byte_count;	/**< Return interface's Tx byte count. */
+	u64 return_tx_byte_count;	/**< Return interface's Tx byte count. */
+	u32 return_tx_packet_count_cache;	/**< Return interface's Tx packet count from cache. */
 	u16 return_pppoe_session_id;	/**< Return interface`s PPPoE session ID. */
 	u16 return_pppoe_remote_mac[3];	/**< Return interface's PPPoE remote server MAC address (if present). */
 	u32 inc_ticks;			/**< Number of ticks since the last sync. */
 	u32 reason;			/**< Synchronization reason. */
-
 	u8 flags;			/**< Bit flags associated with the rule. */
 	u32 qos_tag;			/**< QoS tag. */
 	u32 cause;			/**< Flush cause. */
+	u32 flow_rule_id;
 };
 
 /**
@@ -642,6 +683,7 @@ struct ipa_ipv6_5tuple {
 	__be16 return_ident;	/**< Return identifier, e.g., TCP/UDP port. */
 	u8  protocol;		/**< Protocol number. */
 	u8  reserved[3];	/**< Reserved; padding for alignment. */
+	u32 flow_rule_id;
 };
 
 /**
@@ -805,9 +847,11 @@ struct ipa_ipv6_conn_sync {
 	u32 flow_end;			/**< Flow direction's largest seen sequence + segment length. */
 	u32 flow_max_end;		/**< Flow direction's largest seen ack + max(1, win). */
 	u32 flow_rx_packet_count;	/**< Flow interface's Rx packet count. */
-	u32 flow_rx_byte_count;		/**< Flow interface's Rx byte count. */
+	u64 flow_rx_byte_count;		/**< Flow interface's Rx byte count. */
+	u32 flow_rx_packet_count_cache;	/**< Flow interface's Rx packet count from cache. */
 	u32 flow_tx_packet_count;	/**< Flow interface's Tx packet count. */
-	u32 flow_tx_byte_count;		/**< Flow interface's Tx byte count. */
+	u64 flow_tx_byte_count;		/**< Flow interface's Tx byte count. */
+	u32 flow_tx_packet_count_cache;	/**< Flow interface's Tx packet count from cache. */
 	u16 flow_pppoe_session_id;	/**< Flow interface`s PPPoE session ID. */
 	u16 flow_pppoe_remote_mac[3];	/**< Flow interface's PPPoE remote server MAC address (if present). */
 	__be32 return_ip[4];		/**< Return IP address. */
@@ -818,9 +862,11 @@ struct ipa_ipv6_conn_sync {
 	u32 return_end;			/**< Return direction's largest seen sequence + segment length. */
 	u32 return_max_end;		/**< Return direction's largest seen ack + max(1, win). */
 	u32 return_rx_packet_count;	/**< Return interface's Rx packet count. */
-	u32 return_rx_byte_count;	/**< Return interface's Rx byte count. */
+	u64 return_rx_byte_count;	/**< Return interface's Rx byte count. */
+	u32 return_rx_packet_count_cache;	/**< Return interface's Rx packet count from cache. */
 	u32 return_tx_packet_count;	/**< Return interface's Tx packet count. */
-	u32 return_tx_byte_count;	/**< Return interface's Tx byte count. */
+	u64 return_tx_byte_count;	/**< Return interface's Tx byte count. */
+	u32 return_tx_packet_count_cache;	/**< Return interface's Tx packet count from cache. */
 	u16 return_pppoe_session_id;	/**< Return interface`s PPPoE session ID. */
 	u16 return_pppoe_remote_mac[3];	/**< Return interface's PPPoE remote server MAC address (if present). */
 	u32 inc_ticks;			/**< Number of ticks since the last sync. */
@@ -828,6 +874,7 @@ struct ipa_ipv6_conn_sync {
 	u8 flags;			/**< Bit flags associated with the rule. */
 	u32 qos_tag;			/**< QoS tag. */
 	u32 cause;			/**< Flush cause associated with the rule. */
+	u32 flow_rule_id;
 };
 
 /**
@@ -876,6 +923,7 @@ struct ipa_ipv4_msg {
 					/**< Many connections' statistics synchronization message. */
 		struct ipa_ipv4_mc_rule_create_msg mc_rule_create;/**< MC rule create message. */
 		struct ipa_ipv4_mc_rule_destroy_msg mc_rule_destroy; /**<MC rule destroy message. */
+		struct ipa_rule_update_msg rule_update;	/**< Rule update message. */
 	} msg;							/**< IPv4 message. */
 };
 
@@ -895,6 +943,7 @@ struct ipa_ipv6_msg {
 					/**< Many Connections' statistics synchronizaion message. */
 		struct ipa_ipv6_mc_rule_create_msg mc_rule_create;/**< MC rule create message. */
 		struct ipa_ipv6_mc_rule_destroy_msg mc_rule_destroy; /**<MC rule destroy message. */
+		struct ipa_rule_update_msg rule_update;	/**< Rule update message. */
 
 	} msg;				/**< IPv6 message. */
 };

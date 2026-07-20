@@ -1174,6 +1174,7 @@ static int ipa_ipsec_install_decap_flt(struct xfrm_policy *xp, u8 idx)
 
 	ipa_ipsec_xfrm_sp_to_ipa_attrib(xp, &flt_rule->rule.attrib, idx);
 
+	flt_rule->rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 	ret = ipa3_add_flt_rule_usr_v2(flt_tbl, false);
 	if (!!ret) {
 		IPAERR("ipa3_add_flt_rule_usr_v2 returned %d\n", ret);
@@ -2560,6 +2561,7 @@ int ipa_ipsec_install_dl_pol_flt(u32 qmap_hdr_hdl)
 	flt_rule_frag->rule.attrib.attrib_mask = IPA_FLT_FRAGMENT;
 	flt_rule_frag->rule.attrib.is_frag_encoding = 0x2; //Secondary fragmented packets
 	flt_rule_frag->rule.action = IPA_PASS_TO_EXCEPTION;
+	flt_rule_frag->rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 
 	/* IPsec no policy metadata rule */
 	flt_rule_no_policy = &(((struct ipa_flt_rule_add_v2 *)flt_tbl->rules)[1]);
@@ -2571,6 +2573,7 @@ int ipa_ipsec_install_dl_pol_flt(u32 qmap_hdr_hdl)
 	flt_rule_no_policy->rule.attrib.meta_data_mask = META_IS_IPSEC;
 	flt_rule_no_policy->rule.attrib.meta_data = META_IS_IPSEC;
 	flt_rule_no_policy->rule.action = IPA_PASS_TO_ROUTING;
+	flt_rule_no_policy->rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 
 	/* Catch all rule */
 	flt_rule_catch_all = &(((struct ipa_flt_rule_add_v2 *)flt_tbl->rules)[2]);
@@ -2579,6 +2582,7 @@ int ipa_ipsec_install_dl_pol_flt(u32 qmap_hdr_hdl)
 	flt_rule_catch_all->status = -1;
 	flt_rule_catch_all->rule.hashable = false;
 	flt_rule_catch_all->rule.action = IPA_PASS_TO_ROUTING;
+	flt_rule_catch_all->rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 
 	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
 		flt_tbl->ip = ip;
@@ -3239,6 +3243,7 @@ static int ipa_ipsec_fnr_init(void)
 	flt_rule->at_rear = 1;
 	flt_rule->rule.action = IPA_PASS_TO_ROUTING;
 	flt_rule->rule.hashable = true;
+	flt_rule->rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 
 	/* Install embedded encap FLT table */
 	flt_tbl->ep = IPA_CLIENT_IPSEC_ENCAP_PROD;
@@ -3260,6 +3265,7 @@ static int ipa_ipsec_fnr_init(void)
 	/* Install embedded decap FLT table */
 	flt_tbl->ep = IPA_CLIENT_IPSEC_DECAP_PROD;
 	memset((void *)flt_rule, 0, sizeof(struct ipa_flt_rule_add_v2));
+	flt_rule->rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 	for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
 		flt_tbl->ip = ip;
 		flt_rule->flt_rule_hdl = -1;

@@ -454,6 +454,23 @@ typedef struct {
 	uint32_t enable:1;
 } ipa_nat_flags;
 
+/*
+	IPA NAT V2 Flag field is interpreted as follows
+	----------------------------------------------------------------
+	| EN | in_redirect | out_redirect | IPv4 uC activation index    |
+	|[15]|    [14]     |     [13]     |          [12:0]            |
+	----------------------------------------------------------------
+	Bits above map to the Flags(2B) group in struct ipa_nat_rule_v2.
+	Direction allow/conn_tracking/src_only/dst_only/s/ucp/pdn bits are
+	encoded in the separate PDN & uC info field, not in the V2 flags field.
+*/
+typedef struct {
+	uint32_t uc_activation_index:13;
+	uint32_t out_redirect:1;
+	uint32_t in_redirect:1;
+	uint32_t enable:1;
+} ipa_nat_flags_v2;
+
 struct ipa_nat_indx_tbl_rule {
 	uint16_t tbl_entry;
 	uint16_t next_index;
@@ -469,6 +486,15 @@ typedef union
 	ipa_table_dma_cmd_helper table_dma_cmd_helpers[IPA_NAT_TABLE_DMA_CMD_MAX];
 } ipa_nat_ip4_table_cmd_helpers;
 
+/* Per-client counter tracking for IPv4 (IPA v7.0+) */
+struct ipv4_client_counter_info {
+	uint32_t private_ip;           /* Client identifier */
+	uint16_t all_pkts_counter_id;  /* All packets counter index (0 = not allocated) */
+	uint16_t non_frag_counter_id;  /* Non-frag counter index (0 = not allocated) */
+	uint32_t all_pkts_ref_count;   /* Number of rules using THIS all_pkts counter */
+	uint32_t non_frag_ref_count;   /* Number of rules using THIS non_frag counter */
+};
+
 struct ipa_nat_ip4_table_cache {
 	uint32_t public_addr;
 	ipa_mem_descriptor mem_desc;
@@ -476,6 +502,13 @@ struct ipa_nat_ip4_table_cache {
 	ipa_table index_table;
 	struct ipa_nat_indx_tbl_meta_info *index_expn_table_meta;
 	ipa_nat_ip4_table_cmd_helpers table_cmd_helpers;
+
+	/* Counter management fields (IPA v7.0+) */
+#ifdef CONFIG_ECM_CONVERGENCE
+	struct ipv4_client_counter_info client_counters[IPA_NAT_CT_STATS_MAX_CLIENTS];
+	uint32_t num_client_counters;
+	spinlock_t counter_lock;
+#endif
 };
 
 struct ipa_nat_cache {
@@ -501,6 +534,8 @@ int ipa_nati_query_timestamp_redirect(uint32_t  tbl_hdl,
 int ipa_nati_modify_pdn(struct ipa_ioc_nat_pdn_entry *entry);
 
 int ipa_nati_get_pdn_index(uint32_t public_ip, uint8_t *pdn_index);
+
+int ipa_nati_get_pdn_public_ip(uint8_t pdn_index, uint32_t *public_ip);
 
 int ipa_nati_alloc_pdn(ipa_nat_pdn_entry *pdn_info, uint8_t *pdn_index);
 
@@ -633,5 +668,25 @@ int ipa_NATI_timestamp_flush(uint32_t  tbl_hdl);
 
 int ipa_nat_take_mutex(void);
 int ipa_nat_give_mutex(void);
+
+#ifdef CONFIG_ECM_CONVERGENCE
+/**
+ * ipa_nati_alloc_counter_v4() - Internal implementation for counter allocation
+ */
+int ipa_nati_alloc_counter_v4(
+	uint32_t table_handle,
+	uint32_t private_ip,
+	bool is_all_pkts,
+	uint16_t *counter_id);
+
+/**
+ * ipa_nati_free_counter_v4() - Internal implementation for counter deallocation
+ */
+int ipa_nati_free_counter_v4(
+	uint32_t table_handle,
+	uint32_t private_ip,
+	bool is_all_pkts,
+	uint16_t counter_id);
+#endif /* CONFIG_ECM_CONVERGENCE */
 
 #endif/* if not defined IPA_NAT_DRVI_H */

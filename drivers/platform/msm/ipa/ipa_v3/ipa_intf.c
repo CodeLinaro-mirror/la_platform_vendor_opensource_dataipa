@@ -22,6 +22,8 @@ struct ipa3_intf {
 	enum ipa_client_type excp_pipe;
 	struct ipa3_flt_entry *flt_list;
 	int intf_idx;
+	u16 vpnum;
+	bool vpnum_valid;
 };
 
 struct ipa3_push_msg {
@@ -155,6 +157,13 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 		intf->excp_pipe = IPA_CLIENT_APPS_LAN_CONS;
 
 	intf->intf_idx = intf_idx;
+	if (ext && ext->vpnum_valid) {
+		intf->vpnum = ext->vpnum;
+		intf->vpnum_valid = true;
+	} else {
+		intf->vpnum = 0;
+		intf->vpnum_valid = false;
+	}
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_add_tail(&intf->link, &ipa3_ctx->intf_list);
@@ -247,6 +256,7 @@ int ipa3_query_intf(struct ipa_ioc_query_intf *lookup)
 
 	return result;
 }
+EXPORT_SYMBOL(ipa3_query_intf);
 
 /**
  * ipa3_query_intf_tx_props() - qeury TX props of an interface
@@ -1297,16 +1307,16 @@ bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf)
 {
 	bool ret = false;
 	struct ipa3_intf *entry;
-	IPAERR("Entry \n");
+	IPADBG("Entry \n");
 	if (target_intf == NULL) {
 		 return ret;
 	}
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
-		IPAERR("Checking entry->intf_idx %s :%d with intf_idx %d \n", entry->name , entry->intf_idx, intf_idx);
+		IPADBG("Checking entry->intf_idx %s :%d with intf_idx %d \n", entry->name , entry->intf_idx, intf_idx);
 		if (entry->intf_idx == intf_idx) {
-			IPAERR("Iface found at idx %d \n", intf_idx);
+			IPADBG("Iface found at idx %d \n", intf_idx);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 			strscpy(target_intf->name, entry->name, IPA_RESOURCE_NAME_MAX);
 #else
@@ -1323,9 +1333,121 @@ bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf)
 	}
 	mutex_unlock(&ipa3_ctx->lock);
 
-	IPAERR("Exit \n");
+	IPADBG("Exit \n");
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_query_iface);
+
+int ipa3_update_intf_idx(const char *name, int intf_idx)
+{
+	struct ipa3_intf *entry;
+	int ret = -ENOENT;
+
+	if (!name) {
+		IPAERR("Invalid name (NULL), intf_idx=%d\n", intf_idx);
+		return -EINVAL;
+	}
+
+	IPADBG("Entry: name=%s intf_idx=%d\n", name, intf_idx);
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		IPADBG("Scanning intf %s (intf_idx=%d)\n",
+			entry->name, entry->intf_idx);
+		if (strcmp(entry->name, name) == 0) {
+			if (entry->intf_idx != intf_idx) {
+				IPADBG("Updating %s intf_idx %d -> %d\n",
+					entry->name, entry->intf_idx, intf_idx);
+				entry->intf_idx = intf_idx;
+			} else {
+				IPADBG("%s already at intf_idx=%d, no-op\n",
+					entry->name, intf_idx);
+			}
+			ret = 0;
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	if (ret == -ENOENT)
+		IPADBG("intf %s not found in intf_list\n", name);
+
+	IPADBG("Exit: name=%s ret=%d\n", name, ret);
+	return ret;
+}
+
+/**
+ * ipa3_populate_cookie_vpnum() - get vpnum from interface index
+ * @intf_idx: [in] interface index
+ * @cookie:   [out] SW producer cookie to populate with vpnum (wdi6 only)
+ *
+ * Behaviour per interface type:
+ *  - WDI6 (vpnum_valid == true):  sets cookie->wdi6.vp_num = vpnum
+ *  - Other WDI protocol (vpnum_valid == false):
+ *      cookie is left untouched (protocol has its own cookie layout)
+ *  - Non-WDI interface:
+ *      cookie is left untouched
+ *  - Interface not found: cookie is left untouched
+ */
+void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie)
+{
+	struct ipa3_intf *entry;
+
+	if (!cookie)
+		return;
+
+	/* Validate interface index is non-negative */
+	if (intf_idx < 0) {
+		IPAERR("Invalid interface index %d\n", intf_idx);
+		return;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (entry->intf_idx == intf_idx) {
+			if (entry->vpnum_valid) {
+				/* WDI6: populate the vp_num field */
+				cookie->wdi6.vp_num = entry->vpnum;
+				IPADBG("vp_num %d\n", entry->vpnum);
+			} else {
+				IPADBG("Interface index %d found but no vp num\n", intf_idx);
+			}
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+}
+EXPORT_SYMBOL(ipa3_populate_cookie_vpnum);
+/**
+ * ipa3_is_vpnum_valid() - check if interface has a valid vpnum
+ * @intf_idx: [in] interface index
+ *
+ * Return: true if valid, false otherwise
+ */
+bool ipa3_is_vpnum_valid(int intf_idx)
+{
+	struct ipa3_intf *entry;
+	bool valid = false;
+
+	/* Validate interface index */
+	if (intf_idx < 0) {
+		IPAERR("Invalid interface index %d\n", intf_idx);
+		return false;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (entry->intf_idx == intf_idx) {
+			valid = entry->vpnum_valid;
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	IPADBG("intf_idx=%d vpnum_valid=%d\n", intf_idx, valid);
+	return valid;
+}
+EXPORT_SYMBOL(ipa3_is_vpnum_valid);
 
 /**
  * ipa3_add_filter_rules_entry - Add filter entry to interface filter list
@@ -1352,16 +1474,16 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
 	struct ipa3_flt_entry *iter;
 	int list_len = 0;
 
-	IPAERR("Entry\n");
+	IPADBG("Entry\n");
 
 	mutex_lock(&ipa3_ctx->lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
-		IPAERR("Checking entry->intf_idx %s :%d with intf_idx %d\n", entry->name, entry->intf_idx, intf_idx);
+		IPADBG("Checking entry->intf_idx %s :%d with intf_idx %d\n", entry->name, entry->intf_idx, intf_idx);
 		if (entry->intf_idx == intf_idx) {
-			IPAERR("Iface found at idx %d\n", intf_idx);
+			IPADBG("Iface found at idx %d\n", intf_idx);
 
 			if (!entry->flt_list) {
-				IPAERR("flt_list is NULL for intf_idx %d, allocating...\n", intf_idx);
+				IPADBG("flt_list is NULL for intf_idx %d, allocating...\n", intf_idx);
 
 				entry->flt_list = kzalloc(sizeof(*entry->flt_list), GFP_KERNEL);
 				if (!entry->flt_list) {
@@ -1402,16 +1524,16 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
             list_for_each_entry(iter, &entry->flt_list->link, link) {
                 list_len++;
             }
-            IPAERR("Filter list size after addition: %d\n", list_len);
+            IPADBG("Filter list size after addition: %d\n", list_len);
 
-			IPAERR("Added flt_hdl %d, cat %d to the list , list size now %d\n", flt_entry.flt_hdl, flt_entry.cat, list_len);
+			IPADBG("Added flt_hdl %d, cat %d to the list , list size now %d\n", flt_entry.flt_hdl, flt_entry.cat, list_len);
 			ret = true;
 			break;
         }
     }
     mutex_unlock(&ipa3_ctx->lock);
 
-    IPAERR("Exit\n");
+    IPADBG("Exit\n");
     return ret;
 }
 
@@ -1471,15 +1593,43 @@ int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry
 				}
 			}
 
-			IPAERR("No matching rule found in filter list for intf_idx %d\n", intf_idx);
+			IPADBG("No matching rule found in filter list for intf_idx %d\n", intf_idx);
 			break;
 		}
 	}
 
-	IPAERR("Interface index %d not found in interface list\n", intf_idx);
+	IPADBG("Interface index %d not found in interface list\n", intf_idx);
 
 unlock_and_exit:
 	mutex_unlock(&ipa3_ctx->lock);
 	IPADBG("Delete Entry Exit\n");
 	return flt_hdl;
+}
+
+/**
+ * ipa3_get_ep_for_intf() - atomically look up the RX endpoint for an interface
+ * @intf_idx: interface index (intf_idx field of struct ipa3_intf)
+ *
+ * Holds ipa3_ctx->lock for the full duration to avoid a TOCTOU race between
+ * the existence check and the rx-props read.
+ *
+ * Returns: IPA endpoint index on success, or -1 if the interface is not found
+ * or has no RX properties.
+ */
+int ipa3_get_ep_for_intf(int intf_idx)
+{
+	struct ipa3_intf *entry;
+	int ep = -1;
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (entry->intf_idx == intf_idx) {
+			if (entry->num_rx_props > 0)
+				ep = ipa_get_ep_mapping(entry->rx[0].src_pipe);
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	return ep;
 }

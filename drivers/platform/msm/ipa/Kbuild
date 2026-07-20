@@ -24,6 +24,7 @@ ipam-y += \
 	ipa_v3/ipa_pm.o \
 	ipa_v3/ipa_wdi3_i.o \
 	ipa_v3/ipa_odl.o \
+	ipa_v3/ipa_diag_log.o \
 	ipa_v3/ipa_wigig_i.o \
 	ipa_v3/ipa_uc_holb_monitor.o \
 	ipa_v3/ipahal/ipahal.o \
@@ -37,6 +38,7 @@ ipam-y += \
 	ipa_backend/ipa_be.o \
 	ipa_backend/ipa_be_clientdb.o \
 	ipa_backend/ipa_be_flt_mgmt.o \
+	ipa_backend/ipa_be_fse.o \
 	ipa_v3/ipa_ini_parse.o
 
 ipam-$(CONFIG_IPA_TSP) += ipa_v3/ipa_tsp.o \
@@ -99,7 +101,8 @@ endif
 ipam-$(CONFIG_IPA_UT) += test/ipa_ut_framework.o test/ipa_test_example.o \
 	test/ipa_test_mhi.o test/ipa_test_dma.o \
 	test/ipa_test_hw_stats.o test/ipa_pm_ut.o \
-	test/ipa_test_wdi3.o test/ipa_test_ntn.o
+	test/ipa_test_wdi3.o test/ipa_test_wdi6.o test/ipa_test_ntn.o \
+	test/ipa_test_fse.o
 
 ipatestm-$(CONFIG_IPA_KERNEL_TESTS_MODULE) += \
 	ipa_test_module/ipa_test_module_impl.o \
@@ -113,4 +116,3 @@ obj-$(CONFIG_IPA_KERNEL_TESTS_MODULE) += ipatestm.o
 obj-$(CONFIG_IPA_IPSEC) += ipaipsecm.o
 
 obj-y += ipa_v3/ ipa_clients/
-

@@ -22,14 +22,21 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, OFFLOAD_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPA_ETH_DBG_LOW(fmt, args...) \
 	do { \
 		pr_debug(OFFLOAD_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
-			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
+		if (ipa3_get_ipc_logbuf_low()) { \
+			IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
+				OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
+			ipa3_diag_log_write(IPA_DIAG_LVL_LOW, \
+				OFFLOAD_DRV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
+		} \
 	} while (0)
 
 #define IPA_ETH_ERR(fmt, args...) \
@@ -40,9 +47,11 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, OFFLOAD_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
-#define IPA_ETH_PIPES_NO 19
+#define IPA_ETH_PIPES_NO 28
 #define DMA_NUM_CHANNEL_EZMESH 4
 #define DMA_NUM_CHANNEL_DEFAULT 2
 #define DMA_NUM_CHANNEL_TSN 3
@@ -53,7 +62,8 @@ struct ipa_eth_ready_cb_wrapper {
 };
 
 struct ipa_eth_per_client_info {
-	u32 pm_hdl;
+	u32 pm_hdl_tx;
+	u32 pm_hdl_rx;
 	atomic_t ref_cnt;
 	bool existed;
 };
@@ -226,6 +236,33 @@ static u8 client_to_pipe_index(enum ipa_client_type client_type)
 	case IPA_CLIENT_ETHERNET3_PROD:
 		return 18;
 		break;
+	case IPA_CLIENT_ETHERNET2_QOS_CONS:
+		return 19;
+		break;
+	case IPA_CLIENT_ETHERNET2_QOS2_CONS:
+		return 20;
+		break;
+	case IPA_CLIENT_ETHERNET2_QOS_PROD:
+		return 21;
+		break;
+	case IPA_CLIENT_ETHERNET_QOS_CONS:
+		return 22;
+		break;
+	case IPA_CLIENT_ETHERNET_QOS2_CONS:
+		return 23;
+		break;
+	case IPA_CLIENT_ETHERNET_QOS_PROD:
+		return 24;
+		break;
+	case IPA_CLIENT_ETHERNET3_QOS_CONS:
+		return 25;
+		break;
+	case IPA_CLIENT_ETHERNET3_QOS2_CONS:
+		return 26;
+		break;
+	case IPA_CLIENT_ETHERNET3_QOS_PROD:
+		return 27;
+		break;
 	default:
 		IPAERR("invalid eth client_type\n");
 		ipa_assert();
@@ -259,7 +296,8 @@ static int ipa_eth_init_internal(void)
 	ipa_eth_ctx->is_eth_ready = false;
 	for (i = 0; i < IPA_ETH_CLIENT_MAX; i++) {
 		for (j = 0; j < IPA_ETH_INST_ID_MAX; j++) {
-			ipa_eth_ctx->client[i][j].pm_hdl = 0;
+			ipa_eth_ctx->client[i][j].pm_hdl_tx = 0;
+			ipa_eth_ctx->client[i][j].pm_hdl_rx = 0;
 			ipa_eth_ctx->client[i][j].existed = false;
 			atomic_set(&ipa_eth_ctx->client[i][j].ref_cnt, 0);
 		}
@@ -657,7 +695,111 @@ static enum ipa_client_type
 							return ipa_client_type;
 					}
 				}
-			} else {
+			} else if (client->inst_id == 0 &&
+				   ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					switch (tx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET_CONS;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET_QOS_CONS;
+							break;
+						case 2:
+							ipa_client_type = IPA_CLIENT_ETHERNET_QOS2_CONS;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								tx_pipe_idx);
+							return ipa_client_type;
+					}
+				} else {
+					switch (rx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET_PROD;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET_QOS_PROD;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								rx_pipe_idx);
+							return ipa_client_type;
+					}
+				}
+			} else if (client->inst_id == 1 &&
+				   ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					switch (tx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_CONS;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_QOS_CONS;
+							break;
+						case 2:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_QOS2_CONS;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								tx_pipe_idx);
+							return ipa_client_type;
+					}
+				} else {
+					switch (rx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_PROD;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET2_QOS_PROD;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								rx_pipe_idx);
+							return ipa_client_type;
+					}
+				}
+			} else if (client->inst_id == 2 &&
+				   ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+					switch (tx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_CONS;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_QOS_CONS;
+							break;
+						case 2:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_QOS2_CONS;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								tx_pipe_idx);
+							return ipa_client_type;
+					}
+				} else {
+					switch (rx_pipe_idx) {
+						case 0:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_PROD;
+							break;
+						case 1:
+							ipa_client_type = IPA_CLIENT_ETHERNET3_QOS_PROD;
+							break;
+						default:
+							IPA_ETH_ERR("invalid client index%d\n",
+								rx_pipe_idx);
+							return ipa_client_type;
+					}
+				}
+			} else if (client->inst_id == 0 &&
+				   ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
+				/*
+				 * Legacy (pre-v7.0) single-instance QoS mapping.
+				 * Preserved unchanged from before EMAC-instance
+				 * support so v6.0-class targets keep working:
+				 * TX idx0 -> ETHERNET_CONS, idx1 -> LOW_LAT_CONS;
+				 * RX idx0 -> ETHERNET_PROD, idx1 -> ETHERNET_PROD1.
+				 */
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 					switch (tx_pipe_idx) {
 						case 0:
@@ -685,6 +827,10 @@ static enum ipa_client_type
 							return ipa_client_type;
 					}
 				}
+			} else {
+				IPA_ETH_ERR("QoS not supported for inst_id %d (hw_type %d)\n",
+					client->inst_id, ipa3_ctx->ipa_hw_type);
+				return ipa_client_type;
 			}
 		}
 		break;
@@ -986,25 +1132,44 @@ static int ipa_eth_pm_register(struct ipa_eth_client *client)
 		&ipa_eth_ctx->client[client_type][inst_id].ref_cnt))
 		goto add_pipe_list;
 
+	/* Register TX PM client */
 	memset(&pm_params, 0, sizeof(pm_params));
 	snprintf(name, IPA_RESOURCE_NAME_MAX,
-		"ipa_eth_%d_%d", client_type, inst_id);
+		"ipa_eth_%d_%d_tx", client_type, inst_id);
 	pm_params.name = name;
 	pm_params.callback = ipa_eth_pm_cb;
 	pm_params.user_data = NULL;
 	pm_params.group = IPA_PM_GROUP_DEFAULT;
 	if (ipa_pm_register(&pm_params,
-		&ipa_eth_ctx->client[client_type][inst_id].pm_hdl)) {
-		IPA_ETH_ERR("fail to register ipa pm\n");
+		&ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx)) {
+		IPA_ETH_ERR("fail to register ipa pm tx\n");
 		return -EFAULT;
 	}
-	/* vote IPA clock on */
+	/* vote IPA clock on for TX */
 	rc = ipa_pm_activate_sync(
-		ipa_eth_ctx->client[client_type][inst_id].pm_hdl);
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
 	if (rc) {
-		IPA_ETH_ERR("fail to activate ipa pm\n");
-		return -EFAULT;
+		IPA_ETH_ERR("fail to activate ipa pm tx\n");
+		goto fail_activate_tx;
 	}
+
+	/* Register RX PM client */
+	snprintf(name, IPA_RESOURCE_NAME_MAX,
+		"ipa_eth_%d_%d_rx", client_type, inst_id);
+	pm_params.name = name;
+	if (ipa_pm_register(&pm_params,
+		&ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx)) {
+		IPA_ETH_ERR("fail to register ipa pm rx\n");
+		goto fail_register_rx;
+	}
+	/* vote IPA clock on for RX */
+	rc = ipa_pm_activate_sync(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+	if (rc) {
+		IPA_ETH_ERR("fail to activate ipa pm rx\n");
+		goto fail_activate_rx;
+	}
+
 add_pipe_list:
 	list_for_each_entry(pipe, &client->pipe_list,
 		link) {
@@ -1021,13 +1186,20 @@ add_pipe_list:
 				continue;
 			}
 		rc = ipa_pm_associate_ipa_cons_to_client(
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl,
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx,
 			ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx));
 		if (rc) {
 			IPA_ETH_ERR("fail to associate cons with PM %d\n", rc);
+			ipa_pm_deactivate_sync(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
 			ipa_pm_deregister(
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl);
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl = 0;
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx = 0;
+			ipa_pm_deactivate_sync(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+			ipa_pm_deregister(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx = 0;
 			ipa_assert();
 			return rc;
 		}
@@ -1039,6 +1211,19 @@ add_pipe_list:
 	atomic_inc(
 		&ipa_eth_ctx->client[client_type][inst_id].ref_cnt);
 	return 0;
+
+fail_activate_rx:
+	ipa_pm_deregister(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+	ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx = 0;
+fail_register_rx:
+	ipa_pm_deactivate_sync(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
+fail_activate_tx:
+	ipa_pm_deregister(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
+	ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx = 0;
+	return -EFAULT;
 }
 
 static int ipa_eth_pm_deregister(struct ipa_eth_client *client)
@@ -1057,14 +1242,25 @@ static int ipa_eth_pm_deregister(struct ipa_eth_client *client)
 		&ipa_eth_ctx->client[client_type][inst_id].ref_cnt)
 		== 1) {
 		rc = ipa_pm_deactivate_sync(
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl);
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx);
 		if (rc) {
-			IPA_ETH_ERR("fail to deactivate ipa pm\n");
+			IPA_ETH_ERR("fail to deactivate ipa pm tx\n");
 			return -EFAULT;
 		}
 		if (ipa_pm_deregister(
-			ipa_eth_ctx->client[client_type][inst_id].pm_hdl)) {
-			IPA_ETH_ERR("fail to deregister ipa pm\n");
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx)) {
+			IPA_ETH_ERR("fail to deregister ipa pm tx\n");
+			return -EFAULT;
+		}
+		rc = ipa_pm_deactivate_sync(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx);
+		if (rc) {
+			IPA_ETH_ERR("fail to deactivate ipa pm rx\n");
+			return -EFAULT;
+		}
+		if (ipa_pm_deregister(
+			ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx)) {
+			IPA_ETH_ERR("fail to deregister ipa pm rx\n");
 			return -EFAULT;
 		}
 	}
@@ -1088,6 +1284,11 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 	{
 		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
 		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_AUTO;
+	}
+	else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+	{
+		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7;
+		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_CPE_V7;
 	}
 	else
 	{
@@ -1890,6 +2091,8 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 
 	list_add(&new_intf->link, &ipa_eth_ctx->head_intf_list);
 
+	ipa_be_subnet_on_intf_registered(intf->net_dev->ifindex);
+
 	kfree(hdr);
 	kfree(tx_prop);
 	kfree(rx_prop);
@@ -2012,9 +2215,16 @@ int ipa_eth_client_set_perf_profile(struct ipa_eth_client *client,
 	inst_id = client->inst_id;
 
 	if (ipa_pm_set_throughput(
-		ipa_eth_ctx->client[client_type][inst_id].pm_hdl,
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_tx,
 		profile->max_supported_bw_mbps)) {
-		IPA_ETH_ERR("fail to set pm throughput\n");
+		IPA_ETH_ERR("fail to set pm throughput tx\n");
+		return -EFAULT;
+	}
+
+	if (ipa_pm_set_throughput(
+		ipa_eth_ctx->client[client_type][inst_id].pm_hdl_rx,
+		profile->max_supported_bw_mbps)) {
+		IPA_ETH_ERR("fail to set pm throughput rx\n");
 		return -EFAULT;
 	}
 
@@ -2142,20 +2352,72 @@ int ipa_eth_get_config_type(
 			    client_type, inst_id);
 	}
 #if IPA_ETH_API_VER >= 4
-	else if (ipa3_ctx->eth_qos && inst_id == 0) {
+	/*
+	 * QoS config selection:
+	 *  - IPA v7.0+: supported on EMAC instances 0, 1 and 2 (ETHERNET /
+	 *    ETHERNET2 / ETHERNET3), BE+QoS layout.
+	 *  - pre-v7.0: legacy single-instance (inst_id 0) QoS only, original
+	 *    all-QoS CPE layout — preserved so v6.0-class targets keep working.
+	 * The inner branches pick the per-era channel layout.
+	 */
+	else if (ipa3_ctx->eth_qos &&
+		 ((ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+		   inst_id < IPA_ETH_INST_ID_MAX) ||
+		  (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0 && inst_id == 0))) {
 		int i = 0;
 		snprintf(eth_config->config, sizeof(eth_config->config), "qos");
 
-		if (ipa3_ctx->ipa_config_is_auto)
+		if (ipa3_ctx->ipa_config_is_auto) {
 			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO;
-		else
+
+			for (i = 0; i < eth_config->num_dma_channel; i++) {
+				eth_config->dma_config[i].dir = (i % 2) ?
+					IPA_ETH_PIPE_DIR_RX : IPA_ETH_PIPE_DIR_TX;
+				eth_config->dma_config[i].traffic_type =
+					IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+			}
+		} else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+			/*
+			 * IPA v7.0+ CPE QoS layout is best-effort + QoS per
+			 * iface: TX = 1 BE + 2 QoS, RX = 1 BE + 1 QoS
+			 * (5 channels). BE pipes are emitted first so they land
+			 * at tx/rx pipe index 0; the QoS pipes follow.
+			 */
+			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE_V7;
+
+			eth_config->dma_config[0].dir = IPA_ETH_PIPE_DIR_TX;
+			eth_config->dma_config[0].traffic_type =
+				IPA_ETH_PIPE_BEST_EFFORT;
+
+			eth_config->dma_config[1].dir = IPA_ETH_PIPE_DIR_RX;
+			eth_config->dma_config[1].traffic_type =
+				IPA_ETH_PIPE_BEST_EFFORT;
+
+			eth_config->dma_config[2].dir = IPA_ETH_PIPE_DIR_TX;
+			eth_config->dma_config[2].traffic_type =
+				IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+
+			eth_config->dma_config[3].dir = IPA_ETH_PIPE_DIR_RX;
+			eth_config->dma_config[3].traffic_type =
+				IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+
+			eth_config->dma_config[4].dir = IPA_ETH_PIPE_DIR_TX;
+			eth_config->dma_config[4].traffic_type =
+				IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+		} else {
+			/*
+			 * Legacy (pre-v7.0) CPE QoS layout: the original
+			 * all-QoS channel set. Kept so 6.0-class targets are
+			 * unaffected by the v7.0 BE+QoS layout above.
+			 */
 			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE;
 
-		for (i = 0; i < eth_config->num_dma_channel; i++) {
-			eth_config->dma_config[i].dir = (i % 2) ? IPA_ETH_PIPE_DIR_RX :
-				IPA_ETH_PIPE_DIR_TX;
-			eth_config->dma_config[i].traffic_type =
-				IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+			for (i = 0; i < eth_config->num_dma_channel; i++) {
+				eth_config->dma_config[i].dir = (i % 2) ?
+					IPA_ETH_PIPE_DIR_RX : IPA_ETH_PIPE_DIR_TX;
+				eth_config->dma_config[i].traffic_type =
+					IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+			}
 		}
 
 		IPA_ETH_DBG("QOS configuration for client %d, inst_id %d\n",

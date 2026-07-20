@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2018 - 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _IPA_WDI3_H_
 #define _IPA_WDI3_H_
 
 #include <linux/ipa.h>
+#include <linux/ipa_fse.h>
 
 #define IPA_HW_WDI3_TCL_DATA_CMD_ER_DESC_SIZE 32
 #define IPA_HW_WDI3_IPA2FW_ER_DESC_SIZE 8
@@ -30,6 +31,7 @@ enum ipa_wdi_version {
 	IPA_WDI_3_V2,
 	IPA_WDI_4,
 	IPA_WDI_5,
+	IPA_WDI_6,
 	IPA_WDI_VER_MAX
 };
 
@@ -43,6 +45,123 @@ enum ipa_wdi_version {
  * <52 bytes of rx_msdu_start tlv>.
  */
 #define IPA_WDI_RX_TLV_SIZE 96
+
+/**
+ * struct ipa_wdi6_sw_producer_cookie - wdi6 sw producer cookie
+ * @is_sawf_flow: Constant for a sawf flow (is_sawf_flow=1).
+ * 		Maps to wifi_qos_flag
+ * @stream_id: Stream ID for the QoS flow maps to HASH_VALUE[7:0].
+ * @flow_override: If 0 then select msdu queue 0; if 1 then select msdu queue 1.
+ *		Maps to bit 0 of the wifi_qos descriptor field when wifi_qos_flag=1.
+ * @who_classify_info_sel: Represent which queue to choose.
+ *		0 -> default queue, 1 -> SAWF queue.
+ *		Maps to bits [5:4] of the wifi_qos descriptor field when wifi_qos_flag=1.
+ * @rsrvd_15_12: reserved
+ * @vp_num: Corresponds to unique identifier for WLAN interfaces.
+ * @hlos_tid_overwrite: hlos tid overwrite. Maps to bit 7 of the wifi_qos
+ *		descriptor field when wifi_qos_flag=0. If 1, use hlos_tid bits for TID.
+ * @hlos_tid: Override the tid value to be used for the flow. In general WLAN HW
+ *		can take the tid value from DSCP <-> tid mapping table,
+ *		PCP <-> tid mapping table, or HLOS tid override value in descriptor.
+ *		Maps to bits [3:1] of the wifi_qos descriptor field (both modes).
+ * @rsrvd_31_28: reserved
+ * @rsrvd_63_32: reserved
+ *
+ * SAWF Related Fields:
+ * There are 8 traffic identifiers (tid), and each identifier has 4 msdu queues.
+ * The following fields are constant for a sawf flow (is_sawf_flow=1):
+ * - TCL_METADATA_TYPE_SET = 2
+ * - TX_FLOW_METADATA_TID_OVERRIDE_SET = 1
+ * - flow_override_enable = 1
+ *
+ * MSDU Queue is selected using the below fields:
+ * - flow_override_enable = 1
+ * - who_classify_info_sel = 1
+ * - flow_override
+ *
+ * Descriptor Field Mapping (wifi_qos_flag and wifi_qos):
+ *
+ * wifi_qos_flag (1-bit):
+ *   Master toggle that changes how the hardware interprets the 8-bit wifi_qos field.
+ *   - 0: Hardware only looks at bit 7 of wifi_qos (HLOS TID override mode).
+ *   - 1: Hardware interprets wifi_qos as a 6-bit flow pointer override (SAWF mode).
+ *        Forces the packet into a specific flow queue and selects classification logic.
+ *
+ * wifi_qos (8-bit) field mapping:
+ *
+ *   Bit   | wifi_qos_flag=0                          | wifi_qos_flag=1
+ *   ------+------------------------------------------+------------------------------------------
+ *   [7]   | hlos_tid_overwrite: if 1, use bits [3:1] | Part of flow override logic (Waikiki)
+ *         | for TID                                  |
+ *   [6]   | Ignored                                  | Ignored
+ *   [5:4] | Not used for selection                   | who_classify_info_sel: selects classifier
+ *   [3:1] | hlos_tid: 3-bit TID value (if bit 7 set) | hlos_tid: 3-bit TID value
+ *   [0]   | Not used                                 | flow_override: if 1, overrides std flow
+ */
+struct ipa_wdi6_sw_producer_cookie {
+	u64 is_sawf_flow : 1;
+	u64 stream_id : 8;
+	u64 flow_override : 1;
+	u64 who_classify_info_sel : 2;
+	u64 rsrvd_15_12 : 4;
+	u64 vp_num : 8;
+	u64 hlos_tid_overwrite : 1;
+	u64 hlos_tid : 3;
+	u64 rsrvd_31_28 : 4;
+	u64 rsrvd_63_32 : 32;
+};
+
+/**
+ * struct ipa_sw_producer_cookie - generic SW producer cookie
+ *
+ * A protocol-agnostic wrapper around the 64-bit SW producer cookie.
+ * Protocol-specific layouts are exposed as named union members so
+ * callers can access fields by name while the underlying u64 value
+ * can be read via the @raw member.
+ *
+ * @wdi6: WDI6 bitfield view of the cookie
+ * @raw:  raw 64-bit value
+ */
+struct ipa_sw_producer_cookie {
+	union {
+		struct ipa_wdi6_sw_producer_cookie wdi6;
+		u64 raw;
+		struct ipa_producer_cookie_procparams cookie_hw;
+	};
+};
+
+/**
+ * struct ipa_wdi6_rx_skb_cb - WDI6 Rx skb->cb layout
+ *
+ * Describes the fields written into skb->cb for WDI6 Rx packets.
+ * The IPA driver populates these fields from the 32-bit Rx metadata word:
+ *
+ * Metadata word layout:
+ *  +--------+----------+----------+------------+
+ *  | [31:24]| [23:16]  | [15:14]  | [13:0]     |
+ *  | VAP_ID | QMAP_ID  | RESERVED | TA_PEER_ID |
+ *  +--------+----------+----------+------------+
+ *
+ * skb->cb layout (packed into a single u32 = 4 bytes):
+ *  +----------+------------+----------+
+ *  | [7:0]    | [21:8]     | [31:22]  |
+ *  | vap_id   | ta_peer_id | reserved |
+ *  +----------+------------+----------+
+ *
+ * @packed: raw u32; use IPA_WDI6_CB_* macros to access vap_id and ta_peer_id
+ *
+ * vap_id:     bits [7:0]   - VAP ID (vdev id), extracted from metadata bits [31:24]
+ * ta_peer_id: bits [21:8]  - TA peer ID (14 bits), extracted from metadata bits [13:0]
+ * reserved:   bits [31:22] - unused padding bits
+ */
+#define IPA_WDI6_CB_VAP_ID_SHIFT	0
+#define IPA_WDI6_CB_VAP_ID_MASK		0xFFU
+#define IPA_WDI6_CB_TA_PEER_ID_SHIFT	8
+#define IPA_WDI6_CB_TA_PEER_ID_MASK	0x3FFFU
+
+struct ipa_wdi6_rx_skb_cb {
+	u32 packed;
+};
 
 /** struct ipa_ast_info_type - structure used for updating the AST table.
  * @mac_addr_ad4_valid: bool to indicate whethere peer supports 4 address
@@ -104,6 +223,7 @@ struct ipa_wdi_init_out_params {
 	ipa_wdi_hdl_t hdl;
 	bool opt_wdi_dpath;
 };
+
 /**
  * struct filter_tuple_info - Properties of filters installed with WLAN
  *
@@ -210,6 +330,8 @@ struct ipa_wdi_hdr_info {
  * @is_tx1_used: to indicate whether 2.4g or 5g iface
  * @is_rx1_used: to indicate whether additional RX pipe for
  * tagged traffic is needed
+ * @vpnum: virtual port number tied to the interface
+ * @intf_idx: interface index used to identify the WLAN interface instance
  */
 struct ipa_wdi_reg_intf_in_params {
 	const char *netdev_name;
@@ -222,6 +344,8 @@ struct ipa_wdi_reg_intf_in_params {
 	ipa_wdi_hdl_t hdl;
 	u8 is_rx1_used;
 	u8 mld_enabled;
+	u8 vpnum;
+	int intf_idx;
 };
 
 /**
@@ -247,6 +371,7 @@ struct ipa_wdi_reg_intf_in_params {
  * @rx_pmac_id: value used to perform TCL HW setting
  * @mlo_chip_id: used in mlo capable chip to identify chip id for the pipe
  * @rx_peer_metadata_ver: metadata version passed by wlan
+ * @rdi: ring id which maps to the rx hw ring
  */
 struct ipa_wdi_pipe_setup_info {
 	struct ipa_ep_cfg ipa_ep_cfg;
@@ -269,6 +394,7 @@ struct ipa_wdi_pipe_setup_info {
 	u8 rx_pmac_id;
 	u8 mlo_chip_id;
 	u8 rx_peer_metadata_ver;
+	u8 rdi;
 };
 
 /**
@@ -294,6 +420,7 @@ struct ipa_wdi_pipe_setup_info {
  * @rx_pmac_id: value used to perform TCL HW setting
  * @mlo_chip_id: used in mlo capable chip to identify chip id for the pipe
  * @rx_peer_metadata_ver: metadata version passed by wlan
+ * @rdi: ring id which maps to the rx hw ring
  */
 struct ipa_wdi_pipe_setup_info_smmu {
 	struct ipa_ep_cfg ipa_ep_cfg;
@@ -316,6 +443,7 @@ struct ipa_wdi_pipe_setup_info_smmu {
 	u8 rx_pmac_id;
 	u8 mlo_chip_id;
 	u8 rx_peer_metadata_ver;
+	u8 rdi;
 };
 
 /**

@@ -60,6 +60,22 @@
 #define GSI_IPC_LOGGING(buf, fmt, args...)
 #endif
 
+/*
+ * Optional DIAG tap. gsi.ko must not call into ipa.ko directly (ipa depends on
+ * gsi, so the reverse would be a circular module dependency). Instead ipa
+ * registers its ipa3_diag_log_write() here at init via gsi_register_diag_sink()
+ * and clears it (NULL) at cleanup. The GSI log macros invoke it through this
+ * NULL-safe pointer. __printf(2,3) matches ipa3_diag_log_write(level, fmt,...).
+ */
+typedef void (*gsi_diag_sink_fn)(u8 level, const char *fmt, ...) __printf(2, 3);
+extern gsi_diag_sink_fn gsi_diag_sink;
+void gsi_register_diag_sink(gsi_diag_sink_fn fn);
+
+/* GSI diag levels mirror enum ipa_diag_log_level (ERR=0, DBG=2, LOW=3). */
+#define GSI_DIAG_LVL_ERR 0
+#define GSI_DIAG_LVL_DBG 2
+#define GSI_DIAG_LVL_LOW 3
+
 #define GSIDBG(fmt, args...) \
 	do { \
 		dev_dbg(gsi_ctx->dev, "%s:%d " fmt, __func__, __LINE__, \
@@ -70,15 +86,27 @@
 			GSI_IPC_LOGGING(gsi_ctx->ipc_logbuf_low, \
 				"%s:%d " fmt, ## args); \
 		} \
+		{ \
+			gsi_diag_sink_fn _s = READ_ONCE(gsi_diag_sink); \
+			if (_s) \
+				_s(GSI_DIAG_LVL_DBG, "gsi %s:%d " fmt, \
+					__func__, __LINE__, ## args); \
+		} \
 	} while (0)
 
 #define GSIDBG_LOW(fmt, args...) \
 	do { \
 		dev_dbg(gsi_ctx->dev, "%s:%d " fmt, __func__, __LINE__, \
 		## args);\
-		if (gsi_ctx) { \
+		if (gsi_ctx && gsi_ctx->ipc_logbuf_low) { \
 			GSI_IPC_LOGGING(gsi_ctx->ipc_logbuf_low, \
 				"%s:%d " fmt, ## args); \
+			{ \
+				gsi_diag_sink_fn _s = READ_ONCE(gsi_diag_sink); \
+				if (_s) \
+					_s(GSI_DIAG_LVL_LOW, "gsi %s:%d " fmt, \
+						__func__, __LINE__, ## args); \
+			} \
 		} \
 	} while (0)
 
@@ -91,6 +119,12 @@
 				"%s:%d " fmt, ## args); \
 			GSI_IPC_LOGGING(gsi_ctx->ipc_logbuf_low, \
 				"%s:%d " fmt, ## args); \
+		} \
+		{ \
+			gsi_diag_sink_fn _s = READ_ONCE(gsi_diag_sink); \
+			if (_s) \
+				_s(GSI_DIAG_LVL_ERR, "gsi %s:%d " fmt, \
+					__func__, __LINE__, ## args); \
 		} \
 	} while (0)
 
@@ -178,7 +212,8 @@ enum gsi_evt_chtype {
 	GSI_EVT_CHTYPE_RTK3_EV = 0x11,
 	GSI_EVT_CHTYPE_XR_EV = 0x12,
 	GSI_EVT_CHTYPE_WDI3M_V2_EV = 0x13,
-	GSI_EVT_CHTYPE_WDI5_EV = 0X14
+	GSI_EVT_CHTYPE_WDI5_EV = 0X14,
+	GSI_EVT_CHTYPE_WDI6_EV = 0X15,
 };
 
 enum gsi_evt_chtype_v7_0 {
@@ -209,6 +244,8 @@ enum gsi_evt_chtype_v7_0 {
 	GSI_V7_0_EVT_CHTYPE_WDI4_TX_EV = 0X18,
 	GSI_V7_0_EVT_CHTYPE_WDI5_RX_EV = 0X19,
 	GSI_V7_0_EVT_CHTYPE_WDI5_TX_EV = 0x1A,
+	GSI_V7_0_EVT_CHTYPE_WDI6_RX_EV = 0X1B,
+	GSI_V7_0_EVT_CHTYPE_WDI6_TX_EV = 0x1C,
 };
 
 enum gsi_evt_ring_elem_size {
@@ -306,6 +343,7 @@ enum gsi_chan_prot {
 	GSI_CHAN_PROT_XR = 0x12,
 	GSI_CHAN_PROT_WDI3M_V2 = 0x13,
 	GSI_CHAN_PROT_WDI5 = 0x14,
+	GSI_CHAN_PROT_WDI6 = 0x15,
 };
 
 enum gsi_chan_prot_v7_0 {
@@ -336,6 +374,8 @@ enum gsi_chan_prot_v7_0 {
 	GSI_V7_0_CHAN_PROT_WDI4_TX = 0X18,
 	GSI_V7_0_CHAN_PROT_WDI5_RX = 0X19,
 	GSI_V7_0_CHAN_PROT_WDI5_TX = 0x1A,
+	GSI_V7_0_CHAN_PROT_WDI6_RX = 0x1B,
+	GSI_V7_0_CHAN_PROT_WDI6_TX = 0x1C,
 };
 
 enum gsi_max_prefetch {
@@ -1067,6 +1107,57 @@ struct __packed gsi_wdi4_channel_scratch {
 };
 
 /**
+ * gsi_wdi6_channel_scratch - WDI 6 protocol
+ * SW config area of channel scratch
+ *
+ * @wifi_rx_rp_addr_low: Low 32 bits of Transfer ring Read Index address.
+ * @wifi_rx_rp_addr_high: High 32 bits of Transer ring Read Index address.
+ * @update_rp_moderation_threshold: Threshold N for Transfer ring Read Index
+ *         N is the number of packets that IPA will
+ *         process before wifi transfer ring Ri will
+ *         be updated.
+ * @endp_metadata_reg_offset: Rx only, the offset of IPA_ENDP_INIT_HDR_METADATA_n
+ *          of the corresponding endpoint in 4B words from IPA
+ *          base address.
+ * @qmap_id: Rx only, used for setting metadata register in IPA, Read only field
+ *          for MCS, Write for SW
+ * RX
+ * +--------+--------------------------+--------------+---------------+---------------+
+ * | Offset | 31 .................. 16 | 15 ...... 13 | 12 ........ 5 | 4 ......... 0 |
+ * +--------+--------------------------+--------------+---------------+---------------+
+ * |  0x00  |                                wifi_rp_address_low                      |
+ * +--------+--------------------------+--------------+---------------+---------------+
+ * |  0x04  |                                wifi_rp_address_high                     |
+ * +--------+--------------------------+--------------+---------------+---------------+
+ * |  0x08  | endp_metadata_reg_offset |   reserved1  |    qmap_id    | up_rp_mod_thr |
+ * +--------+--------------------------+--------------+---------------+---------------+
+ * |  0x0C  |         reserved2        |                 rx_pkt_offset                |
+ * +--------+--------------------------+----------------------------------------------+
+ * TX
+ * +--------+---------------------------------------------------------+---------------+
+ * | Offset | 31 .................................................. 5 | 4 ......... 0 |
+ * +--------+---------------------------------------------------------+---------------+
+ * |  0x00  |                           wifi_rp_address_low                           |
+ * +--------+---------------------------------------------------------+---------------+
+ * |  0x04  |                           wifi_rp_address_high                          |
+ * +--------+---------------------------------------------------------+---------------+
+ * |  0x08  |                        reserved1                        | up_rp_mod_thr |
+ * +--------+---------------------------------------------------------+---------------+
+ *
+ */
+
+struct __packed gsi_wdi6_channel_scratch {
+	uint32_t wifi_rp_address_low;
+	uint32_t wifi_rp_address_high;
+	uint32_t update_rp_moderation_threshold : 5;
+	uint32_t qmap_id : 8;
+	uint32_t reserved1 : 3;
+	uint32_t endp_metadata_reg_offset : 16;
+	uint32_t rx_pkt_offset : 16;
+	uint32_t reserved2 : 16;
+};
+
+/**
  * gsi_wdi3_hamilton_channel_scratch - WDI 3 protocol, hamilton chipset
  * SW config area of channel scratch
  *
@@ -1244,17 +1335,20 @@ union __packed gsi_wdi3_channel_scratch2_reg {
  * @buff_addr_lsb: NTN buffer address LSB
  * @buff_addr_msb: NTN buffer address MSB
  * @fix_buff_size: buff size in log2
+ * @fcs_strip_en: NTN_FCS_STRIP_EN - GSI FW subtracts 4 bytes from RX packet length (SCRATCH_1 bit 13)
  * @ioc_mod_threshold: the threshold for IOC moderation (TX)
  */
  struct __packed gsi_ntn_channel_scratch {
 	 uint32_t buff_addr_lsb;
 	 uint32_t buff_addr_msb : 8;
 	 uint32_t fix_buff_size : 4;
-	 uint32_t reserved1 : 20;
+	 uint32_t reserved1     : 1;
+	 uint32_t fcs_strip_en  : 1;
+	 uint32_t reserved2     : 18;
 	 uint32_t ioc_mod_threshold : 16;
-	 uint32_t reserved2 : 16;
-	 uint32_t reserved3;
+	 uint32_t reserved3 : 16;
 	 uint32_t reserved4;
+	 uint32_t reserved5;
  };
 
 /**
@@ -1296,6 +1390,7 @@ union __packed gsi_channel_scratch {
 	struct __packed gsi_wdi3_channel_scratch wdi3;
 	struct __packed gsi_wdi3_v2_channel_scratch wdi3_v2;
 	struct __packed gsi_wdi4_channel_scratch wdi4;
+	struct __packed gsi_wdi6_channel_scratch wdi6;
 	struct __packed gsi_mhip_channel_scratch mhip;
 	struct __packed gsi_wdi2_channel_scratch_new wdi2_new;
 	struct __packed gsi_aqc_channel_scratch aqc;
@@ -1863,6 +1958,43 @@ struct gsi_fw_version {
     u32 flavor;
     u32 fw;
 };
+
+/* Word indices within a per-channel HW stats block in GSI SHRAM.
+ * 5 words x 8 bytes = 40 bytes per channel.
+ * Word 0 packs two 32-bit counters; words 1-4 are full 64-bit values.
+ */
+#define GSI_HW_CH_STATS_WORD_TRE_OOB_CNT	0  /* num_oob_full[31:0] | num_tre[63:32] */
+#define GSI_HW_CH_STATS_WORD_TLV_IN		1
+#define GSI_HW_CH_STATS_WORD_TLV_OUT		2
+#define GSI_HW_CH_STATS_WORD_OOB_FULL_TIME	3
+#define GSI_HW_CH_STATS_WORD_OOB_FULL_TS	4
+
+/* Bit-field masks for oob_full_time and oob_full_ts */
+#define GSI_HW_CH_STATS_TIME_VAL_BMSK		GENMASK_ULL(55, 0)
+#define GSI_HW_CH_STATS_TIME_RSVD_BMSK		GENMASK_ULL(62, 56)
+#define GSI_HW_CH_STATS_FLAG_BMSK		BIT_ULL(63)
+
+/**
+ * struct gsi_hw_ch_stats - GSI v7.0 per-channel HW stats from SHRAM
+ * @num_oob_full:   OOB (inbound) or FULL (outbound) state entry count (32-bit)
+ * @num_tre:        number of TREs processed by MCS (32-bit)
+ * @tlv_in_bytes:   TLV_IN byte counter (64-bit)
+ * @tlv_out_bytes:  TLV_OUT byte counter (64-bit)
+ * @oob_full_time:  [55:0] accumulated QTIMER cycles in OOB/FULL state,
+ *                  [62:56] reserved, [63] F0 flag
+ * @oob_full_ts:    [55:0] QTIMER timestamp of last OOB/FULL entry,
+ *                  [62:56] reserved, [63] F1 flag
+ */
+struct gsi_hw_ch_stats {
+	u32 num_oob_full;
+	u32 num_tre;
+	u64 tlv_in_bytes;
+	u64 tlv_out_bytes;
+	u64 oob_full_time;
+	u64 oob_full_ts;
+};
+
+int gsi_get_hw_ch_stats(unsigned long chan_hdl, struct gsi_hw_ch_stats *stats);
 
 enum gsi_generic_ee_cmd_query_retun_val {
 	GSI_GEN_EE_CMD_RETURN_VAL_FLOW_CONTROL_PRIMARY = 0,

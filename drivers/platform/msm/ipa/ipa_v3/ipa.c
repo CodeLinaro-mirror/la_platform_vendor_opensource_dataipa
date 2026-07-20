@@ -81,6 +81,7 @@
 #define CREATE_TRACE_POINTS
 #include "ipa_trace.h"
 #include "ipa_odl.h"
+#include "ipa_diag_log.h"
 
 #define IPA_SUSPEND_BUSY_TIMEOUT (msecs_to_jiffies(10))
 
@@ -7171,6 +7172,15 @@ int _ipa_init_hdr_v3_0(void)
 	int i;
 
 	mem.size = IPA_MEM_PART(modem_hdr_size) + IPA_MEM_PART(apps_hdr_size);
+	/*
+	 * WA: HW bug - HDR_INIT_LOCAL encodes size in 12 bits but IPA7 can
+	 * expose a much larger local APPS header partition. Cap to the max
+	 * encodable field value (0xFFF); the APPS partition is populated later
+	 * via DMA_SHARED_MEM commits.
+	 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && mem.size > 0xFFF)
+		mem.size = 0xFFF;
+
 	if ((ipa3_ctx->ipa_hw_type <= IPA_HW_v6_0) && (mem.size > 0x7FF)) {
 	/* Max size supported of header table for is 2^11 Bytes.
 	 * The calculation:
@@ -10676,6 +10686,14 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG(":stats init ok\n");
 
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		result = ipa_init_nat_ct_stats();
+		if (result)
+			IPAERR("fail to init NAT and CT stats %d\n", result);
+		else
+			IPADBG(":NAT and CT stats init ok\n");
+	}
+
 	/* 1st ipa3_panic_notifier*/
 	ipa3_register_panic_hdlr();
 
@@ -12536,6 +12554,15 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			MAJOR(ipa3_ctx->cdev.dev_num),
 			MINOR(ipa3_ctx->cdev.dev_num));
 
+	/*
+	 * Bring up the diag log tap (/dev/diag_ipa). Non-fatal: a logging
+	 * facility must never block driver bring-up.
+	 */
+	if (ipa3_diag_log_init())
+		IPAERR("Error: diag_ipa log init failed, continuing\n");
+	else
+		gsi_register_diag_sink(ipa3_diag_log_write);
+
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_1) {
 		result = ipa_odl_init();
 		if (result) {
@@ -12615,6 +12642,8 @@ fail_wwan_init:
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_1)
 		ipa_odl_cleanup();
 fail_odl_init:
+	gsi_register_diag_sink(NULL);
+	ipa3_diag_log_cleanup();
 	cdev_del(cdev);
 fail_cdev_add:
 fail_gsi_pre_fw_load_init:
@@ -13143,6 +13172,12 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			MAJOR(ipa3_ctx->cdev.dev_num),
 			MINOR(ipa3_ctx->cdev.dev_num));
 
+	/* diag log tap (/dev/diag_ipa); non-fatal on failure. */
+	if (ipa3_diag_log_init())
+		IPAERR("Error: diag_ipa log init failed, continuing\n");
+	else
+		gsi_register_diag_sink(ipa3_diag_log_write);
+
 	/* Create the dummy netdev for LAN RX NAPI*/
 	ipa3_enable_napi_netdev();
 
@@ -13177,6 +13212,8 @@ fail_wwan_init:
 	ipa3_disable_napi_netdev();
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_1)
 		ipa_odl_cleanup();
+	gsi_register_diag_sink(NULL);
+	ipa3_diag_log_cleanup();
 fail_cdev_add:
 fail_ipa_dma_setup:
 	ipa_pm_destroy();
@@ -15625,8 +15662,15 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 		ipa3_ctx->ipa_wdi3_5g_holb_timeout = ipa_drv_res->ipa_wdi3_5g_holb_timeout;
 		IPADBG("wdi3 2g holb timeout: %d\n", ipa_drv_res->ipa_wdi3_2g_holb_timeout);
 		IPADBG("wdi3 5g holb timeout: %d\n", ipa_drv_res->ipa_wdi3_5g_holb_timeout);
-		ipa3_ctx->ipa_wan_skb_page = ipa_drv_res->ipa_wan_skb_page;
-		IPADBG("wan use skb page: %d\n", ipa_drv_res->ipa_wan_skb_page);
+		if (ipa3_ctx->ipa_config_is_auto) {
+			ipa3_ctx->ipa_wan_skb_page = false;
+			IPADBG("auto platform: wan skb page disabled\n");
+		} else {
+			ipa3_ctx->ipa_wan_skb_page = ipa_drv_res->ipa_wan_skb_page;
+			IPADBG("wan use skb page: %d\n", ipa_drv_res->ipa_wan_skb_page);
+		}
+		ipa3_ctx->ipa_lan_skb_page = ipa_drv_res->ipa_wan_skb_page;
+		IPAERR("lan use skb page: %d\n", ipa3_ctx->ipa_lan_skb_page);
 		if (ipa_drv_res->tx_wrapper_cache_max_size) {
 			ipa3_ctx->tx_wrapper_cache_max_size = ipa_drv_res->tx_wrapper_cache_max_size;
 			IPADBG("tx-wrapper-cache-max-size: %d\n", ipa_drv_res->tx_wrapper_cache_max_size);
@@ -15652,6 +15696,11 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 			IPADBG("ipa_gen_rx_cmn_temp_pool_sz_factor: %d\n", ipa_drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor);
 		}
 	}
+
+	/* Set NAT Statistics Mode */
+	ipa3_ctx->nat_stats_mode = ipa_drv_res->nat_stats_mode;
+	ipa3_ctx->nat_stats_max_counters_v4 = ipa_drv_res->nat_stats_max_counters_v4;
+	ipa3_ctx->nat_stats_max_counters_v6 = ipa_drv_res->nat_stats_max_counters_v6;
 
 	if (ipa_is_ready())
 		return;
@@ -15683,6 +15732,10 @@ static void ipa_ini_read_params_work(struct work_struct *work)
 	} else {
 		IPADBG("INI parsing successful\n");
 		ipa_populate_ini_values(&ipa3_res);
+		if (ipa3_ctx->ipa_config_is_auto) {
+			ipa3_ctx->ipa_wan_skb_page = false;
+			IPADBG("auto platform: wan skb page reset to false\n");
+		}
 		mutex_lock(&ipa3_ctx->fw_load_data.lock);
 		/* unlock and post init will be called at the end */
 	}
@@ -16031,14 +16084,13 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 			return result;
 		}
 	}
+#endif
 skip_post_init:
-#else
 	result = ipa3_update_config((const char *)ipa_cfg);
 	if (result < 0) {
 		IPAERR("failed to update config\n");
 		return result;
 	}
-#endif
 skip_repeat_pre_init:
 	result = of_platform_populate(pdev_p->dev.of_node,
 		ipa_plat_drv_match, NULL, &pdev_p->dev);
@@ -16726,6 +16778,14 @@ subsys_initcall(ipa_module_init);
 
 static void __exit ipa_module_exit(void)
 {
+	/*
+	 * Unhook the GSI diag sink BEFORE anything else: gsi.ko outlives ipa.ko
+	 * (ipa depends on gsi), so a GSIDBG/GSIERR after this point must not call
+	 * ipa3_diag_log_write in about-to-be-freed ipa.ko text. Then tear down
+	 * /dev/diag_ipa so its fops are gone before the module text is unmapped.
+	 */
+	gsi_register_diag_sink(NULL);
+	ipa3_diag_log_cleanup();
 #ifdef CONFIG_GH_MSGQ
 	ipa3_msgq_deinit();
 #endif

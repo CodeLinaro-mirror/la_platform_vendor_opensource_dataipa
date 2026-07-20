@@ -20,14 +20,21 @@
 			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, IPAHAL_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPAHAL_DBG_LOW(fmt, args...) \
 	do { \
 		pr_debug(IPAHAL_DRV_NAME " %s:%d " fmt, __func__, __LINE__, \
 			## args); \
-		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
-			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
+		if (ipa3_get_ipc_logbuf_low()) { \
+			IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
+				IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
+			ipa3_diag_log_write(IPA_DIAG_LVL_LOW, \
+				IPAHAL_DRV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
+		} \
 	} while (0)
 
 #define IPAHAL_ERR(fmt, args...) \
@@ -38,6 +45,8 @@
 			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, IPAHAL_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 
 #define IPAHAL_ERR_RL(fmt, args...) \
@@ -48,6 +57,8 @@
 				IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
 			IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
+			ipa3_diag_log_write(IPA_DIAG_LVL_ERR, IPAHAL_DRV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
 		} while (0)
 
 #define IPAHAL_DBG_REG(fmt, args...) \
@@ -1857,6 +1868,10 @@ union ipa_pkt_status_hw_v7_0 {
 #define IPA_PROC_CTX_TLV_TYPE_TRLR_ADD 5
 #define IPA_PROC_CTX_TLV_TYPE_IPSEC 6
 #define IPA_PROC_CTX_TLV_TYPE_NXT_RND 7
+#define IPA_PROC_CTX_TLV_TYPE_INL_HDR_ADD 8
+#define IPA_PROC_CTX_TLV_TYPE_HDR_ADD_CFG 9
+#define IPA_PROC_CTX_TLV_TYPE_SW_PROD_COOKIE 10
+#define IPA_PROC_CTX_TLV_TYPE_HDR_ADD_ETH_IND 11
 
 /* uC IPsec activate actions */
 #define IPA_UC_IPSEC_ACT_DISABLE 0
@@ -2032,6 +2047,17 @@ struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_cmd_seq_ex {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hw_hdr_proc_ctx_add_hdr_wwan_ethII_ex hdr_add_ex;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
+};
+
+/**
+ * struct ipa_hw_hdr_proc_ctx_add_producer_cookie -
+ * HW structure of IPA processing context - add producer cookie
+ * @tlv: IPA processing context TLV
+ * @params: producer cookie parameters
+ */
+struct ipa_hw_hdr_proc_ctx_add_producer_cookie {
+	struct ipa_hw_hdr_proc_ctx_tlv tlv;
+	struct ipa_producer_cookie_procparams params;
 };
 
 /**

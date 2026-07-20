@@ -13,6 +13,18 @@
 
 #define IPA_PM_DRV_NAME "ipa_pm"
 
+static struct pm_client_name_lookup client_lookup_table[] = {
+	{"ODL", 1},
+	{"IPA_CLIENT_APPS_LAN_CONS", 2},
+	{"EMB MODEM", 3},
+	{"TETH MODEM", 4},
+	{"rmnet_ipa%d", 5},
+	{"USB", 6},
+	{"USB DPL", 7},
+	{"MODEM (USB RMNET)", 8},
+	{"IPA_CLIENT_APPS_WAN_CONS", 9}
+};
+
 #define IPA_PM_DBG(fmt, args...) \
 	do { \
 		pr_debug(IPA_PM_DRV_NAME " %s:%d " fmt, \
@@ -21,13 +33,20 @@
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, IPA_PM_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 #define IPA_PM_DBG_LOW(fmt, args...) \
 	do { \
 		pr_debug(IPA_PM_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
-			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
+		if (ipa3_get_ipc_logbuf_low()) { \
+			IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
+				IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
+			ipa3_diag_log_write(IPA_DIAG_LVL_LOW, \
+				IPA_PM_DRV_NAME " %s:%d " fmt, \
+				__func__, __LINE__, ## args); \
+		} \
 	} while (0)
 #define IPA_PM_ERR(fmt, args...) \
 	do { \
@@ -37,6 +56,8 @@
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, IPA_PM_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 #define IPA_PM_ERR_RL(fmt, args...) \
 	do { \
@@ -46,6 +67,8 @@
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
 		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
+		ipa3_diag_log_write(IPA_DIAG_LVL_ERR, IPA_PM_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
 	} while (0)
 #define IPA_PM_DBG_STATE(hdl, name, state) \
 	IPA_PM_DBG_LOW("Client[%d] %s: %s\n", hdl, name, \

@@ -13,7 +13,9 @@
 #include "ipahal_reg.h"
 #include "ipahal_nat.h"
 #include "ipa_odl.h"
+#include "ipa_diag_log.h"
 #include "ipa_qmi_service.h"
+#include "../ipa_backend/ipa_be_clientdb.h"
 #ifdef CONFIG_DEBUG_FS
 #if defined(CONFIG_IPA_TSP)
 /* The following line should be removed once TSP feature is POR */
@@ -1585,13 +1587,23 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 					entry->generic_params_v2.output_ethhdr_negative_offset,
 					entry->generic_params_v2.output_dscp_pcp_update,
 					entry->generic_params_v2.input_ethhdr_valid);
-			} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
-				pr_err("input_valid:%u\n"
-					"input_dscp_val:%u\n",
-					entry->pdn_dscp_params.valid,
-					entry->pdn_dscp_params.dscp_val);
-			}
-			if (entry->hdr) {
+		} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
+			pr_err("input_valid:%u\n"
+				"input_dscp_val:%u\n",
+				entry->pdn_dscp_params.valid,
+				entry->pdn_dscp_params.dscp_val);
+		}
+		if (entry->is_cookie_valid)
+			pr_err("sw_prod_cookie_valid:1\n"
+				"sw_cookie_low:0x%x\n"
+				"sw_cookie_high:0x%x\n"
+				"dscp:%u\n"
+				"dscp_valid:%u\n",
+				entry->cookie_params.sw_cookie_low,
+				entry->cookie_params.sw_cookie_high,
+				entry->cookie_params.dscp,
+				entry->cookie_params.dscp_valid);
+		if (entry->hdr) {
 				if (entry->hdr->is_hdr_proc_ctx) {
 					pr_err("hdr_phys_base:0x%pa\n",
 						&entry->hdr->phys_base);
@@ -1979,15 +1991,25 @@ static ssize_t ipa3_read_page_recycle_stats(struct file *file,
 
 	nbytes = scnprintf(
 		dbg_buff, IPA_MAX_MSG_LEN,
-		"COAL   : Total number of packets replenished =%llu\n"
-		"COAL   : Number of page recycled packets  =%llu\n"
-		"COAL   : Number of tmp alloc packets  =%llu\n"
-		"COAL   : Number of times tasklet scheduled  =%llu\n"
+		"WAN COAL   : Total number of packets replenished =%llu\n"
+		"WAN COAL   : Number of page recycled packets  =%llu\n"
+		"WAN COAL   : Number of tmp alloc packets  =%llu\n"
+		"WAN COAL   : Number of times tasklet scheduled  =%llu\n"
 
-		"DEF    : Total number of packets replenished =%llu\n"
-		"DEF    : Number of page recycled packets =%llu\n"
-		"DEF    : Number of tmp alloc packets  =%llu\n"
-		"DEF    : Number of times tasklet scheduled  =%llu\n"
+		"WAN DEF    : Total number of packets replenished =%llu\n"
+		"WAN DEF    : Number of page recycled packets =%llu\n"
+		"WAN DEF    : Number of tmp alloc packets  =%llu\n"
+		"WAN DEF    : Number of times tasklet scheduled  =%llu\n"
+
+		"LAN COAL   : Total number of packets replenished =%llu\n"
+		"LAN COAL   : Number of page recycled packets  =%llu\n"
+		"LAN COAL   : Number of tmp alloc packets  =%llu\n"
+		"LAN COAL   : Number of times tasklet scheduled  =%llu\n"
+
+		"LAN DEF    : Total number of packets replenished =%llu\n"
+		"LAN DEF    : Number of page recycled packets =%llu\n"
+		"LAN DEF    : Number of tmp alloc packets  =%llu\n"
+		"LAN DEF    : Number of times tasklet scheduled  =%llu\n"
 
 		"COMMON : Number of page recycled in tasklet  =%llu\n"
 		"COMMON : Number of times free pages not found in tasklet =%llu\n",
@@ -2001,6 +2023,16 @@ static ssize_t ipa3_read_page_recycle_stats(struct file *file,
 		ipa3_ctx->stats.page_recycle_stats[1].page_recycled,
 		ipa3_ctx->stats.page_recycle_stats[1].tmp_alloc,
 		ipa3_ctx->stats.num_sort_tasklet_sched[1],
+
+		ipa3_ctx->stats.page_recycle_stats[7].total_replenished,
+		ipa3_ctx->stats.page_recycle_stats[7].page_recycled,
+		ipa3_ctx->stats.page_recycle_stats[7].tmp_alloc,
+		ipa3_ctx->stats.num_sort_tasklet_sched[7],
+
+		ipa3_ctx->stats.page_recycle_stats[8].total_replenished,
+		ipa3_ctx->stats.page_recycle_stats[8].page_recycled,
+		ipa3_ctx->stats.page_recycle_stats[8].tmp_alloc,
+		ipa3_ctx->stats.num_sort_tasklet_sched[8],
 
 		ipa3_ctx->stats.page_recycle_cnt_in_tasklet,
 		ipa3_ctx->stats.num_of_times_wq_reschd);
@@ -3524,6 +3556,71 @@ done:
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
 }
 
+static ssize_t ipa3_read_iemac_gsi_stats(struct file *file,
+	char __user *ubuf, size_t count, loff_t *ppos)
+{
+	void __iomem *base;
+	int nbytes, cnt = 0, i;
+	u32 ring_full, ring_empty, ring_usage_high, ring_usage_low;
+	u32 ring_util_count, db_count;
+
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v6_0) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"IEMAC GSI stats require IPA_HW_v6_0+\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	if (!ipa3_ctx->iemac_exist) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"IEMAC not present on this platform\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	base = ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_mmio;
+	if (!base) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"IEMAC GSI stats not allocated\n");
+		cnt += nbytes;
+		goto done;
+	}
+
+	if (ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_size <
+	    IPA_IEMAC_MAX_STATS_CHANNELS * IPA_IEMAC_STATS_CH_STRIDE) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"IEMAC stats mapping too small: %u < %zu\n",
+			ipa3_ctx->iemac_dbg_stats.uc_dbg_stats_size,
+			(size_t)(IPA_IEMAC_MAX_STATS_CHANNELS *
+				 IPA_IEMAC_STATS_CH_STRIDE));
+		cnt += nbytes;
+		goto done;
+	}
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+	for (i = 0; i < IPA_IEMAC_MAX_STATS_CHANNELS; i++) {
+		void __iomem *ch = base + i * IPA_IEMAC_STATS_CH_STRIDE;
+
+		ring_full       = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGFULL_OFF);
+		ring_empty      = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGEMPTY_OFF);
+		ring_usage_high = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGUSAGEHIGH_OFF);
+		ring_usage_low  = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGUSAGELOW_OFF);
+		ring_util_count = ioread32(ch + IPA3_UC_DEBUG_STATS_RINGUTILCOUNT_OFF);
+		db_count        = ioread32(ch + IPA_IEMAC_STATS_DBCOUNT_OFF);
+
+		nbytes = scnprintf(dbg_buff + cnt, IPA_MAX_MSG_LEN - cnt,
+			"CH%d ringFull=%u ringEmpty=%u ringUsageHigh=%u "
+			"ringUsageLow=%u RingUtilCount=%u dbCount=%u\n",
+			i, ring_full, ring_empty, ring_usage_high,
+			ring_usage_low, ring_util_count, db_count);
+		cnt += nbytes;
+	}
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+done:
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
+}
+
 static ssize_t ipa3_read_app_clk_vote(
 	struct file *file,
 	char __user *ubuf,
@@ -3661,6 +3758,117 @@ static ssize_t ipa3_enable_ipc_low(struct file *file,
 		ipa3_ctx->logbuf_low = NULL;
 	}
 	mutex_unlock(&ipa3_ctx->lock);
+
+	return count;
+}
+
+/*
+ * diag_log debugfs knob: read shows the runtime enable state and counters;
+ * write "0"/"1" toggles the /dev/diag_ipa tap at runtime (default enabled).
+ */
+static ssize_t ipa3_diag_log_read_dbg(struct file *file,
+	char __user *ubuf, size_t count, loff_t *ppos)
+{
+	struct ipa_diag_log_context *ctx = ipa3_diag_log_ctx;
+	unsigned long flags;
+	u64 enqueued, dropped, read_cnt, markers;
+	u32 head, tail, inflight;
+	bool enabled, drop_newest;
+	u8 min_level;
+	char sink_cfg[IPA_DIAG_LOG_SINK_CFG_SZ];
+	int nbytes;
+
+	if (!ctx || !ctx->initialized) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"diag_ipa: not initialized\n");
+		return simple_read_from_buffer(ubuf, count, ppos, dbg_buff,
+				nbytes);
+	}
+
+	spin_lock_irqsave(&ctx->lock, flags);
+	enabled = ctx->enabled;
+	drop_newest = ctx->drop_newest;
+	min_level = ctx->min_level;
+	strscpy(sink_cfg, ctx->sink_cfg, sizeof(sink_cfg));
+	enqueued = ctx->stats.enqueued;
+	dropped = ctx->stats.dropped;
+	read_cnt = ctx->stats.read;
+	markers = ctx->stats.markers;
+	head = ctx->head;
+	tail = ctx->tail;
+	spin_unlock_irqrestore(&ctx->lock, flags);
+
+	inflight = (head - tail) & (IPA_DIAG_LOG_NUM_SLOTS - 1);
+
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"enabled=%d\n"
+		"min_level=%u (0=ERR 1=INFO 2=DBG 3=LOW)\n"
+		"overflow_policy=%s\n"
+		"sink=%s\n"
+		"slots=%u line_sz=%u\n"
+		"in_flight=%u\n"
+		"enqueued=%llu\n"
+		"dropped=%llu\n"
+		"read=%llu\n"
+		"drop_markers=%llu\n",
+		enabled, min_level,
+		drop_newest ? "drop_newest" : "drop_oldest",
+		sink_cfg, IPA_DIAG_LOG_NUM_SLOTS, IPA_DIAG_LOG_LINE_SZ,
+		inflight, enqueued, dropped, read_cnt, markers);
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+}
+
+/*
+ * Accepts one directive per write:
+ *   enable | disable | "1" | "0"   - turn the tap on/off
+ *   drop_oldest | drop_newest      - overflow policy
+ *   min_level=<0..3>               - severity capture floor (ERR/INFO/DBG/LOW)
+ *   sink=<str>                     - opaque daemon sink config (e.g. "diag",
+ *                                    "file:/data/diag_ipa.log"); kernel stores
+ *                                    it verbatim for the daemon to read back.
+ */
+static ssize_t ipa3_diag_log_write_dbg(struct file *file,
+	const char __user *ubuf, size_t count, loff_t *ppos)
+{
+	struct ipa_diag_log_context *ctx = ipa3_diag_log_ctx;
+	char kbuf[IPA_DIAG_LOG_SINK_CFG_SZ + 8] = {0};
+	unsigned long flags;
+	size_t n;
+
+	if (!ctx || !ctx->initialized)
+		return -ENODEV;
+
+	n = min(count, sizeof(kbuf) - 1);
+	if (copy_from_user(kbuf, ubuf, n))
+		return -EFAULT;
+	/* strip trailing newline/space */
+	while (n && (kbuf[n - 1] == '\n' || kbuf[n - 1] == ' '))
+		kbuf[--n] = '\0';
+
+	/* WRITE_ONCE: producers read these locklessly on the fast path. */
+	if (!strcmp(kbuf, "1") || !strcmp(kbuf, "enable")) {
+		WRITE_ONCE(ctx->enabled, true);
+	} else if (!strcmp(kbuf, "0") || !strcmp(kbuf, "disable")) {
+		WRITE_ONCE(ctx->enabled, false);
+	} else if (!strcmp(kbuf, "drop_oldest")) {
+		WRITE_ONCE(ctx->drop_newest, false);
+	} else if (!strcmp(kbuf, "drop_newest")) {
+		WRITE_ONCE(ctx->drop_newest, true);
+	} else if (!strncmp(kbuf, "min_level=", 10)) {
+		u8 lvl;
+
+		if (kstrtou8(kbuf + 10, 0, &lvl) || lvl > IPA_DIAG_LVL_LOW)
+			return -EINVAL;
+		WRITE_ONCE(ctx->min_level, lvl);
+	} else if (!strncmp(kbuf, "sink=", 5)) {
+		/* sink_cfg is read by the daemon under the lock. */
+		spin_lock_irqsave(&ctx->lock, flags);
+		strscpy(ctx->sink_cfg, kbuf + 5, sizeof(ctx->sink_cfg));
+		spin_unlock_irqrestore(&ctx->lock, flags);
+	} else {
+		return -EINVAL;
+	}
 
 	return count;
 }
@@ -4509,6 +4717,82 @@ static ssize_t ipa3_read_ipsec_active_sa(struct file *file,
 
 #endif
 
+static ssize_t ipa3_read_client_db(struct file *file, char __user *ubuf,
+		size_t count, loff_t *ppos)
+{
+	struct ipa_clientdb_mapping_instance *entry;
+	int nbytes = 0;
+	int idx = 0;
+
+	mutex_lock(&ipa_client_db_lock);
+
+	for (entry = ipa_db_mappings; entry; entry = entry->next) {
+		if (entry->address[1] | entry->address[2] | entry->address[3]) {
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"[%d] iface=%.*s(%u) IP=%pI6c"
+				" MAC=%02x:%02x:%02x:%02x:%02x:%02x vlan=%u\n"
+				"     lan2lan: rt=%u proc=%u hdr=%u ref=%d ctx_name=%.*s\n"
+				"     lan2wan: rt=%u proc=%u hdr=%u ref=%d ctx_name=%.*s\n",
+				idx++,
+				(int)sizeof(entry->iface_name), entry->iface_name, entry->iface_num,
+				entry->address,
+				entry->mac_addr_t[0], entry->mac_addr_t[1],
+				entry->mac_addr_t[2], entry->mac_addr_t[3],
+				entry->mac_addr_t[4], entry->mac_addr_t[5],
+				entry->vlan_id,
+				entry->lan2lan_info.rt_hdl,
+				entry->lan2lan_info.proc_ctx_hdl,
+				entry->lan2lan_info.hdr_hdl,
+				atomic_read(&entry->lan2lan_info.ref_count),
+				(int)sizeof(entry->lan2lan_info.proc_ctx_name),
+				entry->lan2lan_info.proc_ctx_name,
+				entry->lan2wan_info.rt_hdl,
+				entry->lan2wan_info.proc_ctx_hdl,
+				entry->lan2wan_info.hdr_hdl,
+				atomic_read(&entry->lan2wan_info.ref_count),
+				(int)sizeof(entry->lan2wan_info.proc_ctx_name),
+				entry->lan2wan_info.proc_ctx_name);
+		} else {
+			nbytes += scnprintf(dbg_buff + nbytes, IPA_MAX_MSG_LEN - nbytes,
+				"[%d] iface=%.*s(%u) IP=" IPA_IP_ADDR_DOT_FMT
+				" MAC=%02x:%02x:%02x:%02x:%02x:%02x vlan=%u\n"
+				"     lan2lan: rt=%u proc=%u hdr=%u ref=%d ctx_name=%.*s\n"
+				"     lan2wan: rt=%u proc=%u hdr=%u ref=%d ctx_name=%.*s\n",
+				idx++,
+				(int)sizeof(entry->iface_name), entry->iface_name, entry->iface_num,
+				((uint8_t *)entry->address)[0], ((uint8_t *)entry->address)[1],
+				((uint8_t *)entry->address)[2], ((uint8_t *)entry->address)[3],
+				entry->mac_addr_t[0], entry->mac_addr_t[1],
+				entry->mac_addr_t[2], entry->mac_addr_t[3],
+				entry->mac_addr_t[4], entry->mac_addr_t[5],
+				entry->vlan_id,
+				entry->lan2lan_info.rt_hdl,
+				entry->lan2lan_info.proc_ctx_hdl,
+				entry->lan2lan_info.hdr_hdl,
+				atomic_read(&entry->lan2lan_info.ref_count),
+				(int)sizeof(entry->lan2lan_info.proc_ctx_name),
+				entry->lan2lan_info.proc_ctx_name,
+				entry->lan2wan_info.rt_hdl,
+				entry->lan2wan_info.proc_ctx_hdl,
+				entry->lan2wan_info.hdr_hdl,
+				atomic_read(&entry->lan2wan_info.ref_count),
+				(int)sizeof(entry->lan2wan_info.proc_ctx_name),
+				entry->lan2wan_info.proc_ctx_name);
+		}
+
+		if (nbytes >= IPA_MAX_MSG_LEN - 1)
+			break;
+	}
+
+	if (!idx)
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+			"No active connections in client DB\n");
+
+	mutex_unlock(&ipa_client_db_lock);
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+}
+
 static ssize_t enable_wkup_logs(struct file *file,
 			const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -4651,6 +4935,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.read = ipa3_read_stats,
 		}
 	}, {
+		"client_db", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_client_db,
+		}
+	}, {
 		"wstats", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_wstats,
 		}
@@ -4712,6 +5000,11 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.write = ipa3_enable_ipc_low,
 		}
 	}, {
+		"diag_log", IPA_READ_WRITE_MODE, NULL, {
+			.read = ipa3_diag_log_read_dbg,
+			.write = ipa3_diag_log_write_dbg,
+		}
+	}, {
 		"ipa_dump_regs", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_ipahal_regs,
 		}
@@ -4738,6 +5031,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"usb_gsi_stats", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_usb_gsi_stats,
+		}
+	}, {
+		"iemac_gsi_stats", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_iemac_gsi_stats,
 		}
 	}, {
 		"app_clk_vote_cnt", IPA_READ_ONLY_MODE, NULL, {
@@ -4917,7 +5214,7 @@ static ssize_t ipa3_eth_read_status(struct file *file,
 	for (i = 0; i < IPA_ETH_CLIENT_MAX; i++) {
 		for (j = 0; j < IPA_ETH_INST_ID_MAX; j++) {
 			eth_info = ipa3_ctx->eth_info[i][j];
-			for (k = 0; k < eth_info.num_ch; k++) {
+			for (k = 0; k < IPA_MAX_CH_STATS_SUPPORTED; k++) {
 				if (eth_info.map[k].valid) {
 					type = eth_info.map[k].type;
 					nbytes = scnprintf(dbg_buff + cnt,
@@ -5137,93 +5434,129 @@ static void __ipa_ntn3_client_stats_read(int *cnt,
 	nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
 		"%s_RP=0x%x\n"
 		"%s_WP=0x%x\n"
-		"%s_ntn_pending_db_after_rollback:%u\n"
-		"%s_msi_db_idx_val:%u\n"
-		"%s_tx_derr_counter:%u\n"
-		"%s_ntn_tx_oob_counter:%u\n"
-		"%s_ntn_accumulated_tres_handled:%u\n"
-		"%s_ntn_rollbacks_counter:%u\n"
-		"%s_ntn_msi_db_count:%u\n",
+		"%s_ntn_tx_last_db_value:%u\n"
+		"%s_ntn_tx_next_re:%u\n"
+		"%s_ntn_tx_invalid_own_bit:%u\n"
+		"%s_ntn_tx_stop_in_progress_stm:%u\n"
+		"%s_ntn_tx_invalid_own_bit_retries:%u\n"
+		"%s_ntn_tx_malformed_tre_ind:%u\n"
+		"%s_ntn_tx_wp_index_in_malformed_tre:%u\n"
+		"%s_ntn_tx_derr_counter:%u\n"
+		"%s_ntn_tx_accumulated_invalid_tre_cnt:%u\n"
+		"%s_ntn_tx_rollbacks_counter:%u\n"
+		"%s_ntn_tx_outstanding_tlvs_cnt:%u\n",
 		str_client_tx, s->tx_stats.rp,
 		str_client_tx, s->tx_stats.wp,
-		str_client_tx, s->tx_stats.pending_db_after_rollback,
-		str_client_tx, s->tx_stats.msi_db_idx,
+		str_client_tx, s->tx_stats.ntn_stats.last_db_value,
+		str_client_tx, (s->tx_stats.ntn_stats.next_re & 0xFFFF),
+		str_client_tx, (s->tx_stats.ntn_stats.next_re & 0x20000) >> 17,
+		str_client_tx, (s->tx_stats.ntn_stats.next_re & 0xF0000000) >> 28,
+		str_client_tx, (s->tx_stats.ntn_stats.malformed_tre & 0xFF),
+		str_client_tx, (s->tx_stats.ntn_stats.malformed_tre & 0x100) >> 8,
+		str_client_tx, (s->tx_stats.ntn_stats.malformed_tre & 0xFFFF0000) >> 16,
 		str_client_tx, s->tx_stats.derr_cnt,
-		str_client_tx, s->tx_stats.oob_cnt,
-		str_client_tx, s->tx_stats.tres_handled,
-		str_client_tx, s->tx_stats.rollbacks_cnt,
-		str_client_tx, s->tx_stats.msi_db_cnt);
+		str_client_tx, s->tx_stats.ntn_stats.invalid_tre_cnt,
+		str_client_tx, s->tx_stats.ntn_stats.rollbacks_cnt,
+		str_client_tx, s->tx_stats.ntn_stats.outstanding_tlvs_cnt);
 	*cnt += nbytes;
 	nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
 		"%s_RP=0x%x\n"
 		"%s_WP=0x%x\n"
-		"%s_ntn_pending_db_after_rollback:%u\n"
-		"%s_msi_db_idx_val:%u\n"
-		"%s_ntn_rx_chain_counter:%u\n"
+		"%s_ntn_rx_last_db_value:%u\n"
+		"%s_ntn_rx_next_re:%u\n"
+		"%s_ntn_rx_invalid_own_bit:%u\n"
+		"%s_ntn_rx_stop_in_progress_stm:%u\n"
+		"%s_ntn_rx_invalid_own_bit_retries:%u\n"
+		"%s_ntn_rx_malformed_tre_ind:%u\n"
+		"%s_ntn_rx_wp_index_in_malformed_tre:%u\n"
+		"%s_ntn_rx_zero_len_pkt_cnt:%u\n"
 		"%s_ntn_rx_err_cnt:%u\n"
 		"%s_ntn_rx_err_crc_counter:%u\n"
 		"%s_ntn_rx_bmap_err:%09x\n"
-		"%s_ntn_accumulated_tres_handled:%u\n"
-		"%s_ntn_rollbacks_counter:%u\n"
-		"%s_ntn_msi_db_count:%u\n",
+		"%s_ntn_rx_accumulated_invalid_tre_cnt:%u\n"
+		"%s_ntn_rx_rollbacks_counter:%u\n"
+		"%s_ntn_rx_outstanding_tlvs_cnt:%u\n",
 		str_client_rx, s->rx_stats.rp,
 		str_client_rx, s->rx_stats.wp,
-		str_client_rx, s->rx_stats.pending_db_after_rollback,
-		str_client_rx, s->rx_stats.msi_db_idx,
-		str_client_rx, s->rx_stats.chain_cnt,
+		str_client_rx, s->rx_stats.ntn_stats.last_db_value,
+		str_client_rx, (s->rx_stats.ntn_stats.next_re & 0xFFFF),
+		str_client_rx, (s->rx_stats.ntn_stats.next_re & 0x20000) >> 17,
+		str_client_rx, (s->rx_stats.ntn_stats.next_re & 0xF0000000) >> 28,
+		str_client_rx, (s->rx_stats.ntn_stats.malformed_tre & 0xFF),
+		str_client_rx, (s->rx_stats.ntn_stats.malformed_tre & 0x100) >> 8,
+		str_client_rx, (s->rx_stats.ntn_stats.malformed_tre & 0xFFFF0000) >> 16,
+		str_client_rx, s->rx_stats.ntn_stats.zero_len_pkt_cnt,
 		str_client_rx, (s->rx_stats.err_cnt & 0x3FFF),
 		str_client_rx, (s->rx_stats.err_cnt & 0x7FC000)>>14,
 		str_client_rx, (s->rx_stats.err_cnt & 0xFF800000)>>23,
-		str_client_rx, s->rx_stats.tres_handled,
-		str_client_rx, s->rx_stats.rollbacks_cnt,
-		str_client_rx, s->rx_stats.msi_db_cnt);
+		str_client_rx, s->rx_stats.ntn_stats.invalid_tre_cnt,
+		str_client_rx, s->rx_stats.ntn_stats.rollbacks_cnt,
+		str_client_rx, s->rx_stats.ntn_stats.outstanding_tlvs_cnt);
 	*cnt += nbytes;
 	if (str_client_rx1) {
 		nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
 			"%s_RP=0x%x\n"
 			"%s_WP=0x%x\n"
-			"%s_ntn_pending_db_after_rollback:%u\n"
-			"%s_msi_db_idx_val:%u\n"
-			"%s_ntn_rx_chain_counter:%u\n"
+			"%s_ntn_rx_last_db_value:%u\n"
+			"%s_ntn_rx_next_re:%u\n"
+			"%s_ntn_rx_invalid_own_bit:%u\n"
+			"%s_ntn_rx_stop_in_progress_stm:%u\n"
+			"%s_ntn_rx_invalid_own_bit_retries:%u\n"
+			"%s_ntn_rx_malformed_tre_ind:%u\n"
+			"%s_ntn_rx_wp_index_in_malformed_tre:%u\n"
+			"%s_ntn_rx_zero_len_pkt_cnt:%u\n"
 			"%s_ntn_rx_err_cnt:%u\n"
 			"%s_ntn_rx_err_crc_counter:%u\n"
 			"%s_ntn_rx_bmap_err:%09x\n"
-			"%s_ntn_accumulated_tres_handled:%u\n"
-			"%s_ntn_rollbacks_counter:%u\n"
-			"%s_ntn_msi_db_count:%u\n",
+			"%s_ntn_rx_accumulated_invalid_tre_cnt:%u\n"
+			"%s_ntn_rx_rollbacks_counter:%u\n"
+			"%s_ntn_rx_outstanding_tlvs_cnt:%u\n",
 			str_client_rx1, s->rx1_stats.rp,
 			str_client_rx1, s->rx1_stats.wp,
-			str_client_rx1, s->rx1_stats.pending_db_after_rollback,
-			str_client_rx1, s->rx1_stats.msi_db_idx,
-			str_client_rx1, s->rx1_stats.chain_cnt,
+			str_client_rx1, s->rx1_stats.ntn_stats.last_db_value,
+			str_client_rx1, (s->rx1_stats.ntn_stats.next_re & 0xFFFF),
+			str_client_rx1, (s->rx1_stats.ntn_stats.next_re & 0x20000) >> 17,
+			str_client_rx1, (s->rx1_stats.ntn_stats.next_re & 0xF0000000) >> 28,
+			str_client_rx1, (s->rx1_stats.ntn_stats.malformed_tre & 0xFF),
+			str_client_rx1, (s->rx1_stats.ntn_stats.malformed_tre & 0x100) >> 8,
+			str_client_rx1, (s->rx1_stats.ntn_stats.malformed_tre & 0xFFFF0000) >> 16,
+			str_client_rx1, s->rx1_stats.ntn_stats.zero_len_pkt_cnt,
 			str_client_rx1, (s->rx1_stats.err_cnt & 0x3FFF),
-			str_client_rx1, (s->rx1_stats.err_cnt & 0x7FC000) >> 14,
-			str_client_rx1, (s->rx1_stats.err_cnt & 0xFF800000) >> 23,
-			str_client_rx1, s->rx1_stats.tres_handled,
-			str_client_rx1, s->rx1_stats.rollbacks_cnt,
-			str_client_rx1, s->rx1_stats.msi_db_cnt);
+			str_client_rx1, (s->rx1_stats.err_cnt & 0x7FC000)>>14,
+			str_client_rx1, (s->rx1_stats.err_cnt & 0xFF800000)>>23,
+			str_client_rx1, s->rx1_stats.ntn_stats.invalid_tre_cnt,
+			str_client_rx1, s->rx1_stats.ntn_stats.rollbacks_cnt,
+			str_client_rx1, s->rx1_stats.ntn_stats.outstanding_tlvs_cnt);
 		*cnt += nbytes;
 	}
 	if (str_client_tx1) {
 		nbytes = scnprintf(dbg_buff + *cnt, IPA_MAX_MSG_LEN - *cnt,
 			"%s_RP=0x%x\n"
 			"%s_WP=0x%x\n"
-			"%s_ntn_pending_db_after_rollback:%u\n"
-			"%s_msi_db_idx_val:%u\n"
-			"%s_tx_derr_counter:%u\n"
-			"%s_ntn_tx_oob_counter:%u\n"
-			"%s_ntn_accumulated_tres_handled:%u\n"
-			"%s_ntn_rollbacks_counter:%u\n"
-			"%s_ntn_msi_db_count:%u\n",
+			"%s_ntn_tx_last_db_value:%u\n"
+			"%s_ntn_tx_next_re:%u\n"
+			"%s_ntn_tx_invalid_own_bit:%u\n"
+			"%s_ntn_tx_stop_in_progress_stm:%u\n"
+			"%s_ntn_tx_invalid_own_bit_retries:%u\n"
+			"%s_ntn_tx_malformed_tre_ind:%u\n"
+			"%s_ntn_tx_wp_index_in_malformed_tre:%u\n"
+			"%s_ntn_tx_derr_counter:%u\n"
+			"%s_ntn_tx_accumulated_invalid_tre_cnt:%u\n"
+			"%s_ntn_tx_rollbacks_counter:%u\n"
+			"%s_ntn_tx_outstanding_tlvs_cnt:%u\n",
 			str_client_tx1, s->tx1_stats.rp,
 			str_client_tx1, s->tx1_stats.wp,
-			str_client_tx1, s->tx1_stats.pending_db_after_rollback,
-			str_client_tx1, s->tx1_stats.msi_db_idx,
+			str_client_tx1, s->tx1_stats.ntn_stats.last_db_value,
+			str_client_tx1, (s->tx1_stats.ntn_stats.next_re & 0xFFFF),
+			str_client_tx1, (s->tx1_stats.ntn_stats.next_re & 0x20000) >> 17,
+			str_client_tx1, (s->tx1_stats.ntn_stats.next_re & 0xF0000000) >> 28,
+			str_client_tx1, (s->tx1_stats.ntn_stats.malformed_tre & 0xFF),
+			str_client_tx1, (s->tx1_stats.ntn_stats.malformed_tre & 0x100) >> 8,
+			str_client_tx1, (s->tx1_stats.ntn_stats.malformed_tre & 0xFFFF0000) >> 16,
 			str_client_tx1, s->tx1_stats.derr_cnt,
-			str_client_tx1, s->tx1_stats.oob_cnt,
-			str_client_tx1, s->tx1_stats.tres_handled,
-			str_client_tx1, s->tx1_stats.rollbacks_cnt,
-			str_client_tx1, s->tx1_stats.msi_db_cnt);
+			str_client_tx1, s->tx1_stats.ntn_stats.invalid_tre_cnt,
+			str_client_tx1, s->tx1_stats.ntn_stats.rollbacks_cnt,
+			str_client_tx1, s->tx1_stats.ntn_stats.outstanding_tlvs_cnt);
 		*cnt += nbytes;
 	}
 }
@@ -5485,8 +5818,9 @@ void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client)
 		goto fail;
 	}
 
-	if (ipa3_ctx->eth_qos && type == IPA_ETH_CLIENT_IEMAC
-		&& inst_id == 0) {
+	if (ipa3_ctx->eth_qos && type == IPA_ETH_CLIENT_IEMAC &&
+	    ((ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+	      inst_id < IPA_ETH_INST_ID_MAX) || inst_id == 0)) {
 		snprintf(name, IPA_RESOURCE_NAME_MAX,
 			"%s_%d_qos_stats", ipa_eth_clients_strings[type], inst_id);
 		file = debugfs_create_file(name, IPA_READ_ONLY_MODE,

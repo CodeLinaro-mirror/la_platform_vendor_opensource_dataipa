@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "ipa_i.h"
@@ -932,8 +932,12 @@ int ipa_create_uc_smmu_mapping(int res_idx, bool wlan_smmu_en,
 
 	/* no SMMU on WLAN but SMMU on IPA */
 	if (!wlan_smmu_en && !ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_UC]) {
-		if (ipa_create_uc_smmu_mapping_pa(pa, len,
-			(res_idx == IPA_WDI_CE_DB_RES) ? true : false, iova)) {
+		bool is_device = false;
+
+		if (res_idx == IPA_WDI_CE_DB_RES)
+			is_device = !pfn_valid(__phys_to_pfn(pa));
+
+		if (ipa_create_uc_smmu_mapping_pa(pa, len, is_device, iova)) {
 			IPAERR("Fail to create mapping res %d\n", res_idx);
 			return -EFAULT;
 		}
@@ -948,15 +952,20 @@ int ipa_create_uc_smmu_mapping(int res_idx, bool wlan_smmu_en,
 		case IPA_WDI_RX_COMP_RING_WP_RES:
 		case IPA_WDI_CE_DB_RES:
 		case IPA_WDI_TX_DB_RES:
-			if (ipa_create_uc_smmu_mapping_pa(pa, len,
-				(res_idx == IPA_WDI_CE_DB_RES) ? true : false,
-				iova)) {
+		{
+			bool is_device = false;
+
+			if (res_idx == IPA_WDI_CE_DB_RES)
+				is_device = !pfn_valid(__phys_to_pfn(pa));
+
+			if (ipa_create_uc_smmu_mapping_pa(pa, len, is_device, iova)) {
 				IPAERR("Fail to create mapping res %d\n",
 						res_idx);
 				return -EFAULT;
 			}
 			ipa_save_uc_smmu_mapping_pa(res_idx, pa, *iova, len);
 			break;
+		}
 		case IPA_WDI_RX_RING_RES:
 		case IPA_WDI_RX_COMP_RING_RES:
 		case IPA_WDI_TX_RING_RES:
@@ -1101,9 +1110,14 @@ int ipa_create_gsi_smmu_mapping(int res_idx, bool wlan_smmu_en,
 		case IPA_WDI_RX5_RING_RP_RES:
 		case IPA_WDI_RX6_COMP_RING_WP_RES:
 		case IPA_WDI_RX6_RING_RP_RES:
-			if (ipa_create_ap_smmu_mapping_pa(pa, len,
-				((res_idx == IPA_WDI_CE_DB_RES) ||
-				(res_idx == IPA_WDI_CE2_DB_RES)) ? true : false,
+		{
+			bool is_device = false;
+
+			if (res_idx == IPA_WDI_CE_DB_RES ||
+				res_idx == IPA_WDI_CE2_DB_RES)
+				is_device = !pfn_valid(__phys_to_pfn(pa));
+
+			if (ipa_create_ap_smmu_mapping_pa(pa, len, is_device,
 						iova, cb_type)) {
 				IPAERR("Fail to create mapping res %d\n",
 						res_idx);
@@ -1111,6 +1125,7 @@ int ipa_create_gsi_smmu_mapping(int res_idx, bool wlan_smmu_en,
 			}
 			ipa_save_uc_smmu_mapping_pa(res_idx, pa, *iova, len);
 			break;
+		}
 		case IPA_WDI_RX_RING_RES:
 		case IPA_WDI_RX_COMP_RING_RES:
 		case IPA_WDI_TX_RING_RES:

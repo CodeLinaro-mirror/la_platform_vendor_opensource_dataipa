@@ -59,15 +59,24 @@
 	(client) == IPA_CLIENT_ETHERNET_PROD3 || \
 	(client) == IPA_CLIENT_ETHERNET_CONS3 || \
 	(client) == IPA_CLIENT_ETHERNET_PROD4 || \
-	(client) == IPA_CLIENT_ETHERNET_CONS4)
+	(client) == IPA_CLIENT_ETHERNET_CONS4 || \
+	(client) == IPA_CLIENT_ETHERNET_QOS_PROD || \
+	(client) == IPA_CLIENT_ETHERNET_QOS_CONS || \
+	(client) == IPA_CLIENT_ETHERNET_QOS2_CONS)
 
 #define IPA_CLIENT_IS_SMMU_ETH1_INSTANCE(client) \
 	((client) == IPA_CLIENT_ETHERNET2_PROD || \
-	(client) == IPA_CLIENT_ETHERNET2_CONS)
+	(client) == IPA_CLIENT_ETHERNET2_CONS || \
+	(client) == IPA_CLIENT_ETHERNET2_QOS_PROD || \
+	(client) == IPA_CLIENT_ETHERNET2_QOS_CONS || \
+	(client) == IPA_CLIENT_ETHERNET2_QOS2_CONS)
 
 #define IPA_CLIENT_IS_SMMU_ETH2_INSTANCE(client) \
 	((client) == IPA_CLIENT_ETHERNET3_PROD || \
-	(client) == IPA_CLIENT_ETHERNET3_CONS)
+	(client) == IPA_CLIENT_ETHERNET3_CONS || \
+	(client) == IPA_CLIENT_ETHERNET3_QOS_PROD || \
+	(client) == IPA_CLIENT_ETHERNET3_QOS_CONS || \
+	(client) == IPA_CLIENT_ETHERNET3_QOS2_CONS)
 
 enum ipa_eth_dir {
 	IPA_ETH_RX = 0,
@@ -127,13 +136,23 @@ static int ipa_iemac_smmu_cb_add_mapping_pa(enum ipa_smmu_cb_type cb_type, phys_
 	}
 	/**
 	 * Assuming each IEMAC client does maximum of 1 mapping with
-	 * constant size per direction.
+	 * constant size per direction. The per-instance IOVA window stride
+	 * and TX-pipe count must match how many channels are actually
+	 * connected: AUTO uses the QOS_AUTO counts; IPA v7.0+ CPE uses the
+	 * BE+QoS QOS_CPE_V7 counts (5/instance, 3 TX); pre-v7.0 CPE uses the
+	 * legacy QOS_CPE counts.
 	 */
 	if (ipa3_ctx->ipa_config_is_auto)
 	{
 		eth_next_addr = cb->va_end + eth_offset +
 			PAGE_SIZE * ((instance_id * IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO) +
 			(IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO * dir + pipe_idx));
+	}
+	else if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+	{
+		eth_next_addr = cb->va_end + eth_offset +
+			PAGE_SIZE * ((instance_id * IPA_ETH_MAX_DMA_CHANNEL_QOS_CPE_V7) +
+			(IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7 * dir + pipe_idx));
 	}
 	else
 	{
@@ -191,50 +210,72 @@ static int ipa_iemac_smmu_cb_reset_mapping(enum ipa_smmu_cb_type cb_type, int in
 
 static void ipa3_eth_save_client_mapping(
 	struct ipa_eth_client_pipe_info *pipe,
-	enum ipa_client_type type, int id,
+	enum ipa_client_type type,
 	int pipe_id, int ch_id)
 {
 	struct ipa_eth_client *client_info;
 	enum ipa_eth_client_type client_type;
 	u8 inst_id, pipe_hdl;
 	struct ipa3_eth_info *eth_info;
+	int i;
 
 	client_info = pipe->client_info;
 	client_type = client_info->client_type;
 	inst_id = client_info->inst_id;
 	pipe_hdl = pipe->pipe_hdl;
 	eth_info = &ipa3_ctx->eth_info[client_type][inst_id];
-	if (!eth_info->map[id].valid) {
-		eth_info->num_ch++;
-		eth_info->map[id].type = type;
-		eth_info->map[id].pipe_id = pipe_id;
-		eth_info->map[id].ch_id = ch_id;
-		eth_info->map[id].valid = true;
-		eth_info->map[id].pipe_hdl = pipe_hdl;
+
+	/*
+	 * Find the first free map slot. A single EMAC instance can connect
+	 * multiple TX + RX channels (best-effort + QoS), so the map cannot be
+	 * indexed by direction alone (that only allows one TX + one RX and
+	 * silently drops the QoS channels from the debugfs "status" node).
+	 * Slots are packed densely so the reader's "k < num_ch" loop visits
+	 * every valid entry.
+	 */
+	for (i = 0; i < IPA_MAX_CH_STATS_SUPPORTED; i++) {
+		if (!eth_info->map[i].valid) {
+			eth_info->num_ch++;
+			eth_info->map[i].type = type;
+			eth_info->map[i].pipe_id = pipe_id;
+			eth_info->map[i].ch_id = ch_id;
+			eth_info->map[i].valid = true;
+			eth_info->map[i].pipe_hdl = pipe_hdl;
+			return;
+		}
 	}
+	IPAERR("no free eth_info map slot for client_type %d inst %d\n",
+		type, inst_id);
 }
 
 static void ipa3_eth_release_client_mapping(
-	struct ipa_eth_client_pipe_info *pipe,
-	int id)
+	struct ipa_eth_client_pipe_info *pipe)
 {
 	struct ipa_eth_client *client_info;
 	enum ipa_eth_client_type client_type;
 	u8 inst_id, pipe_hdl;
 	struct ipa3_eth_info *eth_info;
+	int i;
 
 	client_info = pipe->client_info;
 	client_type = client_info->client_type;
 	inst_id = client_info->inst_id;
 	pipe_hdl = pipe->pipe_hdl;
 	eth_info = &ipa3_ctx->eth_info[client_type][inst_id];
-	if (eth_info->map[id].valid) {
-		eth_info->num_ch--;
-		eth_info->map[id].type = 0;
-		eth_info->map[id].pipe_id = 0;
-		eth_info->map[id].ch_id = 0;
-		eth_info->map[id].valid = false;
-		eth_info->map[id].pipe_hdl = 0;
+
+	/* Match the slot by pipe_hdl (unique per connected pipe) rather than
+	 * by a direction-derived index, mirroring the free-slot save above. */
+	for (i = 0; i < IPA_MAX_CH_STATS_SUPPORTED; i++) {
+		if (eth_info->map[i].valid &&
+		    eth_info->map[i].pipe_hdl == pipe_hdl) {
+			eth_info->num_ch--;
+			eth_info->map[i].type = 0;
+			eth_info->map[i].pipe_id = 0;
+			eth_info->map[i].ch_id = 0;
+			eth_info->map[i].valid = false;
+			eth_info->map[i].pipe_hdl = 0;
+			return;
+		}
 	}
 }
 
@@ -539,8 +580,9 @@ static int ipa_eth_setup_rtk_gsi_channel(
 
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
 			gsi_channel_props.gsi_stats_en = 1;
+		}
 	} else {
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 	}
@@ -688,7 +730,7 @@ static int ipa3_smmu_map_eth_pipes(struct ipa_eth_client_pipe_info *pipe,
 	u64 iova;
 	phys_addr_t pa;
 	u64 iova_p;
-	u64 prev_iova_p;
+	u64 prev_map_end;
 	phys_addr_t pa_p;
 	u32 size_p;
 	enum ipa_smmu_cb_type cb_type = IPA_SMMU_CB_AP;
@@ -775,20 +817,31 @@ map_buffer:
 			goto fail_map_buffer_smmu_enabled;
 		}
 
-		prev_iova_p = 0;
+		prev_map_end = 0;
 		for (i = 0; i < pipe->info.data_buff_list_size; i++) {
 			iova = (u64)pipe->info.data_buff_list[i].iova;
 			pa = (phys_addr_t)pipe->info.data_buff_list[i].pa;
 			IPA_SMMU_ROUND_TO_PAGE(iova, pa, pipe->info.fix_buffer_size,
 				iova_p, pa_p, size_p);
-			/* Add check on every 2nd buffer for AQC smmu-dup issue */
-			if (prev_iova_p == iova_p) {
+			/*
+			 * Skip if this buffer's required mapping is entirely
+			 * covered by what we've already mapped. Otherwise, map
+			 * only the new pages beyond prev_map_end to avoid
+			 * overlapping iommu_map calls.
+			 */
+			if ((iova_p + size_p) <= prev_map_end) {
 				IPADBG_LOW(
-					"current buffer and previous are on the same page, skip page mapping\n"
-				);
+					"buffer %d covered by prev mapping, skip\n",
+					i);
 				continue;
 			}
-			prev_iova_p = iova_p;
+			if (iova_p < prev_map_end) {
+				/* Partial overlap: only map the extension */
+				pa_p += (prev_map_end - iova_p);
+				size_p -= (prev_map_end - iova_p);
+				iova_p = prev_map_end;
+			}
+			prev_map_end = iova_p + size_p;
 			IPADBG_LOW("%s 0x%llx to 0x%pa size %d\n", map ? "mapping" :
 				"unmapping", iova_p, &pa_p, size_p);
 			if (map) {
@@ -873,8 +926,9 @@ static int ipa_eth_setup_aqc_gsi_channel(
 	gsi_channel_props.prot = GSI_CHAN_PROT_AQC;
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
 			gsi_channel_props.gsi_stats_en = 1;
+		}
 	} else {
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 	}
@@ -1036,8 +1090,9 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	gsi_channel_props.prot = GSI_CHAN_PROT_NTN;
 	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 		gsi_channel_props.dir = GSI_CHAN_DIR_FROM_GSI;
-		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
 			gsi_channel_props.gsi_stats_en = 1;
+		}
 	} else {
 		gsi_channel_props.dir = GSI_CHAN_DIR_TO_GSI;
 	}
@@ -1054,8 +1109,9 @@ static int ipa_eth_setup_ntn_gsi_channel(
  		gsi_channel_props.low_latency_en = 1;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
 	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
-	gsi_channel_props.use_db_eng = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ? GSI_CHAN_DIRECT_MODE :
-		GSI_CHAN_DB_MODE;
+	gsi_channel_props.use_db_eng =
+		((ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) && (pipe->dir == IPA_ETH_PIPE_DIR_RX)) ?
+		GSI_CHAN_DIRECT_MODE : GSI_CHAN_DB_MODE;
 	gsi_channel_props.db_in_bytes = 1;
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
 	gsi_channel_props.prefetch_mode =
@@ -1104,9 +1160,14 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		ch_scratch.ntn.ioc_mod_threshold = IPA_ETH_NTN_MODT;
 	}
 
+#if IPA_ETH_API_VER >= 7
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && pipe->dir == IPA_ETH_PIPE_DIR_RX)
+		ch_scratch.ntn.fcs_strip_en = pipe->info.fcs_strip_en;
+#endif
+
 	result = gsi_write_channel_scratch(ep->gsi_chan_hdl, ch_scratch);
 	if (result != GSI_STATUS_SUCCESS) {
-		IPAERR("failed to write evt ring scratch\n");
+		IPAERR("failed to write channel scratch\n");
 		goto fail_write_scratch;
 	}
 	return 0;
@@ -1664,7 +1725,8 @@ int ipa3_eth_connect(
 
 	/* start uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= ep->gsi_chan_hdl;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1697,7 +1759,7 @@ int ipa3_eth_connect(
 	}
 
 	ipa3_eth_save_client_mapping(pipe, client_type,
-		id, ep_idx, ep->gsi_chan_hdl);
+		ep_idx, ep->gsi_chan_hdl);
 	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) || 
 	     ((prot == IPA_HW_PROTOCOL_IEMAC) && ((ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
@@ -1719,7 +1781,8 @@ int ipa3_eth_connect(
 config_uc_fail:
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1789,7 +1852,8 @@ int ipa3_eth_disconnect(
 
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -1840,7 +1904,8 @@ int ipa3_eth_disconnect(
 	IPADBG("client (ep: %d) disconnected\n", ep_idx);
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC)
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0))
 		ipa3_uc_debug_stats_dealloc(prot);
 	if (IPA_CLIENT_IS_PROD(client_type))
 	{
@@ -1855,7 +1920,7 @@ int ipa3_eth_disconnect(
 	result = ipa3_smmu_map_eth_pipes(pipe, client_type, false);
 	if (result)
 		IPAERR("failed to unmap SMMU %d\n", result);
-	ipa3_eth_release_client_mapping(pipe, id);
+	ipa3_eth_release_client_mapping(pipe);
 
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) &&
 		(prot == IPA_HW_PROTOCOL_AQC)) {
@@ -2015,7 +2080,8 @@ int ipa3_eth_enable(
 
 	/* start uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= ep->gsi_chan_hdl;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -2048,7 +2114,7 @@ int ipa3_eth_enable(
 	}
 
 	ipa3_eth_save_client_mapping(pipe, client_type,
-		id, ep_idx, ep->gsi_chan_hdl);
+		ep_idx, ep->gsi_chan_hdl);
 	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
 		((prot == IPA_HW_PROTOCOL_IEMAC) && ((ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
@@ -2069,7 +2135,8 @@ int ipa3_eth_enable(
 config_uc_fail:
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -2122,7 +2189,8 @@ int ipa3_eth_disable(
 
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
-		&& prot != IPA_HW_PROTOCOL_IEMAC) {
+		&& (prot != IPA_HW_PROTOCOL_IEMAC ||
+		    ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)) {
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].ch_id
 			= 0xff;
 		ipa3_ctx->gsi_info[prot].ch_id_info[id].dir
@@ -2142,7 +2210,8 @@ int ipa3_eth_disable(
 
 	/*In IPA_HW_v6_0 db forwarding is not supported for RTK channels*/
 	if ((ipa3_ctx->ipa_hw_type == IPA_HW_v4_5) ||
-	     ((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2))) {
+	     ((prot == IPA_HW_PROTOCOL_IEMAC) && (ipa3_ctx->ipa_hw_type != IPA_HW_v5_2) &&
+	      (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0))) {
 		result = ipa3_eth_config_uc(false, prot,
 			(pipe->dir == IPA_ETH_PIPE_DIR_TX) ? IPA_ETH_TX : IPA_ETH_RX,
 			ep->gsi_chan_hdl, 0, 0, 0);

@@ -70,10 +70,10 @@
 
 #define GSI_NTN3_PENDING_DB_AFTER_RB_MASK 18
 #define GSI_NTN3_PENDING_DB_AFTER_RB_SHIFT 1
+/* FOR_SEQ_LOW channel scratch: (((8 * (pipe_id * ctx_size + offset_lines)) + 0) / 4) */
+#define GSI_GSI_SHRAM_n_EP_FOR_SEQ_LOW_N_GET(ep_id)  ((8 * (ep_id * 10 + 9)) / 4)
 /* FOR_SEQ_HIGH channel scratch: (((8 * (pipe_id * ctx_size + offset_lines)) + 4) / 4) */
 #define GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id) (((8 * (ep_id * 10 + 9)) + 4) / 4)
-
-#define GSI_STATS_EN_MASK 					(1U << 31)
 
 #ifndef CONFIG_DEBUG_FS
 extern int gsi_sysfs_init(void);
@@ -92,6 +92,22 @@ static bool running_emulation;
 #endif
 
 struct gsi_ctx *gsi_ctx;
+
+/*
+ * Optional DIAG tap, registered by ipa.ko (see gsi.h). NULL until ipa's
+ * diag-log facility comes up, so the GSI log macros are a no-op by default.
+ * Plain pointer: written once at ipa init / cleared at cleanup, read in the
+ * NULL-safe macro path; a stale read is harmless (ipa3_diag_log_write itself
+ * re-validates its own context).
+ */
+gsi_diag_sink_fn gsi_diag_sink;
+EXPORT_SYMBOL(gsi_diag_sink);
+
+void gsi_register_diag_sink(gsi_diag_sink_fn fn)
+{
+	WRITE_ONCE(gsi_diag_sink, fn);
+}
+EXPORT_SYMBOL(gsi_register_diag_sink);
 
 static union __packed gsi_channel_scratch __gsi_update_mhi_channel_scratch(
 	unsigned long chan_hdl, struct __packed gsi_mhi_channel_scratch mscr);
@@ -1933,13 +1949,16 @@ int gsi_deregister_device(unsigned long dev_hdl, bool force)
 EXPORT_SYMBOL(gsi_deregister_device);
 
 static uint32_t gsi_legacy_ev_chtype_dir_to_v7_0_ev_chtype
-	(enum gsi_evt_chtype prot)
+	(enum gsi_evt_chtype prot, enum gsi_evt_ring_elem_size re_size)
 {
 	switch (prot) {
 	case GSI_EVT_CHTYPE_WDI3M_V2_EV:
 		return GSI_V7_0_EVT_CHTYPE_WDI3M_V2_RX_EV;
 	case GSI_EVT_CHTYPE_WDI5_EV:
 		return GSI_V7_0_EVT_CHTYPE_WDI5_RX_EV;
+	case GSI_EVT_CHTYPE_WDI6_EV:
+		return re_size == GSI_EVT_RING_RE_SIZE_32B ? GSI_V7_0_EVT_CHTYPE_WDI6_TX_EV :
+			GSI_V7_0_EVT_CHTYPE_WDI6_RX_EV;
 	case GSI_EVT_CHTYPE_WDI4_EV:
 	case GSI_EVT_CHTYPE_WDI3_V2_EV:
 	case GSI_EVT_CHTYPE_NTN_EV:
@@ -1980,7 +1999,7 @@ static void gsi_program_evt_ring_ctx(struct gsi_evt_ring_props *props,
 	GSIDBG("intf=%u intr=%u re=%u\n", props->intf, props->intr,
 			props->re_size);
 	if (gsi_ctx->per.ver >= GSI_VER_7_0) {
-		ev_ch_k_cntxt_0.chtype = gsi_legacy_ev_chtype_dir_to_v7_0_ev_chtype(props->intf);
+		ev_ch_k_cntxt_0.chtype = gsi_legacy_ev_chtype_dir_to_v7_0_ev_chtype(props->intf,props->re_size);
 	} else {
 		ev_ch_k_cntxt_0.chtype = props->intf;
 	}
@@ -2865,6 +2884,9 @@ static uint32_t gsi_legacy_protocol_dir_to_v7_0_protocol
 	case GSI_CHAN_PROT_WDI5:
 		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_WDI5_RX :
 			GSI_V7_0_CHAN_PROT_WDI5_TX;
+	case GSI_CHAN_PROT_WDI6:
+		return dir == GSI_CHAN_DIR_TO_GSI ? GSI_V7_0_CHAN_PROT_WDI6_RX :
+			GSI_V7_0_CHAN_PROT_WDI6_TX;
 	case GSI_CHAN_PROT_RTK:
 	case GSI_CHAN_PROT_RTK3:
 	case GSI_CHAN_PROT_MHI:
@@ -2886,7 +2908,6 @@ static uint32_t gsi_legacy_protocol_dir_to_v7_0_protocol
 
 static int __gsi_config_gsi_ch_stats(unsigned long chan_hdl)
 {
-	uint32_t mask = GSI_STATS_EN_MASK;
 	struct gsi_chan_ctx *ctx;
 	uint32_t raw;
 
@@ -2901,9 +2922,10 @@ static int __gsi_config_gsi_ch_stats(unsigned long chan_hdl)
 	ctx = &gsi_ctx->chan[chan_hdl];
 	mutex_lock(&ctx->mlock);
 	raw = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9, gsi_ctx->per.ee, chan_hdl);
-	gsihal_write_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9, gsi_ctx->per.ee, chan_hdl, (raw | mask));
-	mutex_unlock(&ctx->mlock);
+	gsihal_write_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9, gsi_ctx->per.ee, chan_hdl,
+			    raw | GSI_CH_SCRATCH9_STATS_EN_BMSK);
 
+	mutex_unlock(&ctx->mlock);
 	return GSI_STATUS_SUCCESS;
 }
 
@@ -2936,6 +2958,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_WDI3M:
 	case GSI_CHAN_PROT_WDI3M_V2:
 	case GSI_CHAN_PROT_WDI5:
+	case GSI_CHAN_PROT_WDI6:
 		ch_k_cntxt_0.chtype_protocol_msb = 1;
 		break;
 	default:
@@ -4957,7 +4980,7 @@ int gsi_config_channel_mode(unsigned long chan_hdl, enum gsi_chan_mode mode)
 						gsihal_get_ch_reg_mask(ctx->evtr->id));
 				}
 				else {
-					__gsi_config_ieob_irq(gsi_ctx->per.ee, 1 << 
+					__gsi_config_ieob_irq(gsi_ctx->per.ee, 1 <<
 						ctx->evtr->id, 0);
 					gsihal_write_reg_n(
 						GSI_EE_n_CNTXT_SRC_IEOB_IRQ_CLR,
@@ -5716,60 +5739,30 @@ int gsi_get_refetch_reg(unsigned long chan_hdl, bool is_rp)
 }
 EXPORT_SYMBOL(gsi_get_refetch_reg);
 
-/*
- * ; +------------------------------------------------------+
- * ; | NTN3 Rx Channel Scratch                              |
- * ; +-------------+--------------------------------+-------+
- * ; | 32-bit word | Field                          | Bits  |
- * ; +-------------+--------------------------------+-------+
- * ; | 4           | NTN_PENDING_DB_AFTER_ROLLBACK  | 18-18 |
- * ; +-------------+--------------------------------+-------+
- * ; | 5           | NTN_MSI_DB_INDEX_VALUE         | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | 6           | NTN_RX_CHAIN_COUNTER           | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | 7           | NTN_RX_ERR_COUNTER             | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | 8           | NTN_ACCUMULATED_TRES_HANDLED   | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | 9           | NTN_ROLLBACKS_COUNTER          | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | FOR_SEQ_HIGH| NTN_MSI_DB_COUNT               | 0-31  |
- * ; +-------------+--------------------------------+-------+
- *
- * ; +------------------------------------------------------+
- * ; | NTN3 Tx Channel Scratch                              |
- * ; +-------------+--------------------------------+-------+
- * ; | 32-bit word | Field                          | Bits  |
- * ; +-------------+--------------------------------+-------+
- * ; | 4           | NTN_PENDING_DB_AFTER_ROLLBACK  | 18-18 |
- * ; +-------------+--------------------------------+-------+
- * ; | 5           | NTN_MSI_DB_INDEX_VALUE         | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | 6           | TX_DERR_COUNTER                | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | 7           | NTN_TX_OOB_COUNTER             | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | 8           | NTN_ACCUMULATED_TRES_HANDLED   | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | 9           | NTN_ROLLBACKS_COUNTER          | 0-31  |
- * ; +-------------+--------------------------------+-------+
- * ; | FOR_SEQ_HIGH| NTN_MSI_DB_COUNT               | 0-31  |
- * ; +-------------+--------------------------------+-------+
- */
 int gsi_ntn3_client_stats_get(unsigned ep_id, int scratch_id, unsigned chan_hdl)
 {
 	switch (scratch_id) {
+	case -2:
+		if (gsi_ctx->per.ver >= GSI_VER_6_0) {
+			return gsihal_read_reg_n(GSI_GSI_SHRAM_0, GSI_GSI_SHRAM_n_EP_FOR_SEQ_LOW_N_GET(ep_id));
+		} else {
+			return gsihal_read_reg_n(GSI_GSI_SHRAM_n, GSI_GSI_SHRAM_n_EP_FOR_SEQ_LOW_N_GET(ep_id));
+		}
 	case -1:
 		if (gsi_ctx->per.ver >= GSI_VER_6_0) {
-			return gsihal_read_reg_n(GSI_GSI_SHRAM_0, GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id));
+			return gsihal_read_reg_n(GSI_GSI_SHRAM_0, GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id)) & 0xffff;
 		} else {
-			return gsihal_read_reg_n(GSI_GSI_SHRAM_n, GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id));
+			return gsihal_read_reg_n(GSI_GSI_SHRAM_n, GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id)) & 0xffff;
 		}
+	case 3:
+		return gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_3, gsi_ctx->per.ee, chan_hdl) & 0xffff;
 	case 4:
-		return (gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_4, gsi_ctx->per.ee,
-			chan_hdl) >> GSI_NTN3_PENDING_DB_AFTER_RB_MASK) &
-			GSI_NTN3_PENDING_DB_AFTER_RB_SHIFT;
+		if (gsi_ctx->per.ver < GSI_VER_7_0)
+			return (gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_4, gsi_ctx->per.ee,
+				chan_hdl) >> GSI_NTN3_PENDING_DB_AFTER_RB_MASK) &
+				GSI_NTN3_PENDING_DB_AFTER_RB_SHIFT;
+		else
+			return gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_4, gsi_ctx->per.ee, chan_hdl);
 		break;
 	case 5:
 		return gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_5, gsi_ctx->per.ee, chan_hdl);
@@ -5930,6 +5923,45 @@ void gsi_wdi3_dump_register(unsigned long chan_hdl)
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_3,
 		gsi_ctx->per.ee, chan_hdl);
 	GSIDBG("GSI_EE_n_GSI_CH_k_SCRATCH_3 0x%x\n", val);
+
+	/* Dump Event Ring Context associated with this channel */
+	if (gsi_ctx->chan[chan_hdl].props.evt_ring_hdl != ~0) {
+		unsigned long evt_hdl = gsi_ctx->chan[chan_hdl].props.evt_ring_hdl;
+		GSIDBG("reg dump ev id %ld\n", evt_hdl);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_0,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_0 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_1,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_1 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_2,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_2 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_3,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_3 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_4,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_4 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_8,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_8 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_9,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_9 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_10,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_10 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_11,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_11 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_12,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_12 0x%x\n", val);
+		val = gsihal_read_reg_nk(GSI_EE_n_EV_CH_k_CNTXT_13,
+			gsi_ctx->per.ee, evt_hdl);
+		GSIDBG("GSI_EE_n_EV_CH_k_CNTXT_13 0x%x\n", val);
+	}
 }
 EXPORT_SYMBOL(gsi_wdi3_dump_register);
 
@@ -6257,6 +6289,109 @@ int gsi_get_fw_version(struct gsi_fw_version *ver)
 
 	return 0;
 }
+
+/**
+ * gsi_get_hw_ch_stats() - Read per-channel HW stats from GSI SHRAM
+ * @chan_hdl:	[in] channel handle
+ * @stats:	[out] stats structure populated by this function
+ *
+ * Available on GSI_VER_7_0 and above. The channel must have been allocated
+ * with gsi_chan_props.gsi_stats_en = 1.
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int gsi_get_hw_ch_stats(unsigned long chan_hdl, struct gsi_hw_ch_stats *stats)
+{
+	struct gsi_chan_ctx *ctx;
+	u32 base_ptr, shram_base;
+	u32 lo, hi;
+
+	if (!stats) {
+		GSIERR("bad params: stats is NULL\n");
+		return -EINVAL;
+	}
+
+	if (!gsi_ctx) {
+		GSIERR("gsi_ctx not initialized\n");
+		return -EINVAL;
+	}
+
+	if (gsi_ctx->per.ver < GSI_VER_7_0) {
+		GSIERR("GSI HW ch stats require GSI_VER_7_0+\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (chan_hdl >= gsi_ctx->max_ch) {
+		GSIERR("invalid chan_hdl %lu\n", chan_hdl);
+		return -EINVAL;
+	}
+
+	ctx = &gsi_ctx->chan[chan_hdl];
+	if (!ctx->allocated) {
+		GSIERR("chan_hdl %lu not allocated\n", chan_hdl);
+		return -EINVAL;
+	}
+
+	if (!ctx->props.gsi_stats_en) {
+		GSIERR("chan_hdl %lu: gsi_stats_en not set\n", chan_hdl);
+		return -EINVAL;
+	}
+
+	gsi_ctx->per.vote_clk_cb();
+
+	base_ptr = gsihal_read_reg(GSI_SHRAM_PTR_MCS_STATS_BASE_ADDR)
+		   & GSI_SHRAM_PTR_MCS_STATS_SHRAM_PTR_BMSK;
+
+	if (!base_ptr) {
+		GSIERR("chan_hdl=%lu MCS stats SHRAM base pointer is 0 — stats not configured\n",
+		       chan_hdl);
+		gsi_ctx->per.unvote_clk_cb();
+		return -ENODATA;
+	}
+
+	{
+		u32 vp = gsihal_read_reg_nk(GSI_DEBUG_EE_n_CH_k_VP_TABLE,
+					    gsi_ctx->per.ee, chan_hdl);
+
+		if (!(vp & GSI_DEBUG_EE_n_CH_k_VP_TABLE_VALID_BMSK)) {
+			GSIERR("chan_hdl=%lu VP_TABLE entry not valid\n", chan_hdl);
+			gsi_ctx->per.unvote_clk_cb();
+			return -ENODATA;
+		}
+		/* base_ptr is in 8B SHRAM-line units; convert to 4B dword units
+		 * for gsihal_read_reg_n (n_ofst = 4).
+		 */
+		shram_base = (base_ptr + GSI_HW_STATS_WORDS_PER_CH *
+			      (vp & GSI_DEBUG_EE_n_CH_k_VP_TABLE_PHY_CH_BMSK))
+			     * GSI_HW_STATS_SHRAM_DWORDS_PER_WORD;
+	}
+
+#define GSI_READ_STAT_WORD(word_idx) ({					\
+	u32 _idx = shram_base +						\
+		   (word_idx) * GSI_HW_STATS_SHRAM_DWORDS_PER_WORD;	\
+	lo = gsihal_read_reg_n(GSI_GSI_SHRAM_0, _idx);			\
+	hi = gsihal_read_reg_n(GSI_GSI_SHRAM_0, _idx + 1);		\
+	((u64)hi << 32) | lo; })
+
+	/* Word 0: num_oob_full in lo-32, num_tre in hi-32 */
+	{
+		u64 w0 = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_TRE_OOB_CNT);
+
+		stats->num_oob_full = (u32)(w0 & 0xFFFFFFFF);
+		stats->num_tre      = (u32)(w0 >> 32);
+	}
+	stats->tlv_in_bytes  = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_TLV_IN);
+	stats->tlv_out_bytes = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_TLV_OUT);
+	stats->oob_full_time = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_OOB_FULL_TIME);
+	stats->oob_full_ts   = GSI_READ_STAT_WORD(GSI_HW_CH_STATS_WORD_OOB_FULL_TS);
+
+#undef GSI_READ_STAT_WORD
+
+	gsi_ctx->per.unvote_clk_cb();
+
+	return 0;
+}
+EXPORT_SYMBOL(gsi_get_hw_ch_stats);
 
 /**
  * gsi_cleanup_channel - resets and deallocates channel without context

@@ -944,7 +944,7 @@ static int _smCtAddSramAndDdrTbl(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t**   args = arb_data_ptr;
+	arb_t**   args = (arb_t**)arb_data_ptr;
 
 	uint16_t  number_of_entries = (uint16_t)  args[0];
 	uint32_t* tbl_hdl_ptr       = (uint32_t*) args[1];
@@ -987,7 +987,7 @@ static int _smCtAddSramAndDdrTbl(
 				(arb_t*) &tbl_hdl,  /* to protect app's table handle above */
 			};
 
-			ret = _smCtAddDdrTbl(cti_obj_ptr, trigger, new_args);
+			ret = _smCtAddDdrTbl(cti_obj_ptr, trigger, (arb_t*)new_args);
 
 			if ( ret == 0 )
 			{
@@ -1065,7 +1065,7 @@ static int _smCtDelSramAndDdrTbl(
 			(arb_t*)(arb_t)cti_obj_ptr->ddr_tbl_hdl,
 		};
 
-		ret = _smCtDelTbl(cti_obj_ptr, trigger, new_args);
+		ret = _smCtDelTbl(cti_obj_ptr, trigger, (arb_t*)new_args);
 	}
 
 	if ( ret == 0 )
@@ -1277,16 +1277,16 @@ static int _smCtAddRuleHybrid(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
+	arb_t** args = (arb_t**)arb_data_ptr;
 
 	uint32_t           tbl_hdl   = (uint32_t)           args[0];
 	ipa_ipv6ct_rule* clnt_rule = (ipa_ipv6ct_rule*) args[1];
 	uint32_t*          rule_hdl  = (uint32_t*)          args[2];
 
 	arb_t*             new_args[] = {
-		(arb_t*)(arb_t)(cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
+		(arb_t*)(arb_t)((cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
 		         tbl_hdl :
-		         cti_obj_ptr->ddr_tbl_hdl,
+		         cti_obj_ptr->ddr_tbl_hdl),
 		(arb_t*) clnt_rule,
 		(arb_t*) rule_hdl,
 	};
@@ -1297,7 +1297,7 @@ static int _smCtAddRuleHybrid(
 
 	IPADBG("In\n");
 
-	ret = _smCtAddRuleToTbl(cti_obj_ptr, trigger, new_args);
+	ret = _smCtAddRuleToTbl(cti_obj_ptr, trigger, (arb_t*)new_args);
 
 	if ( ret == 0 )
 	{
@@ -1401,7 +1401,7 @@ static int _smCtDelRuleHybrid(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t**  args = arb_data_ptr;
+	arb_t**  args = (arb_t**)arb_data_ptr;
 
 	uint32_t tbl_hdl       = (uint32_t) args[0];
 	uint32_t orig_rule_hdl = (uint32_t) args[1];
@@ -1441,9 +1441,9 @@ static int _smCtDelRuleHybrid(
 	if ( ret == 0 )
 	{
 		arb_t* new_args[]  = {
-			(arb_t*)(arb_t)(cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
+			(arb_t*)(arb_t)((cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
 			        tbl_hdl :
-			        cti_obj_ptr->ddr_tbl_hdl,
+			        cti_obj_ptr->ddr_tbl_hdl),
 			(arb_t*)(arb_t)new_rule_hdl,
 		};
 
@@ -1452,7 +1452,7 @@ static int _smCtDelRuleHybrid(
 
 		ipa_nat_map_del(new2orig_map, new_rule_hdl, NULL);
 
-		ret = _smCtDelRuleFromTbl(cti_obj_ptr, trigger, new_args);
+		ret = _smCtDelRuleFromTbl(cti_obj_ptr, trigger, (arb_t*)new_args);
 
 		if ( ret == 0 && cti_obj_ptr->curr_state == CTI_STATE_HYBRID_DDR )
 		{
@@ -1669,7 +1669,7 @@ static int _smCtGetTmStmpHybrid(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
+	arb_t** args = (arb_t**)arb_data_ptr;
 
 	uint32_t  tbl_hdl       = (uint32_t)  args[0];
 	uint32_t  orig_rule_hdl = (uint32_t)  args[1];
@@ -1690,14 +1690,14 @@ static int _smCtGetTmStmpHybrid(
 	if ( ret == 0 )
 	{
 		arb_t* new_args[] = {
-			(arb_t*)(arb_t)(cti_obj_ptr->curr_state ==CTI_STATE_HYBRID) ?
+			(arb_t*)(arb_t)((cti_obj_ptr->curr_state ==CTI_STATE_HYBRID) ?
 			         tbl_hdl :
-			         cti_obj_ptr->ddr_tbl_hdl,
+			         cti_obj_ptr->ddr_tbl_hdl),
 			(arb_t*)(arb_t)new_rule_hdl,
 			(arb_t*) time_stamp,
 		};
 
-		ret = _smCtGetTmStmp(cti_obj_ptr, trigger, new_args);
+		ret = _smCtGetTmStmp(cti_obj_ptr, trigger, (arb_t*)new_args);
 	}
 
 	IPADBG("Out\n");
@@ -1798,21 +1798,21 @@ static int _smCtClrTblHybrid(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t**  args = arb_data_ptr;
+	arb_t**  args = (arb_t**)arb_data_ptr;
 
 	uint32_t tbl_hdl = (uint32_t) args[0];
 
 	arb_t*   new_args[] = {
-		(arb_t*)(arb_t)(cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
+		(arb_t*)(arb_t)((cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
 		         tbl_hdl :
-		         cti_obj_ptr->ddr_tbl_hdl,
+		         cti_obj_ptr->ddr_tbl_hdl),
 	};
 
 	int ret;
 
 	IPADBG("In\n");
 
-	ret = _smCtClrTbl(cti_obj_ptr, trigger, new_args);
+	ret = _smCtClrTbl(cti_obj_ptr, trigger, (arb_t*)new_args);
 
 	IPADBG("Out\n");
 
@@ -1892,7 +1892,7 @@ static int _smCtWalkTblHybrid(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
+	arb_t** args = (arb_t**)arb_data_ptr;
 
 	uint32_t          tbl_hdl = (uint32_t)          args[0];
 	CtWhichTbl2Use      which   = (CtWhichTbl2Use)      args[1];
@@ -1900,9 +1900,9 @@ static int _smCtWalkTblHybrid(
 	arb_t*            wadp    = (arb_t*)            args[3];
 
 	arb_t* new_args[] = {
-		(arb_t*)(arb_t)(cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
+		(arb_t*)(arb_t)((cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
 		         tbl_hdl :
-		         cti_obj_ptr->ddr_tbl_hdl,
+		         cti_obj_ptr->ddr_tbl_hdl),
 		(arb_t*) which,
 		(arb_t*) walk_cb,
 		(arb_t*) wadp,
@@ -1912,7 +1912,7 @@ static int _smCtWalkTblHybrid(
 
 	IPADBG("In\n");
 
-	ret = _smCtWalkTbl(cti_obj_ptr, trigger, new_args);
+	ret = _smCtWalkTbl(cti_obj_ptr, trigger, (arb_t*)new_args);
 
 	IPADBG("Out\n");
 
@@ -1990,15 +1990,15 @@ static int _smCtStatTblHybrid(
 	ipa_cti_trigger trigger,
 	arb_t*           arb_data_ptr )
 {
-	arb_t** args = arb_data_ptr;
+	arb_t** args = (arb_t**)arb_data_ptr;
 
 	uint32_t            tbl_hdl       = (uint32_t)            args[0];
 	ipa_cti_tbl_stats* ct_stats_ptr = (ipa_cti_tbl_stats*) args[1];
 
 	arb_t* new_args[] = {
-		(arb_t*)(arb_t)(cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
+		(arb_t*)(arb_t)((cti_obj_ptr->curr_state == CTI_STATE_HYBRID) ?
 		         tbl_hdl :
-		         cti_obj_ptr->ddr_tbl_hdl,
+		         cti_obj_ptr->ddr_tbl_hdl),
 		(arb_t*) ct_stats_ptr,
 	};
 
@@ -2006,7 +2006,7 @@ static int _smCtStatTblHybrid(
 
 	IPADBG("In\n");
 
-	ret = _smCtStatTbl(cti_obj_ptr, trigger, new_args);
+	ret = _smCtStatTbl(cti_obj_ptr, trigger, (arb_t*)new_args);
 
 	IPADBG("Out\n");
 

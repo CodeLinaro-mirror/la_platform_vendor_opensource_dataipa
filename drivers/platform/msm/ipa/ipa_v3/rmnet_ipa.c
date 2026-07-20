@@ -95,6 +95,26 @@ static const struct rmnet_egress_param rmnet_egress_cfg ={
 	.int_modt = 16,
 	.int_modc = 20,};
 
+/* ULSO-enabled egress config for RDKB mode on HW v7.0 and above */
+static const struct rmnet_egress_param rmnet_egress_cfg_ulso = {
+	.egress_ep_type = 0,
+	.cs_offload_en = 1,
+	.aggr_en = 1,
+	.ulso_en = 1,
+	.ipid_min_max_idx = 0,
+	.int_modt = 16,
+	.int_modc = 20,};
+
+static const struct rmnet_ingress_param rmnet_ingress_coal_cfg = {
+	.ingress_ep_type = RMNET_INGRESS_COALS,
+	.cs_offload_en = 1,
+	.buff_size = 8192,
+	.agg_byte_limit = 32000,
+	.agg_time_limit = 500,
+	.agg_pkt_limit = 30,
+	.int_modt = 16,
+	.int_modc = 20,};
+
 #define IPA_WWAN_RX_SOFTIRQ_THRESH 16
 
 #define INVALID_MUX_ID 0xFF
@@ -1201,6 +1221,94 @@ static int find_vchannel_name_index(const char *vchannel_name)
 	return MAX_NUM_OF_MUX_CHANNEL;
 }
 
+int ipa3_assign_qmapmux_intf_idx(int wan_iface)
+{
+	struct net_device *dev;
+	char real_name[IFNAMSIZ];
+	char cached_name[IFNAMSIZ];
+	const char *real_dot;
+	const char *cached_dot;
+	int idx;
+	int i;
+
+	IPAWANDBG("Entry: wan_iface=%d\n", wan_iface);
+
+	if (wan_iface <= 0) {
+		IPAWANDBG("Invalid wan_iface=%d, skipping\n", wan_iface);
+		return 0;
+	}
+
+	dev = dev_get_by_index(&init_net, wan_iface);
+	if (!dev) {
+		IPAWANDBG("No netdev found for ifindex %d\n", wan_iface);
+		return 0;
+	}
+
+	IPAWANDBG("ifindex %d -> netdev %s\n", wan_iface, dev->name);
+
+	if (strncmp(dev->name, "qmapmux", 7) != 0) {
+		IPAWANDBG("netdev %s is not qmapmux, skipping\n", dev->name);
+		dev_put(dev);
+		return 0;
+	}
+
+	strscpy(real_name, dev->name, sizeof(real_name));
+	dev_put(dev);
+
+	real_dot = strchr(real_name, '.');
+	if (!real_dot || !*(real_dot + 1)) {
+		IPAWANERR("netdev %s missing .suffix, cannot match\n", real_name);
+		return 0;
+	}
+	IPAWANDBG("real netdev %s suffix=%s\n", real_name, real_dot + 1);
+
+	idx = MAX_NUM_OF_MUX_CHANNEL;
+	cached_name[0] = '\0';
+
+	mutex_lock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+	for (i = 0; i < rmnet_ipa3_ctx->rmnet_index; i++) {
+		cached_dot = strchr(rmnet_ipa3_ctx->mux_channel[i].vchannel_name, '.');
+		if (!cached_dot)
+			continue;
+		if (strcmp(cached_dot + 1, real_dot + 1) == 0) {
+			idx = i;
+			strscpy(cached_name,
+				rmnet_ipa3_ctx->mux_channel[i].vchannel_name,
+				sizeof(cached_name));
+			break;
+		}
+	}
+
+	if (idx >= MAX_NUM_OF_MUX_CHANNEL) {
+		IPAWANERR("No mux channel matches suffix .%s for %s\n",
+			real_dot + 1, real_name);
+		mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+		return 0;
+	}
+
+	IPAWANDBG("Matched %s -> mux_channel[%d] (cached=%s, mux_id=%u)\n",
+		real_name, idx, cached_name,
+		rmnet_ipa3_ctx->mux_channel[idx].mux_id);
+
+	if (rmnet_ipa3_ctx->mux_channel[idx].intf_idx != wan_iface) {
+		IPAWANDBG("Assigning intf_idx %d to mux_channel[%d] %s (was %d)\n",
+			wan_iface, idx, cached_name,
+			rmnet_ipa3_ctx->mux_channel[idx].intf_idx);
+		rmnet_ipa3_ctx->mux_channel[idx].intf_idx = wan_iface;
+	} else {
+		IPAWANDBG("mux_channel[%d] %s already at intf_idx=%d, no-op\n",
+			idx, cached_name, wan_iface);
+	}
+	mutex_unlock(&rmnet_ipa3_ctx->add_mux_channel_lock);
+
+	ipa3_update_intf_idx(cached_name, wan_iface);
+
+	IPAWANDBG("Exit: wan_iface=%d real=%s cached=%s\n",
+		wan_iface, real_name, cached_name);
+	return 0;
+}
+EXPORT_SYMBOL(ipa3_assign_qmapmux_intf_idx);
+
 
 static int ipa3_find_free_rmnet_index(void)
 {
@@ -1702,6 +1810,29 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 			return NETDEV_TX_BUSY;
 		}
 	}
+	/* Flow control for WAN ETH pkts */
+	if (eth_check) {
+		if (netif_tx_queue_stopped(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X))) {
+				spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+				return NETDEV_TX_BUSY;
+		}
+		/* checking High WM hit for wan v2x traffic only */
+		if (atomic_read(&wwan_ptr->outstanding_pkts_eth) >=
+			rmnet_ipa3_ctx->outstanding_high) {
+			IPAWANDBG_LOW("pending(%d)/(%d)- stop(%d)\n",
+				atomic_read(&wwan_ptr->outstanding_pkts_eth),
+				rmnet_ipa3_ctx->outstanding_high,
+				netif_tx_queue_stopped(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X)));
+			IPAWANDBG_LOW("qmap_chk(%d)\n", qmap_check);
+			netif_tx_stop_queue(netdev_get_tx_queue(dev,
+				IPA_RMNET_TX_QUEUE_V2X));
+			spin_unlock_irqrestore(&wwan_ptr->lock, flags);
+			return NETDEV_TX_BUSY;
+		}
+	}
+
 
 /* Flow control for ipsec encap pkts */
 if (ipsec_encap) {
@@ -2832,7 +2963,16 @@ static int ipa3_setup_apps_wan_cons_pipes(
 	if (ingress_param->ingress_ep_type == RMNET_INGRESS_DEFAULT) {
 		/* Reject the whole ioctl if coal pipe is not setup first */
 		/*In MHI mode COAL pipe was not supported, so avoid configuring*/
-		if ((dev->features & NETIF_F_GRO_HW) && (!ipa3_ctx->ipa_config_is_mhi)) {
+		/*
+		 * RDKB is exempt too (like MHI): it sets up the COAL pipe via
+		 * the kernel SSR AFTER_POWERUP path (COAL before DEFAULT), not
+		 * the userspace ingress-ioctl ordering. For the other modes,
+		 * when NETIF_F_GRO_HW is active the COAL pipe must be configured
+		 * before the DEFAULT pipe.
+		 */
+		if ((dev->features & NETIF_F_GRO_HW) &&
+			(!ipa3_ctx->ipa_config_is_mhi) &&
+			(!ipa3_ctx->ipa_config_is_rdkb)) {
 			if (coal_ep_idx == IPA_EP_NOT_ALLOCATED) {
 				IPAWANERR("Trying to setup def WAN before coals");
 				mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
@@ -2890,10 +3030,14 @@ static int ipa3_setup_apps_wan_cons_pipes(
 
 	/* Pass dummy handle if coal is already setup to avoid overriding */
 	if (ipa_wan_ep_cfg->client == IPA_CLIENT_APPS_WAN_CONS &&
-		(*ingress_eps_mask & IPA_AP_INGRESS_EP_COALS))
-		rc = ipa_setup_sys_pipe(&rmnet_ipa3_ctx->ipa_to_apps_ep_cfg,
-			&wan_hdl);
-	else if (ipa_wan_ep_cfg->client == IPA_CLIENT_APPS_WAN_V2X_CONS &&
+		(*ingress_eps_mask & IPA_AP_INGRESS_EP_COALS)) {
+		if (ep_idx != IPA_EP_NOT_ALLOCATED && ipa3_ctx->ep[ep_idx].valid) {
+			IPADBG("cons_pipes: WAN_CONS already set up by COAL, skip dummy\n");
+		} else {
+			rc = ipa_setup_sys_pipe(&rmnet_ipa3_ctx->ipa_to_apps_ep_cfg,
+					&wan_hdl);
+		}
+	} else if (ipa_wan_ep_cfg->client == IPA_CLIENT_APPS_WAN_V2X_CONS &&
 		(*ingress_eps_mask & IPA_AP_INGRESS_EP_V2X_DATA))
 		rc = ipa_setup_sys_pipe(&rmnet_ipa3_ctx->ipa_v2x_to_apps_ep_cfg,
 			&rmnet_ipa3_ctx->ipa3_v2x_to_apps_hdl);
@@ -3388,9 +3532,6 @@ static int handle3_ingress_format_internal(const struct rmnet_ingress_param ingr
 			if (rc)
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
-		/* Sending QMI indication message share RSC/QMAP pipe details*/
-		IPAWANDBG("ingress_ep_mask = %d\n", rmnet_ipa3_ctx->ingress_eps_mask);
-		ipa_send_wan_pipe_ind_to_modem(rmnet_ipa3_ctx->ingress_eps_mask);
 		rmnet_ipa3_ctx->wan_rt_table_setup = true;
 	}
 	return 0;
@@ -5467,14 +5608,36 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	}
 
 	/* Enable SG support in netdevice. */
-	if (ipa3_rmnet_res.ipa_advertise_sg_support)
+	if (ipa3_rmnet_res.ipa_advertise_sg_support) {
 		dev->hw_features |= NETIF_F_SG;
+		dev->features |= NETIF_F_SG;
+	}
 
 	if (ipa3_is_ulso_supported()) {
 		dev->hw_features |= NETIF_F_GSO_UDP_L4;
 		dev->hw_features |= NETIF_F_ALL_TSO;
+		dev->features |= NETIF_F_ALL_TSO | NETIF_F_GSO_UDP_L4;
 		dev->gso_max_size = RMNET_IPA_ULSO_SIZE_LIMIT;
 	}
+
+	/* for > IPA 4.5, we set the colaescing/cs offload feature flag on */
+	if (ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_5) {
+		dev->hw_features |= NETIF_F_GRO_HW | NETIF_F_RXCSUM;
+		dev->hw_features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
+		/*
+		 * Only activate HW GRO/coalescing by default on RDKB. Other
+		 * configs (e.g. EMB) keep it offerable via hw_features but
+		 * inactive, matching pre-6939904 behaviour. Activating it
+		 * elsewhere makes dev->features advertise NETIF_F_GRO_HW, which
+		 * trips the COAL-before-DEFAULT gate in
+		 * ipa3_setup_apps_wan_cons_pipes() (no COAL pipe is set up
+		 * outside RDKB) and fails WAN_CONS setup -> WAN RX broken.
+		 */
+		if (ipa3_ctx->ipa_config_is_rdkb)
+			dev->features |= NETIF_F_GRO_HW | NETIF_F_RXCSUM |
+					  NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
+	}
+
 
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_initialized()) {
@@ -5514,12 +5677,6 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		IPAWANERR("default configuration failed rc=%d\n",
 				ret);
 		goto config_err;
-	}
-
-	/* for > IPA 4.5, we set the colaescing/cs offload feature flag on */
-	if (ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_5) {
-		dev->hw_features |= NETIF_F_GRO_HW | NETIF_F_RXCSUM;
-		dev->hw_features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
 	}
 
 	/*
@@ -6232,8 +6389,13 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		ipa3_eth_tx_ring_db();
 		if(ipa3_ctx->ipa_config_is_rdkb)
 		{
-			handle3_egress_format_internal(rmnet_egress_cfg);
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+					ipa3_is_ulso_supported())
+				handle3_egress_format_internal(rmnet_egress_cfg_ulso);
+			else
+				handle3_egress_format_internal(rmnet_egress_cfg);
 
+			handle3_ingress_format_internal(rmnet_ingress_coal_cfg);
 			handle3_ingress_format_internal(rmnet_ingress_cfg);
 		}
 
@@ -8013,6 +8175,13 @@ void ipa3_q6_handshake_complete(bool ssr_bootup)
 	ipa3_set_modem_up(true);
 	if (ipa3_ctx->ipa_config_is_mhi)
 		ipa_send_mhi_ctrl_endp_ind_to_modem();
+
+	if(ipa3_ctx->ipa_config_is_rdkb) {
+		/* Sending QMI indication message share RSC/QMAP pipe details*/
+		IPAWANDBG("ingress_ep_mask = %d\n", rmnet_ipa3_ctx->ingress_eps_mask);
+		IPAWANDBG("Sending wan pipe indication to modem\n");
+		ipa_send_wan_pipe_ind_to_modem(rmnet_ipa3_ctx->ingress_eps_mask);
+	}
 
 	IPAWANDBG("Q6 handshake complete\n");
 }
