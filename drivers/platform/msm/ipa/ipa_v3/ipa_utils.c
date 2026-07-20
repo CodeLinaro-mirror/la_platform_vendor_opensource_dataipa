@@ -313,11 +313,15 @@
 
 #define IPA_v7_0_GROUP_UL		(0)
 #define IPA_v7_0_GROUP_DL		(1)
-#define IPA_v7_0_GROUP_DMA		(2)
-#define IPA_v7_0_GROUP_QDSS		(3)
-#define IPA_v7_0_GROUP_URLLC		(4)
-#define IPA_v7_0_GROUP_CV2X		(4)
-#define IPA_v7_0_GROUP_UC		(5)
+#define IPA_v7_0_GROUP_URLLC		(2)
+#define IPA_v7_0_GROUP_CV2X		(2)
+#define IPA_v7_0_GROUP_ETHERNET		(3)
+#define IPA_v7_0_GROUP_DMA		(4)
+#define IPA_v7_0_GROUP_QDSS		(5)
+/* UC has no v7.0 ep_mapping users today; intentionally aliased onto the
+ * IPSEC_UL src-group value rather than given its own index.
+ */
+#define IPA_v7_0_GROUP_UC		(6)
 #define IPA_v7_0_GROUP_IPSEC_UL		(6)
 #define IPA_v7_0_GROUP_IPSEC_ETH_UL	(9)
 #define IPA_v7_0_SRC_GROUP_MAX		(7)
@@ -861,12 +865,36 @@ static const struct rsrc_min_max ipa3_rsrc_src_grp_config
 		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {6, 6}, {4, 4}, {0, 0},  },
 	},
 
+	[IPA_7_0_MHI] = {
+		/* UL DL URLLC Ethernet Crypto QDSS/Diag unused */
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
+		{8, 40}, {8, 40}, {2, 20}, {8, 40}, {1, 1}, {1, 1}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {4, 4}, {4, 4}, {0, 0},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
+		{0, 63}, {0, 63}, {1, 63}, {0, 63}, {0, 63}, {0, 63}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {4, 4}, {4, 4}, {0, 0},  },
+	},
+
 	[IPA_7_0_AUTO] = {
 		/* UL DL URLLC Ethernet Crypto QDSS/Diag unused */
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
 		{8, 40}, {8, 40}, {2, 20}, {8, 40}, {1, 1}, {1, 1}, {0, 63},  },
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
 		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {3, 3}, {4, 4}, {0, 0},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
+		{0, 63}, {0, 63}, {1, 63}, {0, 63}, {0, 63}, {0, 63}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {4, 4}, {4, 4}, {0, 0},  },
+	},
+
+	[IPA_7_0_AUTO_MHI] = {
+		/* UL DL URLLC Ethernet Crypto QDSS/Diag unused */
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
+		{8, 40}, {8, 40}, {2, 20}, {8, 40}, {1, 1}, {1, 1}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {4, 4}, {4, 4}, {0, 0},  },
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
 		{0, 63}, {0, 63}, {1, 63}, {0, 63}, {0, 63}, {0, 63}, {0, 63},  },
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
@@ -1107,10 +1135,27 @@ static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
 		 * CRYPTO_OFFLOAD, 11: UC_WORKAROUNDS]
 		 */
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
-		{7, 7}, {7, 7}, {0, 0}, {7, 7}, {0, 0}, {3, 3}, {16, 80}, {16, 80}, {4, 40},
+		{7, 7}, {7, 7}, {0, 0}, {7, 7}, {0, 0}, {3, 3}, {14, 80}, {16, 80}, {4, 40},
 		{16, 80}, {3, 9}, {0, 0} },
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
 		{1, 63}, {0, 3}, {0, 0}, {0, 63}, {0, 0}, {1, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
+		{0, 0x3f}, {0, 0x3f}, {0, 0}, {0, 0x3f}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0}, {0, 0}},
+	},
+
+	[IPA_7_0_MHI] = {
+		/**
+		 * [0: UL, 1: DL, 2: URLLC, 3: ETH, 4: IPA_DMA, 5: QDSS/DIAG, 6:
+		 * IPSEC, 7: MODEM_DL, 8: LOW_LATENCY, 9: ETH+IPSEC, 10:
+		 * CRYPTO_OFFLOAD, 11: UC_WORKAROUNDS]
+		 */
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
+		{7, 7}, {7, 7}, {0, 0}, {7, 7}, {3, 3}, {3, 3}, {0, 0}, {16, 80}, {4, 40},
+		{16, 80}, {3, 3}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
+		{1, 63}, {0, 3}, {0, 0}, {0, 63}, {1, 63}, {1, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
 		{0, 0}, {0, 0} },
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
 		{0, 0x3f}, {0, 0x3f}, {0, 0}, {0, 0x3f}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
@@ -1128,6 +1173,23 @@ static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
 		{16, 80}, {3, 3}, {0, 0} },
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
 		{1, 63}, {0, 3}, {1, 63}, {0, 63}, {0, 0}, {1, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
+		{0, 63}, {0, 63}, {0, 0}, {0, 63}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0}, {0, 0}},
+	},
+
+	[IPA_7_0_AUTO_MHI] = {
+		/**
+		 * [0: UL, 1: DL, 2: URLLC, 3: ETH, 4: IPA_DMA, 5: QDSS/DIAG, 6:
+		 * IPSEC, 7: MODEM_DL, 8: LOW_LATENCY, 9: ETH+IPSEC, 10:
+		 * CRYPTO_OFFLOAD, 11: UC_WORKAROUNDS]
+		 */
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
+		{7, 7}, {7, 7}, {3, 3}, {7, 7}, {3, 3}, {3, 3}, {0, 0}, {16, 80}, {4, 40},
+		{16, 80}, {3, 3}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
+		{1, 63}, {0, 3}, {1, 63}, {0, 63}, {1, 63}, {1, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
 		{0, 0}, {0, 0} },
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
 		{0, 63}, {0, 63}, {0, 0}, {0, 63}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
@@ -8069,42 +8131,42 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 9, 19, 65, 92, IPA_EE_AP, GSI_SMART_PRE_FETCH, 15},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_PROD] = {
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 10, 20, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_QOS_PROD] = {
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 11, 22, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_PROD] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 12, 24, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_QOS_PROD] = {
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 13, 26, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_PROD] = {
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 14, 28, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_QOS_PROD] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
@@ -8237,63 +8299,63 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 48, 42, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_DL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 52, 46, 17, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 55, 52, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 58, 58, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_DL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_QOS_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 53, 48, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_QOS2_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 54, 50, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_QOS_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 56, 54, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_QOS2_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 57, 56, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_QOS_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 59, 60, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_QOS2_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
@@ -8683,14 +8745,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 8, 18, 65, 92, IPA_EE_AP, GSI_SMART_PRE_FETCH, 15},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_PROD] ={
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 10, 20, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET2_PROD] ={
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
@@ -8823,42 +8885,42 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 51, 45, 17, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 52, 46, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_QOS_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 53, 48, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_QOS2_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 54, 50, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET2_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 55, 52, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET2_QOS_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 56, 54, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET2_QOS2_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
@@ -16199,9 +16261,11 @@ void ipa3_set_resorce_groups_min_max_limits_v7_0(void)
 	u8 hw_type_index;
 
 	if (ipa3_ctx->ipa_config_is_auto)
-		hw_type_index = IPA_7_0_AUTO;
+		hw_type_index = ipa3_ctx->ipa_config_is_mhi ?
+			IPA_7_0_AUTO_MHI : IPA_7_0_AUTO;
 	else
-		hw_type_index = IPA_7_0;
+		hw_type_index = ipa3_ctx->ipa_config_is_mhi ?
+			IPA_7_0_MHI : IPA_7_0;
 
 	while (i < IPA_v7_0_SRC_GROUP_MAX) {
 		val.x_min = ipa3_rsrc_src_grp_config[hw_type_index]
