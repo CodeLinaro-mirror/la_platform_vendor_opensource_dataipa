@@ -125,5 +125,14 @@ const char* ipa_be_cmn_response_to_string(enum ipa_cmn_response type);
 
 int ipa_be_init_if(void);
 int ipa_be_exit_if(void);
+int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param);
+int ipa_be_delete_qos_route_rule(struct ipa_ioc_qos_config *qos_param);
+void ipa_be_flush_qos_route_rules(void);
+void ipa_be_cleanup_tc_bitmap_rules(const char *dev_name,
+				    enum ipa_ip_type ip,
+				    uint32_t removed_tcs);
+int ipa_be_install_tc_bitmap_rules(const char *dev_name,
+				   enum ipa_ip_type ip,
+				   uint32_t added_tcs);
 
 #endif /* _IPA_BE_ */

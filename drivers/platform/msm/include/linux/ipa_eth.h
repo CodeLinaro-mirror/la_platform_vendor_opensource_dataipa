@@ -360,6 +360,28 @@ int ipa_eth_qos_get_qos_info(
 	struct ipa_eth_qos_info *info,
 	enum ipa_eth_pipe_direction dir);
 
+/**
+ * ipa_eth_qos_update_tc_mapping() - Update the TC-to-pipe mapping for a
+ *                                   single connected QOS pipe.
+ *
+ * Called by the ethernet driver to remap traffic classes for a specific pipe
+ * without a full disconnect/reconnect cycle.  The caller updates
+ * @pipe->tc_bmap to the desired new value before invoking this API.  IPA
+ * derives the client identity and direction from @pipe->client_info and
+ * @pipe->dir, and recomputes relative pipe priorities after applying the
+ * updated mapping.
+ *
+ * The caller must ensure that pipe disconnection (ipa_eth_client_disconn_pipes)
+ * is not in progress concurrently from any context for the same pipe.  No
+ * internal serialization against disconnection is provided by this API.
+ *
+ * @pipe: Pipe whose TC mapping is being updated.  @pipe->tc_bmap must be
+ *        set to the new traffic class bitmap before the call.
+ *
+ * Returns 0 on success, negative errno on failure.
+ */
+int ipa_eth_qos_update_tc_mapping(struct ipa_eth_client_pipe_info *pipe);
+
 int ipa_eth_client_enable_pipes(struct ipa_eth_client *client);
 int ipa_eth_client_disable_pipes(struct ipa_eth_client *client);
 

@@ -3,6 +3,25 @@
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
+/*
+ * Lock Hierarchy — MUST be followed throughout this file:
+ *
+ *   1. ipa_client_db_lock  (outermost — acquire first if both are needed)
+ *   2. msg_qos_param_lock  (inner — acquire second)
+ *
+ * Never acquire msg_qos_param_lock while holding ipa_client_db_lock, and
+ * never call a function that acquires ipa_client_db_lock while holding
+ * msg_qos_param_lock.  The collect-then-operate pattern used in
+ * ipa_be_check_and_install_qos_for_new_rule() (snapshot the QoS list under
+ * msg_qos_param_lock, release the lock, then call ipa_be_install_qos_route_rule()
+ * which may acquire ipa_client_db_lock) is the required idiom for operations
+ * that need both.
+ */
+
+/* Fixed-size pool for pre-allocating install tasks before taking
+ * msg_qos_param_lock, avoiding GFP_ATOMIC under mutex. */
+#define QOS_TASK_POOL_SIZE 16
+
 #include "../ipa_common_i.h"
 #include "../ipa_v3/ipa_pm.h"
 #include "../ipa_v3/ipa_i.h"
@@ -959,8 +978,921 @@ enum ipa_v6_modem_step {
 	V6_MDM_STEP_CT_ENTRY        = 10,
 };
 
+/* Free callback for IPA_QOS_RULE_INSTALLED_EVENT messages — matches
+ * ipa_msg_free_fn signature (void (*)(void *, u32, u32)) required by
+ * ipa_send_msg(). The framework invokes this after copy_to_user delivers
+ * the payload to userspace, so we just free the heap allocation. */
+static void ipa_qos_rule_installed_evt_free(void *buff, u32 len, u32 type)
+{
+	kfree(buff);
+}
+
 /**
- * ipa_ipv4_create_rule - Creates IPv4 routing and filtering
+ * ipa_be_check_and_install_qos_for_new_rule - Install matching QoS route rules
+ * for a newly added LAN-to-WAN connection.
+ * @flow_mac:    MAC address for the flow direction of the new rule
+ * @flow_vlan:   VLAN tag for the flow direction (0 if no VLAN)
+ * @return_mac:  MAC address for the return direction of the new rule
+ * @return_vlan: VLAN tag for the return direction (0 if no VLAN)
+ * @flow_ip_v4:  LAN client IPv4 address in network byte order (0 for IPv6)
+ * @flow_ip_v6:  LAN client IPv6 address (4 x __be32, network byte order),
+ *               or NULL for IPv4 connections
+ *
+ * Locking: acquires msg_qos_param_lock to snapshot the QoS config list,
+ * then releases it before calling ipa_be_install_qos_route_rule() — which
+ * may acquire ipa_client_db_lock.  This respects the lock hierarchy
+ * (ipa_client_db_lock before msg_qos_param_lock).  Do NOT hold
+ * msg_qos_param_lock on entry to this function.
+ *
+ * Iterates the cached QoS config list and installs any entry whose dst_mac_addr
+ * matches either the flow or return MAC of the new connection.  When both the
+ * QoS entry and the new rule carry a VLAN ID, the match uses the MAC+VLAN hash
+ * table via ipa_be_clientdb_get_mapping_by_mac(); otherwise a direct MAC
+ * comparison is performed.
+ *
+ * For IP-keyed rules (dst_mac == 0, dst_ip set) that were skipped at ADD time
+ * because the client was not yet active, installation is retried here using
+ * the connection's flow IP.
+ */
+static void ipa_be_check_and_install_qos_for_new_rule(
+	uint8_t *flow_mac, int flow_vlan,
+	uint8_t *return_mac, int return_vlan,
+	__be32 flow_ip_v4,
+	const __be32 *flow_ip_v6)
+{
+	struct ipa3_qos_config_node *qos_node;
+	struct ipa_ioc_qos_config *qos_cfg;
+	static const uint8_t null_mac[IPA_MAC_ADDR_SIZE] = {0};
+	static const uint32_t null_v6[4] = {0};
+	LIST_HEAD(install_list);
+	int qos_vlan;
+	bool flow_match, return_match;
+
+	/*
+	 * Carry both a config copy (for install outside the lock) and a
+	 * back-pointer to the cache node so handles can be written back after
+	 * install.
+	 */
+	struct qos_install_task {
+		struct list_head list;
+		struct ipa3_qos_config_node *orig_node;
+		struct ipa_ioc_qos_config config;
+	} *task, *tmp_task;
+	struct qos_install_task **task_pool = NULL;
+	int task_pool_cap = 0, task_pool_idx = 0, pi;
+
+	if (!ipa3_ctx) {
+		IPA_BE_ERR("ipa3_ctx is NULL\n");
+		return;
+	}
+
+	/* Caller must not hold ipa_client_db_lock — ipa_be_install_qos_route_rule()
+	 * acquires it internally, which would violate the lock hierarchy. */
+	lockdep_assert_not_held(&ipa_client_db_lock);
+
+	if (!flow_mac || !return_mac) {
+		IPA_BE_ERR("NULL MAC address pointer\n");
+		return;
+	}
+
+	if (!ipa3_ctx->num_qos_configs)
+		return;
+
+	IPA_BE_DBG("QoS check: new client flow_mac=%pM (vlan=%d) return_mac=%pM (vlan=%d)\n",
+		   flow_mac, flow_vlan, return_mac, return_vlan);
+
+	/* Pre-allocate a fixed-size task pool with GFP_KERNEL before taking
+	 * the lock to avoid GFP_ATOMIC under mutex. QOS_TASK_POOL_SIZE covers
+	 * typical deployments; GFP_ATOMIC is the fallback if pool exhausts. */
+	task_pool = kcalloc(QOS_TASK_POOL_SIZE, sizeof(*task_pool), GFP_KERNEL);
+	if (task_pool) {
+		for (pi = 0; pi < QOS_TASK_POOL_SIZE; pi++) {
+			task_pool[pi] = kzalloc(sizeof(*task), GFP_KERNEL);
+			if (!task_pool[pi]) {
+				IPA_BE_DBG("Pre-allocated %d of %d task slots\n",
+					   pi, QOS_TASK_POOL_SIZE);
+				break;
+			}
+			task_pool_cap++;
+		}
+	} else {
+		IPA_BE_DBG("Failed to allocate task pool, will use GFP_ATOMIC\n");
+	}
+
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(qos_node, &ipa3_ctx->qos_config_list, list) {
+		bool should_install = false;
+
+		qos_cfg = &qos_node->config;
+		flow_match = false;
+		return_match = false;
+
+		IPA_BE_DBG("QoS check: rule dst_mac=%pM src_mac=%pM (vlan_count=%u qos_rule_hdl=%u)\n",
+			   qos_cfg->dst_mac_addr, qos_cfg->src_mac_addr,
+			   qos_cfg->vlan_count, qos_cfg->qos_rule_hdl);
+
+		if (!memcmp(qos_cfg->dst_mac_addr, null_mac, IPA_MAC_ADDR_SIZE)) {
+			bool has_dst_ip = (qos_cfg->dst_ip_addr != 0) ||
+					  memcmp(qos_cfg->dst_v6_ip_addr, null_v6,
+						 sizeof(null_v6));
+
+			if (has_dst_ip) {
+				/*
+				 * IP-keyed rule: was skipped at ADD time if the
+				 * client wasn't active yet.  Install now if this
+				 * connection's flow IP matches dst_ip_addr and the
+				 * rule hasn't been installed already.
+				 */
+				bool ip_match = false;
+				int j;
+
+				if (qos_cfg->ip_type == IPA_IP_v4 &&
+				    qos_cfg->dst_ip_addr && flow_ip_v4) {
+					ip_match = (qos_cfg->dst_ip_addr ==
+						    ntohl(flow_ip_v4));
+				} else if (qos_cfg->ip_type == IPA_IP_v6 &&
+					   flow_ip_v6 != NULL) {
+					ip_match = true;
+					for (j = 0; j < 4; j++) {
+						if (qos_cfg->dst_v6_ip_addr[j] !=
+						    ntohl(flow_ip_v6[j]))
+							ip_match = false;
+					}
+				}
+				if (!ip_match || qos_cfg->qos_rule_hdl)
+					continue;
+				should_install = true;
+			} else if (qos_cfg->vlan_count) {
+				continue;
+			} else {
+				/* Catch-all: reinstall if not already active. */
+				if (!qos_cfg->qos_rule_hdl)
+					should_install = true;
+			}
+		} else {
+			/*
+			 * dst_mac-keyed entry: match dst_mac_addr against
+			 * flow_mac or return_mac (either direction).
+			 * src_mac_addr, if set, is passed as a filter attribute
+			 * in the installed rule.
+			 *
+			 * Strict VLAN semantics:
+			 *  - QoS has VLAN, new rule has VLAN: both must match.
+			 *  - QoS has no VLAN: match by MAC only.
+			 *  - QoS has VLAN, new rule has no VLAN: no match.
+			 *
+			 * Note: do NOT call ipa_be_clientdb_get_mapping_by_mac()
+			 * here — it acquires ipa_client_db_lock, which must not
+			 * be taken while holding msg_qos_param_lock.
+			 */
+			qos_vlan = (qos_cfg->vlan_count > 0) ? qos_cfg->vlan_ids[0] : 0;
+
+			if (!memcmp(flow_mac, qos_cfg->dst_mac_addr, IPA_MAC_ADDR_SIZE)) {
+				/*
+				 * No VLAN in rule → match any client VLAN.
+				 * VLAN in rule → client VLAN must match exactly.
+				 */
+				if (!qos_vlan || flow_vlan == qos_vlan)
+					flow_match = true;
+			}
+
+			if (!memcmp(return_mac, qos_cfg->dst_mac_addr, IPA_MAC_ADDR_SIZE)) {
+				if (!qos_vlan || return_vlan == qos_vlan)
+					return_match = true;
+			}
+
+			if ((flow_match || return_match) && !qos_cfg->qos_rule_hdl)
+				should_install = true;
+		}
+
+		IPA_BE_DBG("QoS check: flow_match=%d return_match=%d should_install=%d\n",
+			   flow_match, return_match, should_install);
+
+		if (should_install) {
+			if (task_pool_idx < task_pool_cap) {
+				task = task_pool[task_pool_idx];
+				task_pool[task_pool_idx] = NULL; /* prevent future double-free */
+				task_pool_idx++;
+			} else {
+				task = kzalloc(sizeof(*task), GFP_ATOMIC);
+			}
+			if (task) {
+				task->orig_node = qos_node;
+				task->config = *qos_cfg;
+				list_add_tail(&task->list, &install_list);
+			} else {
+				IPA_BE_ERR("Failed to alloc install task, skipping QoS config\n");
+			}
+		}
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	/* Install rules outside any lock. */
+	list_for_each_entry(task, &install_list, list)
+		ipa_be_install_qos_route_rule(&task->config);
+
+	/* Single writeback pass — one lock acquisition avoids any risk of
+	 * acquiring msg_qos_param_lock while ipa_client_db_lock is held. */
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(task, &install_list, list) {
+		if (task->config.qos_rule_hdl) {
+			task->orig_node->config.qos_rule_hdl = task->config.qos_rule_hdl;
+			task->orig_node->config.proc_ctx_hdl = task->config.proc_ctx_hdl;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	/* Notify userspace HAL of each successfully-installed deferred rule.
+	 * The HAL tracks per-handle state under qos_id; on receipt of this
+	 * event it fans out QOS_FILTER_SUCCESS to every handle that received
+	 * QOS_FILTER_PENDING for this qos_id at createFilter() time. */
+	list_for_each_entry(task, &install_list, list) {
+		struct ipa_qos_rule_installed_msg *evt;
+		struct ipa_msg_meta meta = {};
+
+		if (!task->config.qos_rule_hdl)
+			continue;
+		if (!task->orig_node->qos_id)
+			continue;
+
+		evt = kzalloc(sizeof(*evt), GFP_KERNEL);
+		if (!evt)
+			continue;
+		evt->qos_id        = task->orig_node->qos_id;
+		evt->qos_rule_hdl  = task->config.qos_rule_hdl;
+		evt->traffic_class = task->config.traffic_class;
+		meta.msg_type = IPA_QOS_RULE_INSTALLED_EVENT;
+		meta.msg_len  = sizeof(*evt);
+		IPA_BE_DBG("Sending IPA_QOS_RULE_INSTALLED_EVENT qos_id=%u hdl=%u tc=%u\n",
+			   evt->qos_id, evt->qos_rule_hdl, evt->traffic_class);
+		if (ipa_send_msg(&meta, evt, ipa_qos_rule_installed_evt_free))
+			kfree(evt);
+	}
+
+	list_for_each_entry_safe(task, tmp_task, &install_list, list) {
+		list_del(&task->list);
+		kfree(task);
+	}
+	/* Free unused pre-allocated tasks */
+	for (pi = task_pool_idx; pi < task_pool_cap; pi++)
+		kfree(task_pool[pi]);
+	kfree(task_pool);
+}
+
+/**
+ * struct qos_del_entry - snapshot of a QoS rule to be deleted outside
+ *                        msg_qos_param_lock.
+ *
+ * Collect rule/proc_ctx handles under the lock, zero them in the cache, then
+ * perform the actual HW deletions after releasing the lock to avoid potential
+ * lock ordering issues with ipa_delete_route_rule() and
+ * __ipa3_release_hdr_proc_ctx().
+ */
+#define MAX_QOS_DEL_BATCH 32
+struct qos_del_entry {
+	uint32_t rule_hdl;
+	uint32_t proc_ctx_hdl;
+	uint32_t ip_type;
+};
+
+/**
+ * for a departing LAN-to-WAN connection.
+ * @flow_mac:   MAC address for the flow direction
+ * @return_mac: MAC address for the return direction
+ *
+ * Handles entries whose dst_mac_addr matches the departing connection's
+ * flow or return MAC.  The destroy message carries no VLAN information, so
+ * matching is done on MAC address alone.  The installed HW route rule and
+ * any associated DSCP proc_ctx are both freed; qos_rule_hdl and
+ * proc_ctx_hdl in the cache node are zeroed so the entry is eligible for
+ * reinstallation when the client reconnects.
+ *
+ * IP-keyed and catch-all entries are handled separately by
+ * ipa_be_delete_ip_keyed_qos_rules_v4/v6 and ipa_be_delete_qos_catch_all_rules.
+ */
+static void ipa_be_delete_qos_rules_for_connection(
+	uint8_t *flow_mac, uint8_t *return_mac)
+{
+	struct ipa3_qos_config_node *qos_node;
+	struct ipa_ioc_qos_config *qos_cfg;
+	static const uint8_t null_mac[IPA_MAC_ADDR_SIZE] = {0};
+	struct qos_del_entry entries[MAX_QOS_DEL_BATCH];
+	int n = 0, i;
+
+	if (!ipa3_ctx) {
+		IPA_BE_ERR("ipa3_ctx is NULL\n");
+		return;
+	}
+
+	if (!flow_mac || !return_mac) {
+		IPA_BE_ERR("NULL MAC address pointer\n");
+		return;
+	}
+
+	/* Single pass: collect handles and clear them under the lock. */
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(qos_node, &ipa3_ctx->qos_config_list, list) {
+		qos_cfg = &qos_node->config;
+		if (!memcmp(qos_cfg->dst_mac_addr, null_mac, IPA_MAC_ADDR_SIZE))
+			continue;
+		if (!qos_cfg->qos_rule_hdl)
+			continue;
+		if (memcmp(flow_mac, qos_cfg->dst_mac_addr, IPA_MAC_ADDR_SIZE) &&
+		    memcmp(return_mac, qos_cfg->dst_mac_addr, IPA_MAC_ADDR_SIZE))
+			continue;
+		if (n < MAX_QOS_DEL_BATCH) {
+			entries[n].rule_hdl = qos_cfg->qos_rule_hdl;
+			entries[n].proc_ctx_hdl = qos_cfg->proc_ctx_hdl;
+			entries[n].ip_type = qos_cfg->ip_type;
+			n++;
+			qos_cfg->qos_rule_hdl = 0;
+			qos_cfg->proc_ctx_hdl = 0;
+		} else {
+			IPA_BE_ERR("Too many QoS rules to delete, max %d\n",
+				   MAX_QOS_DEL_BATCH);
+		}
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	for (i = 0; i < n; i++) {
+		IPA_BE_DBG("Deleting QoS route rule hdl %u on connection teardown\n",
+			entries[i].rule_hdl);
+		ipa_delete_route_rule(false, entries[i].rule_hdl,
+				      (enum ipa_ip_type)entries[i].ip_type);
+		if (entries[i].proc_ctx_hdl)
+			__ipa3_release_hdr_proc_ctx(entries[i].proc_ctx_hdl);
+	}
+}
+
+/**
+ * ipa_be_delete_ip_keyed_qos_rules_v4 - Delete IPv4 IP-keyed QoS route rules
+ * matching a departing connection.
+ * @flow_ip:   flow-direction IPv4 address (network byte order)
+ * @return_ip: return-direction IPv4 address (network byte order)
+ *
+ * Called on IPv4 connection teardown for entries that were installed based
+ * on an IPv4 destination address filter (dst_mac_addr == 0, dst_ip_addr set).
+ * The matching HW rule and any associated proc_ctx are freed; cache handles
+ * are zeroed so the entry can be reinstalled when the same IP reconnects.
+ */
+static void ipa_be_delete_ip_keyed_qos_rules_v4(__be32 flow_ip)
+{
+	struct ipa3_qos_config_node *qos_node;
+	struct ipa_ioc_qos_config *qos_cfg;
+	static const uint8_t null_mac[IPA_MAC_ADDR_SIZE] = {0};
+	struct qos_del_entry entries[MAX_QOS_DEL_BATCH];
+	int n = 0, i;
+
+	if (!ipa3_ctx)
+		return;
+
+	/* Single pass: collect handles and clear them under the lock. */
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(qos_node, &ipa3_ctx->qos_config_list, list) {
+		qos_cfg = &qos_node->config;
+		if (memcmp(qos_cfg->dst_mac_addr, null_mac, IPA_MAC_ADDR_SIZE))
+			continue;
+		if (qos_cfg->ip_type != IPA_IP_v4 || !qos_cfg->dst_ip_addr)
+			continue;
+		if (!qos_cfg->qos_rule_hdl)
+			continue;
+		if (qos_cfg->dst_ip_addr != ntohl(flow_ip))
+			continue;
+		if (n < MAX_QOS_DEL_BATCH) {
+			entries[n].rule_hdl = qos_cfg->qos_rule_hdl;
+			entries[n].proc_ctx_hdl = qos_cfg->proc_ctx_hdl;
+			entries[n].ip_type = IPA_IP_v4;
+			n++;
+			qos_cfg->qos_rule_hdl = 0;
+			qos_cfg->proc_ctx_hdl = 0;
+		} else {
+			IPA_BE_ERR("Too many QoS rules to delete, max %d\n",
+				   MAX_QOS_DEL_BATCH);
+		}
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	for (i = 0; i < n; i++) {
+		IPA_BE_DBG("Deleting IP-keyed v4 QoS route rule hdl %u on teardown\n",
+			entries[i].rule_hdl);
+		ipa_delete_route_rule(false, entries[i].rule_hdl, IPA_IP_v4);
+		if (entries[i].proc_ctx_hdl)
+			__ipa3_release_hdr_proc_ctx(entries[i].proc_ctx_hdl);
+	}
+}
+
+/**
+ * ipa_be_delete_ip_keyed_qos_rules_v6 - Delete IPv6 IP-keyed QoS route rules
+ * matching a departing connection.
+ * @flow_ip:   flow-direction IPv6 address (4 x __be32, network byte order)
+ * @return_ip: return-direction IPv6 address (4 x __be32, network byte order)
+ *
+ * Same semantics as ipa_be_delete_ip_keyed_qos_rules_v4 but for IPv6.
+ * dst_v6_ip_addr in the QoS config is in host byte order (as filled by the
+ * IOCTL caller), so each word is converted before comparison.
+ */
+static void ipa_be_delete_ip_keyed_qos_rules_v6(const __be32 *flow_ip)
+{
+	struct ipa3_qos_config_node *qos_node;
+	struct ipa_ioc_qos_config *qos_cfg;
+	static const uint8_t null_mac[IPA_MAC_ADDR_SIZE] = {0};
+	static const uint32_t null_v6[4] = {0};
+	struct qos_del_entry entries[MAX_QOS_DEL_BATCH];
+	int n = 0, i, j;
+
+	if (!ipa3_ctx)
+		return;
+
+	if (!flow_ip) {
+		IPA_BE_ERR("NULL flow_ip pointer\n");
+		return;
+	}
+
+	/* Single pass: collect handles and clear them under the lock. */
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(qos_node, &ipa3_ctx->qos_config_list, list) {
+		bool flow_match = true;
+
+		qos_cfg = &qos_node->config;
+		if (memcmp(qos_cfg->dst_mac_addr, null_mac, IPA_MAC_ADDR_SIZE))
+			continue;
+		if (qos_cfg->ip_type != IPA_IP_v6 ||
+		    !memcmp(qos_cfg->dst_v6_ip_addr, null_v6, sizeof(null_v6)))
+			continue;
+		if (!qos_cfg->qos_rule_hdl)
+			continue;
+		for (j = 0; j < 4; j++) {
+			if (qos_cfg->dst_v6_ip_addr[j] != ntohl(flow_ip[j]))
+				flow_match = false;
+		}
+		if (!flow_match)
+			continue;
+		if (n < MAX_QOS_DEL_BATCH) {
+			entries[n].rule_hdl = qos_cfg->qos_rule_hdl;
+			entries[n].proc_ctx_hdl = qos_cfg->proc_ctx_hdl;
+			entries[n].ip_type = IPA_IP_v6;
+			n++;
+			qos_cfg->qos_rule_hdl = 0;
+			qos_cfg->proc_ctx_hdl = 0;
+		} else {
+			IPA_BE_ERR("Too many QoS rules to delete, max %d\n",
+				   MAX_QOS_DEL_BATCH);
+		}
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	for (i = 0; i < n; i++) {
+		IPA_BE_DBG("Deleting IP-keyed v6 QoS route rule hdl %u on teardown\n",
+			entries[i].rule_hdl);
+		ipa_delete_route_rule(false, entries[i].rule_hdl, IPA_IP_v6);
+		if (entries[i].proc_ctx_hdl)
+			__ipa3_release_hdr_proc_ctx(entries[i].proc_ctx_hdl);
+	}
+}
+
+/**
+ * ipa_be_delete_qos_catch_all_rules - Delete all catch-all QoS route rules.
+ *
+ * A "catch-all" entry has no MAC, no IP, and no VLAN filter — it was installed
+ * because at least one client was active.  This function is called after the
+ * last active client deactivates (ipa_db_mappings == NULL) to remove the now-
+ * invalid HW rule.  The cache node is kept so the rule is reinstalled when the
+ * next client connects (ipa_be_check_and_install_qos_for_new_rule handles this).
+ */
+static void ipa_be_delete_qos_catch_all_rules(void)
+{
+	struct ipa3_qos_config_node *qos_node;
+	struct ipa_ioc_qos_config *qos_cfg;
+	static const uint8_t null_mac[IPA_MAC_ADDR_SIZE] = {0};
+	static const uint32_t null_v6[4] = {0};
+	struct qos_del_entry entries[MAX_QOS_DEL_BATCH];
+	int n = 0, i;
+
+	if (!ipa3_ctx)
+		return;
+
+	/* Single pass: collect handles and clear them under the lock. */
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(qos_node, &ipa3_ctx->qos_config_list, list) {
+		qos_cfg = &qos_node->config;
+		if (memcmp(qos_cfg->dst_mac_addr, null_mac, IPA_MAC_ADDR_SIZE))
+			continue;
+		if (qos_cfg->dst_ip_addr)
+			continue;
+		if (memcmp(qos_cfg->dst_v6_ip_addr, null_v6, sizeof(null_v6)))
+			continue;
+		if (qos_cfg->vlan_count)
+			continue;
+		if (!qos_cfg->qos_rule_hdl)
+			continue;
+		if (n < MAX_QOS_DEL_BATCH) {
+			entries[n].rule_hdl = qos_cfg->qos_rule_hdl;
+			entries[n].proc_ctx_hdl = qos_cfg->proc_ctx_hdl;
+			entries[n].ip_type = qos_cfg->ip_type;
+			n++;
+			qos_cfg->qos_rule_hdl = 0;
+			qos_cfg->proc_ctx_hdl = 0;
+		} else {
+			IPA_BE_ERR("Too many QoS rules to delete, max %d\n",
+				   MAX_QOS_DEL_BATCH);
+		}
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	for (i = 0; i < n; i++) {
+		IPA_BE_DBG("Deleting catch-all QoS route rule hdl %u (no active clients)\n",
+			entries[i].rule_hdl);
+		ipa_delete_route_rule(false, entries[i].rule_hdl,
+				      (enum ipa_ip_type)entries[i].ip_type);
+		if (entries[i].proc_ctx_hdl)
+			__ipa3_release_hdr_proc_ctx(entries[i].proc_ctx_hdl);
+	}
+}
+
+/**
+ * ipa_be_delete_qos_route_rule - Delete the HW QoS route rule for one
+ * specific QoS config entry (IPA_QOS_PARAM_DELETE_EVENT path).
+ * @qos_param: the config whose HW rule should be removed
+ *
+ * Finds the matching entry in qos_config_list using the same key fields as
+ * ipa3_delete_qos_params(), deletes its route rule from HW, and clears
+ * qos_rule_hdl so the subsequent ipa3_delete_qos_params() cache removal
+ * cannot attempt a double-free.  Must be called BEFORE ipa3_delete_qos_params().
+ *
+ * Return: 0 on success, negative errno on failure
+ */
+int ipa_be_delete_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
+{
+	struct ipa3_qos_config_node *node;
+	uint32_t rule_hdl = 0, proc_ctx_hdl = 0;
+	enum ipa_ip_type ip_type = IPA_IP_v4;
+
+	if (!qos_param)
+		return -EINVAL;
+
+	if (!ipa3_ctx)
+		return -ENODEV;
+
+	IPA_BE_DBG("Entry ipa_be_delete_qos_route_rule: qos_rule_hdl %u (%s-based) tc %u ip_type %d\n",
+		   qos_param->qos_rule_hdl,
+		   qos_param->qos_rule_hdl ? "handle" : "field",
+		   qos_param->traffic_class, qos_param->ip_type);
+
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
+		/*
+		 * Handle-based delete: if qos_rule_hdl is set, treat it as a
+		 * qos_id and match the stable unique ID assigned at ADD time.
+		 * Field-based delete leaves qos_rule_hdl == 0 and matches on
+		 * the full filter spec.
+		 */
+		if (qos_param->qos_rule_hdl) {
+			if (node->qos_id != qos_param->qos_rule_hdl)
+				continue;
+		} else {
+			if (node->config.traffic_class != qos_param->traffic_class ||
+			    node->config.flt_cat != qos_param->flt_cat ||
+			    node->config.ip_type != qos_param->ip_type ||
+			    node->config.src_ip_addr != qos_param->src_ip_addr ||
+			    node->config.dst_ip_addr != qos_param->dst_ip_addr ||
+			    node->config.src_port_start != qos_param->src_port_start ||
+			    node->config.src_port_end != qos_param->src_port_end ||
+			    node->config.dst_port_start != qos_param->dst_port_start ||
+			    node->config.dst_port_end != qos_param->dst_port_end ||
+			    node->config.protocol != qos_param->protocol ||
+			    node->config.dscp != qos_param->dscp ||
+			    node->config.pcp != qos_param->pcp ||
+			    memcmp(node->config.src_v6_ip_addr, qos_param->src_v6_ip_addr,
+				   sizeof(qos_param->src_v6_ip_addr)) ||
+			    memcmp(node->config.dst_v6_ip_addr, qos_param->dst_v6_ip_addr,
+				   sizeof(qos_param->dst_v6_ip_addr)) ||
+			    memcmp(node->config.dst_mac_addr, qos_param->dst_mac_addr,
+				   sizeof(qos_param->dst_mac_addr)) ||
+			    memcmp(node->config.src_mac_addr, qos_param->src_mac_addr,
+				   sizeof(qos_param->src_mac_addr)))
+				continue;
+		}
+
+		rule_hdl = node->config.qos_rule_hdl;
+		proc_ctx_hdl = node->config.proc_ctx_hdl;
+		ip_type = (enum ipa_ip_type)node->config.ip_type;
+		node->config.qos_rule_hdl = 0;
+		node->config.proc_ctx_hdl = 0;
+		break;
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	if (rule_hdl) {
+		IPA_BE_DBG("Deleting QoS route rule hdl %u on DELETE event\n", rule_hdl);
+		ipa_delete_route_rule(false, rule_hdl, ip_type);
+	} else {
+		IPA_BE_DBG("QoS entry matched but no rule installed (hdl == 0)\n");
+	}
+	if (proc_ctx_hdl)
+		__ipa3_release_hdr_proc_ctx(proc_ctx_hdl);
+
+	if (!rule_hdl) {
+		IPA_BE_ERR("ipa_be_delete_qos_route_rule: no matching entry found\n");
+		return -ENOENT;
+	}
+	return 0;
+}
+
+/**
+ * ipa_be_flush_qos_route_rules - Delete all currently-installed QoS route
+ * rules from HW (IPA_QOS_PARAM_FLUSH_EVENT path).
+ *
+ * Iterates qos_config_list and removes the HW route rule for every entry
+ * that has a non-zero qos_rule_hdl.  Must be called BEFORE the cache list
+ * is freed so that all handles are still accessible.
+ */
+void ipa_be_flush_qos_route_rules(void)
+{
+	struct ipa3_qos_config_node *node;
+	struct qos_del_entry *entries;
+	int n = 0, max = 0, i;
+
+	if (!ipa3_ctx)
+		return;
+
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
+		if (node->config.qos_rule_hdl)
+			max++;
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	if (!max)
+		return;
+
+	entries = kcalloc(max, sizeof(*entries), GFP_KERNEL);
+	if (!entries) {
+		IPA_BE_ERR("Failed to allocate del entries, using batch fallback\n");
+		/* Batch fallback: collect MAX_QOS_DEL_BATCH entries per pass,
+		 * release lock once per batch instead of once per entry. */
+		while (true) {
+			struct qos_del_entry batch[MAX_QOS_DEL_BATCH];
+			int batch_n = 0, bi;
+
+			mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+			list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
+				if (!node->config.qos_rule_hdl)
+					continue;
+				if (batch_n >= MAX_QOS_DEL_BATCH)
+					break;
+				batch[batch_n].rule_hdl     = node->config.qos_rule_hdl;
+				batch[batch_n].proc_ctx_hdl = node->config.proc_ctx_hdl;
+				batch[batch_n].ip_type      = node->config.ip_type;
+				node->config.qos_rule_hdl   = 0;
+				node->config.proc_ctx_hdl   = 0;
+				batch_n++;
+			}
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+			if (!batch_n)
+				break;
+
+			for (bi = 0; bi < batch_n; bi++) {
+				ipa_delete_route_rule(false, batch[bi].rule_hdl,
+						      (enum ipa_ip_type)batch[bi].ip_type);
+				if (batch[bi].proc_ctx_hdl)
+					__ipa3_release_hdr_proc_ctx(batch[bi].proc_ctx_hdl);
+			}
+		}
+		return;
+	}
+
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
+		if (!node->config.qos_rule_hdl)
+			continue;
+		if (n < max) {
+			entries[n].rule_hdl = node->config.qos_rule_hdl;
+			entries[n].proc_ctx_hdl = node->config.proc_ctx_hdl;
+			entries[n].ip_type = node->config.ip_type;
+			n++;
+		}
+		node->config.qos_rule_hdl = 0;
+		node->config.proc_ctx_hdl = 0;
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	for (i = 0; i < n; i++) {
+		IPA_BE_DBG("Flushing QoS route rule hdl %u\n", entries[i].rule_hdl);
+		ipa_delete_route_rule(false, entries[i].rule_hdl,
+				      (enum ipa_ip_type)entries[i].ip_type);
+		if (entries[i].proc_ctx_hdl)
+			__ipa3_release_hdr_proc_ctx(entries[i].proc_ctx_hdl);
+	}
+	kfree(entries);
+}
+
+/**
+ * ipa_be_cleanup_tc_bitmap_rules - remove QoS route rules for traffic
+ * classes that are no longer present in a pipe's tc_bmap.
+ *
+ * Called after tc_bmap is updated to ensure that any installed QoS routing
+ * rules for removed traffic classes are deleted from HW and their handles
+ * cleared in the cache.
+ *
+ * @dev_name:    interface name
+ * @ip:          IP type of the TX property being updated
+ * @removed_tcs: bitmask of TCs that were in the old bitmap but not the new
+ */
+void ipa_be_cleanup_tc_bitmap_rules(const char *dev_name,
+				    enum ipa_ip_type ip,
+				    uint32_t removed_tcs)
+{
+	struct ipa3_qos_config_node *node;
+	struct qos_del_entry entries[MAX_QOS_DEL_BATCH];
+	int n = 0, i;
+	size_t dev_name_len;
+
+	if (!removed_tcs || !dev_name || !ipa3_ctx)
+		return;
+
+	dev_name_len = strnlen(dev_name, IPA_RESOURCE_NAME_MAX);
+	if (dev_name_len == 0 || dev_name_len >= IPA_RESOURCE_NAME_MAX)
+		return;
+
+	/* Walk the full list — we cannot use a remaining_tcs early-exit because
+	 * a single TC bit can have multiple matching nodes (e.g. v4 + v6) and
+	 * an entry may be skipped due to MAX_QOS_DEL_BATCH overflow. Either
+	 * scenario would cause a premature break to silently drop rules. The
+	 * list size is bounded by the QoS rule cap so the cost is small. */
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
+		if (node->config.ip_type != (uint8_t)ip)
+			continue;
+		if (strncmp(node->config.dev_name, dev_name,
+			    sizeof(node->config.dev_name)))
+			continue;
+		if (!(removed_tcs & (1U << node->config.traffic_class)))
+			continue;
+		if (!node->config.qos_rule_hdl)
+			continue;
+
+		if (n < MAX_QOS_DEL_BATCH) {
+			entries[n].rule_hdl     = node->config.qos_rule_hdl;
+			entries[n].proc_ctx_hdl = node->config.proc_ctx_hdl;
+			entries[n].ip_type      = node->config.ip_type;
+			n++;
+			node->config.qos_rule_hdl  = 0;
+			node->config.proc_ctx_hdl  = 0;
+		} else {
+			IPA_BE_ERR("Too many QoS rules to delete in one pass (max %d) — remaining will be retried on next tc_bitmap update\n",
+				   MAX_QOS_DEL_BATCH);
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	for (i = 0; i < n; i++) {
+		IPA_BE_DBG("Removing QoS rule hdl %u (TC removed from bitmap)\n",
+			   entries[i].rule_hdl);
+		ipa_delete_route_rule(false, entries[i].rule_hdl,
+				      (enum ipa_ip_type)entries[i].ip_type);
+		if (entries[i].proc_ctx_hdl)
+			__ipa3_release_hdr_proc_ctx(entries[i].proc_ctx_hdl);
+	}
+}
+
+/**
+ * ipa_be_install_tc_bitmap_rules - install QoS route rules for traffic
+ * classes newly added to a pipe's tc_bmap.
+ *
+ * Called after tc_bmap is updated to opportunistically install routing rules
+ * for cached QoS configs whose TC is now covered by the pipe.  Rules that
+ * could not be installed when the QoS config was first added (because no
+ * pipe had the TC bit set) are retried here.
+ *
+ * @dev_name:  interface name
+ * @ip:        IP type of the TX property being updated
+ * @added_tcs: bitmask of TCs newly present in the updated bitmap
+ */
+int ipa_be_install_tc_bitmap_rules(const char *dev_name,
+				   enum ipa_ip_type ip,
+				   uint32_t added_tcs)
+{
+	struct ipa3_qos_config_node *node;
+	struct tc_install_task {
+		struct ipa_ioc_qos_config    config;
+		struct ipa3_qos_config_node *orig;
+	} *tasks;
+	int n = 0, i, failed_count = 0, task_count = 0;
+	size_t dev_name_len;
+
+	if (!added_tcs || !dev_name || !ipa3_ctx)
+		return -EINVAL;
+
+	dev_name_len = strnlen(dev_name, IPA_RESOURCE_NAME_MAX);
+	if (dev_name_len == 0 || dev_name_len >= IPA_RESOURCE_NAME_MAX)
+		return -EINVAL;
+
+	/* First pass: count matching rules to allocate exactly what's needed. */
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
+		if (node->config.ip_type != (uint8_t)ip)
+			continue;
+		if (strncmp(node->config.dev_name, dev_name,
+			    sizeof(node->config.dev_name)))
+			continue;
+		if (!(added_tcs & (1U << node->config.traffic_class)))
+			continue;
+		if (node->config.qos_rule_hdl != 0)
+			continue;
+		task_count++;
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	if (!task_count)
+		return 0;
+
+	tasks = kcalloc(task_count, sizeof(*tasks), GFP_KERNEL);
+	if (!tasks) {
+		IPA_BE_ERR("Failed to allocate %d install tasks\n", task_count);
+		return -ENOMEM;
+	}
+
+	/* Second pass: collect tasks. */
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
+		if (node->config.ip_type != (uint8_t)ip)
+			continue;
+		if (strncmp(node->config.dev_name, dev_name,
+			    sizeof(node->config.dev_name)))
+			continue;
+		if (!(added_tcs & (1U << node->config.traffic_class)))
+			continue;
+		if (node->config.qos_rule_hdl != 0)
+			continue; /* already installed */
+		if (n >= task_count) {
+			IPA_BE_ERR("tc_bitmap install: more rules added since count pass — %d extra deferred to next update\n",
+				   n - task_count + 1);
+			break;
+		}
+		tasks[n].config = node->config;
+		tasks[n].orig   = node;
+		n++;
+	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	for (i = 0; i < n; i++) {
+		int ret = ipa_be_install_qos_route_rule(&tasks[i].config);
+
+		if (!ret && tasks[i].config.qos_rule_hdl) {
+			struct ipa_qos_rule_installed_msg *evt;
+			struct ipa_msg_meta meta = {};
+
+			mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+			tasks[i].orig->config.qos_rule_hdl =
+				tasks[i].config.qos_rule_hdl;
+			tasks[i].orig->config.proc_ctx_hdl =
+				tasks[i].config.proc_ctx_hdl;
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+			IPA_BE_DBG("Installed QoS rule hdl %u for TC %u "
+				   "(new bitmap)\n",
+				   tasks[i].config.qos_rule_hdl,
+				   tasks[i].config.traffic_class);
+
+			/* Notify userspace that a previously-deferred rule is
+			 * now in HW (TC bitmap re-add path). Mirrors the
+			 * INSTALLED-event firing in
+			 * ipa_be_check_and_install_qos_for_new_rule(). */
+			if (!tasks[i].orig->qos_id)
+				continue;
+			evt = kzalloc(sizeof(*evt), GFP_KERNEL);
+			if (!evt)
+				continue;
+			evt->qos_id        = tasks[i].orig->qos_id;
+			evt->qos_rule_hdl  = tasks[i].config.qos_rule_hdl;
+			evt->traffic_class = tasks[i].config.traffic_class;
+			meta.msg_type = IPA_QOS_RULE_INSTALLED_EVENT;
+			meta.msg_len  = sizeof(*evt);
+			IPA_BE_DBG("Sending IPA_QOS_RULE_INSTALLED_EVENT qos_id=%u hdl=%u tc=%u (tc_bitmap re-add)\n",
+				   evt->qos_id, evt->qos_rule_hdl,
+				   evt->traffic_class);
+			if (ipa_send_msg(&meta, evt,
+					 ipa_qos_rule_installed_evt_free))
+				kfree(evt);
+		} else {
+			failed_count++;
+			IPA_BE_ERR("Failed to install QoS rule for TC %u (ret=%d)\n",
+				   tasks[i].config.traffic_class, ret);
+		}
+	}
+	if (failed_count)
+		IPA_BE_ERR("Installed %d/%d tc_bitmap rules, %d failed\n",
+			   n - failed_count, n, failed_count);
+	/* Note: this function is best-effort — successfully installed rules
+	 * are NOT rolled back on partial failure.  The caller (tc_bitmap update)
+	 * has already committed the new bitmap; any failed rules will be retried
+	 * the next time the TC bitmap is updated for this interface. */
+	kfree(tasks);
+	return failed_count ? -EAGAIN : 0;
+}
+
+/**
  * rules for IPA
  * @v4_msg: IPv4 rule creation message containing connection
  *  	 details and interface information
@@ -1266,6 +2198,18 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 		step = V4_MDM_STEP_WAN_FILTER;
 
 #ifdef CONFIG_ECM_CONVERGENCE
+		/* QoS rule installation is best-effort and non-fatal: if no matching
+		 * QoS rule exists or installation fails, the connection proceeds
+		 * without QoS. Rules are retried when a new connection arrives or
+		 * when tc_bitmap is updated. */
+		ipa_be_check_and_install_qos_for_new_rule(
+			v4_msg.conn_rule.flow_mac,
+			v4_msg.vlan_primary_rule.ingress_vlan_tag,
+			v4_msg.conn_rule.return_mac,
+			v4_msg.vlan_primary_rule.egress_vlan_tag,
+			v4_msg.tuple.flow_ip,
+			NULL);
+
 		/* Add NAT entry */
 		ret = ipa_be_addpdn(v4_msg, pdn_iface, false);
 		if (ret != 0) {
@@ -1673,6 +2617,15 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			step = V6_MDM_STEP_WAN_FILTER;
 
 #ifdef CONFIG_ECM_CONVERGENCE
+			/* QoS rule installation is best-effort and non-fatal. */
+			ipa_be_check_and_install_qos_for_new_rule(
+				v6_msg.conn_rule.flow_mac,
+				v6_msg.vlan_primary_rule.ingress_vlan_tag,
+				v6_msg.conn_rule.return_mac,
+				v6_msg.vlan_primary_rule.egress_vlan_tag,
+				0,
+				(const __be32 *)&v6_msg.tuple.flow_ip);
+
 			/* Add CT entry */
 			ret = ipa_be_add_v6_ct_entry(v6_msg, pdn_iface, lan2lan);
 			if (ret != 0) {
@@ -1680,7 +2633,6 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 				goto failed_ret;
 			}
 			step = V6_MDM_STEP_CT_ENTRY;
-
 #else
 			IPA_BE_DBG("NAT support disabled - skipping ipa_be_add_v6_ct_entry\n");
 #endif
@@ -2130,7 +3082,23 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 				ipa_be_backhaul_cache_invalidate(pdn_iface);
 
 #ifdef CONFIG_ECM_CONVERGENCE
+			/* Hold ipa_client_db_lock across the entire QoS cleanup sequence to
+			 * prevent a race where Thread B adds a connection and installs
+			 * catch-all rules between our MAC/IP deletions and the NULL check.
+			 * Lock hierarchy: ipa_client_db_lock → msg_qos_param_lock.
+			 */
+			mutex_lock(&ipa_client_db_lock);
+			ipa_be_delete_qos_rules_for_connection(
+				msg->conn_rule.flow_mac,
+				msg->conn_rule.return_mac);
+			ipa_be_delete_ip_keyed_qos_rules_v4(
+				msg->tuple.flow_ip);
+
 			ipa_be_delete_entry(*msg, false);
+
+			if (ipa_db_mappings == NULL)
+				ipa_be_delete_qos_catch_all_rules();
+			mutex_unlock(&ipa_client_db_lock);
 #else
 			IPA_BE_DBG("NAT support disabled - skipping ipa_be_delete_entry (eth backhaul)\n");
 #endif
@@ -2391,8 +3359,24 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			install_wan_filtering_rule();
 
 #ifdef CONFIG_ECM_CONVERGENCE
-			/* Handle IPv6 CT entry deletion */
+			/* Hold ipa_client_db_lock across the entire QoS cleanup sequence to
+			 * prevent a race where Thread B adds a connection and installs
+			 * catch-all rules between our MAC/IP deletions and the NULL check.
+			 * Lock hierarchy: ipa_client_db_lock → msg_qos_param_lock.
+			 */
+			mutex_lock(&ipa_client_db_lock);
+			ipa_be_delete_qos_rules_for_connection(
+				msg->conn_rule.flow_mac,
+				msg->conn_rule.return_mac);
+			ipa_be_delete_ip_keyed_qos_rules_v6(
+				msg->tuple.flow_ip);
+
+			/* Handle IPv6 CT entry deletion (also removes client from mapping) */
 			ipa_be_handle_v6_ct_deletion(msg, false);
+
+			if (ipa_db_mappings == NULL)
+				ipa_be_delete_qos_catch_all_rules();
+			mutex_unlock(&ipa_client_db_lock);
 #else
 			IPA_BE_DBG("NAT support disabled - skipping ipa_be_handle_v6_ct_deletion\n");
 #endif
@@ -2795,6 +3779,8 @@ int ipa_be_init_if(void)
 	ipa_be_ctx->ipa_ipv6_wq = alloc_ordered_workqueue("ipa_ipv6_wq", WQ_MEM_RECLAIM | WQ_HIGHPRI);
 	if (!ipa_be_ctx->ipa_ipv6_wq) {
 		IPA_BE_ERR("Failed to create IPA IPv6 ordered workqueue\n");
+		destroy_workqueue(ipa_be_ctx->ipa_ipv4_wq);
+		ipa_be_ctx->ipa_ipv4_wq = NULL;
 		return -ENOMEM;
 	}
 
@@ -2896,3 +3882,763 @@ bool ipa_is_l2_feature_enabled(void)
 	return (ipa_ctx->l2_feature_support == 1);
 }
 EXPORT_SYMBOL(ipa_is_l2_feature_enabled);
+
+/**
+ * ipa_be_qos_dscp_mark_proc_ctx - Create a DSCP marking header processing
+ * context for QoS route rules
+ * @hdr_hdl: Header handle to use
+ * @dscp_mark_val: DSCP value to mark
+ * @proc_ctx_hdl_out: Output parameter for the proc_ctx handle
+ *
+ * Return: 0 on success, negative errno on failure
+ */
+static int ipa_be_qos_dscp_mark_proc_ctx(int hdr_hdl, uint8_t dscp_mark_val,
+					  int *proc_ctx_hdl_out)
+{
+	struct ipa_ioc_add_hdr_proc_ctx *hdr_proc_ctx_table;
+	struct ipa_hdr_proc_ctx_add *hdr_proc_ctx;
+	int size;
+	int handle;
+
+	if (!proc_ctx_hdl_out) {
+		IPA_BE_ERR("NULL output parameter\n");
+		return -EINVAL;
+	}
+
+	size = sizeof(struct ipa_ioc_add_hdr_proc_ctx) +
+	       sizeof(struct ipa_hdr_proc_ctx_add);
+	hdr_proc_ctx_table = (struct ipa_ioc_add_hdr_proc_ctx *)kzalloc(size, GFP_KERNEL);
+	if (!hdr_proc_ctx_table) {
+		IPA_BE_ERR("Failed to allocate memory for QoS hdr_proc_ctx\n");
+		return -ENOMEM;
+	}
+
+	hdr_proc_ctx_table->commit = 1;
+	hdr_proc_ctx_table->num_proc_ctxs = 1;
+	hdr_proc_ctx = &hdr_proc_ctx_table->proc_ctx[0];
+
+	hdr_proc_ctx->type = IPA_HDR_PROC_MARK_DSCP;
+	hdr_proc_ctx->hdr_hdl = hdr_hdl;
+	hdr_proc_ctx->pdn_dscp_params.valid = 1;
+	hdr_proc_ctx->pdn_dscp_params.dscp_val = dscp_mark_val;
+
+	if (ipa3_add_hdr_proc_ctx(hdr_proc_ctx_table, true)) {
+		IPA_BE_ERR("Failed to add QoS DSCP marking hdr_proc_ctx\n");
+		kfree(hdr_proc_ctx_table);
+		return -EFAULT;
+	}
+
+	handle = hdr_proc_ctx_table->proc_ctx[0].proc_ctx_hdl;
+	IPA_BE_DBG("Installed QoS DSCP marking proc_ctx: hdl %d dscp_val %u base_hdr_hdl %d\n",
+		   handle, dscp_mark_val, hdr_hdl);
+
+	*proc_ctx_hdl_out = handle;
+	kfree(hdr_proc_ctx_table);
+	return 0;
+}
+
+/**
+ * ipa_be_qos_install_one_rule - Build and install a single QoS routing rule.
+ * @qos_param:      QoS configuration (ip_type, dev_name, protocol, ports, DSCP,
+ *                  VLAN, and src/dst IPs when not overridden by @client_addr).
+ * @tx_prop:        TX interface properties already queried by the caller.
+ * @tx_index:       Selected TX pipe index within @tx_prop.
+ * @client_hdr_hdl: Ethernet header handle for this client (0 or less = none).
+ * @client_addr:    Client IP in network byte order to use as dst_addr.
+ *                  Pass a zero-initialised array to fall back to @qos_param's IP.
+ * @src_mac_addr:   Source MAC address to add as a HW filter attribute, or NULL
+ *                  to omit the src MAC filter.
+ * @dst_mac_addr:   Destination MAC address (currently not added as a HW filter
+ *                  attribute — pass for future use or documentation purposes).
+ *
+ * Return: 0 on success, negative errno on failure.
+ */
+static int ipa_be_qos_install_one_rule(
+	struct ipa_ioc_qos_config *qos_param,
+	struct ipa_ioc_query_intf_tx_props *tx_prop,
+	int tx_index,
+	int client_hdr_hdl,
+	const ip_addr_t client_addr,
+	const uint8_t *src_mac_addr,
+	const uint8_t *dst_mac_addr)
+{
+	int retval = 0;
+	struct ipa_ioc_add_rt_rule *rt_rule;
+	struct ipa_rt_rule_add *rt_rule_entry;
+	int proc_ctx_hdl = 0;
+	int hdr_hdl = 0;
+	int i;
+
+	if (client_hdr_hdl > 0)
+		hdr_hdl = client_hdr_hdl;
+
+	if (qos_param->dscp_mark_val && hdr_hdl > 0) {
+		int ctx_ret = ipa_be_qos_dscp_mark_proc_ctx(
+			hdr_hdl, qos_param->dscp_mark_val, &proc_ctx_hdl);
+		if (ctx_ret == 0 && proc_ctx_hdl > 0) {
+			IPA_BE_DBG("Using DSCP marking proc_ctx_hdl: %d\n", proc_ctx_hdl);
+		} else {
+			IPA_BE_ERR("DSCP proc_ctx creation failed (%d), falling back to hdr_hdl\n",
+				   ctx_ret);
+		}
+	} else if (qos_param->dscp_mark_val && hdr_hdl <= 0) {
+		/*
+		 * DSCP marking was requested but no base header handle is
+		 * available for this client (client_hdr_hdl == 0), so the
+		 * MARK_DSCP proc_ctx (which rewrites on top of a base header)
+		 * cannot be created. The rule still installs for routing, but
+		 * WITHOUT egress DSCP rewrite. This was previously silent.
+		 */
+		IPA_BE_ERR("DSCP mark %u requested but no hdr_hdl (client_hdr_hdl=%d) - marking SKIPPED, rule installs without DSCP rewrite\n",
+			   qos_param->dscp_mark_val, client_hdr_hdl);
+	}
+
+	rt_rule = kzalloc(sizeof(struct ipa_ioc_add_rt_rule) +
+			  sizeof(struct ipa_rt_rule_add), GFP_KERNEL);
+	if (!rt_rule) {
+		IPA_BE_ERR("Failed to allocate rt_rule\n");
+		return -ENOMEM;
+	}
+
+	rt_rule->commit = true;
+	rt_rule->num_rules = 1;
+	rt_rule->ip = (enum ipa_ip_type)qos_param->ip_type;
+
+	if (qos_param->ip_type == IPA_IP_v4) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+		strscpy(rt_rule->rt_tbl_name, V4_LAN_ROUTE_TABLE_NAME,
+			sizeof(rt_rule->rt_tbl_name));
+#else
+		strlcpy(rt_rule->rt_tbl_name, V4_LAN_ROUTE_TABLE_NAME,
+			sizeof(rt_rule->rt_tbl_name));
+#endif
+	} else {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+		strscpy(rt_rule->rt_tbl_name, V6_COMMON_ROUTE_TABLE_NAME,
+			sizeof(rt_rule->rt_tbl_name));
+#else
+		strlcpy(rt_rule->rt_tbl_name, V6_COMMON_ROUTE_TABLE_NAME,
+			sizeof(rt_rule->rt_tbl_name));
+#endif
+	}
+	rt_rule->rt_tbl_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+
+	rt_rule_entry = &rt_rule->rules[0];
+	rt_rule_entry->at_rear = false;
+	/*
+	 * Categorize as a QoS rule so it always sorts ahead of the client's
+	 * default LAN route rule. Route-rule ordering in the kernel is by
+	 * rt_rule_category first (ascending): IPA_RT_RULE_CAT_QOS (1) sorts
+	 * before IPA_RT_RULE_CAT_CLIENT (3), which is what the default LAN
+	 * rule uses. Without this the QoS rule defaults to CAT_NONE (0) and,
+	 * per __ipa_add_rt_rule's cat==0 special case, gets placed BEHIND the
+	 * categorized client rule regardless of at_rear/insertion order. This
+	 * mirrors how ipa_be_clientdb.c tags CLIENT/LAN2LAN rules and is
+	 * stable across later client-rule adds (no re-seating needed).
+	 */
+	rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_QOS;
+	rt_rule_entry->rule.dst = tx_prop->tx[tx_index].dst_pipe;
+	memcpy(&rt_rule_entry->rule.attrib, &tx_prop->tx[tx_index].attrib,
+	       sizeof(rt_rule_entry->rule.attrib));
+
+	if (proc_ctx_hdl > 0)
+		rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
+	else if (hdr_hdl > 0)
+		rt_rule_entry->rule.hdr_hdl = hdr_hdl;
+
+	if (qos_param->ip_type == IPA_IP_v4) {
+		/* Client IP is always set as dst_addr to uniquely scope the rule
+		 * per client and prevent header collisions (mirrors IPACM logic). */
+		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
+		rt_rule_entry->rule.attrib.u.v4.dst_addr = ntohl(client_addr[0]);
+		rt_rule_entry->rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
+
+		if (qos_param->src_ip_addr) {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_SRC_ADDR;
+			rt_rule_entry->rule.attrib.u.v4.src_addr =
+				qos_param->src_ip_addr;
+			rt_rule_entry->rule.attrib.u.v4.src_addr_mask =
+				qos_param->src_subnet ?
+				qos_param->src_subnet : 0xFFFFFFFF;
+		}
+
+		if (qos_param->protocol) {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_PROTOCOL;
+			rt_rule_entry->rule.attrib.u.v4.protocol = qos_param->protocol;
+		}
+
+		if (qos_param->dscp) {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_TOS_MASKED;
+			rt_rule_entry->rule.attrib.tos_value = qos_param->dscp << 2;
+			rt_rule_entry->rule.attrib.tos_mask = 0xFC;
+			rt_rule_entry->rule.hashable = false;
+		} else {
+			rt_rule_entry->rule.hashable = true;
+		}
+
+	} else { /* IPA_IP_v6 */
+		/* Always set client's IPv6 addr as dst_addr. */
+		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
+		for (i = 0; i < 4; i++) {
+			rt_rule_entry->rule.attrib.u.v6.dst_addr[i] =
+				ntohl(client_addr[i]);
+			rt_rule_entry->rule.attrib.u.v6.dst_addr_mask[i] = 0xFFFFFFFF;
+		}
+
+		if (qos_param->src_v6_ip_addr[0] || qos_param->src_v6_ip_addr[1] ||
+		    qos_param->src_v6_ip_addr[2] || qos_param->src_v6_ip_addr[3]) {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_SRC_ADDR;
+			for (i = 0; i < 4; i++) {
+				rt_rule_entry->rule.attrib.u.v6.src_addr[i] =
+					qos_param->src_v6_ip_addr[i];
+				rt_rule_entry->rule.attrib.u.v6.src_addr_mask[i] =
+					qos_param->src_v6_ip_subnet[i] ?
+					qos_param->src_v6_ip_subnet[i] :
+					0xFFFFFFFF;
+			}
+		}
+
+		if (qos_param->protocol) {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_NEXT_HDR;
+			rt_rule_entry->rule.attrib.u.v6.next_hdr = qos_param->protocol;
+		}
+
+		if (qos_param->dscp) {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_TOS_MASKED;
+			rt_rule_entry->rule.attrib.tos_value = qos_param->dscp << 2;
+			rt_rule_entry->rule.attrib.tos_mask = 0xFC;
+			rt_rule_entry->rule.hashable = false;
+		} else {
+			rt_rule_entry->rule.hashable = true;
+		}
+	}
+
+	if (qos_param->src_port_start) {
+		if (!qos_param->src_port_end ||
+		    qos_param->src_port_start == qos_param->src_port_end) {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_SRC_PORT;
+			rt_rule_entry->rule.attrib.src_port = qos_param->src_port_start;
+		} else {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_SRC_PORT_RANGE;
+			rt_rule_entry->rule.attrib.src_port_lo = qos_param->src_port_start;
+			rt_rule_entry->rule.attrib.src_port_hi = qos_param->src_port_end;
+		}
+	}
+
+	if (qos_param->dst_port_start) {
+		if (!qos_param->dst_port_end ||
+		    qos_param->dst_port_start == qos_param->dst_port_end) {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_PORT;
+			rt_rule_entry->rule.attrib.dst_port = qos_param->dst_port_start;
+		} else {
+			rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_PORT_RANGE;
+			rt_rule_entry->rule.attrib.dst_port_lo = qos_param->dst_port_start;
+			rt_rule_entry->rule.attrib.dst_port_hi = qos_param->dst_port_end;
+		}
+	}
+
+	if (qos_param->vlan_count > 0) {
+		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_VLAN_ID;
+		rt_rule_entry->rule.attrib.vlan_id = qos_param->vlan_ids[0];
+	}
+
+	if (src_mac_addr &&
+	    memcmp(src_mac_addr, (uint8_t[ETH_ALEN]){0}, ETH_ALEN) != 0) {
+		rt_rule_entry->rule.attrib.attrib_mask |=
+			IPA_FLT_MAC_SRC_ADDR_ETHER_II;
+		memcpy(rt_rule_entry->rule.attrib.src_mac_addr,
+		       src_mac_addr, ETH_ALEN);
+		memset(rt_rule_entry->rule.attrib.src_mac_addr_mask,
+		       0xFF, ETH_ALEN);
+	}
+
+	/*
+	 * dst_mac_addr is available but not currently added as a HW filter
+	 * attribute. It can be enabled by setting:
+	 *   attrib_mask |= IPA_FLT_MAC_DST_ADDR_ETHER_II
+	 *   memcpy(attrib.dst_mac_addr, dst_mac_addr, ETH_ALEN)
+	 *   memset(attrib.dst_mac_addr_mask, 0xFF, ETH_ALEN)
+	 */
+	(void)dst_mac_addr;
+
+	/*
+	 * Dump the fully-built rule right before commit so the exact match
+	 * tuple, target pipe, priority and DSCP-marking action are visible in
+	 * the logs (proc_ctx_hdl != 0 means a MARK_DSCP hdr_proc_ctx is
+	 * attached; hdr_hdl is the plain L2 header otherwise). Addresses are
+	 * stored in host byte order in the rule; htonl() into temps so the
+	 * %pI4/%pI6 printers render them as dotted quads (mirrors ip4_rt).
+	 */
+	if (qos_param->ip_type == IPA_IP_v4) {
+		__be32 s_addr = htonl(rt_rule_entry->rule.attrib.u.v4.src_addr);
+		__be32 s_mask = htonl(rt_rule_entry->rule.attrib.u.v4.src_addr_mask);
+		__be32 d_addr = htonl(rt_rule_entry->rule.attrib.u.v4.dst_addr);
+		__be32 d_mask = htonl(rt_rule_entry->rule.attrib.u.v4.dst_addr_mask);
+
+		IPA_BE_DBG("QoS rt rule (v4): dst_pipe %d attrib_mask 0x%x cat %u max_prio %d "
+			   "src_addr %pI4/%pI4 dst_addr %pI4/%pI4 proto %u "
+			   "src_port %u dst_port %u tos_val 0x%x tos_mask 0x%x\n",
+			   rt_rule_entry->rule.dst,
+			   rt_rule_entry->rule.attrib.attrib_mask,
+			   rt_rule_entry->rt_rule_category,
+			   rt_rule_entry->rule.max_prio,
+			   &s_addr, &s_mask, &d_addr, &d_mask,
+			   rt_rule_entry->rule.attrib.u.v4.protocol,
+			   rt_rule_entry->rule.attrib.src_port,
+			   rt_rule_entry->rule.attrib.dst_port,
+			   rt_rule_entry->rule.attrib.tos_value,
+			   rt_rule_entry->rule.attrib.tos_mask);
+	} else {
+		__be32 s6[4], d6[4];
+		int k;
+
+		for (k = 0; k < 4; k++) {
+			s6[k] = htonl(rt_rule_entry->rule.attrib.u.v6.src_addr[k]);
+			d6[k] = htonl(rt_rule_entry->rule.attrib.u.v6.dst_addr[k]);
+		}
+		IPA_BE_DBG("QoS rt rule (v6): dst_pipe %d attrib_mask 0x%x cat %u max_prio %d "
+			   "src_addr %pI6 dst_addr %pI6 next_hdr %u "
+			   "src_port %u dst_port %u tos_val 0x%x tos_mask 0x%x\n",
+			   rt_rule_entry->rule.dst,
+			   rt_rule_entry->rule.attrib.attrib_mask,
+			   rt_rule_entry->rt_rule_category,
+			   rt_rule_entry->rule.max_prio,
+			   s6, d6,
+			   rt_rule_entry->rule.attrib.u.v6.next_hdr,
+			   rt_rule_entry->rule.attrib.src_port,
+			   rt_rule_entry->rule.attrib.dst_port,
+			   rt_rule_entry->rule.attrib.tos_value,
+			   rt_rule_entry->rule.attrib.tos_mask);
+	}
+	IPA_BE_DBG("QoS rt rule action: hashable %d dscp_mark_val %u "
+		   "proc_ctx_hdl %d hdr_hdl %d\n",
+		   rt_rule_entry->rule.hashable,
+		   qos_param->dscp_mark_val,
+		   rt_rule_entry->rule.hdr_proc_ctx_hdl,
+		   rt_rule_entry->rule.hdr_hdl);
+
+	if (ipa3_add_rt_rule_usr((struct ipa_ioc_add_rt_rule *)rt_rule, true)) {
+		IPA_BE_ERR("QoS route rule add failed for %s\n", qos_param->dev_name);
+		retval = -EFAULT;
+	} else {
+		qos_param->qos_rule_hdl = rt_rule->rules[0].rt_rule_hdl;
+		qos_param->proc_ctx_hdl = proc_ctx_hdl;
+		IPA_BE_DBG("QoS route rule installed, hdl: %d\n", qos_param->qos_rule_hdl);
+	}
+
+	if (retval && proc_ctx_hdl > 0) {
+		/* Use stack allocation so cleanup always succeeds regardless
+		 * of memory pressure. */
+		struct {
+			struct ipa_ioc_del_hdr_proc_ctx header;
+			struct ipa_hdr_proc_ctx_del     hdl_entry;
+		} del_ctx_buf = {};
+		struct ipa_ioc_del_hdr_proc_ctx *del_ctx = &del_ctx_buf.header;
+
+		del_ctx->commit    = true;
+		del_ctx->num_hdls  = 1;
+		del_ctx->hdl[0].hdl = proc_ctx_hdl;
+		if (ipa3_del_hdr_proc_ctx(del_ctx))
+			IPA_BE_ERR("Failed to delete QoS proc_ctx hdl %d on error path\n",
+				   proc_ctx_hdl);
+	}
+
+	kfree(rt_rule);
+	return retval;
+}
+
+/**
+ * ipa_be_install_qos_route_rule - Install a QoS routing rule in IPA
+ * @qos_param: QoS configuration parameters including IP tuple, traffic class,
+ *             DSCP marking, and interface information
+ *
+ * Implements the same logic as ipa_ipv4_add_route_rule in ipa_be_clientdb.c
+ * but selects the TX pipe based on traffic_class using tc_bmap, and adds
+ * IP tuple matching attributes (src/dst IP, ports, protocol, DSCP).
+ *
+ * Return: 0 on success, negative errno on failure
+ */
+int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
+{
+	int retval = 0;
+	struct ipa_ioc_query_intf_tx_props *tx_prop = NULL;
+	int tx_index;
+	struct ipa_ioc_query_intf temp_intf;
+	struct ipa_clientdb_mapping_instance *mi = NULL;
+	bool found_pipe = false;
+	bool iterate_all_clients = false;
+	bool mac_filter_active = false;
+	uint8_t mac_filter[IPA_MAC_ADDR_SIZE] = {0};
+	ip_addr_t mi_addr = {0};
+	int mi_hdr_hdl = 0;
+	bool found_client = false;
+	struct qos_client_entry {
+		ip_addr_t addr;
+		int hdr_hdl;
+	} *clients = NULL;
+
+	if (!qos_param) {
+		IPA_BE_ERR("NULL qos_param\n");
+		return -EINVAL;
+	}
+
+	/* UL QoS rules are not supported on IPA in the ECM path. */
+	if (qos_param->dir != 0) {
+		IPAERR("UL QoS rule not supported on IPA\n");
+		return -EOPNOTSUPP;
+	}
+
+	/*
+	 * Gate rule installation on whether a matching active client exists,
+	 * and determine which install path to take:
+	 *  1. MAC (+ optional VLAN) specified → look up by MAC; skip if absent.
+	 *  2. IP address specified            → verify client exists via IP table;
+	 *                                       skip if absent.
+	 *  3. No MAC/IP filter               → install per active client;
+	 *                                       each rule gets that client's IP
+	 *                                       baked in as dst_addr.
+	 */
+	if (memcmp(qos_param->dst_mac_addr,
+		   (uint8_t[IPA_MAC_ADDR_SIZE]){0}, IPA_MAC_ADDR_SIZE) != 0) {
+		uint16_t check_vlan = (qos_param->vlan_count > 0) ?
+				      qos_param->vlan_ids[0] : 0;
+
+		if (check_vlan) {
+			/*
+			 * VLAN specified: use exact MAC+VLAN hash lookup.
+			 * Only the client with this specific MAC+VLAN combination
+			 * gets the rule installed.
+			 */
+			uint32_t mi_rt_hdl = 0;
+
+			mutex_lock(&ipa_client_db_lock);
+			mi = ipa_be_clientdb_get_mapping_by_mac_locked(
+				qos_param->dst_mac_addr, check_vlan);
+			if (mi) {
+				memcpy(mi_addr, mi->address, sizeof(ip_addr_t));
+				mi_hdr_hdl = (int)mi->lan2wan_info.hdr_hdl;
+				mi_rt_hdl = mi->lan2wan_info.rt_hdl;
+				found_client = true;
+			}
+			mutex_unlock(&ipa_client_db_lock);
+
+			if (found_client) {
+				IPA_BE_DBG("Client MAC %pM vlan %u already accelerated "
+					   "(lan2wan rt_hdl %u); installing QoS rule on top\n",
+					   qos_param->dst_mac_addr, check_vlan, mi_rt_hdl);
+			} else {
+				IPA_BE_DBG("Client MAC %pM vlan %u not yet accelerated\n",
+					   qos_param->dst_mac_addr, check_vlan);
+				goto cleanup;
+			}
+		} else {
+			/*
+			 * No VLAN: install for ALL active clients with this MAC,
+			 * regardless of their VLAN. Use the iterate_all_clients
+			 * path with a MAC filter applied during iteration.
+			 */
+			iterate_all_clients = true;
+			mac_filter_active = true;
+			memcpy(mac_filter, qos_param->dst_mac_addr, IPA_MAC_ADDR_SIZE);
+		}
+	} else if (qos_param->ip_type == IPA_IP_v4) {
+		if (qos_param->dst_ip_addr) {
+			int ip_rt_hdl;
+			int ip_hdr_hdl = -1, ip_proc_ctx_hdl = -1;
+			char ip_proc_ctx_name[32] = {0};
+			ip_addr_t lookup_addr = {0};
+			uint32_t src_ip_be = htonl(qos_param->src_ip_addr);
+
+			lookup_addr[0] = htonl(qos_param->dst_ip_addr);
+
+			IPA_BE_DBG("QoS IP check: client(dst_ip)=%pI4n rule src=%pI4n dst=%pI4n\n",
+				   &lookup_addr[0],
+				   &src_ip_be,
+				   &lookup_addr[0]);
+
+			ip_rt_hdl = ipa_get_rt_hdl_from_mapping(
+					lookup_addr,
+					false /* lan2wan */,
+					&ip_hdr_hdl, &ip_proc_ctx_hdl,
+					ip_proc_ctx_name);
+			if (ip_rt_hdl > 0) {
+				IPA_BE_DBG("IPv4 client IP %pI4n found in mapping "
+					   "(rt_hdl %d hdr_hdl %d); installing QoS rule\n",
+					   &lookup_addr[0], ip_rt_hdl, ip_hdr_hdl);
+				if (qos_param->src_ip_addr)
+					IPA_BE_DBG("src_ip=%pI4n also set as filter attribute\n",
+						   &src_ip_be);
+			} else {
+				IPA_BE_ERR("IPv4 client IP %pI4n NOT found in mapping table (rt_hdl=%d), skipping\n",
+					   &lookup_addr[0], ip_rt_hdl);
+				goto cleanup;
+			}
+		} else {
+			/* No dst_ip filter → catch-all (src_ip, if set, is a filter attr). */
+			iterate_all_clients = true;
+		}
+	} else if (qos_param->ip_type == IPA_IP_v6) {
+		static const uint32_t null_v6[4] = {0};
+		bool has_dst_v6 = memcmp(qos_param->dst_v6_ip_addr, null_v6,
+					 sizeof(null_v6)) != 0;
+
+		if (has_dst_v6) {
+			int ip_rt_hdl;
+			int ip_hdr_hdl = -1, ip_proc_ctx_hdl = -1;
+			char ip_proc_ctx_name[32] = {0};
+			uint32_t dst_v6_be[4];
+			uint32_t src_v6_be[4];
+			int idx;
+
+			for (idx = 0; idx < 4; idx++) {
+				dst_v6_be[idx] = htonl(qos_param->dst_v6_ip_addr[idx]);
+				src_v6_be[idx] = htonl(qos_param->src_v6_ip_addr[idx]);
+			}
+
+			IPA_BE_DBG("QoS IP check: client(dst_ip)=%pI6n rule src=%pI6n dst=%pI6n\n",
+				   dst_v6_be, src_v6_be, dst_v6_be);
+
+			ip_rt_hdl = ipa_get_rt_hdl_from_mapping(
+					dst_v6_be,
+					false /* lan2wan */,
+					&ip_hdr_hdl, &ip_proc_ctx_hdl,
+					ip_proc_ctx_name);
+			if (ip_rt_hdl > 0) {
+				IPA_BE_DBG("IPv6 client IP %pI6n found in mapping "
+					   "(rt_hdl %d hdr_hdl %d); installing QoS rule\n",
+					   dst_v6_be, ip_rt_hdl, ip_hdr_hdl);
+			} else {
+				IPA_BE_ERR("IPv6 client IP %pI6n NOT found in mapping table (rt_hdl=%d), skipping\n",
+					   dst_v6_be, ip_rt_hdl);
+				goto cleanup;
+			}
+		} else {
+			/* No dst_v6 IP filter → catch-all. */
+			iterate_all_clients = true;
+		}
+	} else {
+		/* No specific MAC/IP filter: install per active client. */
+		iterate_all_clients = true;
+	}
+
+	IPA_BE_DBG("Entry ipa_be_install_qos_route_rule dev_name %s ip_type %d tc %d\n",
+		qos_param->dev_name, qos_param->ip_type, qos_param->traffic_class);
+
+	/* Query the interface by name to get TX property count */
+	memset(&temp_intf, 0, sizeof(temp_intf));
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+	strscpy(temp_intf.name, qos_param->dev_name, sizeof(temp_intf.name));
+#else
+	strlcpy(temp_intf.name, qos_param->dev_name, sizeof(temp_intf.name));
+#endif
+
+	if (ipa3_query_intf(&temp_intf)) {
+		IPA_BE_ERR("Failed to query interface %s\n", qos_param->dev_name);
+		retval = -EINVAL;
+		goto cleanup;
+	}
+
+	if (temp_intf.num_tx_props == 0) {
+		IPA_BE_ERR("Interface %s has no TX properties\n", qos_param->dev_name);
+		retval = -EINVAL;
+		goto cleanup;
+	}
+
+	/* Allocate and populate TX properties */
+	tx_prop = (struct ipa_ioc_query_intf_tx_props *)kzalloc(
+		sizeof(struct ipa_ioc_query_intf_tx_props) +
+		temp_intf.num_tx_props * sizeof(struct ipa_ioc_tx_intf_prop),
+		GFP_KERNEL);
+	if (!tx_prop) {
+		IPA_BE_ERR("Failed to allocate tx_prop\n");
+		retval = -ENOMEM;
+		goto cleanup;
+	}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+	strscpy(tx_prop->name, temp_intf.name, sizeof(tx_prop->name));
+#else
+	strlcpy(tx_prop->name, temp_intf.name, sizeof(tx_prop->name));
+#endif
+	tx_prop->num_tx_props = temp_intf.num_tx_props;
+	if (ipa3_query_intf_tx_props(tx_prop)) {
+		IPA_BE_ERR("Failed to query TX props for interface %s\n", qos_param->dev_name);
+		retval = -EINVAL;
+		goto cleanup;
+	}
+
+	/*
+	 * Find the right TX pipe based on traffic class.
+	 * tc_bmap is the sole authority — a pipe must have the requested TC
+	 * bit set to be eligible.  Pipes with tc_bmap == 0 (BE pipes) are
+	 * always skipped.  If no matching pipe is found the rule is not
+	 * installed; the caller must first configure the pipe via
+	 * IPA_IOC_SET_PIPE_TC_BITMAP.
+	 */
+	for (tx_index = 0; tx_index < (int)temp_intf.num_tx_props; tx_index++) {
+		if (tx_prop->tx[tx_index].ip != (enum ipa_ip_type)qos_param->ip_type)
+			continue;
+		if (tx_prop->tx[tx_index].tc_bmap == 0)
+			continue;
+		if (!(tx_prop->tx[tx_index].tc_bmap &
+		      (1U << qos_param->traffic_class)))
+			continue;
+		found_pipe = true;
+		break;
+	}
+
+	if (!found_pipe) {
+		IPA_BE_ERR("No matching TX pipe for traffic class %d on %s\n",
+			qos_param->traffic_class, qos_param->dev_name);
+		retval = -EINVAL;
+		goto cleanup;
+	}
+
+	IPA_BE_DBG("Using TX index %d (dst_pipe %d, tc_bmap 0x%x) for QoS rule\n",
+		tx_index, tx_prop->tx[tx_index].dst_pipe,
+		tx_prop->tx[tx_index].tc_bmap);
+
+	if (found_client) {
+		/* MAC+VLAN case: one rule for this specific client. */
+		retval = ipa_be_qos_install_one_rule(qos_param, tx_prop, tx_index,
+						     mi_hdr_hdl, mi_addr,
+						     qos_param->src_mac_addr,
+						     qos_param->dst_mac_addr);
+	} else if (iterate_all_clients) {
+		/*
+		 * No MAC/IP filter (or MAC filter with no VLAN): snapshot all
+		 * matching active clients under lock, then install one rule per
+		 * client with their IP as dst_addr.
+		 *
+		 * NOTE: ipa_be_qos_install_one_rule() writes qos_param->qos_rule_hdl
+		 * on each successful install. For this multi-client path, only the
+		 * last client's handle is retained in the cache node.  This is
+		 * intentional for catch-all rules — deletion is handled by
+		 * ipa_be_delete_qos_catch_all_rules() when the last client
+		 * disconnects, not by individual handle tracking.
+		 *
+		 * Two-pass: count outside lock, allocate with headroom outside
+		 * lock (no GFP_KERNEL under mutex), then collect under lock.
+		 */
+		struct ipa_clientdb_mapping_instance *it;
+		int num_clients = 0;
+		int capacity = 0;
+
+		/* Pass 1: count matching clients outside of lock. */
+		mutex_lock(&ipa_client_db_lock);
+		for (it = ipa_db_mappings; it; it = it->next) {
+			bool client_is_v6 = it->address[1] || it->address[2] ||
+					    it->address[3];
+			bool want_v6 = (qos_param->ip_type == IPA_IP_v6);
+
+			if (client_is_v6 != want_v6)
+				continue;
+			if (!it->address[0] && !it->address[1] &&
+			    !it->address[2] && !it->address[3])
+				continue;
+			if (mac_filter_active &&
+			    memcmp(it->mac_addr_t, mac_filter, IPA_MAC_ADDR_SIZE))
+				continue;
+			capacity++;
+		}
+		mutex_unlock(&ipa_client_db_lock);
+
+		if (!capacity) {
+			IPA_BE_DBG("No active clients matching ip_type %d; skipping QoS rule\n",
+				   qos_param->ip_type);
+			goto cleanup;
+		}
+
+		/* Allocate with headroom outside lock — no GFP_KERNEL under mutex. */
+		capacity += 8;
+		clients = kcalloc(capacity, sizeof(*clients), GFP_KERNEL);
+		if (!clients) {
+			retval = -ENOMEM;
+			goto cleanup;
+		}
+
+		/* Pass 2: collect under lock, no reallocation needed. */
+		mutex_lock(&ipa_client_db_lock);
+		for (it = ipa_db_mappings; it && num_clients < capacity; it = it->next) {
+			bool client_is_v6 = it->address[1] || it->address[2] ||
+					    it->address[3];
+			bool want_v6 = (qos_param->ip_type == IPA_IP_v6);
+
+			if (client_is_v6 != want_v6)
+				continue;
+			if (!it->address[0] && !it->address[1] &&
+			    !it->address[2] && !it->address[3])
+				continue;
+			if (mac_filter_active &&
+			    memcmp(it->mac_addr_t, mac_filter, IPA_MAC_ADDR_SIZE))
+				continue;
+
+			memcpy(clients[num_clients].addr, it->address, sizeof(ip_addr_t));
+			clients[num_clients].hdr_hdl = (int)it->lan2wan_info.hdr_hdl;
+			num_clients++;
+		}
+		mutex_unlock(&ipa_client_db_lock);
+
+		if (!num_clients) {
+			IPA_BE_DBG("No active clients matching ip_type %d; skipping QoS rule\n",
+				   qos_param->ip_type);
+			goto cleanup;
+		}
+
+		retval = -EFAULT; /* assume failure; cleared on first successful install */
+		for (int c = 0; c < num_clients; c++) {
+			int r;
+
+			/*
+			 * Reset before each call so we observe what THIS install
+			 * allocated.  Each ipa_be_qos_install_one_rule may create
+			 * a fresh proc_ctx (when dscp_mark_val is set); the routing
+			 * rule itself takes a refcount on the proc_ctx during
+			 * ipa3_add_rt_rule_usr().  We hold a second (install-time)
+			 * reference that would normally be released at delete time
+			 * via the cache's stored proc_ctx_hdl.  In the multi-client
+			 * iteration the cache only retains the LAST client's hdl,
+			 * so the install-time references for clients [0..N-2] would
+			 * leak.  Drop them here: the routing rule's reference keeps
+			 * each proc_ctx alive while its HW rule exists, and the
+			 * proc_ctx is freed automatically when the rule is deleted.
+			 */
+			qos_param->proc_ctx_hdl = 0;
+
+			r = ipa_be_qos_install_one_rule(qos_param, tx_prop, tx_index,
+							clients[c].hdr_hdl,
+							clients[c].addr,
+							qos_param->src_mac_addr,
+							qos_param->dst_mac_addr);
+			if (r) {
+				IPA_BE_ERR("Failed to install QoS rule for client %d: %d\n",
+					   c, r);
+			} else {
+				retval = 0;
+				if (c < num_clients - 1 && qos_param->proc_ctx_hdl)
+					__ipa3_release_hdr_proc_ctx(qos_param->proc_ctx_hdl);
+			}
+		}
+	} else {
+		/* Explicit dst_ip case: use dst_ip_addr/dst_v6_ip_addr as client address. */
+		ip_addr_t ip_client_addr = {0};
+		int k;
+
+		if (qos_param->ip_type == IPA_IP_v4) {
+			ip_client_addr[0] = htonl(qos_param->dst_ip_addr);
+		} else {
+			for (k = 0; k < 4; k++)
+				ip_client_addr[k] = htonl(qos_param->dst_v6_ip_addr[k]);
+		}
+		retval = ipa_be_qos_install_one_rule(qos_param, tx_prop, tx_index,
+						     0, ip_client_addr,
+						     qos_param->src_mac_addr,
+						     qos_param->dst_mac_addr);
+	}
+
+cleanup:
+	kfree(clients);
+	kfree(tx_prop);
+	return retval;
+}
+

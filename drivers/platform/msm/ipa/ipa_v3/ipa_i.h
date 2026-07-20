@@ -132,6 +132,7 @@
 #define IPA_MPM_MAX_UC_THRESH 4
 #define IPA_MAX_RT_RULE_ID 1023
 #define IPA_CT_TBL_CANARY_SIZE 40
+#define IPA_MAX_TRAFFIC_CLASSES 16
 
 #define NON_IHL_EQ_OFFSET_FROM_L2(x) (x | 0x80)
 #define NON_IHL_EQ_OFFSET_FROM_L3(x) (x & 0x7F)
@@ -2557,6 +2558,14 @@ struct ipa_fatal_err_irq_regs {
 	u32 ipa_snoc_fec_ee;
 };
 
+struct ipa3_qos_config_node {
+	struct list_head list;
+	struct ipa_ioc_qos_config config;
+	uint32_t qos_id; /**< Stable unique ID, assigned once at ADD, used for handle-based delete */
+	uint32_t refcount; /**< Number of userspace ADDs against this node; decremented on DELETE.
+			    *  HW rule is removed only when refcount drops to 0. */
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -3020,7 +3029,9 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
 	u16 filter_start_id;
-	struct ipa_ioc_get_qos_config get_qos_config;
+	uint32_t num_qos_configs;
+	uint32_t qos_id_counter;
+	struct list_head qos_config_list;
 	u8 ippt_pdninfo_refcnt;
 	struct mutex msg_qos_param_lock;
 	struct list_head msg_qos_param_list;
@@ -4024,6 +4035,11 @@ int ipa3_pull_msg(struct ipa_msg_meta *meta, char *buff, size_t count);
 int ipa3_query_intf(struct ipa_ioc_query_intf *lookup);
 int ipa3_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx);
 int ipa3_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx);
+int ipa3_set_intf_tx_tc_bitmap(const char *name,
+			       uint8_t tx_index, uint32_t tc_bitmap);
+int ipa3_set_intf_tx_tc_bitmap_by_pipe(const char *name,
+				       enum ipa_client_type dst_pipe,
+				       uint32_t tc_bitmap);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
 
 bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf);

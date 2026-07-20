@@ -170,6 +170,7 @@
 #define IPA_IOCTL_SET_IPTYPE_MTU                108
 #define IPA_IOCTL_TABLE_WRITE_CMD               109
 #define IPA_IOCTL_NAT_CT_TIMESTAMP_FLUSH        110
+#define IPA_IOCTL_SET_PIPE_TC_BITMAP            111
 
 /**
  * max size of the header to be inserted
@@ -1195,9 +1196,33 @@ enum ipa_qos_param_evt {
 	IPA_QOS_PARAM_ADD_EVENT = IPA_PDN_DSCP_EVENT_MAX,
 	IPA_QOS_PARAM_DELETE_EVENT,
 	IPA_QOS_PARAM_FLUSH_EVENT,
+	IPA_QOS_RULE_INSTALLED_EVENT, /**< Async: deferred rule (qos_rule_hdl was 0
+				       *   on ADD return) has now been installed
+				       *   in HW.  Fired once per qos_id when the
+				       *   rule transitions from cached-only to
+				       *   in-HW (e.g. when a matching client
+				       *   accelerates, or a pipe TC bitmap is
+				       *   updated to cover the rule's TC). */
 	IPA_QOS_PARAM_EVENT_MAX
 #define IPA_QOS_PARAM_EVENT_MAX IPA_QOS_PARAM_EVENT_MAX
 };
+
+/**
+ * struct ipa_qos_rule_installed_msg - payload for IPA_QOS_RULE_INSTALLED_EVENT.
+ * @qos_id:        Stable kernel-assigned ID (matches the qos_id userspace
+ *                 received at ADD time).
+ * @qos_rule_hdl:  IPA routing-table handle now backing the rule in HW.
+ * @traffic_class: TC of the rule (for caller-side logging / correlation).
+ *
+ * Sent via the IPA message framework (consumed via IPA_IOC_PULL_MSG).  The
+ * userspace HAL correlates @qos_id back to the QoSMgr handle(s) it tracked
+ * when createFilter() returned QOS_FILTER_PENDING.
+ */
+struct ipa_qos_rule_installed_msg {
+	uint32_t qos_id;
+	uint32_t qos_rule_hdl;
+	uint8_t  traffic_class;
+} __packed;
 
 #define IPA_EVENT_MAX_NUM (IPA_QOS_PARAM_EVENT_MAX)
 #define IPA_EVENT_MAX ((int)IPA_EVENT_MAX_NUM)
@@ -4066,7 +4091,9 @@ struct ipa_ioc_qos_config {
 	uint8_t pcp;
 	uint8_t dscp_mark_val;
 	uint32_t qos_rule_hdl;
+	uint32_t proc_ctx_hdl;
 	enum ipa_qos_flt_category flt_cat;
+	uint32_t qos_id; /**< Stable unique ID assigned at ADD; use for handle-based delete */
 };
 
 struct ipa_ioc_get_qos_config {
@@ -4445,6 +4472,23 @@ struct ipa_ioc_get_qos_config {
 #define IPA_IOC_GET_QOS_PARAMS _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_GET_QOS_PARAMS, \
 				struct ipa_ioc_get_qos_config)
+
+/**
+ * struct ipa_ioc_pipe_tc_bitmap - update tc_bmap for one TX interface property
+ * @dev_name:  interface name (e.g. "rndis0")
+ * @tx_index:  index into the interface TX property array (from show_intf)
+ * @tc_bitmap: new tc_bmap value; bit N = traffic class N enabled on this pipe
+ */
+struct ipa_ioc_pipe_tc_bitmap {
+	char     dev_name[IPA_RESOURCE_NAME_MAX];
+	uint8_t  tx_index;
+	uint8_t  __reserved[3]; /* explicit padding to avoid implicit compiler padding */
+	uint32_t tc_bitmap;
+};
+
+#define IPA_IOC_SET_PIPE_TC_BITMAP _IOW(IPA_IOC_MAGIC, \
+				IPA_IOCTL_SET_PIPE_TC_BITMAP, \
+				struct ipa_ioc_pipe_tc_bitmap)
 
 #define IPA_IOC_SET_IPTYPE_MTU _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_SET_IPTYPE_MTU, \
