@@ -15808,8 +15808,8 @@ void ipa3_set_ini_fields_default(struct ipa3_plat_drv_res *ipa_drv_res)
 	ipa_drv_res->use_eth_qos_config = 0;
 	ipa_drv_res->use_ipsec_config = 0;
 	ipa_drv_res->use_ipv6_nat_config = 0;
-	ipa_drv_res->max_ipv4_stats_accel_conn = 1000;
-	ipa_drv_res->max_ipv6_stats_accel_conn = 1000;
+	ipa_drv_res->max_ipv4_stats_accel_conn = 1024;
+	ipa_drv_res->max_ipv6_stats_accel_conn = 1024;
 	ipa_drv_res->ipa_disable_per_flow_stats = 0;
 }
 #endif
