@@ -5240,7 +5240,17 @@ _prep_and_send_skb(
 
 			ipa3_ctx->stats.coal.coal_reconstructed++;
 
-			head_skb->protocol = ip_proto;
+			/* Validate ip_vers before assigning protocol */
+			if (ip_vers == 4) {
+				head_skb->protocol = htons(ETH_P_IP);
+			} else if (ip_vers == 6) {
+				head_skb->protocol = htons(ETH_P_IPV6);
+			} else {
+				IPAERR("Unexpected ip_vers %d during coal reconstruct\n", ip_vers);
+				dev_kfree_skb_any(head_skb);
+				ipa3_ctx->stats.coal.coal_reconstructed--;
+				return -1;
+			}
 
 			/*
 			 * Copy MAC header into the skb...
