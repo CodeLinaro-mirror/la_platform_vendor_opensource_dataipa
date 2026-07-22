@@ -43,6 +43,10 @@
 extern int ipa3_qmi_filter_request_ex_send(
 	struct ipa_install_fltr_rule_req_ex_msg_v01 *msg);
 
+extern int ipahal_flt_generate_equation(enum ipa_ip_type ipt,
+	const struct ipa_rule_attrib *attrib,
+	struct ipa_ipfltri_rule_eq *eq_atrb);
+
 /* Helper function to convert addresses to network order */
 static inline void addr2network(enum ipa_ip_type addr_type, void *addr)
 {
@@ -3641,7 +3645,8 @@ static bool AddWanDLFilteringRule(
 	enum flt_rule_category *category_v4,
 	enum flt_rule_category *category_v6,
 	enum rule_sub_category *sub_category_v4,
-	enum rule_sub_category *sub_category_v6)
+	enum rule_sub_category *sub_category_v6,
+	bool is_sw_routing)
 {
 	int ret = 0, cnt, num_rules = 0, pos;
 	int num_v4_rules = rule_table_v4 ? rule_table_v4->num_rules : 0;
@@ -3653,6 +3658,117 @@ static bool AddWanDLFilteringRule(
 	if (!qmi_rule_ex_msg) {
 		IPA_BE_ERR("Failed to allocate memory for qmi_rule_ex_msg\n");
 		return false;
+	}
+
+	if (is_sw_routing || ipa3_ctx->ipa_sw) {
+		struct ipa_ioc_get_rt_tbl_indx rt_idx;
+		struct ipa_rule_attrib meta_attrib;
+		struct ipa_ipfltri_rule_eq eq_attrib;
+		uint8_t sw_mux_id = ipa_be_global_qmap_id;
+		int n = 0;
+
+		if (sw_mux_id == IPA_BE_GLOBAL_QMAP_UNSET) {
+			IPA_BE_ERR("SW routing: no WAN PDN active (mux_id unset), skip Q6 catch-all\n");
+			kfree(qmi_rule_ex_msg);
+			return false;
+		}
+
+		memset(&rt_idx, 0, sizeof(rt_idx));
+		strscpy(rt_idx.name, WAN_DL_ROUTE_TABLE_NAME,
+			IPA_RESOURCE_NAME_MAX);
+		rt_idx.ip = IPA_IP_v4;
+		if (!ipa3_query_rt_index(&rt_idx)) {
+			memset(&meta_attrib, 0, sizeof(meta_attrib));
+			meta_attrib.attrib_mask = IPA_FLT_META_DATA;
+			meta_attrib.meta_data =
+				(u32)sw_mux_id << WWAN_METADATA_SHFT;
+			meta_attrib.meta_data_mask = WWAN_METADATA_MASK;
+			memset(&eq_attrib, 0, sizeof(eq_attrib));
+			if (ipahal_flt_generate_equation(IPA_IP_v4,
+					&meta_attrib, &eq_attrib)) {
+				IPA_BE_ERR("SW routing: v4 eq gen failed\n");
+			} else {
+				qmi_rule_ex_msg->filter_spec_ex_list[n].ip_type =
+					QMI_IPA_IP_TYPE_V4_V01;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.filter_action =
+					QMI_IPA_FILTER_ACTION_ROUTING_V01;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.is_routing_table_index_valid = 1;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.route_table_index = rt_idx.idx;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.is_mux_id_valid = 1;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.mux_id = sw_mux_id;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.is_rule_hashable = 1;
+				memcpy(&qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.filter_rule, &eq_attrib,
+					sizeof(struct ipa_filter_rule_type_v01));
+				n++;
+			}
+		}
+
+		memset(&rt_idx, 0, sizeof(rt_idx));
+		strscpy(rt_idx.name, WAN_DL_ROUTE_TABLE_NAME,
+			IPA_RESOURCE_NAME_MAX);
+		rt_idx.ip = IPA_IP_v6;
+		if (!ipa3_query_rt_index(&rt_idx)) {
+			memset(&meta_attrib, 0, sizeof(meta_attrib));
+			meta_attrib.attrib_mask = IPA_FLT_META_DATA;
+			meta_attrib.meta_data =
+				(u32)sw_mux_id << WWAN_METADATA_SHFT;
+			meta_attrib.meta_data_mask = WWAN_METADATA_MASK;
+			memset(&eq_attrib, 0, sizeof(eq_attrib));
+			if (ipahal_flt_generate_equation(IPA_IP_v6,
+					&meta_attrib, &eq_attrib)) {
+				IPA_BE_ERR("SW routing: v6 eq gen failed\n");
+			} else {
+				qmi_rule_ex_msg->filter_spec_ex_list[n].ip_type =
+					QMI_IPA_IP_TYPE_V6_V01;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.filter_action =
+					QMI_IPA_FILTER_ACTION_ROUTING_V01;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.is_routing_table_index_valid = 1;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.route_table_index = rt_idx.idx;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.is_mux_id_valid = 1;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.mux_id = sw_mux_id;
+				qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.is_rule_hashable = 1;
+				memcpy(&qmi_rule_ex_msg->filter_spec_ex_list[n]
+					.filter_rule, &eq_attrib,
+					sizeof(struct ipa_filter_rule_type_v01));
+				n++;
+			}
+		}
+
+		if (n > 0) {
+			qmi_rule_ex_msg->filter_spec_ex_list_valid = true;
+			qmi_rule_ex_msg->filter_spec_ex_list_len = n;
+			qmi_rule_ex_msg->source_pipe_index_valid = 0;
+			IPA_BE_DBG("SW routing: sending %d catch-all rule(s) to Q6 (suppressing %d per-flow)\n",
+				   n, num_v4_rules + num_v6_rules);
+			ret = ipa3_qmi_filter_request_ex_send(qmi_rule_ex_msg);
+			if (ret) {
+				IPA_BE_ERR("SW routing: Q6 catch-all send failed: %d\n",
+					   ret);
+				kfree(qmi_rule_ex_msg);
+				return false;
+			}
+			kfree(qmi_rule_ex_msg);
+			return true;
+		}
+		/* RT table not found or eq gen failed — fall through to
+		 * per-flow rule installation so WAN-up is not hard-blocked
+		 * by a temporarily-unavailable routing table. qmi_rule_ex_msg
+		 * is reused by the per-flow section below; do not free it here.
+		 */
+		IPA_BE_ERR("SW routing: no catch-all rules generated (WAN RT table not found or eq gen failed) — falling back to per-flow rules\n");
 	}
 
 	num_rules = num_v4_rules + num_v6_rules;
@@ -4883,7 +4999,7 @@ fail_pdn:
 	return retval;
 }
 
-int install_wan_filtering_rule(void)
+int install_wan_filtering_rule(bool is_sw_routing)
 {
 	int ret = 0, len = 0, cnt = 0;
 	struct ipa_ioc_add_flt_rule *pFilteringTable_v4 = NULL;
@@ -5034,7 +5150,8 @@ int install_wan_filtering_rule(void)
 	if (!AddWanDLFilteringRule(pFilteringTable_v4,
 		pFilteringTable_v6, mux_id_v4, mux_id_v6,
 		category_v4, category_v6,
-		sub_category_v4, sub_category_v6)) {
+		sub_category_v4, sub_category_v6,
+		is_sw_routing)) {
 		IPA_BE_ERR("Failed to add combined WAN filtering rules via QMI\n");
 		ret = -EIO;
 		goto cleanup;

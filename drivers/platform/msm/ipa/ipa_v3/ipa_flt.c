@@ -2264,6 +2264,7 @@ void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx)
 			&ep->dflt_flt6_rule_hdl, false, 0, 0);
 	ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
 	tbl->sticky_rear = true;
+
 	mutex_unlock(&ipa3_ctx->lock);
 }
 
@@ -2271,10 +2272,23 @@ void ipa3_delete_dflt_flt_rules(u32 ipa_ep_idx)
 {
 	struct ipa3_ep_context *ep = &ipa3_ctx->ep[ipa_ep_idx];
 	struct ipa3_flt_tbl *tbl;
+	struct ipa3_init_flt_rule_hdl *node, *tmp;
 
 	mutex_lock(&ipa3_ctx->lock);
 	if (ep->dflt_flt4_rule_hdl) {
 		tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v4];
+		/* Drop any live SW-divert rules on this EP before we tear down
+		 * the default filter, so their handles don't outlive the pipe.
+		 */
+		if (!ep->sw_routing_flt4_hdl_list.next)
+			INIT_LIST_HEAD(&ep->sw_routing_flt4_hdl_list);
+		list_for_each_entry_safe(node, tmp,
+				&ep->sw_routing_flt4_hdl_list, link) {
+			if (node->hdl)
+				__ipa_del_flt_rule(node->hdl);
+			list_del(&node->link);
+			kfree(node);
+		}
 		__ipa_del_flt_rule(ep->dflt_flt4_rule_hdl);
 		ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4);
 		/* Reset the sticky flag. */
@@ -2283,6 +2297,16 @@ void ipa3_delete_dflt_flt_rules(u32 ipa_ep_idx)
 	}
 	if (ep->dflt_flt6_rule_hdl) {
 		tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v6];
+		/* Same rationale as v4. */
+		if (!ep->sw_routing_flt6_hdl_list.next)
+			INIT_LIST_HEAD(&ep->sw_routing_flt6_hdl_list);
+		list_for_each_entry_safe(node, tmp,
+				&ep->sw_routing_flt6_hdl_list, link) {
+			if (node->hdl)
+				__ipa_del_flt_rule(node->hdl);
+			list_del(&node->link);
+			kfree(node);
+		}
 		__ipa_del_flt_rule(ep->dflt_flt6_rule_hdl);
 		ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
 		/* Reset the sticky flag. */
@@ -3040,4 +3064,225 @@ int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client)
 	mutex_unlock(&ipa3_ctx->lock);
 
 	return 0;
+}
+/*
+ * ipa3_sw_routing_enable() - full analog of IPACM IPA_SW_ROUTING_ENABLE.
+ *
+ * LAN/UL — APPS-connected producers (gated on dflt_flt*_rule_hdl):
+ *   Prepends a catch-all PASS_TO_EXCEPTION rule, mirroring
+ *   IPACM_Iface::handle_software_routing_enable().
+ *
+ * WAN/DL — handled entirely by install_wan_filtering_rule() called after
+ *   this function returns.  That path replaces Q6's per-flow filter section
+ *   with a single catch-all PASS_TO_ROUTING rule pointing to the DOWNLINK
+ *   routing table (which routes to the correct DL consumer for the interface).
+ *   No AP-section rules are added for WAN DL pipes: Q6's section always
+ *   has higher priority, so any AP-section rule for those pipes is dead code.
+ *
+ * On failure, everything added in this call is rolled back and ipa_sw
+ * stays false — callers never observe partial state.
+ */
+int ipa3_sw_routing_enable(void)
+{
+	int i;
+	struct ipa3_ep_context *ep;
+	struct ipa_flt_rule_i rule;
+	int res = 0;
+	struct ipa3_init_flt_rule_hdl *node, *tmp;
+
+	IPADBG("SW routing enable requested\n");
+	mutex_lock(&ipa3_ctx->lock);
+
+	if (ipa3_ctx->ipa_sw) {
+		IPADBG("SW routing already enabled\n");
+		mutex_unlock(&ipa3_ctx->lock);
+		return 0;
+	}
+
+	/*
+	 * ep context resets (memset to 0) clobber the list heads; re-init any
+	 * that were zeroed before we try to list_add_tail into them.
+	 */
+	for (i = 0; i < min_t(u32, ipa3_ctx->ipa_num_pipes, IPA_MAX_FLT_TBLS); i++) {
+		if (!ipa3_ctx->ep[i].sw_routing_flt4_hdl_list.next)
+			INIT_LIST_HEAD(&ipa3_ctx->ep[i].sw_routing_flt4_hdl_list);
+		if (!ipa3_ctx->ep[i].sw_routing_flt6_hdl_list.next)
+			INIT_LIST_HEAD(&ipa3_ctx->ep[i].sw_routing_flt6_hdl_list);
+	}
+
+	for (i = 0; i < min_t(u32, ipa3_ctx->ipa_num_pipes, IPA_MAX_FLT_TBLS); i++) {
+		ep = &ipa3_ctx->ep[i];
+
+		/* LAN/UL: APPS-connected producers — PASS_TO_EXCEPTION */
+		if (ep->dflt_flt4_rule_hdl) {
+			memset(&rule, 0, sizeof(rule));
+			rule.action = IPA_PASS_TO_EXCEPTION;
+			rule.retain_hdr = 0;
+			rule.to_uc = 0;
+			rule.eq_attrib_type = 0;
+			rule.hashable = true;
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
+
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) {
+				res = -ENOMEM;
+				goto rollback;
+			}
+			res = __ipa_add_flt_rule(&ipa3_ctx->flt_tbl[i][IPA_IP_v4],
+				IPA_IP_v4, &rule, false, &node->hdl, false,
+				IPA_FLT_RULE_CAT_SW, 0);
+			if (res) {
+				kfree(node);
+				IPAERR("failed to add IPv4 SW-divert rule for ep %d\n", i);
+				goto rollback;
+			}
+			IPADBG("IPv4 SW-divert (exception) installed for ep %d, hdl=0x%x\n",
+				i, node->hdl);
+			list_add_tail(&node->link, &ep->sw_routing_flt4_hdl_list);
+		}
+
+		if (ep->dflt_flt6_rule_hdl) {
+			memset(&rule, 0, sizeof(rule));
+			rule.action = IPA_PASS_TO_EXCEPTION;
+			rule.retain_hdr = 0;
+			rule.to_uc = 0;
+			rule.eq_attrib_type = 0;
+			rule.hashable = true;
+			rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
+
+			node = kzalloc(sizeof(*node), GFP_KERNEL);
+			if (!node) {
+				res = -ENOMEM;
+				goto rollback;
+			}
+			res = __ipa_add_flt_rule(&ipa3_ctx->flt_tbl[i][IPA_IP_v6],
+				IPA_IP_v6, &rule, false, &node->hdl, false,
+				IPA_FLT_RULE_CAT_SW, 0);
+			if (res) {
+				kfree(node);
+				IPAERR("failed to add IPv6 SW-divert rule for ep %d\n", i);
+				goto rollback;
+			}
+			IPADBG("IPv6 SW-divert (exception) installed for ep %d, hdl=0x%x\n",
+				i, node->hdl);
+			list_add_tail(&node->link, &ep->sw_routing_flt6_hdl_list);
+		}
+	}
+
+	res = ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4);
+	if (res) {
+		IPAERR("failed to commit IPv4 flt rules\n");
+		goto rollback;
+	}
+	res = ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
+	if (res) {
+		IPAERR("failed to commit IPv6 flt rules\n");
+		goto rollback;
+	}
+
+	ipa3_ctx->ipa_sw = true;
+	mutex_unlock(&ipa3_ctx->lock);
+	return 0;
+
+rollback:
+	for (i = 0; i < min_t(u32, ipa3_ctx->ipa_num_pipes, IPA_MAX_FLT_TBLS); i++) {
+		ep = &ipa3_ctx->ep[i];
+
+		if (!ep->sw_routing_flt4_hdl_list.next)
+			INIT_LIST_HEAD(&ep->sw_routing_flt4_hdl_list);
+		list_for_each_entry_safe(node, tmp,
+				&ep->sw_routing_flt4_hdl_list, link) {
+			if (node->hdl)
+				__ipa_del_flt_rule(node->hdl);
+			list_del(&node->link);
+			kfree(node);
+		}
+		if (!ep->sw_routing_flt6_hdl_list.next)
+			INIT_LIST_HEAD(&ep->sw_routing_flt6_hdl_list);
+		list_for_each_entry_safe(node, tmp,
+				&ep->sw_routing_flt6_hdl_list, link) {
+			if (node->hdl)
+				__ipa_del_flt_rule(node->hdl);
+			list_del(&node->link);
+			kfree(node);
+		}
+	}
+	{
+		int rb4 = ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4);
+		int rb6 = ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
+
+		if (rb4 || rb6)
+			IPAERR("SW routing rollback commit failed (v4=%d v6=%d) — HW/SW may be inconsistent\n",
+				rb4, rb6);
+	}
+	ipa3_ctx->ipa_sw = false;
+	mutex_unlock(&ipa3_ctx->lock);
+	return res;
+}
+
+/* ipa3_sw_routing_disable() - undo ipa3_sw_routing_enable(). */
+int ipa3_sw_routing_disable(void)
+{
+	int i;
+	struct ipa3_ep_context *ep;
+	struct ipa3_init_flt_rule_hdl *node, *tmp;
+	int res;
+
+	IPADBG("SW routing disable requested\n");
+	mutex_lock(&ipa3_ctx->lock);
+
+	if (!ipa3_ctx->ipa_sw) {
+		IPADBG("SW routing not enabled\n");
+		mutex_unlock(&ipa3_ctx->lock);
+		return 0;
+	}
+
+	for (i = 0; i < min_t(u32, ipa3_ctx->ipa_num_pipes, IPA_MAX_FLT_TBLS); i++) {
+		ep = &ipa3_ctx->ep[i];
+
+		if (!ep->sw_routing_flt4_hdl_list.next)
+			INIT_LIST_HEAD(&ep->sw_routing_flt4_hdl_list);
+		list_for_each_entry_safe(node, tmp,
+				&ep->sw_routing_flt4_hdl_list, link) {
+			if (node->hdl) {
+				__ipa_del_flt_rule(node->hdl);
+				IPADBG("IPv4 SW-divert rule deleted for ep %d, hdl=0x%x\n",
+					i, node->hdl);
+			}
+			list_del(&node->link);
+			kfree(node);
+		}
+		if (!ep->sw_routing_flt6_hdl_list.next)
+			INIT_LIST_HEAD(&ep->sw_routing_flt6_hdl_list);
+		list_for_each_entry_safe(node, tmp,
+				&ep->sw_routing_flt6_hdl_list, link) {
+			if (node->hdl) {
+				__ipa_del_flt_rule(node->hdl);
+				IPADBG("IPv6 SW-divert rule deleted for ep %d, hdl=0x%x\n",
+					i, node->hdl);
+			}
+			list_del(&node->link);
+			kfree(node);
+		}
+	}
+
+	{
+		int res4 = ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4);
+		int res6 = ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
+
+		if (res4)
+			IPAERR("failed to commit IPv4 flt rules\n");
+		if (res6)
+			IPAERR("failed to commit IPv6 flt rules\n");
+		res = res4 ? res4 : res6;
+	}
+
+	/* Only clear ipa_sw if both commits succeeded — otherwise HW may
+	 * still hold SW-divert rules and clearing the flag would let callers
+	 * observe a disable that never fully happened.
+	 */
+	if (!res)
+		ipa3_ctx->ipa_sw = false;
+	mutex_unlock(&ipa3_ctx->lock);
+	return res;
 }

@@ -8463,7 +8463,7 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EPERM;
 			cmd = IPA_IOC_GET_QOS_PARAMS;
 			break;
-		case IPA_IOC_SET_IPTYPE_MTU:
+		case IPA_IOCTL_SET_IPTYPE_MTU:
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_SET_IPTYPE_MTU))
 				return -EPERM;
 			cmd = IPA_IOC_SET_IPTYPE_MTU;
@@ -10436,6 +10436,12 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v4]);
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v6]);
+
+	/* Per-EP SW-routing rule tracking lists. */
+	for (i = 0; i < IPA_MAX_NUM_PIPES; i++) {
+		INIT_LIST_HEAD(&ipa3_ctx->ep[i].sw_routing_flt4_hdl_list);
+		INIT_LIST_HEAD(&ipa3_ctx->ep[i].sw_routing_flt6_hdl_list);
+	}
 
 	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
 		if ((i < ipa3_ctx->ipa_num_pipes && !ipa_is_ep_support_flt(i)) ||
