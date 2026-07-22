@@ -1678,6 +1678,12 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
  */
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
 {
+	return ipa3_delete_filter_rules_entry_snapshot(intf_idx, flt_entry, NULL);
+}
+
+int ipa3_delete_filter_rules_entry_snapshot(int intf_idx,
+		struct ipa3_flt_entry flt_entry, struct ipa3_flt_entry *out)
+{
 	struct ipa3_intf *entry;
 	struct ipa3_flt_entry *iter, *tmp;
 	int flt_hdl = -1;
@@ -1707,6 +1713,8 @@ int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry
 					iter->rule.rule_id, iter->flt_hdl, iter->cat, iter->ip_type);
 
 					flt_hdl = iter->flt_hdl;
+					if (out)
+						*out = *iter;
 					list_del(&iter->link);
 					kfree(iter);
 

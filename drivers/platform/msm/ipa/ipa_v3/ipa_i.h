@@ -4051,6 +4051,8 @@ bool ipa3_is_vpnum_valid(int intf_idx);
 bool ipa3_query_ext_iface(int intf_idx, struct ipa_ioc_query_intf_ext_props *target_intf);
 bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
+int ipa3_delete_filter_rules_entry_snapshot(int intf_idx,
+		struct ipa3_flt_entry flt_entry, struct ipa3_flt_entry *out);
 
 int ipa3_get_max_pdn(void);
 

@@ -183,6 +183,13 @@ struct ipa_uplink_pair {
 	enum ipa_ip_type ip_type;  /* Track IP version separately */
 	atomic_t ref_count;
 	bool installing;
+	uint8_t notif_mux_id;
+	/* Cached at install time; avoids ipa3_query_iface() + rx_prop walk in
+	 * the delete-notify path (~80ms under contended mutex).
+	 */
+	uint32_t notif_src_pipe;
+	uint32_t notif_ebd_pipe;
+	enum ipa_client_type notif_src_client;
 };
 
 static LIST_HEAD(ipa_uplink_pairs_list);
@@ -207,6 +214,41 @@ static bool ipa_uplink_pair_settled(int pdn_iface, int src_pipe,
 	}
 	spin_unlock_bh(&ipa_uplink_lock);
 	return settled;
+}
+
+/* Global mux_id latched from the first UL install; reset when all pairs are gone.
+ * 0xFF = not yet captured.
+ */
+#define IPA_BE_GLOBAL_QMAP_UNSET 0xFF
+static uint8_t ipa_be_global_qmap_id = IPA_BE_GLOBAL_QMAP_UNSET;
+
+static uint8_t ipa_be_global_qmap_id_latch(uint8_t candidate)
+{
+	uint8_t latched;
+
+	spin_lock_bh(&ipa_uplink_lock);
+	if (ipa_be_global_qmap_id == IPA_BE_GLOBAL_QMAP_UNSET)
+		ipa_be_global_qmap_id = candidate;
+	latched = ipa_be_global_qmap_id;
+	spin_unlock_bh(&ipa_uplink_lock);
+
+	return latched;
+}
+
+static void ipa_be_global_qmap_id_reset_if_empty(void)
+{
+	spin_lock_bh(&ipa_uplink_lock);
+	if (list_empty(&ipa_uplink_pairs_list))
+		ipa_be_global_qmap_id = IPA_BE_GLOBAL_QMAP_UNSET;
+	spin_unlock_bh(&ipa_uplink_lock);
+}
+
+static inline bool ipa_uplink_pair_match(const struct ipa_uplink_pair *p,
+		int pdn_iface, int client_iface, enum ipa_ip_type ip_type)
+{
+	return p->pdn_iface == pdn_iface &&
+	       p->client_iface == client_iface &&
+	       p->ip_type == ip_type;
 }
 
 /*
@@ -279,6 +321,17 @@ static struct ipa_pdn_filter_rules *ipa_find_pdn_filter_entry(int pdn_iface, enu
 	}
 	return NULL;
 }
+
+bool ipa_be_pdn_filter_installed(int pdn_iface, enum ipa_ip_type ip_type)
+{
+	bool installed;
+
+	spin_lock_bh(&ipa_pdn_filter_lock);
+	installed = ipa_find_pdn_filter_entry(pdn_iface, ip_type) != NULL;
+	spin_unlock_bh(&ipa_pdn_filter_lock);
+	return installed;
+}
+EXPORT_SYMBOL(ipa_be_pdn_filter_installed);
 
 /* wait_event predicate: re-locks and re-walks to avoid stale pointer on free. */
 static bool ipa_pdn_eth_bh_catchall_settled(int pdn_iface,
@@ -567,7 +620,7 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 
 	spin_lock_bh(&ipa_uplink_lock);
 	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-		if (pair->pdn_iface == pdn_iface && pair->client_iface == client_iface && pair->ip_type == iptype) {
+		if (ipa_uplink_pair_match(pair, pdn_iface, client_iface, iptype)) {
 			atomic_inc(&pair->ref_count);
 			spin_unlock_bh(&ipa_uplink_lock);
 			IPA_BE_DBG("Uplink filter for pdn %d, client %d, IP type %d already installed. ref_count: %d\n",
@@ -676,7 +729,8 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 		flt_index->retain_header = 0;
 		flt_index->embedded_call_mux_id_valid = 1;
 
-		flt_index->embedded_call_mux_id = ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0;
+		flt_index->embedded_call_mux_id = ipa_be_global_qmap_id_latch(
+			ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
 
 		IPA_BE_DBG("flt_index: src pipe: %d, num of rules: %d, ebd pipe: %d, mux id: %d\n",
 			flt_index->source_pipe_index, flt_index->rule_id_len, flt_index->embedded_pipe_index, flt_index->embedded_call_mux_id);
@@ -904,6 +958,17 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 	}
 
 	if (retval == 0) {
+		int ep_src, ep_ebd;
+
+		ep_src = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
+		ep_ebd = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
+		if (ep_src < 0 || ep_ebd < 0) {
+			IPA_BE_ERR("Invalid EP mapping src=%d ebd=%d for src_pipe %d\n",
+				ep_src, ep_ebd, rx_prop->rx[idx].src_pipe);
+			retval = -EINVAL;
+			goto end;
+		}
+
 		new_pair = kzalloc(sizeof(struct ipa_uplink_pair), GFP_KERNEL);
 		if (!new_pair) {
 			IPA_BE_ERR("Failed to allocate memory for uplink pair\n");
@@ -914,6 +979,12 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 		new_pair->client_iface = client_iface;
 		new_pair->ip_type = iptype;
 		atomic_set(&new_pair->ref_count, 1);
+		/* Latched after kzalloc so allocation failure cannot strand qmap. */
+		new_pair->notif_mux_id = ipa_be_global_qmap_id_latch(
+			ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
+		new_pair->notif_src_pipe   = (uint32_t)ep_src;
+		new_pair->notif_ebd_pipe   = (uint32_t)ep_ebd;
+		new_pair->notif_src_client = rx_prop->rx[idx].src_pipe;
 
 		spin_lock_bh(&ipa_uplink_lock);
 		list_add(&new_pair->node, &ipa_uplink_pairs_list);
@@ -939,8 +1010,7 @@ end:
 		}
 	}
 	kfree(installed_hdls);
-	if (flt_index)
-		kfree(flt_index);
+	kfree(flt_index);
 	if (pFilteringTable) {
 		if (pFilteringTable->rules)
 			kfree((void *)(uintptr_t)pFilteringTable->rules);
@@ -966,7 +1036,12 @@ int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type
 	flt_entry.cat = category;
 	flt_entry.ip_type = iptype;
 	for (;;) {
-		flt_hdl = ipa3_delete_filter_rules_entry(intf_num, flt_entry);
+		struct ipa3_flt_entry popped;
+
+		/* Snapshot the entry so it can be restored if the HW delete
+		 * fails; the primitive frees the SW entry on match.
+		 */
+		flt_hdl = ipa3_delete_filter_rules_entry_snapshot(intf_num, flt_entry, &popped);
 		if (flt_hdl == -1)
 			break;
 		struct ipa_ioc_del_flt_rule flt_param = {0};
@@ -978,18 +1053,20 @@ int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type
 		flt_param.hdl[0].hdl = flt_hdl;
 		IPA_BE_DBG("Deleting filter hdl:(0x%x) with cat:%d ip type: %d\n", flt_hdl, category, iptype);
 		ret = ipa3_del_flt_rule((struct ipa_ioc_del_flt_rule *)&flt_param);
-		if (ret) {
-			IPA_BE_ERR("Failed HW delete for intf:%d cat:%d ip:%d flt_hdl:%d, ipa3_del_flt_rule returned: %d\n",
-				intf_num, category, iptype, flt_hdl, ret);
-			retval = ret;
-		} else if (flt_param.hdl[0].status != 0) {
-			IPA_BE_ERR("HW delete for intf:%d cat:%d ip:%d flt_hdl:%d failed with status:%d\n",
-				intf_num, category, iptype, flt_hdl, flt_param.hdl[0].status);
-			retval = -EFAULT;
-		} else {
-			IPA_BE_DBG("Filter rule deleted successfully for intf:%d cat:%d ip:%d flt_hdl:0x%x\n",
-				intf_num, category, iptype, flt_hdl);
+		if (ret || flt_param.hdl[0].status != 0) {
+			IPA_BE_ERR("HW delete failed intf:%d cat:%d ip:%d hdl:%d ret:%d/%d; restoring SW entry\n",
+				intf_num, category, iptype, flt_hdl, ret, flt_param.hdl[0].status);
+			/* Restore the SW entry and stop (re-matching it would
+			 * spin); let the caller retry the whole teardown.
+			 */
+			if (!ipa3_add_filter_rules_entry(intf_num, popped))
+				IPA_BE_ERR("CRITICAL: failed to restore SW filter entry hdl:%d intf:%d; SW/HW desynced\n",
+					flt_hdl, intf_num);
+			retval = ret ? ret : -EFAULT;
+			break;
 		}
+		IPA_BE_DBG("Filter rule deleted successfully for intf:%d cat:%d ip:%d flt_hdl:0x%x\n",
+			intf_num, category, iptype, flt_hdl);
 	}
 	return retval;
 }
@@ -2587,7 +2664,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 
 	spin_lock_bh(&ipa_uplink_lock);
 	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-		if (pair->pdn_iface == pdn_iface && pair->client_iface == client_iface && pair->ip_type == iptype) {
+		if (ipa_uplink_pair_match(pair, pdn_iface, client_iface, iptype)) {
 			atomic_inc(&pair->ref_count);
 			spin_unlock_bh(&ipa_uplink_lock);
 			IPA_BE_DBG("Uplink filter for pdn %d, client %d, IP type %d already installed. ref_count: %d\n",
@@ -2723,7 +2800,8 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 		flt_index.embedded_call_mux_id = IPACM_Iface::ipacmcfg->GetQmapId();
 #endif
 */
-		flt_index->embedded_call_mux_id = ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0;
+		flt_index->embedded_call_mux_id = ipa_be_global_qmap_id_latch(
+			ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
 
 		IPA_BE_DBG("flt_index: src pipe: %d, num of rules: %d, ebd pipe: %d, mux id: %d\n",
 				   flt_index->source_pipe_index, flt_index->rule_id_len, flt_index->embedded_pipe_index, flt_index->embedded_call_mux_id);
@@ -2944,6 +3022,17 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 
 	if (retval == 0)
 	{
+		int ep_src, ep_ebd;
+
+		ep_src = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
+		ep_ebd = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
+		if (ep_src < 0 || ep_ebd < 0) {
+			IPA_BE_ERR("Invalid EP mapping src=%d ebd=%d for src_pipe %d\n",
+				ep_src, ep_ebd, rx_prop->rx[idx].src_pipe);
+			retval = -EINVAL;
+			goto end;
+		}
+
 		new_pair = kzalloc(sizeof(struct ipa_uplink_pair), GFP_KERNEL);
 		if (!new_pair) {
 			IPA_BE_ERR("Failed to allocate memory for uplink pair\n");
@@ -2954,6 +3043,12 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 		new_pair->client_iface = client_iface;
 		new_pair->ip_type = iptype;
 		atomic_set(&new_pair->ref_count, 1);
+		/* Latched after kzalloc so allocation failure cannot strand qmap. */
+		new_pair->notif_mux_id = ipa_be_global_qmap_id_latch(
+			ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
+		new_pair->notif_src_pipe   = (uint32_t)ep_src;
+		new_pair->notif_ebd_pipe   = (uint32_t)ep_ebd;
+		new_pair->notif_src_client = rx_prop->rx[idx].src_pipe;
 
 		spin_lock_bh(&ipa_uplink_lock);
 		list_add(&new_pair->node, &ipa_uplink_pairs_list);
@@ -3291,13 +3386,58 @@ fail:
 }
 EXPORT_SYMBOL(ipa_be_v6_delete_filter_rule);
 
+static int ipa_be_notify_q6_uplink_delete(int pdn_iface, int client_iface,
+	enum ipa_ip_type iptype, uint8_t mux_id,
+	uint32_t src_pipe, uint32_t ebd_pipe,
+	enum ipa_client_type src_client)
+{
+	struct ipa_fltr_installed_notif_req_msg_v01 flt_index;
+	int retval = 0;
+
+	IPA_BE_DBG("Q6 delete-notify ENTRY: pdn_iface=%d client_iface=%d iptype=%d mux_id=%u\n",
+		pdn_iface, client_iface, iptype, mux_id);
+
+	memset(&flt_index, 0, sizeof(flt_index));
+	flt_index.source_pipe_index        = src_pipe;
+	flt_index.install_status           = IPA_QMI_RESULT_SUCCESS_V01;
+	flt_index.rule_id_valid            = 1;
+	flt_index.rule_id_len              = 0;   /* delete-all form */
+	flt_index.embedded_pipe_index_valid = 1;
+	flt_index.embedded_pipe_index      = ebd_pipe;
+	flt_index.retain_header_valid      = 1;
+	flt_index.retain_header            = 0;
+	flt_index.embedded_call_mux_id_valid = 1;
+	flt_index.embedded_call_mux_id     = mux_id;
+
+	IPA_BE_DBG("Q6 delete-notify SEND: src_pipe=%d ebd_pipe=%d mux=%d ip=%d\n",
+		src_pipe, ebd_pipe, mux_id, iptype);
+
+	if (ipa3_qmi_filter_notify_send(&flt_index)) {
+		IPA_BE_ERR("Q6 uplink delete notify FAILED for pipe %d ip %d\n",
+			src_pipe, iptype);
+		retval = -EFAULT;
+	} else {
+		if ((unsigned int)src_client < IPA_CLIENT_MAX) {
+			if (iptype == IPA_IP_v4 && flt_rule_count_v4[src_client] > 0)
+				flt_rule_count_v4[src_client]--;
+			else if (iptype == IPA_IP_v6 && flt_rule_count_v6[src_client] > 0)
+				flt_rule_count_v6[src_client]--;
+		} else {
+			IPA_BE_ERR("src_client %d out of range, skipping flt_rule_count update\n",
+				src_client);
+		}
+	}
+
+	IPA_BE_DBG("Q6 delete-notify EXIT: pdn_iface=%d client_iface=%d iptype=%d retval=%d\n",
+		pdn_iface, client_iface, iptype, retval);
+	return retval;
+}
+
 int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg, int pdn_iface, int client_iface)
 {
-	int retval = -1;
-	struct ipa_uplink_pair *pair, *tmp;
-	bool found = false;
+	int retval = 0;
+	struct ipa_uplink_pair *pair, *self = NULL;
 	bool is_xlat = false;
-	bool delete_ul_rules = true;
 
 	IPA_BE_DBG("Entry ipa_be_v4_delete_filter_rule for pdn_iface %d client_iface %d \n", pdn_iface, client_iface);
 
@@ -3305,143 +3445,193 @@ int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg,
 	if (((ntohl(v4_msg.tuple.flow_ip) & 0xFFFFFF00U) == 0xC0000000U) ||
 	    ((ntohl(v4_msg.tuple.return_ip) & 0xFFFFFF00U) == 0xC0000000U) ||
 	    ((ntohl(v4_msg.conn_rule.flow_ip_xlate) & 0xFFFFFF00U) == 0xC0000000U) ||
-	    ((ntohl(v4_msg.conn_rule.return_ip_xlate & 0xFFFFFF00U) == 0xC0000000U))) {
+	    ((ntohl(v4_msg.conn_rule.return_ip_xlate) & 0xFFFFFF00U) == 0xC0000000U)) {
 		is_xlat = true;
 		IPA_BE_DBG("XLAT traffic detected during deletion: flow %pI4n return %pI4n\n",
 			   &v4_msg.tuple.flow_ip, &v4_msg.tuple.return_ip);
 	}
 
 	spin_lock_bh(&ipa_uplink_lock);
-	list_for_each_entry_safe(pair, tmp, &ipa_uplink_pairs_list, node) {
-		if (pair->pdn_iface == pdn_iface && pair->client_iface == client_iface && pair->ip_type == IPA_IP_v4) {
-			atomic_dec(&pair->ref_count);
-			IPA_BE_DBG("Decremented ref_count for uplink pair pdn %d, client %d, IP type %d. New count: %d\n",
-				pdn_iface, client_iface, pair->ip_type, atomic_read(&pair->ref_count));
-			if (atomic_read(&pair->ref_count) > 0) {
-				/* Other connections are still using these rules, so don't delete them */
-				spin_unlock_bh(&ipa_uplink_lock);
-				return 0;
-			}
-			/* ref_count is 0, proceed with deletion and remove tracking entry */
-			list_del(&pair->node);
-			kfree(pair);
-			found = true;
+	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
+		if (ipa_uplink_pair_match(pair, pdn_iface, client_iface, IPA_IP_v4)) {
+			self = pair;
 			break;
 		}
 	}
-
-	/* Check if there are any other pairs using the same client_iface with this IP type */
-	if (found) {
-		list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-			if (pair->client_iface == client_iface && pair->ip_type == IPA_IP_v4) {
-				delete_ul_rules = false;
-				IPA_BE_DBG("Found another pair using client_iface %d with pdn %d, IP type %d. Not deleting rules.\n",
-					client_iface, pair->pdn_iface, pair->ip_type);
-				break;
-			}
-		}
-	}
-	spin_unlock_bh(&ipa_uplink_lock);
-
-	if (!found) {
-		IPA_BE_ERR("No uplink filter tracking entry found for pdn %d, client %d. Cannot delete.\n",
+	if (!self) {
+		spin_unlock_bh(&ipa_uplink_lock);
+		IPA_BE_ERR("No uplink tracking entry for pdn %d, client %d\n",
 			pdn_iface, client_iface);
 		return -ENOENT;
 	}
-
-	if (!delete_ul_rules) {
-		IPA_BE_DBG("Other pairs still using client_iface %d. Skipping hardware rule deletion.\n", client_iface);
+	if (atomic_read(&self->ref_count) <= 0) {
+		spin_unlock_bh(&ipa_uplink_lock);
+		IPA_BE_ERR("ref_count already 0 for pdn %d, client %d — spurious v4 delete\n",
+			pdn_iface, client_iface);
+		return -EINVAL;
+	}
+	if (atomic_read(&self->ref_count) > 1) {
+		atomic_dec(&self->ref_count);
+		spin_unlock_bh(&ipa_uplink_lock);
+		IPA_BE_DBG("Decremented ref_count for pdn %d, client %d to %d\n",
+			pdn_iface, client_iface, atomic_read(&self->ref_count));
 		return 0;
 	}
+	/* Keep pair alive until WAN PDN goes down; flush fires the HW delete and Q6 notify. */
+	atomic_dec(&self->ref_count);
+	spin_unlock_bh(&ipa_uplink_lock);
+	IPA_BE_DBG("ref_count for pdn %d, client %d hit 0 — pair kept until PDN down\n",
+		pdn_iface, client_iface);
 
-	IPA_BE_DBG("No other pairs using client_iface %d, proceeding with hardware rule deletion for pdn %d, client %d.\n",
-		client_iface, pdn_iface, client_iface);
-
-	retval = ipa_be_delete_rules_by_category(client_iface, IPA_FLT_RULE_CAT_UPLINK, IPA_IP_v4);
-	if (retval == 0) {
-		IPA_BE_DBG("Uplink filter rules deleted successfully for client_iface:%d\n", client_iface);
-	} else {
-		IPA_BE_ERR("Failed to delete uplink filter rules for client_iface:%d, retval=%d\n", client_iface, retval);
-	}
-
-	/* If this was XLAT traffic, also delete the corresponding v6 uplink filter */
+	/* XLAT installed a v6 companion; mirror the ref-count decrement so the
+	 * v6 pair tracks correctly. HW/Q6 cleanup happens at flush time.
+	 */
 	if (is_xlat) {
 		struct ipa_ipv6_rule_destroy_msg v6_msg_xlat;
+		int v6_ret;
 		memset(&v6_msg_xlat, 0, sizeof(v6_msg_xlat));
 
-		IPA_BE_DBG("Deleting corresponding v6 uplink filter for XLAT traffic\n");
-		ipa_be_v6_delete_uplink_filter_rule(v6_msg_xlat, pdn_iface, client_iface);
+		IPA_BE_DBG("Decrementing v6 uplink companion for XLAT traffic\n");
+		v6_ret = ipa_be_v6_delete_uplink_filter_rule(v6_msg_xlat, pdn_iface, client_iface);
+		/* -ENOENT (no companion) and -EINVAL (already at 0) are both
+		 * legitimate: the v6 companion may have been cleaned up
+		 * already. The v4 side has already decremented its ref_count
+		 * above; do not propagate these as errors.
+		 */
+		if (v6_ret && v6_ret != -ENOENT && v6_ret != -EINVAL) {
+			IPA_BE_ERR("Failed to decrement v6 companion ref_count: %d\n", v6_ret);
+			if (retval == 0)
+				retval = v6_ret;
+		}
 	}
 
 	return retval;
-
 }
 EXPORT_SYMBOL(ipa_be_v4_delete_uplink_filter_rule);
 
 int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int pdn_iface, int client_iface)
 {
-	int retval = -1;
-	struct ipa_uplink_pair *pair, *tmp;
-	bool found = false;
-	bool delete_ul_rules = true;
+	struct ipa_uplink_pair *pair, *self = NULL;
 
 	IPA_BE_DBG("Entry ipa_be_v6_delete_uplink_filter_rule for pdn_iface %d client_iface %d \n", pdn_iface, client_iface);
 
 	spin_lock_bh(&ipa_uplink_lock);
-	list_for_each_entry_safe(pair, tmp, &ipa_uplink_pairs_list, node) {
-		if (pair->pdn_iface == pdn_iface && pair->client_iface == client_iface && pair->ip_type == IPA_IP_v6) {
-			atomic_dec(&pair->ref_count);
-			IPA_BE_DBG("Decremented ref_count for uplink pair pdn %d, client %d, IP type %d. New count: %d\n",
-				pdn_iface, client_iface, pair->ip_type, atomic_read(&pair->ref_count));
-			if (atomic_read(&pair->ref_count) > 0) {
-				/* Other connections are still using these rules, so don't delete them */
-				spin_unlock_bh(&ipa_uplink_lock);
-				return 0;
-			}
-			/* ref_count is 0, proceed with deletion and remove tracking entry */
-			list_del(&pair->node);
-			kfree(pair);
-			found = true;
+	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
+		if (ipa_uplink_pair_match(pair, pdn_iface, client_iface, IPA_IP_v6)) {
+			self = pair;
 			break;
 		}
 	}
-
-	/* Check if there are any other pairs using the same client_iface with this IP type */
-	if (found) {
-		list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-			if (pair->client_iface == client_iface && pair->ip_type == IPA_IP_v6) {
-				delete_ul_rules = false;
-				IPA_BE_DBG("Found another pair using client_iface %d with pdn %d, IP type %d. Not deleting rules.\n",
-					client_iface, pair->pdn_iface, pair->ip_type);
-				break;
-			}
-		}
-	}
-	spin_unlock_bh(&ipa_uplink_lock);
-
-	if (!found) {
-		IPA_BE_ERR("No uplink filter tracking entry found for pdn %d, client %d. Cannot delete.\n",
+	if (!self) {
+		spin_unlock_bh(&ipa_uplink_lock);
+		IPA_BE_ERR("No uplink tracking entry for pdn %d, client %d\n",
 			pdn_iface, client_iface);
 		return -ENOENT;
 	}
-
-	if (!delete_ul_rules) {
-		IPA_BE_DBG("Other pairs still using client_iface %d. Skipping hardware rule deletion.\n", client_iface);
-		return 0;
+	if (atomic_read(&self->ref_count) <= 0) {
+		spin_unlock_bh(&ipa_uplink_lock);
+		IPA_BE_ERR("ref_count already 0 for pdn %d, client %d — spurious v6 delete\n",
+			pdn_iface, client_iface);
+		return -EINVAL;
 	}
+	/* Per-connection teardown: decrement ref_count; pair stays alive until PDN flush. */
+	atomic_dec(&self->ref_count);
+	spin_unlock_bh(&ipa_uplink_lock);
+	IPA_BE_DBG("Decremented ref_count for pdn %d, client %d to %d (pair kept until PDN down)\n",
+		pdn_iface, client_iface, atomic_read(&self->ref_count));
 
-	IPA_BE_DBG("No other pairs using client_iface %d, proceeding with hardware rule deletion for pdn %d, client %d.\n",
-		client_iface, pdn_iface, client_iface);
-
-	retval = ipa_be_delete_rules_by_category(client_iface, IPA_FLT_RULE_CAT_UPLINK, IPA_IP_v6);
-	if (retval == 0) {
-		IPA_BE_DBG("Uplink filter rules deleted successfully for client_iface:%d\n", client_iface);
-	} else {
-		IPA_BE_ERR("Failed to delete uplink filter rules for client_iface:%d, retval=%d\n", client_iface, retval);
-	}
-	return retval;
+	return 0;
 }
 EXPORT_SYMBOL(ipa_be_v6_delete_uplink_filter_rule);
+
+void ipa_be_flush_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type)
+{
+	IPA_BE_DBG("flush Q6 UL notify for pdn_iface=%d ip_type=%d\n",
+		pdn_iface, ip_type);
+
+	/* Drop lock before QMI/HW work; re-acquire each iteration to avoid stale pointers. */
+	while (true) {
+		struct ipa_uplink_pair *pair, *target = NULL;
+		int target_pdn, client_iface;
+		uint8_t mux_id;
+		uint32_t src_pipe, ebd_pipe;
+		enum ipa_client_type src_client;
+		bool client_still_used = false;
+
+		spin_lock_bh(&ipa_uplink_lock);
+		list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
+			if (pair->pdn_iface == pdn_iface &&
+			    pair->ip_type == ip_type) {
+				target = pair;
+				break;
+			}
+		}
+		if (!target) {
+			spin_unlock_bh(&ipa_uplink_lock);
+			break;
+		}
+
+		target_pdn   = target->pdn_iface;
+		client_iface = target->client_iface;
+		mux_id       = target->notif_mux_id;
+		src_pipe     = target->notif_src_pipe;
+		ebd_pipe     = target->notif_ebd_pipe;
+		src_client   = target->notif_src_client;
+
+		list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
+			if (pair == target)
+				continue;
+			if (pair->client_iface == client_iface && pair->ip_type == ip_type) {
+				client_still_used = true;
+				break;
+			}
+		}
+
+		if (client_still_used) {
+			list_del_init(&target->node);
+			spin_unlock_bh(&ipa_uplink_lock);
+			IPA_BE_DBG("client_iface %d still used by another PDN; skip HW rule delete and Q6 notify\n",
+				client_iface);
+			kfree(target);
+			continue;
+		}
+		/* Remove target from the list before dropping the lock so a
+		 * concurrent flusher cannot latch the same pair and race us to
+		 * kfree(). On HW failure we re-insert so a later event retries.
+		 */
+		list_del_init(&target->node);
+		spin_unlock_bh(&ipa_uplink_lock);
+
+		/* HW delete first; on failure, put the pair back on the list so
+		 * a later event can retry the flush.
+		 */
+		{
+			int hw_ret = ipa_be_delete_rules_by_category(client_iface,
+								     IPA_FLT_RULE_CAT_UPLINK, ip_type);
+			if (hw_ret) {
+				IPA_BE_ERR("HW uplink delete failed for client %d ip %d (%d) — flush aborted, remaining pairs retained for next trigger\n",
+					client_iface, ip_type, hw_ret);
+				spin_lock_bh(&ipa_uplink_lock);
+				/* Re-insert at tail so the next flush processes
+				 * other pairs first and this failing pair is
+				 * retried last, avoiding a head-of-line block.
+				 */
+				list_add_tail(&target->node, &ipa_uplink_pairs_list);
+				spin_unlock_bh(&ipa_uplink_lock);
+				break;
+			}
+		}
+
+		ipa_be_notify_q6_uplink_delete(target_pdn, client_iface, ip_type,
+					       mux_id, src_pipe, ebd_pipe, src_client);
+
+		kfree(target);
+	}
+
+	/* Reset global mux_id when list is empty so next bring-up latches a fresh value. */
+	ipa_be_global_qmap_id_reset_if_empty();
+}
+EXPORT_SYMBOL(ipa_be_flush_uplink_rules_for_pdn);
 
 static bool AddWanDLFilteringRule(
 	struct ipa_ioc_add_flt_rule const *rule_table_v4,

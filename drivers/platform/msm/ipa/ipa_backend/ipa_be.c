@@ -1922,6 +1922,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 	bool ret_filter_added = false;
 	bool flow_route_added = false;
 	bool flow_filter_added = false;
+	bool dl_first_install = false;
 
 	ipa_be_log_ipv4_rule_details(v4_msg);
 
@@ -2169,6 +2170,8 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 		step = V4_MDM_STEP_MTU_RULE;
 
 		/* Install downlink rules */
+		dl_first_install = !ipa_be_pdn_filter_installed(pdn_iface, IPA_IP_v4);
+
 		ret = add_dft_filtering_rule(pdn_iface, IPA_IP_v4);
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to add dft filtering rule\n");
@@ -2190,12 +2193,18 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 		}
 		step = V4_MDM_STEP_CATCHUP_ALL;
 
-		ret = install_wan_filtering_rule();
-		if (ret != 0) {
-			IPA_BE_ERR("Failed to install wan filtering rule\n");
-			goto failed_ret;
+		if (dl_first_install) {
+			ret = install_wan_filtering_rule();
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to install wan filtering rule\n");
+				goto failed_ret;
+			}
+			step = V4_MDM_STEP_WAN_FILTER;
+		} else {
+			IPA_BE_DBG("DL rules already installed for pdn_iface=%d IPv4; skip Q6 push\n",
+				pdn_iface);
+			step = V4_MDM_STEP_WAN_FILTER;
 		}
-		step = V4_MDM_STEP_WAN_FILTER;
 
 #ifdef CONFIG_ECM_CONVERGENCE
 		/* QoS rule installation is best-effort and non-fatal: if no matching
@@ -2363,6 +2372,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 	bool ret_filter_added = false;
 	bool flow_route_added = false;
 	bool flow_filter_added = false;
+	bool dl_first_install = false;
 
 	ipa_be_log_ipv6_rule_details(v6_msg);
 
@@ -2587,7 +2597,8 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			}
 			step = V6_MDM_STEP_MTU_RULE;
 
-			/* Install downlink rules */
+			dl_first_install = !ipa_be_pdn_filter_installed(pdn_iface, IPA_IP_v6);
+
 			ret = add_dft_filtering_rule(pdn_iface, IPA_IP_v6);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add IPv6 dft filtering rule\n");
@@ -2609,12 +2620,18 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			}
 			step = V6_MDM_STEP_CATCHUP_ALL;
 
-			ret = install_wan_filtering_rule();
-			if (ret != 0) {
-				IPA_BE_ERR("Failed to install wan filtering rule\n");
-				goto failed_ret;
+			if (dl_first_install) {
+				ret = install_wan_filtering_rule();
+				if (ret != 0) {
+					IPA_BE_ERR("Failed to install wan filtering rule\n");
+					goto failed_ret;
+				}
+				step = V6_MDM_STEP_WAN_FILTER;
+			} else {
+				IPA_BE_DBG("DL rules already installed for pdn_iface=%d IPv6; skip Q6 push\n",
+					pdn_iface);
+				step = V6_MDM_STEP_WAN_FILTER;
 			}
-			step = V6_MDM_STEP_WAN_FILTER;
 
 #ifdef CONFIG_ECM_CONVERGENCE
 			/* QoS rule installation is best-effort and non-fatal. */
@@ -3081,6 +3098,9 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 			if (wan_ref == 0)
 				ipa_be_backhaul_cache_invalidate(pdn_iface);
 
+			/* NAT entry delete FIRST — UL Q6 notify fires while DL filter
+			 * state is still active, so Q6's lookup succeeds.
+			 */
 #ifdef CONFIG_ECM_CONVERGENCE
 			/* Hold ipa_client_db_lock across the entire QoS cleanup sequence to
 			 * prevent a race where Thread B adds a connection and installs
@@ -3342,6 +3362,15 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			/* Invalidate only on last flow; per-flow would thrash the cache. */
 			if (wan_ip_ptr && wan_ref == 0)
 				ipa_be_backhaul_cache_invalidate(pdn_iface);
+
+			/* CT entry delete FIRST — same rationale as v4: fires UL Q6 notify
+			 * while DL filter state is still active in Q6.
+			 */
+#ifdef CONFIG_ECM_CONVERGENCE
+			ipa_be_handle_v6_ct_deletion(msg, false);
+#else
+			IPA_BE_DBG("NAT support disabled - skipping ipa_be_handle_v6_ct_deletion\n");
+#endif
 		} else {
 			if (ipa_be_v6_delete_uplink_filter_rule(*msg, pdn_iface, client_iface) != 0)
 				IPA_BE_ERR("Failed to delete uplink filter rule for pdn %d, client %d\n",
