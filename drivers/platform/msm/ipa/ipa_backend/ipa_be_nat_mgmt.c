@@ -1336,9 +1336,9 @@ EXPORT_SYMBOL(ipv6ct_add_entry);
  *                 when true, swap src/dest so return_ip becomes src
  *
  * Uses IPA_IPV6CT_DIRECTION_ALLOW_ALL so the single canonical entry
- * covers both inbound and outbound traffic for the LAN2LAN pair.
- * Also populates the rule's SW producer classification cookie from
- * flow/return interface vpnum, when applicable.
+ * covers both inbound and outbound traffic for the connection (LAN2LAN
+ * pair or LAN2WAN flow). Also populates the rule's SW producer
+ * classification cookie from flow/return interface vpnum, when applicable.
  */
 static int ipv6ct_add_entry_v2(struct ipa_ipv6_rule_create_msg *v6_msg,
 			       uint32_t *rule_handle,
@@ -1629,7 +1629,15 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 			if (ret)
 				goto cleanup;
 		} else {
-			/* LAN2WAN is single direction: flow_ip is always src, no swap. */
+			/*
+			 * LAN2WAN: Uplink (return side is the top/WAN interface)
+			 * keeps flow_ip as src; Downlink (return side is not the
+			 * top interface) swaps so return_ip (the LAN side) becomes
+			 * src. Mirrors the pre-v7.0 ipv6ct_convert_to_ipa_rule()
+			 * orientation so src/dest ordering stays version-independent.
+			 */
+			swap_src_dest = (v6_msg.conn_rule.return_interface_num !=
+					 v6_msg.conn_rule.return_top_interface_num);
 		}
 	}
 
@@ -2542,13 +2550,21 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 	 * Find and delete the forward IPv6 CT entry.
 	 *
 	 * Reached for pre-v7.0 LAN2LAN/LAN2WAN and for v7.0+ LAN2WAN (v7.0+
-	 * LAN2LAN already returned above via its own canonical swap). Swap is
-	 * a LAN2LAN-only concept — LAN2WAN is always single direction
-	 * (flow_ip as src, mirroring the add path), so no swap applies here
-	 * regardless of HW version.
+	 * LAN2LAN already returned above via its own canonical swap). For
+	 * v7.0+ LAN2WAN, mirror the same Uplink/Downlink-based swap applied
+	 * on the add path so the cache lookup key matches what was stored.
 	 */
-	cache_idx = find_ipv6_ct_entry(src_ipv6_msb, src_ipv6_lsb, dest_ipv6_msb, dest_ipv6_lsb,
-					src_port, dest_port, tuple->protocol);
+	if (ipa_ver >= IPA_HW_v7_0 &&
+	    msg->conn_rule.return_interface_num != msg->conn_rule.return_top_interface_num) {
+		/* Downlink LAN2WAN: return_ip is the stored src (swap). */
+		cache_idx = find_ipv6_ct_entry(dest_ipv6_msb, dest_ipv6_lsb,
+					       src_ipv6_msb, src_ipv6_lsb,
+					       dest_port, src_port, tuple->protocol);
+	} else {
+		cache_idx = find_ipv6_ct_entry(src_ipv6_msb, src_ipv6_lsb,
+					       dest_ipv6_msb, dest_ipv6_lsb,
+					       src_port, dest_port, tuple->protocol);
+	}
 
 	if (cache_idx >= 0) {
 		uint16_t all_pkts_counter;
