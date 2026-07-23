@@ -138,6 +138,7 @@ static int ipa_get_generic_stats(unsigned long arg)
 	struct ipa_uc_holb_client_info *holb_client;
 	struct holb_discard_stats *holb_disc_stats_ptr;
 	struct holb_monitor_stats *holb_mon_stats_ptr;
+	int ind;
 
 	if (!(ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_GENERIC_STATS)) {
 		IPA_STATS_ERR("Log type GENERIC mask not set\n");
@@ -178,29 +179,31 @@ static int ipa_get_generic_stats(unsigned long arg)
 	generic_stats->pg_rec_stats.def_temp_repl_buff =
 		ipa3_ctx->stats.page_recycle_stats[1].tmp_alloc;
 	/* Exception stats */
-	generic_stats->excep_stats.excptn_type_none =
-		ipa3_ctx->stats.rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_NONE];
-	generic_stats->excep_stats.excptn_type_deaggr =
-		ipa3_ctx->stats.rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_DEAGGR];
-	generic_stats->excep_stats.excptn_type_iptype =
-		ipa3_ctx->stats.rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_IPTYPE];
-	generic_stats->excep_stats.excptn_type_pkt_len =
-		ipa3_ctx->stats.rx_excp_pkts[
-			IPAHAL_PKT_STATUS_EXCEPTION_PACKET_LENGTH];
-	generic_stats->excep_stats.excptn_type_pkt_thrshld =
-		ipa3_ctx->stats.rx_excp_pkts[
-			IPAHAL_PKT_STATUS_EXCEPTION_PACKET_THRESHOLD];
-	generic_stats->excep_stats.excptn_type_frag_rule_miss =
-		ipa3_ctx->stats.rx_excp_pkts[
-			IPAHAL_PKT_STATUS_EXCEPTION_FRAG_RULE_MISS];
-	generic_stats->excep_stats.excptn_type_sw_flt =
-		ipa3_ctx->stats.rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_SW_FILT];
-	generic_stats->excep_stats.excptn_type_nat =
-		ipa3_ctx->stats.rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_NAT];
-	generic_stats->excep_stats.excptn_type_ipv6_ct =
-		ipa3_ctx->stats.rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_IPV6CT];
-	generic_stats->excep_stats.excptn_type_csum =
-		ipa3_ctx->stats.rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_CSUM];
+	for (ind = 0; ind < MAX_RC_CLIENTS; ind++) {
+		generic_stats->excep_stats.excptn_type_none +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][IPAHAL_PKT_STATUS_EXCEPTION_NONE];
+		generic_stats->excep_stats.excptn_type_deaggr +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][IPAHAL_PKT_STATUS_EXCEPTION_DEAGGR];
+		generic_stats->excep_stats.excptn_type_iptype +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][IPAHAL_PKT_STATUS_EXCEPTION_IPTYPE];
+		generic_stats->excep_stats.excptn_type_pkt_len +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][
+				IPAHAL_PKT_STATUS_EXCEPTION_PACKET_LENGTH];
+		generic_stats->excep_stats.excptn_type_pkt_thrshld +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][
+				IPAHAL_PKT_STATUS_EXCEPTION_PACKET_THRESHOLD];
+		generic_stats->excep_stats.excptn_type_frag_rule_miss +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][
+				IPAHAL_PKT_STATUS_EXCEPTION_FRAG_RULE_MISS];
+		generic_stats->excep_stats.excptn_type_sw_flt +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][IPAHAL_PKT_STATUS_EXCEPTION_SW_FILT];
+		generic_stats->excep_stats.excptn_type_nat +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][IPAHAL_PKT_STATUS_EXCEPTION_NAT];
+		generic_stats->excep_stats.excptn_type_ipv6_ct +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][IPAHAL_PKT_STATUS_EXCEPTION_IPV6CT];
+		generic_stats->excep_stats.excptn_type_csum +=
+			ipa3_ctx->stats.rx_excp_pkts[ind][IPAHAL_PKT_STATUS_EXCEPTION_CSUM];
+	}
 	/* ODL EP stats */
 	if (ipa3_odl_ctx) {
 		generic_stats->odl_stats.rx_pkt = ipa3_odl_ctx->stats.odl_rx_pkt;

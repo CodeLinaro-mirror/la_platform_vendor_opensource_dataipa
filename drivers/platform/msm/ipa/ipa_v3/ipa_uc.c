@@ -675,10 +675,11 @@ static void ipa3_event_ring_hdlr(void)
 			break;
 		case IPA_HOLB_BAD_PERIPHERAL_EVENT:
 			e_h = ((struct eventElement_t *) rp_va);
-			IPAERR("Bad Periph for Chan %d QTimer %u %u\n",
-				e_h->Value.holb_notify_param.ipaProdGsiChid,
-				e_h->Value.holb_notify_param.qTimerMSB,
-				e_h->Value.holb_notify_param.qTimerLSB);
+			if (ipa3_ctx->is_rc_log_enabled)
+				IPAERR("Bad Periph for Chan %d QTimer %u %u\n",
+					e_h->Value.holb_notify_param.ipaProdGsiChid,
+					e_h->Value.holb_notify_param.qTimerMSB,
+					e_h->Value.holb_notify_param.qTimerLSB);
 			ipa3_uc_holb_event_log(
 				e_h->Value.holb_notify_param.ipaProdGsiChid,
 				true,
@@ -687,10 +688,11 @@ static void ipa3_event_ring_hdlr(void)
 			break;
 		case IPA_HOLB_PERIPHERAL_RECOVERED_EVENT:
 			e_h = ((struct eventElement_t *) rp_va);
-			IPAERR("Recovered Periph Chan %d QTimer %u %u\n",
-				e_h->Value.holb_notify_param.ipaProdGsiChid,
-				e_h->Value.holb_notify_param.qTimerMSB,
-				e_h->Value.holb_notify_param.qTimerLSB);
+			if (ipa3_ctx->is_rc_log_enabled)
+				IPAERR("Recovered Periph Chan %d QTimer %u %u\n",
+					e_h->Value.holb_notify_param.ipaProdGsiChid,
+					e_h->Value.holb_notify_param.qTimerMSB,
+					e_h->Value.holb_notify_param.qTimerLSB);
 			ipa3_uc_holb_event_log(
 				e_h->Value.holb_notify_param.ipaProdGsiChid,
 				false,

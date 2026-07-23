@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 #if !defined(_IPA_REG_DUMP_H_)
 #define _IPA_REG_DUMP_H_
@@ -1756,7 +1757,7 @@ struct ipa_reg_save_gsi_mcs_regs_s {
 	  gsi_hwio_def_gsi_debug_sw_rf_n_read_s
 		mcs_reg[HWIO_GSI_DEBUG_SW_RF_n_READ_MAXn + 1];
 };
-
+#ifdef CONFIG_IPA3_REGDUMP_IPA_5_0
 struct ipa_reg_save_gsi_mcs_prof_regs_s {
         struct gsi_hwio_def_ipa_0_gsi_top_gsi_mcs_profiling_bp_cnt_lsb_s
 	       gsi_top_gsi_mcs_profiling_bp_cnt_lsb;
@@ -1775,7 +1776,7 @@ struct ipa_reg_save_gsi_mcs_prof_regs_s {
 	struct gsi_hwio_def_ipa_0_gsi_top_gsi_mcs_profiling_mcs_idle_cnt_msb_s
 	       gsi_top_gsi_mcs_profiling_mcs_idle_cnt_msb;
 };
-
+#endif
 /* GSI debug counters save data struct */
 struct ipa_reg_save_gsi_debug_cnt_s {
 	struct
@@ -1819,6 +1820,7 @@ struct ipa_reg_save_gsi_iram_ptr_regs_s {
 };
 
 /* GSI Debug SW registers save data struct */
+#ifdef CONFIG_IPA3_REGDUMP_IPA_5_0
 struct gsi_hwio_gsi_top_gsi_debug_sw_msk_regs_entry_rd_s{
 	struct gsi_hwio_def_ipa_0_gsi_top_gsi_debug_sw_msk_reg_n_sec_k_rd_s
 		regs[GSI_HW_DEBUG_SW_MSK_REG_MAXk];
@@ -1828,6 +1830,7 @@ struct gsi_hwio_gsi_top_gsi_debug_sw_msk_regs_rd_s{
 	struct gsi_hwio_gsi_top_gsi_debug_sw_msk_regs_entry_rd_s
 		mask_reg[GSI_HW_DEBUG_SW_MSK_REG_ARRAY_LENGTH];
 };
+#endif
 
 /* GSI SHRAM pointers save data struct */
 struct ipa_reg_save_gsi_shram_ptr_regs_s {
@@ -2022,8 +2025,10 @@ struct ipa_regs_save_hierarchy_s {
 		gen;
 	struct ipa_reg_save_gen_ee_s
 		gen_ee[IPA_HW_EE_MAX];
+#ifdef CONFIG_IPA3_REGDUMP_IPA_5_0
 	struct ipa_reg_save_stat_ee_s
 		stat_ee[IPA_HW_EE_MAX];
+#endif
 	struct ipa_reg_save_hwp_s
 		hwp;
 	struct ipa_reg_save_dbg_s

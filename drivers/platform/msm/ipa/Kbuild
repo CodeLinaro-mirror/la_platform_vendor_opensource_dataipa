@@ -34,7 +34,9 @@ ipam-y += \
 	ipa_v3/ipahal/ipahal_nat.o \
 	ipa_v3/ipa_eth_i.o \
 	ipa_v3/ipa_sysfs.o \
-	ipa_v3/ipa_stats.o
+	ipa_v3/ipa_stats.o \
+	ipa_v3/ipa_rc.o \
+	test/ipa_rc_test.o \
 
 ipam-$(CONFIG_IPA_TSP) += ipa_v3/ipa_tsp.o \
 	ipa_v3/ipahal/ipahal_tsp.o

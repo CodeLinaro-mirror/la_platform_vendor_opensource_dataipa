@@ -1208,6 +1208,15 @@ int ipa3_eth_connect(
 	}
 #endif
 	IPADBG("Vlan mode %d\n", vlan_mode);
+	IPADBG("PPPoE mode %d\n", ipa3_ctx->ipa_config_pppoe_mode);
+
+	if (IPA_CLIENT_IS_PROD(client_type) &&
+		ipa3_ctx->ipa_config_pppoe_mode == IPA_PPPOE_LEGACY) {
+		if(strnstr(net_dev->name, ipa3_ctx->ipa_eth_pppoe_intf_name,
+			strlen(net_dev->name))) {
+			ipa3_ctx->client_hps_eth_index = ep_idx;
+		}
+	}
 
 	result = ipa3_eth_get_prot(pipe, &prot);
 	if (result) {
@@ -1254,7 +1263,17 @@ int ipa3_eth_connect(
 	else
 #endif
 	{
-		ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+		if (IPA_CLIENT_IS_PROD(client_type) &&
+			(ipa3_ctx->ipa_config_pppoe_mode == IPA_PPPOE_QOS) && inst_id == 0 &&
+			(pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE))
+		{
+			ep->cfg.hdr.hdr_len = PPPOE_VLAN_ETH_HLEN;
+			IPADBG("PPPoE+QoS header length %d \n", ep->cfg.hdr.hdr_len);
+		}
+		else
+		{
+			ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+		}
 	}
 	ep->cfg.mode.mode = IPA_BASIC;
 	if (IPA_CLIENT_IS_CONS(client_type)) {
@@ -1315,6 +1334,11 @@ int ipa3_eth_connect(
 				goto cfg_ep_fail;
 			}
 		}
+	}
+
+	if (ipa3_ctx->uplink_pipe_status) {
+		if (ipa3_configure_uplink_ep_status(ep_idx))
+			goto cfg_ep_fail;
 	}
 
 	if (ipa3_cfg_ep(ep_idx, &ep->cfg)) {

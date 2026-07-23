@@ -1784,6 +1784,41 @@ static inline int ipa_fltrt_generate_dbl_vlan_hw_rule_bdy(u16 *en_rule,
 	return 0;
 }
 
+static inline int ipa_fltrt_generate_pcp_hw_rule_bdy(u16 *en_rule,
+	const struct ipa_rule_attrib *attrib,
+	u8 *ofst_meq32, u8 **extra, u8 **rest)
+{
+	if (attrib->attrib_mask & IPA_FLT_VLAN_PCP) {
+		uint32_t pcp_tag = 0;
+		uint32_t pcp_mask = 0xFFFF0000;
+
+		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ofst_meq32, *ofst_meq32)) {
+			IPAHAL_ERR("ran out of meq32 eq\n");
+			return -EPERM;
+		}
+		if(attrib->pcp > 0x7) {
+			IPAHAL_ERR("Incorrect pcp value:%d\n", attrib->pcp);
+			return -EPERM;
+		}
+		*en_rule |= IPA_GET_RULE_EQ_BIT_PTRN(
+			ipa3_0_ofst_meq32[*ofst_meq32]);
+		/* -6 => offset of 802_1Q pcp value in L2 hdr */
+		*extra = ipa_write_8((u8)-6, *extra);
+		/* filter pcp value.*/
+		pcp_tag = (0x8100 << 16) | (attrib->pcp << 13);
+
+		if(attrib->pcp_mask) {
+			 pcp_mask |= (attrib->pcp_mask << 13);
+			 *rest = ipa_write_32(pcp_mask, *rest);
+		}
+		else
+			*rest = ipa_write_32(0xFFFFE000, *rest);
+		*rest = ipa_write_32(pcp_tag, *rest);
+		(*ofst_meq32)++;
+	}
+
+	return 0;
+}
 
 static inline int ipa_fltrt_generate_vlan_hw_rule_bdy(u16 *en_rule,
 	const struct ipa_rule_attrib *attrib,
@@ -1939,6 +1974,10 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		&extra, &rest))
 		goto err;
 
+	if (ipa_fltrt_generate_pcp_hw_rule_bdy(en_rule, attrib, &ofst_meq32,
+		&extra, &rest))
+		goto err;
+
 	if ((attrib->attrib_mask & IPA_FLT_TYPE) && (!ipa3_ctx->device_vlan_mode)) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
 			ihl_ofst_meq32)) {
@@ -1954,7 +1993,7 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip4(u16 *en_rule,
 		ihl_ofst_meq32++;
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_CODE) {
+	if ((attrib->attrib_mask & IPA_FLT_CODE) && (!ipa3_ctx->device_vlan_mode)) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
 			ihl_ofst_meq32)) {
 			IPAHAL_ERR("ran out of ihl_meq32 eq\n");
@@ -2380,6 +2419,10 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		goto err;
 	}
 
+	if (ipa_fltrt_generate_pcp_hw_rule_bdy(en_rule, attrib, &ofst_meq32,
+		&extra, &rest))
+		goto err;
+
 	if ((attrib->attrib_mask & IPA_FLT_TYPE) && (!ipa3_ctx->device_vlan_mode)) {
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
 			ihl_ofst_meq32)) {
@@ -2395,7 +2438,7 @@ static int ipa_fltrt_generate_hw_rule_bdy_ip6(u16 *en_rule,
 		ihl_ofst_meq32++;
 	}
 
-	if (attrib->attrib_mask & IPA_FLT_CODE) {
+	if ((attrib->attrib_mask & IPA_FLT_CODE) && (!ipa3_ctx->device_vlan_mode)){
 		if (IPA_IS_RAN_OUT_OF_EQ(ipa3_0_ihl_ofst_meq32,
 			ihl_ofst_meq32)) {
 			IPAHAL_ERR("ran out of ihl_meq32 eq\n");

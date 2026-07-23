@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- *
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -14,6 +13,7 @@
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <linux/msm_gsi.h>
+#include <linux/msm_ipa.h>
 #include <linux/errno.h>
 #include <linux/ipc_logging.h>
 #include <linux/iommu.h>
@@ -1872,6 +1872,31 @@ struct gsi_xfer_elem {
 };
 
 /**
+ * struct chan_param_monitor - Channel parameters to monitor by IPA-RC
+ * @ch_state: channel state
+ * @prot: Channel protocol
+ * @ch_id: Channel ID
+ * @client: Associated client to channel
+ * @re_size: Ring element size
+ * @ring_len: Ring length
+ * @ring_base: Ring Base pointer
+ * @rp_ptr: Ring read pointer
+ * @wp_ptr: Ring write pointer
+ */
+struct chan_param_monitor
+{
+	enum gsi_chan_state ch_state;
+	enum gsi_chan_prot prot;
+	uint8_t ch_id;
+	enum ipa_client_type client;
+	enum gsi_chan_ring_elem_size re_size;
+	uint32_t ring_len;
+	uint32_t ring_base;
+	uint32_t rp_ptr;
+	uint32_t wp_ptr;
+};
+
+/**
  * gsi_alloc_evt_ring - Peripheral should call this function to
  * allocate an event ring
  *
@@ -2661,11 +2686,14 @@ void gsi_update_almst_empty_thrshold(unsigned long chan_hdl, unsigned short thre
 /**
 * gsi_dump_ch_info - channel information.
 *
-* @chan_id: channel id
+* @chan_hdl: channel id
+* @ee: EE
+* @chan_param: [out] channel parameters
 *
 * @Return void
 */
-void gsi_dump_ch_info(unsigned long chan_hdl);
+void gsi_dump_ch_info(unsigned long chan_hdl, unsigned long ee,
+			struct chan_param_monitor *chan_param);
 
 /**
  * gsi_get_hw_profiling_stats() - Query GSI HW profiling stats

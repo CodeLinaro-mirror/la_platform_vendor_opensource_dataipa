@@ -1103,6 +1103,11 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		memcpy(&ep_rx->cfg, &in->u_rx.rx_smmu.ipa_ep_cfg,
 			sizeof(ep_rx->cfg));
 
+	if (ipa3_ctx->uplink_pipe_status) {
+		if (ipa3_configure_uplink_ep_status(ipa_ep_idx_rx))
+			goto fail;
+	}
+
 	if (ipa3_cfg_ep(ipa_ep_idx_rx, &ep_rx->cfg)) {
 		IPAERR("fail to setup rx pipe cfg\n");
 		result = -EFAULT;
@@ -1166,6 +1171,11 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		else
 			memcpy(&ep_rx1->cfg, &in->u_rx1.rx_smmu.ipa_ep_cfg,
 			sizeof(ep_rx1->cfg));
+
+		if (ipa3_ctx->uplink_pipe_status) {
+			if (ipa3_configure_uplink_ep_status(ipa_ep_idx_rx1))
+				goto fail;
+		}
 
 		if (ipa3_cfg_ep(ipa_ep_idx_rx1, &ep_rx1->cfg)) {
 			IPAERR("fail to setup rx1 pipe cfg\n");
