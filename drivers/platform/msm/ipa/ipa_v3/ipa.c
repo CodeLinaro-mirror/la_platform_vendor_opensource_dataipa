@@ -1822,6 +1822,7 @@ static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 		qos_param->vlan_count;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0] =
 		qos_param->vlan_ids[0];
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dir = qos_param->dir;
 
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0] =
 		qos_param->src_v6_ip_addr[0];
@@ -2030,6 +2031,8 @@ static int ipa3_get_qos_params(struct ipa_ioc_get_qos_config *get_qos_param)
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count;
 		get_qos_param->qos_config[cur_idx].vlan_ids[0] =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0];
+		get_qos_param->qos_config[cur_idx].dir =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dir;
 
 		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[0] =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0];
