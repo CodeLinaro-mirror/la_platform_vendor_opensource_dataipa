@@ -196,6 +196,19 @@ int ipa_hw_stats_init(void)
 			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET_PROD1,
 				&reg_idx);
 			teth_stats_init->prod_mask[reg_idx] |= mask;
+
+			/* QoS UL producers were never added here, so their
+			 * teth-stats bit was never set and UL stats stayed at 0.
+			 */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET_QOS_PROD,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET2_QOS_PROD,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET3_QOS_PROD,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
 		}
 
 		if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -231,6 +244,16 @@ int ipa_hw_stats_init(void)
 				IPA_CLIENT_ETHERNET_CONS,
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			/* QoS (DL) pipes on EMAC0, mirroring the ETHERNET_CONS
+			 * BE pipe above. */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_QOS_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_QOS2_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 
 			if (ipa3_ctx->ipa_config_is_auto) {
 				mask = ipa_hw_stats_get_ep_bit_n_idx(
@@ -256,6 +279,16 @@ int ipa_hw_stats_init(void)
 				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 				mask = ipa_hw_stats_get_ep_bit_n_idx(
 					IPA_CLIENT_ETHERNET_LOW_LAT_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				/* QoS (DL) pipes so DL QoS teth stats are counted,
+				 * mirroring the ETHERNET2_CONS BE pipe above. */
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET2_QOS_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET2_QOS2_CONS,
 					&reg_idx);
 				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 			}
@@ -294,6 +327,16 @@ int ipa_hw_stats_init(void)
 				IPA_CLIENT_ETHERNET_CONS,
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			/* QoS (DL) pipes on EMAC0, mirroring the ETHERNET_CONS
+			 * BE pipe above. */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_QOS_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_QOS2_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 
 			if (ipa3_ctx->ipa_config_is_auto) {
 				mask = ipa_hw_stats_get_ep_bit_n_idx(
@@ -319,6 +362,16 @@ int ipa_hw_stats_init(void)
 				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 				mask = ipa_hw_stats_get_ep_bit_n_idx(
 					IPA_CLIENT_ETHERNET_LOW_LAT_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				/* QoS (DL) pipes so DL QoS teth stats are counted,
+				 * mirroring the ETHERNET2_CONS BE pipe above. */
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET2_QOS_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET2_QOS2_CONS,
 					&reg_idx);
 				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 			}
@@ -357,6 +410,16 @@ int ipa_hw_stats_init(void)
 				IPA_CLIENT_ETHERNET_CONS,
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			/* QoS (DL) pipes on EMAC0, mirroring the ETHERNET_CONS
+			 * BE pipe above. */
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_QOS_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_QOS2_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 
 			if (ipa3_ctx->ipa_config_is_auto) {
 				mask = ipa_hw_stats_get_ep_bit_n_idx(
@@ -382,6 +445,16 @@ int ipa_hw_stats_init(void)
 				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 				mask = ipa_hw_stats_get_ep_bit_n_idx(
 					IPA_CLIENT_ETHERNET_LOW_LAT_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				/* QoS (DL) pipes so DL QoS teth stats are counted,
+				 * mirroring the ETHERNET2_CONS BE pipe above. */
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET2_QOS_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_ETHERNET2_QOS2_CONS,
 					&reg_idx);
 				teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 			}
@@ -623,6 +696,46 @@ int ipa_hw_stats_init(void)
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
+
+		/* enable WLAN -> emac0/emac1/emac2 (LAN2LAN) tethering stats */
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET2_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET3_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		/* enable WLAN -> emac0/emac1/emac2 QoS (DL) pipes so DL QoS
+		 * teth stats are counted, mirroring the BE CONS pipes above. */
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET_QOS_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET_QOS2_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET2_QOS_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET2_QOS2_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET3_QOS_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET3_QOS2_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 	}
 
 	if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -652,6 +765,46 @@ int ipa_hw_stats_init(void)
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
+
+		/* enable WLAN -> emac0/emac1/emac2 (LAN2LAN) tethering stats */
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET2_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET3_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		/* enable WLAN -> emac0/emac1/emac2 QoS (DL) pipes so DL QoS
+		 * teth stats are counted, mirroring the BE CONS pipes above. */
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET_QOS_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET_QOS2_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET2_QOS_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET2_QOS2_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET3_QOS_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_ETHERNET3_QOS2_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 	}
 
 	if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -710,6 +863,75 @@ int ipa_hw_stats_init(void)
 		IPA_CLIENT_ETHERNET2_PROD,
 		&reg_idx)) {
 		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD);
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
+			IPAERR("Invalid client.\n");
+			ret = -EINVAL;
+			goto fail_free_stats_ctx;
+		}
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_WAN_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_UL_NLO_DATA_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		}
+	}
+
+	if (ipa_hw_stats_get_ep_bit_n_idx(
+		IPA_CLIENT_ETHERNET_QOS_PROD,
+		&reg_idx)) {
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_QOS_PROD);
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
+			IPAERR("Invalid client.\n");
+			ret = -EINVAL;
+			goto fail_free_stats_ctx;
+		}
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_WAN_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_UL_NLO_DATA_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		}
+	}
+
+	if (ipa_hw_stats_get_ep_bit_n_idx(
+		IPA_CLIENT_ETHERNET2_QOS_PROD,
+		&reg_idx)) {
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_QOS_PROD);
+		if (ep_index == IPA_EP_NOT_ALLOCATED) {
+			IPAERR("Invalid client.\n");
+			ret = -EINVAL;
+			goto fail_free_stats_ctx;
+		}
+
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_WAN_CONS,
+			&reg_idx);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_UL_NLO_DATA_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		}
+	}
+
+	if (ipa_hw_stats_get_ep_bit_n_idx(
+		IPA_CLIENT_ETHERNET3_QOS_PROD,
+		&reg_idx)) {
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET3_QOS_PROD);
 		if (ep_index == IPA_EP_NOT_ALLOCATED) {
 			IPAERR("Invalid client.\n");
 			ret = -EINVAL;
@@ -1286,7 +1508,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	/* reset driver's cache */
 	memset(&ipa3_ctx->hw_stats->teth.init, 0,
 		sizeof(ipa3_ctx->hw_stats->teth.init));
-	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < ipa3_get_max_num_pipes(); i++) {
 		memset(&ipa3_ctx->hw_stats->teth.prod_stats_sum[i], 0,
 			sizeof(ipa3_ctx->hw_stats->teth.prod_stats_sum[i]));
 		memset(&ipa3_ctx->hw_stats->teth.prod_stats[i], 0,
@@ -1585,7 +1807,7 @@ int ipa_get_teth_stats(void)
 	}
 
 	/* reset prod_stats cache */
-	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < ipa3_get_max_num_pipes(); i++) {
 		memset(&ipa3_ctx->hw_stats->teth.prod_stats[i], 0,
 			sizeof(ipa3_ctx->hw_stats->teth.prod_stats[i]));
 	}
@@ -1717,7 +1939,7 @@ int ipa_query_cumm_teth_prod_stats(enum ipa_client_type prod,
 		return -EFAULT;
 	}
 
-	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < ipa3_get_max_num_pipes(); i++) {
 		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[ipa_ep_idx].client[i];
 		out->num_ipv4_bytes += stats->num_ipv4_bytes;
 		out->num_ipv6_bytes += stats->num_ipv6_bytes;
@@ -1749,7 +1971,7 @@ int ipa_query_cumm_teth_cons_stats(enum ipa_client_type cons,
 		return -EFAULT;
 	}
 
-	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < ipa3_get_max_num_pipes(); i++) {
 		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[i].client[ipa_ep_idx];
 		out->num_ipv4_bytes += stats->num_ipv4_bytes;
 		out->num_ipv6_bytes += stats->num_ipv6_bytes;
@@ -1827,7 +2049,7 @@ int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod)
 	}
 
 	/* reset driver's cache */
-	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < ipa3_get_max_num_pipes(); i++) {
 		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[ipa_ep_idx].client[i];
 		memset(stats, 0, sizeof(*stats));
 	}
@@ -1859,7 +2081,7 @@ int ipa_reset_all_teth_stats(void)
 	}
 
 	/* reset driver's cache */
-	for (i = 0; i < IPA5_PIPES_NUM; i++) {
+	for (i = 0; i < ipa3_get_max_num_pipes(); i++) {
 		stats = &ipa3_ctx->hw_stats->teth.prod_stats_sum[i];
 		memset(stats, 0, sizeof(*stats));
 	}
