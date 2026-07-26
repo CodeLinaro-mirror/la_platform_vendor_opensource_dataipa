@@ -8046,11 +8046,13 @@ static int ipa_poll_gsi_n_pkt(struct ipa3_sys_context *sys,
 int ipa3_lan_rx_poll(u32 clnt_hdl, int weight)
 {
 	struct ipa3_ep_context *ep;
+	struct ipa3_sys_context *lan_def_sys = NULL;
 	int ret;
 	int cnt = 0;
 	int num = 0;
 	int i;
 	int remain_aggr_weight;
+	int ipa_ep_idx;
 
 	if (unlikely(clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
 		ipa3_ctx->ep[clnt_hdl].valid == 0)) {
@@ -8065,6 +8067,23 @@ int ipa3_lan_rx_poll(u32 clnt_hdl, int weight)
 		return cnt;
 	}
 	ep = &ipa3_ctx->ep[clnt_hdl];
+
+	/*
+	 * Look up the LAN default (APPS_LAN_CONS) sibling so this poll can also
+	 * keep its descriptor ring refilled — mirrors ipa3_rx_poll()'s handling
+	 * of wan_def_sys. Without this, when the COAL pipe is polled hot on one
+	 * CPU while the default pipe's own replenish (workqueue) is starved for
+	 * CPU (e.g. RPS backlog contending), the HW default ring drains and
+	 * embedded RX stalls (exception stats stop). Only set lan_def_sys if
+	 * it's a separate sys from ep->sys (avoid double-replenish when the
+	 * caller IS the default pipe or LAN_COAL is not allocated).
+	 */
+	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+	if (ipa_ep_idx != IPA_EP_NOT_ALLOCATED &&
+	    ipa3_ctx->ep[ipa_ep_idx].valid &&
+	    ipa3_ctx->ep[ipa_ep_idx].sys &&
+	    ipa3_ctx->ep[ipa_ep_idx].sys != ep->sys)
+		lan_def_sys = ipa3_ctx->ep[ipa_ep_idx].sys;
 
 start_poll:
 	/*
@@ -8101,7 +8120,21 @@ start_poll:
 		}
 	}
 	cnt += weight - remain_aggr_weight * IPA_LAN_AGGR_PKT_CNT;
-	if (cnt < weight) {
+	/*
+	 * Inline replenish for both COAL and default rings before deciding to
+	 * complete NAPI — mirrors WAN COAL pattern to guarantee HW always has
+	 * descriptors. Without this, the default pipe relies on its delayed
+	 * workqueue which can be CPU-starved under load.
+	 */
+	ep->sys->repl_hdlr(ep->sys);
+	if (lan_def_sys)
+		lan_def_sys->repl_hdlr(lan_def_sys);
+	/*
+	 * When not able to replenish enough descriptors on EITHER pipe, keep
+	 * NAPI in polling mode so the caller (napi_poll wrapper) re-runs us.
+	 */
+	if (cnt < weight && ep->sys->len > IPA_DEFAULT_SYS_YELLOW_WM &&
+	    (!lan_def_sys || lan_def_sys->len > IPA_DEFAULT_SYS_YELLOW_WM)) {
 		napi_complete(ep->sys->napi_obj);
 		IPA_STATS_INC_CNT(ep->sys->napi_comp_cnt);
 		ret = ipa3_rx_switch_to_intr_mode(ep->sys);
@@ -8115,6 +8148,10 @@ start_poll:
 			goto start_poll;
 #endif
 		IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(ep->client);
+	} else {
+		cnt = weight;
+		IPADBG_LOW("Client = %d not replenished free descriptors\n",
+				ep->client);
 	}
 
 	return cnt;
