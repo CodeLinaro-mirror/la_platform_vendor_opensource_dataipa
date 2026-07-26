@@ -10679,7 +10679,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG(":stats init ok\n");
 
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && !ipa3_ctx->ipa_disable_per_flow_stats) {
 		result = ipa_init_nat_ct_stats();
 		if (result)
 			IPAERR("fail to init NAT and CT stats %d\n", result);
@@ -15683,7 +15683,6 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 
 		if(ipa_drv_res->ipa_disable_per_flow_stats) {
 			IPADBG("Per flow stats disable: %d\n", ipa_drv_res->ipa_disable_per_flow_stats);
-			ipa3_ctx->ipa_disable_per_flow_stats = ipa_drv_res->ipa_disable_per_flow_stats;
 			/* Use max supported connection if per flow stats disable */
 			ipa3_ctx->max_ipv4_accel_conn = IPA_MAX_ACCEL_CONNECTIONS_V4;
 			ipa3_ctx->max_ipv6_accel_conn = IPA_MAX_ACCEL_CONNECTIONS_V6;
@@ -15744,6 +15743,14 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 	ipa3_ctx->nat_stats_mode = ipa_drv_res->nat_stats_mode;
 	ipa3_ctx->nat_stats_max_counters_v4 = ipa_drv_res->nat_stats_max_counters_v4;
 	ipa3_ctx->nat_stats_max_counters_v6 = ipa_drv_res->nat_stats_max_counters_v6;
+	/*
+	 * Authoritative INI copy. Ordering: ipa_populate_ini_values() always
+	 * runs before ipa3_post_init() reads ipa_disable_per_flow_stats (post_init
+	 * is gated on fw_load_data.is_ipa_ini_init_done). Pre-INI, the field
+	 * already holds the pre_init seed from resource_p (see ipa3_pre_init),
+	 * so it is never read uninitialized.
+	 */
+	ipa3_ctx->ipa_disable_per_flow_stats = ipa_drv_res->ipa_disable_per_flow_stats;
 
 	if (ipa_is_ready())
 		return;

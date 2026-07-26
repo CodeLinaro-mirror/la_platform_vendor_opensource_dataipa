@@ -119,6 +119,12 @@ int ipa_nat_stats_pre_alloc_v4(void);
 int ipa_nat_stats_pre_alloc_v6(void);
 void ipa_nat_stats_post_free_v4(void);
 void ipa_nat_stats_post_free_v6(void);
+
+/* Returns true if NAT/CT per-flow stats were disabled via the INI file. */
+static inline bool ipa_nat_stats_is_disabled(void)
+{
+	return ipa3_ctx->ipa_disable_per_flow_stats;
+}
 #endif
 
 void ipa_descriptor_close(
