@@ -12523,6 +12523,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ippt_pdninfo_refcnt = 0;
 
 	INIT_LIST_HEAD(&ipa3_ctx->intf_list);
+	INIT_LIST_HEAD(&ipa3_ctx->lan2lan_flt_list);
 	INIT_LIST_HEAD(&ipa3_ctx->msg_list);
 	INIT_LIST_HEAD(&ipa3_ctx->pull_msg_list);
 	init_waitqueue_head(&ipa3_ctx->msg_waitq);
@@ -13168,6 +13169,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 
 	INIT_LIST_HEAD(&ipa3_ctx->intf_list);
+	INIT_LIST_HEAD(&ipa3_ctx->lan2lan_flt_list);
 	INIT_LIST_HEAD(&ipa3_ctx->msg_list);
 	INIT_LIST_HEAD(&ipa3_ctx->pull_msg_list);
 	init_waitqueue_head(&ipa3_ctx->msg_waitq);

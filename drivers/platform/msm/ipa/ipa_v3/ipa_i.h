@@ -857,6 +857,45 @@ struct ipa3_flt_entry {
 };
 
 /**
+ * struct ipa3_lan2lan_ep_hdl - one endpoint holding a lan2lan HW rule
+ * @link:    link into the owning ipa3_lan2lan_flt_ref's @ep_list
+ * @ep:      IPA endpoint (physical pipe) the rule is installed on
+ * @flt_hdl: HW filter rule handle to delete when the last ref drops
+ *
+ * The lan2lan HW rule is keyed on the physical pipe. On a WLAN AP many
+ * client interfaces map to one pipe, so a single (dst, ip_type) can have a
+ * rule on several distinct eps. One of these nodes exists per ep that
+ * currently holds the rule for the parent (dst, ip_type).
+ */
+struct ipa3_lan2lan_ep_hdl {
+	struct list_head link;
+	int ep;
+	int flt_hdl;
+};
+
+/**
+ * struct ipa3_lan2lan_flt_ref - global per-(dst host IP, ip type) lan2lan refcount
+ * @link:       link into the global ipa3_ctx->lan2lan_flt_list
+ * @ip_type:    IPv4 or IPv6
+ * @dst_addr:   destination host IP (word 0 for v4; all 4 words for v6)
+ * @global_ref: number of live connections to this dst host across all eps
+ * @ep_list:    struct ipa3_lan2lan_ep_hdl nodes - the eps that physically
+ *              hold the HW rule for this dst
+ *
+ * lan2lan filters are refcounted globally per (dst host IP, ip type). Each
+ * connection bumps @global_ref; the HW rule is installed on an ep only when
+ * that ep does not yet hold it (@ep_list is the presence set). When
+ * @global_ref reaches 0 the rule is torn down on every ep in @ep_list.
+ */
+struct ipa3_lan2lan_flt_ref {
+	struct list_head link;
+	enum ipa_ip_type ip_type;
+	u32 dst_addr[4];
+	u32 global_ref;
+	struct list_head ep_list;
+};
+
+/**
  * struct ipa3_rt_tbl - IPA routing table
  * @link: table's link in global routing tables list
  * @head_rt_rule_list: head of routing rules list
@@ -2802,6 +2841,7 @@ struct ipa3_context {
 	spinlock_t disconnect_lock;
 	u8 a5_pipe_index;
 	struct list_head intf_list;
+	struct list_head lan2lan_flt_list; /* global per-(dst,ip_type) lan2lan refcounts */
 	struct list_head msg_list;
 	struct list_head pull_msg_list;
 	struct mutex msg_lock;
@@ -4103,6 +4143,12 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry_snapshot(int intf_idx,
 		struct ipa3_flt_entry flt_entry, struct ipa3_flt_entry *out);
+bool ipa3_lan2lan_flt_need_install(enum ipa_ip_type ip_type,
+	const u32 *dst_addr, int ep);
+void ipa3_lan2lan_flt_add(enum ipa_ip_type ip_type, const u32 *dst_addr,
+	int ep, int flt_hdl);
+int ipa3_lan2lan_flt_deref(enum ipa_ip_type ip_type, const u32 *dst_addr,
+	int *out_hdls, int max_hdls, int *out_num);
 
 int ipa3_get_max_pdn(void);
 

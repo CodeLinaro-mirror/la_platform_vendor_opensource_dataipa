@@ -396,7 +396,8 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 	int idx = 0;
 	int flt_hdl = 0;
 	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
-	struct ipa3_flt_entry flt_entry = {0};
+	int l2l_ep = -1;
+	u32 l2l_dst = 0;
 
 	IPA_BE_DBG("ECMIPA entry lan2lan %d\n", lan2lan);
 	ipa_type_check_ipa_mac_addr(mac);
@@ -453,6 +454,42 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		}
 
 		IPA_BE_DBG("Install rules on Rx pipe at idx %d src_pipe %d\n", idx, rx_prop->rx[idx].src_pipe);
+
+		/*
+		 * lan2lan filters are refcounted globally per (dst host IP,
+		 * ip type), but the HW rule is keyed on the physical pipe.
+		 * Resolve this ingress ep; if it already holds the rule for
+		 * this dst the reference is counted in the helper and we skip
+		 * the duplicate HW install. Otherwise install below and
+		 * register the ep + handle via ipa3_lan2lan_flt_add().
+		 */
+		{
+			l2l_ep = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
+			if (l2l_ep < 0) {
+				/*
+				 * Unmapped client -> no physical pipe to key the
+				 * global (dst, ip type) presence set on. Bail out
+				 * instead of registering a rule with ep = -1, which
+				 * would never match a teardown lookup and leak the
+				 * ipa3_lan2lan_ep_hdl entry.
+				 */
+				IPA_BE_ERR("lan2lan v4: no ep mapping for src_pipe %d, skipping install\n",
+					   rx_prop->rx[idx].src_pipe);
+				retval = -EINVAL;
+				goto end;
+			}
+			if (is_ret)
+				l2l_dst = (uint32_t)ntohl(v4_msg.tuple.return_ip);
+			else
+				l2l_dst = (uint32_t)ntohl(v4_msg.tuple.flow_ip);
+			if (!ipa3_lan2lan_flt_need_install(IPA_IP_v4, &l2l_dst,
+							   l2l_ep)) {
+				IPA_BE_DBG("lan2lan v4 filter already present on ep %d, ref bumped\n",
+					   l2l_ep);
+				retval = 0;
+				goto end;
+			}
+		}
 
 		/* add mac based rule*/
 		pFilteringTable->commit = 1;
@@ -547,16 +584,11 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 		} else {
 			flt_hdl = (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]).flt_rule_hdl;
 			IPA_BE_DBG("Lan2Lan %d filter rule hdl: %d\n", lan2lan, flt_hdl);
-			flt_entry.flt_hdl = flt_hdl;
-			flt_entry.cat = IPA_FLT_RULE_CAT_LAN2LAN;
-			flt_entry.ip_type = IPA_IP_v4;
 
-			flt_entry.rule.attrib.attrib_mask = flt_rule_entry.rule.attrib.attrib_mask;
-			memcpy(flt_entry.rule.attrib.dst_mac_addr, mac, sizeof(flt_entry.rule.attrib.dst_mac_addr));
-			flt_entry.rule.attrib.u.v4.dst_addr = flt_rule_entry.rule.attrib.u.v4.dst_addr;
-			flt_entry.rule.attrib.u.v4.dst_addr_mask = flt_rule_entry.rule.attrib.u.v4.dst_addr_mask;
-
-			ipa3_add_filter_rules_entry(intf_num, flt_entry);
+			/* Register the new HW rule: record this ep in the
+			 * global (dst, ip_type) presence set and bump the
+			 * global refcount. */
+			ipa3_lan2lan_flt_add(IPA_IP_v4, &l2l_dst, l2l_ep, flt_hdl);
 		}
 	} else {
 		IPA_BE_DBG("Lan2wan case \n");
@@ -3192,7 +3224,8 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 	int idx = 0;
 	int flt_hdl = 0;
 	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
-	struct ipa3_flt_entry flt_entry = {0};
+	int l2l_ep = -1;
+	u32 l2l_dst[4] = {0};
 
 	IPA_BE_DBG("ECMIPA entry lan2lan %d\n", lan2lan);
 	ipa_type_check_ipa_mac_addr(mac);
@@ -3242,6 +3275,38 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 		}
 
 		IPA_BE_DBG("Install rules on Rx pipe at idx %d src_pipe %d\n", idx, rx_prop->rx[idx].src_pipe);
+
+		/*
+		 * lan2lan filters are refcounted globally per (dst host IP,
+		 * ip type); the HW rule is keyed on the physical pipe. Resolve
+		 * this ingress ep and skip a duplicate install if it already
+		 * holds the rule (see v4 twin).
+		 */
+		{
+			l2l_ep = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
+			if (l2l_ep < 0) {
+				/* No physical pipe to key on; skip install (see v4 twin). */
+				IPA_BE_ERR("lan2lan v6: no ep mapping for src_pipe %d, skipping install\n",
+					   rx_prop->rx[idx].src_pipe);
+				retval = -EINVAL;
+				goto end;
+			}
+			for (int i = 0; i < 4; i++) {
+				if (is_ret)
+					l2l_dst[i] =
+						(uint32_t)ntohl(v6_msg.tuple.return_ip[i]);
+				else
+					l2l_dst[i] =
+						(uint32_t)ntohl(v6_msg.tuple.flow_ip[i]);
+			}
+			if (!ipa3_lan2lan_flt_need_install(IPA_IP_v6, l2l_dst,
+							   l2l_ep)) {
+				IPA_BE_DBG("lan2lan v6 filter already present on ep %d, ref bumped\n",
+					   l2l_ep);
+				retval = 0;
+				goto end;
+			}
+		}
 
 		/* add mac based rule*/
 		pFilteringTable->commit = 1;
@@ -3343,14 +3408,11 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 		} else {
 			flt_hdl = (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[0]).flt_rule_hdl;
 			IPA_BE_DBG("Lan2Lan %d filter rule hdl: %d\n", lan2lan, flt_hdl);
-			flt_entry.flt_hdl = flt_hdl;
-			flt_entry.cat = IPA_FLT_RULE_CAT_LAN2LAN;
-			flt_entry.ip_type = IPA_IP_v6;
 
-			flt_entry.rule.attrib.attrib_mask = flt_rule_entry.rule.attrib.attrib_mask;
-			memcpy(flt_entry.rule.attrib.dst_mac_addr, mac, sizeof(flt_entry.rule.attrib.dst_mac_addr));
-
-			ipa3_add_filter_rules_entry(intf_num, flt_entry);
+			/* Register the new HW rule in the global (dst, ip_type)
+			 * presence set and bump the global refcount (see v4
+			 * twin). */
+			ipa3_lan2lan_flt_add(IPA_IP_v6, l2l_dst, l2l_ep, flt_hdl);
 		}
 	} else {
 		IPA_BE_DBG("Lan2wan case \n");
@@ -3374,51 +3436,74 @@ EXPORT_SYMBOL(ipa_be_v6_add_filter_rule);
 
 int ipa_be_v4_delete_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg, int intf_idx, mac_addr_t mac, bool lan2lan)
 {
-	struct ipa_ioc_del_flt_rule flt_param = {0};
+	u8 flt_param_buf[sizeof(struct ipa_ioc_del_flt_rule) + sizeof(struct ipa_flt_rule_del)]
+		__aligned(__alignof__(struct ipa_ioc_del_flt_rule));
+	struct ipa_ioc_del_flt_rule *flt_param = (struct ipa_ioc_del_flt_rule *)flt_param_buf;
 	int retval = 0;
 	int num_rules = 1;
 	int flt_hdl = -1;
-	struct ipa3_flt_entry flt_entry = {0};
+	u32 dst;
+	int hdls[IPA_MAX_NUM_PIPES];
+	int num_hdls = 0;
+	int i;
 
 	IPA_BE_DBG("Entry ipa_be_v4_delete_filter_rule for mac %pM \n", mac);
 
 	if (lan2lan) {
-		flt_entry.cat = IPA_FLT_RULE_CAT_LAN2LAN;
-		flt_entry.ip_type = IPA_IP_v4;
+		int ref;
 
-		/* Match the same attributes used in add function */
-		flt_entry.rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
-		flt_entry.rule.attrib.u.v4.dst_addr = (uint32_t)ntohl(v4_msg.tuple.return_ip);
-		flt_entry.rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
+		/* Key by dst host IP + ip type, matching the install path.
+		 * The RET filter (on the flow ingress ep) was installed with
+		 * dst=return_ip and mac=return_mac; the FLOW filter (on the
+		 * return ingress ep) with dst=flow_ip and mac=flow_mac. Pick
+		 * the dst IP that pairs with @mac. */
+		if (!memcmp(mac, v4_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE))
+			dst = (uint32_t)ntohl(v4_msg.tuple.return_ip);
+		else
+			dst = (uint32_t)ntohl(v4_msg.tuple.flow_ip);
 
-		flt_hdl = ipa3_delete_filter_rules_entry(intf_idx, flt_entry);
-		if (flt_hdl == -1) {
-			IPA_BE_ERR("No matching filter exists flt_hdl: %d \n", flt_hdl);
+		/* Drop this connection's global reference. The HW rule stays
+		 * on every ep while other connections to the same dst host
+		 * remain; only when the last reference is released are all of
+		 * those per-ep rules torn down. */
+		ref = ipa3_lan2lan_flt_deref(IPA_IP_v4, &dst, hdls,
+					     IPA_MAX_NUM_PIPES, &num_hdls);
+		if (ref < 0) {
+			IPA_BE_ERR("No matching lan2lan filter exists for dst\n");
 			retval = -1;
 			goto fail;
 		}
+		if (ref > 0) {
+			IPA_BE_DBG("lan2lan v4 filter still shared, global_ref now %d\n", ref);
+			goto fail;
+		}
 
+		/* Last reference released: delete the HW rule on every ep it
+		 * was installed on. */
+		for (i = 0; i < num_hdls && i < IPA_MAX_NUM_PIPES; i++) {
+			flt_hdl = hdls[i];
 
-		/* Delete filter rules here */
-		flt_param.commit = 1;
-		flt_param.num_hdls = num_rules;
-		flt_param.ip = IPA_IP_v4;
+			memset(flt_param_buf, 0, sizeof(flt_param_buf));
+			flt_param->commit = 1;
+			flt_param->num_hdls = num_rules;
+			flt_param->ip = IPA_IP_v4;
 
-		flt_param.hdl[0].status = -1;
-		flt_param.hdl[0].hdl = flt_hdl;
-		IPA_BE_DBG("Deleting filter hdl:(0x%x) with ip type: %d\n", flt_hdl, IPA_IP_v4);
+			flt_param->hdl[0].status = -1;
+			flt_param->hdl[0].hdl = flt_hdl;
+			IPA_BE_DBG("Deleting filter hdl:(0x%x) with ip type: %d\n", flt_hdl, IPA_IP_v4);
 
-		if (ipa3_del_flt_rule((struct ipa_ioc_del_flt_rule *)&flt_param)) {
-			IPA_BE_ERR("ipa3_del_flt_rule failed\n");
-			retval = -EFAULT;
-		} else {
-			if (flt_param.hdl[0].status != 0) {
-				IPA_BE_ERR("Filter rule hdl 0x%x deletion failed with error:%d\n",
-				flt_param.hdl[0].hdl, flt_param.hdl[0].status);
-				retval = -1;
-				goto fail;
+			if (ipa3_del_flt_rule(flt_param)) {
+				IPA_BE_ERR("ipa3_del_flt_rule failed\n");
+				retval = -EFAULT;
+			} else {
+				if (flt_param->hdl[0].status != 0) {
+					IPA_BE_ERR("Filter rule hdl 0x%x deletion failed with error:%d\n",
+					flt_param->hdl[0].hdl, flt_param->hdl[0].status);
+					retval = -1;
+					continue;
+				}
+				IPA_BE_DBG("Filter rule deleted successfully.. lan2lan: %d hdl: %d\n", lan2lan, flt_hdl);
 			}
-			IPA_BE_DBG("Filter rule deleted successfully.. lan2lan: %d hdl: %d\n", lan2lan, flt_hdl);
 		}
 	}
 
@@ -3429,45 +3514,72 @@ EXPORT_SYMBOL(ipa_be_v4_delete_filter_rule);
 
 int ipa_be_v6_delete_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int intf_idx, mac_addr_t mac, bool lan2lan)
 {
-	struct ipa_ioc_del_flt_rule flt_param = {0};
+	u8 flt_param_buf[sizeof(struct ipa_ioc_del_flt_rule) + sizeof(struct ipa_flt_rule_del)]
+		__aligned(__alignof__(struct ipa_ioc_del_flt_rule));
+	struct ipa_ioc_del_flt_rule *flt_param = (struct ipa_ioc_del_flt_rule *)flt_param_buf;
 	int retval = 0;
 	int num_rules = 1;
 	int flt_hdl = -1;
-	struct ipa3_flt_entry flt_entry = {0};
+	u32 dst[4] = {0};
+	int hdls[IPA_MAX_NUM_PIPES];
+	int num_hdls = 0;
+	int i;
 
-	IPA_BE_DBG("Entry ipa_be_v4_delete_filter_rule for mac %pM \n", mac);
+	IPA_BE_DBG("Entry ipa_be_v6_delete_filter_rule for mac %pM \n", mac);
 
 	if (lan2lan) {
-		flt_entry.rule.attrib.attrib_mask |= IPA_FLT_MAC_DST_ADDR_ETHER_II;
-		memcpy(flt_entry.rule.attrib.dst_mac_addr, mac, sizeof(flt_entry.rule.attrib.dst_mac_addr));
+		int ref;
 
-		flt_hdl = ipa3_delete_filter_rules_entry(intf_idx, flt_entry);
-		if (flt_hdl == -1) {
-			IPA_BE_ERR("No matching filter exists flt_hdl: %d \n", flt_hdl);
+		/* Key by dst host IP + ip type, matching the install path.
+		 * Pick the dst IP that pairs with @mac (see v4 twin). */
+		for (i = 0; i < 4; i++) {
+			if (!memcmp(mac, v6_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE))
+				dst[i] = (uint32_t)ntohl(v6_msg.tuple.return_ip[i]);
+			else
+				dst[i] = (uint32_t)ntohl(v6_msg.tuple.flow_ip[i]);
+		}
+
+		/* Drop this connection's global reference; tear down the HW
+		 * rule on every ep only when the last reference is released
+		 * (see v4 twin). */
+		ref = ipa3_lan2lan_flt_deref(IPA_IP_v6, dst, hdls,
+					     IPA_MAX_NUM_PIPES, &num_hdls);
+		if (ref < 0) {
+			IPA_BE_ERR("No matching lan2lan filter exists for dst\n");
 			retval = -1;
 			goto fail;
 		}
+		if (ref > 0) {
+			IPA_BE_DBG("lan2lan v6 filter still shared, global_ref now %d\n", ref);
+			goto fail;
+		}
 
-		/* Delete filter rules here */
-		flt_param.commit = 1;
-		flt_param.num_hdls = num_rules;
-		flt_param.ip = IPA_IP_v6;
+		/* Last reference released: delete the HW rule on every ep it
+		 * was installed on. */
+		for (i = 0; i < num_hdls && i < IPA_MAX_NUM_PIPES; i++) {
+			flt_hdl = hdls[i];
 
-		flt_param.hdl[0].status = -1;
-		flt_param.hdl[0].hdl = flt_hdl;
-		IPA_BE_DBG("Deleting filter hdl:(0x%x) with ip type: %d\n", flt_hdl, IPA_IP_v6);
+			memset(flt_param_buf, 0, sizeof(flt_param_buf));
+			flt_param->commit = 1;
+			flt_param->num_hdls = num_rules;
+			flt_param->ip = IPA_IP_v6;
 
-		if (ipa3_del_flt_rule((struct ipa_ioc_del_flt_rule *)&flt_param)) {
-			IPA_BE_ERR("ipa3_del_flt_rule failed\n");
-			retval = -EFAULT;
-		} else {
-			if (flt_param.hdl[0].status != 0) {
-				IPA_BE_ERR("Filter rule hdl 0x%x deletion failed with error:%d\n",
-				flt_param.hdl[0].hdl, flt_param.hdl[0].status);
-				retval = -1;
-				goto fail;
+			flt_param->hdl[0].status = -1;
+			flt_param->hdl[0].hdl = flt_hdl;
+			IPA_BE_DBG("Deleting filter hdl:(0x%x) with ip type: %d\n", flt_hdl, IPA_IP_v6);
+
+			if (ipa3_del_flt_rule(flt_param)) {
+				IPA_BE_ERR("ipa3_del_flt_rule failed\n");
+				retval = -EFAULT;
+			} else {
+				if (flt_param->hdl[0].status != 0) {
+					IPA_BE_ERR("Filter rule hdl 0x%x deletion failed with error:%d\n",
+					flt_param->hdl[0].hdl, flt_param->hdl[0].status);
+					retval = -1;
+					continue;
+				}
+				IPA_BE_DBG("Filter rule deleted successfully.. lan2lan: %d hdl: %d\n", lan2lan, flt_hdl);
 			}
-			IPA_BE_DBG("Filter rule deleted successfully.. lan2lan: %d hdl: %d\n", lan2lan, flt_hdl);
 		}
 	}
 

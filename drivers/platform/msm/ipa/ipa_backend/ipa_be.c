@@ -1961,10 +1961,11 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			goto failed_ret;
 		}
 		step = L2L_STEP_RET_MAPPING;
+		is_ret = true;
 		if (mapping != NULL)
 		{
-			is_ret =  true;
-			/* Add route entry */
+			/* Add route entry (route stays gated on the IP mapping:
+			 * one route/proc_ctx/hdr per host is by design) */
 			ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.return_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add route rule for return IP\n");
@@ -1972,16 +1973,20 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			}
 			step = L2L_STEP_RET_ROUTE;
 			ret_route_added = true;
-
-			/* Add destination based filter rule */
-			ret = ipa_be_v4_add_filter_rule(v4_msg, lan2lan, v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.return_mac, is_ret);
-			if (ret != 0) {
-				IPA_BE_ERR("Failed to add filter rule for return IP\n");
-				goto failed_ret;
-			}
-			step = L2L_STEP_RET_FILTER;
-			ret_filter_added = true;
 		}
+
+		/* Add destination based filter rule. The filter is keyed
+		 * globally by (dst host, ip type) and self-gates via its own
+		 * refcount (installing on each ep that lacks the rule), so it
+		 * must be attempted regardless of the IP-only mapping ref
+		 * above. */
+		ret = ipa_be_v4_add_filter_rule(v4_msg, lan2lan, v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.return_mac, is_ret);
+		if (ret != 0) {
+			IPA_BE_ERR("Failed to add filter rule for return IP\n");
+			goto failed_ret;
+		}
+		step = L2L_STEP_RET_FILTER;
+		ret_filter_added = true;
 
 		flow_ip_key[0] = v4_msg.tuple.flow_ip;
 		mapping = ipa_be_client_mapping_add_or_ref(flow_ip_key, 0, lan2lan, v4_msg.conn_rule.flow_mac);
@@ -1990,10 +1995,10 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			goto failed_ret;
 		}
 		step = L2L_STEP_FLOW_MAPPING;
+		is_ret = false;
 		if (mapping != NULL)
 		{
-			is_ret =  false;
-			/* Add route entry */
+			/* Add route entry (route stays gated on the IP mapping) */
 			ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.flow_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add route rule for flow IP\n");
@@ -2001,16 +2006,16 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			}
 			step = L2L_STEP_FLOW_ROUTE;
 			flow_route_added = true;
-
-			/* Add destination based filter rule */
-			ret = ipa_be_v4_add_filter_rule(v4_msg, lan2lan, v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.flow_mac, is_ret);
-			if (ret != 0) {
-				IPA_BE_ERR("Failed to add filter rule for flow IP\n");
-				goto failed_ret;
-			}
-			step = L2L_STEP_FLOW_FILTER;
-			flow_filter_added = true;
 		}
+
+		/* Add destination based filter rule (self-gated, see above) */
+		ret = ipa_be_v4_add_filter_rule(v4_msg, lan2lan, v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.flow_mac, is_ret);
+		if (ret != 0) {
+			IPA_BE_ERR("Failed to add filter rule for flow IP\n");
+			goto failed_ret;
+		}
+		step = L2L_STEP_FLOW_FILTER;
+		flow_filter_added = true;
 
 		#ifdef CONFIG_ECM_CONVERGENCE
 			/* Add CT entry*/
@@ -2405,10 +2410,11 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			goto failed_ret;
 		}
 		step = L2L_STEP_RET_MAPPING;
+		is_ret = true;
 		if (mapping != NULL)
 		{
-			is_ret =  true;
-			/* Add route entry */
+			/* Add route entry (route stays gated on the IP mapping:
+			 * one route/proc_ctx/hdr per host is by design) */
 			ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.return_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add route rule for return IP\n");
@@ -2416,16 +2422,20 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			}
 			step = L2L_STEP_RET_ROUTE;
 			ret_route_added = true;
-
-			/* Add destination based filter rule */
-			ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.return_mac, is_ret);
-			if (ret != 0) {
-				IPA_BE_ERR("Failed to add filter rule for return IP\n");
-				goto failed_ret;
-			}
-			step = L2L_STEP_RET_FILTER;
-			ret_filter_added = true;
 		}
+
+		/* Add destination based filter rule. The filter is keyed
+		 * globally by (dst host, ip type) and self-gates via its own
+		 * refcount (installing on each ep that lacks the rule), so it
+		 * must be attempted regardless of the IP-only mapping ref
+		 * above. */
+		ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.return_mac, is_ret);
+		if (ret != 0) {
+			IPA_BE_ERR("Failed to add filter rule for return IP\n");
+			goto failed_ret;
+		}
+		step = L2L_STEP_RET_FILTER;
+		ret_filter_added = true;
 
 		memcpy(flow_ip6_key, &v6_msg.tuple.flow_ip, sizeof(flow_ip6_key));
 		mapping = ipa_be_client_mapping_add_or_ref(flow_ip6_key, 0, lan2lan, v6_msg.conn_rule.flow_mac);
@@ -2434,10 +2444,10 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			goto failed_ret;
 		}
 		step = L2L_STEP_FLOW_MAPPING;
+		is_ret = false;
 		if (mapping != NULL)
 		{
-			is_ret =  false;
-			/* Add route entry */
+			/* Add route entry (route stays gated on the IP mapping) */
 			ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.flow_mac, is_ret);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add route rule for flow IP\n");
@@ -2445,17 +2455,17 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			}
 			step = L2L_STEP_FLOW_ROUTE;
 			flow_route_added = true;
-
-			/* Add destination based filter rule */
-			ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.flow_mac, is_ret);
-			if (ret != 0) {
-				IPA_BE_ERR("Failed to add filter rule for flow IP\n");
-				goto failed_ret;
-			}
-
-			step = L2L_STEP_FLOW_FILTER;
-			flow_filter_added = true;
 		}
+
+		/* Add destination based filter rule (self-gated, see above) */
+		ret = ipa_be_v6_add_filter_rule(v6_msg, lan2lan, v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.flow_mac, is_ret);
+		if (ret != 0) {
+			IPA_BE_ERR("Failed to add filter rule for flow IP\n");
+			goto failed_ret;
+		}
+
+		step = L2L_STEP_FLOW_FILTER;
+		flow_filter_added = true;
 #ifdef CONFIG_ECM_CONVERGENCE
 		pdn_iface = v6_msg.conn_rule.flow_interface_num;
 		ret = ipa_be_add_v6_ct_entry(v6_msg, pdn_iface, lan2lan);
@@ -3015,10 +3025,8 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		ref = ipa_be_mapping_deref_and_delete(flow_addr, lan2lan, NULL);
 		if (ref == -1) {
 			IPA_BE_DBG("Entry %pI4n does not exist \n", &msg->tuple.flow_ip);
-			return;
 		} else if (ref > 0) {
 			IPA_BE_DBG("Entry %pI4n has other references ref count decreased %d\n", &msg->tuple.flow_ip, ref);
-			return;
 		} else if (ref == 0) {
 			IPA_BE_DBG("Ref now %d, deleting route rule\n", ref);
 			if (rt_hdl) {
@@ -3032,10 +3040,12 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 					ipa_be_delete_proc_ctx(proc_ctx_name);
 				}
 			}
-			/* Filter rule for dst=flow_ip is only shared while flow_ip mapping exists */
-			if (ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan))
-				IPA_BE_ERR("Failed to delete return filter rule\n");
 		}
+		/* Filter delete is self-gated by its own global (dst,ip) refcount,
+		 * so drop the return-direction filter reference unconditionally
+		 * (symmetric with the flow-direction delete above). */
+		if (ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan))
+			IPA_BE_ERR("Failed to delete return filter rule\n");
 	}
 	else
 	{
@@ -3279,10 +3289,8 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 		ref = ipa_be_mapping_deref_and_delete((uint32_t *)&msg->tuple.flow_ip, lan2lan, NULL);
 		if (ref == -1) {
 			IPA_BE_ERR("Entry %pI6n does not exist\n", &msg->tuple.flow_ip);
-			return;
 		} else if (ref > 0) {
 			IPA_BE_DBG("Entry %pI6n has other references, ref count decreased to %d\n", &msg->tuple.flow_ip, ref);
-			return;
 		} else if (ref == 0) {
 			IPA_BE_DBG("Ref now %d, deleting route rule\n", ref);
 			if (rt_hdl) {
@@ -3298,11 +3306,13 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 					ipa_be_delete_proc_ctx(proc_ctx_name);
 				}
 			}
-
-			/* Filter rule for dst=flow_ip is only shared while flow_ip mapping exists */
-			if (ipa_be_v6_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan) != 0)
-				IPA_BE_ERR("Failed to delete filter rule for forward flow\n");
 		}
+
+		/* Filter delete is self-gated by its own per-(intf,dst,ip) refcount,
+		 * so drop the forward-flow filter reference unconditionally
+		 * (symmetric with the return-flow delete above). */
+		if (ipa_be_v6_delete_filter_rule(*msg, msg->conn_rule.return_interface_num, msg->conn_rule.flow_mac, lan2lan) != 0)
+			IPA_BE_ERR("Failed to delete filter rule for forward flow\n");
 	} else {
 		/* LAN2WAN: Determine direction-specific parameters first, then delete all rules */
 		if (msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num) {

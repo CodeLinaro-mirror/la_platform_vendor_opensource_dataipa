@@ -1830,6 +1830,204 @@ unlock_and_exit:
 }
 
 /**
+ * lan2lan_dst_match() - compare a global lan2lan record against a (ip_type, dst)
+ * @ref:      candidate global record
+ * @ip_type:  IPv4 or IPv6
+ * @dst_addr: dst host IP (word 0 for v4; all 4 words for v6)
+ *
+ * Return: true if @ref tracks the same (ip_type, dst host IP).
+ */
+static bool lan2lan_dst_match(const struct ipa3_lan2lan_flt_ref *ref,
+	enum ipa_ip_type ip_type, const u32 *dst_addr)
+{
+	if (ref->ip_type != ip_type)
+		return false;
+
+	if (ip_type == IPA_IP_v4)
+		return ref->dst_addr[0] == dst_addr[0];
+
+	return !memcmp(ref->dst_addr, dst_addr, sizeof(ref->dst_addr));
+}
+
+/* Caller must hold ipa3_ctx->lock. */
+static struct ipa3_lan2lan_flt_ref *lan2lan_find_locked(
+	enum ipa_ip_type ip_type, const u32 *dst_addr)
+{
+	struct ipa3_lan2lan_flt_ref *ref;
+
+	list_for_each_entry(ref, &ipa3_ctx->lan2lan_flt_list, link) {
+		if (lan2lan_dst_match(ref, ip_type, dst_addr))
+			return ref;
+	}
+	return NULL;
+}
+
+/**
+ * ipa3_lan2lan_flt_need_install() - decide whether @ep needs a HW rule installed
+ * @ip_type:  IPv4 or IPv6
+ * @dst_addr: dst host IP (word 0 for v4; all 4 words for v6)
+ * @ep:       endpoint (physical pipe) the caller would install on
+ *
+ * lan2lan filters are refcounted globally per (dst host IP, ip type), but the
+ * HW rule is keyed on the physical pipe. This reports whether @ep already
+ * holds the rule for this dst: if it does, the connection's reference is
+ * counted here (global_ref bumped, no duplicate HW rule) and the caller skips
+ * install. If @ep does not yet hold the rule the caller must install it and
+ * then register the ep + handle via ipa3_lan2lan_flt_add().
+ *
+ * Return: true if @ep must install a new HW rule; false if the rule is already
+ * present on @ep (reference counted here, caller skips install).
+ */
+bool ipa3_lan2lan_flt_need_install(enum ipa_ip_type ip_type,
+	const u32 *dst_addr, int ep)
+{
+	struct ipa3_lan2lan_flt_ref *ref;
+	struct ipa3_lan2lan_ep_hdl *eph;
+	bool need_install = true;
+
+	if (ep < 0 || ep >= IPA_MAX_NUM_PIPES)
+		return true;
+
+	mutex_lock(&ipa3_ctx->lock);
+	ref = lan2lan_find_locked(ip_type, dst_addr);
+	if (ref) {
+		list_for_each_entry(eph, &ref->ep_list, link) {
+			if (eph->ep == ep) {
+				/* Rule already on this ep - count the ref
+				 * here and skip the duplicate HW install. */
+				ref->global_ref++;
+				need_install = false;
+				IPADBG("lan2lan flt present ip_type %d ep %d, global_ref now %u\n",
+				       ip_type, ep, ref->global_ref);
+				break;
+			}
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	return need_install;
+}
+EXPORT_SYMBOL(ipa3_lan2lan_flt_need_install);
+
+/**
+ * ipa3_lan2lan_flt_add() - register a freshly installed lan2lan HW rule
+ * @ip_type:  IPv4 or IPv6
+ * @dst_addr: dst host IP (word 0 for v4; all 4 words for v6)
+ * @ep:       endpoint the rule was installed on
+ * @flt_hdl:  HW filter rule handle to delete on final teardown
+ *
+ * Records that @ep now holds a HW rule for (dst, ip_type) and bumps the global
+ * refcount. Creates the global record lazily on the first reference. Called
+ * only after ipa3_lan2lan_flt_need_install() returned true and the HW install
+ * succeeded.
+ */
+void ipa3_lan2lan_flt_add(enum ipa_ip_type ip_type, const u32 *dst_addr,
+	int ep, int flt_hdl)
+{
+	struct ipa3_lan2lan_flt_ref *ref;
+	struct ipa3_lan2lan_ep_hdl *eph;
+
+	if (ep < 0 || ep >= IPA_MAX_NUM_PIPES)
+		return;
+
+	eph = kzalloc(sizeof(*eph), GFP_KERNEL);
+	if (!eph)
+		return;
+	eph->ep = ep;
+	eph->flt_hdl = flt_hdl;
+
+	mutex_lock(&ipa3_ctx->lock);
+	ref = lan2lan_find_locked(ip_type, dst_addr);
+	if (!ref) {
+		ref = kzalloc(sizeof(*ref), GFP_KERNEL);
+		if (!ref) {
+			mutex_unlock(&ipa3_ctx->lock);
+			kfree(eph);
+			return;
+		}
+		ref->ip_type = ip_type;
+		if (ip_type == IPA_IP_v4)
+			ref->dst_addr[0] = dst_addr[0];
+		else
+			memcpy(ref->dst_addr, dst_addr, sizeof(ref->dst_addr));
+		ref->global_ref = 0;
+		INIT_LIST_HEAD(&ref->ep_list);
+		list_add_tail(&ref->link, &ipa3_ctx->lan2lan_flt_list);
+	}
+	list_add_tail(&eph->link, &ref->ep_list);
+	ref->global_ref++;
+	IPADBG("lan2lan flt installed ip_type %d ep %d hdl %d, global_ref now %u\n",
+	       ip_type, ep, flt_hdl, ref->global_ref);
+	mutex_unlock(&ipa3_ctx->lock);
+}
+EXPORT_SYMBOL(ipa3_lan2lan_flt_add);
+
+/**
+ * ipa3_lan2lan_flt_deref() - drop one connection's reference to a lan2lan rule
+ * @ip_type:  IPv4 or IPv6
+ * @dst_addr: dst host IP (word 0 for v4; all 4 words for v6)
+ * @out_hdls: [out] array filled with the HW handles to delete when the last
+ *            reference drops (one per ep that held the rule)
+ * @max_hdls: capacity of @out_hdls
+ * @out_num:  [out] number of handles written to @out_hdls
+ *
+ * Decrements the global refcount for (dst, ip_type). While references remain
+ * the shared rule stays on every ep. When the count reaches 0 the record is
+ * freed and every ep's HW handle is returned via @out_hdls so the caller can
+ * tear the rule down on all pipes it was installed on.
+ *
+ * Return: remaining global refcount (>0 still shared, 0 fully released and
+ * handles returned), or -1 if no matching record was found.
+ */
+int ipa3_lan2lan_flt_deref(enum ipa_ip_type ip_type, const u32 *dst_addr,
+	int *out_hdls, int max_hdls, int *out_num)
+{
+	struct ipa3_lan2lan_flt_ref *ref;
+	struct ipa3_lan2lan_ep_hdl *eph, *tmp;
+	int ret = -1;
+
+	if (out_num)
+		*out_num = 0;
+
+	mutex_lock(&ipa3_ctx->lock);
+	ref = lan2lan_find_locked(ip_type, dst_addr);
+	if (!ref) {
+		mutex_unlock(&ipa3_ctx->lock);
+		return -1;
+	}
+
+	if (ref->global_ref > 0)
+		ref->global_ref--;
+	ret = ref->global_ref;
+
+	if (ret == 0) {
+		int n = 0;
+
+		list_for_each_entry_safe(eph, tmp, &ref->ep_list, link) {
+			if (out_hdls && n < max_hdls)
+				out_hdls[n] = eph->flt_hdl;
+			n++;
+			list_del(&eph->link);
+			kfree(eph);
+		}
+		if (out_num)
+			*out_num = n;
+		list_del(&ref->link);
+		kfree(ref);
+		IPADBG("lan2lan flt released ip_type %d, %d hdl(s) to delete\n",
+		       ip_type, n);
+	} else {
+		IPADBG("lan2lan flt deref ip_type %d, global_ref now %d\n",
+		       ip_type, ret);
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	return ret;
+}
+EXPORT_SYMBOL(ipa3_lan2lan_flt_deref);
+
+
+/**
  * ipa3_get_ep_for_intf() - atomically look up the RX endpoint for an interface
  * @intf_idx: interface index (intf_idx field of struct ipa3_intf)
  *
