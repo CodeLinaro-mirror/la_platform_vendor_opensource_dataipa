@@ -11548,6 +11548,37 @@ static int ipa3_setup_ulso_empty_hdr(void)
 	return 0;
 }
 
+/*
+ * ipa_pkt_init_ex_set_common_fields() - populate the IP_PACKET_INIT_EX fields
+ * shared by every pkt_init_ex_imm[] slot (per-pipe and the shared common
+ * slot alike), so ipa_alloc_pkt_init_ex() and the two hdr_ofst setters below
+ * don't drift out of sync with each other.
+ *
+ * Callers still own rt_hdr_offset, rt_proc_ctx and rt_pipe_dest_idx, since
+ * those differ per slot/caller.
+ */
+static void ipa_pkt_init_ex_set_common_fields(
+	struct ipahal_imm_cmd_ip_packet_init_ex *cmd,
+	struct ipahal_imm_cmd_ip_packet_init_ex *cmd_mask)
+{
+	cmd->frag_disable = true;
+	cmd_mask->frag_disable = true;
+	cmd->nat_disable = true;
+	cmd_mask->nat_disable = true;
+	cmd->filter_disable = true;
+	cmd_mask->filter_disable = true;
+	cmd->route_disable = true;
+	cmd_mask->route_disable = true;
+	cmd->hdr_removal_insertion_disable = false;
+	cmd_mask->hdr_removal_insertion_disable = true;
+	cmd->cs_disable = false;
+	cmd_mask->cs_disable = true;
+	cmd->flt_retain_hdr = true;
+	cmd_mask->flt_retain_hdr = true;
+	cmd->rt_retain_hdr = true;
+	cmd_mask->rt_retain_hdr = true;
+}
+
 static int ipa_alloc_pkt_init_ex(void)
 {
 	struct ipa_mem_buffer *mem = &ipa3_ctx->pkt_init_ex_mem;
@@ -11575,22 +11606,7 @@ static int ipa_alloc_pkt_init_ex(void)
 	}
 
 	memset(mem->base, 0, mem->size);
-	cmd.frag_disable = true;
-	cmd_mask.frag_disable = true;
-	cmd.nat_disable = true;
-	cmd_mask.nat_disable = true;
-	cmd.filter_disable = true;
-	cmd_mask.filter_disable = true;
-	cmd.route_disable = true;
-	cmd_mask.route_disable = true;
-	cmd.hdr_removal_insertion_disable = false;
-	cmd_mask.hdr_removal_insertion_disable = true;
-	cmd.cs_disable = false;
-	cmd_mask.cs_disable = true;
-	cmd.flt_retain_hdr = true;
-	cmd_mask.flt_retain_hdr = true;
-	cmd.rt_retain_hdr = true;
-	cmd_mask.rt_retain_hdr = true;
+	ipa_pkt_init_ex_set_common_fields(&cmd, &cmd_mask);
 	cmd_mask.rt_pipe_dest_idx = true;
 	for (cmd.rt_pipe_dest_idx = 0;
 		cmd.rt_pipe_dest_idx < ipa3_ctx->ipa_num_pipes;
@@ -11665,8 +11681,8 @@ free_imm:
 int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	*lookup, bool proc_ctx)
 {
-	struct ipahal_imm_cmd_pyld *cmd_pyld;
 	struct ipahal_imm_cmd_ip_packet_init_ex cmd = {0};
+	struct ipahal_imm_cmd_ip_packet_init_ex cmd_mask = {0};
 	u32 offset;
 	int res = 0;
 	int dst_ep_idx;
@@ -11676,7 +11692,7 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 
 	dst_ep_idx = ipa_get_ep_mapping(lookup->ep);
 	IPADBG("dst_ep_idx=%d\n", dst_ep_idx);
-	if (-1 == dst_ep_idx) {
+	if (-1 == dst_ep_idx || dst_ep_idx >= ipa3_ctx->ipa_num_pipes) {
 		IPAERR("Client %u is not mapped\n", lookup->ep);
 		return -EINVAL;
 	}
@@ -11688,27 +11704,26 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	if (res != 0)
 		return res;
 
+	/*
+	 * Modify only the fields this call owns, in place, so previously
+	 * configured fields on this (per-pipe) slot - e.g. traffic_mode, set
+	 * by ipa_imm_cmd_modify_ip_packet_init_ex_eth() for Ethernet pipes -
+	 * are preserved instead of being reset to their zero value.
+	 */
 	cmd.rt_hdr_offset = offset;
+	cmd_mask.rt_hdr_offset = true;
 	IPADBG("cmd.rt_hdr_offset=%d\n", cmd.rt_hdr_offset);
-	cmd.frag_disable = true;
-	cmd.nat_disable = true;
-	cmd.filter_disable = true;
-	cmd.route_disable = true;
-	cmd.hdr_removal_insertion_disable = false;
-	cmd.cs_disable = false;
-	cmd.flt_retain_hdr = true;
-	cmd.rt_retain_hdr = true;
-	cmd.rt_pipe_dest_idx = (dst_ep_idx < ipa3_ctx->ipa_num_pipes) ? dst_ep_idx : 0xFF;
+	ipa_pkt_init_ex_set_common_fields(&cmd, &cmd_mask);
+	cmd.rt_pipe_dest_idx = dst_ep_idx;
+	cmd_mask.rt_pipe_dest_idx = true;
 	cmd.rt_proc_ctx = proc_ctx;
-	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
-		&cmd, false);
-	if (!cmd_pyld) {
-		IPAERR("failed to construct IMM cmd\n");
-		return -ENOMEM;
+	cmd_mask.rt_proc_ctx = true;
+	res = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].base, &cmd, &cmd_mask);
+	if (unlikely(res != 0)) {
+		IPAERR("failed to modify IMM cmd\n");
+		return res;
 	}
-	memcpy(ipa3_ctx->pkt_init_ex_mem.base + dst_ep_idx * cmd_pyld->len,
-		cmd_pyld->data, cmd_pyld->len);
-	ipahal_destroy_imm_cmd(cmd_pyld);
        if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
            ipa3_get_ep_traffic_mode(lookup->ep) == IPA_NON_DMA_ETHERNET)
                ipa_imm_cmd_modify_ip_packet_init_ex_eth(dst_ep_idx);
@@ -11728,12 +11743,23 @@ EXPORT_SYMBOL(ipa_set_pkt_init_ex_hdr_ofst);
  */
 int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx)
 {
-	struct ipahal_imm_cmd_pyld *cmd_pyld;
 	struct ipahal_imm_cmd_ip_packet_init_ex cmd = {0};
+	struct ipahal_imm_cmd_ip_packet_init_ex cmd_mask = {0};
 	struct ipa3_hdr_entry *hdr_entry;
 	struct ipa3_hdr_proc_ctx_entry *hdr_proc_entry;
 	u32 offset;
+	int res;
 	enum hpc_tbl_storage storage;
+
+	/*
+	 * dst_ep_idx == ipa3_ctx->ipa_num_pipes is the shared common slot
+	 * (used e.g. for ICMP / IPsec-encap), one past the per-pipe slots -
+	 * see IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM.
+	 */
+	if (dst_ep_idx < 0 || dst_ep_idx > ipa3_ctx->ipa_num_pipes) {
+		IPAERR("Bad dst_ep_idx=%d\n", dst_ep_idx);
+		return -EINVAL;
+	}
 
 	if (proc_ctx) {
 		hdr_proc_entry = ipa3_id_find(hdl);
@@ -11750,27 +11776,34 @@ int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx)
 		offset = hdr_entry->offset_entry->offset;
 	}
 
+	/*
+	 * Modify only the fields this call owns, in place, so previously
+	 * configured fields on this slot (e.g. rt_close_aggr_irq_mod,
+	 * traffic_mode set up by ipa_alloc_pkt_init_ex()) are preserved
+	 * instead of being reset to their zero value.
+	 */
 	cmd.rt_hdr_offset = offset;
-	cmd.frag_disable = true;
-	cmd.nat_disable = true;
-	cmd.filter_disable = true;
-	cmd.route_disable = true;
-	cmd.hdr_removal_insertion_disable = false;
-	cmd.cs_disable = false;
-	cmd.flt_retain_hdr = true;
-	cmd.rt_retain_hdr = true;
+	cmd_mask.rt_hdr_offset = true;
+	ipa_pkt_init_ex_set_common_fields(&cmd, &cmd_mask);
+	/*
+	 * Unlike ipa_set_pkt_init_ex_hdr_ofst(), dst_ep_idx here may be the
+	 * shared common slot (== ipa3_ctx->ipa_num_pipes), which has no real
+	 * pipe of its own - the HW field is left at the sentinel 0xFF and the
+	 * real destination is patched in later, in the datapath, before send.
+	 */
 	cmd.rt_pipe_dest_idx = (dst_ep_idx < ipa3_ctx->ipa_num_pipes) ? dst_ep_idx : 0xFF;
+	cmd_mask.rt_pipe_dest_idx = true;
 	cmd.rt_proc_ctx = proc_ctx;
+	cmd_mask.rt_proc_ctx = true;
 	/* This may be called from the XFRM in interrupt context, therefore -> is atomic */
-	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX, &cmd, true);
-	if (!cmd_pyld) {
-		IPAERR("failed to construct IMM cmd\n");
-		return -ENOMEM;
+	res = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].base, &cmd, &cmd_mask);
+	if (unlikely(res != 0)) {
+		IPAERR("failed to modify IMM cmd\n");
+		return res;
 	}
-	memcpy(ipa3_ctx->pkt_init_ex_mem.base + dst_ep_idx * cmd_pyld->len,
-		cmd_pyld->data, cmd_pyld->len);
-	ipahal_destroy_imm_cmd(cmd_pyld);
        if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+           dst_ep_idx < ipa3_ctx->ipa_num_pipes &&
            ipa3_get_ep_traffic_mode(ipa3_get_client_mapping(dst_ep_idx)) ==
            IPA_NON_DMA_ETHERNET)
                ipa_imm_cmd_modify_ip_packet_init_ex_eth(dst_ep_idx);
