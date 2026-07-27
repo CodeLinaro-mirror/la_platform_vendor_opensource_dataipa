@@ -6586,17 +6586,6 @@ u32 ipahal_get_low_rule_id(void)
 }
 
 /*
- * Is the given counter id valid
- */
-bool ipahal_is_rule_cnt_id_valid(u8 cnt_id)
-{
-	if (cnt_id < 0 || cnt_id > IPA_FLT_RT_HW_COUNTER)
-		return false;
-	return true;
-}
-
-
-/*
  * low value possible for counter hdl id
  */
 u32 ipahal_get_low_hdl_id(void)
@@ -7309,4 +7298,3 @@ int ipahal_flt_parse_hw_rule(u8 *rule_addr,
 	return ipahal_fltrt_objs[ipahal_ctx->hw_type].flt_parse_hw_rule(
 		rule_addr, rule);
 }
-

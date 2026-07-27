@@ -1395,7 +1395,7 @@ static int ipa3_read_rt(struct seq_file *seq, void *v)
 				entry->rule_id, entry->rule.max_prio, entry->prio,
 				entry->cat, entry->sub_cat,
 				entry->rule.enable_stats,
-				entry->rule.cnt_idx,
+				entry->cnt_idx,
 				entry->rule.hashable,
 				entry->rule.retain_hdr);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
@@ -1509,7 +1509,7 @@ static int ipa3_read_rt_hw(struct seq_file *seq, void *v)
 					rules[rl].hdr_ofst,
 					rules[rl].eq_attrib.rule_eq_bitmap);
 
-			IPA_DUMP_DBG_FILE(seq, "rule_id:%u cnt_id:%hhu prio:%u retain_hdr:%u\n",
+			IPA_DUMP_DBG_FILE(seq, "rule_id:%u cnt_id:%u prio:%u retain_hdr:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority, rules[rl].retain_hdr);
 			res = ipa3_attrib_dump_eq(&rules[rl].eq_attrib, seq);
@@ -1560,7 +1560,7 @@ static int ipa3_read_rt_hw(struct seq_file *seq, void *v)
 					rules[rl].hdr_ofst,
 					rules[rl].eq_attrib.rule_eq_bitmap);
 
-			IPA_DUMP_DBG_FILE(seq, "rule_id:%u cnt_id:%hhu prio:%u retain_hdr:%u\n",
+			IPA_DUMP_DBG_FILE(seq, "rule_id:%u cnt_id:%u prio:%u retain_hdr:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority, rules[rl].retain_hdr);
 			res = ipa3_attrib_dump_eq(&rules[rl].eq_attrib, seq);
@@ -1750,14 +1750,14 @@ static int ipa3_read_flt(struct seq_file *seq, void *v)
 					tbl->in_sys[IPA_RULE_HASHABLE],
 					tbl->force_sys[IPA_RULE_HASHABLE],
 					entry->rule.enable_stats,
-					entry->rule.cnt_idx);
+					entry->cnt_idx);
 			else
 				IPA_DUMP_DBG_FILE(seq, "non-hash in_sys_preffer:%d, force: %d \n"
 					"enable_stats:%u counter_id:%u\n",
 					tbl->in_sys[IPA_RULE_NON_HASHABLE],
 					tbl->force_sys[IPA_RULE_NON_HASHABLE],
 					entry->rule.enable_stats,
-					entry->rule.cnt_idx);
+					entry->cnt_idx);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
 				IPA_DUMP_DBG_FILE(seq, "pdn index %d, set metadata %d \n",
 					entry->rule.pdn_idx,
@@ -1855,7 +1855,7 @@ static int ipa3_read_flt_hw(struct seq_file *seq, void *v)
 			bitmap = rules[rl].rule.eq_attrib.rule_eq_bitmap;
 			IPA_DUMP_DBG_FILE(seq, "ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d \n"
 				"attrib_mask:%08x retain_hdr:%d \n"
-				"rule_id:%u cnt_id:%hhu prio:%u\n",
+				"rule_id:%u cnt_id:%u prio:%u\n",
 				pipe, rl, rules[rl].rule.action, rt_tbl_idx,
 				bitmap, rules[rl].rule.retain_hdr,
 				rules[rl].id, rules[rl].cnt_idx,
@@ -1875,7 +1875,7 @@ static int ipa3_read_flt_hw(struct seq_file *seq, void *v)
 				IPA_DUMP_DBG_FILE(seq, "esp_after_udp %u \n", rules[rl].rule.esp_after_udp);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
 				IPA_DUMP_DBG_FILE(seq, "rule_type %u \n", rules[rl].rule.rule_type);
-				IPA_DUMP_DBG_FILE(seq, "cnt_idx2 %u \n", rules[rl].rule.cnt_idx2);
+				IPA_DUMP_DBG_FILE(seq, "cnt_idx_v2 %u \n", rules[rl].cnt_idx);
 			}
 
 			IPA_DUMP_DBG_FILE_PUTS(seq, "\n");
@@ -1904,7 +1904,7 @@ static int ipa3_read_flt_hw(struct seq_file *seq, void *v)
 				pipe, rl, rules[rl].rule.action, rt_tbl_idx);
 			IPA_DUMP_DBG_FILE(seq, "attrib_mask:%08x retain_hdr:%d\n",
 				bitmap, rules[rl].rule.retain_hdr);
-			IPA_DUMP_DBG_FILE(seq, "rule_id:%u cnt_id:%hhu prio:%u\n",
+			IPA_DUMP_DBG_FILE(seq, "rule_id:%u cnt_id:%u prio:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
@@ -1922,7 +1922,7 @@ static int ipa3_read_flt_hw(struct seq_file *seq, void *v)
 				IPA_DUMP_DBG_FILE(seq, "esp_after_udp %u\n", rules[rl].rule.esp_after_udp);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
 				IPA_DUMP_DBG_FILE(seq, "rule_type %u\n", rules[rl].rule.rule_type);
-				IPA_DUMP_DBG_FILE(seq, "cnt_idx2 %u\n", rules[rl].rule.cnt_idx2);
+				IPA_DUMP_DBG_FILE(seq, "cnt_idx_v2 %u\n", rules[rl].cnt_idx);
 			}
 
 			IPA_DUMP_DBG_FILE_PUTS(seq, "\n");

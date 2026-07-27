@@ -1803,7 +1803,7 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 			.enable_stats = rt_entry->rule.enable_stats;
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
-			.counter_id = rt_entry->rule.cnt_idx;
+			.counter_id = rt_entry->cnt_idx;
 			rt_rule_stats->v4_rt_tbl[tbl_idx].v4_rt_rule[rule_idx]
 			.hashable = rt_entry->rule.hashable;
 
@@ -2101,7 +2101,7 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx]
 			.enable_stats = rt_entry->rule.enable_stats;
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].counter_id =
-				rt_entry->rule.cnt_idx;
+				rt_entry->cnt_idx;
 			rt_rule_stats->v6_rt_tbl[tbl_idx].v6_rt_rule[rule_idx].hashable =
 				rt_entry->rule.hashable;
 			/* Rule attributes */
@@ -2395,7 +2395,7 @@ static int ipa_get_v4_flt_rule_stats(unsigned long arg)
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].enable_stats =
 				flt_entry->rule.enable_stats;
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].counter_id =
-				flt_entry->rule.cnt_idx;
+				flt_entry->cnt_idx;
 
 			flt_rule_stats->v4_flt_tbl[tbl_idx].flt_rule[rule_idx].pdn_index =
 				flt_entry->rule.pdn_idx;
@@ -2782,7 +2782,7 @@ static int ipa_get_v6_flt_rule_stats(unsigned long arg)
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].enable_stats =
 				flt_entry->rule.enable_stats;
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].counter_id =
-				flt_entry->rule.cnt_idx;
+				flt_entry->cnt_idx;
 
 			flt_rule_stats->v6_flt_tbl[tbl_idx].flt_rule[rule_idx].pdn_index =
 				flt_entry->rule.pdn_idx;

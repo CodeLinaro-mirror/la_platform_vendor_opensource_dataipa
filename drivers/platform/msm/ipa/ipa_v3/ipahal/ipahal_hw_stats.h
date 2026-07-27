@@ -33,6 +33,33 @@
 
 #define IPAHAL_NAT_CT_MAX_COUNTERS 1024
 
+/*
+ * Field packing for the "max counters" registers. Each such register holds two
+ * 16-bit max-counter-index fields.
+ *
+ * The FnR (filter/route) registers
+ * (IPA_STAT_{IPV4,IPV6,NONIP}_FILTER_ROUTER_MAX_COUNTERS and their
+ * IPA_DROP_STAT_* counterparts) split into a filter half and a router half:
+ */
+#define IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_BMSK (0xffff0000)
+#define IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_SHFT (0x10)
+#define IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_BMSK (0x0000ffff)
+#define IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_SHFT (0x0)
+
+/*
+ * The NAT/CT registers
+ * (IPA_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS and
+ * IPA_DROP_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS) split into an IPv4 half and
+ * an IPv6 half:
+ */
+#define IPAHAL_STAT_IPV6_MAX_COUNTERS_BMSK (0xffff0000)
+#define IPAHAL_STAT_IPV6_MAX_COUNTERS_SHFT (0x10)
+#define IPAHAL_STAT_IPV4_MAX_COUNTERS_BMSK (0x0000ffff)
+#define IPAHAL_STAT_IPV4_MAX_COUNTERS_SHFT (0x0)
+
+/* Largest max-counter index representable in any of the 16-bit fields above */
+#define IPAHAL_STAT_MAX_COUNTERS_LIMIT (0xffff)
+
 enum ipahal_hw_stats_type {
 	IPAHAL_HW_STATS_QUOTA,
 	IPAHAL_HW_STATS_TETHERING,
@@ -367,5 +394,19 @@ void ipahal_set_flt_rt_sw_stats(void *raw_stats,
  */
 void ipahal_set_nat_ct_sw_stats(void *raw_stats,
 	struct ipahal_stats_nat_ct sw_stats);
+
+/*
+ * ipahal_stats_get_hw_entry_size - Get the HW (on-SRAM) size of a single
+ *	counter entry for the given stats type
+ * @type: type of stats
+ *
+ * The per-counter HW layout is internal to ipahal; callers use this to derive
+ * how many counter entries fit in a given SRAM partition without depending on
+ * the internal struct definitions. The size returned reflects the IPA HW
+ * version ipahal was initialized with.
+ *
+ * Return: entry size in bytes, or 0 for an unsupported type
+ */
+u32 ipahal_stats_get_hw_entry_size(enum ipahal_hw_stats_type type);
 
 #endif /* _IPAHAL_HW_STATS_H_ */

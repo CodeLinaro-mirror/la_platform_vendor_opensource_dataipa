@@ -229,6 +229,14 @@
 #define IPA_FLT_RT_HW_COUNTER (120)
 #define IPA_FLT_RT_SW_COUNTER \
 	(IPA_MAX_FLT_RT_CNT_INDEX - IPA_FLT_RT_HW_COUNTER)
+/*
+ * IPAv7.0+ widened the per-rule HW stats counter-index field to 12 bits.
+ * 255 is the largest value that still fits the 8-bit counter_id in the
+ * ipa_lnx_stats reporting structs (ipa_stats.h) and the uint8_t
+ * alloc/query/index fields (used both via /dev/ipa ioctls and by ECM's
+ * direct in-kernel calls) without an ABI/layout break.
+ */
+#define IPA_MAX_FLT_RT_CNT_INDEX_V7 (255)
 #define IPA_MAX_FLT_RT_CLIENTS 60
 
 /**

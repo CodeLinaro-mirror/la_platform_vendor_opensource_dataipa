@@ -74,7 +74,7 @@ struct ipahal_rt_rule_gen_params {
 	u32 hdr_ofst;
 	u32 priority;
 	u32 id;
-	u8 cnt_idx;
+	u16 cnt_idx;
 	const struct ipa_rt_rule_i *rule;
 	enum ipa_fltrt_rule_type rule_type;
 	u8 hpc_fetch_len;
@@ -110,7 +110,7 @@ struct ipahal_rt_rule_entry {
 	u32 priority;
 	bool retain_hdr;
 	u32 id;
-	u8 cnt_idx;
+	u16 cnt_idx;
 	u8 close_aggr_irq_mod;
 	u8 ttl_update;
 	u8 qos_class;
@@ -138,7 +138,7 @@ struct ipahal_flt_rule_gen_params {
 	u32 rt_tbl_idx;
 	u32 priority;
 	u32 id;
-	u8 cnt_idx;
+	u16 cnt_idx;
 	const struct ipa_flt_rule_i *rule;
 	enum ipa_fltrt_rule_type rule_type;
 };
@@ -155,7 +155,7 @@ struct ipahal_flt_rule_entry {
 	struct ipa_flt_rule_i rule;
 	u32 priority;
 	u32 id;
-	u8 cnt_idx;
+	u16 cnt_idx;
 	u32 rule_size;
 };
 
@@ -205,8 +205,11 @@ u32 ipahal_get_low_hdl_id(void);
  */
 u32 ipahal_get_high_hdl_id(void);
 
-/* used for query check and associated with rt/flt rules */
-bool ipahal_is_rule_cnt_id_valid(u8 cnt_id);
+/* Is the given counter ID valid for the supplied maximum. */
+static inline bool ipahal_is_rule_cnt_id_valid(u16 cnt_id, u16 max_cnt_id)
+{
+	return cnt_id >= 1 && cnt_id <= max_cnt_id;
+}
 
 /* max rule id for stats */
 bool ipahal_get_max_stats_rule_id(void);

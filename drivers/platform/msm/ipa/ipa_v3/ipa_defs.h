@@ -36,7 +36,8 @@
  * @skip_ingress: bool to skip ingress policing.
  * @esp_after_udp: bool for ESP after UDP (NAT-T) rules
  * @rule_type: enum rule type (IP, ETH, Etc.)
- * @cnt_idx2: cnt_idx extention
+ * @cnt_idx2: high byte of the IPAv7.0+ stats index; unlike filtering,
+ *  this extends cnt_idx rather than replacing it.
  * @hpc_fetch_len: HPC fetch length (for inline header insertion HPC)
  */
 struct ipa_rt_rule_i {
@@ -97,7 +98,9 @@ struct ipa_rt_rule_i {
  * @qos_class: QOS classification value.
  * @esp_after_udp: bool for ESP after UDP (NAT-T) rules
  * @rule_type: enum rule type (IP, ETH, Etc.)
- * @cnt_idx2: cnt_idx extention
+ * @cnt_idx_v2: full IPAv7.0+ stats index, replacing cnt_idx when non-zero;
+ *  unlike routing, it is not a high-byte extension. Layout-compatible with
+ *  ipa_flt_rule_v2.cnt_idx_v2.
  */
 struct ipa_flt_rule_i {
 	u8 retain_hdr;
@@ -120,7 +123,7 @@ struct ipa_flt_rule_i {
 	u8 qos_class;
 	u8 esp_after_udp;
 	enum ipa_fltrt_rule_type rule_type;
-	u8 cnt_idx2;
+	u16 cnt_idx_v2;
 };
 
 #endif /* _IPA_DEFS_H_ */
