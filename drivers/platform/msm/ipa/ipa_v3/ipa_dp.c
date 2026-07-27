@@ -1943,6 +1943,9 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 		netif_napi_del(&ep->sys->napi_rx);
 	}
 
+	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
+		tasklet_kill(&ep->sys->tasklet);
+
 	/* channel stop might fail on timeout if IPA is busy */
 	for (i = 0; i < IPA_GSI_CHANNEL_STOP_MAX_RETRY; i++) {
 		result = ipa3_stop_gsi_channel(clnt_hdl);
