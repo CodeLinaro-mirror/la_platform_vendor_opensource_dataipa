@@ -2167,6 +2167,8 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 		ctx->ipogre_params.tlv.value = IPA_HDR_UCP_IPOGRE_HEADER_REMOVE;
 		ctx->ipogre_params.ipogre_params.hdr_len_remove =
 			ipogre_params->hdr_remove_param.hdr_len_remove;
+		ctx->ipogre_params.ipogre_params.tunnel_id =
+			ipogre_params->hdr_remove_param.tunnel_id;
 		ctx->end.type = IPA_PROC_CTX_TLV_TYPE_END;
 		ctx->end.length = 0;
 		ctx->end.value = 0;
