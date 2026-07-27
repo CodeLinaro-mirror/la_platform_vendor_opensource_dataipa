@@ -137,27 +137,35 @@ struct ipa_sw_producer_cookie {
  * The IPA driver populates these fields from the 32-bit Rx metadata word:
  *
  * Metadata word layout:
- *  +--------+----------+----------+------------+
- *  | [31:24]| [23:16]  | [15:14]  | [13:0]     |
- *  | VAP_ID | QMAP_ID  | RESERVED | TA_PEER_ID |
- *  +--------+----------+----------+------------+
+ *  +-------------+---------+----------+----------+-------------+------------+
+ *  | [31:30]     | [29:29] | [28:24]  | [23:16]  | [15:12]     | [11:0]     |
+ *  | VAP_ID_MSB  | RESERVED| VAP_ID_LSB| QMAP_ID  | HW_LINK_ID  | TA_PEER_ID |
+ *  +-------------+---------+----------+----------+-------------+------------+
+ * Bit 29 is reserved for flow control and is excluded from VAP_ID and
+ * from the skb->cb packing below.
  *
  * skb->cb layout (packed into a single u32 = 4 bytes):
- *  +----------+------------+----------+
- *  | [7:0]    | [21:8]     | [31:22]  |
- *  | vap_id   | ta_peer_id | reserved |
- *  +----------+------------+----------+
+ *  +------------+-------------+----------+----------+
+ *  | [11:0]     | [15:12]     | [22:16]  | [31:23]  |
+ *  | ta_peer_id | hw_link_id  | vap_id   | reserved |
+ *  +------------+-------------+----------+----------+
  *
- * @packed: raw u32; use IPA_WDI6_CB_* macros to access vap_id and ta_peer_id
+ * @packed: raw u32; use IPA_WDI6_CB_* macros to access vap_id, ta_peer_id
+ * and hw_link_id
  *
- * vap_id:     bits [7:0]   - VAP ID (vdev id), extracted from metadata bits [31:24]
- * ta_peer_id: bits [21:8]  - TA peer ID (14 bits), extracted from metadata bits [13:0]
- * reserved:   bits [31:22] - unused padding bits
+ * ta_peer_id:  bits [11:0]  - TA peer ID (12 bits), extracted from metadata bits [11:0]
+ * hw_link_id:  bits [15:12] - HW link ID (4 bits), extracted from metadata bits [15:12]
+ * vap_id:      bits [22:16] - VAP ID (vdev id, 7 bits), extracted from metadata
+ *              bits [28:24] (LSB) and [31:30] (MSB); metadata bit 29 (flow
+ *              control) is not part of vap_id.
+ * reserved:    bits [31:23] - unused padding bits
  */
-#define IPA_WDI6_CB_VAP_ID_SHIFT	0
-#define IPA_WDI6_CB_VAP_ID_MASK		0xFFU
-#define IPA_WDI6_CB_TA_PEER_ID_SHIFT	8
-#define IPA_WDI6_CB_TA_PEER_ID_MASK	0x3FFFU
+#define IPA_WDI6_CB_TA_PEER_ID_SHIFT	0
+#define IPA_WDI6_CB_TA_PEER_ID_MASK	0xFFFU
+#define IPA_WDI6_CB_HW_LINK_ID_SHIFT	12
+#define IPA_WDI6_CB_HW_LINK_ID_MASK	0xFU
+#define IPA_WDI6_CB_VAP_ID_SHIFT	16
+#define IPA_WDI6_CB_VAP_ID_MASK		0x7FU
 
 struct ipa_wdi6_rx_skb_cb {
 	u32 packed;
