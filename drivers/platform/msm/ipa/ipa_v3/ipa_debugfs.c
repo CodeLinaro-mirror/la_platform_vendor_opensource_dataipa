@@ -4859,12 +4859,6 @@ static ssize_t enable_wkup_logs(struct file *file,
 	return count;
 }
 
-/*
- * Accepts a single ASCII '0' or '1' from userspace, with an optional
- * trailing newline (kstrtos8_from_user tolerates the newline that echo
- * writes; use `echo -n` if you want to avoid it). Anything else — other
- * numerics, "true"/"enable", trailing garbage — returns -EINVAL.
- */
 static ssize_t ipa3_write_sw_routing(struct file *file,
 	const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -4889,26 +4883,31 @@ static ssize_t ipa3_write_sw_routing(struct file *file,
 	}
 
 	/*
-	 * Q6 already has per-flow DL filter rules in its section (higher
-	 * priority than the AP section).  Push the updated rules so Q6
-	 * either gets the SW routing catch-all (enable) or restores the
-	 * per-flow HW rules (disable).  Pass is_sw_routing to mirror
-	 * IPACM_Wan::install_wan_filtering_rule(bool), which triggers the
-	 * SW-routing catch-all when true and normal per-flow rules when false.
+	 * LAN2LAN-only: Q6 catch-all's mux_id comes from a WAN PDN, so skip
+	 * the push here.  A later WAN PDN bring-up sees ipa3_ctx->ipa_sw and
+	 * installs the catch-all then.
 	 */
+	if (!ipa_be_wan_pdn_active()) {
+		IPADBG("SW routing %s: no WAN PDN, Q6 push deferred\n",
+			option ? "enable" : "disable");
+		return count;
+	}
+
 	ret = install_wan_filtering_rule(option == 1);
 	if (ret) {
 		IPAERR("install_wan_filtering_rule failed: %d\n", ret);
-		/* Enable succeeded (AP-side rules committed, ipa_sw = true)
-		 * but Q6 push failed — roll back AP-side state so the driver
-		 * doesn't advertise SW routing enabled while Q6 has the
-		 * per-flow rules. Best-effort: log if rollback disable fails.
-		 */
+		/* Roll back AP-side state to stay in sync with Q6. */
 		if (option == 1) {
 			int rb = ipa3_sw_routing_disable();
 
 			if (rb)
 				IPAERR("SW routing enable rollback (disable) failed: %d — AP/Q6 state may be inconsistent\n",
+					rb);
+		} else {
+			int rb = ipa3_sw_routing_enable();
+
+			if (rb)
+				IPAERR("SW routing disable rollback (re-enable) failed: %d — AP/Q6 state may be inconsistent\n",
 					rb);
 		}
 		return ret;
@@ -4923,7 +4922,8 @@ static ssize_t ipa3_read_sw_routing(struct file *file, char __user *ubuf,
 	int nbytes;
 
 	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
-		"sw_routing: %s\n", ipa3_ctx->ipa_sw ? "enabled" : "disabled");
+		"sw_routing: %s\n",
+		READ_ONCE(ipa3_ctx->ipa_sw) ? "enabled" : "disabled");
 
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
 }

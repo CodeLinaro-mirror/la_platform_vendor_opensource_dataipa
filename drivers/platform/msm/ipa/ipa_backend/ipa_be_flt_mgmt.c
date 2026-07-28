@@ -247,6 +247,19 @@ static void ipa_be_global_qmap_id_reset_if_empty(void)
 	spin_unlock_bh(&ipa_uplink_lock);
 }
 
+/* True once any WAN PDN has latched the global mux_id. */
+bool ipa_be_wan_pdn_active(void)
+{
+	bool active;
+
+	spin_lock_bh(&ipa_uplink_lock);
+	active = ipa_be_global_qmap_id != IPA_BE_GLOBAL_QMAP_UNSET;
+	spin_unlock_bh(&ipa_uplink_lock);
+
+	return active;
+}
+EXPORT_SYMBOL(ipa_be_wan_pdn_active);
+
 static inline bool ipa_uplink_pair_match(const struct ipa_uplink_pair *p,
 		int pdn_iface, int client_iface, enum ipa_ip_type ip_type)
 {
@@ -3668,7 +3681,7 @@ static bool AddWanDLFilteringRule(
 		return false;
 	}
 
-	if (is_sw_routing || ipa3_ctx->ipa_sw) {
+	if (is_sw_routing || READ_ONCE(ipa3_ctx->ipa_sw)) {
 		struct ipa_ioc_get_rt_tbl_indx rt_idx;
 		struct ipa_rule_attrib meta_attrib;
 		struct ipa_ipfltri_rule_eq eq_attrib;
