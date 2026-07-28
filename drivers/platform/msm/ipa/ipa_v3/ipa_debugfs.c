@@ -1323,6 +1323,10 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 				pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
 					ofst_words,
 					entry->rule.attrib.attrib_mask);
+				if (entry->proc_ctx->type == IPA_HDR_PROC_MARK_DSCP)
+					pr_err("dscp_mark:{valid:%u val:%u} (egress rewrite) ",
+						entry->proc_ctx->pdn_dscp_params.valid,
+						entry->proc_ctx->pdn_dscp_params.dscp_val);
 			} else {
 				if (entry->hdr && !entry->hdr->is_hdr_proc_ctx)
 				{
@@ -1350,9 +1354,9 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 					entry->rule.attrib.attrib_mask,
 					(entry->hdr && entry->hdr->in_apps_headers_ext));
 			}
-			pr_err("rule_id:%u max_prio:%u prio:%u ",
+			pr_err("rule_id:%u max_prio:%u prio:%u cat:%u sub_cat:%u ",
 				entry->rule_id, entry->rule.max_prio,
-				entry->prio);
+				entry->prio, entry->cat, entry->sub_cat);
 			pr_err("enable_stats:%u counter_id:%u ",
 				entry->rule.enable_stats,
 				entry->rule.cnt_idx);

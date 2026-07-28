@@ -697,22 +697,6 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 		}
 	}
 
-	pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
-	if (pFilteringTable == NULL) {
-		IPA_BE_ERR("Error Locate ipa_ioc_add_flt_rule_v2 memory...\n");
-		retval = -EINVAL;
-		goto end;
-	}
-
-	pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
-	if (!pFilteringTable->rules) {
-		kfree(pFilteringTable);
-		pFilteringTable = NULL;
-		IPA_BE_ERR("Error Locate ipa_flt_rule_add_v2 memory...\n");
-		retval = -EINVAL;
-		goto end;
-	}
-
 	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
 		idx = j * 2;
 		if (rx_prop->rx[idx].ip != IPA_IP_v4) {
@@ -720,6 +704,23 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 			continue;
 		}
 		IPA_BE_DBG("Install rules at idx %d\n", idx);
+
+		/* Reallocate each pass -- notif_only below can free pFilteringTable, so reusing a pre-loop alloc would write through NULL/stale. */
+		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
+		if (pFilteringTable == NULL) {
+			IPA_BE_ERR("Error Locate ipa_ioc_add_flt_rule_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
+		}
+
+		pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
+		if (!pFilteringTable->rules) {
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			IPA_BE_ERR("Error Locate ipa_flt_rule_add_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
+		}
 
 		memset(flt_index, 0, sizeof(struct ipa_fltr_installed_notif_req_msg_v01));
 		flt_index->source_pipe_index = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
@@ -958,6 +959,12 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 				ipa3_add_filter_rules_entry(client_iface, flt_entry);
 			}
 			flt_rule_count_v4[rx_prop->rx[idx].src_pipe]++;
+		}
+		if (pFilteringTable) {
+			if (pFilteringTable->rules)
+				kfree((void *)(uintptr_t)pFilteringTable->rules);
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
 		}
 	}
 
@@ -2757,22 +2764,6 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 		IPA_BE_DBG("Need %d additional XLAT rules\n", v6_xlat_ul_rules);
 	}
 
-	pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
-	if (pFilteringTable == NULL) {
-		IPA_BE_ERR("Error Locate ipa_ioc_add_flt_rule_v2 memory...\n");
-		retval = -EINVAL;
-		goto end;
-	}
-
-	pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
-	if (!pFilteringTable->rules) {
-		kfree(pFilteringTable);
-		pFilteringTable = NULL;
-		IPA_BE_ERR("Error Locate ipa_flt_rule_add_v2 memory...\n");
-		retval = -EINVAL;
-		goto end;
-	}
-
 	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
 		idx = j * 2 + 1;
 		if (rx_prop->rx[idx].ip != IPA_IP_v6) {
@@ -2780,6 +2771,23 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 			continue;
 		}
 		IPA_BE_DBG("Install rules at idx %d\n", idx);
+
+		/* Reallocate each pass -- pFilteringTable is freed at the end of every iteration, so a pre-loop alloc would write through NULL on the 2nd+ pass. */
+		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
+		if (pFilteringTable == NULL) {
+			IPA_BE_ERR("Error Locate ipa_ioc_add_flt_rule_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
+		}
+
+		pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
+		if (!pFilteringTable->rules) {
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			IPA_BE_ERR("Error Locate ipa_flt_rule_add_v2 memory...\n");
+			retval = -EINVAL;
+			goto end;
+		}
 
 		memset(flt_index, 0, sizeof(struct ipa_fltr_installed_notif_req_msg_v01));
 		flt_index->source_pipe_index = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);

@@ -1533,10 +1533,21 @@ int ipa_be_delete_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 	if (!ipa3_ctx)
 		return -ENODEV;
 
-	IPA_BE_DBG("Entry ipa_be_delete_qos_route_rule: qos_rule_hdl %u (%s-based) tc %u ip_type %d\n",
+	IPA_BE_DBG("Entry ipa_be_delete_qos_route_rule: qos_rule_hdl %u (%s-based) tc %u ip_type %d "
+		   "flt_cat %d protocol %u dscp %u pcp %u\n",
 		   qos_param->qos_rule_hdl,
 		   qos_param->qos_rule_hdl ? "handle" : "field",
-		   qos_param->traffic_class, qos_param->ip_type);
+		   qos_param->traffic_class, qos_param->ip_type,
+		   qos_param->flt_cat, qos_param->protocol,
+		   qos_param->dscp, qos_param->pcp);
+	if (!qos_param->qos_rule_hdl) {
+		IPA_BE_DBG("QoS delete params: src_ip 0x%x dst_ip 0x%x "
+			"src_port [%u-%u] dst_port [%u-%u] src_mac %pM dst_mac %pM\n",
+			qos_param->src_ip_addr, qos_param->dst_ip_addr,
+			qos_param->src_port_start, qos_param->src_port_end,
+			qos_param->dst_port_start, qos_param->dst_port_end,
+			qos_param->src_mac_addr, qos_param->dst_mac_addr);
+	}
 
 	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
 	list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
@@ -2207,16 +2218,13 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 		}
 
 #ifdef CONFIG_ECM_CONVERGENCE
-		/* QoS rule installation is best-effort and non-fatal: if no matching
-		 * QoS rule exists or installation fails, the connection proceeds
-		 * without QoS. Rules are retried when a new connection arrives or
-		 * when tc_bitmap is updated. */
+		/* Match against lan_client_ip (the client's real IP), not v4_msg.tuple.flow_ip (the WAN-side address for a DL flow). */
 		ipa_be_check_and_install_qos_for_new_rule(
 			v4_msg.conn_rule.flow_mac,
 			v4_msg.vlan_primary_rule.ingress_vlan_tag,
 			v4_msg.conn_rule.return_mac,
 			v4_msg.vlan_primary_rule.egress_vlan_tag,
-			v4_msg.tuple.flow_ip,
+			lan_client_ip[0],
 			NULL);
 
 		/* Add NAT entry */
@@ -2634,14 +2642,14 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			}
 
 #ifdef CONFIG_ECM_CONVERGENCE
-			/* QoS rule installation is best-effort and non-fatal. */
+			/* Match against flow_ip_ptr, not v6_msg.tuple.flow_ip -- see the v4 path above. */
 			ipa_be_check_and_install_qos_for_new_rule(
 				v6_msg.conn_rule.flow_mac,
 				v6_msg.vlan_primary_rule.ingress_vlan_tag,
 				v6_msg.conn_rule.return_mac,
 				v6_msg.vlan_primary_rule.egress_vlan_tag,
 				0,
-				(const __be32 *)&v6_msg.tuple.flow_ip);
+				(const __be32 *)flow_ip_ptr);
 
 			/* Add CT entry */
 			ret = ipa_be_add_v6_ct_entry(v6_msg, pdn_iface, lan2lan);
@@ -4042,11 +4050,12 @@ static int ipa_be_qos_install_one_rule(
 			sizeof(rt_rule->rt_tbl_name));
 #endif
 	} else {
+		/* Use WANRTBLv6, not COMRTBLv6 -- nothing routes DL traffic to COMRTBLv6, so a QoS rule there is unreachable (same bug as bec260bd9). */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-		strscpy(rt_rule->rt_tbl_name, V6_COMMON_ROUTE_TABLE_NAME,
+		strscpy(rt_rule->rt_tbl_name, V6_WAN_ROUTE_TABLE_NAME,
 			sizeof(rt_rule->rt_tbl_name));
 #else
-		strlcpy(rt_rule->rt_tbl_name, V6_COMMON_ROUTE_TABLE_NAME,
+		strlcpy(rt_rule->rt_tbl_name, V6_WAN_ROUTE_TABLE_NAME,
 			sizeof(rt_rule->rt_tbl_name));
 #endif
 	}
@@ -4066,6 +4075,13 @@ static int ipa_be_qos_install_one_rule(
 	 * stable across later client-rule adds (no re-seating needed).
 	 */
 	rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_QOS;
+	/* Map traffic_class -> sub_cat (TC0 = IPA_RULE_PRIORITY_0 = smallest = highest HW priority, per __ipa_add_rt_rule's ascending sub_cat ordering); clamp to the top slot for stray values. */
+	if (qos_param->traffic_class <=
+			(IPA_RULE_SUB_CAT_MAX - IPA_RULE_PRIORITY_0 - 1))
+		rt_rule_entry->rule_sub_category =
+			IPA_RULE_PRIORITY_0 + qos_param->traffic_class;
+	else
+		rt_rule_entry->rule_sub_category = IPA_RULE_PRIORITY_31;
 	rt_rule_entry->rule.dst = tx_prop->tx[tx_index].dst_pipe;
 	memcpy(&rt_rule_entry->rule.attrib, &tx_prop->tx[tx_index].attrib,
 	       sizeof(rt_rule_entry->rule.attrib));
@@ -4204,12 +4220,14 @@ static int ipa_be_qos_install_one_rule(
 		__be32 d_addr = htonl(rt_rule_entry->rule.attrib.u.v4.dst_addr);
 		__be32 d_mask = htonl(rt_rule_entry->rule.attrib.u.v4.dst_addr_mask);
 
-		IPA_BE_DBG("QoS rt rule (v4): dst_pipe %d attrib_mask 0x%x cat %u max_prio %d "
+		IPA_BE_DBG("QoS rt rule (v4): dst_pipe %d attrib_mask 0x%x cat %u sub_cat %u tc %u max_prio %d "
 			   "src_addr %pI4/%pI4 dst_addr %pI4/%pI4 proto %u "
 			   "src_port %u dst_port %u tos_val 0x%x tos_mask 0x%x\n",
 			   rt_rule_entry->rule.dst,
 			   rt_rule_entry->rule.attrib.attrib_mask,
 			   rt_rule_entry->rt_rule_category,
+			   rt_rule_entry->rule_sub_category,
+			   qos_param->traffic_class,
 			   rt_rule_entry->rule.max_prio,
 			   &s_addr, &s_mask, &d_addr, &d_mask,
 			   rt_rule_entry->rule.attrib.u.v4.protocol,
@@ -4225,12 +4243,14 @@ static int ipa_be_qos_install_one_rule(
 			s6[k] = htonl(rt_rule_entry->rule.attrib.u.v6.src_addr[k]);
 			d6[k] = htonl(rt_rule_entry->rule.attrib.u.v6.dst_addr[k]);
 		}
-		IPA_BE_DBG("QoS rt rule (v6): dst_pipe %d attrib_mask 0x%x cat %u max_prio %d "
+		IPA_BE_DBG("QoS rt rule (v6): dst_pipe %d attrib_mask 0x%x cat %u sub_cat %u tc %u max_prio %d "
 			   "src_addr %pI6 dst_addr %pI6 next_hdr %u "
 			   "src_port %u dst_port %u tos_val 0x%x tos_mask 0x%x\n",
 			   rt_rule_entry->rule.dst,
 			   rt_rule_entry->rule.attrib.attrib_mask,
 			   rt_rule_entry->rt_rule_category,
+			   rt_rule_entry->rule_sub_category,
+			   qos_param->traffic_class,
 			   rt_rule_entry->rule.max_prio,
 			   s6, d6,
 			   rt_rule_entry->rule.attrib.u.v6.next_hdr,
@@ -4300,6 +4320,8 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 	uint8_t mac_filter[IPA_MAC_ADDR_SIZE] = {0};
 	ip_addr_t mi_addr = {0};
 	int mi_hdr_hdl = 0;
+	/* Header handle from the explicit dst_ip path (v4/v6); separate from mi_hdr_hdl, which the MAC+VLAN lookup below populates. */
+	int dst_ip_hdr_hdl = 0;
 	bool found_client = false;
 	struct qos_client_entry {
 		ip_addr_t addr;
@@ -4391,6 +4413,9 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 					&ip_hdr_hdl, &ip_proc_ctx_hdl,
 					ip_proc_ctx_name);
 			if (ip_rt_hdl > 0) {
+				/* Retain the header handle -- without it the rule installs with hdr_ofst 0 (no L2 header) and DSCP marking can't apply. */
+				if (ip_hdr_hdl > 0)
+					dst_ip_hdr_hdl = ip_hdr_hdl;
 				IPA_BE_DBG("IPv4 client IP %pI4n found in mapping "
 					   "(rt_hdl %d hdr_hdl %d); installing QoS rule\n",
 					   &lookup_addr[0], ip_rt_hdl, ip_hdr_hdl);
@@ -4433,6 +4458,9 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 					&ip_hdr_hdl, &ip_proc_ctx_hdl,
 					ip_proc_ctx_name);
 			if (ip_rt_hdl > 0) {
+				/* Same rationale as the v4 path above. */
+				if (ip_hdr_hdl > 0)
+					dst_ip_hdr_hdl = ip_hdr_hdl;
 				IPA_BE_DBG("IPv6 client IP %pI6n found in mapping "
 					   "(rt_hdl %d hdr_hdl %d); installing QoS rule\n",
 					   dst_v6_be, ip_rt_hdl, ip_hdr_hdl);
@@ -4450,8 +4478,27 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 		iterate_all_clients = true;
 	}
 
-	IPA_BE_DBG("Entry ipa_be_install_qos_route_rule dev_name %s ip_type %d tc %d\n",
-		qos_param->dev_name, qos_param->ip_type, qos_param->traffic_class);
+	IPA_BE_DBG("Entry ipa_be_install_qos_route_rule dev_name %s dir %u ip_type %d tc %d "
+		"iface_cat %d flt_cat %d protocol %u dscp %u pcp %u dscp_mark_val %u\n",
+		qos_param->dev_name, qos_param->dir, qos_param->ip_type,
+		qos_param->traffic_class, qos_param->iface_cat, qos_param->flt_cat,
+		qos_param->protocol, qos_param->dscp, qos_param->pcp,
+		qos_param->dscp_mark_val);
+	IPA_BE_DBG("QoS add params: src_ip 0x%x/0x%x dst_ip 0x%x/0x%x "
+		"src_port [%u-%u] dst_port [%u-%u]\n",
+		qos_param->src_ip_addr, qos_param->src_subnet,
+		qos_param->dst_ip_addr, qos_param->dst_subnet,
+		qos_param->src_port_start, qos_param->src_port_end,
+		qos_param->dst_port_start, qos_param->dst_port_end);
+	IPA_BE_DBG("QoS add params: src_v6 %08x:%08x:%08x:%08x dst_v6 %08x:%08x:%08x:%08x\n",
+		qos_param->src_v6_ip_addr[0], qos_param->src_v6_ip_addr[1],
+		qos_param->src_v6_ip_addr[2], qos_param->src_v6_ip_addr[3],
+		qos_param->dst_v6_ip_addr[0], qos_param->dst_v6_ip_addr[1],
+		qos_param->dst_v6_ip_addr[2], qos_param->dst_v6_ip_addr[3]);
+	IPA_BE_DBG("QoS add params: src_mac %pM dst_mac %pM vlan_count %u vlan[0] %u\n",
+		qos_param->src_mac_addr, qos_param->dst_mac_addr,
+		qos_param->vlan_count,
+		qos_param->vlan_count ? qos_param->vlan_ids[0] : 0);
 
 	/* Query the interface by name to get TX property count */
 	memset(&temp_intf, 0, sizeof(temp_intf));
@@ -4660,7 +4707,7 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 				ip_client_addr[k] = htonl(qos_param->dst_v6_ip_addr[k]);
 		}
 		retval = ipa_be_qos_install_one_rule(qos_param, tx_prop, tx_index,
-						     0, ip_client_addr,
+						     dst_ip_hdr_hdl, ip_client_addr,
 						     qos_param->src_mac_addr,
 						     qos_param->dst_mac_addr);
 	}

@@ -261,7 +261,9 @@ static int ipa_get_generic_stats(unsigned long arg)
 	/* HOLB Discard stats */
 	holb_disc_stats_ptr = &generic_stats->holb_stats.holb_disc_stats[0];
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa_get_ep_mapping(i);
+		int ep_idx;
+
+		ep_idx = ipa_get_ep_mapping(i);
 
 		if ((ep_idx == -1) || (!IPA_CLIENT_IS_CONS(i)) ||
 			(IPA_CLIENT_IS_TEST(i)))
@@ -3096,7 +3098,9 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 	if (ipa_lnx_agent_ctx.log_type_mask &
 		TLPD_IPA_LOG_TYPE_GENERIC_STATS) {
 		for (i = 0; i < IPA_CLIENT_MAX; i++) {
-			int ep_idx = ipa_get_ep_mapping(i);
+			int ep_idx;
+
+			ep_idx = ipa_get_ep_mapping(i);
 
 			if ((ep_idx == -1) || (!IPA_CLIENT_IS_CONS(i)) ||
 				(IPA_CLIENT_IS_TEST(i)))

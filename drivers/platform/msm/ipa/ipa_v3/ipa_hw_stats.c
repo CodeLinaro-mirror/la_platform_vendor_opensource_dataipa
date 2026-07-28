@@ -34,6 +34,49 @@ static inline u32 ipa_hw_stats_get_ep_bit_n_idx(enum ipa_client_type client,
 	return ipahal_get_ep_bit(ep);
 }
 
+/* Register all ETH CONS pipes (BE + QoS DL) across emac0/emac1/emac2 as destinations for WLAN -> ETH (LAN2LAN) tethering stats. */
+static void ipa_hw_stats_add_eth_cons(
+	struct ipa_teth_stats_endpoints *teth_stats_init, int ep_index)
+{
+	static const enum ipa_client_type eth_cons[] = {
+		IPA_CLIENT_ETHERNET_CONS,
+		IPA_CLIENT_ETHERNET2_CONS,
+		IPA_CLIENT_ETHERNET3_CONS,
+		IPA_CLIENT_ETHERNET_QOS_CONS,
+		IPA_CLIENT_ETHERNET_QOS2_CONS,
+		IPA_CLIENT_ETHERNET2_QOS_CONS,
+		IPA_CLIENT_ETHERNET2_QOS2_CONS,
+		IPA_CLIENT_ETHERNET3_QOS_CONS,
+		IPA_CLIENT_ETHERNET3_QOS2_CONS,
+	};
+	u32 reg_idx, mask;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(eth_cons); i++) {
+		mask = ipa_hw_stats_get_ep_bit_n_idx(eth_cons[i], &reg_idx);
+		if (mask)
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+	}
+}
+
+/* Register the WLAN CONS pipes as destinations for ETH -> WLAN (LAN2LAN) tethering stats. */
+static void ipa_hw_stats_add_wlan_cons(
+	struct ipa_teth_stats_endpoints *teth_stats_init, int ep_index)
+{
+	static const enum ipa_client_type wlan_cons[] = {
+		IPA_CLIENT_WLAN1_CONS,
+		IPA_CLIENT_WLAN2_CONS,
+	};
+	u32 reg_idx, mask;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(wlan_cons); i++) {
+		mask = ipa_hw_stats_get_ep_bit_n_idx(wlan_cons[i], &reg_idx);
+		if (mask)
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+	}
+}
+
 int ipa_hw_stats_init(void)
 {
 	int ret = 0, ep_index;
@@ -697,45 +740,8 @@ int ipa_hw_stats_init(void)
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
 
-		/* enable WLAN -> emac0/emac1/emac2 (LAN2LAN) tethering stats */
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET2_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET3_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		/* enable WLAN -> emac0/emac1/emac2 QoS (DL) pipes so DL QoS
-		 * teth stats are counted, mirroring the BE CONS pipes above. */
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET_QOS_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET_QOS2_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET2_QOS_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET2_QOS2_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET3_QOS_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET3_QOS2_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		/* enable WLAN -> emac0/emac1/emac2 (LAN2LAN) tethering stats. */
+		ipa_hw_stats_add_eth_cons(teth_stats_init, ep_index);
 	}
 
 	if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -766,45 +772,8 @@ int ipa_hw_stats_init(void)
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
 
-		/* enable WLAN -> emac0/emac1/emac2 (LAN2LAN) tethering stats */
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET2_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET3_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		/* enable WLAN -> emac0/emac1/emac2 QoS (DL) pipes so DL QoS
-		 * teth stats are counted, mirroring the BE CONS pipes above. */
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET_QOS_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET_QOS2_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET2_QOS_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET2_QOS2_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET3_QOS_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
-		mask = ipa_hw_stats_get_ep_bit_n_idx(
-			IPA_CLIENT_ETHERNET3_QOS2_CONS,
-			&reg_idx);
-		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		/* enable WLAN -> emac0/emac1/emac2 (LAN2LAN) tethering stats. */
+		ipa_hw_stats_add_eth_cons(teth_stats_init, ep_index);
 	}
 
 	if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -857,6 +826,9 @@ int ipa_hw_stats_init(void)
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
+
+		/* enable ETH -> WLAN (LAN2LAN) tethering stats */
+		ipa_hw_stats_add_wlan_cons(teth_stats_init, ep_index);
 	}
 
 	if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -880,6 +852,9 @@ int ipa_hw_stats_init(void)
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
+
+		/* enable ETH -> WLAN (LAN2LAN) tethering stats */
+		ipa_hw_stats_add_wlan_cons(teth_stats_init, ep_index);
 	}
 
 	if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -972,6 +947,9 @@ int ipa_hw_stats_init(void)
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
+
+		/* enable ETH -> WLAN (LAN2LAN) tethering stats */
+		ipa_hw_stats_add_wlan_cons(teth_stats_init, ep_index);
 	}
 
 	if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -995,6 +973,9 @@ int ipa_hw_stats_init(void)
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
+
+		/* enable ETH -> WLAN (LAN2LAN) tethering stats */
+		ipa_hw_stats_add_wlan_cons(teth_stats_init, ep_index);
 	}
 
 	if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -1018,6 +999,9 @@ int ipa_hw_stats_init(void)
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
+
+		/* enable ETH -> WLAN (LAN2LAN) tethering stats */
+		ipa_hw_stats_add_wlan_cons(teth_stats_init, ep_index);
 	}
 
 	ret = ipa_init_teth_stats(teth_stats_init);
@@ -1363,7 +1347,9 @@ int ipa_get_quota_stats(struct ipa_quota_stats_all *out)
 	 * hardware stats are 0 now
 	 */
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int ep_idx = ipa_get_ep_mapping(i);
+		int ep_idx;
+
+		ep_idx = ipa_get_ep_mapping(i);
 
 		if (ep_idx == IPA_EP_NOT_ALLOCATED || ep_idx >= ipa3_get_max_num_pipes())
 			continue;
@@ -1818,14 +1804,17 @@ int ipa_get_teth_stats(void)
 	 * hardware stats are 0 now
 	 */
 	for (i = 0; i < IPA_CLIENT_MAX; i++) {
-		int prod_idx = ipa_get_ep_mapping(i);
+		int prod_idx;
 
+		prod_idx = ipa_get_ep_mapping(i);
 		if (prod_idx == IPA_EP_NOT_ALLOCATED ||
 			prod_idx >= ipa3_get_max_num_pipes())
 			continue;
 
 		for (j = 0; j < IPA_CLIENT_MAX; j++) {
-			int cons_idx = ipa_get_ep_mapping(j);
+			int cons_idx;
+
+			cons_idx = ipa_get_ep_mapping(j);
 
 			if (cons_idx == IPA_EP_NOT_ALLOCATED ||
 				cons_idx >= ipa3_get_max_num_pipes())
