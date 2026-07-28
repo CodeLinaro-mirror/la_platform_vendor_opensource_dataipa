@@ -422,9 +422,12 @@ int ipa_eth_client_disable_pipes(struct ipa_eth_client *client);
  * packet into the IPA->ETH TX pipe bound to the pipe's client. Non-offloaded
  * traffic (offload unsupported, or non-TCP/UDP) is forwarded as-is.
  *
- * Returns 0 on success, -EAGAIN if PM is activating (stop TX queue),
- * -ENOSPC if the GSI descriptor ring is full (stop TX queue; restart from
- * the TX-complete notify callback), or a negative errno on failure.
+ * Returns: 0        on success (skb ownership transferred to IPA)
+ *          -EINVAL  invalid pipe or skb, or the packet was rejected
+ *          -EPERM   ETH client not registered, or TX pipe not connected
+ *          -EPIPE   TX endpoint is not in a valid state
+ *          -ENOSPC  transient back-pressure; caller must stop the TX queue
+ *                   and restart it from the TX-complete notify callback
  */
 int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 			  struct sk_buff *skb);

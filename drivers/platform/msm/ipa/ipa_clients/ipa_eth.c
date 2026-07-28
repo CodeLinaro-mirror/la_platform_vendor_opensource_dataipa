@@ -2900,12 +2900,22 @@ static u8 ipa_eth_ulso_get_tx_pipe_idx(
  * Must not be called from atomic context.
  *
  * Returns: 0 on success
- *          -EINVAL  if pipe or skb is invalid, or pipe direction is not TX
- *          -EPERM   if the TX pipe is not yet connected
- *          -EAGAIN  if IPA PM is activating (caller should stop TX queue)
- *          -ENOSPC  if the GSI descriptor ring is full (caller should stop TX
- *                   queue and restart it from the TX-complete notify callback)
- *          negative errno from ipa_tx_dp() on other transmit failures
+ *          -EINVAL  if pipe or skb is invalid, pipe direction is not TX, or
+ *                   the IPA core rejects the packet (uninitialised driver,
+ *                   zero-length skb, or client disabled by IPA tiering)
+ *          -EPERM   if the ETH client is not yet registered or the TX pipe is
+ *                   not yet connected
+ *          -EPIPE   if the source endpoint is not valid at ipa_tx_dp() time
+ *          -ENOSPC  translated from an -EFAULT out of ipa_tx_dp(). The
+ *                   downstream stack collapses several distinct conditions
+ *                   into this one code: the GSI ring being full (dominant
+ *                   path: gsi_queue_xfer -> -GSI_STATUS_RING_INSUFFICIENT_SPACE
+ *                   -> ipa3_send -EFAULT -> ipa_tx_dp -EFAULT), pipe
+ *                   disconnect-in-progress, tx_pkt wrapper OOM, DMA mapping
+ *                   failure, missing GSI EP config, or descriptor-count
+ *                   overflow. Caller should treat this as back-pressure:
+ *                   stop the TX queue and restart it from the TX-complete
+ *                   notify callback.
  */
 int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 			  struct sk_buff *skb)
@@ -2914,7 +2924,6 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 	struct qmap_hdr qmap_hdr;
 	struct iphdr *iph;
 	u16 mtu = skb->dev->mtu;
-	u32 pm_hdl;
 	u16 skb_len;
 	u16 ip_dgram_len = 0;
 	int ret;
@@ -2947,15 +2956,13 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 		return -EPERM;
 	}
 
-	pm_hdl = ipa_eth_ctx->client[pipe->client_info->client_type]
-				    [pipe->client_info->inst_id].pm_hdl_tx;
-	ret = ipa_pm_activate(pm_hdl);
-	if (ret) {
-		IPA_ETH_DBG("IPA PM activation pending for client %d, ret %d\n",
-			    pipe->client_info->client_type, ret);
-		return -EAGAIN;
-	}
-
+	/*
+	 * IPA PM is voted active for the whole offload session at connect
+	 * (ipa_pm_activate_sync) and released at disconnect
+	 * (ipa_pm_deactivate_sync). Per-packet ipa_pm_activate() /
+	 * ipa_pm_deferred_deactivate() in this hot path is therefore
+	 * unnecessary and only adds per-packet overhead, so it is removed.
+	 */
 	skb_len = skb->len;
 
 	if (ipa3_is_ulso_supported()) {
@@ -3072,7 +3079,6 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 			    pipe->client_info->client_type, ret);
 	}
 
-	ipa_pm_deferred_deactivate(pm_hdl);
 	return ret;
 }
 EXPORT_SYMBOL(ipa_eth_offload_tx_dp);
