@@ -293,6 +293,94 @@ int ipa_eth_qos_update_tc_mapping(struct ipa_eth_client_pipe_info *pipe)
 }
 EXPORT_SYMBOL(ipa_eth_qos_update_tc_mapping);
 
+#if IPA_ETH_API_VER >= 9
+/**
+ * ipa_eth_qos_sync_tc_bitmap() - Mirror a TX interface's tc_bmap update into
+ *	the ipa_eth qos_stats snapshot (tx_qos_info[]).
+ *
+ * ipa3_set_intf_tx_tc_bitmap() (IPA_IOC_SET_PIPE_TC_BITMAP) updates the
+ * registered interface's TX property tc_bmap directly, which drives route
+ * rule pipe selection but does NOT touch ipa_eth_ctx->tx_qos_info[] -- a
+ * separate snapshot taken once at pipe-connect time (ipa_eth_client_conn_pipes)
+ * that the "<client>_<inst_id>_qos_stats" debugfs dump reads. Without this
+ * sync, tc_bitmap updates made after connect are invisible in that dump even
+ * though the live TX property (and HW routing) already reflects them.
+ *
+ * @client_type: TX pipe's dst_pipe client type, unique across all inst_id.
+ * @tc_bitmap:   new tc_bmap value to mirror.
+ *
+ * Returns 0 on success (including a no-op "not an ipa_eth TX pipe" case,
+ * since not every registered interface's TX pipe is ETH-owned), negative
+ * errno on failure.
+ */
+int ipa_eth_qos_sync_tc_bitmap(enum ipa_client_type client_type,
+	uint32_t tc_bitmap)
+{
+	struct ipa_eth_qos_info *qos_arr;
+	u8 num_pipes;
+	u8 inst_id, i, prio;
+	int found = -1;
+
+	if (!ipa_eth_ctx)
+		return 0;
+	if (!ipa3_ctx || !ipa3_ctx->eth_qos)
+		return 0;
+
+	mutex_lock(&ipa_eth_ctx->lock);
+
+	for (inst_id = 0; inst_id < IPA_ETH_INST_ID_MAX && found < 0;
+			inst_id++) {
+		qos_arr = ipa_eth_ctx->tx_qos_info[inst_id];
+		num_pipes = ipa_eth_ctx->tx_num_pipes[inst_id];
+		for (i = 0; i < num_pipes && i < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS;
+				i++) {
+			if (qos_arr[i].client_type == client_type) {
+				found = inst_id;
+				break;
+			}
+		}
+	}
+
+	if (found < 0) {
+		/* Not an ipa_eth-owned TX pipe (e.g. a modem/WAN client) -- nothing to sync, not an error. */
+		mutex_unlock(&ipa_eth_ctx->lock);
+		return 0;
+	}
+
+	qos_arr = ipa_eth_ctx->tx_qos_info[found];
+	num_pipes = ipa_eth_ctx->tx_num_pipes[found];
+
+	for (i = 0; i < num_pipes && i < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS; i++) {
+		if (qos_arr[i].client_type == client_type) {
+			qos_arr[i].tc_bmap = tc_bitmap;
+			break;
+		}
+	}
+
+	/* Re-sort and recompute relative priority, same as the connect path and ipa_eth_qos_update_tc_mapping(). */
+	sort(qos_arr, num_pipes, sizeof(struct ipa_eth_qos_info),
+		eth_qos_cmp, eth_qos_swap);
+
+	for (i = 0, prio = 0; i < num_pipes && i < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS;
+			i++) {
+		if (qos_arr[i].tc_bmap == 0)
+			qos_arr[i].priority = num_pipes - 1;
+		else {
+			qos_arr[i].priority = prio;
+			prio++;
+		}
+	}
+
+	mutex_unlock(&ipa_eth_ctx->lock);
+
+	IPADBG("synced tc_bmap 0x%x to qos_stats for client_type %d (inst_id %u)\n",
+		tc_bitmap, client_type, found);
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_eth_qos_sync_tc_bitmap);
+#endif /* IPA_ETH_API_VER >= 9 */
+
 static u8 eth_qos_get_tx_priority(u8 pipe_idx, u8 inst_id) {
 	int i;
 	for (i = 0; i < ipa_eth_ctx->tx_num_pipes[inst_id]; i++)
@@ -2147,11 +2235,11 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 #else
 			tx_prop[2*i].hdr_l2_type = intf->hdr[2*i].hdr_type;
 #endif
-			strscpy(tx_prop[i].hdr_name, hdr->hdr[IPA_IP_v4].name,
-				sizeof(tx_prop[i].hdr_name));
+			strscpy(tx_prop[2*i].hdr_name, hdr->hdr[IPA_IP_v4].name,
+				sizeof(tx_prop[2*i].hdr_name));
 
 			tx_prop[2*i+1].ip = IPA_IP_v6;
-			tx_prop[2 * i + 1].dst_pipe = tx_client[i];	
+			tx_prop[2 * i + 1].dst_pipe = tx_client[i];
 #if IPA_ETH_API_VER >= 4
 			tx_prop[2 * i+1].tc_bmap = tx_tc[i];
 #endif
@@ -2160,13 +2248,11 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 #else
 			tx_prop[2*i+1].hdr_l2_type = intf->hdr[1].hdr_type;
 #endif
-			strscpy(tx_prop[2*i+1].hdr_name, hdr->hdr[(2*i+1)%num_hdrs].name,
+			strscpy(tx_prop[2*i+1].hdr_name, hdr->hdr[IPA_IP_v6].name,
 				sizeof(tx_prop[2*i+1].hdr_name));
 
 			IPA_ETH_DBG("tx_prop i %d dst pipe v4:%d v6:%d\n",i, tx_prop[2*i].dst_pipe, tx_prop[2*i + 1].dst_pipe);
 			IPA_ETH_DBG("tx_prop i %d l2_hdr v4:%d v6:%d\n",i, tx_prop[2*i].hdr_l2_type, tx_prop[2*i + 1].hdr_l2_type);
-			strscpy(tx_prop[i+1].hdr_name, hdr->hdr[IPA_IP_v6].name,
-				sizeof(tx_prop[i+1].hdr_name));
 		}
 	}
 	/* populate rx prop */

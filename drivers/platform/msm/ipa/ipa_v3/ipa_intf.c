@@ -281,6 +281,7 @@ int ipa3_set_intf_tx_tc_bitmap(const char *name,
 	uint32_t removed_tcs = 0;
 	uint32_t added_tcs = 0;
 	enum ipa_ip_type ip = IPA_IP_v4;
+	enum ipa_client_type dst_pipe = IPA_CLIENT_MAX;
 
 	if (!name) {
 		IPAERR("NULL interface name\n");
@@ -305,6 +306,7 @@ int ipa3_set_intf_tx_tc_bitmap(const char *name,
 		}
 		old_bmap = entry->tx[tx_index].tc_bmap;
 		ip       = entry->tx[tx_index].ip;
+		dst_pipe = entry->tx[tx_index].dst_pipe;
 		entry->tx[tx_index].tc_bmap = tc_bitmap;
 
 		/* Compute delta while holding the lock so the values are
@@ -340,6 +342,13 @@ int ipa3_set_intf_tx_tc_bitmap(const char *name,
 			if (hw_ret)
 				retval = hw_ret;
 		}
+
+		/* Mirror into the ipa_eth qos_stats debugfs snapshot (best-effort, non-fatal). */
+#if IPA_ETH_API_VER >= 9
+		if (ipa_eth_qos_sync_tc_bitmap(dst_pipe, tc_bitmap))
+			IPADBG("failed to sync tc_bmap 0x%x to eth qos_stats for %s tx[%u]\n",
+			       tc_bitmap, name, tx_index);
+#endif /* IPA_ETH_API_VER >= 9 */
 	}
 
 	return retval;

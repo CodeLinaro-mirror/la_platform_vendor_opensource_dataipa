@@ -382,6 +382,21 @@ int ipa_eth_qos_get_qos_info(
  */
 int ipa_eth_qos_update_tc_mapping(struct ipa_eth_client_pipe_info *pipe);
 
+#if IPA_ETH_API_VER >= 9
+/**
+ * ipa_eth_qos_sync_tc_bitmap() - Mirror an interface TX property's tc_bmap
+ *	update into the ipa_eth qos_stats debugfs snapshot.
+ *
+ * @client_type: TX pipe's dst_pipe client type.
+ * @tc_bitmap:   new tc_bmap value to mirror.
+ *
+ * Returns 0 on success (including when client_type is not an ipa_eth-owned
+ * TX pipe), negative errno on failure.
+ */
+int ipa_eth_qos_sync_tc_bitmap(enum ipa_client_type client_type,
+	uint32_t tc_bitmap);
+#endif /* IPA_ETH_API_VER >= 9 */
+
 int ipa_eth_client_enable_pipes(struct ipa_eth_client *client);
 int ipa_eth_client_disable_pipes(struct ipa_eth_client *client);
 

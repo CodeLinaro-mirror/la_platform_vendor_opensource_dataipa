@@ -2047,6 +2047,17 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 				}
 			}
 
+			/* Record hdr_hdl even when hdl (route rule) is 0 -- see ipa_be_update_lan_v6_info_from_rule(). */
+			if (hdr_hdl > 0) {
+				if (lan2lan) {
+					if (!mi->lan2lan_info.hdr_hdl)
+						mi->lan2lan_info.hdr_hdl = hdr_hdl;
+				} else {
+					if (!mi->lan2wan_info.hdr_hdl)
+						mi->lan2wan_info.hdr_hdl = hdr_hdl;
+				}
+			}
+
 			break;
 		}
 	}
@@ -2135,6 +2146,17 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 					strlcpy(mi->lan2wan_info.proc_ctx_name, proc_ctx_name, sizeof(mi->lan2wan_info.proc_ctx_name));
 #endif
 
+				}
+			}
+
+			/* hdr_hdl validity is independent of hdl -- record it even when hdl is 0 (route rule failed/deferred), else the QoS catch-all path reads 0 and installs with hdr_ofst 0. */
+			if (hdr_hdl > 0) {
+				if (lan2lan) {
+					if (!mi->lan2lan_info.hdr_hdl)
+						mi->lan2lan_info.hdr_hdl = hdr_hdl;
+				} else {
+					if (!mi->lan2wan_info.hdr_hdl)
+						mi->lan2wan_info.hdr_hdl = hdr_hdl;
 				}
 			}
 
