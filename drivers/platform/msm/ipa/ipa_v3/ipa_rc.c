@@ -268,7 +268,7 @@ bool is_wlan_sta_pkt(struct ipahal_pkt_status *status)
 	struct ipa_rc_wlan_intf_info *it;
 
 	i = status->endp_src_idx;
-	if(!is_any_wlan_prod_pipe(ipa3_get_client_by_pipe(i))) {
+	if(!is_any_wlan_prod_pipe(ipa3_get_real_client_by_pipe(i))) {
 		if(ipa3_ctx->is_rc_log_enabled)
 			IPADBG("src: %d not wlan pipe\n", status->endp_src_idx);
 
@@ -297,7 +297,7 @@ int get_rc_client(int src_idx)
 {
 	enum ipa_client_type client;
 
-	client = ipa3_get_client_by_pipe(src_idx);
+	client = ipa3_get_real_client_by_pipe(src_idx);
 
 	if(is_eth_prod_pipe(client))
 		return ETH;
@@ -659,7 +659,7 @@ int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num
 	int res = MAX_FLT_RULE_GRP;
 	struct ipa_rule_attrib *attrib;
 	struct ipa_ipfltri_rule_eq *eq_attrib;
-	enum ipa_client_type client = ipa3_get_client_by_pipe(pipe_num);
+	enum ipa_client_type client = ipa3_get_real_client_by_pipe(pipe_num);
 
 	if(!entry) {
 		IPADBG("NULL entryl\n");
@@ -853,7 +853,7 @@ void ipa_rc_detect_flt_order(struct ipa_rc_health_monitor *ipa_state_info, enum 
 
 		tbl = &ipa3_ctx->flt_tbl[i][ip];
 		if(!list_empty(&tbl->head_flt_rule_list)) {
-			client = ipa3_get_client_by_pipe(i);
+			client = ipa3_get_real_client_by_pipe(i);
 			if(ipa3_ctx->is_rc_log_enabled) {
 				IPADBG("client: %s\n", ipa_clients_strings[client]);
 			}

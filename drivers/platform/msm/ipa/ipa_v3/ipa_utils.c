@@ -12085,6 +12085,37 @@ enum ipa_client_type ipa3_get_client_by_pipe(int pipe_idx)
 }
 
 /**
+ * ipa3_get_real_client_by_pipe() - reverse-map a pipe to its functional
+ * (non-TEST) client.
+ *
+ * ipa3_get_client_by_pipe() returns the first valid client mapped to a pipe.
+ * On some targets a TEST client shares the same ep_num as a real client
+ * (e.g. IPA_7_0: ETHERNET2_PROD and TEST4_PROD both map to ep 12) and, having
+ * the lower enum value, wins the reverse lookup - shadowing the real client.
+ * This variant skips TEST clients so callers that care about the functional
+ * client (e.g. IPA RC health monitor) get the right one. Quiet: walks the
+ * mapping table directly (no ipa_get_ep_mapping logging).
+ */
+enum ipa_client_type ipa3_get_real_client_by_pipe(int pipe_idx)
+{
+	int j = 0;
+	u8 hw_type_idx;
+
+	hw_type_idx = ipa3_ctx->hw_type_index;
+
+	for (j = 0; j < IPA_CLIENT_MAX; j++) {
+		const struct ipa_ep_configuration *iec_ptr =
+			&(ipa3_ep_mapping[hw_type_idx][j]);
+		if (iec_ptr->valid &&
+		    iec_ptr->ipa_gsi_ep_info.ipa_ep_num == pipe_idx &&
+		    !IPA_CLIENT_IS_TEST(j))
+			break;
+	}
+
+	return j;
+}
+
+/**
  * ipa_init_ep_flt_bitmap() - Initialize the bitmap
  * that represents the End-points that supports filtering
  */

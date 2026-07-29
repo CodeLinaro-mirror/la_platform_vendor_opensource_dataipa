@@ -4030,6 +4030,7 @@ bool ipa3_is_client_handle_valid(u32 clnt_hdl);
 
 enum ipa_client_type ipa3_get_client_mapping(int pipe_idx);
 enum ipa_client_type ipa3_get_client_by_pipe(int pipe_idx);
+enum ipa_client_type ipa3_get_real_client_by_pipe(int pipe_idx);
 int ipa3_get_chan_by_client(enum ipa_client_type client);
 int ipa3_get_ee_by_client(enum ipa_client_type client);
 
