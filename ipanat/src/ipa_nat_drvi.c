@@ -4315,6 +4315,9 @@ int ipa_nati_alloc_counter_v4(
 		return 0;  /* Success but no counter allocated */
 	}
 
+	if (ipa_nat_stats_is_disabled())
+		return 0;  /* Success but no counter allocated */
+
 	if (tbl_index == 0 || tbl_index > IPA_NAT_MAX_IP4_TBLS) {
 		IPAERR("Invalid table handle: 0x%x (index=%u)\n", table_handle, tbl_index);
 		return -EINVAL;
