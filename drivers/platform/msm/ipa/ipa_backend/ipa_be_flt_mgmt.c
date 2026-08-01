@@ -20,6 +20,7 @@
 #include <net/ipv6.h>
 #include <linux/delay.h>
 #include <linux/wait.h>
+#include <linux/ipa.h>
 #include "ipa_api.h"
 #include "ipa_be.h"
 #include "ipa_be_clientdb.h"
@@ -398,6 +399,7 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
 	int l2l_ep = -1;
 	u32 l2l_dst = 0;
+	bool rt_tbl_got = false;
 
 	IPA_BE_DBG("ECMIPA entry lan2lan %d\n", lan2lan);
 	ipa_type_check_ipa_mac_addr(mac);
@@ -552,10 +554,12 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 			retval = -EFAULT;
 			goto end;
 		}
+		rt_tbl_got = true;
 		IPA_BE_DBG("Install filter rules with rt_tbl.hdl %d \n", rt_tbl.hdl);
 
 		IPA_BE_DBG("Install rules on Rx pipe at idx %d \n", idx);
 		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
+		/* Lookup ref held until 'end:', released after the rule is added. */
 
 		flt_rule_entry.rule.hashable = true;
 		flt_rule_entry.rule.rule_id = LAN2LAN_RULE_ID; /* LAN2LAN_RULE_ID */
@@ -595,6 +599,8 @@ int ipa_be_v4_add_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2l
 	}
 
 end:
+	if (rt_tbl_got)
+		ipa_put_rt_tbl(rt_tbl.hdl);
 	if (pFilteringTable) {
 		if (pFilteringTable->rules)
 			kfree((void *)(uintptr_t)pFilteringTable->rules);
@@ -1221,9 +1227,9 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 
 	IPA_BE_DBG("ECMIPA entry mtu rule size %d\n", mtu);
 
-	/*Check if the filter interface exists*/
-	retval = ipa3_query_iface(intf_num, &temp_intf);
-	if (!retval) {
+	/* Do not store ipa3_query_iface()'s bool return in retval -- success
+	 * would leave retval == 1, and callers unwind on "ret != 0". */
+	if (!ipa3_query_iface(intf_num, &temp_intf)) {
 		IPA_BE_DBG("Interface with index %u does not exist.\n", intf_num);
 		retval = -EINVAL;
 		goto end;
@@ -1319,6 +1325,9 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 		IPA_BE_DBG("Install rules on Rx pipe at idx %d \n", idx);
 
 		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
+		/* Transient lookup ref; release inside the loop since each
+		 * iteration re-looks-up. */
+		ipa_put_rt_tbl(rt_tbl.hdl);
 		flt_rule_entry.rule.hashable = true;
 		/* flt_rule_entry.rule.rule_id = 1; //LAN2LAN_RULE_ID */
 
@@ -1746,6 +1755,7 @@ static int ipa_be_subnet_install_rules(int intf_num, enum ipa_ip_type iptype,
 	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
 	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
 	int retval = 0, idx, p;
+	bool rt_tbl_got = false;
 
 	if (rolled_back)
 		*rolled_back = false;
@@ -1794,6 +1804,7 @@ static int ipa_be_subnet_install_rules(int intf_num, enum ipa_ip_type iptype,
 		retval = -EFAULT;
 		goto end;
 	}
+	rt_tbl_got = true;
 	IPA_BE_DBG("Private subnet (ip %d) uses rt_tbl hdl=%d\n",
 		iptype, rt_tbl.hdl);
 
@@ -1840,6 +1851,9 @@ fail:
 		IPA_BE_ERR("HW rollback failed for intf %d ip %d; untracked rules may linger\n",
 			intf_num, iptype);
 end:
+	/* Lookup ref is transient; each filter rule installed above took its own rt_tbl ref. */
+	if (rt_tbl_got)
+		ipa_put_rt_tbl(rt_tbl.hdl);
 	kfree(rx_prop);
 	return retval;
 }
@@ -3373,6 +3387,8 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 
 		IPA_BE_DBG("Install rules on Rx pipe at idx %d \n", idx);
 		flt_rule_entry.rule.rt_tbl_hdl = rt_tbl.hdl;
+		/* Lookup ref is transient; the filter rule takes its own rt_tbl ref on add. */
+		ipa_put_rt_tbl(rt_tbl.hdl);
 
 		flt_rule_entry.rule.hashable = true;
 		flt_rule_entry.rule.rule_id = LAN2LAN_RULE_ID; /* LAN2LAN_RULE_ID */
@@ -4215,6 +4231,8 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		goto fail_ext;
 	}
 	IPA_BE_DBG("rt_tbl hdl %d\n", rt_tbl.hdl);
+	/* hdl only used for this log; not embedded in any rule below. */
+	ipa_put_rt_tbl(rt_tbl.hdl);
 
 	rt_tbl_idx.ip = iptype;
 
@@ -5100,6 +5118,8 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 	rule->rule.action = IPA_PASS_TO_DST_NAT;
 
 	rule->rule.rt_tbl_hdl = rt_tbl.hdl;
+	/* Lookup ref is transient; the filter rule above takes its own rt_tbl ref on add. */
+	ipa_put_rt_tbl(rt_tbl.hdl);
 	rule->rule.rt_tbl_idx = rt_tbl_idx.idx;
 	rule->rule.hashable = true;
 	rule->rule.retain_hdr = 1;
@@ -5578,6 +5598,7 @@ static int ipa_be_eth_bh_install_dl_catchall(int pdn_iface,
 	struct ipa_ioc_add_flt_rule *flt_table = NULL;
 	struct ipa_flt_rule_add flt_rule_entry;
 	struct ipa_ioc_get_rt_tbl rt_tbl_lookup = {0};
+	bool rt_tbl_got = false;
 	uint32_t installed_hdls[IPA_MAX_NUM_PROPS] = {0};
 	int num_installed = 0;
 	int j, idx;
@@ -5679,6 +5700,7 @@ retry:
 		retval = -EFAULT;
 		goto finalize;
 	}
+	rt_tbl_got = true;
 
 	for (j = 0; j < rx_prop->num_rx_props / 2 && j < IPA_MAX_NUM_PROPS;
 	     j++) {
@@ -5753,6 +5775,9 @@ retry:
 	}
 
 finalize:
+	/* Lookup ref is transient; each filter rule installed above took its own rt_tbl ref. */
+	if (rt_tbl_got)
+		ipa_put_rt_tbl(rt_tbl_lookup.hdl);
 	if (flt_table)
 		kfree(flt_table);
 	if (rx_prop)
@@ -6057,6 +6082,9 @@ retry:
 			flt_rule_entry.rule.hashable = true;
 #endif
 			flt_rule_entry.rule.rt_tbl_hdl = rt_tbl_wan.hdl;
+			/* Transient lookup ref; release before rt_tbl_wan is
+			 * reused for the v6 lookup below. */
+			ipa_put_rt_tbl(rt_tbl_wan.hdl);
 
 			memcpy(&flt_rule_entry.rule.attrib,
 				   &rx_prop->rx[idx].attrib,
@@ -6141,6 +6169,8 @@ retry:
 			flt_rule_entry.rule.hashable = true;
 #endif
 			flt_rule_entry.rule.rt_tbl_hdl = rt_tbl_wan.hdl;
+			/* Lookup ref is transient; the filter rule takes its own rt_tbl ref on add. */
+			ipa_put_rt_tbl(rt_tbl_wan.hdl);
 
 			memcpy(&flt_rule_entry.rule.attrib,
 				   &rx_prop->rx[idx].attrib,

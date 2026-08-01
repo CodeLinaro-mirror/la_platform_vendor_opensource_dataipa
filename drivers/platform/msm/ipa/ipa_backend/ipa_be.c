@@ -147,6 +147,144 @@ static struct ipa_be_backhaul_cache_entry ipa_be_backhaul_cache[IPA_BE_BACKHAUL_
 static int ipa_be_backhaul_cache_count;
 static DEFINE_MUTEX(ipa_be_backhaul_cache_lock);
 
+/* Per-interface count of QoS route rules actually installed in HW (not the
+ * SW cache count), driving the BE pipe HOLB retime.
+ */
+struct ipa_be_qos_retime_entry {
+	struct list_head node;
+	char dev_name[IPA_RESOURCE_NAME_MAX];
+	/* Plain u32, not atomic_t: always accessed under ipa_be_qos_retime_lock. */
+	u32 hw_rule_count;
+};
+
+static LIST_HEAD(ipa_be_qos_retime_list);
+static DEFINE_MUTEX(ipa_be_qos_retime_lock);
+
+/**
+ * ipa_be_qos_retime_on_rule_add() - note a QoS HW rule installed on
+ * @dev_name; tightens its BE pipe HOLB on the 0 -> 1 transition.
+ * @dev_name: interface the rule was installed on (qos_param->dev_name)
+ */
+static void ipa_be_qos_retime_on_rule_add(const char *dev_name)
+{
+	struct ipa_be_qos_retime_entry *entry;
+	bool first_rule = false;
+
+	if (!dev_name || !dev_name[0])
+		return;
+
+	mutex_lock(&ipa_be_qos_retime_lock);
+	list_for_each_entry(entry, &ipa_be_qos_retime_list, node) {
+		if (!strcmp(entry->dev_name, dev_name)) {
+			entry->hw_rule_count++;
+			mutex_unlock(&ipa_be_qos_retime_lock);
+			return;
+		}
+	}
+	/* Not found: this is the interface's first HW QoS rule. */
+	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry) {
+		IPA_BE_ERR("Failed to allocate QoS retime entry for %s; BE pipe HOLB will not be tightened\n",
+			   dev_name);
+		mutex_unlock(&ipa_be_qos_retime_lock);
+		return;
+	}
+	strscpy(entry->dev_name, dev_name, sizeof(entry->dev_name));
+	entry->hw_rule_count = 1;
+	list_add_tail(&entry->node, &ipa_be_qos_retime_list);
+	first_rule = true;
+	mutex_unlock(&ipa_be_qos_retime_lock);
+
+	if (first_rule)
+		ipa3_qos_retime_be_pipes(dev_name, true);
+}
+
+/**
+ * ipa_be_qos_retime_on_rule_del() - note a QoS HW rule deleted from
+ * @dev_name; restores its BE pipe HOLB on the 1 -> 0 transition.
+ * @dev_name: interface the rule was deleted from
+ */
+static void ipa_be_qos_retime_on_rule_del(const char *dev_name)
+{
+	struct ipa_be_qos_retime_entry *entry;
+	bool last_rule = false;
+
+	if (!dev_name || !dev_name[0])
+		return;
+
+	mutex_lock(&ipa_be_qos_retime_lock);
+	list_for_each_entry(entry, &ipa_be_qos_retime_list, node) {
+		if (strcmp(entry->dev_name, dev_name))
+			continue;
+		/* Guard against underflow on a bookkeeping mismatch. */
+		if (entry->hw_rule_count > 0) {
+			entry->hw_rule_count--;
+			if (entry->hw_rule_count == 0) {
+				list_del(&entry->node);
+				kfree(entry);
+				last_rule = true;
+			}
+		} else {
+			IPA_BE_ERR("QoS retime count for %s already 0 on delete; bookkeeping mismatch\n",
+				   dev_name);
+		}
+		break;
+	}
+	mutex_unlock(&ipa_be_qos_retime_lock);
+
+	if (last_rule)
+		ipa3_qos_retime_be_pipes(dev_name, false);
+}
+
+/**
+ * ipa_be_qos_retime_on_flush() - record that ALL QoS HW rules were deleted
+ * (IPA_QOS_PARAM_FLUSH_EVENT). Restores BE pipe HOLB on every interface that
+ * had a HW rule, then clears the tracking list.
+ */
+static void ipa_be_qos_retime_on_flush(void)
+{
+	struct ipa_be_qos_retime_entry *entry, *tmp;
+	/* Retime calls happen after the lock is dropped and the list is emptied. */
+	char (*devs)[IPA_RESOURCE_NAME_MAX];
+	u32 num_devs = 0;
+	u32 count = 0;
+	u32 i;
+
+	mutex_lock(&ipa_be_qos_retime_lock);
+	list_for_each_entry(entry, &ipa_be_qos_retime_list, node)
+		count++;
+	if (count == 0) {
+		mutex_unlock(&ipa_be_qos_retime_lock);
+		return;
+	}
+
+	devs = kcalloc(count, sizeof(*devs), GFP_KERNEL);
+	if (!devs) {
+		/* Still drain the list -- FLUSH means every HW rule is gone. */
+		IPA_BE_ERR("Failed to allocate QoS retime dev list on flush; BE pipes left tightened\n");
+		list_for_each_entry_safe(entry, tmp,
+					 &ipa_be_qos_retime_list, node) {
+			list_del(&entry->node);
+			kfree(entry);
+		}
+		mutex_unlock(&ipa_be_qos_retime_lock);
+		return;
+	}
+
+	list_for_each_entry_safe(entry, tmp, &ipa_be_qos_retime_list, node) {
+		if (num_devs < count)
+			strscpy(devs[num_devs++], entry->dev_name,
+				IPA_RESOURCE_NAME_MAX);
+		list_del(&entry->node);
+		kfree(entry);
+	}
+	mutex_unlock(&ipa_be_qos_retime_lock);
+
+	for (i = 0; i < num_devs; i++)
+		ipa3_qos_retime_be_pipes(devs[i], false);
+	kfree(devs);
+}
+
 /**
  * ipa_be_detect_backhaul_type() - Detect backhaul type based on WAN interface
  * @wan_iface: WAN interface number (pdn_iface)
@@ -1526,6 +1664,7 @@ int ipa_be_delete_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 	struct ipa3_qos_config_node *node;
 	uint32_t rule_hdl = 0, proc_ctx_hdl = 0;
 	enum ipa_ip_type ip_type = IPA_IP_v4;
+	char retime_dev[IPA_RESOURCE_NAME_MAX] = {0};
 
 	if (!qos_param)
 		return -EINVAL;
@@ -1587,6 +1726,8 @@ int ipa_be_delete_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 		rule_hdl = node->config.qos_rule_hdl;
 		proc_ctx_hdl = node->config.proc_ctx_hdl;
 		ip_type = (enum ipa_ip_type)node->config.ip_type;
+		/* Capture before clearing; used for the retime decision below. */
+		strscpy(retime_dev, node->config.dev_name, sizeof(retime_dev));
 		node->config.qos_rule_hdl = 0;
 		node->config.proc_ctx_hdl = 0;
 		break;
@@ -1596,6 +1737,8 @@ int ipa_be_delete_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 	if (rule_hdl) {
 		IPA_BE_DBG("Deleting QoS route rule hdl %u on DELETE event\n", rule_hdl);
 		ipa_delete_route_rule(false, rule_hdl, ip_type);
+		/* Restore this interface's BE pipes if this was the last rule. */
+		ipa_be_qos_retime_on_rule_del(retime_dev);
 	} else {
 		IPA_BE_DBG("QoS entry matched but no rule installed (hdl == 0)\n");
 	}
@@ -1633,8 +1776,11 @@ void ipa_be_flush_qos_route_rules(void)
 	}
 	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 
-	if (!max)
+	if (!max) {
+		/* Still clear the retime list defensively even with no cache rules. */
+		ipa_be_qos_retime_on_flush();
 		return;
+	}
 
 	entries = kcalloc(max, sizeof(*entries), GFP_KERNEL);
 	if (!entries) {
@@ -1670,6 +1816,7 @@ void ipa_be_flush_qos_route_rules(void)
 					__ipa3_release_hdr_proc_ctx(batch[bi].proc_ctx_hdl);
 			}
 		}
+		ipa_be_qos_retime_on_flush();
 		return;
 	}
 
@@ -1696,6 +1843,7 @@ void ipa_be_flush_qos_route_rules(void)
 			__ipa3_release_hdr_proc_ctx(entries[i].proc_ctx_hdl);
 	}
 	kfree(entries);
+	ipa_be_qos_retime_on_flush();
 }
 
 /**
@@ -4085,13 +4233,28 @@ static int ipa_be_qos_install_one_rule(
 	 * stable across later client-rule adds (no re-seating needed).
 	 */
 	rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_QOS;
-	/* Map traffic_class -> sub_cat (TC0 = IPA_RULE_PRIORITY_0 = smallest = highest HW priority, per __ipa_add_rt_rule's ascending sub_cat ordering); clamp to the top slot for stray values. */
-	if (qos_param->traffic_class <=
-			(IPA_RULE_SUB_CAT_MAX - IPA_RULE_PRIORITY_0 - 1))
-		rt_rule_entry->rule_sub_category =
-			IPA_RULE_PRIORITY_0 + qos_param->traffic_class;
-	else
-		rt_rule_entry->rule_sub_category = IPA_RULE_PRIORITY_31;
+	/*
+	 * Map (flt_cat, traffic_class) -> sub_cat: __ipa_add_rt_rule() ranks
+	 * ascending sub_cat first, so user rules (IPA_RULE_PRIORITY_0 + tc)
+	 * always outrank autonomous rules (IPA_RULE_SUB_CAT_MAX + tc), and TC0
+	 * outranks TC15 within each band. The autonomous band intentionally
+	 * lies outside the named enum -- do not add a sub_cat range check
+	 * without reworking this. traffic_class is unchecked upstream; clamp
+	 * to the band's last slot.
+	 */
+	{
+		unsigned int band_base =
+			(qos_param->flt_cat == IPA_QOS_FLT_AUTO) ?
+			IPA_RULE_SUB_CAT_MAX :
+			IPA_RULE_PRIORITY_0;
+
+		if (qos_param->traffic_class < IPA_MAX_TRAFFIC_CLASSES)
+			rt_rule_entry->rule_sub_category =
+				band_base + qos_param->traffic_class;
+		else
+			rt_rule_entry->rule_sub_category =
+				band_base + (IPA_MAX_TRAFFIC_CLASSES - 1);
+	}
 	rt_rule_entry->rule.dst = tx_prop->tx[tx_index].dst_pipe;
 	memcpy(&rt_rule_entry->rule.attrib, &tx_prop->tx[tx_index].attrib,
 	       sizeof(rt_rule_entry->rule.attrib));
@@ -4230,13 +4393,15 @@ static int ipa_be_qos_install_one_rule(
 		__be32 d_addr = htonl(rt_rule_entry->rule.attrib.u.v4.dst_addr);
 		__be32 d_mask = htonl(rt_rule_entry->rule.attrib.u.v4.dst_addr_mask);
 
-		IPA_BE_DBG("QoS rt rule (v4): dst_pipe %d attrib_mask 0x%x cat %u sub_cat %u tc %u max_prio %d "
+		IPA_BE_DBG("QoS rt rule (v4): dst_pipe %d attrib_mask 0x%x cat %u "
+			   "sub_cat %u flt_cat %u tc %u max_prio %d "
 			   "src_addr %pI4/%pI4 dst_addr %pI4/%pI4 proto %u "
 			   "src_port %u dst_port %u tos_val 0x%x tos_mask 0x%x\n",
 			   rt_rule_entry->rule.dst,
 			   rt_rule_entry->rule.attrib.attrib_mask,
 			   rt_rule_entry->rt_rule_category,
 			   rt_rule_entry->rule_sub_category,
+			   qos_param->flt_cat,
 			   qos_param->traffic_class,
 			   rt_rule_entry->rule.max_prio,
 			   &s_addr, &s_mask, &d_addr, &d_mask,
@@ -4253,13 +4418,15 @@ static int ipa_be_qos_install_one_rule(
 			s6[k] = htonl(rt_rule_entry->rule.attrib.u.v6.src_addr[k]);
 			d6[k] = htonl(rt_rule_entry->rule.attrib.u.v6.dst_addr[k]);
 		}
-		IPA_BE_DBG("QoS rt rule (v6): dst_pipe %d attrib_mask 0x%x cat %u sub_cat %u tc %u max_prio %d "
+		IPA_BE_DBG("QoS rt rule (v6): dst_pipe %d attrib_mask 0x%x cat %u "
+			   "sub_cat %u flt_cat %u tc %u max_prio %d "
 			   "src_addr %pI6 dst_addr %pI6 next_hdr %u "
 			   "src_port %u dst_port %u tos_val 0x%x tos_mask 0x%x\n",
 			   rt_rule_entry->rule.dst,
 			   rt_rule_entry->rule.attrib.attrib_mask,
 			   rt_rule_entry->rt_rule_category,
 			   rt_rule_entry->rule_sub_category,
+			   qos_param->flt_cat,
 			   qos_param->traffic_class,
 			   rt_rule_entry->rule.max_prio,
 			   s6, d6,
@@ -4276,13 +4443,18 @@ static int ipa_be_qos_install_one_rule(
 		   rt_rule_entry->rule.hdr_proc_ctx_hdl,
 		   rt_rule_entry->rule.hdr_hdl);
 
-	if (ipa3_add_rt_rule_usr((struct ipa_ioc_add_rt_rule *)rt_rule, true)) {
+	/* Share IPA_SHARED_RT_RULE_ID across all client route rules instead of
+	 * auto-allocating one each. */
+	if (ipa3_add_rt_rule_with_id((struct ipa_ioc_add_rt_rule *)rt_rule,
+				     true, IPA_SHARED_RT_RULE_ID)) {
 		IPA_BE_ERR("QoS route rule add failed for %s\n", qos_param->dev_name);
 		retval = -EFAULT;
 	} else {
 		qos_param->qos_rule_hdl = rt_rule->rules[0].rt_rule_hdl;
 		qos_param->proc_ctx_hdl = proc_ctx_hdl;
 		IPA_BE_DBG("QoS route rule installed, hdl: %d\n", qos_param->qos_rule_hdl);
+		/* Tighten this interface's BE pipes if this is the first rule. */
+		ipa_be_qos_retime_on_rule_add(qos_param->dev_name);
 	}
 
 	if (retval && proc_ctx_hdl > 0) {
@@ -4680,9 +4852,10 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 			 * allocated.  Each ipa_be_qos_install_one_rule may create
 			 * a fresh proc_ctx (when dscp_mark_val is set); the routing
 			 * rule itself takes a refcount on the proc_ctx during
-			 * ipa3_add_rt_rule_usr().  We hold a second (install-time)
-			 * reference that would normally be released at delete time
-			 * via the cache's stored proc_ctx_hdl.  In the multi-client
+			 * ipa3_add_rt_rule_with_id().  We hold a second
+			 * (install-time) reference that would normally be released
+			 * at delete time via the cache's stored proc_ctx_hdl.  In
+			 * the multi-client
 			 * iteration the cache only retains the LAST client's hdl,
 			 * so the install-time references for clients [0..N-2] would
 			 * leak.  Drop them here: the routing rule's reference keeps

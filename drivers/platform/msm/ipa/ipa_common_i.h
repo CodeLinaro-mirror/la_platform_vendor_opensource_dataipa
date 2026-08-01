@@ -904,8 +904,14 @@ int ipa3_add_rt_rule_v2(struct ipa_ioc_add_rt_rule_v2 *rules);
 
 int ipa3_add_rt_rule_usr(struct ipa_ioc_add_rt_rule *rules, bool user_only);
 
+int ipa3_add_rt_rule_with_id(struct ipa_ioc_add_rt_rule *rules,
+			     bool user_only, u16 rule_id);
+
 int ipa3_add_rt_rule_usr_v2(struct ipa_ioc_add_rt_rule_v2 *rules,
 	bool user_only);
+
+int ipa3_add_rt_rule_v2_with_id(struct ipa_ioc_add_rt_rule_v2 *rules,
+				 bool user_only, u16 rule_id);
 
 int ipa3_del_rt_rule(struct ipa_ioc_del_rt_rule *hdls);
 
