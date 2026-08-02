@@ -2186,6 +2186,9 @@ struct ipa_quota_stats {
 	u64 num_ipv6_bytes;
 	u32 num_ipv4_pkts;
 	u32 num_ipv6_pkts;
+	/* IPA 7.0+ tethering Non-IP counters; zero unless the pair's bit is set */
+	u64 num_nonip_bytes;
+	u32 num_nonip_pkts;
 };
 
 struct ipa_quota_stats_all {
@@ -2855,7 +2858,7 @@ struct ipa3_context {
 	struct mutex lock;
 	u32 smem_sz;
 	u16 smem_restricted_bytes;
-	u16 smem_reqd_sz;
+	u32 smem_reqd_sz;
 	struct ipa3_nat_mem nat_mem;
 	struct ipa3_ipv6ct_mem ipv6ct_mem;
 	u32 excp_hdr_hdl;

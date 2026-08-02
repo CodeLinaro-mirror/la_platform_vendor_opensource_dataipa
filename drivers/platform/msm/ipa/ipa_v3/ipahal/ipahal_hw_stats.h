@@ -105,10 +105,18 @@ struct ipahal_stats_quota_all {
  * struct ipahal_stats_init_tethering - Initializations parameters for tethering
  * @prod_bitmask: bit mask of producer pipes to be monitored
  * @cons_bitmask: bit mask of consumer pipes to be monitored per producer
+ * @eth_bitmask: bit mask of pipes whose counters include ETH header bytes
+ *	(IPA 7.0+ only). A pair's ETH bit is the OR of its producer's and
+ *	consumer's bits, so a per-pipe mask suffices. Ignored pre-7.0.
+ * @nonip_bitmask: bit mask of pipes whose counters carry a Non-IP field
+ *	(IPA 7.0+ only). Same OR-of-endpoints policy as eth_bitmask.
+ *	Ignored pre-7.0.
  */
 struct ipahal_stats_init_tethering {
 	u32 prod_bitmask[IPAHAL_PIPE_REG_NUM];
 	u32 cons_bitmask[IPAHAL_PIPES_NUM][IPAHAL_PIPE_REG_NUM];
+	u32 eth_bitmask[IPAHAL_PIPE_REG_NUM];
+	u32 nonip_bitmask[IPAHAL_PIPE_REG_NUM];
 };
 
 /*
@@ -126,12 +134,18 @@ struct ipahal_stats_get_offset_tethering {
  * @num_ipv6_bytes: IPv6 bytes
  * @num_ipv4_pkts: IPv4 packets
  * @num_ipv6_pkts: IPv6 packets
+ * @num_nonip_bytes: Non-IP bytes (IPA 7.0+, only when the pair's Non-IP
+ *	bit is set)
+ * @num_nonip_pkts: Non-IP packets (IPA 7.0+, only when the pair's Non-IP
+ *	bit is set)
  */
 struct ipahal_stats_tethering {
 	u64 num_ipv4_bytes;
 	u64 num_ipv6_bytes;
 	u64 num_ipv4_pkts;
 	u64 num_ipv6_pkts;
+	u64 num_nonip_bytes;
+	u64 num_nonip_pkts;
 };
 
 /*
@@ -279,6 +293,22 @@ struct ipahal_stats_nat_ct {
  */
 struct ipahal_stats_init_pyld *ipahal_stats_generate_init_pyld(
 	enum ipahal_hw_stats_type type, void *params, bool is_atomic_ctx);
+
+/*
+ * ipahal_stats_generate_teth_cfg_pyld - Generate the tethering CFG payload
+ * @init: tethering init parameters (eth_bitmask/nonip_bitmask and the
+ *	prod/cons bitmasks)
+ * @is_atomic_ctx: is calling context atomic ?
+ *
+ * Packs the per-counter ETH-header-byte and Non-IP config bits (2 bits per
+ * counter, 4 counters per byte) for the IPA 7.0+ tethering CFG SRAM region,
+ * written separately from the header/counter payload from
+ * ipahal_stats_generate_init_pyld().
+ *
+ * Return: pointer to ipahal_stats_init_pyld on success or NULL on failure.
+ */
+struct ipahal_stats_init_pyld *ipahal_stats_generate_teth_cfg_pyld(
+	struct ipahal_stats_init_tethering *init, bool is_atomic_ctx);
 
 /*
  * ipahal_destroy_stats_init_pyld() - Destroy/Release bulk that was built

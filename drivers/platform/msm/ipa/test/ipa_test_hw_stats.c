@@ -7,7 +7,11 @@
 #include "ipa_ut_framework.h"
 #include "ipa_i.h"
 #include "ipa_ipsec.h"
+#include <linux/io.h>
 #include <linux/netdevice.h>
+#include <linux/mm.h>
+#include "ipahal_hw_stats_i.h"
+#include "ipahal_i.h"
 
 enum ipa_test_hw_stats_counter {
 	IPA_TEST_HW_STATS_RT4_USB,
@@ -1244,6 +1248,18 @@ static int ipa_test_hw_stats_query_teth_stats(void *priv)
                                                stats->client[j].num_ipv4_pkts);
                        	IPA_UT_INFO("num_ipv6_pkts=%u\n",
                                                stats->client[j].num_ipv6_pkts);
+			       /* Non-IP counters are non-zero only when
+				* the pair's Non-IP bit is set.
+				*/
+			       if ((ipa3_ctx->hw_stats->teth.init.nonip_bitmask[
+					prod_reg] & ipahal_get_ep_bit(ep_idx)) ||
+					(ipa3_ctx->hw_stats->teth.init.nonip_bitmask[
+					cons_reg] & ipahal_get_ep_bit(cons_idx))) {
+				       IPA_UT_INFO("num_nonip_bytes=%llu\n",
+					       stats->client[j].num_nonip_bytes);
+				       IPA_UT_INFO("num_nonip_pkts=%u\n",
+					       stats->client[j].num_nonip_pkts);
+			       }
 		       }
                }
        }
@@ -1254,6 +1270,621 @@ teardown:
        kfree(stats);
        return res;
 }
+
+/*
+ * TETH_ASSERT() - assert helper for the IPA 7.0 tethering tests.
+ * On failure, reports the UT failure and jumps to "restore" for cleanup.
+ */
+#define TETH_ASSERT(cond, msg) \
+	do { \
+		if (!(cond)) { \
+			IPA_UT_ERR("assert failed: %s\n", msg); \
+			IPA_UT_TEST_FAIL_REPORT(msg); \
+			rc = -EINVAL; \
+			goto restore; \
+		} \
+	} while (0)
+
+/*
+ * ipa_test_hw_stats_teth_v7_roundtrip() - HW-independent HAL round-trip test
+ * for the IPA 7.0 tethering mixed-stride stats logic.
+ *
+ * Unlike ipa_test_hw_stats_query_teth_stats() (print-only, requires v7.0
+ * silicon), this drives ipahal_stats_generate_init_pyld(),
+ * ipahal_stats_get_offset(), ipahal_stats_generate_teth_cfg_pyld() and
+ * ipahal_parse_stats() directly against a fabricated 3-pair fixture and
+ * asserts exact offsets/sizes/CFG bytes/parsed values, with no HW dependency.
+ * The test is restricted to IPA 7.0 hardware because the public wrappers
+ * dispatch on the global runtime ipahal_ctx->hw_type.
+ *
+ * Fixture:
+ *   Producers: P0 = 1, P1 = 40
+ *   Consumers: C0 = 2, C1 = 3
+ *   Non-IP set on C1 only -> pair (P0,C1) is the sole 40B pair.
+ *   ETH set on P0 only -> (P0,C0) and (P0,C1) are ETH, (P1,C0) is not.
+ *   Pair order (producer asc, then consumer asc):
+ *     #1 P0->C0 : 24B, ETH
+ *     #2 P0->C1 : 40B (Non-IP), ETH
+ *     #3 P1->C0 : 24B, not ETH
+ */
+static int ipa_test_hw_stats_teth_v7_roundtrip(void *priv)
+{
+	int rc = 0;
+	struct ipahal_stats_init_tethering init;
+	struct ipahal_stats_init_pyld *pyld = NULL;
+	struct ipahal_stats_init_pyld *cfg = NULL;
+	struct ipahal_stats_get_offset_tethering goff;
+	struct ipahal_stats_offset off = {0};
+	struct ipahal_stats_tethering_hdr_v7_0_hw *hdr;
+	u8 *raw = NULL;
+	struct ipahal_stats_tethering_all *out = NULL;
+	struct ipahal_stats_tethering_hw *raw_hw;
+	struct ipahal_stats_tethering_v7_0_hw *raw_v7_hw;
+	u32 counters_bytes = 24 + 40 + 24; /* pair #1 + #2 + #3, see above */
+	const int P0 = 1, P1 = 40, C0 = 2, C1 = 3;
+
+	memset(&init, 0, sizeof(init));
+
+	init.prod_bitmask[ipahal_get_ep_reg_idx(P0)] |=
+		ipahal_get_ep_bit(P0);
+	init.prod_bitmask[ipahal_get_ep_reg_idx(P1)] |=
+		ipahal_get_ep_bit(P1);
+
+	init.cons_bitmask[P0][ipahal_get_ep_reg_idx(C0)] |=
+		ipahal_get_ep_bit(C0);
+	init.cons_bitmask[P0][ipahal_get_ep_reg_idx(C1)] |=
+		ipahal_get_ep_bit(C1);
+	init.cons_bitmask[P1][ipahal_get_ep_reg_idx(C0)] |=
+		ipahal_get_ep_bit(C0);
+
+	init.nonip_bitmask[ipahal_get_ep_reg_idx(C1)] |=
+		ipahal_get_ep_bit(C1);
+	init.eth_bitmask[ipahal_get_ep_reg_idx(P0)] |=
+		ipahal_get_ep_bit(P0);
+
+	IPA_UT_INFO("========teth v7.0 HAL mixed-stride round-trip========\n");
+
+	/* --- init payload: header count + mixed-stride counter bytes --- */
+	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_TETHERING,
+		&init, false);
+	TETH_ASSERT(pyld != NULL, "generate_init_pyld returned NULL");
+	TETH_ASSERT(pyld->len == 136, "pyld->len != 136");
+
+	hdr = (struct ipahal_stats_tethering_hdr_v7_0_hw *)pyld->data;
+	/*
+	 * hdr->offset (8-byte units) is relative to the whole payload
+	 * (headers + counters): it starts at hdr_entries*sizeof(hdr)/8 = 6
+	 * before any counter bytes are added. P0's pairs are 64B, so P1's
+	 * offset is 6 + 64/8 = 14.
+	 */
+	TETH_ASSERT(hdr[0].offset == 6, "P0 header offset != 6");
+	TETH_ASSERT(hdr[0].cfg_start_index == 1,
+		"P0 header cfg_start_index != 1");
+	TETH_ASSERT(hdr[1].offset == 14, "P1 header offset != 14");
+	TETH_ASSERT(hdr[1].cfg_start_index == 3,
+		"P1 header cfg_start_index != 3");
+
+	ipahal_destroy_stats_init_pyld(pyld);
+	pyld = NULL;
+
+	/* --- get_offset: counter-region size must match mixed-stride sum --- */
+	memset(&goff, 0, sizeof(goff));
+	goff.init = init;
+	rc = ipahal_stats_get_offset(IPAHAL_HW_STATS_TETHERING, &goff, &off);
+	TETH_ASSERT(rc == 0, "ipahal_stats_get_offset failed");
+	TETH_ASSERT(off.size == counters_bytes, "get_offset out.size != 88");
+
+	/* --- CFG payload: 2 bits/counter, 4 counters/byte, 1-based index --- */
+	cfg = ipahal_stats_generate_teth_cfg_pyld(&init, false);
+	TETH_ASSERT(cfg != NULL, "generate_teth_cfg_pyld returned NULL");
+	TETH_ASSERT(cfg->len == 1, "cfg->len != 1");
+	TETH_ASSERT(cfg->data[0] == 0x0D, "cfg->data[0] != 0x0D");
+
+	ipahal_destroy_stats_init_pyld(cfg);
+	cfg = NULL;
+
+	/* --- round-trip: build raw counter buffer, parse, check matrix --- */
+	raw = kzalloc(counters_bytes, GFP_KERNEL);
+	TETH_ASSERT(raw != NULL, "failed to alloc raw counter buffer");
+
+	/* pair #1: P0->C0, 24B, not Non-IP */
+	raw_hw = (struct ipahal_stats_tethering_hw *)(raw + 0);
+	raw_hw->num_ipv4_bytes = 0x1111;
+	raw_hw->num_ipv4_pkts = 0x11;
+	raw_hw->num_ipv6_pkts = 0x12;
+	raw_hw->num_ipv6_bytes = 0x2222;
+
+	/* pair #2: P0->C1, 40B, Non-IP */
+	raw_v7_hw = (struct ipahal_stats_tethering_v7_0_hw *)(raw + 24);
+	raw_v7_hw->num_ipv4_bytes = 0x3333;
+	raw_v7_hw->num_ipv4_pkts = 0x33;
+	raw_v7_hw->num_ipv6_pkts = 0x34;
+	raw_v7_hw->num_ipv6_bytes = 0x4444;
+	raw_v7_hw->num_nonip_pkts = 0x35;
+	raw_v7_hw->num_nonip_bytes = 0x5555;
+
+	/* pair #3: P1->C0, 24B, not Non-IP */
+	raw_hw = (struct ipahal_stats_tethering_hw *)(raw + 64);
+	raw_hw->num_ipv4_bytes = 0x6666;
+	raw_hw->num_ipv4_pkts = 0x66;
+	raw_hw->num_ipv6_pkts = 0x67;
+	raw_hw->num_ipv6_bytes = 0x7777;
+
+	/*
+	 * ~270KB output matrix - never on the stack, see
+	 * struct ipahal_stats_tethering_all.
+	 */
+	out = kvzalloc(sizeof(*out), GFP_KERNEL);
+	TETH_ASSERT(out != NULL, "failed to alloc parsed stats matrix");
+
+	rc = ipahal_parse_stats(IPAHAL_HW_STATS_TETHERING, &init, raw, out);
+	TETH_ASSERT(rc == 0, "ipahal_parse_stats failed");
+
+	TETH_ASSERT(out->stats[P0][C0].num_ipv4_bytes == 0x1111,
+		"[P0][C0] num_ipv4_bytes mismatch");
+	TETH_ASSERT(out->stats[P0][C0].num_ipv4_pkts == 0x11,
+		"[P0][C0] num_ipv4_pkts mismatch");
+	TETH_ASSERT(out->stats[P0][C0].num_ipv6_pkts == 0x12,
+		"[P0][C0] num_ipv6_pkts mismatch");
+	TETH_ASSERT(out->stats[P0][C0].num_ipv6_bytes == 0x2222,
+		"[P0][C0] num_ipv6_bytes mismatch");
+	TETH_ASSERT(out->stats[P0][C0].num_nonip_pkts == 0,
+		"[P0][C0] num_nonip_pkts should be 0 for 24B pair");
+	TETH_ASSERT(out->stats[P0][C0].num_nonip_bytes == 0,
+		"[P0][C0] num_nonip_bytes should be 0 for 24B pair");
+
+	TETH_ASSERT(out->stats[P0][C1].num_ipv4_bytes == 0x3333,
+		"[P0][C1] num_ipv4_bytes mismatch");
+	TETH_ASSERT(out->stats[P0][C1].num_ipv4_pkts == 0x33,
+		"[P0][C1] num_ipv4_pkts mismatch");
+	TETH_ASSERT(out->stats[P0][C1].num_ipv6_pkts == 0x34,
+		"[P0][C1] num_ipv6_pkts mismatch");
+	TETH_ASSERT(out->stats[P0][C1].num_ipv6_bytes == 0x4444,
+		"[P0][C1] num_ipv6_bytes mismatch");
+	TETH_ASSERT(out->stats[P0][C1].num_nonip_pkts == 0x35,
+		"[P0][C1] num_nonip_pkts mismatch");
+	TETH_ASSERT(out->stats[P0][C1].num_nonip_bytes == 0x5555,
+		"[P0][C1] num_nonip_bytes mismatch");
+
+	TETH_ASSERT(out->stats[P1][C0].num_ipv4_bytes == 0x6666,
+		"[P1][C0] num_ipv4_bytes mismatch");
+	TETH_ASSERT(out->stats[P1][C0].num_ipv4_pkts == 0x66,
+		"[P1][C0] num_ipv4_pkts mismatch");
+	TETH_ASSERT(out->stats[P1][C0].num_ipv6_pkts == 0x67,
+		"[P1][C0] num_ipv6_pkts mismatch");
+	TETH_ASSERT(out->stats[P1][C0].num_ipv6_bytes == 0x7777,
+		"[P1][C0] num_ipv6_bytes mismatch");
+	TETH_ASSERT(out->stats[P1][C0].num_nonip_pkts == 0,
+		"[P1][C0] num_nonip_pkts should be 0 for 24B pair");
+	TETH_ASSERT(out->stats[P1][C0].num_nonip_bytes == 0,
+		"[P1][C0] num_nonip_bytes should be 0 for 24B pair");
+
+	/* spot-check untouched entries stay zero */
+	TETH_ASSERT(out->stats[P0][4].num_ipv4_bytes == 0,
+		"[P0][4] should be untouched/zero");
+	TETH_ASSERT(out->stats[2][C0].num_ipv4_bytes == 0,
+		"[2][C0] should be untouched/zero");
+
+	IPA_UT_INFO("================ done ============\n");
+
+restore:
+	if (pyld)
+		ipahal_destroy_stats_init_pyld(pyld);
+	if (cfg)
+		ipahal_destroy_stats_init_pyld(cfg);
+	kfree(raw);
+	kvfree(out);
+	return rc;
+}
+
+struct ipa_test_teth_v7_pair {
+	int prod;
+	int cons;
+	bool nonip;
+	u64 num_ipv4_bytes;
+	u64 num_ipv4_pkts;
+	u64 num_ipv6_pkts;
+	u64 num_ipv6_bytes;
+	u64 num_nonip_pkts;
+	u64 num_nonip_bytes;
+};
+
+/*
+ * ipa_test_hw_stats_teth_v7_hal_boundary() - exercise the mixed-stride
+ * boundary and the two-byte tethering CFG layout on IPA 7.0 hardware.
+ *
+ * This deliberately uses valid IPA7 producer/consumer ranges: P0/P1 are
+ * producer pipes (< 32), while C0..C3 are consumer pipes (>= 32). P0 owns
+ * four pairs and P1 owns two, so P1 starts at CFG index five and the fixture
+ * crosses the four-counters-per-CFG-byte boundary. It also represents all
+ * four two-bit CFG states: ETH only, both, Non-IP only, and neither.
+ */
+static int ipa_test_hw_stats_teth_v7_hal_boundary(void *priv)
+{
+	static const struct ipa_test_teth_v7_pair pairs[] = {
+		{ 1, 32, false, 0x1001, 0x11, 0x12, 0x2001, 0, 0 },
+		{ 1, 33, true,  0x1002, 0x21, 0x22, 0x2002, 0x23, 0x3002 },
+		{ 1, 34, true,  0x1003, 0x31, 0x32, 0x2003, 0x33, 0x3003 },
+		{ 1, 35, false, 0x1004, 0x41, 0x42, 0x2004, 0, 0 },
+		{ 13, 34, true, 0x1005, 0x51, 0x52, 0x2005, 0x53, 0x3005 },
+		{ 13, 35, false, 0x1006, 0x61, 0x62, 0x2006, 0, 0 },
+	};
+	int rc = 0;
+	struct ipahal_stats_init_tethering init;
+	struct ipahal_stats_init_pyld *pyld = NULL;
+	struct ipahal_stats_init_pyld *cfg = NULL;
+	struct ipahal_stats_get_offset_tethering goff;
+	struct ipahal_stats_offset off = { 0 };
+	struct ipahal_stats_tethering_hdr_v7_0_hw *hdr;
+	struct ipahal_stats_tethering_all *out = NULL;
+	u8 *raw = NULL;
+	u32 raw_offset = 0;
+	int i;
+
+	memset(&init, 0, sizeof(init));
+
+	/* P0 has four pairs; P1 has two pairs. */
+	init.prod_bitmask[ipahal_get_ep_reg_idx(1)] |= ipahal_get_ep_bit(1);
+	init.prod_bitmask[ipahal_get_ep_reg_idx(13)] |= ipahal_get_ep_bit(13);
+	init.cons_bitmask[1][ipahal_get_ep_reg_idx(32)] |=
+		ipahal_get_ep_bit(32);
+	init.cons_bitmask[1][ipahal_get_ep_reg_idx(33)] |=
+		ipahal_get_ep_bit(33);
+	init.cons_bitmask[1][ipahal_get_ep_reg_idx(34)] |=
+		ipahal_get_ep_bit(34);
+	init.cons_bitmask[1][ipahal_get_ep_reg_idx(35)] |=
+		ipahal_get_ep_bit(35);
+	init.cons_bitmask[13][ipahal_get_ep_reg_idx(34)] |=
+		ipahal_get_ep_bit(34);
+	init.cons_bitmask[13][ipahal_get_ep_reg_idx(35)] |=
+		ipahal_get_ep_bit(35);
+
+	/* P0 adds ETH; C1/C2 add Non-IP. */
+	init.eth_bitmask[ipahal_get_ep_reg_idx(1)] |= ipahal_get_ep_bit(1);
+	init.nonip_bitmask[ipahal_get_ep_reg_idx(33)] |=
+		ipahal_get_ep_bit(33);
+	init.nonip_bitmask[ipahal_get_ep_reg_idx(34)] |=
+		ipahal_get_ep_bit(34);
+
+	IPA_UT_INFO("========teth v7.0 HAL boundary coverage========\n");
+
+	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_TETHERING,
+		&init, false);
+	TETH_ASSERT(pyld != NULL, "boundary generate_init_pyld returned NULL");
+	TETH_ASSERT(pyld->len == 240, "boundary pyld->len != 240");
+
+	hdr = (struct ipahal_stats_tethering_hdr_v7_0_hw *)pyld->data;
+	TETH_ASSERT(hdr[0].dst_mask_31_0 == 0x0f,
+		"P0 destination mask mismatch");
+	TETH_ASSERT(hdr[1].dst_mask_31_0 == 0x0c,
+		"P1 destination mask mismatch");
+	TETH_ASSERT(hdr[0].offset == 6, "P0 header offset != 6");
+	TETH_ASSERT(hdr[1].offset == 22, "P1 header offset != 22");
+	TETH_ASSERT(hdr[0].cfg_start_index == 1,
+		"P0 cfg_start_index != 1");
+	TETH_ASSERT(hdr[1].cfg_start_index == 5,
+		"P1 cfg_start_index != 5");
+
+	ipahal_destroy_stats_init_pyld(pyld);
+	pyld = NULL;
+
+	memset(&goff, 0, sizeof(goff));
+	goff.init = init;
+	rc = ipahal_stats_get_offset(IPAHAL_HW_STATS_TETHERING, &goff, &off);
+	TETH_ASSERT(rc == 0, "boundary get_offset failed");
+	TETH_ASSERT(off.offset == 48, "boundary get_offset out.offset != 48");
+	TETH_ASSERT(off.size == 192, "boundary get_offset out.size != 192");
+
+	cfg = ipahal_stats_generate_teth_cfg_pyld(&init, false);
+	TETH_ASSERT(cfg != NULL, "boundary generate_teth_cfg_pyld returned NULL");
+	TETH_ASSERT(cfg->len == 2, "boundary cfg->len != 2");
+	TETH_ASSERT(cfg->data[0] == 0x7d, "boundary cfg byte 0 != 0x7d");
+	TETH_ASSERT(cfg->data[1] == 0x02, "boundary cfg byte 1 != 0x02");
+
+	ipahal_destroy_stats_init_pyld(cfg);
+	cfg = NULL;
+
+	raw = kzalloc(192, GFP_KERNEL);
+	TETH_ASSERT(raw != NULL, "failed to alloc boundary raw buffer");
+
+	for (i = 0; i < ARRAY_SIZE(pairs); i++) {
+		if (pairs[i].nonip) {
+			struct ipahal_stats_tethering_v7_0_hw *raw_v7_hw =
+				(struct ipahal_stats_tethering_v7_0_hw *)(raw + raw_offset);
+
+			raw_v7_hw->num_ipv4_bytes = pairs[i].num_ipv4_bytes;
+			raw_v7_hw->num_ipv4_pkts = pairs[i].num_ipv4_pkts;
+			raw_v7_hw->num_ipv6_pkts = pairs[i].num_ipv6_pkts;
+			raw_v7_hw->num_ipv6_bytes = pairs[i].num_ipv6_bytes;
+			raw_v7_hw->num_nonip_pkts = pairs[i].num_nonip_pkts;
+			raw_v7_hw->num_nonip_bytes = pairs[i].num_nonip_bytes;
+			raw_offset += sizeof(*raw_v7_hw);
+		} else {
+			struct ipahal_stats_tethering_hw *raw_hw =
+				(struct ipahal_stats_tethering_hw *)(raw + raw_offset);
+
+			raw_hw->num_ipv4_bytes = pairs[i].num_ipv4_bytes;
+			raw_hw->num_ipv4_pkts = pairs[i].num_ipv4_pkts;
+			raw_hw->num_ipv6_pkts = pairs[i].num_ipv6_pkts;
+			raw_hw->num_ipv6_bytes = pairs[i].num_ipv6_bytes;
+			raw_offset += sizeof(*raw_hw);
+		}
+	}
+	TETH_ASSERT(raw_offset == 192, "boundary raw layout size mismatch");
+
+	out = kvzalloc(sizeof(*out), GFP_KERNEL);
+	TETH_ASSERT(out != NULL, "failed to alloc boundary parsed matrix");
+	rc = ipahal_parse_stats(IPAHAL_HW_STATS_TETHERING, &init, raw, out);
+	TETH_ASSERT(rc == 0, "boundary parse_stats failed");
+
+	for (i = 0; i < ARRAY_SIZE(pairs); i++) {
+		struct ipahal_stats_tethering *stats =
+			&out->stats[pairs[i].prod][pairs[i].cons];
+
+		TETH_ASSERT(stats->num_ipv4_bytes == pairs[i].num_ipv4_bytes,
+			"boundary IPv4 bytes mismatch");
+		TETH_ASSERT(stats->num_ipv4_pkts == pairs[i].num_ipv4_pkts,
+			"boundary IPv4 packets mismatch");
+		TETH_ASSERT(stats->num_ipv6_pkts == pairs[i].num_ipv6_pkts,
+			"boundary IPv6 packets mismatch");
+		TETH_ASSERT(stats->num_ipv6_bytes == pairs[i].num_ipv6_bytes,
+			"boundary IPv6 bytes mismatch");
+		TETH_ASSERT(stats->num_nonip_pkts == pairs[i].num_nonip_pkts,
+			"boundary Non-IP packets mismatch");
+		TETH_ASSERT(stats->num_nonip_bytes == pairs[i].num_nonip_bytes,
+			"boundary Non-IP bytes mismatch");
+	}
+
+	IPA_UT_INFO("================ done ============\n");
+
+restore:
+	if (pyld)
+		ipahal_destroy_stats_init_pyld(pyld);
+	if (cfg)
+		ipahal_destroy_stats_init_pyld(cfg);
+	kfree(raw);
+	kvfree(out);
+	return rc;
+}
+
+/*
+ * ipa_test_hw_stats_teth_v7_ip_only_capacity() - verify the maximum
+ * production allocation: 13 headers and 174 IP-only producer/consumer pairs.
+ *
+ * This directly validates the allocation policy used by ipa_7_0_mem_part:
+ * 13 * 24B headers + 174 * 24B counters = 0x1188, with 44B of CFG bits.
+ */
+static int ipa_test_hw_stats_teth_v7_ip_only_capacity(void *priv)
+{
+	int rc = 0;
+	struct ipahal_stats_init_tethering init;
+	struct ipahal_stats_init_pyld *pyld = NULL;
+	struct ipahal_stats_init_pyld *cfg = NULL;
+	struct ipahal_stats_get_offset_tethering goff;
+	struct ipahal_stats_offset off = { 0 };
+	int prod, cons;
+
+	memset(&init, 0, sizeof(init));
+
+	/* 13 producers x 13 consumers, then five more pairs = 174 pairs. */
+	for (prod = 0; prod < 13; prod++) {
+		init.prod_bitmask[ipahal_get_ep_reg_idx(prod)] |=
+			ipahal_get_ep_bit(prod);
+		for (cons = 32; cons < 45; cons++)
+			init.cons_bitmask[prod][ipahal_get_ep_reg_idx(cons)] |=
+				ipahal_get_ep_bit(cons);
+	}
+	for (cons = 45; cons < 50; cons++)
+		init.cons_bitmask[0][ipahal_get_ep_reg_idx(cons)] |=
+			ipahal_get_ep_bit(cons);
+
+	IPA_UT_INFO("========teth v7.0 IP-only capacity========\n");
+
+	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_TETHERING,
+		&init, false);
+	TETH_ASSERT(pyld != NULL, "capacity generate_init_pyld returned NULL");
+	TETH_ASSERT(sizeof(struct ipahal_stats_tethering_hdr_v7_0_hw) == 24,
+		"IPA7 tethering header size != 24");
+	TETH_ASSERT(sizeof(struct ipahal_stats_tethering_hw) == 24,
+		"IP-only tethering counter size != 24");
+	TETH_ASSERT(pyld->len == 0x1188,
+		"13-header/174-pair IP-only payload size != 0x1188");
+
+	memset(&goff, 0, sizeof(goff));
+	goff.init = init;
+	rc = ipahal_stats_get_offset(IPAHAL_HW_STATS_TETHERING, &goff, &off);
+	TETH_ASSERT(rc == 0, "capacity get_offset failed");
+	TETH_ASSERT(off.offset == 0x138, "capacity header size != 0x138");
+	TETH_ASSERT(off.size == 0x1050, "capacity counter size != 0x1050");
+
+	cfg = ipahal_stats_generate_teth_cfg_pyld(&init, false);
+	TETH_ASSERT(cfg != NULL, "capacity generate_teth_cfg_pyld returned NULL");
+	TETH_ASSERT(cfg->len == 0x2c, "174-pair CFG payload size != 44");
+	TETH_ASSERT(cfg->len <= IPA_MEM_PART(stats_tethering_cfg_size),
+		"capacity CFG payload exceeds SRAM region");
+
+	IPA_UT_INFO("================ done ============\n");
+
+restore:
+	if (pyld)
+		ipahal_destroy_stats_init_pyld(pyld);
+	if (cfg)
+		ipahal_destroy_stats_init_pyld(cfg);
+	return rc;
+}
+
+static bool ipa_test_hw_stats_teth_pipe_enabled(
+	const struct ipahal_stats_init_tethering *init, int pipe)
+{
+	u32 reg_idx = ipahal_get_ep_reg_idx(pipe);
+	u32 bit = ipahal_get_ep_bit(pipe);
+	int prod;
+
+	if (init->prod_bitmask[reg_idx] & bit)
+		return true;
+
+	for (prod = 0; prod < IPAHAL_PIPES_NUM; prod++) {
+		if (init->cons_bitmask[prod][reg_idx] & bit)
+			return true;
+	}
+
+	return false;
+}
+
+/* Keep this predicate in lockstep with ipa_hw_stats_ep_is_l2(). */
+static bool ipa_test_hw_stats_teth_pipe_is_l2(int pipe)
+{
+	enum ipa_client_type client;
+
+	if (IPA_CLIENT_IS_ETH_PROD(pipe) ||
+		IPA_CLIENT_IS_ETH_CONS_PIPE(pipe) ||
+		IPA_CLIENT_IS_WLAN_PROD(pipe))
+		return true;
+
+	client = ipa3_get_client_by_pipe(pipe);
+	return IPA_CLIENT_IS_WLAN_CONS(client) ||
+		IPA_CLIENT_IS_WLAN_QOS_CONS(client);
+}
+
+#define TETH_MEM_PART_ASSERT(member, expected) \
+	TETH_ASSERT(IPA_MEM_PART(member) == (expected), #member " mismatch")
+
+/*
+ * ipa_test_hw_stats_teth_v7_hw_cfg() - verify IPA7 tethering CFG programming.
+ *
+ * The test compares the live CFG SRAM bytes with a HAL-generated payload from
+ * the driver's live init state, then checks the two base registers and the
+ * IPA7 memory partition. The production policy retains IP-only counter
+ * entries; mixed-stride coverage is provided by the HAL-only tests.
+ */
+static int ipa_test_hw_stats_teth_v7_hw_cfg(void *priv)
+{
+	int rc = 0;
+	struct ipahal_stats_init_tethering init;
+	struct ipahal_stats_init_pyld *pyld = NULL;
+	struct ipahal_stats_init_pyld *cfg = NULL;
+	void __iomem *cfg_sram = NULL;
+	phys_addr_t sram_phys;
+	u8 *actual_cfg = NULL;
+	bool locked = false;
+	int i;
+
+	IPA_UT_INFO("========teth v7.0 hardware CFG verification========\n");
+
+	TETH_ASSERT(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled,
+		"tethering stats are not initialized");
+
+	mutex_lock(&ipa3_ctx->lock);
+	locked = true;
+	init = ipa3_ctx->hw_stats->teth.init;
+
+	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_TETHERING,
+		&init, false);
+	TETH_ASSERT(pyld != NULL, "live tethering init payload is empty");
+	TETH_ASSERT(pyld->len <= IPA_MEM_PART(stats_tethering_size),
+		"live tethering payload exceeds SRAM region");
+
+	cfg = ipahal_stats_generate_teth_cfg_pyld(&init, false);
+	TETH_ASSERT(cfg != NULL, "live tethering CFG payload is empty");
+	TETH_ASSERT(cfg->len <= IPA_MEM_PART(stats_tethering_cfg_size),
+		"live tethering CFG exceeds SRAM region");
+
+	for (i = 0; i < IPAHAL_PIPES_NUM; i++) {
+		u32 reg_idx;
+		u32 bit;
+		bool is_l2;
+
+		if (!ipa_test_hw_stats_teth_pipe_enabled(&init, i))
+			continue;
+
+		reg_idx = ipahal_get_ep_reg_idx(i);
+		bit = ipahal_get_ep_bit(i);
+		is_l2 = ipa_test_hw_stats_teth_pipe_is_l2(i);
+		if (is_l2) {
+			TETH_ASSERT(init.eth_bitmask[reg_idx] & bit,
+				"enabled L2 pipe is missing ETH bit");
+		} else {
+			TETH_ASSERT(!(init.eth_bitmask[reg_idx] & bit),
+				"enabled non-L2 pipe has ETH bit");
+		}
+		TETH_ASSERT(!(init.nonip_bitmask[reg_idx] & bit),
+			"IP-only policy enabled a Non-IP bit");
+	}
+
+	TETH_ASSERT(ipahal_read_reg_n(IPA_STAT_TETHERING_BASE_n,
+		ipa3_ctx->ee) == ipa3_ctx->smem_restricted_bytes +
+		IPA_MEM_PART(stats_tethering_ofst),
+		"tethering base register mismatch");
+	TETH_ASSERT(ipahal_read_reg_n(IPA_STAT_TETHERING_CFG_BASE_n,
+		ipa3_ctx->ee) == ipa3_ctx->smem_restricted_bytes +
+		IPA_MEM_PART(stats_tethering_cfg_ofst),
+		"tethering CFG base register mismatch");
+
+	TETH_MEM_PART_ASSERT(stats_tethering_cfg_ofst, 0x20340);
+	TETH_MEM_PART_ASSERT(stats_tethering_cfg_size, 0x30);
+	TETH_MEM_PART_ASSERT(stats_tethering_ofst, 0x1f1b8);
+	TETH_MEM_PART_ASSERT(stats_tethering_size, 0x1188);
+	TETH_MEM_PART_ASSERT(stats_fnr_ofst, 0x20370);
+	TETH_MEM_PART_ASSERT(ap_stats_drop_ofst, 0x21518);
+	TETH_MEM_PART_ASSERT(ap_stats_drop_size, 0x230);
+	TETH_MEM_PART_ASSERT(nat_tbl_ofst, 0x217a0);
+	TETH_MEM_PART_ASSERT(ct_tbl_ofst, 0x217a0);
+	TETH_MEM_PART_ASSERT(apps_v4_flt_nhash_ofst, 0x217a8);
+	TETH_MEM_PART_ASSERT(apps_v6_flt_nhash_ofst, 0x221f0);
+	TETH_MEM_PART_ASSERT(apps_v4_rt_nhash_ofst, 0x22c38);
+	TETH_MEM_PART_ASSERT(apps_v6_rt_nhash_ofst, 0x22f40);
+	TETH_MEM_PART_ASSERT(tethering_drop_stats_ofst, 0x23240);
+	TETH_MEM_PART_ASSERT(nat_ct_stats_counters_ofst, 0x243f8);
+	TETH_MEM_PART_ASSERT(nat_ct_stats_cfg_ofst, 0x2c3f8);
+	TETH_MEM_PART_ASSERT(nat_ct_drop_stats_counters_ofst, 0x2c478);
+	TETH_MEM_PART_ASSERT(nat_ct_drop_stats_cfg_ofst, 0x34478);
+	TETH_MEM_PART_ASSERT(fnr_drop_counters_ofst, 0x344f8);
+	TETH_MEM_PART_ASSERT(policing_drop_counters_ofst, 0x356a0);
+	TETH_MEM_PART_ASSERT(shaping_drop_counters_ofst, 0x35aa0);
+	TETH_MEM_PART_ASSERT(shaping_drop_pkt_byte_counters_ofst, 0x35ea0);
+	TETH_MEM_PART_ASSERT(end_ofst, 0x36ea0);
+	TETH_ASSERT(IPA_MEM_PART(stats_tethering_ofst) +
+		IPA_MEM_PART(stats_tethering_size) ==
+		IPA_MEM_PART(stats_tethering_cfg_ofst),
+		"tethering counters and CFG are not adjacent");
+	TETH_ASSERT(IPA_MEM_PART(stats_tethering_cfg_ofst) +
+		IPA_MEM_PART(stats_tethering_cfg_size) ==
+		IPA_MEM_PART(stats_fnr_ofst),
+		"tethering CFG and FNR regions are not adjacent");
+	TETH_ASSERT(IPA_MEM_PART(end_ofst) <= ipa3_ctx->smem_sz,
+		"IPA7 memory map exceeds shared SRAM");
+
+	sram_phys = ipa3_ctx->ipa_wrapper_base + ipa3_ctx->ctrl->ipa_reg_base_ofst +
+		ipahal_get_reg_n_ofst(IPA_SW_AREA_RAM_DIRECT_ACCESS_n,
+			ipa3_ctx->smem_restricted_bytes / 4) +
+		IPA_MEM_PART(stats_tethering_cfg_ofst);
+	cfg_sram = ioremap(sram_phys, cfg->len);
+	TETH_ASSERT(cfg_sram != NULL, "failed to map tethering CFG SRAM");
+
+	actual_cfg = kmalloc(cfg->len, GFP_KERNEL);
+	TETH_ASSERT(actual_cfg != NULL, "failed to allocate CFG readback buffer");
+	memcpy_fromio(actual_cfg, cfg_sram, cfg->len);
+	TETH_ASSERT(!memcmp(actual_cfg, cfg->data, cfg->len),
+		"tethering CFG SRAM contents mismatch");
+
+	IPA_UT_INFO("================ done ============\n");
+
+restore:
+	kfree(actual_cfg);
+	if (cfg_sram)
+		iounmap(cfg_sram);
+	if (cfg)
+		ipahal_destroy_stats_init_pyld(cfg);
+	if (pyld)
+		ipahal_destroy_stats_init_pyld(pyld);
+	if (locked)
+		mutex_unlock(&ipa3_ctx->lock);
+	return rc;
+}
+
+#undef TETH_MEM_PART_ASSERT
+#undef TETH_ASSERT
 
 static int ipa_test_hw_stats_reset_teth_stats(void *priv)
 {
@@ -1571,6 +2202,26 @@ IPA_UT_DEFINE_SUITE_START(hw_stats, "HW stats test",
 	IPA_UT_ADD_TEST(query_teth_stats, "Query tethering stats",
 		ipa_test_hw_stats_query_teth_stats, false,
 		IPA_HW_v4_5, IPA_HW_MAX),
+
+	IPA_UT_ADD_TEST(teth_v7_roundtrip,
+		"IPA7.0 tethering HAL mixed-stride round-trip",
+		ipa_test_hw_stats_teth_v7_roundtrip, true,
+		IPA_HW_v7_0, IPA_HW_MAX),
+
+	IPA_UT_ADD_TEST(teth_v7_hal_boundary,
+		"IPA7.0 tethering HAL CFG-byte and mixed-stride boundaries",
+		ipa_test_hw_stats_teth_v7_hal_boundary, true,
+		IPA_HW_v7_0, IPA_HW_MAX),
+
+	IPA_UT_ADD_TEST(teth_v7_ip_only_capacity,
+		"IPA7.0 tethering HAL IP-only capacity",
+		ipa_test_hw_stats_teth_v7_ip_only_capacity, true,
+		IPA_HW_v7_0, IPA_HW_MAX),
+
+	IPA_UT_ADD_TEST(teth_v7_hw_cfg,
+		"IPA7.0 tethering CFG SRAM and memory-map programming",
+		ipa_test_hw_stats_teth_v7_hw_cfg, false,
+		IPA_HW_v7_0, IPA_HW_MAX),
 
 	IPA_UT_ADD_TEST(reset_teth_stats, "Reset tethering stats",
 		ipa_test_hw_stats_reset_teth_stats, false,
