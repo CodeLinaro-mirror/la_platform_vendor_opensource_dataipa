@@ -2265,6 +2265,70 @@ void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx)
 	ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6);
 	tbl->sticky_rear = true;
 
+	/*
+	 * If ipa_sw is already set when this EP comes up, install a CAT_SW
+	 * PASS_TO_EXCEPTION catch-all so higher-category rules (LAN2LAN,
+	 * PRIVATE_SUBNET, MTU, ...) don't outrank it and bypass the SW
+	 * path. Roll back atomically so v4 and v6 never diverge per EP.
+	 */
+	if (ipa3_ctx->ipa_sw) {
+		struct ipa3_init_flt_rule_hdl *n4 = NULL, *n6 = NULL;
+		struct ipa_flt_rule_i sw_rule;
+		int res4 = 0, res6 = 0;
+
+		if (!ep->sw_routing_flt4_hdl_list.next)
+			INIT_LIST_HEAD(&ep->sw_routing_flt4_hdl_list);
+		if (!ep->sw_routing_flt6_hdl_list.next)
+			INIT_LIST_HEAD(&ep->sw_routing_flt6_hdl_list);
+
+		memset(&sw_rule, 0, sizeof(sw_rule));
+		sw_rule.action = IPA_PASS_TO_EXCEPTION;
+		sw_rule.hashable = true;
+		sw_rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
+
+		n4 = kzalloc(sizeof(*n4), GFP_KERNEL);
+		n6 = kzalloc(sizeof(*n6), GFP_KERNEL);
+		if (!n4 || !n6) {
+			IPAERR("SW-divert alloc failed on ep %u\n", ipa_ep_idx);
+			goto sw_divert_rollback;
+		}
+
+		res4 = __ipa_add_flt_rule(&ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v4],
+				IPA_IP_v4, &sw_rule, false, &n4->hdl, false,
+				IPA_FLT_RULE_CAT_SW, 0);
+		if (res4) {
+			IPAERR("SW-divert v4 add failed on ep %u: %d\n",
+				ipa_ep_idx, res4);
+			goto sw_divert_rollback;
+		}
+		res6 = __ipa_add_flt_rule(&ipa3_ctx->flt_tbl[ipa_ep_idx][IPA_IP_v6],
+				IPA_IP_v6, &sw_rule, false, &n6->hdl, false,
+				IPA_FLT_RULE_CAT_SW, 0);
+		if (res6) {
+			IPAERR("SW-divert v6 add failed on ep %u: %d\n",
+				ipa_ep_idx, res6);
+			__ipa_del_flt_rule(n4->hdl);
+			goto sw_divert_rollback;
+		}
+
+		list_add_tail(&n4->link, &ep->sw_routing_flt4_hdl_list);
+		list_add_tail(&n6->link, &ep->sw_routing_flt6_hdl_list);
+
+		if (ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4))
+			IPAERR("SW-divert v4 commit failed on ep %u\n", ipa_ep_idx);
+		if (ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6))
+			IPAERR("SW-divert v6 commit failed on ep %u\n", ipa_ep_idx);
+		IPADBG("SW-divert installed on new ep %u v4=0x%x v6=0x%x\n",
+			ipa_ep_idx, n4->hdl, n6->hdl);
+		goto sw_divert_done;
+
+sw_divert_rollback:
+		kfree(n4);
+		kfree(n6);
+sw_divert_done:
+		;
+	}
+
 	mutex_unlock(&ipa3_ctx->lock);
 }
 
@@ -3180,7 +3244,7 @@ int ipa3_sw_routing_enable(void)
 		goto rollback;
 	}
 
-	ipa3_ctx->ipa_sw = true;
+	WRITE_ONCE(ipa3_ctx->ipa_sw, true);
 	mutex_unlock(&ipa3_ctx->lock);
 	return 0;
 
@@ -3215,7 +3279,7 @@ rollback:
 			IPAERR("SW routing rollback commit failed (v4=%d v6=%d) — HW/SW may be inconsistent\n",
 				rb4, rb6);
 	}
-	ipa3_ctx->ipa_sw = false;
+	WRITE_ONCE(ipa3_ctx->ipa_sw, false);
 	mutex_unlock(&ipa3_ctx->lock);
 	return res;
 }
@@ -3282,7 +3346,7 @@ int ipa3_sw_routing_disable(void)
 	 * observe a disable that never fully happened.
 	 */
 	if (!res)
-		ipa3_ctx->ipa_sw = false;
+		WRITE_ONCE(ipa3_ctx->ipa_sw, false);
 	mutex_unlock(&ipa3_ctx->lock);
 	return res;
 }
