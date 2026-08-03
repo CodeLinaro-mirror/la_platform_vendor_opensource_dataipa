@@ -1403,6 +1403,11 @@ int ipa3_reset_hdr(bool user_only)
 
 		if (!user_only ||
 				ctx_entry->ipacm_installed) {
+			/*decreamenting the ref cnt for partial hdrs
+			if proc ctx is installed by ipacm with
+			partial hdrs*/
+			if (ctx_entry->hdr)
+				__ipa3_del_hdr(ctx_entry->hdr->id, false);
 			/* move the offset entry to appropriate free list */
 			list_move(&ctx_entry->offset_entry->link,
 				&htbl_proc->head_free_offset_list[
@@ -1440,6 +1445,7 @@ int ipa3_reset_hdr(bool user_only)
 		htbl_proc->proc_ctx_cnt = 0;
 	}
 
+	IPADBG("commiting hdr to ipa hw\n");
 	/* commit the change to IPA-HW */
 	if (ipa3_ctx->ctrl->ipa3_commit_hdr()) {
 		IPAERR("fail to commit hdr\n");
