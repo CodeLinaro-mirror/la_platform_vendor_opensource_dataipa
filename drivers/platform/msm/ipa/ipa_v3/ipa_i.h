@@ -3431,8 +3431,6 @@ struct ipa3_mem_partition {
 
 	u32 ap_stats_drop_ofst;
 	u32 ap_stats_drop_size;
-	u32 stats_drop_ofst;
-	u32 stats_drop_size;
 	u32 q6_stats_drop_ofst;
 	u32 q6_stats_drop_size;
 	u32 pre_sa_contexts_canary_ofst;

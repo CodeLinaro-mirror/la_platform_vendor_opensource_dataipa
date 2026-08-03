@@ -9139,8 +9139,8 @@ static struct ipa3_mem_partition ipa_3_0_mem_part = {
 	.stats_rt_v4_size = 0x0,
 	.stats_rt_v6_ofst = 0x2000,
 	.stats_rt_v6_size = 0x0,
-	.stats_drop_ofst = 0x2000,
-	.stats_drop_size = 0x0,
+	.ap_stats_drop_ofst = 0x2000,
+	.ap_stats_drop_size = 0x0,
 	.q6_stats_drop_ofst = 0,
 	.q6_stats_drop_size = 0,
 };
@@ -9234,8 +9234,8 @@ static struct ipa3_mem_partition ipa_4_1_mem_part = {
 	.stats_rt_v4_size		= 0x180,
 	.stats_rt_v6_ofst		= 0x1250,
 	.stats_rt_v6_size		= 0x180,
-	.stats_drop_ofst		= 0x13d0,
-	.stats_drop_size		= 0x20,
+	.ap_stats_drop_ofst		= 0x13d0,
+	.ap_stats_drop_size		= 0x20,
 	.q6_stats_drop_ofst 	= 0,
 	.q6_stats_drop_size 	= 0,
 };
@@ -9329,8 +9329,8 @@ static struct ipa3_mem_partition ipa_4_2_mem_part = {
 	.stats_rt_v4_size		= 0x0,
 	.stats_rt_v6_ofst		= 0xbf0,
 	.stats_rt_v6_size		= 0x0,
-	.stats_drop_ofst		= 0xbf0,
-	.stats_drop_size		= 0x0,
+	.ap_stats_drop_ofst		= 0xbf0,
+	.ap_stats_drop_size		= 0x0,
 	.q6_stats_drop_ofst 	= 0,
 	.q6_stats_drop_size 	= 0,
 };
@@ -9403,8 +9403,8 @@ static struct ipa3_mem_partition ipa_4_5_mem_part = {
 	.stats_rt_v6_size		= 0,
 	.stats_fnr_ofst			= 0x27c0,
 	.stats_fnr_size			= 0x800,
-	.stats_drop_ofst		= 0x2fc0,
-	.stats_drop_size		= 0x20,
+	.ap_stats_drop_ofst		= 0x2fc0,
+	.ap_stats_drop_size		= 0x20,
 	.modem_comp_decomp_ofst		= 0x0,
 	.modem_comp_decomp_size		= 0x0,
 	.modem_ofst			= 0x2fe8,
@@ -9504,8 +9504,8 @@ static struct ipa3_mem_partition ipa_4_7_mem_part = {
 	.stats_rt_v6_size		= 0,
 	.stats_fnr_ofst			= 0x1ef0,
 	.stats_fnr_size			= 0x0,
-	.stats_drop_ofst		= 0x1ef0,
-	.stats_drop_size		= 0x20,
+	.ap_stats_drop_ofst		= 0x1ef0,
+	.ap_stats_drop_size		= 0x20,
 	.modem_comp_decomp_ofst		= 0x0,
 	.modem_comp_decomp_size		= 0x0,
 	.modem_ofst			= 0x1f18,
@@ -9601,8 +9601,8 @@ static struct ipa3_mem_partition ipa_4_9_mem_part = {
 	.stats_rt_v6_size		= 0,
 	.stats_fnr_ofst			= 0x27c0,
 	.stats_fnr_size			= 0x800,
-	.stats_drop_ofst		= 0x2fc0,
-	.stats_drop_size		= 0x20,
+	.ap_stats_drop_ofst		= 0x2fc0,
+	.ap_stats_drop_size		= 0x20,
 	.modem_comp_decomp_ofst		= 0x0,
 	.modem_comp_decomp_size		= 0x0,
 	.modem_ofst			= 0x2fe8,
@@ -9702,8 +9702,8 @@ static struct ipa3_mem_partition ipa_4_11_mem_part = {
         .stats_rt_v6_size               = 0,
         .stats_fnr_ofst                 = 0x27B0,
         .stats_fnr_size                 = 0x0,
-        .stats_drop_ofst                = 0x27B0,
-        .stats_drop_size                = 0x20,
+        .ap_stats_drop_ofst                = 0x27B0,
+        .ap_stats_drop_size                = 0x20,
         .modem_comp_decomp_ofst         = 0x0,
         .modem_comp_decomp_size         = 0x0,
         .modem_ofst                     = 0x27D8,
@@ -9803,8 +9803,8 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x2d70,
 	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3910,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x3910,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x3938,
@@ -9898,8 +9898,8 @@ static struct ipa3_mem_partition ipa_5_1_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x2cd0,
 	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3870,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x3870,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x3898,
@@ -9999,8 +9999,8 @@ static struct ipa3_mem_partition ipa_5_2_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x1cd0,
 	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x2870,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x2870,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x2898,
@@ -10092,8 +10092,8 @@ static struct ipa3_mem_partition ipa_5_2_mdm_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x22d0,
 	.stats_fnr_size = 0x880,
-	.stats_drop_ofst = 0x2B50,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x2B50,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x2B78,
@@ -10191,8 +10191,8 @@ static struct ipa3_mem_partition ipa_5_5_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x2cd0,
 	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3870,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x3870,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x3898,
@@ -10297,8 +10297,8 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x75a8,
 	.stats_fnr_size = 0x2648,
-	.stats_drop_ofst = 0x9bf0,
-	.stats_drop_size = 0x58,
+	.ap_stats_drop_ofst = 0x9bf0,
+	.ap_stats_drop_size = 0x58,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x9c58,
@@ -10395,8 +10395,10 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.stats_quota_q6_size = 0xa0,
 	.stats_quota_ap_ofst = 0x1ef40,
 	.stats_quota_ap_size = 0xa0,
-	.stats_peripheral_prod_ofst = 0x1efe0,
-	.stats_peripheral_prod_size = 0x1b8,
+	.q6_stats_drop_ofst = 0x1efe0,
+	.q6_stats_drop_size = 0x20,
+	.stats_peripheral_prod_ofst = 0x1f000,
+	.stats_peripheral_prod_size = 0x198,
 	.apps_fltrt_empty_tbl_ofst = 0x1f198,
 	.apps_fltrt_empty_tbl_size = 0x20,
 	/* TODO: need to properly configure register. */
@@ -10422,9 +10424,7 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.stats_fnr_ofst = 0x20370,
 	.stats_fnr_size = 0x11a8,
 	.ap_stats_drop_ofst = 0x21518,
-	.ap_stats_drop_size = 0x210,
-	.stats_drop_ofst = 0x21728,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_size = 0x230,
 	.nat_tbl_ofst = 0x217a0,
 	.nat_tbl_size = 0x0,
 	.ct_tbl_ofst = 0x217a0,
@@ -11334,6 +11334,13 @@ void _ipa_sram_settings_read_v3_0(void)
 	ipa3_ctx->smem_restricted_bytes *= 8;
 	ipa3_ctx->smem_sz *= 8;
 	ipa3_ctx->smem_reqd_sz = IPA_MEM_PART(end_ofst);
+
+	IPADBG("SRAM base: shared_mem_baddr(raw 8B)=0x%x shared_mem_sz(raw 8B)=0x%x\n",
+		smem_sz.shared_mem_baddr, smem_sz.shared_mem_sz);
+	IPADBG("SRAM base: smem_restricted_bytes=0x%x smem_sz=0x%x smem_reqd_sz=0x%x\n",
+		ipa3_ctx->smem_restricted_bytes,
+		ipa3_ctx->smem_sz,
+		ipa3_ctx->smem_reqd_sz);
 
 	/*
 	 * when proc ctx table is located in internal memory,
@@ -14437,16 +14444,6 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPADBG("DROP STATS OFST 0x%x SIZE 0x%x\n",
-	IPA_MEM_PART(stats_drop_ofst),
-		IPA_MEM_PART(stats_drop_size));
-
-	if (IPA_MEM_PART(stats_drop_ofst) & 7) {
-		IPAERR("DROP STATS OFST 0x%x is unaligned\n",
-			IPA_MEM_PART(stats_drop_ofst));
-		return -ENODEV;
-	}
-
 	IPADBG("AP DROP STATS OFST 0x%x SIZE 0x%x\n",
 	IPA_MEM_PART(ap_stats_drop_ofst),
 		IPA_MEM_PART(ap_stats_drop_size));
@@ -14454,6 +14451,16 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 	if (IPA_MEM_PART(ap_stats_drop_ofst) & 7) {
 		IPAERR("AP DROP STATS OFST 0x%x is unaligned\n",
 			IPA_MEM_PART(ap_stats_drop_ofst));
+		return -ENODEV;
+	}
+
+	IPADBG("Q6 DROP STATS OFST 0x%x SIZE 0x%x\n",
+		IPA_MEM_PART(q6_stats_drop_ofst),
+		IPA_MEM_PART(q6_stats_drop_size));
+
+	if (IPA_MEM_PART(q6_stats_drop_ofst) & 7) {
+		IPAERR("Q6 DROP STATS OFST 0x%x is unaligned\n",
+			IPA_MEM_PART(q6_stats_drop_ofst));
 		return -ENODEV;
 	}
 

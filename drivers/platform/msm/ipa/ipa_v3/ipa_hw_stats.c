@@ -3098,8 +3098,7 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 		goto fail_free_desc;
 	}
 
-	drop_size = (IPA_MEM_PART(ap_stats_drop_size) != 0) ?
-		IPA_MEM_PART(ap_stats_drop_size) : IPA_MEM_PART(stats_drop_size);
+	drop_size = IPA_MEM_PART(ap_stats_drop_size);
 
 	if (pyld->len > drop_size) {
 		IPAERR("SRAM partition too small: %d bytes (%d pipes)."
@@ -3194,8 +3193,7 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 	drop_base.offset = ipahal_get_reg_n_ofst(IPA_STAT_DROP_CNT_BASE_n,
 		ipa3_ctx->ee);
 	drop_base.value = ipa3_ctx->smem_restricted_bytes +
-		IPA_MEM_PART(ap_stats_drop_size) ? IPA_MEM_PART(ap_stats_drop_ofst) :
-		IPA_MEM_PART(stats_drop_ofst);
+		IPA_MEM_PART(ap_stats_drop_ofst);
 	drop_base.value_mask = ~0;
 	drop_base_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
 		&drop_base, false);
@@ -3216,8 +3214,7 @@ int ipa_init_drop_stats(u32 *pipe_bitmask)
 	cmd.size = pyld->len;
 	cmd.system_addr = dma_address;
 	cmd.local_addr = ipa3_ctx->smem_restricted_bytes +
-			IPA_MEM_PART(ap_stats_drop_size) ? IPA_MEM_PART(ap_stats_drop_ofst) :
-			IPA_MEM_PART(stats_drop_ofst);
+			IPA_MEM_PART(ap_stats_drop_ofst);
 	cmd_pyld = ipahal_construct_imm_cmd(
 		IPA_IMM_CMD_DMA_SHARED_MEM, &cmd, false);
 	if (!cmd_pyld) {
@@ -3321,8 +3318,7 @@ int ipa_get_drop_stats(struct ipa_drop_stats_all *out)
 	cmd.size = mem.size;
 	cmd.system_addr = mem.phys_base;
 	cmd.local_addr = ipa3_ctx->smem_restricted_bytes +
-		(IPA_MEM_PART(ap_stats_drop_size) ? IPA_MEM_PART(ap_stats_drop_ofst) :
-			IPA_MEM_PART(stats_drop_ofst)) + offset.offset;
+		IPA_MEM_PART(ap_stats_drop_ofst) + offset.offset;
 	cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(
 		IPA_IMM_CMD_DMA_SHARED_MEM, &cmd, false);
 	if (!cmd_pyld[num_cmd]) {
