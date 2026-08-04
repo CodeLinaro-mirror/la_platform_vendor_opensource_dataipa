@@ -10389,7 +10389,7 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.apps_hdr_ofst = 0x6820,
 	.apps_hdr_size = 0x18674,
 	.apps_hdr_size_ddr = 0x7ff,
-	.apps_hdr_ext_ofst = 0x1bd3c,
+	.apps_hdr_ext_ofst = 0x1bd40,
 	.apps_hdr_ext_size = 0x0,
 	.stats_quota_q6_ofst = 0x1eea0,
 	.stats_quota_q6_size = 0xa0,
@@ -10425,9 +10425,9 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.ap_stats_drop_size = 0x210,
 	.stats_drop_ofst = 0x21728,
 	.stats_drop_size = 0x20,
-	.nat_tbl_ofst = 0x21792,
+	.nat_tbl_ofst = 0x217a0,
 	.nat_tbl_size = 0x0,
-	.ct_tbl_ofst = 0x21792,
+	.ct_tbl_ofst = 0x217a0,
 	.ct_tbl_size = 0x0,
 	.apps_v4_flt_nhash_ofst = 0x217a8,
 	.apps_v4_flt_nhash_size = 0xa40,
@@ -14232,6 +14232,17 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		IPA_MEM_PART(apps_hdr_ofst), IPA_MEM_PART(apps_hdr_size),
 		IPA_MEM_PART(apps_hdr_size_ddr));
 
+	if (IPA_MEM_PART(apps_hdr_ext_size) &&
+		IPA_MEM_PART(apps_hdr_ext_ofst) & 7) {
+		IPAERR("APPS HDR EXT OFST 0x%x is unaligned\n",
+			IPA_MEM_PART(apps_hdr_ext_ofst));
+		return -ENODEV;
+	}
+
+	IPADBG("APPS HDR EXT OFST 0x%x SIZE 0x%x\n",
+		IPA_MEM_PART(apps_hdr_ext_ofst),
+		IPA_MEM_PART(apps_hdr_ext_size));
+
 	/* Max size supported of HPC table is 2^14 Bytes.
 	 * The calculation:
 	 * The hdr_offset field in the routing rule hw is 9 bits,
@@ -14303,6 +14314,16 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 	if (IPA_MEM_PART(nat_tbl_size) && IPA_MEM_PART(nat_tbl_ofst) & 31) {
 		IPAERR("NAT TBL OFST 0x%x is not aligned properly\n",
 			   IPA_MEM_PART(nat_tbl_ofst));
+		return -ENODEV;
+	}
+
+	IPADBG("CT TBL OFST 0x%x SIZE 0x%x\n",
+		IPA_MEM_PART(ct_tbl_ofst),
+		IPA_MEM_PART(ct_tbl_size));
+
+	if (IPA_MEM_PART(ct_tbl_size) && (IPA_MEM_PART(ct_tbl_ofst) & 31)) {
+		IPAERR("CT TBL OFST 0x%x is not aligned properly\n",
+			IPA_MEM_PART(ct_tbl_ofst));
 		return -ENODEV;
 	}
 
