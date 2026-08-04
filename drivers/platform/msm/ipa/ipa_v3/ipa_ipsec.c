@@ -2897,18 +2897,7 @@ void ipa_ipsec_ep_init_cons(struct work_struct *work)
 	sys_in.int_modt = 16;
 	sys_in.int_modc = 20;
 	sys_in.buff_size = 4096;
-	sys_in.bypass_agg = true;
-	sys_in.ipa_ep_cfg.hdr.hdr_len = 8;
-	sys_in.ipa_ep_cfg.hdr.hdr_ofst_metadata_valid = 1;
-	sys_in.ipa_ep_cfg.hdr.hdr_ofst_metadata = 1;
-	sys_in.ipa_ep_cfg.hdr.hdr_ofst_pkt_size_valid = 1;
-	sys_in.ipa_ep_cfg.hdr.hdr_ofst_pkt_size = 2;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_valid = true;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad = 0;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_payload_len_inc_padding = true;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_offset = 0;
-	sys_in.ipa_ep_cfg.hdr_ext.hdr_little_endian = 0;
-	sys_in.ipa_ep_cfg.metadata_mask.metadata_mask = 0xFF000000;
+	ipa3_configure_ipsec_apps_wan_cons(&sys_in);
 	if (ipa_setup_sys_pipe(&sys_in, &clnt_hdl)) {
 		IPAERR(":setup sys pipe (%s) failed.\n", ipa_clients_strings[sys_in.client]);
 		return;

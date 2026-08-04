@@ -3870,6 +3870,23 @@ int xmit_ipsec_frag_ul(struct sk_buff *skb);
 /*
  * System pipes
  */
+static inline void ipa3_configure_ipsec_apps_wan_cons(
+	struct ipa_sys_connect_params *sys_in)
+{
+	sys_in->bypass_agg = true;
+	sys_in->ipa_ep_cfg.hdr.hdr_len = 8;
+	sys_in->ipa_ep_cfg.hdr.hdr_ofst_metadata_valid = 1;
+	sys_in->ipa_ep_cfg.hdr.hdr_ofst_metadata = 1;
+	sys_in->ipa_ep_cfg.hdr.hdr_ofst_pkt_size_valid = 1;
+	sys_in->ipa_ep_cfg.hdr.hdr_ofst_pkt_size = 2;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_valid = true;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad = 0;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_payload_len_inc_padding = true;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_offset = 0;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_little_endian = 0;
+	sys_in->ipa_ep_cfg.metadata_mask.metadata_mask = 0xFF000000;
+}
+
 int ipa3_setup_tput_pipe(void);
 
 int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl);
@@ -4226,7 +4243,7 @@ int ipa3_disable_gsi_data_path(u32 clnt_hdl);
 int ipa3_alloc_rule_id(struct idr *rule_ids);
 int ipa3_alloc_rt_rule_id(struct idr *rule_ids);
 int ipa3_alloc_counter_id(struct ipa_ioc_flt_rt_counter_alloc *counter);
-void ipa3_counter_remove_hdl(int hdl);
+int ipa3_counter_remove_hdl(int hdl);
 void ipa3_counter_id_remove_all(void);
 int ipa3_id_alloc(void *ptr);
 bool ipa3_check_idr_if_freed(void *ptr);

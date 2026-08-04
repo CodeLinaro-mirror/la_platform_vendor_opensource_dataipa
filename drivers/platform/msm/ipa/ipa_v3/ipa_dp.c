@@ -2104,7 +2104,16 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		} while (1);
 
 		delete_avail_tx_wrapper_list(ep);
-		if (ep->sys->napi_tx_enable) {
+		/* Delete NAPI TX object. For WAN_PROD, it is deleted
+		 * in rmnet_ipa driver.
+		 * Gate on napi_tx_enable rather than the global
+		 * tx_napi_enable: setup only adds napi_tx for the LAN/WAN/
+		 * IPSEC producers and leaves it zeroed for the others (e.g.
+		 * CMD_PROD, TEST_PROD), so the global flag alone would delete
+		 * a NAPI object that was never added.
+		 */
+		if (ep->sys->napi_tx_enable &&
+			(ep->client != IPA_CLIENT_APPS_WAN_PROD)) {
 			napi_disable(&ep->sys->napi_tx);
 			netif_napi_del(&ep->sys->napi_tx);
 		}
@@ -6867,6 +6876,27 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 				sys->repl_hdlr = ipa3_replenish_rx_cache;
 				sys->rx_buff_sz = IPA_ODU_RX_BUFF_SZ;
 			}
+		} else if (IPA_CLIENT_IS_TEST_CONS(in->client)) {
+			IPADBG("assigning policy to client:%d",
+				in->client);
+
+			sys->policy = IPA_POLICY_INTR_POLL_MODE;
+			INIT_WORK(&sys->work, ipa3_wq_handle_rx);
+			INIT_DELAYED_WORK(&sys->switch_to_intr_work,
+				ipa3_switch_to_intr_rx_work_func);
+			INIT_DELAYED_WORK(&sys->replenish_rx_work,
+				ipa3_replenish_rx_work_func);
+			atomic_set(&sys->curr_polling_state, 0);
+			sys->rx_pool_sz = in->desc_fifo_sz /
+				IPA_FIFO_ELEMENT_SIZE - 1;
+			if (sys->rx_pool_sz > IPA_ODU_RX_POOL_SZ)
+				sys->rx_pool_sz = IPA_ODU_RX_POOL_SZ;
+			sys->pyld_hdlr = ipa3_odu_rx_pyld_hdlr;
+			sys->get_skb = ipa3_get_skb_ipa_rx;
+			sys->free_skb = ipa_free_skb_rx;
+			sys->free_rx_wrapper = ipa3_free_rx_wrapper;
+			sys->repl_hdlr = ipa3_replenish_rx_cache;
+			sys->rx_buff_sz = IPA_ODU_RX_BUFF_SZ;
 		} else if (in->client ==
 				IPA_CLIENT_MEMCPY_DMA_ASYNC_CONS) {
 			IPADBG("assigning policy to client:%d",

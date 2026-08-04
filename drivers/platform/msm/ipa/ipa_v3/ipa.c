@@ -4883,7 +4883,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EPERM;
 			break;
 		}
-		ipa3_counter_remove_hdl(hdl);
+		retval = ipa3_counter_remove_hdl(hdl);
 		break;
 
 	case IPA_IOC_FNR_COUNTER_QUERY:
