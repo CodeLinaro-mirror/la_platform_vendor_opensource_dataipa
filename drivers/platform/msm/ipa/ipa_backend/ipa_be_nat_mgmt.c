@@ -33,6 +33,23 @@
  */
 #define HDR_METADATA_BE_FLOW (1 << 29)
 
+/*
+ * Placeholder public IP owning the dedicated PDN entry used by IPv4 connection
+ * tracking (LAN2LAN). On IPA v7.0 the NAT hardware validates PDN[pdn_index]
+ * before accepting a match: an all-zero PDN makes it reject an otherwise-correct
+ * conn_tracking entry (nat_hit=0, NAT exception -> SW path). CT therefore cannot
+ * simply point at PDN[0] — that slot belongs to whichever WAN PDN claimed it,
+ * and it is zeroed again when that WAN goes down. Instead CT owns its own PDN,
+ * keyed on this placeholder IP so no WAN can allocate, overwrite or deallocate
+ * it (see ipa_be_ensure_ct_pdn).
+ *
+ * conn_tracking=1 suppresses source translation, so this address is never
+ * written into a packet; it only needs to be non-zero and distinct from every
+ * real WAN public IP. RFC 5737 TEST-NET-1 (192.0.2.1) is used so that if it were
+ * ever erroneously applied it is unmistakable in a capture and never routable.
+ */
+#define IPA_BE_CT_PDN_PLACEHOLDER_IP 0xC0000201 /* 192.0.2.1 */
+
 #ifdef FEATURE_WLAN_256_CLIENTS
 #define IPA_MAX_NUM_WIFI_CLIENTS 350
 #else
@@ -46,6 +63,14 @@ struct nat_app {
 	uint32_t pub_ip_addr;
 	uint32_t pub_ip_addr_pre;
 	uint32_t nat_table_hdl;
+
+	/*
+	 * Dedicated PDN entry owned by IPv4 CT (LAN2LAN), keyed on
+	 * IPA_BE_CT_PDN_PLACEHOLDER_IP. Never index 0, so it survives WAN PDN
+	 * churn. Valid only while ct_pdn_valid is set.
+	 */
+	uint8_t ct_pdn_index;
+	bool ct_pdn_valid;
 
 	int curCnt, max_entries;
 
@@ -450,6 +475,24 @@ void ipa_be_nat_mgmt_exit(void)
 	/* Clean up nat_app */
 	if(nat_app)
 	{
+		/*
+		 * Single teardown point for the shared IPv4 NAT table. The table
+		 * is created lazily (by the first WAN PDN via ipa_be_add_table /
+		 * ipa_be_add_pdn, or by ipa_be_ensure_nat_table_ct for
+		 * LAN2LAN CT) and deliberately kept alive across PDN/CT removal
+		 * (see ipa_be_remove_pdn). It is destroyed here, and only here.
+		 */
+		if (nat_app->nat_table_hdl) {
+			int ret = ipa_nat_del_ipv4_tbl(nat_app->nat_table_hdl);
+
+			if (ret)
+				IPA_BE_ERR("unable to delete shared NAT table Error: %d\n",
+					   ret);
+			else
+				IPA_BE_DBG("DEBUG: deleted shared IPv4 NAT table\n");
+			ipa_be_reset();
+		}
+
 		if (nat_app->cache)
 		{
 			kfree(nat_app->cache);
@@ -657,80 +700,57 @@ int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 	entry.is_sta = is_sta;
 
 	IPA_BE_DBG("Entry \n");
+	/*
+	 * Serialize the nat_table_hdl check-then-create/alloc against the other
+	 * two paths that touch it (ipa_be_add_pdn, ipa_be_ensure_nat_table_ct):
+	 * without this, two concurrent callers can both observe nat_table_hdl==0
+	 * and race to create the table, orphaning one of the handles in ipanat.
+	 */
+	mutex_lock(&ipa_be_nat_mgmt_lock);
 	ret = ipa_nat_get_pdn_count(&pdn_count);
 	if(ret)
 	{
 		IPA_BE_ERR("unable to get pdn count Error:%d\n", ret);
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
 		return ret;
 	}
 	IPA_BE_DBG("AddPDN isSta:%d, pdn_count: %d, ip 0x%X\n", is_sta,pdn_count,pub_ip);
-
-	/*
-	 * If the NAT table already exists and PDN[0] holds 0xFFFFFFFF, update PDN[0] with the real public
-	 * IP and metadata now that a WAN connection is available.
-	 */
-	if (nat_app->nat_table_hdl) {
-		ret = ipa_nat_modify_dummy_pdn(nat_app->nat_table_hdl, 0, &entry);
-		if (ret) {
-			IPA_BE_ERR("unable to modify dummy PDN entry Error:%d\n", ret);
-			return ret;
-		}
-	}
 
 	if(nat_app->nat_table_hdl)
 	{
 		IPA_BE_DBG("nat_table_hdl already exist \n");
 		/*
-		 * Table already exists. If PDN[0] is the dummy LAN2LAN PDN,
-		 * replace it with the real WAN public IP instead of allocating a
-		 * new PDN for this LAN2WAN connection.
+		 * Table already exists (created here for an earlier WAN PDN, or
+		 * PDN-free by the CT/LAN2LAN path). Allocate a PDN for this
+		 * public IP if it does not already have one.
 		 */
 		if(ipa_nat_get_pdn_index(pub_ip, &pdn_index) < 0)
 		{
-			if (!ipa_nat_get_pdn_index(IPA_DUMMY_PDN_PUB_IP, &pdn_index) &&
-			    pdn_index == 0) {
-				ret = ipa_nat_modify_dummy_pdn(nat_app->nat_table_hdl,
-							       pdn_index, &entry);
-				if (ret) {
-					IPA_BE_ERR("unable to replace dummy PDN entry Error:%d\n",
-						   ret);
-					return ret;
-				}
-				IPA_BE_DBG("replaced dummy PDN index %d with real ip 0x%X\n",
-					   pdn_index, pub_ip);
-			} else {
-				ret = ipa_nat_alloc_pdn(&entry, &pdn_index);
-				if(ret)
-				{
-					IPA_BE_ERR("couldn't allocate a pdn index for ip 0x%X\n", pub_ip);
-					return ret;
-				}
-				IPA_BE_DBG("successfully allocated pdn index %d for ip 0x%X\n",
-						pdn_index, pub_ip);
+			ret = ipa_nat_alloc_pdn(&entry, &pdn_index);
+			if(ret)
+			{
+				IPA_BE_ERR("couldn't allocate a pdn index for ip 0x%X\n", pub_ip);
+				mutex_unlock(&ipa_be_nat_mgmt_lock);
+				return ret;
 			}
+			IPA_BE_DBG("successfully allocated pdn index %d for ip 0x%X\n",
+					pdn_index, pub_ip);
 		}
 		else
 		{
 			IPA_BE_DBG("pdn already existed with index %d for ip 0x%X\n", pdn_index, pub_ip);
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
 			return 0;
 		}
 	}
 	else
 	{
 		/* create the NAT table, the PDN will be stored in index 0 */
-		if(is_sta)
-		{
-			/* This function stores pub_ip at pdn[0].
-			 * We don't want that for non STA PDNs*/
-			ret = ipa_nat_add_ipv4_tbl(pub_ip, nat_app->mem_type, nat_app->max_entries, &nat_app->nat_table_hdl);
-		}
-		else
-		{
-			ret = ipa_nat_add_ipv4_tbl(pub_ip, nat_app->mem_type, nat_app->max_entries, &nat_app->nat_table_hdl);
-		}
+		ret = ipa_nat_add_ipv4_tbl(pub_ip, nat_app->mem_type, nat_app->max_entries, &nat_app->nat_table_hdl);
 		if(ret)
 		{
 			IPA_BE_ERR("unable to create nat table Error:%d\n", ret);
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
 			return ret;
 		}
 		IPA_BE_DBG("succeesfully created NAT table for ip 0x%X\n", pub_ip);
@@ -743,9 +763,11 @@ int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 		if(ret)
 		{
 			IPA_BE_ERR("unable to modify PDN 0 entry Error:%d\n", ret);
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
 			return ret;
 		}
 	}
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
 
 	/* now traverse nat_app->cache and add the PDN entries */
 	mutex_lock(&nat_app->cache_lock);
@@ -753,7 +775,9 @@ int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 	for(cnt = 0; cnt < nat_app->max_entries; cnt++)
 	{
 		if((nat_app->cache[cnt].private_ip != 0)
-			/* flush only entries which are related to this PDN */
+			/* flush only entries which are related to this PDN;
+			 * never CT entries (they belong to the dedicated CT PDN). */
+			&& !nat_app->cache[cnt].conn_tracking
 			&& (nat_app->cache[cnt].public_ip == pub_ip) && (nat_app->cache[cnt].enabled == false))
 		{
 			if(is_sta /*&& (isAlgPort(nat_app->cache[cnt].protocol, nat_app->cache[cnt].private_port) ||
@@ -828,10 +852,16 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 	entry.is_sta = is_sta;
 
 	IPA_BE_DBG("Entry \n");
+	/*
+	 * Serialize the nat_table_hdl check-then-create/alloc against the other
+	 * two paths that touch it (ipa_be_add_table, ipa_be_ensure_nat_table_ct).
+	 */
+	mutex_lock(&ipa_be_nat_mgmt_lock);
 	ret = ipa_nat_get_pdn_count(&pdn_count);
 	if(ret)
 	{
 		IPA_BE_ERR("unable to get pdn count Error:%d\n", ret);
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
 		return ret;
 	}
 	IPA_BE_DBG("AddPDN isSta:%d, pdn_count: %d, ip 0x%X\n", is_sta,pdn_count,pub_ip);
@@ -852,6 +882,7 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 		if(ret)
 		{
 			IPA_BE_ERR("unable to create nat table Error:%d\n", ret);
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
 			return ret;
 		}
 		IPA_BE_DBG("succeesfully created NAT table for ip 0x%X\n", pub_ip);
@@ -863,6 +894,7 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 		if(ret)
 		{
 			IPA_BE_ERR("unable to modify PDN 1 entry Error:%d\n", ret);
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
 			return ret;
 		}
 	}
@@ -875,6 +907,7 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 			if(ret)
 			{
 				IPA_BE_ERR("couldn't allocate a pdn index\n");
+				mutex_unlock(&ipa_be_nat_mgmt_lock);
 				return ret;
 			}
 			IPA_BE_DBG("successfully allocated index %d for ip 0x%X\n",
@@ -885,6 +918,7 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 			IPA_BE_DBG("pdn already existed with index %d\n", pdn_index);
 		}
 	}
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
 
 	/* now traverse nat_app->cache and add the PDN entries */
 	mutex_lock(&nat_app->cache_lock);
@@ -892,7 +926,9 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 	for(cnt = 0; cnt < nat_app->max_entries; cnt++)
 	{
 		if((nat_app->cache[cnt].private_ip != 0)
-			/* flush only entries which are related to this PDN */
+			/* flush only entries which are related to this PDN;
+			 * never CT entries (they belong to the dedicated CT PDN). */
+			&& !nat_app->cache[cnt].conn_tracking
 			&& (nat_app->cache[cnt].public_ip == pub_ip) && (nat_app->cache[cnt].enabled == false))
 		{
 			if(is_sta /*&& (isAlgPort(nat_app->cache[cnt].protocol, nat_app->cache[cnt].private_port) ||
@@ -1074,7 +1110,7 @@ static void ipa_be_build_nat_rule_attrs(struct ipa_ipv4_rule_create_msg v4_msg,
 	}
 }
 
-int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct_enabled)
+int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface)
 {
 	uint8_t mux_id = 0;
 	bool is_sta = 0;
@@ -1137,11 +1173,7 @@ int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct
 	}
 
 	/* IP Passthrough case */
-	if (ct_enabled)
-	{
-		pub_ip = IPA_DUMMY_PDN_PUB_IP;
-	}
-	else if (v4_msg.tuple.flow_ip == v4_msg.conn_rule.flow_ip_xlate &&
+	if (v4_msg.tuple.flow_ip == v4_msg.conn_rule.flow_ip_xlate &&
 		v4_msg.tuple.return_ip == v4_msg.conn_rule.return_ip_xlate)
 	{
 		if(v4_msg.conn_rule.flow_interface_num == v4_msg.conn_rule.flow_top_interface_num)
@@ -1196,23 +1228,7 @@ int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct
 		}
 	}
 
-	/* For CT, determine canonical direction (smaller EP as private side)
-	 * and pass a swap flag to ipa_be_add_entry — no struct copy needed.
-	 */
-	if (ipa_get_hw_type() >= IPA_HW_v7_0 && ct_enabled) {
-		int ep_cmp = ipa_be_flow_canonical_cmp(v4_msg.conn_rule.flow_interface_num,
-						v4_msg.conn_rule.return_interface_num,
-						v4_msg.conn_rule.flow_mac,
-						v4_msg.conn_rule.return_mac);
-		if (ep_cmp < 0) {
-			ret = -EINVAL;
-			goto cleanup;
-		}
-		/* ep_cmp==0: return is canonical, swap private/target in ipa_be_add_entry */
-		ret = ipa_be_add_entry(v4_msg, isVlan, ct_enabled, ep_cmp == 0);
-	} else {
-		ret = ipa_be_add_entry(v4_msg, isVlan, ct_enabled, false);
-	}
+	ret = ipa_be_add_entry(v4_msg, isVlan, false, false);
 	if (ret)
 	{
 		IPA_BE_ERR("failed adding nat entry\n");
@@ -1741,6 +1757,400 @@ cleanup:
 	return ret;
 }
 
+/*
+ * ipa_be_ensure_ct_pdn() - Idempotently allocate the dedicated PDN entry that
+ * every IPv4 CT (LAN2LAN) entry points at.
+ *
+ * On IPA v7.0 the NAT hardware validates PDN[pdn_index] before accepting a
+ * match, so a CT entry needs a live PDN even though conn_tracking=1 suppresses
+ * translation. Pointing CT at PDN[0] is not safe: that slot belongs to whichever
+ * WAN PDN claimed it, which means CT either inherits the WAN's src_metadata
+ * (breaking CT while the WAN is up) or finds an all-zero entry once
+ * ipa_be_remove_pdn() deallocates it (breaking CT when the WAN goes down).
+ *
+ * Instead CT owns a PDN keyed on IPA_BE_CT_PDN_PLACEHOLDER_IP:
+ *   - ipa_nat_alloc_pdn() reserves index 0 for STA and hands every other caller
+ *     an index >= 1, so the CT PDN can never land on the slot the non-VLAN WAN
+ *     path writes directly.
+ *   - Allocation is keyed on public_ip, so it is idempotent and no WAN (whose
+ *     public IP is never 192.0.2.1) can collide with, overwrite or deallocate it.
+ *   - src_metadata/dst_metadata stay 0, so nothing is substituted into CT
+ *     packets.
+ *
+ * Serializes on ipa_be_nat_mgmt_lock, the same lock ipa_be_add_table /
+ * ipa_be_add_pdn use around their nat_table_hdl check-then-create, so a WAN PDN
+ * racing in concurrently can't observe a half-allocated CT PDN.
+ */
+static int ipa_be_ensure_ct_pdn(void)
+{
+	ipa_nat_pdn_entry ct_pdn;
+	uint8_t pdn_index;
+	int ret;
+
+	mutex_lock(&ipa_be_nat_mgmt_lock);
+
+	if (nat_app->ct_pdn_valid) {
+		IPA_BE_DBG("CT PDN already allocated at index %u\n",
+			   nat_app->ct_pdn_index);
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+		return 0;
+	}
+
+	memset(&ct_pdn, 0, sizeof(ct_pdn));
+	ct_pdn.public_ip = IPA_BE_CT_PDN_PLACEHOLDER_IP;
+	ct_pdn.src_metadata = 0;
+	ct_pdn.dst_metadata = 0;
+	ct_pdn.is_sta = false;
+
+	ret = ipa_nat_alloc_pdn(&ct_pdn, &pdn_index);
+	if (ret) {
+		IPA_BE_ERR("unable to allocate dedicated CT PDN Error:%d\n", ret);
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+		return ret;
+	}
+
+	if (pdn_index == 0) {
+		/*
+		 * Must not happen: ipa_nat_alloc_pdn() skips index 0 for non-STA
+		 * requests. Sharing PDN[0] with a WAN is exactly the breakage this
+		 * function exists to avoid, so refuse rather than install CT
+		 * entries that a WAN teardown would silently deaccelerate.
+		 */
+		IPA_BE_ERR("CT PDN allocated at reserved index 0; refusing\n");
+		ipa_nat_dealloc_pdn(pdn_index);
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+		return -EFAULT;
+	}
+
+	nat_app->ct_pdn_index = pdn_index;
+	nat_app->ct_pdn_valid = true;
+
+	IPA_BE_DBG("dedicated CT PDN allocated at index %u (placeholder 0x%08x)\n",
+		   pdn_index, ct_pdn.public_ip);
+
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
+	return 0;
+}
+
+/*
+ * ipa_be_ensure_nat_table_ct() - Idempotently create the shared IPv4 NAT table
+ * for connection tracking (LAN2LAN) and make sure the dedicated CT PDN exists.
+ *
+ * IPv4 CT shares the single NAT table (nat_app->nat_table_hdl) with LAN2WAN
+ * NAT — the conn_tracking bit is what lets one table hold both. If the table
+ * already exists (created by a WAN PDN or a previous CT entry), creation is
+ * skipped.
+ *
+ * When CT does create it, the table is created with public_ip = 0. Table
+ * creation is PDN-agnostic: ipanat seeds a PDN only when a non-zero public IP is
+ * supplied (the pre-IPAv4 single-PDN model), so passing 0 claims no PDN slot.
+ *
+ * The CT PDN is then ensured on every call, not just on creation: a WAN PDN may
+ * have created the table before the first LAN2LAN connection, and CT must still
+ * own its own PDN rather than borrow the WAN's (see ipa_be_ensure_ct_pdn).
+ */
+static int ipa_be_ensure_nat_table_ct(void)
+{
+	bool created = false;
+	int ret;
+
+	/*
+	 * Serialize against ipa_be_add_table/ipa_be_add_pdn: all three do an
+	 * unlocked check-then-create on nat_table_hdl otherwise, and a WAN PDN
+	 * racing in here (or vice versa) can leave one table orphaned in ipanat.
+	 * Released before calling ipa_be_ensure_ct_pdn(), which takes the same
+	 * lock itself.
+	 */
+	mutex_lock(&ipa_be_nat_mgmt_lock);
+
+	if (nat_app->nat_table_hdl) {
+		IPA_BE_DBG("NAT table already exists (hdl=0x%x), reusing for CT\n",
+			   nat_app->nat_table_hdl);
+	} else {
+		ret = ipa_nat_add_ipv4_tbl(0, nat_app->mem_type, nat_app->max_entries,
+					   &nat_app->nat_table_hdl);
+		if (ret) {
+			IPA_BE_ERR("unable to create CT NAT table Error:%d\n", ret);
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
+			return ret;
+		}
+		created = true;
+
+		IPA_BE_DBG("created shared NAT table for CT, no PDN seeded (hdl=0x%x)\n",
+			   nat_app->nat_table_hdl);
+	}
+
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
+
+	ret = ipa_be_ensure_ct_pdn();
+	if (ret) {
+		IPA_BE_ERR("failed ensuring dedicated CT PDN: %d\n", ret);
+		/* Roll back only a table this call created. */
+		if (created) {
+			mutex_lock(&ipa_be_nat_mgmt_lock);
+			ipa_nat_del_ipv4_tbl(nat_app->nat_table_hdl);
+			nat_app->nat_table_hdl = 0;
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
+		}
+		return ret;
+	}
+
+	return 0;
+}
+
+/*
+ * count_ct_nat_entries() - Count live connection-tracking entries in the
+ * shared IPv4 NAT cache.
+ *
+ * CT entries are keyed on the conn_tracking bit rather than pdn_index/public_ip
+ * (a CT entry has no public IP and shares one dedicated CT PDN). Used for
+ * diagnostics; the shared table is never torn
+ * down on the last CT entry (see ipa_be_nat_mgmt_exit for the single teardown).
+ */
+static int count_ct_nat_entries(void)
+{
+	int cnt;
+	int count = 0;
+
+	if (!nat_app)
+		return 0;
+
+	mutex_lock(&nat_app->cache_lock);
+	for (cnt = 0; cnt < nat_app->max_entries; cnt++) {
+		if (nat_app->cache[cnt].private_ip != 0 &&
+		    nat_app->cache[cnt].conn_tracking)
+			count++;
+	}
+	mutex_unlock(&nat_app->cache_lock);
+
+	return count;
+}
+
+/*
+ * ipa_be_add_ct_entry_v4() - Add an IPv4 connection-tracking (LAN2LAN) entry
+ * to the shared NAT table.
+ *
+ * Mirrors ipa_be_add_v6_ct_entry (the IPv6 CT path) but targets the shared IPv4
+ * NAT table. No WAN PDN is claimed and no public IP is cached: the entry is
+ * installed with conn_tracking=1, public_ip=0 and pdn_index pointing at CT's own
+ * dedicated PDN (see ipa_be_ensure_ct_pdn), which the HW needs to validate the
+ * match but which contributes nothing to the packet. The single canonical entry
+ * covers both directions, so no SW producer cookie is written (mirrors the CT
+ * gate in the old NAT path). CT (LAN2LAN) requires IPA v7.0+.
+ */
+int ipa_be_add_ct_entry_v4(struct ipa_ipv4_rule_create_msg *v4_msg)
+{
+	int cnt = 0;
+	int ret = 0;
+	int ep_cmp;
+	bool ct_canonical_swap;
+	enum ipa_hw_type ipa_ver = ipa_get_hw_type();
+	nat_table_entry *rule;
+
+	IPA_BE_DBG("Entry ipa_be_add_ct_entry_v4\n");
+
+	if (ipa_ver < IPA_HW_v7_0) {
+		IPA_BE_ERR("IPv4 CT (LAN2LAN) requires IPA v7.0+\n");
+		return -EINVAL;
+	}
+
+	/* Ensure the shared IPv4 NAT table and CT's dedicated PDN exist. */
+	ret = ipa_be_ensure_nat_table_ct();
+	if (ret) {
+		IPA_BE_ERR("failed ensuring CT NAT table: %d\n", ret);
+		return ret;
+	}
+
+	/*
+	 * Canonical direction: the smaller EP/MAC is the private side. Mirrors
+	 * the ct_canonical_swap decision the old ipa_be_addpdn made before
+	 * calling ipa_be_add_entry, so add/delete keys stay consistent.
+	 */
+	ep_cmp = ipa_be_flow_canonical_cmp(v4_msg->conn_rule.flow_interface_num,
+					   v4_msg->conn_rule.return_interface_num,
+					   v4_msg->conn_rule.flow_mac,
+					   v4_msg->conn_rule.return_mac);
+	if (ep_cmp < 0)
+		return -EINVAL;
+	ct_canonical_swap = (ep_cmp == 0);
+
+	rule = kzalloc(sizeof(nat_table_entry), GFP_KERNEL);
+	if (!rule) {
+		IPA_BE_ERR("Failed to allocate rule\n");
+		return IPA_BE_FAILURE;
+	}
+
+	ipa_be_build_nat_rule_attrs(*v4_msg, rule);
+
+	/* CT: no translation — public_ip carries no meaning. */
+	rule->public_ip = 0;
+
+	if (ct_canonical_swap) {
+		uint32_t tmp_ip   = rule->private_ip;
+		uint16_t tmp_port = rule->private_port;
+
+		rule->private_ip   = rule->target_ip;
+		rule->target_ip    = tmp_ip;
+		rule->private_port = rule->target_port;
+		rule->target_port  = tmp_port;
+		rule->public_port  = rule->private_port; /* CT: no port NAT */
+		IPA_BE_DBG("CT canonical swap: private=%pI4h:%u target=%pI4h:%u\n",
+			   &rule->private_ip, (unsigned int)rule->private_port,
+			   &rule->target_ip,  (unsigned int)rule->target_port);
+	}
+
+	CHK_TBL_HDL();
+
+	log_nat(rule->protocol, rule->private_ip, rule->target_ip,
+		rule->private_port, rule->public_port, rule->target_port,
+		"for CT addition\n");
+
+	if (rule->private_ip == 0 || rule->target_ip == 0 || rule->protocol == 0) {
+		IPA_BE_DBG("Invalid Connection, ignoring it\n");
+		kfree(rule);
+		return IPA_BE_SUCCESS;
+	}
+
+	if (chk_for_dup(rule)) {
+		IPA_BE_DBG("Duplicate CT rule. Ignore it\n");
+		kfree(rule);
+		return -1;
+	}
+
+	mutex_lock(&nat_app->cache_lock);
+
+	for (; cnt < nat_app->max_entries; cnt++) {
+		if (nat_app->cache[cnt].private_ip == 0 &&
+		    nat_app->cache[cnt].target_ip == 0 &&
+		    nat_app->cache[cnt].private_port == 0 &&
+		    nat_app->cache[cnt].target_port == 0 &&
+		    nat_app->cache[cnt].protocol == 0) {
+			IPA_BE_DBG("found free cache entry %d\n", cnt);
+			break;
+		}
+	}
+
+	if (nat_app->max_entries == cnt) {
+		IPA_BE_ERR("Error: Unable to add CT, reached maximum rules\n");
+		mutex_unlock(&nat_app->cache_lock);
+		kfree(rule);
+		return -1;
+	}
+
+	/* Power save: cache the rule without installing to HW. */
+	if (is_pwr_save_if(rule->private_ip) || is_pwr_save_if(rule->target_ip)) {
+		IPA_BE_DBG("Device in Power Save: caching CT rule without HW install\n");
+		nat_app->cache[cnt].enabled = false;
+		nat_app->cache[cnt].rule_hdl = 0;
+	} else {
+		ipa_nat_ipv4_rule_v2 nat_rule_v2;
+		uint16_t *all_pkts_ptr = NULL;
+
+		memset(&nat_rule_v2, 0, sizeof(nat_rule_v2));
+
+		if (rule->protocol == IPPROTO_GRE) {
+			nat_rule_v2.private_ip = rule->private_ip;
+			nat_rule_v2.target_ip  = rule->target_ip;
+			nat_rule_v2.protocol   = rule->protocol;
+		} else {
+			nat_rule_v2.private_ip   = rule->private_ip;
+			nat_rule_v2.target_ip    = rule->target_ip;
+			nat_rule_v2.target_port  = rule->target_port;
+			nat_rule_v2.private_port = rule->private_port;
+			nat_rule_v2.public_port  = rule->public_port;
+			nat_rule_v2.protocol     = rule->protocol;
+		}
+		/*
+		 * CT points at its own dedicated PDN, never at PDN[0]: the HW
+		 * validates PDN[pdn_index] on match, and PDN[0] belongs to a WAN
+		 * (see ipa_be_ensure_ct_pdn).
+		 */
+		nat_rule_v2.pdn_index = nat_app->ct_pdn_index;
+		nat_rule_v2.uc_activation_index = rule->uc_activation_index;
+		nat_rule_v2.ucp = rule->ucp;
+		nat_rule_v2.s = rule->s;
+
+		/* Single bidirectional CT entry. */
+		nat_rule_v2.conn_tracking = 1;
+		nat_rule_v2.out_allowed = 1;
+		nat_rule_v2.in_allowed = 1;
+		nat_rule_v2.enable = 1;
+		nat_rule_v2.all_pkts_stats_cnt_index = 0;
+		nat_rule_v2.non_frag_stats_cnt_index = 0;
+
+		/* Allocate the all_pkts stats counter (keyed on private IP). */
+		all_pkts_ptr = &nat_rule_v2.all_pkts_stats_cnt_index;
+		ret = ipa_nat_alloc_counter_v4(nat_app->nat_table_hdl,
+					       rule->private_ip, true, all_pkts_ptr);
+		if (ret) {
+			IPA_BE_ERR("Failed to allocate all_pkts counter: %d\n", ret);
+			*all_pkts_ptr = 0;
+		}
+
+		/*
+		 * No SW producer cookie for CT: the single canonical entry covers
+		 * both directions, so the cookie cannot distinguish per-direction
+		 * producers.
+		 */
+
+		ret = ipa_nat_add_ipv4_rule_v2(nat_app->nat_table_hdl, &nat_rule_v2,
+					       &nat_app->cache[cnt].rule_hdl);
+		if (ret < 0) {
+			IPA_BE_ERR("unable to add CT rule (v2 API)\n");
+			ipa_be_free_nat_counters_v4(nat_app->nat_table_hdl,
+						    rule->private_ip,
+						    nat_rule_v2.all_pkts_stats_cnt_index,
+						    nat_rule_v2.non_frag_stats_cnt_index);
+			mutex_unlock(&nat_app->cache_lock);
+			kfree(rule);
+			return -1;
+		}
+
+		nat_app->cache[cnt].all_pkts_stats_cnt_index =
+			nat_rule_v2.all_pkts_stats_cnt_index;
+		nat_app->cache[cnt].non_frag_stats_cnt_index =
+			nat_rule_v2.non_frag_stats_cnt_index;
+		ipa_be_cum_assign(nat_rule_v2.all_pkts_stats_cnt_index);
+
+		nat_app->cache[cnt].enabled = true;
+		IPA_BE_DBG("Added CT entry: cache[%d] hdl=%d, %pI4n:%u <-> %pI4n:%u\n",
+			   cnt, nat_app->cache[cnt].rule_hdl,
+			   &rule->private_ip, rule->private_port,
+			   &rule->target_ip, rule->target_port);
+	}
+
+	/*
+	 * CT flags + tuple. No public IP (no translation), but pdn_index points at
+	 * CT's own dedicated PDN rather than a WAN's PDN[0].
+	 */
+	nat_app->cache[cnt].conn_tracking = true;
+	nat_app->cache[cnt].out_allowed = true;
+	nat_app->cache[cnt].in_allowed = true;
+	nat_app->cache[cnt].private_ip = rule->private_ip;
+	nat_app->cache[cnt].target_ip = rule->target_ip;
+	nat_app->cache[cnt].target_port = rule->target_port;
+	nat_app->cache[cnt].private_port = rule->private_port;
+	nat_app->cache[cnt].protocol = rule->protocol;
+	nat_app->cache[cnt].timestamp = 0;
+	nat_app->cache[cnt].public_port = rule->public_port;
+	nat_app->cache[cnt].dst_nat = rule->dst_nat;
+	nat_app->cache[cnt].pdn_index = nat_app->ct_pdn_index;
+	nat_app->cache[cnt].public_ip = 0;
+	nat_app->cache[cnt].ip_pass_entry = rule->ip_pass_entry;
+	nat_app->cache[cnt].flow_rule_id = v4_msg->tuple.flow_rule_id;
+	nat_app->curCnt++;
+
+	mutex_unlock(&nat_app->cache_lock);
+
+	IPA_BE_DBG("%s CT rule(%d)\n",
+		   nat_app->cache[cnt].enabled ? "Added" : "Cached", cnt);
+
+	kfree(rule);
+	IPA_BE_DBG("Exit ipa_be_add_ct_entry_v4 ret=%d\n", ret);
+	return IPA_BE_SUCCESS;
+}
+EXPORT_SYMBOL(ipa_be_add_ct_entry_v4);
+
 /* Add new entry to the nat table on new connection */
 int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 		     bool ct_enabled, bool ct_canonical_swap)
@@ -1759,26 +2169,13 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 
 	ipa_be_build_nat_rule_attrs(v4_msg, rule);
 
-	if (ct_enabled)
-		rule->public_ip = IPA_DUMMY_PDN_PUB_IP;
-
 	/*
-	 * CT canonical direction: when ct_canonical_swap is set, return_ip is the
-	 * canonical private side — swap private/target on the already-extracted rule.
+	 * LAN2WAN NAT only. CT (LAN2LAN) is handled by ipa_be_add_ct_entry_v4();
+	 * the ct_enabled/ct_canonical_swap parameters are retained for ABI
+	 * stability and are always false on this path.
 	 */
-	if (ct_canonical_swap) {
-		uint32_t tmp_ip      = rule->private_ip;
-		uint16_t tmp_port    = rule->private_port;
-
-		rule->private_ip     = rule->target_ip;
-		rule->target_ip      = tmp_ip;
-		rule->private_port   = rule->target_port;
-		rule->target_port    = tmp_port;
-		rule->public_port    = rule->private_port; /* CT: no port NAT */
-		IPA_BE_DBG("CT canonical swap: private=%pI4h:%u target=%pI4h:%u\n",
-			   &rule->private_ip, (unsigned int)rule->private_port,
-			   &rule->target_ip,  (unsigned int)rule->target_port);
-	}
+	(void)ct_enabled;
+	(void)ct_canonical_swap;
 
 	IPA_BE_DBG("%s() %d\n", __FUNCTION__, __LINE__);
 
@@ -1833,30 +2230,17 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 			/* Check IPA hardware version */
 			enum ipa_hw_type ipa_ver = ipa_get_hw_type();
 
-			/* Determine CT flags based on use case */
+			/*
+			 * LAN2WAN NAT only. On v7.0+ the v2 API sets out_allowed=1
+			 * (in_allowed=1); conn_tracking stays 0. CT (LAN2LAN) has
+			 * its own path (ipa_be_add_ct_entry_v4).
+			 */
 			bool is_ct_entry = false;
-			bool ct_out_allowed = false;
-			bool ct_in_allowed = false;
+			bool ct_out_allowed = (ipa_ver >= IPA_HW_v7_0);
+			bool ct_in_allowed = (ipa_ver >= IPA_HW_v7_0);
 
-			if (ipa_ver >= IPA_HW_v7_0) {
-				/*
-				 * out_allowed=true for both NAT and CT on v7.0+.
-				 * For CT (LAN2LAN): single bidirectional entry covers both directions.
-				 * For NAT: out_allowed was already true (unchanged).
-				 */
-				ct_out_allowed = true;
-				ct_in_allowed = true;
-				is_ct_entry = ct_enabled;
-				IPA_BE_DBG("IPA v7.0+ %s entry: in_allowed=1 out_allowed=1\n",
-					   ct_enabled ? "CT" : "NAT");
-			} else if (ct_enabled && ipa_ver < IPA_HW_v7_0) {
-				/* LAN2LAN on IPA < v7.0: ERROR - should not create entry */
-				IPA_BE_ERR("Invalid: LAN2LAN on IPA < v7.0 should not call ipa_be_add_entry\n");
-				mutex_unlock(&nat_app->cache_lock);
-				kfree(rule);
-				return -EINVAL;
-			}
-			/* else: LAN2WAN uses NAT (is_ct_entry=false) on all IPA versions */
+			if (ipa_ver >= IPA_HW_v7_0)
+				IPA_BE_DBG("IPA v7.0+ NAT entry: in_allowed=1 out_allowed=1\n");
 
 			/* Power save / cache-only handling (applies to all cases) */
 			if (is_pwr_save_if(rule->private_ip) ||
@@ -1939,15 +2323,10 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 					}
 
 					/*
-					 * SW producer cookie: set for NAT entries when the flow or
-					 * return interface is WDI6 (vpnum_valid). For CT (LAN2LAN),
-					 * the single canonical entry covers both directions so the
-					 * cookie cannot distinguish per-direction producers — split
-					 * CT entries are needed before this can be enabled for CT.
-					 * This also means WLAN STA-to-AP case is not supported
-					 * until split CT entries are introduced.
+					 * SW producer cookie: set for NAT entries when the
+					 * flow or return interface is WDI6 (vpnum_valid).
 					 */
-					if (!ct_enabled) {
+					{
 						struct ipa_sw_producer_cookie cookie;
 
 						memset(&cookie, 0, sizeof(cookie));
@@ -1984,15 +2363,8 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 						nat_rule_v2.non_frag_stats_cnt_index;
 					ipa_be_cum_assign(nat_rule_v2.all_pkts_stats_cnt_index);
 
-					if (is_ct_entry) {
-						IPA_BE_DBG("Added CT entry (v7.0+): cache[%d] hdl=%d, %pI4n:%u <-> %pI4n:%u\n",
-							   cnt, nat_app->cache[cnt].rule_hdl,
-							   &rule->private_ip, rule->private_port,
-							   &rule->target_ip, rule->target_port);
-					} else {
-						IPA_BE_DBG("Added NAT entry (v7.0+): cache[%d] hdl=%d\n",
-							   cnt, nat_app->cache[cnt].rule_hdl);
-					}
+					IPA_BE_DBG("Added NAT entry (v7.0+): cache[%d] hdl=%d\n",
+						   cnt, nat_app->cache[cnt].rule_hdl);
 				} else {
 					/* IPA < v7.0: Use v1 API (legacy NAT only) */
 					memset(&nat_rule, 0, sizeof(nat_rule));
@@ -2076,6 +2448,13 @@ void ipa_be_reset(void)
 	nat_app->nat_table_hdl = 0;
 	nat_app->pub_ip_addr = 0;
 
+	/*
+	 * The PDN table went away with the NAT table, so the dedicated CT PDN
+	 * must be re-allocated before the next CT entry is installed.
+	 */
+	nat_app->ct_pdn_valid = false;
+	nat_app->ct_pdn_index = 0;
+
 	ipa_stats_process_tuple_flush();
 
 	/* NAT tbl deleted, reset enabled bit */
@@ -2103,6 +2482,7 @@ static int count_nat_entries_for_pdn(uint32_t pub_ip)
 	mutex_lock(&nat_app->cache_lock);
 	for (cnt = 0; cnt < nat_app->max_entries; cnt++) {
 		if (nat_app->cache[cnt].private_ip != 0 &&
+		    !nat_app->cache[cnt].conn_tracking &&
 		    nat_app->cache[cnt].public_ip == pub_ip)
 			count++;
 	}
@@ -2149,11 +2529,25 @@ int ipa_be_remove_pdn(uint32_t pub_ip, int pdn_iface)
 		return IPA_BE_FAILURE;
 	}
 
-	/* remove all PDN entries */
+	/*
+	 * Never tear down the PDN that IPv4 CT owns. A WAN public IP can never
+	 * equal IPA_BE_CT_PDN_PLACEHOLDER_IP, so this cannot legitimately match;
+	 * bail out rather than zero the PDN out from under every live LAN2LAN
+	 * entry (which the HW would then reject with a NAT exception).
+	 */
+	if (nat_app->ct_pdn_valid && pdn_index == nat_app->ct_pdn_index)
+	{
+		IPA_BE_ERR("refusing to remove CT-owned PDN index %u (ip 0x%X)\n",
+			   pdn_index, pub_ip);
+		return IPA_BE_FAILURE;
+	}
+
+	/* remove all PDN entries (never CT entries — those use the CT PDN) */
 	mutex_lock(&nat_app->cache_lock);
 	for(int cnt = 0; cnt < nat_app->max_entries; cnt++)
 	{
 		if((nat_app->cache[cnt].pdn_index == pdn_index) &&
+			!nat_app->cache[cnt].conn_tracking &&
 			(nat_app->cache[cnt].enabled == true))
 		{
 			if(ipa_nat_del_ipv4_rule(nat_app->nat_table_hdl, nat_app->cache[cnt].rule_hdl) < 0)
@@ -2165,27 +2559,6 @@ int ipa_be_remove_pdn(uint32_t pub_ip, int pdn_iface)
 		}
 	}
 	mutex_unlock(&nat_app->cache_lock);
-
-	/*
-	 * PDN[0] is the primary WAN PDN. If it is being removed but CT/LAN2LAN
-	 * entries that reference the dummy public IP (0xFFFFFFFF) still exist,
-	 * restore PDN[0] to the dummy IP so those entries remain valid until
-	 * they are explicitly deleted.
-	 */
-	if (pdn_index == 0 && count_nat_entries_for_pdn(IPA_DUMMY_PDN_PUB_IP) > 0)
-	{
-		ipa_nat_pdn_entry entry;
-		/* memset zeros dst_metadata, src_metadata, and is_sta; only
-		 * public_ip needs an explicit non-zero assignment below. */
-		memset(&entry, 0, sizeof(entry));
-		entry.public_ip = IPA_DUMMY_PDN_PUB_IP;
-
-		ret = ipa_nat_modify_dummy_pdn(nat_app->nat_table_hdl, pdn_index, &entry);
-		if (ret) {
-			IPA_BE_ERR("unable to modify dummy PDN entry Error:%d\n", ret);
-			return ret;
-		}
-	}
 
 	ret = ipa_nat_dealloc_pdn(pdn_index);
 	if(ret)
@@ -2214,18 +2587,12 @@ int ipa_be_remove_pdn(uint32_t pub_ip, int pdn_iface)
 			pub_ip);
 	}
 
-	if(!pdn_cnt)
-	{
-		IPA_BE_DBG("removing NAT table\n");
-		ret = ipa_nat_del_ipv4_tbl(nat_app->nat_table_hdl);
-		if(ret)
-		{
-			IPA_BE_ERR("unable to delete nat table Error: %d\n", ret);;
-			return ret;
-		}
-
-		ipa_be_reset();
-	}
+	/*
+	 * Do NOT delete the shared IPv4 NAT table here even when the last PDN is
+	 * gone: LAN2LAN CT entries share this table and use their own dedicated CT
+	 * PDN, so a PDN count of zero does not imply the table is idle. The table
+	 * is torn down exactly once, at ipa_be_nat_mgmt_exit().
+	 */
 	IPA_BE_DBG("RemovePDN  pdn_index:%d, pdn_count: %d, ip 0x%X\n",pdn_index,pdn_cnt,pub_ip);
 
 
@@ -2298,6 +2665,94 @@ int ipa_be_delete_nat_entry(const nat_table_entry *rule)
 EXPORT_SYMBOL(ipa_be_delete_nat_entry);
 
 
+/*
+ * ipa_be_delete_ct_entry_v4() - Delete an IPv4 connection-tracking (LAN2LAN)
+ * entry from the shared NAT table.
+ *
+ * The CT delete counterpart of ipa_be_add_ct_entry_v4(): it reconstructs the
+ * canonical key that was stored at insertion (replaying the IPPT tuple logic
+ * and the ct_canonical_swap decision) and removes the rule from the shared
+ * table via ipa_be_delete_nat_entry(). It does NOT delete the shared table —
+ * that is freed only at ipa_be_nat_mgmt_exit(), so a surviving WAN PDN (or later
+ * CT entry) keeps it.
+ *
+ * It also deliberately leaves the dedicated CT PDN allocated. Deallocating it on
+ * the last CT entry would hand the slot back for a WAN to reuse, and the next
+ * LAN2LAN connection would have to re-allocate it; keeping it costs one PDN slot
+ * and keeps every CT entry's pdn_index stable for the driver's lifetime.
+ */
+void ipa_be_delete_ct_entry_v4(struct ipa_ipv4_rule_destroy_msg v4_msg)
+{
+	nat_table_entry rule;
+	int ep_cmp;
+	uint32_t tmp_ip;
+	uint16_t tmp_port;
+
+	IPA_BE_DBG("Deleting IPv4 CT (LAN2LAN) entry\n");
+
+	memset(&rule, 0, sizeof(rule));
+	rule.protocol = v4_msg.tuple.protocol;
+
+	ep_cmp = ipa_be_flow_canonical_cmp(v4_msg.conn_rule.flow_interface_num,
+					   v4_msg.conn_rule.return_interface_num,
+					   v4_msg.conn_rule.flow_mac,
+					   v4_msg.conn_rule.return_mac);
+	if (ep_cmp < 0)
+		return;
+
+	WARN_ON(v4_msg.tuple.flow_ip != v4_msg.conn_rule.flow_ip_xlate ||
+		v4_msg.tuple.return_ip != v4_msg.conn_rule.return_ip_xlate);
+
+	/*
+	 * LAN2LAN has no IP translation, so flow_ip == flow_ip_xlate and
+	 * return_ip == return_ip_xlate — the IPPT branch always fires.
+	 * Replicate ipa_be_build_nat_rule_attrs IPPT logic to get the initial
+	 * private/target assignment, then apply the same canonical swap.
+	 */
+	if (v4_msg.conn_rule.flow_interface_num ==
+	    v4_msg.conn_rule.flow_top_interface_num) {
+		/* Downlink IPPT (typical non-VLAN LAN2LAN) */
+		rule.private_ip   = ntohl(v4_msg.conn_rule.return_ip_xlate);
+		rule.target_ip    = ntohl(v4_msg.tuple.flow_ip);
+		rule.private_port = ntohs(v4_msg.tuple.return_ident);
+		rule.target_port  = ntohs(v4_msg.tuple.flow_ident);
+	} else {
+		/* Uplink IPPT (VLAN LAN2LAN, flow is sub-interface) */
+		rule.private_ip   = ntohl(v4_msg.tuple.flow_ip);
+		rule.target_ip    = ntohl(v4_msg.tuple.return_ip);
+		rule.private_port = ntohs(v4_msg.tuple.flow_ident);
+		rule.target_port  = ntohs(v4_msg.tuple.return_ident);
+	}
+
+	/* Mirror ct_canonical_swap from ipa_be_add_ct_entry_v4: swap when ep_cmp==0 */
+	if (ep_cmp == 0) {
+		tmp_ip            = rule.private_ip;
+		tmp_port          = rule.private_port;
+		rule.private_ip   = rule.target_ip;
+		rule.target_ip    = tmp_ip;
+		rule.private_port = rule.target_port;
+		rule.target_port  = tmp_port;
+	}
+	rule.public_port = rule.private_port;
+	IPA_BE_DBG("CT canonical delete: private=%pI4h:%u target=%pI4h:%u (flow_ep=%u ret_ep=%u)\n",
+		   &rule.private_ip, (unsigned int)rule.private_port,
+		   &rule.target_ip, (unsigned int)rule.target_port,
+		   v4_msg.conn_rule.flow_interface_num,
+		   v4_msg.conn_rule.return_interface_num);
+
+	/*
+	 * Remove the CT rule from the shared table. No PDN accounting and no
+	 * table teardown: the CT PDN stays allocated and the table lives until
+	 * ipa_be_nat_mgmt_exit().
+	 */
+	if (ipa_be_delete_nat_entry(&rule))
+		IPA_BE_ERR("failed removing CT nat entry\n");
+	else
+		IPA_BE_DBG("CT entry removed; %d CT entries remain in shared table\n",
+			   count_ct_nat_entries());
+}
+EXPORT_SYMBOL(ipa_be_delete_ct_entry_v4);
+
 void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enabled)
 {
 	nat_table_entry rule;
@@ -2305,87 +2760,34 @@ void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enable
 	uint32_t pub_ip = 0;
 
 	IPA_BE_DBG("Deleting IP4 NAT entry\n");
+
+	/*
+	 * LAN2WAN NAT only. CT (LAN2LAN) is handled by ipa_be_delete_ct_entry_v4();
+	 * the ct_enabled parameter is retained for ABI stability and is always
+	 * false on this path.
+	 */
+	(void)ct_enabled;
+
 	memset(&rule, 0, sizeof(rule));
 	rule.protocol = v4_msg.tuple.protocol;
 
 	/*
-	 * Reconstruct the key that was used during insertion.
-	 * For CT (LAN2LAN): replay ipa_be_build_nat_rule_attrs + ct_canonical_swap
-	 * to reproduce the exact key stored during ipa_be_add_entry.
-	 * For NAT: the entry is always created from the uplink direction.
-	 * The destroy message can come for either direction; use flow_ip_xlate
-	 * to detect which direction this message represents.
+	 * Reconstruct the key that was used during insertion. For NAT the entry
+	 * is always created from the uplink direction. The destroy message can
+	 * come for either direction; the shared tuple/conn_rule let us rebuild
+	 * the stored key via the add-path builder.
+	 *
+	 * ipa_be_build_nat_rule_attrs() takes a create_msg; tuple and conn_rule
+	 * are shared between create and destroy messages, so a small local copy
+	 * lets us call the helper without changing its signature.
 	 */
-	if (ct_enabled) {
-		int ep_cmp;
-		uint32_t tmp_ip;
-		uint16_t tmp_port;
-
-		ep_cmp = ipa_be_flow_canonical_cmp(v4_msg.conn_rule.flow_interface_num,
-						   v4_msg.conn_rule.return_interface_num,
-						   v4_msg.conn_rule.flow_mac,
-						   v4_msg.conn_rule.return_mac);
-		if (ep_cmp < 0) {
-			return;
-		}
-
-		WARN_ON(v4_msg.tuple.flow_ip != v4_msg.conn_rule.flow_ip_xlate ||
-			v4_msg.tuple.return_ip != v4_msg.conn_rule.return_ip_xlate);
-
-		/*
-		 * LAN2LAN has no IP translation, so flow_ip == flow_ip_xlate and
-		 * return_ip == return_ip_xlate — the IPPT branch always fires.
-		 * Replicate ipa_be_build_nat_rule_attrs IPPT logic to get the
-		 * initial private/target assignment, then apply the same swap.
-		 */
-		if (v4_msg.conn_rule.flow_interface_num ==
-		    v4_msg.conn_rule.flow_top_interface_num) {
-			/* Downlink IPPT (typical non-VLAN LAN2LAN) */
-			rule.private_ip   = ntohl(v4_msg.conn_rule.return_ip_xlate);
-			rule.target_ip    = ntohl(v4_msg.tuple.flow_ip);
-			rule.private_port = ntohs(v4_msg.tuple.return_ident);
-			rule.target_port  = ntohs(v4_msg.tuple.flow_ident);
-		} else {
-			/* Uplink IPPT (VLAN LAN2LAN, flow is sub-interface) */
-			rule.private_ip   = ntohl(v4_msg.tuple.flow_ip);
-			rule.target_ip    = ntohl(v4_msg.tuple.return_ip);
-			rule.private_port = ntohs(v4_msg.tuple.flow_ident);
-			rule.target_port  = ntohs(v4_msg.tuple.return_ident);
-		}
-
-		/* Mirror ct_canonical_swap from ipa_be_addpdn: swap when ep_cmp==0 */
-		if (ep_cmp == 0) {
-			tmp_ip            = rule.private_ip;
-			tmp_port          = rule.private_port;
-			rule.private_ip   = rule.target_ip;
-			rule.target_ip    = tmp_ip;
-			rule.private_port = rule.target_port;
-			rule.target_port  = tmp_port;
-		}
-		rule.public_port = rule.private_port;
-		IPA_BE_DBG("CT canonical delete: private=%pI4h:%u target=%pI4h:%u (flow_ep=%u ret_ep=%u)\n",
-			   &rule.private_ip, (unsigned int)rule.private_port,
-			   &rule.target_ip, (unsigned int)rule.target_port,
-			   v4_msg.conn_rule.flow_interface_num,
-			   v4_msg.conn_rule.return_interface_num);
-	} else {
-		/* Reuse the add-path builder so the delete key matches the
-		 * tuple stored at insertion (private_ip, target_ip, ports,
-		 * protocol). ipa_be_build_nat_rule_attrs() takes a create_msg;
-		 * tuple and conn_rule are shared between create and destroy
-		 * messages, so a small local copy lets us call the helper
-		 * without changing its signature.
-		 */
-		memset(&create_msg, 0, sizeof(create_msg));
-		create_msg.tuple     = v4_msg.tuple;
-		create_msg.conn_rule = v4_msg.conn_rule;
-		ipa_be_build_nat_rule_attrs(create_msg, &rule);
-	}
+	memset(&create_msg, 0, sizeof(create_msg));
+	create_msg.tuple     = v4_msg.tuple;
+	create_msg.conn_rule = v4_msg.conn_rule;
+	ipa_be_build_nat_rule_attrs(create_msg, &rule);
 
 	/* pub_ip lets us drop the PDN once its last entry is gone (mirrors ipa_be_addpdn). */
-	if (ct_enabled) {
-		pub_ip = IPA_DUMMY_PDN_PUB_IP;
-	} else if ((v4_msg.tuple.flow_ip == v4_msg.conn_rule.flow_ip_xlate) &&
+	if ((v4_msg.tuple.flow_ip == v4_msg.conn_rule.flow_ip_xlate) &&
 	    (v4_msg.tuple.return_ip == v4_msg.conn_rule.return_ip_xlate)) {
 		/* IP Passthrough case */
 		if (v4_msg.conn_rule.flow_interface_num ==
@@ -3447,7 +3849,15 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		/* Set protocol and addresses */
 		conn_sync->protocol = nat_app->cache[i].protocol;
 		conn_sync->flow_ip = htonl(nat_app->cache[i].private_ip);
-		conn_sync->flow_ip_xlate = htonl(nat_app->cache[i].public_ip);
+		/*
+		 * CT (LAN2LAN) performs no address translation and caches no
+		 * public IP, so report the flow/private IP as the "xlate"
+		 * address (matching IPv6 CT behavior). LAN2WAN NAT keeps
+		 * reporting the cached public IP.
+		 */
+		conn_sync->flow_ip_xlate = entry_is_ct ?
+			htonl(nat_app->cache[i].private_ip) :
+			htonl(nat_app->cache[i].public_ip);
 		conn_sync->return_ip = htonl(nat_app->cache[i].target_ip);
 		conn_sync->return_ip_xlate = htonl(nat_app->cache[i].target_ip);
 

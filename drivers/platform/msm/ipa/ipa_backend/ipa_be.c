@@ -2021,17 +2021,17 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			/* Add CT entry*/
 			if (ipa_ver >= IPA_HW_v7_0) {
 				pdn_iface = v4_msg.conn_rule.flow_interface_num;
-				ret = ipa_be_addpdn(v4_msg, pdn_iface, true);
+				ret = ipa_be_add_ct_entry_v4(&v4_msg);
 				if (ret != 0) {
-					IPA_BE_ERR("Failed to add PDN entry\n");
+					IPA_BE_ERR("Failed to add CT entry\n");
 					goto failed_ret;
 				}
 			}
 			else {
-				IPA_BE_DBG("CT support disabled - skipping ipa_be_addpdn\n");
+				IPA_BE_DBG("CT support disabled - skipping ipa_be_add_ct_entry_v4\n");
 			}
 		#else
-			IPA_BE_DBG("CT support disabled - skipping ipa_be_addpdn\n");
+			IPA_BE_DBG("CT support disabled - skipping ipa_be_add_ct_entry_v4\n");
 		#endif
 	}
 	else {
@@ -2142,7 +2142,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			step = ETH_STEP_WAN_UP_UPLINK;
 
 #ifdef CONFIG_ECM_CONVERGENCE
-			ret = ipa_be_addpdn(v4_msg, pdn_iface, false);
+			ret = ipa_be_addpdn(v4_msg, pdn_iface);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to add PDN entry (eth backhaul)\n");
 				goto failed_ret;
@@ -2233,7 +2233,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			NULL);
 
 		/* Add NAT entry */
-		ret = ipa_be_addpdn(v4_msg, pdn_iface, false);
+		ret = ipa_be_addpdn(v4_msg, pdn_iface);
 		if (ret != 0) {
 			IPA_BE_ERR("Failed to add PDN entry\n");
 			goto failed_ret;
@@ -2986,7 +2986,7 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		/* Delete CT entry per-connection, not gated on shared flow_ip ref count. */
 		if (ipa_ver >= IPA_HW_v7_0) {
 			IPA_BE_DBG("Deleting CT entry for LAN2LAN on IPA v7.0+\n");
-			ipa_be_delete_entry(*msg, true);
+			ipa_be_delete_ct_entry_v4(*msg);
 		}
 
 		ret_addr[0] = msg->tuple.return_ip;
@@ -3013,8 +3013,10 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 				}
 			}
 		}
-
-		ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.flow_interface_num, msg->conn_rule.return_mac, lan2lan);
+		/* Filter delete is self-gated by its own global (dst,ip) refcount,
+		 * so drop the forward-direction filter reference unconditionally. */
+		if (ipa_be_v4_delete_filter_rule(*msg, msg->conn_rule.flow_interface_num, msg->conn_rule.return_mac, lan2lan))
+			IPA_BE_ERR("Failed to delete forward filter rule\n");
 
 		/* Delete reverse flow only for LAN2LAN */
 		flow_addr[0] = msg->tuple.flow_ip;
@@ -3267,8 +3269,8 @@ static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 				}
 			}
 		}
-
-		/* Filter rule for dst=return_ip is only shared while return_ip mapping exists */
+		/* Filter delete is self-gated by its own per-(intf,dst,ip) refcount,
+		 * so drop the return-flow filter reference unconditionally. */
 		if (lan2lan) {
 			if (ipa_be_v6_delete_filter_rule(*msg, msg->conn_rule.flow_interface_num, msg->conn_rule.return_mac, lan2lan) != 0)
 				IPA_BE_ERR("Failed to delete LAN2LAN filter rule for return flow\n");
