@@ -978,6 +978,12 @@ static int table_entry_copy_from_user(void* entry, void* user_data)
 
 	IPADBG("\n");
 
+	if (!ipv6ct_entry || !user_rule)
+	{
+		IPAERR("invalid parameters entry=%pK user_data=%pK\n", entry, user_data);
+		return -EINVAL;
+	}
+
 	ipv6ct_entry->src_ipv6_lsb = user_rule->src_ipv6_lsb;
 	ipv6ct_entry->src_ipv6_msb = user_rule->src_ipv6_msb;
 	ipv6ct_entry->dest_ipv6_lsb = user_rule->dest_ipv6_lsb;
