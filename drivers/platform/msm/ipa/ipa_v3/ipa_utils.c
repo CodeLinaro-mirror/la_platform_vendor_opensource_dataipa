@@ -12108,12 +12108,15 @@ void ipa_init_ep_flt_bitmap(void)
  */
 bool ipa_is_ep_support_flt(int pipe_idx)
 {
-	if (pipe_idx >= IPA_MAX_FLT_TBLS || pipe_idx < 0) {
-		IPAERR("Bad pipe index!\n");
+	if (pipe_idx < 0 || pipe_idx >= ipa3_get_max_num_pipes()) {
+		IPAERR("Bad pipe index! index=%d\n", pipe_idx);
 		return false;
 	}
 
-	return ipa3_ctx->ep_flt_bitmap & (1ULL<<pipe_idx);
+	if (pipe_idx >= IPA_MAX_FLT_TBLS)
+		return false;
+
+	return ipa3_ctx->ep_flt_bitmap & (1ULL << pipe_idx);
 }
 
 /**

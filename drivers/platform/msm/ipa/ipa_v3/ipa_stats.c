@@ -1640,7 +1640,7 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 		ipa3_ctx->rt_tbl_nhash_lcl[IPA_IP_v4];
 	rt_rule_stats->num_v4_rt_table =
 		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_tables;
-	IPA_STATS_ERR("consolidated num_v4_tables %d num_v6_tables %d\n",
+	IPA_STATS_DBG("consolidated num_v4_tables %d num_v6_tables %d\n",
 		rt_rule_stats->num_v4_rt_table,
 		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables);
 
@@ -2210,8 +2210,6 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 
 		tbl_idx++;
 	}
-
-	mutex_unlock(&ipa3_ctx->lock);
 
 	if (copy_to_user((void __user *)arg,
 					 (u8 *)rt_rule_stats,
@@ -3090,6 +3088,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 
 	if (copy_from_user(&ipa_lnx_agent_ctx, u64_to_user_ptr((u64) arg),
 		sizeof(struct ipa_lnx_stats_tlpd_ctx))) {
+		memset(&ipa_lnx_agent_ctx, 0, sizeof(ipa_lnx_agent_ctx));
 		IPA_STATS_ERR("copy from user failed");
 		return -EFAULT;
 	}
@@ -3481,7 +3480,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 			}
 			if (rule_idx)
 			{
-				ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_rules[tbl_idx] = rule_idx;
+				ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_rules[tbl_idx] = rule_idx;
 				IPA_STATS_DBG("IP v6 flt save flt table %d rule %d \n", tbl_idx, rule_idx);
 				tbl_idx++;
 			}
@@ -3715,7 +3714,7 @@ static long ipa_lnx_stats_ioctl(struct file *filp,
 		retval = -ENOTTY;
 	}
 
-	IPA_STATS_ERR("Exit .. return %d\n", retval);
+	IPA_STATS_DBG("Exit .. return %d\n", retval);
 	mutex_unlock(&ipa_lnx_ctx_mutex);
 	return retval;
 }
@@ -3855,6 +3854,7 @@ int ipa_tlpd_stats_init(void)
 		return -1;
 	}
 	memset(&poll_pack_and_cred_info, 0, sizeof(poll_pack_and_cred_info));
+	memset(&ipa_lnx_agent_ctx, 0, sizeof(ipa_lnx_agent_ctx));
 	IPA_STATS_ERR("IPA_LNX_STATS_IOCTL init success\n");
 
 	return 0;
