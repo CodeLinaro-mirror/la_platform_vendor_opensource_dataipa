@@ -15,6 +15,8 @@
 #define CONVERT_TO_INT(str , val) kstrtoint(str, 10, &val)
 #define CONVERT_TO_UINT(str , val) kstrtouint(str, 10, &val)
 #define CONVERT_TO_BOOL(str, bool_val) kstrtobool(str, &bool_val)
+#define CONVERT_TO_HEX(str , val) kstrtouint(str, 16, &val)
+#define CONVERT_TO_HEX64(str , val) kstrtou64(str, 16, &val)
 
 static int ipa_ini_read_file(const char *path, struct device *device,
 				char **out_buf);
@@ -176,12 +178,14 @@ static int ipa_param_handler(const char *key_store,
 	int status = 0;
 	int param = 0;
 	u32 value;
+	u64 value64;
 	bool config;
 
 	for (param = 0; param < IPA_PARAM_MAX; param++)
 	{
 		config = 0;
 		value = 0;
+		value64 = 0;
 		if(strcmp(ipa_ini_param[param], key_store) == 0)
 		{
 			switch (param) {
@@ -478,6 +482,18 @@ static int ipa_param_handler(const char *key_store,
 					{
 						IPADBG("config use ipv6 nat '%s' is %d", value_store, config);
 						drv_res->use_ipv6_nat_config = config;
+					}
+					else
+					{
+						IPAERR("Error in converting '%s' value\n", value_store);
+					}
+					break;
+				case IPA_DISABLE_FLOW_CONTROL_MASK:
+					status = CONVERT_TO_HEX64(value_store, value64);
+					if (!status)
+					{
+						IPADBG("disable_flow_control_mask '%s' is 0x%llx", value_store, value64);
+						drv_res->disable_flow_control_mask = value64;
 					}
 					else
 					{

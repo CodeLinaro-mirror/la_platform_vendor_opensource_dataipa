@@ -816,27 +816,82 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 
 			/* Handle XLAT configuration */
 			if (is_xlat && ext_prop->ext[cnt].is_xlat_rule) {
-				/* fill the value of meta-data */
+				uint16_t vlan_id = 0;
+				bool vlan_configured = false;
+
 				if (v4_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED)
 				{
-					value = v4_msg.vlan_primary_rule.egress_vlan_tag & 0x0FFF;
-					IPA_BE_DBG("Vlan egress client vland id %d \n", value);
+					vlan_id = v4_msg.vlan_primary_rule.egress_vlan_tag & 0x0FFF;
+					vlan_configured = true;
+					IPA_BE_DBG("Vlan egress client vlan id %d \n", vlan_id);
 				}
 				else if (v4_msg.vlan_primary_rule.ingress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED)
 				{
-					value = v4_msg.vlan_primary_rule.ingress_vlan_tag & 0x0FFF;
-					IPA_BE_DBG("Vlan ingress client vland id %d \n", value);
+					vlan_id = v4_msg.vlan_primary_rule.ingress_vlan_tag & 0x0FFF;
+					vlan_configured = true;
+					IPA_BE_DBG("Vlan ingress client vlan id %d \n", vlan_id);
 				}
-				else{
-					value = ext_prop->ext[cnt].mux_id;
-				}
+
 				flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
-				flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1;
-				flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0;
-				flt_rule_entry.rule.eq_attrib.metadata_meq32.value = (value & 0xFF) << 16;
-				flt_rule_entry.rule.eq_attrib.metadata_meq32.mask = 0x00FF0000;
-				IPA_BE_DBG("xlat meta-data is modified for rule: %d index %d metadata : 0x%x rule_id %d\n",
-						   cnt, i, flt_rule_entry.rule.eq_attrib.metadata_meq32.value, flt_index->rule_id_ex[i]);
+
+				if (vlan_configured) {
+					/*
+					 * Match the client VLAN ID directly via an 802.1Q
+					 * offset_meq_32 equation instead of carrying the
+					 * VLAN ID through the metadata register. This
+					 * mirrors the HW VLAN equation built by
+					 * ipahal_flt_generate_equation for IPA_FLT_VLAN_ID
+					 * and avoids the 8-bit metadata truncation.
+					 */
+					int meq32_n = flt_rule_entry.rule.eq_attrib.num_offset_meq_32;
+
+					if (meq32_n + 1 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
+						IPA_BE_ERR("Can't add VLAN meq_32 eq to rule: %d index %d, falling back to mux_id metadata gate\n",
+							cnt, i);
+
+						/* No meq_32 slot available -> keep the mux_id metadata fallback gate */
+						value = ext_prop->ext[cnt].mux_id;
+
+						flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1;
+						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 9);
+						flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0;
+						flt_rule_entry.rule.eq_attrib.metadata_meq32.value = (value & 0xFF) << 16;
+						flt_rule_entry.rule.eq_attrib.metadata_meq32.mask = 0x00FF0000;
+					} else {
+						/* 12 => offset of 802.1Q tag in L2 hdr (2*ETH_ALEN) */
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset =
+							(ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) ?
+								(u8)-6 : NON_IHL_EQ_OFFSET_FROM_L2(ETH_ALEN * 2);
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].mask = 0xFFFF0FFF;
+						/* 0x8100 TPID + required VLAN ID */
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value =
+							(0x8100 << 16) | (vlan_id & 0xFFF);
+
+						if (meq32_n == 0)
+							flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 5);
+						else
+							flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 6);
+
+						flt_rule_entry.rule.eq_attrib.num_offset_meq_32++;
+
+						/* VLAN ID is no longer carried via the metadata reg */
+						flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 0;
+						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap &= ~(1 << 9);
+					}
+					IPA_BE_DBG("xlat rule: %d index %d matches VLAN id %d directly rule_id %d\n",
+						cnt, i, vlan_id, flt_index->rule_id_ex[i]);
+				} else {
+					/* No VLAN configured -> keep the mux_id metadata fallback */
+					value = ext_prop->ext[cnt].mux_id;
+
+					flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1;
+					flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 9);
+					flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0;
+					flt_rule_entry.rule.eq_attrib.metadata_meq32.value = (value & 0xFF) << 16;
+					flt_rule_entry.rule.eq_attrib.metadata_meq32.mask = 0x00FF0000;
+					IPA_BE_DBG("xlat meta-data is modified for rule: %d index %d metadata : 0x%x rule_id %d\n",
+						cnt, i, flt_rule_entry.rule.eq_attrib.metadata_meq32.value, flt_index->rule_id_ex[i]);
+				}
 
 				mux.client = rx_prop->rx[idx].src_pipe;
 				mux.qmap_id = ext_prop->ext[cnt].mux_id;
@@ -2862,7 +2917,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 			/* cache the flt action */
 			action_cache = flt_rule_entry.rule.action;
 
-			flt_rule_entry.rule.set_metadata = true;
+			flt_rule_entry.rule.set_metadata = false;
 			flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_UPLINK;
 
 			index = flt_rule_count_v6[rx_prop->rx[idx].src_pipe];

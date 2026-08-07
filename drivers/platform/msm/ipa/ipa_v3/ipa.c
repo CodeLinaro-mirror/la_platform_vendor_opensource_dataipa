@@ -15785,6 +15785,10 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 	 */
 	ipa3_ctx->ipa_disable_per_flow_stats = ipa_drv_res->ipa_disable_per_flow_stats;
 
+	/* Pipes for which BE_FLOW (metadata bit 29) should not be set */
+	ipa3_ctx->disable_flow_control_mask = ipa_drv_res->disable_flow_control_mask;
+	IPADBG("disable_flow_control_mask: 0x%llx\n", ipa3_ctx->disable_flow_control_mask);
+
 	if (ipa_is_ready())
 		return;
 	ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_FWFILE_READY);
@@ -15857,6 +15861,7 @@ void ipa3_set_ini_fields_default(struct ipa3_plat_drv_res *ipa_drv_res)
 	ipa_drv_res->max_ipv4_stats_accel_conn = 1024;
 	ipa_drv_res->max_ipv6_stats_accel_conn = 1024;
 	ipa_drv_res->ipa_disable_per_flow_stats = 0;
+	ipa_drv_res->disable_flow_control_mask = 0;
 }
 #endif
 

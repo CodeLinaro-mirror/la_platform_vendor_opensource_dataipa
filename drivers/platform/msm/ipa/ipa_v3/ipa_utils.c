@@ -12325,6 +12325,20 @@ int ipa3_cfg_ep(u32 clnt_hdl, const struct ipa_ep_cfg *ipa_ep_cfg)
 		result = ipa3_cfg_ep_deaggr(clnt_hdl, &ipa_ep_cfg->deaggr);
 		if (result)
 			return result;
+
+		/* stamp BE_FLOW bit29 at connect time so producer pipes
+		 * carry it regardless of whether a later qmap/mux rule
+		 * install (ipa3_write_qmap_id) ever runs for this pipe.
+		 * Skip AP-embedded producer pipes (e.g. embedded_pipe_index,
+		 * used for non-offloaded/exception flows) - never
+		 * backhaul-offloaded.
+		 */
+		if (!IPA_CLIENT_IS_APPS_PROD(ipa3_ctx->ep[clnt_hdl].client)) {
+			result = ipa3_cfg_ep_metadata(clnt_hdl,
+				&ipa_ep_cfg->meta);
+			if (result)
+				return result;
+		}
 	} else {
 		result = ipa3_cfg_ep_metadata_mask(clnt_hdl,
 				&ipa_ep_cfg->metadata_mask);
@@ -13799,6 +13813,16 @@ int ipa3_cfg_ep_metadata(u32 clnt_hdl, const struct ipa_ep_cfg_metadata *ep_md)
 	if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_1)
 		qmap_id |= IPA_QMAP_TETH_BIT;
 
+	/*
+	 * mark backhaul-offloaded flows for every pipe, unless the
+	 * pipe's bit is set in disable_flow_control_mask (ini config
+	 * "disable_flow_control_mask") to opt it out.
+	 */
+	if (!(ipa3_ctx->disable_flow_control_mask & (1ULL << clnt_hdl)))
+		qmap_id |= IPA_METADATA_BE_FLOW_BIT;
+
+	IPADBG("clnt_hdl=%d, qmap_id=0x%x\n", clnt_hdl, qmap_id);
+
 	ep_md_reg_wrt.qmap_id = qmap_id;
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HDR_METADATA_n, clnt_hdl,
 		&ep_md_reg_wrt);
@@ -13842,16 +13866,9 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		param_in->client == IPA_CLIENT_USB2_PROD ||
 	    param_in->client == IPA_CLIENT_HSIC1_PROD ||
 	    param_in->client == IPA_CLIENT_ODU_PROD ||
-	    param_in->client == IPA_CLIENT_ETHERNET_PROD ||
-	    param_in->client == IPA_CLIENT_ETHERNET2_PROD ||
-		param_in->client == IPA_CLIENT_ETHERNET_PROD1 ||
-		param_in->client == IPA_CLIENT_ETHERNET_PROD2 ||
-		param_in->client == IPA_CLIENT_ETHERNET_PROD3 ||
-		param_in->client == IPA_CLIENT_ETHERNET3_PROD ||
 		param_in->client == IPA_CLIENT_WIGIG_PROD ||
-		param_in->client == IPA_CLIENT_AQC_ETHERNET_PROD ||
-		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD ||
-		param_in->client == IPA_CLIENT_MHI_PROD) {
+		param_in->client == IPA_CLIENT_MHI_PROD ||
+		IPA_CLIENT_IS_ETH_PROD(ipa_ep_idx)) {
 		result = ipa3_cfg_ep_metadata(ipa_ep_idx, &meta);
 	}
 	else if (IPA_CLIENT_IS_WLAN_PRODUCER(param_in->client))

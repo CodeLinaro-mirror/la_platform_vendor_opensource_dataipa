@@ -958,7 +958,7 @@ int ipa3_send_cmd(u16 num_desc, struct ipa3_desc *descr)
 	}
 
 	for (i = 0; i < num_desc; i++)
-		IPADBG("sending imm cmd %d\n", descr[i].opcode);
+		IPADBG_LOW("sending imm cmd %d\n", descr[i].opcode);
 
 	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_CMD_PROD);
 	if (-1 == ep_idx) {
@@ -1034,7 +1034,7 @@ int ipa3_send_cmd_timeout(u16 num_desc, struct ipa3_desc *descr, u32 timeout)
 	}
 
 	for (i = 0; i < num_desc; i++)
-		IPADBG("sending imm cmd %d\n", descr[i].opcode);
+		IPADBG_LOW("sending imm cmd %d\n", descr[i].opcode);
 
 	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_CMD_PROD);
 	if (-1 == ep_idx) {

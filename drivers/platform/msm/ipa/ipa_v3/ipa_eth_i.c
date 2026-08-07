@@ -1412,12 +1412,6 @@ int ipa3_eth_connect(
 	} else {
 		ep->client_notify = pipe->info.notify;
 		ep->priv = pipe->info.priv;
-		/* xlat config in vlan mode */
-		if (vlan_mode) {
-			ep->cfg.hdr.hdr_ofst_metadata_valid = 1;
-			ep->cfg.hdr.hdr_ofst_metadata = ETH_HLEN;
-			ep->cfg.hdr.hdr_metadata_reg_valid = false;
-		}
 	}
 
 	/* ETH PDU configuration */
