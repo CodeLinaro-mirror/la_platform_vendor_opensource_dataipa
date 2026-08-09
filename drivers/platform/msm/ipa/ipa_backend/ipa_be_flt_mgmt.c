@@ -28,11 +28,6 @@
 
 #define IPA_MAX_FLT_RULE 100
 
-/* IPv6 address constants */
-#define MULTICAST_IPV6_PREFIX 0xFF000000
-#define LINK_LOCAL_IPV6_PREFIX 0xFE800000
-#define LINK_LOCAL_IPV6_PREFIX_MASK 0xFFC00000
-#define RESERVED_IPV6_PREFIX 0xFEC00000
 #define IPACM_FIREWALL_IPPROTO_TCP 6
 #define IPV6_HEADER_SIZE 40
 #define IPA_ETHERTYPE_OFFSET_ETH (ETH_HLEN - sizeof(u32))
@@ -901,6 +896,13 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 
 			flt_rule_entry.rule.hashable = ext_prop->ext[cnt].is_rule_hashable;
 			flt_rule_entry.rule.rule_id = ext_prop->ext[cnt].rule_id;
+
+			/* Decrement TTL/hop-limit on uplink (client -> WAN) forwarding
+			 * rules. Exception rules go to the A7 software path and must be
+			 * left untouched to avoid a double TTL decrement.
+			 */
+			if (flt_rule_entry.rule.action != IPA_PASS_TO_EXCEPTION)
+				flt_rule_entry.rule.ttl_update = 1;
 			/* Skip Metadata equation for WLAN VLAN and static policy scenarios to handle XLAT. */
 /*			if (!idx && rx_prop->rx[idx].attrib.attrib_mask & IPA_FLT_META_DATA && */
 /*				!(IPACM_Iface::ipacmcfg->ipacm_static_policy_enable && ext_prop->prop[cnt].is_xlat_rule)) */
@@ -2891,6 +2893,14 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 
 			flt_rule_entry.rule.hashable = ext_prop->ext[cnt].is_rule_hashable;
 			flt_rule_entry.rule.rule_id = ext_prop->ext[cnt].rule_id;
+
+			/* Decrement TTL/hop-limit on uplink (client -> WAN) forwarding
+			 * rules. Exception rules go to the A7 software path and must be
+			 * left untouched to avoid a double TTL decrement. The XLAT
+			 * duplicate rule below inherits this from flt_rule_entry.
+			 */
+			if (flt_rule_entry.rule.action != IPA_PASS_TO_EXCEPTION)
+				flt_rule_entry.rule.ttl_update = 1;
 			/* Skip Metadata equation for WLAN VLAN and static policy scenarios to handle XLAT. */
 //			if (!idx && rx_prop->rx[idx].attrib.attrib_mask & IPA_FLT_META_DATA &&
 //				!(IPACM_Iface::ipacmcfg->ipacm_static_policy_enable && ext_prop->prop[cnt].is_xlat_rule))
@@ -4258,7 +4268,7 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[1] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[2] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[3] = 0x00000000;
-		flt_rule_entry.rule.attrib.u.v6.dst_addr[0] = MULTICAST_IPV6_PREFIX;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr[0] = IPA_BE_MULTICAST_IPV6_PREFIX;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[1] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[3] = 0x00000000;
@@ -4281,11 +4291,11 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		m_ipv6_default_filterting_rules_count++;
 
 		/* Rule 4: Link-Local Unicast Filtering Rule (fe80::/10) */
-		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[0] = LINK_LOCAL_IPV6_PREFIX_MASK;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[0] = IPA_BE_LINK_LOCAL_IPV6_PREFIX_MASK;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[1] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[2] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[3] = 0x00000000;
-		flt_rule_entry.rule.attrib.u.v6.dst_addr[0] = LINK_LOCAL_IPV6_PREFIX;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr[0] = IPA_BE_LINK_LOCAL_IPV6_PREFIX;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[1] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[3] = 0x00000000;
@@ -4308,11 +4318,11 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		m_ipv6_default_filterting_rules_count++;
 
 		/* Rule 5: Reserved by IETF Filtering Rule (fec0::/10) */
-		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[0] = LINK_LOCAL_IPV6_PREFIX_MASK;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[0] = IPA_BE_LINK_LOCAL_IPV6_PREFIX_MASK;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[1] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[2] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr_mask[3] = 0x00000000;
-		flt_rule_entry.rule.attrib.u.v6.dst_addr[0] = RESERVED_IPV6_PREFIX;
+		flt_rule_entry.rule.attrib.u.v6.dst_addr[0] = IPA_BE_RESERVED_IPV6_PREFIX;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[1] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[2] = 0x00000000;
 		flt_rule_entry.rule.attrib.u.v6.dst_addr[3] = 0x00000000;

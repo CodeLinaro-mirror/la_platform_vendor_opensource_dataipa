@@ -2426,6 +2426,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 		rt_rule_entry->rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
 
 		rt_rule_entry->rule.hashable = true;
+		rt_rule_entry->rule.ttl_update = 1;
 		rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 	}
 
@@ -2629,6 +2630,8 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		}
 
 		rt_rule_entry->rule.hashable = true;
+		if (!ipa_be_v6_dst_is_link_local(rt_rule_entry->rule.attrib.u.v6.dst_addr))
+			rt_rule_entry->rule.ttl_update = 1;
 		rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 	}
 
@@ -2841,6 +2844,7 @@ int ipa_ipv4_eth_backhaul_add_route_rule(
 			rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CATCH_ALL;
 			rt_rule_entry->at_rear = true;
 		} else {
+			rt_rule_entry->rule.ttl_update = 1;
 			rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 		}
 	}
@@ -3053,6 +3057,8 @@ int ipa_ipv6_eth_backhaul_add_route_rule(
 			rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CATCH_ALL;
 			rt_rule_entry->at_rear = true;
 		} else {
+			if (!ipa_be_v6_dst_is_link_local(rt_rule_entry->rule.attrib.u.v6.dst_addr))
+				rt_rule_entry->rule.ttl_update = 1;
 			rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 		}
 	}
