@@ -329,13 +329,7 @@ int rmnet_ipa3_clear_lan_client_info(struct wan_ioctl_lan_client_info *data);
 int rmnet_ipa3_set_lan_client_info_v2(struct wan_ioctl_lan_client_info_v2 *data);
 
 int rmnet_ipa3_clear_lan_client_info_v2(struct wan_ioctl_lan_client_info_v2 *data);
-
-int rmnet_ipa3_set_lan_client_info_vlan(struct wan_ioctl_lan_client_info_vlan *data);
-
-int rmnet_ipa3_clear_lan_client_info_vlan(struct wan_ioctl_lan_client_info_vlan *data);
-
 int rmnet_ipa3_send_lan_client_msg(struct wan_ioctl_send_lan_client_msg *data);
-int rmnet_ipa3_send_lan_client_msg_vlan(struct wan_ioctl_send_lan_client_msg_vlan *data);
 
 int rmnet_ipa3_enable_per_client_stats(bool *data);
 
@@ -357,9 +351,6 @@ int rmnet_ipa3_query_per_client_stats_v3(
 */
 int rmnet_ipa3_query_per_client_stats_v4(
 	struct wan_ioctl_query_per_client_stats_v2 *data);
-
-int rmnet_ipa3_query_per_vlan_stats(
-    struct wan_ioctl_query_per_vlan_stats *data);
 
 int ipa3_qmi_get_data_stats(struct ipa_get_data_stats_req_msg_v01 *req,
 	struct ipa_get_data_stats_resp_msg_v01 *resp);
