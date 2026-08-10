@@ -1363,7 +1363,54 @@ static int ipa3_send_pdn_dscp_msg(unsigned long usr_param)
 	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_pdn_config_msg_free_cb);
 	if (retval) {
-		IPAERR("ipa_send_msg failed: %d, msg_type %d\n",
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+			retval,
+			msg_meta.msg_type);
+		kfree(buff);
+		return retval;
+	}
+	IPADBG("exit\n");
+	return 0;
+}
+
+/**
+ * ipa3_send_pppoe_info() - Pass pppoe mapping to the IPACM
+ * @event_type: Type of the event - IPA_PPPOE_ADD_MAPPING_EVENT
+ * @usr_param: pointer to pppoe to eth mapping structure
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_send_pppoe_info(uint8_t event_type, unsigned long usr_param)
+{
+	int retval;
+	struct ipa_ioc_pppoe_info *pppoe_info;
+	struct ipa_msg_meta msg_meta;
+	void *buff;
+
+	memset(&msg_meta, 0, sizeof(msg_meta));
+
+	pppoe_info = kzalloc(sizeof(struct ipa_ioc_pppoe_info),
+		GFP_KERNEL);
+	if (!pppoe_info)
+		return -ENOMEM;
+
+	if (copy_from_user((u8 *)pppoe_info, (void __user *)usr_param,
+		sizeof(struct ipa_ioc_pppoe_info))) {
+		IPAERR("copy_from_user of pppoe_info failed\n");
+		kfree(pppoe_info);
+		return -EFAULT;
+	}
+
+	msg_meta.msg_len = sizeof(struct ipa_ioc_pppoe_info);
+	msg_meta.msg_type = IPA_PPPOE_ADD_MAPPING_EVENT;
+	buff = pppoe_info;
+
+	IPADBG("type %d\n", msg_meta.msg_type);
+
+	retval = ipa_send_msg(&msg_meta, buff,
+		ipa3_pdn_config_msg_free_cb);
+	if (retval) {
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
 			retval,
 			msg_meta.msg_type);
 		kfree(buff);
@@ -1766,11 +1813,16 @@ static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol =
 		qos_param->protocol;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp = qos_param->dscp;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp_mark_val =
+		qos_param->dscp_mark_val;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp = qos_param->pcp;
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp_mark_val =
+		qos_param->pcp_mark_val;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count =
 		qos_param->vlan_count;
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0] =
 		qos_param->vlan_ids[0];
+	ipa3_ctx->get_qos_config.qos_config[cur_idx].dir = qos_param->dir;
 
 	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0] =
 		qos_param->src_v6_ip_addr[0];
@@ -1969,12 +2021,18 @@ static int ipa3_get_qos_params(struct ipa_ioc_get_qos_config *get_qos_param)
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol;
 		get_qos_param->qos_config[cur_idx].dscp =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp;
+		get_qos_param->qos_config[cur_idx].dscp_mark_val =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp_mark_val;
 		get_qos_param->qos_config[cur_idx].pcp =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp;
+		get_qos_param->qos_config[cur_idx].pcp_mark_val =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp_mark_val;
 		get_qos_param->qos_config[cur_idx].vlan_count =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count;
 		get_qos_param->qos_config[cur_idx].vlan_ids[0] =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0];
+		get_qos_param->qos_config[cur_idx].dir =
+			ipa3_ctx->get_qos_config.qos_config[cur_idx].dir;
 
 		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[0] =
 			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0];
@@ -3648,6 +3706,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 #endif
 	struct ipa_ioc_dscp_pcp_map_info dscp_pcp_map_info;
 	struct ipa_ioc_pdn_dscp_map_info *pdn_dscp_map_info;
+	struct ipa_ioc_pppoe_info *pppoe_info;
 #if defined(CONFIG_IPA_TSP)
 	struct ipa_ioc_tsp_ingress_class_get ingr_tc_get;
 	struct ipa_ioc_tsp_egress_class_get egr_tc_get;
@@ -4760,6 +4819,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		else
 			retval = ipa3_clean_modem_rule();
 		ipa3_counter_id_remove_all();
+		ipa_rc_reset_drop_pkt_stats();
 		break;
 
 	case IPA_IOC_QUERY_WLAN_CLIENT:
@@ -5249,6 +5309,31 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				sizeof(struct ipa_ioc_pdn_dscp_map_info));
 		}
 		kfree(pdn_dscp_map_info);
+		break;
+
+	case IPA_IOC_ADD_PPPOE_MAPPING:
+		IPAERR("Got IPA_IOC_ADD_PPPOE_MAPPING\n");
+
+		pppoe_info = kzalloc(sizeof(struct ipa_ioc_pppoe_info), GFP_KERNEL);
+		if (!pppoe_info) {
+			IPAERR("pppoe_info memory allocation failed !\n");
+			retval = -ENOMEM;
+			break;
+		}
+
+		if (copy_from_user(pppoe_info, (const void __user *) arg,
+			sizeof(struct ipa_ioc_pppoe_info))) {
+			IPAERR("copy_from_user for pppoe_info fails\n");
+			retval = -EFAULT;
+			kfree(pppoe_info);
+			break;
+		}
+
+		if (ipa3_send_pppoe_info(IPA_PPPOE_ADD_MAPPING_EVENT, arg)) {
+			IPAERR("ipa3_send_pppoe_info failed\n");
+			retval = -EFAULT;
+		}
+		kfree(pppoe_info);
 		break;
 
 #ifdef IPA_IOCTL_SET_EXT_ROUTER_MODE
@@ -8408,6 +8493,12 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EPERM;
 			cmd = IPA_IOC_SET_IPTYPE_MTU;
 			break;
+		case IPA_IOCTL_ADD_PPPOE_MAPPING:
+			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_PPPOE_MAPPING))
+				return -EPERM;
+			cmd = IPA_IOC_ADD_PPPOE_MAPPING;
+			break;
+
 	default:
 		return -ENOIOCTLCMD;
 	}
@@ -10548,6 +10639,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	ipa_ut_module_init();
+	ipa_rc_init();
 
 
 	/* Query MSI address. */
@@ -11048,6 +11140,8 @@ ssize_t ipa3_update_config(const char *buff)
 
 	/* Check MHI configuration on MDM devices */
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
+		ipa3_ctx->ipa_eth_pppoe_intf_name[0] = '\0';
+
 		/* Check MHI mode configuration */
 		if (strnstr(dbg_buff, STR_MHI_ETH_IFACE, strlen(dbg_buff)))
 		{
@@ -11065,33 +11159,30 @@ ssize_t ipa3_update_config(const char *buff)
 
 #if IPA_ETH_API_VER >= 4
 		if (strnstr(dbg_buff, "ethqos", strlen(dbg_buff))) {
-			ipa3_ctx->eth_qos = IPA_ETH_QOS_ENABLE;
-			IPADBG("ETH QOS enabled: %d\n", ipa3_ctx->eth_qos);
+				ipa3_ctx->eth_qos = IPA_ETH_QOS_ENABLE;
+				IPADBG("ETH QOS enabled: %d\n", ipa3_ctx->eth_qos);
 		}
 #endif
-		if (strnstr(dbg_buff, "lanstats", strlen(dbg_buff))) {
-			/* Enable lan stats. */
-			ipa3_ctx->lan_stats_enabled = true;
-			IPADBG("Lan stats enabled: %d\n", ipa3_ctx->lan_stats_enabled);
-		}
-
 #if IPA_ETH_API_VER >= 6
 		if (strnstr(dbg_buff, "apbridge", strlen(dbg_buff)))
 		{
 			IPADBG("Platform type is apbridge\n");
 			ipa3_ctx->device_mode = DEVMODE_APBRIDGE;
-			if(strnstr(dbg_buff, "dblvlan", strlen(dbg_buff))) {
+			if(strnstr(dbg_buff, "dblvlan", strlen(dbg_buff)))
+			{
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = true;
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH1] = true;
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_WLAN] = true;
-				ipa3_ctx->device_vlan_mode = true;
+				ipa3_ctx->device_vlan_mode =  true;
 			}
 			return count;
 		}
 		else if (strnstr(dbg_buff, "stabridge", strlen(dbg_buff)))
 		{
 			IPADBG("Platform type is stabridge\n");
+
 			ipa3_ctx->device_mode = DEVMODE_STABRIDGE;
+
 			if(strnstr(dbg_buff, "vlan", strlen(dbg_buff)))
 			{
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = true;
@@ -11102,6 +11193,28 @@ ssize_t ipa3_update_config(const char *buff)
 			return count;
 		}
 #endif
+		if (strnstr(dbg_buff, "lanstats", strlen(dbg_buff))) {
+			/* Enable lan stats. */
+			ipa3_ctx->lan_stats_enabled = true;
+			IPADBG("Lan stats enabled: %d\n", ipa3_ctx->lan_stats_enabled);
+		}
+		if (strnstr(dbg_buff, "pppoe_qos", strlen(dbg_buff))) {
+			ipa3_ctx->ipa_config_pppoe_mode = IPA_PPPOE_QOS;
+			IPADBG("PPPoE+QoS mode has been enabled. mode=%d\n",ipa3_ctx->ipa_config_pppoe_mode);
+		}
+		else if (strnstr(dbg_buff, "pppoe", strlen(dbg_buff))) {
+			ipa3_ctx->ipa_config_pppoe_mode = IPA_PPPOE_LEGACY;
+			IPADBG("PPPoE mode has been enabled. mode=%d\n",ipa3_ctx->ipa_config_pppoe_mode);
+
+			if (strnstr(dbg_buff, "pppoe:port_zero", strlen(dbg_buff))) {
+				IPADBG("PPPoE on eth0 has been enabled.\n");
+				strlcpy(ipa3_ctx->ipa_eth_pppoe_intf_name, "eth0", IFNAMSIZ);
+			}
+			else if (strnstr(dbg_buff, "pppoe:port_one", strlen(dbg_buff))) {
+				IPADBG("PPPoE on eth1 has been enabled.\n");
+				strlcpy(ipa3_ctx->ipa_eth_pppoe_intf_name, "eth1", IFNAMSIZ);
+			}
+		}
 		/* Check Vlan configuration */
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
 			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))
@@ -11176,7 +11289,7 @@ ssize_t ipa3_update_config(const char *buff)
 		{
 			if (ipa3_ctx->ipa_config_is_mhi) {
 				IPADBG("In MHI mode IPSEC enable not required\n");
-				return count;
+				goto last;
 			}
 			IPADBG("IPsec HW offload is configured.\n");
 			ipa3_ctx->ipa_config_is_ipsec = true;
@@ -11185,7 +11298,7 @@ ssize_t ipa3_update_config(const char *buff)
 				IPAERR(":IPSEC enable failed (%d)\n", -res);
 			else
 				IPADBG(":IPSEC enable ok\n");
-			return count;
+			goto last;
 		}
 #endif
 
@@ -11207,9 +11320,12 @@ ssize_t ipa3_update_config(const char *buff)
 
 	/* Prevent consequent calls from trying to load the FW again. */
 	if (ipa_is_ready())
-		return count;
+		goto last;
 
 	ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_FWFILE_READY);
+last:
+	if (rc_ctx && rc_ctx->rc_wq)
+		queue_delayed_work(rc_ctx->rc_wq, &rc_ctx->dwork, msecs_to_jiffies(IPA_COLLECT_INTERVAL_MS));
 
 	return count;
 }
@@ -11716,6 +11832,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			ipa3_ctx->gsi_info[i].ch_id_info[j].ch_id =
 				0xFF;
 	}
+
+	ipa3_ctx->ipa_config_pppoe_mode = IPA_PPPOE_DISABLED;
 
 	ipa3_ctx->ipa_wrapper_base = resource_p->ipa_mem_base;
 	ipa3_ctx->ipa_wrapper_size = resource_p->ipa_mem_size;
@@ -15618,6 +15736,7 @@ static void ipa3_deepsleep_suspend(void)
 #ifndef CONFIG_DEBUG_FS
 	ipa_sysfs_deinit();
 #endif
+	ipa_rc_deinit();
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
 	/*Calling framework API to reset IPA ready flag to false*/

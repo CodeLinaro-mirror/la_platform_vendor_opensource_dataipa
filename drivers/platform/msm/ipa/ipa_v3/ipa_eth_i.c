@@ -20,6 +20,7 @@
 #define AQC_WRB_MODC_FACTOR (10)
 
 #define IPA_ETH_NTN_MODT (32)
+#define IPA_ETH_QOS_MODT (3) /* ~94 us at 32 KHz GSI clock - QoS Tx low-latency path */
 #define IPA_ETH_NTN_MODC (128)
 
 #define NTN_BUFFER_SIZE 2048 /* 2K */
@@ -926,7 +927,6 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	int result, len;
 	u64 bar_addr;
 	unsigned long iova;
-	enum ipa_eth_pipe_traffic_type traffic_type = 0;
 
 	if (unlikely(!pipe->info.is_transfer_ring_valid)) {
 		IPAERR("NTN transfer ring invalid\n");
@@ -948,7 +948,17 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_NTN_EV;
 	gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
 	gsi_evt_ring_props.intr = GSI_INTR_MSI;
+#if IPA_ETH_API_VER >= 3
+	enum ipa_eth_pipe_traffic_type traffic_type = pipe->traffic_type;
+	/* Reduce MODT for QoS Tx channels to improve interrupt latency. */
+	gsi_evt_ring_props.int_modt =
+		((traffic_type == IPA_ETH_PIPE_TRAFFIC_TYPE_QOS ||
+		  ep->client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS) &&
+		 pipe->dir == IPA_ETH_PIPE_DIR_TX)
+			? IPA_ETH_QOS_MODT : IPA_ETH_NTN_MODT;
+#else
 	gsi_evt_ring_props.int_modt = IPA_ETH_NTN_MODT;
+#endif
 	/* len / RE_SIZE == len in counts (convert from bytes) */
 	len = pipe->info.transfer_ring_size;
 	gsi_evt_ring_props.int_modc = len * IPA_ETH_AQC_MODC_FACTOR /
@@ -960,9 +970,6 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		bar_addr +
 		pipe->info.client_info.ntn.tail_ptr_offs;
 
-#if IPA_ETH_API_VER >= 3
-	traffic_type = pipe->traffic_type;
-#endif
 	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC) {
 		result = ipa_iemac_smmu_cb_add_mapping_pa(IPA_SMMU_CB_AP,
 			gsi_evt_ring_props.msi_addr, 8, true, &iova, pipe->client_info->inst_id, pipe->dir, pipe_idx);
@@ -1208,6 +1215,15 @@ int ipa3_eth_connect(
 	}
 #endif
 	IPADBG("Vlan mode %d\n", vlan_mode);
+	IPADBG("PPPoE mode %d\n", ipa3_ctx->ipa_config_pppoe_mode);
+
+	if (IPA_CLIENT_IS_PROD(client_type) &&
+		ipa3_ctx->ipa_config_pppoe_mode == IPA_PPPOE_LEGACY) {
+		if(strnstr(net_dev->name, ipa3_ctx->ipa_eth_pppoe_intf_name,
+			strlen(net_dev->name))) {
+			ipa3_ctx->client_hps_eth_index = ep_idx;
+		}
+	}
 
 	result = ipa3_eth_get_prot(pipe, &prot);
 	if (result) {
@@ -1254,7 +1270,17 @@ int ipa3_eth_connect(
 	else
 #endif
 	{
-		ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+		if (IPA_CLIENT_IS_PROD(client_type) &&
+			(ipa3_ctx->ipa_config_pppoe_mode == IPA_PPPOE_QOS) && inst_id == 0 &&
+			(pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE))
+		{
+			ep->cfg.hdr.hdr_len = PPPOE_VLAN_ETH_HLEN;
+			IPADBG("PPPoE+QoS header length %d \n", ep->cfg.hdr.hdr_len);
+		}
+		else
+		{
+			ep->cfg.hdr.hdr_len = vlan_mode ? VLAN_ETH_HLEN : ETH_HLEN;
+		}
 	}
 	ep->cfg.mode.mode = IPA_BASIC;
 	if (IPA_CLIENT_IS_CONS(client_type)) {

@@ -138,6 +138,7 @@ const char *ipa3_event_name[IPA_EVENT_MAX_NUM] = {
 	__stringify(IPA_QOS_PARAM_ADD_EVENT),
 	__stringify(IPA_QOS_PARAM_DELETE_EVENT),
 	__stringify(IPA_QOS_PARAM_FLUSH_EVENT),
+	__stringify(IPA_PPPOE_ADD_MAPPING_EVENT),
 };
 
 const char *ipa3_hdr_l2_type_name[] = {
@@ -174,6 +175,7 @@ const char *ipa3_hdr_proc_type_name[] = {
 	__stringify(IPA_HDR_PROC_IPSEC_DECAP_NXT_RND),
 	__stringify(IPA_HDR_PROC_2ND_PASS),
 	__stringify(IPA_HDR_PROC_MARK_DSCP),
+	__stringify(IPA_HDR_PROC_PPPOE_HEADER_ADD),
 };
 
 
@@ -1853,7 +1855,7 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
 	int nbytes;
-	int i;
+	int i, j;
 	int cnt = 0;
 	uint connect = 0;
 
@@ -1938,13 +1940,19 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		);
 	cnt += nbytes;
 
-	for (i = 0; i < IPAHAL_PKT_STATUS_EXCEPTION_MAX; i++) {
+	for (i = 0; i < MAX_RC_CLIENTS; i++) {
 		nbytes = scnprintf(dbg_buff + cnt,
 			IPA_MAX_MSG_LEN - cnt,
-			"lan_rx_excp[%u:%20s]=%u\n", i,
-			ipahal_pkt_status_exception_str(i),
-			ipa3_ctx->stats.rx_excp_pkts[i]);
+			"rc_client: %s\n", ipa_rc_client_names[i]);
 		cnt += nbytes;
+		for (j = 0; j < IPAHAL_PKT_STATUS_EXCEPTION_MAX; j++) {
+			nbytes = scnprintf(dbg_buff + cnt,
+				IPA_MAX_MSG_LEN - cnt,
+				"lan_rx_excp[%u:%20s]=%u\n", j,
+				ipahal_pkt_status_exception_str(j),
+				ipa3_ctx->stats.rx_excp_pkts[i][j]);
+			cnt += nbytes;
+		}
 	}
 
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
@@ -3869,6 +3877,52 @@ static ssize_t ipa3_read_ipa_pdn_dscp_mapping_cache(struct file *file,
 
 }
 
+static ssize_t ipa3_rc_status(struct file *file, char __user *buf,
+		size_t count, loff_t *ppos) {
+
+	int nbytes, i=0;
+	struct ipa_rc_health_monitor *entry, *tmp;
+	struct ipa_rc_wlan_intf_info *wlan_intf;
+
+	if (list_empty(&rc_list.head)) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"list empty\n");
+	} else {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"Last atmost 10 IPA status id\n");
+	}
+
+	list_for_each_entry_safe(entry, tmp, &rc_list.head, node) {
+		IPAERR("Status code for instance %d : %d :\n", i, entry->status_code);
+		i++;
+		if(i>=10)
+			break;
+	}
+
+	mutex_lock(&rc_ctx->rc_lock);
+	list_for_each_entry(wlan_intf, &ipa_rc_wlan_info.head, link) {
+		IPAERR("name: %s, msg_type: %u, metadata: %x, mask: %x, hdl: %d\n",
+			wlan_intf->name, (unsigned int)wlan_intf->wlan_msg_type,
+			wlan_intf->metadata, wlan_intf->metadata_mask, wlan_intf->hdl);
+	}
+	mutex_unlock(&rc_ctx->rc_lock);
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+}
+
+static ssize_t ipa3_rc_log_enbl(struct file *file,
+			const char __user *buf, size_t count, loff_t *ppos)
+{
+	s8 flg=0;
+	int ret;
+
+	ret = kstrtos8_from_user(buf, count, 0, &flg);
+	if(ret)
+		return ret;
+
+	ipa3_ctx->is_rc_log_enabled = flg ? 1 : 0;
+	return count;
+}
+
 static ssize_t ipa3_write_ipa_max_napi_sort_page_thrshld(struct file *file,
 	const char __user *buf, size_t count, loff_t *ppos) {
 
@@ -4800,6 +4854,14 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"uc_act_table", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_uc_act_tbl,
+		}
+	}, {
+		"ipa_hm_status", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_rc_status,
+		}
+	}, {
+		"rc_log", IPA_WRITE_ONLY_MODE, NULL, {
+			.write = ipa3_rc_log_enbl,
 		}
 	},
 };

@@ -759,6 +759,11 @@ int ipa_hw_stats_init(void)
 				IPA_CLIENT_WLAN4_CONS,
 				&reg_idx);
 			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_ETHERNET_LOW_LAT_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 		}
 	}
 

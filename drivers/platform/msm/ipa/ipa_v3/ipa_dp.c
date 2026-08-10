@@ -4141,6 +4141,8 @@ static int ipa3_lan_rx_pyld_hdlr(struct sk_buff *skb,
 	struct ipa3_tx_pkt_wrapper *tx_pkt = NULL;
 	unsigned long ptr;
 	enum ipa_client_type type;
+	enum ipa_client_type clnt;
+	int rc_client;
 
 	IPA_DUMP_BUFF(skb->data, 0, skb->len);
 
@@ -4278,8 +4280,6 @@ begin:
 			continue;
 		}
 
-		IPA_STATS_EXCP_CNT(status.exception,
-				ipa3_ctx->stats.rx_excp_pkts);
 		if (status.endp_dest_idx >= ipa3_ctx->ipa_num_pipes ||
 			status.endp_src_idx >= ipa3_ctx->ipa_num_pipes) {
 			IPAERR_RL("status fields invalid\n");
@@ -4290,6 +4290,11 @@ begin:
 			/* HW gave an unexpected status */
 			ipa_assert();
 		}
+
+		rc_client = get_rc_client(status.endp_src_idx);
+		IPA_STATS_EXCP_CNT(status.exception,
+				ipa3_ctx->stats.rx_excp_pkts[rc_client]);
+
 		if (IPAHAL_PKT_STATUS_MASK_FLAG_VAL(
 			IPAHAL_PKT_STATUS_MASK_TAG_VALID_SHFT, &status)) {
 			struct ipa3_tag_completion *comp;
@@ -4318,7 +4323,7 @@ begin:
 			skb_pull(skb, pkt_status_sz);
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.aggr_close);
 			IPA_STATS_DEC_CNT(ipa3_ctx->stats.rx_excp_pkts
-				[IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
+				[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
 			continue;
 		}
 
@@ -4426,6 +4431,33 @@ begin:
 			/* TX comp */
 			ipa3_wq_write_done_status(src_pipe, tx_pkt);
 			IPADBG_LOW("tx comp imp for %d\n", src_pipe);
+			if (sys->drop_packet) {
+				if (ipa3_ctx->is_rc_log_enabled) {
+					IPADBG("drop pkt status_opcode=0x%x exception=0x%x status_mask=0x%x pkt_len=0x%x\n",
+						status.status_opcode, status.exception,
+						status.status_mask, status.pkt_len);
+					IPADBG("endp_src_idx=0x%x endp_dest_idx=0x%x metadata=0x%x\n",
+						status.endp_src_idx, status.endp_dest_idx,
+						status.metadata);
+					IPADBG("flt_miss=0x%x flt_rule_id=0x%x rt_local=0x%x rt_hash=0x%x\n",
+						status.flt_miss, status.flt_rule_id,
+						status.rt_local, status.rt_hash);
+					IPADBG("ucp=0x%x rt_tbl_idx=0x%x rt_miss=0x%x rt_rule_id=0x%x\n",
+						status.ucp, status.rt_tbl_idx,
+						status.rt_miss, status.rt_rule_id);
+					IPADBG("nat_hit=0x%x nat_entry_idx=0x%x nat_type=0x%x\n",
+						status.nat_hit, status.nat_entry_idx,
+						status.nat_type);
+				}
+				clnt = ipa3_get_client_by_pipe(src_pipe);
+				if(IPA_CLIENT_IS_Q6_PROD(clnt) || IPA_CLIENT_IS_ETH_PROD(clnt) || is_wlan_sta_pkt(&status)) {
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.rx_excp_pkts
+					[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL]);
+				} else {
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.rx_excp_pkts
+					[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL]);
+				}
+			}
 		} else {
 			/* TX comp */
 			ipa3_wq_write_done_status(status.endp_src_idx, tx_pkt);
@@ -4434,7 +4466,7 @@ begin:
 			skb_pull(skb, pkt_status_sz);
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.stat_compl);
 			IPA_STATS_DEC_CNT(ipa3_ctx->stats.rx_excp_pkts
-				[IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
+				[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
 		}
 		tx_pkt = NULL;
 	}
@@ -5208,7 +5240,17 @@ _prep_and_send_skb(
 
 			ipa3_ctx->stats.coal.coal_reconstructed++;
 
-			head_skb->protocol = ip_proto;
+			/* Validate ip_vers before assigning protocol */
+			if (ip_vers == 4) {
+				head_skb->protocol = htons(ETH_P_IP);
+			} else if (ip_vers == 6) {
+				head_skb->protocol = htons(ETH_P_IPV6);
+			} else {
+				IPAERR("Unexpected ip_vers %d during coal reconstruct\n", ip_vers);
+				dev_kfree_skb_any(head_skb);
+				ipa3_ctx->stats.coal.coal_reconstructed--;
+				return -1;
+			}
 
 			/*
 			 * Copy MAC header into the skb...

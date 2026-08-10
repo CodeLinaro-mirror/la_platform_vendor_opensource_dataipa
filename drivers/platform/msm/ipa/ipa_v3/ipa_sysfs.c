@@ -1675,7 +1675,7 @@ static ssize_t ip6_flt_hw_show(struct device *dev, struct device_attribute *attr
 static ssize_t stats_show(struct device *dev, struct device_attribute *attr, char *ubuf)
 {
 	int nbytes;
-	int i;
+	int i, j;
 	int cnt = 0;
 	uint connect = 0;
 
@@ -1758,13 +1758,19 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		);
 	cnt += nbytes;
 
-	for (i = 0; i < IPAHAL_PKT_STATUS_EXCEPTION_MAX; i++) {
+	for (i = 0; i < MAX_RC_CLIENTS; i++) {
 		nbytes = scnprintf(dbg_buff + cnt,
 			IPA_MAX_MSG_LEN - cnt,
-			"lan_rx_excp[%u:%20s]=%u\n", i,
-			ipahal_pkt_status_exception_str(i),
-			ipa3_ctx->stats.rx_excp_pkts[i]);
+			"rc_client: %d\n", i);
 		cnt += nbytes;
+		for (j = 0; j < IPAHAL_PKT_STATUS_EXCEPTION_MAX; j++) {
+			nbytes = scnprintf(dbg_buff + cnt,
+				IPA_MAX_MSG_LEN - cnt,
+				"lan_rx_excp[%u:%20s]=%u\n", j,
+				ipahal_pkt_status_exception_str(j),
+				ipa3_ctx->stats.rx_excp_pkts[i][j]);
+			cnt += nbytes;
+		}
 	}
 
 	memcpy(ubuf, dbg_buff, cnt);
@@ -4573,6 +4579,42 @@ static ssize_t iemac_1_err_status_show(struct device *dev, struct device_attribu
 	return __eth_err_status_show(IPA_ETH_CLIENT_IEMAC, 1, ubuf);
 }
 
+static ssize_t ipa_hm_status_show(struct device *dev, struct device_attribute *attr, char *ubuf)
+{
+	int nbytes, i = 0;
+	struct ipa_rc_health_monitor *entry, *tmp;
+
+	if (list_empty(&rc_list.head)) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "list empty\n");
+	} else {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"Last atmost 10 IPA status id\n");
+	}
+
+	list_for_each_entry_safe(entry, tmp, &rc_list.head, node) {
+		IPADBG("Status code for instance %d : %d :\n", i, entry->status_code);
+		i++;
+		if (i >= 10)
+			break;
+	}
+	memcpy(ubuf, dbg_buff, nbytes);
+	return nbytes;
+}
+
+static ssize_t rc_log_store(struct device *dev, struct device_attribute *attr,
+		const char *ubuf, size_t count)
+{
+	s8 flg = 0;
+	int ret;
+
+	ret = kstrtos8(ubuf, 0, &flg);
+	if (ret)
+		return ret;
+
+	ipa3_ctx->is_rc_log_enabled = flg ? 1 : 0;
+	return count;
+}
+
 static DEVICE_ATTR_RO(gen_reg);
 static DEVICE_ATTR_RO(holb_events);
 static DEVICE_ATTR_RO(hdr);
@@ -4629,9 +4671,11 @@ static DEVICE_ATTR_RO(ntn3_0_err_status);
 static DEVICE_ATTR_RO(ntn3_1_err_status);
 static DEVICE_ATTR_RO(iemac_0_err_status);
 static DEVICE_ATTR_RO(iemac_1_err_status);
+static DEVICE_ATTR_RO(ipa_hm_status);
 
 /* Write only sysfs attributes */
 
+static DEVICE_ATTR_WO(rc_log);
 static DEVICE_ATTR_WO(holb);
 static DEVICE_ATTR_WO(holb_uS);
 static DEVICE_ATTR_WO(holb_monitor_client_param);
@@ -4739,6 +4783,8 @@ static struct attribute *ipa_attrs[] = {
 	&dev_attr_ntn3_1_err_status.attr,
 	&dev_attr_iemac_0_err_status.attr,
 	&dev_attr_iemac_1_err_status.attr,
+	&dev_attr_ipa_hm_status.attr,
+	&dev_attr_rc_log.attr,
 #if defined(CONFIG_IPA_TSP)
 	&dev_attr_tsp.attr,
 #endif

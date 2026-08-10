@@ -47,6 +47,7 @@
 #include <linux/mhi_dma.h>
 #include "ipa_uc_holb_monitor.h"
 #include <soc/qcom/minidump.h>
+#include "ipa_rc.h"
 
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"
@@ -884,6 +885,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa_wwan_to_eth_II_ex_procparams generic_params_v2;
 	struct ipa_pdn_dscp_procparams pdn_dscp_params;
+	struct ipa_pppoe_header_add_procparams pppoe_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
 	u32 ref_cnt;
@@ -1604,6 +1606,18 @@ enum ipa3_platform_type {
 	IPA_PLAT_TYPE_APQ	= 2,
 };
 
+/*
+* enum ipa3_pppoe_mode - PPPPoE WAN operating modes for pipe configuration
+* @IPA_PPPOE_DISABLED: PPPoE is disabled.
+* @IPA_PPPOE_LEGACY: Configure pipes for PPPoE with LAN concurrency support.
+* @IPA_PPPOE_QOS: Configure pipes for PPPoE with QoS.
+*/
+enum ipa3_pppoe_mode {
+	IPA_PPPOE_DISABLED = 0,
+	IPA_PPPOE_LEGACY,
+	IPA_PPPOE_QOS,
+};
+
 enum ipa3_config_this_ep {
 	IPA_CONFIGURE_THIS_EP,
 	IPA_DO_NOT_CONFIGURE_THIS_EP,
@@ -1644,7 +1658,7 @@ struct ipa3_stats {
 	u32 tx_hw_pkts;
 	u32 tx_queue_fail_pkts;
 	u32 rx_pkts;
-	u32 rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_MAX];
+	u32 rx_excp_pkts[MAX_RC_CLIENTS][IPAHAL_PKT_STATUS_EXCEPTION_MAX];
 	u32 rx_repl_repost;
 	u32 tx_pkts_compl;
 	u32 rx_q_len;
@@ -2401,6 +2415,10 @@ struct ipa3_ip_pass_msg {
  * @ipa3_hw_mode: mode of IPA HW mode (e.g. Normal, Virtual or over PCIe)
  * @gsi_ver: version of GSI
  * @ipa_config_is_rdkb: is this RDKB platform
+ * @ipa_config_pppoe_mode: PPPoE mode configured from ipa_config.txt
+ * @ipa_eth_pppoe_intf_name: name of the ethernet physical interface on which
+ *  PPPoE has been enabled
+ * @client_hps_eth_index: value to store for which eth ep to update hps sequence
  * @use_ipa_teth_bridge: use tethering bridge driver
  * @modem_cfg_emb_pipe_flt: modem configure embedded pipe filtering rules
  * @logbuf: ipc log buffer for high priority messages
@@ -2556,6 +2574,9 @@ struct ipa3_context {
 	enum ipa3_platform_type platform_type;
 	bool ipa_config_is_mhi;
 	bool ipa_config_is_rdkb;
+	enum ipa3_pppoe_mode ipa_config_pppoe_mode;
+	char ipa_eth_pppoe_intf_name[IFNAMSIZ];
+	u8 client_hps_eth_index;
 	bool ipa_config_is_ipsec;
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
@@ -2791,6 +2812,7 @@ struct ipa3_context {
 	atomic_t is_suspend_mode_enabled;
 	uint8_t device_mode;
 	bool device_vlan_mode;
+	bool is_rc_log_enabled;
 };
 
 struct ipa3_plat_drv_res {
@@ -3585,6 +3607,8 @@ bool ipa3_is_client_handle_valid(u32 clnt_hdl);
 
 enum ipa_client_type ipa3_get_client_mapping(int pipe_idx);
 enum ipa_client_type ipa3_get_client_by_pipe(int pipe_idx);
+int ipa3_get_chan_by_client(enum ipa_client_type client);
+int ipa3_get_ee_by_client(enum ipa_client_type client);
 
 void ipa_init_ep_flt_bitmap(void);
 
@@ -3709,6 +3733,7 @@ int ipa3_query_intf(struct ipa_ioc_query_intf *lookup);
 int ipa3_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx);
 int ipa3_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
+int ipa3_find_intf_by_client(enum ipa_client_type client);
 
 int ipa3_get_max_pdn(void);
 
@@ -3835,6 +3860,10 @@ struct ipa_teth_stats_endpoints {
 int ipa_hw_stats_init(void);
 
 int ipa_init_flt_rt_stats(void);
+
+int ipa_rc_init(void);
+
+void ipa_rc_deinit(void);
 
 int ipa_init_quota_stats(u32 *pipe_bitmask);
 
@@ -4252,5 +4281,9 @@ static inline bool ipa_is_proc_ctx_headerless(enum ipa_hdr_proc_type type)
 		type == IPA_HDR_PROC_IPSEC_DECAP ||
 		type == IPA_HDR_PROC_IPSEC_DECAP_NXT_RND);
 }
+
+int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry);
+void ipa3_nat_ipv6ct_free_mem(struct ipa3_nat_ipv6ct_common_mem *dev);
+int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num);
 
 #endif /* _IPA3_I_H_ */

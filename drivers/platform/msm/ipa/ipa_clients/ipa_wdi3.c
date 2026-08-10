@@ -322,6 +322,7 @@ int ipa_wdi_reg_intf_per_inst(
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_tx_intf tx;
 	struct ipa_rx_intf rx;
+	struct ipa_rc_wlan_intf_info *wlan_intf;
 	struct ipa_ioc_tx_intf_prop tx_prop[4];
 	struct ipa_ioc_rx_intf_prop rx_prop[4];
 	char iface_name[IPA_RESOURCE_NAME_MAX] = {'\0'};
@@ -329,6 +330,7 @@ int ipa_wdi_reg_intf_per_inst(
 	int i = 0;
 	int ret = 0;
 	int num_hdr = 0;
+	bool found = false;
 
 	if (in == NULL) {
 		IPA_WDI_ERR("invalid params in=%pK\n", in);
@@ -463,6 +465,35 @@ int ipa_wdi_reg_intf_per_inst(
 
  	rx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
  	if (in->is_meta_data_valid) {
+		mutex_lock(&rc_ctx->rc_lock);
+		list_for_each_entry(wlan_intf, &ipa_rc_wlan_info.head, link) {
+			if(strcmp(wlan_intf->name, in->netdev_name) == 0) {
+				wlan_intf->metadata_mask = in->meta_data_mask;
+				wlan_intf->metadata = in->meta_data;
+				wlan_intf->hdl = in->hdl;
+				found = true;
+				break;
+			}
+		}
+		if(!found) {
+			wlan_intf = kzalloc(sizeof(*wlan_intf), GFP_KERNEL);
+			if (!wlan_intf) {
+				WARN(1, "Kzalloc failed\n");
+				mutex_unlock(&rc_ctx->rc_lock);
+				return -ENOMEM;
+			}
+
+			strlcpy(wlan_intf->name, in->netdev_name,
+					sizeof(wlan_intf->name));
+			wlan_intf->metadata_mask = in->meta_data_mask;
+			wlan_intf->metadata = in->meta_data;
+			wlan_intf->hdl = in->hdl;
+			INIT_LIST_HEAD(&wlan_intf->link);
+			list_add(&wlan_intf->link, &ipa_rc_wlan_info.head);
+			ipa_rc_wlan_info.size++;
+		}
+		mutex_unlock(&rc_ctx->rc_lock);
+
  		rx_prop[0].attrib.attrib_mask |= IPA_FLT_META_DATA;
  		rx_prop[0].attrib.meta_data = in->meta_data;
  		rx_prop[0].attrib.meta_data_mask = in->meta_data_mask;
@@ -1191,6 +1222,7 @@ int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 	struct ipa_wdi_intf_info *next;
 	struct ipa_ioc_del_hdr *hdr = NULL;
 	int i, len, num_hdr;
+	struct ipa_rc_wlan_intf_info *wlan_intf, *tmp;
 
 	if (hdl < 0 || hdl >= IPA_WDI_INST_MAX) {
 		IPA_WDI_ERR("Invalid Handle %d\n", hdl);
@@ -1213,6 +1245,17 @@ int ipa_wdi_cleanup_per_inst(ipa_wdi_hdl_t hdl)
 	}
 
 	num_hdr = ipa_wdi_ctx_list[hdl]->is_rx1_used ? 4 : 2;
+	mutex_lock(&rc_ctx->rc_lock);
+	/* clear HM wlan intf entries owned by this instance handle */
+	list_for_each_entry_safe(wlan_intf, tmp,
+		&ipa_rc_wlan_info.head, link) {
+		if (wlan_intf->hdl == hdl) {
+			list_del(&wlan_intf->link);
+			ipa_rc_wlan_info.size--;
+			kfree(wlan_intf);
+		}
+	}
+	mutex_unlock(&rc_ctx->rc_lock);
 
 	/* clear interface list */
 	list_for_each_entry_safe(entry, next,

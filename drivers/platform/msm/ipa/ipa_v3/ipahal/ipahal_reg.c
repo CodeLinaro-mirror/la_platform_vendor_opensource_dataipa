@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/init.h>
@@ -2325,6 +2325,20 @@ static void ipareg_construct_endp_init_hol_block_timer_n_v5_0(
 		IPA_ENDP_INIT_HOL_BLOCK_TIMER_n_GRAN_SEL_BMSK_V5_0);
 }
 
+static void ipareg_construct_endp_init_ucp_cfg_n_v6_0(enum ipahal_reg_name reg,
+	const void *fields, u32 *val)
+{
+	struct ipa_ep_cfg_ucp *ep_ucp =
+		(struct ipa_ep_cfg_ucp *)fields;
+
+	IPA_SETFIELD_IN_REG(*val, ep_ucp->command,
+		IPA_ENDP_INIT_UCP_CFG_n_COMMAND_SHFT_V6_0,
+		IPA_ENDP_INIT_UCP_CFG_n_COMMAND_BMSK_V6_0);
+
+	IPA_SETFIELD_IN_REG(*val, ep_ucp->enable,
+		IPA_ENDP_INIT_UCP_CFG_n_EN_SHFT_V6_0,
+		IPA_ENDP_INIT_UCP_CFG_n_EN_BMSK_V6_0);
+}
 static void ipareg_construct_endp_init_ctrl_n(enum ipahal_reg_name reg,
 	const void *fields, u32 *val)
 {
@@ -5883,6 +5897,9 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v6_0][IPA_ENDP_INIT_IPSEC_CFG_n] = {
                 ipareg_construct_dummy, ipareg_parse_dummy,
                 0x0000107C, 0x100, 0, 0, 0, 0},
+	[IPA_HW_v6_0][IPA_ENDP_INIT_UCP_CFG_n] = {
+		ipareg_construct_endp_init_ucp_cfg_n_v6_0, ipareg_parse_dummy,
+		0x00001074, 0x100, 0, 21, 1, 0},
 
 	/* IPA_DEBUG */
 	[IPA_HW_v6_0][IPA_RX_HPS_CLIENTS_MIN_DEPTH_1] = {

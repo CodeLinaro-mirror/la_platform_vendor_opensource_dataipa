@@ -3665,7 +3665,7 @@ int gsi_start_channel(unsigned long chan_hdl)
 		 */
 		GSIERR("chan=%lu state unsupported due to tiering\n",
 			chan_hdl);
-		gsi_dump_ch_info(chan_hdl);
+		gsi_dump_ch_info(chan_hdl, 0, NULL);
 		mutex_unlock(&gsi_ctx->mlock);
 
 		return -GSI_STATUS_UNSUPPORTED_OP;
@@ -3679,7 +3679,7 @@ int gsi_start_channel(unsigned long chan_hdl)
 		 */
 		GSIERR("chan=%lu timed out, unexpected state=%u\n",
 			chan_hdl, ctx->state);
-		gsi_dump_ch_info(chan_hdl);
+		gsi_dump_ch_info(chan_hdl, 0, NULL);
 		GSI_ASSERT();
 	}
 
@@ -3695,9 +3695,11 @@ int gsi_start_channel(unsigned long chan_hdl)
 }
 EXPORT_SYMBOL(gsi_start_channel);
 
-void gsi_dump_ch_info(unsigned long chan_hdl)
+void gsi_dump_ch_info(unsigned long chan_hdl, unsigned long ee,
+			struct chan_param_monitor *chan_param)
 {
 	uint32_t val;
+	struct gsi_chan_ctx *ctx;
 
 	if (!gsi_ctx) {
 		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
@@ -3709,74 +3711,132 @@ void gsi_dump_ch_info(unsigned long chan_hdl)
 		return;
 	}
 
+	if(ee > 2 || ee < 0) {
+		GSIERR("invalid EE %lu\n", ee);
+		return;
+	}
+
+	ctx = &gsi_ctx->chan[chan_hdl];
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_0,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu CTX0  0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(chan_param) {
+		chan_param->prot = (enum gsi_chan_prot) (val & 0x07);
+		chan_param->ch_state = (enum gsi_chan_state) ((val >> 20) & 0xF);
+		chan_param->re_size = (enum gsi_chan_ring_elem_size) ((val >> 24) & 0xFF);
+	}
+	else {
+		GSIERR("CH%2lu CTX0  0x%x\n", chan_hdl, val);
+	}
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_1,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu CTX1  0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(chan_param) {
+		chan_param->ring_len = (val & 0xFFFF);
+	}
+	else {
+		GSIERR("CH%2lu CTX1  0x%x\n", chan_hdl, val);
+	}
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_2,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu CTX2  0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(chan_param)
+		chan_param->ring_base = val;
+	else
+		GSIERR("CH%2lu CTX2  0x%x\n", chan_hdl, val);
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_3,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu CTX3  0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(!chan_param)
+		GSIERR("CH%2lu CTX3  0x%x\n", chan_hdl, val);
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_4,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu CTX4  0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(chan_param) {
+		chan_param->rp_ptr = val;
+		if(ctx->props.use_db_eng == GSI_CHAN_DB_MODE)
+			chan_param->rp_ptr = val & 0xFFFF;
+	}
+	else {
+		GSIERR("CH%2lu CTX4  0x%x\n", chan_hdl, val);
+	}
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_5,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu CTX5  0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(!chan_param)
+		GSIERR("CH%2lu CTX5  0x%x\n", chan_hdl, val);
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_6,
-		gsi_ctx->per.ee, chan_hdl);
+		ee, chan_hdl);
+	if(chan_param && ctx->props.use_db_eng != GSI_CHAN_DB_MODE)
+		chan_param->wp_ptr = val;
+	if(!chan_param)
 	GSIERR("CH%2lu CTX6  0x%x\n", chan_hdl, val);
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_7,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu CTX7  0x%x\n", chan_hdl, val);
-	if (gsi_ctx->per.ver >= GSI_VER_3_0) {
+		ee, chan_hdl);
+	if(!chan_param)
+		GSIERR("CH%2lu CTX7  0x%x\n", chan_hdl, val);
+	if (gsi_ctx->per.ver >= GSI_VER_3_0 && !chan_param) {
 		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_8,
-			gsi_ctx->per.ee, chan_hdl);
+			ee, chan_hdl);
 		GSIERR("CH%2lu CTX8  0x%x\n", chan_hdl, val);
 	}
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_RE_FETCH_READ_PTR,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu REFRP 0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(!chan_param)
+		GSIERR("CH%2lu REFRP 0x%x\n", chan_hdl, val);
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_RE_FETCH_WRITE_PTR,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu REFWP 0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	/* currently reading first 16 bits as other 16bits are reserved value*/
+	if(chan_param && ctx->props.use_db_eng == GSI_CHAN_DB_MODE)
+		chan_param->wp_ptr = (val & 0xFFFF);
+	if(!chan_param)
+		GSIERR("CH%2lu REFWP 0x%x\n", chan_hdl, val);
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_QOS,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu QOS   0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(!chan_param)
+		GSIERR("CH%2lu QOS   0x%x\n", chan_hdl, val);
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_0,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu SCR0  0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(!chan_param)
+		GSIERR("CH%2lu SCR0  0x%x\n", chan_hdl, val);
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_1,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu SCR1  0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(!chan_param)
+		GSIERR("CH%2lu SCR1  0x%x\n", chan_hdl, val);
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_2,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu SCR2  0x%x\n", chan_hdl, val);
+		ee, chan_hdl);
+	if(!chan_param)
+		GSIERR("CH%2lu SCR2  0x%x\n", chan_hdl, val);
+
 	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_3,
-		gsi_ctx->per.ee, chan_hdl);
-	GSIERR("CH%2lu SCR3  0x%x\n", chan_hdl, val);
-	if (gsi_ctx->per.ver >= GSI_VER_3_0) {
+		ee, chan_hdl);
+	if(!chan_param)
+		GSIERR("CH%2lu SCR3  0x%x\n", chan_hdl, val);
+
+	if (gsi_ctx->per.ver >= GSI_VER_3_0 && !chan_param) {
 		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_4,
-			gsi_ctx->per.ee, chan_hdl);
+			ee, chan_hdl);
 		GSIERR("CH%2lu SCR4  0x%x\n", chan_hdl, val);
 		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_5,
-			gsi_ctx->per.ee, chan_hdl);
+			ee, chan_hdl);
 		GSIERR("CH%2lu SCR5  0x%x\n", chan_hdl, val);
 		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_6,
-			gsi_ctx->per.ee, chan_hdl);
+			ee, chan_hdl);
 		GSIERR("CH%2lu SCR6  0x%x\n", chan_hdl, val);
 		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_7,
-			gsi_ctx->per.ee, chan_hdl);
+			ee, chan_hdl);
 		GSIERR("CH%2lu SCR7  0x%x\n", chan_hdl, val);
 		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_8,
-			gsi_ctx->per.ee, chan_hdl);
+			ee, chan_hdl);
 		GSIERR("CH%2lu SCR8  0x%x\n", chan_hdl, val);
 		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9,
-			gsi_ctx->per.ee, chan_hdl);
+			ee, chan_hdl);
 		GSIERR("CH%2lu SCR9  0x%x\n", chan_hdl, val);
 	}
 
@@ -3843,7 +3903,7 @@ int gsi_stop_channel(unsigned long chan_hdl)
 	if (ctx->state != GSI_CHAN_STATE_STOPPED &&
 		ctx->state != GSI_CHAN_STATE_STOP_IN_PROC) {
 		GSIERR("chan=%lu unexpected state=%u\n", chan_hdl, ctx->state);
-		gsi_dump_ch_info(chan_hdl);
+		gsi_dump_ch_info(chan_hdl, 0, NULL);
 		res = -GSI_STATUS_BAD_STATE;
 		BUG();
 		goto free_lock;

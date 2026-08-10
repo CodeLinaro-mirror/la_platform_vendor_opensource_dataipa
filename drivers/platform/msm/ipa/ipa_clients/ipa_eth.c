@@ -554,6 +554,7 @@ static enum ipa_client_type
 	case IPA_ETH_CLIENT_NTN3:
 	case IPA_ETH_CLIENT_IEMAC:
 		if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT) {
+			IPA_ETH_DBG("IPA_ETH_PIPE_BEST_EFFORT\n");
 			if (client->inst_id == 0) {
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 					ipa_client_type =
@@ -584,6 +585,14 @@ static enum ipa_client_type
 					ipa_client_type =
 						IPA_CLIENT_ETHERNET_CONS;
 				} else {
+					ipa_client_type =
+						IPA_CLIENT_ETHERNET_PROD1;
+				}
+			}
+		} else if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE) {
+			IPA_ETH_DBG("IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE\n");
+			if (client->inst_id == 0) {
+				if (pipe->dir == IPA_ETH_PIPE_DIR_RX) {
 					ipa_client_type =
 						IPA_CLIENT_ETHERNET_PROD1;
 				}
@@ -627,6 +636,7 @@ static enum ipa_client_type
 						}
 				}
 		} else if (traffic_type == IPA_ETH_PIPE_TRAFFIC_TYPE_QOS) {
+			IPA_ETH_DBG("IPA_ETH_PIPE_TRAFFIC_TYPE_QOS\n");
 			if (ipa3_ctx->ipa_config_is_auto && client->inst_id == 0) {
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 					switch (tx_pipe_idx) {
@@ -1043,6 +1053,7 @@ add_pipe_list:
 		if (pipe->dir == IPA_ETH_PIPE_DIR_RX
 #if IPA_ETH_API_VER >= 3
 			|| pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN
+			|| pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE
 #endif
 			) {
 				rx_pipe_idx++;
@@ -1242,7 +1253,8 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 #if IPA_ETH_API_VER >= 3
 		IPA_ETH_DBG("Eth connect pipe %p traffic_type %d dir %d\n",
 				pipe, pipe->traffic_type, pipe->dir);
-		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN &&
+		if ((pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN ||
+		     pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE) &&
 			pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 			IPA_ETH_DBG("traffic_type %d dir %d continue...\n",
 				pipe->traffic_type, pipe->dir);
@@ -1431,7 +1443,8 @@ int ipa_eth_client_disconn_pipes(struct ipa_eth_client *client)
 	list_for_each_entry(pipe, &client->pipe_list,
 		link) {
 #if IPA_ETH_API_VER >= 3
-		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN
+		if ((pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN ||
+		     pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE)
 			&& pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 			IPA_ETH_DBG("traffic_type %d dir %d continue... \n",
 				pipe->traffic_type, pipe->dir);
@@ -1533,6 +1546,7 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 	u32 len = 0;
 	int ret = 0, i = 0;
 	int  rx_pipe_idx = 0, tx_pipe_idx = 0;
+	int  rx_non_pppoe_idx = 0;
 #if IPA_ETH_API_VER >= 2
 	struct ipa_ecm_msg msg ;
 	bool vlan_mode = false;
@@ -1795,7 +1809,8 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 #endif
 		if (ezmesh) {
 			if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-				if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN) {
+				if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN ||
+				    traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE) {
 					tx_client[1] =
 						ipa_eth_get_ipa_client_type_from_pipe(pipe,
 						rx_pipe_idx, tx_pipe_idx);
@@ -1807,7 +1822,8 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 				}
 				tx.num_props++;
 			} else {
-				if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN) {
+				if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN ||
+				    traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE) {
 					rx_client[1] =
 						ipa_eth_get_ipa_client_type_from_pipe(pipe,
 						rx_pipe_idx, tx_pipe_idx);
@@ -1829,10 +1845,27 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 #endif
 				tx.num_props++;
 			} else {
+#if IPA_ETH_API_VER >= 3
+				if (traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE) {
+					rx_client[1] =
+					ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
+#if IPA_ETH_API_VER >= 4
+					rx_tc[1] = pipe->tc_bmap;
+#endif
+				} else {
+					rx_client[rx_non_pppoe_idx] =
+					ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
+#if IPA_ETH_API_VER >= 4
+					rx_tc[rx_non_pppoe_idx] = pipe->tc_bmap;
+#endif
+					rx_non_pppoe_idx++;
+				}
+#else
 				rx_client[rx.num_props] =
 				ipa_eth_get_ipa_client_type_from_pipe(pipe, rx_pipe_idx, tx_pipe_idx);
 #if IPA_ETH_API_VER >= 4
 				rx_tc[rx.num_props] = pipe->tc_bmap;
+#endif
 #endif
 				rx.num_props++;
 			}
@@ -2157,8 +2190,26 @@ int ipa_eth_get_config_type(
 		}
 	}
 #endif
+	IPA_ETH_DBG("PPPOE+QoS configuration with QoS enabled (%d)\n", ipa3_ctx->eth_qos);
+	if ((ipa3_ctx->ipa_config_pppoe_mode == IPA_PPPOE_QOS) && inst_id == 0) {
+		snprintf(eth_config->config, sizeof(eth_config->config) ,"pppoe_qos");
+		eth_config->num_dma_channel = DMA_NUM_CHANNEL_EZMESH;
 
-	if (ezmesh) {
+		eth_config->dma_config[0].dir = IPA_ETH_PIPE_DIR_TX;
+		eth_config->dma_config[0].traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+
+		eth_config->dma_config[1].dir = IPA_ETH_PIPE_DIR_RX;
+		eth_config->dma_config[1].traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
+
+		eth_config->dma_config[2].dir = IPA_ETH_PIPE_DIR_RX;
+		eth_config->dma_config[2].traffic_type = IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE;
+
+		eth_config->dma_config[3].dir = IPA_ETH_PIPE_DIR_TX;
+		eth_config->dma_config[3].traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+
+		IPA_ETH_DBG("PPPOE + QoS configuration for client %d, inst_id %d, num_dma_channel %d\n",
+			client_type, inst_id, eth_config->num_dma_channel);
+	} else if (ezmesh) {
 		snprintf(eth_config->config, sizeof(eth_config->config) ,"ezmesh");
 		eth_config->num_dma_channel = DMA_NUM_CHANNEL_EZMESH;
 
@@ -2314,7 +2365,8 @@ int ipa_eth_client_enable_pipes(struct ipa_eth_client *client)
 #if IPA_ETH_API_VER >= 3
 		IPA_ETH_DBG("Eth connect pipe %p traffic_type %d dir %d\n",
 				pipe, pipe->traffic_type, pipe->dir);
-		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN &&
+		if ((pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN ||
+		     pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE) &&
 			pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 			IPA_ETH_DBG("traffic_type %d dir %d continue...\n",
 				pipe->traffic_type, pipe->dir);
@@ -2397,7 +2449,8 @@ int ipa_eth_client_disable_pipes(struct ipa_eth_client *client)
 	list_for_each_entry(pipe, &client->pipe_list,
 		link) {
 #if IPA_ETH_API_VER >= 3
-		if (pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN
+		if ((pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN ||
+		     pipe->traffic_type == IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE)
 			&& pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 			IPA_ETH_DBG("traffic_type %d dir %d continue...\n",
 				pipe->traffic_type, pipe->dir);
@@ -2421,4 +2474,3 @@ int ipa_eth_client_disable_pipes(struct ipa_eth_client *client)
 }
 EXPORT_SYMBOL(ipa_eth_client_disable_pipes);
 #endif
-

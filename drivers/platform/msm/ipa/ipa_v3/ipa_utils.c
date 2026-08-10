@@ -93,6 +93,11 @@
  */
 #define IPA_TIMER_SCALED_TIME_LIMIT 31
 
+/* Config the ucp command to process DL Packet in 2 pass (uC + DMA)
+ * in ETH_WAN + PPPoE
+ */
+#define IPA_UCP_CMD_CFG_HANDLE_ETH_WAN_PPPOE 38
+
 /* HPS, DPS sequencers Types*/
 
 /* DMA Only */
@@ -133,6 +138,9 @@
 #define IPA_DPS_HPS_SEQ_TYPE_3RD_PKT_PROCESS_PASS_2ND_UCP_ENCAPS_DRBIP 0x0000001b
 /* 2 Packet Processing + 2 uCP + Decaps + DRBIP */
 #define IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_2ND_UCP_DECAPS_DRBIP 0x0000001c
+/* DMA to uc directly + 2 packet processing */
+#define IPA_DPS_HPS_SEQ_TYPE_DMA_UCP_2ND_PKT_PROCESS 0x00000017
+
 /* Invalid sequencer type */
 #define IPA_DPS_HPS_SEQ_TYPE_INVALID 0xFFFFFFFF
 
@@ -10636,6 +10644,46 @@ enum ipa_client_type ipa3_get_client_mapping(int pipe_idx)
 EXPORT_SYMBOL(ipa3_get_client_mapping);
 
 /**
+ * ipa3_get_chan_by_client() - provide channel num mapped to client
+ * @client: IPA client name
+ *
+ * Return value: channel mapping
+ */
+int ipa3_get_chan_by_client(enum ipa_client_type client)
+{
+	u8 hw_idx;
+
+	hw_idx = ipa3_ctx->hw_type_index;
+	if (!ipa3_ep_mapping[hw_idx][client].valid) {
+		IPAERR("Client invalid\n");
+		return -EINVAL;
+	}
+
+	return ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ipa_gsi_chan_num;
+}
+EXPORT_SYMBOL(ipa3_get_chan_by_client);
+
+/**
+ * ipa3_get_ee_by_client() - provide exec env mapped to client
+ * @client: IPA client name
+ *
+ * Return value: EE mapping
+ */
+int ipa3_get_ee_by_client(enum ipa_client_type client)
+{
+	u8 hw_idx;
+
+	hw_idx = ipa3_ctx->hw_type_index;
+	if (!ipa3_ep_mapping[hw_idx][client].valid) {
+		IPAERR("Client invalid\n");
+		return -EINVAL;
+	}
+
+	return ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ee;
+}
+EXPORT_SYMBOL(ipa3_get_ee_by_client);
+
+/**
  * ipa3_get_client_by_pipe() - return client type relative to pipe
  * index
  * @pipe_idx: IPA end-point number
@@ -10748,6 +10796,8 @@ bool ipa_is_ep_support_flt(int pipe_idx)
 int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 {
 	int type;
+	struct ipa_ep_cfg_ucp ep_cfg_ucp;
+	struct ipa_ep_cfg_seq ep_cfg_seq;
 
 	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
 	    ipa3_ctx->ep[clnt_hdl].valid == 0) {
@@ -10801,6 +10851,28 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 		}
 		IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 		/* Configure sequencers type*/
+		if(ipa3_ctx->ipa_config_pppoe_mode == IPA_PPPOE_LEGACY &&
+			clnt_hdl == ipa3_ctx->client_hps_eth_index) {
+			IPAERR("Setting ucp cfg, and sequence type UCP_DMA\n"
+				"instead of default to enable PPPoE ETH_WAN\n");
+			//Update UCP CFG Register
+			ep_cfg_ucp.enable = true;
+			ep_cfg_ucp.command =
+				IPA_UCP_CMD_CFG_HANDLE_ETH_WAN_PPPOE;
+			ipahal_write_reg_n_fields(IPA_ENDP_INIT_UCP_CFG_n,
+					clnt_hdl, &ep_cfg_ucp);
+
+			// Update HPS sequence Register
+			ep_cfg_seq.set_dynamic = true;
+			ep_cfg_seq.seq_type =
+				IPA_DPS_HPS_SEQ_TYPE_DMA_UCP_2ND_PKT_PROCESS;
+			IPADBG("set sequencers to sequence 0x%x, ep = %d\n",
+				ep_cfg_seq.seq_type, clnt_hdl);
+			ipahal_write_reg_n(IPA_ENDP_INIT_SEQ_n, clnt_hdl,
+				ep_cfg_seq.seq_type);
+			IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
+			return 0;
+		}
 
 		IPADBG("set sequencers to sequence 0x%x, ep = %d\n", type,
 				clnt_hdl);

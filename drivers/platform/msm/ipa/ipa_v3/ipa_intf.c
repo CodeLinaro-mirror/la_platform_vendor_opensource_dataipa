@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
-#include "ipa_i.h"
 #include <linux/msm_ipa.h>
+#include "ipa_i.h"
 
 struct ipa3_intf {
 	char name[IPA_RESOURCE_NAME_MAX];
@@ -377,6 +377,59 @@ int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext)
 	return result;
 }
 
+/**
+ * ipa3_find_intf_by_client() - lookup chan present in interface list
+ * @ext:  [input] channel type
+ *
+ * Iterate and look for interface having input channel
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
+int ipa3_find_intf_by_client(enum ipa_client_type client)
+{
+	struct ipa3_intf *entry;
+	int result = -EINVAL;
+	int i;
+
+	if (client >= IPA_CLIENT_MAX || client < 0) {
+		IPADBG("Bad client num %d\n", client);
+		return result;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (IPA_CLIENT_IS_CONS(client)) {
+			/* Search across all TX props for a matching dst_pipe */
+			for (i = 0; i < entry->num_tx_props; i++) {
+				if (entry->tx &&
+					entry->tx[i].dst_pipe == client) {
+					mutex_unlock(&ipa3_ctx->lock);
+					if(ipa3_ctx->is_rc_log_enabled)
+						IPADBG("Client %d found in intf [%s] tx[%d]\n",
+							client, entry->name, i);
+					return 0;
+				}
+			}
+		} else {
+			/* Search across all RX props for a matching src_pipe */
+			for (i = 0; i < entry->num_rx_props; i++) {
+				if (entry->rx &&
+					entry->rx[i].src_pipe == client) {
+					mutex_unlock(&ipa3_ctx->lock);
+					if(ipa3_ctx->is_rc_log_enabled)
+						IPADBG("Client %d found in intf [%s] rx[%d]\n",
+							client, entry->name, i);
+					return 0;
+				}
+			}
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+	return result;
+}
+
 static void ipa_send_msg_free(void *buff, u32 len, u32 type)
 {
 	kfree(buff);
@@ -409,11 +462,12 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 	struct ipa_wlan_msg *event_ex_cur_discon = NULL;
 	struct ipa_wlan_msg *event_cur_con = NULL;
 	void *data_dup = NULL;
-	struct ipa3_push_msg *entry;
-	struct ipa3_push_msg *next;
+	struct ipa3_push_msg *entry, *next;
+	struct ipa_rc_wlan_intf_info *wlan_intf = NULL;
 	int cnt = 0, total = 0, max = 0;
 	uint8_t mac[IPA_MAC_ADDR_SIZE];
 	uint8_t mac2[IPA_MAC_ADDR_SIZE];
+	bool found = false;
 
 	if (!buff)
 		return -EINVAL;
@@ -431,6 +485,41 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 					event_cur_con->mac_addr[4],
 					event_cur_con->mac_addr[5],
 					meta->msg_type);
+		}
+
+		if(meta->msg_type == WLAN_AP_CONNECT ||
+			meta->msg_type == WLAN_STA_CONNECT) {
+			mutex_lock(&rc_ctx->rc_lock);
+			list_for_each_entry(wlan_intf, &ipa_rc_wlan_info.head, link) {
+				if(strcmp(wlan_intf->name, event_cur_con->name) == 0) {
+					wlan_intf->wlan_msg_type = meta->msg_type;
+					found = true;
+					break;
+				}
+			}
+
+			if(!found) {
+				wlan_intf = kzalloc(sizeof(*wlan_intf), GFP_KERNEL);
+				if (!wlan_intf) {
+					WARN(1, "Kzalloc failed\n");
+					mutex_unlock(&rc_ctx->rc_lock);
+					return -ENOMEM;
+				}
+
+				strlcpy(wlan_intf->name, event_cur_con->name,
+						sizeof(wlan_intf->name));
+				wlan_intf->wlan_msg_type = meta->msg_type;
+				/*
+				 * No WDI handle available on the connect event.
+				 * Tag as unowned (-1); reg_intf upserts this same
+				 * entry by name and stamps the real handle later.
+				 */
+				wlan_intf->hdl = -1;
+				INIT_LIST_HEAD(&wlan_intf->link);
+				list_add(&wlan_intf->link, &ipa_rc_wlan_info.head);
+				ipa_rc_wlan_info.size++;
+			}
+			mutex_unlock(&rc_ctx->rc_lock);
 		}
 
 		mutex_lock(&ipa3_ctx->msg_wlan_client_lock);
@@ -464,12 +553,11 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 	if (WLAN_IPA_DISCONNECT_EVENT(meta->msg_type)) {
 		/* debug print */
 		event_ex_cur_discon = buff;
-		IPADBG("Mac %pM, msg %d\n",
+		IPADBG("Mac %pM, msg %d, name %s\n",
 		event_ex_cur_discon->mac_addr,
-		meta->msg_type);
-		memcpy(mac2,
-			event_ex_cur_discon->mac_addr,
-			sizeof(mac2));
+		meta->msg_type, event_ex_cur_discon->name);
+
+		memcpy(mac2, event_ex_cur_discon->mac_addr, sizeof(mac2));
 
 		mutex_lock(&ipa3_ctx->msg_wlan_client_lock);
 		list_for_each_entry_safe(entry, next,
@@ -509,6 +597,7 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 			total++;
 		}
 		mutex_unlock(&ipa3_ctx->msg_wlan_client_lock);
+
 	}
 	return 0;
 }
