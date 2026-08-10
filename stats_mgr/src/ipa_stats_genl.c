@@ -20,7 +20,9 @@
 #include "../inc/ipa_stats_genl.h"
 
 /* ipa_debugfs_get_root() is defined in ipa_debugfs.c and exported via EXPORT_SYMBOL */
+#ifdef CONFIG_DEBUG_FS
 extern struct dentry *ipa_debugfs_get_root(void);
+#endif
 
 #define IPA_STATS_GENL_ATTR_MAX  (__IPA_STATS_GENL_ATTR_MAX - 1)
 
@@ -903,8 +905,10 @@ static int __init ipa_stats_genl_init(void)
 {
 	int ret;
 
+#ifdef CONFIG_DEBUG_FS
 	ipa_stats_debugfs_root = debugfs_create_dir("ipa_stats",
 						    ipa_debugfs_get_root());
+#endif
 
 	INIT_DELAYED_WORK(&ipa_stats_tick_work, ipa_stats_tick_work_fn);
 
