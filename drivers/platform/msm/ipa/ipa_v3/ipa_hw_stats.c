@@ -907,7 +907,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 		}
 	}
 
-	IPAERR_BOOTUP("prod_mask=[0x%x][0x%x]\n",
+	IPADBG_BOOTUP("prod_mask=[0x%x][0x%x]\n",
 		in->prod_mask[0], in->prod_mask[1]);
 
 	/* reset driver's cache */
@@ -1580,7 +1580,7 @@ int ipa_init_flt_rt_stats(void)
 
 	ret = ipa3_send_cmd(num_cmd, desc);
 	if (ret) {
-		IPAERR("failed to send immediate command (error %d)\n", ret);
+		IPAERR_BOOTUP("failed to send immediate command (error %d)\n", ret);
 		goto destroy_imm;
 	}
 
@@ -2781,7 +2781,7 @@ static ssize_t ipa_debugfs_enable_disable_drop_stats(struct file *file,
 		goto bail;
 	}
 	dbg_buff[count] = '\0';
-	IPAERR_BOOTUP("data is %s", dbg_buff);
+	IPADBG_BOOTUP("data is %s", dbg_buff);
 
 	i = 0;
 	while (dbg_buff[i] != ' ' && i < count)
@@ -2832,10 +2832,10 @@ static ssize_t ipa_debugfs_enable_disable_drop_stats(struct file *file,
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0 &&
 		(pipe_num_temp == IPA_CLIENT_USB_DPL_CONS ||
 		pipe_num_temp == IPA_CLIENT_ODL_DPL_CONS)) {
-		IPAERR_BOOTUP("Enable/Disable hw stats on DPL is not supported");
+		IPADBG_BOOTUP("Enable/Disable hw stats on DPL is not supported");
 	} else if (is_pipe && pipe_num >= 0 && pipe_num < ipa3_ctx->ipa_num_pipes &&
 		ipa3_get_client_by_pipe(pipe_num) < IPA_CLIENT_MAX) {
-		IPAERR_BOOTUP("pipe number %u\n", pipe_num);
+		IPADBG_BOOTUP("pipe number %u\n", pipe_num);
 		if (enable_pipe)
 			pipe_bitmask[pipe_ep_reg_idx] |= pipe_ep_reg_bit;
 		else

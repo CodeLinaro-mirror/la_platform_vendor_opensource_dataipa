@@ -184,12 +184,30 @@ enum {
 				DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
+#define IPADBG_BOOTUP(fmt, args...) \
+	do { \
+		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
+		if(ipa3_ctx) \
+			IPA_IPC_LOGGING(ipa3_ctx->logbuf_boot, \
+				DRV_NAME " %s:%d " fmt, ## args); \
+	} while (0)
+
 #define IPAERR_BOOTUP(fmt, args...) \
 	do { \
 		pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
 		if(ipa3_ctx) \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf_boot, \
 				DRV_NAME " %s:%d " fmt, ## args); \
+	} while (0)
+
+#define IPAERR_BOOTUP_RL(fmt, args...) \
+	do { \
+		pr_err_ratelimited_ipa(DRV_NAME " %s:%d " fmt, __func__,\
+		__LINE__, ## args);\
+		if (ipa3_ctx) { \
+			IPA_IPC_LOGGING(ipa3_ctx->logbuf_boot, \
+				DRV_NAME " %s:%d " fmt, ## args); \
+		} \
 	} while (0)
 
 #define IPAERR(fmt, args...) \
@@ -2578,6 +2596,8 @@ struct ipa3_context {
 	struct mutex recycle_stats_collection_lock;
 	struct mutex ssr_lock;
 	atomic_t is_suspend_mode_enabled;
+	bool gemnoc_ddr_init;
+	u32 *gemnoc_ddr_buf;
 };
 
 struct ipa3_plat_drv_res {
@@ -2665,6 +2685,7 @@ struct ipa3_plat_drv_res {
 	bool ipa_wdi_opt_dpath;
 	u8 coal_ipv4_id_ignore;
 	bool ipa_config_is_iot;
+	bool gemnoc_ddr_init;
 };
 
 /**

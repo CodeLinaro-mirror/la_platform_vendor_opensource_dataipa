@@ -698,7 +698,7 @@ int ipa3_wan_ioctl_init(void)
 
 	ipa3_process_ioctl = 1;
 
-	IPAERR_BOOTUP("IPA %s major(%d) initial ok :>>>>\n",
+	IPADBG_BOOTUP("IPA %s major(%d) initial ok :>>>>\n",
 	DRIVER_NAME, wan_ioctl_major);
 	return 0;
 

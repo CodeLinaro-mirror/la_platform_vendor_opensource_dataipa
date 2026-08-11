@@ -2094,7 +2094,7 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 	/* Initialize modem IPA-driver */
 	IPAWANDBG("send ipa3_qmi_init_modem_send_sync_msg to modem\n");
 	rc = ipa3_qmi_init_modem_send_sync_msg();
-	IPAWANERR("send ipa3_qmi_init_modem_send_sync_msg to modem rc:%d\n", rc);
+	IPAWANDBG("send ipa3_qmi_init_modem_send_sync_msg to modem rc:%d\n", rc);
 	if ((rc == -ENETRESET) || (rc == -ENODEV) || (rc == -ECONNRESET) ||
 		(rc == -EIO) ||  ((rc != 0) && (atomic_read(&ipa3_ctx->is_ssr)))) {
 		IPAWANERR(
@@ -2388,7 +2388,7 @@ static void ipa3_qmi_service_init_worker(struct work_struct *work)
 	}
 
 	/* Initialize QMI-service*/
-	IPAERR_BOOTUP("IPA A7 QMI init OK :>>>>\n");
+	IPADBG_BOOTUP("IPA A7 QMI init OK :>>>>\n");
 
 	ipa3_qmi_ctx->modem_cfg_emb_pipe_flt =
 		ipa3_get_modem_cfg_emb_pipe_flt();
@@ -2455,7 +2455,7 @@ qmi_client_start:
 	}
 
 	/* get Q6 service and start send modem-initial to Q6 */
-	IPAERR_BOOTUP("wait service available\n");
+	IPADBG_BOOTUP("wait service available\n");
 	return;
 
 deregister_qmi_client:
@@ -2501,7 +2501,7 @@ void ipa3_qmi_service_exit(void)
 
 	workqueues_stopped = true;
 
-	IPAERR_BOOTUP("Entry\n");
+	IPADBG_BOOTUP("Entry\n");
 	/* qmi-service */
 	if (ipa3_svc_handle != NULL) {
 		qmi_handle_release(ipa3_svc_handle);
@@ -2534,7 +2534,7 @@ void ipa3_qmi_service_exit(void)
 	ipa3_qmi_indication_fin = false;
 	ipa3_modem_init_cmplt = false;
 	send_qmi_init_q6 = true;
-	IPAERR_BOOTUP("Exit\n");
+	IPADBG_BOOTUP("Exit\n");
 }
 
 void ipa3_qmi_stop_workqueues(void)

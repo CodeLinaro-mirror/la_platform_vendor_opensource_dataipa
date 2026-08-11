@@ -1117,7 +1117,7 @@ int ipa3_uc_interface_init(void)
 	unsigned long phys_addr;
 
 	if (ipa3_ctx->uc_ctx.uc_inited) {
-		IPAERR_BOOTUP("uC interface already initialized\n");
+		IPADBG_BOOTUP("uC interface already initialized\n");
 		return 0;
 	}
 
@@ -1179,7 +1179,7 @@ int ipa3_uc_interface_init(void)
 
 	ipa3_ctx->uc_ctx.uc_inited = true;
 
-	IPAERR_BOOTUP("IPA uC interface is initialized\n");
+	IPADBG_BOOTUP("IPA uC interface is initialized\n");
 	return 0;
 
 irq_fail3:
