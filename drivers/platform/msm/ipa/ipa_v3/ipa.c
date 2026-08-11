@@ -11719,7 +11719,7 @@ static void ipa3_debug_log_destroy(void)
 	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
 		for (ip = 0; ip < IPA_IP_MAX; ip++) {
 			for (j = 0; j < IPA_MAX_FLT_TBLS; j++) {
-				kfree(dbg->flt_snaps[i].ep_flt_data[ip][j].rules);
+				kvfree(dbg->flt_snaps[i].ep_flt_data[ip][j].rules);
 				dbg->flt_snaps[i].ep_flt_data[ip][j].rules = NULL;
 			}
 		}
@@ -11734,10 +11734,10 @@ static void ipa3_debug_log_destroy(void)
 
 			if (dbg->rt_snaps[i].tbl_rt_data[ip]) {
 				for (j = 0; j < tbl_count; j++) {
-					kfree(dbg->rt_snaps[i].tbl_rt_data[ip][j].rules);
+					kvfree(dbg->rt_snaps[i].tbl_rt_data[ip][j].rules);
 					dbg->rt_snaps[i].tbl_rt_data[ip][j].rules = NULL;
 				}
-				kfree(dbg->rt_snaps[i].tbl_rt_data[ip]);
+				kvfree(dbg->rt_snaps[i].tbl_rt_data[ip]);
 				dbg->rt_snaps[i].tbl_rt_data[ip] = NULL;
 			}
 		}
@@ -11746,7 +11746,7 @@ static void ipa3_debug_log_destroy(void)
 	/* Free header snapshot entry arrays */
 	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
 		for (j = 0; j < HDR_TBLS_TOTAL; j++) {
-			kfree(dbg->hdr_snaps[i].tbl_hdr_data[j].entries);
+			kvfree(dbg->hdr_snaps[i].tbl_hdr_data[j].entries);
 			dbg->hdr_snaps[i].tbl_hdr_data[j].entries = NULL;
 		}
 	}
@@ -11754,7 +11754,7 @@ static void ipa3_debug_log_destroy(void)
 	/* Free proc_ctx header snapshot entry arrays */
 	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
 		for (j = 0; j < HPC_TBLS_TOTAL; j++) {
-			kfree(dbg->proc_ctx_hdr_snaps[i].tbl_proc_ctx_hdr_data[j].entries);
+			kvfree(dbg->proc_ctx_hdr_snaps[i].tbl_proc_ctx_hdr_data[j].entries);
 			dbg->proc_ctx_hdr_snaps[i].tbl_proc_ctx_hdr_data[j].entries = NULL;
 		}
 	}

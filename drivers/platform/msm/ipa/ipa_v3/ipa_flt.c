@@ -2032,12 +2032,12 @@ static void ipa3_save_flt_snapshot(enum ipa_ip_type ip)
 			if (!num_rules)
 				continue;
 
-			new_flt_rules = kcalloc(num_rules, sizeof(struct ipa3_flt_entry), GFP_KERNEL);
+			new_flt_rules = kvzalloc(num_rules * sizeof(struct ipa3_flt_entry), GFP_KERNEL);
 			if (!new_flt_rules)
 				continue;
 
 			if(data->rules)
-				kfree(data->rules);
+				kvfree(data->rules);
 
 			data->rules = new_flt_rules;
 			data->count = 0;
