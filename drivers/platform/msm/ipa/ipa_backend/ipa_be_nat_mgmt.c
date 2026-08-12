@@ -24,6 +24,15 @@
 #define HDR_METADATA_MUX_ID_BMASK 0x00FF0000
 #define HDR_METADATA_MUX_ID_SHFT 0x10
 
+/*
+ * BE_FLOW (RX metadata bit 29) marks backhaul-offloaded flows. The IEMAC pipe
+ * sets this on the EP metadata register via ipa3_cfg_ep_metadata(), but for
+ * IPv4 the NAT engine rewrites the metadata register from the PDN entry's
+ * src_metadata after NAT - so BE_FLOW must be re-asserted here or it would be
+ * lost post-NAT.
+ */
+#define HDR_METADATA_BE_FLOW (1 << 29)
+
 #ifdef FEATURE_WLAN_256_CLIENTS
 #define IPA_MAX_NUM_WIFI_CLIENTS 350
 #else
@@ -569,7 +578,8 @@ fail:
 
 uint32_t generate_met_data(uint8_t mux_id)
 {
-	return (mux_id << HDR_METADATA_MUX_ID_SHFT) & HDR_METADATA_MUX_ID_BMASK;
+	return ((mux_id << HDR_METADATA_MUX_ID_SHFT) & HDR_METADATA_MUX_ID_BMASK) |
+		HDR_METADATA_BE_FLOW;
 }
 
 /* Check for duplicate entries */

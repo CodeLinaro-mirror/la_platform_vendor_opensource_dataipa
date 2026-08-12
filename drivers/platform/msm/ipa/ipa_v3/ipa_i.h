@@ -454,6 +454,9 @@ enum {
 /* use QMAP header reserved bit to identify tethered traffic */
 #define IPA_QMAP_TETH_BIT (1 << 30)
 
+/* metadata bit 29 marks backhaul-offloaded (ethernet-backhaul) flows */
+#define IPA_METADATA_BE_FLOW_BIT (1 << 29)
+
 #ifdef CONFIG_ARM64
 /* Outer caches unsupported on ARM64 platforms */
 # define outer_flush_range(x, y)
@@ -3080,6 +3083,7 @@ struct ipa3_context {
 	 * paths. Mirrors IPACM's ipa_sw_rt_enable.
 	 */
 	bool ipa_sw;
+	u64 disable_flow_control_mask;
 };
 
 struct ipa3_plat_drv_res {
@@ -3191,6 +3195,7 @@ struct ipa3_plat_drv_res {
 	u32 max_ipv4_stats_accel_conn;
 	u32 max_ipv6_stats_accel_conn;
 	bool ipa_disable_per_flow_stats;
+	u64 disable_flow_control_mask;
 };
 
 /**
@@ -3626,6 +3631,8 @@ int ipa3_force_cfg_ep_holb(u32 clnt_hdl, struct ipa_ep_cfg_holb *ipa_ep_cfg);
 
 int ipa3_cfg_ep_metadata_mask(u32 clnt_hdl,
 		const struct ipa_ep_cfg_metadata_mask *ipa_ep_cfg);
+
+int ipa3_cfg_ep_metadata(u32 clnt_hdl, const struct ipa_ep_cfg_metadata *ep_md);
 
 int ipa3_cfg_ep_holb_by_client(enum ipa_client_type client,
 				const struct ipa_ep_cfg_holb *ipa_ep_cfg);
