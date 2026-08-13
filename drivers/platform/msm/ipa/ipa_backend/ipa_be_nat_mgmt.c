@@ -4054,17 +4054,99 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 }
 EXPORT_SYMBOL(ipa_sync_ipv4_stats_many_msg);
 
+#define IPA_BE_IFACE_ANY (-1)
+#define IPA_BE_FLUSH_MAX_PASSES 3
+
+/* iface_idx -> ep, populated on ipa_be_signal_iface_online() while the iface
+ * is still registered. ipa_be_signal_iface_offline() falls back to this when
+ * the live intf_list lookup misses, since ipa_deregister_intf() already
+ * dropped the iface before the disconnect signal reaches it. Separate lock
+ * from ipa3_ctx->lock, which ipa_rc_test_cleanup_rules() also takes.
+ */
+#define IPA_BE_IFACE_EP_CACHE_SIZE 8
+static struct {
+	int iface_idx;
+	int ep;
+	bool valid;
+} ipa_be_iface_ep_cache[IPA_BE_IFACE_EP_CACHE_SIZE];
+static int ipa_be_iface_ep_cache_next;
+static DEFINE_MUTEX(ipa_be_iface_ep_cache_lock);
+
+static void ipa_be_iface_ep_cache_put(int iface_idx, int ep)
+{
+	int i, slot = -1;
+
+	if (iface_idx == IPA_BE_IFACE_ANY)
+		return;
+
+	mutex_lock(&ipa_be_iface_ep_cache_lock);
+	for (i = 0; i < IPA_BE_IFACE_EP_CACHE_SIZE; i++) {
+		if (ipa_be_iface_ep_cache[i].valid &&
+		    ipa_be_iface_ep_cache[i].iface_idx == iface_idx) {
+			slot = i;
+			break;
+		}
+		if (!ipa_be_iface_ep_cache[i].valid && slot < 0)
+			slot = i;
+	}
+
+	if (slot < 0) {
+		slot = ipa_be_iface_ep_cache_next;
+		ipa_be_iface_ep_cache_next =
+			(ipa_be_iface_ep_cache_next + 1) % IPA_BE_IFACE_EP_CACHE_SIZE;
+	}
+
+	ipa_be_iface_ep_cache[slot].iface_idx = iface_idx;
+	ipa_be_iface_ep_cache[slot].ep = ep;
+	ipa_be_iface_ep_cache[slot].valid = true;
+	mutex_unlock(&ipa_be_iface_ep_cache_lock);
+}
+
+static int ipa_be_iface_ep_cache_get(int iface_idx)
+{
+	int i, ep = -1;
+
+	mutex_lock(&ipa_be_iface_ep_cache_lock);
+	for (i = 0; i < IPA_BE_IFACE_EP_CACHE_SIZE; i++) {
+		if (ipa_be_iface_ep_cache[i].valid &&
+		    ipa_be_iface_ep_cache[i].iface_idx == iface_idx) {
+			ep = ipa_be_iface_ep_cache[i].ep;
+			break;
+		}
+	}
+	mutex_unlock(&ipa_be_iface_ep_cache_lock);
+
+	return ep;
+}
+
+static void ipa_be_iface_ep_cache_evict(int iface_idx)
+{
+	int i;
+
+	mutex_lock(&ipa_be_iface_ep_cache_lock);
+	for (i = 0; i < IPA_BE_IFACE_EP_CACHE_SIZE; i++) {
+		if (ipa_be_iface_ep_cache[i].valid &&
+		    ipa_be_iface_ep_cache[i].iface_idx == iface_idx) {
+			ipa_be_iface_ep_cache[i].valid = false;
+			break;
+		}
+	}
+	mutex_unlock(&ipa_be_iface_ep_cache_lock);
+}
+
 static inline bool ipa_be_entry_iface_match_v4(const nat_table_entry *e, int iface_idx)
 {
-	return e->flow_iface == iface_idx || e->return_iface == iface_idx;
+	return iface_idx == IPA_BE_IFACE_ANY ||
+		e->flow_iface == iface_idx || e->return_iface == iface_idx;
 }
 
 static inline bool ipa_be_entry_iface_match_v6(const struct ipv6_ct_entry *e, int iface_idx)
 {
-	return e->flow_iface == iface_idx || e->return_iface == iface_idx;
+	return iface_idx == IPA_BE_IFACE_ANY ||
+		e->flow_iface == iface_idx || e->return_iface == iface_idx;
 }
 
-void ipa_be_signal_iface_offline(int iface_idx)
+static int ipa_be_flush_flows(int iface_idx)
 {
 	int i;
 	int v4_count = 0;
@@ -4402,11 +4484,52 @@ v6_path:
 	}
 
 out:
-	IPA_BE_DBG("iface %d offline: torn down v4=%d v6=%d flows via destroy_rule\n",
+	IPA_BE_DBG("iface %d flush: torn down v4=%d v6=%d flows via destroy_rule\n",
 		   iface_idx, v4_count, v6_count);
+	return v4_count + v6_count;
+}
+
+void ipa_be_signal_iface_offline(int iface_idx)
+{
+	/* Resolved before the flush: the lookup needs the iface still
+	 * registered, and it takes ipa3_ctx->lock, which the testcase cleanup
+	 * takes as well.
+	 */
+	int ep = ipa_be_get_ep_for_intf(iface_idx);
+
+	if (ep < 0)
+		ep = ipa_be_iface_ep_cache_get(iface_idx);
+
+	ipa_be_flush_flows(iface_idx);
+
+	if (ep >= 0)
+		ipa_rc_test_cleanup_rules(ep);
+	else
+		IPA_BE_DBG("iface %d: no ep, testcase rules left installed\n",
+			   iface_idx);
+
+	ipa_be_iface_ep_cache_evict(iface_idx);
+}
+
+void ipa_be_flush_all_flows(void)
+{
+	int pass;
+
+	/* ipa_be_flush_flows() drops ipa_be_nat_mgmt_lock between entries, so
+	 * a concurrent add can land in an already-scanned slot. Repeat until a
+	 * pass tears nothing down.
+	 */
+	for (pass = 0; pass < IPA_BE_FLUSH_MAX_PASSES; pass++)
+		if (!ipa_be_flush_flows(IPA_BE_IFACE_ANY))
+			break;
 }
 
 void ipa_be_signal_iface_online(int iface_idx)
 {
+	int ep = ipa_be_get_ep_for_intf(iface_idx);
+
+	if (ep >= 0)
+		ipa_be_iface_ep_cache_put(iface_idx, ep);
+
 	IPA_BE_DBG("iface %d online\n", iface_idx);
 }

@@ -7,6 +7,17 @@
 
 static char msg_buff[IPA_MAX_MSG_LEN + 1];
 
+#define IPA_RC_TEST_MAX_FLT_RULES 8
+
+/* Rules ipa_test_flt_order() installed, for cleanup. ep is the endpoint the
+ * rule was installed on, so a cleanup can be scoped to one interface.
+ */
+static struct {
+	u32 hdl;
+	int ep;
+} rc_test_flt[IPA_RC_TEST_MAX_FLT_RULES];
+static int rc_test_flt_cnt;
+
 static void print_testcases(void)
 {
 	pr_err("These are TCs to induce below conditions\n");
@@ -319,6 +330,19 @@ static void ipa_test_flt_order(enum ipa_client_type client, uint32_t *metadata)
 		mutex_unlock(&ipa3_ctx->lock);
 	}
 
+	if (!ret && !param->rules[0].status) {
+		mutex_lock(&ipa3_ctx->lock);
+		if (rc_test_flt_cnt < IPA_RC_TEST_MAX_FLT_RULES) {
+			rc_test_flt[rc_test_flt_cnt].hdl = param->rules[0].flt_rule_hdl;
+			rc_test_flt[rc_test_flt_cnt].ep = ipa_get_ep_mapping(client);
+			rc_test_flt_cnt++;
+		} else {
+			IPAERR("hdl table full, rule %u won't be cleaned up\n",
+				param->rules[0].flt_rule_hdl);
+		}
+		mutex_unlock(&ipa3_ctx->lock);
+	}
+
 	kfree(param);
 	return;
 }
@@ -512,8 +536,23 @@ static void ipa_test_sta_flt_order(enum ipa_client_type client, uint32_t *metada
 		sizeof(struct ipa_flt_rule_add));
 
 	/* installing dummy default rule on top */
-	if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)param, true))
+	if (ipa3_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)param, true) ||
+		param->rules[0].status) {
 		IPAERR("add dummy flt rule failed\n");
+		kfree(param);
+		return;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	if (rc_test_flt_cnt < IPA_RC_TEST_MAX_FLT_RULES) {
+		rc_test_flt[rc_test_flt_cnt].hdl = param->rules[0].flt_rule_hdl;
+		rc_test_flt[rc_test_flt_cnt].ep = ipa_get_ep_mapping(client);
+		rc_test_flt_cnt++;
+	} else {
+		IPAERR("hdl table full, rule %u won't be cleaned up\n",
+			param->rules[0].flt_rule_hdl);
+	}
+	mutex_unlock(&ipa3_ctx->lock);
 
 	kfree(param);
 	return;
@@ -544,6 +583,29 @@ static void ipa_test_wlan_sta_flt_order_lvl2(void)
 static void ipa_test_nat_init(void)
 {
 	ipa3_nat_ipv6ct_free_mem(&ipa3_ctx->nat_mem.dev);
+	return;
+}
+
+void ipa_rc_test_cleanup_rules(int ep)
+{
+	int i, keep = 0, cnt = 0;
+
+	mutex_lock(&ipa3_ctx->lock);
+	for (i = 0; i < rc_test_flt_cnt; i++) {
+		if (ep != IPA_RC_TEST_EP_ANY && rc_test_flt[i].ep != ep) {
+			rc_test_flt[keep++] = rc_test_flt[i];
+			continue;
+		}
+		if (!__ipa_del_flt_rule(rc_test_flt[i].hdl))
+			cnt++;
+	}
+	rc_test_flt_cnt = keep;
+
+	if (cnt && ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4))
+		IPAERR("failed to commit flt tbl\n");
+	mutex_unlock(&ipa3_ctx->lock);
+
+	IPADBG("ep %d: removed %d testcase filter rule(s)\n", ep, cnt);
 	return;
 }
 

@@ -156,6 +156,9 @@ void ipa_be_nat_mgmt_exit(void);
 void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg);
 void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg);
 
+/* Tears down every offloaded flow, as ECM_DISCONNECT does per iface. */
+void ipa_be_flush_all_flows(void);
+
 /* Returns the IPA hardware endpoint index for an interface, or -1 on failure. */
 int ipa_be_get_ep_for_intf(s32 intf_num);
 

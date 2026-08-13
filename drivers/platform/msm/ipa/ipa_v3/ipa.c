@@ -4776,6 +4776,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_CLEANUP:
 		/*Route and filter rules will also be clean*/
 		IPADBG("Got IPA_IOC_CLEANUP\n");
+#ifdef CONFIG_ECM_CONVERGENCE
+		/* ipa_backend owns the NAT/CT tables and the hdr entries its
+		 * rules reference, so the IPACM-restart teardown below would
+		 * destroy state that is still live and referenced by handle.
+		 */
+		ipa_be_flush_all_flows();
+		retval = 0;
+#else
 		retval = ipa3_reset_hdr(true);
 		IPA_ACTIVE_CLIENTS_INC_SPECIAL("SRAM");
 		retval = ipa3_nat_cleanup_cmd();
@@ -4784,6 +4792,8 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = ipa3_clean_mhip_dl_rule();
 		else
 			retval = ipa3_clean_modem_rule();
+#endif
+		ipa_rc_test_cleanup_rules(IPA_RC_TEST_EP_ANY);
 		ipa3_counter_id_remove_all();
 		ipa_rc_reset_drop_pkt_stats();
 		break;

@@ -402,4 +402,11 @@ ssize_t timer_val_store(struct device *dev, struct device_attribute *attr, const
 ssize_t testcase_show(struct device *dev, struct device_attribute *attr, char *ubuf);
 ssize_t testcase_store(struct device *dev, struct device_attribute *attr, const char *ubuf, size_t count);
 
+/* Removes the filter rules installed by the testcase_store() testcases. ep
+ * limits the removal to the rules installed on that endpoint;
+ * IPA_RC_TEST_EP_ANY removes all of them.
+ */
+#define IPA_RC_TEST_EP_ANY (-1)
+void ipa_rc_test_cleanup_rules(int ep);
+
 #endif /* _IPA_RC_H_ */
