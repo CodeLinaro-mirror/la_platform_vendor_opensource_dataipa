@@ -45,24 +45,6 @@
 #define ipa_ipv4_stopped(CTX) (rcu_dereference((CTX)->ipv4_stats_sync_cb) == NULL)
 #define ipa_ipv6_stopped(CTX) (rcu_dereference((CTX)->ipv6_stats_sync_cb) == NULL)
 
-typedef enum ipa_exception {
-	IPA_EXCEPTION_IPV4_MSG_UNKNOWN,
-	IPA_EXCEPTION_IPV6_MSG_UNKNOWN,
-	IPA_EXCEPTION_CONNECTION_INVALID,
-	IPA_EXCEPTION_NOT_SUPPORT_BRIDGE,
-	IPA_EXCEPTION_TCP_INVALID,
-	IPA_EXCEPTION_PROTOCOL_NOT_SUPPORT,
-	IPA_EXCEPTION_SRC_DEV_NOT_L3,
-	IPA_EXCEPTION_DEST_DEV_NOT_L3,
-	IPA_EXCEPTION_CFG_ERR,
-	IPA_EXCEPTION_CREATE_FAILED,
-	IPA_EXCEPTION_ENQUEUE_FAILED,
-	IPA_EXCEPTION_NOT_SUPPORT_6RD,
-	IPA_EXCEPTION_NO_SYNC_CB,
-	IPA_EXCEPTION_MAX
-} ipa_exception_t;
-
-
 /*
  * Message type of queued response message
  */
@@ -79,39 +61,6 @@ struct ipa_response_msg {
 	struct list_head node;
 	ipa_msg_types_t type;
 	u8 msg[];
-};
-
-/*
- * IPA context instance, private for IPA
- */
-struct ipa_ctx_instance_internal {
-	struct ipa_ctx_instance base;	/* Exported IPA context, is public to user of IPA*/
-
-	/*
-	 * Control state.
-	 */
-	struct kobject *sys_ipa;	/* Sysfs linkage */
-
-	struct list_head msg_queue;	/* Response message queue*/
-	spinlock_t lock;		/* Lock to protect message queue */
-
-	struct work_struct work;	/* Work to send response message back to caller*/
-
-	ipa_ipv4_msg_callback_t __rcu ipv4_stats_sync_cb;	/* Callback to call to sync ipv4 statistics */
-	ipa_ipv4_msg_callback_t __rcu ipv4_stats_sync_many_cb;	/* Callback to call to sync many ipv4 statistics */
-	void *ipv4_stats_sync_data;	/* Argument for above callback: ipv4_stats_sync_cb */
-
-	ipa_ipv6_msg_callback_t __rcu ipv6_stats_sync_cb;	/* Callback to call to sync ipv6 statistics */
-	ipa_ipv6_msg_callback_t __rcu ipv6_stats_sync_many_cb;	/* Callback to call to sync many ipv6 statistics */
-	void *ipv6_stats_sync_data;	/* Argument for above callback: ipv6_stats_sync_cb */
-
-	u32 exceptions[IPA_EXCEPTION_MAX];		/* Statistics for exception */
-
-	int32_t l2_feature_support;		/* L2 feature support */
-	int32_t ppe_rfs_feature_support;	/* PPE RFS feature support */
-
-	struct workqueue_struct *ipa_ipv4_wq;	/* Workqueue for IPv4 processing */
-	struct workqueue_struct *ipa_ipv6_wq;	/* Workqueue for IPv6 processing */
 };
 
 static struct ipa_ctx_instance_internal __ipa_be_ctx;
@@ -3075,7 +3024,7 @@ failed_ret:
 
 
 
-static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
+void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 {
 	bool lan2lan = false;
 	int ref = 0;
@@ -3325,7 +3274,7 @@ static void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
  *
  * @param msg   Pointer to IPv6 rule destroy message containing tuple and connection info.
  */
-static void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
+void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 {
 	bool lan2lan = false;
 	int ref = 0;
@@ -3982,7 +3931,7 @@ int ipa_be_init_if(void)
 	}
 
 #ifdef CONFIG_ECM_CONVERGENCE
-	if (ipa_be_nat_mgmt_init()) {
+	if (ipa_be_nat_mgmt_init(&__ipa_be_ctx)) {
 		IPA_BE_ERR("failed be_nat_mgmt_init\n");
 	}
 #else

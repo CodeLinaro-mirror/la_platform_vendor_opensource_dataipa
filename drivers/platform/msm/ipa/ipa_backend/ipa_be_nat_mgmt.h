@@ -24,9 +24,6 @@
 #define IPA_BE_SUCCESS 0  /* Successful operation */
 #define IPA_BE_FAILURE -1  /* Unsuccessful operation */
 
-/* Forward declaration */
-struct ipa_ctx_instance_internal;
-
 typedef struct _nat_table_entry
 {
 	uint32_t private_ip;
@@ -61,6 +58,27 @@ typedef struct _nat_table_entry
 	bool in_allowed;           /* Inbound direction allowed (for CT) */
 	uint16_t all_pkts_stats_cnt_index; /* All packets statistics counter index */
 	uint16_t non_frag_stats_cnt_index; /* Non fragmented statistics counter index */
+
+	/* iface/top from conn_rule at add time; used by
+	 * ipa_be_signal_iface_offline to match entries on an iface and
+	 * rebuild the destroy msg. MACs are not cached here — v4 filter
+	 * delete is IP-keyed. (v6 keeps MACs in ipv6_ct_entry since
+	 * ipa_be_v6_delete_filter_rule is MAC-keyed.)
+	 */
+	int flow_iface;
+	int return_iface;
+	int flow_top_iface;
+	int return_top_iface;
+
+	/* Original ECM add-time tuple (network order), pre-canonical-swap.
+	 * LAN2LAN teardown must key on this: ct_canonical_swap may reorder
+	 * the (private_ip, target_ip, ...) fields above away from the
+	 * add-time tuple that mappings/filters/FE state were built on.
+	 */
+	uint32_t orig_flow_ip;
+	uint32_t orig_return_ip;
+	uint16_t orig_flow_ident;
+	uint16_t orig_return_ident;
 
 }nat_table_entry;
 
@@ -127,4 +145,8 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	struct ipa_ipv4_msg *msg);
 ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *ipa_ctx,
 	struct ipa_ipv6_msg *msg);
+
+/* Teardown IPA-accelerated flows on iface disconnect; online is a no-op. */
+void ipa_be_signal_iface_offline(int iface_idx);
+void ipa_be_signal_iface_online(int iface_idx);
 #endif /* _IPA_BE_NAT_MGMT_ */

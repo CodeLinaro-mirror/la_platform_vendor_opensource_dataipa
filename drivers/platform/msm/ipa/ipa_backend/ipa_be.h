@@ -91,13 +91,70 @@ static inline bool ipa_be_v6_dst_is_link_local(const uint32_t dst_addr[4])
 		IPA_BE_LINK_LOCAL_IPV6_PREFIX;
 }
 
+typedef enum ipa_exception {
+	IPA_EXCEPTION_IPV4_MSG_UNKNOWN,
+	IPA_EXCEPTION_IPV6_MSG_UNKNOWN,
+	IPA_EXCEPTION_CONNECTION_INVALID,
+	IPA_EXCEPTION_NOT_SUPPORT_BRIDGE,
+	IPA_EXCEPTION_TCP_INVALID,
+	IPA_EXCEPTION_PROTOCOL_NOT_SUPPORT,
+	IPA_EXCEPTION_SRC_DEV_NOT_L3,
+	IPA_EXCEPTION_DEST_DEV_NOT_L3,
+	IPA_EXCEPTION_CFG_ERR,
+	IPA_EXCEPTION_CREATE_FAILED,
+	IPA_EXCEPTION_ENQUEUE_FAILED,
+	IPA_EXCEPTION_NOT_SUPPORT_6RD,
+	IPA_EXCEPTION_NO_SYNC_CB,
+	IPA_EXCEPTION_MAX
+} ipa_exception_t;
+
+/*
+ * IPA context instance, private for IPA
+ */
+struct ipa_ctx_instance_internal {
+	struct ipa_ctx_instance base;	/* Exported IPA context, is public to user of IPA*/
+
+	/*
+	 * Control state.
+	 */
+	struct kobject *sys_ipa;	/* Sysfs linkage */
+
+	struct list_head msg_queue;	/* Response message queue*/
+	spinlock_t lock;		/* Lock to protect message queue */
+
+	struct work_struct work;	/* Work to send response message back to caller*/
+
+	ipa_ipv4_msg_callback_t __rcu ipv4_stats_sync_cb;	/* Callback to call to sync ipv4 statistics */
+	ipa_ipv4_msg_callback_t __rcu ipv4_stats_sync_many_cb;	/* Callback to call to sync many ipv4 statistics */
+	void *ipv4_stats_sync_data;	/* Argument for above callback: ipv4_stats_sync_cb */
+
+	ipa_ipv6_msg_callback_t __rcu ipv6_stats_sync_cb;	/* Callback to call to sync ipv6 statistics */
+	ipa_ipv6_msg_callback_t __rcu ipv6_stats_sync_many_cb;	/* Callback to call to sync many ipv6 statistics */
+	void *ipv6_stats_sync_data;	/* Argument for above callback: ipv6_stats_sync_cb */
+
+	u32 exceptions[IPA_EXCEPTION_MAX];		/* Statistics for exception */
+
+	int32_t l2_feature_support;		/* L2 feature support */
+	int32_t ppe_rfs_feature_support;	/* PPE RFS feature support */
+
+	struct workqueue_struct *ipa_ipv4_wq;	/* Workqueue for IPv4 processing */
+	struct workqueue_struct *ipa_ipv6_wq;	/* Workqueue for IPv6 processing */
+};
+
 int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface);
 int ipa_be_add_ct_entry_v4(struct ipa_ipv4_rule_create_msg *v4_msg);
 int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface, bool lan2lan);
 void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enabled);
 void ipa_be_delete_ct_entry_v4(struct ipa_ipv4_rule_destroy_msg v4_msg);
-int ipa_be_nat_mgmt_init(void);
+int ipa_be_nat_mgmt_init(struct ipa_ctx_instance_internal *ipa_ctx);
 void ipa_be_nat_mgmt_exit(void);
+
+
+/* Shared with ipa_be_signal_iface_offline. Caller must not hold
+ * ipa_be_nat_mgmt_lock; it is acquired internally.
+ */
+void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg);
+void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg);
 
 /* Returns the IPA hardware endpoint index for an interface, or -1 on failure. */
 int ipa_be_get_ep_for_intf(s32 intf_num);

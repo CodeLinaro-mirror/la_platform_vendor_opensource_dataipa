@@ -112,6 +112,22 @@ struct ipv6_ct_entry {
 	uint16_t all_pkts_stats_cnt_index;
 	uint16_t non_frag_stats_cnt_index;
 	int pdn_iface;
+	/* iface/top like nat_table_entry, plus MACs — ipa_be_v6_delete_filter_rule
+	 * is MAC-keyed, so v6 must cache them (v4 delete is IP-keyed).
+	 */
+	int flow_iface;
+	int return_iface;
+	int flow_top_iface;
+	int return_top_iface;
+	u8  flow_mac[6];
+	u8  return_mac[6];
+	/* Original ECM add-time tuple (network order), pre-canonical-swap.
+	 * See nat_table_entry.
+	 */
+	uint32_t orig_flow_ip[4];
+	uint32_t orig_return_ip[4];
+	uint16_t orig_flow_ident;
+	uint16_t orig_return_ident;
 };
 
 struct NatEntryBase
@@ -160,6 +176,12 @@ struct NatBase
 };
 
 struct NatBase *NatBase = NULL;
+
+/* BE ctx for FLUSH_SWITCH_AE pushes from ipa_be_signal_iface_offline.
+ * Set at init / cleared at exit under ipa_be_nat_mgmt_lock; non-NULL
+ * implies nat_app and NatBase are valid.
+ */
+static struct ipa_ctx_instance_internal *g_ipa_ctx = NULL;
 
 /*
  * Guards the nat_app / NatBase lifetime against cache readers like
@@ -454,6 +476,11 @@ void ipa_be_nat_mgmt_exit(void)
 
 	mutex_lock(&ipa_be_nat_mgmt_lock);
 
+	/* Clear g_ipa_ctx before tearing down nat_app/NatBase so a racing
+	 * signal caller cannot observe a valid ctx alongside torn-down state.
+	 */
+	g_ipa_ctx = NULL;
+
 	/* Clean up NatBase */
 	if(NatBase)
 	{
@@ -511,7 +538,7 @@ void ipa_be_nat_mgmt_exit(void)
 	mutex_unlock(&ipa_be_nat_mgmt_lock);
 }
 
-int ipa_be_nat_mgmt_init(void)
+int ipa_be_nat_mgmt_init(struct ipa_ctx_instance_internal *ipa_ctx)
 {
 	int size = 0;
 
@@ -589,6 +616,8 @@ int ipa_be_nat_mgmt_init(void)
 		}
 		INIT_DELAYED_WORK(&ipa_be_stats_poll_work, ipa_be_stats_poll_work_fn);
 	}
+
+	g_ipa_ctx = ipa_ctx;
 
 	mutex_unlock(&ipa_be_nat_mgmt_lock);
 	return IPA_BE_SUCCESS;
@@ -1553,6 +1582,25 @@ static int ipa_be_ipv6ct_canonical_swap(s32 flow_intf, s32 return_intf,
 	return 0;
 }
 
+static void ipv6_ct_populate_topology(struct ipv6_ct_entry *cache,
+				      const struct ipa_ipv6_rule_create_msg *v6_msg,
+				      int pdn_iface)
+{
+	cache->pdn_iface        = pdn_iface;
+	cache->flow_iface       = v6_msg->conn_rule.flow_interface_num;
+	cache->return_iface     = v6_msg->conn_rule.return_interface_num;
+	cache->flow_top_iface   = v6_msg->conn_rule.flow_top_interface_num;
+	cache->return_top_iface = v6_msg->conn_rule.return_top_interface_num;
+	memcpy(cache->flow_mac,   v6_msg->conn_rule.flow_mac,   6);
+	memcpy(cache->return_mac, v6_msg->conn_rule.return_mac, 6);
+	memcpy(cache->orig_flow_ip,   v6_msg->tuple.flow_ip,
+	       sizeof(cache->orig_flow_ip));
+	memcpy(cache->orig_return_ip, v6_msg->tuple.return_ip,
+	       sizeof(cache->orig_return_ip));
+	cache->orig_flow_ident   = v6_msg->tuple.flow_ident;
+	cache->orig_return_ident = v6_msg->tuple.return_ident;
+}
+
 int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface, bool lan2lan)
 {
 	uint8_t mux_id = 0;
@@ -1712,8 +1760,9 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 			ret = -EFAULT;
 			goto cleanup_fwd_rule;
 		}
-		NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface = pdn_iface;
 		ipa_be_cum_assign(all_pkts_counter);
+		ipv6_ct_populate_topology(&NatBase->m_cache[cache_idx].ipv6_ct,
+					  &v6_msg, pdn_iface);
 	} else {
 		/* Legacy path (< IPA v7.0): single ALLOW_ALL entry, no counter allocation */
 		ret = ipv6ct_add_entry(&v6_msg, &rule_hdl);
@@ -1735,7 +1784,8 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 			ret = -EFAULT;
 			goto cleanup_single_rule;
 		}
-		NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface = pdn_iface;
+		ipv6_ct_populate_topology(&NatBase->m_cache[cache_idx].ipv6_ct,
+					  &v6_msg, pdn_iface);
 	}
 
 	goto cleanup;
@@ -2418,7 +2468,15 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 			nat_app->cache[cnt].pdn_index = pdn_index;
 			nat_app->cache[cnt].public_ip = rule->public_ip;
 			nat_app->cache[cnt].ip_pass_entry = rule->ip_pass_entry;
+			nat_app->cache[cnt].flow_iface = v4_msg.conn_rule.flow_interface_num;
+			nat_app->cache[cnt].return_iface = v4_msg.conn_rule.return_interface_num;
+			nat_app->cache[cnt].flow_top_iface = v4_msg.conn_rule.flow_top_interface_num;
+			nat_app->cache[cnt].return_top_iface = v4_msg.conn_rule.return_top_interface_num;
 			nat_app->cache[cnt].flow_rule_id = v4_msg.tuple.flow_rule_id;
+			nat_app->cache[cnt].orig_flow_ip      = v4_msg.tuple.flow_ip;
+			nat_app->cache[cnt].orig_return_ip    = v4_msg.tuple.return_ip;
+			nat_app->cache[cnt].orig_flow_ident   = v4_msg.tuple.flow_ident;
+			nat_app->cache[cnt].orig_return_ident = v4_msg.tuple.return_ident;
 			nat_app->curCnt++;
 		}
 
@@ -3609,7 +3667,9 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 			}
 		}
 
-		/* Set reason as stats sync */
+		/* Poll path always emits STATS; FLUSH_SWITCH_AE is pushed
+		 * separately by ipa_be_signal_iface_offline.
+		 */
 		conn_sync->reason = IPA_RULE_SYNC_REASON_STATS;
 
 		IPA_BE_DBG("IPv6 CT Entry %d: protocol=%u, src_port=%u, dest_port=%u, timestamp=%u, inc_ticks=%u, reason=%u\n",
@@ -3672,6 +3732,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	uint32_t timestamp = 0;
 	uint32_t rule_hdl;
 	uint32_t old_timestamp;
+	uint16_t stats_cnt_index;
 	int ret;
 	bool is_timestamp = true;
 	bool is_stats = true;
@@ -3878,22 +3939,24 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 			/* If timestamp hasn't changed, leave inc_ticks as 0 (entry is inactive) */
 		}
 
+		stats_cnt_index = nat_app->cache[i].all_pkts_stats_cnt_index;
+
 		mutex_unlock(&nat_app->cache_lock);
 
-		if (is_stats && nat_app->cache[i].all_pkts_stats_cnt_index > 0) {
+		if (is_stats && stats_cnt_index > 0) {
 			struct ipahal_stats_nat_ct stats = {};
 
-			ret = get_ct_stats_cached(nat_app->cache[i].all_pkts_stats_cnt_index,
+			ret = get_ct_stats_cached(stats_cnt_index,
 						  entry_stats_cache, entry_stats_cache_valid,
 						  entry_stats_cache_len, &stats);
 			if (ret) {
 				IPA_BE_ERR("Failed to get stats for NAT entry %d: idx=%u, ret=%d\n",
-					   i, nat_app->cache[i].all_pkts_stats_cnt_index, ret);
+					   i, stats_cnt_index, ret);
 			} else {
 				IPA_BE_DBG("Rule %d stats: idx=%u "
 					   "inbound_pkts=%u inbound_cache_pkts=%u inbound_bytes=%llu "
 					   "outbound_pkts=%u outbound_cache_pkts=%u outbound_bytes=%llu\n",
-					   i, nat_app->cache[i].all_pkts_stats_cnt_index,
+					   i, stats_cnt_index,
 					   stats.num_pkts_inbound, stats.num_pkts_cache_inbound,
 					   stats.num_bytes_inbound,
 					   stats.num_pkts_outbound, stats.num_pkts_cache_outbound,
@@ -3917,7 +3980,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 					   "flow_tx_pkts=%u flow_tx_bytes=%u flow_tx_pkt_cache=%u\n"
 					   "return_rx_pkts=%u return_rx_bytes=%u return_rx_pkt_cache=%u\n"
 					   "return_tx_pkts=%u return_tx_bytes=%u return_tx_pkt_cache=%u\n",
-					   i, nat_app->cache[i].all_pkts_stats_cnt_index,
+					   i, stats_cnt_index,
 					   entry_is_ct ? " (CT)" : "",
 					   conn_sync->flow_rx_packet_count,
 					   conn_sync->flow_rx_byte_count,
@@ -3934,7 +3997,9 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 			}
 		}
 
-		/* Set reason as stats sync */
+		/* Poll path always emits STATS; FLUSH_SWITCH_AE is pushed
+		 * separately by ipa_be_signal_iface_offline.
+		 */
 		conn_sync->reason = IPA_RULE_SYNC_REASON_STATS;
 
 		IPA_BE_DBG("Successfully added entry %d to response[%u]: protocol=%u, flow_ip=%pI4h:%u, flow_ip_xlate=%pI4h:%u, return_ip=%pI4h:%u, return_ip_xlate=%pI4h:%u, timestamp=%u, inc_ticks=%u, reason=%u, pdn_index=%u\n",
@@ -3988,3 +4053,360 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	return IPA_TX_SUCCESS;
 }
 EXPORT_SYMBOL(ipa_sync_ipv4_stats_many_msg);
+
+static inline bool ipa_be_entry_iface_match_v4(const nat_table_entry *e, int iface_idx)
+{
+	return e->flow_iface == iface_idx || e->return_iface == iface_idx;
+}
+
+static inline bool ipa_be_entry_iface_match_v6(const struct ipv6_ct_entry *e, int iface_idx)
+{
+	return e->flow_iface == iface_idx || e->return_iface == iface_idx;
+}
+
+void ipa_be_signal_iface_offline(int iface_idx)
+{
+	int i;
+	int v4_count = 0;
+	int v6_count = 0;
+	int max;
+
+	/* Per matching entry: snapshot under cache_lock, capture HW stats
+	 * (timestamp before counters, per HW/driver sequence), drop
+	 * nat_mgmt_lock, call destroy_rule (FSE + backhaul + QoS + filters
+	 * + HW NAT/CT delete + PDN mgmt), then push FLUSH_SWITCH_AE to FE
+	 * with the captured stats. All flows on the iface are torn down
+	 * unconditionally; ECM handles the SFE transition via the defunct
+	 * path (see ecm_front_end_common_connection_defunct_check).
+	 */
+
+	/* v4 pass */
+	mutex_lock(&ipa_be_nat_mgmt_lock);
+	if (!nat_app || !nat_app->cache || !nat_app->nat_table_hdl) {
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+		goto v6_path;
+	}
+	max = nat_app->max_entries;
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
+
+	for (i = 0; i < max; i++) {
+		nat_table_entry local;
+		struct ipahal_stats_nat_ct stats = {};
+		uint32_t ts __maybe_unused = 0;
+		struct ipa_ipv4_rule_destroy_msg dmsg;
+		ipa_ipv4_msg_callback_t push_cb;
+		bool lan2lan;
+		bool is_downlink;
+		bool got = false;
+
+		mutex_lock(&ipa_be_nat_mgmt_lock);
+		if (!nat_app || !nat_app->cache || !nat_app->nat_table_hdl) {
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
+			break;
+		}
+		mutex_lock(&nat_app->cache_lock);
+		if (nat_app->cache[i].private_ip != 0 &&
+		    nat_app->cache[i].enabled &&
+		    ipa_be_entry_iface_match_v4(&nat_app->cache[i], iface_idx)) {
+			local = nat_app->cache[i];
+			got = true;
+		}
+		mutex_unlock(&nat_app->cache_lock);
+		if (!got) {
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
+			continue;
+		}
+
+		/* Capture final HW stats: timestamp first, then per-flow
+		 * counters (HW/driver-mandated sequence).
+		 */
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+		ipa_nat_query_timestamp(nat_app->nat_table_hdl, local.rule_hdl, &ts);
+		if (local.all_pkts_stats_cnt_index > 0)
+			ipa_get_nat_ct_stats(local.all_pkts_stats_cnt_index, &stats);
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+
+		lan2lan = (local.flow_iface == local.flow_top_iface &&
+			   local.return_iface == local.return_top_iface);
+		is_downlink = !lan2lan &&
+			(local.flow_iface == local.flow_top_iface);
+
+		/* Synthesize destroy msg. LAN2LAN uses the cached pre-swap
+		 * tuple with no xlate; LAN2WAN uses the NAT-normalized tuple
+		 * with proper xlate.
+		 */
+		memset(&dmsg, 0, sizeof(dmsg));
+		if (lan2lan) {
+			dmsg.tuple.flow_ip             = local.orig_flow_ip;
+			dmsg.tuple.return_ip           = local.orig_return_ip;
+			dmsg.tuple.flow_ident          = local.orig_flow_ident;
+			dmsg.tuple.return_ident        = local.orig_return_ident;
+			dmsg.conn_rule.flow_ip_xlate   = local.orig_flow_ip;
+			dmsg.conn_rule.return_ip_xlate = local.orig_return_ip;
+		} else {
+			dmsg.tuple.flow_ip             = htonl(local.private_ip);
+			dmsg.tuple.return_ip           = htonl(local.target_ip);
+			dmsg.tuple.flow_ident          = htons(local.private_port);
+			dmsg.tuple.return_ident        = htons(local.target_port);
+			dmsg.conn_rule.flow_ip_xlate   = htonl(local.public_ip);
+			dmsg.conn_rule.return_ip_xlate = htonl(local.target_ip);
+		}
+		dmsg.tuple.protocol                     = local.protocol;
+		dmsg.conn_rule.flow_interface_num       = local.flow_iface;
+		dmsg.conn_rule.return_interface_num     = local.return_iface;
+		dmsg.conn_rule.flow_top_interface_num   = local.flow_top_iface;
+		dmsg.conn_rule.return_top_interface_num = local.return_top_iface;
+		/* v4 nat_table_entry doesn't cache MACs; destroy_rule's
+		 * MAC-keyed QoS cleanup no-ops on the zeroed
+		 * dmsg.conn_rule.{flow,return}_mac.
+		 */
+
+		ipa_ipv4_destroy_rule(&dmsg);
+		v4_count++;
+
+		/* Push FLUSH_SWITCH_AE to FE with the pre-teardown HW stats.
+		 * Tuple/stats orientation is handled below: cs is built
+		 * UL-normalized for both UL and DL (see ECM-lookup note), so
+		 * both share the same inverted stats mapping vs. LAN2LAN.
+		 */
+		if (!g_ipa_ctx)
+			continue;
+		rcu_read_lock();
+		push_cb = rcu_dereference(g_ipa_ctx->ipv4_stats_sync_cb);
+		if (push_cb) {
+			struct ipa_ipv4_conn_sync cs = {};
+			struct ipa_ipv4_msg nim;
+
+			cs.protocol = local.protocol;
+			if (lan2lan) {
+				cs.flow_ip            = local.orig_flow_ip;
+				cs.flow_ip_xlate      = local.orig_flow_ip;
+				cs.return_ip          = local.orig_return_ip;
+				cs.return_ip_xlate    = local.orig_return_ip;
+				cs.flow_ident         = local.orig_flow_ident;
+				cs.flow_ident_xlate   = local.orig_flow_ident;
+				cs.return_ident       = local.orig_return_ident;
+				cs.return_ident_xlate = local.orig_return_ident;
+			} else if (is_downlink) {
+				/* UL-normalized (flow_ip = private) so ECM's
+				 * ipa_uplink_case = ECM_IP_ADDR_MATCH(flow_ip,
+				 * from_ip) matches the sync convention and
+				 * counters are attributed to the correct
+				 * direction. Mirrors the v4 poll path.
+				 */
+				cs.flow_ip            = htonl(local.private_ip);
+				cs.flow_ip_xlate      = htonl(local.public_ip);
+				cs.return_ip          = htonl(local.target_ip);
+				cs.return_ip_xlate    = htonl(local.target_ip);
+				cs.flow_ident         = htons(local.private_port);
+				cs.flow_ident_xlate   = htons(local.public_port);
+				cs.return_ident       = htons(local.target_port);
+				cs.return_ident_xlate = htons(local.target_port);
+			} else {
+				cs.flow_ip            = htonl(local.private_ip);
+				cs.flow_ip_xlate      = htonl(local.public_ip);
+				cs.return_ip          = htonl(local.target_ip);
+				cs.return_ip_xlate    = htonl(local.target_ip);
+				cs.flow_ident         = htons(local.private_port);
+				cs.flow_ident_xlate   = htons(local.public_port);
+				cs.return_ident       = htons(local.target_port);
+				cs.return_ident_xlate = htons(local.target_port);
+			}
+			/* Stats direction: LAN2LAN direct; UL and DL both use
+			 * the UL-normalized tuple above, so both map with the
+			 * UL orientation here.
+			 */
+			if (lan2lan) {
+				cs.flow_tx_packet_count         = stats.num_pkts_outbound;
+				cs.flow_tx_byte_count           = stats.num_bytes_outbound;
+				cs.flow_tx_packet_count_cache   = stats.num_pkts_cache_outbound;
+				cs.return_rx_packet_count       = stats.num_pkts_outbound;
+				cs.return_rx_byte_count         = stats.num_bytes_outbound;
+				cs.return_rx_packet_count_cache = stats.num_pkts_cache_outbound;
+				cs.flow_rx_packet_count         = stats.num_pkts_inbound;
+				cs.flow_rx_byte_count           = stats.num_bytes_inbound;
+				cs.flow_rx_packet_count_cache   = stats.num_pkts_cache_inbound;
+				cs.return_tx_packet_count       = stats.num_pkts_inbound;
+				cs.return_tx_byte_count         = stats.num_bytes_inbound;
+				cs.return_tx_packet_count_cache = stats.num_pkts_cache_inbound;
+			} else {
+				cs.flow_tx_packet_count         = stats.num_pkts_inbound;
+				cs.flow_tx_byte_count           = stats.num_bytes_inbound;
+				cs.flow_tx_packet_count_cache   = stats.num_pkts_cache_inbound;
+				cs.return_rx_packet_count       = stats.num_pkts_inbound;
+				cs.return_rx_byte_count         = stats.num_bytes_inbound;
+				cs.return_rx_packet_count_cache = stats.num_pkts_cache_inbound;
+				cs.flow_rx_packet_count         = stats.num_pkts_outbound;
+				cs.flow_rx_byte_count           = stats.num_bytes_outbound;
+				cs.flow_rx_packet_count_cache   = stats.num_pkts_cache_outbound;
+				cs.return_tx_packet_count       = stats.num_pkts_outbound;
+				cs.return_tx_byte_count         = stats.num_bytes_outbound;
+				cs.return_tx_packet_count_cache = stats.num_pkts_cache_outbound;
+			}
+			cs.inc_ticks    = 0;
+			cs.flow_rule_id = local.flow_rule_id;
+			cs.reason       = IPA_RULE_SYNC_REASON_FLUSH_SWITCH_AE;
+
+			memset(&nim, 0, sizeof(nim));
+			ipa_ipv4_msg_init(&nim, IPA_SPECIAL_INTERFACE_IPV4,
+					  IPA_RX_CONN_STATS_SYNC_MSG,
+					  sizeof(nim), NULL, NULL);
+			nim.msg.conn_stats = cs;
+			push_cb(g_ipa_ctx->ipv4_stats_sync_data, &nim);
+		}
+		rcu_read_unlock();
+	}
+
+v6_path:
+	/* v6 pass: same shape as v4. */
+	mutex_lock(&ipa_be_nat_mgmt_lock);
+	if (!NatBase || !NatBase->m_cache || !NatBase->ct_table_hdl) {
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+		goto out;
+	}
+	max = NatBase->m_maxEntries;
+	mutex_unlock(&ipa_be_nat_mgmt_lock);
+	for (i = 0; i < max; i++) {
+		struct ipv6_ct_entry local6;
+		u8 proto = 0;
+		struct ipahal_stats_nat_ct stats6 = {};
+		uint32_t ts6 __maybe_unused = 0;
+		struct ipa_ipv6_rule_destroy_msg dmsg6;
+		ipa_ipv6_msg_callback_t push_cb6;
+		bool lan2lan6;
+		bool got6 = false;
+
+		mutex_lock(&ipa_be_nat_mgmt_lock);
+		if (!NatBase || !NatBase->m_cache || !NatBase->ct_table_hdl) {
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
+			break;
+		}
+		mutex_lock(&NatBase->cache_lock);
+		if (NatBase->m_cache[i].m_enabled &&
+		    NatBase->m_cache[i].m_type == IPA_IP_v6 &&
+		    ipa_be_entry_iface_match_v6(&NatBase->m_cache[i].ipv6_ct,
+						iface_idx)) {
+			local6 = NatBase->m_cache[i].ipv6_ct;
+			proto  = NatBase->m_cache[i].m_protocol;
+			got6   = true;
+		}
+		mutex_unlock(&NatBase->cache_lock);
+		if (!got6) {
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
+			continue;
+		}
+
+		/* Capture final HW stats: timestamp first, then counters. */
+		IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+		ipa_ct_query_timestamp(NatBase->ct_table_hdl,
+				       local6.rule_handle, &ts6);
+		if (local6.all_pkts_stats_cnt_index > 0)
+			ipa_get_nat_ct_stats(local6.all_pkts_stats_cnt_index,
+					     &stats6);
+		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+		mutex_unlock(&ipa_be_nat_mgmt_lock);
+
+		lan2lan6 = (local6.flow_iface == local6.flow_top_iface &&
+			    local6.return_iface == local6.return_top_iface);
+
+		/* Synthesize destroy msg. LAN2LAN uses the cached pre-swap
+		 * tuple; LAN2WAN rebuilds from the CT entry's src/dest ipv6
+		 * (add-time UL labeling: src=flow, dest=return).
+		 */
+		memset(&dmsg6, 0, sizeof(dmsg6));
+		if (lan2lan6) {
+			memcpy(dmsg6.tuple.flow_ip, local6.orig_flow_ip,
+			       sizeof(dmsg6.tuple.flow_ip));
+			memcpy(dmsg6.tuple.return_ip, local6.orig_return_ip,
+			       sizeof(dmsg6.tuple.return_ip));
+			dmsg6.tuple.flow_ident   = local6.orig_flow_ident;
+			dmsg6.tuple.return_ident = local6.orig_return_ident;
+		} else {
+			dmsg6.tuple.flow_ip[0]   = htonl((u32)(local6.src_ipv6_msb >> 32));
+			dmsg6.tuple.flow_ip[1]   = htonl((u32)(local6.src_ipv6_msb & 0xFFFFFFFF));
+			dmsg6.tuple.flow_ip[2]   = htonl((u32)(local6.src_ipv6_lsb >> 32));
+			dmsg6.tuple.flow_ip[3]   = htonl((u32)(local6.src_ipv6_lsb & 0xFFFFFFFF));
+			dmsg6.tuple.return_ip[0] = htonl((u32)(local6.dest_ipv6_msb >> 32));
+			dmsg6.tuple.return_ip[1] = htonl((u32)(local6.dest_ipv6_msb & 0xFFFFFFFF));
+			dmsg6.tuple.return_ip[2] = htonl((u32)(local6.dest_ipv6_lsb >> 32));
+			dmsg6.tuple.return_ip[3] = htonl((u32)(local6.dest_ipv6_lsb & 0xFFFFFFFF));
+			dmsg6.tuple.flow_ident   = htons(local6.src_port);
+			dmsg6.tuple.return_ident = htons(local6.dest_port);
+		}
+		dmsg6.tuple.protocol                     = proto;
+		dmsg6.conn_rule.flow_interface_num       = local6.flow_iface;
+		dmsg6.conn_rule.return_interface_num     = local6.return_iface;
+		dmsg6.conn_rule.flow_top_interface_num   = local6.flow_top_iface;
+		dmsg6.conn_rule.return_top_interface_num = local6.return_top_iface;
+		memcpy(dmsg6.conn_rule.flow_mac, local6.flow_mac, 6);
+		memcpy(dmsg6.conn_rule.return_mac, local6.return_mac, 6);
+
+		ipa_ipv6_destroy_rule(&dmsg6);
+		v6_count++;
+
+		/* Push FLUSH_SWITCH_AE to FE with pre-teardown HW stats.
+		 * Mirror the v6 poll path (ipa_sync_ipv6_stats_many_msg):
+		 * cs6.flow_ip = dmsg6.tuple.flow_ip (= src_ipv6, canonicalized
+		 * to the LAN client) regardless of UL/DL, and stats always map
+		 * flow_tx=inbound / flow_rx=outbound. ECM v6 (ecm_ipa_ipv6.c)
+		 * looks up connections by flow_rule_id and infers direction
+		 * from ECM_IP_ADDR_MATCH(flow_ip, from_ip); a DL-flipped push
+		 * would break that inference and mis-attribute counters.
+		 */
+		if (!g_ipa_ctx)
+			continue;
+		rcu_read_lock();
+		push_cb6 = rcu_dereference(g_ipa_ctx->ipv6_stats_sync_cb);
+		if (push_cb6) {
+			struct ipa_ipv6_conn_sync cs6 = {};
+			struct ipa_ipv6_msg nim6;
+
+			cs6.protocol = proto;
+			memcpy(cs6.flow_ip, dmsg6.tuple.flow_ip,
+			       sizeof(cs6.flow_ip));
+			memcpy(cs6.flow_ip_xlate, dmsg6.tuple.flow_ip,
+			       sizeof(cs6.flow_ip_xlate));
+			memcpy(cs6.return_ip, dmsg6.tuple.return_ip,
+			       sizeof(cs6.return_ip));
+			memcpy(cs6.return_ip_xlate, dmsg6.tuple.return_ip,
+			       sizeof(cs6.return_ip_xlate));
+			cs6.flow_ident         = dmsg6.tuple.flow_ident;
+			cs6.flow_ident_xlate   = dmsg6.tuple.flow_ident;
+			cs6.return_ident       = dmsg6.tuple.return_ident;
+			cs6.return_ident_xlate = dmsg6.tuple.return_ident;
+			cs6.flow_tx_packet_count         = stats6.num_pkts_inbound;
+			cs6.flow_tx_byte_count           = stats6.num_bytes_inbound;
+			cs6.flow_tx_packet_count_cache   = stats6.num_pkts_cache_inbound;
+			cs6.return_rx_packet_count       = stats6.num_pkts_inbound;
+			cs6.return_rx_byte_count         = stats6.num_bytes_inbound;
+			cs6.return_rx_packet_count_cache = stats6.num_pkts_cache_inbound;
+			cs6.flow_rx_packet_count         = stats6.num_pkts_outbound;
+			cs6.flow_rx_byte_count           = stats6.num_bytes_outbound;
+			cs6.flow_rx_packet_count_cache   = stats6.num_pkts_cache_outbound;
+			cs6.return_tx_packet_count       = stats6.num_pkts_outbound;
+			cs6.return_tx_byte_count         = stats6.num_bytes_outbound;
+			cs6.return_tx_packet_count_cache = stats6.num_pkts_cache_outbound;
+			cs6.inc_ticks    = 0;
+			cs6.flow_rule_id = local6.flow_rule_id;
+			cs6.reason       = IPA_RULE_SYNC_REASON_FLUSH_SWITCH_AE;
+
+			memset(&nim6, 0, sizeof(nim6));
+			ipa_ipv6_msg_init(&nim6, IPA_SPECIAL_INTERFACE_IPV6,
+					  IPA_RX_CONN_STATS_SYNC_MSG,
+					  sizeof(nim6), NULL, NULL);
+			nim6.msg.conn_stats = cs6;
+			push_cb6(g_ipa_ctx->ipv6_stats_sync_data, &nim6);
+		}
+		rcu_read_unlock();
+	}
+
+out:
+	IPA_BE_DBG("iface %d offline: torn down v4=%d v6=%d flows via destroy_rule\n",
+		   iface_idx, v4_count, v6_count);
+}
+
+void ipa_be_signal_iface_online(int iface_idx)
+{
+	IPA_BE_DBG("iface %d online\n", iface_idx);
+}

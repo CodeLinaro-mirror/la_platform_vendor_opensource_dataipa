@@ -7,9 +7,10 @@
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
+#include "ipa_i.h"
 #include <linux/msm_ipa.h>
 #include "../ipa_backend/ipa_be.h"
-#include "ipa_i.h"
+#include "../ipa_backend/ipa_be_nat_mgmt.h"
 
 struct ipa3_intf {
 	char name[IPA_RESOURCE_NAME_MAX];
@@ -920,6 +921,11 @@ static int lan_msg_process(struct ipa_msg_meta *meta, void *buff)
 		}
 		list_add_tail(&msg_dup->link, &ipa3_ctx->msg_lan_list);
 		mutex_unlock(&ipa3_ctx->msg_lan_lock);
+
+		/* Signal BE after enqueueing on msg_lan_list, mirroring the
+		 * disconnect path (which signals after the list is drained).
+		 */
+		ipa_be_signal_iface_online(ecm_msg_con->ifindex);
 	}
 
 	/* remove the cache */
@@ -947,6 +953,12 @@ static int lan_msg_process(struct ipa_msg_meta *meta, void *buff)
 		}
 
 		mutex_unlock(&ipa3_ctx->msg_lan_lock);
+
+		/* Signal BE after draining msg_lan_list so BE's
+		 * FLUSH_SWITCH_AE pushes don't race with still-queued
+		 * ECM_DISCONNECT deliveries for the same iface.
+		 */
+		ipa_be_signal_iface_offline(iface_index);
 
 	}
 
