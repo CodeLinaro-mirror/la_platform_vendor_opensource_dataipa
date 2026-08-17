@@ -508,6 +508,9 @@ enum {
  * As new hardware platforms are added into the emulation environment,
  * please add the appropriate paths here for their firmwares.
  */
+
+#define IPA_LOG_MAX_SNAPSHOTS 25
+
 #define IPA_FWS_PATH_4_0     "ipa/4.0/ipa_fws.elf"
 #define IPA_FWS_PATH_3_5_1   "ipa/3.5.1/ipa_fws.elf"
 #define IPA_FWS_PATH_4_5     "ipa/4.5/ipa_fws.elf"
@@ -2385,6 +2388,72 @@ enum ipa_eth_qos_type_e {
 	IPA_ETH_QOS_MAX
 };
 
+
+
+struct ipa_ep_flt_data {
+	u32 count;
+	struct ipa3_flt_entry *rules;
+};
+
+struct ipa_flt_snapshot {
+	u64 timestamp[IPA_IP_MAX];
+	/* Arranged by Endpoint Index [0..IPA_MAX_FLT_TBLS] */
+	struct ipa_ep_flt_data ep_flt_data[IPA_IP_MAX][IPA_MAX_FLT_TBLS];
+};
+
+struct ipa_tbl_rt_data {
+	u32 count;
+	char name[IPA_RESOURCE_NAME_MAX]; /* table name for crash-dump context */
+	struct ipa3_rt_entry *rules;
+};
+
+struct ipa_rt_snapshot {
+	u64 timestamp[IPA_IP_MAX];
+	u32 v4_count;
+	u32 v6_count;
+	struct ipa_tbl_rt_data *tbl_rt_data[IPA_IP_MAX];
+};
+
+struct ipa_tbl_hdr_data {
+	u32 count;
+	struct ipa3_hdr_entry *entries;
+};
+
+struct ipa_hdr_snapshot {
+	u64 timestamp;
+	struct ipa_tbl_hdr_data tbl_hdr_data[HDR_TBLS_TOTAL];
+};
+struct ipa_tbl_proc_ctx_hdr_data {
+	u32 count;
+	struct ipa3_hdr_proc_ctx_entry *entries;
+};
+
+struct ipa_proc_ctx_hdr_snapshot {
+	u64 timestamp;
+	struct ipa_tbl_proc_ctx_hdr_data tbl_proc_ctx_hdr_data[HPC_TBLS_TOTAL];
+};
+
+/* Global Debug Context*/
+struct ipa_debug_ctx {
+	/* Filter Buffer */
+	u32 curr_v4_flt_idx;
+	u32 curr_v6_flt_idx;
+	struct ipa_flt_snapshot flt_snaps[IPA_LOG_MAX_SNAPSHOTS];
+
+	/* Routing Buffer */
+	u32 curr_v4_rt_idx;
+	u32 curr_v6_rt_idx;
+	struct ipa_rt_snapshot rt_snaps[IPA_LOG_MAX_SNAPSHOTS];
+
+	/* Header Buffer */
+	u32 curr_hdr_idx;
+	struct ipa_hdr_snapshot hdr_snaps[IPA_LOG_MAX_SNAPSHOTS];
+
+	u32 curr_proc_ctx_hdr_idx;
+	struct ipa_proc_ctx_hdr_snapshot proc_ctx_hdr_snaps[IPA_LOG_MAX_SNAPSHOTS];
+
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2520,6 +2589,7 @@ enum ipa_eth_qos_type_e {
  * @cesta_enable: flag which holds if cesta_enabled or not in DTSI
  * @eth_pdu_ctx: ETH PDU ctx
  * @ipa_tiering_value: IPA tiering value to support multiple SKUs
+ * @debug_log: Debug Log buffer to capture filter/routing/header rules snapshot
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2836,6 +2906,7 @@ struct ipa3_context {
 	struct mutex recycle_stats_collection_lock;
 	u16 filter_start_id;
 	struct ipa_ioc_get_qos_config get_qos_config;
+	struct ipa_debug_ctx *debug_log;
 };
 
 struct ipa3_plat_drv_res {
