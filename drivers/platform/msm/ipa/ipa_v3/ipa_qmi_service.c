@@ -714,6 +714,9 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 	memset(&req, 0, sizeof(struct ipa_init_modem_driver_req_msg_v01));
 	memset(&resp, 0, sizeof(struct ipa_init_modem_driver_resp_msg_v01));
 
+	IPAWANDBG("QMI INIT MODEM: SRAM base (smem_restr_bytes)=0x%x, ipa_smem_size=0x%x\n",
+		smem_restr_bytes, ipa3_ctx->ipa_smem_size);
+
 	req.platform_type_valid = true;
 	req.platform_type = ipa_wan_platform;
 
@@ -861,48 +864,59 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 
 	IPAWANDBG("filter_start_id_valid %d\n",req.filter_start_id_valid);
 	IPAWANDBG("filter_start_id %d\n",req.filter_start_id);
-	IPAWANDBG("hw_flt stats: hw_filter_start_address = %u", req.hw_filter_stats_info.hw_filter_stats_start_addr);
-	IPAWANDBG("hw_flt stats: hw_filter_stats_size = %u", req.hw_filter_stats_info.hw_filter_stats_size);
+	IPAWANDBG("hw_flt stats: hw_filter_start_address = 0x%x", req.hw_filter_stats_info.hw_filter_stats_start_addr);
+	IPAWANDBG("hw_flt stats: hw_filter_stats_size = 0x%x", req.hw_filter_stats_info.hw_filter_stats_size);
 	IPAWANDBG("hw_flt stats: hw_filter_stats_start_index  = %u", req.hw_filter_stats_info.hw_filter_stats_start_index);
 	IPAWANDBG("platform_type %d\n", req.platform_type);
-	IPAWANDBG("hdr_tbl_info.modem_offset_start %d\n",
+	IPAWANDBG("hdr_tbl_info.modem_offset_start 0x%x\n",
 			req.hdr_tbl_info.modem_offset_start);
-	IPAWANDBG("hdr_tbl_info.modem_offset_end %d\n",
+	IPAWANDBG("hdr_tbl_info.modem_offset_end 0x%x\n",
 			req.hdr_tbl_info.modem_offset_end);
-	IPAWANDBG("v4_route_tbl_info.route_tbl_start_addr %d\n",
+	IPAWANDBG("v4_route_tbl_info.route_tbl_start_addr 0x%x\n",
 			req.v4_route_tbl_info.route_tbl_start_addr);
 	IPAWANDBG("v4_route_tbl_info.num_indices %d\n",
 			req.v4_route_tbl_info.num_indices);
-	IPAWANDBG("v6_route_tbl_info.route_tbl_start_addr %d\n",
+	IPAWANDBG("v6_route_tbl_info.route_tbl_start_addr 0x%x\n",
 			req.v6_route_tbl_info.route_tbl_start_addr);
 	IPAWANDBG("v6_route_tbl_info.num_indices %d\n",
 			req.v6_route_tbl_info.num_indices);
-	IPAWANDBG("v4_filter_tbl_start_addr %d\n",
+	IPAWANDBG("v4_filter_tbl_start_addr 0x%x\n",
 			req.v4_filter_tbl_start_addr);
-	IPAWANDBG("v6_filter_tbl_start_addr %d\n",
+	IPAWANDBG("v6_filter_tbl_start_addr 0x%x\n",
 			req.v6_filter_tbl_start_addr);
-	IPAWANDBG("modem_mem_info.block_start_addr %d\n",
+	IPAWANDBG("modem_mem_info.block_start_addr 0x%x\n",
 			req.modem_mem_info.block_start_addr);
-	IPAWANDBG("modem_mem_info.size %d\n",
+	IPAWANDBG("modem_mem_info.size 0x%x\n",
 			req.modem_mem_info.size);
 	IPAWANDBG("ctrl_comm_dest_end_pt %d\n",
 			req.ctrl_comm_dest_end_pt);
 	IPAWANDBG("is_ssr_bootup %d\n",
 			req.is_ssr_bootup);
-	IPAWANDBG("v4_hash_route_tbl_info.route_tbl_start_addr %d\n",
+	IPAWANDBG("v4_hash_route_tbl_info.route_tbl_start_addr 0x%x\n",
 		req.v4_hash_route_tbl_info.route_tbl_start_addr);
 	IPAWANDBG("v4_hash_route_tbl_info.num_indices %d\n",
 		req.v4_hash_route_tbl_info.num_indices);
-	IPAWANDBG("v6_hash_route_tbl_info.route_tbl_start_addr %d\n",
+	IPAWANDBG("v6_hash_route_tbl_info.route_tbl_start_addr 0x%x\n",
 		req.v6_hash_route_tbl_info.route_tbl_start_addr);
 	IPAWANDBG("v6_hash_route_tbl_info.num_indices %d\n",
 		req.v6_hash_route_tbl_info.num_indices);
-	IPAWANDBG("v4_hash_filter_tbl_start_addr %d\n",
+	IPAWANDBG("v4_hash_filter_tbl_start_addr 0x%x\n",
 		req.v4_hash_filter_tbl_start_addr);
-	IPAWANDBG("v6_hash_filter_tbl_start_addr %d\n",
+	IPAWANDBG("v6_hash_filter_tbl_start_addr 0x%x\n",
 		req.v6_hash_filter_tbl_start_addr);
-	IPAWANDBG("ipa_smem_info.size %d\n",
+	IPAWANDBG("ipa_smem_info.size 0x%x\n",
 			req.smem_info.size);
+	IPAWANDBG("hw_stats_quota: base_addr = 0x%x, size = 0x%x\n",
+			req.hw_stats_quota_base_addr, req.hw_stats_quota_size);
+	IPAWANDBG("hw_drop_stats: base_addr = 0x%x, table_size = 0x%x\n",
+			req.hw_drop_stats_base_addr, req.hw_drop_stats_table_size);
+	IPAWANDBG("hdr_proc_ctx_tbl_info: start=0x%x end=0x%x\n",
+		req.hdr_proc_ctx_tbl_info.modem_offset_start,
+		req.hdr_proc_ctx_tbl_info.modem_offset_end);
+	IPAWANDBG("per_stats_smem: block_start=0x%llx size=0x%x valid=%d\n",
+		(u64)req.per_stats_smem_info.block_start_addr,
+		req.per_stats_smem_info.size,
+		req.per_stats_smem_info_valid);
 
 	req_desc.max_msg_len = QMI_IPA_INIT_MODEM_DRIVER_REQ_MAX_MSG_LEN_V01;
 	req_desc.msg_id = QMI_IPA_INIT_MODEM_DRIVER_REQ_V01;
