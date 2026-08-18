@@ -1549,6 +1549,69 @@ bail:
 EXPORT_SYMBOL(ipa3_add_rt_rule_usr);
 
 /**
+ * ipa3_add_rt_rule_with_id() - Add a single routing rule with a
+ * caller-supplied rule_id.
+ *
+ * Identical to ipa3_add_rt_rule_usr() but passes @rule_id to the
+ * internal __ipa_add_rt_rule() instead of auto-allocating one.
+ * Used by the QoS backend to share one rule_id across all HW rules
+ * belonging to the same client, conserving the 768-1023 pool.
+ *
+ * When rule_id != 0, rule_id_valid is set on the entry so the pool
+ * slot is NOT freed when the rule is deleted — the caller is
+ * responsible for releasing the id when the client goes away.
+ *
+ * @rules:     [inout] single-rule ipa_ioc_add_rt_rule; rules[0] is used.
+ * @user_only: [in]   mark as installed by userspace module.
+ * @rule_id:   [in]   caller-supplied HW rule_id (0 = auto-allocate).
+ *
+ * Returns: 0 on success, negative on failure.
+ *
+ * Note: Should not be called from atomic context.
+ */
+int ipa3_add_rt_rule_with_id(struct ipa_ioc_add_rt_rule *rules,
+			     bool user_only, u16 rule_id)
+{
+	int ret;
+	struct ipa_rt_rule_i rule;
+
+	if (rules == NULL || rules->num_rules == 0 || rules->ip >= IPA_IP_MAX) {
+		IPAERR_RL("bad param\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	rules->rt_tbl_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+	if (ipa3_ctx->ipa_fltrt_not_hashable)
+		rules->rules[0].rule.hashable = false;
+	__ipa_convert_rt_rule_in(rules->rules[0].rule, &rule);
+	if (__ipa_add_rt_rule(rules->ip, rules->rt_tbl_name,
+			      &rule,
+			      rules->rules[0].at_rear,
+			      &rules->rules[0].rt_rule_hdl,
+			      rule_id,
+			      user_only,
+			      rules->rules[0].rt_rule_category,
+			      rules->rules[0].rule_sub_category)) {
+		IPAERR_RL("failed to add rt rule with id %u\n", rule_id);
+		rules->rules[0].status = IPA_RT_STATUS_OF_ADD_FAILED;
+		ret = -EFAULT;
+	} else {
+		__ipa_convert_rt_rule_out(rule, &rules->rules[0].rule);
+		rules->rules[0].status = 0;
+		ret = 0;
+	}
+
+	if (ret == 0 && rules->commit)
+		if (ipa3_ctx->ctrl->ipa3_commit_rt(rules->ip))
+			ret = -EPERM;
+
+	mutex_unlock(&ipa3_ctx->lock);
+	return ret;
+}
+EXPORT_SYMBOL(ipa3_add_rt_rule_with_id);
+
+/**
  * ipa3_add_rt_rule_usr_v2() - Add the specified routing rules
  * to SW and optionally commit to IPA HW
  * @rules:		[inout] set of routing rules to add
@@ -1613,6 +1676,76 @@ bail:
 	return ret;
 }
 EXPORT_SYMBOL(ipa3_add_rt_rule_usr_v2);
+
+/**
+ * ipa3_add_rt_rule_v2_with_id() - Add a single v2 routing rule with a
+ * caller-supplied rule_id.
+ *
+ * Identical to ipa3_add_rt_rule_usr_v2() but passes @rule_id to the
+ * internal __ipa_add_rt_rule() for rules[0] instead of auto-allocating
+ * one. struct ipa_rt_rule_add_v2 carries no rule_id field of its own,
+ * so this is a separate entry point rather than a parameter addition.
+ * Used by LAN/LAN2LAN client route installs to share one rule_id across
+ * all client routing rules, conserving the 768-1023 pool.
+ *
+ * When rule_id != 0, rule_id_valid is set on the entry so the pool slot
+ * is NOT freed when the rule is deleted.
+ *
+ * @rules:     [inout] single-rule ipa_ioc_add_rt_rule_v2; rules[0] is used.
+ * @user_only: [in]   mark as installed by userspace module.
+ * @rule_id:   [in]   caller-supplied HW rule_id (0 = auto-allocate).
+ *
+ * Returns: 0 on success, negative on failure.
+ *
+ * Note: Should not be called from atomic context.
+ */
+int ipa3_add_rt_rule_v2_with_id(struct ipa_ioc_add_rt_rule_v2 *rules,
+				 bool user_only, u16 rule_id)
+{
+	int ret;
+	struct ipa_rt_rule_add_v2 *rule_entry;
+
+	if (rules == NULL || rules->num_rules == 0 || rules->ip >= IPA_IP_MAX) {
+		IPAERR_RL("bad param\n");
+		return -EINVAL;
+	}
+
+	if (rules->rule_add_size == 0) {
+		IPAERR_RL("Invalid rule_add_size\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	rule_entry = (struct ipa_rt_rule_add_v2 *)
+		((uint8_t *)(uintptr_t)rules->rules);
+
+	rules->rt_tbl_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+	if (ipa3_ctx->ipa_fltrt_not_hashable)
+		rule_entry->rule.hashable = false;
+	if (__ipa_add_rt_rule(rules->ip, rules->rt_tbl_name,
+			      (struct ipa_rt_rule_i *)&rule_entry->rule,
+			      rule_entry->at_rear,
+			      &rule_entry->rt_rule_hdl,
+			      rule_id,
+			      user_only,
+			      rule_entry->rt_rule_category,
+			      rule_entry->rule_sub_category)) {
+		IPAERR_RL("failed to add rt rule with id %u\n", rule_id);
+		rule_entry->status = IPA_RT_STATUS_OF_ADD_FAILED;
+		ret = -EFAULT;
+	} else {
+		rule_entry->status = 0;
+		ret = 0;
+	}
+
+	if (ret == 0 && rules->commit)
+		if (ipa3_ctx->ctrl->ipa3_commit_rt(rules->ip))
+			ret = -EPERM;
+
+	mutex_unlock(&ipa3_ctx->lock);
+	return ret;
+}
+EXPORT_SYMBOL(ipa3_add_rt_rule_v2_with_id);
 
 
 /**

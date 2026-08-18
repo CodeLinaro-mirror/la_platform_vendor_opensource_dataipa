@@ -2430,8 +2430,10 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 		rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 	}
 
-	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
-				true)) {
+	/* All backend client routing rules (LAN, LAN2LAN, eth-backhaul, QoS)
+	 * share IPA_SHARED_RT_RULE_ID instead of auto-allocating one each. */
+	if (ipa3_add_rt_rule_v2_with_id((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
+				true, IPA_SHARED_RT_RULE_ID)) {
 			IPA_BE_ERR("Route rule add failed\n");
 			retval = -EFAULT;
 	}
@@ -2635,8 +2637,10 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 	}
 
-	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
-				true)) {
+	/* All backend client routing rules (LAN, LAN2LAN, eth-backhaul, QoS)
+	 * share IPA_SHARED_RT_RULE_ID instead of auto-allocating one each. */
+	if (ipa3_add_rt_rule_v2_with_id((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
+				true, IPA_SHARED_RT_RULE_ID)) {
 			IPA_BE_ERR("Route rule add failed\n");
 			retval = -EFAULT;
 	}
@@ -2849,8 +2853,10 @@ int ipa_ipv4_eth_backhaul_add_route_rule(
 		}
 	}
 
-	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
-				true)) {
+	/* All backend client routing rules (LAN, LAN2LAN, eth-backhaul, QoS)
+	 * share IPA_SHARED_RT_RULE_ID instead of auto-allocating one each. */
+	if (ipa3_add_rt_rule_v2_with_id((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
+				true, IPA_SHARED_RT_RULE_ID)) {
 			IPA_BE_ERR("Route rule add failed\n");
 			retval = -EFAULT;
 	}
@@ -3063,7 +3069,10 @@ int ipa_ipv6_eth_backhaul_add_route_rule(
 		}
 	}
 
-	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule, true)) {
+	/* All backend client routing rules (LAN, LAN2LAN, eth-backhaul, QoS)
+	 * share IPA_SHARED_RT_RULE_ID instead of auto-allocating one each. */
+	if (ipa3_add_rt_rule_v2_with_id((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
+				true, IPA_SHARED_RT_RULE_ID)) {
 		IPA_BE_ERR("Route rule add failed\n");
 		retval = -EFAULT;
 	} else {

@@ -1733,6 +1733,18 @@ ipa3_find_duplicate_qos_config(struct ipa_ioc_qos_config *qos_param)
 	return NULL;
 }
 
+/* Release a QoS cache slot reserved by the ADD path when the node ends up
+ * not being created. */
+static void ipa3_release_qos_cache_slot(void)
+{
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	if (ipa3_ctx->num_qos_configs)
+		ipa3_ctx->num_qos_configs--;
+	else
+		IPAERR("QoS cache slot release with count already 0; bookkeeping mismatch\n");
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+}
+
 static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 {
 	struct ipa3_qos_config_node *new_node, *pos;
@@ -1740,6 +1752,9 @@ static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 	new_node = kmalloc(sizeof(*new_node), GFP_KERNEL);
 	if (!new_node) {
 		IPAERR("Failed to allocate memory for new QoS node\n");
+		/* The ADD path reserved a cache slot for this node; give it
+		 * back since no node will be inserted. */
+		ipa3_release_qos_cache_slot();
 		return -ENOMEM;
 	}
 
@@ -1762,7 +1777,9 @@ static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 	}
 	list_add_tail(&new_node->list, &ipa3_ctx->qos_config_list);
 inserted:
-	ipa3_ctx->num_qos_configs++;
+	/* No num_qos_configs++ here: the ADD path in ipa3_send_qos_param_msg()
+	 * already reserved this slot under the same lock, atomically with the
+	 * cap check. Incrementing again would double-count. */
 	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 
 	/* Return stable ID to userspace */
@@ -1939,11 +1956,30 @@ static int ipa3_send_qos_param_msg(unsigned long usr_param)
 			kfree(qos_param);
 			return 0;
 		}
+
+		/* Reserve a cache slot under the lock, atomically with the cap
+		 * check, so concurrent ADDs cannot overshoot
+		 * IPA_MAX_QOS_CACHE_RULES. Released on any path below that
+		 * ends up not creating a node.
+		 */
+		if (ipa3_ctx->num_qos_configs >= IPA_MAX_QOS_CACHE_RULES) {
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+			IPAERR("QoS cache full (%u/%u): rejecting ADD\n",
+				ipa3_ctx->num_qos_configs,
+				IPA_MAX_QOS_CACHE_RULES);
+			kfree(qos_param);
+			return -ENOSPC;
+		}
+		ipa3_ctx->num_qos_configs++;
 		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 
 		retval = ipa_be_install_qos_route_rule(qos_param);
 		if (retval) {
 			IPAERR("ipa_be_install_qos_rules failed: %d\n", retval);
+			/* No cache node will be created; release the slot
+			 * reserved above so a failing ADD does not permanently
+			 * consume cap headroom. */
+			ipa3_release_qos_cache_slot();
 			kfree(qos_param);
 			return retval;
 		}

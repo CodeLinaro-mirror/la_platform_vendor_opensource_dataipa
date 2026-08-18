@@ -116,6 +116,12 @@
 #define IPA_HOLB_TMR_DIS 0x0
 #define IPA_HOLB_TMR_EN 0x1
 #define IPA_HOLB_TMR_VAL_4_5 31
+
+/* Reused by the QoS BE-pipe HOLB retime (ipa3_qos_retime_be_pipes()); defined
+ * in ipa_eth_i.c. Index [last] = 500us, the highest-priority QoS pipe timeout. */
+extern u32 qos_holb_tmr[];
+extern u32 qos_holb_tmr_auto[];
+
 #define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
 
 #define IPA_Q6_RT_START_ID 768
@@ -132,8 +138,23 @@
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
 #define IPA_MAX_RT_RULE_ID 1023
+/* Single rt rule_id shared by every client routing rule the backend installs
+ * (LAN, LAN2LAN, eth-backhaul, QoS), so N rules cost one id instead of N.
+ * Must be >= IPA_Q6_RT_START_ID (below the auto-allocator range) and
+ * strictly below IPA_MAX_RT_RULE_ID: 1023 is the reserved all-ones rule_id
+ * and using it panics the kernel in ipahal_fltrt.c at commit time.
+ */
+#define IPA_SHARED_RT_RULE_ID (IPA_MAX_RT_RULE_ID - 1)
+static_assert(IPA_SHARED_RT_RULE_ID < IPA_MAX_RT_RULE_ID,
+	"IPA_SHARED_RT_RULE_ID must avoid the reserved all-ones rule_id");
+static_assert(IPA_SHARED_RT_RULE_ID >= IPA_Q6_RT_START_ID,
+	"IPA_SHARED_RT_RULE_ID must not collide with the auto-allocator range");
 #define IPA_CT_TBL_CANARY_SIZE 40
 #define IPA_MAX_TRAFFIC_CLASSES 16
+
+/* Cap on cached QoS rule configs (qos_config_list); a non-duplicate ADD
+ * beyond this is rejected. */
+#define IPA_MAX_QOS_CACHE_RULES 250
 
 #define NON_IHL_EQ_OFFSET_FROM_L2(x) (x | 0x80)
 #define NON_IHL_EQ_OFFSET_FROM_L3(x) (x & 0x7F)
@@ -642,6 +663,18 @@ enum rule_sub_category {
 	IPA_RULE_PRIORITY_31,
 	IPA_RULE_SUB_CAT_MAX
 };
+
+/* QoS uses two non-overlapping sub_cat bands so autonomous filters always
+ * sort behind user filters: user rules take IPA_RULE_PRIORITY_0 + tc,
+ * autonomous rules IPA_RULE_SUB_CAT_MAX + tc (see
+ * ipa_be_qos_install_one_rule()). The autonomous band deliberately lies
+ * above the last named enumerator; do not add a sub_cat range check
+ * without accounting for it.
+ */
+static_assert(IPA_RULE_PRIORITY_0 + IPA_MAX_TRAFFIC_CLASSES <=
+	      IPA_RULE_SUB_CAT_MAX,
+	"rule_sub_category needs IPA_MAX_TRAFFIC_CLASSES priority slots for the "
+	"user QoS band");
 
 enum rt_rule_category {
 	IPA_RT_RULE_CAT_NONE,
@@ -4130,6 +4163,11 @@ int ipa3_set_intf_tx_tc_bitmap_by_pipe(const char *name,
 				       uint32_t tc_bitmap);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
 int ipa3_find_intf_by_client(enum ipa_client_type client);
+
+/* Reprogram one interface's BE TX pipe HOLB timer based on QoS activity on
+ * that interface (500us when active, 31ms restored when not). Implemented
+ * in ipa_intf.c; must be called without msg_qos_param_lock held. */
+void ipa3_qos_retime_be_pipes(const char *dev_name, bool active);
 
 bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf);
 int ipa3_update_intf_idx(const char *name, int intf_idx);

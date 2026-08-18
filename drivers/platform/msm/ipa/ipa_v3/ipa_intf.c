@@ -355,6 +355,78 @@ int ipa3_set_intf_tx_tc_bitmap(const char *name,
 }
 
 /**
+ * ipa3_qos_retime_be_pipes() - retime one interface's BE pipe HOLB discard
+ * @dev_name: interface the QoS rule applies to; only its BE TX pipes are
+ *            touched, not unrelated interfaces'.
+ * @active: true tightens HOLB to 500us (qos_holb_tmr[]/qos_holb_tmr_auto[]);
+ *          false restores the IPA_HOLB_TMR_VAL_4_5 (31ms) default.
+ *
+ * Note: takes ipa3_ctx->lock; must not be called holding msg_qos_param_lock.
+ */
+void ipa3_qos_retime_be_pipes(const char *dev_name, bool active)
+{
+	struct ipa3_intf *entry;
+	struct ipa_ep_cfg_holb holb_cfg;
+	u32 i;
+
+	if (!dev_name || !dev_name[0]) {
+		IPADBG("no dev_name, skipping BE HOLB retime\n");
+		return;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		/* Skips the duplicate write for a v4/v6 pair on one dst_pipe. */
+		int last_ep = IPA_EP_NOT_ALLOCATED;
+
+		if (strcmp(entry->name, dev_name))
+			continue;
+
+		for (i = 0; i < entry->num_tx_props; i++) {
+			int ep_idx;
+
+			/* Only BE pipes (no TC bits set). */
+			if (entry->tx[i].tc_bmap != 0)
+				continue;
+
+			ep_idx = ipa_get_ep_mapping(entry->tx[i].dst_pipe);
+			if (ep_idx == IPA_EP_NOT_ALLOCATED) {
+				IPADBG("BE pipe %s tx[%u] not allocated, skipping\n",
+				       entry->name, i);
+				continue;
+			}
+
+			/* v4/v6 pair on the same pipe: program once. */
+			if (ep_idx == last_ep)
+				continue;
+			last_ep = ep_idx;
+
+			memset(&holb_cfg, 0, sizeof(holb_cfg));
+			holb_cfg.en = IPA_HOLB_TMR_EN;
+			if (active) {
+				/* Highest-priority entry, same array as QoS TC pipes. */
+				if (ipa3_ctx->ipa_config_is_auto)
+					holb_cfg.tmr_val =
+						qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO - 1];
+				else
+					holb_cfg.tmr_val =
+						qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE - 1];
+				ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
+				IPADBG("BE pipe %s tx[%u] ep %d HOLB -> %u us (QoS active)\n",
+				       entry->name, i, ep_idx, holb_cfg.tmr_val);
+			} else {
+				holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+				ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
+				IPADBG("BE pipe %s tx[%u] ep %d HOLB -> %u ms (QoS idle)\n",
+				       entry->name, i, ep_idx,
+				       IPA_HOLB_TMR_VAL_4_5);
+			}
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+}
+
+/**
  * ipa_deregister_intf() - de-register previously registered logical interface
  * @name: [in] interface name
  *
