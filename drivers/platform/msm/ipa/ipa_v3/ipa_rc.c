@@ -1097,6 +1097,15 @@ int ipa_rc_init(void)
 			ipa3_ctx->stats.rx_excp_pkts[i][IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL];
 	}
 
+	/* Kick off the first HM poll here where rc_ctx/rc_wq are guaranteed
+	 * valid. The kickoff in ipa3_update_config() runs during the config
+	 * write that triggers FW load, which is BEFORE ipa_rc_init() allocates
+	 * rc_ctx (post_init) - so rc_ctx is NULL there and the poll never
+	 * starts. Scheduling here guarantees monitoring begins on every boot.
+	 */
+	queue_delayed_work(rc_ctx->rc_wq, &rc_ctx->dwork,
+			msecs_to_jiffies(IPA_COLLECT_INTERVAL_MS));
+
 	return ret;
 }
 
