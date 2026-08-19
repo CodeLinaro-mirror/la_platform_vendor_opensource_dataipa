@@ -428,7 +428,7 @@ static int ipa_mhi_start_gsi_channel(enum ipa_client_type client,
 	if (!ep->skip_ep_cfg) {
 
 		/* Configure the MHI pipe like ETH pipe if mhi_eth is enabled */
-		if(ipa3_ctx->ipa_mhi_eth) {
+		if(ipa3_ctx->ipa_mhi_eth && IPA_CLIENT_IS_MHI_ETH(ipa_get_ep_mapping(client))) {
 			//get VLAN mode
 			res = ipa3_is_vlan_mode(IPA_VLAN_IF_MHI_ETH, &vlan_mode);
 			if (res) {
