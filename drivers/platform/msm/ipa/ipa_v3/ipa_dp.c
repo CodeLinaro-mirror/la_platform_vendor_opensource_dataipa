@@ -5601,19 +5601,23 @@ _prep_and_send_skb(
 		{
 			shinfo->gso_segs = num_pkts;
 			shinfo->gso_size = pkts[0].pkt_len;
+			if (ip_proto == IPPROTO_TCP)
+				shinfo->gso_type =
+					(ip_vers == 4) ? SKB_GSO_TCPV4 : SKB_GSO_TCPV6;
+			else
+				shinfo->gso_type = SKB_GSO_UDP_L4;
 		}
 		else
 		{
 			shinfo->gso_segs = 0;
 			shinfo->gso_size = 0;
+			shinfo->gso_type = 0;
 		}
 
 		if (ip_proto == IPPROTO_TCP) {
-			shinfo->gso_type = (ip_vers == 4) ? SKB_GSO_TCPV4 : SKB_GSO_TCPV6;
 			ipa3_ctx->stats.coal.coal_tcp++;
 			ipa3_ctx->stats.coal.coal_tcp_bytes += aggr_payload_size;
 		} else {
-			shinfo->gso_type = SKB_GSO_UDP_L4;
 			ipa3_ctx->stats.coal.coal_udp++;
 			ipa3_ctx->stats.coal.coal_udp_bytes += aggr_payload_size;
 		}
