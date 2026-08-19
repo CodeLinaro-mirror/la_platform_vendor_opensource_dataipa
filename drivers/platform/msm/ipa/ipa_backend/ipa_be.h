@@ -91,9 +91,11 @@ static inline bool ipa_be_v6_dst_is_link_local(const uint32_t dst_addr[4])
 		IPA_BE_LINK_LOCAL_IPV6_PREFIX;
 }
 
-int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface, bool ct_enabled);
+int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface);
+int ipa_be_add_ct_entry_v4(struct ipa_ipv4_rule_create_msg *v4_msg);
 int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface, bool lan2lan);
 void ipa_be_delete_entry(struct ipa_ipv4_rule_destroy_msg v4_msg, bool ct_enabled);
+void ipa_be_delete_ct_entry_v4(struct ipa_ipv4_rule_destroy_msg v4_msg);
 int ipa_be_nat_mgmt_init(void);
 void ipa_be_nat_mgmt_exit(void);
 
