@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/atomic.h>
@@ -1082,6 +1082,11 @@ static netdev_tx_t rndis_ipa_start_xmit(struct sk_buff *skb,
 			iph = ip_hdr(skb);
 			if (IPV4_IS_TCP(iph) || IPV4_IS_UDP(iph)) {
 				skb = qmap_encapsulate_skb(skb, &qmap_template_hdr);
+				if (unlikely(!skb)) {
+					RNDIS_IPA_ERROR("qmap encap failed (IPv4)\n");
+					status = NETDEV_TX_OK;
+					goto out;
+				}
 				skb_shinfo(skb)->gso_size =
 					net->mtu - IPV4_DELTA;
 			}
@@ -1089,6 +1094,11 @@ static netdev_tx_t rndis_ipa_start_xmit(struct sk_buff *skb,
 			iph = ip_hdr(skb);
 			if (IPV6_IS_TCP(iph) || IPV6_IS_UDP(iph)) {
 				skb = qmap_encapsulate_skb(skb, &qmap_template_hdr);
+				if (unlikely(!skb)) {
+					RNDIS_IPA_ERROR("qmap encap failed (IPv6)\n");
+					status = NETDEV_TX_OK;
+					goto out;
+				}
 				skb_shinfo(skb)->gso_size =
 					net->mtu - IPV6_DELTA;
 			}
