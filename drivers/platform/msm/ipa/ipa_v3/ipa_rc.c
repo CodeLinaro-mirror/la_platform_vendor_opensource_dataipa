@@ -773,31 +773,38 @@ bool is_nat_present(void)
 	int result;
 	bool entry_zeroed, entry_valid;
 	char *pdn_entry;
+	bool ret = false;
 
-	if(ipa3_ctx->nat_mem.pdn_mem.base) {
-		pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
+	/* serialize with ipa3_del_nat_table() to prevent use-after-free on pdn_mem */
+	mutex_lock(&ipa3_ctx->nat_mem.dev.lock);
 
-		result = ipahal_nat_is_entry_zeroed(
-						IPAHAL_NAT_IPV4_PDN,
-						pdn_entry, &entry_zeroed);
-		if (result) {
-			IPAERR("ipahal_nat_is_entry_zeroed() fail\n");
-			goto last;
-		}
+	if (!ipa3_ctx->nat_mem.pdn_mem.base)
+		goto unlock;
 
-		if(!entry_zeroed) {
-			result = ipahal_nat_is_entry_valid(
-						IPAHAL_NAT_IPV4_PDN,
-						pdn_entry, &entry_valid);
-			if (result) {
-				IPAERR("Failed to determine whether the PDN entry is valid\n");
-				goto last;
-			}
-			return entry_valid;
-		}
+	pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
+
+	result = ipahal_nat_is_entry_zeroed(
+					IPAHAL_NAT_IPV4_PDN,
+					pdn_entry, &entry_zeroed);
+	if (result) {
+		IPAERR("ipahal_nat_is_entry_zeroed() fail\n");
+		goto unlock;
 	}
-last:
-	return false;
+
+	if (!entry_zeroed) {
+		result = ipahal_nat_is_entry_valid(
+					IPAHAL_NAT_IPV4_PDN,
+					pdn_entry, &entry_valid);
+		if (result) {
+			IPAERR("Failed to determine whether the PDN entry is valid\n");
+			goto unlock;
+		}
+		ret = entry_valid;
+	}
+
+unlock:
+	mutex_unlock(&ipa3_ctx->nat_mem.dev.lock);
+	return ret;
 }
 
 int is_wlan_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl, enum ipa_ip_type ip)
