@@ -55,6 +55,9 @@ static u32 prev_reported_status;
 	IPA_DRIVER_WLAN3_STA_PKT_DROP  | \
 	IPA_DRIVER_MODEM_PKT_DROP)
 
+/* True once eth0/1 has been observed carrying a WAN filter rule. */
+static bool eth_wan_rule_seen, eth1_wan_rule_seen;
+
 static const struct {
 	enum ipa_rc_state_err bit;
 	const char *name;
@@ -605,11 +608,21 @@ enum ipa_rc_state_err ipa_rc_detect_chan_stall(enum ipa_client_type client,
 			cur_status |= IPA_CHANNEL_WLAN3_NO_BUFF;
 		else if(IPA_CLIENT_IS_APPS_CONS(client))
 			cur_status |= IPA_CHANNEL_APPS_EMB_NO_BUFF;
-		else if(IPA_CLIENT_IS_Q6_CONS(client))
-			cur_status |= IPA_CHANNEL_Q6_NO_BUFF;
-		else
+		else if(!IPA_CLIENT_IS_Q6_CONS(client))
 			IPADBG("Unsupported client\n");
 	}
+
+	/*
+	 * Q6 consumer rings sit permanently at rp != wp even at idle (a
+	 * standing backlog of posted descriptors), and both rp and wp are
+	 * static across polls when idle. So "empty+static" cannot signal a
+	 * genuine modem-side stall for Q6. The only signature unique to a
+	 * real stall is the producer still moving (wp advancing, IPA keeps
+	 * queuing UL) while the consumer isn't draining (rp frozen).
+	 */
+	if(IPA_CLIENT_IS_Q6_CONS(client) && rp != wp &&
+		rp == prev_rp && wp != prev_wp)
+		cur_status |= IPA_CHANNEL_Q6_NO_BUFF;
 
 	return cur_status;
 }
@@ -875,13 +888,33 @@ void ipa_rc_detect_flt_order(struct ipa_rc_health_monitor *ipa_state_info, enum 
 			else if(is_eth_prod_pipe(client)) {
 				int has_wan_rule = 0;
 				res = is_flt_rule_ordered(i, tbl, ip, NULL, &has_wan_rule);
-				if(res < 0 || (!has_wan_rule && is_nat_present()))
+				if(has_wan_rule)
+					eth_wan_rule_seen = true;
+				/*
+				 * eth0 may be provisioned as a LAN port (no WAN rule
+				 * ever expected) rather than the WAN backhaul. Only
+				 * apply the NAT-present/no-WAN-rule check once eth1
+				 * has actually been seen carrying a WAN rule, so a
+				 * LAN-role eth0 never false-trips off the cellular
+				 * PDN's NAT entry.
+				 */
+				if(res < 0 || (eth_wan_rule_seen && !has_wan_rule && is_nat_present()))
 					status |= IPA_ETH_FILTER_RULE_INCORRECT;
 			}
 			else if(is_eth1_prod_pipe(client)) {
 				int has_wan_rule = 0;
 				res = is_flt_rule_ordered(i, tbl, ip, NULL, &has_wan_rule);
-				if(res < 0 || (!has_wan_rule && is_nat_present()))
+				if(has_wan_rule)
+					eth1_wan_rule_seen = true;
+				/*
+				 * eth1 may be provisioned as a LAN port (no WAN rule
+				 * ever expected) rather than the WAN backhaul. Only
+				 * apply the NAT-present/no-WAN-rule check once eth1
+				 * has actually been seen carrying a WAN rule, so a
+				 * LAN-role eth1 never false-trips off the cellular
+				 * PDN's NAT entry.
+				 */
+				if(res < 0 || (eth1_wan_rule_seen && !has_wan_rule && is_nat_present()))
 					status |= IPA_ETH1_FILTER_RULE_INCORRECT;
 			}
 
