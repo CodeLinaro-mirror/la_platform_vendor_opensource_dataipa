@@ -48,6 +48,7 @@ static void print_testcases(void)
 	pr_err("24. -> WLAN3 STA Flt_rule_order \n");
 	pr_err("25. -> MODEM pkts drop\n");
 	pr_err("26. -> ETH WAN Flt_rule_order\n");
+	pr_err("27. -> NAT init recovered (clear latch)\n");
 	return;
 }
 
@@ -582,7 +583,15 @@ static void ipa_test_wlan_sta_flt_order_lvl2(void)
 
 static void ipa_test_nat_init(void)
 {
-	ipa3_nat_ipv6ct_free_mem(&ipa3_ctx->nat_mem.dev);
+	/* Latch the NAT-init anomaly, as ipa_backend does on a real failure. */
+	ipa_rc_set_nat_init_status(true);
+	return;
+}
+
+static void ipa_test_nat_recover(void)
+{
+	/* Clear the latch so IPA-RC emits the NAT recovered edge. */
+	ipa_rc_set_nat_init_status(false);
 	return;
 }
 
@@ -732,6 +741,10 @@ ssize_t testcase_store(struct device *dev, struct device_attribute *attr,
 		case 26:
 			//ETH WAN FILTER_RULE_INCORRECT;
 			ipa_test_eth_sta_flt_order();
+			break;
+		case 27:
+			//IPA_NAT_NOT_INITIALIZED recovery (clear latch)
+			ipa_test_nat_recover();
 			break;
 		default:
 			IPAERR("invalid testcase\n");

@@ -37,9 +37,23 @@ static u32  drop_prev_cnts[MAX_RC_CLIENTS][DATA_DIR];
 static bool drop_win[MAX_RC_CLIENTS][DATA_DIR][DROP_SAMPLE_WINDOW];
 static int  drop_win_idx[MAX_RC_CLIENTS][DATA_DIR];
 static enum ipa_rc_state_err persistent_drop_status;
+static u32 persistent_nat_status;   /* event-driven NAT-init latch */
+static bool persistent_nat_present; /* event-driven PDN0 NAT-entry presence */
 
 /* Last anomaly bitmask pushed to userspace; used to edge-detect. */
 static u32 prev_reported_status;
+
+/* Packet-drop bits: the only bits ipa_rc_reset_drop_pkt_stats() re-arms. */
+#define IPA_RC_DROP_PKT_BITS_MASK ( \
+	IPA_DRIVER_ETH_PKT_DROP        | \
+	IPA_DRIVER_WLAN_AP_PKT_DROP    | \
+	IPA_DRIVER_WLAN_STA_PKT_DROP   | \
+	IPA_DRIVER_ETH1_PKT_DROP       | \
+	IPA_DRIVER_WLAN2_AP_PKT_DROP   | \
+	IPA_DRIVER_WLAN2_STA_PKT_DROP  | \
+	IPA_DRIVER_WLAN3_AP_PKT_DROP   | \
+	IPA_DRIVER_WLAN3_STA_PKT_DROP  | \
+	IPA_DRIVER_MODEM_PKT_DROP)
 
 static const struct {
 	enum ipa_rc_state_err bit;
@@ -493,12 +507,13 @@ void ipa_rc_reset_drop_pkt_stats(void)
 	}
 
 	persistent_drop_status = IPA_HEALTH_OK;
+	persistent_nat_status  = IPA_HEALTH_OK;
 	memset(drop_win, 0, sizeof(drop_win));
 	memset(drop_win_idx, 0, sizeof(drop_win_idx));
 	memset(drop_prev_cnts, 0, sizeof(drop_prev_cnts));
 
-	/* Re-evaluate from a clean slate on the next poll. */
-	prev_reported_status = IPA_HEALTH_OK;
+	/* Re-arm only the drop bits; keep the edge anchor for live-computed bits. */
+	prev_reported_status &= ~IPA_RC_DROP_PKT_BITS_MASK;
 
 	IPADBG("drop pkt stats reset done\n");
 }
@@ -773,37 +788,15 @@ int is_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl,
 	return 0;
 }
 
-/* To check if Pdn0 has nat entry present */
+/* Cached PDN0 NAT-entry presence; updated by the NAT layer under dev.lock. */
 bool is_nat_present(void)
 {
-	int result;
-	bool entry_zeroed, entry_valid;
-	char *pdn_entry;
+	return persistent_nat_present;
+}
 
-	if(ipa3_ctx->nat_mem.pdn_mem.base) {
-		pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
-
-		result = ipahal_nat_is_entry_zeroed(
-						IPAHAL_NAT_IPV4_PDN,
-						pdn_entry, &entry_zeroed);
-		if (result) {
-			IPAERR("ipahal_nat_is_entry_zeroed() fail\n");
-			goto last;
-		}
-
-		if(!entry_zeroed) {
-			result = ipahal_nat_is_entry_valid(
-						IPAHAL_NAT_IPV4_PDN,
-						pdn_entry, &entry_valid);
-			if (result) {
-				IPAERR("Failed to determine whether the PDN entry is valid\n");
-				goto last;
-			}
-			return entry_valid;
-		}
-	}
-last:
-	return false;
+void ipa_rc_set_nat_present_status(bool present)
+{
+	persistent_nat_present = present;
 }
 
 int is_wlan_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl, enum ipa_ip_type ip)
@@ -904,26 +897,12 @@ void ipa_rc_detect_flt_order(struct ipa_rc_health_monitor *ipa_state_info, enum 
 	return;
 }
 
-void ipa_rc_nat_init(struct ipa_rc_health_monitor *ipa_state_info)
+void ipa_rc_set_nat_init_status(bool failed)
 {
-	enum ipa_rc_state_err cur_status = IPA_HEALTH_OK;
-
-	if(!has_ul_dl_rule && !modem_rule)
-		return;
-
-	struct ipa3_nat_ipv6ct_common_mem *ndev = &ipa3_ctx->nat_mem.dev;
-	struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) ndev;
-	bool any_table_active = (nm_ptr->ddr_in_use || nm_ptr->sram_in_use);
-
-	if (!ndev->is_dev_init || !ndev->is_hw_init || !any_table_active) {
-		if(ipa3_ctx->is_rc_log_enabled)
-			IPADBG("NAT hasn't been initialized\n");
-
-		cur_status = IPA_NAT_NOT_INITIALIZED;
-	}
-
-	ipa_state_info->status_code |= cur_status;
-	return;
+	if (failed)
+		persistent_nat_status |= IPA_NAT_NOT_INITIALIZED;
+	else
+		persistent_nat_status &= ~IPA_NAT_NOT_INITIALIZED;
 }
 
 int ipa_rc_query_detect_for_instance(void)
@@ -953,7 +932,8 @@ int ipa_rc_query_detect_for_instance(void)
 
 	ipa_rc_detect_flt_order(cur_state, IPA_IP_v4);
 
-	ipa_rc_nat_init(cur_state);
+	/* NAT-init status is event-driven, latched by ipa_backend. */
+	cur_state->status_code |= persistent_nat_status;
 
 	do {
 		if(rc_list_size(&rc_list) >= LIST_MAX_LEN_DEBUG) {

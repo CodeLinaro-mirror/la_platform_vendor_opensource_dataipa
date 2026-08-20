@@ -779,9 +779,11 @@ int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 		if(ret)
 		{
 			IPA_BE_ERR("unable to create nat table Error:%d\n", ret);
+			ipa_rc_set_nat_init_status(true);
 			mutex_unlock(&ipa_be_nat_mgmt_lock);
 			return ret;
 		}
+		ipa_rc_set_nat_init_status(false);
 		IPA_BE_DBG("succeesfully created NAT table for ip 0x%X\n", pub_ip);
 		entry.src_metadata = generate_met_data(mux_id);
 		pdn_index = 0;
@@ -911,9 +913,11 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 		if(ret)
 		{
 			IPA_BE_ERR("unable to create nat table Error:%d\n", ret);
+			ipa_rc_set_nat_init_status(true);
 			mutex_unlock(&ipa_be_nat_mgmt_lock);
 			return ret;
 		}
+		ipa_rc_set_nat_init_status(false);
 		IPA_BE_DBG("succeesfully created NAT table for ip 0x%X\n", pub_ip);
 		pdn_index = 1;
 

@@ -387,6 +387,22 @@ void ipa_rc_notify_anomaly(u32 status_code, u32 asserted, u32 cleared);
  */
 void ipa_rc_reset_drop_pkt_stats(void);
 
+/**
+ * ipa_rc_set_nat_init_status() - Event-driven NAT-init anomaly latch.
+ * @failed: true latches IPA_NAT_NOT_INITIALIZED, false clears it.
+ *
+ * Called by ipa_backend at NAT table create time.
+ */
+void ipa_rc_set_nat_init_status(bool failed);
+
+/**
+ * ipa_rc_set_nat_present_status() - Event-driven PDN0 NAT-entry presence.
+ * @present: true if PDN index 0 holds a valid (non-zeroed) NAT entry.
+ *
+ * Called by the NAT layer under nat_mem.dev.lock.
+ */
+void ipa_rc_set_nat_present_status(bool present);
+
 /* Queue functions */
 void rc_list_init(struct ipa_rc_queue *q);
 bool rc_list_is_empty(struct ipa_rc_queue *q);
