@@ -1227,6 +1227,33 @@ struct ipa_qos_rule_installed_msg {
 #define IPA_EVENT_MAX_NUM (IPA_QOS_PARAM_EVENT_MAX)
 #define IPA_EVENT_MAX ((int)IPA_EVENT_MAX_NUM)
 
+/* IPA Robustness Check (RC) anomaly notification channel */
+#define IPA_RC_GENL_FAMILY_NAME  "ipa_rc"
+#define IPA_RC_GENL_VERSION      1
+#define IPA_RC_MCAST_GRP_NAME    "ipa_rc_mcgrp"
+
+enum ipa_rc_genl_attr {
+	IPA_RC_A_UNSPEC = 0,
+	IPA_RC_A_ANOMALY,
+	__IPA_RC_A_MAX,
+};
+#define IPA_RC_A_MAX (__IPA_RC_A_MAX - 1)
+
+enum ipa_rc_genl_cmd {
+	IPA_RC_C_UNSPEC = 0,
+	IPA_RC_C_ANOMALY,
+	__IPA_RC_C_MAX,
+};
+#define IPA_RC_C_MAX (__IPA_RC_C_MAX - 1)
+
+struct ipa_rc_anomaly_msg {
+	__u32 version;
+	__u32 status_code;
+	__u32 asserted_mask;
+	__u32 cleared_mask;
+	__u64 timestamp_ms;
+};
+
 /**
  * enum ipa_rm_resource_name - IPA RM clients identification names
  *

@@ -371,6 +371,10 @@ int ipa_rc_monitor_health(void);
 bool is_wlan_sta_pkt(struct ipahal_pkt_status *status);
 int get_rc_client(int src_idx);
 
+int ipa_rc_genl_init(void);
+void ipa_rc_genl_deinit(void);
+void ipa_rc_notify_anomaly(u32 status_code, u32 asserted, u32 cleared);
+
 /**
  * ipa_rc_reset_drop_pkt_stats() - Reset drop detection state on IPACM restart.
  *

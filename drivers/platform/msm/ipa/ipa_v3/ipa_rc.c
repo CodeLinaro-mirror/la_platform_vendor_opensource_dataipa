@@ -6,6 +6,7 @@
 #include <linux/jiffies.h>
 #include <linux/ctype.h>
 #include <linux/etherdevice.h>
+#include <net/genetlink.h>
 #include "ipahal_nat.h"
 #include "gsi.h"
 #include "ipa_i.h"
@@ -36,6 +37,9 @@ static u32  drop_prev_cnts[MAX_RC_CLIENTS][DATA_DIR];
 static bool drop_win[MAX_RC_CLIENTS][DATA_DIR][DROP_SAMPLE_WINDOW];
 static int  drop_win_idx[MAX_RC_CLIENTS][DATA_DIR];
 static enum ipa_rc_state_err persistent_drop_status;
+
+/* Last anomaly bitmask pushed to userspace; used to edge-detect. */
+static u32 prev_reported_status;
 
 static const struct {
 	enum ipa_rc_state_err bit;
@@ -492,6 +496,9 @@ void ipa_rc_reset_drop_pkt_stats(void)
 	memset(drop_win, 0, sizeof(drop_win));
 	memset(drop_win_idx, 0, sizeof(drop_win_idx));
 	memset(drop_prev_cnts, 0, sizeof(drop_prev_cnts));
+
+	/* Re-evaluate from a clean slate on the next poll. */
+	prev_reported_status = IPA_HEALTH_OK;
 
 	IPADBG("drop pkt stats reset done\n");
 }
@@ -1002,16 +1009,121 @@ unlock:
 	return health_status;
 }
 
+/* IPA-RC generic-netlink anomaly notification channel. */
+
+static const struct genl_multicast_group ipa_rc_mcgrps[] = {
+	{ .name = IPA_RC_MCAST_GRP_NAME },
+};
+
+static struct genl_family ipa_rc_genl_family = {
+	.name     = IPA_RC_GENL_FAMILY_NAME,
+	.version  = IPA_RC_GENL_VERSION,
+	.maxattr  = IPA_RC_A_MAX,
+	.module   = THIS_MODULE,
+	.mcgrps   = ipa_rc_mcgrps,
+	.n_mcgrps = ARRAY_SIZE(ipa_rc_mcgrps),
+};
+
+static bool ipa_rc_genl_registered;
+
+int ipa_rc_genl_init(void)
+{
+	int ret;
+
+	ret = genl_register_family(&ipa_rc_genl_family);
+	if (ret) {
+		IPAERR("failed to register ipa_rc genl family: %d\n", ret);
+		return ret;
+	}
+
+	ipa_rc_genl_registered = true;
+	IPADBG("ipa_rc genl family '%s' registered (id=%d)\n",
+		ipa_rc_genl_family.name, ipa_rc_genl_family.id);
+	return 0;
+}
+
+void ipa_rc_genl_deinit(void)
+{
+	if (!ipa_rc_genl_registered)
+		return;
+
+	genl_unregister_family(&ipa_rc_genl_family);
+	ipa_rc_genl_registered = false;
+	IPADBG("ipa_rc genl family unregistered\n");
+}
+
+void ipa_rc_notify_anomaly(u32 status_code, u32 asserted, u32 cleared)
+{
+	struct ipa_rc_anomaly_msg payload;
+	struct sk_buff *skb;
+	void *hdr;
+	int ret;
+
+	if (!ipa_rc_genl_registered)
+		return;
+
+	memset(&payload, 0, sizeof(payload));
+	payload.version       = IPA_RC_GENL_VERSION;
+	payload.status_code   = status_code;
+	payload.asserted_mask = asserted;
+	payload.cleared_mask  = cleared;
+	payload.timestamp_ms  = ktime_to_ms(ktime_get());
+
+	skb = genlmsg_new(nla_total_size(sizeof(payload)), GFP_KERNEL);
+	if (!skb) {
+		IPAERR("failed to alloc genl skb for anomaly notify\n");
+		return;
+	}
+
+	hdr = genlmsg_put(skb, 0, 0, &ipa_rc_genl_family, 0, IPA_RC_C_ANOMALY);
+	if (!hdr) {
+		IPAERR("genlmsg_put failed\n");
+		nlmsg_free(skb);
+		return;
+	}
+
+	if (nla_put(skb, IPA_RC_A_ANOMALY, sizeof(payload), &payload)) {
+		IPAERR("nla_put failed for anomaly payload\n");
+		genlmsg_cancel(skb, hdr);
+		nlmsg_free(skb);
+		return;
+	}
+
+	genlmsg_end(skb, hdr);
+
+	ret = genlmsg_multicast(&ipa_rc_genl_family, skb, 0, 0, GFP_KERNEL);
+	if (ret && ret != -ESRCH)
+		IPAERR("genlmsg_multicast failed: %d\n", ret);
+	else
+		IPADBG("anomaly notify sent status=0x%x asserted=0x%x cleared=0x%x\n",
+			status_code, asserted, cleared);
+}
+
 /* IPA-RC Workqueue Handler */
 static void ipa_rc_work_handler(struct work_struct *work)
 {
 	struct ipa_rc_wq_ctx *lcl_ctx;
 	uint32_t res = 0;
+	u32 cur_status, changed, asserted, cleared;
 
 	/* Retrieve the context from the work structure */
 	lcl_ctx = container_of(work, struct ipa_rc_wq_ctx, dwork.work);
 
 	res = ipa_rc_query_detect_for_instance();
+
+	cur_status = ipa_rc_monitor_health();
+
+	IPADBG_LOW("ipa_rc_wq: poll done, instance status code=%u (aggregated status=%u)\n",
+		res, cur_status);
+
+	changed = cur_status ^ prev_reported_status;
+	if (changed) {
+		asserted = changed & cur_status;
+		cleared  = changed & ~cur_status;
+		ipa_rc_notify_anomaly(cur_status, asserted, cleared);
+		prev_reported_status = cur_status;
+	}
+
 	if(res != 0) {
 		IPADBG("instance ipa status code: %u\n", res);
 	}
@@ -1090,6 +1202,10 @@ int ipa_rc_init(void)
 	INIT_LIST_HEAD(&ipa_rc_wlan_info.head);
 	ipa_rc_wlan_info.size = 0;
 
+	prev_reported_status = IPA_HEALTH_OK;
+	if (ipa_rc_genl_init())
+		IPAERR("ipa_rc genl init failed; anomaly notify disabled\n");
+
 	for (i = 0; i < MAX_RC_CLIENTS; i++) {
 		drop_prev_cnts[i][0] =
 			ipa3_ctx->stats.rx_excp_pkts[i][IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL];
@@ -1137,6 +1253,9 @@ void ipa_rc_deinit(void)
 		kfree(rc_ctx);
 		rc_ctx = NULL;
 	}
+
+	/* Unregister after the workqueue is drained to avoid a teardown race. */
+	ipa_rc_genl_deinit();
 
 	IPADBG("ipa rc deinit complete\n");
 }
