@@ -7,6 +7,8 @@
 #include "ipa_wdi3.h"
 #include <linux/msm_ipa.h>
 #include <linux/string.h>
+#include <net/ip.h>
+#include <net/ipv6.h>
 #include "ipa_common_i.h"
 #include "ipa_pm.h"
 #include "ipa_i.h"
@@ -92,6 +94,11 @@ struct ipa_wdi_context {
 	bool is_rx1_used;
 	u8 rdi;
 	u8 rx1_rdi;
+	/* PM wake callback — called by ipa_wdi_pm_cb when PM activates after
+	 * ipa_pm_activate() returned -EAGAIN.  Used to wake WLAN netdev queues.
+	 */
+	ipa_notify_cb pm_notify;
+	void *pm_priv;
 };
 
 static struct ipa_wdi_context *ipa_wdi_ctx_list[IPA_WDI_INST_MAX];
@@ -162,7 +169,24 @@ EXPORT_SYMBOL(ipa_wdi_is_tx1_used);
 
 static void ipa_wdi_pm_cb(void *p, enum ipa_pm_cb_event event)
 {
-        IPA_WDI_DBG("received pm event %d\n", event);
+	ipa_wdi_hdl_t hdl = (ipa_wdi_hdl_t)(uintptr_t)p;
+
+	if (event != IPA_PM_CLIENT_ACTIVATED)
+		return;
+
+	if (hdl >= IPA_WDI_INST_MAX || !ipa_wdi_ctx_list[hdl])
+		return;
+
+	/* Signal the WLAN driver to wake its netdev queues.
+	 * We reuse the existing IPA_WRITE_DONE notify path with skb=NULL
+	 * as the PM-wake sentinel (skb=NULL means "wake queues, no packet
+	 * to free").  ath12k_wifi8_dp_ipa_w2i() handles this case.
+	 */
+	if (ipa_wdi_ctx_list[hdl]->pm_notify) {
+		ipa_wdi_ctx_list[hdl]->pm_notify(
+			ipa_wdi_ctx_list[hdl]->pm_priv,
+			IPA_WRITE_DONE, 0);
+	}
 }
 
 static int ipa_wdi_commit_partial_hdr(
@@ -317,7 +341,16 @@ int ipa_wdi_init_per_inst(struct ipa_wdi_init_in_params *in,
 	else
 		out->is_over_gsi = false;
 
-	out->hdl = hdl;
+	out->hdl                  = hdl;
+	out->offload_supported    = ipa3_is_ulso_supported();
+	out->offload_max_pkts     = IPA_WDI_OFFLOAD_MAX_PKTS;
+	out->offload_headroom     = sizeof(struct qmap_hdr);
+	out->offload_features     = ipa3_is_ulso_supported() ?
+		(NETIF_F_RXCSUM | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
+		 NETIF_F_SG | NETIF_F_GRO_HW |
+		 NETIF_F_ALL_TSO | NETIF_F_GSO_UDP_L4) : 0;
+	out->offload_gso_max_size = ipa3_is_ulso_supported() ?
+		IPA_WDI_OFFLOAD_GSO_MAX_SIZE : 0;
 
 	return 0;
 }
@@ -727,7 +760,7 @@ int ipa_wdi_conn_pipes_per_inst(struct ipa_wdi_conn_in_params *in,
 		IPA_WDI_ERR("Unsupported instance id value received %d\n", ipa_wdi_ctx_list[in->hdl]->inst_id);
 
 	pm_params.callback = ipa_wdi_pm_cb;
-	pm_params.user_data = NULL;
+	pm_params.user_data = (void *)(uintptr_t)in->hdl;  /* pass hdl for PM wake */
 	pm_params.group = IPA_PM_GROUP_DEFAULT;
 	if (ipa_pm_register(&pm_params, &ipa_wdi_ctx_list[in->hdl]->ipa_pm_hdl)) {
 		IPA_WDI_ERR("fail to register ipa pm\n");
@@ -756,6 +789,11 @@ int ipa_wdi_conn_pipes_per_inst(struct ipa_wdi_conn_in_params *in,
 			in_rx.sys.client = in->u_rx.rx.client;
 			in_rx.sys.notify = in->notify;
 			in_rx.sys.priv = in->priv;
+			/* Store for PM wake — in->notify is ipa_notify_cb here */
+			if (ipa_wdi_ctx_list[in->hdl]) {
+				ipa_wdi_ctx_list[in->hdl]->pm_notify = in->notify;
+				ipa_wdi_ctx_list[in->hdl]->pm_priv   = in->priv;
+			}
 			in_rx.smmu_enabled = in->is_smmu_enabled;
 			in_rx.u.ul.rdy_ring_base_pa =
 				in->u_rx.rx.transfer_ring_base_pa;
@@ -1582,3 +1620,234 @@ int ipa_wdi_set_perf_profile(struct ipa_wdi_perf_profile *profile)
 	return ipa_wdi_set_perf_profile_per_inst(0, profile);
 }
 EXPORT_SYMBOL(ipa_wdi_set_perf_profile);
+
+/* ------------------------------------------------------------------ */
+/* WLAN ULSO TX path                                                    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * These deltas account for the minimum fixed IP + transport header
+ * overhead subtracted from MTU to derive the TCP/UDP MSS placed in
+ * skb_shinfo()->gso_size.  The IPA driver uses a non-zero gso_size
+ * to recognise a packet as GSO and select the pkt_init_ex_imm path.
+ * IPv4: 20-byte IP hdr + 20-byte TCP hdr = 40 bytes
+ * IPv6: 40-byte IP hdr + 20-byte TCP hdr = 60 bytes
+ */
+#define WDI_ULSO_IPV4_DELTA	40	/* IPv4 hdr + TCP hdr */
+#define WDI_ULSO_IPV6_DELTA	60	/* IPv6 hdr + TCP hdr */
+#define WDI_ULSO_IPV4_UDP_DELTA	28	/* IPv4 hdr + UDP hdr */
+#define WDI_ULSO_IPV6_UDP_DELTA	48	/* IPv6 hdr + UDP hdr */
+
+#define WDI_IPV4_IS_TCP(iph)	((iph)->protocol == IPPROTO_TCP)
+#define WDI_IPV4_IS_UDP(iph)	((iph)->protocol == IPPROTO_UDP)
+#define WDI_IPV6_IS_TCP(iph)	(((struct ipv6hdr *)(iph))->nexthdr == IPPROTO_TCP)
+#define WDI_IPV6_IS_UDP(iph)	(((struct ipv6hdr *)(iph))->nexthdr == IPPROTO_UDP)
+
+/**
+ * ipa_wdi_offload_tx_dp_per_inst() - Transmit an skb over the WLAN offload SW TX path
+ * @hdl: WDI instance handle returned by ipa_wdi_init_per_inst()
+ * @skb: packet to transmit; ownership transfers to IPA on success;
+ *       skb->dev->mtu is used as the segmentation MTU
+ *
+ * For TCP and UDP packets over IPv4/IPv6, prepends an 8-byte QMAP extension
+ * header (hdr_type=0x3) when IPA segmentation offload is supported by the
+ * hardware.  Sets skb_shinfo()->gso_size so that ipa_tx_dp() selects the
+ * pkt_init_ex_imm descriptor path which instructs IPA to perform HW
+ * segmentation and checksum computation.  Non-TCP/UDP packets are forwarded
+ * without QMAP encapsulation.
+ *
+ * The TX pipe (IPA->WLAN consumer endpoint) is resolved from the instance
+ * handle so the correct pipe is chosen for multi-instance deployments
+ * (e.g. IPA_CLIENT_WLAN1_CONS vs IPA_CLIENT_WLAN2_CONS).
+ *
+ * Must not be called from atomic context.
+ *
+ * Returns: 0 on success
+ *          -EINVAL  if handle or skb is invalid
+ *          -EPERM   if the TX pipe is not yet connected
+ *          -EAGAIN  if IPA PM is activating (caller should stop TX queue)
+ *          -ENOSPC  if the GSI descriptor ring is full (caller should stop TX
+ *                   queue and restart it from the TX-complete notify callback)
+ *          negative errno from ipa_tx_dp() on other transmit failures
+ */
+int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl, struct sk_buff *skb)
+{
+	struct qmap_hdr qmap_hdr;
+	struct iphdr *iph;
+	struct ipa_tx_meta meta;
+	struct ipa_sw_producer_cookie cookie;
+	bool cookie_valid = false;
+	int intf_idx;
+	u16 mtu;
+	u16 skb_len;
+	u16 ip_dgram_len = 0;
+	int ret;
+
+	if (hdl >= IPA_WDI_INST_MAX || !ipa_wdi_ctx_list[hdl]) {
+		IPA_WDI_ERR("invalid handle %u\n", hdl);
+		return -EINVAL;
+	}
+
+	if (unlikely(!skb)) {
+		IPA_WDI_ERR("null skb\n");
+		return -EINVAL;
+	}
+
+	if (ipa_wdi_ctx_list[hdl]->tx_client == IPA_EP_NOT_ALLOCATED) {
+		IPA_WDI_ERR("TX pipe not connected for handle %u\n", hdl);
+		return -EPERM;
+	}
+
+	mtu = skb->dev->mtu;
+
+	/*
+	 * Resolve a PACKET_INIT_EX SW classification cookie from the skb's
+	 * source netdev (WDI6 vp_num), mirroring the routing-rule cookie
+	 * fill in ipa_be_clientdb.c. intf_idx in the ipa3_intf registry is
+	 * the netdev ifindex (see ipa3_assign_qmapmux_intf_idx()), so it can
+	 * be read straight off the skb. Cookie layout is WDI6-specific and
+	 * only meaningful on HW v7.0+; cookie_valid tracks whether a cookie
+	 * was actually resolved for this skb.
+	 */
+	memset(&cookie, 0, sizeof(cookie));
+	if (ipa_wdi_ctx_list[hdl]->wdi_version == IPA_WDI_6 &&
+	    ipa_get_hw_type() >= IPA_HW_v7_0) {
+		intf_idx = skb->dev->ifindex;
+		cookie_valid = ipa3_get_cookie_vpnum(intf_idx, &cookie);
+	}
+
+	ret = ipa_pm_activate(ipa_wdi_ctx_list[hdl]->ipa_pm_hdl);
+	if (ret) {
+		IPA_WDI_DBG("IPA PM activation pending for handle %u, ret %d\n",
+			    hdl, ret);
+		IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_wlan_pm_fail_pkts);
+		return -EAGAIN;
+	}
+
+	skb_len = skb->len;
+
+	if (ipa3_is_ulso_supported()) {
+		bool is_frag = false;
+
+		/*
+		 * Build a per-call QMAP ULSO template on the stack. segment_size
+		 * is the HW segmentation size = the L4 payload per segment; it
+		 * excludes the IP and transport (TCP/UDP) header sizes and is set
+		 * per-protocol below. gso_size is set to the same value so
+		 * ipa_tx_dp() recognises this as a GSO packet regardless of the
+		 * original packet size (needed for HW checksum offload on small
+		 * frames where the kernel skips SW csum computation).
+		 */
+		memset(&qmap_hdr, 0, sizeof(qmap_hdr));
+		qmap_hdr.next_hdr      = 1;    /* extension header present */
+		qmap_hdr.cd            = 0;    /* data packet, not command */
+		qmap_hdr.mux_id        = 0;
+		qmap_hdr.hdr_type      = 0x3;  /* ULSO extension header type */
+		qmap_hdr.zero_checksum = 0;    /* IPA computes checksum */
+		qmap_hdr.ip_id_cfg     = 0;    /* running IP ID per segment */
+
+		if (ntohs(skb->protocol) == ETH_P_IP) {
+			iph = ip_hdr(skb);
+			is_frag = ip_is_fragment(iph);
+			if (!is_frag &&
+			    (WDI_IPV4_IS_TCP(iph) || WDI_IPV4_IS_UDP(iph))) {
+				u16 delta = WDI_IPV4_IS_TCP(iph) ?
+					WDI_ULSO_IPV4_DELTA :
+					WDI_ULSO_IPV4_UDP_DELTA;
+
+				ip_dgram_len = ntohs(iph->tot_len);
+				qmap_hdr.segment_size = htons(mtu - delta);
+				skb = qmap_encapsulate_skb(skb, &qmap_hdr);
+				skb_shinfo(skb)->gso_size = mtu - delta;
+			}
+		} else if (ntohs(skb->protocol) == ETH_P_IPV6) {
+			unsigned int frag_off = 0;
+
+			iph = ip_hdr(skb);
+			is_frag = (ipv6_find_hdr(skb, &frag_off, NEXTHDR_FRAGMENT,
+				NULL, NULL) == NEXTHDR_FRAGMENT);
+			if (!is_frag &&
+			    (WDI_IPV6_IS_TCP(iph) || WDI_IPV6_IS_UDP(iph))) {
+				u16 delta = WDI_IPV6_IS_TCP(iph) ?
+					WDI_ULSO_IPV6_DELTA :
+					WDI_ULSO_IPV6_UDP_DELTA;
+
+				ip_dgram_len = ntohs(ipv6_hdr(skb)->payload_len) +
+					sizeof(struct ipv6hdr);
+				qmap_hdr.segment_size = htons(mtu - delta);
+				skb = qmap_encapsulate_skb(skb, &qmap_hdr);
+				skb_shinfo(skb)->gso_size = mtu - delta;
+			}
+		}
+
+		/*
+		 * IP-fragmented packets cannot be processed by the HW ULSO block
+		 * (HW exceptions them), so they are left unencapsulated above and
+		 * egress the plain, non-GSO path. HW checksum offload only runs on
+		 * the ULSO path, so realize the L4 checksum in SW here; otherwise
+		 * the fragment would egress with an unresolved CHECKSUM_PARTIAL
+		 * checksum.
+		 */
+		if (is_frag && skb->ip_summed == CHECKSUM_PARTIAL &&
+		    skb_checksum_help(skb))
+			IPA_WDI_ERR("frag: skb_checksum_help failed\n");
+	}
+
+	/*
+	 * Clear any stale or unset gso_size so ipa_tx_dp() does not
+	 * misidentify this packet as GSO.  Covers three cases:
+	 *   - !ipa3_is_ulso_supported(): ULSO HW absent; forward as-is.
+	 *   - ULSO supported but non-TCP/UDP (or fragment): no encapsulation.
+	 *   - ULSO supported, TCP/UDP, OOM in qmap_encapsulate_skb: the
+	 *     original skb was returned unchanged (skb->len == skb_len).
+	 * When encapsulation succeeded, skb->len grew by sizeof(qmap_hdr)
+	 * so the guard does not fire and gso_size retains the set MSS.
+	 */
+	if (skb_len == skb->len) {
+		skb_shinfo(skb)->gso_size = 0;
+	} else {
+		/*
+		 * qmap_encapsulate_skb() set packet_len_with_pad = skb->len,
+		 * which includes the 8B QMAP and the Ethernet header. The QMAP
+		 * ULSO length field must be the L2 payload only (skb->len minus
+		 * QMAP and Ethernet header), and the QMAP pad field must report
+		 * any trailing Ethernet padding (frame payload beyond the IP
+		 * datagram) so HW does not treat the pad as packet data.
+		 */
+		struct qmap_hdr *qh_ptr = (struct qmap_hdr *)skb->data;
+		u16 l2pay = skb->len - (u16)sizeof(struct qmap_hdr) - ETH_HLEN;
+
+		qh_ptr->packet_len_with_pad = htons(l2pay);
+		if (ip_dgram_len && l2pay > ip_dgram_len)
+			qh_ptr->pad = (l2pay - ip_dgram_len) & 0x3f;
+	}
+
+	if (cookie_valid) {
+		memset(&meta, 0, sizeof(meta));
+		meta.sw_classification_cookie = cookie.raw;
+		meta.sw_classification_cookie_valid = true;
+	}
+
+	ret = ipa_tx_dp(ipa_wdi_ctx_list[hdl]->tx_client, skb,
+		cookie_valid ? &meta : NULL);
+	if (ret) {
+		/*
+		 * ipa_tx_dp() returns -EFAULT when ipa3_send() fails, which
+		 * itself returns -EFAULT when gsi_queue_xfer() returns
+		 * -GSI_STATUS_RING_INSUFFICIENT_SPACE.  The GSI ring running
+		 * out of descriptors is the dominant TX failure in the hot
+		 * path; map it to -ENOSPC so the vendor driver can distinguish
+		 * "descriptor ring full — stop TX queue" from hard errors and
+		 * act accordingly (call netif_stop_queue(), then restart it
+		 * from the TX-complete notify callback).
+		 */
+		if (ret == -EFAULT)
+			ret = -ENOSPC;
+		IPA_WDI_ERR("ipa_tx_dp failed for handle %u: %d\n", hdl, ret);
+		IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_wlan_tx_fail_pkts);
+	}
+
+	ipa_pm_deferred_deactivate(ipa_wdi_ctx_list[hdl]->ipa_pm_hdl);
+	return ret;
+}
+EXPORT_SYMBOL(ipa_wdi_offload_tx_dp_per_inst);

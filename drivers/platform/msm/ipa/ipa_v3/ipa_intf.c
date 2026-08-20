@@ -168,7 +168,9 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 	}
 
 	mutex_lock(&ipa3_ctx->lock);
+	spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 	list_add_tail(&intf->link, &ipa3_ctx->intf_list);
+	spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 	mutex_unlock(&ipa3_ctx->lock);
 
 	return 0;
@@ -452,7 +454,9 @@ int ipa_deregister_intf(const char *name)
 	mutex_lock(&ipa3_ctx->lock);
 	list_for_each_entry_safe(entry, next, &ipa3_ctx->intf_list, link) {
 		if (!strcmp(entry->name, name)) {
+			spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 			list_del(&entry->link);
+			spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 			kfree(entry->ext);
 			kfree(entry->rx);
 			kfree(entry->tx);
@@ -1707,7 +1711,7 @@ void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *coo
 		return;
 	}
 
-	mutex_lock(&ipa3_ctx->lock);
+	spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
 		if (entry->intf_idx == intf_idx) {
 			if (entry->vpnum_valid) {
@@ -1720,7 +1724,7 @@ void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *coo
 			break;
 		}
 	}
-	mutex_unlock(&ipa3_ctx->lock);
+	spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 }
 EXPORT_SYMBOL(ipa3_populate_cookie_vpnum);
 /**
@@ -1740,19 +1744,60 @@ bool ipa3_is_vpnum_valid(int intf_idx)
 		return false;
 	}
 
-	mutex_lock(&ipa3_ctx->lock);
+	spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
 		if (entry->intf_idx == intf_idx) {
 			valid = entry->vpnum_valid;
 			break;
 		}
 	}
-	mutex_unlock(&ipa3_ctx->lock);
+	spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 
 	IPADBG("intf_idx=%d vpnum_valid=%d\n", intf_idx, valid);
 	return valid;
 }
 EXPORT_SYMBOL(ipa3_is_vpnum_valid);
+
+/**
+ * ipa3_get_cookie_vpnum() - validity check + vpnum populate in a single
+ * intf_list walk
+ * @intf_idx: [in] interface index
+ * @cookie:   [out] SW producer cookie to populate with vpnum (wdi6 only)
+ *
+ * Combines ipa3_is_vpnum_valid() + ipa3_populate_cookie_vpnum() into one
+ * list_for_each_entry() pass, for per-packet callers (e.g.
+ * WDI6 TX) that would otherwise walk intf_list twice for the same intf_idx.
+ *
+ * Return: true if a valid vpnum was found and populated into cookie
+ */
+bool ipa3_get_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie)
+{
+	struct ipa3_intf *entry;
+	bool valid = false;
+
+	if (!cookie)
+		return false;
+
+	if (intf_idx < 0) {
+		IPAERR("Invalid interface index %d\n", intf_idx);
+		return false;
+	}
+
+	spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (entry->intf_idx == intf_idx) {
+			if (entry->vpnum_valid) {
+				cookie->wdi6.vp_num = entry->vpnum;
+				valid = true;
+			}
+			break;
+		}
+	}
+	spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
+
+	return valid;
+}
+EXPORT_SYMBOL(ipa3_get_cookie_vpnum);
 
 /**
  * ipa3_add_filter_rules_entry - Add filter entry to interface filter list

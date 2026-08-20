@@ -9,6 +9,7 @@
 
 #include <linux/ipa.h>
 #include <linux/ipa_fse.h>
+#include <linux/netdev_features.h>
 
 #define IPA_HW_WDI3_TCL_DATA_CMD_ER_DESC_SIZE 32
 #define IPA_HW_WDI3_IPA2FW_ER_DESC_SIZE 8
@@ -171,6 +172,16 @@ struct ipa_wdi6_rx_skb_cb {
 	u32 packed;
 };
 
+/* IPA-recommended maximum in-flight offload TX packets (high watermark).
+ * Returned in ipa_wdi_init_out_params.offload_max_pkts by ipa_wdi_init_per_inst().
+ * Suggested low watermark (queue wake): IPA_WDI_OFFLOAD_MAX_PKTS / 2.  */
+#define IPA_WDI_OFFLOAD_MAX_PKTS  128
+
+/* Maximum GSO size when segmentation offload is enabled.
+ * Assign to netdev->gso_max_size; also returned in
+ * ipa_wdi_init_out_params.offload_gso_max_size by ipa_wdi_init_per_inst(). */
+#define IPA_WDI_OFFLOAD_GSO_MAX_SIZE  64000
+
 /** struct ipa_ast_info_type - structure used for updating the AST table.
  * @mac_addr_ad4_valid: bool to indicate whethere peer supports 4 address
  * scheme or not.
@@ -223,6 +234,14 @@ struct ipa_wdi_init_in_params {
  * @is_smmu_enable: is smmu enabled
  * @is_over_gsi: is wdi over GSI or uC
  * @opt_wdi_dpath: is optimized data path enabled.
+ * @offload_supported: IPA HW supports segmentation offload (ULSO today).
+ *   When true, ipa_wdi_offload_tx_dp_per_inst() may be used on this handle.
+ *   Generic across offload paths; not ULSO-specific.
+ * @offload_max_pkts: IPA-recommended max in-flight offload TX packets (high
+ *   watermark for TX queue stop; suggested wake watermark offload_max_pkts/2).
+ * @offload_headroom: bytes the netdev must reserve via dev->needed_headroom
+ *   for the QMAP extension header prepended by ipa_wdi_offload_tx_dp_per_inst().
+ *   Valid only when offload_supported is true.
  */
 struct ipa_wdi_init_out_params {
 	bool is_uC_ready;
@@ -230,6 +249,24 @@ struct ipa_wdi_init_out_params {
 	bool is_over_gsi;
 	ipa_wdi_hdl_t hdl;
 	bool opt_wdi_dpath;
+	bool offload_supported;
+	u32  offload_max_pkts;
+	u32  offload_headroom;
+	/**
+	 * offload_features: netdev HW feature flags to enable on the net_device
+	 * when offload_supported is true.  The WLAN driver must set:
+	 *   netdev->hw_features |= out.offload_features;
+	 * Matches the flags set by rndis_ipa / ecm_ipa:
+	 *   NETIF_F_RXCSUM | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
+	 *   NETIF_F_SG | NETIF_F_GRO_HW | NETIF_F_ALL_TSO | NETIF_F_GSO_UDP_L4
+	 * Zero when offload_supported is false.
+	 */
+	netdev_features_t offload_features;
+	/**
+	 * offload_gso_max_size: value to assign to netdev->gso_max_size when
+	 * offload_supported is true.  Zero when offload_supported is false.
+	 */
+	u32  offload_gso_max_size;
 };
 
 /**
@@ -936,6 +973,23 @@ int ipa_wdi_bw_monitor(struct ipa_wdi_bw_info *info);
 int ipa_wdi_sw_stats(struct ipa_wdi_tx_info *info);
 int ipa_get_wdi_version(void);
 
+/**
+ * ipa_wdi_offload_tx_dp_per_inst - Transmit an skb over the WLAN offload SW TX path
+ * @hdl: WDI instance handle returned by ipa_wdi_init_per_inst()
+ * @skb: packet to transmit; skb->dev->mtu is used as the segmentation MTU;
+ *       skb->dev->ifindex is also used to look up a WDI6 vp_num for the
+ *       PACKET_INIT_EX SW classification cookie (HW v7.0+ only)
+ *
+ * For TCP/UDP over IPv4/IPv6, prepends the QMAP extension header
+ * (hdr_type=0x3) when IPA segmentation offload is supported, and enqueues
+ * the packet into the IPA->WLAN TX pipe bound to the instance handle.
+ * Non-offloaded traffic is forwarded as-is.
+ *
+ * Returns 0 on success, -EAGAIN if PM is activating (stop TX queue),
+ * or a negative errno on failure.
+ */
+int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl, struct sk_buff *skb);
+
 #else /* IS_ENABLED(CONFIG_IPA3) */
 
 /**
@@ -1117,6 +1171,12 @@ static inline int ipa_wdi_bw_monitor(struct ipa_wdi_bw_info *info)
 }
 
 static inline int ipa_wdi_sw_stats(struct ipa_wdi_tx_info *info)
+{
+	return -EPERM;
+}
+
+static inline int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl,
+						 struct sk_buff *skb)
 {
 	return -EPERM;
 }

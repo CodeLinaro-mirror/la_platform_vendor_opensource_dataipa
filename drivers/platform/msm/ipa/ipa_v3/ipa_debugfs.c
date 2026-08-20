@@ -1960,6 +1960,15 @@ static int ipa3_read_stats(struct seq_file *seq, void *v)
 		"hw_tx=%u\n"
 		"tx_queue_fail=%u\n"
 		"tx_non_linear=%u\n"
+		"ulso_tx_wlan_gso_pkts=%u\n"
+		"ulso_tx_wlan_nongso_pkts=%u\n"
+		"ulso_tx_eth_gso_pkts=%u\n"
+		"ulso_tx_nongso_pkts=%u\n"
+		"ulso_tx_icmp_wlan_pkts=%u\n"
+		"ulso_tx_icmp_eth_pkts=%u\n"
+		"ulso_wlan_pm_fail_pkts=%u\n"
+		"ulso_wlan_tx_fail_pkts=%u\n"
+		"ulso_eth_tx_fail_pkts=%u\n"
 		"tx_compl=%u\n"
 		"wan_rx=%u\n"
 		"stat_compl=%u\n"
@@ -1997,6 +2006,15 @@ static int ipa3_read_stats(struct seq_file *seq, void *v)
 		ipa3_ctx->stats.tx_hw_pkts,
 		ipa3_ctx->stats.tx_queue_fail_pkts,
 		ipa3_ctx->stats.tx_non_linear,
+		ipa3_ctx->stats.ulso_tx_wlan_gso_pkts,
+		ipa3_ctx->stats.ulso_tx_wlan_nongso_pkts,
+		ipa3_ctx->stats.ulso_tx_eth_gso_pkts,
+		ipa3_ctx->stats.ulso_tx_nongso_pkts,
+		ipa3_ctx->stats.ulso_tx_icmp_wlan_pkts,
+		ipa3_ctx->stats.ulso_tx_icmp_eth_pkts,
+		ipa3_ctx->stats.ulso_wlan_pm_fail_pkts,
+		ipa3_ctx->stats.ulso_wlan_tx_fail_pkts,
+		ipa3_ctx->stats.ulso_eth_tx_fail_pkts,
 		ipa3_ctx->stats.tx_pkts_compl,
 		ipa3_ctx->stats.rx_pkts,
 		ipa3_ctx->stats.stat_compl,

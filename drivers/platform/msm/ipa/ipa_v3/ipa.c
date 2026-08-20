@@ -11646,8 +11646,11 @@ static int ipa_alloc_pkt_init_ex(void)
 	}
 	ipa3_ctx->pkt_init_ex_imm_opcode = cmd_pyld->opcode;
 
-	/* one cmd for each pipe for ULSO + one common for ICMP */
-	mem->size = cmd_pyld->len * (ipa3_ctx->ipa_num_pipes + 1);
+	/* one cmd for each pipe for ULSO + one shared "eth" slot for
+	 * no-cookie ICMP/IPsec-encap traffic + one shared "wlan" slot
+	 * for cookie-bearing ICMP/non-GSO ULSO traffic
+	 */
+	mem->size = cmd_pyld->len * (ipa3_ctx->ipa_num_pipes + 2);
 	mem->base = dma_alloc_coherent(ipa3_ctx->pdev, mem->size,
 		&mem->phys_base, GFP_KERNEL);
 	if (!mem->base) {
@@ -11711,9 +11714,36 @@ static int ipa_alloc_pkt_init_ex(void)
 		mem->base + ipa3_ctx->ipa_num_pipes * cmd_pyld->len;
 	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].size = cmd_pyld->len;
 
+	/* Just a placeholder. Will be assigned in the DP, before sending. */
+	cmd.rt_pipe_dest_idx = ipa3_ctx->ipa_num_pipes + 1;
+	result = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		cmd_pyld->data, &cmd, &cmd_mask);
+	if (unlikely(result != 0)) {
+		IPAERR("failed to modify IMM cmd\n");
+		goto free_dma;
+	}
+	memcpy(mem->base + (ipa3_ctx->ipa_num_pipes + 1) * cmd_pyld->len,
+		cmd_pyld->data,
+		cmd_pyld->len);
+	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].phys_base =
+		mem->phys_base + (ipa3_ctx->ipa_num_pipes + 1) * cmd_pyld->len;
+	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base =
+		mem->base + (ipa3_ctx->ipa_num_pipes + 1) * cmd_pyld->len;
+	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].size =
+		cmd_pyld->len;
+
 	goto free_imm;
 
 free_dma:
+	/*
+	 * On any failure above, pkt_init_ex_imm[] slots already committed
+	 * during this call (per-pipe slots and/or the eth shared slot)
+	 * still hold phys_base/base pointers into the DMA buffer we are
+	 * about to free below. Clear them so no dangling pointer into
+	 * freed memory survives this function.
+	 */
+	memset(ipa3_ctx->pkt_init_ex_imm, 0,
+		(ipa3_ctx->ipa_num_pipes + 2) * sizeof(*ipa3_ctx->pkt_init_ex_imm));
 	dma_free_coherent(ipa3_ctx->pdev,
 		mem->size,
 		mem->base,
@@ -12570,6 +12600,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ippt_pdninfo_refcnt = 0;
 
 	INIT_LIST_HEAD(&ipa3_ctx->intf_list);
+	spin_lock_init(&ipa3_ctx->intf_list_vpnum_lock);
 	INIT_LIST_HEAD(&ipa3_ctx->lan2lan_flt_list);
 	INIT_LIST_HEAD(&ipa3_ctx->msg_list);
 	INIT_LIST_HEAD(&ipa3_ctx->pull_msg_list);
@@ -13216,6 +13247,7 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 
 	INIT_LIST_HEAD(&ipa3_ctx->intf_list);
+	spin_lock_init(&ipa3_ctx->intf_list_vpnum_lock);
 	INIT_LIST_HEAD(&ipa3_ctx->lan2lan_flt_list);
 	INIT_LIST_HEAD(&ipa3_ctx->msg_list);
 	INIT_LIST_HEAD(&ipa3_ctx->pull_msg_list);
