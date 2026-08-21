@@ -17414,7 +17414,7 @@ int ipa3_socksv5_conn_cache_add(struct ipa_socksv5_info *info, bool true)
 
 	if(list_empty(&ipa3_ctx->socksv5_msg_list))
 	{
-		entry = kzalloc(sizeof(struct ipa_socksv5_info), GFP_KERNEL);
+		entry = kzalloc(sizeof(struct ipa3_socks_v5_msg), GFP_KERNEL);
 		if(!entry)
 		{
 			IPAERR("entry memory allocation failed !\n");
@@ -17457,7 +17457,7 @@ int ipa3_socksv5_conn_cache_add(struct ipa_socksv5_info *info, bool true)
 					return 0;
 				}
 		}
-		entry = kzalloc(sizeof(struct ipa_socksv5_info), GFP_KERNEL);
+		entry = kzalloc(sizeof(struct ipa3_socks_v5_msg), GFP_KERNEL);
 		if(!entry)
 		{
 			IPAERR("entry memory allocation failed !\n");

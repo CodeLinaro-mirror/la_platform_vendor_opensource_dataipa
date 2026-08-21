@@ -1120,6 +1120,10 @@ void ipa3_dma_async_memcpy_notify_cb(void *priv
 	sys = ipa3_ctx->ep[ep_idx].sys;
 
 	spin_lock_irqsave(&ipa3_dma_ctx->async_lock, flags);
+	if (list_empty(&sys->head_desc_list)) {
+		spin_unlock_irqrestore(&ipa3_dma_ctx->async_lock, flags);
+		return;
+	}
 	xfer_descr_expected = list_first_entry(&sys->head_desc_list,
 				 struct ipa3_dma_xfer_wrapper, link);
 	list_del(&xfer_descr_expected->link);
