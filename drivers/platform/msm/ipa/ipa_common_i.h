@@ -220,6 +220,26 @@ do {\
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD)) || \
 	 (x == ipa_get_ep_mapping(IPA_CLIENT_RTK_ETHERNET_PROD)))
 
+/*
+ * Enum-based ETH producer check (compares the client enum directly), for
+ * callers that already hold an ipa_client_type rather than a pipe index.
+ * IPA_CLIENT_IS_ETH_PROD() above compares against ipa_get_ep_mapping() (a
+ * pipe index) and must not be fed a client enum.
+ */
+#define IPA_CLIENT_IS_ETH_PROD_ENUM(client) \
+	((client) == IPA_CLIENT_ETHERNET_PROD || \
+	 (client) == IPA_CLIENT_ETHERNET2_PROD || \
+	 (client) == IPA_CLIENT_ETHERNET3_PROD || \
+	 (client) == IPA_CLIENT_ETHERNET_PROD1 || \
+	 (client) == IPA_CLIENT_ETHERNET_PROD2 || \
+	 (client) == IPA_CLIENT_ETHERNET_PROD3 || \
+	 (client) == IPA_CLIENT_ETHERNET_PROD4 || \
+	 (client) == IPA_CLIENT_ETHERNET_QOS_PROD || \
+	 (client) == IPA_CLIENT_ETHERNET2_QOS_PROD || \
+	 (client) == IPA_CLIENT_ETHERNET3_QOS_PROD || \
+	 (client) == IPA_CLIENT_AQC_ETHERNET_PROD || \
+	 (client) == IPA_CLIENT_RTK_ETHERNET_PROD)
+
 #define IPA_CLIENT_IS_ETH_CONS(client) \
 	((client) == IPA_CLIENT_ETHERNET_CONS || \
 	 (client) == IPA_CLIENT_ETHERNET2_CONS || \
