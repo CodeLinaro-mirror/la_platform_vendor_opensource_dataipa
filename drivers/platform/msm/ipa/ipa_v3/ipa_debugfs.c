@@ -5080,6 +5080,92 @@ static ssize_t ipa3_read_sw_routing(struct file *file, char __user *ubuf,
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
 }
 
+/*
+ * Dumps every INI-controlled field (see ipa_ini_parse.c). Reads ipa3_res, not
+ * ipa3_ctx: most fields only reach ipa3_ctx on MDM platforms and some are
+ * renamed/merged there - ipa3_res holds all 30 uniformly, on every platform.
+ */
+static ssize_t ipa3_read_ini_config(struct file *file, char __user *ubuf,
+	size_t count, loff_t *ppos)
+{
+	int nbytes;
+	struct ipa3_plat_drv_res *res = ipa3_get_plat_drv_res();
+
+	if (!res) {
+		IPAERR("ipa3_res not available\n");
+		return -ENODEV;
+	}
+
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"use_vlan_eth_emac_config = %d\n"
+		"use_vlan_eth0_config = %d\n"
+		"use_vlan_eth1_config = %d\n"
+		"use_vlan_rndis_config = %d\n"
+		"use_vlan_ecm_config = %d\n"
+		"use_vlan_mhi_eth_config = %d\n"
+		"use_mhi_config = %d\n"
+		"use_mhi_eth_config = %d\n"
+		"use_rdkb_config = %d\n"
+		"use_tsn_config = %d\n"
+		"use_ezmesh_config = %d\n"
+		"use_eth_qos_config = %d\n"
+		"use_ipsec_config = %d\n"
+		"use_ipv6_nat_config = %d\n"
+		"nat_stats_mode = %d\n"
+		"ipa_disable_per_flow_stats = %d\n"
+		"ipa_wan_skb_page = %d\n"
+		"max_ipv4_stats_accel_conn = %u\n"
+		"max_ipv6_stats_accel_conn = %u\n"
+		"tx_wrapper_cache_max_size = %u\n"
+		"filter_start_id = %u\n"
+		"ipa_gen_rx_cmn_page_pool_sz_factor = %u\n"
+		"ipa_gen_rx_cmn_temp_pool_sz_factor = %u\n"
+		"nat_stats_max_counters_v4 = %u\n"
+		"nat_stats_max_counters_v6 = %u\n"
+		"ipa_wdi3_2g_holb_timeout = %u\n"
+		"ipa_wdi3_5g_holb_timeout = %u\n"
+		"wan_rx_ring_size = %u\n"
+		"lan_rx_ring_size = %u\n"
+		"disable_flow_control_mask = 0x%llx\n",
+		res->use_vlan_eth_emac_config,
+		res->use_vlan_eth0_config,
+		res->use_vlan_eth1_config,
+		res->use_vlan_rndis_config,
+		res->use_vlan_ecm_config,
+		res->use_vlan_mhi_eth_config,
+		res->use_mhi_config,
+		res->use_mhi_eth_config,
+		res->use_rdkb_config,
+		res->use_tsn_config,
+		res->use_ezmesh_config,
+		res->use_eth_qos_config,
+		res->use_ipsec_config,
+		res->use_ipv6_nat_config,
+		res->nat_stats_mode,
+		res->ipa_disable_per_flow_stats,
+		res->ipa_wan_skb_page,
+		res->max_ipv4_stats_accel_conn,
+		res->max_ipv6_stats_accel_conn,
+		res->tx_wrapper_cache_max_size,
+		res->filter_start_id,
+		res->ipa_gen_rx_cmn_page_pool_sz_factor,
+		res->ipa_gen_rx_cmn_temp_pool_sz_factor,
+		(unsigned int)res->nat_stats_max_counters_v4,
+		(unsigned int)res->nat_stats_max_counters_v6,
+		res->ipa_wdi3_2g_holb_timeout,
+		res->ipa_wdi3_5g_holb_timeout,
+		res->wan_rx_ring_size,
+		res->lan_rx_ring_size,
+		res->disable_flow_control_mask);
+
+	if (nbytes == IPA_MAX_MSG_LEN - 1) {
+		IPAERR("ini_config output truncated\n");
+		return -ENOBUFS;
+	}
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+}
+
 static const struct ipa3_debugfs_file debugfs_files[] = {
 	{
 		"gen_reg", IPA_READ_ONLY_MODE, NULL, {
@@ -5416,6 +5502,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"rc_log", IPA_WRITE_ONLY_MODE, NULL, {
 			.write = ipa3_rc_log_enbl,
+		}
+	}, {
+		"ini_config", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_ini_config,
 		}
 	},
 };

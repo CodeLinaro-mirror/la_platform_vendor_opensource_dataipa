@@ -18,6 +18,16 @@
 #define CONVERT_TO_HEX(str , val) kstrtouint(str, 16, &val)
 #define CONVERT_TO_HEX64(str , val) kstrtou64(str, 16, &val)
 
+/* Clean-EOF sentinel: not 0, not 1 (true), not in errno range. Internal only. */
+#define IPA_INI_EOF (-1000)
+
+/* ipa_param_handler() return values: known key (valid or defaulted) vs unrecognized key. */
+#define IPA_INI_KEY_HANDLED 0
+#define IPA_INI_KEY_UNKNOWN 2
+
+/* Ceiling/default for max_ipv4/6_stats_accel_conn and nat_stats_max_counters_v4/6. */
+#define IPA_STATS_COUNTER_DEFAULT 1024
+
 static int ipa_ini_read_file(const char *path, struct device *device,
 				char **out_buf);
 static int ipa_ini_read_values(char **head, char **read_key,
@@ -28,11 +38,47 @@ static int ipa_param_handler(const char *key_store,
 static int ipa_ini_parse( const char *path, struct device *device,
 				struct ipa3_plat_drv_res *drv_res);
 
+/*
+ * Defaults for missing/invalid fields. Skips the devicetree-backed fields
+ * (holb timeouts, wrapper cache size, filter_start_id, rx ring sizes, rx
+ * pool factors, ipa_wan_skb_page) - drv_res already holds their correct
+ * default from get_ipa_dts_configuration().
+ */
+void ipa_ini_set_all_defaults(struct ipa3_plat_drv_res *drv_res)
+{
+	drv_res->use_vlan_eth_emac_config = false;
+	drv_res->use_vlan_eth0_config = false;
+	drv_res->use_vlan_eth1_config = false;
+	drv_res->use_vlan_rndis_config = false;
+	drv_res->use_vlan_ecm_config = false;
+	drv_res->use_vlan_mhi_eth_config = false;
+	drv_res->use_mhi_config = false;
+	drv_res->use_mhi_eth_config = false;
+	drv_res->use_rdkb_config = false;
+	drv_res->use_tsn_config = false;
+	drv_res->use_ezmesh_config = false;
+	drv_res->use_eth_qos_config = false;
+	drv_res->use_ipsec_config = false;
+	drv_res->use_ipv6_nat_config = false;
+	drv_res->max_ipv4_stats_accel_conn = IPA_STATS_COUNTER_DEFAULT;
+	drv_res->max_ipv6_stats_accel_conn = IPA_STATS_COUNTER_DEFAULT;
+	drv_res->ipa_disable_per_flow_stats = false;
+	drv_res->nat_stats_mode = false;
+	drv_res->nat_stats_max_counters_v4 = IPA_STATS_COUNTER_DEFAULT;
+	drv_res->nat_stats_max_counters_v6 = IPA_STATS_COUNTER_DEFAULT;
+	drv_res->disable_flow_control_mask = 0;
+}
+
+/* Valid range is [0, IPA_STATS_COUNTER_DEFAULT]; out-of-range falls back to the default. */
+static u32 ipa_ini_clamp_stats_counter(u32 raw_value)
+{
+	return (raw_value <= IPA_STATS_COUNTER_DEFAULT) ? raw_value : IPA_STATS_COUNTER_DEFAULT;
+}
 
 static int ipa_ini_read_file(const char *path, struct device *device,
 				char **out_buf)
 {
-	int errno;
+	int ret;
 	const struct firmware *fw;
 	char *buf;
 	*out_buf = NULL;
@@ -43,10 +89,10 @@ static int ipa_ini_read_file(const char *path, struct device *device,
 		return -EINVAL;
 	}
 
-	errno = request_firmware(&fw, path, device);
-	if (errno) {
-		IPAERR("Failed to read file: %s errno: %d", path, errno);
-		return errno;
+	ret = request_firmware(&fw, path, device);
+	if (ret) {
+		IPAERR("Failed to read file: %s errno: %d", path, ret);
+		return ret;
 	}
 
 	// Enforce maximum file size
@@ -168,9 +214,10 @@ static int ipa_ini_read_values(char **head, char **read_key,
 			cursor++;
 	}
 
-	return -EINVAL;
+	return IPA_INI_EOF;
 }
 
+/* Validates and applies one key=value line; unknown/invalid keys never abort the file. */
 static int ipa_param_handler(const char *key_store,
 				const char * value_store,
 				struct ipa3_plat_drv_res *drv_res)
@@ -333,22 +380,32 @@ static int ipa_param_handler(const char *key_store,
 					break;
 				case IPA_MAX_IPV4_STATS_ACCEL_CONNECTIONS:
 					status = CONVERT_TO_UINT(value_store, value);
-					if(!status)
+					if (!status)
 					{
-						IPADBG("max v4 stats accel conn '%s' is %d", value_store, value);
-						drv_res->max_ipv4_stats_accel_conn = value;
+						drv_res->max_ipv4_stats_accel_conn = ipa_ini_clamp_stats_counter(value);
+						if (drv_res->max_ipv4_stats_accel_conn != value)
+							IPAERR("max_ipv4_stats_accel_conn value '%s' exceeds %d, using default\n",
+								value_store, IPA_STATS_COUNTER_DEFAULT);
+						else
+							IPADBG("max v4 stats accel conn '%s' is %d", value_store, value);
 					} else {
-						IPAERR("Error in converting '%s' value\n", value_store);
+						IPAERR("Invalid max_ipv4_stats_accel_conn value '%s', falling back to default\n",
+							value_store);
 					}
 					break;
 				case IPA_MAX_IPV6_STATS_ACCEL_CONNECTIONS:
 					status = CONVERT_TO_UINT(value_store, value);
-					if(!status)
+					if (!status)
 					{
-						IPADBG("max v6 stats accel conn '%s' is %d", value_store, value);
-						drv_res->max_ipv6_stats_accel_conn = value;
+						drv_res->max_ipv6_stats_accel_conn = ipa_ini_clamp_stats_counter(value);
+						if (drv_res->max_ipv6_stats_accel_conn != value)
+							IPAERR("max_ipv6_stats_accel_conn value '%s' exceeds %d, using default\n",
+								value_store, IPA_STATS_COUNTER_DEFAULT);
+						else
+							IPADBG("max v6 stats accel conn '%s' is %d", value_store, value);
 					} else {
-						IPAERR("Error in converting '%s' value\n", value_store);
+						IPAERR("Invalid max_ipv6_stats_accel_conn value '%s', falling back to default\n",
+							value_store);
 					}
 					break;
 				case IPA_DISABLE_PER_FLOW_STATS:
@@ -383,22 +440,25 @@ static int ipa_param_handler(const char *key_store,
 					break;
 				case IPA_TX_WRAPPER_CACHE_MAX_SIZE:
 					status = CONVERT_TO_UINT(value_store, value);
-					if(!status)
+					if (!status && value <= IPA_TX_WRAPPER_CACHE_MAX_THRESHOLD)
 					{
 						IPADBG("tx wrapper cache max size '%s' is %d", value_store, value);
 						drv_res->tx_wrapper_cache_max_size = value;
 					} else {
-						IPAERR("Error in converting '%s' value\n", value_store);
+						IPAERR("Invalid tx_wrapper_cache_max_size value '%s' (max %d), using default %d\n",
+							value_store, IPA_TX_WRAPPER_CACHE_MAX_THRESHOLD,
+							drv_res->tx_wrapper_cache_max_size);
 					}
 					break;
 				case IPA_FILTER_START_ID:
 					status = CONVERT_TO_UINT(value_store, value);
-					if(!status)
+					if (!status && (value == 0 || value > IPA_Q6_FLT_START_ID))
 					{
 						IPADBG("filter start id '%s' is %d", value_store, value);
 						drv_res->filter_start_id = value;
 					} else {
-						IPAERR("Error in converting '%s' value\n", value_store);
+						IPAERR("Invalid filter_start_id value '%s' (must be 0 or > %d), using default %d\n",
+							value_store, IPA_Q6_FLT_START_ID, drv_res->filter_start_id);
 					}
 					break;
 				case IPA_WAN_RX_RING_SIZE:
@@ -423,22 +483,37 @@ static int ipa_param_handler(const char *key_store,
 					break;
 				case IPA_GEN_RX_CMN_PAGE_POOL_SZ_FACTOR:
 					status = CONVERT_TO_UINT(value_store, value);
-					if(!status)
+					if (!status && value <= IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR)
 					{
 						IPADBG("ipa gen rx cmn page pool sz factor '%s' is %d", value_store, value);
 						drv_res->ipa_gen_rx_cmn_page_pool_sz_factor = value;
 					} else {
-						 IPAERR("Error in converting '%s' value\n", value_store);
+						/*
+						 * 0 here means devicetree didn't configure it either -
+						 * substitute the same default get_ipa_gen_rx_cmn_page_pool_size()
+						 * would (ipa.c), instead of leaving the raw DT-absent 0.
+						 * A real DT-configured value is left untouched.
+						 */
+						if (!drv_res->ipa_gen_rx_cmn_page_pool_sz_factor)
+							drv_res->ipa_gen_rx_cmn_page_pool_sz_factor = IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR;
+						IPAERR("Invalid ipa_gen_rx_cmn_page_pool_sz_factor value '%s' (max %d), using default %d\n",
+							value_store, IPA_GENERIC_RX_CMN_PAGE_POOL_SZ_FACTOR,
+							drv_res->ipa_gen_rx_cmn_page_pool_sz_factor);
 					}
 					break;
 				case IPA_GEN_RX_CMN_TEMP_POOL_SZ_FACTOR:
 					status = CONVERT_TO_UINT(value_store, value);
-					if(!status)
+					if (!status && value <= IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR)
 					{
 						IPADBG("ipa_gen_rx_cmn_temp_pool_sz_factor '%s' is %d", value_store, value);
 						drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor = value;
 					} else {
-						IPAERR("Error in converting '%s' value\n", value_store);
+						/* Same 0-substitution as the page pool factor above. */
+						if (!drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor)
+							drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor = IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR;
+						IPAERR("Invalid ipa_gen_rx_cmn_temp_pool_sz_factor value '%s' (max %d), using default %d\n",
+							value_store, IPA_GENERIC_RX_CMN_TEMP_POOL_SZ_FACTOR,
+							drv_res->ipa_gen_rx_cmn_temp_pool_sz_factor);
 					}
 					break;
 				case IPA_WAN_SKB_PAGE:
@@ -452,28 +527,41 @@ static int ipa_param_handler(const char *key_store,
 					}
 					break;
 				case IPA_NAT_STATS_MAX_COUNTERS_V4:
-
 					status = CONVERT_TO_UINT(value_store, value);
 					if (!status)
 					{
-						IPADBG("nat_stats_max_counters_v4 '%s' is %u", value_store, value);
-						drv_res->nat_stats_max_counters_v4 = (u16)value;
+						u32 clamped = ipa_ini_clamp_stats_counter(value);
+
+						drv_res->nat_stats_max_counters_v4 = (u16)clamped;
+						if (clamped != value)
+							IPAERR("nat_stats_max_counters_v4 value '%s' exceeds %d, using default\n",
+								value_store, IPA_STATS_COUNTER_DEFAULT);
+						else
+							IPADBG("nat_stats_max_counters_v4 '%s' is %u", value_store, value);
 					}
 					else
 					{
-						IPAERR("Error in converting '%s' value\n", value_store);
+						IPAERR("Invalid nat_stats_max_counters_v4 value '%s', falling back to default\n",
+							value_store);
 					}
 					break;
 				case IPA_NAT_STATS_MAX_COUNTERS_V6:
 					status = CONVERT_TO_UINT(value_store, value);
 					if (!status)
 					{
-						IPADBG("nat_stats_max_counters_v6 '%s' is %u", value_store, value);
-						drv_res->nat_stats_max_counters_v6 = (u16)value;
+						u32 clamped = ipa_ini_clamp_stats_counter(value);
+
+						drv_res->nat_stats_max_counters_v6 = (u16)clamped;
+						if (clamped != value)
+							IPAERR("nat_stats_max_counters_v6 value '%s' exceeds %d, using default\n",
+								value_store, IPA_STATS_COUNTER_DEFAULT);
+						else
+							IPADBG("nat_stats_max_counters_v6 '%s' is %u", value_store, value);
 					}
 					else
 					{
-						IPAERR("Error in converting '%s' value\n", value_store);
+						IPAERR("Invalid nat_stats_max_counters_v6 value '%s', falling back to default\n",
+							value_store);
 					}
 					break;
 				case IPA_USE_IPV6_NAT_CONFIG:
@@ -501,20 +589,24 @@ static int ipa_param_handler(const char *key_store,
 					}
 					break;
 				}
-				return status;
+				/* Invalid value is never fatal - field stays at its default. */
+				return IPA_INI_KEY_HANDLED;
 		}
 	}
-	IPAERR("Invalid key '%s' found\n", key_store);
-	return -EINVAL;
+	IPAERR("Invalid key '%s' found, skipping\n", key_store);
+	return IPA_INI_KEY_UNKNOWN;
 }
 
 static int ipa_ini_parse( const char *path, struct device *device,
 				struct ipa3_plat_drv_res *drv_res)
 {
 	int status = 0;
+	int read_ret = 0;
+	int handler_ret = 0;
 	char *read_key;
 	char * read_value;
 	int item_read_count = 0;
+	int unknown_key_count = 0;
 	char * fbuf = NULL;
 	char *cursor;
 	bool section_item;
@@ -525,17 +617,19 @@ static int ipa_ini_parse( const char *path, struct device *device,
 		IPAERR("Failed to read file\n");
 		return status;
 	}
+
+	/* Reset to defaults for non DT fields so that missing/invalid fields fall back cleanly. */
+	ipa_ini_set_all_defaults(drv_res);
 	cursor = fbuf;
 
-	while (ipa_ini_read_values(&cursor, &read_key, &read_value,
-						 &section_item) == 0) {
+	while ((read_ret = ipa_ini_read_values(&cursor, &read_key, &read_value,
+						 &section_item)) == 0) {
 			if (!section_item) {
-				status = ipa_param_handler(read_key, read_value, drv_res);
-				if (status) {
-					IPAERR("Failed to handle param %s: %d\n", read_key, status);
-					break;
-				}
-				item_read_count++;
+				handler_ret = ipa_param_handler(read_key, read_value, drv_res);
+				if (handler_ret == IPA_INI_KEY_UNKNOWN)
+					unknown_key_count++;
+				else
+					item_read_count++;
 			} else {
 				/* section part implemetation if needed */
 			}
@@ -544,16 +638,19 @@ static int ipa_ini_parse( const char *path, struct device *device,
 	/* free allocated memory */
 	kfree(fbuf);
 
-	if (status) {
-		IPAERR("INI file parsing failed with error %d\n", status);
-		return status;
+	/* IPA_INI_EOF is clean end-of-file; anything else is a real syntax error. */
+	if (read_ret != IPA_INI_EOF) {
+		IPAERR("INI file syntax error while parsing: %d\n", read_ret);
+		return read_ret;
 	}
 	if (item_read_count == 0) {
-		IPAERR("No valid items found in INI file\n");
+		IPAERR("No valid items found in INI file (%d unknown key(s) ignored)\n",
+			unknown_key_count);
 		return -EINVAL;
 	}
 
-	IPADBG("INI file parse successful, %d items read\n", item_read_count);
+	IPADBG("INI file parse successful, %d item(s) read, %d unknown key(s) ignored\n",
+		item_read_count, unknown_key_count);
 	return 0;
 }
 
