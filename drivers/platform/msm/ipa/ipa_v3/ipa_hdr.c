@@ -760,7 +760,12 @@ bad_len:
  */
 static int _ipa_add_hpc_for_hdr_in_ext(struct ipa3_hdr_entry *hdr_entry, bool user_only)
 {
-	struct ipa_hdr_proc_ctx_add proc_ctx;
+	/*
+	 * Must be zeroed: __ipa_add_hdr_proc_ctx() copies every member into the
+	 * entry, including cookie_params/is_cookie_valid, and a stale stack
+	 * value there makes HW emit a bogus SW producer cookie TLV.
+	 */
+	struct ipa_hdr_proc_ctx_add proc_ctx = {0};
 	int result = 0;
 
 	IPADBG("adding processing context for header %s\n", hdr_entry->name);
@@ -806,7 +811,8 @@ static int __ipa_add_hdr(struct ipa_hdr_add *hdr, bool user,
 {
 	struct ipa3_hdr_entry *entry, *entry_t, *next;
 	struct ipa_hdr_offset_entry *offset = NULL;
-	struct ipa_hdr_proc_ctx_add proc_ctx;
+	/* Zeroed - see _ipa_add_hpc_for_hdr_in_ext(). */
+	struct ipa_hdr_proc_ctx_add proc_ctx = {0};
 	u32 bin;
 	struct ipa3_hdr_tbl *htbl;
 	int id;
@@ -1109,7 +1115,8 @@ static int __ipa3_del_hdr_proc_ctx(u32 proc_ctx_hdl,
 static int __ipa_add_hpc_hdr_insertion(struct ipa_hdr_add *hdr, bool user)
 {
 	struct ipa3_hdr_entry *entry = NULL;
-	struct ipa_hdr_proc_ctx_add proc_ctx;
+	/* Zeroed - see _ipa_add_hpc_for_hdr_in_ext(). */
+	struct ipa_hdr_proc_ctx_add proc_ctx = {0};
 
 	hdr->status = IPA_HDR_TO_DDR_PATTERN;
 
