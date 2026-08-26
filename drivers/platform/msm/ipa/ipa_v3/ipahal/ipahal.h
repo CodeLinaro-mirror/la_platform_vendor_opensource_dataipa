@@ -558,6 +558,18 @@ void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 	u64 pipe_dest_idx);
 
 /*
+ * ipa_imm_cmd_modify_ip_packet_init_ex_cookie() -
+ *   Modify ip_packet_init_ex immediate command sw_classification_cookie
+ *   field (HW v7.0+ only, no-op on earlier HW)
+ * This function modifies an existing imm cmd buffer
+ * @cmd_data: [in] Constructed immediate command buffer data
+ * @cookie: [in] SW classification cookie value to set
+ */
+void ipa_imm_cmd_modify_ip_packet_init_ex_cookie(
+	const void *cmd_data,
+	u64 cookie);
+
+/*
  * ipa_imm_cmd_modify_ip_packet_init_ex_ulso() -
  *   Modify ip_packet_init_ex immdiate command ULSO fields
  * This function modifies an existing imm cmd buffer

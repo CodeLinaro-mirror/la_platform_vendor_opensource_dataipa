@@ -2637,8 +2637,12 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 	if (dst_ep_idx != -1) {
 		/* SW data path */
 		struct iphdr *network_header;
+		bool is_ulso_pipe;
+		bool cookie_valid;
 
 		network_header = (struct iphdr *)(skb_network_header(skb));
+		is_ulso_pipe = ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe;
+		cookie_valid = meta && meta->sw_classification_cookie_valid;
 
 		data_idx = 0;
 
@@ -2683,18 +2687,58 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 				 network_header->protocol == IPPROTO_ICMP) ||
 				(((struct ipv6hdr *)network_header)->version == 6 &&
 				((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP))) {
-				ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
-					ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
-						dst_ep_idx);
+				if (is_ulso_pipe && cookie_valid) {
+					/* wlan shared slot: cookie-bearing ICMP. */
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_icmp_wlan_pkts);
+					ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base,
+							dst_ep_idx);
+					ipa_imm_cmd_modify_ip_packet_init_ex_cookie(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base,
+						meta->sw_classification_cookie);
+					desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
+					desc[data_idx].dma_address =
+					 ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].phys_base;
+				} else {
+					/* eth shared slot: no-cookie ICMP. */
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_icmp_eth_pkts);
+					ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
+							dst_ep_idx);
+					desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
+					desc[data_idx].dma_address =
+					 ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].phys_base;
+				}
+			} else if (is_ulso_pipe && cookie_valid) {
 				desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
-				desc[data_idx].dma_address =
-				 ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].phys_base;
-			} else if (ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe &&
-					skb_is_gso(skb)) {
+				if (skb_is_gso(skb)) {
+					/* GSO: per-pipe slot. */
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_wlan_gso_pkts);
+					ipa_imm_cmd_modify_ip_packet_init_ex_cookie(
+						ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].base,
+						meta->sw_classification_cookie);
+					desc[data_idx].dma_address =
+						ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].phys_base;
+				} else {
+					/* Non-GSO: wlan shared slot, dest_pipe is dynamic. */
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_wlan_nongso_pkts);
+					ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base,
+							dst_ep_idx);
+					ipa_imm_cmd_modify_ip_packet_init_ex_cookie(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base,
+						meta->sw_classification_cookie);
+					desc[data_idx].dma_address =
+					 ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].phys_base;
+				}
+			} else if (is_ulso_pipe && skb_is_gso(skb)) {
 				desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
 				desc[data_idx].dma_address =
 					ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].phys_base;
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_eth_gso_pkts);
 			} else {
+				if (ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe)
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_nongso_pkts);
 				desc[data_idx].opcode = ipa3_ctx->pkt_init_imm_opcode;
 				desc[data_idx].dma_address = ipa3_ctx->pkt_init_imm[dst_ep_idx];
 			}

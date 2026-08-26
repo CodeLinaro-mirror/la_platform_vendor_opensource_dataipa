@@ -122,7 +122,14 @@
 extern u32 qos_holb_tmr[];
 extern u32 qos_holb_tmr_auto[];
 
-#define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
+/*
+ * + 1: shared slot for ICMP/IPsec-encap traffic that never carries a
+ *      PACKET_INIT_EX SW classification cookie ("eth" shared slot).
+ * + 1: shared slot for ICMP and non-GSO ULSO traffic that does carry a
+ *      cookie ("wlan" shared slot), kept separate so cookie-bearing
+ *      WLAN traffic never contends with the no-cookie slot's lock.
+ */
+#define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 2)
 
 #define IPA_Q6_RT_START_ID 768
 #define IPA_Q6_FLT_START_ID 512
@@ -1850,6 +1857,15 @@ struct ipa3_stats {
 	u32 flow_enable;
 	u32 flow_disable;
 	u32 tx_non_linear;
+	u32 ulso_tx_wlan_gso_pkts;
+	u32 ulso_tx_wlan_nongso_pkts;
+	u32 ulso_tx_eth_gso_pkts;
+	u32 ulso_tx_nongso_pkts;
+	u32 ulso_tx_icmp_wlan_pkts;
+	u32 ulso_tx_icmp_eth_pkts;
+	u32 ulso_wlan_pm_fail_pkts;
+	u32 ulso_wlan_tx_fail_pkts;
+	u32 ulso_eth_tx_fail_pkts;
 	u32 rx_page_drop_cnt;
 	u64 lower_order;
 	u32 pipe_setup_fail_cnt;
@@ -2874,6 +2890,15 @@ struct ipa3_context {
 	spinlock_t disconnect_lock;
 	u8 a5_pipe_index;
 	struct list_head intf_list;
+	/* Guards intf_list add/del vs. the vpnum fast-path lookups
+	 * (ipa3_get_cookie_vpnum() etc.) called from WDI6 TX softirq context.
+	 * All acquirers (register/deregister and the lookup helpers, whether
+	 * called from process or softirq context) use the _bh variant: once
+	 * any user can run in softirq, every user must disable BH, or a
+	 * process-context holder can deadlock against the softirq on the
+	 * same CPU.
+	 */
+	spinlock_t intf_list_vpnum_lock;
 	struct list_head lan2lan_flt_list; /* global per-(dst,ip_type) lan2lan refcounts */
 	struct list_head msg_list;
 	struct list_head pull_msg_list;
@@ -4176,6 +4201,7 @@ int ipa3_get_ep_for_intf(int intf_idx);
 int ipa3_assign_qmapmux_intf_idx(int wan_iface);
 void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie);
 bool ipa3_is_vpnum_valid(int intf_idx);
+bool ipa3_get_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie);
 bool ipa3_query_ext_iface(int intf_idx, struct ipa_ioc_query_intf_ext_props *target_intf);
 bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);

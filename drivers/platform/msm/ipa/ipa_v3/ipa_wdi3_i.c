@@ -1313,6 +1313,24 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	ep_tx->cfg.aggr.aggr_byte_limit = IPA_WLAN_AGGR_BYTE_LIMIT;
 	ep_tx->cfg.aggr.aggr_pkt_limit = IPA_WLAN_AGGR_PKT_LIMIT;
 	ep_tx->cfg.aggr.aggr_hard_byte_limit_en = IPA_ENABLE_AGGR;
+	/*
+	 * TX consumer (IPA->WLAN) notify: ipa_wdi_offload_tx_dp_per_inst()
+	 * submits via ipa_tx_dp() with a NULL callback, so the TX-complete
+	 * IPA_WRITE_DONE is delivered through this endpoint's client_notify
+	 * (see ipa3_tx_comp_usr_notify_release). Use the same callback the RX
+	 * pipe registers.
+	 */
+	ep_tx->client_notify = in->notify;
+	ep_tx->priv = in->priv;
+	/*
+	 * Mark the TX consumer as a ULSO pipe so ipa3_send() selects the
+	 * pkt_init_ex command for GSO skbs and ipa3_cfg_ep() programs
+	 * pkt_init_ex_imm[dst] (via the CONS-ULSO block in ipa3_cfg_ep).
+	 * Only the per-pipe imm command is programmed on the CONS; the ULSO
+	 * segmentation registers stay on the ingress (LAN_PROD) pipe.
+	 */
+	if (ipa3_ctx->ulso_supported)
+		ep_tx->cfg.ulso.is_ulso_pipe = true;
 	if (ipa3_cfg_ep(ipa_ep_idx_tx, &ep_tx->cfg)) {
 		IPAERR("fail to setup tx pipe cfg\n");
 		result = -EFAULT;
@@ -1428,6 +1446,13 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		ep_tx1->cfg.aggr.aggr_byte_limit = IPA_WLAN_AGGR_BYTE_LIMIT;
 		ep_tx1->cfg.aggr.aggr_pkt_limit = IPA_WLAN_AGGR_PKT_LIMIT;
 		ep_tx1->cfg.aggr.aggr_hard_byte_limit_en = IPA_ENABLE_AGGR;
+		/* TX-complete notify + ULSO mark for the 2nd TX consumer
+		 * (see the primary ep_tx block above for rationale).
+		 */
+		ep_tx1->client_notify = in->notify;
+		ep_tx1->priv = in->priv;
+		if (ipa3_ctx->ulso_supported)
+			ep_tx1->cfg.ulso.is_ulso_pipe = true;
 		if (ipa3_cfg_ep(ipa_ep_idx_tx1, &ep_tx1->cfg)) {
 			IPAERR("fail to setup tx pipe cfg\n");
 			result = -EFAULT;
@@ -1537,6 +1562,7 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		ep_tx1 = &ipa3_ctx->ep[ipa_ep_idx_tx1];
 		tx1_client = ipa3_get_client_mapping(ipa_ep_idx_tx1);
 
+		atomic_set(&ep_tx1->disconnect_in_progress, 1);
 		result = ipa3_reset_gsi_channel(ipa_ep_idx_tx1);
 		if (result != GSI_STATUS_SUCCESS) {
 			IPAERR("failed to reset gsi channel: %d.\n", result);
@@ -1563,6 +1589,7 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	}
 
 	/* tear down tx pipe */
+	atomic_set(&ep_tx->disconnect_in_progress, 1);
 	result = ipa3_reset_gsi_channel(ipa_ep_idx_tx);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("failed to reset gsi channel: %d.\n", result);
@@ -1587,7 +1614,9 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	else if (tx_client == IPA_CLIENT_WLAN1_CONS)
 		ipa3_release_wdi3_gsi_smmu_mappings(IPA_WDI3_TX3_DIR, smmu_cb_type);
 
+	spin_lock_bh(&ipa3_ctx->disconnect_lock);
 	memset(ep_tx, 0, sizeof(struct ipa3_ep_context));
+	spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 	IPADBG("tx client (ep: %d) disconnected\n", ipa_ep_idx_tx);
 
 	/* tear down rx1 pipe */
@@ -1597,6 +1626,7 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		ep_rx1 = &ipa3_ctx->ep[ipa_ep_idx_rx1];
 		rx1_client = ipa3_get_client_mapping(ipa_ep_idx_rx1);
 
+		atomic_set(&ep_rx1->disconnect_in_progress, 1);
 		result = ipa3_reset_gsi_channel(ipa_ep_idx_rx1);
 		if (result != GSI_STATUS_SUCCESS) {
 			IPAERR("failed to reset gsi channel: %d.\n", result);
@@ -1627,11 +1657,14 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		ipa3_delete_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v4);
 		ipa3_delete_init_flt_rule(ipa_ep_idx_rx1, IPA_IP_v6);
 #endif
+		spin_lock_bh(&ipa3_ctx->disconnect_lock);
 		memset(ep_rx1, 0, sizeof(struct ipa3_ep_context));
+		spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 		IPADBG("rx1 client (ep: %d) disconnected\n", ipa_ep_idx_rx1);
 	}
 
 	/* tear down rx pipe */
+	atomic_set(&ep_rx->disconnect_in_progress, 1);
 	result = ipa3_reset_gsi_channel(ipa_ep_idx_rx);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("failed to reset gsi channel: %d.\n", result);
@@ -1663,7 +1696,9 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	ipa3_delete_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v4);
 	ipa3_delete_init_flt_rule(ipa_ep_idx_rx, IPA_IP_v6);
 #endif
+	spin_lock_bh(&ipa3_ctx->disconnect_lock);
 	memset(ep_rx, 0, sizeof(struct ipa3_ep_context));
+	spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 	IPADBG("rx client (ep: %d) disconnected\n", ipa_ep_idx_rx);
 
 exit:

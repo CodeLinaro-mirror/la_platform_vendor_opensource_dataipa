@@ -3077,6 +3077,7 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 			ret = -ENOSPC;
 		IPA_ETH_ERR("ipa_tx_dp failed for client %d: %d\n",
 			    pipe->client_info->client_type, ret);
+		IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_eth_tx_fail_pkts);
 	}
 
 	return ret;

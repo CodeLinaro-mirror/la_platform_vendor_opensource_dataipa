@@ -965,6 +965,17 @@ inline void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 			= pipe_dest_idx;
 }
 
+void ipa_imm_cmd_modify_ip_packet_init_ex_cookie(
+	const void *cmd_data,
+	u64 cookie)
+{
+	if (ipahal_ctx->hw_type < IPA_HW_v7_0)
+		return;
+
+	((struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)cmd_data)->
+		sw_classification_cookie = cookie;
+}
+
 void ipa_imm_cmd_modify_ip_packet_init_ex_ulso(u32 ep)
 {
 	struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *cmd
