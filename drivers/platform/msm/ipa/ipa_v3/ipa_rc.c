@@ -57,6 +57,8 @@ static u32 prev_reported_status;
 
 /* True once eth0/1 has been observed carrying a WAN filter rule. */
 static bool eth_wan_rule_seen, eth1_wan_rule_seen;
+/* True once the WLANx instance has been observed carrying an STA filter rule. */
+static bool wlan_sta_rule_seen, wlan2_sta_rule_seen, wlan3_sta_rule_seen;
 
 static const struct {
 	enum ipa_rc_state_err bit;
@@ -608,21 +610,9 @@ enum ipa_rc_state_err ipa_rc_detect_chan_stall(enum ipa_client_type client,
 			cur_status |= IPA_CHANNEL_WLAN3_NO_BUFF;
 		else if(IPA_CLIENT_IS_APPS_CONS(client))
 			cur_status |= IPA_CHANNEL_APPS_EMB_NO_BUFF;
-		else if(!IPA_CLIENT_IS_Q6_CONS(client))
-			IPADBG("Unsupported client\n");
+		else if(IPA_CLIENT_IS_Q6_NON_NLO_CONS(client))
+			cur_status |= IPA_CHANNEL_Q6_NO_BUFF;
 	}
-
-	/*
-	 * Q6 consumer rings sit permanently at rp != wp even at idle (a
-	 * standing backlog of posted descriptors), and both rp and wp are
-	 * static across polls when idle. So "empty+static" cannot signal a
-	 * genuine modem-side stall for Q6. The only signature unique to a
-	 * real stall is the producer still moving (wp advancing, IPA keeps
-	 * queuing UL) while the consumer isn't draining (rp frozen).
-	 */
-	if(IPA_CLIENT_IS_Q6_CONS(client) && rp != wp &&
-		rp == prev_rp && wp != prev_wp)
-		cur_status |= IPA_CHANNEL_Q6_NO_BUFF;
 
 	return cur_status;
 }
@@ -788,9 +778,18 @@ int is_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl,
 		if((grp_id == WLAN_STA_DL_FLT_RULE || grp_id == ETH_DL_FLT_RULE) && has_sta_rule)
 			*has_sta_rule = 1;
 
+		/*
+		 * A rule the classifier doesn't recognize (MAX_FLT_RULE_GRP) is
+		 * not an ordering violation - e.g. a valid PASS_TO_ROUTING rule
+		 * with a specific dst host. Skip it rather than treating it as a
+		 * bad state, otherwise it false-trips FILTER_RULE_INCORRECT.
+		 */
+		if(grp_id == MAX_FLT_RULE_GRP)
+			continue;
+
 		/* To make sure, default rule always stay on top and
 		then follow respective order */
-		if(grp_id < 0 || grp_id == MAX_FLT_RULE_GRP)
+		if(grp_id < 0)
 			return IPA_BAD_STATE;
 
 		if (grp_id < last)
@@ -812,12 +811,21 @@ void ipa_rc_set_nat_present_status(bool present)
 	persistent_nat_present = present;
 }
 
-int is_wlan_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl, enum ipa_ip_type ip)
+int is_wlan_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl, enum ipa_ip_type ip,
+	enum ipa_client_type client)
 {
 	int res = 0, ret;
 	struct ipa_rc_wlan_intf_info *it;
 	int has_sta_rule = 0;
 	struct ipa3_flt_entry *entry = NULL;
+	bool *sta_rule_seen = NULL;
+
+	if (is_wlan_prod_pipe(client))
+		sta_rule_seen = &wlan_sta_rule_seen;
+	else if (is_wlan2_prod_pipe(client))
+		sta_rule_seen = &wlan2_sta_rule_seen;
+	else if (is_wlan3_prod_pipe(client))
+		sta_rule_seen = &wlan3_sta_rule_seen;
 
 	mutex_lock(&rc_ctx->rc_lock);
 	list_for_each_entry(it, &ipa_rc_wlan_info.head, link) {
@@ -836,7 +844,17 @@ int is_wlan_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl, enum ipa_ip
 	}
 	mutex_unlock(&rc_ctx->rc_lock);
 
-	if(!has_sta_rule && is_nat_present()) {
+	if (has_sta_rule && sta_rule_seen)
+		*sta_rule_seen = true;
+
+	/*
+	 * WLAN may be provisioned without an STA role (no STA rule ever
+	 * expected). Only apply the NAT-present/no-STA-rule check once this
+	 * WLAN instance has actually been seen carrying an STA rule, so an
+	 * idle/non-associated WLAN never false-trips off the cellular PDN's
+	 * NAT entry.
+	 */
+	if(sta_rule_seen && *sta_rule_seen && !has_sta_rule && is_nat_present()) {
 		IPADBG("has_sta_rule: %d\n", has_sta_rule);
 		res |= STA_RULE_INCORRECT;
 	}
@@ -865,21 +883,21 @@ void ipa_rc_detect_flt_order(struct ipa_rc_health_monitor *ipa_state_info, enum 
 			}
 
 			if(is_wlan_prod_pipe(client)) {
-				res = is_wlan_flt_rule_ordered(i, tbl, ip);
+				res = is_wlan_flt_rule_ordered(i, tbl, ip, client);
 				if(res & STA_RULE_INCORRECT)
 					status |= IPA_WLAN_STA_FILTER_RULE_INCORRECT;
 				if(res & AP_RULE_INCORRECT)
 					status |= IPA_WLAN_AP_FILTER_RULE_INCORRECT;
 			}
 			else if(is_wlan2_prod_pipe(client)) {
-				res = is_wlan_flt_rule_ordered(i, tbl, ip);
+				res = is_wlan_flt_rule_ordered(i, tbl, ip, client);
 				if(res & STA_RULE_INCORRECT)
 					status |= IPA_WLAN2_STA_FILTER_RULE_INCORRECT;
 				if(res & AP_RULE_INCORRECT)
 					status |= IPA_WLAN2_AP_FILTER_RULE_INCORRECT;
 			}
 			else if(is_wlan3_prod_pipe(client)) {
-				res = is_wlan_flt_rule_ordered(i, tbl, ip);
+				res = is_wlan_flt_rule_ordered(i, tbl, ip, client);
 				if(res & STA_RULE_INCORRECT)
 					status |= IPA_WLAN3_STA_FILTER_RULE_INCORRECT;
 				if(res & AP_RULE_INCORRECT)
