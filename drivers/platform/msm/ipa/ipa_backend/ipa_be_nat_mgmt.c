@@ -66,8 +66,9 @@ struct nat_app {
 
 	/*
 	 * Dedicated PDN entry owned by IPv4 CT (LAN2LAN), keyed on
-	 * IPA_BE_CT_PDN_PLACEHOLDER_IP. Never index 0, so it survives WAN PDN
-	 * churn. Valid only while ct_pdn_valid is set.
+	 * IPA_BE_CT_PDN_PLACEHOLDER_IP. That keying is what makes it survive WAN
+	 * PDN churn -- no WAN can allocate, overwrite or deallocate it, whatever
+	 * index it happens to hold. Valid only while ct_pdn_valid is set.
 	 */
 	uint8_t ct_pdn_index;
 	bool ct_pdn_valid;
@@ -504,10 +505,10 @@ void ipa_be_nat_mgmt_exit(void)
 	{
 		/*
 		 * Single teardown point for the shared IPv4 NAT table. The table
-		 * is created lazily (by the first WAN PDN via ipa_be_add_table /
-		 * ipa_be_add_pdn, or by ipa_be_ensure_nat_table_ct for
-		 * LAN2LAN CT) and deliberately kept alive across PDN/CT removal
-		 * (see ipa_be_remove_pdn). It is destroyed here, and only here.
+		 * is created lazily (by the first WAN PDN via ipa_be_add_pdn, or
+		 * by ipa_be_ensure_nat_table_ct for LAN2LAN CT) and deliberately
+		 * kept alive across PDN/CT removal (see ipa_be_remove_pdn). It is
+		 * destroyed here, and only here.
 		 */
 		if (nat_app->nat_table_hdl) {
 			int ret = ipa_nat_del_ipv4_tbl(nat_app->nat_table_hdl);
@@ -712,160 +713,6 @@ bool is_pwr_save_if(uint32_t ip_addr)
 	return false;
 }
 
-int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
-{
-	int ret = 0;
-	int cnt = 0;
-	ipa_nat_ipv4_rule nat_rule;
-	ipa_nat_pdn_entry entry;
-	uint8_t pdn_index;
-	uint8_t pdn_count = 0;
-	IPA_BE_DBG("%s() %d\n", __FUNCTION__, __LINE__);
-
-	memset(&entry, 0, sizeof(entry));
-	entry.dst_metadata = 0;
-	entry.src_metadata = generate_met_data(mux_id);
-	entry.public_ip = pub_ip;
-	entry.is_sta = is_sta;
-
-	IPA_BE_DBG("Entry \n");
-	/*
-	 * Serialize the nat_table_hdl check-then-create/alloc against the other
-	 * two paths that touch it (ipa_be_add_pdn, ipa_be_ensure_nat_table_ct):
-	 * without this, two concurrent callers can both observe nat_table_hdl==0
-	 * and race to create the table, orphaning one of the handles in ipanat.
-	 */
-	mutex_lock(&ipa_be_nat_mgmt_lock);
-	ret = ipa_nat_get_pdn_count(&pdn_count);
-	if(ret)
-	{
-		IPA_BE_ERR("unable to get pdn count Error:%d\n", ret);
-		mutex_unlock(&ipa_be_nat_mgmt_lock);
-		return ret;
-	}
-	IPA_BE_DBG("AddPDN isSta:%d, pdn_count: %d, ip 0x%X\n", is_sta,pdn_count,pub_ip);
-
-	if(nat_app->nat_table_hdl)
-	{
-		IPA_BE_DBG("nat_table_hdl already exist \n");
-		/*
-		 * Table already exists (created here for an earlier WAN PDN, or
-		 * PDN-free by the CT/LAN2LAN path). Allocate a PDN for this
-		 * public IP if it does not already have one.
-		 */
-		if(ipa_nat_get_pdn_index(pub_ip, &pdn_index) < 0)
-		{
-			ret = ipa_nat_alloc_pdn(&entry, &pdn_index);
-			if(ret)
-			{
-				IPA_BE_ERR("couldn't allocate a pdn index for ip 0x%X\n", pub_ip);
-				mutex_unlock(&ipa_be_nat_mgmt_lock);
-				return ret;
-			}
-			IPA_BE_DBG("successfully allocated pdn index %d for ip 0x%X\n",
-					pdn_index, pub_ip);
-		}
-		else
-		{
-			IPA_BE_DBG("pdn already existed with index %d for ip 0x%X\n", pdn_index, pub_ip);
-			mutex_unlock(&ipa_be_nat_mgmt_lock);
-			return 0;
-		}
-	}
-	else
-	{
-		/* create the NAT table, the PDN will be stored in index 0 */
-		ret = ipa_nat_add_ipv4_tbl(pub_ip, nat_app->mem_type, nat_app->max_entries, &nat_app->nat_table_hdl);
-		if(ret)
-		{
-			IPA_BE_ERR("unable to create nat table Error:%d\n", ret);
-			ipa_rc_set_nat_init_status(true);
-			mutex_unlock(&ipa_be_nat_mgmt_lock);
-			return ret;
-		}
-		ipa_rc_set_nat_init_status(false);
-		IPA_BE_DBG("succeesfully created NAT table for ip 0x%X\n", pub_ip);
-		entry.src_metadata = generate_met_data(mux_id);
-		pdn_index = 0;
-
-		/* modify PDN 0 so it will hold the mux ID in the src metadata field */
-		ret = ipa_nat_modify_pdn(nat_app->nat_table_hdl, pdn_index, &entry);
-		IPA_BE_DBG("modify pdn index %d\n", pdn_index);
-		if(ret)
-		{
-			IPA_BE_ERR("unable to modify PDN 0 entry Error:%d\n", ret);
-			mutex_unlock(&ipa_be_nat_mgmt_lock);
-			return ret;
-		}
-	}
-	mutex_unlock(&ipa_be_nat_mgmt_lock);
-
-	/* now traverse nat_app->cache and add the PDN entries */
-	mutex_lock(&nat_app->cache_lock);
-
-	for(cnt = 0; cnt < nat_app->max_entries; cnt++)
-	{
-		if((nat_app->cache[cnt].private_ip != 0)
-			/* flush only entries which are related to this PDN;
-			 * never CT entries (they belong to the dedicated CT PDN). */
-			&& !nat_app->cache[cnt].conn_tracking
-			&& (nat_app->cache[cnt].public_ip == pub_ip) && (nat_app->cache[cnt].enabled == false))
-		{
-			if(is_sta /*&& (isAlgPort(nat_app->cache[cnt].protocol, nat_app->cache[cnt].private_port) ||
-				isAlgPort(nat_app->cache[cnt].protocol, nat_app->cache[cnt].target_port))*/) {
-				IPA_BE_DBG("STA backhaul: connection using ALG Port, ignore\n");
-				memset(&nat_app->cache[cnt], 0, sizeof(nat_app->cache[cnt]));
-				nat_app->curCnt--;
-				continue;
-			}
-
-			if (ip_pass && nat_app->cache[cnt].dummy_nat) {
-				IPA_BE_DBG("IP Pass enabled: connection using dummy Nat, ignore\n");
-				memset(&nat_app->cache[cnt], 0, sizeof(nat_app->cache[cnt]));
-				nat_app->curCnt--;
-				continue;
-			}
-
-			memset(&nat_rule, 0, sizeof(nat_rule));
-			nat_rule.private_ip = nat_app->cache[cnt].private_ip;
-			nat_rule.target_ip = nat_app->cache[cnt].target_ip;
-			nat_rule.target_port = nat_app->cache[cnt].target_port;
-			nat_rule.private_port = nat_app->cache[cnt].private_port;
-			nat_rule.public_port = nat_app->cache[cnt].public_port;
-			nat_rule.protocol = nat_app->cache[cnt].protocol;
-			nat_rule.uc_activation_index = nat_app->cache[cnt].uc_activation_index;
-			nat_rule.ucp = nat_app->cache[cnt].ucp;
-			nat_rule.s = nat_app->cache[cnt].s;
-			nat_rule.pdn_index = pdn_index;
-			nat_app->cache[cnt].pdn_index = pdn_index;
-
-			if(ipa_nat_add_ipv4_rule(nat_app->nat_table_hdl, &nat_rule, &nat_app->cache[cnt].rule_hdl) < 0)
-			{
-				IPA_BE_ERR("unable to add the rule delete from nat_app->cache\n");
-				memset(&nat_app->cache[cnt], 0, sizeof(nat_app->cache[cnt]));
-				nat_app->curCnt--;
-				continue;
-			}
-			IPA_BE_DBG("nat_app->cache entry %d rule handle %d\n", cnt, nat_app->cache[cnt].rule_hdl);
-			nat_app->cache[cnt].enabled = true;
-
-			IPA_BE_DBG("new pdn added below rule successfully\n");
-			iptodot("Private IP", nat_rule.private_ip);
-			iptodot("Target IP", nat_rule.target_ip);
-			IPA_BE_DBG("Private Port:%d \t Target Port: %d\n", nat_rule.private_port, nat_rule.target_port);
-			IPA_BE_DBG("Public Port:%d\n", nat_rule.public_port);
-			IPA_BE_DBG("protocol: %d\n", nat_rule.protocol);
-			IPA_BE_DBG("pdn index: %d\n", nat_rule.pdn_index);
-		}
-	}
-
-	mutex_unlock(&nat_app->cache_lock);
-
-	IPA_BE_DBG("Exit\n");
-	return ret;
-}
-EXPORT_SYMBOL(ipa_be_add_table);
-
 int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 {
 	int ret = 0;
@@ -885,7 +732,7 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 	IPA_BE_DBG("Entry \n");
 	/*
 	 * Serialize the nat_table_hdl check-then-create/alloc against the other
-	 * two paths that touch it (ipa_be_add_table, ipa_be_ensure_nat_table_ct).
+	 * path that touches it (ipa_be_ensure_nat_table_ct).
 	 */
 	mutex_lock(&ipa_be_nat_mgmt_lock);
 	ret = ipa_nat_get_pdn_count(&pdn_count);
@@ -899,17 +746,20 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 
 	if (!nat_app->nat_table_hdl)
 	{
-		/* create the NAT table, the PDN will be stored in index 0 */
-		if(is_sta)
-		{
-			/* This function stores pub_ip at pdn[0].
-			 * We don't want that for non STA PDNs*/
-			ret = ipa_nat_add_ipv4_tbl(pub_ip, nat_app->mem_type, nat_app->max_entries, &nat_app->nat_table_hdl);
-		}
-		else
-		{
-			ret = ipa_nat_add_ipv4_tbl(0, nat_app->mem_type, nat_app->max_entries, &nat_app->nat_table_hdl);
-		}
+		/*
+		 * Create the table PDN-agnostic. ipa_nat_add_ipv4_tbl() writes the
+		 * public IP it is given straight into pdns[0], bypassing the
+		 * allocator, so pass 0: that seeds no slot and leaves every entry to
+		 * ipa_nat_alloc_pdn() below, which places this PDN at the first free
+		 * index and stamps its public IP and src metadata in one step. Same
+		 * path for STA, modem and CT -- no slot is claimed out of band.
+		 *
+		 * The only thing the dropped argument fed was cmd.ip_addr in
+		 * IPA_IOC_V4_INIT_NAT, the legacy pre-IPAv4 single-PDN field, which
+		 * modem PDNs have always passed as 0.
+		 */
+		ret = ipa_nat_add_ipv4_tbl(0, nat_app->mem_type,
+			nat_app->max_entries, &nat_app->nat_table_hdl);
 		if(ret)
 		{
 			IPA_BE_ERR("unable to create nat table Error:%d\n", ret);
@@ -919,37 +769,38 @@ int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass)
 		}
 		ipa_rc_set_nat_init_status(false);
 		IPA_BE_DBG("succeesfully created NAT table for ip 0x%X\n", pub_ip);
-		pdn_index = 1;
+	}
 
-		/* This is the first VLAN PDN, modify index 1 to hold it */
-		ret = ipa_nat_modify_pdn(nat_app->nat_table_hdl, pdn_index, &entry);
-		IPA_BE_DBG("modify pdn index %d\n", pdn_index);
-		if(ret)
-		{
-			IPA_BE_ERR("unable to modify PDN 1 entry Error:%d\n", ret);
-			mutex_unlock(&ipa_be_nat_mgmt_lock);
-			return ret;
-		}
+	/*
+	 * Resolve this public IP's PDN slot, looking it up before trying to
+	 * allocate. ipa_nat_alloc_pdn() would also return the index of an IP it
+	 * already holds, but it rejects a full table before it scans for that
+	 * match, so once all IPA_MAX_PDN_NUM slots are taken every connection on
+	 * a PDN that is already up would start failing -- and this runs per
+	 * connection, so the already-resolved case is the common path.
+	 *
+	 * On a miss, allocate: ipa_nat_alloc_pdn() hands out the first free slot --
+	 * no index is reserved, so STA, modem and CT PDNs each take index 0 if they
+	 * come up first -- and returns -EIO once every slot is used. Failing the
+	 * connection is correct there -- reusing another PDN's slot would NAT it out
+	 * of that PDN's public IP.
+	 */
+	if (!ipa_nat_get_pdn_index(pub_ip, &pdn_index))
+	{
+		IPA_BE_DBG("pdn already existed with index %d for ip 0x%X\n",
+			pdn_index, pub_ip);
 	}
 	else
 	{
-		/* Table exists. Allocate a new PDN if this public_ip is new. */
-		if(ipa_nat_get_pdn_index(pub_ip, &pdn_index) < 0)
+		ret = ipa_nat_alloc_pdn(&entry, &pdn_index);
+		if(ret)
 		{
-			ret = ipa_nat_alloc_pdn(&entry, &pdn_index);
-			if(ret)
-			{
-				IPA_BE_ERR("couldn't allocate a pdn index\n");
-				mutex_unlock(&ipa_be_nat_mgmt_lock);
-				return ret;
-			}
-			IPA_BE_DBG("successfully allocated index %d for ip 0x%X\n",
-					pdn_index, pub_ip);
+			IPA_BE_ERR("couldn't allocate a pdn index for ip 0x%X Error:%d\n",
+				pub_ip, ret);
+			mutex_unlock(&ipa_be_nat_mgmt_lock);
+			return ret;
 		}
-		else
-		{
-			IPA_BE_DBG("pdn already existed with index %d\n", pdn_index);
-		}
+		IPA_BE_DBG("allocated pdn index %d for ip 0x%X\n", pdn_index, pub_ip);
 	}
 	mutex_unlock(&ipa_be_nat_mgmt_lock);
 
@@ -1241,24 +1092,17 @@ int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface)
 	}
 	IPA_BE_DBG("pub_ip %pI4 \n", &pub_ip);
 
-	if (v4_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED||
-		v4_msg.vlan_primary_rule.ingress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED)
+	/*
+	 * One allocator for both VLAN and non-VLAN PDNs. The VLAN arm was already
+	 * correct; the non-VLAN arm used to seed the first modem PDN into slot 0
+	 * directly at table creation and skip the cache replay for a known public
+	 * IP. Every PDN now goes through ipa_nat_alloc_pdn().
+	 */
+	ret = ipa_be_add_pdn(pub_ip, mux_id, is_sta, ip_pass);
+	if (ret)
 	{
-		ret = ipa_be_add_pdn(pub_ip, mux_id, is_sta, ip_pass);
-		if (ret)
-		{
-			IPA_BE_ERR("failed adding pdn\n");
-			goto cleanup;
-		}
-	}
-	else
-	{
-		ret = ipa_be_add_table(pub_ip, mux_id, is_sta, ip_pass);
-		if (ret)
-		{
-			IPA_BE_ERR("failed adding table\n");
-			goto cleanup;
-		}
+		IPA_BE_ERR("failed adding pdn\n");
+		goto cleanup;
 	}
 
 	ret = ipa_be_add_entry(v4_msg, isVlan, false, false);
@@ -1817,23 +1661,22 @@ cleanup:
  *
  * On IPA v7.0 the NAT hardware validates PDN[pdn_index] before accepting a
  * match, so a CT entry needs a live PDN even though conn_tracking=1 suppresses
- * translation. Pointing CT at PDN[0] is not safe: that slot belongs to whichever
- * WAN PDN claimed it, which means CT either inherits the WAN's src_metadata
- * (breaking CT while the WAN is up) or finds an all-zero entry once
- * ipa_be_remove_pdn() deallocates it (breaking CT when the WAN goes down).
+ * translation. Borrowing a WAN's PDN is not safe: CT would either inherit that
+ * WAN's src_metadata (breaking CT while the WAN is up) or find an all-zero entry
+ * once ipa_be_remove_pdn() deallocates it (breaking CT when the WAN goes down).
  *
- * Instead CT owns a PDN keyed on IPA_BE_CT_PDN_PLACEHOLDER_IP:
- *   - ipa_nat_alloc_pdn() reserves index 0 for STA and hands every other caller
- *     an index >= 1, so the CT PDN can never land on the slot the non-VLAN WAN
- *     path writes directly.
+ * Instead CT owns a PDN of its own, keyed on IPA_BE_CT_PDN_PLACEHOLDER_IP:
  *   - Allocation is keyed on public_ip, so it is idempotent and no WAN (whose
  *     public IP is never 192.0.2.1) can collide with, overwrite or deallocate it.
+ *     That keying is the whole guarantee: ipa_nat_alloc_pdn() reserves no index
+ *     and only ever hands back a free slot, so the index CT lands on -- 0
+ *     included, when CT is what brings the table up -- does not matter.
  *   - src_metadata/dst_metadata stay 0, so nothing is substituted into CT
  *     packets.
  *
- * Serializes on ipa_be_nat_mgmt_lock, the same lock ipa_be_add_table /
- * ipa_be_add_pdn use around their nat_table_hdl check-then-create, so a WAN PDN
- * racing in concurrently can't observe a half-allocated CT PDN.
+ * Serializes on ipa_be_nat_mgmt_lock, the same lock ipa_be_add_pdn uses around
+ * its nat_table_hdl check-then-create, so a WAN PDN racing in concurrently
+ * can't observe a half-allocated CT PDN.
  */
 static int ipa_be_ensure_ct_pdn(void)
 {
@@ -1861,19 +1704,6 @@ static int ipa_be_ensure_ct_pdn(void)
 		IPA_BE_ERR("unable to allocate dedicated CT PDN Error:%d\n", ret);
 		mutex_unlock(&ipa_be_nat_mgmt_lock);
 		return ret;
-	}
-
-	if (pdn_index == 0) {
-		/*
-		 * Must not happen: ipa_nat_alloc_pdn() skips index 0 for non-STA
-		 * requests. Sharing PDN[0] with a WAN is exactly the breakage this
-		 * function exists to avoid, so refuse rather than install CT
-		 * entries that a WAN teardown would silently deaccelerate.
-		 */
-		IPA_BE_ERR("CT PDN allocated at reserved index 0; refusing\n");
-		ipa_nat_dealloc_pdn(pdn_index);
-		mutex_unlock(&ipa_be_nat_mgmt_lock);
-		return -EFAULT;
 	}
 
 	nat_app->ct_pdn_index = pdn_index;
@@ -1909,9 +1739,9 @@ static int ipa_be_ensure_nat_table_ct(void)
 	int ret;
 
 	/*
-	 * Serialize against ipa_be_add_table/ipa_be_add_pdn: all three do an
-	 * unlocked check-then-create on nat_table_hdl otherwise, and a WAN PDN
-	 * racing in here (or vice versa) can leave one table orphaned in ipanat.
+	 * Serialize against ipa_be_add_pdn: both do an unlocked
+	 * check-then-create on nat_table_hdl otherwise, and a WAN PDN racing in
+	 * here (or vice versa) can leave one table orphaned in ipanat.
 	 * Released before calling ipa_be_ensure_ct_pdn(), which takes the same
 	 * lock itself.
 	 */
