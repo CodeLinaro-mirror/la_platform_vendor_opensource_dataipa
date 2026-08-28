@@ -162,6 +162,39 @@ static DEFINE_SPINLOCK(pdn_flt_rule_v6_lock);
 uint32_t wan_rule_count_v4 = 0;
 uint32_t wan_rule_count_v6 = 0;
 
+/*
+ * The DL default rule set is identical for every modem PDN of a family: the
+ * match equations carry no IPA_FLT_META_DATA term, so nothing in the set names
+ * a PDN. Install it once and let every later PDN take a reference instead of
+ * appending its own byte-identical copy -- 16 PDNs would otherwise assemble
+ * 192 specs against the QMI_IPA_MAX_FILTERS_EX_V01 limit of 128.
+ *
+ * The set outlives whichever PDN happened to build it, so its records are
+ * tagged with this pdn_iface rather than that PDN's index; tagging them with a
+ * real index would let that one PDN's teardown unlink a set the others still
+ * need. Both arrays are accessed under the family's pdn_flt_rule_v4_lock /
+ * pdn_flt_rule_v6_lock.
+ *
+ * A set reference is tracked twice: by the counter here and by the owning PDN's
+ * dft_rule_installed flag under ipa_pdn_filter_lock. Both must move in one step,
+ * or a concurrent add/delete acts on stale state and leaks or drops a reference.
+ * The same applies to every rule record: it is appended to a family list under
+ * that family's lock while its owning entry is marked under ipa_pdn_filter_lock,
+ * and an entry freed between the two leaves a record no delete path can reach.
+ * Lock order, never the reverse:
+ *
+ *	ipa_pdn_filter_lock  ->  pdn_flt_rule_v4_lock / pdn_flt_rule_v6_lock
+ *
+ * Releasing the outer lock while holding the inner one is fine. The delete paths
+ * for icmp and catchup rules still take the two locks in the opposite sequence
+ * without overlapping -- safe, but they must not become a nest. The per-family
+ * ordered workqueues in ipa_be.c serialise in-tree callers, but these symbols
+ * are exported -- do not rely on it.
+ */
+#define IPA_BE_DFT_SET_PDN_IFACE (-1)
+static bool ipa_be_dft_set_installed[IPA_IP_MAX];
+static int ipa_be_dft_set_ref_count[IPA_IP_MAX];
+
 /* Structure to track installed MTU rule pairs and their usage count */
 struct ipa_mtu_rule_pair {
 	struct list_head node;
@@ -4138,24 +4171,51 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	struct ipa_ioc_add_flt_rule *pFilteringTable = NULL;
 	struct ipa_ioc_query_intf temp_intf;
 	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
-	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
 	struct ipa_ioc_get_rt_tbl rt_tbl = {0};
 	struct ipa_ioc_get_rt_tbl_indx rt_tbl_idx = {0};
 	int retval = 0;
 	int len, i, num_rules;
-	uint8_t mux_id[16] = {0};
 	struct ipa_pdn_filter_rules *pdn_entry;
+	struct ipa_pdn_filter_rules *prealloc;
 	struct ipa_flt_rule_add flt_rule_entry;
 	int m_ipv4_default_filterting_rules_count = 0;
 	int m_ipv6_default_filterting_rules_count = 0;
 	bool pdn_entry_newly_created = false;
+	bool took_set_ref = false;
+	spinlock_t *fam_lock;
+	int set_refs = 0;
+	int pdn_refs = 0;
 
 	IPA_BE_DBG("Add dft flt rule for iface %d, ip type %d\n",
 		pdn_iface, iptype);
 
-	{
-	struct ipa_pdn_filter_rules *prealloc =
-		kzalloc(sizeof(struct ipa_pdn_filter_rules), GFP_KERNEL);
+	/*
+	 * ipa_be_dft_set_installed[] and ipa_be_dft_set_ref_count[] are sized
+	 * IPA_IP_MAX, but enum ipa_ip_type continues past it (IPA_IP_v4_VLAN,
+	 * IPA_IP_v6_VLAN). Every in-tree caller passes a literal v4 or v6, but
+	 * this is an exported symbol -- range check before indexing.
+	 */
+	if (!VALID_IPA_IP_TYPE(iptype)) {
+		IPA_BE_ERR("Invalid IP type %d\n", iptype);
+		return -EINVAL;
+	}
+
+	/*
+	 * Validate the iface before anything is allocated. The shared-set path
+	 * below returns early, so a check placed after it would only ever run for
+	 * the one PDN that builds the set -- every later PDN would install a
+	 * tracking entry for an iface that may not exist and take a reference on
+	 * the set that nothing releases.
+	 */
+	if (!ipa3_query_iface(pdn_iface, &temp_intf)) {
+		IPA_BE_ERR("iface %d doesn't exist\n", pdn_iface);
+		return -EINVAL;
+	}
+
+	fam_lock = (iptype == IPA_IP_v4) ? &pdn_flt_rule_v4_lock :
+					   &pdn_flt_rule_v6_lock;
+
+	prealloc = kzalloc(sizeof(struct ipa_pdn_filter_rules), GFP_KERNEL);
 	if (!prealloc) {
 		IPA_BE_ERR("Failed to allocate memory for PDN filter entry\n");
 		return -ENOMEM;
@@ -4167,25 +4227,47 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	if (pdn_entry) {
 		if (pdn_entry->dft_rule_installed) {
 			atomic_inc(&pdn_entry->ref_count);
+			pdn_refs = atomic_read(&pdn_entry->ref_count);
 			spin_unlock_bh(&ipa_pdn_filter_lock);
 			kfree(prealloc);
 			IPA_BE_DBG("Default filtering rule for pdn %d, IP type %d already installed. ref_count: %d\n",
-				pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+				pdn_iface, iptype, pdn_refs);
 			return 0; /* Rules already exist, just increment ref count and exit */
 		}
-		kfree(prealloc);
 	} else {
 		ipa_create_pdn_filter_entry(prealloc, pdn_iface, iptype);
 		pdn_entry = prealloc;
+		prealloc = NULL;
 		pdn_entry_newly_created = true;
 	}
-	spin_unlock_bh(&ipa_pdn_filter_lock);
-	}
 
-	if (!ipa3_query_iface(pdn_iface, &temp_intf)) {
-		IPA_BE_ERR("iface %d doesn't exist\n", pdn_iface);
-		retval = -EINVAL;
-		goto fail_pdn;
+	/*
+	 * A PDN of this family has already built the default set. Take a
+	 * reference on it and return: none of the default equations carry an
+	 * IPA_FLT_META_DATA term, so this PDN's copy would be byte-identical
+	 * apart from a mux ID the modem does not match on. Nothing below is
+	 * worth querying for a PDN that only takes a reference.
+	 *
+	 * The reference and this PDN's flag are set in one step: split them and a
+	 * delete landing between bails before its atomic_dec, pinning the set.
+	 */
+	spin_lock_bh(fam_lock);
+	lockdep_assert_held(&ipa_pdn_filter_lock);
+	if (ipa_be_dft_set_installed[iptype]) {
+		set_refs = ++ipa_be_dft_set_ref_count[iptype];
+		pdn_entry->dft_rule_installed = true;
+		atomic_inc(&pdn_entry->ref_count);
+		took_set_ref = true;
+	}
+	spin_unlock_bh(fam_lock);
+	spin_unlock_bh(&ipa_pdn_filter_lock);
+
+	kfree(prealloc);
+
+	if (took_set_ref) {
+		IPA_BE_DBG("pdn %d shares the installed IP type %d default set. set ref_count: %d\n",
+			pdn_iface, iptype, set_refs);
+		return 0;
 	}
 
 	rx_prop = kzalloc(sizeof(*rx_prop) + temp_intf.num_rx_props *
@@ -4211,23 +4293,11 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		goto fail_rx;
 	}
 
-	/* ext Props */
-	/* Check if the filter interface exists */
-	ext_prop = (struct ipa_ioc_query_intf_ext_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_ext_props) +
-		temp_intf.num_ext_props * sizeof(struct ipa_ioc_ext_intf_prop), GFP_KERNEL);
-	if (ext_prop == NULL) {
-		IPA_BE_ERR("Unable to allocate ext_prop memory.\n");
-		retval = -EINVAL;
-		goto fail_rx;
-	}
-	memcpy(ext_prop->name, temp_intf.name, sizeof(temp_intf.name));
-	ext_prop->num_ext_props = temp_intf.num_ext_props;
-	IPA_BE_DBG("Query ext_prop %d name %s\n", ext_prop->num_ext_props, ext_prop->name);
-	ipa3_query_intf_ext_props(ext_prop);
-
-	if (ext_prop->num_ext_props > 0)
-		mux_id[0] = ext_prop->ext[0].mux_id;
-
+	/*
+	 * No ext-prop query here: the shared default set stamps mux_id = 0, so
+	 * the PDN's mux ID -- the only thing this function used ext props for --
+	 * is no longer needed.
+	 */
 	rt_tbl.ip = iptype;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
@@ -4239,7 +4309,7 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	if (ipa3_get_rt_tbl(&rt_tbl)) {
 		IPA_BE_ERR("Failed to get WAN DL routing table\n");
 		retval = -EIO;
-		goto fail_ext;
+		goto fail_rx;
 	}
 	IPA_BE_DBG("rt_tbl hdl %d\n", rt_tbl.hdl);
 	/* hdl only used for this log; not embedded in any rule below. */
@@ -4304,14 +4374,14 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		retval = change_to_network_order_kernel(IPA_IP_v4, &flt_rule_entry.rule.attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to convert fragment rule to network order\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		/* Generate filter equation */
 		retval = ipahal_flt_generate_equation(iptype, &flt_rule_entry.rule.attrib, &flt_rule_entry.rule.eq_attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to generate fragment filter equation\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		memcpy(&(pFilteringTable->rules[m_ipv4_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
@@ -4340,14 +4410,14 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		retval = change_to_network_order_kernel(IPA_IP_v4, &flt_rule_entry.rule.attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to convert to network order\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		/* Generate filter equation */
 		retval = ipahal_flt_generate_equation(iptype, &flt_rule_entry.rule.attrib, &flt_rule_entry.rule.eq_attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to generate multicast filter equation\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		memcpy(&(pFilteringTable->rules[m_ipv4_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
@@ -4361,14 +4431,14 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		retval = change_to_network_order_kernel(IPA_IP_v4, &flt_rule_entry.rule.attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to convert broadcast rule to network order\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		/* Generate filter equation */
 		retval = ipahal_flt_generate_equation(iptype, &flt_rule_entry.rule.attrib, &flt_rule_entry.rule.eq_attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to generate broadcast filter equation\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		memcpy(&(pFilteringTable->rules[m_ipv4_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
@@ -4400,14 +4470,14 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		retval = change_to_network_order_kernel(IPA_IP_v6, &flt_rule_entry.rule.attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to convert fragment rule to network order\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		/* Generate filter equation */
 		retval = ipahal_flt_generate_equation(iptype, &flt_rule_entry.rule.attrib, &flt_rule_entry.rule.eq_attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to generate fragment filter equation\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		memcpy(&(pFilteringTable->rules[m_ipv6_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
@@ -4473,14 +4543,14 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		retval = change_to_network_order_kernel(IPA_IP_v6, &flt_rule_entry.rule.attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to convert multicast rule to network order\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		/* Generate filter equation */
 		retval = ipahal_flt_generate_equation(iptype, &flt_rule_entry.rule.attrib, &flt_rule_entry.rule.eq_attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to generate multicast filter equation\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		memcpy(&(pFilteringTable->rules[m_ipv6_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
@@ -4500,14 +4570,14 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		retval = change_to_network_order_kernel(IPA_IP_v6, &flt_rule_entry.rule.attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to convert link-local rule to network order\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		/* Generate filter equation */
 		retval = ipahal_flt_generate_equation(iptype, &flt_rule_entry.rule.attrib, &flt_rule_entry.rule.eq_attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to generate link-local filter equation\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		memcpy(&(pFilteringTable->rules[m_ipv6_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
@@ -4527,14 +4597,14 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 		retval = change_to_network_order_kernel(IPA_IP_v6, &flt_rule_entry.rule.attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to convert reserved rule to network order\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		/* Generate filter equation */
 		retval = ipahal_flt_generate_equation(iptype, &flt_rule_entry.rule.attrib, &flt_rule_entry.rule.eq_attrib);
 		if (retval != 0) {
 			IPA_BE_ERR("Failed to generate reserved filter equation\n");
-			goto fail_rx;
+			goto fail_table;
 		}
 
 		memcpy(&(pFilteringTable->rules[m_ipv6_default_filterting_rules_count]), &flt_rule_entry, sizeof(struct ipa_flt_rule_add));
@@ -4544,13 +4614,14 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	} else {
 		IPA_BE_ERR("Invalid IP type %d\n", iptype);
 		retval = -EINVAL;
-		goto fail_rx;
+		goto fail_table;
 	}
 
 	/* Add all rules to global linked lists using dynamic counts */
 	if (iptype == IPA_IP_v4) {
 		struct flt_rule **prealloc_v4 = NULL;
 		int alloc_count = 0;
+		bool shared_existing = false;
 
 		if (m_ipv4_default_filterting_rules_count > 0) {
 			prealloc_v4 = kzalloc(
@@ -4574,24 +4645,71 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 				alloc_count++;
 			}
 		}
-		spin_lock_bh(&pdn_flt_rule_v4_lock);
-		for (i = 0; i < m_ipv4_default_filterting_rules_count; i++) {
-			struct flt_rule *new_rule = prealloc_v4[i];
-
-			memcpy(&new_rule->flt_rule, &pFilteringTable->rules[i], sizeof(struct ipa_flt_rule_add));
-			new_rule->mux_id = mux_id[0];
-			new_rule->rule_type = FLT_RULE_TYPE_DEFAULT;
-			new_rule->category = IPA_FLT_RULE_CAT_DEFAULT;
-			new_rule->pdn_iface = pdn_iface;
-			list_add_tail(&new_rule->node, &Pdn_flt_rule_v4_list);
-			wan_rule_count_v4++;
-			IPA_BE_DBG("Added default v4 rule %d, rule count now %d\n", i, wan_rule_count_v4);
+		/*
+		 * Re-look-up: the build above ran unlocked. If the entry is gone,
+		 * bail rather than referencing a set nothing will release.
+		 */
+		spin_lock_bh(&ipa_pdn_filter_lock);
+		pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
+		if (!pdn_entry) {
+			spin_unlock_bh(&ipa_pdn_filter_lock);
+			IPA_BE_ERR("PDN entry for pdn %d, IP type %d vanished building dft set\n",
+				pdn_iface, iptype);
+			for (i = 0; i < m_ipv4_default_filterting_rules_count; i++)
+				kfree(prealloc_v4[i]);
+			kfree(prealloc_v4);
+			retval = -ENOENT;
+			goto fail_table;
 		}
+		spin_lock_bh(&pdn_flt_rule_v4_lock);
+		lockdep_assert_held(&ipa_pdn_filter_lock);
+		if (ipa_be_dft_set_installed[IPA_IP_v4]) {
+			/*
+			 * Another PDN of this family got there first while we were
+			 * building. Take a reference on its set and drop ours --
+			 * appending both would leave two copies behind one refcount.
+			 */
+			set_refs = ++ipa_be_dft_set_ref_count[IPA_IP_v4];
+			shared_existing = true;
+		} else {
+			for (i = 0; i < m_ipv4_default_filterting_rules_count; i++) {
+				struct flt_rule *new_rule = prealloc_v4[i];
+
+				memcpy(&new_rule->flt_rule, &pFilteringTable->rules[i], sizeof(struct ipa_flt_rule_add));
+				/* default rules are not metadata dependant - mux_id is not relevant */
+				new_rule->mux_id = 0;
+				new_rule->rule_type = FLT_RULE_TYPE_DEFAULT;
+				new_rule->category = IPA_FLT_RULE_CAT_DEFAULT;
+				/*
+				 * The set is shared by every PDN of this family, so it
+				 * is not owned by the one that happened to build it.
+				 */
+				new_rule->pdn_iface = IPA_BE_DFT_SET_PDN_IFACE;
+				list_add_tail(&new_rule->node, &Pdn_flt_rule_v4_list);
+				wan_rule_count_v4++;
+				IPA_BE_DBG("Added default v4 rule %d, rule count now %d\n", i, wan_rule_count_v4);
+			}
+			ipa_be_dft_set_installed[IPA_IP_v4] = true;
+			ipa_be_dft_set_ref_count[IPA_IP_v4] = 1;
+		}
+		/* Flag and set reference move in one step -- see the file header. */
+		pdn_entry->dft_rule_installed = true;
+		atomic_inc(&pdn_entry->ref_count);
+		pdn_refs = atomic_read(&pdn_entry->ref_count);
 		spin_unlock_bh(&pdn_flt_rule_v4_lock);
+		spin_unlock_bh(&ipa_pdn_filter_lock);
+
+		if (shared_existing) {
+			for (i = 0; i < m_ipv4_default_filterting_rules_count; i++)
+				kfree(prealloc_v4[i]);
+			IPA_BE_DBG("default v4 set installed concurrently, pdn %d shares it. set ref_count: %d\n",
+				pdn_iface, set_refs);
+		}
 		kfree(prealloc_v4);
 	} else {
 		struct flt_rule **prealloc_v6 = NULL;
 		int alloc_count = 0;
+		bool shared_existing = false;
 
 		if (m_ipv6_default_filterting_rules_count > 0) {
 			prealloc_v6 = kzalloc(
@@ -4615,47 +4733,92 @@ int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 				alloc_count++;
 			}
 		}
-		spin_lock_bh(&pdn_flt_rule_v6_lock);
-		for (i = 0; i < m_ipv6_default_filterting_rules_count; i++) {
-			struct flt_rule *new_rule = prealloc_v6[i];
-
-			memcpy(&new_rule->flt_rule, &pFilteringTable->rules[i], sizeof(struct ipa_flt_rule_add));
-			new_rule->mux_id = mux_id[0];
-			new_rule->rule_type = FLT_RULE_TYPE_DEFAULT;
-			new_rule->category = IPA_FLT_RULE_CAT_DEFAULT;
-			new_rule->pdn_iface = pdn_iface;
-			list_add_tail(&new_rule->node, &Pdn_flt_rule_v6_list);
-			wan_rule_count_v6++;
-			IPA_BE_DBG("Added default v6 rule %d, rule count now %d\n", i, wan_rule_count_v6);
+		/* See the matching re-look-up in the IPv4 branch above. */
+		spin_lock_bh(&ipa_pdn_filter_lock);
+		pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
+		if (!pdn_entry) {
+			spin_unlock_bh(&ipa_pdn_filter_lock);
+			IPA_BE_ERR("PDN entry for pdn %d, IP type %d vanished building dft set\n",
+				pdn_iface, iptype);
+			for (i = 0; i < m_ipv6_default_filterting_rules_count; i++)
+				kfree(prealloc_v6[i]);
+			kfree(prealloc_v6);
+			retval = -ENOENT;
+			goto fail_table;
 		}
+		spin_lock_bh(&pdn_flt_rule_v6_lock);
+		lockdep_assert_held(&ipa_pdn_filter_lock);
+		if (ipa_be_dft_set_installed[IPA_IP_v6]) {
+			/*
+			 * Another PDN of this family got there first while we were
+			 * building. Take a reference on its set and drop ours --
+			 * appending both would leave two copies behind one refcount.
+			 */
+			set_refs = ++ipa_be_dft_set_ref_count[IPA_IP_v6];
+			shared_existing = true;
+		} else {
+			for (i = 0; i < m_ipv6_default_filterting_rules_count; i++) {
+				struct flt_rule *new_rule = prealloc_v6[i];
+
+				memcpy(&new_rule->flt_rule, &pFilteringTable->rules[i], sizeof(struct ipa_flt_rule_add));
+				/* default rules are not metadata dependant - mux_id is not relevant */
+				new_rule->mux_id = 0;
+				new_rule->rule_type = FLT_RULE_TYPE_DEFAULT;
+				new_rule->category = IPA_FLT_RULE_CAT_DEFAULT;
+				/*
+				 * The set is shared by every PDN of this family, so it
+				 * is not owned by the one that happened to build it.
+				 */
+				new_rule->pdn_iface = IPA_BE_DFT_SET_PDN_IFACE;
+				list_add_tail(&new_rule->node, &Pdn_flt_rule_v6_list);
+				wan_rule_count_v6++;
+				IPA_BE_DBG("Added default v6 rule %d, rule count now %d\n", i, wan_rule_count_v6);
+			}
+			ipa_be_dft_set_installed[IPA_IP_v6] = true;
+			ipa_be_dft_set_ref_count[IPA_IP_v6] = 1;
+		}
+		/* Flag and set reference move in one step -- see IPv4 branch. */
+		pdn_entry->dft_rule_installed = true;
+		atomic_inc(&pdn_entry->ref_count);
+		pdn_refs = atomic_read(&pdn_entry->ref_count);
 		spin_unlock_bh(&pdn_flt_rule_v6_lock);
+		spin_unlock_bh(&ipa_pdn_filter_lock);
+
+		if (shared_existing) {
+			for (i = 0; i < m_ipv6_default_filterting_rules_count; i++)
+				kfree(prealloc_v6[i]);
+			IPA_BE_DBG("default v6 set installed concurrently, pdn %d shares it. set ref_count: %d\n",
+				pdn_iface, set_refs);
+		}
 		kfree(prealloc_v6);
 	}
 
-	/* Mark the default rule as installed and increment reference count */
-	spin_lock_bh(&ipa_pdn_filter_lock);
-	pdn_entry->dft_rule_installed = true;
-	atomic_inc(&pdn_entry->ref_count);
-	spin_unlock_bh(&ipa_pdn_filter_lock);
-
 	IPA_BE_DBG("Default filtering rule successfully installed for pdn %d, IP type %d. ref_count: %d\n",
-		pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+		pdn_iface, iptype, pdn_refs);
 
 	kfree(pFilteringTable);
-	kfree(ext_prop);
 	kfree(rx_prop);
 	return 0;
 
 fail_table:
 	kfree(pFilteringTable);
-fail_ext:
-	kfree(ext_prop);
 fail_rx:
 	kfree(rx_prop);
 fail_pdn:
-	if (retval && pdn_entry_newly_created) {
+	if (pdn_entry_newly_created) {
 		spin_lock_bh(&ipa_pdn_filter_lock);
-		ipa_remove_pdn_filter_entry(pdn_entry);
+		pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
+		/*
+		 * Drop the entry this call created only if nothing ended up installed
+		 * on it. Testing retval instead would keep the entry on the "nothing
+		 * to do" paths, which return 0 by design.
+		 */
+		if (pdn_entry && !pdn_entry->dft_rule_installed &&
+			!pdn_entry->icmp_rule_installed &&
+			!pdn_entry->catchup_rule_installed &&
+			!pdn_entry->eth_bh_catchall_installed &&
+			atomic_read(&pdn_entry->ref_count) == 0)
+			ipa_remove_pdn_filter_entry(pdn_entry);
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 	}
 	return retval;
@@ -4698,12 +4861,36 @@ int add_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 	struct ipa_flt_rule_add flt_rule_entry;
 	struct ipa_pdn_filter_rules *pdn_entry;
 	struct flt_rule *new_rule;
+	spinlock_t *fam_lock;
+	struct list_head *fam_list;
+	uint32_t *fam_count;
+	uint32_t rule_count;
 	uint8_t mux_id = 0;
 	int retval = 0;
 	int rx_idx;
+	int pdn_refs;
 
 	IPA_BE_DBG("Add ICMP/ALG flt rule for iface %d, ip type %d\n",
 		pdn_iface, iptype);
+
+	/* Range check before the family selection below -- see the matching
+	 * check in add_dft_filtering_rule(). enum ipa_ip_type continues past
+	 * IPA_IP_MAX, and an out-of-range family would fall through the else
+	 * and mutate the v6 list and count. */
+	if (!VALID_IPA_IP_TYPE(iptype)) {
+		IPA_BE_ERR("Invalid IP type %d\n", iptype);
+		return -EINVAL;
+	}
+
+	if (iptype == IPA_IP_v4) {
+		fam_lock = &pdn_flt_rule_v4_lock;
+		fam_list = &Pdn_flt_rule_v4_list;
+		fam_count = &wan_rule_count_v4;
+	} else {
+		fam_lock = &pdn_flt_rule_v6_lock;
+		fam_list = &Pdn_flt_rule_v6_list;
+		fam_count = &wan_rule_count_v6;
+	}
 
 	/*
 	 * Check if a PDN entry exists and if the ICMP rule is already
@@ -4721,9 +4908,10 @@ int add_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 
 	if (pdn_entry->icmp_rule_installed) {
 		atomic_inc(&pdn_entry->ref_count);
+		pdn_refs = atomic_read(&pdn_entry->ref_count);
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("ICMP rule for pdn %d, IP type %d already installed. ref_count: %d\n",
-			   pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+			   pdn_iface, iptype, pdn_refs);
 		return 0; /* Rule already exists, just increment ref count and exit */
 	}
 	spin_unlock_bh(&ipa_pdn_filter_lock);
@@ -4842,33 +5030,33 @@ int add_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 	new_rule->category = IPA_FLT_RULE_CAT_DOWNLINK;
 	new_rule->pdn_iface = pdn_iface;
 
-	/* Add rule to the appropriate list */
-	if (iptype == IPA_IP_v4) {
-		spin_lock_bh(&pdn_flt_rule_v4_lock);
-		list_add_tail(&new_rule->node, &Pdn_flt_rule_v4_list);
-		wan_rule_count_v4++;
-		spin_unlock_bh(&pdn_flt_rule_v4_lock);
-		IPA_BE_DBG("Added ICMP v4 rule for pdn %d, rule count now %d\n",
-			pdn_iface, wan_rule_count_v4);
-	} else {
-		spin_lock_bh(&pdn_flt_rule_v6_lock);
-		list_add_tail(&new_rule->node, &Pdn_flt_rule_v6_list);
-		wan_rule_count_v6++;
-		spin_unlock_bh(&pdn_flt_rule_v6_lock);
-		IPA_BE_DBG("Added ICMPv6 rule for pdn %d, rule count now %d\n",
-			pdn_iface, wan_rule_count_v6);
-	}
-
-	/* Mark ICMP rule as installed and increment reference count */
+	/*
+	 * Re-look-up: the build above ran unlocked. Append the record and mark the
+	 * entry in one step, so a record can never outlive its owner.
+	 */
 	spin_lock_bh(&ipa_pdn_filter_lock);
 	pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
-	if (pdn_entry) {
-		pdn_entry->icmp_rule_installed = true;
-		atomic_inc(&pdn_entry->ref_count);
-		IPA_BE_DBG("ICMP rule installed for pdn %d, ip %d. ref_count: %d\n",
-			   pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+	if (!pdn_entry) {
+		spin_unlock_bh(&ipa_pdn_filter_lock);
+		IPA_BE_ERR("PDN entry for pdn %d, IP type %d vanished building ICMP rule\n",
+			pdn_iface, iptype);
+		kfree(new_rule);
+		retval = -ENOENT;
+		goto fail_ext;
 	}
+	spin_lock_bh(fam_lock);
+	lockdep_assert_held(&ipa_pdn_filter_lock);
+	list_add_tail(&new_rule->node, fam_list);
+	(*fam_count)++;
+	rule_count = *fam_count;
+	pdn_entry->icmp_rule_installed = true;
+	atomic_inc(&pdn_entry->ref_count);
+	pdn_refs = atomic_read(&pdn_entry->ref_count);
+	spin_unlock_bh(fam_lock);
 	spin_unlock_bh(&ipa_pdn_filter_lock);
+
+	IPA_BE_DBG("ICMP rule installed for pdn %d, ip %d. rule count %u, ref_count: %d\n",
+		pdn_iface, iptype, rule_count, pdn_refs);
 
 fail_ext:
 	kfree(ext_prop);
@@ -4906,9 +5094,19 @@ int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 	struct ipa_pdn_filter_rules *pdn_entry;
 	struct flt_rule *rule_entry, *tmp;
 	int deleted_count = 0;
+	int pdn_refs;
 
 	IPA_BE_DBG("Delete ICMP/ALG flt rule for iface %d, ip type %d\n",
 		pdn_iface, iptype);
+
+	/* Range check before the family selection below -- see the matching
+	 * check in delete_dft_filtering_rule(). enum ipa_ip_type continues past
+	 * IPA_IP_MAX, and an out-of-range family would fall through the else
+	 * and mutate the v6 list and count. */
+	if (!VALID_IPA_IP_TYPE(iptype)) {
+		IPA_BE_ERR("Invalid IP type %d\n", iptype);
+		return -EINVAL;
+	}
 
 	/* Find and update the PDN filter entry */
 	spin_lock_bh(&ipa_pdn_filter_lock);
@@ -4929,18 +5127,26 @@ int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 
 	/* Decrement ref_count for ICMP rule */
 	atomic_dec(&pdn_entry->ref_count);
+	pdn_refs = atomic_read(&pdn_entry->ref_count);
 	IPA_BE_DBG("Decremented ref_count for ICMP rule pdn %d, IP type %d. New count: %d\n",
-		pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+		pdn_iface, iptype, pdn_refs);
 
 	/*
 	 * Only delete ICMP rules when the last connection to this PDN is being
-	 * removed. Check if ref_count > 0, which means other connections are
-	 * still using this PDN and its rules.
+	 * removed. The threshold is 1, not 0, because dft still holds its own
+	 * reference on this shared counter at this point: every connection takes
+	 * one reference per rule type (dft, icmp, catchup) and ipa_be.c tears them
+	 * down catchup -> icmp -> dft, so exactly one -- dft's -- remains here.
+	 * The matching thresholds are 2 in delete_catchup_all_filtering_rule_each_pdn()
+	 * and 0 in delete_dft_filtering_rule(); all three must be revisited together
+	 * if a rule type is added to or removed from that sequence, or if the
+	 * teardown order changes. eth_bh_catchall is not counted -- it carries its
+	 * own eth_bh_catchall_ref_count.
 	 */
-	if (atomic_read(&pdn_entry->ref_count) > 1) {
+	if (pdn_refs > 1) {
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("ICMP rule for pdn %d, IP type %d still in use (ref_count=%d), skipping delete\n",
-			pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+			pdn_iface, iptype, pdn_refs);
 		return 0;
 	}
 
@@ -5004,14 +5210,38 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 	uint8_t mux_id[16] = {0};
 	struct ipa_ioc_generate_flt_eq flt_eq;
 	struct ipa_pdn_filter_rules *pdn_entry;
+	struct ipa_pdn_filter_rules *prealloc;
+	struct flt_rule *new_rule;
+	spinlock_t *fam_lock;
+	struct list_head *fam_list;
+	uint32_t *fam_count;
+	uint32_t rule_count;
 	bool pdn_entry_newly_created = false;
+	int pdn_refs;
 
 	IPA_BE_DBG("Add catchup flt rule for iface %d, ip type %d\n",
 		   pdn_iface, iptype);
 
-	{
-	struct ipa_pdn_filter_rules *prealloc =
-		kzalloc(sizeof(struct ipa_pdn_filter_rules), GFP_KERNEL);
+	/* Range check before the family selection below -- see the matching
+	 * check in add_dft_filtering_rule(). enum ipa_ip_type continues past
+	 * IPA_IP_MAX, and an out-of-range family would fall through the else
+	 * and mutate the v6 list and count. */
+	if (!VALID_IPA_IP_TYPE(iptype)) {
+		IPA_BE_ERR("Invalid IP type %d\n", iptype);
+		return -EINVAL;
+	}
+
+	if (iptype == IPA_IP_v4) {
+		fam_lock = &pdn_flt_rule_v4_lock;
+		fam_list = &Pdn_flt_rule_v4_list;
+		fam_count = &wan_rule_count_v4;
+	} else {
+		fam_lock = &pdn_flt_rule_v6_lock;
+		fam_list = &Pdn_flt_rule_v6_list;
+		fam_count = &wan_rule_count_v6;
+	}
+
+	prealloc = kzalloc(sizeof(struct ipa_pdn_filter_rules), GFP_KERNEL);
 	if (!prealloc) {
 		IPA_BE_ERR("Failed to allocate memory for PDN filter entry\n");
 		return -ENOMEM;
@@ -5023,10 +5253,11 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 	if (pdn_entry) {
 		if (pdn_entry->catchup_rule_installed) {
 			atomic_inc(&pdn_entry->ref_count);
+			pdn_refs = atomic_read(&pdn_entry->ref_count);
 			spin_unlock_bh(&ipa_pdn_filter_lock);
 			kfree(prealloc);
 			IPA_BE_DBG("Catchup filtering rule for pdn %d, IP type %d already installed. ref_count: %d\n",
-				pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+				pdn_iface, iptype, pdn_refs);
 			return 0; /* Rules already exist, just increment ref count and exit */
 		}
 		kfree(prealloc);
@@ -5036,7 +5267,6 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 		pdn_entry_newly_created = true;
 	}
 	spin_unlock_bh(&ipa_pdn_filter_lock);
-	}
 
 	if (!ipa3_query_iface(pdn_iface, &temp_intf)) {
 		IPA_BE_ERR("iface %d doesn't exist\n", pdn_iface);
@@ -5171,50 +5401,45 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
 	} else {
 		memcpy(&rule->rule.eq_attrib, &flt_eq.eq_attrib, sizeof(rule->rule.eq_attrib));
 
-		if (iptype == IPA_IP_v4) {
-			struct flt_rule *new_rule = kzalloc(sizeof(struct flt_rule), GFP_KERNEL);
-			if (!new_rule) {
-				IPA_BE_ERR("Failed to allocate memory for IPv4 catchup rule\n");
-				retval = -ENOMEM;
-				goto fail_table;
-			}
-			spin_lock_bh(&pdn_flt_rule_v4_lock);
-			memcpy(&new_rule->flt_rule, rule, sizeof(struct ipa_flt_rule_add));
-			new_rule->mux_id = mux_id[0];
-			new_rule->rule_type = FLT_RULE_TYPE_CATCHUP;
-			new_rule->category = IPA_FLT_RULE_CAT_DOWNLINK;
-			new_rule->pdn_iface = pdn_iface;
-			list_add_tail(&new_rule->node, &Pdn_flt_rule_v4_list);
-			wan_rule_count_v4++;
-			spin_unlock_bh(&pdn_flt_rule_v4_lock);
-			IPA_BE_DBG("Added catchup v4 rule, rule count now %d\n", wan_rule_count_v4);
-		} else {
-			struct flt_rule *new_rule = kzalloc(sizeof(struct flt_rule), GFP_KERNEL);
-			if (!new_rule) {
-				IPA_BE_ERR("Failed to allocate memory for IPv6 catchup rule\n");
-				retval = -ENOMEM;
-				goto fail_table;
-			}
-			spin_lock_bh(&pdn_flt_rule_v6_lock);
-			memcpy(&new_rule->flt_rule, rule, sizeof(struct ipa_flt_rule_add));
-			new_rule->mux_id = mux_id[0];
-			new_rule->rule_type = FLT_RULE_TYPE_CATCHUP;
-			new_rule->category = IPA_FLT_RULE_CAT_DOWNLINK;
-			new_rule->pdn_iface = pdn_iface;
-			list_add_tail(&new_rule->node, &Pdn_flt_rule_v6_list);
-			wan_rule_count_v6++;
-			spin_unlock_bh(&pdn_flt_rule_v6_lock);
-			IPA_BE_DBG("Added catchup v6 rule, rule count now %d\n", wan_rule_count_v6);
+		new_rule = kzalloc(sizeof(struct flt_rule), GFP_KERNEL);
+		if (!new_rule) {
+			IPA_BE_ERR("Failed to allocate memory for catchup rule\n");
+			retval = -ENOMEM;
+			goto fail_table;
 		}
+		memcpy(&new_rule->flt_rule, rule, sizeof(struct ipa_flt_rule_add));
+		new_rule->mux_id = mux_id[0];
+		new_rule->rule_type = FLT_RULE_TYPE_CATCHUP;
+		new_rule->category = IPA_FLT_RULE_CAT_DOWNLINK;
+		new_rule->pdn_iface = pdn_iface;
 
-		/* Mark the catchup rule as installed and increment reference count */
+		/*
+		 * Re-look-up: the build above ran unlocked. Append the record and mark
+		 * the entry in one step, so a record can never outlive its owner.
+		 */
 		spin_lock_bh(&ipa_pdn_filter_lock);
+		pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
+		if (!pdn_entry) {
+			spin_unlock_bh(&ipa_pdn_filter_lock);
+			IPA_BE_ERR("PDN entry for pdn %d, IP type %d vanished building catchup\n",
+				pdn_iface, iptype);
+			kfree(new_rule);
+			retval = -ENOENT;
+			goto fail_table;
+		}
+		spin_lock_bh(fam_lock);
+		lockdep_assert_held(&ipa_pdn_filter_lock);
+		list_add_tail(&new_rule->node, fam_list);
+		(*fam_count)++;
+		rule_count = *fam_count;
 		pdn_entry->catchup_rule_installed = true;
 		atomic_inc(&pdn_entry->ref_count);
+		pdn_refs = atomic_read(&pdn_entry->ref_count);
+		spin_unlock_bh(fam_lock);
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 
-		IPA_BE_DBG("Catchup filtering rule successfully installed for pdn %d, IP type %d. ref_count: %d\n",
-			pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+		IPA_BE_DBG("Catchup rule installed for pdn %d, IP type %d. rule count %u, ref_count: %d\n",
+			pdn_iface, iptype, rule_count, pdn_refs);
 	}
 
 	IPA_BE_DBG("Filter rule attrib mask: 0x%x\n", rule->rule.attrib.attrib_mask);
@@ -5226,9 +5451,21 @@ fail_ext:
 fail_rx:
 	kfree(rx_prop);
 fail_pdn:
-	if (retval && pdn_entry_newly_created) {
+	if (pdn_entry_newly_created) {
 		spin_lock_bh(&ipa_pdn_filter_lock);
-		ipa_remove_pdn_filter_entry(pdn_entry);
+		pdn_entry = ipa_find_pdn_filter_entry(pdn_iface, iptype);
+		/*
+		 * Drop the entry this call created only if nothing ended up installed
+		 * on it. Testing retval instead would keep the entry on the "no rx
+		 * props" path, which returns 0 by design, and the success path falls
+		 * through to here with retval 0 as well.
+		 */
+		if (pdn_entry && !pdn_entry->catchup_rule_installed &&
+			!pdn_entry->dft_rule_installed &&
+			!pdn_entry->icmp_rule_installed &&
+			!pdn_entry->eth_bh_catchall_installed &&
+			atomic_read(&pdn_entry->ref_count) == 0)
+			ipa_remove_pdn_filter_entry(pdn_entry);
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 	}
 	return retval;
@@ -5246,11 +5483,33 @@ int install_wan_filtering_rule(bool is_sw_routing)
 	enum rule_sub_category *sub_category_v4 = NULL;
 	enum rule_sub_category *sub_category_v6 = NULL;
 	struct flt_rule *rule_entry;
+	/*
+	 * wan_rule_count_v4/v6 are only stable under the family lock, and the walk
+	 * below takes that lock separately from the sizing done here. Snapshot each
+	 * count once so the allocations, the loop bound and the num_rules field
+	 * cannot disagree, and set num_rules from the number of rules actually
+	 * copied -- if the list shrank in between, the stale count would leave
+	 * zeroed trailing rules in the table handed to the modem.
+	 *
+	 * Clamp to U8_MAX because num_rules is a uint8_t: without the clamp a
+	 * longer list would copy rules the field cannot count, and the modem would
+	 * be told about fewer rules than the table holds. Overrunning it trips the
+	 * mismatch error in the walk below.
+	 *
+	 * READ_ONCE() because these are the only reads of either counter taken
+	 * outside the family lock -- it marks the snapshot as deliberate and keeps
+	 * the compiler from reloading the value, so the allocation size and the
+	 * loop bound are guaranteed to be the same number.
+	 */
+	uint32_t alloc_rules_v4 = min_t(uint32_t, READ_ONCE(wan_rule_count_v4),
+					U8_MAX);
+	uint32_t alloc_rules_v6 = min_t(uint32_t, READ_ONCE(wan_rule_count_v6),
+					U8_MAX);
 
 	/* Prepare IPv4 filtering rules (do not send yet) */
-	if (wan_rule_count_v4 > 0) {
+	if (alloc_rules_v4 > 0) {
 		len = sizeof(struct ipa_ioc_add_flt_rule) +
-			(wan_rule_count_v4 *
+			(alloc_rules_v4 *
 			sizeof(struct ipa_flt_rule_add));
 
 		pFilteringTable_v4 = kzalloc(len, GFP_KERNEL);
@@ -5260,7 +5519,7 @@ int install_wan_filtering_rule(bool is_sw_routing)
 			goto cleanup;
 		}
 
-		mux_id_v4 = kzalloc(wan_rule_count_v4 *
+		mux_id_v4 = kzalloc(alloc_rules_v4 *
 			sizeof(uint8_t), GFP_KERNEL);
 		if (!mux_id_v4) {
 			IPA_BE_ERR("Failed to allocate mux_id_v4 array\n");
@@ -5268,7 +5527,7 @@ int install_wan_filtering_rule(bool is_sw_routing)
 			goto cleanup;
 		}
 
-		category_v4 = kzalloc(wan_rule_count_v4 *
+		category_v4 = kzalloc(alloc_rules_v4 *
 			sizeof(enum flt_rule_category), GFP_KERNEL);
 		if (!category_v4) {
 			IPA_BE_ERR("Failed to allocate category_v4 array\n");
@@ -5276,7 +5535,7 @@ int install_wan_filtering_rule(bool is_sw_routing)
 			goto cleanup;
 		}
 
-		sub_category_v4 = kzalloc(wan_rule_count_v4 *
+		sub_category_v4 = kzalloc(alloc_rules_v4 *
 			sizeof(enum rule_sub_category), GFP_KERNEL);
 		if (!sub_category_v4) {
 			IPA_BE_ERR("Failed to allocate sub_category_v4 array\n");
@@ -5288,14 +5547,13 @@ int install_wan_filtering_rule(bool is_sw_routing)
 		pFilteringTable_v4->ep = IPA_CLIENT_APPS_WAN_PROD;
 		pFilteringTable_v4->global = false;
 		pFilteringTable_v4->ip = IPA_IP_v4;
-		pFilteringTable_v4->num_rules = wan_rule_count_v4;
 
 		cnt = 0;
 		spin_lock_bh(&pdn_flt_rule_v4_lock);
 		list_for_each_entry(rule_entry, &Pdn_flt_rule_v4_list, node) {
-			if (cnt >= pFilteringTable_v4->num_rules) {
-				IPA_BE_ERR("IPv4 rule count mismatch: cnt=%d, num_rules=%d\n",
-					cnt, pFilteringTable_v4->num_rules);
+			if (cnt >= alloc_rules_v4) {
+				IPA_BE_ERR("IPv4 rule count mismatch: cnt=%d, allocated=%u\n",
+					cnt, alloc_rules_v4);
 				break;
 			}
 			memcpy(&pFilteringTable_v4->rules[cnt],
@@ -5306,6 +5564,8 @@ int install_wan_filtering_rule(bool is_sw_routing)
 			sub_category_v4[cnt] = rule_entry->sub_category;
 			cnt++;
 		}
+		/* Describe what was copied, not what the count said before the walk. */
+		pFilteringTable_v4->num_rules = cnt;
 		spin_unlock_bh(&pdn_flt_rule_v4_lock);
 
 		IPA_BE_DBG("Prepared %d IPv4 WAN filtering rules for combined installation\n",
@@ -5313,9 +5573,9 @@ int install_wan_filtering_rule(bool is_sw_routing)
 	}
 
 	/* Prepare IPv6 filtering rules (do not send yet) */
-	if (wan_rule_count_v6 > 0) {
+	if (alloc_rules_v6 > 0) {
 		len = sizeof(struct ipa_ioc_add_flt_rule) +
-			(wan_rule_count_v6 *
+			(alloc_rules_v6 *
 			sizeof(struct ipa_flt_rule_add));
 
 		pFilteringTable_v6 = kzalloc(len, GFP_KERNEL);
@@ -5325,7 +5585,7 @@ int install_wan_filtering_rule(bool is_sw_routing)
 			goto cleanup;
 		}
 
-		mux_id_v6 = kzalloc(wan_rule_count_v6 *
+		mux_id_v6 = kzalloc(alloc_rules_v6 *
 			sizeof(uint8_t), GFP_KERNEL);
 		if (!mux_id_v6) {
 			IPA_BE_ERR("Failed to allocate mux_id_v6 array\n");
@@ -5333,7 +5593,7 @@ int install_wan_filtering_rule(bool is_sw_routing)
 			goto cleanup;
 		}
 
-		category_v6 = kzalloc(wan_rule_count_v6 *
+		category_v6 = kzalloc(alloc_rules_v6 *
 			sizeof(enum flt_rule_category), GFP_KERNEL);
 		if (!category_v6) {
 			IPA_BE_ERR("Failed to allocate category_v6 array\n");
@@ -5341,7 +5601,7 @@ int install_wan_filtering_rule(bool is_sw_routing)
 			goto cleanup;
 		}
 
-		sub_category_v6 = kzalloc(wan_rule_count_v6 *
+		sub_category_v6 = kzalloc(alloc_rules_v6 *
 			sizeof(enum rule_sub_category), GFP_KERNEL);
 		if (!sub_category_v6) {
 			IPA_BE_ERR("Failed to allocate sub_category_v6 array\n");
@@ -5353,14 +5613,13 @@ int install_wan_filtering_rule(bool is_sw_routing)
 		pFilteringTable_v6->ep = IPA_CLIENT_APPS_WAN_PROD;
 		pFilteringTable_v6->global = false;
 		pFilteringTable_v6->ip = IPA_IP_v6;
-		pFilteringTable_v6->num_rules = wan_rule_count_v6;
 
 		cnt = 0;
 		spin_lock_bh(&pdn_flt_rule_v6_lock);
 		list_for_each_entry(rule_entry, &Pdn_flt_rule_v6_list, node) {
-			if (cnt >= pFilteringTable_v6->num_rules) {
-				IPA_BE_ERR("IPv6 rule count mismatch: cnt=%d, num_rules=%d\n",
-					cnt, pFilteringTable_v6->num_rules);
+			if (cnt >= alloc_rules_v6) {
+				IPA_BE_ERR("IPv6 rule count mismatch: cnt=%d, allocated=%u\n",
+					cnt, alloc_rules_v6);
 				break;
 			}
 			memcpy(&pFilteringTable_v6->rules[cnt],
@@ -5371,6 +5630,8 @@ int install_wan_filtering_rule(bool is_sw_routing)
 			sub_category_v6[cnt] = rule_entry->sub_category;
 			cnt++;
 		}
+		/* Describe what was copied, not what the count said before the walk. */
+		pFilteringTable_v6->num_rules = cnt;
 		spin_unlock_bh(&pdn_flt_rule_v6_lock);
 
 		IPA_BE_DBG("Prepared %d IPv6 WAN filtering rules for combined installation\n",
@@ -5434,10 +5695,33 @@ int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 {
 	struct ipa_pdn_filter_rules *pdn_entry;
 	struct flt_rule *rule_entry, *tmp;
+	spinlock_t *fam_lock;
+	struct list_head *fam_list;
+	uint32_t *fam_count;
+	int set_refs, rule_count;
 	int deleted_count = 0;
+	int pdn_refs;
+	bool entry_freed = false;
 
 	IPA_BE_DBG("Delete dft flt rule for iface %d, ip type %d\n",
 		   pdn_iface, iptype);
+
+	/* Range check before indexing the per-family set arrays -- see the
+	 * matching check in add_dft_filtering_rule(). */
+	if (!VALID_IPA_IP_TYPE(iptype)) {
+		IPA_BE_ERR("Invalid IP type %d\n", iptype);
+		return -EINVAL;
+	}
+
+	if (iptype == IPA_IP_v4) {
+		fam_lock = &pdn_flt_rule_v4_lock;
+		fam_list = &Pdn_flt_rule_v4_list;
+		fam_count = &wan_rule_count_v4;
+	} else {
+		fam_lock = &pdn_flt_rule_v6_lock;
+		fam_list = &Pdn_flt_rule_v6_list;
+		fam_count = &wan_rule_count_v6;
+	}
 
 	/* Find and update the PDN filter entry */
 	spin_lock_bh(&ipa_pdn_filter_lock);
@@ -5456,63 +5740,104 @@ int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	}
 
 	atomic_dec(&pdn_entry->ref_count);
+	pdn_refs = atomic_read(&pdn_entry->ref_count);
 	IPA_BE_DBG("Decremented ref_count for pdn %d, IP type %d. New count: %d\n",
-		pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+		pdn_iface, iptype, pdn_refs);
 
-	if (atomic_read(&pdn_entry->ref_count) > 0) {
+	/*
+	 * The threshold is 0 because dft is torn down last: every connection takes
+	 * one reference per rule type (dft, icmp, catchup) and ipa_be.c tears them
+	 * down catchup -> icmp -> dft, so no other rule type's reference remains
+	 * here. The matching thresholds are 2 in
+	 * delete_catchup_all_filtering_rule_each_pdn() and 1 in
+	 * delete_icmp_alg_rules(); all three must be revisited together if a rule
+	 * type is added to or removed from that sequence, or if the teardown order
+	 * changes. Getting this one wrong is now family-wide rather than local: it
+	 * gates release of the shared default set below, so releasing a reference
+	 * early strips the default rules from every PDN of this family still up.
+	 * eth_bh_catchall is not counted -- it carries its own
+	 * eth_bh_catchall_ref_count.
+	 */
+	if (pdn_refs > 0) {
 		/* Other connections are still using these rules, so don't delete them */
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("Default filtering rule for pdn %d, IP type %d still in use. ref_count: %d\n",
-			pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+			pdn_iface, iptype, pdn_refs);
 		return 0;
 	}
-	/* If no default/catchup/icmp/eth-catchall rules remain and ref_count is 0, remove the entry */
+
+	if (pdn_refs < 0)
+		IPA_BE_ERR("pdn %d, IP type %d ref_count went negative: %d\n",
+			pdn_iface, iptype, pdn_refs);
+
+	/*
+	 * This PDN is done with the default set now that its last reference is
+	 * gone, whether or not its entry can be freed yet. Clear the flag and fall
+	 * through to the set release on both paths: holding the reference until the
+	 * catchup/icmp/eth-catchall teardown completes would pin the shared set for
+	 * the life of the module, and leaving the flag set would let a second
+	 * delete for this PDN drop a second reference for the one it took.
+	 */
+	pdn_entry->dft_rule_installed = false;
+
+	/*
+	 * Free the entry only once no other rule type is still installed on it and
+	 * the count landed exactly on zero. A negative count means the add/delete
+	 * accounting is already broken elsewhere and some caller may still believe
+	 * it holds a reference -- leave the entry in place rather than free it out
+	 * from under them.
+	 */
 	if (!pdn_entry->catchup_rule_installed && !pdn_entry->icmp_rule_installed &&
-		!pdn_entry->eth_bh_catchall_installed &&
-		atomic_read(&pdn_entry->ref_count) == 0) {
-		/* Mark as not installed */
-		pdn_entry->dft_rule_installed = false;
+		!pdn_entry->eth_bh_catchall_installed && pdn_refs == 0) {
 		list_del(&pdn_entry->node);
-		IPA_BE_DBG("Removed PDN filter entry for pdn %d, IP type %d\n", pdn_iface, iptype);
-	}
-	else {
-		IPA_BE_DBG("PDN filter entry for pdn %d, IP type %d is not removed as catchup rule is still installed\n",
-			pdn_iface, iptype);
-		spin_unlock_bh(&ipa_pdn_filter_lock);
-		return 0;
+		entry_freed = true;
 	}
 
+	/*
+	 * One default set serves every PDN of this family, so this PDN can only
+	 * drop its reference. The records go away with the last reference --
+	 * unlinking them on the first teardown would strip the set from under
+	 * every PDN still up.
+	 *
+	 * Take fam_lock before releasing the pdn lock so the flag clear above and
+	 * the release below are one step -- otherwise an add lands between, takes
+	 * a fresh reference, and has it decremented here.
+	 */
+	spin_lock_bh(fam_lock);
+	lockdep_assert_held(&ipa_pdn_filter_lock);
 	spin_unlock_bh(&ipa_pdn_filter_lock);
-	kfree(pdn_entry);
 
-	/* Remove DEFAULT rules for this PDN from the linked list */
-	if (iptype == IPA_IP_v4) {
-		spin_lock_bh(&pdn_flt_rule_v4_lock);
-		list_for_each_entry_safe(rule_entry, tmp, &Pdn_flt_rule_v4_list, node) {
-			if (rule_entry->pdn_iface == pdn_iface && rule_entry->rule_type == FLT_RULE_TYPE_DEFAULT) {
+	if (ipa_be_dft_set_ref_count[iptype] > 0)
+		ipa_be_dft_set_ref_count[iptype]--;
+	set_refs = ipa_be_dft_set_ref_count[iptype];
+
+	if (set_refs == 0 && ipa_be_dft_set_installed[iptype]) {
+		list_for_each_entry_safe(rule_entry, tmp, fam_list, node) {
+			if (rule_entry->pdn_iface == IPA_BE_DFT_SET_PDN_IFACE &&
+				rule_entry->rule_type == FLT_RULE_TYPE_DEFAULT) {
 				list_del(&rule_entry->node);
 				kfree(rule_entry);
-				wan_rule_count_v4--;
+				(*fam_count)--;
 				deleted_count++;
 			}
 		}
-		spin_unlock_bh(&pdn_flt_rule_v4_lock);
-		IPA_BE_DBG("Deleted %d default IPv4 rules for pdn %d, new count: %d\n",
-			deleted_count, pdn_iface, wan_rule_count_v4);
-	} else {
-		spin_lock_bh(&pdn_flt_rule_v6_lock);
-		list_for_each_entry_safe(rule_entry, tmp, &Pdn_flt_rule_v6_list, node) {
-			if (rule_entry->pdn_iface == pdn_iface && rule_entry->rule_type == FLT_RULE_TYPE_DEFAULT) {
-				list_del(&rule_entry->node);
-				kfree(rule_entry);
-				wan_rule_count_v6--;
-				deleted_count++;
-			}
-		}
-		spin_unlock_bh(&pdn_flt_rule_v6_lock);
-		IPA_BE_DBG("Deleted %d default IPv6 rules for pdn %d, new count: %d\n",
-			deleted_count, pdn_iface, wan_rule_count_v6);
+		ipa_be_dft_set_installed[iptype] = false;
 	}
+	rule_count = *fam_count;
+	spin_unlock_bh(fam_lock);
+
+	/* Already off the list; freed outside both locks. */
+	if (entry_freed) {
+		kfree(pdn_entry);
+		IPA_BE_DBG("Removed PDN filter entry for pdn %d, IP type %d\n",
+			pdn_iface, iptype);
+	} else {
+		IPA_BE_DBG("PDN filter entry for pdn %d, IP type %d kept: other rules installed or ref_count %d not zero\n",
+			pdn_iface, iptype, pdn_refs);
+	}
+
+	IPA_BE_DBG("pdn %d released the IP type %d default set. set ref_count: %d, deleted %d rules, new count: %d\n",
+		pdn_iface, iptype, set_refs, deleted_count, rule_count);
 
 	IPA_BE_DBG("Default filtering rule deleted for pdn %d, IP type %d\n", pdn_iface, iptype);
 	return deleted_count;
@@ -5543,9 +5868,19 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 	struct ipa_pdn_filter_rules *pdn_entry;
 	struct flt_rule *rule_entry, *tmp;
 	int deleted_count = 0;
+	int pdn_refs;
 
 	IPA_BE_DBG("Delete catchup flt rule for iface %d, ip type %d\n",
 		   pdn_iface, iptype);
+
+	/* Range check before the family selection below -- see the matching
+	 * check in delete_dft_filtering_rule(). enum ipa_ip_type continues past
+	 * IPA_IP_MAX, and an out-of-range family would fall through the else
+	 * and mutate the v6 list and count. */
+	if (!VALID_IPA_IP_TYPE(iptype)) {
+		IPA_BE_ERR("Invalid IP type %d\n", iptype);
+		return -EINVAL;
+	}
 
 	/* Find and update the PDN filter entry */
 	spin_lock_bh(&ipa_pdn_filter_lock);
@@ -5564,14 +5899,26 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 	}
 
 	atomic_dec(&pdn_entry->ref_count);
+	pdn_refs = atomic_read(&pdn_entry->ref_count);
 	IPA_BE_DBG("Decremented ref_count for pdn %d, IP type %d. New count: %d\n",
-		pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+		pdn_iface, iptype, pdn_refs);
 
-	if (atomic_read(&pdn_entry->ref_count) > 2) {
+	/*
+	 * The threshold is 2, not 0, because dft and icmp still hold their own
+	 * references on this shared counter at this point: every connection takes
+	 * one reference per rule type (dft, icmp, catchup) and ipa_be.c tears them
+	 * down catchup -> icmp -> dft, so catchup is first and exactly two remain.
+	 * The matching thresholds are 1 in delete_icmp_alg_rules() and 0 in
+	 * delete_dft_filtering_rule(); all three must be revisited together if a
+	 * rule type is added to or removed from that sequence, or if the teardown
+	 * order changes. eth_bh_catchall is not counted -- it carries its own
+	 * eth_bh_catchall_ref_count.
+	 */
+	if (pdn_refs > 2) {
 		/* Other connections are still using these rules, so don't delete them */
 		spin_unlock_bh(&ipa_pdn_filter_lock);
 		IPA_BE_DBG("Catchup filtering rule for pdn %d, IP type %d still in use. ref_count: %d\n",
-			pdn_iface, iptype, atomic_read(&pdn_entry->ref_count));
+			pdn_iface, iptype, pdn_refs);
 		return 0;
 	}
 
@@ -5580,8 +5927,7 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 
 	/* If no default/icmp/eth-catchall rules remain and ref_count is 0, remove the entry */
 	if (!pdn_entry->dft_rule_installed && !pdn_entry->icmp_rule_installed &&
-		!pdn_entry->eth_bh_catchall_installed &&
-		atomic_read(&pdn_entry->ref_count) == 0) {
+		!pdn_entry->eth_bh_catchall_installed && pdn_refs == 0) {
 		ipa_remove_pdn_filter_entry(pdn_entry);
 		IPA_BE_DBG("Removed PDN filter entry for pdn %d, IP type %d\n", pdn_iface, iptype);
 	}

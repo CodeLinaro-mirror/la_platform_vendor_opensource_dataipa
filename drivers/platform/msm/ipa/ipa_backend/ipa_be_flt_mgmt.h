@@ -55,7 +55,8 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
  *     0  No change. The rule is still referenced by other connections on
  *        this PDN, or was not installed. The caller must NOT re-push.
  *   < 0  Error, e.g. -ENOENT when no PDN filter entry exists for this
- *        (pdn_iface, iptype). The caller must NOT re-push.
+ *        (pdn_iface, iptype), or -EINVAL when iptype is outside
+ *        [IPA_IP_v4, IPA_IP_MAX). The caller must NOT re-push.
  */
 int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype);
 int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype);
