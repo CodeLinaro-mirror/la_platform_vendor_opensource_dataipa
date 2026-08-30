@@ -331,6 +331,8 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 			else
 				gsi_channel_props.re_size =
 					GSI_CHAN_RE_SIZE_64B;
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+				gsi_channel_props.gsi_stats_en = 1;
 		}
 	} else
 		gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;

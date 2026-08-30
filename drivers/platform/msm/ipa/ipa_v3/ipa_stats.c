@@ -628,6 +628,41 @@ static void ipa_lnx_calculate_gsi_ring_summay(
 	}
 }
 
+static void ipa_lnx_fill_gsi_hw_tx_stats(
+	struct ipa_lnx_gsi_tx_debug_stats *s, int ep_idx)
+{
+	struct gsi_hw_ch_stats hw;
+
+	s->num_tre = 0;
+
+	if (ep_idx == IPA_EP_NOT_ALLOCATED ||
+		ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+		return;
+	if (gsi_get_hw_ch_stats(ipa3_ctx->ep[ep_idx].gsi_chan_hdl, &hw))
+		return;
+	s->num_tre = hw.num_tre;
+}
+
+static void ipa_lnx_fill_gsi_hw_rx_stats(
+	struct ipa_lnx_gsi_rx_debug_stats *s, int ep_idx)
+{
+	struct gsi_hw_ch_stats hw;
+
+	s->num_rx_oob      = 0;
+	s->num_rx_oob_time = 0;
+	s->num_rx_tre      = 0;
+
+	if (ep_idx == IPA_EP_NOT_ALLOCATED ||
+		ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
+		return;
+	if (gsi_get_hw_ch_stats(ipa3_ctx->ep[ep_idx].gsi_chan_hdl, &hw))
+		return;
+	s->num_rx_oob      = hw.num_oob_full;
+	s->num_rx_oob_time = (uint32_t)(hw.oob_full_time &
+				GSI_HW_CH_STATS_TIME_VAL_BMSK);
+	s->num_rx_tre      = hw.num_tre;
+}
+
 static int ipa_get_wlan_inst_stats(unsigned long arg)
 {
 	struct ipa_lnx_wlan_inst_stats *wlan_stats;
@@ -725,7 +760,8 @@ static int ipa_get_wlan_inst_stats(unsigned long arg)
 				stats.u.ring[1 + j].RingUtilCount;
 			ipa_lnx_calculate_gsi_ring_summay(
 				tx_instance_ptr_local, NULL, client_type);
-
+			ipa_lnx_fill_gsi_hw_tx_stats(tx_instance_ptr_local,
+				ipa_get_ep_mapping(client_type));
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *)((
@@ -757,7 +793,8 @@ static int ipa_get_wlan_inst_stats(unsigned long arg)
 			rx_instance_ptr_local->num_rx_drop_stats = 0;
 			ipa_lnx_calculate_gsi_ring_summay(
 				NULL, rx_instance_ptr_local, client_type);
-
+			ipa_lnx_fill_gsi_hw_rx_stats(rx_instance_ptr_local,
+				ipa_get_ep_mapping(client_type));
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +
@@ -979,7 +1016,8 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 					stats.u.ring[1].RingUtilCount;
 				ipa_lnx_calculate_gsi_ring_summay(
 					tx_instance_ptr_local, NULL, client_type);
-
+				ipa_lnx_fill_gsi_hw_tx_stats(tx_instance_ptr_local,
+					ipa_get_ep_mapping(client_type));
 			} else if (instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8111K ||
 				instance_ptr->eth_mode == IPA_ETH_CLIENT_RTK8125B) {
 
@@ -1009,7 +1047,8 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 					stats.u.rtk[1].commStats.RingUtilCount;
 				ipa_lnx_calculate_gsi_ring_summay(
 					tx_instance_ptr_local, NULL, client_type);
-
+				ipa_lnx_fill_gsi_hw_tx_stats(tx_instance_ptr_local,
+					ipa_get_ep_mapping(client_type));
 			} else if(instance_ptr->eth_mode == IPA_ETH_CLIENT_IEMAC){
 				struct ipa_lnx_gsi_tx_ntn_debug_stats *ntn_tx =
 					(struct ipa_lnx_gsi_tx_ntn_debug_stats *)tx_instance_ptr_local;
@@ -1043,6 +1082,8 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				ntn_tx->ntn_stats.invalid_tre_cnt = ntn3_stats.tx_stats.ntn_stats.invalid_tre_cnt;
 				ntn_tx->ntn_stats.rollbacks_cnt = ntn3_stats.tx_stats.ntn_stats.rollbacks_cnt;
 				ntn_tx->ntn_stats.outstanding_tlvs_cnt = ntn3_stats.tx_stats.ntn_stats.outstanding_tlvs_cnt;
+				ipa_lnx_fill_gsi_hw_tx_stats(tx_instance_ptr_local,
+					ipa_get_ep_mapping(client_type));
 			}
 			else IPA_STATS_ERR("Eth tx client type not found. ETH client: %d",instance_ptr->eth_mode);
 			tx_offset += tx_sz;
@@ -1139,7 +1180,8 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				rx_instance_ptr_local->num_rx_drop_stats = 0;
 				ipa_lnx_calculate_gsi_ring_summay(
 					NULL, rx_instance_ptr_local, client_type);
-
+				ipa_lnx_fill_gsi_hw_rx_stats(rx_instance_ptr_local,
+					ipa_get_ep_mapping(client_type));
 			} else if(eth_mode_j == IPA_ETH_CLIENT_IEMAC){
 				struct ipa_lnx_gsi_rx_ntn_debug_stats *ntn_rx =
 					(struct ipa_lnx_gsi_rx_ntn_debug_stats *)rx_instance_ptr_local;
@@ -1178,6 +1220,8 @@ static int ipa_get_eth_inst_stats(unsigned long arg)
 				ntn_rx->ntn_stats.invalid_tre_cnt = ntn3_stats.rx_stats.ntn_stats.invalid_tre_cnt;
 				ntn_rx->ntn_stats.rollbacks_cnt = ntn3_stats.rx_stats.ntn_stats.rollbacks_cnt;
 				ntn_rx->ntn_stats.outstanding_tlvs_cnt = ntn3_stats.rx_stats.ntn_stats.outstanding_tlvs_cnt;
+				ipa_lnx_fill_gsi_hw_rx_stats(rx_instance_ptr_local,
+					ipa_get_ep_mapping(client_type));
 			}  else IPA_STATS_ERR("Eth rx client type not found. ETH client: %d", eth_mode_j);
 			rx_offset += rx_sz;
 		}
@@ -1315,7 +1359,8 @@ static int ipa_get_usb_inst_stats(unsigned long arg)
 				stats.u.ring[1 + j].RingUtilCount;
 			ipa_lnx_calculate_gsi_ring_summay(
 				tx_instance_ptr_local, NULL, client_type);
-
+			ipa_lnx_fill_gsi_hw_tx_stats(tx_instance_ptr_local,
+				ipa_get_ep_mapping(client_type));
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *) ((
@@ -1345,7 +1390,8 @@ static int ipa_get_usb_inst_stats(unsigned long arg)
 			rx_instance_ptr_local->num_rx_drop_stats = 0;
 			ipa_lnx_calculate_gsi_ring_summay(
 				NULL, rx_instance_ptr_local, client_type);
-
+			ipa_lnx_fill_gsi_hw_rx_stats(rx_instance_ptr_local,
+				ipa_get_ep_mapping(client_type));
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +
@@ -1485,6 +1531,8 @@ static int ipa_get_mhip_inst_stats(unsigned long arg)
 				stats.u.ring[1 + (j*2)].RingUtilCount;
 			ipa_lnx_calculate_gsi_ring_summay(
 				tx_instance_ptr_local, NULL, client_type);
+			ipa_lnx_fill_gsi_hw_tx_stats(tx_instance_ptr_local,
+				ipa_get_ep_mapping(client_type));
 		}
 
 		rx_instance_ptr = (struct ipa_lnx_gsi_rx_debug_stats *)((
@@ -1514,6 +1562,8 @@ static int ipa_get_mhip_inst_stats(unsigned long arg)
 			rx_instance_ptr_local->num_rx_drop_stats = 0;
 			ipa_lnx_calculate_gsi_ring_summay(NULL,
 				rx_instance_ptr_local, client_type);
+			ipa_lnx_fill_gsi_hw_rx_stats(rx_instance_ptr_local,
+				ipa_get_ep_mapping(client_type));
 		}
 
 		pipe_info_ptr = (struct ipa_lnx_pipe_info *)((uint64_t)instance_ptr +
@@ -2219,8 +2269,10 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 					 alloc_size)) {
 		IPA_STATS_ERR("copy to user failed");
 		ret = -EFAULT;
-		goto stats_fail;
 	}
+
+	kfree(rt_rule_stats);
+	return ret;
 
 stats_fail:
 	mutex_unlock(&ipa3_ctx->lock);
@@ -3093,6 +3145,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 		sizeof(struct ipa_lnx_stats_tlpd_ctx))) {
 		memset(&ipa_lnx_agent_ctx, 0, sizeof(ipa_lnx_agent_ctx));
 		IPA_STATS_ERR("copy from user failed");
+		memset(&ipa_lnx_agent_ctx, 0, sizeof(ipa_lnx_agent_ctx));
 		return -EFAULT;
 	}
 
@@ -3162,18 +3215,28 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 	/* For ETH instance */
 	if (ipa_lnx_agent_ctx.log_type_mask & TLPD_IPA_LOG_TYPE_ETH_STATS) {
 		ipa_lnx_agent_ctx.alloc_info.num_eth_instances = 0;
-		for (i = 0; i < IPA_ETH_INST_ID_MAX; i++) {
-			ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_pipes = 0;
+		for (i = 0; i < TLPD_NUM_MAX_INSTANCES; i++) {
 			ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_pipes = 0;
 			ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_tx_instances
 				= 0;
 			ipa_lnx_agent_ctx.alloc_info.eth_inst_info[i].num_rx_instances
 				= 0;
+		}
+		/*
+		 * eth_inst_info[] holds only TLPD_NUM_MAX_INSTANCES entries, which
+		 * is fewer than the eth instance IDs the driver supports. Scan all
+		 * instance IDs so no attached client is missed, but stop as soon as
+		 * the array is full.
+		 */
+		for (i = 0; (i < IPA_ETH_INST_ID_MAX) &&
+			(ipa_lnx_agent_ctx.alloc_info.num_eth_instances <
+				TLPD_NUM_MAX_INSTANCES); i++) {
 			k = 0;
 			for (j = 0; (j < IPA_ETH_CLIENT_MAX) &&
 				(k < TLPD_NUM_MAX_TX_INSTANCES); j++) {
 				if (ipa_eth_client_exist(j, i) &&
-					(ipa_lnx_agent_ctx.alloc_info.num_eth_instances < 2)) {
+					(ipa_lnx_agent_ctx.alloc_info.num_eth_instances <
+						TLPD_NUM_MAX_INSTANCES)) {
 					eth_instance_id = ipa_lnx_agent_ctx.alloc_info.num_eth_instances;
 					ipa_lnx_agent_ctx.alloc_info.eth_inst_info[eth_instance_id].num_pipes =
 						ipa_lnx_agent_ctx.alloc_info.eth_inst_info[
