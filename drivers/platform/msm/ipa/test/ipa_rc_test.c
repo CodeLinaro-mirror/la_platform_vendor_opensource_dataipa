@@ -227,6 +227,175 @@ static void ipa_test_dl_pkt_drop(void)
 	return;
 }
 
+/*
+ * A routing table kept permanently empty, one per IP family. An empty table is
+ * skipped by ipa_translate_rt_tbl_to_hw_fmt() (sz == 0), so its HW header entry
+ * keeps pointing at the zeroed apps_fltrt_empty_tbl region and every lookup
+ * landing in it reports a rule miss.
+ */
+static u32 rc_test_empty_rt_hdl[IPA_IP_MAX];
+
+static int ipa_rc_test_get_empty_rt_tbl(enum ipa_ip_type ip, u32 *hdl)
+{
+	struct ipa_ioc_add_rt_rule *add = NULL;
+	struct ipa_ioc_get_rt_tbl lookup;
+	const char *name;
+	u32 rule_hdl = 0;
+	int ret = -EFAULT;
+
+	if (ip >= IPA_IP_MAX)
+		return -EINVAL;
+
+	if (rc_test_empty_rt_hdl[ip]) {
+		*hdl = rc_test_empty_rt_hdl[ip];
+		return 0;
+	}
+
+	name = (ip == IPA_IP_v6) ? "RCTSTEMPTYv6" : "RCTSTEMPTYv4";
+
+	add = kzalloc(sizeof(*add) + sizeof(struct ipa_rt_rule_add), GFP_KERNEL);
+	if (!add) {
+		IPAERR("Kzalloc failed\n");
+		return -ENOMEM;
+	}
+
+	/*
+	 * __ipa_add_rt_tbl() is private to ipa_rt.c, so the table is created as a
+	 * side effect of adding one throwaway rule, which is removed again below.
+	 */
+	add->commit = 1;
+	add->ip = ip;
+	add->num_rules = 1;
+	strscpy(add->rt_tbl_name, name, IPA_RESOURCE_NAME_MAX);
+	add->rules[0].at_rear = 1;
+	add->rules[0].rule.dst = IPA_CLIENT_APPS_LAN_CONS;
+
+	if (ipa_add_rt_rule(add) || add->rules[0].status) {
+		IPAERR("failed to create rt tbl %s status=%d\n",
+			name, add->rules[0].status);
+		goto out;
+	}
+	rule_hdl = add->rules[0].rt_rule_hdl;
+
+	/*
+	 * Take a reference before emptying it: a table is only torn down when
+	 * rule_cnt and ref_cnt are both zero.
+	 */
+	memset(&lookup, 0, sizeof(lookup));
+	lookup.ip = ip;
+	strscpy(lookup.name, name, IPA_RESOURCE_NAME_MAX);
+	if (ipa3_get_rt_tbl(&lookup)) {
+		IPAERR("failed to get rt tbl %s, leaving rule %u behind\n",
+			name, rule_hdl);
+		goto out;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	if (__ipa3_del_rt_rule(rule_hdl))
+		IPAERR("failed to empty rt tbl %s\n", name);
+	if (ipa3_ctx->ctrl->ipa3_commit_rt(ip))
+		IPAERR("failed to commit RT tbl for ip=%d\n", ip);
+	mutex_unlock(&ipa3_ctx->lock);
+
+	rc_test_empty_rt_hdl[ip] = lookup.hdl;
+	*hdl = lookup.hdl;
+	ret = 0;
+	IPADBG("empty rt tbl %s ready hdl=%u\n", name, lookup.hdl);
+out:
+	kfree(add);
+	return ret;
+}
+
+/*
+ * Install a catch-all filter rule at the head of @client's filter table that
+ * sends every packet ingressing on that pipe into the empty routing table.
+ *
+ * The route lookup then misses, IPA delivers the packet to the default route
+ * pipe (APPS_LAN_CONS) with rt_rule_id == IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID,
+ * and ipa3_lan_rx_pyld_hdlr() drops it and charges the drop to the *source*
+ * pipe - which is what makes it land on the intended rc_client. Unlike
+ * ipa_test_pkt_drop_ip(), this does not touch the WAN route tables and so works
+ * on a modem backhaul as well as an ethernet one, and it targets one endpoint
+ * rather than every UL client at once.
+ */
+static void ipa_test_pkt_drop_client_ip(enum ipa_client_type client,
+	enum ipa_ip_type ip)
+{
+	struct ipa_ioc_add_flt_rule *param;
+	struct ipa_flt_rule_add flt_rule_entry;
+	u32 pyld_sz, rt_hdl = 0;
+	int ret, ep;
+
+	ep = ipa_get_ep_mapping(client);
+	if (ep == IPA_EP_NOT_ALLOCATED) {
+		IPAERR("client %d is not mapped to a pipe\n", client);
+		return;
+	}
+
+	if (ipa_rc_test_get_empty_rt_tbl(ip, &rt_hdl))
+		return;
+
+	pyld_sz = sizeof(struct ipa_ioc_add_flt_rule) +
+		sizeof(struct ipa_flt_rule_add);
+	param = kzalloc(pyld_sz, GFP_KERNEL);
+	if (!param) {
+		IPAERR("Kzalloc failed\n");
+		return;
+	}
+
+	param->commit = 1;
+	param->ep = client;
+	param->global = false;
+	param->ip = ip;
+	param->num_rules = (uint8_t)1;
+
+	memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
+	/*
+	 * at_rear = false so this wins over the real UL rules; attrib_mask left
+	 * at 0 so the rule generates no equations and therefore matches every
+	 * packet; non-hashable so every packet is evaluated.
+	 */
+	flt_rule_entry.at_rear = false;
+	flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+	flt_rule_entry.rule.rt_tbl_hdl = rt_hdl;
+	flt_rule_entry.rule.retain_hdr = false;
+	flt_rule_entry.rule.hashable = 0;
+
+	memcpy(&(param->rules[0]), &flt_rule_entry,
+		sizeof(struct ipa_flt_rule_add));
+
+	ret = ipa3_add_flt_rule_usr(param, true);
+	if (ret || param->rules[0].status) {
+		IPAERR("failed to add drop rule ep=%d ip=%d ret=%d status=%d\n",
+			ep, ip, ret, param->rules[0].status);
+		goto out;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	if (rc_test_flt_cnt < IPA_RC_TEST_MAX_FLT_RULES) {
+		rc_test_flt[rc_test_flt_cnt].hdl = param->rules[0].flt_rule_hdl;
+		rc_test_flt[rc_test_flt_cnt].ep = ep;
+		rc_test_flt_cnt++;
+	} else {
+		IPAERR("hdl table full, rule %u won't be cleaned up\n",
+			param->rules[0].flt_rule_hdl);
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	IPADBG("ep=%d ip=%d catch-all route-miss rule installed hdl=%u\n",
+		ep, ip, param->rules[0].flt_rule_hdl);
+out:
+	kfree(param);
+	return;
+}
+
+static void ipa_test_pkt_drop_client(enum ipa_client_type client)
+{
+	ipa_test_pkt_drop_client_ip(client, IPA_IP_v4);
+	ipa_test_pkt_drop_client_ip(client, IPA_IP_v6);
+	return;
+}
+
 static void ipa_test_ap_pkt_drop_lan_to_lan(void)
 {
 	struct ipa3_rt_tbl *tbl = NULL, *tbl_tmp = NULL;
@@ -610,8 +779,19 @@ void ipa_rc_test_cleanup_rules(int ep)
 	}
 	rc_test_flt_cnt = keep;
 
-	if (cnt && ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4))
-		IPAERR("failed to commit flt tbl\n");
+	/*
+	 * Both families are committed unconditionally. The rules are already
+	 * gone from the SW list by this point, so short-circuiting past one
+	 * commit would leave that family's catch-all rule live in the HW image
+	 * with no handle left to remove it - a permanent silent drop on the
+	 * pipe.
+	 */
+	if (cnt) {
+		if (ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v4))
+			IPAERR("failed to commit v4 flt tbl\n");
+		if (ipa3_ctx->ctrl->ipa3_commit_flt(IPA_IP_v6))
+			IPAERR("failed to commit v6 flt tbl\n");
+	}
 	mutex_unlock(&ipa3_ctx->lock);
 
 	IPADBG("ep %d: removed %d testcase filter rule(s)\n", ep, cnt);
@@ -668,9 +848,13 @@ ssize_t testcase_store(struct device *dev, struct device_attribute *attr,
 			break;
 		case 3:
 			//IPA_DRIVER_ETH_PKT_DROP
+			ipa_test_pkt_drop_client(IPA_CLIENT_ETHERNET_PROD);
+			break;
+		case 15: // ETH1 pkt drop
+			ipa_test_pkt_drop_client(IPA_CLIENT_ETHERNET2_PROD);
+			break;
 		case 4:
 			//IPA_DRIVER_WLAN_AP_PKT_DROP
-		case 15: // ETH1 pkt drop
 		case 16: // WLAN2 AP pkt drop
 		case 18: // WLAN3 AP pkt drop
 			ipa_test_ul_pkt_drop();

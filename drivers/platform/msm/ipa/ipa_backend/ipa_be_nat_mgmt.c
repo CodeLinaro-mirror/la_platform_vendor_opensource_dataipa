@@ -4506,11 +4506,18 @@ void ipa_be_signal_iface_offline(int iface_idx)
 
 	ipa_be_flush_flows(iface_idx);
 
-	if (ep >= 0)
+	if (ep >= 0) {
 		ipa_rc_test_cleanup_rules(ep);
-	else
+		/*
+		 * Order matters: the injected rules have to be gone before the
+		 * latch is released, or traffic still hitting the route miss
+		 * re-confirms the drop within DROP_CONFIRM_THRESH samples.
+		 */
+		ipa_rc_clear_drop_latch(ep);
+	} else {
 		IPA_BE_DBG("iface %d: no ep, testcase rules left installed\n",
 			   iface_idx);
+	}
 
 	ipa_be_iface_ep_cache_evict(iface_idx);
 }
@@ -4532,8 +4539,21 @@ void ipa_be_signal_iface_online(int iface_idx)
 {
 	int ep = ipa_be_get_ep_for_intf(iface_idx);
 
-	if (ep >= 0)
+	if (ep >= 0) {
 		ipa_be_iface_ep_cache_put(iface_idx, ep);
+		/*
+		 * Closing half of a suspend/resume recovery. The offline half
+		 * already removed any injected testcase rules, so nothing
+		 * justifies the latch any more and it must be released here or
+		 * the anomaly stays asserted for the life of the driver. Unlike
+		 * the offline half this cannot miss the endpoint: the interface
+		 * is registered at this point, so ipa3_get_ep_for_intf()
+		 * resolves without needing the ep cache. If a genuine fault
+		 * survived the recovery it re-confirms within
+		 * DROP_CONFIRM_THRESH samples and is reported as a new assert.
+		 */
+		ipa_rc_clear_drop_latch(ep);
+	}
 
 	IPA_BE_DBG("iface %d online\n", iface_idx);
 }
