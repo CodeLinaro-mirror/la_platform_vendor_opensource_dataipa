@@ -43,18 +43,6 @@ static bool persistent_nat_present; /* event-driven PDN0 NAT-entry presence */
 /* Last anomaly bitmask pushed to userspace; used to edge-detect. */
 static u32 prev_reported_status;
 
-/* Packet-drop bits: the only bits ipa_rc_reset_drop_pkt_stats() re-arms. */
-#define IPA_RC_DROP_PKT_BITS_MASK ( \
-	IPA_DRIVER_ETH_PKT_DROP        | \
-	IPA_DRIVER_WLAN_AP_PKT_DROP    | \
-	IPA_DRIVER_WLAN_STA_PKT_DROP   | \
-	IPA_DRIVER_ETH1_PKT_DROP       | \
-	IPA_DRIVER_WLAN2_AP_PKT_DROP   | \
-	IPA_DRIVER_WLAN2_STA_PKT_DROP  | \
-	IPA_DRIVER_WLAN3_AP_PKT_DROP   | \
-	IPA_DRIVER_WLAN3_STA_PKT_DROP  | \
-	IPA_DRIVER_MODEM_PKT_DROP)
-
 /* True once eth0/1 has been observed carrying a WAN filter rule. */
 static bool eth_wan_rule_seen, eth1_wan_rule_seen;
 /* True once the WLANx instance has been observed carrying an STA filter rule. */
@@ -504,7 +492,7 @@ void ipa_rc_reset_drop_pkt_stats(void)
 {
 	int i;
 
-	IPADBG("Resetting drop pkt stats on IPACM restart\n");
+	IPADBG("Resetting drop pkt stats on IPA_IOC_CLEANUP\n");
 
 	for (i = 0; i < MAX_RC_CLIENTS; i++) {
 		ipa3_ctx->stats.rx_excp_pkts[i][IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL] = 0;
@@ -517,10 +505,86 @@ void ipa_rc_reset_drop_pkt_stats(void)
 	memset(drop_win_idx, 0, sizeof(drop_win_idx));
 	memset(drop_prev_cnts, 0, sizeof(drop_prev_cnts));
 
-	/* Re-arm only the drop bits; keep the edge anchor for live-computed bits. */
-	prev_reported_status &= ~IPA_RC_DROP_PKT_BITS_MASK;
-
+	/*
+	 * prev_reported_status is deliberately NOT touched here. It is the edge
+	 * anchor for ipa_rc_work_handler(): leaving the drop bits set in it is
+	 * what makes the next poll compute changed != 0 and multicast a
+	 * notification with those bits in `cleared`. Blanking them instead made
+	 * the clear invisible to userspace - the anomaly stayed asserted there
+	 * forever even though persistent_drop_status was already zero.
+	 */
 	IPADBG("drop pkt stats reset done\n");
+}
+
+/*
+ * ipa_rc_clear_drop_latch() - release the packet-drop latch for one endpoint.
+ * @ep: IPA endpoint index whose rc_client latch should be released.
+ *
+ * persistent_drop_status is a one-way latch: once a drop is confirmed the bit
+ * is re-asserted on every poll without ever re-examining the sample window
+ * (see ipa_rc_query_drop_stats()). A recovery action therefore has to release
+ * it explicitly or the anomaly can never clear, and recovery can never be
+ * judged successful.
+ *
+ * Scoped to the one rc_client behind @ep so recovering one interface does not
+ * discard another interface's genuine anomaly. As in ipa_rc_reset_drop_pkt_stats(),
+ * prev_reported_status is left intact so the falling edge gets reported.
+ */
+void ipa_rc_clear_drop_latch(int ep)
+{
+	int client, dir;
+	u32 bits;
+
+	client = get_rc_client(ep);
+
+	switch (client) {
+	case WLAN:
+		bits = IPA_DRIVER_WLAN_AP_PKT_DROP | IPA_DRIVER_WLAN_STA_PKT_DROP;
+		break;
+	case WLAN2:
+		bits = IPA_DRIVER_WLAN2_AP_PKT_DROP | IPA_DRIVER_WLAN2_STA_PKT_DROP;
+		break;
+	case WLAN3:
+		bits = IPA_DRIVER_WLAN3_AP_PKT_DROP | IPA_DRIVER_WLAN3_STA_PKT_DROP;
+		break;
+	case ETH:
+		bits = IPA_DRIVER_ETH_PKT_DROP;
+		break;
+	case ETH1:
+		bits = IPA_DRIVER_ETH1_PKT_DROP;
+		break;
+	case MODEM:
+		bits = IPA_DRIVER_MODEM_PKT_DROP;
+		break;
+	default:
+		IPADBG("ep %d maps to no drop-tracked rc_client\n", ep);
+		return;
+	}
+
+	if (!(persistent_drop_status & bits)) {
+		IPADBG("ep %d (rc_client %d): drop latch already clear\n",
+			ep, client);
+		return;
+	}
+
+	/*
+	 * The live counter and its baseline must be zeroed together: clearing
+	 * only drop_prev_cnts makes the next poll compute a whole-counter delta,
+	 * score a positive sample, and re-latch after DROP_CONFIRM_THRESH polls.
+	 */
+	ipa3_ctx->stats.rx_excp_pkts[client][IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL] = 0;
+	ipa3_ctx->stats.rx_excp_pkts[client][IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL] = 0;
+
+	for (dir = 0; dir < DATA_DIR; dir++) {
+		drop_prev_cnts[client][dir] = 0;
+		drop_win_idx[client][dir] = 0;
+		memset(drop_win[client][dir], 0, sizeof(drop_win[client][dir]));
+	}
+
+	persistent_drop_status &= ~bits;
+
+	IPADBG("ep %d (rc_client %d): drop latch cleared, bits=0x%x\n",
+		ep, client, bits);
 }
 
 void ipa_rc_query_chan(enum ipa_client_type clnt, int chan, struct chan_param_monitor* chan_params)

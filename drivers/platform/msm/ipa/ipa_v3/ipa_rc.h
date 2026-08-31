@@ -376,16 +376,28 @@ void ipa_rc_genl_deinit(void);
 void ipa_rc_notify_anomaly(u32 status_code, u32 asserted, u32 cleared);
 
 /**
- * ipa_rc_reset_drop_pkt_stats() - Reset drop detection state on IPACM restart.
+ * ipa_rc_reset_drop_pkt_stats() - Reset drop detection state for every client.
  *
  * Clears all drop detection state including:
  *  - ipa3_ctx->stats.rx_excp_pkts[][EXCEPTION_DROP_UL/DL] for all clients
  *  - persistent drop latch, rolling sample window, and previous sample counters
  *
- * Must be called when IPACM restart is detected via ioctl.
- * This is the only recovery path — the drop detection algorithm does not self-heal.
+ * Called on IPA_IOC_CLEANUP, a global teardown that discards every client's
+ * state at once. The drop detection algorithm does not self-heal, so a latched
+ * anomaly is released only here or, scoped to a single endpoint, by
+ * ipa_rc_clear_drop_latch().
  */
 void ipa_rc_reset_drop_pkt_stats(void);
+
+/**
+ * ipa_rc_clear_drop_latch() - Release the packet-drop latch for one endpoint.
+ * @ep: IPA endpoint index; mapped to an rc_client via get_rc_client().
+ *
+ * Called from the interface suspend/resume path so a recovery action can
+ * actually clear a confirmed drop anomaly. A still-present fault re-confirms
+ * within DROP_CONFIRM_THRESH samples and is reported as a fresh assert.
+ */
+void ipa_rc_clear_drop_latch(int ep);
 
 /**
  * ipa_rc_set_nat_init_status() - Event-driven NAT-init anomaly latch.
