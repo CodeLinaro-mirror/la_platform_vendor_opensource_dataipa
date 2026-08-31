@@ -28,6 +28,14 @@ const char * const ipa_rc_client_names[MAX_RC_CLIENTS] = {
 /* Global context pointer */
 struct ipa_rc_wq_ctx *rc_ctx;
 static bool has_ul_dl_rule, modem_rule;
+/*
+ * Latch (per eth port) once that eth prod pipe has been observed carrying a
+ * WAN DL rule. Persists across health-monitor passes (deliberately NOT reset
+ * per pass) so that a LAN-role eth never false-trips the NAT-present/no-WAN-
+ * rule check off the cellular PDN's NAT entry. Per-port because eth0 and eth1
+ * have independent roles: both may be LAN, or one WAN and the other LAN.
+ */
+static bool eth0_wan_rule_seen, eth1_wan_rule_seen;
 
 static struct chan_param_monitor chan_info[MAX_NUM_CONS_CLIENT][2];
 
@@ -773,31 +781,38 @@ bool is_nat_present(void)
 	int result;
 	bool entry_zeroed, entry_valid;
 	char *pdn_entry;
+	bool ret = false;
 
-	if(ipa3_ctx->nat_mem.pdn_mem.base) {
-		pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
+	/* serialize with ipa3_del_nat_table() to prevent use-after-free on pdn_mem */
+	mutex_lock(&ipa3_ctx->nat_mem.dev.lock);
 
-		result = ipahal_nat_is_entry_zeroed(
-						IPAHAL_NAT_IPV4_PDN,
-						pdn_entry, &entry_zeroed);
-		if (result) {
-			IPAERR("ipahal_nat_is_entry_zeroed() fail\n");
-			goto last;
-		}
+	if (!ipa3_ctx->nat_mem.pdn_mem.base)
+		goto unlock;
 
-		if(!entry_zeroed) {
-			result = ipahal_nat_is_entry_valid(
-						IPAHAL_NAT_IPV4_PDN,
-						pdn_entry, &entry_valid);
-			if (result) {
-				IPAERR("Failed to determine whether the PDN entry is valid\n");
-				goto last;
-			}
-			return entry_valid;
-		}
+	pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
+
+	result = ipahal_nat_is_entry_zeroed(
+					IPAHAL_NAT_IPV4_PDN,
+					pdn_entry, &entry_zeroed);
+	if (result) {
+		IPAERR("ipahal_nat_is_entry_zeroed() fail\n");
+		goto unlock;
 	}
-last:
-	return false;
+
+	if (!entry_zeroed) {
+		result = ipahal_nat_is_entry_valid(
+					IPAHAL_NAT_IPV4_PDN,
+					pdn_entry, &entry_valid);
+		if (result) {
+			IPAERR("Failed to determine whether the PDN entry is valid\n");
+			goto unlock;
+		}
+		ret = entry_valid;
+	}
+
+unlock:
+	mutex_unlock(&ipa3_ctx->nat_mem.dev.lock);
+	return ret;
 }
 
 int is_wlan_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl, enum ipa_ip_type ip)
@@ -876,13 +891,29 @@ void ipa_rc_detect_flt_order(struct ipa_rc_health_monitor *ipa_state_info, enum 
 			else if(is_eth_prod_pipe(client)) {
 				int has_wan_rule = 0;
 				res = is_flt_rule_ordered(i, tbl, ip, NULL, &has_wan_rule);
-				if(res < 0 || (!has_wan_rule && is_nat_present()))
+				if(has_wan_rule)
+					eth0_wan_rule_seen = true;
+				/* eth0 may be provisioned as a LAN port (no WAN rule ever
+				 * expected) rather than the WAN backhaul. Only apply the
+				 * NAT-present/no-WAN-rule check once eth0 has actually been
+				 * seen carrying a WAN rule, so a LAN-role eth0 never
+				 * false-trips off the cellular PDN's NAT entry.
+				 */
+				if(res < 0 || (eth0_wan_rule_seen && !has_wan_rule && is_nat_present()))
 					status |= IPA_ETH_FILTER_RULE_INCORRECT;
 			}
 			else if(is_eth1_prod_pipe(client)) {
 				int has_wan_rule = 0;
 				res = is_flt_rule_ordered(i, tbl, ip, NULL, &has_wan_rule);
-				if(res < 0 || (!has_wan_rule && is_nat_present()))
+				if(has_wan_rule)
+					eth1_wan_rule_seen = true;
+				/* eth1 may be provisioned as a LAN port (no WAN rule ever
+				 * expected) rather than the WAN backhaul. Only apply the
+				 * NAT-present/no-WAN-rule check once eth1 has actually been
+				 * seen carrying a WAN rule, so a LAN-role eth1 never
+				 * false-trips off the cellular PDN's NAT entry.
+				 */
+				if(res < 0 || (eth1_wan_rule_seen && !has_wan_rule && is_nat_present()))
 					status |= IPA_ETH1_FILTER_RULE_INCORRECT;
 			}
 

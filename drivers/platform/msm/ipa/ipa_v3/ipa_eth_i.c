@@ -20,6 +20,7 @@
 #define AQC_WRB_MODC_FACTOR (10)
 
 #define IPA_ETH_NTN_MODT (32)
+#define IPA_ETH_QOS_MODT (3) /* ~94 us at 32 KHz GSI clock - QoS Tx low-latency path */
 #define IPA_ETH_NTN_MODC (128)
 
 #define NTN_BUFFER_SIZE 2048 /* 2K */
@@ -926,7 +927,6 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	int result, len;
 	u64 bar_addr;
 	unsigned long iova;
-	enum ipa_eth_pipe_traffic_type traffic_type = 0;
 
 	if (unlikely(!pipe->info.is_transfer_ring_valid)) {
 		IPAERR("NTN transfer ring invalid\n");
@@ -948,7 +948,17 @@ static int ipa_eth_setup_ntn_gsi_channel(
 	gsi_evt_ring_props.intf = GSI_EVT_CHTYPE_NTN_EV;
 	gsi_evt_ring_props.re_size = GSI_EVT_RING_RE_SIZE_16B;
 	gsi_evt_ring_props.intr = GSI_INTR_MSI;
+#if IPA_ETH_API_VER >= 3
+	enum ipa_eth_pipe_traffic_type traffic_type = pipe->traffic_type;
+	/* Reduce MODT for QoS Tx channels to improve interrupt latency. */
+	gsi_evt_ring_props.int_modt =
+		((traffic_type == IPA_ETH_PIPE_TRAFFIC_TYPE_QOS ||
+		  ep->client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS) &&
+		 pipe->dir == IPA_ETH_PIPE_DIR_TX)
+			? IPA_ETH_QOS_MODT : IPA_ETH_NTN_MODT;
+#else
 	gsi_evt_ring_props.int_modt = IPA_ETH_NTN_MODT;
+#endif
 	/* len / RE_SIZE == len in counts (convert from bytes) */
 	len = pipe->info.transfer_ring_size;
 	gsi_evt_ring_props.int_modc = len * IPA_ETH_AQC_MODC_FACTOR /
@@ -960,9 +970,6 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		bar_addr +
 		pipe->info.client_info.ntn.tail_ptr_offs;
 
-#if IPA_ETH_API_VER >= 3
-	traffic_type = pipe->traffic_type;
-#endif
 	if (pipe->client_info->client_type == IPA_ETH_CLIENT_IEMAC) {
 		result = ipa_iemac_smmu_cb_add_mapping_pa(IPA_SMMU_CB_AP,
 			gsi_evt_ring_props.msi_addr, 8, true, &iova, pipe->client_info->inst_id, pipe->dir, pipe_idx);
