@@ -176,17 +176,19 @@ static void ipa_del_flt_rule_by_entry(struct ipa3_flt_entry *entry)
 	}
 }
 
-static void ipa_test_pkt_drop(bool is_ul)
+static void ipa_test_pkt_drop_ip(bool is_ul, enum ipa_ip_type ip)
 {
 	struct ipa3_rt_tbl *tbl = NULL, *tbl_tmp = NULL;
 	struct ipa3_rt_entry *entry, *tmp;
 	struct ipa3_rt_tbl_set *set = NULL;
+	const char *wan_tbl = (ip == IPA_IP_v6) ? "WANRTBLv6" : "WANRTBLv4";
+	const char *lan_tbl = (ip == IPA_IP_v6) ? "COMRTBLv6" : "COMRTBLLANv4";
 
-	set = &ipa3_ctx->rt_tbl_set[IPA_IP_v4];
+	set = &ipa3_ctx->rt_tbl_set[ip];
 
 	mutex_lock(&ipa3_ctx->lock);
 	if(list_empty(&set->head_rt_tbl_list)) {
-		IPAERR("Rt table list is empty\n");
+		IPAERR("Rt table list is empty for ip=%d\n", ip);
 		mutex_unlock(&ipa3_ctx->lock);
 		return;
 	}
@@ -196,22 +198,30 @@ static void ipa_test_pkt_drop(bool is_ul)
 			continue;
 
 		list_for_each_entry_safe(entry, tmp, &tbl->head_rt_rule_list, link) {
-			if(is_ul && strcmp(entry->tbl->name, "WANRTBLv4") == 0) {
+			if(is_ul && strcmp(entry->tbl->name, wan_tbl) == 0) {
 				ipa_del_rt_rule_by_entry(entry);
 			}
 			else if(!is_ul) {
-				if(strcmp(entry->tbl->name, "COMRTBLLANv4") == 0
+				if(strcmp(entry->tbl->name, lan_tbl) == 0
 					&& entry->rule.dst != IPA_CLIENT_APPS_LAN_CONS)
 					ipa_del_rt_rule_by_entry(entry);
 			}
 			else
 				continue;
 
-			if (ipa3_ctx->ctrl->ipa3_commit_rt(IPA_IP_v4))
-				IPAERR("failed to commit RT tbl\n");
+			if (ipa3_ctx->ctrl->ipa3_commit_rt(ip))
+				IPAERR("failed to commit RT tbl for ip=%d\n", ip);
 		}
 	}
 	mutex_unlock(&ipa3_ctx->lock);
+	return;
+}
+
+static void ipa_test_pkt_drop(bool is_ul)
+{
+	/* Induce on both IPv4 and IPv6 WAN/LAN route tables. */
+	ipa_test_pkt_drop_ip(is_ul, IPA_IP_v4);
+	ipa_test_pkt_drop_ip(is_ul, IPA_IP_v6);
 	return;
 }
 

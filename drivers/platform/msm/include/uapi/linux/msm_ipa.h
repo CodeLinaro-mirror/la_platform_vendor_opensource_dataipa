@@ -794,6 +794,23 @@ enum ipa_client_type {
 	(client) == IPA_CLIENT_Q6_CV2X_DECIPHER_CONS || \
 	(client) == IPA_CLIENT_Q6_RQOS_WA_CONS)
 
+/*
+ * Q6 consumers excluding the NLO/QBAP pipes. The NLO consumer rings
+ * cannot be stall-detected via RP/WP, so the IPA RC no-buff check uses
+ * this subset instead of IPA_CLIENT_IS_Q6_CONS.
+ */
+#define IPA_CLIENT_IS_Q6_NON_NLO_CONS(client) \
+	((client) == IPA_CLIENT_Q6_LAN_CONS || \
+	(client) == IPA_CLIENT_Q6_WAN_CONS || \
+	(client) == IPA_CLIENT_Q6_DUN_CONS || \
+	(client) == IPA_CLIENT_Q6_DECOMP_CONS || \
+	(client) == IPA_CLIENT_Q6_DECOMP2_CONS || \
+	(client) == IPA_CLIENT_Q6_LTE_WIFI_AGGR_CONS || \
+	(client) == IPA_CLIENT_Q6_CV2X_CONS || \
+	(client) == IPA_CLIENT_Q6_AUDIO_DMA_MHI_CONS || \
+	(client) == IPA_CLIENT_Q6_CV2X_DECIPHER_CONS || \
+	(client) == IPA_CLIENT_Q6_RQOS_WA_CONS)
+
 #define IPA_CLIENT_IS_Q6_PROD(client) \
 	((client) == IPA_CLIENT_Q6_LAN_PROD || \
 	(client) == IPA_CLIENT_Q6_WAN_PROD || \
