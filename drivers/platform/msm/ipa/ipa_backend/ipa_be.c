@@ -2375,10 +2375,10 @@ failed_ret:
 				/* fallthrough */
 			case L2L_STEP_FLOW_ROUTE:
 				if (flow_route_added)
-					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v4_msg.tuple.flow_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(flow_ip_key, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
 				/* fallthrough */
 			case L2L_STEP_FLOW_MAPPING:
-				ipa_be_mapping_deref_and_delete((uint32_t *)&v4_msg.tuple.flow_ip, lan2lan, NULL);
+				ipa_be_mapping_deref_and_delete(flow_ip_key, lan2lan, NULL);
 				/* fallthrough */
 			case L2L_STEP_RET_FILTER:
 				if (ret_filter_added)
@@ -2386,10 +2386,10 @@ failed_ret:
 				/* fallthrough */
 			case L2L_STEP_RET_ROUTE:
 				if (ret_route_added)
-					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping((uint32_t *)&v4_msg.tuple.return_ip, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
+					ipa_delete_route_rule(lan2lan, ipa_get_rt_hdl_from_mapping(ret_ip_key, lan2lan, NULL, NULL, NULL), IPA_IP_v4);
 				/* fallthrough */
 			case L2L_STEP_RET_MAPPING:
-				ipa_be_mapping_deref_and_delete((uint32_t *)&v4_msg.tuple.return_ip, lan2lan, NULL);
+				ipa_be_mapping_deref_and_delete(ret_ip_key, lan2lan, NULL);
 		}
 	} else if (backhaul_type == IPA_BACKHAUL_TYPE_ETH) {
 		switch (step) {
