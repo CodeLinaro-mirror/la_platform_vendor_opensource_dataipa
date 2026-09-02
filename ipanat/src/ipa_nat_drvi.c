@@ -1788,7 +1788,7 @@ int ipa_nati_get_pdn_index(
 		}
 	}
 
-	IPAERR("ip 0x%X does not match any PDN\n", public_ip);
+	IPADBG("ip 0x%X does not match any PDN\n", public_ip);
 
 	return -EIO;
 }

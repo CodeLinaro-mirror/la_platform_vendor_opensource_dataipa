@@ -758,11 +758,6 @@ static enum ipa_client_type
 	traffic_type = client->traffic_type;
 #endif
 
-	IPA_ETH_DBG("pipe %p traffic_type %d dir %d, client_type %d,"
-				"rx idx %d tx idx %d\n",
-				pipe, traffic_type, pipe->dir, client->client_type,
-				rx_pipe_idx, tx_pipe_idx);
-
 	switch (client->client_type) {
 	case IPA_ETH_CLIENT_AQC107:
 	case IPA_ETH_CLIENT_AQC113:
@@ -2673,7 +2668,7 @@ int ipa_eth_get_config_type(
 #if IPA_ETH_API_VER >= 8
 	eth_config->offload_supported    = ipa3_is_ulso_supported();
 	eth_config->offload_max_pkts     = IPA_ETH_OFFLOAD_MAX_PKTS;
-	eth_config->offload_headroom     = sizeof(struct qmap_hdr);
+	eth_config->offload_headroom     = sizeof(struct qmap_hdr) + VLAN_HLEN;
 	eth_config->offload_features     = ipa3_is_ulso_supported() ?
 		(NETIF_F_RXCSUM | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
 		 NETIF_F_SG | NETIF_F_GRO_HW |
@@ -2872,14 +2867,7 @@ static u8 ipa_eth_ulso_get_tx_pipe_idx(
 	return 0;
 }
 
-/*
- * These deltas account for the minimum fixed IP + transport header
- * overhead subtracted from MTU to derive the TCP/UDP MSS placed in
- * skb_shinfo()->gso_size.  The IPA driver uses a non-zero gso_size
- * to recognise a packet as GSO and select the pkt_init_ex_imm path.
- * IPv4: 20-byte IP hdr + 20-byte TCP hdr = 40 bytes
- * IPv6: 40-byte IP hdr + 20-byte TCP hdr = 60 bytes
- */
+/* IP + transport header bytes subtracted from MTU to get gso_size (MSS). */
 #define ETH_ULSO_IPV4_DELTA	40	/* IPv4 hdr + TCP hdr */
 #define ETH_ULSO_IPV6_DELTA	60	/* IPv6 hdr + TCP hdr */
 #define ETH_ULSO_IPV4_UDP_DELTA	28	/* IPv4 hdr + UDP hdr */
@@ -2889,6 +2877,39 @@ static u8 ipa_eth_ulso_get_tx_pipe_idx(
 #define ETH_IPV4_IS_UDP(iph)	((iph)->protocol == IPPROTO_UDP)
 #define ETH_IPV6_IS_TCP(iph)	(((struct ipv6hdr *)(iph))->nexthdr == IPPROTO_TCP)
 #define ETH_IPV6_IS_UDP(iph)	(((struct ipv6hdr *)(iph))->nexthdr == IPPROTO_UDP)
+
+/* Largest L2 header this path recognises: DA/SA/type plus two 802.1Q tags. */
+#define ETH_ULSO_L2_HLEN_MAX	(VLAN_ETH_HLEN + VLAN_HLEN)
+
+/*
+ * ipa_eth_ulso_parse_l2() - Report L2 header length and innermost L3
+ * ethertype, walking any VLAN tags directly (vlan_get_protocol() relies on
+ * skb->mac_len, not maintained on this TX path). Returns false if the frame
+ * is malformed or has more tags than QMAP can describe.
+ */
+static bool ipa_eth_ulso_parse_l2(const struct sk_buff *skb, u16 *l2_hlen,
+				  __be16 *l3_proto)
+{
+	u16 off = ETH_HLEN - ETH_TLEN;	/* offset of the ethertype field: 12 */
+	__be16 proto;
+
+	if (unlikely(skb_headlen(skb) < ETH_HLEN))
+		return false;
+
+	proto = *(const __be16 *)(skb->data + off);
+
+	while (eth_type_vlan(proto)) {
+		off += VLAN_HLEN;
+		if (unlikely(off + ETH_TLEN > ETH_ULSO_L2_HLEN_MAX ||
+			     skb_headlen(skb) < off + ETH_TLEN))
+			return false;
+		proto = *(const __be16 *)(skb->data + off);
+	}
+
+	*l2_hlen = off + ETH_TLEN;
+	*l3_proto = proto;
+	return true;
+}
 
 /**
  * ipa_eth_offload_tx_dp() - Transmit an skb over the ETH offload SW TX path
@@ -2904,6 +2925,12 @@ static u8 ipa_eth_ulso_get_tx_pipe_idx(
  * segmentation and checksum computation.  Non-TCP/UDP packets are forwarded
  * without QMAP encapsulation.
  *
+ * VLAN-tagged frames are offloaded like untagged ones.  A tag carried out of
+ * band in skb->vlan_tci is first pushed into the frame, the innermost L3
+ * protocol is resolved behind any tags, and the QMAP length and
+ * additional_hdr_size fields are computed from the real L2 header length
+ * (14 untagged, 18 single-tagged, 22 double-tagged).
+ *
  * The TX pipe (IPA->ETH consumer endpoint) is resolved from
  * pipe->client_info->client_type so the correct pipe is chosen for
  * multi-instance deployments.
@@ -2917,6 +2944,10 @@ static u8 ipa_eth_ulso_get_tx_pipe_idx(
  *          -EPERM   if the ETH client is not yet registered or the TX pipe is
  *                   not yet connected
  *          -EPIPE   if the source endpoint is not valid at ipa_tx_dp() time
+ *          -ENOMEM  failed to unshare a cloned skb, or failed to push an
+ *                   out-of-band VLAN tag into the frame. The skb has
+ *                   already been freed; the caller must not free or
+ *                   otherwise touch it.
  *          -ENOSPC  translated from an -EFAULT out of ipa_tx_dp(). The
  *                   downstream stack collapses several distinct conditions
  *                   into this one code: the GSI ring being full (dominant
@@ -2924,7 +2955,8 @@ static u8 ipa_eth_ulso_get_tx_pipe_idx(
  *                   -> ipa3_send -EFAULT -> ipa_tx_dp -EFAULT), pipe
  *                   disconnect-in-progress, tx_pkt wrapper OOM, DMA mapping
  *                   failure, missing GSI EP config, or descriptor-count
- *                   overflow. Caller should treat this as back-pressure:
+ *                   overflow. skb is not freed and is handed back unmodified
+ *                   for retry. Caller should treat this as back-pressure:
  *                   stop the TX queue and restart it from the TX-complete
  *                   notify callback.
  */
@@ -2934,8 +2966,11 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 	enum ipa_client_type tx_client;
 	struct qmap_hdr qmap_hdr;
 	struct iphdr *iph;
-	u16 mtu = skb->dev->mtu;
+	__be16 l3_proto;
+	u16 l2_hlen;
+	u16 mtu;
 	u16 skb_len;
+	u16 orig_gso_size;
 	u16 ip_dgram_len = 0;
 	int ret;
 
@@ -2952,10 +2987,23 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 		return -EINVAL;
 	}
 
+	/*
+	 * skb may be a bridge-flood clone sharing skb_shinfo() with sibling
+	 * clones; unshare before writing gso_size/QMAP below. No-op if
+	 * already exclusive.
+	 */
+	if (skb_cow_head(skb, 0)) {
+		IPA_ETH_ERR("failed to unshare skb\n");
+		dev_kfree_skb_any(skb);
+		return -ENOMEM;
+	}
+
 	if (!ipa_eth_ctx) {
 		IPA_ETH_ERR("ULSO TX called before ETH client registered\n");
 		return -EPERM;
 	}
+
+	mtu = skb->dev->mtu;
 
 	tx_client = ipa_eth_get_ipa_client_type_from_pipe(
 		pipe, 0, ipa_eth_ulso_get_tx_pipe_idx(pipe));
@@ -2968,25 +3016,38 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 	}
 
 	/*
-	 * IPA PM is voted active for the whole offload session at connect
-	 * (ipa_pm_activate_sync) and released at disconnect
-	 * (ipa_pm_deactivate_sync). Per-packet ipa_pm_activate() /
-	 * ipa_pm_deferred_deactivate() in this hot path is therefore
-	 * unnecessary and only adds per-packet overhead, so it is removed.
+	 * A hardware-accelerated tag lives in vlan_tci, not the frame bytes;
+	 * IPA only DMAs the frame, so serialize it in before anything else.
+	 */
+	if (unlikely(skb_vlan_tag_present(skb))) {
+		skb = __vlan_hwaccel_push_inside(skb);
+		if (!skb) {
+			IPA_ETH_ERR("failed to push vlan tag inside frame\n");
+			return -ENOMEM;
+		}
+	}
+
+	l2_hlen = ETH_HLEN;
+	l3_proto = 0;
+	if (!ipa_eth_ulso_parse_l2(skb, &l2_hlen, &l3_proto))
+		IPA_ETH_DBG("unparsable L2 header, forwarding without offload\n");
+
+	/* IPA PM is voted for the whole session at connect/disconnect; no
+	 * per-packet vote needed here.
 	 */
 	skb_len = skb->len;
+	orig_gso_size = skb_shinfo(skb)->gso_size;
 
 	if (ipa3_is_ulso_supported()) {
 		bool is_frag = false;
 
 		/*
-		 * Build a per-call QMAP ULSO template on the stack. segment_size
-		 * is the HW segmentation size = the L4 payload per segment; it
-		 * excludes the IP and transport (TCP/UDP) header sizes and is set
-		 * per-protocol below. gso_size is set to the same value so
-		 * ipa_tx_dp() recognises this as a GSO packet regardless of the
-		 * original packet size (needed for HW checksum offload on small
-		 * frames where the kernel skips SW csum computation).
+		 * segment_size/gso_size = L4 payload per HW segment (excludes
+		 * IP/transport headers), set per-protocol below. gso_size also
+		 * forces ipa_tx_dp() onto the GSO path for HW checksum offload
+		 * even on small frames. additional_hdr_size is the delta over
+		 * a plain Ethernet header to reach the IP header (0/4/8),
+		 * matching ecm_ipa/rndis_ipa convention.
 		 */
 		memset(&qmap_hdr, 0, sizeof(qmap_hdr));
 		qmap_hdr.next_hdr      = 1;    /* extension header present */
@@ -2995,8 +3056,14 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 		qmap_hdr.hdr_type      = 0x3;  /* ULSO extension header type */
 		qmap_hdr.zero_checksum = 0;    /* IPA computes checksum */
 		qmap_hdr.ip_id_cfg     = 0;    /* running IP ID per segment */
+		qmap_hdr.additional_hdr_size = l2_hlen - ETH_HLEN;
 
-		if (ntohs(skb->protocol) == ETH_P_IP) {
+		/*
+		 * skb->protocol is ETH_P_8021Q for tagged frames; dispatch on
+		 * the resolved innermost proto instead. ip_hdr()/ipv6_hdr()
+		 * need no adjustment either way.
+		 */
+		if (l3_proto == htons(ETH_P_IP)) {
 			iph = ip_hdr(skb);
 			is_frag = ip_is_fragment(iph);
 			if (!is_frag &&
@@ -3010,7 +3077,7 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 				skb = qmap_encapsulate_skb(skb, &qmap_hdr);
 				skb_shinfo(skb)->gso_size = mtu - delta;
 			}
-		} else if (ntohs(skb->protocol) == ETH_P_IPV6) {
+		} else if (l3_proto == htons(ETH_P_IPV6)) {
 			unsigned int frag_off = 0;
 
 			iph = ip_hdr(skb);
@@ -3031,12 +3098,10 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 		}
 
 		/*
-		 * IP-fragmented packets cannot be processed by the HW ULSO block
-		 * (HW exceptions them), so they are left unencapsulated above and
-		 * egress the plain, non-GSO path. HW checksum offload only runs on
-		 * the ULSO path, so realize the L4 checksum in SW here; otherwise
-		 * the fragment would egress with an unresolved CHECKSUM_PARTIAL
-		 * checksum.
+		 * HW ULSO can't process IP fragments, so they stay
+		 * unencapsulated on the plain, non-GSO path; realize the L4
+		 * checksum in SW since HW checksum offload only runs on the
+		 * ULSO path.
 		 */
 		if (is_frag && skb->ip_summed == CHECKSUM_PARTIAL &&
 		    skb_checksum_help(skb))
@@ -3044,28 +3109,21 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 	}
 
 	/*
-	 * Clear any stale or unset gso_size so ipa_tx_dp() does not
-	 * misidentify this packet as GSO.  Covers three cases:
-	 *   - !ipa3_is_ulso_supported(): ULSO HW absent; forward as-is.
-	 *   - ULSO supported but non-TCP/UDP: no encapsulation attempted.
-	 *   - ULSO supported, TCP/UDP, OOM in qmap_encapsulate_skb: the
-	 *     original skb was returned unchanged (skb->len == skb_len).
-	 * When encapsulation succeeded, skb->len grew by sizeof(qmap_hdr)
-	 * so the guard does not fire and gso_size retains the set MSS.
+	 * skb->len unchanged means qmap_encapsulate_skb() did not run
+	 * (ULSO unsupported, non-TCP/UDP, or OOM); clear gso_size so
+	 * ipa_tx_dp() does not misidentify the packet as GSO.
 	 */
 	if (skb_len == skb->len) {
 		skb_shinfo(skb)->gso_size = 0;
 	} else {
 		/*
-		 * qmap_encapsulate_skb() set packet_len_with_pad = skb->len,
-		 * which includes the 8B QMAP and the Ethernet header. The QMAP
-		 * ULSO length field must be the L2 payload only (skb->len minus
-		 * QMAP and Ethernet header), and the QMAP pad field must report
-		 * any trailing Ethernet padding (frame payload beyond the IP
-		 * datagram) so HW does not treat the pad as packet data.
+		 * The QMAP length field is the L2 payload only (skb->len
+		 * minus QMAP and the L2 header); pad reports trailing
+		 * Ethernet padding beyond the IP datagram so HW doesn't
+		 * treat it as packet data.
 		 */
 		struct qmap_hdr *qh_ptr = (struct qmap_hdr *)skb->data;
-		u16 l2pay = skb->len - (u16)sizeof(struct qmap_hdr) - ETH_HLEN;
+		u16 l2pay = skb->len - (u16)sizeof(struct qmap_hdr) - l2_hlen;
 
 		qh_ptr->packet_len_with_pad = htons(l2pay);
 		if (ip_dgram_len && l2pay > ip_dgram_len)
@@ -3075,17 +3133,17 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 	ret = ipa_tx_dp(tx_client, skb, NULL);
 	if (ret) {
 		/*
-		 * ipa_tx_dp() returns -EFAULT when ipa3_send() fails, which
-		 * itself returns -EFAULT when gsi_queue_xfer() returns
-		 * -GSI_STATUS_RING_INSUFFICIENT_SPACE.  The GSI ring running
-		 * out of descriptors is the dominant TX failure in the hot
-		 * path; map it to -ENOSPC so the vendor driver can distinguish
-		 * "descriptor ring full — stop TX queue" from hard errors and
-		 * act accordingly (call netif_stop_queue(), then restart it
-		 * from the TX-complete notify callback).
+		 * skb is handed back unmodified on -ENOSPC for retry, so undo
+		 * the QMAP push (if any) and restore gso_size -- otherwise a
+		 * retried skb re-enters xmit with gso_size set but gso_type
+		 * still 0, tripping gso_features_check()'s WARN.
 		 */
-		if (ret == -EFAULT)
+		if (ret == -EFAULT) {
 			ret = -ENOSPC;
+			if (skb->len != skb_len)
+				skb_pull(skb, sizeof(struct qmap_hdr));
+			skb_shinfo(skb)->gso_size = orig_gso_size;
+		}
 		IPA_ETH_ERR("ipa_tx_dp failed for client %d: %d\n",
 			    pipe->client_info->client_type, ret);
 		IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_eth_tx_fail_pkts);

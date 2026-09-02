@@ -110,7 +110,8 @@ struct ipa_eth_config {
 				  * Use as high watermark for TX queue stop.
 				  * Suggested low watermark: offload_max_pkts / 2 */
 	u32  offload_headroom;   /* bytes to reserve via dev->needed_headroom
-				  * for the QMAP extension header.
+				  * for the QMAP extension header, plus room to
+				  * push an out-of-band VLAN tag into the frame.
 				  * Valid only when offload_supported is true.  */
 	/**
 	 * offload_features: netdev HW feature flags to enable on the net_device
@@ -422,10 +423,17 @@ int ipa_eth_client_disable_pipes(struct ipa_eth_client *client);
  * packet into the IPA->ETH TX pipe bound to the pipe's client. Non-offloaded
  * traffic (offload unsupported, or non-TCP/UDP) is forwarded as-is.
  *
+ * VLAN-tagged frames are offloaded like untagged ones, whether the tag is
+ * inline in the frame or carried out of band in skb->vlan_tci (an out-of-band
+ * tag is pushed into the frame first, since IPA only sees the frame bytes).
+ *
  * Returns: 0        on success (skb ownership transferred to IPA)
  *          -EINVAL  invalid pipe or skb, or the packet was rejected
  *          -EPERM   ETH client not registered, or TX pipe not connected
  *          -EPIPE   TX endpoint is not in a valid state
+ *          -ENOMEM  failed to unshare a cloned skb, or failed to push an
+ *                   out-of-band VLAN tag into the frame; the skb has
+ *                   already been freed, do not touch it
  *          -ENOSPC  transient back-pressure; caller must stop the TX queue
  *                   and restart it from the TX-complete notify callback
  */
