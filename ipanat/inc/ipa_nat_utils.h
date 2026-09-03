@@ -55,7 +55,7 @@
 #endif
 
 #define MAX_DMA_ENTRIES_FOR_ADD 4
-#define MAX_DMA_ENTRIES_FOR_DEL 3
+#define MAX_DMA_ENTRIES_FOR_DEL 4
 
 #if !defined(MSM_IPA_TESTS) && !defined(FEATURE_IPA_ANDROID)
 #ifdef USE_GLIB
