@@ -3298,6 +3298,9 @@ struct ipa3_plat_drv_res {
 	u64 disable_flow_control_mask;
 };
 
+/* Accessor for the driver's parsed ipa3_plat_drv_res (e.g. for debugfs). */
+struct ipa3_plat_drv_res *ipa3_get_plat_drv_res(void);
+
 /**
  * struct ipa3_mem_partition - represents IPA RAM Map as read from DTS
  * Order and type of members should not be changed without a suitable change

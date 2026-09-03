@@ -76,5 +76,9 @@ static char ipa_ini_param[IPA_PARAM_MAX][IPA_PARAM_STR_LENGTH] = {
 		"disable_flow_control_mask",
 	};
 
+/* Parses the INI firmware file into @ipa_drv_res; missing/invalid fields fall back to defaults. */
 int ipa_init_params_from_ini(struct device *device,
 				struct ipa3_plat_drv_res *ipa_drv_res);
+
+/* Resets every INI-controlled field in @drv_res to its documented default. */
+void ipa_ini_set_all_defaults(struct ipa3_plat_drv_res *drv_res);

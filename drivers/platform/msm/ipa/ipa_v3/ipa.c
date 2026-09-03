@@ -225,6 +225,12 @@ ssize_t ipa3_update_config(const char *buff);
 
 static struct ipa3_plat_drv_res ipa3_res = {0, };
 
+/* Accessor for ipa3_res, since it's static to this file (e.g. used by debugfs). */
+struct ipa3_plat_drv_res *ipa3_get_plat_drv_res(void)
+{
+	return &ipa3_res;
+}
+
 static struct clk *ipa3_clk;
 
 struct ipa3_context *ipa3_ctx = NULL;
@@ -15926,28 +15932,6 @@ static void ipa_ini_read_params_work(struct work_struct *work)
 	}
 }
 
-/* Set default values for IPA INI file fields, ignore dtsi fields */
-void ipa3_set_ini_fields_default(struct ipa3_plat_drv_res *ipa_drv_res)
-{
-	ipa_drv_res->use_vlan_eth_emac_config = 0;
-	ipa_drv_res->use_vlan_eth0_config = 0;
-	ipa_drv_res->use_vlan_eth1_config = 0;
-	ipa_drv_res->use_vlan_rndis_config = 0;
-	ipa_drv_res->use_vlan_ecm_config = 0;
-	ipa_drv_res->use_vlan_mhi_eth_config = 0;
-	ipa_drv_res->use_mhi_config = 0;
-	ipa_drv_res->use_mhi_eth_config = 0;
-	ipa_drv_res->use_rdkb_config = 0;
-	ipa_drv_res->use_tsn_config = 0;
-	ipa_drv_res->use_ezmesh_config = 0;
-	ipa_drv_res->use_eth_qos_config = 0;
-	ipa_drv_res->use_ipsec_config = 0;
-	ipa_drv_res->use_ipv6_nat_config = 0;
-	ipa_drv_res->max_ipv4_stats_accel_conn = 1024;
-	ipa_drv_res->max_ipv6_stats_accel_conn = 1024;
-	ipa_drv_res->ipa_disable_per_flow_stats = 0;
-	ipa_drv_res->disable_flow_control_mask = 0;
-}
 #endif
 
 int ipa3_plat_drv_probe(struct platform_device *pdev_p)
@@ -16004,9 +15988,6 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 
 	IPADBG("IPA driver probing started\n");
 	IPADBG("dev->of_node->name = %s\n", dev->of_node->name);
-#ifdef CONFIG_ECM_CONVERGENCE
-	ipa3_set_ini_fields_default(&ipa3_res);
-#endif
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-v2x-cb")) {
 		if (ipa3_ctx == NULL) {
 			IPAERR("ipa3_ctx was not initialized\n");
@@ -16147,6 +16128,14 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		return result;
 	}
 
+	/*
+	 * Only the main "qcom,ipa" node reaches this point. Reset here, not at
+	 * the top of this function, or every sub-node probe call would wipe
+	 * the already-parsed INI values (ipa3_res is shared).
+	 */
+#ifdef CONFIG_ECM_CONVERGENCE
+	ipa_ini_set_all_defaults(&ipa3_res);
+#endif
 	result = get_ipa_dts_configuration(pdev_p, &ipa3_res);
 	if (result) {
 		IPAERR("IPA dts parsing failed\n");
