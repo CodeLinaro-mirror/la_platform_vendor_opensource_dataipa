@@ -360,9 +360,12 @@ int ipa3_set_intf_tx_tc_bitmap(const char *name,
 /**
  * ipa3_qos_retime_be_pipes() - retime one interface's BE pipe HOLB discard
  * @dev_name: interface the QoS rule applies to; only its BE TX pipes are
- *            touched, not unrelated interfaces'.
+ *            touched, not unrelated interfaces' and not its QoS pipes.
  * @active: true tightens HOLB to 500us (qos_holb_tmr[]/qos_holb_tmr_auto[]);
  *          false restores the IPA_HOLB_TMR_VAL_4_5 (31ms) default.
+ *
+ * BE is the only pipe retimed after setup; QoS pipes are configured once and
+ * left alone, so a TC can be remapped between them at any time.
  *
  * Note: takes ipa3_ctx->lock; must not be called holding msg_qos_param_lock.
  */
@@ -388,8 +391,10 @@ void ipa3_qos_retime_be_pipes(const char *dev_name, bool active)
 		for (i = 0; i < entry->num_tx_props; i++) {
 			int ep_idx;
 
-			/* Only BE pipes (no TC bits set). */
-			if (entry->tx[i].tc_bmap != 0)
+			/* BE consumer only. tc_bmap == 0 also matches a QoS pipe
+			 * with no TC bound yet, and tightening that would stick.
+			 */
+			if (IPA_CLIENT_IS_ETHERNET_QOS_CONS(entry->tx[i].dst_pipe))
 				continue;
 
 			ep_idx = ipa_get_ep_mapping(entry->tx[i].dst_pipe);
@@ -407,13 +412,9 @@ void ipa3_qos_retime_be_pipes(const char *dev_name, bool active)
 			memset(&holb_cfg, 0, sizeof(holb_cfg));
 			holb_cfg.en = IPA_HOLB_TMR_EN;
 			if (active) {
-				/* Highest-priority entry, same array as QoS TC pipes. */
-				if (ipa3_ctx->ipa_config_is_auto)
-					holb_cfg.tmr_val =
-						qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO - 1];
-				else
-					holb_cfg.tmr_val =
-						qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE - 1];
+				/* BE ranks last, so it takes the tightest entry. */
+				holb_cfg.tmr_val = ipa3_eth_qos_holb_tmr_uS(
+					IPA_ETH_MAX_TX_DMA_CHANNEL_QOS - 1);
 				ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
 				IPADBG("BE pipe %s tx[%u] ep %d HOLB -> %u us (QoS active)\n",
 				       entry->name, i, ep_idx, holb_cfg.tmr_val);

@@ -117,10 +117,9 @@
 #define IPA_HOLB_TMR_EN 0x1
 #define IPA_HOLB_TMR_VAL_4_5 31
 
-/* Reused by the QoS BE-pipe HOLB retime (ipa3_qos_retime_be_pipes()); defined
- * in ipa_eth_i.c. Index [last] = 500us, the highest-priority QoS pipe timeout. */
-extern u32 qos_holb_tmr[];
-extern u32 qos_holb_tmr_auto[];
+/* HOLB discard window for an ETH QoS TX pipe, by relative priority. Tables are
+ * private to ipa_eth_i.c; this is the only accessor. */
+u32 ipa3_eth_qos_holb_tmr_uS(u8 priority);
 
 /*
  * + 1: shared slot for ICMP/IPsec-encap traffic that never carries a

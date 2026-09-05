@@ -119,10 +119,21 @@ static enum ipa_client_type
 	u8 rx_pipe_idx,
 	u8 tx_pipe_idx);
 
-static int eth_qos_cmp(const void *a, const void *b) {
-	if (((struct ipa_eth_qos_info *)a)->tc_bmap <= ((struct ipa_eth_qos_info *)b)->tc_bmap)
+/* Rank by tc_bmap descending, tc_bmap == 0 last. The old version never
+ * returned negative, so sort() couldn't order by tc_bmap at all.
+ */
+static int eth_qos_cmp(const void *a, const void *b)
+{
+	u32 ta = ((const struct ipa_eth_qos_info *)a)->tc_bmap;
+	u32 tb = ((const struct ipa_eth_qos_info *)b)->tc_bmap;
+
+	if (ta == tb)
+		return 0;
+	if (!ta)
 		return 1;
-	return 0;
+	if (!tb)
+		return -1;
+	return (ta > tb) ? -1 : 1;
 }
 
 static void eth_qos_swap(void *a, void *b, int size) {

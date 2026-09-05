@@ -83,9 +83,33 @@ enum ipa_eth_dir {
 	IPA_ETH_TX = 1,
 };
 
-/* HOLB timeout values for QOS. */
-u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE] = {31000, 500};
-u32 qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO] = {31000, 20000, 500, 500, 500};
+/* HOLB timeouts in us, indexed by relative priority: [0] loosest, [last]
+ * tightest. Sized for the v7 CPE TX layout (1 BE + 2 QoS); pre-7.0 uses the
+ * first two entries. Reach only through ipa3_eth_qos_holb_tmr_uS().
+ */
+static u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7] = {31000, 500, 500};
+static u32 qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO] = {31000, 20000, 500, 500, 500};
+
+/* Picks the right table and bound for the current config; a priority past the
+ * end clamps to the last (tightest) entry.
+ */
+u32 ipa3_eth_qos_holb_tmr_uS(u8 priority)
+{
+	u32 *tbl;
+	u32 cnt;
+
+	if (ipa3_ctx->ipa_config_is_auto) {
+		tbl = qos_holb_tmr_auto;
+		cnt = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
+	} else {
+		tbl = qos_holb_tmr;
+		cnt = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+			IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7 :
+			IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE;
+	}
+
+	return (priority < cnt) ? tbl[priority] : tbl[cnt - 1];
+}
 
 static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys_addr_t pa,
 	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir, u8 pipe_idx)
@@ -1711,26 +1735,20 @@ int ipa3_eth_connect(
 
 	/* Enable HOLB Timeout when QOS is enabled. */
 	if (ipa3_ctx->eth_qos && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-		if (!pipe->tc_bmap && !priority)
+		/* One-time config, never reprogrammed on a QoS pipe. On CPE
+		 * tc_bmap is still 0 here (QoSMgr binds TCs later), so the
+		 * pipe keeps the loose 31ms default; only BE is retimed
+		 * later, by ipa3_qos_retime_be_pipes().
+		 */
+		if (!pipe->tc_bmap)
 		{
-			IPADBG("Only BE tx available, no need to set holb\n");
+			IPADBG("no TC on this tx pipe, no need to set holb\n");
 		}
 		else
 		{
 			memset(&holb_cfg, 0, sizeof(holb_cfg));
 			holb_cfg.en = IPA_HOLB_TMR_EN;
-			if (ipa3_ctx->ipa_config_is_auto)
-			{
-				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO) ?
-					qos_holb_tmr_auto[priority] :
-					qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO - 1];
-			}
-			else
-			{
-				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE) ?
-					qos_holb_tmr[priority] :
-					qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE - 1];
-			}
+			holb_cfg.tmr_val = ipa3_eth_qos_holb_tmr_uS(priority);
 			ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
 		}
 	}
@@ -2058,26 +2076,20 @@ int ipa3_eth_enable(
 
 	/* Enable HOLB Timeout when QOS is enabled. */
 	if (ipa3_ctx->eth_qos && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-		if (!pipe->tc_bmap && !priority)
+		/* One-time config, never reprogrammed on a QoS pipe. On CPE
+		 * tc_bmap is still 0 here (QoSMgr binds TCs later), so the
+		 * pipe keeps the loose 31ms default; only BE is retimed
+		 * later, by ipa3_qos_retime_be_pipes().
+		 */
+		if (!pipe->tc_bmap)
 		{
-			IPADBG("Only BE tx available, no need to set holb\n");
+			IPADBG("no TC on this tx pipe, no need to set holb\n");
 		}
 		else
 		{
 			memset(&holb_cfg, 0, sizeof(holb_cfg));
 			holb_cfg.en = IPA_HOLB_TMR_EN;
-			if (ipa3_ctx->ipa_config_is_auto)
-			{
-				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO) ?
-					qos_holb_tmr_auto[priority] :
-					qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO - 1];
-			}
-			else
-			{
-				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE) ?
-					qos_holb_tmr[priority] :
-					qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE - 1];
-			}
+			holb_cfg.tmr_val = ipa3_eth_qos_holb_tmr_uS(priority);
 			ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
 		}
 	}
