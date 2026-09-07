@@ -32,10 +32,40 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <stdarg.h>
 
 #define IPA_MAX_MSG_LEN 4096
 
 static char dbg_buff[IPA_MAX_MSG_LEN];
+/* NAT msg size of 512 is sufficient */
+char msg[512];
+pthread_mutex_t nat_log = PTHREAD_MUTEX_INITIALIZER;
+static ipa_nat_log_handler_t ipa_nat_log_handler;
+
+void ipa_nat_set_log_handler(ipa_nat_log_handler_t handler)
+{
+	ipa_nat_log_handler = handler;
+}
+
+void ipa_nat_log_emit(
+	ipa_nat_log_level_t level,
+	const char* fmt,
+	... )
+{
+	va_list ap;
+
+	pthread_mutex_lock(&nat_log);
+	va_start(ap, fmt);
+	vsnprintf(msg, sizeof(msg), fmt, ap);
+	va_end(ap);
+	pthread_mutex_unlock(&nat_log);
+	/* vsnprintf() always NUL-terminates msg, truncating on overflow rather
+	 * than dropping it; emit whatever fits instead of discarding the log. */
+	if ( ipa_nat_log_handler )
+	{
+		ipa_nat_log_handler(level, msg);
+	}
+}
 
 #if !defined(MSM_IPA_TESTS) && !defined(USE_GLIB) && !defined(FEATURE_IPA_ANDROID)
 size_t strlcpy(char* dst, const char* src, size_t size)

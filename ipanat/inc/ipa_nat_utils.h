@@ -70,6 +70,18 @@
 #include <time.h>
 #include <linux/msm_ipa.h>
 
+/*
+ * glib.h must be included outside of the extern "C" block below: it pulls in
+ * C++ standard headers (glib-typeof.h -> <type_traits>) when compiled as C++,
+ * and templates cannot be declared with C language linkage.
+ */
+#if !defined(MSM_IPA_TESTS) && !defined(FEATURE_IPA_ANDROID)
+#ifdef USE_GLIB
+#include <glib.h>
+#define strlcpy g_strlcpy
+#endif
+#endif
+
 #ifndef FALSE
 #define FALSE 0
 #endif
@@ -78,26 +90,47 @@
 #define TRUE 1
 #endif
 
+# ifdef __cplusplus
+extern "C"
+{
+# endif /* __cplusplus */
+
 #define MAX_DMA_ENTRIES_FOR_ADD 4
 #define MAX_DMA_ENTRIES_FOR_DEL 3
 
 #if !defined(MSM_IPA_TESTS) && !defined(FEATURE_IPA_ANDROID)
-#ifdef USE_GLIB
-#include <glib.h>
-#define strlcpy g_strlcpy
-#else
+#ifndef USE_GLIB
 size_t strlcpy(char* dst, const char* src, size_t size);
 #endif
 #endif
 
-#define IPAERR(fmt, ...)  printf("ERR: %s:%d %s() " fmt, __FILE__,  __LINE__, __FUNCTION__, ##__VA_ARGS__);
+typedef enum
+{
+	IPA_NAT_LOG_LVL_ERR  = 0,
+	IPA_NAT_LOG_LVL_WARN = 1,
+	IPA_NAT_LOG_LVL_INFO = 2,
+	IPA_NAT_LOG_LVL_DBG  = 3
+} ipa_nat_log_level_t;
 
-#define IPAINFO(fmt, ...)  printf("INFO: %s:%d %s() " fmt, __FILE__,  __LINE__, __FUNCTION__, ##__VA_ARGS__);
+typedef void (*ipa_nat_log_handler_t)(ipa_nat_log_level_t level, const char* msg);
 
-#define IPAWARN(fmt, ...)  printf("WARN: %s:%d %s() " fmt, __FILE__,  __LINE__, __FUNCTION__, ##__VA_ARGS__);
+/**
+ * ipa_nat_set_log_handler() - route library logs to the caller's logger
+ * @handler: [in] callback invoked with each formatted message and its
+ *           level, NULL to fall back to stdout
+ */
+void ipa_nat_set_log_handler(ipa_nat_log_handler_t handler);
+
+void ipa_nat_log_emit(ipa_nat_log_level_t level, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
+
+#define IPAERR(fmt, ...)  ipa_nat_log_emit(IPA_NAT_LOG_LVL_ERR, "ERR: %s:%d %s() " fmt, __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__);
+
+#define IPAINFO(fmt, ...)  ipa_nat_log_emit(IPA_NAT_LOG_LVL_INFO, "INFO: %s:%d %s() " fmt, __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__);
+
+#define IPAWARN(fmt, ...)  ipa_nat_log_emit(IPA_NAT_LOG_LVL_WARN, "WARN: %s:%d %s() " fmt, __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__);
 
 #ifdef NAT_DEBUG
-#define IPADBG(fmt, ...) printf("%s:%d %s() " fmt, __FILE__,  __LINE__, __FUNCTION__, ##__VA_ARGS__);
+#define IPADBG(fmt, ...) ipa_nat_log_emit(IPA_NAT_LOG_LVL_DBG, "%s:%d %s() " fmt, __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__);
 #else
 #define IPADBG(fmt, ...)
 #endif
@@ -197,5 +230,9 @@ typedef enum
 int currTimeAs(
 	TimeAs_t  timeAs,
 	uint64_t* valPtr );
+
+# ifdef __cplusplus
+}
+# endif /* __cplusplus */
 
 #endif /* IPA_NAT_UTILS_H */
