@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/module.h>
@@ -811,12 +811,6 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 
 	req.hw_drop_stats_table_size_valid = true;
 	req.hw_drop_stats_table_size = IPA_MEM_PART(q6_stats_drop_size);
-
-	if (ipa3_ctx->platform_type != IPA_PLAT_TYPE_APQ) {
-		req.per_stats_smem_info_valid = true;
-		req.per_stats_smem_info.size = IPA_PER_STATS_SMEM_SIZE;
-		req.per_stats_smem_info.block_start_addr = ipa3_ctx->per_stats_smem_pa;
-	}
 
 	if (ipa3_ctx->platform_type != IPA_PLAT_TYPE_APQ) {
 		req.per_stats_smem_info_valid = true;
@@ -2368,12 +2362,12 @@ int ipa3_vote_for_bus_bw(uint32_t *bw_mbps)
 {
 	int ret;
 
-	IPAWANDBG("Bus BW is %d\n", *bw_mbps);
-
 	if (bw_mbps == NULL) {
 		IPAWANERR("Bus BW is invalid\n");
 		return -EINVAL;
 	}
+
+	IPAWANDBG("Bus BW is %d\n", *bw_mbps);
 
 	ret = ipa3_wwan_set_modem_perf_profile(*bw_mbps);
 	if (ret)

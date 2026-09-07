@@ -5296,6 +5296,10 @@ static int ipa3_wwan_register_netdev_pm_client(struct net_device *dev)
 	struct ipa_pm_register_params pm_reg;
 
 	memset(&pm_reg, 0, sizeof(pm_reg));
+	if (!IPA_NETDEV()) {
+		IPAWANERR("IPA_NETDEV is NULL\n");
+		return -ENODEV;
+	}
 	pm_reg.name = IPA_NETDEV()->name;
 	pm_reg.user_data = dev;
 	pm_reg.callback = ipa_pm_wwan_pm_cb;
@@ -8167,17 +8171,16 @@ static inline int rmnet_ipa3_delete_lan_client_info
 	int i;
 	struct ipa_tether_device_info *teth_ptr = NULL;
 
-	IPAWANDBG("Delete lan client info: %d, %d, %d\n",
-		rmnet_ipa3_ctx->tether_device[device_type].num_clients,
-		lan_clnt_idx, device_type);
 	/* Check if Device type is valid. */
-
 	if (device_type >= IPACM_MAX_CLIENT_DEVICE_TYPES ||
 		device_type < 0) {
 		IPAWANERR("Invalid Device type: %d\n", device_type);
 		return -EINVAL;
 	}
 
+	IPAWANDBG("Delete lan client info: %d, %d, %d\n",
+		rmnet_ipa3_ctx->tether_device[device_type].num_clients,
+		lan_clnt_idx, device_type);
 	/* Check if the request is to clean up all clients. */
 	teth_ptr = &rmnet_ipa3_ctx->tether_device[device_type];
 

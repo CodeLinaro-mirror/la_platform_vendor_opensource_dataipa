@@ -12381,6 +12381,11 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	INIT_LIST_HEAD(&ipa3_ctx->wc_memb.wlan_comm_desc_list);
 
 	ipa3_ctx->cdev.class = class_create(THIS_MODULE, DRV_NAME);
+	if (IS_ERR(ipa3_ctx->cdev.class)) {
+		IPAERR(":class_create err.\n");
+		result = -ENODEV;
+		goto fail_alloc_chrdev_region;
+	}
 
 	result = alloc_chrdev_region(&ipa3_ctx->cdev.dev_num, 0, 1, DRV_NAME);
 	if (result) {
@@ -13004,6 +13009,11 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	spin_lock_init(&ipa3_ctx->idr_lock);
 
 	ipa3_ctx->cdev.class = class_create(THIS_MODULE, DRV_NAME);
+	if (IS_ERR(ipa3_ctx->cdev.class)) {
+		IPAERR(":class_create err.\n");
+		result = -ENODEV;
+		goto fail_alloc_chrdev_region;
+	}
 
 	result = alloc_chrdev_region(&ipa3_ctx->cdev.dev_num, 0, 1, DRV_NAME);
 	if (result) {
