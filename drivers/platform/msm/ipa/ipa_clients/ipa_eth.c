@@ -880,7 +880,8 @@ static enum ipa_client_type
 				}
 			}
 		} else if (traffic_type == IPA_ETH_PIPE_TRAFFIC_TYPE_QOS) {
-			if (ipa3_ctx->ipa_config_is_auto && client->inst_id == 0) {
+			if (ipa3_ctx->ipa_config_is_auto && client->inst_id == 0 &&
+				   ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 					switch (tx_pipe_idx) {
 						case 0:
@@ -1509,7 +1510,7 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 	enum ipa_client_type ipa_client;
 	int max_tx, max_rx;
 
-	if (ipa3_ctx->ipa_config_is_auto)
+	if (ipa3_ctx->ipa_config_is_auto && ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
 	{
 		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
 		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_AUTO;
@@ -2594,7 +2595,7 @@ int ipa_eth_get_config_type(
 		int i = 0;
 		snprintf(eth_config->config, sizeof(eth_config->config), "qos");
 
-		if (ipa3_ctx->ipa_config_is_auto) {
+		if (ipa3_ctx->ipa_config_is_auto && ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
 			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO;
 
 			for (i = 0; i < eth_config->num_dma_channel; i++) {
