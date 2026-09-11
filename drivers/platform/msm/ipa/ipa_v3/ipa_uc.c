@@ -74,6 +74,8 @@ DECLARE_WORK(ipa3_ipsec_enabled_work, ipa_ipsec_ep_init_cons);
  *                                  DL traffic prioritization.
  * IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING: Command to Delete PDN DSCP mapping for
  *                                  DL traffic prioritization.
+ * IPA_CPU_2_HW_CMD_SET_IPOGRE_IFACE_ADDR: Command to send the IPoGRE tunnel
+ *                                  interface IPv4/IPv6 addresses to uC.
  */
 enum ipa3_cpu_2_hw_commands {
 	IPA_CPU_2_HW_CMD_NO_OP = FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 0),
@@ -125,6 +127,8 @@ enum ipa3_cpu_2_hw_commands {
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 26),
 	IPA_CPU_2_HW_CMD_DEL_PDN_DSCP_MAPPING =
 		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 27),
+	IPA_CPU_2_HW_CMD_SET_IPOGRE_IFACE_ADDR =
+		FEATURE_ENUM_VAL(IPA_HW_FEATURE_COMMON, 29),
 };
 
 /**
@@ -271,6 +275,7 @@ struct IpaDscpPcpMap_t {
 struct IpaPdnDscpMap_t {
 	uint8_t pdn_dscp_map[IPA_UC_MAX_PDN_DSCP_VAL];
 } __packed;
+
 
 /**
  * When resource group 10 limitation mitigation is enabled, uC send
@@ -2369,6 +2374,59 @@ int ipa3_add_remove_pdn_dscp_map(
 		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
 	else
 		IPADBG("DSCP <-> PDN %s Success\n", (AddMapping)?"Add":"Delete");
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
+
+	return res;
+}
+
+/**
+ * ipa3_uc_send_ipogre_iface_addr() - Send IPoGRE tunnel interface IP
+ * addresses to the IPA uC.
+ * @info: Pointer to the address data from the IPACM ioctl
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_uc_send_ipogre_iface_addr(const struct GreIfaceIpInfo_t *info)
+{
+	struct ipa_mem_buffer mem;
+	struct GreIfaceIpInfo_t *cmd;
+	int res;
+
+	if (!info) {
+		IPAERR("null argument\n");
+		return -EINVAL;
+	}
+
+	mem.size = sizeof(struct GreIfaceIpInfo_t);
+	mem.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, mem.size,
+				      &mem.phys_base, GFP_KERNEL);
+	if (!mem.base) {
+		IPAERR("Fail to alloc DMA buff of size %zu\n", mem.size);
+		return -ENOMEM;
+	}
+
+	cmd = (struct GreIfaceIpInfo_t *) mem.base;
+	cmd->is_ip_valid.ipv4_addr_valid = info->is_ip_valid.ipv4_addr_valid;
+	cmd->is_ip_valid.ipv6_addr_valid = info->is_ip_valid.ipv6_addr_valid;
+	cmd->is_ip_valid.reserved        = 0;
+	memcpy(cmd->gre_ipv4_addr, info->gre_ipv4_addr, sizeof(cmd->gre_ipv4_addr));
+	memcpy(cmd->gre_ipv6_addr, info->gre_ipv6_addr, sizeof(cmd->gre_ipv6_addr));
+
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
+
+	res = ipa3_uc_send_cmd(
+		(u32) mem.phys_base,
+		IPA_CPU_2_HW_CMD_SET_IPOGRE_IFACE_ADDR,
+		0, true, 10 * HZ);
+
+	if (res)
+		IPAERR("ipa3_uc_send_cmd failed %d\n", res);
+	else
+		IPADBG("IPoGRE iface addr sent to uC (v4_valid=%d v6_valid=%d)\n",
+		       cmd->is_ip_valid.ipv4_addr_valid, cmd->is_ip_valid.ipv6_addr_valid);
+
+	dma_free_coherent(ipa3_ctx->uc_pdev, mem.size, mem.base, mem.phys_base);
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 

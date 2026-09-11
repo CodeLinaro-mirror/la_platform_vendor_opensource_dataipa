@@ -3687,6 +3687,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	union ipa_ioc_uc_activation_entry uc_act;
 	int i = 0;
 	struct rgip_info rgip_addr;
+	struct GreIfaceIpInfo_t gre_iface_ip_info;
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
 
 	if (_IOC_TYPE(cmd) != IPA_IOC_MAGIC)
@@ -5522,6 +5523,18 @@ send:
 			break;
 		}
 		ipa3_send_rgip_info(IPA_RGIP_ADD_EVENT,rgip_addr);
+		break;
+
+	case IPA_IOC_SET_IPOGRE_IFACE_ADDR:
+		if (copy_from_user(
+				&gre_iface_ip_info,
+				(const void __user *) arg,
+				sizeof(struct GreIfaceIpInfo_t))) {
+			IPAERR("copy_from_user fails for SET_IPOGRE_IFACE_ADDR\n");
+			retval = -EFAULT;
+			break;
+		}
+		retval = ipa3_uc_send_ipogre_iface_addr(&gre_iface_ip_info);
 		break;
 
 	default:
@@ -8438,6 +8451,11 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_RGIP))
 				return -EPERM;
 			cmd = IPA_IOC_ADD_RGIP;
+			break;
+		case IPA_IOCTL_SET_IPOGRE_IFACE_ADDR:
+			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_SET_IPOGRE_IFACE_ADDR))
+				return -EPERM;
+			cmd = IPA_IOC_SET_IPOGRE_IFACE_ADDR;
 			break;
 
 	default:
@@ -12363,6 +12381,11 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	INIT_LIST_HEAD(&ipa3_ctx->wc_memb.wlan_comm_desc_list);
 
 	ipa3_ctx->cdev.class = class_create(THIS_MODULE, DRV_NAME);
+	if (IS_ERR(ipa3_ctx->cdev.class)) {
+		IPAERR(":class_create err.\n");
+		result = -ENODEV;
+		goto fail_alloc_chrdev_region;
+	}
 
 	result = alloc_chrdev_region(&ipa3_ctx->cdev.dev_num, 0, 1, DRV_NAME);
 	if (result) {
@@ -12986,6 +13009,11 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	spin_lock_init(&ipa3_ctx->idr_lock);
 
 	ipa3_ctx->cdev.class = class_create(THIS_MODULE, DRV_NAME);
+	if (IS_ERR(ipa3_ctx->cdev.class)) {
+		IPAERR(":class_create err.\n");
+		result = -ENODEV;
+		goto fail_alloc_chrdev_region;
+	}
 
 	result = alloc_chrdev_region(&ipa3_ctx->cdev.dev_num, 0, 1, DRV_NAME);
 	if (result) {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 /*
@@ -382,7 +382,7 @@ static inline u32 xdo2ipa_replay_window_sz(u32 xdo_sz)
 static inline bool ipa_ipsec_tmpl_sa_match(const struct xfrm_tmpl *tmpl, const struct xfrm_state *x)
 {
 	IPADBG_LOW("tmpl->id.spi = 0x%08X  x->id.spi = 0x%08X\n",
-		tmpl->id.spi, x ? x->id.spi : 0xFFFFFFFF);
+		tmpl ? tmpl->id.spi : 0xFFFFFFFF, x ? x->id.spi : 0xFFFFFFFF);
 	return	!!x && !!tmpl && tmpl->encap_family == x->props.family &&
 		xfrm_id_proto_match(tmpl->id.proto, IPPROTO_ESP) &&
 		(!tmpl->id.spi || x->id.spi == tmpl->id.spi) &&
@@ -1672,6 +1672,7 @@ void ipa_ipsec_xdo_state_free(struct xfrm_state *x)
 	if (!work_data) {
 		IPAERR("failed allocating ipa_ipsec_state_work_wrap\n");
 		BUG();
+		return;
 	}
 	INIT_WORK(&work_data->work, ipa_ipsec_xdo_state_free_work);
 	work_data->ip = (x->props.family == AF_INET6) ? IPA_IP_v6 : IPA_IP_v4;

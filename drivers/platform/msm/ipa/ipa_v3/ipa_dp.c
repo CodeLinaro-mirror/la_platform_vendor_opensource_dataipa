@@ -2322,6 +2322,7 @@ void ipa3_v2x_vm_ssr_teardown_sys_pipe(enum ipa_client_type client)
 	if (!gsi_ep_cfg) {
 		IPAERR("failed to get GSI config\n");
 		ipa_assert();
+		return;
 	}
 
 	if (gsi_read_chan_state(gsi_ep_cfg->ipa_gsi_chan_num, ipa3_ctx->ee) ==
