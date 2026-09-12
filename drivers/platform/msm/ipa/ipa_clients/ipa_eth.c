@@ -2668,7 +2668,7 @@ int ipa_eth_get_config_type(
 #if IPA_ETH_API_VER >= 8
 	eth_config->offload_supported    = ipa3_is_ulso_supported();
 	eth_config->offload_max_pkts     = IPA_ETH_OFFLOAD_MAX_PKTS;
-	eth_config->offload_headroom     = sizeof(struct qmap_hdr) + VLAN_HLEN;
+	eth_config->offload_headroom     = sizeof(struct qmap_hdr);
 	eth_config->offload_features     = ipa3_is_ulso_supported() ?
 		(NETIF_F_RXCSUM | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
 		 NETIF_F_SG | NETIF_F_GRO_HW |
@@ -3056,7 +3056,6 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 		qmap_hdr.hdr_type      = 0x3;  /* ULSO extension header type */
 		qmap_hdr.zero_checksum = 0;    /* IPA computes checksum */
 		qmap_hdr.ip_id_cfg     = 0;    /* running IP ID per segment */
-		qmap_hdr.additional_hdr_size = l2_hlen - ETH_HLEN;
 
 		/*
 		 * skb->protocol is ETH_P_8021Q for tagged frames; dispatch on
