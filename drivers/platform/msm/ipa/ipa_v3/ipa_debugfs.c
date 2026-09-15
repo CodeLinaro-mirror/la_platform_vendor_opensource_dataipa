@@ -4924,6 +4924,9 @@ void ipa3_debugfs_init(void)
 	debugfs_create_u32("clk_rate", IPA_READ_ONLY_MODE,
 		dent, &ipa3_ctx->curr_ipa_clk_rate);
 
+	debugfs_create_bool("print_skb_on_wakeup", IPA_READ_WRITE_MODE,
+			dent, &ipa3_ctx->print_skb_on_wakeup);
+
 	ipa_debugfs_init_stats(dent);
 
 	ipa3_wigig_init_debugfs_i(dent);
