@@ -1335,8 +1335,17 @@ static int ipa_nati_post_ipv4_init_cmd(
 {
 	struct ipa_ioc_v4_nat_init cmd;
 
-	char buf[1024];
 	int  ret = 0;
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto bail;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
@@ -1378,7 +1387,7 @@ static int ipa_nati_post_ipv4_init_cmd(
 
 	cmd.ip_addr = nat_table->public_addr;
 
-	IPADBG("%s\n", ipa_ioc_v4_nat_init_as_str(&cmd, buf, sizeof(buf)));
+	IPADBG("%s\n", ipa_ioc_v4_nat_init_as_str(&cmd, buf, 1024));
 
 	#ifdef CONFIG_ECM_CONVERGENCE
 	if (ipa3_nat_init_cmd(&cmd)) {
@@ -1401,6 +1410,9 @@ static int ipa_nati_post_ipv4_init_cmd(
 	IPADBG("Posted IPA_IOC_V4_INIT_NAT to kernel successfully\n");
 
 bail:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -1612,18 +1624,27 @@ static int ipa_nati_post_ipv4_dma_cmd_v2(
 	struct ipa_nat_cache*       nat_cache_ptr,
 	struct ipa_ioc_table_write_cmd* cmd)
 {
-	char buf[4096];
 	int  ret = 0;
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(4096, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto bail;
+	}
+#else
+	char buf[4096];
+#endif
 
 	IPADBG("In\n");
 
 	cmd->mem_type = nat_cache_ptr->nmi;
 
-	IPADBG("%s\n", prep_ioc_table_write_cmd_4print(cmd, buf, sizeof(buf)));
+	IPADBG("%s\n", prep_ioc_table_write_cmd_4print(cmd, buf, 4096));
 
 	#ifdef CONFIG_ECM_CONVERGENCE
 	if (ipa3_table_write_cmd(cmd)) {
-		IPAERR("ioctl (IPA_IOC_TABLE_WRITE_CMD) on fd has failed\n"); 
+		IPAERR("ioctl (IPA_IOC_TABLE_WRITE_CMD) on fd has failed\n");
 		ret = -EIO;
 		goto bail;
 	}
@@ -1638,6 +1659,9 @@ static int ipa_nati_post_ipv4_dma_cmd_v2(
 	IPADBG("Posted IPA_IOC_TABLE_WRITE_CMD to kernel successfully\n");
 
 bail:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -1649,12 +1673,9 @@ static int ipa_nati_post_ipv4_dma_cmd(
 {
 
 	int  ret = 0;
-
-	IPADBG("In\n");
 #ifdef CONFIG_ECM_CONVERGENCE
-	char* buf = kzalloc(4096, GFP_KERNEL);
-	if(!buf)
-	{
+	char *buf = kzalloc(4096, GFP_KERNEL);
+	if (!buf) {
 		IPAERR("Failed to allocate buf\n");
 		ret = -ENOMEM;
 		goto bail;
@@ -1663,14 +1684,15 @@ static int ipa_nati_post_ipv4_dma_cmd(
 	char buf[4096];
 #endif
 
+	IPADBG("In\n");
+
 	cmd->mem_type = nat_cache_ptr->nmi;
 
-	IPADBG("%s\n", prep_ioc_nat_dma_cmd_4print(cmd, buf, sizeof(buf)));
+	IPADBG("%s\n", prep_ioc_nat_dma_cmd_4print(cmd, buf, 4096));
 
 	#ifdef CONFIG_ECM_CONVERGENCE
 	if (ipa3_table_dma_cmd(cmd)) {
 		ret = -EFAULT;
-		kfree(buf);
 		goto bail;
 	}
 	#else
@@ -1685,6 +1707,9 @@ static int ipa_nati_post_ipv4_dma_cmd(
 	IPADBG("Posted IPA_IOC_TABLE_DMA_CMD to kernel successfully\n");
 
 bail:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -2200,8 +2225,17 @@ int ipa_NATI_query_timestamp_v2(
 	struct ipa_nat_ip4_table_cache* nat_table;
 	struct ipa_nat_rule_v2*         rule_ptr;
 
-	char buf[1024];
 	int  ret;
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto bail;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
@@ -2241,7 +2275,7 @@ int ipa_NATI_query_timestamp_v2(
 
 	IPADBG("rule_hdl(0x%08X) -> %s\n",
 		   rule_hdl,
-		   prep_nat_rule_4print_v2(rule_ptr, buf, sizeof(buf)));
+		   prep_nat_rule_4print_v2(rule_ptr, buf, 1024));
 
 	*time_stamp = rule_ptr->time_stamp;
 
@@ -2249,6 +2283,9 @@ int ipa_NATI_query_timestamp_v2(
 unlock:
 	IPA_NAT_MUTEX_UNLOCK();
 bail:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -2265,8 +2302,17 @@ int ipa_NATI_query_timestamp_redirect(
 	struct ipa_nat_ip4_table_cache* nat_table;
 	struct ipa_nat_rule*            rule_ptr;
 
-	char buf[1024];
 	int  ret;
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto bail;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
@@ -2317,7 +2363,7 @@ int ipa_NATI_query_timestamp_redirect(
 
 	IPADBG("rule_hdl(0x%08X) -> %s\n",
 		   rule_hdl,
-		   prep_nat_rule_4print(rule_ptr, buf, sizeof(buf)));
+		   prep_nat_rule_4print(rule_ptr, buf, 1024));
 
 	*time_stamp = rule_ptr->time_stamp;
 	*redirect = rule_ptr->redirect;
@@ -2326,6 +2372,9 @@ unlock:
 	IPA_NAT_MUTEX_UNLOCK();
 
 bail:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -2343,12 +2392,6 @@ int ipa_NATI_add_ipv4_rule(
 #ifdef CONFIG_ECM_CONVERGENCE
 	char* cmd_buf = NULL;
 	cmd_buf = kzalloc(cmd_sz*sizeof(char), GFP_KERNEL);
-	if(!cmd_buf)
-	{
-		IPAERR("Failed to allocate cmd_bf\n");
-		ret = -ENOMEM;
-		goto end;
-	}
 #else
 	char cmd_buf[cmd_sz];
 #endif
@@ -2364,11 +2407,27 @@ int ipa_NATI_add_ipv4_rule(
 	uint16_t new_entry_index;
 	uint16_t new_index_tbl_entry_index;
 	uint32_t new_entry_handle;
-	char     buf[1024];
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto done;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
-	#ifndef CONFIG_ECM_CONVERGENCE
+	#ifdef CONFIG_ECM_CONVERGENCE
+	if(!cmd_buf)
+	{
+		IPAERR("Failed to allocate cmd_buf\n");
+		ret = -ENOMEM;
+		goto done;
+	}
+	#else
 	memset(cmd_buf, 0, sizeof(cmd_buf));
 	#endif
 
@@ -2429,7 +2488,7 @@ int ipa_NATI_add_ipv4_rule(
 	IPADBG("tbl_hdl(0x%08X) nmi(%s) %s\n",
 		   tbl_hdl,
 		   ipa3_nat_mem_in_as_str(nmi),
-		   prep_nat_ipv4_rule_4print(clnt_rule, buf, sizeof(buf)));
+		   prep_nat_ipv4_rule_4print(clnt_rule, buf, 1024));
 
 	nat_table = &nat_cache_ptr->ip4_tbl[tbl_hdl - 1];
 
@@ -2553,7 +2612,7 @@ int ipa_NATI_add_ipv4_rule(
 
 	IPADBG("rule_hdl(0x%08X) -> %s\n",
 		   new_entry_handle,
-		   prep_nat_rule_4print(rule, buf, sizeof(buf)));
+		   prep_nat_rule_4print(rule, buf, 1024));
 
 	ret = ipa_nati_post_ipv4_dma_cmd(nat_cache_ptr, cmd);
 
@@ -2582,7 +2641,9 @@ done:
 	#ifdef CONFIG_ECM_CONVERGENCE
 	kfree(cmd_buf);
 	#endif
-end:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -2596,7 +2657,11 @@ int ipa_NATI_add_ipv4_rule_v2(
 	const uint32_t cmd_sz =
 		sizeof(struct ipa_ioc_table_write_cmd) +
 		(MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_table_write_one));
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *cmd_buf = kzalloc(cmd_sz, GFP_KERNEL);
+#else
 	char cmd_buf[cmd_sz];
+#endif
 	struct ipa_ioc_table_write_cmd* cmd =
 		(struct ipa_ioc_table_write_cmd*) cmd_buf;
 
@@ -2609,13 +2674,28 @@ int ipa_NATI_add_ipv4_rule_v2(
 	uint16_t new_entry_index;
 	uint16_t new_index_tbl_entry_index;
 	uint32_t new_entry_handle;
-	char     buf[1024];
-
 	int ret = 0;
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto done;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
-	memset(cmd_buf, 0, sizeof(cmd_buf));
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (!cmd_buf) {
+		IPAERR("Failed to allocate cmd_buf\n");
+		ret = -ENOMEM;
+		goto done;
+	}
+#endif
+	memset(cmd_buf, 0, cmd_sz);
 
 	if ( ! VALID_TBL_HDL(tbl_hdl) ||
 		 ! clnt_rule ||
@@ -2642,7 +2722,7 @@ int ipa_NATI_add_ipv4_rule_v2(
 	IPADBG("tbl_hdl(0x%08X) nmi(%s) %s\n",
 		   tbl_hdl,
 		   ipa3_nat_mem_in_as_str(nmi),
-		   prep_nat_ipv4_rule_4print_v2(clnt_rule, buf, sizeof(buf)));
+		   prep_nat_ipv4_rule_4print_v2(clnt_rule, buf, 1024));
 
 	nat_cache_ptr = &ipv4_nat_cache[nmi];
 
@@ -2813,7 +2893,7 @@ int ipa_NATI_add_ipv4_rule_v2(
 
 	IPADBG("rule_hdl(0x%08X) -> %s\n",
 		   new_entry_handle,
-		   prep_nat_rule_4print_v2(rule, buf, sizeof(buf)));
+		   prep_nat_rule_4print_v2(rule, buf, 1024));
 
 	ret = ipa_nati_post_ipv4_dma_cmd_v2(nat_cache_ptr, cmd);
 
@@ -2824,7 +2904,7 @@ int ipa_NATI_add_ipv4_rule_v2(
 
 	IPADBG("rule_hdl(0x%08X) -> %s\n",
 		   new_entry_handle,
-		   prep_nat_rule_4print_v2(rule, buf, sizeof(buf)));
+		   prep_nat_rule_4print_v2(rule, buf, 1024));
 
 	IPA_NAT_MUTEX_UNLOCK();
 	*rule_hdl = new_entry_handle;
@@ -2842,6 +2922,10 @@ fail_add_index_entry:
 unlock:
 	IPA_NAT_MUTEX_UNLOCK();
 done:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+	kfree(cmd_buf);
+#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -2854,7 +2938,11 @@ int ipa_NATI_del_ipv4_rule_v2(
 	const uint32_t cmd_sz =
 		sizeof(struct ipa_ioc_table_write_cmd) +
 		(MAX_DMA_ENTRIES_FOR_DEL * sizeof(struct ipa_ioc_table_write_one));
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *cmd_buf = kzalloc(cmd_sz, GFP_KERNEL);
+#else
 	char cmd_buf[cmd_sz];
+#endif
 	struct ipa_ioc_table_write_cmd* cmd =
 		(struct ipa_ioc_table_write_cmd*) cmd_buf;
 
@@ -2868,12 +2956,29 @@ int ipa_NATI_del_ipv4_rule_v2(
 	ipa_table_iterator index_table_iterator;
 
 	uint16_t idx;
-	char     buf[1024];
 	int      ret = 0;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto done;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
-	memset(cmd_buf, 0, sizeof(cmd_buf));
+#ifdef CONFIG_ECM_CONVERGENCE
+	if (!cmd_buf) {
+		IPAERR("Failed to allocate cmd_buf\n");
+		ret = -ENOMEM;
+		goto done;
+	}
+#endif
+	memset(cmd_buf, 0, cmd_sz);
 
 	IPADBG("tbl_hdl(0x%08X) rule_hdl(%u)\n", tbl_hdl, rule_hdl);
 
@@ -2912,7 +3017,7 @@ int ipa_NATI_del_ipv4_rule_v2(
 
 	IPADBG("rule_hdl(0x%08X) -> %s\n",
 		   rule_hdl,
-		   prep_nat_rule_4print_v2(table_rule, buf, sizeof(buf)));
+		   prep_nat_rule_4print_v2(table_rule, buf, 1024));
 
 	ret = ipa_table_iterator_init(
 		&table_iterator,
@@ -3015,6 +3120,10 @@ unlock:
 	IPA_NAT_MUTEX_UNLOCK();
 
 done:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+	kfree(cmd_buf);
+#endif
 	IPADBG("Out\n");
 
 	return ret;
@@ -3053,7 +3162,17 @@ int ipa_NATI_del_ipv4_rule(
 	ipa_table_iterator index_table_iterator;
 
 	uint16_t idx;
-	char     buf[1024];
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto done;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
@@ -3109,7 +3228,7 @@ int ipa_NATI_del_ipv4_rule(
 
 	IPADBG("rule_hdl(0x%08X) -> %s\n",
 		   rule_hdl,
-		   prep_nat_rule_4print(table_rule, buf, sizeof(buf)));
+		   prep_nat_rule_4print(table_rule, buf, 1024));
 
 	ret = ipa_table_iterator_init(
 		&table_iterator,
@@ -3214,6 +3333,7 @@ unlock:
 done:
 	#ifdef CONFIG_ECM_CONVERGENCE
 	kfree(cmd_buf);
+	kfree(buf);
 	#endif
 
 end:
@@ -3306,7 +3426,15 @@ static int print_nat_rule_v2(
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		goto bail;
+	}
+#else
 	char buf[1024];
+#endif
 
 	struct ipa_nat_rule_v2* rule_ptr =
 		(struct ipa_nat_rule_v2*) record_ptr;
@@ -3323,7 +3451,7 @@ static int print_nat_rule_v2(
 		   (is_expn_tbl) ? "EXP " : "BASE",
 		   record_index,
 		   rule_hdl,
-		   prep_nat_rule_4print_v2(rule_ptr, buf, sizeof(buf)));
+		   prep_nat_rule_4print_v2(rule_ptr, buf, 1024));
 	#ifndef CONFIG_ECM_CONVERGENCE
 	fflush(stdout);
 	#endif
@@ -3331,6 +3459,9 @@ static int print_nat_rule_v2(
 	*((bool*) arb_data_ptr) = false;
 
 bail:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 	return 0;
 }
 
@@ -3346,7 +3477,15 @@ static int print_nat_rule(
 	uint8_t              is_expn_tbl;
 	uint16_t             rule_index;
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		goto bail;
+	}
+#else
 	char buf[1024];
+#endif
 
 	struct ipa_nat_rule* rule_ptr =
 		(struct ipa_nat_rule*) record_ptr;
@@ -3363,7 +3502,7 @@ static int print_nat_rule(
 		   (is_expn_tbl) ? "EXP " : "BASE",
 		   record_index,
 		   rule_hdl,
-		   prep_nat_rule_4print(rule_ptr, buf, sizeof(buf)));
+		   prep_nat_rule_4print(rule_ptr, buf, 1024));
 	#ifndef CONFIG_ECM_CONVERGENCE
 	fflush(stdout);
 	#endif
@@ -3371,6 +3510,9 @@ static int print_nat_rule(
 	*((bool*) arb_data_ptr) = false;
 
 bail:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 	return 0;
 }
 

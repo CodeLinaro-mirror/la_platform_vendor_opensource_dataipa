@@ -4904,6 +4904,5 @@ static inline bool ipa_is_proc_ctx_headerless(enum ipa_hdr_proc_type type)
 
 int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry);
 void ipa3_nat_ipv6ct_free_mem(struct ipa3_nat_ipv6ct_common_mem *dev);
-int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num);
 
 #endif /* _IPA3_I_H_ */

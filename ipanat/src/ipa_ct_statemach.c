@@ -340,16 +340,28 @@ static int ct_migrate_rule(
 	uint32_t*            cnt_ptr;
 
 	const char*          mig_dir_ptr;
-
-	char                 buf[1024];
 	int                  ret;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	char                 *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto bail;
+	}
+#else
+	char                 buf[1024];
+#endif
 
 	IPADBG("In\n");
 
 	IPADBG("tbl_mem_type(%s) tbl_rule_hdl(%u) -> %s\n",
 		   ipa3_ct_mem_in_as_str(table_ptr->nmi),
 		   tbl_rule_hdl,
-		   prep_ct_rule_4print(ct_rule_ptr, buf, sizeof(buf)));
+		   prep_ct_rule_4print(ct_rule_ptr, buf, 1024));
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 
 	IPADBG("dst_tbl_hdl(0x%08X)\n", dst_tbl_hdl);
 
@@ -1115,8 +1127,6 @@ static int _smCtAddRuleToTblV2(
 	uint32_t           tbl_hdl   = (uint32_t)           args[0];
 	ipa_ipv6ct_rule_v2* clnt_rule = (ipa_ipv6ct_rule_v2*) args[1];
 	uint32_t*          rule_hdl  = (uint32_t*)          args[2];
-
-	char buf[1024];
 
 	int ret;
 
