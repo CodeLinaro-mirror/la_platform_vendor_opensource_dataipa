@@ -6658,13 +6658,13 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		0x000008a0 , 0x10, 0, 0, 1, 0x4},
 	[IPA_HW_v7_0][IPA_DROP_STAT_TETHERING_BASE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000ac0, 0, 0, 0, 0, 0},
+		0x00000ac0, 0x4, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_DROP_STAT_TETHERING_CFG_BASE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000ad4, 0, 0, 0, 0, 0},
+		0x00000ad4, 0x4, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_DROP_STAT_FILTER_IPV4_BASE] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000aec, 0, 0, 0, 0, 0},
+		0x00000ae8, 0, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_DROP_STAT_FILTER_IPV6_BASE] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00000aec, 0, 0, 0, 0, 0},
