@@ -4881,13 +4881,19 @@ fail_rx:
  * for each prior call to add_icmp_alg_rules() when tearing down a PDN
  * connection.
  *
- * Return: 0 on success, -ENOENT if no ICMP rule was installed for this PDN
+ * Return: > 0 - number of staged WAN DL rules removed; the DL rule table
+ *           changed and the caller must re-push it to Q6 via
+ *           install_wan_filtering_rule().
+ *         0 - no change; the rule is still referenced by other connections
+ *           on this PDN, or was not installed. The caller must NOT re-push.
+ *         < 0 - error (-ENOENT: no PDN filter entry, or rule flagged
+ *           installed but absent from the staged list). The caller must NOT
+ *           re-push.
  */
 int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 {
 	struct ipa_pdn_filter_rules *pdn_entry;
 	struct flt_rule *rule_entry, *tmp;
-	int retval = 0;
 	int deleted_count = 0;
 
 	IPA_BE_DBG("Delete ICMP/ALG flt rule for iface %d, ip type %d\n",
@@ -4969,7 +4975,7 @@ int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype)
 	}
 
 	IPA_BE_DBG("ICMP/ALG rule deleted for pdn %d, IP type %d\n", pdn_iface, iptype);
-	return retval;
+	return deleted_count;
 }
 EXPORT_SYMBOL(delete_icmp_alg_rules);
 
@@ -5393,11 +5399,30 @@ cleanup:
 	return ret;
 }
 
+/**
+ * delete_dft_filtering_rule() - Delete default WAN DL filter rules for a PDN interface
+ * @pdn_iface: PDN interface number
+ * @iptype: IP version (IPA_IP_v4 or IPA_IP_v6)
+ *
+ * Decrements pdn_entry->ref_count and removes the DEFAULT filter rules
+ * (FLT_RULE_TYPE_DEFAULT) from the WAN DL filter rule list for the specified
+ * PDN interface only when ref_count reaches zero and no catchup/ICMP/
+ * eth-catchall rules remain installed for this PDN entry.
+ *
+ * Return: > 0 - number of staged WAN DL rules removed; the DL rule table
+ *           changed and the caller must re-push it to Q6 via
+ *           install_wan_filtering_rule().
+ *         0 - no change; the rule is still referenced by other connections
+ *           on this PDN, was not installed, or the PDN entry could not yet
+ *           be removed because other rule types are still installed. The
+ *           caller must NOT re-push.
+ *         < 0 - error (-ENOENT: no PDN filter entry for this PDN and IP
+ *           type). The caller must NOT re-push.
+ */
 int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 {
 	struct ipa_pdn_filter_rules *pdn_entry;
 	struct flt_rule *rule_entry, *tmp;
-	int retval = 0;
 	int deleted_count = 0;
 
 	IPA_BE_DBG("Delete dft flt rule for iface %d, ip type %d\n",
@@ -5414,8 +5439,9 @@ int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 
 	if (!pdn_entry->dft_rule_installed) {
 		spin_unlock_bh(&ipa_pdn_filter_lock);
-		IPA_BE_ERR("Default filtering rule for pdn %d, IP type %d not installed\n", pdn_iface, iptype);
-		return -ENOENT;
+		IPA_BE_DBG("Default filtering rule for pdn %d, IP type %d not installed, nothing to delete\n",
+			pdn_iface, iptype);
+		return 0;
 	}
 
 	atomic_dec(&pdn_entry->ref_count);
@@ -5478,15 +5504,33 @@ int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype)
 	}
 
 	IPA_BE_DBG("Default filtering rule deleted for pdn %d, IP type %d\n", pdn_iface, iptype);
-	return retval;
+	return deleted_count;
 }
 EXPORT_SYMBOL(delete_dft_filtering_rule);
 
+/**
+ * delete_catchup_all_filtering_rule_each_pdn() - Delete catchup-all WAN DL
+ * filter rules for a PDN interface
+ * @pdn_iface: PDN interface number
+ * @iptype: IP version (IPA_IP_v4 or IPA_IP_v6)
+ *
+ * Decrements pdn_entry->ref_count and removes the CATCHUP filter rules
+ * (FLT_RULE_TYPE_CATCHUP) from the WAN DL filter rule list for the specified
+ * PDN interface only when ref_count drops to 2 or below (i.e., the last
+ * connection using this PDN's catchup-all rule is being torn down).
+ *
+ * Return: > 0 - number of staged WAN DL rules removed; the DL rule table
+ *           changed and the caller must re-push it to Q6 via
+ *           install_wan_filtering_rule().
+ *         0 - no change; the rule is still referenced by other connections
+ *           on this PDN, or was not installed. The caller must NOT re-push.
+ *         < 0 - error (-ENOENT: no PDN filter entry for this PDN and IP
+ *           type). The caller must NOT re-push.
+ */
 int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type iptype)
 {
 	struct ipa_pdn_filter_rules *pdn_entry;
 	struct flt_rule *rule_entry, *tmp;
-	int retval = 0;
 	int deleted_count = 0;
 
 	IPA_BE_DBG("Delete catchup flt rule for iface %d, ip type %d\n",
@@ -5503,8 +5547,9 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 
 	if (!pdn_entry->catchup_rule_installed) {
 		spin_unlock_bh(&ipa_pdn_filter_lock);
-		IPA_BE_ERR("Catchup filtering rule for pdn %d, IP type %d not installed\n", pdn_iface, iptype);
-		return -ENOENT;
+		IPA_BE_DBG("Catchup filtering rule for pdn %d, IP type %d not installed, nothing to delete\n",
+			pdn_iface, iptype);
+		return 0;
 	}
 
 	atomic_dec(&pdn_entry->ref_count);
@@ -5562,7 +5607,7 @@ int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type i
 	}
 
 	IPA_BE_DBG("Catchup filtering rule deleted for pdn %d, IP type %d\n", pdn_iface, iptype);
-	return retval;
+	return deleted_count;
 }
 EXPORT_SYMBOL(delete_catchup_all_filtering_rule_each_pdn);
 

@@ -44,6 +44,19 @@ int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type
 int add_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype);
 int add_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype);
 int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type iptype);
+/*
+ * Shared return contract for the three ref-counted WAN DL delete helpers
+ * below (delete_dft_filtering_rule(), delete_icmp_alg_rules(),
+ * delete_catchup_all_filtering_rule_each_pdn()):
+ *
+ *   > 0  Number of staged WAN DL rules removed from Pdn_flt_rule_v{4,6}_list.
+ *        The DL rule table changed; the caller must re-push it to Q6 via
+ *        install_wan_filtering_rule().
+ *     0  No change. The rule is still referenced by other connections on
+ *        this PDN, or was not installed. The caller must NOT re-push.
+ *   < 0  Error, e.g. -ENOENT when no PDN filter entry exists for this
+ *        (pdn_iface, iptype). The caller must NOT re-push.
+ */
 int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype);
 int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype);
 int delete_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type iptype);
