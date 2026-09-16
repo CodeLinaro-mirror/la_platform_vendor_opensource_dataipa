@@ -3026,6 +3026,51 @@ failed_ret:
 
 
 
+/**
+ * ipa_be_teardown_pdn_dl_rules() - drop this connection's reference to the
+ * PDN-global DL rule set, re-pushing to Q6 only if the table changed.
+ * @pdn_iface: PDN interface number
+ * @iptype: IP version (IPA_IP_v4 or IPA_IP_v6)
+ *
+ * The default / ICMP-ALG / catchup-all DL rules are shared by every
+ * connection on a PDN, so these deletes are ref-counted and are usually
+ * no-ops. Re-pushing an unchanged table makes Q6 rewrite its DL filter table
+ * for nothing, which costs DL packets on the *other* connections that are
+ * still accelerated and were never defuncted.
+ *
+ * Delete order is load-bearing: the three helpers decrement one shared
+ * ref_count using staggered thresholds tuned to catchup -> icmp -> dft.
+ * The helpers log their own failures, so only the push is logged here.
+ */
+static void ipa_be_teardown_pdn_dl_rules(int pdn_iface, enum ipa_ip_type iptype)
+{
+	int removed = 0;
+	int rc;
+
+	rc = delete_catchup_all_filtering_rule_each_pdn(pdn_iface, iptype);
+	if (rc > 0)
+		removed += rc;
+
+	rc = delete_icmp_alg_rules(pdn_iface, iptype);
+	if (rc > 0)
+		removed += rc;
+
+	rc = delete_dft_filtering_rule(pdn_iface, iptype);
+	if (rc > 0)
+		removed += rc;
+
+	if (!removed) {
+		IPA_BE_DBG("DL rules unchanged for pdn %d ip %d; skip Q6 push\n",
+			   pdn_iface, iptype);
+		return;
+	}
+
+	rc = install_wan_filtering_rule(false);
+	if (rc)
+		IPA_BE_ERR("Failed to push DL rules to Q6, pdn %d ip %d: %d\n",
+			   pdn_iface, iptype, rc);
+}
+
 void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 {
 	bool lan2lan = false;
@@ -3249,11 +3294,8 @@ void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
 			}
 
-			/* Delete downlink rules */
-			delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v4);
-			delete_icmp_alg_rules(pdn_iface, IPA_IP_v4);
-			delete_dft_filtering_rule(pdn_iface, IPA_IP_v4);
-			install_wan_filtering_rule(false);
+			/* Delete downlink rules; re-push to Q6 only if the table changed */
+			ipa_be_teardown_pdn_dl_rules(pdn_iface, IPA_IP_v4);
 
 #ifdef CONFIG_ECM_CONVERGENCE
 			ipa_be_delete_entry(*msg, false);
@@ -3500,11 +3542,8 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
 			}
 
-			/* Delete downlink rules */
-			delete_catchup_all_filtering_rule_each_pdn(pdn_iface, IPA_IP_v6);
-			delete_icmp_alg_rules(pdn_iface, IPA_IP_v6);
-			delete_dft_filtering_rule(pdn_iface, IPA_IP_v6);
-			install_wan_filtering_rule(false);
+			/* Delete downlink rules; re-push to Q6 only if the table changed */
+			ipa_be_teardown_pdn_dl_rules(pdn_iface, IPA_IP_v6);
 
 #ifdef CONFIG_ECM_CONVERGENCE
 			/* Hold ipa_client_db_lock across the entire QoS cleanup sequence to
