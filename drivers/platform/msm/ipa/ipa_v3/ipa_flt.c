@@ -11,7 +11,7 @@
 #define IPA_FLT_STATUS_OF_ADD_FAILED		(-1)
 #define IPA_FLT_STATUS_OF_DEL_FAILED		(-1)
 #define IPA_FLT_STATUS_OF_MDFY_FAILED		(-1)
-#define IPA_FLT_MAX_IMM_CMD_CHAIN_LENGTH	(10)
+#define IPA_FLT_MAX_IMM_CMD_CHAIN_LENGTH	(19)
 
 #define IPA_FLT_GET_RULE_TYPE(__entry) \
 	( \
@@ -497,6 +497,53 @@ static bool ipa_flt_skip_pipe_config(int pipe)
 	return false;
 }
 
+/*
+ * ipa_flt_construct_hdr_run_cmd() - build one DMA_SHARED_MEM command that
+ * copies a contiguous run of [run_start_idx, run_start_idx + run_len)
+ * header slots in a single shot, instead of one command per slot.
+ *
+ * @sys_base is NOT a set of separately allocated per-pipe DDR buffers -
+ * it is alloc_params.{nhash,hash}_hdr.phys_base, the physical address of
+ * ONE dma_alloc_coherent() buffer sized for ALL pipes
+ * (tbls_num * tbl_hdr_width bytes, see ipa_fltrt_alloc_init_tbl_hdr() in
+ * ipahal_fltrt.c) and freshly allocated on every commit. Every pipe's
+ * 8-byte header pointer is written into its hdr_idx slot of that single
+ * buffer before this function runs, so slots are contiguous in both the
+ * source (DDR) and destination (SRAM, same hdr_idx * tbl_hdr_width
+ * stride) - that is what makes copying a whole run in one DMA safe.
+ * This differs from a table's *body*: if a pipe's rules don't fit in
+ * local SRAM (in_sys/force_sys), its body lives in its own independent
+ * dma_alloc_coherent() allocation (ipahal_fltrt_allocate_hw_sys_tbl()).
+ * This function never touches body memory - it only copies the pointer
+ * array that tells the HW where each pipe's body currently lives.
+ */
+static int ipa_flt_construct_hdr_run_cmd(enum ipa_ip_type ip,
+	u64 sys_base, u32 lcl_base, u32 tbl_hdr_width,
+	u32 run_start_idx, u32 run_len,
+	struct ipa3_desc *desc, struct ipahal_imm_cmd_pyld **cmd_pyld)
+{
+	struct ipahal_imm_cmd_dma_shared_mem mem_cmd = {0};
+
+	mem_cmd.is_read = false;
+	mem_cmd.skip_pipeline_clear = false;
+	mem_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
+	mem_cmd.size = run_len * tbl_hdr_width;
+	/* run_start_idx is an hdr_idx - contiguous slot number within the
+	 * single header buffer described above, not a pipe number.
+	 */
+	mem_cmd.system_addr = sys_base + run_start_idx * tbl_hdr_width;
+	mem_cmd.local_addr = lcl_base + run_start_idx * tbl_hdr_width;
+	*cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_DMA_SHARED_MEM,
+		&mem_cmd, false);
+	if (!*cmd_pyld) {
+		IPAERR("fail construct dma_shared_mem cmd: IP = %d\n", ip);
+		return -ENOMEM;
+	}
+	ipa3_init_imm_cmd_desc(desc, *cmd_pyld);
+
+	return 0;
+}
+
 /**
  * __ipa_commit_flt_v3() - commit flt tables to the hw
  *  commit the headers and the bodies if are local with internal cache flushing.
@@ -713,76 +760,149 @@ int __ipa_commit_flt_v3(enum ipa_ip_type ip)
 		++num_cmd;
 	}
 
+	/*
+	 * Build the header-pointer DMA command(s).
+	 *
+	 * hdr_idx walks the header buffer's slot number - it only advances
+	 * for pipes that actually get a slot (ipa_is_ep_support_flt() ==
+	 * true), matching how ipahal_flt_generate_empty_img()/
+	 * ipa_fltrt_alloc_init_tbl_hdr() populated that same buffer:
+	 * slot 0 is the first flt-supporting pipe, slot 1 the next, etc,
+	 * with no slot reserved for a non-supporting pipe. So hdr_idx is
+	 * NOT the same number as the pipe/EP index "i".
+	 *
+	 * We used to issue one DMA_SHARED_MEM command per hdr_idx (i.e.
+	 * per pipe). That is correct but wasteful: with ~20 flt-capable
+	 * pipes this alone could produce ~20 commands just for headers,
+	 * which combined with the 2 body commands below could exceed
+	 * IPA_FLT_MAX_IMM_CMD_CHAIN_LENGTH and force this commit to split
+	 * across two separate ipa3_send_cmd() batches - reopening a race
+	 * where hardware could process the header batch and start using
+	 * the new header pointer before the second batch (with the actual
+	 * body content that pointer refers to) has landed.
+	 *
+	 * Fix: since adjacent hdr_idx values are contiguous slots in the
+	 * very same header buffer (see ipa_flt_construct_hdr_run_cmd()
+	 * above), we can copy a whole run of consecutive, non-skipped
+	 * hdr_idx values with ONE DMA_SHARED_MEM command instead of one
+	 * per slot. This loop just detects those runs and flushes each
+	 * one as soon as it's interrupted by a skipped pipe.
+	 */
 	hdr_idx = 0;
-	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
-		if (!ipa_is_ep_support_flt(i)) {
-			IPADBG_LOW("skip %d - not filtering pipe\n", i);
-			continue;
-		}
-
-		if ((i < ipa3_ctx->ipa_num_pipes && ipa_flt_skip_pipe_config(i)) ||
-		    (i >= IPA6_Q6_NXT_FLT_TBL_START && i <= IPA6_Q6_NXT_FLT_TBL_END)) {
-			hdr_idx++;
-			continue;
-		}
-
-		if (num_cmd + 1 >= entries) {
-			IPAERR("number of commands is out of range: IP = %d\n",
-				ip);
-			rc = -ENOBUFS;
-			goto fail_imm_cmd_construct;
-		}
-
-		IPADBG_LOW("Prepare imm cmd for hdr at index %d for pipe %d\n",
-			hdr_idx, i);
-
-		mem_cmd.is_read = false;
-		mem_cmd.skip_pipeline_clear = false;
-		mem_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
-		mem_cmd.size = tbl_hdr_width;
-		mem_cmd.system_addr = alloc_params.nhash_hdr.phys_base +
-			hdr_idx * tbl_hdr_width;
-		mem_cmd.local_addr = lcl_nhash_hdr +
-			hdr_idx * tbl_hdr_width;
-		cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(
-			IPA_IMM_CMD_DMA_SHARED_MEM, &mem_cmd, false);
-		if (!cmd_pyld[num_cmd]) {
-			IPAERR("fail construct dma_shared_mem cmd: IP = %d\n",
-				ip);
-			rc = -ENOMEM;
-			goto fail_imm_cmd_construct;
-		}
-		ipa3_init_imm_cmd_desc(&desc[num_cmd], cmd_pyld[num_cmd]);
-		++num_cmd;
+	{
+		/* True while we're in the middle of a run of contiguous,
+		 * non-skipped hdr_idx values not yet flushed to a command.
+		 */
+		bool run_active = false;
+		bool skip;
+		u32 run_start_hdr_idx = 0;
+		int run_start_pipe = -1;
+		int run_end_pipe = -1;
+		u32 run_len = 0;
 
 		/*
-		 * SRAM memory not allocated to hash tables. Sending command
-		 * to hash tables(filer/routing) operation not supported.
+		 * Sentinel iteration: loop one extra time past the last
+		 * pipe index (i == IPA_MAX_FLT_TBLS) purely so a run still
+		 * open at the last real pipe gets flushed by the same
+		 * "skip" handling below, instead of duplicating the flush
+		 * code after the loop.
 		 */
-		if (!ipa3_ctx->ipa_fltrt_not_hashable) {
-			mem_cmd.is_read = false;
-			mem_cmd.skip_pipeline_clear = false;
-			mem_cmd.pipeline_clear_options = IPAHAL_HPS_CLEAR;
-			mem_cmd.size = tbl_hdr_width;
-			mem_cmd.system_addr = alloc_params.hash_hdr.phys_base +
-				hdr_idx * tbl_hdr_width;
-			mem_cmd.local_addr = lcl_hash_hdr +
-				hdr_idx * tbl_hdr_width;
-			cmd_pyld[num_cmd] = ipahal_construct_imm_cmd(
-					IPA_IMM_CMD_DMA_SHARED_MEM,
-						&mem_cmd, false);
-			if (!cmd_pyld[num_cmd]) {
-				IPAERR(
-				"fail construct dma_shared_mem cmd: IP = %d\n",
-						ip);
-				rc = -ENOMEM;
-				goto fail_imm_cmd_construct;
+		for (i = 0; i <= IPA_MAX_FLT_TBLS; i++) {
+			if (i < IPA_MAX_FLT_TBLS && !ipa_is_ep_support_flt(i)) {
+				/* This pipe never got a header slot at all -
+				 * hdr_idx must NOT advance for it.
+				 */
+				IPADBG_LOW("skip %d - not filtering pipe\n", i);
+				continue;
 			}
-			ipa3_init_imm_cmd_desc(&desc[num_cmd],
-						cmd_pyld[num_cmd]);
-			++num_cmd;
+
+			/* This pipe has a header slot (hdr_idx will advance
+			 * for it below), but its content wasn't rebuilt this
+			 * commit (e.g. Q6-owned table, or config says skip),
+			 * so it must NOT be folded into the current run - it
+			 * would DMA in stale/unintended slot content.
+			 */
+			skip = i == IPA_MAX_FLT_TBLS ||
+				(i < ipa3_ctx->ipa_num_pipes &&
+				 ipa_flt_skip_pipe_config(i)) ||
+				(i >= IPA6_Q6_NXT_FLT_TBL_START &&
+				 i <= IPA6_Q6_NXT_FLT_TBL_END);
+
+			if (skip) {
+				/* Flush whatever run we'd accumulated up to
+				 * (but not including) this skipped slot.
+				 */
+				if (run_active) {
+					if (num_cmd + 1 >= entries) {
+						IPAERR("number of commands is out of range: IP = %d\n",
+							ip);
+						rc = -ENOBUFS;
+						goto fail_imm_cmd_construct;
+					}
+
+					IPADBG("flt commit IP=%d: hdr run covers %u pipe(s) [pipe %d..%d], hdr_idx [%u..%u)\n",
+						ip, run_len, run_start_pipe,
+						run_end_pipe, run_start_hdr_idx,
+						run_start_hdr_idx + run_len);
+
+					/* One command copies this whole run's
+					 * slots into the non-hash header table.
+					 */
+					if (ipa_flt_construct_hdr_run_cmd(ip,
+						alloc_params.nhash_hdr.phys_base,
+						lcl_nhash_hdr, tbl_hdr_width,
+						run_start_hdr_idx, run_len,
+						&desc[num_cmd],
+						&cmd_pyld[num_cmd])) {
+						rc = -ENOMEM;
+						goto fail_imm_cmd_construct;
+					}
+					++num_cmd;
+
+					/* Same run, same slot numbers, but
+					 * into the separate hash header table
+					 * (hash and non-hash tables mirror the
+					 * same per-pipe slot layout).
+					 */
+					if (!ipa3_ctx->ipa_fltrt_not_hashable) {
+						if (ipa_flt_construct_hdr_run_cmd(ip,
+							alloc_params.hash_hdr.phys_base,
+							lcl_hash_hdr, tbl_hdr_width,
+							run_start_hdr_idx, run_len,
+							&desc[num_cmd],
+							&cmd_pyld[num_cmd])) {
+							rc = -ENOMEM;
+							goto fail_imm_cmd_construct;
+						}
+						++num_cmd;
+					}
+
+					run_active = false;
+				}
+				/* A skipped pipe (other than the sentinel)
+				 * still owns a header slot, so hdr_idx must
+				 * advance past it even though we didn't DMA
+				 * it - otherwise every later pipe's hdr_idx,
+				 * and hence its DMA offset, would be wrong.
+				 */
+				if (i < IPA_MAX_FLT_TBLS)
+					hdr_idx++;
+				continue;
+			}
+
+			/* Not skipped: extend the current run, or start a
+			 * new one if none is active.
+			 */
+			if (!run_active) {
+				run_active = true;
+				run_start_hdr_idx = hdr_idx;
+				run_start_pipe = i;
+				run_len = 0;
+			}
+			run_end_pipe = i;
+			run_len++;
+			hdr_idx++;
 		}
-		++hdr_idx;
 	}
 
 	if (lcl_nhash && alloc_params.num_lcl_nhash_tbls > 0) {
