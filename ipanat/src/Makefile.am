@@ -7,6 +7,13 @@ AM_CFLAGS = -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -I../inc
 common_CFLAGS =  -DUSE_GLIB @GLIB_CFLAGS@
 common_LDFLAGS = -lrt @GLIB_LIBS@
 
+CLOG_CFLAGS =
+CLOG_LIBS =
+if USE_CLOG
+CLOG_CFLAGS = -DUSE_CLOG @CLOGLOG_CFLAGS@
+CLOG_LIBS = $(CLOGLOG_LIBS)
+endif
+
 library_includedir = $(pkgincludedir)
 
 cpp_sources = ipa_nat_map.cpp
@@ -34,6 +41,6 @@ lib_LTLIBRARIES = libipanat.la
 libipanat_la_C = @C@
 libipanat_la_CC = @CC@
 libipanat_la_SOURCES = $(c_sources) $(cpp_sources)
-libipanat_la_CFLAGS = $(AM_CFLAGS) $(common_CFLAGS)
-libipanat_la_CXXFLAGS = $(AM_CFLAGS) $(common_CPPFLAGS)
-libipanat_la_LDFLAGS = -shared $(common_LDFLAGS) -version-info 1:0:0
+libipanat_la_CFLAGS = $(AM_CFLAGS) $(common_CFLAGS) $(CLOG_CFLAGS)
+libipanat_la_CXXFLAGS = $(AM_CFLAGS) $(common_CPPFLAGS) $(CLOG_CFLAGS)
+libipanat_la_LDFLAGS = -shared $(common_LDFLAGS) $(CLOG_LIBS) -version-info 1:0:0

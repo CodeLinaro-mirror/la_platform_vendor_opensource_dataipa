@@ -82,6 +82,12 @@
 #endif
 #endif
 
+/* Included outside the extern "C" block below, same as glib.h. */
+#ifdef USE_CLOG
+#include "clog.h"
+#include "clog_ids.h"
+#endif
+
 #ifndef FALSE
 #define FALSE 0
 #endif
@@ -102,6 +108,13 @@ extern "C"
 #ifndef USE_GLIB
 size_t strlcpy(char* dst, const char* src, size_t size);
 #endif
+#endif
+
+#ifdef USE_CLOG
+/* ipanat links only into ipacm, so it uses ipacm's DIAG SSID. */
+#define IPA_NAT_CLOG_CTX_ID     CLOG_LCTX_QIPA
+#define IPA_NAT_CLOG_CTX_NAME   "QIPA"
+#define IPA_NAT_CLOG_DIAG_SSID  MSG_SSID_DATA_IPACM
 #endif
 
 typedef enum
