@@ -3379,12 +3379,12 @@ int ipa_be_query_tuple_stats(const struct ipa_stats_tuple_info *tuple,
 
 	if (idx < 0 || stats_cnt == 0) {
 		if (tuple->af == AF_INET)
-			IPA_BE_DBG("no cache match: %pI4:%u<->%pI4:%u proto=%u\n",
+			IPA_BE_LOW("no cache match: %pI4:%u<->%pI4:%u proto=%u\n",
 				   &tuple->src_addr[0], ntohs(tuple->src_port),
 				   &tuple->dst_addr[0], ntohs(tuple->dst_port),
 				   tuple->protocol);
 		else
-			IPA_BE_DBG("no cache match: %pI6c:%u<->%pI6c:%u proto=%u\n",
+			IPA_BE_LOW("no cache match: %pI6c:%u<->%pI6c:%u proto=%u\n",
 				   (struct in6_addr *)tuple->src_addr, ntohs(tuple->src_port),
 				   (struct in6_addr *)tuple->dst_addr, ntohs(tuple->dst_port),
 				   tuple->protocol);
@@ -3410,14 +3410,14 @@ int ipa_be_query_tuple_stats(const struct ipa_stats_tuple_info *tuple,
 	out->num_bytes_outbound      = hw.num_bytes_outbound;
 
 	if (tuple->af == AF_INET)
-		IPA_BE_DBG("stats for %pI4:%u<->%pI4:%u proto=%u cache_idx=%d cnt_idx=%u: in_pkts=%u in_bytes=%llu out_pkts=%u out_bytes=%llu\n",
+		IPA_BE_LOW("stats for %pI4:%u<->%pI4:%u proto=%u cache_idx=%d cnt_idx=%u: in_pkts=%u in_bytes=%llu out_pkts=%u out_bytes=%llu\n",
 			   &tuple->src_addr[0], ntohs(tuple->src_port),
 			   &tuple->dst_addr[0], ntohs(tuple->dst_port),
 			   tuple->protocol, idx, stats_cnt,
 			   hw.num_pkts_inbound, hw.num_bytes_inbound,
 			   hw.num_pkts_outbound, hw.num_bytes_outbound);
 	else
-		IPA_BE_DBG("stats for %pI6c:%u<->%pI6c:%u proto=%u cache_idx=%d cnt_idx=%u: in_pkts=%u in_bytes=%llu out_pkts=%u out_bytes=%llu\n",
+		IPA_BE_LOW("stats for %pI6c:%u<->%pI6c:%u proto=%u cache_idx=%d cnt_idx=%u: in_pkts=%u in_bytes=%llu out_pkts=%u out_bytes=%llu\n",
 			   (struct in6_addr *)tuple->src_addr, ntohs(tuple->src_port),
 			   (struct in6_addr *)tuple->dst_addr, ntohs(tuple->dst_port),
 			   tuple->protocol, idx, stats_cnt,

@@ -12,6 +12,7 @@
 #include <linux/workqueue.h>
 #include <linux/sched.h>
 #include <linux/cpumask.h>
+#include <linux/ratelimit.h>
 #include "ipa_api.h"
 #include "../ipa_common_i.h"
 
@@ -33,6 +34,18 @@
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 		ipa3_diag_log_write(IPA_DIAG_LVL_DBG, OFFLOAD_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
+	} while (0)
+
+/* IPA_BE_DBG, capped per call site to DEFAULT_RATELIMIT_BURST hits per
+ * DEFAULT_RATELIMIT_INTERVAL. Use for prints that can fire every poll/timer
+ * tick for a condition that persists indefinitely.
+ */
+#define IPA_BE_DBG_RL(fmt, args...) \
+	do { \
+		static DEFINE_RATELIMIT_STATE(_rs, \
+			DEFAULT_RATELIMIT_INTERVAL, DEFAULT_RATELIMIT_BURST); \
+		if (__ratelimit(&_rs)) \
+			IPA_BE_DBG(fmt, ## args); \
 	} while (0)
 
 #define  IPA_BE_LOW(fmt, args...) \
