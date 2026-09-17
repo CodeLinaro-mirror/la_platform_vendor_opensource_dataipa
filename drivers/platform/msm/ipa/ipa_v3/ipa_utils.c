@@ -14829,41 +14829,55 @@ err:
 	return -ENOMEM;
 }
 
-void ipa3_counter_remove_hdl(int hdl)
+int ipa3_counter_remove_hdl(int hdl)
 {
 	struct ipa_ioc_flt_rt_counter_alloc *counter;
-	int offset = 0;
+	int hw_offset = 0;
+	int sw_offset = 0;
+	int ret = 0;
 
 	spin_lock(&ipa3_ctx->flt_rt_counters.hdl_lock);
 	counter = idr_find(&ipa3_ctx->flt_rt_counters.hdl, hdl);
 	if (counter == NULL) {
 		IPAERR_RL("unexpected hdl %d\n", hdl);
-		goto err;
+		ret = -ENOENT;
+		goto unlock;
 	}
 	/* remove counters belong to this hdl, set used back to 0 */
-	offset = counter->hw_counter.start_id - 1;
-	if (offset >= 0 && (offset + counter->hw_counter.num_counters)
-		< IPA_FLT_RT_HW_COUNTER) {
-		memset(&ipa3_ctx->flt_rt_counters.used_hw[offset],
-			   0, counter->hw_counter.num_counters * sizeof(bool));
-	} else {
-		IPAERR_RL("unexpected hdl %d\n", hdl);
-		goto err;
+	if (counter->hw_counter.num_counters) {
+		hw_offset = counter->hw_counter.start_id - 1;
+		if (hw_offset < 0 ||
+			(hw_offset + counter->hw_counter.num_counters)
+			> IPA_FLT_RT_HW_COUNTER) {
+			IPAERR_RL("unexpected hdl %d\n", hdl);
+			ret = -ERANGE;
+			goto unlock;
+		}
 	}
-	offset = counter->sw_counter.start_id - 1 - IPA_FLT_RT_HW_COUNTER;
-	if (offset >= 0 && (offset + counter->sw_counter.num_counters)
-		< IPA_FLT_RT_SW_COUNTER) {
-		memset(&ipa3_ctx->flt_rt_counters.used_sw[offset],
-		   0, counter->sw_counter.num_counters * sizeof(bool));
-	} else {
-		IPAERR_RL("unexpected hdl %d\n", hdl);
-		goto err;
+	if (counter->sw_counter.num_counters) {
+		sw_offset = counter->sw_counter.start_id - 1 -
+			IPA_FLT_RT_HW_COUNTER;
+		if (sw_offset < 0 ||
+			(sw_offset + counter->sw_counter.num_counters)
+			> IPA_FLT_RT_SW_COUNTER) {
+			IPAERR_RL("unexpected hdl %d\n", hdl);
+			ret = -ERANGE;
+			goto unlock;
+		}
 	}
+	if (counter->hw_counter.num_counters)
+		memset(&ipa3_ctx->flt_rt_counters.used_hw[hw_offset],
+			0, counter->hw_counter.num_counters * sizeof(bool));
+	if (counter->sw_counter.num_counters)
+		memset(&ipa3_ctx->flt_rt_counters.used_sw[sw_offset],
+			0, counter->sw_counter.num_counters * sizeof(bool));
 	/* remove the handle */
 	idr_remove(&ipa3_ctx->flt_rt_counters.hdl, hdl);
 	kmem_cache_free(ipa3_ctx->fnr_stats_cache, counter);
-err:
+unlock:
 	spin_unlock(&ipa3_ctx->flt_rt_counters.hdl_lock);
+
+	return ret;
 }
 
 void ipa3_counter_id_remove_all(void)
