@@ -85,7 +85,10 @@ enum ipa_eth_dir {
 
 /* HOLB timeouts in us, indexed by relative priority: [0] loosest, [last]
  * tightest. Sized for the v7 CPE TX layout (1 BE + 2 QoS); pre-7.0 uses the
- * first two entries. Reach only through ipa3_eth_qos_holb_tmr_uS().
+ * first two entries. qos_holb_tmr_auto is the legacy pre-7.0 auto DMA-channel
+ * layout (1 BE + up to 4 graded channels); IPA_7_0_AUTO uses the same 1 BE +
+ * 2 QoS client-type layout as v7 CPE, so it shares that table/count instead.
+ * Reach only through ipa3_eth_qos_holb_tmr_uS().
  */
 static u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7] = {31000, 500, 500};
 static u32 qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO] = {31000, 20000, 500, 500, 500};
@@ -99,8 +102,13 @@ u32 ipa3_eth_qos_holb_tmr_uS(u8 priority)
 	u32 cnt;
 
 	if (ipa3_ctx->ipa_config_is_auto) {
-		tbl = qos_holb_tmr_auto;
-		cnt = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+			tbl = qos_holb_tmr;
+			cnt = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7;
+		} else {
+			tbl = qos_holb_tmr_auto;
+			cnt = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
+		}
 	} else {
 		tbl = qos_holb_tmr;
 		cnt = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
