@@ -4470,6 +4470,120 @@ static int ipa_be_qos_install_one_rule(
 	return retval;
 }
 
+/*
+ * ipa_be_qos_resolve_tx_pipe() - Resolve the TX pipe a client's QoS rule
+ * should target, from the interface it is actually accelerated on.
+ * @iface_name: interface name from the client's ClientDB entry (not from
+ *              QoS_CLI/HAL -- the driver never trusts a caller-supplied
+ *              dev_name for pipe selection). May be empty.
+ * @iface_num: interface index from the same ClientDB entry, used when
+ *             @iface_name is empty or no longer resolves (e.g. the entry
+ *             predates iface_name being recorded).
+ * @ip_type: IPA_IP_v4 or IPA_IP_v6.
+ * @traffic_class: requested QoS traffic class.
+ * @tx_prop_out: on success, set to a kzalloc'd tx props array; caller owns it (kfree()).
+ * @tx_index_out: on success, set to the selected index within *tx_prop_out.
+ *
+ * A pipe whose tc_bmap includes @traffic_class is preferred, matching
+ * multi-queue interfaces such as ETH. If none exists, the first pipe of the
+ * right ip_type is used regardless of tc_bmap: WLAN has exactly one TX pipe
+ * per IP type and never tags it with a tc_bmap (its dedicated per-class QoS
+ * pipes in ipa_utils.c are defined but never connected). IPACM's own WLAN
+ * QoS path (IPACM_Wlan.cpp) already disables the equivalent tc_bmap gate for
+ * the same reason.
+ *
+ * Return: 0 on success, negative errno on failure.
+ */
+static int ipa_be_qos_resolve_tx_pipe(const char *iface_name,
+				       uint32_t iface_num,
+				       enum ipa_ip_type ip_type,
+				       uint8_t traffic_class,
+				       struct ipa_ioc_query_intf_tx_props **tx_prop_out,
+				       int *tx_index_out)
+{
+	struct ipa_ioc_query_intf temp_intf;
+	struct ipa_ioc_query_intf_tx_props *tx_prop;
+	int tx_index, fallback_index = -1;
+	bool resolved = false;
+
+	memset(&temp_intf, 0, sizeof(temp_intf));
+
+	if (iface_name && iface_name[0]) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+		strscpy(temp_intf.name, iface_name, sizeof(temp_intf.name));
+#else
+		strlcpy(temp_intf.name, iface_name, sizeof(temp_intf.name));
+#endif
+		resolved = (ipa3_query_intf(&temp_intf) == 0);
+		if (!resolved)
+			IPA_BE_DBG("Name lookup failed for %s; trying iface index %u\n",
+				   iface_name, iface_num);
+	}
+
+	/* Fall back to the index the client's rt rule was installed against.
+	 * Index 0 is never used as a key -- it is the unassigned default
+	 * shared by many entries, so it resolves to an arbitrary interface. */
+	if (!resolved && iface_num) {
+		memset(&temp_intf, 0, sizeof(temp_intf));
+		resolved = ipa3_query_iface((int)iface_num, &temp_intf);
+	}
+
+	if (!resolved) {
+		IPA_BE_ERR("Failed to resolve interface (name '%s', index %u)\n",
+			   (iface_name && iface_name[0]) ? iface_name : "<none>",
+			   iface_num);
+		return -EINVAL;
+	}
+
+	if (temp_intf.num_tx_props == 0) {
+		IPA_BE_ERR("Interface %s has no TX properties\n", temp_intf.name);
+		return -EINVAL;
+	}
+
+	tx_prop = (struct ipa_ioc_query_intf_tx_props *)kzalloc(
+		sizeof(struct ipa_ioc_query_intf_tx_props) +
+		temp_intf.num_tx_props * sizeof(struct ipa_ioc_tx_intf_prop),
+		GFP_KERNEL);
+	if (!tx_prop)
+		return -ENOMEM;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+	strscpy(tx_prop->name, temp_intf.name, sizeof(tx_prop->name));
+#else
+	strlcpy(tx_prop->name, temp_intf.name, sizeof(tx_prop->name));
+#endif
+	tx_prop->num_tx_props = temp_intf.num_tx_props;
+	if (ipa3_query_intf_tx_props(tx_prop)) {
+		IPA_BE_ERR("Failed to query TX props for interface %s\n", temp_intf.name);
+		kfree(tx_prop);
+		return -EINVAL;
+	}
+
+	for (tx_index = 0; tx_index < (int)temp_intf.num_tx_props; tx_index++) {
+		if (tx_prop->tx[tx_index].ip != ip_type)
+			continue;
+		if (fallback_index < 0)
+			fallback_index = tx_index;
+		if (tx_prop->tx[tx_index].tc_bmap & (1U << traffic_class)) {
+			*tx_prop_out = tx_prop;
+			*tx_index_out = tx_index;
+			return 0;
+		}
+	}
+
+	if (fallback_index < 0) {
+		IPA_BE_ERR("No TX pipe for ip_type %d on %s\n", ip_type, temp_intf.name);
+		kfree(tx_prop);
+		return -EINVAL;
+	}
+
+	IPA_BE_DBG("No tc_bmap match for tc %d on %s; falling back to pipe index %d\n",
+		   traffic_class, temp_intf.name, fallback_index);
+	*tx_prop_out = tx_prop;
+	*tx_index_out = fallback_index;
+	return 0;
+}
+
 /**
  * ipa_be_install_qos_route_rule - Install a QoS routing rule in IPA
  * @qos_param: QoS configuration parameters including IP tuple, traffic class,
@@ -4485,10 +4599,8 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 {
 	int retval = 0;
 	struct ipa_ioc_query_intf_tx_props *tx_prop = NULL;
-	int tx_index;
-	struct ipa_ioc_query_intf temp_intf;
+	int tx_index = -1;
 	struct ipa_clientdb_mapping_instance *mi = NULL;
-	bool found_pipe = false;
 	bool iterate_all_clients = false;
 	bool mac_filter_active = false;
 	uint8_t mac_filter[IPA_MAC_ADDR_SIZE] = {0};
@@ -4497,9 +4609,18 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 	/* Header handle from the explicit dst_ip path (v4/v6); separate from mi_hdr_hdl, which the MAC+VLAN lookup below populates. */
 	int dst_ip_hdr_hdl = 0;
 	bool found_client = false;
+	/* Interface the resolved client is actually accelerated on, per
+	 * ClientDB -- never the caller-supplied qos_param->dev_name. Only
+	 * meaningful for the found_client/explicit-dst_ip single-client
+	 * paths; iterate_all_clients resolves this per client instead.
+	 */
+	char iface_name[IPA_RESOURCE_NAME_MAX] = {0};
+	uint32_t iface_num = 0;
 	struct qos_client_entry {
 		ip_addr_t addr;
 		int hdr_hdl;
+		char iface_name[IPA_RESOURCE_NAME_MAX];
+		uint32_t iface_num;
 	} *clients = NULL;
 
 	if (!qos_param) {
@@ -4543,6 +4664,12 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 				memcpy(mi_addr, mi->address, sizeof(ip_addr_t));
 				mi_hdr_hdl = (int)mi->lan2wan_info.hdr_hdl;
 				mi_rt_hdl = mi->lan2wan_info.rt_hdl;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+				strscpy(iface_name, mi->iface_name, sizeof(iface_name));
+#else
+				strlcpy(iface_name, mi->iface_name, sizeof(iface_name));
+#endif
+				iface_num = mi->iface_num;
 				found_client = true;
 			}
 			mutex_unlock(&ipa_client_db_lock);
@@ -4590,9 +4717,22 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 				/* Retain the header handle -- without it the rule installs with hdr_ofst 0 (no L2 header) and DSCP marking can't apply. */
 				if (ip_hdr_hdl > 0)
 					dst_ip_hdr_hdl = ip_hdr_hdl;
+
+				mutex_lock(&ipa_client_db_lock);
+				mi = ipa_be_clientdb_get_mapping_by_ip_locked(lookup_addr);
+				if (mi) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+					strscpy(iface_name, mi->iface_name, sizeof(iface_name));
+#else
+					strlcpy(iface_name, mi->iface_name, sizeof(iface_name));
+#endif
+					iface_num = mi->iface_num;
+				}
+				mutex_unlock(&ipa_client_db_lock);
+
 				IPA_BE_DBG("IPv4 client IP %pI4n found in mapping "
-					   "(rt_hdl %d hdr_hdl %d); installing QoS rule\n",
-					   &lookup_addr[0], ip_rt_hdl, ip_hdr_hdl);
+					   "(rt_hdl %d hdr_hdl %d iface %s); installing QoS rule\n",
+					   &lookup_addr[0], ip_rt_hdl, ip_hdr_hdl, iface_name);
 				if (qos_param->src_ip_addr)
 					IPA_BE_DBG("src_ip=%pI4n also set as filter attribute\n",
 						   &src_ip_be);
@@ -4635,9 +4775,22 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 				/* Same rationale as the v4 path above. */
 				if (ip_hdr_hdl > 0)
 					dst_ip_hdr_hdl = ip_hdr_hdl;
+
+				mutex_lock(&ipa_client_db_lock);
+				mi = ipa_be_clientdb_get_mapping_by_ip_locked(dst_v6_be);
+				if (mi) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+					strscpy(iface_name, mi->iface_name, sizeof(iface_name));
+#else
+					strlcpy(iface_name, mi->iface_name, sizeof(iface_name));
+#endif
+					iface_num = mi->iface_num;
+				}
+				mutex_unlock(&ipa_client_db_lock);
+
 				IPA_BE_DBG("IPv6 client IP %pI6n found in mapping "
-					   "(rt_hdl %d hdr_hdl %d); installing QoS rule\n",
-					   dst_v6_be, ip_rt_hdl, ip_hdr_hdl);
+					   "(rt_hdl %d hdr_hdl %d iface %s); installing QoS rule\n",
+					   dst_v6_be, ip_rt_hdl, ip_hdr_hdl, iface_name);
 			} else {
 				IPA_BE_ERR("IPv6 client IP %pI6n NOT found in mapping table (rt_hdl=%d), skipping\n",
 					   dst_v6_be, ip_rt_hdl);
@@ -4674,79 +4827,25 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 		qos_param->vlan_count,
 		qos_param->vlan_count ? qos_param->vlan_ids[0] : 0);
 
-	/* Query the interface by name to get TX property count */
-	memset(&temp_intf, 0, sizeof(temp_intf));
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-	strscpy(temp_intf.name, qos_param->dev_name, sizeof(temp_intf.name));
-#else
-	strlcpy(temp_intf.name, qos_param->dev_name, sizeof(temp_intf.name));
-#endif
-
-	if (ipa3_query_intf(&temp_intf)) {
-		IPA_BE_ERR("Failed to query interface %s\n", qos_param->dev_name);
-		retval = -EINVAL;
-		goto cleanup;
-	}
-
-	if (temp_intf.num_tx_props == 0) {
-		IPA_BE_ERR("Interface %s has no TX properties\n", qos_param->dev_name);
-		retval = -EINVAL;
-		goto cleanup;
-	}
-
-	/* Allocate and populate TX properties */
-	tx_prop = (struct ipa_ioc_query_intf_tx_props *)kzalloc(
-		sizeof(struct ipa_ioc_query_intf_tx_props) +
-		temp_intf.num_tx_props * sizeof(struct ipa_ioc_tx_intf_prop),
-		GFP_KERNEL);
-	if (!tx_prop) {
-		IPA_BE_ERR("Failed to allocate tx_prop\n");
-		retval = -ENOMEM;
-		goto cleanup;
-	}
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-	strscpy(tx_prop->name, temp_intf.name, sizeof(tx_prop->name));
-#else
-	strlcpy(tx_prop->name, temp_intf.name, sizeof(tx_prop->name));
-#endif
-	tx_prop->num_tx_props = temp_intf.num_tx_props;
-	if (ipa3_query_intf_tx_props(tx_prop)) {
-		IPA_BE_ERR("Failed to query TX props for interface %s\n", qos_param->dev_name);
-		retval = -EINVAL;
-		goto cleanup;
-	}
-
 	/*
-	 * Find the right TX pipe based on traffic class.
-	 * tc_bmap is the sole authority — a pipe must have the requested TC
-	 * bit set to be eligible.  Pipes with tc_bmap == 0 (BE pipes) are
-	 * always skipped.  If no matching pipe is found the rule is not
-	 * installed; the caller must first configure the pipe via
-	 * IPA_IOC_SET_PIPE_TC_BITMAP.
+	 * Resolve the TX pipe from the client's own ClientDB-tracked
+	 * interface -- never from qos_param->dev_name. iterate_all_clients
+	 * resolves this per client (different clients in a catch-all call
+	 * can be on different interfaces); the single-client paths
+	 * (found_client / explicit dst_ip) resolve it once here.
 	 */
-	for (tx_index = 0; tx_index < (int)temp_intf.num_tx_props; tx_index++) {
-		if (tx_prop->tx[tx_index].ip != (enum ipa_ip_type)qos_param->ip_type)
-			continue;
-		if (tx_prop->tx[tx_index].tc_bmap == 0)
-			continue;
-		if (!(tx_prop->tx[tx_index].tc_bmap &
-		      (1U << qos_param->traffic_class)))
-			continue;
-		found_pipe = true;
-		break;
-	}
+	if (!iterate_all_clients) {
+		retval = ipa_be_qos_resolve_tx_pipe(iface_name, iface_num,
+						     qos_param->ip_type,
+						     qos_param->traffic_class,
+						     &tx_prop, &tx_index);
+		if (retval)
+			goto cleanup;
 
-	if (!found_pipe) {
-		IPA_BE_ERR("No matching TX pipe for traffic class %d on %s\n",
-			qos_param->traffic_class, qos_param->dev_name);
-		retval = -EINVAL;
-		goto cleanup;
+		IPA_BE_DBG("Using TX index %d (dst_pipe %d, tc_bmap 0x%x) for QoS rule\n",
+			tx_index, tx_prop->tx[tx_index].dst_pipe,
+			tx_prop->tx[tx_index].tc_bmap);
 	}
-
-	IPA_BE_DBG("Using TX index %d (dst_pipe %d, tc_bmap 0x%x) for QoS rule\n",
-		tx_index, tx_prop->tx[tx_index].dst_pipe,
-		tx_prop->tx[tx_index].tc_bmap);
 
 	if (found_client) {
 		/* MAC+VLAN case: one rule for this specific client. */
@@ -4789,6 +4888,12 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 			if (mac_filter_active &&
 			    memcmp(it->mac_addr_t, mac_filter, IPA_MAC_ADDR_SIZE))
 				continue;
+			/* Scope the filter to its interface when both names are
+			 * known. An empty dev_name means "any interface": the
+			 * HAL sends none for WLAN. */
+			if (qos_param->dev_name[0] && it->iface_name[0] &&
+			    strcmp(qos_param->dev_name, it->iface_name))
+				continue;
 			capacity++;
 		}
 		mutex_unlock(&ipa_client_db_lock);
@@ -4822,9 +4927,21 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 			if (mac_filter_active &&
 			    memcmp(it->mac_addr_t, mac_filter, IPA_MAC_ADDR_SIZE))
 				continue;
+			/* Keep in sync with the counting pass above. */
+			if (qos_param->dev_name[0] && it->iface_name[0] &&
+			    strcmp(qos_param->dev_name, it->iface_name))
+				continue;
 
 			memcpy(clients[num_clients].addr, it->address, sizeof(ip_addr_t));
 			clients[num_clients].hdr_hdl = (int)it->lan2wan_info.hdr_hdl;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+			strscpy(clients[num_clients].iface_name, it->iface_name,
+				sizeof(clients[num_clients].iface_name));
+#else
+			strlcpy(clients[num_clients].iface_name, it->iface_name,
+				sizeof(clients[num_clients].iface_name));
+#endif
+			clients[num_clients].iface_num = it->iface_num;
 			num_clients++;
 		}
 		mutex_unlock(&ipa_client_db_lock);
@@ -4837,37 +4954,43 @@ int ipa_be_install_qos_route_rule(struct ipa_ioc_qos_config *qos_param)
 
 		retval = -EFAULT; /* assume failure; cleared on first successful install */
 		for (int c = 0; c < num_clients; c++) {
+			struct ipa_ioc_query_intf_tx_props *client_tx_prop = NULL;
+			int client_tx_index;
 			int r;
 
-			/*
-			 * Reset before each call so we observe what THIS install
-			 * allocated.  Each ipa_be_qos_install_one_rule may create
-			 * a fresh proc_ctx (when dscp_mark_val is set); the routing
-			 * rule itself takes a refcount on the proc_ctx during
-			 * ipa3_add_rt_rule_with_id().  We hold a second
-			 * (install-time) reference that would normally be released
-			 * at delete time via the cache's stored proc_ctx_hdl.  In
-			 * the multi-client
-			 * iteration the cache only retains the LAST client's hdl,
-			 * so the install-time references for clients [0..N-2] would
-			 * leak.  Drop them here: the routing rule's reference keeps
-			 * each proc_ctx alive while its HW rule exists, and the
-			 * proc_ctx is freed automatically when the rule is deleted.
-			 */
+			/* Cleared before resolve: a skipped iteration must not
+			 * leave a previous client's handle here to be cached. */
 			qos_param->proc_ctx_hdl = 0;
 
-			r = ipa_be_qos_install_one_rule(qos_param, tx_prop, tx_index,
+			r = ipa_be_qos_resolve_tx_pipe(clients[c].iface_name,
+							clients[c].iface_num,
+							qos_param->ip_type,
+							qos_param->traffic_class,
+							&client_tx_prop, &client_tx_index);
+			if (r) {
+				IPA_BE_ERR("Failed to resolve TX pipe for client %d on %s: %d\n",
+					   c, clients[c].iface_name, r);
+				continue;
+			}
+
+			r = ipa_be_qos_install_one_rule(qos_param, client_tx_prop, client_tx_index,
 							clients[c].hdr_hdl,
 							clients[c].addr,
 							qos_param->src_mac_addr,
 							qos_param->dst_mac_addr);
+			kfree(client_tx_prop);
 			if (r) {
 				IPA_BE_ERR("Failed to install QoS rule for client %d: %d\n",
 					   c, r);
 			} else {
 				retval = 0;
-				if (c < num_clients - 1 && qos_param->proc_ctx_hdl)
+				/* Cache keeps only the last client's handle, so
+				 * drop the install-time ref for the others (the
+				 * rt rule holds its own) and clear it. */
+				if (c < num_clients - 1 && qos_param->proc_ctx_hdl) {
 					__ipa3_release_hdr_proc_ctx(qos_param->proc_ctx_hdl);
+					qos_param->proc_ctx_hdl = 0;
+				}
 			}
 		}
 	} else {
