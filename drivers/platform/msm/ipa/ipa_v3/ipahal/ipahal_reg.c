@@ -278,6 +278,10 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_DROP_STAT_IPV6_FILTER_ROUTER_MAX_COUNTERS),
 	__stringify(IPA_DROP_STAT_NONIP_FILTER_ROUTER_MAX_COUNTERS),
 	__stringify(IPA_DROP_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS),
+	__stringify(IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV4_BASE),
+	__stringify(IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV6_BASE),
+	__stringify(IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV4_CFG_BASE),
+	__stringify(IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV6_CFG_BASE),
 	__stringify(IPA_STAT_FILTER_IPV4_CFG_BASE),
 	__stringify(IPA_STAT_FILTER_IPV6_CFG_BASE),
 	__stringify(IPA_STAT_ROUTER_IPV4_CFG_BASE),
@@ -6695,6 +6699,18 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v7_0][IPA_DROP_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00000F44, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV4_BASE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000F48, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV6_BASE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000F4C, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV4_CFG_BASE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000F50, 0, 0, 0, 0, 0},
+	[IPA_HW_v7_0][IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV6_CFG_BASE] = {
+		ipareg_construct_dummy, ipareg_parse_dummy,
+		0x00000F54, 0, 0, 0, 0, 0},
 	[IPA_HW_v7_0][IPA_ENDP_INIT_CTRL_n] = {
 		ipareg_construct_endp_init_ctrl_n_v4_0, ipareg_parse_dummy,
 		0x00001000, 0x100, 0, 30, 1, 0},

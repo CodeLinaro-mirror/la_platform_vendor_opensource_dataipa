@@ -14,7 +14,7 @@
 #define IPA_INIT_DROP_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 3)
 #define IPA_INIT_TETH_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 4)
 #define IPA_INIT_QUOTA_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 3)
-#define IPA_INIT_NAT_CT_STATS_MAX_CMD_NUM 8
+#define IPA_INIT_NAT_CT_STATS_MAX_CMD_NUM 12
 #define IPV6_MAX_COUNTERS_BMSK (0xffff0000)
 #define IPV6_MAX_COUNTERS_SHFT (0x10)
 #define IPV4_MAX_COUNTERS_BMSK (0xffff)
@@ -3440,9 +3440,9 @@ int ipa_init_nat_ct_stats(void)
 {
 	struct ipahal_stats_init_pyld *pyld;
 	struct ipahal_imm_cmd_dma_shared_mem cmd = { 0 };
-	struct ipahal_imm_cmd_pyld *cmd_pyld;
+	struct ipahal_imm_cmd_pyld *cmd_pyld = NULL;
 	struct ipahal_imm_cmd_register_write reg_write = {0};
-	struct ipahal_imm_cmd_pyld *reg_write_pyld[5] = {0};
+	struct ipahal_imm_cmd_pyld *reg_write_pyld[10] = {0};
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
 	struct ipa3_desc desc[IPA_INIT_NAT_CT_STATS_MAX_CMD_NUM] = { {0} };
 	dma_addr_t dma_address;
@@ -3583,7 +3583,96 @@ int ipa_init_nat_ct_stats(void)
 	desc[num_cmd].type = IPA_IMM_CMD_DESC;
 	num_cmd++;
 
-	/* 6. Init payload */
+	/* 6. IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV4_BASE */
+	reg_write.offset = ipahal_get_reg_ofst(
+		IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV4_BASE);
+	reg_write.value = ipa3_ctx->smem_restricted_bytes +
+		IPA_MEM_PART(nat_ct_drop_stats_counters_ofst);
+	reg_write_pyld[5] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[5]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[5]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[5]->data;
+	desc[num_cmd].len = reg_write_pyld[5]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 7. IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV6_BASE */
+	reg_write.offset = ipahal_get_reg_ofst(
+		IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV6_BASE);
+	reg_write_pyld[6] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[6]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[6]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[6]->data;
+	desc[num_cmd].len = reg_write_pyld[6]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 8. IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV4_CFG_BASE */
+	reg_write.offset = ipahal_get_reg_ofst(
+		IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV4_CFG_BASE);
+	reg_write.value = ipa3_ctx->smem_restricted_bytes +
+		IPA_MEM_PART(nat_ct_drop_stats_cfg_ofst);
+	reg_write_pyld[7] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[7]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[7]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[7]->data;
+	desc[num_cmd].len = reg_write_pyld[7]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 9. IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV6_CFG_BASE */
+	reg_write.offset = ipahal_get_reg_ofst(
+		IPA_DROP_STAT_NAT_AND_CONN_TRACK_IPV6_CFG_BASE);
+	reg_write_pyld[8] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[8]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[8]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[8]->data;
+	desc[num_cmd].len = reg_write_pyld[8]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 10. IPA_DROP_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS */
+	reg_write.offset = ipahal_get_reg_ofst(
+		IPA_DROP_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS);
+	reg_write.value =
+		(((u32)ipa3_ctx->hw_stats->nat_ct.init.max_counters <<
+		  IPV6_MAX_COUNTERS_SHFT) & IPV6_MAX_COUNTERS_BMSK) |
+		(((u32)ipa3_ctx->hw_stats->nat_ct.init.max_counters <<
+		  IPV4_MAX_COUNTERS_SHFT) & IPV4_MAX_COUNTERS_BMSK);
+	reg_write_pyld[9] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+		&reg_write, false);
+	if (!reg_write_pyld[9]) {
+		IPAERR("failed to construct register_write imm cmd\n");
+		ret = -ENOMEM;
+		goto destroy_imm;
+	}
+	desc[num_cmd].opcode = reg_write_pyld[9]->opcode;
+	desc[num_cmd].pyld = reg_write_pyld[9]->data;
+	desc[num_cmd].len = reg_write_pyld[9]->len;
+	desc[num_cmd].type = IPA_IMM_CMD_DESC;
+	num_cmd++;
+
+	/* 11. Init payload */
 	cmd.is_read = false;
 	cmd.skip_pipeline_clear = false;
 	cmd.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
