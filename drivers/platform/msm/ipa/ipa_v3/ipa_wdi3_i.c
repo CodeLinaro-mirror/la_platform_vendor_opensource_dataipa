@@ -290,7 +290,7 @@ static int ipa3_setup_wdi3_gsi_channel(u8 is_smmu_enabled,
 	gsi_channel_props.err_cb = ipa3_wdi3_gsi_chan_err_cb;
 
 	if (!is_smmu_enabled) {
-		gsi_channel_props.ring_len = (u16)info->transfer_ring_size;
+		gsi_channel_props.ring_len = info->transfer_ring_size;
 		gsi_channel_props.ring_base_addr =
 			(u64)info->transfer_ring_base_pa;
 	} else {
