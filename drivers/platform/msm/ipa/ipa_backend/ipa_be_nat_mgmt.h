@@ -87,7 +87,6 @@ void ipa_be_reset(void);
 bool is_pwr_save_if(uint32_t ip_addr);
 uint32_t generate_met_data(uint8_t mux_id);
 
-int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
 int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
 int ipa_be_remove_pdn(uint32_t pub_ip, int pdn_iface);
 
