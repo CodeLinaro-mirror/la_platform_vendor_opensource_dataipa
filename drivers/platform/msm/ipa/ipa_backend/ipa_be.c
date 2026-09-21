@@ -27,6 +27,9 @@
 #include "../ipa_v3/ipa_i.h"
 #include <linux/sort.h>
 #include <linux/version.h>
+#include <linux/netdevice.h>
+#include <linux/if_vlan.h>
+#include <net/net_namespace.h>
 #include "ipa_api.h"
 #include "ipa_be.h"
 #include "ipa_be_flt_mgmt.h"
@@ -305,14 +308,15 @@ void ipa_be_backhaul_cache_invalidate(int wan_iface)
 	mutex_unlock(&ipa_be_backhaul_cache_lock);
 }
 
-static bool ipa_be_is_uplink_lan2wan_eth_bh(int return_iface, int return_top_iface,
+static bool ipa_be_is_uplink_lan2wan_eth_bh(int return_iface, bool is_uplink,
 					   bool lan2lan)
 {
 	enum ipa_backhaul_type t;
 
-	return !lan2lan &&
-	       return_iface == return_top_iface &&
-	       ipa_be_detect_backhaul_type(return_iface, &t) == 0 &&
+	if (lan2lan || !is_uplink)
+		return false;
+
+	return ipa_be_detect_backhaul_type(return_iface, &t) == 0 &&
 	       t == IPA_BACKHAUL_TYPE_ETH;
 }
 
@@ -574,6 +578,103 @@ int ipa_be_flow_canonical_cmp(s32 flow_intf, s32 return_intf,
 
 	/* Same EP: use MAC address as tiebreaker. */
 	return memcmp(flow_mac, return_mac, IPA_MAC_ADDR_SIZE) < 0 ? 1 : 0;
+}
+
+/*
+ * Caller must dev_put().
+ *
+ * Resolves iface_num against init_net only. All eth-backhaul topology
+ * (phys eth, VLAN sub-iface, bridge master) is assumed to live in the
+ * initial network namespace; if a deployment ever needs to look these
+ * interfaces up inside a non-init netns (e.g. router-mode netns,
+ * container isolation), this lookup will not find them and the callers
+ * ipa_be_iface_is_vlan_over()/ipa_be_iface_is_bridge() will silently
+ * return false rather than resolving across namespaces.
+ */
+static struct net_device *ipa_be_netdev_from_iface_num(uint32_t iface_num)
+{
+	return dev_get_by_index(&init_net, (int)iface_num);
+}
+
+bool ipa_be_iface_is_vlan_over(uint32_t vlan_iface, uint32_t parent_iface)
+{
+	struct net_device *dev, *real;
+	bool ret = false;
+
+	dev = ipa_be_netdev_from_iface_num(vlan_iface);
+	if (!dev) {
+		IPA_BE_DBG("iface_is_vlan_over(%u,%u): no netdev\n",
+			   vlan_iface, parent_iface);
+		return false;
+	}
+
+	if (is_vlan_dev(dev)) {
+		real = vlan_dev_real_dev(dev);
+		if (real) {
+			if (real->ifindex == (int)parent_iface)
+				ret = true;
+			IPA_BE_DBG("iface_is_vlan_over(%u,%u): dev=%s real=%s match=%d\n",
+				   vlan_iface, parent_iface, dev->name,
+				   real->name, ret);
+		} else {
+			IPA_BE_DBG("iface_is_vlan_over(%u,%u): dev=%s real=<none>\n",
+				   vlan_iface, parent_iface, dev->name);
+		}
+	} else {
+		IPA_BE_DBG("iface_is_vlan_over(%u,%u): dev=%s not a VLAN\n",
+			   vlan_iface, parent_iface, dev->name);
+	}
+	dev_put(dev);
+	return ret;
+}
+
+bool ipa_be_iface_is_bridge(uint32_t iface_num)
+{
+	struct net_device *dev;
+	bool ret;
+
+	dev = ipa_be_netdev_from_iface_num(iface_num);
+	if (!dev) {
+		IPA_BE_DBG("iface_is_bridge(%u): no netdev for ifindex\n", iface_num);
+		return false;
+	}
+
+	ret = netif_is_bridge_master(dev);
+	IPA_BE_DBG("iface_is_bridge(%u): dev=%s bridge=%d\n",
+		   iface_num, dev->name, ret);
+	dev_put(dev);
+	return ret;
+}
+
+enum ipa_be_topo {
+	IPA_BE_TOPO_UL,
+	IPA_BE_TOPO_UL_STACKED,
+	IPA_BE_TOPO_DL,
+	IPA_BE_TOPO_DL_STACKED,
+	IPA_BE_TOPO_INVALID,
+};
+
+/*
+ * Classifies the flow/return interface quadrant into a topology once, so
+ * callers branch on the cached result instead of re-running
+ * ipa_be_iface_is_vlan_over()/ipa_be_iface_is_bridge() (each a
+ * dev_get_by_index() + dev_put() pair) for the same quadrant repeatedly
+ * on the create/destroy rule paths.
+ */
+static enum ipa_be_topo ipa_be_classify_topology(uint32_t flow_if, uint32_t flow_top_if,
+						  uint32_t return_if, uint32_t return_top_if)
+{
+	if (return_if == return_top_if)
+		return IPA_BE_TOPO_UL;
+	if (flow_if == flow_top_if)
+		return IPA_BE_TOPO_DL;
+	if (ipa_be_iface_is_vlan_over(return_top_if, return_if) &&
+	    ipa_be_iface_is_bridge(flow_top_if))
+		return IPA_BE_TOPO_UL_STACKED;
+	if (ipa_be_iface_is_vlan_over(flow_top_if, flow_if) &&
+	    ipa_be_iface_is_bridge(return_top_if))
+		return IPA_BE_TOPO_DL_STACKED;
+	return IPA_BE_TOPO_INVALID;
 }
 
 static inline bool is_ipv4_lan_to_lan(const struct ipa_ipv4_rule_create_msg *msg)
@@ -2016,6 +2117,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 	int pdn_iface = 0;
 	int client_iface = 0;
 	int vlan_tag = 0;
+	uint32_t wan_vlan_tag = 0;
 	uint32_t mtu_size = 0;
 	ip_addr_t lan_client_ip = {0};
 	ip_addr_t ret_ip_key = {0};
@@ -2135,7 +2237,11 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 	}
 	else {
 		/* Set direction-specific parameters for lan2wan */
-		if (v4_msg.conn_rule.return_interface_num == v4_msg.conn_rule.return_top_interface_num) {
+		enum ipa_be_topo topo = ipa_be_classify_topology(
+			v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.flow_top_interface_num,
+			v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.return_top_interface_num);
+
+		if (topo == IPA_BE_TOPO_UL) {
 			IPA_BE_DBG("Uplink flow - installing both uplink and downlink rules\n");
 			pdn_iface          = v4_msg.conn_rule.return_interface_num;
 			client_iface       = v4_msg.conn_rule.flow_interface_num;
@@ -2146,8 +2252,31 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			flow_interface_num = v4_msg.conn_rule.flow_interface_num;
 			memcpy(mac, v4_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
 			memcpy(wan_mac, v4_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
-		} else if (v4_msg.conn_rule.flow_interface_num == v4_msg.conn_rule.flow_top_interface_num) {
+		} else if (topo == IPA_BE_TOPO_DL) {
 			IPA_BE_DBG("Downlink flow - installing both downlink and uplink rules\n");
+			pdn_iface          = v4_msg.conn_rule.flow_interface_num;
+			client_iface       = v4_msg.conn_rule.return_interface_num;
+			vlan_tag           = v4_msg.vlan_primary_rule.egress_vlan_tag;
+			mtu_size           = v4_msg.conn_rule.return_mtu;
+			lan_client_ip[0]   = v4_msg.conn_rule.return_ip_xlate;
+			wan_ip[0]          = v4_msg.tuple.flow_ip;
+			flow_interface_num = v4_msg.conn_rule.return_interface_num;
+			memcpy(mac, v4_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
+			memcpy(wan_mac, v4_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
+			is_ret = true;
+		} else if (topo == IPA_BE_TOPO_UL_STACKED) {
+			IPA_BE_DBG("Uplink flow (WAN VLAN, bridged LAN) - installing rules\n");
+			pdn_iface          = v4_msg.conn_rule.return_interface_num;
+			client_iface       = v4_msg.conn_rule.flow_interface_num;
+			vlan_tag           = v4_msg.vlan_primary_rule.ingress_vlan_tag;
+			mtu_size           = v4_msg.conn_rule.flow_mtu;
+			lan_client_ip[0]   = v4_msg.tuple.flow_ip;
+			wan_ip[0]          = v4_msg.conn_rule.return_ip_xlate;
+			flow_interface_num = v4_msg.conn_rule.flow_interface_num;
+			memcpy(mac, v4_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
+			memcpy(wan_mac, v4_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
+		} else if (topo == IPA_BE_TOPO_DL_STACKED) {
+			IPA_BE_DBG("Downlink flow (WAN VLAN, bridged LAN) - installing rules\n");
 			pdn_iface          = v4_msg.conn_rule.flow_interface_num;
 			client_iface       = v4_msg.conn_rule.return_interface_num;
 			vlan_tag           = v4_msg.vlan_primary_rule.egress_vlan_tag;
@@ -2197,9 +2326,10 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 				lan_route_added = true;
 			}
 
-			/* install downlink filter rules on the backhaul pipe */
+			/* DL catch-all filters on the WAN VLAN — pick tag by rule orientation. */
+			wan_vlan_tag = ipa_be_wan_vlan_tag(&v4_msg.vlan_primary_rule, is_ret);
 			ret = ipa_be_handle_wan_up(pdn_iface, client_iface, IPA_IP_v4, true,
-				&v4_msg.vlan_primary_rule.egress_vlan_tag);
+				&wan_vlan_tag);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to handle wan up (downlink) for IPv4\n");
 				goto failed_ret;
@@ -2468,6 +2598,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 	int pdn_iface = 0;
 	int client_iface = 0;
 	int vlan_tag = 0;
+	uint32_t wan_vlan_tag = 0;
 	uint32_t mtu_size = 0;
 	uint32_t *flow_ip_ptr = NULL;
 	uint32_t flow_interface_num = 0;
@@ -2578,7 +2709,11 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 	}
 	else {
 		/* Set direction-specific parameters for lan2wan */
-		if (v6_msg.conn_rule.return_interface_num == v6_msg.conn_rule.return_top_interface_num) {
+		enum ipa_be_topo topo = ipa_be_classify_topology(
+			v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.flow_top_interface_num,
+			v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.return_top_interface_num);
+
+		if (topo == IPA_BE_TOPO_UL) {
 			IPA_BE_DBG("Uplink flow - installing both uplink and downlink rules\n");
 			pdn_iface          = v6_msg.conn_rule.return_interface_num;
 			client_iface       = v6_msg.conn_rule.flow_interface_num;
@@ -2589,8 +2724,31 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			flow_interface_num = v6_msg.conn_rule.flow_interface_num;
 			memcpy(mac, v6_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
 			memcpy(wan_mac, v6_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
-		} else if (v6_msg.conn_rule.flow_interface_num == v6_msg.conn_rule.flow_top_interface_num) {
+		} else if (topo == IPA_BE_TOPO_DL) {
 			IPA_BE_DBG("Downlink flow - installing both downlink and uplink rules\n");
+			pdn_iface          = v6_msg.conn_rule.flow_interface_num;
+			client_iface       = v6_msg.conn_rule.return_interface_num;
+			vlan_tag           = v6_msg.vlan_primary_rule.egress_vlan_tag;
+			mtu_size           = v6_msg.conn_rule.return_mtu;
+			flow_ip_ptr        = (uint32_t *)&v6_msg.tuple.return_ip;
+			wan_ip_ptr         = (uint32_t *)&v6_msg.tuple.flow_ip;
+			flow_interface_num = v6_msg.conn_rule.return_interface_num;
+			memcpy(mac, v6_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
+			memcpy(wan_mac, v6_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
+			is_ret = true;
+		} else if (topo == IPA_BE_TOPO_UL_STACKED) {
+			IPA_BE_DBG("Uplink flow (WAN VLAN, bridged LAN) - installing rules\n");
+			pdn_iface          = v6_msg.conn_rule.return_interface_num;
+			client_iface       = v6_msg.conn_rule.flow_interface_num;
+			vlan_tag           = v6_msg.vlan_primary_rule.ingress_vlan_tag;
+			mtu_size           = v6_msg.conn_rule.flow_mtu;
+			flow_ip_ptr        = (uint32_t *)&v6_msg.tuple.flow_ip;
+			wan_ip_ptr         = (uint32_t *)&v6_msg.tuple.return_ip;
+			flow_interface_num = v6_msg.conn_rule.flow_interface_num;
+			memcpy(mac, v6_msg.conn_rule.flow_mac, IPA_MAC_ADDR_SIZE);
+			memcpy(wan_mac, v6_msg.conn_rule.return_mac, IPA_MAC_ADDR_SIZE);
+		} else if (topo == IPA_BE_TOPO_DL_STACKED) {
+			IPA_BE_DBG("Downlink flow (WAN VLAN, bridged LAN) - installing rules\n");
 			pdn_iface          = v6_msg.conn_rule.flow_interface_num;
 			client_iface       = v6_msg.conn_rule.return_interface_num;
 			vlan_tag           = v6_msg.vlan_primary_rule.egress_vlan_tag;
@@ -2640,9 +2798,10 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 				lan_route_added = true;
 			}
 
-			/* install downlink filter rules on the backhaul pipe */
+			/* DL catch-all filters on the WAN VLAN — pick tag by rule orientation. */
+			wan_vlan_tag = ipa_be_wan_vlan_tag(&v6_msg.vlan_primary_rule, is_ret);
 			ret = ipa_be_handle_wan_up(pdn_iface, client_iface, IPA_IP_v6, true,
-				&v6_msg.vlan_primary_rule.egress_vlan_tag);
+				&wan_vlan_tag);
 			if (ret != 0) {
 				IPA_BE_ERR("Failed to handle wan up (downlink) for IPv6\n");
 				goto failed_ret;
@@ -3196,13 +3355,27 @@ void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 	else
 	{
 		/* LAN2WAN: Determine direction-specific parameters first, then delete all rules */
-		if (msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num) {
+		enum ipa_be_topo topo = ipa_be_classify_topology(
+			msg->conn_rule.flow_interface_num, msg->conn_rule.flow_top_interface_num,
+			msg->conn_rule.return_interface_num, msg->conn_rule.return_top_interface_num);
+
+		if (topo == IPA_BE_TOPO_UL) {
 			IPA_BE_DBG("Uplink flow destroy - deleting both uplink and downlink rules\n");
 			pdn_iface        = msg->conn_rule.return_interface_num;
 			client_iface     = msg->conn_rule.flow_interface_num;
 			lan_client_ip[0] = msg->tuple.flow_ip;
-		} else if (msg->conn_rule.flow_interface_num == msg->conn_rule.flow_top_interface_num) {
+		} else if (topo == IPA_BE_TOPO_DL) {
 			IPA_BE_DBG("Downlink flow destroy - deleting both downlink and uplink rules\n");
+			pdn_iface        = msg->conn_rule.flow_interface_num;
+			client_iface     = msg->conn_rule.return_interface_num;
+			lan_client_ip[0] = msg->conn_rule.return_ip_xlate;
+		} else if (topo == IPA_BE_TOPO_UL_STACKED) {
+			IPA_BE_DBG("Uplink flow (WAN VLAN, bridged LAN) destroy - deleting rules\n");
+			pdn_iface        = msg->conn_rule.return_interface_num;
+			client_iface     = msg->conn_rule.flow_interface_num;
+			lan_client_ip[0] = msg->tuple.flow_ip;
+		} else if (topo == IPA_BE_TOPO_DL_STACKED) {
+			IPA_BE_DBG("Downlink flow (WAN VLAN, bridged LAN) destroy - deleting rules\n");
 			pdn_iface        = msg->conn_rule.flow_interface_num;
 			client_iface     = msg->conn_rule.return_interface_num;
 			lan_client_ip[0] = msg->conn_rule.return_ip_xlate;
@@ -3237,7 +3410,7 @@ void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 			backhaul_type = IPA_BACKHAUL_TYPE_MODEM;
 		}
 		if (backhaul_type == IPA_BACKHAUL_TYPE_ETH) {
-			if (msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num)
+			if (topo == IPA_BE_TOPO_UL || topo == IPA_BE_TOPO_UL_STACKED)
 				wan_ip[0] = msg->conn_rule.return_ip_xlate;
 			else
 				wan_ip[0] = msg->tuple.flow_ip;
@@ -3333,6 +3506,7 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	int wan_rt_hdl = 0;
 	int wan_ref = -1;
 	enum ipa_backhaul_type backhaul_type = IPA_BACKHAUL_TYPE_UNKNOWN;
+	enum ipa_be_topo topo;
 
 	if (!msg) {
 		IPA_BE_ERR("Invalid message pointer\n");
@@ -3369,14 +3543,17 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	}
 	IPA_BE_DBG("Is connection lan2lan: %d\n", lan2lan);
 
+	topo = ipa_be_classify_topology(
+		msg->conn_rule.flow_interface_num, msg->conn_rule.flow_top_interface_num,
+		msg->conn_rule.return_interface_num, msg->conn_rule.return_top_interface_num);
+
 	/*
 	 * For downlink LAN2WAN, tuple.return_ip is the LAN client mapping, which
 	 * is deref'd later via flow_ip_ptr — skipping the early block here prevents
 	 * a double-deref (premature route/hdr deletion while another flow is active).
 	 * lan2lan and uplink LAN2WAN legitimately key on return_ip here.
 	 */
-	if (lan2lan ||
-	    msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num) {
+	if (lan2lan || topo == IPA_BE_TOPO_UL || topo == IPA_BE_TOPO_UL_STACKED) {
 		rt_hdl = ipa_get_rt_hdl_from_mapping((uint32_t *)&msg->tuple.return_ip,
 			lan2lan, &hdr_hdl, &proc_ctx_hdl, proc_ctx_name);
 		IPA_BE_DBG("Return flow rt_hdl %d\n", rt_hdl);
@@ -3394,7 +3571,7 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 				}
 			}
 			if (ipa_be_is_uplink_lan2wan_eth_bh(msg->conn_rule.return_interface_num,
-							   msg->conn_rule.return_top_interface_num,
+							   topo == IPA_BE_TOPO_UL || topo == IPA_BE_TOPO_UL_STACKED,
 							   lan2lan)) {
 				ipa_be_wan_catchall_release(msg->conn_rule.return_interface_num, IPA_IP_v6);
 				/* Invalidate only on last flow; per-flow would thrash the cache. */
@@ -3458,18 +3635,30 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			IPA_BE_ERR("Failed to delete filter rule for forward flow\n");
 	} else {
 		/* LAN2WAN: Determine direction-specific parameters first, then delete all rules */
-		if (msg->conn_rule.return_interface_num == msg->conn_rule.return_top_interface_num) {
+		if (topo == IPA_BE_TOPO_UL) {
 			IPA_BE_DBG("Uplink flow destroy - deleting both uplink and downlink rules\n");
 			pdn_iface    = msg->conn_rule.return_interface_num;
 			client_iface = msg->conn_rule.flow_interface_num;
 			flow_ip_ptr  = (uint32_t *)&msg->tuple.flow_ip;
 			/* WAN IP for uplink (return_ip) already cleaned by early block above */
-		} else if (msg->conn_rule.flow_interface_num == msg->conn_rule.flow_top_interface_num) {
+		} else if (topo == IPA_BE_TOPO_DL) {
 			IPA_BE_DBG("Downlink flow destroy - deleting both downlink and uplink rules\n");
 			pdn_iface    = msg->conn_rule.flow_interface_num;
 			client_iface = msg->conn_rule.return_interface_num;
 			flow_ip_ptr  = (uint32_t *)&msg->tuple.return_ip;
 			/* WAN IP for downlink not covered by early block; track for cleanup below */
+			wan_ip_ptr   = (uint32_t *)&msg->tuple.flow_ip;
+		} else if (topo == IPA_BE_TOPO_UL_STACKED) {
+			IPA_BE_DBG("Uplink flow (WAN VLAN, bridged LAN) destroy - deleting rules\n");
+			pdn_iface    = msg->conn_rule.return_interface_num;
+			client_iface = msg->conn_rule.flow_interface_num;
+			flow_ip_ptr  = (uint32_t *)&msg->tuple.flow_ip;
+			/* WAN IP for uplink (return_ip) already cleaned by early block above */
+		} else if (topo == IPA_BE_TOPO_DL_STACKED) {
+			IPA_BE_DBG("Downlink flow (WAN VLAN, bridged LAN) destroy - deleting rules\n");
+			pdn_iface    = msg->conn_rule.flow_interface_num;
+			client_iface = msg->conn_rule.return_interface_num;
+			flow_ip_ptr  = (uint32_t *)&msg->tuple.return_ip;
 			wan_ip_ptr   = (uint32_t *)&msg->tuple.flow_ip;
 		} else {
 			IPA_BE_ERR("Invalid WAN flow param\n");
