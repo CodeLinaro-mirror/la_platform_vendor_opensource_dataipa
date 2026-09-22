@@ -1716,14 +1716,6 @@ int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl, struct sk_buff *skb)
 		cookie_valid = ipa3_get_cookie_vpnum(intf_idx, &cookie);
 	}
 
-	ret = ipa_pm_activate(ipa_wdi_ctx_list[hdl]->ipa_pm_hdl);
-	if (ret) {
-		IPA_WDI_DBG("IPA PM activation pending for handle %u, ret %d\n",
-			    hdl, ret);
-		IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_wlan_pm_fail_pkts);
-		return -EAGAIN;
-	}
-
 	skb_len = skb->len;
 
 	if (ipa3_is_ulso_supported()) {
@@ -1847,7 +1839,6 @@ int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl, struct sk_buff *skb)
 		IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_wlan_tx_fail_pkts);
 	}
 
-	ipa_pm_deferred_deactivate(ipa_wdi_ctx_list[hdl]->ipa_pm_hdl);
 	return ret;
 }
 EXPORT_SYMBOL(ipa_wdi_offload_tx_dp_per_inst);
