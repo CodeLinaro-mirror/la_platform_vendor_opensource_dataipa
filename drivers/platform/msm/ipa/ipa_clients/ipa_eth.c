@@ -2945,10 +2945,10 @@ static bool ipa_eth_ulso_parse_l2(const struct sk_buff *skb, u16 *l2_hlen,
  *          -EPERM   if the ETH client is not yet registered or the TX pipe is
  *                   not yet connected
  *          -EPIPE   if the source endpoint is not valid at ipa_tx_dp() time
- *          -ENOMEM  failed to unshare a cloned skb, or failed to push an
- *                   out-of-band VLAN tag into the frame. The skb has
- *                   already been freed; the caller must not free or
- *                   otherwise touch it.
+ *          -ENOMEM  failed to reserve headroom for the QMAP header / VLAN
+ *                   tag, or failed to push an out-of-band VLAN tag into the
+ *                   frame. The skb is left intact and still owned by the
+ *                   caller, which must free it.
  *          -ENOSPC  translated from an -EFAULT out of ipa_tx_dp(). The
  *                   downstream stack collapses several distinct conditions
  *                   into this one code: the GSI ring being full (dominant
@@ -2956,8 +2956,9 @@ static bool ipa_eth_ulso_parse_l2(const struct sk_buff *skb, u16 *l2_hlen,
  *                   -> ipa3_send -EFAULT -> ipa_tx_dp -EFAULT), pipe
  *                   disconnect-in-progress, tx_pkt wrapper OOM, DMA mapping
  *                   failure, missing GSI EP config, or descriptor-count
- *                   overflow. skb is not freed and is handed back unmodified
- *                   for retry. Caller should treat this as back-pressure:
+ *                   overflow. skb is not freed and is handed back with the
+ *                   QMAP header pulled and gso_size restored, ready for
+ *                   retry. Caller should treat this as back-pressure:
  *                   stop the TX queue and restart it from the TX-complete
  *                   notify callback.
  */
@@ -2973,6 +2974,7 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 	u16 skb_len;
 	u16 orig_gso_size;
 	u16 ip_dgram_len = 0;
+	unsigned int needed_headroom;
 	int ret;
 
 	if (!pipe || !pipe->client_info ||
@@ -2993,9 +2995,11 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 	 * clones; unshare before writing gso_size/QMAP below. No-op if
 	 * already exclusive.
 	 */
-	if (skb_cow_head(skb, 0)) {
-		IPA_ETH_ERR("failed to unshare skb\n");
-		dev_kfree_skb_any(skb);
+	needed_headroom = sizeof(struct qmap_hdr);
+
+	if (skb_cow_head(skb, needed_headroom)) {
+		IPA_ETH_ERR("failed to reserve %u bytes of headroom\n",
+			    needed_headroom);
 		return -ENOMEM;
 	}
 
@@ -3021,11 +3025,16 @@ int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
 	 * IPA only DMAs the frame, so serialize it in before anything else.
 	 */
 	if (unlikely(skb_vlan_tag_present(skb))) {
-		skb = __vlan_hwaccel_push_inside(skb);
-		if (!skb) {
+		__be16 vlan_proto = skb->vlan_proto;
+		u16 vlan_tci = skb_vlan_tag_get(skb);
+
+		ret = __vlan_insert_tag(skb, vlan_proto, vlan_tci);
+		if (unlikely(ret)) {
 			IPA_ETH_ERR("failed to push vlan tag inside frame\n");
-			return -ENOMEM;
+			return ret;
 		}
+		skb->protocol = vlan_proto;
+		__vlan_hwaccel_clear_tag(skb);
 	}
 
 	l2_hlen = ETH_HLEN;
