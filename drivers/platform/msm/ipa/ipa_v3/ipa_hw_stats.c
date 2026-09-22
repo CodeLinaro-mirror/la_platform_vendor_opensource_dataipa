@@ -2092,7 +2092,7 @@ int ipa_init_flt_rt_stats(void)
 	int stats_max_v4_fltrt_cntrs, stats_max_v6_fltrt_cntrs,
 		stats_max_nonip_fltrt_cntrs;
 	int drop_stats_max_v4_fltrt_cntrs, drop_stats_max_v6_fltrt_cntrs,
-		drop_stats_max_nonip_fltrt_cntrs, drop_stats_max_natct_cntrs;
+		drop_stats_max_nonip_fltrt_cntrs;
 	struct ipahal_imm_cmd_dma_shared_mem cmd = { 0 };
 	struct ipahal_imm_cmd_pyld *cmd_pyld = NULL;
 	struct ipahal_imm_cmd_register_write flt_v4_base = {0};
@@ -2127,8 +2127,6 @@ int ipa_init_flt_rt_stats(void)
 	struct ipahal_imm_cmd_pyld *drop_ipv4_max_fltrt_cnt_base_pyld = NULL;
 	struct ipahal_imm_cmd_register_write drop_ipv6_max_fltrt_cnt_base = {0};
 	struct ipahal_imm_cmd_pyld *drop_ipv6_max_fltrt_cnt_base_pyld = NULL;
-	struct ipahal_imm_cmd_register_write drop_max_natct_cnt_base = {0};
-	struct ipahal_imm_cmd_pyld *drop_max_natct_cnt_base_pyld = NULL;
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
 	struct ipa3_desc *desc;
 	dma_addr_t dma_address;
@@ -2139,7 +2137,7 @@ int ipa_init_flt_rt_stats(void)
 		return 0;
 
 	// count num_cmd++ to get the number
-	desc = kcalloc(19, sizeof(struct ipa3_desc), GFP_KERNEL);
+	desc = kcalloc(18, sizeof(struct ipa3_desc), GFP_KERNEL);
 	if (!desc)
 		return -ENOMEM;
 
@@ -2220,8 +2218,6 @@ int ipa_init_flt_rt_stats(void)
 		ipahal_get_reg_ofst(IPA_DROP_STAT_IPV6_FILTER_ROUTER_MAX_COUNTERS);
 	drop_stats_max_nonip_fltrt_cntrs =
 		ipahal_get_reg_ofst(IPA_DROP_STAT_NONIP_FILTER_ROUTER_MAX_COUNTERS);
-	drop_stats_max_natct_cntrs =
-		ipahal_get_reg_ofst(IPA_DROP_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS);
 	/* setting the registers and init the stats pyld are done atomically */
 	/* set IPA_STAT_FILTER_IPV4_BASE */
 	flt_v4_base.skip_pipeline_clear = false;
@@ -2551,27 +2547,6 @@ int ipa_init_flt_rt_stats(void)
 		desc[num_cmd].len = drop_nonip_max_fltrt_cnt_base_pyld->len;
 		desc[num_cmd].type = IPA_IMM_CMD_DESC;
 		++num_cmd;
-
-		/* set IPA_DROP_STAT_NONIP_FILTER_ROUTER_MAX_COUNTERS */
-		drop_max_natct_cnt_base.skip_pipeline_clear = false;
-		drop_max_natct_cnt_base.pipeline_clear_options =
-			IPAHAL_FULL_PIPELINE_CLEAR;
-		drop_max_natct_cnt_base.offset = drop_stats_max_natct_cntrs;
-		drop_max_natct_cnt_base.value = 0 /* TODO.*/;
-		drop_max_natct_cnt_base.value_mask = ~0;
-		drop_max_natct_cnt_base_pyld =
-			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
-			&drop_nonip_max_fltrt_cnt_base, false);
-		if (!drop_max_natct_cnt_base_pyld) {
-			IPAERR("failed to construct register_write imm cmd\n");
-			ret = -ENOMEM;
-			goto destroy_drop_natct_max_cnt_base;
-		}
-		desc[num_cmd].opcode = drop_max_natct_cnt_base_pyld->opcode;
-		desc[num_cmd].pyld = drop_max_natct_cnt_base_pyld->data;
-		desc[num_cmd].len = drop_max_natct_cnt_base_pyld->len;
-		desc[num_cmd].type = IPA_IMM_CMD_DESC;
-		++num_cmd;
 	}
 
 	cmd.is_read = false;
@@ -2586,7 +2561,7 @@ int ipa_init_flt_rt_stats(void)
 	if (!cmd_pyld) {
 		IPAERR("failed to construct dma_shared_mem imm cmd\n");
 		ret = -ENOMEM;
-		goto destroy_drop_natct_max_cnt_base;
+		goto destroy_imm;
 	}
 	desc[num_cmd].opcode = cmd_pyld->opcode;
 	desc[num_cmd].pyld = cmd_pyld->data;
@@ -2604,9 +2579,6 @@ int ipa_init_flt_rt_stats(void)
 
 destroy_imm:
 	ipahal_destroy_imm_cmd(cmd_pyld);
-destroy_drop_natct_max_cnt_base:
-	if (drop_max_natct_cnt_base_pyld)
-		ipahal_destroy_imm_cmd(drop_max_natct_cnt_base_pyld);
 	if (drop_nonip_max_fltrt_cnt_base_pyld)
 		ipahal_destroy_imm_cmd(drop_nonip_max_fltrt_cnt_base_pyld);
 	if (drop_ipv6_max_fltrt_cnt_base_pyld)
