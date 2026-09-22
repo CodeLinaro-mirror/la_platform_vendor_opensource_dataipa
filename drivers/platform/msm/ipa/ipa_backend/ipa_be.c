@@ -1139,7 +1139,8 @@ enum ipa_eth_step {
 	ETH_STEP_BACKHAUL_RULE_TRUE  = 4,
 	ETH_STEP_BACKHAUL_RULE_FALSE = 5,
 	ETH_STEP_WAN_UP_UPLINK       = 6,
-	ETH_STEP_NAT_ENTRY           = 7,
+	ETH_STEP_MTU_RULE            = 7,
+	ETH_STEP_NAT_ENTRY           = 8,
 };
 
 enum ipa_v4_modem_step {
@@ -2370,6 +2371,17 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			}
 			step = ETH_STEP_WAN_UP_UPLINK;
 
+			/* MTU rule per eth PDN, so oversized uplink frames are
+			 * excepted to A7 and PMTUD works (RFC 1191).
+			 */
+			ret = ipa_be_construct_mtu_rule(IPA_IP_v4, mtu_size, client_iface,
+				pdn_iface, vlan_tag);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to construct eth backhaul IPv4 mtu rule\n");
+				goto failed_ret;
+			}
+			step = ETH_STEP_MTU_RULE;
+
 #ifdef CONFIG_ECM_CONVERGENCE
 			ret = ipa_be_addpdn(v4_msg, pdn_iface);
 			if (ret != 0) {
@@ -2527,6 +2539,9 @@ failed_ret:
 		switch (step) {
 			case ETH_STEP_NAT_ENTRY:
 				/* no rollback available for NAT entry */
+				/* fallthrough */
+			case ETH_STEP_MTU_RULE:
+				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4);
 				/* fallthrough */
 			case ETH_STEP_WAN_UP_UPLINK:
 				ipa_be_handle_wan_down(client_iface, pdn_iface, IPA_IP_v4);
@@ -2840,6 +2855,17 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 				goto failed_ret;
 			}
 			step = ETH_STEP_WAN_UP_UPLINK;
+
+			/* MTU rule per eth PDN, so oversized uplink frames are
+			 * excepted to A7 and PMTUD works (RFC 4443 s3.2, RFC 8201).
+			 */
+			ret = ipa_be_construct_mtu_rule(IPA_IP_v6, mtu_size, client_iface,
+				pdn_iface, vlan_tag);
+			if (ret != 0) {
+				IPA_BE_ERR("Failed to construct eth backhaul IPv6 mtu rule\n");
+				goto failed_ret;
+			}
+			step = ETH_STEP_MTU_RULE;
 		} else {
 			/* Add route entry for the client */
 			mapping = ipa_be_client_mapping_add_or_ref(flow_ip_ptr, 0, lan2lan, mac);
@@ -2985,6 +3011,9 @@ failed_ret:
 		}
 	} else if (backhaul_type == IPA_BACKHAUL_TYPE_ETH) {
 		switch (step) {
+			case ETH_STEP_MTU_RULE:
+				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6);
+				/* fallthrough */
 			case ETH_STEP_WAN_UP_UPLINK:
 				ipa_be_handle_wan_down(client_iface, pdn_iface, IPA_IP_v6);
 				/* fallthrough */
@@ -3431,6 +3460,11 @@ void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 				IPA_BE_ERR("Failed to delete WAN filter for pdn %d, client %d\n",
 					client_iface, pdn_iface);
 
+			/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
+			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4) != 0) {
+				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
+			}
+
 			/* Invalidate only on last flow; per-flow would thrash the cache. */
 			if (wan_ref == 0)
 				ipa_be_backhaul_cache_invalidate(pdn_iface);
@@ -3708,6 +3742,11 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			if (ipa_be_handle_wan_down(client_iface, pdn_iface, IPA_IP_v6) != 0)
 				IPA_BE_ERR("Failed to delete WAN filter for pdn %d, client %d\n",
 					client_iface, pdn_iface);
+
+			/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
+			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6) != 0) {
+				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
+			}
 
 			/* Invalidate only on last flow; per-flow would thrash the cache. */
 			if (wan_ip_ptr && wan_ref == 0)

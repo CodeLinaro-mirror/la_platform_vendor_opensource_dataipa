@@ -1207,6 +1207,17 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 	struct ipa_mtu_rule_pair *new_mtu_pair = NULL;
 	struct ipa_mtu_rule_pair *existing_pair;
 
+	/* An MTU of 0 (v4) or <= IPV6_HEADER_SIZE (v6) would build a match-all
+	 * length range and except the whole flow to software. Skip the rule
+	 * instead: degraded PMTUD beats a stalled datapath. Return 0 so the
+	 * caller still offloads the flow.
+	 */
+	if (mtu == 0 || (iptype == IPA_IP_v6 && mtu <= IPV6_HEADER_SIZE)) {
+		IPA_BE_ERR("Unusable MTU %u for ip_type %d on client %d pdn %d; skipping MTU rule\n",
+			mtu, iptype, intf_num, pdn_iface);
+		return 0;
+	}
+
 	/* Check if MTU rule already installed for this (client, pdn, ip) tuple */
 	spin_lock_bh(&ipa_mtu_rule_lock);
 	list_for_each_entry(existing_pair, &ipa_mtu_rule_pairs_list, node) {
