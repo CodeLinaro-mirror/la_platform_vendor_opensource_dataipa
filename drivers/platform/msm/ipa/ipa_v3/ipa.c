@@ -5340,10 +5340,30 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 #endif
 	case IPA_IOC_SET_NAT_EXC_RT_TBL_IDX:
+		/*
+		 * Once this driver programs the NAT exception suppression
+		 * routing table (see ipa3_setup_nat_exc_rt_lan_rules()) it owns
+		 * the table index - honouring this ioctl would re-point the HW
+		 * at a table of the caller and silently break the LAN
+		 * coalescing steering.  Legacy behaviour is kept when the AP
+		 * does not own the table, e.g. on unsupported hardware or setup
+		 * failure.
+		 */
+		if (ipa3_ctx->nat_exc_rt_tbl_ap_owned) {
+			IPAERR_RL("v4 nat exc rt tbl owned by the AP driver\n");
+			retval = 0;
+			break;
+		}
 		retval = ipa3_set_nat_conn_track_exc_rt_tbl(arg, IPA_IP_v4);
 		break;
 
 	case IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX:
+		/* the AP owns the table index, see the v4 case above */
+		if (ipa3_ctx->nat_exc_rt_tbl_ap_owned) {
+			IPAERR_RL("v6 exc rt tbl owned by the AP driver\n");
+			retval = 0;
+			break;
+		}
 		retval = ipa3_set_nat_conn_track_exc_rt_tbl(arg, IPA_IP_v6);
 		break;
 #if defined(CONFIG_IPA_TSP)
@@ -5675,6 +5695,329 @@ int ipa3_setup_dflt_rt_tables(void)
 	kfree(rt_rule);
 
 	return 0;
+}
+
+/**
+ * ipa3_nat_exc_rt_lan_supported() - Can the AP own the NAT/conn-track
+ * exception suppression routing table?
+ *
+ * Needs the HW mechanism (IPA >= 5.5) and the default LAN consumer pipe.
+ * Coalescing-specific rules are selected only when LAN coalescing is up.
+ */
+static bool ipa3_nat_exc_rt_lan_supported(void)
+{
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_5)
+		return false;
+
+	return ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS) !=
+		IPA_EP_NOT_ALLOCATED;
+}
+
+/*
+ * Fill in one LAN side rule of IPA_NAT_EXC_RT_TBL_NAME.  Every rule is
+ * appended, so the caller's array order is the HW match order.
+ */
+static void ipa3_nat_exc_rt_fill_lan_rule(struct ipa_rt_rule_add_ext_v2 *entry,
+	enum ipa3_nat_exc_rt_lan_rule idx, enum ipa_ip_type ip_type)
+{
+	bool lan_coal_enabled = ipa3_ctx->lan_coal_enable &&
+		ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS) !=
+		IPA_EP_NOT_ALLOCATED;
+
+	entry->at_rear = 1;
+
+	if (lan_coal_enabled && (idx == IPA_NAT_EXC_RT_LAN_COAL_TCP ||
+		idx == IPA_NAT_EXC_RT_LAN_COAL_UDP)) {
+		entry->rule.dst = IPA_CLIENT_APPS_LAN_COAL_CONS;
+		entry->rule.hdr_hdl = ipa3_ctx->excp_hdr_hdl;
+		entry->rule.retain_hdr = 1;
+	} else {
+		entry->rule.dst = IPA_CLIENT_APPS_LAN_CONS;
+		entry->rule.hdr_hdl = ipa3_ctx->excp_hdr_hdl;
+		entry->rule.retain_hdr = 1;
+	}
+
+	if (!lan_coal_enabled) {
+		/* Keep the LAN fallback ahead of WAN rules without catching all WAN traffic. */
+		entry->rule.attrib.attrib_mask = IPA_FLT_META_DATA;
+		entry->rule.attrib.meta_data = IPA_METADATA_BE_FLOW_BIT;
+		entry->rule.attrib.meta_data_mask = IPA_METADATA_BE_FLOW_BIT;
+		return;
+	}
+
+	/* Every coalescing LAN rule is keyed on metadata[29]. */
+	entry->rule.attrib.attrib_mask = IPA_FLT_META_DATA;
+	entry->rule.attrib.meta_data = IPA_METADATA_BE_FLOW_BIT;
+	entry->rule.attrib.meta_data_mask = IPA_METADATA_BE_FLOW_BIT;
+
+	if (idx == IPA_NAT_EXC_RT_LAN_META_OTHER)
+		return;
+
+	if (ip_type == IPA_IP_v4) {
+		entry->rule.attrib.attrib_mask |= IPA_FLT_PROTOCOL;
+		entry->rule.attrib.u.v4.protocol =
+			(idx == IPA_NAT_EXC_RT_LAN_COAL_TCP) ?
+				(uint8_t)IPPROTO_TCP : (uint8_t)IPPROTO_UDP;
+	} else {
+		entry->rule.attrib.attrib_mask |= IPA_FLT_NEXT_HDR;
+		entry->rule.attrib.u.v6.next_hdr =
+			(idx == IPA_NAT_EXC_RT_LAN_COAL_TCP) ?
+				(uint8_t)IPPROTO_TCP : (uint8_t)IPPROTO_UDP;
+	}
+}
+
+/* Restore the legacy exception route before releasing the AP-owned table. */
+static int ipa3_reset_nat_exc_rt_tbl_to_default(void)
+{
+	struct ipa_ioc_get_rt_tbl rt_lookup;
+	enum ipa_ip_type ip_type;
+	int ret;
+
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		memset(&rt_lookup, 0, sizeof(rt_lookup));
+		rt_lookup.ip = ip_type;
+		strscpy(rt_lookup.name, IPA_DFLT_RT_TBL_NAME,
+			IPA_RESOURCE_NAME_MAX);
+		ret = ipa3_get_rt_tbl(&rt_lookup);
+		if (ret)
+			return ret;
+
+		ret = ipa3_set_nat_conn_track_exc_rt_tbl(rt_lookup.hdl,
+			ip_type);
+		if (ipa_put_rt_tbl(rt_lookup.hdl))
+			IPAERR("ipa_put_rt_tbl() failure\n");
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+/*
+ * Remove the AP-owned LAN rules before their exception header or the LAN
+ * pipes go away.  The exception engines are first returned to their default
+ * tables, so no engine can reference a table that is about to be reclaimed.
+ */
+static int ipa3_del_nat_exc_rt_lan_rules(void)
+{
+	struct ipa_ioc_del_rt_rule *rt_rule;
+	struct ipa_rt_rule_del *rt_rule_entry;
+	enum ipa_ip_type ip_type;
+	int i, j, num_hdls, ret = 0;
+	int rule_idx[IPA_NAT_EXC_RT_LAN_RULES_TOTAL];
+	bool rules_present = false;
+
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		for (i = 0; i < IPA_NAT_EXC_RT_LAN_RULES_TOTAL; i++) {
+			if (ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][i]) {
+				rules_present = true;
+				break;
+			}
+		}
+		if (rules_present)
+			break;
+	}
+
+	if (!rules_present && !ipa3_ctx->nat_exc_rt_tbl_ap_owned)
+		return 0;
+
+	ret = ipa3_reset_nat_exc_rt_tbl_to_default();
+	if (ret)
+		return ret;
+
+	rt_rule = kzalloc(sizeof(*rt_rule) +
+		IPA_NAT_EXC_RT_LAN_RULES_TOTAL * sizeof(*rt_rule_entry),
+		GFP_KERNEL);
+	if (!rt_rule)
+		return -ENOMEM;
+
+	rt_rule->commit = 1;
+	rt_rule_entry = rt_rule->hdl;
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		num_hdls = 0;
+		for (i = 0; i < IPA_NAT_EXC_RT_LAN_RULES_TOTAL; i++) {
+			if (!ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][i])
+				continue;
+			rt_rule_entry[num_hdls].hdl =
+				ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][i];
+			rule_idx[num_hdls++] = i;
+		}
+
+		if (!num_hdls)
+			continue;
+
+		rt_rule->ip = ip_type;
+		rt_rule->num_hdls = num_hdls;
+		if (ipa3_del_rt_rule(rt_rule)) {
+			IPAERR("fail to delete nat exc lan rules, ip type %d\n",
+				ip_type);
+			ret = -EPERM;
+			continue;
+		}
+
+		for (j = 0; j < num_hdls; j++) {
+			if (rt_rule_entry[j].status) {
+				IPAERR("fail to delete nat exc lan rt rule %d, ip type %d\n",
+					rule_idx[j], ip_type);
+				ret = -EPERM;
+				continue;
+			}
+			ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][rule_idx[j]] = 0;
+		}
+	}
+
+	kfree(rt_rule);
+	if (!ret)
+		ipa3_ctx->nat_exc_rt_tbl_ap_owned = false;
+
+	return ret;
+}
+
+/*
+ * Append all the LAN side rules of IPA_NAT_EXC_RT_TBL_NAME and record their
+ * handles.  The table is created by the first add.
+ */
+static int ipa3_nat_exc_rt_add_lan_rules(enum ipa_ip_type ip_type)
+{
+	struct ipa_ioc_add_rt_rule_ext_v2 *rt_rule;
+	struct ipa_rt_rule_add_ext_v2 *rt_rule_entry;
+	int num_rules = (ipa3_ctx->lan_coal_enable &&
+		ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS) !=
+		IPA_EP_NOT_ALLOCATED) ?
+		IPA_NAT_EXC_RT_LAN_RULES_TOTAL : 1;
+	int i, ret = 0;
+
+	rt_rule = kzalloc(sizeof(*rt_rule), GFP_KERNEL);
+	if (!rt_rule)
+		return -ENOMEM;
+
+	rt_rule->rules = (uint64_t)kcalloc(num_rules,
+		sizeof(struct ipa_rt_rule_add_ext_v2), GFP_KERNEL);
+	if (!rt_rule->rules) {
+		kfree(rt_rule);
+		return -ENOMEM;
+	}
+
+	rt_rule->commit = 1;
+	rt_rule->ip = ip_type;
+	rt_rule->num_rules = num_rules;
+	rt_rule->rule_add_ext_size = sizeof(struct ipa_rt_rule_add_ext_v2);
+	strscpy(rt_rule->rt_tbl_name, IPA_NAT_EXC_RT_TBL_NAME,
+		IPA_RESOURCE_NAME_MAX);
+
+	rt_rule_entry = (struct ipa_rt_rule_add_ext_v2 *)rt_rule->rules;
+	for (i = 0; i < num_rules; i++)
+		ipa3_nat_exc_rt_fill_lan_rule(&rt_rule_entry[i], i, ip_type);
+
+	ret = ipa3_add_rt_rule_ext_v2(rt_rule, false);
+	if (ret) {
+		IPAERR("fail to add nat exc lan rt rules, ip type %d\n",
+			ip_type);
+		ret = -EPERM;
+	}
+
+	for (i = 0; i < num_rules; i++) {
+		if (rt_rule_entry[i].status) {
+			IPAERR("fail to add nat exc lan rt rule %d, ip type %d\n",
+				i, ip_type);
+			ret = -EPERM;
+			continue;
+		}
+		IPADBG("nat exc ip %d lan rt rule hdl[%d]=%x\n", ip_type, i,
+			rt_rule_entry[i].rt_rule_hdl);
+		ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][i] =
+			rt_rule_entry[i].rt_rule_hdl;
+	}
+
+	if (ret && ipa3_del_nat_exc_rt_lan_rules())
+		IPAERR("fail to clean up nat exc lan rules\n");
+
+	kfree((void *)(rt_rule->rules));
+	kfree(rt_rule);
+
+	return ret;
+}
+
+/**
+ * ipa3_setup_nat_exc_rt_lan_rules() - Build NAT/conn-track exception
+ * suppression routing table and point engine at it
+ *
+ * On NAT miss (or closed connection), consumer pipe with
+ * NAT_EXC_SUPPRESS set does not raise exception. Packet routes through
+ * global routing table instead (IPA HPG 2.14.8.4, IPA >= 5.5).
+ *
+ * IPA_NAT_EXC_RT_TBL_NAME is that table. It is created here, at probe,
+ * with LAN-side rules only. When LAN coalescing is enabled, table contains
+ * metadata-marked LAN consumer rules:
+ *    metadata[29] + TCP      -> IPA_CLIENT_APPS_LAN_COAL_CONS
+ *    metadata[29] + UDP      -> IPA_CLIENT_APPS_LAN_COAL_CONS
+ *    metadata[29]            -> IPA_CLIENT_APPS_LAN_CONS
+ * so LAN-bound TCP and UDP packets get LAN coalescing, while other
+ * metadata-marked LAN-bound packets use default LAN consumer. When LAN
+ * coalescing is disabled, only metadata-marked IPA_CLIENT_APPS_LAN_CONS
+ * rule is installed. Default routing table is left alone.
+ *
+ * Exception routing table index is programmed once, here, and never
+ * changes afterwards: rmnet_ipa appends WAN rules to this same table when
+ * WAN comes up (see ipa3_setup_nat_exc_rt_wan_rules()) rather than
+ * swapping in table of its own.
+ *
+ * Return codes:
+ * 0: success, or nothing to do on this target
+ * -EPERM: failed to install LAN rules
+ * -EINVAL: failed to look up or program exception routing table
+ * -ENOMEM: allocation failure
+ */
+static int ipa3_setup_nat_exc_rt_lan_rules(void)
+{
+	struct ipa_ioc_get_rt_tbl rt_lookup;
+	enum ipa_ip_type ip_type;
+	int ret;
+
+	if (!ipa3_nat_exc_rt_lan_supported())
+		return 0;
+
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		ret = ipa3_nat_exc_rt_add_lan_rules(ip_type);
+		if (ret)
+			goto cleanup;
+
+		/*
+		 * The reference taken here is what
+		 * ipa3_set_nat_conn_track_exc_rt_tbl() requires; the rules
+		 * installed above keep the table alive once it is dropped.
+		 */
+		memset(&rt_lookup, 0, sizeof(rt_lookup));
+		rt_lookup.ip = ip_type;
+		strscpy(rt_lookup.name, IPA_NAT_EXC_RT_TBL_NAME,
+			IPA_RESOURCE_NAME_MAX);
+		if (ipa3_get_rt_tbl(&rt_lookup)) {
+			IPAERR("%s lookup failed, ip type %d\n",
+				IPA_NAT_EXC_RT_TBL_NAME, ip_type);
+			ret = -EINVAL;
+			goto cleanup;
+		}
+
+		ret = ipa3_set_nat_conn_track_exc_rt_tbl(rt_lookup.hdl,
+			ip_type);
+		if (ret)
+			IPAERR("fail to set nat exc rt tbl, ip type %d\n",
+				ip_type);
+		if (ipa_put_rt_tbl(rt_lookup.hdl))
+			IPAERR("ipa_put_rt_tbl() failure\n");
+
+		if (ret)
+			goto cleanup;
+	}
+
+	/* Both IP versions are live; the AP now owns the exception table index. */
+	ipa3_ctx->nat_exc_rt_tbl_ap_owned = true;
+	return 0;
+
+cleanup:
+	if (ipa3_del_nat_exc_rt_lan_rules())
+		IPAERR("fail to clean up nat exc lan rules\n");
+	return ret;
 }
 
 static int ipa3_setup_exception_path(void)
@@ -7836,6 +8179,15 @@ static int ipa3_setup_apps_pipes(void)
 		}
 	}
 
+	/*
+	 * Build the NAT exception suppression routing table after the LAN input
+	 * setup.  Coalescing rules are used when enabled; otherwise the table
+	 * gets the LAN consumer fallback.  rmnet_ipa appends WAN rules later.
+	 * Non-fatal: the datapath works without the exception table.
+	 */
+	if (ipa3_setup_nat_exc_rt_lan_rules())
+		IPAERR(":fail to setup nat exc rt lan rules\n");
+
 	/* LAN OUT (AP->IPA) */
 	if (!ipa3_ctx->ipa_config_is_mhi || ipa3_ctx->ipa_mhi_eth) {
 		memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
@@ -7882,6 +8234,8 @@ fail_flt_hash_tuple:
 		if (ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl)
 			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl);
 	}
+	if (ipa3_del_nat_exc_rt_lan_rules())
+		IPAERR("fail to clean up nat exc lan rules\n");
 	if (ipa3_ctx->excp_hdr_hdl)
 		__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
 	ipa_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
@@ -7909,6 +8263,8 @@ static void ipa3_teardown_apps_pipes(void)
 		if (ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl)
 			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl);
 	}
+	if (ipa3_del_nat_exc_rt_lan_rules())
+		IPAERR("fail to clean up nat exc lan rules\n");
 	__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
 	ipa_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
 	ipa3_dealloc_common_event_ring();

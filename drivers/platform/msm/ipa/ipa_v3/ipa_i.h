@@ -485,6 +485,24 @@ enum {
 /* metadata bit 29 marks backhaul-offloaded (ethernet-backhaul) flows */
 #define IPA_METADATA_BE_FLOW_BIT (1 << 29)
 
+/* global routing table used by NAT/conn-track exception suppression */
+#define IPA_NAT_EXC_RT_TBL_NAME "ipa_nat_exc_rt"
+
+/*
+ * LAN side rules of IPA_NAT_EXC_RT_TBL_NAME, installed once at probe by
+ * ipa3_setup_nat_exc_rt_lan_rules().  Array order is the HW match order.
+ *
+ * Every one of them matches on metadata bit 29 (IPA_METADATA_BE_FLOW_BIT), so
+ * only backhaul-offloaded flows are steered to the LAN pipes.  rmnet_ipa
+ * appends the WAN rules behind these when the WAN comes up.
+ */
+enum ipa3_nat_exc_rt_lan_rule {
+	IPA_NAT_EXC_RT_LAN_COAL_TCP = 0,
+	IPA_NAT_EXC_RT_LAN_COAL_UDP,
+	IPA_NAT_EXC_RT_LAN_META_OTHER,
+	IPA_NAT_EXC_RT_LAN_RULES_TOTAL,
+};
+
 #ifdef CONFIG_ARM64
 /* Outer caches unsupported on ARM64 platforms */
 # define outer_flush_range(x, y)
@@ -2925,6 +2943,16 @@ struct ipa3_context {
 	bool ipa_wdi3_over_gsi;
 	bool ipa_endp_delay_wa;
 	bool lan_coal_enable;
+	/*
+	 * Set while the AP driver owns the NAT/conn-track exception
+	 * suppression routing table index.  Taken at probe, when
+	 * ipa3_setup_nat_exc_rt_lan_rules() points the engine at
+	 * IPA_NAT_EXC_RT_TBL_NAME, and never given back - the table is
+	 * populated further by rmnet_ipa but the index never changes.
+	 */
+	bool nat_exc_rt_tbl_ap_owned;
+	/* handles of the LAN side IPA_NAT_EXC_RT_TBL_NAME rules, per IP version */
+	u32 nat_exc_rt_lan_hdl[IPA_IP_MAX][IPA_NAT_EXC_RT_LAN_RULES_TOTAL];
 	bool ipa_fltrt_not_hashable;
 	bool use_xbl_boot;
 	bool use_64_bit_dma_mask;

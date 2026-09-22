@@ -12514,6 +12514,13 @@ int ipa3_cfg_ep_nat(u32 clnt_hdl, const struct ipa_ep_cfg_nat *ep_nat)
 	/* copy over EP cfg */
 	ipa3_ctx->ep[clnt_hdl].cfg.nat = *ep_nat;
 
+	ep_nat = &ipa3_ctx->ep[clnt_hdl].cfg.nat;
+	if (ipa3_ctx->nat_exc_rt_tbl_ap_owned) {
+		ipa3_ctx->ep[clnt_hdl].cfg.nat.nat_exc_suppress = true;
+		IPADBG("force NAT exception suppression on pipe %d client %d\n",
+			clnt_hdl, ipa3_ctx->ep[clnt_hdl].client);
+	}
+
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
