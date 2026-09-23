@@ -1883,6 +1883,8 @@ struct ipa3_stats {
 	u32 ulso_wlan_pm_fail_pkts;
 	u32 ulso_wlan_tx_fail_pkts;
 	u32 ulso_eth_tx_fail_pkts;
+	u32 dma_map_recycle;
+	u32 dma_map_new;
 	u32 rx_page_drop_cnt;
 	u64 lower_order;
 	u32 pipe_setup_fail_cnt;

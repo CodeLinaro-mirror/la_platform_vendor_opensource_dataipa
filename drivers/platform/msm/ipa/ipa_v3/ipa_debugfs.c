@@ -1969,6 +1969,8 @@ static int ipa3_read_stats(struct seq_file *seq, void *v)
 		"ulso_wlan_pm_fail_pkts=%u\n"
 		"ulso_wlan_tx_fail_pkts=%u\n"
 		"ulso_eth_tx_fail_pkts=%u\n"
+		"dma_map_recycle=%u\n"
+		"dma_map_new=%u\n"
 		"tx_compl=%u\n"
 		"wan_rx=%u\n"
 		"stat_compl=%u\n"
@@ -2015,6 +2017,8 @@ static int ipa3_read_stats(struct seq_file *seq, void *v)
 		ipa3_ctx->stats.ulso_wlan_pm_fail_pkts,
 		ipa3_ctx->stats.ulso_wlan_tx_fail_pkts,
 		ipa3_ctx->stats.ulso_eth_tx_fail_pkts,
+		ipa3_ctx->stats.dma_map_recycle,
+		ipa3_ctx->stats.dma_map_new,
 		ipa3_ctx->stats.tx_pkts_compl,
 		ipa3_ctx->stats.rx_pkts,
 		ipa3_ctx->stats.stat_compl,
