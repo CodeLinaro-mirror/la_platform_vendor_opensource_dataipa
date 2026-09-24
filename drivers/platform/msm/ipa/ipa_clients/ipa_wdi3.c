@@ -1662,13 +1662,18 @@ EXPORT_SYMBOL(ipa_wdi_set_perf_profile);
  *
  * Must not be called from atomic context.
  *
- * Returns: 0 on success
+ * Returns: 0 on success; ownership transfers to IPA
  *          -EINVAL  if handle or skb is invalid
  *          -EPERM   if the TX pipe is not yet connected
+ *          -ENOMEM  if QMAP headroom cannot be reserved
  *          -EAGAIN  if IPA PM is activating (caller should stop TX queue)
- *          -ENOSPC  if the GSI descriptor ring is full (caller should stop TX
- *                   queue and restart it from the TX-complete notify callback)
+ *          -ENOSPC  if the GSI descriptor ring is full. The skb is handed
+ *                   back with the QMAP header pulled and gso_size restored,
+ *                   ready for retry; caller should stop TX queue and restart
+ *                   it from the TX-complete notify callback
  *          negative errno from ipa_tx_dp() on other transmit failures
+ *
+ * On every nonzero return, caller retains skb ownership.
  */
 int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl, struct sk_buff *skb)
 {
@@ -1680,6 +1685,7 @@ int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl, struct sk_buff *skb)
 	int intf_idx;
 	u16 mtu;
 	u16 skb_len;
+	u16 orig_gso_size;
 	u16 ip_dgram_len = 0;
 	int ret;
 
@@ -1696,6 +1702,17 @@ int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl, struct sk_buff *skb)
 	if (ipa_wdi_ctx_list[hdl]->tx_client == IPA_EP_NOT_ALLOCATED) {
 		IPA_WDI_ERR("TX pipe not connected for handle %u\n", hdl);
 		return -EPERM;
+	}
+
+	/*
+	 * qmap_encapsulate_skb() replaces and frees skb when it lacks QMAP
+	 * headroom. Reserve it here so every error path returns the caller's
+	 * original skb pointer.
+	 */
+	if (skb_cow_head(skb, sizeof(struct qmap_hdr))) {
+		IPA_WDI_ERR("failed to reserve %u bytes of headroom\n",
+				(unsigned int)sizeof(struct qmap_hdr));
+		return -ENOMEM;
 	}
 
 	mtu = skb->dev->mtu;
@@ -1717,6 +1734,7 @@ int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl, struct sk_buff *skb)
 	}
 
 	skb_len = skb->len;
+	orig_gso_size = skb_shinfo(skb)->gso_size;
 
 	if (ipa3_is_ulso_supported()) {
 		bool is_frag = false;
@@ -1835,6 +1853,9 @@ int ipa_wdi_offload_tx_dp_per_inst(ipa_wdi_hdl_t hdl, struct sk_buff *skb)
 		 */
 		if (ret == -EFAULT)
 			ret = -ENOSPC;
+		if (skb->len != skb_len)
+			skb_pull(skb, sizeof(struct qmap_hdr));
+		skb_shinfo(skb)->gso_size = orig_gso_size;
 		IPA_WDI_ERR("ipa_tx_dp failed for handle %u: %d\n", hdl, ret);
 		IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_wlan_tx_fail_pkts);
 	}
