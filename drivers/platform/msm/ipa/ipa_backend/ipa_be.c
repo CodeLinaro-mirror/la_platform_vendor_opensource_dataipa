@@ -2169,7 +2169,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			 * one route/proc_ctx/hdr per host is by design) */
 			ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, v4_msg.conn_rule.return_interface_num, v4_msg.conn_rule.return_mac, is_ret);
 			if (ret != 0) {
-				IPA_BE_ERR("Failed to add route rule for return IP\n");
+				IPA_BE_DBG("Failed to add route rule for return IP\n");
 				goto failed_ret;
 			}
 			step = L2L_STEP_RET_ROUTE;
@@ -2202,7 +2202,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			/* Add route entry (route stays gated on the IP mapping) */
 			ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, v4_msg.conn_rule.flow_interface_num, v4_msg.conn_rule.flow_mac, is_ret);
 			if (ret != 0) {
-				IPA_BE_ERR("Failed to add route rule for flow IP\n");
+				IPA_BE_DBG("Failed to add route rule for flow IP\n");
 				goto failed_ret;
 			}
 			step = L2L_STEP_FLOW_ROUTE;
@@ -2319,7 +2319,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			if (mapping != NULL) {
 				ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, client_iface, mac, is_ret);
 				if (ret != 0) {
-					IPA_BE_ERR("Failed to add route rule, rolling back client mapping\n");
+					IPA_BE_DBG("Failed to add route rule, rolling back client mapping\n");
 					ret = IPA_CMN_RESPONSE_EMSG;
 					goto failed_ret;
 				}
@@ -2392,7 +2392,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 		if (mapping != NULL) {
 			ret = ipa_ipv4_add_route_rule(v4_msg, lan2lan, flow_interface_num, mac, is_ret);
 			if (ret != 0) {
-				IPA_BE_ERR("Failed to add route rule\n");
+				IPA_BE_DBG("Failed to add route rule\n");
 				goto failed_ret;
 			}
 			step = V4_MDM_STEP_ROUTE_RULE;
@@ -2647,7 +2647,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			 * one route/proc_ctx/hdr per host is by design) */
 			ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, v6_msg.conn_rule.return_interface_num, v6_msg.conn_rule.return_mac, is_ret);
 			if (ret != 0) {
-				IPA_BE_ERR("Failed to add route rule for return IP\n");
+				IPA_BE_DBG("Failed to add route rule for return IP\n");
 				goto failed_ret;
 			}
 			step = L2L_STEP_RET_ROUTE;
@@ -2680,7 +2680,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			/* Add route entry (route stays gated on the IP mapping) */
 			ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, v6_msg.conn_rule.flow_interface_num, v6_msg.conn_rule.flow_mac, is_ret);
 			if (ret != 0) {
-				IPA_BE_ERR("Failed to add route rule for flow IP\n");
+				IPA_BE_DBG("Failed to add route rule for flow IP\n");
 				goto failed_ret;
 			}
 			step = L2L_STEP_FLOW_ROUTE;
@@ -2791,7 +2791,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			if (mapping != NULL) {
 				ret = ipa_ipv6_add_route_rule(v6_msg, lan2lan, client_iface, mac, is_ret);
 				if (ret != 0) {
-					IPA_BE_ERR("Failed to add route rule, rolling back client mapping\n");
+					IPA_BE_DBG("Failed to add route rule, rolling back client mapping\n");
 					ret = IPA_CMN_RESPONSE_EMSG;
 					goto failed_ret;
 				}
@@ -3102,7 +3102,7 @@ static enum ipa_cmn_response ipa_create_ipv4_rule_msg(
 		/* Failed */
 		ret = IPA_CMN_RESPONSE_EMSG;
 		ipa_incr_exceptions(IPA_EXCEPTION_CREATE_FAILED);
-		IPA_BE_ERR("Command create rule failure .. return\n");
+		IPA_BE_DBG("Command create rule failure .. return\n");
 	}
 
 	/*
@@ -3172,7 +3172,7 @@ static enum ipa_cmn_response ipa_create_ipv6_rule_msg(
 		/* Failed */
 		ret = IPA_CMN_RESPONSE_EMSG;
 		ipa_incr_exceptions(IPA_EXCEPTION_CREATE_FAILED);
-		IPA_BE_ERR("Command create rule failure .. return\n");
+		IPA_BE_DBG("Command create rule failure .. return\n");
 	}
 
 	/*
