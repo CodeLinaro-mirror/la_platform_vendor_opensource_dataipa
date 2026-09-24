@@ -1068,6 +1068,20 @@ int ipa_be_addpdn(struct ipa_ipv4_rule_create_msg v4_msg, int pdn_iface)
 		{
 			pub_ip = (uint32_t)ntohl(v4_msg.tuple.flow_ip);
 		}
+		else if (ipa_be_iface_is_vlan_over(v4_msg.conn_rule.return_top_interface_num,
+						   v4_msg.conn_rule.return_interface_num) &&
+			 ipa_be_iface_is_bridge(v4_msg.conn_rule.flow_top_interface_num))
+		{
+			/* Uplink: WAN=VLAN sub-iface on return, LAN behind bridge on flow. */
+			pub_ip = (uint32_t)ntohl(v4_msg.tuple.flow_ip);
+		}
+		else if (ipa_be_iface_is_vlan_over(v4_msg.conn_rule.flow_top_interface_num,
+						   v4_msg.conn_rule.flow_interface_num) &&
+			 ipa_be_iface_is_bridge(v4_msg.conn_rule.return_top_interface_num))
+		{
+			/* Downlink: mirror of uplink. */
+			pub_ip = (uint32_t)ntohl(v4_msg.tuple.return_ip);
+		}
 		else
 		{
 			/* IPPT but no orientation matched: pub_ip unresolved.
@@ -1135,8 +1149,11 @@ static int ipv6ct_convert_to_ipa_rule(struct ipa_ipv6_rule_create_msg *v6_msg,
 	memset(ipa_rule, 0, sizeof(ipa_ipv6ct_rule));
 
 	/* Convert IPv6 addresses */
-	if (v6_msg->conn_rule.return_interface_num == v6_msg->conn_rule.return_top_interface_num) {
-		/*Uplink*/
+	if (v6_msg->conn_rule.return_interface_num == v6_msg->conn_rule.return_top_interface_num ||
+	    (ipa_be_iface_is_vlan_over(v6_msg->conn_rule.return_top_interface_num,
+				       v6_msg->conn_rule.return_interface_num) &&
+	     ipa_be_iface_is_bridge(v6_msg->conn_rule.flow_top_interface_num))) {
+		/* Uplink */
 		ipa_rule->src_ipv6_msb = ((__u64)ntohl(tuple->flow_ip[0]) << 32) |
 					  ntohl(tuple->flow_ip[1]);
 		ipa_rule->src_ipv6_lsb = ((__u64)ntohl(tuple->flow_ip[2]) << 32) |

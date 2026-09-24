@@ -148,6 +148,10 @@ void ipa_be_insert_proc_ctx(char *name, int handle);
 int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret);
 int ipa_delete_route_rule(bool lan2lan, int rt_rule_hdl, enum ipa_ip_type ip);
 
+/* Pick LAN/WAN VLAN tag; is_ret = orientation (false=uplink, true=downlink). */
+uint32_t ipa_be_lan_vlan_tag(const struct ipa_vlan_rule *vlan, bool is_ret);
+uint32_t ipa_be_wan_vlan_tag(const struct ipa_vlan_rule *vlan, bool is_ret);
+
 int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret);
 int ipa_ipv6_delete_route_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, bool lan2lan, int rt_rule_hdl, enum ipa_ip_type ip);
 

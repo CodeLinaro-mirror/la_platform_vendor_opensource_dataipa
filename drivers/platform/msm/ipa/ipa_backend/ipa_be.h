@@ -226,4 +226,7 @@ int ipa_be_install_tc_bitmap_rules(const char *dev_name,
 				   enum ipa_ip_type ip,
 				   uint32_t added_tcs);
 
+bool ipa_be_iface_is_bridge(uint32_t iface_num);
+bool ipa_be_iface_is_vlan_over(uint32_t vlan_iface, uint32_t parent_iface);
+
 #endif /* _IPA_BE_ */
