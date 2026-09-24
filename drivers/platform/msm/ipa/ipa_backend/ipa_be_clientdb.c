@@ -438,6 +438,35 @@ struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac_locked(
 EXPORT_SYMBOL(ipa_be_clientdb_get_mapping_by_mac_locked);
 
 /*
+ * ipa_be_clientdb_get_mapping_by_ip_locked() - Lookup mapping by IP address.
+ * @addr: IP address to search for (v4 in addr[0]; v6 across all 4 words)
+ *
+ * Same locking contract as ipa_be_clientdb_get_mapping_by_mac_locked(): caller
+ * must hold ipa_client_db_lock, and the returned pointer (including its
+ * iface_name) is valid only while the lock is held.
+ */
+struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_ip_locked(
+	ip_addr_t addr)
+{
+	ipa_db_mapping_hash_t hash_index;
+	struct ipa_clientdb_mapping_instance *mi;
+
+	hash_index = ipa_db_mapping_generate_hash_index(addr, 0);
+
+	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
+		if (is_ip_addr_equal(mi->address, addr)) {
+			IPA_BE_DBG("Found mapping (locked) by IP at %px iface %s\n",
+				   mi, mi->iface_name);
+			return mi;
+		}
+	}
+
+	IPA_BE_DBG("No mapping found (locked) for IP\n");
+	return NULL;
+}
+EXPORT_SYMBOL(ipa_be_clientdb_get_mapping_by_ip_locked);
+
+/*
  * ipa_db_mapping_add()
  *	Add a mapping instance into the database
  *
@@ -2012,7 +2041,8 @@ static int ipa_eth_header_proc_ctx(
  * @return 0 on success, -1 on failure
  */
 int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, int hdl, int proc,
-							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name)
+							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name,
+							  const char *iface_name, uint32_t iface_num)
 {
 	IPA_BE_DBG("ECMIPA entry ipa_be_update_lan_info_from_rule hdl %d proc %d lan2lan %d hdr_hdl %d int is_ret %d\n",
 		hdl, proc, lan2lan, hdr_hdl, is_ret);
@@ -2060,6 +2090,19 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
 		IPA_BE_DBG("mi: %p " IPA_IP_ADDR_DOT_FMT "\n", mi, IPA_IP_ADDR_TO_DOT((uint32_t *)mi->address));
 		if (is_ip_addr_equal(mi->address, key_addr)) {
+
+			/* Interface this client is accelerated on. The QoS install
+			 * path resolves its TX pipe from here, never from a
+			 * caller-supplied dev_name. Name and index are stored
+			 * together so the index can never outlive a stale name. */
+			if (iface_name && iface_name[0]) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+				strscpy(mi->iface_name, iface_name, sizeof(mi->iface_name));
+#else
+				strlcpy(mi->iface_name, iface_name, sizeof(mi->iface_name));
+#endif
+				mi->iface_num = iface_num;
+			}
 
 			if (lan2lan && hdl)
 			{
@@ -2128,7 +2171,8 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 }
 
 int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_msg, int hdl, int proc,
-							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name)
+							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name,
+							  const char *iface_name, uint32_t iface_num)
 {
 	IPA_BE_DBG("ECMIPA entry ipa_be_update_lan_v6_info_from_rule hdl %d proc %d lan2lan %d hdr_hdl %d int is_ret %d\n",
 		hdl, proc, lan2lan, hdr_hdl, is_ret);
@@ -2160,6 +2204,18 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
 		IPA_BE_DBG("mi: %p %pI6n\n", mi, mi->address);
 		if (is_ip_addr_equal(mi->address, (uint32_t *)key_ip)) {
+
+			/* Interface this client is accelerated on -- see the v4
+			 * counterpart; the QoS install path resolves its TX pipe
+			 * from here, never from a caller-supplied dev_name. */
+			if (iface_name && iface_name[0]) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+				strscpy(mi->iface_name, iface_name, sizeof(mi->iface_name));
+#else
+				strlcpy(mi->iface_name, iface_name, sizeof(mi->iface_name));
+#endif
+				mi->iface_num = iface_num;
+			}
 
 			if (lan2lan && hdl)
 			{
@@ -2489,7 +2545,8 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 		rt_hdl = rt_rule_entry->rt_rule_hdl;
 		IPA_BE_DBG("Lan2Lan %d route rule hdl: %d\n", lan2lan, rt_hdl);
 
-		ipa_be_update_lan_info_from_rule(&v4_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name);
+		ipa_be_update_lan_info_from_rule(&v4_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name,
+						 temp_intf.name, (uint32_t)intf_num);
 	}
 
 cleanup:
@@ -2691,7 +2748,8 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		rt_hdl = rt_rule_entry->rt_rule_hdl;
 		IPA_BE_DBG("Lan2Lan %d route rule hdl: %d\n", lan2lan, rt_hdl);
 
-		ipa_be_update_lan_v6_info_from_rule(&v6_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name);
+		ipa_be_update_lan_v6_info_from_rule(&v6_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name,
+						    temp_intf.name, (uint32_t)intf_num);
 	}
 
 cleanup:
@@ -2908,7 +2966,8 @@ int ipa_ipv4_eth_backhaul_add_route_rule(
 			/* Table-level catch-all: do NOT pollute per-WAN-IP mapping */
 			ipa_be_wan_catchall_install_done(intf_num, IPA_IP_v4, (uint32_t)rt_hdl);
 		} else {
-			ipa_be_update_lan_info_from_rule(&v4_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, !is_ret, proc_ctx_name);
+			ipa_be_update_lan_info_from_rule(&v4_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, !is_ret, proc_ctx_name,
+							 temp_intf.name, (uint32_t)intf_num);
 		}
 	}
 
@@ -3117,7 +3176,8 @@ int ipa_ipv6_eth_backhaul_add_route_rule(
 			/* Table-level catch-all: do NOT pollute per-WAN-IP mapping */
 			ipa_be_wan_catchall_install_done(intf_num, IPA_IP_v6, (uint32_t)rt_hdl);
 		} else {
-			ipa_be_update_lan_v6_info_from_rule(&v6_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, !is_ret, proc_ctx_name);
+			ipa_be_update_lan_v6_info_from_rule(&v6_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, !is_ret, proc_ctx_name,
+							    temp_intf.name, (uint32_t)intf_num);
 		}
 	}
 

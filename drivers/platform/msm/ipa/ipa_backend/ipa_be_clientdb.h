@@ -128,6 +128,7 @@ struct ipa_clientdb_mapping_instance *ipa_db_mapping_alloc(void);
 bool ipa_be_clientdb_find_and_ref(ip_addr_t address, int vlan_id, bool lan2lan);
 struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac(mac_addr_t mac, int vlan_id);
 struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac_locked(mac_addr_t mac, int vlan_id);
+struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_ip_locked(ip_addr_t addr);
 int ipa_client_db_mapping_add(struct ipa_clientdb_mapping_instance *mi, int vlan_id, ip_addr_t address,
 							   ipa_db_mapping_final_callback_t final, void *arg);
 
@@ -162,11 +163,13 @@ int ipa_ipv6_eth_backhaul_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg,
 	bool lan2lan, int intf_num, mac_addr_t mac, bool is_ret, bool is_catch_all);
 
 int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, int hdl, int proc,
-							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name);
+							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name,
+							  const char *iface_name, uint32_t iface_num);
 int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int *proc_ctx_hdl, char *proc_ctx_name_out);
 
 int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_msg, int hdl, int proc,
-							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name);
+							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name,
+							  const char *iface_name, uint32_t iface_num);
 
 int ipa_be_wan_catchall_acquire(int pdn_iface, enum ipa_ip_type ip);
 void ipa_be_wan_catchall_install_done(int pdn_iface, enum ipa_ip_type ip, uint32_t rt_hdl);
