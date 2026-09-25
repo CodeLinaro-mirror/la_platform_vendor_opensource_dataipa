@@ -5787,9 +5787,7 @@ retry:
 		memset(&flt_rule_entry, 0, sizeof(flt_rule_entry));
 		flt_rule_entry.flt_rule_hdl = -1;
 		flt_rule_entry.status = -1;
-		flt_rule_entry.rule.action = (ip_type == IPA_IP_v4)
-						     ? IPA_PASS_TO_DST_NAT
-						     : IPA_PASS_TO_ROUTING;
+		flt_rule_entry.rule.action = IPA_PASS_TO_DST_NAT;
 #ifdef FEATURE_IPA_V3
 		flt_rule_entry.rule.hashable = true;
 #endif
@@ -6219,7 +6217,7 @@ retry:
 			flt_rule_entry.flt_rule_hdl = -1;
 			flt_rule_entry.status = -1;
 
-			flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+			flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
 
 #ifdef FEATURE_IPA_V3
 			flt_rule_entry.rule.hashable = true;
