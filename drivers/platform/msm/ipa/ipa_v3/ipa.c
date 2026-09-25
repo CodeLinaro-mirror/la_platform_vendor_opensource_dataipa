@@ -7165,6 +7165,18 @@ void ipa3_enable_clks(void)
 	IPADBG_CLK("enabling IPA clocks and bus voting in Process:%s, PID:%d\n",
 			current->comm, current->pid);
 
+	/*
+	 * CPU-triggered DDR write to force GemNOC directory initialization
+	 * before IPA hardware starts, avoiding an uninitialized GemNOC state.
+	 * Buffer is pre-allocated at bootup; only executed when the
+	 * qcom,gemnoc-ddr-init device tree property is present.
+	 */
+	if (ipa3_ctx->gemnoc_ddr_init && ipa3_ctx->gemnoc_ddr_buf) {
+		WRITE_ONCE(*ipa3_ctx->gemnoc_ddr_buf, 0xDEADBEEF);
+		IPADBG_CLK("DDR touch write: 0x%X\n",
+			READ_ONCE(*ipa3_ctx->gemnoc_ddr_buf));
+	}
+
 	idx = ipa3_get_bus_vote();
 
 	IPADBG_CLK("IPA ICC Voting for BW Started\n");
@@ -9984,6 +9996,18 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		}
 	}
 
+	ipa3_ctx->gemnoc_ddr_init = resource_p->gemnoc_ddr_init;
+	if (ipa3_ctx->gemnoc_ddr_init) {
+		ipa3_ctx->gemnoc_ddr_buf = kmalloc(sizeof(*ipa3_ctx->gemnoc_ddr_buf),
+			GFP_KERNEL);
+		if (!ipa3_ctx->gemnoc_ddr_buf) {
+			IPAERR_BOOTUP("Failed to alloc GemNOC DDR init buffer\n");
+			result = -ENOMEM;
+			goto fail_gemnoc_buf_alloc;
+		}
+		IPADBG_BOOTUP("GemNOC DDR init buffer allocated\n");
+	}
+
 	ipa3_ctx->ctrl = kzalloc(sizeof(*ipa3_ctx->ctrl), GFP_KERNEL);
 	if (!ipa3_ctx->ctrl) {
 		result = -ENOMEM;
@@ -10533,6 +10557,9 @@ fail_bind:
 	kfree(ipa3_ctx->ctrl);
 	ipa3_ctx->ctrl = NULL;
 fail_mem_ctrl:
+	kfree(ipa3_ctx->gemnoc_ddr_buf);
+	ipa3_ctx->gemnoc_ddr_buf = NULL;
+fail_gemnoc_buf_alloc:
 	kfree(ipa3_ctx->ipa_tz_unlock_reg);
 	ipa3_ctx->ipa_tz_unlock_reg = NULL;
 fail_tz_unlock_reg:
@@ -11209,6 +11236,13 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 		"qcom,ipa-wdi-opt-dpath");
 	IPADBG_BOOTUP(": Use optimized datapath = %s\n",
 		ipa_drv_res->ipa_wdi_opt_dpath
+		? "True" : "False");
+
+	ipa_drv_res->gemnoc_ddr_init =
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,gemnoc-ddr-init");
+	IPADBG_BOOTUP(": GemNOC DDR init on clk enable = %s\n",
+		ipa_drv_res->gemnoc_ddr_init
 		? "True" : "False");
 
 	/* Get IPA wrapper address */
