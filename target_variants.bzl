@@ -3,6 +3,7 @@ targets = [
     "bengal",
     "canoe",
     "chora",
+    "diwali",
     "gen3auto",
     "lahaina",
     "malabar",
@@ -10,6 +11,7 @@ targets = [
     "seraph",
     "seraphvxr",
     "sun",
+    "waipio",
     "vienna",
 ]
 
