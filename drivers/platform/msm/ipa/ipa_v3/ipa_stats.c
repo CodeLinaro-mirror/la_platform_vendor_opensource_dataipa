@@ -2271,9 +2271,6 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 		ret = -EFAULT;
 	}
 
-	kfree(rt_rule_stats);
-	return ret;
-
 stats_fail:
 	mutex_unlock(&ipa3_ctx->lock);
 	kfree(rt_rule_stats);
