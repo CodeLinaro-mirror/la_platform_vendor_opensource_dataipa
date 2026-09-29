@@ -100,6 +100,60 @@ enum nat_direction {
 /* Forward declaration for NAT entries collection */
 struct nat_entries_collection;
 
+/* Translation state of an IPv6 NAT flow.
+ *
+ * Only meaningful when the owning entry's flow_kind is a NAT kind; a plain CT
+ * entry leaves this zeroed and never reads it. Kept in its own struct so the
+ * CT path stays unaware of it and later steps can grow it without disturbing
+ * the CT fields.
+ *
+ * All-zero must mean "nothing held": the cache is kzalloc'd and the delete
+ * path memsets the slot, so a freed and reused slot must not look like it owns
+ * a uC entry or an inbound rule. That is why the uC index is qualified by a
+ * flag rather than by a reserved value — index 0 is a legal uC index.
+ */
+struct ipv6_nat_info {
+	/* Both sides of the translation, host order (msb = address bytes 0..7),
+	 * exactly as programmed into the uC activation entry.
+	 *
+	 * Both are recorded explicitly, rather than reading the private side
+	 * off the entry's canonical src_*: that pair is a cache key, ordered by
+	 * ct_canonical_swap()/swap_src_dest for lookup, and which of the two
+	 * canonical sides holds the private address depends on the topology.
+	 * On a downlink flow the canonical source is the public address, so
+	 * deriving the private side from it inverts the substitution. The
+	 * classification does say which side is private — so it is stored here
+	 * at add time and the cache key is left to be a cache key.
+	 */
+	uint64_t private_ipv6_msb;
+	uint64_t private_ipv6_lsb;
+	uint16_t private_port;
+
+	uint64_t public_ipv6_msb;
+	uint64_t public_ipv6_lsb;
+	uint16_t public_port;
+
+	/* The far end of the flow, which is not translated at all. Recorded for
+	 * the same reason as the private side: both rules need it as a match
+	 * field, and which canonical side holds it is topology-dependent.
+	 */
+	uint64_t peer_ipv6_msb;
+	uint64_t peer_ipv6_lsb;
+	uint16_t peer_port;
+
+	/* Second IPv6CT rule, matching the return direction on the public
+	 * address and port. IPA_TABLE_INVALID_ENTRY (0) when not installed.
+	 */
+	uint32_t inbound_rule_handle;
+
+	/* Slot in the uC activation table, from
+	 * ipa3_add_ipv6_nat_uc_activation_entry(). Valid only while
+	 * uc_act_valid is set.
+	 */
+	bool uc_act_valid;
+	uint16_t uc_act_index;
+};
+
 /* IPv6 Connection Tracking entry structure */
 struct ipv6_ct_entry {
 	uint32_t rule_handle;
@@ -123,13 +177,49 @@ struct ipv6_ct_entry {
 	u8  flow_mac[6];
 	u8  return_mac[6];
 	/* Original ECM add-time tuple (network order), pre-canonical-swap.
-	 * See nat_table_entry.
+	 * ipa_be_flush_flows() rebuilds every v6 destroy message from this,
+	 * LAN2WAN included: ipa_be_handle_v6_ct_deletion() derives the canonical
+	 * key by re-applying the add path's swap, so it must be handed the tuple
+	 * the add path started from and not the swapped src/dest below.
 	 */
 	uint32_t orig_flow_ip[4];
 	uint32_t orig_return_ip[4];
 	uint16_t orig_flow_ident;
 	uint16_t orig_return_ident;
+
+	/* What ipa_be_v6_classify_flow() decided for this flow at add time.
+	 * Stored rather than recomputed because the destroy message does not
+	 * carry the translated tuple, so teardown cannot re-derive it.
+	 * IPA_BE_V6_FLOW_CT is 0, so a zeroed slot is a CT entry.
+	 */
+	enum ipa_be_v6_flow_kind flow_kind;
+
+	/* Populated only for the NAT kinds. See struct ipv6_nat_info. */
+	struct ipv6_nat_info nat;
 };
+
+/* The __be32[4] IPv6 addresses of the ECM messages, as the two host-order
+ * 64-bit halves that every IPA IPv6 API takes. Same expression this file
+ * already open-codes per call site, named once.
+ */
+static inline uint64_t ipa_be_v6_addr_msb(const __be32 addr[4])
+{
+	return ((uint64_t)ntohl(addr[0]) << 32) | ntohl(addr[1]);
+}
+
+static inline uint64_t ipa_be_v6_addr_lsb(const __be32 addr[4])
+{
+	return ((uint64_t)ntohl(addr[2]) << 32) | ntohl(addr[3]);
+}
+
+/* The inverse, for building a message tuple back out of cached halves. */
+static inline void ipa_be_v6_addr_put(__be32 addr[4], uint64_t msb, uint64_t lsb)
+{
+	addr[0] = htonl((uint32_t)(msb >> 32));
+	addr[1] = htonl((uint32_t)msb);
+	addr[2] = htonl((uint32_t)(lsb >> 32));
+	addr[3] = htonl((uint32_t)lsb);
+}
 
 struct NatEntryBase
 {
@@ -448,6 +538,91 @@ static void ipa_be_free_ct_counters_v6(
 	}
 }
 
+/* Defined with the rest of the IPv6 NAT teardown, below its helpers. */
+static void ipa_be_v6_flush_all_entries(void);
+
+/* A v6 flow's addresses and ports, in one orientation. */
+struct ipa_be_v6_tuple {
+	uint64_t src_msb, src_lsb;
+	uint64_t dst_msb, dst_lsb;
+	uint16_t src_port, dst_port;
+};
+
+/*
+ * ipa_be_v6_lan_tuple() - a flow's tuple as the LAN side names it.
+ *
+ * The pre-translation tuple: the private address and port of the client, and the
+ * peer it is talking to. This is how everything outside hardware refers to a
+ * connection — a stats_mgr tuple arrives in these terms, and the v4 arm of
+ * ipa_be_query_tuple_stats() matches on private_ip/target_ip for that reason.
+ *
+ * A CT flow is not translated, so its canonical src_*, dest_* pair already is
+ * this tuple. A NAT flow's is not: that pair is ordered for lookup, and on a
+ * downlink flow its src is the public address, which nothing outside this file
+ * ever names a connection by.
+ */
+static void ipa_be_v6_lan_tuple(const struct ipv6_ct_entry *e,
+				struct ipa_be_v6_tuple *t)
+{
+	if (ipa_be_v6_flow_is_nat(e->flow_kind)) {
+		t->src_msb  = e->nat.private_ipv6_msb;
+		t->src_lsb  = e->nat.private_ipv6_lsb;
+		t->src_port = e->nat.private_port;
+		t->dst_msb  = e->nat.peer_ipv6_msb;
+		t->dst_lsb  = e->nat.peer_ipv6_lsb;
+		t->dst_port = e->nat.peer_port;
+		return;
+	}
+
+	t->src_msb  = e->src_ipv6_msb;
+	t->src_lsb  = e->src_ipv6_lsb;
+	t->src_port = e->src_port;
+	t->dst_msb  = e->dest_ipv6_msb;
+	t->dst_lsb  = e->dest_ipv6_lsb;
+	t->dst_port = e->dest_port;
+}
+
+/*
+ * ipa_be_v6_counter_key() - the address a flow's counters are keyed on.
+ *
+ * ipa_ct_alloc_counter_v6() takes the client's source address, which is what
+ * per-client mode groups the counter under, and the CT path passes the source of
+ * the rule it installed — so for either kind of flow it is the LAN-side source.
+ *
+ * Allocation and release have to agree on the key, so both go through here.
+ */
+static void ipa_be_v6_counter_key(const struct ipv6_ct_entry *e,
+				  uint64_t *msb, uint64_t *lsb)
+{
+	struct ipa_be_v6_tuple t;
+
+	ipa_be_v6_lan_tuple(e, &t);
+	*msb = t.src_msb;
+	*lsb = t.src_lsb;
+}
+
+/* Release both of a flow's counters under the key they were allocated with. */
+static void ipa_be_v6_free_counters(const struct ipv6_ct_entry *e)
+{
+	uint64_t msb, lsb;
+
+	ipa_be_v6_counter_key(e, &msb, &lsb);
+	ipa_be_free_ct_counters_v6(NatBase->ct_table_hdl, lsb, msb,
+				   e->all_pkts_stats_cnt_index,
+				   e->non_frag_stats_cnt_index);
+}
+
+/* Cache-slot reservation, for the admission path that holds cache_lock across
+ * the capacity check and the reservation. Defined with the cache helpers.
+ */
+static int store_ipv6_ct_entry_locked(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
+				uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
+				uint16_t src_port, uint16_t dest_port,
+				uint8_t protocol, uint32_t rule_handle,
+				uint32_t flow_rule_id,
+				uint16_t all_pkts_stats_cnt_index,
+				uint16_t non_frag_stats_cnt_index);
+
 void ipa_be_nat_mgmt_exit(void)
 {
 	struct ipa_be_cum_counter *cum;
@@ -485,6 +660,26 @@ void ipa_be_nat_mgmt_exit(void)
 	/* Clean up NatBase */
 	if(NatBase)
 	{
+		/*
+		 * Release the offloaded IPv6 flows before the cache goes: the
+		 * cache entry is the only record of a NAT flow's inbound rule
+		 * handle and uC activation index, so freeing it first strands
+		 * both in hardware. Then the IPv6 CT table itself, mirroring the
+		 * IPv4 NAT table teardown below.
+		 */
+		ipa_be_v6_flush_all_entries();
+
+		if (NatBase->ct_table_hdl) {
+			int ret = ipa_ct_del_ipv6_tbl(NatBase->ct_table_hdl);
+
+			if (ret)
+				IPA_BE_ERR("unable to delete IPv6 CT table Error: %d\n",
+					   ret);
+			else
+				IPA_BE_DBG("DEBUG: deleted shared IPv6 CT table\n");
+			NatBase->ct_table_hdl = 0;
+		}
+
 		if (NatBase->m_cache)
 		{
 			kfree(NatBase->m_cache);
@@ -1393,39 +1588,103 @@ static int ipv6ct_add_entry_v2(struct ipa_ipv6_rule_create_msg *v6_msg,
     return 0;
 }
 
+/*
+ * ipa_be_v6_ct_del_rule() - delete one IPv6CT rule, no questions asked.
+ *
+ * The caller is expected to know what the handle belongs to and to be releasing
+ * everything else the flow owns. In-file teardown uses this directly; the
+ * exported entry points wrap it with a guard, since an outside caller has no
+ * way to know a handle is one half of a NAT pair.
+ *
+ * @v6_msg is for logging only and may be NULL.
+ */
+static int ipa_be_v6_ct_del_rule(uint32_t rule_handle,
+				 const struct ipa_ipv6_rule_destroy_msg *v6_msg)
+{
+	int ret;
+
+	if (rule_handle == IPA_TABLE_INVALID_ENTRY) {
+		IPA_BE_ERR("Invalid rule handle: %u\n", rule_handle);
+		return -EINVAL;
+	}
+
+	if (!NatBase || !NatBase->ct_table_hdl) {
+		IPA_BE_ERR("NatBase or NatBase->ct_table_hdl is invalid (0)\n");
+		return -ENODEV;
+	}
+
+	ret = ipa_ct_del_ipv6_rule(NatBase->ct_table_hdl, rule_handle);
+	if (ret) {
+		IPA_BE_ERR("Failed to delete IPv6 CT rule from IPA: %d (handle=%u)\n",
+			   ret, rule_handle);
+		return ret;
+	}
+
+	if (v6_msg) {
+		IPA_BE_DBG("Successfully deleted IPv6 CT entry: handle=%u, protocol=%u\n",
+			   rule_handle, v6_msg->tuple.protocol);
+		IPA_BE_DBG("Flow: %pI6:%u -> Return: %pI6:%u\n",
+			   v6_msg->tuple.flow_ip, ntohs(v6_msg->tuple.flow_ident),
+			   v6_msg->tuple.return_ip, ntohs(v6_msg->tuple.return_ident));
+	} else {
+		IPA_BE_DBG("Successfully deleted IPv6 CT entry: handle=%u\n",
+			   rule_handle);
+	}
+
+	return 0;
+}
+
+/*
+ * ipa_be_v6_handle_is_nat() - is @rule_handle one half of an IPv6 NAT flow?
+ *
+ * A NAT flow owns two rules and a uC activation entry, and only its cache entry
+ * records the other two. Deleting one handle on its own therefore strands a live
+ * rule pointing at a uC slot that nothing can release any more. The exported
+ * single-handle deletes are the only way that can happen from outside this file,
+ * so they ask this first and refuse.
+ *
+ * Takes cache_lock, so callers must not hold it.
+ */
+static bool ipa_be_v6_handle_is_nat(uint32_t rule_handle)
+{
+	bool found = false;
+	int cnt;
+
+	if (rule_handle == IPA_TABLE_INVALID_ENTRY ||
+	    !NatBase || !NatBase->m_cache)
+		return false;
+
+	mutex_lock(&NatBase->cache_lock);
+	for (cnt = 0; !found && cnt < NatBase->m_maxEntries; cnt++) {
+		const struct ipv6_ct_entry *e = &NatBase->m_cache[cnt].ipv6_ct;
+
+		if (!NatBase->m_cache[cnt].m_enabled ||
+		    NatBase->m_cache[cnt].m_type != IPA_IP_v6 ||
+		    !ipa_be_v6_flow_is_nat(e->flow_kind))
+			continue;
+
+		found = e->rule_handle == rule_handle ||
+			e->nat.inbound_rule_handle == rule_handle;
+	}
+	mutex_unlock(&NatBase->cache_lock);
+
+	return found;
+}
+
 int ipv6ct_del_entry(struct ipa_ipv6_rule_destroy_msg *v6_msg, uint32_t rule_handle)
 {
-    int ret;
+	if (!v6_msg) {
+		IPA_BE_ERR("Invalid parameters (v6_msg=%p)\n", v6_msg);
+		return -EINVAL;
+	}
 
-    if (!v6_msg) {
-        IPA_BE_ERR("Invalid parameters (v6_msg=%p)\n", v6_msg);
-        return -EINVAL;
-    }
+	if (ipa_be_v6_handle_is_nat(rule_handle)) {
+		IPA_BE_ERR("Refusing single-rule delete of IPv6 NAT handle %u: use the flow teardown path\n",
+			   rule_handle);
+		return -EBUSY;
+	}
 
-    if (rule_handle == IPA_TABLE_INVALID_ENTRY) {
-        IPA_BE_ERR("Invalid rule handle: %u\n", rule_handle);
-        return -EINVAL;
-    }
-
-    if (!NatBase || !NatBase->ct_table_hdl) {
-        IPA_BE_ERR("NatBase or NatBase->ct_table_hdl is invalid (0)\n");
-        return -ENODEV;
-    }
-
-    ret = ipa_ct_del_ipv6_rule(NatBase->ct_table_hdl, rule_handle);
-    if (ret) {
-        IPA_BE_ERR("Failed to delete IPv6 CT rule from IPA: %d (handle=%u)\n",
-                   ret, rule_handle);
-        return ret;
-    }
-
-    IPA_BE_DBG("Successfully deleted IPv6 CT entry: handle=%u, protocol=%u\n",
-               rule_handle, v6_msg->tuple.protocol);
-    IPA_BE_DBG("Flow: %pI6:%u -> Return: %pI6:%u\n",
-               v6_msg->tuple.flow_ip, ntohs(v6_msg->tuple.flow_ident),
-               v6_msg->tuple.return_ip, ntohs(v6_msg->tuple.return_ident));
-
-    return 0;
+	return ipa_be_v6_ct_del_rule(rule_handle, v6_msg);
 }
 EXPORT_SYMBOL(ipv6ct_del_entry);
 
@@ -1447,9 +1706,91 @@ static int ipa_be_ipv6ct_canonical_swap(s32 flow_intf, s32 return_intf,
 	return 0;
 }
 
+/*
+ * ipa_be_v6_nat_from_msg() - derive both sides of a NAT flow's translation.
+ *
+ * The message carries the pre-translation tuple and the post-translation tuple
+ * of the same flow side by side, so the classification alone says which fields
+ * hold which side: whichever side ipa_be_v6_classify_flow() found translated is
+ * private in v6_msg->tuple and public in v6_msg->conn_rule.*_xlate. That is the
+ * same reading ipa_be_classify_topology() uses — on an uplink flow the LAN
+ * client is tuple.flow_ip, on a downlink flow it is conn_rule.return_ip_xlate.
+ *
+ * Kept a pure function of the message so the same derivation can be run before
+ * a cache slot exists — which is what lets the offloadability of a NAT flow be
+ * decided before anything has been reserved. Only the nine tuple fields are
+ * written: the uC activation slot and the inbound rule handle in the same
+ * struct are owned by the steps that allocate them.
+ *
+ * A flow that is not NAT has no translation and is left alone.
+ *
+ * No default case: a new flow kind must not compile until it is handled.
+ */
+static void ipa_be_v6_nat_from_msg(struct ipv6_nat_info *n,
+				   const struct ipa_ipv6_rule_create_msg *v6_msg,
+				   enum ipa_be_v6_flow_kind kind)
+{
+	const struct ipa_ipv6_connection_rule *c = &v6_msg->conn_rule;
+	const struct ipa_ipv6_5tuple *t = &v6_msg->tuple;
+
+	switch (kind) {
+	case IPA_BE_V6_FLOW_NAT_UPLINK:
+		/* Flow side translated: LAN client originated the flow. */
+		n->private_ipv6_msb = ipa_be_v6_addr_msb(t->flow_ip);
+		n->private_ipv6_lsb = ipa_be_v6_addr_lsb(t->flow_ip);
+		n->private_port     = ntohs(t->flow_ident);
+		n->public_ipv6_msb  = ipa_be_v6_addr_msb(c->flow_ip_xlate);
+		n->public_ipv6_lsb  = ipa_be_v6_addr_lsb(c->flow_ip_xlate);
+		n->public_port      = ntohs(c->flow_ident_xlate);
+		n->peer_ipv6_msb    = ipa_be_v6_addr_msb(t->return_ip);
+		n->peer_ipv6_lsb    = ipa_be_v6_addr_lsb(t->return_ip);
+		n->peer_port        = ntohs(t->return_ident);
+		return;
+	case IPA_BE_V6_FLOW_NAT_DOWNLINK:
+		/* Return side translated: LAN client is the flow's destination,
+		 * so the public address is the one the WAN peer addressed —
+		 * tuple.return_ip — and the private address is what it is
+		 * translated to.
+		 */
+		n->private_ipv6_msb = ipa_be_v6_addr_msb(c->return_ip_xlate);
+		n->private_ipv6_lsb = ipa_be_v6_addr_lsb(c->return_ip_xlate);
+		n->private_port     = ntohs(c->return_ident_xlate);
+		n->public_ipv6_msb  = ipa_be_v6_addr_msb(t->return_ip);
+		n->public_ipv6_lsb  = ipa_be_v6_addr_lsb(t->return_ip);
+		n->public_port      = ntohs(t->return_ident);
+		n->peer_ipv6_msb    = ipa_be_v6_addr_msb(t->flow_ip);
+		n->peer_ipv6_lsb    = ipa_be_v6_addr_lsb(t->flow_ip);
+		n->peer_port        = ntohs(t->flow_ident);
+		return;
+	case IPA_BE_V6_FLOW_CT:
+	case IPA_BE_V6_FLOW_UNSUPPORTED:
+		return;
+	}
+}
+
+/* Record a NAT flow's translation on its cache entry. A CT flow leaves the NAT
+ * state zeroed.
+ */
+static void ipv6_ct_populate_nat(struct ipv6_ct_entry *cache,
+				 const struct ipa_ipv6_rule_create_msg *v6_msg)
+{
+	if (!ipa_be_v6_flow_is_nat(cache->flow_kind))
+		return;
+
+	ipa_be_v6_nat_from_msg(&cache->nat, v6_msg, cache->flow_kind);
+
+	IPA_BE_DBG("v6 NAT 0x%016llx%016llx:%u <-> 0x%016llx%016llx:%u (%s)\n",
+		   cache->nat.private_ipv6_msb, cache->nat.private_ipv6_lsb,
+		   cache->nat.private_port,
+		   cache->nat.public_ipv6_msb, cache->nat.public_ipv6_lsb,
+		   cache->nat.public_port,
+		   ipa_be_v6_flow_kind_str(cache->flow_kind));
+}
+
 static void ipv6_ct_populate_topology(struct ipv6_ct_entry *cache,
 				      const struct ipa_ipv6_rule_create_msg *v6_msg,
-				      int pdn_iface)
+				      int pdn_iface,
+				      enum ipa_be_v6_flow_kind flow_kind)
 {
 	cache->pdn_iface        = pdn_iface;
 	cache->flow_iface       = v6_msg->conn_rule.flow_interface_num;
@@ -1464,6 +1805,643 @@ static void ipv6_ct_populate_topology(struct ipv6_ct_entry *cache,
 	       sizeof(cache->orig_return_ip));
 	cache->orig_flow_ident   = v6_msg->tuple.flow_ident;
 	cache->orig_return_ident = v6_msg->tuple.return_ident;
+
+	/* Classification is stored, not recomputed at teardown: the destroy
+	 * message carries no translated tuple.
+	 */
+	cache->flow_kind = flow_kind;
+	ipv6_ct_populate_nat(cache, v6_msg);
+}
+
+/* ---------------------- IPv6 flow classification ---------------------------
+ *
+ * The ECM rule-create message carries the pre-translation tuple (v6_msg.tuple)
+ * and the post-translation tuple (v6_msg.conn_rule.*_xlate) side by side. When
+ * a flow is not translated the two are identical — the invariant noted in
+ * ipa_be_fse.h. Comparing them is therefore all that is needed to tell an IPv6
+ * NAT flow from a plain connection-tracking flow: the decision comes from the
+ * flow information itself, not from a configuration knob.
+ *
+ * Which side differs also says which address is the public one, exactly as the
+ * v4 path already derives it in ipa_be_build_nat_rule_attrs().
+ *
+ * A bridged flow is forwarded at L2 and is never translated, so it is always
+ * plain CT and the comparison is skipped.
+ */
+static bool ipa_be_v6_side_xlated(const __be32 *ip, const __be32 *ip_xlate,
+				  __be16 ident, __be16 ident_xlate)
+{
+	return memcmp(ip, ip_xlate, IPA_BE_IPV6_ADDR_SZ) != 0 ||
+	       ident != ident_xlate;
+}
+
+enum ipa_be_v6_flow_kind ipa_be_v6_classify_flow(
+		const struct ipa_ipv6_rule_create_msg *v6_msg)
+{
+	const struct ipa_ipv6_5tuple *t = &v6_msg->tuple;
+	const struct ipa_ipv6_connection_rule *c = &v6_msg->conn_rule;
+	bool flow_xlated, return_xlated;
+
+	if (v6_msg->rule_flags & IPA_RULE_CREATE_FLAG_BRIDGE_FLOW)
+		return IPA_BE_V6_FLOW_CT;
+
+	flow_xlated = ipa_be_v6_side_xlated(t->flow_ip, c->flow_ip_xlate,
+					    t->flow_ident, c->flow_ident_xlate);
+
+	return_xlated = ipa_be_v6_side_xlated(t->return_ip, c->return_ip_xlate,
+					      t->return_ident,
+					      c->return_ident_xlate);
+
+	if (!flow_xlated && !return_xlated)
+		return IPA_BE_V6_FLOW_CT;
+
+	if (flow_xlated && return_xlated) {
+		/* One uC activation entry holds one substitution. Picking a side
+		 * here would drop the other side's translation without a trace,
+		 * so say so instead and let the add path refuse the rule.
+		 */
+		IPA_BE_ERR("IPv6 flow translated on both sides, cannot offload\n");
+		return IPA_BE_V6_FLOW_UNSUPPORTED;
+	}
+
+	/* The translated side carries the public address. Same branch order as
+	 * the v4 path: an unchanged flow side means the return side was the one
+	 * translated, i.e. a downlink flow.
+	 */
+	return flow_xlated ? IPA_BE_V6_FLOW_NAT_UPLINK
+			   : IPA_BE_V6_FLOW_NAT_DOWNLINK;
+}
+
+const char *ipa_be_v6_flow_kind_str(enum ipa_be_v6_flow_kind kind)
+{
+	switch (kind) {
+	case IPA_BE_V6_FLOW_CT:
+		return "CT (no translation)";
+	case IPA_BE_V6_FLOW_NAT_UPLINK:
+		return "NAT (flow side translated)";
+	case IPA_BE_V6_FLOW_NAT_DOWNLINK:
+		return "NAT (return side translated)";
+	case IPA_BE_V6_FLOW_UNSUPPORTED:
+		return "unsupported (both sides translated)";
+	}
+
+	return "unknown";
+}
+
+/* -------------------- IPv6 NAT uC activation entries -----------------------
+ *
+ * A translated IPv6 flow carries its address and port substitution in the uC
+ * activation table, not in the IPv6CT rule: the rule only sets ucp and the
+ * index of the uC entry to apply. The uC entry is therefore a resource with a
+ * lifetime of its own — it has to exist before any rule points at it, and may
+ * only be released once every rule pointing at it is gone.
+ *
+ * Since the index is the sole handle for releasing the entry, it is kept on the
+ * cache entry beside the rule handles, qualified by uc_act_valid so that a
+ * zeroed slot cannot be mistaken for one owning index 0.
+ */
+
+/*
+ * ipa_be_v6_nat_offloadable() - can this flow be offloaded as NAT?
+ *
+ * Two ways it cannot, both decided from the message and the target alone, before
+ * any resource has been touched.
+ *
+ * The hardware may have no way to express a substitution at all: ucp and
+ * uc_activation_index live on ipa_ipv6ct_rule_v2, which pre-v7.0 targets have no
+ * equivalent of. Such a flow used to be installed as a plain CT rule, which is
+ * not a degraded offload but a wrong one — the rule matches, so the packet is
+ * accelerated and forwarded with its private source address untouched, leaking
+ * internal addressing onto the WAN and leaving the return traffic unroutable.
+ * Refusing it leaves the flow in software, where the translation actually
+ * happens.
+ *
+ * Or the substitution may be one the uC cannot hold:
+ * ipa3_add_ipv6_nat_uc_activation_entry() refuses an activation entry in which
+ * any address half or either port is zero. That refusal would otherwise arrive in
+ * the middle of ipa_be_v6_nat_add_chained_rules(), by which point the flow has
+ * already taken a cache slot — so the same condition is tested here instead.
+ *
+ * The zero ports are the reachable case: a protocol with no port numbers reports
+ * its identifiers as 0, so ICMPv6 and anything else portless cannot have a uC
+ * substitution built for it. A zero address half is not expected of a global
+ * unicast address but is tested for because the uC add tests for it.
+ *
+ * Only NAT flows need asking; a CT flow installs no activation entry and is
+ * offloadable on every target.
+ */
+static bool ipa_be_v6_nat_offloadable(const struct ipa_ipv6_rule_create_msg *v6_msg,
+				      enum ipa_be_v6_flow_kind kind)
+{
+	struct ipv6_nat_info n = {};
+
+	if (!ipa_be_v6_flow_is_nat(kind))
+		return true;
+
+	if (ipa_get_hw_type() < IPA_HW_v7_0) {
+		IPA_BE_ERR("v6 NAT flow on pre-v7.0 HW cannot be translated, left to SW: %s\n",
+			   ipa_be_v6_flow_kind_str(kind));
+		return false;
+	}
+
+	ipa_be_v6_nat_from_msg(&n, v6_msg, kind);
+
+	if (!n.private_ipv6_msb || !n.private_ipv6_lsb || !n.private_port ||
+	    !n.public_ipv6_msb  || !n.public_ipv6_lsb  || !n.public_port) {
+		IPA_BE_ERR("v6 NAT flow has no uC-expressible substitution: private 0x%016llx%016llx:%u public 0x%016llx%016llx:%u proto %u\n",
+			   n.private_ipv6_msb, n.private_ipv6_lsb, n.private_port,
+			   n.public_ipv6_msb, n.public_ipv6_lsb, n.public_port,
+			   v6_msg->tuple.protocol);
+		return false;
+	}
+
+	return true;
+}
+
+/*
+ * ipa_be_v6_nat_uc_add() - reserve the uC activation entry of a NAT flow.
+ *
+ * Both sides of the substitution come from what ipv6_ct_populate_nat() recorded,
+ * so this must run after it. Neither side is read off the entry's canonical
+ * src_*, dest_* pair: that is a cache key whose ordering does not track which
+ * side is private.
+ *
+ * On success the index is stored on the entry and uc_act_valid is set. On
+ * failure the entry's NAT state is untouched and no slot is left reserved, so
+ * the caller can simply leave the flow to software.
+ */
+int ipa_be_v6_nat_uc_add(struct ipv6_ct_entry *e)
+{
+	struct ipa_ioc_ipv6_nat_uc_act_entry act = {
+		.cmd_id              = IPA_IPv6_NAT_COM_ID,
+		.private_address_msb = e->nat.private_ipv6_msb,
+		.private_address_lsb = e->nat.private_ipv6_lsb,
+		.private_port        = e->nat.private_port,
+		.public_address_msb  = e->nat.public_ipv6_msb,
+		.public_address_lsb  = e->nat.public_ipv6_lsb,
+		.public_port         = e->nat.public_port,
+		/* index is written only once a slot has actually been taken, and
+		 * 0 is a legal slot — so it starts out of range to tell "nothing
+		 * reserved" from "reserved slot 0".
+		 */
+		.index               = IPA_UC_ACT_TBL_SIZE,
+	};
+	int ret;
+
+	ret = ipa3_add_ipv6_nat_uc_activation_entry(&act);
+	if (ret) {
+		/* Per the helper's contract, a non-zero return can still leave a
+		 * slot programmed (index in range) when only its next-free-spot
+		 * scan failed. Nothing else knows the index, so release it here
+		 * or it is gone for good. A fully rolled-back add leaves index at
+		 * IPA_UC_ACT_TBL_SIZE, so this test frees nothing spuriously.
+		 */
+		if (act.index < IPA_UC_ACT_TBL_SIZE &&
+		    ipa3_del_ipv6_nat_uc_activation_entry(act.index))
+			IPA_BE_ERR("uC entry %u leaked by failed add\n",
+				   act.index);
+
+		IPA_BE_ERR("Failed to add uC activation entry %d\n", ret);
+		return ret;
+	}
+
+	e->nat.uc_act_index = act.index;
+	e->nat.uc_act_valid = true;
+
+	IPA_BE_DBG("uC entry %u: 0x%016llx%016llx:%u -> 0x%016llx%016llx:%u\n",
+		   e->nat.uc_act_index,
+		   e->nat.private_ipv6_msb, e->nat.private_ipv6_lsb,
+		   e->nat.private_port,
+		   e->nat.public_ipv6_msb, e->nat.public_ipv6_lsb,
+		   e->nat.public_port);
+	return 0;
+}
+
+/*
+ * ipa_be_v6_nat_uc_del() - release the uC activation entry of a NAT flow.
+ *
+ * A no-op on an entry holding none, so every rollback and teardown path can
+ * call it unconditionally without first testing what kind of flow it has.
+ *
+ * Returns 0 once the slot is released (or there was none), and the delete's
+ * error otherwise. On failure the entry keeps uc_act_valid and its index: the
+ * slot is still programmed and this handle is the only way to reach it, so a
+ * later teardown must be able to retry. Terminal-teardown callers that free the
+ * whole cache slot afterwards can ignore the return; a rollback that has to
+ * report completeness must not.
+ */
+int ipa_be_v6_nat_uc_del(struct ipv6_ct_entry *e)
+{
+	int ret;
+
+	if (!e->nat.uc_act_valid)
+		return 0;
+
+	ret = ipa3_del_ipv6_nat_uc_activation_entry(e->nat.uc_act_index);
+	if (ret) {
+		IPA_BE_ERR("Failed to free uC activation entry %u: %d\n",
+			   e->nat.uc_act_index, ret);
+		/* Left valid on purpose: the slot is still ours and still
+		 * programmed, and this index is the only handle to it, so a
+		 * later teardown must be able to retry the free.
+		 */
+		return ret;
+	}
+
+	e->nat.uc_act_valid = false;
+	e->nat.uc_act_index = 0;
+	return 0;
+}
+
+/* --------------------- IPv6 NAT chained IPv6CT rules -----------------------
+ *
+ * A translated flow needs two table entries where a CT flow needs one. The
+ * outbound entry matches the flow as the LAN sees it, and is the same match a
+ * pure CT flow installs. The return traffic, though, arrives addressed to the
+ * public address and port, which no field of the outbound entry carries — so it
+ * needs an entry of its own.
+ *
+ * Both entries name the same uC activation entry, since one uC entry holds both
+ * halves of the substitution. That is where the ordering rule comes from: the
+ * uC entry is created before either rule and released only after both are gone,
+ * so no live rule ever names a freed index.
+ */
+
+/* Protocol lives on the owning cache entry, not on the IPv6 CT state. */
+static uint8_t ipv6_ct_protocol(struct ipv6_ct_entry *e)
+{
+	return container_of(e, struct NatEntryBase, ipv6_ct)->m_protocol;
+}
+
+/*
+ * ipa_be_v6_nat_fill_rule() - build one of the two IPv6CT rules of a NAT flow.
+ *
+ * @inbound picks the half: the outbound rule matches the private source to the
+ * remote destination, the inbound rule matches the remote source to the public
+ * address and port.
+ *
+ * Every match field comes from the NAT state, never from the entry's canonical
+ * src_*, dest_* pair — that pair is a lookup key whose ordering does not say
+ * which side is private.
+ *
+ * Both halves carry the flow's uC activation index and its counters, so a
+ * translated flow is still counted once and against its own client.
+ */
+static void ipa_be_v6_nat_fill_rule(ipa_ipv6ct_rule_v2 *rule,
+				    const struct ipv6_ct_entry *e,
+				    uint8_t protocol, bool inbound)
+{
+	const struct ipv6_nat_info *n = &e->nat;
+	struct ipa_sw_producer_cookie cookie;
+
+	memset(rule, 0, sizeof(*rule));
+
+	if (inbound) {
+		rule->src_ipv6_msb  = n->peer_ipv6_msb;
+		rule->src_ipv6_lsb  = n->peer_ipv6_lsb;
+		rule->src_port      = n->peer_port;
+		rule->dest_ipv6_msb = n->public_ipv6_msb;
+		rule->dest_ipv6_lsb = n->public_ipv6_lsb;
+		rule->dest_port     = n->public_port;
+		rule->direction_settings = IPA_IPV6CT_DIRECTION_ALLOW_IN;
+	} else {
+		rule->src_ipv6_msb  = n->private_ipv6_msb;
+		rule->src_ipv6_lsb  = n->private_ipv6_lsb;
+		rule->src_port      = n->private_port;
+		rule->dest_ipv6_msb = n->peer_ipv6_msb;
+		rule->dest_ipv6_lsb = n->peer_ipv6_lsb;
+		rule->dest_port     = n->peer_port;
+		rule->direction_settings = IPA_IPV6CT_DIRECTION_ALLOW_OUT;
+	}
+
+	rule->protocol                 = protocol;
+	rule->s                        = true;
+	rule->ucp                      = true;
+	rule->uc_activation_index      = e->nat.uc_act_index;
+	rule->all_pkts_stats_cnt_index = e->all_pkts_stats_cnt_index;
+	rule->non_frag_stats_cnt_index = e->non_frag_stats_cnt_index;
+
+	/* Same cookie on both halves: it classifies the flow's SW producer,
+	 * which is a property of the flow and not of a direction.
+	 */
+	memset(&cookie, 0, sizeof(cookie));
+	ipa3_populate_cookie_vpnum(e->flow_iface, &cookie);
+	if (!cookie.raw)
+		ipa3_populate_cookie_vpnum(e->return_iface, &cookie);
+	rule->sw_prod_classification_cookie = cookie.raw;
+}
+
+/*
+ * ipa_be_v6_nat_add_chained_rules() - install a NAT flow's uC entry and both
+ * IPv6CT rules.
+ *
+ * Called on a cache entry that already holds the flow's canonical tuple and its
+ * public side; fills in the uC index, the counter and both rule handles.
+ *
+ * On failure everything reserved here is rolled back and, when every rollback
+ * step succeeds, the entry is left as it was found so the caller can simply
+ * leave the flow to software. If a rollback delete itself fails, the handle it
+ * could not release is left intact on the entry and *rollback_incomplete is set:
+ * the resource is still programmed in hardware and this entry is the only place
+ * its handle is recorded, so the caller must keep the entry alive for a later
+ * teardown to retry rather than free the slot and strand it.
+ */
+static int ipa_be_v6_nat_add_chained_rules(struct ipv6_ct_entry *e,
+					   bool *rollback_incomplete)
+{
+	uint8_t protocol = ipv6_ct_protocol(e);
+	ipa_ipv6ct_rule_v2 rule;
+	uint64_t cnt_msb, cnt_lsb;
+	int ret;
+
+	*rollback_incomplete = false;
+
+	ret = ipa_be_v6_nat_uc_add(e);
+	if (ret)
+		return ret;
+
+	/* Keyed on the private address, as the CT path keys on the source of the
+	 * rule it installs, so a translated flow is still attributed to its own
+	 * client. As there, a counter failure is not fatal — the flow offloads
+	 * uncounted.
+	 */
+	ipa_be_v6_counter_key(e, &cnt_msb, &cnt_lsb);
+	if (ipa_ct_alloc_counter_v6(NatBase->ct_table_hdl,
+				    cnt_lsb, cnt_msb, true,
+				    &e->all_pkts_stats_cnt_index)) {
+		IPA_BE_ERR("Failed to allocate all_pkts counter for v6 NAT flow\n");
+		e->all_pkts_stats_cnt_index = 0;
+	}
+
+	ipa_be_v6_nat_fill_rule(&rule, e, protocol, false);
+	ret = ipa_ct_add_ipv6_rule_v2(NatBase->ct_table_hdl, &rule,
+				      &e->rule_handle);
+	if (ret) {
+		IPA_BE_ERR("Failed to add v6 NAT outbound rule: %d\n", ret);
+		goto fail_outbound;
+	}
+
+	ipa_be_v6_nat_fill_rule(&rule, e, protocol, true);
+	ret = ipa_ct_add_ipv6_rule_v2(NatBase->ct_table_hdl, &rule,
+				      &e->nat.inbound_rule_handle);
+	if (ret) {
+		IPA_BE_ERR("Failed to add v6 NAT inbound rule: %d\n", ret);
+		goto fail_inbound;
+	}
+
+	IPA_BE_DBG("v6 NAT flow installed: outbound %u inbound %u uC %u counter %u\n",
+		   e->rule_handle, e->nat.inbound_rule_handle,
+		   e->nat.uc_act_index, e->all_pkts_stats_cnt_index);
+	return 0;
+
+fail_inbound:
+	/* The inbound add failed, so no inbound rule exists to release. */
+	e->nat.inbound_rule_handle = IPA_TABLE_INVALID_ENTRY;
+	if (ipa_ct_del_ipv6_rule(NatBase->ct_table_hdl, e->rule_handle)) {
+		IPA_BE_ERR("Failed to roll back v6 NAT outbound rule %u\n",
+			   e->rule_handle);
+		/* Still programmed, and this handle is its only record: keep it
+		 * so a later teardown retries, and tell the caller not to free
+		 * the slot out from under it.
+		 */
+		*rollback_incomplete = true;
+	} else {
+		e->rule_handle = IPA_TABLE_INVALID_ENTRY;
+	}
+fail_outbound:
+	ipa_be_v6_free_counters(e);
+	e->all_pkts_stats_cnt_index = 0;
+	if (ipa_be_v6_nat_uc_del(e))
+		*rollback_incomplete = true;
+	return ret;
+}
+
+/*
+ * ipa_be_v6_nat_del_chained_rules() - tear a NAT flow out of hardware.
+ *
+ * The exact reverse of the add: inbound rule, outbound rule, then the uC entry,
+ * so no rule outlives the uC entry it names. Each step is guarded by its own
+ * handle, so a flow rolled back half way through the add tears down cleanly.
+ *
+ * The counters and the cache slot belong to the caller, as on the CT path.
+ *
+ * The table is tested for the same reason ipa_be_v6_ct_del_rule() tests it: no
+ * caller can reach this without a live NatBase today, but a teardown helper that
+ * silently dereferences it is one refactor away from doing so during shutdown.
+ * The uC entry is released either way — it lives in a different table, which the
+ * IPv6CT handle says nothing about.
+ */
+static void ipa_be_v6_nat_del_chained_rules(struct ipv6_ct_entry *e)
+{
+	if (!NatBase || !NatBase->ct_table_hdl) {
+		IPA_BE_ERR("No IPv6 CT table, leaving v6 NAT rules %u/%u programmed\n",
+			   e->rule_handle, e->nat.inbound_rule_handle);
+		e->rule_handle = IPA_TABLE_INVALID_ENTRY;
+		e->nat.inbound_rule_handle = IPA_TABLE_INVALID_ENTRY;
+		ipa_be_v6_nat_uc_del(e);
+		return;
+	}
+
+	if (e->nat.inbound_rule_handle != IPA_TABLE_INVALID_ENTRY) {
+		if (ipa_ct_del_ipv6_rule(NatBase->ct_table_hdl,
+					 e->nat.inbound_rule_handle))
+			IPA_BE_ERR("Failed to delete v6 NAT inbound rule %u\n",
+				   e->nat.inbound_rule_handle);
+		e->nat.inbound_rule_handle = IPA_TABLE_INVALID_ENTRY;
+	}
+
+	if (e->rule_handle != IPA_TABLE_INVALID_ENTRY) {
+		if (ipa_ct_del_ipv6_rule(NatBase->ct_table_hdl, e->rule_handle))
+			IPA_BE_ERR("Failed to delete v6 NAT outbound rule %u\n",
+				   e->rule_handle);
+		e->rule_handle = IPA_TABLE_INVALID_ENTRY;
+	}
+
+	ipa_be_v6_nat_uc_del(e);
+}
+
+/*
+ * Remove a v6 flow's rules from hardware, whichever kind it is: both chained
+ * rules plus the uC entry for a NAT flow, the single canonical rule for a CT
+ * flow. The one place every v6 teardown path goes through, so the NAT ordering
+ * cannot be got wrong in one of them.
+ *
+ * Called with cache_lock held; counters and the cache slot stay with the caller.
+ *
+ * @msg may be NULL, for teardown that is not driven by a destroy message (module
+ * exit). It only supplies logging detail, so its absence costs nothing but the
+ * log line. The CT arm goes to ipa_be_v6_ct_del_rule() rather than the exported
+ * ipa_be_delete_v6_ct_entry(), whose NAT guard would take cache_lock again.
+ */
+static void ipa_be_v6_ct_remove_rules(struct ipv6_ct_entry *e,
+				      struct ipa_ipv6_rule_destroy_msg *msg)
+{
+	if (ipa_be_v6_flow_is_nat(e->flow_kind)) {
+		ipa_be_v6_nat_del_chained_rules(e);
+	} else if (e->rule_handle != IPA_TABLE_INVALID_ENTRY) {
+		if (ipa_be_v6_ct_del_rule(e->rule_handle, msg))
+			IPA_BE_ERR("Failed to delete v6 CT rule %u\n",
+				   e->rule_handle);
+		e->rule_handle = IPA_TABLE_INVALID_ENTRY;
+	}
+}
+
+/*
+ * ipa_be_v6_flush_all_entries() - release every offloaded IPv6 flow.
+ *
+ * Module exit frees the cache outright, and the cache entry is the only place
+ * the inbound rule handle and the uC activation index are recorded — so without
+ * this walk both are unreachable afterwards and stay programmed in hardware for
+ * the lifetime of the uC. A plain CT flow leaks its single rule the same way.
+ *
+ * Takes cache_lock, so the caller must not already hold it. Safe under
+ * ipa_be_nat_mgmt_lock, which is the outer of the two everywhere else.
+ */
+static void ipa_be_v6_flush_all_entries(void)
+{
+	int cnt;
+
+	if (!NatBase || !NatBase->m_cache || !NatBase->ct_table_hdl)
+		return;
+
+	mutex_lock(&NatBase->cache_lock);
+	for (cnt = 0; cnt < NatBase->m_maxEntries; cnt++) {
+		struct NatEntryBase *slot = &NatBase->m_cache[cnt];
+
+		if (!slot->m_enabled || slot->m_type != IPA_IP_v6)
+			continue;
+
+		ipa_be_v6_ct_remove_rules(&slot->ipv6_ct, NULL);
+		ipa_be_v6_free_counters(&slot->ipv6_ct);
+
+		memset(slot, 0, sizeof(*slot));
+		slot->ipv6_ct.pdn_iface = -1;
+	}
+	mutex_unlock(&NatBase->cache_lock);
+}
+
+/* --------------------------- IPv6 flow admission ---------------------------
+ *
+ * A NAT flow is not one resource but two: it needs two IPv6CT table entries and
+ * one uC activation slot. The two come from different tables, sized and consumed
+ * independently, so either can run out while the other has room.
+ *
+ * Both are therefore checked before anything at all is installed. A flow that
+ * cannot have all three is refused outright and left to software — never
+ * half-installed, and never admitted by evicting a live flow.
+ *
+ * Every v6 flow is asked, not only the NAT ones. The IPv6CT table is sized to
+ * the same count as the cache, so while every flow cost one entry the cache was
+ * the only limit that could bind and table exhaustion was unreachable. A NAT
+ * flow costing two breaks that: the table can fill with half the cache free, and
+ * the flows that then find it full are whichever arrive next, NAT or CT alike.
+ *
+ * There is no configuration gate here by design: what a flow costs follows from
+ * what the flow is, so the flow itself decides. (use_ipv6_nat_config is stored
+ * but read by no functional path; gating on it would only add a dead switch.)
+ */
+
+/* What one flow of each kind costs, in each of the two tables. */
+#define IPA_BE_V6_CT_HW_ENTRIES		1	/* one IPv6CT rule	   */
+#define IPA_BE_V6_NAT_HW_ENTRIES	2	/* outbound + inbound	   */
+#define IPA_BE_V6_NAT_UC_ENTRIES	1	/* one uC activation slot  */
+
+/*
+ * ipa_be_v6ct_entries_free_locked() - IPv6CT table entries not currently in use.
+ *
+ * Counted from the cache rather than tracked in a running total, so it cannot
+ * drift away from reality across the several teardown paths. The cache holds v4
+ * entries too, hence the type test.
+ *
+ * The capacity is m_maxEntries, which is the entry count ipa_be_add_table_v6()
+ * requested — not a capacity hardware confirmed. ipa_ct_add_ipv6_tbl() returns
+ * only a handle, and it builds a base plus an expansion table, so the rules the
+ * table can actually hold is at least the number asked for and is not reported
+ * back. Counting against the request therefore errs towards refusing a NAT flow
+ * the table could still have taken, which is the safe direction: the flow stays
+ * in software rather than failing to install. Making it exact needs
+ * ipa_ct_add_ipv6_tbl() to report its realised size, which is an ipanat change.
+ *
+ * Note this is not simply the number of free cache slots: one slot costs one
+ * table entry as CT but two as NAT, so the table fills before the cache does.
+ *
+ * Caller holds cache_lock, so that the count it returns is still true when the
+ * slot is taken.
+ */
+static int ipa_be_v6ct_entries_free_locked(void)
+{
+	int used = 0;
+	int cnt;
+
+	for (cnt = 0; cnt < NatBase->m_maxEntries; cnt++) {
+		const struct NatEntryBase *entry = &NatBase->m_cache[cnt];
+
+		if (!entry->m_enabled || entry->m_type != IPA_IP_v6)
+			continue;
+
+		used += ipa_be_v6_flow_is_nat(entry->ipv6_ct.flow_kind) ?
+			IPA_BE_V6_NAT_HW_ENTRIES : IPA_BE_V6_CT_HW_ENTRIES;
+	}
+
+	return NatBase->m_maxEntries - used;
+}
+
+/*
+ * ipa_be_uc_act_free() - uC activation slots not currently in use.
+ *
+ * An advisory snapshot: the authoritative test is the one
+ * ipa3_add_ipv6_nat_uc_activation_entry() makes under act_tbl_lock. Reading it
+ * here only lets a doomed flow be refused before it costs anything.
+ */
+static int ipa_be_uc_act_free(void)
+{
+	return IPA_UC_ACT_TBL_SIZE - ipa3_ctx->uc_act_tbl_total;
+}
+
+/*
+ * ipa_be_v6_admit_locked() - may a flow of this kind be offloaded?
+ *
+ * Both ceilings are evaluated, and both are reported, so a refusal says which
+ * table ran out — the running totals behind them are already visible through
+ * ipa3_ctx->uc_act_tbl_ipv6_nat_total in debugfs.
+ *
+ * Asked for both kinds of flow, not just NAT. A CT flow costs one IPv6CT entry
+ * and a NAT flow two, so the table no longer empties at the same rate as the
+ * cache: enough NAT flows fill it with cache slots still free, and the next CT
+ * add is then an ipa_ct_add_ipv6_rule_v2() failure — a hard error, which makes
+ * the caller unwind a rule-create for a flow that only needed to fall back to
+ * software. Asking first turns that into the same soft refusal a NAT flow gets.
+ *
+ * Caller holds cache_lock. For a NAT flow the slot is claimed before the lock is
+ * released, which makes the IPv6CT budget binding: two adds racing for the last
+ * pair of entries would otherwise both be admitted, and the loser would unwind
+ * only after programming hardware. The CT arm installs its rule before it has a
+ * slot to claim, so its check is advisory in that race — the caller re-tests this
+ * same budget if the install then fails, so a lost race becomes a soft fallback
+ * to software rather than a hard rule-create unwind.
+ *
+ * The uC ceiling is advisory for the same kind of reason: that total lives under
+ * a different lock, so the add itself stays the authority — see
+ * ipa_be_uc_act_free().
+ */
+static bool ipa_be_v6_admit_locked(enum ipa_be_v6_flow_kind kind)
+{
+	bool is_nat  = ipa_be_v6_flow_is_nat(kind);
+	int ct_need  = is_nat ? IPA_BE_V6_NAT_HW_ENTRIES : IPA_BE_V6_CT_HW_ENTRIES;
+	int uc_need  = is_nat ? IPA_BE_V6_NAT_UC_ENTRIES : 0;
+	int ct_free  = ipa_be_v6ct_entries_free_locked();
+	int uc_free  = ipa_be_uc_act_free();
+
+	if (ct_free < ct_need || uc_free < uc_need) {
+		IPA_BE_ERR("v6 %s flow refused, left to SW: IPv6CT free %d need %d, uC free %d need %d\n",
+			   ipa_be_v6_flow_kind_str(kind),
+			   ct_free, ct_need, uc_free, uc_need);
+		return false;
+	}
+
+	IPA_BE_DBG("v6 %s flow admitted: IPv6CT free %d, uC free %d\n",
+		   ipa_be_v6_flow_kind_str(kind), ct_free, uc_free);
+	return true;
 }
 
 int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface, bool lan2lan)
@@ -1487,6 +2465,8 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 	int cache_idx;
 	int existing_idx;
 	uint16_t all_pkts_counter = 0, non_frag_counter = 0;
+	enum ipa_be_v6_flow_kind flow_kind;
+	bool rollback_incomplete = false;
 
 	IPA_BE_DBG("Entry ipa_be_add_v6_ct_entry\n");
 
@@ -1528,6 +2508,38 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 		ntohl(v6_msg.tuple.flow_ip[2]),  ntohl(v6_msg.tuple.flow_ip[3]),
 		ntohl(v6_msg.conn_rule.return_ip_xlate[0]), ntohl(v6_msg.conn_rule.return_ip_xlate[1]),
 		ntohl(v6_msg.conn_rule.return_ip_xlate[2]), ntohl(v6_msg.conn_rule.return_ip_xlate[3]));
+
+	/* Classify this flow from the message itself, and carry the result into
+	 * the cache entry below: it decides how many rules the flow gets, and
+	 * whether it gets a uC activation entry at all.
+	 */
+	flow_kind = ipa_be_v6_classify_flow(&v6_msg);
+	IPA_BE_DBG("v6 flow is %s (lan2lan %d)\n",
+		   ipa_be_v6_flow_kind_str(flow_kind), lan2lan);
+
+	/*
+	 * A flow the backend cannot accelerate is not a failed rule-create.
+	 *
+	 * The caller unwinds its whole rule-create on a non-zero return — the
+	 * route, filter, MTU and QoS rules it installed before calling here, none
+	 * of which are per-flow and all of which the flow still needs in order to
+	 * be handled in software. So the two outcomes are kept apart: a bad
+	 * message or a broken table fails, whereas a flow that simply cannot be
+	 * offloaded is logged and reported as success, leaving the flow to the
+	 * software path with everything else about it intact.
+	 *
+	 * Both of the conditions here are properties of the flow, decided before
+	 * any resource has been touched: a substitution on both sides, which one
+	 * uC activation entry cannot express, and a substitution the uC add would
+	 * reject outright.
+	 */
+	if (flow_kind == IPA_BE_V6_FLOW_UNSUPPORTED ||
+	    !ipa_be_v6_nat_offloadable(&v6_msg, flow_kind)) {
+		IPA_BE_ERR("IPv6 flow not offloaded, left to SW: %s\n",
+			   ipa_be_v6_flow_kind_str(flow_kind));
+		ret = 0;
+		goto cleanup;
+	}
 
 	/* Extract IPv6 prefix - use the first 64 bits (2 x 32-bit words) for prefix */
 	/* Apply ntohl to convert from network to host byte order for hardware */
@@ -1598,7 +2610,138 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 	}
 
 	/* Add IPv6 connection tracking entry */
-	if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+	if (ipa_get_hw_type() >= IPA_HW_v7_0 &&
+	    ipa_be_v6_flow_is_nat(flow_kind)) {
+		struct ipv6_ct_entry *e;
+
+		/*
+		 * Budgets and slot under one acquisition: checking capacity and
+		 * then claiming the slot with the lock dropped in between lets
+		 * two concurrent adds both pass on the last pair of entries.
+		 *
+		 * A NAT flow takes its cache slot before installing anything,
+		 * unlike a CT flow. The uC activation entry has to exist before
+		 * either rule names it, and its index is only reachable from the
+		 * cache entry — so the entry has to be there first.
+		 *
+		 * The lock is held across store + populate_topology +
+		 * add_chained_rules, not dropped after the reservation. The slot
+		 * is discoverable the moment store_ipv6_ct_entry_locked() sets
+		 * m_enabled and the canonical key, but its rule handles stay
+		 * INVALID until add_chained_rules() writes them. A concurrent
+		 * teardown that is not serialized against this path by the ECM
+		 * v6 workqueue — ipa_be_flush_flows(), which calls
+		 * ipa_ipv6_destroy_rule() straight from the iface-offline /
+		 * flush-all thread — would otherwise take cache_lock in that
+		 * window, match the slot on its canonical key, no-op both INVALID
+		 * handle deletes, and memset the slot free while this add still
+		 * holds e. add_chained_rules() would then write live rule/uC
+		 * indices into a slot marked free, leaking them in hardware and
+		 * breaking the one-flow-per-slot invariant. Holding the lock
+		 * across population closes that window. Only external ipa3_
+		 * and ipa_ct_ APIs run under it here (neither takes cache_lock or
+		 * ipa_be_nat_mgmt_lock), so the documented
+		 * nat_mgmt_lock -> cache_lock -> cum_lock order is preserved;
+		 * ipa_be_cum_assign() (which takes nat_mgmt_lock) stays outside.
+		 */
+		mutex_lock(&NatBase->cache_lock);
+		if (!ipa_be_v6_admit_locked(flow_kind)) {
+			mutex_unlock(&NatBase->cache_lock);
+			/* Out of table room, not a failed rule-create — see the
+			 * classification gate above.
+			 */
+			ret = 0;
+			goto cleanup;
+		}
+
+		cache_idx = store_ipv6_ct_entry_locked(can_src_msb, can_src_lsb,
+						can_dst_msb, can_dst_lsb,
+						can_src_port, can_dst_port,
+						tuple->protocol,
+						IPA_TABLE_INVALID_ENTRY,
+						tuple->flow_rule_id, 0, 0);
+		if (cache_idx < 0) {
+			mutex_unlock(&NatBase->cache_lock);
+			IPA_BE_ERR("Failed to store IPv6 NAT entry in cache\n");
+			ret = -EFAULT;
+			goto cleanup;
+		}
+
+		e = &NatBase->m_cache[cache_idx].ipv6_ct;
+
+		/* Records the public side and the topology the rules are built
+		 * from, so it has to run before the rules are built. Also sets
+		 * flow_kind, which ipa_be_v6ct_entries_free_locked() costs the
+		 * slot at — set here under the same lock, so no admit decision
+		 * can observe the slot looking like CT.
+		 */
+		ipv6_ct_populate_topology(e, &v6_msg, pdn_iface, flow_kind);
+
+		ret = ipa_be_v6_nat_add_chained_rules(e, &rollback_incomplete);
+		if (ret) {
+			IPA_BE_ERR("Failed to install IPv6 NAT flow: %d\n", ret);
+			if (rollback_incomplete) {
+				/* A rollback delete failed: a HW rule and/or the
+				 * uC slot is still programmed and its only handle
+				 * lives on this entry. Keep the slot enabled so a
+				 * later destroy / flush retries the teardown, and
+				 * report a hard error rather than a clean SW
+				 * fallback — the upstream caller then unwinds the
+				 * flow's other (non-per-flow) rules instead of
+				 * leaving it half-offloaded.
+				 */
+				mutex_unlock(&NatBase->cache_lock);
+				IPA_BE_ERR("v6 NAT rollback incomplete, cache entry %d retained for retry\n",
+					   cache_idx);
+				goto cleanup;
+			}
+			/* Nothing is installed and nothing is reserved, so the
+			 * slot goes back to free — with the same pdn_iface
+			 * sentinel store_ipv6_ct_entry() would have left.
+			 */
+			memset(&NatBase->m_cache[cache_idx], 0,
+			       sizeof(NatBase->m_cache[cache_idx]));
+			NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface = -1;
+			mutex_unlock(&NatBase->cache_lock);
+			/* Rolled back cleanly, so the flow is merely unaccelerated
+			 * — see the classification gate above.
+			 */
+			ret = 0;
+			goto cleanup;
+		}
+
+		/* Snapshot the counter index under the lock: once the lock is
+		 * dropped the slot can be torn down, and ipa_be_cum_assign()
+		 * takes ipa_be_nat_mgmt_lock so it cannot run under cache_lock.
+		 */
+		all_pkts_counter = e->all_pkts_stats_cnt_index;
+		mutex_unlock(&NatBase->cache_lock);
+
+		ipa_be_cum_assign(all_pkts_counter);
+	} else if (ipa_get_hw_type() >= IPA_HW_v7_0) {
+		bool admitted;
+
+		/*
+		 * Same question the NAT arm asks, for a cost of one entry. This
+		 * arm installs its rule before it has a cache slot to claim, so
+		 * the answer cannot be held under the lock the way the NAT arm
+		 * holds it: NAT flows can still fill the table in the window
+		 * between this check and the install below. That residual race is
+		 * caught at install time — a post-failure re-test maps a
+		 * now-full table to the same soft refusal this gate gives — so
+		 * this check is the cheap common case, not the only guard.
+		 */
+		mutex_lock(&NatBase->cache_lock);
+		admitted = ipa_be_v6_admit_locked(flow_kind);
+		mutex_unlock(&NatBase->cache_lock);
+		if (!admitted) {
+			/* Out of table room, not a failed rule-create — see the
+			 * classification gate above.
+			 */
+			ret = 0;
+			goto cleanup;
+		}
+
 		/*
 		 * Use the same swap_src_dest computed above for the canonical
 		 * key, so the installed HW entry matches can_src/can_dst
@@ -1608,8 +2751,37 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 					  &all_pkts_counter, NULL,
 					  swap_src_dest);
 		if (ret) {
-			IPA_BE_ERR("Failed to add IPv6 CT entry\n");
-			ret = -EFAULT;
+			bool table_full;
+
+			/*
+			 * The admission gate above is advisory for this arm: it
+			 * drops cache_lock before installing, so NAT flows (two
+			 * IPv6CT entries each) can fill the table in the window and
+			 * turn this into a real add failure. That is the case the
+			 * gate exists to make a soft refusal — the same one a NAT
+			 * flow or the classification gate gets — not a hard error
+			 * the caller unwinds its whole route/filter/MTU/QoS
+			 * rule-create for. Distinguish it from a genuine fault
+			 * (bad message, broken table) by re-testing the same
+			 * budget the gate tested, now, under the lock: a full table
+			 * means we lost the race and the flow simply falls back to
+			 * software; anything else is a real error.
+			 *
+			 * ipv6ct_add_entry_v2() already freed its counters and
+			 * created no cache slot or HW entry on failure, so there is
+			 * no partial state to release on either branch.
+			 */
+			mutex_lock(&NatBase->cache_lock);
+			table_full = !ipa_be_v6_admit_locked(flow_kind);
+			mutex_unlock(&NatBase->cache_lock);
+
+			if (table_full) {
+				IPA_BE_ERR("IPv6 CT table filled under add, flow left to SW\n");
+				ret = 0;
+			} else {
+				IPA_BE_ERR("Failed to add IPv6 CT entry\n");
+				ret = -EFAULT;
+			}
 			goto cleanup; /* entry not created; counters freed by ipv6ct_add_entry_v2 */
 		}
 
@@ -1627,9 +2799,17 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 		}
 		ipa_be_cum_assign(all_pkts_counter);
 		ipv6_ct_populate_topology(&NatBase->m_cache[cache_idx].ipv6_ct,
-					  &v6_msg, pdn_iface);
+					  &v6_msg, pdn_iface, flow_kind);
 	} else {
-		/* Legacy path (< IPA v7.0): single ALLOW_ALL entry, no counter allocation */
+		/* Legacy path (< IPA v7.0): single ALLOW_ALL entry, no counter allocation.
+		 * A NAT flow cannot reach here — ipa_be_v6_nat_offloadable() refuses
+		 * it on this hardware, since there is no way to attach a
+		 * substitution to a pre-v7.0 rule.
+		 */
+		if (ipa_be_v6_flow_is_nat(flow_kind))
+			IPA_BE_ERR("IPv6 %s flow reached pre-v7.0 path, should have been refused\n",
+				   ipa_be_v6_flow_kind_str(flow_kind));
+
 		ret = ipv6ct_add_entry(&v6_msg, &rule_hdl);
 		if (ret) {
 			IPA_BE_ERR("Failed to add IPv6 CT entry\n");
@@ -1650,7 +2830,7 @@ int ipa_be_add_v6_ct_entry(struct ipa_ipv6_rule_create_msg v6_msg, int pdn_iface
 			goto cleanup_single_rule;
 		}
 		ipv6_ct_populate_topology(&NatBase->m_cache[cache_idx].ipv6_ct,
-					  &v6_msg, pdn_iface);
+					  &v6_msg, pdn_iface, flow_kind);
 	}
 
 	goto cleanup;
@@ -2766,8 +3946,11 @@ int find_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 	return found_idx;
 }
 
-/* Helper function to store IPv6 CT entry in cache */
-int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
+/* Helper function to store IPv6 CT entry in cache. Caller holds cache_lock, so
+ * that a capacity decision taken under the same acquisition still holds when the
+ * slot is claimed — see ipa_be_v6_admit_locked().
+ */
+static int store_ipv6_ct_entry_locked(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 				uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
 				uint16_t src_port, uint16_t dest_port,
 				uint8_t protocol, uint32_t rule_handle,
@@ -2778,11 +3961,25 @@ int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 	int cnt;
 	int stored_idx = -1;
 
-	mutex_lock(&NatBase->cache_lock);
-
 	/* Find an empty slot */
 	for (cnt = 0; cnt < NatBase->m_maxEntries; cnt++) {
 		if (!NatBase->m_cache[cnt].m_enabled) {
+			/* Zero the whole slot before writing the subset of fields
+			 * below. This function only sets the fields it knows about
+			 * and leaves flow_kind, the nat sub-struct and the orig_*
+			 * tuple for ipv6_ct_populate_topology() to fill in later —
+			 * so the "all-zero means nothing held" invariant that
+			 * struct ipv6_nat_info documents must hold for a reused
+			 * slot too, not just a freshly kzalloc'd one. Every release
+			 * path memsets today, so this is belt-and-suspenders now;
+			 * enforcing it here means store no longer depends on that
+			 * discipline, and a future release path that merely clears
+			 * m_enabled cannot resurrect a prior occupant's translation
+			 * state or add-time tuple into the new flow.
+			 */
+			memset(&NatBase->m_cache[cnt], 0,
+			       sizeof(NatBase->m_cache[cnt]));
+
 			/* Store the entry */
 			NatBase->m_cache[cnt].m_type = IPA_IP_v6;
 			NatBase->m_cache[cnt].m_enabled = true;
@@ -2812,8 +4009,6 @@ int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 		}
 	}
 
-	mutex_unlock(&NatBase->cache_lock);
-
 	if (stored_idx < 0) {
 		IPA_BE_ERR("No free slot available for IPv6 CT entry\n");
 	}
@@ -2821,6 +4016,33 @@ int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 	return stored_idx;
 }
 
+int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
+				uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
+				uint16_t src_port, uint16_t dest_port,
+				uint8_t protocol, uint32_t rule_handle,
+				uint32_t flow_rule_id,
+				uint16_t all_pkts_stats_cnt_index,
+				uint16_t non_frag_stats_cnt_index)
+{
+	int stored_idx;
+
+	mutex_lock(&NatBase->cache_lock);
+	stored_idx = store_ipv6_ct_entry_locked(src_ipv6_msb, src_ipv6_lsb,
+						dest_ipv6_msb, dest_ipv6_lsb,
+						src_port, dest_port, protocol,
+						rule_handle, flow_rule_id,
+						all_pkts_stats_cnt_index,
+						non_frag_stats_cnt_index);
+	mutex_unlock(&NatBase->cache_lock);
+
+	return stored_idx;
+}
+
+/*
+ * Exported single-rule delete. Inherits the NAT guard from ipv6ct_del_entry(),
+ * so it refuses a handle belonging to a NAT flow rather than half-deleting it.
+ * In-file teardown goes through ipa_be_v6_ct_remove_rules() instead.
+ */
 void ipa_be_delete_v6_ct_entry(struct ipa_ipv6_rule_destroy_msg v6_msg, uint32_t rule_handle)
 {
 	IPA_BE_DBG("Deleting IPv6 CT entry with handle %u\n", rule_handle);
@@ -2893,19 +4115,21 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 		cache_idx = find_ipv6_ct_entry(can_src_msb, can_src_lsb, can_dst_msb, can_dst_lsb,
 					       can_src_port, can_dst_port, tuple->protocol);
 		if (cache_idx >= 0) {
-			uint16_t all_pkts_counter, non_frag_counter;
-
 			mutex_lock(&NatBase->cache_lock);
 			rule_handle = NatBase->m_cache[cache_idx].ipv6_ct.rule_handle;
-			all_pkts_counter = NatBase->m_cache[cache_idx].ipv6_ct.all_pkts_stats_cnt_index;
-			non_frag_counter = NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index;
 			IPA_BE_DBG("Found IPv6 CT canonical entry at cache index %d with handle %u\n",
 				   cache_idx, rule_handle);
 
-			ipa_be_delete_v6_ct_entry(*msg, rule_handle);
-			ipa_be_free_ct_counters_v6(NatBase->ct_table_hdl,
-						   can_src_lsb, can_src_msb,
-						   all_pkts_counter, non_frag_counter);
+			ipa_be_v6_ct_remove_rules(&NatBase->m_cache[cache_idx].ipv6_ct, msg);
+
+			/* Counters exist only for v7.0+ entries. This block is
+			 * already gated on v7.0+ at its entry (lan2lan &&
+			 * ipa_ver >= IPA_HW_v7_0), so the guard is redundant here
+			 * today — kept explicit to match the fwd path below and to
+			 * stay correct if that entry condition is ever relaxed.
+			 */
+			if (ipa_ver >= IPA_HW_v7_0)
+				ipa_be_v6_free_counters(&NatBase->m_cache[cache_idx].ipv6_ct);
 
 			memset(&NatBase->m_cache[cache_idx], 0, sizeof(NatBase->m_cache[cache_idx]));
 			NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface = -1;
@@ -2944,32 +4168,19 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 	}
 
 	if (cache_idx >= 0) {
-		uint16_t all_pkts_counter;
-		uint16_t non_frag_counter;
-		uint64_t stored_src_lsb, stored_src_msb;
 		int pdn_iface;
 
 		mutex_lock(&NatBase->cache_lock);
 		rule_handle = NatBase->m_cache[cache_idx].ipv6_ct.rule_handle;
-		all_pkts_counter = NatBase->m_cache[cache_idx].ipv6_ct.all_pkts_stats_cnt_index;
-		non_frag_counter = NatBase->m_cache[cache_idx].ipv6_ct.non_frag_stats_cnt_index;
-		stored_src_msb = NatBase->m_cache[cache_idx].ipv6_ct.src_ipv6_msb;
-		stored_src_lsb = NatBase->m_cache[cache_idx].ipv6_ct.src_ipv6_lsb;
 		pdn_iface = NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface;
 		IPA_BE_DBG("Found IPv6 CT fwd entry at cache index %d with handle %u pdn_iface=%d\n",
 			   cache_idx, rule_handle, pdn_iface);
 
 		/* Delete the IPv6 CT entry from hardware */
-		ipa_be_delete_v6_ct_entry(*msg, rule_handle);
+		ipa_be_v6_ct_remove_rules(&NatBase->m_cache[cache_idx].ipv6_ct, msg);
 
-		if (ipa_ver >= IPA_HW_v7_0) {
-			ipa_be_free_ct_counters_v6(
-				NatBase->ct_table_hdl,
-				stored_src_lsb,
-				stored_src_msb,
-				all_pkts_counter,
-				non_frag_counter);
-		}
+		if (ipa_ver >= IPA_HW_v7_0)
+			ipa_be_v6_free_counters(&NatBase->m_cache[cache_idx].ipv6_ct);
 
 		memset(&NatBase->m_cache[cache_idx], 0, sizeof(NatBase->m_cache[cache_idx]));
 		NatBase->m_cache[cache_idx].ipv6_ct.pdn_iface = -1;
@@ -3190,25 +4401,35 @@ int ipa_be_query_tuple_stats(const struct ipa_stats_tuple_info *tuple,
 		for (i = 0; i < NatBase->m_maxEntries; i++) {
 			struct NatEntryBase *e = &NatBase->m_cache[i];
 			struct ipv6_ct_entry *c = &e->ipv6_ct;
+			struct ipa_be_v6_tuple t;
 
 			if (!e->m_enabled || e->m_type != IPA_IP_v6)
 				continue;
 			if (e->m_protocol != tuple->protocol)
 				continue;
 
+			/* Match on the LAN-side tuple, as the AF_INET path
+			 * matches on private_ip/target_ip: that is the
+			 * orientation a stats_mgr tuple is named in. Matching
+			 * the entry's canonical src_*, dest_* instead would make
+			 * a downlink NAT flow unfindable in either orientation,
+			 * its canonical src being the public address.
+			 */
+			ipa_be_v6_lan_tuple(c, &t);
+
 			/* Forward orientation wins; reverse is a fallback only
 			 * (see the AF_INET path for the rationale).
 			 */
-			if (c->src_ipv6_msb  == s_msb && c->src_ipv6_lsb  == s_lsb &&
-			    c->dest_ipv6_msb == d_msb && c->dest_ipv6_lsb == d_lsb &&
-			    c->src_port      == s_pt  && c->dest_port      == d_pt) {
+			if (t.src_msb  == s_msb && t.src_lsb  == s_lsb &&
+			    t.dst_msb  == d_msb && t.dst_lsb  == d_lsb &&
+			    t.src_port == s_pt  && t.dst_port == d_pt) {
 				idx = i;
 				break;
 			}
 			if (rev_idx < 0 &&
-			    c->src_ipv6_msb  == d_msb && c->src_ipv6_lsb  == d_lsb &&
-			    c->dest_ipv6_msb == s_msb && c->dest_ipv6_lsb == s_lsb &&
-			    c->src_port      == d_pt  && c->dest_port      == s_pt)
+			    t.src_msb  == d_msb && t.src_lsb  == d_lsb &&
+			    t.dst_msb  == s_msb && t.dst_lsb  == s_lsb &&
+			    t.src_port == d_pt  && t.dst_port == s_pt)
 				rev_idx = i;
 		}
 		if (idx < 0)
@@ -3275,6 +4496,162 @@ int ipa_be_query_tuple_stats(const struct ipa_stats_tuple_info *tuple,
 }
 EXPORT_SYMBOL(ipa_be_query_tuple_stats);
 
+/*
+ * ipa_be_v6_newest_timestamp() - activity timestamp of one IPv6 flow.
+ *
+ * A NAT flow has two rules, and hardware refreshes the timestamp of whichever
+ * one a packet matched. Sampling only the outbound rule therefore makes a
+ * receive-only flow — a long download, or a server behind the CPE — look idle,
+ * so ECM ages out a connection that is busy. A flow is as recent as its most
+ * recent half.
+ *
+ * "Most recent" is measured as the largest advance past @since rather than by
+ * comparing the two values to each other, so a counter that wrapped since the
+ * last sample still orders correctly.
+ *
+ * @inbound_hdl is IPA_TABLE_INVALID_ENTRY on a CT flow, which reduces this to
+ * the single query it has always been. Returns 0 only if a query succeeded.
+ */
+static int ipa_be_v6_newest_timestamp(uint32_t outbound_hdl,
+				      uint32_t inbound_hdl,
+				      uint32_t since,
+				      uint32_t *ts_out)
+{
+	uint32_t hdl[2] = { outbound_hdl, inbound_hdl };
+	uint32_t best = 0;
+	bool got = false;
+	int i;
+
+	for (i = 0; i < 2; i++) {
+		uint32_t ts;
+
+		if (hdl[i] == IPA_TABLE_INVALID_ENTRY)
+			continue;
+		if (ipa_ct_query_timestamp(NatBase->ct_table_hdl, hdl[i], &ts))
+			continue;
+
+		if (!got || (ts - since) > (best - since)) {
+			best = ts;
+			got = true;
+		}
+	}
+
+	if (!got)
+		return -EIO;
+
+	*ts_out = best;
+	return 0;
+}
+
+/*
+ * ipa_be_v6_nat_xlate_of() - post-translation form of one side of a flow.
+ *
+ * Returns true and fills *x_* if the side given is one of the two the
+ * substitution names, false if it is the untranslated peer.
+ *
+ * The side is identified by matching its address and port against the recorded
+ * substitution rather than by position. The record's tuple is the canonical key,
+ * whose ordering comes from the swap decision and says nothing about which side
+ * is private — an uplink flow reports the private side first and a downlink flow
+ * reports it second. Matching is what holds either way.
+ */
+static bool ipa_be_v6_nat_xlate_of(uint64_t msb, uint64_t lsb, uint16_t port,
+				   const struct ipv6_nat_info *n,
+				   uint64_t *x_msb, uint64_t *x_lsb,
+				   uint16_t *x_port)
+{
+	if (msb == n->private_ipv6_msb && lsb == n->private_ipv6_lsb &&
+	    port == n->private_port) {
+		*x_msb  = n->public_ipv6_msb;
+		*x_lsb  = n->public_ipv6_lsb;
+		*x_port = n->public_port;
+		return true;
+	}
+
+	if (msb == n->public_ipv6_msb && lsb == n->public_ipv6_lsb &&
+	    port == n->public_port) {
+		*x_msb  = n->private_ipv6_msb;
+		*x_lsb  = n->private_ipv6_lsb;
+		*x_port = n->private_port;
+		return true;
+	}
+
+	return false;
+}
+
+/*
+ * ipa_be_v6_fill_sync_xlate() - fill the translated tuple of a sync record.
+ *
+ * Called with the record's tuple already filled, and derives the translated
+ * tuple from it. A CT flow is not translated, so the two mirror — the very
+ * invariant ipa_be_v6_classify_flow() reads. A NAT flow must report its
+ * substitution instead: mirroring there tells ECM the flow is untranslated while
+ * hardware is translating it, so anything downstream that compares the two pairs
+ * concludes there is no NAT on a flow that has it.
+ *
+ * Only the translated tuple is touched. The tuple itself is left exactly as the
+ * caller built it, because its orientation is what ECM matches a record to a
+ * connection by — reorienting a NAT flow to the add-time tuple would change the
+ * direction every existing v6 record reports.
+ */
+static void ipa_be_v6_fill_sync_xlate(struct ipa_ipv6_conn_sync *cs,
+				      const struct ipv6_ct_entry *e)
+{
+	uint64_t x_msb, x_lsb;
+	uint16_t x_port;
+
+	/* Untranslated unless proven otherwise. */
+	memcpy(cs->flow_ip_xlate, cs->flow_ip, sizeof(cs->flow_ip_xlate));
+	memcpy(cs->return_ip_xlate, cs->return_ip, sizeof(cs->return_ip_xlate));
+	cs->flow_ident_xlate   = cs->flow_ident;
+	cs->return_ident_xlate = cs->return_ident;
+
+	if (!ipa_be_v6_flow_is_nat(e->flow_kind))
+		return;
+
+	if (ipa_be_v6_nat_xlate_of(ipa_be_v6_addr_msb(cs->flow_ip),
+				   ipa_be_v6_addr_lsb(cs->flow_ip),
+				   ntohs(cs->flow_ident), &e->nat,
+				   &x_msb, &x_lsb, &x_port)) {
+		ipa_be_v6_addr_put(cs->flow_ip_xlate, x_msb, x_lsb);
+		cs->flow_ident_xlate = htons(x_port);
+	} else if (ipa_be_v6_nat_xlate_of(ipa_be_v6_addr_msb(cs->return_ip),
+					  ipa_be_v6_addr_lsb(cs->return_ip),
+					  ntohs(cs->return_ident), &e->nat,
+					  &x_msb, &x_lsb, &x_port)) {
+		ipa_be_v6_addr_put(cs->return_ip_xlate, x_msb, x_lsb);
+		cs->return_ident_xlate = htons(x_port);
+	} else {
+		/* Neither side is the one being translated, so there is nothing
+		 * truthful to report. Left mirrored, and said out loud, because
+		 * it means the record and the NAT state disagree.
+		 */
+		IPA_BE_ERR("v6 NAT record matches neither side of its substitution, reported untranslated\n");
+	}
+}
+
+/*
+ * ipa_be_v6_fill_sync_tuple() - report one flow's tuple and translated tuple.
+ *
+ * The tuple is the canonical key — the orientation every v6 sync record reports,
+ * from the poll path and from the iface-offline flush alike; the translated tuple
+ * then follows from it.
+ *
+ * Reads nothing but the entry it is given, so the caller's locking is whatever
+ * that entry needs: the poll path holds cache_lock because it passes a live
+ * cache slot, the iface-offline flush holds nothing because it passes a copy.
+ */
+static void ipa_be_v6_fill_sync_tuple(struct ipa_ipv6_conn_sync *cs,
+				      const struct ipv6_ct_entry *e)
+{
+	ipa_be_v6_addr_put(cs->flow_ip, e->src_ipv6_msb, e->src_ipv6_lsb);
+	ipa_be_v6_addr_put(cs->return_ip, e->dest_ipv6_msb, e->dest_ipv6_lsb);
+	cs->flow_ident   = htons(e->src_port);
+	cs->return_ident = htons(e->dest_port);
+
+	ipa_be_v6_fill_sync_xlate(cs, e);
+}
+
 /**
  * ipa_sync_ipv6_stats_many_msg() - Synchronize statistics for multiple IPv6 CT connections
  * @ipa_ctx: IPA context
@@ -3294,6 +4671,7 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 	int i;
 	uint32_t timestamp = 0;
 	uint32_t rule_handle;
+	uint32_t inbound_handle;
 	uint32_t old_timestamp;
 	int ret;
 	bool is_timestamp = true;
@@ -3386,16 +4764,25 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 			continue;
 		}
 
-		/* Read rule handle while holding lock */
+		/* Read both rule handles and the last sampled timestamp while
+		 * holding the lock. A NAT flow has two rules; the inbound handle
+		 * is IPA_TABLE_INVALID_ENTRY on a CT flow.
+		 */
 		rule_handle = NatBase->m_cache[i].ipv6_ct.rule_handle;
+		inbound_handle = NatBase->m_cache[i].ipv6_ct.nat.inbound_rule_handle;
+		old_timestamp = NatBase->m_cache[i].m_timestamp;
 
 		mutex_unlock(&NatBase->cache_lock);
 
 		if (is_timestamp) {
-			/* Query timestamp for this IPv6 CT entry (without holding lock) */
-			ret = ipa_ct_query_timestamp(NatBase->ct_table_hdl,
-						     rule_handle,
-						     &timestamp);
+			/* Query timestamp for this IPv6 flow (without holding
+			 * the lock). Both halves of a NAT flow are sampled, or a
+			 * receive-only flow reads as idle.
+			 */
+			ret = ipa_be_v6_newest_timestamp(rule_handle,
+							 inbound_handle,
+							 old_timestamp,
+							 &timestamp);
 			if (ret) {
 				IPA_BE_DBG("Failed to query timestamp for IPv6 CT entry %d, rule_hdl=%u\n",
 					   i, rule_handle);
@@ -3417,36 +4804,12 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 		/* Set protocol */
 		conn_sync->protocol = NatBase->m_cache[i].m_protocol;
 
-		/* Set IPv6 addresses - convert from 64-bit values back to IPv6 format */
-		conn_sync->flow_ip[0] = htonl((uint32_t)(NatBase->m_cache[i].ipv6_ct.src_ipv6_msb >> 32));
-		conn_sync->flow_ip[1] = htonl((uint32_t)(NatBase->m_cache[i].ipv6_ct.src_ipv6_msb & 0xFFFFFFFF));
-		conn_sync->flow_ip[2] = htonl((uint32_t)(NatBase->m_cache[i].ipv6_ct.src_ipv6_lsb >> 32));
-		conn_sync->flow_ip[3] = htonl((uint32_t)(NatBase->m_cache[i].ipv6_ct.src_ipv6_lsb & 0xFFFFFFFF));
-
-		conn_sync->return_ip[0] = htonl((uint32_t)(NatBase->m_cache[i].ipv6_ct.dest_ipv6_msb >> 32));
-		conn_sync->return_ip[1] = htonl((uint32_t)(NatBase->m_cache[i].ipv6_ct.dest_ipv6_msb & 0xFFFFFFFF));
-		conn_sync->return_ip[2] = htonl((uint32_t)(NatBase->m_cache[i].ipv6_ct.dest_ipv6_lsb >> 32));
-		conn_sync->return_ip[3] = htonl((uint32_t)(NatBase->m_cache[i].ipv6_ct.dest_ipv6_lsb & 0xFFFFFFFF));
-
-		/* Set ports */
-		conn_sync->flow_ident = htons(NatBase->m_cache[i].ipv6_ct.src_port);
-		conn_sync->return_ident = htons(NatBase->m_cache[i].ipv6_ct.dest_port);
+		/* Tuple and translated tuple. A NAT flow reports its actual
+		 * substitution here; only a CT flow mirrors.
+		 */
+		ipa_be_v6_fill_sync_tuple(conn_sync, &NatBase->m_cache[i].ipv6_ct);
 
 		conn_sync->flow_rule_id = NatBase->m_cache[i].ipv6_ct.flow_rule_id;
-
-		/* Populate xlate fields for IPv6. Mirror original tuple when NAT is not used */
-		conn_sync->flow_ip_xlate[0] = conn_sync->flow_ip[0];
-		conn_sync->flow_ip_xlate[1] = conn_sync->flow_ip[1];
-		conn_sync->flow_ip_xlate[2] = conn_sync->flow_ip[2];
-		conn_sync->flow_ip_xlate[3] = conn_sync->flow_ip[3];
-
-		conn_sync->return_ip_xlate[0] = conn_sync->return_ip[0];
-		conn_sync->return_ip_xlate[1] = conn_sync->return_ip[1];
-		conn_sync->return_ip_xlate[2] = conn_sync->return_ip[2];
-		conn_sync->return_ip_xlate[3] = conn_sync->return_ip[3];
-
-		conn_sync->flow_ident_xlate = conn_sync->flow_ident;
-		conn_sync->return_ident_xlate = conn_sync->return_ident;
 
 		if (is_timestamp) {
 			/* Only set inc_ticks if timestamp has changed (entry is active) */
@@ -4207,7 +5570,6 @@ v6_path:
 		uint32_t ts6 __maybe_unused = 0;
 		struct ipa_ipv6_rule_destroy_msg dmsg6;
 		ipa_ipv6_msg_callback_t push_cb6;
-		bool lan2lan6;
 		bool got6 = false;
 
 		mutex_lock(&ipa_be_nat_mgmt_lock);
@@ -4240,33 +5602,30 @@ v6_path:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		mutex_unlock(&ipa_be_nat_mgmt_lock);
 
-		lan2lan6 = (local6.flow_iface == local6.flow_top_iface &&
-			    local6.return_iface == local6.return_top_iface);
-
-		/* Synthesize destroy msg. LAN2LAN uses the cached pre-swap
-		 * tuple; LAN2WAN rebuilds from the CT entry's src/dest ipv6
-		 * (add-time UL labeling: src=flow, dest=return).
+		/*
+		 * Synthesize the destroy msg from the add-time ECM tuple.
+		 *
+		 * ipa_ipv6_destroy_rule() reaches ipa_be_handle_v6_ct_deletion(),
+		 * which builds the canonical cache key out of the tuple it is
+		 * handed by re-applying the same swap the add path applied. So the
+		 * tuple it needs is the pre-swap one the add path was called with,
+		 * not the canonical src/dest the cache entry stores. Handing it the
+		 * canonical tuple made it swap a second time: a v7.0+ LAN2WAN
+		 * downlink flow — return_iface != return_top_iface, the only case
+		 * where that swap is not a no-op — was looked up reversed and never
+		 * found, leaving its rules programmed and, for a NAT flow, its uC
+		 * activation slot claimed with nothing able to release it.
+		 *
+		 * ipv6_ct_populate_topology() records orig_* for every v6 entry, so
+		 * one form covers LAN2LAN and LAN2WAN alike.
 		 */
 		memset(&dmsg6, 0, sizeof(dmsg6));
-		if (lan2lan6) {
-			memcpy(dmsg6.tuple.flow_ip, local6.orig_flow_ip,
-			       sizeof(dmsg6.tuple.flow_ip));
-			memcpy(dmsg6.tuple.return_ip, local6.orig_return_ip,
-			       sizeof(dmsg6.tuple.return_ip));
-			dmsg6.tuple.flow_ident   = local6.orig_flow_ident;
-			dmsg6.tuple.return_ident = local6.orig_return_ident;
-		} else {
-			dmsg6.tuple.flow_ip[0]   = htonl((u32)(local6.src_ipv6_msb >> 32));
-			dmsg6.tuple.flow_ip[1]   = htonl((u32)(local6.src_ipv6_msb & 0xFFFFFFFF));
-			dmsg6.tuple.flow_ip[2]   = htonl((u32)(local6.src_ipv6_lsb >> 32));
-			dmsg6.tuple.flow_ip[3]   = htonl((u32)(local6.src_ipv6_lsb & 0xFFFFFFFF));
-			dmsg6.tuple.return_ip[0] = htonl((u32)(local6.dest_ipv6_msb >> 32));
-			dmsg6.tuple.return_ip[1] = htonl((u32)(local6.dest_ipv6_msb & 0xFFFFFFFF));
-			dmsg6.tuple.return_ip[2] = htonl((u32)(local6.dest_ipv6_lsb >> 32));
-			dmsg6.tuple.return_ip[3] = htonl((u32)(local6.dest_ipv6_lsb & 0xFFFFFFFF));
-			dmsg6.tuple.flow_ident   = htons(local6.src_port);
-			dmsg6.tuple.return_ident = htons(local6.dest_port);
-		}
+		memcpy(dmsg6.tuple.flow_ip, local6.orig_flow_ip,
+		       sizeof(dmsg6.tuple.flow_ip));
+		memcpy(dmsg6.tuple.return_ip, local6.orig_return_ip,
+		       sizeof(dmsg6.tuple.return_ip));
+		dmsg6.tuple.flow_ident   = local6.orig_flow_ident;
+		dmsg6.tuple.return_ident = local6.orig_return_ident;
 		dmsg6.tuple.protocol                     = proto;
 		dmsg6.conn_rule.flow_interface_num       = local6.flow_iface;
 		dmsg6.conn_rule.return_interface_num     = local6.return_iface;
@@ -4279,9 +5638,9 @@ v6_path:
 		v6_count++;
 
 		/* Push FLUSH_SWITCH_AE to FE with pre-teardown HW stats.
-		 * Mirror the v6 poll path (ipa_sync_ipv6_stats_many_msg):
-		 * cs6.flow_ip = dmsg6.tuple.flow_ip (= src_ipv6, canonicalized
-		 * to the LAN client) regardless of UL/DL, and stats always map
+		 * Mirror the v6 poll path (ipa_sync_ipv6_stats_many_msg): the
+		 * tuple is the canonical key (src_ipv6, canonicalized to the LAN
+		 * client) regardless of UL/DL, and stats always map
 		 * flow_tx=inbound / flow_rx=outbound. ECM v6 (ecm_ipa_ipv6.c)
 		 * looks up connections by flow_rule_id and infers direction
 		 * from ECM_IP_ADDR_MATCH(flow_ip, from_ip); a DL-flipped push
@@ -4296,18 +5655,15 @@ v6_path:
 			struct ipa_ipv6_msg nim6;
 
 			cs6.protocol = proto;
-			memcpy(cs6.flow_ip, dmsg6.tuple.flow_ip,
-			       sizeof(cs6.flow_ip));
-			memcpy(cs6.flow_ip_xlate, dmsg6.tuple.flow_ip,
-			       sizeof(cs6.flow_ip_xlate));
-			memcpy(cs6.return_ip, dmsg6.tuple.return_ip,
-			       sizeof(cs6.return_ip));
-			memcpy(cs6.return_ip_xlate, dmsg6.tuple.return_ip,
-			       sizeof(cs6.return_ip_xlate));
-			cs6.flow_ident         = dmsg6.tuple.flow_ident;
-			cs6.flow_ident_xlate   = dmsg6.tuple.flow_ident;
-			cs6.return_ident       = dmsg6.tuple.return_ident;
-			cs6.return_ident_xlate = dmsg6.tuple.return_ident;
+
+			/* Tuple and translated tuple from the helper the poll
+			 * path uses, so a flow's last record reads in the same
+			 * orientation as every record before it and a NAT flow
+			 * states its substitution instead of claiming there is
+			 * none. Deliberately not copied from dmsg6, whose tuple
+			 * is the pre-swap add-time one the destroy path needs.
+			 */
+			ipa_be_v6_fill_sync_tuple(&cs6, &local6);
 			cs6.flow_tx_packet_count         = stats6.num_pkts_inbound;
 			cs6.flow_tx_byte_count           = stats6.num_bytes_inbound;
 			cs6.flow_tx_packet_count_cache   = stats6.num_pkts_cache_inbound;
