@@ -2491,6 +2491,10 @@ int ipa_be_remove_pdn(uint32_t pub_ip, int pdn_iface)
 		IPA_BE_DBG("RemovePDN: flushing UL filter Q6 notify for pdn_iface=%d pub_ip=0x%X\n",
 			pdn_iface, pub_ip);
 		ipa_be_flush_uplink_rules_for_pdn(pdn_iface, IPA_IP_v4);
+		/* XLAT v6 companion has no CT entry; reap it here if idle.
+		 * v6 runs on its own ECM queue, so in-use pairs are skipped.
+		 */
+		ipa_be_flush_idle_uplink_rules_for_pdn(pdn_iface, IPA_IP_v6);
 	} else {
 		IPA_BE_DBG("RemovePDN: pdn_iface unresolved, skipping UL flush for pub_ip=0x%X\n",
 			pub_ip);
@@ -2977,12 +2981,14 @@ void ipa_be_handle_v6_ct_deletion(struct ipa_ipv6_rule_destroy_msg *msg, bool la
 
 		IPA_BE_DBG("Successfully deleted IPv6 CT fwd entry and cleared cache\n");
 
-		/* Flush v6 UL rules on last CT entry for this PDN. */
+		/* Flush v6 UL rules on last CT entry for this PDN. Idle-only:
+		 * XLAT v4 flows may still hold the shared v6 pair.
+		 */
 		if (pdn_iface >= 0 &&
 		    count_v6_ct_entries_for_pdn(pdn_iface) == 0) {
 			IPA_BE_DBG("Last v6 CT entry for pdn_iface=%d gone, flushing v6 UL rules\n",
 				   pdn_iface);
-			ipa_be_flush_uplink_rules_for_pdn(pdn_iface, IPA_IP_v6);
+			ipa_be_flush_idle_uplink_rules_for_pdn(pdn_iface, IPA_IP_v6);
 		}
 	} else {
 		IPA_BE_ERR("IPv6 CT fwd entry not found in cache for deletion\n");
