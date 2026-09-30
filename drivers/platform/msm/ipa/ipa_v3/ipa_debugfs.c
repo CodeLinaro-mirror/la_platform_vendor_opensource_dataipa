@@ -9,6 +9,7 @@
 #include <linux/debugfs.h>
 #include <linux/kernel.h>
 #include <linux/stringify.h>
+#include <linux/seq_file.h>
 #include "ipa_i.h"
 #include "ipa_rm_i.h"
 #include "ipahal_nat.h"
@@ -1557,18 +1558,15 @@ bail:
 	return res;
 }
 
-static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
-		size_t count, loff_t *ppos)
+static int ipa3_read_stats(struct seq_file *seq, void *v)
 {
-	int nbytes;
-	int i, j, tot_rx_excp_pkts;
-	int cnt = 0;
+	int i, j;
 	uint connect = 0;
 
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++)
 		connect |= (ipa3_ctx->ep[i].valid << i);
 
-	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+	seq_printf(seq,
 		"sw_tx=%u\n"
 		"hw_tx=%u\n"
 		"tx_non_linear=%u\n"
@@ -1624,24 +1622,24 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		atomic_read(&ipa3_ctx->stats.num_buff_below_thresh_for_coal_pipe_notified),
 		ipa3_ctx->stats.pipe_setup_fail_cnt
 		);
-	cnt += nbytes;
 
 	for (i = 0; i < MAX_RC_CLIENTS; i++) {
-		nbytes = scnprintf(dbg_buff + cnt,
-			IPA_MAX_MSG_LEN - cnt,
+		seq_printf(seq,
 			"rc_client: %s\n", ipa_rc_client_names[i]);
-		cnt += nbytes;
 		for (j = 0; j < IPAHAL_PKT_STATUS_EXCEPTION_MAX; j++) {
-			nbytes = scnprintf(dbg_buff + cnt,
-				IPA_MAX_MSG_LEN - cnt,
+			seq_printf(seq,
 				"lan_rx_excp[%u:%20s]=%u\n", j,
 				ipahal_pkt_status_exception_str(j),
 				ipa3_ctx->stats.rx_excp_pkts[i][j]);
-			cnt += nbytes;
 		}
 	}
 
-	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
+	return 0;
+}
+
+static int ipa3_stats_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa3_read_stats, inode->i_private);
 }
 
 static ssize_t ipa3_read_odlstats(struct file *file, char __user *ubuf,
@@ -3518,7 +3516,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		}
 	}, {
 		"stats", IPA_READ_ONLY_MODE, NULL, {
-			.read = ipa3_read_stats,
+			.read = seq_read,
+			.open = ipa3_stats_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"wstats", IPA_READ_ONLY_MODE, NULL, {
