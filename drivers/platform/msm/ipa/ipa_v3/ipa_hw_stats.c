@@ -8,6 +8,7 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/mm.h>
+#include <linux/seq_file.h>
 #include "ipa_i.h"
 #include "ipahal.h"
 #include "ipahal_hw_stats.h"
@@ -98,6 +99,49 @@ static bool ipa_hw_stats_ep_is_l2(int ep)
 		return true;
 
 	return false;
+}
+
+static bool ipa_hw_stats_add_lan_cons(
+	struct ipa_teth_stats_endpoints *teth_stats_init, int ep_index)
+{
+	static const enum ipa_client_type lan_cons[] = {
+		IPA_CLIENT_USB_CONS,
+		IPA_CLIENT_USB2_CONS,
+		IPA_CLIENT_WLAN1_CONS,
+		IPA_CLIENT_WLAN2_CONS,
+		IPA_CLIENT_WLAN3_CONS,
+		IPA_CLIENT_WLAN4_CONS,
+		IPA_CLIENT_WLAN1_QOS_CONS,
+		IPA_CLIENT_WLAN2_QOS_CONS,
+		IPA_CLIENT_WLAN3_QOS_CONS,
+		IPA_CLIENT_WLAN4_QOS_CONS,
+		IPA_CLIENT_ETHERNET_CONS,
+		IPA_CLIENT_ETHERNET2_CONS,
+		IPA_CLIENT_ETHERNET3_CONS,
+		IPA_CLIENT_ETHERNET_QOS_CONS,
+		IPA_CLIENT_ETHERNET_QOS2_CONS,
+		IPA_CLIENT_ETHERNET2_QOS_CONS,
+		IPA_CLIENT_ETHERNET2_QOS2_CONS,
+		IPA_CLIENT_ETHERNET3_QOS_CONS,
+		IPA_CLIENT_ETHERNET3_QOS2_CONS,
+	};
+	bool has_cons = false;
+	u32 reg_idx;
+	int ep;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(lan_cons); i++) {
+		ep = ipa_get_ep_mapping(lan_cons[i]);
+		if (ep == IPA_EP_NOT_ALLOCATED)
+			continue;
+
+		reg_idx = ipahal_get_ep_reg_idx(ep);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |=
+			ipahal_get_ep_bit(ep);
+		has_cons = true;
+	}
+
+	return has_cons;
 }
 
 int ipa_hw_stats_init(void)
@@ -282,6 +326,14 @@ int ipa_hw_stats_init(void)
 			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET3_QOS_PROD,
 				&reg_idx);
 			teth_stats_init->prod_mask[reg_idx] |= mask;
+		}
+
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_PROD);
+		if (ep_index != IPA_EP_NOT_ALLOCATED &&
+			ipa_hw_stats_add_lan_cons(teth_stats_init, ep_index)) {
+			reg_idx = ipahal_get_ep_reg_idx(ep_index);
+			teth_stats_init->prod_mask[reg_idx] |=
+				ipahal_get_ep_bit(ep_index);
 		}
 
 		if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -4028,12 +4080,12 @@ static ssize_t quota_show(struct device *dev, struct device_attribute *attr, cha
 	int i, reg_idx;
 	int res;
 
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+		return 0;
+
 	out = kzalloc(sizeof(*out), GFP_KERNEL);
 	if (!out)
 		return -ENOMEM;
-
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
-		return 0;
 
 	mutex_lock(&ipa3_ctx->lock);
 	res = ipa_get_quota_stats(out);
@@ -4674,21 +4726,19 @@ bail:
 	return ret;
 }
 
-static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
-	char __user *ubuf, size_t count, loff_t *ppos)
+static int ipa_debugfs_print_tethering_stats(struct seq_file *seq, void *v)
 {
-	int nbytes = 0;
 	struct ipa_quota_stats_all *out;
 	int i, j, prod_reg, cons_reg;
 	int res;
 
-	out = kzalloc(sizeof(*out), GFP_KERNEL);
-	if (!out)
-		return -ENOMEM;
-
 	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
 		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
+
+	out = kzalloc(sizeof(*out), GFP_KERNEL);
+	if (!out)
+		return -ENOMEM;
 
 	mutex_lock(&ipa3_ctx->lock);
 
@@ -4738,26 +4788,16 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 				& ipahal_get_ep_bit(cons_idx)))
 				continue;
 
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"%s->%s:\n",
+			seq_printf(seq, "%s->%s:\n",
 				ipa_clients_strings[i],
 				ipa_clients_strings[j]);
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"num_ipv4_bytes=%llu\n",
+			seq_printf(seq, "num_ipv4_bytes=%llu\n",
 				out->client[cons_idx].num_ipv4_bytes);
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"num_ipv6_bytes=%llu\n",
+			seq_printf(seq, "num_ipv6_bytes=%llu\n",
 				out->client[cons_idx].num_ipv6_bytes);
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"num_ipv4_pkts=%u\n",
+			seq_printf(seq, "num_ipv4_pkts=%u\n",
 				out->client[cons_idx].num_ipv4_pkts);
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"num_ipv6_pkts=%u\n",
+			seq_printf(seq, "num_ipv6_pkts=%u\n",
 				out->client[cons_idx].num_ipv6_pkts);
 			/* Non-IP counters are non-zero only when the pair's
 			 * Non-IP bit is set.
@@ -4766,25 +4806,34 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 				prod_reg] & ipahal_get_ep_bit(ep_idx)) ||
 				(ipa3_ctx->hw_stats->teth.init.nonip_bitmask[
 				cons_reg] & ipahal_get_ep_bit(cons_idx))) {
-				nbytes += scnprintf(dbg_buff + nbytes,
-					IPA_MAX_MSG_LEN - nbytes,
-					"num_nonip_bytes=%llu\n",
+				seq_printf(seq, "num_nonip_bytes=%llu\n",
 					out->client[cons_idx].num_nonip_bytes);
-				nbytes += scnprintf(dbg_buff + nbytes,
-					IPA_MAX_MSG_LEN - nbytes,
-					"num_nonip_pkts=%u\n",
+				seq_printf(seq, "num_nonip_pkts=%u\n",
 					out->client[cons_idx].num_nonip_pkts);
 			}
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"\n");
+			seq_putc(seq, '\n');
 		}
 	}
 	mutex_unlock(&ipa3_ctx->lock);
 	kfree(out);
 
-	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+	return 0;
 }
+
+static int ipa_debugfs_tethering_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa_debugfs_print_tethering_stats,
+		inode->i_private);
+}
+
+static const struct file_operations ipa3_tethering_ops = {
+	.owner = THIS_MODULE,
+	.open = ipa_debugfs_tethering_open,
+	.read = seq_read,
+	.write = ipa_debugfs_reset_tethering_stats,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
 
 static ssize_t ipa_debugfs_control_flt_rt_stats(struct file *file,
 	const char __user *ubuf, size_t count, loff_t *ppos)
@@ -5102,11 +5151,6 @@ bail:
 static const struct file_operations ipa3_quota_ops = {
 	.read = ipa_debugfs_print_quota_stats,
 	.write = ipa_debugfs_reset_quota_stats,
-};
-
-static const struct file_operations ipa3_tethering_ops = {
-	.read = ipa_debugfs_print_tethering_stats,
-	.write = ipa_debugfs_reset_tethering_stats,
 };
 
 static const struct file_operations ipa3_flt_rt_ops = {
