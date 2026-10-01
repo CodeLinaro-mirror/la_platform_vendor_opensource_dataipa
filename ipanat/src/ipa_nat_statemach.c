@@ -32,6 +32,7 @@
  */
 #ifdef CONFIG_ECM_CONVERGENCE
 #include <linux/mutex.h>
+#include <linux/sched.h>	/* current */
 #else
 #include <errno.h>
 #include <pthread.h>
@@ -156,22 +157,22 @@ static ipa_nati_obj nati_obj = {
  */
 #ifdef CONFIG_ECM_CONVERGENCE
 DEFINE_MUTEX(nat_mutex);
+
+/* Per-thread ownership: same-thread re-entry is refcounted, other
+ * threads block on the real mutex. Replaces the broken global bool.
+ */
+static struct task_struct *nat_mutex_owner;
+static int                 nat_mutex_depth;
 #else
 pthread_mutex_t nat_mutex;
 static bool nat_mutex_init = false;
-/*
- * This guard mutex protects nat_mutex initialization itself.
- * It is intentionally a plain static mutex initialized at start-up.
- */
+/* Protects one-time init of nat_mutex. */
 static pthread_mutex_t nat_mutex_init_guard = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
-bool nat_mutex_locked = false;
 /*
- * NAT mutex abstraction
- *
- * Kernel  : Linux mutex (cannot fail)
- * Userspace: pthread recursive mutex (may fail)
+ * Kernel  : non-recursive mutex, same-thread nesting refcounted here.
+ * Userspace: PTHREAD_MUTEX_RECURSIVE, pthreads refcounts nesting.
  */
 
 #ifdef CONFIG_ECM_CONVERGENCE
@@ -181,20 +182,25 @@ bool nat_mutex_locked = false;
 /* Kernel mutex lock never fails */
 int ipa_nat_take_mutex(void)
 {
-    if (!nat_mutex_locked) {
-    	mutex_lock(&nat_mutex);
-	nat_mutex_locked = true;
-    }
-    return 0;
+	if (nat_mutex_owner == current) {
+		nat_mutex_depth++;
+		return 0;
+	}
+	mutex_lock(&nat_mutex);
+	nat_mutex_owner = current;
+	nat_mutex_depth = 1;
+	return 0;
 }
 
 int ipa_nat_give_mutex(void)
 {
-    if (nat_mutex_locked) {
-    	mutex_unlock(&nat_mutex);
-	nat_mutex_locked = false;
-    }
-    return 0;
+	if (nat_mutex_owner != current)
+		return 0;
+	if (--nat_mutex_depth > 0)
+		return 0;
+	nat_mutex_owner = NULL;
+	mutex_unlock(&nat_mutex);
+	return 0;
 }
 
 /* ===================== USERSPACE BUILD ===================== */
@@ -265,14 +271,10 @@ int ipa_nat_take_mutex(void)
         }
     }
 
-    if (!nat_mutex_locked) {
-    	ret = pthread_mutex_lock(&nat_mutex);
-    	if (ret) {
-        	IPAERR("pthread_mutex_lock failed (%d)\n", ret);
-		return ret;
-	}
-	nat_mutex_locked = true;
-    }
+    /* Recursive pthread mutex: nesting refcounted by pthreads. */
+    ret = pthread_mutex_lock(&nat_mutex);
+    if (ret)
+        IPAERR("pthread_mutex_lock failed (%d)\n", ret);
 
     return ret;
 }
@@ -280,16 +282,17 @@ int ipa_nat_take_mutex(void)
 
 int ipa_nat_give_mutex(void)
 {
-    int ret = 0;
+    int ret;
 
-    if (nat_mutex_locked) {
-    	ret = pthread_mutex_unlock(&nat_mutex);
-    	if (ret) {
-        	IPAERR("pthread_mutex_unlock failed (%d)\n", ret);
-		return ret;
-	}
-	nat_mutex_locked = false;
-    }
+    /* Guard against unlocking an uninitialized mutex if give is called
+     * before any successful take (e.g., cleanup after failed init).
+     */
+    if (!nat_mutex_init)
+        return 0;
+
+    ret = pthread_mutex_unlock(&nat_mutex);
+    if (ret)
+        IPAERR("pthread_mutex_unlock failed (%d)\n", ret);
 
     return ret;
 }

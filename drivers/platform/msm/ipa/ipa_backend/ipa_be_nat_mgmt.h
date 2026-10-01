@@ -24,9 +24,6 @@
 #define IPA_BE_SUCCESS 0  /* Successful operation */
 #define IPA_BE_FAILURE -1  /* Unsuccessful operation */
 
-/* Forward declaration */
-struct ipa_ctx_instance_internal;
-
 typedef struct _nat_table_entry
 {
 	uint32_t private_ip;
@@ -62,6 +59,27 @@ typedef struct _nat_table_entry
 	uint16_t all_pkts_stats_cnt_index; /* All packets statistics counter index */
 	uint16_t non_frag_stats_cnt_index; /* Non fragmented statistics counter index */
 
+	/* iface/top from conn_rule at add time; used by
+	 * ipa_be_signal_iface_offline to match entries on an iface and
+	 * rebuild the destroy msg. MACs are not cached here — v4 filter
+	 * delete is IP-keyed. (v6 keeps MACs in ipv6_ct_entry since
+	 * ipa_be_v6_delete_filter_rule is MAC-keyed.)
+	 */
+	int flow_iface;
+	int return_iface;
+	int flow_top_iface;
+	int return_top_iface;
+
+	/* Original ECM add-time tuple (network order), pre-canonical-swap.
+	 * LAN2LAN teardown must key on this: ct_canonical_swap may reorder
+	 * the (private_ip, target_ip, ...) fields above away from the
+	 * add-time tuple that mappings/filters/FE state were built on.
+	 */
+	uint32_t orig_flow_ip;
+	uint32_t orig_return_ip;
+	uint16_t orig_flow_ident;
+	uint16_t orig_return_ident;
+
 }nat_table_entry;
 
 bool chk_for_dup(const nat_table_entry *rule);
@@ -69,9 +87,8 @@ void ipa_be_reset(void);
 bool is_pwr_save_if(uint32_t ip_addr);
 uint32_t generate_met_data(uint8_t mux_id);
 
-int ipa_be_add_table(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
 int ipa_be_add_pdn(uint32_t pub_ip, uint8_t mux_id, bool is_sta, bool ip_pass);
-int ipa_be_remove_pdn(uint32_t pub_ip);
+int ipa_be_remove_pdn(uint32_t pub_ip, int pdn_iface);
 
 //bool ChkForDupGRE(const nat_table_entry *);
 // bool isAlgPort(uint8_t, uint16_t);
@@ -115,7 +132,9 @@ int store_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 				uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
 				uint16_t src_port, uint16_t dest_port,
 				uint8_t protocol, uint32_t rule_handle,
-				uint32_t flow_rule_id);
+				uint32_t flow_rule_id,
+				uint16_t all_pkts_stats_cnt_index,
+				uint16_t non_frag_stats_cnt_index);
 
 int find_ipv6_ct_entry(uint64_t src_ipv6_msb, uint64_t src_ipv6_lsb,
 			       uint64_t dest_ipv6_msb, uint64_t dest_ipv6_lsb,
@@ -125,4 +144,8 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	struct ipa_ipv4_msg *msg);
 ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *ipa_ctx,
 	struct ipa_ipv6_msg *msg);
+
+/* Teardown IPA-accelerated flows on iface disconnect; online is a no-op. */
+void ipa_be_signal_iface_offline(int iface_idx);
+void ipa_be_signal_iface_online(int iface_idx);
 #endif /* _IPA_BE_NAT_MGMT_ */

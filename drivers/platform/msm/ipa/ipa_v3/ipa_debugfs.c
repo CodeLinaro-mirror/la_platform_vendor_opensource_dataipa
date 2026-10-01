@@ -8,6 +8,7 @@
 #include <linux/debugfs.h>
 #include <linux/kernel.h>
 #include <linux/stringify.h>
+#include <linux/seq_file.h>
 #include "ipa_i.h"
 #include "ipa_rm_i.h"
 #include "ipahal_reg.h"
@@ -16,6 +17,7 @@
 #include "ipa_diag_log.h"
 #include "ipa_qmi_service.h"
 #include "../ipa_backend/ipa_be_clientdb.h"
+#include "../ipa_backend/ipa_be_flt_mgmt.h"
 #ifdef CONFIG_DEBUG_FS
 #if defined(CONFIG_IPA_TSP)
 /* The following line should be removed once TSP feature is POR */
@@ -28,8 +30,24 @@
 #define IPA_DBG_ACTIVE_CLIENT_BUF_SIZE ((IPA3_ACTIVE_CLIENTS_LOG_LINE_LEN \
 	* IPA3_ACTIVE_CLIENTS_LOG_BUFFER_SIZE_LINES) + IPA_MAX_MSG_LEN)
 
+#define IPA_DUMP_DBG_FILE(seq, fmt, ...) \
+do { \
+	if (ipa3_ctx->standard_output_en) \
+		seq_printf(seq, fmt, ##__VA_ARGS__); \
+	else \
+		pr_err(fmt, ##__VA_ARGS__); \
+} while (0)
+
+#define IPA_DUMP_DBG_FILE_PUTS(seq, str) \
+do { \
+	if (ipa3_ctx->standard_output_en) \
+		seq_puts(seq, str); \
+	else \
+		pr_err("%s", str); \
+} while (0)
+
 #define IPA_DUMP_STATUS_FIELD(f) \
-	pr_err(#f "=0x%x\n", status->f)
+	IPA_DUMP_DBG_FILE(seq, #f "=0x%x\n", status->f)
 
 #define IPA_READ_ONLY_MODE  0444
 #define IPA_READ_WRITE_MODE 0664
@@ -917,8 +935,12 @@ static ssize_t ipa3_read_holb_events(struct file *file, char __user *ubuf, size_
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
 }
 
-static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
-		loff_t *ppos)
+/*
+ * seq: seq_file descriptor
+ * v: Unused parameter, required by the seq_file show/read signature.
+ *    In single_open() usage, this represents the iterator, but is not needed here.
+ */
+static int ipa3_read_hdr(struct seq_file *seq, void *v)
 {
 	int nbytes = 0;
 	int i = 0;
@@ -931,11 +953,11 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 
 	for (hdr_tbl = HDR_TBL_LCL; hdr_tbl < HDR_TBLS_TOTAL; hdr_tbl++) {
 		if (hdr_tbl == HDR_TBL_LCL)
-			pr_err("Table on local memory:\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "Table on local memory:\n");
 		else if (ipa3_ctx->ipa_hw_type == IPA_HW_v6_0 && hdr_tbl == HDR_TBL_LCL_EXT)
-			pr_err("Extesion table header in local memory:\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "Extesion table header in local memory:\n");
 		else
-			pr_err("Table on system (ddr) memory:\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "Table on system (ddr) memory:\n");
 
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "Used offsets: ");
 		for (i = 0; i < IPA_HDR_BIN_MAX; i++){
@@ -951,7 +973,7 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 						    offset_count,
 						    ipa3_get_hdr_bin_size(i));
 		}
-		pr_err("%s", dbg_buff);
+		IPA_DUMP_DBG_FILE(seq, "%s", dbg_buff);
 
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN, "Free offsets: ");
 		for (i = 0; i < IPA_HDR_BIN_MAX; i++){
@@ -967,7 +989,7 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 						    offset_count,
 						    ipa3_get_hdr_bin_size(i));
 		}
-		pr_err("%s", dbg_buff);
+		IPA_DUMP_DBG_FILE(seq, "%s", dbg_buff);
 
 		list_for_each_entry(entry, &ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list,
 				link) {
@@ -1004,7 +1026,7 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 			scnprintf(dbg_buff + nbytes + entry->hdr_len * 2,
 				  IPA_MAX_MSG_LEN - nbytes - entry->hdr_len * 2,
 				  "\n");
-			pr_err("%s", dbg_buff);
+			IPA_DUMP_DBG_FILE(seq, "%s", dbg_buff);
 		}
 	}
 	mutex_unlock(&ipa3_ctx->lock);
@@ -1012,155 +1034,163 @@ static ssize_t ipa3_read_hdr(struct file *file, char __user *ubuf, size_t count,
 	return 0;
 }
 
-static int ipa3_attrib_dump(struct ipa_rule_attrib *attrib,
-		enum ipa_ip_type ip)
+static int ipa3_hdr_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa3_read_hdr, inode->i_private);
+}
+
+static int ipa3_attrib_dump(struct ipa_rule_attrib *attrib, enum ipa_ip_type ip,
+			    struct seq_file *seq)
 {
 	uint32_t addr[4];
 	uint32_t mask[4];
 	int i;
 
 	if (attrib->attrib_mask & IPA_FLT_IS_PURE_ACK)
-		pr_cont("is_pure_ack ");
+		IPA_DUMP_DBG_FILE(seq, "is_pure_ack \n");
 
 	if (attrib->attrib_mask & IPA_FLT_TOS)
-		pr_cont("tos:%d ", attrib->u.v4.tos);
+		IPA_DUMP_DBG_FILE(seq, "tos:%d \n", attrib->u.v4.tos);
 
 	if (attrib->attrib_mask & IPA_FLT_TOS_MASKED) {
-		pr_cont("tos_value:%d ", attrib->tos_value);
-		pr_cont("tos_mask:%d ", attrib->tos_mask);
+		IPA_DUMP_DBG_FILE(seq, "tos_value:%d \n", attrib->tos_value);
+		IPA_DUMP_DBG_FILE(seq, "tos_mask:%d \n", attrib->tos_mask);
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_PROTOCOL)
-		pr_cont("protocol:%d ", attrib->u.v4.protocol);
+		IPA_DUMP_DBG_FILE(seq, "protocol:%d \n", attrib->u.v4.protocol);
 
 	if (attrib->attrib_mask & IPA_FLT_SRC_ADDR) {
 		if (ip == IPA_IP_v4) {
 			addr[0] = htonl(attrib->u.v4.src_addr);
 			mask[0] = htonl(attrib->u.v4.src_addr_mask);
-			pr_cont(
-				"src_addr:%pI4 src_addr_mask:%pI4 ",
-				addr + 0, mask + 0);
+			IPA_DUMP_DBG_FILE(seq,
+					  "src_addr:%pI4 src_addr_mask:%pI4 \n",
+					  addr + 0, mask + 0);
 		} else if (ip == IPA_IP_v6) {
 			for (i = 0; i < 4; i++) {
 				addr[i] = htonl(attrib->u.v6.src_addr[i]);
 				mask[i] = htonl(attrib->u.v6.src_addr_mask[i]);
 			}
-			pr_cont(
-			   "src_addr:%pI6 src_addr_mask:%pI6 ",
-			   addr + 0, mask + 0);
+			IPA_DUMP_DBG_FILE(seq,
+					  "src_addr:%pI6 src_addr_mask:%pI6 \n",
+					  addr + 0, mask + 0);
 		}
 	}
 	if (attrib->attrib_mask & IPA_FLT_DST_ADDR) {
 		if (ip == IPA_IP_v4) {
 			addr[0] = htonl(attrib->u.v4.dst_addr);
 			mask[0] = htonl(attrib->u.v4.dst_addr_mask);
-			pr_cont(
-					   "dst_addr:%pI4 dst_addr_mask:%pI4 ",
-					   addr + 0, mask + 0);
+			IPA_DUMP_DBG_FILE(seq,
+					  "dst_addr:%pI4 dst_addr_mask:%pI4 \n",
+					  addr + 0, mask + 0);
 		} else if (ip == IPA_IP_v6) {
 			for (i = 0; i < 4; i++) {
 				addr[i] = htonl(attrib->u.v6.dst_addr[i]);
 				mask[i] = htonl(attrib->u.v6.dst_addr_mask[i]);
 			}
-			pr_cont(
-			   "dst_addr:%pI6 dst_addr_mask:%pI6 ",
-			   addr + 0, mask + 0);
+			IPA_DUMP_DBG_FILE(seq,
+					  "dst_addr:%pI6 dst_addr_mask:%pI6 \n",
+					  addr + 0, mask + 0);
 		}
 	}
 	if (attrib->attrib_mask & IPA_FLT_SRC_PORT_RANGE) {
-		pr_cont("src_port_range:%u %u ",
-				   attrib->src_port_lo,
-			     attrib->src_port_hi);
+		IPA_DUMP_DBG_FILE(seq, "src_port_range:%u %u \n",
+				  attrib->src_port_lo, attrib->src_port_hi);
 	}
 	if (attrib->attrib_mask & IPA_FLT_DST_PORT_RANGE) {
-		pr_cont("dst_port_range:%u %u ",
-			attrib->dst_port_lo,
-			attrib->dst_port_hi);
+		IPA_DUMP_DBG_FILE(seq, "dst_port_range:%u %u \n",
+				  attrib->dst_port_lo, attrib->dst_port_hi);
 	}
 	if (attrib->attrib_mask & IPA_FLT_TYPE)
-		pr_cont("type:%d ", attrib->type);
+		IPA_DUMP_DBG_FILE(seq, "type:%d \n", attrib->type);
 
 	if (attrib->attrib_mask & IPA_FLT_CODE)
-		pr_cont("code:%d ", attrib->code);
+		IPA_DUMP_DBG_FILE(seq, "code:%d \n", attrib->code);
 
 	if (attrib->attrib_mask & IPA_FLT_SPI)
-		pr_cont("spi:%x ", attrib->spi);
+		IPA_DUMP_DBG_FILE(seq, "spi:%x \n", attrib->spi);
 
 	if (attrib->attrib_mask & IPA_FLT_SRC_PORT)
-		pr_cont("src_port:%u ", attrib->src_port);
+		IPA_DUMP_DBG_FILE(seq, "src_port:%u \n", attrib->src_port);
 
 	if (attrib->attrib_mask & IPA_FLT_DST_PORT)
-		pr_cont("dst_port:%u ", attrib->dst_port);
+		IPA_DUMP_DBG_FILE(seq, "dst_port:%u \n", attrib->dst_port);
 
 	if (attrib->attrib_mask & IPA_FLT_TC)
-		pr_cont("tc:%d ", attrib->u.v6.tc);
+		IPA_DUMP_DBG_FILE(seq, "tc:%d \n", attrib->u.v6.tc);
 
 	if (attrib->attrib_mask & IPA_FLT_FLOW_LABEL)
-		pr_cont("flow_label:%x ", attrib->u.v6.flow_label);
+		IPA_DUMP_DBG_FILE(seq, "flow_label:%x \n",
+				  attrib->u.v6.flow_label);
 
 	if (attrib->attrib_mask & IPA_FLT_NEXT_HDR)
-		pr_cont("next_hdr:%d ", attrib->u.v6.next_hdr);
+		IPA_DUMP_DBG_FILE(seq, "next_hdr:%d \n", attrib->u.v6.next_hdr);
 
 	if (attrib->ext_attrib_mask & IPA_FLT_EXT_NEXT_HDR)
-		pr_err("next_hdr:%d ", attrib->u.v6.next_hdr);
+		IPA_DUMP_DBG_FILE(seq, "next_hdr:%d \n", attrib->u.v6.next_hdr);
 
 	if (attrib->attrib_mask & IPA_FLT_META_DATA) {
-		pr_cont(
-			"metadata:%x metadata_mask:%x ",
-			attrib->meta_data, attrib->meta_data_mask);
+		IPA_DUMP_DBG_FILE(seq, "metadata:%x metadata_mask:%x \n",
+				  attrib->meta_data, attrib->meta_data_mask);
 	}
 
 	if (attrib->attrib_mask & IPA_FLT_FRAGMENT)
-		pr_cont("frg ");
+		IPA_DUMP_DBG_FILE(seq, "frg \n");
 
 	if ((attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_ETHER_II) ||
-		(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
-		(attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
-		pr_cont("src_mac_addr:%pM ", attrib->src_mac_addr);
+	    (attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_3) ||
+	    (attrib->attrib_mask & IPA_FLT_MAC_SRC_ADDR_802_1Q)) {
+		IPA_DUMP_DBG_FILE(seq, "src_mac_addr:%pM \n",
+				  attrib->src_mac_addr);
 	}
 
 	if ((attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
-		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
-		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
-		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
-		(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
-		pr_cont("dst_mac_addr:%pM ", attrib->dst_mac_addr);
+	    (attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
+	    (attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
+	    (attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
+	    (attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR)) {
+		IPA_DUMP_DBG_FILE(seq, "dst_mac_addr:%pM \n",
+				  attrib->dst_mac_addr);
 	}
 
 	if (attrib->ext_attrib_mask & IPA_FLT_EXT_MTU)
-		pr_err("Payload Length:%d ", attrib->payload_length);
+		IPA_DUMP_DBG_FILE(seq, "Payload Length:%d \n",
+				  attrib->payload_length);
 
 	if (attrib->attrib_mask & IPA_FLT_MAC_ETHER_TYPE ||
-		attrib->ext_attrib_mask & IPA_FLT_EXT_L2TP_UDP_INNER_ETHER_TYPE)
-		pr_cont("ether_type:%x ", attrib->ether_type);
+	    attrib->ext_attrib_mask & IPA_FLT_EXT_L2TP_UDP_INNER_ETHER_TYPE)
+		IPA_DUMP_DBG_FILE(seq, "ether_type:%x \n", attrib->ether_type);
 
 	if (attrib->attrib_mask & IPA_FLT_VLAN_ID)
-		pr_cont("vlan_id:%x ", attrib->vlan_id);
+		IPA_DUMP_DBG_FILE(seq, "vlan_id:%x \n", attrib->vlan_id);
 
 	if (attrib->attrib_mask & IPA_FLT_TCP_SYN)
-		pr_cont("tcp syn ");
+		IPA_DUMP_DBG_FILE(seq, "tcp syn \n");
 
 	if (attrib->attrib_mask & IPA_FLT_TCP_SYN_L2TP ||
-		attrib->ext_attrib_mask & IPA_FLT_EXT_L2TP_UDP_TCP_SYN)
-		pr_cont("tcp syn l2tp ");
+	    attrib->ext_attrib_mask & IPA_FLT_EXT_L2TP_UDP_TCP_SYN)
+		IPA_DUMP_DBG_FILE(seq, "tcp syn l2tp \n");
 
 	if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE)
-		pr_cont("l2tp inner ip type: %d ", attrib->type);
+		IPA_DUMP_DBG_FILE(seq, "l2tp inner ip type: %d \n", attrib->type);
 
 	if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
 		addr[0] = htonl(attrib->u.v4.dst_addr);
 		mask[0] = htonl(attrib->u.v4.dst_addr_mask);
-		pr_cont("dst_addr:%pI4 dst_addr_mask:%pI4 ", addr, mask);
+		IPA_DUMP_DBG_FILE(seq, "dst_addr:%pI4 dst_addr_mask:%pI4 \n",
+				  addr, mask);
 	}
 
 	if (attrib->ext_attrib_mask & IPA_FLT_EXT_NAT_T)
-		pr_cont("NAT-T ");
+		IPA_DUMP_DBG_FILE(seq, "NAT-T \n");
 
-	pr_err("\n");
+	IPA_DUMP_DBG_FILE(seq, "\n");
 	return 0;
 }
 
-static int ipa3_attrib_dump_eq(struct ipa_ipfltri_rule_eq *attrib)
+static int ipa3_attrib_dump_eq(struct ipa_ipfltri_rule_eq *attrib,
+			       struct seq_file *seq)
 {
 	uint8_t addr[16];
 	uint8_t mask[16];
@@ -1169,20 +1199,21 @@ static int ipa3_attrib_dump_eq(struct ipa_ipfltri_rule_eq *attrib)
 
 	if (attrib->tos_eq_present) {
 		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)
-			pr_err("pure_ack ");
+			IPA_DUMP_DBG_FILE(seq, "pure_ack \n");
 		else
-			pr_err("tos:%d ", attrib->tos_eq);
+			IPA_DUMP_DBG_FILE(seq, "tos:%d \n", attrib->tos_eq);
 	}
 
 	if (attrib->protocol_eq_present)
-		pr_err("protocol:%d ", attrib->protocol_eq);
+		IPA_DUMP_DBG_FILE(seq, "protocol:%d \n", attrib->protocol_eq);
 
 	if (attrib->tc_eq_present)
-		pr_err("tc:%d ", attrib->tc_eq);
+		IPA_DUMP_DBG_FILE(seq, "tc:%d \n", attrib->tc_eq);
 
 	if (attrib->num_offset_meq_128 > IPA_IPFLTR_NUM_MEQ_128_EQNS) {
 		IPAERR_RL("num_offset_meq_128  Max %d passed value %d\n",
-		IPA_IPFLTR_NUM_MEQ_128_EQNS, attrib->num_offset_meq_128);
+			  IPA_IPFLTR_NUM_MEQ_128_EQNS,
+			  attrib->num_offset_meq_128);
 		return -EPERM;
 	}
 
@@ -1191,81 +1222,81 @@ static int ipa3_attrib_dump_eq(struct ipa_ipfltri_rule_eq *attrib)
 			addr[j] = attrib->offset_meq_128[i].value[j];
 			mask[j] = attrib->offset_meq_128[i].mask[j];
 		}
-		pr_err(
-			"(ofst_meq128: ofst:%d mask:%pI6 val:%pI6) ",
-			attrib->offset_meq_128[i].offset,
-			mask, addr);
+		IPA_DUMP_DBG_FILE(
+			seq, "(ofst_meq128: ofst:%d mask:%pI6 val:%pI6) \n",
+			attrib->offset_meq_128[i].offset, mask, addr);
 	}
 
 	if (attrib->num_offset_meq_32 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
 		IPAERR_RL("num_offset_meq_32  Max %d passed value %d\n",
-		IPA_IPFLTR_NUM_MEQ_32_EQNS, attrib->num_offset_meq_32);
+			  IPA_IPFLTR_NUM_MEQ_32_EQNS,
+			  attrib->num_offset_meq_32);
 		return -EPERM;
 	}
 
 	for (i = 0; i < attrib->num_offset_meq_32; i++)
-		pr_err(
-		   "(ofst_meq32: ofst:%u mask:0x%x val:0x%x) ",
-		   attrib->offset_meq_32[i].offset,
-		   attrib->offset_meq_32[i].mask,
-		   attrib->offset_meq_32[i].value);
+		IPA_DUMP_DBG_FILE(seq,
+				  "(ofst_meq32: ofst:%u mask:0x%x val:0x%x) \n",
+				  attrib->offset_meq_32[i].offset,
+				  attrib->offset_meq_32[i].mask,
+				  attrib->offset_meq_32[i].value);
 
 	if (attrib->num_ihl_offset_meq_32 > IPA_IPFLTR_NUM_IHL_MEQ_32_EQNS) {
 		IPAERR_RL("num_ihl_offset_meq_32  Max %d passed value %d\n",
-		IPA_IPFLTR_NUM_IHL_MEQ_32_EQNS, attrib->num_ihl_offset_meq_32);
+			  IPA_IPFLTR_NUM_IHL_MEQ_32_EQNS,
+			  attrib->num_ihl_offset_meq_32);
 		return -EPERM;
 	}
 
 	for (i = 0; i < attrib->num_ihl_offset_meq_32; i++)
-		pr_err(
-			"(ihl_ofst_meq32: ofts:%d mask:0x%x val:0x%x) ",
+		IPA_DUMP_DBG_FILE(
+			seq, "(ihl_ofst_meq32: ofts:%d mask:0x%x val:0x%x) \n",
 			attrib->ihl_offset_meq_32[i].offset,
 			attrib->ihl_offset_meq_32[i].mask,
 			attrib->ihl_offset_meq_32[i].value);
 
 	if (attrib->metadata_meq32_present)
-		pr_err(
-			"(metadata: ofst:%u mask:0x%x val:0x%x) ",
-			attrib->metadata_meq32.offset,
-			attrib->metadata_meq32.mask,
-			attrib->metadata_meq32.value);
+		IPA_DUMP_DBG_FILE(seq,
+				  "(metadata: ofst:%u mask:0x%x val:0x%x) \n",
+				  attrib->metadata_meq32.offset,
+				  attrib->metadata_meq32.mask,
+				  attrib->metadata_meq32.value);
 
 	if (attrib->num_ihl_offset_range_16 >
-			IPA_IPFLTR_NUM_IHL_RANGE_16_EQNS) {
+	    IPA_IPFLTR_NUM_IHL_RANGE_16_EQNS) {
 		IPAERR_RL("num_ihl_offset_range_16  Max %d passed value %d\n",
-			IPA_IPFLTR_NUM_IHL_RANGE_16_EQNS,
-			attrib->num_ihl_offset_range_16);
+			  IPA_IPFLTR_NUM_IHL_RANGE_16_EQNS,
+			  attrib->num_ihl_offset_range_16);
 		return -EPERM;
 	}
 
 	for (i = 0; i < attrib->num_ihl_offset_range_16; i++)
-		pr_err(
-		   "(ihl_ofst_range16: ofst:%u lo:%u hi:%u) ",
-		   attrib->ihl_offset_range_16[i].offset,
-		   attrib->ihl_offset_range_16[i].range_low,
-		   attrib->ihl_offset_range_16[i].range_high);
+		IPA_DUMP_DBG_FILE(seq,
+				  "(ihl_ofst_range16: ofst:%u lo:%u hi:%u) \n",
+				  attrib->ihl_offset_range_16[i].offset,
+				  attrib->ihl_offset_range_16[i].range_low,
+				  attrib->ihl_offset_range_16[i].range_high);
 
 	if (attrib->ihl_offset_eq_32_present)
-		pr_err(
-			"(ihl_ofst_eq32:%d val:0x%x) ",
-			attrib->ihl_offset_eq_32.offset,
-			attrib->ihl_offset_eq_32.value);
+		IPA_DUMP_DBG_FILE(seq, "(ihl_ofst_eq32:%d val:0x%x) \n",
+				  attrib->ihl_offset_eq_32.offset,
+				  attrib->ihl_offset_eq_32.value);
 
 	if (attrib->ihl_offset_eq_16_present)
-		pr_err(
-			"(ihl_ofst_eq16:%d val:0x%x) ",
-			attrib->ihl_offset_eq_16.offset,
-			attrib->ihl_offset_eq_16.value);
+		IPA_DUMP_DBG_FILE(seq, "(ihl_ofst_eq16:%d val:0x%x) \n",
+				  attrib->ihl_offset_eq_16.offset,
+				  attrib->ihl_offset_eq_16.value);
 
 	if (attrib->fl_eq_present)
-		pr_err("flow_label:%d ", attrib->fl_eq);
+		IPA_DUMP_DBG_FILE(seq, "flow_label:%d \n", attrib->fl_eq);
 
 	/*The IS-FRAG equation enhancement change since IPA6.0 values:
 	IS-FRAG-0(Primary & Secondary), Is-Primary-1, Is-Secondary-2, Not-Frag-3 */
 	if (attrib->ipv4_frag_eq_present)
-		pr_err("is_frag_encoding %d", attrib->is_frag_encoding);
+		IPA_DUMP_DBG_FILE(seq, "is_frag_encoding %d\n",
+				  attrib->is_frag_encoding);
 
-	pr_err("\n");
+	IPA_DUMP_DBG_FILE(seq, "\n");
 	return 0;
 }
 
@@ -1275,14 +1306,18 @@ static int ipa3_open_dbg(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
-		loff_t *ppos)
+/*
+ * seq: seq_file descriptor
+ * v: Unused parameter, required by the seq_file show/read signature.
+ *    In single_open() usage, this represents the iterator, but is not needed here.
+ */
+static int ipa3_read_rt(struct seq_file *seq, void *v)
 {
 	int i = 0;
 	struct ipa3_rt_tbl *tbl;
 	struct ipa3_rt_entry *entry;
 	struct ipa3_rt_tbl_set *set;
-	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
+	enum ipa_ip_type ip = (enum ipa_ip_type)seq->private;
 	u32 ofst;
 	u32 ofst_words;
 	bool is_lcl;
@@ -1291,20 +1326,20 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 
 	mutex_lock(&ipa3_ctx->lock);
 
-	pr_err("==== Routing Tables Start ====\n");
+	IPA_DUMP_DBG_FILE_PUTS(seq, "==== Routing Tables Start ====\n");
 	if (ipa3_ctx->rt_tbl_hash_lcl[ip])
-		pr_err("Hashable table resides on local memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Hashable table resides on local memory\n");
 	else
-		pr_err("Hashable table resides on system (ddr) memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Hashable table resides on system (ddr) memory\n");
 	if (ipa3_ctx->rt_tbl_nhash_lcl[ip])
-		pr_err("Non-Hashable table resides on local memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Non-Hashable table resides on local memory\n");
 	else
-		pr_err("Non-Hashable table resides on system (ddr) memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Non-Hashable table resides on system (ddr) memory\n");
 
 	list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
 		i = 0;
 		list_for_each_entry(entry, &tbl->head_rt_rule_list, link) {
-			pr_err("tbl_idx:%d tbl_name:%s tbl_ref:%u ",
+			IPA_DUMP_DBG_FILE(seq, "tbl_idx:%d tbl_name:%s tbl_ref:%u \n",
 				entry->tbl->idx, entry->tbl->name,
 				entry->tbl->ref_cnt);
 			if (entry->proc_ctx &&
@@ -1314,14 +1349,19 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 				ofst_words = is_lcl ?
 					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_LCL].start_offset) >> 5 :
 					(ofst + ipa3_ctx->hdr_proc_ctx_tbl[HPC_TBL_SYS].start_offset) >> 5;
-				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
+				IPA_DUMP_DBG_FILE(seq, "rule_idx:%d dst:%d ep:%d S:%u \n"
+					"proc_ctx[32B]:%u attrib_mask:%08x \n",
 					i, entry->rule.dst,
 					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
 					ipa_get_ep_mapping(entry->rule.dst),
-					is_lcl);
-				pr_err("proc_ctx[32B]:%u attrib_mask:%08x ",
+					is_lcl,
 					ofst_words,
 					entry->rule.attrib.attrib_mask);
+				if (entry->proc_ctx->type == IPA_HDR_PROC_MARK_DSCP)
+					IPA_DUMP_DBG_FILE(seq,
+						"dscp_mark:{valid:%u val:%u} (egress rewrite) ",
+						entry->proc_ctx->pdn_dscp_params.valid,
+						entry->proc_ctx->pdn_dscp_params.dscp_val);
 			} else {
 				if (entry->hdr && !entry->hdr->is_hdr_proc_ctx)
 				{
@@ -1331,63 +1371,72 @@ static ssize_t ipa3_read_rt(struct file *file, char __user *ubuf, size_t count,
 				{
 					ofst = 0;
 				}
-				pr_err("rule_idx:%d dst:%d ep:%d S:%u ",
+				IPA_DUMP_DBG_FILE(seq, "rule_idx:%d dst:%d ep:%d S:%u \n",
 					i, entry->rule.dst,
 					(entry->rule.dst == IPA_CLIENT_MAX) ? 0xFF :
 					ipa_get_ep_mapping(entry->rule.dst),
 					!(entry->hdr && entry->hdr->is_lcl));
 				if(entry->hdr && entry->hdr->is_hdr_proc_ctx)
-					pr_err("phys_base=0x%pa attrib_mask:%08x hdr_in_ext %u",
+					IPA_DUMP_DBG_FILE(seq, "phys_base=0x%pa attrib_mask:%08x hdr_in_ext %u \n",
 					&entry->hdr->phys_base,
 					entry->rule.attrib.attrib_mask,
 					(entry->hdr->is_hdr_proc_ctx));
 
 				else
 
-				pr_err("hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u",
+				IPA_DUMP_DBG_FILE(seq, "hdr_ofst[words]:%u attrib_mask:%08x hdr_in_ext %u \n",
 					ofst >> 2,
 					entry->rule.attrib.attrib_mask,
 					(entry->hdr && entry->hdr->in_apps_headers_ext));
 			}
-			pr_err("rule_id:%u max_prio:%u prio:%u ",
-				entry->rule_id, entry->rule.max_prio,
-				entry->prio);
-			pr_err("enable_stats:%u counter_id:%u ",
+			IPA_DUMP_DBG_FILE(seq, "rule_id:%u max_prio:%u prio:%u cat:%u sub_cat:%u \n"
+				"enable_stats:%u counter_id:%u \n"
+				"hashable:%u retain_hdr:%u \n",
+				entry->rule_id, entry->rule.max_prio, entry->prio,
+				entry->cat, entry->sub_cat,
 				entry->rule.enable_stats,
-				entry->rule.cnt_idx);
-			pr_err("hashable:%u retain_hdr:%u ",
+				entry->rule.cnt_idx,
 				entry->rule.hashable,
 				entry->rule.retain_hdr);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod: %u ",
+				IPA_DUMP_DBG_FILE(seq, "close_aggr_irq_mod: %u \n",
 					entry->rule.close_aggr_irq_mod);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update: %u ", entry->rule.ttl_update);
-				pr_err("qos_class: %u ", entry->rule.qos_class);
-				pr_err("skip_ingress: %u ", entry->rule.skip_ingress);
+				IPA_DUMP_DBG_FILE(seq, "ttl_update: %u \n", entry->rule.ttl_update);
+				IPA_DUMP_DBG_FILE(seq, "qos_class: %u \n", entry->rule.qos_class);
+				IPA_DUMP_DBG_FILE(seq, "skip_ingress: %u \n", entry->rule.skip_ingress);
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp: %u ", entry->rule.esp_after_udp);
+				IPA_DUMP_DBG_FILE(seq, "esp_after_udp: %u \n", entry->rule.esp_after_udp);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-				pr_err("hpc_fetch_len: %u ", entry->rule.hpc_fetch_len);
-				pr_err("rule_type: %u ", entry->rule.rule_type);
+				IPA_DUMP_DBG_FILE(seq, "hpc_fetch_len: %u \n", entry->rule.hpc_fetch_len);
+				IPA_DUMP_DBG_FILE(seq, "rule_type: %u \n", entry->rule.rule_type);
 			}
 
-			pr_err("\n");
-			ipa3_attrib_dump(&entry->rule.attrib, ip);
+			IPA_DUMP_DBG_FILE_PUTS(seq, "\n");
+			ipa3_attrib_dump(&entry->rule.attrib, ip, seq);
 			i++;
 		}
 	}
-	pr_err("==== Routing Tables End ====\n");
+	IPA_DUMP_DBG_FILE_PUTS(seq, "==== Routing Tables End ====\n");
 	mutex_unlock(&ipa3_ctx->lock);
 
 	return 0;
 }
 
-static ssize_t ipa3_read_rt_hw(struct file *file, char __user *ubuf,
-	size_t count, loff_t *ppos)
+static int ipa3_rt_open(struct inode *inode, struct file *file)
 {
-	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
+	return single_open(file, ipa3_read_rt, inode->i_private);
+}
+
+/*
+ * seq: seq_file descriptor
+ * v: Unused parameter, required by the seq_file show/read signature.
+ *    In single_open() usage, this represents the iterator, but is not needed here.
+ */
+static int ipa3_read_rt_hw(struct seq_file *seq, void *v)
+{
+	enum ipa_ip_type ip = (enum ipa_ip_type)seq->private;
 	int tbls_num;
 	int rules_num;
 	int tbl;
@@ -1419,108 +1468,108 @@ static ssize_t ipa3_read_rt_hw(struct file *file, char __user *ubuf,
 	mutex_lock(&ipa3_ctx->lock);
 
 	for (tbl = 0 ; tbl < tbls_num ; tbl++) {
-		pr_err("=== Routing Table %d = Hashable Rules ===\n", tbl);
+		IPA_DUMP_DBG_FILE(seq, "=== Routing Table %d = Hashable Rules ===\n", tbl);
 		rules_num = IPA_DBG_MAX_RULE_IN_TBL;
 		res = ipa3_rt_read_tbl_from_hw(tbl, ip, true, rules,
 			&rules_num);
 		if (res) {
-			pr_err("ERROR - Check the logs\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "ERROR - Check the logs\n");
 			IPAERR("failed reading tbl from hw\n");
 			goto bail;
 		}
 		if (!rules_num)
-			pr_err("-->No rules. Empty tbl or modem system table\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "-->No rules. Empty tbl or modem system table\n");
 
 		for (rl = 0 ; rl < rules_num ; rl++) {
-			pr_err("rule_idx:%d dst ep:%d L:%u ",
+			IPA_DUMP_DBG_FILE(seq, "rule_idx:%d dst ep:%d L:%u \n",
 				rl, rules[rl].dst_pipe_idx, rules[rl].hdr_lcl);
 
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod: %u ",
+				IPA_DUMP_DBG_FILE(seq, "close_aggr_irq_mod: %u \n",
 					rules[rl].close_aggr_irq_mod);
 
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update: %u\n", rules[rl].ttl_update);
-				pr_err("qos_class: %u\n", rules[rl].qos_class);
-				pr_err("skip_ingress: %u\n", rules[rl].skip_ingress);
+				IPA_DUMP_DBG_FILE(seq, "ttl_update: %u\n", rules[rl].ttl_update);
+				IPA_DUMP_DBG_FILE(seq, "qos_class: %u\n", rules[rl].qos_class);
+				IPA_DUMP_DBG_FILE(seq, "skip_ingress: %u\n", rules[rl].skip_ingress);
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp: %u\n", rules[rl].esp_after_udp);
+				IPA_DUMP_DBG_FILE(seq, "esp_after_udp: %u\n", rules[rl].esp_after_udp);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-				pr_err("hpc_fetch_len: %u ", rules[rl].hpc_fetch_len);
-				pr_err("rule_type: 0x%X ", rules[rl].rule_type);
+				IPA_DUMP_DBG_FILE(seq, "hpc_fetch_len: %u \n", rules[rl].hpc_fetch_len);
+				IPA_DUMP_DBG_FILE(seq, "rule_type: 0x%X \n", rules[rl].rule_type);
 			}
 
 			if (rules[rl].hdr_type == IPAHAL_RT_RULE_HDR_PROC_CTX)
-				pr_err("proc_ctx:%u attrib_mask:%08x ",
+				IPA_DUMP_DBG_FILE(seq, "proc_ctx:%u attrib_mask:%08x \n",
 					rules[rl].hdr_ofst,
 					rules[rl].eq_attrib.rule_eq_bitmap);
 			else
-				pr_err("hdr_ofst:%u attrib_mask:%08x ",
+				IPA_DUMP_DBG_FILE(seq, "hdr_ofst:%u attrib_mask:%08x \n",
 					rules[rl].hdr_ofst,
 					rules[rl].eq_attrib.rule_eq_bitmap);
 
-			pr_err("rule_id:%u cnt_id:%hhu prio:%u retain_hdr:%u\n",
+			IPA_DUMP_DBG_FILE(seq, "rule_id:%u cnt_id:%hhu prio:%u retain_hdr:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority, rules[rl].retain_hdr);
-			res = ipa3_attrib_dump_eq(&rules[rl].eq_attrib);
+			res = ipa3_attrib_dump_eq(&rules[rl].eq_attrib, seq);
 			if (res) {
 				IPAERR_RL("failed read attrib eq\n");
 				goto bail;
 			}
 		}
 
-		pr_err("=== Routing Table %d = Non-Hashable Rules ===\n", tbl);
+		IPA_DUMP_DBG_FILE(seq, "=== Routing Table %d = Non-Hashable Rules ===\n", tbl);
 		rules_num = IPA_DBG_MAX_RULE_IN_TBL;
 		res = ipa3_rt_read_tbl_from_hw(tbl, ip, false, rules,
 			&rules_num);
 		if (res) {
-			pr_err("ERROR - Check the logs\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "ERROR - Check the logs\n");
 			IPAERR("failed reading tbl from hw\n");
 			goto bail;
 		}
 		if (!rules_num)
-			pr_err("-->No rules. Empty tbl or modem system table\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "-->No rules. Empty tbl or modem system table\n");
 
 		for (rl = 0 ; rl < rules_num ; rl++) {
-			pr_err("rule_idx:%d dst ep:%d L:%u ",
+			IPA_DUMP_DBG_FILE(seq, "rule_idx:%d dst ep:%d L:%u \n",
 				rl, rules[rl].dst_pipe_idx, rules[rl].hdr_lcl);
 
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod: %u ",
+				IPA_DUMP_DBG_FILE(seq, "close_aggr_irq_mod: %u \n",
 					rules[rl].close_aggr_irq_mod);
 
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update: %u ", rules[rl].ttl_update);
-				pr_err("qos_class: %u ", rules[rl].qos_class);
-				pr_err("skip_ingress: %u ", rules[rl].skip_ingress);
+				IPA_DUMP_DBG_FILE(seq, "ttl_update: %u\n ", rules[rl].ttl_update);
+				IPA_DUMP_DBG_FILE(seq, "qos_class: %u \n", rules[rl].qos_class);
+				IPA_DUMP_DBG_FILE(seq, "skip_ingress: %u \n", rules[rl].skip_ingress);
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp: %u ", rules[rl].esp_after_udp);
+				IPA_DUMP_DBG_FILE(seq, "esp_after_udp: %u \n", rules[rl].esp_after_udp);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-				pr_err("hpc_fetch_len: %u ", rules[rl].hpc_fetch_len);
-				pr_err("rule_type: 0x%X ", rules[rl].rule_type);
+				IPA_DUMP_DBG_FILE(seq, "hpc_fetch_len: %u \n", rules[rl].hpc_fetch_len);
+				IPA_DUMP_DBG_FILE(seq, "rule_type: 0x%X \n", rules[rl].rule_type);
 			}
 
 			if (rules[rl].hdr_type == IPAHAL_RT_RULE_HDR_PROC_CTX)
-				pr_err("proc_ctx:%u attrib_mask:%08x ",
+				IPA_DUMP_DBG_FILE(seq, "proc_ctx:%u attrib_mask:%08x \n",
 					rules[rl].hdr_ofst,
 					rules[rl].eq_attrib.rule_eq_bitmap);
 			else
-				pr_err("hdr_ofst:%u attrib_mask:%08x ",
+				IPA_DUMP_DBG_FILE(seq, "hdr_ofst:%u attrib_mask:%08x\n ",
 					rules[rl].hdr_ofst,
 					rules[rl].eq_attrib.rule_eq_bitmap);
 
-			pr_err("rule_id:%u cnt_id:%hhu prio:%u retain_hdr:%u\n",
+			IPA_DUMP_DBG_FILE(seq, "rule_id:%u cnt_id:%hhu prio:%u retain_hdr:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority, rules[rl].retain_hdr);
-			res = ipa3_attrib_dump_eq(&rules[rl].eq_attrib);
+			res = ipa3_attrib_dump_eq(&rules[rl].eq_attrib, seq);
 			if (res) {
 				IPAERR_RL("failed read attrib eq\n");
 				goto bail;
 			}
 		}
-		pr_err("\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "\n");
 	}
 
 bail:
@@ -1530,8 +1579,17 @@ bail:
 	return res;
 }
 
-static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
-		size_t count, loff_t *ppos)
+static int ipa3_rt_hw_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa3_read_rt_hw, inode->i_private);
+}
+
+/*
+ * seq: seq_file descriptor
+ * v: Unused parameter, required by the seq_file show/read signature.
+ *    In single_open() usage, this represents the iterator, but is not needed here.
+ */
+static int ipa3_read_proc_ctx(struct seq_file *seq, void *v)
 {
 	struct ipa3_hdr_proc_ctx_tbl *tbl;
 	struct ipa3_hdr_proc_ctx_entry *entry;
@@ -1544,21 +1602,21 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 		mutex_lock(&ipa3_ctx->lock);
 
 		if (hpc_tbl == HPC_TBL_LCL)
-			pr_info("Table resides on local memory\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "Table resides on local memory\n");
 		else
-			pr_info("Table resides on system(ddr) memory\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "Table resides on system(ddr) memory\n");
 
 		list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list, link) {
 			ofst_words = (entry->offset_entry->offset +
 				ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl].start_offset)
 				>> 5;
-			pr_err("id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
+			IPA_DUMP_DBG_FILE(seq, "id:%u hdr_proc_type:%s proc_ctx[32B]:%u",
 				entry->id,
 				ipa3_hdr_proc_type_name[entry->type],
 				ofst_words);
 			if (entry->type >= IPA_HDR_PROC_IPSEC_ENCAP &&
 				entry->type <= IPA_HDR_PROC_IPSEC_DECAP_NXT_RND) {
-				pr_err("\naction:%u\n"
+				IPA_DUMP_DBG_FILE(seq, "\naction:%u\n"
 					"sa_idx:%u\n"
 					"flt_tbl_id:%u\n"
 					"input_ip_version:%u\n"
@@ -1572,14 +1630,14 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 					entry->ipsec_params.pre_params.encap.retain_l2_header);
 			} else if (entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX ||
 				entry->type == IPA_HDR_PROC_ETHII_TO_ETHII_EX_DST) {
-				pr_err("input_ethhdr_negative_offset:%u\n"
+				IPA_DUMP_DBG_FILE(seq, "input_ethhdr_negative_offset:%u\n"
 					"output_ethhdr_negative_offset:%u\n"
 					"output_dscp_pcp_update:%u\n",
 					entry->generic_params.input_ethhdr_negative_offset,
 					entry->generic_params.output_ethhdr_negative_offset,
 					entry->generic_params.output_dscp_pcp_update);
 			} else if (entry->type ==  IPA_HDR_PROC_WWAN_TO_ETHII_EX) {
-				pr_err("input_ethhdr_negative_offset:%u\n"
+				IPA_DUMP_DBG_FILE(seq, "input_ethhdr_negative_offset:%u\n"
 					"output_ethhdr_negative_offset:%u\n"
 					"output_dscp_pcp_update:%u\n"
 					"input_ethhdr_valid:%u\n",
@@ -1587,14 +1645,14 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 					entry->generic_params_v2.output_ethhdr_negative_offset,
 					entry->generic_params_v2.output_dscp_pcp_update,
 					entry->generic_params_v2.input_ethhdr_valid);
-		} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
-			pr_err("input_valid:%u\n"
+			} else if (entry->type ==  IPA_HDR_PROC_MARK_DSCP) {
+				IPA_DUMP_DBG_FILE(seq, "input_valid:%u\n"
 				"input_dscp_val:%u\n",
 				entry->pdn_dscp_params.valid,
 				entry->pdn_dscp_params.dscp_val);
-		}
-		if (entry->is_cookie_valid)
-			pr_err("sw_prod_cookie_valid:1\n"
+			}
+			if (entry->is_cookie_valid)
+				IPA_DUMP_DBG_FILE(seq, "sw_prod_cookie_valid:1\n"
 				"sw_cookie_low:0x%x\n"
 				"sw_cookie_high:0x%x\n"
 				"dscp:%u\n"
@@ -1603,14 +1661,14 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 				entry->cookie_params.sw_cookie_high,
 				entry->cookie_params.dscp,
 				entry->cookie_params.dscp_valid);
-		if (entry->hdr) {
+			if (entry->hdr) {
 				if (entry->hdr->is_hdr_proc_ctx) {
-					pr_err("hdr_phys_base:0x%pa\n",
+					IPA_DUMP_DBG_FILE(seq, "hdr_phys_base:0x%pa\n",
 						&entry->hdr->phys_base);
 				}
 				else
 				{
-					pr_err("hdr[words]:%u\n",
+					IPA_DUMP_DBG_FILE(seq, "hdr[words]:%u\n",
 						entry->hdr->offset_entry->offset >> 2);
 				}
 			}
@@ -1621,14 +1679,23 @@ static ssize_t ipa3_read_proc_ctx(struct file *file, char __user *ubuf,
 	return res;
 }
 
-static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
-		loff_t *ppos)
+static int ipa3_proc_ctx_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa3_read_proc_ctx, inode->i_private);
+}
+
+/*
+ * seq: seq_file descriptor
+ * v: Unused parameter, required by the seq_file show/read signature.
+ *    In single_open() usage, this represents the iterator, but is not needed here.
+ */
+static int ipa3_read_flt(struct seq_file *seq, void *v)
 {
 	int i;
 	int j;
 	struct ipa3_flt_tbl *tbl;
 	struct ipa3_flt_entry *entry;
-	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
+	enum ipa_ip_type ip = (enum ipa_ip_type)seq->private;
 	struct ipa3_rt_tbl *rt_tbl;
 	u32 rt_tbl_idx;
 	u32 bitmap;
@@ -1637,15 +1704,15 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 
 	mutex_lock(&ipa3_ctx->lock);
 
-	pr_err("==== Filtering Tables Start ====\n");
+	IPA_DUMP_DBG_FILE_PUTS(seq, "==== Filtering Tables Start ====\n");
 	if (ipa3_ctx->flt_tbl_hash_lcl[ip])
-		pr_err("Hashable table resides on local memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Hashable table resides on local memory\n");
 	else
-		pr_err("Hashable table resides on system (ddr) memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Hashable table resides on system (ddr) memory\n");
 	if (ipa3_ctx->flt_tbl_nhash_lcl[ip])
-		pr_err("Non-Hashable table resides on local memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Non-Hashable table resides on local memory\n");
 	else
-		pr_err("Non-Hashable table resides on system (ddr) memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Non-Hashable table resides on system (ddr) memory\n");
 
 	for (j = 0; j < IPA_MAX_FLT_TBLS; j++) {
 		if (!ipa_is_ep_support_flt(j))
@@ -1669,70 +1736,81 @@ static ssize_t ipa3_read_flt(struct file *file, char __user *ubuf, size_t count,
 				bitmap = entry->rule.attrib.attrib_mask;
 				eq = false;
 			}
-			pr_err("ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d ",
-				j, i, entry->rule.action, rt_tbl_idx);
-			pr_err("attrib_mask:%08x retain_hdr:%d eq:%d ",
-				bitmap, entry->rule.retain_hdr, eq);
-			pr_err("hashable:%u rule_id:%u max_prio:%u prio:%u ",
+			IPA_DUMP_DBG_FILE(seq, "ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d \n"
+				"attrib_mask:%08x retain_hdr:%d eq:%d \n"
+				"hashable:%u rule_id:%u max_prio:%u prio:%u \n",
+				j, i, entry->rule.action, rt_tbl_idx,
+				bitmap, entry->rule.retain_hdr, eq,
 				entry->rule.hashable, entry->rule_id,
 				entry->rule.max_prio, entry->prio);
+
 			if (entry->rule.hashable)
-				pr_err("hash in_sys_preffer:%d, force: %d ",
+				IPA_DUMP_DBG_FILE(seq, "hash in_sys_preffer:%d, force: %d \n"
+					"enable_stats:%u counter_id:%u\n",
 					tbl->in_sys[IPA_RULE_HASHABLE],
-					tbl->force_sys[IPA_RULE_HASHABLE]);
+					tbl->force_sys[IPA_RULE_HASHABLE],
+					entry->rule.enable_stats,
+					entry->rule.cnt_idx);
 			else
-				pr_err("non-hash in_sys_preffer:%d, force: %d ",
+				IPA_DUMP_DBG_FILE(seq, "non-hash in_sys_preffer:%d, force: %d \n"
+					"enable_stats:%u counter_id:%u\n",
 					tbl->in_sys[IPA_RULE_NON_HASHABLE],
-					tbl->force_sys[IPA_RULE_NON_HASHABLE]);
-			pr_err("enable_stats:%u counter_id:%u\n",
-				entry->rule.enable_stats,
-				entry->rule.cnt_idx);
+					tbl->force_sys[IPA_RULE_NON_HASHABLE],
+					entry->rule.enable_stats,
+					entry->rule.cnt_idx);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
-				pr_err("pdn index %d, set metadata %d ",
+				IPA_DUMP_DBG_FILE(seq, "pdn index %d, set metadata %d \n",
 					entry->rule.pdn_idx,
 					entry->rule.set_metadata);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod %u ",
+				IPA_DUMP_DBG_FILE(seq, "close_aggr_irq_mod %u \n",
 					entry->rule.close_aggr_irq_mod);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update %u ", entry->rule.ttl_update);
-				pr_err("qos_class %u ", entry->rule.qos_class);
+				IPA_DUMP_DBG_FILE(seq, "ttl_update %u \n", entry->rule.ttl_update);
+				IPA_DUMP_DBG_FILE(seq, "qos_class %u \n", entry->rule.qos_class);
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp %u ", entry->rule.esp_after_udp);
+				IPA_DUMP_DBG_FILE(seq, "esp_after_udp %u \n", entry->rule.esp_after_udp);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
-				pr_err("rule_type: %u ", entry->rule.rule_type);
-
-			pr_err("\n");
+				IPA_DUMP_DBG_FILE(seq, "rule_type: %u \n", entry->rule.rule_type);
 
 			if (eq) {
 				res = ipa3_attrib_dump_eq(
-						&entry->rule.eq_attrib);
+						&entry->rule.eq_attrib, seq);
 				if (res) {
 					IPAERR_RL("failed read attrib eq\n");
 					goto bail;
 				}
 			} else
 				ipa3_attrib_dump(
-					&entry->rule.attrib, ip);
+					&entry->rule.attrib, ip, seq);
 			i++;
 		}
 	}
 bail:
-	pr_err("==== Filtering Tables End ====\n");
+	IPA_DUMP_DBG_FILE_PUTS(seq, "==== Filtering Tables End ====\n");
 	mutex_unlock(&ipa3_ctx->lock);
 
 	return res;
 }
 
-static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
-	size_t count, loff_t *ppos)
+static int ipa3_flt_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa3_read_flt, inode->i_private);
+}
+
+/*
+ * seq: seq_file descriptor
+ * v: Unused parameter, required by the seq_file show/read signature.
+ *    In single_open() usage, this represents the iterator, but is not needed here.
+ */
+static int ipa3_read_flt_hw(struct seq_file *seq, void *v)
 {
 	int pipe;
 	int rl;
 	int rules_num;
 	struct ipahal_flt_rule_entry *rules;
-	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
+	enum ipa_ip_type ip = (enum ipa_ip_type)seq->private;
 	u32 rt_tbl_idx;
 	u32 bitmap;
 	int res = 0;
@@ -1748,64 +1826,68 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 	mutex_lock(&ipa3_ctx->lock);
 
 	if (ipa3_ctx->flt_tbl_hash_lcl[ip])
-		pr_err("Hashable table resides on local memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Hashable table resides on local memory\n");
 	else
-		pr_err("Hashable table resides on system (ddr) memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Hashable table resides on system (ddr) memory\n");
 	if (ipa3_ctx->flt_tbl_nhash_lcl[ip])
-		pr_err("Non-Hashable table resides on local memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Non-Hashable table resides on local memory\n");
 	else
-		pr_err("Non-Hashable table resides on system (ddr) memory\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "Non-Hashable table resides on system (ddr) memory\n");
 
 	for (pipe = 0; pipe < IPA_MAX_FLT_TBLS; pipe++) {
 		if (!ipa_is_ep_support_flt(pipe))
 			continue;
+		IPA_DUMP_DBG_FILE(seq, "=== Filtering Table ep:%d = Hashable Rules ===\n",
+			pipe);
 		rules_num = IPA_DBG_MAX_RULE_IN_TBL;
 		res = ipa3_flt_read_tbl_from_hw(pipe, ip, true, rules,
 			&rules_num);
 		if (res) {
-			pr_err("ERROR - Check the logs\n");
+			IPA_DUMP_DBG_FILE_PUTS(seq, "ERROR - Check the logs\n");
 			IPAERR("failed reading tbl from hw\n");
 			goto bail;
 		}
-		if (rules_num)
-			pr_err("=== Filtering Table ep:%d = Hashable Rules ===\n", pipe);
+		if (!rules_num)
+			IPA_DUMP_DBG_FILE_PUTS(seq, "-->No rules. Empty tbl or modem sys table\n");
 
 		for (rl = 0; rl < rules_num; rl++) {
 			rt_tbl_idx = rules[rl].rule.rt_tbl_idx;
 			bitmap = rules[rl].rule.eq_attrib.rule_eq_bitmap;
-			pr_err("ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d ",
-				pipe, rl, rules[rl].rule.action, rt_tbl_idx);
-			pr_err("attrib_mask:%08x retain_hdr:%d ",
-				bitmap, rules[rl].rule.retain_hdr);
-			pr_err("rule_id:%u cnt_id:%hhu prio:%u\n",
+			IPA_DUMP_DBG_FILE(seq, "ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d \n"
+				"attrib_mask:%08x retain_hdr:%d \n"
+				"rule_id:%u cnt_id:%hhu prio:%u\n",
+				pipe, rl, rules[rl].rule.action, rt_tbl_idx,
+				bitmap, rules[rl].rule.retain_hdr,
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod %u\n",
+				IPA_DUMP_DBG_FILE(seq, "close_aggr_irq_mod %u\n",
 					rules[rl].rule.close_aggr_irq_mod);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
-				pr_err("pdn: %u, set_metadata: %u ",
+				IPA_DUMP_DBG_FILE(seq, "pdn: %u, set_metadata: %u \n",
 					rules[rl].rule.pdn_idx,
 					rules[rl].rule.set_metadata);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update %u ", rules[rl].rule.ttl_update);
-				pr_err("qos_class %u ", rules[rl].rule.qos_class);
+				IPA_DUMP_DBG_FILE(seq, "ttl_update %u \n", rules[rl].rule.ttl_update);
+				IPA_DUMP_DBG_FILE(seq, "qos_class %u \n", rules[rl].rule.qos_class);
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp %u ", rules[rl].rule.esp_after_udp);
+				IPA_DUMP_DBG_FILE(seq, "esp_after_udp %u \n", rules[rl].rule.esp_after_udp);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-				pr_err("rule_type %u ", rules[rl].rule.rule_type);
-				pr_err("cnt_idx2 %u ", rules[rl].rule.cnt_idx2);
+				IPA_DUMP_DBG_FILE(seq, "rule_type %u \n", rules[rl].rule.rule_type);
+				IPA_DUMP_DBG_FILE(seq, "cnt_idx2 %u \n", rules[rl].rule.cnt_idx2);
 			}
 
-			pr_err("\n");
-			res = ipa3_attrib_dump_eq(&rules[rl].rule.eq_attrib);
+			IPA_DUMP_DBG_FILE_PUTS(seq, "\n");
+			res = ipa3_attrib_dump_eq(&rules[rl].rule.eq_attrib, seq);
 			if (res) {
 				IPAERR_RL("failed read attrib eq\n");
 				goto bail;
 			}
 		}
 
+		IPA_DUMP_DBG_FILE(seq, "=== Filtering Table ep:%d = Non-Hashable Rules ===\n",
+			pipe);
 		rules_num = IPA_DBG_MAX_RULE_IN_TBL;
 		res = ipa3_flt_read_tbl_from_hw(pipe, ip, false, rules,
 			&rules_num);
@@ -1813,44 +1895,44 @@ static ssize_t ipa3_read_flt_hw(struct file *file, char __user *ubuf,
 			IPAERR("failed reading tbl from hw\n");
 			goto bail;
 		}
-		if (rules_num)
-			pr_err("=== Filtering Table ep:%d = Non-Hashable Rules ===\n", pipe);
+		if (!rules_num)
+			IPA_DUMP_DBG_FILE_PUTS(seq, "-->No rules. Empty tbl or modem sys table\n");
 		for (rl = 0; rl < rules_num; rl++) {
 			rt_tbl_idx = rules[rl].rule.rt_tbl_idx;
 			bitmap = rules[rl].rule.eq_attrib.rule_eq_bitmap;
-			pr_err("ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d ",
+			IPA_DUMP_DBG_FILE(seq, "ep_idx:%d rule_idx:%d act:%d rt_tbl_idx:%d\n",
 				pipe, rl, rules[rl].rule.action, rt_tbl_idx);
-			pr_err("attrib_mask:%08x retain_hdr:%d ",
+			IPA_DUMP_DBG_FILE(seq, "attrib_mask:%08x retain_hdr:%d\n",
 				bitmap, rules[rl].rule.retain_hdr);
-			pr_err("rule_id:%u cnt_id:%hhu prio:%u\n",
+			IPA_DUMP_DBG_FILE(seq, "rule_id:%u cnt_id:%hhu prio:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
-				pr_err("close_aggr_irq_mod %u\n",
+				IPA_DUMP_DBG_FILE(seq, "close_aggr_irq_mod %u\n",
 					rules[rl].rule.close_aggr_irq_mod);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
-				pr_err("pdn: %u, set_metadata: %u ",
+				IPA_DUMP_DBG_FILE(seq, "pdn: %u, set_metadata: %u\n",
 					rules[rl].rule.pdn_idx,
 					rules[rl].rule.set_metadata);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
-				pr_err("ttl_update %u ", rules[rl].rule.ttl_update);
-				pr_err("qos_class %u ", rules[rl].rule.qos_class);
+				IPA_DUMP_DBG_FILE(seq, "ttl_update %u\n", rules[rl].rule.ttl_update);
+				IPA_DUMP_DBG_FILE(seq, "qos_class %u\n", rules[rl].rule.qos_class);
 			}
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v6_0)
-				pr_err("esp_after_udp %u ", rules[rl].rule.esp_after_udp);
+				IPA_DUMP_DBG_FILE(seq, "esp_after_udp %u\n", rules[rl].rule.esp_after_udp);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
-				pr_err("rule_type %u ", rules[rl].rule.rule_type);
-				pr_err("cnt_idx2 %u ", rules[rl].rule.cnt_idx2);
+				IPA_DUMP_DBG_FILE(seq, "rule_type %u\n", rules[rl].rule.rule_type);
+				IPA_DUMP_DBG_FILE(seq, "cnt_idx2 %u\n", rules[rl].rule.cnt_idx2);
 			}
 
-			pr_err("\n");
-			res = ipa3_attrib_dump_eq(&rules[rl].rule.eq_attrib);
+			IPA_DUMP_DBG_FILE_PUTS(seq, "\n");
+			res = ipa3_attrib_dump_eq(&rules[rl].rule.eq_attrib, seq);
 			if (res) {
 				IPAERR_RL("failed read attrib eq\n");
 				goto bail;
 			}
 		}
-		pr_err("\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "\n");
 	}
 
 bail:
@@ -1860,22 +1942,33 @@ bail:
 	return res;
 }
 
-static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
-		size_t count, loff_t *ppos)
+static int ipa3_flt_hw_open(struct inode *inode, struct file *file)
 {
-	int nbytes;
-	int i;
-	int cnt = 0;
+	return single_open(file, ipa3_read_flt_hw, inode->i_private);
+}
+
+static int ipa3_read_stats(struct seq_file *seq, void *v)
+{
+	int i, j;
 	uint connect = 0;
 
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++)
 		connect |= (ipa3_ctx->ep[i].valid << i);
 
-	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+	seq_printf(seq,
 		"sw_tx=%u\n"
 		"hw_tx=%u\n"
 		"tx_queue_fail=%u\n"
 		"tx_non_linear=%u\n"
+		"ulso_tx_wlan_gso_pkts=%u\n"
+		"ulso_tx_wlan_nongso_pkts=%u\n"
+		"ulso_tx_eth_gso_pkts=%u\n"
+		"ulso_tx_nongso_pkts=%u\n"
+		"ulso_tx_icmp_wlan_pkts=%u\n"
+		"ulso_tx_icmp_eth_pkts=%u\n"
+		"ulso_wlan_pm_fail_pkts=%u\n"
+		"ulso_wlan_tx_fail_pkts=%u\n"
+		"ulso_eth_tx_fail_pkts=%u\n"
 		"tx_compl=%u\n"
 		"wan_rx=%u\n"
 		"stat_compl=%u\n"
@@ -1913,6 +2006,15 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		ipa3_ctx->stats.tx_hw_pkts,
 		ipa3_ctx->stats.tx_queue_fail_pkts,
 		ipa3_ctx->stats.tx_non_linear,
+		ipa3_ctx->stats.ulso_tx_wlan_gso_pkts,
+		ipa3_ctx->stats.ulso_tx_wlan_nongso_pkts,
+		ipa3_ctx->stats.ulso_tx_eth_gso_pkts,
+		ipa3_ctx->stats.ulso_tx_nongso_pkts,
+		ipa3_ctx->stats.ulso_tx_icmp_wlan_pkts,
+		ipa3_ctx->stats.ulso_tx_icmp_eth_pkts,
+		ipa3_ctx->stats.ulso_wlan_pm_fail_pkts,
+		ipa3_ctx->stats.ulso_wlan_tx_fail_pkts,
+		ipa3_ctx->stats.ulso_eth_tx_fail_pkts,
 		ipa3_ctx->stats.tx_pkts_compl,
 		ipa3_ctx->stats.rx_pkts,
 		ipa3_ctx->stats.stat_compl,
@@ -1947,18 +2049,24 @@ static ssize_t ipa3_read_stats(struct file *file, char __user *ubuf,
 		atomic_read(&ipa3_ctx->stats.ipsec_decap_excp)
 	#endif
 		);
-	cnt += nbytes;
 
-	for (i = 0; i < IPAHAL_PKT_STATUS_EXCEPTION_MAX; i++) {
-		nbytes = scnprintf(dbg_buff + cnt,
-			IPA_MAX_MSG_LEN - cnt,
-			"lan_rx_excp[%u:%20s]=%u\n", i,
-			ipahal_pkt_status_exception_str(i),
-			ipa3_ctx->stats.rx_excp_pkts[i]);
-		cnt += nbytes;
+	for (i = 0; i < MAX_RC_CLIENTS; i++) {
+		seq_printf(seq,
+			"rc_client: %s\n", ipa_rc_client_names[i]);
+		for (j = 0; j < IPAHAL_PKT_STATUS_EXCEPTION_MAX; j++) {
+			seq_printf(seq,
+				"lan_rx_excp[%u:%20s]=%u\n", j,
+				ipahal_pkt_status_exception_str(j),
+				ipa3_ctx->stats.rx_excp_pkts[i][j]);
+		}
 	}
 
-	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
+	return 0;
+}
+
+static int ipa3_stats_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa3_read_stats, inode->i_private);
 }
 
 static ssize_t ipa3_read_odlstats(struct file *file, char __user *ubuf,
@@ -2603,7 +2711,7 @@ static void ipa3_read_table(
 	u32 table_size,
 	u32 *total_num_entries,
 	u32 *rule_id,
-	enum ipahal_nat_type nat_type)
+	enum ipahal_nat_type nat_type, struct seq_file *seq)
 {
 	int result;
 	char *entry;
@@ -2617,7 +2725,7 @@ static void ipa3_read_table(
 	IPADBG("In\n");
 
 	if (table_addr == NULL) {
-		pr_err("NULL NAT table\n");
+		IPA_DUMP_DBG_FILE(seq, "NULL NAT table\n");
 		goto bail;
 	}
 
@@ -2663,22 +2771,62 @@ static void ipa3_read_table(
 
 		if (entry_valid) {
 			++num_entries;
-			pr_err("\tEntry_Index=%d\n", id);
+			IPA_DUMP_DBG_FILE(seq, "\tEntry_Index=%d\n", id);
 		} else
-			pr_err("\tEntry_Index=%d - Invalid Entry\n", id);
+			IPA_DUMP_DBG_FILE(seq, "\tEntry_Index=%d - Invalid Entry\n", id);
 
 		ipahal_nat_stringify_entry(nat_type, entry,
 			buff, buff_size);
 
-		pr_err("%s\n", buff);
+		/*
+		 * Append the entry's cumulative RX/TX stats. Best-effort: falls
+		 * back to the plain entry dump when the counter has no record yet
+		 * (unassigned / no traffic), on pre-v7.0 HW, or backend absent.
+		 */
+		{
+			bool stats_printed = false;
+#ifdef CONFIG_ECM_CONVERGENCE
+			u16 cnt_idx = 0;
+			struct ipahal_stats_nat_ct st = {};
+
+			if (entry_valid &&
+				(nat_type == IPAHAL_NAT_IPV4 ||
+				 nat_type == IPAHAL_NAT_IPV6CT) &&
+				!ipahal_nat_entry_stats_cnt_index(nat_type,
+					entry, &cnt_idx) && cnt_idx &&
+				!ipa_be_get_cum_stats(cnt_idx, &st)) {
+				size_t blen = strlen(buff);
+
+				/* Drop the trailing newline so stats_cntr_index
+				 * lands on the entry's last line.
+				 */
+				if (blen && buff[blen - 1] == '\n')
+					buff[blen - 1] = '\0';
+
+				IPA_DUMP_DBG_FILE(seq, "%s stats_cntr_index=%u\n"
+					"\t\tRX_pkts=%u RX_cache_pkts=%u RX_bytes=%llu\n"
+					"\t\tTX_pkts=%u TX_cache_pkts=%u TX_bytes=%llu\n",
+					buff, cnt_idx,
+					st.num_pkts_inbound,
+					st.num_pkts_cache_inbound,
+					st.num_bytes_inbound,
+					st.num_pkts_outbound,
+					st.num_pkts_cache_outbound,
+					st.num_bytes_outbound);
+				stats_printed = true;
+			}
+#endif /* CONFIG_ECM_CONVERGENCE */
+			if (!stats_printed)
+				IPA_DUMP_DBG_FILE(seq, "%s\n", buff);
+		}
 
 		memset(buff, 0, buff_size);
 	}
 
 	if (num_entries)
-		pr_err("\n");
+		IPA_DUMP_DBG_FILE(seq, "\n");
 	else
-		pr_err("\tEmpty\n\n");
+		IPA_DUMP_DBG_FILE(seq, "\tEmpty\n\n");
 
 free_buf:
 	kfree(buff);
@@ -2693,7 +2841,7 @@ static void ipa3_start_read_memory_device(
 	struct ipa3_nat_ipv6ct_common_mem *dev,
 	enum ipahal_nat_type nat_type,
 	u32 *num_ddr_ent_ptr,
-	u32 *num_sram_ent_ptr)
+	u32 *num_sram_ent_ptr, struct seq_file *seq)
 {
 	u32 rule_id = 0;
 
@@ -2721,24 +2869,24 @@ static void ipa3_start_read_memory_device(
 			type_ptr = "SRAM based table";
 		}
 
-		pr_err("%s_Table_Size=%d\n",
+		IPA_DUMP_DBG_FILE(seq, "%s_Table_Size=%d\n",
 			   dev->name, dev->table_entries + 1);
 
-		pr_err("%s_Expansion_Table_Size=%d\n",
+		IPA_DUMP_DBG_FILE(seq, "%s_Expansion_Table_Size=%d\n",
 			   dev->name, dev->expn_table_entries);
 
 		if (ct_mld_ptr) {
-			pr_err("(%s) %s_Table_Size=%d\n",
+			IPA_DUMP_DBG_FILE(seq, "(%s) %s_Table_Size=%d\n",
 				   type_ptr,
 				   dev->name,
 				   ct_mld_ptr->table_entries + 1);
 
-			pr_err("(%s) %s_Expansion_Table_Size=%d\n",
+			IPA_DUMP_DBG_FILE(seq, "(%s) %s_Expansion_Table_Size=%d\n",
 				   type_ptr,
 				   dev->name,
 				   ct_mld_ptr->expn_table_entries);
 
-			pr_err("\n(%s) %s_Base Table:\n",
+			IPA_DUMP_DBG_FILE(seq, "\n(%s) %s_Base Table:\n",
 				   type_ptr,
 				   dev->name);
 
@@ -2748,9 +2896,9 @@ static void ipa3_start_read_memory_device(
 					ct_mld_ptr->table_entries + 1,
 					num_ent_ptr,
 					&rule_id,
-					nat_type);
+					nat_type, seq);
 
-			pr_err("(%s) %s_Expansion Table:\n",
+			IPA_DUMP_DBG_FILE(seq, "(%s) %s_Expansion Table:\n",
 				   type_ptr,
 				   dev->name);
 
@@ -2760,7 +2908,7 @@ static void ipa3_start_read_memory_device(
 					ct_mld_ptr->expn_table_entries,
 					num_ent_ptr,
 					&rule_id,
-					nat_type);
+					nat_type, seq);
 		}
 	}
 
@@ -2789,17 +2937,17 @@ static void ipa3_start_read_memory_device(
 		}
 
 		if (mld_ptr) {
-			pr_err("(%s) %s_Table_Size=%d\n",
+			IPA_DUMP_DBG_FILE(seq, "(%s) %s_Table_Size=%d\n",
 				   type_ptr,
 				   dev->name,
 				   mld_ptr->table_entries + 1);
 
-			pr_err("(%s) %s_Expansion_Table_Size=%d\n",
+			IPA_DUMP_DBG_FILE(seq, "(%s) %s_Expansion_Table_Size=%d\n",
 				   type_ptr,
 				   dev->name,
 				   mld_ptr->expn_table_entries);
 
-			pr_err("\n(%s) %s_Base Table:\n",
+			IPA_DUMP_DBG_FILE(seq, "\n(%s) %s_Base Table:\n",
 				   type_ptr,
 				   dev->name);
 
@@ -2809,9 +2957,9 @@ static void ipa3_start_read_memory_device(
 					mld_ptr->table_entries + 1,
 					num_ent_ptr,
 					&rule_id,
-					nat_type);
+					nat_type, seq);
 
-			pr_err("(%s) %s_Expansion Table:\n",
+			IPA_DUMP_DBG_FILE(seq, "(%s) %s_Expansion Table:\n",
 				   type_ptr,
 				   dev->name);
 
@@ -2821,7 +2969,7 @@ static void ipa3_start_read_memory_device(
 					mld_ptr->expn_table_entries,
 					num_ent_ptr,
 					&rule_id,
-					nat_type);
+					nat_type, seq);
 		}
 	}
 
@@ -2831,7 +2979,7 @@ static void ipa3_start_read_memory_device(
 static void ipa3_finish_read_memory_device(
 	struct ipa3_nat_ipv6ct_common_mem *dev,
 	u32 num_ddr_entries,
-	u32 num_sram_entries)
+	u32 num_sram_entries, struct seq_file *seq)
 {
 	IPADBG("In\n");
 
@@ -2840,16 +2988,16 @@ static void ipa3_finish_read_memory_device(
 		struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
 
 		if (num_ddr_entries)
-			pr_err("%s: Overall number of DDR entries: %u\n\n",
+			IPA_DUMP_DBG_FILE(seq, "%s: Overall number of DDR entries: %u\n\n",
 				   dev->name,
 				   num_ddr_entries);
 
 		if (num_sram_entries)
-			pr_err("%s: Overall number of SRAM entries: %u\n\n",
+			IPA_DUMP_DBG_FILE(seq, "%s: Overall number of SRAM entries: %u\n\n",
 				   dev->name,
 				   num_sram_entries);
 
-		pr_err("%s: Driver focus changes to DDR(%u) to SRAM(%u)\n",
+		IPA_DUMP_DBG_FILE(seq, "%s: Driver focus changes to DDR(%u) to SRAM(%u)\n",
 			   dev->name,
 			   ctm_ptr->switch2ddr_cnt,
 			   ctm_ptr->switch2sram_cnt);
@@ -2857,16 +3005,16 @@ static void ipa3_finish_read_memory_device(
 		struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) dev;
 
 		if (num_ddr_entries)
-			pr_err("%s: Overall number of DDR entries: %u\n\n",
+			IPA_DUMP_DBG_FILE(seq, "%s: Overall number of DDR entries: %u\n\n",
 				   dev->name,
 				   num_ddr_entries);
 
 		if (num_sram_entries)
-			pr_err("%s: Overall number of SRAM entries: %u\n\n",
+			IPA_DUMP_DBG_FILE(seq, "%s: Overall number of SRAM entries: %u\n\n",
 				   dev->name,
 				   num_sram_entries);
 
-		pr_err("%s: Driver focus changes to DDR(%u) to SRAM(%u)\n",
+		IPA_DUMP_DBG_FILE(seq, "%s: Driver focus changes to DDR(%u) to SRAM(%u)\n",
 			   dev->name,
 			   nm_ptr->switch2ddr_cnt,
 			   nm_ptr->switch2sram_cnt);
@@ -2875,7 +3023,7 @@ static void ipa3_finish_read_memory_device(
 	IPADBG("Out\n");
 }
 
-static void ipa3_read_pdn_table(void)
+static void ipa3_read_pdn_table(struct seq_file *seq)
 {
 	int i, result;
 	char *pdn_entry;
@@ -2934,13 +3082,13 @@ static void ipa3_read_pdn_table(void)
 				pdn_entry, buff, buff_size);
 
 			if (entry_valid)
-				pr_err("PDN %d: %s\n", i, buff);
+				IPA_DUMP_DBG_FILE(seq, "PDN %d: %s\n", i, buff);
 			else
-				pr_err("PDN %d - Invalid: %s\n", i, buff);
+				IPA_DUMP_DBG_FILE(seq, "PDN %d - Invalid: %s\n", i, buff);
 
 			memset(buff, 0, buff_size);
 		}
-		pr_err("\n");
+		IPA_DUMP_DBG_FILE(seq, "\n");
 free:
 		kfree(buff);
 	}
@@ -2948,11 +3096,12 @@ bail:
 	IPADBG("Out\n");
 }
 
-static ssize_t ipa3_read_nat4(
-	struct file *file,
-	char __user *ubuf,
-	size_t count,
-	loff_t *ppos)
+/*
+ * seq: seq_file descriptor
+ * v: Unused parameter, required by the seq_file show/read signature.
+ *    In single_open() usage, this represents the iterator, but is not needed here.
+ */
+static int ipa3_read_nat4(struct seq_file *seq, void *v)
 {
 	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->nat_mem.dev;
 	struct ipa3_nat_mem *nm_ptr = (struct ipa3_nat_mem *) dev;
@@ -2972,17 +3121,17 @@ static ssize_t ipa3_read_nat4(
 
 	bool any_table_active = (nm_ptr->ddr_in_use || nm_ptr->sram_in_use);
 
-	pr_err("==== NAT Tables Start ====\n");
+	IPA_DUMP_DBG_FILE_PUTS(seq, "==== NAT Tables Start ====\n");
 
 	if (!dev->is_dev_init) {
-		pr_err("NAT hasn't been initialized or not supported\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "NAT hasn't been initialized or not supported\n");
 		goto ret;
 	}
 
 	mutex_lock(&dev->lock);
 
 	if (!dev->is_hw_init || !any_table_active) {
-		pr_err("NAT H/W and/or S/W not initialized\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "NAT H/W and/or S/W not initialized\n");
 		goto bail;
 	}
 
@@ -2992,9 +3141,9 @@ static ssize_t ipa3_read_nat4(
 	}
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0) {
-		ipa3_read_pdn_table();
+		ipa3_read_pdn_table(seq);
 	} else {
-		pr_err("NAT Table IP Address=%pI4h\n\n",
+		IPA_DUMP_DBG_FILE(seq, "NAT Table IP Address=%pI4h\n\n",
 			   &ipa3_ctx->nat_mem.public_ip_addr);
 	}
 
@@ -3002,7 +3151,7 @@ static ssize_t ipa3_read_nat4(
 		dev,
 		IPAHAL_NAT_IPV4,
 		&num_ddr_ents,
-		&num_sram_ents);
+		&num_sram_ents, seq);
 
 	if (nm_ptr->active_table == IPA_NAT_MEM_IN_DDR &&
 		nm_ptr->ddr_in_use) {
@@ -3024,23 +3173,23 @@ static ssize_t ipa3_read_nat4(
 
 	if (mld_ptr) {
 		/* Print Index tables */
-		pr_err("(%s) ipaNatTable Index Table:\n", type_ptr);
+		IPA_DUMP_DBG_FILE(seq, "(%s) ipaNatTable Index Table:\n", type_ptr);
 
 		ipa3_read_table(
 			mld_ptr->index_table_addr,
 			mld_ptr->table_entries + 1,
 			num_index_ents_ptr,
 			&rule_id,
-			IPAHAL_NAT_IPV4_INDEX);
+			IPAHAL_NAT_IPV4_INDEX, seq);
 
-		pr_err("(%s) ipaNatTable Expansion Index Table:\n", type_ptr);
+		IPA_DUMP_DBG_FILE(seq, "(%s) ipaNatTable Expansion Index Table:\n", type_ptr);
 
 		ipa3_read_table(
 			mld_ptr->index_table_expansion_addr,
 			mld_ptr->expn_table_entries,
 			num_index_ents_ptr,
 			&rule_id,
-			IPAHAL_NAT_IPV4_INDEX);
+			IPAHAL_NAT_IPV4_INDEX, seq);
 
 		if (*num_ents_ptr != *num_index_ents_ptr)
 			IPAERR(
@@ -3051,7 +3200,7 @@ static ssize_t ipa3_read_nat4(
 	ipa3_finish_read_memory_device(
 		dev,
 		num_ddr_ents,
-		num_sram_ents);
+		num_sram_ents, seq);
 
 	if (nm_ptr->sram_in_use) {
 		IPADBG("SRAM based table with client 0, disable clk\n");
@@ -3059,7 +3208,7 @@ static ssize_t ipa3_read_nat4(
 	}
 
 bail:
-	pr_err("==== NAT Tables End ====\n");
+	IPA_DUMP_DBG_FILE_PUTS(seq, "==== NAT Tables End ====\n");
 	mutex_unlock(&dev->lock);
 
 ret:
@@ -3068,11 +3217,17 @@ ret:
 	return 0;
 }
 
-static ssize_t ipa3_read_ipv6ct(
-	struct file *file,
-	char __user *ubuf,
-	size_t count,
-	loff_t *ppos)
+static int ipa3_nat4_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa3_read_nat4, inode->i_private);
+}
+
+/*
+ * seq: seq_file descriptor
+ * v: Unused parameter, required by the seq_file show/read signature.
+ *    In single_open() usage, this represents the iterator, but is not needed here.
+ */
+static int ipa3_read_ipv6ct(struct seq_file *seq, void *v)
 {
 	struct ipa3_nat_ipv6ct_common_mem *dev = &ipa3_ctx->ipv6ct_mem.dev;
 	struct ipa3_ipv6ct_mem *ctm_ptr = (struct ipa3_ipv6ct_mem *) dev;
@@ -3084,15 +3239,15 @@ static ssize_t ipa3_read_ipv6ct(
 
 	IPADBG("In\n");
 
-	pr_err("\n");
+	IPA_DUMP_DBG_FILE_PUTS(seq, "\n");
 
 	if (!dev->is_dev_init || !any_table_active) {
-		pr_err("IPv6 Conntrack not initialized or not supported\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "IPv6 Conntrack not initialized or not supported\n");
 		goto bail;
 	}
 
 	if (!dev->is_hw_init) {
-		pr_err("IPv6 connection tracking H/W hasn't been initialized\n");
+		IPA_DUMP_DBG_FILE_PUTS(seq, "IPv6 connection tracking H/W hasn't been initialized\n");
 		goto bail;
 	}
 
@@ -3107,12 +3262,12 @@ static ssize_t ipa3_read_ipv6ct(
 		dev,
 		IPAHAL_NAT_IPV6CT,
 		&num_ddr_ents,
-		&num_sram_ents);
+		&num_sram_ents, seq);
 
 	ipa3_finish_read_memory_device(
 		dev,
 		num_ddr_ents,
-		num_sram_ents);
+		num_sram_ents, seq);
 
 	if (ctm_ptr->sram_in_use) {
 		IPADBG("SRAM based table with client 0, disable clk\n");
@@ -3125,6 +3280,11 @@ bail:
 	IPADBG("Out\n");
 
 	return 0;
+}
+
+static int ipa3_ipv6ct_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa3_read_ipv6ct, inode->i_private);
 }
 
 static ssize_t ipa3_pm_read_stats(struct file *file, char __user *ubuf,
@@ -3637,7 +3797,7 @@ static ssize_t ipa3_read_app_clk_vote(
 	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, cnt);
 }
 
-static void ipa_dump_status(struct ipahal_pkt_status *status)
+static void ipa_dump_status(struct ipahal_pkt_status *status, struct seq_file *seq)
 {
 	IPA_DUMP_STATUS_FIELD(status_opcode);
 	IPA_DUMP_STATUS_FIELD(exception);
@@ -3661,7 +3821,7 @@ static void ipa_dump_status(struct ipahal_pkt_status *status)
 	IPA_DUMP_STATUS_FIELD(nat_hit);
 	IPA_DUMP_STATUS_FIELD(nat_entry_idx);
 	IPA_DUMP_STATUS_FIELD(nat_type);
-	pr_err("tag = 0x%llx\n", (u64)status->tag_info & 0xFFFFFFFFFFFF);
+	IPA_DUMP_DBG_FILE(seq, "tag = 0x%llx\n", (u64)status->tag_info & 0xFFFFFFFFFFFF);
 	IPA_DUMP_STATUS_FIELD(seq_num);
 	IPA_DUMP_STATUS_FIELD(time_of_day_ctr);
 	IPA_DUMP_STATUS_FIELD(hdr_local);
@@ -3671,8 +3831,12 @@ static void ipa_dump_status(struct ipahal_pkt_status *status)
 	IPA_DUMP_STATUS_FIELD(ttl_dec);
 }
 
-static ssize_t ipa_status_stats_read(struct file *file, char __user *ubuf,
-		size_t count, loff_t *ppos)
+/*
+ * seq: seq_file descriptor
+ * v: Unused parameter, required by the seq_file show/read signature.
+ *    In single_open() usage, this represents the iterator, but is not needed here.
+ */
+static int ipa_status_stats_read(struct seq_file *seq, void *v)
 {
 	struct ipa3_status_stats *stats;
 	int i, j;
@@ -3686,11 +3850,11 @@ static ssize_t ipa_status_stats_read(struct file *file, char __user *ubuf,
 			continue;
 
 		memcpy(stats, ipa3_ctx->ep[i].sys->status_stat, sizeof(*stats));
-		pr_err("Statuses for pipe %d\n", i);
+		IPA_DUMP_DBG_FILE(seq, "Statuses for pipe %d\n", i);
 		for (j = 0; j < IPA_MAX_STATUS_STAT_NUM; j++) {
-			pr_err("curr=%d\n", stats->curr);
-			ipa_dump_status(&stats->status[stats->curr]);
-			pr_err("\n\n\n");
+			IPA_DUMP_DBG_FILE(seq, "curr=%d\n", stats->curr);
+			ipa_dump_status(&stats->status[stats->curr], seq);
+			IPA_DUMP_DBG_FILE_PUTS(seq, "\n\n\n");
 			stats->curr = (stats->curr + 1) %
 				IPA_MAX_STATUS_STAT_NUM;
 		}
@@ -3698,6 +3862,11 @@ static ssize_t ipa_status_stats_read(struct file *file, char __user *ubuf,
 
 	kfree(stats);
 	return 0;
+}
+
+static int ipa_status_stats_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa_status_stats_read, inode->i_private);
 }
 
 static ssize_t ipa3_print_active_clients_log(struct file *file,
@@ -4053,6 +4222,52 @@ static ssize_t ipa3_read_ipa_pdn_dscp_mapping_cache(struct file *file,
 
 	return simple_read_from_buffer(buf, count, ppos, dbg_buff, cnt);
 
+}
+
+static ssize_t ipa3_rc_status(struct file *file, char __user *buf,
+		size_t count, loff_t *ppos) {
+
+	int nbytes, i=0;
+	struct ipa_rc_health_monitor *entry, *tmp;
+	struct ipa_rc_wlan_intf_info *wlan_intf;
+
+	if (list_empty(&rc_list.head)) {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"list empty\n");
+	} else {
+		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"Last atmost 10 IPA status id\n");
+	}
+
+	list_for_each_entry_safe(entry, tmp, &rc_list.head, node) {
+		IPAERR("Status code for instance %d : %d :\n", i, entry->status_code);
+		i++;
+		if(i>=10)
+			break;
+	}
+
+	mutex_lock(&rc_ctx->rc_lock);
+	list_for_each_entry(wlan_intf, &ipa_rc_wlan_info.head, link) {
+		IPAERR("name: %s, msg_type: %u, metadata: %x, mask: %x, hdl: %d\n",
+			wlan_intf->name, (unsigned int)wlan_intf->wlan_msg_type,
+			wlan_intf->metadata, wlan_intf->metadata_mask, wlan_intf->hdl);
+	}
+	mutex_unlock(&rc_ctx->rc_lock);
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+}
+
+static ssize_t ipa3_rc_log_enbl(struct file *file,
+			const char __user *buf, size_t count, loff_t *ppos)
+{
+	s8 flg=0;
+	int ret;
+
+	ret = kstrtos8_from_user(buf, count, 0, &flg);
+	if(ret)
+		return ret;
+
+	ipa3_ctx->is_rc_log_enabled = flg ? 1 : 0;
+	return count;
 }
 
 static ssize_t ipa3_write_ipa_max_napi_sort_page_thrshld(struct file *file,
@@ -4814,6 +5029,161 @@ static ssize_t enable_wkup_logs(struct file *file,
 	return count;
 }
 
+static ssize_t ipa3_write_sw_routing(struct file *file,
+	const char __user *buf, size_t count, loff_t *ppos)
+{
+	s8 option = 0;
+	int ret;
+
+	ret = kstrtos8_from_user(buf, count, 0, &option);
+	if (ret)
+		return ret;
+
+	if (option == 1)
+		ret = ipa3_sw_routing_enable();
+	else if (option == 0)
+		ret = ipa3_sw_routing_disable();
+	else
+		return -EINVAL;
+
+	if (ret) {
+		IPAERR("SW routing %s failed: %d\n",
+			option ? "enable" : "disable", ret);
+		return ret;
+	}
+
+	/*
+	 * LAN2LAN-only: Q6 catch-all's mux_id comes from a WAN PDN, so skip
+	 * the push here.  A later WAN PDN bring-up sees ipa3_ctx->ipa_sw and
+	 * installs the catch-all then.
+	 */
+	if (!ipa_be_wan_pdn_active()) {
+		IPADBG("SW routing %s: no WAN PDN, Q6 push deferred\n",
+			option ? "enable" : "disable");
+		return count;
+	}
+
+	ret = install_wan_filtering_rule(option == 1);
+	if (ret) {
+		IPAERR("install_wan_filtering_rule failed: %d\n", ret);
+		/* Roll back AP-side state to stay in sync with Q6. */
+		if (option == 1) {
+			int rb = ipa3_sw_routing_disable();
+
+			if (rb)
+				IPAERR("SW routing enable rollback (disable) failed: %d — AP/Q6 state may be inconsistent\n",
+					rb);
+		} else {
+			int rb = ipa3_sw_routing_enable();
+
+			if (rb)
+				IPAERR("SW routing disable rollback (re-enable) failed: %d — AP/Q6 state may be inconsistent\n",
+					rb);
+		}
+		return ret;
+	}
+
+	return count;
+}
+
+static ssize_t ipa3_read_sw_routing(struct file *file, char __user *ubuf,
+	size_t count, loff_t *ppos)
+{
+	int nbytes;
+
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"sw_routing: %s\n",
+		READ_ONCE(ipa3_ctx->ipa_sw) ? "enabled" : "disabled");
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+}
+
+/*
+ * Dumps every INI-controlled field (see ipa_ini_parse.c). Reads ipa3_res, not
+ * ipa3_ctx: most fields only reach ipa3_ctx on MDM platforms and some are
+ * renamed/merged there - ipa3_res holds all 30 uniformly, on every platform.
+ */
+static ssize_t ipa3_read_ini_config(struct file *file, char __user *ubuf,
+	size_t count, loff_t *ppos)
+{
+	int nbytes;
+	struct ipa3_plat_drv_res *res = ipa3_get_plat_drv_res();
+
+	if (!res) {
+		IPAERR("ipa3_res not available\n");
+		return -ENODEV;
+	}
+
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+		"use_vlan_eth_emac_config = %d\n"
+		"use_vlan_eth0_config = %d\n"
+		"use_vlan_eth1_config = %d\n"
+		"use_vlan_rndis_config = %d\n"
+		"use_vlan_ecm_config = %d\n"
+		"use_vlan_mhi_eth_config = %d\n"
+		"use_mhi_config = %d\n"
+		"use_mhi_eth_config = %d\n"
+		"use_rdkb_config = %d\n"
+		"use_tsn_config = %d\n"
+		"use_ezmesh_config = %d\n"
+		"use_eth_qos_config = %d\n"
+		"use_ipsec_config = %d\n"
+		"use_ipv6_nat_config = %d\n"
+		"nat_stats_mode = %d\n"
+		"ipa_disable_per_flow_stats = %d\n"
+		"ipa_wan_skb_page = %d\n"
+		"max_ipv4_stats_accel_conn = %u\n"
+		"max_ipv6_stats_accel_conn = %u\n"
+		"tx_wrapper_cache_max_size = %u\n"
+		"filter_start_id = %u\n"
+		"ipa_gen_rx_cmn_page_pool_sz_factor = %u\n"
+		"ipa_gen_rx_cmn_temp_pool_sz_factor = %u\n"
+		"nat_stats_max_counters_v4 = %u\n"
+		"nat_stats_max_counters_v6 = %u\n"
+		"ipa_wdi3_2g_holb_timeout = %u\n"
+		"ipa_wdi3_5g_holb_timeout = %u\n"
+		"wan_rx_ring_size = %u\n"
+		"lan_rx_ring_size = %u\n"
+		"disable_flow_control_mask = 0x%llx\n",
+		res->use_vlan_eth_emac_config,
+		res->use_vlan_eth0_config,
+		res->use_vlan_eth1_config,
+		res->use_vlan_rndis_config,
+		res->use_vlan_ecm_config,
+		res->use_vlan_mhi_eth_config,
+		res->use_mhi_config,
+		res->use_mhi_eth_config,
+		res->use_rdkb_config,
+		res->use_tsn_config,
+		res->use_ezmesh_config,
+		res->use_eth_qos_config,
+		res->use_ipsec_config,
+		res->use_ipv6_nat_config,
+		res->nat_stats_mode,
+		res->ipa_disable_per_flow_stats,
+		res->ipa_wan_skb_page,
+		res->max_ipv4_stats_accel_conn,
+		res->max_ipv6_stats_accel_conn,
+		res->tx_wrapper_cache_max_size,
+		res->filter_start_id,
+		res->ipa_gen_rx_cmn_page_pool_sz_factor,
+		res->ipa_gen_rx_cmn_temp_pool_sz_factor,
+		(unsigned int)res->nat_stats_max_counters_v4,
+		(unsigned int)res->nat_stats_max_counters_v6,
+		res->ipa_wdi3_2g_holb_timeout,
+		res->ipa_wdi3_5g_holb_timeout,
+		res->wan_rx_ring_size,
+		res->lan_rx_ring_size,
+		res->disable_flow_control_mask);
+
+	if (nbytes == IPA_MAX_MSG_LEN - 1) {
+		IPAERR("ini_config output truncated\n");
+		return -ENOBUFS;
+	}
+
+	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+}
+
 static const struct ipa3_debugfs_file debugfs_files[] = {
 	{
 		"gen_reg", IPA_READ_ONLY_MODE, NULL, {
@@ -4859,6 +5229,11 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 			.write = ipa3_set_clk_index,
 		}
 	}, {
+		"sw_routing", IPA_READ_WRITE_MODE, NULL, {
+			.read  = ipa3_read_sw_routing,
+			.write = ipa3_write_sw_routing,
+		}
+	}, {
 		"holb", IPA_WRITE_ONLY_MODE, NULL, {
 			.write = ipa3_write_ep_holb,
 		}
@@ -4884,55 +5259,80 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		}
 	}, {
 		"hdr", IPA_READ_ONLY_MODE, NULL, {
-			.read = ipa3_read_hdr,
+			.read = seq_read,
+			.open = ipa3_hdr_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"proc_ctx", IPA_READ_ONLY_MODE, NULL, {
-			.read = ipa3_read_proc_ctx,
+			.read = seq_read,
+			.open = ipa3_proc_ctx_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"ip4_rt", IPA_READ_ONLY_MODE, (void *)IPA_IP_v4, {
-			.read = ipa3_read_rt,
-			.open = ipa3_open_dbg,
+			.read = seq_read,
+			.open = ipa3_rt_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"ip4_rt_hw", IPA_READ_ONLY_MODE, (void *)IPA_IP_v4, {
-			.read = ipa3_read_rt_hw,
-			.open = ipa3_open_dbg,
+			.read = seq_read,
+			.open = ipa3_rt_hw_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"ip6_rt", IPA_READ_ONLY_MODE, (void *)IPA_IP_v6, {
-			.read = ipa3_read_rt,
-			.open = ipa3_open_dbg,
+			.read = seq_read,
+			.open = ipa3_rt_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"ip6_rt_hw", IPA_READ_ONLY_MODE, (void *)IPA_IP_v6, {
-			.read = ipa3_read_rt_hw,
-			.open = ipa3_open_dbg,
+			.read = seq_read,
+			.open = ipa3_rt_hw_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"ip4_flt", IPA_READ_ONLY_MODE, (void *)IPA_IP_v4, {
-			.read = ipa3_read_flt,
-			.open = ipa3_open_dbg,
+			.read = seq_read,
+			.open = ipa3_flt_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"ip4_flt_hw", IPA_READ_ONLY_MODE, (void *)IPA_IP_v4, {
-			.read = ipa3_read_flt_hw,
-			.open = ipa3_open_dbg,
+			.read = seq_read,
+			.open = ipa3_flt_hw_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"ip6_flt", IPA_READ_ONLY_MODE, (void *)IPA_IP_v6, {
-			.read = ipa3_read_flt,
-			.open = ipa3_open_dbg,
+			.read = seq_read,
+			.open = ipa3_flt_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"ip6_flt_hw", IPA_READ_ONLY_MODE, (void *)IPA_IP_v6, {
-			.read = ipa3_read_flt_hw,
-			.open = ipa3_open_dbg,
+			.read = seq_read,
+			.open = ipa3_flt_hw_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"stats", IPA_READ_ONLY_MODE, NULL, {
-			.read = ipa3_read_stats,
+			.read = seq_read,
+			.open = ipa3_stats_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"client_db", IPA_READ_ONLY_MODE, NULL, {
@@ -4977,11 +5377,17 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		}
 	}, {
 		"ip4_nat", IPA_READ_ONLY_MODE, NULL, {
-			.read = ipa3_read_nat4,
+			.read = seq_read,
+			.open = ipa3_nat4_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"ipv6ct", IPA_READ_ONLY_MODE, NULL, {
-			.read = ipa3_read_ipv6ct,
+			.read = seq_read,
+			.open = ipa3_ipv6ct_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"pm_stats", IPA_READ_ONLY_MODE, NULL, {
@@ -4993,7 +5399,10 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		}
 	}, {
 		"status_stats", IPA_READ_ONLY_MODE, NULL, {
-			.read = ipa_status_stats_read,
+			.read = seq_read,
+			.open = ipa_status_stats_open,
+			.llseek = seq_lseek,
+			.release = single_release,
 		}
 	}, {
 		"enable_low_prio_print", IPA_WRITE_ONLY_MODE, NULL, {
@@ -5104,6 +5513,18 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 		"uc_act_table", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_uc_act_tbl,
 		}
+	}, {
+		"ipa_hm_status", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_rc_status,
+		}
+	}, {
+		"rc_log", IPA_WRITE_ONLY_MODE, NULL, {
+			.write = ipa3_rc_log_enbl,
+		}
+	}, {
+		"ini_config", IPA_READ_ONLY_MODE, NULL, {
+			.read = ipa3_read_ini_config,
+		}
 	},
 };
 
@@ -5143,6 +5564,9 @@ void ipa3_debugfs_init(void)
 
 	debugfs_create_u32("enable_clock_scaling", IPA_READ_WRITE_MODE,
 		dent, &ipa3_ctx->enable_clock_scaling);
+
+	debugfs_create_u32("standard_output_en", IPA_READ_WRITE_MODE,
+		dent, &ipa3_ctx->standard_output_en);
 
 	debugfs_create_u32("tx_wrapper_cache_max_size",
 		IPA_READ_WRITE_MODE,

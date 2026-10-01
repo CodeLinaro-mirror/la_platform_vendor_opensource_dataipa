@@ -39,7 +39,9 @@ ipam-y += \
 	ipa_backend/ipa_be_clientdb.o \
 	ipa_backend/ipa_be_flt_mgmt.o \
 	ipa_backend/ipa_be_fse.o \
-	ipa_v3/ipa_ini_parse.o
+	ipa_v3/ipa_ini_parse.o \
+	ipa_v3/ipa_rc.o \
+	test/ipa_rc_test.o
 
 ipam-$(CONFIG_IPA_TSP) += ipa_v3/ipa_tsp.o \
 	ipa_v3/ipahal/ipahal_tsp.o
@@ -71,7 +73,10 @@ ipam-$(CONFIG_ECM_CONVERGENCE) += ipa_backend/ipa_be_nat_mgmt.o \
 	../../../../ipanat/src/ipa_nat_utils.o \
 	../../../../ipanat/src/ipa_table.o \
 	../../../../ipanat/src/ipa_ct_statemach.o \
-	../../../../ipanat/src/ipa_ipv6ct.o
+	../../../../ipanat/src/ipa_ipv6ct.o \
+	../../../../stats_mgr/src/ipa_stats_genl.o
+
+CFLAGS_../../../../stats_mgr/src/ipa_stats_genl.o := -DIPA_STATS_PROC_ONLY
 
 ipam-$(CONFIG_IPA3_MHI_PRIME_MANAGER) += ipa_v3/ipa_mpm.o
 

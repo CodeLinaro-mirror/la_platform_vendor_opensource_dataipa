@@ -805,6 +805,9 @@ struct ipa_sys_connect_params {
  * struct ipa_tx_meta - metadata for the TX packet
  * @dma_address: dma mapped address of TX packet
  * @dma_address_valid: is above field valid?
+ * @sw_classification_cookie: per-packet PACKET_INIT_EX SW classification
+ *	cookie value (HW v7.0+ only)
+ * @sw_classification_cookie_valid: is above field valid?
  */
 struct ipa_tx_meta {
 	u8 pkt_init_dst_ep;
@@ -812,6 +815,8 @@ struct ipa_tx_meta {
 	bool pkt_init_dst_ep_remote;
 	dma_addr_t dma_address;
 	bool dma_address_valid;
+	u64 sw_classification_cookie;
+	bool sw_classification_cookie_valid;
 };
 
 /**

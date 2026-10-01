@@ -89,7 +89,31 @@ extern pthread_mutex_t nat_mutex;
 #endif
 
 static ipa_nat_pdn_entry pdns[IPA_MAX_PDN_NUM];
-static int num_pdns = 0;
+
+/*
+ * The number of allocated PDNs is derived on demand from pdns[] rather than
+ * tracked in a running counter: a PDN slot is "allocated" iff it holds a
+ * non-zero entry. This keeps the count honest regardless of which path
+ * populated pdns[] (WAN NAT via modify_pdn / alloc_pdn) and means table
+ * creation is completely PDN-agnostic -- a connection-tracking-only table
+ * (LAN2LAN) seeds no PDN and therefore reports a count of 0, with no phantom
+ * PDN 0. A real WAN PDN always carries a non-zero public IP (a zero public IP
+ * is rejected upstream), so a zeroed slot unambiguously means "free".
+ */
+static int ipa_nati_calc_pdn_cnt(void)
+{
+	ipa_nat_pdn_entry zero_test;
+	int i, cnt = 0;
+
+	memset(&zero_test, 0, sizeof(zero_test));
+
+	for (i = 0; i < IPA_MAX_PDN_NUM; i++) {
+		if (memcmp(&pdns[i], &zero_test, sizeof(ipa_nat_pdn_entry)))
+			cnt++;
+	}
+
+	return cnt;
+}
 
 /*
  * ----------------------------------------------------------------------------
@@ -1756,15 +1780,6 @@ int ipa_nati_get_pdn_index(
 {
 	int i = 0;
 
-	/* CT entries use IPA_DUMMY_PDN_PUB_IP as a placeholder public IP; PDN slot 0
-	 * is reserved for it, unless a real WAN IP uses pdns[0].
-	 * In this case IPA_DUMMY_PDN_PUB_IP won't be found and pdn_index = 0
-	 * will be artificially returned. */
-	if (public_ip == IPA_DUMMY_PDN_PUB_IP && num_pdns > 0) {
-		*pdn_index = 0;
-		return 0;
-	}
-
 	for(i = 0; i < IPA_MAX_PDN_NUM; i++) {
 		if(pdns[i].public_ip == public_ip) {
 			IPADBG("ip 0x%X matches PDN index %d\n", public_ip, i);
@@ -1773,7 +1788,7 @@ int ipa_nati_get_pdn_index(
 		}
 	}
 
-	IPAERR("ip 0x%X does not match any PDN\n", public_ip);
+	IPADBG("ip 0x%X does not match any PDN\n", public_ip);
 
 	return -EIO;
 }
@@ -1784,14 +1799,15 @@ int ipa_nati_alloc_pdn(
 {
 	ipa_nat_pdn_entry zero_test;
 	struct ipa_ioc_nat_pdn_entry pdn_data;
-	int i, ret;
+	int i, ret, pdn_cnt;
 
 	IPADBG("alloc PDN  for ip 0x%x\n", pdn_info->public_ip);
 
 	memset(&zero_test, 0, sizeof(zero_test));
 
-	if(num_pdns >= IPA_MAX_PDN_NUM) {
-		IPAERR("exceeded max num of PDNs, num_pdns %d\n", num_pdns);
+	pdn_cnt = ipa_nati_calc_pdn_cnt();
+	if(pdn_cnt >= IPA_MAX_PDN_NUM) {
+		IPAERR("exceeded max num of PDNs, num_pdns %d\n", pdn_cnt);
 		return -EIO;
 	}
 
@@ -1812,21 +1828,6 @@ int ipa_nati_alloc_pdn(
 
 		if(!memcmp((pdns + i), &zero_test, sizeof(ipa_nat_pdn_entry)))
 		{
-			/* Reserving 0 for STA */
-			if(pdn_info->is_sta == true)
-			{
-				if (i != 0)
-				{
-					continue;
-				}
-			}
-			else
-			{
-				if (i == 0)
-				{
-					continue;
-				}
-			}
 			IPADBG("found an empty pdn in index %d PDN IP: %x is_sta: %d\n", i, pdn_info->public_ip, pdn_info->is_sta);
 			break;
 		}
@@ -1835,15 +1836,11 @@ int ipa_nati_alloc_pdn(
 	if(i >= IPA_MAX_PDN_NUM)
 	{
 		IPAERR("couldn't find an empty entry while num is %d\n",
-			   num_pdns);
+			   ipa_nati_calc_pdn_cnt());
 		return -EIO;
 	}
 
-	if(pdn_info->is_sta == true)
-		pdn_data.pdn_index    = 0;
-	else
-		pdn_data.pdn_index    = i;
-
+	pdn_data.pdn_index    = i;
 	pdn_data.public_ip    = pdn_info->public_ip;
 	pdn_data.src_metadata = pdn_info->src_metadata;
 	pdn_data.dst_metadata = pdn_info->dst_metadata;
@@ -1851,12 +1848,8 @@ int ipa_nati_alloc_pdn(
 	ret = ipa_nati_modify_pdn(&pdn_data);
 	if(!ret)
 	{
-		num_pdns++;
-		if(pdn_info->is_sta == true)
-			*pdn_index = 0;
-		else
-			*pdn_index = i;
-		IPADBG("modify num_pdns (%d)\n", num_pdns);
+		*pdn_index = i;
+		IPADBG("modify num_pdns (%d)\n", ipa_nati_calc_pdn_cnt());
 	}
 
 	return ret;
@@ -1864,8 +1857,10 @@ int ipa_nati_alloc_pdn(
 
 int ipa_nati_get_pdn_cnt(void)
 {
-	IPADBG("No of pdn count is %d\n", num_pdns);
-	return num_pdns;
+	int cnt = ipa_nati_calc_pdn_cnt();
+
+	IPADBG("No of pdn count is %d\n", cnt);
+	return cnt;
 }
 
 int ipa_nati_dealloc_pdn(
@@ -1877,7 +1872,7 @@ int ipa_nati_dealloc_pdn(
 
 	IPADBG(" trying to deallocate PDN index %d\n", pdn_index);
 
-	if(!num_pdns)
+	if(!ipa_nati_calc_pdn_cnt())
 	{
 		IPAERR("pdn table is already empty\n");
 		return -EIO;
@@ -1907,9 +1902,8 @@ int ipa_nati_dealloc_pdn(
 
 	memset((pdns + pdn_index), 0, sizeof(ipa_nat_pdn_entry));
 
-	num_pdns--;
-
-	IPADBG("successfully removed pdn from index %d num_pdns %d\n", pdn_index, num_pdns);
+	IPADBG("successfully removed pdn from index %d num_pdns %d\n",
+		   pdn_index, ipa_nati_calc_pdn_cnt());
 
 	return 0;
 }
@@ -2073,12 +2067,21 @@ int ipa_NATI_add_ipv4_tbl(
 	active_nat_cache_ptr = nat_cache_ptr;
 
 	/*
-	 * Store the initial public ip address in the cached pdn table
-	 * this is backward compatible for pre IPAv4 versions, we will
-	 * always use this ip as the single PDN address
+	 * Store the initial public ip address in the cached pdn table.
+	 *
+	 * This is the backward-compatible pre-IPAv4 single-PDN model, where the
+	 * table's public IP *is* the one and only PDN address and no explicit
+	 * modify_pdn/alloc_pdn call ever follows table creation.
+	 *
+	 * The condition is on the data, not on the caller's intent: a table
+	 * created without a public IP (public_ip_addr == 0) seeds nothing. That
+	 * covers connection-tracking-only tables (LAN2LAN), whose entries carry
+	 * conn_tracking=1 -- the HW performs no address translation and never
+	 * dereferences a PDN entry -- so no PDN is claimed and the PDN count
+	 * stays 0 (no phantom PDN 0).
 	 */
-	pdns[0].public_ip = public_ip_addr;
-	num_pdns = 1;
+	if (public_ip_addr)
+		pdns[0].public_ip = public_ip_addr;
 
 	nat_cache_ptr->table_cnt++;
 
@@ -2088,7 +2091,8 @@ int ipa_NATI_add_ipv4_tbl(
 	_nmi = nmi;
 	*tbl_hdl = MAKE_TBL_HDL(nat_cache_ptr->table_cnt, _nmi);
 
-	IPADBG("tbl_hdl value(0x%08X) num_pdns (%d)\n", *tbl_hdl, num_pdns);
+	IPADBG("tbl_hdl value(0x%08X) num_pdns (%d)\n",
+		   *tbl_hdl, ipa_nati_calc_pdn_cnt());
 
 	goto unlock;
 
@@ -2653,10 +2657,11 @@ int ipa_NATI_add_ipv4_rule_v2(
 	/*
 	 * Verify that the rule's PDN is valid.
 	 *
-	 * Conntrack-only entries on IPA v7+ may intentionally use PDN index 0
-	 * with public_ip == 0xFFFFFFFF when the table was created for LAN2LAN CT via
-	 * ipa_nat_add_ipv4_tbl(0, ...). Those entries do not need a translated
-	 * public IP for checksum calculation, so allow this special case.
+	 * Conntrack-only entries (LAN2LAN) on IPA v7+ intentionally use PDN
+	 * index 0 without any seeded PDN (their table is created with a zero
+	 * public IP, which seeds no PDN entry). Such entries carry
+	 * conn_tracking=1: the HW performs no address translation and never
+	 * dereferences a PDN entry, so a zero public_ip is allowed.
 	 */
 	if (clnt_rule->pdn_index >= IPA_MAX_PDN_NUM ||
 		(!clnt_rule->conn_tracking &&
@@ -4314,6 +4319,9 @@ int ipa_nati_alloc_counter_v4(
 		IPADBG("Counter allocation not supported on IPA version < 7.0\n");
 		return 0;  /* Success but no counter allocated */
 	}
+
+	if (ipa_nat_stats_is_disabled())
+		return 0;  /* Success but no counter allocated */
 
 	if (tbl_index == 0 || tbl_index > IPA_NAT_MAX_IP4_TBLS) {
 		IPAERR("Invalid table handle: 0x%x (index=%u)\n", table_handle, tbl_index);

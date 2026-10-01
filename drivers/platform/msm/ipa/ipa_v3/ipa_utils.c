@@ -313,11 +313,15 @@
 
 #define IPA_v7_0_GROUP_UL		(0)
 #define IPA_v7_0_GROUP_DL		(1)
-#define IPA_v7_0_GROUP_DMA		(2)
-#define IPA_v7_0_GROUP_QDSS		(3)
-#define IPA_v7_0_GROUP_URLLC		(4)
-#define IPA_v7_0_GROUP_CV2X		(4)
-#define IPA_v7_0_GROUP_UC		(5)
+#define IPA_v7_0_GROUP_URLLC		(2)
+#define IPA_v7_0_GROUP_CV2X		(2)
+#define IPA_v7_0_GROUP_ETHERNET		(3)
+#define IPA_v7_0_GROUP_DMA		(4)
+#define IPA_v7_0_GROUP_QDSS		(5)
+/* UC has no v7.0 ep_mapping users today; intentionally aliased onto the
+ * IPSEC_UL src-group value rather than given its own index.
+ */
+#define IPA_v7_0_GROUP_UC		(6)
 #define IPA_v7_0_GROUP_IPSEC_UL		(6)
 #define IPA_v7_0_GROUP_IPSEC_ETH_UL	(9)
 #define IPA_v7_0_SRC_GROUP_MAX		(7)
@@ -861,12 +865,36 @@ static const struct rsrc_min_max ipa3_rsrc_src_grp_config
 		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {6, 6}, {4, 4}, {0, 0},  },
 	},
 
+	[IPA_7_0_MHI] = {
+		/* UL DL URLLC Ethernet Crypto QDSS/Diag unused */
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
+		{8, 40}, {8, 40}, {2, 20}, {8, 40}, {1, 1}, {1, 1}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {4, 4}, {4, 4}, {0, 0},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
+		{0, 63}, {0, 63}, {1, 63}, {0, 63}, {0, 63}, {0, 63}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {4, 4}, {4, 4}, {0, 0},  },
+	},
+
 	[IPA_7_0_AUTO] = {
 		/* UL DL URLLC Ethernet Crypto QDSS/Diag unused */
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
 		{8, 40}, {8, 40}, {2, 20}, {8, 40}, {1, 1}, {1, 1}, {0, 63},  },
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
 		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {3, 3}, {4, 4}, {0, 0},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
+		{0, 63}, {0, 63}, {1, 63}, {0, 63}, {0, 63}, {0, 63}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {4, 4}, {4, 4}, {0, 0},  },
+	},
+
+	[IPA_7_0_AUTO_MHI] = {
+		/* UL DL URLLC Ethernet Crypto QDSS/Diag unused */
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_PKT_CONTEXTS] = {
+		{8, 40}, {8, 40}, {2, 20}, {8, 40}, {1, 1}, {1, 1}, {0, 63},  },
+		[IPA_v7_0_RSRC_GRP_TYPE_SRC_DESCRIPTOR_BUFF] = {
+		{80, 80}, {80, 80}, {40, 40}, {80, 80}, {4, 4}, {4, 4}, {0, 0},  },
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_HPS_DMARS] = {
 		{0, 63}, {0, 63}, {1, 63}, {0, 63}, {0, 63}, {0, 63}, {0, 63},  },
 		[IPA_v7_0_RSRC_GRP_TYPE_SRC_ACK_ENTRIES] = {
@@ -1107,10 +1135,27 @@ static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
 		 * CRYPTO_OFFLOAD, 11: UC_WORKAROUNDS]
 		 */
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
-		{7, 7}, {7, 7}, {0, 0}, {7, 7}, {0, 0}, {3, 3}, {16, 80}, {16, 80}, {4, 40},
+		{7, 7}, {7, 7}, {0, 0}, {7, 7}, {0, 0}, {3, 3}, {14, 80}, {16, 80}, {4, 40},
 		{16, 80}, {3, 9}, {0, 0} },
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
 		{1, 63}, {0, 3}, {0, 0}, {0, 63}, {0, 0}, {1, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
+		{0, 0x3f}, {0, 0x3f}, {0, 0}, {0, 0x3f}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0}, {0, 0}},
+	},
+
+	[IPA_7_0_MHI] = {
+		/**
+		 * [0: UL, 1: DL, 2: URLLC, 3: ETH, 4: IPA_DMA, 5: QDSS/DIAG, 6:
+		 * IPSEC, 7: MODEM_DL, 8: LOW_LATENCY, 9: ETH+IPSEC, 10:
+		 * CRYPTO_OFFLOAD, 11: UC_WORKAROUNDS]
+		 */
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
+		{7, 7}, {7, 7}, {0, 0}, {7, 7}, {3, 3}, {3, 3}, {0, 0}, {16, 80}, {4, 40},
+		{16, 80}, {3, 3}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
+		{1, 63}, {0, 3}, {0, 0}, {0, 63}, {1, 63}, {1, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
 		{0, 0}, {0, 0} },
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
 		{0, 0x3f}, {0, 0x3f}, {0, 0}, {0, 0x3f}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
@@ -1128,6 +1173,23 @@ static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
 		{16, 80}, {3, 3}, {0, 0} },
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
 		{1, 63}, {0, 3}, {1, 63}, {0, 63}, {0, 0}, {1, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
+		{0, 63}, {0, 63}, {0, 0}, {0, 63}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
+		{0, 0}, {0, 0}, {0, 0}},
+	},
+
+	[IPA_7_0_AUTO_MHI] = {
+		/**
+		 * [0: UL, 1: DL, 2: URLLC, 3: ETH, 4: IPA_DMA, 5: QDSS/DIAG, 6:
+		 * IPSEC, 7: MODEM_DL, 8: LOW_LATENCY, 9: ETH+IPSEC, 10:
+		 * CRYPTO_OFFLOAD, 11: UC_WORKAROUNDS]
+		 */
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
+		{7, 7}, {7, 7}, {3, 3}, {7, 7}, {3, 3}, {3, 3}, {0, 0}, {16, 80}, {4, 40},
+		{16, 80}, {3, 3}, {0, 0} },
+		[IPA_v7_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
+		{1, 63}, {0, 3}, {1, 63}, {0, 63}, {1, 63}, {1, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
 		{0, 0}, {0, 0} },
 		[IPA_v7_0_RSRC_GRP_TYPE_DST_ULSO_SEGMENTS] = {
 		{0, 63}, {0, 63}, {0, 0}, {0, 63}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
@@ -8069,42 +8131,42 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 9, 19, 65, 92, IPA_EE_AP, GSI_SMART_PRE_FETCH, 15},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_PROD] = {
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 10, 20, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_QOS_PROD] = {
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 11, 22, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_PROD] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 12, 24, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_QOS_PROD] = {
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 13, 26, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_PROD] = {
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 14, 28, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_QOS_PROD] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
@@ -8237,63 +8299,63 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 48, 42, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_DL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 52, 46, 17, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 55, 52, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 58, 58, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_DL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_QOS_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 53, 48, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET_QOS2_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 54, 50, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_QOS_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 56, 54, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET2_QOS2_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 57, 56, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_QOS_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 59, 60, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0][IPA_CLIENT_ETHERNET3_QOS2_CONS] = {
-			true,   IPA_v7_0_GROUP_DL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
@@ -8683,18 +8745,32 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 8, 18, 65, 92, IPA_EE_AP, GSI_SMART_PRE_FETCH, 15},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_PROD] ={
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 10, 20, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_QOS_PROD] ={
+			true,   IPA_v7_0_GROUP_ETHERNET,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 11, 22, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_NA },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET2_PROD] ={
-			true,   IPA_v7_0_GROUP_UL,
+			true,   IPA_v7_0_GROUP_ETHERNET,
 			true,
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 12, 24, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
+			IPA_TX_INSTANCE_NA },
+	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET2_QOS_PROD] ={
+			true,   IPA_v7_0_GROUP_ETHERNET,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 13, 26, 24, 38, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0_AUTO][IPA_CLIENT_USB2_PROD] = {
 			true, IPA_v7_0_GROUP_UL,
@@ -8823,42 +8899,42 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 51, 45, 17, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 52, 46, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_QOS_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 53, 48, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET_QOS2_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 54, 50, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET2_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 55, 52, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET2_QOS_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 56, 54, 25, 25, IPA_EE_AP, GSI_SMART_PRE_FETCH, 7},
 			IPA_TX_INSTANCE_UL },
 	[IPA_7_0_AUTO][IPA_CLIENT_ETHERNET2_QOS2_CONS]  = {
-			true, IPA_v7_0_GROUP_DL,
+			true, IPA_v7_0_GROUP_ETHERNET,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
@@ -9077,8 +9153,8 @@ static struct ipa3_mem_partition ipa_3_0_mem_part = {
 	.stats_rt_v4_size = 0x0,
 	.stats_rt_v6_ofst = 0x2000,
 	.stats_rt_v6_size = 0x0,
-	.stats_drop_ofst = 0x2000,
-	.stats_drop_size = 0x0,
+	.ap_stats_drop_ofst = 0x2000,
+	.ap_stats_drop_size = 0x0,
 	.q6_stats_drop_ofst = 0,
 	.q6_stats_drop_size = 0,
 };
@@ -9172,8 +9248,8 @@ static struct ipa3_mem_partition ipa_4_1_mem_part = {
 	.stats_rt_v4_size		= 0x180,
 	.stats_rt_v6_ofst		= 0x1250,
 	.stats_rt_v6_size		= 0x180,
-	.stats_drop_ofst		= 0x13d0,
-	.stats_drop_size		= 0x20,
+	.ap_stats_drop_ofst		= 0x13d0,
+	.ap_stats_drop_size		= 0x20,
 	.q6_stats_drop_ofst 	= 0,
 	.q6_stats_drop_size 	= 0,
 };
@@ -9267,8 +9343,8 @@ static struct ipa3_mem_partition ipa_4_2_mem_part = {
 	.stats_rt_v4_size		= 0x0,
 	.stats_rt_v6_ofst		= 0xbf0,
 	.stats_rt_v6_size		= 0x0,
-	.stats_drop_ofst		= 0xbf0,
-	.stats_drop_size		= 0x0,
+	.ap_stats_drop_ofst		= 0xbf0,
+	.ap_stats_drop_size		= 0x0,
 	.q6_stats_drop_ofst 	= 0,
 	.q6_stats_drop_size 	= 0,
 };
@@ -9341,8 +9417,8 @@ static struct ipa3_mem_partition ipa_4_5_mem_part = {
 	.stats_rt_v6_size		= 0,
 	.stats_fnr_ofst			= 0x27c0,
 	.stats_fnr_size			= 0x800,
-	.stats_drop_ofst		= 0x2fc0,
-	.stats_drop_size		= 0x20,
+	.ap_stats_drop_ofst		= 0x2fc0,
+	.ap_stats_drop_size		= 0x20,
 	.modem_comp_decomp_ofst		= 0x0,
 	.modem_comp_decomp_size		= 0x0,
 	.modem_ofst			= 0x2fe8,
@@ -9442,8 +9518,8 @@ static struct ipa3_mem_partition ipa_4_7_mem_part = {
 	.stats_rt_v6_size		= 0,
 	.stats_fnr_ofst			= 0x1ef0,
 	.stats_fnr_size			= 0x0,
-	.stats_drop_ofst		= 0x1ef0,
-	.stats_drop_size		= 0x20,
+	.ap_stats_drop_ofst		= 0x1ef0,
+	.ap_stats_drop_size		= 0x20,
 	.modem_comp_decomp_ofst		= 0x0,
 	.modem_comp_decomp_size		= 0x0,
 	.modem_ofst			= 0x1f18,
@@ -9539,8 +9615,8 @@ static struct ipa3_mem_partition ipa_4_9_mem_part = {
 	.stats_rt_v6_size		= 0,
 	.stats_fnr_ofst			= 0x27c0,
 	.stats_fnr_size			= 0x800,
-	.stats_drop_ofst		= 0x2fc0,
-	.stats_drop_size		= 0x20,
+	.ap_stats_drop_ofst		= 0x2fc0,
+	.ap_stats_drop_size		= 0x20,
 	.modem_comp_decomp_ofst		= 0x0,
 	.modem_comp_decomp_size		= 0x0,
 	.modem_ofst			= 0x2fe8,
@@ -9640,8 +9716,8 @@ static struct ipa3_mem_partition ipa_4_11_mem_part = {
         .stats_rt_v6_size               = 0,
         .stats_fnr_ofst                 = 0x27B0,
         .stats_fnr_size                 = 0x0,
-        .stats_drop_ofst                = 0x27B0,
-        .stats_drop_size                = 0x20,
+        .ap_stats_drop_ofst                = 0x27B0,
+        .ap_stats_drop_size                = 0x20,
         .modem_comp_decomp_ofst         = 0x0,
         .modem_comp_decomp_size         = 0x0,
         .modem_ofst                     = 0x27D8,
@@ -9741,8 +9817,8 @@ static struct ipa3_mem_partition ipa_5_0_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x2d70,
 	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3910,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x3910,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x3938,
@@ -9836,8 +9912,8 @@ static struct ipa3_mem_partition ipa_5_1_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x2cd0,
 	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3870,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x3870,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x3898,
@@ -9937,8 +10013,8 @@ static struct ipa3_mem_partition ipa_5_2_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x1cd0,
 	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x2870,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x2870,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x2898,
@@ -10030,8 +10106,8 @@ static struct ipa3_mem_partition ipa_5_2_mdm_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x22d0,
 	.stats_fnr_size = 0x880,
-	.stats_drop_ofst = 0x2B50,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x2B50,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x2B78,
@@ -10129,8 +10205,8 @@ static struct ipa3_mem_partition ipa_5_5_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x2cd0,
 	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3870,
-	.stats_drop_size = 0x20,
+	.ap_stats_drop_ofst = 0x3870,
+	.ap_stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x3898,
@@ -10235,8 +10311,8 @@ static struct ipa3_mem_partition ipa_6_0_mem_part = {
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x75a8,
 	.stats_fnr_size = 0x2648,
-	.stats_drop_ofst = 0x9bf0,
-	.stats_drop_size = 0x58,
+	.ap_stats_drop_ofst = 0x9bf0,
+	.ap_stats_drop_size = 0x58,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
 	.modem_ofst = 0x9c58,
@@ -10327,14 +10403,16 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.apps_hdr_ofst = 0x6820,
 	.apps_hdr_size = 0x18674,
 	.apps_hdr_size_ddr = 0x7ff,
-	.apps_hdr_ext_ofst = 0x1bd3c,
+	.apps_hdr_ext_ofst = 0x1bd40,
 	.apps_hdr_ext_size = 0x0,
 	.stats_quota_q6_ofst = 0x1eea0,
 	.stats_quota_q6_size = 0xa0,
 	.stats_quota_ap_ofst = 0x1ef40,
 	.stats_quota_ap_size = 0xa0,
-	.stats_peripheral_prod_ofst = 0x1efe0,
-	.stats_peripheral_prod_size = 0x1b8,
+	.q6_stats_drop_ofst = 0x1efe0,
+	.q6_stats_drop_size = 0x20,
+	.stats_peripheral_prod_ofst = 0x1f000,
+	.stats_peripheral_prod_size = 0x198,
 	.apps_fltrt_empty_tbl_ofst = 0x1f198,
 	.apps_fltrt_empty_tbl_size = 0x20,
 	/* TODO: need to properly configure register. */
@@ -10360,12 +10438,10 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.stats_fnr_ofst = 0x20370,
 	.stats_fnr_size = 0x11a8,
 	.ap_stats_drop_ofst = 0x21518,
-	.ap_stats_drop_size = 0x210,
-	.stats_drop_ofst = 0x21728,
-	.stats_drop_size = 0x20,
-	.nat_tbl_ofst = 0x21792,
+	.ap_stats_drop_size = 0x230,
+	.nat_tbl_ofst = 0x217a0,
 	.nat_tbl_size = 0x0,
-	.ct_tbl_ofst = 0x21792,
+	.ct_tbl_ofst = 0x217a0,
 	.ct_tbl_size = 0x0,
 	.apps_v4_flt_nhash_ofst = 0x217a8,
 	.apps_v4_flt_nhash_size = 0xa40,
@@ -11273,6 +11349,13 @@ void _ipa_sram_settings_read_v3_0(void)
 	ipa3_ctx->smem_sz *= 8;
 	ipa3_ctx->smem_reqd_sz = IPA_MEM_PART(end_ofst);
 
+	IPADBG("SRAM base: shared_mem_baddr(raw 8B)=0x%x shared_mem_sz(raw 8B)=0x%x\n",
+		smem_sz.shared_mem_baddr, smem_sz.shared_mem_sz);
+	IPADBG("SRAM base: smem_restricted_bytes=0x%x smem_sz=0x%x smem_reqd_sz=0x%x\n",
+		ipa3_ctx->smem_restricted_bytes,
+		ipa3_ctx->smem_sz,
+		ipa3_ctx->smem_reqd_sz);
+
 	/*
 	 * when proc ctx table is located in internal memory,
 	 * modem entries resides first.
@@ -11951,6 +12034,46 @@ enum ipa_client_type ipa3_get_client_mapping(int pipe_idx)
 EXPORT_SYMBOL(ipa3_get_client_mapping);
 
 /**
+ * ipa3_get_chan_by_client() - provide channel num mapped to client
+ * @client: IPA client name
+ *
+ * Return value: channel mapping
+ */
+int ipa3_get_chan_by_client(enum ipa_client_type client)
+{
+	u8 hw_idx;
+
+	hw_idx = ipa3_ctx->hw_type_index;
+	if (!ipa3_ep_mapping[hw_idx][client].valid) {
+		IPAERR("Client invalid\n");
+		return -EINVAL;
+	}
+
+	return ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ipa_gsi_chan_num;
+}
+EXPORT_SYMBOL(ipa3_get_chan_by_client);
+
+/**
+ * ipa3_get_ee_by_client() - provide exec env mapped to client
+ * @client: IPA client name
+ *
+ * Return value: EE mapping
+ */
+int ipa3_get_ee_by_client(enum ipa_client_type client)
+{
+	u8 hw_idx;
+
+	hw_idx = ipa3_ctx->hw_type_index;
+	if (!ipa3_ep_mapping[hw_idx][client].valid) {
+		IPAERR("Client invalid\n");
+		return -EINVAL;
+	}
+
+	return ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ee;
+}
+EXPORT_SYMBOL(ipa3_get_ee_by_client);
+
+/**
  * ipa3_get_client_by_pipe() - return client type relative to pipe
  * index
  * @pipe_idx: IPA end-point number
@@ -11969,6 +12092,37 @@ enum ipa_client_type ipa3_get_client_by_pipe(int pipe_idx)
 			&(ipa3_ep_mapping[hw_type_idx][j]);
 		if (iec_ptr->valid &&
 		    iec_ptr->ipa_gsi_ep_info.ipa_ep_num == pipe_idx)
+			break;
+	}
+
+	return j;
+}
+
+/**
+ * ipa3_get_real_client_by_pipe() - reverse-map a pipe to its functional
+ * (non-TEST) client.
+ *
+ * ipa3_get_client_by_pipe() returns the first valid client mapped to a pipe.
+ * On some targets a TEST client shares the same ep_num as a real client
+ * (e.g. IPA_7_0: ETHERNET2_PROD and TEST4_PROD both map to ep 12) and, having
+ * the lower enum value, wins the reverse lookup - shadowing the real client.
+ * This variant skips TEST clients so callers that care about the functional
+ * client (e.g. IPA RC health monitor) get the right one. Quiet: walks the
+ * mapping table directly (no ipa_get_ep_mapping logging).
+ */
+enum ipa_client_type ipa3_get_real_client_by_pipe(int pipe_idx)
+{
+	int j = 0;
+	u8 hw_type_idx;
+
+	hw_type_idx = ipa3_ctx->hw_type_index;
+
+	for (j = 0; j < IPA_CLIENT_MAX; j++) {
+		const struct ipa_ep_configuration *iec_ptr =
+			&(ipa3_ep_mapping[hw_type_idx][j]);
+		if (iec_ptr->valid &&
+		    iec_ptr->ipa_gsi_ep_info.ipa_ep_num == pipe_idx &&
+		    !IPA_CLIENT_IS_TEST(j))
 			break;
 	}
 
@@ -12046,12 +12200,15 @@ void ipa_init_ep_flt_bitmap(void)
  */
 bool ipa_is_ep_support_flt(int pipe_idx)
 {
-	if (pipe_idx >= IPA_MAX_FLT_TBLS || pipe_idx < 0) {
-		IPAERR("Bad pipe index!\n");
+	if (pipe_idx < 0 || pipe_idx >= ipa3_get_max_num_pipes()) {
+		IPAERR("Bad pipe index! index=%d\n", pipe_idx);
 		return false;
 	}
 
-	return ipa3_ctx->ep_flt_bitmap & (1ULL<<pipe_idx);
+	if (pipe_idx >= IPA_MAX_FLT_TBLS)
+		return false;
+
+	return ipa3_ctx->ep_flt_bitmap & (1ULL << pipe_idx);
 }
 
 /**
@@ -12190,6 +12347,43 @@ int ipa3_cfg_ep(u32 clnt_hdl, const struct ipa_ep_cfg *ipa_ep_cfg)
 			return result;
 	}
 
+	/*
+	 * ULSO consumer (egress) pipes. ipa3_send() selects the pkt_init_ex
+	 * command keyed on the DESTINATION (consumer) pipe and uses
+	 * pkt_init_ex_imm[dst]. That per-pipe immediate command is set up by
+	 * ipa_imm_cmd_modify_ip_packet_init_ex_ulso(). The PROD block above
+	 * does not cover consumer pipes, and previously only TEST_CONS was
+	 * special-cased (below) - which is exactly why ULSO worked in the UT
+	 * TEST environment but not for production ETH/WLAN consumer pipes.
+	 *
+	 * The ULSO frame already carries its own Ethernet header, but the CONS
+	 * keeps a non-zero hdr_len for its normal offload path, so HW would
+	 * insert a second L2 header ahead of it. Point the pkt_init_ex at the
+	 * common empty (hdr_len=0) HPC header (added once at boot,
+	 * ipa3_setup_ulso_empty_hdr) so HW inserts nothing; this is shared by
+	 * all ULSO peripherals (ETH, WLAN, ...). ipa_set_pkt_init_ex_hdr_ofst()
+	 * resets leading_header_size to 0 for NON_DMA_ETHERNET, so re-apply the
+	 * ULSO imm command afterwards to restore leading_header_size=8 (QMAP
+	 * strip). The ULSO segmentation registers (IPA_ENDP_INIT_ULSO_CFG_n)
+	 * are an ingress concern programmed on LAN_PROD via ipa3_cfg_ep_ulso().
+	 */
+	if (ipa3_is_ulso_supported() && ipa_ep_cfg->ulso.is_ulso_pipe &&
+		IPA_CLIENT_IS_CONS(ipa3_ctx->ep[clnt_hdl].client) &&
+		ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		if (ipa3_ctx->ulso_empty_hdr_valid) {
+			struct ipa_pkt_init_ex_hdr_ofst_set lookup;
+
+			memset(&lookup, 0, sizeof(lookup));
+			lookup.ep = ipa3_ctx->ep[clnt_hdl].client;
+			strscpy(lookup.name, IPA_ULSO_EMPTY_HDR_NAME,
+				sizeof(lookup.name));
+			if (ipa_set_pkt_init_ex_hdr_ofst(&lookup, true))
+				IPAERR("fail to set ULSO empty-hdr ofst clnt=%d\n",
+					ipa3_ctx->ep[clnt_hdl].client);
+		}
+		ipa_imm_cmd_modify_ip_packet_init_ex_ulso(clnt_hdl);
+	}
+
 	//For ULSO kernel tests
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST
 		&& ipa3_ctx->ep[clnt_hdl].client == IPA_CLIENT_TEST_CONS && ipa_ep_cfg->ulso.is_ulso_pipe) {
@@ -12223,6 +12417,20 @@ int ipa3_cfg_ep(u32 clnt_hdl, const struct ipa_ep_cfg *ipa_ep_cfg)
 		result = ipa3_cfg_ep_deaggr(clnt_hdl, &ipa_ep_cfg->deaggr);
 		if (result)
 			return result;
+
+		/* stamp BE_FLOW bit29 at connect time so producer pipes
+		 * carry it regardless of whether a later qmap/mux rule
+		 * install (ipa3_write_qmap_id) ever runs for this pipe.
+		 * Skip AP-embedded producer pipes (e.g. embedded_pipe_index,
+		 * used for non-offloaded/exception flows) - never
+		 * backhaul-offloaded.
+		 */
+		if (!IPA_CLIENT_IS_APPS_PROD(ipa3_ctx->ep[clnt_hdl].client)) {
+			result = ipa3_cfg_ep_metadata(clnt_hdl,
+				&ipa_ep_cfg->meta);
+			if (result)
+				return result;
+		}
 	} else {
 		result = ipa3_cfg_ep_metadata_mask(clnt_hdl,
 				&ipa_ep_cfg->metadata_mask);
@@ -12305,6 +12513,13 @@ int ipa3_cfg_ep_nat(u32 clnt_hdl, const struct ipa_ep_cfg_nat *ep_nat)
 
 	/* copy over EP cfg */
 	ipa3_ctx->ep[clnt_hdl].cfg.nat = *ep_nat;
+
+	ep_nat = &ipa3_ctx->ep[clnt_hdl].cfg.nat;
+	if (ipa3_ctx->nat_exc_rt_tbl_ap_owned) {
+		ipa3_ctx->ep[clnt_hdl].cfg.nat.nat_exc_suppress = true;
+		IPADBG("force NAT exception suppression on pipe %d client %d\n",
+			clnt_hdl, ipa3_ctx->ep[clnt_hdl].client);
+	}
 
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
@@ -12870,6 +13085,9 @@ ipa3_get_ep_traffic_mode(enum ipa_client_type client)
 	case IPA_CLIENT_ETHERNET_PROD:
 	case IPA_CLIENT_ETHERNET2_PROD:
 	case IPA_CLIENT_ETHERNET_PROD1:
+	case IPA_CLIENT_ETHERNET_QOS_PROD:
+	case IPA_CLIENT_ETHERNET2_QOS_PROD:
+	case IPA_CLIENT_ETHERNET3_QOS_PROD:
 	case IPA_CLIENT_AQC_ETHERNET_PROD:
 	case IPA_CLIENT_RTK_ETHERNET_PROD:
 	case IPA_CLIENT_WLAN1_PROD:
@@ -13694,6 +13912,16 @@ int ipa3_cfg_ep_metadata(u32 clnt_hdl, const struct ipa_ep_cfg_metadata *ep_md)
 	if (ipa3_ctx->ipa_hw_type == IPA_HW_v4_1)
 		qmap_id |= IPA_QMAP_TETH_BIT;
 
+	/*
+	 * mark backhaul-offloaded flows for every pipe, unless the
+	 * pipe's bit is set in disable_flow_control_mask (ini config
+	 * "disable_flow_control_mask") to opt it out.
+	 */
+	if (!(ipa3_ctx->disable_flow_control_mask & (1ULL << clnt_hdl)))
+		qmap_id |= IPA_METADATA_BE_FLOW_BIT;
+
+	IPADBG("clnt_hdl=%d, qmap_id=0x%x\n", clnt_hdl, qmap_id);
+
 	ep_md_reg_wrt.qmap_id = qmap_id;
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_HDR_METADATA_n, clnt_hdl,
 		&ep_md_reg_wrt);
@@ -13737,16 +13965,9 @@ int ipa3_write_qmap_id(struct ipa_ioc_write_qmapid *param_in)
 		param_in->client == IPA_CLIENT_USB2_PROD ||
 	    param_in->client == IPA_CLIENT_HSIC1_PROD ||
 	    param_in->client == IPA_CLIENT_ODU_PROD ||
-	    param_in->client == IPA_CLIENT_ETHERNET_PROD ||
-	    param_in->client == IPA_CLIENT_ETHERNET2_PROD ||
-		param_in->client == IPA_CLIENT_ETHERNET_PROD1 ||
-		param_in->client == IPA_CLIENT_ETHERNET_PROD2 ||
-		param_in->client == IPA_CLIENT_ETHERNET_PROD3 ||
-		param_in->client == IPA_CLIENT_ETHERNET3_PROD ||
 		param_in->client == IPA_CLIENT_WIGIG_PROD ||
-		param_in->client == IPA_CLIENT_AQC_ETHERNET_PROD ||
-		param_in->client == IPA_CLIENT_RTK_ETHERNET_PROD ||
-		param_in->client == IPA_CLIENT_MHI_PROD) {
+		param_in->client == IPA_CLIENT_MHI_PROD ||
+		IPA_CLIENT_IS_ETH_PROD(ipa_ep_idx)) {
 		result = ipa3_cfg_ep_metadata(ipa_ep_idx, &meta);
 	}
 	else if (IPA_CLIENT_IS_WLAN_PRODUCER(param_in->client))
@@ -14130,6 +14351,17 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		IPA_MEM_PART(apps_hdr_ofst), IPA_MEM_PART(apps_hdr_size),
 		IPA_MEM_PART(apps_hdr_size_ddr));
 
+	if (IPA_MEM_PART(apps_hdr_ext_size) &&
+		IPA_MEM_PART(apps_hdr_ext_ofst) & 7) {
+		IPAERR("APPS HDR EXT OFST 0x%x is unaligned\n",
+			IPA_MEM_PART(apps_hdr_ext_ofst));
+		return -ENODEV;
+	}
+
+	IPADBG("APPS HDR EXT OFST 0x%x SIZE 0x%x\n",
+		IPA_MEM_PART(apps_hdr_ext_ofst),
+		IPA_MEM_PART(apps_hdr_ext_size));
+
 	/* Max size supported of HPC table is 2^14 Bytes.
 	 * The calculation:
 	 * The hdr_offset field in the routing rule hw is 9 bits,
@@ -14204,6 +14436,16 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
+	IPADBG("CT TBL OFST 0x%x SIZE 0x%x\n",
+		IPA_MEM_PART(ct_tbl_ofst),
+		IPA_MEM_PART(ct_tbl_size));
+
+	if (IPA_MEM_PART(ct_tbl_size) && (IPA_MEM_PART(ct_tbl_ofst) & 31)) {
+		IPAERR("CT TBL OFST 0x%x is not aligned properly\n",
+			IPA_MEM_PART(ct_tbl_ofst));
+		return -ENODEV;
+	}
+
 	IPADBG("PDN CONFIG OFST 0x%x SIZE 0x%x\n",
 		IPA_MEM_PART(pdn_config_ofst),
 		IPA_MEM_PART(pdn_config_size));
@@ -14254,16 +14496,6 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 		return -ENODEV;
 	}
 
-	IPADBG("DROP STATS OFST 0x%x SIZE 0x%x\n",
-	IPA_MEM_PART(stats_drop_ofst),
-		IPA_MEM_PART(stats_drop_size));
-
-	if (IPA_MEM_PART(stats_drop_ofst) & 7) {
-		IPAERR("DROP STATS OFST 0x%x is unaligned\n",
-			IPA_MEM_PART(stats_drop_ofst));
-		return -ENODEV;
-	}
-
 	IPADBG("AP DROP STATS OFST 0x%x SIZE 0x%x\n",
 	IPA_MEM_PART(ap_stats_drop_ofst),
 		IPA_MEM_PART(ap_stats_drop_size));
@@ -14271,6 +14503,16 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 	if (IPA_MEM_PART(ap_stats_drop_ofst) & 7) {
 		IPAERR("AP DROP STATS OFST 0x%x is unaligned\n",
 			IPA_MEM_PART(ap_stats_drop_ofst));
+		return -ENODEV;
+	}
+
+	IPADBG("Q6 DROP STATS OFST 0x%x SIZE 0x%x\n",
+		IPA_MEM_PART(q6_stats_drop_ofst),
+		IPA_MEM_PART(q6_stats_drop_size));
+
+	if (IPA_MEM_PART(q6_stats_drop_ofst) & 7) {
+		IPAERR("Q6 DROP STATS OFST 0x%x is unaligned\n",
+			IPA_MEM_PART(q6_stats_drop_ofst));
 		return -ENODEV;
 	}
 
@@ -14608,41 +14850,55 @@ err:
 	return -ENOMEM;
 }
 
-void ipa3_counter_remove_hdl(int hdl)
+int ipa3_counter_remove_hdl(int hdl)
 {
 	struct ipa_ioc_flt_rt_counter_alloc *counter;
-	int offset = 0;
+	int hw_offset = 0;
+	int sw_offset = 0;
+	int ret = 0;
 
 	spin_lock(&ipa3_ctx->flt_rt_counters.hdl_lock);
 	counter = idr_find(&ipa3_ctx->flt_rt_counters.hdl, hdl);
 	if (counter == NULL) {
 		IPAERR_RL("unexpected hdl %d\n", hdl);
-		goto err;
+		ret = -ENOENT;
+		goto unlock;
 	}
 	/* remove counters belong to this hdl, set used back to 0 */
-	offset = counter->hw_counter.start_id - 1;
-	if (offset >= 0 && (offset + counter->hw_counter.num_counters)
-		< IPA_FLT_RT_HW_COUNTER) {
-		memset(&ipa3_ctx->flt_rt_counters.used_hw[offset],
-			   0, counter->hw_counter.num_counters * sizeof(bool));
-	} else {
-		IPAERR_RL("unexpected hdl %d\n", hdl);
-		goto err;
+	if (counter->hw_counter.num_counters) {
+		hw_offset = counter->hw_counter.start_id - 1;
+		if (hw_offset < 0 ||
+			(hw_offset + counter->hw_counter.num_counters)
+			> IPA_FLT_RT_HW_COUNTER) {
+			IPAERR_RL("unexpected hdl %d\n", hdl);
+			ret = -ERANGE;
+			goto unlock;
+		}
 	}
-	offset = counter->sw_counter.start_id - 1 - IPA_FLT_RT_HW_COUNTER;
-	if (offset >= 0 && (offset + counter->sw_counter.num_counters)
-		< IPA_FLT_RT_SW_COUNTER) {
-		memset(&ipa3_ctx->flt_rt_counters.used_sw[offset],
-		   0, counter->sw_counter.num_counters * sizeof(bool));
-	} else {
-		IPAERR_RL("unexpected hdl %d\n", hdl);
-		goto err;
+	if (counter->sw_counter.num_counters) {
+		sw_offset = counter->sw_counter.start_id - 1 -
+			IPA_FLT_RT_HW_COUNTER;
+		if (sw_offset < 0 ||
+			(sw_offset + counter->sw_counter.num_counters)
+			> IPA_FLT_RT_SW_COUNTER) {
+			IPAERR_RL("unexpected hdl %d\n", hdl);
+			ret = -ERANGE;
+			goto unlock;
+		}
 	}
+	if (counter->hw_counter.num_counters)
+		memset(&ipa3_ctx->flt_rt_counters.used_hw[hw_offset],
+			0, counter->hw_counter.num_counters * sizeof(bool));
+	if (counter->sw_counter.num_counters)
+		memset(&ipa3_ctx->flt_rt_counters.used_sw[sw_offset],
+			0, counter->sw_counter.num_counters * sizeof(bool));
 	/* remove the handle */
 	idr_remove(&ipa3_ctx->flt_rt_counters.hdl, hdl);
 	kmem_cache_free(ipa3_ctx->fnr_stats_cache, counter);
-err:
+unlock:
 	spin_unlock(&ipa3_ctx->flt_rt_counters.hdl_lock);
+
+	return ret;
 }
 
 void ipa3_counter_id_remove_all(void)
@@ -16162,9 +16418,11 @@ void ipa3_set_resorce_groups_min_max_limits_v7_0(void)
 	u8 hw_type_index;
 
 	if (ipa3_ctx->ipa_config_is_auto)
-		hw_type_index = IPA_7_0_AUTO;
+		hw_type_index = ipa3_ctx->ipa_config_is_mhi ?
+			IPA_7_0_AUTO_MHI : IPA_7_0_AUTO;
 	else
-		hw_type_index = IPA_7_0;
+		hw_type_index = ipa3_ctx->ipa_config_is_mhi ?
+			IPA_7_0_MHI : IPA_7_0;
 
 	while (i < IPA_v7_0_SRC_GROUP_MAX) {
 		val.x_min = ipa3_rsrc_src_grp_config[hw_type_index]
@@ -18026,6 +18284,15 @@ int ipa3_get_prot_id(enum ipa_client_type client)
 	case IPA_CLIENT_ETHERNET_CONS:
 	case IPA_CLIENT_ETHERNET_PROD1:
 	case IPA_CLIENT_ETHERNET_LOW_LAT_CONS:
+	case IPA_CLIENT_ETHERNET_QOS_PROD:
+	case IPA_CLIENT_ETHERNET_QOS_CONS:
+	case IPA_CLIENT_ETHERNET_QOS2_CONS:
+	case IPA_CLIENT_ETHERNET2_QOS_PROD:
+	case IPA_CLIENT_ETHERNET2_QOS_CONS:
+	case IPA_CLIENT_ETHERNET2_QOS2_CONS:
+	case IPA_CLIENT_ETHERNET3_QOS_PROD:
+	case IPA_CLIENT_ETHERNET3_QOS_CONS:
+	case IPA_CLIENT_ETHERNET3_QOS2_CONS:
 		prot_id = IPA_HW_PROTOCOL_ETH;
 		break;
 	case IPA_CLIENT_WIGIG_PROD:

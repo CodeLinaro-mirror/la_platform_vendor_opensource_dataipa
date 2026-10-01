@@ -172,6 +172,7 @@ static int ipa3_alloc_pkt_init(void);
 static int ipa_alloc_pkt_init_ex(void);
 static void ipa3_free_pkt_init(void);
 static void ipa3_free_pkt_init_ex(void);
+static int ipa3_setup_ulso_empty_hdr(void);
 
 #if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 static void ipa3_deepsleep_resume(void);
@@ -224,6 +225,12 @@ ssize_t ipa3_update_config(const char *buff);
 
 static struct ipa3_plat_drv_res ipa3_res = {0, };
 
+/* Accessor for ipa3_res, since it's static to this file (e.g. used by debugfs). */
+struct ipa3_plat_drv_res *ipa3_get_plat_drv_res(void)
+{
+	return &ipa3_res;
+}
+
 static struct clk *ipa3_clk;
 
 struct ipa3_context *ipa3_ctx = NULL;
@@ -268,7 +275,6 @@ bool ipa_is_test_prod_flt_in_sram_internal(enum ipa_ip_type ip)
 		return false;
 
 	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_TEST_PROD);
-		return false;
 
 	flt_tbl = &ipa3_ctx->flt_tbl[ipa_ep_idx][ip];
 
@@ -1702,318 +1708,187 @@ static void ipa3_qos_param_msg_free_cb(void *buff, u32 len, u32 type)
 	kfree(buff);
 }
 
+/* Caller must hold ipa3_ctx->msg_qos_param_lock.
+ * Returns the matching cache node if a duplicate is found (every filter field
+ * matches), or NULL if no match. The caller is responsible for any refcount
+ * operations on the returned node while still holding the lock. */
+static struct ipa3_qos_config_node *
+ipa3_find_duplicate_qos_config(struct ipa_ioc_qos_config *qos_param)
+{
+	struct ipa3_qos_config_node *node;
+
+	list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
+		if (node->config.traffic_class == qos_param->traffic_class &&
+			node->config.flt_cat == qos_param->flt_cat &&
+			node->config.ip_type == qos_param->ip_type &&
+			node->config.src_ip_addr == qos_param->src_ip_addr &&
+			node->config.dst_ip_addr == qos_param->dst_ip_addr &&
+			node->config.src_port_start == qos_param->src_port_start &&
+			node->config.src_port_end == qos_param->src_port_end &&
+			node->config.dst_port_start == qos_param->dst_port_start &&
+			node->config.dst_port_end == qos_param->dst_port_end &&
+			node->config.protocol == qos_param->protocol &&
+			node->config.dscp == qos_param->dscp &&
+			node->config.pcp == qos_param->pcp &&
+			!memcmp(node->config.src_v6_ip_addr, qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
+			!memcmp(node->config.dst_v6_ip_addr, qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
+			!memcmp(node->config.dst_mac_addr, qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
+			!memcmp(node->config.src_mac_addr, qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr)))
+			return node;
+	}
+	return NULL;
+}
+
+/* Release a QoS cache slot reserved by the ADD path when the node ends up
+ * not being created. */
+static void ipa3_release_qos_cache_slot(void)
+{
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	if (ipa3_ctx->num_qos_configs)
+		ipa3_ctx->num_qos_configs--;
+	else
+		IPAERR("QoS cache slot release with count already 0; bookkeeping mismatch\n");
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+}
+
 static int ipa3_save_qos_params(struct ipa_ioc_qos_config *qos_param)
 {
-	int cur_idx = ipa3_ctx->get_qos_config.num_qos_configs;
-	int i;
+	struct ipa3_qos_config_node *new_node, *pos;
 
-	if (cur_idx >= IPA_QOS_PARAMS_MAX)
-	{
-		IPAERR("Max rules saved cannot save more %d \n", cur_idx);
-		return 0;
+	new_node = kmalloc(sizeof(*new_node), GFP_KERNEL);
+	if (!new_node) {
+		IPAERR("Failed to allocate memory for new QoS node\n");
+		/* The ADD path reserved a cache slot for this node; give it
+		 * back since no node will be inserted. */
+		ipa3_release_qos_cache_slot();
+		return -ENOMEM;
 	}
 
-	IPADBG("Attemp saving qos request at index %d \n", cur_idx);
-	for (i = 0; i < ipa3_ctx->get_qos_config.num_qos_configs; i++)
-	{
-		if (ipa3_ctx->get_qos_config.qos_config[i].traffic_class ==
-				qos_param->traffic_class &&
-			ipa3_ctx->get_qos_config.qos_config[i].flt_cat ==
-				qos_param->flt_cat &&
-			ipa3_ctx->get_qos_config.qos_config[i].ip_type ==
-				qos_param->ip_type &&
-			ipa3_ctx->get_qos_config.qos_config[i].src_ip_addr ==
-				qos_param->src_ip_addr &&
-			ipa3_ctx->get_qos_config.qos_config[i].dst_ip_addr ==
-				qos_param->dst_ip_addr &&
-			ipa3_ctx->get_qos_config.qos_config[i].src_port_start ==
-				qos_param->src_port_start &&
-			ipa3_ctx->get_qos_config.qos_config[i].src_port_end ==
-				qos_param->src_port_end &&
-			ipa3_ctx->get_qos_config.qos_config[i].dst_port_start ==
-				qos_param->dst_port_start &&
-			ipa3_ctx->get_qos_config.qos_config[i].dst_port_end ==
-				qos_param->dst_port_end &&
-			ipa3_ctx->get_qos_config.qos_config[i].protocol ==
-				qos_param->protocol &&
-			ipa3_ctx->get_qos_config.qos_config[i].dscp ==
-				qos_param->dscp &&
-			ipa3_ctx->get_qos_config.qos_config[i].pcp ==
-				qos_param->pcp &&
-			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].src_v6_ip_addr,
-				qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
-			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].dst_v6_ip_addr,
-				qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
-			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].dst_mac_addr,
-				qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
-			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].src_mac_addr,
-				qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr))
-			)
-		{
-			IPADBG("Duplicate entry dont increase rule count \n");
-			return 0;
+	new_node->config = *qos_param;
+
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	new_node->qos_id = ++ipa3_ctx->qos_id_counter;
+	new_node->refcount = 1;
+
+	/* Insert sorted by traffic_class descending so higher-priority TCs
+	 * are matched first during rule installation.  In the ECM path
+	 * QoSMgr sends rules in arbitrary order (unlike IPACM which sorts
+	 * before sending), so the kernel must maintain the ordering itself.
+	 */
+	list_for_each_entry(pos, &ipa3_ctx->qos_config_list, list) {
+		if (pos->config.traffic_class < new_node->config.traffic_class) {
+			list_add_tail(&new_node->list, &pos->list);
+			goto inserted;
 		}
 	}
+	list_add_tail(&new_node->list, &ipa3_ctx->qos_config_list);
+inserted:
+	/* No num_qos_configs++ here: the ADD path in ipa3_send_qos_param_msg()
+	 * already reserved this slot under the same lock, atomically with the
+	 * cap check. Incrementing again would double-count. */
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 
-	memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].dev_name,
-		qos_param->dev_name, sizeof(qos_param->dev_name));
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class =
-		qos_param->traffic_class;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type = qos_param->ip_type;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_ip_addr =
-		qos_param->src_ip_addr;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_ip_addr =
-		qos_param->dst_ip_addr;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_start =
-		qos_param->src_port_start;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_end =
-		qos_param->src_port_end;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_start =
-		qos_param->dst_port_start;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_end =
-		qos_param->dst_port_end;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol =
-		qos_param->protocol;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp = qos_param->dscp;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp = qos_param->pcp;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count =
-		qos_param->vlan_count;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0] =
-		qos_param->vlan_ids[0];
-
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0] =
-		qos_param->src_v6_ip_addr[0];
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[1] =
-		qos_param->src_v6_ip_addr[1];
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[2] =
-		qos_param->src_v6_ip_addr[2];
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[3] =
-		qos_param->src_v6_ip_addr[3];
-
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[0] =
-		qos_param->dst_v6_ip_addr[0];
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[1] =
-		qos_param->dst_v6_ip_addr[1];
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[2] =
-		qos_param->dst_v6_ip_addr[2];
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[3] =
-		qos_param->dst_v6_ip_addr[3];
-
-	memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].src_mac_addr,
-		qos_param->src_mac_addr, IPA_MAC_ADDR_SIZE);
-	memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_mac_addr,
-		qos_param->dst_mac_addr, IPA_MAC_ADDR_SIZE);
-
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].qos_rule_hdl =
-		qos_param->qos_rule_hdl;
-	ipa3_ctx->get_qos_config.qos_config[cur_idx].flt_cat =
-		qos_param->flt_cat;
-	ipa3_ctx->get_qos_config.num_qos_configs++;
-	IPADBG("Stored qos configs count now: %d\n",
-		ipa3_ctx->get_qos_config.num_qos_configs);
+	/* Return stable ID to userspace */
+	qos_param->qos_id = new_node->qos_id;
 
 	return 0;
 }
 
 static int ipa3_delete_qos_params(struct ipa_ioc_qos_config *qos_param)
 {
-	int num_config = ipa3_ctx->get_qos_config.num_qos_configs;
-	int cur_idx = 0;
-	int i = 0;
+	struct ipa3_qos_config_node *node, *tmp;
 
-	IPADBG("Total configs available: %d \n", num_config);
-	for (i = 0; i < ipa3_ctx->get_qos_config.num_qos_configs; i++)
-	{
-		if (ipa3_ctx->get_qos_config.qos_config[i].traffic_class ==
-				qos_param->traffic_class &&
-			ipa3_ctx->get_qos_config.qos_config[i].flt_cat ==
-				qos_param->flt_cat &&
-			ipa3_ctx->get_qos_config.qos_config[i].ip_type ==
-				qos_param->ip_type &&
-			ipa3_ctx->get_qos_config.qos_config[i].src_ip_addr ==
-				qos_param->src_ip_addr &&
-			ipa3_ctx->get_qos_config.qos_config[i].dst_ip_addr ==
-				qos_param->dst_ip_addr &&
-			ipa3_ctx->get_qos_config.qos_config[i].src_port_start ==
-				qos_param->src_port_start &&
-			ipa3_ctx->get_qos_config.qos_config[i].src_port_end ==
-				qos_param->src_port_end &&
-			ipa3_ctx->get_qos_config.qos_config[i].dst_port_start ==
-				qos_param->dst_port_start &&
-			ipa3_ctx->get_qos_config.qos_config[i].dst_port_end ==
-				qos_param->dst_port_end &&
-			ipa3_ctx->get_qos_config.qos_config[i].protocol ==
-				qos_param->protocol &&
-			ipa3_ctx->get_qos_config.qos_config[i].dscp ==
-				qos_param->dscp &&
-			ipa3_ctx->get_qos_config.qos_config[i].pcp ==
-				qos_param->pcp &&
-			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].src_v6_ip_addr,
-				qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
-			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].dst_v6_ip_addr,
-				qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
-			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].dst_mac_addr,
-				qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
-			!memcmp(ipa3_ctx->get_qos_config.qos_config[i].src_mac_addr,
-				qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr))
-			)
-		{
-			cur_idx = i;
-			IPADBG("Matching entry found at index %d\n", i);
-			break;
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry_safe(node, tmp, &ipa3_ctx->qos_config_list, list) {
+		bool match = false;
+
+		if (qos_param->qos_rule_hdl) {
+			/* Handle-based delete: match by stable qos_id */
+			match = (node->qos_id == qos_param->qos_rule_hdl);
+		} else {
+			/* Field-based delete */
+			match = (node->config.traffic_class == qos_param->traffic_class &&
+				node->config.flt_cat == qos_param->flt_cat &&
+				node->config.ip_type == qos_param->ip_type &&
+				node->config.src_ip_addr == qos_param->src_ip_addr &&
+				node->config.dst_ip_addr == qos_param->dst_ip_addr &&
+				node->config.src_port_start == qos_param->src_port_start &&
+				node->config.src_port_end == qos_param->src_port_end &&
+				node->config.dst_port_start == qos_param->dst_port_start &&
+				node->config.dst_port_end == qos_param->dst_port_end &&
+				node->config.protocol == qos_param->protocol &&
+				node->config.dscp == qos_param->dscp &&
+				node->config.pcp == qos_param->pcp &&
+				!memcmp(node->config.src_v6_ip_addr, qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
+				!memcmp(node->config.dst_v6_ip_addr, qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
+				!memcmp(node->config.dst_mac_addr, qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
+				!memcmp(node->config.src_mac_addr, qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr)));
+		}
+
+		if (match) {
+			IPADBG("Matching entry found, refcount=%u\n", node->refcount);
+			if (node->refcount > 1) {
+				node->refcount--;
+				IPADBG("refcount decremented to %u; keeping node\n",
+					node->refcount);
+				mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+				return 0;
+			}
+			IPADBG("refcount dropped to 0, deleting cache node.\n");
+			list_del(&node->list);
+			if (node->config.proc_ctx_hdl)
+				__ipa3_release_hdr_proc_ctx(node->config.proc_ctx_hdl);
+			kfree(node);
+			ipa3_ctx->num_qos_configs--;
+			IPADBG("Stored qos configs count now: %d\n", ipa3_ctx->num_qos_configs);
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+			return 0;
 		}
 	}
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 
-	if (num_config  == i)
-	{
-		IPADBG("No Matching entry found to delete\n");
-		return 0;
-	}
-
-	IPADBG("Attempt deleting qos request at index %d \n", cur_idx);
-	for (cur_idx = i; cur_idx < ipa3_ctx->get_qos_config.num_qos_configs - 1;
-			cur_idx++)
-	{
-		memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].dev_name,
-				ipa3_ctx->get_qos_config.qos_config[cur_idx+1].dev_name,
-				IPA_RESOURCE_NAME_MAX);
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].traffic_class;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx+1].ip_type;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_ip_addr =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_ip_addr;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_ip_addr =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_ip_addr;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_start =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_port_start;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_end =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_port_end;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_start =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_port_start;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_end =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_port_end;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].protocol;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dscp;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].pcp;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].vlan_count;
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].vlan_ids[0];
-
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_v6_ip_addr[0];
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[1] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_v6_ip_addr[1];
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[2] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_v6_ip_addr[2];
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[3] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].src_v6_ip_addr[3];
-
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[0] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_v6_ip_addr[0];
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[1] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_v6_ip_addr[1];
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[2] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_v6_ip_addr[2];
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[3] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].dst_v6_ip_addr[3];
-
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].qos_rule_hdl =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].qos_rule_hdl;
-		memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].src_mac_addr,
-			ipa3_ctx->get_qos_config.qos_config[cur_idx+1].src_mac_addr,
-			IPA_MAC_ADDR_SIZE);
-		memcpy(ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_mac_addr,
-			ipa3_ctx->get_qos_config.qos_config[cur_idx+1].dst_mac_addr,
-			IPA_MAC_ADDR_SIZE);
-		ipa3_ctx->get_qos_config.qos_config[cur_idx].flt_cat =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx + 1].flt_cat;
-	}
-
-	memset(&ipa3_ctx->get_qos_config.qos_config[num_config - 1], 0,
-		sizeof(struct ipa_ioc_qos_config));
-
-	ipa3_ctx->get_qos_config.num_qos_configs--;
-	IPADBG("Stored qos configs count now: %d\n",
-		ipa3_ctx->get_qos_config.num_qos_configs);
-
+	IPADBG("No matching entry found to delete.\n");
 	return 0;
 }
 
 
+static void ipa3_flush_qos_params(void)
+{
+	struct ipa3_qos_config_node *node, *tmp;
+
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	list_for_each_entry_safe(node, tmp, &ipa3_ctx->qos_config_list, list) {
+		list_del(&node->list);
+		if (node->config.proc_ctx_hdl)
+			__ipa3_release_hdr_proc_ctx(node->config.proc_ctx_hdl);
+		kfree(node);
+	}
+	ipa3_ctx->num_qos_configs = 0;
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+}
+
 static int ipa3_get_qos_params(struct ipa_ioc_get_qos_config *get_qos_param)
 {
-	int cur_idx = 0;
-	memset(get_qos_param, 0, sizeof(struct ipa_ioc_get_qos_config));
+	struct ipa3_qos_config_node *node;
+	int count = 0;
 
-	get_qos_param->num_qos_configs = ipa3_ctx->get_qos_config.num_qos_configs;
-	for (cur_idx = 0; cur_idx < get_qos_param->num_qos_configs; cur_idx++)
-	{
-		memcpy(get_qos_param->qos_config[cur_idx].dev_name,
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dev_name,
-			sizeof(get_qos_param->qos_config[cur_idx].dev_name));
-		get_qos_param->qos_config[cur_idx].traffic_class =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].traffic_class;
-		get_qos_param->qos_config[cur_idx].flt_cat =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].flt_cat;
-		get_qos_param->qos_config[cur_idx].ip_type =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].ip_type;
-		get_qos_param->qos_config[cur_idx].src_ip_addr =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_ip_addr;
-		get_qos_param->qos_config[cur_idx].dst_ip_addr =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_ip_addr;
-		get_qos_param->qos_config[cur_idx].src_port_start =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_start;
-		get_qos_param->qos_config[cur_idx].src_port_end =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_port_end;
-		get_qos_param->qos_config[cur_idx].dst_port_start =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_start;
-		get_qos_param->qos_config[cur_idx].dst_port_end =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_port_end;
-		get_qos_param->qos_config[cur_idx].protocol =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].protocol;
-		get_qos_param->qos_config[cur_idx].dscp =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dscp;
-		get_qos_param->qos_config[cur_idx].pcp =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].pcp;
-		get_qos_param->qos_config[cur_idx].vlan_count =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_count;
-		get_qos_param->qos_config[cur_idx].vlan_ids[0] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].vlan_ids[0];
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+	get_qos_param->num_qos_configs = ipa3_ctx->num_qos_configs;
 
-		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[0] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[0];
-		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[1] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[1];
-		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[2] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[2];
-		get_qos_param->qos_config[cur_idx].src_v6_ip_addr[3] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_v6_ip_addr[3];
-
-		get_qos_param->qos_config[cur_idx].dst_v6_ip_addr[0] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[0];
-		get_qos_param->qos_config[cur_idx].dst_v6_ip_addr[1] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[1];
-		get_qos_param->qos_config[cur_idx].dst_v6_ip_addr[2] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[2];
-		get_qos_param->qos_config[cur_idx].dst_v6_ip_addr[3] =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_v6_ip_addr[3];
-		get_qos_param->qos_config[cur_idx].qos_rule_hdl =
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].qos_rule_hdl;
-
-		memcpy(get_qos_param->qos_config[cur_idx].src_mac_addr,
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].src_mac_addr,
-			IPA_MAC_ADDR_SIZE);
-		memcpy(get_qos_param->qos_config[cur_idx].dst_mac_addr,
-			ipa3_ctx->get_qos_config.qos_config[cur_idx].dst_mac_addr,
-			IPA_MAC_ADDR_SIZE);
+	list_for_each_entry(node, &ipa3_ctx->qos_config_list, list) {
+		if (count >= IPA_QOS_PARAMS_MAX) {
+			IPAERR("Too many QoS configs, max is %d\n",
+				IPA_QOS_PARAMS_MAX);
+			break;
+		}
+		memcpy(&get_qos_param->qos_config[count], &node->config,
+			sizeof(struct ipa_ioc_qos_config));
+		get_qos_param->qos_config[count].qos_id = node->qos_id;
+		count++;
 	}
-	IPADBG("Stored qos configs count: %d\n",
-		ipa3_ctx->get_qos_config.num_qos_configs);
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+	IPADBG("Copied %d qos configs\n", count);
 
 	return 0;
 }
@@ -2052,6 +1927,7 @@ static int ipa3_send_qos_param_msg(unsigned long usr_param)
 		return -EINVAL;
 	}
 
+#ifndef CONFIG_ECM_CONVERGENCE
 	retval = ipa_send_msg(&msg_meta, buff,
 		ipa3_qos_param_msg_free_cb);
 	if (retval) {
@@ -2061,21 +1937,137 @@ static int ipa3_send_qos_param_msg(unsigned long usr_param)
 		kfree(buff);
 		return retval;
 	}
-	else
-	{
-		if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_ADD_EVENT)
-		{
-			ipa3_save_qos_params(qos_param);
+#else
+	if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_ADD_EVENT) {
+		struct ipa3_qos_config_node *dup;
+
+		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+		dup = ipa3_find_duplicate_qos_config(qos_param);
+		if (dup) {
+			/* Refcount path: another caller already added this exact
+			 * filter. Bump refcount, mirror the existing node's qos_id
+			 * and qos_rule_hdl back to userspace, skip HW install. */
+			dup->refcount++;
+			qos_param->qos_id = dup->qos_id;
+			qos_param->qos_rule_hdl = dup->config.qos_rule_hdl;
+			qos_param->proc_ctx_hdl = dup->config.proc_ctx_hdl;
+			IPADBG("Duplicate QoS config; refcount bumped to %u (qos_id=%u hdl=%u)\n",
+				dup->refcount, dup->qos_id,
+				dup->config.qos_rule_hdl);
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+			if (copy_to_user((void __user *)usr_param, qos_param,
+				sizeof(*qos_param)))
+				IPAERR("copy_to_user fails on duplicate ADD\n");
+			kfree(qos_param);
+			return 0;
 		}
-		else if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_DELETE_EVENT)
-		{
-			ipa3_delete_qos_params(qos_param);
+
+		/* Reserve a cache slot under the lock, atomically with the cap
+		 * check, so concurrent ADDs cannot overshoot
+		 * IPA_MAX_QOS_CACHE_RULES. Released on any path below that
+		 * ends up not creating a node.
+		 */
+		if (ipa3_ctx->num_qos_configs >= IPA_MAX_QOS_CACHE_RULES) {
+			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+			IPAERR("QoS cache full (%u/%u): rejecting ADD\n",
+				ipa3_ctx->num_qos_configs,
+				IPA_MAX_QOS_CACHE_RULES);
+			kfree(qos_param);
+			return -ENOSPC;
 		}
-		else if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_FLUSH_EVENT)
-		{
-			memset(&ipa3_ctx->get_qos_config, 0, sizeof(struct ipa_ioc_get_qos_config));
+		ipa3_ctx->num_qos_configs++;
+		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+		retval = ipa_be_install_qos_route_rule(qos_param);
+		if (retval) {
+			IPAERR("ipa_be_install_qos_rules failed: %d\n", retval);
+			/* No cache node will be created; release the slot
+			 * reserved above so a failing ADD does not permanently
+			 * consume cap headroom. */
+			ipa3_release_qos_cache_slot();
+			kfree(qos_param);
+			return retval;
 		}
+
+		/*
+		 * Note: msg_qos_param_lock is dropped between the dup-check
+		 * above and ipa_be_install_qos_route_rule(). In theory two
+		 * concurrent ADDs of the identical filter spec could both miss
+		 * the dup-check and install two duplicate HW rules (two cache
+		 * nodes, same spec, each refcount=1). This is benign — both
+		 * rules are valid and steer to the same TC pipe, and each is
+		 * cleanly removed by its own DELETE — and unreachable in
+		 * practice because QoSMgr serializes filter operations. Not
+		 * worth a rollback path, which can't fully unwind a multi-client
+		 * catch-all install anyway.
+		 */
 	}
+#endif
+
+	if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_DELETE_EVENT) {
+		int ret;
+		struct ipa3_qos_config_node *node = NULL, *iter;
+		bool last_ref = true;
+
+		/* Peek refcount: if more than 1 reference exists, the HW rule
+		 * stays in place. The actual decrement happens later in
+		 * ipa3_delete_qos_params(). Match by qos_rule_hdl (== qos_id
+		 * for handle-based DELETE) or by full filter spec. */
+		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+		if (qos_param->qos_rule_hdl) {
+			list_for_each_entry(iter, &ipa3_ctx->qos_config_list, list) {
+				if (iter->qos_id == qos_param->qos_rule_hdl) {
+					node = iter;
+					break;
+				}
+			}
+		} else {
+			node = ipa3_find_duplicate_qos_config(qos_param);
+		}
+		if (node && node->refcount > 1)
+			last_ref = false;
+		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
+		if (last_ref) {
+			/* Caller must not hold ipa_client_db_lock — deletion
+			 * functions acquire msg_qos_param_lock internally. */
+			ret = ipa_be_delete_qos_route_rule(qos_param);
+
+			if (ret && ret != -ENOENT) {
+				/* Real failure — bail out without touching cache. */
+				IPAERR("ipa_be_delete_qos_route_rule failed: %d\n", ret);
+				kfree(qos_param);
+				return ret;
+			}
+			if (ret == -ENOENT)
+				IPADBG("No HW rule for this entry (deferred/not installed); removing from cache\n");
+		} else {
+			IPADBG("Skipping HW delete; refcount > 1 (%u)\n",
+				node->refcount);
+		}
+	} else if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_FLUSH_EVENT) {
+		/* Caller must not hold ipa_client_db_lock. */
+		ipa_be_flush_qos_route_rules();
+	}
+
+	if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_ADD_EVENT)
+		ipa3_save_qos_params(qos_param);
+	else if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_DELETE_EVENT)
+		ipa3_delete_qos_params(qos_param);
+	else if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_FLUSH_EVENT)
+		ipa3_flush_qos_params();
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	/* Copy back populated fields (qos_id, qos_rule_hdl, proc_ctx_hdl) so
+	 * userspace HAL can correlate the rule and replay deletes. */
+	if (qos_param->qos_param_evt_type == IPA_QOS_PARAM_ADD_EVENT) {
+		if (copy_to_user((void __user *)usr_param, qos_param,
+			sizeof(*qos_param)))
+			IPAERR("copy_to_user fails on ADD\n");
+	}
+	kfree(qos_param);
+#endif
 	IPADBG("exit\n");
 
 	return 0;
@@ -4790,6 +4782,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_CLEANUP:
 		/*Route and filter rules will also be clean*/
 		IPADBG("Got IPA_IOC_CLEANUP\n");
+#ifdef CONFIG_ECM_CONVERGENCE
+		/* ipa_backend owns the NAT/CT tables and the hdr entries its
+		 * rules reference, so the IPACM-restart teardown below would
+		 * destroy state that is still live and referenced by handle.
+		 */
+		ipa_be_flush_all_flows();
+		retval = 0;
+#else
 		retval = ipa3_reset_hdr(true);
 		IPA_ACTIVE_CLIENTS_INC_SPECIAL("SRAM");
 		retval = ipa3_nat_cleanup_cmd();
@@ -4798,7 +4798,10 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = ipa3_clean_mhip_dl_rule();
 		else
 			retval = ipa3_clean_modem_rule();
+#endif
+		ipa_rc_test_cleanup_rules(IPA_RC_TEST_EP_ANY);
 		ipa3_counter_id_remove_all();
+		ipa_rc_reset_drop_pkt_stats();
 		break;
 
 	case IPA_IOC_QUERY_WLAN_CLIENT:
@@ -4886,7 +4889,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EPERM;
 			break;
 		}
-		ipa3_counter_remove_hdl(hdl);
+		retval = ipa3_counter_remove_hdl(hdl);
 		break;
 
 	case IPA_IOC_FNR_COUNTER_QUERY:
@@ -4955,6 +4958,27 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		IPADBG("Got IPA_IOC_GET_QOS_PARAMS\n");
 		retval = ipa3_get_qos_param_list((struct ipa_ioc_get_qos_config *)arg);
 		break;
+
+	case IPA_IOC_SET_PIPE_TC_BITMAP: {
+		struct ipa_ioc_pipe_tc_bitmap param;
+
+		IPADBG("Got IPA_IOC_SET_PIPE_TC_BITMAP\n");
+		if (copy_from_user(&param, (const void __user *)arg, sizeof(param))) {
+			retval = -EFAULT;
+			break;
+		}
+		/* Defensively null-terminate dev_name — strncmp/strnlen callers
+		 * downstream tolerate a missing terminator within the field, but
+		 * any future strcmp would read past the array bound. */
+		param.dev_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+		retval = ipa3_set_intf_tx_tc_bitmap(param.dev_name,
+						    param.tx_index,
+						    param.tc_bitmap);
+		if (retval)
+			IPAERR("Failed to set tc_bitmap for %s tx[%u]: %d\n",
+			       param.dev_name, param.tx_index, retval);
+		break;
+	}
 
 	case IPA_IOC_SET_MAC_FLT:
 		IPADBG("Got IPA_IOC_SET_MAC_FLT\n");
@@ -5316,10 +5340,30 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 #endif
 	case IPA_IOC_SET_NAT_EXC_RT_TBL_IDX:
+		/*
+		 * Once this driver programs the NAT exception suppression
+		 * routing table (see ipa3_setup_nat_exc_rt_lan_rules()) it owns
+		 * the table index - honouring this ioctl would re-point the HW
+		 * at a table of the caller and silently break the LAN
+		 * coalescing steering.  Legacy behaviour is kept when the AP
+		 * does not own the table, e.g. on unsupported hardware or setup
+		 * failure.
+		 */
+		if (ipa3_ctx->nat_exc_rt_tbl_ap_owned) {
+			IPAERR_RL("v4 nat exc rt tbl owned by the AP driver\n");
+			retval = 0;
+			break;
+		}
 		retval = ipa3_set_nat_conn_track_exc_rt_tbl(arg, IPA_IP_v4);
 		break;
 
 	case IPA_IOC_SET_CONN_TRACK_EXC_RT_TBL_IDX:
+		/* the AP owns the table index, see the v4 case above */
+		if (ipa3_ctx->nat_exc_rt_tbl_ap_owned) {
+			IPAERR_RL("v6 exc rt tbl owned by the AP driver\n");
+			retval = 0;
+			break;
+		}
 		retval = ipa3_set_nat_conn_track_exc_rt_tbl(arg, IPA_IP_v6);
 		break;
 #if defined(CONFIG_IPA_TSP)
@@ -5651,6 +5695,329 @@ int ipa3_setup_dflt_rt_tables(void)
 	kfree(rt_rule);
 
 	return 0;
+}
+
+/**
+ * ipa3_nat_exc_rt_lan_supported() - Can the AP own the NAT/conn-track
+ * exception suppression routing table?
+ *
+ * Needs the HW mechanism (IPA >= 5.5) and the default LAN consumer pipe.
+ * Coalescing-specific rules are selected only when LAN coalescing is up.
+ */
+static bool ipa3_nat_exc_rt_lan_supported(void)
+{
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_5)
+		return false;
+
+	return ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS) !=
+		IPA_EP_NOT_ALLOCATED;
+}
+
+/*
+ * Fill in one LAN side rule of IPA_NAT_EXC_RT_TBL_NAME.  Every rule is
+ * appended, so the caller's array order is the HW match order.
+ */
+static void ipa3_nat_exc_rt_fill_lan_rule(struct ipa_rt_rule_add_ext_v2 *entry,
+	enum ipa3_nat_exc_rt_lan_rule idx, enum ipa_ip_type ip_type)
+{
+	bool lan_coal_enabled = ipa3_ctx->lan_coal_enable &&
+		ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS) !=
+		IPA_EP_NOT_ALLOCATED;
+
+	entry->at_rear = 1;
+
+	if (lan_coal_enabled && (idx == IPA_NAT_EXC_RT_LAN_COAL_TCP ||
+		idx == IPA_NAT_EXC_RT_LAN_COAL_UDP)) {
+		entry->rule.dst = IPA_CLIENT_APPS_LAN_COAL_CONS;
+		entry->rule.hdr_hdl = ipa3_ctx->excp_hdr_hdl;
+		entry->rule.retain_hdr = 1;
+	} else {
+		entry->rule.dst = IPA_CLIENT_APPS_LAN_CONS;
+		entry->rule.hdr_hdl = ipa3_ctx->excp_hdr_hdl;
+		entry->rule.retain_hdr = 1;
+	}
+
+	if (!lan_coal_enabled) {
+		/* Keep the LAN fallback ahead of WAN rules without catching all WAN traffic. */
+		entry->rule.attrib.attrib_mask = IPA_FLT_META_DATA;
+		entry->rule.attrib.meta_data = IPA_METADATA_BE_FLOW_BIT;
+		entry->rule.attrib.meta_data_mask = IPA_METADATA_BE_FLOW_BIT;
+		return;
+	}
+
+	/* Every coalescing LAN rule is keyed on metadata[29]. */
+	entry->rule.attrib.attrib_mask = IPA_FLT_META_DATA;
+	entry->rule.attrib.meta_data = IPA_METADATA_BE_FLOW_BIT;
+	entry->rule.attrib.meta_data_mask = IPA_METADATA_BE_FLOW_BIT;
+
+	if (idx == IPA_NAT_EXC_RT_LAN_META_OTHER)
+		return;
+
+	if (ip_type == IPA_IP_v4) {
+		entry->rule.attrib.attrib_mask |= IPA_FLT_PROTOCOL;
+		entry->rule.attrib.u.v4.protocol =
+			(idx == IPA_NAT_EXC_RT_LAN_COAL_TCP) ?
+				(uint8_t)IPPROTO_TCP : (uint8_t)IPPROTO_UDP;
+	} else {
+		entry->rule.attrib.attrib_mask |= IPA_FLT_NEXT_HDR;
+		entry->rule.attrib.u.v6.next_hdr =
+			(idx == IPA_NAT_EXC_RT_LAN_COAL_TCP) ?
+				(uint8_t)IPPROTO_TCP : (uint8_t)IPPROTO_UDP;
+	}
+}
+
+/* Restore the legacy exception route before releasing the AP-owned table. */
+static int ipa3_reset_nat_exc_rt_tbl_to_default(void)
+{
+	struct ipa_ioc_get_rt_tbl rt_lookup;
+	enum ipa_ip_type ip_type;
+	int ret;
+
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		memset(&rt_lookup, 0, sizeof(rt_lookup));
+		rt_lookup.ip = ip_type;
+		strscpy(rt_lookup.name, IPA_DFLT_RT_TBL_NAME,
+			IPA_RESOURCE_NAME_MAX);
+		ret = ipa3_get_rt_tbl(&rt_lookup);
+		if (ret)
+			return ret;
+
+		ret = ipa3_set_nat_conn_track_exc_rt_tbl(rt_lookup.hdl,
+			ip_type);
+		if (ipa_put_rt_tbl(rt_lookup.hdl))
+			IPAERR("ipa_put_rt_tbl() failure\n");
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+/*
+ * Remove the AP-owned LAN rules before their exception header or the LAN
+ * pipes go away.  The exception engines are first returned to their default
+ * tables, so no engine can reference a table that is about to be reclaimed.
+ */
+static int ipa3_del_nat_exc_rt_lan_rules(void)
+{
+	struct ipa_ioc_del_rt_rule *rt_rule;
+	struct ipa_rt_rule_del *rt_rule_entry;
+	enum ipa_ip_type ip_type;
+	int i, j, num_hdls, ret = 0;
+	int rule_idx[IPA_NAT_EXC_RT_LAN_RULES_TOTAL];
+	bool rules_present = false;
+
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		for (i = 0; i < IPA_NAT_EXC_RT_LAN_RULES_TOTAL; i++) {
+			if (ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][i]) {
+				rules_present = true;
+				break;
+			}
+		}
+		if (rules_present)
+			break;
+	}
+
+	if (!rules_present && !ipa3_ctx->nat_exc_rt_tbl_ap_owned)
+		return 0;
+
+	ret = ipa3_reset_nat_exc_rt_tbl_to_default();
+	if (ret)
+		return ret;
+
+	rt_rule = kzalloc(sizeof(*rt_rule) +
+		IPA_NAT_EXC_RT_LAN_RULES_TOTAL * sizeof(*rt_rule_entry),
+		GFP_KERNEL);
+	if (!rt_rule)
+		return -ENOMEM;
+
+	rt_rule->commit = 1;
+	rt_rule_entry = rt_rule->hdl;
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		num_hdls = 0;
+		for (i = 0; i < IPA_NAT_EXC_RT_LAN_RULES_TOTAL; i++) {
+			if (!ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][i])
+				continue;
+			rt_rule_entry[num_hdls].hdl =
+				ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][i];
+			rule_idx[num_hdls++] = i;
+		}
+
+		if (!num_hdls)
+			continue;
+
+		rt_rule->ip = ip_type;
+		rt_rule->num_hdls = num_hdls;
+		if (ipa3_del_rt_rule(rt_rule)) {
+			IPAERR("fail to delete nat exc lan rules, ip type %d\n",
+				ip_type);
+			ret = -EPERM;
+			continue;
+		}
+
+		for (j = 0; j < num_hdls; j++) {
+			if (rt_rule_entry[j].status) {
+				IPAERR("fail to delete nat exc lan rt rule %d, ip type %d\n",
+					rule_idx[j], ip_type);
+				ret = -EPERM;
+				continue;
+			}
+			ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][rule_idx[j]] = 0;
+		}
+	}
+
+	kfree(rt_rule);
+	if (!ret)
+		ipa3_ctx->nat_exc_rt_tbl_ap_owned = false;
+
+	return ret;
+}
+
+/*
+ * Append all the LAN side rules of IPA_NAT_EXC_RT_TBL_NAME and record their
+ * handles.  The table is created by the first add.
+ */
+static int ipa3_nat_exc_rt_add_lan_rules(enum ipa_ip_type ip_type)
+{
+	struct ipa_ioc_add_rt_rule_ext_v2 *rt_rule;
+	struct ipa_rt_rule_add_ext_v2 *rt_rule_entry;
+	int num_rules = (ipa3_ctx->lan_coal_enable &&
+		ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_COAL_CONS) !=
+		IPA_EP_NOT_ALLOCATED) ?
+		IPA_NAT_EXC_RT_LAN_RULES_TOTAL : 1;
+	int i, ret = 0;
+
+	rt_rule = kzalloc(sizeof(*rt_rule), GFP_KERNEL);
+	if (!rt_rule)
+		return -ENOMEM;
+
+	rt_rule->rules = (uint64_t)kcalloc(num_rules,
+		sizeof(struct ipa_rt_rule_add_ext_v2), GFP_KERNEL);
+	if (!rt_rule->rules) {
+		kfree(rt_rule);
+		return -ENOMEM;
+	}
+
+	rt_rule->commit = 1;
+	rt_rule->ip = ip_type;
+	rt_rule->num_rules = num_rules;
+	rt_rule->rule_add_ext_size = sizeof(struct ipa_rt_rule_add_ext_v2);
+	strscpy(rt_rule->rt_tbl_name, IPA_NAT_EXC_RT_TBL_NAME,
+		IPA_RESOURCE_NAME_MAX);
+
+	rt_rule_entry = (struct ipa_rt_rule_add_ext_v2 *)rt_rule->rules;
+	for (i = 0; i < num_rules; i++)
+		ipa3_nat_exc_rt_fill_lan_rule(&rt_rule_entry[i], i, ip_type);
+
+	ret = ipa3_add_rt_rule_ext_v2(rt_rule, false);
+	if (ret) {
+		IPAERR("fail to add nat exc lan rt rules, ip type %d\n",
+			ip_type);
+		ret = -EPERM;
+	}
+
+	for (i = 0; i < num_rules; i++) {
+		if (rt_rule_entry[i].status) {
+			IPAERR("fail to add nat exc lan rt rule %d, ip type %d\n",
+				i, ip_type);
+			ret = -EPERM;
+			continue;
+		}
+		IPADBG("nat exc ip %d lan rt rule hdl[%d]=%x\n", ip_type, i,
+			rt_rule_entry[i].rt_rule_hdl);
+		ipa3_ctx->nat_exc_rt_lan_hdl[ip_type][i] =
+			rt_rule_entry[i].rt_rule_hdl;
+	}
+
+	if (ret && ipa3_del_nat_exc_rt_lan_rules())
+		IPAERR("fail to clean up nat exc lan rules\n");
+
+	kfree((void *)(rt_rule->rules));
+	kfree(rt_rule);
+
+	return ret;
+}
+
+/**
+ * ipa3_setup_nat_exc_rt_lan_rules() - Build NAT/conn-track exception
+ * suppression routing table and point engine at it
+ *
+ * On NAT miss (or closed connection), consumer pipe with
+ * NAT_EXC_SUPPRESS set does not raise exception. Packet routes through
+ * global routing table instead (IPA HPG 2.14.8.4, IPA >= 5.5).
+ *
+ * IPA_NAT_EXC_RT_TBL_NAME is that table. It is created here, at probe,
+ * with LAN-side rules only. When LAN coalescing is enabled, table contains
+ * metadata-marked LAN consumer rules:
+ *    metadata[29] + TCP      -> IPA_CLIENT_APPS_LAN_COAL_CONS
+ *    metadata[29] + UDP      -> IPA_CLIENT_APPS_LAN_COAL_CONS
+ *    metadata[29]            -> IPA_CLIENT_APPS_LAN_CONS
+ * so LAN-bound TCP and UDP packets get LAN coalescing, while other
+ * metadata-marked LAN-bound packets use default LAN consumer. When LAN
+ * coalescing is disabled, only metadata-marked IPA_CLIENT_APPS_LAN_CONS
+ * rule is installed. Default routing table is left alone.
+ *
+ * Exception routing table index is programmed once, here, and never
+ * changes afterwards: rmnet_ipa appends WAN rules to this same table when
+ * WAN comes up (see ipa3_setup_nat_exc_rt_wan_rules()) rather than
+ * swapping in table of its own.
+ *
+ * Return codes:
+ * 0: success, or nothing to do on this target
+ * -EPERM: failed to install LAN rules
+ * -EINVAL: failed to look up or program exception routing table
+ * -ENOMEM: allocation failure
+ */
+static int ipa3_setup_nat_exc_rt_lan_rules(void)
+{
+	struct ipa_ioc_get_rt_tbl rt_lookup;
+	enum ipa_ip_type ip_type;
+	int ret;
+
+	if (!ipa3_nat_exc_rt_lan_supported())
+		return 0;
+
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		ret = ipa3_nat_exc_rt_add_lan_rules(ip_type);
+		if (ret)
+			goto cleanup;
+
+		/*
+		 * The reference taken here is what
+		 * ipa3_set_nat_conn_track_exc_rt_tbl() requires; the rules
+		 * installed above keep the table alive once it is dropped.
+		 */
+		memset(&rt_lookup, 0, sizeof(rt_lookup));
+		rt_lookup.ip = ip_type;
+		strscpy(rt_lookup.name, IPA_NAT_EXC_RT_TBL_NAME,
+			IPA_RESOURCE_NAME_MAX);
+		if (ipa3_get_rt_tbl(&rt_lookup)) {
+			IPAERR("%s lookup failed, ip type %d\n",
+				IPA_NAT_EXC_RT_TBL_NAME, ip_type);
+			ret = -EINVAL;
+			goto cleanup;
+		}
+
+		ret = ipa3_set_nat_conn_track_exc_rt_tbl(rt_lookup.hdl,
+			ip_type);
+		if (ret)
+			IPAERR("fail to set nat exc rt tbl, ip type %d\n",
+				ip_type);
+		if (ipa_put_rt_tbl(rt_lookup.hdl))
+			IPAERR("ipa_put_rt_tbl() failure\n");
+
+		if (ret)
+			goto cleanup;
+	}
+
+	/* Both IP versions are live; the AP now owns the exception table index. */
+	ipa3_ctx->nat_exc_rt_tbl_ap_owned = true;
+	return 0;
+
+cleanup:
+	if (ipa3_del_nat_exc_rt_lan_rules())
+		IPAERR("fail to clean up nat exc lan rules\n");
+	return ret;
 }
 
 static int ipa3_setup_exception_path(void)
@@ -7812,6 +8179,15 @@ static int ipa3_setup_apps_pipes(void)
 		}
 	}
 
+	/*
+	 * Build the NAT exception suppression routing table after the LAN input
+	 * setup.  Coalescing rules are used when enabled; otherwise the table
+	 * gets the LAN consumer fallback.  rmnet_ipa appends WAN rules later.
+	 * Non-fatal: the datapath works without the exception table.
+	 */
+	if (ipa3_setup_nat_exc_rt_lan_rules())
+		IPAERR(":fail to setup nat exc rt lan rules\n");
+
 	/* LAN OUT (AP->IPA) */
 	if (!ipa3_ctx->ipa_config_is_mhi || ipa3_ctx->ipa_mhi_eth) {
 		memset(&sys_in, 0, sizeof(struct ipa_sys_connect_params));
@@ -7823,9 +8199,12 @@ static int ipa3_setup_apps_pipes(void)
 				ENDP_INIT_ULSO_CFG_IP_ID_MIN_MAX_VAL_IDX_LINUX;
 			sys_in.ipa_ep_cfg.ulso.is_ulso_pipe = true;
 			sys_in.ipa_ep_cfg.cfg.cs_offload_en = IPA_ENABLE_CS_OFFLOAD_UL;
-			sys_in.ipa_ep_cfg.hdr.hdr_len = QMAP_HDR_LEN + ETH_HLEN;
-			sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove_valid = true;
-			sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove = QMAP_HDR_LEN;
+			sys_in.ipa_ep_cfg.hdr.hdr_len = QMAP_HDR_LEN;
+			sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove_valid = false;
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+				sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove = QMAP_HDR_LEN;
+			else
+				sys_in.ipa_ep_cfg.hdr_ext.hdr_bytes_to_remove = QMAP_HDR_LEN + ETH_HLEN;
 		}
 		if (ipa_setup_sys_pipe(&sys_in,
 			&ipa3_ctx->clnt_hdl_data_out)) {
@@ -7855,6 +8234,8 @@ fail_flt_hash_tuple:
 		if (ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl)
 			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl);
 	}
+	if (ipa3_del_nat_exc_rt_lan_rules())
+		IPAERR("fail to clean up nat exc lan rules\n");
 	if (ipa3_ctx->excp_hdr_hdl)
 		__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
 	ipa_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
@@ -7882,6 +8263,8 @@ static void ipa3_teardown_apps_pipes(void)
 		if (ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl)
 			__ipa3_del_rt_rule(ipa3_ctx->dflt_lan_coal_v4_tcp_rt_rule_hdl);
 	}
+	if (ipa3_del_nat_exc_rt_lan_rules())
+		IPAERR("fail to clean up nat exc lan rules\n");
 	__ipa3_del_hdr(ipa3_ctx->excp_hdr_hdl, false);
 	ipa_teardown_sys_pipe(ipa3_ctx->clnt_hdl_cmd);
 	ipa3_dealloc_common_event_ring();
@@ -8489,7 +8872,7 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EPERM;
 			cmd = IPA_IOC_GET_QOS_PARAMS;
 			break;
-		case IPA_IOC_SET_IPTYPE_MTU:
+		case IPA_IOCTL_SET_IPTYPE_MTU:
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_SET_IPTYPE_MTU))
 				return -EPERM;
 			cmd = IPA_IOC_SET_IPTYPE_MTU;
@@ -10463,6 +10846,12 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v4]);
 	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v6]);
 
+	/* Per-EP SW-routing rule tracking lists. */
+	for (i = 0; i < IPA_MAX_NUM_PIPES; i++) {
+		INIT_LIST_HEAD(&ipa3_ctx->ep[i].sw_routing_flt4_hdl_list);
+		INIT_LIST_HEAD(&ipa3_ctx->ep[i].sw_routing_flt6_hdl_list);
+	}
+
 	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
 		if ((i < ipa3_ctx->ipa_num_pipes && !ipa_is_ep_support_flt(i)) ||
 		    (i >= ipa3_ctx->ipa_num_pipes && !IPA_IS_Q6_NXT_FLT(i) && !IPA_IS_NXT_FLT(i)))
@@ -10595,6 +10984,19 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 	IPADBG("IPA GPI pipes were connected\n");
 
+	/*
+	 * Add the common empty (hdr_len=0) HPC header used by all ULSO
+	 * consumer pipes. Done here (after the header tables are set up by
+	 * ipa3_setup_apps_pipes) so every ULSO CONS can point its pkt_init_ex
+	 * at it from ipa3_cfg_ep. Non-fatal: on failure ULSO CONS fall back to
+	 * their configured hdr_len (which may double-insert an L2 header).
+	 */
+	if (ipa3_ctx->ulso_supported &&
+		ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		if (ipa3_setup_ulso_empty_hdr())
+			IPAERR("failed to setup ULSO empty HPC hdr\n");
+	}
+
 	if (ipa3_ctx->use_ipa_teth_bridge) {
 		/* Initialize the tethering bridge driver */
 		result = ipa3_teth_bridge_driver_init();
@@ -10686,7 +11088,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG(":stats init ok\n");
 
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && !ipa3_ctx->ipa_disable_per_flow_stats) {
 		result = ipa_init_nat_ct_stats();
 		if (result)
 			IPAERR("fail to init NAT and CT stats %d\n", result);
@@ -10724,6 +11126,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	complete_all(&ipa3_ctx->init_completion_obj);
 
 	ipa_ut_module_init();
+	ipa_rc_init();
 
 
 	/* Query MSI address. */
@@ -11349,7 +11752,7 @@ ssize_t ipa3_update_config(const char *buff)
 		{
 			if (ipa3_ctx->ipa_config_is_mhi) {
 				IPADBG("In MHI mode IPSEC enable not required\n");
-				return count;
+				goto last;
 			}
 			IPADBG("IPsec HW offload is configured.\n");
 			ipa3_ctx->ipa_config_is_ipsec = true;
@@ -11358,7 +11761,7 @@ ssize_t ipa3_update_config(const char *buff)
 				IPAERR(":IPSEC enable failed (%d)\n", -res);
 			else
 				IPADBG(":IPSEC enable ok\n");
-			return count;
+			goto last;
 		}
 #endif
 
@@ -11380,9 +11783,12 @@ ssize_t ipa3_update_config(const char *buff)
 
 	/* Prevent consequent calls from trying to load the FW again. */
 	if (ipa_is_ready())
-		return count;
+		goto last;
 
 	ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_FWFILE_READY);
+last:
+	if (rc_ctx && rc_ctx->rc_wq)
+		queue_delayed_work(rc_ctx->rc_wq, &rc_ctx->dwork, msecs_to_jiffies(IPA_COLLECT_INTERVAL_MS));
 
 	return count;
 }
@@ -11505,6 +11911,87 @@ static void ipa3_free_pkt_init_ex(void)
 		ipa3_ctx->pkt_init_ex_mem.phys_base);
 }
 
+/*
+ * ipa3_setup_ulso_empty_hdr() - add the common empty (hdr_len=0) HPC header
+ * shared by all ULSO consumer pipes and cache its handle in ipa3_ctx.
+ *
+ * The ULSO SW TX frame already carries its own Ethernet header
+ * (QMAP|ETH|IP|L4). Every ULSO CONS keeps a non-zero hdr_len for its normal
+ * offload path, so by default HW would insert a second L2 header ahead of the
+ * existing one (pkt_init_ex, driven by hdr_len) and corrupt the wire frame.
+ * ipa3_cfg_ep() points each ULSO CONS pkt_init_ex at this zero-length header
+ * so HW inserts nothing. Added once at boot and reused by ETH, WLAN, etc.
+ * Mirrors ecm_ipa_hdrs_hpc_cfg().
+ */
+static int ipa3_setup_ulso_empty_hdr(void)
+{
+	struct ipa_ioc_add_hdr *hdrs;
+	struct ipa_hdr_add *empty_hdr;
+	int result = 0;
+
+	if (ipa3_ctx->ulso_empty_hdr_valid)
+		return 0;
+
+	hdrs = kzalloc(sizeof(*hdrs) + sizeof(*empty_hdr), GFP_KERNEL);
+	if (!hdrs)
+		return -ENOMEM;
+	empty_hdr = &hdrs->hdr[0];
+	strscpy(empty_hdr->name, IPA_ULSO_EMPTY_HDR_NAME, sizeof(empty_hdr->name));
+	empty_hdr->hdr_len = 0;
+	empty_hdr->hdr_hdl = -1;
+	empty_hdr->is_partial = false;
+	empty_hdr->status = -1;
+	hdrs->num_hdrs = 1;
+	hdrs->commit = 1;
+
+	result = ipa3_add_hdr_hpc(hdrs);
+	if (result || empty_hdr->status) {
+		IPAERR("fail to add ULSO empty HPC hdr (%d/%d)\n",
+			result, empty_hdr->status);
+		result = result ? result : empty_hdr->status;
+		kfree(hdrs);
+		return result;
+	}
+
+	ipa3_ctx->ulso_empty_hdr_hdl = empty_hdr->hdr_hdl;
+	ipa3_ctx->ulso_empty_hdr_valid = true;
+	kfree(hdrs);
+	IPADBG("ULSO empty HPC hdr added, hdl=%u\n",
+		ipa3_ctx->ulso_empty_hdr_hdl);
+	return 0;
+}
+
+/*
+ * ipa_pkt_init_ex_set_common_fields() - populate the IP_PACKET_INIT_EX fields
+ * shared by every pkt_init_ex_imm[] slot (per-pipe and the shared common
+ * slot alike), so ipa_alloc_pkt_init_ex() and the two hdr_ofst setters below
+ * don't drift out of sync with each other.
+ *
+ * Callers still own rt_hdr_offset, rt_proc_ctx and rt_pipe_dest_idx, since
+ * those differ per slot/caller.
+ */
+static void ipa_pkt_init_ex_set_common_fields(
+	struct ipahal_imm_cmd_ip_packet_init_ex *cmd,
+	struct ipahal_imm_cmd_ip_packet_init_ex *cmd_mask)
+{
+	cmd->frag_disable = true;
+	cmd_mask->frag_disable = true;
+	cmd->nat_disable = true;
+	cmd_mask->nat_disable = true;
+	cmd->filter_disable = true;
+	cmd_mask->filter_disable = true;
+	cmd->route_disable = true;
+	cmd_mask->route_disable = true;
+	cmd->hdr_removal_insertion_disable = false;
+	cmd_mask->hdr_removal_insertion_disable = true;
+	cmd->cs_disable = false;
+	cmd_mask->cs_disable = true;
+	cmd->flt_retain_hdr = true;
+	cmd_mask->flt_retain_hdr = true;
+	cmd->rt_retain_hdr = true;
+	cmd_mask->rt_retain_hdr = true;
+}
+
 static int ipa_alloc_pkt_init_ex(void)
 {
 	struct ipa_mem_buffer *mem = &ipa3_ctx->pkt_init_ex_mem;
@@ -11521,8 +12008,11 @@ static int ipa_alloc_pkt_init_ex(void)
 	}
 	ipa3_ctx->pkt_init_ex_imm_opcode = cmd_pyld->opcode;
 
-	/* one cmd for each pipe for ULSO + one common for ICMP */
-	mem->size = cmd_pyld->len * (ipa3_ctx->ipa_num_pipes + 1);
+	/* one cmd for each pipe for ULSO + one shared "eth" slot for
+	 * no-cookie ICMP/IPsec-encap traffic + one shared "wlan" slot
+	 * for cookie-bearing ICMP/non-GSO ULSO traffic
+	 */
+	mem->size = cmd_pyld->len * (ipa3_ctx->ipa_num_pipes + 2);
 	mem->base = dma_alloc_coherent(ipa3_ctx->pdev, mem->size,
 		&mem->phys_base, GFP_KERNEL);
 	if (!mem->base) {
@@ -11532,22 +12022,7 @@ static int ipa_alloc_pkt_init_ex(void)
 	}
 
 	memset(mem->base, 0, mem->size);
-	cmd.frag_disable = true;
-	cmd_mask.frag_disable = true;
-	cmd.nat_disable = true;
-	cmd_mask.nat_disable = true;
-	cmd.filter_disable = true;
-	cmd_mask.filter_disable = true;
-	cmd.route_disable = true;
-	cmd_mask.route_disable = true;
-	cmd.hdr_removal_insertion_disable = false;
-	cmd_mask.hdr_removal_insertion_disable = true;
-	cmd.cs_disable = false;
-	cmd_mask.cs_disable = true;
-	cmd.flt_retain_hdr = true;
-	cmd_mask.flt_retain_hdr = true;
-	cmd.rt_retain_hdr = true;
-	cmd_mask.rt_retain_hdr = true;
+	ipa_pkt_init_ex_set_common_fields(&cmd, &cmd_mask);
 	cmd_mask.rt_pipe_dest_idx = true;
 	for (cmd.rt_pipe_dest_idx = 0;
 		cmd.rt_pipe_dest_idx < ipa3_ctx->ipa_num_pipes;
@@ -11601,9 +12076,36 @@ static int ipa_alloc_pkt_init_ex(void)
 		mem->base + ipa3_ctx->ipa_num_pipes * cmd_pyld->len;
 	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].size = cmd_pyld->len;
 
+	/* Just a placeholder. Will be assigned in the DP, before sending. */
+	cmd.rt_pipe_dest_idx = ipa3_ctx->ipa_num_pipes + 1;
+	result = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		cmd_pyld->data, &cmd, &cmd_mask);
+	if (unlikely(result != 0)) {
+		IPAERR("failed to modify IMM cmd\n");
+		goto free_dma;
+	}
+	memcpy(mem->base + (ipa3_ctx->ipa_num_pipes + 1) * cmd_pyld->len,
+		cmd_pyld->data,
+		cmd_pyld->len);
+	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].phys_base =
+		mem->phys_base + (ipa3_ctx->ipa_num_pipes + 1) * cmd_pyld->len;
+	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base =
+		mem->base + (ipa3_ctx->ipa_num_pipes + 1) * cmd_pyld->len;
+	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].size =
+		cmd_pyld->len;
+
 	goto free_imm;
 
 free_dma:
+	/*
+	 * On any failure above, pkt_init_ex_imm[] slots already committed
+	 * during this call (per-pipe slots and/or the eth shared slot)
+	 * still hold phys_base/base pointers into the DMA buffer we are
+	 * about to free below. Clear them so no dangling pointer into
+	 * freed memory survives this function.
+	 */
+	memset(ipa3_ctx->pkt_init_ex_imm, 0,
+		(ipa3_ctx->ipa_num_pipes + 2) * sizeof(*ipa3_ctx->pkt_init_ex_imm));
 	dma_free_coherent(ipa3_ctx->pdev,
 		mem->size,
 		mem->base,
@@ -11622,8 +12124,8 @@ free_imm:
 int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	*lookup, bool proc_ctx)
 {
-	struct ipahal_imm_cmd_pyld *cmd_pyld;
 	struct ipahal_imm_cmd_ip_packet_init_ex cmd = {0};
+	struct ipahal_imm_cmd_ip_packet_init_ex cmd_mask = {0};
 	u32 offset;
 	int res = 0;
 	int dst_ep_idx;
@@ -11633,7 +12135,7 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 
 	dst_ep_idx = ipa_get_ep_mapping(lookup->ep);
 	IPADBG("dst_ep_idx=%d\n", dst_ep_idx);
-	if (-1 == dst_ep_idx) {
+	if (-1 == dst_ep_idx || dst_ep_idx >= ipa3_ctx->ipa_num_pipes) {
 		IPAERR("Client %u is not mapped\n", lookup->ep);
 		return -EINVAL;
 	}
@@ -11645,27 +12147,26 @@ int ipa_set_pkt_init_ex_hdr_ofst(struct ipa_pkt_init_ex_hdr_ofst_set
 	if (res != 0)
 		return res;
 
+	/*
+	 * Modify only the fields this call owns, in place, so previously
+	 * configured fields on this (per-pipe) slot - e.g. traffic_mode, set
+	 * by ipa_imm_cmd_modify_ip_packet_init_ex_eth() for Ethernet pipes -
+	 * are preserved instead of being reset to their zero value.
+	 */
 	cmd.rt_hdr_offset = offset;
+	cmd_mask.rt_hdr_offset = true;
 	IPADBG("cmd.rt_hdr_offset=%d\n", cmd.rt_hdr_offset);
-	cmd.frag_disable = true;
-	cmd.nat_disable = true;
-	cmd.filter_disable = true;
-	cmd.route_disable = true;
-	cmd.hdr_removal_insertion_disable = false;
-	cmd.cs_disable = false;
-	cmd.flt_retain_hdr = true;
-	cmd.rt_retain_hdr = true;
-	cmd.rt_pipe_dest_idx = (dst_ep_idx < ipa3_ctx->ipa_num_pipes) ? dst_ep_idx : 0xFF;
+	ipa_pkt_init_ex_set_common_fields(&cmd, &cmd_mask);
+	cmd.rt_pipe_dest_idx = dst_ep_idx;
+	cmd_mask.rt_pipe_dest_idx = true;
 	cmd.rt_proc_ctx = proc_ctx;
-	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
-		&cmd, false);
-	if (!cmd_pyld) {
-		IPAERR("failed to construct IMM cmd\n");
-		return -ENOMEM;
+	cmd_mask.rt_proc_ctx = true;
+	res = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].base, &cmd, &cmd_mask);
+	if (unlikely(res != 0)) {
+		IPAERR("failed to modify IMM cmd\n");
+		return res;
 	}
-	memcpy(ipa3_ctx->pkt_init_ex_mem.base + dst_ep_idx * cmd_pyld->len,
-		cmd_pyld->data, cmd_pyld->len);
-	ipahal_destroy_imm_cmd(cmd_pyld);
        if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
            ipa3_get_ep_traffic_mode(lookup->ep) == IPA_NON_DMA_ETHERNET)
                ipa_imm_cmd_modify_ip_packet_init_ex_eth(dst_ep_idx);
@@ -11685,12 +12186,23 @@ EXPORT_SYMBOL(ipa_set_pkt_init_ex_hdr_ofst);
  */
 int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx)
 {
-	struct ipahal_imm_cmd_pyld *cmd_pyld;
 	struct ipahal_imm_cmd_ip_packet_init_ex cmd = {0};
+	struct ipahal_imm_cmd_ip_packet_init_ex cmd_mask = {0};
 	struct ipa3_hdr_entry *hdr_entry;
 	struct ipa3_hdr_proc_ctx_entry *hdr_proc_entry;
 	u32 offset;
+	int res;
 	enum hpc_tbl_storage storage;
+
+	/*
+	 * dst_ep_idx == ipa3_ctx->ipa_num_pipes is the shared common slot
+	 * (used e.g. for ICMP / IPsec-encap), one past the per-pipe slots -
+	 * see IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM.
+	 */
+	if (dst_ep_idx < 0 || dst_ep_idx > ipa3_ctx->ipa_num_pipes) {
+		IPAERR("Bad dst_ep_idx=%d\n", dst_ep_idx);
+		return -EINVAL;
+	}
 
 	if (proc_ctx) {
 		hdr_proc_entry = ipa3_id_find(hdl);
@@ -11707,27 +12219,34 @@ int ipa_set_pkt_init_ex_hdr_ofst_by_hdl(int dst_ep_idx, u32 hdl, bool proc_ctx)
 		offset = hdr_entry->offset_entry->offset;
 	}
 
+	/*
+	 * Modify only the fields this call owns, in place, so previously
+	 * configured fields on this slot (e.g. rt_close_aggr_irq_mod,
+	 * traffic_mode set up by ipa_alloc_pkt_init_ex()) are preserved
+	 * instead of being reset to their zero value.
+	 */
 	cmd.rt_hdr_offset = offset;
-	cmd.frag_disable = true;
-	cmd.nat_disable = true;
-	cmd.filter_disable = true;
-	cmd.route_disable = true;
-	cmd.hdr_removal_insertion_disable = false;
-	cmd.cs_disable = false;
-	cmd.flt_retain_hdr = true;
-	cmd.rt_retain_hdr = true;
+	cmd_mask.rt_hdr_offset = true;
+	ipa_pkt_init_ex_set_common_fields(&cmd, &cmd_mask);
+	/*
+	 * Unlike ipa_set_pkt_init_ex_hdr_ofst(), dst_ep_idx here may be the
+	 * shared common slot (== ipa3_ctx->ipa_num_pipes), which has no real
+	 * pipe of its own - the HW field is left at the sentinel 0xFF and the
+	 * real destination is patched in later, in the datapath, before send.
+	 */
 	cmd.rt_pipe_dest_idx = (dst_ep_idx < ipa3_ctx->ipa_num_pipes) ? dst_ep_idx : 0xFF;
+	cmd_mask.rt_pipe_dest_idx = true;
 	cmd.rt_proc_ctx = proc_ctx;
+	cmd_mask.rt_proc_ctx = true;
 	/* This may be called from the XFRM in interrupt context, therefore -> is atomic */
-	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX, &cmd, true);
-	if (!cmd_pyld) {
-		IPAERR("failed to construct IMM cmd\n");
-		return -ENOMEM;
+	res = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].base, &cmd, &cmd_mask);
+	if (unlikely(res != 0)) {
+		IPAERR("failed to modify IMM cmd\n");
+		return res;
 	}
-	memcpy(ipa3_ctx->pkt_init_ex_mem.base + dst_ep_idx * cmd_pyld->len,
-		cmd_pyld->data, cmd_pyld->len);
-	ipahal_destroy_imm_cmd(cmd_pyld);
        if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 &&
+           dst_ep_idx < ipa3_ctx->ipa_num_pipes &&
            ipa3_get_ep_traffic_mode(ipa3_get_client_mapping(dst_ep_idx)) ==
            IPA_NON_DMA_ETHERNET)
                ipa_imm_cmd_modify_ip_packet_init_ex_eth(dst_ep_idx);
@@ -12316,10 +12835,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	memset(&ipa3_ctx->prev_default_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
 	memset(&ipa3_ctx->prev_low_lat_data_recycle_stats, 0, sizeof(struct ipa3_page_recycle_stats));
 
-	memset(&ipa3_ctx->get_qos_config, 0, sizeof(struct ipa_ioc_get_qos_config));
-	mutex_init(&ipa3_ctx->msg_qos_param_lock);
-	INIT_LIST_HEAD(&ipa3_ctx->msg_qos_param_list);
-
 	/* Create workqueue for recycle stats collection */
 	ipa3_ctx->collect_recycle_stats_wq =
 					create_singlethread_workqueue("page_recycle_stats_collection");
@@ -12447,6 +12962,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ippt_pdninfo_refcnt = 0;
 
 	INIT_LIST_HEAD(&ipa3_ctx->intf_list);
+	spin_lock_init(&ipa3_ctx->intf_list_vpnum_lock);
+	INIT_LIST_HEAD(&ipa3_ctx->lan2lan_flt_list);
 	INIT_LIST_HEAD(&ipa3_ctx->msg_list);
 	INIT_LIST_HEAD(&ipa3_ctx->pull_msg_list);
 	init_waitqueue_head(&ipa3_ctx->msg_waitq);
@@ -12460,6 +12977,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	INIT_LIST_HEAD(&ipa3_ctx->msg_lan_list);
 	mutex_init(&ipa3_ctx->msg_lan_lock);
 	INIT_LIST_HEAD(&ipa3_ctx->msg_ippt_list);
+
+	INIT_LIST_HEAD(&ipa3_ctx->qos_config_list);
+	mutex_init(&ipa3_ctx->msg_qos_param_lock);
+	INIT_LIST_HEAD(&ipa3_ctx->msg_qos_param_list);
 
 	mutex_init(&ipa3_ctx->q6_proxy_clk_vote_mutex);
 	mutex_init(&ipa3_ctx->ipa_cne_evt_lock);
@@ -13088,6 +13609,8 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 
 	INIT_LIST_HEAD(&ipa3_ctx->intf_list);
+	spin_lock_init(&ipa3_ctx->intf_list_vpnum_lock);
+	INIT_LIST_HEAD(&ipa3_ctx->lan2lan_flt_list);
 	INIT_LIST_HEAD(&ipa3_ctx->msg_list);
 	INIT_LIST_HEAD(&ipa3_ctx->pull_msg_list);
 	init_waitqueue_head(&ipa3_ctx->msg_waitq);
@@ -15640,7 +16163,6 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 
 		if(ipa_drv_res->ipa_disable_per_flow_stats) {
 			IPADBG("Per flow stats disable: %d\n", ipa_drv_res->ipa_disable_per_flow_stats);
-			ipa3_ctx->ipa_disable_per_flow_stats = ipa_drv_res->ipa_disable_per_flow_stats;
 			/* Use max supported connection if per flow stats disable */
 			ipa3_ctx->max_ipv4_accel_conn = IPA_MAX_ACCEL_CONNECTIONS_V4;
 			ipa3_ctx->max_ipv6_accel_conn = IPA_MAX_ACCEL_CONNECTIONS_V6;
@@ -15701,6 +16223,18 @@ static void ipa_populate_ini_values(struct ipa3_plat_drv_res *ipa_drv_res)
 	ipa3_ctx->nat_stats_mode = ipa_drv_res->nat_stats_mode;
 	ipa3_ctx->nat_stats_max_counters_v4 = ipa_drv_res->nat_stats_max_counters_v4;
 	ipa3_ctx->nat_stats_max_counters_v6 = ipa_drv_res->nat_stats_max_counters_v6;
+	/*
+	 * Authoritative INI copy. Ordering: ipa_populate_ini_values() always
+	 * runs before ipa3_post_init() reads ipa_disable_per_flow_stats (post_init
+	 * is gated on fw_load_data.is_ipa_ini_init_done). Pre-INI, the field
+	 * already holds the pre_init seed from resource_p (see ipa3_pre_init),
+	 * so it is never read uninitialized.
+	 */
+	ipa3_ctx->ipa_disable_per_flow_stats = ipa_drv_res->ipa_disable_per_flow_stats;
+
+	/* Pipes for which BE_FLOW (metadata bit 29) should not be set */
+	ipa3_ctx->disable_flow_control_mask = ipa_drv_res->disable_flow_control_mask;
+	IPADBG("disable_flow_control_mask: 0x%llx\n", ipa3_ctx->disable_flow_control_mask);
 
 	if (ipa_is_ready())
 		return;
@@ -15754,27 +16288,6 @@ static void ipa_ini_read_params_work(struct work_struct *work)
 	}
 }
 
-/* Set default values for IPA INI file fields, ignore dtsi fields */
-void ipa3_set_ini_fields_default(struct ipa3_plat_drv_res *ipa_drv_res)
-{
-	ipa_drv_res->use_vlan_eth_emac_config = 0;
-	ipa_drv_res->use_vlan_eth0_config = 0;
-	ipa_drv_res->use_vlan_eth1_config = 0;
-	ipa_drv_res->use_vlan_rndis_config = 0;
-	ipa_drv_res->use_vlan_ecm_config = 0;
-	ipa_drv_res->use_vlan_mhi_eth_config = 0;
-	ipa_drv_res->use_mhi_config = 0;
-	ipa_drv_res->use_mhi_eth_config = 0;
-	ipa_drv_res->use_rdkb_config = 0;
-	ipa_drv_res->use_tsn_config = 0;
-	ipa_drv_res->use_ezmesh_config = 0;
-	ipa_drv_res->use_eth_qos_config = 0;
-	ipa_drv_res->use_ipsec_config = 0;
-	ipa_drv_res->use_ipv6_nat_config = 0;
-	ipa_drv_res->max_ipv4_stats_accel_conn = 1000;
-	ipa_drv_res->max_ipv6_stats_accel_conn = 1000;
-	ipa_drv_res->ipa_disable_per_flow_stats = 0;
-}
 #endif
 
 int ipa3_plat_drv_probe(struct platform_device *pdev_p)
@@ -15831,9 +16344,6 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 
 	IPADBG("IPA driver probing started\n");
 	IPADBG("dev->of_node->name = %s\n", dev->of_node->name);
-#ifdef CONFIG_ECM_CONVERGENCE
-	ipa3_set_ini_fields_default(&ipa3_res);
-#endif
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-v2x-cb")) {
 		if (ipa3_ctx == NULL) {
 			IPAERR("ipa3_ctx was not initialized\n");
@@ -15974,6 +16484,14 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		return result;
 	}
 
+	/*
+	 * Only the main "qcom,ipa" node reaches this point. Reset here, not at
+	 * the top of this function, or every sub-node probe call would wipe
+	 * the already-parsed INI values (ipa3_res is shared).
+	 */
+#ifdef CONFIG_ECM_CONVERGENCE
+	ipa_ini_set_all_defaults(&ipa3_res);
+#endif
 	result = get_ipa_dts_configuration(pdev_p, &ipa3_res);
 	if (result) {
 		IPAERR("IPA dts parsing failed\n");
@@ -16277,6 +16795,7 @@ static void ipa3_deepsleep_suspend(void)
 #ifndef CONFIG_DEBUG_FS
 	ipa_sysfs_deinit();
 #endif
+	ipa_rc_deinit();
 	/*Unloading IPA FW to allow FW load in resume*/
 	ipa3_pil_unload_ipa_fws();
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
@@ -16809,6 +17328,16 @@ static void __exit ipa_module_exit(void)
 	/* Clean up IPsec */
 	ipa_ipsec_cleanup();
 #endif
+	{
+		struct ipa3_qos_config_node *node, *tmp;
+
+		list_for_each_entry_safe(node, tmp, &ipa3_ctx->qos_config_list, list) {
+			list_del(&node->list);
+			if (node->config.proc_ctx_hdl)
+				__ipa3_release_hdr_proc_ctx(node->config.proc_ctx_hdl);
+			kfree(node);
+		}
+	}
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
 }

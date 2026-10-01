@@ -39,6 +39,7 @@ enum ipa_ini_file_param {
 		IPA_NAT_STATS_MODE,
 		IPA_NAT_STATS_MAX_COUNTERS_V4,
 		IPA_NAT_STATS_MAX_COUNTERS_V6,
+		IPA_DISABLE_FLOW_CONTROL_MASK,
 		IPA_PARAM_MAX,
 	};
 
@@ -72,7 +73,12 @@ static char ipa_ini_param[IPA_PARAM_MAX][IPA_PARAM_STR_LENGTH] = {
 		"nat_stats_mode",
 		"nat_stats_max_counters_v4",
 		"nat_stats_max_counters_v6",
+		"disable_flow_control_mask",
 	};
 
+/* Parses the INI firmware file into @ipa_drv_res; missing/invalid fields fall back to defaults. */
 int ipa_init_params_from_ini(struct device *device,
 				struct ipa3_plat_drv_res *ipa_drv_res);
+
+/* Resets every INI-controlled field in @drv_res to its documented default. */
+void ipa_ini_set_all_defaults(struct ipa3_plat_drv_res *drv_res);

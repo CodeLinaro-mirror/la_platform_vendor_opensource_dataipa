@@ -5,6 +5,7 @@
 
 #ifdef CONFIG_ECM_CONVERGENCE
 #include <linux/mutex.h>
+#include <linux/sched.h>	/* current */
 #else
 #include <errno.h>
 #include <pthread.h>
@@ -122,29 +123,28 @@ static ipa_cti_obj cti_obj = {
 	.sw_stats = { {0, 0}, {0, 0} },
 };
 
-bool     ct_mutex_locked;
-
 /*
  * The following needed to protect cti_obj above, as well as a number
  * of data stuctures within the file ipa_ipv6ct.c
  */
 #ifdef CONFIG_ECM_CONVERGENCE
 DEFINE_MUTEX(ipv6ct_mutex);
+
+/* Per-thread ownership; see ipa_nat_statemach.c. */
+static struct task_struct *ipv6ct_mutex_owner;
+static int                 ipv6ct_mutex_depth;
 #else
 pthread_mutex_t ipv6ct_mutex;
 static bool ipv6ct_mutex_init;
 
-/* Guard to protect one‑time initialization */
+/* Protects one-time init of ipv6ct_mutex. */
 static pthread_mutex_t ipv6ct_mutex_init_guard =
     PTHREAD_MUTEX_INITIALIZER;
 #endif
 
-bool ipv6ct_mutex_locked = false;
 /*
- * IPV6CT mutex abstraction
- *
- * Kernel  : Linux mutex (cannot fail)
- * Userspace: pthread recursive mutex (may fail)
+ * Kernel  : non-recursive mutex, same-thread nesting refcounted here.
+ * Userspace: PTHREAD_MUTEX_RECURSIVE, pthreads refcounts nesting.
  */
 
 #ifdef CONFIG_ECM_CONVERGENCE
@@ -153,20 +153,25 @@ bool ipv6ct_mutex_locked = false;
 /* Kernel mutex lock never fails */
 int ipa_ipv6ct_take_mutex(void)
 {
-   if (!ipv6ct_mutex_locked) {
-    	mutex_lock(&ipv6ct_mutex);
-	ipv6ct_mutex_locked = true;
-   }
-   return 0;
+	if (ipv6ct_mutex_owner == current) {
+		ipv6ct_mutex_depth++;
+		return 0;
+	}
+	mutex_lock(&ipv6ct_mutex);
+	ipv6ct_mutex_owner = current;
+	ipv6ct_mutex_depth = 1;
+	return 0;
 }
 
 int ipa_ipv6ct_give_mutex(void)
 {
-    if (ipv6ct_mutex_locked) {
-    	mutex_unlock(&ipv6ct_mutex);
-	ipv6ct_mutex_locked = false;
-    }
-    return 0;
+	if (ipv6ct_mutex_owner != current)
+		return 0;
+	if (--ipv6ct_mutex_depth > 0)
+		return 0;
+	ipv6ct_mutex_owner = NULL;
+	mutex_unlock(&ipv6ct_mutex);
+	return 0;
 }
 
 #else
@@ -228,14 +233,10 @@ int ipa_ipv6ct_take_mutex(void)
         }
     }
 
-    if (!ipv6ct_mutex_locked) {
-    	ret = pthread_mutex_lock(&ipv6ct_mutex);
-   	if (ret) {
-        	IPAERR("pthread_mutex_lock(ipv6ct) failed (%d)\n", ret);
-		return ret;
-	}
-	ipv6ct_mutex_locked = true;
-    }
+    /* Recursive pthread mutex: nesting refcounted by pthreads. */
+    ret = pthread_mutex_lock(&ipv6ct_mutex);
+    if (ret)
+        IPAERR("pthread_mutex_lock(ipv6ct) failed (%d)\n", ret);
 
     return ret;
 }
@@ -244,14 +245,15 @@ int ipa_ipv6ct_give_mutex(void)
 {
     int ret;
 
-    if (!ipv6ct_mutex_locked) {
-    	ret = pthread_mutex_unlock(&ipv6ct_mutex);
-    	if (ret) {
-        	IPAERR("pthread_mutex_unlock(ipv6ct) failed (%d)\n", ret);
-		return ret;
-	}
-	ipv6ct_mutex_locked = false;
-    }
+    /* Guard against unlocking an uninitialized mutex if give is called
+     * before any successful take (e.g., cleanup after failed init).
+     */
+    if (!ipv6ct_mutex_init)
+        return 0;
+
+    ret = pthread_mutex_unlock(&ipv6ct_mutex);
+    if (ret)
+        IPAERR("pthread_mutex_unlock(ipv6ct) failed (%d)\n", ret);
 
     return ret;
 }

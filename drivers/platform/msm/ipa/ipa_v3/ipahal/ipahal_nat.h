@@ -100,4 +100,12 @@ int ipahal_nat_construct_entry(enum ipahal_nat_type nat_type,
 int ipahal_nat_parse_entry(enum ipahal_nat_type nat_type, void *fields,
 	const void *address);
 
+/*
+ * ipahal_nat_entry_stats_cnt_index() - Get an entry's all_pkts_stats_cnt_index.
+ * Sets *all_pkts_cnt_index to 0 when unavailable.
+ * @return 0 on success; -ENOTSUPP on pre-v7.0 HW; -EINVAL on bad args/type.
+ */
+int ipahal_nat_entry_stats_cnt_index(enum ipahal_nat_type nat_type,
+	const void *entry, u16 *all_pkts_cnt_index);
+
 #endif /* _IPAHAL_NAT_H_ */

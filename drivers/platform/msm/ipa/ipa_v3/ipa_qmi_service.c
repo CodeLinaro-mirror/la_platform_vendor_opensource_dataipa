@@ -667,8 +667,8 @@ static int ipa3_qmi_send_req_wait(struct qmi_handle *client_handle,
 
 	mutex_lock(&ipa3_qmi_lock);
 
-	if (client_handle != ipa_q6_clnt) {
-		IPADBG("Q6 QMI clinet pointer already freed\n");
+	if (!client_handle || client_handle != ipa_q6_clnt ) {
+		IPADBG("Q6 QMI client pointer already freed\n");
 		mutex_unlock(&ipa3_qmi_lock);
 		return -EINVAL;
 	}
@@ -713,6 +713,9 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 
 	memset(&req, 0, sizeof(struct ipa_init_modem_driver_req_msg_v01));
 	memset(&resp, 0, sizeof(struct ipa_init_modem_driver_resp_msg_v01));
+
+	IPAWANDBG("QMI INIT MODEM: SRAM base (smem_restr_bytes)=0x%x, ipa_smem_size=0x%x\n",
+		smem_restr_bytes, ipa3_ctx->ipa_smem_size);
 
 	req.platform_type_valid = true;
 	req.platform_type = ipa_wan_platform;
@@ -861,48 +864,59 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 
 	IPAWANDBG("filter_start_id_valid %d\n",req.filter_start_id_valid);
 	IPAWANDBG("filter_start_id %d\n",req.filter_start_id);
-	IPAWANDBG("hw_flt stats: hw_filter_start_address = %u", req.hw_filter_stats_info.hw_filter_stats_start_addr);
-	IPAWANDBG("hw_flt stats: hw_filter_stats_size = %u", req.hw_filter_stats_info.hw_filter_stats_size);
+	IPAWANDBG("hw_flt stats: hw_filter_start_address = 0x%x", req.hw_filter_stats_info.hw_filter_stats_start_addr);
+	IPAWANDBG("hw_flt stats: hw_filter_stats_size = 0x%x", req.hw_filter_stats_info.hw_filter_stats_size);
 	IPAWANDBG("hw_flt stats: hw_filter_stats_start_index  = %u", req.hw_filter_stats_info.hw_filter_stats_start_index);
 	IPAWANDBG("platform_type %d\n", req.platform_type);
-	IPAWANDBG("hdr_tbl_info.modem_offset_start %d\n",
+	IPAWANDBG("hdr_tbl_info.modem_offset_start 0x%x\n",
 			req.hdr_tbl_info.modem_offset_start);
-	IPAWANDBG("hdr_tbl_info.modem_offset_end %d\n",
+	IPAWANDBG("hdr_tbl_info.modem_offset_end 0x%x\n",
 			req.hdr_tbl_info.modem_offset_end);
-	IPAWANDBG("v4_route_tbl_info.route_tbl_start_addr %d\n",
+	IPAWANDBG("v4_route_tbl_info.route_tbl_start_addr 0x%x\n",
 			req.v4_route_tbl_info.route_tbl_start_addr);
 	IPAWANDBG("v4_route_tbl_info.num_indices %d\n",
 			req.v4_route_tbl_info.num_indices);
-	IPAWANDBG("v6_route_tbl_info.route_tbl_start_addr %d\n",
+	IPAWANDBG("v6_route_tbl_info.route_tbl_start_addr 0x%x\n",
 			req.v6_route_tbl_info.route_tbl_start_addr);
 	IPAWANDBG("v6_route_tbl_info.num_indices %d\n",
 			req.v6_route_tbl_info.num_indices);
-	IPAWANDBG("v4_filter_tbl_start_addr %d\n",
+	IPAWANDBG("v4_filter_tbl_start_addr 0x%x\n",
 			req.v4_filter_tbl_start_addr);
-	IPAWANDBG("v6_filter_tbl_start_addr %d\n",
+	IPAWANDBG("v6_filter_tbl_start_addr 0x%x\n",
 			req.v6_filter_tbl_start_addr);
-	IPAWANDBG("modem_mem_info.block_start_addr %d\n",
+	IPAWANDBG("modem_mem_info.block_start_addr 0x%x\n",
 			req.modem_mem_info.block_start_addr);
-	IPAWANDBG("modem_mem_info.size %d\n",
+	IPAWANDBG("modem_mem_info.size 0x%x\n",
 			req.modem_mem_info.size);
 	IPAWANDBG("ctrl_comm_dest_end_pt %d\n",
 			req.ctrl_comm_dest_end_pt);
 	IPAWANDBG("is_ssr_bootup %d\n",
 			req.is_ssr_bootup);
-	IPAWANDBG("v4_hash_route_tbl_info.route_tbl_start_addr %d\n",
+	IPAWANDBG("v4_hash_route_tbl_info.route_tbl_start_addr 0x%x\n",
 		req.v4_hash_route_tbl_info.route_tbl_start_addr);
 	IPAWANDBG("v4_hash_route_tbl_info.num_indices %d\n",
 		req.v4_hash_route_tbl_info.num_indices);
-	IPAWANDBG("v6_hash_route_tbl_info.route_tbl_start_addr %d\n",
+	IPAWANDBG("v6_hash_route_tbl_info.route_tbl_start_addr 0x%x\n",
 		req.v6_hash_route_tbl_info.route_tbl_start_addr);
 	IPAWANDBG("v6_hash_route_tbl_info.num_indices %d\n",
 		req.v6_hash_route_tbl_info.num_indices);
-	IPAWANDBG("v4_hash_filter_tbl_start_addr %d\n",
+	IPAWANDBG("v4_hash_filter_tbl_start_addr 0x%x\n",
 		req.v4_hash_filter_tbl_start_addr);
-	IPAWANDBG("v6_hash_filter_tbl_start_addr %d\n",
+	IPAWANDBG("v6_hash_filter_tbl_start_addr 0x%x\n",
 		req.v6_hash_filter_tbl_start_addr);
-	IPAWANDBG("ipa_smem_info.size %d\n",
+	IPAWANDBG("ipa_smem_info.size 0x%x\n",
 			req.smem_info.size);
+	IPAWANDBG("hw_stats_quota: base_addr = 0x%x, size = 0x%x\n",
+			req.hw_stats_quota_base_addr, req.hw_stats_quota_size);
+	IPAWANDBG("hw_drop_stats: base_addr = 0x%x, table_size = 0x%x\n",
+			req.hw_drop_stats_base_addr, req.hw_drop_stats_table_size);
+	IPAWANDBG("hdr_proc_ctx_tbl_info: start=0x%x end=0x%x\n",
+		req.hdr_proc_ctx_tbl_info.modem_offset_start,
+		req.hdr_proc_ctx_tbl_info.modem_offset_end);
+	IPAWANDBG("per_stats_smem: block_start=0x%llx size=0x%x valid=%d\n",
+		(u64)req.per_stats_smem_info.block_start_addr,
+		req.per_stats_smem_info.size,
+		req.per_stats_smem_info_valid);
 
 	req_desc.max_msg_len = QMI_IPA_INIT_MODEM_DRIVER_REQ_MAX_MSG_LEN_V01;
 	req_desc.msg_id = QMI_IPA_INIT_MODEM_DRIVER_REQ_V01;
@@ -1690,21 +1704,27 @@ int ipa3_qmi_filter_notify_send(
 	struct ipa_msg_desc req_desc, resp_desc;
 	int rc = 0;
 
+	/*
+	 * This QMI request is dual-purpose: rule_id_len==0 && rule_id_ex_len==0
+	 * means "delete all UL rules for this pipe", otherwise it's an install
+	 * notification carrying rule_ids. The previous log unconditionally said
+	 * "delete" which was misleading on the install path.
+	 */
+	IPAWANDBG("UL filter %s notify: pipe=%d rule_id_len=%u rule_id_ex_len=%u\n",
+		(req->rule_id_len == 0 && req->rule_id_ex_len == 0) ? "delete" : "install",
+		req->source_pipe_index,
+		req->rule_id_len,
+		req->rule_id_ex_len);
+
 	/* check if the filter rules from IPACM is valid */
-	if (req->rule_id_len == 0) {
-		IPAWANDBG(" delete UL filter rule for pipe %d\n",
-		req->source_pipe_index);
-	} else if (req->rule_id_len > QMI_IPA_MAX_FILTERS_V01) {
+	if (req->rule_id_len > QMI_IPA_MAX_FILTERS_V01) {
 		IPAWANERR(" UL filter rule for pipe %d exceed max (%u)\n",
 		req->source_pipe_index,
 		req->rule_id_len);
 		return -EINVAL;
 	}
 
-	if (req->rule_id_ex_len == 0) {
-		IPAWANDBG(" delete UL filter rule for pipe %d\n",
-		req->source_pipe_index);
-	} else if (req->rule_id_ex_len > QMI_IPA_MAX_FILTERS_EX2_V01) {
+	if (req->rule_id_ex_len > QMI_IPA_MAX_FILTERS_EX2_V01) {
 		IPAWANERR(" UL filter rule for pipe %d exceed max (%u)\n",
 		req->source_pipe_index,
 		req->rule_id_ex_len);
@@ -1733,7 +1753,8 @@ int ipa3_qmi_filter_notify_send(
 		IPAWANERR(
 			"IPACM passes embedded pipe and mux valid not valid\n");
 		return -EINVAL;
-	} else if (req->embedded_pipe_index >= ipa3_ctx_get_num_pipes()) {
+	} else if (req->embedded_pipe_index_valid &&
+			req->embedded_pipe_index >= ipa3_ctx_get_num_pipes()) {
 		IPAWANERR("IPACM passes source pipe index not valid ID = %d\n",
 		req->source_pipe_index);
 		return -EINVAL;
@@ -1769,6 +1790,7 @@ int ipa3_qmi_filter_notify_send(
 
 	if (unlikely(!ipa_q6_clnt))
 		return -ETIMEDOUT;
+
 	rc = ipa3_qmi_send_req_wait(ipa_q6_clnt,
 		&req_desc, req,
 		&resp_desc, &resp,

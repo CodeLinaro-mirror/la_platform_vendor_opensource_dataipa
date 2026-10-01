@@ -39,7 +39,8 @@
 
 #define IPA_NAT_MAX_NUM_OF_INIT_CMD_DESC 4
 #define IPA_IPV6CT_MAX_NUM_OF_INIT_CMD_DESC 3
-#define IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC 5
+/* 4 data + coal-close + NOP + headroom for IPAv7 NAT delete */
+#define IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC 8
 #define IPA_MAX_NUM_OF_TABLE_WRITE_CMD_DESC IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC
 
 /*
@@ -1953,6 +1954,40 @@ int ipa3_ipv6ct_init_cmd(
 	return 0;
 }
 
+/*
+ * Recompute PDN0 NAT-entry presence and push it to IPA-RC. Caller must hold
+ * nat_mem.dev.lock. Event-driven replacement for the health monitor reading
+ * pdn_mem.base on every poll (which raced NAT teardown).
+ */
+static void ipa3_nat_refresh_rc_pdn_present(void)
+{
+	struct ipa3_nat_mem *nm_ptr = &ipa3_ctx->nat_mem;
+	char *pdn_entry;
+	bool entry_zeroed, entry_valid;
+	bool present = false;
+
+	if (nm_ptr->pdn_mem.base) {
+		pdn_entry = nm_ptr->pdn_mem.base;
+
+		if (ipahal_nat_is_entry_zeroed(IPAHAL_NAT_IPV4_PDN,
+				pdn_entry, &entry_zeroed)) {
+			IPAERR("ipahal_nat_is_entry_zeroed() fail\n");
+			goto out;
+		}
+
+		if (!entry_zeroed) {
+			if (ipahal_nat_is_entry_valid(IPAHAL_NAT_IPV4_PDN,
+					pdn_entry, &entry_valid)) {
+				IPAERR("ipahal_nat_is_entry_valid() fail\n");
+				goto out;
+			}
+			present = entry_valid;
+		}
+	}
+out:
+	ipa_rc_set_nat_present_status(present);
+}
+
 /**
  * ipa3_nat_mdfy_pdn() - Modify a PDN entry in PDN config table in IPA SRAM
  * @mdfy_pdn:	[in] PDN info to be written to SRAM
@@ -2074,6 +2109,9 @@ int ipa3_nat_mdfy_pdn(
 		IPAERR("Fail to send PDN table copy immediate command\n");
 
 	ipahal_destroy_imm_cmd(cmd_pyld);
+
+	/* Update the RC health-monitor PDN0-present cache (dev->lock held). */
+	ipa3_nat_refresh_rc_pdn_present();
 
 bail:
 	mutex_unlock(&dev->lock);
@@ -2626,7 +2664,7 @@ int ipa3_nat_dma_cmd(struct ipa_ioc_nat_dma_cmd *dma)
 	return ipa3_table_dma_cmd(dma);
 }
 
-static void ipa3_nat_ipv6ct_free_mem(
+void ipa3_nat_ipv6ct_free_mem(
 	struct ipa3_nat_ipv6ct_common_mem *dev)
 {
 	struct ipa3_nat_mem *nm_ptr;
@@ -2763,6 +2801,7 @@ static void ipa3_nat_ipv6ct_free_mem(
 
 	IPADBG("Out\n");
 }
+EXPORT_SYMBOL(ipa3_nat_ipv6ct_free_mem);
 
 static int ipa3_nat_ipv6ct_create_del_table_cmd(
 	uint8_t tbl_index,
@@ -3039,6 +3078,9 @@ int ipa3_del_nat_table(
 
 		pdn_mem_ptr->base = NULL;
 	}
+
+	/* PDN table gone; clear the RC PDN0-present cache (dev->lock held). */
+	ipa_rc_set_nat_present_status(false);
 
 	ipa3_nat_ipv6ct_free_mem(dev);
 

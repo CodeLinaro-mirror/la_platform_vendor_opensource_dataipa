@@ -408,6 +408,65 @@ struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac(mac_add
 EXPORT_SYMBOL(ipa_be_clientdb_get_mapping_by_mac);
 
 /*
+ * ipa_be_clientdb_get_mapping_by_mac_locked() - Lookup mapping by MAC + VLAN.
+ * @mac: MAC address to search for
+ * @vlan_id: VLAN ID to search for
+ *
+ * Same as ipa_be_clientdb_get_mapping_by_mac() but requires the caller to hold
+ * ipa_client_db_lock.  The returned pointer is valid only while the lock is held —
+ * callers must snapshot any needed fields before releasing it.
+ */
+struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_mac_locked(
+	mac_addr_t mac, int vlan_id)
+{
+	ipa_db_mapping_hash_t hash_index;
+	struct ipa_clientdb_mapping_instance *mi;
+
+	hash_index = ipa_db_mapping_generate_mac_hash_index(mac, vlan_id);
+
+	for (mi = ipa_db_mapping_mac_table[hash_index]; mi != NULL; mi = mi->mac_hash_next) {
+		if (memcmp(mi->mac_addr_t, mac, IPA_MAC_ADDR_SIZE) == 0 && mi->vlan_id == vlan_id) {
+			IPA_BE_DBG("Found mapping (locked) by MAC %pM VLAN %d at %px\n",
+				   mac, vlan_id, mi);
+			return mi;
+		}
+	}
+
+	IPA_BE_DBG("No mapping found (locked) for MAC %pM VLAN %d\n", mac, vlan_id);
+	return NULL;
+}
+EXPORT_SYMBOL(ipa_be_clientdb_get_mapping_by_mac_locked);
+
+/*
+ * ipa_be_clientdb_get_mapping_by_ip_locked() - Lookup mapping by IP address.
+ * @addr: IP address to search for (v4 in addr[0]; v6 across all 4 words)
+ *
+ * Same locking contract as ipa_be_clientdb_get_mapping_by_mac_locked(): caller
+ * must hold ipa_client_db_lock, and the returned pointer (including its
+ * iface_name) is valid only while the lock is held.
+ */
+struct ipa_clientdb_mapping_instance *ipa_be_clientdb_get_mapping_by_ip_locked(
+	ip_addr_t addr)
+{
+	ipa_db_mapping_hash_t hash_index;
+	struct ipa_clientdb_mapping_instance *mi;
+
+	hash_index = ipa_db_mapping_generate_hash_index(addr, 0);
+
+	for (mi = ipa_db_mapping_table[hash_index]; mi != NULL; mi = mi->hash_next) {
+		if (is_ip_addr_equal(mi->address, addr)) {
+			IPA_BE_DBG("Found mapping (locked) by IP at %px iface %s\n",
+				   mi, mi->iface_name);
+			return mi;
+		}
+	}
+
+	IPA_BE_DBG("No mapping found (locked) for IP\n");
+	return NULL;
+}
+EXPORT_SYMBOL(ipa_be_clientdb_get_mapping_by_ip_locked);
+
+/*
  * ipa_db_mapping_add()
  *	Add a mapping instance into the database
  *
@@ -1287,6 +1346,17 @@ static int ipa_eth_hdr_init(mac_addr_t client_mac, char *name, enum ipa_ip_type 
 	} else if (return_interface_num == return_top_interface_num) {
 		bridge_if_num = flow_top_interface_num;
 		client_if_num = flow_interface_num;
+	} else if (ipa_be_iface_is_bridge(flow_top_interface_num)) {
+		bridge_if_num = flow_top_interface_num;
+		client_if_num = flow_interface_num;
+	} else if (ipa_be_iface_is_bridge(return_top_interface_num)) {
+		bridge_if_num = return_top_interface_num;
+		client_if_num = return_interface_num;
+	} else {
+		IPA_BE_ERR("Unexpected topology: flow(%d,%d) return(%d,%d), no bridge/client iface match\n",
+			   flow_interface_num, flow_top_interface_num,
+			   return_interface_num, return_top_interface_num);
+		return -EINVAL;
 	}
 	IPA_BE_DBG("Bridge iface number %d client_if_num %d\n",
 		   bridge_if_num, client_if_num);
@@ -1335,24 +1405,58 @@ static int ipa_eth_hdr_init(mac_addr_t client_mac, char *name, enum ipa_ip_type 
 		IPA_BE_DBG("Device is in bridge mode %pM\n", bridge_mac);
 	}
 
-	/* Handle VLAN header if VLAN tag is provided */
-	if (vlan_tag != 0 && vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED && sCopyHeader.is_eth2_ofst_valid) {
-		uint16_t vlan_tci;
+	/* Insert 802.1Q tag when needed. Template is 14B (plain Eth) or 18B
+	 * (already vlan_mode): grow to 18B if plain, then fill TCI.
+	 */
+	if (vlan_tag != 0 && vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED) {
+	    if (!sCopyHeader.is_eth2_ofst_valid) {
+		IPA_BE_ERR("vlan_tag=0x%08x but eth2_ofst invalid; frame will be untagged\n",
+			   vlan_tag);
+	    } else {
+		uint16_t vlan_tci = htons((uint16_t)(vlan_tag & 0xFFFF));
+		int et_pos = sCopyHeader.eth2_ofst + 2 * IPA_MAC_ADDR_SIZE;
+		uint16_t tpid_at_et;
 
-		/* Extract TCI from the complete vlan_tag (lower 16 bits) */
-		vlan_tci = (uint16_t)(vlan_tag & 0xFFFF);
+		memcpy(&tpid_at_et, &pHeaderDescriptor->hdr[0].hdr[et_pos],
+		       sizeof(tpid_at_et));
 
-		/* Convert vlan_tci to network byte order */
-		vlan_tci = htons(vlan_tci);
+		if (tpid_at_et != htons(ETH_P_8021Q)) {
+			/* Open 4B gap for TPID+TCI. */
+			uint16_t tpid = htons(ETH_P_8021Q);
+			size_t new_hdr_len = sCopyHeader.hdr_len + 4;
+			size_t tail_len;
 
-		/* Copy the VLAN TCI to the header at the correct position (after TPID) */
-		memcpy(&pHeaderDescriptor->hdr[0].hdr[sCopyHeader.eth2_ofst +
-			2 * IPA_MAC_ADDR_SIZE + 2], /* +2 for TPID size */
-			&vlan_tci,
-			sizeof(vlan_tci));
+			if (et_pos < 0 || (size_t)et_pos > sCopyHeader.hdr_len) {
+				IPA_BE_ERR("VLAN insertion offset %d exceeds header length %u\n",
+					   et_pos, sCopyHeader.hdr_len);
+				res = -EFAULT;
+				goto fail;
+			}
+			tail_len = sCopyHeader.hdr_len - et_pos;
 
-		IPA_BE_DBG("Updated VLAN TCI to 0x%04x, complete VLAN tag is 0x%08x\n",
-			   ntohs(vlan_tci), vlan_tag);
+			if (new_hdr_len > IPA_HDR_MAX_SIZE) {
+				IPA_BE_ERR("VLAN growth would exceed IPA_HDR_MAX_SIZE\n");
+				res = -EFAULT;
+				goto fail;
+			}
+			memmove(&pHeaderDescriptor->hdr[0].hdr[et_pos + 4],
+				&pHeaderDescriptor->hdr[0].hdr[et_pos], tail_len);
+			memcpy(&pHeaderDescriptor->hdr[0].hdr[et_pos],
+			       &tpid, sizeof(tpid));
+			sCopyHeader.hdr_len = new_hdr_len;
+			IPA_BE_DBG("Grown eth hdr to 18B for VLAN insertion\n");
+		}
+
+		/* Fill TCI. */
+		memcpy(&pHeaderDescriptor->hdr[0].hdr[et_pos + 2],
+		       &vlan_tci, sizeof(vlan_tci));
+
+		/* Mark L2 type 802.1Q (also needed on eth_bh where .type isn't copied). */
+		sCopyHeader.type = IPA_HDR_L2_802_1Q;
+
+		IPA_BE_DBG("Wrote 802.1Q TCI=0x%04x, hdr_len=%u\n",
+			   ntohs(vlan_tci), sCopyHeader.hdr_len);
+	    }
 	}
 
 	pHeaderDescriptor->commit = true;
@@ -1416,6 +1520,9 @@ static int ipa_eth_hdr_init(mac_addr_t client_mac, char *name, enum ipa_ip_type 
 
 	if (!eth_bh)
 		pHeaderDescriptor->hdr[0].type = sCopyHeader.type;
+	else if (sCopyHeader.type == IPA_HDR_L2_802_1Q)
+		/* eth_bh normally leaves .type as NONE; keep 802.1Q if we tagged. */
+		pHeaderDescriptor->hdr[0].type = IPA_HDR_L2_802_1Q;
 
 	if (ipa3_add_hdr_usr(pHeaderDescriptor, true)) {
 		res = -EFAULT;
@@ -1806,19 +1913,22 @@ static int ipa_ipv6_header_proc_ctx(
 }
 
 /**
- * ipa_vlan_header_proc_ctx() - Create a VLAN header processing context
+ * ipa_eth_header_proc_ctx() - Create an eth header processing context
  * @hdr_hdl: Pointer to header handle
  * @name: Header name (unused, kept for compatibility)
  * @mac: Client MAC address for generating proc_ctx name
- * @vlan_tag: VLAN tag for generating proc_ctx name
+ * @vlan_tag: VLAN tag for generating proc_ctx name, or IPA_VLAN_ID_NOT_CONFIGURED/0
+ *            when the client has no VLAN
  * @proc_ctx_name_out: Output buffer for proc_ctx name
  *
- * This function creates a header processing context for VLAN headers.
- * It's IP version agnostic and can be used for both IPv4 and IPv6.
+ * This function creates a header processing context wrapping an eth header,
+ * used for both VLAN and non-VLAN clients so that every LAN-side/WAN-side
+ * route rule references its header the same way. It's IP version agnostic
+ * and can be used for both IPv4 and IPv6.
  *
  * Return: Processing context handle on success, negative errno on failure
  */
-static int ipa_vlan_header_proc_ctx(
+static int ipa_eth_header_proc_ctx(
 	int* hdr_hdl,
 	char *name,
 	mac_addr_t mac,
@@ -1831,17 +1941,22 @@ static int ipa_vlan_header_proc_ctx(
 	struct ipa_hdr_proc_ctx_add *hdr_proc_ctx;
 	int size = 0;
 	char client_mac_vlan_str[32];
-	int vlan_id = 0;
 
-	IPA_BE_DBG("ECMIPA entry ipa_vlan_header_proc_ctx \n");
+	IPA_BE_DBG("ECMIPA entry ipa_eth_header_proc_ctx \n");
 
-	/* Generate proc_ctx name from MAC and VLAN */
+	/* Generate proc_ctx name from MAC and VLAN. Use a distinct "novlan"
+	 * token for clients with no VLAN configured rather than folding them
+	 * into VLAN ID 0, which is itself a valid, distinct VLAN ID.
+	 */
 	if (vlan_tag != 0 && vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED) {
-		vlan_id = vlan_tag & 0x0FFF;  /* Extract VLAN ID from lower 12 bits */
-	}
+		int vlan_id = vlan_tag & 0x0FFF;  /* Extract VLAN ID from lower 12 bits */
 
-	snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d_l2w",
-			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], vlan_id);
+		snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d_l2w",
+				mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], vlan_id);
+	} else {
+		snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_novlan_l2w",
+				mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+	}
 
 	/* Store the proc_ctx name for later cleanup */
 	if (proc_ctx_name_out) {
@@ -1926,7 +2041,8 @@ static int ipa_vlan_header_proc_ctx(
  * @return 0 on success, -1 on failure
  */
 int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, int hdl, int proc,
-							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name)
+							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name,
+							  const char *iface_name, uint32_t iface_num)
 {
 	IPA_BE_DBG("ECMIPA entry ipa_be_update_lan_info_from_rule hdl %d proc %d lan2lan %d hdr_hdl %d int is_ret %d\n",
 		hdl, proc, lan2lan, hdr_hdl, is_ret);
@@ -1975,6 +2091,19 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 		IPA_BE_DBG("mi: %p " IPA_IP_ADDR_DOT_FMT "\n", mi, IPA_IP_ADDR_TO_DOT((uint32_t *)mi->address));
 		if (is_ip_addr_equal(mi->address, key_addr)) {
 
+			/* Interface this client is accelerated on. The QoS install
+			 * path resolves its TX pipe from here, never from a
+			 * caller-supplied dev_name. Name and index are stored
+			 * together so the index can never outlive a stale name. */
+			if (iface_name && iface_name[0]) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+				strscpy(mi->iface_name, iface_name, sizeof(mi->iface_name));
+#else
+				strlcpy(mi->iface_name, iface_name, sizeof(mi->iface_name));
+#endif
+				mi->iface_num = iface_num;
+			}
+
 			if (lan2lan && hdl)
 			{
 				// Update lan2lan_info
@@ -2017,6 +2146,17 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 				}
 			}
 
+			/* Record hdr_hdl even when hdl (route rule) is 0 -- see ipa_be_update_lan_v6_info_from_rule(). */
+			if (hdr_hdl > 0) {
+				if (lan2lan) {
+					if (!mi->lan2lan_info.hdr_hdl)
+						mi->lan2lan_info.hdr_hdl = hdr_hdl;
+				} else {
+					if (!mi->lan2wan_info.hdr_hdl)
+						mi->lan2wan_info.hdr_hdl = hdr_hdl;
+				}
+			}
+
 			break;
 		}
 	}
@@ -2031,7 +2171,8 @@ int ipa_be_update_lan_info_from_rule(struct ipa_ipv4_rule_create_msg *rule_msg, 
 }
 
 int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_msg, int hdl, int proc,
-							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name)
+							  int lan2lan, int hdr_hdl, int is_ret, const char *proc_ctx_name,
+							  const char *iface_name, uint32_t iface_num)
 {
 	IPA_BE_DBG("ECMIPA entry ipa_be_update_lan_v6_info_from_rule hdl %d proc %d lan2lan %d hdr_hdl %d int is_ret %d\n",
 		hdl, proc, lan2lan, hdr_hdl, is_ret);
@@ -2064,6 +2205,18 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 		IPA_BE_DBG("mi: %p %pI6n\n", mi, mi->address);
 		if (is_ip_addr_equal(mi->address, (uint32_t *)key_ip)) {
 
+			/* Interface this client is accelerated on -- see the v4
+			 * counterpart; the QoS install path resolves its TX pipe
+			 * from here, never from a caller-supplied dev_name. */
+			if (iface_name && iface_name[0]) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+				strscpy(mi->iface_name, iface_name, sizeof(mi->iface_name));
+#else
+				strlcpy(mi->iface_name, iface_name, sizeof(mi->iface_name));
+#endif
+				mi->iface_num = iface_num;
+			}
+
 			if (lan2lan && hdl)
 			{
 				// Update lan2lan_info
@@ -2105,6 +2258,17 @@ int ipa_be_update_lan_v6_info_from_rule(struct ipa_ipv6_rule_create_msg *rule_ms
 					strlcpy(mi->lan2wan_info.proc_ctx_name, proc_ctx_name, sizeof(mi->lan2wan_info.proc_ctx_name));
 #endif
 
+				}
+			}
+
+			/* hdr_hdl validity is independent of hdl -- record it even when hdl is 0 (route rule failed/deferred), else the QoS catch-all path reads 0 and installs with hdr_ofst 0. */
+			if (hdr_hdl > 0) {
+				if (lan2lan) {
+					if (!mi->lan2lan_info.hdr_hdl)
+						mi->lan2lan_info.hdr_hdl = hdr_hdl;
+				} else {
+					if (!mi->lan2wan_info.hdr_hdl)
+						mi->lan2wan_info.hdr_hdl = hdr_hdl;
 				}
 			}
 
@@ -2189,24 +2353,20 @@ int ipa_get_rt_hdl_from_mapping(ip_addr_t addr, bool lan2lan, int *hdr_hdl, int 
 }
 
 /*
- * ingress/egress_vlan_tag are relative to the IPA data-path, not WAN/LAN:
- *   ingress_vlan_tag = VLAN on packets arriving from LAN toward WAN
- *   egress_vlan_tag  = VLAN on packets leaving toward LAN from WAN
- * WAN is the return side on uplink (return_if == return_top_if) and the flow
- * side on downlink, so the WAN tag is the complement of the LAN tag.
+ * ingress/egress_vlan_tag are relative to the IPA data-path, not WAN/LAN.
+ * is_ret gives rule orientation (false=uplink, true=downlink): on uplink the
+ * WAN is the return side, on downlink the two swap. Do not re-derive from
+ * interface_num == top_interface_num — that test collapses when WAN and LAN
+ * are both stacked over one phys port.
  */
-static uint32_t ipa_be_lan_vlan_tag(const struct ipa_vlan_rule *vlan,
-				    int return_if, int return_top_if)
+uint32_t ipa_be_lan_vlan_tag(const struct ipa_vlan_rule *vlan, bool is_ret)
 {
-	return (return_if == return_top_if) ?
-		vlan->ingress_vlan_tag : vlan->egress_vlan_tag;
+	return is_ret ? vlan->egress_vlan_tag : vlan->ingress_vlan_tag;
 }
 
-static uint32_t ipa_be_wan_vlan_tag(const struct ipa_vlan_rule *vlan,
-				    int return_if, int return_top_if)
+uint32_t ipa_be_wan_vlan_tag(const struct ipa_vlan_rule *vlan, bool is_ret)
 {
-	return (return_if == return_top_if) ?
-		vlan->egress_vlan_tag : vlan->ingress_vlan_tag;
+	return is_ret ? vlan->ingress_vlan_tag : vlan->egress_vlan_tag;
 }
 
 int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan, int intf_num, mac_addr_t mac, int is_ret)
@@ -2279,8 +2439,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 
 	char proc_ctx_name[32] = {0};
 	uint32_t lan_vlan_tag = ipa_be_lan_vlan_tag(&v4_msg.vlan_primary_rule,
-		v4_msg.conn_rule.return_interface_num,
-		v4_msg.conn_rule.return_top_interface_num);
+						    is_ret);
 
 	if (lan2lan)
 	{
@@ -2357,63 +2516,8 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 			goto cleanup;
 		}
 
-		/*
-		 * SW producer cookie is supported only on HW v7.0 or later.
-		 * For older HW fall back to legacy mode with cookie disabled.
-		 */
-		memset(&cookie, 0, sizeof(cookie));
-		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
-			ipa3_populate_cookie_vpnum(intf_num, &cookie);
-			IPA_BE_ERR("ipa_ipv4_add_route_rule: intf_num %d vpnum %u\n", intf_num, cookie.wdi6.vp_num);
-		} else {
-			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
-		}
-
-		if (lan_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED && lan_vlan_tag != 0) {
-			proc_ctx_hdl = ipa_vlan_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, lan_vlan_tag, proc_ctx_name, &cookie);
-			rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
-		}
-		else if (cookie.raw != 0) {
-			/*
-			 * SW producer cookie is present but no VLAN tag.
-			 * Add an IPA_HDR_PROC_NONE HPC directly via the normal
-			 * proc ctx API so the SW_PROD_COOKIE TLV is appended.
-			 */
-			struct ipa_ioc_add_hdr_proc_ctx *hdr_proc_ctx_table;
-			struct ipa_hdr_proc_ctx_add *hdr_proc_ctx;
-			int ctx_size = sizeof(struct ipa_ioc_add_hdr_proc_ctx) +
-				       sizeof(struct ipa_hdr_proc_ctx_add);
-
-			hdr_proc_ctx_table = kzalloc(ctx_size, GFP_KERNEL);
-			if (!hdr_proc_ctx_table) {
-				IPA_BE_ERR("Failed to allocate hdr_proc_ctx_table for v4 cookie\n");
-				retval = -ENOMEM;
-				goto cleanup;
-			}
-
-			hdr_proc_ctx_table->commit = 1;
-			hdr_proc_ctx_table->num_proc_ctxs = 1;
-			hdr_proc_ctx = &hdr_proc_ctx_table->proc_ctx[0];
-
-			hdr_proc_ctx->type = IPA_HDR_PROC_NONE;
-			hdr_proc_ctx->hdr_hdl = hdr_hdl;
-			hdr_proc_ctx->is_cookie_valid = 1;
-			hdr_proc_ctx->cookie_params = cookie.cookie_hw;
-
-			if (ipa3_add_hdr_proc_ctx(hdr_proc_ctx_table, true)) {
-				IPA_BE_ERR("Failed to add IPA_HDR_PROC_NONE proc ctx with cookie (v4)\n");
-				kfree(hdr_proc_ctx_table);
-				retval = -EFAULT;
-				goto cleanup;
-			}
-
-			proc_ctx_hdl = hdr_proc_ctx_table->proc_ctx[0].proc_ctx_hdl;
-			IPA_BE_DBG("Installed IPA_HDR_PROC_NONE proc ctx with cookie (v4): hdl %d\n",
-				   proc_ctx_hdl);
-			kfree(hdr_proc_ctx_table);
-		} else {
-			rt_rule_entry->rule.hdr_hdl = hdr_hdl;
-		}
+		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, lan_vlan_tag, proc_ctx_name, NULL);
+		rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 
 		if (is_ret) {
@@ -2425,11 +2529,14 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 		rt_rule_entry->rule.attrib.u.v4.dst_addr_mask = 0xFFFFFFFF;
 
 		rt_rule_entry->rule.hashable = true;
+		rt_rule_entry->rule.ttl_update = 1;
 		rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 	}
 
-	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
-				true)) {
+	/* All backend client routing rules (LAN, LAN2LAN, eth-backhaul, QoS)
+	 * share IPA_SHARED_RT_RULE_ID instead of auto-allocating one each. */
+	if (ipa3_add_rt_rule_v2_with_id((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
+				true, IPA_SHARED_RT_RULE_ID)) {
 			IPA_BE_ERR("Route rule add failed\n");
 			retval = -EFAULT;
 	}
@@ -2438,7 +2545,8 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 		rt_hdl = rt_rule_entry->rt_rule_hdl;
 		IPA_BE_DBG("Lan2Lan %d route rule hdl: %d\n", lan2lan, rt_hdl);
 
-		ipa_be_update_lan_info_from_rule(&v4_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name);
+		ipa_be_update_lan_info_from_rule(&v4_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name,
+						 temp_intf.name, (uint32_t)intf_num);
 	}
 
 cleanup:
@@ -2521,8 +2629,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 
 	char proc_ctx_name[32] = {0};
 	uint32_t lan_vlan_tag = ipa_be_lan_vlan_tag(&v6_msg.vlan_primary_rule,
-		v6_msg.conn_rule.return_interface_num,
-		v6_msg.conn_rule.return_top_interface_num);
+						    is_ret);
 
 	if (lan2lan)
 	{
@@ -2607,63 +2714,8 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 			goto cleanup;
 		}
 
-		/*
-		 * SW producer cookie is supported only on HW v7.0 or later.
-		 * For older HW fall back to legacy mode with cookie disabled.
-		 */
-		memset(&cookie, 0, sizeof(cookie));
-		if (ipa_get_hw_type() >= IPA_HW_v7_0) {
-			ipa3_populate_cookie_vpnum(intf_num, &cookie);
-			IPA_BE_ERR("ipa_ipv6_add_route_rule: intf_num %d vpnum %u\n", intf_num, cookie.wdi6.vp_num);
-		} else {
-			IPA_BE_DBG("HW < v7.0: SW producer cookie not supported, falling back to legacy (cookie disabled)\n");
-		}
-
-		if (lan_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED && lan_vlan_tag != 0) {
-			proc_ctx_hdl = ipa_vlan_header_proc_ctx(&hdr_hdl, tx_prop->tx[1].hdr_name, mac, lan_vlan_tag, proc_ctx_name, &cookie);
-			rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
-		}
-		else if (cookie.raw != 0) {
-			/*
-			 * SW producer cookie is present but no VLAN tag.
-			 * Add an IPA_HDR_PROC_NONE HPC directly via the normal
-			 * proc ctx API so the SW_PROD_COOKIE TLV is appended.
-			 */
-			struct ipa_ioc_add_hdr_proc_ctx *hdr_proc_ctx_table;
-			struct ipa_hdr_proc_ctx_add *hdr_proc_ctx;
-			int ctx_size = sizeof(struct ipa_ioc_add_hdr_proc_ctx) +
-				       sizeof(struct ipa_hdr_proc_ctx_add);
-
-			hdr_proc_ctx_table = kzalloc(ctx_size, GFP_KERNEL);
-			if (!hdr_proc_ctx_table) {
-				IPA_BE_ERR("Failed to allocate hdr_proc_ctx_table for v6 cookie\n");
-				retval = -ENOMEM;
-				goto cleanup;
-			}
-
-			hdr_proc_ctx_table->commit = 1;
-			hdr_proc_ctx_table->num_proc_ctxs = 1;
-			hdr_proc_ctx = &hdr_proc_ctx_table->proc_ctx[0];
-
-			hdr_proc_ctx->type = IPA_HDR_PROC_NONE;
-			hdr_proc_ctx->hdr_hdl = hdr_hdl;
-			hdr_proc_ctx->is_cookie_valid = 1;
-			hdr_proc_ctx->cookie_params = cookie.cookie_hw;
-
-			if (ipa3_add_hdr_proc_ctx(hdr_proc_ctx_table, true)) {
-				IPA_BE_ERR("Failed to add IPA_HDR_PROC_NONE proc ctx with cookie (v6)\n");
-				kfree(hdr_proc_ctx_table);
-				retval = -EFAULT;
-				goto cleanup;
-			}
-
-			proc_ctx_hdl = hdr_proc_ctx_table->proc_ctx[0].proc_ctx_hdl;
-			IPA_BE_DBG("Installed IPA_HDR_PROC_NONE proc ctx with cookie (v6): hdl %d\n",
-				   proc_ctx_hdl);
-			kfree(hdr_proc_ctx_table);
-		} else {
-			rt_rule_entry->rule.hdr_hdl = hdr_hdl;
-		}
+		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[1].hdr_name, mac, lan_vlan_tag, proc_ctx_name, NULL);
+		rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 		for (int i = 0; i < 4;i++)
 		{
@@ -2679,11 +2731,15 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		}
 
 		rt_rule_entry->rule.hashable = true;
+		if (!ipa_be_v6_dst_is_link_local(rt_rule_entry->rule.attrib.u.v6.dst_addr))
+			rt_rule_entry->rule.ttl_update = 1;
 		rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 	}
 
-	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
-				true)) {
+	/* All backend client routing rules (LAN, LAN2LAN, eth-backhaul, QoS)
+	 * share IPA_SHARED_RT_RULE_ID instead of auto-allocating one each. */
+	if (ipa3_add_rt_rule_v2_with_id((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
+				true, IPA_SHARED_RT_RULE_ID)) {
 			IPA_BE_ERR("Route rule add failed\n");
 			retval = -EFAULT;
 	}
@@ -2692,7 +2748,8 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 		rt_hdl = rt_rule_entry->rt_rule_hdl;
 		IPA_BE_DBG("Lan2Lan %d route rule hdl: %d\n", lan2lan, rt_hdl);
 
-		ipa_be_update_lan_v6_info_from_rule(&v6_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name);
+		ipa_be_update_lan_v6_info_from_rule(&v6_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, is_ret, proc_ctx_name,
+						    temp_intf.name, (uint32_t)intf_num);
 	}
 
 cleanup:
@@ -2800,8 +2857,7 @@ int ipa_ipv4_eth_backhaul_add_route_rule(
 	char proc_ctx_name[32] = {0};
 
 	uint32_t wan_vlan_tag = ipa_be_wan_vlan_tag(&v4_msg.vlan_primary_rule,
-		v4_msg.conn_rule.return_interface_num,
-		v4_msg.conn_rule.return_top_interface_num);
+						    is_ret);
 
 	if (lan2lan)
 	{
@@ -2867,12 +2923,10 @@ int ipa_ipv4_eth_backhaul_add_route_rule(
 			IPA_BE_ERR("Error creating header handle\n");
 			retval = -EFAULT;
 			goto cleanup;
-		} else if (wan_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED) {
-			proc_ctx_hdl = ipa_vlan_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, wan_vlan_tag, proc_ctx_name, NULL);
-			rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
-		} else {
-			rt_rule_entry->rule.hdr_hdl = hdr_hdl;
 		}
+
+		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, wan_vlan_tag, proc_ctx_name, NULL);
+		rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 		if (!is_catch_all) {
@@ -2891,12 +2945,15 @@ int ipa_ipv4_eth_backhaul_add_route_rule(
 			rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CATCH_ALL;
 			rt_rule_entry->at_rear = true;
 		} else {
+			rt_rule_entry->rule.ttl_update = 1;
 			rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 		}
 	}
 
-	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
-				true)) {
+	/* All backend client routing rules (LAN, LAN2LAN, eth-backhaul, QoS)
+	 * share IPA_SHARED_RT_RULE_ID instead of auto-allocating one each. */
+	if (ipa3_add_rt_rule_v2_with_id((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
+				true, IPA_SHARED_RT_RULE_ID)) {
 			IPA_BE_ERR("Route rule add failed\n");
 			retval = -EFAULT;
 	}
@@ -2909,7 +2966,8 @@ int ipa_ipv4_eth_backhaul_add_route_rule(
 			/* Table-level catch-all: do NOT pollute per-WAN-IP mapping */
 			ipa_be_wan_catchall_install_done(intf_num, IPA_IP_v4, (uint32_t)rt_hdl);
 		} else {
-			ipa_be_update_lan_info_from_rule(&v4_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, !is_ret, proc_ctx_name);
+			ipa_be_update_lan_info_from_rule(&v4_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, !is_ret, proc_ctx_name,
+							 temp_intf.name, (uint32_t)intf_num);
 		}
 	}
 
@@ -3016,8 +3074,7 @@ int ipa_ipv6_eth_backhaul_add_route_rule(
 	char proc_ctx_name[32] = {0};
 
 	uint32_t wan_vlan_tag = ipa_be_wan_vlan_tag(&v6_msg.vlan_primary_rule,
-		v6_msg.conn_rule.return_interface_num,
-		v6_msg.conn_rule.return_top_interface_num);
+						    is_ret);
 
 	if (lan2lan) {
 		proc_ctx_hdl = ipa_ipv6_header_proc_ctx(v6_msg, &hdr_hdl, tx_prop->tx[tx_index].hdr_name, proc_ctx_name, mac, is_ret, NULL);
@@ -3077,12 +3134,8 @@ int ipa_ipv6_eth_backhaul_add_route_rule(
 			goto cleanup;
 		}
 
-		if (wan_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED) {
-			proc_ctx_hdl = ipa_vlan_header_proc_ctx(&hdr_hdl, tx_prop->tx[tx_index].hdr_name, mac, wan_vlan_tag, proc_ctx_name, NULL);
-			rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
-		} else {
-			rt_rule_entry->rule.hdr_hdl = hdr_hdl;
-		}
+		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[tx_index].hdr_name, mac, wan_vlan_tag, proc_ctx_name, NULL);
+		rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 		if (!is_catch_all) {
@@ -3103,11 +3156,16 @@ int ipa_ipv6_eth_backhaul_add_route_rule(
 			rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CATCH_ALL;
 			rt_rule_entry->at_rear = true;
 		} else {
+			if (!ipa_be_v6_dst_is_link_local(rt_rule_entry->rule.attrib.u.v6.dst_addr))
+				rt_rule_entry->rule.ttl_update = 1;
 			rt_rule_entry->rt_rule_category = IPA_RT_RULE_CAT_CLIENT;
 		}
 	}
 
-	if (ipa3_add_rt_rule_usr_v2((struct ipa_ioc_add_rt_rule_v2 *)rt_rule, true)) {
+	/* All backend client routing rules (LAN, LAN2LAN, eth-backhaul, QoS)
+	 * share IPA_SHARED_RT_RULE_ID instead of auto-allocating one each. */
+	if (ipa3_add_rt_rule_v2_with_id((struct ipa_ioc_add_rt_rule_v2 *)rt_rule,
+				true, IPA_SHARED_RT_RULE_ID)) {
 		IPA_BE_ERR("Route rule add failed\n");
 		retval = -EFAULT;
 	} else {
@@ -3118,7 +3176,8 @@ int ipa_ipv6_eth_backhaul_add_route_rule(
 			/* Table-level catch-all: do NOT pollute per-WAN-IP mapping */
 			ipa_be_wan_catchall_install_done(intf_num, IPA_IP_v6, (uint32_t)rt_hdl);
 		} else {
-			ipa_be_update_lan_v6_info_from_rule(&v6_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, !is_ret, proc_ctx_name);
+			ipa_be_update_lan_v6_info_from_rule(&v6_msg, rt_hdl, proc_ctx_hdl, lan2lan, hdr_hdl, !is_ret, proc_ctx_name,
+							    temp_intf.name, (uint32_t)intf_num);
 		}
 	}
 

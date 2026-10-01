@@ -52,6 +52,7 @@
 #include <soc/qcom/minidump.h>
 #endif
 #include "ipa_stats.h"
+#include "ipa_rc.h"
 
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"
@@ -115,7 +116,19 @@
 #define IPA_HOLB_TMR_DIS 0x0
 #define IPA_HOLB_TMR_EN 0x1
 #define IPA_HOLB_TMR_VAL_4_5 31
-#define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 1)
+
+/* HOLB discard window for an ETH QoS TX pipe, by relative priority. Tables are
+ * private to ipa_eth_i.c; this is the only accessor. */
+u32 ipa3_eth_qos_holb_tmr_uS(u8 priority);
+
+/*
+ * + 1: shared slot for ICMP/IPsec-encap traffic that never carries a
+ *      PACKET_INIT_EX SW classification cookie ("eth" shared slot).
+ * + 1: shared slot for ICMP and non-GSO ULSO traffic that does carry a
+ *      cookie ("wlan" shared slot), kept separate so cookie-bearing
+ *      WLAN traffic never contends with the no-cookie slot's lock.
+ */
+#define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA_MAX_NUM_PIPES + 2)
 
 #define IPA_Q6_RT_START_ID 768
 #define IPA_Q6_FLT_START_ID 512
@@ -131,7 +144,23 @@
 #define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
 #define IPA_MPM_MAX_UC_THRESH 4
 #define IPA_MAX_RT_RULE_ID 1023
+/* Single rt rule_id shared by every client routing rule the backend installs
+ * (LAN, LAN2LAN, eth-backhaul, QoS), so N rules cost one id instead of N.
+ * Must be >= IPA_Q6_RT_START_ID (below the auto-allocator range) and
+ * strictly below IPA_MAX_RT_RULE_ID: 1023 is the reserved all-ones rule_id
+ * and using it panics the kernel in ipahal_fltrt.c at commit time.
+ */
+#define IPA_SHARED_RT_RULE_ID (IPA_MAX_RT_RULE_ID - 1)
+static_assert(IPA_SHARED_RT_RULE_ID < IPA_MAX_RT_RULE_ID,
+	"IPA_SHARED_RT_RULE_ID must avoid the reserved all-ones rule_id");
+static_assert(IPA_SHARED_RT_RULE_ID >= IPA_Q6_RT_START_ID,
+	"IPA_SHARED_RT_RULE_ID must not collide with the auto-allocator range");
 #define IPA_CT_TBL_CANARY_SIZE 40
+#define IPA_MAX_TRAFFIC_CLASSES 16
+
+/* Cap on cached QoS rule configs (qos_config_list); a non-duplicate ADD
+ * beyond this is rejected. */
+#define IPA_MAX_QOS_CACHE_RULES 250
 
 #define NON_IHL_EQ_OFFSET_FROM_L2(x) (x | 0x80)
 #define NON_IHL_EQ_OFFSET_FROM_L3(x) (x & 0x7F)
@@ -156,6 +185,9 @@ enum {
 };
 
 #define QMAP_HDR_LEN 8
+
+/* Name of the common empty (hdr_len=0) HPC header shared by ULSO CONS pipes */
+#define IPA_ULSO_EMPTY_HDR_NAME "ipa_ulso_empty"
 
 #define IPA_HOLB_TMR_DIS 0x0
 #define IPA_HOLB_TMR_EN 0x1
@@ -450,6 +482,27 @@ enum {
 /* use QMAP header reserved bit to identify tethered traffic */
 #define IPA_QMAP_TETH_BIT (1 << 30)
 
+/* metadata bit 29 marks backhaul-offloaded (ethernet-backhaul) flows */
+#define IPA_METADATA_BE_FLOW_BIT (1 << 29)
+
+/* global routing table used by NAT/conn-track exception suppression */
+#define IPA_NAT_EXC_RT_TBL_NAME "ipa_nat_exc_rt"
+
+/*
+ * LAN side rules of IPA_NAT_EXC_RT_TBL_NAME, installed once at probe by
+ * ipa3_setup_nat_exc_rt_lan_rules().  Array order is the HW match order.
+ *
+ * Every one of them matches on metadata bit 29 (IPA_METADATA_BE_FLOW_BIT), so
+ * only backhaul-offloaded flows are steered to the LAN pipes.  rmnet_ipa
+ * appends the WAN rules behind these when the WAN comes up.
+ */
+enum ipa3_nat_exc_rt_lan_rule {
+	IPA_NAT_EXC_RT_LAN_COAL_TCP = 0,
+	IPA_NAT_EXC_RT_LAN_COAL_UDP,
+	IPA_NAT_EXC_RT_LAN_META_OTHER,
+	IPA_NAT_EXC_RT_LAN_RULES_TOTAL,
+};
+
 #ifdef CONFIG_ARM64
 /* Outer caches unsupported on ARM64 platforms */
 # define outer_flush_range(x, y)
@@ -587,6 +640,7 @@ enum ipa_icc_type {
 
 enum flt_rule_category {
 	IPA_FLT_RULE_CAT_NONE,
+	IPA_FLT_RULE_CAT_SW,
 	IPA_FLT_RULE_CAT_DEFAULT,
 	IPA_FLT_RULE_CAT_LAN2LAN,
 	IPA_FLT_RULE_CAT_PRIVATE_SUBNET,
@@ -599,13 +653,52 @@ enum flt_rule_category {
 
 enum rule_sub_category {
 	IPA_RULE_SUB_CAT_NONE,
+	IPA_RULE_PRIORITY_0,
 	IPA_RULE_PRIORITY_1,
 	IPA_RULE_PRIORITY_2,
 	IPA_RULE_PRIORITY_3,
 	IPA_RULE_PRIORITY_4,
 	IPA_RULE_PRIORITY_5,
+	IPA_RULE_PRIORITY_6,
+	IPA_RULE_PRIORITY_7,
+	IPA_RULE_PRIORITY_8,
+	IPA_RULE_PRIORITY_9,
+	IPA_RULE_PRIORITY_10,
+	IPA_RULE_PRIORITY_11,
+	IPA_RULE_PRIORITY_12,
+	IPA_RULE_PRIORITY_13,
+	IPA_RULE_PRIORITY_14,
+	IPA_RULE_PRIORITY_15,
+	IPA_RULE_PRIORITY_16,
+	IPA_RULE_PRIORITY_17,
+	IPA_RULE_PRIORITY_18,
+	IPA_RULE_PRIORITY_19,
+	IPA_RULE_PRIORITY_20,
+	IPA_RULE_PRIORITY_21,
+	IPA_RULE_PRIORITY_22,
+	IPA_RULE_PRIORITY_23,
+	IPA_RULE_PRIORITY_24,
+	IPA_RULE_PRIORITY_25,
+	IPA_RULE_PRIORITY_26,
+	IPA_RULE_PRIORITY_27,
+	IPA_RULE_PRIORITY_28,
+	IPA_RULE_PRIORITY_29,
+	IPA_RULE_PRIORITY_30,
+	IPA_RULE_PRIORITY_31,
 	IPA_RULE_SUB_CAT_MAX
 };
+
+/* QoS uses two non-overlapping sub_cat bands so autonomous filters always
+ * sort behind user filters: user rules take IPA_RULE_PRIORITY_0 + tc,
+ * autonomous rules IPA_RULE_SUB_CAT_MAX + tc (see
+ * ipa_be_qos_install_one_rule()). The autonomous band deliberately lies
+ * above the last named enumerator; do not add a sub_cat range check
+ * without accounting for it.
+ */
+static_assert(IPA_RULE_PRIORITY_0 + IPA_MAX_TRAFFIC_CLASSES <=
+	      IPA_RULE_SUB_CAT_MAX,
+	"rule_sub_category needs IPA_MAX_TRAFFIC_CLASSES priority slots for the "
+	"user QoS band");
 
 enum rt_rule_category {
 	IPA_RT_RULE_CAT_NONE,
@@ -818,6 +911,45 @@ struct ipa3_flt_entry {
 	enum flt_rule_category cat;
 	enum rule_sub_category sub_cat;
 	enum ipa_ip_type ip_type;
+};
+
+/**
+ * struct ipa3_lan2lan_ep_hdl - one endpoint holding a lan2lan HW rule
+ * @link:    link into the owning ipa3_lan2lan_flt_ref's @ep_list
+ * @ep:      IPA endpoint (physical pipe) the rule is installed on
+ * @flt_hdl: HW filter rule handle to delete when the last ref drops
+ *
+ * The lan2lan HW rule is keyed on the physical pipe. On a WLAN AP many
+ * client interfaces map to one pipe, so a single (dst, ip_type) can have a
+ * rule on several distinct eps. One of these nodes exists per ep that
+ * currently holds the rule for the parent (dst, ip_type).
+ */
+struct ipa3_lan2lan_ep_hdl {
+	struct list_head link;
+	int ep;
+	int flt_hdl;
+};
+
+/**
+ * struct ipa3_lan2lan_flt_ref - global per-(dst host IP, ip type) lan2lan refcount
+ * @link:       link into the global ipa3_ctx->lan2lan_flt_list
+ * @ip_type:    IPv4 or IPv6
+ * @dst_addr:   destination host IP (word 0 for v4; all 4 words for v6)
+ * @global_ref: number of live connections to this dst host across all eps
+ * @ep_list:    struct ipa3_lan2lan_ep_hdl nodes - the eps that physically
+ *              hold the HW rule for this dst
+ *
+ * lan2lan filters are refcounted globally per (dst host IP, ip type). Each
+ * connection bumps @global_ref; the HW rule is installed on an ep only when
+ * that ep does not yet hold it (@ep_list is the presence set). When
+ * @global_ref reaches 0 the rule is torn down on every ep in @ep_list.
+ */
+struct ipa3_lan2lan_flt_ref {
+	struct list_head link;
+	enum ipa_ip_type ip_type;
+	u32 dst_addr[4];
+	u32 global_ref;
+	struct list_head ep_list;
 };
 
 /**
@@ -1162,6 +1294,9 @@ struct ipa3_ep_context {
 	u32 dflt_flt6_rule_hdl;
 	struct list_head init_flt4_rule_hdl_list; /* fragment, TCP SYN, ICMP, multicast, broadcast */
 	struct list_head init_flt6_rule_hdl_list; /* fragment, TCP SYN (eq), ICMPv6, multicast, link-scoped, IETF, unique local */
+	/* Populated by echo 1 > /sys/kernel/debug/ipa/sw_routing; drained by echo 0. */
+	struct list_head sw_routing_flt4_hdl_list;
+	struct list_head sw_routing_flt6_hdl_list;
 	bool skip_ep_cfg;
 	bool keep_ipa_awake;
 	struct ipa3_wlan_stats wstats;
@@ -1715,7 +1850,7 @@ struct ipa3_stats {
 	u32 tx_hw_pkts;
 	u32 tx_queue_fail_pkts;
 	u32 rx_pkts;
-	u32 rx_excp_pkts[IPAHAL_PKT_STATUS_EXCEPTION_MAX];
+	u32 rx_excp_pkts[MAX_RC_CLIENTS][IPAHAL_PKT_STATUS_EXCEPTION_MAX];
 	u32 rx_repl_repost;
 	u32 tx_pkts_compl;
 	u32 rx_q_len;
@@ -1739,6 +1874,15 @@ struct ipa3_stats {
 	u32 flow_enable;
 	u32 flow_disable;
 	u32 tx_non_linear;
+	u32 ulso_tx_wlan_gso_pkts;
+	u32 ulso_tx_wlan_nongso_pkts;
+	u32 ulso_tx_eth_gso_pkts;
+	u32 ulso_tx_nongso_pkts;
+	u32 ulso_tx_icmp_wlan_pkts;
+	u32 ulso_tx_icmp_eth_pkts;
+	u32 ulso_wlan_pm_fail_pkts;
+	u32 ulso_wlan_tx_fail_pkts;
+	u32 ulso_eth_tx_fail_pkts;
 	u32 rx_page_drop_cnt;
 	u64 lower_order;
 	u32 pipe_setup_fail_cnt;
@@ -2554,6 +2698,14 @@ struct ipa_fatal_err_irq_regs {
 	u32 ipa_snoc_fec_ee;
 };
 
+struct ipa3_qos_config_node {
+	struct list_head list;
+	struct ipa_ioc_qos_config config;
+	uint32_t qos_id; /**< Stable unique ID, assigned once at ADD, used for handle-based delete */
+	uint32_t refcount; /**< Number of userspace ADDs against this node; decremented on DELETE.
+			    *  HW rule is removed only when refcount drops to 0. */
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2755,6 +2907,16 @@ struct ipa3_context {
 	spinlock_t disconnect_lock;
 	u8 a5_pipe_index;
 	struct list_head intf_list;
+	/* Guards intf_list add/del vs. the vpnum fast-path lookups
+	 * (ipa3_get_cookie_vpnum() etc.) called from WDI6 TX softirq context.
+	 * All acquirers (register/deregister and the lookup helpers, whether
+	 * called from process or softirq context) use the _bh variant: once
+	 * any user can run in softirq, every user must disable BH, or a
+	 * process-context holder can deadlock against the softirq on the
+	 * same CPU.
+	 */
+	spinlock_t intf_list_vpnum_lock;
+	struct list_head lan2lan_flt_list; /* global per-(dst,ip_type) lan2lan refcounts */
 	struct list_head msg_list;
 	struct list_head pull_msg_list;
 	struct mutex msg_lock;
@@ -2781,6 +2943,16 @@ struct ipa3_context {
 	bool ipa_wdi3_over_gsi;
 	bool ipa_endp_delay_wa;
 	bool lan_coal_enable;
+	/*
+	 * Set while the AP driver owns the NAT/conn-track exception
+	 * suppression routing table index.  Taken at probe, when
+	 * ipa3_setup_nat_exc_rt_lan_rules() points the engine at
+	 * IPA_NAT_EXC_RT_TBL_NAME, and never given back - the table is
+	 * populated further by rmnet_ipa but the index never changes.
+	 */
+	bool nat_exc_rt_tbl_ap_owned;
+	/* handles of the LAN side IPA_NAT_EXC_RT_TBL_NAME rules, per IP version */
+	u32 nat_exc_rt_lan_hdl[IPA_IP_MAX][IPA_NAT_EXC_RT_LAN_RULES_TOTAL];
 	bool ipa_fltrt_not_hashable;
 	bool use_xbl_boot;
 	bool use_64_bit_dma_mask;
@@ -2798,6 +2970,7 @@ struct ipa3_context {
 	struct qmp *qmp;
 	spinlock_t idr_lock;
 	u32 enable_clock_scaling;
+	u32 standard_output_en;
 	u32 enable_napi_chain;
 	u32 curr_ipa_clk_rate;
 	bool q6_proxy_clk_vote_valid;
@@ -2948,6 +3121,14 @@ struct ipa3_context {
 	bool ulso_supported;
 	u16 ulso_ip_id_min;
 	u16 ulso_ip_id_max;
+	/*
+	 * Common empty (hdr_len=0) HPC header shared by all ULSO consumer
+	 * pipes (ETH, WLAN, ...). Added once at boot; every ULSO CONS points
+	 * its pkt_init_ex at it (via ipa3_cfg_ep) so HW inserts no L2 header
+	 * ahead of the ULSO frame's own Ethernet header.
+	 */
+	u32 ulso_empty_hdr_hdl;
+	bool ulso_empty_hdr_valid;
 	bool use_pm_wrapper;
 	u8 page_poll_threshold;
 	bool wan_common_page_pool;
@@ -3009,7 +3190,9 @@ struct ipa3_context {
 	struct ipa3_page_recycle_stats prev_low_lat_data_recycle_stats;
 	struct mutex recycle_stats_collection_lock;
 	u16 filter_start_id;
-	struct ipa_ioc_get_qos_config get_qos_config;
+	uint32_t num_qos_configs;
+	uint32_t qos_id_counter;
+	struct list_head qos_config_list;
 	u8 ippt_pdninfo_refcnt;
 	struct mutex msg_qos_param_lock;
 	struct list_head msg_qos_param_list;
@@ -3020,6 +3203,14 @@ struct ipa3_context {
 	bool nat_stats_mode;
 	u16 nat_stats_max_counters_v4;
 	u16 nat_stats_max_counters_v6;
+	/*
+	 * Sticky flag toggled by ipa3_sw_routing_enable() / _disable().
+	 * Reported via debugfs and used as the idempotency guard for those
+	 * paths. Mirrors IPACM's ipa_sw_rt_enable.
+	 */
+	bool ipa_sw;
+	u64 disable_flow_control_mask;
+	bool is_rc_log_enabled;
 };
 
 struct ipa3_plat_drv_res {
@@ -3131,7 +3322,11 @@ struct ipa3_plat_drv_res {
 	u32 max_ipv4_stats_accel_conn;
 	u32 max_ipv6_stats_accel_conn;
 	bool ipa_disable_per_flow_stats;
+	u64 disable_flow_control_mask;
 };
+
+/* Accessor for the driver's parsed ipa3_plat_drv_res (e.g. for debugfs). */
+struct ipa3_plat_drv_res *ipa3_get_plat_drv_res(void);
 
 /**
  * struct ipa3_mem_partition - represents IPA RAM Map as read from DTS
@@ -3365,8 +3560,6 @@ struct ipa3_mem_partition {
 
 	u32 ap_stats_drop_ofst;
 	u32 ap_stats_drop_size;
-	u32 stats_drop_ofst;
-	u32 stats_drop_size;
 	u32 q6_stats_drop_ofst;
 	u32 q6_stats_drop_size;
 	u32 pre_sa_contexts_canary_ofst;
@@ -3567,6 +3760,8 @@ int ipa3_force_cfg_ep_holb(u32 clnt_hdl, struct ipa_ep_cfg_holb *ipa_ep_cfg);
 int ipa3_cfg_ep_metadata_mask(u32 clnt_hdl,
 		const struct ipa_ep_cfg_metadata_mask *ipa_ep_cfg);
 
+int ipa3_cfg_ep_metadata(u32 clnt_hdl, const struct ipa_ep_cfg_metadata *ep_md);
+
 int ipa3_cfg_ep_holb_by_client(enum ipa_client_type client,
 				const struct ipa_ep_cfg_holb *ipa_ep_cfg);
 
@@ -3630,6 +3825,7 @@ int ipa3_add_rt_rule_after_v2(struct ipa_ioc_add_rt_rule_after_v2
 int ipa3_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup);
 
 int ipa3_query_rt_index(struct ipa_ioc_get_rt_tbl_indx *in);
+int ipa3_get_rt_tbl_hdl(enum ipa_ip_type ip, const char *name, u32 *hdl_out);
 
 int ipa3_mdfy_rt_rule(struct ipa_ioc_mdfy_rt_rule *rules);
 
@@ -3729,6 +3925,23 @@ int xmit_ipsec_frag_ul(struct sk_buff *skb);
 /*
  * System pipes
  */
+static inline void ipa3_configure_ipsec_apps_wan_cons(
+	struct ipa_sys_connect_params *sys_in)
+{
+	sys_in->bypass_agg = true;
+	sys_in->ipa_ep_cfg.hdr.hdr_len = 8;
+	sys_in->ipa_ep_cfg.hdr.hdr_ofst_metadata_valid = 1;
+	sys_in->ipa_ep_cfg.hdr.hdr_ofst_metadata = 1;
+	sys_in->ipa_ep_cfg.hdr.hdr_ofst_pkt_size_valid = 1;
+	sys_in->ipa_ep_cfg.hdr.hdr_ofst_pkt_size = 2;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_valid = true;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad = 0;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_payload_len_inc_padding = true;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_total_len_or_pad_offset = 0;
+	sys_in->ipa_ep_cfg.hdr_ext.hdr_little_endian = 0;
+	sys_in->ipa_ep_cfg.metadata_mask.metadata_mask = 0xFF000000;
+}
+
 int ipa3_setup_tput_pipe(void);
 
 int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl);
@@ -3889,6 +4102,9 @@ bool ipa3_is_client_handle_valid(u32 clnt_hdl);
 
 enum ipa_client_type ipa3_get_client_mapping(int pipe_idx);
 enum ipa_client_type ipa3_get_client_by_pipe(int pipe_idx);
+enum ipa_client_type ipa3_get_real_client_by_pipe(int pipe_idx);
+int ipa3_get_chan_by_client(enum ipa_client_type client);
+int ipa3_get_ee_by_client(enum ipa_client_type client);
 
 void ipa_init_ep_flt_bitmap(void);
 
@@ -4013,7 +4229,18 @@ int ipa3_pull_msg(struct ipa_msg_meta *meta, char *buff, size_t count);
 int ipa3_query_intf(struct ipa_ioc_query_intf *lookup);
 int ipa3_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx);
 int ipa3_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx);
+int ipa3_set_intf_tx_tc_bitmap(const char *name,
+			       uint8_t tx_index, uint32_t tc_bitmap);
+int ipa3_set_intf_tx_tc_bitmap_by_pipe(const char *name,
+				       enum ipa_client_type dst_pipe,
+				       uint32_t tc_bitmap);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
+int ipa3_find_intf_by_client(enum ipa_client_type client);
+
+/* Reprogram one interface's BE TX pipe HOLB timer based on QoS activity on
+ * that interface (500us when active, 31ms restored when not). Implemented
+ * in ipa_intf.c; must be called without msg_qos_param_lock held. */
+void ipa3_qos_retime_be_pipes(const char *dev_name, bool active);
 
 bool ipa3_query_iface(int intf_idx, struct ipa_ioc_query_intf *target_intf);
 int ipa3_update_intf_idx(const char *name, int intf_idx);
@@ -4021,9 +4248,18 @@ int ipa3_get_ep_for_intf(int intf_idx);
 int ipa3_assign_qmapmux_intf_idx(int wan_iface);
 void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie);
 bool ipa3_is_vpnum_valid(int intf_idx);
+bool ipa3_get_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie);
 bool ipa3_query_ext_iface(int intf_idx, struct ipa_ioc_query_intf_ext_props *target_intf);
 bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
+int ipa3_delete_filter_rules_entry_snapshot(int intf_idx,
+		struct ipa3_flt_entry flt_entry, struct ipa3_flt_entry *out);
+bool ipa3_lan2lan_flt_need_install(enum ipa_ip_type ip_type,
+	const u32 *dst_addr, int ep);
+void ipa3_lan2lan_flt_add(enum ipa_ip_type ip_type, const u32 *dst_addr,
+	int ep, int flt_hdl);
+int ipa3_lan2lan_flt_deref(enum ipa_ip_type ip_type, const u32 *dst_addr,
+	int *out_hdls, int max_hdls, int *out_num);
 
 int ipa3_get_max_pdn(void);
 
@@ -4052,6 +4288,9 @@ void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx);
 void ipa3_delete_dflt_flt_rules(u32 ipa_ep_idx);
 void ipa3_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype, bool eogre_enabled);
 void ipa3_delete_init_flt_rule(u32 ipa_ep_idx, enum ipa_ip_type iptype);
+/* IPACM IPA_SW_ROUTING_{ENABLE,DISABLE} analogs, driven by ioctl. */
+int ipa3_sw_routing_enable(void);
+int ipa3_sw_routing_disable(void);
 
 int ipa3_remove_secondary_flow_ctrl(int gsi_chan_hdl);
 int ipa3_enable_data_path(u32 clnt_hdl);
@@ -4060,7 +4299,7 @@ int ipa3_disable_gsi_data_path(u32 clnt_hdl);
 int ipa3_alloc_rule_id(struct idr *rule_ids);
 int ipa3_alloc_rt_rule_id(struct idr *rule_ids);
 int ipa3_alloc_counter_id(struct ipa_ioc_flt_rt_counter_alloc *counter);
-void ipa3_counter_remove_hdl(int hdl);
+int ipa3_counter_remove_hdl(int hdl);
 void ipa3_counter_id_remove_all(void);
 int ipa3_id_alloc(void *ptr);
 bool ipa3_check_idr_if_freed(void *ptr);
@@ -4153,6 +4392,10 @@ int ipa_hw_stats_init(void);
 
 int ipa_init_flt_rt_stats(void);
 
+int ipa_rc_init(void);
+
+void ipa_rc_deinit(void);
+
 int ipa_init_quota_stats(u32 *pipe_bitmask);
 
 int ipa_get_quota_stats(struct ipa_quota_stats_all *out);
@@ -4193,6 +4436,9 @@ int ipa_reset_all_teth_stats(void);
 int ipa_init_nat_ct_stats(void);
 
 int ipa_get_nat_ct_stats(u16 counter_index,
+	struct ipahal_stats_nat_ct *out);
+
+int ipa_be_get_cum_stats(u16 all_pkts_cnt_index,
 	struct ipahal_stats_nat_ct *out);
 
 int ipa_set_nat_ct_stats(u16 counter_index,
@@ -4583,5 +4829,9 @@ static inline bool ipa_is_proc_ctx_headerless(enum ipa_hdr_proc_type type)
 		type == IPA_HDR_PROC_IPSEC_DECAP ||
 		type == IPA_HDR_PROC_IPSEC_DECAP_NXT_RND);
 }
+
+int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry);
+void ipa3_nat_ipv6ct_free_mem(struct ipa3_nat_ipv6ct_common_mem *dev);
+int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num);
 
 #endif /* _IPA3_I_H_ */

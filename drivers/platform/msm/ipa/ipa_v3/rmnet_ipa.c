@@ -177,6 +177,33 @@ enum dflt_wan_rt_rule {
 	WAN_RT_RULES_TOTAL,
 };
 
+/*
+ * WAN side rules of the NAT/conn-track exception suppression routing table
+ * (IPA_NAT_EXC_RT_TBL_NAME), in match order.  The LAN side rules of that same
+ * table - the metadata bit 29 ones, see IPA_METADATA_BE_FLOW_BIT - are owned
+ * by ipa.c and installed at probe; these are appended behind them once the WAN
+ * pipes and the QMAP header exist.
+ */
+enum nat_exc_rt_rule {
+	NAT_EXC_RT_WAN_COAL_TCP = 0,
+	NAT_EXC_RT_WAN_COAL_UDP,
+	NAT_EXC_RT_WAN_OTHER,
+	NAT_EXC_RT_RULES_TOTAL,
+};
+
+/*
+ * The protocol matching rules of the NAT exception suppression table.  The
+ * protocol attribute is IP version specific: IPA_FLT_PROTOCOL for v4,
+ * IPA_FLT_NEXT_HDR for v6.
+ */
+static const struct {
+	enum nat_exc_rt_rule idx;
+	uint8_t proto;
+} nat_exc_proto_rule[] = {
+	{ NAT_EXC_RT_WAN_COAL_TCP, IPPROTO_TCP },
+	{ NAT_EXC_RT_WAN_COAL_UDP, IPPROTO_UDP },
+};
+
 struct ipa3_rmnet_plat_drv_res {
 	bool ipa_rmnet_ssr;
 	bool ipa_advertise_sg_support;
@@ -233,6 +260,8 @@ struct rmnet_ipa3_context {
 	/* For both IPv4 and IPv6, one rule for ICMP and one for the rest */
 	u32 dflt_wan_rt_hdl[IPA_IP_MAX][WAN_RT_RULES_TOTAL];
 	u32 low_lat_rt_hdl[IPA_IP_MAX][WAN_RT_RULES_TOTAL];
+	/* NAT/conn-track exception suppression routing table WAN side rules */
+	u32 nat_exc_rt_hdl[IPA_IP_MAX][NAT_EXC_RT_RULES_TOTAL];
 	struct ipa3_rmnet_mux_val mux_channel[MAX_NUM_OF_MUX_CHANNEL];
 	struct ipa3_rmnet_mux_val mux_channel_eth[MAX_NUM_OF_MUX_CHANNEL];
 	int num_q6_rules;
@@ -270,6 +299,7 @@ struct rmnet_ipa3_context {
 	struct ipa3_netmgr_clock_vote clock_vote;
 	int ingress_eps_mask;
 	bool wan_rt_table_setup;
+	bool nat_exc_rt_wan_rules_set;
 	bool no_qmap_config;
 	bool eth_wan_set;
 	enum ipa_eth_hw_config_enum_v01 eth_vlan;
@@ -802,6 +832,239 @@ static void ipa3_del_low_lat_rt_rule(void)
 	}
 
 	kfree(rt_rule);
+}
+
+/**
+ * ipa3_nat_exc_rt_tbl_supported() - Can the WAN rules of the NAT exception
+ * suppression routing table be used?
+ *
+ * The exception suppression mechanism (IPA HPG 2.14.8.4) exists from IPA v5.5
+ * onwards.  The table is built even when coalescing is disabled so default
+ * LAN/WAN consumer routing remains available when suppression is enabled.
+ * Coalescing pipes are selected only when their ingress pipe is enabled.
+ */
+static bool ipa3_nat_exc_rt_tbl_supported(void)
+{
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_5)
+		return false;
+
+	/*
+	 * Nothing to extend unless probe managed to build the table and point
+	 * the exception engines at it.
+	 */
+	if (!ipa3_ctx->nat_exc_rt_tbl_ap_owned)
+		return false;
+
+	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS) ==
+		IPA_EP_NOT_ALLOCATED ||
+		ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS) ==
+		IPA_EP_NOT_ALLOCATED)
+		return false;
+
+	return true;
+}
+
+static int ipa3_del_nat_exc_rt_wan_rules(void);
+
+/**
+ * ipa3_setup_nat_exc_rt_wan_rules() - Add the WAN side rules of the
+ * NAT/conn-track exception suppression routing table
+ *
+ * On a NAT miss (or a closed connection) a consumer pipe with
+ * NAT_EXC_SUPPRESS set does not raise an exception - the packet is routed
+ * through a global routing table instead (IPA HPG 2.14.8.4, IPA >= 5.5).
+ * A separate table is used for the IPv4 NAT and the IPv6 conn-track engines.
+ *
+ * ipa.c already built both tables at probe and pointed the engines at them,
+ * with the LAN side rules only:
+ *	metadata[29] + TCP	-> LAN coalescing pipe
+ *	metadata[29] + UDP	-> LAN coalescing pipe
+ *	metadata[29]		-> default LAN pipe
+ *
+ * This appends the WAN side behind them:
+ *	TCP			-> WAN coalescing pipe
+ *	UDP			-> WAN coalescing pipe
+ *	<any>			-> default WAN pipe
+ *
+ * so tagged flows keep their coalescing treatment on the exception
+ * suppression path while every other flow gets the legacy WAN routing.  The
+ * exception routing table index programmed at probe never has to change.
+ *
+ * Return codes:
+ * 0: success
+ * -ENOMEM: failed to allocate memory
+ * -EPERM: failed to add the rules
+ */
+static int ipa3_setup_nat_exc_rt_wan_rules(void)
+{
+	int ret = 0;
+	enum ipa_ip_type ip_type;
+	struct ipa_ioc_add_rt_rule_ext_v2 *rt_rule;
+	struct ipa_rt_rule_add_ext_v2 *rt_rule_entry;
+	bool wan_coal_enabled = rmnet_ipa3_ctx->ingress_eps_mask &
+		IPA_AP_INGRESS_EP_COALS;
+	int i;
+
+	rt_rule = kzalloc(sizeof(struct ipa_ioc_add_rt_rule_ext_v2),
+		GFP_KERNEL);
+	if (!rt_rule)
+		return -ENOMEM;
+
+	/* Do not append new rules while stale WAN rules are still present. */
+	ret = ipa3_del_nat_exc_rt_wan_rules();
+	if (ret) {
+		kfree(rt_rule);
+		return ret;
+	}
+
+	rt_rule->num_rules = wan_coal_enabled ? NAT_EXC_RT_RULES_TOTAL : 1;
+	rt_rule->rules = (uint64_t)kzalloc(
+		rt_rule->num_rules * sizeof(struct ipa_rt_rule_add_ext_v2),
+		GFP_KERNEL);
+	if (!(struct ipa_rt_rule_add_ext_v2 *)(rt_rule->rules)) {
+		ret = -ENOMEM;
+		goto free_rule;
+	}
+
+	rt_rule->commit = 1;
+	rt_rule->rule_add_ext_size = sizeof(struct ipa_rt_rule_add_ext_v2);
+	strscpy(rt_rule->rt_tbl_name, IPA_NAT_EXC_RT_TBL_NAME,
+			IPA_RESOURCE_NAME_MAX);
+
+	rt_rule_entry = (struct ipa_rt_rule_add_ext_v2 *)rt_rule->rules;
+
+	/*
+	 * Every rule is appended, so the array order above is the match order
+	 * in HW, and all of them land behind the LAN side rules ipa.c
+	 * installed - the metadata[29] rules stay ahead of the WAN ones.
+	 */
+	for (i = 0; i < rt_rule->num_rules; i++)
+		rt_rule_entry[i].at_rear = 1;
+
+	if (wan_coal_enabled) {
+		rt_rule_entry[NAT_EXC_RT_WAN_COAL_TCP].rule.dst =
+			IPA_CLIENT_APPS_WAN_COAL_CONS;
+		rt_rule_entry[NAT_EXC_RT_WAN_COAL_TCP].rule.hdr_hdl =
+			rmnet_ipa3_ctx->qmap_hdr_hdl;
+		rt_rule_entry[NAT_EXC_RT_WAN_COAL_UDP].rule.dst =
+			IPA_CLIENT_APPS_WAN_COAL_CONS;
+		rt_rule_entry[NAT_EXC_RT_WAN_COAL_UDP].rule.hdr_hdl =
+			rmnet_ipa3_ctx->qmap_hdr_hdl;
+		rt_rule_entry[NAT_EXC_RT_WAN_OTHER].rule.dst =
+			IPA_CLIENT_APPS_WAN_CONS;
+		rt_rule_entry[NAT_EXC_RT_WAN_OTHER].rule.hdr_hdl =
+			rmnet_ipa3_ctx->qmap_hdr_hdl;
+	} else {
+		/* No WAN coalescing: install only the default WAN route. */
+		rt_rule_entry[0].rule.dst = IPA_CLIENT_APPS_WAN_CONS;
+		rt_rule_entry[0].rule.hdr_hdl = rmnet_ipa3_ctx->qmap_hdr_hdl;
+	}
+
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		rt_rule->ip = ip_type;
+
+		for (i = 0; wan_coal_enabled &&
+			i < ARRAY_SIZE(nat_exc_proto_rule); i++) {
+			struct ipa_rule_attrib *attrib =
+				&rt_rule_entry[nat_exc_proto_rule[i].idx].
+					rule.attrib;
+
+			if (ip_type == IPA_IP_v4) {
+				attrib->attrib_mask = IPA_FLT_PROTOCOL;
+				attrib->u.v4.protocol =
+					nat_exc_proto_rule[i].proto;
+			} else {
+				attrib->attrib_mask = IPA_FLT_NEXT_HDR;
+				attrib->u.v6.next_hdr =
+					nat_exc_proto_rule[i].proto;
+			}
+		}
+
+		ret = ipa3_add_rt_rule_ext_v2(rt_rule, false);
+		if (ret) {
+			IPAWANERR("fail to add nat exc rt rules, ip type %d\n",
+				ip_type);
+			ret = -EPERM;
+		}
+
+		for (i = 0; i < rt_rule->num_rules;
+			i++) {
+			if (rt_rule_entry[i].status) {
+				IPAWANERR("fail to add nat exc rt rule %d, ip type %d\n",
+					i, ip_type);
+				ret = -EPERM;
+				continue;
+			}
+			IPAWANDBG("nat exc ip %d rt rule hdl[%d]=%x\n",
+				ip_type, i, rt_rule_entry[i].rt_rule_hdl);
+			rmnet_ipa3_ctx->nat_exc_rt_hdl[ip_type][i] =
+				rt_rule_entry[i].rt_rule_hdl;
+		}
+
+		if (ret)
+			goto free_rule_entry;
+	}
+
+free_rule_entry:
+	kfree((void *)(rt_rule->rules));
+free_rule:
+	kfree(rt_rule);
+	/*
+	 * Roll back whatever was programmed so far - the IPv4 rules may already
+	 * be live when the IPv6 ones fail.  Nothing to do when no rule made it
+	 * in, the handles are still zero then.
+	 */
+	if (ret)
+		ipa3_del_nat_exc_rt_wan_rules();
+	return ret;
+}
+
+/*
+ * Drop the WAN side rules again.  The exception routing table index is not
+ * touched - the table itself stays, with its LAN side rules.
+ */
+static int ipa3_del_nat_exc_rt_wan_rules(void)
+{
+	struct ipa_ioc_del_rt_rule *rt_rule;
+	struct ipa_rt_rule_del *rt_rule_entry;
+	int i, len, ret = 0;
+	enum ipa_ip_type ip_type;
+
+	len = sizeof(struct ipa_ioc_del_rt_rule) + 1 *
+			   sizeof(struct ipa_rt_rule_del);
+	rt_rule = kzalloc(len, GFP_KERNEL);
+	if (!rt_rule)
+		return -ENOMEM;
+
+	rt_rule->commit = 1;
+	rt_rule->num_hdls = 1;
+
+	rt_rule_entry = &rt_rule->hdl[0];
+	rt_rule_entry->status = -1;
+
+	for (ip_type = IPA_IP_v4; ip_type <= IPA_IP_v6; ip_type++) {
+		for (i = NAT_EXC_RT_WAN_COAL_TCP; i < NAT_EXC_RT_RULES_TOTAL;
+			i++) {
+			if (!rmnet_ipa3_ctx->nat_exc_rt_hdl[ip_type][i])
+				continue;
+			rt_rule->ip = ip_type;
+			rt_rule_entry->hdl =
+				rmnet_ipa3_ctx->nat_exc_rt_hdl[ip_type][i];
+			IPAWANDBG("Deleting Route hdl:(0x%x) with ip type: %d\n",
+				rt_rule_entry->hdl, ip_type);
+			rt_rule_entry->status = -1;
+			if (ipa3_del_rt_rule(rt_rule) ||
+					(rt_rule_entry->status)) {
+				IPAWANERR("Routing rule deletion failed\n");
+				ret = -EPERM;
+				continue;
+			}
+			rmnet_ipa3_ctx->nat_exc_rt_hdl[ip_type][i] = 0;
+		}
+	}
+
+	kfree(rt_rule);
+	return ret;
 }
 
 static void ipa3_copy_qmi_flt_rule_ex(
@@ -3308,6 +3571,16 @@ static int handle3_ingress_format_v2(struct net_device *dev,
 			if (rc)
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
 		}
+
+		if (ipa3_nat_exc_rt_tbl_supported() &&
+			!rmnet_ipa3_ctx->nat_exc_rt_wan_rules_set) {
+			rc = ipa3_setup_nat_exc_rt_wan_rules();
+			if (rc)
+				IPAWANERR("nat exc rt wan rules setup failed = %d\n",
+					rc);
+			else
+				rmnet_ipa3_ctx->nat_exc_rt_wan_rules_set = true;
+		}
 #ifdef CONFIG_IPA_IPSEC
 		if (ipa_ipsec_enabled()) {
 			rc = ipa_ipsec_install_dl_pol_flt(rmnet_ipa3_ctx->qmap_hdr_hdl);
@@ -3531,6 +3804,16 @@ static int handle3_ingress_format_internal(const struct rmnet_ingress_param ingr
 			rc = ipa3_setup_low_lat_rt_rules();
 			if (rc)
 				IPAWANERR("low lat rt rule add failed = %d\n", rc);
+		}
+
+		if (ipa3_nat_exc_rt_tbl_supported() &&
+			!rmnet_ipa3_ctx->nat_exc_rt_wan_rules_set) {
+			rc = ipa3_setup_nat_exc_rt_wan_rules();
+			if (rc)
+				IPAWANERR("nat exc rt wan rules setup failed = %d\n",
+					rc);
+			else
+				rmnet_ipa3_ctx->nat_exc_rt_wan_rules_set = true;
 		}
 		rmnet_ipa3_ctx->wan_rt_table_setup = true;
 	}
@@ -5529,6 +5812,7 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	rmnet_ipa3_ctx->ipa_mhi_aggr_formet_set = false;
 	rmnet_ipa3_ctx->ingress_eps_mask = IPA_AP_INGRESS_NONE;
 	rmnet_ipa3_ctx->wan_rt_table_setup = false;
+	rmnet_ipa3_ctx->nat_exc_rt_wan_rules_set = false;
 	rmnet_ipa3_ctx->eth_wan_set = false;
 	rmnet_ipa3_ctx->eth_vlan = false;
 	rmnet_ipa3_ctx->ipa_v2x_set = false;
@@ -5866,6 +6150,7 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 	}
 	rmnet_ipa3_ctx->ingress_eps_mask = IPA_AP_INGRESS_NONE;
 	rmnet_ipa3_ctx->wan_rt_table_setup = false;
+	rmnet_ipa3_ctx->nat_exc_rt_wan_rules_set = false;
 	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 	/* Clean up netdev resources in BEFORE_SHUTDOWN for non remoteproc
 	 * targets. */
@@ -5889,6 +6174,11 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 		(ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) !=
 		IPA_EP_NOT_ALLOCATED))
 		ipa3_del_low_lat_rt_rule();
+	/*
+	 * Must run before ipa3_del_a7_qmap_hdr() below - the WAN rules of the
+	 * table reference the QMAP header.  A no-op when nothing was programmed.
+	 */
+	ipa3_del_nat_exc_rt_wan_rules();
 	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_CONS) !=
 		IPA_EP_NOT_ALLOCATED) {
 		ipa3_del_dflt_wan_rt_tables();

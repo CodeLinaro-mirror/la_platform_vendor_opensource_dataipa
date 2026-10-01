@@ -1578,11 +1578,13 @@ static int ecm_ipa_ep_registers_cfg(u32 usb_to_ipa_hdl, u32 ipa_to_usb_hdl,
 
 	/* enable hdr_metadata_reg_valid */
 	usb_to_ipa_ep_cfg.hdr.hdr_metadata_reg_valid = true;
-	/*xlat config in vlan mode */
+	/*
+	 * VLAN mode header sizing. The VLAN ID is now matched directly by the
+	 * uplink filter rule (802.1Q offset_meq_32), so the EP no longer needs
+	 * to source metadata from the header offset - keep the default
+	 * hdr_metadata_reg_valid behavior and only adjust the header size.
+	 */
 	if (is_vlan_mode) {
-		usb_to_ipa_ep_cfg.hdr.hdr_ofst_metadata_valid = 1;
-		usb_to_ipa_ep_cfg.hdr.hdr_ofst_metadata = ETH_HLEN;
-		usb_to_ipa_ep_cfg.hdr.hdr_metadata_reg_valid = false;
 		qmap_template_hdr.additional_hdr_size =
 			VLAN_ETH_HLEN - ETH_HLEN;
 	}

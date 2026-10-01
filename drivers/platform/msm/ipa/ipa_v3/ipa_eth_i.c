@@ -83,9 +83,41 @@ enum ipa_eth_dir {
 	IPA_ETH_TX = 1,
 };
 
-/* HOLB timeout values for QOS. */
-u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE] = {31000, 500};
-u32 qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO] = {31000, 20000, 500, 500, 500};
+/* HOLB timeouts in us, indexed by relative priority: [0] loosest, [last]
+ * tightest. Sized for the v7 CPE TX layout (1 BE + 2 QoS); pre-7.0 uses the
+ * first two entries. qos_holb_tmr_auto is the legacy pre-7.0 auto DMA-channel
+ * layout (1 BE + up to 4 graded channels); IPA_7_0_AUTO uses the same 1 BE +
+ * 2 QoS client-type layout as v7 CPE, so it shares that table/count instead.
+ * Reach only through ipa3_eth_qos_holb_tmr_uS().
+ */
+static u32 qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7] = {31000, 500, 500};
+static u32 qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO] = {31000, 20000, 500, 500, 500};
+
+/* Picks the right table and bound for the current config; a priority past the
+ * end clamps to the last (tightest) entry.
+ */
+u32 ipa3_eth_qos_holb_tmr_uS(u8 priority)
+{
+	u32 *tbl;
+	u32 cnt;
+
+	if (ipa3_ctx->ipa_config_is_auto) {
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+			tbl = qos_holb_tmr;
+			cnt = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7;
+		} else {
+			tbl = qos_holb_tmr_auto;
+			cnt = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
+		}
+	} else {
+		tbl = qos_holb_tmr;
+		cnt = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+			IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE_V7 :
+			IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE;
+	}
+
+	return (priority < cnt) ? tbl[priority] : tbl[cnt - 1];
+}
 
 static void ipa_iemac_smmu_cb_save_mapping_i(enum ipa_smmu_cb_type cb_type, phys_addr_t pa,
 	unsigned long iova, size_t len, int instance_id, enum ipa_eth_pipe_direction dir, u8 pipe_idx)
@@ -1104,9 +1136,15 @@ static int ipa_eth_setup_ntn_gsi_channel(
 		goto fail_get_gsi_ep_info;
 	} else
 		gsi_channel_props.ch_id = gsi_ep_info->ipa_gsi_chan_num;
- 	if ((ipa3_ctx->tsn_iface == true ) &&
-		(ep->client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS))
- 		gsi_channel_props.low_latency_en = 1;
+	/* Enable low-latency GSI arbitration on QoS TC pipes so they get
+	 * preferential scheduling over best-effort traffic. BE pipes
+	 * (tc_bmap == 0) are left at the default (disabled). The existing
+	 * tsn/LOW_LAT_CONS path is preserved as a fallback for that client. */
+	if (pipe->tc_bmap != 0)
+		gsi_channel_props.low_latency_en = 1;
+	else if ((ipa3_ctx->tsn_iface == true) &&
+		 (ep->client == IPA_CLIENT_ETHERNET_LOW_LAT_CONS))
+		gsi_channel_props.low_latency_en = 1;
 	gsi_channel_props.evt_ring_hdl = ep->gsi_evt_ring_hdl;
 	gsi_channel_props.re_size = GSI_CHAN_RE_SIZE_16B;
 	gsi_channel_props.use_db_eng =
@@ -1382,15 +1420,30 @@ int ipa3_eth_connect(
 		ep->cfg.aggr.aggr_byte_limit = IPA_ETH_AGGR_BYTE_LIMIT;
 		ep->cfg.aggr.aggr_pkt_limit = IPA_ETH_AGGR_PKT_LIMIT;
 		ep->cfg.aggr.aggr_hard_byte_limit_en = IPA_ENABLE_AGGR;
+		/*
+		 * TX consumer (IPA->ETH) notify: ipa_eth_offload_tx_dp() submits
+		 * via ipa_tx_dp() with a NULL callback, so the TX-complete
+		 * IPA_WRITE_DONE is delivered through this endpoint's
+		 * client_notify (see ipa3_tx_comp_usr_notify_release). Without
+		 * it the skb is silently freed and the ETH driver never gets a
+		 * TX completion (cannot restart a stopped TX queue).
+		 */
+		ep->client_notify = pipe->info.notify;
+		ep->priv = pipe->info.priv;
+		/*
+		 * Mark the TX consumer as a ULSO pipe so ipa3_send() selects
+		 * the pkt_init_ex command for GSO skbs and ipa3_cfg_ep()
+		 * programs pkt_init_ex_imm[dst] (via the CONS-ULSO block in
+		 * ipa3_cfg_ep). Matches the proven UlsoTest TEST_CONS config
+		 * which sets only is_ulso_pipe on the consumer; ULSO
+		 * segmentation registers (ipid range, etc.) are an ingress
+		 * concern and stay on LAN_PROD.
+		 */
+		if (ipa3_ctx->ulso_supported)
+			ep->cfg.ulso.is_ulso_pipe = true;
 	} else {
 		ep->client_notify = pipe->info.notify;
 		ep->priv = pipe->info.priv;
-		/* xlat config in vlan mode */
-		if (vlan_mode) {
-			ep->cfg.hdr.hdr_ofst_metadata_valid = 1;
-			ep->cfg.hdr.hdr_ofst_metadata = ETH_HLEN;
-			ep->cfg.hdr.hdr_metadata_reg_valid = false;
-		}
 	}
 
 	/* ETH PDU configuration */
@@ -1690,26 +1743,20 @@ int ipa3_eth_connect(
 
 	/* Enable HOLB Timeout when QOS is enabled. */
 	if (ipa3_ctx->eth_qos && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-		if (!pipe->tc_bmap && !priority)
+		/* One-time config, never reprogrammed on a QoS pipe. On CPE
+		 * tc_bmap is still 0 here (QoSMgr binds TCs later), so the
+		 * pipe keeps the loose 31ms default; only BE is retimed
+		 * later, by ipa3_qos_retime_be_pipes().
+		 */
+		if (!pipe->tc_bmap)
 		{
-			IPADBG("Only BE tx available, no need to set holb\n");
+			IPADBG("no TC on this tx pipe, no need to set holb\n");
 		}
 		else
 		{
 			memset(&holb_cfg, 0, sizeof(holb_cfg));
 			holb_cfg.en = IPA_HOLB_TMR_EN;
-			if (ipa3_ctx->ipa_config_is_auto)
-			{
-				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO) ?
-					qos_holb_tmr_auto[priority] :
-					qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO - 1];
-			}
-			else
-			{
-				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE) ?
-					qos_holb_tmr[priority] :
-					qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE - 1];
-			}
+			holb_cfg.tmr_val = ipa3_eth_qos_holb_tmr_uS(priority);
 			ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
 		}
 	}
@@ -1862,6 +1909,7 @@ int ipa3_eth_disconnect(
 			ipa3_ctx->gsi_info[prot]);
 	}
 	/* stop gsi channel */
+	atomic_set(&ep->disconnect_in_progress, 1);
 	result = ipa_stop_gsi_channel(ep_idx);
 	if (result) {
 		IPAERR("failed to stop gsi channel %d\n", ep_idx);
@@ -1900,7 +1948,9 @@ int ipa3_eth_disconnect(
 		ipa_assert();
 		goto fail;
 	}
+	spin_lock_bh(&ipa3_ctx->disconnect_lock);
 	memset(ep, 0, sizeof(struct ipa3_ep_context));
+	spin_unlock_bh(&ipa3_ctx->disconnect_lock);
 	IPADBG("client (ep: %d) disconnected\n", ep_idx);
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
@@ -2034,26 +2084,20 @@ int ipa3_eth_enable(
 
 	/* Enable HOLB Timeout when QOS is enabled. */
 	if (ipa3_ctx->eth_qos && pipe->dir == IPA_ETH_PIPE_DIR_TX) {
-		if (!pipe->tc_bmap && !priority)
+		/* One-time config, never reprogrammed on a QoS pipe. On CPE
+		 * tc_bmap is still 0 here (QoSMgr binds TCs later), so the
+		 * pipe keeps the loose 31ms default; only BE is retimed
+		 * later, by ipa3_qos_retime_be_pipes().
+		 */
+		if (!pipe->tc_bmap)
 		{
-			IPADBG("Only BE tx available, no need to set holb\n");
+			IPADBG("no TC on this tx pipe, no need to set holb\n");
 		}
 		else
 		{
 			memset(&holb_cfg, 0, sizeof(holb_cfg));
 			holb_cfg.en = IPA_HOLB_TMR_EN;
-			if (ipa3_ctx->ipa_config_is_auto)
-			{
-				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO) ?
-					qos_holb_tmr_auto[priority] :
-					qos_holb_tmr_auto[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO - 1];
-			}
-			else
-			{
-				holb_cfg.tmr_val = (priority < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE) ?
-					qos_holb_tmr[priority] :
-					qos_holb_tmr[IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_CPE - 1];
-			}
+			holb_cfg.tmr_val = ipa3_eth_qos_holb_tmr_uS(priority);
 			ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
 		}
 	}

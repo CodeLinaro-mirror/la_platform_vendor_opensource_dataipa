@@ -958,7 +958,7 @@ int ipa3_send_cmd(u16 num_desc, struct ipa3_desc *descr)
 	}
 
 	for (i = 0; i < num_desc; i++)
-		IPADBG("sending imm cmd %d\n", descr[i].opcode);
+		IPADBG_LOW("sending imm cmd %d\n", descr[i].opcode);
 
 	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_CMD_PROD);
 	if (-1 == ep_idx) {
@@ -1034,7 +1034,7 @@ int ipa3_send_cmd_timeout(u16 num_desc, struct ipa3_desc *descr, u32 timeout)
 	}
 
 	for (i = 0; i < num_desc; i++)
-		IPADBG("sending imm cmd %d\n", descr[i].opcode);
+		IPADBG_LOW("sending imm cmd %d\n", descr[i].opcode);
 
 	ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_CMD_PROD);
 	if (-1 == ep_idx) {
@@ -2106,10 +2106,17 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		delete_avail_tx_wrapper_list(ep);
 		/* Delete NAPI TX object. For WAN_PROD, it is deleted
 		 * in rmnet_ipa driver.
+		 * Gate on napi_tx_enable rather than the global
+		 * tx_napi_enable: setup only adds napi_tx for the LAN/WAN/
+		 * IPSEC producers and leaves it zeroed for the others (e.g.
+		 * CMD_PROD, TEST_PROD), so the global flag alone would delete
+		 * a NAPI object that was never added.
 		 */
-		if (ipa3_ctx->tx_napi_enable &&
-			(ep->client != IPA_CLIENT_APPS_WAN_PROD))
+		if (ep->sys->napi_tx_enable &&
+			(ep->client != IPA_CLIENT_APPS_WAN_PROD)) {
+			napi_disable(&ep->sys->napi_tx);
 			netif_napi_del(&ep->sys->napi_tx);
+		}
 	}
 
 	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
@@ -2450,14 +2457,31 @@ static void ipa3_tx_comp_usr_notify_release(void *user1, int user2)
 {
 	struct sk_buff *skb = (struct sk_buff *)user1;
 	int ep_idx = user2;
+	void (*notify)(void *priv, enum ipa_dp_evt_type evt,
+		       unsigned long data) = NULL;
+	void *priv = NULL;
 
 	IPADBG_LOW("skb=%pK ep=%d\n", skb, ep_idx);
 
 	IPA_STATS_INC_CNT(ipa3_ctx->stats.tx_pkts_compl);
 
-	if (ipa3_ctx->ep[ep_idx].client_notify)
-		ipa3_ctx->ep[ep_idx].client_notify(ipa3_ctx->ep[ep_idx].priv,
-				IPA_WRITE_DONE, (unsigned long)skb);
+	/*
+	 * Snapshot the callback pointer under disconnect_lock so it cannot
+	 * be cleared by a concurrent ipa3_eth_disconnect() / ipa3_disconn_wdi3_pipes()
+	 * memset(ep, 0) between the NULL-check and the invocation.
+	 * Mirrors the protection already present on the RX notify path.
+	 */
+	spin_lock_bh(&ipa3_ctx->disconnect_lock);
+	if (ipa3_ctx->ep[ep_idx].valid &&
+	    ipa3_ctx->ep[ep_idx].client_notify &&
+	    likely(!atomic_read(&ipa3_ctx->ep[ep_idx].disconnect_in_progress))) {
+		notify = ipa3_ctx->ep[ep_idx].client_notify;
+		priv   = ipa3_ctx->ep[ep_idx].priv;
+	}
+	spin_unlock_bh(&ipa3_ctx->disconnect_lock);
+
+	if (notify)
+		notify(priv, IPA_WRITE_DONE, (unsigned long)skb);
 	else
 		dev_kfree_skb_any(skb);
 }
@@ -2622,8 +2646,12 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 	if (dst_ep_idx != -1) {
 		/* SW data path */
 		struct iphdr *network_header;
+		bool is_ulso_pipe;
+		bool cookie_valid;
 
 		network_header = (struct iphdr *)(skb_network_header(skb));
+		is_ulso_pipe = ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe;
+		cookie_valid = meta && meta->sw_classification_cookie_valid;
 
 		data_idx = 0;
 
@@ -2668,18 +2696,58 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 				 network_header->protocol == IPPROTO_ICMP) ||
 				(((struct ipv6hdr *)network_header)->version == 6 &&
 				((struct ipv6hdr *)network_header)->nexthdr == NEXTHDR_ICMP))) {
-				ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
-					ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
-						dst_ep_idx);
+				if (is_ulso_pipe && cookie_valid) {
+					/* wlan shared slot: cookie-bearing ICMP. */
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_icmp_wlan_pkts);
+					ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base,
+							dst_ep_idx);
+					ipa_imm_cmd_modify_ip_packet_init_ex_cookie(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base,
+						meta->sw_classification_cookie);
+					desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
+					desc[data_idx].dma_address =
+					 ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].phys_base;
+				} else {
+					/* eth shared slot: no-cookie ICMP. */
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_icmp_eth_pkts);
+					ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base,
+							dst_ep_idx);
+					desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
+					desc[data_idx].dma_address =
+					 ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].phys_base;
+				}
+			} else if (is_ulso_pipe && cookie_valid) {
 				desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
-				desc[data_idx].dma_address =
-				 ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].phys_base;
-			} else if (ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe &&
-					skb_is_gso(skb)) {
+				if (skb_is_gso(skb)) {
+					/* GSO: per-pipe slot. */
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_wlan_gso_pkts);
+					ipa_imm_cmd_modify_ip_packet_init_ex_cookie(
+						ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].base,
+						meta->sw_classification_cookie);
+					desc[data_idx].dma_address =
+						ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].phys_base;
+				} else {
+					/* Non-GSO: wlan shared slot, dest_pipe is dynamic. */
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_wlan_nongso_pkts);
+					ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base,
+							dst_ep_idx);
+					ipa_imm_cmd_modify_ip_packet_init_ex_cookie(
+						ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].base,
+						meta->sw_classification_cookie);
+					desc[data_idx].dma_address =
+					 ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes + 1].phys_base;
+				}
+			} else if (is_ulso_pipe && skb_is_gso(skb)) {
 				desc[data_idx].opcode = ipa3_ctx->pkt_init_ex_imm_opcode;
 				desc[data_idx].dma_address =
 					ipa3_ctx->pkt_init_ex_imm[dst_ep_idx].phys_base;
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_eth_gso_pkts);
 			} else {
+				if (ipa3_ctx->ep[dst_ep_idx].cfg.ulso.is_ulso_pipe)
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_tx_nongso_pkts);
 				desc[data_idx].opcode = ipa3_ctx->pkt_init_imm_opcode;
 				desc[data_idx].dma_address = ipa3_ctx->pkt_init_imm[dst_ep_idx];
 			}
@@ -4247,6 +4315,8 @@ static int ipa3_lan_rx_pyld_hdlr(struct sk_buff *skb,
 	unsigned long unused = IPA_GENERIC_RX_BUFF_BASE_SZ - used;
 	struct ipa3_tx_pkt_wrapper *tx_pkt = NULL;
 	unsigned long ptr;
+	enum ipa_client_type clnt;
+	int rc_client;
 
 	IPA_DUMP_BUFF(ipa3_lan_rx_data_ptr(skb), 0, skb->len);
 
@@ -4377,8 +4447,6 @@ begin:
 			continue;
 		}
 
-		IPA_STATS_EXCP_CNT(status.exception,
-				ipa3_ctx->stats.rx_excp_pkts);
 		if (status.endp_dest_idx >= ipa3_ctx->ipa_num_pipes ||
 			status.endp_src_idx >= ipa3_ctx->ipa_num_pipes) {
 			IPAERR_RL("status fields invalid\n");
@@ -4389,6 +4457,11 @@ begin:
 			/* HW gave an unexpected status */
 			ipa_assert();
 		}
+
+		rc_client = get_rc_client(status.endp_src_idx);
+		IPA_STATS_EXCP_CNT(status.exception,
+				ipa3_ctx->stats.rx_excp_pkts[rc_client]);
+
 		if (IPAHAL_PKT_STATUS_MASK_FLAG_VAL(
 			IPAHAL_PKT_STATUS_MASK_TAG_VALID_SHFT, &status)) {
 			struct ipa3_tag_completion *comp;
@@ -4417,7 +4490,7 @@ begin:
 			pskb_pull(skb, pkt_status_sz);
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.aggr_close);
 			IPA_STATS_DEC_CNT(ipa3_ctx->stats.rx_excp_pkts
-				[IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
+				[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
 			continue;
 		}
 
@@ -4551,6 +4624,35 @@ begin:
 			/* TX comp */
 			ipa3_wq_write_done_status(src_pipe, tx_pkt);
 			IPADBG_LOW("tx comp imp for %d\n", src_pipe);
+			if (sys->drop_packet) {
+				if (ipa3_ctx->is_rc_log_enabled) {
+					IPADBG("drop pkt status_opcode=0x%x exception=0x%x status_mask=0x%x pkt_len=0x%x\n",
+						status.status_opcode, status.exception,
+						status.status_mask, status.pkt_len);
+					IPADBG("endp_src_idx=0x%x endp_dest_idx=0x%x metadata=0x%x\n",
+						status.endp_src_idx, status.endp_dest_idx,
+						status.metadata);
+					IPADBG("flt_miss=0x%x flt_rule_id=0x%x rt_local=0x%x rt_hash=0x%x\n",
+						status.flt_miss, status.flt_rule_id,
+						status.rt_local, status.rt_hash);
+					IPADBG("ucp=0x%x rt_tbl_idx=0x%x rt_miss=0x%x rt_rule_id=0x%x\n",
+						status.ucp, status.rt_tbl_idx,
+						status.rt_miss, status.rt_rule_id);
+					IPADBG("nat_hit=0x%x nat_entry_idx=0x%x nat_type=0x%x\n",
+						status.nat_hit, status.nat_entry_idx,
+						status.nat_type);
+				}
+				clnt = ipa3_get_real_client_by_pipe(src_pipe);
+				if(IPA_CLIENT_IS_Q6_PROD(clnt) ||
+					IPA_CLIENT_IS_ETH_PROD_ENUM(clnt) ||
+					is_wlan_sta_pkt(&status)) {
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.rx_excp_pkts
+					[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL]);
+				} else {
+					IPA_STATS_INC_CNT(ipa3_ctx->stats.rx_excp_pkts
+					[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL]);
+				}
+			}
 		} else {
 			/* TX comp */
 			ipa3_wq_write_done_status(status.endp_src_idx, tx_pkt);
@@ -4559,7 +4661,7 @@ begin:
 			pskb_pull(skb, pkt_status_sz);
 			IPA_STATS_INC_CNT(ipa3_ctx->stats.stat_compl);
 			IPA_STATS_DEC_CNT(ipa3_ctx->stats.rx_excp_pkts
-				[IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
+				[rc_client][IPAHAL_PKT_STATUS_EXCEPTION_NONE]);
 		}
 		tx_pkt = NULL;
 	}
@@ -5007,36 +5109,44 @@ static void ipa3_lan_rx_process_metadata(struct ipa3_ep_context *ep,
 		IPADBG_LOW("ta peer id %d\n", *(u16 *)(skb->cb + 5));
 
 	} else if (ipa_get_wdi_version() == IPA_WDI_6) {
-		/* IPA WDITRESTLES Rx metadata
-		 * +-------------+------------+--------+
-		 * | 32-bit word | Field      | Bits   |
-		 * +-------------+------------+--------+
-		 * | 0           | TA_PEER_ID | 0-13   |
-		 * |             | RESERVED   | 14-15  |
-		 * |             | QMAP_ID    | 16-23  |
-		 * |             | VAP_ID     | 24-31  |
-		 * +-------------+------------+--------+
+		/* IPA WDI6TRESTLES Rx metadata
+		 * +-------------+--------------------------------+-------+
+		 * | 32-bit word | Field                          | Bits  |
+		 * +-------------+--------------------------------+-------+
+		 * | 0           | TA_PEER_ID                     | 0-11  |
+		 * |             | HW_LINK_ID                     | 12-15 |
+		 * |             | QMAP_ID                        | 16-23 |
+		 * |             | VAP_ID_LSB                     | 24-28 |
+		 * |             | RESERVED (flow control)        | 29-29 |
+		 * |             | VAP_ID_MSB                     | 30-31 |
+		 * +-------------+--------------------------------+-------+
+		 * VAP_ID = VAP_ID_MSB[1:0] << 5 | VAP_ID_LSB[4:0] (7 bits).
+		 * Bit 29 is reserved for flow control and is not part of
+		 * VAP_ID and not packed into skb->cb.
 		 *
 		 * skb->cb layout (packed into a single u32 = 4 bytes):
-		 *  +----------+------------+----------+
-		 *  | [7:0]    | [21:8]     | [31:22]  |
-		 *  | vap_id   | ta_peer_id | reserved |
-		 *  +----------+------------+----------+
+		 *  +------------+-------------+----------+----------+
+		 *  | [11:0]     | [15:12]     | [22:16]  | [31:23]  |
+		 *  | ta_peer_id | hw_link_id  | vap_id   | reserved |
+		 *  +------------+-------------+----------+----------+
 		 */
 		struct ipa_wdi6_rx_skb_cb *wdi6_cb =
 			(struct ipa_wdi6_rx_skb_cb *)skb->cb;
-		u32 vap_id, ta_peer_id;
+		u32 vap_id, ta_peer_id, hw_link_id;
 
 		metadata = ntohl(metadata);
-		vap_id     = (metadata >> 24) & 0xFF;
-		ta_peer_id = metadata & 0x3FFF;
+		vap_id     = ((metadata >> 24) & 0x1F) | (((metadata >> 30) & 0x3) << 5);
+		hw_link_id = (metadata >> 12) & 0xF;
+		ta_peer_id = metadata & 0xFFF;
 		wdi6_cb->packed =
 			((vap_id & IPA_WDI6_CB_VAP_ID_MASK) << IPA_WDI6_CB_VAP_ID_SHIFT) |
-			((ta_peer_id & IPA_WDI6_CB_TA_PEER_ID_MASK) << IPA_WDI6_CB_TA_PEER_ID_SHIFT);
+			((ta_peer_id & IPA_WDI6_CB_TA_PEER_ID_MASK) << IPA_WDI6_CB_TA_PEER_ID_SHIFT) |
+			((hw_link_id & IPA_WDI6_CB_HW_LINK_ID_MASK) << IPA_WDI6_CB_HW_LINK_ID_SHIFT);
 		IPADBG_LOW("WDI6 meta_data: 0x%x cb: 0x%x\n",
 				metadata, *(u32 *)skb->cb);
 		IPADBG_LOW("WDI6 vap_id %d\n", vap_id);
 		IPADBG_LOW("WDI6 ta peer id %d\n", ta_peer_id);
+		IPADBG_LOW("WDI6 hw link id %d\n", hw_link_id);
 
 	} else {
 		/* Metadata Info
@@ -5383,7 +5493,17 @@ _prep_and_send_skb(
 
 			ipa3_ctx->stats.coal.coal_reconstructed++;
 
-			head_skb->protocol = ip_proto;
+			/* Validate ip_vers before assigning protocol */
+			if (ip_vers == 4) {
+				head_skb->protocol = htons(ETH_P_IP);
+			} else if (ip_vers == 6) {
+				head_skb->protocol = htons(ETH_P_IPV6);
+			} else {
+				IPAERR("Unexpected ip_vers %d during coal reconstruct\n", ip_vers);
+				dev_kfree_skb_any(head_skb);
+				ipa3_ctx->stats.coal.coal_reconstructed--;
+				return -1;
+			}
 
 			/*
 			 * Copy MAC header into the skb...
@@ -5490,19 +5610,23 @@ _prep_and_send_skb(
 		{
 			shinfo->gso_segs = num_pkts;
 			shinfo->gso_size = pkts[0].pkt_len;
+			if (ip_proto == IPPROTO_TCP)
+				shinfo->gso_type =
+					(ip_vers == 4) ? SKB_GSO_TCPV4 : SKB_GSO_TCPV6;
+			else
+				shinfo->gso_type = SKB_GSO_UDP_L4;
 		}
 		else
 		{
 			shinfo->gso_segs = 0;
 			shinfo->gso_size = 0;
+			shinfo->gso_type = 0;
 		}
 
 		if (ip_proto == IPPROTO_TCP) {
-			shinfo->gso_type = (ip_vers == 4) ? SKB_GSO_TCPV4 : SKB_GSO_TCPV6;
 			ipa3_ctx->stats.coal.coal_tcp++;
 			ipa3_ctx->stats.coal.coal_tcp_bytes += aggr_payload_size;
 		} else {
-			shinfo->gso_type = SKB_GSO_UDP_L4;
 			ipa3_ctx->stats.coal.coal_udp++;
 			ipa3_ctx->stats.coal.coal_udp_bytes += aggr_payload_size;
 		}
@@ -6800,6 +6924,27 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 				sys->repl_hdlr = ipa3_replenish_rx_cache;
 				sys->rx_buff_sz = IPA_ODU_RX_BUFF_SZ;
 			}
+		} else if (IPA_CLIENT_IS_TEST_CONS(in->client)) {
+			IPADBG("assigning policy to client:%d",
+				in->client);
+
+			sys->policy = IPA_POLICY_INTR_POLL_MODE;
+			INIT_WORK(&sys->work, ipa3_wq_handle_rx);
+			INIT_DELAYED_WORK(&sys->switch_to_intr_work,
+				ipa3_switch_to_intr_rx_work_func);
+			INIT_DELAYED_WORK(&sys->replenish_rx_work,
+				ipa3_replenish_rx_work_func);
+			atomic_set(&sys->curr_polling_state, 0);
+			sys->rx_pool_sz = in->desc_fifo_sz /
+				IPA_FIFO_ELEMENT_SIZE - 1;
+			if (sys->rx_pool_sz > IPA_ODU_RX_POOL_SZ)
+				sys->rx_pool_sz = IPA_ODU_RX_POOL_SZ;
+			sys->pyld_hdlr = ipa3_odu_rx_pyld_hdlr;
+			sys->get_skb = ipa3_get_skb_ipa_rx;
+			sys->free_skb = ipa_free_skb_rx;
+			sys->free_rx_wrapper = ipa3_free_rx_wrapper;
+			sys->repl_hdlr = ipa3_replenish_rx_cache;
+			sys->rx_buff_sz = IPA_ODU_RX_BUFF_SZ;
 		} else if (in->client ==
 				IPA_CLIENT_MEMCPY_DMA_ASYNC_CONS) {
 			IPADBG("assigning policy to client:%d",
@@ -8029,11 +8174,13 @@ static int ipa_poll_gsi_n_pkt(struct ipa3_sys_context *sys,
 int ipa3_lan_rx_poll(u32 clnt_hdl, int weight)
 {
 	struct ipa3_ep_context *ep;
+	struct ipa3_sys_context *lan_def_sys = NULL;
 	int ret;
 	int cnt = 0;
 	int num = 0;
 	int i;
 	int remain_aggr_weight;
+	int ipa_ep_idx;
 
 	if (unlikely(clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
 		ipa3_ctx->ep[clnt_hdl].valid == 0)) {
@@ -8048,6 +8195,23 @@ int ipa3_lan_rx_poll(u32 clnt_hdl, int weight)
 		return cnt;
 	}
 	ep = &ipa3_ctx->ep[clnt_hdl];
+
+	/*
+	 * Look up the LAN default (APPS_LAN_CONS) sibling so this poll can also
+	 * keep its descriptor ring refilled — mirrors ipa3_rx_poll()'s handling
+	 * of wan_def_sys. Without this, when the COAL pipe is polled hot on one
+	 * CPU while the default pipe's own replenish (workqueue) is starved for
+	 * CPU (e.g. RPS backlog contending), the HW default ring drains and
+	 * embedded RX stalls (exception stats stop). Only set lan_def_sys if
+	 * it's a separate sys from ep->sys (avoid double-replenish when the
+	 * caller IS the default pipe or LAN_COAL is not allocated).
+	 */
+	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
+	if (ipa_ep_idx != IPA_EP_NOT_ALLOCATED &&
+	    ipa3_ctx->ep[ipa_ep_idx].valid &&
+	    ipa3_ctx->ep[ipa_ep_idx].sys &&
+	    ipa3_ctx->ep[ipa_ep_idx].sys != ep->sys)
+		lan_def_sys = ipa3_ctx->ep[ipa_ep_idx].sys;
 
 start_poll:
 	/*
@@ -8084,7 +8248,21 @@ start_poll:
 		}
 	}
 	cnt += weight - remain_aggr_weight * IPA_LAN_AGGR_PKT_CNT;
-	if (cnt < weight) {
+	/*
+	 * Inline replenish for both COAL and default rings before deciding to
+	 * complete NAPI — mirrors WAN COAL pattern to guarantee HW always has
+	 * descriptors. Without this, the default pipe relies on its delayed
+	 * workqueue which can be CPU-starved under load.
+	 */
+	ep->sys->repl_hdlr(ep->sys);
+	if (lan_def_sys)
+		lan_def_sys->repl_hdlr(lan_def_sys);
+	/*
+	 * When not able to replenish enough descriptors on EITHER pipe, keep
+	 * NAPI in polling mode so the caller (napi_poll wrapper) re-runs us.
+	 */
+	if (cnt < weight && ep->sys->len > IPA_DEFAULT_SYS_YELLOW_WM &&
+	    (!lan_def_sys || lan_def_sys->len > IPA_DEFAULT_SYS_YELLOW_WM)) {
 		napi_complete(ep->sys->napi_obj);
 		IPA_STATS_INC_CNT(ep->sys->napi_comp_cnt);
 		ret = ipa3_rx_switch_to_intr_mode(ep->sys);
@@ -8098,6 +8276,10 @@ start_poll:
 			goto start_poll;
 #endif
 		IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(ep->client);
+	} else {
+		cnt = weight;
+		IPADBG_LOW("Client = %d not replenished free descriptors\n",
+				ep->client);
 	}
 
 	return cnt;

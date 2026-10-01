@@ -9,6 +9,8 @@
 #include <linux/sched/signal.h>
 #include "ipa_i.h"
 #include <linux/msm_ipa.h>
+#include "../ipa_backend/ipa_be.h"
+#include "../ipa_backend/ipa_be_nat_mgmt.h"
 
 struct ipa3_intf {
 	char name[IPA_RESOURCE_NAME_MAX];
@@ -166,10 +168,266 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 	}
 
 	mutex_lock(&ipa3_ctx->lock);
+	spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 	list_add_tail(&intf->link, &ipa3_ctx->intf_list);
+	spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 	mutex_unlock(&ipa3_ctx->lock);
 
 	return 0;
+}
+
+/**
+ * ipa3_set_intf_tx_tc_bitmap_by_pipe() - update tc_bmap for every TX property
+ *                                        of an interface that targets a given
+ *                                        destination pipe (client type)
+ * @name:      interface name
+ * @dst_pipe:  the tx_prop dst_pipe (IPA client type) to match
+ * @tc_bitmap: new tc_bmap value
+ *
+ * A single QoS pipe is typically registered as two TX props (one IPA_IP_v4,
+ * one IPA_IP_v6) sharing the same dst_pipe. This helper updates the tc_bmap
+ * on all such rows and refreshes the HW rules per IP version, so callers that
+ * only know the pipe (e.g. the ethernet driver's TC-remap path) do not need to
+ * know the tx_prop index layout. Mirrors ipa3_set_intf_tx_tc_bitmap()'s
+ * commit-under-lock then update-rules-outside-lock discipline.
+ *
+ * Returns 0 on success (including when no row matches — nothing to do),
+ * negative errno on failure.
+ */
+int ipa3_set_intf_tx_tc_bitmap_by_pipe(const char *name,
+				       enum ipa_client_type dst_pipe,
+				       uint32_t tc_bitmap)
+{
+	struct ipa3_intf *entry;
+	int retval = -ENOENT;
+	uint32_t removed_tcs[IPA_IP_MAX] = { 0 };
+	uint32_t added_tcs[IPA_IP_MAX] = { 0 };
+	bool touched = false;
+	int i;
+
+	if (!name) {
+		IPAERR("NULL interface name\n");
+		return -EINVAL;
+	}
+
+	if (tc_bitmap & ~((1U << IPA_MAX_TRAFFIC_CLASSES) - 1)) {
+		IPAERR("Invalid tc_bitmap 0x%x (bits beyond TC %d set)\n",
+		       tc_bitmap, IPA_MAX_TRAFFIC_CLASSES - 1);
+		return -EINVAL;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (strcmp(entry->name, name))
+			continue;
+		retval = 0;
+		for (i = 0; i < entry->num_tx_props; i++) {
+			enum ipa_ip_type ip = entry->tx[i].ip;
+			uint32_t old_bmap;
+
+			if (entry->tx[i].dst_pipe != dst_pipe)
+				continue;
+			if (ip < IPA_IP_v4 || ip >= IPA_IP_MAX)
+				continue;
+
+			old_bmap = entry->tx[i].tc_bmap;
+			entry->tx[i].tc_bmap = tc_bitmap;
+			/* Accumulate the delta per IP version; the HW rules are
+			 * refreshed once per IP after the lock is dropped. */
+			removed_tcs[ip] |= old_bmap & ~tc_bitmap;
+			added_tcs[ip]   |= ~old_bmap & tc_bitmap;
+			touched = true;
+
+			IPADBG("Updated %s tx[%d] (dst_pipe %d ip %d) tc_bmap 0x%x -> 0x%x\n",
+			       name, i, dst_pipe, ip, old_bmap, tc_bitmap);
+		}
+		break;
+	}
+	if (retval == -ENOENT)
+		IPAERR("Interface %s not found in registered interface list\n", name);
+	mutex_unlock(&ipa3_ctx->lock);
+
+	if (retval || !touched)
+		return retval;
+
+	/* Refresh HW rules per IP version, outside the lock (as the by-index
+	 * setter does) to avoid deadlock against the rule-mgmt paths. */
+	for (i = IPA_IP_v4; i < IPA_IP_MAX; i++) {
+		if (removed_tcs[i])
+			ipa_be_cleanup_tc_bitmap_rules(name, i, removed_tcs[i]);
+		if (added_tcs[i]) {
+			int hw_ret = ipa_be_install_tc_bitmap_rules(name, i,
+								    added_tcs[i]);
+			if (hw_ret)
+				retval = hw_ret;
+		}
+	}
+
+	return retval;
+}
+
+/**
+ * ipa3_set_intf_tx_tc_bitmap() - update tc_bmap for one TX interface property
+ * @name:      interface name
+ * @ip:        IP version (IPA_IP_v4 or IPA_IP_v6)
+ * @tx_index:  index of the TX property to update
+ * @tc_bitmap: new tc_bmap value
+ *
+ * Returns 0 on success, -ENOENT if interface or tx_index not found.
+ */
+int ipa3_set_intf_tx_tc_bitmap(const char *name,
+			       uint8_t tx_index, uint32_t tc_bitmap)
+{
+	struct ipa3_intf *entry;
+	int retval = -ENOENT;
+	uint32_t old_bmap = 0;
+	uint32_t removed_tcs = 0;
+	uint32_t added_tcs = 0;
+	enum ipa_ip_type ip = IPA_IP_v4;
+	enum ipa_client_type dst_pipe = IPA_CLIENT_MAX;
+
+	if (!name) {
+		IPAERR("NULL interface name\n");
+		return -EINVAL;
+	}
+
+	if (tc_bitmap & ~((1U << IPA_MAX_TRAFFIC_CLASSES) - 1)) {
+		IPAERR("Invalid tc_bitmap 0x%x (bits beyond TC %d set)\n",
+		       tc_bitmap, IPA_MAX_TRAFFIC_CLASSES - 1);
+		return -EINVAL;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (strcmp(entry->name, name))
+			continue;
+		if (tx_index >= entry->num_tx_props) {
+			IPAERR("tx_index %u out of range (%u props) for %s\n",
+			       tx_index, entry->num_tx_props, name);
+			retval = -EINVAL;
+			break;
+		}
+		old_bmap = entry->tx[tx_index].tc_bmap;
+		ip       = entry->tx[tx_index].ip;
+		dst_pipe = entry->tx[tx_index].dst_pipe;
+		entry->tx[tx_index].tc_bmap = tc_bitmap;
+
+		/* Compute delta while holding the lock so the values are
+		 * consistent with the bitmap update.
+		 * NOTE: tc_bmap is committed here before HW rules are updated
+		 * (cleanup/install happen after this lock is released). A
+		 * concurrent ipa3_query_intf_tx_props reader between here and
+		 * the HW update could see the new bitmap with old rules. Full
+		 * atomicity would require holding the lock across HW ops, which
+		 * risks deadlock — this is a known best-effort limitation. */
+		removed_tcs = old_bmap & ~tc_bitmap;
+		added_tcs   = ~old_bmap & tc_bitmap;
+
+		IPADBG("Updated %s tx[%u] tc_bmap 0x%x -> 0x%x\n",
+		       name, tx_index, old_bmap, tc_bitmap);
+		retval = 0;
+		break;
+	}
+	if (retval == -ENOENT)
+		IPAERR("Interface %s not found in registered interface list\n", name);
+	mutex_unlock(&ipa3_ctx->lock);
+
+	/* Perform rule operations outside the lock to avoid deadlock. */
+	if (retval == 0) {
+		if (removed_tcs)
+			ipa_be_cleanup_tc_bitmap_rules(name, ip, removed_tcs);
+		if (added_tcs) {
+			int hw_ret = ipa_be_install_tc_bitmap_rules(name, ip, added_tcs);
+			/* Propagate HW install failure to caller. The tc_bmap was
+			 * already committed under the lock, so subsequent queries
+			 * will see the new bitmap; any failed rule installs will be
+			 * retried on the next tc_bitmap update for this interface. */
+			if (hw_ret)
+				retval = hw_ret;
+		}
+
+		/* Mirror into the ipa_eth qos_stats debugfs snapshot (best-effort, non-fatal). */
+#if IPA_ETH_API_VER >= 9
+		if (ipa_eth_qos_sync_tc_bitmap(dst_pipe, tc_bitmap))
+			IPADBG("failed to sync tc_bmap 0x%x to eth qos_stats for %s tx[%u]\n",
+			       tc_bitmap, name, tx_index);
+#endif /* IPA_ETH_API_VER >= 9 */
+	}
+
+	return retval;
+}
+
+/**
+ * ipa3_qos_retime_be_pipes() - retime one interface's BE pipe HOLB discard
+ * @dev_name: interface the QoS rule applies to; only its BE TX pipes are
+ *            touched, not unrelated interfaces' and not its QoS pipes.
+ * @active: true tightens HOLB to 500us (qos_holb_tmr[]/qos_holb_tmr_auto[]);
+ *          false restores the IPA_HOLB_TMR_VAL_4_5 (31ms) default.
+ *
+ * BE is the only pipe retimed after setup; QoS pipes are configured once and
+ * left alone, so a TC can be remapped between them at any time.
+ *
+ * Note: takes ipa3_ctx->lock; must not be called holding msg_qos_param_lock.
+ */
+void ipa3_qos_retime_be_pipes(const char *dev_name, bool active)
+{
+	struct ipa3_intf *entry;
+	struct ipa_ep_cfg_holb holb_cfg;
+	u32 i;
+
+	if (!dev_name || !dev_name[0]) {
+		IPADBG("no dev_name, skipping BE HOLB retime\n");
+		return;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		/* Skips the duplicate write for a v4/v6 pair on one dst_pipe. */
+		int last_ep = IPA_EP_NOT_ALLOCATED;
+
+		if (strcmp(entry->name, dev_name))
+			continue;
+
+		for (i = 0; i < entry->num_tx_props; i++) {
+			int ep_idx;
+
+			/* BE consumer only. tc_bmap == 0 also matches a QoS pipe
+			 * with no TC bound yet, and tightening that would stick.
+			 */
+			if (IPA_CLIENT_IS_ETHERNET_QOS_CONS(entry->tx[i].dst_pipe))
+				continue;
+
+			ep_idx = ipa_get_ep_mapping(entry->tx[i].dst_pipe);
+			if (ep_idx == IPA_EP_NOT_ALLOCATED) {
+				IPADBG("BE pipe %s tx[%u] not allocated, skipping\n",
+				       entry->name, i);
+				continue;
+			}
+
+			/* v4/v6 pair on the same pipe: program once. */
+			if (ep_idx == last_ep)
+				continue;
+			last_ep = ep_idx;
+
+			memset(&holb_cfg, 0, sizeof(holb_cfg));
+			holb_cfg.en = IPA_HOLB_TMR_EN;
+			if (active) {
+				/* BE ranks last, so it takes the tightest entry. */
+				holb_cfg.tmr_val = ipa3_eth_qos_holb_tmr_uS(
+					IPA_ETH_MAX_TX_DMA_CHANNEL_QOS - 1);
+				ipa3_cfg_ep_holb_uS(ep_idx, &holb_cfg);
+				IPADBG("BE pipe %s tx[%u] ep %d HOLB -> %u us (QoS active)\n",
+				       entry->name, i, ep_idx, holb_cfg.tmr_val);
+			} else {
+				holb_cfg.tmr_val = IPA_HOLB_TMR_VAL_4_5;
+				ipa3_cfg_ep_holb(ep_idx, &holb_cfg);
+				IPADBG("BE pipe %s tx[%u] ep %d HOLB -> %u ms (QoS idle)\n",
+				       entry->name, i, ep_idx,
+				       IPA_HOLB_TMR_VAL_4_5);
+			}
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
 }
 
 /**
@@ -197,7 +455,9 @@ int ipa_deregister_intf(const char *name)
 	mutex_lock(&ipa3_ctx->lock);
 	list_for_each_entry_safe(entry, next, &ipa3_ctx->intf_list, link) {
 		if (!strcmp(entry->name, name)) {
+			spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 			list_del(&entry->link);
+			spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 			kfree(entry->ext);
 			kfree(entry->rx);
 			kfree(entry->tx);
@@ -395,6 +655,59 @@ int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext)
 	return result;
 }
 
+/**
+ * ipa3_find_intf_by_client() - lookup chan present in interface list
+ * @ext:  [input] channel type
+ *
+ * Iterate and look for interface having input channel
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
+int ipa3_find_intf_by_client(enum ipa_client_type client)
+{
+	struct ipa3_intf *entry;
+	int result = -EINVAL;
+	int i;
+
+	if (client >= IPA_CLIENT_MAX || client < 0) {
+		IPADBG("Bad client num %d\n", client);
+		return result;
+	}
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (IPA_CLIENT_IS_CONS(client)) {
+			/* Search across all TX props for a matching dst_pipe */
+			for (i = 0; i < entry->num_tx_props; i++) {
+				if (entry->tx &&
+					entry->tx[i].dst_pipe == client) {
+					mutex_unlock(&ipa3_ctx->lock);
+					if(ipa3_ctx->is_rc_log_enabled)
+						IPADBG("Client %d found in intf [%s] tx[%d]\n",
+							client, entry->name, i);
+					return 0;
+				}
+			}
+		} else {
+			/* Search across all RX props for a matching src_pipe */
+			for (i = 0; i < entry->num_rx_props; i++) {
+				if (entry->rx &&
+					entry->rx[i].src_pipe == client) {
+					mutex_unlock(&ipa3_ctx->lock);
+					if(ipa3_ctx->is_rc_log_enabled)
+						IPADBG("Client %d found in intf [%s] rx[%d]\n",
+							client, entry->name, i);
+					return 0;
+				}
+			}
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+	return result;
+}
+
 static void ipa_send_msg_free(void *buff, u32 len, u32 type)
 {
 	kfree(buff);
@@ -427,11 +740,12 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 	struct ipa_wlan_msg *event_ex_cur_discon = NULL;
 	struct ipa_wlan_msg *event_cur_con = NULL;
 	void *data_dup = NULL;
-	struct ipa3_push_msg *entry;
-	struct ipa3_push_msg *next;
+	struct ipa3_push_msg *entry, *next;
+	struct ipa_rc_wlan_intf_info *wlan_intf = NULL;
 	int cnt = 0, total = 0, max = 0;
 	uint8_t mac[IPA_MAC_ADDR_SIZE];
 	uint8_t mac2[IPA_MAC_ADDR_SIZE];
+	bool found = false;
 
 	if (!buff)
 		return -EINVAL;
@@ -449,6 +763,41 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 					event_cur_con->mac_addr[4],
 					event_cur_con->mac_addr[5],
 					meta->msg_type);
+		}
+
+		if(meta->msg_type == WLAN_AP_CONNECT ||
+			meta->msg_type == WLAN_STA_CONNECT) {
+			mutex_lock(&rc_ctx->rc_lock);
+			list_for_each_entry(wlan_intf, &ipa_rc_wlan_info.head, link) {
+				if(strcmp(wlan_intf->name, event_cur_con->name) == 0) {
+					wlan_intf->wlan_msg_type = meta->msg_type;
+					found = true;
+					break;
+				}
+			}
+
+			if(!found) {
+				wlan_intf = kzalloc(sizeof(*wlan_intf), GFP_KERNEL);
+				if (!wlan_intf) {
+					WARN(1, "Kzalloc failed\n");
+					mutex_unlock(&rc_ctx->rc_lock);
+					return -ENOMEM;
+				}
+
+				strscpy(wlan_intf->name, event_cur_con->name,
+						sizeof(wlan_intf->name));
+				wlan_intf->wlan_msg_type = meta->msg_type;
+				/*
+				 * No WDI handle available on the connect event.
+				 * Tag as unowned (-1); reg_intf upserts this same
+				 * entry by name and stamps the real handle later.
+				 */
+				wlan_intf->hdl = -1;
+				INIT_LIST_HEAD(&wlan_intf->link);
+				list_add(&wlan_intf->link, &ipa_rc_wlan_info.head);
+				ipa_rc_wlan_info.size++;
+			}
+			mutex_unlock(&rc_ctx->rc_lock);
 		}
 
 		mutex_lock(&ipa3_ctx->msg_wlan_client_lock);
@@ -482,12 +831,11 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 	if (WLAN_IPA_DISCONNECT_EVENT(meta->msg_type)) {
 		/* debug print */
 		event_ex_cur_discon = buff;
-		IPADBG("Mac %pM, msg %d\n",
+		IPADBG("Mac %pM, msg %d, name %s\n",
 		event_ex_cur_discon->mac_addr,
-		meta->msg_type);
-		memcpy(mac2,
-			event_ex_cur_discon->mac_addr,
-			sizeof(mac2));
+		meta->msg_type, event_ex_cur_discon->name);
+
+		memcpy(mac2, event_ex_cur_discon->mac_addr, sizeof(mac2));
 
 		mutex_lock(&ipa3_ctx->msg_wlan_client_lock);
 		list_for_each_entry_safe(entry, next,
@@ -527,6 +875,7 @@ static int wlan_msg_process(struct ipa_msg_meta *meta, void *buff)
 			total++;
 		}
 		mutex_unlock(&ipa3_ctx->msg_wlan_client_lock);
+
 	}
 	return 0;
 }
@@ -577,6 +926,11 @@ static int lan_msg_process(struct ipa_msg_meta *meta, void *buff)
 		}
 		list_add_tail(&msg_dup->link, &ipa3_ctx->msg_lan_list);
 		mutex_unlock(&ipa3_ctx->msg_lan_lock);
+
+		/* Signal BE after enqueueing on msg_lan_list, mirroring the
+		 * disconnect path (which signals after the list is drained).
+		 */
+		ipa_be_signal_iface_online(ecm_msg_con->ifindex);
 	}
 
 	/* remove the cache */
@@ -605,6 +959,12 @@ static int lan_msg_process(struct ipa_msg_meta *meta, void *buff)
 
 		mutex_unlock(&ipa3_ctx->msg_lan_lock);
 
+		/* Signal BE after draining msg_lan_list so BE's
+		 * FLUSH_SWITCH_AE pushes don't race with still-queued
+		 * ECM_DISCONNECT deliveries for the same iface.
+		 */
+		ipa_be_signal_iface_offline(iface_index);
+
 	}
 
 	return 0;
@@ -614,74 +974,54 @@ static int qos_msg_process(struct ipa_msg_meta *meta, void *buff)
 {
 	struct ipa3_push_msg *msg_dup;
 	void *data_dup = NULL;
-	struct ipa3_push_msg *entry;
-	struct ipa3_push_msg *next;
+	struct ipa3_push_msg *entry, *next;
 	struct ipa_ioc_qos_config *event_ex_list = NULL;
 	struct ipa_ioc_qos_config *qos_param = NULL;
 
 	if (!buff)
 		return -EINVAL;
+
+	qos_param = buff;
+	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
+
 	if (meta->msg_type == IPA_QOS_PARAM_ADD_EVENT) {
-		qos_param = buff;
-		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
-		list_for_each_entry_safe(entry, next,
-				&ipa3_ctx->msg_qos_param_list,
-				link) {
+		list_for_each_entry(entry, &ipa3_ctx->msg_qos_param_list, link) {
 			event_ex_list = entry->buff;
-			if (event_ex_list->traffic_class ==
-					qos_param->traffic_class &&
-				event_ex_list->ip_type ==
-					qos_param->ip_type &&
-				event_ex_list->src_ip_addr ==
-					qos_param->src_ip_addr &&
-				event_ex_list->dst_ip_addr ==
-					qos_param->dst_ip_addr &&
-				event_ex_list->src_port_start ==
-					qos_param->src_port_start &&
-				event_ex_list->src_port_end ==
-					qos_param->src_port_end &&
-				event_ex_list->dst_port_start ==
-					qos_param->dst_port_start &&
-				event_ex_list->dst_port_end ==
-					qos_param->dst_port_end &&
-				event_ex_list->protocol ==
-					qos_param->protocol &&
-				event_ex_list->dscp ==
-					qos_param->dscp &&
-				event_ex_list->pcp ==
-					qos_param->pcp &&
-				!memcmp(event_ex_list->src_v6_ip_addr,
-					qos_param->src_v6_ip_addr,
-					sizeof(qos_param->src_v6_ip_addr)) &&
-				!memcmp(event_ex_list->dst_v6_ip_addr,
-					qos_param->dst_v6_ip_addr,
-					sizeof(qos_param->dst_v6_ip_addr)) &&
-				!memcmp(event_ex_list->dst_mac_addr,
-					qos_param->dst_mac_addr,
-					sizeof(qos_param->dst_mac_addr)) &&
-				!memcmp(event_ex_list->src_mac_addr,
-					qos_param->src_mac_addr,
-					sizeof(qos_param->src_mac_addr))
-				) {
-					IPADBG("Duplicate entry, ignore\n");
-					mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
-					return 0;
-				}
+			if (event_ex_list->traffic_class == qos_param->traffic_class &&
+				event_ex_list->ip_type == qos_param->ip_type &&
+				event_ex_list->src_ip_addr == qos_param->src_ip_addr &&
+				event_ex_list->dst_ip_addr == qos_param->dst_ip_addr &&
+				event_ex_list->src_port_start == qos_param->src_port_start &&
+				event_ex_list->src_port_end == qos_param->src_port_end &&
+				event_ex_list->dst_port_start == qos_param->dst_port_start &&
+				event_ex_list->dst_port_end == qos_param->dst_port_end &&
+				event_ex_list->protocol == qos_param->protocol &&
+				event_ex_list->dscp == qos_param->dscp &&
+				event_ex_list->pcp == qos_param->pcp &&
+				!memcmp(event_ex_list->src_v6_ip_addr, qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_v6_ip_addr, qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_mac_addr, qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
+				!memcmp(event_ex_list->src_mac_addr, qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr))) {
+				IPADBG("Duplicate entry, ignore\n");
+				mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+				return 0;
+			}
 		}
+
 		msg_dup = kzalloc(sizeof(*msg_dup), GFP_KERNEL);
-		if (msg_dup == NULL) {
+		if (!msg_dup) {
 			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 			return -ENOMEM;
 		}
+
 		msg_dup->meta = *meta;
 		if (meta->msg_len > 0 && buff) {
 			data_dup = kmemdup(buff, meta->msg_len, GFP_KERNEL);
-			if (data_dup == NULL) {
+			if (!data_dup) {
 				kfree(msg_dup);
 				mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 				return -ENOMEM;
 			}
-			memcpy(data_dup, buff, meta->msg_len);
 			msg_dup->buff = data_dup;
 			msg_dup->callback = ipa_send_msg_free;
 		} else {
@@ -691,75 +1031,44 @@ static int qos_msg_process(struct ipa_msg_meta *meta, void *buff)
 			return -ENOMEM;
 		}
 		list_add_tail(&msg_dup->link, &ipa3_ctx->msg_qos_param_list);
-		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
+
 	} else if (meta->msg_type == IPA_QOS_PARAM_DELETE_EVENT) {
-		/* debug print */
-		qos_param = buff;
-		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
-		list_for_each_entry_safe(entry, next,
-				&ipa3_ctx->msg_qos_param_list,
-				link) {
-			if(entry->meta.msg_type == IPA_QOS_PARAM_ADD_EVENT) {
-				event_ex_list = entry->buff;
-				if (event_ex_list->traffic_class ==
-						qos_param->traffic_class &&
-					event_ex_list->ip_type ==
-						qos_param->ip_type &&
-					event_ex_list->src_ip_addr ==
-						qos_param->src_ip_addr &&
-					event_ex_list->dst_ip_addr ==
-						qos_param->dst_ip_addr &&
-					event_ex_list->src_port_start ==
-						qos_param->src_port_start &&
-					event_ex_list->src_port_end ==
-						qos_param->src_port_end &&
-					event_ex_list->dst_port_start ==
-						qos_param->dst_port_start &&
-					event_ex_list->dst_port_end ==
-						qos_param->dst_port_end &&
-					event_ex_list->protocol ==
-						qos_param->protocol &&
-					event_ex_list->dscp ==
-						qos_param->dscp &&
-					event_ex_list->pcp ==
-						qos_param->pcp &&
-					!memcmp(event_ex_list->src_v6_ip_addr,
-						qos_param->src_v6_ip_addr,
-						sizeof(qos_param->src_v6_ip_addr)) &&
-					!memcmp(event_ex_list->dst_v6_ip_addr,
-						qos_param->dst_v6_ip_addr,
-						sizeof(qos_param->dst_v6_ip_addr)) &&
-					!memcmp(event_ex_list->dst_mac_addr,
-						qos_param->dst_mac_addr,
-						sizeof(qos_param->dst_mac_addr)) &&
-					!memcmp(event_ex_list->src_mac_addr,
-						qos_param->src_mac_addr,
-						sizeof(qos_param->src_mac_addr))
-					) {
-					IPADBG("clean the entry\n");
-					list_del(&entry->link);
-					entry->callback(entry->buff,
-						entry->meta.msg_len,
-						entry->meta.msg_type);
-					kfree(entry);
-					break;
-				}
+		list_for_each_entry_safe(entry, next, &ipa3_ctx->msg_qos_param_list, link) {
+			event_ex_list = entry->buff;
+			if (event_ex_list->traffic_class == qos_param->traffic_class &&
+				event_ex_list->ip_type == qos_param->ip_type &&
+				event_ex_list->src_ip_addr == qos_param->src_ip_addr &&
+				event_ex_list->dst_ip_addr == qos_param->dst_ip_addr &&
+				event_ex_list->src_port_start == qos_param->src_port_start &&
+				event_ex_list->src_port_end == qos_param->src_port_end &&
+				event_ex_list->dst_port_start == qos_param->dst_port_start &&
+				event_ex_list->dst_port_end == qos_param->dst_port_end &&
+				event_ex_list->protocol == qos_param->protocol &&
+				event_ex_list->dscp == qos_param->dscp &&
+				event_ex_list->pcp == qos_param->pcp &&
+				!memcmp(event_ex_list->src_v6_ip_addr, qos_param->src_v6_ip_addr, sizeof(qos_param->src_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_v6_ip_addr, qos_param->dst_v6_ip_addr, sizeof(qos_param->dst_v6_ip_addr)) &&
+				!memcmp(event_ex_list->dst_mac_addr, qos_param->dst_mac_addr, sizeof(qos_param->dst_mac_addr)) &&
+				!memcmp(event_ex_list->src_mac_addr, qos_param->src_mac_addr, sizeof(qos_param->src_mac_addr))) {
+				IPADBG("clean the entry\n");
+				list_del(&entry->link);
+				if (entry->callback)
+					entry->callback(entry->buff, entry->meta.msg_len, entry->meta.msg_type);
+				kfree(entry);
+				break;
 			}
 		}
-		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
-	}else if (meta->msg_type == IPA_QOS_PARAM_FLUSH_EVENT) {
+	} else if (meta->msg_type == IPA_QOS_PARAM_FLUSH_EVENT) {
 		IPADBG("Delete all entries\n");
-		mutex_lock(&ipa3_ctx->msg_qos_param_lock);
-		list_for_each_entry_safe(entry, next,
-				&ipa3_ctx->msg_qos_param_list,
-				link) {
-				list_del(&entry->link);
-				entry->callback(entry->buff,
-					entry->meta.msg_len, entry->meta.msg_type);
-				kfree(entry);
+		list_for_each_entry_safe(entry, next, &ipa3_ctx->msg_qos_param_list, link) {
+			list_del(&entry->link);
+			if (entry->callback)
+				entry->callback(entry->buff, entry->meta.msg_len, entry->meta.msg_type);
+			kfree(entry);
 		}
-		mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 	}
+
+	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 	return 0;
 }
 
@@ -960,38 +1269,39 @@ int ipa3_resend_lan_msg(void)
 
 int ipa3_resend_qos_msg(void)
 {
-	struct ipa3_push_msg *entry = NULL;
-	struct ipa3_push_msg *next = NULL;
-	struct ipa_ioc_qos_config *qos_param = NULL;
-	struct ipa3_push_msg *msg = NULL;
-	void *data = NULL;
+	struct ipa3_push_msg *entry;
+	struct ipa3_push_msg *msg;
+	void *data;
 
 	IPADBG("\n");
 	mutex_lock(&ipa3_ctx->msg_qos_param_lock);
-	list_for_each_entry_safe(entry, next, &ipa3_ctx->msg_qos_param_list, link) {
-		qos_param = entry->buff;
+	list_for_each_entry(entry, &ipa3_ctx->msg_qos_param_list, link) {
+		struct ipa_ioc_qos_config *qos_param = entry->buff;
 
 		IPADBG("QOS Msg type: %d\n", qos_param->qos_param_evt_type);
 		IPADBG("interface name: %s\n", qos_param->dev_name);
 
 		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-		if (msg == NULL) {
+		if (!msg) {
 			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 			return -ENOMEM;
 		}
+
 		msg->meta = entry->meta;
-		data = kzalloc(entry->meta.msg_len, GFP_KERNEL);
-		if (data == NULL) {
+		data = kmemdup(entry->buff, entry->meta.msg_len, GFP_KERNEL);
+		if (!data) {
 			kfree(msg);
 			mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
 			return -ENOMEM;
 		}
-		memcpy(data, entry->buff, entry->meta.msg_len);
+
 		msg->buff = data;
 		msg->callback = ipa_send_msg_free;
+
 		mutex_lock(&ipa3_ctx->msg_lock);
 		list_add_tail(&msg->link, &ipa3_ctx->msg_list);
 		mutex_unlock(&ipa3_ctx->msg_lock);
+
 		wake_up(&ipa3_ctx->msg_waitq);
 	}
 	mutex_unlock(&ipa3_ctx->msg_qos_param_lock);
@@ -1402,7 +1712,7 @@ void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *coo
 		return;
 	}
 
-	mutex_lock(&ipa3_ctx->lock);
+	spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
 		if (entry->intf_idx == intf_idx) {
 			if (entry->vpnum_valid) {
@@ -1415,7 +1725,7 @@ void ipa3_populate_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *coo
 			break;
 		}
 	}
-	mutex_unlock(&ipa3_ctx->lock);
+	spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 }
 EXPORT_SYMBOL(ipa3_populate_cookie_vpnum);
 /**
@@ -1435,19 +1745,60 @@ bool ipa3_is_vpnum_valid(int intf_idx)
 		return false;
 	}
 
-	mutex_lock(&ipa3_ctx->lock);
+	spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
 		if (entry->intf_idx == intf_idx) {
 			valid = entry->vpnum_valid;
 			break;
 		}
 	}
-	mutex_unlock(&ipa3_ctx->lock);
+	spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 
 	IPADBG("intf_idx=%d vpnum_valid=%d\n", intf_idx, valid);
 	return valid;
 }
 EXPORT_SYMBOL(ipa3_is_vpnum_valid);
+
+/**
+ * ipa3_get_cookie_vpnum() - validity check + vpnum populate in a single
+ * intf_list walk
+ * @intf_idx: [in] interface index
+ * @cookie:   [out] SW producer cookie to populate with vpnum (wdi6 only)
+ *
+ * Combines ipa3_is_vpnum_valid() + ipa3_populate_cookie_vpnum() into one
+ * list_for_each_entry() pass, for per-packet callers (e.g.
+ * WDI6 TX) that would otherwise walk intf_list twice for the same intf_idx.
+ *
+ * Return: true if a valid vpnum was found and populated into cookie
+ */
+bool ipa3_get_cookie_vpnum(int intf_idx, struct ipa_sw_producer_cookie *cookie)
+{
+	struct ipa3_intf *entry;
+	bool valid = false;
+
+	if (!cookie)
+		return false;
+
+	if (intf_idx < 0) {
+		IPAERR("Invalid interface index %d\n", intf_idx);
+		return false;
+	}
+
+	spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (entry->intf_idx == intf_idx) {
+			if (entry->vpnum_valid) {
+				cookie->wdi6.vp_num = entry->vpnum;
+				valid = true;
+			}
+			break;
+		}
+	}
+	spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
+
+	return valid;
+}
+EXPORT_SYMBOL(ipa3_get_cookie_vpnum);
 
 /**
  * ipa3_add_filter_rules_entry - Add filter entry to interface filter list
@@ -1488,8 +1839,7 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
 				entry->flt_list = kzalloc(sizeof(*entry->flt_list), GFP_KERNEL);
 				if (!entry->flt_list) {
 					IPAERR("Failed to allocate memory for flt_list\n");
-					kfree(new_entry);  // cleanup if already allocated
-					break;
+					break;  // Don't free new_entry here as it's not allocated yet
 				}
 
 				INIT_LIST_HEAD(&entry->flt_list->link);
@@ -1556,6 +1906,12 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
  */
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry)
 {
+	return ipa3_delete_filter_rules_entry_snapshot(intf_idx, flt_entry, NULL);
+}
+
+int ipa3_delete_filter_rules_entry_snapshot(int intf_idx,
+		struct ipa3_flt_entry flt_entry, struct ipa3_flt_entry *out)
+{
 	struct ipa3_intf *entry;
 	struct ipa3_flt_entry *iter, *tmp;
 	int flt_hdl = -1;
@@ -1585,6 +1941,8 @@ int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry
 					iter->rule.rule_id, iter->flt_hdl, iter->cat, iter->ip_type);
 
 					flt_hdl = iter->flt_hdl;
+					if (out)
+						*out = *iter;
 					list_del(&iter->link);
 					kfree(iter);
 
@@ -1605,6 +1963,204 @@ unlock_and_exit:
 	IPADBG("Delete Entry Exit\n");
 	return flt_hdl;
 }
+
+/**
+ * lan2lan_dst_match() - compare a global lan2lan record against a (ip_type, dst)
+ * @ref:      candidate global record
+ * @ip_type:  IPv4 or IPv6
+ * @dst_addr: dst host IP (word 0 for v4; all 4 words for v6)
+ *
+ * Return: true if @ref tracks the same (ip_type, dst host IP).
+ */
+static bool lan2lan_dst_match(const struct ipa3_lan2lan_flt_ref *ref,
+	enum ipa_ip_type ip_type, const u32 *dst_addr)
+{
+	if (ref->ip_type != ip_type)
+		return false;
+
+	if (ip_type == IPA_IP_v4)
+		return ref->dst_addr[0] == dst_addr[0];
+
+	return !memcmp(ref->dst_addr, dst_addr, sizeof(ref->dst_addr));
+}
+
+/* Caller must hold ipa3_ctx->lock. */
+static struct ipa3_lan2lan_flt_ref *lan2lan_find_locked(
+	enum ipa_ip_type ip_type, const u32 *dst_addr)
+{
+	struct ipa3_lan2lan_flt_ref *ref;
+
+	list_for_each_entry(ref, &ipa3_ctx->lan2lan_flt_list, link) {
+		if (lan2lan_dst_match(ref, ip_type, dst_addr))
+			return ref;
+	}
+	return NULL;
+}
+
+/**
+ * ipa3_lan2lan_flt_need_install() - decide whether @ep needs a HW rule installed
+ * @ip_type:  IPv4 or IPv6
+ * @dst_addr: dst host IP (word 0 for v4; all 4 words for v6)
+ * @ep:       endpoint (physical pipe) the caller would install on
+ *
+ * lan2lan filters are refcounted globally per (dst host IP, ip type), but the
+ * HW rule is keyed on the physical pipe. This reports whether @ep already
+ * holds the rule for this dst: if it does, the connection's reference is
+ * counted here (global_ref bumped, no duplicate HW rule) and the caller skips
+ * install. If @ep does not yet hold the rule the caller must install it and
+ * then register the ep + handle via ipa3_lan2lan_flt_add().
+ *
+ * Return: true if @ep must install a new HW rule; false if the rule is already
+ * present on @ep (reference counted here, caller skips install).
+ */
+bool ipa3_lan2lan_flt_need_install(enum ipa_ip_type ip_type,
+	const u32 *dst_addr, int ep)
+{
+	struct ipa3_lan2lan_flt_ref *ref;
+	struct ipa3_lan2lan_ep_hdl *eph;
+	bool need_install = true;
+
+	if (ep < 0 || ep >= IPA_MAX_NUM_PIPES)
+		return true;
+
+	mutex_lock(&ipa3_ctx->lock);
+	ref = lan2lan_find_locked(ip_type, dst_addr);
+	if (ref) {
+		list_for_each_entry(eph, &ref->ep_list, link) {
+			if (eph->ep == ep) {
+				/* Rule already on this ep - count the ref
+				 * here and skip the duplicate HW install. */
+				ref->global_ref++;
+				need_install = false;
+				IPADBG("lan2lan flt present ip_type %d ep %d, global_ref now %u\n",
+				       ip_type, ep, ref->global_ref);
+				break;
+			}
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	return need_install;
+}
+EXPORT_SYMBOL(ipa3_lan2lan_flt_need_install);
+
+/**
+ * ipa3_lan2lan_flt_add() - register a freshly installed lan2lan HW rule
+ * @ip_type:  IPv4 or IPv6
+ * @dst_addr: dst host IP (word 0 for v4; all 4 words for v6)
+ * @ep:       endpoint the rule was installed on
+ * @flt_hdl:  HW filter rule handle to delete on final teardown
+ *
+ * Records that @ep now holds a HW rule for (dst, ip_type) and bumps the global
+ * refcount. Creates the global record lazily on the first reference. Called
+ * only after ipa3_lan2lan_flt_need_install() returned true and the HW install
+ * succeeded.
+ */
+void ipa3_lan2lan_flt_add(enum ipa_ip_type ip_type, const u32 *dst_addr,
+	int ep, int flt_hdl)
+{
+	struct ipa3_lan2lan_flt_ref *ref;
+	struct ipa3_lan2lan_ep_hdl *eph;
+
+	if (ep < 0 || ep >= IPA_MAX_NUM_PIPES)
+		return;
+
+	eph = kzalloc(sizeof(*eph), GFP_KERNEL);
+	if (!eph)
+		return;
+	eph->ep = ep;
+	eph->flt_hdl = flt_hdl;
+
+	mutex_lock(&ipa3_ctx->lock);
+	ref = lan2lan_find_locked(ip_type, dst_addr);
+	if (!ref) {
+		ref = kzalloc(sizeof(*ref), GFP_KERNEL);
+		if (!ref) {
+			mutex_unlock(&ipa3_ctx->lock);
+			kfree(eph);
+			return;
+		}
+		ref->ip_type = ip_type;
+		if (ip_type == IPA_IP_v4)
+			ref->dst_addr[0] = dst_addr[0];
+		else
+			memcpy(ref->dst_addr, dst_addr, sizeof(ref->dst_addr));
+		ref->global_ref = 0;
+		INIT_LIST_HEAD(&ref->ep_list);
+		list_add_tail(&ref->link, &ipa3_ctx->lan2lan_flt_list);
+	}
+	list_add_tail(&eph->link, &ref->ep_list);
+	ref->global_ref++;
+	IPADBG("lan2lan flt installed ip_type %d ep %d hdl %d, global_ref now %u\n",
+	       ip_type, ep, flt_hdl, ref->global_ref);
+	mutex_unlock(&ipa3_ctx->lock);
+}
+EXPORT_SYMBOL(ipa3_lan2lan_flt_add);
+
+/**
+ * ipa3_lan2lan_flt_deref() - drop one connection's reference to a lan2lan rule
+ * @ip_type:  IPv4 or IPv6
+ * @dst_addr: dst host IP (word 0 for v4; all 4 words for v6)
+ * @out_hdls: [out] array filled with the HW handles to delete when the last
+ *            reference drops (one per ep that held the rule)
+ * @max_hdls: capacity of @out_hdls
+ * @out_num:  [out] number of handles written to @out_hdls
+ *
+ * Decrements the global refcount for (dst, ip_type). While references remain
+ * the shared rule stays on every ep. When the count reaches 0 the record is
+ * freed and every ep's HW handle is returned via @out_hdls so the caller can
+ * tear the rule down on all pipes it was installed on.
+ *
+ * Return: remaining global refcount (>0 still shared, 0 fully released and
+ * handles returned), or -1 if no matching record was found.
+ */
+int ipa3_lan2lan_flt_deref(enum ipa_ip_type ip_type, const u32 *dst_addr,
+	int *out_hdls, int max_hdls, int *out_num)
+{
+	struct ipa3_lan2lan_flt_ref *ref;
+	struct ipa3_lan2lan_ep_hdl *eph, *tmp;
+	int ret = -1;
+
+	if (out_num)
+		*out_num = 0;
+
+	mutex_lock(&ipa3_ctx->lock);
+	ref = lan2lan_find_locked(ip_type, dst_addr);
+	if (!ref) {
+		mutex_unlock(&ipa3_ctx->lock);
+		return -1;
+	}
+
+	if (ref->global_ref > 0)
+		ref->global_ref--;
+	ret = ref->global_ref;
+
+	if (ret == 0) {
+		int n = 0;
+
+		list_for_each_entry_safe(eph, tmp, &ref->ep_list, link) {
+			if (out_hdls && n < max_hdls)
+				out_hdls[n] = eph->flt_hdl;
+			n++;
+			list_del(&eph->link);
+			kfree(eph);
+		}
+		if (out_num)
+			*out_num = n;
+		list_del(&ref->link);
+		kfree(ref);
+		IPADBG("lan2lan flt released ip_type %d, %d hdl(s) to delete\n",
+		       ip_type, n);
+	} else {
+		IPADBG("lan2lan flt deref ip_type %d, global_ref now %d\n",
+		       ip_type, ret);
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	return ret;
+}
+EXPORT_SYMBOL(ipa3_lan2lan_flt_deref);
+
 
 /**
  * ipa3_get_ep_for_intf() - atomically look up the RX endpoint for an interface

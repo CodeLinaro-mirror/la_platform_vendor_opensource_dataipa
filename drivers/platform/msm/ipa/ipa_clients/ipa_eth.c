@@ -12,6 +12,8 @@
 #include <linux/sort.h>
 #include "ipa_eth.h"
 #include <linux/if_vlan.h>
+#include <net/ip.h>
+#include <net/ipv6.h>
 
 #define OFFLOAD_DRV_NAME "ipa_eth"
 #define IPA_ETH_DBG(fmt, args...) \
@@ -111,10 +113,27 @@ static bool pipe_connected[IPA_ETH_PIPES_NO];
 static bool pipe_enabled[IPA_ETH_PIPES_NO];
 #endif
 
-static int eth_qos_cmp(const void *a, const void *b) {
-	if (((struct ipa_eth_qos_info *)a)->tc_bmap <= ((struct ipa_eth_qos_info *)b)->tc_bmap)
+static enum ipa_client_type
+	ipa_eth_get_ipa_client_type_from_pipe(
+	struct ipa_eth_client_pipe_info *pipe,
+	u8 rx_pipe_idx,
+	u8 tx_pipe_idx);
+
+/* Rank by tc_bmap descending, tc_bmap == 0 last. The old version never
+ * returned negative, so sort() couldn't order by tc_bmap at all.
+ */
+static int eth_qos_cmp(const void *a, const void *b)
+{
+	u32 ta = ((const struct ipa_eth_qos_info *)a)->tc_bmap;
+	u32 tb = ((const struct ipa_eth_qos_info *)b)->tc_bmap;
+
+	if (ta == tb)
+		return 0;
+	if (!ta)
 		return 1;
-	return 0;
+	if (!tb)
+		return -1;
+	return (ta > tb) ? -1 : 1;
 }
 
 static void eth_qos_swap(void *a, void *b, int size) {
@@ -154,9 +173,224 @@ int ipa_eth_qos_get_qos_info
  		*info = ipa_eth_ctx->tx_qos_info[inst_id][idx];
 	else
 		*info = ipa_eth_ctx->rx_qos_info[inst_id][idx];
-	return -1;
+	return 0;
 }
 EXPORT_SYMBOL(ipa_eth_qos_get_qos_info);
+
+int ipa_eth_qos_update_tc_mapping(struct ipa_eth_client_pipe_info *pipe)
+{
+	struct ipa_eth_client *client;
+	struct ipa_eth_client_pipe_info *iter;
+	struct ipa_eth_qos_info *qos_arr;
+	u8 *num_pipes;
+	enum ipa_client_type matched_type;
+	u8 rx_pipe_idx = 0, tx_pipe_idx = 0;
+	u8 max_entries;
+	u8 i, prio = 0;
+	int found = -1;
+
+	if (!pipe || !pipe->client_info) {
+		IPA_ETH_ERR("invalid pipe / client_info\n");
+		return -EINVAL;
+	}
+	if (!ipa_eth_ctx) {
+		IPA_ETH_ERR("ipa_eth not initialized\n");
+		return -ENODEV;
+	}
+	if (!ipa3_ctx || !ipa3_ctx->eth_qos) {
+		IPA_ETH_ERR("eth_qos not enabled\n");
+		return -EOPNOTSUPP;
+	}
+
+	client = pipe->client_info;
+	if (client->inst_id >= IPA_ETH_INST_ID_MAX) {
+		IPA_ETH_ERR("inst_id %u out of range\n", client->inst_id);
+		return -EINVAL;
+	}
+
+	mutex_lock(&ipa_eth_ctx->lock);
+
+	/*
+	 * Walk client->pipe_list to derive @pipe's sequential rx/tx index
+	 * (same scheme used by ipa_eth_client_conn_pipes).  This lets us
+	 * compute the IPA client_type the entry was stored under, then match
+	 * the qos_info[] entry that needs its tc_bmap updated.
+	 */
+	list_for_each_entry(iter, &client->pipe_list, link) {
+		if (iter == pipe)
+			break;
+		if (iter->dir == IPA_ETH_PIPE_DIR_TX)
+			tx_pipe_idx++;
+		else if (iter->dir == IPA_ETH_PIPE_DIR_RX)
+			rx_pipe_idx++;
+	}
+	matched_type = ipa_eth_get_ipa_client_type_from_pipe(
+		pipe, rx_pipe_idx, tx_pipe_idx);
+	if (matched_type == IPA_CLIENT_MAX) {
+		mutex_unlock(&ipa_eth_ctx->lock);
+		IPA_ETH_ERR("could not derive client_type for pipe\n");
+		return -EINVAL;
+	}
+
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
+		qos_arr     = ipa_eth_ctx->tx_qos_info[client->inst_id];
+		num_pipes   = &ipa_eth_ctx->tx_num_pipes[client->inst_id];
+		max_entries = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS;
+	} else {
+		qos_arr     = ipa_eth_ctx->rx_qos_info[client->inst_id];
+		num_pipes   = &ipa_eth_ctx->rx_num_pipes[client->inst_id];
+		max_entries = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS;
+	}
+
+	for (i = 0; i < *num_pipes && i < max_entries; i++) {
+		if (qos_arr[i].client_type == matched_type) {
+			found = i;
+			break;
+		}
+	}
+	if (found < 0) {
+		mutex_unlock(&ipa_eth_ctx->lock);
+		IPA_ETH_ERR("no qos_info entry for client_type %d (pipe not connected?)\n",
+			matched_type);
+		return -ENOENT;
+	}
+
+	IPADBG("Updating tc_bmap for client_type=%d dir=%d: %u -> %u\n",
+		matched_type, pipe->dir,
+		qos_arr[found].tc_bmap, pipe->tc_bmap);
+	qos_arr[found].tc_bmap = pipe->tc_bmap;
+
+	/* Re-sort by tc_bmap (same comparator the connect path uses). */
+	sort(qos_arr, *num_pipes, sizeof(struct ipa_eth_qos_info),
+		eth_qos_cmp, eth_qos_swap);
+
+	/* Recompute relative priority. */
+	for (i = 0, prio = 0; i < *num_pipes && i < max_entries; i++) {
+		if (qos_arr[i].tc_bmap == 0) {
+			qos_arr[i].priority = *num_pipes - 1;
+		} else {
+			qos_arr[i].priority = prio;
+			prio++;
+		}
+		IPADBG("%s Index: %d, Pipe idx: %d, Tc_bmap: %u, Priority: %d\n",
+			pipe->dir == IPA_ETH_PIPE_DIR_TX ? "TX" : "RX",
+			i, qos_arr[i].pipe_idx,
+			qos_arr[i].tc_bmap, qos_arr[i].priority);
+	}
+
+	mutex_unlock(&ipa_eth_ctx->lock);
+
+	/*
+	 * Mirror the new tc_bmap into the registered interface's TX props so
+	 * the DL QoS route-install path (ipa_be_install_qos_route_rule, which
+	 * reads intf_list entry->tx[].tc_bmap via ipa3_query_intf_tx_props)
+	 * can select this pipe. The ipa_eth tx_qos_info[] updated above only
+	 * drives pipe priority/HOLB; without this, a TC remap would leave the
+	 * routing store at its old value and DL filters for the new TC would
+	 * fail with "No matching TX pipe". Done outside ipa_eth_ctx->lock, and
+	 * only for TX pipes (RX has no routable TX prop). Best-effort: a
+	 * failure here is logged but does not fail the priority update.
+	 */
+	if (pipe->dir == IPA_ETH_PIPE_DIR_TX && client->net_dev) {
+		int ret = ipa3_set_intf_tx_tc_bitmap_by_pipe(
+			client->net_dev->name, matched_type, pipe->tc_bmap);
+		if (ret)
+			IPA_ETH_ERR("failed to mirror tc_bmap 0x%x to intf %s props for client_type %d: %d\n",
+				pipe->tc_bmap, client->net_dev->name,
+				matched_type, ret);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_eth_qos_update_tc_mapping);
+
+#if IPA_ETH_API_VER >= 9
+/**
+ * ipa_eth_qos_sync_tc_bitmap() - Mirror a TX interface's tc_bmap update into
+ *	the ipa_eth qos_stats snapshot (tx_qos_info[]).
+ *
+ * ipa3_set_intf_tx_tc_bitmap() (IPA_IOC_SET_PIPE_TC_BITMAP) updates the
+ * registered interface's TX property tc_bmap directly, which drives route
+ * rule pipe selection but does NOT touch ipa_eth_ctx->tx_qos_info[] -- a
+ * separate snapshot taken once at pipe-connect time (ipa_eth_client_conn_pipes)
+ * that the "<client>_<inst_id>_qos_stats" debugfs dump reads. Without this
+ * sync, tc_bitmap updates made after connect are invisible in that dump even
+ * though the live TX property (and HW routing) already reflects them.
+ *
+ * @client_type: TX pipe's dst_pipe client type, unique across all inst_id.
+ * @tc_bitmap:   new tc_bmap value to mirror.
+ *
+ * Returns 0 on success (including a no-op "not an ipa_eth TX pipe" case,
+ * since not every registered interface's TX pipe is ETH-owned), negative
+ * errno on failure.
+ */
+int ipa_eth_qos_sync_tc_bitmap(enum ipa_client_type client_type,
+	uint32_t tc_bitmap)
+{
+	struct ipa_eth_qos_info *qos_arr;
+	u8 num_pipes;
+	u8 inst_id, i, prio;
+	int found = -1;
+
+	if (!ipa_eth_ctx)
+		return 0;
+	if (!ipa3_ctx || !ipa3_ctx->eth_qos)
+		return 0;
+
+	mutex_lock(&ipa_eth_ctx->lock);
+
+	for (inst_id = 0; inst_id < IPA_ETH_INST_ID_MAX && found < 0;
+			inst_id++) {
+		qos_arr = ipa_eth_ctx->tx_qos_info[inst_id];
+		num_pipes = ipa_eth_ctx->tx_num_pipes[inst_id];
+		for (i = 0; i < num_pipes && i < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS;
+				i++) {
+			if (qos_arr[i].client_type == client_type) {
+				found = inst_id;
+				break;
+			}
+		}
+	}
+
+	if (found < 0) {
+		/* Not an ipa_eth-owned TX pipe (e.g. a modem/WAN client) -- nothing to sync, not an error. */
+		mutex_unlock(&ipa_eth_ctx->lock);
+		return 0;
+	}
+
+	qos_arr = ipa_eth_ctx->tx_qos_info[found];
+	num_pipes = ipa_eth_ctx->tx_num_pipes[found];
+
+	for (i = 0; i < num_pipes && i < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS; i++) {
+		if (qos_arr[i].client_type == client_type) {
+			qos_arr[i].tc_bmap = tc_bitmap;
+			break;
+		}
+	}
+
+	/* Re-sort and recompute relative priority, same as the connect path and ipa_eth_qos_update_tc_mapping(). */
+	sort(qos_arr, num_pipes, sizeof(struct ipa_eth_qos_info),
+		eth_qos_cmp, eth_qos_swap);
+
+	for (i = 0, prio = 0; i < num_pipes && i < IPA_ETH_MAX_TX_DMA_CHANNEL_QOS;
+			i++) {
+		if (qos_arr[i].tc_bmap == 0)
+			qos_arr[i].priority = num_pipes - 1;
+		else {
+			qos_arr[i].priority = prio;
+			prio++;
+		}
+	}
+
+	mutex_unlock(&ipa_eth_ctx->lock);
+
+	IPADBG("synced tc_bmap 0x%x to qos_stats for client_type %d (inst_id %u)\n",
+		tc_bitmap, client_type, found);
+
+	return 0;
+}
+EXPORT_SYMBOL(ipa_eth_qos_sync_tc_bitmap);
+#endif /* IPA_ETH_API_VER >= 9 */
 
 static u8 eth_qos_get_tx_priority(u8 pipe_idx, u8 inst_id) {
 	int i;
@@ -524,11 +758,6 @@ static enum ipa_client_type
 	traffic_type = client->traffic_type;
 #endif
 
-	IPA_ETH_DBG("pipe %p traffic_type %d dir %d, client_type %d,"
-				"rx idx %d tx idx %d\n",
-				pipe, traffic_type, pipe->dir, client->client_type,
-				rx_pipe_idx, tx_pipe_idx);
-
 	switch (client->client_type) {
 	case IPA_ETH_CLIENT_AQC107:
 	case IPA_ETH_CLIENT_AQC113:
@@ -651,7 +880,8 @@ static enum ipa_client_type
 				}
 			}
 		} else if (traffic_type == IPA_ETH_PIPE_TRAFFIC_TYPE_QOS) {
-			if (ipa3_ctx->ipa_config_is_auto && client->inst_id == 0) {
+			if (ipa3_ctx->ipa_config_is_auto && client->inst_id == 0 &&
+				   ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
 				if (pipe->dir == IPA_ETH_PIPE_DIR_TX) {
 					switch (tx_pipe_idx) {
 						case 0:
@@ -1280,7 +1510,7 @@ int ipa_eth_client_conn_pipes(struct ipa_eth_client *client)
 	enum ipa_client_type ipa_client;
 	int max_tx, max_rx;
 
-	if (ipa3_ctx->ipa_config_is_auto)
+	if (ipa3_ctx->ipa_config_is_auto && ipa3_ctx->ipa_hw_type < IPA_HW_v7_0)
 	{
 		max_tx = IPA_ETH_MAX_TX_DMA_CHANNEL_QOS_AUTO;
 		max_rx = IPA_ETH_MAX_RX_DMA_CHANNEL_QOS_AUTO;
@@ -2012,11 +2242,11 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 #else
 			tx_prop[2*i].hdr_l2_type = intf->hdr[2*i].hdr_type;
 #endif
-			strscpy(tx_prop[i].hdr_name, hdr->hdr[IPA_IP_v4].name,
-				sizeof(tx_prop[i].hdr_name));
+			strscpy(tx_prop[2*i].hdr_name, hdr->hdr[IPA_IP_v4].name,
+				sizeof(tx_prop[2*i].hdr_name));
 
 			tx_prop[2*i+1].ip = IPA_IP_v6;
-			tx_prop[2 * i + 1].dst_pipe = tx_client[i];	
+			tx_prop[2 * i + 1].dst_pipe = tx_client[i];
 #if IPA_ETH_API_VER >= 4
 			tx_prop[2 * i+1].tc_bmap = tx_tc[i];
 #endif
@@ -2025,13 +2255,11 @@ int ipa_eth_client_reg_intf(struct ipa_eth_intf_info *intf)
 #else
 			tx_prop[2*i+1].hdr_l2_type = intf->hdr[1].hdr_type;
 #endif
-			strscpy(tx_prop[2*i+1].hdr_name, hdr->hdr[(2*i+1)%num_hdrs].name,
+			strscpy(tx_prop[2*i+1].hdr_name, hdr->hdr[IPA_IP_v6].name,
 				sizeof(tx_prop[2*i+1].hdr_name));
 
 			IPA_ETH_DBG("tx_prop i %d dst pipe v4:%d v6:%d\n",i, tx_prop[2*i].dst_pipe, tx_prop[2*i + 1].dst_pipe);
 			IPA_ETH_DBG("tx_prop i %d l2_hdr v4:%d v6:%d\n",i, tx_prop[2*i].hdr_l2_type, tx_prop[2*i + 1].hdr_l2_type);
-			strscpy(tx_prop[i+1].hdr_name, hdr->hdr[IPA_IP_v6].name,
-				sizeof(tx_prop[i+1].hdr_name));
 		}
 	}
 	/* populate rx prop */
@@ -2367,7 +2595,7 @@ int ipa_eth_get_config_type(
 		int i = 0;
 		snprintf(eth_config->config, sizeof(eth_config->config), "qos");
 
-		if (ipa3_ctx->ipa_config_is_auto) {
+		if (ipa3_ctx->ipa_config_is_auto && ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) {
 			eth_config->num_dma_channel = IPA_ETH_MAX_DMA_CHANNEL_QOS_AUTO;
 
 			for (i = 0; i < eth_config->num_dma_channel; i++) {
@@ -2437,6 +2665,18 @@ int ipa_eth_get_config_type(
 		eth_config->dma_config[1].traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
 		IPA_ETH_DBG("Default configuration for client %d, inst_id %d\n", client_type, inst_id);
 	}
+
+#if IPA_ETH_API_VER >= 8
+	eth_config->offload_supported    = ipa3_is_ulso_supported();
+	eth_config->offload_max_pkts     = IPA_ETH_OFFLOAD_MAX_PKTS;
+	eth_config->offload_headroom     = sizeof(struct qmap_hdr);
+	eth_config->offload_features     = ipa3_is_ulso_supported() ?
+		(NETIF_F_RXCSUM | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
+		 NETIF_F_SG | NETIF_F_GRO_HW |
+		 NETIF_F_ALL_TSO | NETIF_F_GSO_UDP_L4) : 0;
+	eth_config->offload_gso_max_size = ipa3_is_ulso_supported() ?
+		IPA_ETH_OFFLOAD_GSO_MAX_SIZE : 0;
+#endif
 	return ret;
 }
 EXPORT_SYMBOL(ipa_eth_get_config_type);
@@ -2599,4 +2839,327 @@ int ipa_eth_client_disable_pipes(struct ipa_eth_client *client)
 }
 EXPORT_SYMBOL(ipa_eth_client_disable_pipes);
 #endif
+
+/* ------------------------------------------------------------------ */
+/* ETH ULSO TX path                                                    */
+/* ------------------------------------------------------------------ */
+
+#if IPA_ETH_API_VER >= 8
+
+/*
+ * ipa_eth_ulso_get_tx_pipe_idx() - Compute the zero-based TX pipe index for
+ * a given pipe by counting TX pipes that appear before it in the client's
+ * pipe_list.  This index is required by ipa_eth_get_ipa_client_type_from_pipe()
+ * to resolve the correct IPA consumer endpoint for QoS multi-pipe deployments
+ * (IPA_CLIENT_ETHERNET_CONS0 .. CONS4).
+ */
+static u8 ipa_eth_ulso_get_tx_pipe_idx(
+		const struct ipa_eth_client_pipe_info *target)
+{
+	const struct ipa_eth_client_pipe_info *pipe;
+	u8 idx = 0;
+
+	list_for_each_entry(pipe, &target->client_info->pipe_list, link) {
+		if (pipe == target)
+			return idx;
+		if (pipe->dir == IPA_ETH_PIPE_DIR_TX)
+			idx++;
+	}
+	return 0;
+}
+
+/* IP + transport header bytes subtracted from MTU to get gso_size (MSS). */
+#define ETH_ULSO_IPV4_DELTA	40	/* IPv4 hdr + TCP hdr */
+#define ETH_ULSO_IPV6_DELTA	60	/* IPv6 hdr + TCP hdr */
+#define ETH_ULSO_IPV4_UDP_DELTA	28	/* IPv4 hdr + UDP hdr */
+#define ETH_ULSO_IPV6_UDP_DELTA	48	/* IPv6 hdr + UDP hdr */
+
+#define ETH_IPV4_IS_TCP(iph)	((iph)->protocol == IPPROTO_TCP)
+#define ETH_IPV4_IS_UDP(iph)	((iph)->protocol == IPPROTO_UDP)
+#define ETH_IPV6_IS_TCP(iph)	(((struct ipv6hdr *)(iph))->nexthdr == IPPROTO_TCP)
+#define ETH_IPV6_IS_UDP(iph)	(((struct ipv6hdr *)(iph))->nexthdr == IPPROTO_UDP)
+
+/* Largest L2 header this path recognises: DA/SA/type plus two 802.1Q tags. */
+#define ETH_ULSO_L2_HLEN_MAX	(VLAN_ETH_HLEN + VLAN_HLEN)
+
+/*
+ * ipa_eth_ulso_parse_l2() - Report L2 header length and innermost L3
+ * ethertype, walking any VLAN tags directly (vlan_get_protocol() relies on
+ * skb->mac_len, not maintained on this TX path). Returns false if the frame
+ * is malformed or has more tags than QMAP can describe.
+ */
+static bool ipa_eth_ulso_parse_l2(const struct sk_buff *skb, u16 *l2_hlen,
+				  __be16 *l3_proto)
+{
+	u16 off = ETH_HLEN - ETH_TLEN;	/* offset of the ethertype field: 12 */
+	__be16 proto;
+
+	if (unlikely(skb_headlen(skb) < ETH_HLEN))
+		return false;
+
+	proto = *(const __be16 *)(skb->data + off);
+
+	while (eth_type_vlan(proto)) {
+		off += VLAN_HLEN;
+		if (unlikely(off + ETH_TLEN > ETH_ULSO_L2_HLEN_MAX ||
+			     skb_headlen(skb) < off + ETH_TLEN))
+			return false;
+		proto = *(const __be16 *)(skb->data + off);
+	}
+
+	*l2_hlen = off + ETH_TLEN;
+	*l3_proto = proto;
+	return true;
+}
+
+/**
+ * ipa_eth_offload_tx_dp() - Transmit an skb over the ETH offload SW TX path
+ * @pipe: TX pipe registered via ipa_eth_client_conn_pipes(); must have
+ *        dir == IPA_ETH_PIPE_DIR_TX and a valid client_info back-pointer
+ * @skb: packet to transmit; ownership transfers to IPA on success;
+ *       skb->dev->mtu is used as the segmentation MTU
+ *
+ * For TCP and UDP packets over IPv4/IPv6, prepends an 8-byte QMAP extension
+ * header (hdr_type=0x3) when IPA segmentation offload is supported by the
+ * hardware.  Sets skb_shinfo()->gso_size so that ipa_tx_dp() selects the
+ * pkt_init_ex_imm descriptor path which instructs IPA to perform HW
+ * segmentation and checksum computation.  Non-TCP/UDP packets are forwarded
+ * without QMAP encapsulation.
+ *
+ * VLAN-tagged frames are offloaded like untagged ones.  A tag carried out of
+ * band in skb->vlan_tci is first pushed into the frame, the innermost L3
+ * protocol is resolved behind any tags, and the QMAP length and
+ * additional_hdr_size fields are computed from the real L2 header length
+ * (14 untagged, 18 single-tagged, 22 double-tagged).
+ *
+ * The TX pipe (IPA->ETH consumer endpoint) is resolved from
+ * pipe->client_info->client_type so the correct pipe is chosen for
+ * multi-instance deployments.
+ *
+ * Must not be called from atomic context.
+ *
+ * Returns: 0 on success
+ *          -EINVAL  if pipe or skb is invalid, pipe direction is not TX, or
+ *                   the IPA core rejects the packet (uninitialised driver,
+ *                   zero-length skb, or client disabled by IPA tiering)
+ *          -EPERM   if the ETH client is not yet registered or the TX pipe is
+ *                   not yet connected
+ *          -EPIPE   if the source endpoint is not valid at ipa_tx_dp() time
+ *          -ENOMEM  failed to reserve headroom for the QMAP header / VLAN
+ *                   tag, or failed to push an out-of-band VLAN tag into the
+ *                   frame. The skb is left intact and still owned by the
+ *                   caller, which must free it.
+ *          -ENOSPC  translated from an -EFAULT out of ipa_tx_dp(). The
+ *                   downstream stack collapses several distinct conditions
+ *                   into this one code: the GSI ring being full (dominant
+ *                   path: gsi_queue_xfer -> -GSI_STATUS_RING_INSUFFICIENT_SPACE
+ *                   -> ipa3_send -EFAULT -> ipa_tx_dp -EFAULT), pipe
+ *                   disconnect-in-progress, tx_pkt wrapper OOM, DMA mapping
+ *                   failure, missing GSI EP config, or descriptor-count
+ *                   overflow. skb is not freed and is handed back with the
+ *                   QMAP header pulled and gso_size restored, ready for
+ *                   retry. Caller should treat this as back-pressure:
+ *                   stop the TX queue and restart it from the TX-complete
+ *                   notify callback.
+ */
+int ipa_eth_offload_tx_dp(struct ipa_eth_client_pipe_info *pipe,
+			  struct sk_buff *skb)
+{
+	enum ipa_client_type tx_client;
+	struct qmap_hdr qmap_hdr;
+	struct iphdr *iph;
+	__be16 l3_proto;
+	u16 l2_hlen;
+	u16 mtu;
+	u16 skb_len;
+	u16 orig_gso_size;
+	u16 ip_dgram_len = 0;
+	unsigned int needed_headroom;
+	int ret;
+
+	if (!pipe || !pipe->client_info ||
+	    pipe->dir != IPA_ETH_PIPE_DIR_TX ||
+	    pipe->client_info->client_type >= IPA_ETH_CLIENT_MAX ||
+	    pipe->client_info->inst_id >= IPA_ETH_INST_ID_MAX) {
+		IPA_ETH_ERR("invalid pipe\n");
+		return -EINVAL;
+	}
+
+	if (unlikely(!skb)) {
+		IPA_ETH_ERR("null skb\n");
+		return -EINVAL;
+	}
+
+	/*
+	 * skb may be a bridge-flood clone sharing skb_shinfo() with sibling
+	 * clones; unshare before writing gso_size/QMAP below. No-op if
+	 * already exclusive.
+	 */
+	needed_headroom = sizeof(struct qmap_hdr);
+
+	if (skb_cow_head(skb, needed_headroom)) {
+		IPA_ETH_ERR("failed to reserve %u bytes of headroom\n",
+			    needed_headroom);
+		return -ENOMEM;
+	}
+
+	if (!ipa_eth_ctx) {
+		IPA_ETH_ERR("ULSO TX called before ETH client registered\n");
+		return -EPERM;
+	}
+
+	mtu = skb->dev->mtu;
+
+	tx_client = ipa_eth_get_ipa_client_type_from_pipe(
+		pipe, 0, ipa_eth_ulso_get_tx_pipe_idx(pipe));
+
+	if (ipa_get_ep_mapping(tx_client) == IPA_EP_NOT_ALLOCATED) {
+		IPA_ETH_ERR("TX pipe not connected for client %d inst %d\n",
+			    pipe->client_info->client_type,
+			    pipe->client_info->inst_id);
+		return -EPERM;
+	}
+
+	/*
+	 * A hardware-accelerated tag lives in vlan_tci, not the frame bytes;
+	 * IPA only DMAs the frame, so serialize it in before anything else.
+	 */
+	if (unlikely(skb_vlan_tag_present(skb))) {
+		__be16 vlan_proto = skb->vlan_proto;
+		u16 vlan_tci = skb_vlan_tag_get(skb);
+
+		ret = __vlan_insert_tag(skb, vlan_proto, vlan_tci);
+		if (unlikely(ret)) {
+			IPA_ETH_ERR("failed to push vlan tag inside frame\n");
+			return ret;
+		}
+		skb->protocol = vlan_proto;
+		__vlan_hwaccel_clear_tag(skb);
+	}
+
+	l2_hlen = ETH_HLEN;
+	l3_proto = 0;
+	if (!ipa_eth_ulso_parse_l2(skb, &l2_hlen, &l3_proto))
+		IPA_ETH_DBG("unparsable L2 header, forwarding without offload\n");
+
+	/* IPA PM is voted for the whole session at connect/disconnect; no
+	 * per-packet vote needed here.
+	 */
+	skb_len = skb->len;
+	orig_gso_size = skb_shinfo(skb)->gso_size;
+
+	if (ipa3_is_ulso_supported()) {
+		bool is_frag = false;
+
+		/*
+		 * segment_size/gso_size = L4 payload per HW segment (excludes
+		 * IP/transport headers), set per-protocol below. gso_size also
+		 * forces ipa_tx_dp() onto the GSO path for HW checksum offload
+		 * even on small frames. additional_hdr_size is the delta over
+		 * a plain Ethernet header to reach the IP header (0/4/8),
+		 * matching ecm_ipa/rndis_ipa convention.
+		 */
+		memset(&qmap_hdr, 0, sizeof(qmap_hdr));
+		qmap_hdr.next_hdr      = 1;    /* extension header present */
+		qmap_hdr.cd            = 0;    /* data packet, not command */
+		qmap_hdr.mux_id        = 0;
+		qmap_hdr.hdr_type      = 0x3;  /* ULSO extension header type */
+		qmap_hdr.zero_checksum = 0;    /* IPA computes checksum */
+		qmap_hdr.ip_id_cfg     = 0;    /* running IP ID per segment */
+
+		/*
+		 * skb->protocol is ETH_P_8021Q for tagged frames; dispatch on
+		 * the resolved innermost proto instead. ip_hdr()/ipv6_hdr()
+		 * need no adjustment either way.
+		 */
+		if (l3_proto == htons(ETH_P_IP)) {
+			iph = ip_hdr(skb);
+			is_frag = ip_is_fragment(iph);
+			if (!is_frag &&
+			    (ETH_IPV4_IS_TCP(iph) || ETH_IPV4_IS_UDP(iph))) {
+				u16 delta = ETH_IPV4_IS_TCP(iph) ?
+					ETH_ULSO_IPV4_DELTA :
+					ETH_ULSO_IPV4_UDP_DELTA;
+
+				ip_dgram_len = ntohs(iph->tot_len);
+				qmap_hdr.segment_size = htons(mtu - delta);
+				skb = qmap_encapsulate_skb(skb, &qmap_hdr);
+				skb_shinfo(skb)->gso_size = mtu - delta;
+			}
+		} else if (l3_proto == htons(ETH_P_IPV6)) {
+			unsigned int frag_off = 0;
+
+			iph = ip_hdr(skb);
+			is_frag = (ipv6_find_hdr(skb, &frag_off, NEXTHDR_FRAGMENT,
+				NULL, NULL) == NEXTHDR_FRAGMENT);
+			if (!is_frag &&
+			    (ETH_IPV6_IS_TCP(iph) || ETH_IPV6_IS_UDP(iph))) {
+				u16 delta = ETH_IPV6_IS_TCP(iph) ?
+					ETH_ULSO_IPV6_DELTA :
+					ETH_ULSO_IPV6_UDP_DELTA;
+
+				ip_dgram_len = ntohs(ipv6_hdr(skb)->payload_len) +
+					sizeof(struct ipv6hdr);
+				qmap_hdr.segment_size = htons(mtu - delta);
+				skb = qmap_encapsulate_skb(skb, &qmap_hdr);
+				skb_shinfo(skb)->gso_size = mtu - delta;
+			}
+		}
+
+		/*
+		 * HW ULSO can't process IP fragments, so they stay
+		 * unencapsulated on the plain, non-GSO path; realize the L4
+		 * checksum in SW since HW checksum offload only runs on the
+		 * ULSO path.
+		 */
+		if (is_frag && skb->ip_summed == CHECKSUM_PARTIAL &&
+		    skb_checksum_help(skb))
+			IPA_ETH_ERR("frag: skb_checksum_help failed\n");
+	}
+
+	/*
+	 * skb->len unchanged means qmap_encapsulate_skb() did not run
+	 * (ULSO unsupported, non-TCP/UDP, or OOM); clear gso_size so
+	 * ipa_tx_dp() does not misidentify the packet as GSO.
+	 */
+	if (skb_len == skb->len) {
+		skb_shinfo(skb)->gso_size = 0;
+	} else {
+		/*
+		 * The QMAP length field is the L2 payload only (skb->len
+		 * minus QMAP and the L2 header); pad reports trailing
+		 * Ethernet padding beyond the IP datagram so HW doesn't
+		 * treat it as packet data.
+		 */
+		struct qmap_hdr *qh_ptr = (struct qmap_hdr *)skb->data;
+		u16 l2pay = skb->len - (u16)sizeof(struct qmap_hdr) - l2_hlen;
+
+		qh_ptr->packet_len_with_pad = htons(l2pay);
+		if (ip_dgram_len && l2pay > ip_dgram_len)
+			qh_ptr->pad = (l2pay - ip_dgram_len) & 0x3f;
+	}
+
+	ret = ipa_tx_dp(tx_client, skb, NULL);
+	if (ret) {
+		/*
+		 * skb is handed back unmodified on -ENOSPC for retry, so undo
+		 * the QMAP push (if any) and restore gso_size -- otherwise a
+		 * retried skb re-enters xmit with gso_size set but gso_type
+		 * still 0, tripping gso_features_check()'s WARN.
+		 */
+		if (ret == -EFAULT) {
+			ret = -ENOSPC;
+			if (skb->len != skb_len)
+				skb_pull(skb, sizeof(struct qmap_hdr));
+			skb_shinfo(skb)->gso_size = orig_gso_size;
+		}
+		IPA_ETH_ERR("ipa_tx_dp failed for client %d: %d\n",
+			    pipe->client_info->client_type, ret);
+		IPA_STATS_INC_CNT(ipa3_ctx->stats.ulso_eth_tx_fail_pkts);
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(ipa_eth_offload_tx_dp);
+#endif /* IPA_ETH_API_VER >= 8 */
 

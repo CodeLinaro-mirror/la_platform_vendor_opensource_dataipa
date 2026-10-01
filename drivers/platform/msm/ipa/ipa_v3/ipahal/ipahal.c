@@ -67,6 +67,8 @@ static const char *ipahal_pkt_status_exception_to_str
 	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_HDRI),
 	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_FRAG_PKT_IPSEC_TRSPT_MODE),
 	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_CSUM),
+	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_DROP_UL),
+	__stringify(IPAHAL_PKT_STATUS_EXCEPTION_DROP_DL),
 };
 
 /*
@@ -963,6 +965,17 @@ inline void ipa_imm_cmd_modify_ip_packet_init_ex_dest_pipe(
 			= pipe_dest_idx;
 }
 
+void ipa_imm_cmd_modify_ip_packet_init_ex_cookie(
+	const void *cmd_data,
+	u64 cookie)
+{
+	if (ipahal_ctx->hw_type < IPA_HW_v7_0)
+		return;
+
+	((struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *)cmd_data)->
+		sw_classification_cookie = cookie;
+}
+
 void ipa_imm_cmd_modify_ip_packet_init_ex_ulso(u32 ep)
 {
 	struct ipa_imm_cmd_hw_ip_packet_init_ex_v7_0 *cmd
@@ -971,6 +984,12 @@ void ipa_imm_cmd_modify_ip_packet_init_ex_ulso(u32 ep)
 	cmd->rt_pipe_dest_idx = (u64)ep;
 	cmd->traffic_mode = IPA_NON_DMA_ETHERNET;
 	cmd->leading_header_size = ULSO_LEADING_HEADER_SIZE;
+	/*
+	 * Header removal/insertion must stay ENABLED (disable=false) so HW
+	 * strips the leading QMAP header (leading_header_size bytes) on the
+	 * ULSO path; otherwise the 8B QMAP is left on the egress frame.
+	 */
+	cmd->hdr_removal_insertion_disable = 0;
 }
 
 void ipa_imm_cmd_modify_ip_packet_init_ex_eth(u32 ep)
@@ -1984,7 +2003,7 @@ static enum ipahal_pkt_status_exception pkt_status_parse_exception_v7_0(
 	default:
 		IPAHAL_ERR("unsupported Status Exception type 0x%x\n",
 			exception);
-		WARN_ON(1);
+		//WARN_ON(1);
 	}
 
 	return exception_type;

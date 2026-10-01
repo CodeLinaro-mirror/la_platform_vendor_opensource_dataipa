@@ -532,7 +532,6 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 		return -EINVAL;
 	}
 
-	ntn_ctx->state = IPA_UC_OFFLOAD_STATE_INITIALIZED;
 	ret = ipa_pm_deactivate_sync(ntn_ctx->pm_hdl);
 	if (ret) {
 		IPA_UC_OFFLOAD_ERR("fail to deactivate res: %d\n",
@@ -554,10 +553,12 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 			ret);
 		return -EFAULT;
 	}
+
 	if (ntn_ctx->conn.dl.smmu_enabled) {
 		ipa_uc_ntn_free_conn_smmu_info(&ntn_ctx->conn.dl);
 		ipa_uc_ntn_free_conn_smmu_info(&ntn_ctx->conn.ul);
 	}
+	ntn_ctx->state = IPA_UC_OFFLOAD_STATE_INITIALIZED;
 
 	return ret;
 }
@@ -580,8 +581,8 @@ int ipa_uc_offload_disconn_pipes(u32 clnt_hdl)
 	}
 
 	if (offload_ctx->state != IPA_UC_OFFLOAD_STATE_UP) {
-		IPA_UC_OFFLOAD_ERR("Invalid state\n");
-		return -EINVAL;
+		IPA_UC_OFFLOAD_ERR("uc offload not up\n");
+		return 0;
 	}
 
 	switch (offload_ctx->proto) {

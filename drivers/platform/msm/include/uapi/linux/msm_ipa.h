@@ -53,7 +53,7 @@
  */
 #define IPAHAL_NAT_INVALID_PROTOCOL   0xFF
 
-#define IPA_ETH_API_VER 7
+#define IPA_ETH_API_VER 9
 
 /**
  * commands supported by IPA driver
@@ -170,6 +170,7 @@
 #define IPA_IOCTL_SET_IPTYPE_MTU                108
 #define IPA_IOCTL_TABLE_WRITE_CMD               109
 #define IPA_IOCTL_NAT_CT_TIMESTAMP_FLUSH        110
+#define IPA_IOCTL_SET_PIPE_TC_BITMAP            111
 
 /**
  * max size of the header to be inserted
@@ -793,6 +794,23 @@ enum ipa_client_type {
 	(client) == IPA_CLIENT_Q6_CV2X_DECIPHER_CONS || \
 	(client) == IPA_CLIENT_Q6_RQOS_WA_CONS)
 
+/*
+ * Q6 consumers excluding the NLO/QBAP pipes. The NLO consumer rings
+ * cannot be stall-detected via RP/WP, so the IPA RC no-buff check uses
+ * this subset instead of IPA_CLIENT_IS_Q6_CONS.
+ */
+#define IPA_CLIENT_IS_Q6_NON_NLO_CONS(client) \
+	((client) == IPA_CLIENT_Q6_LAN_CONS || \
+	(client) == IPA_CLIENT_Q6_WAN_CONS || \
+	(client) == IPA_CLIENT_Q6_DUN_CONS || \
+	(client) == IPA_CLIENT_Q6_DECOMP_CONS || \
+	(client) == IPA_CLIENT_Q6_DECOMP2_CONS || \
+	(client) == IPA_CLIENT_Q6_LTE_WIFI_AGGR_CONS || \
+	(client) == IPA_CLIENT_Q6_CV2X_CONS || \
+	(client) == IPA_CLIENT_Q6_AUDIO_DMA_MHI_CONS || \
+	(client) == IPA_CLIENT_Q6_CV2X_DECIPHER_CONS || \
+	(client) == IPA_CLIENT_Q6_RQOS_WA_CONS)
+
 #define IPA_CLIENT_IS_Q6_PROD(client) \
 	((client) == IPA_CLIENT_Q6_LAN_PROD || \
 	(client) == IPA_CLIENT_Q6_WAN_PROD || \
@@ -1195,12 +1213,63 @@ enum ipa_qos_param_evt {
 	IPA_QOS_PARAM_ADD_EVENT = IPA_PDN_DSCP_EVENT_MAX,
 	IPA_QOS_PARAM_DELETE_EVENT,
 	IPA_QOS_PARAM_FLUSH_EVENT,
+	IPA_QOS_RULE_INSTALLED_EVENT, /**< Async: deferred rule (qos_rule_hdl was 0
+				       *   on ADD return) has now been installed
+				       *   in HW.  Fired once per qos_id when the
+				       *   rule transitions from cached-only to
+				       *   in-HW (e.g. when a matching client
+				       *   accelerates, or a pipe TC bitmap is
+				       *   updated to cover the rule's TC). */
 	IPA_QOS_PARAM_EVENT_MAX
 #define IPA_QOS_PARAM_EVENT_MAX IPA_QOS_PARAM_EVENT_MAX
 };
 
+/**
+ * struct ipa_qos_rule_installed_msg - payload for IPA_QOS_RULE_INSTALLED_EVENT.
+ * @qos_id:        Stable kernel-assigned ID (matches the qos_id userspace
+ *                 received at ADD time).
+ * @qos_rule_hdl:  IPA routing-table handle now backing the rule in HW.
+ * @traffic_class: TC of the rule (for caller-side logging / correlation).
+ *
+ * Sent via the IPA message framework (consumed via IPA_IOC_PULL_MSG).  The
+ * userspace HAL correlates @qos_id back to the QoSMgr handle(s) it tracked
+ * when createFilter() returned QOS_FILTER_PENDING.
+ */
+struct ipa_qos_rule_installed_msg {
+	uint32_t qos_id;
+	uint32_t qos_rule_hdl;
+	uint8_t  traffic_class;
+} __packed;
+
 #define IPA_EVENT_MAX_NUM (IPA_QOS_PARAM_EVENT_MAX)
 #define IPA_EVENT_MAX ((int)IPA_EVENT_MAX_NUM)
+
+/* IPA Robustness Check (RC) anomaly notification channel */
+#define IPA_RC_GENL_FAMILY_NAME  "ipa_rc"
+#define IPA_RC_GENL_VERSION      1
+#define IPA_RC_MCAST_GRP_NAME    "ipa_rc_mcgrp"
+
+enum ipa_rc_genl_attr {
+	IPA_RC_A_UNSPEC = 0,
+	IPA_RC_A_ANOMALY,
+	__IPA_RC_A_MAX,
+};
+#define IPA_RC_A_MAX (__IPA_RC_A_MAX - 1)
+
+enum ipa_rc_genl_cmd {
+	IPA_RC_C_UNSPEC = 0,
+	IPA_RC_C_ANOMALY,
+	__IPA_RC_C_MAX,
+};
+#define IPA_RC_C_MAX (__IPA_RC_C_MAX - 1)
+
+struct ipa_rc_anomaly_msg {
+	__u32 version;
+	__u32 status_code;
+	__u32 asserted_mask;
+	__u32 cleared_mask;
+	__u64 timestamp_ms;
+};
 
 /**
  * enum ipa_rm_resource_name - IPA RM clients identification names
@@ -4066,7 +4135,9 @@ struct ipa_ioc_qos_config {
 	uint8_t pcp;
 	uint8_t dscp_mark_val;
 	uint32_t qos_rule_hdl;
+	uint32_t proc_ctx_hdl;
 	enum ipa_qos_flt_category flt_cat;
+	uint32_t qos_id; /**< Stable unique ID assigned at ADD; use for handle-based delete */
 };
 
 struct ipa_ioc_get_qos_config {
@@ -4445,6 +4516,23 @@ struct ipa_ioc_get_qos_config {
 #define IPA_IOC_GET_QOS_PARAMS _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_GET_QOS_PARAMS, \
 				struct ipa_ioc_get_qos_config)
+
+/**
+ * struct ipa_ioc_pipe_tc_bitmap - update tc_bmap for one TX interface property
+ * @dev_name:  interface name (e.g. "rndis0")
+ * @tx_index:  index into the interface TX property array (from show_intf)
+ * @tc_bitmap: new tc_bmap value; bit N = traffic class N enabled on this pipe
+ */
+struct ipa_ioc_pipe_tc_bitmap {
+	char     dev_name[IPA_RESOURCE_NAME_MAX];
+	uint8_t  tx_index;
+	uint8_t  __reserved[3]; /* explicit padding to avoid implicit compiler padding */
+	uint32_t tc_bitmap;
+};
+
+#define IPA_IOC_SET_PIPE_TC_BITMAP _IOW(IPA_IOC_MAGIC, \
+				IPA_IOCTL_SET_PIPE_TC_BITMAP, \
+				struct ipa_ioc_pipe_tc_bitmap)
 
 #define IPA_IOC_SET_IPTYPE_MTU _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_SET_IPTYPE_MTU, \
