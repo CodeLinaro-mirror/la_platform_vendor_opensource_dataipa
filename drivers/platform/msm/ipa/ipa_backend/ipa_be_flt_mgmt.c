@@ -3043,6 +3043,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 				flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_IP;
 				flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
 				flt_rule_entry.rule.hashable = false;
+				flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_XLAT;
 
 				if (needs_legacy_ethertype_meq) {
 					//add the eth header equation for v4 to the old rule
