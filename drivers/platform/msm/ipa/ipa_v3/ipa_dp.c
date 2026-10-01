@@ -2104,24 +2104,15 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		} while (1);
 
 		delete_avail_tx_wrapper_list(ep);
-		/* Delete NAPI TX object. For WAN_PROD, it is deleted
-		 * in rmnet_ipa driver.
-		 * Gate on napi_tx_enable rather than the global
-		 * tx_napi_enable: setup only adds napi_tx for the LAN/WAN/
-		 * IPSEC producers and leaves it zeroed for the others (e.g.
-		 * CMD_PROD, TEST_PROD), so the global flag alone would delete
-		 * a NAPI object that was never added.
+		/* napi_tx_enable tracks that setup registered this NAPI object.
+		 * The WAN producer NAPI is attached to the rmnet netdev, but its
+		 * endpoint owns teardown before the netdev is freed.
 		 */
-		if (ep->sys->napi_tx_enable &&
-			(ep->client != IPA_CLIENT_APPS_WAN_PROD)) {
+		if (ep->sys->napi_tx_enable) {
 			napi_disable(&ep->sys->napi_tx);
 			netif_napi_del(&ep->sys->napi_tx);
+			ep->sys->napi_tx_enable = false;
 		}
-	}
-
-	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
-		napi_disable(&ep->sys->napi_rx);
-		netif_napi_del(&ep->sys->napi_rx);
 	}
 
 	if ( ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS ) {
@@ -2160,6 +2151,14 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 	flush_workqueue(ep->sys->wq);
 	if (IPA_CLIENT_IS_PROD(ep->client))
 		atomic_set(&ep->sys->workqueue_flushed, 1);
+
+	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
+		napi_disable(&ep->sys->napi_rx);
+		netif_napi_del(&ep->sys->napi_rx);
+	}
+
+	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
+		tasklet_kill(&ep->sys->tasklet);
 
 	/*
 	 * Tear down the default pipe before we reset the channel
@@ -2351,6 +2350,15 @@ static int ipa3_teardown_pipe(u32 clnt_hdl)
 		ipa_assert();
 		return result;
 	}
+
+	/* Wait for any pending irqs */
+	usleep_range(POLLING_MIN_SLEEP_RX, POLLING_MAX_SLEEP_RX);
+	/* Wait until end point moving to interrupt mode before teardown */
+	do {
+		usleep_range(95, 105);
+	} while (atomic_read(&ep->sys->curr_polling_state));
+
+
 	result = ipa3_reset_gsi_channel(clnt_hdl);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("Failed to reset chan: %d.\n", result);
