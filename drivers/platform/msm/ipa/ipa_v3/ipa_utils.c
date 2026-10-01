@@ -18463,7 +18463,7 @@ int ipa3_get_max_pdn(void)
 
 	ipahal_nat_entry_size(IPAHAL_NAT_IPV4_PDN, &pdn_entry_size);
 	max_pdn = IPA_MEM_PART(pdn_config_size)/pdn_entry_size;
-	IPADBG("IPA offload max_pdn = %d\n", max_pdn);
+	IPADBG_LOW("IPA offload max_pdn = %d\n", max_pdn);
 
 	return max_pdn;
 }

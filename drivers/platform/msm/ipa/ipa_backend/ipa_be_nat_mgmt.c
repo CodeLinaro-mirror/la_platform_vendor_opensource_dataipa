@@ -3323,7 +3323,7 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 		break;
 	}
 
-	IPA_BE_DBG("Sampling mode: type=%u is_timestamp=%d is_stats=%d\n",
+	IPA_BE_LOW("Sampling mode: type=%u is_timestamp=%d is_stats=%d\n",
 		   msg->cm.type, is_timestamp, is_stats);
 
 	sync_many = &msg->msg.conn_stats_many;
@@ -3348,7 +3348,7 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 	}
 
 	if (is_timestamp) {
-		IPA_BE_DBG("Flushing timestamp for IPv6 CT table hdl=%u\n",
+		IPA_BE_LOW("Flushing timestamp for IPv6 CT table hdl=%u\n",
 			NatBase->ct_table_hdl);
 		ret = ipa_ipv6ct_timestamp_flush(NatBase->ct_table_hdl);
 		if (ret < 0) {
@@ -3397,7 +3397,7 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 						     rule_handle,
 						     &timestamp);
 			if (ret) {
-				IPA_BE_DBG("Failed to query timestamp for IPv6 CT entry %d, rule_hdl=%u\n",
+				IPA_BE_LOW("Failed to query timestamp for IPv6 CT entry %d, rule_hdl=%u\n",
 					   i, rule_handle);
 				/* Continue to next entry instead of failing completely */
 				continue;
@@ -3523,10 +3523,11 @@ ipa_tx_status_t ipa_sync_ipv6_stats_many_msg(struct ipa_ctx_instance_internal *i
 		 */
 		conn_sync->reason = IPA_RULE_SYNC_REASON_STATS;
 
-		IPA_BE_DBG("IPv6 CT Entry %d: protocol=%u, src_port=%u, dest_port=%u, timestamp=%u, inc_ticks=%u, reason=%u\n",
-			   i, conn_sync->protocol,
-			   ntohs(conn_sync->flow_ident),
-			   ntohs(conn_sync->return_ident),
+		IPA_BE_DBG("ECMIPA stats entry %d serial:%u proto:%u flow:%pI6:%u return:%pI6:%u ts:%u ticks:%u reason:%u\n",
+			   i,
+			   conn_sync->flow_rule_id, conn_sync->protocol,
+			   conn_sync->flow_ip, ntohs(conn_sync->flow_ident),
+			   conn_sync->return_ip, ntohs(conn_sync->return_ident),
 			   timestamp, conn_sync->inc_ticks, conn_sync->reason);
 
 		count++;
@@ -3591,7 +3592,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	struct ipahal_stats_nat_ct *entry_stats_cache = NULL;
 	bool *entry_stats_cache_valid = NULL;
 
-	IPA_BE_DBG("=== ENTER ipa_sync_ipv4_stats_many_msg ===\n");
+	IPA_BE_LOW("=== ENTER ipa_sync_ipv4_stats_many_msg ===\n");
 
 	if (!msg) {
 		IPA_BE_ERR("Invalid parameter: msg is NULL\n");
@@ -3619,10 +3620,10 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		break;
 	}
 
-	IPA_BE_DBG("Sampling mode: type=%u is_timestamp=%d is_stats=%d\n",
+	IPA_BE_LOW("Sampling mode: type=%u is_timestamp=%d is_stats=%d\n",
 		   msg->cm.type, is_timestamp, is_stats);
 
-	IPA_BE_DBG("Input validation passed: msg=%p, nat_app=%p\n", msg, nat_app);
+	IPA_BE_LOW("Input validation passed: msg=%p, nat_app=%p\n", msg, nat_app);
 
 	sync_many = &msg->msg.conn_stats_many;
 	start_index = sync_many->index;
@@ -3636,7 +3637,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		return IPA_TX_FAILURE_NOT_READY;
 	}
 
-	IPA_BE_DBG("NAT table info: nat_table_hdl=0x%x, max_entries=%d, curCnt=%d\n",
+	IPA_BE_LOW("NAT table info: nat_table_hdl=0x%x, max_entries=%d, curCnt=%d\n",
 		   nat_app->nat_table_hdl, nat_app->max_entries, nat_app->curCnt);
 
 	/* Validate start index */
@@ -3650,7 +3651,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	uint16_t max_entries = (sync_many->size - sizeof(struct ipa_ipv4_conn_sync_many_msg)) /
 			       sizeof(struct ipa_ipv4_conn_sync);
 
-	IPA_BE_DBG("Buffer capacity: max_entries=%u (buffer_size=%u, header_size=%zu, entry_size=%zu)\n",
+	IPA_BE_LOW("Buffer capacity: max_entries=%u (buffer_size=%u, header_size=%zu, entry_size=%zu)\n",
 		   max_entries, sync_many->size,
 		   sizeof(struct ipa_ipv4_conn_sync_many_msg),
 		   sizeof(struct ipa_ipv4_conn_sync));
@@ -3660,11 +3661,11 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		return IPA_TX_FAILURE_TOO_SHORT;
 	}
 
-	IPA_BE_DBG("Starting iteration from index %u to %d (buffer capacity=%u)\n",
+	IPA_BE_LOW("Starting iteration from index %u to %d (buffer capacity=%u)\n",
 		   start_index, nat_app->max_entries, max_entries);
 
 	if (is_timestamp) {
-		IPA_BE_DBG("Flushing timestamp for nat table hdl=%u\n",
+		IPA_BE_LOW("Flushing timestamp for nat table hdl=%u\n",
 			nat_app->nat_table_hdl);
 		ret = ipa_nat_timestamp_flush(nat_app->nat_table_hdl);
 		if (ret < 0) {
@@ -3695,7 +3696,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	for (i = start_index; i < nat_app->max_entries && count < max_entries; i++) {
 		/* Log progress every 1000 entries */
 		if ((i - start_index) > 0 && (i - start_index) % 1000 == 0) {
-			IPA_BE_DBG("Progress: scanned %d entries, collected %u stats so far\n",
+			IPA_BE_LOW("Progress: scanned %d entries, collected %u stats so far\n",
 				   i - start_index, count);
 		}
 
@@ -3710,7 +3711,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		}
 
 		if (!nat_app->cache[i].enabled) {
-			IPA_BE_DBG("Skipping disabled entry at index %d (private_ip=%pI4n, rule_hdl=%u)\n",
+			IPA_BE_LOW("Skipping disabled entry at index %d (private_ip=%pI4n, rule_hdl=%u)\n",
 				   i, &nat_app->cache[i].private_ip, nat_app->cache[i].rule_hdl);
 			mutex_unlock(&nat_app->cache_lock);
 			continue;
@@ -3719,7 +3720,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		/* Read rule handle while holding lock */
 		rule_hdl = nat_app->cache[i].rule_hdl;
 
-		IPA_BE_DBG("Querying timestamp for entry %d: rule_hdl=%u, private_ip=%pI4n:%u -> target_ip=%pI4n:%u\n",
+		IPA_BE_LOW("Querying timestamp for entry %d: rule_hdl=%u, private_ip=%pI4n:%u -> target_ip=%pI4n:%u\n",
 			   i, rule_hdl,
 			   &nat_app->cache[i].private_ip, nat_app->cache[i].private_port,
 			   &nat_app->cache[i].target_ip, nat_app->cache[i].target_port);
@@ -3735,7 +3736,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 				IPA_BE_ERR("Failed to query timestamp for entry %d: rule_hdl=%u, ret=%d\n",
 					   i, rule_hdl, ret);
 				mutex_lock(&nat_app->cache_lock);
-				IPA_BE_DBG("  Entry: private_ip=%pI4n:%u, target_ip=%pI4n:%u, protocol=%u, pdn_index=%u\n",
+				IPA_BE_LOW("  Entry: private_ip=%pI4n:%u, target_ip=%pI4n:%u, protocol=%u, pdn_index=%u\n",
 					   &nat_app->cache[i].private_ip, nat_app->cache[i].private_port,
 					   &nat_app->cache[i].target_ip, nat_app->cache[i].target_port,
 					   nat_app->cache[i].protocol, nat_app->cache[i].pdn_index);
@@ -3853,11 +3854,15 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 		 */
 		conn_sync->reason = IPA_RULE_SYNC_REASON_STATS;
 
-		IPA_BE_DBG("Successfully added entry %d to response[%u]: protocol=%u, flow_ip=%pI4h:%u, flow_ip_xlate=%pI4h:%u, return_ip=%pI4h:%u, return_ip_xlate=%pI4h:%u, timestamp=%u, inc_ticks=%u, reason=%u, pdn_index=%u\n",
-			   i, count, conn_sync->protocol,
+		IPA_BE_DBG("ECMIPA stats entry %d resp[%u] serial:%u proto:%u flow:%pI4h:%u return:%pI4h:%u\n",
+			   i, count,
+			   conn_sync->flow_rule_id, conn_sync->protocol,
 			   &conn_sync->flow_ip, ntohs(conn_sync->flow_ident),
+			   &conn_sync->return_ip, ntohs(conn_sync->return_ident));
+
+		IPA_BE_DBG("ECMIPA stats entry %d xlate flow:%pI4h:%u return:%pI4h:%u ts:%u ticks:%u reason:%u pdn:%u\n",
+			   i,
 			   &conn_sync->flow_ip_xlate, ntohs(conn_sync->flow_ident_xlate),
-			   &conn_sync->return_ip, ntohs(conn_sync->return_ident),
 			   &conn_sync->return_ip_xlate, ntohs(conn_sync->return_ident_xlate),
 			   timestamp, conn_sync->inc_ticks, conn_sync->reason, nat_app->cache[i].pdn_index);
 
@@ -3874,7 +3879,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	for (; next_index < nat_app->max_entries; next_index++) {
 		if (nat_app->cache[next_index].private_ip != 0 &&
 		    nat_app->cache[next_index].enabled) {
-			IPA_BE_DBG("Found next valid entry at index %u\n", next_index);
+			IPA_BE_LOW("Found next valid entry at index %u\n", next_index);
 			break;
 		}
 	}
@@ -3886,7 +3891,7 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	sync_many->next = (next_index < nat_app->max_entries) ? next_index : 0;
 
 	if (sync_many->next == 0) {
-		IPA_BE_DBG("No more entries available, signaling completion (next=0)\n");
+		IPA_BE_LOW("No more entries available, signaling completion (next=0)\n");
 	}
 
 	IPA_BE_DBG("Sync many stats response: count=%u, next=%u\n",
@@ -3895,8 +3900,8 @@ ipa_tx_status_t ipa_sync_ipv4_stats_many_msg(struct ipa_ctx_instance_internal *i
 	/* Set response status */
 	msg->cm.response = IPA_CMN_RESPONSE_ACK;
 
-	IPA_BE_DBG("=== EXIT ipa_sync_ipv4_stats_many_msg: SUCCESS ===\n");
-	IPA_BE_DBG("Summary: start_index=%u, end_index=%d, scanned=%d, collected=%u, next=%u\n",
+	IPA_BE_LOW("=== EXIT ipa_sync_ipv4_stats_many_msg: SUCCESS ===\n");
+	IPA_BE_LOW("Summary: start_index=%u, end_index=%d, scanned=%d, collected=%u, next=%u\n",
 		   start_index, i, i - start_index, count, sync_many->next);
 
 	kfree(entry_stats_cache);
