@@ -7,6 +7,7 @@
 #include "ipa_i.h"
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
+#include <linux/list_sort.h>
 
 #define IPA_FLT_STATUS_OF_ADD_FAILED		(-1)
 #define IPA_FLT_STATUS_OF_DEL_FAILED		(-1)
@@ -19,6 +20,7 @@
 	(IPA_RULE_HASHABLE):(IPA_RULE_NON_HASHABLE) \
 	)
 
+static void ipa3_save_flt_snapshot(enum ipa_ip_type ip);
 /**
  * ipa3_generate_flt_hw_rule() - generates the filtering hardware rule
  * @ip: the ip address family type
@@ -112,6 +114,19 @@ static void __ipa_reap_sys_flt_tbls(enum ipa_ip_type ip, enum ipa_rule_type rlt)
 	}
 }
 
+static int ipa_flt_rule_cmp(void *priv, const struct list_head *a, const struct list_head *b)
+{
+	struct ipa3_flt_entry *entry_a = list_entry(a, struct ipa3_flt_entry, link);
+	struct ipa3_flt_entry *entry_b = list_entry(b, struct ipa3_flt_entry, link);
+
+	if (entry_a->prio < entry_b->prio)
+		return -1;
+	else if (entry_a->prio > entry_b->prio)
+		return 1;
+	else
+		return 0;
+}
+
 /**
  * ipa_prep_flt_tbl_for_cmt() - preparing the flt table for commit
  *  assign priorities to the rules, calculate their sizes and calculate
@@ -129,6 +144,8 @@ static int ipa_prep_flt_tbl_for_cmt(enum ipa_ip_type ip,
 	int prio_i;
 	int max_prio;
 	u32 hdr_width;
+	bool sort_needed = false;
+	u32 prev_prio = 0;
 
 	tbl->sz[IPA_RULE_HASHABLE] = 0;
 	tbl->sz[IPA_RULE_NON_HASHABLE] = 0;
@@ -138,9 +155,15 @@ static int ipa_prep_flt_tbl_for_cmt(enum ipa_ip_type ip,
 	prio_i = max_prio;
 	list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
 
-		if (entry->rule.max_prio) {
+		if (entry->rule.max_prio)
+		{
 			entry->prio = entry->rule.max_prio;
-		} else {
+			if (entry->prio < prev_prio)
+				sort_needed = true;
+			prev_prio = entry->prio;
+		}
+		else
+		{
 			if (ipahal_rule_decrease_priority(&prio_i)) {
 				IPAERR("cannot decrease rule priority - %d\n",
 					prio_i);
@@ -161,6 +184,8 @@ static int ipa_prep_flt_tbl_for_cmt(enum ipa_ip_type ip,
 		else
 			tbl->sz[IPA_RULE_NON_HASHABLE] += entry->hw_len;
 	}
+	if (sort_needed)
+		list_sort(NULL, &tbl->head_flt_rule_list, ipa_flt_rule_cmp);
 
 	if ((tbl->sz[IPA_RULE_HASHABLE] +
 		tbl->sz[IPA_RULE_NON_HASHABLE]) == 0) {
@@ -526,6 +551,9 @@ int __ipa_commit_flt_v3(enum ipa_ip_type ip)
 	struct ipa3_flt_tbl_nhash_lcl *lcl_tbl;
 	u16 entries;
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+
+	//Catpture the snapshot
+	ipa3_save_flt_snapshot(ip);
 
 	tbl_hdr_width = ipahal_get_hw_tbl_hdr_width();
 	memset(&alloc_params, 0, sizeof(alloc_params));
@@ -1963,6 +1991,78 @@ bail:
 }
 
 /**
+ * ipa3_save_flt_snapshot() - saves a snapshot of the current filtering rules.
+ * @ip: IP address family type (IPv4 or IPv6).
+ *
+ * This function is used for debugging purposes. It iterates through all
+ * filtering tables for a given IP type and saves the current state of
+ * filtering rules into a snapshot buffer.
+ */
+static void ipa3_save_flt_snapshot(enum ipa_ip_type ip)
+{
+	struct ipa_debug_ctx *dbg ;
+	struct ipa_flt_snapshot *snap;
+	struct ipa3_flt_tbl *tbl;
+	struct ipa3_flt_entry *entry;
+	struct ipa_ep_flt_data *data;
+	struct ipa3_flt_entry *new_flt_rules;
+	int i;
+	u32 flt_idx;
+	u32 num_rules;
+
+	dbg = ipa3_ctx->debug_log;
+	if (!dbg)
+		return;
+
+	if(ip == IPA_IP_v4)
+		flt_idx = dbg->curr_v4_flt_idx;
+	else
+		flt_idx = dbg->curr_v6_flt_idx;
+
+	snap = &dbg->flt_snaps[flt_idx];
+
+	snap->timestamp[ip] = sched_clock();
+
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
+		if (ipa_is_ep_support_flt(i)) {
+			tbl = &ipa3_ctx->flt_tbl[i][ip];
+			data = &snap->ep_flt_data[ip][i];
+
+			num_rules = tbl->rule_cnt;
+			if (!num_rules)
+				continue;
+
+			new_flt_rules = kcalloc(num_rules, sizeof(struct ipa3_flt_entry), GFP_KERNEL);
+			if (!new_flt_rules)
+				continue;
+
+			if(data->rules)
+				kfree(data->rules);
+
+			data->rules = new_flt_rules;
+			data->count = 0;
+
+			list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
+				if (data->count >= num_rules) break;
+				if (entry->cookie != IPA_FLT_COOKIE) continue;
+
+				data->rules[data->count] = *entry;
+
+				data->count++;
+			}
+			IPADBG_LOW("ipa3_save_flt_snapshot: %d rules in table %d\n", data->count, i);
+
+		}
+	}
+
+	flt_idx = (flt_idx + 1) % IPA_LOG_MAX_SNAPSHOTS;
+	if(ip == IPA_IP_v4)
+		dbg->curr_v4_flt_idx = flt_idx;
+	else
+		dbg->curr_v6_flt_idx = flt_idx;
+}
+
+/**
  * ipa3_commit_flt() - Commit the current SW filtering table of specified type
  * to IPA HW
  * @ip:	[in] the family of routing tables
@@ -2391,4 +2491,3 @@ int ipa_flt_sram_set_client_prio_high(enum ipa_client_type client)
 
 	return 0;
 }
-

@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/debugfs.h>
@@ -572,6 +572,7 @@ int ipa3_mhi_init_engine(struct ipa_mhi_init_engine *params)
 	if (!gsi_ep_info) {
 		IPAERR("MHI PROD has no ep allocated\n");
 		ipa_assert();
+		return -EINVAL;
 	}
 	memset(&gsi_scratch, 0, sizeof(gsi_scratch));
 	gsi_scratch.mhi_base_chan_idx_valid = true;

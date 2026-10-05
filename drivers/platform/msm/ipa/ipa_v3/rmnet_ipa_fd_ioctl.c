@@ -467,6 +467,26 @@ static long ipa3_wan_ioctl(struct file *filp,
 			break;
 		}
 		break;
+	case WAN_IOC_QUERY_PER_VLAN_STATS:
+		IPAWANDBG_LOW("got WAN_IOC_QUERY_PER_VLAN_STATS :>>>\n");
+		pyld_sz = sizeof(struct wan_ioctl_query_per_vlan_stats);
+		param = vmemdup_user((const void __user *)arg, pyld_sz);
+
+		if (IS_ERR(param)) {
+			retval = PTR_ERR(param);
+			break;
+		}
+		retval = rmnet_ipa3_query_per_vlan_stats(
+			(struct wan_ioctl_query_per_vlan_stats *)param);
+		if (retval) {
+			IPAWANERR("WAN_IOC_QUERY_PER_VLAN_STATS failed\n");
+			break;
+		}
+		if (copy_to_user((void __user *)arg, param, pyld_sz)) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
 
 	case WAN_IOC_SET_LAN_CLIENT_INFO:
 		IPAWANDBG_LOW("got WAN_IOC_SET_LAN_CLIENT_INFO :>>>\n");
@@ -497,6 +517,23 @@ static long ipa3_wan_ioctl(struct file *filp,
 		if (rmnet_ipa3_set_lan_client_info_v2(
 			(struct wan_ioctl_lan_client_info_v2 *)param)) {
 			IPAWANERR("WAN_IOC_SET_LAN_CLIENT_INFO_V2 failed\n");
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case WAN_IOC_SET_LAN_CLIENT_INFO_VLAN:
+		IPAWANDBG_LOW("got WAN_IOC_SET_LAN_CLIENT_INFO_VLAN :>>>\n");
+		pyld_sz = sizeof(struct wan_ioctl_lan_client_info_vlan);
+		param = vmemdup_user((const void __user *)arg, pyld_sz);
+
+		if (IS_ERR(param)) {
+			retval = PTR_ERR(param);
+			break;
+		}
+		if (rmnet_ipa3_set_lan_client_info_vlan(
+			(struct wan_ioctl_lan_client_info_vlan *)param)) {
+			IPAWANERR("WAN_IOC_SET_LAN_CLIENT_INFO_Vlan failed\n");
 			retval = -EFAULT;
 			break;
 		}
@@ -536,6 +573,23 @@ static long ipa3_wan_ioctl(struct file *filp,
 		}
 		break;
 
+	case WAN_IOC_CLEAR_LAN_CLIENT_INFO_VLAN:
+		IPAWANDBG_LOW("got WAN_IOC_CLEAR_LAN_CLIENT_INFO_VLAN :>>>\n");
+		pyld_sz = sizeof(struct wan_ioctl_lan_client_info_vlan);
+		param = vmemdup_user((const void __user *)arg, pyld_sz);
+
+		if (IS_ERR(param)) {
+			retval = PTR_ERR(param);
+			break;
+		}
+		if (rmnet_ipa3_clear_lan_client_info_vlan(
+			(struct wan_ioctl_lan_client_info_vlan *)param)) {
+			IPAWANERR("WAN_IOC_CLEAR_LAN_CLIENT_INFO_VLAN failed\n");
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
 	case WAN_IOC_SEND_LAN_CLIENT_MSG:
 		IPAWANDBG_LOW("got WAN_IOC_SEND_LAN_CLIENT_MSG :>>>\n");
 		pyld_sz = sizeof(struct wan_ioctl_send_lan_client_msg);
@@ -549,6 +603,23 @@ static long ipa3_wan_ioctl(struct file *filp,
 			(struct wan_ioctl_send_lan_client_msg *)
 			param)) {
 			IPAWANERR("IOC_SEND_LAN_CLIENT_MSG failed\n");
+			retval = -EFAULT;
+			break;
+		}
+		break;
+	case WAN_IOC_SEND_LAN_CLIENT_MSG_VLAN:
+		IPAWANDBG_LOW("got WAN_IOC_SEND_LAN_CLIENT_MSG_VLAN :>>>\n");
+		pyld_sz = sizeof(struct wan_ioctl_send_lan_client_msg_vlan);
+		param = vmemdup_user((const void __user *)arg, pyld_sz);
+
+		if (IS_ERR(param)) {
+			retval = PTR_ERR(param);
+			break;
+		}
+		if (rmnet_ipa3_send_lan_client_msg_vlan(
+			(struct wan_ioctl_send_lan_client_msg_vlan *)
+			param)) {
+			IPAWANERR("IOC_SEND_LAN_CLIENT_MSG_VLAN failed\n");
 			retval = -EFAULT;
 			break;
 		}
@@ -690,20 +761,40 @@ long ipa3_compat_wan_ioctl(struct file *file,
 				return -EPERM;
 			cmd = WAN_IOC_QUERY_PER_CLIENT_STATS_V2;
 			break;
+		case WAN_IOCTL_QUERY_PER_VLAN_STATS:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_QUERY_PER_VLAN_STATS))
+				return -EPERM;
+			cmd = WAN_IOC_QUERY_PER_VLAN_STATS;
+			break;
 		case WAN_IOCTL_SET_LAN_CLIENT_INFO:
 			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SET_LAN_CLIENT_INFO))
 				return -EPERM;
 			cmd = WAN_IOC_SET_LAN_CLIENT_INFO;
+			break;
+		case WAN_IOCTL_SET_LAN_CLIENT_INFO_VLAN:
+			if (_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SET_LAN_CLIENT_INFO_VLAN))
+				return -EPERM;
+			cmd = WAN_IOC_SET_LAN_CLIENT_INFO_VLAN;
 			break;
 		case WAN_IOCTL_SEND_LAN_CLIENT_MSG:
 			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SEND_LAN_CLIENT_MSG))
 				return -EPERM;
 			cmd = WAN_IOC_SEND_LAN_CLIENT_MSG;
 			break;
+		case WAN_IOCTL_SEND_LAN_CLIENT_MSG_VLAN:
+			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_SEND_LAN_CLIENT_MSG_VLAN))
+				return -EPERM;
+			cmd = WAN_IOC_SEND_LAN_CLIENT_MSG_VLAN;
+			break;
 		case WAN_IOCTL_CLEAR_LAN_CLIENT_INFO:
 			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_CLEAR_LAN_CLIENT_INFO))
 				return -EPERM;
 			cmd = WAN_IOC_CLEAR_LAN_CLIENT_INFO;
+			break;
+		case WAN_IOCTL_CLEAR_LAN_CLIENT_INFO_VLAN:
+			if (_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_CLEAR_LAN_CLIENT_INFO_VLAN))
+				return -EPERM;
+			cmd = WAN_IOC_CLEAR_LAN_CLIENT_INFO_VLAN;
 			break;
 		case WAN_IOCTL_ADD_OFFLOAD_CONNECTION:
 			if(_IOC_DIR(cmd) != _IOC_DIR(WAN_IOC_ADD_OFFLOAD_CONNECTION))

@@ -201,6 +201,9 @@ static int ipa3_ioctl_fnr_counter_alloc(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_query(unsigned long arg);
 static int ipa3_ioctl_fnr_counter_set(unsigned long arg);
 
+static int ipa3_debug_log_init(void);
+static void ipa3_debug_log_destroy(void);
+
 ssize_t ipa3_update_config(const char *buff);
 
 static struct ipa3_plat_drv_res ipa3_res = {0, };
@@ -976,8 +979,6 @@ struct iommu_domain *ipa3_get_smmu_domain_by_type(enum ipa_smmu_cb_type cb_type)
 {
 	if (VALID_IPA_SMMU_CB_TYPE(cb_type) && smmu_cb[cb_type].valid)
 		return smmu_cb[cb_type].iommu_domain;
-
-	IPAERR("cb_type(%d) not valid\n", cb_type);
 
 	return NULL;
 }
@@ -3686,6 +3687,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	union ipa_ioc_uc_activation_entry uc_act;
 	int i = 0;
 	struct rgip_info rgip_addr;
+	struct GreIfaceIpInfo_t gre_iface_ip_info;
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
 
 	if (_IOC_TYPE(cmd) != IPA_IOC_MAGIC)
@@ -5521,6 +5523,18 @@ send:
 			break;
 		}
 		ipa3_send_rgip_info(IPA_RGIP_ADD_EVENT,rgip_addr);
+		break;
+
+	case IPA_IOC_SET_IPOGRE_IFACE_ADDR:
+		if (copy_from_user(
+				&gre_iface_ip_info,
+				(const void __user *) arg,
+				sizeof(struct GreIfaceIpInfo_t))) {
+			IPAERR("copy_from_user fails for SET_IPOGRE_IFACE_ADDR\n");
+			retval = -EFAULT;
+			break;
+		}
+		retval = ipa3_uc_send_ipogre_iface_addr(&gre_iface_ip_info);
 		break;
 
 	default:
@@ -8437,6 +8451,11 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_ADD_RGIP))
 				return -EPERM;
 			cmd = IPA_IOC_ADD_RGIP;
+			break;
+		case IPA_IOCTL_SET_IPOGRE_IFACE_ADDR:
+			if(_IOC_DIR(cmd) != _IOC_DIR(IPA_IOC_SET_IPOGRE_IFACE_ADDR))
+				return -EPERM;
+			cmd = IPA_IOC_SET_IPOGRE_IFACE_ADDR;
 			break;
 
 	default:
@@ -11696,6 +11715,72 @@ static struct notifier_block qcom_va_md_ipa_notif_blk = {
 };
 #endif
 
+static int ipa3_debug_log_init(void)
+{
+	if (!ipa3_ctx->debug_log) {
+		ipa3_ctx->debug_log = kzalloc(sizeof(struct ipa_debug_ctx), GFP_KERNEL);
+		if (ipa3_ctx->debug_log == NULL)
+			return -ENOMEM;
+	}
+	return 0;
+}
+
+static void ipa3_debug_log_destroy(void)
+{
+	struct ipa_debug_ctx *dbg = ipa3_ctx->debug_log;
+	int i, j, ip;
+
+	if (!dbg)
+		return;
+
+	/* Free filter snapshot rules */
+	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
+		for (ip = 0; ip < IPA_IP_MAX; ip++) {
+			for (j = 0; j < IPA_MAX_FLT_TBLS; j++) {
+				kfree(dbg->flt_snaps[i].ep_flt_data[ip][j].rules);
+				dbg->flt_snaps[i].ep_flt_data[ip][j].rules = NULL;
+			}
+		}
+	}
+
+	/* Free routing snapshot per-table arrays and their rule arrays */
+	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
+		for (ip = 0; ip < IPA_IP_MAX; ip++) {
+			u32 tbl_count = (ip == IPA_IP_v4) ?
+				dbg->rt_snaps[i].v4_count :
+				dbg->rt_snaps[i].v6_count;
+
+			if (dbg->rt_snaps[i].tbl_rt_data[ip]) {
+				for (j = 0; j < tbl_count; j++) {
+					kfree(dbg->rt_snaps[i].tbl_rt_data[ip][j].rules);
+					dbg->rt_snaps[i].tbl_rt_data[ip][j].rules = NULL;
+				}
+				kfree(dbg->rt_snaps[i].tbl_rt_data[ip]);
+				dbg->rt_snaps[i].tbl_rt_data[ip] = NULL;
+			}
+		}
+	}
+
+	/* Free header snapshot entry arrays */
+	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
+		for (j = 0; j < HDR_TBLS_TOTAL; j++) {
+			kfree(dbg->hdr_snaps[i].tbl_hdr_data[j].entries);
+			dbg->hdr_snaps[i].tbl_hdr_data[j].entries = NULL;
+		}
+	}
+
+	/* Free proc_ctx header snapshot entry arrays */
+	for (i = 0; i < IPA_LOG_MAX_SNAPSHOTS; i++) {
+		for (j = 0; j < HPC_TBLS_TOTAL; j++) {
+			kfree(dbg->proc_ctx_hdr_snaps[i].tbl_proc_ctx_hdr_data[j].entries);
+			dbg->proc_ctx_hdr_snaps[i].tbl_proc_ctx_hdr_data[j].entries = NULL;
+		}
+	}
+
+	kfree(dbg);
+	ipa3_ctx->debug_log = NULL;
+}
+
 /**
  * ipa3_pre_init() - Initialize the IPA Driver.
  * This part contains all initialization which doesn't require IPA HW, such
@@ -12038,6 +12123,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	/* vote for svs2 on bootup */
 	ipa3_ctx->curr_ipa_clk_rate = ipa3_ctx->ctrl->ipa_clk_rate_svs2;
 
+	result = ipa3_debug_log_init();
+	if (result)
+		goto fail_debug_log;
+
 	/* Enable ipa3_ctx->enable_napi_chain */
 	ipa3_ctx->enable_napi_chain = 1;
 
@@ -12292,6 +12381,11 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	INIT_LIST_HEAD(&ipa3_ctx->wc_memb.wlan_comm_desc_list);
 
 	ipa3_ctx->cdev.class = class_create(THIS_MODULE, DRV_NAME);
+	if (IS_ERR(ipa3_ctx->cdev.class)) {
+		IPAERR(":class_create err.\n");
+		result = -ENODEV;
+		goto fail_alloc_chrdev_region;
+	}
 
 	result = alloc_chrdev_region(&ipa3_ctx->cdev.dev_num, 0, 1, DRV_NAME);
 	if (result) {
@@ -12504,6 +12598,8 @@ fail_remap:
 	ipa3_disable_clks();
 	ipa3_active_clients_log_destroy();
 	gsi_unmap_base();
+fail_debug_log:
+	ipa3_debug_log_destroy();
 fail_init_active_client:
 	if (ipa3_clk)
 		clk_put(ipa3_clk);
@@ -12913,6 +13009,11 @@ static int ipa3_v2x_vm_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	spin_lock_init(&ipa3_ctx->idr_lock);
 
 	ipa3_ctx->cdev.class = class_create(THIS_MODULE, DRV_NAME);
+	if (IS_ERR(ipa3_ctx->cdev.class)) {
+		IPAERR(":class_create err.\n");
+		result = -ENODEV;
+		goto fail_alloc_chrdev_region;
+	}
 
 	result = alloc_chrdev_region(&ipa3_ctx->cdev.dev_num, 0, 1, DRV_NAME);
 	if (result) {
@@ -16188,6 +16289,7 @@ static void __exit ipa_module_exit(void)
 		kfree(ipa3_ctx->hw_stats);
 		ipa3_ctx->hw_stats = NULL;
 	}
+	ipa3_debug_log_destroy();
 	unregister_pm_notifier(&ipa_pm_notifier);
 #if defined(CONFIG_IPA_IPSEC)
 	/* Clean up IPsec */

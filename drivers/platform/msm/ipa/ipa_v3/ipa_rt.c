@@ -23,6 +23,7 @@
 	(IPA_RULE_HASHABLE) : (IPA_RULE_NON_HASHABLE) \
 	)
 
+static void ipa3_save_rt_snapshot(enum ipa_ip_type ip);
 /**
  * ipa_generate_rt_hw_rule() - Generated the RT H/W single rule
  *  This func will do the preparation core driver work and then calls
@@ -512,6 +513,9 @@ int __ipa_commit_rt_v3(enum ipa_ip_type ip)
 	struct ipa3_rt_tbl *tbl;
 	u32 tbl_hdr_width;
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+
+	//Capture the snapshot
+	ipa3_save_rt_snapshot(ip);
 
 	tbl_hdr_width = ipahal_get_hw_tbl_hdr_width();
 	memset(desc, 0, sizeof(desc));
@@ -1055,6 +1059,7 @@ static int __ipa_rt_validate_hndls(const struct ipa_rt_rule_i *rule,
 	}
 
 	if (rule->hdr_hdl) {
+		IPADBG("find the header handle\n");
 		*hdr = ipa3_id_find(rule->hdr_hdl);
 		if ((*hdr == NULL) || ((*hdr)->cookie != IPA_HDR_COOKIE)) {
 			IPAERR_RL("rt rule does not point to valid hdr\n");
@@ -1942,6 +1947,104 @@ bail:
 }
 
 /**
+ * ipa3_save_rt_snapshot() - saves a snapshot of the current routing rules.
+ * @ip: IP address family type (IPv4 or IPv6).
+ *
+ * This function is used for debugging purposes. It iterates through all
+ * routing tables for a given IP type and saves the current state of
+ * routing rules into a snapshot buffer.
+ */
+static void ipa3_save_rt_snapshot(enum ipa_ip_type ip)
+{
+	struct ipa_debug_ctx *dbg ;
+	struct ipa_rt_snapshot *snap;
+	struct ipa3_rt_tbl *tbl;
+	struct ipa3_rt_entry *entry;
+	struct ipa3_rt_tbl_set *set;
+	struct ipa_tbl_rt_data *data;
+	struct ipa_tbl_rt_data *new_rt_tbl_data;
+	u32 t_idx;
+	u32 rt_idx;
+	u32 num_tbls;
+	u32 num_rules;
+	u32 old_tbl_count;
+	u32 j;
+
+
+	dbg = ipa3_ctx->debug_log;
+	if (!dbg)
+		return;
+
+	if(ip == IPA_IP_v4)
+		rt_idx = dbg->curr_v4_rt_idx;
+	else
+		rt_idx = dbg->curr_v6_rt_idx;
+
+	set = &ipa3_ctx->rt_tbl_set[ip];
+	snap = &dbg->rt_snaps[rt_idx];
+
+	num_tbls = set->tbl_cnt;
+
+	new_rt_tbl_data = kcalloc(num_tbls, sizeof(struct ipa_tbl_rt_data), GFP_KERNEL);
+	if (!new_rt_tbl_data) {
+		IPAERR("Failed to allocate memory for routing table snapshot\n");
+		return;  // Keep old data intact
+	}
+
+	// Only free old data after successful allocation
+	if (snap->tbl_rt_data[ip]) {
+		old_tbl_count = (ip == IPA_IP_v4) ? snap->v4_count : snap->v6_count;
+		for (j = 0; j < old_tbl_count; j++)
+			kfree(snap->tbl_rt_data[ip][j].rules);
+		kfree(snap->tbl_rt_data[ip]);
+	}
+	snap->tbl_rt_data[ip] = new_rt_tbl_data;
+
+	t_idx = 0;
+	snap->timestamp[ip] = sched_clock();
+
+	list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
+		if (t_idx >= num_tbls) break;
+
+		data = &snap->tbl_rt_data[ip][t_idx];
+		num_rules = tbl->rule_cnt;
+		if (!num_rules)
+			continue;
+
+		data->rules = kcalloc(num_rules, sizeof(struct ipa3_rt_entry), GFP_KERNEL);
+		if (!data->rules)
+			continue;
+		data->count = 0;
+
+		strlcpy(data->name,tbl->name,sizeof(data->name));
+
+		list_for_each_entry(entry, &tbl->head_rt_rule_list, link) {
+			if (data->count >= num_rules) break;
+
+			data->rules[data->count] = *entry;
+
+			data->count++;
+		}
+		t_idx++;
+	}
+
+	if(ip == IPA_IP_v4)
+		snap->v4_count = t_idx;
+	else
+		snap->v6_count = t_idx;
+
+	IPADBG_LOW("ipa3_save_rt_snapshot: %d tables for ip type %d\n", t_idx, ip);
+
+	rt_idx = (rt_idx + 1) % IPA_LOG_MAX_SNAPSHOTS;
+	if(ip == IPA_IP_v4)
+		dbg->curr_v4_rt_idx = rt_idx;
+	else
+		dbg->curr_v6_rt_idx = rt_idx;
+
+	return;
+}
+
+/**
  * ipa_commit_rt_rule() - Commit the current SW routing table of specified type
  * to IPA HW
  * @ip:	The family of routing tables
@@ -2294,9 +2397,9 @@ static int __ipa_mdfy_rt_rule(struct ipa_rt_rule_mdfy_i *rtrule)
 	}
 
 	if (entry->hdr)
-		entry->hdr->ref_cnt--;
+		__ipa3_release_hdr(entry->hdr->id);
 	else if (entry->proc_ctx)
-		entry->proc_ctx->ref_cnt--;
+		__ipa3_release_hdr_proc_ctx(entry->proc_ctx->id);
 
 	entry->rule = rtrule->rule;
 	entry->hdr = hdr;
