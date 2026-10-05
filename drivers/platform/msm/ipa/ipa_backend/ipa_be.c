@@ -704,7 +704,7 @@ static inline bool is_lan_to_lan_connection(enum ipa_ip_type ip, const void *msg
 
 		default:
 			return false;
-    }
+	}
 }
 
 static void ipa_be_log_ipv4_rule_details(struct ipa_ipv4_rule_create_msg v4_msg)
@@ -717,68 +717,92 @@ static void ipa_be_log_ipv4_rule_details(struct ipa_ipv4_rule_create_msg v4_msg)
 	IPA_BE_DBG("ECMIPA create return flow_ip_xlate: %pI4n:%d protocol: %d\n", &v4_msg.conn_rule.return_ip_xlate, ntohs(v4_msg.conn_rule.return_ident_xlate), v4_msg.tuple.protocol);
 
 	IPA_BE_DBG("ECMIPA create "
-				"valid_flags: 0x%x "
-				"rule_flags: 0x%x "
-				"flow_interface_num: %u "
-				"return_interface_num: %u "
-				"flow_top_interface_num: %u "
-				"return_top_interface_num: %u ",
-				v4_msg.valid_flags,
-			   v4_msg.rule_flags,
-			   v4_msg.conn_rule.flow_interface_num,
-			   v4_msg.conn_rule.return_interface_num,
-			   v4_msg.conn_rule.flow_top_interface_num,
-			   v4_msg.conn_rule.return_top_interface_num);
+		   "valid_flags: 0x%x "
+		   "rule_flags: 0x%x "
+		   "flow_interface_num: %u "
+		   "return_interface_num: %u "
+		   "flow_top_interface_num: %u "
+		   "return_top_interface_num: %u ",
+		   v4_msg.valid_flags,
+		   v4_msg.rule_flags,
+		   v4_msg.conn_rule.flow_interface_num,
+		   v4_msg.conn_rule.return_interface_num,
+		   v4_msg.conn_rule.flow_top_interface_num,
+		   v4_msg.conn_rule.return_top_interface_num);
 
 	IPA_BE_DBG("ECMIPA create "
-				"flow_mac: %pM "
-				"return_mac: %pM\n"
-				"flow_mtu: %u\n"
-				"return_mtu: %u\n",
-			   v4_msg.conn_rule.flow_mac,
-			   v4_msg.conn_rule.return_mac,
-			   v4_msg.conn_rule.flow_mtu,
-			   v4_msg.conn_rule.return_mtu);
+		   "flow_mac: %pM "
+		   "return_mac: %pM\n"
+		   "flow_mtu: %u\n"
+		   "return_mtu: %u\n",
+		   v4_msg.conn_rule.flow_mac,
+		   v4_msg.conn_rule.return_mac,
+		   v4_msg.conn_rule.flow_mtu,
+		   v4_msg.conn_rule.return_mtu);
 
 	IPA_BE_DBG("ECMIPA create "
-				"ingress_inner_vlan_tag: 0x%x\n"
-				"egress_inner_vlan_tag: 0x%x\n"
-				"ingress_outer_vlan_tag: 0x%x\n"
-				"egress_outer_vlan_tag: 0x%x\n"
-				"flow_pppoe_session_id: %u\n"
-				"flow_pppoe_remote_mac: %pM\n"
-				"return_pppoe_session_id: %u\n"
-				"return_pppoe_remote_mac: %pM\n",
-			   v4_msg.vlan_primary_rule.ingress_vlan_tag,
-			   v4_msg.vlan_primary_rule.egress_vlan_tag,
-			   v4_msg.vlan_secondary_rule.ingress_vlan_tag,
-			   v4_msg.vlan_secondary_rule.egress_vlan_tag,
-			   v4_msg.pppoe_rule.flow_pppoe_session_id,
-			   v4_msg.pppoe_rule.flow_pppoe_remote_mac,
-			   v4_msg.pppoe_rule.return_pppoe_session_id,
-			   v4_msg.pppoe_rule.return_pppoe_remote_mac);
+		   "ingress_inner_vlan_tag: 0x%x\n"
+		   "egress_inner_vlan_tag: 0x%x\n"
+		   "ingress_outer_vlan_tag: 0x%x\n"
+		   "egress_outer_vlan_tag: 0x%x\n",
+		   v4_msg.vlan_primary_rule.ingress_vlan_tag,
+		   v4_msg.vlan_primary_rule.egress_vlan_tag,
+		   v4_msg.vlan_secondary_rule.ingress_vlan_tag,
+		   v4_msg.vlan_secondary_rule.egress_vlan_tag);
 
 	IPA_BE_DBG("ECMIPA create "
-				"tcp flow_max_window: %u\n"
-				"tcp return_max_window: %u\n"
-				"tcp flow_end: %u\n"
-				"tcp return_end: %u\n"
-				"tcp flow_max_end: %u\n"
-				"tcp return_max_end: %u\n"
-				"tcp flow_window_scale: %u\n"
-				"tcp return_window_scale: %u\n"
-				"flow_dscp: %u\n"
-				"return_dscp: %u\n",
-			   v4_msg.tcp_rule.flow_max_window,
-			   v4_msg.tcp_rule.return_max_window,
-			   v4_msg.tcp_rule.flow_end,
-			   v4_msg.tcp_rule.return_end,
-			   v4_msg.tcp_rule.flow_max_end,
-			   v4_msg.tcp_rule.return_max_end,
-			   v4_msg.tcp_rule.flow_window_scale,
-			   v4_msg.tcp_rule.return_window_scale,
-			   v4_msg.dscp_rule.flow_dscp,
-			   v4_msg.dscp_rule.return_dscp);
+		   "flow_pppoe_session_id: %u\n"
+		   "flow_pppoe_remote_mac: %pM\n"
+		   "return_pppoe_session_id: %u\n"
+		   "return_pppoe_remote_mac: %pM\n",
+		   v4_msg.pppoe_rule.flow_pppoe_session_id,
+		   v4_msg.pppoe_rule.flow_pppoe_remote_mac,
+		   v4_msg.pppoe_rule.return_pppoe_session_id,
+		   v4_msg.pppoe_rule.return_pppoe_remote_mac);
+
+	IPA_BE_DBG("ECMIPA create "
+		   "tcp flow_max_window: %u\n"
+		   "tcp return_max_window: %u\n"
+		   "tcp flow_end: %u\n"
+		   "tcp return_end: %u\n"
+		   "tcp flow_max_end: %u\n"
+		   "tcp return_max_end: %u\n"
+		   "tcp flow_window_scale: %u\n"
+		   "tcp return_window_scale: %u\n",
+		   v4_msg.tcp_rule.flow_max_window,
+		   v4_msg.tcp_rule.return_max_window,
+		   v4_msg.tcp_rule.flow_end,
+		   v4_msg.tcp_rule.return_end,
+		   v4_msg.tcp_rule.flow_max_end,
+		   v4_msg.tcp_rule.return_max_end,
+		   v4_msg.tcp_rule.flow_window_scale,
+		   v4_msg.tcp_rule.return_window_scale);
+
+	IPA_BE_DBG("ECMIPA create flow_dscp: %u return_dscp: %u\n",
+		   v4_msg.dscp_rule.flow_dscp,
+		   v4_msg.dscp_rule.return_dscp);
+
+	IPA_BE_DBG("ECMIPA create flow_qos_tag: 0x%x return_qos_tag: 0x%x flow_int_pri: %u return_int_pri: %u\n",
+		   v4_msg.qos_rule.flow_qos_tag,
+		   v4_msg.qos_rule.return_qos_tag,
+		   v4_msg.qos_rule.flow_int_pri,
+		   v4_msg.qos_rule.return_int_pri);
+
+	IPA_BE_DBG("ECMIPA create flow_mark: 0x%x return_mark: 0x%x\n",
+		   v4_msg.mark_rule.flow_mark,
+		   v4_msg.mark_rule.return_mark);
+
+	IPA_BE_DBG("ECMIPA create flow_vlan_filter ingress_tag: 0x%x egress_tag: 0x%x ingress_flags: 0x%x egress_flags: 0x%x\n",
+		   v4_msg.flow_vlan_filter_rule.ingress_vlan_tag,
+		   v4_msg.flow_vlan_filter_rule.egress_vlan_tag,
+		   v4_msg.flow_vlan_filter_rule.ingress_flags,
+		   v4_msg.flow_vlan_filter_rule.egress_flags);
+
+	IPA_BE_DBG("ECMIPA create return_vlan_filter ingress_tag: 0x%x egress_tag: 0x%x ingress_flags: 0x%x egress_flags: 0x%x\n",
+		   v4_msg.return_vlan_filter_rule.ingress_vlan_tag,
+		   v4_msg.return_vlan_filter_rule.egress_vlan_tag,
+		   v4_msg.return_vlan_filter_rule.ingress_flags,
+		   v4_msg.return_vlan_filter_rule.egress_flags);
 }
 
 static void ipa_be_log_ipv6_rule_details(struct ipa_ipv6_rule_create_msg v6_msg)
@@ -791,68 +815,92 @@ static void ipa_be_log_ipv6_rule_details(struct ipa_ipv6_rule_create_msg v6_msg)
 	IPA_BE_DBG("ECMIPA create return flow_ip_xlate: %pI6n:%d protocol: %d\n", &v6_msg.conn_rule.return_ip_xlate, ntohs(v6_msg.conn_rule.return_ident_xlate), v6_msg.tuple.protocol);
 
 	IPA_BE_DBG("ECMIPA create "
-				"valid_flags: 0x%x "
-				"rule_flags: 0x%x "
-				"flow_interface_num: %u "
-				"return_interface_num: %u "
-				"flow_top_interface_num: %u "
-				"return_top_interface_num: %u ",
-				v6_msg.valid_flags,
-			   v6_msg.rule_flags,
-			   v6_msg.conn_rule.flow_interface_num,
-			   v6_msg.conn_rule.return_interface_num,
-			   v6_msg.conn_rule.flow_top_interface_num,
-			   v6_msg.conn_rule.return_top_interface_num);
+		   "valid_flags: 0x%x "
+		   "rule_flags: 0x%x "
+		   "flow_interface_num: %u "
+		   "return_interface_num: %u "
+		   "flow_top_interface_num: %u "
+		   "return_top_interface_num: %u ",
+		   v6_msg.valid_flags,
+		   v6_msg.rule_flags,
+		   v6_msg.conn_rule.flow_interface_num,
+		   v6_msg.conn_rule.return_interface_num,
+		   v6_msg.conn_rule.flow_top_interface_num,
+		   v6_msg.conn_rule.return_top_interface_num);
 
 	IPA_BE_DBG("ECMIPA create "
-				"flow_mac: %pM "
-				"return_mac: %pM\n"
-				"flow_mtu: %u\n"
-				"return_mtu: %u\n",
-			   v6_msg.conn_rule.flow_mac,
-			   v6_msg.conn_rule.return_mac,
-			   v6_msg.conn_rule.flow_mtu,
-			   v6_msg.conn_rule.return_mtu);
+		   "flow_mac: %pM "
+		   "return_mac: %pM\n"
+		   "flow_mtu: %u\n"
+		   "return_mtu: %u\n",
+		   v6_msg.conn_rule.flow_mac,
+		   v6_msg.conn_rule.return_mac,
+		   v6_msg.conn_rule.flow_mtu,
+		   v6_msg.conn_rule.return_mtu);
 
 	IPA_BE_DBG("ECMIPA create "
-				"ingress_inner_vlan_tag: 0x%x\n"
-				"egress_inner_vlan_tag: 0x%x\n"
-				"ingress_outer_vlan_tag: 0x%x\n"
-				"egress_outer_vlan_tag: 0x%x\n"
-				"flow_pppoe_session_id: %u\n"
-				"flow_pppoe_remote_mac: %pM\n"
-				"return_pppoe_session_id: %u\n"
-				"return_pppoe_remote_mac: %pM\n",
-			   v6_msg.vlan_primary_rule.ingress_vlan_tag,
-			   v6_msg.vlan_primary_rule.egress_vlan_tag,
-			   v6_msg.vlan_secondary_rule.ingress_vlan_tag,
-			   v6_msg.vlan_secondary_rule.egress_vlan_tag,
-			   v6_msg.pppoe_rule.flow_pppoe_session_id,
-			   v6_msg.pppoe_rule.flow_pppoe_remote_mac,
-			   v6_msg.pppoe_rule.return_pppoe_session_id,
-			   v6_msg.pppoe_rule.return_pppoe_remote_mac);
+		   "ingress_inner_vlan_tag: 0x%x\n"
+		   "egress_inner_vlan_tag: 0x%x\n"
+		   "ingress_outer_vlan_tag: 0x%x\n"
+		   "egress_outer_vlan_tag: 0x%x\n",
+		   v6_msg.vlan_primary_rule.ingress_vlan_tag,
+		   v6_msg.vlan_primary_rule.egress_vlan_tag,
+		   v6_msg.vlan_secondary_rule.ingress_vlan_tag,
+		   v6_msg.vlan_secondary_rule.egress_vlan_tag);
 
 	IPA_BE_DBG("ECMIPA create "
-				"tcp flow_max_window: %u\n"
-				"tcp return_max_window: %u\n"
-				"tcp flow_end: %u\n"
-				"tcp return_end: %u\n"
-				"tcp flow_max_end: %u\n"
-				"tcp return_max_end: %u\n"
-				"tcp flow_window_scale: %u\n"
-				"tcp return_window_scale: %u\n"
-				"flow_dscp: %u\n"
-				"return_dscp: %u\n",
-			   v6_msg.tcp_rule.flow_max_window,
-			   v6_msg.tcp_rule.return_max_window,
-			   v6_msg.tcp_rule.flow_end,
-			   v6_msg.tcp_rule.return_end,
-			   v6_msg.tcp_rule.flow_max_end,
-			   v6_msg.tcp_rule.return_max_end,
-			   v6_msg.tcp_rule.flow_window_scale,
-			   v6_msg.tcp_rule.return_window_scale,
-			   v6_msg.dscp_rule.flow_dscp,
-			   v6_msg.dscp_rule.return_dscp);
+		   "flow_pppoe_session_id: %u\n"
+		   "flow_pppoe_remote_mac: %pM\n"
+		   "return_pppoe_session_id: %u\n"
+		   "return_pppoe_remote_mac: %pM\n",
+		   v6_msg.pppoe_rule.flow_pppoe_session_id,
+		   v6_msg.pppoe_rule.flow_pppoe_remote_mac,
+		   v6_msg.pppoe_rule.return_pppoe_session_id,
+		   v6_msg.pppoe_rule.return_pppoe_remote_mac);
+
+	IPA_BE_DBG("ECMIPA create "
+		   "tcp flow_max_window: %u\n"
+		   "tcp return_max_window: %u\n"
+		   "tcp flow_end: %u\n"
+		   "tcp return_end: %u\n"
+		   "tcp flow_max_end: %u\n"
+		   "tcp return_max_end: %u\n"
+		   "tcp flow_window_scale: %u\n"
+		   "tcp return_window_scale: %u\n",
+		   v6_msg.tcp_rule.flow_max_window,
+		   v6_msg.tcp_rule.return_max_window,
+		   v6_msg.tcp_rule.flow_end,
+		   v6_msg.tcp_rule.return_end,
+		   v6_msg.tcp_rule.flow_max_end,
+		   v6_msg.tcp_rule.return_max_end,
+		   v6_msg.tcp_rule.flow_window_scale,
+		   v6_msg.tcp_rule.return_window_scale);
+
+	IPA_BE_DBG("ECMIPA create flow_dscp: %u return_dscp: %u\n",
+		   v6_msg.dscp_rule.flow_dscp,
+		   v6_msg.dscp_rule.return_dscp);
+
+	IPA_BE_DBG("ECMIPA create flow_qos_tag: 0x%x return_qos_tag: 0x%x flow_int_pri: %u return_int_pri: %u\n",
+		   v6_msg.qos_rule.flow_qos_tag,
+		   v6_msg.qos_rule.return_qos_tag,
+		   v6_msg.qos_rule.flow_int_pri,
+		   v6_msg.qos_rule.return_int_pri);
+
+	IPA_BE_DBG("ECMIPA create flow_mark: 0x%x return_mark: 0x%x\n",
+		   v6_msg.mark_rule.flow_mark,
+		   v6_msg.mark_rule.return_mark);
+
+	IPA_BE_DBG("ECMIPA create flow_vlan_filter ingress_tag: 0x%x egress_tag: 0x%x ingress_flags: 0x%x egress_flags: 0x%x\n",
+		   v6_msg.flow_vlan_filter_rule.ingress_vlan_tag,
+		   v6_msg.flow_vlan_filter_rule.egress_vlan_tag,
+		   v6_msg.flow_vlan_filter_rule.ingress_flags,
+		   v6_msg.flow_vlan_filter_rule.egress_flags);
+
+	IPA_BE_DBG("ECMIPA create return_vlan_filter ingress_tag: 0x%x egress_tag: 0x%x ingress_flags: 0x%x egress_flags: 0x%x\n",
+		   v6_msg.return_vlan_filter_rule.ingress_vlan_tag,
+		   v6_msg.return_vlan_filter_rule.egress_vlan_tag,
+		   v6_msg.return_vlan_filter_rule.ingress_flags,
+		   v6_msg.return_vlan_filter_rule.egress_flags);
 }
 
 static void ipa_be_log_ipv4_destroy_details(const struct ipa_ipv4_rule_destroy_msg *msg)
@@ -889,19 +937,22 @@ static void ipa_be_log_ipv4_destroy_details(const struct ipa_ipv4_rule_destroy_m
 		   "ingress_inner_vlan_tag: 0x%x\n"
 		   "egress_inner_vlan_tag: 0x%x\n"
 		   "ingress_outer_vlan_tag: 0x%x\n"
-		   "egress_outer_vlan_tag: 0x%x\n"
+		   "egress_outer_vlan_tag: 0x%x\n",
+		   msg->vlan_primary_rule.ingress_vlan_tag,
+		   msg->vlan_primary_rule.egress_vlan_tag,
+		   msg->vlan_secondary_rule.ingress_vlan_tag,
+		   msg->vlan_secondary_rule.egress_vlan_tag);
+
+	IPA_BE_DBG("ECMIPA destroy "
 		   "flow_pppoe_session_id: %u\n"
 		   "flow_pppoe_remote_mac: %pM\n"
 		   "return_pppoe_session_id: %u\n"
 		   "return_pppoe_remote_mac: %pM\n",
-		   msg->vlan_primary_rule.ingress_vlan_tag,
-		   msg->vlan_primary_rule.egress_vlan_tag,
-		   msg->vlan_secondary_rule.ingress_vlan_tag,
-		   msg->vlan_secondary_rule.egress_vlan_tag,
 		   msg->pppoe_rule.flow_pppoe_session_id,
 		   msg->pppoe_rule.flow_pppoe_remote_mac,
 		   msg->pppoe_rule.return_pppoe_session_id,
 		   msg->pppoe_rule.return_pppoe_remote_mac);
+
 	IPA_BE_DBG("ECMIPA destroy "
 		   "tcp flow_max_window: %u\n"
 		   "tcp return_max_window: %u\n"
@@ -910,9 +961,7 @@ static void ipa_be_log_ipv4_destroy_details(const struct ipa_ipv4_rule_destroy_m
 		   "tcp flow_max_end: %u\n"
 		   "tcp return_max_end: %u\n"
 		   "tcp flow_window_scale: %u\n"
-		   "tcp return_window_scale: %u\n"
-		   "flow_dscp: %u\n"
-		   "return_dscp: %u\n",
+		   "tcp return_window_scale: %u\n",
 		   msg->tcp_rule.flow_max_window,
 		   msg->tcp_rule.return_max_window,
 		   msg->tcp_rule.flow_end,
@@ -920,9 +969,33 @@ static void ipa_be_log_ipv4_destroy_details(const struct ipa_ipv4_rule_destroy_m
 		   msg->tcp_rule.flow_max_end,
 		   msg->tcp_rule.return_max_end,
 		   msg->tcp_rule.flow_window_scale,
-		   msg->tcp_rule.return_window_scale,
+		   msg->tcp_rule.return_window_scale);
+
+	IPA_BE_DBG("ECMIPA destroy flow_dscp: %u return_dscp: %u\n",
 		   msg->dscp_rule.flow_dscp,
 		   msg->dscp_rule.return_dscp);
+
+	IPA_BE_DBG("ECMIPA destroy flow_qos_tag: 0x%x return_qos_tag: 0x%x flow_int_pri: %u return_int_pri: %u\n",
+		   msg->qos_rule.flow_qos_tag,
+		   msg->qos_rule.return_qos_tag,
+		   msg->qos_rule.flow_int_pri,
+		   msg->qos_rule.return_int_pri);
+
+	IPA_BE_DBG("ECMIPA destroy flow_mark: 0x%x return_mark: 0x%x\n",
+		   msg->mark_rule.flow_mark,
+		   msg->mark_rule.return_mark);
+
+	IPA_BE_DBG("ECMIPA destroy flow_vlan_filter ingress_tag: 0x%x egress_tag: 0x%x ingress_flags: 0x%x egress_flags: 0x%x\n",
+		   msg->flow_vlan_filter_rule.ingress_vlan_tag,
+		   msg->flow_vlan_filter_rule.egress_vlan_tag,
+		   msg->flow_vlan_filter_rule.ingress_flags,
+		   msg->flow_vlan_filter_rule.egress_flags);
+
+	IPA_BE_DBG("ECMIPA destroy return_vlan_filter ingress_tag: 0x%x egress_tag: 0x%x ingress_flags: 0x%x egress_flags: 0x%x\n",
+		   msg->return_vlan_filter_rule.ingress_vlan_tag,
+		   msg->return_vlan_filter_rule.egress_vlan_tag,
+		   msg->return_vlan_filter_rule.ingress_flags,
+		   msg->return_vlan_filter_rule.egress_flags);
 }
 
 static void ipa_be_log_ipv6_destroy_details(const struct ipa_ipv6_rule_destroy_msg *msg)
@@ -959,19 +1032,22 @@ static void ipa_be_log_ipv6_destroy_details(const struct ipa_ipv6_rule_destroy_m
 		   "ingress_inner_vlan_tag: 0x%x\n"
 		   "egress_inner_vlan_tag: 0x%x\n"
 		   "ingress_outer_vlan_tag: 0x%x\n"
-		   "egress_outer_vlan_tag: 0x%x\n"
+		   "egress_outer_vlan_tag: 0x%x\n",
+		   msg->vlan_primary_rule.ingress_vlan_tag,
+		   msg->vlan_primary_rule.egress_vlan_tag,
+		   msg->vlan_secondary_rule.ingress_vlan_tag,
+		   msg->vlan_secondary_rule.egress_vlan_tag);
+
+	IPA_BE_DBG("ECMIPA destroy "
 		   "flow_pppoe_session_id: %u\n"
 		   "flow_pppoe_remote_mac: %pM\n"
 		   "return_pppoe_session_id: %u\n"
 		   "return_pppoe_remote_mac: %pM\n",
-		   msg->vlan_primary_rule.ingress_vlan_tag,
-		   msg->vlan_primary_rule.egress_vlan_tag,
-		   msg->vlan_secondary_rule.ingress_vlan_tag,
-		   msg->vlan_secondary_rule.egress_vlan_tag,
 		   msg->pppoe_rule.flow_pppoe_session_id,
 		   msg->pppoe_rule.flow_pppoe_remote_mac,
 		   msg->pppoe_rule.return_pppoe_session_id,
 		   msg->pppoe_rule.return_pppoe_remote_mac);
+
 	IPA_BE_DBG("ECMIPA destroy "
 		   "tcp flow_max_window: %u\n"
 		   "tcp return_max_window: %u\n"
@@ -980,9 +1056,7 @@ static void ipa_be_log_ipv6_destroy_details(const struct ipa_ipv6_rule_destroy_m
 		   "tcp flow_max_end: %u\n"
 		   "tcp return_max_end: %u\n"
 		   "tcp flow_window_scale: %u\n"
-		   "tcp return_window_scale: %u\n"
-		   "flow_dscp: %u\n"
-		   "return_dscp: %u\n",
+		   "tcp return_window_scale: %u\n",
 		   msg->tcp_rule.flow_max_window,
 		   msg->tcp_rule.return_max_window,
 		   msg->tcp_rule.flow_end,
@@ -990,9 +1064,33 @@ static void ipa_be_log_ipv6_destroy_details(const struct ipa_ipv6_rule_destroy_m
 		   msg->tcp_rule.flow_max_end,
 		   msg->tcp_rule.return_max_end,
 		   msg->tcp_rule.flow_window_scale,
-		   msg->tcp_rule.return_window_scale,
+		   msg->tcp_rule.return_window_scale);
+
+	IPA_BE_DBG("ECMIPA destroy flow_dscp: %u return_dscp: %u\n",
 		   msg->dscp_rule.flow_dscp,
 		   msg->dscp_rule.return_dscp);
+
+	IPA_BE_DBG("ECMIPA destroy flow_qos_tag: 0x%x return_qos_tag: 0x%x flow_int_pri: %u return_int_pri: %u\n",
+		   msg->qos_rule.flow_qos_tag,
+		   msg->qos_rule.return_qos_tag,
+		   msg->qos_rule.flow_int_pri,
+		   msg->qos_rule.return_int_pri);
+
+	IPA_BE_DBG("ECMIPA destroy flow_mark: 0x%x return_mark: 0x%x\n",
+		   msg->mark_rule.flow_mark,
+		   msg->mark_rule.return_mark);
+
+	IPA_BE_DBG("ECMIPA destroy flow_vlan_filter ingress_tag: 0x%x egress_tag: 0x%x ingress_flags: 0x%x egress_flags: 0x%x\n",
+		   msg->flow_vlan_filter_rule.ingress_vlan_tag,
+		   msg->flow_vlan_filter_rule.egress_vlan_tag,
+		   msg->flow_vlan_filter_rule.ingress_flags,
+		   msg->flow_vlan_filter_rule.egress_flags);
+
+	IPA_BE_DBG("ECMIPA destroy return_vlan_filter ingress_tag: 0x%x egress_tag: 0x%x ingress_flags: 0x%x egress_flags: 0x%x\n",
+		   msg->return_vlan_filter_rule.ingress_vlan_tag,
+		   msg->return_vlan_filter_rule.egress_vlan_tag,
+		   msg->return_vlan_filter_rule.ingress_flags,
+		   msg->return_vlan_filter_rule.egress_flags);
 }
 
 /**

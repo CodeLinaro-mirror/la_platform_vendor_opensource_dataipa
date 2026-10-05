@@ -54,6 +54,21 @@ static struct rt_table_name_lookup rt_table_lookup_table[] = {
 			__func__, __LINE__, ## args); \
 	} while (0)
 
+/* tlpd polls every ~5s inside rule/table loops; gate the flood behind logbuf_low + diag min_level=3. */
+#define IPA_STATS_DBG_LOW(fmt, args...) \
+	do { \
+		void *__low_logbuf = ipa3_get_ipc_logbuf_low(); \
+		if (__low_logbuf) { \
+			pr_debug(DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, __func__,\
+					__LINE__, ## args); \
+			IPA_IPC_LOGGING(__low_logbuf, \
+				DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, ## args); \
+		} \
+		ipa3_diag_log_write(IPA_DIAG_LVL_LOW, \
+			DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
+	} while (0)
+
 #define IPA_STATS_ERR(fmt, args...) \
 	do { \
 		pr_err(DEV_NAME_IPA_LNX_STATS " %s:%d " fmt, __func__,\
@@ -1693,7 +1708,7 @@ static int ipa_get_v4_rt_rule_stats(unsigned long arg)
 		ipa3_ctx->rt_tbl_nhash_lcl[IPA_IP_v4];
 	rt_rule_stats->num_v4_rt_table =
 		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_tables;
-	IPA_STATS_DBG("consolidated num_v4_tables %d num_v6_tables %d\n",
+	IPA_STATS_DBG_LOW("consolidated num_v4_tables %d num_v6_tables %d\n",
 		rt_rule_stats->num_v4_rt_table,
 		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables);
 
@@ -2316,7 +2331,7 @@ static int ipa_get_v4_flt_rule_stats(unsigned long arg)
 
 		if (!ipa_is_ep_support_flt(j))
 		{
-			IPA_STATS_DBG("j %d tbl idx %d .. continue\n", j , tbl_idx);
+			IPA_STATS_DBG_LOW("j %d tbl idx %d .. continue\n", j , tbl_idx);
 			continue;
 		}
 
@@ -2700,7 +2715,7 @@ static int ipa_get_v6_flt_rule_stats(unsigned long arg)
 
 		if (!ipa_is_ep_support_flt(j))
 		{
-			IPA_STATS_DBG("j %d tbl idx %d .. continue\n", j , tbl_idx);
+			IPA_STATS_DBG_LOW("j %d tbl idx %d .. continue\n", j , tbl_idx);
 			continue;
 		}
 
@@ -3060,7 +3075,7 @@ static int ipa_get_v4_nat_rule_stats(unsigned long arg)
 
 	alloc_size = sizeof(struct ipa_lnx_v4_nat_rule_stats);
 
-	IPA_STATS_DBG("Alloc size %d for filling v4_nat \n", alloc_size);
+	IPA_STATS_DBG_LOW("Alloc size %d for filling v4_nat \n", alloc_size);
 	nat_rule_stats = (struct ipa_lnx_v4_nat_rule_stats *) memdup_user((
 		const void __user *)arg, alloc_size);
 	if (IS_ERR(nat_rule_stats)) {
@@ -3092,7 +3107,7 @@ static int ipa_get_v6_nat_rule_stats(unsigned long arg)
 
 	alloc_size = sizeof(struct ipa_lnx_v6_nat_rule_stats);
 
-	IPA_STATS_DBG("Alloc size %d for filling v6_nat \n", alloc_size);
+	IPA_STATS_DBG_LOW("Alloc size %d for filling v6_nat \n", alloc_size);
 	nat_rule_stats = (struct ipa_lnx_v6_nat_rule_stats *) memdup_user((
 		const void __user *)arg, alloc_size);
 	if (IS_ERR(nat_rule_stats)) {
@@ -3405,7 +3420,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 				rule_idx++;
 			}
 			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_rules[tbl_idx] = rule_idx;
-			IPA_STATS_DBG("IP v4 rule %d rule %d\n", tbl_idx, rule_idx);
+			IPA_STATS_DBG_LOW("IP v4 rule %d rule %d\n", tbl_idx, rule_idx);
 			tbl_idx++;
 		}
 		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v4_tables = tbl_idx;
@@ -3444,7 +3459,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 				rule_idx++;
 			}
 			ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_rules[tbl_idx] = rule_idx;
-			IPA_STATS_DBG("IP v6 rule %d rule %d\n", tbl_idx, rule_idx);
+			IPA_STATS_DBG_LOW("IP v6 rule %d rule %d\n", tbl_idx, rule_idx);
 			tbl_idx++;
 		}
 		ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables = tbl_idx;
@@ -3495,7 +3510,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 			if (rule_idx)
 			{
 				ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v4_rules[tbl_idx] = rule_idx;
-				IPA_STATS_DBG("IP v4 flt save flt table %d rule %d \n", tbl_idx, rule_idx);
+				IPA_STATS_DBG_LOW("IP v4 flt save flt table %d rule %d \n", tbl_idx, rule_idx);
 				tbl_idx++;
 			}
 
@@ -3544,7 +3559,7 @@ static int ipa_stats_get_alloc_info(unsigned long arg)
 			if (rule_idx)
 			{
 				ipa_lnx_agent_ctx.alloc_info.flt_alloc_info.num_v6_rules[tbl_idx] = rule_idx;
-				IPA_STATS_DBG("IP v6 flt save flt table %d rule %d \n", tbl_idx, rule_idx);
+				IPA_STATS_DBG_LOW("IP v6 flt save flt table %d rule %d \n", tbl_idx, rule_idx);
 				tbl_idx++;
 			}
 
@@ -3620,7 +3635,7 @@ static long ipa_lnx_stats_ioctl(struct file *filp,
 		return -EPERM;
 	}
 
-	IPA_STATS_DBG("ipa get alloc info 0x%lx 0x%x", IPA_LNX_IOC_GET_ALLOC_INFO, cmd);
+	IPA_STATS_DBG_LOW("ipa get alloc info 0x%lx 0x%x", IPA_LNX_IOC_GET_ALLOC_INFO, cmd);
 
 	mutex_lock(&ipa_lnx_ctx_mutex);
 	switch (cmd) {
@@ -3723,40 +3738,40 @@ static long ipa_lnx_stats_ioctl(struct file *filp,
 			}
 		}
 		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V4_RT_RULE_STATS) {
-			IPA_STATS_DBG("ipa get v4 rt rule stats called\n");
+			IPA_STATS_DBG_LOW("ipa get v4 rt rule stats called\n");
 			retval = ipa_get_v4_rt_rule_stats((unsigned long) consolidated_stats->v4_rt_rule_stats);
 			if (retval) {
 				IPA_STATS_ERR("ipa get v4 rt rule stats fail\n");
 				break;
 			}
-			IPA_STATS_DBG("ipa get v4 rt rule stats passed\n");
+			IPA_STATS_DBG_LOW("ipa get v4 rt rule stats passed\n");
 		}
 		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V6_RT_RULE_STATS) {
-			IPA_STATS_DBG("ipa get v6 rt rule stats called\n");
+			IPA_STATS_DBG_LOW("ipa get v6 rt rule stats called\n");
 			retval = ipa_get_v6_rt_rule_stats((unsigned long) consolidated_stats->v6_rt_rule_stats);
 			if (retval) {
 				IPA_STATS_ERR("ipa get v6 rt rule stats fail\n");
 				break;
 			}
-			IPA_STATS_DBG("ipa get v6 rt rule stats passed\n");
+			IPA_STATS_DBG_LOW("ipa get v6 rt rule stats passed\n");
 		}
 		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V4_FLT_RULE_STATS) {
-			IPA_STATS_DBG("ipa get v4 flt rule stats called\n");
+			IPA_STATS_DBG_LOW("ipa get v4 flt rule stats called\n");
 			retval = ipa_get_v4_flt_rule_stats((unsigned long) consolidated_stats->v4_flt_rule_stats);
 			if (retval) {
 				IPA_STATS_ERR("ipa get flt rule stats fail\n");
 				break;
 			}
-			IPA_STATS_DBG("ipa get v4 flt rule stats passed\n");
+			IPA_STATS_DBG_LOW("ipa get v4 flt rule stats passed\n");
 		}
 		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V6_FLT_RULE_STATS) {
-			IPA_STATS_DBG("ipa get v6 flt rule stats called\n");
+			IPA_STATS_DBG_LOW("ipa get v6 flt rule stats called\n");
 			retval = ipa_get_v6_flt_rule_stats((unsigned long) consolidated_stats->v6_flt_rule_stats);
 			if (retval) {
 				IPA_STATS_ERR("ipa get flt rule stats fail\n");
 				break;
 			}
-			IPA_STATS_DBG("ipa get v6 flt rule stats passed\n");
+			IPA_STATS_DBG_LOW("ipa get v6 flt rule stats passed\n");
 		}
 		if (consolidated_stats->log_type_mask & TLPD_IPA_LOG_TYPE_V4_NAT_RULE_STATS) {
 			retval = ipa_get_v4_nat_rule_stats((unsigned long) consolidated_stats->v4_nat_rule_stats);
@@ -3777,7 +3792,7 @@ static long ipa_lnx_stats_ioctl(struct file *filp,
 		retval = -ENOTTY;
 	}
 
-	IPA_STATS_DBG("Exit .. return %d\n", retval);
+	IPA_STATS_DBG_LOW("Exit .. return %d\n", retval);
 	mutex_unlock(&ipa_lnx_ctx_mutex);
 	return retval;
 }

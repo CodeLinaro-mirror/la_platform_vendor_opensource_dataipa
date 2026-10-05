@@ -6393,7 +6393,7 @@ int gsi_get_hw_ch_stats(unsigned long chan_hdl, struct gsi_hw_ch_stats *stats)
 	}
 
 	if (!ctx->props.gsi_stats_en) {
-		GSIERR("chan_hdl %lu: gsi_stats_en not set\n", chan_hdl);
+		GSIDBG_LOW("chan_hdl %lu: gsi_stats_en not set\n", chan_hdl);
 		return -EINVAL;
 	}
 
