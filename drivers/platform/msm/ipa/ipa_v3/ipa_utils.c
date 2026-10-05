@@ -10415,9 +10415,13 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.stats_peripheral_prod_size = 0x198,
 	.apps_fltrt_empty_tbl_ofst = 0x1f198,
 	.apps_fltrt_empty_tbl_size = 0x20,
-	/* TODO: need to properly configure register. */
-	.stats_tethering_cfg_ofst = 0x1f198,
-	.stats_tethering_cfg_size = 0x20,
+	/*
+	 * 174 tethering pairs need 44B for the two per-counter config bits.
+	 * Keep the established IP-only counter allocation (13 headers and 174
+	 * 24B counters) and reserve its released 0x30-byte tail for CFG.
+	 */
+	.stats_tethering_cfg_ofst = 0x20340,
+	.stats_tethering_cfg_size = 0x30,
 	/* TODO: need to properly configure register. */
 	.stats_fnr_cfg_ofst = 0x1f198,
 	.stats_fnr_cfg_size = 0x20,
@@ -10434,7 +10438,7 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.stats_rt_nonip_cfg_ofst = 0x1f198,
 	.stats_rt_nonip_cfg_size = 0x20,
 	.stats_tethering_ofst = 0x1f1b8,
-	.stats_tethering_size = 0x11b8,
+	.stats_tethering_size = 0x1188,
 	.stats_fnr_ofst = 0x20370,
 	.stats_fnr_size = 0x11a8,
 	.ap_stats_drop_ofst = 0x21518,

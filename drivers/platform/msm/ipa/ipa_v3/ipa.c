@@ -10562,7 +10562,7 @@ static int ipa3_v2x_vm_post_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 
 	if (ipa3_ctx->smem_reqd_sz > ipa3_ctx->smem_sz) {
-		IPAERR("SW expect more core memory, needed %d, avail %d\n",
+		IPAERR("SW expect more core memory, needed %u, avail %u\n",
 			ipa3_ctx->smem_reqd_sz, ipa3_ctx->smem_sz);
 		result = -ENOMEM;
 		goto fail_init_hw;
@@ -10776,7 +10776,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v6]);
 
 	if (ipa3_ctx->smem_reqd_sz > ipa3_ctx->smem_sz) {
-		IPAERR("SW expect more core memory, needed %d, avail %d\n",
+		IPAERR("SW expect more core memory, needed %u, avail %u\n",
 			ipa3_ctx->smem_reqd_sz, ipa3_ctx->smem_sz);
 		result = -ENOMEM;
 		goto fail_init_hw;
@@ -17320,7 +17320,7 @@ static void __exit ipa_module_exit(void)
 		pci_unregister_driver(&ipa_pci_driver);
 	platform_driver_unregister(&ipa_plat_drv);
 	if(ipa3_ctx->hw_stats) {
-		kfree(ipa3_ctx->hw_stats);
+		kvfree(ipa3_ctx->hw_stats);
 		ipa3_ctx->hw_stats = NULL;
 	}
 	unregister_pm_notifier(&ipa_pm_notifier);
