@@ -354,6 +354,22 @@ static void ipa_get_gsi_pipe_info(
 	struct ipa_lnx_pipe_info *pipe_info_ptr_local, struct ipa3_ep_context *ep)
 {
 	const struct ipa_gsi_ep_config *gsi_ep_info;
+	uint32_t pipe_num;
+
+	/*
+	 * pipe was never connected, no GSI state to read. Clear the rest
+	 * of the struct so a stale/unrelated previous value copied in via
+	 * memdup_user() doesn't get handed back to userspace looking like
+	 * real pipe state. pipe_num is already filled in by the caller
+	 * right before this call, so keep it.
+	 */
+	if (!ep->valid) {
+		pipe_num = pipe_info_ptr_local->pipe_num;
+		memset(pipe_info_ptr_local, 0, sizeof(*pipe_info_ptr_local));
+		pipe_info_ptr_local->pipe_num = pipe_num;
+		pipe_info_ptr_local->client_type = IPA_CLIENT_MAX;
+		return;
+	}
 
 	pipe_info_ptr_local->client_type = ep->client;
 	if (ep->sys) {
@@ -365,6 +381,9 @@ static void ipa_get_gsi_pipe_info(
 	pipe_info_ptr_local->num_free_buff = 0;
 	pipe_info_ptr_local->gsi_chan_num = ep->gsi_chan_hdl;
 	pipe_info_ptr_local->gsi_evt_num = ep->gsi_evt_ring_hdl;
+
+	/* clocks can gate underneath us anytime, vote before touching GSI regs */
+	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	pipe_info_ptr_local->gsi_prot_type =
 		gsi_get_chan_prot_type(ep->gsi_chan_hdl);
@@ -401,6 +420,8 @@ static void ipa_get_gsi_pipe_info(
 		gsi_get_evt_ring_rp(ep->gsi_evt_ring_hdl);
 	pipe_info_ptr_local->gsi_evt_ring_wp =
 		gsi_read_event_ring_wp(ep->gsi_evt_ring_hdl, gsi_get_peripheral_ee());
+
+	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 }
 
 /**
