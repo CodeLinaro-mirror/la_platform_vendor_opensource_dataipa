@@ -2532,6 +2532,7 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		} else {
 			IPAERR("Unknown client (type=%d) woke up the system\n", type);
 		}
+		ipa3_dump_skb(skb);
 	}
 
 	sys = ipa3_ctx->ep[src_ep_idx].sys;
@@ -4243,12 +4244,12 @@ begin:
 				status.endp_dest_idx, status.pkt_len);
 		if (atomic_xchg(&ipa3_ctx->is_suspend_mode_enabled, 0) == 1) {
 			type = ipa3_get_client_by_pipe(status.endp_src_idx);
-			if (type >= 0 && type < IPA_CLIENT_MAX) {
-				IPAERR("Client %s woke up the system\n", ipa_clients_strings[type]);
-			} else {
-				IPAERR("Unknown client (type=%d) woke up the system\n", type);
-			}
-			trace_ipa_tx_dp(skb, sys->ep->client);
+        		if (type >= 0 && type < IPA_CLIENT_MAX) {
+        			IPAERR("Client %s woke up the system\n", ipa_clients_strings[type]);
+        		} else {
+        			IPAERR("Unknown client (type=%d) woke up the system\n", type);
+        		}
+			ipa3_dump_skb(skb);
 		}
 		if (sys->status_stat) {
 			sys->status_stat->status[sys->status_stat->curr] =
@@ -4716,7 +4717,7 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 
 	IPA_DUMP_BUFF(skb->data, 0, skb->len);
 	if (skb->len == 0) {
-		IPAERR("ZLT\n");
+		IPAERR("Zero Length SKB \n");
 		return 0;
 	}
 
@@ -4725,7 +4726,10 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 			IPA_RECEIVE, (unsigned long)(skb));
 		return 0;
 	}
-
+	if (atomic_xchg(&ipa3_ctx->is_suspend_mode_enabled, 0) == 1) {
+		IPAERR("Client %s woke up the system\n", ipa_clients_strings[sys->ep->client]);
+		ipa3_dump_skb(skb);
+	}
 	return ipa3_wan_rx_pyld_status_hdlr(skb, sys);
 }
 
@@ -5334,19 +5338,23 @@ _prep_and_send_skb(
 		{
 			shinfo->gso_segs = num_pkts;
 			shinfo->gso_size = pkts[0].pkt_len;
+			if (ip_proto == IPPROTO_TCP)
+				shinfo->gso_type =
+					(ip_vers == 4) ? SKB_GSO_TCPV4 : SKB_GSO_TCPV6;
+			else
+				shinfo->gso_type = SKB_GSO_UDP_L4;
 		}
 		else
 		{
 			shinfo->gso_segs = 0;
 			shinfo->gso_size = 0;
+			shinfo->gso_type = 0;
 		}
 
 		if (ip_proto == IPPROTO_TCP) {
-			shinfo->gso_type = (ip_vers == 4) ? SKB_GSO_TCPV4 : SKB_GSO_TCPV6;
 			ipa3_ctx->stats.coal.coal_tcp++;
 			ipa3_ctx->stats.coal.coal_tcp_bytes += aggr_payload_size;
 		} else {
-			shinfo->gso_type = SKB_GSO_UDP_L4;
 			ipa3_ctx->stats.coal.coal_udp++;
 			ipa3_ctx->stats.coal.coal_udp_bytes += aggr_payload_size;
 		}
