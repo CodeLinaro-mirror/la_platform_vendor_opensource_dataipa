@@ -4435,13 +4435,13 @@ void ipa3_eth_debugfs_init(void)
 		return;
 	}
 	dent_eth = debugfs_create_dir("eth", dent);
-	if (IS_ERR(dent)) {
+	if (IS_ERR_OR_NULL(dent_eth)) {
 		IPAERR("fail to create folder in debug_fs.\n");
 		return;
 	}
 	file = debugfs_create_file("status", IPA_READ_ONLY_MODE,
 		dent_eth, NULL, &fops_ipa_eth_status);
-	if (!file) {
+	if (IS_ERR_OR_NULL(file)) {
 		IPAERR("could not create status\n");
 		goto fail;
 	}
@@ -4726,10 +4726,10 @@ static ssize_t ipa3_eth_read_qos_stats(struct file *file,
 
 	client = (struct ipa_eth_client *)file->private_data;
 
-	if (ipa3_ctx->ipa_hw_type < IPA_HW_v6_0 ||
-		client->client_type != IPA_ETH_CLIENT_IEMAC) {
+	if (!ipa3_ctx->eth_qos && (ipa3_ctx->ipa_hw_type < IPA_HW_v6_0 ||
+		client->client_type != IPA_ETH_CLIENT_IEMAC)) {
 		nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
-				"This feature only support on IPA6.0+ and IEMAC\n");
+				"This feature only support on IPA6.0+ and IEMAC with QOS enabled\n");
 		cnt += nbytes;
 		goto done;
 	}
@@ -4916,6 +4916,17 @@ static const struct file_operations fops_ipa_eth_qos_stats = {
 	.read = ipa3_eth_read_qos_stats,
 	.open = ipa3_open_dbg,
 };
+static struct dentry *ipa3_eth_debugfs_create_qos_stats(
+	struct ipa_eth_client *client, int type, int inst_id)
+{
+	char name[IPA_RESOURCE_NAME_MAX];
+
+	snprintf(name, IPA_RESOURCE_NAME_MAX,
+		"%s_%d_qos_stats", ipa_eth_clients_strings[type], inst_id);
+	return debugfs_create_file(name, IPA_READ_ONLY_MODE,
+		dent_eth, (void *)client, &fops_ipa_eth_qos_stats);
+}
+
 void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client)
 {
 	struct dentry *file = NULL;
@@ -4940,7 +4951,7 @@ void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client)
 		file = debugfs_create_file(name, IPA_READ_ONLY_MODE,
 			dent_eth, (void *)client, &fops_ipa_eth_stats);
 	}
-	if (!file) {
+	if (IS_ERR_OR_NULL(file)) {
 		IPAERR("could not create hw_type file\n");
 		return;
 	}
@@ -4950,19 +4961,14 @@ void ipa3_eth_debugfs_add_node(struct ipa_eth_client *client)
 		file = debugfs_create_file(name, IPA_READ_ONLY_MODE,
 			dent_eth, (void *)client, &fops_ipa_eth_client_status);
 	}
-	if (!file) {
+	if (IS_ERR_OR_NULL(file)) {
 		IPAERR("could not create hw_type file\n");
 		goto fail;
 	}
 
-	if (ipa3_ctx->eth_qos && type == IPA_ETH_CLIENT_IEMAC
-		&& inst_id == 0) {
-		snprintf(name, IPA_RESOURCE_NAME_MAX,
-			"%s_%d_qos_stats", ipa_eth_clients_strings[type], inst_id);
-		file = debugfs_create_file(name, IPA_READ_ONLY_MODE,
-			dent_eth, (void *)client, &fops_ipa_eth_qos_stats);
-	}
-	if (!file) {
+	if (type == IPA_ETH_CLIENT_IEMAC && inst_id == 0)
+		file = ipa3_eth_debugfs_create_qos_stats(client, type, inst_id);
+	if (IS_ERR_OR_NULL(file)) {
 		IPAERR("could not create hw_type file\n");
 		goto fail;
 	}

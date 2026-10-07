@@ -220,7 +220,7 @@ static void ipa_gsb_debugfs_init(void)
 	const mode_t read_only_mode = 00444;
 
 	dent = debugfs_create_dir("ipa_gsb", NULL);
-	if (!dent) {
+	if (IS_ERR_OR_NULL(dent)) {
 		IPA_GSB_ERR("fail to create folder ipa_gsb\n");
 		return;
 	}

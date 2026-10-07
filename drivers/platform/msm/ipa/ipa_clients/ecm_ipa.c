@@ -1406,7 +1406,7 @@ static void ecm_ipa_debugfs_init(struct ecm_ipa_dev *ecm_ipa_ctx)
 		return;
 
 	ecm_ipa_ctx->directory = debugfs_create_dir("ecm_ipa", NULL);
-	if (!ecm_ipa_ctx->directory) {
+	if (IS_ERR_OR_NULL(ecm_ipa_ctx->directory)) {
 		ECM_IPA_ERROR("could not create debugfs directory entry\n");
 		goto fail_directory;
 	}
@@ -1420,7 +1420,7 @@ static void ecm_ipa_debugfs_init(struct ecm_ipa_dev *ecm_ipa_ctx)
 		("outstanding", flags_read_only,
 		ecm_ipa_ctx->directory,
 		ecm_ipa_ctx, &ecm_ipa_debugfs_atomic_ops);
-	if (!file) {
+	if (IS_ERR_OR_NULL(file)) {
 		ECM_IPA_ERROR("could not create outstanding file\n");
 		goto fail_file;
 	}
