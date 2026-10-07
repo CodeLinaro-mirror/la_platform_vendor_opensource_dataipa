@@ -734,6 +734,15 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 	IPA_BE_DBG("Total ext props %d, IPv4 filtering rules %d\n",
 		ext_prop->num_ext_props, total_rules);
 
+	/* rule_id[] holds 64 entries; reject more. */
+	if (total_rules > ARRAY_SIZE(flt_index->rule_id)) {
+		IPA_BE_ERR("total_rules %d exceeds rule_id[] cap %zu (pdn=%d client=%d)\n",
+			total_rules, ARRAY_SIZE(flt_index->rule_id),
+			pdn_iface, client_iface);
+		retval = -E2BIG;
+		goto end;
+	}
+
 	if (rx_prop->num_rx_props > 0 && total_rules > 0) {
 		installed_hdls = kzalloc((rx_prop->num_rx_props / 2) * total_rules *
 					 sizeof(uint32_t), GFP_KERNEL);
@@ -2891,6 +2900,16 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 		IPA_BE_DBG("Need %d additional XLAT rules\n", v6_xlat_ul_rules);
 	}
 
+	/* rule_id[] holds 64 entries; reject more (XLAT included). */
+	if (total_rules > ARRAY_SIZE(flt_index->rule_id)) {
+		IPA_BE_ERR("v6 total_rules %d (incl. XLAT %d) exceeds rule_id[] cap %zu (pdn=%d client=%d)\n",
+			total_rules, v6_xlat_ul_rules,
+			ARRAY_SIZE(flt_index->rule_id),
+			pdn_iface, client_iface);
+		retval = -E2BIG;
+		goto end;
+	}
+
 	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
 		idx = j * 2 + 1;
 		if (rx_prop->rx[idx].ip != IPA_IP_v6) {
@@ -3666,6 +3685,7 @@ static int ipa_be_notify_q6_uplink_delete(int pdn_iface, int client_iface,
 int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg, int pdn_iface, int client_iface)
 {
 	int retval = 0;
+	int new_cnt;
 	struct ipa_uplink_pair *pair, *self = NULL;
 	bool is_xlat = false;
 
@@ -3700,22 +3720,17 @@ int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg,
 			pdn_iface, client_iface);
 		return -EINVAL;
 	}
-	if (atomic_read(&self->ref_count) > 1) {
-		atomic_dec(&self->ref_count);
-		spin_unlock_bh(&ipa_uplink_lock);
-		IPA_BE_DBG("Decremented ref_count for pdn %d, client %d to %d\n",
-			pdn_iface, client_iface, atomic_read(&self->ref_count));
-		return 0;
-	}
 	/* Keep pair alive until WAN PDN goes down; flush fires the HW delete and Q6 notify. */
-	atomic_dec(&self->ref_count);
+	new_cnt = atomic_dec_return(&self->ref_count);
 	spin_unlock_bh(&ipa_uplink_lock);
-	IPA_BE_DBG("ref_count for pdn %d, client %d hit 0 — pair kept until PDN down\n",
-		pdn_iface, client_iface);
+	if (new_cnt > 0)
+		IPA_BE_DBG("Decremented ref_count for pdn %d, client %d to %d\n",
+			pdn_iface, client_iface, new_cnt);
+	else
+		IPA_BE_DBG("ref_count for pdn %d, client %d hit 0 — pair kept until PDN down\n",
+			pdn_iface, client_iface);
 
-	/* XLAT installed a v6 companion; mirror the ref-count decrement so the
-	 * v6 pair tracks correctly. HW/Q6 cleanup happens at flush time.
-	 */
+	/* XLAT add bumps the v6 companion every time; drop it every time. */
 	if (is_xlat) {
 		struct ipa_ipv6_rule_destroy_msg v6_msg_xlat;
 		int v6_ret;
@@ -3723,13 +3738,9 @@ int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg,
 
 		IPA_BE_DBG("Decrementing v6 uplink companion for XLAT traffic\n");
 		v6_ret = ipa_be_v6_delete_uplink_filter_rule(v6_msg_xlat, pdn_iface, client_iface);
-		/* -ENOENT (no companion) and -EINVAL (already at 0) are both
-		 * legitimate: the v6 companion may have been cleaned up
-		 * already. The v4 side has already decremented its ref_count
-		 * above; do not propagate these as errors.
-		 */
+		/* -ENOENT/-EINVAL: companion gone or at 0; ignore. */
 		if (v6_ret && v6_ret != -ENOENT && v6_ret != -EINVAL) {
-			IPA_BE_ERR("Failed to decrement v6 companion ref_count: %d\n", v6_ret);
+			IPA_BE_ERR("v6 companion dec failed: %d\n", v6_ret);
 			if (retval == 0)
 				retval = v6_ret;
 		}
@@ -3742,6 +3753,7 @@ EXPORT_SYMBOL(ipa_be_v4_delete_uplink_filter_rule);
 int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int pdn_iface, int client_iface)
 {
 	struct ipa_uplink_pair *pair, *self = NULL;
+	int new_cnt;
 
 	IPA_BE_DBG("Entry ipa_be_v6_delete_uplink_filter_rule for pdn_iface %d client_iface %d \n", pdn_iface, client_iface);
 
@@ -3764,20 +3776,27 @@ int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg,
 			pdn_iface, client_iface);
 		return -EINVAL;
 	}
-	/* Per-connection teardown: decrement ref_count; pair stays alive until PDN flush. */
-	atomic_dec(&self->ref_count);
+	/* Per-connection teardown: decrement ref_count; pair stays alive until PDN flush.
+	 * Capture via atomic_dec_return before unlocking — otherwise a concurrent idle
+	 * flush can free the pair in the window before atomic_read.
+	 */
+	new_cnt = atomic_dec_return(&self->ref_count);
 	spin_unlock_bh(&ipa_uplink_lock);
 	IPA_BE_DBG("Decremented ref_count for pdn %d, client %d to %d (pair kept until PDN down)\n",
-		pdn_iface, client_iface, atomic_read(&self->ref_count));
+		pdn_iface, client_iface, new_cnt);
 
 	return 0;
 }
 EXPORT_SYMBOL(ipa_be_v6_delete_uplink_filter_rule);
 
-void ipa_be_flush_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type)
+/* idle_only: skip pairs still in use; the ref check and list_del share one
+ * lock hold, so a racing add either bumps the ref first or installs fresh.
+ */
+static void __ipa_be_flush_uplink_rules_for_pdn(int pdn_iface,
+		enum ipa_ip_type ip_type, bool idle_only)
 {
-	IPA_BE_DBG("flush Q6 UL notify for pdn_iface=%d ip_type=%d\n",
-		pdn_iface, ip_type);
+	IPA_BE_DBG("flush Q6 UL notify for pdn_iface=%d ip_type=%d idle_only=%d\n",
+		pdn_iface, ip_type, idle_only);
 
 	/* Drop lock before QMI/HW work; re-acquire each iteration to avoid stale pointers. */
 	while (true) {
@@ -3792,6 +3811,9 @@ void ipa_be_flush_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type)
 		list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
 			if (pair->pdn_iface == pdn_iface &&
 			    pair->ip_type == ip_type) {
+				if (idle_only &&
+				    (atomic_read(&pair->ref_count) > 0 || pair->installing))
+					continue;
 				target = pair;
 				break;
 			}
@@ -3861,7 +3883,19 @@ void ipa_be_flush_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type)
 	/* Reset global mux_id when list is empty so next bring-up latches a fresh value. */
 	ipa_be_global_qmap_id_reset_if_empty();
 }
+
+void ipa_be_flush_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type)
+{
+	__ipa_be_flush_uplink_rules_for_pdn(pdn_iface, ip_type, false);
+}
 EXPORT_SYMBOL(ipa_be_flush_uplink_rules_for_pdn);
+
+/* Flush only pairs with no live refs; safe against a concurrent add. */
+void ipa_be_flush_idle_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type)
+{
+	__ipa_be_flush_uplink_rules_for_pdn(pdn_iface, ip_type, true);
+}
+EXPORT_SYMBOL(ipa_be_flush_idle_uplink_rules_for_pdn);
 
 static bool AddWanDLFilteringRule(
 	struct ipa_ioc_add_flt_rule const *rule_table_v4,
