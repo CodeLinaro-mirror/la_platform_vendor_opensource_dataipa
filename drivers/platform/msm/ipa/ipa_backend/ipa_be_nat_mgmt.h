@@ -101,6 +101,57 @@ int ipa_be_add_entry(struct ipa_ipv4_rule_create_msg v4_msg, bool isVlan,
 		     bool ct_enabled, bool ct_canonical_swap);
 int ipa_be_delete_nat_entry(const nat_table_entry *rule);
 
+/* Size of an IPv6 address as carried in the ECM messages. Derived from the
+ * message struct so it cannot drift from it.
+ */
+#define IPA_BE_IPV6_ADDR_SZ sizeof(((struct ipa_ipv6_5tuple *)0)->flow_ip)
+
+/* How an IPv6 flow described by an ECM rule-create message is to be handled.
+ *
+ * Derived per flow from the message itself — there is no configuration knob.
+ * IPA_BE_V6_FLOW_CT means nothing is translated, so the flow is plain
+ * connection tracking. The two NAT values additionally record which side of
+ * the flow carries the public address, which is what a NAT entry needs in
+ * order to build its uC activation entry and its inbound rule.
+ *
+ * IPA_BE_V6_FLOW_UNSUPPORTED is a flow the backend must not offload at all: a
+ * single uC activation entry expresses a single substitution, so a flow
+ * translated on both sides cannot be represented. Offloading it as NAT would
+ * drop one side's translation and offloading it as CT would translate neither,
+ * so the rule is refused and the flow stays in software.
+ */
+enum ipa_be_v6_flow_kind {
+	IPA_BE_V6_FLOW_CT,		/* no translation */
+	IPA_BE_V6_FLOW_NAT_UPLINK,	/* flow side translated   */
+	IPA_BE_V6_FLOW_NAT_DOWNLINK,	/* return side translated */
+	IPA_BE_V6_FLOW_UNSUPPORTED,	/* both sides translated  */
+};
+
+static inline bool ipa_be_v6_flow_is_nat(enum ipa_be_v6_flow_kind kind)
+{
+	return kind == IPA_BE_V6_FLOW_NAT_UPLINK ||
+	       kind == IPA_BE_V6_FLOW_NAT_DOWNLINK;
+}
+
+enum ipa_be_v6_flow_kind ipa_be_v6_classify_flow(
+		const struct ipa_ipv6_rule_create_msg *v6_msg);
+
+const char *ipa_be_v6_flow_kind_str(enum ipa_be_v6_flow_kind kind);
+
+/* The uC activation entry of an IPv6 NAT flow — the table slot holding the
+ * address and port substitution that the flow's IPv6CT rules point at.
+ *
+ * The pair owns the slot end to end: add stores its index on the entry, del
+ * releases it and clears it, and del is a no-op on an entry holding no slot so
+ * that rollback and teardown paths can call it unconditionally.
+ *
+ * The cache entry stays private to ipa_be_nat_mgmt.c.
+ */
+struct ipv6_ct_entry;
+
+int ipa_be_v6_nat_uc_add(struct ipv6_ct_entry *e);
+int ipa_be_v6_nat_uc_del(struct ipv6_ct_entry *e);
+
 /* IPv6 Connection Tracking functions */
 int ipv6ct_add_entry(struct ipa_ipv6_rule_create_msg *v6_msg, uint32_t *rule_handle);
 int ipv6ct_del_entry(struct ipa_ipv6_rule_destroy_msg *v6_msg, uint32_t rule_handle);
