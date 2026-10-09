@@ -917,6 +917,17 @@ int ipa_pm_deregister(u32 hdl)
 	IPA_PM_DBG("IPA PM deregistering client\n");
 
 	client = ipa_pm_ctx->clients[hdl];
+
+	/*
+	 * Make sure no deferred/delayed deactivation work is in flight (or
+	 * will be scheduled again) before we potentially free this client
+	 * below. Without this, delayed_deferred_deactivate_work_func() can
+	 * still be dereferencing "client" on another CPU right after it
+	 * drops client->state_lock, racing with the kfree() here and causing
+	 * a use-after-free.
+	 */
+	cancel_delayed_work_sync(&client->deactivate_work);
+
 	spin_lock_irqsave(&client->state_lock, flags);
 	if (IPA_PM_STATE_IN_PROGRESS(client->state)) {
 		spin_unlock_irqrestore(&client->state_lock, flags);
