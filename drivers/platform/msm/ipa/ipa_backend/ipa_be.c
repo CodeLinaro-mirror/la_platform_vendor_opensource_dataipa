@@ -2360,7 +2360,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			pdn_iface          = v4_msg.conn_rule.return_interface_num;
 			client_iface       = v4_msg.conn_rule.flow_interface_num;
 			vlan_tag           = v4_msg.vlan_primary_rule.ingress_vlan_tag;
-			mtu_size           = v4_msg.conn_rule.flow_mtu;
+			mtu_size           = v4_msg.conn_rule.return_mtu;
 			lan_client_ip[0]   = v4_msg.tuple.flow_ip;
 			wan_ip[0]          = v4_msg.conn_rule.return_ip_xlate;
 			flow_interface_num = v4_msg.conn_rule.flow_interface_num;
@@ -2371,7 +2371,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			pdn_iface          = v4_msg.conn_rule.flow_interface_num;
 			client_iface       = v4_msg.conn_rule.return_interface_num;
 			vlan_tag           = v4_msg.vlan_primary_rule.egress_vlan_tag;
-			mtu_size           = v4_msg.conn_rule.return_mtu;
+			mtu_size           = v4_msg.conn_rule.flow_mtu;
 			lan_client_ip[0]   = v4_msg.conn_rule.return_ip_xlate;
 			wan_ip[0]          = v4_msg.tuple.flow_ip;
 			flow_interface_num = v4_msg.conn_rule.return_interface_num;
@@ -2383,7 +2383,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			pdn_iface          = v4_msg.conn_rule.return_interface_num;
 			client_iface       = v4_msg.conn_rule.flow_interface_num;
 			vlan_tag           = v4_msg.vlan_primary_rule.ingress_vlan_tag;
-			mtu_size           = v4_msg.conn_rule.flow_mtu;
+			mtu_size           = v4_msg.conn_rule.return_mtu;
 			lan_client_ip[0]   = v4_msg.tuple.flow_ip;
 			wan_ip[0]          = v4_msg.conn_rule.return_ip_xlate;
 			flow_interface_num = v4_msg.conn_rule.flow_interface_num;
@@ -2394,7 +2394,7 @@ static int ipa_ipv4_create_rule(struct ipa_ipv4_rule_create_msg v4_msg)
 			pdn_iface          = v4_msg.conn_rule.flow_interface_num;
 			client_iface       = v4_msg.conn_rule.return_interface_num;
 			vlan_tag           = v4_msg.vlan_primary_rule.egress_vlan_tag;
-			mtu_size           = v4_msg.conn_rule.return_mtu;
+			mtu_size           = v4_msg.conn_rule.flow_mtu;
 			lan_client_ip[0]   = v4_msg.conn_rule.return_ip_xlate;
 			wan_ip[0]          = v4_msg.tuple.flow_ip;
 			flow_interface_num = v4_msg.conn_rule.return_interface_num;
@@ -2654,7 +2654,7 @@ failed_ret:
 				/* no rollback available for NAT entry */
 				/* fallthrough */
 			case V4_ETH_STEP_MTU_RULE:
-				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4);
+				ipa_be_delete_mtu_rule(client_iface, pdn_iface, vlan_tag, IPA_IP_v4);
 				/* fallthrough */
 			case V4_ETH_STEP_WAN_UP_UPLINK:
 				ipa_be_handle_wan_down(client_iface, pdn_iface, IPA_IP_v4);
@@ -2696,7 +2696,7 @@ failed_ret:
 				delete_dft_filtering_rule(pdn_iface, IPA_IP_v4);
 				/* fallthrough */
 			case V4_MDM_STEP_MTU_RULE:
-				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4);
+				ipa_be_delete_mtu_rule(client_iface, pdn_iface, vlan_tag, IPA_IP_v4);
 				/* fallthrough */
 			case V4_MDM_STEP_UPLINK_FILTER:
 				ipa_be_v4_delete_uplink_filter_rule(*((struct ipa_ipv4_rule_destroy_msg *)&v4_msg), pdn_iface, client_iface);
@@ -2848,7 +2848,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			pdn_iface          = v6_msg.conn_rule.return_interface_num;
 			client_iface       = v6_msg.conn_rule.flow_interface_num;
 			vlan_tag           = v6_msg.vlan_primary_rule.ingress_vlan_tag;
-			mtu_size           = v6_msg.conn_rule.flow_mtu;
+			mtu_size           = v6_msg.conn_rule.return_mtu;
 			flow_ip_ptr        = (uint32_t *)&v6_msg.tuple.flow_ip;
 			wan_ip_ptr         = (uint32_t *)&v6_msg.tuple.return_ip;
 			flow_interface_num = v6_msg.conn_rule.flow_interface_num;
@@ -2859,7 +2859,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			pdn_iface          = v6_msg.conn_rule.flow_interface_num;
 			client_iface       = v6_msg.conn_rule.return_interface_num;
 			vlan_tag           = v6_msg.vlan_primary_rule.egress_vlan_tag;
-			mtu_size           = v6_msg.conn_rule.return_mtu;
+			mtu_size           = v6_msg.conn_rule.flow_mtu;
 			flow_ip_ptr        = (uint32_t *)&v6_msg.tuple.return_ip;
 			wan_ip_ptr         = (uint32_t *)&v6_msg.tuple.flow_ip;
 			flow_interface_num = v6_msg.conn_rule.return_interface_num;
@@ -2871,7 +2871,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			pdn_iface          = v6_msg.conn_rule.return_interface_num;
 			client_iface       = v6_msg.conn_rule.flow_interface_num;
 			vlan_tag           = v6_msg.vlan_primary_rule.ingress_vlan_tag;
-			mtu_size           = v6_msg.conn_rule.flow_mtu;
+			mtu_size           = v6_msg.conn_rule.return_mtu;
 			flow_ip_ptr        = (uint32_t *)&v6_msg.tuple.flow_ip;
 			wan_ip_ptr         = (uint32_t *)&v6_msg.tuple.return_ip;
 			flow_interface_num = v6_msg.conn_rule.flow_interface_num;
@@ -2882,7 +2882,7 @@ static int ipa_ipv6_create_rule(struct ipa_ipv6_rule_create_msg v6_msg)
 			pdn_iface          = v6_msg.conn_rule.flow_interface_num;
 			client_iface       = v6_msg.conn_rule.return_interface_num;
 			vlan_tag           = v6_msg.vlan_primary_rule.egress_vlan_tag;
-			mtu_size           = v6_msg.conn_rule.return_mtu;
+			mtu_size           = v6_msg.conn_rule.flow_mtu;
 			flow_ip_ptr        = (uint32_t *)&v6_msg.tuple.return_ip;
 			wan_ip_ptr         = (uint32_t *)&v6_msg.tuple.flow_ip;
 			flow_interface_num = v6_msg.conn_rule.return_interface_num;
@@ -3141,7 +3141,7 @@ failed_ret:
 				/* no rollback available for CT entry */
 				/* fallthrough */
 			case V6_ETH_STEP_MTU_RULE:
-				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6);
+				ipa_be_delete_mtu_rule(client_iface, pdn_iface, vlan_tag, IPA_IP_v6);
 				/* fallthrough */
 			case V6_ETH_STEP_WAN_UP_UPLINK:
 				ipa_be_handle_wan_down(client_iface, pdn_iface, IPA_IP_v6);
@@ -3183,7 +3183,7 @@ failed_ret:
 				delete_dft_filtering_rule(pdn_iface, IPA_IP_v6);
 				/* fallthrough */
 			case V6_MDM_STEP_MTU_RULE:
-				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6);
+				ipa_be_delete_mtu_rule(client_iface, pdn_iface, vlan_tag, IPA_IP_v6);
 				/* fallthrough */
 			case V6_MDM_STEP_UPLINK_FILTER:
 				ipa_be_v6_delete_uplink_filter_rule(*((struct ipa_ipv6_rule_destroy_msg *)&v6_msg), pdn_iface, client_iface);
@@ -3395,6 +3395,7 @@ void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 	int rt_hdl = 0;
 	int pdn_iface = 0;
 	int client_iface = 0;
+	int vlan_tag = IPA_VLAN_ID_NOT_CONFIGURED;
 	int hdr_hdl = -1;
 	int proc_ctx_hdl = -1;
 	char proc_ctx_name[32] = {0};
@@ -3521,21 +3522,25 @@ void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 			IPA_BE_DBG("Uplink flow destroy - deleting both uplink and downlink rules\n");
 			pdn_iface        = msg->conn_rule.return_interface_num;
 			client_iface     = msg->conn_rule.flow_interface_num;
+			vlan_tag         = msg->vlan_primary_rule.ingress_vlan_tag;
 			lan_client_ip[0] = msg->tuple.flow_ip;
 		} else if (topo == IPA_BE_TOPO_DL) {
 			IPA_BE_DBG("Downlink flow destroy - deleting both downlink and uplink rules\n");
 			pdn_iface        = msg->conn_rule.flow_interface_num;
 			client_iface     = msg->conn_rule.return_interface_num;
+			vlan_tag         = msg->vlan_primary_rule.egress_vlan_tag;
 			lan_client_ip[0] = msg->conn_rule.return_ip_xlate;
 		} else if (topo == IPA_BE_TOPO_UL_STACKED) {
 			IPA_BE_DBG("Uplink flow (WAN VLAN, bridged LAN) destroy - deleting rules\n");
 			pdn_iface        = msg->conn_rule.return_interface_num;
 			client_iface     = msg->conn_rule.flow_interface_num;
+			vlan_tag         = msg->vlan_primary_rule.ingress_vlan_tag;
 			lan_client_ip[0] = msg->tuple.flow_ip;
 		} else if (topo == IPA_BE_TOPO_DL_STACKED) {
 			IPA_BE_DBG("Downlink flow (WAN VLAN, bridged LAN) destroy - deleting rules\n");
 			pdn_iface        = msg->conn_rule.flow_interface_num;
 			client_iface     = msg->conn_rule.return_interface_num;
+			vlan_tag         = msg->vlan_primary_rule.egress_vlan_tag;
 			lan_client_ip[0] = msg->conn_rule.return_ip_xlate;
 		} else {
 			IPA_BE_ERR("Invalid WAN flow param\n");
@@ -3589,8 +3594,8 @@ void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 				IPA_BE_ERR("Failed to delete WAN filter for pdn %d, client %d\n",
 					client_iface, pdn_iface);
 
-			/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
-			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4) != 0) {
+			/* Delete MTU rule for the client/pdn/vlan/ip tuple (ref-counted) */
+			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, vlan_tag, IPA_IP_v4) != 0) {
 				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
 			}
 
@@ -3625,8 +3630,8 @@ void ipa_ipv4_destroy_rule(struct ipa_ipv4_rule_destroy_msg *msg)
 		} else {
 			ipa_be_v4_delete_uplink_filter_rule(*msg, pdn_iface, client_iface);
 
-			/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
-			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v4) != 0) {
+			/* Delete MTU rule for the client/pdn/vlan/ip tuple (ref-counted) */
+			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, vlan_tag, IPA_IP_v4) != 0) {
 				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
 			}
 
@@ -3661,6 +3666,7 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 	int rt_hdl = 0;
 	int pdn_iface = 0;
 	int client_iface = 0;
+	int vlan_tag = IPA_VLAN_ID_NOT_CONFIGURED;
 	int hdr_hdl = -1;
 	int proc_ctx_hdl = -1;
 	char proc_ctx_name[32] = {0};
@@ -3802,12 +3808,14 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			IPA_BE_DBG("Uplink flow destroy - deleting both uplink and downlink rules\n");
 			pdn_iface    = msg->conn_rule.return_interface_num;
 			client_iface = msg->conn_rule.flow_interface_num;
+			vlan_tag     = msg->vlan_primary_rule.ingress_vlan_tag;
 			flow_ip_ptr  = (uint32_t *)&msg->tuple.flow_ip;
 			/* WAN IP for uplink (return_ip) already cleaned by early block above */
 		} else if (topo == IPA_BE_TOPO_DL) {
 			IPA_BE_DBG("Downlink flow destroy - deleting both downlink and uplink rules\n");
 			pdn_iface    = msg->conn_rule.flow_interface_num;
 			client_iface = msg->conn_rule.return_interface_num;
+			vlan_tag     = msg->vlan_primary_rule.egress_vlan_tag;
 			flow_ip_ptr  = (uint32_t *)&msg->tuple.return_ip;
 			/* WAN IP for downlink not covered by early block; track for cleanup below */
 			wan_ip_ptr   = (uint32_t *)&msg->tuple.flow_ip;
@@ -3815,12 +3823,14 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			IPA_BE_DBG("Uplink flow (WAN VLAN, bridged LAN) destroy - deleting rules\n");
 			pdn_iface    = msg->conn_rule.return_interface_num;
 			client_iface = msg->conn_rule.flow_interface_num;
+			vlan_tag     = msg->vlan_primary_rule.ingress_vlan_tag;
 			flow_ip_ptr  = (uint32_t *)&msg->tuple.flow_ip;
 			/* WAN IP for uplink (return_ip) already cleaned by early block above */
 		} else if (topo == IPA_BE_TOPO_DL_STACKED) {
 			IPA_BE_DBG("Downlink flow (WAN VLAN, bridged LAN) destroy - deleting rules\n");
 			pdn_iface    = msg->conn_rule.flow_interface_num;
 			client_iface = msg->conn_rule.return_interface_num;
+			vlan_tag     = msg->vlan_primary_rule.egress_vlan_tag;
 			flow_ip_ptr  = (uint32_t *)&msg->tuple.return_ip;
 			wan_ip_ptr   = (uint32_t *)&msg->tuple.flow_ip;
 		} else {
@@ -3872,8 +3882,8 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 				IPA_BE_ERR("Failed to delete WAN filter for pdn %d, client %d\n",
 					client_iface, pdn_iface);
 
-			/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
-			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6) != 0) {
+			/* Delete MTU rule for the client/pdn/vlan/ip tuple (ref-counted) */
+			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, vlan_tag, IPA_IP_v6) != 0) {
 				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
 			}
 
@@ -3894,8 +3904,8 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 				IPA_BE_ERR("Failed to delete uplink filter rule for pdn %d, client %d\n",
 					pdn_iface, client_iface);
 
-			/* Delete MTU rule for the client/pdn/ip tuple (ref-counted) */
-			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6) != 0) {
+			/* Delete MTU rule for the client/pdn/vlan/ip tuple (ref-counted) */
+			if (ipa_be_delete_mtu_rule(client_iface, pdn_iface, vlan_tag, IPA_IP_v6) != 0) {
 				IPA_BE_ERR("Failed to delete MTU rule for client %d pdn %d\n", client_iface, pdn_iface);
 			}
 

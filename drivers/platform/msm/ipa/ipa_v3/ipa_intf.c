@@ -1909,6 +1909,46 @@ int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry
 	return ipa3_delete_filter_rules_entry_snapshot(intf_idx, flt_entry, NULL);
 }
 
+/**
+ * ipa3_delete_filter_rules_entry_by_hdl() - Remove one tracked filter entry by handle
+ * @intf_idx: Network interface index the entry is tracked under
+ * @flt_hdl: Exact filter rule handle to match and remove
+ *
+ * Return: 0 on success; -ENODEV if intf_idx is not tracked; -EINVAL if its
+ * flt_list is NULL; -ENOENT if flt_hdl is not present in that flt_list.
+ */
+int ipa3_delete_filter_rules_entry_by_hdl(int intf_idx, int flt_hdl)
+{
+	struct ipa3_intf *entry;
+	struct ipa3_flt_entry *iter, *tmp;
+	int ret = -ENODEV;
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
+		if (entry->intf_idx != intf_idx)
+			continue;
+
+		if (!entry->flt_list) {
+			ret = -EINVAL;
+			break;
+		}
+
+		ret = -ENOENT;
+		list_for_each_entry_safe(iter, tmp, &entry->flt_list->link, link) {
+			if (iter->flt_hdl == flt_hdl) {
+				list_del(&iter->link);
+				kfree(iter);
+				ret = 0;
+				break;
+			}
+		}
+		break;
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	return ret;
+}
+
 int ipa3_delete_filter_rules_entry_snapshot(int intf_idx,
 		struct ipa3_flt_entry flt_entry, struct ipa3_flt_entry *out)
 {

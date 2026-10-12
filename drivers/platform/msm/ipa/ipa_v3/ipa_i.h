@@ -4334,6 +4334,7 @@ bool ipa3_add_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry(int intf_idx, struct ipa3_flt_entry flt_entry);
 int ipa3_delete_filter_rules_entry_snapshot(int intf_idx,
 		struct ipa3_flt_entry flt_entry, struct ipa3_flt_entry *out);
+int ipa3_delete_filter_rules_entry_by_hdl(int intf_idx, int flt_hdl);
 bool ipa3_lan2lan_flt_need_install(enum ipa_ip_type ip_type,
 	const u32 *dst_addr, int ep);
 void ipa3_lan2lan_flt_add(enum ipa_ip_type ip_type, const u32 *dst_addr,
