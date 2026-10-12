@@ -2830,7 +2830,9 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 			if (ipa3_get_page_dma_addr(
 				skb_frag_page(desc[data_idx + f].frag),
 				&frag_dma_addr)) {
-				desc[data_idx + f].dma_address = frag_dma_addr;
+				/* page IOVA is for offset 0; the frag may start deeper in the page */
+				desc[data_idx + f].dma_address = frag_dma_addr +
+					skb_frag_off(desc[data_idx + f].frag);
 				desc[data_idx + f].dma_address_valid = true;
 			}
 		}
@@ -2901,7 +2903,9 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 				if (ipa3_get_page_dma_addr(
 					skb_frag_page(desc[data_idx+f].frag),
 					&frag_dma_addr)) {
-					desc[data_idx+f].dma_address = frag_dma_addr;
+					/* page IOVA is for offset 0; the frag may start deeper in the page */
+					desc[data_idx+f].dma_address = frag_dma_addr +
+						skb_frag_off(desc[data_idx+f].frag);
 					desc[data_idx+f].dma_address_valid = true;
 				}
 			}
