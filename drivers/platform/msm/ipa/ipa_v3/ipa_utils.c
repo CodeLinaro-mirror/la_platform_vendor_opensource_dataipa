@@ -7614,6 +7614,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 2 , 11, 25, 32, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_NA },
+	[IPA_6_0_AUTO_MHI][IPA_CLIENT_WLAN2_PROD] = {
+			true,   IPA_v6_0_GROUP_UL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 4 , 9 , 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_NA },
 	[IPA_6_0_AUTO_MHI][IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD] = {
 			true, IPA_v6_0_GROUP_URLLC,
 			true,
@@ -7803,12 +7810,19 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_PCIE,
 			{ 37, 29, 5 , 5 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
-	[IPA_6_0_AUTO_MHI][IPA_CLIENT_MHI_LOW_LAT_CONS] = {
-			true,   IPA_v6_0_GROUP_DL,
+	[IPA_6_0_AUTO_MHI][IPA_CLIENT_WLAN2_CONS] = {
+			true, IPA_v6_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
-			QMB_MASTER_SELECT_PCIE,
-			{ 40, 6, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			QMB_MASTER_SELECT_DDR,
+			{ 40, 6, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_DL },
+	[IPA_6_0_AUTO_MHI][IPA_CLIENT_WLAN2_CONS1] = {
+			true, IPA_v6_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 45, 33, 8 , 14 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
 	[IPA_6_0_AUTO_MHI][IPA_CLIENT_TEST_PROD] = {
 			true,   IPA_v6_0_GROUP_UL,
@@ -17414,7 +17428,7 @@ int ipa3_socksv5_conn_cache_add(struct ipa_socksv5_info *info, bool true)
 
 	if(list_empty(&ipa3_ctx->socksv5_msg_list))
 	{
-		entry = kzalloc(sizeof(struct ipa_socksv5_info), GFP_KERNEL);
+		entry = kzalloc(sizeof(struct ipa3_socks_v5_msg), GFP_KERNEL);
 		if(!entry)
 		{
 			IPAERR("entry memory allocation failed !\n");
@@ -17457,7 +17471,7 @@ int ipa3_socksv5_conn_cache_add(struct ipa_socksv5_info *info, bool true)
 					return 0;
 				}
 		}
-		entry = kzalloc(sizeof(struct ipa_socksv5_info), GFP_KERNEL);
+		entry = kzalloc(sizeof(struct ipa3_socks_v5_msg), GFP_KERNEL);
 		if(!entry)
 		{
 			IPAERR("entry memory allocation failed !\n");

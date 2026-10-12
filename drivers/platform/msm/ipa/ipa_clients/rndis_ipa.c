@@ -2375,7 +2375,7 @@ static void rndis_ipa_debugfs_init(struct rndis_ipa_dev *rndis_ipa_ctx)
 		return;
 
 	rndis_ipa_ctx->directory = debugfs_create_dir(DEBUGFS_DIR_NAME, NULL);
-	if (!rndis_ipa_ctx->directory) {
+	if (IS_ERR_OR_NULL(rndis_ipa_ctx->directory)) {
 		RNDIS_IPA_ERROR("could not create debugfs directory entry\n");
 		goto fail_directory;
 	}
@@ -2406,7 +2406,7 @@ static void rndis_ipa_debugfs_init(struct rndis_ipa_dev *rndis_ipa_ctx)
 		("outstanding", flags_read_only,
 		rndis_ipa_ctx->directory,
 		rndis_ipa_ctx, &rndis_ipa_debugfs_atomic_ops);
-	if (!file) {
+	if (IS_ERR_OR_NULL(file)) {
 		RNDIS_IPA_ERROR("could not create outstanding file\n");
 		goto fail_file;
 	}
@@ -2426,7 +2426,7 @@ static void rndis_ipa_debugfs_init(struct rndis_ipa_dev *rndis_ipa_ctx)
 	aggr_directory = debugfs_create_dir
 		(DEBUGFS_AGGR_DIR_NAME,
 		rndis_ipa_ctx->directory);
-	if (!aggr_directory) {
+	if (IS_ERR_OR_NULL(aggr_directory)) {
 		RNDIS_IPA_ERROR("could not create debugfs aggr entry\n");
 		goto fail_directory;
 	}
@@ -2435,7 +2435,7 @@ static void rndis_ipa_debugfs_init(struct rndis_ipa_dev *rndis_ipa_ctx)
 		("aggr_value_set", flags_write_only,
 		aggr_directory,
 		rndis_ipa_ctx, &rndis_ipa_aggr_ops);
-	if (!file) {
+	if (IS_ERR_OR_NULL(file)) {
 		RNDIS_IPA_ERROR("could not create aggr_value_set file\n");
 		goto fail_file;
 	}

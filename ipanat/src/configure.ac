@@ -40,6 +40,17 @@ fi
 
 AM_CONDITIONAL(USE_GLIB, test "x${with_glib}" = "xyes")
 
+AC_ARG_WITH([clog],
+        AC_HELP_STRING([--with-clog], [with CLOG (commonlog) logging enabled]))
+
+AM_CONDITIONAL(USE_CLOG, test "x${with_clog}" = "xyes")
+
+if (test "x${with_clog}" = "xyes"); then
+        PKG_CHECK_MODULES([CLOGLOG], [libclog])
+        AC_SUBST([CLOGLOG_CFLAGS])
+        AC_SUBST([CLOGLOG_LIBS])
+fi
+
 AC_ARG_ENABLE(target,
     [AS_HELP_STRING([--enable-target=TARGET], [Specify the target product to build])],
     [TARGET=$enableval],

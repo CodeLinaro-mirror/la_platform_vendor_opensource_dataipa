@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #undef TRACE_SYSTEM
@@ -299,7 +299,7 @@ TRACE_EVENT(
 	TP_ARGS(skb, client),
 
 	TP_STRUCT__entry(
-		__string(name,			skb->dev->name)
+		__string(name,			skb->dev ? skb->dev->name : "Unknown")
 		__field(const void *,	skbaddr)
 		__field(u16,			protocol)
 		__field(unsigned int,	len)
@@ -308,7 +308,8 @@ TRACE_EVENT(
 	),
 
 	TP_fast_assign(
-		strlcpy(__get_str(name), skb->dev->name, sizeof(skb->dev->name));
+		strlcpy(__get_str(name), skb->dev ? skb->dev->name : "Unknown",
+			IFNAMSIZ);
 		__entry->skbaddr = skb;
 		__entry->protocol = ntohs(skb->protocol);
 		__entry->len = skb->len;

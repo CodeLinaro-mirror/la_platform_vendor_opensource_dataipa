@@ -32,10 +32,80 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <stdarg.h>
 
 #define IPA_MAX_MSG_LEN 4096
 
 static char dbg_buff[IPA_MAX_MSG_LEN];
+static ipa_nat_log_handler_t ipa_nat_log_handler;
+#ifdef USE_CLOG
+static clog_context_t ipa_nat_clog_ctx;
+static pthread_once_t ipa_nat_clog_once = PTHREAD_ONCE_INIT;
+
+/* Registered lazily: CLOG_REGISTER_LIBRARY() derives the App ID from the
+ * hosting process, which has not registered it yet at library load time. */
+static void ipa_nat_clog_init_once(void)
+{
+	(void)CLOG_REGISTER_LIBRARY();
+	ipa_nat_clog_ctx = CLOG_REGISTER_CONTEXT(IPA_NAT_CLOG_CTX_ID, IPA_NAT_CLOG_CTX_NAME,
+			"IPA NAT Library", IPA_NAT_CLOG_DIAG_SSID,
+			IPA_NAT_CLOG_CTX_NAME, IPA_NAT_CLOG_CTX_NAME);
+}
+
+static void __attribute__((destructor)) ipa_nat_clog_deinit(void)
+{
+	if (ipa_nat_clog_ctx != NULL)
+	{
+		(void)CLOG_UNREGISTER_CONTEXT(ipa_nat_clog_ctx);
+		ipa_nat_clog_ctx = NULL;
+	}
+	(void)CLOG_UNREGISTER_LIBRARY();
+}
+
+static clog_level_t ipa_nat_to_clog_level(ipa_nat_log_level_t level)
+{
+	switch (level)
+	{
+	case IPA_NAT_LOG_LVL_ERR:  return CLOG_LEVEL_ERROR;
+	case IPA_NAT_LOG_LVL_WARN: return CLOG_LEVEL_WARN;
+	case IPA_NAT_LOG_LVL_INFO: return CLOG_LEVEL_INFO;
+	case IPA_NAT_LOG_LVL_DBG:  return CLOG_LEVEL_DEBUG;
+	default:                   return CLOG_LEVEL_VERBOSE;
+	}
+}
+#endif
+
+void ipa_nat_set_log_handler(ipa_nat_log_handler_t handler)
+{
+	ipa_nat_log_handler = handler;
+}
+
+void ipa_nat_log_emit(
+	ipa_nat_log_level_t level,
+	const char* fmt,
+	... )
+{
+	va_list ap;
+	char msg[256]; //256 bytes are enough
+	va_start(ap, fmt);
+	vsnprintf(msg, sizeof(msg), fmt, ap);
+	va_end(ap);
+	/* vsnprintf() always NUL-terminates msg, truncating on overflow rather
+	 * than dropping it; emit whatever fits instead of discarding the log. */
+#ifdef USE_CLOG
+	(void)pthread_once(&ipa_nat_clog_once, ipa_nat_clog_init_once);
+	if (ipa_nat_clog_ctx != NULL)
+	{
+		CLOG_LOG(ipa_nat_clog_ctx, ipa_nat_to_clog_level(level), "%s", msg);
+		return;
+	}
+	/* Registration failed: use the relay/legacy path below. */
+#endif
+	if ( ipa_nat_log_handler )
+	{
+		ipa_nat_log_handler(level, msg);
+	}
+}
 
 #if !defined(MSM_IPA_TESTS) && !defined(USE_GLIB) && !defined(FEATURE_IPA_ANDROID)
 size_t strlcpy(char* dst, const char* src, size_t size)

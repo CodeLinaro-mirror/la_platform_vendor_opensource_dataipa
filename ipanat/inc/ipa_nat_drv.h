@@ -37,6 +37,11 @@
 #include <stdint.h>  /* uint32_t */
 #include <stdbool.h>
 
+# ifdef __cplusplus
+extern "C"
+{
+# endif /* __cplusplus */
+
 /**
  * ipa_nat_is_sram_supported() - Reports if sram is available for use
  */
@@ -287,6 +292,10 @@ int ipa_nat_vote_clock(
 int ipa_nat_switch_to(
 	enum ipa3_nat_mem_in nmi,
 	bool                 hold_state );
+
+# ifdef __cplusplus
+}
+# endif /* __cplusplus */
 
 #endif
 
