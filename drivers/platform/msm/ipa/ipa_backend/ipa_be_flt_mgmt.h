@@ -26,7 +26,14 @@ int ipa_be_v6_add_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2l
 int ipa_be_v6_delete_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int intf_idx, mac_addr_t mac, bool lan2lan);
 
 int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int pdn_iface, int client_iface, bool is_xlat);
-int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int pdn_iface, int client_iface);
+/*
+ * is_xlat must be true only for the companion decrement issued by
+ * ipa_be_v4_delete_uplink_filter_rule() on behalf of a v4 XLAT flow (it
+ * additionally releases the shared v6 XLAT companion group); a direct ECM
+ * v6-disconnect call must pass false (it only ever touches the base v6
+ * uplink group, which is this function's always-released part).
+ */
+int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int pdn_iface, int client_iface, bool is_xlat);
 
 void ipa_be_flush_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type);
 void ipa_be_flush_idle_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type);

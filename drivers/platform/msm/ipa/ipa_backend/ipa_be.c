@@ -3186,7 +3186,7 @@ failed_ret:
 				ipa_be_delete_mtu_rule(client_iface, pdn_iface, IPA_IP_v6);
 				/* fallthrough */
 			case V6_MDM_STEP_UPLINK_FILTER:
-				ipa_be_v6_delete_uplink_filter_rule(*((struct ipa_ipv6_rule_destroy_msg *)&v6_msg), pdn_iface, client_iface);
+				ipa_be_v6_delete_uplink_filter_rule(*((struct ipa_ipv6_rule_destroy_msg *)&v6_msg), pdn_iface, client_iface, false);
 				/* fallthrough */
 			case V6_MDM_STEP_ROUTE_RULE:
 				if (lan_route_added)
@@ -3890,7 +3890,7 @@ void ipa_ipv6_destroy_rule(struct ipa_ipv6_rule_destroy_msg *msg)
 			IPA_BE_DBG("NAT support disabled - skipping ipa_be_handle_v6_ct_deletion\n");
 #endif
 		} else {
-			if (ipa_be_v6_delete_uplink_filter_rule(*msg, pdn_iface, client_iface) != 0)
+			if (ipa_be_v6_delete_uplink_filter_rule(*msg, pdn_iface, client_iface, false) != 0)
 				IPA_BE_ERR("Failed to delete uplink filter rule for pdn %d, client %d\n",
 					pdn_iface, client_iface);
 

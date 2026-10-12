@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+//SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
@@ -42,6 +42,17 @@ extern int ipa3_qmi_filter_request_ex_send(
 extern int ipahal_flt_generate_equation(enum ipa_ip_type ipt,
 	const struct ipa_rule_attrib *attrib,
 	struct ipa_ipfltri_rule_eq *eq_atrb);
+
+/* Forward declaration: struct ipa_ul_group tracking is defined below this
+ * point, but ipa_be_global_qmap_id_reset_if_empty() (defined just above it,
+ * near the WAN-up ipa_uplink_pair tracking) needs to test this list's
+ * emptiness under its own lock, nested inside ipa_uplink_lock -- declared
+ * here (ahead of struct ipa_ul_group itself, which this doesn't need) so
+ * that function can reference it directly instead of through a separate,
+ * separately-locked helper call.
+ */
+static LIST_HEAD(ipa_ul_groups_list);
+static DEFINE_SPINLOCK(ipa_ul_groups_lock);
 
 /* Helper function to convert addresses to network order */
 static inline void addr2network(enum ipa_ip_type addr_type, void *addr)
@@ -268,11 +279,28 @@ static uint8_t ipa_be_global_qmap_id_latch(uint8_t candidate)
 	return latched;
 }
 
+/* The latch is only ever written by the ECM uplink add path below, whose
+ * tracking lives on ipa_ul_groups_list (not ipa_uplink_pairs_list, which
+ * backs the unrelated WAN-up/down eth-backhaul feature and never touches
+ * this latch) -- so emptiness is judged against ipa_ul_groups_list.
+ *
+ * Takes ipa_uplink_lock *outer* and ipa_ul_groups_lock *inner* so the
+ * emptiness check and the reset happen as one atomic step -- checking
+ * emptiness via a separate ipa_ul_groups_all_empty() call first (as this
+ * used to) leaves a window where a concurrent ipa_ul_group_acquire() +
+ * ipa_be_global_qmap_id_latch() on another CPU can latch a real mux_id
+ * right after this snapshot, which this function would then stomp back to
+ * UNSET. Safe to nest this way: ipa_be_global_qmap_id_latch() never holds
+ * ipa_ul_groups_lock while taking ipa_uplink_lock, so there's no reverse
+ * ordering anywhere to deadlock against.
+ */
 static void ipa_be_global_qmap_id_reset_if_empty(void)
 {
 	spin_lock_bh(&ipa_uplink_lock);
-	if (list_empty(&ipa_uplink_pairs_list))
+	spin_lock_bh(&ipa_ul_groups_lock);
+	if (list_empty(&ipa_ul_groups_list))
 		ipa_be_global_qmap_id = IPA_BE_GLOBAL_QMAP_UNSET;
+	spin_unlock_bh(&ipa_ul_groups_lock);
 	spin_unlock_bh(&ipa_uplink_lock);
 }
 
@@ -295,6 +323,865 @@ static inline bool ipa_uplink_pair_match(const struct ipa_uplink_pair *p,
 	return p->pdn_iface == pdn_iface &&
 	       p->client_iface == client_iface &&
 	       p->ip_type == ip_type;
+}
+
+/*
+ * Tracking for the ECM-connect modem (Q6) uplink filter rules installed by
+ * ipa_be_v{4,6}_add_uplink_filter_rule() / deleted by
+ * ipa_be_v{4,6}_delete_uplink_filter_rule(). Deliberately a separate
+ * list/lock from struct ipa_uplink_pair above, which backs the unrelated
+ * eth-backhaul rule in ipa_be_handle_wan_up()/_down() (keyed by pdn_iface/
+ * src_pipe/ip_type -- different lifetime, different key).
+ *
+ * A group is keyed by (client_iface, ip_type, cat, keyed_by_vlan, vlan_id).
+ * Non-XLAT uplink rows are PDN-independent, so they're installed once per
+ * (client_iface, ip_type) and shared by every attaching PDN
+ * (keyed_by_vlan=false). The v4 XLAT row's match equation carries a VLAN
+ * tag, so it's genuinely per-VLAN (keyed_by_vlan=true per vlan_id, or the
+ * IPA_UL_VLAN_NONE sentinel). The v6 XLAT companion matches by EtherType,
+ * not VLAN, so it's shared across all VLANs/PDNs on a client
+ * (keyed_by_vlan=false, cat=CAT_XLAT).
+ *
+ * Each group tracks member PDNs individually (struct ipa_ul_pdn_ref) so a
+ * PDN joining an already-installed group still gets its own QMI notify
+ * without a HW reinstall; install/teardown is always driven by the group's
+ * aggregate ref_count, never any single PDN's count.
+ */
+/* Sentinel vlan_id for the non-VLAN XLAT group (reuses the existing "no
+ * VLAN configured" constant).
+ */
+#define IPA_UL_VLAN_NONE IPA_VLAN_ID_NOT_CONFIGURED
+
+/* One PDN's membership in a group: its own flow ref_count and cached mux_id. */
+struct ipa_ul_pdn_ref {
+	struct list_head node;
+	int pdn_iface;
+	atomic_t ref_count;	/* flows from this pdn under the group */
+	uint8_t mux_id;		/* cached from this pdn's ext_prop, for notify */
+};
+
+/* One rule_id this group owns, cached so a later notify-only call can
+ * resend the install notify without rebuilding the HW table.
+ */
+struct ipa_ul_rule_id_node {
+	struct list_head node;
+	uint32_t rule_id;
+};
+
+/* One ext_prop row's assigned HW ordering priority, keyed by rule_id. */
+struct ipa_ul_prio_node {
+	struct list_head node;
+	uint32_t rule_id;	/* which ext_prop row this applies to */
+	uint8_t sub_cat;	/* assigned enum rule_sub_category value */
+};
+
+struct ipa_ul_group {
+	struct list_head node;
+	int client_iface;
+	enum ipa_ip_type ip_type;
+	enum flt_rule_category cat;	/* CAT_UPLINK or CAT_XLAT */
+	bool keyed_by_vlan;		/* true only for the v4 per-VLAN XLAT row */
+	uint16_t vlan_id;		/* valid iff keyed_by_vlan; else unused */
+	atomic_t ref_count;		/* aggregate across pdn_list; drives install/teardown */
+	bool installing;
+	struct list_head pdn_list;	/* struct ipa_ul_pdn_ref */
+	uint32_t *flt_hdls;		/* exact handles owned by this group */
+	int num_hdls;
+	struct list_head rule_id_list;	/* struct ipa_ul_rule_id_node; cached, for repeat notify */
+	uint32_t notif_src_pipe;
+	uint32_t notif_ebd_pipe;
+	enum ipa_client_type notif_src_client;
+	/* Modem expects uplink rows in increasing rule_id order. Populated on
+	 * a base group at build time for every ext_prop row of this ip_type,
+	 * including is_xlat_rule rows that actually belong to a separate
+	 * per-VLAN group: that group, built standalone later, looks up its
+	 * assigned sub_category here (ipa_ul_group_lookup_sub_cat()) to place
+	 * its row(s) in the correct relative HW position without a rebuild.
+	 */
+	struct list_head prio_list;	/* struct ipa_ul_prio_node */
+};
+
+/* ipa_ul_groups_list/ipa_ul_groups_lock are declared earlier in this file
+ * (ahead of ipa_be_global_qmap_id_reset_if_empty(), which needs them) --
+ * only the wait queue is declared here, next to the struct it waits on.
+ */
+static DECLARE_WAIT_QUEUE_HEAD(ipa_ul_groups_wq);
+
+static inline bool ipa_ul_group_match(const struct ipa_ul_group *g,
+		int client_iface, enum ipa_ip_type ip_type,
+		enum flt_rule_category cat, bool keyed_by_vlan, uint16_t vlan_id)
+{
+	if (g->client_iface != client_iface || g->ip_type != ip_type ||
+	    g->cat != cat || g->keyed_by_vlan != keyed_by_vlan)
+		return false;
+	return !keyed_by_vlan || g->vlan_id == vlan_id;
+}
+
+/* Caller must hold ipa_ul_groups_lock. */
+static struct ipa_ul_group *ipa_find_ul_group(int client_iface,
+		enum ipa_ip_type ip_type, enum flt_rule_category cat,
+		bool keyed_by_vlan, uint16_t vlan_id)
+{
+	struct ipa_ul_group *g;
+
+	list_for_each_entry(g, &ipa_ul_groups_list, node) {
+		if (ipa_ul_group_match(g, client_iface, ip_type, cat,
+					keyed_by_vlan, vlan_id))
+			return g;
+	}
+	return NULL;
+}
+
+/* Caller must hold ipa_ul_groups_lock. */
+static struct ipa_ul_pdn_ref *ipa_find_ul_pdn_ref(struct ipa_ul_group *g,
+		int pdn_iface)
+{
+	struct ipa_ul_pdn_ref *p;
+
+	list_for_each_entry(p, &g->pdn_list, node) {
+		if (p->pdn_iface == pdn_iface)
+			return p;
+	}
+	return NULL;
+}
+
+/*
+ * Looks up whether pdn_iface currently has a pdn_ref under ANY group
+ * matching (client_iface, ip_type) -- i.e. consolidated membership across
+ * base + every per-VLAN XLAT group of that type, not any single group.
+ * When found and the out pointers are non-NULL, also returns that pdn's
+ * cached mux_id and the shared pipe info (same pipe for every group of
+ * this client_iface, by construction).
+ */
+static bool ipa_ul_client_pdn_lookup(int client_iface, enum ipa_ip_type ip_type,
+	int pdn_iface, uint8_t *out_mux_id, uint32_t *out_src_pipe, uint32_t *out_ebd_pipe)
+{
+	struct ipa_ul_group *g;
+	struct ipa_ul_pdn_ref *p;
+	bool found = false;
+
+	spin_lock_bh(&ipa_ul_groups_lock);
+	list_for_each_entry(g, &ipa_ul_groups_list, node) {
+		if (g->client_iface != client_iface || g->ip_type != ip_type)
+			continue;
+		if (g->installing)
+			continue;
+		p = ipa_find_ul_pdn_ref(g, pdn_iface);
+		if (p) {
+			if (out_mux_id)
+				*out_mux_id = p->mux_id;
+			if (out_src_pipe)
+				*out_src_pipe = g->notif_src_pipe;
+			if (out_ebd_pipe)
+				*out_ebd_pipe = g->notif_ebd_pipe;
+			found = true;
+			break;
+		}
+	}
+	spin_unlock_bh(&ipa_ul_groups_lock);
+	return found;
+}
+
+/*
+ * Sends ONE QMI notify for a (client_iface, ip_type) carrying the union of
+ * rule_id_list across every matching group. The message replaces the
+ * modem's picture for the pipe rather than adding to it, so it must always
+ * be the full current set. mux_id is this PDN's own notify mux and is sent
+ * as-is; it also drives the global qmap latch as a side effect.
+ *
+ * Deduplicated by rule_id (the modem's identity for a logical ext_prop
+ * row): the per-VLAN v4 XLAT groups all carry the same XLAT rule IDs.
+ *
+ * No installing=true skip: set_rule_ids() publishes under the lock, so a
+ * group is either empty (skipped) or complete. Skipping installing groups
+ * suppressed the first notify entirely, as that group is the only match.
+ *
+ * Carries one source pipe -- all groups of a client share it, since every
+ * in-tree client registers one RX prop pair per IP type.
+ */
+static int ipa_ul_send_client_notify(int client_iface, enum ipa_ip_type ip_type,
+	uint8_t mux_id)
+{
+	struct ipa_fltr_installed_notif_req_msg_v01 flt_index;
+	struct ipa_ul_group *g;
+	struct ipa_ul_rule_id_node *node;
+	int n = 0;
+	bool got_pipe = false;
+
+	memset(&flt_index, 0, sizeof(flt_index));
+	spin_lock_bh(&ipa_ul_groups_lock);
+	list_for_each_entry(g, &ipa_ul_groups_list, node) {
+		bool truncated = false;
+
+		if (g->client_iface != client_iface || g->ip_type != ip_type)
+			continue;
+		/* Nothing published yet: no pipe info, nothing to contribute. */
+		if (list_empty(&g->rule_id_list))
+			continue;
+		if (!got_pipe) {
+			flt_index.source_pipe_index = g->notif_src_pipe;
+			flt_index.embedded_pipe_index = g->notif_ebd_pipe;
+			got_pipe = true;
+		}
+		list_for_each_entry(node, &g->rule_id_list, node) {
+			bool dup = false;
+			int k;
+
+			for (k = 0; k < n; k++) {
+				if (flt_index.rule_id[k] == node->rule_id) {
+					dup = true;
+					break;
+				}
+			}
+			if (dup)
+				continue;
+			if (n >= ARRAY_SIZE(flt_index.rule_id)) {
+				truncated = true;
+				break;
+			}
+			flt_index.rule_id[n++] = node->rule_id;
+		}
+		/* Stop entirely, not just this group -- avoids re-logging the
+		 * same cap. Unreachable now the union is deduplicated: the
+		 * build helpers already reject an ext_prop count over this cap.
+		 */
+		if (truncated) {
+			IPA_BE_ERR("UL notify rule_id[] cap (%zu) exceeded for client %d ip %d; truncating\n",
+				ARRAY_SIZE(flt_index.rule_id), client_iface, ip_type);
+			break;
+		}
+	}
+	spin_unlock_bh(&ipa_ul_groups_lock);
+
+	if (!got_pipe) {
+		IPA_BE_DBG("No uplink groups for client %d ip %d; nothing to notify\n",
+			client_iface, ip_type);
+		return 0;
+	}
+
+	flt_index.install_status = IPA_QMI_RESULT_SUCCESS_V01;
+	flt_index.rule_id_valid = 1;
+	flt_index.rule_id_len = n;
+	flt_index.embedded_pipe_index_valid = 1;
+	flt_index.retain_header_valid = 1;
+	flt_index.retain_header = 0;
+	flt_index.embedded_call_mux_id_valid = 1;
+	/* Per-PDN value: this notify is sent on behalf of one PDN and the mux
+	 * changes with it, so it must not be replaced by the global latch.
+	 * The latch is still driven here -- it is the only place that sets the
+	 * global, which ipa_be_wan_pdn_active() reads as a has-any-WAN-PDN
+	 * flag -- but its return value is deliberately discarded.
+	 */
+	(void)ipa_be_global_qmap_id_latch(mux_id);
+	flt_index.embedded_call_mux_id = mux_id;
+
+	IPA_BE_DBG("Consolidated UL notify: client %d ip %d src_pipe %u mux %u rules %d\n",
+		client_iface, ip_type, flt_index.source_pipe_index, mux_id, n);
+
+	if (ipa3_qmi_filter_notify_send(&flt_index)) {
+		IPA_BE_ERR("Consolidated UL notify failed client %d ip %d mux %u\n",
+			client_iface, ip_type, mux_id);
+		return -EFAULT;
+	}
+	return 0;
+}
+
+/* Frees every node on a rule_id_list, leaving the list empty. */
+static void ipa_ul_free_rule_id_list(struct list_head *list)
+{
+	struct ipa_ul_rule_id_node *node, *tmp;
+
+	list_for_each_entry_safe(node, tmp, list, node) {
+		list_del(&node->node);
+		kfree(node);
+	}
+}
+
+/* Frees every node on a prio_list, leaving the list empty. */
+static void ipa_ul_free_prio_list(struct list_head *list)
+{
+	struct ipa_ul_prio_node *node, *tmp;
+
+	list_for_each_entry_safe(node, tmp, list, node) {
+		list_del(&node->node);
+		kfree(node);
+	}
+}
+
+/*
+ * Replaces g's cached rule_id_list with one node per entry in
+ * rule_id[0..count), so a later notify-only call can resend without
+ * rebuilding the HW table.
+ *
+ * Builds into a local list (GFP_KERNEL may sleep, so no lock held), then
+ * swaps it in and publishes the notif_* pipe fields in one critical
+ * section. A notify walker therefore sees the complete old or complete new
+ * state -- never a half-freed list, never one pipe's IDs paired with
+ * another's index. This is why notify needs no installing=true skip.
+ *
+ * All-or-nothing: a partial list would make the next notify advertise a
+ * subset of the installed rules, so -ENOMEM leaves g untouched.
+ */
+static int ipa_ul_group_set_rule_ids(struct ipa_ul_group *g,
+	const uint32_t *rule_id, int count, uint32_t src_pipe,
+	uint32_t ebd_pipe, enum ipa_client_type src_client)
+{
+	struct ipa_ul_rule_id_node *node;
+	struct list_head fresh, stale;
+	int i;
+
+	INIT_LIST_HEAD(&fresh);
+	INIT_LIST_HEAD(&stale);
+
+	for (i = 0; i < count; i++) {
+		node = kzalloc(sizeof(*node), GFP_KERNEL);
+		if (!node) {
+			IPA_BE_ERR("Failed to allocate UL rule_id node for rule_id %u\n",
+				rule_id[i]);
+			ipa_ul_free_rule_id_list(&fresh);
+			return -ENOMEM;
+		}
+		node->rule_id = rule_id[i];
+		list_add_tail(&node->node, &fresh);
+	}
+
+	spin_lock_bh(&ipa_ul_groups_lock);
+	list_splice_init(&g->rule_id_list, &stale);
+	list_splice_tail_init(&fresh, &g->rule_id_list);
+	g->notif_src_pipe = src_pipe;
+	g->notif_ebd_pipe = ebd_pipe;
+	g->notif_src_client = src_client;
+	spin_unlock_bh(&ipa_ul_groups_lock);
+
+	ipa_ul_free_rule_id_list(&stale);
+	return 0;
+}
+
+/*
+ * Computes a stable rule_id -> sub_category mapping for every ext_prop row
+ * of the given ip_type, appended to the caller's prio_list. A base group
+ * and its per-VLAN XLAT sibling share one category, so this ordering must
+ * be computed once over the full row set and reused by both -- a narrowed
+ * subset would give the wrong relative order. Only
+ * IPA_RULE_SUB_CAT_MAX - IPA_RULE_PRIORITY_0 priority slots exist (HW/enum
+ * constraint); rows beyond that are clamped to the lowest priority.
+ *
+ * ext_prop rows arrive already in ascending rule_id order (modem/IPACM
+ * guarantee), so no sort is needed here. This doesn't replace the driver's
+ * own category/sub_category sort (__ipa_add_flt_rule()), which still has
+ * to run to order a later call's new row against rows a prior call already
+ * installed -- it just makes the redundant in-memory re-sort unnecessary.
+ */
+static void ipa_be_compute_rule_priorities(
+	struct ipa_ioc_query_intf_ext_props *ext_prop, enum ipa_ip_type ip_type,
+	struct list_head *prio_list)
+{
+	const int max_slots = IPA_RULE_SUB_CAT_MAX - IPA_RULE_PRIORITY_0;
+	struct ipa_ul_prio_node *new_node;
+	int cnt, slot = 0;
+
+	for (cnt = 0; cnt < ext_prop->num_ext_props; cnt++) {
+		int this_slot = slot;
+
+		if (ext_prop->ext[cnt].ip != ip_type)
+			continue;
+
+		new_node = kzalloc(sizeof(*new_node), GFP_KERNEL);
+		if (!new_node) {
+			IPA_BE_ERR("Failed to allocate UL priority node for rule_id %u\n",
+				ext_prop->ext[cnt].rule_id);
+			continue;
+		}
+		new_node->rule_id = ext_prop->ext[cnt].rule_id;
+
+		if (this_slot >= max_slots) {
+			IPA_BE_ERR("UL rule priority slots exhausted (cap %d); clamping rule_id %u to lowest priority\n",
+				max_slots, new_node->rule_id);
+			this_slot = max_slots - 1;
+		}
+		new_node->sub_cat = IPA_RULE_PRIORITY_0 + this_slot;
+		list_add_tail(&new_node->node, prio_list);
+		slot++;
+	}
+}
+
+/*
+ * Looks up the sub_category assigned to rule_id in a base group's cached
+ * priority list (see ipa_be_compute_rule_priorities()). Used when building
+ * a per-VLAN XLAT group standalone, after the base group already exists,
+ * so its row lands in the position it would have had if built together
+ * from scratch.
+ */
+static enum rule_sub_category ipa_ul_group_lookup_sub_cat(
+	struct ipa_ul_group *g, uint32_t rule_id)
+{
+	struct ipa_ul_prio_node *node;
+
+	list_for_each_entry(node, &g->prio_list, node) {
+		if (node->rule_id == rule_id)
+			return (enum rule_sub_category)node->sub_cat;
+	}
+	IPA_BE_ERR("No cached priority for rule_id %u in UL group client %d ip %d; falling back to NONE\n",
+		rule_id, g->client_iface, g->ip_type);
+	return IPA_RULE_SUB_CAT_NONE;
+}
+
+/*
+ * Same lookup as ipa_ul_group_lookup_sub_cat(), but against a freshly
+ * computed local priority list (ipa_be_compute_rule_priorities() output)
+ * rather than one already cached on a group -- used while building a
+ * group for the first time, before its own prio_list has been populated.
+ */
+static enum rule_sub_category ipa_be_lookup_local_sub_cat(
+	struct list_head *prio_list, uint32_t rule_id)
+{
+	struct ipa_ul_prio_node *node;
+
+	list_for_each_entry(node, prio_list, node) {
+		if (node->rule_id == rule_id)
+			return (enum rule_sub_category)node->sub_cat;
+	}
+	IPA_BE_ERR("No local priority for rule_id %u; falling back to NONE\n",
+		rule_id);
+	return IPA_RULE_SUB_CAT_NONE;
+}
+
+/*
+ * Sends the Q6 "this mux_id's uplink rules are gone" notify (rule_id_len=0),
+ * scoped to one PDN. Callers send this only after
+ * ipa_ul_client_pdn_lookup() confirms the PDN's membership across EVERY
+ * group of this client_iface+ip_type has dropped to zero -- one group's
+ * ref hitting zero isn't enough, since a sibling group may still hold it.
+ * This is the only removal notify sent, even when the group itself is
+ * about to be torn down -- ipa_ul_group_teardown() sends none of its own.
+ */
+static void ipa_ul_send_pdn_removed_notify(uint32_t src_pipe,
+	uint32_t ebd_pipe, uint8_t mux_id, int pdn_iface, int client_iface)
+{
+	struct ipa_fltr_installed_notif_req_msg_v01 flt_index;
+
+	memset(&flt_index, 0, sizeof(flt_index));
+	flt_index.source_pipe_index = src_pipe;
+	flt_index.install_status = IPA_QMI_RESULT_SUCCESS_V01;
+	flt_index.rule_id_valid = 1;
+	flt_index.rule_id_len = 0;
+	flt_index.embedded_pipe_index_valid = 1;
+	flt_index.embedded_pipe_index = ebd_pipe;
+	flt_index.retain_header_valid = 1;
+	flt_index.retain_header = 0;
+	flt_index.embedded_call_mux_id_valid = 1;
+	flt_index.embedded_call_mux_id = mux_id;
+
+	IPA_BE_DBG("UL per-PDN removed notify: pdn %d client %d src_pipe %u mux %u\n",
+		pdn_iface, client_iface, src_pipe, mux_id);
+
+	if (ipa3_qmi_filter_notify_send(&flt_index))
+		IPA_BE_ERR("Per-PDN removed notify failed: pdn %d client %d mux %u\n",
+			pdn_iface, client_iface, mux_id);
+}
+
+/* wait_event predicate: re-locks and re-walks to avoid stale pointer on free. */
+static bool ipa_ul_group_settled(int client_iface, enum ipa_ip_type ip_type,
+		enum flt_rule_category cat, bool keyed_by_vlan, uint16_t vlan_id)
+{
+	struct ipa_ul_group *g;
+	bool settled;
+
+	spin_lock_bh(&ipa_ul_groups_lock);
+	g = ipa_find_ul_group(client_iface, ip_type, cat, keyed_by_vlan, vlan_id);
+	settled = !g || !g->installing;
+	spin_unlock_bh(&ipa_ul_groups_lock);
+	return settled;
+}
+
+/*
+ * Finds-or-creates the ipa_ul_group for the given key and the
+ * ipa_ul_pdn_ref for pdn_iface within it, bumping both ref_counts.
+ * Pre-allocates both before taking the lock so it's never dropped
+ * mid-lookup -- a concurrent release could otherwise free the group out
+ * from under a reacquired pointer.
+ *
+ * *is_new_group means the caller must build+install the HW rows, then call
+ * ipa_ul_group_install_done() or ipa_ul_group_abort_new(); the group stays
+ * installing=true (blocking other acquirers on the same key, who
+ * wait_event on ipa_ul_group_settled()) until then. *is_new_pdn (when
+ * !*is_new_group) means this PDN is newly attaching to an
+ * already-installed group: no HW work, but it still needs its own QMI
+ * notify (Q4/Q10). Neither flag set is a plain refcount bump.
+ */
+static int ipa_ul_group_acquire(int client_iface, enum ipa_ip_type ip_type,
+		enum flt_rule_category cat, bool keyed_by_vlan, uint16_t vlan_id,
+		int pdn_iface, uint8_t mux_id,
+		struct ipa_ul_group **out_group,
+		bool *is_new_group, bool *is_new_pdn)
+{
+	struct ipa_ul_group *g, *new_g;
+	struct ipa_ul_pdn_ref *p, *new_p;
+
+	*out_group = NULL;
+	*is_new_group = false;
+	*is_new_pdn = false;
+
+	new_g = kzalloc(sizeof(*new_g), GFP_KERNEL);
+	new_p = kzalloc(sizeof(*new_p), GFP_KERNEL);
+	if (!new_g || !new_p) {
+		kfree(new_g);
+		kfree(new_p);
+		return -ENOMEM;
+	}
+	INIT_LIST_HEAD(&new_g->pdn_list);
+	INIT_LIST_HEAD(&new_g->rule_id_list);
+	INIT_LIST_HEAD(&new_g->prio_list);
+	new_g->client_iface = client_iface;
+	new_g->ip_type = ip_type;
+	new_g->cat = cat;
+	new_g->keyed_by_vlan = keyed_by_vlan;
+	new_g->vlan_id = vlan_id;
+
+retry:
+	spin_lock_bh(&ipa_ul_groups_lock);
+	g = ipa_find_ul_group(client_iface, ip_type, cat, keyed_by_vlan, vlan_id);
+	if (g && g->installing) {
+		spin_unlock_bh(&ipa_ul_groups_lock);
+		wait_event(ipa_ul_groups_wq,
+			   ipa_ul_group_settled(client_iface, ip_type, cat,
+						 keyed_by_vlan, vlan_id));
+		goto retry;
+	}
+	if (!g) {
+		g = new_g;
+		new_g = NULL;
+		g->installing = true;
+		list_add(&g->node, &ipa_ul_groups_list);
+		*is_new_group = true;
+	}
+
+	p = ipa_find_ul_pdn_ref(g, pdn_iface);
+	if (!p) {
+		p = new_p;
+		new_p = NULL;
+		p->pdn_iface = pdn_iface;
+		atomic_set(&p->ref_count, 0);
+		list_add(&p->node, &g->pdn_list);
+		*is_new_pdn = true;
+	}
+	/* Always refresh, not just on first attach: mux_id can change across
+	 * this PDN's lifetime while it stays attached to this group, and a
+	 * stale value here would leak into the next notify for it.
+	 */
+	p->mux_id = mux_id;
+
+	atomic_inc(&p->ref_count);
+	atomic_inc(&g->ref_count);
+	*out_group = g;
+	spin_unlock_bh(&ipa_ul_groups_lock);
+
+	kfree(new_g);
+	kfree(new_p);
+	return 0;
+}
+
+/* Marks a freshly-created group's HW install complete and wakes waiters. */
+static void ipa_ul_group_install_done(struct ipa_ul_group *g)
+{
+	spin_lock_bh(&ipa_ul_groups_lock);
+	g->installing = false;
+	spin_unlock_bh(&ipa_ul_groups_lock);
+	wake_up_all(&ipa_ul_groups_wq);
+}
+
+/*
+ * Rolls back a group whose HW install failed. Only valid for a group this
+ * call itself just created (is_new_group was true): since it was created
+ * with installing=true, no other acquirer could have joined its pdn_list
+ * in the meantime, so it is safe to unlink and free unconditionally.
+ */
+static void ipa_ul_group_abort_new(struct ipa_ul_group *g)
+{
+	struct ipa_ul_pdn_ref *p, *tmp;
+
+	spin_lock_bh(&ipa_ul_groups_lock);
+	list_del(&g->node);
+	spin_unlock_bh(&ipa_ul_groups_lock);
+
+	list_for_each_entry_safe(p, tmp, &g->pdn_list, node) {
+		list_del(&p->node);
+		kfree(p);
+	}
+	ipa_ul_free_rule_id_list(&g->rule_id_list);
+	ipa_ul_free_prio_list(&g->prio_list);
+	kfree(g->flt_hdls);
+	kfree(g);
+
+	wake_up_all(&ipa_ul_groups_wq);
+}
+
+/*
+ * Releases this pdn_iface's membership (one flow's worth) from the group
+ * identified by the given key. Returns 1 if the group's aggregate
+ * ref_count reached 0 (already unlinked from ipa_ul_groups_list; caller
+ * must ipa_ul_group_teardown() it), 0 if it still has other users, or a
+ * negative errno if the group or this PDN's membership wasn't found.
+ *
+ * When this drops the PDN's ref_count under THIS group to zero,
+ * *out_pdn_removed is set and the mux_id/pipe out-params are filled -- but
+ * that alone doesn't mean the PDN's uplink rules are gone, since it may
+ * still belong to a sibling group. This function sends no notify itself;
+ * the caller must check ipa_ul_client_pdn_lookup() across the whole
+ * client_iface+ip_type before deciding whether to send
+ * ipa_ul_send_pdn_removed_notify() with the values returned here.
+ *
+ * Waits out an installing group before the lookup/decrement, same as
+ * ipa_ul_group_acquire(). Decrementing through one used to leave it linked
+ * with zero refs and live HW rows that nothing would reap, and could
+ * return notif pipe fields the builder had not written yet. Callers are in
+ * process context and never hold an installing group, so no self-deadlock.
+ */
+static int ipa_ul_group_release(int client_iface, enum ipa_ip_type ip_type,
+		enum flt_rule_category cat, bool keyed_by_vlan, uint16_t vlan_id,
+		int pdn_iface, struct ipa_ul_group **out_group_if_empty,
+		bool *out_pdn_removed, uint8_t *out_mux_id,
+		uint32_t *out_src_pipe, uint32_t *out_ebd_pipe)
+{
+	struct ipa_ul_group *g;
+	struct ipa_ul_pdn_ref *p;
+	bool group_empty = false;
+	bool pdn_removed = false;
+	uint8_t removed_mux_id = 0;
+	uint32_t notif_src_pipe = 0, notif_ebd_pipe = 0;
+
+	*out_group_if_empty = NULL;
+	if (out_pdn_removed)
+		*out_pdn_removed = false;
+
+retry:
+	spin_lock_bh(&ipa_ul_groups_lock);
+	g = ipa_find_ul_group(client_iface, ip_type, cat, keyed_by_vlan, vlan_id);
+	if (g && g->installing) {
+		spin_unlock_bh(&ipa_ul_groups_lock);
+		wait_event(ipa_ul_groups_wq,
+			   ipa_ul_group_settled(client_iface, ip_type, cat,
+						 keyed_by_vlan, vlan_id));
+		/* The install may have aborted and freed the group, so redo
+		 * the lookup from scratch rather than reusing g.
+		 */
+		goto retry;
+	}
+	if (!g) {
+		spin_unlock_bh(&ipa_ul_groups_lock);
+		IPA_BE_ERR("No uplink group for client %d ip %d cat %d vlan %d/%u\n",
+			client_iface, ip_type, cat, keyed_by_vlan, vlan_id);
+		return -ENOENT;
+	}
+	p = ipa_find_ul_pdn_ref(g, pdn_iface);
+	if (!p) {
+		spin_unlock_bh(&ipa_ul_groups_lock);
+		IPA_BE_ERR("No pdn_ref for pdn %d in uplink group client %d ip %d cat %d\n",
+			pdn_iface, client_iface, ip_type, cat);
+		return -ENOENT;
+	}
+	/* Defensive: a caller releasing more times than it acquired for this
+	 * pdn (e.g. a retried/duplicate destroy message) must not drive the
+	 * counters negative or trigger a spurious teardown of still-active
+	 * state -- treat it as a no-op error instead.
+	 */
+	if (atomic_read(&p->ref_count) <= 0) {
+		spin_unlock_bh(&ipa_ul_groups_lock);
+		IPA_BE_ERR("Spurious release: pdn %d already at 0 refs in uplink group client %d ip %d cat %d\n",
+			pdn_iface, client_iface, ip_type, cat);
+		return -EINVAL;
+	}
+	if (atomic_dec_return(&p->ref_count) <= 0) {
+		pdn_removed = true;
+		removed_mux_id = p->mux_id;
+		notif_src_pipe = g->notif_src_pipe;
+		notif_ebd_pipe = g->notif_ebd_pipe;
+		list_del(&p->node);
+		kfree(p);
+	}
+	/* installing is false here: the retry loop above waited it out, and
+	 * acquire only sets it on a group it creates itself.
+	 */
+	if (atomic_dec_return(&g->ref_count) <= 0) {
+		list_del(&g->node);
+		group_empty = true;
+	}
+	spin_unlock_bh(&ipa_ul_groups_lock);
+
+	if (pdn_removed) {
+		if (out_pdn_removed)
+			*out_pdn_removed = true;
+		if (out_mux_id)
+			*out_mux_id = removed_mux_id;
+		if (out_src_pipe)
+			*out_src_pipe = notif_src_pipe;
+		if (out_ebd_pipe)
+			*out_ebd_pipe = notif_ebd_pipe;
+	}
+
+	if (group_empty)
+		*out_group_if_empty = g;
+	return group_empty ? 1 : 0;
+}
+
+/* One distinct PDN still attached to a sibling group, collected so it can
+ * be re-notified with the shrunk-but-still-valid rule set after a group
+ * of the same client_iface+ip_type tears down.
+ */
+struct ipa_ul_sibling_pdn {
+	struct list_head node;
+	int pdn_iface;
+	uint8_t mux_id;
+};
+
+/*
+ * Collects the distinct (pdn_iface, mux_id) pairs attached to any group
+ * still matching (client_iface, ip_type) -- used right after a sibling
+ * group tears down, to find who needs an updated notify. Appends one
+ * kzalloc'd node per distinct PDN onto the caller-supplied out_list (an
+ * empty, INIT_LIST_HEAD'd list); caller owns and must free every node.
+ * Takes ipa_ul_groups_lock itself -- caller must not already hold it.
+ */
+static void ipa_ul_collect_sibling_pdns(int client_iface, enum ipa_ip_type ip_type,
+	struct list_head *out_list)
+{
+	struct ipa_ul_group *g;
+	struct ipa_ul_pdn_ref *p;
+
+	spin_lock_bh(&ipa_ul_groups_lock);
+	list_for_each_entry(g, &ipa_ul_groups_list, node) {
+		if (g->client_iface != client_iface || g->ip_type != ip_type)
+			continue;
+		if (g->installing)
+			continue;
+		list_for_each_entry(p, &g->pdn_list, node) {
+			struct ipa_ul_sibling_pdn *s;
+			bool dup = false;
+
+			list_for_each_entry(s, out_list, node) {
+				if (s->pdn_iface == p->pdn_iface) {
+					dup = true;
+					break;
+				}
+			}
+			if (dup)
+				continue;
+
+			/* GFP_ATOMIC: allocating while holding
+			 * ipa_ul_groups_lock under spin_lock_bh, can't sleep.
+			 */
+			s = kzalloc(sizeof(*s), GFP_ATOMIC);
+			if (!s)
+				continue;
+			s->pdn_iface = p->pdn_iface;
+			s->mux_id = p->mux_id;
+			list_add_tail(&s->node, out_list);
+		}
+	}
+	spin_unlock_bh(&ipa_ul_groups_lock);
+}
+
+/*
+ * Deletes the HW rows owned by an empty group (already unlinked from
+ * ipa_ul_groups_list by the caller) and frees it. No QMI notify is sent
+ * here -- the departing PDN already got its "removed" notify from
+ * ipa_ul_group_release(); sending another would duplicate it. Also
+ * re-notifies every PDN still attached to a sibling group of the same
+ * client_iface+ip_type, since this group's rows just vanished from their
+ * shared rule set even though their own membership didn't change.
+ */
+static void ipa_ul_group_teardown(struct ipa_ul_group *g)
+{
+	struct ipa_ul_pdn_ref *p, *tmp;
+	int client_iface = g->client_iface;
+	enum ipa_ip_type ip_type = g->ip_type;
+
+	if (g->num_hdls > 0 && g->flt_hdls) {
+		struct ipa_ioc_del_flt_rule *dp;
+		size_t sz = sizeof(*dp) + g->num_hdls * sizeof(struct ipa_flt_rule_del);
+
+		dp = kzalloc(sz, GFP_KERNEL);
+		if (dp) {
+			int k;
+
+			dp->commit = 1;
+			dp->num_hdls = g->num_hdls;
+			dp->ip = g->ip_type;
+			for (k = 0; k < g->num_hdls; k++) {
+				dp->hdl[k].status = -1;
+				dp->hdl[k].hdl = g->flt_hdls[k];
+			}
+			if (ipa3_del_flt_rule(dp))
+				IPA_BE_ERR("Failed to delete uplink group HW rules client %d ip %d cat %d\n",
+					g->client_iface, g->ip_type, g->cat);
+			kfree(dp);
+		} else {
+			/* g and its handle array are freed below regardless, so
+			 * skipping the delete would strand the HW rows with no
+			 * handles left to retry. Fall back to an on-stack
+			 * single-handle request per row: slower (one commit
+			 * each) but allocation-free.
+			 */
+			struct {
+				struct ipa_ioc_del_flt_rule hdr;
+				struct ipa_flt_rule_del hdl;
+			} one;
+			int k;
+
+			IPA_BE_ERR("No memory for batched uplink group delete client %d ip %d cat %d; deleting %d row(s) one at a time\n",
+				g->client_iface, g->ip_type, g->cat, g->num_hdls);
+
+			for (k = 0; k < g->num_hdls; k++) {
+				memset(&one, 0, sizeof(one));
+				one.hdr.commit = 1;
+				one.hdr.num_hdls = 1;
+				one.hdr.ip = g->ip_type;
+				one.hdl.status = -1;
+				one.hdl.hdl = g->flt_hdls[k];
+				if (ipa3_del_flt_rule(&one.hdr))
+					IPA_BE_ERR("Failed to delete uplink group HW rule hdl %u client %d ip %d cat %d\n",
+						g->flt_hdls[k], g->client_iface,
+						g->ip_type, g->cat);
+			}
+		}
+	}
+
+	if ((unsigned int)g->notif_src_client < IPA_CLIENT_MAX) {
+		if (g->ip_type == IPA_IP_v4 && flt_rule_count_v4[g->notif_src_client] > 0)
+			flt_rule_count_v4[g->notif_src_client]--;
+		else if (g->ip_type == IPA_IP_v6 && flt_rule_count_v6[g->notif_src_client] > 0)
+			flt_rule_count_v6[g->notif_src_client]--;
+	} else if (g->notif_src_client != IPA_CLIENT_MAX) {
+		/* IPA_CLIENT_MAX is the expected sentinel for a zero-row
+		 * group, not an error.
+		 */
+		IPA_BE_ERR("notif_src_client %d out of range, skipping flt_rule_count update\n",
+			g->notif_src_client);
+	}
+
+	list_for_each_entry_safe(p, tmp, &g->pdn_list, node) {
+		list_del(&p->node);
+		kfree(p);
+	}
+	ipa_ul_free_rule_id_list(&g->rule_id_list);
+	ipa_ul_free_prio_list(&g->prio_list);
+	kfree(g->flt_hdls);
+	kfree(g);
+
+	/* g is already unlinked, so the collected set naturally excludes it. */
+	{
+		struct list_head siblings;
+		struct ipa_ul_sibling_pdn *s, *s_tmp;
+
+		INIT_LIST_HEAD(&siblings);
+		ipa_ul_collect_sibling_pdns(client_iface, ip_type, &siblings);
+		list_for_each_entry(s, &siblings, node)
+			ipa_ul_send_client_notify(client_iface, ip_type, s->mux_id);
+		list_for_each_entry_safe(s, s_tmp, &siblings, node) {
+			list_del(&s->node);
+			kfree(s);
+		}
+	}
 }
 
 /*
@@ -647,31 +1534,536 @@ end:
 }
 EXPORT_SYMBOL(ipa_be_v4_add_filter_rule);
 
-int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan, int pdn_iface, int client_iface)
+/*
+ * Builds and installs v4 uplink HW rows for one add event. At least one of
+ * base_g/xlat_g must be non-NULL; both non-NULL means a combined build
+ * (one HW add + one QMI notify) for a client's very first flow being an
+ * XLAT flow. When only xlat_g is given (base already exists), its rows'
+ * sub_category is looked up from prio_src (the client's base group)
+ * instead of recomputed, so they land where a from-scratch build would
+ * have placed them -- base and per-VLAN XLAT rows share
+ * IPA_FLT_RULE_CAT_UPLINK, and the kernel's own category/sub_category sort
+ * (__ipa_add_flt_rule()) relies on that shared, consistent ordering.
+ */
+static int ipa_be_v4_build_install_uplink_rows(struct ipa_ul_group *base_g,
+	struct ipa_ul_group *xlat_g, struct ipa_ul_group *prio_src,
+	struct ipa_ioc_query_intf_rx_props *rx_prop,
+	struct ipa_ioc_query_intf_ext_props *ext_prop,
+	bool has_vlan, uint16_t vlan_id, int client_iface, uint8_t mux_id)
 {
 	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
 	struct ipa_flt_rule_add_v2 flt_rule_entry;
+	struct ipa_fltr_installed_notif_req_msg_v01 *flt_index = NULL;
+	struct ipa3_flt_entry flt_entry = {0};
+	struct ipa_ioc_write_qmapid mux;
+	enum ipa_flt_action action_cache;
+	struct list_head local_prio_list;
+	int base_count = 0, xlat_count = 0, total_rules;
+	int idx = 0, j, cnt, i = 0, index;
+	int retval = 0;
+	uint32_t *base_hdls = NULL, *xlat_hdls = NULL;
+	int base_hdl_count = 0, xlat_hdl_count = 0;
+	uint8_t value = 0;
+
+	INIT_LIST_HEAD(&local_prio_list);
+
+	for (cnt = 0; cnt < ext_prop->num_ext_props; cnt++) {
+		if (ext_prop->ext[cnt].ip != IPA_IP_v4)
+			continue;
+		if (base_g && !ext_prop->ext[cnt].is_xlat_rule)
+			base_count++;
+		else if (xlat_g && ext_prop->ext[cnt].is_xlat_rule)
+			xlat_count++;
+	}
+	total_rules = base_count + xlat_count;
+
+	IPA_BE_DBG("v4 UL group build: client %d base_g %p(%d rows) xlat_g %p(%d rows)\n",
+		client_iface, base_g, base_count, xlat_g, xlat_count);
+
+	if (total_rules == 0) {
+		/* Nothing to install: mark notif_src_client invalid on
+		 * whichever group(s) were passed in, so later
+		 * aggregation/teardown skip this group's unset pipe info
+		 * instead of treating client 0 as real.
+		 */
+		if (base_g)
+			base_g->notif_src_client = IPA_CLIENT_MAX;
+		if (xlat_g)
+			xlat_g->notif_src_client = IPA_CLIENT_MAX;
+		return 0;
+	}
+
+	flt_index = kzalloc(sizeof(*flt_index), GFP_KERNEL);
+	if (!flt_index)
+		return -ENOMEM;
+
+	if (total_rules > ARRAY_SIZE(flt_index->rule_id)) {
+		IPA_BE_ERR("v4 total_rules %d exceeds rule_id[] cap (client=%d)\n",
+			total_rules, client_iface);
+		kfree(flt_index);
+		return -E2BIG;
+	}
+
+	if (rx_prop->num_rx_props > 0) {
+		if (base_count) {
+			base_hdls = kzalloc((rx_prop->num_rx_props / 2) * base_count *
+						 sizeof(uint32_t), GFP_KERNEL);
+			if (!base_hdls) {
+				kfree(flt_index);
+				return -ENOMEM;
+			}
+		}
+		if (xlat_count) {
+			xlat_hdls = kzalloc((rx_prop->num_rx_props / 2) * xlat_count *
+						 sizeof(uint32_t), GFP_KERNEL);
+			if (!xlat_hdls) {
+				kfree(base_hdls);
+				kfree(flt_index);
+				return -ENOMEM;
+			}
+		}
+	}
+
+	if (base_g) {
+		/* Covers the full v4 ext_prop set -- spliced onto
+		 * base_g->prio_list below so a later, separately-built XLAT
+		 * group can reuse it instead of recomputing from a narrowed
+		 * view.
+		 */
+		ipa_be_compute_rule_priorities(ext_prop, IPA_IP_v4, &local_prio_list);
+	}
+
+	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
+		int base_in_batch;
+
+		idx = j * 2;
+		if (rx_prop->rx[idx].ip != IPA_IP_v4) {
+			IPA_BE_DBG("IP not matching required type %d .. continue\n", rx_prop->rx[idx].ip);
+			continue;
+		}
+		IPA_BE_DBG("Install rules at idx %d\n", idx);
+
+		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
+		if (pFilteringTable == NULL) {
+			IPA_BE_ERR("Error Locate ipa_ioc_add_flt_rule_v2 memory...\n");
+			retval = -ENOMEM;
+			goto fail;
+		}
+
+		pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
+		if (!pFilteringTable->rules) {
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			IPA_BE_ERR("Error Locate ipa_flt_rule_add_v2 memory...\n");
+			retval = -ENOMEM;
+			goto fail;
+		}
+
+		memset(flt_index, 0, sizeof(struct ipa_fltr_installed_notif_req_msg_v01));
+		flt_index->source_pipe_index = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
+		flt_index->install_status = IPA_QMI_RESULT_SUCCESS_V01;
+
+		flt_index->rule_id_valid = 1;
+		flt_index->rule_id_len = total_rules;
+		flt_index->embedded_pipe_index_valid = 1;
+		flt_index->embedded_pipe_index = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
+		flt_index->retain_header_valid = 1;
+		flt_index->retain_header = 0;
+
+		IPA_BE_DBG("flt_index: src pipe: %d, num of rules: %d, ebd pipe: %d\n",
+			flt_index->source_pipe_index, flt_index->rule_id_len, flt_index->embedded_pipe_index);
+
+		pFilteringTable->commit = 1;
+		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
+		pFilteringTable->global = false;
+		pFilteringTable->ip = IPA_IP_v4;
+		pFilteringTable->num_rules = total_rules;
+		pFilteringTable->flt_rule_size = sizeof(struct ipa_flt_rule_add_v2);
+
+		i = 0;
+
+		/* ---- Pass 1: base (non-is_xlat_rule) rows, if requested ---- */
+		if (base_g) {
+			for (cnt = 0; cnt < ext_prop->num_ext_props && i < total_rules; cnt++) {
+				enum rule_sub_category sc;
+
+				if (ext_prop->ext[cnt].ip != IPA_IP_v4) {
+					IPA_BE_DBG("iptype mismatch %d .. continue\n", ext_prop->ext[cnt].ip);
+					continue;
+				}
+				if (ext_prop->ext[cnt].is_xlat_rule)
+					continue;
+
+				IPA_BE_DBG("Ext prop cnt %d rt_tbl_idx: %d, rule_id: %d, is_xlat %d \n",
+						cnt, ext_prop->ext[cnt].rt_tbl_idx,
+						ext_prop->ext[cnt].rule_id,
+						ext_prop->ext[cnt].is_xlat_rule);
+
+				memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add_v2));
+				flt_rule_entry.at_rear = 0;
+
+				flt_rule_entry.flt_rule_hdl = -1;
+				flt_rule_entry.status = -1;
+
+				flt_rule_entry.rule.retain_hdr = 0;
+				flt_rule_entry.rule.to_uc = 0;
+				flt_rule_entry.rule.eq_attrib_type = 1;
+
+				flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+				action_cache = flt_rule_entry.rule.action;
+				flt_rule_entry.rule.set_metadata = true;
+
+				flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_UPLINK;
+
+				index = flt_rule_count_v4[rx_prop->rx[idx].src_pipe];
+
+				memcpy(&flt_rule_entry.rule.eq_attrib,
+					&ext_prop->ext[cnt].eq_attrib,
+					sizeof(ext_prop->ext[cnt].eq_attrib));
+
+				/* IPv4-fragment rows must still match before any other
+				 * uplink row (same intent the old at_rear=0-to-front
+				 * trick had) -- pin them to the highest priority
+				 * rather than their ascending-rule_id slot.
+				 */
+				sc = flt_rule_entry.rule.eq_attrib.ipv4_frag_eq_present ?
+					IPA_RULE_PRIORITY_0 :
+					ipa_be_lookup_local_sub_cat(&local_prio_list,
+						ext_prop->ext[cnt].rule_id);
+				flt_rule_entry.rule_sub_category = sc;
+
+				/* Populate the flt rule action from ext_prop */
+				if (ext_prop->ext[cnt].action == IPA_PASS_TO_EXCEPTION) {
+					/* Q6 can't handle it, go A7 exception */
+					flt_rule_entry.rule.action = ext_prop->ext[cnt].action;
+					flt_rule_entry.rule.rt_tbl_idx = 0;
+					IPA_BE_DBG("Override rule index %d to act: %d, rt_tbl_idx: %d to %d\n",
+						cnt, flt_rule_entry.rule.action,
+						ext_prop->ext[cnt].rt_tbl_idx,
+						flt_rule_entry.rule.rt_tbl_idx);
+				} else {
+					flt_rule_entry.rule.action = action_cache;
+					flt_rule_entry.rule.rt_tbl_idx = ext_prop->ext[cnt].rt_tbl_idx;
+					IPA_BE_DBG("Restore rule index %d to act: %d, rt_tbl_idx: %d \n",
+						cnt, flt_rule_entry.rule.action,
+						flt_rule_entry.rule.rt_tbl_idx);
+				}
+
+				flt_rule_entry.rule.hashable = ext_prop->ext[cnt].is_rule_hashable;
+				flt_rule_entry.rule.rule_id = ext_prop->ext[cnt].rule_id;
+
+				/* Decrement TTL/hop-limit on uplink (client -> WAN) forwarding
+				 * rules. Exception rules go to the A7 software path and must be
+				 * left untouched to avoid a double TTL decrement.
+				 */
+				if (flt_rule_entry.rule.action != IPA_PASS_TO_EXCEPTION)
+					flt_rule_entry.rule.ttl_update = 1;
+
+				flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
+				memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
+
+				IPA_BE_DBG("Modem UL filtering rule %d has index %d installed at %d sub_cat %u\n",
+					cnt, index, i, flt_rule_entry.rule_sub_category);
+				flt_index->rule_id[i] = ext_prop->ext[cnt].rule_id;
+				index++;
+				i++;
+			}
+		}
+		base_in_batch = i;
+
+		/* ---- Pass 2: is_xlat_rule row(s), if requested ---- */
+		if (xlat_g) {
+			for (cnt = 0; cnt < ext_prop->num_ext_props && i < total_rules; cnt++) {
+				enum rule_sub_category sc;
+
+				if (ext_prop->ext[cnt].ip != IPA_IP_v4) {
+					IPA_BE_DBG("iptype mismatch %d .. continue\n", ext_prop->ext[cnt].ip);
+					continue;
+				}
+				if (!ext_prop->ext[cnt].is_xlat_rule)
+					continue;
+
+				memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add_v2));
+				flt_rule_entry.at_rear = 0;
+
+				flt_rule_entry.flt_rule_hdl = -1;
+				flt_rule_entry.status = -1;
+
+				flt_rule_entry.rule.retain_hdr = 0;
+				flt_rule_entry.rule.to_uc = 0;
+				flt_rule_entry.rule.eq_attrib_type = 1;
+
+				flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+				action_cache = flt_rule_entry.rule.action;
+				flt_rule_entry.rule.set_metadata = true;
+
+				flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_UPLINK;
+
+				index = flt_rule_count_v4[rx_prop->rx[idx].src_pipe];
+
+				memcpy(&flt_rule_entry.rule.eq_attrib,
+					&ext_prop->ext[cnt].eq_attrib,
+					sizeof(ext_prop->ext[cnt].eq_attrib));
+
+				sc = base_g ?
+					ipa_be_lookup_local_sub_cat(&local_prio_list,
+						ext_prop->ext[cnt].rule_id) :
+					ipa_ul_group_lookup_sub_cat(prio_src, ext_prop->ext[cnt].rule_id);
+				flt_rule_entry.rule_sub_category = sc;
+
+				if (ext_prop->ext[cnt].action == IPA_PASS_TO_EXCEPTION) {
+					flt_rule_entry.rule.action = ext_prop->ext[cnt].action;
+					flt_rule_entry.rule.rt_tbl_idx = 0;
+				} else {
+					flt_rule_entry.rule.action = action_cache;
+					flt_rule_entry.rule.rt_tbl_idx = ext_prop->ext[cnt].rt_tbl_idx;
+				}
+
+				/* Match this group's VLAN tag directly instead of via
+				 * metadata (which the else branch below still uses for
+				 * the non-VLAN case).
+				 */
+				flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
+
+				if (has_vlan) {
+					/* 802.1Q offset_meq_32 match, mirroring the HW
+					 * equation ipahal_flt_generate_equation builds for
+					 * IPA_FLT_VLAN_ID -- avoids the metadata register's
+					 * 8-bit truncation.
+					 */
+					int meq32_n = flt_rule_entry.rule.eq_attrib.num_offset_meq_32;
+
+					if (meq32_n + 1 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
+						IPA_BE_ERR("Can't add VLAN meq_32 eq to rule: %d index %d, falling back to mux_id metadata gate\n",
+							cnt, i);
+
+						value = ext_prop->ext[cnt].mux_id;
+
+						flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1;
+						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 9);
+						flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0;
+						flt_rule_entry.rule.eq_attrib.metadata_meq32.value = (value & 0xFF) << 16;
+						flt_rule_entry.rule.eq_attrib.metadata_meq32.mask = 0x00FF0000;
+					} else {
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset =
+							(ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) ?
+								(u8)-6 : NON_IHL_EQ_OFFSET_FROM_L2(ETH_ALEN * 2);
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].mask = 0xFFFF0FFF;
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value =
+							(0x8100 << 16) | (vlan_id & 0xFFF);
+
+						if (meq32_n == 0)
+							flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 5);
+						else
+							flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 6);
+
+						flt_rule_entry.rule.eq_attrib.num_offset_meq_32++;
+
+						flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 0;
+						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap &= ~(1 << 9);
+					}
+					IPA_BE_DBG("xlat rule: %d index %d matches VLAN id %d directly sub_cat %u\n",
+						cnt, i, vlan_id, sc);
+				} else {
+					value = ext_prop->ext[cnt].mux_id;
+
+					flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1;
+					flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 9);
+					flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0;
+					flt_rule_entry.rule.eq_attrib.metadata_meq32.value = (value & 0xFF) << 16;
+					flt_rule_entry.rule.eq_attrib.metadata_meq32.mask = 0x00FF0000;
+					IPA_BE_DBG("xlat meta-data is modified for rule: %d index %d metadata : 0x%x\n",
+						cnt, i, flt_rule_entry.rule.eq_attrib.metadata_meq32.value);
+
+					/* Non-VLAN only: a single pipe-level mux write
+					 * can't represent more than one VLAN sharing the
+					 * same pipe, which match by VLAN ID directly above.
+					 */
+					mux.client = rx_prop->rx[idx].src_pipe;
+					mux.qmap_id = ext_prop->ext[cnt].mux_id;
+					ipa3_write_qmap_id(&mux);
+				}
+
+				flt_rule_entry.rule.hashable = ext_prop->ext[cnt].is_rule_hashable;
+				flt_rule_entry.rule.rule_id = ext_prop->ext[cnt].rule_id;
+
+				if (flt_rule_entry.rule.action != IPA_PASS_TO_EXCEPTION)
+					flt_rule_entry.rule.ttl_update = 1;
+
+				flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
+				memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
+
+				IPA_BE_DBG("Modem UL filtering rule %d has index %d installed at %d\n", cnt, index, i);
+				flt_index->rule_id[i] = ext_prop->ext[cnt].rule_id;
+				index++;
+				i++;
+			}
+		}
+
+		if (base_g) {
+			retval = ipa_ul_group_set_rule_ids(base_g, flt_index->rule_id,
+				base_in_batch,
+				(uint32_t)flt_index->source_pipe_index,
+				(uint32_t)flt_index->embedded_pipe_index,
+				rx_prop->rx[idx].src_pipe);
+			if (retval)
+				goto fail;
+		}
+		if (xlat_g) {
+			retval = ipa_ul_group_set_rule_ids(xlat_g,
+				&flt_index->rule_id[base_in_batch],
+				total_rules - base_in_batch,
+				(uint32_t)flt_index->source_pipe_index,
+				(uint32_t)flt_index->embedded_pipe_index,
+				rx_prop->rx[idx].src_pipe);
+			if (retval)
+				goto fail;
+		}
+
+		/* Notify before install, per the original design: the rule_id/
+		 * pipe info above doesn't depend on install success. If the
+		 * install fails, ipa_ul_group_abort_new() drops the whole
+		 * group, so nothing is left half-advertised.
+		 */
+		ipa_ul_send_client_notify(client_iface, IPA_IP_v4, mux_id);
+
+		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable,
+			true)) {
+			IPA_BE_ERR("ipa3_add_flt_rule_usr_v2 failed\n");
+			retval = -EFAULT;
+			goto fail;
+		}
+
+		for (i = 0; i < pFilteringTable->num_rules; i++) {
+			struct ipa_flt_rule_add_v2 *installed_rule =
+				&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]);
+
+			if (!installed_rule->flt_rule_hdl)
+				continue;
+
+			IPA_BE_DBG("Modem uplink rules filter rule hdl: %d\n", installed_rule->flt_rule_hdl);
+			flt_entry.flt_hdl = installed_rule->flt_rule_hdl;
+			flt_entry.cat = IPA_FLT_RULE_CAT_UPLINK;
+			flt_entry.ip_type = IPA_IP_v4;
+			if (i < base_in_batch) {
+				if (base_hdls)
+					base_hdls[base_hdl_count++] = flt_entry.flt_hdl;
+			} else {
+				if (xlat_hdls)
+					xlat_hdls[xlat_hdl_count++] = flt_entry.flt_hdl;
+			}
+			ipa3_add_filter_rules_entry(client_iface, flt_entry);
+		}
+		/* Per group, not per add: base+XLAT can share one HW add but
+		 * teardown decrements each. Zero-row groups skip both sides.
+		 */
+		if (base_g && base_count)
+			flt_rule_count_v4[rx_prop->rx[idx].src_pipe]++;
+		if (xlat_g && xlat_count)
+			flt_rule_count_v4[rx_prop->rx[idx].src_pipe]++;
+
+		kfree((void *)(uintptr_t)pFilteringTable->rules);
+		kfree(pFilteringTable);
+		pFilteringTable = NULL;
+	}
+
+	if (base_g) {
+		base_g->flt_hdls = base_hdls;
+		base_g->num_hdls = base_hdl_count;
+		/* Ownership of the computed priority nodes moves onto
+		 * base_g->prio_list; local_prio_list ends up empty.
+		 */
+		list_splice_tail_init(&local_prio_list, &base_g->prio_list);
+	}
+	if (xlat_g) {
+		xlat_g->flt_hdls = xlat_hdls;
+		xlat_g->num_hdls = xlat_hdl_count;
+	}
+	kfree(flt_index);
+	return 0;
+
+fail:
+	ipa_ul_free_prio_list(&local_prio_list);
+	if (base_hdl_count > 0 && base_hdls) {
+		struct ipa_ioc_del_flt_rule *dp;
+		size_t sz = sizeof(*dp) + base_hdl_count * sizeof(struct ipa_flt_rule_del);
+
+		dp = kzalloc(sz, GFP_KERNEL);
+		if (dp) {
+			int k;
+
+			dp->commit = 1;
+			dp->num_hdls = base_hdl_count;
+			dp->ip = IPA_IP_v4;
+			for (k = 0; k < base_hdl_count; k++) {
+				dp->hdl[k].status = -1;
+				dp->hdl[k].hdl = base_hdls[k];
+			}
+			ipa3_del_flt_rule(dp);
+			kfree(dp);
+		}
+	}
+	if (xlat_hdl_count > 0 && xlat_hdls) {
+		struct ipa_ioc_del_flt_rule *dp;
+		size_t sz = sizeof(*dp) + xlat_hdl_count * sizeof(struct ipa_flt_rule_del);
+
+		dp = kzalloc(sz, GFP_KERNEL);
+		if (dp) {
+			int k;
+
+			dp->commit = 1;
+			dp->num_hdls = xlat_hdl_count;
+			dp->ip = IPA_IP_v4;
+			for (k = 0; k < xlat_hdl_count; k++) {
+				dp->hdl[k].status = -1;
+				dp->hdl[k].hdl = xlat_hdls[k];
+			}
+			ipa3_del_flt_rule(dp);
+			kfree(dp);
+		}
+	}
+	kfree(base_hdls);
+	kfree(xlat_hdls);
+	kfree(flt_index);
+	if (pFilteringTable) {
+		if (pFilteringTable->rules)
+			kfree((void *)(uintptr_t)pFilteringTable->rules);
+		kfree(pFilteringTable);
+	}
+	return retval;
+}
+
+int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan, int pdn_iface, int client_iface)
+{
 	struct ipa_ioc_query_intf client_intf, pdn_intf;
-	int retval = 0, len = 0;
+	int retval = 0;
 	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
 	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
-	int total_rules = 1;
-	int idx = 0;
-	int j = 0, i = 0;
-	struct ipa_fltr_installed_notif_req_msg_v01 *flt_index = NULL;
-	int cnt;
-	enum ipa_flt_action action_cache;
-	enum ipa_ip_type iptype;
-	int index = 0;
-	bool notif_only = false;
-	struct ipa3_flt_entry flt_entry = {0};
-	struct ipa_uplink_pair *pair;
-	struct ipa_uplink_pair *new_pair = NULL;
 	bool is_xlat = false;
-	uint8_t value = 0;
-	struct ipa_ioc_write_qmapid mux;
-	uint32_t *installed_hdls = NULL;
-	int installed_count = 0;
+	bool has_vlan = false;
+	uint16_t vlan_id = 0;
+	uint16_t vlan_key;
+	uint8_t pdn_mux_id = 0;
+	struct ipa_ul_group *base_group = NULL;
+	struct ipa_ul_group *xlat_group = NULL;
+	bool base_new_group = false, base_new_pdn = false;
+	bool xlat_new_group = false, xlat_new_pdn = false;
+	int ret;
+
+	/* Hoisted up front: the VLAN match equation is per-flow, not
+	 * per-rule, so the XLAT group's key must be known before touching
+	 * group tracking below.
+	 */
+	if (v4_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED) {
+		vlan_id = v4_msg.vlan_primary_rule.egress_vlan_tag & 0x0FFF;
+		has_vlan = true;
+		IPA_BE_DBG("Vlan egress client vlan id %d \n", vlan_id);
+	} else if (v4_msg.vlan_primary_rule.ingress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED) {
+		vlan_id = v4_msg.vlan_primary_rule.ingress_vlan_tag & 0x0FFF;
+		has_vlan = true;
+		IPA_BE_DBG("Vlan ingress client vlan id %d \n", vlan_id);
+	}
+	vlan_key = has_vlan ? vlan_id : IPA_UL_VLAN_NONE;
 
 	/* Auto-enable XLAT for IPv4 192.0.0.x (192.0.0.0/24) flow/return IPs */
 	if (((ntohl(v4_msg.tuple.flow_ip) & 0xFFFFFF00U) == 0xC0000000U) ||
@@ -682,15 +2074,24 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 		IPA_BE_DBG("XLAT enabled due to 192.0.0.x match: flow %pI4n return %pI4n\n",
 			   &v4_msg.tuple.flow_ip, &v4_msg.tuple.return_ip);
 
-		/* Create a dummy v6_msg for XLAT traffic */
+		/* Dummy v6_msg carrying the same VLAN key for consistent
+		 * companion logging only -- the v6 XLAT companion group is
+		 * EtherType-matched, not VLAN-keyed.
+		 */
 		struct ipa_ipv6_rule_create_msg v6_msg_xlat;
 		memset(&v6_msg_xlat, 0, sizeof(v6_msg_xlat));
+		v6_msg_xlat.vlan_primary_rule.egress_vlan_tag = IPA_VLAN_ID_NOT_CONFIGURED;
+		v6_msg_xlat.vlan_primary_rule.ingress_vlan_tag = IPA_VLAN_ID_NOT_CONFIGURED;
+		if (has_vlan)
+			v6_msg_xlat.vlan_primary_rule.egress_vlan_tag = vlan_id;
 
-		/* Call v6 uplink filter rule for XLAT */
+		/* Called unconditionally for every is_xlat flow regardless of
+		 * VLAN, so the v6 XLAT companion group's ref_count sums the
+		 * total v4-XLAT flow count across every VLAN.
+		 */
 		ipa_be_v6_add_uplink_filter_rule(v6_msg_xlat, lan2lan, pdn_iface, client_iface, is_xlat);
 	}
 
-	iptype = IPA_IP_v4;
 	IPA_BE_DBG("ECMIPA entry lan2lan %d\n", lan2lan);
 
 	/*Check if the filter interface exists*/
@@ -700,20 +2101,6 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 	} else {
 		IPA_BE_DBG("Interface with index %u exist.\n", client_iface);
 	}
-
-	spin_lock_bh(&ipa_uplink_lock);
-	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-		if (ipa_uplink_pair_match(pair, pdn_iface, client_iface, iptype)) {
-			atomic_inc(&pair->ref_count);
-			spin_unlock_bh(&ipa_uplink_lock);
-			IPA_BE_DBG("Uplink filter for pdn %d, client %d, IP type %d already installed. ref_count: %d\n",
-				pdn_iface, client_iface, iptype, atomic_read(&pair->ref_count));
-			return 0; /* Rules already exist, just increment ref count and exit */
-		}
-	}
-	spin_unlock_bh(&ipa_uplink_lock);
-
-	IPA_BE_DBG("Created new uplink pair tracking for pdn %d, client %d\n", pdn_iface, client_iface);
 
 	rx_prop = (struct ipa_ioc_query_intf_rx_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_rx_props) +
 		client_intf.num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop), GFP_KERNEL);
@@ -726,12 +2113,11 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 	rx_prop->num_rx_props = client_intf.num_rx_props;
 	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, client_intf.name);
 	ipa3_query_intf_rx_props(rx_prop);
-	if (rx_prop->num_rx_props > 0)
-		IPA_BE_DBG("Query response rx_prop src %d hdr_l2_type %d\n", rx_prop->rx[idx].src_pipe,
-			rx_prop->rx[idx].hdr_l2_type);
 
-	/* ext Props */
-	/*Check if the filter interface exists*/
+	/* Queried against this specific pdn_iface every call (even when the
+	 * base group already exists), so a newly attaching PDN's own mux_id
+	 * can be cached/notified.
+	 */
 	if (!ipa3_query_iface(pdn_iface, &pdn_intf)) {
 		retval = -EINVAL;
 		goto end;
@@ -750,433 +2136,133 @@ int ipa_be_v4_add_uplink_filter_rule(struct ipa_ipv4_rule_create_msg v4_msg, boo
 	IPA_BE_DBG("Query ext_prop %d name %s\n", ext_prop->num_ext_props, ext_prop->name);
 	ipa3_query_intf_ext_props(ext_prop);
 
-	flt_index = (struct ipa_fltr_installed_notif_req_msg_v01 *)kzalloc(
-		sizeof(struct ipa_fltr_installed_notif_req_msg_v01), GFP_KERNEL);
-	if (!flt_index) {
-		IPA_BE_ERR("Failed to allocate flt_index memory\n");
-		retval = -ENOMEM;
+	pdn_mux_id = ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0;
+
+	/* Base group: PDN-independent, installed once per (client, v4). */
+	ret = ipa_ul_group_acquire(client_iface, IPA_IP_v4, IPA_FLT_RULE_CAT_UPLINK,
+				    false, 0, pdn_iface, pdn_mux_id,
+				    &base_group, &base_new_group, &base_new_pdn);
+	if (ret) {
+		retval = ret;
 		goto end;
 	}
 
-	total_rules = 0;
-	for (cnt = 0; cnt < ext_prop->num_ext_props; cnt++) {
-		if (ext_prop->ext[cnt].ip == IPA_IP_v4)
-			total_rules++;
-	}
-
-	IPA_BE_DBG("Total ext props %d, IPv4 filtering rules %d\n",
-		ext_prop->num_ext_props, total_rules);
-
-	/* rule_id[] holds 64 entries; reject more. */
-	if (total_rules > ARRAY_SIZE(flt_index->rule_id)) {
-		IPA_BE_ERR("total_rules %d exceeds rule_id[] cap %zu (pdn=%d client=%d)\n",
-			total_rules, ARRAY_SIZE(flt_index->rule_id),
-			pdn_iface, client_iface);
-		retval = -E2BIG;
-		goto end;
-	}
-
-	if (rx_prop->num_rx_props > 0 && total_rules > 0) {
-		installed_hdls = kzalloc((rx_prop->num_rx_props / 2) * total_rules *
-					 sizeof(uint32_t), GFP_KERNEL);
-		if (!installed_hdls) {
-			retval = -ENOMEM;
-			goto end;
-		}
-	}
-
-	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
-		idx = j * 2;
-		if (rx_prop->rx[idx].ip != IPA_IP_v4) {
-			IPA_BE_DBG("IP not matching required type %d .. continue\n", rx_prop->rx[idx].ip);
-			continue;
-		}
-		IPA_BE_DBG("Install rules at idx %d\n", idx);
-
-		/* Reallocate each pass -- notif_only below can free pFilteringTable, so reusing a pre-loop alloc would write through NULL/stale. */
-		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
-		if (pFilteringTable == NULL) {
-			IPA_BE_ERR("Error Locate ipa_ioc_add_flt_rule_v2 memory...\n");
-			retval = -EINVAL;
-			goto end;
-		}
-
-		pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
-		if (!pFilteringTable->rules) {
-			kfree(pFilteringTable);
-			pFilteringTable = NULL;
-			IPA_BE_ERR("Error Locate ipa_flt_rule_add_v2 memory...\n");
-			retval = -EINVAL;
-			goto end;
-		}
-
-		memset(flt_index, 0, sizeof(struct ipa_fltr_installed_notif_req_msg_v01));
-		flt_index->source_pipe_index = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
-		flt_index->install_status = IPA_QMI_RESULT_SUCCESS_V01;
-
-		flt_index->rule_id_valid = 1;
-		flt_index->rule_id_len = total_rules;
-		flt_index->embedded_pipe_index_valid = 1;
-		flt_index->embedded_pipe_index = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
-		flt_index->retain_header_valid = 1;
-		flt_index->retain_header = 0;
-		flt_index->embedded_call_mux_id_valid = 1;
-
-		flt_index->embedded_call_mux_id = ipa_be_global_qmap_id_latch(
-			ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
-
-		IPA_BE_DBG("flt_index: src pipe: %d, num of rules: %d, ebd pipe: %d, mux id: %d\n",
-			flt_index->source_pipe_index, flt_index->rule_id_len, flt_index->embedded_pipe_index, flt_index->embedded_call_mux_id);
-
-		pFilteringTable->commit = 1;
-		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
-		pFilteringTable->global = false;
-		pFilteringTable->ip = iptype;
-		pFilteringTable->num_rules = total_rules;
-		pFilteringTable->flt_rule_size = sizeof(struct ipa_flt_rule_add_v2);
-
-		for (cnt = i = 0; cnt < ext_prop->num_ext_props && i < total_rules; cnt++) {
-			if (ext_prop->ext[cnt].ip != IPA_IP_v4) {
-				IPA_BE_DBG("iptype mismatch %d .. continue\n", ext_prop->ext[cnt].ip);
-				continue;
-			}
-
-			IPA_BE_DBG("Ext prop cnt %d rt_tbl_idx: %d, rule_id: %d, is_xlat %d \n",
-					cnt, ext_prop->ext[cnt].rt_tbl_idx,
-					ext_prop->ext[cnt].rule_id,
-					ext_prop->ext[cnt].is_xlat_rule);
-
-			memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add_v2));
-			flt_rule_entry.at_rear = 1;
-
-			flt_rule_entry.flt_rule_hdl = -1;
-			flt_rule_entry.status = -1;
-
-			flt_rule_entry.rule.retain_hdr = 0;
-			flt_rule_entry.rule.to_uc = 0;
-			flt_rule_entry.rule.eq_attrib_type = 1;
-
-			flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
-			action_cache = flt_rule_entry.rule.action;
-			flt_rule_entry.rule.set_metadata = true;
-
-			flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_UPLINK;
-
-			index = flt_rule_count_v4[rx_prop->rx[idx].src_pipe];
-
-			memcpy(&flt_rule_entry.rule.eq_attrib,
-				&ext_prop->ext[cnt].eq_attrib,
-				sizeof(ext_prop->ext[cnt].eq_attrib));
-
-			if (flt_rule_entry.rule.eq_attrib.ipv4_frag_eq_present)
-				flt_rule_entry.at_rear = 0;
-
-			/* Populate the flt rule action from ext_prop */
-			if (ext_prop->ext[cnt].action == IPA_PASS_TO_EXCEPTION) {
-				/* Override the rule action if Q6 can't handle it, go A7 exception */
-				flt_rule_entry.rule.action = ext_prop->ext[cnt].action;
-				flt_rule_entry.rule.rt_tbl_idx = 0;
-				IPA_BE_DBG("Override rule index %d to act: %d, rt_tbl_idx: %d to %d\n",
-					cnt, flt_rule_entry.rule.action,
-					ext_prop->ext[cnt].rt_tbl_idx,
-					flt_rule_entry.rule.rt_tbl_idx);
-			} else {
-				/* restore the rule action */
-				flt_rule_entry.rule.action = action_cache;
-				flt_rule_entry.rule.rt_tbl_idx = ext_prop->ext[cnt].rt_tbl_idx;
-				IPA_BE_DBG("Restore rule index %d to act: %d, rt_tbl_idx: %d \n",
-					cnt, flt_rule_entry.rule.action,
-					flt_rule_entry.rule.rt_tbl_idx);
-			}
-
-			/* Handle XLAT configuration */
-			if (is_xlat && ext_prop->ext[cnt].is_xlat_rule) {
-				uint16_t vlan_id = 0;
-				bool vlan_configured = false;
-
-				if (v4_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED)
-				{
-					vlan_id = v4_msg.vlan_primary_rule.egress_vlan_tag & 0x0FFF;
-					vlan_configured = true;
-					IPA_BE_DBG("Vlan egress client vlan id %d \n", vlan_id);
-				}
-				else if (v4_msg.vlan_primary_rule.ingress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED)
-				{
-					vlan_id = v4_msg.vlan_primary_rule.ingress_vlan_tag & 0x0FFF;
-					vlan_configured = true;
-					IPA_BE_DBG("Vlan ingress client vlan id %d \n", vlan_id);
-				}
-
-				flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
-
-				if (vlan_configured) {
-					/*
-					 * Match the client VLAN ID directly via an 802.1Q
-					 * offset_meq_32 equation instead of carrying the
-					 * VLAN ID through the metadata register. This
-					 * mirrors the HW VLAN equation built by
-					 * ipahal_flt_generate_equation for IPA_FLT_VLAN_ID
-					 * and avoids the 8-bit metadata truncation.
-					 */
-					int meq32_n = flt_rule_entry.rule.eq_attrib.num_offset_meq_32;
-
-					if (meq32_n + 1 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
-						IPA_BE_ERR("Can't add VLAN meq_32 eq to rule: %d index %d, falling back to mux_id metadata gate\n",
-							cnt, i);
-
-						/* No meq_32 slot available -> keep the mux_id metadata fallback gate */
-						value = ext_prop->ext[cnt].mux_id;
-
-						flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1;
-						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 9);
-						flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0;
-						flt_rule_entry.rule.eq_attrib.metadata_meq32.value = (value & 0xFF) << 16;
-						flt_rule_entry.rule.eq_attrib.metadata_meq32.mask = 0x00FF0000;
-					} else {
-						/* 12 => offset of 802.1Q tag in L2 hdr (2*ETH_ALEN) */
-						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset =
-							(ipa3_ctx->ipa_hw_type < IPA_HW_v7_0) ?
-								(u8)-6 : NON_IHL_EQ_OFFSET_FROM_L2(ETH_ALEN * 2);
-						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].mask = 0xFFFF0FFF;
-						/* 0x8100 TPID + required VLAN ID */
-						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value =
-							(0x8100 << 16) | (vlan_id & 0xFFF);
-
-						if (meq32_n == 0)
-							flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 5);
-						else
-							flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 6);
-
-						flt_rule_entry.rule.eq_attrib.num_offset_meq_32++;
-
-						/* VLAN ID is no longer carried via the metadata reg */
-						flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 0;
-						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap &= ~(1 << 9);
-					}
-					IPA_BE_DBG("xlat rule: %d index %d matches VLAN id %d directly rule_id %d\n",
-						cnt, i, vlan_id, flt_index->rule_id_ex[i]);
-				} else {
-					/* No VLAN configured -> keep the mux_id metadata fallback */
-					value = ext_prop->ext[cnt].mux_id;
-
-					flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1;
-					flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 9);
-					flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0;
-					flt_rule_entry.rule.eq_attrib.metadata_meq32.value = (value & 0xFF) << 16;
-					flt_rule_entry.rule.eq_attrib.metadata_meq32.mask = 0x00FF0000;
-					IPA_BE_DBG("xlat meta-data is modified for rule: %d index %d metadata : 0x%x rule_id %d\n",
-						cnt, i, flt_rule_entry.rule.eq_attrib.metadata_meq32.value, flt_index->rule_id_ex[i]);
-				}
-
-				mux.client = rx_prop->rx[idx].src_pipe;
-				mux.qmap_id = ext_prop->ext[cnt].mux_id;
-				ipa3_write_qmap_id(&mux);
-				//flt_index->rule_id_ex[idx_q6] = ext_prop->ext[cnt].rule_id;
-				//idx_q6++;
-			}
-
-#if 0  /* TBD for vlan - */
-			/* Handle XLAT configuration */
-			if ((iptype == IPA_IP_v4) && prop->prop[cnt].is_xlat_rule && (pdn_mux_id || sIface) && is_xlat) {
-				/* For vlan mpdn xlat rules will be installed with vlan id as metadata */
-				if (is_dev_in_vlan_mode && IPACM_Iface::ipacmcfg->ipacm_mpdn_enable) {
-					IPACMDBG("skip xlat mpdn rule id %d ext prop no. %d i %d\n",
-						prop->prop[cnt].rule_id, cnt, i);
-					continue;
-				}
-
-				/* for static policy, xlat rules will be installed with src_addr = XLAT PDN subnet */
-				if (static_policy) {
-					int meq32_n = flt_rule_entry.rule.eq_attrib.num_offset_meq_32;
-
-					/* check if over max meq32 equatipons */
-					if (meq32_n + 1 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
-						IPACMERR("Can't add another meq_32 equation to this rule: %d index %d\n", cnt, index);
-						continue;
-					}
-					flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset = 12;  /* SRC ADDR */
-					flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value = 0xC0000000;  /* XLAT PDN */
-					flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].mask = 0xFFFFFF00;
-
-					/* Add the bitmap that will point to the new meq32 eq */
-					if (meq32_n == 0)
-						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1<<5);
-					else
-						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1<<6);
-
-					flt_rule_entry.rule.eq_attrib.num_offset_meq_32++;
-
-					/* clear metadata bit */
-					flt_rule_entry.rule.eq_attrib.rule_eq_bitmap &= ~(1<<9);
-					flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 0;
-
-					/* change to pass to route since NATting is already done on 1st pass */
-					flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
-					flt_rule_entry.rule.set_metadata = false;
-
-					IPACMDBG_H("xlat meta-data is modified for rule: %d has index %d with src subnet: 0x%X\n",
-						cnt, index, flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value);
-				} else {
-					/* fill the value of meta-data */
-					value = pdn_mux_id;
-					flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1;
-					flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0;
-					flt_rule_entry.rule.eq_attrib.metadata_meq32.value = (value & 0xFF) << 16;
-					flt_rule_entry.rule.eq_attrib.metadata_meq32.mask = 0x00FF0000;
-					IPACMDBG_H("xlat meta-data is modified for rule: %d has index %d with xlat_mux_id: %d\n",
-						cnt, index, pdn_mux_id);
-				}
-			}
-#endif
-
-			flt_rule_entry.rule.hashable = ext_prop->ext[cnt].is_rule_hashable;
-			flt_rule_entry.rule.rule_id = ext_prop->ext[cnt].rule_id;
-
-			/* Decrement TTL/hop-limit on uplink (client -> WAN) forwarding
-			 * rules. Exception rules go to the A7 software path and must be
-			 * left untouched to avoid a double TTL decrement.
+	/* XLAT group: per-VLAN (or non-VLAN), only for XLAT flows. Acquired
+	 * before any HW build so that if base_group is ALSO newly created
+	 * in this same call, both groups can be committed together in one
+	 * HW add, per the modem's rule_id-order requirement.
+	 */
+	if (is_xlat) {
+		ret = ipa_ul_group_acquire(client_iface, IPA_IP_v4, IPA_FLT_RULE_CAT_UPLINK,
+					    true, vlan_key, pdn_iface, pdn_mux_id,
+					    &xlat_group, &xlat_new_group, &xlat_new_pdn);
+		if (ret) {
+			/* XLAT is best-effort layered on top of a working base
+			 * uplink path -- don't fail the whole call for it.
 			 */
-			if (flt_rule_entry.rule.action != IPA_PASS_TO_EXCEPTION)
-				flt_rule_entry.rule.ttl_update = 1;
-			/* Skip Metadata equation for WLAN VLAN and static policy scenarios to handle XLAT. */
-/*			if (!idx && rx_prop->rx[idx].attrib.attrib_mask & IPA_FLT_META_DATA && */
-/*				!(IPACM_Iface::ipacmcfg->ipacm_static_policy_enable && ext_prop->prop[cnt].is_xlat_rule)) */
-			/* { //turn on meta-data equation */
-				/* flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 9); */
-				/* flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1; */
-				/* flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0; */
-				/* flt_rule_entry.rule.eq_attrib.metadata_meq32.value |= rx_prop->rx[idx].attrib.meta_data; */
-				/* flt_rule_entry.rule.eq_attrib.metadata_meq32.mask |= rx_prop->rx[idx].attrib.meta_data_mask; */
-				/* IPA_BE_ERR("turn on meta-data equation with value 0x%x\n", rx_prop->rx[idx].attrib.meta_data); */
-			/* } */
-
-			flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
-			memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
-
-			IPA_BE_DBG("Modem UL filtering rule %d has index %d installed at %d\n", cnt, index, i);
-			IPA_BE_DBG("Modem UL filtering rule_id %d at_rear:%d\n", flt_rule_entry.rule.rule_id, flt_rule_entry.at_rear);
-			flt_index->rule_id[i] = ext_prop->ext[cnt].rule_id;
-			index++;
-			i++;
-		}
-
-		if (ipa3_qmi_filter_notify_send(flt_index)) {
-			IPA_BE_ERR("IPACM->Q6 rule index fail\n");
-			retval = -EFAULT;
-			break;
-		}
-
-		if (notif_only) {
-			IPA_BE_DBG("UL filtering rules already installed for %s, only sent notification for modem (mux %d)\n",
-				rx_prop->name, ext_prop->ext[0].mux_id);
-
-			if (pFilteringTable) {
-				if (pFilteringTable->rules)
-					kfree((void *)(uintptr_t)pFilteringTable->rules);
-				kfree(pFilteringTable);
-				pFilteringTable = NULL;
-			}
-			retval = 0;
-			continue;
-		} else {
-			IPA_BE_DBG("this is the first PDN for dev %s, commiting modem UL rules, mux %d\n", rx_prop->name, ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
-		}
-
-		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable,
-			true)) {
-			IPA_BE_ERR("ipa3_add_flt_rule_usr_v2 failed\n");
-			retval = -EFAULT;
-			goto end;
-		} else {
-			for (i = 0; i < pFilteringTable->num_rules; i++) {
-				if (!(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl)
-					continue;
-
-				IPA_BE_DBG("Modem uplink rules %d filter rule hdl: %d\n", lan2lan, (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl);
-				/* wan_ul_fl_rule_hdl_v4[j][num_wan_ul_fl_rule_v4[j]] = pFilteringTable->rules[i].flt_rule_hdl; */
-				/* num_wan_ul_fl_rule_v4[j]++; */
-				/* Map for dynamic insertion of xlat rules */
-				/* if (is_dev_in_vlan_mode && IPACM_Iface::ipacmcfg->ipacm_mpdn_enable) */
-				/* { */
-				/*	xlat_ctx.ul_rule_id_hdl_map[j][i].rule_id = pFilteringTable->rules[i].rule.rule_id; */
-				/*	xlat_ctx.ul_rule_id_hdl_map[j][i].flt_hdl = pFilteringTable->rules[i].flt_rule_hdl; */
-				/* } */
-				flt_entry.flt_hdl = (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl;
-				flt_entry.cat = IPA_FLT_RULE_CAT_UPLINK;  /* Modem uplink rules */
-				flt_entry.ip_type = IPA_IP_v4;
-				if (installed_hdls)
-					installed_hdls[installed_count++] = flt_entry.flt_hdl;
-				ipa3_add_filter_rules_entry(client_iface, flt_entry);
-			}
-			flt_rule_count_v4[rx_prop->rx[idx].src_pipe]++;
-		}
-		if (pFilteringTable) {
-			if (pFilteringTable->rules)
-				kfree((void *)(uintptr_t)pFilteringTable->rules);
-			kfree(pFilteringTable);
-			pFilteringTable = NULL;
+			IPA_BE_ERR("Failed to acquire v4 XLAT uplink group client %d vlan %u: %d\n",
+				client_iface, vlan_key, ret);
+			xlat_group = NULL;
 		}
 	}
 
-	if (retval == 0) {
-		int ep_src, ep_ebd;
-
-		ep_src = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
-		ep_ebd = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
-		if (ep_src < 0 || ep_ebd < 0) {
-			IPA_BE_ERR("Invalid EP mapping src=%d ebd=%d for src_pipe %d\n",
-				ep_src, ep_ebd, rx_prop->rx[idx].src_pipe);
-			retval = -EINVAL;
+	if (base_new_group && xlat_new_group) {
+		/* Combined: both groups are brand new in this exact call. */
+		retval = ipa_be_v4_build_install_uplink_rows(base_group, xlat_group, NULL,
+				rx_prop, ext_prop, has_vlan, vlan_id, client_iface, pdn_mux_id);
+		if (retval) {
+			IPA_BE_ERR("Combined base+XLAT v4 UL install failed client %d vlan %u: %d\n",
+				client_iface, vlan_key, retval);
+			ipa_ul_group_abort_new(xlat_group);
+			xlat_group = NULL;
+			ipa_ul_group_abort_new(base_group);
+			base_group = NULL;
 			goto end;
 		}
+		ipa_ul_group_install_done(base_group);
+		ipa_ul_group_install_done(xlat_group);
+	} else {
+		if (base_new_group) {
+			retval = ipa_be_v4_build_install_uplink_rows(base_group, NULL, NULL,
+					rx_prop, ext_prop, false, 0, client_iface, pdn_mux_id);
+			if (retval) {
+				ipa_ul_group_abort_new(base_group);
+				base_group = NULL;
+				/*
+				 * xlat_group here is necessarily acquired-existing
+				 * (xlat_new_group==false in this arm; the combined
+				 * branch above handles the brand-new xlat case).
+				 * Release the ref/pdn_ref that acquire bumped so
+				 * counters stay balanced on this failure path.
+				 * Must use release(), not abort_new(): the latter
+				 * unlinks and frees unconditionally and would
+				 * corrupt a group that other callers still hold.
+				 */
+				if (xlat_group) {
+					struct ipa_ul_group *empty_group = NULL;
+					bool pdn_removed = false;
+					uint8_t removed_mux_id = 0;
+					uint32_t removed_src_pipe = 0, removed_ebd_pipe = 0;
+					int rel_ret;
 
-		new_pair = kzalloc(sizeof(struct ipa_uplink_pair), GFP_KERNEL);
-		if (!new_pair) {
-			IPA_BE_ERR("Failed to allocate memory for uplink pair\n");
-			retval = -ENOMEM;
-			goto end;
+					rel_ret = ipa_ul_group_release(client_iface, IPA_IP_v4,
+							IPA_FLT_RULE_CAT_UPLINK, true, vlan_key,
+							pdn_iface, &empty_group, &pdn_removed,
+							&removed_mux_id, &removed_src_pipe,
+							&removed_ebd_pipe);
+					if (rel_ret < 0)
+						IPA_BE_ERR("xlat release after base-install fail client %d vlan %u: %d\n",
+							client_iface, vlan_key, rel_ret);
+					if (empty_group)
+						ipa_ul_group_teardown(empty_group);
+					xlat_group = NULL;
+				}
+				goto end;
+			}
+			ipa_ul_group_install_done(base_group);
+		} else if (base_new_pdn) {
+			IPA_BE_DBG("Base v4 UL group already installed for client %d; new pdn %d (mux %d) joins it\n",
+				client_iface, pdn_iface, pdn_mux_id);
+		} else {
+			IPA_BE_DBG("Uplink filter for pdn %d, client %d, IP type %d already installed/known.\n",
+				pdn_iface, client_iface, IPA_IP_v4);
 		}
-		new_pair->pdn_iface = pdn_iface;
-		new_pair->client_iface = client_iface;
-		new_pair->ip_type = iptype;
-		atomic_set(&new_pair->ref_count, 1);
-		/* Latched after kzalloc so allocation failure cannot strand qmap. */
-		new_pair->notif_mux_id = ipa_be_global_qmap_id_latch(
-			ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
-		new_pair->notif_src_pipe   = (uint32_t)ep_src;
-		new_pair->notif_ebd_pipe   = (uint32_t)ep_ebd;
-		new_pair->notif_src_client = rx_prop->rx[idx].src_pipe;
 
-		spin_lock_bh(&ipa_uplink_lock);
-		list_add(&new_pair->node, &ipa_uplink_pairs_list);
-		spin_unlock_bh(&ipa_uplink_lock);
+		if (xlat_group && xlat_new_group) {
+			/* Base already existed (or just failed/skipped above);
+			 * build the XLAT row standalone, borrowing the base
+			 * group's cached priority map for ordering.
+			 */
+			int xlat_ret = ipa_be_v4_build_install_uplink_rows(NULL, xlat_group,
+					base_group, rx_prop, ext_prop, has_vlan, vlan_id,
+					client_iface, pdn_mux_id);
+			if (xlat_ret) {
+				IPA_BE_ERR("Failed to install v4 XLAT uplink row(s) client %d vlan %u: %d\n",
+					client_iface, vlan_key, xlat_ret);
+				ipa_ul_group_abort_new(xlat_group);
+				xlat_group = NULL;
+			} else {
+				ipa_ul_group_install_done(xlat_group);
+			}
+		} else if (xlat_group && xlat_new_pdn) {
+			/* Existing XLAT group, no rule-set change -- the
+			 * consolidated notify below (gated on xlat_new_pdn)
+			 * is what tells the modem this pdn now has rules, not
+			 * a separate per-group notify.
+			 */
+			IPA_BE_DBG("v4 XLAT uplink group vlan %u already installed for client %d; new pdn %d joins it\n",
+				vlan_key, client_iface, pdn_iface);
+		}
 	}
+
+	/* Notify-only fallback for a PDN joining an existing group with no
+	 * build. OR'd, not &&'d: xlat_new_group isn't reset on an abort, so
+	 * && would wrongly suppress the base group's own notify too.
+	 */
+	if ((!base_new_group && base_new_pdn) || (!xlat_new_group && xlat_new_pdn))
+		ipa_ul_send_client_notify(client_iface, IPA_IP_v4, pdn_mux_id);
 
 end:
-	if (retval != 0 && installed_count > 0 && installed_hdls) {
-		struct ipa_ioc_del_flt_rule *dp;
-		size_t sz = sizeof(*dp) + installed_count * sizeof(struct ipa_flt_rule_del);
-		dp = kzalloc(sz, GFP_KERNEL);
-		if (dp) {
-			int k;
-			dp->commit = 1;
-			dp->num_hdls = installed_count;
-			dp->ip = IPA_IP_v4;
-			for (k = 0; k < installed_count; k++) {
-				dp->hdl[k].status = -1;
-				dp->hdl[k].hdl = installed_hdls[k];
-			}
-			ipa3_del_flt_rule(dp);
-			kfree(dp);
-		}
-	}
-	kfree(installed_hdls);
-	kfree(flt_index);
-	if (pFilteringTable) {
-		if (pFilteringTable->rules)
-			kfree((void *)(uintptr_t)pFilteringTable->rules);
-		kfree(pFilteringTable);
-	}
 	if (rx_prop)
 		kfree(rx_prop);
 	if (ext_prop)
@@ -2808,307 +3894,371 @@ void ipa_be_subnet_notifier_cleanup(void)
 EXPORT_SYMBOL(ipa_be_subnet_notifier_cleanup);
 
 
-int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int pdn_iface, int client_iface, bool is_xlat)
+/*
+ * Builds and installs the v6 base uplink rows (PDN-independent, one row
+ * per ext_prop entry with ip==IPA_IP_v6, same content regardless of which
+ * PDN or VLAN triggered the install). Populates
+ * g->flt_hdls/num_hdls/rule_id[]/notif_* on success; returns a negative
+ * errno on failure (caller must ipa_ul_group_abort_new(g)).
+ */
+static int ipa_be_v6_build_install_base_rows(struct ipa_ul_group *g,
+	struct ipa_ioc_query_intf_rx_props *rx_prop,
+	struct ipa_ioc_query_intf_ext_props *ext_prop,
+	int client_iface, uint8_t mux_id)
 {
 	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
 	struct ipa_flt_rule_add_v2 flt_rule_entry;
-	struct ipa_ioc_query_intf client_intf, pdn_intf;
-	int retval = 0, len = 0;
-	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
-	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
-	int total_rules = 1;
-	int idx = 0;
-	int j = 0, i = 0;
 	struct ipa_fltr_installed_notif_req_msg_v01 *flt_index = NULL;
-	int cnt;
-	enum ipa_flt_action action_cache;
-	enum ipa_ip_type iptype;
-	int index = 0;
-	bool notif_only = false;
 	struct ipa3_flt_entry flt_entry = {0};
-	struct ipa_uplink_pair *pair;
-	struct ipa_uplink_pair *new_pair = NULL;
+	enum ipa_flt_action action_cache;
+	struct list_head local_prio_list;
+	int total_rules = 0;
+	int idx = 0, j, cnt, i = 0, index;
+	int retval = 0;
 	uint32_t *installed_hdls = NULL;
 	int installed_count = 0;
 
-	iptype = IPA_IP_v6;
-	IPA_BE_DBG("ECMIPA entry lan2lan %d\n", lan2lan);
+	INIT_LIST_HEAD(&local_prio_list);
 
-	/*Check if the filter interface exists*/
-	if (!ipa3_query_iface(client_iface, &client_intf)) {
-		retval = -EINVAL;
-		goto end;
-	} else {
-		IPA_BE_DBG("Interface with index %u exist.\n", client_iface);
-	}
-
-	spin_lock_bh(&ipa_uplink_lock);
-	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-		if (ipa_uplink_pair_match(pair, pdn_iface, client_iface, iptype)) {
-			atomic_inc(&pair->ref_count);
-			spin_unlock_bh(&ipa_uplink_lock);
-			IPA_BE_DBG("Uplink filter for pdn %d, client %d, IP type %d already installed. ref_count: %d\n",
-				pdn_iface, client_iface, iptype, atomic_read(&pair->ref_count));
-			return 0; /* Rules already exist, just increment ref count and exit */
-		}
-	}
-	spin_unlock_bh(&ipa_uplink_lock);
-
-	IPA_BE_DBG("Created new uplink pair tracking for pdn %d, client %d\n", pdn_iface, client_iface);
-
-	rx_prop = (struct ipa_ioc_query_intf_rx_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_rx_props) +
-		client_intf.num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop), GFP_KERNEL);
-	if (rx_prop == NULL) {
-		IPA_BE_ERR("Unable to allocate rx_prop memory.\n");
-		retval = -EINVAL;
-		goto end;
-	}
-	memcpy(rx_prop->name, client_intf.name, sizeof(client_intf.name));
-	rx_prop->num_rx_props = client_intf.num_rx_props;
-	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, client_intf.name);
-	ipa3_query_intf_rx_props(rx_prop);
-	if (rx_prop->num_rx_props > 0)
-		IPA_BE_DBG("Query response rx_prop src %d hdr_l2_type %d\n", rx_prop->rx[idx].src_pipe,
-			rx_prop->rx[idx].hdr_l2_type);
-
-	/* ext Props */
-	/*Check if the filter interface exists*/
-	if (!ipa3_query_iface(pdn_iface, &pdn_intf)) {
-		retval = -EINVAL;
-		goto end;
-	} else {
-		IPA_BE_DBG("Interface with index %u exist.\n", pdn_iface);
-	}
-	ext_prop = (struct ipa_ioc_query_intf_ext_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_ext_props) +
-		pdn_intf.num_ext_props * sizeof(struct ipa_ioc_ext_intf_prop), GFP_KERNEL);
-	if (ext_prop == NULL) {
-		IPA_BE_ERR("Unable to allocate ext_prop memory.\n");
-		retval = -EINVAL;
-		goto end;
-	}
-	memcpy(ext_prop->name, pdn_intf.name, sizeof(pdn_intf.name));
-	ext_prop->num_ext_props = pdn_intf.num_ext_props;
-	IPA_BE_DBG("Query ext_prop %d name %s is_xlat %d\n", ext_prop->num_ext_props, ext_prop->name, is_xlat);
-	ipa3_query_intf_ext_props(ext_prop);
-
-	flt_index = (struct ipa_fltr_installed_notif_req_msg_v01 *)kzalloc(
-		sizeof(struct ipa_fltr_installed_notif_req_msg_v01), GFP_KERNEL);
-	if (!flt_index) {
-		IPA_BE_ERR("Failed to allocate flt_index memory\n");
-		retval = -ENOMEM;
-		goto end;
-	}
-
-	total_rules = 0;
 	for (cnt = 0; cnt < ext_prop->num_ext_props; cnt++) {
 		if (ext_prop->ext[cnt].ip == IPA_IP_v6)
 			total_rules++;
 	}
 
-	IPA_BE_DBG("Total ext props %d, IPv6 filtering rules %d before XLAT duplication\n",
-		ext_prop->num_ext_props, total_rules);
+	IPA_BE_DBG("v6 base UL group build: client %d total_rules %d\n",
+		client_iface, total_rules);
 
-	if (rx_prop->num_rx_props > 0 && total_rules > 0) {
-		installed_hdls = kzalloc((rx_prop->num_rx_props / 2) * (total_rules + 1) *
+	if (total_rules == 0) {
+		/* Nothing to install: mark notif_src_client invalid so later
+		 * aggregation/teardown skip this group's unset pipe info
+		 * instead of treating client 0 as real.
+		 */
+		g->notif_src_client = IPA_CLIENT_MAX;
+		return 0;
+	}
+
+	flt_index = kzalloc(sizeof(*flt_index), GFP_KERNEL);
+	if (!flt_index)
+		return -ENOMEM;
+
+	if (total_rules > ARRAY_SIZE(flt_index->rule_id)) {
+		IPA_BE_ERR("v6 base total_rules %d exceeds rule_id[] cap (client=%d)\n",
+			total_rules, client_iface);
+		kfree(flt_index);
+		return -E2BIG;
+	}
+
+	if (rx_prop->num_rx_props > 0) {
+		installed_hdls = kzalloc((rx_prop->num_rx_props / 2) * total_rules *
 					 sizeof(uint32_t), GFP_KERNEL);
 		if (!installed_hdls) {
-			retval = -ENOMEM;
-			goto end;
+			kfree(flt_index);
+			return -ENOMEM;
 		}
 	}
 
-	/*for IPv6CT enabled mode, duplicate the pass to NAT modem UL rules and change to pass to route for XLAT packets */
-	int v6_xlat_ul_rules = 0;
-	if (is_xlat)
-	{
-		IPA_BE_DBG("IPv6CT is enabled, need pass to route modem UL rules for XLAT packets\n");
-		for (cnt = 0; cnt < ext_prop->num_ext_props; cnt++) {
-			if (ext_prop->ext[cnt].ip != IPA_IP_v6)
-				continue;
-			if (ext_prop->ext[cnt].action != IPA_PASS_TO_EXCEPTION)
-				v6_xlat_ul_rules++;
-		}
-
-		total_rules = total_rules + v6_xlat_ul_rules;
-		IPA_BE_DBG("Need %d additional XLAT rules\n", v6_xlat_ul_rules);
-	}
-
-	/* rule_id[] holds 64 entries; reject more (XLAT included). */
-	if (total_rules > ARRAY_SIZE(flt_index->rule_id)) {
-		IPA_BE_ERR("v6 total_rules %d (incl. XLAT %d) exceeds rule_id[] cap %zu (pdn=%d client=%d)\n",
-			total_rules, v6_xlat_ul_rules,
-			ARRAY_SIZE(flt_index->rule_id),
-			pdn_iface, client_iface);
-		retval = -E2BIG;
-		goto end;
-	}
+	/* This group is build-once, so ordering doesn't need to survive a
+	 * later incremental add -- just assign a stable one here for
+	 * robustness against ext_prop not already being rule_id-sorted.
+	 * Purely transient: freed at the end rather than kept on g.
+	 */
+	ipa_be_compute_rule_priorities(ext_prop, IPA_IP_v6, &local_prio_list);
 
 	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
 		idx = j * 2 + 1;
-		if (rx_prop->rx[idx].ip != IPA_IP_v6) {
-			IPA_BE_DBG("IP not matching required type %d .. continue\n", rx_prop->rx[idx].ip);
+		if (rx_prop->rx[idx].ip != IPA_IP_v6)
 			continue;
-		}
-		IPA_BE_DBG("Install rules at idx %d\n", idx);
 
-		/* Reallocate each pass -- pFilteringTable is freed at the end of every iteration, so a pre-loop alloc would write through NULL on the 2nd+ pass. */
 		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
 		if (pFilteringTable == NULL) {
-			IPA_BE_ERR("Error Locate ipa_ioc_add_flt_rule_v2 memory...\n");
-			retval = -EINVAL;
-			goto end;
+			retval = -ENOMEM;
+			goto fail;
 		}
-
 		pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
 		if (!pFilteringTable->rules) {
 			kfree(pFilteringTable);
 			pFilteringTable = NULL;
-			IPA_BE_ERR("Error Locate ipa_flt_rule_add_v2 memory...\n");
-			retval = -EINVAL;
-			goto end;
+			retval = -ENOMEM;
+			goto fail;
 		}
 
 		memset(flt_index, 0, sizeof(struct ipa_fltr_installed_notif_req_msg_v01));
 		flt_index->source_pipe_index = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
 		flt_index->install_status = IPA_QMI_RESULT_SUCCESS_V01;
-
 		flt_index->rule_id_valid = 1;
 		flt_index->rule_id_len = total_rules;
 		flt_index->embedded_pipe_index_valid = 1;
 		flt_index->embedded_pipe_index = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
 		flt_index->retain_header_valid = 1;
 		flt_index->retain_header = 0;
-		flt_index->embedded_call_mux_id_valid = 1;
-/*
-#ifdef FEATURE_VLAN_MPDN
-		if (is_xlat &&
-		   (!(is_dev_in_vlan_mode || static_policy) &&
-		   IPACM_Iface::ipacmcfg->ipacm_mpdn_enable))
-			flt_index.embedded_call_mux_id = IPACM_Iface::ipacmcfg->GetQmapId();
-		else
-			flt_index.embedded_call_mux_id = pdn_mux_id;
-#else
-		flt_index.embedded_call_mux_id = IPACM_Iface::ipacmcfg->GetQmapId();
-#endif
-*/
-		flt_index->embedded_call_mux_id = ipa_be_global_qmap_id_latch(
-			ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
-
-		IPA_BE_DBG("flt_index: src pipe: %d, num of rules: %d, ebd pipe: %d, mux id: %d\n",
-				   flt_index->source_pipe_index, flt_index->rule_id_len, flt_index->embedded_pipe_index, flt_index->embedded_call_mux_id);
 
 		pFilteringTable->commit = 1;
 		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
 		pFilteringTable->global = false;
-		pFilteringTable->ip = iptype;
+		pFilteringTable->ip = IPA_IP_v6;
 		pFilteringTable->num_rules = total_rules;
 		pFilteringTable->flt_rule_size = sizeof(struct ipa_flt_rule_add_v2);
-		/* On v7.0+ ETH/NON_DMA mode the uC rewrites the packet type; ethertype meq is not needed. */
-		bool needs_legacy_ethertype_meq = ipa3_ctx->ipa_hw_type < IPA_HW_v7_0 ||
-			ipa3_get_ep_traffic_mode(pFilteringTable->ep) == IPA_BASIC;
 
-		for (cnt = i = 0; cnt < ext_prop->num_ext_props && i < total_rules; cnt++)
-		{
+		for (cnt = i = 0; cnt < ext_prop->num_ext_props && i < total_rules; cnt++) {
 			if (ext_prop->ext[cnt].ip != IPA_IP_v6)
-			{
-				IPA_BE_DBG("iptype mismatch %d .. continue\n", ext_prop->ext[cnt].ip);
 				continue;
-			}
 
 			memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add_v2));
-			flt_rule_entry.at_rear = 1;
-
+			flt_rule_entry.at_rear = 0;
 			flt_rule_entry.flt_rule_hdl = -1;
 			flt_rule_entry.status = -1;
-
 			flt_rule_entry.rule.retain_hdr = 0;
 			flt_rule_entry.rule.to_uc = 0;
 			flt_rule_entry.rule.eq_attrib_type = 1;
 			flt_rule_entry.rule.action = IPA_PASS_TO_SRC_NAT;
-			/* cache the flt action */
 			action_cache = flt_rule_entry.rule.action;
-
 			flt_rule_entry.rule.set_metadata = false;
 			flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_UPLINK;
+			flt_rule_entry.rule_sub_category = ipa_be_lookup_local_sub_cat(
+				&local_prio_list, ext_prop->ext[cnt].rule_id);
 
 			index = flt_rule_count_v6[rx_prop->rx[idx].src_pipe];
 
 			memcpy(&flt_rule_entry.rule.eq_attrib,
-				   &ext_prop->ext[cnt].eq_attrib,
-				   sizeof(ext_prop->ext[cnt].eq_attrib));
+				&ext_prop->ext[cnt].eq_attrib,
+				sizeof(ext_prop->ext[cnt].eq_attrib));
 
-			/* Populate the flt rule action from ext_prop */
 			if (ext_prop->ext[cnt].action == IPA_PASS_TO_EXCEPTION) {
-				/* Override the rule action if Q6 can't handle it, go A7 exception */
 				flt_rule_entry.rule.action = ext_prop->ext[cnt].action;
 				flt_rule_entry.rule.rt_tbl_idx = 0;
-				IPA_BE_DBG("Override rule index %d to act: %d, rt_tbl_idx: %d to %d\n",
-						   cnt, flt_rule_entry.rule.action,
-						   ext_prop->ext[cnt].rt_tbl_idx,
-						   flt_rule_entry.rule.rt_tbl_idx);
 			} else {
-				/* restore the rule action */
 				flt_rule_entry.rule.action = action_cache;
 				flt_rule_entry.rule.rt_tbl_idx = ext_prop->ext[cnt].rt_tbl_idx;
-				IPA_BE_DBG("Restore rule index %d to act: %d, rt_tbl_idx: %d \n",
-						   cnt, flt_rule_entry.rule.action,
-						   flt_rule_entry.rule.rt_tbl_idx);
 			}
 
 			flt_rule_entry.rule.hashable = ext_prop->ext[cnt].is_rule_hashable;
 			flt_rule_entry.rule.rule_id = ext_prop->ext[cnt].rule_id;
 
-			/* Decrement TTL/hop-limit on uplink (client -> WAN) forwarding
-			 * rules. Exception rules go to the A7 software path and must be
-			 * left untouched to avoid a double TTL decrement. The XLAT
-			 * duplicate rule below inherits this from flt_rule_entry.
-			 */
 			if (flt_rule_entry.rule.action != IPA_PASS_TO_EXCEPTION)
 				flt_rule_entry.rule.ttl_update = 1;
-			/* Skip Metadata equation for WLAN VLAN and static policy scenarios to handle XLAT. */
-//			if (!idx && rx_prop->rx[idx].attrib.attrib_mask & IPA_FLT_META_DATA &&
-//				!(IPACM_Iface::ipacmcfg->ipacm_static_policy_enable && ext_prop->prop[cnt].is_xlat_rule))
-			//{ //turn on meta-data equation
-				//flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 9);
-				//flt_rule_entry.rule.eq_attrib.metadata_meq32_present = 1;
-				//flt_rule_entry.rule.eq_attrib.metadata_meq32.offset = 0;
-				//flt_rule_entry.rule.eq_attrib.metadata_meq32.value |= rx_prop->rx[idx].attrib.meta_data;
-				//flt_rule_entry.rule.eq_attrib.metadata_meq32.mask |= rx_prop->rx[idx].attrib.meta_data_mask;
-				//IPA_BE_ERR("turn on meta-data equation with value 0x%x\n", rx_prop->rx[idx].attrib.meta_data);
-			//}
 
 			flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_MAX;
 			memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
 
 			IPA_BE_DBG("Modem UL filtering rule %d has index %d installed at %d\n", cnt, index, i);
-			IPA_BE_DBG("Modem UL filtering rule_id %d\n", flt_rule_entry.rule.rule_id);
 			flt_index->rule_id[i] = ext_prop->ext[cnt].rule_id;
 			index++;
 			i++;
+		}
 
-			//for IPv6CT enabled and XLAT, add a duplicate rule above that will let XLAT packets go to routing instead of NAT
-			if (is_xlat && flt_rule_entry.rule.action != IPA_PASS_TO_EXCEPTION) {
-				//duplicate the old rule to new index
-				memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
+		retval = ipa_ul_group_set_rule_ids(g, flt_index->rule_id,
+			flt_index->rule_id_len,
+			(uint32_t)flt_index->source_pipe_index,
+			(uint32_t)flt_index->embedded_pipe_index,
+			rx_prop->rx[idx].src_pipe);
+		if (retval)
+			goto fail;
 
-				//change old rule to pass to IP type, route and non hashable
-				flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_IP;
-				flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
-				flt_rule_entry.rule.hashable = false;
-				flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_XLAT;
+		/* Notify before install -- see the v4 helper for rationale. */
+		ipa_ul_send_client_notify(client_iface, IPA_IP_v6, mux_id);
 
-				if (needs_legacy_ethertype_meq) {
-					//add the eth header equation for v4 to the old rule
-					int meq32_n = flt_rule_entry.rule.eq_attrib.num_offset_meq_32;
-					uint8_t ethertype_offset = 0;
-					bool add_ethertype_meq = true;
+		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable, true)) {
+			IPA_BE_ERR("ipa3_add_flt_rule_usr_v2 failed\n");
+			retval = -EFAULT;
+			goto fail;
+		}
 
-					if (meq32_n + 1 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
-						IPA_BE_ERR("Can't add another meq_32 equation to this rule");
-						memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[cnt]), &flt_rule_entry, sizeof(flt_rule_entry));
-						continue;
-					}
+		for (i = 0; i < pFilteringTable->num_rules; i++) {
+			struct ipa_flt_rule_add_v2 *installed_rule =
+				&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]);
 
+			if (!installed_rule->flt_rule_hdl)
+				continue;
+
+			flt_entry.flt_hdl = installed_rule->flt_rule_hdl;
+			flt_entry.cat = IPA_FLT_RULE_CAT_UPLINK;
+			flt_entry.ip_type = IPA_IP_v6;
+			if (installed_hdls)
+				installed_hdls[installed_count++] = flt_entry.flt_hdl;
+			ipa3_add_filter_rules_entry(client_iface, flt_entry);
+		}
+		flt_rule_count_v6[rx_prop->rx[idx].src_pipe]++;
+
+		kfree((void *)(uintptr_t)pFilteringTable->rules);
+		kfree(pFilteringTable);
+		pFilteringTable = NULL;
+	}
+
+	g->flt_hdls = installed_hdls;
+	g->num_hdls = installed_count;
+	ipa_ul_free_prio_list(&local_prio_list);
+	kfree(flt_index);
+	return 0;
+
+fail:
+	ipa_ul_free_prio_list(&local_prio_list);
+	if (installed_count > 0 && installed_hdls) {
+		struct ipa_ioc_del_flt_rule *dp;
+		size_t sz = sizeof(*dp) + installed_count * sizeof(struct ipa_flt_rule_del);
+
+		dp = kzalloc(sz, GFP_KERNEL);
+		if (dp) {
+			int k;
+
+			dp->commit = 1;
+			dp->num_hdls = installed_count;
+			dp->ip = IPA_IP_v6;
+			for (k = 0; k < installed_count; k++) {
+				dp->hdl[k].status = -1;
+				dp->hdl[k].hdl = installed_hdls[k];
+			}
+			ipa3_del_flt_rule(dp);
+			kfree(dp);
+		}
+	}
+	kfree(installed_hdls);
+	kfree(flt_index);
+	if (pFilteringTable) {
+		if (pFilteringTable->rules)
+			kfree((void *)(uintptr_t)pFilteringTable->rules);
+		kfree(pFilteringTable);
+	}
+	return retval;
+}
+
+/*
+ * Builds and installs the v6 XLAT companion rows: shared/global per
+ * client_iface, not VLAN-keyed -- unlike the v4 XLAT row, this duplicate
+ * matches by EtherType, not VLAN ID, so any VLAN's traffic matches the
+ * same shared rows. One IPA_PASS_TO_ROUTING, non-hashable, CAT_XLAT
+ * duplicate row per non-exception v6 ext_prop entry; the base
+ * IPA_PASS_TO_SRC_NAT row for that same entry is installed independently
+ * by the base group, not duplicated here.
+ */
+static int ipa_be_v6_build_install_xlat_companion_rows(struct ipa_ul_group *g,
+	struct ipa_ioc_query_intf_rx_props *rx_prop,
+	struct ipa_ioc_query_intf_ext_props *ext_prop,
+	int client_iface, uint8_t mux_id)
+{
+	struct ipa_ioc_add_flt_rule_v2 *pFilteringTable = NULL;
+	struct ipa_flt_rule_add_v2 flt_rule_entry;
+	struct ipa_fltr_installed_notif_req_msg_v01 *flt_index = NULL;
+	struct ipa3_flt_entry flt_entry = {0};
+	int total_rules = 0;
+	int idx = 0, j, cnt, i = 0;
+	int retval = 0;
+	uint32_t *installed_hdls = NULL;
+	int installed_count = 0;
+	bool needs_legacy_ethertype_meq;
+
+	for (cnt = 0; cnt < ext_prop->num_ext_props; cnt++) {
+		if (ext_prop->ext[cnt].ip == IPA_IP_v6 &&
+		    ext_prop->ext[cnt].action != IPA_PASS_TO_EXCEPTION)
+			total_rules++;
+	}
+
+	IPA_BE_DBG("v6 XLAT companion group build: client %d total_rules %d\n",
+		client_iface, total_rules);
+
+	if (total_rules == 0) {
+		/* Nothing to install: mark notif_src_client invalid so later
+		 * aggregation/teardown skip this group's unset pipe info
+		 * instead of treating client 0 as real.
+		 */
+		g->notif_src_client = IPA_CLIENT_MAX;
+		return 0;
+	}
+
+	flt_index = kzalloc(sizeof(*flt_index), GFP_KERNEL);
+	if (!flt_index)
+		return -ENOMEM;
+
+	if (total_rules > ARRAY_SIZE(flt_index->rule_id)) {
+		IPA_BE_ERR("v6 XLAT companion total_rules %d exceeds rule_id[] cap (client=%d)\n",
+			total_rules, client_iface);
+		kfree(flt_index);
+		return -E2BIG;
+	}
+
+	if (rx_prop->num_rx_props > 0) {
+		installed_hdls = kzalloc((rx_prop->num_rx_props / 2) * total_rules *
+					 sizeof(uint32_t), GFP_KERNEL);
+		if (!installed_hdls) {
+			kfree(flt_index);
+			return -ENOMEM;
+		}
+	}
+
+	for (j = 0; j < rx_prop->num_rx_props / 2; j++) {
+		idx = j * 2 + 1;
+		if (rx_prop->rx[idx].ip != IPA_IP_v6)
+			continue;
+
+		pFilteringTable = (struct ipa_ioc_add_flt_rule_v2 *)kzalloc(sizeof(struct ipa_ioc_add_flt_rule_v2), GFP_KERNEL);
+		if (pFilteringTable == NULL) {
+			retval = -ENOMEM;
+			goto fail;
+		}
+		pFilteringTable->rules = (uintptr_t)kzalloc(total_rules * sizeof(struct ipa_flt_rule_add_v2), GFP_KERNEL);
+		if (!pFilteringTable->rules) {
+			kfree(pFilteringTable);
+			pFilteringTable = NULL;
+			retval = -ENOMEM;
+			goto fail;
+		}
+
+		memset(flt_index, 0, sizeof(struct ipa_fltr_installed_notif_req_msg_v01));
+		flt_index->source_pipe_index = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
+		flt_index->install_status = IPA_QMI_RESULT_SUCCESS_V01;
+		flt_index->rule_id_valid = 1;
+		flt_index->rule_id_len = total_rules;
+		flt_index->embedded_pipe_index_valid = 1;
+		flt_index->embedded_pipe_index = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
+		flt_index->retain_header_valid = 1;
+		flt_index->retain_header = 0;
+
+		pFilteringTable->commit = 1;
+		pFilteringTable->ep = rx_prop->rx[idx].src_pipe;
+		pFilteringTable->global = false;
+		pFilteringTable->ip = IPA_IP_v6;
+		pFilteringTable->num_rules = total_rules;
+		pFilteringTable->flt_rule_size = sizeof(struct ipa_flt_rule_add_v2);
+
+		/* On v7.0+ ETH/NON_DMA mode the uC rewrites the packet type; ethertype meq is not needed. */
+		needs_legacy_ethertype_meq = ipa3_ctx->ipa_hw_type < IPA_HW_v7_0 ||
+			ipa3_get_ep_traffic_mode(pFilteringTable->ep) == IPA_BASIC;
+
+		for (cnt = i = 0; cnt < ext_prop->num_ext_props && i < total_rules; cnt++) {
+			if (ext_prop->ext[cnt].ip != IPA_IP_v6)
+				continue;
+			if (ext_prop->ext[cnt].action == IPA_PASS_TO_EXCEPTION)
+				continue;
+
+			memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add_v2));
+			flt_rule_entry.at_rear = 1;
+			flt_rule_entry.flt_rule_hdl = -1;
+			flt_rule_entry.status = -1;
+			flt_rule_entry.rule.retain_hdr = 0;
+			flt_rule_entry.rule.to_uc = 0;
+			flt_rule_entry.rule.eq_attrib_type = 1;
+			flt_rule_entry.rule.set_metadata = false;
+
+			memcpy(&flt_rule_entry.rule.eq_attrib,
+				&ext_prop->ext[cnt].eq_attrib,
+				sizeof(ext_prop->ext[cnt].eq_attrib));
+
+			flt_rule_entry.rule.hashable = false;
+			flt_rule_entry.rule.rule_id = ext_prop->ext[cnt].rule_id;
+			flt_rule_entry.rule.ttl_update = 1;
+			flt_rule_entry.rule.rt_tbl_idx = ext_prop->ext[cnt].rt_tbl_idx;
+			flt_rule_entry.rule.rule_type = IPA_FLT_RULE_TYPE_IP;
+			flt_rule_entry.rule.action = IPA_PASS_TO_ROUTING;
+			flt_rule_entry.flt_rule_category = IPA_FLT_RULE_CAT_XLAT;
+
+			if (needs_legacy_ethertype_meq) {
+				int meq32_n = flt_rule_entry.rule.eq_attrib.num_offset_meq_32;
+				uint8_t ethertype_offset = 0;
+				bool add_ethertype_meq = true;
+
+				if (meq32_n + 1 > IPA_IPFLTR_NUM_MEQ_32_EQNS) {
+					IPA_BE_ERR("Can't add another meq_32 equation to this rule");
+					add_ethertype_meq = false;
+				} else {
 					switch (rx_prop->rx[idx].hdr_l2_type) {
 					case IPA_HDR_L2_NONE:
 						ethertype_offset = NON_IHL_EQ_OFFSET_FROM_L3(IPA_ETHERTYPE_OFFSET_IP);
@@ -3127,141 +4277,90 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 					default:
 						break;
 					}
-
-					if (add_ethertype_meq) {
-						WARN_ON(ethertype_offset == 0);
-
-						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset =
-							ethertype_offset;
-						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].mask =
-							IPA_ETHERTYPE_MASK;
-						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value = ETH_P_IP;
-						IPA_BE_DBG("XLAT EtherType match: hdr_l2_type=%d rule_type=%d offset=%d value=0x%x\n",
-							rx_prop->rx[idx].hdr_l2_type,
-							flt_rule_entry.rule.rule_type,
-							flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset,
-							flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value);
-
-						//Add the bitmap that will point to the new meq32 eq
-						if (meq32_n == 0) flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 5);
-						else flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 6);
-
-						flt_rule_entry.rule.eq_attrib.num_offset_meq_32++;
-					} else {
-						IPA_BE_DBG("XLAT EtherType match skipped: hdr_l2_type=%d rule_type=%d\n",
-							rx_prop->rx[idx].hdr_l2_type,
-							flt_rule_entry.rule.rule_type);
-					}
 				}
 
-				IPA_BE_DBG("Xlat rule %d flt_index rule id %d\n", flt_rule_entry.rule.eq_attrib.num_offset_meq_32, flt_index->rule_id[i]);
+				if (add_ethertype_meq) {
+					WARN_ON(ethertype_offset == 0);
 
-				//overwrite the old rule and increment the rule count
-				memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i - 1]), &flt_rule_entry, sizeof(flt_rule_entry));
-				index++;
-				i++;
+					flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset = ethertype_offset;
+					flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].mask = IPA_ETHERTYPE_MASK;
+					flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value = ETH_P_IP;
+					IPA_BE_DBG("XLAT EtherType match: hdr_l2_type=%d offset=%d value=0x%x\n",
+						rx_prop->rx[idx].hdr_l2_type,
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].offset,
+						flt_rule_entry.rule.eq_attrib.offset_meq_32[meq32_n].value);
+
+					if (meq32_n == 0)
+						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 5);
+					else
+						flt_rule_entry.rule.eq_attrib.rule_eq_bitmap |= (1 << 6);
+
+					flt_rule_entry.rule.eq_attrib.num_offset_meq_32++;
+				} else {
+					IPA_BE_DBG("XLAT EtherType match skipped: hdr_l2_type=%d\n",
+						rx_prop->rx[idx].hdr_l2_type);
+				}
 			}
+
+			memcpy(&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]), &flt_rule_entry, sizeof(flt_rule_entry));
+
+			IPA_BE_DBG("Xlat companion rule %d meq32_n %d\n", cnt, flt_rule_entry.rule.eq_attrib.num_offset_meq_32);
+			flt_index->rule_id[i] = ext_prop->ext[cnt].rule_id;
+			i++;
 		}
 
-		if (ipa3_qmi_filter_notify_send(flt_index))
-		{
-			IPA_BE_ERR("IPACM->Q6 rule index fail\n");
-			retval = -EFAULT;
-			break;
-		}
+		retval = ipa_ul_group_set_rule_ids(g, flt_index->rule_id,
+			flt_index->rule_id_len,
+			(uint32_t)flt_index->source_pipe_index,
+			(uint32_t)flt_index->embedded_pipe_index,
+			rx_prop->rx[idx].src_pipe);
+		if (retval)
+			goto fail;
 
-		if (notif_only) {
-			IPA_BE_DBG("UL filtering rules already installed for %s, only sent notification for modem (mux %d)\n",
-					   rx_prop->name,  ext_prop->ext[0].mux_id);
+		/* Notify before install -- see the v4 helper for rationale. */
+		ipa_ul_send_client_notify(client_iface, IPA_IP_v6, mux_id);
 
-			if (pFilteringTable)
-			{
-				if (pFilteringTable->rules)
-					kfree((void *)(uintptr_t)pFilteringTable->rules);
-				kfree(pFilteringTable);
-				pFilteringTable = NULL;
-			}
-			retval = 0;
-			continue;
-		} else {
-			IPA_BE_DBG("this is the first PDN for dev %s, commiting modem UL rules, mux %d\n", rx_prop->name, ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
-		}
-
-		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable,
-				true)) {
+		if (ipa3_add_flt_rule_usr_v2((struct ipa_ioc_add_flt_rule_v2 *)pFilteringTable, true)) {
 			IPA_BE_ERR("ipa3_add_flt_rule_usr_v2 failed\n");
 			retval = -EFAULT;
-			goto end;
+			goto fail;
 		}
-		else
-		{
-			for (i = 0; i < pFilteringTable->num_rules; i++) {
-				if (!(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl)
-				{
-					continue;
-				}
-				IPA_BE_DBG("Modem uplink rules %d filter rule hdl: %d\n", lan2lan, (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl);
 
-				flt_entry.flt_hdl = (((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]).flt_rule_hdl;
-				flt_entry.cat = IPA_FLT_RULE_CAT_UPLINK;  /* Modem uplink rules v6 */
-				flt_entry.ip_type = IPA_IP_v6;
-				if (installed_hdls)
-					installed_hdls[installed_count++] = flt_entry.flt_hdl;
-				ipa3_add_filter_rules_entry(client_iface, flt_entry);
-			}
-			flt_rule_count_v6[rx_prop->rx[idx].src_pipe]++;
+		for (i = 0; i < pFilteringTable->num_rules; i++) {
+			struct ipa_flt_rule_add_v2 *installed_rule =
+				&(((struct ipa_flt_rule_add_v2 *)(uintptr_t)pFilteringTable->rules)[i]);
+
+			if (!installed_rule->flt_rule_hdl)
+				continue;
+
+			flt_entry.flt_hdl = installed_rule->flt_rule_hdl;
+			flt_entry.cat = IPA_FLT_RULE_CAT_XLAT;
+			flt_entry.ip_type = IPA_IP_v6;
+			if (installed_hdls)
+				installed_hdls[installed_count++] = flt_entry.flt_hdl;
+			ipa3_add_filter_rules_entry(client_iface, flt_entry);
 		}
-		if (pFilteringTable)
-		{
-			if (pFilteringTable->rules)
-				kfree((void *)(uintptr_t)pFilteringTable->rules);
-			kfree(pFilteringTable);
-			pFilteringTable = NULL;
-		}
+		flt_rule_count_v6[rx_prop->rx[idx].src_pipe]++;
+
+		kfree((void *)(uintptr_t)pFilteringTable->rules);
+		kfree(pFilteringTable);
+		pFilteringTable = NULL;
 	}
 
-	if (retval == 0)
-	{
-		int ep_src, ep_ebd;
+	g->flt_hdls = installed_hdls;
+	g->num_hdls = installed_count;
+	kfree(flt_index);
+	return 0;
 
-		ep_src = ipa_get_ep_mapping(rx_prop->rx[idx].src_pipe);
-		ep_ebd = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
-		if (ep_src < 0 || ep_ebd < 0) {
-			IPA_BE_ERR("Invalid EP mapping src=%d ebd=%d for src_pipe %d\n",
-				ep_src, ep_ebd, rx_prop->rx[idx].src_pipe);
-			retval = -EINVAL;
-			goto end;
-		}
-
-		new_pair = kzalloc(sizeof(struct ipa_uplink_pair), GFP_KERNEL);
-		if (!new_pair) {
-			IPA_BE_ERR("Failed to allocate memory for uplink pair\n");
-			retval = -ENOMEM;
-			goto end;
-		}
-		new_pair->pdn_iface = pdn_iface;
-		new_pair->client_iface = client_iface;
-		new_pair->ip_type = iptype;
-		atomic_set(&new_pair->ref_count, 1);
-		/* Latched after kzalloc so allocation failure cannot strand qmap. */
-		new_pair->notif_mux_id = ipa_be_global_qmap_id_latch(
-			ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0);
-		new_pair->notif_src_pipe   = (uint32_t)ep_src;
-		new_pair->notif_ebd_pipe   = (uint32_t)ep_ebd;
-		new_pair->notif_src_client = rx_prop->rx[idx].src_pipe;
-
-		spin_lock_bh(&ipa_uplink_lock);
-		list_add(&new_pair->node, &ipa_uplink_pairs_list);
-		spin_unlock_bh(&ipa_uplink_lock);
-	}
-
-end:
-	if (retval != 0 && installed_count > 0 && installed_hdls) {
+fail:
+	if (installed_count > 0 && installed_hdls) {
 		struct ipa_ioc_del_flt_rule *dp;
 		size_t sz = sizeof(*dp) + installed_count * sizeof(struct ipa_flt_rule_del);
+
 		dp = kzalloc(sz, GFP_KERNEL);
 		if (dp) {
 			int k;
+
 			dp->commit = 1;
 			dp->num_hdls = installed_count;
 			dp->ip = IPA_IP_v6;
@@ -3274,13 +4373,137 @@ end:
 		}
 	}
 	kfree(installed_hdls);
-	if (flt_index)
-		kfree(flt_index);
+	kfree(flt_index);
 	if (pFilteringTable) {
 		if (pFilteringTable->rules)
 			kfree((void *)(uintptr_t)pFilteringTable->rules);
 		kfree(pFilteringTable);
 	}
+	return retval;
+}
+
+int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan, int pdn_iface, int client_iface, bool is_xlat)
+{
+	struct ipa_ioc_query_intf client_intf, pdn_intf;
+	int retval = 0;
+	struct ipa_ioc_query_intf_rx_props *rx_prop = NULL;
+	struct ipa_ioc_query_intf_ext_props *ext_prop = NULL;
+	uint8_t pdn_mux_id = 0;
+	struct ipa_ul_group *base_group = NULL;
+	struct ipa_ul_group *xlat_group = NULL;
+	bool base_new_group = false, base_new_pdn = false;
+	bool xlat_new_group = false, xlat_new_pdn = false;
+	int ret;
+
+	IPA_BE_DBG("ECMIPA entry lan2lan %d is_xlat %d\n", lan2lan, is_xlat);
+
+	/*Check if the filter interface exists*/
+	if (!ipa3_query_iface(client_iface, &client_intf)) {
+		retval = -EINVAL;
+		goto end;
+	} else {
+		IPA_BE_DBG("Interface with index %u exist.\n", client_iface);
+	}
+
+	rx_prop = (struct ipa_ioc_query_intf_rx_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_rx_props) +
+		client_intf.num_rx_props * sizeof(struct ipa_ioc_rx_intf_prop), GFP_KERNEL);
+	if (rx_prop == NULL) {
+		IPA_BE_ERR("Unable to allocate rx_prop memory.\n");
+		retval = -EINVAL;
+		goto end;
+	}
+	memcpy(rx_prop->name, client_intf.name, sizeof(client_intf.name));
+	rx_prop->num_rx_props = client_intf.num_rx_props;
+	IPA_BE_DBG("Query rx_prop %d name %s\n", rx_prop->num_rx_props, client_intf.name);
+	ipa3_query_intf_rx_props(rx_prop);
+
+	/* ext Props -- queried against this specific pdn_iface, every call. */
+	if (!ipa3_query_iface(pdn_iface, &pdn_intf)) {
+		retval = -EINVAL;
+		goto end;
+	} else {
+		IPA_BE_DBG("Interface with index %u exist.\n", pdn_iface);
+	}
+	ext_prop = (struct ipa_ioc_query_intf_ext_props *)kzalloc(sizeof(struct ipa_ioc_query_intf_ext_props) +
+		pdn_intf.num_ext_props * sizeof(struct ipa_ioc_ext_intf_prop), GFP_KERNEL);
+	if (ext_prop == NULL) {
+		IPA_BE_ERR("Unable to allocate ext_prop memory.\n");
+		retval = -EINVAL;
+		goto end;
+	}
+	memcpy(ext_prop->name, pdn_intf.name, sizeof(pdn_intf.name));
+	ext_prop->num_ext_props = pdn_intf.num_ext_props;
+	IPA_BE_DBG("Query ext_prop %d name %s is_xlat %d\n", ext_prop->num_ext_props, ext_prop->name, is_xlat);
+	ipa3_query_intf_ext_props(ext_prop);
+
+	pdn_mux_id = ext_prop->num_ext_props > 0 ? ext_prop->ext[0].mux_id : 0;
+
+	/* Base group: PDN-independent, installed once per (client, v6).
+	 * Shared by both the direct ECM v6-connect path (is_xlat=false) and
+	 * the v4-XLAT-triggered synthetic call (is_xlat=true) -- both
+	 * represent genuine need for the base rules, so both contribute to
+	 * the same aggregate ref_count.
+	 */
+	ret = ipa_ul_group_acquire(client_iface, IPA_IP_v6, IPA_FLT_RULE_CAT_UPLINK,
+				    false, 0, pdn_iface, pdn_mux_id,
+				    &base_group, &base_new_group, &base_new_pdn);
+	if (ret) {
+		retval = ret;
+		goto end;
+	}
+
+	if (base_new_group) {
+		retval = ipa_be_v6_build_install_base_rows(base_group, rx_prop, ext_prop,
+				client_iface, pdn_mux_id);
+		if (retval) {
+			ipa_ul_group_abort_new(base_group);
+			base_group = NULL;
+			goto end;
+		}
+		ipa_ul_group_install_done(base_group);
+	} else if (base_new_pdn) {
+		IPA_BE_DBG("Base v6 UL group already installed for client %d; new pdn %d (mux %d) joins it\n",
+			client_iface, pdn_iface, pdn_mux_id);
+	}
+
+	/* XLAT companion group: shared/global per client, EtherType-matched.
+	 * This runs once per v4-XLAT-triggering call regardless of VLAN, so
+	 * its ref_count equals the total v4-XLAT flow count summed across
+	 * every VLAN -- it installs once and tears down only once every
+	 * VLAN's v4 XLAT flows are gone.
+	 */
+	if (is_xlat) {
+		ret = ipa_ul_group_acquire(client_iface, IPA_IP_v6, IPA_FLT_RULE_CAT_XLAT,
+					    false, 0, pdn_iface, pdn_mux_id,
+					    &xlat_group, &xlat_new_group, &xlat_new_pdn);
+		if (ret) {
+			IPA_BE_ERR("Failed to acquire v6 XLAT companion group client %d: %d\n",
+				client_iface, ret);
+		} else if (xlat_new_group) {
+			int xlat_ret = ipa_be_v6_build_install_xlat_companion_rows(xlat_group,
+					rx_prop, ext_prop, client_iface, pdn_mux_id);
+			if (xlat_ret) {
+				IPA_BE_ERR("Failed to install v6 XLAT companion rows client %d: %d\n",
+					client_iface, xlat_ret);
+				ipa_ul_group_abort_new(xlat_group);
+				xlat_group = NULL;
+			} else {
+				ipa_ul_group_install_done(xlat_group);
+			}
+		} else if (xlat_new_pdn) {
+			IPA_BE_DBG("v6 XLAT companion group already installed for client %d; new pdn %d joins it\n",
+				client_iface, pdn_iface);
+		}
+	}
+
+	/* Notify-only fallback for a PDN joining an existing group with no
+	 * build. OR'd, not &&'d: xlat_new_group isn't reset on an abort, so
+	 * && would wrongly suppress the base group's own notify too.
+	 */
+	if ((!base_new_group && base_new_pdn) || (!xlat_new_group && xlat_new_pdn))
+		ipa_ul_send_client_notify(client_iface, IPA_IP_v6, pdn_mux_id);
+
+end:
 	if (rx_prop)
 		kfree(rx_prop);
 	if (ext_prop)
@@ -3668,59 +4891,18 @@ fail:
 }
 EXPORT_SYMBOL(ipa_be_v6_delete_filter_rule);
 
-static int ipa_be_notify_q6_uplink_delete(int pdn_iface, int client_iface,
-	enum ipa_ip_type iptype, uint8_t mux_id,
-	uint32_t src_pipe, uint32_t ebd_pipe,
-	enum ipa_client_type src_client)
-{
-	struct ipa_fltr_installed_notif_req_msg_v01 flt_index;
-	int retval = 0;
-
-	IPA_BE_DBG("Q6 delete-notify ENTRY: pdn_iface=%d client_iface=%d iptype=%d mux_id=%u\n",
-		pdn_iface, client_iface, iptype, mux_id);
-
-	memset(&flt_index, 0, sizeof(flt_index));
-	flt_index.source_pipe_index        = src_pipe;
-	flt_index.install_status           = IPA_QMI_RESULT_SUCCESS_V01;
-	flt_index.rule_id_valid            = 1;
-	flt_index.rule_id_len              = 0;   /* delete-all form */
-	flt_index.embedded_pipe_index_valid = 1;
-	flt_index.embedded_pipe_index      = ebd_pipe;
-	flt_index.retain_header_valid      = 1;
-	flt_index.retain_header            = 0;
-	flt_index.embedded_call_mux_id_valid = 1;
-	flt_index.embedded_call_mux_id     = mux_id;
-
-	IPA_BE_DBG("Q6 delete-notify SEND: src_pipe=%d ebd_pipe=%d mux=%d ip=%d\n",
-		src_pipe, ebd_pipe, mux_id, iptype);
-
-	if (ipa3_qmi_filter_notify_send(&flt_index)) {
-		IPA_BE_ERR("Q6 uplink delete notify FAILED for pipe %d ip %d\n",
-			src_pipe, iptype);
-		retval = -EFAULT;
-	} else {
-		if ((unsigned int)src_client < IPA_CLIENT_MAX) {
-			if (iptype == IPA_IP_v4 && flt_rule_count_v4[src_client] > 0)
-				flt_rule_count_v4[src_client]--;
-			else if (iptype == IPA_IP_v6 && flt_rule_count_v6[src_client] > 0)
-				flt_rule_count_v6[src_client]--;
-		} else {
-			IPA_BE_ERR("src_client %d out of range, skipping flt_rule_count update\n",
-				src_client);
-		}
-	}
-
-	IPA_BE_DBG("Q6 delete-notify EXIT: pdn_iface=%d client_iface=%d iptype=%d retval=%d\n",
-		pdn_iface, client_iface, iptype, retval);
-	return retval;
-}
-
 int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg, int pdn_iface, int client_iface)
 {
 	int retval = 0;
-	int new_cnt;
-	struct ipa_uplink_pair *pair, *self = NULL;
 	bool is_xlat = false;
+	bool has_vlan = false;
+	uint16_t vlan_id = 0;
+	uint16_t vlan_key;
+	struct ipa_ul_group *empty_group = NULL;
+	bool pdn_removed;
+	uint8_t removed_mux_id;
+	uint32_t removed_src_pipe, removed_ebd_pipe;
+	int ret;
 
 	IPA_BE_DBG("Entry ipa_be_v4_delete_filter_rule for pdn_iface %d client_iface %d \n", pdn_iface, client_iface);
 
@@ -3734,96 +4916,147 @@ int ipa_be_v4_delete_uplink_filter_rule(struct ipa_ipv4_rule_destroy_msg v4_msg,
 			   &v4_msg.tuple.flow_ip, &v4_msg.tuple.return_ip);
 	}
 
-	spin_lock_bh(&ipa_uplink_lock);
-	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-		if (ipa_uplink_pair_match(pair, pdn_iface, client_iface, IPA_IP_v4)) {
-			self = pair;
-			break;
-		}
+	/* Same VLAN-key derivation as the add path, so the release targets
+	 * the same XLAT group this flow's add call acquired.
+	 */
+	if (v4_msg.vlan_primary_rule.egress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED) {
+		vlan_id = v4_msg.vlan_primary_rule.egress_vlan_tag & 0x0FFF;
+		has_vlan = true;
+	} else if (v4_msg.vlan_primary_rule.ingress_vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED) {
+		vlan_id = v4_msg.vlan_primary_rule.ingress_vlan_tag & 0x0FFF;
+		has_vlan = true;
 	}
-	if (!self) {
-		spin_unlock_bh(&ipa_uplink_lock);
-		IPA_BE_ERR("No uplink tracking entry for pdn %d, client %d\n",
-			pdn_iface, client_iface);
-		return -ENOENT;
-	}
-	if (atomic_read(&self->ref_count) <= 0) {
-		spin_unlock_bh(&ipa_uplink_lock);
-		IPA_BE_ERR("ref_count already 0 for pdn %d, client %d — spurious v4 delete\n",
-			pdn_iface, client_iface);
-		return -EINVAL;
-	}
-	/* Keep pair alive until WAN PDN goes down; flush fires the HW delete and Q6 notify. */
-	new_cnt = atomic_dec_return(&self->ref_count);
-	spin_unlock_bh(&ipa_uplink_lock);
-	if (new_cnt > 0)
-		IPA_BE_DBG("Decremented ref_count for pdn %d, client %d to %d\n",
-			pdn_iface, client_iface, new_cnt);
-	else
-		IPA_BE_DBG("ref_count for pdn %d, client %d hit 0 — pair kept until PDN down\n",
-			pdn_iface, client_iface);
+	vlan_key = has_vlan ? vlan_id : IPA_UL_VLAN_NONE;
 
-	/* XLAT add bumps the v6 companion every time; drop it every time. */
+	/* Deletion is flow-driven: the base group is torn down the moment
+	 * its aggregate ref_count hits zero, rather than waiting for a
+	 * separate PDN-level flush.
+	 */
+	ret = ipa_ul_group_release(client_iface, IPA_IP_v4, IPA_FLT_RULE_CAT_UPLINK,
+				    false, 0, pdn_iface, &empty_group,
+				    &pdn_removed, &removed_mux_id, &removed_src_pipe, &removed_ebd_pipe);
+	if (ret < 0)
+		retval = ret;
+	if (empty_group) {
+		ipa_ul_group_teardown(empty_group);
+		empty_group = NULL;
+	}
+	/* Removal notify owed only once membership drops to zero across
+	 * EVERY v4 group of this client, not just this one.
+	 */
+	if (pdn_removed && !ipa_ul_client_pdn_lookup(client_iface, IPA_IP_v4, pdn_iface,
+						      NULL, NULL, NULL))
+		ipa_ul_send_pdn_removed_notify(removed_src_pipe, removed_ebd_pipe,
+			removed_mux_id, pdn_iface, client_iface);
+
 	if (is_xlat) {
-		struct ipa_ipv6_rule_destroy_msg v6_msg_xlat;
-		int v6_ret;
-		memset(&v6_msg_xlat, 0, sizeof(v6_msg_xlat));
+		ret = ipa_ul_group_release(client_iface, IPA_IP_v4, IPA_FLT_RULE_CAT_UPLINK,
+					    true, vlan_key, pdn_iface, &empty_group,
+					    &pdn_removed, &removed_mux_id, &removed_src_pipe, &removed_ebd_pipe);
+		if (ret < 0 && retval == 0)
+			retval = ret;
+		if (empty_group) {
+			ipa_ul_group_teardown(empty_group);
+			empty_group = NULL;
+		}
+		if (pdn_removed && !ipa_ul_client_pdn_lookup(client_iface, IPA_IP_v4, pdn_iface,
+							      NULL, NULL, NULL))
+			ipa_ul_send_pdn_removed_notify(removed_src_pipe, removed_ebd_pipe,
+				removed_mux_id, pdn_iface, client_iface);
 
-		IPA_BE_DBG("Decrementing v6 uplink companion for XLAT traffic\n");
-		v6_ret = ipa_be_v6_delete_uplink_filter_rule(v6_msg_xlat, pdn_iface, client_iface);
-		/* -ENOENT/-EINVAL: companion gone or at 0; ignore. */
-		if (v6_ret && v6_ret != -ENOENT && v6_ret != -EINVAL) {
-			IPA_BE_ERR("v6 companion dec failed: %d\n", v6_ret);
-			if (retval == 0)
-				retval = v6_ret;
+		/* XLAT add bumps the v6 companion every time; drop it every time. */
+		{
+			struct ipa_ipv6_rule_destroy_msg v6_msg_xlat;
+			int v6_ret;
+
+			memset(&v6_msg_xlat, 0, sizeof(v6_msg_xlat));
+
+			IPA_BE_DBG("Decrementing v6 uplink companion for XLAT traffic\n");
+			v6_ret = ipa_be_v6_delete_uplink_filter_rule(v6_msg_xlat, pdn_iface, client_iface, true);
+			/* -ENOENT/-EINVAL: companion gone or already at 0 (duplicate/retried delete); ignore. */
+			if (v6_ret && v6_ret != -ENOENT && v6_ret != -EINVAL) {
+				IPA_BE_ERR("v6 companion dec failed: %d\n", v6_ret);
+				if (retval == 0)
+					retval = v6_ret;
+			}
 		}
 	}
+
+	/* Atomic: checks emptiness under the same lock pair it writes under,
+	 * so no separate pre-check is needed (or safe, re: TOCTOU).
+	 */
+	ipa_be_global_qmap_id_reset_if_empty();
 
 	return retval;
 }
 EXPORT_SYMBOL(ipa_be_v4_delete_uplink_filter_rule);
 
-int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int pdn_iface, int client_iface)
+int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int pdn_iface, int client_iface, bool is_xlat)
 {
-	struct ipa_uplink_pair *pair, *self = NULL;
-	int new_cnt;
+	struct ipa_ul_group *empty_group = NULL;
+	bool pdn_removed;
+	uint8_t removed_mux_id;
+	uint32_t removed_src_pipe, removed_ebd_pipe;
+	int ret;
 
-	IPA_BE_DBG("Entry ipa_be_v6_delete_uplink_filter_rule for pdn_iface %d client_iface %d \n", pdn_iface, client_iface);
+	IPA_BE_DBG("Entry ipa_be_v6_delete_uplink_filter_rule for pdn_iface %d client_iface %d is_xlat %d\n",
+		pdn_iface, client_iface, is_xlat);
 
-	spin_lock_bh(&ipa_uplink_lock);
-	list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-		if (ipa_uplink_pair_match(pair, pdn_iface, client_iface, IPA_IP_v6)) {
-			self = pair;
-			break;
-		}
-	}
-	if (!self) {
-		spin_unlock_bh(&ipa_uplink_lock);
-		IPA_BE_ERR("No uplink tracking entry for pdn %d, client %d\n",
-			pdn_iface, client_iface);
-		return -ENOENT;
-	}
-	if (atomic_read(&self->ref_count) <= 0) {
-		spin_unlock_bh(&ipa_uplink_lock);
-		IPA_BE_ERR("ref_count already 0 for pdn %d, client %d — spurious v6 delete\n",
-			pdn_iface, client_iface);
-		return -EINVAL;
-	}
-	/* Per-connection teardown: decrement ref_count; pair stays alive until PDN flush.
-	 * Capture via atomic_dec_return before unlocking — otherwise a concurrent idle
-	 * flush can free the pair in the window before atomic_read.
+	/* Base group: released by both the direct ECM v6-disconnect path
+	 * (is_xlat=false) and the v4-XLAT-triggered companion call
+	 * (is_xlat=true), mirroring the add side's shared ref_count.
 	 */
-	new_cnt = atomic_dec_return(&self->ref_count);
-	spin_unlock_bh(&ipa_uplink_lock);
-	IPA_BE_DBG("Decremented ref_count for pdn %d, client %d to %d (pair kept until PDN down)\n",
-		pdn_iface, client_iface, new_cnt);
+	ret = ipa_ul_group_release(client_iface, IPA_IP_v6, IPA_FLT_RULE_CAT_UPLINK,
+				    false, 0, pdn_iface, &empty_group,
+				    &pdn_removed, &removed_mux_id, &removed_src_pipe, &removed_ebd_pipe);
+	if (empty_group) {
+		ipa_ul_group_teardown(empty_group);
+		empty_group = NULL;
+	}
+	/* Removal notify owed only once membership drops to zero across
+	 * EVERY v6 group of this client, not just this one.
+	 */
+	if (pdn_removed && !ipa_ul_client_pdn_lookup(client_iface, IPA_IP_v6, pdn_iface,
+						      NULL, NULL, NULL))
+		ipa_ul_send_pdn_removed_notify(removed_src_pipe, removed_ebd_pipe,
+			removed_mux_id, pdn_iface, client_iface);
 
-	return 0;
+	/* XLAT companion group: only ever acquired by the is_xlat path, so
+	 * only release it here when set -- otherwise a plain ECM v6
+	 * disconnect would spuriously release a membership it never took.
+	 */
+	if (is_xlat) {
+		int xlat_ret = ipa_ul_group_release(client_iface, IPA_IP_v6, IPA_FLT_RULE_CAT_XLAT,
+						     false, 0, pdn_iface, &empty_group,
+						     &pdn_removed, &removed_mux_id,
+						     &removed_src_pipe, &removed_ebd_pipe);
+		if (empty_group) {
+			ipa_ul_group_teardown(empty_group);
+			empty_group = NULL;
+		}
+		if (pdn_removed && !ipa_ul_client_pdn_lookup(client_iface, IPA_IP_v6, pdn_iface,
+							      NULL, NULL, NULL))
+			ipa_ul_send_pdn_removed_notify(removed_src_pipe, removed_ebd_pipe,
+				removed_mux_id, pdn_iface, client_iface);
+		if (ret == 0)
+			ret = xlat_ret;
+	}
+
+	/* Atomic, same as the v4 call site -- no separate pre-check needed. */
+	ipa_be_global_qmap_id_reset_if_empty();
+
+	return ret < 0 ? ret : 0;
 }
 EXPORT_SYMBOL(ipa_be_v6_delete_uplink_filter_rule);
 
-/* idle_only: skip pairs still in use; the ref check and list_del share one
- * lock hold, so a racing add either bumps the ref first or installs fresh.
+/*
+ * Safety-net PDN-level sweep, kept for ipa_be_nat_mgmt.c's NAT/IPv6CT
+ * triggers (which have no per-flow delete call to piggyback on). Normal
+ * teardown is flow-driven (see ipa_be_v{4,6}_delete_uplink_filter_rule()
+ * above). This force- (idle_only=false) or best-effort- (idle_only=true)
+ * drops pdn_iface's membership from every group of the given ip_type on
+ * any client_iface; tearing down a group's HW rows is a side effect of
+ * that membership removal reaching an empty aggregate.
  */
 static void __ipa_be_flush_uplink_rules_for_pdn(int pdn_iface,
 		enum ipa_ip_type ip_type, bool idle_only)
@@ -3831,89 +5064,65 @@ static void __ipa_be_flush_uplink_rules_for_pdn(int pdn_iface,
 	IPA_BE_DBG("flush Q6 UL notify for pdn_iface=%d ip_type=%d idle_only=%d\n",
 		pdn_iface, ip_type, idle_only);
 
-	/* Drop lock before QMI/HW work; re-acquire each iteration to avoid stale pointers. */
 	while (true) {
-		struct ipa_uplink_pair *pair, *target = NULL;
-		int target_pdn, client_iface;
-		uint8_t mux_id;
-		uint32_t src_pipe, ebd_pipe;
-		enum ipa_client_type src_client;
-		bool client_still_used = false;
+		struct ipa_ul_group *g, *empty_g = NULL;
+		struct ipa_ul_pdn_ref *p;
+		bool found = false;
+		uint8_t removed_mux_id = 0;
+		uint32_t notif_src_pipe = 0, notif_ebd_pipe = 0;
+		int group_client_iface = 0;
 
-		spin_lock_bh(&ipa_uplink_lock);
-		list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-			if (pair->pdn_iface == pdn_iface &&
-			    pair->ip_type == ip_type) {
-				if (idle_only &&
-				    (atomic_read(&pair->ref_count) > 0 || pair->installing))
-					continue;
-				target = pair;
-				break;
+		spin_lock_bh(&ipa_ul_groups_lock);
+		list_for_each_entry(g, &ipa_ul_groups_list, node) {
+			if (g->ip_type != ip_type)
+				continue;
+			/* Skip a group mid-build: its notif_src_pipe/
+			 * notif_ebd_pipe are written unsynchronized until
+			 * ipa_ul_group_install_done() clears installing under
+			 * this same lock.
+			 */
+			if (g->installing)
+				continue;
+			p = ipa_find_ul_pdn_ref(g, pdn_iface);
+			if (!p)
+				continue;
+			if (idle_only && atomic_read(&p->ref_count) > 0)
+				continue;
+			found = true;
+			group_client_iface = g->client_iface;
+			removed_mux_id = p->mux_id;
+			notif_src_pipe = g->notif_src_pipe;
+			notif_ebd_pipe = g->notif_ebd_pipe;
+			atomic_sub(atomic_read(&p->ref_count), &g->ref_count);
+			list_del(&p->node);
+			kfree(p);
+			if (atomic_read(&g->ref_count) <= 0 && !g->installing) {
+				list_del(&g->node);
+				empty_g = g;
 			}
-		}
-		if (!target) {
-			spin_unlock_bh(&ipa_uplink_lock);
 			break;
 		}
+		spin_unlock_bh(&ipa_ul_groups_lock);
 
-		target_pdn   = target->pdn_iface;
-		client_iface = target->client_iface;
-		mux_id       = target->notif_mux_id;
-		src_pipe     = target->notif_src_pipe;
-		ebd_pipe     = target->notif_ebd_pipe;
-		src_client   = target->notif_src_client;
-
-		list_for_each_entry(pair, &ipa_uplink_pairs_list, node) {
-			if (pair == target)
-				continue;
-			if (pair->client_iface == client_iface && pair->ip_type == ip_type) {
-				client_still_used = true;
-				break;
-			}
-		}
-
-		if (client_still_used) {
-			list_del_init(&target->node);
-			spin_unlock_bh(&ipa_uplink_lock);
-			IPA_BE_DBG("client_iface %d still used by another PDN; skip HW rule delete and Q6 notify\n",
-				client_iface);
-			kfree(target);
-			continue;
-		}
-		/* Remove target from the list before dropping the lock so a
-		 * concurrent flusher cannot latch the same pair and race us to
-		 * kfree(). On HW failure we re-insert so a later event retries.
+		if (!found)
+			break;
+		/* Removal notify owed only once membership drops to zero
+		 * across EVERY group of this client+ip_type, checked fresh
+		 * after dropping the lock -- this sweep processes one group
+		 * at a time, so only the group that truly empties it sees
+		 * this come back false.
 		 */
-		list_del_init(&target->node);
-		spin_unlock_bh(&ipa_uplink_lock);
-
-		/* HW delete first; on failure, put the pair back on the list so
-		 * a later event can retry the flush.
-		 */
-		{
-			int hw_ret = ipa_be_delete_rules_by_category(client_iface,
-								     IPA_FLT_RULE_CAT_UPLINK, ip_type);
-			if (hw_ret) {
-				IPA_BE_ERR("HW uplink delete failed for client %d ip %d (%d) — flush aborted, remaining pairs retained for next trigger\n",
-					client_iface, ip_type, hw_ret);
-				spin_lock_bh(&ipa_uplink_lock);
-				/* Re-insert at tail so the next flush processes
-				 * other pairs first and this failing pair is
-				 * retried last, avoiding a head-of-line block.
-				 */
-				list_add_tail(&target->node, &ipa_uplink_pairs_list);
-				spin_unlock_bh(&ipa_uplink_lock);
-				break;
-			}
-		}
-
-		ipa_be_notify_q6_uplink_delete(target_pdn, client_iface, ip_type,
-					       mux_id, src_pipe, ebd_pipe, src_client);
-
-		kfree(target);
+		if (!ipa_ul_client_pdn_lookup(group_client_iface, ip_type, pdn_iface,
+					       NULL, NULL, NULL))
+			ipa_ul_send_pdn_removed_notify(notif_src_pipe, notif_ebd_pipe,
+				removed_mux_id, pdn_iface, group_client_iface);
+		if (empty_g)
+			ipa_ul_group_teardown(empty_g);
 	}
 
-	/* Reset global mux_id when list is empty so next bring-up latches a fresh value. */
+	/* Reset global mux_id when no uplink group remains so the next
+	 * bring-up latches a fresh value.
+	 */
 	ipa_be_global_qmap_id_reset_if_empty();
 }
 
@@ -3923,7 +5132,7 @@ void ipa_be_flush_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type)
 }
 EXPORT_SYMBOL(ipa_be_flush_uplink_rules_for_pdn);
 
-/* Flush only pairs with no live refs; safe against a concurrent add. */
+/* Flush only pdn_refs with no live refs; safe against a concurrent add. */
 void ipa_be_flush_idle_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type)
 {
 	__ipa_be_flush_uplink_rules_for_pdn(pdn_iface, ip_type, true);
