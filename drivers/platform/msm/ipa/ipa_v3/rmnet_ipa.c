@@ -3033,8 +3033,18 @@ static int __ipa_wwan_open(struct net_device *dev)
 		}
 	}
 
-	if (ipa3_rmnet_res.ipa_napi_enable)
+	if (ipa3_rmnet_res.ipa_napi_enable) {
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 14))
+		netif_napi_add(dev, &(rmnet_ipa3_ctx->wwan_priv->napi),
+		       ipa3_rmnet_poll);
+#else
+		netif_napi_add(dev, &(rmnet_ipa3_ctx->wwan_priv->napi),
+		       ipa3_rmnet_poll, NAPI_WEIGHT);
+#endif
+
 		napi_enable(&(wwan_ptr->napi));
+	}
+
 	return rc;
 }
 
@@ -3101,8 +3111,14 @@ static int ipa3_wwan_stop(struct net_device *dev)
 	mutex_lock(&rmnet_ipa3_ctx->ioctl_guard);
 	__ipa_wwan_close(dev);
 	netif_stop_queue(dev);
-	if (!atomic_read(&rmnet_ipa3_ctx->is_ssr))
+
+	if (!atomic_read(&rmnet_ipa3_ctx->is_ssr)) {
+		if (ipa3_rmnet_res.ipa_napi_enable && !cons_pipes_setup_complete) {
+			napi_disable(&rmnet_ipa3_ctx->wwan_priv->napi);
+			netif_napi_del(&rmnet_ipa3_ctx->wwan_priv->napi);
+		}
 		ipa_teardown_pipes();
+	}
 	mutex_unlock(&rmnet_ipa3_ctx->ioctl_guard);
 	return 0;
 }
@@ -3782,14 +3798,6 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		dev->gso_max_size = RMNET_IPA_ULSO_SIZE_LIMIT;
 	}
 
-	if (ipa3_rmnet_res.ipa_napi_enable)
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 14))
-		netif_napi_add(dev, &(rmnet_ipa3_ctx->wwan_priv->napi),
-		       ipa3_rmnet_poll);
-#else
-		netif_napi_add(dev, &(rmnet_ipa3_ctx->wwan_priv->napi),
-		       ipa3_rmnet_poll, NAPI_WEIGHT);
-#endif
 	ret = register_netdev(dev);
 	if (ret) {
 		IPAERR_BOOTUP("unable to register ipa_netdev %d rc=%d\n",
@@ -3837,8 +3845,6 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 	IPAERR_BOOTUP("rmnet_ipa completed initialization\n");
 	return 0;
 config_err:
-	if (ipa3_rmnet_res.ipa_napi_enable)
-		netif_napi_del(&(rmnet_ipa3_ctx->wwan_priv->napi));
 	unregister_netdev(dev);
 set_perf_err:
 
