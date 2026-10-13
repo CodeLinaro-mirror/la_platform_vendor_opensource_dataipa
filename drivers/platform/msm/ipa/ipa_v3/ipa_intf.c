@@ -11,6 +11,7 @@
 #include <linux/msm_ipa.h>
 #include "../ipa_backend/ipa_be.h"
 #include "../ipa_backend/ipa_be_nat_mgmt.h"
+#include "../ipa_backend/ipa_be_flt_mgmt.h"
 
 struct ipa3_intf {
 	char name[IPA_RESOURCE_NAME_MAX];
@@ -172,6 +173,9 @@ int ipa3_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 	list_add_tail(&intf->link, &ipa3_ctx->intf_list);
 	spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 	mutex_unlock(&ipa3_ctx->lock);
+
+	/* seed the private-subnet engine here so every client gets it for free */
+	ipa_be_subnet_on_intf_registered();
 
 	return 0;
 }
@@ -445,6 +449,7 @@ int ipa_deregister_intf(const char *name)
 	struct ipa3_intf *entry;
 	struct ipa3_intf *next;
 	int result = -EINVAL;
+	int intf_idx = -1;
 
 	if ((name == NULL) ||
 	    (strnlen(name, IPA_RESOURCE_NAME_MAX) == IPA_RESOURCE_NAME_MAX)) {
@@ -453,8 +458,29 @@ int ipa_deregister_intf(const char *name)
 	}
 
 	mutex_lock(&ipa3_ctx->lock);
-	list_for_each_entry_safe(entry, next, &ipa3_ctx->intf_list, link) {
+	list_for_each_entry(entry, &ipa3_ctx->intf_list, link) {
 		if (!strcmp(entry->name, name)) {
+			intf_idx = entry->intf_idx;
+			break;
+		}
+	}
+	mutex_unlock(&ipa3_ctx->lock);
+
+	/* Narrow TOCTOU window below (re-register under this name before relock); accepted, see guard below. */
+	/*
+	 * Wipe private-subnet rules while this intf_idx's flt_list (embedded
+	 * in the ipa3_intf below) still exists; it is kfree'd below and the
+	 * HW delete can never find it again afterward. Must run outside
+	 * ipa3_ctx->lock: the delete path needs that same lock internally.
+	 */
+	if (intf_idx >= 0)
+		ipa_be_subnet_on_intf_unregistering(intf_idx);
+
+	mutex_lock(&ipa3_ctx->lock);
+	list_for_each_entry_safe(entry, next, &ipa3_ctx->intf_list, link) {
+		/* match the originally captured intf_idx too, in case this name was re-registered under a new one meanwhile */
+		if (!strcmp(entry->name, name) &&
+		    (intf_idx < 0 || entry->intf_idx == intf_idx)) {
 			spin_lock_bh(&ipa3_ctx->intf_list_vpnum_lock);
 			list_del(&entry->link);
 			spin_unlock_bh(&ipa3_ctx->intf_list_vpnum_lock);

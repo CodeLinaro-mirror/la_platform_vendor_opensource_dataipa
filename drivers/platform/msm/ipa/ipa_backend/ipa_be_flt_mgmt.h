@@ -38,7 +38,8 @@ int ipa_be_subnet_notifier_init(struct workqueue_struct *v4_wq,
 	struct workqueue_struct *v6_wq);
 void ipa_be_subnet_notifier_deinit(void);
 void ipa_be_subnet_notifier_cleanup(void);
-void ipa_be_subnet_on_intf_registered(int slave_ifindex);
+void ipa_be_subnet_on_intf_registered(void);
+void ipa_be_subnet_on_intf_unregistering(int slave_ifindex);
 
 int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type iptype);
 

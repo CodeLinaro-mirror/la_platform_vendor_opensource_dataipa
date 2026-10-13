@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+//SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
@@ -2209,8 +2209,14 @@ static struct workqueue_struct *ipa_be_subnet_v6_wq;
 
 static bool ipa_be_subnet_notifiers_registered;
 
+/* coalesces bursts of NETDEV_UP/REGISTER into one pending full-bridge reseed */
+static atomic_t ipa_be_subnet_seed_all_pending = ATOMIC_INIT(0);
+#define IPA_BE_SEED_ALL_DEBOUNCE_MS 50
+static struct delayed_work ipa_be_subnet_seed_all_dwork;
+
 static void ipa_be_subnet_queue(int bridge_ifindex, enum ipa_ip_type ip_type,
 	bool remove_only);
+static void ipa_be_subnet_seed_existing(void);
 
 /*
  * IPv6 globals are tentative until DAD completes and get_v6() skips them, so a
@@ -2468,6 +2474,38 @@ static void ipa_be_subnet_queue(int bridge_ifindex, enum ipa_ip_type ip_type,
 	queue_work(wq, &w->work);
 }
 
+/* Queue a full-bridge reseed off any (possibly rtnl-held) caller context; see ipa_be_subnet_seed_existing(). */
+/* Full walk vs. a scoped lookup: coalescing already bounds bursts; not worth the extra complexity. */
+static void ipa_be_subnet_seed_all_dwork_fn(struct work_struct *work)
+{
+	/* clear before running: an event arriving mid-debounce must still queue a fresh one */
+	atomic_set(&ipa_be_subnet_seed_all_pending, 0);
+
+	/*
+	 * Guard against racing teardown: cleanup may have cleared
+	 * ipa_be_subnet_notifiers_registered before cancel_delayed_work_sync()
+	 * reaches us. Mirrors the check in ipa_be_subnet_queue_seed_all().
+	 */
+	if (!ipa_be_subnet_notifiers_registered)
+		return;
+
+	ipa_be_subnet_seed_existing();
+}
+
+static void ipa_be_subnet_queue_seed_all(void)
+{
+	/* guards against queuing before INIT_DELAYED_WORK() has run, same as v6_settle_arm() */
+	if (!ipa_be_subnet_notifiers_registered || !ipa_be_subnet_v4_wq)
+		return;
+
+	/* debounce a spread-out burst of UP/REGISTER events into one reseed */
+	if (atomic_cmpxchg(&ipa_be_subnet_seed_all_pending, 0, 1))
+		return;
+
+	queue_delayed_work(ipa_be_subnet_v4_wq, &ipa_be_subnet_seed_all_dwork,
+		msecs_to_jiffies(IPA_BE_SEED_ALL_DEBOUNCE_MS));
+}
+
 /*
  * Queue per-family removal for one slave (interface down / released from
  * bridge, where a bridge walk no longer sees it). Per-family on that family's
@@ -2547,60 +2585,45 @@ static int ipa_be_netdev_event(struct notifier_block *nb,
 	switch (event) {
 	case NETDEV_CHANGEUPPER: {
 		struct netdev_notifier_changeupper_info *info = ptr;
+		int b_ifindex;
 
 		if (!info->upper_dev || !netif_is_bridge_master(info->upper_dev))
 			break;
-		if (info->linking)
-			ipa_be_subnet_queue_both(info->upper_dev->ifindex, false);
-		else
-			/*
-			 * Released from this specific bridge: scope the remove to
-			 * that bridge so rules for other bridges on the same real
-			 * device are not affected.
-			 */
-			ipa_be_subnet_queue_slave_remove(dev,
-				info->upper_dev->ifindex);
+		b_ifindex = info->upper_dev->ifindex;
+		if (info->linking) {
+			ipa_be_subnet_queue_both(b_ifindex, false);
+		} else {
+			/* scope the remove to this bridge, then re-reconcile it: a sibling port may still reach the same real device */
+			ipa_be_subnet_queue_slave_remove(dev, b_ifindex);
+			ipa_be_subnet_queue_both(b_ifindex, false);
+		}
 		break;
 	}
 	case NETDEV_UP:
 	case NETDEV_REGISTER:
-		/* a slave came up; if it is under a bridge, (re)program it */
-		rcu_read_lock();
-		bridge = netdev_master_upper_dev_get_rcu(dev);
-		if (bridge && netif_is_bridge_master(bridge)) {
-			int b_ifindex = bridge->ifindex;
-
-			rcu_read_unlock();
-			ipa_be_subnet_queue_both(b_ifindex, false);
-		} else {
-			rcu_read_unlock();
-		}
+		/* re-walk all bridges: a direct-master check on dev misses VLAN-indirect bridges */
+		/* no fast-path+fallback: dev can be direct AND VLAN-indirect in different bridges at once */
+		ipa_be_subnet_queue_seed_all();
 		break;
 	case NETDEV_DOWN:
 	case NETDEV_UNREGISTER:
+		if (!is_vlan_dev(dev)) {
+			/* real device itself is gone: every bridge reaching it, direct or via any VLAN child, loses its rule here */
+			ipa_be_subnet_queue_slave_remove(dev, 0);
+			break;
+		}
+		/* VLAN subif's own state changed; a sibling port (direct or another VLAN) may still reach the same real device */
 		rcu_read_lock();
 		bridge = netdev_master_upper_dev_get_rcu(dev);
 		if (bridge && netif_is_bridge_master(bridge)) {
-			/*
-			 * Still attached: scope the remove to this bridge so
-			 * rules for other VLAN bridges on the same real device
-			 * are not affected.
-			 */
 			int b_ifindex = bridge->ifindex;
 
 			rcu_read_unlock();
 			ipa_be_subnet_queue_slave_remove(dev, b_ifindex);
+			ipa_be_subnet_queue_both(b_ifindex, false);
 		} else {
 			rcu_read_unlock();
-			/*
-			 * Not attached to any bridge. A VLAN subif already got a
-			 * scoped remove at CHANGEUPPER (delivered before DOWN), so
-			 * skip it here to avoid wiping other VLAN bridges on the
-			 * same real device; any stale entry self-heals next
-			 * reconcile. A physical iface gets a bridge_ifnum=0 remove.
-			 */
-			if (!is_vlan_dev(dev))
-				ipa_be_subnet_queue_slave_remove(dev, 0);
+			/* not attached: a scoped remove+reconcile already ran at CHANGEUPPER */
 		}
 		break;
 	default:
@@ -2678,36 +2701,28 @@ static void ipa_be_subnet_seed_existing(void)
 	rtnl_unlock();
 }
 
-/*
- * Called by ipa_clients right after a successful ipa_register_intf() to program
- * rules for the new slave, in case the init seed walk ran before registration.
- */
-void ipa_be_subnet_on_intf_registered(int slave_ifindex)
+/* Re-walk all bridges: a direct-master check on the registering intf misses VLAN-indirect bridges (bridge2 <- eth0.2 <- eth0). */
+void ipa_be_subnet_on_intf_registered(void)
 {
-	struct net_device *dev;
-	struct net_device *bridge;
-
 	if (!ipa_be_subnet_notifiers_registered)
 		return;
 
-	dev = dev_get_by_index(&init_net, slave_ifindex);
-	if (!dev)
-		return;
-
-	rcu_read_lock();
-	bridge = netdev_master_upper_dev_get_rcu(dev);
-	if (bridge && netif_is_bridge_master(bridge)) {
-		int b_ifindex = bridge->ifindex;
-
-		rcu_read_unlock();
-		ipa_be_subnet_queue_both(b_ifindex, false);
-	} else {
-		rcu_read_unlock();
-	}
-
-	dev_put(dev);
+	IPA_BE_DBG("intf registered; re-seeding bridge reconcile\n");
+	ipa_be_subnet_queue_seed_all();
 }
 EXPORT_SYMBOL(ipa_be_subnet_on_intf_registered);
+
+/* Call synchronously before the caller frees its interface entry, so the HW delete can still find it. Sleep-capable context required. */
+/* May race a concurrently queued notifier reconcile for the same intf_num; pre-existing, narrow, accepted. */
+void ipa_be_subnet_on_intf_unregistering(int slave_ifindex)
+{
+	if (!ipa_be_subnet_notifiers_registered)
+		return;
+
+	ipa_be_subnet_remove(slave_ifindex, IPA_IP_v4, 0);
+	ipa_be_subnet_remove(slave_ifindex, IPA_IP_v6, 0);
+}
+EXPORT_SYMBOL(ipa_be_subnet_on_intf_unregistering);
 
 int ipa_be_subnet_notifier_init(struct workqueue_struct *v4_wq,
 	struct workqueue_struct *v6_wq)
@@ -2743,6 +2758,9 @@ int ipa_be_subnet_notifier_init(struct workqueue_struct *v4_wq,
 	spin_unlock_bh(&ipa_be_subnet_settle_lock);
 	INIT_DELAYED_WORK(&ipa_be_subnet_v6_settle_dwork,
 		ipa_be_subnet_v6_settle_fn);
+	INIT_DELAYED_WORK(&ipa_be_subnet_seed_all_dwork,
+		ipa_be_subnet_seed_all_dwork_fn);
+	atomic_set(&ipa_be_subnet_seed_all_pending, 0);
 
 	ipa_be_subnet_notifiers_registered = true;
 	IPA_BE_DBG("private-subnet notifiers registered\n");
@@ -2783,6 +2801,8 @@ void ipa_be_subnet_notifier_deinit(void)
 	ipa_be_subnet_v6_settle_tries = 0;
 	spin_unlock_bh(&ipa_be_subnet_settle_lock);
 	cancel_delayed_work_sync(&ipa_be_subnet_v6_settle_dwork);
+	cancel_delayed_work_sync(&ipa_be_subnet_seed_all_dwork);
+	atomic_set(&ipa_be_subnet_seed_all_pending, 0);
 
 	ipa_be_subnet_v4_wq = NULL;
 	ipa_be_subnet_v6_wq = NULL;
