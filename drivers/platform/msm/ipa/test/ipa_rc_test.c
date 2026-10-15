@@ -599,7 +599,9 @@ static void ipa_test_eth_sta_flt_order(void)
 	mutex_lock(&ipa3_ctx->lock);
 	tbl = &ipa3_ctx->flt_tbl[pipe][IPA_IP_v4];
 	list_for_each_entry_safe(entry, next, &tbl->head_flt_rule_list, link) {
-		if(ETH_DL_FLT_RULE == get_group_id(entry, IPA_IP_v4, pipe)) {
+		if(entry->cat == IPA_FLT_RULE_CAT_DOWNLINK ||
+			entry->cat == IPA_FLT_RULE_CAT_ETH_BH_CATCHALL ||
+			entry->rule.action == IPA_PASS_TO_DST_NAT) {
 			ipa_del_flt_rule_by_entry(entry);
 			break;
 		}
@@ -623,7 +625,9 @@ static void ipa_test_wlan_sta_flt_order(void)
 	mutex_lock(&ipa3_ctx->lock);
 	tbl = &ipa3_ctx->flt_tbl[pipe][IPA_IP_v4];
 	list_for_each_entry_safe(entry, next, &tbl->head_flt_rule_list, link) {
-		if(WLAN_STA_DL_FLT_RULE == get_group_id(entry, IPA_IP_v4, pipe)) {
+		if(entry->cat == IPA_FLT_RULE_CAT_DOWNLINK ||
+			entry->cat == IPA_FLT_RULE_CAT_ETH_BH_CATCHALL ||
+			entry->rule.action == IPA_PASS_TO_DST_NAT) {
 			ipa_del_flt_rule_by_entry(entry);
 			break;
 		}
@@ -647,7 +651,9 @@ static void ipa_test_wlan2_sta_flt_order(void)
 	mutex_lock(&ipa3_ctx->lock);
 	tbl = &ipa3_ctx->flt_tbl[pipe][IPA_IP_v4];
 	list_for_each_entry_safe(entry, next, &tbl->head_flt_rule_list, link) {
-		if(WLAN_STA_DL_FLT_RULE == get_group_id(entry, IPA_IP_v4, pipe)) {
+		if(entry->cat == IPA_FLT_RULE_CAT_DOWNLINK ||
+			entry->cat == IPA_FLT_RULE_CAT_ETH_BH_CATCHALL ||
+			entry->rule.action == IPA_PASS_TO_DST_NAT) {
 			ipa_del_flt_rule_by_entry(entry);
 			break;
 		}
@@ -671,7 +677,9 @@ static void ipa_test_wlan3_sta_flt_order(void)
 	mutex_lock(&ipa3_ctx->lock);
 	tbl = &ipa3_ctx->flt_tbl[pipe][IPA_IP_v4];
 	list_for_each_entry_safe(entry, next, &tbl->head_flt_rule_list, link) {
-		if(WLAN_STA_DL_FLT_RULE == get_group_id(entry, IPA_IP_v4, pipe)) {
+		if(entry->cat == IPA_FLT_RULE_CAT_DOWNLINK ||
+			entry->cat == IPA_FLT_RULE_CAT_ETH_BH_CATCHALL ||
+			entry->rule.action == IPA_PASS_TO_DST_NAT) {
 			ipa_del_flt_rule_by_entry(entry);
 			break;
 		}

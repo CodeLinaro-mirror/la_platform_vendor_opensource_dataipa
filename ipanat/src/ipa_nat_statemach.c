@@ -758,15 +758,28 @@ static int migrate_rule(
 
 	const char*          mig_dir_ptr;
 
-	char                 buf[1024];
 	int                  ret;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		ret = -ENOMEM;
+		goto bail;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
 	IPADBG("tbl_mem_type(%s) tbl_rule_hdl(%u) -> %s\n",
 		   ipa3_nat_mem_in_as_str(table_ptr->nmi),
 		   tbl_rule_hdl,
-		   prep_nat_rule_4print(nat_rule_ptr, buf, sizeof(buf)));
+		   prep_nat_rule_4print(nat_rule_ptr, buf, 1024));
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 
 	IPADBG("dst_tbl_hdl(0x%08X)\n", dst_tbl_hdl);
 
@@ -1663,15 +1676,26 @@ static int _smAddRuleToTblV2(
     	ipa_nat_ipv4_rule_v2 *clnt_rule = (ipa_nat_ipv4_rule_v2 *)args[1];
 	uint32_t*          rule_hdl     = (uint32_t*)          args[2];
 
-	char buf[1024];
-
 	int ret;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		return -ENOMEM;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
 	IPADBG("tbl_hdl(0x%08X) clnt_rule_ptr(%p) rule_hdl_ptr(%p) %s\n",
 		   tbl_hdl, clnt_rule, rule_hdl,
-           prep_nat_ipv4_rule_4print_v2(clnt_rule, buf, sizeof(buf)));
+		   prep_nat_ipv4_rule_4print_v2(clnt_rule, buf, 1024));
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 
 	clnt_rule->in_redirect = clnt_rule->out_redirect = clnt_rule->enable = clnt_rule->time_stamp = 0;
 
@@ -1722,15 +1746,26 @@ static int _smAddRuleToTbl(
 	ipa_nat_ipv4_rule* clnt_rule = (ipa_nat_ipv4_rule*)arb_data_ptr[1];
 	uint32_t*          rule_hdl  = (uint32_t*)arb_data_ptr[2];
 
-	char buf[1024];
-
 	int ret;
+
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *buf = kzalloc(1024, GFP_KERNEL);
+	if (!buf) {
+		IPAERR("Failed to allocate buf\n");
+		return -ENOMEM;
+	}
+#else
+	char buf[1024];
+#endif
 
 	IPADBG("In\n");
 
 	IPADBG("tbl_hdl(0x%08X) clnt_rule_ptr(%p) rule_hdl_ptr(%p) %s\n",
 		   tbl_hdl, clnt_rule, rule_hdl,
-		   prep_nat_ipv4_rule_4print(clnt_rule, buf, sizeof(buf)));
+		   prep_nat_ipv4_rule_4print(clnt_rule, buf, 1024));
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(buf);
+#endif
 
 	clnt_rule->redirect = clnt_rule->enable = clnt_rule->time_stamp = 0;
 

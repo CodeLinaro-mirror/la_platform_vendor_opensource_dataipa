@@ -806,7 +806,11 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 	uint32_t new_entry_handle;
 	const uint32_t cmd_sz = sizeof(struct ipa_ioc_nat_dma_cmd) +
 		(IPA_MAX_DMA_ENTRIES_FOR_ADD * sizeof(struct ipa_ioc_nat_dma_one));
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *cmd_buf = NULL;
+#else
 	char cmd_buf[cmd_sz];
+#endif
 	struct ipa_ioc_nat_dma_cmd* cmd;
 
 	IPADBG("\n");
@@ -878,7 +882,16 @@ int ipa_ipv6ct_add_rule(uint32_t table_handle, const ipa_ipv6ct_rule* user_rule,
 		goto unlock;
 	}
 
-	memset(cmd_buf, 0, sizeof(cmd_buf));
+#ifdef CONFIG_ECM_CONVERGENCE
+	cmd_buf = kzalloc(cmd_sz, GFP_KERNEL);
+	if (!cmd_buf)
+	{
+		IPAERR("Failed to allocate cmd_buf\n");
+		ret = -ENOMEM;
+		goto unlock;
+	}
+#endif
+	memset(cmd_buf, 0, cmd_sz);
 	cmd = (struct ipa_ioc_nat_dma_cmd*) cmd_buf;
 	cmd->entries = 0;
 	new_entry_index = ipa_ipv6ct_hash(user_rule, ct_table->table.table_entries - 1);
@@ -934,7 +947,11 @@ int ipa_ipv6ct_del_rule_v2(uint32_t table_handle, uint32_t rule_handle)
 	ipa_ipv6ct_hw_entry_v_7_0* entry;
 	const uint32_t cmd_sz = sizeof(struct ipa_ioc_table_write_cmd) +
 		(IPA_MAX_DMA_ENTRIES_FOR_DEL * sizeof(struct ipa_ioc_table_write_one));
+#ifdef CONFIG_ECM_CONVERGENCE
+	char *cmd_buf = NULL;
+#else
 	char cmd_buf[cmd_sz];
+#endif
 	struct ipa_ioc_table_write_cmd* cmd;
 	uint16_t idx;
 	int ret;
@@ -993,6 +1010,15 @@ int ipa_ipv6ct_del_rule_v2(uint32_t table_handle, uint32_t rule_handle)
 		goto unlock;
 	}
 
+#ifdef CONFIG_ECM_CONVERGENCE
+	cmd_buf = kzalloc(cmd_sz, GFP_KERNEL);
+	if (!cmd_buf)
+	{
+		IPAERR("Failed to allocate cmd_buf\n");
+		ret = -ENOMEM;
+		goto unlock;
+	}
+#endif
 	memset(cmd_buf, 0, cmd_sz);
 	cmd = (struct ipa_ioc_table_write_cmd*) cmd_buf;
 	cmd->entries = 0;
@@ -1019,6 +1045,9 @@ unlock:
 	IPA_IPV6CT_MUTEX_UNLOCK();
 
 done:
+#ifdef CONFIG_ECM_CONVERGENCE
+	kfree(cmd_buf);
+#endif
 	IPADBG("return\n");
 	return ret;
 }

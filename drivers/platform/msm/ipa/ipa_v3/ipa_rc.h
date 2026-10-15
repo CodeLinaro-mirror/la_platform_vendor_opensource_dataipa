@@ -127,56 +127,6 @@ enum ipa_rc_clients
 extern const char * const ipa_rc_client_names[MAX_RC_CLIENTS];
 
 /*
- * ipa_rc_flt_rule_grp filter rule group identifiers
- *
- * @DEFAULT_FLT_RULE: Default filter rule group.
- *
- * @LAN2LAN_FLT_RULE: LAN-to-LAN filter rule group.
- *
- * @PVT_SUBNET_FLT_RULE: Private subnet filter rule group.
- *                       Used for rules matching private subnet
- *                       address ranges.
- *
- * @MTU_FLT_RULE: MTU-related filter rule group.
- *
- * @ETH_UL_FLT_RULE: Ethernet uplink filter rule group.
- *
- * @ETH_DL_FLT_RULE: Ethernet downlink (WAN) filter rule group.
- *                   Used when Ethernet is configured as WAN.
- *                   Matches dst_addr/mask 0x0/0x0 with IPA_PASS_TO_DST_NAT.
- *
- * @WLAN_AP_UL_FLT_RULE: WLAN AP uplink filter rule group.
- *                       Used for WLAN Access Point uplink traffic
- *                       filtering.
- *
- * @WLAN_STA_DL_FLT_RULE: WLAN STA downlink filter rule group.
- *                        Used for WLAN Station downlink (DL)
- *                        traffic filtering.
- *
- * @MODEM_FLT_RULE: Modem filter rule group.
- *
- * @CATCHALL_DFLT_FLT_RULE: Catch-all default filter rule group.
- *                          Used as a fallback when traffic does not
- *                          match any specific filter group.
- *
- * @MAX_FLT_RULE_GRP: maximum filter rule group value.
- */
-enum ipa_rc_flt_rule_grp
-{
-	DEFAULT_FLT_RULE = 0,
-	LAN2LAN_FLT_RULE = DEFAULT_FLT_RULE,
-	PVT_SUBNET_FLT_RULE,
-	MTU_FLT_RULE,
-	ETH_UL_FLT_RULE,
-	ETH_DL_FLT_RULE,
-	WLAN_AP_UL_FLT_RULE,
-	WLAN_STA_DL_FLT_RULE,
-	MODEM_FLT_RULE,
-	CATCHALL_DFLT_FLT_RULE,
-	MAX_FLT_RULE_GRP
-};
-
-/*
  * ipa_rc_instance instance identifiers
  *
  * @PREV: Previous instance.
