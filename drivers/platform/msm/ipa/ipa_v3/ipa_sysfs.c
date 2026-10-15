@@ -1168,7 +1168,7 @@ static ssize_t __rt_show(enum ipa_ip_type ip)
 				entry->prio);
 			pr_err("enable_stats:%u counter_id:%u ",
 				entry->rule.enable_stats,
-				entry->rule.cnt_idx);
+				entry->cnt_idx);
 			pr_err("hashable:%u retain_hdr:%u ",
 				entry->rule.hashable,
 				entry->rule.retain_hdr);
@@ -1272,7 +1272,7 @@ static ssize_t __rt_hw_show(enum ipa_ip_type ip)
 					rules[rl].hdr_ofst,
 					rules[rl].eq_attrib.rule_eq_bitmap);
 
-			pr_err("rule_id:%u cnt_id:%hhu prio:%u retain_hdr:%u\n",
+			pr_err("rule_id:%u cnt_id:%u prio:%u retain_hdr:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority, rules[rl].retain_hdr);
 			res = ipa3_attrib_dump_eq(&rules[rl].eq_attrib);
@@ -1319,7 +1319,7 @@ static ssize_t __rt_hw_show(enum ipa_ip_type ip)
 					rules[rl].hdr_ofst,
 					rules[rl].eq_attrib.rule_eq_bitmap);
 
-			pr_err("rule_id:%u cnt_id:%hhu prio:%u retain_hdr:%u\n",
+			pr_err("rule_id:%u cnt_id:%u prio:%u retain_hdr:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority, rules[rl].retain_hdr);
 			res = ipa3_attrib_dump_eq(&rules[rl].eq_attrib);
@@ -1501,7 +1501,7 @@ static ssize_t __flt_show(enum ipa_ip_type ip)
 					tbl->force_sys[IPA_RULE_NON_HASHABLE]);
 			pr_err("enable_stats:%u counter_id:%u\n",
 				entry->rule.enable_stats,
-				entry->rule.cnt_idx);
+				entry->cnt_idx);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
 				pr_err("pdn index %d, set metadata %d ",
 					entry->rule.pdn_idx,
@@ -1599,7 +1599,7 @@ static ssize_t __hw_flttbl_show(enum ipa_ip_type ip)
 				pipe, rl, rules[rl].rule.action, rt_tbl_idx);
 			pr_err("attrib_mask:%08x retain_hdr:%d ",
 				bitmap, rules[rl].rule.retain_hdr);
-			pr_err("rule_id:%u cnt_id:%hhu prio:%u\n",
+			pr_err("rule_id:%u cnt_id:%u prio:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
@@ -1642,7 +1642,7 @@ static ssize_t __hw_flttbl_show(enum ipa_ip_type ip)
 				pipe, rl, rules[rl].rule.action, rt_tbl_idx);
 			pr_err("attrib_mask:%08x retain_hdr:%d ",
 				bitmap, rules[rl].rule.retain_hdr);
-			pr_err("rule_id:%u cnt_id:%hhu prio:%u\n",
+			pr_err("rule_id:%u cnt_id:%u prio:%u\n",
 				rules[rl].id, rules[rl].cnt_idx,
 				rules[rl].priority);
 			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)

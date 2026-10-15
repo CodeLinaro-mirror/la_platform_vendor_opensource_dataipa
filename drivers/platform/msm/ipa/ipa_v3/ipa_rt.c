@@ -1112,6 +1112,18 @@ static int __ipa_rt_validate_rule_id(u16 rule_id)
 
 	return 0;
 }
+
+/*
+ * On IPAv7.0+, routing extends cnt_idx with cnt_idx2 as its high byte;
+ * filtering instead uses cnt_idx_v2 as a full replacement.
+ */
+static u16 rt_eff_cnt_idx(const struct ipa_rt_rule_i *rule)
+{
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0)
+		return ((u16)rule->cnt_idx2 << 8) | rule->cnt_idx;
+	return rule->cnt_idx;
+}
+
 static int __ipa_rt_validate_hndls(const struct ipa_rt_rule_i *rule,
 				struct ipa3_hdr_entry **hdr,
 				struct ipa3_hdr_proc_ctx_entry **proc_ctx)
@@ -1146,19 +1158,30 @@ static int __ipa_rt_validate_hndls(const struct ipa_rt_rule_i *rule,
 	}
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
-		if (rule->enable_stats && rule->cnt_idx) {
-			if (!ipahal_is_rule_cnt_id_valid(rule->cnt_idx)) {
+		u16 eff = rt_eff_cnt_idx(rule);
+		u16 max_cnt = ipa3_get_max_flt_rt_rule_cnt_index();
+
+		if (rule->enable_stats && eff) {
+			if (!ipahal_is_rule_cnt_id_valid(eff, max_cnt)) {
 				IPAERR_RL(
-					"invalid cnt_idx %hhu out of range\n",
-					rule->cnt_idx);
+					"invalid cnt_idx %u out of range\n",
+					eff);
 				return -EPERM;
 			}
-			index = rule->cnt_idx - 1;
-			if (!ipa3_ctx->flt_rt_counters.used_hw[index]) {
-				IPAERR_RL(
-					"invalid cnt_idx %hhu not alloc by driver\n",
-					rule->cnt_idx);
-				return -EPERM;
+			/*
+			 * used_hw[] only tracks the auto-alloc pool
+			 * (<= IPA_FLT_RT_HW_COUNTER); explicit v7 indices
+			 * above it are caller-managed, so skip the pool
+			 * check to avoid an OOB access.
+			 */
+			if (eff <= IPA_FLT_RT_HW_COUNTER) {
+				index = eff - 1;
+				if (!ipa3_ctx->flt_rt_counters.used_hw[index]) {
+					IPAERR_RL(
+						"invalid cnt_idx %u not alloc by driver\n",
+						eff);
+					return -EPERM;
+				}
 			}
 		}
 	} else {
@@ -1222,7 +1245,7 @@ static int __ipa_create_rt_entry(struct ipa3_rt_entry **entry,
 	}
 
 	if (rule->enable_stats)
-		(*entry)->cnt_idx = rule->cnt_idx;
+		(*entry)->cnt_idx = rt_eff_cnt_idx(rule);
 	else
 		(*entry)->cnt_idx = 0;
 	return 0;
@@ -2681,7 +2704,7 @@ static int __ipa_mdfy_rt_rule(struct ipa_rt_rule_mdfy_i *rtrule)
 	entry->hw_len = 0;
 	entry->prio = 0;
 	if (rtrule->rule.enable_stats)
-		entry->cnt_idx = rtrule->rule.cnt_idx;
+		entry->cnt_idx = rt_eff_cnt_idx(&rtrule->rule);
 	else
 		entry->cnt_idx = 0;
 	return 0;

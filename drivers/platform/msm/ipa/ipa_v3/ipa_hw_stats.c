@@ -2325,6 +2325,11 @@ int ipa_init_flt_rt_stats(void)
 	struct ipahal_imm_cmd_pyld *drop_ipv4_max_fltrt_cnt_base_pyld = NULL;
 	struct ipahal_imm_cmd_register_write drop_ipv6_max_fltrt_cnt_base = {0};
 	struct ipahal_imm_cmd_pyld *drop_ipv6_max_fltrt_cnt_base_pyld = NULL;
+	struct ipahal_imm_cmd_register_write ipv4_max_cnt_base = {0};
+	struct ipahal_imm_cmd_pyld *ipv4_max_cnt_base_pyld = NULL;
+	struct ipahal_imm_cmd_register_write ipv6_max_cnt_base = {0};
+	struct ipahal_imm_cmd_pyld *ipv6_max_cnt_base_pyld = NULL;
+	u32 max_v4v6, max_flt_nonip, max_rt_nonip;
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
 	struct ipa3_desc *desc;
 	dma_addr_t dma_address;
@@ -2335,7 +2340,7 @@ int ipa_init_flt_rt_stats(void)
 		return 0;
 
 	// count num_cmd++ to get the number
-	desc = kcalloc(18, sizeof(struct ipa3_desc), GFP_KERNEL);
+	desc = kcalloc(20, sizeof(struct ipa3_desc), GFP_KERNEL);
 	if (!desc)
 		return -ENOMEM;
 
@@ -2353,7 +2358,9 @@ int ipa_init_flt_rt_stats(void)
 	rt_nonip_smem_cfg_size = IPA_MEM_PART(stats_rt_nonip_cfg_size);
 
 	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_FNR,
-		(void *)(uintptr_t)(IPA_MAX_FLT_RT_CNT_INDEX), false);
+		(void *)(uintptr_t)(ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 ?
+			IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX),
+		false);
 	if (!pyld) {
 		IPAERR("failed to generate pyld\n");
 		kfree(desc);
@@ -2520,6 +2527,33 @@ int ipa_init_flt_rt_stats(void)
 	++num_cmd;
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		/*
+		 * Compute the max valid counter index for each FnR stats table
+		 * from its SRAM partition size. HW silently ignores any stats
+		 * update whose counter index exceeds these values, so leaving
+		 * them at 0 disables the corresponding stats. Each value is
+		 * clamped to what its 16-bit register field can represent so an
+		 * oversized partition cannot silently truncate into a wrong
+		 * (smaller) index.
+		 *
+		 * The v4/v6 filter and router counters live in one shared
+		 * partition (all four base registers above are programmed from
+		 * smem_ofst), so a single max_v4v6 covers both halves. The
+		 * non-IP filter and router counters live in *separate*
+		 * partitions, so each half gets its own value.
+		 */
+		max_v4v6 = min_t(u32,
+			IPA_MEM_PART(stats_fnr_size) /
+				ipahal_stats_get_hw_entry_size(IPAHAL_HW_STATS_FNR),
+			IPA_MAX_FLT_RT_CNT_INDEX_V7);
+		max_flt_nonip = min_t(u32,
+			IPA_MEM_PART(stats_flt_nonip_size) /
+				ipahal_stats_get_hw_entry_size(IPAHAL_HW_STATS_FNR),
+			IPAHAL_STAT_MAX_COUNTERS_LIMIT);
+		max_rt_nonip = min_t(u32,
+			IPA_MEM_PART(stats_rt_nonip_size) /
+				ipahal_stats_get_hw_entry_size(IPAHAL_HW_STATS_FNR),
+			IPAHAL_STAT_MAX_COUNTERS_LIMIT);
 		/* set IPA_STAT_ROUTER_NONIP_BASE */
 		rt_nonip_base.skip_pipeline_clear = false;
 		rt_nonip_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
@@ -2664,18 +2698,67 @@ int ipa_init_flt_rt_stats(void)
 		desc[num_cmd].type = IPA_IMM_CMD_DESC;
 		++num_cmd;
 
+		/* set IPA_STAT_IPV4_FILTER_ROUTER_MAX_COUNTERS */
+		ipv4_max_cnt_base.skip_pipeline_clear = false;
+		ipv4_max_cnt_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
+		ipv4_max_cnt_base.offset = stats_max_v4_fltrt_cntrs;
+		ipv4_max_cnt_base.value =
+			((max_v4v6 << IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_SHFT) &
+				IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_BMSK) |
+			((max_v4v6 << IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_SHFT) &
+				IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_BMSK);
+		ipv4_max_cnt_base.value_mask = ~0;
+		ipv4_max_cnt_base_pyld =
+			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+			&ipv4_max_cnt_base, false);
+		if (!ipv4_max_cnt_base_pyld) {
+			IPAERR("failed to construct register_write imm cmd\n");
+			ret = -ENOMEM;
+			goto destroy_rt_nonip_cfg_base;
+		}
+		desc[num_cmd].opcode = ipv4_max_cnt_base_pyld->opcode;
+		desc[num_cmd].pyld = ipv4_max_cnt_base_pyld->data;
+		desc[num_cmd].len = ipv4_max_cnt_base_pyld->len;
+		desc[num_cmd].type = IPA_IMM_CMD_DESC;
+		++num_cmd;
+
+		/* set IPA_STAT_IPV6_FILTER_ROUTER_MAX_COUNTERS */
+		ipv6_max_cnt_base.skip_pipeline_clear = false;
+		ipv6_max_cnt_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
+		ipv6_max_cnt_base.offset = stats_max_v6_fltrt_cntrs;
+		/* filter and router share the same table as IPv4 */
+		ipv6_max_cnt_base.value = ipv4_max_cnt_base.value;
+		ipv6_max_cnt_base.value_mask = ~0;
+		ipv6_max_cnt_base_pyld =
+			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+			&ipv6_max_cnt_base, false);
+		if (!ipv6_max_cnt_base_pyld) {
+			IPAERR("failed to construct register_write imm cmd\n");
+			ret = -ENOMEM;
+			goto destroy_ipv4_max_cnt_base;
+		}
+		desc[num_cmd].opcode = ipv6_max_cnt_base_pyld->opcode;
+		desc[num_cmd].pyld = ipv6_max_cnt_base_pyld->data;
+		desc[num_cmd].len = ipv6_max_cnt_base_pyld->len;
+		desc[num_cmd].type = IPA_IMM_CMD_DESC;
+		++num_cmd;
+
 		/* set IPA_STAT_NONIP_FILTER_ROUTER_MAX_COUNTERS */
 		nonip_max_cnt_base.skip_pipeline_clear = false;
 		nonip_max_cnt_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
 		nonip_max_cnt_base.offset = stats_max_nonip_fltrt_cntrs;
-		nonip_max_cnt_base.value = 0 /* TODO.*/;
+		nonip_max_cnt_base.value =
+			((max_flt_nonip << IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_SHFT) &
+				IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_BMSK) |
+			((max_rt_nonip << IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_SHFT) &
+				IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_BMSK);
 		nonip_max_cnt_base.value_mask = ~0;
 		nonip_max_cnt_base_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
 			&nonip_max_cnt_base, false);
 		if (!nonip_max_cnt_base_pyld) {
 			IPAERR("failed to construct register_write imm cmd\n");
 			ret = -ENOMEM;
-			goto destroy_rt_nonip_cfg_base;
+			goto destroy_ipv6_max_cnt_base;
 		}
 		desc[num_cmd].opcode = nonip_max_cnt_base_pyld->opcode;
 		desc[num_cmd].pyld = nonip_max_cnt_base_pyld->data;
@@ -2688,7 +2771,7 @@ int ipa_init_flt_rt_stats(void)
 		drop_ipv4_max_fltrt_cnt_base.pipeline_clear_options =
 			IPAHAL_FULL_PIPELINE_CLEAR;
 		drop_ipv4_max_fltrt_cnt_base.offset = drop_stats_max_v4_fltrt_cntrs;
-		drop_ipv4_max_fltrt_cnt_base.value = 0 /* TODO.*/;
+		drop_ipv4_max_fltrt_cnt_base.value = ipv4_max_cnt_base.value;
 		drop_ipv4_max_fltrt_cnt_base.value_mask = ~0;
 		drop_ipv4_max_fltrt_cnt_base_pyld =
 			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
@@ -2709,7 +2792,7 @@ int ipa_init_flt_rt_stats(void)
 		drop_ipv6_max_fltrt_cnt_base.pipeline_clear_options =
 			IPAHAL_FULL_PIPELINE_CLEAR;
 		drop_ipv6_max_fltrt_cnt_base.offset = drop_stats_max_v6_fltrt_cntrs;
-		drop_ipv6_max_fltrt_cnt_base.value = 0 /* TODO.*/;
+		drop_ipv6_max_fltrt_cnt_base.value = ipv4_max_cnt_base.value;
 		drop_ipv6_max_fltrt_cnt_base.value_mask = ~0;
 		drop_ipv6_max_fltrt_cnt_base_pyld =
 			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
@@ -2730,7 +2813,7 @@ int ipa_init_flt_rt_stats(void)
 		drop_nonip_max_fltrt_cnt_base.pipeline_clear_options =
 			IPAHAL_FULL_PIPELINE_CLEAR;
 		drop_nonip_max_fltrt_cnt_base.offset = drop_stats_max_nonip_fltrt_cntrs;
-		drop_nonip_max_fltrt_cnt_base.value = 0 /* TODO.*/;
+		drop_nonip_max_fltrt_cnt_base.value = nonip_max_cnt_base.value;
 		drop_nonip_max_fltrt_cnt_base.value_mask = ~0;
 		drop_nonip_max_fltrt_cnt_base_pyld =
 			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
@@ -2738,7 +2821,7 @@ int ipa_init_flt_rt_stats(void)
 		if (!drop_nonip_max_fltrt_cnt_base_pyld) {
 			IPAERR("failed to construct register_write imm cmd\n");
 			ret = -ENOMEM;
-			goto destroy_drop_ipv4_max_cnt_base;
+			goto destroy_drop_ipv6_max_cnt_base;
 		}
 		desc[num_cmd].opcode = drop_nonip_max_fltrt_cnt_base_pyld->opcode;
 		desc[num_cmd].pyld = drop_nonip_max_fltrt_cnt_base_pyld->data;
@@ -2779,6 +2862,7 @@ destroy_imm:
 	ipahal_destroy_imm_cmd(cmd_pyld);
 	if (drop_nonip_max_fltrt_cnt_base_pyld)
 		ipahal_destroy_imm_cmd(drop_nonip_max_fltrt_cnt_base_pyld);
+destroy_drop_ipv6_max_cnt_base:
 	if (drop_ipv6_max_fltrt_cnt_base_pyld)
 		ipahal_destroy_imm_cmd(drop_ipv6_max_fltrt_cnt_base_pyld);
 destroy_drop_ipv4_max_cnt_base:
@@ -2787,6 +2871,12 @@ destroy_drop_ipv4_max_cnt_base:
 destroy_nonip_max_cnt_base:
 	if (nonip_max_cnt_base_pyld)
 		ipahal_destroy_imm_cmd(nonip_max_cnt_base_pyld);
+destroy_ipv6_max_cnt_base:
+	if (ipv6_max_cnt_base_pyld)
+		ipahal_destroy_imm_cmd(ipv6_max_cnt_base_pyld);
+destroy_ipv4_max_cnt_base:
+	if (ipv4_max_cnt_base_pyld)
+		ipahal_destroy_imm_cmd(ipv4_max_cnt_base_pyld);
 destroy_rt_nonip_cfg_base:
 	if (rt_nonip_cfg_base_pyld)
 		ipahal_destroy_imm_cmd(rt_nonip_cfg_base_pyld);
@@ -2938,6 +3028,8 @@ free_offset:
 
 int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query)
 {
+	int max_cnt_id;
+
 	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled)) {
 		IPAERR("hw_stats is not enabled\n");
 		return 0;
@@ -2956,12 +3048,15 @@ int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query)
 		return -EINVAL;
 	}
 
-	if (query->start_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
+
+	if (query->start_id > max_cnt_id) {
 		IPAERR("start_cnt_id %d out of range\n", query->start_id);
 		return -EINVAL;
 	}
 
-	if (query->end_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (query->end_id > max_cnt_id) {
 		IPAERR("end_cnt_id %d out of range\n", query->end_id);
 		return -EINVAL;
 	}
@@ -3737,9 +3832,11 @@ int ipa_init_nat_ct_stats(void)
 	reg_write.offset = ipahal_get_reg_ofst(IPA_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS);
 	reg_write.value =
 		(((u32)ipa3_ctx->hw_stats->nat_ct.init.max_counters <<
-		  IPV6_MAX_COUNTERS_SHFT) & IPV6_MAX_COUNTERS_BMSK) |
+		  IPAHAL_STAT_IPV6_MAX_COUNTERS_SHFT) &
+		 IPAHAL_STAT_IPV6_MAX_COUNTERS_BMSK) |
 		(((u32)ipa3_ctx->hw_stats->nat_ct.init.max_counters <<
-		  IPV4_MAX_COUNTERS_SHFT) & IPV4_MAX_COUNTERS_BMSK);
+		  IPAHAL_STAT_IPV4_MAX_COUNTERS_SHFT) &
+		 IPAHAL_STAT_IPV4_MAX_COUNTERS_BMSK);
 	reg_write_pyld[4] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
 		&reg_write, false);
 	if (!reg_write_pyld[4]) {
@@ -4279,14 +4376,18 @@ static ssize_t flt_rt_store(struct device *dev, struct device_attribute *attr, c
 {
 	struct ipa_ioc_flt_rt_query *query;
 	int pyld_size = 0;
+	int max_cnt_id;
 	int ret;
+
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
 
 	query = kzalloc(sizeof(struct ipa_ioc_flt_rt_query),
 		GFP_KERNEL);
 	if (!query)
 		return -ENOMEM;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = max_cnt_id *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -4306,7 +4407,7 @@ static ssize_t flt_rt_store(struct device *dev, struct device_attribute *attr, c
 	if (strcmp(dbg_buff, "reset\n") == 0) {
 		query->reset = 1;
 		query->start_id = 1;
-		query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+		query->end_id = max_cnt_id;
 		ipa_get_flt_rt_stats(query);
 	} else {
 		IPAERR("unsupport flt_rt command\n");
@@ -4326,17 +4427,21 @@ static ssize_t flt_rt_show(struct device *dev, struct device_attribute *attr, ch
 	int i;
 	int res;
 	int pyld_size = 0;
+	int max_cnt_id;
 	struct ipa_ioc_flt_rt_query *query;
+
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
 
 	query = kzalloc(sizeof(struct ipa_ioc_flt_rt_query),
 		GFP_KERNEL);
 	if (!query)
 		return -ENOMEM;
 	query->start_id = 1;
-	query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+	query->end_id = max_cnt_id;
 	query->reset = false;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = max_cnt_id *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -4351,7 +4456,7 @@ static ssize_t flt_rt_show(struct device *dev, struct device_attribute *attr, ch
 		kfree(query);
 		return res;
 	}
-	for (i = 0; i < IPA_MAX_FLT_RT_CNT_INDEX; i++) {
+	for (i = 0; i < max_cnt_id; i++) {
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"cnt_id: %d\n", i + 1);
@@ -4841,14 +4946,18 @@ static ssize_t ipa_debugfs_control_flt_rt_stats(struct file *file,
 	struct ipa_ioc_flt_rt_query *query;
 	unsigned long missing;
 	int pyld_size = 0;
+	int max_cnt_id;
 	int ret;
+
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
 
 	query = kzalloc(sizeof(struct ipa_ioc_flt_rt_query),
 		GFP_KERNEL);
 	if (!query)
 		return -ENOMEM;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = max_cnt_id *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -4872,7 +4981,7 @@ static ssize_t ipa_debugfs_control_flt_rt_stats(struct file *file,
 	if (strcmp(dbg_buff, "reset\n") == 0) {
 		query->reset = 1;
 		query->start_id = 1;
-		query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+		query->end_id = max_cnt_id;
 		ipa_get_flt_rt_stats(query);
 	} else {
 		IPAERR("unsupport flt_rt command\n");
@@ -4893,17 +5002,21 @@ static ssize_t ipa_debugfs_print_flt_rt_stats(struct file *file,
 	int i;
 	int res;
 	int pyld_size = 0;
+	int max_cnt_id;
 	struct ipa_ioc_flt_rt_query *query;
+
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
 
 	query = kzalloc(sizeof(struct ipa_ioc_flt_rt_query),
 		GFP_KERNEL);
 	if (!query)
 		return -ENOMEM;
 	query->start_id = 1;
-	query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+	query->end_id = max_cnt_id;
 	query->reset = false;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = max_cnt_id *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -4918,7 +5031,7 @@ static ssize_t ipa_debugfs_print_flt_rt_stats(struct file *file,
 		kfree(query);
 		return res;
 	}
-	for (i = 0; i < IPA_MAX_FLT_RT_CNT_INDEX; i++) {
+	for (i = 0; i < max_cnt_id; i++) {
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"cnt_id: %d\n", i + 1);

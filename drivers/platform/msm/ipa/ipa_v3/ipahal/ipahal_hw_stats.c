@@ -1091,9 +1091,10 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_flt_rt_v4_5(
 {
 	struct ipahal_stats_init_pyld *pyld;
 	long num = (long)(params); /* params is treated as a pointer. */
+	long max_num = (ipahal_ctx->hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
 
-	if (num > IPA_MAX_FLT_RT_CNT_INDEX ||
-		num <= 0) {
+	if (num > max_num || num <= 0) {
 		IPAHAL_ERR("num %ld not valid\n", num);
 		return NULL;
 	}
@@ -1683,4 +1684,29 @@ void ipahal_set_nat_ct_sw_stats(void *raw_stats,
 	raw_hw->num_pkts_outbound = sw_stats.num_pkts_outbound;
 	raw_hw->num_pkts_cache_outbound = sw_stats.num_pkts_cache_outbound;
 	raw_hw->num_bytes_outbound = sw_stats.num_bytes_outbound;
+}
+
+u32 ipahal_stats_get_hw_entry_size(enum ipahal_hw_stats_type type)
+{
+	switch (type) {
+	case IPAHAL_HW_STATS_QUOTA:
+		return sizeof(struct ipahal_stats_quota_hw);
+	case IPAHAL_HW_STATS_TETHERING:
+		return sizeof(struct ipahal_stats_tethering_hw);
+	case IPAHAL_HW_STATS_FNR:
+		/*
+		 * The FnR counter layout grew at v4_5 (a num_bytes field was
+		 * added); pre-v4_5 HW uses the narrower entry.
+		 */
+		if (ipahal_ctx->hw_type < IPA_HW_v4_5)
+			return sizeof(struct ipahal_stats_flt_rt_hw);
+		return sizeof(struct ipahal_stats_flt_rt_v4_5_hw);
+	case IPAHAL_HW_STATS_DROP:
+		return sizeof(struct ipahal_stats_drop_hw);
+	case IPAHAL_HW_STATS_NAT_CT:
+		return sizeof(struct ipahal_stats_nat_ct_hw);
+	default:
+		IPAHAL_ERR("unexpected stats type %d\n", type);
+		return 0;
+	}
 }

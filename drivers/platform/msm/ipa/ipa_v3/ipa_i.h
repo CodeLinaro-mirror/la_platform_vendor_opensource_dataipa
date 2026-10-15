@@ -909,7 +909,7 @@ struct ipa3_flt_entry {
 	int id;
 	u16 prio;
 	u16 rule_id;
-	u8 cnt_idx;
+	u16 cnt_idx;
 	bool ipacm_installed;
 	u32 flt_hdl;
 	enum flt_rule_category cat;
@@ -1173,7 +1173,7 @@ struct ipa3_rt_entry {
 	u16 prio;
 	u16 rule_id;
 	u16 rule_id_valid;
-	u8 cnt_idx;
+	u16 cnt_idx;
 	bool ipacm_installed;
 	enum rt_rule_category cat;
 	enum rule_sub_category sub_cat;
@@ -3755,6 +3755,12 @@ struct ipa_tx_suspend_irq_data {
 
 extern struct ipa3_context *ipa3_ctx;
 extern bool ipa_net_initialized;
+
+static inline u16 ipa3_get_max_flt_rt_rule_cnt_index(void)
+{
+	return ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_FLT_RT_HW_COUNTER;
+}
 
 /* public APIs */
 /* Generic GSI channels functions */

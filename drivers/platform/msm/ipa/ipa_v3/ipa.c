@@ -3076,6 +3076,7 @@ static int ipa3_ioctl_fnr_counter_query(unsigned long arg)
 	int i;
 	u8 header[128] = { 0 };
 	int pre_entry;
+	int max_cnt_id;
 	u32 usr_pyld_sz;
 	u32 pyld_sz;
 	u64 uptr = 0;
@@ -3093,7 +3094,9 @@ static int ipa3_ioctl_fnr_counter_query(unsigned long arg)
 		((struct ipa_ioc_flt_rt_query *)
 		header)->end_id - ((struct ipa_ioc_flt_rt_query *)
 		header)->start_id + 1;
-	if (pre_entry <= 0 || pre_entry > IPA_MAX_FLT_RT_CNT_INDEX) {
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
+	if (pre_entry <= 0 || pre_entry > max_cnt_id) {
 		IPAERR("IPA_IOC_FNR_COUNTER_QUERY failed: num %d\n",
 			pre_entry);
 		retval = -EPERM;
