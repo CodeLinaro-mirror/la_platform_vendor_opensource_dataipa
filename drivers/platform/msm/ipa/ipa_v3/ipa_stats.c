@@ -1996,9 +1996,7 @@ static int ipa_get_v6_rt_rule_stats(unsigned long arg) {
 		return -EFAULT;
 	}
 
-	alloc_size = sizeof(struct ipa_lnx_v6_rt_rule_stats) +
-		(ipa_lnx_agent_ctx.alloc_info.rt_alloc_info.num_v6_tables *
-		sizeof(struct ipa_lnx_v6_rt_rule_table));
+	alloc_size = sizeof(struct ipa_lnx_v6_rt_rule_stats);
 
 	rt_rule_stats = (struct ipa_lnx_v6_rt_rule_stats *) memdup_user((
 		const void __user *)arg, alloc_size);
