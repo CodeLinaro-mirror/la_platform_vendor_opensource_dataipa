@@ -752,10 +752,15 @@ int ipa3_send(struct ipa3_sys_context *sys,
 					desc[i].frag,
 					0, tx_pkt->mem.size,
 					DMA_TO_DEVICE);
+				IPA_STATS_INC_CNT(ipa3_ctx->stats.dma_map_new);
 			} else {
 				tx_pkt->mem.phys_base =
 					desc[i].dma_address;
 				tx_pkt->no_unmap_dma = true;
+				dma_sync_single_for_device(ipa3_ctx->pdev,
+					tx_pkt->mem.phys_base,
+					tx_pkt->mem.size, DMA_TO_DEVICE);
+				IPA_STATS_INC_CNT(ipa3_ctx->stats.dma_map_recycle);
 			}
 		}
 		if (dma_mapping_error(ipa3_ctx->pdev, tx_pkt->mem.phys_base)) {
@@ -2104,24 +2109,15 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		} while (1);
 
 		delete_avail_tx_wrapper_list(ep);
-		/* Delete NAPI TX object. For WAN_PROD, it is deleted
-		 * in rmnet_ipa driver.
-		 * Gate on napi_tx_enable rather than the global
-		 * tx_napi_enable: setup only adds napi_tx for the LAN/WAN/
-		 * IPSEC producers and leaves it zeroed for the others (e.g.
-		 * CMD_PROD, TEST_PROD), so the global flag alone would delete
-		 * a NAPI object that was never added.
+		/* napi_tx_enable tracks that setup registered this NAPI object.
+		 * The WAN producer NAPI is attached to the rmnet netdev, but its
+		 * endpoint owns teardown before the netdev is freed.
 		 */
-		if (ep->sys->napi_tx_enable &&
-			(ep->client != IPA_CLIENT_APPS_WAN_PROD)) {
+		if (ep->sys->napi_tx_enable) {
 			napi_disable(&ep->sys->napi_tx);
 			netif_napi_del(&ep->sys->napi_tx);
+			ep->sys->napi_tx_enable = false;
 		}
-	}
-
-	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
-		napi_disable(&ep->sys->napi_rx);
-		netif_napi_del(&ep->sys->napi_rx);
 	}
 
 	if ( ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS ) {
@@ -2160,6 +2156,14 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 	flush_workqueue(ep->sys->wq);
 	if (IPA_CLIENT_IS_PROD(ep->client))
 		atomic_set(&ep->sys->workqueue_flushed, 1);
+
+	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
+		napi_disable(&ep->sys->napi_rx);
+		netif_napi_del(&ep->sys->napi_rx);
+	}
+
+	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
+		tasklet_kill(&ep->sys->tasklet);
 
 	/*
 	 * Tear down the default pipe before we reset the channel
@@ -2351,6 +2355,15 @@ static int ipa3_teardown_pipe(u32 clnt_hdl)
 		ipa_assert();
 		return result;
 	}
+
+	/* Wait for any pending irqs */
+	usleep_range(POLLING_MIN_SLEEP_RX, POLLING_MAX_SLEEP_RX);
+	/* Wait until end point moving to interrupt mode before teardown */
+	do {
+		usleep_range(95, 105);
+	} while (atomic_read(&ep->sys->curr_polling_state));
+
+
 	result = ipa3_reset_gsi_channel(clnt_hdl);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("Failed to reset chan: %d.\n", result);
@@ -2514,6 +2527,37 @@ static inline int validate_client_ipa_tiering(enum ipa_client_type dst)
 	return 0;
 }
 
+/*
+ * IPA_RX_PAGE_DMA_VALID is OR'd into a WAN RX recycle page's page->private
+ * alongside its DMA_FROM_DEVICE IOVA. dma_map_page() returns a page-aligned
+ * IOVA (offset 0, whole-page length), so the low bit is guaranteed zero -
+ * safe to steal as a "this page carries a live IPA DMA mapping" tag. This
+ * lets the LAN Producer/ULSO TX path (ipa_tx_dp()/ipa3_send()) detect and
+ * reuse an already-mapped WAN RX page instead of re-mapping it for TX.
+ */
+#define IPA_RX_PAGE_DMA_VALID ((unsigned long)0x1)
+
+static inline void ipa3_set_page_dma_addr(struct page *page, dma_addr_t addr)
+{
+	set_page_private(page, (unsigned long)addr | IPA_RX_PAGE_DMA_VALID);
+}
+
+static inline void ipa3_clear_page_dma_addr(struct page *page)
+{
+	set_page_private(page, 0);
+}
+
+static inline bool ipa3_get_page_dma_addr(struct page *page, dma_addr_t *addr)
+{
+	unsigned long priv = page_private(page);
+
+	if (!(priv & IPA_RX_PAGE_DMA_VALID))
+		return false;
+
+	*addr = (dma_addr_t)(priv & ~IPA_RX_PAGE_DMA_VALID);
+	return true;
+}
+
 /**
  * ipa_tx_dp() - Data-path tx handler
  * @dst:	[in] which IPA destination to route tx packets to
@@ -2550,6 +2594,7 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 	const struct ipa_gsi_ep_config *gsi_ep = NULL;
 	int data_idx = 0, skb_idx = 0;
 	unsigned int max_desc = 0;
+	dma_addr_t frag_dma_addr;
 
 	if (unlikely(!ipa3_ctx)) {
 		IPAERR("IPA3 driver was not initialized\n");
@@ -2782,6 +2827,14 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 			desc[data_idx + f].type = IPA_DATA_DESC_SKB_PAGED;
 			desc[data_idx + f].len =
 				skb_frag_size(desc[data_idx + f].frag);
+			if (ipa3_get_page_dma_addr(
+				skb_frag_page(desc[data_idx + f].frag),
+				&frag_dma_addr)) {
+				/* page IOVA is for offset 0; the frag may start deeper in the page */
+				desc[data_idx + f].dma_address = frag_dma_addr +
+					skb_frag_off(desc[data_idx + f].frag);
+				desc[data_idx + f].dma_address_valid = true;
+			}
 		}
 		/* don't free skb till frag mappings are released */
 		if (num_frags) {
@@ -2847,6 +2900,14 @@ int ipa_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 					IPA_DATA_DESC_SKB_PAGED;
 				desc[data_idx+f].len =
 					skb_frag_size(desc[data_idx+f].frag);
+				if (ipa3_get_page_dma_addr(
+					skb_frag_page(desc[data_idx+f].frag),
+					&frag_dma_addr)) {
+					/* page IOVA is for offset 0; the frag may start deeper in the page */
+					desc[data_idx+f].dma_address = frag_dma_addr +
+						skb_frag_off(desc[data_idx+f].frag);
+					desc[data_idx+f].dma_address_valid = true;
+				}
 			}
 			/* don't free skb till frag mappings are released */
 			desc[data_idx+f-1].callback = skb_headlen(skb) ? desc[skb_idx].callback :
@@ -3048,6 +3109,8 @@ static struct ipa3_rx_pkt_wrapper *ipa3_alloc_rx_pkt_page(
 			rx_pkt->page_data.page);
 		goto fail_dma_mapping;
 	}
+	ipa3_set_page_dma_addr(rx_pkt->page_data.page,
+		rx_pkt->page_data.dma_addr);
 	if (is_tmp_alloc)
 		rx_pkt->page_data.is_tmp_alloc = true;
 	else
@@ -4110,6 +4173,7 @@ static void free_rx_page(void *chan_user_data, void *xfer_user_data)
 	} else {
 		dma_unmap_page(ipa3_ctx->pdev, rx_pkt->page_data.dma_addr,
 			rx_pkt->len, DMA_FROM_DEVICE);
+		ipa3_clear_page_dma_addr(rx_pkt->page_data.page);
 		__free_pages(rx_pkt->page_data.page, rx_pkt->page_data.page_order);
 		kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
 	}
@@ -4170,6 +4234,7 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 					rx_pkt->page_data.dma_addr,
 					rx_pkt->len,
 					DMA_FROM_DEVICE);
+				ipa3_clear_page_dma_addr(rx_pkt->page_data.page);
 				__free_pages(rx_pkt->page_data.page, rx_pkt->page_data.page_order);
 			}
 			kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache,
@@ -6256,6 +6321,7 @@ static struct sk_buff *handle_page_completion(struct gsi_chan_xfer_notify
 		} else {
 			dma_unmap_page(ipa3_ctx->pdev, rx_page.dma_addr,
 					rx_pkt->len, DMA_FROM_DEVICE);
+			ipa3_clear_page_dma_addr(rx_pkt->page_data.page);
 			__free_pages(rx_pkt->page_data.page, rx_pkt->page_data.page_order);
 		}
 		rx_pkt->sys->free_rx_wrapper(rx_pkt);
@@ -6291,6 +6357,7 @@ static struct sk_buff *handle_page_completion(struct gsi_chan_xfer_notify
 				} else {
 					dma_unmap_page(ipa3_ctx->pdev, rx_page.dma_addr,
 						rx_pkt->len, DMA_FROM_DEVICE);
+					ipa3_clear_page_dma_addr(rx_pkt->page_data.page);
 					__free_pages(rx_pkt->page_data.page, rx_pkt->page_data.page_order);
 				}
 				rx_pkt->sys->free_rx_wrapper(rx_pkt);
@@ -6306,6 +6373,7 @@ static struct sk_buff *handle_page_completion(struct gsi_chan_xfer_notify
 			if (rx_page.is_tmp_alloc) {
 				dma_unmap_page(ipa3_ctx->pdev, rx_page.dma_addr,
 					rx_pkt->len, DMA_FROM_DEVICE);
+				ipa3_clear_page_dma_addr(rx_page.page);
 			} else {
 				spin_lock_bh(&rx_pkt->sys->common_sys->spinlock);
 				/* Add the element back to tail. */

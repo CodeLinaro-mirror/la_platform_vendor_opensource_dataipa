@@ -578,13 +578,13 @@ int ipahal_nat_entry_size(enum ipahal_nat_type nat_type, size_t *entry_size)
 		"requested NAT type %d is invalid\n", nat_type))
 		return -EINVAL;
 
-	IPAHAL_DBG("Get the entry size for NAT type=%s\n",
+	IPAHAL_DBG_LOW("Get the entry size for NAT type=%s\n",
 		ipahal_nat_type_str(nat_type));
 
 	*entry_size =
 		ipahal_nat_objs[ipahal_ctx->hw_type][nat_type].entry_size();
 
-	IPAHAL_DBG("The entry size is %zu\n", *entry_size);
+	IPAHAL_DBG_LOW("The entry size is %zu\n", *entry_size);
 
 	return 0;
 }

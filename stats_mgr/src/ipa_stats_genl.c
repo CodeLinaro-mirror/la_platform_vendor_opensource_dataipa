@@ -3,7 +3,6 @@
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
-#define pr_fmt(fmt) "ipa_stats: " fmt
 
 #include <linux/module.h>
 #include <linux/workqueue.h>
@@ -16,8 +15,40 @@
 #include <linux/in.h>
 #include <linux/in6.h>
 #include <linux/socket.h>
+#include <linux/ratelimit.h>
+#include <linux/ipc_logging.h>
 #include "ipa_api.h"
 #include "../inc/ipa_stats_genl.h"
+
+#define IPA_STATS_IPC_LOG_PAGES 50
+#define IPA_STATS_LOG_RL_INTERVAL (5 * HZ)
+#define IPA_STATS_LOG_RL_BURST 10
+
+static void *ipa_stats_logbuf;
+
+/*
+ * All stats_mgr logging goes to IPC logs (no printk). Each call site has its
+ * own ratelimit state. RATELIMIT_MSG_ON_RELEASE is required: without it
+ * __ratelimit() itself printk()s "N callbacks suppressed" when the interval
+ * expires. With it, that summary is deferred to ratelimit_state_exit(), which
+ * is never called for these static states, so nothing reaches the kernel log.
+ */
+#define IPA_STATS_LOG(lvl, fmt, args...) \
+	do { \
+		static struct ratelimit_state _rs = \
+			RATELIMIT_STATE_INIT_FLAGS(_rs, \
+				IPA_STATS_LOG_RL_INTERVAL, \
+				IPA_STATS_LOG_RL_BURST, \
+				RATELIMIT_MSG_ON_RELEASE); \
+		if (ipa_stats_logbuf && __ratelimit(&_rs)) \
+			ipc_log_string(ipa_stats_logbuf, \
+				lvl " %s:%d " fmt, __func__, __LINE__, \
+				## args); \
+	} while (0)
+
+#define IPA_STATS_ERR(fmt, args...)  IPA_STATS_LOG("ERR", fmt, ## args)
+#define IPA_STATS_WARN(fmt, args...) IPA_STATS_LOG("WARN", fmt, ## args)
+#define IPA_STATS_DBG(fmt, args...)  IPA_STATS_LOG("DBG", fmt, ## args)
 
 /* ipa_debugfs_get_root() is defined in ipa_debugfs.c and exported via EXPORT_SYMBOL */
 #ifdef CONFIG_DEBUG_FS
@@ -113,7 +144,7 @@ static void ipa_stats_tick_kick_locked(void)
 	if (!ipa_stats_tick_running && ipa_stats_notify_enabled &&
 	    !list_empty(&ipa_stats_ctx_list)) {
 		ipa_stats_tick_running = true;
-		pr_debug("tick: starting base timer (%u ms)\n", IPA_STATS_BASE_MS);
+		IPA_STATS_DBG("tick: starting base timer (%u ms)\n", IPA_STATS_BASE_MS);
 		schedule_delayed_work(&ipa_stats_tick_work,
 				      msecs_to_jiffies(IPA_STATS_BASE_MS));
 	}
@@ -156,7 +187,7 @@ static int ipa_stats_collect_snapshot(struct ipa_stats_flow_ctx *ctx,
 	snapshot = kmalloc_array(count, sizeof(*snapshot), GFP_KERNEL);
 	if (!snapshot) {
 		mutex_unlock(&ctx->lock);
-		pr_err("kmalloc_array failed\n");
+		IPA_STATS_ERR("kmalloc_array failed\n");
 		return 0;
 	}
 
@@ -206,7 +237,7 @@ static void ipa_stats_send_snapshot(struct ipa_stats_snapshot_entry *snapshot,
 
 	skb = genlmsg_new(skb_size, GFP_KERNEL);
 	if (!skb) {
-		pr_err("genlmsg_new failed\n");
+		IPA_STATS_ERR("genlmsg_new failed\n");
 		kfree(snapshot);
 		return;
 	}
@@ -214,7 +245,7 @@ static void ipa_stats_send_snapshot(struct ipa_stats_snapshot_entry *snapshot,
 	hdr = genlmsg_put(skb, 0, 0, &ipa_stats_genl_family, 0,
 			  IPA_STATS_GENL_CMD_STATS_UPDATE);
 	if (!hdr) {
-		pr_err("genlmsg_put failed\n");
+		IPA_STATS_ERR("genlmsg_put failed\n");
 		nlmsg_free(skb);
 		kfree(snapshot);
 		return;
@@ -225,7 +256,7 @@ static void ipa_stats_send_snapshot(struct ipa_stats_snapshot_entry *snapshot,
 
 		if (nla_put(skb, IPA_STATS_GENL_ATTR_STATS_SNAPSHOT,
 			    (int)(chunk * sizeof(*snapshot)), &snapshot[off])) {
-			pr_err("nla_put failed\n");
+			IPA_STATS_ERR("nla_put failed\n");
 			genlmsg_cancel(skb, hdr);
 			nlmsg_free(skb);
 			kfree(snapshot);
@@ -236,7 +267,7 @@ static void ipa_stats_send_snapshot(struct ipa_stats_snapshot_entry *snapshot,
 	kfree(snapshot);
 	genlmsg_end(skb, hdr);
 	genlmsg_multicast(&ipa_stats_genl_family, skb, 0, 0, GFP_KERNEL);
-	pr_debug("snapshot sent: %d entr%s\n", count, count == 1 ? "y" : "ies");
+	IPA_STATS_DBG("snapshot sent: %d entr%s\n", count, count == 1 ? "y" : "ies");
 }
 
 /* Build and multicast one snapshot for ctx. Caller must not hold ctx->lock. */
@@ -280,17 +311,17 @@ static void ipa_stats_tick_work_fn(struct work_struct *work)
 
 		count = ipa_stats_collect_snapshot(ctx, &snapshot);
 		if (!count) {
-			pr_debug("tick: timer_ticks=%u elapsed, bucket empty, skipping\n",
+			IPA_STATS_DBG("tick: timer_ticks=%u elapsed, bucket empty, skipping\n",
 				 ctx->timer_ticks);
 			continue;
 		}
 
-		pr_debug("tick: timer_ticks=%u elapsed, queuing %d entr%s for send\n",
+		IPA_STATS_DBG("tick: timer_ticks=%u elapsed, queuing %d entr%s for send\n",
 			 ctx->timer_ticks, count, count == 1 ? "y" : "ies");
 
 		pending = kzalloc(sizeof(*pending), GFP_KERNEL);
 		if (!pending) {
-			pr_err("pending kzalloc failed\n");
+			IPA_STATS_ERR("pending kzalloc failed\n");
 			kfree(snapshot);
 			continue;
 		}
@@ -303,7 +334,7 @@ static void ipa_stats_tick_work_fn(struct work_struct *work)
 		schedule_delayed_work(&ipa_stats_tick_work,
 				      msecs_to_jiffies(IPA_STATS_BASE_MS));
 	else {
-		pr_debug("tick: stopping base timer (ctx_list_empty=%d notify_enabled=%d)\n",
+		IPA_STATS_DBG("tick: stopping base timer (ctx_list_empty=%d notify_enabled=%d)\n",
 			 list_empty(&ipa_stats_ctx_list), ipa_stats_notify_enabled);
 		ipa_stats_tick_running = false;
 	}
@@ -334,7 +365,7 @@ static int ipa_stats_tuple_add_req_hdlr(struct sk_buff *skb,
 	struct ipa_stats_tuple_info tuple;
 
 	if (!info->attrs[IPA_STATS_GENL_ATTR_TUPLE_INFO]) {
-		pr_err("missing tuple info attribute\n");
+		IPA_STATS_ERR("missing tuple info attribute\n");
 		return -EINVAL;
 	}
 
@@ -342,14 +373,14 @@ static int ipa_stats_tuple_add_req_hdlr(struct sk_buff *skb,
 		   sizeof(tuple));
 
 	if (!tuple.src_port || !tuple.dst_port) {
-		pr_err("zero port: src_port=%u dst_port=%u\n",
+		IPA_STATS_ERR("zero port: src_port=%u dst_port=%u\n",
 		       ntohs(tuple.src_port), ntohs(tuple.dst_port));
 		return -EINVAL;
 	}
 
 	if (tuple.af == AF_INET) {
 		if (!tuple.src_addr[0] || !tuple.dst_addr[0]) {
-			pr_err("zero v4 addr: src=%pI4 dst=%pI4\n",
+			IPA_STATS_ERR("zero v4 addr: src=%pI4 dst=%pI4\n",
 			       &tuple.src_addr[0], &tuple.dst_addr[0]);
 			return -EINVAL;
 		}
@@ -358,34 +389,34 @@ static int ipa_stats_tuple_add_req_hdlr(struct sk_buff *skb,
 		     !tuple.src_addr[2] && !tuple.src_addr[3]) ||
 		    (!tuple.dst_addr[0] && !tuple.dst_addr[1] &&
 		     !tuple.dst_addr[2] && !tuple.dst_addr[3])) {
-			pr_err("zero v6 addr: src=%pI6c dst=%pI6c\n",
+			IPA_STATS_ERR("zero v6 addr: src=%pI6c dst=%pI6c\n",
 			       (struct in6_addr *)tuple.src_addr,
 			       (struct in6_addr *)tuple.dst_addr);
 			return -EINVAL;
 		}
 	} else {
-		pr_err("unsupported af %u\n", tuple.af);
+		IPA_STATS_ERR("unsupported af %u\n", tuple.af);
 		return -EINVAL;
 	}
 
 	if (tuple.protocol != IPPROTO_TCP && tuple.protocol != IPPROTO_UDP) {
-		pr_err("invalid protocol %u\n", tuple.protocol);
+		IPA_STATS_ERR("invalid protocol %u\n", tuple.protocol);
 		return -EINVAL;
 	}
 
 	if (!tuple.timer_ticks || (tuple.timer_ticks % IPA_STATS_BASE_MS)) {
-		pr_err("timer_ticks %u not a positive multiple of %u ms\n",
+		IPA_STATS_ERR("timer_ticks %u not a positive multiple of %u ms\n",
 		       tuple.timer_ticks, IPA_STATS_BASE_MS);
 		return -EINVAL;
 	}
 
 	if (tuple.af == AF_INET)
-		pr_debug("add: src=%pI4:%u dst=%pI4:%u proto=%u timer_ticks=%u\n",
+		IPA_STATS_DBG("add: src=%pI4:%u dst=%pI4:%u proto=%u timer_ticks=%u\n",
 		         &tuple.src_addr[0], ntohs(tuple.src_port),
 		         &tuple.dst_addr[0], ntohs(tuple.dst_port),
 		         tuple.protocol, tuple.timer_ticks);
 	else
-		pr_debug("add: src=%pI6c:%u dst=%pI6c:%u proto=%u timer_ticks=%u\n",
+		IPA_STATS_DBG("add: src=%pI6c:%u dst=%pI6c:%u proto=%u timer_ticks=%u\n",
 		         (struct in6_addr *)tuple.src_addr, ntohs(tuple.src_port),
 		         (struct in6_addr *)tuple.dst_addr, ntohs(tuple.dst_port),
 		         tuple.protocol, tuple.timer_ticks);
@@ -404,7 +435,7 @@ static int ipa_stats_tuple_del_req_hdlr(struct sk_buff *skb,
 	struct ipa_stats_tuple_info tuple;
 
 	if (!info->attrs[IPA_STATS_GENL_ATTR_TUPLE_INFO]) {
-		pr_err("missing tuple info attribute\n");
+		IPA_STATS_ERR("missing tuple info attribute\n");
 		return -EINVAL;
 	}
 
@@ -412,14 +443,14 @@ static int ipa_stats_tuple_del_req_hdlr(struct sk_buff *skb,
 		   sizeof(tuple));
 
 	if (!tuple.src_port || !tuple.dst_port) {
-		pr_err("zero port: src_port=%u dst_port=%u\n",
+		IPA_STATS_ERR("zero port: src_port=%u dst_port=%u\n",
 		       ntohs(tuple.src_port), ntohs(tuple.dst_port));
 		return -EINVAL;
 	}
 
 	if (tuple.af == AF_INET) {
 		if (!tuple.src_addr[0] || !tuple.dst_addr[0]) {
-			pr_err("zero v4 addr: src=%pI4 dst=%pI4\n",
+			IPA_STATS_ERR("zero v4 addr: src=%pI4 dst=%pI4\n",
 			       &tuple.src_addr[0], &tuple.dst_addr[0]);
 			return -EINVAL;
 		}
@@ -428,28 +459,28 @@ static int ipa_stats_tuple_del_req_hdlr(struct sk_buff *skb,
 		     !tuple.src_addr[2] && !tuple.src_addr[3]) ||
 		    (!tuple.dst_addr[0] && !tuple.dst_addr[1] &&
 		     !tuple.dst_addr[2] && !tuple.dst_addr[3])) {
-			pr_err("zero v6 addr: src=%pI6c dst=%pI6c\n",
+			IPA_STATS_ERR("zero v6 addr: src=%pI6c dst=%pI6c\n",
 			       (struct in6_addr *)tuple.src_addr,
 			       (struct in6_addr *)tuple.dst_addr);
 			return -EINVAL;
 		}
 	} else {
-		pr_err("unsupported af %u\n", tuple.af);
+		IPA_STATS_ERR("unsupported af %u\n", tuple.af);
 		return -EINVAL;
 	}
 
 	if (tuple.protocol != IPPROTO_TCP && tuple.protocol != IPPROTO_UDP) {
-		pr_err("invalid protocol %u\n", tuple.protocol);
+		IPA_STATS_ERR("invalid protocol %u\n", tuple.protocol);
 		return -EINVAL;
 	}
 
 	if (tuple.af == AF_INET)
-		pr_debug("del: src=%pI4:%u dst=%pI4:%u proto=%u\n",
+		IPA_STATS_DBG("del: src=%pI4:%u dst=%pI4:%u proto=%u\n",
 		         &tuple.src_addr[0], ntohs(tuple.src_port),
 		         &tuple.dst_addr[0], ntohs(tuple.dst_port),
 		         tuple.protocol);
 	else
-		pr_debug("del: src=%pI6c:%u dst=%pI6c:%u proto=%u\n",
+		IPA_STATS_DBG("del: src=%pI6c:%u dst=%pI6c:%u proto=%u\n",
 		         (struct in6_addr *)tuple.src_addr, ntohs(tuple.src_port),
 		         (struct in6_addr *)tuple.dst_addr, ntohs(tuple.dst_port),
 		         tuple.protocol);
@@ -462,7 +493,7 @@ static int ipa_stats_tuple_del_req_hdlr(struct sk_buff *skb,
 static int ipa_stats_tuple_flush_req_hdlr(struct sk_buff *skb,
 					   struct genl_info *info)
 {
-	pr_debug("flush request received\n");
+	IPA_STATS_DBG("flush request received\n");
 	ipa_stats_process_tuple_flush();
 	return 0;
 }
@@ -473,7 +504,7 @@ static int ipa_stats_notify_set_req_hdlr(struct sk_buff *skb,
 	u8 enable;
 
 	if (!info->attrs[IPA_STATS_GENL_ATTR_NOTIFY_ENABLE]) {
-		pr_err("missing notify enable attribute\n");
+		IPA_STATS_ERR("missing notify enable attribute\n");
 		return -EINVAL;
 	}
 
@@ -493,7 +524,7 @@ static int ipa_stats_query_stats_req_hdlr(struct sk_buff *skb,
 	int total = 0, i = 0, ret = 0, off;
 	size_t skb_size;
 
-	pr_debug("query_stats request received\n");
+	IPA_STATS_DBG("query_stats request received\n");
 
 	mutex_lock(&ipa_stats_ctx_list_lock);
 
@@ -508,7 +539,7 @@ static int ipa_stats_query_stats_req_hdlr(struct sk_buff *skb,
 		snapshot = kmalloc_array(total, sizeof(*snapshot), GFP_KERNEL);
 		if (!snapshot) {
 			mutex_unlock(&ipa_stats_ctx_list_lock);
-			pr_err("kmalloc_array failed\n");
+			IPA_STATS_ERR("kmalloc_array failed\n");
 			return -ENOMEM;
 		}
 
@@ -578,7 +609,7 @@ static int ipa_stats_query_stats_req_hdlr(struct sk_buff *skb,
 
 	ret = genlmsg_reply(resp, info);
 	if (ret)
-		pr_err("genlmsg_reply failed: %d\n", ret);
+		IPA_STATS_ERR("genlmsg_reply failed: %d\n", ret);
 	return ret;
 }
 
@@ -629,25 +660,25 @@ int ipa_stats_process_tuple_add(struct ipa_stats_tuple_info *tuple)
 	 * netlink handler's validation and could otherwise truncate via divisor.
 	 */
 	if (!tuple->timer_ticks || (tuple->timer_ticks % IPA_STATS_BASE_MS)) {
-		pr_err("timer_ticks %u not a positive multiple of %u ms; rejecting ADD\n",
+		IPA_STATS_ERR("timer_ticks %u not a positive multiple of %u ms; rejecting ADD\n",
 		       tuple->timer_ticks, IPA_STATS_BASE_MS);
 		return -EINVAL;
 	}
 
 	if (tuple->af == AF_INET)
-		pr_debug("add entry received: src=%pI4:%u dst=%pI4:%u proto=%u timer_ticks=%u\n",
+		IPA_STATS_DBG("add entry received: src=%pI4:%u dst=%pI4:%u proto=%u timer_ticks=%u\n",
 		         &tuple->src_addr[0], ntohs(tuple->src_port),
 		         &tuple->dst_addr[0], ntohs(tuple->dst_port),
 		         tuple->protocol, tuple->timer_ticks);
 	else
-		pr_debug("add entry received: src=%pI6c:%u dst=%pI6c:%u proto=%u timer_ticks=%u\n",
+		IPA_STATS_DBG("add entry received: src=%pI6c:%u dst=%pI6c:%u proto=%u timer_ticks=%u\n",
 		         (struct in6_addr *)tuple->src_addr, ntohs(tuple->src_port),
 		         (struct in6_addr *)tuple->dst_addr, ntohs(tuple->dst_port),
 		         tuple->protocol, tuple->timer_ticks);
 
 	new_entry = kzalloc(sizeof(*new_entry), GFP_KERNEL);
 	if (!new_entry) {
-		pr_err("kzalloc failed\n");
+		IPA_STATS_ERR("kzalloc failed\n");
 		return -ENOMEM;
 	}
 	new_entry->tuple = *tuple;
@@ -658,16 +689,16 @@ int ipa_stats_process_tuple_add(struct ipa_stats_tuple_info *tuple)
 	if (tuple->af == AF_INET) {
 		if (ipa_stats_v4_count >= (u32)ipa_be_ipv4_get_max_accel_conn()) {
 			mutex_unlock(&ipa_stats_ctx_list_lock);
-			pr_err("max v4 filters reached (%d); rejecting ADD\n",
-			       ipa_be_ipv4_get_max_accel_conn());
+			IPA_STATS_DBG("max v4 filters reached (%d); rejecting ADD\n",
+				 ipa_be_ipv4_get_max_accel_conn());
 			kfree(new_entry);
 			return -ENOSPC;
 		}
 	} else {
 		if (ipa_stats_v6_count >= (u32)ipa_be_ipv6_get_max_accel_conn()) {
 			mutex_unlock(&ipa_stats_ctx_list_lock);
-			pr_err("max v6 filters reached (%d); rejecting ADD\n",
-			       ipa_be_ipv6_get_max_accel_conn());
+			IPA_STATS_DBG("max v6 filters reached (%d); rejecting ADD\n",
+				 ipa_be_ipv6_get_max_accel_conn());
 			kfree(new_entry);
 			return -ENOSPC;
 		}
@@ -678,7 +709,7 @@ int ipa_stats_process_tuple_add(struct ipa_stats_tuple_info *tuple)
 		ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 		if (!ctx) {
 			mutex_unlock(&ipa_stats_ctx_list_lock);
-			pr_err("ctx kzalloc failed\n");
+			IPA_STATS_ERR("ctx kzalloc failed\n");
 			kfree(new_entry);
 			return -ENOMEM;
 		}
@@ -697,7 +728,7 @@ int ipa_stats_process_tuple_add(struct ipa_stats_tuple_info *tuple)
 		if (ipa_stats_tuple_match(&entry->tuple, tuple)) {
 			mutex_unlock(&ctx->lock);
 			mutex_unlock(&ipa_stats_ctx_list_lock);
-			pr_warn("duplicate ADD for existing tuple, ignoring\n");
+			IPA_STATS_WARN("duplicate ADD for existing tuple, ignoring\n");
 			kfree(new_entry);
 			return -EEXIST;
 		}
@@ -723,12 +754,12 @@ void ipa_stats_process_tuple_del(struct ipa_stats_tuple_info *tuple)
 	struct ipa_stats_tuple_entry *entry, *tmp;
 
 	if (tuple->af == AF_INET)
-		pr_debug("del entry received: src=%pI4:%u dst=%pI4:%u proto=%u\n",
+		IPA_STATS_DBG("del entry received: src=%pI4:%u dst=%pI4:%u proto=%u\n",
 		         &tuple->src_addr[0], ntohs(tuple->src_port),
 		         &tuple->dst_addr[0], ntohs(tuple->dst_port),
 		         tuple->protocol);
 	else
-		pr_debug("del entry received: src=%pI6c:%u dst=%pI6c:%u proto=%u\n",
+		IPA_STATS_DBG("del entry received: src=%pI6c:%u dst=%pI6c:%u proto=%u\n",
 		         (struct in6_addr *)tuple->src_addr, ntohs(tuple->src_port),
 		         (struct in6_addr *)tuple->dst_addr, ntohs(tuple->dst_port),
 		         tuple->protocol);
@@ -767,12 +798,12 @@ void ipa_stats_process_tuple_del(struct ipa_stats_tuple_info *tuple)
 	mutex_unlock(&ipa_stats_ctx_list_lock);
 
 	if (tuple->af == AF_INET)
-		pr_err("tuple not found: src=%pI4:%u dst=%pI4:%u proto=%u\n",
+		IPA_STATS_ERR("tuple not found: src=%pI4:%u dst=%pI4:%u proto=%u\n",
 		       &tuple->src_addr[0], ntohs(tuple->src_port),
 		       &tuple->dst_addr[0], ntohs(tuple->dst_port),
 		       tuple->protocol);
 	else
-		pr_err("tuple not found: src=%pI6c:%u dst=%pI6c:%u proto=%u\n",
+		IPA_STATS_ERR("tuple not found: src=%pI6c:%u dst=%pI6c:%u proto=%u\n",
 		       (struct in6_addr *)tuple->src_addr, ntohs(tuple->src_port),
 		       (struct in6_addr *)tuple->dst_addr, ntohs(tuple->dst_port),
 		       tuple->protocol);
@@ -783,7 +814,7 @@ void ipa_stats_process_tuple_flush(void)
 	struct ipa_stats_flow_ctx *ctx;
 	struct ipa_stats_tuple_entry *entry, *tmp;
 
-	pr_debug("flush all tuples\n");
+	IPA_STATS_DBG("flush all tuples\n");
 
 	for (;;) {
 		unsigned int n4 = 0, n6 = 0;
@@ -829,7 +860,7 @@ void ipa_stats_process_tuple_flush(void)
 
 void ipa_stats_process_notify_set(bool enable)
 {
-	pr_debug("notify_set: %s\n", enable ? "enable" : "silence");
+	IPA_STATS_DBG("notify_set: %s\n", enable ? "enable" : "silence");
 
 	mutex_lock(&ipa_stats_notify_lock);
 
@@ -912,10 +943,15 @@ static int __init ipa_stats_genl_init(void)
 
 	INIT_DELAYED_WORK(&ipa_stats_tick_work, ipa_stats_tick_work_fn);
 
+	ipa_stats_logbuf = ipc_log_context_create(IPA_STATS_IPC_LOG_PAGES,
+						  "ipa_stats", 0);
+
 	ret = genl_register_family(&ipa_stats_genl_family);
 	if (ret) {
-		pr_err("genl_register_family failed: %d\n", ret);
+		IPA_STATS_ERR("genl_register_family failed: %d\n", ret);
 		debugfs_remove_recursive(ipa_stats_debugfs_root);
+		ipc_log_context_destroy(ipa_stats_logbuf);
+		ipa_stats_logbuf = NULL;
 		return ret;
 	}
 
@@ -968,7 +1004,10 @@ static void __exit ipa_stats_genl_exit(void)
 
 	ret = genl_unregister_family(&ipa_stats_genl_family);
 	if (ret)
-		pr_err("genl_unregister_family failed: %d\n", ret);
+		IPA_STATS_ERR("genl_unregister_family failed: %d\n", ret);
+
+	ipc_log_context_destroy(ipa_stats_logbuf);
+	ipa_stats_logbuf = NULL;
 }
 
 module_init(ipa_stats_genl_init);

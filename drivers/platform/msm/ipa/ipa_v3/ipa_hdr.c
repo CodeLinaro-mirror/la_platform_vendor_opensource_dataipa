@@ -4,6 +4,7 @@
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
+#include <linux/sched/clock.h>
 #include "ipa_i.h"
 #include "ipahal.h"
 
@@ -21,6 +22,9 @@ static const char *hdr_tbl_to_str[HDR_TBLS_TOTAL] = {
 	__stringify(HDR_TBL_LCL_EXT),
 	__stringify(HDR_TBL_SYS),
 };
+
+static void ipa3_save_hdr_snapshot(void);
+static void ipa3_save_proc_ctx_hdr_snapshot(void);
 
 /**
  * ipa3_generate_hdr_hw_tbl() - generates the headers table
@@ -274,6 +278,10 @@ int __ipa_commit_hdr_v3_0(void)
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
 	struct ipahal_reg_valmask valmask;
 	enum hdr_tbl_storage hdr_table;
+
+	//Capture the snapshot
+	ipa3_save_hdr_snapshot();
+	ipa3_save_proc_ctx_hdr_snapshot();
 
 	/* Generate structures for both SRAM and DDR header tables */
 	for (hdr_table = HDR_TBL_LCL; hdr_table < HDR_TBL_PROC; hdr_table++) {
@@ -1590,6 +1598,127 @@ int ipa3_del_hdr_proc_ctx(struct ipa_ioc_del_hdr_proc_ctx *hdls)
 	return ipa3_del_hdr_proc_ctx_by_user(hdls, false);
 }
 EXPORT_SYMBOL(ipa3_del_hdr_proc_ctx);
+
+/**
+ * ipa3_save_hdr_snapshot() - saves a snapshot of the current header rules.
+ *
+ * This function is used for debugging purposes. It iterates through all
+ * header tables and saves the current state of header rules into a
+ * snapshot buffer.
+ */
+static void ipa3_save_hdr_snapshot(void)
+{
+	struct ipa_debug_ctx *dbg;
+	struct ipa_hdr_snapshot *snap;
+	struct ipa3_hdr_tbl *tbl;
+	struct ipa3_hdr_entry *entry;
+	struct ipa_tbl_hdr_data *data;
+	enum hdr_tbl_storage hdr_tbl;
+	struct ipa3_hdr_entry *new_hdr_entry;
+	u32 num_hdrs;
+
+	dbg = ipa3_ctx->debug_log;
+	if (!dbg)
+		return;
+
+	snap = &dbg->hdr_snaps[dbg->curr_hdr_idx];
+
+	snap->timestamp = sched_clock();
+
+	for (hdr_tbl = HDR_TBL_LCL; hdr_tbl < HDR_TBLS_TOTAL; hdr_tbl++) {
+
+		tbl = &ipa3_ctx->hdr_tbl[hdr_tbl];
+		data = &snap->tbl_hdr_data[hdr_tbl];
+
+		num_hdrs = tbl->hdr_cnt;
+		if(!num_hdrs)
+			continue;
+
+		new_hdr_entry = kvzalloc(num_hdrs * sizeof(struct ipa3_hdr_entry), GFP_KERNEL);
+		if (!new_hdr_entry)
+			continue;
+
+		if(data->entries)
+			kvfree(data->entries);
+
+		data->entries = new_hdr_entry;
+		data->count = 0;
+
+		list_for_each_entry(entry, &tbl->head_hdr_entry_list,link) {
+			if (entry->cookie != IPA_HDR_COOKIE)
+				continue;
+			if(data->count >= num_hdrs)break;
+
+			data->entries[data->count] = *entry;
+
+			data->count++;
+		}
+
+	}
+	dbg->curr_hdr_idx = (dbg->curr_hdr_idx + 1) % IPA_LOG_MAX_SNAPSHOTS;
+	return;
+}
+
+/**
+ * ipa3_save_proc_ctx_hdr_snapshot() - saves a snapshot of the current
+ * header processing context rules.
+ *
+ * This function is used for debugging purposes. It iterates through all
+ * header processing context tables and saves the current state of the rules
+ * into a snapshot buffer.
+ */
+static void ipa3_save_proc_ctx_hdr_snapshot(void)
+{
+	struct ipa_debug_ctx *dbg;
+	struct ipa_proc_ctx_hdr_snapshot *snap;
+	struct ipa3_hdr_proc_ctx_tbl *tbl;
+	struct ipa3_hdr_proc_ctx_entry *entry;
+	struct ipa_tbl_proc_ctx_hdr_data *data;
+	struct ipa3_hdr_proc_ctx_entry *new_proc_ctx_hdr_entry;
+	enum hpc_tbl_storage hpc_tbl;
+
+	u32 num_proc_ctx_hdrs;
+
+	dbg = ipa3_ctx->debug_log;
+	if (!dbg)
+		return;
+
+	snap = &dbg->proc_ctx_hdr_snaps[dbg->curr_proc_ctx_hdr_idx];
+
+	snap->timestamp = sched_clock();
+
+	for (hpc_tbl = HPC_TBL_LCL; hpc_tbl < HPC_TBLS_TOTAL; hpc_tbl++) {
+
+		tbl = &ipa3_ctx->hdr_proc_ctx_tbl[hpc_tbl];
+		data = &snap->tbl_proc_ctx_hdr_data[hpc_tbl];
+
+		num_proc_ctx_hdrs = tbl->proc_ctx_cnt;
+		if(!num_proc_ctx_hdrs)
+			continue;
+
+		new_proc_ctx_hdr_entry = kvzalloc(num_proc_ctx_hdrs * sizeof(struct ipa3_hdr_proc_ctx_entry), GFP_KERNEL);
+		if (!new_proc_ctx_hdr_entry)
+			continue;
+
+		if(data->entries)
+			kvfree(data->entries);
+
+		data->entries = new_proc_ctx_hdr_entry;
+		data->count = 0;
+
+		list_for_each_entry(entry, &tbl->head_proc_ctx_entry_list,link) {
+			if(data->count >= num_proc_ctx_hdrs)break;
+
+			data->entries[data->count] = *entry;
+
+			data->count++;
+		}
+
+	}
+	dbg->curr_proc_ctx_hdr_idx = (dbg->curr_proc_ctx_hdr_idx + 1) % IPA_LOG_MAX_SNAPSHOTS;
+
+	return;
+}
 
 /**
  * ipa3_commit_hdr() - commit to IPA HW the current header table in SW

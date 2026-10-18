@@ -8181,7 +8181,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_TX_INSTANCE_NA },
 	[IPA_7_0][IPA_CLIENT_IPSEC_DECAP_PROD] = {
 			true,   IPA_v7_0_GROUP_DL,
-			false,
+			true,
 			IPA_DPS_HPS_SEQ_TYPE_4_PKT_PROCESS_PASS_4TH_UCP_2ND_DRBIP,
 			QMB_MASTER_SELECT_DDR,
 			{ 22, 25, 8, 15, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
@@ -10415,9 +10415,13 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.stats_peripheral_prod_size = 0x198,
 	.apps_fltrt_empty_tbl_ofst = 0x1f198,
 	.apps_fltrt_empty_tbl_size = 0x20,
-	/* TODO: need to properly configure register. */
-	.stats_tethering_cfg_ofst = 0x1f198,
-	.stats_tethering_cfg_size = 0x20,
+	/*
+	 * 174 tethering pairs need 44B for the two per-counter config bits.
+	 * Keep the established IP-only counter allocation (13 headers and 174
+	 * 24B counters) and reserve its released 0x30-byte tail for CFG.
+	 */
+	.stats_tethering_cfg_ofst = 0x20340,
+	.stats_tethering_cfg_size = 0x30,
 	/* TODO: need to properly configure register. */
 	.stats_fnr_cfg_ofst = 0x1f198,
 	.stats_fnr_cfg_size = 0x20,
@@ -10434,7 +10438,7 @@ static struct ipa3_mem_partition ipa_7_0_mem_part = {
 	.stats_rt_nonip_cfg_ofst = 0x1f198,
 	.stats_rt_nonip_cfg_size = 0x20,
 	.stats_tethering_ofst = 0x1f1b8,
-	.stats_tethering_size = 0x11b8,
+	.stats_tethering_size = 0x1188,
 	.stats_fnr_ofst = 0x20370,
 	.stats_fnr_size = 0x11a8,
 	.ap_stats_drop_ofst = 0x21518,
@@ -12238,8 +12242,7 @@ int ipa3_cfg_ep_seq(u32 clnt_hdl, const struct ipa_ep_cfg_seq *seq_cfg)
 		type = seq_cfg->seq_type;
 #ifdef CONFIG_IPA_IPSEC
 	} else if (ipa_ipsec_enabled() &&
-		   (clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
-		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+		   (clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
 		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
 		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
 		    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
@@ -13174,8 +13177,7 @@ int ipa3_cfg_ep_mode(u32 clnt_hdl, const struct ipa_ep_cfg_mode *ep_mode)
 
 #ifdef CONFIG_IPA_IPSEC
 	if (ipa_ipsec_enabled() &&
-	   (clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_USB_PROD) ||
-	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
+	   (clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD) ||
 	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD) ||
 	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD1) ||
 	    clnt_hdl == ipa_get_ep_mapping(IPA_CLIENT_AQC_ETHERNET_PROD) ||
@@ -18463,7 +18465,7 @@ int ipa3_get_max_pdn(void)
 
 	ipahal_nat_entry_size(IPAHAL_NAT_IPV4_PDN, &pdn_entry_size);
 	max_pdn = IPA_MEM_PART(pdn_config_size)/pdn_entry_size;
-	IPADBG("IPA offload max_pdn = %d\n", max_pdn);
+	IPADBG_LOW("IPA offload max_pdn = %d\n", max_pdn);
 
 	return max_pdn;
 }

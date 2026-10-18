@@ -4,6 +4,7 @@
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
+#include <linux/sched/clock.h>
 #include "ipa_i.h"
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
@@ -19,6 +20,7 @@
 	(IPA_RULE_HASHABLE):(IPA_RULE_NON_HASHABLE) \
 	)
 
+static void ipa3_save_flt_snapshot(enum ipa_ip_type ip);
 /**
  * ipa3_generate_flt_hw_rule() - generates the filtering hardware rule
  * @ip: the ip address family type
@@ -569,6 +571,9 @@ int __ipa_commit_flt_v3(enum ipa_ip_type ip)
 	u16 entries;
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
 
+	//Catpture the snapshot
+	ipa3_save_flt_snapshot(ip);
+
 	tbl_hdr_width = ipahal_get_hw_tbl_hdr_width();
 	memset(&alloc_params, 0, sizeof(alloc_params));
 	alloc_params.ipt = ip;
@@ -964,6 +969,17 @@ static void __ipa_promote_flt_rule_type_for_eth(enum ipa_client_type client,
 		rule->rule_type = IPA_FLT_RULE_TYPE_IP;
 }
 
+/*
+ * On IPAv7.0+, filtering uses cnt_idx_v2 as a full replacement for cnt_idx;
+ * routing instead extends cnt_idx with cnt_idx2 as its high byte.
+ */
+static u16 flt_eff_cnt_idx(const struct ipa_flt_rule_i *rule)
+{
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 && rule->cnt_idx_v2)
+		return rule->cnt_idx_v2;
+	return rule->cnt_idx;
+}
+
 static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 		struct ipa3_rt_tbl **rt_tbl, enum ipa_ip_type ip)
 {
@@ -1063,19 +1079,30 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 	}
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
-		if (rule->enable_stats && rule->cnt_idx) {
-			if (!ipahal_is_rule_cnt_id_valid(rule->cnt_idx)) {
+		u16 eff = flt_eff_cnt_idx(rule);
+		u16 max_cnt = ipa3_get_max_flt_rt_rule_cnt_index();
+
+		if (rule->enable_stats && eff) {
+			if (!ipahal_is_rule_cnt_id_valid(eff, max_cnt)) {
 				IPAERR_RL(
-					"invalid cnt_idx %hhu out of range\n",
-					rule->cnt_idx);
+					"invalid cnt_idx %u out of range\n",
+					eff);
 				goto error;
 			}
-			index = rule->cnt_idx - 1;
-			if (!ipa3_ctx->flt_rt_counters.used_hw[index]) {
-				IPAERR_RL(
-					"invalid cnt_idx %hhu not alloc by driver\n",
-					rule->cnt_idx);
-				goto error;
+			/*
+			 * used_hw[] only tracks the auto-alloc pool
+			 * (<= IPA_FLT_RT_HW_COUNTER); explicit v7 indices
+			 * above it are caller-managed, so skip the pool
+			 * check to avoid an OOB access.
+			 */
+			if (eff <= IPA_FLT_RT_HW_COUNTER) {
+				index = eff - 1;
+				if (!ipa3_ctx->flt_rt_counters.used_hw[index]) {
+					IPAERR_RL(
+						"invalid cnt_idx %u not alloc by driver\n",
+						eff);
+					goto error;
+				}
 			}
 		}
 	} else {
@@ -1134,7 +1161,7 @@ static int __ipa_create_flt_entry(struct ipa3_flt_entry **entry,
 	(*entry)->cat = rule_category;
 	(*entry)->sub_cat = rule_sub_category;
 	if ((*entry)->rule.enable_stats)
-		(*entry)->cnt_idx = (*entry)->rule.cnt_idx;
+		(*entry)->cnt_idx = flt_eff_cnt_idx(&(*entry)->rule);
 	else
 		(*entry)->cnt_idx = 0;
 	return 0;
@@ -1381,7 +1408,7 @@ static int __ipa_mdfy_flt_rule(struct ipa_flt_rule_mdfy_i *frule,
 	entry->hw_len = 0;
 	entry->prio = 0;
 	if (frule->rule.enable_stats)
-		entry->cnt_idx = frule->rule.cnt_idx;
+		entry->cnt_idx = flt_eff_cnt_idx(&frule->rule);
 	else
 		entry->cnt_idx = 0;
 
@@ -1398,8 +1425,10 @@ static int __ipa_add_flt_get_ep_idx(enum ipa_client_type ep, int *ipa_ep_idx)
 		IPAERR_RL("ep not valid ep=%d\n", ep);
 		return -EINVAL;
 	}
-	if (ipa3_ctx->ep[*ipa_ep_idx].valid == 0)
+	if (ipa3_ctx->ep[*ipa_ep_idx].valid == 0) {
 		IPAERR_RL("ep not connected ep_idx=%d\n", *ipa_ep_idx);
+		return -EINVAL;
+	}
 
 	if (!ipa_is_ep_support_flt(*ipa_ep_idx)) {
 		IPAERR_RL("ep do not support filtering ep=%d\n", ep);
@@ -1661,6 +1690,16 @@ int ipa3_add_flt_rule_usr_v2(struct ipa_ioc_add_flt_rule_v2
 	int i;
 	int result;
 	struct ipa_flt_rule_add_v2 *rule_entry;
+
+	/*
+	 * ipa_flt_rule_v2 is cast directly to ipa_flt_rule_i (below and in
+	 * the modify path); enforce that cnt_idx_v2 stays at the same
+	 * offset/width in both so the wide index survives the cast.
+	 */
+	BUILD_BUG_ON(offsetof(struct ipa_flt_rule_i, cnt_idx_v2) !=
+		offsetof(struct ipa_flt_rule_v2, cnt_idx_v2));
+	BUILD_BUG_ON(sizeof(((struct ipa_flt_rule_i *)0)->cnt_idx_v2) !=
+		sizeof(((struct ipa_flt_rule_v2 *)0)->cnt_idx_v2));
 
 	if (rules == NULL || rules->num_rules == 0 ||
 			rules->ip >= IPA_IP_MAX) {
@@ -2112,6 +2151,78 @@ bail:
 	mutex_unlock(&ipa3_ctx->lock);
 
 	return result;
+}
+
+/**
+ * ipa3_save_flt_snapshot() - saves a snapshot of the current filtering rules.
+ * @ip: IP address family type (IPv4 or IPv6).
+ *
+ * This function is used for debugging purposes. It iterates through all
+ * filtering tables for a given IP type and saves the current state of
+ * filtering rules into a snapshot buffer.
+ */
+static void ipa3_save_flt_snapshot(enum ipa_ip_type ip)
+{
+	struct ipa_debug_ctx *dbg ;
+	struct ipa_flt_snapshot *snap;
+	struct ipa3_flt_tbl *tbl;
+	struct ipa3_flt_entry *entry;
+	struct ipa_ep_flt_data *data;
+	struct ipa3_flt_entry *new_flt_rules;
+	int i;
+	u32 flt_idx;
+	u32 num_rules;
+
+	dbg = ipa3_ctx->debug_log;
+	if (!dbg)
+		return;
+
+	if(ip == IPA_IP_v4)
+		flt_idx = dbg->curr_v4_flt_idx;
+	else
+		flt_idx = dbg->curr_v6_flt_idx;
+
+	snap = &dbg->flt_snaps[flt_idx];
+
+	snap->timestamp[ip] = sched_clock();
+
+	for (i = 0; i < IPA_MAX_FLT_TBLS; i++) {
+		if (ipa_is_ep_support_flt(i)) {
+			tbl = &ipa3_ctx->flt_tbl[i][ip];
+			data = &snap->ep_flt_data[ip][i];
+
+			num_rules = tbl->rule_cnt;
+			if (!num_rules)
+				continue;
+
+			new_flt_rules = kvzalloc(num_rules * sizeof(struct ipa3_flt_entry), GFP_KERNEL);
+			if (!new_flt_rules)
+				continue;
+
+			if(data->rules)
+				kvfree(data->rules);
+
+			data->rules = new_flt_rules;
+			data->count = 0;
+
+			list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
+				if (data->count >= num_rules) break;
+				if (entry->cookie != IPA_FLT_COOKIE) continue;
+
+				data->rules[data->count] = *entry;
+
+				data->count++;
+			}
+			IPADBG_LOW("ipa3_save_flt_snapshot: %d rules in table %d\n", data->count, i);
+
+		}
+	}
+
+	flt_idx = (flt_idx + 1) % IPA_LOG_MAX_SNAPSHOTS;
+	if(ip == IPA_IP_v4)
+		dbg->curr_v4_flt_idx = flt_idx;
+	else
+		dbg->curr_v6_flt_idx = flt_idx;
 }
 
 /**

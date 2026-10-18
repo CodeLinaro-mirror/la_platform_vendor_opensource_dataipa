@@ -1919,12 +1919,13 @@ static int ipa_ipv6_header_proc_ctx(
  * @mac: Client MAC address for generating proc_ctx name
  * @vlan_tag: VLAN tag for generating proc_ctx name, or IPA_VLAN_ID_NOT_CONFIGURED/0
  *            when the client has no VLAN
+ * @ip_type: IP family of @hdr_hdl, part of the proc_ctx name
  * @proc_ctx_name_out: Output buffer for proc_ctx name
  *
  * This function creates a header processing context wrapping an eth header,
  * used for both VLAN and non-VLAN clients so that every LAN-side/WAN-side
- * route rule references its header the same way. It's IP version agnostic
- * and can be used for both IPv4 and IPv6.
+ * route rule references its header the same way. Cached per MAC + VLAN +
+ * IP type, since the eth header's EtherType is IP specific.
  *
  * Return: Processing context handle on success, negative errno on failure
  */
@@ -1933,6 +1934,7 @@ static int ipa_eth_header_proc_ctx(
 	char *name,
 	mac_addr_t mac,
 	uint32_t vlan_tag,
+	enum ipa_ip_type ip_type,
 	char *proc_ctx_name_out,
 	struct ipa_sw_producer_cookie *cookie)
 {
@@ -1941,21 +1943,31 @@ static int ipa_eth_header_proc_ctx(
 	struct ipa_hdr_proc_ctx_add *hdr_proc_ctx;
 	int size = 0;
 	char client_mac_vlan_str[32];
+	const char *ip_str;
 
 	IPA_BE_DBG("ECMIPA entry ipa_eth_header_proc_ctx \n");
 
-	/* Generate proc_ctx name from MAC and VLAN. Use a distinct "novlan"
+	if (ip_type == IPA_IP_v4) {
+		ip_str = "v4";
+	} else if (ip_type == IPA_IP_v6) {
+		ip_str = "v6";
+	} else {
+		IPA_BE_ERR("Invalid ip_type %d\n", ip_type);
+		return -EINVAL;
+	}
+
+	/* Generate proc_ctx name from MAC, VLAN and IP type. Use a distinct "novlan"
 	 * token for clients with no VLAN configured rather than folding them
 	 * into VLAN ID 0, which is itself a valid, distinct VLAN ID.
 	 */
 	if (vlan_tag != 0 && vlan_tag != IPA_VLAN_ID_NOT_CONFIGURED) {
 		int vlan_id = vlan_tag & 0x0FFF;  /* Extract VLAN ID from lower 12 bits */
 
-		snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d_l2w",
-				mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], vlan_id);
+		snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_%d_%s_l2w",
+				mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], vlan_id, ip_str);
 	} else {
-		snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_novlan_l2w",
-				mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+		snprintf(client_mac_vlan_str, sizeof(client_mac_vlan_str), "%02x%02x%02x%02x%02x%02x_novlan_%s_l2w",
+				mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], ip_str);
 	}
 
 	/* Store the proc_ctx name for later cleanup */
@@ -2516,7 +2528,7 @@ int ipa_ipv4_add_route_rule(struct ipa_ipv4_rule_create_msg v4_msg, bool lan2lan
 			goto cleanup;
 		}
 
-		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, lan_vlan_tag, proc_ctx_name, NULL);
+		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, lan_vlan_tag, IPA_IP_v4, proc_ctx_name, NULL);
 		rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 
@@ -2714,7 +2726,7 @@ int ipa_ipv6_add_route_rule(struct ipa_ipv6_rule_create_msg v6_msg, bool lan2lan
 			goto cleanup;
 		}
 
-		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[1].hdr_name, mac, lan_vlan_tag, proc_ctx_name, NULL);
+		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[1].hdr_name, mac, lan_vlan_tag, IPA_IP_v6, proc_ctx_name, NULL);
 		rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
 		for (int i = 0; i < 4;i++)
@@ -2925,7 +2937,7 @@ int ipa_ipv4_eth_backhaul_add_route_rule(
 			goto cleanup;
 		}
 
-		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, wan_vlan_tag, proc_ctx_name, NULL);
+		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[0].hdr_name, mac, wan_vlan_tag, IPA_IP_v4, proc_ctx_name, NULL);
 		rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;
@@ -3134,7 +3146,7 @@ int ipa_ipv6_eth_backhaul_add_route_rule(
 			goto cleanup;
 		}
 
-		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[tx_index].hdr_name, mac, wan_vlan_tag, proc_ctx_name, NULL);
+		proc_ctx_hdl = ipa_eth_header_proc_ctx(&hdr_hdl, tx_prop->tx[tx_index].hdr_name, mac, wan_vlan_tag, IPA_IP_v6, proc_ctx_name, NULL);
 		rt_rule_entry->rule.hdr_proc_ctx_hdl = proc_ctx_hdl;
 
 		rt_rule_entry->rule.attrib.attrib_mask |= IPA_FLT_DST_ADDR;

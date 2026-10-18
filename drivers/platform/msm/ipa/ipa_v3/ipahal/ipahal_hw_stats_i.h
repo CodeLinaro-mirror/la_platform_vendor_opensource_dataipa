@@ -48,6 +48,20 @@ struct ipahal_stats_tethering_hw {
 	u64 num_ipv6_bytes;
 };
 
+/*
+ * struct ipahal_stats_tethering_v7_0_hw - IPA 7.0 Non-IP-enabled tethering
+ * counter: 40B, used for pairs whose Non-IP config bit is set.
+ */
+struct ipahal_stats_tethering_v7_0_hw {
+	u64 num_ipv4_bytes;
+	u64 num_ipv4_pkts:32;
+	u64 num_ipv6_pkts:32;
+	u64 num_ipv6_bytes;
+	u64 reserved:32;
+	u64 num_nonip_pkts:32;
+	u64 num_nonip_bytes;
+};
+
 struct ipahal_stats_flt_rt_hdr_hw {
 	u64 en_mask:32;
 	u64 reserved:16;
@@ -71,11 +85,12 @@ struct ipahal_stats_drop_hw {
 };
 
 struct ipahal_stats_nat_ct_hw {
-	u64 num_pkts_inbound:32;
+	/* Each packet-count word is [63:32] total, [31:0] cache hits. */
 	u64 num_pkts_cache_inbound:32;
+	u64 num_pkts_inbound:32;
 	u64 num_bytes_inbound;
-	u64 num_pkts_outbound:32;
 	u64 num_pkts_cache_outbound:32;
+	u64 num_pkts_outbound:32;
 	u64 num_bytes_outbound;
 };
 

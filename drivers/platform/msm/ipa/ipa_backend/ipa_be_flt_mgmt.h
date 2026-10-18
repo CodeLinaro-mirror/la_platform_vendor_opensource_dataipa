@@ -29,6 +29,7 @@ int ipa_be_v6_add_uplink_filter_rule(struct ipa_ipv6_rule_create_msg v6_msg, boo
 int ipa_be_v6_delete_uplink_filter_rule(struct ipa_ipv6_rule_destroy_msg v6_msg, int pdn_iface, int client_iface);
 
 void ipa_be_flush_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type);
+void ipa_be_flush_idle_uplink_rules_for_pdn(int pdn_iface, enum ipa_ip_type ip_type);
 
 int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_num, int pdn_iface, int vlan_tag);
 int ipa_be_delete_mtu_rule(int client_iface, int pdn_iface, enum ipa_ip_type ip_type);
@@ -55,7 +56,8 @@ int add_catchup_all_filtering_rule_each_pdn(int pdn_iface, enum ipa_ip_type ipty
  *     0  No change. The rule is still referenced by other connections on
  *        this PDN, or was not installed. The caller must NOT re-push.
  *   < 0  Error, e.g. -ENOENT when no PDN filter entry exists for this
- *        (pdn_iface, iptype). The caller must NOT re-push.
+ *        (pdn_iface, iptype), or -EINVAL when iptype is outside
+ *        [IPA_IP_v4, IPA_IP_MAX). The caller must NOT re-push.
  */
 int delete_dft_filtering_rule(int pdn_iface, enum ipa_ip_type iptype);
 int delete_icmp_alg_rules(int pdn_iface, enum ipa_ip_type iptype);

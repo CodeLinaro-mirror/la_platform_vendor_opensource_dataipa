@@ -7,12 +7,14 @@
 #include <linux/debugfs.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
+#include <linux/mm.h>
+#include <linux/seq_file.h>
 #include "ipa_i.h"
 #include "ipahal.h"
 #include "ipahal_hw_stats.h"
 #define IPA_MAX_MSG_LEN 4096
 #define IPA_INIT_DROP_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 3)
-#define IPA_INIT_TETH_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 4)
+#define IPA_INIT_TETH_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 5)
 #define IPA_INIT_QUOTA_STATS_MAX_CMD_NUM (IPA_EP_ARR_SIZE + 3)
 #define IPA_INIT_NAT_CT_STATS_MAX_CMD_NUM 12
 #define IPV6_MAX_COUNTERS_BMSK (0xffff0000)
@@ -77,6 +79,71 @@ static void ipa_hw_stats_add_wlan_cons(
 	}
 }
 
+/* ETH-header-byte is meaningful only on pipes that carry L2 frames
+ * (Ethernet/WLAN).
+ */
+static bool ipa_hw_stats_ep_is_l2(int ep)
+{
+	enum ipa_client_type client;
+
+	if (IPA_CLIENT_IS_ETH_PROD(ep) || IPA_CLIENT_IS_ETH_CONS_PIPE(ep) ||
+		IPA_CLIENT_IS_WLAN_PROD(ep))
+		return true;
+
+	/*
+	 * WLAN CONS (incl. QoS DL) has no ep-indexed macro; translate the ep
+	 * index to a client enum for these checks only.
+	 */
+	client = ipa3_get_client_by_pipe(ep);
+	if (IPA_CLIENT_IS_WLAN_CONS(client) || IPA_CLIENT_IS_WLAN_QOS_CONS(client))
+		return true;
+
+	return false;
+}
+
+static bool ipa_hw_stats_add_lan_cons(
+	struct ipa_teth_stats_endpoints *teth_stats_init, int ep_index)
+{
+	static const enum ipa_client_type lan_cons[] = {
+		IPA_CLIENT_USB_CONS,
+		IPA_CLIENT_USB2_CONS,
+		IPA_CLIENT_WLAN1_CONS,
+		IPA_CLIENT_WLAN2_CONS,
+		IPA_CLIENT_WLAN3_CONS,
+		IPA_CLIENT_WLAN4_CONS,
+		IPA_CLIENT_WLAN1_QOS_CONS,
+		IPA_CLIENT_WLAN2_QOS_CONS,
+		IPA_CLIENT_WLAN3_QOS_CONS,
+		IPA_CLIENT_WLAN4_QOS_CONS,
+		IPA_CLIENT_ETHERNET_CONS,
+		IPA_CLIENT_ETHERNET2_CONS,
+		IPA_CLIENT_ETHERNET3_CONS,
+		IPA_CLIENT_ETHERNET_QOS_CONS,
+		IPA_CLIENT_ETHERNET_QOS2_CONS,
+		IPA_CLIENT_ETHERNET2_QOS_CONS,
+		IPA_CLIENT_ETHERNET2_QOS2_CONS,
+		IPA_CLIENT_ETHERNET3_QOS_CONS,
+		IPA_CLIENT_ETHERNET3_QOS2_CONS,
+	};
+	bool has_cons = false;
+	u32 reg_idx;
+	int ep;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(lan_cons); i++) {
+		ep = ipa_get_ep_mapping(lan_cons[i]);
+		if (ep == IPA_EP_NOT_ALLOCATED)
+			continue;
+
+		reg_idx = ipahal_get_ep_reg_idx(ep);
+		teth_stats_init->dst_ep_mask[ep_index][reg_idx] |=
+			ipahal_get_ep_bit(ep);
+		has_cons = true;
+	}
+
+	return has_cons;
+}
+
 int ipa_hw_stats_init(void)
 {
 	int ret = 0, ep_index;
@@ -87,7 +154,12 @@ int ipa_hw_stats_init(void)
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0)
 		return 0;
 
-	ipa3_ctx->hw_stats = kzalloc(sizeof(*ipa3_ctx->hw_stats), GFP_KERNEL);
+	/*
+	 * The tethering caches grew with the IPA7 Non-IP accounting fields.
+	 * Avoid requiring a large physically-contiguous allocation at boot.
+	 */
+	ipa3_ctx->hw_stats = kvzalloc(sizeof(*ipa3_ctx->hw_stats),
+		GFP_KERNEL);
 	if (!ipa3_ctx->hw_stats) {
 		IPAERR("mem allocated failed!\n");
 		return -ENOMEM;
@@ -103,6 +175,8 @@ int ipa_hw_stats_init(void)
 	teth_stats_init = kzalloc(sizeof(*teth_stats_init), GFP_KERNEL);
 	if (!teth_stats_init) {
 		IPAERR("mem allocated failed!\n");
+		kvfree(ipa3_ctx->hw_stats);
+		ipa3_ctx->hw_stats = NULL;
 		return -ENOMEM;
 	}
 	/* enable prod mask */
@@ -252,6 +326,14 @@ int ipa_hw_stats_init(void)
 			mask = ipa_hw_stats_get_ep_bit_n_idx(IPA_CLIENT_ETHERNET3_QOS_PROD,
 				&reg_idx);
 			teth_stats_init->prod_mask[reg_idx] |= mask;
+		}
+
+		ep_index = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_PROD);
+		if (ep_index != IPA_EP_NOT_ALLOCATED &&
+			ipa_hw_stats_add_lan_cons(teth_stats_init, ep_index)) {
+			reg_idx = ipahal_get_ep_reg_idx(ep_index);
+			teth_stats_init->prod_mask[reg_idx] |=
+				ipahal_get_ep_bit(ep_index);
 		}
 
 		if (ipa_hw_stats_get_ep_bit_n_idx(
@@ -1016,7 +1098,7 @@ int ipa_hw_stats_init(void)
 
 fail_free_stats_ctx:
 	kfree(teth_stats_init);
-	kfree(ipa3_ctx->hw_stats);
+	kvfree(ipa3_ctx->hw_stats);
 	ipa3_ctx->hw_stats = NULL;
 	return ret;
 }
@@ -1438,8 +1520,11 @@ int ipa_reset_all_quota_stats(void)
 int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 {
 	struct ipahal_stats_init_pyld *pyld;
+	struct ipahal_stats_init_pyld *cfg_pyld = NULL;
 	struct ipahal_imm_cmd_dma_shared_mem cmd = { 0 };
+	struct ipahal_imm_cmd_dma_shared_mem cfg_cmd = { 0 };
 	struct ipahal_imm_cmd_pyld *cmd_pyld;
+	struct ipahal_imm_cmd_pyld *cfg_cmd_pyld = NULL;
 	struct ipahal_imm_cmd_register_write teth_base = {0};
 	struct ipahal_imm_cmd_register_write teth_cfg_base = {0};
 	struct ipahal_imm_cmd_pyld *teth_base_pyld;
@@ -1449,6 +1534,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
 	struct ipa3_desc *desc;
 	dma_addr_t dma_address;
+	dma_addr_t cfg_dma_address = 0;
 	int ret;
 	int i, j;
 	int reg_idx;
@@ -1507,6 +1593,35 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	memcpy(ipa3_ctx->hw_stats->teth.init.cons_bitmask, in->dst_ep_mask,
 		sizeof(ipa3_ctx->hw_stats->teth.init.cons_bitmask));
 
+	/*
+	 * IPA 7.0+: enable ETH-header-byte counting for every enabled L2 pipe.
+	 * The product allocation retains the established IP-only policy, so leave
+	 * every Non-IP bit clear and keep all counter entries at the 24B stride.
+	 * The HAL still supports mixed stride when a future allocation enables it.
+	 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		for (i = 0; i < IPA7_PIPES_NUM; i++) {
+			u32 ep_reg_idx = ipahal_get_ep_reg_idx(i);
+			u32 ep_bit = ipahal_get_ep_bit(i);
+			bool is_prod = in->prod_mask[ep_reg_idx] & ep_bit;
+			bool is_cons = false;
+
+			if (!is_prod) {
+				for (j = 0; j < IPA7_PIPES_NUM; j++) {
+					if (in->dst_ep_mask[j][ep_reg_idx] &
+						ep_bit) {
+						is_cons = true;
+						break;
+					}
+				}
+			}
+			if ((is_prod || is_cons) && ipa_hw_stats_ep_is_l2(i)) {
+				ipa3_ctx->hw_stats->teth.init.eth_bitmask[
+					ep_reg_idx] |= ep_bit;
+			}
+		}
+	}
+
 	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_TETHERING,
 		&ipa3_ctx->hw_stats->teth.init, false);
 	if (!pyld) {
@@ -1532,6 +1647,39 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 		goto destroy_init_pyld;
 	}
 
+	/*
+	 * IPA 7.0+: the ETH-header-byte / Non-IP config bits live in a separate
+	 * SRAM region (stats_tethering_cfg), so they need their own payload and
+	 * DMA mapping, written alongside the counter programming below.
+	 */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		cfg_pyld = ipahal_stats_generate_teth_cfg_pyld(
+			&ipa3_ctx->hw_stats->teth.init, false);
+		if (!cfg_pyld) {
+			IPAERR("failed to generate teth cfg pyld\n");
+			ret = -EPERM;
+			goto unmap;
+		}
+
+		if (cfg_pyld->len > IPA_MEM_PART(stats_tethering_cfg_size)) {
+			IPAERR("CFG SRAM partition too small: %d needed %d\n",
+				IPA_MEM_PART(stats_tethering_cfg_size),
+				cfg_pyld->len);
+			ret = -EPERM;
+			goto destroy_cfg_pyld;
+		}
+
+		cfg_dma_address = dma_map_single(ipa3_ctx->pdev,
+			cfg_pyld->data,
+			cfg_pyld->len,
+			DMA_TO_DEVICE);
+		if (dma_mapping_error(ipa3_ctx->pdev, cfg_dma_address)) {
+			IPAERR("failed to DMA map teth cfg pyld\n");
+			ret = -EPERM;
+			goto destroy_cfg_pyld;
+		}
+	}
+
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
 	if (ipa_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) !=
 		IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
@@ -1539,7 +1687,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 		if (!coal_cmd_pyld) {
 			IPAERR("failed to construct coal close IC\n");
 			ret = -ENOMEM;
-			goto unmap;
+			goto unmap_cfg;
 		}
 		ipa3_init_imm_cmd_desc(&desc[num_cmd], coal_cmd_pyld);
 		++num_cmd;
@@ -1658,14 +1806,38 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 	desc[num_cmd].type = IPA_IMM_CMD_DESC;
 	++num_cmd;
 
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		cfg_cmd.is_read = false;
+		cfg_cmd.skip_pipeline_clear = false;
+		cfg_cmd.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
+		cfg_cmd.size = cfg_pyld->len;
+		cfg_cmd.system_addr = cfg_dma_address;
+		cfg_cmd.local_addr = ipa3_ctx->smem_restricted_bytes +
+				IPA_MEM_PART(stats_tethering_cfg_ofst);
+		cfg_cmd_pyld = ipahal_construct_imm_cmd(
+			IPA_IMM_CMD_DMA_SHARED_MEM, &cfg_cmd, false);
+		if (!cfg_cmd_pyld) {
+			IPAERR("failed to construct cfg dma_shared_mem imm cmd\n");
+			ret = -ENOMEM;
+			goto destroy_imm;
+		}
+		desc[num_cmd].opcode = cfg_cmd_pyld->opcode;
+		desc[num_cmd].pyld = cfg_cmd_pyld->data;
+		desc[num_cmd].len = cfg_cmd_pyld->len;
+		desc[num_cmd].type = IPA_IMM_CMD_DESC;
+		++num_cmd;
+	}
+
 	ret = ipa3_send_cmd(num_cmd, desc);
 	if (ret) {
 		IPAERR("failed to send immediate command (error %d)\n", ret);
-		goto destroy_imm;
+		goto destroy_cfg_imm;
 	}
 
 	ret = 0;
 
+destroy_cfg_imm:
+	ipahal_destroy_imm_cmd(cfg_cmd_pyld);
 destroy_imm:
 	ipahal_destroy_imm_cmd(cmd_pyld);
 destroy_teth_cfg_base:
@@ -1680,6 +1852,12 @@ destroy_teth_mask:
 destroy_coal_cmd:
 	if (coal_cmd_pyld)
 		ipahal_destroy_imm_cmd(coal_cmd_pyld);
+unmap_cfg:
+	if (cfg_pyld)
+		dma_unmap_single(ipa3_ctx->pdev, cfg_dma_address, cfg_pyld->len,
+			DMA_TO_DEVICE);
+destroy_cfg_pyld:
+	ipahal_destroy_stats_init_pyld(cfg_pyld);
 unmap:
 	dma_unmap_single(ipa3_ctx->pdev, dma_address, pyld->len, DMA_TO_DEVICE);
 destroy_init_pyld:
@@ -1778,7 +1956,11 @@ int ipa_get_teth_stats(void)
 		goto destroy_imm;
 	}
 
-	stats_all = kzalloc(sizeof(*stats_all), GFP_KERNEL);
+	/*
+	 * IPA 7.0 Non-IP counters can double stats_all's size (up to ~270KB);
+	 * kvzalloc() avoids needing an order-7 contiguous allocation.
+	 */
+	stats_all = kvzalloc(sizeof(*stats_all), GFP_KERNEL);
 	if (!stats_all) {
 		IPADBG("failed to alloc memory\n");
 		ret = -ENOMEM;
@@ -1839,6 +2021,10 @@ int ipa_get_teth_stats(void)
 					stats->num_ipv6_pkts);
 				IPADBG_LOW("num_ipv6_bytes %lld\n",
 					stats->num_ipv6_bytes);
+				IPADBG_LOW("num_nonip_pkts %lld\n",
+					stats->num_nonip_pkts);
+				IPADBG_LOW("num_nonip_bytes %lld\n",
+					stats->num_nonip_bytes);
 
 				/* update stats*/
 				quota_stats =
@@ -1851,6 +2037,10 @@ int ipa_get_teth_stats(void)
 					stats->num_ipv6_bytes;
 				quota_stats->num_ipv6_pkts =
 					stats->num_ipv6_pkts;
+				quota_stats->num_nonip_bytes =
+					stats->num_nonip_bytes;
+				quota_stats->num_nonip_pkts =
+					stats->num_nonip_pkts;
 
 				/* Accumulated stats */
 				quota_stats =
@@ -1863,13 +2053,17 @@ int ipa_get_teth_stats(void)
 					stats->num_ipv6_bytes;
 				quota_stats->num_ipv6_pkts +=
 					stats->num_ipv6_pkts;
+				quota_stats->num_nonip_bytes +=
+					stats->num_nonip_bytes;
+				quota_stats->num_nonip_pkts +=
+					stats->num_nonip_pkts;
 			}
 		}
 	}
 
 	ret = 0;
 free_stats:
-	kfree(stats_all);
+	kvfree(stats_all);
 	stats = NULL;
 destroy_imm:
 	for (i = 0; i < num_cmd; i++)
@@ -1934,6 +2128,8 @@ int ipa_query_cumm_teth_prod_stats(enum ipa_client_type prod,
 		out->num_ipv6_bytes += stats->num_ipv6_bytes;
 		out->num_ipv4_pkts += stats->num_ipv4_pkts;
 		out->num_ipv6_pkts += stats->num_ipv6_pkts;
+		out->num_nonip_bytes += stats->num_nonip_bytes;
+		out->num_nonip_pkts += stats->num_nonip_pkts;
 	}
 
 	return 0;
@@ -1966,6 +2162,8 @@ int ipa_query_cumm_teth_cons_stats(enum ipa_client_type cons,
 		out->num_ipv6_bytes += stats->num_ipv6_bytes;
 		out->num_ipv4_pkts += stats->num_ipv4_pkts;
 		out->num_ipv6_pkts += stats->num_ipv6_pkts;
+		out->num_nonip_bytes += stats->num_nonip_bytes;
+		out->num_nonip_pkts += stats->num_nonip_pkts;
 	}
 
 	return 0;
@@ -2127,6 +2325,11 @@ int ipa_init_flt_rt_stats(void)
 	struct ipahal_imm_cmd_pyld *drop_ipv4_max_fltrt_cnt_base_pyld = NULL;
 	struct ipahal_imm_cmd_register_write drop_ipv6_max_fltrt_cnt_base = {0};
 	struct ipahal_imm_cmd_pyld *drop_ipv6_max_fltrt_cnt_base_pyld = NULL;
+	struct ipahal_imm_cmd_register_write ipv4_max_cnt_base = {0};
+	struct ipahal_imm_cmd_pyld *ipv4_max_cnt_base_pyld = NULL;
+	struct ipahal_imm_cmd_register_write ipv6_max_cnt_base = {0};
+	struct ipahal_imm_cmd_pyld *ipv6_max_cnt_base_pyld = NULL;
+	u32 max_v4v6, max_flt_nonip, max_rt_nonip;
 	struct ipahal_imm_cmd_pyld *coal_cmd_pyld = NULL;
 	struct ipa3_desc *desc;
 	dma_addr_t dma_address;
@@ -2137,7 +2340,7 @@ int ipa_init_flt_rt_stats(void)
 		return 0;
 
 	// count num_cmd++ to get the number
-	desc = kcalloc(18, sizeof(struct ipa3_desc), GFP_KERNEL);
+	desc = kcalloc(20, sizeof(struct ipa3_desc), GFP_KERNEL);
 	if (!desc)
 		return -ENOMEM;
 
@@ -2155,7 +2358,9 @@ int ipa_init_flt_rt_stats(void)
 	rt_nonip_smem_cfg_size = IPA_MEM_PART(stats_rt_nonip_cfg_size);
 
 	pyld = ipahal_stats_generate_init_pyld(IPAHAL_HW_STATS_FNR,
-		(void *)(uintptr_t)(IPA_MAX_FLT_RT_CNT_INDEX), false);
+		(void *)(uintptr_t)(ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 ?
+			IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX),
+		false);
 	if (!pyld) {
 		IPAERR("failed to generate pyld\n");
 		kfree(desc);
@@ -2322,6 +2527,33 @@ int ipa_init_flt_rt_stats(void)
 	++num_cmd;
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) {
+		/*
+		 * Compute the max valid counter index for each FnR stats table
+		 * from its SRAM partition size. HW silently ignores any stats
+		 * update whose counter index exceeds these values, so leaving
+		 * them at 0 disables the corresponding stats. Each value is
+		 * clamped to what its 16-bit register field can represent so an
+		 * oversized partition cannot silently truncate into a wrong
+		 * (smaller) index.
+		 *
+		 * The v4/v6 filter and router counters live in one shared
+		 * partition (all four base registers above are programmed from
+		 * smem_ofst), so a single max_v4v6 covers both halves. The
+		 * non-IP filter and router counters live in *separate*
+		 * partitions, so each half gets its own value.
+		 */
+		max_v4v6 = min_t(u32,
+			IPA_MEM_PART(stats_fnr_size) /
+				ipahal_stats_get_hw_entry_size(IPAHAL_HW_STATS_FNR),
+			IPA_MAX_FLT_RT_CNT_INDEX_V7);
+		max_flt_nonip = min_t(u32,
+			IPA_MEM_PART(stats_flt_nonip_size) /
+				ipahal_stats_get_hw_entry_size(IPAHAL_HW_STATS_FNR),
+			IPAHAL_STAT_MAX_COUNTERS_LIMIT);
+		max_rt_nonip = min_t(u32,
+			IPA_MEM_PART(stats_rt_nonip_size) /
+				ipahal_stats_get_hw_entry_size(IPAHAL_HW_STATS_FNR),
+			IPAHAL_STAT_MAX_COUNTERS_LIMIT);
 		/* set IPA_STAT_ROUTER_NONIP_BASE */
 		rt_nonip_base.skip_pipeline_clear = false;
 		rt_nonip_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
@@ -2466,18 +2698,67 @@ int ipa_init_flt_rt_stats(void)
 		desc[num_cmd].type = IPA_IMM_CMD_DESC;
 		++num_cmd;
 
+		/* set IPA_STAT_IPV4_FILTER_ROUTER_MAX_COUNTERS */
+		ipv4_max_cnt_base.skip_pipeline_clear = false;
+		ipv4_max_cnt_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
+		ipv4_max_cnt_base.offset = stats_max_v4_fltrt_cntrs;
+		ipv4_max_cnt_base.value =
+			((max_v4v6 << IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_SHFT) &
+				IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_BMSK) |
+			((max_v4v6 << IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_SHFT) &
+				IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_BMSK);
+		ipv4_max_cnt_base.value_mask = ~0;
+		ipv4_max_cnt_base_pyld =
+			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+			&ipv4_max_cnt_base, false);
+		if (!ipv4_max_cnt_base_pyld) {
+			IPAERR("failed to construct register_write imm cmd\n");
+			ret = -ENOMEM;
+			goto destroy_rt_nonip_cfg_base;
+		}
+		desc[num_cmd].opcode = ipv4_max_cnt_base_pyld->opcode;
+		desc[num_cmd].pyld = ipv4_max_cnt_base_pyld->data;
+		desc[num_cmd].len = ipv4_max_cnt_base_pyld->len;
+		desc[num_cmd].type = IPA_IMM_CMD_DESC;
+		++num_cmd;
+
+		/* set IPA_STAT_IPV6_FILTER_ROUTER_MAX_COUNTERS */
+		ipv6_max_cnt_base.skip_pipeline_clear = false;
+		ipv6_max_cnt_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
+		ipv6_max_cnt_base.offset = stats_max_v6_fltrt_cntrs;
+		/* filter and router share the same table as IPv4 */
+		ipv6_max_cnt_base.value = ipv4_max_cnt_base.value;
+		ipv6_max_cnt_base.value_mask = ~0;
+		ipv6_max_cnt_base_pyld =
+			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
+			&ipv6_max_cnt_base, false);
+		if (!ipv6_max_cnt_base_pyld) {
+			IPAERR("failed to construct register_write imm cmd\n");
+			ret = -ENOMEM;
+			goto destroy_ipv4_max_cnt_base;
+		}
+		desc[num_cmd].opcode = ipv6_max_cnt_base_pyld->opcode;
+		desc[num_cmd].pyld = ipv6_max_cnt_base_pyld->data;
+		desc[num_cmd].len = ipv6_max_cnt_base_pyld->len;
+		desc[num_cmd].type = IPA_IMM_CMD_DESC;
+		++num_cmd;
+
 		/* set IPA_STAT_NONIP_FILTER_ROUTER_MAX_COUNTERS */
 		nonip_max_cnt_base.skip_pipeline_clear = false;
 		nonip_max_cnt_base.pipeline_clear_options = IPAHAL_FULL_PIPELINE_CLEAR;
 		nonip_max_cnt_base.offset = stats_max_nonip_fltrt_cntrs;
-		nonip_max_cnt_base.value = 0 /* TODO.*/;
+		nonip_max_cnt_base.value =
+			((max_flt_nonip << IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_SHFT) &
+				IPAHAL_STAT_FNR_FILTER_MAX_COUNTERS_BMSK) |
+			((max_rt_nonip << IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_SHFT) &
+				IPAHAL_STAT_FNR_ROUTER_MAX_COUNTERS_BMSK);
 		nonip_max_cnt_base.value_mask = ~0;
 		nonip_max_cnt_base_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
 			&nonip_max_cnt_base, false);
 		if (!nonip_max_cnt_base_pyld) {
 			IPAERR("failed to construct register_write imm cmd\n");
 			ret = -ENOMEM;
-			goto destroy_rt_nonip_cfg_base;
+			goto destroy_ipv6_max_cnt_base;
 		}
 		desc[num_cmd].opcode = nonip_max_cnt_base_pyld->opcode;
 		desc[num_cmd].pyld = nonip_max_cnt_base_pyld->data;
@@ -2490,7 +2771,7 @@ int ipa_init_flt_rt_stats(void)
 		drop_ipv4_max_fltrt_cnt_base.pipeline_clear_options =
 			IPAHAL_FULL_PIPELINE_CLEAR;
 		drop_ipv4_max_fltrt_cnt_base.offset = drop_stats_max_v4_fltrt_cntrs;
-		drop_ipv4_max_fltrt_cnt_base.value = 0 /* TODO.*/;
+		drop_ipv4_max_fltrt_cnt_base.value = ipv4_max_cnt_base.value;
 		drop_ipv4_max_fltrt_cnt_base.value_mask = ~0;
 		drop_ipv4_max_fltrt_cnt_base_pyld =
 			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
@@ -2511,7 +2792,7 @@ int ipa_init_flt_rt_stats(void)
 		drop_ipv6_max_fltrt_cnt_base.pipeline_clear_options =
 			IPAHAL_FULL_PIPELINE_CLEAR;
 		drop_ipv6_max_fltrt_cnt_base.offset = drop_stats_max_v6_fltrt_cntrs;
-		drop_ipv6_max_fltrt_cnt_base.value = 0 /* TODO.*/;
+		drop_ipv6_max_fltrt_cnt_base.value = ipv4_max_cnt_base.value;
 		drop_ipv6_max_fltrt_cnt_base.value_mask = ~0;
 		drop_ipv6_max_fltrt_cnt_base_pyld =
 			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
@@ -2532,7 +2813,7 @@ int ipa_init_flt_rt_stats(void)
 		drop_nonip_max_fltrt_cnt_base.pipeline_clear_options =
 			IPAHAL_FULL_PIPELINE_CLEAR;
 		drop_nonip_max_fltrt_cnt_base.offset = drop_stats_max_nonip_fltrt_cntrs;
-		drop_nonip_max_fltrt_cnt_base.value = 0 /* TODO.*/;
+		drop_nonip_max_fltrt_cnt_base.value = nonip_max_cnt_base.value;
 		drop_nonip_max_fltrt_cnt_base.value_mask = ~0;
 		drop_nonip_max_fltrt_cnt_base_pyld =
 			ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
@@ -2540,7 +2821,7 @@ int ipa_init_flt_rt_stats(void)
 		if (!drop_nonip_max_fltrt_cnt_base_pyld) {
 			IPAERR("failed to construct register_write imm cmd\n");
 			ret = -ENOMEM;
-			goto destroy_drop_ipv4_max_cnt_base;
+			goto destroy_drop_ipv6_max_cnt_base;
 		}
 		desc[num_cmd].opcode = drop_nonip_max_fltrt_cnt_base_pyld->opcode;
 		desc[num_cmd].pyld = drop_nonip_max_fltrt_cnt_base_pyld->data;
@@ -2581,6 +2862,7 @@ destroy_imm:
 	ipahal_destroy_imm_cmd(cmd_pyld);
 	if (drop_nonip_max_fltrt_cnt_base_pyld)
 		ipahal_destroy_imm_cmd(drop_nonip_max_fltrt_cnt_base_pyld);
+destroy_drop_ipv6_max_cnt_base:
 	if (drop_ipv6_max_fltrt_cnt_base_pyld)
 		ipahal_destroy_imm_cmd(drop_ipv6_max_fltrt_cnt_base_pyld);
 destroy_drop_ipv4_max_cnt_base:
@@ -2589,6 +2871,12 @@ destroy_drop_ipv4_max_cnt_base:
 destroy_nonip_max_cnt_base:
 	if (nonip_max_cnt_base_pyld)
 		ipahal_destroy_imm_cmd(nonip_max_cnt_base_pyld);
+destroy_ipv6_max_cnt_base:
+	if (ipv6_max_cnt_base_pyld)
+		ipahal_destroy_imm_cmd(ipv6_max_cnt_base_pyld);
+destroy_ipv4_max_cnt_base:
+	if (ipv4_max_cnt_base_pyld)
+		ipahal_destroy_imm_cmd(ipv4_max_cnt_base_pyld);
 destroy_rt_nonip_cfg_base:
 	if (rt_nonip_cfg_base_pyld)
 		ipahal_destroy_imm_cmd(rt_nonip_cfg_base_pyld);
@@ -2740,6 +3028,8 @@ free_offset:
 
 int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query)
 {
+	int max_cnt_id;
+
 	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled)) {
 		IPAERR("hw_stats is not enabled\n");
 		return 0;
@@ -2758,12 +3048,15 @@ int ipa_get_flt_rt_stats(struct ipa_ioc_flt_rt_query *query)
 		return -EINVAL;
 	}
 
-	if (query->start_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
+
+	if (query->start_id > max_cnt_id) {
 		IPAERR("start_cnt_id %d out of range\n", query->start_id);
 		return -EINVAL;
 	}
 
-	if (query->end_id > IPA_MAX_FLT_RT_CNT_INDEX) {
+	if (query->end_id > max_cnt_id) {
 		IPAERR("end_cnt_id %d out of range\n", query->end_id);
 		return -EINVAL;
 	}
@@ -3539,9 +3832,11 @@ int ipa_init_nat_ct_stats(void)
 	reg_write.offset = ipahal_get_reg_ofst(IPA_STAT_NAT_AND_CONN_TRACK_MAX_COUNTERS);
 	reg_write.value =
 		(((u32)ipa3_ctx->hw_stats->nat_ct.init.max_counters <<
-		  IPV6_MAX_COUNTERS_SHFT) & IPV6_MAX_COUNTERS_BMSK) |
+		  IPAHAL_STAT_IPV6_MAX_COUNTERS_SHFT) &
+		 IPAHAL_STAT_IPV6_MAX_COUNTERS_BMSK) |
 		(((u32)ipa3_ctx->hw_stats->nat_ct.init.max_counters <<
-		  IPV4_MAX_COUNTERS_SHFT) & IPV4_MAX_COUNTERS_BMSK);
+		  IPAHAL_STAT_IPV4_MAX_COUNTERS_SHFT) &
+		 IPAHAL_STAT_IPV4_MAX_COUNTERS_BMSK);
 	reg_write_pyld[4] = ipahal_construct_imm_cmd(IPA_IMM_CMD_REGISTER_WRITE,
 		&reg_write, false);
 	if (!reg_write_pyld[4]) {
@@ -3882,12 +4177,12 @@ static ssize_t quota_show(struct device *dev, struct device_attribute *attr, cha
 	int i, reg_idx;
 	int res;
 
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+		return 0;
+
 	out = kzalloc(sizeof(*out), GFP_KERNEL);
 	if (!out)
 		return -ENOMEM;
-
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
-		return 0;
 
 	mutex_lock(&ipa3_ctx->lock);
 	res = ipa_get_quota_stats(out);
@@ -4049,6 +4344,22 @@ static ssize_t tethering_show(struct device *dev, struct device_attribute *attr,
 				IPA_MAX_MSG_LEN - nbytes,
 				"num_ipv6_pkts=%u\n",
 				out->client[cons_idx].num_ipv6_pkts);
+			/* Non-IP counters are non-zero only when the pair's
+			 * Non-IP bit is set.
+			 */
+			if ((ipa3_ctx->hw_stats->teth.init.nonip_bitmask[
+				prod_reg] & ipahal_get_ep_bit(ep_idx)) ||
+				(ipa3_ctx->hw_stats->teth.init.nonip_bitmask[
+				cons_reg] & ipahal_get_ep_bit(cons_idx))) {
+				nbytes += scnprintf(dbg_buff + nbytes,
+					IPA_MAX_MSG_LEN - nbytes,
+					"num_nonip_bytes=%llu\n",
+					out->client[cons_idx].num_nonip_bytes);
+				nbytes += scnprintf(dbg_buff + nbytes,
+					IPA_MAX_MSG_LEN - nbytes,
+					"num_nonip_pkts=%u\n",
+					out->client[cons_idx].num_nonip_pkts);
+			}
 			nbytes += scnprintf(dbg_buff + nbytes,
 				IPA_MAX_MSG_LEN - nbytes,
 				"\n");
@@ -4065,14 +4376,18 @@ static ssize_t flt_rt_store(struct device *dev, struct device_attribute *attr, c
 {
 	struct ipa_ioc_flt_rt_query *query;
 	int pyld_size = 0;
+	int max_cnt_id;
 	int ret;
+
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
 
 	query = kzalloc(sizeof(struct ipa_ioc_flt_rt_query),
 		GFP_KERNEL);
 	if (!query)
 		return -ENOMEM;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = max_cnt_id *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -4092,7 +4407,7 @@ static ssize_t flt_rt_store(struct device *dev, struct device_attribute *attr, c
 	if (strcmp(dbg_buff, "reset\n") == 0) {
 		query->reset = 1;
 		query->start_id = 1;
-		query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+		query->end_id = max_cnt_id;
 		ipa_get_flt_rt_stats(query);
 	} else {
 		IPAERR("unsupport flt_rt command\n");
@@ -4112,17 +4427,21 @@ static ssize_t flt_rt_show(struct device *dev, struct device_attribute *attr, ch
 	int i;
 	int res;
 	int pyld_size = 0;
+	int max_cnt_id;
 	struct ipa_ioc_flt_rt_query *query;
+
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
 
 	query = kzalloc(sizeof(struct ipa_ioc_flt_rt_query),
 		GFP_KERNEL);
 	if (!query)
 		return -ENOMEM;
 	query->start_id = 1;
-	query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+	query->end_id = max_cnt_id;
 	query->reset = false;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = max_cnt_id *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -4137,7 +4456,7 @@ static ssize_t flt_rt_show(struct device *dev, struct device_attribute *attr, ch
 		kfree(query);
 		return res;
 	}
-	for (i = 0; i < IPA_MAX_FLT_RT_CNT_INDEX; i++) {
+	for (i = 0; i < max_cnt_id; i++) {
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"cnt_id: %d\n", i + 1);
@@ -4512,21 +4831,19 @@ bail:
 	return ret;
 }
 
-static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
-	char __user *ubuf, size_t count, loff_t *ppos)
+static int ipa_debugfs_print_tethering_stats(struct seq_file *seq, void *v)
 {
-	int nbytes = 0;
 	struct ipa_quota_stats_all *out;
 	int i, j, prod_reg, cons_reg;
 	int res;
 
-	out = kzalloc(sizeof(*out), GFP_KERNEL);
-	if (!out)
-		return -ENOMEM;
-
 	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
 		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
+
+	out = kzalloc(sizeof(*out), GFP_KERNEL);
+	if (!out)
+		return -ENOMEM;
 
 	mutex_lock(&ipa3_ctx->lock);
 
@@ -4576,37 +4893,52 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 				& ipahal_get_ep_bit(cons_idx)))
 				continue;
 
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"%s->%s:\n",
+			seq_printf(seq, "%s->%s:\n",
 				ipa_clients_strings[i],
 				ipa_clients_strings[j]);
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"num_ipv4_bytes=%llu\n",
+			seq_printf(seq, "num_ipv4_bytes=%llu\n",
 				out->client[cons_idx].num_ipv4_bytes);
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"num_ipv6_bytes=%llu\n",
+			seq_printf(seq, "num_ipv6_bytes=%llu\n",
 				out->client[cons_idx].num_ipv6_bytes);
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"num_ipv4_pkts=%u\n",
+			seq_printf(seq, "num_ipv4_pkts=%u\n",
 				out->client[cons_idx].num_ipv4_pkts);
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"num_ipv6_pkts=%u\n",
+			seq_printf(seq, "num_ipv6_pkts=%u\n",
 				out->client[cons_idx].num_ipv6_pkts);
-			nbytes += scnprintf(dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - nbytes,
-				"\n");
+			/* Non-IP counters are non-zero only when the pair's
+			 * Non-IP bit is set.
+			 */
+			if ((ipa3_ctx->hw_stats->teth.init.nonip_bitmask[
+				prod_reg] & ipahal_get_ep_bit(ep_idx)) ||
+				(ipa3_ctx->hw_stats->teth.init.nonip_bitmask[
+				cons_reg] & ipahal_get_ep_bit(cons_idx))) {
+				seq_printf(seq, "num_nonip_bytes=%llu\n",
+					out->client[cons_idx].num_nonip_bytes);
+				seq_printf(seq, "num_nonip_pkts=%u\n",
+					out->client[cons_idx].num_nonip_pkts);
+			}
+			seq_putc(seq, '\n');
 		}
 	}
 	mutex_unlock(&ipa3_ctx->lock);
 	kfree(out);
 
-	return simple_read_from_buffer(ubuf, count, ppos, dbg_buff, nbytes);
+	return 0;
 }
+
+static int ipa_debugfs_tethering_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ipa_debugfs_print_tethering_stats,
+		inode->i_private);
+}
+
+static const struct file_operations ipa3_tethering_ops = {
+	.owner = THIS_MODULE,
+	.open = ipa_debugfs_tethering_open,
+	.read = seq_read,
+	.write = ipa_debugfs_reset_tethering_stats,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
 
 static ssize_t ipa_debugfs_control_flt_rt_stats(struct file *file,
 	const char __user *ubuf, size_t count, loff_t *ppos)
@@ -4614,14 +4946,18 @@ static ssize_t ipa_debugfs_control_flt_rt_stats(struct file *file,
 	struct ipa_ioc_flt_rt_query *query;
 	unsigned long missing;
 	int pyld_size = 0;
+	int max_cnt_id;
 	int ret;
+
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
 
 	query = kzalloc(sizeof(struct ipa_ioc_flt_rt_query),
 		GFP_KERNEL);
 	if (!query)
 		return -ENOMEM;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = max_cnt_id *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -4645,7 +4981,7 @@ static ssize_t ipa_debugfs_control_flt_rt_stats(struct file *file,
 	if (strcmp(dbg_buff, "reset\n") == 0) {
 		query->reset = 1;
 		query->start_id = 1;
-		query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+		query->end_id = max_cnt_id;
 		ipa_get_flt_rt_stats(query);
 	} else {
 		IPAERR("unsupport flt_rt command\n");
@@ -4666,17 +5002,21 @@ static ssize_t ipa_debugfs_print_flt_rt_stats(struct file *file,
 	int i;
 	int res;
 	int pyld_size = 0;
+	int max_cnt_id;
 	struct ipa_ioc_flt_rt_query *query;
+
+	max_cnt_id = (ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0) ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_MAX_FLT_RT_CNT_INDEX;
 
 	query = kzalloc(sizeof(struct ipa_ioc_flt_rt_query),
 		GFP_KERNEL);
 	if (!query)
 		return -ENOMEM;
 	query->start_id = 1;
-	query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
+	query->end_id = max_cnt_id;
 	query->reset = false;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
-	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
+	pyld_size = max_cnt_id *
 		sizeof(struct ipa_flt_rt_stats);
 	query->stats = (uint64_t)kzalloc(pyld_size, GFP_KERNEL);
 	if (!query->stats) {
@@ -4691,7 +5031,7 @@ static ssize_t ipa_debugfs_print_flt_rt_stats(struct file *file,
 		kfree(query);
 		return res;
 	}
-	for (i = 0; i < IPA_MAX_FLT_RT_CNT_INDEX; i++) {
+	for (i = 0; i < max_cnt_id; i++) {
 		nbytes += scnprintf(dbg_buff + nbytes,
 			IPA_MAX_MSG_LEN - nbytes,
 			"cnt_id: %d\n", i + 1);
@@ -4924,11 +5264,6 @@ bail:
 static const struct file_operations ipa3_quota_ops = {
 	.read = ipa_debugfs_print_quota_stats,
 	.write = ipa_debugfs_reset_quota_stats,
-};
-
-static const struct file_operations ipa3_tethering_ops = {
-	.read = ipa_debugfs_print_tethering_stats,
-	.write = ipa_debugfs_reset_tethering_stats,
 };
 
 static const struct file_operations ipa3_flt_rt_ops = {

@@ -2328,8 +2328,8 @@ int ipa3_table_write_cmd(
 	enum ipahal_imm_cmd_name cmd_name = IPA_IMM_CMD_TABLE_WRITE;
 
 	struct ipahal_imm_cmd_table_dma_v7_0 cmd;
-	struct ipahal_imm_cmd_pyld *cmd_pyld[IPA_MAX_NUM_OF_TABLE_WRITE_CMD_DESC];
-	struct ipa3_desc desc[IPA_MAX_NUM_OF_TABLE_WRITE_CMD_DESC];
+	struct ipahal_imm_cmd_pyld **cmd_pyld = NULL;
+	struct ipa3_desc *desc = NULL;
 
 	uint8_t cnt, num_cmd = 0;
 
@@ -2366,8 +2366,15 @@ int ipa3_table_write_cmd(
 	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(dma->mem_type));
 
 	memset(&cmd, 0, sizeof(cmd));
-	memset(cmd_pyld, 0, sizeof(cmd_pyld));
-	memset(desc, 0, sizeof(desc));
+
+	/* Kept off the stack: reached from deep in-kernel NAT call chains */
+	cmd_pyld = kcalloc(max_dma_table_cmds, sizeof(*cmd_pyld), GFP_KERNEL);
+	desc = kcalloc(max_dma_table_cmds, sizeof(*desc), GFP_KERNEL);
+	if (!cmd_pyld || !desc) {
+		IPAERR("failed to allocate cmd descriptors\n");
+		result = -ENOMEM;
+		goto bail;
+	}
 
 	/**
 	 * We use a descriptor for closing coalsceing endpoint
@@ -2479,6 +2486,8 @@ destroy_imm_cmd:
 		ipahal_destroy_imm_cmd(cmd_pyld[cnt]);
 
 bail:
+	kfree(desc);
+	kfree(cmd_pyld);
 	IPADBG("Out\n");
 
 	return result;
@@ -2500,8 +2509,8 @@ int ipa3_table_dma_cmd(
 	enum ipahal_imm_cmd_name cmd_name = IPA_IMM_CMD_NAT_DMA;
 
 	struct ipahal_imm_cmd_table_dma cmd;
-	struct ipahal_imm_cmd_pyld *cmd_pyld[IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC];
-	struct ipa3_desc desc[IPA_MAX_NUM_OF_TABLE_DMA_CMD_DESC];
+	struct ipahal_imm_cmd_pyld **cmd_pyld = NULL;
+	struct ipa3_desc *desc = NULL;
 
 	uint8_t cnt, num_cmd = 0;
 
@@ -2532,8 +2541,15 @@ int ipa3_table_dma_cmd(
 	IPADBG("nmi(%s)\n", ipa3_nat_mem_in_as_str(dma->mem_type));
 
 	memset(&cmd, 0, sizeof(cmd));
-	memset(cmd_pyld, 0, sizeof(cmd_pyld));
-	memset(desc, 0, sizeof(desc));
+
+	/* Kept off the stack: reached from deep in-kernel NAT call chains */
+	cmd_pyld = kcalloc(max_dma_table_cmds, sizeof(*cmd_pyld), GFP_KERNEL);
+	desc = kcalloc(max_dma_table_cmds, sizeof(*desc), GFP_KERNEL);
+	if (!cmd_pyld || !desc) {
+		IPAERR("failed to allocate cmd descriptors\n");
+		result = -ENOMEM;
+		goto bail;
+	}
 
 	/**
 	 * We use a descriptor for closing coalsceing endpoint
@@ -2646,6 +2662,8 @@ destroy_imm_cmd:
 		ipahal_destroy_imm_cmd(cmd_pyld[cnt]);
 
 bail:
+	kfree(desc);
+	kfree(cmd_pyld);
 	IPADBG("Out\n");
 
 	return result;

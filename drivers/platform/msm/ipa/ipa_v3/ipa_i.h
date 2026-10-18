@@ -572,6 +572,9 @@ enum ipa3_nat_exc_rt_lan_rule {
  * As new hardware platforms are added into the emulation environment,
  * please add the appropriate paths here for their firmwares.
  */
+
+#define IPA_LOG_MAX_SNAPSHOTS 25
+
 #define IPA_FWS_PATH_4_0     "ipa/4.0/ipa_fws.elf"
 #define IPA_FWS_PATH_3_5_1   "ipa/3.5.1/ipa_fws.elf"
 #define IPA_FWS_PATH_4_5     "ipa/4.5/ipa_fws.elf"
@@ -647,6 +650,7 @@ enum flt_rule_category {
 	IPA_FLT_RULE_CAT_MTU,
 	IPA_FLT_RULE_CAT_ETH_BH_CATCHALL,
 	IPA_FLT_RULE_CAT_UPLINK,
+	IPA_FLT_RULE_CAT_XLAT,
 	IPA_FLT_RULE_CAT_DOWNLINK,
 	IPA_FLT_RULE_CAT_MAX
 };
@@ -905,7 +909,7 @@ struct ipa3_flt_entry {
 	int id;
 	u16 prio;
 	u16 rule_id;
-	u8 cnt_idx;
+	u16 cnt_idx;
 	bool ipacm_installed;
 	u32 flt_hdl;
 	enum flt_rule_category cat;
@@ -1169,7 +1173,7 @@ struct ipa3_rt_entry {
 	u16 prio;
 	u16 rule_id;
 	u16 rule_id_valid;
-	u8 cnt_idx;
+	u16 cnt_idx;
 	bool ipacm_installed;
 	enum rt_rule_category cat;
 	enum rule_sub_category sub_cat;
@@ -1883,6 +1887,8 @@ struct ipa3_stats {
 	u32 ulso_wlan_pm_fail_pkts;
 	u32 ulso_wlan_tx_fail_pkts;
 	u32 ulso_eth_tx_fail_pkts;
+	u32 dma_map_recycle;
+	u32 dma_map_new;
 	u32 rx_page_drop_cnt;
 	u64 lower_order;
 	u32 pipe_setup_fail_cnt;
@@ -2204,6 +2210,9 @@ struct ipa_quota_stats {
 	u64 num_ipv6_bytes;
 	u32 num_ipv4_pkts;
 	u32 num_ipv6_pkts;
+	/* IPA 7.0+ tethering Non-IP counters; zero unless the pair's bit is set */
+	u64 num_nonip_bytes;
+	u32 num_nonip_pkts;
 };
 
 struct ipa_quota_stats_all {
@@ -2706,6 +2715,69 @@ struct ipa3_qos_config_node {
 			    *  HW rule is removed only when refcount drops to 0. */
 };
 
+struct ipa_ep_flt_data {
+	u32 count;
+	struct ipa3_flt_entry *rules;
+};
+
+struct ipa_flt_snapshot {
+	u64 timestamp[IPA_IP_MAX];
+	/* Arranged by Endpoint Index [0..IPA_MAX_FLT_TBLS] */
+	struct ipa_ep_flt_data ep_flt_data[IPA_IP_MAX][IPA_MAX_FLT_TBLS];
+};
+
+struct ipa_tbl_rt_data {
+	u32 count;
+	char name[IPA_RESOURCE_NAME_MAX]; /* table name for crash-dump context */
+	struct ipa3_rt_entry *rules;
+};
+
+struct ipa_rt_snapshot {
+	u64 timestamp[IPA_IP_MAX];
+	u32 v4_count;
+	u32 v6_count;
+	struct ipa_tbl_rt_data *tbl_rt_data[IPA_IP_MAX];
+};
+
+struct ipa_tbl_hdr_data {
+	u32 count;
+	struct ipa3_hdr_entry *entries;
+};
+
+struct ipa_hdr_snapshot {
+	u64 timestamp;
+	struct ipa_tbl_hdr_data tbl_hdr_data[HDR_TBLS_TOTAL];
+};
+struct ipa_tbl_proc_ctx_hdr_data {
+	u32 count;
+	struct ipa3_hdr_proc_ctx_entry *entries;
+};
+
+struct ipa_proc_ctx_hdr_snapshot {
+	u64 timestamp;
+	struct ipa_tbl_proc_ctx_hdr_data tbl_proc_ctx_hdr_data[HPC_TBLS_TOTAL];
+};
+
+/* Global Debug Context*/
+struct ipa_debug_ctx {
+	/* Filter Buffer */
+	u32 curr_v4_flt_idx;
+	u32 curr_v6_flt_idx;
+	struct ipa_flt_snapshot flt_snaps[IPA_LOG_MAX_SNAPSHOTS];
+
+	/* Routing Buffer */
+	u32 curr_v4_rt_idx;
+	u32 curr_v6_rt_idx;
+	struct ipa_rt_snapshot rt_snaps[IPA_LOG_MAX_SNAPSHOTS];
+
+	/* Header Buffer */
+	u32 curr_hdr_idx;
+	struct ipa_hdr_snapshot hdr_snaps[IPA_LOG_MAX_SNAPSHOTS];
+
+	u32 curr_proc_ctx_hdr_idx;
+	struct ipa_proc_ctx_hdr_snapshot proc_ctx_hdr_snaps[IPA_LOG_MAX_SNAPSHOTS];
+};
+
 /**
  * struct ipa3_context - IPA context
  * @cdev: cdev context
@@ -2839,6 +2911,7 @@ struct ipa3_qos_config_node {
  * @ipa_tiering_value: IPA tiering value to support multiple SKUs
  * @lan_stats_enabled: flag to check if stats is enabled or not.
  * @ippt_pdninfo_refcnt:ippt_pdninfo_refcnt refcnt for ipacm restart scenarios
+ * @debug_log: Debug Log buffer to capture filter/routing/header rules snapshot
  */
 struct ipa3_context {
 	bool coal_stopped;
@@ -2873,7 +2946,7 @@ struct ipa3_context {
 	struct mutex lock;
 	u32 smem_sz;
 	u16 smem_restricted_bytes;
-	u16 smem_reqd_sz;
+	u32 smem_reqd_sz;
 	struct ipa3_nat_mem nat_mem;
 	struct ipa3_ipv6ct_mem ipv6ct_mem;
 	u32 excp_hdr_hdl;
@@ -3211,6 +3284,7 @@ struct ipa3_context {
 	bool ipa_sw;
 	u64 disable_flow_control_mask;
 	bool is_rc_log_enabled;
+	struct ipa_debug_ctx *debug_log;
 };
 
 struct ipa3_plat_drv_res {
@@ -3681,6 +3755,12 @@ struct ipa_tx_suspend_irq_data {
 
 extern struct ipa3_context *ipa3_ctx;
 extern bool ipa_net_initialized;
+
+static inline u16 ipa3_get_max_flt_rt_rule_cnt_index(void)
+{
+	return ipa3_ctx->ipa_hw_type >= IPA_HW_v7_0 ?
+		IPA_MAX_FLT_RT_CNT_INDEX_V7 : IPA_FLT_RT_HW_COUNTER;
+}
 
 /* public APIs */
 /* Generic GSI channels functions */
@@ -4832,6 +4912,5 @@ static inline bool ipa_is_proc_ctx_headerless(enum ipa_hdr_proc_type type)
 
 int __ipa_del_rt_tbl(struct ipa3_rt_tbl *entry);
 void ipa3_nat_ipv6ct_free_mem(struct ipa3_nat_ipv6ct_common_mem *dev);
-int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num);
 
 #endif /* _IPA3_I_H_ */

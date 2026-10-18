@@ -28,7 +28,7 @@ const char * const ipa_rc_client_names[MAX_RC_CLIENTS] = {
 
 /* Global context pointer */
 struct ipa_rc_wq_ctx *rc_ctx;
-static bool has_ul_dl_rule, modem_rule;
+static bool modem_rule;
 
 static struct chan_param_monitor chan_info[MAX_NUM_CONS_CLIENT][2];
 
@@ -124,10 +124,6 @@ static inline bool is_wlan2_prod_pipe(enum ipa_client_type client) {
 
 static inline bool is_wlan3_prod_pipe(enum ipa_client_type client) {
 	return (client == IPA_CLIENT_WLAN3_PROD || client == IPA_CLIENT_WLAN3_PROD1);
-}
-
-static inline bool is_any_eth_prod_pipe(enum ipa_client_type client) {
-	return is_eth_prod_pipe(client) || is_eth1_prod_pipe(client);
 }
 
 static inline bool is_any_wlan_prod_pipe(enum ipa_client_type client) {
@@ -320,91 +316,6 @@ int get_rc_client(int src_idx)
 		return MODEM;
 	else
 		return OTHERS;
-}
-
-bool is_frg_rule(struct ipa_rule_attrib *attrib)
-{
-	return (attrib->attrib_mask & IPA_FLT_FRAGMENT);
-}
-
-bool is_tcp_syn_rule(struct ipa_rule_attrib *attrib)
-{
-	if(attrib->attrib_mask & IPA_FLT_PROTOCOL) {
-		return (attrib->attrib_mask & IPA_FLT_TCP_SYN) ||
-			(attrib->u.v4.protocol == 0x01); /*ICMP prot*/
-	}
-	return false;
-}
-
-static bool is_dst_multi_or_broadcast_host(struct ipa_rule_attrib *attrib, enum ipa_ip_type ip)
-{
-	/* Only IPv4 supported currently */
-	if (ip != IPA_IP_v4) {
-		return false;
-	}
-
-	const uint32_t dst_addr = attrib->u.v4.dst_addr;
-	const uint32_t dst_mask = attrib->u.v4.dst_addr_mask;
-
-	/* 224.0.0.0 = 0xE0000000, 240.0.0.0 = 0xF0000000 */
-	/* 255.255.255.255 = 0xFFFFFFFF */
-	const bool is_multicast_block =
-		(dst_addr == 0xE0000000u) && (dst_mask == 0xF0000000u);
-
-	const bool is_limited_broadcast =
-		(dst_addr == 0xFFFFFFFFu) && (dst_mask == 0xFFFFFFFFu);
-
-	return is_multicast_block || is_limited_broadcast;
-}
-
-bool has_default_rt_tbl(u32 rt_tbl_idx)
-{
-	struct ipa3_rt_tbl *tbl = NULL;
-	struct ipa3_rt_entry *entry = NULL;
-	struct ipa3_rt_tbl_set *set = NULL;
-
-	set = &ipa3_ctx->rt_tbl_set[IPA_IP_v4];
-
-	if(list_empty(&set->head_rt_tbl_list)) {
-		IPADBG("Rt table list is empty\n");
-		return false;
-	}
-
-	list_for_each_entry(tbl, &set->head_rt_tbl_list, link) {
-		if(!list_empty(&tbl->head_rt_rule_list)) {
-			list_for_each_entry(entry, &tbl->head_rt_rule_list, link) {
-				if(entry->tbl->idx == rt_tbl_idx) {
-					return (strcmp(entry->tbl->name, "ipa_dflt_rt") == 0);
-				}
-			}
-		}
-	}
-	return false;
-}
-
-static bool is_dst_pvt_subnet(struct ipa3_flt_entry *entry)
-{
-	u32 rt_tbl_idx;
-	struct ipa3_rt_tbl *rt_tbl = NULL;
-
-	rt_tbl = ipa3_id_find(entry->rule.rt_tbl_hdl);
-	if (rt_tbl == NULL || rt_tbl->cookie != IPA_RT_TBL_COOKIE)
-		rt_tbl_idx =  ~0;
-	else
-		rt_tbl_idx = rt_tbl->idx;
-
-	/*attrib_mask has been checked as IPA_FLT_DST_ADDR before calling this api*/
-	return (entry->rule.action == IPA_PASS_TO_ROUTING
-		&& has_default_rt_tbl(rt_tbl_idx));
-}
-
-static bool is_lan2lan_rule(struct ipa_rule_attrib *attrib)
-{
-	return ((attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_ETHER_II) ||
-		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_3) ||
-		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_L2TP) ||
-		(attrib->attrib_mask & IPA_FLT_MAC_DST_ADDR_802_1Q) ||
-		(attrib->attrib_mask & IPA_FLT_L2TP_UDP_INNER_MAC_DST_ADDR));
 }
 
 /* IPA HM functions */
@@ -734,132 +645,93 @@ void ipa_rc_query_detect_chan_reg(struct ipa_rc_health_monitor *ipa_state_info)
 	return;
 }
 
-int get_group_id(struct ipa3_flt_entry *entry, enum ipa_ip_type ip, int pipe_num)
-{
-	bool eq;
-	u32 attrib_mask;
-	int res = MAX_FLT_RULE_GRP;
-	struct ipa_rule_attrib *attrib;
-	struct ipa_ipfltri_rule_eq *eq_attrib;
-	enum ipa_client_type client = ipa3_get_real_client_by_pipe(pipe_num);
-
-	if(!entry) {
-		IPADBG("NULL entryl\n");
-		return -EINVAL;
-	}
-
-	eq = (entry->rule.eq_attrib_type) ? true : false;
-
-	if(entry->rule_id >= ipa3_ctx->filter_start_id) {
-		modem_rule = true;
-		return MODEM_FLT_RULE;
-	}
-
-	if(entry->rule.action == IPA_PASS_TO_SRC_NAT ||
-		entry->rule.action == IPA_PASS_TO_DST_NAT)
-		has_ul_dl_rule = true;
-
-	if(!eq) {
-		attrib = &entry->rule.attrib;
-		attrib_mask = entry->rule.attrib.attrib_mask;
-
-		/* for frg, icmp, tcp-syn etc rules */
-		if((is_frg_rule(attrib) ||
-			is_tcp_syn_rule(attrib)) &&
-			entry->rule.action == IPA_PASS_TO_EXCEPTION) {
-			return DEFAULT_FLT_RULE;
-		}
-
-		if(attrib->attrib_mask & IPA_FLT_DST_ADDR) {
-			if(is_dst_multi_or_broadcast_host(attrib, ip) &&
-				entry->rule.action == IPA_PASS_TO_EXCEPTION)
-				return DEFAULT_FLT_RULE;
-
-			if(is_dst_pvt_subnet(entry))
-				return PVT_SUBNET_FLT_RULE;
-
-			if(attrib->u.v4.dst_addr == 0x0u &&
-				attrib->u.v4.dst_addr_mask == 0x0u) {
-					if(is_any_eth_prod_pipe(client)) {
-						if(entry->rule.action == IPA_PASS_TO_SRC_NAT)
-							return ETH_UL_FLT_RULE;
-						else if(entry->rule.action == IPA_PASS_TO_DST_NAT)
-							return ETH_DL_FLT_RULE;
-					}
-					else if(is_any_wlan_prod_pipe(client)) {
-						if(entry->rule.action == IPA_PASS_TO_SRC_NAT)
-							return WLAN_AP_UL_FLT_RULE;
-						else if(entry->rule.action == IPA_PASS_TO_DST_NAT)
-							return WLAN_STA_DL_FLT_RULE;
-					}
-			}
-		}
-
-		if(is_lan2lan_rule(attrib)) {
-			if(is_valid_ether_addr(attrib->dst_mac_addr) &&
-				(entry->rule.action == IPA_PASS_TO_ROUTING)) {
-					if(is_any_eth_prod_pipe(client) ||
-						is_any_wlan_prod_pipe(client))
-						return LAN2LAN_FLT_RULE;
-				}
-		}
-
-		if(attrib_mask == 0x0u && entry->rule.action == IPA_PASS_TO_EXCEPTION)
-			return CATCHALL_DFLT_FLT_RULE;
-	}
-	else {
-		eq_attrib = &entry->rule.eq_attrib;
-		attrib_mask = entry->rule.eq_attrib.rule_eq_bitmap;
-
-		if(eq_attrib->num_ihl_offset_range_16 >= 1 &&
-			entry->rule.action == IPA_PASS_TO_EXCEPTION)
-			return MTU_FLT_RULE;
-	}
-
-	return res;
-}
-
+/*
+ * is_flt_rule_ordered() - verify filter rule ordering using each entry's
+ * install-time category/sub-category rather than re-deriving it from rule
+ * attributes.
+ *
+ * The list is already sorted by (cat, sub_cat) at insertion time (see
+ * __ipa_add_flt_rule() in ipa_flt.c), so a single "last never decreases"
+ * pass over (cat, sub_cat) is sufficient - and it stays generic across
+ * interface types. To later enforce a strict per-interface order (e.g. ETH
+ * uplink vs WLAN AP uplink), give that traffic its own dedicated category,
+ * the same way IPA_FLT_RULE_CAT_ETH_BH_CATCHALL already does; this function
+ * needs no changes when that happens.
+ *
+ * Modem-owned rules (rule_id >= filter_start_id) aren't stamped with a
+ * category at all, but must still sort after every locally-categorized rule,
+ * so they're treated as a virtual category above IPA_FLT_RULE_CAT_MAX.
+ *
+ * Because insertion already sorts by (cat, sub_cat), this pass catches list
+ * corruption and ADD_FLT_RULE_AFTER / add_rear misplacement, not a rule that
+ * was stamped with the wrong category. The one uncategorized case that is
+ * still checked is an attrib-less PASS_TO_EXCEPTION catch-all sitting ahead
+ * of categorized rules, since it would shadow all of them.
+ */
 int is_flt_rule_ordered(int pipe_num, struct ipa3_flt_tbl *tbl,
 						enum ipa_ip_type ip, uint32_t* metadata, int *has_sta_rule)
 {
-	int grp_id, last = -1;
-	int i=0;
+	int cat, last_cat = IPA_FLT_RULE_CAT_NONE;
+	int last_sub_cat = IPA_RULE_SUB_CAT_NONE;
+	bool catchall_seen = false;
 	struct ipa3_flt_entry *entry = NULL;
 
 	list_for_each_entry(entry, &tbl->head_flt_rule_list, link) {
 		if (entry->cookie != IPA_FLT_COOKIE)
 			continue;
 
-		i++;
 		if(metadata && *metadata != entry->rule.attrib.meta_data)
 			continue;
 
-		grp_id = get_group_id(entry, ip, pipe_num);
-		if(ipa3_ctx->is_rc_log_enabled) {
-			IPADBG("Rule grp id:%d, idx:%d\n", grp_id, i);
-		}
-
-		if((grp_id == WLAN_STA_DL_FLT_RULE || grp_id == ETH_DL_FLT_RULE) && has_sta_rule)
+		/* ETH WAN DL catch-all is CAT_ETH_BH_CATCHALL, not CAT_DOWNLINK */
+		if((entry->cat == IPA_FLT_RULE_CAT_DOWNLINK ||
+			entry->cat == IPA_FLT_RULE_CAT_ETH_BH_CATCHALL ||
+			entry->rule.action == IPA_PASS_TO_DST_NAT) &&
+			entry->rule_id < ipa3_ctx->filter_start_id && has_sta_rule)
 			*has_sta_rule = 1;
 
-		/*
-		 * A rule the classifier doesn't recognize (MAX_FLT_RULE_GRP) is
-		 * not an ordering violation - e.g. a valid PASS_TO_ROUTING rule
-		 * with a specific dst host. Skip it rather than treating it as a
-		 * bad state, otherwise it false-trips FILTER_RULE_INCORRECT.
-		 */
-		if(grp_id == MAX_FLT_RULE_GRP)
+		if(entry->rule_id >= ipa3_ctx->filter_start_id) {
+			modem_rule = true;
+			cat = IPA_FLT_RULE_CAT_MAX;
+		}
+		else if(entry->cat == IPA_FLT_RULE_CAT_NONE) {
+			/*
+			 * Uncategorized rule (e.g. a valid PASS_TO_ROUTING rule
+			 * with a specific dst host) - not an ordering signal.
+			 * Skip it rather than treating it as a bad state,
+			 * otherwise it false-trips FILTER_RULE_INCORRECT.
+			 * A catch-all is the exception: anything categorized
+			 * after it is unreachable.
+			 */
+			if(!entry->rule.eq_attrib_type &&
+				entry->rule.attrib.attrib_mask == 0 &&
+				entry->rule.action == IPA_PASS_TO_EXCEPTION)
+				catchall_seen = true;
 			continue;
+		}
+		else {
+			cat = entry->cat;
+		}
 
-		/* To make sure, default rule always stay on top and
-		then follow respective order */
-		if(grp_id < 0)
+		/* modem rules may legitimately follow the sticky-rear exception rule */
+		if(catchall_seen && cat != IPA_FLT_RULE_CAT_MAX) {
+			IPADBG("catch-all rule precedes cat:%d\n", cat);
+			return IPA_BAD_STATE;
+		}
+
+		if(ipa3_ctx->is_rc_log_enabled) {
+			IPADBG("Rule cat:%d, sub_cat:%d\n", cat, entry->sub_cat);
+		}
+
+		/* (cat, sub_cat) must never decrease along the list */
+		if(cat < last_cat)
+			return IPA_BAD_STATE;
+		if(cat == last_cat && entry->sub_cat < last_sub_cat)
 			return IPA_BAD_STATE;
 
-		if (grp_id < last)
-			return IPA_BAD_STATE;
-		if (grp_id >= last)
-			last = grp_id;
+		last_cat = cat;
+		last_sub_cat = (cat == IPA_FLT_RULE_CAT_MAX) ?
+			IPA_RULE_SUB_CAT_NONE : entry->sub_cat;
 	}
 	return 0;
 }
@@ -1036,7 +908,6 @@ int ipa_rc_query_detect_for_instance(void)
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	memset(cur_state, 0, offsetof(struct ipa_rc_health_monitor, node));
-	has_ul_dl_rule = false;
 	modem_rule = false;
 
 	status_code = &cur_state->status_code;
