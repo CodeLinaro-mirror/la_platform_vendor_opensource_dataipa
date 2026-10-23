@@ -2662,6 +2662,7 @@ struct ipa3_context {
 	u8 eogre_tunnel_feature;
 	struct ipa_ioc_eogre_info multi_tunnel_eogre_cache[MAX_TUNNEL_SUPPORT];
 	struct tunnel_protocols_config_table_t gre_tmplt_cfg_cache;
+	atomic_t is_suspend_mode_enabled;
 };
 
 struct ipa3_plat_drv_res {

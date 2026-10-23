@@ -9763,6 +9763,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	/* add default vlaue to eth pdu tx/rx end point */
 	ipa3_ctx->eth_pdu_ctx.eth_pdu_tx_ep_id = -1;
 	ipa3_ctx->eth_pdu_ctx.eth_pdu_rx_ep_id = -1;
+        atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 0);
 
 #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
 	result = qcom_va_md_register("ipa_mini", &qcom_va_md_ipa_notif_blk);
@@ -11708,7 +11709,7 @@ int ipa3_ap_suspend(struct device *dev)
 	}
 #endif
 	ipa_pm_deactivate_all_deferred();
-
+	atomic_set(&ipa3_ctx->is_suspend_mode_enabled, 1);
 	IPADBG("Exit\n");
 
 	return 0;
