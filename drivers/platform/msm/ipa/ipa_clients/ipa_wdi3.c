@@ -627,13 +627,6 @@ int ipa_wdi_reg_intf_per_inst(
 		if (ipa_register_intf(iface_name, &tx, &rx, wlan_ifindex)) {
 			IPA_WDI_ERR("fail to add interface prop\n");
 			ret = -EFAULT;
-		} else if (wlan_ifindex) {
-			/*
-			 * Seed the always-on private-subnet engine for this slave
-			 * in case the bridge topology already exists (no later
-			 * netdev/addr event would otherwise trigger an install).
-			 */
-			ipa_be_subnet_on_intf_registered(wlan_ifindex);
 		}
 	}
 
