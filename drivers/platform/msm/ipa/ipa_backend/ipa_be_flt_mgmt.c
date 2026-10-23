@@ -206,12 +206,23 @@ uint32_t wan_rule_count_v6 = 0;
 static bool ipa_be_dft_set_installed[IPA_IP_MAX];
 static int ipa_be_dft_set_ref_count[IPA_IP_MAX];
 
-/* Structure to track installed MTU rule pairs and their usage count */
+/* One HW filter rule handle installed for an MTU rule pair (one client can
+ * have several matching rx pipes for the same ip_type, each getting its own
+ * handle).
+ */
+struct ipa_mtu_flt_hdl_node {
+	struct list_head node;
+	int flt_hdl;
+};
+
+/* Tracks installed MTU rules, keyed on (client_iface, pdn_iface, vlan_tag, ip_type). */
 struct ipa_mtu_rule_pair {
 	struct list_head node;
 	int client_iface;
 	int pdn_iface;
+	int vlan_tag;
 	enum ipa_ip_type ip_type;
+	struct list_head flt_hdl_list;
 	atomic_t ref_count;
 };
 
@@ -2291,18 +2302,20 @@ int ipa_be_delete_rules_by_category(int intf_num, int category, enum ipa_ip_type
 		flt_hdl = ipa3_delete_filter_rules_entry_snapshot(intf_num, flt_entry, &popped);
 		if (flt_hdl == -1)
 			break;
-		struct ipa_ioc_del_flt_rule flt_param = {0};
+		u8 flt_param_buf[sizeof(struct ipa_ioc_del_flt_rule) + sizeof(struct ipa_flt_rule_del)]
+			__aligned(__alignof__(struct ipa_ioc_del_flt_rule)) = {0};
+		struct ipa_ioc_del_flt_rule *flt_param = (struct ipa_ioc_del_flt_rule *)flt_param_buf;
 
-		flt_param.commit = 1;
-		flt_param.num_hdls = 1;
-		flt_param.ip = iptype;
-		flt_param.hdl[0].status = -1;
-		flt_param.hdl[0].hdl = flt_hdl;
+		flt_param->commit = 1;
+		flt_param->num_hdls = 1;
+		flt_param->ip = iptype;
+		flt_param->hdl[0].status = -1;
+		flt_param->hdl[0].hdl = flt_hdl;
 		IPA_BE_DBG("Deleting filter hdl:(0x%x) with cat:%d ip type: %d\n", flt_hdl, category, iptype);
-		ret = ipa3_del_flt_rule((struct ipa_ioc_del_flt_rule *)&flt_param);
-		if (ret || flt_param.hdl[0].status != 0) {
+		ret = ipa3_del_flt_rule(flt_param);
+		if (ret || flt_param->hdl[0].status != 0) {
 			IPA_BE_ERR("HW delete failed intf:%d cat:%d ip:%d hdl:%d ret:%d/%d; restoring SW entry\n",
-				intf_num, category, iptype, flt_hdl, ret, flt_param.hdl[0].status);
+				intf_num, category, iptype, flt_hdl, ret, flt_param->hdl[0].status);
 			/* Restore the SW entry and stop (re-matching it would
 			 * spin); let the caller retry the whole teardown.
 			 */
@@ -2334,6 +2347,8 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 	struct ipa3_flt_entry flt_entry = {0};
 	struct ipa_mtu_rule_pair *new_mtu_pair = NULL;
 	struct ipa_mtu_rule_pair *existing_pair;
+	struct ipa_mtu_flt_hdl_node *hdl_node, *hdl_node_tmp;
+	LIST_HEAD(new_flt_hdls);
 
 	/* An MTU of 0 (v4) or <= IPV6_HEADER_SIZE (v6) would build a match-all
 	 * length range and except the whole flow to software. Skip the rule
@@ -2346,23 +2361,21 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 		return 0;
 	}
 
-	/* Check if MTU rule already installed for this (client, pdn, ip) tuple */
+	/* Check if MTU rule already installed for this (client, pdn, vlan, ip) tuple */
 	spin_lock_bh(&ipa_mtu_rule_lock);
 	list_for_each_entry(existing_pair, &ipa_mtu_rule_pairs_list, node) {
 		if (existing_pair->client_iface == intf_num &&
 		    existing_pair->pdn_iface == pdn_iface &&
-		    existing_pair->ip_type == iptype) {
+		    existing_pair->ip_type == iptype &&
+		    existing_pair->vlan_tag == vlan_tag) {
 			atomic_inc(&existing_pair->ref_count);
 			spin_unlock_bh(&ipa_mtu_rule_lock);
-			IPA_BE_DBG("MTU rule for client %d, pdn %d, ip_type %d already installed. ref_count: %d\n",
-				intf_num, pdn_iface, iptype, atomic_read(&existing_pair->ref_count));
+			IPA_BE_DBG("MTU rule for client %d, pdn %d, vlan %d, ip_type %d already installed. ref_count: %d\n",
+				intf_num, pdn_iface, vlan_tag, iptype, atomic_read(&existing_pair->ref_count));
 			return 0;
 		}
 	}
 	spin_unlock_bh(&ipa_mtu_rule_lock);
-
-	/* Delete all existing MTU rules for this intf_num before adding new one. */
-	ipa_be_delete_rules_by_category(intf_num, IPA_FLT_RULE_CAT_MTU, iptype);
 
 	IPA_BE_DBG("ECMIPA entry mtu rule size %d\n", mtu);
 
@@ -2526,6 +2539,15 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 			flt_entry.ip_type = iptype;
 
 			ipa3_add_filter_rules_entry(intf_num, flt_entry);
+
+			hdl_node = kzalloc(sizeof(*hdl_node), GFP_KERNEL);
+			if (!hdl_node)
+				IPA_BE_ERR("Failed to allocate MTU flt_hdl tracking node for hdl %d; will leak on delete\n",
+					flt_hdl);
+			else {
+				hdl_node->flt_hdl = flt_hdl;
+				list_add_tail(&hdl_node->node, &new_flt_hdls);
+			}
 		}
 	}
 
@@ -2535,16 +2557,27 @@ int ipa_be_construct_mtu_rule(enum ipa_ip_type iptype, uint16_t mtu, int intf_nu
 	} else {
 		new_mtu_pair->client_iface = intf_num;
 		new_mtu_pair->pdn_iface = pdn_iface;
+		new_mtu_pair->vlan_tag = vlan_tag;
 		new_mtu_pair->ip_type = iptype;
+		INIT_LIST_HEAD(&new_mtu_pair->flt_hdl_list);
+		list_splice_init(&new_flt_hdls, &new_mtu_pair->flt_hdl_list);
 		atomic_set(&new_mtu_pair->ref_count, 1);
 		spin_lock_bh(&ipa_mtu_rule_lock);
 		list_add(&new_mtu_pair->node, &ipa_mtu_rule_pairs_list);
 		spin_unlock_bh(&ipa_mtu_rule_lock);
-		IPA_BE_DBG("Added MTU rule tracking: client %d, pdn %d, ip_type %d, ref_count: 1\n",
-			intf_num, pdn_iface, iptype);
+		IPA_BE_DBG("Added MTU rule tracking: client %d, pdn %d, vlan %d, ip_type %d, ref_count: 1\n",
+			intf_num, pdn_iface, vlan_tag, iptype);
 	}
 
 end:
+	/* Only reached unconsumed on an early error path (new_mtu_pair was
+	 * never created) -- free any handle nodes collected so far so we
+	 * don't leak the tracking structs themselves.
+	 */
+	list_for_each_entry_safe(hdl_node, hdl_node_tmp, &new_flt_hdls, node) {
+		list_del(&hdl_node->node);
+		kfree(hdl_node);
+	}
 	if (pFilteringTable) {
 		if (pFilteringTable->rules)
 			kfree((void *)(uintptr_t)pFilteringTable->rules);
@@ -2556,77 +2589,150 @@ end:
 }
 
 /**
- * ipa_be_delete_mtu_rule() - Delete MTU rule with reference counting
- * @client_iface: Client interface number
- * @pdn_iface: PDN interface number
+ * ipa_be_delete_single_mtu_hw_rule() - Remove one MTU filter rule by handle
+ * @client_iface: Client interface the rule is installed on
+ * @flt_hdl: Exact filter rule handle to remove
  * @ip_type: IP version (IPA_IP_v4 or IPA_IP_v6)
- *
- * Decrements the reference count for the MTU rule associated with the
- * (client_iface, pdn_iface, ip_type) tuple. The hardware rule is only
- * deleted when the reference count reaches zero (last connection removed).
  *
  * Return: 0 on success, negative errno on failure
  */
-int ipa_be_delete_mtu_rule(int client_iface, int pdn_iface, enum ipa_ip_type ip_type)
+static int ipa_be_delete_single_mtu_hw_rule(int client_iface, int flt_hdl, enum ipa_ip_type ip_type)
+{
+	u8 flt_param_buf[sizeof(struct ipa_ioc_del_flt_rule) + sizeof(struct ipa_flt_rule_del)]
+		__aligned(__alignof__(struct ipa_ioc_del_flt_rule)) = {0};
+	struct ipa_ioc_del_flt_rule *flt_param = (struct ipa_ioc_del_flt_rule *)flt_param_buf;
+	int ret;
+	int untrack_ret;
+
+	flt_param->commit = 1;
+	flt_param->num_hdls = 1;
+	flt_param->ip = ip_type;
+	flt_param->hdl[0].status = -1;
+	flt_param->hdl[0].hdl = flt_hdl;
+
+	ret = ipa3_del_flt_rule(flt_param);
+	if (ret || flt_param->hdl[0].status != 0) {
+		IPA_BE_ERR("HW delete failed for MTU flt_hdl:%d intf:%d ip:%d ret:%d/%d\n",
+			flt_hdl, client_iface, ip_type, ret, flt_param->hdl[0].status);
+		return ret ? ret : -EFAULT;
+	}
+
+	untrack_ret = ipa3_delete_filter_rules_entry_by_hdl(client_iface, flt_hdl);
+	if (untrack_ret)
+		IPA_BE_ERR("MTU flt_hdl %d bookkeeping removal failed for intf %d ip_type %d after HW delete: %d\n",
+			flt_hdl, client_iface, ip_type, untrack_ret);
+
+	IPA_BE_DBG("MTU filter rule deleted successfully for intf:%d ip:%d flt_hdl:%d\n",
+		client_iface, ip_type, flt_hdl);
+	return 0;
+}
+
+/**
+ * ipa_be_delete_all_mtu_hw_rules() - Remove every handle tracked by a pair
+ * @client_iface: Client interface the rules are installed on
+ * @pair: MTU rule pair whose flt_hdl_list is to be drained
+ * @ip_type: IP version (IPA_IP_v4 or IPA_IP_v6)
+ *
+ * Deletes as many handles as it can; a handle that fails to delete is left
+ * in @pair's list for a future retry instead of being dropped.
+ *
+ * Return: 0 if all handles were deleted, else the first error hit
+ */
+static int ipa_be_delete_all_mtu_hw_rules(int client_iface, struct ipa_mtu_rule_pair *pair,
+	enum ipa_ip_type ip_type)
+{
+	struct ipa_mtu_flt_hdl_node *hdl_node, *tmp;
+	int first_err = 0;
+
+	list_for_each_entry_safe(hdl_node, tmp, &pair->flt_hdl_list, node) {
+		int ret = ipa_be_delete_single_mtu_hw_rule(client_iface, hdl_node->flt_hdl, ip_type);
+
+		if (ret) {
+			if (!first_err)
+				first_err = ret;
+			continue;
+		}
+		list_del(&hdl_node->node);
+		kfree(hdl_node);
+	}
+	return first_err;
+}
+
+/**
+ * ipa_be_delete_mtu_rule() - Delete MTU rule with reference counting
+ * @client_iface: Client interface number
+ * @pdn_iface: PDN interface number
+ * @vlan_tag: VLAN tag the rule was installed with, or IPA_VLAN_ID_NOT_CONFIGURED
+ * @ip_type: IP version (IPA_IP_v4 or IPA_IP_v6)
+ *
+ * Decrements the ref count for the (client_iface, pdn_iface, vlan_tag,
+ * ip_type) tuple's MTU rule; deletes every installed HW rule for it (one
+ * per matching rx pipe) once the ref count reaches zero.
+ *
+ * Return: 0 on success, negative errno on failure
+ */
+int ipa_be_delete_mtu_rule(int client_iface, int pdn_iface, int vlan_tag, enum ipa_ip_type ip_type)
 {
 	struct ipa_mtu_rule_pair *pair, *tmp;
-	bool found = false;
-	bool delete_hw_rules = true;
+	struct ipa_mtu_rule_pair *found_pair = NULL;
+	int ret;
 
-	IPA_BE_DBG("ipa_be_delete_mtu_rule: client_iface=%d pdn_iface=%d ip_type=%d\n",
-		client_iface, pdn_iface, ip_type);
+	IPA_BE_DBG("ipa_be_delete_mtu_rule: client_iface=%d pdn_iface=%d vlan_tag=%d ip_type=%d\n",
+		client_iface, pdn_iface, vlan_tag, ip_type);
 
 	spin_lock_bh(&ipa_mtu_rule_lock);
 	list_for_each_entry_safe(pair, tmp, &ipa_mtu_rule_pairs_list, node) {
 		if (pair->client_iface == client_iface &&
 		    pair->pdn_iface == pdn_iface &&
-		    pair->ip_type == ip_type) {
+		    pair->ip_type == ip_type &&
+		    pair->vlan_tag == vlan_tag) {
 			atomic_dec(&pair->ref_count);
-			IPA_BE_DBG("Decremented MTU rule ref_count for client %d, pdn %d, ip_type %d. New count: %d\n",
-				client_iface, pdn_iface, ip_type, atomic_read(&pair->ref_count));
+			IPA_BE_DBG("Decremented MTU rule ref_count for client %d, pdn %d, vlan %d, ip_type %d. New count: %d\n",
+				client_iface, pdn_iface, vlan_tag, ip_type, atomic_read(&pair->ref_count));
 			if (atomic_read(&pair->ref_count) > 0) {
 				/* Other connections still using this MTU rule */
 				spin_unlock_bh(&ipa_mtu_rule_lock);
-				IPA_BE_DBG("MTU rule for client %d, pdn %d, ip_type %d still in use. ref_count: %d\n",
-					client_iface, pdn_iface, ip_type, atomic_read(&pair->ref_count));
+				IPA_BE_DBG("MTU rule for client %d, pdn %d, vlan %d, ip_type %d still in use. ref_count: %d\n",
+					client_iface, pdn_iface, vlan_tag, ip_type, atomic_read(&pair->ref_count));
 				return 0;
 			}
-			/* ref_count reached 0 - remove tracking entry */
+			/* ref_count reached 0 - unlink but don't free yet; keep it
+			 * around so a failed HW delete below can be rolled back
+			 * instead of leaking the tracking entry.
+			 */
 			list_del(&pair->node);
-			kfree(pair);
-			found = true;
+			found_pair = pair;
 			break;
-		}
-	}
-
-	/* Check if there are any other PDNs using the same client_iface with this IP type */
-	if (found) {
-		list_for_each_entry(pair, &ipa_mtu_rule_pairs_list, node) {
-			if (pair->client_iface == client_iface && pair->ip_type == ip_type) {
-				delete_hw_rules = false;
-				IPA_BE_DBG("Found another PDN %d using client_iface %d, ip_type %d. Not deleting MTU rule.\n",
-					pair->pdn_iface, client_iface, ip_type);
-				break;
-			}
 		}
 	}
 	spin_unlock_bh(&ipa_mtu_rule_lock);
 
-	if (!found) {
-		IPA_BE_ERR("No MTU rule tracking entry found for client %d, pdn %d, ip_type %d\n",
-			client_iface, pdn_iface, ip_type);
+	if (!found_pair) {
+		IPA_BE_ERR("No MTU rule tracking entry found for client %d, pdn %d, vlan %d, ip_type %d\n",
+			client_iface, pdn_iface, vlan_tag, ip_type);
 		return -ENOENT;
 	}
 
-	if (!delete_hw_rules) {
-		IPA_BE_DBG("Other PDNs still using client_iface %d. Skipping hardware MTU rule deletion.\n", client_iface);
-		return 0;
+	IPA_BE_DBG("Deleting MTU HW rules for client %d, pdn %d, vlan %d, ip_type %d\n",
+		client_iface, pdn_iface, vlan_tag, ip_type);
+
+	ret = ipa_be_delete_all_mtu_hw_rules(client_iface, found_pair, ip_type);
+	if (ret) {
+		/* One or more handles failed to delete -- restore tracking
+		 * (with just the still-undeleted handles) so a retry can
+		 * clean them up instead of leaking/duplicating the rule.
+		 */
+		atomic_set(&found_pair->ref_count, 1);
+		spin_lock_bh(&ipa_mtu_rule_lock);
+		list_add(&found_pair->node, &ipa_mtu_rule_pairs_list);
+		spin_unlock_bh(&ipa_mtu_rule_lock);
+		IPA_BE_ERR("MTU HW delete failed for client %d, pdn %d, vlan %d, ip_type %d; tracking restored\n",
+			client_iface, pdn_iface, vlan_tag, ip_type);
+		return ret;
 	}
 
-	IPA_BE_DBG("No other PDNs using client_iface %d, proceeding with hardware MTU rule deletion for pdn %d, ip_type %d.\n",
-		client_iface, pdn_iface, ip_type);
-
-	return ipa_be_delete_rules_by_category(client_iface, IPA_FLT_RULE_CAT_MTU, ip_type);
+	kfree(found_pair);
+	return 0;
 }
 EXPORT_SYMBOL(ipa_be_delete_mtu_rule);
 
