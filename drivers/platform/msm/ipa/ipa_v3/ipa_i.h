@@ -2813,6 +2813,7 @@ struct ipa3_context {
 	uint8_t device_mode;
 	bool device_vlan_mode;
 	bool is_rc_log_enabled;
+	bool print_skb_on_wakeup;
 };
 
 struct ipa3_plat_drv_res {
@@ -3671,6 +3672,7 @@ void ipa3_wigig_fini_sysfs_i(void);
 #endif
 
 void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size);
+void ipa3_dump_skb(struct sk_buff *skb);
 
 void ipa3_qdss_register(void);
 int ipa3_conn_qdss_pipes(struct ipa_qdss_conn_in_params *in,
