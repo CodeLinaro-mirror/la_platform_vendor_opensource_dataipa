@@ -1985,7 +1985,7 @@ static void ipa3_save_rt_snapshot(enum ipa_ip_type ip)
 
 	num_tbls = set->tbl_cnt;
 
-	new_rt_tbl_data = kcalloc(num_tbls, sizeof(struct ipa_tbl_rt_data), GFP_KERNEL);
+	new_rt_tbl_data = kvzalloc(num_tbls * sizeof(struct ipa_tbl_rt_data), GFP_KERNEL);
 	if (!new_rt_tbl_data) {
 		IPAERR("Failed to allocate memory for routing table snapshot\n");
 		return;  // Keep old data intact
@@ -1995,8 +1995,8 @@ static void ipa3_save_rt_snapshot(enum ipa_ip_type ip)
 	if (snap->tbl_rt_data[ip]) {
 		old_tbl_count = (ip == IPA_IP_v4) ? snap->v4_count : snap->v6_count;
 		for (j = 0; j < old_tbl_count; j++)
-			kfree(snap->tbl_rt_data[ip][j].rules);
-		kfree(snap->tbl_rt_data[ip]);
+			kvfree(snap->tbl_rt_data[ip][j].rules);
+		kvfree(snap->tbl_rt_data[ip]);
 	}
 	snap->tbl_rt_data[ip] = new_rt_tbl_data;
 
@@ -2011,7 +2011,7 @@ static void ipa3_save_rt_snapshot(enum ipa_ip_type ip)
 		if (!num_rules)
 			continue;
 
-		data->rules = kcalloc(num_rules, sizeof(struct ipa3_rt_entry), GFP_KERNEL);
+		data->rules = kvzalloc(num_rules * sizeof(struct ipa3_rt_entry), GFP_KERNEL);
 		if (!data->rules)
 			continue;
 		data->count = 0;

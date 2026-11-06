@@ -1598,12 +1598,12 @@ static void ipa3_save_hdr_snapshot(void)
 		if(!num_hdrs)
 			continue;
 
-		new_hdr_entry = kcalloc(num_hdrs, sizeof(struct ipa3_hdr_entry), GFP_KERNEL);
+		new_hdr_entry = kvzalloc(num_hdrs * sizeof(struct ipa3_hdr_entry), GFP_KERNEL);
 		if (!new_hdr_entry)
 			continue;
 
 		if(data->entries)
-			kfree(data->entries);
+			kvfree(data->entries);
 
 		data->entries = new_hdr_entry;
 		data->count = 0;
@@ -1660,12 +1660,12 @@ static void ipa3_save_proc_ctx_hdr_snapshot(void)
 		if(!num_proc_ctx_hdrs)
 			continue;
 
-		new_proc_ctx_hdr_entry = kcalloc(num_proc_ctx_hdrs, sizeof(struct ipa3_hdr_proc_ctx_entry), GFP_KERNEL);
+		new_proc_ctx_hdr_entry = kvzalloc(num_proc_ctx_hdrs * sizeof(struct ipa3_hdr_proc_ctx_entry), GFP_KERNEL);
 		if (!new_proc_ctx_hdr_entry)
 			continue;
 
 		if(data->entries)
-			kfree(data->entries);
+			kvfree(data->entries);
 
 		data->entries = new_proc_ctx_hdr_entry;
 		data->count = 0;
